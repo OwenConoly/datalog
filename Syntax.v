@@ -20,6 +20,7 @@ From Lower Require Import Zexpr Bexpr Array Range Sexpr Result ListMisc
   WellFormedEnvironment.
 
 Require Import ATLDeep.
+Require Import ContextsAgree.
 Open Scope string_scope.
 
 (*TODO is in coqutil, duplicated here*)
@@ -38,6 +39,9 @@ Definition option_unwrap {X : Type} (x : option (option X)) :=
 Definition option_all {X : Type} (l : list (option X)) :=
   fold_right (option_map2 cons) (Some nil) l.
 
+Definition extends {A B : Type} (f1 f2 : A -> option B) :=
+  forall x y, f2 x = Some y -> f1 x = Some y.
+
 Section __.
   Context (rel: Type) (var: Type) (fn: Type).
   (*constants are 0-ary functions*)
@@ -45,39 +49,74 @@ Section __.
   (*None could mean number of args was wrong*)
   Context (interp_fun : fn -> (list T) -> option T).
 
+  (*avoid generating useless induction principle*)
+  Unset Elimination Schemes.
   Inductive expr :=
   | fun_expr (f : fn) (args : list expr)
   | var_expr (v : var).
+  Set Elimination Schemes.
 
-  Fixpoint interp_expr (e : expr) : option T :=
+  Fixpoint expr_size (e : expr) : nat :=
+    match e with
+    | fun_expr _ args => Datatypes.S (fold_right Nat.max O (map expr_size args))
+    | var_expr _ => O
+    end.
+  (*This is stupid.  how do people normally do it?*)
+  Lemma expr_ind P :
+    (forall f args,
+        Forall P args ->
+        P (fun_expr f args)) ->
+    (forall v, P (var_expr v)) ->
+    forall e, P e.
+  Proof.
+    intros. remember (expr_size e) as sz eqn:E.
+    assert (He: (expr_size e < Datatypes.S sz)%nat) by lia.
+    clear E. revert e He. induction (Datatypes.S sz); intros.
+    - lia.
+    - destruct e; auto. apply H. clear -IHn He. induction args; [constructor|].
+      simpl in *. constructor; [|apply IHargs; lia]. apply IHn. lia.
+  Qed.
+  
+  Fixpoint interp_expr' (e : expr) : option T :=
     match e with
     | fun_expr f args => option_unwrap (option_map (interp_fun f)
-                                         (option_all (map interp_expr args)))
+                                         (option_all (map interp_expr' args)))
     | var_expr v => None
     end.
+  Print Forall2.
+
+  (*inductive principle is garbage*)
+  Inductive interp_expr : expr -> T -> Prop :=
+  | interp_fun_expr f args args' x : Forall2 interp_expr args args' ->
+                                     interp_fun f args' = Some x ->
+                                     interp_expr (fun_expr f args) x.
   
   Record fact :=
     { fact_R : rel; fact_args : list expr }.
 
-  Definition interp_fact (f : fact) : option (rel * list T) :=
-    option_map (fun x => (f.(fact_R), x)) (option_all (map interp_expr f.(fact_args))).
+  Inductive interp_fact : fact -> rel * list T -> Prop :=
+  | mk_interp_fact f args' : Forall2 interp_expr f.(fact_args) args' ->
+                             interp_fact f (f.(fact_R), args').
+
+  Definition interp_fact' f :=
+    option_map (fun x => (f.(fact_R), x)) (option_all (map interp_expr' f.(fact_args))).
 
   Record rule :=
     { rule_hyps: list fact; rule_concl: fact }.
 
-  Fixpoint subst_in_expr (s : var -> option expr) (e : expr) :=
+  Fixpoint subst_in_expr (s : var -> option fn) (e : expr) :=
     match e with
     | fun_expr f args => fun_expr f (map (subst_in_expr s) args)
     | var_expr v => match s v with
-                   | Some e => e
+                   | Some f => fun_expr f []
                    | None => var_expr v
                    end
     end.
 
-  Definition subst_in_fact (s : var -> option expr) (f : fact) : fact :=
+  Definition subst_in_fact (s : var -> option fn) (f : fact) : fact :=
     Build_fact f.(fact_R) (map (subst_in_expr s) f.(fact_args)).
 
-  Definition subst_in_rule (s : var -> option expr) (r : rule) : rule :=
+  Definition subst_in_rule (s : var -> option fn) (r : rule) : rule :=
     Build_rule (map (subst_in_fact s) r.(rule_hyps)) (subst_in_fact s r.(rule_concl)).
 
   Fixpoint appears_in_expr (v : var) (e : expr) :=
@@ -109,11 +148,13 @@ Section __.
   (*                 prog_impl_fact p f. *)
 
   Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop :=
-  | impl_step f hyps s s' :
+  | impl_step f hyps :
     Exists
-      (fun r => let r' := subst_in_rule s r in
-             interp_fact r'.(rule_concl) = Some f /\
-               option_all (map (fun x => interp_fact (subst_in_fact s' x)) r'.(rule_hyps)) = Some hyps)
+      (fun r => exists s,
+           let r' := subst_in_rule s r in
+           interp_fact r'.(rule_concl) f /\
+             exists s',
+               Forall2 interp_fact (map (subst_in_fact s') r'.(rule_hyps)) hyps)
       p ->
     (forall hyp, In hyp hyps -> prog_impl_fact p hyp) ->
     prog_impl_fact p f.
@@ -126,6 +167,34 @@ Section __.
     intros ? H. induction H. apply Exists_exists in H.
     econstructor. 2: eassumption. apply Exists_exists. destruct H as (?&?&?). eauto.
   Qed.
+
+  Lemma interp_subst_more s s' v e :
+    extends s' s ->
+    interp_expr (subst_in_expr s e) v ->
+    subst_in_expr s' e = subst_in_expr s e.
+  Proof.
+    intros Hext H. revert v H. induction e.
+    - intros v Hv. simpl in *. inversion Hv. subst. clear Hv. f_equal.
+      apply map_ext_Forall. clear -H H2. revert args' H H2.
+      induction args; [constructor|]. intros args' H H2.
+      inversion H. subst. clear H. inversion H2. subst.
+      constructor; eauto.
+    - intros. simpl in *. destruct (s v) eqn:E.
+      + apply Hext in E. rewrite E. reflexivity.
+      + inversion H.
+  Qed.
+
+  Lemma subst_in_expr_subst_in_expr s s' e :
+    subst_in_expr s (subst_in_expr s' e) = subst_in_expr (fun x =>
+                                                            match s' x with
+                                                            | Some y => Some y
+                                                            | None => s x
+                                                            end) e.
+  Proof.
+    induction e.
+    - simpl. f_equal. rewrite map_map. apply map_ext_Forall. assumption.
+    - simpl. destruct (s' v); simpl; destruct (s v); reflexivity.
+  Qed.
 End __.
 Arguments Build_rule {_ _ _}.
 Arguments Build_fact {_ _ _}.
@@ -133,6 +202,8 @@ Arguments fun_expr {_ _}.
 Arguments var_expr {_ _}.
 Arguments prog_impl_fact {_ _ _ _}.
 Arguments fact_args {_ _ _}.
+Arguments subst_in_expr {_ _}.
+Arguments interp_expr {_ _ _}.
 Search (?x + ?y -> option ?x)%type.
 Definition get_inl {X Y : Type} (xy : X + Y) : option X :=
   match xy with
@@ -203,7 +274,7 @@ Fixpoint lower_idx (idx: Zexpr) : expr var tfn :=
   | ZMinus x y => fun_expr (fn_Z fn_ZMinus) [lower_idx x; lower_idx y]
   | ZTimes x y => fun_expr (fn_Z fn_ZTimes) [lower_idx x; lower_idx y]
   | ZDivf x y => fun_expr (fn_Z fn_ZDivf) [lower_idx x; lower_idx y]
-  | ZDivc x y => fun_expr (fn_Z fn_ZMod) [lower_idx x; lower_idx y]
+  | ZDivc x y => fun_expr (fn_Z fn_ZDivc) [lower_idx x; lower_idx y]
   | ZMod x y => fun_expr (fn_Z fn_ZMod) [lower_idx x; lower_idx y]
   | ZLit x => fun_expr (fn_Z (fn_ZLit x)) []
   | ZVar x => var_expr (inl x)
@@ -245,7 +316,7 @@ Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
   | Lit x => (fun_expr (fn_R (fn_SLit x)) [], [], next_varname)
   end.
 
-Definition map_empty : var -> option (expr var tfn) := fun _ => None.
+Definition map_empty : var -> option tfn := fun _ => None.
 Search ((_ + _) -> (_ + _) -> bool).
 Definition var_eqb (x y : var) : bool :=
   match x, y with
@@ -253,7 +324,7 @@ Definition var_eqb (x y : var) : bool :=
   | inr x, inr y => Nat.eqb x y
   | _, _ => false
   end.
-Definition map_cons (x : var) (y : option (expr var tfn)) (m : var -> option (expr var tfn)) :=
+Definition map_cons (x : var) (y : option tfn) (m : var -> option tfn) :=
   fun v => if var_eqb x v then y else m v.
 Search (scalar_result -> R).
 Definition toR (s : scalar_result) :=
@@ -281,26 +352,81 @@ Print eval_expr. Print context. Print valuation.
 Print prog_impl_fact.
 Check eval_expr. Print result. Search result. Print result_lookup_Z_option.
 Print lower_Sexpr. Print eval_Sexpr. Print expr_context. Print fmap. Locate "$?".
+Search eval_get. Search result. Print result_lookup_Z.
+
+Search eval_get.
+
+Print valuation.
+Definition substn_of (v : valuation) : var -> option tfn :=
+  fun x => match x with
+        | inl x => option_map (fun y => fn_Z (fn_ZLit y)) (v $? x)
+        | inr x => None
+        end.
+
+Lemma eval_Z_to_substn v x z :
+  eval_Zexpr v x z ->
+  interp_expr interp_fn (subst_in_expr (substn_of v) (lower_idx x)) (inl z).
+Proof.
+  intros H. induction H; simpl; repeat match goal with | H: _ = Some _ |- _ => rewrite H end; econstructor; eauto.
+Qed.
+
+Lemma eval_Zexprlist_to_substn v i lz :
+  eval_Zexprlist v i lz ->
+  Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx i)) (map inl lz).
+Proof.
+  intros H. induction H.
+  - constructor.
+  - simpl. constructor.
+    + apply eval_Z_to_substn. assumption.
+    + assumption.
+Qed.
+
+Lemma Forall2_map_l (A B C : Type) R (f : A -> B) (l1 : list A) (l2 : list C) :
+  Forall2 (fun x => R (f x)) l1 l2 <->
+  Forall2 R (map f l1) l2.
+Proof.
+  split; intros H.
+  - induction H. 1: constructor. constructor; assumption.
+  - remember (map f l1) as l1' eqn:E. revert l1 E. induction H; intros l1 Hl1.
+    + destruct l1; inversion Hl1. constructor.
+    + destruct l1; inversion Hl1. subst. constructor; auto.
+Qed.
 
 Lemma lower_Sexpr_correct sh v ec s val out datalog_ctx :
-  (forall x r, ec $? x = Some (S r) ->
-          sh $? x = Some [] ->
-          prog_impl_fact interp_fn datalog_ctx (x, [inr (toR r)])) ->
-        
-
-  (* (forall x, ec $? x = Some (V rs) -> *)
-        
+  (forall x r idxs val,
+      ec $? x = Some r ->
+      result_lookup_Z idxs r = val ->
+      prog_impl_fact interp_fn datalog_ctx (x, inr (toR val) :: (map inl idxs))) ->
   eval_Sexpr sh v ec s (SS val) ->
   prog_impl_fact interp_fn (lower (Scalar s) out [] ++ datalog_ctx) (out, [inr val]).
 Proof.
-  induction s.
+  intros H. induction s.
   - simpl. intros. inversion H0. subst. econstructor.
     { constructor. simpl. cbv [subst_in_fact]. simpl.
-      instantiate (2 := map_cons (inr O) (Some (fun_expr (fn_R (fn_SLit (toR r))) [])) map_empty). simpl.
-      split; [|reflexivity]. cbv [interp_fact]. simpl. destruct r; inversion H2; reflexivity. }
-    simpl. intros. destruct H1 as [H1|H1]; [|contradiction]. subst.
-    eapply prog_impl_fact_subset. 2: eauto. intros. simpl. auto.
-  - 
+      exists (map_cons (inr O) (Some (fn_R (fn_SLit (toR r)))) map_empty).
+      simpl. split.
+      { repeat econstructor. simpl. destruct r; inversion H2; reflexivity. }
+      exists map_empty. repeat econstructor. }
+    simpl. intros. destruct H1 as [H1|H1]; [subst|contradiction].
+    eapply prog_impl_fact_subset.
+    2: { specialize H with (idxs := nil). eauto. }
+    intros. simpl. auto.
+  - simpl. intros. inversion H0; subst.
+    pose proof (eval_get_eval_Zexprlist _ _ _ _ ltac:(eassumption)) as [idxs Hidxs].
+    pose proof (eval_get_lookup_result_Z _ _ _ _ ltac:(eassumption) _ ltac:(eassumption)) as Hr.
+    econstructor.
+    { constructor. simpl. cbv [subst_in_fact]. simpl.
+      exists (map_cons (inr O) (Some (fn_R (fn_SLit (toR r)))) map_empty).
+      simpl. split; [destruct r; inversion H3; repeat econstructor|].
+      apply eval_Zexprlist_to_substn in Hidxs. Print lower_idx.
+      exists (substn_of v). repeat econstructor. repeat rewrite map_map.
+      repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl. 2: eassumption.
+      simpl. intros a b H'. Search interp_expr _ (subst_in_expr _ _).
+      pose proof interp_subst_more as H''. specialize H'' with (2 := H').
+      rewrite subst_in_expr_subst_in_expr. rewrite H''. 1: assumption. cbv [extends].
+      clear. intros x y H. destruct x; simpl in *. 1: assumption. inversion H. }
+    simpl. intros hyp [Hh|Hh]; [|contradiction]. subst.
+    eapply prog_impl_fact_subset. 2: eauto. simpl. auto.
 Qed.
 
 Lemma lower_correct e out sh v ctx r :
