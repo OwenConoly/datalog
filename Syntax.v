@@ -22,58 +22,89 @@ From Lower Require Import Zexpr Bexpr Array Range Sexpr Result ListMisc
 Require Import ATLDeep.
 Open Scope string_scope.
 
+(*TODO is in coqutil, duplicated here*)
+Definition option_map2 {X Y Z : Type} (f : X -> Y -> Z) x y :=
+  match x, y with
+  | Some x, Some y => Some (f x y)
+  | _, _ => None
+  end.
+
+Definition option_unwrap {X : Type} (x : option (option X)) :=
+  match x with
+  | None => None
+  | Some x => x
+  end.
+
+Definition option_all {X : Type} (l : list (option X)) :=
+  fold_right (option_map2 cons) (Some nil) l.
+
 Section __.
-Context (rel: Type) (var: Type) (fn: Type).
-(*constants are 0-ary functions*)
+  Context (rel: Type) (var: Type) (fn: Type).
+  (*constants are 0-ary functions*)
+  Context (T : Type).
+  (*None could mean number of args was wrong*)
+  Context (interp_fun : fn -> (list T) -> option T).
 
-Inductive expr :=
-| fun_expr (f : fn) (args : list expr)
-| var_expr (v : var).
+  Inductive expr :=
+  | fun_expr (f : fn) (args : list expr)
+  | var_expr (v : var).
 
-Record fact :=
-  { fact_R : rel; fact_args : list expr }.
+  Fixpoint interp_expr (e : expr) : option T :=
+    match e with
+    | fun_expr f args => option_unwrap (option_map (interp_fun f)
+                                         (option_all (map interp_expr args)))
+    | var_expr v => None
+    end.
+  
+  Record fact :=
+    { fact_R : rel; fact_args : list expr }.
 
-Record rule :=
-  { rule_hyps: list fact; rule_concl: fact }.
+  Definition interp_fact (f : fact) : option (rel * list T) :=
+    option_map (fun x => (f.(fact_R), x)) (option_all (map interp_expr f.(fact_args))).
 
-Fixpoint subst_in_expr (s : var -> option expr) (e : expr) :=
-  match e with
-  | fun_expr f args => fun_expr f (map (subst_in_expr s) args)
-  | var_expr v => match s v with
-                 | Some e => e
-                 | None => var_expr v
-                 end
-  end.
+  Record rule :=
+    { rule_hyps: list fact; rule_concl: fact }.
 
-Definition subst_in_fact (s : var -> option expr) (f : fact) : fact :=
-  Build_fact f.(fact_R) (map (subst_in_expr s) f.(fact_args)).
+  Fixpoint subst_in_expr (s : var -> option expr) (e : expr) :=
+    match e with
+    | fun_expr f args => fun_expr f (map (subst_in_expr s) args)
+    | var_expr v => match s v with
+                   | Some e => e
+                   | None => var_expr v
+                   end
+    end.
 
-Definition subst_in_rule (s : var -> option expr) (r : rule) : rule :=
-  Build_rule (map (subst_in_fact s) r.(rule_hyps)) (subst_in_fact s r.(rule_concl)).
+  Definition subst_in_fact (s : var -> option expr) (f : fact) : fact :=
+    Build_fact f.(fact_R) (map (subst_in_expr s) f.(fact_args)).
 
-Fixpoint appears_in_expr (v : var) (e : expr) :=
-  match e with
-  | fun_expr _ args => fold_left (fun acc arg => acc \/ appears_in_expr v arg) args False
-  | var_expr v0 => v0 = v
-  end.
+  Definition subst_in_rule (s : var -> option expr) (r : rule) : rule :=
+    Build_rule (map (subst_in_fact s) r.(rule_hyps)) (subst_in_fact s r.(rule_concl)).
 
-Definition appears_in_fact (v : var) (f : fact) :=
-  Exists (appears_in_expr v) f.(fact_args).
+  Fixpoint appears_in_expr (v : var) (e : expr) :=
+    match e with
+    | fun_expr _ args => fold_left (fun acc arg => acc \/ appears_in_expr v arg) args False
+    | var_expr v0 => v0 = v
+    end.
 
-Definition good_rule (r : rule) :=
-  forall v, appears_in_fact v r.(rule_concl) ->
-       Exists (appears_in_fact v) r.(rule_hyps).
+  Definition appears_in_fact (v : var) (f : fact) :=
+    Exists (appears_in_expr v) f.(fact_args).
 
-Definition good_prog (p : list rule) := Forall good_rule p.
+  Definition good_rule (r : rule) :=
+    forall v, appears_in_fact v r.(rule_concl) ->
+         Exists (appears_in_fact v) r.(rule_hyps).
 
-Inductive prog_impl_fact (p : list rule) : fact -> Prop :=
-| impl_step f : Exists
-                  (fun r => exists s,
-                       let r' := subst_in_rule s r in
-                       r'.(rule_concl) = f /\
-                         exists s', Forall (prog_impl_fact p) (map (subst_in_fact s') r'.(rule_hyps)))
-                  p ->
-                prog_impl_fact p f.
+  Definition good_prog (p : list rule) := Forall good_rule p.
+
+  Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop :=
+  | impl_step f : Exists
+                         (fun r => exists s,
+                              let r' := subst_in_rule s r in
+                              interp_fact r'.(rule_concl) = Some f /\
+                                exists s' hyps,
+                                  option_all (map (fun x => interp_fact (subst_in_fact s' x)) r'.(rule_hyps)) = Some hyps /\
+                                    Forall (prog_impl_fact p) hyps)
+                         p ->
+                       prog_impl_fact p f.
 End __.
 Arguments Build_rule {_ _ _}.
 Arguments Build_fact {_ _ _}.
@@ -172,84 +203,87 @@ Fixpoint lower
       let '(val, hyps, _) := lower_Sexpr O s in
       [{| rule_hyps := hyps; rule_concl := {| fact_R := out; fact_args := val :: (map lower_idx (map fst idxs_bds)) |} |}]
   | _ => nil end.
-      For i lo hi
-          (lower body  p asn sh)
+Print eval_expr. Print context. Print valuation.
+Lemma lower_correct e out idxs_bds sh v r :
+  eval_expr sh v e r ->
+  exists 
+    
   | Sum i lo hi body =>
       For i lo hi
-          (lower body f p Reduce sh)
+        (lower body f p Reduce sh)
   | Guard b body =>
       If b (lower body f p asn sh)
   | Lbind x e1 e2 =>
-    match sizeof e1 with
-    | [] =>
-        Seq (AllocS x)
+      match sizeof e1 with
+      | [] =>
+          Seq (AllocS x)
             (Seq (lower e1 (fun l => l) x Assign sh)
-                 (Seq (lower e2 f p asn (sh $+ (x,sizeof e1)))
-                      (DeallocS x)))
-    | _ =>
-      Seq (AllocV x (flat_sizeof e1))
-          (Seq (lower e1 (fun l => l) x Assign sh)
                (Seq (lower e2 f p asn (sh $+ (x,sizeof e1)))
-                    (Free x)))
-    end
+                  (DeallocS x)))
+      | _ =>
+          Seq (AllocV x (flat_sizeof e1))
+            (Seq (lower e1 (fun l => l) x Assign sh)
+               (Seq (lower e2 f p asn (sh $+ (x,sizeof e1)))
+                  (Free x)))
+      end
   | Concat x y =>
-    let xlen := match sizeof x with
-                | n::_ => n
-                | _ => ZLit 0
-                end in 
-    let ylen := match sizeof y with
-                | n::_ => n
-                | _ => ZLit 0
-                end in   
-    Seq (lower x (fun l =>
-                    f (match l with
-                     | (v,d)::xs =>
-                         ((v,ZPlus d ylen)::xs)
-                     | _ => l
-                     end)) p asn sh)
+      let xlen := match sizeof x with
+                  | n::_ => n
+                  | _ => ZLit 0
+                  end in 
+      let ylen := match sizeof y with
+                  | n::_ => n
+                  | _ => ZLit 0
+                  end in   
+      Seq (lower x (fun l =>
+                      f (match l with
+                         | (v,d)::xs =>
+                             ((v,ZPlus d ylen)::xs)
+                         | _ => l
+                         end)) p asn sh)
         (lower y (fun l => f (match l with
-                          | (v,d)::xs => ((ZPlus v xlen,ZPlus d xlen)::xs)
-                          | _ => l
-                          end)) p asn sh)
+                           | (v,d)::xs => ((ZPlus v xlen,ZPlus d xlen)::xs)
+                           | _ => l
+                           end)) p asn sh)
   | Transpose e =>
-    lower e (fun l => f (match l with
-                         | (v,d)::(vi,di)::xs => (vi,di)::(v,d)::xs
-                         | _ => l
-                         end)) p asn sh
+      lower e (fun l => f (match l with
+                        | (v,d)::(vi,di)::xs => (vi,di)::(v,d)::xs
+                        | _ => l
+                        end)) p asn sh
   | Split k e =>
-    lower e (fun l => f (match l with
-                         | (v,d)::xs => (ZDivf v k,ZDivc d k)::(ZMod v k,k)::xs
-                         | _ => l
-                         end)) p asn sh
+      lower e (fun l => f (match l with
+                        | (v,d)::xs => (ZDivf v k,ZDivc d k)::(ZMod v k,k)::xs
+                        | _ => l
+                        end)) p asn sh
   | Flatten e =>
-    lower e (fun l => f (match l with
-                         | (v,d)::(vi,di)::xs =>
-                           (ZPlus (ZTimes v di) vi,ZTimes d di)::xs
-                         | _ => l
-                         end)) p asn sh          
-p  | Truncr n e =>
-    lower e (fun l => f (match l with
-                         | (v,d)::xs =>
-                           (v,ZMinus d n)::xs
-                         | _ => l
-                         end)) p asn sh
+      lower e (fun l => f (match l with
+                        | (v,d)::(vi,di)::xs =>
+                            (ZPlus (ZTimes v di) vi,ZTimes d di)::xs
+                        | _ => l
+                        end)) p asn sh          
+        p  | Truncr n e =>
+               lower e (fun l => f (match l with
+                                 | (v,d)::xs =>
+                                     (v,ZMinus d n)::xs
+                                 | _ => l
+                                 end)) p asn sh
   | Truncl n e =>
-    lower e (fun l => f (match l with
-                         | (v,d)::xs =>
-                             (ZMinus v n,
-                               ZMinus d n)::xs
-                         | _ => l
-                         end)) p asn sh
+      lower e (fun l => f (match l with
+                        | (v,d)::xs =>
+                            (ZMinus v n,
+                              ZMinus d n)::xs
+                        | _ => l
+                        end)) p asn sh
   | Padr n e =>
-    lower e (fun l => f (match l with
-                         | (v,d)::xs =>
-                           (v,ZPlus d n)::xs
-                         | _ => l
-                         end)) p asn sh
+      lower e (fun l => f (match l with
+                        | (v,d)::xs =>
+                            (v,ZPlus d n)::xs
+                        | _ => l
+                        end)) p asn sh
   | Padl n e =>
-    lower e (fun l => f (match l with
-                         | (v,d)::xs =>
-                           (ZPlus v n,ZPlus d n)::xs
-                         | _ => l
-                         end)) p asn sh
+      lower e (fun l => f (match l with
+                        | (v,d)::xs =>
+                            (ZPlus v n,ZPlus d n)::xs
+                        | _ => l
+                        end)) p asn sh
   end.
