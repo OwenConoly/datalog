@@ -110,34 +110,70 @@ Arguments Build_rule {_ _ _}.
 Arguments Build_fact {_ _ _}.
 Arguments fun_expr {_ _}.
 Arguments var_expr {_ _}.
-
+Arguments prog_impl_fact {_ _ _ _}.
+Search (?x + ?y -> option ?x)%type.
+Definition get_inl {X Y : Type} (xy : X + Y) : option X :=
+  match xy with
+  | inl x => Some x
+  | inr _ => None
+  end.
+Definition get_inr {X Y : Type} (xy : X + Y) : option Y :=
+  match xy with
+  | inl _ => None
+  | inr y => Some y
+  end.
 (*p is target*)
 (*f is reindexer*)
 (*asn is StoreType += or =*)
 (*sh is shape of something?*)
-Print Zexpr.
+Search Zexpr.
+Print eval_Zexpr.
 (*just like Zexpr but no ZVar*)
 Variant Zfn : Set :=
   fn_ZPlus | fn_ZMinus | fn_ZTimes | fn_ZDivf | fn_ZDivc | fn_ZMod | fn_ZLit (x : Z).
-Print Sstmt.
+Definition interp_Zfn (f : Zfn) (l : list Z) : option Z :=
+  match f, l with
+  | fn_ZPlus, [x; y] => Some (x + y)
+  | fn_ZMinus, [x; y] => Some (x - y)
+  | fn_ZTimes, [x; y] => Some (x * y)
+  | fn_ZDivf, [x; y] => Some (x / y)
+  | fn_ZDivc, [x; y] => Some (x // y)
+  | fn_ZMod, [x; y] => Some (x mod y)
+  | fn_ZLit x, [] => Some x
+  | _, _ => None
+  end%Z.
 (*just like Sstmt but no SVar, SGet*)
 Variant Rfn : Set :=
   fn_SMul | fn_SAdd | fn_SDiv | fn_SSub | fn_SLit (x : R).
+
+Definition interp_Rfn (f : Rfn) (l : list R) : option R :=
+  match f, l with
+  | fn_SMul, [x; y] => Some (x * y)
+  | fn_SAdd, [x; y] => Some (x + y)
+  | fn_SDiv, [x; y] => Some (x / y)
+  | fn_SSub, [x; y] => Some (x - y)
+  | fn_SLit x, [] => Some (x)
+  | _, _ => None
+  end%R.
+
 Variant tfn : Set :=
   fn_Z (_ : Zfn) | fn_R (_ : Rfn).
+
+Definition interp_fn (f : tfn) (l : list (Z+R)) : option (Z + R) :=
+  match f with
+  | fn_Z f => option_map inl (option_unwrap (option_map (interp_Zfn f) (option_all (map get_inl l))))
+  | fn_R f => option_map inr (option_unwrap (option_map (interp_Rfn f) (option_all (map get_inr l))))
+  end.
+
 Definition rel : Set := string.
 (*inl s is string representing indexing variable (e.g. i, j), which came directly from source program
   inr n is nat (that i generated) representing value in some intermediate thing
  *)
 Definition var : Set := string + nat.
 Definition trule := rule rel var tfn.
-Print rule. Print flat_map. Check Gen.
-Search list Z. Search zrange. Print Zexpr. Print lowerS.
-Print lower. Check Scalar. Print lowerS.
 
 Search Sstmt. Print eval_Sstmt. Print context. Print fmap. Check Build_rule. Check Build_fact.
 
-Print Zexpr. Print expr.
 Fixpoint lower_idx (idx: Zexpr) : expr var tfn :=
   match idx with
   (*copy-pasted monstrosity*)
@@ -151,7 +187,6 @@ Fixpoint lower_idx (idx: Zexpr) : expr var tfn :=
   | ZVar x => var_expr (inl x)
   end.
 
-Check lowerS.
 Print Sexpr.
 Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
   expr var tfn (*value of expr*) *
@@ -204,9 +239,14 @@ Fixpoint lower
       [{| rule_hyps := hyps; rule_concl := {| fact_R := out; fact_args := val :: (map lower_idx (map fst idxs_bds)) |} |}]
   | _ => nil end.
 Print eval_expr. Print context. Print valuation.
-Lemma lower_correct e out idxs_bds sh v r :
-  eval_expr sh v e r ->
-  exists 
+Print prog_impl_fact.
+Check eval_expr. Print result. Search result. Print result_lookup_Z_option.
+Lemma lower_correct e out sh v ctx r :
+  eval_expr sh v ctx e r ->
+  forall idxs val,
+    result_lookup_Z_option idxs r = Some val ->
+    prog_impl_fact interp_fn (lower e out nil) (out, inr val :: (map inl idxs)).
+  
     
   | Sum i lo hi body =>
       For i lo hi
