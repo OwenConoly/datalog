@@ -95,22 +95,44 @@ Section __.
 
   Definition good_prog (p : list rule) := Forall good_rule p.
 
+  (*This version gives useless auto-generated induction principle*)
+
+  (* Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop := *)
+  (* | impl_step f : Exists *)
+  (*                   (fun r => exists s, *)
+  (*                        let r' := subst_in_rule s r in *)
+  (*                        interp_fact r'.(rule_concl) = Some f /\ *)
+  (*                          exists s' hyps, *)
+  (*                            option_all (map (fun x => interp_fact (subst_in_fact s' x)) r'.(rule_hyps)) = Some hyps /\ *)
+  (*                              Forall (prog_impl_fact p) hyps) *)
+  (*                   p -> *)
+  (*                 prog_impl_fact p f. *)
+
   Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop :=
-  | impl_step f : Exists
-                    (fun r => exists s,
-                         let r' := subst_in_rule s r in
-                         interp_fact r'.(rule_concl) = Some f /\
-                           exists s' hyps,
-                             option_all (map (fun x => interp_fact (subst_in_fact s' x)) r'.(rule_hyps)) = Some hyps /\
-                               Forall (prog_impl_fact p) hyps)
-                    p ->
-                  prog_impl_fact p f.
+  | impl_step f hyps s s' :
+    Exists
+      (fun r => let r' := subst_in_rule s r in
+             interp_fact r'.(rule_concl) = Some f /\
+               option_all (map (fun x => interp_fact (subst_in_fact s' x)) r'.(rule_hyps)) = Some hyps)
+      p ->
+    (forall hyp, In hyp hyps -> prog_impl_fact p hyp) ->
+    prog_impl_fact p f.
+
+  Lemma prog_impl_fact_subset (p1 p2 : list rule) f :
+    (forall x, In x p1 -> In x p2) ->
+    prog_impl_fact p1 f ->
+    prog_impl_fact p2 f.
+  Proof.
+    intros ? H. induction H. apply Exists_exists in H.
+    econstructor. 2: eassumption. apply Exists_exists. destruct H as (?&?&?). eauto.
+  Qed.
 End __.
 Arguments Build_rule {_ _ _}.
 Arguments Build_fact {_ _ _}.
 Arguments fun_expr {_ _}.
 Arguments var_expr {_ _}.
 Arguments prog_impl_fact {_ _ _ _}.
+Arguments fact_args {_ _ _}.
 Search (?x + ?y -> option ?x)%type.
 Definition get_inl {X Y : Type} (xy : X + Y) : option X :=
   match xy with
@@ -194,10 +216,10 @@ Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
     nat (*next varname *) :=
   match e with
   | Var x => (var_expr (inr next_varname),
-              [{| fact_R := x; fact_args := [] |}],
+              [{| fact_R := x; fact_args := [var_expr (inr next_varname)] |}],
               succ next_varname)
   | Get x idxs => (var_expr (inr next_varname),
-                   [{| fact_R := x; fact_args := map lower_idx idxs |}],
+                   [{| fact_R := x; fact_args := var_expr (inr next_varname) :: map lower_idx idxs |}],
                    succ next_varname)
   (*copy-pasted monstrosity*)
   | Mul x y => let '(e1, hyps1, next_varname) := lower_Sexpr next_varname x in
@@ -223,6 +245,23 @@ Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
   | Lit x => (fun_expr (fn_R (fn_SLit x)) [], [], next_varname)
   end.
 
+Definition map_empty : var -> option (expr var tfn) := fun _ => None.
+Search ((_ + _) -> (_ + _) -> bool).
+Definition var_eqb (x y : var) : bool :=
+  match x, y with
+  | inl x, inl y => x =? y
+  | inr x, inr y => Nat.eqb x y
+  | _, _ => false
+  end.
+Definition map_cons (x : var) (y : option (expr var tfn)) (m : var -> option (expr var tfn)) :=
+  fun v => if var_eqb x v then y else m v.
+Search (scalar_result -> R).
+Definition toR (s : scalar_result) :=
+  match s with
+  | SS s => s
+  | SX => 0%R
+  end.
+  
 Print rule. Print fact.
 Fixpoint lower
   (e : ATLexpr)
@@ -241,13 +280,27 @@ Fixpoint lower
 Print eval_expr. Print context. Print valuation.
 Print prog_impl_fact.
 Check eval_expr. Print result. Search result. Print result_lookup_Z_option.
-Print lower_Sexpr.
-Lemma lower_Sexpr_correct sh v ec s val out :
+Print lower_Sexpr. Print eval_Sexpr. Print expr_context. Print fmap. Locate "$?".
+
+Lemma lower_Sexpr_correct sh v ec s val out datalog_ctx :
+  (forall x r, ec $? x = Some (S r) ->
+          sh $? x = Some [] ->
+          prog_impl_fact interp_fn datalog_ctx (x, [inr (toR r)])) ->
+        
+
+  (* (forall x, ec $? x = Some (V rs) -> *)
+        
   eval_Sexpr sh v ec s (SS val) ->
-  prog_impl_fact interp_fn (lower (Scalar s) out []) (out, [inr val]).
+  prog_impl_fact interp_fn (lower (Scalar s) out [] ++ datalog_ctx) (out, [inr val]).
 Proof.
   induction s.
-  - simpl. intros. inversion H. subst. constructor. constructor. simpl. destruct r; inversion H1; subst.  2: { 
+  - simpl. intros. inversion H0. subst. econstructor.
+    { constructor. simpl. cbv [subst_in_fact]. simpl.
+      instantiate (2 := map_cons (inr O) (Some (fun_expr (fn_R (fn_SLit (toR r))) [])) map_empty). simpl.
+      split; [|reflexivity]. cbv [interp_fact]. simpl. destruct r; inversion H2; reflexivity. }
+    simpl. intros. destruct H1 as [H1|H1]; [|contradiction]. subst.
+    eapply prog_impl_fact_subset. 2: eauto. intros. simpl. auto.
+  - 
 Qed.
 
 Lemma lower_correct e out sh v ctx r :
