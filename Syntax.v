@@ -83,7 +83,6 @@ Section __.
                                          (option_all (map interp_expr' args)))
     | var_expr v => None
     end.
-  Print Forall2.
 
   (*inductive principle is garbage*)
   Inductive interp_expr : expr -> T -> Prop :=
@@ -204,6 +203,10 @@ Arguments prog_impl_fact {_ _ _ _}.
 Arguments fact_args {_ _ _}.
 Arguments subst_in_expr {_ _}.
 Arguments interp_expr {_ _ _}.
+Check interp_fact.
+Arguments interp_fact {_ _ _ _}.
+Check subst_in_fact.
+Arguments subst_in_fact {_ _ _}.
 Search (?x + ?y -> option ?x)%type.
 Definition get_inl {X Y : Type} (xy : X + Y) : option X :=
   match xy with
@@ -391,15 +394,21 @@ Proof.
     + destruct l1; inversion Hl1. constructor.
     + destruct l1; inversion Hl1. subst. constructor; auto.
 Qed.
-
-Lemma lower_Sexpr_correct sh v ec s val out datalog_ctx :
+Print lower_Sexpr. Check prog_impl_fact. Print interp_expr.
+Lemma lower_Sexpr_correct sh v ec s (datalog_ctx : list (rule rel var tfn)):
   (forall x r idxs val,
       ec $? x = Some r ->
       result_lookup_Z idxs r = val ->
       prog_impl_fact interp_fn datalog_ctx (x, inr (toR val) :: (map inl idxs))) ->
-  eval_Sexpr sh v ec s (SS val) ->
-  prog_impl_fact interp_fn (lower (Scalar s) out [] ++ datalog_ctx) (out, [inr val]).
-Proof.
+  forall val name val0 hyps name' (*idxs*),
+    eval_Sexpr sh v ec s val ->
+    lower_Sexpr name s = (val0, hyps, name') ->
+    exists hyps' substn,
+      Forall2 (interp_fact interp_fn) (map (subst_in_fact (substn_of v)) (map (subst_in_fact substn) hyps)) hyps' /\
+        Forall (prog_impl_fact interp_fn datalog_ctx) hyps' /\
+        interp_expr interp_fn (subst_in_expr (substn_of v) (subst_in_expr substn val0)) (inr (toR val)).
+    (* prog_impl_fact interp_fn (lower (Scalar s) out [] ++ datalog_ctx) (out, [inr (toR val)]) *).
+Proof. simpl.
   intros H. induction s.
   - simpl. intros. inversion H0. subst. econstructor.
     { constructor. simpl. cbv [subst_in_fact]. simpl.
@@ -427,6 +436,13 @@ Proof.
       clear. intros x y H. destruct x; simpl in *. 1: assumption. inversion H. }
     simpl. intros hyp [Hh|Hh]; [|contradiction]. subst.
     eapply prog_impl_fact_subset. 2: eauto. simpl. auto.
+  - simpl. intros val H'. inversion H'. subst. clear H'.
+    specialize (IHs1 _ ltac:(eassumption)). specialize (IHs2 _ ltac:(eassumption)).
+    simpl in IHs1, IHs2.
+    destruct (lower_Sexpr O s1) as [[val1 hyps1] next_varname1] eqn:E1.
+    destruct (lower_Sexpr O s2) as [[val2 hyps2] next_varname2] eqn:E2.
+
+    destruct (lower
 Qed.
 
 Lemma lower_correct e out sh v ctx r :
