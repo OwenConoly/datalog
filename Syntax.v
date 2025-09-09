@@ -97,14 +97,14 @@ Section __.
 
   Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop :=
   | impl_step f : Exists
-                         (fun r => exists s,
-                              let r' := subst_in_rule s r in
-                              interp_fact r'.(rule_concl) = Some f /\
-                                exists s' hyps,
-                                  option_all (map (fun x => interp_fact (subst_in_fact s' x)) r'.(rule_hyps)) = Some hyps /\
-                                    Forall (prog_impl_fact p) hyps)
-                         p ->
-                       prog_impl_fact p f.
+                    (fun r => exists s,
+                         let r' := subst_in_rule s r in
+                         interp_fact r'.(rule_concl) = Some f /\
+                           exists s' hyps,
+                             option_all (map (fun x => interp_fact (subst_in_fact s' x)) r'.(rule_hyps)) = Some hyps /\
+                               Forall (prog_impl_fact p) hyps)
+                    p ->
+                  prog_impl_fact p f.
 End __.
 Arguments Build_rule {_ _ _}.
 Arguments Build_fact {_ _ _}.
@@ -241,12 +241,29 @@ Fixpoint lower
 Print eval_expr. Print context. Print valuation.
 Print prog_impl_fact.
 Check eval_expr. Print result. Search result. Print result_lookup_Z_option.
+Print lower_Sexpr.
+Lemma lower_Sexpr_correct sh v ec s val out :
+  eval_Sexpr sh v ec s (SS val) ->
+  prog_impl_fact interp_fn (lower (Scalar s) out []) (out, [inr val]).
+Proof.
+  induction s.
+  - simpl. intros. inversion H. subst. constructor. constructor. simpl. destruct r; inversion H1; subst.  2: { 
+Qed.
+
 Lemma lower_correct e out sh v ctx r :
   eval_expr sh v ctx e r ->
   forall idxs val,
     result_lookup_Z_option idxs r = Some val ->
     prog_impl_fact interp_fn (lower e out nil) (out, inr val :: (map inl idxs)).
-  
+Proof.
+  intros H. induction H.
+  { intros * H'. destruct idxs; simpl in H'; try solve [inversion H'].
+    destruct z; simpl in H'; try rewrite nth_error_empty in H'; solve [inversion H']. }
+  { intros * H'. admit. (*should be doable*) }
+  15: { intros. destruct idxs; simpl in H0. 2: destruct z; simpl in H0; inversion H0.
+        destruct r; inversion H0; subst. cbn -[lower]. simpl.  in H. simp
+
+  - intros.
     
   | Sum i lo hi body =>
       For i lo hi
