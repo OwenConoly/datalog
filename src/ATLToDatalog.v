@@ -19,7 +19,7 @@ From Lower Require Import Zexpr Bexpr Array Range Sexpr Result ListMisc
 
 Require Import ATLDeep.
 Require Import ContextsAgree.
-Require Import Datalog.
+Require Import Datalog.Datalog.
 Open Scope string_scope.
 
 Definition option_map2 {X Y Z : Type} (f : X -> Y -> Z) x y :=
@@ -203,7 +203,7 @@ Definition substn_of (v : valuation) : var -> option tfn :=
         | inr x => None
         end.
 
-Lemma eval_Z_to_substn v x z :
+Lemma eval_Zexpr_to_substn v x z :
   eval_Zexpr v x z ->
   interp_expr interp_fn (subst_in_expr (substn_of v) (lower_idx x)) (inl z).
 Proof.
@@ -217,7 +217,7 @@ Proof.
   intros H. induction H.
   - constructor.
   - simpl. constructor.
-    + apply eval_Z_to_substn. assumption.
+    + apply eval_Zexpr_to_substn. assumption.
     + assumption.
 Qed.
 
@@ -481,10 +481,9 @@ Lemma lower_correct e out sh v ctx r datalog_ctx :
       ctx $? x = Some r ->
       result_lookup_Z_option' idxs r = Some val ->
       prog_impl_fact interp_fn datalog_ctx (x, inr (toR val) :: map inl idxs)) ->
-  forall idxs val idx_ctx,
+  forall idxs val idx_ctx idx_ctx',
     result_lookup_Z_option' idxs r = Some val ->
-    exists idx_ctx',
-      Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx (map fst idx_ctx))) idx_ctx' /\
+    Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx (map fst idx_ctx))) idx_ctx' ->
         prog_impl_fact interp_fn (lower e out idx_ctx ++ datalog_ctx) (out, inr (toR val) :: idx_ctx' ++ (map inl idxs)).
 Proof.
   intros H. induction H.
@@ -505,12 +504,33 @@ Proof.
     clear z En Hz.
     destruct n; simpl in Hz'.
     - (*first iteration*)
-      clear IHeval_expr2. specialize IHeval_expr1 with (1 := Hz').
+      clear IHeval_expr2. Print eval_expr. specialize IHeval_expr1 with (1 := Hz').
       specialize (IHeval_expr1 (((! i ! - lo)%z, (hi - lo)%z) :: idx_ctx)).
+      eassert _ as HF.
+      2: epose proof (IHeval_expr1 _ HF) as IH1; clear IHeval_expr1.
+      { constructor.
+        - simpl. Search ((_ $+ (?x, _)) $? ?x). rewrite lookup_add_eq by reflexivity.
+          simpl. Search lo. Check eval_Zexpr_to_substn.
+      eassert _ as HF. 2: specialize (IHeval_expr1 _ HF).
+      apply IHeval_expr1.
       destruct IHeval_expr1 as (idx_ctx'&Hidx_ctx'&IH1).
       inversion Hidx_ctx'. subst. clear Hidx_ctx'.
       exists l'. split.
-      { (* use that i not in dom v*)
+      { repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl. 2: eassumption.
+        simpl. intros a b Hab. Search (interp_expr _ (subst_in_expr _ _)).
+        pose proof interp_expr_subst_more as Hab'. specialize Hab' with (2 := Hab).
+        rewrite Hab'. 1: assumption. clear -H2. cbv [extends substn_of]. intros.
+        destruct x; auto.
+        (*TODO: prove lemma about add and extends, use fmaps instead of your own impl...*)
+        Check lookup_split.
+        destruct ((_ $+ (_, _)) $? _) eqn:E.
+        - apply lookup_split in E. destruct E as [[E1 E2] | [E1 E2]].
+          + rewrite E2. simpl in *. assumption.
+          + simpl in H. Search lookup dom. subst. rewrite None_dom_lookup by assumption.
+            simpl. simpl.
+
+        cbv [add]. simpl.
+        csimpl. rewrite Hab. assumption.
         [assumption|]. inversion H9. subst. clear H9.
       inversion H10. subst. clear H10. inversion H14. subst. clear H14.
       inversion H15. subst. clear H15. simpl in H9. inversion H9. subst. clear H9. H10.
