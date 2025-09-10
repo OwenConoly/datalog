@@ -472,18 +472,52 @@ Proof.
     { constructor. }
     simpl. econstructor. 1: constructor. simpl. reflexivity.
 Qed.
-
+Search (list (Zexpr * Zexpr)). Print flatten_index.
+Search (list (Zexpr * Zexpr)) (list Z). Print flatten. Check eval_expr.
+Print valuation. Print expr_context.
 Lemma lower_correct e out sh v ctx r datalog_ctx :
   eval_expr sh v ctx e r ->
   (forall (x : rel) (r : result) (idxs : list Z) (val : scalar_result),
       ctx $? x = Some r ->
       result_lookup_Z_option' idxs r = Some val ->
       prog_impl_fact interp_fn datalog_ctx (x, inr (toR val) :: map inl idxs)) ->
-  forall idxs val,
+  forall idxs val idx_ctx,
     result_lookup_Z_option' idxs r = Some val ->
-    prog_impl_fact interp_fn (lower e out nil ++ datalog_ctx) (out, inr (toR val) :: (map inl idxs)).
+    exists idx_ctx',
+      Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx (map fst idx_ctx))) idx_ctx' /\
+        prog_impl_fact interp_fn (lower e out idx_ctx ++ datalog_ctx) (out, inr (toR val) :: idx_ctx' ++ (map inl idxs)).
 Proof.
   intros H. induction H.
+  { (*this case seems more trivial than it should be, because we are not proving anything
+      about the shape of the output...*)
+    simpl. intros.
+    destruct idxs. 1: simpl in H3; inversion H3. destruct z; simpl in H3.
+    1,3: congruence. rewrite nth_error_empty in H3. inversion H3. }
+  { simpl. intros. destruct idxs; simpl in H7; [congruence|].
+    assert (0 <= z)%Z as Hz.
+    { destruct z; [lia|lia|congruence]. }
+    eassert _ as Hz'.
+    { destruct z eqn:Ez; [exact H7|exact H7|congruence]. }
+    clear H7.
+    specialize (IHeval_expr1 ltac:(assumption)).
+    specialize (IHeval_expr2 ltac:(assumption)).
+    remember (Z.to_nat z) as n eqn:En. replace z with (Z.of_nat n) by lia.
+    clear z En Hz.
+    destruct n; simpl in Hz'.
+    - (*first iteration*)
+      clear IHeval_expr2. specialize IHeval_expr1 with (1 := Hz').
+      specialize (IHeval_expr1 (((! i ! - lo)%z, (hi - lo)%z) :: idx_ctx)).
+      destruct IHeval_expr1 as (idx_ctx'&Hidx_ctx'&IH1).
+      inversion Hidx_ctx'. subst. clear Hidx_ctx'.
+      exists l'. split.
+      { (* use that i not in dom v*)
+        [assumption|]. inversion H9. subst. clear H9.
+      inversion H10. subst. clear H10. inversion H14. subst. clear H14.
+      inversion H15. subst. clear H15. simpl in H9. inversion H9. subst. clear H9. H10.
+      simpl in H13. cbv [
+      
+      destruct z; simpl in H7; [| |congruence].
+    { simpl in H7.
   17: { intros. simpl. destruct (lower_Sexpr O s) as [ [val0 hyps] name'] eqn:E.
         simpl. pose proof lower_Sexpr_correct as H'.
         specialize H' with (1 := H0) (2 := H) (3 := E).
