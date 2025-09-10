@@ -1,8 +1,8 @@
--R ../verified_scheduling/src/verified_scheduling/atl/ ATL
--R ../verified_scheduling/src/verified_scheduling/codegen/ Codegen
--R ../verified_scheduling/src/verified_scheduling/c/ Test
--R ../verified_scheduling/src/verified_lowering/proof Lower
+-R ../verified-scheduling/src/verified_scheduling/atl/ ATL
+-R ../verified-scheduling/src/verified_scheduling/codegen/ Codegen
+-R ../verified-scheduling/src/verified_scheduling/c/ Test
+-R ../verified-scheduling/src/verified_lowering/proof Lower
+-R ../verified-scheduling/src/verified_lowering/inferpad Inferpad
+-R ../verified-scheduling/src/verified_lowering/stringify Stringify
+-R ../verified-scheduling/src/examples/ Examples
 -R . Datalog
--R ../verified_scheduling/src/verified_lowering/inferpad Inferpad
--R ../verified_scheduling/src/verified_lowering/stringify Stringify
--R ../verified_scheduling/src/examples/ Examples
