@@ -183,7 +183,7 @@ Fixpoint lower
   : list trule :=
   match e with
   | Gen i lo hi body =>
-      lower body out ((ZMinus (ZVar i) lo, ZMinus hi lo) :: idxs_bds)
+      lower body out (idxs_bds ++ [(ZMinus (ZVar i) lo, ZMinus hi lo)])
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr O s in
       [{| rule_hyps := hyps; rule_concl := {| fact_R := out; fact_args := val :: (map lower_idx (map fst idxs_bds)) |} |}]
@@ -484,7 +484,7 @@ Lemma lower_correct e out sh v ctx r datalog_ctx :
   forall idxs val idx_ctx idx_ctx',
     result_lookup_Z_option' idxs r = Some val ->
     Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx (map fst idx_ctx))) idx_ctx' ->
-        prog_impl_fact interp_fn (lower e out idx_ctx ++ datalog_ctx) (out, inr (toR val) :: idx_ctx' ++ (map inl idxs)).
+        prog_impl_fact interp_fn (lower e out idx_ctx ++ datalog_ctx) (out, inr (toR val) :: idx_ctx' ++ map inl idxs). Print lower.
 Proof.
   intros H. induction H.
   { (*this case seems more trivial than it should be, because we are not proving anything
@@ -505,22 +505,28 @@ Proof.
     destruct n; simpl in Hz'.
     - (*first iteration*)
       clear IHeval_expr2. Print eval_expr. specialize IHeval_expr1 with (1 := Hz').
-      specialize (IHeval_expr1 (((! i ! - lo)%z, (hi - lo)%z) :: idx_ctx)).
+      specialize (IHeval_expr1 (idx_ctx ++ [((! i ! - lo)%z, (hi - lo)%z)])%list).
       eassert _ as HF.
       2: epose proof (IHeval_expr1 _ HF) as IH1; clear IHeval_expr1.
-      { constructor.
-        - simpl. Search ((_ $+ (?x, _)) $? ?x). rewrite lookup_add_eq by reflexivity.
-          simpl. Search lo. Check eval_Zexpr_to_substn.
-      eassert _ as HF. 2: specialize (IHeval_expr1 _ HF).
-      apply IHeval_expr1.
-      destruct IHeval_expr1 as (idx_ctx'&Hidx_ctx'&IH1).
-      inversion Hidx_ctx'. subst. clear Hidx_ctx'.
-      exists l'. split.
-      { repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl. 2: eassumption.
-        simpl. intros a b Hab. Search (interp_expr _ (subst_in_expr _ _)).
-        pose proof interp_expr_subst_more as Hab'. specialize Hab' with (2 := Hab).
-        rewrite Hab'. 1: assumption. clear -H2. cbv [extends substn_of]. intros.
-        destruct x; auto.
+      { repeat rewrite map_app. simpl. apply Forall2_app.
+        - repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl. 2: eassumption.
+          simpl. intros a b Hab. Search (interp_expr _ (subst_in_expr _ _)).
+          pose proof interp_expr_subst_more as Hab'. specialize Hab' with (2 := Hab).
+          rewrite Hab'. 1: assumption. clear -H2. cbv [extends substn_of]. intros.
+          destruct x; auto. admit.
+        - simpl. rewrite lookup_add_eq by reflexivity. simpl. 
+          Search lo. Check eval_Zexpr_to_substn.
+          Search eval_Zexpr_Z. apply eval_Zexpr_Z_eval_Zexpr in H.
+          pose proof eval_Zexpr_to_substn as H'. specialize H' with (1 := H).
+          repeat econstructor.
+          + pose proof interp_expr_subst_more as H''. specialize H'' with (2 := H').
+            rewrite H''. 1: eassumption. admit.
+          + reflexivity. }
+      rewrite <- app_assoc in IH1. simpl in *.
+      replace (loz - loz)%Z with 0%Z in IH1 by lia. apply IH1.
+    - (*rest of the iterations*)
+      
+      
         (*TODO: prove lemma about add and extends, use fmaps instead of your own impl...*)
         Check lookup_split.
         destruct ((_ $+ (_, _)) $? _) eqn:E.
