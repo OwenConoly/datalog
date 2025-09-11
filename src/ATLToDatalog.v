@@ -174,10 +174,11 @@ Definition toR (s : scalar_result) :=
   end.
   
 
-Print lower. Print rule. Print fact.
+Print lower. Print rule. Print fact. Print eval_expr. Print fact. Print Rfn.
 Fixpoint lower
   (e : ATLexpr)
   (out: rel)
+  (name: nat)
   (*this list is backwards compared to the other lowering alg*)
   (*also, i don't use the bounds at all (yet)*)
   (idxs_bds : list (Zexpr * Zexpr))
@@ -185,6 +186,44 @@ Fixpoint lower
   match e with
   | Gen i lo hi body =>
       lower body out (idxs_bds ++ [(ZMinus (ZVar i) lo, ZMinus hi lo)])
+  | Sum i lo hi body =>
+      let x := O in
+      let i := S O in
+      let aux := name in
+      let aux' := S name in
+      (*set aux(body(i), i, ...)*)
+      lower body aux [(i, ZMinus hi lo)] ++
+        [(*set aux'(O, lo, ...)*)
+          {| rule_hyps := [];
+            rule_concl := {| fact_R := aux';
+                            fact_args := [expr_fun (fn_R (fn_SLit 0%R));
+                                          lower_idx lo;
+                                          ...(*arbitrary index into summand*)] |} |};
+          (*set aux' (body(i) + \sum_{j < i} body(j), S i, ...)*)
+          {| rule_hyps := [{| fact_R := aux';
+                             fact_args :=
+                               [var_expr x(*\sum_{j < i} body(j)*);
+                                var_expr i (*index into aux'*);
+                                ...(*arbitrary idx into summand*)]|};
+                           {| fact_R := aux;
+                             fact_args :=
+                               [var_expr y(*body(i)*);
+                                var_expr i (*index into aux*);
+                                ...(*arbitrary idx into summand*)] |}];
+            rule_concl := {| fact_R := aux';
+                            fact_args :=
+                              [fun_expr (Rfn fn_SAdd) [var_expr x; var_expr y];
+                               fun_expr (Zfn fn_ZPlus) [var_expr i; fun_expr (Zfn (fn_ZLit 1%Z))]; ... (*arbitrary idx into accumulated sum*)] |} |};
+          (*set out (\sum_j body(j), idxs)*)
+          {| rule_hyps := [{| fact_R := aux';
+                             fact_args :=
+                               [var_expr x(*\sum_j body(j)*);
+                                lower_idx hi;
+                                ...(*arbitrary idx into sum*)] |}];
+            rule_concl := {| fact_R := out;
+                            fact_args :=
+                              [var_expr x;
+                               ...(*arbitrary idx into sum*)]|} |}]
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr O s in
       [{| rule_hyps := hyps; rule_concl := {| fact_R := out; fact_args := val :: (map lower_idx (map fst idxs_bds)) |} |}]
@@ -643,6 +682,7 @@ Proof.
         intros. eapply prog_impl_fact_subset.
         2: { rewrite Forall_forall in Hhyps'. apply Hhyps'. assumption. }
         simpl. auto. }
+  
   (* { intros H' * H''. destruct idxs; simpl in H''; try solve [inversion H'']. *)
   (*   destruct z; simpl in H''; try rewrite nth_error_empty in H''; solve [inversion H'']. } *)
   (* { intros H' * H''. admit. (*should be doable*) } *)
