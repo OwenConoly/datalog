@@ -173,7 +173,8 @@ Definition toR (s : scalar_result) :=
   | SX => 0%R
   end.
   
-Print rule. Print fact.
+
+Print lower. Print rule. Print fact.
 Fixpoint lower
   (e : ATLexpr)
   (out: rel)
@@ -196,12 +197,21 @@ Search eval_get. Search result. Print result_lookup_Z.
 
 Search eval_get.
 
-Print valuation.
+(*I thought about using fmaps here, but it's not even clear to me that that is possible.
+  How do you iterate over an fmap?  i could get the domain, which is a 'set', but idk
+  how to iterate over a set, either...*)
 Definition substn_of (v : valuation) : var -> option tfn :=
   fun x => match x with
         | inl x => option_map (fun y => fn_Z (fn_ZLit y)) (v $? x)
         | inr x => None
         end.
+
+Lemma includes_extends v1 v2 : v1 $<= v2 -> extends (substn_of v2) (substn_of v1).
+Proof.
+  intros H. cbv [extends substn_of]. intros x y Hxy. destruct x; [|congruence].
+  destruct (v1 $? s) eqn:E; simpl in Hxy; [|congruence].
+  eapply includes_lookup in E; try eassumption. rewrite E. assumption.
+Qed.
 
 Lemma eval_Zexpr_to_substn v x z :
   eval_Zexpr v x z ->
@@ -475,6 +485,7 @@ Qed.
 Search (list (Zexpr * Zexpr)). Print flatten_index.
 Search (list (Zexpr * Zexpr)) (list Z). Print flatten. Check eval_expr.
 Print valuation. Print expr_context.
+
 Lemma lower_correct e out sh v ctx r datalog_ctx :
   eval_expr sh v ctx e r ->
   (forall (x : rel) (r : result) (idxs : list Z) (val : scalar_result),
@@ -512,22 +523,31 @@ Proof.
         - repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl. 2: eassumption.
           simpl. intros a b Hab. Search (interp_expr _ (subst_in_expr _ _)).
           pose proof interp_expr_subst_more as Hab'. specialize Hab' with (2 := Hab).
-          rewrite Hab'. 1: assumption. clear -H2. cbv [extends substn_of]. intros.
-          destruct x; auto. admit.
+          rewrite Hab'. 1: assumption. clear -H2. apply includes_extends.
+          Search includes. apply includes_add_new. Search (_ $? _ = None).
+          apply None_dom_lookup. assumption.
         - simpl. rewrite lookup_add_eq by reflexivity. simpl. 
           Search lo. Check eval_Zexpr_to_substn.
           Search eval_Zexpr_Z. apply eval_Zexpr_Z_eval_Zexpr in H.
           pose proof eval_Zexpr_to_substn as H'. specialize H' with (1 := H).
           repeat econstructor.
           + pose proof interp_expr_subst_more as H''. specialize H'' with (2 := H').
-            rewrite H''. 1: eassumption. admit.
+            rewrite H''. 1: eassumption. clear -H2. apply includes_extends.
+          Search includes. apply includes_add_new. Search (_ $? _ = None).
+          apply None_dom_lookup. assumption.
           + reflexivity. }
       rewrite <- app_assoc in IH1. simpl in *.
       replace (loz - loz)%Z with 0%Z in IH1 by lia. apply IH1.
     - (*rest of the iterations*)
+      clear IHeval_expr1. specialize (IHeval_expr2 (Z.of_nat n :: idxs)).
+      eassert _ as blah.
+      2: epose proof (IHeval_expr2 _ _ _ blah) as IH2; clear IHeval_expr2.
+      { simpl. destruct n; cbn -[nth_error]; [eassumption|].
+        replace (Pos.to_nat _) with (Datatypes.S n) by lia. assumption. }
+      simpl in IH2.
       
       
-        (*TODO: prove lemma about add and extends, use fmaps instead of your own impl...*)
+      
         Check lookup_split.
         destruct ((_ $+ (_, _)) $? _) eqn:E.
         - apply lookup_split in E. destruct E as [[E1 E2] | [E1 E2]].
