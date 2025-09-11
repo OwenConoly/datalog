@@ -180,8 +180,7 @@ Fixpoint lower
   (e : ATLexpr)
   (out: rel)
   (name: nat)
-  (*this list is backwards compared to the other lowering alg*)
-  (*also, i don't use the bounds at all (yet)*)
+  (*i don't use the bounds at all (yet)*)
   (idxs_bds : list (Zexpr * Zexpr))
   : list trule :=
   match e with
@@ -283,35 +282,24 @@ Lemma compose_domain {A B : Type} (s s' : A -> option B) x y :
   s x = Some y \/ s' x = Some y.
 Proof. cbv [compose]. intros H. destruct (s' x), (s x); auto. Qed.
 
-Fixpoint result_lookup_Z_option' indices r :=
-  match indices with
-  | (Z.neg _)::xs => None
-  | x::xs => match r with
-           | V v => match nth_error v (Z.to_nat x) with
-                   | None => None
-                   | Some v' => result_lookup_Z_option' xs v'
-                   end
-           | _ => None
-           end
-  | _ => match r with
-        | S r => Some r
-        | _ => None
-        end
-  end.
+Inductive result_lookup_Z' : list Z -> result -> scalar_result -> Prop :=
+| rlz'_cons x xs v v' val : (0 <= x)%Z ->
+                            nth_error v (Z.to_nat x) = Some v' ->
+                            result_lookup_Z' xs v' val ->
+                            result_lookup_Z' (x :: xs) (V v) val
+| rlz'_nil val : result_lookup_Z' [] (S val) val.
 
 (*closely following lemma eval_get_lookup_result_Z*)
 Lemma eval_get_lookup_result_Z_option' : forall l v rs r,
     eval_get v rs l r ->
     forall x0,
       eval_Zexprlist v l x0 ->
-      Some r = result_lookup_Z_option' x0 (V rs).
+      result_lookup_Z' x0 (V rs) r.
 Proof.
   induct 1; intros.
   - invert H3. simpl.
-    eq_eval_Z. rewrite H1.
-    cases z; try lia; eauto.
-  - invert H2. invert H8. eq_eval_Z. simpl. rewrite H1.
-    cases z; try lia; eauto.
+    eq_eval_Z. econstructor; eauto.
+  - invert H2. invert H8. eq_eval_Z. econstructor; eauto. constructor.
 Qed.
 
 Definition domain_in_ints low high (substn : var -> option tfn) :=
@@ -375,12 +363,12 @@ Proof.
   - apply Nat.eqb_eq in E. subst. assumption.
   - specialize H with (1 := H1). simpl in H. assumption.
 Qed.
-
+Check eval_Sexpr.
 Lemma lower_Sexpr_correct sh v ec s (datalog_ctx : list (rule rel var tfn)):
   (forall x r idxs val,
       ec $? x = Some r ->
-      result_lookup_Z_option' idxs r = Some val ->
-      prog_impl_fact interp_fn datalog_ctx (x, inr (toR val) :: (map inl idxs))) ->
+      result_lookup_Z' idxs r val ->
+      prog_impl_fact interp_fn datalog_ctx (inl x, inr (toR val) :: (map inl idxs))) ->
   forall val name val0 hyps name',
     eval_Sexpr sh v ec s val ->
     lower_Sexpr name s = (val0, hyps, name') ->
@@ -402,7 +390,7 @@ Proof.
     inversion H0. subst. clear H0. simpl. split.
     + repeat constructor. 
       specialize H with (idxs := nil) (1 := H2). simpl in H.
-      specialize (H r). specialize (H ltac:(reflexivity)). destruct r; apply H.
+      specialize (H r). specialize (H ltac:(constructor)). destruct r; apply H.
     + cbv [map_cons]. rewrite var_eqb_refl. simpl. repeat econstructor.
   - inversion H1. subst. clear H1. simpl. inversion H0. subst. clear H0.
     pose proof (eval_get_eval_Zexprlist _ _ _ _ ltac:(eassumption)) as [idxs Hidxs].
@@ -585,7 +573,6 @@ Proof.
     simpl. econstructor. 1: constructor. simpl. reflexivity.
 Qed.
 
-Print eval_expr. Search (eval_expr _ _ _ (Gen _ _ _ _)).
 (*because i really want to do induction on syntax, not execution*)
 Lemma invert_eval_gen sh v ctx i lo hi body r :
   eval_expr sh v ctx (Gen i lo hi body) r ->
@@ -620,35 +607,209 @@ Proof.
       simpl. destruct IH2 as (_&_&IH2). replace (Z.to_nat _) with n in IH2 by lia.
       apply IH2.
 Qed.
+Search nth_error repeat.
+Lemma nth_error_repeat' {A : Type} (x : A) y m n :
+  nth_error (repeat x m) n = Some y ->
+  x = y.
+Proof.
+  intros H. Search nth_error. epose proof nth_error_Some as H1.
+  specialize (H1 _ _ _ ltac:(eassumption)). pose proof nth_error_repeat as H2.
+  rewrite repeat_length in H1. rewrite nth_error_repeat in H by lia. inversion_clear H.
+  reflexivity.
+Qed.
+
+Lemma pad_lookup_SX sh idxs val :
+  result_lookup_Z' idxs (gen_pad sh) val ->
+  val = SX.
+Proof.
+  revert idxs val. induction sh.
+  - intros * H. inversion H. subst. reflexivity.
+  - intros * H. inversion H. apply nth_error_repeat' in H2. subst. eapply IHsh; eauto.
+Qed.
+
+Print add_result. Search add_scalar_result. (*why not a function :( *)
+Definition add_scalar_result' (x y : scalar_result) :=
+  match x, y with
+  | SX, SX => SX
+  | SX, SS sy => SS sy
+  | SS sx, SX => SS sx
+  | SS sx, SS sy => SS (sx + sy)
+  end.
+
+Lemma add_scalar_result_iff_add_scalar_result' a b c :
+  add_scalar_result' a b = c <-> add_scalar_result a b c.
+Proof.
+  split.
+  - intros. subst. destruct a, b; constructor.
+  - intros H. inversion H; reflexivity.
+Qed.
+
+Lemma add_list_nth a b c a' b' i :
+  add_list a b c ->
+  nth_error a i = Some a' ->
+  nth_error b i = Some b' ->
+  exists c',
+    nth_error c i = Some c' /\
+      add_result a' b' c'.
+Proof.
+  intros H. revert a' b' i. induction H.
+  - intros * H1 H2. destruct i; simpl in *.
+    + inversion H1. subst. inversion H2. subst. clear H1 H2. eauto.
+    + specialize IHadd_list with (1 := H1) (2 := H2).
+      destruct IHadd_list as (c'&IH1&IH2). eauto.
+  - intros. destruct i; simpl in *; congruence.
+Qed.
+
+Lemma add_list_nth_bw a b c c' i :
+  add_list a b c ->
+  nth_error c i = Some c' ->
+  exists a' b',
+    nth_error a i = Some a' /\
+      nth_error b i = Some b' /\
+      add_result a' b' c'.
+Proof.
+  intros H. revert c' i. induction H.
+  - intros * H1. destruct i; simpl in *.
+    + inversion H1. subst. eauto.
+    + specialize IHadd_list with (1 := H1). destruct IHadd_list as (a'&b'&IH1&IH2&IH3).
+      eauto.
+  - intros. destruct i; simpl in *; congruence.
+Qed.
+
+Lemma add_result_lookup_Z' idxs x y z x' y' :
+  add_result x y z ->
+  result_lookup_Z' idxs x x' ->
+  result_lookup_Z' idxs y y' ->
+  result_lookup_Z' idxs z (add_scalar_result' x' y').
+Proof. 
+  revert x y z. induction idxs.
+  - intros x y z H H1 H2. 
+    inversion H1. inversion H2. subst. inversion H. subst.
+    apply add_scalar_result_iff_add_scalar_result' in H4. subst. constructor.
+  - intros x y z H H1 H2. inversion H1. subst. inversion H2. subst. inversion H. subst.
+    clear H1 H2 H.
+    pose proof add_list_nth as H'. specialize (H' _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
+    destruct H' as (c'&H'1&H'2). econstructor; eauto.
+Qed.
+
+Lemma add_result_same_domain_bw idxs x y z z' :
+  add_result x y z ->
+  result_lookup_Z' idxs z z' ->
+  exists x' y',
+    result_lookup_Z' idxs x x' /\
+      result_lookup_Z' idxs y y' /\
+      z' = add_scalar_result' x' y'.
+Proof.
+  revert x y z. induction idxs; intros x y z H1 H2.
+  - inversion H2. subst. clear H2. inversion H1. subst. clear H1. do 2 eexists.
+    apply add_scalar_result_iff_add_scalar_result' in H3. subst.
+    intuition constructor.
+  - inversion H2. subst. clear H2. inversion H1. subst. clear H1.
+    pose proof add_list_nth_bw as H'. specialize (H' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+    destruct H' as (?&?&?&?&?). specialize (IHidxs _ _ _ ltac:(eassumption) ltac:(eassumption)). destruct IHidxs as (?&?&?&?). do 2 eexists. intuition eauto; econstructor; eauto.
+Qed.
+
+(*how am i supposed to do induction on results?*)
+Fixpoint result_sz (r : result) :=
+  match r with
+  | S _ => O
+  | V v => Datatypes.S (fold_right Nat.max O (map result_sz v))
+  end.
+
+Check result_ind.
+Lemma result_ind' P :
+  (forall z, P (S z)) ->
+  (forall v, Forall P v -> P (V v)) ->
+  forall r, P r.
+Proof.
+  intros * H1 H2 r. remember (result_sz r) as sz eqn:E.
+  assert (Hr: (result_sz r < Datatypes.S sz)%nat) by lia.
+  clear E. revert r Hr. induction (Datatypes.S sz); intros.
+  - lia.
+  - destruct r; auto. apply H2. induction v.
+    + constructor.
+    + constructor.
+      -- apply IHn. simpl in Hr. lia.
+      -- apply IHv. simpl in Hr. simpl. lia.
+Qed.
+Print add_result.
+Lemma add_result_has_shape a b c :
+  exists sh,
+  add_result a b c ->
+  result_has_shape c sh.
+Proof.
+  revert a b. induction c using result_ind'; intros a b; subst.
+  - eexists. econstructor.
+  - destruct v.
+    + eexists. econstructor.
+    + inversion H. subst. clear H. specialize (H2 a b). destruct H2 as [sh H2].
+      eexists. intros H. inversion H. subst. clear H. inversion H5. subst. clear H5.
+      Abort. (*not true*)
+    
+Lemma invert_eval_sum sh v ctx i lo hi body r :
+  eval_expr sh v ctx (Sum i lo hi body) r ->
+  exists loz hiz summands,
+    eval_Zexpr_Z v lo = Some loz /\
+      eval_Zexpr_Z v hi = Some hiz /\
+      (forall idxs val,
+          result_lookup_Z' idxs r val ->
+          exists scalar_summands,
+            Forall2 (result_lookup_Z' idxs) summands scalar_summands /\
+              toR val = fold_right (fun a b => toR a + b)%R 0%R scalar_summands) /\
+      (forall i', (loz <= i' < hiz)%Z ->
+             (~ i \in dom v) /\
+               (~ contains_substring "?" i) /\
+               match nth_error summands (Z.to_nat (i' - loz)) with
+               | None => False
+               | Some r =>  eval_expr sh (v $+ (i, i')) ctx body r
+               end).
+Proof.
+  intros H. remember (Sum _ _ _ _) as e eqn:E. revert lo E.
+  induction H; intros lo_ H'; inversion H'; subst; clear H'.
+  2: { exists loz, hiz, nil. simpl. intuition auto; try lia.
+       exists nil. split; [constructor|]. simpl. apply pad_lookup_SX in H4. subst.
+       reflexivity. }
+  clear IHeval_expr1. specialize (IHeval_expr2 _ Logic.eq_refl).
+  destruct IHeval_expr2 as (loz'&hiz'&summands'&Hloz'&Hhiz'&Hsummands'&IH).
+  exists loz, hiz, (r :: summands'). intuition.
+  + pose proof add_result_same_domain_bw as H'. specialize (H' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)). destruct H' as (x'&y'&Hx'&Hy'&Hval). subst.
+    specialize (Hsummands' _ _ ltac:(eassumption)). destruct Hsummands' as (ss&Hss1&Hss2).
+    exists (x' :: ss). split.
+    -- constructor; [eassumption|]. assumption.
+    -- simpl. rewrite <- Hss2. destruct x', y'; simpl; ring.
+  + clear Hsummands'.
+    assert (Hor : (i' = loz \/ loz + 1 <= i')%Z) by lia.
+    destruct Hor as [Hle|Heq].
+    -- subst. replace (Z.to_nat _) with O by lia. simpl. assumption.
+    -- simpl in Hloz'. rewrite H0 in Hhiz'. inversion Hhiz'. subst. clear Hhiz'.
+       rewrite H in Hloz'. inversion Hloz'. subst. clear Hloz'.
+       specialize (IH i' ltac:(lia)). destruct IH as (_&_&IH).
+       replace (Z.to_nat (i' - loz)) with (Datatypes.S (Z.to_nat (i' - (loz + 1)))) by lia.
+       simpl. assumption.
+Qed.
   
 Lemma lower_correct e out sh v ctx r datalog_ctx :
   eval_expr sh v ctx e r ->
-  (forall (x : rel) (r : result) (idxs : list Z) (val : scalar_result),
+  (forall x (r : result) (idxs : list Z) (val : scalar_result),
       ctx $? x = Some r ->
-      result_lookup_Z_option' idxs r = Some val ->
-      prog_impl_fact interp_fn datalog_ctx (x, inr (toR val) :: map inl idxs)) ->
-  forall idxs val idx_ctx idx_ctx',
-    result_lookup_Z_option' idxs r = Some val ->
+      result_lookup_Z' idxs r val ->
+      prog_impl_fact interp_fn datalog_ctx (inl x, inr (toR val) :: map inl idxs)) ->
+  forall idxs name val idx_ctx idx_ctx',
+    result_lookup_Z' idxs r val ->
     Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx (map fst idx_ctx))) idx_ctx' ->
-        prog_impl_fact interp_fn (lower e out idx_ctx ++ datalog_ctx) (out, inr (toR val) :: idx_ctx' ++ map inl idxs). Print lower.
+        prog_impl_fact interp_fn (lower e out name idx_ctx ++ datalog_ctx) (out, inr (toR val) :: idx_ctx' ++ map inl idxs).
 Proof.
   revert out sh v ctx r datalog_ctx. induction e. 
   { simpl. intros. apply invert_eval_gen in H.
     destruct H as (loz&hiz&rl&Hrl&Hlen&Hlo&Hhi&Hbody). subst.
-    move IHe at bottom.
-    destruct idxs; simpl in H1; [congruence|].
-    assert (0 <= z)%Z as Hz.
-    { destruct z; [lia|lia|congruence]. }
-    eassert _ as Hz'.
-    { destruct z eqn:Ez; [exact H1|exact H1|congruence]. }
-    clear H1. move Hbody at bottom. specialize (Hbody (loz + z)%Z).
-    destruct (nth_error rl (Z.to_nat z)) eqn:E. 2: congruence.
-    epose proof nth_error_Some as E'. specialize E' with (1 := E).
+    move IHe at bottom. inversion H1. subst. clear H1.
+    move Hbody at bottom. specialize (Hbody (loz + x)%Z).
+    epose proof nth_error_Some as E'. specialize E' with (1 := H4).
     specialize (Hbody ltac:(lia)). clear E'.
-    destruct Hbody as (Hdom&_&Hbody). replace (loz + z - loz)%Z with z in Hbody by lia.
-    rewrite E in Hbody. specialize IHe with (1 := Hbody). specialize IHe with (1 := H0).
-    specialize IHe with (1 := Hz'). eassert _ as blah.
-    2: epose proof (IHe _ (idx_ctx ++ [((! i ! - lo)%z, (hi - lo)%z)])%list _ blah) as IHe_; clear IHe.
+    destruct Hbody as (Hdom&_&Hbody). replace (loz + x - loz)%Z with x in Hbody by lia.
+    rewrite H4 in Hbody. specialize IHe with (1 := Hbody). specialize IHe with (1 := H0).
+    specialize IHe with (1 := H6). eassert _ as blah.
+    2: epose proof (IHe _ _ (idx_ctx ++ [((! i ! - lo)%z, (hi - lo)%z)])%list _ blah) as IHe_; clear IHe.
     { repeat rewrite map_app. apply Forall2_app.
       - move H2 at bottom. repeat rewrite <- Forall2_map_l in *.
         eapply Forall2_impl. 2: eassumption. simpl. intros a b Hab.
@@ -666,18 +827,15 @@ Proof.
           apply None_dom_lookup. assumption. }
         reflexivity. }
     rewrite <- app_assoc in IHe_. simpl in IHe_.
-    replace (loz + z - loz)%Z with z in IHe_ by lia. simpl. apply IHe_. }
+    replace (loz + x - loz)%Z with x in IHe_ by lia. simpl. apply IHe_. }
   12: { intros. simpl. destruct (lower_Sexpr O s) as [ [val0 hyps] name'] eqn:E.
         simpl. inversion H. subst. clear H. pose proof lower_Sexpr_correct as H'.
         specialize H' with (1 := H0) (2 := H6) (3 := E).
         destruct H' as (hyps'&substn&_&Hsubstn&Hhyps&Hhyps'&Hval0).
-        destruct idxs.
-        2: { simpl in H1. destruct z; congruence. }
-        econstructor.
+        inversion H1. subst. clear H1. econstructor.
         { constructor. simpl. exists (compose substn (substn_of v)). split.
           - cbv [subst_in_fact]. simpl. constructor. simpl. repeat constructor.
-            + rewrite subst_in_expr_subst_in_expr in Hval0. Search val. simpl in H1.
-              inversion H1. subst. clear H1. apply Hval0.
+            + rewrite subst_in_expr_subst_in_expr in Hval0. apply Hval0.
             + rewrite app_nil_r. move H2 at bottom.
               repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl. 2: eassumption.
               simpl. intros a b Hab. pose proof interp_expr_subst_more as Hab'.
@@ -688,14 +846,8 @@ Proof.
         intros. eapply prog_impl_fact_subset.
         2: { rewrite Forall_forall in Hhyps'. apply Hhyps'. assumption. }
         simpl. auto. }
-  
-  (* { intros H' * H''. destruct idxs; simpl in H''; try solve [inversion H'']. *)
-  (*   destruct z; simpl in H''; try rewrite nth_error_empty in H''; solve [inversion H'']. } *)
-  (* { intros H' * H''. admit. (*should be doable*) } *)
+  { intros. specialize IHe with (2 := H0). apply invert_eval_sum in H.
     
-  | Sum i lo hi body =>
-      For i lo hi
-        (lower body f p Reduce sh)
   | Guard b body =>
       If b (lower body f p asn sh)
   | Lbind x e1 e2 =>
