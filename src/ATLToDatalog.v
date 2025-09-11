@@ -90,7 +90,7 @@ Definition interp_fn (f : tfn) (l : list (Z+R)) : option (Z + R) :=
   | fn_R f => option_map inr (option_unwrap (option_map (interp_Rfn f) (option_all (map get_inr l))))
   end.
 
-Definition rel : Set := string.
+Definition rel : Set := string + nat.
 (*inl s is string representing indexing variable (e.g. i, j), which came directly from source program
   inr n is nat (that i generated) representing value in some intermediate thing
  *)
@@ -119,10 +119,10 @@ Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
     nat (*next varname *) :=
   match e with
   | Var x => (var_expr (inr next_varname),
-              [{| fact_R := x; fact_args := [var_expr (inr next_varname)] |}],
+              [{| fact_R := inl x; fact_args := [var_expr (inr next_varname)] |}],
               succ next_varname)
   | Get x idxs => (var_expr (inr next_varname),
-                   [{| fact_R := x; fact_args := var_expr (inr next_varname) :: map lower_idx idxs |}],
+                   [{| fact_R := inl x; fact_args := var_expr (inr next_varname) :: map lower_idx idxs |}],
                    succ next_varname)
   (*copy-pasted monstrosity*)
   | Mul x y => let '(e1, hyps1, next_varname) := lower_Sexpr next_varname x in
@@ -174,7 +174,8 @@ Definition toR (s : scalar_result) :=
   end.
   
 
-Print lower. Print rule. Print fact. Print eval_expr. Print fact. Print Rfn.
+Search (list Z). Search "shape".
+Print sizeof. Print rule. Print fact. Print eval_expr. Print fact. Print Rfn. Print Zexpr. Print trule. 
 Fixpoint lower
   (e : ATLexpr)
   (out: rel)
@@ -185,45 +186,50 @@ Fixpoint lower
   : list trule :=
   match e with
   | Gen i lo hi body =>
-      lower body out (idxs_bds ++ [(ZMinus (ZVar i) lo, ZMinus hi lo)])
+      lower body out name (idxs_bds ++ [(ZMinus (ZVar i) lo, ZMinus hi lo)])
   | Sum i lo hi body =>
       let x := O in
-      let i := S O in
+      let i' := Datatypes.S x in
+      let y := Datatypes.S i' in
+      let dimvars := map inr (seq (Datatypes.S y) (length (sizeof body))) in
       let aux := name in
-      let aux' := S name in
+      let aux' := Datatypes.S aux in
       (*set aux(body(i), i, ...)*)
-      lower body aux [(i, ZMinus hi lo)] ++
+      lower body (inr aux) (Datatypes.S aux') [(ZVar i, ZMinus hi lo)] ++
         [(*set aux'(O, lo, ...)*)
           {| rule_hyps := [];
-            rule_concl := {| fact_R := aux';
-                            fact_args := [expr_fun (fn_R (fn_SLit 0%R));
-                                          lower_idx lo;
-                                          ...(*arbitrary index into summand*)] |} |};
+            rule_concl := {| fact_R := (inr aux');
+                            fact_args := [fun_expr (fn_R (fn_SLit 0%R)) [];
+                                          lower_idx lo] ++
+                                          map var_expr dimvars(*arbitrary index into summand*) |} |};
           (*set aux' (body(i) + \sum_{j < i} body(j), S i, ...)*)
-          {| rule_hyps := [{| fact_R := aux';
+          {| rule_hyps := [{| fact_R := (inr aux');
                              fact_args :=
-                               [var_expr x(*\sum_{j < i} body(j)*);
-                                var_expr i (*index into aux'*);
-                                ...(*arbitrary idx into summand*)]|};
-                           {| fact_R := aux;
+                               [var_expr (inr x)(*\sum_{j < i} body(j)*);
+                                var_expr (inr i') (*index into aux'*)] ++
+                                map var_expr dimvars(*arbitrary idx into summand*) |};
+                           {| fact_R := (inr aux);
                              fact_args :=
-                               [var_expr y(*body(i)*);
-                                var_expr i (*index into aux*);
-                                ...(*arbitrary idx into summand*)] |}];
-            rule_concl := {| fact_R := aux';
+                               [var_expr (inr y)(*body(i)*);
+                                var_expr (inr i') (*index into aux*)] ++
+                                map var_expr dimvars (*arbitrary idx into summand*) |}];
+            rule_concl := {| fact_R := (inr aux');
                             fact_args :=
-                              [fun_expr (Rfn fn_SAdd) [var_expr x; var_expr y];
-                               fun_expr (Zfn fn_ZPlus) [var_expr i; fun_expr (Zfn (fn_ZLit 1%Z))]; ... (*arbitrary idx into accumulated sum*)] |} |};
+                              [fun_expr (fn_R fn_SAdd) [var_expr (inr x);
+                                                       var_expr (inr y)];
+                               fun_expr (fn_Z fn_ZPlus) [var_expr (inr i');
+                                                        fun_expr (fn_Z (fn_ZLit 1%Z)) []]] ++
+                               map var_expr dimvars (*arbitrary idx into accumulated sum*) |} |};
           (*set out (\sum_j body(j), idxs)*)
-          {| rule_hyps := [{| fact_R := aux';
+          {| rule_hyps := [{| fact_R := (inr aux');
                              fact_args :=
-                               [var_expr x(*\sum_j body(j)*);
-                                lower_idx hi;
-                                ...(*arbitrary idx into sum*)] |}];
+                               [var_expr (inr x)(*\sum_j body(j)*);
+                                lower_idx hi] ++
+                                map var_expr dimvars(*arbitrary idx into sum*) |}];
             rule_concl := {| fact_R := out;
                             fact_args :=
-                              [var_expr x;
-                               ...(*arbitrary idx into sum*)]|} |}]
+                              var_expr (inr x) ::
+                               map var_expr dimvars(*arbitrary idx into sum*) |} |}]
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr O s in
       [{| rule_hyps := hyps; rule_concl := {| fact_R := out; fact_args := val :: (map lower_idx (map fst idxs_bds)) |} |}]
