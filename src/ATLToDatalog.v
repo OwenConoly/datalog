@@ -847,6 +847,12 @@ Proof.
         2: { rewrite Forall_forall in Hhyps'. apply Hhyps'. assumption. }
         simpl. auto. }
   { intros. specialize IHe with (2 := H0). apply invert_eval_sum in H.
+    destruct H as (loz&hiz&summands&Hloz&Hhiz&Hsummands&Hbody).
+    specialize Hsummands with (1 := H1). destruct Hsummands as (ss&Hs&Hss).
+    econstructor.
+    - simpl. apply Exists_app. left. apply Exists_app. simpl. right.
+      apply Exists_cons_tl. apply Exists_cons_tl. constructor. simpl.
+      
     
   | Guard b body =>
       If b (lower body f p asn sh)
