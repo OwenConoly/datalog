@@ -149,6 +149,14 @@ Section __.
       + inversion H.
   Qed.
 
+  Lemma interp_expr_subst_more' s s' v e :
+    extends s' s ->
+    interp_expr (subst_in_expr s e) v ->
+    interp_expr (subst_in_expr s' e) v.
+  Proof.
+    intros. erewrite interp_expr_subst_more; eauto.
+  Qed.
+
   Lemma interp_fact_subst_more s s' v f :
     extends s' s ->
     interp_fact (subst_in_fact s f) v ->
@@ -161,6 +169,14 @@ Section __.
     constructor; eauto using interp_expr_subst_more.
   Qed.    
   
+  Lemma interp_fact_subst_more' s s' v f :
+    extends s' s ->
+    interp_fact (subst_in_fact s f) v ->
+    interp_fact (subst_in_fact s' f) v.
+  Proof.
+    intros. erewrite interp_fact_subst_more; eauto.
+  Qed.
+
   Definition compose {A B : Type} (s s' : A -> option B) :=
     fun x => match s' x with
           | Some y => Some y
