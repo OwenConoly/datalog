@@ -22,6 +22,9 @@ Require Import ContextsAgree.
 Require Import Datalog.Datalog.
 Open Scope string_scope.
 
+From Coq Require Import Arith.PeanoNat. Import Nat. Check S.
+Import Datatypes. Check S.
+
 Definition option_map2 {X Y Z : Type} (f : X -> Y -> Z) x y :=
   match x, y with
   | Some x, Some y => Some (f x y)
@@ -288,16 +291,16 @@ Inductive result_lookup_Z' : list Z -> result -> scalar_result -> Prop :=
                             nth_error v (Z.to_nat x) = Some v' ->
                             result_lookup_Z' xs v' val ->
                             result_lookup_Z' (x :: xs) (V v) val
-| rlz'_nil val : result_lookup_Z' [] (S val) val.
+| rlz'_nil val : result_lookup_Z' [] (Result.S val) val.
 
 (*closely following lemma eval_get_lookup_result_Z*)
-Lemma eval_get_lookup_result_Z_option' : forall l v rs r,
+Lemma eval_get_lookup_result_Z' : forall l v rs r,
     eval_get v rs l r ->
     forall x0,
       eval_Zexprlist v l x0 ->
       result_lookup_Z' x0 (V rs) r.
 Proof.
-  induct 1; intros.
+  Fail induct 1. induction 1; intros.
   - invert H3. simpl.
     eq_eval_Z. econstructor; eauto.
   - invert H2. invert H8. eq_eval_Z. econstructor; eauto. constructor.
@@ -396,7 +399,7 @@ Proof.
   - inversion H1. subst. clear H1. simpl. inversion H0. subst. clear H0.
     pose proof (eval_get_eval_Zexprlist _ _ _ _ ltac:(eassumption)) as [idxs Hidxs].
     Check eval_get_lookup_result_Z.
-    pose proof (eval_get_lookup_result_Z_option' _ _ _ _ ltac:(eassumption) _ ltac:(eassumption)) as Hr.
+    pose proof (eval_get_lookup_result_Z' _ _ _ _ ltac:(eassumption) _ ltac:(eassumption)) as Hr.
     eexists.
     exists (map_cons (inr name) (Some (fn_R (fn_SLit (toR r)))) map_empty).
     split.
@@ -712,13 +715,13 @@ Qed.
 (*how am i supposed to do induction on results?*)
 Fixpoint result_sz (r : result) :=
   match r with
-  | S _ => O
+  | Result.S _ => O
   | V v => Datatypes.S (fold_right Nat.max O (map result_sz v))
   end.
 
 Check result_ind.
 Lemma result_ind' P :
-  (forall z, P (S z)) ->
+  (forall z, P (Result.S z)) ->
   (forall v, Forall P v -> P (V v)) ->
   forall r, P r.
 Proof.
@@ -843,58 +846,147 @@ Lemma is_succ n :
 Proof. lia. Qed.
 Print result_has_shape.
 
-Inductive result_has_shape' : result -> valuation -> list Zexpr -> Prop :=
-| ScalarShape s v : result_has_shape' (S s) v []
-| VectorNilShape l e v :
-  (forall v' val,
-      v $<= v' ->
-      eval_Zexpr_Z v' e = Some val ->
-      val = 0%Z) ->
-  result_has_shape' (V []) v (e :: l)
-| VectorConsShape x xs xs_shape v e :
-  result_has_shape' x v xs_shape ->
-  Forall (fun r : result => result_has_shape' r v xs_shape) xs ->
-  (forall v' val,
-      v $<= v' ->
-      eval_Zexpr_Z v' e = Some val ->
-      val = Z.of_nat (Datatypes.S (Datatypes.length xs))) ->
-  result_has_shape' (V (x :: xs)) v (e :: xs_shape).
+Print result_has_shape.
 
-(*can't prove this without some assumption about what is in index bounds...*)
-Lemma dimensions_right sh v ctx e r :
-  eval_expr sh v ctx e r ->
-  result_has_shape' r v (sizeof e).
+Inductive result_has_dim : nat -> result -> Prop :=
+| ScalarDim s : result_has_dim O (Result.S s)
+| VectorConsDim n xs : Forall (result_has_dim n) xs ->
+                       result_has_dim (S n) (V xs).
+
+Lemma dim_sum a b c n :
+  add_result a b c ->
+  result_has_dim n a ->
+  result_has_dim n c.
 Proof.
-  intros H. induction H.
-  - simpl. intros. invert H3. simpl in H6.
-    do 2 erewrite eval_Zexpr_Z_includes in H6 by eassumption.
-    invert H6. simpl. replace (Z.to_nat (hiz - loz)) with O by lia. constructor.
-  - simpl in *. intros. invert H7. simpl in H10.
-    do 2 erewrite eval_Zexpr_Z_includes in H10 by eassumption. invert H10.
-    simpl. rewrite is_succ with (n := Z.to_nat _) by lia. constructor.
-    2: { Print result_has_shape. (*if sizeof body does not start with a zero, then , then *) eapply IHeval_expr1.
-         
-    specialize IHeval_expr1 with (2 := H12). assert (blah: v $+ (i, loz) $<= v').
-    { apply includes_add_new.
-    specialize IHeval_expr2 with (1 := H6). Search (_ $+ (_,_) $<= _ $+ (_,_)).
-    pose proof includes_add as Hincl'. specialize Hincl' with (1 := H6).
-    specialize IHeval_expr1 with (1 := Hincl' _ _).
-    eassert _ as blah. 2: epose proof (IHeval_expr1 _ blah) as IH1; clear IHeval_expr1.
-    { eapply Forall2_impl. 2: eassumption. simpl. intros.
-      eapply eval_Zexpr_Z_includes; [eassumption|]. Search (_ $<= _ $+ (_,_)).
-      apply includes_add_new. Search dom None. apply None_dom_lookup.
-    2: epose proof (IHeval_expr1 _ _ blah).
-    2: specialize (IHeval_expr1 _ blah).
-    constructor.
-    + replace (Z.to_nat (hiz - loz)) with (S (Z.to_nat (hiz - loz)) by lia.
-    inversion H3. subst. simpl. constructor.
-    rewrite H, H0 in *. rewrite H, H0 in *. simpl. replace (Z.to_nat _) with O by lia. constructor.
-  - simpl in *. rewrite H, H0 in *. simpl in *.
-    replace (Z.to_nat (hiz - loz)) with (Datatypes.S (Z.to_nat (hiz - loz) - 1)) by lia.
-    constructor.
-    + admit. (*true, easy to prove*)
-    + (*not true wihout assumption on bounds*)
-Abort.
+  revert a b c. induction n; intros a b c Hadd Ha; invert Hadd; invert Ha.
+  - constructor.
+  - constructor. revert v1 v2 H H2. induction r; intros v1 v2 H H2.
+    + constructor.
+    + invert H. invert H2. constructor; eauto.
+Qed.
+
+Lemma dim_gen_pad l :
+  result_has_dim (length l) (gen_pad l).
+Proof.
+  induction l; simpl; constructor. apply Forall_repeat. assumption.
+Qed.
+
+Lemma dim_gen_pad' l n :
+  length l = n ->
+  result_has_dim n (gen_pad l).
+Proof. intros. subst. apply dim_gen_pad. Qed.
+Search transpose_result. Print transpose_result.
+
+Lemma dim_gen_pad_list sh :
+  Forall (result_has_dim (length sh - 1)) (gen_pad_list sh).
+Proof.
+  destruct sh; simpl. 1: constructor. apply Forall_repeat. apply dim_gen_pad'. lia.
+Qed.
+
+Lemma dim_gen_pad_list' sh n :
+  length sh - 1 = n ->
+  Forall (result_has_dim n) (gen_pad_list sh).
+Proof. intros. subst. apply dim_gen_pad_list. Qed.
+
+Lemma dim_pad_list_result_to_shape l sh :
+  Forall (result_has_dim (length sh - 1)) l ->
+  Forall (result_has_dim (length sh - 1)) (pad_list_result_to_shape l sh).
+Proof.
+  intros H. cbv [pad_list_result_to_shape]. destruct l; [|assumption].
+  apply dim_gen_pad_list'. reflexivity.
+Qed.
+
+Lemma dim_pad_list_result_to_shape' l sh n :
+  length sh - 1 = n ->
+  Forall (result_has_dim n) l ->
+  Forall (result_has_dim n) (pad_list_result_to_shape l sh).
+Proof. intros. subst. apply dim_pad_list_result_to_shape. assumption. Qed.
+Print transpose_result_list.
+Print get_col. Print size_of. Print result_has_shape.
+
+Lemma dim_goes_down n v x r :
+  nth_error v x = Some r ->
+  result_has_dim (S n) (V v) ->
+  result_has_dim n r.
+Proof.
+  intros H1 H2. inversion H2. subst. apply nth_error_In in H1.
+  rewrite Forall_forall in H3. auto.
+Qed.
+
+Lemma dim_transpose_result_list l n m :
+  Forall (result_has_dim (S n)) l ->
+  Forall (result_has_dim (S n)) (transpose_result_list l m).
+Proof.
+  intros H. induction m.
+  - simpl. constructor.
+  - simpl. constructor. 2: assumption. constructor. Print get_col.
+    remember (row_length l - S m) as x. clear Heqx. clear IHm. revert x.
+    induction l; intros x; simpl.
+    + constructor.
+    + destruct a. 1: constructor. destruct (nth_error v x) eqn:E. 2: constructor.
+      invert H. constructor. 2: auto. eapply dim_goes_down; eauto.
+Qed.
+
+Lemma dim_transpose_result n l sh :
+  length sh = S (S n) ->
+  result_has_dim (S (S n)) (V l) ->
+  result_has_dim (S (S n)) (transpose_result l sh).
+Proof.
+  intros ? H. subst. cbv [transpose_result]. invert H. constructor.
+  apply dim_pad_list_result_to_shape'. 1: lia. apply dim_transpose_result_list.
+  assumption.
+Qed.
+(*proving stronger things---e.g., shape of r agrees with sizeof e---requires either some
+  cleverness or some assumption like the bounds all being constants*)
+(*i don't think i need the stronger things, so i'll just stick with this for now*)
+(*I was trying to avoid having size_of as an assumption, but looking at the concat case
+  of eval_expr makes it clear that it is necessary; there's no restriction about the
+  things even having the same dimensions..*)
+Search size_of.
+Lemma dim_flatten_result n l :
+  result_has_dim (S (S n)) (V l) ->
+  Forall (result_has_dim n) (flatten_result l).
+Proof.
+  intros H. invert H. induction l; simpl.
+  - constructor.
+  - invert H2. invert H1. apply Forall_app. auto.
+Qed.
+
+Lemma dimensions_right sh v ctx e r l :
+  eval_expr sh v ctx e r ->
+  size_of e l ->
+  result_has_dim (length l) r.
+Proof.
+  intros H. revert l. induction H; intros lsz Hsz; invert Hsz.
+  - constructor. constructor.
+  - simpl in *. constructor.
+    specialize (IHeval_expr2 _ ltac:(constructor; eassumption)).
+    simpl in IHeval_expr2. invert IHeval_expr2. constructor; eauto.
+  - simpl in *. eapply dim_sum; eauto.
+  - simpl. apply size_of_sizeof in H2, H9. subst.
+    apply dim_gen_pad'. rewrite map_length. apply length_eval_Zexprlist in H3.
+    auto.
+  - simpl. apply size_of_sizeof in H0, H5. subst.
+    apply dim_gen_pad'. rewrite map_length. apply length_eval_Zexprlist in H1.
+    auto.
+  - eauto.
+  - eauto.
+  - eauto.
+  - simpl. constructor. apply Forall_app; auto.
+    specialize (IHeval_expr1 _ ltac:(eassumption)).
+    specialize (IHeval_expr2 _ ltac:(eassumption)).
+    simpl in *. invert IHeval_expr1. invert IHeval_expr2. specialize (H6 $0).
+    eassert (blah: forall x y, x = y -> length x = length y) by (intros; subst; reflexivity).
+    apply blah in H6. do 2 rewrite map_length in H6. rewrite H6 in *. auto.
+  - simpl. specialize (IHeval_expr _ ltac:(eassumption)).
+    apply size_of_sizeof in H0, H3. rewrite H0 in H3. invert H3.
+    apply length_eval_Zexprlist in H1. simpl in H1. invert H1. simpl in *.
+    rewrite H3 in *. apply dim_transpose_result.
+    + simpl. rewrite map_length. reflexivity.
+    + assumption.
+  - simpl in *. constructor. specialize (IHeval_expr _ ltac:(eassumption)).
+    simpl in IHeval_expr. apply dim_flatten_result. assumption.
+  - 
 
 Lemma dimensions_right sh v ctx e r :
   eval_expr sh v ctx e r ->
