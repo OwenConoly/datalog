@@ -827,59 +827,123 @@ Proof.
     apply nth_error_repeat' in H4. subst. assumption.
 Qed.
 
-(* Search eval_expr. *)
-(* Print size_of. Search shape. Search result_has_shape. Print result_has_shape. *)
-(* (*this wasn't needed elsewhere? then what is sizeof for?*) Print eval_Zexprlist. *)
-(* Lemma dimensions_right sh v ctx e r : *)
-(*   eval_expr sh v ctx e r -> *)
-(*   exists l lz, *)
-(*     size_of e l /\ *)
-(*       eval_Zexprlist v l lz /\ *)
-(*       result_has_shape r (map Z.to_nat lz). *)
-(* Proof. *)
-(*   intros H. induction H. Print eval_expr. Print size_of. *)
-(*   - Search size_of. do 2 eexists. split; [econstructor|]. inversion H'. subst. rewrite nth_error_empty in H4. congruence. *)
-(*   - simpl. intros idxs val H'. inversion H'. subst. clear H'. simpl. *)
-(*     destruct (Z.to_nat x) eqn:E; simpl in H8; inversion H8; subst; clear H8; eauto. *)
-(*     + eexists. split; [econstructor|]. *)
-(*     specialize (IHeval_expr2 (Z.of_nat n :: xs) val). simpl in IHeval_expr2. *)
-(*     apply IHeval_expr2. econstructor. 1: lia. 2: eassumption. *)
-(*     replace (Z.to_nat (Z.of_nat n)) with n by lia. assumption. *)
-(*   - simpl. intros idxs val H'. pose proof add_result_same_domain_bw as H''. *)
-(*     specialize (H'' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)). *)
-(*     destruct H'' as (x'&y'&Hx'&Hy'&Hval). apply IHeval_expr1 in Hx'. assumption. *)
-(*   - simpl. intros idxs val H'. apply gen_pad_bounds in H'. rewrite map_length in H'. *)
-(*     Search eval_Zexprlist length. apply length_eval_Zexprlist in H3. *)
-(*     apply size_of_sizeof in H2. subst. lia. *)
-(*   - simpl. intros idxs val H'. apply gen_pad_bounds in H'. rewrite map_length in H'. *)
-(*     Search eval_Zexprlist length. apply length_eval_Zexprlist in H1. *)
-(*     apply size_of_sizeof in H0. subst. lia. *)
-(*   - simpl. assumption. *)
-(*   - simpl. assumption. *)
-(*   - simpl. assumption. *)
-(*   - simpl. intros idxs val H'. invert H'. Search (nth_error (_ ++ _)). *)
-(*     assert (Hor: Z.to_nat x < length l1 \/ length l1 <= Z.to_nat x) by lia. *)
-(*     destruct Hor as [Hl1|Hl2]. *)
-(*     + rewrite nth_error_app1 in H3 by assumption. *)
-(*       specialize (IHeval_expr1 (x :: xs) val). *)
-(*       eassert _ as blah. 2: specialize (IHeval_expr1 blah). *)
-(*       { econstructor; eauto. } *)
-(*       rewrite IHeval_expr1. destruct (sizeof e1). *)
-(*       -- discriminate IHeval_expr1. *)
-(*       -- destruct (sizeof e2); reflexivity. *)
-(*     + rewrite nth_error_app2 in H3 by assumption. *)
-(*       specialize (IHeval_expr2 (x - Z.of_nat (length l1) :: xs)%Z val). *)
-(*       eassert _ as blah. 2: specialize (IHeval_expr2 blah). *)
-(*       { econstructor. 3: eassumption. 1: lia. rewrite <- H3. f_equal. lia. } *)
-(*       simpl in IHeval_expr2. simpl. rewrite IHeval_expr2. Print size_of. destruct (sizeof e1). *)
-(*       -- discriminate IHeval_expr1. *)
-(*       -- destruct (sizeof e2); reflexivity. *)
-(*     +  *)
-(*       2: { econstructor; eauto. } *)
+Print ATLexpr. Print sizeof.
+Print eval_expr.
+
+Check eval_Zexpr_includes_valuation.
+Lemma eval_Zexpr_Z_includes :
+  forall (v : valuation) (l0 : Zexpr) (zs : Z),
+       eval_Zexpr_Z v l0 = Some zs ->
+       forall v' : fmap Var.var Z, v $<= v' -> eval_Zexpr_Z v' l0 = Some zs.
+Proof. Admitted.
+Search eval_Zexpr.
+Lemma is_succ n :
+  1 <= n ->
+  n = Datatypes.S (n - 1).
+Proof. lia. Qed.
+Print result_has_shape.
+
+Inductive result_has_shape' : result -> valuation -> list Zexpr -> Prop :=
+| ScalarShape s v : result_has_shape' (S s) v []
+| VectorNilShape l e v :
+  (forall v' val,
+      v $<= v' ->
+      eval_Zexpr_Z v' e = Some val ->
+      val = 0%Z) ->
+  result_has_shape' (V []) v (e :: l)
+| VectorConsShape x xs xs_shape v e :
+  result_has_shape' x v xs_shape ->
+  Forall (fun r : result => result_has_shape' r v xs_shape) xs ->
+  (forall v' val,
+      v $<= v' ->
+      eval_Zexpr_Z v' e = Some val ->
+      val = Z.of_nat (Datatypes.S (Datatypes.length xs))) ->
+  result_has_shape' (V (x :: xs)) v (e :: xs_shape).
+
+(*can't prove this without some assumption about what is in index bounds...*)
+Lemma dimensions_right sh v ctx e r :
+  eval_expr sh v ctx e r ->
+  result_has_shape' r v (sizeof e).
+Proof.
+  intros H. induction H.
+  - simpl. intros. invert H3. simpl in H6.
+    do 2 erewrite eval_Zexpr_Z_includes in H6 by eassumption.
+    invert H6. simpl. replace (Z.to_nat (hiz - loz)) with O by lia. constructor.
+  - simpl in *. intros. invert H7. simpl in H10.
+    do 2 erewrite eval_Zexpr_Z_includes in H10 by eassumption. invert H10.
+    simpl. rewrite is_succ with (n := Z.to_nat _) by lia. constructor.
+    2: { Print result_has_shape. (*if sizeof body does not start with a zero, then , then *) eapply IHeval_expr1.
+         
+    specialize IHeval_expr1 with (2 := H12). assert (blah: v $+ (i, loz) $<= v').
+    { apply includes_add_new.
+    specialize IHeval_expr2 with (1 := H6). Search (_ $+ (_,_) $<= _ $+ (_,_)).
+    pose proof includes_add as Hincl'. specialize Hincl' with (1 := H6).
+    specialize IHeval_expr1 with (1 := Hincl' _ _).
+    eassert _ as blah. 2: epose proof (IHeval_expr1 _ blah) as IH1; clear IHeval_expr1.
+    { eapply Forall2_impl. 2: eassumption. simpl. intros.
+      eapply eval_Zexpr_Z_includes; [eassumption|]. Search (_ $<= _ $+ (_,_)).
+      apply includes_add_new. Search dom None. apply None_dom_lookup.
+    2: epose proof (IHeval_expr1 _ _ blah).
+    2: specialize (IHeval_expr1 _ blah).
+    constructor.
+    + replace (Z.to_nat (hiz - loz)) with (S (Z.to_nat (hiz - loz)) by lia.
+    inversion H3. subst. simpl. constructor.
+    rewrite H, H0 in *. rewrite H, H0 in *. simpl. replace (Z.to_nat _) with O by lia. constructor.
+  - simpl in *. rewrite H, H0 in *. simpl in *.
+    replace (Z.to_nat (hiz - loz)) with (Datatypes.S (Z.to_nat (hiz - loz) - 1)) by lia.
+    constructor.
+    + admit. (*true, easy to prove*)
+    + (*not true wihout assumption on bounds*)
+Abort.
+
+Lemma dimensions_right sh v ctx e r :
+  eval_expr sh v ctx e r ->
+  result_has_shape' r (map (fun ex => option_map Z.to_nat (eval_Zexpr_Z v ex)) (sizeof e)).
+Proof.
+simpl in *.
+    constructor.
+    + 
+    intros idxs val H'. inversion H'. subst. clear H'. simpl.
+    destruct (Z.to_nat x) eqn:E; simpl in H8; inversion H8; subst; clear H8; eauto.
+    + eexists. split; [econstructor|].
+    specialize (IHeval_expr2 (Z.of_nat n :: xs) val). simpl in IHeval_expr2.
+    apply IHeval_expr2. econstructor. 1: lia. 2: eassumption.
+    replace (Z.to_nat (Z.of_nat n)) with n by lia. assumption.
+  - simpl. intros idxs val H'. pose proof add_result_same_domain_bw as H''.
+    specialize (H'' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+    destruct H'' as (x'&y'&Hx'&Hy'&Hval). apply IHeval_expr1 in Hx'. assumption.
+  - simpl. intros idxs val H'. apply gen_pad_bounds in H'. rewrite map_length in H'.
+    Search eval_Zexprlist length. apply length_eval_Zexprlist in H3.
+    apply size_of_sizeof in H2. subst. lia.
+  - simpl. intros idxs val H'. apply gen_pad_bounds in H'. rewrite map_length in H'.
+    Search eval_Zexprlist length. apply length_eval_Zexprlist in H1.
+    apply size_of_sizeof in H0. subst. lia.
+  - simpl. assumption.
+  - simpl. assumption.
+  - simpl. assumption.
+  - simpl. intros idxs val H'. invert H'. Search (nth_error (_ ++ _)).
+    assert (Hor: Z.to_nat x < length l1 \/ length l1 <= Z.to_nat x) by lia.
+    destruct Hor as [Hl1|Hl2].
+    + rewrite nth_error_app1 in H3 by assumption.
+      specialize (IHeval_expr1 (x :: xs) val).
+      eassert _ as blah. 2: specialize (IHeval_expr1 blah).
+      { econstructor; eauto. }
+      rewrite IHeval_expr1. destruct (sizeof e1).
+      -- discriminate IHeval_expr1.
+      -- destruct (sizeof e2); reflexivity.
+    + rewrite nth_error_app2 in H3 by assumption.
+      specialize (IHeval_expr2 (x - Z.of_nat (length l1) :: xs)%Z val).
+      eassert _ as blah. 2: specialize (IHeval_expr2 blah).
+      { econstructor. 3: eassumption. 1: lia. rewrite <- H3. f_equal. lia. }
+      simpl in IHeval_expr2. simpl. rewrite IHeval_expr2. Print size_of. destruct (sizeof e1).
+      -- discriminate IHeval_expr1.
+      -- destruct (sizeof e2); reflexivity.
+    +
+      2: { econstructor; eauto. }
       
       
     
-(*     simpl. apply gen_ *)
+    simpl. apply gen_
     
 Lemma lower_correct e out sh v ctx r datalog_ctx :
   eval_expr sh v ctx e r ->
@@ -957,7 +1021,7 @@ Proof.
         - repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl. 2: eassumption.
           simpl. intros a b Hab. eapply interp_expr_subst_more'. 2: eassumption.
           apply compose_extends_l. apply disj_comm. Search (disj _ (substn_of _)).
-          eapply domain_in_ints_disj_substn_of with (low := 0) (high := length idxs).
+          eapply domain_in_ints_disj_substn_of with (low := 0) (high := Datatypes.S (length idxs)).
           apply domain_in_ints_cons.
           + eapply domain_in_ints_weaken. 3: apply domain_in_ints_idx_map. 1: lia.
             rewrite map_length. lia.
