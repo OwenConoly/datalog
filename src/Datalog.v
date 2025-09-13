@@ -72,6 +72,9 @@ Section __.
   Definition appears_in_fact (v : var) (f : fact) :=
     Exists (appears_in_expr v) f.(fact_args).
 
+  (*TODO: this is not a good enough condition.  We want to say that every variable
+    appearing (in the hyps or in the conclusion) appears 'naked' in the hyps,
+    i.e. as a direct argument to a relation.*)
   Definition good_rule (r : rule) :=
     forall v, appears_in_fact v r.(rule_concl) ->
          Exists (appears_in_fact v) r.(rule_hyps).
