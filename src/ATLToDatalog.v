@@ -1120,7 +1120,38 @@ Lemma map_cons_nothing m x x' y :
   (map_cons x y m) x' = m x'.
 Proof.
   intros. cbv [map_cons]. rewrite var_eqb_neq by assumption. reflexivity.
-Qed.  
+Qed.
+
+Lemma nth_error_skipn {A : Type} (l : list A) n1 n2 :
+  nth_error (skipn n1 l) n2 = nth_error l (n1 + n2).
+Proof.
+  revert n1 n2. induction l; intros n1 n2; simpl.
+  - destruct n1, n2; reflexivity.
+  - destruct n1; simpl; auto.
+Qed.
+
+Lemma Forall2_firstn {A B : Type} (l1 : list A) (l2 : list B) R n :
+  Forall2 R l1 l2 ->
+  Forall2 R (firstn n l1) (firstn n l2).
+Proof.
+  revert l1 l2. induction n; simpl.
+  - intros. constructor.
+  - intros. invert H; constructor; auto.
+Qed.
+
+Lemma nth_error_Forall2_r {A B : Type} (R : A -> B -> Prop) l1 l2 n x2 :
+  Forall2 R l1 l2 ->
+  nth_error l2 n = Some x2 ->
+  exists x1,
+    nth_error l1 n = Some x1 /\
+      R x1 x2.
+Proof.
+  intros H1 H2. apply nth_error_split in H2. destruct H2 as (l3&l4&H2&H3). subst.
+  apply Forall2_app_inv_r in H1. destruct H1 as (l5&l6&H2&H3&H4). subst.
+  invert H3. apply Forall2_length in H2. rewrite <- H2. Search (nth_error (_ ++ _)).
+  exists x. split; [|assumption]. rewrite nth_error_app2 by lia. replace _ with O by lia.
+  reflexivity.
+Qed.
 
 Lemma lower_correct e out sh v ctx r datalog_ctx l :
   eval_expr sh v ctx e r ->
@@ -1276,9 +1307,16 @@ Proof.
            { eapply interp_expr_subst_more'; [|eassumption]. apply gross2. }
            rewrite <- H''. apply gross1.
         -- apply Forall_forall. constructor.
-      + intros Hn. assert (Hs': (exists a, firstn (S n) ss = firstn n ss ++ [a])%list).
-        { admit. }
-        destruct Hs' as [a Hs'].
+      + intros Hn. assert (Hs': (exists a, nth_error ss n = Some a /\
+                                        firstn (S n) ss = firstn n ss ++ [a])%list).
+        { replace (S n) with (n + 1) by lia. Search (firstn (_ + _)).
+          rewrite firstn_add.
+          replace (nth_error ss n) with (nth_error ss (n + O)) by (f_equal; lia).
+          rewrite <- nth_error_skipn. destruct (skipn n ss) eqn:E.
+          { eassert (blah: forall x y, x = y -> length x = length y) by (intros; subst; auto).
+            apply blah in E. rewrite skipn_length in E. simpl in E. lia. }
+          simpl. eexists. split; [reflexivity|]. reflexivity. }
+        destruct Hs' as (a & Ha & Hs').
         econstructor.
         -- apply Exists_app. left. apply Exists_app. right. apply Exists_cons_tl.
            apply Exists_cons_hd. rewrite Hs' in *. simpl.
@@ -1341,10 +1379,25 @@ Proof.
               constructor.
         -- apply Forall_forall. simpl. constructor.
            { remember (_ ++ _)%list as ll. apply IHn. lia. }
-           constructor.
-           { Print lower.
-           lrewrite <- Heqthing. apply IHn. econstructor. apply Exists_app. left. apply Exists_app. right.
-             apply Exists_cons_tl. apply 
+           clear IHn. constructor. 
+           { specialize (Hbody (loz + Z.of_nat n)%Z ltac:(lia)).
+             destruct Hbody as (_&_&Hbody).
+             epose proof nth_error_Forall2_r as H'.
+             specialize H' with (1 := Hs) (2 := Ha). destruct H' as (s1&Hs1&Hs2).
+             replace (Z.to_nat _) with n in Hbody by lia. rewrite Hs1 in Hbody.
+             specialize IHe with (1 := Hbody) (2 := Hs2).
+             specialize IHe with (idx_ctx := [((! i !)%z, (hi - lo)%z)]).
+             simpl in IHe. Search ((_ $+ (_, _)) $? _). rewrite lookup_add_eq in IHe by reflexivity.
+             eassert _ as blah. 2: epose proof (IHe _ _ _ blah) as IH; clear IHe.
+             { simpl. repeat econstructor. }
+             simpl in IH. eapply prog_impl_fact_subset.
+             2: { apply IH. }
+             intros x Hx. apply in_app_iff. apply in_app_iff in Hx.
+             destruct Hx as [Hx|Hx].
+             ++ left. apply in_app_iff. left. eassumption.
+             ++ right. assumption. }
+           constructor. }
+  Unshelve. 11: exact (SS 0).
               
   | Guard b body =>
       If b (lower body f p asn sh)
