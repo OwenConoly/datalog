@@ -50,24 +50,35 @@ Definition get_inr {X Y : Type} (xy : X + Y) : option Y :=
   | inl _ => None
   | inr y => Some y
   end.
-(*p is target*)
-(*f is reindexer*)
-(*asn is StoreType += or =*)
-(*sh is shape of something?*)
-Search Zexpr.
-Print eval_Zexpr.
+Print Bexpr.
+
+Variant obj : Set :=
+  Bobj : bool -> obj | Zobj : Z -> obj | Robj : R -> obj.
+
+(*just like Bexpr*)
+Variant Bfn : Set :=
+  fn_BAnd | fn_BLt | fn_BLe | fn_BEq.
+
+Definition interp_Bfn (f : Bfn) (l : list obj) : option bool :=
+  match f, l with
+  | fn_BAnd, [Bobj x; Bobj y] => Some (x && y)
+  | fn_BLt, [Zobj x; Zobj y] => Some (x <? y)
+  | fn_BLe, [Zobj x; Zobj y] => Some (x <=? y)
+  | fn_BEq, [Zobj x; Zobj y] => Some (x =? y)
+  | _, _ => None
+  end%Z.
 (*just like Zexpr but no ZVar*)
 Variant Zfn : Set :=
   fn_ZPlus | fn_ZMinus | fn_ZTimes | fn_ZDivf | fn_ZDivc | fn_ZMod | fn_Zmax(*i added this to make writing the compiler convenient*) | fn_ZLit (x : Z).
-Definition interp_Zfn (f : Zfn) (l : list Z) : option Z :=
+Definition interp_Zfn (f : Zfn) (l : list obj) : option Z :=
   match f, l with
-  | fn_ZPlus, [x; y] => Some (x + y)
-  | fn_ZMinus, [x; y] => Some (x - y)
-  | fn_ZTimes, [x; y] => Some (x * y)
-  | fn_ZDivf, [x; y] => Some (x / y)
-  | fn_ZDivc, [x; y] => Some (x // y)
-  | fn_ZMod, [x; y] => Some (x mod y)
-  | fn_Zmax, [x; y] => Some (Z.max x y)
+  | fn_ZPlus, [Zobj x; Zobj y] => Some (x + y)
+  | fn_ZMinus, [Zobj x; Zobj y] => Some (x - y)
+  | fn_ZTimes, [Zobj x; Zobj y] => Some (x * y)
+  | fn_ZDivf, [Zobj x; Zobj y] => Some (x / y)
+  | fn_ZDivc, [Zobj x; Zobj y] => Some (x // y)
+  | fn_ZMod, [Zobj x; Zobj y] => Some (x mod y)
+  | fn_Zmax, [Zobj x; Zobj y] => Some (Z.max x y)
   | fn_ZLit x, [] => Some x
   | _, _ => None
   end%Z.
@@ -75,35 +86,37 @@ Definition interp_Zfn (f : Zfn) (l : list Z) : option Z :=
 Variant Rfn : Set :=
   fn_SMul | fn_SAdd | fn_SDiv | fn_SSub | fn_SLit (x : R).
 
-Definition interp_Rfn (f : Rfn) (l : list R) : option R :=
+Definition interp_Rfn (f : Rfn) (l : list obj) : option R :=
   match f, l with
-  | fn_SMul, [x; y] => Some (x * y)
-  | fn_SAdd, [x; y] => Some (x + y)
-  | fn_SDiv, [x; y] => Some (x / y)
-  | fn_SSub, [x; y] => Some (x - y)
+  | fn_SMul, [Robj x; Robj y] => Some (x * y)
+  | fn_SAdd, [Robj x; Robj y] => Some (x + y)
+  | fn_SDiv, [Robj x; Robj y] => Some (x / y)
+  | fn_SSub, [Robj x; Robj y] => Some (x - y)
   | fn_SLit x, [] => Some (x)
   | _, _ => None
   end%R.
 
-Variant tfn : Set :=
-  fn_Z (_ : Zfn) | fn_R (_ : Rfn).
+Variant fn : Set :=
+  fn_B (_ : Bfn) | fn_Z (_ : Zfn) | fn_R (_ : Rfn).
 
-Definition interp_fn (f : tfn) (l : list (Z+R)) : option (Z + R) :=
+Definition interp_fn (f : fn) (l : list obj) : option obj :=
   match f with
-  | fn_Z f => option_map inl (option_unwrap (option_map (interp_Zfn f) (option_all (map get_inl l))))
-  | fn_R f => option_map inr (option_unwrap (option_map (interp_Rfn f) (option_all (map get_inr l))))
+  | fn_B f => option_map Bobj (interp_Bfn f l)
+  | fn_Z f => option_map Zobj (interp_Zfn f l)
+  | fn_R f => option_map Robj (interp_Rfn f l)
   end.
 
-Definition rel : Set := string + nat.
-(*inl s is string representing indexing variable (e.g. i, j), which came directly from source program
-  inr n is nat (that i generated) representing value in some intermediate thing
- *)
+Variant rel : Set :=
+  | str_rel (s : string)
+  | nat_rel (n : nat)
+  | true_rel (*unary, true if arg is true*)
+  | false_rel.
+
 Definition var : Set := string + nat.
-Definition trule := rule rel var tfn.
 
 Search Sstmt. Print eval_Sstmt. Print context. Print fmap. Check Build_rule. Check Build_fact.
 
-Fixpoint lower_idx (idx: Zexpr) : expr var tfn :=
+Fixpoint lower_idx (idx: Zexpr) : expr var fn :=
   match idx with
   (*copy-pasted monstrosity*)
   | ZPlus x y => fun_expr (fn_Z fn_ZPlus) [lower_idx x; lower_idx y]
@@ -116,17 +129,26 @@ Fixpoint lower_idx (idx: Zexpr) : expr var tfn :=
   | ZVar x => var_expr (inl x)
   end.
 
+Print Bexpr.
+Fixpoint lower_guard (g: Bexpr) : expr var fn :=
+  match g with
+  | Bexpr.And x y => fun_expr (fn_B fn_BAnd) [lower_guard x; lower_guard y]
+  | Bexpr.Lt x y => fun_expr (fn_B fn_BLt) [lower_idx x; lower_idx y]
+  | Bexpr.Le x y => fun_expr (fn_B fn_BLe) [lower_idx x; lower_idx y]
+  | Bexpr.Eq x y => fun_expr (fn_B fn_BEq) [lower_idx x; lower_idx y]
+  end.
+
 Print Sexpr.
 Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
-  expr var tfn (*value of expr*) *
-    list (fact rel var tfn) (*hypotheses*) *
+  expr var fn (*value of expr*) *
+    list (fact rel var fn) (*hypotheses*) *
     nat (*next varname *) :=
   match e with
   | Var x => (var_expr (inr next_varname),
-              [{| fact_R := inl x; fact_args := [var_expr (inr next_varname)] |}],
+              [{| fact_R := str_rel x; fact_args := [var_expr (inr next_varname)] |}],
               succ next_varname)
   | Get x idxs => (var_expr (inr next_varname),
-                   [{| fact_R := inl x; fact_args := var_expr (inr next_varname) :: map lower_idx idxs |}],
+                   [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map lower_idx idxs |}],
                    succ next_varname)
   (*copy-pasted monstrosity*)
   | Mul x y => let '(e1, hyps1, next_varname) := lower_Sexpr next_varname x in
@@ -152,8 +174,8 @@ Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
   | Lit x => (fun_expr (fn_R (fn_SLit x)) [], [], next_varname)
   end.
 
-Definition map_empty : var -> option tfn := fun _ => None.
-Search ((_ + _) -> (_ + _) -> bool).
+Definition map_empty : var -> option fn := fun _ => None.
+
 Definition var_eqb (x y : var) : bool :=
   match x, y with
   | inl x, inl y => x =? y
@@ -168,7 +190,7 @@ Proof.
   - apply Nat.eqb_refl.
 Qed.
   
-Definition map_cons (x : var) (y : option tfn) (m : var -> option tfn) :=
+Definition map_cons (x : var) (y : option fn) (m : var -> option fn) :=
   fun v => if var_eqb x v then y else m v.
 Search (scalar_result -> R).
 Definition toR (s : scalar_result) :=
@@ -179,14 +201,14 @@ Definition toR (s : scalar_result) :=
   
 
 Search (list Z). Search "shape".
-Print sizeof. Print rule. Print fact. Print eval_expr. Print fact. Print Rfn. Print Zexpr. Print trule. 
+Print sizeof. Print rule. Print fact. Print eval_expr. Print fact. Print Rfn. Print Zexpr. Print rule.  Print lower.
 Fixpoint lower
   (e : ATLexpr)
   (out: rel)
   (name: nat)
   (*i don't use the bounds at all (yet)*)
   (idxs_bds : list (Zexpr * Zexpr))
-  : list trule :=
+  : list (rule rel var fn) :=
   match e with
   | Gen i lo hi body =>
       lower body out name (idxs_bds ++ [(ZMinus (ZVar i) lo, ZMinus hi lo)])
@@ -198,25 +220,25 @@ Fixpoint lower
       let aux := name in
       let aux' := Datatypes.S aux in
       (*set aux(body(i), i, ...)*)
-      lower body (inr aux) (Datatypes.S aux') [(ZVar i, ZMinus hi lo)] ++
+      lower body (nat_rel aux) (Datatypes.S aux') [(ZVar i, ZMinus hi lo)] ++
         [(*set aux'(O, lo, ...)*)
           {| rule_hyps := [];
-            rule_concl := {| fact_R := (inr aux');
+            rule_concl := {| fact_R := nat_rel aux';
                             fact_args := [fun_expr (fn_R (fn_SLit 0%R)) [];
                                           lower_idx lo] ++
                                           map var_expr dimvars(*arbitrary index into summand*) |} |};
           (*set aux' (body(i) + \sum_{j < i} body(j), S i, ...)*)
-          {| rule_hyps := [{| fact_R := (inr aux');
+          {| rule_hyps := [{| fact_R := nat_rel aux';
                              fact_args :=
                                [var_expr (inr x)(*\sum_{j < i} body(j)*);
                                 var_expr (inr i') (*index into aux'*)] ++
                                 map var_expr dimvars(*arbitrary idx into summand*) |};
-                           {| fact_R := (inr aux);
+                           {| fact_R := nat_rel aux;
                              fact_args :=
                                [var_expr (inr y)(*body(i)*);
                                 var_expr (inr i') (*index into aux*)] ++
                                 map var_expr dimvars (*arbitrary idx into summand*) |}];
-            rule_concl := {| fact_R := (inr aux');
+            rule_concl := {| fact_R := nat_rel aux';
                             fact_args :=
                               [fun_expr (fn_R fn_SAdd) [var_expr (inr y);
                                                         var_expr (inr x)];
@@ -224,7 +246,7 @@ Fixpoint lower
                                                         fun_expr (fn_Z (fn_ZLit 1%Z)) []]] ++
                                map var_expr dimvars (*arbitrary idx into accumulated sum*) |} |};
           (*set out (\sum_j body(j), idxs)*)
-          {| rule_hyps := [{| fact_R := (inr aux');
+          {| rule_hyps := [{| fact_R := (nat_rel aux');
                              fact_args :=
                                [var_expr (inr x)(*\sum_j body(j)*);
                                 (*basically the next arg should just be hi, except i am dealing with the dumb case where hi < lo*)
@@ -235,6 +257,28 @@ Fixpoint lower
                               var_expr (inr x) ::
                                 map lower_idx (map fst idxs_bds) ++
                                 map var_expr dimvars(*arbitrary idx into sum*) |} |}]
+  | Guard b body =>
+      let dimvars := map inr (seq O (length (sizeof body))) in
+      let x := length (sizeof body) in
+      let aux := name in
+      lower body out (S aux) idxs_bds ++
+        [{| rule_concl := {| fact_R := out;
+                            fact_args :=
+                              var_expr (inr x) ::
+                                map var_expr dimvars |};
+           rule_hyps := [{| fact_R := nat_rel aux;
+                           fact_args :=
+                             var_expr (inr x) ::
+                               map var_expr dimvars |};
+                         {| fact_R := true_rel;
+                           fact_args := [lower_guard b] |}] |};
+         {| rule_concl := {| fact_R := out;
+                            fact_args :=
+                              fun_expr (fn_R (fn_SLit 0%R)) [] ::
+                                map var_expr dimvars |};
+           rule_hyps := [{| fact_R := false_rel;
+                           fact_args := [lower_guard b] |}] |}
+        ]
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr O s in
       [{| rule_hyps := hyps; rule_concl := {| fact_R := out; fact_args := val :: map lower_idx (map fst idxs_bds) |} |}]
@@ -243,7 +287,7 @@ Fixpoint lower
 (*I thought about using fmaps here, but it's not even clear to me that that is possible.
   How do you iterate over an fmap?  i could get the domain, which is a 'set', but idk
   how to iterate over a set, either...*)
-Definition substn_of (v : valuation) : var -> option tfn :=
+Definition substn_of (v : valuation) : var -> option fn :=
   fun x => match x with
         | inl x => option_map (fun y => fn_Z (fn_ZLit y)) (v $? x)
         | inr x => None
@@ -258,14 +302,14 @@ Qed.
 
 Lemma eval_Zexpr_to_substn v x z :
   eval_Zexpr v x z ->
-  interp_expr interp_fn (subst_in_expr (substn_of v) (lower_idx x)) (inl z).
+  interp_expr interp_fn (subst_in_expr (substn_of v) (lower_idx x)) (Zobj z).
 Proof.
   intros H. induction H; simpl; repeat match goal with | H: _ = Some _ |- _ => rewrite H end; econstructor; eauto.
 Qed.
 
 Lemma eval_Zexprlist_to_substn v i lz :
   eval_Zexprlist v i lz ->
-  Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx i)) (map inl lz).
+  Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx i)) (map Zobj lz).
 Proof.
   intros H. induction H.
   - constructor.
@@ -301,7 +345,7 @@ Proof.
   - invert H2. invert H8. eq_eval_Z. econstructor; eauto. constructor.
 Qed.
 
-Definition domain_in_ints low high (substn : var -> option tfn) :=
+Definition domain_in_ints low high (substn : var -> option fn) :=
   forall x y, substn x = Some y ->
          match x with
          | inr i => low <= i < high
@@ -363,11 +407,11 @@ Proof.
   - specialize H with (1 := H1). simpl in H. assumption.
 Qed.
 Check eval_Sexpr.
-Lemma lower_Sexpr_correct sh v ec s (datalog_ctx : list (rule rel var tfn)):
+Lemma lower_Sexpr_correct sh v ec s (datalog_ctx : list (rule rel var fn)):
   (forall x r idxs val,
       ec $? x = Some r ->
       result_lookup_Z' idxs r val ->
-      prog_impl_fact interp_fn datalog_ctx (inl x, inr (toR val) :: (map inl idxs))) ->
+      prog_impl_fact interp_fn datalog_ctx (str_rel x, Robj (toR val) :: (map Zobj idxs))) ->
   forall val name val0 hyps name',
     eval_Sexpr sh v ec s val ->
     lower_Sexpr name s = (val0, hyps, name') ->
@@ -376,7 +420,7 @@ Lemma lower_Sexpr_correct sh v ec s (datalog_ctx : list (rule rel var tfn)):
       domain_in_ints name name' substn /\
         Forall2 (interp_fact interp_fn) (map (subst_in_fact (substn)) (map (subst_in_fact (substn_of v)) hyps)) hyps' /\
         Forall (prog_impl_fact interp_fn datalog_ctx) hyps' /\
-        interp_expr interp_fn (subst_in_expr substn (subst_in_expr (substn_of v) val0)) (inr (toR val)).
+        interp_expr interp_fn (subst_in_expr substn (subst_in_expr (substn_of v) val0)) (Robj (toR val)).
 Proof.
   intros H. induction s; intros; simpl in *.
   - inversion H1. subst. clear H1. simpl. eexists.
@@ -792,7 +836,7 @@ Qed.
 Lemma disj_comm {A B : Type} (x y : A -> option B) : disj x y -> disj y x.
 Proof. cbv [disj]. eauto. Qed.
 
-Definition idx_map (x : list tfn) : var -> option tfn :=
+Definition idx_map (x : list fn) : var -> option fn :=
   fun v =>
     match v with
     | inr n => nth_error x n
@@ -1078,7 +1122,7 @@ Lemma gross1 val idxs v :
   Forall2 (interp_expr interp_fn)
     (map (subst_in_expr s)
        (map var_expr (map inr (seq 0 (length idxs)))))
-    (map inl idxs).
+    (map Zobj idxs).
 Proof.
   apply Forall2_nth_error.
   { repeat rewrite map_length. rewrite seq_length. auto. }
@@ -1159,11 +1203,11 @@ Lemma lower_correct e out sh v ctx r datalog_ctx l :
   (forall x (r : result) (idxs : list Z) (val : scalar_result),
       ctx $? x = Some r ->
       result_lookup_Z' idxs r val ->
-      prog_impl_fact interp_fn datalog_ctx (inl x, inr (toR val) :: map inl idxs)) ->
+      prog_impl_fact interp_fn datalog_ctx (str_rel x, Robj (toR val) :: map Zobj idxs)) ->
   forall idxs name val idx_ctx idx_ctx',
     result_lookup_Z' idxs r val ->
     Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx (map fst idx_ctx))) idx_ctx' ->
-        prog_impl_fact interp_fn (lower e out name idx_ctx ++ datalog_ctx) (out, inr (toR val) :: idx_ctx' ++ map inl idxs).
+        prog_impl_fact interp_fn (lower e out name idx_ctx ++ datalog_ctx) (out, Robj (toR val) :: idx_ctx' ++ map Zobj idxs).
 Proof.
   revert out sh v ctx r datalog_ctx l. induction e. 
   { simpl. intros. apply invert_eval_gen in H.
@@ -1332,7 +1376,7 @@ Proof.
                              (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs))))).
            assert (fact1: Forall2 (interp_expr interp_fn)
                             (map (subst_in_expr s) (map var_expr (map inr (seq 0 (length (sizeof e))))))
-                            (map inl idxs)).
+                            (map Zobj idxs)).
            { apply Forall2_nth_error.
              { repeat rewrite map_length. rewrite seq_length. auto. }
              intros n0 x1 x2. repeat rewrite nth_error_map. intros.
@@ -1398,6 +1442,9 @@ Proof.
              ++ right. assumption. }
            constructor. }
   Unshelve. 11: exact (SS 0).
+  { simpl. intros. invert H0. invert H.
+    - 
+  
               
   | Guard b body =>
       If b (lower body f p asn sh)
