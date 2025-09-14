@@ -218,8 +218,8 @@ Fixpoint lower
                                 map var_expr dimvars (*arbitrary idx into summand*) |}];
             rule_concl := {| fact_R := (inr aux');
                             fact_args :=
-                              [fun_expr (fn_R fn_SAdd) [var_expr (inr x);
-                                                       var_expr (inr y)];
+                              [fun_expr (fn_R fn_SAdd) [var_expr (inr y);
+                                                        var_expr (inr x)];
                                fun_expr (fn_Z fn_ZPlus) [var_expr (inr i');
                                                         fun_expr (fn_Z (fn_ZLit 1%Z)) []]] ++
                                map var_expr dimvars (*arbitrary idx into accumulated sum*) |} |};
@@ -742,7 +742,7 @@ Proof.
     + eexists. econstructor.
     + inversion H. subst. clear H. specialize (H2 a b). destruct H2 as [sh H2].
       eexists. intros H. inversion H. subst. clear H. inversion H5. subst. clear H5.
-      Abort. (*not true*)
+      Abort. (*not true*) Locate "+".
     
 Lemma invert_eval_sum sh v ctx i lo hi body r :
   eval_expr sh v ctx (Sum i lo hi body) r ->
@@ -754,7 +754,7 @@ Lemma invert_eval_sum sh v ctx i lo hi body r :
           result_lookup_Z' idxs r val ->
           exists scalar_summands,
             Forall2 (result_lookup_Z' idxs) summands scalar_summands /\
-              toR val = fold_right (fun a b => toR a + b)%R 0%R scalar_summands) /\
+              toR val = fold_right Rplus 0%R (map toR scalar_summands)) /\
       (forall i', (loz <= i' < hiz)%Z ->
              (~ i \in dom v) /\
                (~ contains_substring "?" i) /\
@@ -1032,6 +1032,10 @@ Proof.
     rewrite Forall_forall in H0. auto.
 Qed.
 
+Lemma map_cons_something x y m :
+  (map_cons x y m) x = y.
+Proof. cbv [map_cons]. rewrite var_eqb_refl. reflexivity. Qed.
+
 Lemma Forall2_nth_error (A B : Type) (R : A -> B -> Prop) l1 l2 :
   length l1 = length l2 ->
   (forall n x1 x2,
@@ -1063,7 +1067,60 @@ Proof.
   - destruct n3; simpl in H.
     + invert H. lia.
     + apply IHn2 in H. lia.
-Qed.        
+Qed.
+
+Lemma gross1 val idxs v :
+  let s := compose
+             (substn_of v)
+             (map_cons
+                (inr (length idxs)) (Some (fn_R (fn_SLit (toR val))))
+                (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs))) in
+  Forall2 (interp_expr interp_fn)
+    (map (subst_in_expr s)
+       (map var_expr (map inr (seq 0 (length idxs)))))
+    (map inl idxs).
+Proof.
+  apply Forall2_nth_error.
+  { repeat rewrite map_length. rewrite seq_length. auto. }
+  intros n x1 x2. repeat rewrite nth_error_map. intros.
+  do 4 destruct_option_map_Some. apply nth_error_seq_Some in E0.
+  simpl in E0. subst. simpl. cbv [compose map_cons]. simpl.
+  epose proof nth_error_Some as H. specialize (H _ _ _ ltac:(eassumption)).
+  replace (_ =? _)%nat with false.
+  2: { symmetry. apply eqb_neq. lia. }
+  rewrite nth_error_map. rewrite E. simpl. repeat econstructor.
+Qed.
+
+Lemma gross2 val idxs v :
+  let s := compose
+             (substn_of v)
+             (map_cons
+                (inr (length idxs)) (Some (fn_R (fn_SLit (toR val))))
+                (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs))) in
+  extends s (substn_of v).
+Proof.
+  apply compose_extends_l. Search domain_in_ints disj. apply disj_comm.
+  eapply domain_in_ints_disj_substn_of with (low := O) (high := S (length idxs)).
+  apply domain_in_ints_cons; [|lia]. Check domain_in_ints_idx_map.
+  eapply domain_in_ints_weaken. 3: apply domain_in_ints_idx_map. 1: lia.
+  rewrite map_length. lia.
+Qed.
+
+Search var_eqb.
+Lemma var_eqb_neq x y :
+  x <> y -> var_eqb x y = false.
+Proof.
+  intros H. cbv [var_eqb]. destruct x, y; try reflexivity.
+  - apply String.eqb_neq. congruence.
+  - apply Nat.eqb_neq. congruence.
+Qed.
+
+Lemma map_cons_nothing m x x' y :
+  x <> x' ->
+  (map_cons x y m) x' = m x'.
+Proof.
+  intros. cbv [map_cons]. rewrite var_eqb_neq by assumption. reflexivity.
+Qed.  
 
 Lemma lower_correct e out sh v ctx r datalog_ctx l :
   eval_expr sh v ctx e r ->
@@ -1136,34 +1193,15 @@ Proof.
     set (s := compose
                 (substn_of v)
                 (map_cons
-                   (inr (Datatypes.length (sizeof e))) (Some (fn_R (fn_SLit (toR val))))
+                   (inr (length idxs)) (Some (fn_R (fn_SLit (toR val))))
                    (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs)))).
-    assert (fact1: Forall2 (interp_expr interp_fn)
-                     (map (subst_in_expr s)
-                        (map var_expr (map inr (seq 0 (length (sizeof e))))))
-                     (map inl idxs)).
-    { apply Forall2_nth_error.
-      { repeat rewrite map_length. rewrite seq_length. auto. }
-      intros n x1 x2. repeat rewrite nth_error_map. intros.
-      do 4 destruct_option_map_Some. apply nth_error_seq_Some in E0.
-      simpl in E0. subst. subst s. simpl. cbv [compose map_cons]. simpl.
-      epose proof nth_error_Some as H. specialize (H _ _ _ ltac:(eassumption)).
-      replace (_ =? _)%nat with false.
-      2: { symmetry. apply eqb_neq. lia. }
-      rewrite nth_error_map. rewrite E. simpl. repeat econstructor. }
-    assert (fact2: extends s (substn_of v)).
-    { apply compose_extends_l. Search domain_in_ints disj. apply disj_comm.
-      eapply domain_in_ints_disj_substn_of with (low := O) (high := S (length idxs)).
-      apply domain_in_ints_cons; [|lia]. Check domain_in_ints_idx_map.
-      eapply domain_in_ints_weaken. 3: apply domain_in_ints_idx_map. 1: lia.
-      rewrite map_length. lia. }
     econstructor.
     - simpl. apply Exists_app. left. apply Exists_app. simpl. right.
       apply Exists_cons_tl. apply Exists_cons_tl. constructor. simpl.
       exists s.
       simpl. cbv [subst_in_fact]. simpl. split.
       { constructor. simpl. constructor.
-        { subst s. cbv [compose map_cons]. simpl. rewrite Nat.eqb_refl. repeat econstructor. }
+        { subst s. cbv [compose map_cons]. simpl. rewrite H'', Nat.eqb_refl. repeat econstructor. }
         rewrite map_app. apply Forall2_app.
         - repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl. 2: eassumption.
           simpl. intros a b Hab. eapply interp_expr_subst_more'. 2: eassumption.
@@ -1173,16 +1211,16 @@ Proof.
           + eapply domain_in_ints_weaken. 3: apply domain_in_ints_idx_map. 1: lia.
             rewrite map_length. lia.
           + lia.
-        - apply fact1. }
+        - rewrite <- H''. apply gross1. }
       constructor. 2: constructor. constructor. simpl. constructor.
-      { subst s. cbv [compose map_cons]. simpl. rewrite Nat.eqb_refl. repeat econstructor. }
+      { subst s. cbv [compose map_cons]. simpl. rewrite H'', Nat.eqb_refl. repeat econstructor. }
       constructor.
       { Search lower_idx. apply eval_Zexpr_Z_eval_Zexpr in Hhiz, Hloz.
         apply eval_Zexpr_to_substn in Hhiz, Hloz. repeat econstructor.
-        + eapply interp_expr_subst_more'. 2: eassumption. apply fact2.
-        + eapply interp_expr_subst_more'. 2: eassumption. apply fact2.
+        + eapply interp_expr_subst_more'. 2: eassumption. apply gross2.
+        + eapply interp_expr_subst_more'. 2: eassumption. apply gross2.
         + simpl. reflexivity. }
-      apply fact1.
+      rewrite <- H''. apply gross1.
     - apply Forall_forall. constructor; [|constructor]. simpl.
       assert (Hor: (hiz < loz \/ hiz = loz + Z.of_nat (length ss))%Z).
       { subst. apply Forall2_length in Hs. rewrite <- Hs. lia. }
@@ -1199,18 +1237,21 @@ Proof.
           apply eval_Zexpr_Z_eval_Zexpr in Hhiz, Hloz.
           apply eval_Zexpr_to_substn in Hhiz, Hloz.
           constructor.
-          { eapply interp_expr_subst_more'. 2: eassumption. apply fact2. }
-          apply fact1.
+          { eapply interp_expr_subst_more'. 2: eassumption. apply gross2. }
+          rewrite <- H''. apply gross1.
         - apply Forall_forall. constructor. }
       subst.
-      move Hss at bottom. revert Hss. replace ss with (firstn (length ss) ss).
+      move Hss at bottom. rewrite Hss. clear H2 Hss val s.
+      replace ss with (firstn (length ss) ss).
       2: { apply firstn_all. }
       rewrite firstn_length. rewrite min_id.
-      remember val as x. remember (length ss) as n.
-      replace (Z.max loz (loz + Z.of_nat n)) with (loz + Z.of_nat n)%Z.
-      clear s fact1 fact2.
-      clear Heqn Heqx. clear H2. (*<- BAD???*) revert x. induction n; intros x Hx.
-      + simpl in Hx. rewrite Hx. econstructor.
+      set (n := length ss).
+      replace (Z.max loz (loz + Z.of_nat n)) with (loz + Z.of_nat n)%Z by lia.
+      apply eval_Zexpr_Z_eval_Zexpr in Hhiz, Hloz.
+      apply eval_Zexpr_to_substn in Hhiz, Hloz.
+      assert (Hn: n <= length ss) by lia. clearbody n. revert Hn.
+      induction n.
+      + econstructor.
         -- apply Exists_app. left. apply Exists_app. right. simpl. Print Exists.
            apply Exists_cons_hd. simpl.
            (*need to handle the case that hi < lo...*)
@@ -1222,19 +1263,89 @@ Proof.
             which does help!  constant bounds allows us to check at compile time whether
             hi < lo.*)
            (*TODO: for now i'll just stick with the code that works for arbitaryr bounds*)
-           set (s := compose
+           eset (s := compose
                        (substn_of v)
                        (map_cons
-                          (inr (Datatypes.length (sizeof e))) (Some (fn_R (fn_SLit (toR val))))
+                          (inr (length idxs)) (Some (fn_R (fn_SLit _)))
                           (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs)))).
            exists s. split; [|constructor].
            cbv [subst_in_fact]. simpl. replace (loz + 0)%Z with loz by lia.
            constructor. constructor.
            { repeat econstructor. }
            constructor.
-        apply map_cons_disj. _map_cons. apply extends_interp_expr. cbv [compose map_cons]. simpl. Print lower_idx. Search hi. Search lower_idx.
-          repeat rewrite <- Forall2_map_l.
-    
+           { eapply interp_expr_subst_more'; [|eassumption]. apply gross2. }
+           rewrite <- H''. apply gross1.
+        -- apply Forall_forall. constructor.
+      + intros Hn. assert (Hs': (exists a, firstn (S n) ss = firstn n ss ++ [a])%list).
+        { admit. }
+        destruct Hs' as [a Hs'].
+        econstructor.
+        -- apply Exists_app. left. apply Exists_app. right. apply Exists_cons_tl.
+           apply Exists_cons_hd. rewrite Hs' in *. simpl.
+           set (s := map_cons
+                       (*x := accumulated sum*)
+                       (inr (length idxs)) (Some (fn_R (fn_SLit (fold_right Rplus 0 (map toR (firstn n ss)))%R)))
+                       (map_cons
+                          (*i' := summation index*)
+                          (inr (S (length idxs))) (Some (fn_Z (fn_ZLit (loz + Z.of_nat n))))
+                          (map_cons
+                             (*y := new addend*)
+                             (inr (S (S (length idxs)))) ((Some (fn_R (fn_SLit (toR a)))))
+                             (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs))))).
+           assert (fact1: Forall2 (interp_expr interp_fn)
+                            (map (subst_in_expr s) (map var_expr (map inr (seq 0 (length (sizeof e))))))
+                            (map inl idxs)).
+           { apply Forall2_nth_error.
+             { repeat rewrite map_length. rewrite seq_length. auto. }
+             intros n0 x1 x2. repeat rewrite nth_error_map. intros.
+             do 4 destruct_option_map_Some. apply nth_error_seq_Some in E0.
+             simpl in E0. subst s. subst. simpl.
+             epose proof nth_error_Some as H00. specialize (H00 _ _ _ ltac:(eassumption)).
+             repeat rewrite map_cons_nothing by (intros H000; invert H000; lia).
+             cbv [idx_map].
+             rewrite nth_error_map. rewrite E. simpl. repeat econstructor. }
+           exists s. split.
+           ++ simpl. constructor. simpl. constructor.
+              { simpl. subst s. simpl. cbv [map_cons]. rewrite <- H''.
+                repeat rewrite var_eqb_refl. cbv [var_eqb]. simpl.
+                replace (_ =? _)%nat with false.
+                2: { symmetry. apply Nat.eqb_neq. lia. }
+                replace (_ =? _)%nat with false.
+                2: { symmetry. apply Nat.eqb_neq. lia. }
+                repeat econstructor. simpl. rewrite map_app.
+                (*shouldn't really have to rely on commutativity or associativity here...*)
+                rewrite <- fold_symmetric; [|intros; ring|intros; ring].
+                rewrite <- fold_symmetric; [|intros; ring|intros; ring].
+                rewrite fold_left_app. rewrite Rplus_comm. reflexivity. }
+              constructor.
+              { repeat econstructor.
+                - subst s. rewrite <- H''.
+                  repeat (rewrite map_cons_something ||
+                            rewrite map_cons_nothing by (intros H000; invert H000; lia)).
+                  repeat econstructor.
+                - simpl. f_equal. f_equal. lia. }
+              apply fact1.              
+           ++ cbv [subst_in_fact]. simpl. subst s.
+              rewrite <- H''.
+              repeat (rewrite map_cons_something ||
+                        rewrite map_cons_nothing by (intros H000; invert H000; lia)).
+              constructor.
+              { constructor. simpl. constructor.
+                { repeat econstructor. }
+                constructor.
+                { repeat econstructor. }
+                rewrite <- H'' in *. apply fact1. }
+              constructor.
+              { constructor. simpl. repeat econstructor. repeat rewrite <- H'' in *.
+                apply fact1. }
+              constructor.
+        -- apply Forall_forall. simpl. constructor.
+           { remember (_ ++ _)%list as ll. apply IHn. lia. }
+           constructor.
+           { Print lower.
+           lrewrite <- Heqthing. apply IHn. econstructor. apply Exists_app. left. apply Exists_app. right.
+             apply Exists_cons_tl. apply 
+              
   | Guard b body =>
       If b (lower body f p asn sh)
   | Lbind x e1 e2 =>
