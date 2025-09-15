@@ -291,6 +291,9 @@ Fixpoint lower
            rule_hyps := [{| fact_R := false_rel;
                            fact_args := [lower_guard b] |}] |}
         ]
+  | Lbind x e1 e2 =>
+      (*will eventually have to do better with name generation here..*)
+      lower e1 (str_rel x) name [] ++ lower e2 out name idxs_bds
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr O s in
       [{| rule_hyps := hyps; rule_concl := {| fact_R := out; fact_args := val :: map lower_idx (map fst idxs_bds) |} |}]
@@ -1600,27 +1603,26 @@ Proof.
           exists map_empty. repeat econstructor. }
         apply Forall_forall. constructor. }
       constructor. }
-          
-          
-        
-        constructor.
-        { constructor. simpl. constructor; [|constructor].
-              
-  | Guard b body =>
-      If b (lower body f p asn sh)
-  | Lbind x e1 e2 =>
-      match sizeof e1 with
-      | [] =>
-          Seq (AllocS x)
-            (Seq (lower e1 (fun l => l) x Assign sh)
-               (Seq (lower e2 f p asn (sh $+ (x,sizeof e1)))
-                  (DeallocS x)))
-      | _ =>
-          Seq (AllocV x (flat_sizeof e1))
-            (Seq (lower e1 (fun l => l) x Assign sh)
-               (Seq (lower e2 f p asn (sh $+ (x,sizeof e1)))
-                  (Free x)))
-      end
+  { intros. simpl. invert H0. invert H.
+    - eapply prog_impl_fact_subset.
+      2: { eapply IHe2 with (name := name); eauto. intros * H1' H2'. 
+           apply lookup_split in H1'. destruct H1' as [(H1'&H3')|(H1'&H3')].
+           2: { subst.
+                specialize IHe1 with (name := name) (idx_ctx := nil) (idx_ctx' := nil).
+                simpl in IHe1. eapply IHe1; eauto. }
+           eapply prog_impl_fact_subset. 2: eauto. intros.
+           repeat rewrite in_app_iff. simpl. tauto. }
+      intros. repeat rewrite in_app_iff in *. tauto.
+    - (*copy-pasted*)
+      eapply prog_impl_fact_subset.
+      2: { eapply IHe2 with (name := name); eauto. intros * H1' H2'. 
+           apply lookup_split in H1'. destruct H1' as [(H1'&H3')|(H1'&H3')].
+           2: { subst.
+                specialize IHe1 with (name := name) (idx_ctx := nil) (idx_ctx' := nil).
+                simpl in IHe1. eapply IHe1; eauto. }
+           eapply prog_impl_fact_subset. 2: eauto. intros.
+           repeat rewrite in_app_iff. simpl. tauto. }
+      intros. repeat rewrite in_app_iff in *. tauto. }
   | Concat x y =>
       let xlen := match sizeof x with
                   | n::_ => n
