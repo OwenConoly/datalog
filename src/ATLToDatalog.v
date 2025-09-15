@@ -297,7 +297,7 @@ Fixpoint lower
   | Concat e1 e2 =>
       (*should have length (sizeof e1) = length (sizeof e2)*)
       let dimvars := map inr (seq O (length (sizeof e1))) in
-      let x := O in
+      let x := length (sizeof e1) in
       let aux1 := name in
       let aux2 := S name in
       let len1 := match sizeof e1 with
@@ -1669,17 +1669,61 @@ Proof.
     specialize He2' with (1 := He2). specialize (He2' _ ltac:(eassumption) _ _ _ _ ltac:(eassumption)).
     apply result_has_shape_length in He1', He2'.
     invert H3.
+    pose proof dimensions_right as H'. 
+    pose proof dim_idxs as H''.
     assert (Hidx: Z.to_nat x < length l0 \/ length l0 <= Z.to_nat x) by lia.
+    pose proof size_of_sizeof as H6'. specialize H6' with (1 := H6). rewrite H6'. clear H6'.
     destruct Hidx as [Hidx|Hidx].
     - rewrite nth_error_app1 in H1 by assumption.
+      specialize (H' _ _ _ e1 _ _ ltac:(eassumption) ltac:(eassumption)).
+      simpl in H'. 
+      specialize H'' with (1 := H'). clear H'.
+      eassert _ as blah. 2: epose proof (H'' _ _ blah) as H'; clear H''.
+      { econstructor; eassumption. }
+      simpl in H'. cbn [length]. rewrite <- H'.
       econstructor. apply Exists_app. left. apply Exists_app. right. apply Exists_app.
       right. apply Exists_cons_hd.
-      { simpl.
-        exists (map_cons (inr O) (Some (fn_R (fn_SLit (toR val)))) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs))).
-        cbv [subst_in_fact]. simpl. split.
-        - repeat econstructor. repeat rewrite map_app. apply Forall2_app.
-          + Search lower_idx. as H'.
-        
+      { cbn -[seq].
+        exists (map_cons (inr (S (length xs))) (Some (fn_R (fn_SLit (toR val)))) (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) (x :: xs))))).
+        cbv [subst_in_fact]. cbn -[seq]. split.
+        - constructor. cbn -[seq]. constructor.
+          { rewrite map_cons_something. repeat econstructor. } 
+          repeat rewrite map_app. apply Forall2_app.
+          + move H4 at bottom. repeat rewrite <- Forall2_map_l in *.
+            eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
+            eapply interp_expr_subst_more'; [|eassumption].
+            eapply extends_trans.
+            { apply extends_map_cons. cbv [compose].
+              destruct (idx_map _ _) eqn:E.
+              - apply domain_in_ints_idx_map in E. simpl in E. rewrite map_length in E. lia.
+            - reflexivity. }
+            apply compose_extends_l. Search disj. apply disj_comm. Search disj.
+            eapply domain_in_ints_disj_substn_of. apply domain_in_ints_idx_map.
+          + pose proof idx_map_works (x :: xs) as H''. repeat rewrite <- Forall2_map_l in *.
+            eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
+            eapply interp_expr_subst_more'; [|eassumption].
+            eapply extends_trans.
+            { apply extends_map_cons. cbv [compose].
+              destruct (idx_map _ _) eqn:E.
+              - apply domain_in_ints_idx_map in E. simpl in E. rewrite map_length in E. lia.
+              - reflexivity. }
+            apply compose_extends_r.
+        - rewrite map_cons_something. constructor; [|solve[constructor]]. constructor.
+          cbn -[seq]. constructor.
+          { repeat econstructor. }
+          pose proof idx_map_works (x :: xs) as H''. repeat rewrite <- Forall2_map_l in *.
+          eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
+          eapply interp_expr_subst_more'; [|eassumption].
+          eapply extends_trans.
+          { apply extends_map_cons. cbv [compose].
+            destruct (idx_map _ _) eqn:E.
+            - apply domain_in_ints_idx_map in E. simpl in E. rewrite map_length in E. lia.
+            - reflexivity. }
+          apply compose_extends_r. }
+      apply Forall_forall. constructor; [|solve[constructor]]. cbn -[seq].
+      eapply 
+      econstructor.
+      { eapply prog_ apply Exists_app. left. apply Exists_app. left.
     
     specialize H' with (1 :=
   | Concat x y =>
