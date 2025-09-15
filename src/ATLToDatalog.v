@@ -294,6 +294,42 @@ Fixpoint lower
   | Lbind x e1 e2 =>
       (*will eventually have to do better with name generation here..*)
       lower e1 (str_rel x) name [] ++ lower e2 out name idxs_bds
+  | Concat e1 e2 =>
+      (*should have length (sizeof e1) = length (sizeof e2)*)
+      let dimvars := map inr (seq O (length (sizeof e1))) in
+      let x := O in
+      let aux1 := name in
+      let aux2 := S name in
+      let len1 := match sizeof e1 with
+                  | [] => (| 0 |)%z
+                  | n :: _ => n
+                  end in
+  (*need better names here..*)
+      lower e1 (nat_rel aux1) (S (S name)) [] ++
+        lower e2 (nat_rel aux2) (S (S name)) [] ++
+        [{| rule_concl := {| fact_R := out;
+                            fact_args :=
+                              var_expr (inr x) ::
+                                map lower_idx (map fst idxs_bds) ++
+                                map var_expr dimvars |};
+           rule_hyps := [{| fact_R := nat_rel aux1;
+                           fact_args :=
+                             var_expr (inr x) ::
+                               map var_expr dimvars |}] |};
+         {| rule_concl := {| fact_R := out;
+                            fact_args :=
+                              var_expr (inr x) ::
+                                map lower_idx (map fst idxs_bds) ++
+                                map (fun x =>
+                                       fun_expr
+                                         (fn_Z fn_ZPlus)
+                                         [var_expr x;
+                                          lower_idx len1])
+                                dimvars |};
+           rule_hyps := [{| fact_R := nat_rel aux2;
+                          fact_args :=
+                            var_expr (inr x) ::
+                              map var_expr dimvars |} ] |} ]
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr O s in
       [{| rule_hyps := hyps; rule_concl := {| fact_R := out; fact_args := val :: map lower_idx (map fst idxs_bds) |} |}]
@@ -1259,6 +1295,7 @@ Definition false_rule : rule rel var fn :=
 Lemma lower_correct e out sh v ctx r datalog_ctx l :
   eval_expr sh v ctx e r ->
   size_of e l ->
+  constant_nonneg_bounds e ->
   (forall x (r : result) (idxs : list Z) (val : scalar_result),
       ctx $? x = Some r ->
       result_lookup_Z' idxs r val ->
@@ -1271,16 +1308,17 @@ Proof.
   revert out sh v ctx r datalog_ctx l. induction e. 
   { simpl. intros. apply invert_eval_gen in H.
     destruct H as (loz&hiz&rl&Hrl&Hlen&Hlo&Hhi&Hbody). subst.
-    move IHe at bottom. invert H2. move Hbody at bottom. specialize (Hbody (loz + x)%Z).
-    epose proof nth_error_Some as E'. specialize E' with (1 := H5).
+    move IHe at bottom. invert H3. move Hbody at bottom. specialize (Hbody (loz + x)%Z).
+    epose proof nth_error_Some as E'. specialize E' with (1 := H6).
     specialize (Hbody ltac:(lia)). clear E'.
     destruct Hbody as (Hdom&_&Hbody). replace (loz + x - loz)%Z with x in Hbody by lia.
-    rewrite H5 in Hbody. specialize IHe with (1 := Hbody). invert H0.
-    specialize IHe with (1 := H10) (2 := H1).
-    specialize IHe with (1 := H7). eassert _ as blah.
+    rewrite H6 in Hbody. specialize IHe with (1 := Hbody). invert H0.
+    destruct H1 as (_&_&_&H1).
+    specialize IHe with (1 := H11) (2 := H1) (3 := H2).
+    specialize IHe with (1 := H8). eassert _ as blah.
     2: epose proof (IHe _ _ (idx_ctx ++ [((! i ! - lo)%z, (hi - lo)%z)])%list _ blah) as IHe_; clear IHe.
     { repeat rewrite map_app. apply Forall2_app.
-      - move H3 at bottom. repeat rewrite <- Forall2_map_l in *.
+      - move H4 at bottom. repeat rewrite <- Forall2_map_l in *.
         eapply Forall2_impl. 2: eassumption. simpl. intros a b Hab.
         pose proof interp_expr_subst_more as Hab'. specialize Hab' with (2 := Hab).
         rewrite Hab'. 1: assumption. apply includes_extends.
@@ -1299,13 +1337,13 @@ Proof.
     replace (loz + x - loz)%Z with x in IHe_ by lia. simpl. apply IHe_. }
   12: { intros. simpl. destruct (lower_Sexpr O s) as [ [val0 hyps] name'] eqn:E.
         simpl. inversion H. subst. clear H. pose proof lower_Sexpr_correct as H'.
-        specialize H' with (1 := H1) (2 := H7) (3 := E).
+        specialize H' with (1 := H2) (2 := H8) (3 := E).
         destruct H' as (hyps'&substn&_&Hsubstn&Hhyps&Hhyps'&Hval0).
-        invert H2. econstructor.
+        invert H3. econstructor.
         { constructor. simpl. exists (compose substn (substn_of v)). split.
           - cbv [subst_in_fact]. simpl. constructor. simpl. repeat constructor.
             + rewrite subst_in_expr_subst_in_expr in Hval0. apply Hval0.
-            + rewrite app_nil_r. move H3 at bottom.
+            + rewrite app_nil_r. move H4 at bottom.
               repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl. 2: eassumption.
               simpl. intros a b Hab. pose proof interp_expr_subst_more as Hab'.
               specialize Hab' with (2 := Hab). rewrite Hab'. 1: assumption.
@@ -1318,12 +1356,13 @@ Proof.
   { intros.
     pose proof dimensions_right as H'.
     specialize (H' _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-    invert H0. specialize IHe with (2 := H9) (3 := H1).
+    invert H0. simpl in H1. destruct H1 as (_&_&H1).
+    specialize IHe with (2 := H10) (3 := H1) (4 := H2).
     apply invert_eval_sum in H.
     destruct H as (loz&hiz&summands&Hlen&Hloz&Hhiz&Hsummands&Hbody).
-    specialize Hsummands with (1 := H2). destruct Hsummands as (ss&Hs&Hss).
+    specialize Hsummands with (1 := H3). destruct Hsummands as (ss&Hs&Hss).
     pose proof dim_idxs as H''. specialize (H'' _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-    apply size_of_sizeof in H9. subst. clear H'.
+    apply size_of_sizeof in H10. subst. clear H'.
     set (s := compose
                 (substn_of v)
                 (map_cons
@@ -1375,7 +1414,7 @@ Proof.
           rewrite <- H''. apply gross1.
         - apply Forall_forall. constructor. }
       subst.
-      move Hss at bottom. rewrite Hss. clear H2 Hss val s.
+      move Hss at bottom. rewrite Hss. clear H3 Hss val s.
       replace ss with (firstn (length ss) ss).
       2: { apply firstn_all. }
       rewrite firstn_length. rewrite min_id.
@@ -1509,8 +1548,8 @@ Proof.
       rewrite map_length in H''.
       pose proof length_eval_Zexprlist as H'''.
       specialize (H''' _ _ _ ltac:(eassumption)). rewrite <- H''' in H''. clear H'''.
-      Search l0. apply size_of_sizeof in H7, H9. rewrite H7 in H9. invert H9.
-      apply pad_lookup_SX in H2. subst. simpl. econstructor.
+      apply size_of_sizeof in H8, H10. rewrite H8 in H10. invert H10.
+      apply pad_lookup_SX in H3. subst. simpl. econstructor.
       { apply Exists_app. left. apply Exists_app. right. apply Exists_cons_tl.
         apply Exists_cons_hd. simpl.
         exists (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs))).
@@ -1603,7 +1642,7 @@ Proof.
           exists map_empty. repeat econstructor. }
         apply Forall_forall. constructor. }
       constructor. }
-  { intros. simpl. invert H0. invert H.
+  { simpl. intros. destruct H1 as (H1&H1_). invert H0. invert H.
     - eapply prog_impl_fact_subset.
       2: { eapply IHe2 with (name := name); eauto. intros * H1' H2'. 
            apply lookup_split in H1'. destruct H1' as [(H1'&H3')|(H1'&H3')].
@@ -1623,6 +1662,26 @@ Proof.
            eapply prog_impl_fact_subset. 2: eauto. intros.
            repeat rewrite in_app_iff. simpl. tauto. }
       intros. repeat rewrite in_app_iff in *. tauto. }
+  { simpl. intros. destruct H1 as (He1&He2). invert H0. invert H.
+    pose proof ResultToArrayDelta.constant_nonneg_bounds_size_of_eval_expr_result_has_shape as He1'.
+    specialize He1' with (1 := He1). specialize (He1' _ ltac:(eassumption) _ _ _ _ ltac:(eassumption)).
+    pose proof ResultToArrayDelta.constant_nonneg_bounds_size_of_eval_expr_result_has_shape as He2'.
+    specialize He2' with (1 := He2). specialize (He2' _ ltac:(eassumption) _ _ _ _ ltac:(eassumption)).
+    apply result_has_shape_length in He1', He2'.
+    invert H3.
+    assert (Hidx: Z.to_nat x < length l0 \/ length l0 <= Z.to_nat x) by lia.
+    destruct Hidx as [Hidx|Hidx].
+    - rewrite nth_error_app1 in H1 by assumption.
+      econstructor. apply Exists_app. left. apply Exists_app. right. apply Exists_app.
+      right. apply Exists_cons_hd.
+      { simpl.
+        exists (map_cons (inr O) (Some (fn_R (fn_SLit (toR val)))) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs))).
+        cbv [subst_in_fact]. simpl. split.
+        - repeat econstructor. repeat rewrite map_app. apply Forall2_app.
+          + Search lower_idx. as H'.
+        
+    
+    specialize H' with (1 :=
   | Concat x y =>
       let xlen := match sizeof x with
                   | n::_ => n
