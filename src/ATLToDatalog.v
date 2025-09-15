@@ -1721,30 +1721,15 @@ Proof.
             - reflexivity. }
           apply compose_extends_r. }
       apply Forall_forall. constructor; [|solve[constructor]]. cbn -[seq].
-      eapply 
-      econstructor.
-      { eapply prog_ apply Exists_app. left. apply Exists_app. left.
-    
-    specialize H' with (1 :=
-  | Concat x y =>
-      let xlen := match sizeof x with
-                  | n::_ => n
-                  | _ => ZLit 0
-                  end in 
-      let ylen := match sizeof y with
-                  | n::_ => n
-                  | _ => ZLit 0
-                  end in   
-      Seq (lower x (fun l =>
-                      f (match l with
-                         | (v,d)::xs =>
-                             ((v,ZPlus d ylen)::xs)
-                         | _ => l
-                         end)) p asn sh)
-        (lower y (fun l => f (match l with
-                           | (v,d)::xs => ((ZPlus v xlen,ZPlus d xlen)::xs)
-                           | _ => l
-                           end)) p asn sh)
+      eapply prog_impl_fact_subset.
+      2: { specialize IHe1 with (name := S (S name)) (idxs := x :: xs) (idx_ctx := nil) (idx_ctx' := nil).
+           simpl in IHe1. eapply IHe1; eauto. }
+      intros. repeat rewrite in_app_iff in *. tauto.
+    - rewrite nth_error_app2 in H1 by assumption.
+      simpl in H'. cbn [length]. rewrite <- H'.
+      econstructor. apply Exists_app. left. apply Exists_app. right. apply Exists_app.
+      right. apply Exists_cons_hd.
+      
   | Transpose e =>
       lower e (fun l => f (match l with
                         | (v,d)::(vi,di)::xs => (vi,di)::(v,d)::xs
