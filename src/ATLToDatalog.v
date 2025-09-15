@@ -271,7 +271,7 @@ Fixpoint lower
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
       let aux := name in
-      lower body out (S aux) [] ++
+      lower body (nat_rel aux) (S aux) [] ++
         [{| rule_concl := {| fact_R := out;
                             fact_args :=
                               var_expr (inr x) ::
@@ -1537,8 +1537,74 @@ Proof.
       constructor.
     - specialize (H' _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
       specialize (H'' _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-      apply size_of_sizeof in H7. subst. clear H'. subst. simpl. econstructor.
-      
+      pose proof size_of_sizeof as H7'. specialize (H7' _ _ ltac:(eassumption)).
+      subst. clear H'. rewrite <- H''. clear H''.
+      econstructor.
+      { apply Exists_app. left. apply Exists_app. right. apply Exists_cons_hd.
+        exists (map_cons (inr (length idxs)) (Some (fn_R (fn_SLit (toR val))))
+             (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs)))).
+        simpl. cbv [subst_in_fact]. cbn -[subst_in_expr]. split.
+        { constructor. simpl. rewrite map_cons_something. constructor.
+          { repeat econstructor. }
+          repeat rewrite map_app. apply Forall2_app.
+          - repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl; [|eassumption].
+            cbv beta. intros a b Hab. eapply interp_expr_subst_more'; [|eassumption].
+            eapply extends_trans.
+            { apply extends_map_cons. cbv [compose].
+              destruct (idx_map _ _) eqn:E.
+              - apply domain_in_ints_idx_map in E. rewrite map_length in E. lia.
+              - reflexivity. }
+            apply compose_extends_l. apply disj_comm. Search (disj _ (substn_of _)).
+            eapply domain_in_ints_disj_substn_of. apply domain_in_ints_idx_map.
+          - pose proof idx_map_works idxs as H'. repeat rewrite <- Forall2_map_l in *.
+            eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
+            eapply interp_expr_subst_more'; [|eassumption].
+            eapply extends_trans.
+            { apply extends_map_cons. cbv [compose].
+              destruct (idx_map _ _) eqn:E.
+              - apply domain_in_ints_idx_map in E. rewrite map_length in E. lia.
+              - reflexivity. }
+            apply compose_extends_r. }
+        constructor.
+        { constructor. simpl. rewrite map_cons_something. constructor.
+          { repeat econstructor. }
+          (*copy-pasted*)
+          pose proof idx_map_works idxs as H'. repeat rewrite <- Forall2_map_l in *.
+          eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
+          eapply interp_expr_subst_more'; [|eassumption].
+          eapply extends_trans.
+          { apply extends_map_cons. cbv [compose].
+            destruct (idx_map _ _) eqn:E.
+            - apply domain_in_ints_idx_map in E. rewrite map_length in E. lia.
+            - reflexivity. }
+          apply compose_extends_r. }
+        repeat econstructor. eapply interp_expr_subst_more'.
+        2: { apply eval_Bexpr_to_substn. eassumption. }
+        eapply extends_trans.
+        { apply extends_map_cons. cbv [compose].
+          destruct (idx_map _ _) eqn:E.
+          - apply domain_in_ints_idx_map in E. rewrite map_length in E. lia.
+          - reflexivity. }
+        apply compose_extends_l. Search disj substn_of. apply disj_comm.
+        eapply domain_in_ints_disj_substn_of. apply domain_in_ints_idx_map. }
+      apply Forall_forall. constructor.
+      { simpl.
+        specialize IHe with (name := S name) (idx_ctx := nil) (idx_ctx' := nil).
+        simpl in IHe.
+        eapply prog_impl_fact_subset.
+        2: { eapply IHe; eauto. }
+        intros x Hx. repeat rewrite in_app_iff in *. simpl. tauto. }
+      constructor.
+      { simpl. econstructor.
+        { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_hd.
+          exists map_empty. repeat econstructor. }
+        apply Forall_forall. constructor. }
+      constructor. }
+          
+          
+        
+        constructor.
+        { constructor. simpl. constructor; [|constructor].
               
   | Guard b body =>
       If b (lower body f p asn sh)
