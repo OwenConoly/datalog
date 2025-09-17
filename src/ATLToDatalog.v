@@ -1499,6 +1499,21 @@ Proof.
     { apply mod_upper_bound. lia. }
     lia.
 Qed.
+Search transpose_result.
+(*following result_lookup_Z_transpose*)
+Lemma result_lookup_Z'_transpose l z z0 x n m xs val :
+  (0 <= z0 < Z.of_nat n)%Z ->
+  (0 <= z < Z.of_nat m)%Z ->
+  result_has_shape (V l) (n :: m :: xs) ->
+  result_lookup_Z' (z :: z0 :: x) (transpose_result l (m :: n :: xs)) val ->
+  result_lookup_Z' (z0 :: z :: x) (V l) val.
+Proof. Admitted.
+
+Check eval_Zexpr_Z.
+Lemma eval_Zexpr_Z_eval_Zexpr_Z_total v e x :
+  eval_Zexpr_Z v e = Some x ->
+  eval_Zexpr_Z_total v e = x.
+Proof. Admitted.
 
 Lemma lower_correct e out sh v ctx r datalog_ctx l :
   eval_expr sh v ctx e r ->
@@ -2181,19 +2196,20 @@ Proof.
     specialize (He _ _ ltac:(eassumption) ltac:(eassumption) _ _ _ _ ltac:(eassumption)).
     simpl in He.
     pose proof dimensions_right as Hd1.
+    specialize (Hd1 _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
     pose proof dim_idxs as Hd2. pose proof size_of_sizeof as H5'.
     specialize H5' with (1 := H5). apply size_of_sizeof in H7. rewrite H7 in H5'.
-    invert H5'. 
-    specialize (Hd1 _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-    apply length_eval_Zexprlist in H10. simpl in H10.
+    invert H5'.
+    invert H10. invert H13. Search eval_Zexpr eval_Zexpr_Z.
+    rewrite eval_Zexpr_Z_eval_Zexpr in H11, H10. Search eval_Zexpr_Z_total.
+    apply length_eval_Zexprlist in H14. simpl in H14.
     specialize Hd2 with (2 := H3). eassert _ as blah.
     2: epose proof (Hd2 _ blah) as Hd3; clear blah Hd2.
     { simpl. apply dim_transpose_result.
       - simpl. rewrite map_length. reflexivity.
-      - simpl. rewrite <- H10. assumption. }
-    destruct idxs as [|x idxs]; [discriminate Hd3|]. invert H3.
-    destruct idxs as [|x0 idxs]; [discriminate Hd3|]. invert H13.
-    simpl in Hd3. invert Hd3. invert H10. rewrite <- H12 in H0. clear H12.
+      - simpl. rewrite <- H14. assumption. }
+    destruct idxs as [ | x [|x0 idxs] ]; [discriminate Hd3|discriminate Hd3|].
+    simpl in Hd3. invert Hd3. rewrite <- H14 in H0. clear H14.
     econstructor.
     { apply Exists_app. left. apply Exists_app. right. apply Exists_cons_hd. simpl.
       cbv [subst_in_fact]. simpl. rewrite H7. simpl.
@@ -2236,7 +2252,11 @@ Proof.
            specialize IHe with (name := S name) (idxs := idxs0). subst idxs0.
            simpl in IHe.
            specialize IHe with (idx_ctx := nil) (idx_ctx' := nil). simpl in IHe.
-           eapply IHe; eauto. admit. (*TODO need lemma about transposing result*) }
+           eapply IHe; eauto. Search transpose_result.
+           eapply result_lookup_Z'_transpose; [| |eassumption|].
+           3: { Search nat result_lookup_Z'.
+                move H3 at bottom. subst mz.
+           apply admit. (*TODO need lemma about transposing result*) }
       intros. repeat rewrite in_app_iff in *. tauto. }
 
     
