@@ -409,6 +409,27 @@ Fixpoint lower
                            fact_args := [fun_expr (fn_B fn_BLe)
                                            [fun_expr (fn_Z (fn_ZLit pad_start)) [];
                                             var_expr dimvar1]] |} ] |}]
+  | Transpose e =>
+      let dimvars := map inr (seq O (length (sizeof e) - 2)) in
+      let dimvar1 := inr (length (sizeof e) - 1) in
+      let dimvar2 := inr (length (sizeof e)) in
+      let x := inr (S (length (sizeof e))) in
+      let aux := nat_rel name in
+      lower e aux (S name) [] ++
+        [{| rule_concl := {| fact_R := out;
+                            fact_args :=
+                              var_expr x ::
+                                map lower_idx (map fst idxs_bds) ++
+                                var_expr dimvar2 ::
+                                var_expr dimvar1 ::
+                                map var_expr dimvars |};
+           rule_hyps := [{| fact_R := aux;
+                           fact_args :=
+                             var_expr x ::
+                             var_expr dimvar1 ::
+                               var_expr dimvar2 ::
+                               map var_expr dimvars |}] |}]
+                         
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr O s in
       [{| rule_hyps := hyps; rule_concl := {| fact_R := out; fact_args := val :: map lower_idx (map fst idxs_bds) |} |}]
@@ -2155,6 +2176,70 @@ Proof.
         assert (H'''': length l0 mod k' <= Z.to_nat x0) by lia. clear H'.
         Search Z.of_nat Zmod. rewrite <- Nat2Z.inj_mod. lia. }
       apply Forall_forall. constructor. }
+  { simpl. intros. invert H. invert H0.
+    pose proof ResultToArrayDelta.constant_nonneg_bounds_size_of_eval_expr_result_has_shape as He.
+    specialize (He _ _ ltac:(eassumption) ltac:(eassumption) _ _ _ _ ltac:(eassumption)).
+    simpl in He.
+    pose proof dimensions_right as Hd1.
+    pose proof dim_idxs as Hd2. pose proof size_of_sizeof as H5'.
+    specialize H5' with (1 := H5). apply size_of_sizeof in H7. rewrite H7 in H5'.
+    invert H5'. 
+    specialize (Hd1 _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+    apply length_eval_Zexprlist in H10. simpl in H10.
+    specialize Hd2 with (2 := H3). eassert _ as blah.
+    2: epose proof (Hd2 _ blah) as Hd3; clear blah Hd2.
+    { simpl. apply dim_transpose_result.
+      - simpl. rewrite map_length. reflexivity.
+      - simpl. rewrite <- H10. assumption. }
+    destruct idxs as [|x idxs]; [discriminate Hd3|]. invert H3.
+    destruct idxs as [|x0 idxs]; [discriminate Hd3|]. invert H13.
+    simpl in Hd3. invert Hd3. invert H10. rewrite <- H12 in H0. clear H12.
+    econstructor.
+    { apply Exists_app. left. apply Exists_app. right. apply Exists_cons_hd. simpl.
+      cbv [subst_in_fact]. simpl. rewrite H7. simpl.
+      replace (length l1 - 0) with (length l1) by lia. clear H7. rewrite <- H0.
+      eset (s := map_cons (inr (S (S (S (length idxs))))) (Some (fn_R (fn_SLit _)))
+                   (map_cons (inr (S (S (length idxs)))) (Some (fn_Z (fn_ZLit _)))
+                   (map_cons (inr (S (length idxs))) (Some (fn_Z (fn_ZLit _)))
+                      (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs)))))).
+      exists s. cbv [subst_in_fact]. simpl. split.
+      { unfold s at 1. simpl_map_cons. constructor. simpl. constructor.
+        { repeat econstructor. }
+        rewrite map_app. apply Forall2_app.
+        - repeat rewrite <- Forall2_map_l in *.
+          eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
+          eapply interp_expr_subst_more'; [|eassumption]. cbv [s]. Search (length l1). extends_solver.
+        - simpl. do 2 unfold s at 1. simpl_map_cons. constructor.
+            { repeat econstructor. }
+            constructor.
+            { repeat econstructor. }
+            pose proof idx_map_works idxs as Him.
+            repeat rewrite <- Forall2_map_l in *.
+            eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
+            eapply interp_expr_subst_more'; [|eassumption].
+            extends_solver. }
+        constructor; [|solve[constructor]].
+        constructor. simpl. do 3 unfold s at 1. simpl_map_cons. constructor.
+        { repeat econstructor. }
+        constructor.
+        { repeat econstructor. }
+        constructor.
+        { repeat econstructor. }
+        pose proof idx_map_works idxs as Him.
+        repeat rewrite <- Forall2_map_l in *.
+        eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
+        eapply interp_expr_subst_more'; [|eassumption].
+        extends_solver. }
+      apply Forall_forall. simpl. constructor; [|solve[constructor]].
+      eapply prog_impl_fact_subset.
+      2: { move IHe at bottom. eset (idxs0 := _ :: _ :: _ : list Z).
+           specialize IHe with (name := S name) (idxs := idxs0). subst idxs0.
+           simpl in IHe.
+           specialize IHe with (idx_ctx := nil) (idx_ctx' := nil). simpl in IHe.
+           eapply IHe; eauto. admit. (*TODO need lemma about transposing result*) }
+      intros. repeat rewrite in_app_iff in *. tauto. }
+
+    
 
   | Transpose e =>
       lower e (fun l => f (match l with
