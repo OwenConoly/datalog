@@ -1501,18 +1501,38 @@ Qed.
 Search transpose_result.
 (*following result_lookup_Z_transpose*)
 Lemma result_lookup_Z'_transpose l z z0 x n m xs val :
-  (0 <= z0 < Z.of_nat n)%Z ->
-  (0 <= z < Z.of_nat m)%Z ->
   result_has_shape (V l) (n :: m :: xs) ->
   result_lookup_Z' (z :: z0 :: x) (transpose_result l (m :: n :: xs)) val ->
   result_lookup_Z' (z0 :: z :: x) (V l) val.
-Proof. Admitted.
-
-Check eval_Zexpr_Z.
-Lemma eval_Zexpr_Z_eval_Zexpr_Z_total v e x :
-  eval_Zexpr_Z v e = Some x ->
-  eval_Zexpr_Z_total v e = x.
-Proof. Admitted.
+Proof.
+  simpl. intros.
+  pose proof (nth_error_transpose (row_length l) (Z.to_nat z) _ _ _ _ H).
+  pose proof result_has_shape_transpose_result as H'.
+  specialize (H' _ _ _ _ ltac:(eassumption)).
+  destruct l.
+  { rewrite <- result_has_shape'_iff in H'. invert H'. invert H.
+    cbv [transpose_result] in H0. simpl in H0. invert H0. Search nth_error repeat.
+    apply nth_error_repeat' in H7. subst. invert H9. rewrite nth_error_empty in H7.
+    discriminate H7. }
+  cbv [transpose_result] in H0, H'.
+  erewrite result_has_shape_row_length in * by (eassumption || congruence).
+  assert (0 < n).
+  { invert H. lia. }
+  erewrite pad_list_result_shape_id in H0, H' by (eassumption || simpl; lia).
+  Search r. remember (r :: l) as l' eqn:E. clear E.
+  invert H0. rewrite H7 in H1.
+  assert (0 <= Z.to_nat z < m).
+  { rewrite <- result_has_shape'_iff in H'. invert H'. apply nth_error_Some in H7. lia. }
+  specialize (H1 ltac:(lia) ltac:(lia)). subst.
+  replace (m - (m - Z.to_nat z)) with (Z.to_nat z) in * by lia.
+  invert H9.
+  assert (0 <= Z.to_nat z0 < n).
+  { apply nth_error_Some in H8. erewrite length_get_col in H8 by (eassumption || lia).
+    rewrite <- result_has_shape'_iff in H. invert H. lia. }
+  erewrite <- nth_error_get_col in H8 by (eassumption || lia).
+  clear H7. destruct (nth_error l' (Z.to_nat z0)) eqn:E; [|discriminate H8].
+  destruct r0; [discriminate H8|]. econstructor; eauto. econstructor; eauto.
+Qed.
 
 Lemma lower_correct e out sh v ctx r datalog_ctx l :
   eval_expr sh v ctx e r ->
@@ -2181,6 +2201,16 @@ Proof.
     pose proof dim_idxs as Hd2. pose proof size_of_sizeof as H5'.
     specialize H5' with (1 := H5). apply size_of_sizeof in H7. rewrite H7 in H5'.
     invert H5'.
+    Search constant_nonneg_bounds size_of.
+    pose proof constant_nonneg_bounds_size_of_no_vars as H'1.
+    specialize (H'1 _ _ ltac:(eassumption) ltac:(eassumption)).
+    Search eval_Zexpr_Z_total.
+    pose proof forall_no_vars_eval_Zexpr_Z_total as H'2.
+    specialize (H'2 _ ltac:(eassumption)).
+    Search (eval_Zexprlist).
+    pose proof eval_Zexprlist_deterministic as H'3.
+    specialize (H'3 _ _ _ _ ltac:(eassumption) (H'2 _)). clear H'1 H'2.
+    simpl in H'3. invert H'3.
     invert H10. invert H13. Search eval_Zexpr eval_Zexpr_Z.
     rewrite eval_Zexpr_Z_eval_Zexpr in H11, H10. Search eval_Zexpr_Z_total.
     apply length_eval_Zexprlist in H14. simpl in H14.
@@ -2234,19 +2264,9 @@ Proof.
            simpl in IHe.
            specialize IHe with (idx_ctx := nil) (idx_ctx' := nil). simpl in IHe.
            eapply IHe; eauto. Search transpose_result.
-           eapply result_lookup_Z'_transpose; [| |eassumption|].
-           3: { Search nat result_lookup_Z'.
-                move H3 at bottom. subst mz.
-           apply admit. (*TODO need lemma about transposing result*) }
+           eapply result_lookup_Z'_transpose; eassumption. }
       intros. repeat rewrite in_app_iff in *. tauto. }
 
-    
-
-  | Transpose e =>
-      lower e (fun l => f (match l with
-                        | (v,d)::(vi,di)::xs => (vi,di)::(v,d)::xs
-                        | _ => l
-                        end)) p asn sh
   | Truncr n e =>
                lower e (fun l => f (match l with
                                  | (v,d)::xs =>
