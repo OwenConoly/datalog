@@ -440,6 +440,7 @@ Fixpoint lower
         [{| rule_concl := {| fact_R := out;
                             fact_args :=
                               var_expr x ::
+                                map (lower_idx) idxs ++
                                 var_expr dimvar1 ::
                                 map var_expr dimvars |};
            rule_hyps := [{| fact_R := aux;
@@ -2300,15 +2301,67 @@ Proof.
     2: { apply nth_error_Some in H6. rewrite rev_length in H6.
          rewrite length_truncl_list in H6. rewrite rev_length in H6. lia. }
     econstructor; eassumption. }
-  { intros. 
-    
-  | Truncl n e =>
-      lower e (fun l => f (match l with
-                        | (v,d)::xs =>
-                            (ZMinus v n,
-                              ZMinus d n)::xs
-                        | _ => l
-                        end)) p asn sh
+  { simpl. intros. invert H. invert H0. destruct H1 as (H1&Hn&_&_).
+    Search eval_Zexpr_Z_total. Search n.
+    pose proof forall_no_vars_eval_Zexpr_Z_total as H'2.
+    specialize (H'2 [n] ltac:(eauto) v). invert H'2. invert H13.
+    apply eval_Zexpr_Z_eval_Zexpr in H9. rewrite H9 in H7. invert H7.
+    invert H3. rewrite nth_error_truncl in H5.
+    pose proof ResultToArrayDelta.constant_nonneg_bounds_size_of_eval_expr_result_has_shape as He.
+    specialize (He _ _ ltac:(eassumption) ltac:(eassumption) _ _ _ _ ltac:(eassumption)).
+    simpl in He.
+    pose proof dimensions_right as Hd1.
+    specialize (Hd1 _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+    pose proof dim_idxs as Hd2. pose proof size_of_sizeof as H8'.
+    specialize (H8' _ _ ltac:(eassumption)).
+    specialize Hd2 with (2 := H7). eassert _ as blah.
+    2: epose proof (Hd2 _ blah) as Hd3; clear blah Hd2.
+    { simpl. apply nth_error_In in H5. invert Hd1. rewrite Forall_forall in H6.
+      apply H6 in H5. eassumption. }
+    rewrite H8'. simpl. replace (length l1 - 0) with (length l1) by lia.
+    rewrite <- Hd3 in *. clear Hd3 Hd1.
+    econstructor.
+    { apply Exists_app. left. apply Exists_app. right. apply Exists_cons_hd.
+      simpl. cbv [subst_in_fact]. simpl.
+      eset (s := map_cons (inr (S (length xs))) (Some (fn_R (fn_SLit _)))
+                      (map_cons (inr (length xs)) (Some (fn_Z (fn_ZLit _)))
+                         (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs))))).
+      exists s. split.
+      { constructor. simpl. constructor.
+        { cbv [s]. simpl_map_cons. repeat econstructor. }
+        repeat rewrite map_app. apply Forall2_app.
+        - repeat rewrite <- Forall2_map_l in *.
+          eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
+          eapply interp_expr_subst_more'; [|eassumption]. cbv [s]. Search (length l1). extends_solver.
+        - simpl. do 2 unfold s at 1. simpl_map_cons. constructor.
+          { repeat econstructor. }
+          pose proof idx_map_works xs as Him.
+          repeat rewrite <- Forall2_map_l in *.
+          eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
+          eapply interp_expr_subst_more'; [|eassumption].
+          extends_solver. }
+      constructor; [|solve[constructor]].
+      constructor. simpl. constructor.
+      { cbv [s]. simpl_map_cons. repeat econstructor. }
+      constructor.
+      { cbv [s]. simpl_map_cons. repeat econstructor. }
+      pose proof idx_map_works xs as Him.
+      repeat rewrite <- Forall2_map_l in *.
+      eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
+      eapply interp_expr_subst_more'; [|eassumption].
+      extends_solver. }
+    apply Forall_forall. constructor; [|solve[constructor]].
+    simpl.
+    eapply prog_impl_fact_subset.
+    2: { move IHe at bottom. eset (idxs0 := _ :: _ : list Z).
+         specialize IHe with (name := S name) (idxs := idxs0). subst idxs0.
+         simpl in IHe.
+         specialize IHe with (idx_ctx := nil) (idx_ctx' := nil). simpl in IHe.
+         eapply IHe; eauto. econstructor; eauto.
+         { lia. }
+         rewrite <- H5. f_equal. lia. }
+    intros. repeat rewrite in_app_iff in *. tauto. }
+
   | Padr n e =>
       lower e (fun l => f (match l with
                         | (v,d)::xs =>
