@@ -236,10 +236,10 @@ Fixpoint lower
       lower body (nat_rel aux) (Datatypes.S aux') [ZVar i] ++
         [(*set aux'(O, lo, ...)*)
           {| rule_hyps := [];
-            rule_concl := {| fact_R := nat_rel aux';
+            rule_concls := [{| fact_R := nat_rel aux';
                             fact_args := [fun_expr (fn_R (fn_SLit 0%R)) [];
                                           lower_idx lo] ++
-                                           map var_expr dimvars(*arbitrary index into summand*) |} |};
+                                           map var_expr dimvars(*arbitrary index into summand*) |}] |};
           (*set aux' (body(i) + \sum_{j < i} body(j), S i, ...)*)
           {| rule_hyps := [{| fact_R := nat_rel aux';
                              fact_args :=
@@ -251,13 +251,13 @@ Fixpoint lower
                                [var_expr (inr y)(*body(i)*);
                                 var_expr (inr i') (*index into aux*)] ++
                                  map var_expr dimvars (*arbitrary idx into summand*) |}];
-            rule_concl := {| fact_R := nat_rel aux';
+            rule_concls := [{| fact_R := nat_rel aux';
                             fact_args :=
                               [fun_expr (fn_R fn_SAdd) [var_expr (inr y);
                                                         var_expr (inr x)];
                                fun_expr (fn_Z fn_ZPlus) [var_expr (inr i');
                                                          fun_expr (fn_Z (fn_ZLit 1%Z)) []]] ++
-                                map var_expr dimvars (*arbitrary idx into accumulated sum*) |} |};
+                                map var_expr dimvars (*arbitrary idx into accumulated sum*) |}] |};
           (*set out (\sum_j body(j), idxs)*)
           {| rule_hyps := [{| fact_R := (nat_rel aux');
                              fact_args :=
@@ -265,32 +265,32 @@ Fixpoint lower
                                 (*basically the next arg should just be hi, except i am dealing with the dumb case where hi < lo*)
                                 fun_expr (fn_Z fn_Zmax) [lower_idx lo; lower_idx hi]] ++
                                  map var_expr dimvars(*arbitrary idx into sum*) |}];
-            rule_concl := {| fact_R := out;
+            rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr (inr x) ::
                                 map lower_idx idxs ++
-                                map var_expr dimvars(*arbitrary idx into sum*) |} |}]
+                                map var_expr dimvars(*arbitrary idx into sum*) |}] |}]
   | Guard b body =>
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
       let aux := name in
       lower body (nat_rel aux) (S aux) [] ++
-        [{| rule_concl := {| fact_R := out;
+        [{| rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr (inr x) ::
                                 map lower_idx idxs ++
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := nat_rel aux;
                            fact_args :=
                              var_expr (inr x) ::
                                map var_expr dimvars |};
                          {| fact_R := true_rel;
                            fact_args := [lower_guard b] |}] |};
-         {| rule_concl := {| fact_R := out;
+         {| rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0%R)) [] ::
                                 map lower_idx idxs ++       
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := false_rel;
                            fact_args := [lower_guard b] |}] |}
         ]
@@ -312,21 +312,21 @@ Fixpoint lower
       (*need better names here..*)
       lower e1 (nat_rel aux1) (S (S name)) [] ++
         lower e2 (nat_rel aux2) (S (S name)) [] ++
-        [{| rule_concl := {| fact_R := out;
+        [{| rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr (inr x) ::
                                 map lower_idx idxs ++
-                                map var_expr (dimvarO :: dimvars) |};
+                                map var_expr (dimvarO :: dimvars) |}];
            rule_hyps := [{| fact_R := nat_rel aux1;
                            fact_args :=
                              var_expr (inr x) ::
                                map var_expr (dimvarO :: dimvars) |}] |};
-         {| rule_concl := {| fact_R := out;
+         {| rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr (inr x) ::
                                 map lower_idx idxs ++
                                 var_expr dimvarO ::
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := nat_rel aux2;
                            fact_args :=
                              var_expr (inr x) ::
@@ -345,12 +345,12 @@ Fixpoint lower
         end in
       let aux := name in
       lower e (nat_rel aux) (S aux) [] ++
-        [{| rule_concl := {| fact_R := out;
+        [{| rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map lower_idx idxs ++
                                 var_expr dimvarO ::
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := nat_rel aux;
                            fact_args := var_expr x ::
                                           fun_expr (fn_Z fn_ZDivf)
@@ -374,13 +374,13 @@ Fixpoint lower
       let aux := name in
       let pad_start := (len mod k')%Z in
       lower e (nat_rel aux) (S aux) [] ++
-        [{| rule_concl := {| fact_R := out;
+        [{| rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map lower_idx idxs ++
                                 var_expr dimvar1 ::
                                 var_expr dimvar2 ::
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := nat_rel aux;
                            fact_args := var_expr x ::
                                           fun_expr (fn_Z fn_ZPlus)
@@ -389,13 +389,13 @@ Fixpoint lower
                                               fun_expr (fn_Z (fn_ZLit k')) []];
                                            var_expr dimvar2] ::
                                           map var_expr dimvars |}] |};
-         {| rule_concl := {| fact_R := out;
+         {| rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0%R)) [] ::
                                 map lower_idx idxs ++
                                 fun_expr (fn_Z (fn_ZLit (len / k'))) [] ::
                                 var_expr dimvar1 ::
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := true_rel;
                            fact_args := [fun_expr (fn_B fn_BLe)
                                            [fun_expr (fn_Z (fn_ZLit pad_start)) [];
@@ -407,13 +407,13 @@ Fixpoint lower
       let x := inr (S (length (sizeof e))) in
       let aux := nat_rel name in
       lower e aux (S name) [] ++
-        [{| rule_concl := {| fact_R := out;
+        [{| rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map lower_idx idxs ++
                                 var_expr dimvar2 ::
                                 var_expr dimvar1 ::
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := aux;
                            fact_args :=
                              var_expr x ::
@@ -429,12 +429,12 @@ Fixpoint lower
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
       lower e aux (S name) [] ++
-        [{| rule_concl := {| fact_R := out;
+        [{| rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map (lower_idx) idxs ++
                                 var_expr dimvar1 ::
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := aux;
                            fact_args :=
                              var_expr x ::
@@ -454,23 +454,23 @@ Fixpoint lower
         | _ => 0%Z
         end in
       lower e aux (S name) [] ++
-        [{| rule_concl := {| fact_R := out;
+        [{| rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map lower_idx idxs ++
                                 var_expr dimvar1 ::
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := aux;
                            fact_args :=
                              var_expr x ::
                                var_expr dimvar1 ::
                                map var_expr dimvars |}] |};
-         {| rule_concl := {| fact_R := out;
+         {| rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0)) [] ::
                                 map lower_idx idxs ++
                                 var_expr dimvar1 ::
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := true_rel;
                            fact_args := [fun_expr (fn_B fn_BLe)
                                            [fun_expr (fn_Z (fn_ZLit len)) [];
@@ -482,12 +482,12 @@ Fixpoint lower
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
       lower e aux (S name) [] ++
-        [{| rule_concl := {| fact_R := out;
+        [{| rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map lower_idx idxs ++
                                 var_expr dimvar1 ::
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := aux;
                            fact_args :=
                              var_expr x ::
@@ -495,20 +495,26 @@ Fixpoint lower
                                [var_expr dimvar1;
                                 fun_expr (fn_Z (fn_ZLit k')) []] ::
                                map var_expr dimvars |}] |};
-         {| rule_concl := {| fact_R := out;
+         {| rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0)) [] ::
                                 map lower_idx idxs ++
                                 var_expr dimvar1 ::
-                                map var_expr dimvars |};
+                                map var_expr dimvars |}];
            rule_hyps := [{| fact_R := true_rel;
                            fact_args := [fun_expr (fn_B fn_BLt)
                                            [var_expr dimvar1;
                                             fun_expr (fn_Z (fn_ZLit k')) []]] |}] |}]
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr O s in
-      [{| rule_hyps := hyps; rule_concl := {| fact_R := out; fact_args := val :: map lower_idx idxs |} |}]
+      [{| rule_hyps := hyps; rule_concls := [{| fact_R := out; fact_args := val :: map lower_idx idxs |}] |}]
   end.
+
+Check lower. Print rule. Print fact.
+(* Definition request_hyps (r : rule rel var fn) := *)
+(*   {| rule_hyps := *)
+(*       [{| fact_R := r.(rule_concl).(fact_R); fact_args := skipn (S O) r.(rule_concl).(fact_args) |}]; *)
+(*     rule_concl := r.(rule_concl). *)
 
 (*I thought about using fmaps here, but it's not even clear to me that that is possible.
   How do you iterate over an fmap?  i could get the domain, which is a 'set', but idk
@@ -1423,13 +1429,13 @@ Qed.
 Print result_has_shape.
 
 Definition true_rule : rule rel var fn :=
-  {| rule_concl := {| fact_R := true_rel;
-                     fact_args := [fun_expr (fn_B (fn_BLit true)) []] |};
+  {| rule_concls := [{| fact_R := true_rel;
+                       fact_args := [fun_expr (fn_B (fn_BLit true)) []] |}];
     rule_hyps := [] |}.
 
 Definition false_rule : rule rel var fn :=
-  {| rule_concl := {| fact_R := false_rel;
-                     fact_args := [fun_expr (fn_B (fn_BLit false)) []] |};
+  {| rule_concls := [{| fact_R := false_rel;
+                     fact_args := [fun_expr (fn_B (fn_BLit false)) []] |}];
     rule_hyps := [] |}.
 
 Lemma Forall2_impl_in_l {A B : Type} (R1 R2 : A -> B -> Prop) l1 l2 :
@@ -1604,8 +1610,8 @@ Proof.
   revert k. induction l; intros k.
   - destruct k; simpl; lia.
   - destruct k; simpl; auto.
-Qed.  
-
+Qed.
+  
 Lemma lower_correct e out sh v ctx r datalog_ctx l :
   eval_expr sh v ctx e r ->
   size_of e l ->
@@ -1619,7 +1625,7 @@ Lemma lower_correct e out sh v ctx r datalog_ctx l :
     Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx idx_ctx)) idx_ctx' ->
     prog_impl_fact interp_fn (lower e out name idx_ctx ++ datalog_ctx ++ [true_rule; false_rule]) (out, Robj (toR val) :: idx_ctx' ++ map Zobj idxs).
 Proof.
-  revert out sh v ctx r datalog_ctx l. induction e. 
+  revert out sh v ctx r datalog_ctx l. induction e.
   - simpl. intros. apply invert_eval_gen in H.
     destruct H as (loz&hiz&rl&Hrl&Hlen&Hlo&Hhi&Hbody). subst.
     move IHe at bottom. invert H3. move Hbody at bottom. specialize (Hbody (loz + x)%Z).
@@ -1668,8 +1674,8 @@ Proof.
       apply Exists_cons_tl. apply Exists_cons_tl. constructor. simpl.
       exists s.
       simpl. cbv [subst_in_fact]. simpl. split.
-      { constructor. simpl. constructor.
-        { subst s. cbv [compose map_cons]. simpl. rewrite H'', Nat.eqb_refl. repeat econstructor. }
+      { constructor. constructor. simpl. constructor.
+        { subst s. cbv [compose map_cons]. simpl. rewrite <- H'', Nat.eqb_refl. repeat econstructor. }
         rewrite map_app. apply Forall2_app.
         - repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl. 2: eassumption.
           simpl. intros a b Hab. eapply interp_expr_subst_more'. 2: eassumption.
@@ -1700,7 +1706,7 @@ Proof.
         - apply Exists_app. left. apply Exists_app. right. simpl.
           apply Exists_cons_hd. simpl.
           exists s. cbv [subst_in_fact]. simpl. split; [|constructor]. constructor.
-          simpl. constructor.
+          constructor. simpl. constructor.
           { repeat econstructor. }
           apply eval_Zexpr_Z_eval_Zexpr in Hhiz, Hloz.
           apply eval_Zexpr_to_substn in Hhiz, Hloz.
@@ -1738,7 +1744,7 @@ Proof.
                             (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs)))).
             exists s. split; [|constructor].
             cbv [subst_in_fact]. simpl. replace (loz + 0)%Z with loz by lia.
-            constructor. constructor.
+            constructor. constructor. constructor.
             { repeat econstructor. }
             constructor.
             { eapply interp_expr_subst_more'; [|eassumption]. apply gross2. }
@@ -1778,7 +1784,7 @@ Proof.
               simpl_map_cons. cbv [idx_map].
               rewrite nth_error_map. rewrite E. simpl. repeat econstructor. }
             exists s. split.
-            --- simpl. constructor. simpl. constructor.
+            --- simpl. constructor. constructor. simpl. constructor.
                 { simpl. subst s. simpl. cbv [map_cons]. rewrite <- H''.
                   repeat rewrite var_eqb_refl. cbv [var_eqb]. simpl.
                   replace (_ =? _)%nat with false.
@@ -1841,7 +1847,7 @@ Proof.
         apply Exists_cons_hd. simpl.
         exists (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs))).
         cbv [subst_in_fact]. simpl. constructor.
-        - constructor. simpl. constructor.
+        - constructor. constructor. simpl. constructor.
           { repeat econstructor. }
           repeat rewrite map_app. apply Forall2_app.
           + repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl; [|eassumption].
@@ -1870,7 +1876,7 @@ Proof.
         exists (map_cons (inr (length idxs)) (Some (fn_R (fn_SLit (toR val))))
              (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs)))).
         simpl. cbv [subst_in_fact]. cbn -[subst_in_expr]. split.
-        { constructor. simpl. rewrite map_cons_something. constructor.
+        { constructor. simpl. rewrite map_cons_something. constructor. constructor.
           { repeat econstructor. }
           repeat rewrite map_app. apply Forall2_app.
           - repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl; [|eassumption].
@@ -1949,7 +1955,7 @@ Proof.
                         (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs))))).
         exists s.
         cbv [subst_in_fact]. cbn -[seq]. split.
-        - simpl. constructor. constructor.
+        - constructor. simpl. constructor. constructor.
           { cbv [s]. simpl_map_cons. repeat econstructor. } 
           repeat rewrite map_app. apply Forall2_app.
           + move H4 at bottom. repeat rewrite <- Forall2_map_l in *.
@@ -1998,7 +2004,7 @@ Proof.
                      (map_cons (inr (S (length xs))) (Some (fn_R (fn_SLit (toR val))))
                         (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs))))).
           cbv [subst_in_fact]. cbn -[seq]. split.
-          - constructor. cbn -[seq]. constructor.
+          - constructor. cbn -[seq]. constructor. constructor.
             { simpl_map_cons. repeat econstructor. } 
             repeat rewrite map_app. apply Forall2_app.
             + move H4 at bottom. repeat rewrite <- Forall2_map_l in *.
@@ -2081,7 +2087,7 @@ Proof.
                    (map_cons (inr (length l1)) (Some (fn_Z (fn_ZLit _)))
                       (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs))))).
       exists s. cbv [subst_in_fact]. simpl. constructor.
-      { constructor. simpl. unfold s at 1. simpl_map_cons. constructor.
+      { constructor. simpl. unfold s at 1. simpl_map_cons. constructor. constructor.
         { repeat econstructor. }
         rewrite map_app. apply Forall2_app.
         - repeat rewrite <- Forall2_map_l in *.
@@ -2162,7 +2168,7 @@ Proof.
                         (map_cons (inr (length l1)) (Some (fn_Z (fn_ZLit _)))
                            (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs)))))).
         exists s. cbv [subst_in_fact]. simpl. constructor.
-        { constructor. simpl. unfold s at 1. simpl_map_cons. constructor.
+        { constructor. simpl. unfold s at 1. simpl_map_cons. constructor. constructor.
           { repeat econstructor. }
           rewrite map_app. apply Forall2_app.
           - repeat rewrite <- Forall2_map_l in *.
@@ -2211,7 +2217,7 @@ Proof.
         eset (s := map_cons (inr (length l1)) (Some (fn_Z (fn_ZLit _)))
                      (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs)))).
         exists s. cbv [subst_in_fact]. simpl. constructor.
-        { constructor. simpl. constructor.
+        { constructor. constructor. simpl. constructor.
           { repeat econstructor. }
           rewrite map_app. apply Forall2_app.
           - repeat rewrite <- Forall2_map_l in *.
@@ -2277,7 +2283,7 @@ Proof.
                       (map_cons (inr (S (length idxs))) (Some (fn_Z (fn_ZLit _)))
                          (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs)))))).
       exists s. cbv [subst_in_fact]. simpl. split.
-      { unfold s at 1. simpl_map_cons. constructor. simpl. constructor.
+      { unfold s at 1. simpl_map_cons. constructor. constructor. simpl. constructor.
         { repeat econstructor. }
         rewrite map_app. apply Forall2_app.
         - repeat rewrite <- Forall2_map_l in *.
@@ -2342,7 +2348,7 @@ Proof.
                    (map_cons (inr (length xs)) (Some (fn_Z (fn_ZLit _)))
                       (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs))))).
       exists s. split.
-      { constructor. simpl. constructor.
+      { constructor. constructor. simpl. constructor.
         { cbv [s]. simpl_map_cons. repeat econstructor. }
         repeat rewrite map_app. apply Forall2_app.
         - repeat rewrite <- Forall2_map_l in *.
@@ -2407,7 +2413,7 @@ Proof.
                      (map_cons (inr (length xs)) (Some (fn_Z (fn_ZLit _)))
                         (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs))))).
         exists s. split.
-        { constructor. simpl. constructor.
+        { constructor. constructor. simpl. constructor.
           { cbv [s]. simpl_map_cons. repeat econstructor. }
           repeat rewrite map_app. apply Forall2_app.
           - repeat rewrite <- Forall2_map_l in *.
@@ -2447,7 +2453,7 @@ Proof.
         eset (s := map_cons (inr (length xs)) (Some (fn_Z (fn_ZLit _)))
                      (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs)))).
         exists s. split.
-        { constructor. simpl. constructor.
+        { constructor. constructor. simpl. constructor.
           { cbv [s]. simpl_map_cons. repeat econstructor. }
           repeat rewrite map_app. apply Forall2_app.
           - repeat rewrite <- Forall2_map_l in *.
@@ -2469,7 +2475,7 @@ Proof.
       econstructor.
       { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_hd.
         simpl. exists map_empty. cbv [subst_in_fact]. simpl. split; [|solve[constructor]].
-        constructor. simpl. constructor; [|solve[constructor]].
+        constructor. constructor. simpl. constructor; [|solve[constructor]].
         repeat econstructor. simpl. f_equal. f_equal.
         rewrite <- result_has_shape'_iff in He. invert He. rewrite H6.
         symmetry. apply Z.leb_le. lia. }
@@ -2510,7 +2516,7 @@ Proof.
         eset (s := map_cons (inr (length xs)) (Some (fn_Z (fn_ZLit _)))
                      (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs)))).
         exists s. split.
-        { constructor. simpl. constructor.
+        { constructor. constructor. simpl. constructor.
           { cbv [s]. simpl_map_cons. repeat econstructor. }
           repeat rewrite map_app. apply Forall2_app.
           - repeat rewrite <- Forall2_map_l in *.
@@ -2532,7 +2538,7 @@ Proof.
       econstructor.
       { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_hd.
         simpl. exists map_empty. cbv [subst_in_fact]. simpl. split; [|solve[constructor]].
-        constructor. simpl. constructor; [|solve[constructor]].
+        constructor. constructor. simpl. constructor; [|solve[constructor]].
         repeat econstructor. simpl. f_equal. f_equal. symmetry. apply Z.ltb_lt. lia. }
       apply Forall_forall. constructor.
     + rewrite nth_error_app2 in H5 by (rewrite repeat_length; lia). econstructor.
@@ -2541,7 +2547,7 @@ Proof.
                      (map_cons (inr (length xs)) (Some (fn_Z (fn_ZLit _)))
                         (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) xs))))).
         exists s. split.
-        { constructor. simpl. constructor.
+        { constructor. constructor. simpl. constructor.
           { cbv [s]. simpl_map_cons. repeat econstructor. }
           repeat rewrite map_app. apply Forall2_app.
           - repeat rewrite <- Forall2_map_l in *.

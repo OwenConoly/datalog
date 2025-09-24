@@ -9,7 +9,7 @@ From Coq Require Import ZArith.Znat.
 From Coq Require Import Strings.String.
 From Coq Require Import Lists.List.
 From Coq Require Import micromega.Lia.
-Require Import Coq.Logic.FunctionalExtensionality.
+From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
 Import ListNotations.
 
@@ -44,7 +44,7 @@ Section __.
 
   Record rule :=
     { rule_hyps: list fact;
-      rule_concl: fact }.
+      rule_concls: list fact }.
 
   Fixpoint subst_in_expr (s : var -> option fn) (e : expr) :=
     match e with
@@ -61,7 +61,7 @@ Section __.
 
   Definition subst_in_rule (s : var -> option fn) (r : rule) : rule :=
     {| rule_hyps := map (subst_in_fact s) r.(rule_hyps);
-      rule_concl := subst_in_fact s r.(rule_concl) |}.
+      rule_concls := map (subst_in_fact s) r.(rule_concls) |}.
 
   Fixpoint appears_in_expr (v : var) (e : expr) :=
     match e with
@@ -71,23 +71,24 @@ Section __.
 
   Definition appears_in_fact (v : var) (f : fact) :=
     Exists (appears_in_expr v) f.(fact_args).
-
-  (*TODO: this is not a good enough condition.  We want to say that every variable
-    appearing (in the hyps or in the conclusion) appears 'naked' in the hyps,
-    i.e. as a direct argument to a relation.*)
+  Check eq. (*WHY*) Locate "=".
+  Definition barely_appears_in_fact (v : var) (f : fact) :=
+    Exists (Logic.eq (var_expr v)) f.(fact_args).
+  
   Definition good_rule (r : rule) :=
-    forall v, appears_in_fact v r.(rule_concl) ->
-         Exists (appears_in_fact v) r.(rule_hyps).
+    forall v, Exists (appears_in_fact v) r.(rule_concls) \/ Exists (appears_in_fact v) r.(rule_hyps) ->
+         Exists (barely_appears_in_fact v) r.(rule_hyps).
 
   Definition good_prog (p : list rule) := Forall good_rule p.
 
   Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop :=
   | impl_step f hyps :
     Exists
-      (fun r => exists s,
+      (fun r =>
+         exists s,
            let r' := subst_in_rule s r in
-           interp_fact r'.(rule_concl) f /\
-               Forall2 interp_fact r'.(rule_hyps) hyps)
+           Exists (fun c => interp_fact c f) r'.(rule_concls) /\
+             Forall2 interp_fact r'.(rule_hyps) hyps)
       p ->
     (forall hyp, In hyp hyps -> prog_impl_fact p hyp) ->
     prog_impl_fact p f.
@@ -200,6 +201,53 @@ Section __.
     cbv [subst_in_fact]. simpl. f_equal. rewrite map_map. apply map_ext.
     intros. apply subst_in_expr_subst_in_expr.
   Qed.
+
+  (* it's a dag if we can keep peeling away nodes that aren't being pointed to*)
+  (* Inductive dag : list rule -> Type := *)
+  (* | dag_nil : dag [] *)
+  (* | dag_cons l1 x l2 : *)
+  (*   Forall (fun r => Forall (fun f => f.(fact_R) <> x.(rule_concl).(fact_R)) r.(rule_hyps)) (l1 ++ x :: l2) -> *)
+  (*   dag (l1 ++ l2) -> *)
+  (*   dag (l1 ++ x :: l2). *)
+
+  (* Context (T_eq_dec : forall (x y : T), {x = y} + {x <> y}). *)
+  (* Context (rel_eq_dec : forall (x y : T), {x = y} + {x <> y}). *)
+
+  (* (*very dumb evaluation, mainly to prove something*) *)
+  
+  (* Fixpoint choose_n (l : list T) (n : nat) : list (list T) := *)
+  (*   match n with *)
+  (*   | O => [ [] ] *)
+  (*   | S n' => flat_map (fun x => map (cons x) (choose_n l n')) l *)
+  (*   end. *)
+
+  (* Lemma choose_n_spec l n l' : *)
+  (*   length l' = n -> *)
+  (*   (forall x, In x l' -> In x l) -> *)
+  (*   In l' (choose_n l n). *)
+  (* Proof. Admitted. *)
+
+  (* Definition get_substn (arg: expr) (arg' : T) := *)
+  (*   match arg with *)
+  (*   | fun_expr _ _ => [] *)
+  (*   | var_expr v => [(v, arg)] *)
+  (*   end. *)
+
+  (* Definition get_fact_substn (f : fact) (f' : rel * list T) := *)
+  (*   flat_map (fun '(x, y) => get_substn x y) (List.zip f (snd f')). *)
+  
+  (* Fixpoint implications (r : rule) (l : list (rel * list T)) : list (rel * list T) := *)
+  (*   match l with *)
+  (*   |  *)
+
+  (* Lemma dags_terminate p : *)
+  (*   dag p -> *)
+  (*   exists l, forall f, prog_impl_fact p f -> In f l. *)
+  (* Proof. *)
+  (*   intros H. induction H. *)
+  (*   - exists nil. intros f Hf. invert Hf. invert H. *)
+  (*   - destruct IHdag as [l IHl]. *)
+  
 End __.
 Arguments Build_rule {_ _ _}.
 Arguments Build_fact {_ _ _}.
@@ -209,9 +257,6 @@ Arguments prog_impl_fact {_ _ _ _}.
 Arguments fact_args {_ _ _}.
 Arguments subst_in_expr {_ _}.
 Arguments interp_expr {_ _ _}.
-Check interp_fact.
 Arguments interp_fact {_ _ _ _}.
-Check subst_in_fact.
 Arguments subst_in_fact {_ _ _}.
 Arguments fact_R {_ _ _}.
-Search (?x + ?y -> option ?x)%type.
