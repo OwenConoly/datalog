@@ -214,7 +214,13 @@ Definition toR (s : scalar_result) :=
   match s with
   | SS s => s
   | SX => 0%R
-  end.  
+  end.
+
+(*we want to ignore bounds.  to avoid generating wrong answers, then, due to ignoring
+  bounds, we have two options.
+  1. don't actually ignore bounds.  before outputting something, check that it's in bounds.  (this sounds terrible and inefficient)
+  2. before using something, check---if necessary---that it's in bounds.  (this sounds much less bad, since we usually won't need to do a check).
+ *)
 
 Fixpoint lower
   (e : ATLexpr)
@@ -510,11 +516,41 @@ Fixpoint lower
       [{| rule_hyps := hyps; rule_concls := [{| fact_R := out; fact_args := val :: map lower_idx idxs |}] |}]
   end.
 
+Definition functional (p : list (rule rel var fn)) :=
+  forall idxs r x1 x2,
+    prog_impl_fact interp_fn p (r, x1 :: idxs) ->
+    prog_impl_fact interp_fn p (r, x2 :: idxs) ->
+    x1 = x2.
+Print lower.
+Lemma lower_functional e out name idxs :
+  functional (lower e out name idxs).
+Proof.
+  revert out name idxs. induction e.
+  - simpl. intros. apply IHe.
+  - admit.
+  - simpl. intros.
+
 Check lower. Print rule. Print fact.
-(* Definition request_hyps (r : rule rel var fn) := *)
-(*   {| rule_hyps := *)
-(*       [{| fact_R := r.(rule_concl).(fact_R); fact_args := skipn (S O) r.(rule_concl).(fact_args) |}]; *)
-(*     rule_concl := r.(rule_concl). *)
+(*an alternative to option types*)
+Definition garbage_fact : fact rel var fn :=
+  {| fact_R := nat_rel O; fact_args := [] |}.
+
+Definition remove_first {rel var fn} (f : fact rel var fn) :=
+  {| fact_R := f.(fact_R); fact_args := skipn (S O) f.(fact_args) |}.
+
+(*if we get a message saying concl of r needs to be computed, then send out messages
+  saying premises of r need to be computed*)
+Definition request_hyps (r : rule rel var fn) :=
+  {| rule_hyps := [remove_first (hd garbage_fact r.(rule_concls))];
+    rule_concls := map remove_first r.(rule_hyps) |}.
+
+(*add a hypothesis saying that the conclusion is something we need to compute*)
+Definition add_hyp (r : rule rel var fn) :=
+  {| rule_hyps := remove_first (hd garbage_fact r.(rule_concls)) :: r.(rule_hyps);
+    rule_concls := r.(rule_concls) |}.
+
+Definition make_good (p : list (rule rel var fn)) : list (rule rel var fn) :=
+  map request_hyps p ++ map add_hyp p.
 
 (*I thought about using fmaps here, but it's not even clear to me that that is possible.
   How do you iterate over an fmap?  i could get the domain, which is a 'set', but idk
