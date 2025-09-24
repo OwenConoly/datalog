@@ -22,21 +22,22 @@ Section __.
 
   (*avoid generating useless induction principle*)
   Unset Elimination Schemes.
-  Inductive expr :=
-  | fun_expr (f : fn) (args : list expr)
-  | var_expr (v : var).
+  Inductive expr (fact : Type) :=
+  | fun_expr (f : fn) (args : list (expr fact))
+  | var_expr (v : var)
+  | agg_expr (a : nat(*aggregator*)) (i : var) (body: expr fact) (hyps: list fact).
   Set Elimination Schemes.
 
   Unset Elimination Schemes.
-  Inductive interp_expr : expr -> T -> Prop :=
+  Inductive interp_expr {fact} : expr fact -> T -> Prop :=
   | interp_fun_expr f args args' x : Forall2 interp_expr args args' ->
                                      interp_fun f args' = Some x ->
-                                     interp_expr (fun_expr f args) x.
+                                     interp_expr (fun_expr _ f args) x.
   Set Elimination Schemes.
   
-  Record fact :=
+  Inductive fact :=
     { fact_R : rel;
-      fact_args : list expr }.
+      fact_args : list (expr fact) }.
 
   Inductive interp_fact : fact -> rel * list T -> Prop :=
   | mk_interp_fact f args' : Forall2 interp_expr f.(fact_args) args' ->
@@ -46,7 +47,7 @@ Section __.
     { rule_hyps: list fact;
       rule_concls: list fact }.
 
-  Fixpoint subst_in_expr (s : var -> option fn) (e : expr) :=
+  Fixpoint subst_in_expr (s : var -> option fn) (e : expr fact) :=
     match e with
     | fun_expr f args => fun_expr f (map (subst_in_expr s) args)
     | var_expr v => match s v with
@@ -260,3 +261,5 @@ Arguments interp_expr {_ _ _}.
 Arguments interp_fact {_ _ _ _}.
 Arguments subst_in_fact {_ _ _}.
 Arguments fact_R {_ _ _}.
+Arguments rule_concls {_ _ _}.
+Arguments rule_hyps {_ _ _}.
