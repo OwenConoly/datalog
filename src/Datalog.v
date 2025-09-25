@@ -97,7 +97,7 @@ Section __.
         simpl in *. constructor; [|apply IHhyps; lia]. clear IHhyps. cbv [fact_size] in He.
         remember (fact_args a) as args eqn:E. clear E. induction args; [constructor|].
         simpl in *. constructor; [|apply IHargs; lia]. apply IHn. lia.
-  Qed.
+  Defined. (*for use in prog_impl_fact_ind*)
 
   Inductive interp_fact' (interp_expr : expr -> T -> Prop) : fact expr -> rel * list T -> Prop :=
   | mk_interp_fact f args' :
@@ -153,6 +153,7 @@ Section __.
 
   (* Definition good_prog (p : list rule) := Forall good_rule p. *)
 
+  Unset Elimination Schemes.
   Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop :=
   | impl_step f hyps :
     Exists
@@ -162,10 +163,96 @@ Section __.
            Exists (fun c => interp_fact (prog_impl_fact p) c f) r'.(rule_concls) /\
              Forall2 (interp_fact (prog_impl_fact p)) r'.(rule_hyps) hyps)
       p ->
-    (forall hyp, In hyp hyps -> prog_impl_fact p hyp) ->
+    Forall (prog_impl_fact p) hyps ->
     prog_impl_fact p f.
-  Print interp_fact'. Print interp_expr.
-    
+  Set Elimination Schemes.
+
+  Lemma interp_fact_weaken fh1 fh2 f f' :
+    (forall e t, interp_expr fh1 e t ->
+    (forall f, fh1 f -> fh2 f) ->
+    interp_expr fh2 e t) ->
+    interp_fact fh1 f f' ->
+    (forall f, fh1 f -> fh2 f) ->
+    interp_fact fh2 f f'.
+  Proof.
+    intros H H1 H2. invert H1. constructor. induction H0.
+    - constructor.
+    - constructor; auto.
+  Defined.
+
+
+  Print interp_expr.
+  Lemma interp_expr_weaken fh1 fh2 e t :
+    interp_expr fh1 e t ->
+    (forall f, fh1 f -> fh2 f) ->
+    interp_expr fh2 e t.
+  Proof.
+    intros H1 H2. revert t H1. induction e; intros.
+    - invert H1. econstructor; eauto. clear -H H4. induction H4; [constructor|].
+      invert H. constructor; eauto.
+    - invert H1.
+    - invert H1. econstructor; eauto. clear -H H10. (*?????*)
+      clear IHe1 IHe2 H8 H9.
+      induction H10; [constructor|]. constructor; eauto.
+      
+      clear IHForall2 H10.
+      destruct H0 as (?&?&?&?&?&?&?). invert H1. invert H8.
+      eexists. eexists. split; [eassumption|]. split.
+      { repeat econstructor. assumption. }
+      split.
+      { clear - H3 H2 H. instantiate (1 := hyps'). revert hyps' H3.
+        induction H; intros hyps' H3; invert H3.
+        - constructor.
+        - simpl. constructor; auto. invert H5. constructor. eapply interp_fact_weaken. 2: eauto. all: eauto.
+          
+        invert 
+        eassumption.
+      [eassumption|]. intuition eauto.
+      + repeat econstructor; eauto.
+      + Search hyps.
+      + Search hyps'.
+      + repeat econstructor. eauto.
+      + Search x1. simpl.
+      + co
+      2: { 
+      
+    intros H1. Fail induction H1. Admitted.
+
+  Definition prog_impl_fact_ind p P :
+    (forall f hyps,
+        Exists
+          (fun r =>
+             exists s,
+               let r' := subst_in_rule s r in
+               Exists (fun c => interp_fact (fun f => prog_impl_fact p f /\ P f) c f) r'.(rule_concls) /\
+                 
+                 Forall2 (interp_fact (fun f => prog_impl_fact p f /\ P f)) r'.(rule_hyps) hyps)
+          p ->
+        Forall (prog_impl_fact p) hyps ->
+        Forall P hyps ->
+        P f) ->
+    forall f, prog_impl_fact p f -> P f.
+  Proof.
+    intros H.
+    refine (fix pifs f (pf : prog_impl_fact p f) {struct pf}: P f :=
+              match pf with
+              | impl_step _ f hyps p1 p2 => _
+              end).
+    eapply H. 2: eassumption.
+    2: { clear -p2 pifs. induction p2; [constructor|]. constructor; auto. }
+    clear -p1 pifs. set (p' := p). replace p' with p by reflexivity.
+    eassert (p1': Exists _ p') by eassumption. eenough (Exists _ p') by eassumption.
+    clear p1. clearbody p'. induction p1'.
+    - apply Exists_cons_hd. destruct H as (s&H1&H2). exists s. simpl in *. split.
+      + clear -H1 pifs. remember (map _ _) as blah eqn:E. clear E. induction H1.
+        -- apply Exists_cons_hd. eapply interp_fact_weaken. 1: eassumption.
+        -- apply Exists_cons_tl. assumption.
+      + clear -H2 pifs. remember (map _ _) as blah eqn:E. clear E. induction H2.
+        -- constructor.
+        -- constructor; auto. eapply interp_fact_weaken; eauto.
+    - apply Exists_cons_tl. apply IHp1'.
+  Qed.
+  
   Definition extends {A B : Type} (f1 f2 : A -> option B) :=
     forall x y, f2 x = Some y -> f1 x = Some y.
   
