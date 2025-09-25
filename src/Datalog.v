@@ -15,72 +15,143 @@ Import ListNotations.
 
 Section __.
   (*relations, variables, and functions.  constants are 0-ary functions.*)
-  Context (rel: Type) (var: Type) (fn: Type).
+  Context (rel: Type) (var: Type) (fn: Type) (aggregator: Type).
   Context (T : Type).
   (*returning None means inputs not in domain (e.g., number of args was wrong)*)
   Context (interp_fun : fn -> (list T) -> option T).
+  (*if x represents a finite set, then get_set x = Some ([x1; ...; xn]), where x1, ..., xn are the elements of the set*)
+  Context (get_set : T -> option (list T)).
+  (*agg_id sum = O, agg_id prod = 1, agg_id min = inf, etc*)
+  (*interp_agg takes an aggregator and returns the corresponding binop...
+    arguably type should be aggregator -> T -> T -> option T,
+    but i dont want to bother with that*)
+  Context (agg_id : aggregator -> T) (interp_agg : aggregator -> T -> T -> T).
 
+  Inductive fact (expr : Type) :=
+    { fact_R : rel;
+      fact_args : list (expr) }.
+  Arguments fact_R {_}.
+  Arguments fact_args {_}.
+  
   (*avoid generating useless induction principle*)
   Unset Elimination Schemes.
-  Inductive expr (fact : Type) :=
-  | fun_expr (f : fn) (args : list (expr fact))
+  Inductive expr :=
+  | fun_expr (f : fn) (args : list (expr))
   | var_expr (v : var)
-  | agg_expr (a : nat(*aggregator*)) (i : var) (body: expr fact) (hyps: list fact).
+  (* for example, (agg_expr sum i S body nil) is \sum_{i \in S} body.
+     in general, the hyps argument may bind some other variables than i.
+     for instance, (agg_expr sum i S (var_expr j) [R(i, j)]) is \sum_{i \in S} j,
+     where for each i, the body j may (nondeterministically) evaluate to any j such that
+     R(i, j) holds.
+   *)
+  | agg_expr (a : aggregator) (i : var) (S : expr) (body: expr) (hyps: list (fact expr)).
   Set Elimination Schemes.
 
-  Unset Elimination Schemes.
-  Inductive interp_expr {fact} : expr fact -> T -> Prop :=
-  | interp_fun_expr f args args' x : Forall2 interp_expr args args' ->
-                                     interp_fun f args' = Some x ->
-                                     interp_expr (fun_expr _ f args) x.
-  Set Elimination Schemes.
+  Definition fact_map {expr: Type} (f : expr -> expr) (fct : fact expr) :=
+    {| fact_R := fct.(fact_R); fact_args := map f fct.(fact_args) |}.
   
-  Inductive fact :=
-    { fact_R : rel;
-      fact_args : list (expr fact) }.
-
-  Inductive interp_fact : fact -> rel * list T -> Prop :=
-  | mk_interp_fact f args' : Forall2 interp_expr f.(fact_args) args' ->
-                             interp_fact f (f.(fact_R), args').
-
-  Record rule :=
-    { rule_hyps: list fact;
-      rule_concls: list fact }.
-
-  Fixpoint subst_in_expr (s : var -> option fn) (e : expr fact) :=
+  Fixpoint subst_in_expr (s : var -> option fn) (e : expr) :=
     match e with
     | fun_expr f args => fun_expr f (map (subst_in_expr s) args)
     | var_expr v => match s v with
                    | Some f => fun_expr f []
                    | None => var_expr v
                    end
+    | agg_expr a i S_ body hyps =>
+        agg_expr a i (subst_in_expr s S_) (subst_in_expr s body) (map (fact_map (subst_in_expr s)) hyps)
     end.
 
-  Definition subst_in_fact (s : var -> option fn) (f : fact) : fact :=
-    {| fact_R := f.(fact_R);
-      fact_args := map (subst_in_expr s) f.(fact_args) |}.
+  Definition subst_in_fact s := fact_map (subst_in_expr s).
+
+  Definition fact_size {expr: Type} (expr_size : expr -> nat) (fct : fact expr) :=
+    fold_right Nat.max O (map expr_size fct.(fact_args)).
+
+  Fixpoint expr_size (e : expr) :=
+    match e with
+    | fun_expr _ args => S (fold_right Nat.max O (map expr_size args))
+    | var_expr _ => O
+    | agg_expr a i s body hyps => S (Nat.max (expr_size s) (Nat.max (expr_size body) (fold_right Nat.max O (map (fact_size expr_size) hyps))))
+    end.
+  
+  (*This is stupid.  how do people normally do it?*)
+  Lemma expr_ind P :
+    (forall f args,
+        Forall P args ->
+        P (fun_expr f args)) ->
+    (forall v, P (var_expr v)) ->
+    (forall a i s body hyps,
+        P s ->
+        P body ->
+        Forall (fun hyp => Forall P hyp.(fact_args)) hyps ->
+        P (agg_expr a i s body hyps)) ->
+    forall e, P e.
+  Proof.
+    intros. remember (expr_size e) as sz eqn:E.
+    assert (He: (expr_size e < Datatypes.S sz)%nat) by lia.
+    clear E. revert e He. induction (Datatypes.S sz); intros.
+    - lia.
+    - destruct e; simpl in He; auto.
+      + apply H. clear -IHn He. induction args; [constructor|].
+        simpl in *. constructor; [|apply IHargs; lia]. apply IHn. lia.
+      + apply H1. 1,2: apply IHn; lia. clear -IHn He. induction hyps; [constructor|].
+        simpl in *. constructor; [|apply IHhyps; lia]. clear IHhyps. cbv [fact_size] in He.
+        remember (fact_args a) as args eqn:E. clear E. induction args; [constructor|].
+        simpl in *. constructor; [|apply IHargs; lia]. apply IHn. lia.
+  Qed.
+
+  Inductive interp_fact' (interp_expr : expr -> T -> Prop) : fact expr -> rel * list T -> Prop :=
+  | mk_interp_fact f args' :
+    Forall2 interp_expr f.(fact_args) args' ->
+    interp_fact' interp_expr f (f.(fact_R), args').
+  
+  Unset Elimination Schemes.
+  Inductive interp_expr (fact_holds : rel * list T -> Prop) : expr -> T -> Prop :=
+  | interp_fun_expr f args args' x :
+    Forall2 (interp_expr fact_holds) args args' ->
+    interp_fun f args' = Some x ->
+    interp_expr fact_holds (fun_expr f args) x
+  | interp_agg_expr a i S S' is' bodies' body hyps hyps' :
+    interp_expr fact_holds S S' ->
+    get_set S' = Some is' ->
+    Forall2 (fun i' body' =>
+               exists s fi,
+                 (*this is horrible; i should have literals built in maybe, instead of calling them functions*)
+                 s i = Some fi /\
+                   interp_expr _ (fun_expr fi []) i' /\
+                   Forall2 (interp_fact' (interp_expr _)) (map (subst_in_fact s) hyps) hyps' /\
+                   Forall fact_holds hyps' /\
+                   interp_expr _ (subst_in_expr s body) body')
+      is' bodies' ->
+    interp_expr _ (agg_expr a i S body hyps) (fold_right (interp_agg a) (agg_id a) bodies').
+  Set Elimination Schemes.
+
+  Definition interp_fact fact_holds := interp_fact' (interp_expr fact_holds).
+  
+  Record rule :=
+    { rule_hyps: list (fact expr);
+      rule_concls: list (fact expr) }.
 
   Definition subst_in_rule (s : var -> option fn) (r : rule) : rule :=
     {| rule_hyps := map (subst_in_fact s) r.(rule_hyps);
       rule_concls := map (subst_in_fact s) r.(rule_concls) |}.
-
-  Fixpoint appears_in_expr (v : var) (e : expr) :=
-    match e with
-    | fun_expr _ args => fold_left (fun acc arg => acc \/ appears_in_expr v arg) args False
-    | var_expr v0 => v0 = v
-    end.
-
-  Definition appears_in_fact (v : var) (f : fact) :=
-    Exists (appears_in_expr v) f.(fact_args).
-  Check eq. (*WHY*) Locate "=".
-  Definition barely_appears_in_fact (v : var) (f : fact) :=
-    Exists (Logic.eq (var_expr v)) f.(fact_args).
   
-  Definition good_rule (r : rule) :=
-    forall v, Exists (appears_in_fact v) r.(rule_concls) \/ Exists (appears_in_fact v) r.(rule_hyps) ->
-         Exists (barely_appears_in_fact v) r.(rule_hyps).
+  (* Fixpoint appears_in_expr (v : var) (e : expr) := *)
+  (*   match e with *)
+  (*   | fun_expr _ args => fold_left (fun acc arg => acc \/ appears_in_expr v arg) args False *)
+  (*   | var_expr v0 => v0 = v *)
+  (*   end. *)
 
-  Definition good_prog (p : list rule) := Forall good_rule p.
+  (* Definition appears_in_fact (v : var) (f : fact) := *)
+  (*   Exists (appears_in_expr v) f.(fact_args). *)
+  (* Check eq. (*WHY*) Locate "=". *)
+  (* Definition barely_appears_in_fact (v : var) (f : fact) := *)
+  (*   Exists (Logic.eq (var_expr v)) f.(fact_args). *)
+  
+  (* Definition good_rule (r : rule) := *)
+  (*   forall v, Exists (appears_in_fact v) r.(rule_concls) \/ Exists (appears_in_fact v) r.(rule_hyps) -> *)
+  (*        Exists (barely_appears_in_fact v) r.(rule_hyps). *)
+
+  (* Definition good_prog (p : list rule) := Forall good_rule p. *)
 
   Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop :=
   | impl_step f hyps :
@@ -88,35 +159,15 @@ Section __.
       (fun r =>
          exists s,
            let r' := subst_in_rule s r in
-           Exists (fun c => interp_fact c f) r'.(rule_concls) /\
-             Forall2 interp_fact r'.(rule_hyps) hyps)
+           Exists (fun c => interp_fact (prog_impl_fact p) c f) r'.(rule_concls) /\
+             Forall2 (interp_fact (prog_impl_fact p)) r'.(rule_hyps) hyps)
       p ->
     (forall hyp, In hyp hyps -> prog_impl_fact p hyp) ->
     prog_impl_fact p f.
-
+  Print interp_fact'. Print interp_expr.
+    
   Definition extends {A B : Type} (f1 f2 : A -> option B) :=
     forall x y, f2 x = Some y -> f1 x = Some y.
-
-  Fixpoint expr_size (e : expr) : nat :=
-    match e with
-    | fun_expr _ args => Datatypes.S (fold_right Nat.max O (map expr_size args))
-    | var_expr _ => O
-    end.
-  (*This is stupid.  how do people normally do it?*)
-  Lemma expr_ind P :
-    (forall f args,
-        Forall P args ->
-        P (fun_expr f args)) ->
-    (forall v, P (var_expr v)) ->
-    forall e, P e.
-  Proof.
-    intros. remember (expr_size e) as sz eqn:E.
-    assert (He: (expr_size e < Datatypes.S sz)%nat) by lia.
-    clear E. revert e He. induction (Datatypes.S sz); intros.
-    - lia.
-    - destruct e; auto. apply H. clear -IHn He. induction args; [constructor|].
-      simpl in *. constructor; [|apply IHargs; lia]. apply IHn. lia.
-  Qed.
   
   Lemma Forall2_map_l (A B C : Type) R (f : A -> B) (l1 : list A) (l2 : list C) :
     Forall2 (fun x => R (f x)) l1 l2 <->
@@ -135,7 +186,8 @@ Section __.
     prog_impl_fact p2 f.
   Proof.
     intros ? H. induction H. apply Exists_exists in H.
-    econstructor. 2: eassumption. apply Exists_exists. destruct H as (?&?&?). eauto.
+    econstructor. 2: eassumption. apply Exists_exists. destruct H as (?&?&?). eexists. intuition eauto.
+    
   Qed.
 
   Lemma interp_expr_subst_more s s' v e :
