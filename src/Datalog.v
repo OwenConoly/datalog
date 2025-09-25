@@ -11,6 +11,10 @@ From Coq Require Import Lists.List.
 From Coq Require Import micromega.Lia.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
+From coqutil 
+
+Require Import Datalog.Maps.
+
 Import ListNotations.
 
 Section __.
@@ -38,18 +42,18 @@ Section __.
   Inductive expr :=
   | fun_expr (f : fn) (args : list (expr))
   | var_expr (v : var)
-  (* for example, (agg_expr sum i S body nil) is \sum_{i \in S} body.
-     in general, the hyps argument may bind some other variables than i.
-     for instance, (agg_expr sum i S (var_expr j) [R(i, j)]) is \sum_{i \in S} j,
+  (* for example, (agg_expr sum i [] S body nil) is \sum_{i \in S} body.
+     in general, the hyps argument may bind some variables vs other than i.
+     for instance, (agg_expr sum i [j] S (var_expr j) [R(i, j)]) is \sum_{i \in S} j,
      where for each i, the body j may (nondeterministically) evaluate to any j such that
      R(i, j) holds.
    *)
-  | agg_expr (a : aggregator) (i : var) (S : expr) (body: expr) (hyps: list (fact expr)).
+  | agg_expr (a : aggregator) (i : var) (vs : list var) (S : expr) (body: expr) (hyps: list (fact expr)).
   Set Elimination Schemes.
 
   Definition fact_map {expr: Type} (f : expr -> expr) (fct : fact expr) :=
     {| fact_R := fct.(fact_R); fact_args := map f fct.(fact_args) |}.
-  
+
   Fixpoint subst_in_expr (s : var -> option fn) (e : expr) :=
     match e with
     | fun_expr f args => fun_expr f (map (subst_in_expr s) args)
@@ -57,8 +61,8 @@ Section __.
                    | Some f => fun_expr f []
                    | None => var_expr v
                    end
-    | agg_expr a i S_ body hyps =>
-        agg_expr a i (subst_in_expr s S_) (subst_in_expr s body) (map (fact_map (subst_in_expr s)) hyps)
+    | agg_expr a i vs S_ body hyps =>
+        agg_expr a i vs (subst_in_expr s S_) (subst_in_expr (removemany vs s) body) (map (fact_map (subst_in_expr (removemany vs s))) hyps)
     end.
 
   Definition subst_in_fact s := fact_map (subst_in_expr s).
@@ -70,7 +74,7 @@ Section __.
     match e with
     | fun_expr _ args => S (fold_right Nat.max O (map expr_size args))
     | var_expr _ => O
-    | agg_expr a i s body hyps => S (Nat.max (expr_size s) (Nat.max (expr_size body) (fold_right Nat.max O (map (fact_size expr_size) hyps))))
+    | agg_expr a i vs s body hyps => S (Nat.max (expr_size s) (Nat.max (expr_size body) (fold_right Nat.max O (map (fact_size expr_size) hyps))))
     end.
   
   (*This is stupid.  how do people normally do it?*)
@@ -79,11 +83,11 @@ Section __.
         Forall P args ->
         P (fun_expr f args)) ->
     (forall v, P (var_expr v)) ->
-    (forall a i s body hyps,
+    (forall a i vs s body hyps,
         P s ->
         P body ->
         Forall (fun hyp => Forall P hyp.(fact_args)) hyps ->
-        P (agg_expr a i s body hyps)) ->
+        P (agg_expr a i vs s body hyps)) ->
     forall e, P e.
   Proof.
     intros. remember (expr_size e) as sz eqn:E.
@@ -97,7 +101,7 @@ Section __.
         simpl in *. constructor; [|apply IHhyps; lia]. clear IHhyps. cbv [fact_size] in He.
         remember (fact_args a) as args eqn:E. clear E. induction args; [constructor|].
         simpl in *. constructor; [|apply IHargs; lia]. apply IHn. lia.
-  Defined. (*for use in prog_impl_fact_ind*)
+  Qed.
 
   Inductive interp_fact' (interp_expr : expr -> T -> Prop) : fact expr -> rel * list T -> Prop :=
   | mk_interp_fact f args' :
@@ -110,7 +114,7 @@ Section __.
     Forall2 (interp_expr fact_holds) args args' ->
     interp_fun f args' = Some x ->
     interp_expr fact_holds (fun_expr f args) x
-  | interp_agg_expr a i S S' is' bodies' body hyps hyps' :
+  | interp_agg_expr a i vs S S' is' bodies' body hyps hyps' :
     interp_expr fact_holds S S' ->
     get_set S' = Some is' ->
     Forall2 (fun i' body' =>
@@ -122,7 +126,7 @@ Section __.
                    Forall fact_holds hyps' /\
                    interp_expr _ (subst_in_expr s body) body')
       is' bodies' ->
-    interp_expr _ (agg_expr a i S body hyps) (fold_right (interp_agg a) (agg_id a) bodies').
+    interp_expr _ (agg_expr a i vs S body hyps) (fold_right (interp_agg a) (agg_id a) bodies').
   Set Elimination Schemes.
 
   Definition interp_fact fact_holds := interp_fact' (interp_expr fact_holds).
@@ -153,9 +157,31 @@ Section __.
 
   (* Definition good_prog (p : list rule) := Forall good_rule p. *)
 
-  Unset Elimination Schemes.
+  (*"small-step" semantics, with pftree as "star operator", were more appealing when exprs didn't have facts in them... now i'm not sure there'd be any point to it, since the small-step definition would still be nontrivially recursive.
+    or i guess it wouldn't have to be recursive, but i'd have to pull out hyps from facts within exprs and so on; this would be annoying.
+    so i'll stick with big-step semantics for now.  which might be annoying if i try to prove an interpeter?  i definitely should prove an interpreter as a sanity check, since semantics are getting a bit more complicated now.
+   *)
+  Inductive pftree {T : Type} (P : T -> list T -> Prop) : T -> Prop :=
+  | mkpftree x l :
+    P x l ->
+    Forall (pftree P) l ->
+    pftree P x.
+
   Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop :=
-  | impl_step f hyps :
+  | impl_step f hyps pif :
+    Exists
+      (fun r =>
+         exists s,
+           let r' := subst_in_rule s r in
+           Exists (fun c => interp_fact pif c f) r'.(rule_concls) /\
+             Forall2 (interp_fact pif) r'.(rule_hyps) hyps)
+      p ->
+    Forall pif hyps ->
+    (*do this to get good induction principle*)
+    (forall f', pif f' -> prog_impl_fact p f') ->
+    prog_impl_fact p f.
+
+  Lemma mk_pif p f hyps :
     Exists
       (fun r =>
          exists s,
@@ -165,94 +191,18 @@ Section __.
       p ->
     Forall (prog_impl_fact p) hyps ->
     prog_impl_fact p f.
-  Set Elimination Schemes.
+  Proof. econstructor; eauto. Qed.
 
-  Lemma interp_fact_weaken fh1 fh2 f f' :
-    (forall e t, interp_expr fh1 e t ->
-    (forall f, fh1 f -> fh2 f) ->
-    interp_expr fh2 e t) ->
-    interp_fact fh1 f f' ->
-    (forall f, fh1 f -> fh2 f) ->
-    interp_fact fh2 f f'.
+  Lemma prog_impl_fact_subset (p1 p2 : list rule) f :
+    (forall x, In x p1 -> In x p2) ->
+    prog_impl_fact p1 f ->
+    prog_impl_fact p2 f.
   Proof.
-    intros H H1 H2. invert H1. constructor. induction H0.
-    - constructor.
-    - constructor; auto.
-  Defined.
-
-
-  Print interp_expr.
-  Lemma interp_expr_weaken fh1 fh2 e t :
-    interp_expr fh1 e t ->
-    (forall f, fh1 f -> fh2 f) ->
-    interp_expr fh2 e t.
-  Proof.
-    intros H1 H2. revert t H1. induction e; intros.
-    - invert H1. econstructor; eauto. clear -H H4. induction H4; [constructor|].
-      invert H. constructor; eauto.
-    - invert H1.
-    - invert H1. econstructor; eauto. clear -H H10. (*?????*)
-      clear IHe1 IHe2 H8 H9.
-      induction H10; [constructor|]. constructor; eauto.
-      
-      clear IHForall2 H10.
-      destruct H0 as (?&?&?&?&?&?&?). invert H1. invert H8.
-      eexists. eexists. split; [eassumption|]. split.
-      { repeat econstructor. assumption. }
-      split.
-      { clear - H3 H2 H. instantiate (1 := hyps'). revert hyps' H3.
-        induction H; intros hyps' H3; invert H3.
-        - constructor.
-        - simpl. constructor; auto. invert H5. constructor. eapply interp_fact_weaken. 2: eauto. all: eauto.
-          
-        invert 
-        eassumption.
-      [eassumption|]. intuition eauto.
-      + repeat econstructor; eauto.
-      + Search hyps.
-      + Search hyps'.
-      + repeat econstructor. eauto.
-      + Search x1. simpl.
-      + co
-      2: { 
-      
-    intros H1. Fail induction H1. Admitted.
-
-  Definition prog_impl_fact_ind p P :
-    (forall f hyps,
-        Exists
-          (fun r =>
-             exists s,
-               let r' := subst_in_rule s r in
-               Exists (fun c => interp_fact (fun f => prog_impl_fact p f /\ P f) c f) r'.(rule_concls) /\
-                 
-                 Forall2 (interp_fact (fun f => prog_impl_fact p f /\ P f)) r'.(rule_hyps) hyps)
-          p ->
-        Forall (prog_impl_fact p) hyps ->
-        Forall P hyps ->
-        P f) ->
-    forall f, prog_impl_fact p f -> P f.
-  Proof.
-    intros H.
-    refine (fix pifs f (pf : prog_impl_fact p f) {struct pf}: P f :=
-              match pf with
-              | impl_step _ f hyps p1 p2 => _
-              end).
-    eapply H. 2: eassumption.
-    2: { clear -p2 pifs. induction p2; [constructor|]. constructor; auto. }
-    clear -p1 pifs. set (p' := p). replace p' with p by reflexivity.
-    eassert (p1': Exists _ p') by eassumption. eenough (Exists _ p') by eassumption.
-    clear p1. clearbody p'. induction p1'.
-    - apply Exists_cons_hd. destruct H as (s&H1&H2). exists s. simpl in *. split.
-      + clear -H1 pifs. remember (map _ _) as blah eqn:E. clear E. induction H1.
-        -- apply Exists_cons_hd. eapply interp_fact_weaken. 1: eassumption.
-        -- apply Exists_cons_tl. assumption.
-      + clear -H2 pifs. remember (map _ _) as blah eqn:E. clear E. induction H2.
-        -- constructor.
-        -- constructor; auto. eapply interp_fact_weaken; eauto.
-    - apply Exists_cons_tl. apply IHp1'.
+    intros ? H. induction H. apply Exists_exists in H.
+    econstructor. 2,3: eassumption. apply Exists_exists.
+    destruct H as (?&?&?). eexists. intuition eauto.
   Qed.
-  
+
   Definition extends {A B : Type} (f1 f2 : A -> option B) :=
     forall x y, f2 x = Some y -> f1 x = Some y.
   
@@ -267,19 +217,9 @@ Section __.
       + destruct l1; inversion Hl1. subst. constructor; auto.
   Qed.
   
-  Lemma prog_impl_fact_subset (p1 p2 : list rule) f :
-    (forall x, In x p1 -> In x p2) ->
-    prog_impl_fact p1 f ->
-    prog_impl_fact p2 f.
-  Proof.
-    intros ? H. induction H. apply Exists_exists in H.
-    econstructor. 2: eassumption. apply Exists_exists. destruct H as (?&?&?). eexists. intuition eauto.
-    
-  Qed.
-
-  Lemma interp_expr_subst_more s s' v e :
+  Lemma interp_expr_subst_more pif s s' v e :
     extends s' s ->
-    interp_expr (subst_in_expr s e) v ->
+    interp_expr pif (subst_in_expr s e) v ->
     subst_in_expr s' e = subst_in_expr s e.
   Proof.
     intros Hext H. revert v H. induction e.
@@ -291,14 +231,31 @@ Section __.
     - intros. simpl in *. destruct (s v) eqn:E.
       + apply Hext in E. rewrite E. reflexivity.
       + inversion H.
-  Qed.
+    - intros. simpl in *. invert H0. f_equal; eauto. Abort. (*not true anymore*)
 
-  Lemma interp_expr_subst_more' s s' v e :
+  (*this is only true if i handle shadowing in a reasonable way..*)
+  Lemma interp_expr_subst_more' pif s s' v e :
     extends s' s ->
-    interp_expr (subst_in_expr s e) v ->
-    interp_expr (subst_in_expr s' e) v.
+    interp_expr pif (subst_in_expr s e) v ->
+    interp_expr pif (subst_in_expr s' e) v.
   Proof.
-    intros. erewrite interp_expr_subst_more; eauto.
+    intros Hext H. revert v s s' Hext H. induction e.
+    - intros v s s' Hext Hv. simpl in *. invert Hv. econstructor; eauto.
+      clear - H H2 Hext. revert args' H2.
+      induction H; intros args' H1; invert H1; simpl; constructor; eauto.
+    - intros. simpl in *. destruct (s v) eqn:E.
+      + apply Hext in E. rewrite E. assumption.
+      + invert H.
+    - intros. simpl in *. invert H0. econstructor; eauto.
+      eapply Forall2_impl; eauto. simpl. intros x1 x2 (s0&fi&H1&H2&H3&H4&H5).
+      do 2 eexists. split; [eassumption|]. split; [assumption|].
+      split; [|split]; [|eassumption|].
+      + clear -H H3. revert hyps' H3.
+        induction H; intros args' H1; invert H1; simpl; constructor; auto.
+        invert H4. simpl. eassert (fact_R x = _) as ->. 2: econstructor. 1: reflexivity.
+        simpl in *. apply IHForall. eapply Forall2_impl. 2: eauto. idtac.
+
+
   Qed.
 
   Lemma interp_fact_subst_more s s' v f :

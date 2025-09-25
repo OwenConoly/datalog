@@ -122,8 +122,6 @@ Variant rel : Set :=
   | true_rel (*unary, true if arg is true*)
   | false_rel.
 
-Definition var : Set := string + nat.
-
 Fixpoint lower_idx (idx: Zexpr) : expr var fn :=
   match idx with
   (*copy-pasted monstrosity*)
@@ -181,34 +179,6 @@ Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
                 next_varname)
   | Lit x => (fun_expr (fn_R (fn_SLit x)) [], [], next_varname)
   end.
-
-Definition map_empty : var -> option fn := fun _ => None.
-
-Definition var_eqb (x y : var) : bool :=
-  match x, y with
-  | inl x, inl y => x =? y
-  | inr x, inr y => Nat.eqb x y
-  | _, _ => false
-  end.
-Lemma var_eqb_refl x :
-  var_eqb x x = true.
-Proof.
-  destruct x; simpl.
-  - apply String.eqb_refl.
-  - apply Nat.eqb_refl.
-Qed.
-
-Lemma var_eqb_eq x y :
-  var_eqb x y = true ->
-  x = y.
-Proof.
-  cbv [var_eqb]. intros H. destruct x, y; try congruence; f_equal.
-  - apply String.eqb_eq in H. auto.
-  - apply Nat.eqb_eq in H. auto.
-Qed.
-
-Definition map_cons (x : var) (y : option fn) (m : var -> option fn) :=
-  fun v => if var_eqb x v then y else m v.
 
 Definition toR (s : scalar_result) :=
   match s with
