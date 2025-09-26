@@ -66,26 +66,30 @@ Section __.
 
   Unset Elimination Schemes.
   (*semantics of expressions*)
-  Inductive interp_expr (fact_holds : rel * list T -> Prop) : context -> expr -> T -> Prop :=
-  | interp_lit_expr ctx t : interp_expr _ ctx (lit_expr t) t
+  Inductive interp_expr {fact_holds : rel * list T -> Prop} : context -> expr -> T -> Prop :=
+  | interp_lit_expr ctx t : interp_expr ctx (lit_expr t) t
+  | interp_var_expr ctx x v :
+    map.get ctx x = Some v ->
+    interp_expr ctx (var_expr x) v
   | interp_fun_expr ctx f args args' x :
-    Forall2 (interp_expr _ ctx) args args' ->
+    Forall2 (interp_expr ctx) args args' ->
     interp_fun f args' = Some x ->
-    interp_expr _ ctx (fun_expr f args) x
-  | interp_agg_expr ctx a i vs S S' is' bodies' body hyps hyps' :
-    interp_expr _ ctx S S' ->
+    interp_expr ctx (fun_expr f args) x
+  | interp_agg_expr ctx a i vs S S' is' bodies' body hyps result :
+    interp_expr ctx S S' ->
     get_set S' = Some is' ->
     Forall2 (fun i' body' =>
-               exists vs',
+               exists vs' hyps',
                  let s := map.put (map.of_list (combine vs vs')) i i' in
-                 Forall2 (interp_fact' (interp_expr _ (map.putmany ctx s))) hyps hyps' /\
+                 Forall2 (interp_fact' (interp_expr (map.putmany ctx s))) hyps hyps' /\
                    Forall fact_holds hyps' /\
-                   interp_expr _ (map.putmany ctx s) body body')
+                   interp_expr (map.putmany ctx s) body body')
       is' bodies' ->
-    interp_expr _ ctx (agg_expr a i vs S body hyps) (fold_right (interp_agg a) (agg_id a) bodies').
+    result = (fold_left (interp_agg a) bodies' (agg_id a)) ->
+    interp_expr ctx (agg_expr a i vs S body hyps) result.
   Set Elimination Schemes.
 
-  Definition interp_fact fact_holds ctx := interp_fact' (interp_expr fact_holds ctx).
+  Definition interp_fact fact_holds ctx := interp_fact' (@interp_expr fact_holds ctx).
   
   Record rule :=
     { rule_hyps: list (fact expr);
@@ -93,27 +97,30 @@ Section __.
 
   (*semantics of programs*)
   Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop :=
-  | impl_step f hyps pif :
+  | impl_step f pif :
     Exists
       (fun r =>
          exists ctx,
            Exists (fun c => interp_fact pif ctx c f) r.(rule_concls) /\
-             Forall2 (interp_fact pif ctx) r.(rule_hyps) hyps)
+             exists hyps,
+               Forall2 (interp_fact pif ctx) r.(rule_hyps) hyps /\
+                 Forall pif hyps)
       p ->
-    Forall pif hyps ->
     (*do this to get good induction principle*)
     (forall f', pif f' -> prog_impl_fact p f') ->
     prog_impl_fact p f.
 
   (*semantics of programs, written in a less silly way*)
-  Lemma mk_pif p f hyps :
+  Lemma mk_pif p f :
     Exists
       (fun r =>
          exists ctx,
            Exists (fun c => interp_fact (prog_impl_fact p) ctx c f) r.(rule_concls) /\
-             Forall2 (interp_fact (prog_impl_fact p) ctx) r.(rule_hyps) hyps)
+             exists hyps,
+               Forall2 (interp_fact (prog_impl_fact p) ctx) r.(rule_hyps) hyps /\
+                 Forall (prog_impl_fact p) hyps)
       p ->
-    Forall (prog_impl_fact p) hyps ->
+    (*do this to get good induction principle*)
     prog_impl_fact p f.
   Proof. econstructor; eauto. Qed.
 
@@ -161,8 +168,8 @@ Section __.
     prog_impl_fact p2 f.
   Proof.
     intros ? H. induction H. apply Exists_exists in H.
-    econstructor. 2,3: eassumption. apply Exists_exists.
-    destruct H as (?&?&?). eexists. intuition eauto.
+    econstructor. 2: eassumption. apply Exists_exists.
+    destruct H as (?&?&?&?&?&?&?). eexists. intuition eauto.
   Qed.
 
   Lemma extends_putmany_putmany (m1 m2 m : context) :
@@ -180,21 +187,20 @@ Section __.
   
   Lemma interp_expr_subst_more pif s s' v e :
     map.extends s' s ->
-    interp_expr pif s e v ->
-    interp_expr pif s' e v.
+    interp_expr (fact_holds := pif) s e v ->
+    interp_expr (fact_holds := pif) s' e v.
   Proof.
     intros Hext H. revert s s' Hext v H. induction e; intros s s' Hext.
     - intros v Hv. invert Hv. constructor.
-    - intros t Hv. invert Hv.
+    - intros t Hv. invert Hv. constructor. apply Hext. auto.
     - intros v Hv. invert Hv. econstructor; eauto. clear H5. induction H3.
       + constructor.
       + invert H. constructor; eauto.
     - intros. simpl in *. invert H0. econstructor; eauto.
       eapply Forall2_impl; [|eassumption]. simpl.
-      intros x1 x2 (vs'&H1&H2&H3).
-      eexists. split.
-      { clear -H H1. (*why*) clear H9 H10 H11 H3 H2 IHe1 IHe2.
-        instantiate (1 := hyps'). instantiate (1 := vs'). induction H1; [constructor|].
+      intros x1 x2 (vs'&hyps'&H1&H2&H3).
+      exists vs', hyps'. split.
+      { clear -H H1 context_ok var_eqb_spec Hext. induction H1; [constructor|].
         invert H. constructor; auto. clear H5 IHForall2 H1. invert H0. constructor.
         remember (fact_args x) as y eqn:E. clear E.
         induction H; [constructor|]. invert H4. constructor; auto.
@@ -242,12 +248,14 @@ Section __.
 End __.
 Arguments Build_rule {_ _ _}.
 Arguments Build_fact {_ _ _}.
-Arguments fun_expr {_ _}.
-Arguments var_expr {_ _}.
-Arguments prog_impl_fact {_ _ _ _}.
+Arguments lit_expr {_ _ _ _ _}.
+Arguments fun_expr {_ _ _ _ _}.
+Arguments var_expr {_ _ _ _ _}.
+Arguments agg_expr {_ _ _ _ _}.
+Arguments prog_impl_fact {_ _ _ _ _}.
 Arguments fact_args {_ _ _}.
-Arguments interp_expr {_ _ _}.
-Arguments interp_fact {_ _ _ _}.
+Arguments interp_expr {_ _ _ _ _ _ _ _ _ _ _}.
+Arguments interp_fact {_ _ _ _ _ _ _ _ _ _ _}.
 Arguments fact_R {_ _ _}.
 Arguments rule_concls {_ _ _}.
 Arguments rule_hyps {_ _ _}.
