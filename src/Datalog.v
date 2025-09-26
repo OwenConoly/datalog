@@ -16,24 +16,27 @@ From coqutil Require Import Map.Interface Map.Properties.
 Import ListNotations.
 
 Section __.
-  (*relations, variables, and functions.  constants are 0-ary functions.*)
+  (*relations, variables, functions, and "aggregator functions" (e.g. min, max, sum, prod)*)
   Context (rel: Type) (var: Type) (fn: Type) (aggregator: Type).
+  (* A datalog program talks about facts R(x1, ..., xn), where (R : rel) and (x1 : T), (x2 : T), etc. *)
   Context (T : Type).
   (*returning None means inputs not in domain (e.g., number of args was wrong)*)
   Context (interp_fun : fn -> (list T) -> option T).
   (*if x represents a finite set, then get_set x = Some ([x1; ...; xn]), where x1, ..., xn are the elements of the set*)
   Context (get_set : T -> option (list T)).
   (*agg_id sum = O, agg_id prod = 1, agg_id min = inf, etc*)
+  Context (agg_id : aggregator -> T).
   (*interp_agg takes an aggregator and returns the corresponding binop...
     arguably type should be aggregator -> T -> T -> option T,
     but i dont want to bother with that*)
-  Context (agg_id : aggregator -> T) (interp_agg : aggregator -> T -> T -> T).
+  Context (interp_agg : aggregator -> T -> T -> T).
+
   Context {context : map.map var T} {context_ok : map.ok context}.
   Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
 
   Inductive fact (expr : Type) :=
     { fact_R : rel;
-      fact_args : list (expr) }.
+      fact_args : list expr }.
   Arguments fact_R {_}.
   Arguments fact_args {_}.
   
@@ -44,13 +47,75 @@ Section __.
   | var_expr (v : var)
   | fun_expr (f : fn) (args : list (expr))
   (* for example, (agg_expr sum i [] s body nil) is \sum_{i \in s} body.
-     in general, the hyps argument may bind some variables vs other than i.
+
+     in general, the vs argument may bind some variables vs other than i, and
+     these variables then can appear in the hyps.
+
      for instance, (agg_expr sum i [j] s (var_expr j) [R(i, j)]) is \sum_{i \in s} j,
      where for each i, the body j may (nondeterministically) evaluate to any j such that
      R(i, j) holds.
    *)
   | agg_expr (a : aggregator) (i : var) (vs : list var) (s : expr) (body: expr) (hyps: list (fact expr)).
   Set Elimination Schemes.
+
+  (*semantics of facts*)
+  Inductive interp_fact' (interp_expr : expr -> T -> Prop) : fact expr -> rel * list T -> Prop :=
+  | mk_interp_fact f args' :
+    Forall2 interp_expr f.(fact_args) args' ->
+    interp_fact' interp_expr f (f.(fact_R), args').
+
+  Unset Elimination Schemes.
+  (*semantics of expressions*)
+  Inductive interp_expr (fact_holds : rel * list T -> Prop) : context -> expr -> T -> Prop :=
+  | interp_lit_expr ctx t : interp_expr _ ctx (lit_expr t) t
+  | interp_fun_expr ctx f args args' x :
+    Forall2 (interp_expr _ ctx) args args' ->
+    interp_fun f args' = Some x ->
+    interp_expr _ ctx (fun_expr f args) x
+  | interp_agg_expr ctx a i vs S S' is' bodies' body hyps hyps' :
+    interp_expr _ ctx S S' ->
+    get_set S' = Some is' ->
+    Forall2 (fun i' body' =>
+               exists vs',
+                 let s := map.put (map.of_list (combine vs vs')) i i' in
+                 Forall2 (interp_fact' (interp_expr _ (map.putmany ctx s))) hyps hyps' /\
+                   Forall fact_holds hyps' /\
+                   interp_expr _ (map.putmany ctx s) body body')
+      is' bodies' ->
+    interp_expr _ ctx (agg_expr a i vs S body hyps) (fold_right (interp_agg a) (agg_id a) bodies').
+  Set Elimination Schemes.
+
+  Definition interp_fact fact_holds ctx := interp_fact' (interp_expr fact_holds ctx).
+  
+  Record rule :=
+    { rule_hyps: list (fact expr);
+      rule_concls: list (fact expr) }.
+
+  (*semantics of programs*)
+  Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop :=
+  | impl_step f hyps pif :
+    Exists
+      (fun r =>
+         exists ctx,
+           Exists (fun c => interp_fact pif ctx c f) r.(rule_concls) /\
+             Forall2 (interp_fact pif ctx) r.(rule_hyps) hyps)
+      p ->
+    Forall pif hyps ->
+    (*do this to get good induction principle*)
+    (forall f', pif f' -> prog_impl_fact p f') ->
+    prog_impl_fact p f.
+
+  (*semantics of programs, written in a less silly way*)
+  Lemma mk_pif p f hyps :
+    Exists
+      (fun r =>
+         exists ctx,
+           Exists (fun c => interp_fact (prog_impl_fact p) ctx c f) r.(rule_concls) /\
+             Forall2 (interp_fact (prog_impl_fact p) ctx) r.(rule_hyps) hyps)
+      p ->
+    Forall (prog_impl_fact p) hyps ->
+    prog_impl_fact p f.
+  Proof. econstructor; eauto. Qed.
 
   Definition fact_size {expr: Type} (expr_size : expr -> nat) (fct : fact expr) :=
     fold_right Nat.max O (map expr_size fct.(fact_args)).
@@ -89,89 +154,6 @@ Section __.
         remember (fact_args a) as args eqn:E. clear E. induction args; [constructor|].
         simpl in *. constructor; [|apply IHargs; lia]. apply IHn. lia.
   Qed.
-
-  Inductive interp_fact' (interp_expr : expr -> T -> Prop) : fact expr -> rel * list T -> Prop :=
-  | mk_interp_fact f args' :
-    Forall2 interp_expr f.(fact_args) args' ->
-    interp_fact' interp_expr f (f.(fact_R), args').
-
-  Unset Elimination Schemes.
-  Inductive interp_expr (fact_holds : rel * list T -> Prop) : context -> expr -> T -> Prop :=
-  | interp_lit_expr ctx t : interp_expr _ ctx (lit_expr t) t
-  | interp_fun_expr ctx f args args' x :
-    Forall2 (interp_expr _ ctx) args args' ->
-    interp_fun f args' = Some x ->
-    interp_expr _ ctx (fun_expr f args) x
-  | interp_agg_expr ctx a i vs S S' is' bodies' body hyps hyps' :
-    interp_expr _ ctx S S' ->
-    get_set S' = Some is' ->
-    Forall2 (fun i' body' =>
-               exists vs',
-                 let s := map.put (map.of_list (combine vs vs')) i i' in
-                 Forall2 (interp_fact' (interp_expr _ (map.putmany ctx s))) hyps hyps' /\
-                   Forall fact_holds hyps' /\
-                   interp_expr _ (map.putmany ctx s) body body')
-      is' bodies' ->
-    interp_expr _ ctx (agg_expr a i vs S body hyps) (fold_right (interp_agg a) (agg_id a) bodies').
-  Set Elimination Schemes.
-
-  Definition interp_fact fact_holds ctx := interp_fact' (interp_expr fact_holds ctx).
-  
-  Record rule :=
-    { rule_hyps: list (fact expr);
-      rule_concls: list (fact expr) }.
-  
-  (* Fixpoint appears_in_expr (v : var) (e : expr) := *)
-  (*   match e with *)
-  (*   | fun_expr _ args => fold_left (fun acc arg => acc \/ appears_in_expr v arg) args False *)
-  (*   | var_expr v0 => v0 = v *)
-  (*   end. *)
-
-  (* Definition appears_in_fact (v : var) (f : fact) := *)
-  (*   Exists (appears_in_expr v) f.(fact_args). *)
-  (* Check eq. (*WHY*) Locate "=". *)
-  (* Definition barely_appears_in_fact (v : var) (f : fact) := *)
-  (*   Exists (Logic.eq (var_expr v)) f.(fact_args). *)
-  
-  (* Definition good_rule (r : rule) := *)
-  (*   forall v, Exists (appears_in_fact v) r.(rule_concls) \/ Exists (appears_in_fact v) r.(rule_hyps) -> *)
-  (*        Exists (barely_appears_in_fact v) r.(rule_hyps). *)
-
-  (* Definition good_prog (p : list rule) := Forall good_rule p. *)
-
-  (*"small-step" semantics, with pftree as "star operator", were more appealing when exprs didn't have facts in them... now i'm not sure there'd be any point to it, since the small-step definition would still be nontrivially recursive.
-    or i guess it wouldn't have to be recursive, but i'd have to pull out hyps from facts within exprs and so on; this would be annoying.
-    so i'll stick with big-step semantics for now.  which might be annoying if i try to prove an interpeter?  i definitely should prove an interpreter as a sanity check, since semantics are getting a bit more complicated now.
-   *)
-  Inductive pftree {T : Type} (P : T -> list T -> Prop) : T -> Prop :=
-  | mkpftree x l :
-    P x l ->
-    Forall (pftree P) l ->
-    pftree P x.
-
-  Inductive prog_impl_fact (p : list rule) : rel * list T -> Prop :=
-  | impl_step f hyps pif :
-    Exists
-      (fun r =>
-         exists ctx,
-           Exists (fun c => interp_fact pif ctx c f) r.(rule_concls) /\
-             Forall2 (interp_fact pif ctx) r.(rule_hyps) hyps)
-      p ->
-    Forall pif hyps ->
-    (*do this to get good induction principle*)
-    (forall f', pif f' -> prog_impl_fact p f') ->
-    prog_impl_fact p f.
-
-  Lemma mk_pif p f hyps :
-    Exists
-      (fun r =>
-         exists ctx,
-           Exists (fun c => interp_fact (prog_impl_fact p) ctx c f) r.(rule_concls) /\
-             Forall2 (interp_fact (prog_impl_fact p) ctx) r.(rule_hyps) hyps)
-      p ->
-    Forall (prog_impl_fact p) hyps ->
-    prog_impl_fact p f.
-  Proof. econstructor; eauto. Qed.
 
   Lemma prog_impl_fact_subset (p1 p2 : list rule) f :
     (forall x, In x p1 -> In x p2) ->
@@ -228,6 +210,35 @@ Section __.
     intros. invert H0. constructor. eapply Forall2_impl; [|eassumption].
     eauto using interp_expr_subst_more.
   Qed.
+
+  (* Fixpoint appears_in_expr (v : var) (e : expr) := *)
+  (*   match e with *)
+  (*   | fun_expr _ args => fold_left (fun acc arg => acc \/ appears_in_expr v arg) args False *)
+  (*   | var_expr v0 => v0 = v *)
+  (*   end. *)
+
+  (* Definition appears_in_fact (v : var) (f : fact) := *)
+  (*   Exists (appears_in_expr v) f.(fact_args). *)
+  (* Check eq. (*WHY*) Locate "=". *)
+  (* Definition barely_appears_in_fact (v : var) (f : fact) := *)
+  (*   Exists (Logic.eq (var_expr v)) f.(fact_args). *)
+  
+  (* Definition good_rule (r : rule) := *)
+  (*   forall v, Exists (appears_in_fact v) r.(rule_concls) \/ Exists (appears_in_fact v) r.(rule_hyps) -> *)
+  (*        Exists (barely_appears_in_fact v) r.(rule_hyps). *)
+
+  (* Definition good_prog (p : list rule) := Forall good_rule p. *)
+
+(*"small-step" semantics, with pftree as "star operator", were more appealing when exprs didn't have facts in them... now i'm not sure there'd be any point to it, since the small-step definition would still be nontrivially recursive.
+    or i guess it wouldn't have to be recursive, but i'd have to pull out hyps from facts within exprs and so on; this would be annoying.
+    so i'll stick with big-step semantics for now.  which might be annoying if i try to prove an interpeter?  i definitely should prove an interpreter as a sanity check, since semantics are getting a bit more complicated now.
+ *)
+  (* Inductive pftree {T : Type} (P : T -> list T -> Prop) : T -> Prop := *)
+  (* | mkpftree x l : *)
+  (*   P x l -> *)
+  (*   Forall (pftree P) l -> *)
+  (*   pftree P x. *)
+
 End __.
 Arguments Build_rule {_ _ _}.
 Arguments Build_fact {_ _ _}.
