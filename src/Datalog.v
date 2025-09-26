@@ -120,7 +120,6 @@ Section __.
                Forall2 (interp_fact (prog_impl_fact p) ctx) r.(rule_hyps) hyps /\
                  Forall (prog_impl_fact p) hyps)
       p ->
-    (*do this to get good induction principle*)
     prog_impl_fact p f.
   Proof. econstructor; eauto. Qed.
 
