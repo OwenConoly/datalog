@@ -52,26 +52,6 @@ Section __.
   | agg_expr (a : aggregator) (i : var) (vs : list var) (s : expr) (body: expr) (hyps: list (fact expr)).
   Set Elimination Schemes.
 
-  Definition fact_map {expr: Type} (f : expr -> expr) (fct : fact expr) :=
-    {| fact_R := fct.(fact_R); fact_args := map f fct.(fact_args) |}.
-
-  Definition remove_many (vs : list var) (m : context) :=
-    fold_left map.remove vs m.
-  
-  Fixpoint subst_in_expr (ctx : context) (e : expr) :=
-    match e with
-    | lit_expr t => lit_expr t
-    | var_expr v => match map.get ctx v with
-                   | Some t => lit_expr t
-                   | None => var_expr v
-                   end
-    | fun_expr f args => fun_expr f (map (subst_in_expr ctx) args)
-    | agg_expr a i vs s body hyps =>
-        agg_expr a i vs (subst_in_expr ctx s) (subst_in_expr (remove_many vs ctx) body) (map (fact_map (subst_in_expr (remove_many vs ctx))) hyps)
-    end.
-
-  Definition subst_in_fact s := fact_map (subst_in_expr s).
-
   Definition fact_size {expr: Type} (expr_size : expr -> nat) (fct : fact expr) :=
     fold_right Nat.max O (map expr_size fct.(fact_args)).
 
@@ -140,10 +120,6 @@ Section __.
   Record rule :=
     { rule_hyps: list (fact expr);
       rule_concls: list (fact expr) }.
-
-  Definition subst_in_rule (s : context) (r : rule) : rule :=
-    {| rule_hyps := map (subst_in_fact s) r.(rule_hyps);
-      rule_concls := map (subst_in_fact s) r.(rule_concls) |}.
   
   (* Fixpoint appears_in_expr (v : var) (e : expr) := *)
   (*   match e with *)
@@ -207,17 +183,6 @@ Section __.
     destruct H as (?&?&?). eexists. intuition eauto.
   Qed.
 
-  Lemma Forall2_map_l (A B C : Type) R (f : A -> B) (l1 : list A) (l2 : list C) :
-    Forall2 (fun x => R (f x)) l1 l2 <->
-      Forall2 R (map f l1) l2.
-  Proof.
-    split; intros H.
-    - induction H. 1: constructor. constructor; assumption.
-    - remember (map f l1) as l1' eqn:E. revert l1 E. induction H; intros l1 Hl1.
-      + destruct l1; inversion Hl1. constructor.
-      + destruct l1; inversion Hl1. subst. constructor; auto.
-  Qed.
-
   Lemma extends_putmany_putmany (m1 m2 m : context) :
     map.extends m1 m2 ->
     map.extends (map.putmany m1 m) (map.putmany m2 m).
@@ -270,10 +235,8 @@ Arguments fun_expr {_ _}.
 Arguments var_expr {_ _}.
 Arguments prog_impl_fact {_ _ _ _}.
 Arguments fact_args {_ _ _}.
-Arguments subst_in_expr {_ _}.
 Arguments interp_expr {_ _ _}.
 Arguments interp_fact {_ _ _ _}.
-Arguments subst_in_fact {_ _ _}.
 Arguments fact_R {_ _ _}.
 Arguments rule_concls {_ _ _}.
 Arguments rule_hyps {_ _ _}.
