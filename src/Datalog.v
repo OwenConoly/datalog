@@ -193,8 +193,8 @@ Section __.
     interp_fact s f f' ->
     interp_fact s' f f'.
   Proof.
-    intros. invert H0. constructor. eapply Forall2_impl; [|eassumption].
-    eauto using interp_expr_subst_more.
+    intros. invert H0. constructor.
+    eauto using Forall2_impl, interp_expr_subst_more.
   Qed.
 
   (* Fixpoint appears_in_expr (v : var) (e : expr) := *)
