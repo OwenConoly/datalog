@@ -1,6 +1,7 @@
 (*copied from https://velus.inria.fr/emsoft2021/html/Velus.Common.CommonList.html*)
 From Stdlib Require Import Lists.List.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
+Require Import coqutil.Datatypes.List.
 
 Import ListNotations.
 
@@ -30,9 +31,10 @@ Section Forall3.
       Forall3 xs ys zs ->
       In z zs -> exists (x : A) (y : B), In x xs /\ In y ys /\ R x y z.
   Proof.
-    induction 1; simpl. contradiction.
+    induction 1; simpl.
+    { contradiction. }
     destruct 1 as [Heq|Hin].
-    now subst; exists x, y; auto.
+    { now subst; exists x, y; auto. }
     apply IHForall3 in Hin. destruct Hin as (x' & y' & Hin & Hin' & HP).
     exists x', y'. eauto.
   Qed.
@@ -82,6 +84,11 @@ Section Forall3.
       Forall3 xs ys zs ->
       Forall2 (fun x y => exists z, R x y z) xs ys.
   Proof. induction 1; eauto. Qed.
+
+  Lemma Forall3_zip3 xs ys f :
+    Forall2 (fun x y => R x y (f x y)) xs ys ->
+    Forall3 xs ys (zip f xs ys).
+  Proof. induction 1; cbv [zip]; simpl; constructor; auto. Qed.    
 End Forall3.
 
 Lemma Forall3_impl {A B C} xs ys zs (R1 R2 : A -> B -> C -> Prop) :

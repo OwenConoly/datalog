@@ -75,12 +75,12 @@ Section __.
     interp_expr ctx s s' ->
     get_set s' = Some i's ->
     Forall3 (fun i' body' hyps' =>
-               exists vs' hyps',
+               exists vs',
                  let ctx' := map.putmany ctx (map.put (map.of_list (combine vs vs')) i i') in
                  Forall2 (interp_fact ctx') hyps hyps' /\
                    interp_expr ctx' body body')
       i's body's hyps's ->
-    result = fold_left (interp_agg a) body's (agg_id a) ->
+    result = fold_right (interp_agg a) (agg_id a) body's ->
     interp_agg_expr _ {| agg := a; i := i; vs := vs; s := s; body := body; hyps := hyps |} result (flat_map (fun x => x) hyps's).
 
   Record rule := { rule_agg : option (var * agg_expr); rule_concls : list fact; rule_hyps : list fact }.
@@ -208,6 +208,7 @@ Arguments Build_rule {_ _ _ _}.
 Arguments Build_fact {_ _ _}.
 Arguments fun_expr {_ _}.
 Arguments var_expr {_ _}.
+Arguments rule_impl {_ _ _ _ _ _}.
 Arguments prog_impl_fact {_ _ _ _ _ _}.
 Arguments fact_args {_ _ _}.
 Arguments interp_expr {_ _ _ _}.
