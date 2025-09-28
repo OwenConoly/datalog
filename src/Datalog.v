@@ -121,7 +121,8 @@ Section __.
     (*i find using fix to be hacky ( e.g. i can't use Forall_impl here :( )
       but i don't know an easy way to get around it.
       trick with expr below doesn't easily work, since pftree goes to Prop.
-     *)intros x Hx. invert Hx. eapply H; eauto.
+     *)
+    intros x Hx. invert Hx. eapply H; eauto.
     clear -self H1. induction H1; eauto.
   Qed.
 
@@ -220,9 +221,9 @@ Arguments Build_rule {_ _ _ _}.
 Arguments Build_fact {_ _ _}.
 Arguments fun_expr {_ _}.
 Arguments var_expr {_ _}.
-Arguments prog_impl_fact {_ _ _ _ _}.
+Arguments prog_impl_fact {_ _ _ _ _ _}.
 Arguments fact_args {_ _ _}.
-Arguments interp_expr {_ _ _}.
+Arguments interp_expr {_ _ _ _}.
 Arguments interp_fact {_ _ _ _ _}.
 Arguments fact_R {_ _ _}.
 Arguments rule_concls {_ _ _ _}.

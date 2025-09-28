@@ -20,46 +20,14 @@ From Lower Require Import Zexpr Bexpr Array Range Sexpr Result ListMisc
 Require Import ATLDeep.
 Require Import ContextsAgree.
 Require Import Datalog.Datalog.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver.
+
 Open Scope string_scope.
 
-From Coq Require Import Arith.PeanoNat. Import Nat. Check S.
 Import Datatypes. Check S.
 
-Inductive result_has_shape' : list nat -> result -> Prop :=
-| ScalarShape' s : result_has_shape' [] (Result.S s)
-| VectorShape' xs n sh :
-  n = length xs ->
-  Forall (result_has_shape' sh) xs ->
-  result_has_shape' (n :: sh) (V xs).
-
-Lemma result_has_shape'_iff r sh :
-  result_has_shape' sh r <-> result_has_shape r sh.
-Proof.
-  revert sh. induction r.
-  - intros sh. split; intros H; invert H; constructor.
-  - intros sh. split; intros H'; invert H'.
-    + destruct v.
-      -- constructor.
-      -- invert H3. invert H. simpl. constructor; auto. 1: apply H3; assumption.
-         eapply Forall_impl. 2: apply Forall_and; [apply H4|apply H5]. simpl.
-         intros ? (?&H'). edestruct H'. eauto.
-    + constructor; auto.
-    + constructor; auto. invert H. constructor. 1: apply H4; assumption.
-      eapply Forall_impl. 2: apply Forall_and; [apply H3|apply H5]. simpl.
-      intros ? (?&H'). edestruct H'. eauto.
-Qed.
-
-Definition get_inl {X Y : Type} (xy : X + Y) : option X :=
-  match xy with
-  | inl x => Some x
-  | inr _ => None
-  end.
-Definition get_inr {X Y : Type} (xy : X + Y) : option Y :=
-  match xy with
-  | inl _ => None
-  | inr y => Some y
-  end.
-Print Bexpr.
+Definition var : Type := string + nat.
+Print valuation.
 
 Variant obj : Set :=
   Bobj : bool -> obj | Zobj : Z -> obj | Robj : R -> obj.
@@ -122,6 +90,76 @@ Variant rel : Set :=
   | true_rel (*unary, true if arg is true*)
   | false_rel.
 
+Variant aggregator : Set :=
+  | sum.
+
+Definition var_eqb (x y : var) : bool :=
+  match x, y with
+  | inl x, inl y => x =? y
+  | inr x, inr y => (x =? y)%nat
+  | _, _ => false
+  end.
+
+Definition get_set (x : obj) : option (list obj) :=
+  match x with
+  | Bobj _ => None
+  | Zobj _ => None
+  | Robj _ => None
+  end.
+               
+Definition agg_id (a : aggregator) :=
+  match a with
+  | sum => Robj 0
+  end.
+
+Definition interp_agg (a : aggregator) (x y : obj) :=
+  match a, x, y with
+  | sum, Robj x, Robj y => Robj (x + y)
+  | _, _, _ => Robj 0 (*garbage*)
+  end.
+
+Require Import coqutil.Tactics.destr.
+
+Lemma var_eqb_spec x y : BoolSpec (x = y) (x <> y) (var_eqb x y).
+Proof.
+  destruct x, y; simpl; try (constructor; congruence).
+  - destr (s =? s0); constructor; congruence.
+  - destr (n =? n0)%nat; constructor; congruence.
+Qed.
+
+Existing Instance var_eqb_spec.    
+Section __.
+Context {valuation' : map.map Var.var Z} {valuation'_ok : map.ok valuation'}.
+Context {context : map.map var obj} {context_ok : map.ok context}.
+
+Notation prog_impl_fact := (prog_impl_fact interp_fn get_set agg_id interp_agg).
+Notation interp_expr := (interp_expr interp_fn).
+Notation interp_fact := (interp_fact interp_fn).
+
+Inductive result_has_shape' : list nat -> result -> Prop :=
+| ScalarShape' s : result_has_shape' [] (Result.S s)
+| VectorShape' xs n sh :
+  n = length xs ->
+  Forall (result_has_shape' sh) xs ->
+  result_has_shape' (n :: sh) (V xs).
+
+Lemma result_has_shape'_iff r sh :
+  result_has_shape' sh r <-> result_has_shape r sh.
+Proof.
+  revert sh. induction r.
+  - intros sh. split; intros H; invert H; constructor.
+  - intros sh. split; intros H'; invert H'.
+    + destruct v.
+      -- constructor.
+      -- invert H3. invert H. simpl. constructor; auto. 1: apply H3; assumption.
+         eapply Forall_impl. 2: apply Forall_and; [apply H4|apply H5]. simpl.
+         intros ? (?&H'). edestruct H'. eauto.
+    + constructor; auto.
+    + constructor; auto. invert H. constructor. 1: apply H4; assumption.
+      eapply Forall_impl. 2: apply Forall_and; [apply H3|apply H5]. simpl.
+      intros ? (?&H'). edestruct H'. eauto.
+Qed.
+
 Fixpoint lower_idx (idx: Zexpr) : expr var fn :=
   match idx with
   (*copy-pasted monstrosity*)
@@ -135,7 +173,6 @@ Fixpoint lower_idx (idx: Zexpr) : expr var fn :=
   | ZVar x => var_expr (inl x)
   end.
 
-Print Bexpr.
 Fixpoint lower_guard (g: Bexpr) : expr var fn :=
   match g with
   | Bexpr.And x y => fun_expr (fn_B fn_BAnd) [lower_guard x; lower_guard y]
@@ -144,7 +181,6 @@ Fixpoint lower_guard (g: Bexpr) : expr var fn :=
   | Bexpr.Eq x y => fun_expr (fn_B fn_BEq) [lower_idx x; lower_idx y]
   end.
 
-Print Sexpr.
 Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
   expr var fn (*value of expr*) *
     list (fact rel var fn) (*hypotheses*) *
@@ -184,14 +220,14 @@ Definition toR (s : scalar_result) :=
   match s with
   | SS s => s
   | SX => 0%R
-  end.  
-
+  end.
+Notation Build_rule := (Build_rule None).
 Fixpoint lower
   (e : ATLexpr)
   (out: rel)
   (name: nat)
   (idxs : list Zexpr)
-  : list (rule rel var fn) :=
+  : list (rule rel var fn aggregator) :=
   match e with
   | Gen i lo hi body =>
       lower body out name (idxs ++ [ZMinus (ZVar i) lo])
@@ -205,13 +241,15 @@ Fixpoint lower
       (*set aux(body(i), i, ...)*)
       lower body (nat_rel aux) (Datatypes.S aux') [ZVar i] ++
         [(*set aux'(O, lo, ...)*)
-          {| rule_hyps := [];
+          {| rule_agg := None;
+            rule_hyps := [];
             rule_concls := [{| fact_R := nat_rel aux';
                             fact_args := [fun_expr (fn_R (fn_SLit 0%R)) [];
                                           lower_idx lo] ++
                                            map var_expr dimvars(*arbitrary index into summand*) |}] |};
           (*set aux' (body(i) + \sum_{j < i} body(j), S i, ...)*)
-          {| rule_hyps := [{| fact_R := nat_rel aux';
+          {| rule_agg := None;
+            rule_hyps := [{| fact_R := nat_rel aux';
                              fact_args :=
                                [var_expr (inr x)(*\sum_{j < i} body(j)*);
                                 var_expr (inr i') (*index into aux'*)] ++
@@ -229,7 +267,8 @@ Fixpoint lower
                                                          fun_expr (fn_Z (fn_ZLit 1%Z)) []]] ++
                                 map var_expr dimvars (*arbitrary idx into accumulated sum*) |}] |};
           (*set out (\sum_j body(j), idxs)*)
-          {| rule_hyps := [{| fact_R := (nat_rel aux');
+          {| rule_agg := None;
+            rule_hyps := [{| fact_R := (nat_rel aux');
                              fact_args :=
                                [var_expr (inr x)(*\sum_j body(j)*);
                                 (*basically the next arg should just be hi, except i am dealing with the dumb case where hi < lo*)
@@ -245,7 +284,8 @@ Fixpoint lower
       let x := length (sizeof body) in
       let aux := name in
       lower body (nat_rel aux) (S aux) [] ++
-        [{| rule_concls := [{| fact_R := out;
+        [{| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr (inr x) ::
                                 map lower_idx idxs ++
@@ -256,7 +296,8 @@ Fixpoint lower
                                map var_expr dimvars |};
                          {| fact_R := true_rel;
                            fact_args := [lower_guard b] |}] |};
-         {| rule_concls := [{| fact_R := out;
+         {| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0%R)) [] ::
                                 map lower_idx idxs ++       
@@ -282,7 +323,8 @@ Fixpoint lower
       (*need better names here..*)
       lower e1 (nat_rel aux1) (S (S name)) [] ++
         lower e2 (nat_rel aux2) (S (S name)) [] ++
-        [{| rule_concls := [{| fact_R := out;
+        [{| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr (inr x) ::
                                 map lower_idx idxs ++
@@ -291,7 +333,8 @@ Fixpoint lower
                            fact_args :=
                              var_expr (inr x) ::
                                map var_expr (dimvarO :: dimvars) |}] |};
-         {| rule_concls := [{| fact_R := out;
+         {| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr (inr x) ::
                                 map lower_idx idxs ++
@@ -315,7 +358,8 @@ Fixpoint lower
         end in
       let aux := name in
       lower e (nat_rel aux) (S aux) [] ++
-        [{| rule_concls := [{| fact_R := out;
+        [{| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map lower_idx idxs ++
@@ -344,7 +388,8 @@ Fixpoint lower
       let aux := name in
       let pad_start := (len mod k')%Z in
       lower e (nat_rel aux) (S aux) [] ++
-        [{| rule_concls := [{| fact_R := out;
+        [{| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map lower_idx idxs ++
@@ -359,7 +404,8 @@ Fixpoint lower
                                               fun_expr (fn_Z (fn_ZLit k')) []];
                                            var_expr dimvar2] ::
                                           map var_expr dimvars |}] |};
-         {| rule_concls := [{| fact_R := out;
+         {| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0%R)) [] ::
                                 map lower_idx idxs ++
@@ -377,7 +423,8 @@ Fixpoint lower
       let x := inr (S (length (sizeof e))) in
       let aux := nat_rel name in
       lower e aux (S name) [] ++
-        [{| rule_concls := [{| fact_R := out;
+        [{| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map lower_idx idxs ++
@@ -399,7 +446,8 @@ Fixpoint lower
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
       lower e aux (S name) [] ++
-        [{| rule_concls := [{| fact_R := out;
+        [{| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map (lower_idx) idxs ++
@@ -424,7 +472,8 @@ Fixpoint lower
         | _ => 0%Z
         end in
       lower e aux (S name) [] ++
-        [{| rule_concls := [{| fact_R := out;
+        [{| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map lower_idx idxs ++
@@ -435,7 +484,8 @@ Fixpoint lower
                              var_expr x ::
                                var_expr dimvar1 ::
                                map var_expr dimvars |}] |};
-         {| rule_concls := [{| fact_R := out;
+         {| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0)) [] ::
                                 map lower_idx idxs ++
@@ -452,7 +502,8 @@ Fixpoint lower
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
       lower e aux (S name) [] ++
-        [{| rule_concls := [{| fact_R := out;
+        [{| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
                                 map lower_idx idxs ++
@@ -465,7 +516,8 @@ Fixpoint lower
                                [var_expr dimvar1;
                                 fun_expr (fn_Z (fn_ZLit k')) []] ::
                                map var_expr dimvars |}] |};
-         {| rule_concls := [{| fact_R := out;
+         {| rule_agg := None;
+           rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0)) [] ::
                                 map lower_idx idxs ++
@@ -477,60 +529,97 @@ Fixpoint lower
                                             fun_expr (fn_Z (fn_ZLit k')) []]] |}] |}]
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr O s in
-      [{| rule_hyps := hyps; rule_concls := [{| fact_R := out; fact_args := val :: map lower_idx idxs |}] |}]
+      [{| rule_agg := None;
+         rule_hyps := hyps;
+         rule_concls := [{| fact_R := out; fact_args := val :: map lower_idx idxs |}] |}]
   end.
 
-Check lower. Print rule. Print fact.
 (* Definition request_hyps (r : rule rel var fn) := *)
 (*   {| rule_hyps := *)
 (*       [{| fact_R := r.(rule_concl).(fact_R); fact_args := skipn (S O) r.(rule_concl).(fact_args) |}]; *)
 (*     rule_concl := r.(rule_concl). *)
 
-(*I thought about using fmaps here, but it's not even clear to me that that is possible.
-  How do you iterate over an fmap?  i could get the domain, which is a 'set', but idk
-  how to iterate over a set, either...*)
-Definition substn_of (v : valuation) : var -> option fn :=
-  fun x => match x with
-        | inl x => option_map (fun y => fn_Z (fn_ZLit y)) (v $? x)
-        | inr x => None
-        end.
+(*i do not like fmaps, because you cannot iterate over them,
+  so i work with coqutil maps instead.
+  ATL things are defined in terms of fmaps, so i will reason
+  about fmaps constructed from coqutil maps.
+  annoyingly, i cannot construct an equivalent coqutil map from an fmap.
+ *)
 
-Lemma includes_extends v1 v2 : v1 $<= v2 -> extends (substn_of v2) (substn_of v1).
+Definition fmap_of {A B : Type} {mp : map.map A B} (m : mp) : fmap A B :=
+  map.fold (@add _ _) $0 m.
+Opaque fmap_of.
+
+Definition context_of (v : valuation') : context :=
+  map.fold (fun mp k v => map.put mp (inl k) (Zobj v)) map.empty v.
+
+Lemma fmap_of_spec (m : valuation') k :
+  fmap_of m $? k = map.get m k.
 Proof.
-  intros H. cbv [extends substn_of]. intros x y Hxy. destruct x; [|congruence].
-  destruct (v1 $? s) eqn:E; simpl in Hxy; [|congruence].
-  eapply includes_lookup in E; try eassumption. rewrite E. assumption.
+  cbv [fmap_of]. apply map.fold_spec.
+  - rewrite map.get_empty, lookup_empty. reflexivity.
+  - intros k0 v m0 r H H0. rewrite map.get_put_dec. destr (k0 =? k).
+    + apply lookup_add_eq. reflexivity.
+    + rewrite lookup_add_ne by auto. auto.
+Qed.
+    
+Lemma context_of_fw k val v :
+  map.get val k = Some v ->
+  map.get (context_of val) (inl k) = Some (Zobj v).
+Proof.
+  intros H. cbv [context_of]. revert H. apply map.fold_spec.
+  - rewrite map.get_empty. congruence.
+  - intros. rewrite map.get_put_dec in H1.
+    rewrite map.get_put_dec. simpl. destr (k0 =? k); auto. congruence.
 Qed.
 
-Lemma eval_Zexpr_to_substn v x z :
-  eval_Zexpr v x z ->
-  interp_expr interp_fn (subst_in_expr (substn_of v) (lower_idx x)) (Zobj z).
+Lemma context_of_bw k val v :
+  map.get (context_of val) k = Some v ->
+  match k, v with
+  | inl k, Zobj v => map.get val k = Some v
+  | _, _ => False
+  end.
 Proof.
-  intros H. induction H; simpl; repeat match goal with | H: _ = Some _ |- _ => rewrite H end; econstructor; eauto.
+  cbv [context_of]. apply map.fold_spec.
+  - rewrite map.get_empty. congruence.
+  - intros. rewrite map.get_put_dec in H1. destr (var_eqb (inl k0) k).
+    + invert H1. rewrite map.get_put_same. reflexivity.
+    + apply H0 in H1. clear H0. destr k; auto. destr v; auto.
+      rewrite map.get_put_dec. destr (k0 =? s); congruence.
+Qed.
+
+Lemma extends_context_of v1 v2 : map.extends v1 v2 -> map.extends (context_of v1) (context_of v2).
+Proof.
+  intros H1 ? ? H2. apply context_of_bw in H2. destr x; destr w; try (exfalso; assumption).
+  apply context_of_fw. auto.
+Qed.
+Check interp_expr.
+Lemma eval_Zexpr_to_substn v x z :
+  eval_Zexpr (fmap_of v) x z ->
+  interp_expr (context_of v) (lower_idx x) (Zobj z).
+Proof.
+  intros H. induction H; simpl;
+    repeat match goal with | H: _ = Some _ |- _ => rewrite H end; econstructor; eauto.
+  rewrite fmap_of_spec in *. auto using context_of_fw.
 Qed.
 
 Lemma eval_Bexpr_to_substn v x b :
-  eval_Bexpr v x b ->
-  interp_expr interp_fn (subst_in_expr (substn_of v) (lower_guard x)) (Bobj b).
+  eval_Bexpr (fmap_of v) x b ->
+  interp_expr (context_of v) (lower_guard x) (Bobj b).
 Proof.
-  intros H. induction H; simpl; repeat match goal with | H: _ = Some _ |- _ => rewrite H end; econstructor; eauto using eval_Zexpr_to_substn.
+  intros H. induction H; simpl;
+    repeat match goal with | H: _ = Some _ |- _ => rewrite H end; econstructor;
+    eauto using eval_Zexpr_to_substn.
 Qed.
 
 Lemma eval_Zexprlist_to_substn v i lz :
-  eval_Zexprlist v i lz ->
-  Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx i)) (map Zobj lz).
+  eval_Zexprlist (fmap_of v) i lz ->
+  Forall2 (interp_expr (context_of v)) (map lower_idx i) (map Zobj lz).
 Proof.
-  intros H. induction H.
+  intros H. remember (fmap_of v) as v' eqn:E. revert E. induction H; intros; subst.
   - constructor.
-  - simpl. constructor.
-    + apply eval_Zexpr_to_substn. assumption.
-    + assumption.
+  - simpl. constructor; eauto using eval_Zexpr_to_substn.
 Qed.
-
-Lemma compose_domain {A B : Type} (s s' : A -> option B) x y :
-  compose s s' x = Some y ->
-  s x = Some y \/ s' x = Some y.
-Proof. cbv [compose]. intros H. destruct (s' x), (s x); auto. Qed.
 
 Inductive result_lookup_Z' : list Z -> result -> scalar_result -> Prop :=
 | rlz'_cons x xs v v' val : (0 <= x)%Z ->
@@ -546,88 +635,65 @@ Lemma eval_get_lookup_result_Z' : forall l v rs r,
       eval_Zexprlist v l x0 ->
       result_lookup_Z' x0 (V rs) r.
 Proof.
-  Fail induct 1. induction 1; intros.
+  induct 1; intros.
   - invert H3. simpl.
     eq_eval_Z. econstructor; eauto.
   - invert H2. invert H8. eq_eval_Z. econstructor; eauto. constructor.
 Qed.
 
-Definition domain_in_ints low high (substn : var -> option fn) :=
-  forall x y, substn x = Some y ->
+Definition domain_in_ints low high (ctx : context) :=
+  forall x y, map.get ctx x = Some y ->
          match x with
          | inr i => low <= i < high
          | inl _ => False
          end.
 
-Definition disj {A B : Type} (s1 s2 : A -> option B) :=
-  forall x y1 y2,
-    s1 x = Some y1 ->
-    s2 x = Some y2 ->
-    False.
-
 Lemma domain_in_ints_disj low1 high1 low2 high2 s1 s2 :
   (forall i, low1 <= i < high1 -> low2 <= i < high2 -> False) ->
   domain_in_ints low1 high1 s1 ->
   domain_in_ints low2 high2 s2 ->
-  disj s1 s2.
+  map.disjoint s1 s2.
 Proof.
-  cbv [domain_in_ints disj]. intros ? H1 H2 **.
+  cbv [domain_in_ints map.disjoint]. intros ? H1 H2 **.
   specialize (H1 _ _ ltac:(eassumption)). specialize (H2 _ _ ltac:(eassumption)).
-  destruct x; [contradiction|]. eauto.
+  destruct k; [contradiction|]. eauto.
 Qed.
 
 Lemma domain_in_ints_disj_substn_of low high s v :
   domain_in_ints low high s ->
-  disj s (substn_of v).
+  map.disjoint s (context_of v).
 Proof.
-  cbv [domain_in_ints disj substn_of]. intros. specialize H with (1 := H0).
-  destruct x; [contradiction|congruence].
-Qed.
-
-Lemma compose_extends_r {A B : Type} (s1 s2 : A -> option B) :
-  extends (compose s1 s2) s2.
-Proof.
-  cbv [extends compose]. intros * H. rewrite H. reflexivity.
-Qed.
-
-Lemma compose_extends_l {A B : Type} (s1 s2 : A -> option B) :
-  disj s1 s2 ->
-  extends (compose s1 s2) s1.
-Proof.
-  cbv [disj extends compose]. intros Hdisj * H. destruct (s2 x) eqn:E; eauto.
-  exfalso. eauto.
+  cbv [domain_in_ints map.disjoint]. intros. specialize H with (1 := H0).
+  destruct k; [contradiction|]. apply context_of_bw in H1. auto.
 Qed.
 
 Lemma domain_in_ints_empty low high :
-  domain_in_ints low high map_empty.
-Proof. cbv [domain_in_ints map_empty]. congruence. Qed.
+  domain_in_ints low high map.empty.
+Proof. cbv [domain_in_ints]. intros. rewrite map.get_empty in *. congruence. Qed.
 
 Lemma domain_in_ints_cons low high m x y :
   domain_in_ints low high m ->
   low <= x < high ->
-  domain_in_ints low high (map_cons (inr x) y m).
+  domain_in_ints low high (map.put m (inr x) y).
 Proof.
-  cbv [domain_in_ints map_cons]. intros. destruct x0.
-  { simpl in H1. specialize H with (1 := H1). simpl in H. contradiction. }
-  simpl in H1. destruct (x =? n)%nat eqn:E.
-  - apply Nat.eqb_eq in E. subst. assumption.
-  - specialize H with (1 := H1). simpl in H. assumption.
+  cbv [domain_in_ints]. intros. rewrite map.get_put_dec in H1.
+  Tactics.destruct_one_match_hyp; auto. eauto. eapply H. eassumption.
 Qed.
-
-Lemma lower_Sexpr_correct sh v ec s (datalog_ctx : list (rule rel var fn)):
+Search map.putmany. Check map.fold.
+Lemma lower_Sexpr_correct sh v ec s (datalog_ctx : list (rule rel var fn aggregator)):
   (forall x r idxs val,
       ec $? x = Some r ->
       result_lookup_Z' idxs r val ->
-      prog_impl_fact interp_fn datalog_ctx (str_rel x, Robj (toR val) :: (map Zobj idxs))) ->
+      prog_impl_fact datalog_ctx (str_rel x, Robj (toR val) :: (map Zobj idxs))) ->
   forall val name val0 hyps name',
-    eval_Sexpr sh v ec s val ->
+    eval_Sexpr sh (fmap_of v) ec s val ->
     lower_Sexpr name s = (val0, hyps, name') ->
     exists hyps' substn,
       name <= name' /\
         domain_in_ints name name' substn /\
-        Forall2 (interp_fact interp_fn) (map (subst_in_fact (substn)) (map (subst_in_fact (substn_of v)) hyps)) hyps' /\
-        Forall (prog_impl_fact interp_fn datalog_ctx) hyps' /\
-        interp_expr interp_fn (subst_in_expr substn (subst_in_expr (substn_of v) val0)) (Robj (toR val)).
+        Forall2 (interp_fact (map.putmany substn (context_of v))) hyps hyps' /\
+        Forall (prog_impl_fact datalog_ctx) hyps' /\
+        interp_expr (map.putmany substn (context_of v)) val0 (Robj (toR val)).
 Proof.
   intros H. induction s; intros; simpl in *.
   - invert H1. simpl. eexists.
