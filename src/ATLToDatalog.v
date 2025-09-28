@@ -546,23 +546,9 @@ Fixpoint lower
   annoyingly, i cannot construct an equivalent coqutil map from an fmap.
  *)
 
-Definition fmap_of {A B : Type} {mp : map.map A B} (m : mp) : fmap A B :=
-  map.fold (@add _ _) $0 m.
-Opaque fmap_of.
-
 Definition context_of (v : valuation') : context :=
   map.fold (fun mp k v => map.put mp (inl k) (Zobj v)) map.empty v.
 
-Lemma fmap_of_spec (m : valuation') k :
-  fmap_of m $? k = map.get m k.
-Proof.
-  cbv [fmap_of]. apply map.fold_spec.
-  - rewrite map.get_empty, lookup_empty. reflexivity.
-  - intros k0 v m0 r H H0. rewrite map.get_put_dec. destr (k0 =? k).
-    + apply lookup_add_eq. reflexivity.
-    + rewrite lookup_add_ne by auto. auto.
-Qed.
-    
 Lemma context_of_fw k val v :
   map.get val k = Some v ->
   map.get (context_of val) (inl k) = Some (Zobj v).
@@ -782,9 +768,11 @@ Proof.
   destruct (nth_error idxs x); auto. exfalso. eauto.
 Qed.
 
-Ltac simpl_map := repeat (rewrite map.get_putmany_left by apply context_of_inr) || rewrite map.get_put_same.
+Ltac simpl_map' solve_map_get := repeat (rewrite map.get_putmany_left by apply context_of_inr) || rewrite map.get_put_same || erewrite context_of_fw by solve_map_get.
 
-Ltac solve_map_get := simpl_map; reflexivity.
+Ltac solve_map_get := simpl_map' solve_map_get; reflexivity.
+
+Ltac simpl_map := simpl_map' solve_map_get.
 
 (* Ltac simpl_map_cons := *)
 (*   repeat (rewrite map_cons_something || rewrite map_cons_nothing by (let H := fresh "H" in intros H; invert H; lia)). *)
@@ -798,6 +786,7 @@ Ltac isNone_solver :=
   (solve [apply putmany_None; isNone_solver]) ||
     reflexivity ||
     (apply idx_map_None; simpl; repeat rewrite length_map; simpl; lia) ||
+    (rewrite <- fmap_of_spec; solve [eauto using None_dom_lookup]) ||
     idtac.
 
 Ltac disj_solver' disj_solver :=
@@ -810,8 +799,9 @@ Ltac disj_solver :=
 (*important to have the backtracking here because of the eapply extends_trans*)
 Ltac extends_solver' extends_solver :=
   (apply extends_put; isNone_solver) +
-  (apply extends_putmany_left; disj_solver) +
-  (apply extends_putmany_putmany; solve[extends_solver]) +
+    (apply extends_putmany_left; disj_solver) +
+    (apply extends_putmany_putmany; solve[extends_solver]) +
+    (apply extends_context_of; extends_solver) +
     apply extends_putmany_right.
 
 Ltac extends_solver :=
@@ -1604,17 +1594,17 @@ Proof.
 Qed.
   
 Lemma lower_correct e out sh v ctx r datalog_ctx l :
-  eval_expr sh v ctx e r ->
+  eval_expr sh (fmap_of v) ctx e r ->
   size_of e l ->
   constant_nonneg_bounds e ->
   (forall x (r : result) (idxs : list Z) (val : scalar_result),
       ctx $? x = Some r ->
       result_lookup_Z' idxs r val ->
-      prog_impl_fact interp_fn datalog_ctx (str_rel x, Robj (toR val) :: map Zobj idxs)) ->
+      prog_impl_fact datalog_ctx (str_rel x, Robj (toR val) :: map Zobj idxs)) ->
   forall idxs name val idx_ctx idx_ctx',
     result_lookup_Z' idxs r val ->
-    Forall2 (interp_expr interp_fn) (map (subst_in_expr (substn_of v)) (map lower_idx idx_ctx)) idx_ctx' ->
-    prog_impl_fact interp_fn (lower e out name idx_ctx ++ datalog_ctx ++ [true_rule; false_rule]) (out, Robj (toR val) :: idx_ctx' ++ map Zobj idxs).
+    Forall2 (interp_expr (context_of v)) (map lower_idx idx_ctx) idx_ctx' ->
+    prog_impl_fact (lower e out name idx_ctx ++ datalog_ctx ++ [true_rule; false_rule]) (out, Robj (toR val) :: idx_ctx' ++ map Zobj idxs).
 Proof.
   revert out sh v ctx r datalog_ctx l. induction e.
   - simpl. intros. apply invert_eval_gen in H.
@@ -1623,25 +1613,20 @@ Proof.
     epose proof nth_error_Some as E'. specialize E' with (1 := H6).
     specialize (Hbody ltac:(lia)). clear E'.
     destruct Hbody as (Hdom&_&Hbody). replace (loz + x - loz)%Z with x in Hbody by lia.
-    rewrite H6 in Hbody. specialize IHe with (1 := Hbody). invert H0.
+    rewrite H6 in Hbody. rewrite add_fmap_of in Hbody.
+    specialize IHe with (1 := Hbody). invert H0.
     destruct H1 as (_&_&_&H1).
     specialize IHe with (1 := H11) (2 := H1) (3 := H2).
     specialize IHe with (1 := H8). eassert _ as blah.
     2: epose proof (IHe _ _ (idx_ctx ++ [(! i ! - lo)%z])%list _ blah) as IHe_; clear IHe.
     { repeat rewrite map_app. apply Forall2_app.
-      - move H4 at bottom. repeat rewrite <- Forall2_map_l in *.
-        eapply Forall2_impl. 2: eassumption. simpl. intros a b Hab.
-        pose proof interp_expr_subst_more as Hab'. specialize Hab' with (2 := Hab).
-        rewrite Hab'. 1: assumption. apply includes_extends.
-        apply includes_add_new. apply None_dom_lookup. assumption.
-      - repeat constructor. simpl. rewrite lookup_add_eq by reflexivity.
-        simpl. repeat econstructor.
+      - move H4 at bottom. eapply Forall2_impl; [|eassumption]. simpl. intros a b Hab.
+        eapply interp_expr_subst_more; eauto. extends_solver.
+      - repeat constructor. simpl. repeat econstructor.
+        { solve_map_get. }
         { apply eval_Zexpr_Z_eval_Zexpr in Hlo.
           pose proof eval_Zexpr_to_substn as H'. specialize H' with (1 := Hlo).
-          repeat econstructor.
-          + pose proof interp_expr_subst_more as H''. specialize H'' with (2 := H').
-            rewrite H''. 1: eassumption. clear -Hdom. apply includes_extends.
-            apply includes_add_new. apply None_dom_lookup. assumption. }
+          eapply interp_expr_subst_more; eauto. extends_solver. }
         reflexivity. }
     rewrite <- app_assoc in IHe_. simpl in IHe_.
     replace (loz + x - loz)%Z with x in IHe_ by lia. simpl. apply IHe_.
