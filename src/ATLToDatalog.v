@@ -188,10 +188,10 @@ Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
   match e with
   | Var x => (var_expr (inr next_varname),
               [{| fact_R := str_rel x; fact_args := [var_expr (inr next_varname)] |}],
-              succ next_varname)
+              S next_varname)
   | Get x idxs => (var_expr (inr next_varname),
                    [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map lower_idx idxs |}],
-                   succ next_varname)
+                   S next_varname)
   (*copy-pasted monstrosity*)
   | Mul x y => let '(e1, hyps1, next_varname) := lower_Sexpr next_varname x in
               let '(e2, hyps2, next_varname) := lower_Sexpr next_varname y in
@@ -696,12 +696,13 @@ Lemma lower_Sexpr_correct sh v ec s (datalog_ctx : list (rule rel var fn aggrega
         interp_expr (map.putmany substn (context_of v)) val0 (Robj (toR val)).
 Proof.
   intros H. induction s; intros; simpl in *.
-  - invert H1. simpl. eexists.
-    exists (map_cons (inr name) (Some (fn_R (fn_SLit (toR val)))) map_empty). split.
+  - invert H1. eexists.
+    exists (map.put map.empty (inr name) (Robj (toR val))). split.
     { cbv [succ]. lia. } split.
     { apply domain_in_ints_cons. 2: cbv [succ]; lia. apply domain_in_ints_empty. }
     split.
-    { repeat constructor. simpl. cbv [map_cons]. rewrite var_eqb_refl. simpl.
+    { repeat constructor. simpl. cbn [map.putmany]. rewrite map.get_putmany_left.
+      apply map.rewrite var_eqb_refl. simpl.
       repeat econstructor. }
     invert H0. simpl. split.
     + repeat constructor. 
