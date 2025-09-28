@@ -1,4 +1,4 @@
-From coqutil Require Import Map.Interface Map.Properties.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver.
 From ATL Require Import FrapWithoutSets.
 
 
@@ -44,4 +44,21 @@ Proof.
   - simpl. apply map.get_empty.
   - simpl. destruct a. simpl in H. rewrite map.get_put_diff by auto. auto.
 Qed.
+
+Lemma extends_trans (m1 m2 m3 : mp) :
+  map.extends m1 m2 ->
+  map.extends m2 m3 ->
+  map.extends m1 m3.
+Proof. cbv [map.extends]. auto. Qed.
+
+Lemma extends_put (m : mp) k v :
+  map.get m k = None ->
+  map.extends (map.put m k v) m.
+Proof. map_solver mp_ok. Qed.
+
+Lemma putmany_None (m1 m2 : mp) k :
+  map.get m1 k = None ->
+  map.get m2 k = None ->
+  map.get (map.putmany m1 m2) k = None.
+Proof. map_solver mp_ok. Qed.
 End Map.

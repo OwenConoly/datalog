@@ -697,13 +697,90 @@ Proof.
   destruct x; [auto|lia].
 Qed.
 
-(* Lemma idx_map_None idxs x : *)
-(*   (0 <= x < length idxs -> False) -> *)
-(*   idx_map idxs (inr x) = None. *)
-(* Proof. *)
-(*   intros H. pose proof domain_in_ints_idx_map idxs (inr x) as H'. *)
-(*   simpl in H'. simpl. destruct (nth_error idxs x); auto. exfalso. eauto. *)
-(* Qed. *)
+Definition idx_map (x : list obj) : context :=
+  map.of_func (fun k => match k with
+                     | inr n => nth_error x n
+                     | inl _ => None
+                     end) (map inr (seq O (length x))).
+
+Lemma idx_map_spec x k :
+  map.get (idx_map x) k = match k with
+                          | inr n => nth_error x n
+                          | inl _ => None
+                          end.
+Proof.
+  set (P := match k with | inr n => 0 <= n < length x | inl _ => False end).
+  assert (P \/ ~P) by (destruct k; subst P; auto; lia).
+  subst P. cbv [idx_map]. destruct H as [H|H].
+  - destruct k; [exfalso; auto|]. rewrite map.get_of_func_In. 1: reflexivity.
+    apply in_map. apply in_seq. lia.
+  - Search map.get map.of_func. rewrite map.get_of_func_notIn.
+    { destruct k; [reflexivity|]. symmetry. apply nth_error_None. lia. }
+    intros H'. apply H. apply in_map_iff in H'. destruct H' as (?&?&?). subst.
+    apply in_seq in H1. lia.
+Qed.
+
+Lemma domain_in_ints_idx_map x :
+  domain_in_ints O (length x) (idx_map x).
+Proof.
+  cbv [domain_in_ints]. intros y z H. rewrite idx_map_spec in H.
+  destruct y; [congruence|]. apply nth_error_Some in H. assumption.
+Qed.
+
+Lemma Forall2_nth_error (A B : Type) (R : A -> B -> Prop) l1 l2 :
+  length l1 = length l2 ->
+  (forall n x1 x2,
+      nth_error l1 n = Some x1 ->
+      nth_error l2 n = Some x2 ->
+      R x1 x2) ->
+  Forall2 R l1 l2.
+Proof.
+  revert l2. induction l1; intros l2 H1 H2.
+  - destruct l2; [|discriminate H1]. constructor.
+  - destruct l2; [discriminate H1|]. simpl in H1. invert H1.
+    pose proof (H2 O _ _ ltac:(reflexivity) ltac:(reflexivity)).
+    constructor; [assumption|]. apply IHl1; auto. intros n.
+    specialize (H2 (S n)). simpl in H2. exact H2.
+Qed.
+
+Ltac destruct_option_map_Some :=
+  match goal with
+  | H: option_map ?f ?x = Some ?y |- _ =>
+      destruct x eqn:?E; [cbn [option_map] in H; invert H|discriminate H]
+  end.
+
+Lemma nth_error_seq_Some n1 n2 n3 n4 :
+  nth_error (seq n1 n2) n3 = Some n4 ->
+  n4 = n1 + n3.
+Proof.
+  revert n1 n3 n4. induction n2; intros n1 n3 n4 H; simpl in *.
+  - destruct n3; discriminate H.
+  - destruct n3; simpl in H.
+    + invert H. lia.
+    + apply IHn2 in H. lia.
+Qed.
+
+Lemma idx_map_works idxs :
+  Forall2 (interp_expr (idx_map (map Zobj idxs)))
+    (map var_expr (map inr (seq O (length idxs))))
+    (map Zobj idxs).
+Proof.
+  apply Forall2_nth_error.
+  { repeat rewrite map_length. rewrite seq_length. auto. }
+  intros n x1 x2. repeat rewrite nth_error_map. intros.
+  do 3 destruct_option_map_Some. apply nth_error_seq_Some in E1.
+  subst. simpl. constructor. rewrite idx_map_spec. rewrite nth_error_map, E.
+  reflexivity.
+Qed.
+
+Lemma idx_map_None idxs x :
+  (0 <= x < length idxs -> False) ->
+  map.get (idx_map idxs) (inr x) = None.
+Proof.
+  intros H. pose proof domain_in_ints_idx_map idxs (inr x) as H'.
+  simpl in H'. rewrite idx_map_spec in *.
+  destruct (nth_error idxs x); auto. exfalso. eauto.
+Qed.
 
 Ltac simpl_map := repeat (rewrite map.get_putmany_left by apply context_of_inr) || rewrite map.get_put_same.
 
@@ -712,31 +789,34 @@ Ltac solve_map_get := simpl_map; reflexivity.
 (* Ltac simpl_map_cons := *)
 (*   repeat (rewrite map_cons_something || rewrite map_cons_nothing by (let H := fresh "H" in intros H; invert H; lia)). *)
 
-(* Ltac isNone_solver := *)
-(*   simpl_map; *)
-(*   (solve [apply compose_None; isNone_solver]) || *)
-(*     reflexivity || *)
-(*     (apply idx_map_None; simpl; repeat rewrite map_length; simpl; lia) || *)
-(*     idtac. *)
+Ltac domain_in_ints_solver :=
+  apply domain_in_ints_idx_map.
 
-(* Ltac domain_in_ints_solver := *)
-(*   apply domain_in_ints_idx_map. *)
+Ltac isNone_solver :=
+  simpl_map;
+  apply context_of_inr ||
+  (solve [apply putmany_None; isNone_solver]) ||
+    reflexivity ||
+    (apply idx_map_None; simpl; repeat rewrite length_map; simpl; lia) ||
+    idtac.
 
-(* Ltac disj_solver' := *)
-(*   (eapply domain_in_ints_disj_substn_of; domain_in_ints_solver). *)
+Ltac disj_solver' disj_solver :=
+    (eapply domain_in_ints_disj_substn_of; domain_in_ints_solver) ||
+      (apply map.disjoint_put_l; [isNone_solver|disj_solver]).
 
-(* Ltac disj_solver := *)
-(*   disj_solver' || (apply disj_comm; disj_solver') || idtac. *)
+Ltac disj_solver :=
+  disj_solver' disj_solver || (apply map.disjoint_comm; disj_solver' disj_solver) || idtac.
 
+(*important to have the backtracking here because of the eapply extends_trans*)
 Ltac extends_solver' extends_solver :=
-  (* (apply extends_map_cons; isNone_solver) || *)
-  (*   (apply compose_extends_l; disj_solver) || *)
-  (apply extends_putmany_putmany; solve[extends_solver]) || 
+  (apply extends_put; isNone_solver) +
+  (apply extends_putmany_left; disj_solver) +
+  (apply extends_putmany_putmany; solve[extends_solver]) +
     apply extends_putmany_right.
 
 Ltac extends_solver :=
-  extends_solver' extends_solver (*|| (eapply map.extends_trans;
-                     [solve[extends_solver'] |extends_solver])*) || eauto.
+  solve [eauto] || extends_solver' extends_solver ||
+    (eapply extends_trans; solve[extends_solver' extends_solver]) || idtac.
 
 Lemma lower_Sexpr_correct sh v ec s (datalog_ctx : list (rule rel var fn aggregator)):
   (forall x r idxs val,
@@ -1316,132 +1396,33 @@ Proof.
     rewrite Forall_forall in H0. auto.
 Qed.
 
-Lemma Forall2_nth_error (A B : Type) (R : A -> B -> Prop) l1 l2 :
-  length l1 = length l2 ->
-  (forall n x1 x2,
-      nth_error l1 n = Some x1 ->
-      nth_error l2 n = Some x2 ->
-      R x1 x2) ->
-  Forall2 R l1 l2.
-Proof.
-  revert l2. induction l1; intros l2 H1 H2.
-  - destruct l2; [|discriminate H1]. constructor.
-  - destruct l2; [discriminate H1|]. simpl in H1. invert H1.
-    pose proof (H2 O _ _ ltac:(reflexivity) ltac:(reflexivity)).
-    constructor; [assumption|]. apply IHl1; auto. intros n.
-    specialize (H2 (S n)). simpl in H2. exact H2.
-Qed.
-
-Ltac destruct_option_map_Some :=
-  match goal with
-  | H: option_map ?f ?x = Some ?y |- _ =>
-      destruct x eqn:?E; [cbn [option_map] in H; invert H|discriminate H]
-  end.
-
-Lemma nth_error_seq_Some n1 n2 n3 n4 :
-  nth_error (seq n1 n2) n3 = Some n4 ->
-  n4 = n1 + n3.
-Proof.
-  revert n1 n3 n4. induction n2; intros n1 n3 n4 H; simpl in *.
-  - destruct n3; discriminate H.
-  - destruct n3; simpl in H.
-    + invert H. lia.
-    + apply IHn2 in H. lia.
-Qed.
 Search map.map. Print map.of_list_zip. Search map.of_list. Search map.zipped_lookup.
 Check map.of_func.
-Definition idx_map (x : list obj) : context :=
-  map.of_func (fun k => match k with
-                     | inr n => nth_error x n
-                     | inl _ => None
-                     end) (map inr (seq O (length x))).
-
-Lemma idx_map_spec x k :
-  map.get (idx_map x) k = match k with
-                          | inr n => nth_error x n
-                          | inl _ => None
-                          end.
-Proof.
-  set (P := match k with | inr n => 0 <= n < length x | inl _ => False end).
-  assert (P \/ ~P) by (destruct k; subst P; auto; lia).
-  subst P. cbv [idx_map]. destruct H as [H|H].
-  - destruct k; [exfalso; auto|]. rewrite map.get_of_func_In. 1: reflexivity.
-    apply in_map. apply in_seq. lia.
-  - Search map.get map.of_func. rewrite map.get_of_func_notIn.
-    { destruct k; [reflexivity|]. symmetry. apply nth_error_None. lia. }
-    intros H'. apply H. apply in_map_iff in H'. destruct H' as (?&?&?). subst.
-    apply in_seq in H1. lia.
-Qed.
-
-Lemma domain_in_ints_idx_map x :
-  domain_in_ints O (length x) (idx_map x).
-Proof.
-  cbv [domain_in_ints]. intros y z H. rewrite idx_map_spec in H.
-  destruct y; [congruence|]. apply nth_error_Some in H. assumption.
-Qed.
-
-Lemma idx_map_works idxs :
-  Forall2 (interp_expr (idx_map (map Zobj idxs)))
-    (map var_expr (map inr (seq O (length idxs))))
-    (map Zobj idxs).
-Proof.
-  apply Forall2_nth_error.
-  { repeat rewrite map_length. rewrite seq_length. auto. }
-  intros n x1 x2. repeat rewrite nth_error_map. intros.
-  do 3 destruct_option_map_Some. apply nth_error_seq_Some in E1.
-  subst. simpl. constructor. rewrite idx_map_spec. rewrite nth_error_map, E.
-  reflexivity.
-Qed.
-
 Lemma gross1 val idxs v :
-  let s := map.putmany
-             (substn_of v)
-             (map_cons
-                (inr (length idxs)) (Some (fn_R (fn_SLit (toR val))))
-                (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs))) in
-  Forall2 (interp_expr interp_fn)
-    (map (subst_in_expr s)
-       (map var_expr (map inr (seq 0 (length idxs)))))
+  let ctx := map.putmany
+             (context_of v)
+             (map.put
+                (idx_map (map Zobj idxs))
+                (inr (length idxs)) (Robj (toR val))) in
+  Forall2 (interp_expr ctx)
+    (map var_expr (map inr (seq 0 (length idxs))))
     (map Zobj idxs).
 Proof.
-  intros s.
-  pose proof idx_map_works idxs. repeat rewrite <- Forall2_map_l in *.
-  eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
-  eapply interp_expr_subst_more'. 2: eassumption. subst s.
-  eapply extends_trans. apply compose_extends_r. apply extends_map_cons.
-  cbv [idx_map]. apply nth_error_None.
-  rewrite map_length. lia.
+  intros ctx.
+  pose proof idx_map_works idxs. eapply Forall2_impl; [|eassumption].
+  intros a b Hab. Print extends_solver. Print extends_solver'.
+  eapply interp_expr_subst_more; eauto. subst ctx. Print extends_solver. Print extends_solver'.
+  extends_solver.
 Qed.
 
 Lemma gross2 val idxs v :
-  let s := compose
-             (substn_of v)
-             (map_cons
-                (inr (length idxs)) (Some (fn_R (fn_SLit (toR val))))
-                (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs))) in
-  extends s (substn_of v).
-Proof.
-  apply compose_extends_l. apply disj_comm.
-  eapply domain_in_ints_disj_substn_of with (low := O) (high := S (length idxs)).
-  apply domain_in_ints_cons; [|lia].
-  eapply domain_in_ints_weaken. 3: apply domain_in_ints_idx_map. 1: lia.
-  rewrite map_length. lia.
-Qed.
-
-Lemma var_eqb_neq x y :
-  x <> y -> var_eqb x y = false.
-Proof.
-  intros H. cbv [var_eqb]. destruct x, y; try reflexivity.
-  - apply String.eqb_neq. congruence.
-  - apply Nat.eqb_neq. congruence.
-Qed.
-
-Lemma map_cons_nothing m x x' y :
-  x <> x' ->
-  (map_cons x y m) x' = m x'.
-Proof.
-  intros. cbv [map_cons]. rewrite var_eqb_neq by assumption. reflexivity.
-Qed.
+  let ctx := map.putmany
+             (context_of v)
+             (map.put
+                (idx_map (map Zobj idxs))
+                (inr (length idxs)) (Robj (toR val))) in
+  map.extends ctx (context_of v).
+Proof. extends_solver. Qed.
 
 Lemma nth_error_skipn {A : Type} (l : list A) n1 n2 :
   nth_error (skipn n1 l) n2 = nth_error l (n1 + n2).
@@ -1475,13 +1456,15 @@ Proof.
 Qed.
 Print result_has_shape.
 
-Definition true_rule : rule rel var fn :=
-  {| rule_concls := [{| fact_R := true_rel;
+Definition true_rule : rule rel var fn aggregator :=
+  {| rule_agg := None;
+    rule_concls := [{| fact_R := true_rel;
                        fact_args := [fun_expr (fn_B (fn_BLit true)) []] |}];
     rule_hyps := [] |}.
 
-Definition false_rule : rule rel var fn :=
-  {| rule_concls := [{| fact_R := false_rel;
+Definition false_rule : rule rel var fn aggregator :=
+  {| rule_agg := None;
+    rule_concls := [{| fact_R := false_rel;
                      fact_args := [fun_expr (fn_B (fn_BLit false)) []] |}];
     rule_hyps := [] |}.
 
@@ -1547,8 +1530,8 @@ Proof.
   pose proof E as E'. apply nth_error_seq_Some in E'. subst.
   replace (0 + x / k) with (x / k) by lia.
   rewrite nth_error_firstn_elim.
-  2: { apply mod_upper_bound. lia. }
-  rewrite nth_error_skipn. rewrite <- div_mod_eq.
+  2: { apply Nat.mod_upper_bound. lia. }
+  rewrite nth_error_skipn. rewrite <- Nat.div_mod_eq.
   apply nth_error_Some in E. rewrite seq_length in E.
   assert (H: x < length l \/ length l <= x) by lia. destruct H as [H|H].
   - left. split; [lia|]. rewrite nth_error_app1 by lia. reflexivity.
@@ -1566,14 +1549,14 @@ Proof.
     apply Div0.div_le_mono with (c := k) in H.
     assert (x / k = length l / k) by lia.
     rewrite mod_small by lia.
-    eassert (x - length l = _) as ->. { rewrite (div_mod_eq (length l) k). reflexivity. }
+    eassert (x - length l = _) as ->. { rewrite (Nat.div_mod_eq (length l) k). reflexivity. }
     assert (length l mod k < k).
-    { apply mod_upper_bound. lia. }
+    { apply Nat.mod_upper_bound. lia. }
     split; [assumption|]. apply nth_error_repeat.
     enough (x - k * (length l / k) < k) by lia.
-    rewrite (div_mod_eq x k). rewrite H0.
+    rewrite (Nat.div_mod_eq x k). rewrite H0.
     assert (x mod k < k).
-    { apply mod_upper_bound. lia. }
+    { apply Nat.mod_upper_bound. lia. }
     lia.
 Qed.
 
