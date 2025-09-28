@@ -1679,28 +1679,26 @@ Proof.
       apply size_of_sizeof in H8, H10. rewrite H8 in H10. invert H10.
       apply pad_lookup_SX in H3. subst. simpl. econstructor.
       { apply Exists_app. left. apply Exists_app. right. apply Exists_cons_tl.
-        apply Exists_cons_hd. simpl.
-        exists (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs))).
-        cbv [subst_in_fact]. simpl. constructor.
+        apply Exists_cons_hd.
+        set (ctx' := map.putmany (context_of v) (idx_map (map Zobj idxs))).
+        eapply normal_rule_impl with (ctx := ctx').
         - constructor. constructor. simpl. constructor.
           { repeat econstructor. }
           repeat rewrite map_app. apply Forall2_app.
-          + repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl; [|eassumption].
-            simpl. intros a b Hab. eapply interp_expr_subst_more'; [|eassumption].
-            extends_solver.
-          + rewrite <- H''. pose proof idx_map_works idxs as Hidxs.
-            repeat rewrite <- Forall2_map_l in *.
-            eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
-            eapply interp_expr_subst_more'; [|eassumption]. extends_solver.
-        - repeat econstructor. eapply interp_expr_subst_more'.
+          + eapply Forall2_impl; [|eassumption].
+            intros. eapply interp_expr_subst_more; [|eassumption]. extends_solver.
+          + rewrite <- H''. eapply Forall2_impl; [|eauto using idx_map_works].
+            intros. eapply interp_expr_subst_more; [|eassumption]. extends_solver.
+        - repeat econstructor. eapply interp_expr_subst_more.
           2: { apply eval_Bexpr_to_substn. eassumption. }
           extends_solver. }
-      apply Forall_forall. constructor.
+      constructor.
       { econstructor.
         { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_tl.
-          apply Exists_cons_hd. simpl. exists map_empty. split; [|constructor].
-          constructor. simpl. repeat econstructor. }
-        apply Forall_forall. constructor. }
+          apply Exists_cons_hd. simpl. eapply normal_rule_impl with (ctx := map.empty).
+          { repeat econstructor. }
+          constructor. }
+        constructor. }
       constructor.
     + specialize (H' _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
       specialize (H'' _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
@@ -1708,40 +1706,36 @@ Proof.
       subst. clear H'. rewrite <- H''. clear H''.
       econstructor.
       { apply Exists_app. left. apply Exists_app. right. apply Exists_cons_hd.
-        exists (map_cons (inr (length idxs)) (Some (fn_R (fn_SLit (toR val))))
-             (compose (substn_of v) (idx_map (map (fun x => fn_Z (fn_ZLit x)) idxs)))).
-        simpl. cbv [subst_in_fact]. cbn -[subst_in_expr]. split.
-        { constructor. simpl. rewrite map_cons_something. constructor. constructor.
-          { repeat econstructor. }
+        set (ctx' := map.put (map.putmany (context_of v) (idx_map (map Zobj idxs)))
+                       (inr (length idxs)) (Robj (toR val))).
+        apply normal_rule_impl with (ctx := ctx').
+        { constructor. constructor. constructor.
+          { repeat econstructor. subst ctx'. solve_map_get. }
           repeat rewrite map_app. apply Forall2_app.
-          - repeat rewrite <- Forall2_map_l in *. eapply Forall2_impl; [|eassumption].
-            cbv beta. intros a b Hab. eapply interp_expr_subst_more'; [|eassumption].
-            extends_solver.
-          - pose proof idx_map_works idxs as H'. repeat rewrite <- Forall2_map_l in *.
-            eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
-            eapply interp_expr_subst_more'; [|eassumption]. extends_solver. }
+          - eapply Forall2_impl; [|eassumption].
+            intros. eapply interp_expr_subst_more; [|eassumption]. extends_solver.
+          - eapply Forall2_impl; [|eauto using idx_map_works]. intros.
+            eapply interp_expr_subst_more; [|eassumption]. extends_solver. }
         constructor.
-        { constructor. simpl. rewrite map_cons_something. constructor.
-          { repeat econstructor. }
-          (*copy-pasted*)
-          pose proof idx_map_works idxs as H'. repeat rewrite <- Forall2_map_l in *.
-          eapply Forall2_impl; [|eassumption]. cbv beta. intros a b Hab.
-          eapply interp_expr_subst_more'; [|eassumption]. extends_solver. }
-        repeat econstructor. eapply interp_expr_subst_more'.
+        { constructor. simpl. constructor.
+          { repeat econstructor. subst ctx'. solve_map_get. }
+          eapply Forall2_impl; [|eauto using idx_map_works]. intros.
+          eapply interp_expr_subst_more; [|eassumption]. extends_solver. }
+        repeat econstructor. eapply interp_expr_subst_more.
         2: { apply eval_Bexpr_to_substn. eassumption. }
         extends_solver. }
-      apply Forall_forall. constructor.
+      constructor.
       { simpl.
         specialize IHe with (name := S name) (idx_ctx := nil) (idx_ctx' := nil).
         simpl in IHe.
-        eapply prog_impl_fact_subset.
+        eapply prog_impl_fact_subset. 1(*why*): assumption.
         2: { eapply IHe; eauto. }
         intros x Hx. repeat rewrite in_app_iff in *. simpl. tauto. }
       constructor.
       { simpl. econstructor.
         { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_hd.
-          exists map_empty. repeat econstructor. }
-        apply Forall_forall. constructor. }
+          eapply normal_rule_impl with (ctx := map.empty); repeat econstructor. }
+        constructor. }
       constructor.
   - simpl. intros. destruct H1 as (H1&H1_). invert H0. invert H.
     + eapply prog_impl_fact_subset.
