@@ -1,15 +1,15 @@
-From Coq Require Import Arith.Arith.
-From Coq Require Import Arith.EqNat.
-From Coq Require Import Arith.PeanoNat. Import Nat.
-From Coq Require Import Bool.Bool.
-From Coq Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
-From Coq Require Import ZArith.Zdiv.
-From Coq Require Import ZArith.Int.
-From Coq Require Import ZArith.Znat.
-From Coq Require Import Strings.String.
-From Coq Require Import Lists.List.
-From Coq Require Import micromega.Lia.
-Require Import Coq.Logic.FunctionalExtensionality.
+From Stdlib Require Import Arith.Arith.
+From Stdlib Require Import Arith.EqNat.
+From Stdlib Require Import Arith.PeanoNat. Import Nat.
+From Stdlib Require Import Bool.Bool.
+From Stdlib Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
+From Stdlib Require Import ZArith.Zdiv.
+From Stdlib Require Import ZArith.Int.
+From Stdlib Require Import ZArith.Znat.
+From Stdlib Require Import Strings.String.
+From Stdlib Require Import Lists.List.
+From Stdlib Require Import micromega.Lia.
+From Stdlib Require Import Logic.FunctionalExtensionality.
 
 Import ListNotations.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
@@ -20,11 +20,11 @@ From Lower Require Import Zexpr Bexpr Array Range Sexpr Result ListMisc
 Require Import ATLDeep.
 Require Import ContextsAgree.
 From Datalog Require Import Datalog Map. 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc.
-
-Open Scope string_scope.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics.
 
 Import Datatypes. Check S.
+
+Open Scope list_scope.
 
 Definition var : Type := string + nat.
 Print valuation. About List.zip.
@@ -34,7 +34,7 @@ Variant obj : Set :=
 
 (*just like Bexpr, except i added blit*)
 Variant Bfn : Set :=
-  fn_BAnd | fn_BLt | fn_BLe | fn_BEq | fn_BLit (_ : bool).
+  fn_BAnd | fn_BLt | fn_BLe | fn_BEq | fn_BLit (_ : bool) | fn_BNot.
 
 Definition interp_Bfn (f : Bfn) (l : list obj) : option bool :=
   match f, l with
@@ -43,6 +43,7 @@ Definition interp_Bfn (f : Bfn) (l : list obj) : option bool :=
   | fn_BLe, [Zobj x; Zobj y] => Some (x <=? y)
   | fn_BEq, [Zobj x; Zobj y] => Some (x =? y)
   | fn_BLit b, [] => Some b
+  | fn_BNot, [Bobj b] => Some (negb b)
   | _, _ => None
   end%Z.
 (*just like Zexpr but no ZVar*)
@@ -88,8 +89,7 @@ Definition interp_fn (f : fn) (l : list obj) : option obj :=
 Variant rel : Set :=
   | str_rel (s : string)
   | nat_rel (n : nat)
-  | true_rel (*unary, true if arg is true*)
-  | false_rel.
+  | true_rel (*unary, true if arg is true*).
 
 Variant aggregator : Set :=
   | sum.
@@ -225,12 +225,17 @@ Definition toR (s : scalar_result) :=
   | SX => 0%R
   end.
 
+(*we want to ignore bounds.  to avoid generating wrong answers, then, due to ignoring bounds, we have two options.
+  1. don't actually ignore bounds.  before outputting something, check that it's in bounds.  (this sounds terrible and inefficient)
+  2. before using something, check---if necessary---that it's in bounds.  (this sounds much less bad, since we usually won't need to do a check).
+ *)
+
 Fixpoint lower
   (e : ATLexpr)
   (out: rel)
   (name: nat)
   (idxs : list Zexpr)
-  : list (rule rel var fn aggregator) :=
+  : nat (*next unused name*) * list (rule rel var fn aggregator) :=
   match e with
   | Gen i lo hi body =>
       lower body out name (idxs ++ [ZMinus (ZVar i) lo])
@@ -240,54 +245,59 @@ Fixpoint lower
       let i' := Datatypes.S x in
       let y := Datatypes.S i' in
       let aux := name in
-      let aux' := Datatypes.S aux in
-      lower body (nat_rel aux) (Datatypes.S aux') [ZVar i] ++
-        [{| rule_agg :=
-             Some
-               (inr y, {| agg := sum;
-                         i := inr i';
-                         vs := [inr x];
-                         s := fun_expr (fn_Z fn_ZRange) [lower_idx lo; lower_idx hi];
-                         body := var_expr (inr x);
-                         hyps := [{| fact_R := nat_rel aux;
-                                    fact_args :=
-                                      var_expr (inr x) ::
-                                        var_expr (inr i') ::
-                                        map var_expr dimvars |}] |} : agg_expr rel var fn aggregator);
-           rule_concls := [{| fact_R := out;
-                             fact_args := var_expr (inr y) ::
-                                            map lower_idx idxs ++
-                                            map var_expr dimvars |}];
-           rule_hyps := []; |}]
+      let (name', rules) := lower body (nat_rel aux) (S aux) [ZVar i] in
+      (name',
+        rules ++
+          [{| rule_agg :=
+               Some
+                 (inr y, {| agg := sum;
+                           i := inr i';
+                           vs := [inr x];
+                           s := fun_expr (fn_Z fn_ZRange) [lower_idx lo; lower_idx hi];
+                           body := var_expr (inr x);
+                           hyps := [{| fact_R := nat_rel aux;
+                                      fact_args :=
+                                        var_expr (inr x) ::
+                                          var_expr (inr i') ::
+                                          map var_expr dimvars |}] |} : agg_expr rel var fn aggregator);
+             rule_concls := [{| fact_R := out;
+                               fact_args := var_expr (inr y) ::
+                                              map lower_idx idxs ++
+                                              map var_expr dimvars |}];
+             rule_hyps := []; |}])
   | Guard b body =>
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
       let aux := name in
-      lower body (nat_rel aux) (S aux) [] ++
-        [{| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              var_expr (inr x) ::
-                                map lower_idx idxs ++
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := nat_rel aux;
-                           fact_args :=
-                             var_expr (inr x) ::
-                               map var_expr dimvars |};
-                         {| fact_R := true_rel;
-                           fact_args := [lower_guard b] |}] |};
-         {| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              fun_expr (fn_R (fn_SLit 0%R)) [] ::
-                                map lower_idx idxs ++       
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := false_rel;
-                           fact_args := [lower_guard b] |}] |}
-        ]
+      let (name', rules) := lower body (nat_rel aux) (S aux) [] in
+      (name',
+        rules ++
+          [{| rule_agg := None;
+             rule_concls := [{| fact_R := out;
+                               fact_args :=
+                                 var_expr (inr x) ::
+                                   map lower_idx idxs ++
+                                   map var_expr dimvars |}];
+             rule_hyps := [{| fact_R := nat_rel aux;
+                             fact_args :=
+                               var_expr (inr x) ::
+                                 map var_expr dimvars |};
+                           {| fact_R := true_rel;
+                             fact_args := [lower_guard b] |}] |};
+           {| rule_agg := None;
+             rule_concls := [{| fact_R := out;
+                               fact_args :=
+                                 fun_expr (fn_R (fn_SLit 0%R)) [] ::
+                                   map lower_idx idxs ++       
+                                   map var_expr dimvars |}];
+             rule_hyps := [{| fact_R := true_rel;
+                             fact_args := [fun_expr (fn_B fn_BNot) [lower_guard b]] |}] |}
+      ])
   | Lbind x e1 e2 =>
       (*will eventually have to do better with name generation here..*)
-      lower e1 (str_rel x) name [] ++ lower e2 out name idxs
+      let (name', rules1) := lower e1 (str_rel x) name [] in
+      let (name'', rules2) := lower e2 out name idxs in
+      (name'', rules1 ++ rules2)
   | Concat e1 e2 =>
       (*should have length (sizeof e1) = length (sizeof e2)*)
       let dimvars := map inr (seq O (length (sizeof e1) - 1)) in
@@ -300,33 +310,34 @@ Fixpoint lower
                                                              | [] => (| 0 |)%z
                                                              | n :: _ => n
                                                              end))) in
-      (*need better names here..*)
-      lower e1 (nat_rel aux1) (S (S name)) [] ++
-        lower e2 (nat_rel aux2) (S (S name)) [] ++
-        [{| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              var_expr (inr x) ::
-                                map lower_idx idxs ++
-                                map var_expr (dimvarO :: dimvars) |}];
-           rule_hyps := [{| fact_R := nat_rel aux1;
-                           fact_args :=
-                             var_expr (inr x) ::
-                               map var_expr (dimvarO :: dimvars) |}] |};
-         {| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              var_expr (inr x) ::
-                                map lower_idx idxs ++
-                                var_expr dimvarO ::
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := nat_rel aux2;
-                           fact_args :=
-                             var_expr (inr x) ::
-                               fun_expr (fn_Z fn_ZMinus)
-                               [var_expr dimvarO;
-                                fun_expr (fn_Z (fn_ZLit len1)) []] ::
-                               map var_expr dimvars |} ] |} ]
+      let (name', rules1) := lower e1 (nat_rel aux1) (S aux2) [] in
+      let (name'', rules2) := lower e2 (nat_rel aux2) name' [] in
+      (name'',
+        rules1 ++ rules2 ++
+          [{| rule_agg := None;
+             rule_concls := [{| fact_R := out;
+                               fact_args :=
+                                 var_expr (inr x) ::
+                                   map lower_idx idxs ++
+                                   map var_expr (dimvarO :: dimvars) |}];
+             rule_hyps := [{| fact_R := nat_rel aux1;
+                             fact_args :=
+                               var_expr (inr x) ::
+                                 map var_expr (dimvarO :: dimvars) |}] |};
+           {| rule_agg := None;
+             rule_concls := [{| fact_R := out;
+                               fact_args :=
+                                 var_expr (inr x) ::
+                                   map lower_idx idxs ++
+                                   var_expr dimvarO ::
+                                   map var_expr dimvars |}];
+             rule_hyps := [{| fact_R := nat_rel aux2;
+                             fact_args :=
+                               var_expr (inr x) ::
+                                 fun_expr (fn_Z fn_ZMinus)
+                                 [var_expr dimvarO;
+                                  fun_expr (fn_Z (fn_ZLit len1)) []] ::
+                                 map var_expr dimvars |} ] |} ])
   | Flatten e =>
       let dimvars := map inr (seq O (length (sizeof e) - 2)) in
       let dimvarO := inr (length (sizeof e) - 2) in
@@ -337,23 +348,25 @@ Fixpoint lower
         | _ => 0%Z
         end in
       let aux := name in
-      lower e (nat_rel aux) (S aux) [] ++
-        [{| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              var_expr x ::
-                                map lower_idx idxs ++
-                                var_expr dimvarO ::
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := nat_rel aux;
-                           fact_args := var_expr x ::
-                                          fun_expr (fn_Z fn_ZDivf)
-                                          [var_expr dimvarO;
-                                           fun_expr (fn_Z (fn_ZLit len2)) []] ::
-                                          fun_expr (fn_Z fn_ZMod)
-                                          [var_expr dimvarO;
-                                           fun_expr (fn_Z (fn_ZLit len2)) []] ::
-                                          map var_expr dimvars |}] |}]
+      let (name', rules) := lower e (nat_rel aux) (S aux) [] in
+      (name',
+        rules ++
+          [{| rule_agg := None;
+             rule_concls := [{| fact_R := out;
+                               fact_args :=
+                                 var_expr x ::
+                                   map lower_idx idxs ++
+                                   var_expr dimvarO ::
+                                   map var_expr dimvars |}];
+             rule_hyps := [{| fact_R := nat_rel aux;
+                             fact_args := var_expr x ::
+                                            fun_expr (fn_Z fn_ZDivf)
+                                            [var_expr dimvarO;
+                                             fun_expr (fn_Z (fn_ZLit len2)) []] ::
+                                            fun_expr (fn_Z fn_ZMod)
+                                            [var_expr dimvarO;
+                                             fun_expr (fn_Z (fn_ZLit len2)) []] ::
+                                            map var_expr dimvars |}] |}])
   | Split k e =>
       let dimvars := map inr (seq O (length (sizeof e) - 1)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
@@ -367,56 +380,60 @@ Fixpoint lower
         end in
       let aux := name in
       let pad_start := (len mod k')%Z in
-      lower e (nat_rel aux) (S aux) [] ++
-        [{| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              var_expr x ::
-                                map lower_idx idxs ++
-                                var_expr dimvar1 ::
-                                var_expr dimvar2 ::
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := nat_rel aux;
-                           fact_args := var_expr x ::
-                                          fun_expr (fn_Z fn_ZPlus)
-                                          [fun_expr (fn_Z fn_ZTimes)
-                                             [var_expr dimvar1;
-                                              fun_expr (fn_Z (fn_ZLit k')) []];
-                                           var_expr dimvar2] ::
-                                          map var_expr dimvars |}] |};
-         {| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              fun_expr (fn_R (fn_SLit 0%R)) [] ::
-                                map lower_idx idxs ++
-                                fun_expr (fn_Z (fn_ZLit (len / k'))) [] ::
-                                var_expr dimvar1 ::
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := true_rel;
-                           fact_args := [fun_expr (fn_B fn_BLe)
-                                           [fun_expr (fn_Z (fn_ZLit pad_start)) [];
-                                            var_expr dimvar1]] |} ] |}]
+      let (name', rules) := lower e (nat_rel aux) (S aux) [] in
+      (name',
+        rules ++
+          [{| rule_agg := None;
+             rule_concls := [{| fact_R := out;
+                               fact_args :=
+                                 var_expr x ::
+                                   map lower_idx idxs ++
+                                   var_expr dimvar1 ::
+                                   var_expr dimvar2 ::
+                                   map var_expr dimvars |}];
+             rule_hyps := [{| fact_R := nat_rel aux;
+                             fact_args := var_expr x ::
+                                            fun_expr (fn_Z fn_ZPlus)
+                                            [fun_expr (fn_Z fn_ZTimes)
+                                               [var_expr dimvar1;
+                                                fun_expr (fn_Z (fn_ZLit k')) []];
+                                             var_expr dimvar2] ::
+                                            map var_expr dimvars |}] |};
+           {| rule_agg := None;
+             rule_concls := [{| fact_R := out;
+                               fact_args :=
+                                 fun_expr (fn_R (fn_SLit 0%R)) [] ::
+                                   map lower_idx idxs ++
+                                   fun_expr (fn_Z (fn_ZLit (len / k'))) [] ::
+                                   var_expr dimvar1 ::
+                                   map var_expr dimvars |}];
+             rule_hyps := [{| fact_R := true_rel;
+                             fact_args := [fun_expr (fn_B fn_BLe)
+                                             [fun_expr (fn_Z (fn_ZLit pad_start)) [];
+                                              var_expr dimvar1]] |} ] |}])
   | Transpose e =>
       let dimvars := map inr (seq O (length (sizeof e) - 2)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
       let dimvar2 := inr (length (sizeof e)) in
       let x := inr (S (length (sizeof e))) in
       let aux := nat_rel name in
-      lower e aux (S name) [] ++
-        [{| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              var_expr x ::
-                                map lower_idx idxs ++
-                                var_expr dimvar2 ::
-                                var_expr dimvar1 ::
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := aux;
-                           fact_args :=
-                             var_expr x ::
-                               var_expr dimvar1 ::
-                               var_expr dimvar2 ::
-                               map var_expr dimvars |}] |}]
+      let (name', rules) := lower e aux (S name) [] in
+      (name',
+        rules ++
+          [{| rule_agg := None;
+             rule_concls := [{| fact_R := out;
+                               fact_args :=
+                                 var_expr x ::
+                                   map lower_idx idxs ++
+                                   var_expr dimvar2 ::
+                                   var_expr dimvar1 ::
+                                   map var_expr dimvars |}];
+             rule_hyps := [{| fact_R := aux;
+                             fact_args :=
+                               var_expr x ::
+                                 var_expr dimvar1 ::
+                                 var_expr dimvar2 ::
+                                 map var_expr dimvars |}] |}])
   | Truncr _ e =>
       lower e out name idxs
   | Truncl k e =>
@@ -425,8 +442,10 @@ Fixpoint lower
       let x := inr (length (sizeof e)) in
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
-      lower e aux (S name) [] ++
-        [{| rule_agg := None;
+      let (name', rules) := lower e aux (S name) [] in
+      (name',
+        rules ++
+          [{| rule_agg := None;
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
@@ -439,7 +458,7 @@ Fixpoint lower
                                fun_expr (fn_Z fn_ZPlus)
                                [fun_expr (fn_Z (fn_ZLit k')) [];
                                 var_expr dimvar1] ::
-                               map var_expr dimvars |}] |}]
+                               map var_expr dimvars |}] |}])
   | Padr k e =>
       let dimvars := map inr (seq O (length (sizeof e) - 1)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
@@ -451,8 +470,9 @@ Fixpoint lower
         | d :: _ => Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 d))
         | _ => 0%Z
         end in
-      lower e aux (S name) [] ++
-        [{| rule_agg := None;
+      let (name', rules) := lower e aux (S name) [] in
+      (name',
+        rules ++ [{| rule_agg := None;
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
@@ -474,14 +494,16 @@ Fixpoint lower
            rule_hyps := [{| fact_R := true_rel;
                            fact_args := [fun_expr (fn_B fn_BLe)
                                            [fun_expr (fn_Z (fn_ZLit len)) [];
-                                            var_expr dimvar1]] |}] |}]
+                                            var_expr dimvar1]] |}] |}])
   | Padl k e =>
       let dimvars := map inr (seq O (length (sizeof e) - 1)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
       let x := inr (length (sizeof e)) in
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
-      lower e aux (S name) [] ++
+      let (name', rules) := lower e aux (S name) [] in
+      (name',
+        rules ++
         [{| rule_agg := None;
            rule_concls := [{| fact_R := out;
                             fact_args :=
@@ -506,18 +528,215 @@ Fixpoint lower
            rule_hyps := [{| fact_R := true_rel;
                            fact_args := [fun_expr (fn_B fn_BLt)
                                            [var_expr dimvar1;
-                                            fun_expr (fn_Z (fn_ZLit k')) []]] |}] |}]
+                                            fun_expr (fn_Z (fn_ZLit k')) []]] |}] |}])
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr O s in
-      [{| rule_agg := None;
-         rule_hyps := hyps;
-         rule_concls := [{| fact_R := out; fact_args := val :: map lower_idx idxs |}] |}]
+      (name,
+        [{| rule_agg := None;
+           rule_hyps := hyps;
+           rule_concls := [{| fact_R := out; fact_args := val :: map lower_idx idxs |}] |}])
   end.
 
-(* Definition request_hyps (r : rule rel var fn) := *)
-(*   {| rule_hyps := *)
-(*       [{| fact_R := r.(rule_concl).(fact_R); fact_args := skipn (S O) r.(rule_concl).(fact_args) |}]; *)
-(*     rule_concl := r.(rule_concl). *)
+(*this is a very (unnecessarily) strong property.  happily, ATL programs are
+  very-obviously functional, so they meet it.*)
+Definition obviously_non_intersecting (r1 r2 : rule rel var fn aggregator) :=
+  forall R1 R2 idxs1 idxs2 hyps1 hyps2 x1 x2,
+  rule_impl r1 (R1, x1 :: idxs1) hyps1 ->
+  rule_impl r2 (R2, x2 :: idxs2) hyps2 ->
+  R1 = R2 ->
+  idxs1 = idxs2 ->
+  In (true_rel, [Bobj false]) hyps1 \/ In (true_rel, [Bobj false]) hyps2.
+
+Lemma obviously_non_intersecting_comm r1 r2 :
+  obviously_non_intersecting r1 r2 ->
+  obviously_non_intersecting r2 r1.
+Proof. cbv [obviously_non_intersecting]. intros.
+       specialize (H _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(auto) ltac:(auto)). destruct H; auto.
+Qed.
+
+Definition pairwise_ni (p : list (rule rel var fn aggregator)) :=
+  forall r1 r2,
+    In r1 p ->
+    In r2 p ->
+    r1 = r2 \/ obviously_non_intersecting r1 r2.
+
+Inductive pairwise_ni' : list (rule rel var fn aggregator) -> Prop :=
+| pni_nil : pairwise_ni' []
+| pni_cons r1 p :
+  Forall (obviously_non_intersecting r1) p ->
+  pairwise_ni' p ->
+  pairwise_ni' (r1 :: p).
+
+Lemma pairwise_ni'_sound p :
+  pairwise_ni' p ->
+  pairwise_ni p.
+Proof.
+  cbv [pairwise_ni].
+  induction 1; simpl; [solve [intuition] |]. intros.
+  rewrite Forall_forall in H.
+  destruct H1, H2; subst; auto using obviously_non_intersecting_comm.
+Qed.
+
+Definition functional (p : list (rule rel var fn aggregator)) :=
+  forall idxs r x1 x2,
+    prog_impl_fact p (r, x1 :: idxs) ->
+    prog_impl_fact p (r, x2 :: idxs) ->
+    x1 = x2.
+
+Definition diff_rels (p1 p2 : list (rule rel var fn aggregator)) :=
+  forall r1 r2 c1 c2,
+    In r1 p1 ->
+    In r2 p2 ->
+    In c1 r1.(rule_concls) ->
+    In c2 r2.(rule_concls) ->
+    c1.(fact_R) <> c2.(fact_R).
+
+Lemma diff_rels_app_r p p1 p2 :
+  diff_rels p p1 ->
+  diff_rels p p2 ->
+  diff_rels p (p1 ++ p2).
+Proof.
+  cbv [diff_rels]. intros H H0 r1 r2 c1 c2 H1 H2 H3 H4. apply in_app_iff in H2.
+  destruct H2; eauto.
+Qed.
+
+Lemma diff_rels_Forall_r p1 p2 :
+  Forall (fun r2 =>
+            forall r1 c1 c2,
+              In r1 p1 ->
+              In c1 r1.(rule_concls) ->
+              In c2 r2.(rule_concls) ->
+              c1.(fact_R) <> c2.(fact_R)) p2 ->
+  diff_rels p1 p2.
+Proof.
+  intros H. rewrite Forall_forall in H. cbv [diff_rels]. eauto.
+Qed.
+
+Definition good_rel name (v : valuation') (R : rel) :=
+  match R with
+  | nat_rel n => n < name
+  | str_rel lbl => map.get v lbl <> None
+  | true_rel => False
+  end.
+
+Definition good_rule name v (r : rule rel var fn aggregator) :=
+  Forall (fun f => good_rel name v f.(fact_R)) r.(rule_concls).
+
+Lemma good_rule_weaken_name name1 name2 v r :
+  good_rule name1 v r ->
+  name1 <= name2 ->
+  good_rule name2 v r.
+Proof.
+  cbv [good_rule]. intros. eapply Forall_impl; eauto. simpl.
+  cbv [good_rel]. intros a. destruct (fact_R a); auto. lia.
+Qed.
+
+Lemma rule_impl_rel (r : rule rel var fn aggregator) R args hyps :
+  rule_impl r (R, args) hyps ->
+  exists c, In c r.(rule_concls) /\ c.(fact_R) = R.
+Proof.
+  intros H. invert H.
+  - apply Exists_exists in H0. fwd. simpl. invert H0p1. eauto.
+  - apply Exists_exists in H1. fwd. simpl. invert H1p1. eauto.
+Qed.
+
+Lemma pairwise_ni_app p1 p2 :
+  pairwise_ni p1 ->
+  pairwise_ni p2 ->
+  diff_rels p1 p2 ->
+  pairwise_ni (p1 ++ p2).
+Proof.
+  cbv [pairwise_ni diff_rels]. intros. rewrite in_app_iff in H2, H3.
+  destruct H2, H3; eauto.
+  - cbv [obviously_non_intersecting]. right. intros. subst.
+    apply rule_impl_rel in H4, H5. fwd. exfalso. intuition eauto. 
+  - cbv [obviously_non_intersecting]. right. intros. subst.
+    apply rule_impl_rel in H4, H5. fwd. exfalso. intuition eauto. 
+Qed.
+
+Ltac specialize' H :=
+  let hyp := fresh "hyp" in
+  eassert _ as hyp;
+  [|specialize (H hyp); clear hyp].  
+
+Ltac destruct_option_map_Some :=
+  match goal with
+  | H: option_map ?f ?x = Some ?y |- _ =>
+      destruct x eqn:?E; [cbn [option_map] in H; invert H|discriminate H]
+  end.
+
+Lemma lower_functional datalog_ctx (* ctx r sh *) v e out name idxs :
+  (forall r c, In r datalog_ctx -> In c r.(rule_concls) -> c.(fact_R) <> out) ->
+  Forall (good_rule name v) datalog_ctx ->
+  pairwise_ni datalog_ctx ->
+  (* eval_expr sh (fmap_of v) ctx e r -> *)
+  let (name', rules) := lower e out name idxs in
+  diff_rels datalog_ctx rules /\ pairwise_ni rules /\ Forall (good_rule name' v) rules.
+Proof.
+  Ltac destr_lower :=
+    match goal with
+    | |- context[lower ?e ?out ?name ?idxs] =>
+        let name' := fresh "name'" in
+        let rules := fresh "rules" in
+        let E := fresh "E" in
+        destruct (lower e out name idxs) as (name'&rules) eqn:E
+    end.
+  revert out name idxs. induction e.
+  3: { simpl. intros. destr_lower. epose proof (IHe _ _ _) as IHe_; clear IHe.
+       rewrite E in IHe_. specialize' IHe_.
+       { intros. rewrite Forall_forall in H0. apply H0 in H2. cbv [good_rule] in H2.
+         rewrite Forall_forall in H2. apply H2 in H3. intros H'. rewrite H' in H3.
+         simpl in H3. lia. }
+       specialize' IHe_.
+       { eapply Forall_impl; [|eassumption]. eauto using good_rule_weaken_name.
+       (*eauto magically does arithmetic :) *) }
+       specialize (IHe_ ltac:(assumption)). fwd.
+       ssplit.
+       - apply diff_rels_app_r; [assumption|]. apply diff_rels_Forall_r. constructor.
+         { simpl. intros r1 c1 c2 H2 H3 H4. destruct H4; subst; eauto. }
+         constructor; [|solve[constructor]]. simpl. intros r1 c1 c2 H2 H3 H4.
+         destruct H4; subst; eauto.
+       - apply pairwise_ni_app; auto.
+         + apply pairwise_ni'_sound. constructor.
+           { constructor.
+             { cbv [obviously_non_intersecting]. intros. subst. invert H2. invert H3.
+               clear H5 H6. invert H9. invert H10. invert H6. invert H5. invert H7.
+               cbn -[In] in *. invert H2. invert H3. invert H7.
+               invert H13. destruct_option_map_Some. destruct args'; [discriminate E0|].
+               destruct o; try discriminate E0. destruct args'; try discriminate E0.
+               invert E0. invert H5. invert H14. (*hmm*)
+               simpl. simpl.
+
+           
+       
+  - simpl. intros. apply IHe; auto.
+  - simpl.
+  - simpl. intros. Abort.
+
+
+(*an alternative to option types*)
+
+Definition garbage_fact : fact rel var fn :=
+  {| fact_R := nat_rel O; fact_args := [] |}.
+
+Definition remove_first {rel var fn} (f : fact rel var fn) :=
+  {| fact_R := f.(fact_R); fact_args := skipn (S O) f.(fact_args) |}.
+
+(*if we get a message saying concl of r needs to be computed, then send out messages
+  saying premises of r need to be computed*)
+Definition request_hyps (r : rule rel var fn aggregator) : rule rel var fn aggregator :=
+  {| rule_agg := None;
+    rule_hyps := [remove_first (hd garbage_fact r.(rule_concls))];
+    rule_concls := map remove_first r.(rule_hyps) |}.
+
+(*add a hypothesis saying that the conclusion is something we need to compute*)
+Definition add_hyp (r : rule rel var fn aggregator) : rule rel var fn aggregator :=
+  {| rule_agg := None;
+    rule_hyps := remove_first (hd garbage_fact r.(rule_concls)) :: r.(rule_hyps);
+    rule_concls := r.(rule_concls) |}.
+
+Definition make_good (p : list (rule rel var fn aggregator)) : list (rule rel var fn aggregator) :=
+  map request_hyps p ++ map add_hyp p.
 
 (*i do not like fmaps, because you cannot iterate over them,
   so i work with coqutil maps instead.
@@ -708,12 +927,6 @@ Proof.
     constructor; [assumption|]. apply IHl1; auto. intros n.
     specialize (H2 (S n)). simpl in H2. exact H2.
 Qed.
-
-Ltac destruct_option_map_Some :=
-  match goal with
-  | H: option_map ?f ?x = Some ?y |- _ =>
-      destruct x eqn:?E; [cbn [option_map] in H; invert H|discriminate H]
-  end.
 
 Lemma nth_error_seq_Some n1 n2 n3 n4 :
   nth_error (seq n1 n2) n3 = Some n4 ->
@@ -1579,7 +1792,7 @@ Proof.
   - destruct k; simpl; lia.
   - destruct k; simpl; auto.
 Qed.
-  
+
 Lemma lower_correct e out sh v ctx r datalog_ctx l :
   eval_expr sh (fmap_of v) ctx e r ->
   size_of e l ->
