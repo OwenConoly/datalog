@@ -12,7 +12,7 @@ From Stdlib Require Import micromega.Lia.
 
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
-From Datalog Require Import Forall3.
+From Datalog Require Import Forall3 Map.
 
 From coqutil Require Import Map.Interface Map.Properties.
 
@@ -185,6 +185,39 @@ Section __.
     eauto using Forall2_impl, interp_expr_subst_more.
   Qed.
 
+  Fixpoint vars_of_expr (e : expr) : list var :=
+    match e with
+    | fun_expr _ args => flat_map vars_of_expr args
+    | var_expr v => [v]
+    end.
+
+  Lemma interp_expr_agree_on ctx1 ctx2 e v :
+    interp_expr ctx1 e v ->
+    Forall (agree_on ctx1 ctx2) (vars_of_expr e) ->
+    interp_expr ctx2 e v.
+  Proof.
+    revert v. induction e; intros v0 H0 H1; simpl in *.
+    - invert H1. invert H4. invert H0. rewrite H3 in H1. constructor. assumption.
+    - invert H0. econstructor; eauto. clear -H H1 H4. apply Forall_flat_map in H1.
+      revert H H1. induction H4.
+      + constructor.
+      + intros H1 H2. invert H1. invert H2. auto.
+  Qed.
+
+  Lemma interp_expr_det ctx e v1 v2 :
+    interp_expr ctx e v1 ->
+    interp_expr ctx e v2 ->
+    v1 = v2.
+  Proof.
+    revert v1 v2. induction e; simpl; intros.
+    - invert H. invert H0. rewrite H2 in H1. invert H1. auto.
+    - invert H0. invert H1. enough (args' = args'0).
+      { subst. rewrite H6 in H7. invert H7. reflexivity. }
+      clear -H3 H4 H. revert args'0 H3. induction H4; intros; invert H; invert H3.
+      + reflexivity.
+      + f_equal; auto.
+  Qed.      
+  
   (* Fixpoint appears_in_expr (v : var) (e : expr) := *)
   (*   match e with *)
   (*   | fun_expr _ args => fold_left (fun acc arg => acc \/ appears_in_expr v arg) args False *)
@@ -216,3 +249,4 @@ Arguments interp_fact {_ _ _ _ _}.
 Arguments fact_R {_ _ _}.
 Arguments rule_concls {_ _ _ _}.
 Arguments rule_hyps {_ _ _ _}.
+Arguments vars_of_expr {_ _}.

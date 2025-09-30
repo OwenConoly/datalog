@@ -84,4 +84,7 @@ Proof.
   - rewrite lookup_add_eq; auto.
   - rewrite lookup_add_ne; auto. apply fmap_of_spec.
 Qed.
+
+Definition agree_on (m1 m2 : mp) k :=
+  map.get m1 k = map.get m2 k.  
 End Map.

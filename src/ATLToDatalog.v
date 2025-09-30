@@ -19,7 +19,7 @@ From Lower Require Import Zexpr Bexpr Array Range Sexpr Result ListMisc
 
 Require Import ATLDeep.
 Require Import ContextsAgree.
-From Datalog Require Import Datalog Map. 
+From Datalog Require Import Datalog Map List. 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics.
 
 Import Datatypes. Check S.
@@ -184,6 +184,17 @@ Fixpoint lower_guard (g: Bexpr) : expr var fn :=
   | Bexpr.Eq x y => fun_expr (fn_B fn_BEq) [lower_idx x; lower_idx y]
   end.
 
+Fixpoint vars_of_Bexpr (b : Bexpr) : list string :=
+  match b with
+  | Bexpr.And x y => vars_of_Bexpr x ++/ vars_of_Bexpr y
+  | Bexpr.Lt x y | Bexpr.Le x y | Bexpr.Eq x y => vars_of_Zexpr x ++/ vars_of_Zexpr y
+  end.
+
+Print vars_of. Search Bexpr. Check vars_of_Bexpr.
+Definition lower_guard' (idxs : list string) (g : Bexpr) :=
+  if subsetb (eqb := String.eqb) (vars_of_Bexpr g) idxs
+  then lower_guard g else fun_expr (fn_B (fn_BLit false) (*does not really matter what goes here*)) [].
+
 Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
   expr var fn (*value of expr*) *
     list (fact rel var fn) (*hypotheses*) *
@@ -219,6 +230,10 @@ Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
   | Lit x => (fun_expr (fn_R (fn_SLit x)) [], [], next_varname)
   end.
 
+Definition lower_idx_with_offset (idx_offset : string * Zexpr) : expr var fn :=
+  let (idx, offset) := idx_offset in
+  fun_expr (fn_Z fn_ZMinus) [var_expr (inl idx); lower_idx offset].
+
 Definition toR (s : scalar_result) :=
   match s with
   | SS s => s
@@ -230,22 +245,26 @@ Definition toR (s : scalar_result) :=
   2. before using something, check---if necessary---that it's in bounds.  (this sounds much less bad, since we usually won't need to do a check).
  *)
 
+Search Zexpr. Search vars_of_Zexpr.
+Search (list _ -> list _ -> bool). Search set. Print included.
+Check forallb. Check existsb.
+
 Fixpoint lower
   (e : ATLexpr)
   (out: rel)
   (name: nat)
-  (idxs : list Zexpr)
+  (idxs : list (string (*variable*) * Zexpr (*"lo" value, to be subtracted*)))
   : nat (*next unused name*) * list (rule rel var fn aggregator) :=
   match e with
   | Gen i lo hi body =>
-      lower body out name (idxs ++ [ZMinus (ZVar i) lo])
+      lower body out name (idxs ++ [(i, lo)])
   | Sum i lo hi body =>
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
       let i' := Datatypes.S x in
       let y := Datatypes.S i' in
       let aux := name in
-      let (name', rules) := lower body (nat_rel aux) (S aux) [ZVar i] in
+      let (name', rules) := lower body (nat_rel aux) (S aux) [(i, lo(*TODO could make this zero*))] in
       (name',
         rules ++
           [{| rule_agg :=
@@ -262,7 +281,7 @@ Fixpoint lower
                                           map var_expr dimvars |}] |} : agg_expr rel var fn aggregator);
              rule_concls := [{| fact_R := out;
                                fact_args := var_expr (inr y) ::
-                                              map lower_idx idxs ++
+                                              map lower_idx_with_offset idxs ++
                                               map var_expr dimvars |}];
              rule_hyps := []; |}])
   | Guard b body =>
@@ -276,22 +295,22 @@ Fixpoint lower
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr (inr x) ::
-                                   map lower_idx idxs ++
+                                   map lower_idx_with_offset idxs ++
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := nat_rel aux;
                              fact_args :=
                                var_expr (inr x) ::
                                  map var_expr dimvars |};
                            {| fact_R := true_rel;
-                             fact_args := [lower_guard b] |}] |};
+                             fact_args := [lower_guard' (map fst idxs) b] |}] |};
            {| rule_agg := None;
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  fun_expr (fn_R (fn_SLit 0%R)) [] ::
-                                   map lower_idx idxs ++       
+                                   map lower_idx_with_offset idxs ++       
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := true_rel;
-                             fact_args := [fun_expr (fn_B fn_BNot) [lower_guard b]] |}] |}
+                             fact_args := [fun_expr (fn_B fn_BNot) [lower_guard' (map fst idxs) b]] |}] |}
       ])
   | Lbind x e1 e2 =>
       (*will eventually have to do better with name generation here..*)
@@ -318,7 +337,7 @@ Fixpoint lower
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr (inr x) ::
-                                   map lower_idx idxs ++
+                                   map lower_idx_with_offset idxs ++
                                    map var_expr (dimvarO :: dimvars) |}];
              rule_hyps := [{| fact_R := nat_rel aux1;
                              fact_args :=
@@ -328,7 +347,7 @@ Fixpoint lower
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr (inr x) ::
-                                   map lower_idx idxs ++
+                                   map lower_idx_with_offset idxs ++
                                    var_expr dimvarO ::
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := nat_rel aux2;
@@ -355,7 +374,7 @@ Fixpoint lower
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr x ::
-                                   map lower_idx idxs ++
+                                   map lower_idx_with_offset idxs ++
                                    var_expr dimvarO ::
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := nat_rel aux;
@@ -387,7 +406,7 @@ Fixpoint lower
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr x ::
-                                   map lower_idx idxs ++
+                                   map lower_idx_with_offset idxs ++
                                    var_expr dimvar1 ::
                                    var_expr dimvar2 ::
                                    map var_expr dimvars |}];
@@ -403,7 +422,7 @@ Fixpoint lower
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  fun_expr (fn_R (fn_SLit 0%R)) [] ::
-                                   map lower_idx idxs ++
+                                   map lower_idx_with_offset idxs ++
                                    fun_expr (fn_Z (fn_ZLit (len / k'))) [] ::
                                    var_expr dimvar1 ::
                                    map var_expr dimvars |}];
@@ -424,7 +443,7 @@ Fixpoint lower
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr x ::
-                                   map lower_idx idxs ++
+                                   map lower_idx_with_offset idxs ++
                                    var_expr dimvar2 ::
                                    var_expr dimvar1 ::
                                    map var_expr dimvars |}];
@@ -449,7 +468,7 @@ Fixpoint lower
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
-                                map (lower_idx) idxs ++
+                                map lower_idx_with_offset idxs ++
                                 var_expr dimvar1 ::
                                 map var_expr dimvars |}];
            rule_hyps := [{| fact_R := aux;
@@ -476,7 +495,7 @@ Fixpoint lower
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
-                                map lower_idx idxs ++
+                                map lower_idx_with_offset idxs ++
                                 var_expr dimvar1 ::
                                 map var_expr dimvars |}];
            rule_hyps := [{| fact_R := aux;
@@ -488,7 +507,7 @@ Fixpoint lower
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0)) [] ::
-                                map lower_idx idxs ++
+                                map lower_idx_with_offset idxs ++
                                 var_expr dimvar1 ::
                                 map var_expr dimvars |}];
            rule_hyps := [{| fact_R := true_rel;
@@ -508,7 +527,7 @@ Fixpoint lower
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
-                                map lower_idx idxs ++
+                                map lower_idx_with_offset idxs ++
                                 var_expr dimvar1 ::
                                 map var_expr dimvars |}];
            rule_hyps := [{| fact_R := aux;
@@ -522,7 +541,7 @@ Fixpoint lower
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0)) [] ::
-                                map lower_idx idxs ++
+                                map lower_idx_with_offset idxs ++
                                 var_expr dimvar1 ::
                                 map var_expr dimvars |}];
            rule_hyps := [{| fact_R := true_rel;
@@ -534,7 +553,7 @@ Fixpoint lower
       (name,
         [{| rule_agg := None;
            rule_hyps := hyps;
-           rule_concls := [{| fact_R := out; fact_args := val :: map lower_idx idxs |}] |}])
+           rule_concls := [{| fact_R := out; fact_args := val :: map lower_idx_with_offset idxs |}] |}])
   end.
 
 (*this is a very (unnecessarily) strong property.  happily, ATL programs are
@@ -665,11 +684,111 @@ Ltac destruct_option_map_Some :=
       destruct x eqn:?E; [cbn [option_map] in H; invert H|discriminate H]
   end.
 
-Lemma lower_functional datalog_ctx (* ctx r sh *) v e out name idxs :
+(*
+  I need to ensure that index and guard expressions only include variables in scope.
+  Otherwise, functionality might not hold.
+  Options:
+  1. Require eval_expr judgement with appropriate context/valuation/scope v.
+     Problem: we lose this invariant when going into loops which execute zero times;
+     these could include arbitrary garbage.
+  2. Don't actually require this.
+     Problem: requires clever "either it's functional or useless" invariant about generated rules, where we say either that it's functional, or it's useless (like an executed-zero-times loop) in the sense that it doesn't affect any "higher-level" (closer to output) code.
+     Problem: I'm not actually sure that screwy code with extra variables is guaranteed to not affect higher-level stuff.  Actually it would be kinda nice if it could affect higher-level stuff, because this would give me an excuse for abandoning option 2 (seems like a lot of work) and going with option 3.
+     Problem: We would like to say that aggregations expressions are functional as a precondition for compiler-from-datalog correctness; this would require some cleverer "either it's functional or it's useless" precondition about aggregation expressions instead.
+  3. Include checks in the compiler to see whether all variables in expressions are in-scope.
+     Problem: If option 2 is a possibility, then it's kind of inelegant to have to modify the compiler to make proving things about it easier.  But this is clearly the most practical option.  Actually, having a bunch of meaningless variables floating around is probably
+  4. Include checks in the compiler to see whether a loop executes zero times; if so, don't generate any code for it.
+     Problem: I find this disgustingly inelegant; it seems to me to be just a coincidence that I have the power to check whether a loop executes zero times, and I don't want to rely on it.  wait actually does const_nonneg_bounds even guarantee this for summations?  i think so because the bounds have to be constant.  which is a weird condition for summations really.  shouldn't need to have that restriction.
+     Problem: This would require carrying around an eval_expr hypothesis (as in option 1) in the proof of functionality, which would be a pain.
+
+I choose option 3.  I will modify the compiler accordingly.
+ *)
+
+(*TODO factor out the list part at least*)
+Ltac invert_stuff :=
+  match goal with
+  | H : rule_impl _ _ _ |- _ => invert H
+  | H : interp_fact _ _ _ |- _ => invert H
+  | H : interp_expr _ (fun_expr _ _) _ |- _ => invert H
+  | H : interp_expr _ (var_expr _) _ |- _ => invert H
+  | H : Forall2 _ (cons _ _) _ |- _ => invert H
+  | H : Forall2 _ _ (cons _ _) |- _ => invert H
+  | H : Forall2 _ nil _ |- _ => invert H
+  | H : Forall2 _ _ nil |- _ => invert H
+  | H : Exists _ nil |- _ => invert H
+  | H : Exists _ (cons _ nil) |- _ => invert H
+  | _ => destruct_option_map_Some
+  | H : Some _ = Some _ |- _ => invert H
+  end.
+
+(* This is becoming insane.  I don't technically have to do this, because I could just
+   use that bounds are constants... but that still seems wrong somehow, especially for
+   summations.*)
+Inductive idxs_good : list (string * Zexpr) -> Prop :=
+| idxs_good_nil : idxs_good []
+| idxs_good_cons idxs i lo :
+  idxs_good idxs ->
+  subset (vars_of_Zexpr lo) (map fst idxs) ->
+  idxs_good (idxs ++ [(i, lo)]).
+
+Lemma map_app_no_dups_subset {B : Type} l1 l2 (f : _ -> B) :
+  subset (map f l1 ++ map f l2) (map f (l1 ++/ l2)).
+Proof.
+  intros x. cbv [app_no_dups]. rewrite map_app. do 2 rewrite in_app_iff.
+  intros [H|H]; auto. repeat rewrite in_map_iff in *. fwd.
+  destruct (in_bool l1 x0) eqn:E.
+  - rewrite in_bool_In in E. eauto.
+  - right. exists x0. split; [reflexivity|]. apply filter_In. rewrite E. auto.
+Qed.
+
+Lemma lower_idx_keeps_vars e :
+  subset (vars_of_expr (lower_idx e)) (map inl (vars_of_Zexpr e)).
+Proof.
+  induction e; simpl; try rewrite app_nil_r; try rewrite map_app; try apply subset_refl.
+  all: eapply subset_trans; [|apply map_app_no_dups_subset].
+  all: apply subset_app_app; auto.
+Qed.
+
+Lemma lower_guard_keeps_vars e :
+  subset (vars_of_expr (lower_guard e)) (map inl (vars_of_Bexpr e)).
+Proof.
+  induction e; simpl; try rewrite app_nil_r; try rewrite map_app; try apply subset_refl.
+  all: eapply subset_trans; [|apply map_app_no_dups_subset].
+  all: apply subset_app_app; auto using lower_idx_keeps_vars.
+Qed.
+    
+Lemma ctxs_agree ctx1 ctx2 idxs idxs' :
+  idxs_good idxs ->
+  Forall2 (interp_expr ctx1) (map lower_idx_with_offset idxs) idxs' ->
+  Forall2 (interp_expr ctx2) (map lower_idx_with_offset idxs) idxs' ->
+  Forall (agree_on ctx1 ctx2) (map (fun idx => (inl (fst idx))) idxs).
+Proof.
+  intros Hgood. revert idxs'. induction Hgood. 1: constructor.
+  intros idxs' H1 H2. rewrite map_app in H1, H2. apply Forall2_app_inv_l in H1, H2.
+  fwd. simpl in *. repeat (invert_stuff; simpl in * ).
+  apply invert_app in H1p2.
+  2: { eassert (forall x y, x = y -> length x = length y) as blah by (intros; subst; reflexivity).
+       apply blah in H1p2. do 2 rewrite length_app in H1p2. simpl in H1p2. lia. }
+  fwd. specialize (IHHgood _ ltac:(eassumption) ltac:(eassumption)).
+  rewrite <- map_map in IHHgood. rewrite Forall_map in IHHgood.
+  pose proof IHHgood as IHHgood'.
+  eapply Forall_subset in IHHgood; eauto.
+  rewrite <- Forall_map in IHHgood.
+  eapply Forall_subset in IHHgood; [|apply lower_idx_keeps_vars].
+  pose proof interp_expr_agree_on as H'.
+  specialize (H' _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+  pose proof interp_expr_det as H''.
+  specialize (H'' _ _ _ _ _ _ _ _ _ H' H3). invert H''.
+  rewrite Forall_map in IHHgood'. rewrite Forall_map. apply Forall_app. split; auto.
+  constructor; [|constructor]. simpl. cbv [agree_on]. rewrite H1, H2. f_equal. f_equal.
+  lia.
+Qed.
+
+Lemma lower_functional datalog_ctx (*ctx r sh*) v e out name idxs :
+  idxs_good idxs ->
   (forall r c, In r datalog_ctx -> In c r.(rule_concls) -> c.(fact_R) <> out) ->
   Forall (good_rule name v) datalog_ctx ->
   pairwise_ni datalog_ctx ->
-  (* eval_expr sh (fmap_of v) ctx e r -> *)
   let (name', rules) := lower e out name idxs in
   diff_rels datalog_ctx rules /\ pairwise_ni rules /\ Forall (good_rule name' v) rules.
 Proof.
@@ -684,27 +803,62 @@ Proof.
   revert out name idxs. induction e.
   3: { simpl. intros. destr_lower. epose proof (IHe _ _ _) as IHe_; clear IHe.
        rewrite E in IHe_. specialize' IHe_.
-       { intros. rewrite Forall_forall in H0. apply H0 in H2. cbv [good_rule] in H2.
-         rewrite Forall_forall in H2. apply H2 in H3. intros H'. rewrite H' in H3.
-         simpl in H3. lia. }
+       { constructor. }
+       specialize' IHe_.
+       { intros. rewrite Forall_forall in H1. apply H1 in H3. cbv [good_rule] in H3.
+         rewrite Forall_forall in H3. apply H3 in H4. intros H'. rewrite H' in H4.
+         simpl in H4. lia. }
        specialize' IHe_.
        { eapply Forall_impl; [|eassumption]. eauto using good_rule_weaken_name.
        (*eauto magically does arithmetic :) *) }
        specialize (IHe_ ltac:(assumption)). fwd.
        ssplit.
        - apply diff_rels_app_r; [assumption|]. apply diff_rels_Forall_r. constructor.
-         { simpl. intros r1 c1 c2 H2 H3 H4. destruct H4; subst; eauto. }
-         constructor; [|solve[constructor]]. simpl. intros r1 c1 c2 H2 H3 H4.
-         destruct H4; subst; eauto.
+         { simpl. intros r1 c1 c2 H3 H4 H5. destruct H5; subst; eauto. }
+         constructor; [|solve[constructor]]. simpl. intros r1 c1 c2 H3 H4 H5.
+         destruct H5; subst; eauto.
        - apply pairwise_ni_app; auto.
          + apply pairwise_ni'_sound. constructor.
            { constructor.
-             { cbv [obviously_non_intersecting]. intros. subst. invert H2. invert H3.
+             { cbv [obviously_non_intersecting]. intros. subst.
+               repeat (invert_stuff; simpl in * ).
+               (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*)
+               apply Forall2_app_inv_l in H14, H15. fwd. clear H14p1 H15p1.
+               assert (l1' = l1'0).
+               { apply Forall2_length in H14p0, H15p0. rewrite H15p0 in H14p0.
+                 pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+                 fwd. auto. }
+               subst. clear H14p2.
+               pose proof ctxs_agree as H'.
+               specialize H' with (1 := H) (2 := H14p0) (3 := H15p0).
+               clear -H9 H10 H'. cbv [lower_guard'] in *. destruct (subsetb _ _) eqn:E.
+               { rewrite subsetb_subset in E. rewrite <- map_map in H'.
+                 rewrite Forall_map in H'. eapply Forall_subset in H'; eauto.
+                 rewrite <- Forall_map in H'.
+                 eapply Forall_subset in H'. 2: apply lower_guard_keeps_vars.
+                 pose proof interp_expr_agree_on as H''.
+                 specialize H'' with (1 := H9) (2 := H').
+                 pose proof interp_expr_det as H'''.
+                 specialize H''' with (1 := H'') (2 := H10). subst. clear.
+                 destruct b0; auto. }
+               repeat invert_stuff || simpl in *. auto. }
+             constructor. }
+           repeat constructor.
+         + apply diff_rels_Forall_r. constructor.
+           { intros. simpl in H5. destruct H5 as [H5|H5]; [|destruct H5]. subst.
+             simpl. eapply H0; eauto.
+             + 
+               specialize (H'' _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+  
+                 
+                         
+                                                     Print eval_expr.
                clear H5 H6. invert H9. invert H10. invert H6. invert H5. invert H7.
                cbn -[In] in *. invert H2. invert H3. invert H7.
                invert H13. destruct_option_map_Some. destruct args'; [discriminate E0|].
                destruct o; try discriminate E0. destruct args'; try discriminate E0.
-               invert E0. invert H5. invert H14. (*hmm*)
+               invert E0. invert H5. invert H14. invert H12. invert H11.
+               invert H8. invert H10.
                simpl. simpl.
 
            
