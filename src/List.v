@@ -5,7 +5,7 @@ Require Import coqutil.Datatypes.List coqutil.Tactics.fwd coqutil.Tactics.destr.
 Import ListNotations.
 Section __.
 Context {A : Type}.
-Context {eqb : A -> A -> bool} {eqb_spec :  forall x0 y0 : A, BoolSpec (x0 = y0) (x0 <> y0) (eqb x0 y0)}.
+Context (eqb : A -> A -> bool) {eqb_spec :  forall x0 y0 : A, BoolSpec (x0 = y0) (x0 <> y0) (eqb x0 y0)}.
 
 (*I would like to do some magic to make this infer the eqb to use, but idk how*)
 (*hmm i am making my compiler take quadratic time.  i guess it already did though.*)

@@ -20,7 +20,7 @@ From Lower Require Import Zexpr Bexpr Array Range Sexpr Result ListMisc
 Require Import ATLDeep.
 Require Import ContextsAgree.
 From Datalog Require Import Datalog Map List. 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable.
 
 Import Datatypes. Check S.
 
@@ -129,7 +129,8 @@ Proof.
   - destr (n =? n0)%nat; constructor; congruence.
 Qed.
 
-Existing Instance var_eqb_spec.    
+Existing Instance var_eqb_spec.
+Existing Instance String.eqb_spec.
 Section __.
 Context {valuation' : map.map Var.var Z} {valuation'_ok : map.ok valuation'}.
 Context {context : map.map var obj} {context_ok : map.ok context}.
@@ -190,11 +191,6 @@ Fixpoint vars_of_Bexpr (b : Bexpr) : list string :=
   | Bexpr.Lt x y | Bexpr.Le x y | Bexpr.Eq x y => vars_of_Zexpr x ++/ vars_of_Zexpr y
   end.
 
-Print vars_of. Search Bexpr. Check vars_of_Bexpr.
-Definition lower_guard' (idxs : list string) (g : Bexpr) :=
-  if subsetb (eqb := String.eqb) (vars_of_Bexpr g) idxs
-  then lower_guard g else fun_expr (fn_B (fn_BLit false) (*does not really matter what goes here*)) [].
-
 Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
   expr var fn (*value of expr*) *
     list (fact rel var fn) (*hypotheses*) *
@@ -244,10 +240,23 @@ Definition toR (s : scalar_result) :=
   1. don't actually ignore bounds.  before outputting something, check that it's in bounds.  (this sounds terrible and inefficient)
   2. before using something, check---if necessary---that it's in bounds.  (this sounds much less bad, since we usually won't need to do a check).
  *)
+Print no_dup. Print NoDup. (*??*) Search no_dup. Print eval_expr. 
 
-Search Zexpr. Search vars_of_Zexpr.
-Search (list _ -> list _ -> bool). Search set. Print included.
-Check forallb. Check existsb.
+Inductive vars_good : list string -> ATLexpr -> Prop :=
+| vg_Gen i lo hi body idxs :
+  subset (vars_of_Zexpr lo) idxs ->
+  vars_good (idxs ++ [i]) body ->
+  vars_good idxs (Gen i lo hi body)
+| vg_Guard b body idxs :
+  subset (vars_of_Bexpr b) idxs ->
+  vars_good idxs body ->
+  vars_good idxs (Guard b body)
+| vg_Lbind x e1 e2 idxs :
+  ~ x \in vars_of e1 /\ ~ x \in vars_of e2 ->
+  vars_of e1 \cap vars_of e2 = constant [] ->
+  vars_good idxs e1 ->
+  vars_good idxs e2 ->
+  vars_good idxs (Lbind x e1 e2).
 
 Fixpoint lower
   (e : ATLexpr)
@@ -288,7 +297,7 @@ Fixpoint lower
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
       let aux := name in
-      let (name', rules) := lower body (nat_rel aux) (S aux) [] in
+      let (name', rules) := lower body (nat_rel aux) (S aux) idxs in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -302,7 +311,7 @@ Fixpoint lower
                                var_expr (inr x) ::
                                  map var_expr dimvars |};
                            {| fact_R := true_rel;
-                             fact_args := [lower_guard' (map fst idxs) b] |}] |};
+                             fact_args := [lower_guard b] |}] |};
            {| rule_agg := None;
              rule_concls := [{| fact_R := out;
                                fact_args :=
@@ -310,12 +319,10 @@ Fixpoint lower
                                    map lower_idx_with_offset idxs ++       
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := true_rel;
-                             fact_args := [fun_expr (fn_B fn_BNot) [lower_guard' (map fst idxs) b]] |}] |}
-      ])
+                             fact_args := [fun_expr (fn_B fn_BNot) [lower_guard b]] |}] |}])
   | Lbind x e1 e2 =>
-      (*will eventually have to do better with name generation here..*)
-      let (name', rules1) := lower e1 (str_rel x) name [] in
-      let (name'', rules2) := lower e2 out name idxs in
+      let (name', rules1) := lower e1 (str_rel x) name idxs in
+      let (name'', rules2) := lower e2 out name' idxs in
       (name'', rules1 ++ rules2)
   | Concat e1 e2 =>
       (*should have length (sizeof e1) = length (sizeof e2)*)
@@ -641,24 +648,26 @@ Definition good_rel name name' (P : string -> Prop) (R : rel) :=
 Definition good_rule name name' (P : string -> Prop) (r : rule rel var fn aggregator) :=
   Forall (fun f => good_rel name name' P f.(fact_R)) r.(rule_concls).
 
-Lemma good_rel_weaken_name P R name1 name2 name'1 name'2 :
-  good_rel name1 name'1 P R ->
+Lemma good_rel_weaken P1 P2 R name1 name2 name'1 name'2 :
+  good_rel name1 name'1 P1 R ->
   name2 <= name1 ->
   name'1 <= name'2 ->
-  good_rel name2 name'2 P R.
+  (forall x, P1 x -> P2 x) ->
+  good_rel name2 name'2 P2 R.
 Proof. cbv [good_rel]. destruct R; auto. lia. Qed.
 
 Definition good_rule_or_out out name name' (P : string -> Prop) (r : rule rel var fn aggregator) :=
   Forall (fun f => good_rel name name' P f.(fact_R) \/ f.(fact_R) = out) r.(rule_concls).
 
-Lemma good_rule_weaken_name name1 name2 name'1 name'2 v r :
-  good_rule name1 name'1 v r ->
+Lemma good_rule_weaken P1 P2 name1 name2 name'1 name'2 r :
+  good_rule name1 name'1 P1 r ->
   name2 <= name1 ->
   name'1 <= name'2 ->
-  good_rule name2 name'2 v r.
+  (forall x, P1 x -> P2 x) ->
+  good_rule name2 name'2 P2 r.
 Proof.
   cbv [good_rule]. intros. eapply Forall_impl; eauto.
-  simpl. eauto using good_rel_weaken_name.
+  simpl. eauto using good_rel_weaken.
 Qed.
 
 Lemma good_rule_or_outweaken_name out name1 name2 name'1 name'2 v r :
@@ -723,6 +732,7 @@ Ltac destruct_option_map_Some :=
      Problem: This would require carrying around an eval_expr hypothesis (as in option 1) in the proof of functionality, which would be a pain.
 
 I choose option 3.  I will modify the compiler accordingly.
+I changed my mind; I will do an equivalent slight variation on 3, with the vars_good thing.
  *)
 
 (*TODO factor out the list part at least*)
@@ -812,8 +822,17 @@ Definition out_smaller out name :=
   | true_rel => False
   end.
 
+Lemma out_smaller_weaken out name name' :
+  out_smaller out name ->
+  name <= name' ->
+  out_smaller out name'.
+Proof. destruct out; simpl; auto; lia. Qed.
+
+(*TODO: you should not actually need to reference datalog_ctx here.
+  This could simplify things quite a bit.*)
 Lemma lower_functional datalog_ctx (*ctx r sh*) e out name idxs :
   idxs_good idxs ->
+  vars_good (map fst idxs) e ->
   ~ (exists out', out' \in vars_of e /\ out = str_rel out') ->
   out_smaller out name ->
   (forall r c, In r datalog_ctx -> In c r.(rule_concls) -> c.(fact_R) <> out) ->
@@ -831,10 +850,12 @@ Proof.
         destruct (lower e out name idxs) as (name'&rules) eqn:E
     end.
   revert out name idxs. induction e.
-  3: { simpl. intros out name idxs H H0 Hout H1 H2 H3.
-       destr_lower. epose proof (IHe _ _ _) as IHe_; clear IHe.
+  3: { simpl. intros out name idxs H Hvars_good H0 Hout H1 H2 H3.
+       invert Hvars_good. destr_lower. epose proof (IHe _ _ _) as IHe_; clear IHe.
        rewrite E in IHe_. specialize' IHe_.
-       { constructor. }
+       { assumption. }
+       specialize' IHe_.
+       { assumption. }
        specialize' IHe_.
        { intros ?. fwd. congruence. }
        specialize' IHe_.
@@ -844,9 +865,121 @@ Proof.
          rewrite Forall_forall in H4. apply H4 in H5. intros H'. rewrite H' in H5.
          simpl in H5. lia. }
        specialize' IHe_.
-       { eapply Forall_impl; [|eassumption]. eauto using good_rule_weaken_name.
-       (*eauto magically does arithmetic :) *) }
+       { eapply Forall_impl; [|eassumption]. eauto using good_rule_weaken. }
        specialize (IHe_ ltac:(assumption)). fwd.
+       ssplit.
+       - lia.
+       - apply diff_rels_app_r; [assumption|]. apply diff_rels_Forall_r. constructor.
+         { simpl. intros ? ? ? ? ? dsf. destruct dsf; subst; eauto. }
+         constructor; [|solve[constructor]]. simpl.
+         intros ? ? ? ? ? dsf. destruct dsf; subst; eauto.
+       - apply pairwise_ni_app; auto.
+         + apply pairwise_ni'_sound. constructor.
+           { constructor.
+             { cbv [obviously_non_intersecting]. intros. subst.
+               repeat (invert_stuff; simpl in * ).
+               (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*)
+               apply Forall2_app_inv_l in H17, H18. fwd. clear H17p1 H18p1.
+               assert (l1' = l1'0).
+               { apply Forall2_length in H17p0, H18p0. rewrite H18p0 in H17p0.
+                 pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+                 fwd. auto. }
+               subst. clear H17p2.
+               pose proof ctxs_agree as H'.
+               specialize H' with (1 := H) (2 := H17p0) (3 := H18p0).
+               clear -H12 H13 H' H7. rewrite <- map_map in H'.
+               rewrite Forall_map in H'. eapply Forall_subset in H'; eauto.
+               rewrite <- Forall_map in H'.
+               eapply Forall_subset in H'. 2: apply lower_guard_keeps_vars.
+               pose proof interp_expr_agree_on as H''.
+               specialize H'' with (1 := H12) (2 := H').
+               pose proof interp_expr_det as H'''.
+               specialize H''' with (1 := H'') (2 := H13). subst. clear.
+               destruct b0; auto. }
+             constructor. }
+           repeat constructor.
+         + apply diff_rels_Forall_r. constructor.
+           { simpl. intros. destruct H6 as [H6|H6]; [|destruct H6]. subst.
+             simpl. rewrite Forall_forall in IHe_p3.
+             specialize (IHe_p3 _ ltac:(eassumption)). cbv [good_rule_or_out] in IHe_p3.
+             rewrite Forall_forall in IHe_p3. specialize (IHe_p3 _ ltac:(eassumption)).
+             cbv [good_rel] in IHe_p3.
+             destruct out, (fact_R c1); simpl in Hout; try congruence;
+               destruct IHe_p3 as [IHe_p3|IHe_p3]; try congruence.
+             - intros H'. apply H0. subst. eauto.
+             - intros blah. invert blah. lia.
+             - invert IHe_p3. intros H'. invert H'. lia. }
+           constructor.
+           { simpl. intros. destruct H6 as [H6|H6]; [|destruct H6]. subst.
+             simpl. rewrite Forall_forall in IHe_p3.
+             specialize (IHe_p3 _ ltac:(eassumption)). cbv [good_rule_or_out] in IHe_p3.
+             rewrite Forall_forall in IHe_p3. specialize (IHe_p3 _ ltac:(eassumption)).
+             cbv [good_rel] in IHe_p3.
+             destruct out, (fact_R c1); simpl in Hout; try congruence;
+               destruct IHe_p3 as [IHe_p3|IHe_p3]; try congruence.
+             - intros H'. apply H0. subst. eauto.
+             - intros blah. invert blah. lia.
+             - invert IHe_p3. intros H'. invert H'. lia. }
+           constructor.
+       - apply Forall_app. split.
+         { eapply Forall_impl; [|eassumption]. intros.
+           cbv [good_rule_or_out]. cbv [good_rule_or_out] in H4.
+           eapply Forall_impl; [|eassumption]. simpl. intros x [Hx|Hx].
+           - left. eapply good_rel_weaken; eauto.
+           - rewrite Hx. left. simpl. lia.
+         }
+         constructor.
+         { cbv [good_rule_or_out]. simpl. constructor; [|constructor]. simpl. auto. }
+         constructor.
+         { cbv [good_rule_or_out]. simpl. constructor; [|constructor]. simpl. auto. }
+         constructor. }
+  1: { simpl. intros out name idxs H Hvars_good H0 Hout H1 H2 H3.
+       invert Hvars_good. destr_lower. epose proof (IHe _ _ _) as IHe_; clear IHe.
+       rewrite E in IHe_. specialize' IHe_.
+       { constructor; try assumption. }
+       specialize' IHe_.
+       { rewrite map_app. simpl. assumption. }
+       specialize (IHe_ ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption)).
+       apply IHe_. }
+  2: { simpl. intros out name idxs H Hvars_good H0 Hout H1 H2 H3.
+       invert Hvars_good. destr_lower. destr_lower.
+
+       epose proof (IHe1 _ _ _) as IHe1_; clear IHe1.
+       rewrite E in IHe1_. specialize (IHe1_ ltac:(assumption) ltac:(assumption)).
+       specialize' IHe1_.
+       { intros H'. fwd. auto. }
+       specialize' IHe1_.
+       { simpl. lia. }
+       specialize' IHe1_.
+       { intros. rewrite Forall_forall in H2. apply H2 in H4. cbv [good_rule] in H4.
+         rewrite Forall_forall in H4. apply H4 in H5. intros H'. rewrite H' in H5.
+         simpl in H5. apply H5. sets. }
+       specialize' IHe1_.
+       { eapply Forall_impl; [|eassumption]. intros.
+         eapply good_rule_weaken; eauto. simpl. sets. }
+       specialize (IHe1_ ltac:(assumption)). fwd.
+
+       epose proof (IHe2 _ _ _) as IHe2_; clear IHe2.
+       rewrite E0 in IHe2_. specialize (IHe2_ ltac:(assumption) ltac:(assumption)).
+       specialize' IHe2_.
+       { intros H'. fwd. apply H0. exists out'. intuition. sets. }
+       specialize' IHe2_.
+       { eapply out_smaller_weaken; eauto. }
+       specialize' IHe2_.
+       { assumption. }
+       specialize' IHe2_.
+       { eapply Forall_impl; [|eassumption]. intros.
+         eapply good_rule_weaken; eauto. simpl. sets. }
+       specialize (IHe2_ ltac:(assumption)). fwd.
+
+       ssplit.
+       - lia.
+       - apply diff_rels_app_r; assumption.
+       - apply pairwise_ni_app; auto. Search diff_rels.
+       destruct (subsetb _ _) eqn:Es; simpl.
+       2: { split; [lia|]. split; [apply diff_rels_Forall_r; auto|].
+            split; [apply pairwise_ni'_sound; constructor|]. constructor. }
+       rewrite subsetb_subset in Es by apply String.eqb_spec.
        ssplit.
        - lia.
        - apply diff_rels_app_r; [assumption|]. apply diff_rels_Forall_r. constructor.
@@ -867,17 +1000,15 @@ Proof.
                subst. clear H15p2.
                pose proof ctxs_agree as H'.
                specialize H' with (1 := H) (2 := H15p0) (3 := H16p0).
-               clear -H10 H11 H'. cbv [lower_guard'] in *. destruct (subsetb _ _) eqn:E.
-               { rewrite subsetb_subset in E. rewrite <- map_map in H'.
-                 rewrite Forall_map in H'. eapply Forall_subset in H'; eauto.
-                 rewrite <- Forall_map in H'.
-                 eapply Forall_subset in H'. 2: apply lower_guard_keeps_vars.
-                 pose proof interp_expr_agree_on as H''.
-                 specialize H'' with (1 := H10) (2 := H').
-                 pose proof interp_expr_det as H'''.
-                 specialize H''' with (1 := H'') (2 := H11). subst. clear.
-                 destruct b0; auto. }
-               repeat invert_stuff || simpl in *. auto. }
+               clear -H10 H11 H' Es. rewrite <- map_map in H'.
+               rewrite Forall_map in H'. eapply Forall_subset in H'; eauto.
+               rewrite <- Forall_map in H'.
+               eapply Forall_subset in H'. 2: apply lower_guard_keeps_vars.
+               pose proof interp_expr_agree_on as H''.
+               specialize H'' with (1 := H10) (2 := H').
+               pose proof interp_expr_det as H'''.
+               specialize H''' with (1 := H'') (2 := H11). subst. clear.
+               destruct b0; auto. }
              constructor. }
            repeat constructor.
          + apply diff_rels_Forall_r. constructor.
@@ -915,8 +1046,18 @@ Proof.
          constructor.
          { cbv [good_rule_or_out]. simpl. constructor; [|constructor]. simpl. auto. }
          constructor. }
-
-(*an alternative to option types*)
+  1: { simpl. intros out name idxs H H0 Hout H1 H2 H3.
+       destr_lower. destruct (subsetb _ _ _) eqn:Es; simpl.
+       2: { split; [lia|]. split; [apply diff_rels_Forall_r; auto|].
+            split; [apply pairwise_ni'_sound; constructor|]. constructor. }
+       rewrite subsetb_subset in Es by apply String.eqb_spec.
+       epose proof (IHe _ _ _) as IHe_; clear IHe.
+       rewrite E in IHe_. specialize' IHe_.
+       { constructor; assumption. }
+       specialize (IHe_ ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption)).
+       apply IHe_. }
+  2: { 
+  (*an alternative to option types*)
 
 Definition garbage_fact : fact rel var fn :=
   {| fact_R := nat_rel O; fact_args := [] |}.
