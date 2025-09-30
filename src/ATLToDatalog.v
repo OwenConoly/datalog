@@ -879,6 +879,23 @@ Ltac destr_lower :=
       destruct (lower e out name idxs) as (name'&rules) eqn:E
   end.
 
+Ltac prove_good_rule :=
+  cbv [good_rule_or_out]; simpl; constructor; [|constructor]; simpl; auto.
+
+Ltac prove_good_rules :=
+  repeat match goal with
+    | |- Forall _ (_ ++ _) => apply Forall_app; split
+    | |- Forall _ (_ :: _) => constructor; [prove_good_rule|]
+    | |- Forall _ nil => constructor
+    | |- Forall _ _ => eapply Forall_impl; [|eassumption]; intros;
+                     cbv [good_rule_or_out] in *;
+                     eapply Forall_impl; [|eassumption]; simpl;
+                     intros ?x [?Hx|?Hx]; try rewrite Hx; simpl;
+                     try (right; reflexivity);
+                     try (left; try lia; eapply good_rel_weaken; simpl; solve[eauto] || solve [sets] || intuition lia);
+                     try (left; solve[sets])
+    end.
+
 Lemma lower_functional e out name idxs :
   idxs_good idxs ->
   vars_good (map fst idxs) e ->
@@ -908,17 +925,7 @@ Proof.
            - intros H'. apply Hout1. subst. eauto.
            - intros blah. invert blah. lia.
            - invert IHep2. intros H'. invert H'. lia. }
-    + (*also from above*)
-      apply Forall_app. split.
-      { eapply Forall_impl; [|eassumption]. intros.
-        cbv [good_rule_or_out]. cbv [good_rule_or_out] in H.
-        eapply Forall_impl; [|eassumption]. simpl. intros x [Hx|Hx].
-        - left. eapply good_rel_weaken; eauto.
-        - rewrite Hx. left. simpl. lia.
-      }
-      constructor.
-      { cbv [good_rule_or_out]. simpl. constructor; [|constructor]. simpl. auto. }
-      constructor.
+    + prove_good_rules.
   - prove_IH_hyps IHe. fwd. ssplit.
     + lia.
     + apply pairwise_ni_app; auto.
@@ -969,18 +976,7 @@ Proof.
            - intros blah. invert blah. lia.
            - invert IHep2. intros H'. invert H'. lia. }
          constructor.
-    + apply Forall_app. split.
-      { eapply Forall_impl; [|eassumption]. intros.
-        cbv [good_rule_or_out]. cbv [good_rule_or_out] in H.
-        eapply Forall_impl; [|eassumption]. simpl. intros x [Hx|Hx].
-        - left. eapply good_rel_weaken; eauto.
-        - rewrite Hx. left. simpl. lia.
-      }
-      constructor.
-      { cbv [good_rule_or_out]. simpl. constructor; [|constructor]. simpl. auto. }
-      constructor.
-      { cbv [good_rule_or_out]. simpl. constructor; [|constructor]. simpl. auto. }
-      constructor.
+    + prove_good_rules.
   - prove_IH_hyps IHe1. prove_IH_hyps IHe2.
     ssplit.
     + lia.
@@ -1000,17 +996,7 @@ Proof.
       -- destruct (fact_R c2); try congruence. simpl in Hc2. invert Hc1.
          Fail Fail auto. sets.
       -- subst. rewrite Hc1 in *. apply Hout1. eexists. intuition eauto. sets.
-    + apply Forall_app. split.
-      -- eapply Forall_impl; [|eassumption]. intros. cbv [good_rule_or_out] in H.
-         cbv [good_rule_or_out]. eapply Forall_impl; [|eassumption].
-         simpl. intros y Hy. destruct Hy as [Hy|Hy].
-         ++ left. eapply good_rel_weaken; eauto. simpl. sets.
-         ++ rewrite Hy. left. simpl. sets.
-      -- eapply Forall_impl; [|eassumption]. intros. cbv [good_rule_or_out] in H.
-         cbv [good_rule_or_out]. eapply Forall_impl; [|eassumption].
-         simpl. intros y Hy. destruct Hy as [Hy|Hy].
-         ++ left. eapply good_rel_weaken; eauto. simpl. sets.
-         ++ rewrite Hy. auto.
+    + prove_good_rules.
   - prove_IH_hyps IHe1. prove_IH_hyps IHe2.    
     ssplit.
     + lia.
@@ -1095,23 +1081,7 @@ Proof.
            - intros blah. invert blah. lia.
            - invert IHe1p2. intros H'. invert H'. lia. }
          constructor.
-    + apply Forall_app. split.
-      { eapply Forall_impl; [|eassumption]. intros. cbv [good_rule_or_out] in H.
-        cbv [good_rule_or_out]. eapply Forall_impl; [|eassumption].
-        simpl. intros y Hy. destruct Hy as [Hy|Hy].
-        - left. eapply good_rel_weaken; eauto. simpl. sets.
-        - rewrite Hy. left. simpl. sets. }
-      apply Forall_app. split.
-      { eapply Forall_impl; [|eassumption]. intros. cbv [good_rule_or_out] in H.
-        cbv [good_rule_or_out]. eapply Forall_impl; [|eassumption].
-        simpl. intros y Hy. destruct Hy as [Hy|Hy].
-        - left. eapply good_rel_weaken; eauto. 1: lia. simpl. sets.
-        - rewrite Hy. simpl. left. lia. }
-      constructor.
-      { cbv [good_rule_or_out]. simpl. constructor; [|constructor]. simpl. auto. }
-      constructor.
-      { cbv [good_rule_or_out]. simpl. constructor; [|constructor]. simpl. auto. }
-      constructor.
+    + prove_good_rules.
 Qed. 
             
   (*an alternative to option types*)
