@@ -849,14 +849,17 @@ Lemma out_smaller_weaken out name name' :
 Proof. destruct out; simpl; auto; lia. Qed.
 
 Ltac prove_IH_hyp :=
+  repeat match goal with
+    | H: nat_rel _ = nat_rel _ |- _ => invert H
+    end;
+  try (intros ?; fwd);
   eassumption ||
     (econstructor; eassumption) ||
     (rewrite map_app; simpl; assumption) ||
-    (intros ?; fwd; congruence) ||
+    congruence ||
     (simpl; lia) ||
     (eapply out_smaller_weaken; solve [eauto]) ||
-    (intros ?; fwd;
-     match goal with
+    (match goal with
      | H: ~ (exists _ : _, _) |- False => idtac H; apply H; try (eexists; split; [|reflexivity]; solve[sets]) 
      end).
 
@@ -896,6 +899,26 @@ Ltac prove_good_rules :=
                      try (left; solve[sets])
     end.
 
+Ltac prove_rel_diff :=
+  let H := fresh "H" in
+  let H2 := fresh "H" in
+  intros ? ? ? H ? H2; destruct H2 as [H2|H2]; [|destruct H2];
+  subst; simpl; rewrite Forall_forall in *;
+  match goal with
+  | H': _ |- _ => apply H' in H
+  end;
+  cbv [good_rule_or_out] in H; rewrite Forall_forall in H;
+  specialize (H _ ltac:(eassumption)); cbv [good_rel] in H;
+  simpl in *; subst;
+  match goal with
+  | |- ?x <> ?y => let H' := fresh "H'" in
+                intros H'; subst; try (rewrite H' in * );
+                destruct x; simpl in *; try congruence
+  end; destruct H as [H|H]; prove_IH_hyp.
+
+Ltac prove_rels_diff :=
+  apply diff_rels_Forall_r; repeat (constructor; [prove_rel_diff|]); try constructor.
+
 Lemma lower_functional e out name idxs :
   idxs_good idxs ->
   vars_good (map fst idxs) e ->
@@ -913,18 +936,7 @@ Proof.
     + lia.
     + apply pairwise_ni_app; [assumption|..].
       -- apply pairwise_ni'_sound. repeat constructor.
-      -- apply diff_rels_Forall_r. constructor; [|constructor]. simpl.
-         (*copy-pasted from above*)
-         { simpl. intros. destruct H1 as [H1|H1]; [|destruct H1]. subst.
-           simpl. rewrite Forall_forall in IHep2.
-           specialize (IHep2 _ ltac:(eassumption)). cbv [good_rule_or_out] in IHep2.
-           rewrite Forall_forall in IHep2. specialize (IHep2 _ ltac:(eassumption)).
-           cbv [good_rel] in IHep2.
-           destruct out, (fact_R c1); simpl in Hout2; try congruence;
-             destruct IHep2 as [IHep2|IHep2]; try congruence.
-           - intros H'. apply Hout1. subst. eauto.
-           - intros blah. invert blah. lia.
-           - invert IHep2. intros H'. invert H'. lia. }
+      -- prove_rels_diff.
     + prove_good_rules.
   - prove_IH_hyps IHe. fwd. ssplit.
     + lia.
@@ -953,29 +965,7 @@ Proof.
              destruct b0; auto. }
            constructor. }
          repeat constructor.
-      -- apply diff_rels_Forall_r. constructor.
-         { simpl. intros. destruct H1 as [H1|H1]; [|destruct H1]. subst.
-           simpl. rewrite Forall_forall in IHep2.
-           specialize (IHep2 _ ltac:(eassumption)). cbv [good_rule_or_out] in IHep2.
-           rewrite Forall_forall in IHep2. specialize (IHep2 _ ltac:(eassumption)).
-           cbv [good_rel] in IHep2.
-           destruct out, (fact_R c1); simpl in Hout2; try congruence;
-             destruct IHep2 as [IHep2|IHep2]; try congruence.
-           - intros H'. apply Hout1. subst. eauto.
-           - intros blah. invert blah. lia.
-           - invert IHep2. intros H'. invert H'. lia. }
-         constructor.
-         { simpl. intros. destruct H1 as [H1|H1]; [|destruct H1]. subst.
-           simpl. rewrite Forall_forall in IHep2.
-           specialize (IHep2 _ ltac:(eassumption)). cbv [good_rule_or_out] in IHep2.
-           rewrite Forall_forall in IHep2. specialize (IHep2 _ ltac:(eassumption)).
-           cbv [good_rel] in IHep2.
-           destruct out, (fact_R c1); simpl in Hout2; try congruence;
-             destruct IHep2 as [IHep2|IHep2]; try congruence.
-           - intros H'. apply Hout1. subst. eauto.
-           - intros blah. invert blah. lia.
-           - invert IHep2. intros H'. invert H'. lia. }
-         constructor.
+      -- prove_rels_diff.
     + prove_good_rules.
   - prove_IH_hyps IHe1. prove_IH_hyps IHe2.
     ssplit.
@@ -1021,29 +1011,7 @@ Proof.
              destr (z1 <? blah)%Z; destr (blah <=? z1)%Z; try lia; auto. }
            constructor. }
          repeat constructor.
-      -- apply diff_rels_Forall_r. constructor.
-         { simpl. intros r1 c1 c2 H H0 H2. destruct H2 as [H2|H2]; [|destruct H2].
-           subst. simpl. rewrite Forall_forall in IHe2p2.
-           specialize (IHe2p2 _ ltac:(eassumption)). cbv [good_rule_or_out] in IHe2p2.
-           rewrite Forall_forall in IHe2p2. specialize (IHe2p2 _ ltac:(eassumption)).
-           cbv [good_rel] in IHe2p2.
-           destruct out, (fact_R c1); simpl in Hout2; try congruence;
-             destruct IHe2p2 as [IHe2p2|IHe2p2]; try congruence.
-           - intros H'. apply Hout1. subst. eexists. intuition eauto. sets.
-           - intros blah. invert blah. lia.
-           - invert IHe2p2. intros H'. invert H'. lia. }
-         constructor.
-         { simpl. intros r1 c1 c2 H H0 H2. destruct H2 as [H2|H2]; [|destruct H2].
-           subst. simpl. rewrite Forall_forall in IHe2p2.
-           specialize (IHe2p2 _ ltac:(eassumption)). cbv [good_rule_or_out] in IHe2p2.
-           rewrite Forall_forall in IHe2p2. specialize (IHe2p2 _ ltac:(eassumption)).
-           cbv [good_rel] in IHe2p2.
-           destruct out, (fact_R c1); simpl in Hout2; try congruence;
-             destruct IHe2p2 as [IHe2p2|IHe2p2]; try congruence.
-           - intros H'. apply Hout1. subst. eexists. intuition eauto. sets.
-           - intros blah. invert blah. lia.
-           - invert IHe2p2. intros H'. invert H'. lia. }
-         constructor.
+      -- prove_rels_diff.
       -- apply diff_rels_app_r.
          ++ cbv [diff_rels].
             intros r1 r2 c1 c2 Hr1 Hr2 Hc1 Hc2. rewrite Forall_forall in IHe1p2, IHe2p2.
@@ -1058,31 +1026,9 @@ Proof.
             --- subst. destruct (fact_R c2); try congruence. invert Hc2. simpl in Hc1. lia.
             --- rewrite Hc1 in Hc2. simpl in Hc2. lia.
             --- rewrite Hc1 in Hc2. invert Hc2. lia.
-         ++ apply diff_rels_Forall_r. constructor.
-         { simpl. intros r1 c1 c2 H H0 H2. destruct H2 as [H2|H2]; [|destruct H2].
-           subst. simpl. rewrite Forall_forall in IHe1p2.
-           specialize (IHe1p2 _ ltac:(eassumption)). cbv [good_rule_or_out] in IHe1p2.
-           rewrite Forall_forall in IHe1p2. specialize (IHe1p2 _ ltac:(eassumption)).
-           cbv [good_rel] in IHe1p2.
-           destruct out, (fact_R c1); simpl in Hout2; try congruence;
-             destruct IHe1p2 as [IHe1p2|IHe1p2]; try congruence.
-           - intros H'. apply Hout1. subst. eexists. intuition eauto. sets.
-           - intros blah. invert blah. lia.
-           - invert IHe1p2. intros H'. invert H'. lia. }
-         constructor.
-         { simpl. intros r1 c1 c2 H H0 H2. destruct H2 as [H2|H2]; [|destruct H2].
-           subst. simpl. rewrite Forall_forall in IHe1p2.
-           specialize (IHe1p2 _ ltac:(eassumption)). cbv [good_rule_or_out] in IHe1p2.
-           rewrite Forall_forall in IHe1p2. specialize (IHe1p2 _ ltac:(eassumption)).
-           cbv [good_rel] in IHe1p2.
-           destruct out, (fact_R c1); simpl in Hout2; try congruence;
-             destruct IHe1p2 as [IHe1p2|IHe1p2]; try congruence.
-           - intros H'. apply Hout1. subst. eexists. intuition eauto. sets.
-           - intros blah. invert blah. lia.
-           - invert IHe1p2. intros H'. invert H'. lia. }
-         constructor.
+         ++ prove_rels_diff.
     + prove_good_rules.
-Qed. 
+Qed.
             
   (*an alternative to option types*)
 
