@@ -134,6 +134,7 @@ Existing Instance String.eqb_spec.
 Section __.
 Context {valuation' : map.map Var.var Z} {valuation'_ok : map.ok valuation'}.
 Context {context : map.map var obj} {context_ok : map.ok context}.
+Context {str_nat : map.map string nat} {str_nat_ok : map.ok str_nat}.
 
 Notation prog_impl_fact := (prog_impl_fact interp_fn get_set agg_id interp_agg).
 Notation rule_impl := (rule_impl interp_fn get_set agg_id interp_agg).
@@ -191,7 +192,11 @@ Fixpoint vars_of_Bexpr (b : Bexpr) : list string :=
   | Bexpr.Lt x y | Bexpr.Le x y | Bexpr.Eq x y => vars_of_Zexpr x ++/ vars_of_Zexpr y
   end.
 
-Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
+Definition lower_idx_with_offset (idx_offset : string * Zexpr) : expr var fn :=
+  let (idx, offset) := idx_offset in
+  fun_expr (fn_Z fn_ZMinus) [var_expr (inl idx); lower_idx offset].
+
+Fixpoint lower_Sexpr (idxs : list (string * Zexpr)(*TODO optimization: don't actually need offsets here*)) (def_depth : str_nat) (next_varname : nat) (e : Sexpr) :
   expr var fn (*value of expr*) *
     list (fact rel var fn) (*hypotheses*) *
     nat (*next varname *) :=
@@ -199,36 +204,37 @@ Fixpoint lower_Sexpr (next_varname : nat) (e : Sexpr) :
   | Var x => (var_expr (inr next_varname),
               [{| fact_R := str_rel x; fact_args := [var_expr (inr next_varname)] |}],
               S next_varname)
-  | Get x idxs => (var_expr (inr next_varname),
-                   [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map lower_idx idxs |}],
-                   S next_varname)
+  | Get x idxs' =>
+      match map.get def_depth x with
+      | None => (var_expr (inl x), nil, O) (*garbage*)
+      | Some n =>
+          (var_expr (inr next_varname),
+            [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map lower_idx_with_offset idxs ++ map lower_idx idxs' |}],
+            S next_varname)
+      end
   (*copy-pasted monstrosity*)
-  | Mul x y => let '(e1, hyps1, next_varname) := lower_Sexpr next_varname x in
-              let '(e2, hyps2, next_varname) := lower_Sexpr next_varname y in
+  | Mul x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs def_depth next_varname x in
+              let '(e2, hyps2, next_varname) := lower_Sexpr idxs def_depth next_varname y in
               (fun_expr (fn_R fn_SMul) [e1; e2],
                 (hyps1 ++ hyps2)%list,
                 next_varname)
-  | Div x y => let '(e1, hyps1, next_varname) := lower_Sexpr next_varname x in
-              let '(e2, hyps2, next_varname) := lower_Sexpr next_varname y in
+  | Div x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs def_depth next_varname x in
+              let '(e2, hyps2, next_varname) := lower_Sexpr idxs def_depth next_varname y in
               (fun_expr (fn_R fn_SDiv) [e1; e2],
                 (hyps1 ++ hyps2)%list,
                 next_varname)
-  | Add x y => let '(e1, hyps1, next_varname) := lower_Sexpr next_varname x in
-              let '(e2, hyps2, next_varname) := lower_Sexpr next_varname y in
+  | Add x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs def_depth next_varname x in
+              let '(e2, hyps2, next_varname) := lower_Sexpr idxs def_depth next_varname y in
               (fun_expr (fn_R fn_SAdd) [e1; e2],
                 (hyps1 ++ hyps2)%list,
                 next_varname)
-  | Sub x y => let '(e1, hyps1, next_varname) := lower_Sexpr next_varname x in
-              let '(e2, hyps2, next_varname) := lower_Sexpr next_varname y in
+  | Sub x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs def_depth next_varname x in
+              let '(e2, hyps2, next_varname) := lower_Sexpr idxs def_depth next_varname y in
               (fun_expr (fn_R fn_SSub) [e1; e2],
                 (hyps1 ++ hyps2)%list,
                 next_varname)
   | Lit x => (fun_expr (fn_R (fn_SLit x)) [], [], next_varname)
   end.
-
-Definition lower_idx_with_offset (idx_offset : string * Zexpr) : expr var fn :=
-  let (idx, offset) := idx_offset in
-  fun_expr (fn_Z fn_ZMinus) [var_expr (inl idx); lower_idx offset].
 
 Definition toR (s : scalar_result) :=
   match s with
@@ -240,7 +246,6 @@ Definition toR (s : scalar_result) :=
   1. don't actually ignore bounds.  before outputting something, check that it's in bounds.  (this sounds terrible and inefficient)
   2. before using something, check---if necessary---that it's in bounds.  (this sounds much less bad, since we usually won't need to do a check).
  *)
-Print no_dup. Print NoDup. (*??*) Search no_dup. Print eval_expr. 
 
 Inductive vars_good : list string -> ATLexpr -> Prop :=
 | vg_Gen i lo hi body idxs :
@@ -297,17 +302,18 @@ Fixpoint lower
   (out: rel)
   (name: nat)
   (idxs : list (string (*variable*) * Zexpr (*"lo" value, to be subtracted*)))
+  (def_depth : str_nat)
   : nat (*next unused name*) * list (rule rel var fn aggregator) :=
   match e with
   | Gen i lo hi body =>
-      lower body out name (idxs ++ [(i, lo)])
+      lower body out name (idxs ++ [(i, lo)]) def_depth
   | Sum i lo hi body =>
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
       let i' := Datatypes.S x in
       let y := Datatypes.S i' in
       let aux := name in
-      let (name', rules) := lower body (nat_rel aux) (S aux) (idxs ++ [(i, lo(*TODO could make this zero*))]) in
+      let (name', rules) := lower body (nat_rel aux) (S aux) (idxs ++ [(i, lo(*TODO could make this zero*))]) def_depth in
       (name',
         rules ++
           [{| rule_agg :=
@@ -331,7 +337,7 @@ Fixpoint lower
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
       let aux := name in
-      let (name', rules) := lower body (nat_rel aux) (S aux) idxs in
+      let (name', rules) := lower body (nat_rel aux) (S aux) idxs def_depth in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -356,8 +362,8 @@ Fixpoint lower
              rule_hyps := [{| fact_R := true_rel;
                              fact_args := [fun_expr (fn_B fn_BNot) [lower_guard b]] |}] |}])
   | Lbind x e1 e2 =>
-      let (name', rules1) := lower e1 (str_rel x) name idxs in
-      let (name'', rules2) := lower e2 out name' idxs in
+      let (name', rules1) := lower e1 (str_rel x) name idxs def_depth in
+      let (name'', rules2) := lower e2 out name' idxs (map.put def_depth x (length idxs)) in
       (name'', rules1 ++ rules2)
   | Concat e1 e2 =>
       (*should have length (sizeof e1) = length (sizeof e2)*)
@@ -371,8 +377,8 @@ Fixpoint lower
                                                              | [] => (| 0 |)%z
                                                              | n :: _ => n
                                                              end))) in
-      let (name', rules1) := lower e1 (nat_rel aux1) (S aux2) idxs in
-      let (name'', rules2) := lower e2 (nat_rel aux2) name' idxs in
+      let (name', rules1) := lower e1 (nat_rel aux1) (S aux2) idxs def_depth in
+      let (name'', rules2) := lower e2 (nat_rel aux2) name' idxs def_depth in
       (name'',
         rules1 ++ rules2 ++
           [{| rule_agg := None;
@@ -418,7 +424,7 @@ Fixpoint lower
         | _ => 0%Z
         end in
       let aux := name in
-      let (name', rules) := lower e (nat_rel aux) (S aux) idxs in
+      let (name', rules) := lower e (nat_rel aux) (S aux) idxs def_depth in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -450,7 +456,7 @@ Fixpoint lower
         end in
       let aux := name in
       let pad_start := (len mod k')%Z in
-      let (name', rules) := lower e (nat_rel aux) (S aux) idxs in
+      let (name', rules) := lower e (nat_rel aux) (S aux) idxs def_depth in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -496,7 +502,7 @@ Fixpoint lower
       let dimvar2 := inr (length (sizeof e)) in
       let x := inr (S (length (sizeof e))) in
       let aux := nat_rel name in
-      let (name', rules) := lower e aux (S name) idxs in
+      let (name', rules) := lower e aux (S name) idxs def_depth in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -514,14 +520,14 @@ Fixpoint lower
                                  var_expr dimvar2 ::
                                  map var_expr dimvars |}] |}])
   | Truncr _ e =>
-      lower e out name idxs
+      lower e out name idxs def_depth
   | Truncl k e =>
       let dimvars := map inr (seq O (length (sizeof e) - 1)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
       let x := inr (length (sizeof e)) in
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
-      let (name', rules) := lower e aux (S name) idxs in
+      let (name', rules) := lower e aux (S name) idxs def_depth in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -549,7 +555,7 @@ Fixpoint lower
         | d :: _ => Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 d))
         | _ => 0%Z
         end in
-      let (name', rules) := lower e aux (S name) idxs in
+      let (name', rules) := lower e aux (S name) idxs def_depth in
       (name',
         rules ++ [{| rule_agg := None;
            rule_concls := [{| fact_R := out;
@@ -584,7 +590,7 @@ Fixpoint lower
       let x := inr (length (sizeof e)) in
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
-      let (name', rules) := lower e aux (S name) idxs in
+      let (name', rules) := lower e aux (S name) idxs def_depth in
       (name',
         rules ++
         [{| rule_agg := None;
@@ -617,7 +623,7 @@ Fixpoint lower
                                            [var_expr dimvar1;
                                             fun_expr (fn_Z (fn_ZLit k')) []]] |}] |}])
   | Scalar s =>
-      let '(val, hyps, _) := lower_Sexpr O s in
+      let '(val, hyps, _) := lower_Sexpr idxs def_depth O s in
       (name,
         [{| rule_agg := None;
            rule_hyps := hyps;
