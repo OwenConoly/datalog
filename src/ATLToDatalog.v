@@ -276,7 +276,13 @@ Inductive vars_good : list string -> ATLexpr -> Prop :=
   vars_good idxs (Flatten e)
 | vg_Split k e idxs :
   vars_good idxs e ->
-  vars_good idxs (Split k e).
+  vars_good idxs (Split k e)
+| vg_Truncr k e idxs :
+  vars_good idxs e ->
+  vars_good idxs (Truncr k e)
+| vg_Truncl k e idxs :
+  vars_good idxs e ->
+  vars_good idxs (Truncl k e).
   
 Fixpoint lower
   (e : ATLexpr)
@@ -453,7 +459,16 @@ Fixpoint lower
                                                [var_expr dimvar1;
                                                 fun_expr (fn_Z (fn_ZLit k')) []];
                                              var_expr dimvar2] ::
-                                            map var_expr dimvars |}] |};
+                                            map var_expr dimvars |};
+                           {| fact_R := true_rel;
+                             fact_args := [fun_expr (fn_B fn_BNot)
+                                             [fun_expr (fn_B fn_BAnd)
+                                                [fun_expr (fn_B fn_BEq)
+                                                   [var_expr dimvar1;
+                                                    fun_expr (fn_Z (fn_ZLit (len / k'))) []];
+                                                 fun_expr (fn_B fn_BLe)
+                                                   [fun_expr (fn_Z (fn_ZLit pad_start)) [];
+                                                    var_expr dimvar2]]]] |}] |};
            {| rule_agg := None;
              rule_concls := [{| fact_R := out;
                                fact_args :=
@@ -497,7 +512,7 @@ Fixpoint lower
       let x := inr (length (sizeof e)) in
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
-      let (name', rules) := lower e aux (S name) [] in
+      let (name', rules) := lower e aux (S name) idxs in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -1049,27 +1064,35 @@ Proof.
     + lia.
     + apply pairwise_ni_app; auto.
       -- apply pairwise_ni'_sound. constructor.
-         ++ simpl. constructor; [|constructor]. admit.
-         (*  cbv [obviously_non_intersecting]. intros. subst. *)
-         (*   repeat (invert_stuff; simpl in * ). *)
-         (*   (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*) *)
-         (*   apply Forall2_app_inv_l in H17, H19. fwd. *)
-         (*   assert (l1' = l1'0). *)
-         (*   { apply Forall2_length in H17p0, H19p0. rewrite H19p0 in H17p0. *)
-         (*     pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)). *)
-         (*     fwd. auto. } *)
-         (*   subst. clear H17p0 H19p0. apply app_inv_head in H17p2. subst. *)
-         (*   invert H17p1. invert H19p1. clear H15 H18. *)
-         (*   invert H13. invert H16. rewrite H11 in H2. rewrite H11 in *. *)
-         (*   rewrite H13 in *. repeat match goal with *)
-         (*                            | H : Some _ = Some _ |- _ => invert H *)
-         (*                            end. *)
-         (*   remember (Z.of_nat _) as blah eqn:Eblah. clear Eblah. *)
-         (*   destr (z1 <? blah)%Z; destr (blah <=? z1)%Z; try lia; auto. } *)
-         (* constructor. *)
+         ++ simpl. constructor; [|constructor].
+          cbv [obviously_non_intersecting]. intros. subst.
+           repeat (invert_stuff; simpl in * ).
+           (*want to conclude that ctxs agree on dimvar1 and dimvar2*)
+           apply Forall2_app_inv_l in H17, H18. fwd.
+           assert (l1' = l1'0).
+           { apply Forall2_length in H17p0, H18p0. rewrite H18p0 in H17p0.
+             pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+             fwd. auto. }
+           subst. clear H17p0 H18p0. apply app_inv_head in H17p2. subst.
+           repeat (invert_stuff; simpl in * ). clear H19 H15.
+           remember (match sizeof e with | [] => 0%Z | _ => _ end) as x eqn:Ex. clear Ex.
+           rewrite H8 in *. rewrite H6 in *. rewrite H7 in *. rewrite H3 in *.
+           repeat match goal with
+                  | H : Some _ = Some _ |- _ => invert H
+                  end.
+           remember (x / _)%Z as xx eqn:Exx. remember (x mod _)%Z as yy eqn:Eyy.
+           clear Exx Eyy. rewrite Z.eqb_refl. destruct (yy <=? _)%Z; auto.
          ++ repeat constructor.
       -- prove_rels_diff.
     + prove_good_rules.
+  - prove_IH_hyps IHe.
+    ssplit.
+    + lia.
+    + apply pairwise_ni_app; auto.
+      -- apply pairwise_ni'_sound. repeat constructor.
+      -- prove_rels_diff.
+    + prove_good_rules.
+  - prove_IH_hyps IHe. auto.
   - prove_IH_hyps IHe.
     ssplit.
     + lia.
