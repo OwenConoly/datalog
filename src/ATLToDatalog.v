@@ -282,8 +282,16 @@ Inductive vars_good : list string -> ATLexpr -> Prop :=
   vars_good idxs (Truncr k e)
 | vg_Truncl k e idxs :
   vars_good idxs e ->
-  vars_good idxs (Truncl k e).
-  
+  vars_good idxs (Truncl k e)
+| vg_Padl k e idxs :
+  vars_good idxs e ->
+  vars_good idxs (Padl k e)
+| vg_Padr k e idxs :
+  vars_good idxs e ->
+  vars_good idxs (Padr k e)
+| vg_Scalar s idxs :
+  vars_good idxs (Scalar s).
+
 Fixpoint lower
   (e : ATLexpr)
   (out: rel)
@@ -540,7 +548,7 @@ Fixpoint lower
         | d :: _ => Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 d))
         | _ => 0%Z
         end in
-      let (name', rules) := lower e aux (S name) [] in
+      let (name', rules) := lower e aux (S name) idxs in
       (name',
         rules ++ [{| rule_agg := None;
            rule_concls := [{| fact_R := out;
@@ -553,7 +561,11 @@ Fixpoint lower
                            fact_args :=
                              var_expr x ::
                                var_expr dimvar1 ::
-                               map var_expr dimvars |}] |};
+                               map var_expr dimvars |};
+                         {| fact_R := true_rel;
+                           fact_args := [fun_expr (fn_B fn_BLt)
+                                           [var_expr dimvar1;
+                                            fun_expr (fn_Z (fn_ZLit len)) []]] |}] |};
          {| rule_agg := None;
            rule_concls := [{| fact_R := out;
                             fact_args :=
@@ -571,7 +583,7 @@ Fixpoint lower
       let x := inr (length (sizeof e)) in
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
-      let (name', rules) := lower e aux (S name) [] in
+      let (name', rules) := lower e aux (S name) idxs in
       (name',
         rules ++
         [{| rule_agg := None;
@@ -587,7 +599,11 @@ Fixpoint lower
                                fun_expr (fn_Z fn_ZMinus)
                                [var_expr dimvar1;
                                 fun_expr (fn_Z (fn_ZLit k')) []] ::
-                               map var_expr dimvars |}] |};
+                               map var_expr dimvars |};
+                         {| fact_R := true_rel;
+                           fact_args := [fun_expr (fn_B fn_BLe)
+                                           [fun_expr (fn_Z (fn_ZLit k')) [];
+                                            var_expr dimvar1]] |}] |};
          {| rule_agg := None;
            rule_concls := [{| fact_R := out;
                             fact_args :=
@@ -798,7 +814,7 @@ Ltac invert_stuff :=
 
 (* This is becoming insane.  I don't technically have to do this, because I could just
    use that bounds are constants... but that still seems wrong somehow, especially for
-   summations.*)
+   summations.  Why should summation bounds have to be constant?*)
 Inductive idxs_good : list (string * Zexpr) -> Prop :=
 | idxs_good_nil : idxs_good []
 | idxs_good_cons idxs i lo :
@@ -954,153 +970,166 @@ Proof.
   revert out name idxs.
   induction e;
     simpl; intros out name idxs Hidxs Hvars_good Hout1 Hout2; invert Hvars_good;
-    repeat destr_lower.
-  - prove_IH_hyps IHe; auto.
-  - prove_IH_hyps IHe. fwd. ssplit.
-    + lia.
-    + apply pairwise_ni_app; [assumption|..].
-      -- apply pairwise_ni'_sound. repeat constructor.
+    repeat destr_lower; try (prove_IH_hyps IHe || (prove_IH_hyps IHe1; prove_IH_hyps IHe2)); try (ssplit; [lia| |prove_good_rules]). 
+  - auto.
+  - apply pairwise_ni_app; [assumption|..].
+    + apply pairwise_ni'_sound. repeat constructor.
+    + prove_rels_diff.
+  - apply pairwise_ni_app; auto.
+    + apply pairwise_ni'_sound. constructor.
+      { constructor.
+        { cbv [obviously_non_intersecting]. intros. subst.
+          repeat (invert_stuff; simpl in * ).
+          (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*)
+          apply Forall2_app_inv_l in H12, H13. fwd. clear H12p1 H13p1.
+          assert (l1' = l1'0).
+          { apply Forall2_length in H12p0, H13p0. rewrite H13p0 in H12p0.
+            pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+            fwd. auto. }
+          subst. clear H12p2.
+          pose proof ctxs_agree as H'.
+          specialize H' with (1 := Hidxs) (2 := H12p0) (3 := H13p0).
+          clear -H7 H8 H' H2. rewrite <- map_map in H'.
+          rewrite Forall_map in H'. eapply Forall_subset in H'; eauto.
+          rewrite <- Forall_map in H'.
+          eapply Forall_subset in H'. 2: apply lower_guard_keeps_vars.
+          pose proof interp_expr_agree_on as H''.
+          specialize H'' with (1 := H7) (2 := H').
+          pose proof interp_expr_det as H'''.
+          specialize H''' with (1 := H'') (2 := H8). subst. clear.
+          destruct b0; auto. }
+        constructor. }
+      repeat constructor.
+    + prove_rels_diff.
+  - apply pairwise_ni_app; auto. cbv [diff_rels].
+    intros r1 r2 c1 c2 Hr1 Hr2 Hc1 Hc2. rewrite Forall_forall in IHe1p2, IHe2p2.
+    apply IHe1p2 in Hr1. apply IHe2p2 in Hr2. cbv [good_rule_or_out] in Hr1, Hr2.
+    rewrite Forall_forall in Hr1, Hr2. apply Hr1 in Hc1. apply Hr2 in Hc2.
+    clear Hr1 Hr2. move Hout1 at bottom. move Hout2 at bottom.
+    intros H'. rewrite H' in *. clear H'. cbv [out_smaller] in Hout2.
+    destruct Hc1 as [Hc1|Hc1]; destruct Hc2 as [Hc2|Hc2].
+    + cbv [good_rel] in Hc1, Hc2. destruct (fact_R c2); try congruence.
+      -- sets.
+      -- lia.
+    + subst. destruct (fact_R c2); try congruence.
+      -- simpl in Hc1. apply Hout1. exists s. intuition. sets.
+      -- simpl in Hc1. lia.
+    + destruct (fact_R c2); try congruence. simpl in Hc2. invert Hc1.
+      Fail Fail auto. sets.
+    + subst. rewrite Hc1 in *. apply Hout1. eexists. intuition eauto. sets.
+  - apply pairwise_ni_app; [|apply pairwise_ni_app|]; auto.
+    + apply pairwise_ni'_sound. constructor.
+      { constructor.
+        { cbv [obviously_non_intersecting]. intros. subst.
+          repeat (invert_stuff; simpl in * ).
+          (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*)
+          apply Forall2_app_inv_l in H17, H19. fwd.
+          assert (l1' = l1'0).
+          { apply Forall2_length in H17p0, H19p0. rewrite H19p0 in H17p0.
+            pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+            fwd. auto. }
+          subst. clear H17p0 H19p0. apply app_inv_head in H17p2. subst.
+          invert H17p1. invert H19p1. clear H15 H18.
+          invert H13. invert H16. rewrite H11 in H2. rewrite H11 in *.
+          rewrite H13 in *. repeat match goal with
+                                   | H : Some _ = Some _ |- _ => invert H
+                                   end.
+          remember (Z.of_nat _) as blah eqn:Eblah. clear Eblah.
+          destr (z1 <? blah)%Z; destr (blah <=? z1)%Z; try lia; auto. }
+        constructor. }
+      repeat constructor.
+    + prove_rels_diff.
+    + apply diff_rels_app_r.
+      -- cbv [diff_rels].
+         intros r1 r2 c1 c2 Hr1 Hr2 Hc1 Hc2. rewrite Forall_forall in IHe1p2, IHe2p2.
+         apply IHe1p2 in Hr1. apply IHe2p2 in Hr2. cbv [good_rule_or_out] in Hr1, Hr2.
+         rewrite Forall_forall in Hr1, Hr2. apply Hr1 in Hc1. apply Hr2 in Hc2.
+         clear Hr1 Hr2. move Hout1 at bottom. move Hout2 at bottom.
+         intros H'. rewrite H' in *. clear H'. cbv [out_smaller] in Hout2.
+         destruct Hc1 as [Hc1|Hc1]; destruct Hc2 as [Hc2|Hc2].
+         ++ cbv [good_rel] in Hc1, Hc2. destruct (fact_R c2); try congruence.
+            --- sets.
+            --- lia.
+         ++ subst. destruct (fact_R c2); try congruence. invert Hc2. simpl in Hc1. lia.
+         ++ rewrite Hc1 in Hc2. simpl in Hc2. lia.
+         ++ rewrite Hc1 in Hc2. invert Hc2. lia.
       -- prove_rels_diff.
-    + prove_good_rules.
-  - prove_IH_hyps IHe. fwd. ssplit.
-    + lia.
-    + apply pairwise_ni_app; auto.
-      -- apply pairwise_ni'_sound. constructor.
-         { constructor.
-           { cbv [obviously_non_intersecting]. intros. subst.
-             repeat (invert_stuff; simpl in * ).
-             (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*)
-             apply Forall2_app_inv_l in H12, H13. fwd. clear H12p1 H13p1.
-             assert (l1' = l1'0).
-             { apply Forall2_length in H12p0, H13p0. rewrite H13p0 in H12p0.
-               pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-               fwd. auto. }
-             subst. clear H12p2.
-             pose proof ctxs_agree as H'.
-             specialize H' with (1 := Hidxs) (2 := H12p0) (3 := H13p0).
-             clear -H7 H8 H' H2. rewrite <- map_map in H'.
-             rewrite Forall_map in H'. eapply Forall_subset in H'; eauto.
-             rewrite <- Forall_map in H'.
-             eapply Forall_subset in H'. 2: apply lower_guard_keeps_vars.
-             pose proof interp_expr_agree_on as H''.
-             specialize H'' with (1 := H7) (2 := H').
-             pose proof interp_expr_det as H'''.
-             specialize H''' with (1 := H'') (2 := H8). subst. clear.
-             destruct b0; auto. }
-           constructor. }
-         repeat constructor.
-      -- prove_rels_diff.
-    + prove_good_rules.
-  - prove_IH_hyps IHe1. prove_IH_hyps IHe2.
-    ssplit.
-    + lia.
-    + apply pairwise_ni_app; auto. cbv [diff_rels].
-      intros r1 r2 c1 c2 Hr1 Hr2 Hc1 Hc2. rewrite Forall_forall in IHe1p2, IHe2p2.
-      apply IHe1p2 in Hr1. apply IHe2p2 in Hr2. cbv [good_rule_or_out] in Hr1, Hr2.
-      rewrite Forall_forall in Hr1, Hr2. apply Hr1 in Hc1. apply Hr2 in Hc2.
-      clear Hr1 Hr2. move Hout1 at bottom. move Hout2 at bottom.
-      intros H'. rewrite H' in *. clear H'. cbv [out_smaller] in Hout2.
-      destruct Hc1 as [Hc1|Hc1]; destruct Hc2 as [Hc2|Hc2].
-      -- cbv [good_rel] in Hc1, Hc2. destruct (fact_R c2); try congruence.
-         ++ sets.
-         ++ lia.
-      -- subst. destruct (fact_R c2); try congruence.
-         ++ simpl in Hc1. apply Hout1. exists s. intuition. sets.
-         ++ simpl in Hc1. lia.
-      -- destruct (fact_R c2); try congruence. simpl in Hc2. invert Hc1.
-         Fail Fail auto. sets.
-      -- subst. rewrite Hc1 in *. apply Hout1. eexists. intuition eauto. sets.
-    + prove_good_rules.
-  - prove_IH_hyps IHe1. prove_IH_hyps IHe2.    
-    ssplit.
-    + lia.
-    + apply pairwise_ni_app; [|apply pairwise_ni_app|]; auto.
-      -- apply pairwise_ni'_sound. constructor.
-         { constructor.
-           { cbv [obviously_non_intersecting]. intros. subst.
-             repeat (invert_stuff; simpl in * ).
-             (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*)
-             apply Forall2_app_inv_l in H17, H19. fwd.
-             assert (l1' = l1'0).
-             { apply Forall2_length in H17p0, H19p0. rewrite H19p0 in H17p0.
-               pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-               fwd. auto. }
-             subst. clear H17p0 H19p0. apply app_inv_head in H17p2. subst.
-             invert H17p1. invert H19p1. clear H15 H18.
-             invert H13. invert H16. rewrite H11 in H2. rewrite H11 in *.
-             rewrite H13 in *. repeat match goal with
-                                      | H : Some _ = Some _ |- _ => invert H
-                                      end.
-             remember (Z.of_nat _) as blah eqn:Eblah. clear Eblah.
-             destr (z1 <? blah)%Z; destr (blah <=? z1)%Z; try lia; auto. }
-           constructor. }
-         repeat constructor.
-      -- prove_rels_diff.
-      -- apply diff_rels_app_r.
-         ++ cbv [diff_rels].
-            intros r1 r2 c1 c2 Hr1 Hr2 Hc1 Hc2. rewrite Forall_forall in IHe1p2, IHe2p2.
-            apply IHe1p2 in Hr1. apply IHe2p2 in Hr2. cbv [good_rule_or_out] in Hr1, Hr2.
-            rewrite Forall_forall in Hr1, Hr2. apply Hr1 in Hc1. apply Hr2 in Hc2.
-            clear Hr1 Hr2. move Hout1 at bottom. move Hout2 at bottom.
-            intros H'. rewrite H' in *. clear H'. cbv [out_smaller] in Hout2.
-            destruct Hc1 as [Hc1|Hc1]; destruct Hc2 as [Hc2|Hc2].
-            --- cbv [good_rel] in Hc1, Hc2. destruct (fact_R c2); try congruence.
-                +++ sets.
-                +++ lia.
-            --- subst. destruct (fact_R c2); try congruence. invert Hc2. simpl in Hc1. lia.
-            --- rewrite Hc1 in Hc2. simpl in Hc2. lia.
-            --- rewrite Hc1 in Hc2. invert Hc2. lia.
-         ++ prove_rels_diff.
-    + prove_good_rules.
-  - prove_IH_hyps IHe.
-    ssplit.
-    + lia.
-    + apply pairwise_ni_app; auto.
-      -- apply pairwise_ni'_sound. repeat constructor.
-      -- prove_rels_diff.
-    + prove_good_rules.
-  - prove_IH_hyps IHe.
-    ssplit.
-    + lia.
-    + apply pairwise_ni_app; auto.
-      -- apply pairwise_ni'_sound. constructor.
-         ++ simpl. constructor; [|constructor].
-          cbv [obviously_non_intersecting]. intros. subst.
-           repeat (invert_stuff; simpl in * ).
-           (*want to conclude that ctxs agree on dimvar1 and dimvar2*)
-           apply Forall2_app_inv_l in H17, H18. fwd.
-           assert (l1' = l1'0).
-           { apply Forall2_length in H17p0, H18p0. rewrite H18p0 in H17p0.
-             pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-             fwd. auto. }
-           subst. clear H17p0 H18p0. apply app_inv_head in H17p2. subst.
-           repeat (invert_stuff; simpl in * ). clear H19 H15.
-           remember (match sizeof e with | [] => 0%Z | _ => _ end) as x eqn:Ex. clear Ex.
-           rewrite H8 in *. rewrite H6 in *. rewrite H7 in *. rewrite H3 in *.
-           repeat match goal with
-                  | H : Some _ = Some _ |- _ => invert H
-                  end.
-           remember (x / _)%Z as xx eqn:Exx. remember (x mod _)%Z as yy eqn:Eyy.
-           clear Exx Eyy. rewrite Z.eqb_refl. destruct (yy <=? _)%Z; auto.
-         ++ repeat constructor.
-      -- prove_rels_diff.
-    + prove_good_rules.
-  - prove_IH_hyps IHe.
-    ssplit.
-    + lia.
-    + apply pairwise_ni_app; auto.
-      -- apply pairwise_ni'_sound. repeat constructor.
-      -- prove_rels_diff.
-    + prove_good_rules.
-  - prove_IH_hyps IHe. auto.
-  - prove_IH_hyps IHe.
-    ssplit.
-    + lia.
-    + apply pairwise_ni_app; auto.
-      -- apply pairwise_ni'_sound. repeat constructor.
-      -- prove_rels_diff.
-    + prove_good_rules.
-Qed.
+  - apply pairwise_ni_app; auto.
+    + apply pairwise_ni'_sound. repeat constructor.
+    + prove_rels_diff.
+  - apply pairwise_ni_app; auto.
+    + apply pairwise_ni'_sound. constructor.
+      -- simpl. constructor; [|constructor].
+         cbv [obviously_non_intersecting]. intros. subst.
+         repeat (invert_stuff; simpl in * ).
+         (*want to conclude that ctxs agree on dimvar1 and dimvar2*)
+         apply Forall2_app_inv_l in H17, H18. fwd.
+         assert (l1' = l1'0).
+         { apply Forall2_length in H17p0, H18p0. rewrite H18p0 in H17p0.
+           pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+           fwd. auto. }
+         subst. clear H17p0 H18p0. apply app_inv_head in H17p2. subst.
+         repeat (invert_stuff; simpl in * ). clear H19 H15.
+         remember (match sizeof e with | [] => 0%Z | _ => _ end) as x eqn:Ex. clear Ex.
+         rewrite H8 in *. rewrite H6 in *. rewrite H7 in *. rewrite H3 in *.
+         repeat match goal with
+                | H : Some _ = Some _ |- _ => invert H
+                end.
+         remember (x / _)%Z as xx eqn:Exx. remember (x mod _)%Z as yy eqn:Eyy.
+         clear Exx Eyy. rewrite Z.eqb_refl. destruct (yy <=? _)%Z; auto.
+      -- repeat constructor.
+    + prove_rels_diff.
+  - apply pairwise_ni_app; auto.
+    + apply pairwise_ni'_sound. repeat constructor.
+    + prove_rels_diff.
+  - auto.
+  - apply pairwise_ni_app; auto.
+    + apply pairwise_ni'_sound. repeat constructor.
+    + prove_rels_diff.
+  - apply pairwise_ni_app; auto.
+    + apply pairwise_ni'_sound. constructor.
+      -- simpl. constructor; [|constructor].
+         cbv [obviously_non_intersecting]. intros. subst.
+         repeat (invert_stuff; simpl in * ).
+         (*want to conclude that ctxs agree on dimvar1 and dimvar2*)
+         apply Forall2_app_inv_l in H12, H14. fwd.
+         assert (l1' = l1'0).
+         { apply Forall2_length in H12p0, H14p0. rewrite H14p0 in H12p0.
+           pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+           fwd. auto. }
+         subst. clear H12p0 H14p0. apply app_inv_head in H12p2. subst.
+         repeat (invert_stuff; simpl in * ). clear H9 H13.
+         remember (match sizeof e with | [] => 0%Z | _ => _ end) as x eqn:Ex. clear Ex.
+         rewrite H3 in *. rewrite H4 in *. rewrite H7 in *.
+         repeat match goal with
+                | H : Some _ = Some _ |- _ => invert H
+                end.
+         destr (z0 <? x)%Z; destr (x <=? z0)%Z; auto; lia.
+      -- repeat constructor.
+    + prove_rels_diff.
+  - apply pairwise_ni_app; auto.
+    + apply pairwise_ni'_sound. constructor.
+      -- simpl. constructor; [|constructor].
+         cbv [obviously_non_intersecting]. intros. subst.
+         repeat (invert_stuff; simpl in * ).
+         (*want to conclude that ctxs agree on dimvar1 and dimvar2*)
+         apply Forall2_app_inv_l in H13, H15. fwd.
+         assert (l1' = l1'0).
+         { apply Forall2_length in H13p0, H15p0. rewrite H15p0 in H13p0.
+           pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+           fwd. auto. }
+         subst. clear H13p0 H15p0. apply app_inv_head in H13p2. subst.
+         repeat (invert_stuff; simpl in * ). clear H9 H13.
+         remember (Z.of_nat _) as x eqn:Ex. clear Ex.
+         rewrite H3 in *. rewrite H4 in *. rewrite H6 in *.
+         repeat match goal with
+                | H : Some _ = Some _ |- _ => invert H
+                end.
+         destr (z1 <? x)%Z; destr (x <=? z1)%Z; auto; lia.
+      -- repeat constructor.
+    + prove_rels_diff.
+  - (*need lower_Sexpr lemma*)
+Abort.
             
   (*an alternative to option types*)
 
