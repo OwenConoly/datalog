@@ -1128,9 +1128,12 @@ Proof.
          destr (z1 <? x)%Z; destr (x <=? z1)%Z; auto; lia.
       -- repeat constructor.
     + prove_rels_diff.
-  - (*need lower_Sexpr lemma*)
-Abort.
-            
+  - destruct (lower_Sexpr 0 s) as ((val&hyps)&_). split; [lia|]. split.
+    { apply pairwise_ni'_sound. repeat constructor. }
+    constructor; [|constructor]. cbv [good_rule_or_out]. simpl.
+    constructor; [|constructor]. simpl. auto.
+Qed.
+
   (*an alternative to option types*)
 
 Definition garbage_fact : fact rel var fn :=
