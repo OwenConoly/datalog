@@ -267,7 +267,16 @@ Inductive vars_good : list string -> ATLexpr -> Prop :=
   vars_of e1 \cap vars_of e2 = constant [] ->
   vars_good idxs e1 ->
   vars_good idxs e2 ->
-  vars_good idxs (Concat e1 e2).
+  vars_good idxs (Concat e1 e2)
+| vg_Transpose e idxs :
+  vars_good idxs e ->
+  vars_good idxs (Transpose e)
+| vg_Flatten e idxs :
+  vars_good idxs e ->
+  vars_good idxs (Flatten e)
+| vg_Split k e idxs :
+  vars_good idxs e ->
+  vars_good idxs (Split k e).
   
 Fixpoint lower
   (e : ATLexpr)
@@ -394,7 +403,7 @@ Fixpoint lower
         | _ => 0%Z
         end in
       let aux := name in
-      let (name', rules) := lower e (nat_rel aux) (S aux) [] in
+      let (name', rules) := lower e (nat_rel aux) (S aux) idxs in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -426,7 +435,7 @@ Fixpoint lower
         end in
       let aux := name in
       let pad_start := (len mod k')%Z in
-      let (name', rules) := lower e (nat_rel aux) (S aux) [] in
+      let (name', rules) := lower e (nat_rel aux) (S aux) idxs in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -463,7 +472,7 @@ Fixpoint lower
       let dimvar2 := inr (length (sizeof e)) in
       let x := inr (S (length (sizeof e))) in
       let aux := nat_rel name in
-      let (name', rules) := lower e aux (S name) [] in
+      let (name', rules) := lower e aux (S name) idxs in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -860,7 +869,7 @@ Ltac prove_IH_hyp :=
     (simpl; lia) ||
     (eapply out_smaller_weaken; solve [eauto]) ||
     (match goal with
-     | H: ~ (exists _ : _, _) |- False => idtac H; apply H; try (eexists; split; [|reflexivity]; solve[sets]) 
+     | H: ~ (exists _ : _, _) |- False => apply H; try (eexists; split; [|reflexivity]; solve[sets]) 
      end).
 
 Ltac prove_IH_hyps IH :=
@@ -1027,6 +1036,46 @@ Proof.
             --- rewrite Hc1 in Hc2. simpl in Hc2. lia.
             --- rewrite Hc1 in Hc2. invert Hc2. lia.
          ++ prove_rels_diff.
+    + prove_good_rules.
+  - prove_IH_hyps IHe.
+    ssplit.
+    + lia.
+    + apply pairwise_ni_app; auto.
+      -- apply pairwise_ni'_sound. repeat constructor.
+      -- prove_rels_diff.
+    + prove_good_rules.
+  - prove_IH_hyps IHe.
+    ssplit.
+    + lia.
+    + apply pairwise_ni_app; auto.
+      -- apply pairwise_ni'_sound. constructor.
+         ++ simpl. constructor; [|constructor]. admit.
+         (*  cbv [obviously_non_intersecting]. intros. subst. *)
+         (*   repeat (invert_stuff; simpl in * ). *)
+         (*   (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*) *)
+         (*   apply Forall2_app_inv_l in H17, H19. fwd. *)
+         (*   assert (l1' = l1'0). *)
+         (*   { apply Forall2_length in H17p0, H19p0. rewrite H19p0 in H17p0. *)
+         (*     pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)). *)
+         (*     fwd. auto. } *)
+         (*   subst. clear H17p0 H19p0. apply app_inv_head in H17p2. subst. *)
+         (*   invert H17p1. invert H19p1. clear H15 H18. *)
+         (*   invert H13. invert H16. rewrite H11 in H2. rewrite H11 in *. *)
+         (*   rewrite H13 in *. repeat match goal with *)
+         (*                            | H : Some _ = Some _ |- _ => invert H *)
+         (*                            end. *)
+         (*   remember (Z.of_nat _) as blah eqn:Eblah. clear Eblah. *)
+         (*   destr (z1 <? blah)%Z; destr (blah <=? z1)%Z; try lia; auto. } *)
+         (* constructor. *)
+         ++ repeat constructor.
+      -- prove_rels_diff.
+    + prove_good_rules.
+  - prove_IH_hyps IHe.
+    ssplit.
+    + lia.
+    + apply pairwise_ni_app; auto.
+      -- apply pairwise_ni'_sound. repeat constructor.
+      -- prove_rels_diff.
     + prove_good_rules.
 Qed.
             
