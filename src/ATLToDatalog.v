@@ -196,40 +196,46 @@ Definition lower_idx_with_offset (idx_offset : string * Zexpr) : expr var fn :=
   let (idx, offset) := idx_offset in
   fun_expr (fn_Z fn_ZMinus) [var_expr (inl idx); lower_idx offset].
 
-Fixpoint lower_Sexpr (idxs : list (string * Zexpr)(*TODO optimization: don't actually need offsets here*)) (def_depth : str_nat) (next_varname : nat) (e : Sexpr) :
+Fixpoint lower_Sexpr (idxs0 : list (string * Zexpr)(*TODO optimization: don't actually need offsets here*)) (def_depth : str_nat) (next_varname : nat) (e : Sexpr) :
   expr var fn (*value of expr*) *
     list (fact rel var fn) (*hypotheses*) *
     nat (*next varname *) :=
   match e with
-  | Var x => (var_expr (inr next_varname),
-              [{| fact_R := str_rel x; fact_args := [var_expr (inr next_varname)] |}],
+  | Var x =>
+      match map.get def_depth x with
+      | None => (var_expr (inl x), nil, O) (*garbage*)
+      | Some n =>
+          (var_expr (inr next_varname),
+              [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map lower_idx_with_offset (firstn n idxs0) |}],
               S next_varname)
+      end
+      
   | Get x idxs' =>
       match map.get def_depth x with
       | None => (var_expr (inl x), nil, O) (*garbage*)
       | Some n =>
           (var_expr (inr next_varname),
-            [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map lower_idx_with_offset idxs ++ map lower_idx idxs' |}],
+            [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map lower_idx_with_offset (firstn n idxs0) ++ map lower_idx idxs' |}],
             S next_varname)
       end
   (*copy-pasted monstrosity*)
-  | Mul x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs def_depth next_varname x in
-              let '(e2, hyps2, next_varname) := lower_Sexpr idxs def_depth next_varname y in
+  | Mul x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs0 def_depth next_varname x in
+              let '(e2, hyps2, next_varname) := lower_Sexpr idxs0 def_depth next_varname y in
               (fun_expr (fn_R fn_SMul) [e1; e2],
                 (hyps1 ++ hyps2)%list,
                 next_varname)
-  | Div x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs def_depth next_varname x in
-              let '(e2, hyps2, next_varname) := lower_Sexpr idxs def_depth next_varname y in
+  | Div x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs0 def_depth next_varname x in
+              let '(e2, hyps2, next_varname) := lower_Sexpr idxs0 def_depth next_varname y in
               (fun_expr (fn_R fn_SDiv) [e1; e2],
                 (hyps1 ++ hyps2)%list,
                 next_varname)
-  | Add x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs def_depth next_varname x in
-              let '(e2, hyps2, next_varname) := lower_Sexpr idxs def_depth next_varname y in
+  | Add x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs0 def_depth next_varname x in
+              let '(e2, hyps2, next_varname) := lower_Sexpr idxs0 def_depth next_varname y in
               (fun_expr (fn_R fn_SAdd) [e1; e2],
                 (hyps1 ++ hyps2)%list,
                 next_varname)
-  | Sub x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs def_depth next_varname x in
-              let '(e2, hyps2, next_varname) := lower_Sexpr idxs def_depth next_varname y in
+  | Sub x y => let '(e1, hyps1, next_varname) := lower_Sexpr idxs0 def_depth next_varname x in
+              let '(e2, hyps2, next_varname) := lower_Sexpr idxs0 def_depth next_varname y in
               (fun_expr (fn_R fn_SSub) [e1; e2],
                 (hyps1 ++ hyps2)%list,
                 next_varname)
@@ -912,10 +918,10 @@ Ltac prove_IH_hyp :=
 
 Ltac prove_IH_hyps IH :=
   let IH' := fresh IH in
-  epose proof (IH _ _ _) as IH'; clear IH; rename IH' into IH;
+  epose proof (IH _ _ _ _) as IH'; clear IH; rename IH' into IH;
 
   match goal with
-  | H : lower _ _ _ _ = _ |- _ => rewrite H in IH
+  | H : lower _ _ _ _ _ = _ |- _ => rewrite H in IH
   end;
   repeat (specialize' IH; [prove_IH_hyp |]);
   fwd.
@@ -966,18 +972,18 @@ Ltac prove_rel_diff :=
 Ltac prove_rels_diff :=
   apply diff_rels_Forall_r; repeat (constructor; [prove_rel_diff|]); try constructor.
 
-Lemma lower_functional e out name idxs :
+Lemma lower_functional e out name idxs depths :
   idxs_good idxs ->
   vars_good (map fst idxs) e ->
   ~ (exists out', out' \in vars_of e /\ out = str_rel out') ->
   out_smaller out name ->
-  let (name', rules) := lower e out name idxs in
+  let (name', rules) := lower e out name idxs depths in
   name <= name' /\ pairwise_ni rules /\ Forall (good_rule_or_out out name name' (fun str => str \in vars_of e)) rules.
 Proof.
-  revert out name idxs.
+  revert out name idxs depths.
   induction e;
-    simpl; intros out name idxs Hidxs Hvars_good Hout1 Hout2; invert Hvars_good;
-    repeat destr_lower; try (prove_IH_hyps IHe || (prove_IH_hyps IHe1; prove_IH_hyps IHe2)); try (ssplit; [lia| |prove_good_rules]). 
+    simpl; intros out name idxs depths Hidxs Hvars_good Hout1 Hout2; invert Hvars_good;
+    repeat destr_lower; try (prove_IH_hyps IHe || (prove_IH_hyps IHe1; prove_IH_hyps IHe2)); try (ssplit; [lia| |prove_good_rules]).
   - auto.
   - apply pairwise_ni_app; [assumption|..].
     + apply pairwise_ni'_sound. repeat constructor.
@@ -1135,7 +1141,7 @@ Proof.
          destr (z1 <? x)%Z; destr (x <=? z1)%Z; auto; lia.
       -- repeat constructor.
     + prove_rels_diff.
-  - destruct (lower_Sexpr 0 s) as ((val&hyps)&_). split; [lia|]. split.
+  - destruct (lower_Sexpr idxs depths 0 s) as ((val&hyps)&_). split; [lia|]. split.
     { apply pairwise_ni'_sound. repeat constructor. }
     constructor; [|constructor]. cbv [good_rule_or_out]. simpl.
     constructor; [|constructor]. simpl. auto.
@@ -1436,14 +1442,17 @@ Ltac extends_solver :=
   solve [eauto] || extends_solver' extends_solver ||
     (eapply extends_trans; [solve[extends_solver' extends_solver] | solve [extends_solver] ]) || idtac.
 
-Lemma lower_Sexpr_correct sh v ec s (datalog_ctx : list (rule rel var fn aggregator)):
+Lemma lower_Sexpr_correct idxs0 depths sh v ec s (datalog_ctx : list (rule rel var fn aggregator)):
   (forall x r idxs val,
       ec $? x = Some r ->
       result_lookup_Z' idxs r val ->
-      prog_impl_fact datalog_ctx (str_rel x, Robj (toR val) :: (map Zobj idxs))) ->
+      exists idxs0' n,
+        map.get depths x = Some n /\
+        Forall2 (interp_expr (context_of v)) (map lower_idx_with_offset (firstn n idxs0)) idxs0' /\
+          prog_impl_fact datalog_ctx (str_rel x, Robj (toR val) :: idxs0' ++ map Zobj idxs)) ->
   forall val name val0 hyps name',
     eval_Sexpr sh (fmap_of v) ec s val ->
-    lower_Sexpr name s = (val0, hyps, name') ->
+    lower_Sexpr idxs0 depths name s = (val0, hyps, name') ->
     exists hyps' substn,
       name <= name' /\
         domain_in_ints name name' substn /\
@@ -1452,37 +1461,41 @@ Lemma lower_Sexpr_correct sh v ec s (datalog_ctx : list (rule rel var fn aggrega
         interp_expr (map.putmany substn (context_of v)) val0 (Robj (toR val)).
 Proof.
   intros H. induction s; intros; simpl in *.
-  - invert H1. eexists.
-    exists (map.put map.empty (inr name) (Robj (toR val))). split.
+  - invert H1. invert H0.
+    specialize H with (idxs := nil) (1 := H2). specialize (H _ ltac:(econstructor)).
+    fwd. rewrite app_nil_r in Hp2.
+    eexists. exists (map.put map.empty (inr name) (Robj (toR r))). split.
     { lia. } split.
     { apply domain_in_ints_cons. 2: cbv [succ]; lia. apply domain_in_ints_empty. }
     split.
-    { repeat constructor. solve_map_get. }
-    invert H0. simpl. split.
-    + repeat constructor. 
-      specialize H with (idxs := nil) (1 := H2). simpl in H.
-      specialize (H r). specialize (H ltac:(constructor)). destruct r; apply H.
-    + constructor. solve_map_get.
+    { repeat constructor.
+      - solve_map_get.
+      - eapply Forall2_impl; [|eassumption]. intros.
+        eapply interp_expr_subst_more; eauto. extends_solver. }
+    simpl. split.
+    + repeat constructor. destruct r; assumption.
+    + constructor. destruct r; solve_map_get.
   - invert H1. simpl. invert H0.
     pose proof (eval_get_eval_Zexprlist _ _ _ _ ltac:(eassumption)) as [idxs Hidxs].
     pose proof (eval_get_lookup_result_Z' _ _ _ _ ltac:(eassumption) _ ltac:(eassumption)) as Hr.
-    eexists.
-    exists (map.put map.empty (inr name) (Robj (toR r))).
-    split.
+    specialize (H _ _ _ _ ltac:(eassumption) ltac:(eassumption)). fwd.
+    eexists. exists (map.put map.empty (inr name) (Robj (toR r))). split.
     { lia. } split.
     { apply domain_in_ints_cons. 2: cbv [succ]; lia. apply domain_in_ints_empty. }
     split.
     { repeat constructor. 1: solve_map_get.
       apply eval_Zexprlist_to_substn in Hidxs.
-      eapply Forall2_impl; [|eassumption].
-      intros a b H'.
-      eapply interp_expr_subst_more; eauto. extends_solver. }
+      apply Forall2_app.
+      - eapply Forall2_impl; [|eassumption]. intros.
+        eapply interp_expr_subst_more; eauto. extends_solver.
+      - eapply Forall2_impl; [|eassumption]. intros.
+        eapply interp_expr_subst_more; eauto. extends_solver. }
     split.
     { repeat constructor. eauto. }
     constructor. simpl_map. destruct r; reflexivity.
   - invert H0.
-    destruct (lower_Sexpr name s1) as [[val1 hyps1] name1] eqn:E1.
-    destruct (lower_Sexpr name1 s2) as [[val2 hyps2] name2] eqn:E2.
+    destruct (lower_Sexpr _ _ name s1) as [[val1 hyps1] name1] eqn:E1.
+    destruct (lower_Sexpr _ _ name1 s2) as [[val2 hyps2] name2] eqn:E2.
     invert H1.
     specialize (IHs1 _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
     specialize (IHs2 _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
@@ -1513,8 +1526,8 @@ Proof.
     simpl. f_equal. f_equal. destruct r1, r2; reflexivity.
   (*!!literally copy-pasted!!*)
   - invert H0.
-    destruct (lower_Sexpr name s1) as [[val1 hyps1] name1] eqn:E1.
-    destruct (lower_Sexpr name1 s2) as [[val2 hyps2] name2] eqn:E2.
+    destruct (lower_Sexpr _ _ name s1) as [[val1 hyps1] name1] eqn:E1.
+    destruct (lower_Sexpr _ _ name1 s2) as [[val2 hyps2] name2] eqn:E2.
     invert H1.
     specialize (IHs1 _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
     specialize (IHs2 _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
@@ -1544,8 +1557,8 @@ Proof.
       - eapply interp_expr_subst_more; eauto. extends_solver. }
     simpl. f_equal. f_equal. destruct r1, r2; reflexivity.
   - invert H0.
-    destruct (lower_Sexpr name s1) as [[val1 hyps1] name1] eqn:E1.
-    destruct (lower_Sexpr name1 s2) as [[val2 hyps2] name2] eqn:E2.
+    destruct (lower_Sexpr _ _ name s1) as [[val1 hyps1] name1] eqn:E1.
+    destruct (lower_Sexpr _ _ name1 s2) as [[val2 hyps2] name2] eqn:E2.
     invert H1.
     specialize (IHs1 _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
     specialize (IHs2 _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
@@ -1575,8 +1588,8 @@ Proof.
       - eapply interp_expr_subst_more; eauto. extends_solver. }
     simpl. f_equal. f_equal. destruct r1, r2; reflexivity.
   - invert H0.
-    destruct (lower_Sexpr name s1) as [[val1 hyps1] name1] eqn:E1.
-    destruct (lower_Sexpr name1 s2) as [[val2 hyps2] name2] eqn:E2.
+    destruct (lower_Sexpr _ _ name s1) as [[val1 hyps1] name1] eqn:E1.
+    destruct (lower_Sexpr _ _ name1 s2) as [[val2 hyps2] name2] eqn:E2.
     invert H1.
     specialize (IHs1 _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
     specialize (IHs2 _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
@@ -2013,33 +2026,6 @@ Proof.
   - simpl. f_equal. eapply IHn; eauto. apply nth_error_In in H3.
     rewrite Forall_forall in H0. auto.
 Qed.
-
-Search map.map. Print map.of_list_zip. Search map.of_list. Search map.zipped_lookup.
-Check map.of_func.
-Lemma gross1 val idxs v :
-  let ctx := map.putmany
-             (context_of v)
-             (map.put
-                (idx_map (map Zobj idxs))
-                (inr (length idxs)) (Robj (toR val))) in
-  Forall2 (interp_expr ctx)
-    (map var_expr (map inr (seq 0 (length idxs))))
-    (map Zobj idxs).
-Proof.
-  intros ctx.
-  pose proof idx_map_works idxs. eapply Forall2_impl; [|eassumption].
-  intros a b Hab. Print extends_solver. Print extends_solver'.
-  eapply interp_expr_subst_more; eauto. extends_solver.
-Qed.
-
-Lemma gross2 val idxs v :
-  let ctx := map.putmany
-             (context_of v)
-             (map.put
-                (idx_map (map Zobj idxs))
-                (inr (length idxs)) (Robj (toR val))) in
-  map.extends ctx (context_of v).
-Proof. extends_solver. Qed.
 
 Lemma nth_error_skipn {A : Type} (l : list A) n1 n2 :
   nth_error (skipn n1 l) n2 = nth_error l (n1 + n2).
