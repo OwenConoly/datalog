@@ -396,11 +396,12 @@ Fixpoint lower
              rule_hyps := [{| fact_R := nat_rel aux1;
                              fact_args :=
                                var_expr (inr x) ::
+                                 map lower_idx_with_offset idxs ++
                                  map var_expr (dimvarO :: dimvars) |};
                            {| fact_R := true_rel;
                              fact_args := [fun_expr (fn_B fn_BLt)
-                                            [var_expr dimvarO;
-                                             fun_expr (fn_Z (fn_ZLit len1)) []]] |}
+                                             [var_expr dimvarO;
+                                              fun_expr (fn_Z (fn_ZLit len1)) []]] |}
              ] |};
            {| rule_agg := None;
              rule_concls := [{| fact_R := out;
@@ -412,6 +413,7 @@ Fixpoint lower
              rule_hyps := [{| fact_R := nat_rel aux2;
                              fact_args :=
                                var_expr (inr x) ::
+                                 map lower_idx_with_offset idxs ++
                                  fun_expr (fn_Z fn_ZMinus)
                                  [var_expr dimvarO;
                                   fun_expr (fn_Z (fn_ZLit len1)) []] ::
@@ -1036,19 +1038,21 @@ Proof.
         { cbv [obviously_non_intersecting]. intros. subst.
           repeat (invert_stuff; simpl in * ).
           (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*)
-          apply Forall2_app_inv_l in H17, H19. fwd.
+          apply Forall2_app_inv_l in H15, H16. fwd.
           assert (l1' = l1'0).
-          { apply Forall2_length in H17p0, H19p0. rewrite H19p0 in H17p0.
+          { apply Forall2_length in H15p0, H16p0. rewrite H16p0 in H15p0.
             pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
             fwd. auto. }
-          subst. clear H17p0 H19p0. apply app_inv_head in H17p2. subst.
-          invert H17p1. invert H19p1. clear H15 H18.
-          invert H13. invert H16. rewrite H11 in H2. rewrite H11 in *.
-          rewrite H13 in *. repeat match goal with
-                                   | H : Some _ = Some _ |- _ => invert H
-                                   end.
+          subst. clear H15p0 H16p0. apply app_inv_head in H15p2. subst.
+          invert H15p1. invert H16p1. clear H13 H16. repeat invert_stuff.
+          repeat match goal with
+                 | H: map.get _ _ = Some _ |- _ => rewrite H in *
+                 end.
+          repeat match goal with
+                 | H : Some _ = Some _ |- _ => invert H
+                 end.
           remember (Z.of_nat _) as blah eqn:Eblah. clear Eblah.
-          destr (z1 <? blah)%Z; destr (blah <=? z1)%Z; try lia; auto. }
+          destr (z0 <? blah)%Z; destr (blah <=? z0)%Z; try lia; auto. }
         constructor. }
       repeat constructor.
     + prove_rels_diff.
@@ -2412,6 +2416,7 @@ Proof.
            intros. repeat rewrite in_app_iff. simpl. tauto. }
       rewrite E, E0. intros. repeat rewrite in_app_iff in *. tauto.
   - simpl. intros. destruct H1 as (He1&He2). invert H0. invert H.
+    destr_lower. destr_lower.
     pose proof ResultToArrayDelta.constant_nonneg_bounds_size_of_eval_expr_result_has_shape as He1'.
     specialize He1' with (1 := He1). specialize (He1' _ ltac:(eassumption) _ _ _ _ ltac:(eassumption)).
     pose proof ResultToArrayDelta.constant_nonneg_bounds_size_of_eval_expr_result_has_shape as He2'.
@@ -2450,13 +2455,26 @@ Proof.
               eapply Forall2_impl; [|eauto using idx_map_works]. intros.
               eapply interp_expr_subst_more; [|eassumption]. extends_solver.
           - subst ctx'. repeat econstructor; try solve_map_get.
-            eapply Forall2_impl; [|eauto using idx_map_works]. intros.
-            eapply interp_expr_subst_more; [|eassumption]. extends_solver. } }
-      constructor; [|solve[constructor]]. cbn -[seq].
-      eapply prog_impl_fact_subset; [assumption|..].
-      2: { specialize IHe1 with (name := S (S name)) (idxs := x :: xs) (idx_ctx := nil) (idx_ctx' := nil).
-           simpl in IHe1. eapply IHe1; eauto. }
-      intros. repeat rewrite in_app_iff in *. tauto.
+            apply Forall2_app.
+            + move H4 at bottom. eapply Forall2_impl; [|eassumption]. intros.
+              eapply interp_expr_subst_more; [|eassumption]. extends_solver.
+            + constructor.
+              { constructor. solve_map_get. }
+              eapply Forall2_impl; [|eauto using idx_map_works]. intros.
+              eapply interp_expr_subst_more; [|eassumption]. extends_solver. } }
+      constructor.
+      { cbn -[seq]. eapply prog_impl_fact_subset; [assumption|..].
+      2: { specialize IHe1 with (name := S (S name)) (idxs := x :: xs).
+           simpl in IHe1. move IHe1 at bottom. eapply IHe1; eauto. }
+      intros. repeat rewrite in_app_iff in *. rewrite E in *. tauto. }
+      constructor; [|solve[constructor]].
+      simpl. econstructor.
+      { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_hd.
+        econstructor; [|solve[constructor]]. apply Exists_cons_hd. constructor.
+        constructor; [|solve[constructor]]. repeat econstructor.
+        simpl. f_equal. f_equal. remember (Z.of_nat _) as y.
+        destr (x <? y)%Z; [reflexivity|lia]. }
+      constructor.
     + rewrite nth_error_app2 in H1 by assumption.
       specialize (H' _ _ _ e2 _ _ ltac:(eassumption) ltac:(eassumption)).
       simpl in H'. 
@@ -2493,16 +2511,34 @@ Proof.
               eapply interp_expr_subst_more; [|eassumption]. extends_solver.
           - replace (length xs - 0) with (length xs) by lia. constructor.
             { subst ctx'. constructor. simpl. repeat econstructor; try solve_map_get.
+              apply Forall2_app.
+            + move H4 at bottom. eapply Forall2_impl; [|eassumption]. intros.
+              eapply interp_expr_subst_more; [|eassumption]. extends_solver.
+            + replace (length xs - 0) with (length xs) by lia.
+              constructor.
+              { repeat econstructor.
+                { solve_map_get. }
+                repeat econstructor. }
               eapply Forall2_impl; [|eauto using idx_map_works]. intros.
               eapply interp_expr_subst_more; [|eassumption]. extends_solver. }
-            constructor. } }
-      constructor; [|solve[constructor]]. simpl.
-      eapply prog_impl_fact_subset; [assumption|..].
-      2: { move IHe2 at bottom. rewrite <- He1'.
-           specialize IHe2 with (name := S (S name)) (idxs := (x - Z.of_nat (length l0) :: xs)%Z) (idx_ctx := nil) (idx_ctx' := nil).
-           simpl in IHe2. eapply IHe2; eauto.
-           econstructor. 1: lia. 2: eassumption. rewrite <- H1. f_equal. lia. }
-      intros. repeat rewrite in_app_iff in *. tauto.
+            constructor; [|solve[constructor]]. constructor. simpl.
+            repeat econstructor.
+            { subst ctx'. solve_map_get. }
+            repeat econstructor. } }
+      simpl. constructor.
+      { eapply prog_impl_fact_subset; [assumption|..].
+        2: { move IHe2 at bottom. rewrite <- He1'.
+             specialize IHe2 with (idxs := (x - Z.of_nat (length l0) :: xs)%Z).
+             simpl in IHe2. eapply IHe2; eauto.
+             econstructor. 1: lia. 2: eassumption. rewrite <- H1. f_equal. lia. }
+        intros. rewrite E0 in *. repeat rewrite in_app_iff in *. tauto. }
+      simpl. constructor; [|solve[constructor]]. econstructor.
+      { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_hd.
+        econstructor; [|solve[constructor]]. apply Exists_cons_hd. constructor.
+        constructor; [|solve[constructor]]. repeat econstructor.
+        simpl. f_equal. f_equal. remember (Z.of_nat _) as y.
+        destr (y <=? x)%Z; [reflexivity|lia]. }
+      constructor.
   - simpl. intros. invert H. invert H0.
     pose proof ResultToArrayDelta.constant_nonneg_bounds_size_of_eval_expr_result_has_shape as He.
     specialize (He _ _ ltac:(eassumption) ltac:(eassumption) _ _ _ _ ltac:(eassumption)).
