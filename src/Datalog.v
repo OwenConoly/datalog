@@ -12,9 +12,9 @@ From Stdlib Require Import micromega.Lia.
 
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
-From Datalog Require Import Forall3 Map.
+From Datalog Require Import Forall3 Map Tactics.
 
-From coqutil Require Import Map.Interface Map.Properties.
+From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Datatypes.List.
 
 Import ListNotations.
 
@@ -35,7 +35,6 @@ Section __.
     arguably type should be aggregator -> T -> T -> option T,
     but i dont want to bother with that*)
   Context (interp_agg : aggregator -> T -> T -> T).
-
 
   (*avoid generating useless induction principle*)
   Unset Elimination Schemes.
@@ -218,23 +217,130 @@ Section __.
       + f_equal; auto.
   Qed.      
   
-  (* Fixpoint appears_in_expr (v : var) (e : expr) := *)
-  (*   match e with *)
-  (*   | fun_expr _ args => fold_left (fun acc arg => acc \/ appears_in_expr v arg) args False *)
-  (*   | var_expr v0 => v0 = v *)
-  (*   end. *)
+  Definition remove_first (f : fact) :=
+    {| fact_R := f.(fact_R); fact_args := skipn (S O) f.(fact_args) |}.
 
-  (* Definition appears_in_fact (v : var) (f : fact) := *)
-  (*   Exists (appears_in_expr v) f.(fact_args). *)
-  (* Check eq. (*WHY*) Locate "=". *)
-  (* Definition barely_appears_in_fact (v : var) (f : fact) := *)
-  (*   Exists (Logic.eq (var_expr v)) f.(fact_args). *)
+  (*if we get a message saying concl of r needs to be computed, then send out messages
+  saying premises of r need to be computed*)
+  (*returning a list here is my stupid way of avoiding option types*)
+  Definition request_hyps (r : rule) : list rule :=
+    match r.(rule_concls) with
+    | [concl] =>
+        [{| rule_agg := None;
+          rule_hyps := [remove_first concl];
+          rule_concls := map remove_first r.(rule_hyps) |}]
+    | _ => []
+    end.
+
+  (*add a hypothesis saying that the conclusion is something we need to compute*)
+  Definition add_hyp (r : rule) : list rule :=
+    match r.(rule_concls) with
+    | [concl] =>
+        [{| rule_agg := None;
+           rule_hyps := remove_first concl :: r.(rule_hyps);
+           rule_concls := r.(rule_concls) |}]
+    | _ => []
+    end.
+
+  Definition make_good (p : list rule) : list rule :=
+    flat_map request_hyps p ++ flat_map add_hyp p.
+
+  Inductive appears_in_expr (v : var) : expr -> Prop :=
+  | app_in_fun_expr args f :
+    Exists (appears_in_expr v) args ->
+    appears_in_expr v (fun_expr f args)
+  | app_in_var_expr : appears_in_expr v (var_expr v).
+
+  Definition appears_in_fact (v : var) (f : fact) :=
+    Exists (appears_in_expr v) f.(fact_args).
+  Check eq. (*WHY*) Locate "=".
+  Definition barely_appears_in_fact (v : var) (f : fact) :=
+    In (var_expr v) f.(fact_args).
+
+  Print agg_expr.
+  Definition appears_in_agg_expr v ae :=
+    appears_in_expr v ae.(s) \/
+      ~In v (ae.(i) :: ae.(vs)) /\
+        (appears_in_expr v ae.(body) \/ Exists (appears_in_fact v) ae.(hyps)).
+
+  Inductive is_agg_var v : rule -> Prop :=
+  | mk_iav ae hyps concls : is_agg_var v {| rule_agg := Some (v, ae); rule_hyps := hyps; rule_concls := concls |}.
   
-  (* Definition good_rule (r : rule) := *)
-  (*   forall v, Exists (appears_in_fact v) r.(rule_concls) \/ Exists (appears_in_fact v) r.(rule_hyps) -> *)
-  (*        Exists (barely_appears_in_fact v) r.(rule_hyps). *)
+  Definition appears_in_rule v r :=
+    ~(exists ae, r.(rule_agg) = Some (v, ae)) /\ Exists (appears_in_fact v) r.(rule_concls) \/ Exists (appears_in_fact v) r.(rule_hyps) \/ (exists w ae, r.(rule_agg) = Some (w, ae) /\ appears_in_agg_expr v ae).
 
-  (* Definition good_prog (p : list rule) := Forall good_rule p. *)
+  Definition good_rule (r : rule) :=
+    forall v, appears_in_rule v r ->
+         Exists (barely_appears_in_fact v) r.(rule_hyps).
+
+  Definition good_prog (p : list rule) := Forall good_rule p.
+
+  (*given a fact, returns (rest of args [which may be thought of as "results" of applying a fucntion to the others], some args which others have a functional dependency on) *)
+  Context (outs: fact -> list expr) (ins : fact -> list expr).
+
+  Definition appears_in_hyp_ins v r :=
+    Exists (fun f => Exists (appears_in_expr v) (outs f)) r.(rule_hyps).
+
+  (* Definition appears_in_outs v r := *)
+  (*   Exists (fun f => Exists (appears_in_expr v) (outs f)) r.(rule_hyps) \/ *)
+  (*     ~(exists ae, r.(rule_agg) = Some (v, ae)) /\ Exists (fun f => Exists (appears_in_expr v) (outs f)) r.(rule_concls) \/ *)
+  (*     (exists w ae, r.(rule_agg) = Some (w, ae) /\ appears_in_agg_expr v ae). *)
+
+  Definition concl_ins r :=
+    flat_map outs r.(rule_concls).
+  
+  (*2 conditions.
+   * hyp_ins only depend on concl_ins, and
+   * whole thing only depends on (concl_ins \cup vars_bare_in_hyps)
+   (implicit conditions: every concl_in is of the form var_expr blah, where blah was not
+   bound to the agg_expr)
+   *)
+  Definition goodish_rule (r : rule) :=
+    exists invars,
+      concl_ins r = map var_expr invars /\
+        ~(exists invar ae, In invar invars /\ r.(rule_agg) = Some (invar, ae)) /\
+        (forall v, (*alternatively, could write appears_in_outs here*)appears_in_rule v r ->
+              Exists (barely_appears_in_fact v) r.(rule_hyps) \/
+                In v invars) /\
+        (forall v, appears_in_hyp_ins v r ->
+              In v invars).
+
+  Lemma appears_remove_first v f :
+    appears_in_fact v (remove_first f) ->
+    appears_in_fact v f.
+  Proof.
+    intros H. cbv [appears_in_fact] in *. cbn -[skipn] in *.
+    rewrite Exists_exists in *. fwd. destruct (fact_args _); simpl in *; eauto.
+  Qed.
+
+  Lemma barely_appears_remove_first v f :
+    barely_appears_in_fact v (remove_first f) ->
+    barely_appears_in_fact v f.
+  Proof.
+    intros H. cbv [barely_appears_in_fact] in *. destruct f. simpl in *.
+    destruct (fact_args0); simpl; auto.
+  Qed.
+
+  Hint Resolve appears_remove_first : core.
+  Hint Resolve barely_appears_remove_first : core.
+  
+  Lemma request_hyps_good r :
+    bw_good_rule r ->
+    match request_hyps r with
+    | [r'] => good_rule r'
+    | _ => False
+    end.
+  Proof.
+    intros H. destruct r. Print list.
+    destruct rule_concls0 as [ |? [|? ?] ];
+      cbv [bw_good_rule] in H; simpl in H; try solve [destruct H].
+    cbv [request_hyps]. simpl. cbv [good_rule]. intros v Hv. specialize (H v).
+    cbv [appears_in_rule] in *. simpl in *. constructor.
+    destruct Hv as [Hv| [Hv|Hv] ].
+    - eauto.
+      - right. left. fwd. rewrite Exists_map in Hvp1. eapply Exists_impl; [|eassumption].
+        simpl. apply appears_remove_first.
+      - repeat invert_list_stuff. eauto.
 
 End __.
 Arguments Build_rule {_ _ _ _}.

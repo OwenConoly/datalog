@@ -784,11 +784,6 @@ Proof.
     apply rule_impl_rel in H4, H5. fwd. exfalso. intuition eauto. 
 Qed.
 
-Ltac specialize' H :=
-  let hyp := fresh "hyp" in
-  eassert _ as hyp;
-  [|specialize (H hyp); clear hyp].  
-
 Ltac destruct_option_map_Some :=
   match goal with
   | H: option_map ?f ?x = Some ?y |- _ =>
@@ -823,13 +818,8 @@ Ltac invert_stuff :=
   | H : interp_fact _ _ _ |- _ => invert H
   | H : interp_expr _ (fun_expr _ _) _ |- _ => invert H
   | H : interp_expr _ (var_expr _) _ |- _ => invert H
-  | H : Forall2 _ (cons _ _) _ |- _ => invert H
-  | H : Forall2 _ _ (cons _ _) |- _ => invert H
-  | H : Forall2 _ nil _ |- _ => invert H
-  | H : Forall2 _ _ nil |- _ => invert H
-  | H : Exists _ nil |- _ => invert H
-  | H : Exists _ (cons _ nil) |- _ => invert H
   | _ => destruct_option_map_Some
+  | _ => invert_list_stuff
   | H : Some _ = Some _ |- _ => invert H
   end.
 
@@ -1162,30 +1152,6 @@ Proof.
     constructor; [|constructor]. cbv [good_rule_or_out]. simpl.
     constructor; [|constructor]. simpl. auto.
 Qed.
-
-(*an alternative to option types*)
-
-Definition garbage_fact : fact rel var fn :=
-  {| fact_R := nat_rel O; fact_args := [] |}.
-
-Definition remove_first {rel var fn} (f : fact rel var fn) :=
-  {| fact_R := f.(fact_R); fact_args := skipn (S O) f.(fact_args) |}.
-
-(*if we get a message saying concl of r needs to be computed, then send out messages
-  saying premises of r need to be computed*)
-Definition request_hyps (r : rule rel var fn aggregator) : rule rel var fn aggregator :=
-  {| rule_agg := None;
-    rule_hyps := [remove_first (hd garbage_fact r.(rule_concls))];
-    rule_concls := map remove_first r.(rule_hyps) |}.
-
-(*add a hypothesis saying that the conclusion is something we need to compute*)
-Definition add_hyp (r : rule rel var fn aggregator) : rule rel var fn aggregator :=
-  {| rule_agg := None;
-    rule_hyps := remove_first (hd garbage_fact r.(rule_concls)) :: r.(rule_hyps);
-    rule_concls := r.(rule_concls) |}.
-
-Definition make_good (p : list (rule rel var fn aggregator)) : list (rule rel var fn aggregator) :=
-  map request_hyps p ++ map add_hyp p.
 
 (*i do not like fmaps, because you cannot iterate over them,
   so i work with coqutil maps instead.
