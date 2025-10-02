@@ -2200,20 +2200,26 @@ Proof.
   - destruct k; simpl; auto.
 Qed.
 
-Lemma lower_correct e out sh v ctx r datalog_ctx l :
+Check lower_Sexpr_correct.
+
+Lemma lower_correct e idx_ctx depths out sh v ctx r datalog_ctx l :
   eval_expr sh (fmap_of v) ctx e r ->
   size_of e l ->
   constant_nonneg_bounds e ->
   (forall x (r : result) (idxs : list Z) (val : scalar_result),
       ctx $? x = Some r ->
       result_lookup_Z' idxs r val ->
-      prog_impl_fact datalog_ctx (str_rel x, Robj (toR val) :: map Zobj idxs)) ->
-  forall idxs name val idx_ctx idx_ctx',
+      exists idxs' n,
+        map.get depths x = Some n /\
+          n <= length idx_ctx /\
+          Forall2 (interp_expr (context_of v)) (map lower_idx_with_offset (firstn n idx_ctx)) idxs' /\
+          prog_impl_fact datalog_ctx (str_rel x, Robj (toR val) :: idxs' ++ map Zobj idxs)) ->
+  forall idxs name val idx_ctx',
     result_lookup_Z' idxs r val ->
     Forall2 (interp_expr (context_of v)) (map lower_idx_with_offset idx_ctx) idx_ctx' ->
-    prog_impl_fact (snd (lower e out name idx_ctx) ++ datalog_ctx ++ [true_rule]) (out, Robj (toR val) :: idx_ctx' ++ map Zobj idxs).
+    prog_impl_fact (snd (lower e out name idx_ctx depths) ++ datalog_ctx ++ [true_rule]) (out, Robj (toR val) :: idx_ctx' ++ map Zobj idxs).
 Proof.
-  revert out sh v ctx r datalog_ctx l. induction e.
+  revert idx_ctx depths out sh v ctx r datalog_ctx l. induction e.
   - simpl. intros. apply invert_eval_gen in H.
     destruct H as (loz&hiz&rl&Hrl&Hlen&Hlo&Hhi&Hbody). subst.
     move IHe at bottom. invert H3. move Hbody at bottom. specialize (Hbody (loz + x)%Z).
@@ -2223,10 +2229,16 @@ Proof.
     rewrite H6 in Hbody. rewrite add_fmap_of in Hbody.
     specialize IHe with (1 := Hbody). invert H0.
     destruct H1 as (_&_&_&H1).
-    specialize IHe with (1 := H11) (2 := H1) (3 := H2).
-    specialize IHe with (1 := H8).
-    epose proof (IHe _ _ (idx_ctx ++ [(i, lo)]) _) as IHe.
+    specialize IHe with (1 := H11) (2 := H1) (4 := H8).
+    epose proof (IHe (idx_ctx ++ [(i, lo)]) _ _ _) as IHe.
     specialize' IHe.
+    { move H2 at bottom. intros.
+      specialize (H2 _ _ _ _ ltac:(eassumption) ltac:(eassumption)). fwd.
+      eexists. eexists. rewrite length_app. simpl. intuition eauto; try lia.
+      move H2p2 at bottom. rewrite firstn_app. replace (_ - _) with O by lia.
+      simpl. rewrite app_nil_r. eapply Forall2_impl; [|eassumption].
+      intros. eapply interp_expr_subst_more; eauto. extends_solver. }
+    epose proof (IHe _ _) as IHe. specialize' IHe.
     { repeat rewrite map_app. apply Forall2_app.
       - move H4 at bottom. eapply Forall2_impl; [|eassumption]. simpl. intros a b Hab.
         eapply interp_expr_subst_more; eauto. extends_solver.
@@ -2369,26 +2381,36 @@ Proof.
         constructor. }
       constructor.
   - simpl. intros. destruct H1 as (H1&H1_). invert H0. invert H.
-    + eapply prog_impl_fact_subset; [assumption|..].
-      2: { eapply IHe2 with (name := name); eauto. intros * H1' H2'. 
-           apply lookup_split in H1'. destruct H1' as [(H1'&H3')|(H1'&H3')].
-           2: { subst.
-                specialize IHe1 with (name := name).
-                (*oops let-binding is actually a bit harder than i thought*)
-                simpl in IHe1. eapply IHe1; eauto. }
-           eapply prog_impl_fact_subset; [assumption|..]. 2: eauto. intros.
-           repeat rewrite in_app_iff. simpl. tauto. }
-      intros. destr_lower. destr_lower. simpl. repeat rewrite in_app_iff in *. tauto.
-    + (*copy-pasted*)
+    + destr_lower. destr_lower. simpl.
       eapply prog_impl_fact_subset; [assumption|..].
-      2: { eapply IHe2 with (name := name); eauto. intros * H1' H2'. 
+      2: { eapply IHe2 with (name := name') (depths := map.put depths x _); eauto.
+           intros * H1' H2'. 
            apply lookup_split in H1'. destruct H1' as [(H1'&H3')|(H1'&H3')].
-           2: { subst.
-                specialize IHe1 with (name := name) (idx_ctx := nil) (idx_ctx' := nil).
-                simpl in IHe1. eapply IHe1; eauto. }
-           eapply prog_impl_fact_subset; [assumption|..]. 2: eauto. intros.
-           repeat rewrite in_app_iff. simpl. tauto. }
-      intros. repeat rewrite in_app_iff in *. tauto.
+           2: { subst. specialize IHe1 with (name := name).
+                simpl in IHe1. move IHe1 at bottom. eexists. exists (length idx_ctx).
+                rewrite map.get_put_same. split; [reflexivity|]. split; [lia|].
+                rewrite firstn_all. split; [eassumption|]. eapply IHe1; eauto. } 
+           move H2 at bottom.
+           specialize (H2 _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+           fwd. do 2 eexists. rewrite map.get_put_diff by eassumption. intuition eauto.
+           eapply prog_impl_fact_subset; [assumption| |eassumption].
+           intros. repeat rewrite in_app_iff. simpl. tauto. }
+      rewrite E, E0. intros. repeat rewrite in_app_iff in *. tauto.
+    + destr_lower. destr_lower. simpl.
+      eapply prog_impl_fact_subset; [assumption|..].
+      2: { eapply IHe2 with (name := name') (depths := map.put depths x _); eauto.
+           intros * H1' H2'. 
+           apply lookup_split in H1'. destruct H1' as [(H1'&H3')|(H1'&H3')].
+           2: { subst. specialize IHe1 with (name := name).
+                simpl in IHe1. move IHe1 at bottom. eexists. exists (length idx_ctx).
+                rewrite map.get_put_same. split; [reflexivity|]. split; [lia|].
+                rewrite firstn_all. split; [eassumption|]. eapply IHe1; eauto. } 
+           move H2 at bottom.
+           specialize (H2 _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+           fwd. do 2 eexists. rewrite map.get_put_diff by eassumption. intuition eauto.
+           eapply prog_impl_fact_subset; [assumption| |eassumption].
+           intros. repeat rewrite in_app_iff. simpl. tauto. }
+      rewrite E, E0. intros. repeat rewrite in_app_iff in *. tauto.
   - simpl. intros. destruct H1 as (He1&He2). invert H0. invert H.
     pose proof ResultToArrayDelta.constant_nonneg_bounds_size_of_eval_expr_result_has_shape as He1'.
     specialize He1' with (1 := He1). specialize (He1' _ ltac:(eassumption) _ _ _ _ ltac:(eassumption)).
