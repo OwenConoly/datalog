@@ -108,6 +108,16 @@ Section __.
   Definition prog_impl_fact (p : list rule) : rel * list T -> Prop :=
     pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
 
+  Inductive partial_pftree {T : Type} (P : T -> list T -> Prop) : T -> list T -> Prop :=
+  | partial_in x l : In x l -> partial_pftree _ x l
+  | partial_step x l ls :
+    P x l ->
+    Forall2 (partial_pftree _) l ls ->
+    partial_pftree _ x (flat_map (fun x => x) ls).
+
+  Definition prog_impl_implication (p : list rule) : rel * list T -> list (rel * list T) -> Prop :=
+    partial_pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
+  
   Lemma pftree_ind {U : Type} (P : U -> list U -> Prop) Q :
     (forall x l,
         P x l ->
@@ -215,12 +225,12 @@ Section __.
       clear -H3 H4 H. revert args'0 H3. induction H4; intros; invert H; invert H3.
       + reflexivity.
       + f_equal; auto.
-  Qed.      
+  Qed.
   
   (*for any relation, we may think of some arguments to the relation as inputs, and others as outputs.  I think we do not actually care whether there is a functional dependence there.  by convention, we say that fact_args is always of the form outputs ++ inputs.  now, the function outs gives the number of outputs of a given relation. this suffices to determine the inputs, too.*)
   Context (outs: rel -> nat).
-  Definition fact_outs f := skipn (outs f.(fact_R)) f.(fact_args).
-  Definition fact_ins f := firstn (outs f.(fact_R)) f.(fact_args).
+  Definition fact_outs f := firstn (outs f.(fact_R)) f.(fact_args).
+  Definition fact_ins f := skipn (outs f.(fact_R)) f.(fact_args).
 
   Definition with_only_ins (f : fact) :=
     {| fact_R := f.(fact_R); fact_args := fact_ins f |}.
@@ -294,13 +304,18 @@ Section __.
               In v invars).
     
   (* Hint Unfold appears_in_fact fact_ins fact_outs : core. *)  
+
+  Lemma In_skipn {A : Type} (x : A) n l :
+    In x (skipn n l) ->
+    In x l.
+  Proof. intros. erewrite <- firstn_skipn. apply in_app_iff. eauto. Qed.
   
   Lemma appears_with_only_ins v f :
     appears_in_fact v (with_only_ins f) ->
     appears_in_fact v f.
   Proof.
     intros H. cbv [appears_in_fact] in *. simpl in *. cbv [fact_ins] in H.
-    rewrite Exists_exists in *. fwd. apply In_firstn_to_In in Hp0. eauto.
+    rewrite Exists_exists in *. fwd. Search In skipn. apply In_skipn in Hp0. eauto.
   Qed.
 
   Lemma barely_appears_with_only_ins v f :
@@ -308,7 +323,7 @@ Section __.
     barely_appears_in_fact v f.
   Proof.
     intros H. cbv [barely_appears_in_fact] in *. simpl in *. cbv [fact_ins] in H.
-    apply In_firstn_to_In in H. assumption.
+    apply In_skipn in H. assumption.
   Qed.
 
   Lemma appears_in_rule_request_hyps v r :
@@ -366,7 +381,7 @@ Section __.
       + intros H'. fwd. apply in_map_iff in H0p0. fwd. invert H0p1. eauto.
       + rewrite <- Hgoodp1 in H0p0. constructor. cbv [appears_in_fact].
         apply Exists_exists. cbv [fact_ins] in H0p0. Search In firstn.
-        apply In_firstn_to_In in H0p0. eauto.
+        apply In_skipn in H0p0. eauto.
     - right. right. eauto.
   Qed.
 
@@ -383,7 +398,91 @@ Section __.
       cbv [barely_appears_in_fact]. simpl. apply in_map. assumption.
   Qed.
 
-  Lemma 
+
+  (*[rs1 smaller than rs2] mod P*)
+  Definition smaller_than_mod (rs1 rs2 : list rule) (P : rel * list T -> Prop) :=
+    forall f fs1,
+      prog_impl_implication rs1 f fs1 ->
+      exists fs2,
+        prog_impl_implication rs2 f fs2 /\
+          Forall (fun f' => P f' \/ In f' fs1) fs2.
+
+  Lemma rule_impl_add_hyp R r outs' ins' hyps' :
+    goodish_rule r ->
+    length outs' = outs R ->
+    rule_impl r (R, outs' ++ ins') hyps' ->
+    rule_impl (add_hyp r) (R, outs' ++ ins') ((R, ins') :: hyps').
+  Proof.
+    intros Hgood Hlen H. cbv [goodish_rule] in Hgood. fwd.
+    invert H; cbv [add_hyp]; simpl in *; subst; repeat invert_list_stuff.
+    - econstructor.
+      + constructor. eassumption.
+      + simpl. constructor; [|eassumption]. cbv [with_only_ins]. rewrite Hgoodp1.
+        invert H2. eassert (fact_R concl = _) as ->. 2: econstructor. 1: reflexivity.
+        simpl. cbv [fact_ins] in Hgoodp1. revert H3. eassert (fact_args concl = _) as ->.
+        { erewrite <- (firstn_skipn _ (fact_args _)). rewrite Hgoodp1. reflexivity. }
+        intros H2.  apply Forall2_app_inv_l in H2. fwd. assert (outs' = l1').
+        { apply Forall2_length in H2p0. rewrite <- Hgoodp1 in H2p1.
+          rewrite length_firstn in H2p0. apply Forall2_length in H2p1.
+          rewrite length_skipn in H2p1.
+          eassert (H: forall x y, x = y -> length x = length y) by (intros; subst; reflexivity).
+          pose proof H2p2 as H'. apply H in H2p2. do 2 rewrite length_app in H2p2.
+          assert (length outs' = length l1') by lia. clear -H' H0.
+          revert l1' H' H0. induction outs'; destruct l1'; simpl; auto; try lia.
+          intros H'. invert H'. intros. f_equal. auto. }
+        subst. apply app_inv_head in H2p2. subst. assumption.
+    - invert H3. econstructor.
+      + eassumption.
+      + constructor. constructor. assumption.
+      + simpl. constructor; [|eassumption]. cbv [with_only_ins]. rewrite Hgoodp1.
+        eassert (fact_R concl = _) as ->. 2: econstructor. 1: reflexivity.
+        simpl. cbv [fact_ins] in Hgoodp1. revert H4. eassert (fact_args concl = _) as ->.
+        { erewrite <- (firstn_skipn _ (fact_args _)). rewrite Hgoodp1. reflexivity. }
+        intros H3.  apply Forall2_app_inv_l in H3. fwd. assert (outs' = l1').
+        { apply Forall2_length in H3p0. rewrite <- Hgoodp1 in H3p1.
+          rewrite length_firstn in H3p0. apply Forall2_length in H3p1.
+          rewrite length_skipn in H3p1.
+          eassert (H: forall x y, x = y -> length x = length y) by (intros; subst; reflexivity).
+          pose proof H3p2 as H'. apply H in H3p2. do 2 rewrite length_app in H3p2.
+          assert (length outs' = length l1') by lia. clear -H' H1.
+          revert l1' H' H1. induction outs'; destruct l1'; simpl; auto; try lia.
+          intros H'. invert H'. intros. f_equal. auto. }
+        subst. apply app_inv_head in H3p2. subst. clear - H3p1 Hgoodp2 context_ok.
+        revert l2' H3p1. induction invars; intros; simpl in *; repeat invert_list_stuff.
+        -- constructor.
+        -- constructor.
+           ++ invert H1. constructor. rewrite map.get_put_diff in H0; auto.
+              intros H'. subst. apply Hgoodp2. eauto.
+           ++ eapply IHinvars; eauto. intros H'. apply Hgoodp2. fwd. eauto.
+  Qed.
+  
+  Lemma good_rule_equiv datalog_ctx datalog_ctx' r :
+    goodish_rule r ->
+    (forall R ins' outs',
+        length outs' = outs R ->
+        prog_impl_fact datalog_ctx (R, outs' ++ ins') <->
+          prog_impl_fact datalog_ctx' (R, outs' ++ ins') /\
+            prog_impl_fact datalog_ctx' (R, ins')) ->
+    (forall R ins' outs',
+        length outs' = outs R ->
+        prog_impl_fact (r :: datalog_ctx) (R, outs' ++ ins') <->
+          prog_impl_fact (request_hyps r :: add_hyp r :: datalog_ctx') (R, outs' ++ ins') /\
+            prog_impl_fact (request_hyps r :: add_hyp r :: datalog_ctx') (R, ins')).
+  Proof.
+    intros. split.
+    - intros H'. remember (outs' ++ ins') as args' eqn:E. revert outs' ins' H1 E.
+      remember (R2, args') as x eqn:Ex. revert args' R2 Ex.
+      induction H'. intros. subst. split.
+      + invert H1.
+        -- econstructor.
+           { apply Exists_cons_tl. apply Exists_cons_hd. apply rule_impl_add_hyp; eauto. }
+           constructor.
+           2: { eapply Forall_impl; [|eassumption]. simpl. intros (a1&a2) Ha.
+                specialize (Ha _ _ ltac:(reflexivity)).
+           
+             cbv [add_hyp].
+          2: { apply Exists_cons_
+        
 
 End __.
 Arguments Build_rule {_ _ _ _}.
