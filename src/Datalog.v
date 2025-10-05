@@ -288,10 +288,10 @@ Section __.
   (*     ~(exists ae, r.(rule_agg) = Some (v, ae)) /\ Exists (fun f => Exists (appears_in_expr v) (outs f)) r.(rule_concls) \/ *)
   (*     (exists w ae, r.(rule_agg) = Some (w, ae) /\ appears_in_agg_expr v ae). *)
 
-  Context (outs : rel -> nat).
+  Context (ins : rel -> nat).
 
-  Definition fact_outs (f : fact) := firstn (outs f.(fact_R)) f.(fact_args).
-  Definition fact_ins (f : fact) := skipn (outs f.(fact_R)) f.(fact_args).
+  Definition fact_outs (f : fact) := skipn (ins f.(fact_R)) f.(fact_args).
+  Definition fact_ins (f : fact) := firstn (ins f.(fact_R)) f.(fact_args).
 
   Definition with_only_ins (f : fact) :=
     {| fact_R := f.(fact_R); fact_args := fact_ins f |}.
@@ -323,7 +323,7 @@ Section __.
     appears_in_fact v f.
   Proof.
     intros H. cbv [appears_in_fact] in *. simpl in *. cbv [fact_ins] in H.
-    rewrite Exists_exists in *. fwd. Search In skipn. apply In_skipn in Hp0. eauto.
+    rewrite Exists_exists in *. fwd. apply In_firstn_to_In in Hp0. eauto.
   Qed.
 
   Lemma barely_appears_with_only_ins v f :
@@ -331,7 +331,7 @@ Section __.
     barely_appears_in_fact v f.
   Proof.
     intros H. cbv [barely_appears_in_fact] in *. simpl in *. cbv [fact_ins] in H.
-    apply In_skipn in H. assumption.
+    apply In_firstn_to_In in H. assumption.
   Qed.
 End __.
 Arguments fact : clear implicits.
@@ -411,15 +411,15 @@ Section Transform.
   Context (get_set : T -> option (list T)).
   Context (agg_id : aggregator -> T).
   Context (interp_agg : aggregator -> T -> T -> T).
-  Context (outs : rel -> nat).
+  Context (ins : rel -> nat).
   Local Notation rule' := (rule (rel*bool) var fn aggregator).
   Local Notation rule := (rule rel var fn aggregator).
   Local Notation fact' := (@fact (rel*bool) var fn).
   Local Notation fact := (@fact rel var fn).
-  Local Notation with_only_ins := (with_only_ins outs).
+  Local Notation with_only_ins := (with_only_ins ins).
   Local Notation agg_expr' := (agg_expr (rel * bool) var fn aggregator).
   Local Notation agg_expr := (agg_expr rel var fn aggregator).
-  Local Notation goodish_rule := (goodish_rule outs).
+  Local Notation goodish_rule := (goodish_rule ins).
   Print rule_impl.
   Local Notation rule_impl := (rule_impl interp_fun get_set agg_id interp_agg).
   Local Notation prog_impl_fact := (prog_impl_fact interp_fun get_set agg_id interp_agg).
@@ -509,7 +509,7 @@ Section Transform.
       + intros H'. fwd. apply in_map_iff in H0p0. fwd. invert H0p1. eauto.
       + rewrite <- Hgoodp1 in H0p0. constructor. cbv [appears_in_fact].
         apply Exists_exists. cbv [fact_ins] in H0p0. Search In firstn.
-        apply In_skipn in H0p0. eauto.
+        apply In_firstn_to_In in H0p0. eauto.
     - right. right. destruct_option_map_Some. destruct p. invert H0. eauto 10.
   Qed.
 
@@ -554,14 +554,24 @@ Section Transform.
       
   (*   2: eassumption. *)
 
-  Lemma rule_impl_add_hyp R r outs' ins' hyps' :
-    goodish_rule r ->
-    length outs' = outs R ->
-    rule_impl r (R, outs' ++ ins') hyps' ->
-    rule_impl (add_hyp r) ((R, true), outs' ++ ins')
-      (((R, false), ins') :: map (fact'_relmap plus_true) hyps').
+  Lemma Forall2_map_l (A B C : Type) R (f : A -> B) (l1 : list A) (l2 : list C) :
+    Forall2 (fun x => R (f x)) l1 l2 <->
+      Forall2 R (map f l1) l2.
   Proof.
-    intros Hgood Hlen H. cbv [goodish_rule] in Hgood. fwd.
+    split; intros H.
+    - induction H. 1: constructor. constructor; assumption.
+    - remember (map f l1) as l1' eqn:E. revert l1 E. induction H; intros l1 Hl1.
+      + destruct l1; inversion Hl1. constructor.
+      + destruct l1; inversion Hl1. subst. constructor; auto.
+  Qed.
+
+  Lemma rule_impl_add_hyp R r args' hyps' :
+    goodish_rule r ->
+    rule_impl r (R, args') hyps' ->
+    rule_impl (add_hyp r) ((R, true), args')
+      (((R, false), firstn (ins R) args') :: map (fact'_relmap plus_true) hyps').
+  Proof.
+    intros Hgood H. cbv [goodish_rule] in Hgood. fwd.
     invert H; cbv [add_hyp]; simpl in *; subst; invert_list_stuff.
     - econstructor.
       + constructor. eapply interp_fact_relmap with (g := plus_true) in H2. eassumption.
@@ -571,16 +581,17 @@ Section Transform.
         invert H2. eassert (fact_R concl = _) as ->. 2: econstructor. 1: reflexivity.
         simpl. cbv [fact_ins] in Hgoodp1. revert H3. eassert (fact_args concl = _) as ->.
         { erewrite <- (firstn_skipn _ (fact_args _)). rewrite Hgoodp1. reflexivity. }
-        intros H2.  apply Forall2_app_inv_l in H2. fwd. assert (outs' = l1').
-        { apply Forall2_length in H2p0. rewrite <- Hgoodp1 in H2p1.
-          rewrite length_firstn in H2p0. apply Forall2_length in H2p1.
-          rewrite length_skipn in H2p1.
-          eassert (H: forall x y, x = y -> length x = length y) by (intros; subst; reflexivity).
-          pose proof H2p2 as H'. apply H in H2p2. do 2 rewrite length_app in H2p2.
-          assert (length outs' = length l1') by lia. clear -H' H0.
-          revert l1' H' H0. induction outs'; destruct l1'; simpl; auto; try lia.
-          intros H'. invert H'. intros. f_equal. auto. }
-        subst. apply app_inv_head in H2p2. subst. assumption.
+        intros H2.  apply Forall2_app_inv_l in H2. fwd. eassert (firstn _ _ = _) as ->.
+        2: eassumption. apply Forall2_length in H2p0, H2p1.
+        eassert (H: forall x y, x = y -> length x = length y) by (intros; subst; reflexivity).
+        apply H in Hgoodp1. rewrite length_firstn in *. rewrite length_map in *.
+        rewrite length_skipn in *. rewrite <- Hgoodp1 in H2p0.
+        assert (length l1' <= ins (fact_R concl)) by lia.
+        assert (H': length l1' = ins (fact_R concl) \/ length l2' = 0) by lia.
+        destruct H' as [H'|H'].
+        -- Search firstn _ (_ ++ _). rewrite firstn_app_l by auto. reflexivity.
+        -- destruct l2'; [|discriminate H']. rewrite app_nil_r.
+           apply firstn_all2. lia.
     - invert H3. econstructor.
       + eauto.
       + simpl. constructor. constructor. assumption.
@@ -590,24 +601,21 @@ Section Transform.
         eassert (fact_R concl = _) as ->. 2: econstructor. 1: reflexivity.
         simpl. cbv [fact_ins] in Hgoodp1. revert H4. eassert (fact_args concl = _) as ->.
         { erewrite <- (firstn_skipn _ (fact_args _)). rewrite Hgoodp1. reflexivity. }
-        intros H3.  apply Forall2_app_inv_l in H3. fwd. assert (outs' = l1').
-        { apply Forall2_length in H3p0. rewrite <- Hgoodp1 in H3p1.
-          rewrite length_firstn in H3p0. apply Forall2_length in H3p1.
-          rewrite length_skipn in H3p1.
-          eassert (H: forall x y, x = y -> length x = length y) by (intros; subst; reflexivity).
-          pose proof H3p2 as H'. apply H in H3p2. do 2 rewrite length_app in H3p2.
-          assert (length outs' = length l1') by lia. clear -H' H1.
-          revert l1' H' H1. induction outs'; destruct l1'; simpl; auto; try lia.
-          intros H'. invert H'. intros. f_equal. auto. }
-        subst. apply app_inv_head in H3p2. subst. clear - H3p1 Hgoodp2 context_ok.
-        revert l2' H3p1. induction invars; intros; simpl in *; repeat invert_list_stuff.
-        -- constructor.
-        -- constructor.
-           ++ invert H1. constructor. rewrite map.get_put_diff in H0; auto.
-              intros H'. subst. apply Hgoodp2. eauto.
-           ++ eapply IHinvars; eauto. intros H'. apply Hgoodp2. fwd. eauto.
+        intros H3.  apply Forall2_app_inv_l in H3. fwd. eassert (firstn _ _ = _) as ->.
+        2: { rewrite <- Forall2_map_l in *. eapply Forall2_impl_strong; [|eassumption].
+             simpl. intros. invert H. constructor. rewrite map.get_put_diff in H5; auto.
+             intros ?. subst. eauto. }
+        apply Forall2_length in H3p0, H3p1.
+        eassert (H: forall x y, x = y -> length x = length y) by (intros; subst; reflexivity).
+        apply H in Hgoodp1. rewrite length_firstn in *. rewrite length_map in *.
+        rewrite length_skipn in *. rewrite <- Hgoodp1 in H3p0.
+        assert (length l1' <= ins (fact_R concl)) by lia.
+        assert (H': length l1' = ins (fact_R concl) \/ length l2' = 0) by lia.
+        destruct H' as [H'|H'].
+        -- Search firstn _ (_ ++ _). rewrite firstn_app_l by auto. reflexivity.
+        -- destruct l2'; [|discriminate H']. rewrite app_nil_r.
+           apply firstn_all2. lia.
   Qed.
-
   (*S is a set of facts proved by program p.  f S is set of facts proved by goodifying p*)
   Definition f (S : rel * list T -> Prop) (x : (rel * bool) * list T) :=
     let '((R, b), args) := x in
@@ -615,13 +623,54 @@ Section Transform.
 
   Definition g (S' : (rel * bool) * list T -> Prop) (x : rel * list T) :=
     let '(R, args) := x in
-    S' ((R, true), args).
+    S' ((R, false), firstn (ins R) args) -> S' ((R, true), args).
 
   Lemma invert_rule_impl_request_hyps R r b ins' hyps' :
     rule_impl (request_hyps r) (R, b, ins') hyps' -> b = false.
   Proof.
     intros H. invert H. apply Exists_exists in H2. fwd. rewrite map_map in H2p0.
     apply in_map_iff in H2p0. fwd. invert H2p1. reflexivity.
+  Qed.
+
+  Search Forall2.
+  Lemma Forall2_In_r {X Y : Type} (R : X -> Y -> Prop) xs ys y :
+    Forall2 R xs ys ->
+    In y ys ->
+    Exists (fun x => R x y) xs.
+  Proof. Admitted.
+
+  Lemma Forall2_firstn {X Y : Type} (R : X -> Y -> Prop) xs ys n :
+    Forall2 R xs ys ->
+    Forall2 R (firstn n xs) (firstn n ys).
+  Proof. Admitted.
+
+  Lemma rule_impl_request_hyps r R args R' args' hyps' :
+    goodish_rule r (*very necessary, finally*)->
+    rule_impl r (R, args) hyps' ->
+    In (R', args') hyps' ->
+    rule_impl (request_hyps r) (R', false, firstn (ins R') args')
+      [(R, false, firstn (ins R) args)].
+  Proof.
+    intros Hgood H Hin. cbv [goodish_rule] in Hgood. fwd. cbv [request_hyps].
+    rewrite Hgoodp0. simpl. unfold with_only_ins at 2. rewrite Hgoodp1. simpl.
+    unfold fact_relmap at 2. simpl. invert H; simpl in *.
+    - econstructor.
+      + do 2 rewrite Exists_map. eapply Exists_impl. 2: eapply Forall2_In_r; eauto.
+        simpl. intros f Hf. invert Hf. constructor. simpl. cbv [fact_ins].
+        apply Forall2_firstn. eassumption.
+      + constructor; [|solve[constructor]]. rewrite Hgoodp0 in H0. invert_list_stuff.
+        invert H2. constructor. simpl. rewrite <- Hgoodp1. cbv [fact_ins].
+        apply Forall2_firstn. assumption.
+    - econstructor.
+      + do 2 rewrite Exists_map. eapply Exists_impl. 2: eapply Forall2_In_r; eauto.
+        simpl. intros f Hf. invert Hf. constructor. simpl. cbv [fact_ins].
+        apply Forall2_firstn. eassumption.
+      + constructor; [|solve[constructor]]. rewrite Hgoodp0 in H1. invert_list_stuff.
+        invert H3. constructor. simpl. eapply Forall2_impl_strong.
+        2: { rewrite <- Hgoodp1. cbv [fact_ins]. apply Forall2_firstn. eassumption. }
+        intros x y Hxy Hx Hy. apply in_map_iff in Hx. clear Hy. fwd. invert Hxy.
+        constructor. rewrite map.get_put_diff in H1; auto. intros ?. subst.
+        apply Hgoodp2. eauto.
   Qed.
   
   Lemma invert_rule_impl_add_hyp S r R b args' hyps' :
@@ -683,28 +732,31 @@ Section Transform.
   Lemma f_fixpoint r S :
     goodish_rule r ->
     fp (F [r]) S ->
-    fp (F [(*request_hyps r;*) add_hyp r]) (f S).
+    fp (F [request_hyps r; add_hyp r]) (f S).
   Proof.
     cbv [fp F]. intros Hgood H x Hx. destruct Hx as [Hx|Hx]; [assumption|].
-    fwd. destruct x as [[R b] args]. invert_list_stuff.
-    (*- apply invert_rule_impl_request_hyps in H1. subst. simpl. constructor.
-    -*) eapply invert_rule_impl_add_hyp in H1; eauto. fwd. simpl.
+    fwd. destruct x as [[R b] args]. invert Hxp0.
+    - apply invert_rule_impl_request_hyps in H1. subst. simpl. constructor.
+    - invert_list_stuff. eapply invert_rule_impl_add_hyp in H2; eauto. fwd. simpl.
       apply H. right. eauto.
   Qed.
-  
+
   Lemma g_fixpoint r S :
     goodish_rule r ->
-    (*TODO: add here some premise of the form S x,
-      saying that the conclusion of r wants to be computed*)
-    fp (F [(*request_hyps r;*) add_hyp r]) S -> fp (F [r]) (g S).
+    fp (F [request_hyps r; add_hyp r]) S -> fp (F [r]) (g S).
   Proof.
     cbv [fp F]. intros Hgood H x Hx. destruct Hx as [Hx|Hx]; [assumption|].
     fwd. destruct x as [R args]. invert_list_stuff. Search rule_impl.
-    pose proof rule_impl_add_hyp as H1'. specialize H1' with (1 := Hgood).
-    simpl. apply H. right.
-  Abort.
-
-
+    pose proof rule_impl_add_hyp as H1'. specialize H1' with (1 := Hgood) (2 := H1).
+    simpl. intros Hwant. apply H. right. eexists. split.
+    { apply Exists_cons_tl. constructor. eassumption. }
+    constructor.
+    { assumption. }
+    apply Forall_map. pose proof Hxp1 as H'. rewrite Forall_forall in H'.
+    rewrite Forall_forall. intros [R' args'] Hx. specialize H' with (1 := Hx).
+    apply H'. apply H. right. exists [(R, false, firstn (ins R) args)]. split.
+    2: eauto. constructor. eapply rule_impl_request_hyps; eauto.
+  Qed.
       
   Lemma tpgood p f' datalog_ctx:
     Forall goodish_rule p ->
