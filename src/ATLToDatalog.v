@@ -784,12 +784,6 @@ Proof.
     apply rule_impl_rel in H4, H5. fwd. exfalso. intuition eauto. 
 Qed.
 
-Ltac destruct_option_map_Some :=
-  match goal with
-  | H: option_map ?f ?x = Some ?y |- _ =>
-      destruct x eqn:?E; [cbn [option_map] in H; invert H|discriminate H]
-  end.
-
 (*
   I need to ensure that index and guard expressions only include variables in scope.
   Otherwise, functionality might not hold.
