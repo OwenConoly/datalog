@@ -147,13 +147,15 @@ Section __.
   Definition F p Q x :=
     Q x \/ exists hyps', Exists (fun r => rule_impl r x hyps') p /\ Forall Q hyps'.
 
-  Lemma app_fixpoint (p1 p2 : list rule) S  :
-    fp (F p1) S ->
-    fp (F p2) S ->
-    fp (F (p1 ++ p2)) S.
+  Lemma split_fixpoint (p : list rule) S  :
+    (forall r, In r p -> fp (F [r]) S) <->
+    fp (F p) S.
   Proof.
-    cbv [fp F]. intros H1 H2 x Hx. destruct Hx as [Hx|Hx]; eauto.
-    fwd. apply Exists_app in Hxp0. destruct Hxp0; eauto.
+    cbv [fp F]. split.
+    - intros H x Hx. destruct Hx as [Hx|Hx]; eauto.
+      fwd. apply Exists_exists in Hxp0. fwd. eapply H; eauto.
+    - intros H r Hr x Hx. destruct Hx as [Hx|Hx]; eauto. fwd. invert_list_stuff.
+      apply H. right. eexists. split; [|eassumption]. apply Exists_exists. eauto.
   Qed.
   
   Lemma prog_impl_fact_lfp p :
@@ -625,6 +627,8 @@ Section Transform.
     let '(R, args) := x in
     S' ((R, false), firstn (ins R) args) -> S' ((R, true), args).
 
+  (* Goal forall S x, f (g S) x = S x. intros S [ [R b] args]. simpl. *)
+
   Lemma invert_rule_impl_request_hyps R r b ins' hyps' :
     rule_impl (request_hyps r) (R, b, ins') hyps' -> b = false.
   Proof.
@@ -637,12 +641,12 @@ Section Transform.
     Forall2 R xs ys ->
     In y ys ->
     Exists (fun x => R x y) xs.
-  Proof. Admitted.
+  Proof. induction 1; simpl; intuition. subst. eauto. Qed.    
 
   Lemma Forall2_firstn {X Y : Type} (R : X -> Y -> Prop) xs ys n :
     Forall2 R xs ys ->
     Forall2 R (firstn n xs) (firstn n ys).
-  Proof. Admitted.
+  Proof. intros H. revert n. induction H; destruct n; simpl; eauto. Qed.
 
   Lemma rule_impl_request_hyps r R args R' args' hyps' :
     goodish_rule r (*very necessary, finally*)->
@@ -729,19 +733,19 @@ Section Transform.
       rewrite map_id in H5p1. apply H5p1.
   Qed.
 
-  Lemma f_fixpoint r S :
+  Lemma f_fixpoint' r S :
     goodish_rule r ->
     fp (F [r]) S ->
     fp (F [request_hyps r; add_hyp r]) (f S).
   Proof.
     cbv [fp F]. intros Hgood H x Hx. destruct Hx as [Hx|Hx]; [assumption|].
     fwd. destruct x as [[R b] args]. invert Hxp0.
-    - apply invert_rule_impl_request_hyps in H1. subst. simpl. constructor.
+    - simpl. apply invert_rule_impl_request_hyps in H1. subst. simpl. constructor.
     - invert_list_stuff. eapply invert_rule_impl_add_hyp in H2; eauto. fwd. simpl.
       apply H. right. eauto.
   Qed.
 
-  Lemma g_fixpoint r S :
+  Lemma g_fixpoint' r S :
     goodish_rule r ->
     fp (F [request_hyps r; add_hyp r]) S -> fp (F [r]) (g S).
   Proof.
@@ -757,7 +761,74 @@ Section Transform.
     apply H'. apply H. right. exists [(R, false, firstn (ins R) args)]. split.
     2: eauto. constructor. eapply rule_impl_request_hyps; eauto.
   Qed.
+
+  Lemma f_fixpoint p S :
+    Forall goodish_rule p ->
+    fp (F p) S ->
+    fp (F (make_good p)) (f S).
+  Proof.
+    intros H1 H2. pose proof f_fixpoint' as H'. rewrite Forall_forall in H1.
+    apply split_fixpoint. cbv [make_good]. intros r Hr.
+    apply in_app_iff in Hr. destruct Hr as [Hr|Hr]; apply in_map_iff in Hr; fwd.
+    - apply split_fixpoint. specialize (H1 _ ltac:(eassumption)).
+      rewrite <- split_fixpoint in H2. specialize (H2 _ ltac:(eassumption)).
+      specialize (H' _ _ ltac:(eassumption) ltac:(eassumption)).
+      rewrite <- split_fixpoint in H'. simpl in *. intros. apply H'. tauto.
+    - apply split_fixpoint. specialize (H1 _ ltac:(eassumption)).
+      rewrite <- split_fixpoint in H2. specialize (H2 _ ltac:(eassumption)).
+      specialize (H' _ _ ltac:(eassumption) ltac:(eassumption)).
+      rewrite <- split_fixpoint in H'. simpl in *. intros. apply H'. tauto.
+  Qed.
+
+  Lemma g_fixpoint p S :
+    Forall goodish_rule p ->
+    fp (F (make_good p)) S ->
+    fp (F p) (g S).
+  Proof.
+    intros H1 H2. pose proof g_fixpoint' as H'. rewrite Forall_forall in H1.
+    apply split_fixpoint. cbv [make_good]. intros r Hr.
+    specialize (H1 _ Hr). apply H'; [assumption|]. apply split_fixpoint.
+    intros r' Hr'. rewrite <- split_fixpoint in H2.
+    destruct Hr' as [Hr' | [Hr' | Hr'] ]; [| |exfalso; auto]; subst; apply H2; cbv [make_good]; apply in_app_iff; auto using in_map.
+  Qed.
+
+  Lemma gf_id S :
+    equiv S (g (f S)).
+  Proof. cbv [equiv g f]. intros [R args]. tauto. Qed.
+
+  Lemma g_mono_ish P S1 S2 :
+    (forall R args, P (R, args) -> S1 ((R, false), args)) ->
+    (forall x, S1 x -> f S2 x) ->
+    forall x, g S1 x -> g (f S2) x.
+  Proof. cbv [g]. intros HP H [R args]. intros. apply H. apply H0. apply cbv [f] in H. simpl. apply H. apply H0. apply tauto. eauto. 
+  
+  Lemma lfp_preimage p datalog_ctx :
+    Forall goodish_rule p ->
+    equiv (g (lfp (F (make_good p ++ datalog_ctx)))) (lfp (F p)).
+  Proof.
+    intros Hgood. eapply lfp_preimage. 4: exact gf_id.
+    3: eauto using g_fixpoint.
       
+  Lemma source_impl_target p datalog_ctx R args' :
+    prog_impl_fact p (R, args') ->
+    prog_impl_fact datalog_ctx ((R, false), firstn (ins R) args') ->
+    prog_impl_fact (make_good p ++ datalog_ctx) ((R, true), args').
+  Proof.
+    epose proof prog_impl_fact_lfp as H'. cbv [equiv] in H'.
+    epose proof lfp_preimage as H''. 
+    specialize (H'' (F p) (F (make_good p ++ datalog_ctx)) f g).
+    specialize' H''.
+    { admit. 
+    intros H1 H2. rewrite H'. rewrite <- H''. apply lfp_preimage. Search lfp. rewrite prog_impl_fact_lfp. Check prog_impl_fact_lfp.
+      
+  Lemma target_impl_source p datalog_ctx R args' :
+    prog_impl_fact p (R, args') ->
+    (*could easily weaken next hyp to say b = false \/ R not in set of p rels*)
+    (forall R b args', prog_impl_fact datalog_ctx ((R, b), args') -> b = false) ->
+    prog_impl_fact datalog_ctx ((R, false), firstn (ins R) args') ->
+    prog_impl_fact (make_good p ++ datalog_ctx) ((R, true), args').
+  Proof. Abort.
+
   Lemma tpgood p f' datalog_ctx:
     Forall goodish_rule p ->
     prog_impl_fact p f' ->
