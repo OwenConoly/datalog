@@ -683,24 +683,26 @@ Section Transform.
   Lemma f_fixpoint r S :
     goodish_rule r ->
     fp (F [r]) S ->
-    fp (F [request_hyps r; add_hyp r]) (f S).
+    fp (F [(*request_hyps r;*) add_hyp r]) (f S).
   Proof.
     cbv [fp F]. intros Hgood H x Hx. destruct Hx as [Hx|Hx]; [assumption|].
-    fwd. destruct x as [[R b] args]. invert Hxp0.
-    - apply invert_rule_impl_request_hyps in H1. subst. simpl. constructor.
-    - invert_list_stuff. eapply invert_rule_impl_add_hyp in H2; eauto. fwd. simpl.
+    fwd. destruct x as [[R b] args]. invert_list_stuff.
+    (*- apply invert_rule_impl_request_hyps in H1. subst. simpl. constructor.
+    -*) eapply invert_rule_impl_add_hyp in H1; eauto. fwd. simpl.
       apply H. right. eauto.
   Qed.
   
   Lemma g_fixpoint r S :
-    fp (F [request_hyps r; add_hyp r]) S -> fp (F [r]) (g S).
-  Proof. Abort.
-  
-  Definition fact_good_lengths (f : fact) :=
-    outs f.(fact_R) <= length 
-    
-  Definition rule_good_lengths (r : rule) :=
-    Forall
+    goodish_rule r ->
+    (*TODO: add here some premise of the form S x,
+      saying that the conclusion of r wants to be computed*)
+    fp (F [(*request_hyps r;*) add_hyp r]) S -> fp (F [r]) (g S).
+  Proof.
+    cbv [fp F]. intros Hgood H x Hx. destruct Hx as [Hx|Hx]; [assumption|].
+    fwd. destruct x as [R args]. invert_list_stuff. Search rule_impl.
+    pose proof rule_impl_add_hyp as H1'. specialize H1' with (1 := Hgood).
+    simpl. apply H. right.
+  Abort.
 
 
       
