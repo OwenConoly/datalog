@@ -618,10 +618,12 @@ Section Transform.
         -- destruct l2'; [|discriminate H']. rewrite app_nil_r.
            apply firstn_all2. lia.
   Qed.
-  (*S is a set of facts proved by program p.  f S is set of facts proved by goodifying p*)
-  Definition f (S : rel * list T -> Prop) (x : (rel * bool) * list T) :=
+  (*S is a set of facts proved by program p.
+    f S is set of facts proved by goodifying p.
+    We parameterize over the set P of things that we want to compute.*)
+  Definition f P (S : rel * list T -> Prop) (x : (rel * bool) * list T) :=
     let '((R, b), args) := x in
-    if b then S (R, args) else True.
+    if b then S (R, args) else P ((R, b), args).
 
   Definition g (S' : (rel * bool) * list T -> Prop) (x : rel * list T) :=
     let '(R, args) := x in
@@ -677,10 +679,10 @@ Section Transform.
         apply Hgoodp2. eauto.
   Qed.
   
-  Lemma invert_rule_impl_add_hyp S r R b args' hyps' :
+  Lemma invert_rule_impl_add_hyp P S r R b args' hyps' :
     goodish_rule r ->
     rule_impl (add_hyp r) ((R, b), args') hyps' ->
-    Forall (f S) hyps' ->
+    Forall (f P S) hyps' ->
     b = true /\
     exists hyps0',
       Forall S hyps0' /\ rule_impl r (R, args') hyps0'.
@@ -733,14 +735,30 @@ Section Transform.
       rewrite map_id in H5p1. apply H5p1.
   Qed.
 
-  Lemma f_fixpoint' r S :
+  Lemma request_hyps_hyps_false r R b args hyps' :
+    rule_impl (request_hyps r) (R, b, args) hyps' ->
+    Forall (fun hyp' => snd (fst hyp') = false) hyps'.
+  Proof.
+    intros H. cbv [request_hyps] in H. invert H. apply Forall_forall.
+    intros x Hx. eapply Forall2_In_r in H5. 2: eassumption.
+    rewrite Exists_map in H5. apply Exists_exists in H5. fwd. invert H5p1. reflexivity.
+  Qed.
+
+  Lemma f_fixpoint' r P S :
     goodish_rule r ->
     fp (F [r]) S ->
-    fp (F [request_hyps r; add_hyp r]) (f S).
+    fp (F [request_hyps r]) P ->
+    fp (F [request_hyps r; add_hyp r]) (f P S).
   Proof.
-    cbv [fp F]. intros Hgood H x Hx. destruct Hx as [Hx|Hx]; [assumption|].
+    cbv [fp F]. intros Hgood H HP x Hx. destruct Hx as [Hx|Hx]; [assumption|].
     fwd. destruct x as [[R b] args]. invert Hxp0.
-    - simpl. apply invert_rule_impl_request_hyps in H1. subst. simpl. constructor.
+    - simpl. pose proof H1 as H1'.
+      apply invert_rule_impl_request_hyps in H1. subst. apply HP. right.
+      exists hyps'. split.
+      { constructor. assumption. }
+      apply request_hyps_hyps_false in H1'. rewrite Forall_forall in Hxp1, H1'.
+      rewrite Forall_forall. intros x Hx. specialize (Hxp1 _ Hx). specialize (H1' _ Hx).
+      destruct x as [ [R' b'] args']. simpl in Hxp1, H1'. subst. assumption.
     - invert_list_stuff. eapply invert_rule_impl_add_hyp in H2; eauto. fwd. simpl.
       apply H. right. eauto.
   Qed.
@@ -755,7 +773,7 @@ Section Transform.
     simpl. intros Hwant. apply H. right. eexists. split.
     { apply Exists_cons_tl. constructor. eassumption. }
     constructor.
-    { assumption. }
+    { auto. }
     apply Forall_map. pose proof Hxp1 as H'. rewrite Forall_forall in H'.
     rewrite Forall_forall. intros [R' args'] Hx. specialize H' with (1 := Hx).
     apply H'. apply H. right. exists [(R, false, firstn (ins R) args)]. split.
@@ -796,8 +814,8 @@ Section Transform.
     equiv S (g (f S)).
   Proof. cbv [equiv g f]. intros [R args]. tauto. Qed.
 
-  Lemma g_mono_ish P S1 S2 :
-    (forall R args, P (R, args) -> S1 ((R, false), args)) ->
+  Lemma g_mono_ish S1 S2 :
+    (fp g S1) ->
     (forall x, S1 x -> f S2 x) ->
     forall x, g S1 x -> g (f S2) x.
   Proof. cbv [g]. intros HP H [R args]. intros. apply H. apply H0. apply cbv [f] in H. simpl. apply H. apply H0. apply tauto. eauto. 
