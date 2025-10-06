@@ -623,9 +623,9 @@ Section Transform.
     let '((R, b), args) := x in
     if b then S (R, args) else True.
 
-  Definition g (S' : (rel * bool) * list T -> Prop) (x : rel * list T) :=
+  Definition g S'0 (S' : (rel * bool) * list T -> Prop) (x : rel * list T) :=
     let '(R, args) := x in
-    S' ((R, false), firstn (ins R) args) -> S' ((R, true), args).
+    S'0 ((R, false), firstn (ins R) args) -> S' ((R, true), args).
 
   (* Goal forall S x, f (g S) x = S x. intros S [ [R b] args]. simpl. *)
 
@@ -747,7 +747,7 @@ Section Transform.
 
   Lemma g_fixpoint' r S :
     goodish_rule r ->
-    fp (F [request_hyps r; add_hyp r]) S -> fp (F [r]) (g S).
+    fp (F [request_hyps r; add_hyp r]) S -> fp (F [r]) (g S S).
   Proof.
     cbv [fp F]. intros Hgood H x Hx. destruct Hx as [Hx|Hx]; [assumption|].
     fwd. destruct x as [R args]. invert_list_stuff. Search rule_impl.
@@ -783,7 +783,7 @@ Section Transform.
   Lemma g_fixpoint p S :
     Forall goodish_rule p ->
     fp (F (make_good p)) S ->
-    fp (F p) (g S).
+    fp (F p) (g S S).
   Proof.
     intros H1 H2. pose proof g_fixpoint' as H'. rewrite Forall_forall in H1.
     apply split_fixpoint. cbv [make_good]. intros r Hr.
@@ -793,14 +793,14 @@ Section Transform.
   Qed.
 
   Lemma gf_id S :
-    equiv S (g (f S)).
+    equiv S (g (f S) (f S)).
   Proof. cbv [equiv g f]. intros [R args]. tauto. Qed.
 
-  Lemma g_mono_ish P S1 S2 :
-    (forall R args, P (R, args) -> S1 ((R, false), args)) ->
-    (forall x, S1 x -> f S2 x) ->
-    forall x, g S1 x -> g (f S2) x.
-  Proof. cbv [g]. intros HP H [R args]. intros. apply H. apply H0. apply cbv [f] in H. simpl. apply H. apply H0. apply tauto. eauto. 
+  Lemma g_mono_ish S0 S1 S2 :
+    (forall x, S1 x -> S2 x) ->
+    forall x, g S0 S1 x -> g S0 S2 x.
+  Proof. cbv [g]. intros H [R args]. intros. apply H. apply H0. apply X.
+  Qed.
   
   Lemma lfp_preimage p datalog_ctx :
     Forall goodish_rule p ->
