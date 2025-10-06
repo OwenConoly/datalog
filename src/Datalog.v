@@ -144,26 +144,29 @@ Section __.
       destruct Hx; eauto. fwd. econstructor; eauto.
   Qed.
 
-  Definition F p Q x :=
-    Q x \/ exists hyps', Exists (fun r => rule_impl r x hyps') p /\ Forall Q hyps'.
-
+  Definition F p Q Px :=
+    let '(P, x) := Px in
+    P x \/ Q (P, x) \/
+      exists hyps', Exists (fun r => rule_impl r x hyps') p /\ Forall (fun x => Q (P, x)) hyps'.
+  Check F. Check fp.
   Lemma split_fixpoint (p : list rule) S  :
+    p <> nil ->
     (forall r, In r p -> fp (F [r]) S) <->
     fp (F p) S.
-  Proof.
-    cbv [fp F]. split.
-    - intros H x Hx. destruct Hx as [Hx|Hx]; eauto.
-      fwd. apply Exists_exists in Hxp0. fwd. eapply H; eauto.
-    - intros H r Hr x Hx. destruct Hx as [Hx|Hx]; eauto. fwd. invert_list_stuff.
-      apply H. right. eexists. split; [|eassumption]. apply Exists_exists. eauto.
-  Qed.
+  Abort. (* Proof. *)
+  (*   cbv [fp F]. split. *)
+  (*   - intros H [P x] Hx. eapply H; eauto. destruct Hx as [Hx|Hx]; eauto. *)
+  (*     fwd. apply Exists_exists in Hxp0. fwd. eapply H; eauto. *)
+  (*   - intros H r Hr x Hx. destruct Hx as [Hx|Hx]; eauto. fwd. invert_list_stuff. *)
+  (*     apply H. right. eexists. split; [|eassumption]. apply Exists_exists. eauto. *)
+  (* Qed. *)
   
-  Lemma prog_impl_fact_lfp p :
-    equiv (prog_impl_fact p) (lfp (F p)).
-  Proof.
-    cbv [equiv]. intros x. cbv [prog_impl_fact].
-    epose proof pftree_lfp as H. cbv [equiv] in H. rewrite H. reflexivity.
-  Qed.
+  (* Lemma prog_impl_fact_lfp p : *)
+  (*   equiv (prog_impl_fact p) (lfp (F p)). *)
+  (* Proof. *)
+  (*   cbv [equiv]. intros x. cbv [prog_impl_fact]. *)
+  (*   epose proof pftree_lfp as H. cbv [equiv] in H. rewrite H. reflexivity. *)
+  (* Qed. *)
     
   Fixpoint expr_size (e : expr) :=
     match e with
@@ -618,18 +621,27 @@ Section Transform.
         -- destruct l2'; [|discriminate H']. rewrite app_nil_r.
            apply firstn_all2. lia.
   Qed.
-  (*S is a set of facts proved by program p.
-    f S is set of facts proved by goodifying p.
-    We parameterize over the set P of things that we want to compute.*)
-  Definition f P (S : rel * list T -> Prop) (x : (rel * bool) * list T) :=
+
+  Definition f (S : (rel * list T -> Prop) * (rel * list T) -> Prop)
+    (Px : ((rel * bool) * list T -> Prop) * ((rel * bool) * list T)) :=
+    let '(P, x) := Px in
     let '((R, b), args) := x in
-    if b then S (R, args) else P ((R, false), args).
+    if b then S (fun '(R, args) => P ((R, true), args), (R, args)) else
+      P ((R, false), args).
 
-  Definition g (S' : (rel * bool) * list T -> Prop) (x : rel * list T) :=
+  Definition g (S' : ((rel * bool) * list T -> Prop) * ((rel * bool) * list T) -> Prop)
+    (Px : ((rel * list T) -> Prop) * (rel * list T)) :=
+    let '(P, x) := Px in
     let '(R, args) := x in
-    S' ((R, false), firstn (ins R) args) /\ S' ((R, true), args).
+    S' (fun '((R', b'), args') => match b' with
+                               | true => P (R', args')
+                               | false => (R', args') = (R, firstn (ins R) args) end, ((R, true), args)).
 
-  (* Goal forall S x, f (g S) x = S x. intros S [ [R b] args]. simpl. *)
+  Goal forall S x, g (f S) x <-> S x.
+    intros S [P [R args]]. split.
+    - simpl. admit. (*very true*)
+    - simpl. admit. (*very true*)
+  Abort.
 
   Lemma invert_rule_impl_request_hyps R r b ins' hyps' :
     rule_impl (request_hyps r) (R, b, ins') hyps' -> b = false.
@@ -744,11 +756,10 @@ Section Transform.
     rewrite Exists_map in H5. apply Exists_exists in H5. fwd. invert H5p1. reflexivity.
   Qed.
 
-  Lemma f_fixpoint' r P S :
+  Lemma f_fixpoint' r S :
     goodish_rule r ->
     fp (F [r]) S ->
-    fp (F [request_hyps r]) P ->
-    fp (F [request_hyps r; add_hyp r]) (f P S).
+    fp (F [request_hyps r; add_hyp r]) (f S).
   Proof.
     cbv [fp F]. intros Hgood H HP x Hx. destruct Hx as [Hx|Hx]; [assumption|].
     fwd. destruct x as [[R b] args]. invert Hxp0.
