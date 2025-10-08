@@ -629,15 +629,6 @@ Section Transform.
       cbv [barely_appears_in_fact]. simpl. apply in_map. assumption.
   Qed.
 
-
-  (* (*[rs1 smaller than rs2] mod P*) *)
-  (* Definition smaller_than_mod (rs1 rs2 : list rule) (P : rel * list T -> Prop) := *)
-  (*   forall f fs1, *)
-  (*     prog_impl_implication rs1 f fs1 -> *)
-  (*     exists fs2, *)
-  (*       prog_impl_implication rs2 f fs2 /\ *)
-  (*         Forall (fun f' => P f' \/ In f' fs1) fs2. *)
-
   Hint Resolve interp_fact_relmap : core.
 
   Hint Extern 1 => unfold fact'_relmap; match goal with
@@ -645,17 +636,6 @@ Section Transform.
                   end : core.
 
   Hint Resolve interp_agg_expr_relmap : core.
-
-  (* Lemma prog_impl_request_hyps p f' : *)
-  (*   prog_impl_fact p f' -> *)
-  (*   let '(R, args) := f' in *)
-  (*   prog_impl_fact datalog_ctx ((R, false), skipn (outs R)) *)
-  (*   prog_impl_fact (map request_hyps p ++ datalog_ctx) ((R, false), skipn (outs R) args). *)
-  (* Proof. *)
-  (*   intros H. induction H. destruct x as [R args]. econstructor. *)
-  (*   { apply Exists_map. eapply Exists_impl; [|eassumption]. clear. simpl. intros r Hr. *)
-      
-  (*   2: eassumption. *)
 
   Lemma Forall2_map_l (A B C : Type) R (f : A -> B) (l1 : list A) (l2 : list C) :
     Forall2 (fun x => R (f x)) l1 l2 <->
@@ -947,9 +927,9 @@ Section Transform.
     intros H1 (Sgood1&Sgood2) H2. pose proof g_fixpoint' as H'. rewrite Forall_forall in H1.
     apply split_fixpoint; auto. cbv [make_good]. intros r Hr.
     apply H'; auto.
-    - apply split_fixpoint; auto.
-      intros r' Hr'. rewrite <- split_fixpoint in H2 by auto.
-      destruct Hr' as [Hr' | [Hr' | Hr'] ]; [| |exfalso; auto]; subst; apply H2; cbv [make_good]; apply in_app_iff; auto using in_map.
+    apply split_fixpoint; auto.
+    intros r' Hr'. rewrite <- split_fixpoint in H2 by auto.
+    destruct Hr' as [Hr' | [Hr' | Hr'] ]; [| |exfalso; auto]; subst; apply H2; cbv [make_good]; apply in_app_iff; auto using in_map.
   Qed.
 
   Lemma g_mono S1 S2 :
@@ -982,14 +962,8 @@ Section Transform.
     prog_impl_fact p (R, args') ->
     prog_impl_fact datalog_ctx ((R, false), firstn (ins R) args') ->
     prog_impl_fact (make_good p ++ datalog_ctx) ((R, true), args').
-  Proof.
-    epose proof prog_impl_fact_lfp as H'. cbv [equiv] in H'.
-    epose proof lfp_preimage as H''. 
-    specialize (H'' (F p) (F (make_good p ++ datalog_ctx)) f g).
-    specialize' H''.
-    { admit. 
-    intros H1 H2. rewrite H'. rewrite <- H''. apply lfp_preimage. Search lfp. rewrite prog_impl_fact_lfp. Check prog_impl_fact_lfp.
-      
+  Proof. Abort.
+  
   Lemma target_impl_source p datalog_ctx R args' :
     prog_impl_fact p (R, args') ->
     (*could easily weaken next hyp to say b = false \/ R not in set of p rels*)
@@ -997,69 +971,4 @@ Section Transform.
     prog_impl_fact datalog_ctx ((R, false), firstn (ins R) args') ->
     prog_impl_fact (make_good p ++ datalog_ctx) ((R, true), args').
   Proof. Abort.
-
-  Lemma tpgood p f' datalog_ctx:
-    Forall goodish_rule p ->
-    prog_impl_fact p f' ->
-    let '(R, args) := f' in
-    forall outs' ins',
-      args = outs' ++ ins' ->
-      length outs' = outs R ->
-      prog_impl_fact (map request_hyps p ++ map add_hyp p ++ datalog_ctx) ((R, false), ins') ->
-      prog_impl_fact (map request_hyps p ++ map add_hyp p ++ datalog_ctx) ((R, true), args).
-  Proof.
-    (*it bothers me that i can't come up with a nice intermediate lemma to prove, instead of this big thing all at once.*)
-    intros Hgood H. induction H. destruct x as [R args]. intros ? ? ? Hlen Hargs. subst.
-    econstructor.
-    { apply Exists_app. right. apply Exists_app. left. apply Exists_map.
-      apply Exists_exists in H. rewrite Forall_forall in Hgood. fwd.
-      apply Exists_exists. eexists; intuition eauto. apply rule_impl_add_hyp; eauto. }
-    constructor.
-    2: { apply Forall_map. eapply Forall_impl; [|eassumption]. simpl. intros a.
-         destruct a as [R0 args0']. intros Hargs'. simpl. eapply Hargs'.
-      1: rewrite length_firstn; lia. intuition eauto. eapply Exists_impl; [|eassumption]. simpl. intros r Hr.
-      apply rule_impl_add_hyp.
-    
-
-  Lemma rule_impl_request_hyps :
-    rule_impl (request_hyps r) ((R, false), ins') 
-
-  Lemma invert_rule_impl_add_hyp R r outs' ins' hyps' :
-    goodish_rule r ->
-    rule_impl (add_hyp r) f'0 hyps'0 ->
-    exists R hyps' outs' ins',
-      length outs' = outs R /\
-        
-    rule_impl r (R, outs' ++ ins') hyps' ->
-    rule_impl (add_hyp r) ((R, true), outs' ++ ins')
-      (((R, false), ins') :: map (fun '(R, args) => ((R, true), args)) hyps').
-  
-  
-  Lemma good_rule_equiv datalog_ctx datalog_ctx' r :
-    goodish_rule r ->
-    (forall R ins' outs',
-        length outs' = outs R ->
-        prog_impl_fact datalog_ctx (R, outs' ++ ins') <->
-          prog_impl_fact datalog_ctx' (R, outs' ++ ins') /\
-            prog_impl_fact datalog_ctx' (R, ins')) ->
-    (forall R ins' outs',
-        length outs' = outs R ->
-        prog_impl_fact (r :: datalog_ctx) (R, outs' ++ ins') <->
-          prog_impl_fact (request_hyps r :: add_hyp r :: datalog_ctx') (R, outs' ++ ins') /\
-            prog_impl_fact (request_hyps r :: add_hyp r :: datalog_ctx') (R, ins')).
-  Proof.
-    intros. split.
-    - intros H'. remember (outs' ++ ins') as args' eqn:E. revert outs' ins' H1 E.
-      remember (R2, args') as x eqn:Ex. revert args' R2 Ex.
-      induction H'. intros. subst. split.
-      + invert H1.
-        -- econstructor.
-           { apply Exists_cons_tl. apply Exists_cons_hd. apply rule_impl_add_hyp; eauto. }
-           constructor.
-           2: { eapply Forall_impl; [|eassumption]. simpl. intros (a1&a2) Ha.
-                specialize (Ha _ _ ltac:(reflexivity)).
-           
-             cbv [add_hyp].
-          2: {  apply Exists_cons_
-        
-
+End Transform.
