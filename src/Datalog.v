@@ -486,7 +486,7 @@ Section relmap.
   Proof. induction 1; simpl; fwd; intuition eauto. invert H. simpl. f_equal; auto. Qed.
   
 
-End relmap.  
+End relmap.
 
 Section Transform.
   Context {rel var fn aggregator : Type}.
@@ -920,6 +920,14 @@ Section Transform.
     (forall x, S1 x -> S2 x) ->
     forall x, g S1 x -> g S2 x.
   Proof. cbv [g]. intros H [P [R args]] Hx. auto. Qed.
+
+  Lemma fg_id w S :
+    S_sane S ->
+    equiv S (f w (g S)).
+  Proof.
+    intros (Sgood1&Sgood2). cbv [equiv g f]. intros [P [[R b] args]]. destruct b.
+    - 
+    intuition eauto. (*because eauto doesn't know how to unfold <-> ?*)
   
   Lemma gf_id w S :
     S_sane S ->
@@ -942,17 +950,44 @@ Section Transform.
     - apply gf_id; eauto.
   Qed.
 
-  Lemma source_impl_target p hyps Q R args :
+  Lemma equiv_trans {U : Type} (A B C : U -> _) :
+    equiv A B -> equiv B C -> equiv A C.
+  Proof. cbv [equiv]. intros. rewrite H, <- H0. reflexivity. Qed.
+
+  Lemma equiv_symm {U : Type} (A B : U -> _) :
+    equiv A B -> equiv B A.
+  Proof. cbv [equiv]. intros. rewrite H. reflexivity. Qed.
+
+  Lemma g_ext A B : equiv A B -> equiv (g A) (g B).
+  Proof. cbv [equiv g]. intros H [P [R args]]. apply H. Qed.
+      
+  Lemma phase_correct p :
     Forall goodish_rule p ->
-    prog_impl_implication p Q hyps ->
+    equiv (fun '(P, f) => prog_impl_implication p P f) (g (fun '(P, f) => prog_impl_implication (make_good p) P f)).
+  Proof.
+    intros. eapply equiv_trans.
+    { apply prog_impl_fact_lfp. }
+    eapply equiv_trans.
+    { apply equiv_symm. apply lfp_preimage. assumption. }
+    apply equiv_symm. apply g_ext. apply prog_impl_fact_lfp.
+  Qed. 
+
+  Lemma source_impl_target p Q R args :
+    Forall goodish_rule p ->
+    prog_impl_implication p Q (R, args) ->
     prog_impl_implication (make_good p)
-      (fun '((R0, b0), args0) => if b0 then Q (R0, args0) else (R0, args0) = (R, args))
+      (fun '((R0, b0), args0) => if b0 then Q (R0, args0) else (R0, args0) = (R, firstn (ins R) args))
       ((R, true), args).
-  Proof. Abort.
+  Proof.
+    intros H1 H2. pose proof phase_correct _ H1 as H3. cbv [equiv] in H3.
+    rewrite (H3 (_, _)) in H2. clear H3. simpl in H2. assumption.
+  Qed.
 
   Lemma target_impl_source p R args Q :
     Forall goodish_rule p ->
     prog_impl_implication (make_good p) Q ((R, true), args) ->
     prog_impl_implication p (fun '(R, args) => Q ((R, true), args)) (R, args).
-  Proof. Abort.
+  Proof.
+    intros H1 H2. pose proof phase_correct _ H1 as H3. cbv [equiv] in H3.
+    rewrite (H3 (_, _)). clear H3. simpl.
 End Transform.
