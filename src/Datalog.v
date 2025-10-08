@@ -109,12 +109,14 @@ Section __.
     pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
 
   Unset Elimination Schemes.
-  Inductive partial_pftree {T : Type} (P : T -> list T -> Prop) : T -> list T -> Prop :=
-  | partial_in x : partial_pftree _ x [x]
-  | partial_step x l ls :
+  Inductive partial_pftree {T : Type} (P : T -> list T -> Prop) (Q : T -> Prop) : T -> Prop :=
+  | partial_in x :
+    Q x ->
+    partial_pftree _ _ x
+  | partial_step x l :
     P x l ->
-    Forall2 (partial_pftree _) l ls ->
-    partial_pftree _ x (concat ls).
+    Forall (partial_pftree _ _) l ->
+    partial_pftree _ _ x.
   Set Elimination Schemes.
   
   Hint Constructors partial_pftree : core.
@@ -136,42 +138,26 @@ Section __.
     clear -self H1. induction H1; eauto.
   Qed.
 
-  Lemma partial_pftree_ind {U : Type} (P : U -> list U -> Prop) (Q : _ -> _ -> Prop) :
-    (forall x, Q x [x]) ->
-    (forall x l ls,
+  Lemma partial_pftree_ind {U : Type} (P : U -> list U -> Prop) Q R :
+    (forall x, Q x -> R x) ->
+    (forall x l,
         P x l ->
-        Forall2 (partial_pftree P) l ls ->
-        Forall2 Q l ls ->
-        Q x (concat ls)) ->
-    forall x l, partial_pftree P x l -> Q x l.
+        Forall (partial_pftree P Q) l ->
+        Forall R l ->
+        R x) ->
+    forall x, partial_pftree P Q x -> R x.
   Proof.
-    intros H1 H2. fix self 3. 
-    intros x l Hx. invert Hx. 1: auto. eapply H2. 1,2: eassumption.
+    intros H1 H2. fix self 2. 
+    intros x Hx. invert Hx. 1: auto. eapply H2. 1,2: eassumption.
     clear -H0 self. induction H0; eauto.
   Qed.
 
-  Lemma partial_pftree_trans {U : Type} P (x : U) l Q :
-    partial_pftree P x l ->
-    Forall (fun y => exists l', partial_pftree P y l' /\ Forall Q l') l ->
-    exists l',
-      partial_pftree P x l' /\ Forall Q l'.
-  Proof.
-    intros H. induction H; intros; invert_list_stuff; fwd; eauto.
-    eapply Forall2_impl_strong in H1.
-    2: { intros y z Hyz Hy Hz. rewrite Forall_concat in H2.
-         rewrite Forall_forall in H2. apply H2 in Hz. specialize (Hyz Hz).
-         exact Hyz. }
-    apply Forall2_forget_r in H1. clear H2 H0.
-    eapply Forall_impl in H1. 1: eapply Forall_exists_r_Forall2 in H1.
-    2: { simpl. intros z Hz. fwd. exists l'. exact (conj Hzp1p0 Hzp1p1). }
-    fwd. exists (concat ys). split.
-    2: { apply Forall2_forget_l in H1. apply Forall_concat.
-         eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto. }
-    econstructor; eauto. eapply Forall2_impl; [|eassumption]. simpl.
-    intros. fwd. auto.
-  Qed.
+  Lemma partial_pftree_trans {U : Type} P (x : U) Q :
+    partial_pftree P (partial_pftree P Q) x ->
+    partial_pftree P Q x.
+  Proof. induction 1; eauto. Qed.
     
-  Definition prog_impl_implication (p : list rule) : rel * list T -> list (rel * list T) -> Prop :=
+  Definition prog_impl_implication (p : list rule) : (rel * list T -> Prop) -> rel * list T -> Prop :=
     partial_pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
   
   Lemma pftree_lfp {U : Type} (P : U -> list U -> Prop) :
@@ -203,35 +189,25 @@ Section __.
           S (P2, x)).
 
   Lemma partial_pftree_lfp {U : Type} (P : U -> list U -> Prop) :
-    equiv (fun '(Q0, x) => exists l, partial_pftree P x l /\ Forall Q0 l)
+    equiv (fun '(Q0, x) => partial_pftree P Q0 x)
       (lfp (fun Q '(Q0, x) => Q0 x \/ Q (Q0, x) \/ exists l, P x l /\ Forall (fun y => Q (Q0, y)) l)).
   Proof.
     cbv [equiv lfp fp]. intros [Q0 x]. split; intros; fwd.
-    - apply H0. induction Hp0.
-      + invert_list_stuff. eauto.
-      + right. right. exists l. split; [assumption|]. eapply Forall2_impl_strong in H2.
-        2: { intros y z Hyz Hy Hz. rewrite Forall_concat, Forall_forall in Hp1.
-             specialize (Hp1 _ Hz). specialize (Hyz Hp1). exact Hyz. }
-        apply Forall2_forget_r in H2. clear -H0 H2.
-        eapply Forall_impl; [|eassumption]. clear H2. simpl. intros x Hx.
-        fwd. apply H0. assumption.
+    - apply H0. induction H; eauto.
+      right. right. exists l. split; [assumption|]. eapply Forall_impl; [|eassumption].
+      simpl. intros y. apply (H0 (_, _)).
     - apply (H (fun '(Q, x) => _)). clear. intros [Q x]. intros [Hx| [Hx |Hx] ]; eauto.
-      fwd. apply Forall_exists_r_Forall2 in Hxp1. fwd. exists (concat ys).
-      split.
-      { econstructor; eauto. eapply Forall2_impl; [|eassumption]. simpl.
-        intros. fwd. auto. }
-      rewrite Forall_concat. apply Forall2_forget_l in Hxp1.
-      eapply Forall_impl; [|eassumption]. simpl. intros. fwd. assumption.
+      fwd. eapply partial_step; eassumption.
   Qed.
       
   Lemma prog_impl_fact_lfp p :
-    equiv (fun '(P, f) => exists l, prog_impl_implication p f l /\ Forall P l) (lfp (F p)).
+    equiv (fun '(P, f) => prog_impl_implication p P f) (lfp (F p)).
   Proof.
     cbv [equiv]. intros. cbv [prog_impl_implication].
     epose proof partial_pftree_lfp as H. cbv [equiv] in H. rewrite H.
     cbv [F]. reflexivity.
   Qed.
-  Check S_sane.
+
   Lemma S_sane_ext {U : Type} (P Q : (U -> Prop) * U -> Prop) :
     equiv P Q ->
     S_sane P ->
@@ -240,17 +216,24 @@ Section __.
     cbv [equiv S_sane]. intros.
     assert ((forall x, P x -> Q x) /\ (forall x, Q x -> P x)) by (split; intros; apply H; assumption).
     fwd. eauto 9.
-  Qed.    
+  Qed.
+
+  Hint Unfold prog_impl_implication : core.
+
+  Hint Extern 2 => eapply Forall_impl; [|eassumption]; cbv beta : core.
+  Hint Extern 2 => eapply Forall2_impl; [|eassumption]; cbv beta : core.
+  
+  Lemma partial_pftree_weaken {U : Type} P Q1 Q2 (x : U) :
+    partial_pftree P Q1 x ->
+    (forall y, Q1 y -> Q2 y) ->
+    partial_pftree P Q2 x.
+  Proof. induction 1; eauto. Qed.
   
   Lemma S_sane_lfp p : S_sane (lfp (F p)).
   Proof.
     eapply S_sane_ext; [apply prog_impl_fact_lfp|]. cbv [S_sane]. split; intros; eauto.
-    - eexists. split.
-      { econstructor. }
-      eauto.
-    - fwd. eapply Forall_impl in Hp1.
-      2: { instantiate (1 := fun _ => _). simpl. eassumption. }
-      clear H0. eapply partial_pftree_trans; eassumption.
+    Fail Fail solve [induction H; eauto].
+    eapply partial_pftree_trans. eapply partial_pftree_weaken; eauto.
   Qed.
   
   Lemma split_fixpoint (p : list rule) S :
@@ -284,7 +267,7 @@ Section __.
     assert (He: (expr_size e < Datatypes.S sz)%nat) by lia.
     clear E. revert e He. induction (Datatypes.S sz); intros.
     - lia.
-    - destruct e; simpl in He; auto.
+    - destruct e; simpl in He. 1: debug auto. debug auto 1.
       + apply H0. clear -IHn He. induction args; [constructor|].
         simpl in *. constructor; [|apply IHargs; lia]. apply IHn. lia.
   Qed.
@@ -322,7 +305,7 @@ Section __.
     interp_fact s' f f'.
   Proof.
     intros. invert H0. constructor.
-    eauto using Forall2_impl, interp_expr_subst_more.
+    eauto using interp_expr_subst_more.
   Qed.
 
   Fixpoint vars_of_expr (e : expr) : list var :=
@@ -526,6 +509,7 @@ Section Transform.
   Print rule_impl.
   Local Notation rule_impl := (rule_impl interp_fun get_set agg_id interp_agg).
   Local Notation prog_impl_fact := (prog_impl_fact interp_fun get_set agg_id interp_agg).
+  Local Notation prog_impl_implication := (prog_impl_implication interp_fun get_set agg_id interp_agg).
   Local Notation F := (F interp_fun get_set agg_id interp_agg).
   
   Notation plus_false := (fun x => (x, false)).
@@ -957,18 +941,18 @@ Section Transform.
     - apply g_fixpoint; eauto.
     - apply gf_id; eauto.
   Qed.
-      
-  Lemma source_impl_target p datalog_ctx R args' :
-    prog_impl_fact p (R, args') ->
-    prog_impl_fact datalog_ctx ((R, false), firstn (ins R) args') ->
-    prog_impl_fact (make_good p ++ datalog_ctx) ((R, true), args').
+
+  Lemma source_impl_target p hyps Q R args :
+    Forall goodish_rule p ->
+    prog_impl_implication p Q hyps ->
+    prog_impl_implication (make_good p)
+      (fun '((R0, b0), args0) => if b0 then Q (R0, args0) else (R0, args0) = (R, args))
+      ((R, true), args).
   Proof. Abort.
-  
-  Lemma target_impl_source p datalog_ctx R args' :
-    prog_impl_fact p (R, args') ->
-    (*could easily weaken next hyp to say b = false \/ R not in set of p rels*)
-    (forall R b args', prog_impl_fact datalog_ctx ((R, b), args') -> b = false) ->
-    prog_impl_fact datalog_ctx ((R, false), firstn (ins R) args') ->
-    prog_impl_fact (make_good p ++ datalog_ctx) ((R, true), args').
+
+  Lemma target_impl_source p R args Q :
+    Forall goodish_rule p ->
+    prog_impl_implication (make_good p) Q ((R, true), args) ->
+    prog_impl_implication p (fun '(R, args) => Q ((R, true), args)) (R, args).
   Proof. Abort.
 End Transform.
