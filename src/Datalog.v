@@ -752,20 +752,44 @@ Section Transform.
         intros x y Hxy Hx Hy. apply in_map_iff in Hx. clear Hy. fwd. invert Hxy.
         constructor. rewrite map.get_put_diff in H1; auto. intros ?. subst.
         apply Hgoodp2. eauto.
-  Qed.
+  Qed. Search fact'_relmap.
+
   
-  Lemma invert_rule_impl_add_hyp P S r w R b args' hyps' :
+  Lemma invert_rule_impl_add_hyp r R b args' hyps' :
     goodish_rule r ->
     rule_impl (add_hyp r) ((R, b), args') hyps' ->
-    Forall (fun x : rel * bool * list T => f w S (P, x)) hyps' ->
     b = true /\
-    exists hyps0',
-      Forall (fun x => S (fun '(R, args) => P (R, true, args), x)) hyps0' /\
-        rule_impl r (R, args') hyps0'.
+      exists hyps0',
+        hyps' = ((R, false), firstn (ins R) args') :: hyps0' /\
+          Forall (fun x => snd (fst x) = true) hyps0' /\
+          rule_impl r (R, args') (map (fact'_relmap (fun '(R, _) => R)) hyps0').
   Proof.
-    intros Hgood H1 H2. cbv [goodish_rule] in Hgood. fwd. cbv [add_hyp] in H1. invert H1.
-    - destruct (rule_agg r) eqn:E; simpl in H; [discriminate H|clear H].
-      clear Hgoodp2. rewrite Hgoodp0 in *. simpl in *. cbv [with_only_ins] in H7.
+    intros Hgood H. cbv [goodish_rule] in Hgood. fwd. cbv [add_hyp] in H. invert H.
+    - destruct (rule_agg r) eqn:E; simpl in H0; [discriminate H0|clear H0].
+      clear Hgoodp2. rewrite Hgoodp0 in *. simpl in *. cbv [with_only_ins] in H6.
+      rewrite Hgoodp1 in H6. invert_list_stuff. cbv [fact_relmap] in H1. simpl in H1.
+      invert H1. simpl in *. invert H0.
+      split; [reflexivity|]. apply interp_facts_relmap with (g := fst) in H3. fwd.
+      rewrite map_map in H3p0. simpl in H3p0.
+      eassert (H': forall x y, x = y -> map snd x = map snd y) by (intros; subst; reflexivity).
+      apply H' in H3p0. clear H'. do 2 rewrite map_map in H3p0. simpl in H3p0.
+      rewrite map_const in H3p0. eassert (H3p0': Forall _ _).
+      { apply Forall_forall. intros x Hx. apply repeat_spec in Hx. exact Hx. }
+      rewrite H3p0 in H3p0'. clear H3p0. apply Lists.List.Forall_map in H3p0'.
+      assert (args'0 = firstn (ins (fact_R concl)) args').
+      { move H at bottom. Search args'. move H4 at bottom. simpl in H4.
+        cbv [fact_ins] in Hgoodp1. rewrite <- Hgoodp1 in H.
+        eapply Forall2_firstn in H4. eapply Forall2_unique_r. 1: exact H. 1: exact H4.
+        apply interp_expr_det. }
+      subst.
+      eexists. split; [reflexivity|]. split; [assumption|]. 
+      destruct r; simpl in *. rewrite Hgoodp0, E in *. econstructor.
+      { constructor. constructor. eassumption. }
+      rewrite map_map in H3p1. erewrite map_ext with (g := fun x => x) in H3p1.
+      2: { intros a. destruct a; reflexivity. }
+      rewrite map_id in H3p1. apply H3p1.
+    - symmetry in H0. destruct_option_map_Some. destruct p. invert H1.
+      rewrite Hgoodp0 in *. simpl in *. cbv [with_only_ins] in H7.
       rewrite Hgoodp1 in H7. invert_list_stuff. cbv [fact_relmap] in H1. simpl in H1.
       invert H1. simpl in *. invert H0.
       split; [reflexivity|]. apply interp_facts_relmap with (g := fst) in H4. fwd.
@@ -775,40 +799,26 @@ Section Transform.
       rewrite map_const in H4p0. eassert (H4p0': Forall _ _).
       { apply Forall_forall. intros x Hx. apply repeat_spec in Hx. exact Hx. }
       rewrite H4p0 in H4p0'. clear H4p0. apply Lists.List.Forall_map in H4p0'.
-      exists (map (fact'_relmap fst) l'). split.
-      { apply Forall_map. rewrite Forall_forall in *. intros x Hx.
-        specialize (H4p0' _ Hx). specialize (H5 _ Hx). destruct x as [ [R b] args].
-        simpl in H4p0'. subst. simpl. assumption. }
-      destruct r; simpl in *. rewrite Hgoodp0, E in *. econstructor.
+      assert (args'0 = firstn (ins (fact_R concl)) args').
+      { move H at bottom. Search args'. move H5 at bottom. simpl in H5.
+        cbv [fact_ins] in Hgoodp1. rewrite <- Hgoodp1 in H. pose proof H5 as H5'.
+        eapply Forall2_firstn in H5. eapply Forall2_unique_r.
+        1: exact H. 2: apply interp_expr_det. eapply Forall2_impl_strong; [|eassumption].
+        intros. rewrite Hgoodp1 in H1. apply in_map_iff in H1. fwd.
+        invert H0. constructor. rewrite map.get_put_diff in H4; auto. intros H'.
+        subst. apply Hgoodp2. eauto. }
+      subst.
+      eexists. split; [reflexivity|]. split; [assumption|].
+      destruct r; simpl in *. rewrite Hgoodp0, E in *. destruct a. econstructor.
+      { apply interp_agg_expr_relmap with (g := fst) in H3.
+        cbv [agg_expr_relmap] in H3. simpl in H3. rewrite map_map in H3.
+        rewrite map_ext with (g := fun x => x) in H3.
+        2: { intros a. destruct a; reflexivity. }
+        rewrite map_id in H3. apply H3. }
       { constructor. constructor. eassumption. }
       rewrite map_map in H4p1. erewrite map_ext with (g := fun x => x) in H4p1.
       2: { intros a. destruct a; reflexivity. }
       rewrite map_id in H4p1. apply H4p1.
-    - symmetry in H. destruct_option_map_Some. destruct p. invert H1.
-      rewrite Hgoodp0 in *. simpl in *. cbv [with_only_ins] in H8.
-      rewrite Hgoodp1 in H8. invert_list_stuff. cbv [fact_relmap] in H1. simpl in H1.
-      invert H1. simpl in *. invert H0.
-      split; [reflexivity|]. apply interp_facts_relmap with (g := fst) in H5. fwd.
-      rewrite map_map in H5p0. simpl in H5p0.
-      eassert (H': forall x y, x = y -> map snd x = map snd y) by (intros; subst; reflexivity).
-      apply H' in H5p0. clear H'. do 2 rewrite map_map in H5p0. simpl in H5p0.
-      rewrite map_const in H5p0. eassert (H5p0': Forall _ _).
-      { apply Forall_forall. intros x Hx. apply repeat_spec in Hx. exact Hx. }
-      rewrite H5p0 in H5p0'. clear H5p0. apply Lists.List.Forall_map in H5p0'.
-      exists (map (fact'_relmap fst) l'). split.
-      { apply Forall_map. rewrite Forall_forall in *. intros x Hx.
-        specialize (H5p0' _ Hx). specialize (H6 _ Hx). destruct x as [ [R b] args].
-        simpl in H5p0'. subst. simpl. assumption. }
-      destruct r; simpl in *. rewrite Hgoodp0, E in *. destruct a. econstructor.
-      { apply interp_agg_expr_relmap with (g := fst) in H4.
-        cbv [agg_expr_relmap] in H4. simpl in H4. rewrite map_map in H4.
-        rewrite map_ext with (g := fun x => x) in H4.
-        2: { intros a. destruct a; reflexivity. }
-        rewrite map_id in H4. apply H4. }
-      { constructor. constructor. eassumption. }
-      rewrite map_map in H5p1. erewrite map_ext with (g := fun x => x) in H5p1.
-      2: { intros a. destruct a; reflexivity. }
-      rewrite map_id in H5p1. apply H5p1.
   Qed.
 
   Lemma request_hyps_hyps_false r R b args hyps' :
@@ -838,7 +848,9 @@ Section Transform.
       rewrite Forall_forall. intros x Hx. specialize (Hxp1 _ Hx). specialize (H1' _ Hx).
       destruct x as [ [R' b'] args']. simpl in Hxp1, H1'. subst. assumption.
     - invert_list_stuff. eapply invert_rule_impl_add_hyp in H2; eauto. fwd. simpl.
-      apply H. right. right. eauto.
+      apply H. right. right. eexists. split; eauto. apply Forall_map. eapply Forall_impl.
+      2: { eapply Forall_and. 1: apply Hxp1p1. apply H2p1p1. }
+      simpl. intros [[R' b'] args']. simpl. intros. fwd. assumption.
   Qed.
 
   Lemma g_fixpoint' (*P*) r S :
@@ -920,14 +932,6 @@ Section Transform.
     (forall x, S1 x -> S2 x) ->
     forall x, g S1 x -> g S2 x.
   Proof. cbv [g]. intros H [P [R args]] Hx. auto. Qed.
-
-  Lemma fg_id w S :
-    S_sane S ->
-    equiv S (f w (g S)).
-  Proof.
-    intros (Sgood1&Sgood2). cbv [equiv g f]. intros [P [[R b] args]]. destruct b.
-    - 
-    intuition eauto. (*because eauto doesn't know how to unfold <-> ?*)
   
   Lemma gf_id w S :
     S_sane S ->
@@ -989,5 +993,26 @@ Section Transform.
     prog_impl_implication p (fun '(R, args) => Q ((R, true), args)) (R, args).
   Proof.
     intros H1 H2. pose proof phase_correct _ H1 as H3. cbv [equiv] in H3.
-    rewrite (H3 (_, _)). clear H3. simpl.
+    rewrite (H3 (_, _)). clear H3. simpl. remember (R, true, args) as x eqn:E.
+    revert R args E. induction H2; intros; subst.
+    - apply partial_in. assumption.
+    - eapply partial_step. 1: apply H. cbv [make_good] in H.
+      apply Exists_app in H. destruct H as [H|H].
+      { clear -H. exfalso. rewrite Exists_map in H. apply Exists_exists in H.
+        fwd. invert Hp1. clear H4. rewrite Exists_map in H1. apply Exists_exists in H1.
+        fwd. invert H1p1. }
+      apply Exists_map in H. apply Exists_exists in H. fwd. Search rule_impl add_hyp.
+      rewrite Forall_forall in H1. apply invert_rule_impl_add_hyp in Hp1; auto.
+      fwd. constructor.
+      2: { eapply Forall_impl.
+           2: { apply Forall_and. 1: apply Forall_and. 1: apply H2p1. 1: apply Hp1p1p1.
+                apply H0p1. }
+           simpl. intros [[R' b'] args']. simpl. intros H. fwd.
+           specialize (Hp1p0 _ _ ltac:(reflexivity)). apply partial_pftree_trans.
+           eapply partial_pftree_weaken. 1: exact Hp1p0. simpl. intros [[Ry By] argsy].
+           intros Hy. destruct By.
+           - apply partial_in. assumption.
+           - invert Hy. eapply partial_step.
+             { cbv [make_good]. apply Exists_app. left. apply Exists_map.
+               apply Exists_exists. exists x. split; [assumption|].
 End Transform.

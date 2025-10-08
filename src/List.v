@@ -1,6 +1,7 @@
 From Stdlib Require Import Lists.List.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 Require Import coqutil.Datatypes.List coqutil.Tactics.fwd coqutil.Tactics.destr.
+Require Import Datalog.Tactics.
 
 Import ListNotations.
 Section subset.
@@ -69,5 +70,14 @@ Qed.
 Lemma Forall_exists_r_Forall2 R xs :
   Forall (fun x => exists y, R x y) xs ->
   exists ys, Forall2 R xs ys.
-Proof. induction 1; fwd; eauto. Qed.  
+Proof. induction 1; fwd; eauto. Qed.
+
+Lemma Forall2_unique_r R xs ys ys' :
+  Forall2 R xs ys ->
+  Forall2 R xs ys' ->
+  (forall x y y', R x y -> R x y' -> y = y') ->
+  ys = ys'.
+Proof.
+  intros H. revert ys'. induction H; intros; invert_list_stuff; f_equal; eauto.
+Qed.  
 End Forall.
