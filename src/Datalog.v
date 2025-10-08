@@ -12,7 +12,7 @@ From Stdlib Require Import micromega.Lia.
 
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
-From Datalog Require Import Forall3 Map Tactics Fp.
+From Datalog Require Import Forall3 Map Tactics Fp List.
 
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Datatypes.List.
 
@@ -108,16 +108,17 @@ Section __.
   Definition prog_impl_fact (p : list rule) : rel * list T -> Prop :=
     pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
 
+  Unset Elimination Schemes.
   Inductive partial_pftree {T : Type} (P : T -> list T -> Prop) : T -> list T -> Prop :=
-  | partial_in x l : In x l -> partial_pftree _ x l
+  | partial_in x : partial_pftree _ x [x]
   | partial_step x l ls :
     P x l ->
     Forall2 (partial_pftree _) l ls ->
     partial_pftree _ x (concat ls).
-
-  Definition prog_impl_implication (p : list rule) : rel * list T -> list (rel * list T) -> Prop :=
-    partial_pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
+  Set Elimination Schemes.
   
+  Hint Constructors partial_pftree : core.
+
   Lemma pftree_ind {U : Type} (P : U -> list U -> Prop) Q :
     (forall x l,
         P x l ->
@@ -135,6 +136,44 @@ Section __.
     clear -self H1. induction H1; eauto.
   Qed.
 
+  Lemma partial_pftree_ind {U : Type} (P : U -> list U -> Prop) (Q : _ -> _ -> Prop) :
+    (forall x, Q x [x]) ->
+    (forall x l ls,
+        P x l ->
+        Forall2 (partial_pftree P) l ls ->
+        Forall2 Q l ls ->
+        Q x (concat ls)) ->
+    forall x l, partial_pftree P x l -> Q x l.
+  Proof.
+    intros H1 H2. fix self 3. 
+    intros x l Hx. invert Hx. 1: auto. eapply H2. 1,2: eassumption.
+    clear -H0 self. induction H0; eauto.
+  Qed.
+
+  Lemma partial_pftree_trans {U : Type} P (x : U) l Q :
+    partial_pftree P x l ->
+    Forall (fun y => exists l', partial_pftree P y l' /\ Forall Q l') l ->
+    exists l',
+      partial_pftree P x l' /\ Forall Q l'.
+  Proof.
+    intros H. induction H; intros; invert_list_stuff; fwd; eauto.
+    eapply Forall2_impl_strong in H1.
+    2: { intros y z Hyz Hy Hz. rewrite Forall_concat in H2.
+         rewrite Forall_forall in H2. apply H2 in Hz. specialize (Hyz Hz).
+         exact Hyz. }
+    apply Forall2_forget_r in H1. clear H2 H0.
+    eapply Forall_impl in H1. 1: eapply Forall_exists_r_Forall2 in H1.
+    2: { simpl. intros z Hz. fwd. exists l'. exact (conj Hzp1p0 Hzp1p1). }
+    fwd. exists (concat ys). split.
+    2: { apply Forall2_forget_l in H1. apply Forall_concat.
+         eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto. }
+    econstructor; eauto. eapply Forall2_impl; [|eassumption]. simpl.
+    intros. fwd. auto.
+  Qed.
+    
+  Definition prog_impl_implication (p : list rule) : rel * list T -> list (rel * list T) -> Prop :=
+    partial_pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
+  
   Lemma pftree_lfp {U : Type} (P : U -> list U -> Prop) :
     equiv (pftree P) (lfp (fun Q x => Q x \/ exists l, P x l /\ Forall Q l)).
   Proof.
@@ -146,9 +185,16 @@ Section __.
 
   Definition F p Q Px :=
     let '(P, x) := Px in
-    P x \/ Q (P, x) \/
-      exists hyps', Exists (fun r => rule_impl r x hyps') p /\ Forall (fun x => Q (P, x)) hyps'.
+    P x \/ Q (P, x) \/ exists hyps', Exists (fun r => rule_impl r x hyps') p /\ Forall (fun x => Q (P, x)) hyps'.
 
+  Lemma F_mono p S1 S2 :
+    (forall x, S1 x -> S2 x) ->
+    (forall x, F p S1 x -> F p S2 x).
+  Proof.
+    cbv [F]. intros Hle [P x] H. intuition auto. fwd. right. right. eexists.
+    split; [eassumption|]. eapply Forall_impl; eauto. simpl. auto.
+  Qed.
+    
   Definition S_sane {U : Type} (S : (U -> Prop) * U -> Prop) :=
     (forall P x, P x -> S (P, x)) /\
       (forall P1 x P2,
@@ -156,26 +202,70 @@ Section __.
           (forall y, P1 y -> S (P2, y)) ->
           S (P2, x)).
 
+  Lemma partial_pftree_lfp {U : Type} (P : U -> list U -> Prop) :
+    equiv (fun '(Q0, x) => exists l, partial_pftree P x l /\ Forall Q0 l)
+      (lfp (fun Q '(Q0, x) => Q0 x \/ Q (Q0, x) \/ exists l, P x l /\ Forall (fun y => Q (Q0, y)) l)).
+  Proof.
+    cbv [equiv lfp fp]. intros [Q0 x]. split; intros; fwd.
+    - apply H0. induction Hp0.
+      + invert_list_stuff. eauto.
+      + right. right. exists l. split; [assumption|]. eapply Forall2_impl_strong in H2.
+        2: { intros y z Hyz Hy Hz. rewrite Forall_concat, Forall_forall in Hp1.
+             specialize (Hp1 _ Hz). specialize (Hyz Hp1). exact Hyz. }
+        apply Forall2_forget_r in H2. clear -H0 H2.
+        eapply Forall_impl; [|eassumption]. clear H2. simpl. intros x Hx.
+        fwd. apply H0. assumption.
+    - apply (H (fun '(Q, x) => _)). clear. intros [Q x]. intros [Hx| [Hx |Hx] ]; eauto.
+      fwd. apply Forall_exists_r_Forall2 in Hxp1. fwd. exists (concat ys).
+      split.
+      { econstructor; eauto. eapply Forall2_impl; [|eassumption]. simpl.
+        intros. fwd. auto. }
+      rewrite Forall_concat. apply Forall2_forget_l in Hxp1.
+      eapply Forall_impl; [|eassumption]. simpl. intros. fwd. assumption.
+  Qed.
+      
+  Lemma prog_impl_fact_lfp p :
+    equiv (fun '(P, f) => exists l, prog_impl_implication p f l /\ Forall P l) (lfp (F p)).
+  Proof.
+    cbv [equiv]. intros. cbv [prog_impl_implication].
+    epose proof partial_pftree_lfp as H. cbv [equiv] in H. rewrite H.
+    cbv [F]. reflexivity.
+  Qed.
+  Check S_sane.
+  Lemma S_sane_ext {U : Type} (P Q : (U -> Prop) * U -> Prop) :
+    equiv P Q ->
+    S_sane P ->
+    S_sane Q.
+  Proof.
+    cbv [equiv S_sane]. intros.
+    assert ((forall x, P x -> Q x) /\ (forall x, Q x -> P x)) by (split; intros; apply H; assumption).
+    fwd. eauto 9.
+  Qed.    
+  
+  Lemma S_sane_lfp p : S_sane (lfp (F p)).
+  Proof.
+    eapply S_sane_ext; [apply prog_impl_fact_lfp|]. cbv [S_sane]. split; intros; eauto.
+    - eexists. split.
+      { econstructor. }
+      eauto.
+    - fwd. eapply Forall_impl in Hp1.
+      2: { instantiate (1 := fun _ => _). simpl. eassumption. }
+      clear H0. eapply partial_pftree_trans; eassumption.
+  Qed.
+  
   Lemma split_fixpoint (p : list rule) S :
     (forall P x, P x -> S (P, x)) ->
     (forall r, In r p -> fp (F [r]) S) <->
       fp (F p) S.
   Proof.
     intros Sgood1. cbv [fp F]. split.
-    - intros H [P x] Hx. destruct Hx as [Hx| [Hx | Hx]]; eauto.
+    - intros H [P x] Hx. destruct Hx as [Hx| [Hx|Hx]]; eauto.
       fwd. apply Exists_exists in Hxp0. fwd. eapply H; eauto 6.
     - intros H r Hr [P x] Hx. destruct Hx as [Hx| [Hx|Hx]]; eauto. fwd.
       invert_list_stuff.
       apply H. right. right. eexists. split; [|eassumption]. apply Exists_exists. eauto.
   Qed.
-  
-  (* Lemma prog_impl_fact_lfp p : *)
-  (*   equiv (prog_impl_fact p) (lfp (F p)). *)
-  (* Proof. *)
-  (*   cbv [equiv]. intros x. cbv [prog_impl_fact]. *)
-  (*   epose proof pftree_lfp as H. cbv [equiv] in H. rewrite H. reflexivity. *)
-  (* Qed. *)
-    
+
   Fixpoint expr_size (e : expr) :=
     match e with
     | var_expr _ => O
@@ -713,7 +803,7 @@ Section Transform.
     - destruct (rule_agg r) eqn:E; simpl in H; [discriminate H|clear H].
       clear Hgoodp2. rewrite Hgoodp0 in *. simpl in *. cbv [with_only_ins] in H7.
       rewrite Hgoodp1 in H7. invert_list_stuff. cbv [fact_relmap] in H1. simpl in H1.
-      invert H1. simpl in *. invert H2. simpl in H5. clear H5. invert H0.
+      invert H1. simpl in *. invert H0.
       split; [reflexivity|]. apply interp_facts_relmap with (g := fst) in H4. fwd.
       rewrite map_map in H4p0. simpl in H4p0.
       eassert (H': forall x y, x = y -> map snd x = map snd y) by (intros; subst; reflexivity).
@@ -723,7 +813,7 @@ Section Transform.
       rewrite H4p0 in H4p0'. clear H4p0. apply Lists.List.Forall_map in H4p0'.
       exists (map (fact'_relmap fst) l'). split.
       { apply Forall_map. rewrite Forall_forall in *. intros x Hx.
-        specialize (H4p0' _ Hx). specialize (H6 _ Hx). destruct x as [ [R b] args].
+        specialize (H4p0' _ Hx). specialize (H5 _ Hx). destruct x as [ [R b] args].
         simpl in H4p0'. subst. simpl. assumption. }
       destruct r; simpl in *. rewrite Hgoodp0, E in *. econstructor.
       { constructor. constructor. eassumption. }
@@ -733,7 +823,7 @@ Section Transform.
     - symmetry in H. destruct_option_map_Some. destruct p. invert H1.
       rewrite Hgoodp0 in *. simpl in *. cbv [with_only_ins] in H8.
       rewrite Hgoodp1 in H8. invert_list_stuff. cbv [fact_relmap] in H1. simpl in H1.
-      invert H1. simpl in *. invert H2. simpl in H6. clear H6. invert H0.
+      invert H1. simpl in *. invert H0.
       split; [reflexivity|]. apply interp_facts_relmap with (g := fst) in H5. fwd.
       rewrite map_map in H5p0. simpl in H5p0.
       eassert (H': forall x y, x = y -> map snd x = map snd y) by (intros; subst; reflexivity).
@@ -743,7 +833,7 @@ Section Transform.
       rewrite H5p0 in H5p0'. clear H5p0. apply Lists.List.Forall_map in H5p0'.
       exists (map (fact'_relmap fst) l'). split.
       { apply Forall_map. rewrite Forall_forall in *. intros x Hx.
-        specialize (H5p0' _ Hx). specialize (H7 _ Hx). destruct x as [ [R b] args].
+        specialize (H5p0' _ Hx). specialize (H6 _ Hx). destruct x as [ [R b] args].
         simpl in H5p0'. subst. simpl. assumption. }
       destruct r; simpl in *. rewrite Hgoodp0, E in *. destruct a. econstructor.
       { apply interp_agg_expr_relmap with (g := fst) in H4.
@@ -862,7 +952,7 @@ Section Transform.
       destruct Hr' as [Hr' | [Hr' | Hr'] ]; [| |exfalso; auto]; subst; apply H2; cbv [make_good]; apply in_app_iff; auto using in_map.
   Qed.
 
-  Lemma g_mono_ish S1 S2 :
+  Lemma g_mono S1 S2 :
     (forall x, S1 x -> S2 x) ->
     forall x, g S1 x -> g S2 x.
   Proof. cbv [g]. intros H [P [R args]] Hx. auto. Qed.
@@ -874,13 +964,19 @@ Section Transform.
     intros (Sgood1&Sgood2). cbv [equiv g f]. intros [P [R args]].
     intuition eauto. (*because eauto doesn't know how to unfold <-> ?*)
   Qed.
-  
-  Lemma lfp_preimage p datalog_ctx :
+
+  Hint Resolve fp_lfp F_mono S_sane_lfp : core.
+
+  Lemma lfp_preimage p :
     Forall goodish_rule p ->
-    equiv (g (lfp (F (make_good p ++ datalog_ctx)))) (lfp (F p)).
+    equiv (g (lfp (F (make_good p)))) (lfp (F p)).
   Proof.
-    intros Hgood. eapply lfp_preimage. 4: exact gf_id.
-    3: eauto using g_fixpoint.
+    intros Hgood. eapply lfp_preimage'.
+    - exact g_mono.
+    - apply f_fixpoint with (w := lfp (F (map request_hyps p))); eauto.
+    - apply g_fixpoint; eauto.
+    - apply gf_id; eauto.
+  Qed.
       
   Lemma source_impl_target p datalog_ctx R args' :
     prog_impl_fact p (R, args') ->
@@ -964,6 +1060,6 @@ Section Transform.
                 specialize (Ha _ _ ltac:(reflexivity)).
            
              cbv [add_hyp].
-          2: { apply Exists_cons_
+          2: {  apply Exists_cons_
         
 

@@ -3,7 +3,7 @@ From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 Require Import coqutil.Datatypes.List coqutil.Tactics.fwd coqutil.Tactics.destr.
 
 Import ListNotations.
-Section __.
+Section subset.
 Context {A : Type}.
 Context (eqb : A -> A -> bool) {eqb_spec :  forall x0 y0 : A, BoolSpec (x0 = y0) (x0 <> y0) (eqb x0 y0)}.
 
@@ -43,4 +43,31 @@ Lemma subset_app_app x1 y1 x2 y2 :
   subset y1 y2 ->
   subset (x1 ++ y1) (x2 ++ y2).
 Proof. cbv [subset]. intros. repeat rewrite in_app_iff in *. intuition auto. Qed.
-End __.
+End subset.
+
+Section Forall.
+Context {A B : Type}.
+Implicit Type xs : list A.
+Implicit Type ys : list B.
+
+Lemma Forall2_forget_l R xs ys :
+  Forall2 R xs ys ->
+  Forall (fun y => exists x, In y ys /\ R x y) ys.
+Proof.
+  induction 1; eauto. simpl. econstructor; eauto.
+  eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto.
+Qed.
+
+Lemma Forall2_forget_r R xs ys :
+  Forall2 R xs ys ->
+  Forall (fun x => exists y, In y ys /\ R x y) xs.
+Proof.
+  induction 1; eauto. simpl. econstructor; eauto.
+  eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto.
+Qed.
+
+Lemma Forall_exists_r_Forall2 R xs :
+  Forall (fun x => exists y, R x y) xs ->
+  exists ys, Forall2 R xs ys.
+Proof. induction 1; fwd; eauto. Qed.  
+End Forall.

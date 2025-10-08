@@ -23,7 +23,8 @@ Section fps.
   Context {T U : Type} (F : (T -> Prop) -> (T -> Prop)) (G : (U -> Prop) -> (U -> Prop)).
   Context (f : (T -> Prop) -> (U -> Prop)) (g : (U -> Prop) -> (T -> Prop)).
   (* Context (f_mono : forall S1 S2, (forall x, S1 x -> S2 x) -> forall x, f S1 x -> f S2 x). *)
-  Context (g_mono_ish : forall S1 S2, (forall x, S1 x -> f S2 x) -> forall x, g S1 x -> g (f S2) x).
+  (*note: g_mono can be weakened*)
+  Context (g_mono_ish : forall S1 S2, (forall x, S1 x -> S2 x) -> forall x, g S1 x -> g S2 x).
   Context (f_fp : fp G (f (lfp F))) (g_fp : fp F (g (lfp G))).
   
   (*Helps to find lfp of G given lfp of F: the lfp of G is a preimage (via g) of the lfp of F*)

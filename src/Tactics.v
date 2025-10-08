@@ -14,6 +14,8 @@ Ltac destruct_option_map_Some :=
 
 Ltac invert_list_stuff :=
   repeat match goal with
+    | H: Forall _ (cons _ _) |- _ => invert H
+    | H : Forall _ nil |- _ => invert H
   | H : Forall2 _ (cons _ _) _ |- _ => invert H
   | H : Forall2 _ _ (cons _ _) |- _ => invert H
   | H : Forall2 _ nil _ |- _ => invert H
