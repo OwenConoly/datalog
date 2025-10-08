@@ -994,7 +994,7 @@ Section Transform.
   Proof.
     intros H1 H2. pose proof phase_correct _ H1 as H3. cbv [equiv] in H3.
     rewrite (H3 (_, _)). clear H3. simpl. remember (R, true, args) as x eqn:E.
-    revert R args E. induction H2; intros; subst.
+    revert R args E. (*TODO factor following out into lemma*)induction H2; intros; subst.
     - apply partial_in. assumption.
     - eapply partial_step. 1: apply H. cbv [make_good] in H.
       apply Exists_app in H. destruct H as [H|H].
@@ -1004,15 +1004,17 @@ Section Transform.
       apply Exists_map in H. apply Exists_exists in H. fwd. Search rule_impl add_hyp.
       rewrite Forall_forall in H1. apply invert_rule_impl_add_hyp in Hp1; auto.
       fwd. constructor.
-      2: { eapply Forall_impl.
-           2: { apply Forall_and. 1: apply Forall_and. 1: apply H2p1. 1: apply Hp1p1p1.
-                apply H0p1. }
-           simpl. intros [[R' b'] args']. simpl. intros H. fwd.
-           specialize (Hp1p0 _ _ ltac:(reflexivity)). apply partial_pftree_trans.
-           eapply partial_pftree_weaken. 1: exact Hp1p0. simpl. intros [[Ry By] argsy].
-           intros Hy. destruct By.
+      2: { rewrite Forall_forall in *. intros [[R' b'] args'] H.
+           specialize (Hp1p1p1 _ ltac:(eassumption)). simpl in Hp1p1p1. subst.
+           apply partial_pftree_trans. eapply partial_pftree_weaken.
+           1: apply H2p1; eauto. intros [[Ry By] argsy]. intros Hy. destruct By.
            - apply partial_in. assumption.
-           - invert Hy. eapply partial_step.
+           - clear H2p0. invert Hy. eapply partial_step.
              { cbv [make_good]. apply Exists_app. left. apply Exists_map.
-               apply Exists_exists. exists x. split; [assumption|].
+               apply Exists_exists. exists x. split; [assumption|]. Search x.
+               Check rule_impl_request_hyps. eapply rule_impl_request_hyps; eauto.
+               apply in_map_iff. eexists (_, _, _). simpl. eauto. }
+             constructor; [|constructor]. apply partial_in. reflexivity. }
+      apply partial_in. reflexivity.
+  Qed.
 End Transform.
