@@ -19,7 +19,7 @@ From Lower Require Import Zexpr Bexpr Array Range Sexpr Result ListMisc
 
 Require Import ATLDeep.
 Require Import ContextsAgree.
-From Datalog Require Import Datalog Map List. 
+From Datalog Require Import Datalog Map List Tactics. 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable.
 
 Import Datatypes. Check S.
@@ -876,7 +876,7 @@ Proof.
   pose proof interp_expr_det as H''.
   specialize (H'' _ _ _ _ _ _ _ _ _ H' H3). invert H''.
   rewrite Forall_map in IHHgood'. rewrite Forall_map. apply Forall_app. split; auto.
-  constructor; [|constructor]. simpl. cbv [agree_on]. rewrite H1, H2. f_equal. f_equal.
+  constructor; [|constructor]. simpl. cbv [agree_on]. rewrite H1, H5. f_equal. f_equal.
   lia.
 Qed.
 
@@ -985,24 +985,31 @@ Proof.
       { constructor.
         { cbv [obviously_non_intersecting]. intros. subst.
           repeat (invert_stuff; simpl in * ).
-          (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*)
-          apply Forall2_app_inv_l in H12, H13. fwd. clear H12p1 H13p1.
+          (*from HA and HB, i want to conclude that ctx and ctx0 agree on idxs*)
+          match goal with
+          | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ =>
+              rename H1 into HA; rename H2 into HB
+          end.
+          apply Forall2_app_inv_l in HA, HB. fwd. clear HAp1 HBp1.
           assert (l1' = l1'0).
-          { apply Forall2_length in H12p0, H13p0. rewrite H13p0 in H12p0.
+          { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0.
             pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
             fwd. auto. }
-          subst. clear H12p2.
+          subst. clear HAp2.
           pose proof ctxs_agree as H'.
-          specialize H' with (1 := Hidxs) (2 := H12p0) (3 := H13p0).
-          clear -H7 H8 H' H2. rewrite <- map_map in H'.
+          specialize H' with (1 := Hidxs) (2 := HAp0) (3 := HBp0).
+          rewrite <- map_map in H'.
           rewrite Forall_map in H'. eapply Forall_subset in H'; eauto.
           rewrite <- Forall_map in H'.
           eapply Forall_subset in H'. 2: apply lower_guard_keeps_vars.
           pose proof interp_expr_agree_on as H''.
-          specialize H'' with (1 := H7) (2 := H').
+          epose proof (H'' _ _ _ _ _ _ _ _ _) as H''.
+          specialize' H''. 2: specialize (H'' ltac:(eassumption)). 1: eassumption.
           pose proof interp_expr_det as H'''.
-          specialize H''' with (1 := H'') (2 := H8). subst. clear.
-          destruct b0; auto. }
+          match goal with
+          | H1: _, H2: _ |- _ => specialize (H''' _ _ _ _ _ _ _ _ _ H1 H2)
+          end.
+          subst. clear. destruct b0; auto. }
         constructor. }
       repeat constructor.
     + prove_rels_diff.
@@ -1028,13 +1035,19 @@ Proof.
         { cbv [obviously_non_intersecting]. intros. subst.
           repeat (invert_stuff; simpl in * ).
           (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*)
-          apply Forall2_app_inv_l in H15, H16. fwd.
+          repeat (invert_stuff; simpl in * ).
+          (*from HA and HB, i want to conclude that ctx and ctx0 agree on idxs*)
+          match goal with
+          | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ =>
+              rename H1 into HA; rename H2 into HB
+          end.
+          apply Forall2_app_inv_l in HA, HB. fwd.
           assert (l1' = l1'0).
-          { apply Forall2_length in H15p0, H16p0. rewrite H16p0 in H15p0.
+          { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0.
             pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
             fwd. auto. }
-          subst. clear H15p0 H16p0. apply app_inv_head in H15p2. subst.
-          invert H15p1. invert H16p1. clear H13 H16. repeat invert_stuff.
+          subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst.
+          invert HAp1. invert HBp1. repeat invert_stuff.
           repeat match goal with
                  | H: map.get _ _ = Some _ |- _ => rewrite H in *
                  end.
@@ -1070,12 +1083,16 @@ Proof.
          cbv [obviously_non_intersecting]. intros. subst.
          repeat (invert_stuff; simpl in * ).
          (*want to conclude that ctxs agree on dimvar1 and dimvar2*)
-         apply Forall2_app_inv_l in H13, H15. fwd.
+         match goal with
+          | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ =>
+              rename H1 into HA; rename H2 into HB
+          end.
+          apply Forall2_app_inv_l in HA, HB. fwd.
          assert (l1' = l1'0).
-         { apply Forall2_length in H13p0, H15p0. rewrite H15p0 in H13p0.
+         { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0.
            pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
            fwd. auto. }
-         subst. clear H13p0 H15p0. apply app_inv_head in H13p2. subst.
+         subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst.
          repeat (invert_stuff; simpl in * ).
          remember (match sizeof e with | [] => 0%Z | _ => _ end) as x eqn:Ex. clear Ex.
          repeat match goal with
@@ -1101,12 +1118,16 @@ Proof.
          cbv [obviously_non_intersecting]. intros. subst.
          repeat (invert_stuff; simpl in * ).
          (*want to conclude that ctxs agree on dimvar1 and dimvar2*)
-         apply Forall2_app_inv_l in H11, H13. fwd.
+         match goal with
+          | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ =>
+              rename H1 into HA; rename H2 into HB
+          end.
+         apply Forall2_app_inv_l in HA, HB. fwd.
          assert (l1' = l1'0).
-         { apply Forall2_length in H11p0, H13p0. rewrite H13p0 in H11p0.
+         { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0.
            pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
            fwd. auto. }
-         subst. clear H11p0 H13p0. apply app_inv_head in H11p2. subst.
+         subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst.
          repeat (invert_stuff; simpl in * ).
          remember (match sizeof e with | [] => 0%Z | _ => _ end) as x eqn:Ex. clear Ex.
          repeat match goal with
@@ -1124,12 +1145,16 @@ Proof.
          cbv [obviously_non_intersecting]. intros. subst.
          repeat (invert_stuff; simpl in * ).
          (*want to conclude that ctxs agree on dimvar1 and dimvar2*)
-         apply Forall2_app_inv_l in H11, H13. fwd.
+         match goal with
+          | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ =>
+              rename H1 into HA; rename H2 into HB
+          end.
+         apply Forall2_app_inv_l in HA, HB. fwd.
          assert (l1' = l1'0).
-         { apply Forall2_length in H11p0, H13p0. rewrite H13p0 in H11p0.
+         { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0.
            pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
            fwd. auto. }
-         subst. clear H11p0 H13p0. apply app_inv_head in H11p2. subst.
+         subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst.
          repeat (invert_stuff; simpl in * ).
          remember (Z.of_nat _) as x eqn:Ex. clear Ex.
          repeat match goal with
@@ -2049,7 +2074,7 @@ Lemma length_flatten_result n m sh l :
 Proof.
   revert n. induction l; intros n H; invert H.
   - reflexivity.
-  - simpl. invert H4. invert H1. rewrite app_length. erewrite IHl.
+  - simpl. invert H4. invert H1. rewrite length_app. erewrite IHl.
     2: { econstructor; [reflexivity|]. assumption. } lia.
 Qed.
 
@@ -2599,8 +2624,8 @@ Proof.
     intros. rewrite E in *. repeat rewrite in_app_iff in *. tauto.
   - intros. invert H. invert H0. invert H1. simpl. eapply IHe; eauto.
     move H3 at bottom. invert H3. rewrite nth_error_truncr in H6.
-    2: { apply nth_error_Some in H6. rewrite rev_length in H6.
-         rewrite length_truncl_list in H6. rewrite rev_length in H6. lia. }
+    2: { apply nth_error_Some in H6. rewrite length_rev in H6.
+         rewrite length_truncl_list in H6. rewrite length_rev in H6. lia. }
     econstructor; eassumption.
   - simpl. intros. invert H. invert H0. destr_lower. destruct H1 as (H1&Hn&_&_).
     pose proof forall_no_vars_eval_Zexpr_Z_total as H'2.
