@@ -447,7 +447,12 @@ Section __.
     interp_fact ctx2 f f' ->
     barely_appears_in_fact v f ->
     agree_on ctx1 ctx2 v.
-  Proof using. Admitted.
+  Proof.
+    intros H1 H2 Hv. cbv [barely_appears_in_fact] in Hv.
+    invert H1. invert H2. eapply Forall2_and in H; eauto. apply Forall2_forget_r in H.
+    rewrite Forall_forall in H. apply H in Hv. fwd. invert Hvp1. invert Hvp2.
+    cbv [agree_on]. rewrite H1, H2. reflexivity.
+  Qed.
   
   Lemma interp_agg_expr_det ctx ae res res' agg_hyps :
     good_agg_expr ae ->
@@ -496,11 +501,12 @@ Section __.
     subst. eapply interp_expr_det; eassumption.
   Qed.
 
-  Lemma interp_agg_expr_det' ctx1 ctx2 ae res agg_hyps :
+  Lemma interp_agg_expr_det' ctx1 ctx2 ae res res' agg_hyps :
     good_agg_expr ae ->
     interp_agg_expr ctx1 ae res agg_hyps ->
     (forall v, appears_in_agg_expr v ae -> agree_on ctx1 ctx2 v) ->
-    interp_agg_expr ctx2 ae res agg_hyps.
+    interp_agg_expr ctx2 ae res' agg_hyps ->
+    res = res'.
   Proof. eauto using interp_agg_expr_agree_on, interp_agg_expr_det. Qed.
   
   (*for any relation, we may think of some arguments to the relation as inputs, and others as outputs.  I think we do not actually care whether there is a functional dependence there.  by convention, we say that fact_args is always of the form outputs ++ inputs.  now, the function outs gives the number of outputs of a given relation. this suffices to determine the inputs, too.*)
@@ -594,32 +600,111 @@ Section __.
     f1 = f2.
   Proof.
     intros Hgood Hconcls H1 H2. invert H1. invert H2. cbv [good_rule] in Hgood.
-    simpl in Hgood. 
+    simpl in Hgood. fwd.
     assert (H': forall v, Exists (barely_appears_in_fact v) r.(rule_hyps) ->
                      agree_on ctx0 ctx v).
     { epose proof Forall2_and as H'. specialize H' with (1 := H3) (2 := H5).
       apply Forall2_forget_r in H'. rewrite Forall_forall in H'.
       intros v Hv. apply Exists_exists in Hv. fwd.
-      specialize (H' _ ltac:(eassumption)). fwd. eauto using interp_fact_agree. }
-    pose proof (fun v H => H' v (Hgood v H)) as H''. clear Hgood H'. clear H3 H5.
+      specialize (H' _ ltac:(eassumption)). fwd. eauto using interp_fact_same_agree. }
+    pose proof (fun v H => H' v (Hgoodp0 v H)) as H''. clear Hgoodp0 H'. clear H3 H5.
     rewrite Hconcls in H0, H4. invert_list_stuff. eapply interp_fact_det'; eauto.
-    clear -H'' H H1. destruct (rule_agg r) as [(res&aexpr)|]; fwd.
-    - 
-    Search interp_expr.
-    Search Forall2.
-Check Forall2_and.
-            
-    Check interp_expr_agree_on.
-    Search vars_of_expr.
-    assert (Forall (agree_on ctx0 ctx (vars_of_expr e))).
-    
-  Lemma good_rule_det r fs hyps :
+    destruct (rule_agg r) as [(res&aexpr)|] eqn:E; fwd.
+    - Check interp_agg_expr_det'. eapply interp_agg_expr_det' in Hp0; eauto.
+      2: { intros. apply H''. cbv [appears_in_rule]. eauto 6. }
+      subst. rewrite Forall_forall. intros v Hv. cbv [agree_on].
+      do 2 rewrite map.get_put_dec. destr (var_eqb res v); auto. symmetry. apply H''.
+      cbv [appears_in_rule]. left. rewrite Hconcls. split.
+      { intros H. fwd. rewrite E in H. invert H. auto. }
+      constructor. assumption.
+    - apply Forall_forall. intros. symmetry. apply H''. cbv [appears_in_rule].
+      left. rewrite Hconcls. split; eauto. intros H'. fwd. rewrite E in H'.
+      discriminate H'.
+  Qed.
+
+  Lemma concl_subset_appears_in_rule r concls' v :
+    subset concls' r.(rule_concls) ->
+    appears_in_rule v {| rule_concls := concls'; rule_hyps := r.(rule_hyps); rule_agg := r.(rule_agg) |} ->
+    appears_in_rule v r.
+  Proof.
+    cbv [appears_in_rule]. simpl. intros H2 H1. destruct H1 as [H1| [H1|H1]]; auto.
+    fwd. left. split; auto. rewrite Exists_exists in *. fwd. cbv [subset] in *. eauto.
+  Qed.
+
+  Lemma concl_subset_good r concls' :
+    good_rule r ->
+    subset concls' r.(rule_concls) ->
+    good_rule {| rule_concls := concls'; rule_hyps := r.(rule_hyps); rule_agg := r.(rule_agg) |}.
+  Proof.
+    cbv [good_rule]. simpl. intros Hgood Hsubset. fwd. split; [|assumption].
+    intros. apply Hgoodp0. eauto using concl_subset_appears_in_rule.
+  Qed.
+
+  Lemma rule_impl'_iff_single_concl r f hyps agg_hyps :
+    rule_impl' r f hyps agg_hyps <->
+      exists concl,
+        In concl r.(rule_concls) /\
+          rule_impl' {| rule_concls := [concl]; rule_hyps := r.(rule_hyps); rule_agg := r.(rule_agg) |} f hyps agg_hyps.
+  Proof.
+    split.
+    - intros H. invert H. rewrite Exists_exists in H1. fwd. exists x. split; eauto.
+      econstructor; simpl; eauto.
+    - intros H. fwd. invert Hp1. simpl in *. econstructor; eauto. invert_list_stuff.
+      rewrite Exists_exists. eauto.
+  Qed.
+
+  Hint Unfold subset : core.
+
+  Lemma preimage_of_inj_smaller_rec {X Y : Type} (R : X -> Y -> Prop) xs ys :
+    NoDup xs ->
+    (forall x, In x xs -> exists y, In y ys /\ R x y) ->
+    (forall x1 x2 y, In y ys -> R x1 y -> R x2 y -> x1 = x2) ->
+    exists ys',
+      length ys' = length xs /\
+        NoDup ys' /\
+        subset ys' ys /\
+        (forall y, In y ys' -> exists x, In x xs /\ R x y) /\
+        (forall x, In x xs -> exists y, In y ys' /\ R x y).
+  Proof.
+    intros Hnd H1 H2. induction Hnd; simpl.
+    - exists nil. cbv [subset]. simpl. intuition auto. constructor.
+    - simpl in *. specialize (IHHnd ltac:(auto)). fwd.
+      specialize (H1 x ltac:(auto)). fwd. exists (y :: ys').
+      simpl. rewrite IHHndp0. split; [reflexivity|]. split.
+      { constructor; [|assumption]. intros H'. apply H. apply IHHndp3 in H'.
+        fwd. specialize (H2 _ _ _ ltac:(eassumption) H1p1 H'p1). subst. assumption. }
+      split.
+      { cbv [subset]. simpl. intros y0 [Hy0|Hy0]; subst; auto. }
+      split.
+      { intros y0 [Hy0|Hy0]; subst; eauto. apply IHHndp3 in Hy0. fwd. eauto. }
+      { intros x0 [Hx0|Hx0]; subst; eauto. apply IHHndp4 in Hx0. fwd. eauto. }
+  Qed.
+
+  Lemma preimage_of_inj_smaller {X Y : Type} (R : X -> Y -> Prop) xs ys :
+    NoDup xs ->
+    (forall x, In x xs -> exists y, In y ys /\ R x y) ->
+    (forall x1 x2 y, In y ys -> R x1 y -> R x2 y -> x1 = x2) ->
+    length xs <= length ys.
+  Proof.
+    intros. epose proof preimage_of_inj_smaller_rec as H'.
+    specialize (H' _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
+    fwd. enough (length ys' <= length ys) by lia. apply NoDup_incl_length; assumption.
+  Qed.
+
+  Lemma good_rule_det r fs hyps agg_hyps :
     good_rule r ->
     NoDup fs ->
-    Forall (fun f => rule_impl r f hyps) fs ->
+    Forall (fun f => rule_impl' r f hyps agg_hyps) fs ->
     length fs <= length r.(rule_concls).
-  Proof. Print rule_impl.
-    rule_impl_fact f1 hyps ->
+  Proof.
+    intros Hgood Hnd Hfs.
+    eapply preimage_of_inj_smaller; [assumption| |].
+    - rewrite Forall_forall in Hfs. intros x Hx. specialize (Hfs x Hx).
+      rewrite rule_impl'_iff_single_concl in Hfs. exact Hfs.
+    - simpl. intros. eapply concl_subset_good in Hgood. 1: eapply good_rule_det'; eauto.
+      2: { cbv [subset]. simpl. intros ? [?|?]; subst; auto. contradiction. }
+      reflexivity.
+  Qed.
 
   Lemma dag_terminates p :
     Forall good_rule p ->
