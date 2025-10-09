@@ -79,5 +79,21 @@ Lemma Forall2_unique_r R xs ys ys' :
   ys = ys'.
 Proof.
   intros H. revert ys'. induction H; intros; invert_list_stuff; f_equal; eauto.
-Qed.  
+Qed.
+
+Lemma Forall2_and R1 R2 xs ys :
+  Forall2 R1 xs ys ->
+  Forall2 R2 xs ys ->
+  Forall2 (fun x y => R1 x y /\ R2 x y) xs ys.
+Proof. induction 1; intros; invert_list_stuff; eauto. Qed.
+
+Lemma in_combine_l_iff xs ys x (y : B) :
+  (exists y, In (x, y) (combine xs ys)) <-> In x (firstn (length ys) xs).
+Proof.
+  revert ys. induction xs; simpl; intros; eauto.
+  - destruct (length _); simpl; split; intros; fwd; eauto.
+  - destruct ys; simpl; split; intros; fwd; eauto.
+    + destruct H; fwd; eauto. rewrite <- IHxs. eauto.
+    + destruct H; subst; fwd; eauto. rewrite <- IHxs in H. fwd. eauto.
+Qed.
 End Forall.

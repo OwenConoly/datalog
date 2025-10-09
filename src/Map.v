@@ -75,6 +75,14 @@ Proof.
     + apply lookup_add_eq. reflexivity.
     + rewrite lookup_add_ne by auto. auto.
 Qed.
+
+Lemma fmap_of_empty :
+  fmap_of map.empty = $0.
+Proof.
+  apply fmap_ext. intros.
+  rewrite fmap_of_spec, map.get_empty, lookup_empty.
+  reflexivity.
+Qed.
     
 Lemma add_fmap_of m k v :
   fmap_of m $+ (k, v) = fmap_of (map.put m k v).
@@ -86,5 +94,25 @@ Proof.
 Qed.
 
 Definition agree_on (m1 m2 : mp) k :=
-  map.get m1 k = map.get m2 k.  
+  map.get m1 k = map.get m2 k.
+
+Lemma agree_on_putmany m1 m2 m1' m2' k :
+  agree_on m1 m1' k ->
+  agree_on m2 m2' k ->
+  agree_on (map.putmany m1 m2) (map.putmany m1' m2') k.
+Proof. cbv [agree_on]. map_solver mp_ok. Qed.
+
+Lemma agree_on_refl m k :
+  agree_on m m k.
+Proof. reflexivity. Qed.
+
+Lemma get_of_list_None_bw k l :
+  map.get (map := mp) (map.of_list l) k = None -> ~In k (map fst l).
+Proof.
+  intros H. induction l as [|(k0&v0) l']; subst; simpl in *; auto.
+  intros [H'|H']; subst.
+  - rewrite map.get_put_same in H. discriminate H.
+  - apply IHl'; auto. rewrite map.get_put_dec in *.
+    destruct_one_match_hyp; intuition congruence.
+Qed.
 End Map.

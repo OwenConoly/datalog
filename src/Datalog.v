@@ -14,7 +14,7 @@ From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
 From Datalog Require Import Forall3 Map Tactics Fp List.
 
-From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Datatypes.List.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
 Import ListNotations.
 
@@ -68,13 +68,14 @@ Section __.
   Record agg_expr :=
     { agg : aggregator; i : var; vs : list var; s: expr; body: expr; hyps: list fact }.
 
-  (*why is there flat_map but not flatten*)
+  (*why is there flat_map but not flatten*) Search map.map.
   Inductive interp_agg_expr (ctx : context) : agg_expr -> T -> list (rel * list T) -> Prop :=
   | mk_interp_agg_expr a i vs s s' i's body's body hyps hyps's result :
     interp_expr ctx s s' ->
     get_set s' = Some i's ->
     Forall3 (fun i' body' hyps' =>
                exists vs',
+                 length vs = length vs' /\
                  let ctx' := map.putmany ctx (map.put (map.of_list (combine vs vs')) i i') in
                  Forall2 (interp_fact ctx') hyps hyps' /\
                    interp_expr ctx' body body')
@@ -85,16 +86,33 @@ Section __.
   Record rule := { rule_agg : option (var * agg_expr); rule_concls : list fact; rule_hyps : list fact }.
 
   (*semantics of rules*)
-  Inductive rule_impl : rule -> rel * list T -> list (rel * list T) -> Prop :=
-  | normal_rule_impl hyps concls f' hyps' ctx :
+  Inductive rule_impl' : rule -> rel * list T -> list (rel * list T) -> list (rel * list T) -> Prop :=
+  | mk_rule_impl' r agg_hyps' ctx' f' hyps' ctx :
+    match r.(rule_agg) with
+    | Some (res, aexpr) => exists res',
+        interp_agg_expr ctx aexpr res' agg_hyps' /\
+          ctx' = map.put ctx res res'
+    | None =>
+        agg_hyps' = [] /\ ctx' = ctx
+    end ->
+    Exists (fun c => interp_fact ctx' c f') r.(rule_concls) ->
+    Forall2 (interp_fact ctx) r.(rule_hyps) hyps' ->
+    rule_impl' r f' hyps' agg_hyps'.
+
+  Hint Constructors rule_impl' : core.
+
+  Definition rule_impl r f hyps'_agg_hyps' :=
+    exists hyps' agg_hyps',
+      hyps'_agg_hyps' = hyps' ++ agg_hyps' /\ rule_impl' r f hyps' agg_hyps'.
+
+  Lemma normal_rule_impl hyps concls f' hyps' ctx :
     Exists (fun c => interp_fact ctx c f') concls ->
     Forall2 (interp_fact ctx) hyps hyps' ->
-    rule_impl {| rule_agg := None; rule_hyps := hyps; rule_concls := concls|} f' hyps'
-  | agg_rule_impl res res' agg_hyps' aexpr hyps concls f' hyps' ctx :
-    interp_agg_expr ctx aexpr res' agg_hyps' ->
-    Exists (fun c => interp_fact (map.put ctx res res') c f') concls ->
-    Forall2 (interp_fact ctx) hyps hyps' ->
-    rule_impl {| rule_agg := Some (res, aexpr); rule_hyps := hyps; rule_concls := concls|} f' hyps'.
+    rule_impl {| rule_agg := None; rule_hyps := hyps; rule_concls := concls|} f' hyps'.
+  Proof.
+    intros. cbv [rule_impl]. exists hyps', nil. rewrite app_nil_r. intuition.
+    econstructor; simpl; eauto.
+  Qed.
 
   Unset Elimination Schemes.
   Inductive pftree {T : Type} (P : T -> list T -> Prop) : T -> Prop :=
@@ -314,6 +332,20 @@ Section __.
     | var_expr v => [v]
     end.
 
+  Definition vars_of_fact (f : fact) : list var :=
+    flat_map vars_of_expr f.(fact_args).
+
+  Definition appears_in_expr (v : var) (e : expr) := In v (vars_of_expr e).
+
+  Definition appears_in_fact (v : var) (f : fact) := In v (vars_of_fact f).
+  
+  Definition appears_in_agg_expr v ae :=
+    appears_in_expr v ae.(s) \/
+      ~In v (ae.(i) :: ae.(vs)) /\
+        (appears_in_expr v ae.(body) \/ Exists (appears_in_fact v) ae.(hyps)).
+
+  Hint Unfold appears_in_agg_expr appears_in_expr appears_in_fact : core.
+
   Lemma interp_expr_agree_on ctx1 ctx2 e v :
     interp_expr ctx1 e v ->
     Forall (agree_on ctx1 ctx2) (vars_of_expr e) ->
@@ -325,6 +357,56 @@ Section __.
       revert H H1. induction H4.
       + constructor.
       + intros H1 H2. invert H1. invert H2. auto.
+  Qed.
+
+  Hint Resolve interp_expr_agree_on : core.
+  
+  Lemma interp_fact_agree_on ctx1 ctx2 f f' :
+    interp_fact ctx1 f f' ->
+    Forall (agree_on ctx1 ctx2) (vars_of_fact f) ->
+    interp_fact ctx2 f f'.
+  Proof.
+    intros H1 H2. invert H1. constructor. eapply Forall2_impl_strong; [|eassumption].
+    intros. cbv [vars_of_fact] in H2. rewrite Forall_flat_map, Forall_forall in H2.
+    eauto using interp_expr_agree_on.
+  Qed.
+
+  Lemma interp_agg_expr_agree_on ctx1 ctx2 ae res agg_hyps :
+    interp_agg_expr ctx1 ae res agg_hyps ->
+    (forall v, appears_in_agg_expr v ae -> agree_on ctx1 ctx2 v) ->
+    interp_agg_expr ctx2 ae res agg_hyps.
+  Proof.
+    intros H1 H2. invert H1. econstructor; eauto.
+    - eapply interp_expr_agree_on; eauto. apply Forall_forall. eauto.
+    - eapply Forall3_impl; [|eassumption]. simpl. clear H3. intros x y z Hxyz. fwd.
+      exists vs'. split; [assumption|]. split.
+      + eapply Forall2_impl_strong; [|eassumption]. intros x' y' Hx'y' Hx' Hy'.
+        eapply interp_fact_agree_on; [eassumption|].
+        apply Forall_forall. intros. cbv [agree_on]. do 2 rewrite map.get_putmany_dec.
+        destruct_one_match; [reflexivity|]. apply H2.
+        cbv [appears_in_agg_expr]. simpl. right. split.
+        { intros [H'|H']; try solve [map_solver context_ok].
+          rewrite map.get_put_dec in E. destruct_one_match_hyp; try congruence.
+          apply get_of_list_None_bw in E. apply E. apply in_map_iff.
+          eassert (exists _, _).
+          { eapply in_combine_l_iff.
+            2: { rewrite <- Hxyzp0. rewrite firstn_all. eassumption. }
+            assumption. }
+          fwd. eexists (_, _). simpl. eauto. }
+        right. apply Exists_exists. eauto.
+      + eapply interp_expr_agree_on; eauto.
+        apply Forall_forall. intros. cbv [agree_on]. do 2 rewrite map.get_putmany_dec.
+        destruct_one_match; [reflexivity|]. apply H2.
+        cbv [appears_in_agg_expr]. simpl. right. split.
+        { intros [H'|H']; try solve [map_solver context_ok].
+          rewrite map.get_put_dec in E. destruct_one_match_hyp; try congruence.
+          apply get_of_list_None_bw in E. apply E. apply in_map_iff.
+          eassert (exists _, _).
+          { eapply in_combine_l_iff.
+            2: { rewrite <- Hxyzp0. rewrite firstn_all. eassumption. }
+            assumption. }
+          fwd. eexists (_, _). simpl. eauto. }
+        left. eauto.
   Qed.
 
   Lemma interp_expr_det ctx e v1 v2 :
@@ -340,26 +422,60 @@ Section __.
       + reflexivity.
       + f_equal; auto.
   Qed.
+
+  Lemma interp_expr_det' e ctx1 ctx2 v1 v2 :
+    interp_expr ctx1 e v1 ->
+    interp_expr ctx2 e v2 ->
+    Forall (agree_on ctx1 ctx2) (vars_of_expr e) ->
+    v1 = v2.
+  Proof. eauto using interp_expr_det, interp_expr_agree_on. Qed.
+
+  Lemma interp_fact_det ctx f f1 f2 :
+    interp_fact ctx f f1 ->
+    interp_fact ctx f f2 ->
+    f1 = f2.
+  Proof.
+    intros H1 H2. invert H1. invert H2. f_equal.
+    eapply Forall2_unique_r; eauto. apply interp_expr_det.
+  Qed.
+      
+  Lemma interp_fact_det' f ctx1 ctx2 f1 f2 :
+    interp_fact ctx1 f f1 ->
+    interp_fact ctx2 f f2 ->
+    Forall (agree_on ctx1 ctx2) (vars_of_fact f) ->
+    f1 = f2.
+  Proof. eauto using interp_fact_det, interp_fact_agree_on. Qed.
+
+  Lemma interp_agg_expr_det ctx ae res res' agg_hyps :
+    interp_agg_expr ctx ae res agg_hyps ->
+    interp_agg_expr ctx ae res' agg_hyps ->
+    res = res'.
+  Proof.
+    intros H1 H2. invert H1. invert H2. f_equal. clear H11.
+    epose proof interp_expr_det as H'.
+    match goal with
+    | H1: _, H2: _ |- _ => specialize H' with (1 := H1) (2 := H2); clear H1 H2; subst
+    end.
+    match goal with
+    | H1: get_set _ = _, H2: get_set _ = _ |- _ => rewrite H1 in H2; invert H2; clear H1
+    end.
+    match goal with
+    | H1: Forall3 _ _ _ _, H2: Forall3 _ _ _ _ |- _ => rename H1 into Ha; rename H2 into Hb
+    end.
+    apply Forall3_ignore3 in Ha. apply Forall3_ignore3 in Hb.
+    eapply Forall2_unique_r; eauto. simpl. clear. intros x y y' Hy Hy'. fwd.
+    eapply interp_expr_det; eauto. clear Hy'p2 Hyp1 Hyp2.
+    (*need some good_agg_expr hypothesis*)
+    Search Forall3.
+
+
   
   (*for any relation, we may think of some arguments to the relation as inputs, and others as outputs.  I think we do not actually care whether there is a functional dependence there.  by convention, we say that fact_args is always of the form outputs ++ inputs.  now, the function outs gives the number of outputs of a given relation. this suffices to determine the inputs, too.*)
-    Inductive appears_in_expr (v : var) : expr -> Prop :=
-  | app_in_fun_expr args f :
-    Exists (appears_in_expr v) args ->
-    appears_in_expr v (fun_expr f args)
-  | app_in_var_expr : appears_in_expr v (var_expr v).
-
-  Definition appears_in_fact (v : var) (f : fact) :=
-    Exists (appears_in_expr v) f.(fact_args).
   Check eq. (*WHY*) Locate "=".
   Definition barely_appears_in_fact (v : var) (f : fact) :=
     In (var_expr v) f.(fact_args).
 
   Print agg_expr.
-  Definition appears_in_agg_expr v ae :=
-    appears_in_expr v ae.(s) \/
-      ~In v (ae.(i) :: ae.(vs)) /\
-        (appears_in_expr v ae.(body) \/ Exists (appears_in_fact v) ae.(hyps)).
-
   Definition appears_in_rule v r :=
     ~(exists ae, r.(rule_agg) = Some (v, ae)) /\ Exists (appears_in_fact v) r.(rule_concls) \/ Exists (appears_in_fact v) r.(rule_hyps) \/ (exists w ae, r.(rule_agg) = Some (w, ae) /\ appears_in_agg_expr v ae).
 
@@ -408,8 +524,8 @@ Section __.
     appears_in_fact v (with_only_ins f) ->
     appears_in_fact v f.
   Proof.
-    intros H. cbv [appears_in_fact] in *. simpl in *. cbv [fact_ins] in H.
-    rewrite Exists_exists in *. fwd. apply In_firstn_to_In in Hp0. eauto.
+    intros H. cbv [appears_in_fact vars_of_fact] in *. simpl in *. cbv [fact_ins] in H.
+    rewrite in_flat_map in *. fwd. eauto using In_firstn_to_In.
   Qed.
 
   Lemma barely_appears_with_only_ins v f :
@@ -419,6 +535,77 @@ Section __.
     intros H. cbv [barely_appears_in_fact] in *. simpl in *. cbv [fact_ins] in H.
     apply In_firstn_to_In in H. assumption.
   Qed.
+
+  (*not only is it a dag, but it's in topological order*)
+  Inductive dag : list rule -> Prop :=
+  | dag_nil : dag []
+  | dag_cons r p :
+    dag p ->
+    Forall
+      (fun concl => Forall
+                   (fun r' => Forall
+                             (fun hyp => hyp.(fact_R) <> concl.(fact_R))
+                             r'.(rule_hyps))
+                   p)
+      r.(rule_concls) ->
+    dag (r :: p).
+
+  Lemma interp_fact_agree ctx1 ctx2 f f' v :
+    interp_fact ctx1 f f' ->
+    interp_fact ctx2 f f' ->
+    barely_appears_in_fact v f ->
+    agree_on ctx1 ctx2 v.
+  Proof.
+    Admitted.
+  
+  Print good_rule. Search NoDup.
+  (*now i am wishing i had defined rule_impl in terms of a more primitive notion..*)
+  Lemma good_rule_det' r concl f1 f2 hyps agg_hyps :
+    good_rule r ->
+    r.(rule_concls) = [concl] ->
+    rule_impl' r f1 hyps agg_hyps ->
+    rule_impl' r f2 hyps agg_hyps ->
+    f1 = f2.
+  Proof.
+    intros Hgood Hconcls H1 H2. invert H1. invert H2. cbv [good_rule] in Hgood.
+    simpl in Hgood. 
+    assert (H': forall v, Exists (barely_appears_in_fact v) r.(rule_hyps) ->
+                     agree_on ctx0 ctx v).
+    { epose proof Forall2_and as H'. specialize H' with (1 := H3) (2 := H5).
+      apply Forall2_forget_r in H'. rewrite Forall_forall in H'.
+      intros v Hv. apply Exists_exists in Hv. fwd.
+      specialize (H' _ ltac:(eassumption)). fwd. eauto using interp_fact_agree. }
+    pose proof (fun v H => H' v (Hgood v H)) as H''. clear Hgood H'. clear H3 H5.
+    rewrite Hconcls in H0, H4. invert_list_stuff. eapply interp_fact_det'; eauto.
+    clear -H'' H H1. destruct (rule_agg r) as [(res&aexpr)|]; fwd.
+    - 
+    Search interp_expr.
+    Search Forall2.
+Check Forall2_and.
+            
+    Check interp_expr_agree_on.
+    Search vars_of_expr.
+    assert (Forall (agree_on ctx0 ctx (vars_of_expr e))).
+    
+  Lemma good_rule_det r fs hyps :
+    good_rule r ->
+    NoDup fs ->
+    Forall (fun f => rule_impl r f hyps) fs ->
+    length fs <= length r.(rule_concls).
+  Proof. Print rule_impl.
+    rule_impl_fact f1 hyps ->
+
+  Lemma dag_terminates p :
+    Forall good_rule p ->
+    dag p ->
+    exists l, forall f,
+      prog_impl_fact p f ->
+      In f l.
+  Proof.
+    intros Hgood H. induction H.
+    - exists nil. intros f H. invert H. invert H0.
+    - invert Hgood. specialize (IHdag ltac:(assumption)). fwd.
+    
 End __.
 Arguments fact : clear implicits.
 Arguments rule : clear implicits.
@@ -1001,7 +1188,7 @@ Section Transform.
       { clear -H. exfalso. rewrite Exists_map in H. apply Exists_exists in H.
         fwd. invert Hp1. clear H4. rewrite Exists_map in H1. apply Exists_exists in H1.
         fwd. invert H1p1. }
-      apply Exists_map in H. apply Exists_exists in H. fwd. Search rule_impl add_hyp.
+      apply Exists_map in H. apply Exists_exists in H. fwd.
       rewrite Forall_forall in H1. apply invert_rule_impl_add_hyp in Hp1; auto.
       fwd. constructor.
       2: { rewrite Forall_forall in *. intros [[R' b'] args'] H.
@@ -1011,8 +1198,8 @@ Section Transform.
            - apply partial_in. assumption.
            - clear H2p0. invert Hy. eapply partial_step.
              { cbv [make_good]. apply Exists_app. left. apply Exists_map.
-               apply Exists_exists. exists x. split; [assumption|]. Search x.
-               Check rule_impl_request_hyps. eapply rule_impl_request_hyps; eauto.
+               apply Exists_exists. exists x. split; [assumption|].
+               eapply rule_impl_request_hyps; eauto.
                apply in_map_iff. eexists (_, _, _). simpl. eauto. }
              constructor; [|constructor]. apply partial_in. reflexivity. }
       apply partial_in. reflexivity.

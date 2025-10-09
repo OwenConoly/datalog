@@ -303,7 +303,7 @@ Inductive vars_good : list string -> ATLexpr -> Prop :=
 | vg_Scalar s idxs :
   vars_good idxs (Scalar s).
 
-Fixpoint lower
+Fixpoint lower_rec
   (e : ATLexpr)
   (out: rel)
   (name: nat)
@@ -312,14 +312,14 @@ Fixpoint lower
   : nat (*next unused name*) * list (rule rel var fn aggregator) :=
   match e with
   | Gen i lo hi body =>
-      lower body out name (idxs ++ [(i, lo)]) def_depth
+      lower_rec body out name (idxs ++ [(i, lo)]) def_depth
   | Sum i lo hi body =>
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
       let i' := Datatypes.S x in
       let y := Datatypes.S i' in
       let aux := name in
-      let (name', rules) := lower body (nat_rel aux) (S aux) (idxs ++ [(i, lo(*TODO could make this zero*))]) def_depth in
+      let (name', rules) := lower_rec body (nat_rel aux) (S aux) (idxs ++ [(i, lo(*TODO could make this zero*))]) def_depth in
       (name',
         rules ++
           [{| rule_agg :=
@@ -343,7 +343,7 @@ Fixpoint lower
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
       let aux := name in
-      let (name', rules) := lower body (nat_rel aux) (S aux) idxs def_depth in
+      let (name', rules) := lower_rec body (nat_rel aux) (S aux) idxs def_depth in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -368,8 +368,8 @@ Fixpoint lower
              rule_hyps := [{| fact_R := true_rel;
                              fact_args := [fun_expr (fn_B fn_BNot) [lower_guard b]] |}] |}])
   | Lbind x e1 e2 =>
-      let (name', rules1) := lower e1 (str_rel x) name idxs def_depth in
-      let (name'', rules2) := lower e2 out name' idxs (map.put def_depth x (length idxs)) in
+      let (name', rules1) := lower_rec e1 (str_rel x) name idxs def_depth in
+      let (name'', rules2) := lower_rec e2 out name' idxs (map.put def_depth x (length idxs)) in
       (name'', rules1 ++ rules2)
   | Concat e1 e2 =>
       (*should have length (sizeof e1) = length (sizeof e2)*)
@@ -383,8 +383,8 @@ Fixpoint lower
                                                              | [] => (| 0 |)%z
                                                              | n :: _ => n
                                                              end))) in
-      let (name', rules1) := lower e1 (nat_rel aux1) (S aux2) idxs def_depth in
-      let (name'', rules2) := lower e2 (nat_rel aux2) name' idxs def_depth in
+      let (name', rules1) := lower_rec e1 (nat_rel aux1) (S aux2) idxs def_depth in
+      let (name'', rules2) := lower_rec e2 (nat_rel aux2) name' idxs def_depth in
       (name'',
         rules1 ++ rules2 ++
           [{| rule_agg := None;
@@ -432,7 +432,7 @@ Fixpoint lower
         | _ => 0%Z
         end in
       let aux := name in
-      let (name', rules) := lower e (nat_rel aux) (S aux) idxs def_depth in
+      let (name', rules) := lower_rec e (nat_rel aux) (S aux) idxs def_depth in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -465,7 +465,7 @@ Fixpoint lower
         end in
       let aux := name in
       let pad_start := (len mod k')%Z in
-      let (name', rules) := lower e (nat_rel aux) (S aux) idxs def_depth in
+      let (name', rules) := lower_rec e (nat_rel aux) (S aux) idxs def_depth in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -512,7 +512,7 @@ Fixpoint lower
       let dimvar2 := inr (length (sizeof e)) in
       let x := inr (S (length (sizeof e))) in
       let aux := nat_rel name in
-      let (name', rules) := lower e aux (S name) idxs def_depth in
+      let (name', rules) := lower_rec e aux (S name) idxs def_depth in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -531,14 +531,14 @@ Fixpoint lower
                                  var_expr dimvar2 ::
                                  map var_expr dimvars |}] |}])
   | Truncr _ e =>
-      lower e out name idxs def_depth
+      lower_rec e out name idxs def_depth
   | Truncl k e =>
       let dimvars := map inr (seq O (length (sizeof e) - 1)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
       let x := inr (length (sizeof e)) in
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
-      let (name', rules) := lower e aux (S name) idxs def_depth in
+      let (name', rules) := lower_rec e aux (S name) idxs def_depth in
       (name',
         rules ++
           [{| rule_agg := None;
@@ -567,7 +567,7 @@ Fixpoint lower
         | d :: _ => Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 d))
         | _ => 0%Z
         end in
-      let (name', rules) := lower e aux (S name) idxs def_depth in
+      let (name', rules) := lower_rec e aux (S name) idxs def_depth in
       (name',
         rules ++ [{| rule_agg := None;
            rule_concls := [{| fact_R := out;
@@ -603,7 +603,7 @@ Fixpoint lower
       let x := inr (length (sizeof e)) in
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
-      let (name', rules) := lower e aux (S name) idxs def_depth in
+      let (name', rules) := lower_rec e aux (S name) idxs def_depth in
       (name',
         rules ++
         [{| rule_agg := None;
@@ -644,6 +644,15 @@ Fixpoint lower
            rule_concls := [{| fact_R := out; fact_args := val :: map lower_idx_with_offset idxs |}] |}])
   end.
 
+Definition true_rule : rule rel var fn aggregator :=
+  {| rule_agg := None;
+    rule_concls := [{| fact_R := true_rel;
+                      fact_args := [fun_expr (fn_B (fn_BLit true)) []] |}];
+    rule_hyps := [] |}.
+
+Definition lower e out :=
+  snd (lower_rec e (str_rel out) O [] map.empty) ++ [true_rule].
+
 (*this is a very (unnecessarily) strong property.  happily, ATL programs are
   very-obviously functional, so they meet it.*)
 Definition obviously_non_intersecting (r1 r2 : rule rel var fn aggregator) :=
@@ -683,12 +692,6 @@ Proof.
   rewrite Forall_forall in H.
   destruct H1, H2; subst; auto using obviously_non_intersecting_comm.
 Qed.
-
-Definition functional (p : list (rule rel var fn aggregator)) :=
-  forall idxs r x1 x2,
-    prog_impl_fact p (r, x1 :: idxs) ->
-    prog_impl_fact p (r, x2 :: idxs) ->
-    x1 = x2.
 
 Definition diff_rels (p1 p2 : list (rule rel var fn aggregator)) :=
   forall r1 r2 c1 c2,
@@ -871,10 +874,10 @@ Proof.
   eapply Forall_subset in IHHgood; eauto.
   rewrite <- Forall_map in IHHgood.
   eapply Forall_subset in IHHgood; [|apply lower_idx_keeps_vars].
-  pose proof interp_expr_agree_on as H'.
-  specialize (H' _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-  pose proof interp_expr_det as H''.
-  specialize (H'' _ _ _ _ _ _ _ _ _ H' H3). invert H''.
+  epose proof interp_expr_agree_on as H'.
+  specialize (H' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+  epose proof interp_expr_det as H''.
+  specialize (H'' _ _ _ _ _ H' H3). invert H''.
   rewrite Forall_map in IHHgood'. rewrite Forall_map. apply Forall_app. split; auto.
   constructor; [|constructor]. simpl. cbv [agree_on]. rewrite H1, H5. f_equal. f_equal.
   lia.
@@ -913,18 +916,18 @@ Ltac prove_IH_hyps IH :=
   epose proof (IH _ _ _ _) as IH'; clear IH; rename IH' into IH;
 
   match goal with
-  | H : lower _ _ _ _ _ = _ |- _ => rewrite H in IH
+  | H : lower_rec _ _ _ _ _ = _ |- _ => rewrite H in IH
   end;
   repeat (specialize' IH; [prove_IH_hyp |]);
   fwd.
 
 Ltac destr_lower :=
   match goal with
-  | |- context[lower ?e ?out ?name ?idxs] =>
+  | |- context[lower_rec ?e ?out ?name ?idxs] =>
       let name' := fresh "name'" in
       let rules := fresh "rules" in
       let E := fresh "E" in
-      destruct (lower e out name idxs) as (name'&rules) eqn:E
+      destruct (lower_rec e out name idxs) as (name'&rules) eqn:E
   end.
 
 Ltac prove_good_rule :=
@@ -964,12 +967,12 @@ Ltac prove_rel_diff :=
 Ltac prove_rels_diff :=
   apply diff_rels_Forall_r; repeat (constructor; [prove_rel_diff|]); try constructor.
 
-Lemma lower_functional e out name idxs depths :
+Lemma lower_functional_rec e out name idxs depths :
   idxs_good idxs ->
   vars_good (map fst idxs) e ->
   ~ (exists out', out' \in vars_of e /\ out = str_rel out') ->
   out_smaller out name ->
-  let (name', rules) := lower e out name idxs depths in
+  let (name', rules) := lower_rec e out name idxs depths in
   name <= name' /\ pairwise_ni rules /\ Forall (good_rule_or_out out name name' (fun str => str \in vars_of e)) rules.
 Proof.
   revert out name idxs depths.
@@ -1002,12 +1005,12 @@ Proof.
           rewrite Forall_map in H'. eapply Forall_subset in H'; eauto.
           rewrite <- Forall_map in H'.
           eapply Forall_subset in H'. 2: apply lower_guard_keeps_vars.
-          pose proof interp_expr_agree_on as H''.
-          epose proof (H'' _ _ _ _ _ _ _ _ _) as H''.
+          epose proof interp_expr_agree_on as H''.
+          epose proof (H'' _ _ _ _ _) as H''.
           specialize' H''. 2: specialize (H'' ltac:(eassumption)). 1: eassumption.
-          pose proof interp_expr_det as H'''.
+          epose proof interp_expr_det as H'''.
           match goal with
-          | H1: _, H2: _ |- _ => specialize (H''' _ _ _ _ _ _ _ _ _ H1 H2)
+          | H1: _, H2: _ |- _ => specialize (H''' _ _ _ _ _ H1 H2)
           end.
           subst. clear. destruct b0; auto. }
         constructor. }
@@ -1171,6 +1174,28 @@ Proof.
     constructor; [|constructor]. cbv [good_rule_or_out]. simpl.
     constructor; [|constructor]. simpl. auto.
 Qed.
+
+Definition functional (p : list (rule rel var fn aggregator)) :=
+  forall idxs r x1 x2,
+    prog_impl_fact p (r, x1 :: idxs) ->
+    prog_impl_fact p (r, x2 :: idxs) ->
+    x1 = x2.
+
+Lemma ni_impl_functional p :
+  pairwise_ni p ->
+  dag p ->
+  Forall non_self_intersecting p ->
+  functional p.
+
+Check lower_functional_rec. Print pairwise_ni.
+
+Lemma lower_functional e out :
+  ~(out \in vars_of e) ->
+  functional (lower e out).
+  
+
+
+
 
 (*i do not like fmaps, because you cannot iterate over them,
   so i work with coqutil maps instead.
@@ -2049,12 +2074,6 @@ Proof.
 Qed.
 Print result_has_shape.
 
-Definition true_rule : rule rel var fn aggregator :=
-  {| rule_agg := None;
-    rule_concls := [{| fact_R := true_rel;
-                       fact_args := [fun_expr (fn_B (fn_BLit true)) []] |}];
-    rule_hyps := [] |}.
-
 Lemma Forall2_impl_in_l {A B : Type} (R1 R2 : A -> B -> Prop) l1 l2 :
   (forall x y, In x l1 -> R1 x y -> R2 x y) ->
   Forall2 R1 l1 l2 ->
@@ -2190,7 +2209,7 @@ Proof.
   - destruct k; simpl; auto.
 Qed.
 
-Lemma lower_correct e idx_ctx depths out sh v ctx r datalog_ctx l :
+Lemma lower_correct_rec e idx_ctx depths out sh v ctx r datalog_ctx l :
   eval_expr sh (fmap_of v) ctx e r ->
   size_of e l ->
   constant_nonneg_bounds e ->
@@ -2205,7 +2224,7 @@ Lemma lower_correct e idx_ctx depths out sh v ctx r datalog_ctx l :
   forall idxs name val idx_ctx',
     result_lookup_Z' idxs r val ->
     Forall2 (interp_expr (context_of v)) (map lower_idx_with_offset idx_ctx) idx_ctx' ->
-    prog_impl_fact (snd (lower e out name idx_ctx depths) ++ datalog_ctx ++ [true_rule]) (out, Robj (toR val) :: idx_ctx' ++ map Zobj idxs).
+    prog_impl_fact (snd (lower_rec e out name idx_ctx depths) ++ datalog_ctx ++ [true_rule]) (out, Robj (toR val) :: idx_ctx' ++ map Zobj idxs).
 Proof.
   revert idx_ctx depths out sh v ctx r datalog_ctx l. induction e.
   - simpl. intros. apply invert_eval_gen in H.
@@ -2303,7 +2322,7 @@ Proof.
       constructor.
       { simpl. specialize IHe with (name := S name).
         simpl in IHe.
-        eapply prog_impl_fact_subset. 1(*why*): assumption.
+        eapply prog_impl_fact_subset.
         2: { eapply IHe; eauto. }
         intros x Hx. destr_lower. simpl. repeat rewrite in_app_iff in *. simpl. tauto. }
       constructor.
@@ -2314,7 +2333,7 @@ Proof.
       constructor.
   - simpl. intros. destruct H1 as (H1&H1_). invert H0. invert H.
     + destr_lower. destr_lower. simpl.
-      eapply prog_impl_fact_subset; [assumption|..].
+      eapply prog_impl_fact_subset.
       2: { eapply IHe2 with (name := name') (depths := map.put depths x _); eauto.
            intros * H1' H2'. 
            apply lookup_split in H1'. destruct H1' as [(H1'&H3')|(H1'&H3')].
@@ -2325,11 +2344,11 @@ Proof.
            move H2 at bottom.
            specialize (H2 _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
            fwd. do 2 eexists. rewrite map.get_put_diff by eassumption. intuition eauto.
-           eapply prog_impl_fact_subset; [assumption| |eassumption].
+           eapply prog_impl_fact_subset; [|eassumption].
            intros. repeat rewrite in_app_iff. simpl. tauto. }
       rewrite E, E0. intros. repeat rewrite in_app_iff in *. tauto.
     + destr_lower. destr_lower. simpl.
-      eapply prog_impl_fact_subset; [assumption|..].
+      eapply prog_impl_fact_subset.
       2: { eapply IHe2 with (name := name') (depths := map.put depths x _); eauto.
            intros * H1' H2'. 
            apply lookup_split in H1'. destruct H1' as [(H1'&H3')|(H1'&H3')].
@@ -2340,7 +2359,7 @@ Proof.
            move H2 at bottom.
            specialize (H2 _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
            fwd. do 2 eexists. rewrite map.get_put_diff by eassumption. intuition eauto.
-           eapply prog_impl_fact_subset; [assumption| |eassumption].
+           eapply prog_impl_fact_subset; [|eassumption].
            intros. repeat rewrite in_app_iff. simpl. tauto. }
       rewrite E, E0. intros. repeat rewrite in_app_iff in *. tauto.
   - simpl. intros. destruct H1 as (He1&He2). invert H0. invert H.
@@ -2374,7 +2393,7 @@ Proof.
                        (inr (length xs)) (Zobj _)).
           eapply normal_rule_impl with (ctx := ctx'); interp_exprs. } }
       constructor.
-      { cbn -[seq]. eapply prog_impl_fact_subset; [assumption|..].
+      { cbn -[seq]. eapply prog_impl_fact_subset.
       2: { specialize IHe1 with (name := S (S name)) (idxs := x :: xs).
            simpl in IHe1. move IHe1 at bottom. eapply IHe1; eauto. }
       intros. repeat rewrite in_app_iff in *. rewrite E in *. tauto. }
@@ -2411,7 +2430,7 @@ Proof.
                           (inr (length xs)) (Zobj _)).
           eapply normal_rule_impl with (ctx := ctx'); interp_exprs. } }
       simpl. constructor.
-      { eapply prog_impl_fact_subset; [assumption|..].
+      { eapply prog_impl_fact_subset.
         2: { move IHe2 at bottom. rewrite <- He1'.
              specialize IHe2 with (idxs := (x - Z.of_nat (length l0) :: xs)%Z).
              simpl in IHe2. eapply IHe2; eauto.
@@ -2476,7 +2495,7 @@ Proof.
                       (inr (S (length l1))) (Robj _)).
       eapply normal_rule_impl with (ctx := ctx'); interp_exprs. }
     simpl. constructor; [|solve[constructor]].
-    eapply prog_impl_fact_subset; [assumption|..].
+    eapply prog_impl_fact_subset.
     2: { move IHe at bottom. eset (idxs := _ :: _ :: _: list Z).
          specialize IHe with (name := S name) (idxs := idxs). subst idxs. simpl in IHe.
          eapply IHe; eauto. econstructor.
@@ -2533,7 +2552,7 @@ Proof.
                         (inr (S (S (length l1)))) (Robj _)).
         eapply normal_rule_impl with (ctx := ctx'); interp_exprs. }
       simpl. constructor.
-      { eapply prog_impl_fact_subset; [assumption|..].
+      { eapply prog_impl_fact_subset.
         2: { move IHe at bottom. eset (idxs := _ :: _: list Z).
              specialize IHe with (name := S name) (idxs := idxs). subst idxs. simpl in IHe.
              eapply IHe; eauto. econstructor.
@@ -2617,7 +2636,7 @@ Proof.
                       (inr (S (S (S (length idxs))))) (Robj _)).
       eapply normal_rule_impl with (ctx := ctx'); interp_exprs. }
     simpl. constructor; [|solve[constructor]].
-    eapply prog_impl_fact_subset; [assumption|..].
+    eapply prog_impl_fact_subset.
     2: { move IHe at bottom. eset (idxs0 := _ :: _ :: _ : list Z).
          specialize IHe with (name := S name) (idxs := idxs0). subst idxs0.
          eapply IHe; eauto. eapply result_lookup_Z'_transpose; eassumption. }
@@ -2653,7 +2672,7 @@ Proof.
                    (inr (S (length xs))) (Robj _)).
       eapply normal_rule_impl with (ctx := ctx'); interp_exprs. }
     constructor; [|solve[constructor]]. simpl.
-    eapply prog_impl_fact_subset; [assumption|..].
+    eapply prog_impl_fact_subset.
     2: { move IHe at bottom. eset (idxs0 := _ :: _ : list Z).
          specialize IHe with (name := S name) (idxs := idxs0). subst idxs0.
          eapply IHe; eauto. econstructor; eauto.
@@ -2694,7 +2713,7 @@ Proof.
                         (inr (S (length xs))) (Robj _)).
         eapply normal_rule_impl with (ctx := ctx'); interp_exprs. }
       constructor.
-      { eapply prog_impl_fact_subset; [assumption|..].
+      { eapply prog_impl_fact_subset.
         2: { move IHe at bottom. eset (idxs0 := _ :: _ : list Z).
              specialize IHe with (name := S name) (idxs := idxs0). subst idxs0.
              eapply IHe; eauto. econstructor; eauto. }
@@ -2773,7 +2792,7 @@ Proof.
                         (inr (S (length xs))) (Robj _)).
         eapply normal_rule_impl with (ctx := ctx'); interp_exprs. }
       constructor.
-      { eapply prog_impl_fact_subset; [assumption|..].
+      { eapply prog_impl_fact_subset.
         2: { move IHe at bottom. eset (idxs0 := _ :: _ : list Z).
              specialize IHe with (name := S name) (idxs := idxs0). subst idxs0.
              eapply IHe; eauto. econstructor; eauto. 1: lia. rewrite <- H5.
@@ -2797,8 +2816,30 @@ Proof.
     { constructor. simpl. set (ctx' := map.putmany substn (context_of v)).
       rewrite app_nil_r. eapply normal_rule_impl with (ctx := ctx'); interp_exprs. }
     eapply Forall_impl; [|eassumption]. intros.
-    eapply prog_impl_fact_subset; [assumption|..].
+    eapply prog_impl_fact_subset.
     2: eassumption.
     simpl. intros. rewrite in_app_iff. tauto.
     Unshelve. (*why*) all: exact map.empty.
 Qed.
+
+Check lower_correct_rec. Search ATLDeep.lower.
+
+Lemma lower_correct out e r l :
+  eval_expr $0 $0 $0 e r ->
+  size_of e l ->
+  constant_nonneg_bounds e ->
+  forall (idxs : list Z) (val : scalar_result),
+    result_lookup_Z' idxs r val ->
+    prog_impl_fact (lower e out) (out, Robj (toR val) :: map Zobj idxs).
+Proof.
+  intros. pose proof lower_correct_rec as H'.
+  specialize H' with (idx_ctx' := nil) (datalog_ctx := nil) (v := map.empty).
+  simpl in H'. eapply H'; eauto.
+  - rewrite fmap_of_empty. eassumption.
+  - clear. intros * H. rewrite lookup_empty in H. discriminate H.
+Qed.
+
+
+                                                                               
+       
+End __.
