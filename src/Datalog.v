@@ -74,11 +74,11 @@ Section __.
     interp_expr ctx s s' ->
     get_set s' = Some i's ->
     Forall3 (fun i' body' hyps' =>
-               exists vs',
-                 length vs = length vs' /\
-                 let ctx' := map.putmany ctx (map.put (map.of_list (combine vs vs')) i i') in
-                 Forall2 (interp_fact ctx') hyps hyps' /\
-                   interp_expr ctx' body body')
+               exists vs' ctx',
+                 map.of_list_zip vs vs' = Some ctx' /\
+                   let ctx'' := map.putmany (map.put ctx i i') ctx' in
+                   Forall2 (interp_fact ctx'') hyps hyps' /\
+                     interp_expr ctx'' body body')
       i's body's hyps's ->
     result = fold_right (interp_agg a) (agg_id a) body's ->
     interp_agg_expr _ {| agg := a; i := i; vs := vs; s := s; body := body; hyps := hyps |} result (concat hyps's).
@@ -344,6 +344,12 @@ Section __.
       ~In v (ae.(i) :: ae.(vs)) /\
         (appears_in_expr v ae.(body) \/ Exists (appears_in_fact v) ae.(hyps)).
 
+  Definition barely_appears_in_fact (v : var) (f : fact) :=
+    In (var_expr v) f.(fact_args).
+  
+  Definition good_agg_expr ae :=
+    Forall (fun v => Exists (barely_appears_in_fact v) ae.(hyps)) ae.(vs).
+
   Hint Unfold appears_in_agg_expr appears_in_expr appears_in_fact : core.
 
   Lemma interp_expr_agree_on ctx1 ctx2 e v :
@@ -379,33 +385,23 @@ Section __.
     intros H1 H2. invert H1. econstructor; eauto.
     - eapply interp_expr_agree_on; eauto. apply Forall_forall. eauto.
     - eapply Forall3_impl; [|eassumption]. simpl. clear H3. intros x y z Hxyz. fwd.
-      exists vs'. split; [assumption|]. split.
+      exists vs', ctx'. split; [assumption|]. split.
       + eapply Forall2_impl_strong; [|eassumption]. intros x' y' Hx'y' Hx' Hy'.
         eapply interp_fact_agree_on; [eassumption|].
         apply Forall_forall. intros. cbv [agree_on]. do 2 rewrite map.get_putmany_dec.
-        destruct_one_match; [reflexivity|]. apply H2.
+        destruct_one_match; [reflexivity|]. do 2 rewrite map.get_put_dec.
+        destr (var_eqb i0 x0); [reflexivity|]. apply H2.
         cbv [appears_in_agg_expr]. simpl. right. split.
-        { intros [H'|H']; try solve [map_solver context_ok].
-          rewrite map.get_put_dec in E. destruct_one_match_hyp; try congruence.
-          apply get_of_list_None_bw in E. apply E. apply in_map_iff.
-          eassert (exists _, _).
-          { eapply in_combine_l_iff.
-            2: { rewrite <- Hxyzp0. rewrite firstn_all. eassumption. }
-            assumption. }
-          fwd. eexists (_, _). simpl. eauto. }
+        { intros [H'|H']; [solve[auto] |].
+          eapply map.putmany_of_list_zip_get in Hxyzp0; eauto. }
         right. apply Exists_exists. eauto.
       + eapply interp_expr_agree_on; eauto.
         apply Forall_forall. intros. cbv [agree_on]. do 2 rewrite map.get_putmany_dec.
-        destruct_one_match; [reflexivity|]. apply H2.
+        destruct_one_match; [reflexivity|]. do 2 rewrite map.get_put_dec.
+        destr (var_eqb i0 x0); [reflexivity|]. apply H2.
         cbv [appears_in_agg_expr]. simpl. right. split.
-        { intros [H'|H']; try solve [map_solver context_ok].
-          rewrite map.get_put_dec in E. destruct_one_match_hyp; try congruence.
-          apply get_of_list_None_bw in E. apply E. apply in_map_iff.
-          eassert (exists _, _).
-          { eapply in_combine_l_iff.
-            2: { rewrite <- Hxyzp0. rewrite firstn_all. eassumption. }
-            assumption. }
-          fwd. eexists (_, _). simpl. eauto. }
+        { intros [H'|H']; [solve [auto] |].
+          eapply map.putmany_of_list_zip_get in Hxyzp0; eauto. }
         left. eauto.
   Qed.
 
@@ -446,12 +442,20 @@ Section __.
     f1 = f2.
   Proof. eauto using interp_fact_det, interp_fact_agree_on. Qed.
 
+  Lemma interp_fact_same_agree ctx1 ctx2 f f' v :
+    interp_fact ctx1 f f' ->
+    interp_fact ctx2 f f' ->
+    barely_appears_in_fact v f ->
+    agree_on ctx1 ctx2 v.
+  Proof using. Admitted.
+  
   Lemma interp_agg_expr_det ctx ae res res' agg_hyps :
+    good_agg_expr ae ->
     interp_agg_expr ctx ae res agg_hyps ->
     interp_agg_expr ctx ae res' agg_hyps ->
     res = res'.
   Proof.
-    intros H1 H2. invert H1. invert H2. f_equal. clear H11.
+    intros Hgood H1 H2. invert H1. invert H2. f_equal.
     epose proof interp_expr_det as H'.
     match goal with
     | H1: _, H2: _ |- _ => specialize H' with (1 := H1) (2 := H2); clear H1 H2; subst
@@ -462,26 +466,56 @@ Section __.
     match goal with
     | H1: Forall3 _ _ _ _, H2: Forall3 _ _ _ _ |- _ => rename H1 into Ha; rename H2 into Hb
     end.
-    apply Forall3_ignore3 in Ha. apply Forall3_ignore3 in Hb.
-    eapply Forall2_unique_r; eauto. simpl. clear. intros x y y' Hy Hy'. fwd.
-    eapply interp_expr_det; eauto. clear Hy'p2 Hyp1 Hyp2.
-    (*need some good_agg_expr hypothesis*)
-    Search Forall3.
+    eapply invert_concat_same' in H11; cycle 1.
+    { apply Forall3_length in Ha, Hb. fwd. rewrite <- Hap1, <- Hbp1, <- Hap0, <- Hbp0.
+      reflexivity. }
+    { apply Forall3_ignore12 in Hb. eapply Forall_impl; [|eassumption].
+      clear. simpl. intros x Hx. fwd. apply Forall2_length in Hxp1. symmetry.
+      eassumption. }
+    { apply Forall3_ignore12 in Ha. eapply Forall_impl; [|eassumption].
+      clear. simpl. intros x Hx. fwd. apply Forall2_length in Hxp1. symmetry.
+      eassumption. }
+    subst. eapply Forall3_unique_2; [eassumption|eassumption|].
+    simpl. clear -Hgood context_ok var_eqb_spec. intros. fwd.
+    assert (ctx' = ctx'0).
+    { eapply putmany_of_list_ext; eauto.
+      eapply Forall2_and in Hp1; [|apply H0p1].
+      cbv [good_agg_expr] in Hgood. simpl in Hgood.
+      apply Forall2_forget_r in Hp1. rewrite Forall_forall in *.
+      intros v Hv. specialize (Hgood _ Hv). rewrite Exists_exists in Hgood.
+      fwd. specialize (Hp1 _ Hgoodp0). fwd.
+      eapply interp_fact_same_agree in Hp1p1; eauto.
+      cbv [agree_on] in *. do 2 rewrite map.get_putmany_dec in Hp1p1.
+      destruct (map.get ctx' _) eqn:E, (map.get ctx'0 _) eqn:E'; auto.
+      { erewrite map.get_of_list_zip in E' by eassumption.
+        apply map.zipped_lookup_None_notin in E'; [exfalso; auto|].
+        eapply map.putmany_of_list_zip_sameLength. eassumption. }
+      { erewrite map.get_of_list_zip in E by eassumption.
+        apply map.zipped_lookup_None_notin in E; [exfalso; auto|].
+        eapply map.putmany_of_list_zip_sameLength. eassumption. } }
+    subst. eapply interp_expr_det; eassumption.
+  Qed.
 
-
+  Lemma interp_agg_expr_det' ctx1 ctx2 ae res agg_hyps :
+    good_agg_expr ae ->
+    interp_agg_expr ctx1 ae res agg_hyps ->
+    (forall v, appears_in_agg_expr v ae -> agree_on ctx1 ctx2 v) ->
+    interp_agg_expr ctx2 ae res agg_hyps.
+  Proof. eauto using interp_agg_expr_agree_on, interp_agg_expr_det. Qed.
   
   (*for any relation, we may think of some arguments to the relation as inputs, and others as outputs.  I think we do not actually care whether there is a functional dependence there.  by convention, we say that fact_args is always of the form outputs ++ inputs.  now, the function outs gives the number of outputs of a given relation. this suffices to determine the inputs, too.*)
   Check eq. (*WHY*) Locate "=".
-  Definition barely_appears_in_fact (v : var) (f : fact) :=
-    In (var_expr v) f.(fact_args).
-
   Print agg_expr.
   Definition appears_in_rule v r :=
     ~(exists ae, r.(rule_agg) = Some (v, ae)) /\ Exists (appears_in_fact v) r.(rule_concls) \/ Exists (appears_in_fact v) r.(rule_hyps) \/ (exists w ae, r.(rule_agg) = Some (w, ae) /\ appears_in_agg_expr v ae).
 
   Definition good_rule (r : rule) :=
-    forall v, appears_in_rule v r ->
-         Exists (barely_appears_in_fact v) r.(rule_hyps).
+    (forall v, appears_in_rule v r ->
+          Exists (barely_appears_in_fact v) r.(rule_hyps)) /\
+      match r.(rule_agg) with
+      | None => True
+      | Some (_, ae) => good_agg_expr ae
+      end.
 
   Definition good_prog (p : list rule) := Forall good_rule p.
 
@@ -550,14 +584,6 @@ Section __.
       r.(rule_concls) ->
     dag (r :: p).
 
-  Lemma interp_fact_agree ctx1 ctx2 f f' v :
-    interp_fact ctx1 f f' ->
-    interp_fact ctx2 f f' ->
-    barely_appears_in_fact v f ->
-    agree_on ctx1 ctx2 v.
-  Proof.
-    Admitted.
-  
   Print good_rule. Search NoDup.
   (*now i am wishing i had defined rule_impl in terms of a more primitive notion..*)
   Lemma good_rule_det' r concl f1 f2 hyps agg_hyps :

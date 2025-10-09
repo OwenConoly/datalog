@@ -1,6 +1,7 @@
 From Stdlib Require Import Lists.List.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
-Require Import coqutil.Datatypes.List coqutil.Tactics.fwd coqutil.Tactics.destr.
+From Lower Require Import ListMisc.
+From coqutil Require Import Datatypes.List Tactics.fwd Tactics.destr.
 Require Import Datalog.Tactics.
 
 Import ListNotations.
@@ -87,6 +88,11 @@ Lemma Forall2_and R1 R2 xs ys :
   Forall2 (fun x y => R1 x y /\ R2 x y) xs ys.
 Proof. induction 1; intros; invert_list_stuff; eauto. Qed.
 
+Lemma Forall2_true xs ys :
+  length xs = length ys ->
+  Forall2 (fun _ _ => True) xs ys.
+Proof. revert ys. induction xs; destruct ys; simpl; try congruence; eauto. Qed.
+
 Lemma in_combine_l_iff xs ys x (y : B) :
   (exists y, In (x, y) (combine xs ys)) <-> In x (firstn (length ys) xs).
 Proof.
@@ -97,3 +103,29 @@ Proof.
     + destruct H; subst; fwd; eauto. rewrite <- IHxs in H. fwd. eauto.
 Qed.
 End Forall.
+
+Section misc.
+Context {A : Type}.
+Implicit Type xs : list A.  
+
+Lemma invert_concat_same xss xss' :
+  concat xss = concat xss' ->
+  Forall2 (fun xs xs' => length xs = length xs') xss xss' ->
+  xss = xss'.
+Proof.
+  induction 2; simpl in *; eauto. eapply invert_app in H; eauto.
+  fwd. f_equal. eauto.
+Qed.
+
+Lemma invert_concat_same' xss xss' n :
+  concat xss = concat xss' ->
+  length xss = length xss' ->
+  Forall (fun xs => length xs = n) xss ->
+  Forall (fun xs => length xs = n) xss' ->
+  xss = xss'.
+Proof.
+  intros H H0 H1 H2. apply invert_concat_same; auto.
+  eapply Forall2_impl_strong; [|apply Forall2_true; auto].
+  intros x y _ Hx Hy. rewrite Forall_forall in *. rewrite H1, H2; auto.
+Qed.
+End misc.

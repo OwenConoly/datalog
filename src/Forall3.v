@@ -88,7 +88,14 @@ Section Forall3.
   Lemma Forall3_zip3 xs ys f :
     Forall2 (fun x y => R x y (f x y)) xs ys ->
     Forall3 xs ys (zip f xs ys).
-  Proof. induction 1; cbv [zip]; simpl; constructor; auto. Qed.    
+  Proof. induction 1; cbv [zip]; simpl; constructor; auto. Qed.
+
+  Lemma Forall3_unique_2 xs ys ys' zs :
+    Forall3 xs ys zs ->
+    Forall3 xs ys' zs ->
+    (forall x y y' z, R x y z -> R x y' z -> y = y') ->
+    ys = ys'.
+  Proof. intros H. revert ys'. induction H; invert 1; intros; f_equal; eauto. Qed.
 End Forall3.
 
 Lemma Forall3_impl {A B C} xs ys zs (R1 R2 : A -> B -> C -> Prop) :

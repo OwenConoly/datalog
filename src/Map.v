@@ -1,5 +1,6 @@
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd.
 From ATL Require Import FrapWithoutSets.
+From Datalog Require Import Tactics.
 
 
 Section Map.
@@ -115,4 +116,45 @@ Proof.
   - apply IHl'; auto. rewrite map.get_put_dec in *.
     destruct_one_match_hyp; intuition congruence.
 Qed.
+
+Lemma getmany_of_list_ext (m1 m2 : mp) ks vs :
+  map.getmany_of_list m1 ks = Some vs ->
+  Forall (agree_on m1 m2) ks ->
+  map.getmany_of_list m2 ks = Some vs.
+Proof.
+  cbv [map.getmany_of_list]. revert vs.
+  induction ks; simpl in *; intros; auto.
+  do 2 (destruct_one_match_hyp; try congruence; []).
+  invert_list_stuff. rewrite <- H3, E. erewrite IHks by eauto.
+  reflexivity.
+Qed.
+
+Lemma putmany_of_list_ext (m m1' m2' : mp) ks vs vs' :
+  map.putmany_of_list_zip ks vs m = Some m1' ->
+  map.putmany_of_list_zip ks vs' m = Some m2' ->
+  Forall (agree_on m1' m2') ks ->
+  m1' = m2'.
+Proof.
+  revert m m1' m2' vs vs'.
+  induction ks; intros m m1' m2' vs vs'; destruct vs, vs'; simpl; try congruence.
+  intros. invert_list_stuff.
+  epose proof map.only_differ_putmany as H'. specialize (H' _ _ _ _ H).
+  epose proof map.only_differ_putmany as H0'. specialize (H0' _ _ _ _ H0).
+  Print map.only_differ. apply map.map_ext. intros k.
+  specialize (H' k). specialize (H0' k). eassert (H1: _ \/ _).
+  { destruct H' as [H'|H']. 1: left; exact H'. destruct H0' as [H0'|H0'].
+    1: left; exact H0'. right. exact (conj H' H0'). }
+  clear H0' H'. destruct H1 as [H1|H1].
+  - cbv [PropSet.elem_of PropSet.of_list] in H1. rewrite Forall_forall in H5.
+    apply H5. assumption.
+  - fwd. rewrite map.get_put_dec in H1p0, H1p1. destr (key_eqb a k).
+    + apply H4.
+    + rewrite <- H1p0, <- H1p1. reflexivity.
+Qed.
+
+Lemma agree_on_putmany_r (m m1 m2 : mp) k :
+  agree_on (map.putmany m m1) (map.putmany m m2) k ->
+  agree_on m1 m2 k.
+Proof.
+  cbv [agree_on]. do 2 rewrite map.get_putmany_dec. repeat destruct_one_match; try congruence. Abort.
 End Map.
