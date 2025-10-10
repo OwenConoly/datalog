@@ -1,7 +1,7 @@
 From Stdlib Require Import Lists.List.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import ListMisc.
-From coqutil Require Import Datatypes.List Tactics.fwd Tactics.destr.
+From coqutil Require Import Datatypes.List Tactics.fwd Tactics.destr Tactics.
 Require Import Datalog.Tactics.
 
 Import ListNotations.
@@ -11,40 +11,22 @@ Context (eqb : A -> A -> bool) {eqb_spec :  forall x0 y0 : A, BoolSpec (x0 = y0)
 
 (*I would like to do some magic to make this infer the eqb to use, but idk how*)
 (*hmm i am making my compiler take quadratic time.  i guess it already did though.*)
-Definition subsetb (l1 l2 : list A) :=
+Definition inclb (l1 l2 : list A) :=
   forallb (fun x => existsb (eqb x) l2) l1.
 
-Definition subset (l1 l2 : list A) :=
-  (forall a, In a l1 -> In a l2).
-
-Lemma Forall_subset P l1 l2 :
-  Forall P l2 ->
-  subset l1 l2 ->
-  Forall P l1.
-Proof. do 2 rewrite Forall_forall. auto. Qed.
-
-Lemma subsetb_subset l1 l2 :
-  subsetb l1 l2 = true <-> subset l1 l2.
+Lemma inclb_incl l1 l2 :
+  inclb l1 l2 = true <-> incl l1 l2.
 Proof.
-  cbv [subsetb]. rewrite forallb_forall. split.
+  cbv [inclb]. rewrite forallb_forall. split.
   - intros H a H0. apply H in H0. rewrite existsb_exists in H0. fwd. auto.
   - intros. rewrite existsb_exists. eexists ?[x0]. destr (eqb x ?x0); eauto.
 Qed.
 
-Lemma subset_refl x : subset x x.
-Proof. cbv [subset]. auto. Qed.
-
-Lemma subset_trans x y z :
-  subset x y ->
-  subset y z ->
-  subset x z.
-Proof. cbv [subset]. auto. Qed.
-
-Lemma subset_app_app x1 y1 x2 y2 :
-  subset x1 x2 ->
-  subset y1 y2 ->
-  subset (x1 ++ y1) (x2 ++ y2).
-Proof. cbv [subset]. intros. repeat rewrite in_app_iff in *. intuition auto. Qed.
+Lemma incl_app_app (x1 : list A) y1 x2 y2 :
+  incl x1 x2 ->
+  incl y1 y2 ->
+  incl (x1 ++ y1) (x2 ++ y2).
+Proof. cbv [incl]. intros. repeat rewrite in_app_iff in *. intuition auto. Qed.
 End subset.
 
 Section Forall.
@@ -54,7 +36,7 @@ Implicit Type ys : list B.
 
 Lemma Forall2_forget_l R xs ys :
   Forall2 R xs ys ->
-  Forall (fun y => exists x, In y ys /\ R x y) ys.
+  Forall (fun y => exists x, In x xs /\ R x y) ys.
 Proof.
   induction 1; eauto. simpl. econstructor; eauto.
   eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto.
@@ -63,6 +45,14 @@ Qed.
 Lemma Forall2_forget_r R xs ys :
   Forall2 R xs ys ->
   Forall (fun x => exists y, In y ys /\ R x y) xs.
+Proof.
+  induction 1; eauto. simpl. econstructor; eauto.
+  eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto.
+Qed.
+
+Lemma Forall2_forget_r_strong R xs ys :
+  Forall2 R xs ys ->
+  Forall (fun x => exists y, In (x, y) (combine xs ys) /\ R x y) xs.
 Proof.
   induction 1; eauto. simpl. econstructor; eauto.
   eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto.
@@ -93,6 +83,17 @@ Lemma Forall2_true xs ys :
   Forall2 (fun _ _ => True) xs ys.
 Proof. revert ys. induction xs; destruct ys; simpl; try congruence; eauto. Qed.
 
+Lemma Forall2_map_l (C : Type) R (f : A -> B) (l1 : list A) (l2 : list C) :
+  Forall2 (fun x => R (f x)) l1 l2 <->
+    Forall2 R (map f l1) l2.
+Proof.
+  split; intros H.
+  - induction H. 1: constructor. constructor; assumption.
+  - remember (map f l1) as l1' eqn:E. revert l1 E. induction H; intros l1 Hl1.
+    + destruct l1; inversion Hl1. constructor.
+    + destruct l1; inversion Hl1. subst. constructor; auto.
+Qed.
+
 Lemma in_combine_l_iff xs ys x (y : B) :
   (exists y, In (x, y) (combine xs ys)) <-> In x (firstn (length ys) xs).
 Proof.
@@ -102,6 +103,11 @@ Proof.
     + destruct H; fwd; eauto. rewrite <- IHxs. eauto.
     + destruct H; subst; fwd; eauto. rewrite <- IHxs in H. fwd. eauto.
 Qed.
+
+Lemma in_fst (x : A) (y : B) xys :
+  In (x, y) xys ->
+  In x (map fst xys).
+Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
 End Forall.
 
 Section misc.
@@ -129,3 +135,8 @@ Proof.
   intros x y _ Hx Hy. rewrite Forall_forall in *. rewrite H1, H2; auto.
 Qed.
 End misc.
+
+From Stdlib Require Import Lia.
+Lemma list_sum_repeat n m :
+  list_sum (repeat n m) = n * m.
+Proof. induction m; simpl; lia. Qed.

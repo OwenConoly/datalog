@@ -157,4 +157,22 @@ Lemma agree_on_putmany_r (m m1 m2 : mp) k :
   agree_on m1 m2 k.
 Proof.
   cbv [agree_on]. do 2 rewrite map.get_putmany_dec. repeat destruct_one_match; try congruence. Abort.
+
+Lemma of_list_Some_in kvs k v :
+  map.get (map := mp) (map.of_list kvs) k = Some v ->
+  In (k, v) kvs.
+Proof.
+  intros. induction kvs as [|(k0&v0)]; simpl in *.
+  - map_solver mp_ok.
+  - rewrite map.get_put_dec in H. destr (key_eqb k0 k); intuition congruence.
+Qed.
+
+Lemma in_of_list_Some k kvs :
+  In k (map fst kvs) ->
+  exists v,
+    map.get (map := mp) (map.of_list kvs) k = Some v.
+Proof.
+  intros H. destruct (map.get _ _) eqn:E; eauto. Search map.get map.of_list.
+  apply get_of_list_None_bw in E. exfalso. auto.
+Qed.
 End Map.
