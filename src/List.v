@@ -2,7 +2,7 @@ From Stdlib Require Import Lists.List.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import ListMisc.
 From coqutil Require Import Datatypes.List Tactics.fwd Tactics.destr Tactics.
-Require Import Datalog.Tactics.
+Require Import Datalog.Tactics Datalog.Forall3.
 
 Import ListNotations.
 Section subset.
@@ -30,9 +30,10 @@ Proof. cbv [incl]. intros. repeat rewrite in_app_iff in *. intuition auto. Qed.
 End subset.
 
 Section Forall.
-Context {A B : Type}.
+Context {A B C : Type}.
 Implicit Type xs : list A.
 Implicit Type ys : list B.
+Implicit Type zs : list C.
 
 Lemma Forall2_forget_l R xs ys :
   Forall2 R xs ys ->
@@ -83,7 +84,7 @@ Lemma Forall2_true xs ys :
   Forall2 (fun _ _ => True) xs ys.
 Proof. revert ys. induction xs; destruct ys; simpl; try congruence; eauto. Qed.
 
-Lemma Forall2_map_l (C : Type) R (f : A -> B) (l1 : list A) (l2 : list C) :
+Lemma Forall2_map_l R (f : A -> B) (l1 : list A) (l2 : list C) :
   Forall2 (fun x => R (f x)) l1 l2 <->
     Forall2 R (map f l1) l2.
 Proof.
@@ -108,6 +109,11 @@ Lemma in_fst (x : A) (y : B) xys :
   In (x, y) xys ->
   In x (map fst xys).
 Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
+
+Lemma Forall3_combine12 R xs ys zs :
+  Forall3 (fun x y => R (x, y)) xs ys zs ->
+  Forall2 R (combine xs ys) zs.
+Proof. induction 1; simpl; eauto. Qed.    
 End Forall.
 
 Section misc.

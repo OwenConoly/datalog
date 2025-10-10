@@ -583,19 +583,30 @@ Section __.
     rewrite <- Forall2_map_l in Hp0. eapply Forall2_impl; [|eassumption].
     simpl. auto using subst_in_expr_sound.
   Qed.
+
+  Lemma subst_in_expr_mono ctx ctx' e v :
+    map.extends ctx' ctx ->
+    subst_in_expr ctx e = Some v ->
+    subst_in_expr ctx' e = Some v.
+  Proof.
+    intros H. revert v. induction e; simpl; intros; eauto. rewrite Forall_forall in H0.
+    apply option_coalesce_Some, option_map_Some in H1. fwd.
+    apply option_all_Some_Forall2 in H1p0. erewrite Forall2_option_all_some.
+    2: { rewrite <- Forall2_map_l in *. eapply Forall2_impl_strong; [|eassumption].
+         simpl. eauto. }
+    simpl. rewrite H1p1. reflexivity.
+  Qed.
   
-  (* Lemma subst_expr_with_vars ctx e : *)
-  (*   Forall (fun v => map.get ctx v <> None) (vars_of_expr e) -> *)
-  (*   exists v, forall v', subst_in_expr ctx e = Some v' -> v = Some v'. *)
-  (* Proof. *)
-  (*   induction e; simpl; intros; invert_list_stuff. *)
-  (*   - destruct (map.get _ _); try congruence. eexists. invert 1. reflexivity. *)
-  (*   - rewrite Forall_flat_map in H0. simpl. eauto. eapply Forall_and in H; eauto. clear H0. *)
-  (*     simpl in H. Search Forall Forall2. eapply Forall_impl in H. *)
-  (*     { eapply Forall_exists_r_Forall2 in H. fwd. *)
-  (*       erewrite Forall2_option_all_some. *)
-  (*       2: { rewrite <- Forall2_map_l. eassumption. } *)
-  (*       simpl. *)
+  Lemma subst_expr_with_vars ctx ctx' e :
+    Forall (fun v => map.get ctx v <> None) (vars_of_expr e) ->
+    map.extends ctx' ctx ->
+    subst_in_expr ctx e = subst_in_expr ctx' e.
+  Proof.
+    induction e; simpl; intros; invert_list_stuff.
+    - destruct (map.get _ _) eqn:E; try congruence. symmetry. auto.
+    - rewrite Forall_flat_map in H0. f_equal. f_equal. f_equal. apply map_ext_in.
+      rewrite Forall_forall in *. eauto.
+  Qed.
 
   (*     2: { simpl. intros e He. fwd. specialize (Hep1 Hep0). fwd. exists v. exact Hep1. } *)
   (*     fwd. erewrite Forall2_option_all_some.  *)
@@ -707,6 +718,19 @@ Section __.
       end.
 
   Definition good_prog (p : list rule) := Forall good_rule p.
+
+  Lemma blah ctx ctx' s s' hyps hyps' :
+    Forall2 (interp_fact ctx) hyps hyps' ->
+    (forall v, In v (vars_of_expr s) -> agree_on ctx ctx' v) ->
+    interp_expr ctx s s' ->
+    interp_expr ctx' s s'.
+  Proof.
+    intros H2 Hgood H.
+    pose proof H2 as H2'.
+    apply interp_hyps_context_right_weak in H2.
+    eapply interp_expr_agree_on; [eassumption|].
+    apply Forall_forall. apply Hgood.
+  Qed.
   
   Lemma agg_hyps_determined r f hyps :
     good_rule r ->
@@ -717,19 +741,18 @@ Section __.
     intros Hgood agg_hyps' H. invert H. cbv [agg_hyps'_len].
     destruct r.(rule_agg) as [(res&aexpr)|] eqn:E; fwd; simpl in *; [|reflexivity].
     invert H0p0. simpl. erewrite subst_in_expr_complete.
-    2: {
-      (*TODO could be nice to state as lemma*)
-      pose proof H2 as H2'.
-      apply interp_hyps_context_right_weak in H2.
-      eapply interp_expr_agree_on; [eassumption|].
-      apply Forall_forall. intros x Hx. cbv [good_rule] in Hgood.
-      destruct Hgood as (Hgood&_). specialize (Hgood x). specialize' Hgood.
-      { cbv [appears_in_rule]. right. right. eexists. eexists. split; [eassumption|].
-        cbv [appears_in_agg_expr]. simpl. left. assumption. }
-      eapply bare_in_context_hyps in Hgood; eauto. fwd.
-      apply in_fst in Hgood. apply in_of_list_Some in Hgood. fwd. cbv [agree_on].
-      rewrite Hgood. apply H2 in Hgood. rewrite Hgood. reflexivity. }
-    simpl. rewrite H0. apply Forall3_length in H3. fwd. lia.
+    2: { eapply blah; eauto.
+         cbv [good_rule] in Hgood.
+         destruct Hgood as (Hgood&_). intros x Hx. specialize (Hgood x).
+         specialize' Hgood.
+         { cbv [appears_in_rule]. right. right. eexists. eexists. split; [eassumption|].
+           cbv [appears_in_agg_expr]. simpl. left. assumption. }
+         eapply bare_in_context_hyps in Hgood; eauto. fwd.
+         apply in_fst in Hgood. apply in_of_list_Some in Hgood. fwd. cbv [agree_on].
+         rewrite Hgood. Search ctx.     apply interp_hyps_context_right_weak in H2.
+ apply H2 in Hgood. rewrite Hgood. reflexivity. }
+
+   simpl. rewrite H0. apply Forall3_length in H3. fwd. lia.
   Qed.
 
   Definition agg_hyps_elt_lengths r :=
@@ -1178,7 +1201,41 @@ Section __.
         end
     end.
 
-     
+  Print interp_agg_expr.
+  Lemma eval_aexpr_complete ctx aexpr res agg_hyps's :
+    good_agg_expr aexpr ->
+    interp_agg_expr ctx aexpr res agg_hyps's ->
+    eval_aexpr aexpr ctx agg_hyps's = Some res.
+  Proof.
+    intros Hgood H. invert H. cbv [eval_aexpr]. simpl.
+    apply subst_in_expr_complete in H0. rewrite H0. simpl. rewrite H1.
+    erewrite Forall2_option_all_some. 1: reflexivity.
+    cbv [zip]. rewrite <- Forall2_map_l. eapply Forall3_combine12.
+    apply Forall3_swap23. eapply Forall3_impl; [|eassumption]. simpl.
+    clear H2. intros x y z Hxyz. fwd.
+    apply subst_in_expr_complete. 
+    eapply blah; eauto. cbv [good_agg_expr] in Hgood.
+    simpl in Hgood. rewrite Forall_forall in Hgood.
+    intros v Hv. eenough (map.extends (map.putmany _ (map.of_list _)) (map.putmany _ _)) as H.
+    { cbv [agree_on]. cbv [map.extends] in H. Search interp_expr vars_of_expr. erewrite H.
+
+    Forall2 (interp_fact ctx) hyps hyps' ->
+            
+    enough (H: agree_on ctx' (map.of_list (context_of_hyps hyps z)) v).
+    { cbv [agree_on] in *. do 2 rewrite map.get_putmany_dec. rewrite H. reflexivity. }
+    eapply bare_in_context_hyps in Hxy
+    Search barely_appears_in_fact context_of_hyps.
+    
+    destruct (
+    eapply subst_in_expr_complete in Hxyzp2; eauto.
+    eapply interp_hyps_context_right_weak in Hxyzp1.
+    erewrite <- subst_expr_with_vars; eauto.
+    2: { (*TODO use extends_solver?*) Search map.extends map.putmany. apply map.extends_putmany_putmany_r.
+    eapply subst_expr_with_vars; eauto.
+
+    
+    map.extends ctx' (map.of_list
+    
   Definition eval_rule r hyps' agg_hyps's :=
     let ctx := map.of_list (context_of_hyps r.(rule_hyps) hyps') in
     let ctx' :=

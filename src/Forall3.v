@@ -103,3 +103,8 @@ Lemma Forall3_impl {A B C} xs ys zs (R1 R2 : A -> B -> C -> Prop) :
   Forall3 R1 xs ys zs ->
   Forall3 R2 xs ys zs.
 Proof. induction 2; constructor; eauto. Qed.
+
+Lemma Forall3_swap23 {A B C} xs ys zs (R : A -> B -> C -> Prop) :
+  Forall3 (fun x z y => R x y z) xs zs ys ->
+  Forall3 R xs ys zs.
+Proof. induction 1; constructor; eauto. Qed.
