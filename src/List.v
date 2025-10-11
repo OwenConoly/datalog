@@ -2,7 +2,7 @@ From Stdlib Require Import Lists.List.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import ListMisc.
 From coqutil Require Import Datatypes.List Tactics.fwd Tactics.destr Tactics.
-Require Import Datalog.Tactics Datalog.Forall3.
+Require Import Datalog.Tactics.
 
 Import ListNotations.
 Section subset.
@@ -116,11 +116,6 @@ Lemma in_fst (x : A) (y : B) xys :
   In (x, y) xys ->
   In x (map fst xys).
 Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
-
-Lemma Forall3_combine12 R xs ys zs :
-  Forall3 (fun x y => R (x, y)) xs ys zs ->
-  Forall2 R (combine xs ys) zs.
-Proof. induction 1; simpl; eauto. Qed.    
 End Forall.
 
 Section misc.
@@ -189,3 +184,163 @@ Proof.
   symmetry. rewrite <- Forall2_flip_iff, <- Forall2_map_l, <- Forall2_flip_iff.
   reflexivity.
 Qed.
+
+Lemma option_all_Some_Forall2 X (xs : list (option X)) xs' :
+  option_all xs = Some xs' ->
+  Forall2 (fun x x' => x = Some x') xs xs'.
+Proof.
+  revert xs'. induction xs; simpl.
+  1: invert 1; eauto.
+  repeat (destruct_one_match; try congruence).
+  invert 1. eauto.
+Qed.
+
+Lemma Forall2_option_all_some X (xs : list (option X)) xs' :
+  Forall2 (fun x x' => x = Some x') xs xs' ->
+  option_all xs = Some xs'.
+Proof.
+  intros H. induction H; simpl; eauto.
+  repeat (destruct_one_match; try congruence).
+Qed.    
+
+Definition option_coalesce {X : Type} (x : option (option X)) :=
+  match x with
+  | Some (Some x) => Some x
+  | _ => None
+  end.
+
+Lemma option_coalesce_Some X (x : option (option X)) x' :
+  option_coalesce x = Some x' ->
+  x = Some (Some x').
+Proof.
+  cbv [option_coalesce]. repeat (destruct_one_match; try congruence).
+Qed.
+
+Lemma option_map_Some X Y (f : X -> Y) x y :
+  option_map f x = Some y ->
+  exists x', x = Some x' /\ f x' = y.
+Proof.
+  cbv [option_map]. destruct_one_match; try congruence.
+  invert 1. eauto.
+Qed.
+
+(*copied from https://velus.inria.fr/emsoft2021/html/Velus.Common.CommonList.html*)
+Section Forall3.
+  Context {A B C : Type}.
+  Variable R : A -> B -> C -> Prop.
+
+  Inductive Forall3 : list A -> list B -> list C -> Prop :=
+  | Forall3_nil : Forall3 [] [] []
+  | Forall3_cons : forall (x : A) (y : B) (z: C)
+                     (l0 : list A) (l1 : list B) (l2 : list C),
+      R x y z ->
+      Forall3 l0 l1 l2 ->
+      Forall3 (x :: l0) (y :: l1) (z :: l2).
+
+  Lemma Forall3_length :
+    forall (l1 : list A) (l2 : list B) (l3 : list C),
+      Forall3 l1 l2 l3 ->
+      length l1 = length l2
+      /\ length l2 = length l3.
+  Proof. intros l1 l2 l3 H. induction H; simpl; firstorder. Qed.
+
+
+  Lemma Forall3_in_right:
+    forall (xs : list A)
+      (ys : list B) (zs : list C) (z : C),
+      Forall3 xs ys zs ->
+      In z zs -> exists (x : A) (y : B), In x xs /\ In y ys /\ R x y z.
+  Proof.
+    induction 1; simpl.
+    { contradiction. }
+    destruct 1 as [Heq|Hin].
+    { now subst; exists x, y; auto. }
+    apply IHForall3 in Hin. destruct Hin as (x' & y' & Hin & Hin' & HP).
+    exists x', y'. eauto.
+  Qed.
+
+
+  Remark Forall3_tl:
+    forall (x : A)
+      (y : B) (z : C) (l0 : list A) (l1 : list B) (l2 : list C),
+      Forall3 (x :: l0) (y :: l1) (z :: l2) -> Forall3 l0 l1 l2.
+  Proof.
+      intros * HF. invert HF. auto.
+  Qed.
+
+  Fixpoint forall3b (f : A -> B -> C -> bool) l1 l2 l3 :=
+    match l1, l2, l3 with
+    | nil, nil, nil => true
+    | e1 :: l1, e2 :: l2, e3 :: l3 => andb (f e1 e2 e3) (forall3b f l1 l2 l3)
+    | _, _, _ => false
+    end.
+
+  Lemma Forall3_ignore23:
+    forall xs ys zs,
+      Forall3 xs ys zs ->
+      Forall (fun x => exists y z, R x y z) xs.
+  Proof. induction 1; eauto. Qed.
+
+  Lemma Forall3_ignore13:
+    forall xs ys zs,
+      Forall3 xs ys zs ->
+      Forall (fun y => exists x z, R x y z) ys.
+  Proof. induction 1; eauto. Qed.
+
+  Lemma Forall3_ignore12:
+    forall xs ys zs,
+      Forall3 xs ys zs ->
+      Forall (fun z => exists x y, R x y z) zs.
+  Proof. induction 1; eauto. Qed.
+
+  Lemma Forall3_ignore2:
+    forall xs ys zs,
+      Forall3 xs ys zs ->
+      Forall2 (fun x z => exists y, R x y z) xs zs.
+  Proof. induction 1; eauto. Qed.
+
+  Lemma Forall3_ignore3:
+    forall xs ys zs,
+      Forall3 xs ys zs ->
+      Forall2 (fun x y => exists z, R x y z) xs ys.
+  Proof. induction 1; eauto. Qed.
+
+  Lemma Forall3_zip3 xs ys f :
+    Forall2 (fun x y => R x y (f x y)) xs ys ->
+    Forall3 xs ys (zip f xs ys).
+  Proof. induction 1; cbv [zip]; simpl; constructor; auto. Qed.
+
+  Lemma Forall3_unique_2 xs ys ys' zs :
+    Forall3 xs ys zs ->
+    Forall3 xs ys' zs ->
+    (forall x y y' z, R x y z -> R x y' z -> y = y') ->
+    ys = ys'.
+  Proof. intros H. revert ys'. induction H; invert 1; intros; f_equal; eauto. Qed.
+End Forall3.
+
+Lemma Forall3_impl {A B C} xs ys zs (R1 R2 : A -> B -> C -> Prop) :
+  (forall x y z, R1 x y z -> R2 x y z) ->
+  Forall3 R1 xs ys zs ->
+  Forall3 R2 xs ys zs.
+Proof. induction 2; constructor; eauto. Qed.
+
+Lemma Forall3_swap23 {A B C} xs ys zs (R : A -> B -> C -> Prop) :
+  Forall3 (fun x z y => R x y z) xs zs ys ->
+  Forall3 R xs ys zs.
+Proof. induction 1; constructor; eauto. Qed.
+
+Lemma Forall3_map3 {A B C D} (f : C -> D) xs ys zs (R : A -> B -> D -> Prop) :
+  Forall3 (fun x y z => R x y (f z)) xs ys zs <->
+  Forall3 R xs ys (map f zs).
+Proof.
+  split.
+  - induction 1; simpl; econstructor; eauto.
+  - remember (map _ _) eqn:E. intros H. revert zs E.
+    induction H; intros zs; destruct zs; intros; simpl in *; invert_list_stuff;
+      econstructor; eauto.
+Qed.
+
+Lemma Forall3_combine12 {A B C} (R : A * B -> C -> Prop) xs ys zs :
+  Forall3 (fun x y => R (x, y)) xs ys zs ->
+  Forall2 R (combine xs ys) zs.
+Proof. induction 1; simpl; eauto. Qed.    

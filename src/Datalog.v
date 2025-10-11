@@ -12,50 +12,12 @@ From Stdlib Require Import micromega.Lia.
 
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
-From Datalog Require Import Forall3 Map Tactics Fp List.
+From Datalog Require Import Map Tactics Fp List.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
 Import ListNotations.
 
-  Definition option_coalesce {X : Type} (x : option (option X)) :=
-    match x with
-    | Some (Some x) => Some x
-    | _ => None
-    end.
-
-  Lemma option_coalesce_Some X (x : option (option X)) x' :
-    option_coalesce x = Some x' ->
-    x = Some (Some x').
-  Proof.
-    cbv [option_coalesce]. repeat (destruct_one_match; try congruence).
-  Qed.
-
-  Lemma option_map_Some X Y (f : X -> Y) x y :
-    option_map f x = Some y ->
-    exists x', x = Some x' /\ f x' = y.
-  Proof.
-    cbv [option_map]. destruct_one_match; try congruence.
-    invert 1. eauto.
-  Qed.
-
-  Lemma option_all_Some_Forall2 X (xs : list (option X)) xs' :
-    option_all xs = Some xs' ->
-    Forall2 (fun x x' => x = Some x') xs xs'.
-  Proof.
-    revert xs'. induction xs; simpl.
-    1: invert 1; eauto.
-    repeat (destruct_one_match; try congruence).
-    invert 1. eauto.
-  Qed.
-
-  Lemma Forall2_option_all_some X (xs : list (option X)) xs' :
-    Forall2 (fun x x' => x = Some x') xs xs' ->
-    option_all xs = Some xs'.
-  Proof.
-    intros H. induction H; simpl; eauto.
-    repeat (destruct_one_match; try congruence).
-  Qed.    
 Section __.
   (*relations, variables, functions, and "aggregator functions" (e.g. min, max, sum, prod)*)
   Context {rel var fn aggregator : Type}.
@@ -737,17 +699,6 @@ Section __.
 
   Definition good_prog (p : list rule) := Forall good_rule p.
 
-  Lemma blah ctx ctx' s s' :
-    (forall v, In v (vars_of_expr s) -> agree_on ctx ctx' v) ->
-    interp_expr ctx s s' ->
-    interp_expr ctx' s s'.
-  Proof.
-    intros.
-    
-    eapply interp_expr_agree_on; [eassumption|].
-    apply Forall_forall. assumption.
-  Qed.
-  
   Lemma agg_hyps_determined r f hyps :
     good_rule r ->
     forall agg_hyps',
@@ -757,7 +708,7 @@ Section __.
     intros Hgood agg_hyps' H. invert H. cbv [agg_hyps'_len].
     destruct r.(rule_agg) as [(res&aexpr)|] eqn:E; fwd; simpl in *; [|reflexivity].
     invert H0p0. simpl. erewrite subst_in_expr_complete.
-    2: { eapply blah; eauto.
+    2: { eapply interp_expr_agree_on; eauto. apply Forall_forall.
          cbv [good_rule] in Hgood.
          destruct Hgood as (Hgood&_). intros x Hx. specialize (Hgood x).
          specialize' Hgood.
@@ -765,9 +716,8 @@ Section __.
            cbv [appears_in_agg_expr]. simpl. left. assumption. }
          eapply bare_in_context_hyps in Hgood; eauto. fwd.
          apply in_fst in Hgood. apply in_of_list_Some in Hgood. fwd. cbv [agree_on].
-         rewrite Hgood. Search ctx.     apply interp_hyps_context_right_weak in H2.
- apply H2 in Hgood. rewrite Hgood. reflexivity. }
-
+         rewrite Hgood. apply interp_hyps_context_right_weak in H2.
+         apply H2 in Hgood. rewrite Hgood. reflexivity. }
    simpl. rewrite H0. apply Forall3_length in H3. fwd. lia.
   Qed.
 
@@ -776,14 +726,6 @@ Section __.
     | None => O
     | Some (_, aexpr) => length aexpr.(agg_hyps)
     end.
-  
-  Lemma agg_hyps_elt_lengths_correct r f hyps agg_hyps's :
-    good_rule r ->
-    rule_impl' r f hyps agg_hyps's ->
-    Forall (fun agg_hyps' => length agg_hyps' = agg_hyps_elt_lengths r) agg_hyps's.
-  Proof. Abort.
-
-
   
   (* Definition appears_in_outs v r := *)
   (*   Exists (fun f => Exists (appears_in_expr v) (outs f)) r.(rule_hyps) \/ *)
@@ -854,9 +796,7 @@ Section __.
     dag p ->
     no_cycles r p ->
     dag (r :: p).
-  Search map.map.
 
-  Print good_rule. Search NoDup.
   (*now i am wishing i had defined rule_impl in terms of a more primitive notion..*)
   Lemma good_rule_det' r concl f1 f2 hyps agg_hyps :
     good_rule r ->
@@ -886,88 +826,6 @@ Section __.
     - apply Forall_forall. intros. symmetry. apply H''. cbv [appears_in_rule].
       left. rewrite Hconcls. split; eauto. intros H'. fwd. rewrite E in H'.
       discriminate H'.
-  Qed.
-
-  Lemma concl_subset_appears_in_rule r concls' v :
-    incl concls' r.(rule_concls) ->
-    appears_in_rule v {| rule_concls := concls'; rule_hyps := r.(rule_hyps); rule_agg := r.(rule_agg) |} ->
-    appears_in_rule v r.
-  Proof.
-    cbv [appears_in_rule]. simpl. intros H2 H1. destruct H1 as [H1| [H1|H1]]; auto.
-    fwd. left. split; auto. rewrite Exists_exists in *. fwd. cbv [incl] in *. eauto.
-  Qed.
-
-  Lemma concl_subset_good r concls' :
-    good_rule r ->
-    incl concls' r.(rule_concls) ->
-    good_rule {| rule_concls := concls'; rule_hyps := r.(rule_hyps); rule_agg := r.(rule_agg) |}.
-  Proof.
-    cbv [good_rule]. simpl. intros Hgood Hsubset. fwd. split; [|assumption].
-    intros. apply Hgoodp0. eauto using concl_subset_appears_in_rule.
-  Qed.
-
-  Lemma rule_impl'_iff_single_concl r f hyps agg_hyps :
-    rule_impl' r f hyps agg_hyps <->
-      exists concl,
-        In concl r.(rule_concls) /\
-          rule_impl' {| rule_concls := [concl]; rule_hyps := r.(rule_hyps); rule_agg := r.(rule_agg) |} f hyps agg_hyps.
-  Proof.
-    split.
-    - intros H. invert H. rewrite Exists_exists in H1. fwd. exists x. split; eauto.
-      econstructor; simpl; eauto.
-    - intros H. fwd. invert Hp1. simpl in *. econstructor; eauto. invert_list_stuff.
-      rewrite Exists_exists. eauto.
-  Qed.
-
-  Lemma preimage_of_inj_smaller_rec {X Y : Type} (R : X -> Y -> Prop) xs ys :
-    NoDup xs ->
-    (forall x, In x xs -> exists y, In y ys /\ R x y) ->
-    (forall x1 x2 y, In y ys -> R x1 y -> R x2 y -> x1 = x2) ->
-    exists ys',
-      length ys' = length xs /\
-        NoDup ys' /\
-        incl ys' ys /\
-        (forall y, In y ys' -> exists x, In x xs /\ R x y) /\
-        (forall x, In x xs -> exists y, In y ys' /\ R x y).
-  Proof.
-    intros Hnd H1 H2. induction Hnd; simpl.
-    - exists nil. cbv [incl]. simpl. intuition auto. constructor.
-    - simpl in *. specialize (IHHnd ltac:(auto)). fwd.
-      specialize (H1 x ltac:(auto)). fwd. exists (y :: ys').
-      simpl. rewrite IHHndp0. split; [reflexivity|]. split.
-      { constructor; [|assumption]. intros H'. apply H. apply IHHndp3 in H'.
-        fwd. specialize (H2 _ _ _ ltac:(eassumption) H1p1 H'p1). subst. assumption. }
-      split.
-      { cbv [subset]. simpl. intros y0 [Hy0|Hy0]; subst; auto. }
-      split.
-      { intros y0 [Hy0|Hy0]; subst; eauto. apply IHHndp3 in Hy0. fwd. eauto. }
-      { intros x0 [Hx0|Hx0]; subst; eauto. apply IHHndp4 in Hx0. fwd. eauto. }
-  Qed.
-
-  Lemma preimage_of_inj_smaller {X Y : Type} (R : X -> Y -> Prop) xs ys :
-    NoDup xs ->
-    (forall x, In x xs -> exists y, In y ys /\ R x y) ->
-    (forall x1 x2 y, In y ys -> R x1 y -> R x2 y -> x1 = x2) ->
-    length xs <= length ys.
-  Proof.
-    intros. epose proof preimage_of_inj_smaller_rec as H'.
-    specialize (H' _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
-    fwd. enough (length ys' <= length ys) by lia. apply NoDup_incl_length; assumption.
-  Qed.
-           
-  Lemma good_rule_det r fs hyps agg_hyps :
-    good_rule r ->
-    NoDup fs ->
-    Forall (fun f => rule_impl' r f hyps agg_hyps) fs ->
-    length fs <= length r.(rule_concls).
-  Proof.
-    intros Hgood Hnd Hfs.
-    eapply preimage_of_inj_smaller; [assumption| |].
-    - rewrite Forall_forall in Hfs. intros x Hx. specialize (Hfs x Hx).
-      rewrite rule_impl'_iff_single_concl in Hfs. exact Hfs.
-    - simpl. intros. eapply concl_subset_good in Hgood. 1: eapply good_rule_det'; eauto.
-      2: { cbv [subset]. simpl. intros ? [?|?]; subst; auto. contradiction. }
-      reflexivity.
   Qed.
 
   Lemma rule_impl_concl_relname_in r x hyps :
@@ -1076,7 +934,7 @@ Section __.
     revert hyps fs. induction n; intros hyps fs Hlen Hincl.
     - destruct hyps; [|discriminate Hlen]. simpl. auto.
     - destruct hyps; [discriminate Hlen|]. simpl in Hlen.
-      Search incl (_ :: _). apply incl_cons_inv in Hincl. fwd.
+      apply incl_cons_inv in Hincl. fwd.
       specialize (IHn hyps _ ltac:(lia) ltac:(eassumption)).
       simpl. apply in_flat_map. eexists. split; [eassumption|].
       apply in_map. assumption.
@@ -1113,8 +971,8 @@ Section __.
     apply Forall3_swap23. eapply Forall3_impl; [|eassumption]. simpl.
     clear H2. intros x y z Hxyz. fwd.
     apply subst_in_expr_complete. 
-    eapply blah; eauto. cbv [good_agg_expr] in Hgood.
-    simpl in Hgood. rewrite Forall_forall in Hgood.
+    eapply interp_expr_agree_on; eauto. cbv [good_agg_expr] in Hgood.
+    simpl in Hgood. rewrite Forall_forall in Hgood. rewrite Forall_forall.
     intros v Hv. eassert (map.putmany _ _ = _) as ->. 2: apply agree_on_refl.
     apply putmany_extends_idk.
     - apply interp_hyps_context_right_weak. assumption.
@@ -1738,7 +1596,7 @@ Section Transform.
   Proof.
     cbv [fp F]. intros Hgood (Sgood1&Sgood2) H [P x] Hx. destruct Hx as [Hx| [Hx|Hx]]; auto.
     { simpl. destruct x. apply Sgood1. assumption. }
-    fwd. destruct x as [R args]. invert_list_stuff. Search rule_impl.
+    fwd. destruct x as [R args]. invert_list_stuff.
     pose proof rule_impl_add_hyp as H1'. specialize H1' with (1 := Hgood) (2 := H1).
     simpl. apply H. right. right. eexists. split.
     { apply Exists_cons_tl. constructor. eassumption. }
