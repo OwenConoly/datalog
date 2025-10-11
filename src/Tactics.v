@@ -25,5 +25,9 @@ Ltac invert_list_stuff :=
     | H : Some _ = Some _ |- _ => invert H
     | H : Some _ = None |- _ => invert H
     | H : None = Some _ |- _ => invert H
+    | H : [] = [] |- _ => invert H
+    | H : _ :: _ = _ :: _ |- _ => invert H
+    | H : _ :: _ = [] |- _ => discriminate H
+    | H : [] = _ :: _ |- _ => discriminate H
     | _ => destruct_option_map_Some
   end.

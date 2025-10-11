@@ -2,6 +2,7 @@
 From Stdlib Require Import Lists.List.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 Require Import coqutil.Datatypes.List.
+From Datalog Require Import Tactics.
 
 Import ListNotations.
 
@@ -108,3 +109,14 @@ Lemma Forall3_swap23 {A B C} xs ys zs (R : A -> B -> C -> Prop) :
   Forall3 (fun x z y => R x y z) xs zs ys ->
   Forall3 R xs ys zs.
 Proof. induction 1; constructor; eauto. Qed.
+
+Lemma Forall3_map3 {A B C D} (f : C -> D) xs ys zs (R : A -> B -> D -> Prop) :
+  Forall3 (fun x y z => R x y (f z)) xs ys zs <->
+  Forall3 R xs ys (map f zs).
+Proof.
+  split.
+  - induction 1; simpl; econstructor; eauto.
+  - remember (map _ _) eqn:E. intros H. revert zs E.
+    induction H; intros zs; destruct zs; intros; simpl in *; invert_list_stuff;
+      econstructor; eauto.
+Qed.

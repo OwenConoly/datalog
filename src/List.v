@@ -95,6 +95,13 @@ Proof.
     + destruct l1; inversion Hl1. subst. constructor; auto.
 Qed.
 
+Lemma Forall2_flip_iff R (l1 : list A) (l2 : list B) :
+  Forall2 (fun x y => R y x) l2 l1 <->
+    Forall2 R l1 l2.
+Proof.
+  split; auto using Forall2_flip.
+Qed.
+
 Lemma in_combine_l_iff xs ys x (y : B) :
   (exists y, In (x, y) (combine xs ys)) <-> In x (firstn (length ys) xs).
 Proof.
@@ -117,7 +124,7 @@ Proof. induction 1; simpl; eauto. Qed.
 End Forall.
 
 Section misc.
-Context {A : Type}.
+Context {A B : Type}.
 Implicit Type xs : list A.  
 
 Lemma invert_concat_same xss xss' :
@@ -140,9 +147,45 @@ Proof.
   eapply Forall2_impl_strong; [|apply Forall2_true; auto].
   intros x y _ Hx Hy. rewrite Forall_forall in *. rewrite H1, H2; auto.
 Qed.
+
+Lemma incl_concat_l ls (l : list A) :
+  incl (concat ls) l ->
+  Forall (fun l' => incl l' l) ls.
+Proof.
+  cbv [incl]. intros H. apply Forall_forall.
+  intros. apply H. apply in_concat. eauto.
+Qed.
+
+Lemma incl_flat_map_r (f : A -> list B) x xs :
+  In x xs ->
+  incl (f x) (flat_map f xs).
+Proof.
+  intros H. induction xs; simpl in *.
+  - contradiction.
+  - destruct H; subst; auto using incl_appr, incl_appl, incl_refl.
+Qed.  
+
+Lemma incl_flat_map_flat_map_strong (f g : A -> list B) l l' :
+  incl l l' ->
+  (forall x, incl (f x) (g x)) ->
+  incl (flat_map f l) (flat_map g l').
+Proof.
+  induction l; simpl.
+  - intros. apply incl_nil_l.
+  - intros. apply incl_cons_inv in H. fwd.
+    eauto using incl_app, incl_flat_map_r, incl_tran.
+Qed.
 End misc.
 
 From Stdlib Require Import Lia.
 Lemma list_sum_repeat n m :
   list_sum (repeat n m) = n * m.
 Proof. induction m; simpl; lia. Qed.
+
+Lemma Forall2_map_r {A B C} R (f : B -> C) (l1 : list A) (l2 : list B) :
+  Forall2 (fun x y => R x (f y)) l1 l2 <->
+    Forall2 R l1 (map f l2).
+Proof.
+  symmetry. rewrite <- Forall2_flip_iff, <- Forall2_map_l, <- Forall2_flip_iff.
+  reflexivity.
+Qed.

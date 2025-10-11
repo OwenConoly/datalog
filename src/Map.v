@@ -167,12 +167,35 @@ Proof.
   - rewrite map.get_put_dec in H. destr (key_eqb k0 k); intuition congruence.
 Qed.
 
+Lemma in_of_list_Some_strong k kvs :
+  In k (map fst kvs) ->
+  exists v,
+    map.get (map := mp) (map.of_list kvs) k = Some v /\
+      In (k, v) kvs.
+Proof.
+  induction kvs as [|(k0&v0)]; simpl; [contradiction|].
+  intros [H|H]; subst.
+  - eauto using map.get_put_same.
+  - apply IHkvs in H. fwd. rewrite map.get_put_dec. destr (key_eqb k0 k); eauto.
+Qed.
+
 Lemma in_of_list_Some k kvs :
   In k (map fst kvs) ->
   exists v,
     map.get (map := mp) (map.of_list kvs) k = Some v.
 Proof.
-  intros H. destruct (map.get _ _) eqn:E; eauto. Search map.get map.of_list.
-  apply get_of_list_None_bw in E. exfalso. auto.
+  intros H. apply in_of_list_Some_strong in H. fwd. eauto.
+Qed.
+
+Lemma putmany_extends_idk (m1 m2 m2' : mp) :
+  map.extends (map.putmany m1 m2) m2' ->
+  map.extends m2' m2 ->
+  map.putmany m1 m2 = map.putmany m1 m2'.
+Proof.
+  intros. apply map.map_ext. map_solver mp_ok.
+  (*this feels vulnerable to slight changes in map_solver :( *)
+  match goal with
+  | H: _ |- _ => specialize (H _ eq_refl); discriminate H
+  end.
 Qed.
 End Map.
