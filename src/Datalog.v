@@ -288,7 +288,7 @@ Section __.
     assert (He: (expr_size e < Datatypes.S sz)%nat) by lia.
     clear E. revert e He. induction (Datatypes.S sz); intros.
     - lia.
-    - destruct e; simpl in He. 1: debug auto. debug auto 1.
+    - destruct e; simpl in He; auto.
       + apply H0. clear -IHn He. induction args; [constructor|].
         simpl in *. constructor; [|apply IHargs; lia]. apply IHn. lia.
   Qed.

@@ -298,7 +298,6 @@ Section __.
          specialize' Hgood.
          { cbv [appears_in_rule]. right. right. eexists. eexists. split; [solve[eauto] |].
            cbv [appears_in_agg_expr]. simpl. left. assumption. }
-         Check bare_in_context_hyps.
          eapply bare_in_context_hyps in Hgood; eauto. fwd.
          apply in_fst in Hgood. apply in_of_list_Some in Hgood. fwd. cbv [agree_on].
          rewrite Hgood. apply interp_hyps_context_right_weak in H2.
@@ -391,7 +390,7 @@ Section __.
         rewrite Hgoodp0. apply interp_hyps_context_right_weak in H1.
         apply H1 in Hgoodp0. rewrite Hgoodp0. reflexivity. }
       rewrite <- ListMisc.in_extract_Some. rewrite in_map_iff. eexists. split; eauto.
-      apply subst_in_fact_complete. Check interp_fact_agree_on.
+      apply subst_in_fact_complete.
       eapply interp_fact_agree_on; [eassumption|]. apply Forall_forall.
       intros v Hv. cbv [agree_on]. do 2 rewrite map.get_put_dec.
       destr (var_eqb res v).

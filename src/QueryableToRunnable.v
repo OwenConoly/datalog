@@ -415,15 +415,15 @@ Section Transform.
       constructor. invert H; [assumption|]. rewrite map.get_put_diff in H2; auto.
       intros ?. subst. apply Hgoodp2. eauto.
   Qed.
-Check agg_expr_relmap.
-Lemma agg_expr_relmap_id (ae : agg_expr) :
+
+  Lemma agg_expr_relmap_id (ae : agg_expr) :
   agg_expr_relmap (fun x => x) ae = ae.
 Proof.
   destruct ae. cbv [agg_expr_relmap]. simpl. erewrite map_ext with (g := fun x => x).
   2: { intros f. destruct f. reflexivity. }
   rewrite map_id. reflexivity.
 Qed.
-Print agg_expr.
+
 Lemma agg_expr_relmap_comp {rel1_ rel2_ rel3_ var_ fn_ aggregator_ : Type} (ae : @Datalog.agg_expr rel1_ var_ fn_ aggregator_) (g : rel1_ -> rel2_) (f : rel2_ -> rel3_) :
   agg_expr_relmap f (agg_expr_relmap g ae) = agg_expr_relmap (fun x => f (g x)) ae.
 Proof.
@@ -445,7 +445,7 @@ Qed.
     cbv [with_only_ins] in H4. rewrite Hgoodp1 in H4. cbv [fact_relmap] in H3.
     simpl in H3. simpl in *. invert H4. simpl. simpl in H0.
       assert (args'0 = firstn (ins (fact_R concl)) args').
-      { move H at bottom. Search args'. move H3 at bottom. simpl in H3.
+      { move H at bottom. move H3 at bottom. simpl in H3.
         cbv [fact_ins] in Hgoodp1. rewrite <- Hgoodp1 in H0.
         eapply Forall2_firstn in H3. eapply Forall2_unique_r. 1: exact H0.
         2: apply interp_expr_det. eapply Forall2_impl_strong; [|eassumption].
@@ -463,7 +463,7 @@ Qed.
       rewrite H6p0 in H6p0'. clear H6p0. apply Lists.List.Forall_map in H6p0'.
       invert H; simpl in *.
     - rewrite app_nil_r. symmetry in H4. apply option_map_None in H4. rewrite H4 in *.
-      split; [assumption|]. cbv [rule_impl]. Search option_map. do 2 eexists.
+      split; [assumption|]. cbv [rule_impl]. do 2 eexists.
       split; cycle 1.
       + eapply mk_rule_impl' with (ctx := ctx'); eauto.
         -- rewrite H4. constructor.

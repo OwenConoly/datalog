@@ -140,7 +140,7 @@ Proof.
   intros. invert_list_stuff.
   epose proof map.only_differ_putmany as H'. specialize (H' _ _ _ _ H).
   epose proof map.only_differ_putmany as H0'. specialize (H0' _ _ _ _ H0).
-  Print map.only_differ. apply map.map_ext. intros k.
+  apply map.map_ext. intros k.
   specialize (H' k). specialize (H0' k). eassert (H1: _ \/ _).
   { destruct H' as [H'|H']. 1: left; exact H'. destruct H0' as [H0'|H0'].
     1: left; exact H0'. right. exact (conj H' H0'). }
@@ -204,6 +204,6 @@ Lemma zipped_lookup_notin_None (k : key) ks (vs : list value) :
   map.zipped_lookup (key_eqb := key_eqb) ks vs k = None.
 Proof.
   intros. destruct (map.zipped_lookup ks vs k) eqn:E; [|reflexivity].
-  Search map.zipped_lookup. apply map.zipped_lookup_Some_in in E. exfalso. auto.
+  apply map.zipped_lookup_Some_in in E. exfalso. auto.
 Qed.
 End Map.

@@ -1,9 +1,11 @@
--R ../verified-scheduling/src/verified_scheduling/atl/ ATL
--R ../verified-scheduling/src/verified_scheduling/codegen/ Codegen
--R ../verified-scheduling/src/verified_scheduling/c/ Test
--R ../verified-scheduling/src/verified_lowering/proof Lower
--R ../verified-scheduling/src/verified_lowering/inferpad Inferpad
--R ../verified-scheduling/src/verified_lowering/stringify Stringify
--R ../verified-scheduling/src/examples/ Examples
--R ../coqutil/src/coqutil coqutil
--R . Datalog
+-Q ../verified-scheduling/src/verified_scheduling/atl/ ATL
+-Q ../verified-scheduling/src/verified_scheduling/codegen/ Codegen
+-Q ../verified-scheduling/src/verified_scheduling/c/ Test
+-Q ../verified-scheduling/src/verified_lowering/proof Lower
+-Q ../verified-scheduling/src/verified_lowering/inferpad Inferpad
+-Q ../verified-scheduling/src/verified_lowering/stringify Stringify
+-Q ../verified-scheduling/src/examples/ Examples
+-Q ../coqutil/src/coqutil coqutil
+-Q . Datalog
+
+./

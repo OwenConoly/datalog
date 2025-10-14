@@ -22,12 +22,11 @@ Require Import ContextsAgree.
 From Datalog Require Import Datalog Map List Tactics. 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable.
 
-Import Datatypes. Check S.
+Import Datatypes.
 
 Open Scope list_scope.
 
 Definition var : Type := string + nat.
-Print valuation. About List.zip.
 
 Variant obj : Set :=
   Bobj : bool -> obj | Zobj : Z -> obj | Robj : R -> obj | Setobj (min : Z) (max : Z).
@@ -1186,8 +1185,6 @@ Lemma ni_impl_functional p :
   Forall non_self_intersecting p ->
   functional p.
 
-Check lower_functional_rec. Print pairwise_ni.
-
 Lemma lower_functional e out :
   ~(out \in vars_of e) ->
   functional (lower e out).
@@ -1423,7 +1420,7 @@ Ltac simpl_map' solve_map_get := repeat (rewrite map.get_putmany_left by apply c
 
 Ltac solve_map_get :=
   simpl_map' solve_map_get;
-  (reflexivity || (apply map.get_putmany_right; solve_map_get) || (apply map.get_putmany_left; solve_map_get)). Print solve_map_get.
+  (reflexivity || (apply map.get_putmany_right; solve_map_get) || (apply map.get_putmany_left; solve_map_get)).
 
 Ltac simpl_map := simpl_map' solve_map_get.
 
@@ -1896,8 +1893,6 @@ Lemma dim_pad_list_result_to_shape' l sh n :
   Forall (result_has_dim n) l ->
   Forall (result_has_dim n) (pad_list_result_to_shape l sh).
 Proof. intros. subst. apply dim_pad_list_result_to_shape. assumption. Qed.
-Print transpose_result_list.
-Print get_col. Print size_of. Print result_has_shape.
 
 Lemma dim_goes_down n v x r :
   nth_error v x = Some r ->
@@ -1914,7 +1909,7 @@ Lemma dim_transpose_result_list l n m :
 Proof.
   intros H. induction m.
   - simpl. constructor.
-  - simpl. constructor. 2: assumption. constructor. Print get_col.
+  - simpl. constructor. 2: assumption. constructor.
     remember (row_length l - S m) as x. clear Heqx. clear IHm. revert x.
     induction l; intros x; simpl.
     + constructor.
@@ -1971,7 +1966,7 @@ Proof.
     - simpl in Hx. vm_compute in Hx. lia.
     - simpl in Hx. rewrite div_ceil_n_0 in Hx by lia. lia. }
   cbn -[gen_pad_list List.app]. apply forall_firstn. apply forall_skipn.
-  apply Forall_app. split; [assumption|]. simpl. Print result_shape_nat.
+  apply Forall_app. split; [assumption|]. simpl.
   apply Forall_repeat. apply dim_gen_pad_result_shape_nat. invert H. assumption.
 Qed.
 
@@ -2071,7 +2066,6 @@ Proof.
   exists x. split; [|assumption]. rewrite nth_error_app2 by lia. replace _ with O by lia.
   reflexivity.
 Qed.
-Print result_has_shape.
 
 Lemma Forall2_impl_in_l {A B : Type} (R1 R2 : A -> B -> Prop) l1 l2 :
   (forall x y, In x l1 -> R1 x y -> R2 x y) ->
@@ -2082,8 +2076,6 @@ Proof.
   - constructor.
   - simpl in *. constructor; auto.
 Qed.
-
-Print result_has_shape.  
 
 (*TODO use result_has_shape_flatten_result instead*)
 Lemma length_flatten_result n m sh l :
@@ -2820,8 +2812,6 @@ Proof.
     simpl. intros. rewrite in_app_iff. tauto.
     Unshelve. (*why*) all: exact map.empty.
 Qed.
-
-Check lower_correct_rec. Search ATLDeep.lower.
 
 Lemma lower_correct out e r l :
   eval_expr $0 $0 $0 e r ->
