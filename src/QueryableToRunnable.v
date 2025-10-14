@@ -17,6 +17,25 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 
 Import ListNotations.
 
+From Stdlib Require Import Arith.Arith.
+From Stdlib Require Import Arith.EqNat.
+From Stdlib Require Import Arith.PeanoNat. Import Nat.
+From Stdlib Require Import Bool.Bool.
+From Stdlib Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
+From Stdlib Require Import ZArith.Int.
+From Stdlib Require Import ZArith.Znat.
+From Stdlib Require Import Strings.String.
+From Stdlib Require Import Lists.List.
+From Stdlib Require Import micromega.Lia.
+
+From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
+
+From Datalog Require Import Datalog Map Tactics Fp List.
+
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
+
+Import ListNotations.
+
 Section relmap.
   Context {rel1 rel2 var fn aggregator T : Type}.
   Context `{sig : signature fn aggregator T}.
@@ -99,11 +118,39 @@ Section Transform.
   Local Notation fact := (@fact rel var fn).
   Local Notation agg_expr' := (agg_expr (rel * bool) var fn aggregator).
   Local Notation agg_expr := (agg_expr rel var fn aggregator).
-  Local Notation goodish_rule := (goodish_rule ins).
-  Local Notation with_only_ins := (with_only_ins ins).
   
   Notation plus_false := (fun x => (x, false)).
   Notation plus_true := (fun x => (x, true)).
+
+  Definition fact_outs (f : fact) := skipn (ins f.(fact_R)) f.(fact_args).
+  Definition fact_ins (f : fact) := firstn (ins f.(fact_R)) f.(fact_args).
+
+  Definition with_only_ins (f : fact) :=
+    {| fact_R := f.(fact_R); fact_args := fact_ins f |}.
+
+  (*2 conditions.
+   * hyp_ins only depend on concl_ins, and
+   * whole thing only depends on (concl_ins \cup vars_bare_in_hyps)
+   (implicit conditions: every concl_in is of the form var_expr blah, where blah was not
+   bound to the agg_expr)
+   *)
+  Definition goodish_rule (r : rule) :=
+    exists concl invars,
+      r.(rule_concls) = [concl] /\
+        fact_ins concl = map var_expr invars /\
+        ~(exists invar ae, In invar invars /\ r.(rule_agg) = Some (invar, ae)) /\
+        (forall v, (*alternatively, could write appears_in_outs here*)appears_in_rule v r ->
+              In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
+                In v invars) /\
+        (forall v, In v (flat_map vars_of_expr (flat_map fact_ins (rule_hyps r))) ->
+              In v invars) /\
+        match r.(rule_agg) with
+        | None => True
+        | Some (_, aexpr) =>
+            good_agg_expr aexpr /\
+              forall v, In v (flat_map vars_of_expr (flat_map fact_ins aexpr.(agg_hyps))) ->
+                   In v invars /\ ~In v aexpr.(agg_vs) /\ v <> aexpr.(agg_i)
+        end.
 
   (*if we get a message saying concls of r need to be computed, then send out messages
     saying premises of r need to be computed*)
@@ -126,13 +173,32 @@ Section Transform.
   Definition make_good (p : list rule) : list rule' :=
     map request_hyps p ++ map add_hyp p.
 
+  Lemma incl_fact_ins f :
+    incl (fact_ins f) (fact_args f).
+  Proof. apply incl_firstn. Qed.
+
+  Lemma appears_with_only_ins v f :
+    In v (vars_of_fact (with_only_ins f)) ->
+    In v (vars_of_fact f).
+  Proof.
+    intros H. cbv [vars_of_fact] in *. simpl in *. cbv [fact_ins] in H.
+    rewrite in_flat_map in *. fwd. eauto using In_firstn_to_In.
+  Qed.
+
+  Lemma barely_appears_with_only_ins v f :
+    In (var_expr v) (with_only_ins f).(fact_args) ->
+    In (var_expr v) f.(fact_args).
+  Proof.
+    intros H. simpl in *. cbv [fact_ins] in H.
+    apply In_firstn_to_In in H. assumption.
+  Qed.
+
   Hint Resolve appears_with_only_ins barely_appears_with_only_ins vars_of_fact_relmap appears_in_agg_expr_with_bool good_agg_expr_relmap : core.
 
   Hint Resolve incl_fact_ins : core.
 
   Hint Extern 3 => progress simpl : core.
-
-
+    
   Lemma appears_in_rule_request_hyps v r :
     goodish_rule r ->
     appears_in_rule v (request_hyps r) ->
@@ -205,8 +271,6 @@ Section Transform.
       rewrite <- map_is_flat_map, map_id in Hv. intros ?. fwd. eauto.
     - right. right. destruct_option_map_Some. destruct p. invert H0. eauto.
   Qed.
-  
-  Hint Unfold Datalog.goodish_rule : core.
   
   Lemma add_hyp_good r :
     goodish_rule r ->
