@@ -16,7 +16,7 @@ From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
   Meshgrid ContextsAgree ATLDeep Range.
 
-From Datalog Require Import Datalog Map List Tactics. 
+From Datalog Require Import Datalog Map List Tactics Interpreter. 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable.
 
 Import Datatypes.
@@ -133,6 +133,7 @@ Section __.
 Context {valuation' : map.map Var.var Z} {valuation'_ok : map.ok valuation'}.
 Context {context : map.map var obj} {context_ok : map.ok context}.
 Context {str_nat : map.map string nat} {str_nat_ok : map.ok str_nat}.
+Local Notation rule := (rule rel var fn aggregator).
 
 Inductive result_has_shape' : list nat -> result -> Prop :=
 | ScalarShape' s : result_has_shape' [] (Result.S s)
@@ -302,7 +303,7 @@ Fixpoint lower_rec
   (name: nat)
   (idxs : list (string (*variable*) * Zexpr (*"lo" value, to be subtracted*)))
   (def_depth : str_nat)
-  : nat (*next unused name*) * list (rule rel var fn aggregator) :=
+  : nat (*next unused name*) * list rule :=
   match e with
   | Gen i lo hi body =>
       lower_rec body out name (idxs ++ [(i, lo)]) def_depth
@@ -640,7 +641,7 @@ Fixpoint lower_rec
            rule_concls := [{| fact_R := out; fact_args := val :: map lower_idx_with_offset idxs |}] |}])
   end.
 
-Definition true_rule : rule rel var fn aggregator :=
+Definition true_rule : rule :=
   {| rule_agg := None;
     rule_concls := [{| fact_R := true_rel;
                       fact_args := [fun_expr (fn_B (fn_BLit true)) []] |}];
@@ -651,7 +652,7 @@ Definition lower e out :=
 
 (*this is a very (unnecessarily) strong property.  happily, ATL programs are
   very-obviously functional, so they meet it.*)
-Definition obviously_non_intersecting (r1 r2 : rule rel var fn aggregator) :=
+Definition obviously_non_intersecting (r1 r2 : rule) :=
   forall R1 R2 idxs1 idxs2 hyps1 hyps2 agg_hyps1 agg_hyps2 x1 x2,
   rule_impl' r1 (R1, x1 :: idxs1) hyps1 agg_hyps1 ->
   rule_impl' r2 (R2, x2 :: idxs2) hyps2 agg_hyps2 ->
@@ -666,13 +667,13 @@ Proof. cbv [obviously_non_intersecting]. intros.
        specialize (H _ _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(auto) ltac:(auto)). destruct H; auto.
 Qed.
 
-Definition pairwise_ni (p : list (rule rel var fn aggregator)) :=
+Definition pairwise_ni (p : list rule) :=
   forall r1 r2,
     In r1 p ->
     In r2 p ->
     r1 = r2 \/ obviously_non_intersecting r1 r2.
 
-Inductive pairwise_ni' : list (rule rel var fn aggregator) -> Prop :=
+Inductive pairwise_ni' : list rule -> Prop :=
 | pni_nil : pairwise_ni' []
 | pni_cons r1 p :
   Forall (obviously_non_intersecting r1) p ->
@@ -689,7 +690,13 @@ Proof.
   destruct H1, H2; subst; auto using obviously_non_intersecting_comm.
 Qed.
 
-Definition diff_rels (p1 p2 : list (rule rel var fn aggregator)) :=
+Lemma pairwise_ni_incl p1 p2 :
+  incl p1 p2 ->
+  pairwise_ni p2 ->
+  pairwise_ni p1.
+Proof. cbv [pairwise_ni]. auto. Qed.
+
+Definition diff_rels (p1 p2 : list rule) :=
   forall r1 r2 c1 c2,
     In r1 p1 ->
     In r2 p2 ->
@@ -725,7 +732,7 @@ Definition good_rel name name' (P : string -> Prop) (R : rel) :=
   | true_rel => False
   end.
 
-Definition good_rule name name' (P : string -> Prop) (r : rule rel var fn aggregator) :=
+Definition good_rule name name' (P : string -> Prop) (r : rule) :=
   Forall (fun f => good_rel name name' P f.(fact_R)) r.(rule_concls).
 
 Lemma good_rel_weaken P1 P2 R name1 name2 name'1 name'2 :
@@ -736,7 +743,7 @@ Lemma good_rel_weaken P1 P2 R name1 name2 name'1 name'2 :
   good_rel name2 name'2 P2 R.
 Proof. cbv [good_rel]. destruct R; auto. lia. Qed.
 
-Definition good_rule_or_out out name name' (P : string -> Prop) (r : rule rel var fn aggregator) :=
+Definition good_rule_or_out out name name' (P : string -> Prop) (r : rule) :=
   Forall (fun f => good_rel name name' P f.(fact_R) \/ f.(fact_R) = out) r.(rule_concls).
 
 Lemma good_rule_weaken P1 P2 name1 name2 name'1 name'2 r :
@@ -760,7 +767,7 @@ Proof.
   cbv [good_rel]. intros a. destruct (fact_R a); auto. intuition lia.
 Qed.
 
-Lemma rule_impl_rel (r : rule rel var fn aggregator) R args hyps agg_hyps :
+Lemma rule_impl_rel (r : rule) R args hyps agg_hyps :
   rule_impl' r (R, args) hyps agg_hyps ->
   exists c, In c r.(rule_concls) /\ c.(fact_R) = R.
 Proof.
@@ -918,7 +925,7 @@ Ltac prove_IH_hyps IH :=
 
 Ltac destr_lower :=
   match goal with
-  | |- context[lower_rec ?e ?out ?name ?idxs] =>
+  | |- context[lower_rec ?e ?out ?name ?idxs ?depths] =>
       let name' := fresh "name'" in
       let rules := fresh "rules" in
       let E := fresh "E" in
@@ -1168,21 +1175,97 @@ Proof.
     constructor; [|constructor]. simpl. auto.
 Qed.
 
-(* Definition functional (p : list (rule rel var fn aggregator)) := *)
-(*   forall idxs r x1 x2, *)
-(*     prog_impl_fact p (r, x1 :: idxs) -> *)
-(*     prog_impl_fact p (r, x2 :: idxs) -> *)
+Definition functional (p : list rule) :=
+  forall idxs r x1 x2,
+    prog_impl_fact p (r, x1 :: idxs) ->
+    prog_impl_fact p (r, x2 :: idxs) ->
+    x1 = x2.
+
+(* Definition non_self_intersecting (r : rule) := *)
+(*   forall idxs x1 x2 hyps agg_hyps R, *)
+(*     rule_impl' r (R, x1 :: idxs) hyps agg_hyps -> *)
+(*     rule_impl' r (R, x2 :: idxs) hyps agg_hyps -> *)
 (*     x1 = x2. *)
+(* Check lower_functional_rec. *)
+(* Lemma lower_rec_nsi e out name idx_ctx depths : *)
+(*   Forall non_self_intersecting (snd (lower_rec e out name idx_ctx depths)). *)
+(* Proof. Search rule_impl'. *)
+(*   revert out name idx_ctx depths. Print destr_lower. *)
+(*   induction e; intros; simpl; eauto; repeat destr_lower; simpl; repeat (apply Forall_app; split); cycle -1. *)
+(*   { admit. } *)
+(*   all: repeat match goal with *)
+(*          | IHe: (forall _ _ _ _, _), E: _ = _ |- _ => *)
+(*              epose proof (IHe _ _ _ _) as IHe; rewrite E in IHe; apply IHe *)
+(*          end. *)
+(*   all: repeat (apply Forall_cons || apply Forall_nil); cbv [non_self_intersecting obviously_non_intersecting]; simpl. *)
+(*   all: intros idxs x1 x2 hyps agg_hyps R; invert 1; simpl in *; invert 1; simpl in *. *)
+(*   all: invert_list_stuff. *)
+(*   1: admit. *)
 
-(* Lemma ni_impl_functional p : *)
-(*   pairwise_ni p -> *)
-(*   dag p -> *)
-(*   Forall non_self_intersecting p -> *)
-(*   functional p. *)
+Lemma ni_impl_functional p :
+  ~prog_impl_fact p (true_rel, [Bobj false]) ->
+  pairwise_ni p ->
+  dag p ->
+  functional p.
+Proof.
+  induction 3.
+  - intros. cbv [functional]. intros. invert H1. invert H3.
+  - cbv [functional]. intros. specialize' IHdag.
+    { intros H'. apply H. eapply prog_impl_fact_subset; [|eassumption]. simpl. auto. }
+    specialize' IHdag.
+    { eapply pairwise_ni_incl; [|eassumption]. auto with incl. }
+    apply dag_terminates' in H3, H4; auto.
+    destruct H3 as [H3|H3]; destruct H4 as [H4|H4].
+    + eapply IHdag; eassumption.
+    + fwd. invert H3. apply Exists_exists in H4. fwd. cbv [pairwise_ni] in H0.
+      simpl in H0. specialize (H0 r x ltac:(auto) ltac:(auto)). destruct H0 as [H0|H0].
+      -- subst. eapply IHdag.
+         ++ econstructor. 1: apply Exists_exists; eauto. assumption.
+         ++ econstructor. 1: eapply Exists_exists; eauto. assumption.
+      -- exfalso. apply H. cbv [obviously_non_intersecting] in H0.
+         cbv [rule_impl] in H4p0, H4p3. fwd.
+         specialize (H0 _ _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(reflexivity) ltac:(reflexivity)).
+         destruct H0 as [H0|H0].
+         ++ apply Forall_app in H4p1. fwd. rewrite Forall_forall in H4p1p0.
+            eapply prog_impl_fact_subset. 2: apply H4p1p0; auto. simpl. auto.
+         ++ apply Forall_app in H5. fwd. rewrite Forall_forall in H5p0.
+            eapply prog_impl_fact_subset. 2: apply H5p0; auto. simpl. auto.
+    + (*copied and pasted*)
+      fwd. invert H4. apply Exists_exists in H3. fwd. cbv [pairwise_ni] in H0.
+      simpl in H0. specialize (H0 r x ltac:(auto) ltac:(auto)). destruct H0 as [H0|H0].
+      -- subst. eapply IHdag.
+         ++ econstructor. 1: apply Exists_exists; eauto. assumption.
+         ++ econstructor. 1: eapply Exists_exists; eauto. assumption.
+      -- exfalso. apply H. cbv [obviously_non_intersecting] in H0.
+         cbv [rule_impl] in H3p0, H3p3. fwd.
+         specialize (H0 _ _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(reflexivity) ltac:(reflexivity)).
+         destruct H0 as [H0|H0].
+         ++ apply Forall_app in H3p1. fwd. rewrite Forall_forall in H3p1p0.
+            eapply prog_impl_fact_subset. 2: apply H3p1p0; auto. simpl. auto.
+         ++ apply Forall_app in H5. fwd. rewrite Forall_forall in H5p0.
+            eapply prog_impl_fact_subset. 2: apply H5p0; auto. simpl. auto.
+    + fwd. (* i think this should be cast a bit more generally, using ins etc.  the extra help i need here is basically a goodish_rule thing*)
+    + fwd. invert H3. apply Exists_exists in H4. fwd. cbv [pairwise_ni] in H0.
+      simpl in H0. specialize (H0 r x ltac:(auto) ltac:(auto)). destruct H0 as [H0|H0].
+      -- subst. eapply IHdag.
+         ++ econstructor. 1: apply Exists_exists; eauto. assumption.
+         ++ econstructor. 1: eapply Exists_exists; eauto. assumption.
+      -- exfalso. apply H. cbv [obviously_non_intersecting] in H0.
+         cbv [rule_impl] in H4p0, H4p3. fwd.
+         specialize (H0 _ _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(reflexivity) ltac:(reflexivity)).
+         destruct H0 as [H0|H0].
+         ++ apply Forall_app in H4p1. fwd. rewrite Forall_forall in H4p1p0.
+            eapply prog_impl_fact_subset. 2: apply H4p1p0; auto. simpl. auto.
+         ++ apply Forall_app in H5. fwd. rewrite Forall_forall in H5p0.
+            eapply prog_impl_fact_subset. 2: apply H5p0; auto. simpl. auto.
+    
+            2:{ apply H4p1p1; apply in_concat; eauto. simpl. auto.
+            speialize (H4p1p0 _ ltac:(eassumption)).
+         
 
-(* Lemma lower_functional e out : *)
-(*   ~(out \in vars_of e) -> *)
-(*   functional (lower e out). *)
+Lemma lower_functional e out :
+  ~(out \in vars_of e) ->
+  functional (lower e out).
 
 (*i do not like fmaps, because you cannot iterate over them,
   so i work with coqutil maps instead.
@@ -2742,7 +2825,7 @@ Proof.
     { simpl. apply nth_error_In in H5. invert Hd1. rewrite Forall_forall in H6.
       apply in_app_iff in H5. destruct H5 as [H5|H5].
       { apply repeat_spec in H5. subst. apply dim_gen_pad. }
-      rewrite length_map. rewrite <- H14. auto. }
+pp      rewrite length_map. rewrite <- H14. auto. }
     rewrite H8'. simpl. replace (length l1 - 0) with (length l1) by lia.
     rewrite length_map in Hd3. rewrite <- H14 in *. clear H14.
     rewrite <- Hd3 in *. clear Hd3 Hd1.
