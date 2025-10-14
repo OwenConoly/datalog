@@ -35,6 +35,11 @@ Implicit Type xs : list A.
 Implicit Type ys : list B.
 Implicit Type zs : list C.
 
+Lemma Forall2_combine R xs ys :
+  Forall2 R xs ys ->
+  Forall (fun '(x, y) => R x y) (combine xs ys).
+Proof. induction 1; simpl; eauto. Qed.    
+
 Lemma Forall2_forget_l R xs ys :
   Forall2 R xs ys ->
   Forall (fun y => exists x, In x xs /\ R x y) ys.
@@ -121,6 +126,12 @@ End Forall.
 Section misc.
 Context {A B C : Type}.
 Implicit Type xs : list A.  
+
+Lemma In_skipn x n xs :
+  In x (skipn n xs) ->
+  In x xs.
+Proof. intros. erewrite <- firstn_skipn. apply in_app_iff. eauto. Qed.
+
 Lemma map_is_flat_map (f : A -> B) xs :
   map f xs = flat_map (fun x => [f x]) xs.
 Proof. induction xs; eauto. Qed.

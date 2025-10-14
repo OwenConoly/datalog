@@ -255,15 +255,15 @@ Definition toR (s : scalar_result) :=
 
 Inductive vars_good : list string -> ATLexpr -> Prop :=
 | vg_Gen i lo hi body idxs :
-  subset (vars_of_Zexpr lo) idxs ->
+  incl (vars_of_Zexpr lo) idxs ->
   vars_good (idxs ++ [i]) body ->
   vars_good idxs (Gen i lo hi body)
 | vg_Sum i lo hi body idxs :
-  subset (vars_of_Zexpr lo) idxs ->
+  incl (vars_of_Zexpr lo) idxs ->
   vars_good (idxs ++ [i]) body ->
   vars_good idxs (Sum i lo hi body)
 | vg_Guard b body idxs :
-  subset (vars_of_Bexpr b) idxs ->
+  incl (vars_of_Bexpr b) idxs ->
   vars_good idxs body ->
   vars_good idxs (Guard b body)
 | vg_Lbind x e1 e2 idxs :
@@ -324,12 +324,12 @@ Fixpoint lower_rec
         rules ++
           [{| rule_agg :=
                Some
-                 (inr y, {| agg := sum;
-                           i := inr i';
-                           vs := [inr x];
-                           s := fun_expr (fn_Z fn_ZRange) [lower_idx lo; lower_idx hi];
-                           body := var_expr (inr x);
-                           hyps := [{| fact_R := nat_rel aux;
+                 (inr y, {| agg_agg := sum;
+                           agg_i := inr i';
+                           agg_vs := [inr x];
+                           agg_s := fun_expr (fn_Z fn_ZRange) [lower_idx lo; lower_idx hi];
+                           agg_body := var_expr (inr x);
+                           agg_hyps := [{| fact_R := nat_rel aux;
                                       fact_args :=
                                         var_expr (inr x) ::
                                           var_expr (inr i') ::
@@ -768,9 +768,8 @@ Lemma rule_impl_rel (r : rule rel var fn aggregator) R args hyps :
   rule_impl r (R, args) hyps ->
   exists c, In c r.(rule_concls) /\ c.(fact_R) = R.
 Proof.
-  intros H. invert H.
-  - apply Exists_exists in H0. fwd. simpl. invert H0p1. eauto.
-  - apply Exists_exists in H1. fwd. simpl. invert H1p1. eauto.
+  intros H. cbv [rule_impl] in H. fwd. invert Hp1.
+  apply Exists_exists in H0. fwd. invert H0p1. eauto.
 Qed.
 
 Lemma pairwise_ni_app p1 p2 :
@@ -827,11 +826,11 @@ Inductive idxs_good : list (string * Zexpr) -> Prop :=
 | idxs_good_nil : idxs_good []
 | idxs_good_cons idxs i lo :
   idxs_good idxs ->
-  subset (vars_of_Zexpr lo) (map fst idxs) ->
+  incl (vars_of_Zexpr lo) (map fst idxs) ->
   idxs_good (idxs ++ [(i, lo)]).
 
-Lemma map_app_no_dups_subset {B : Type} l1 l2 (f : _ -> B) :
-  subset (map f l1 ++ map f l2) (map f (l1 ++/ l2)).
+Lemma map_app_no_dups_incl {B : Type} l1 l2 (f : _ -> B) :
+  incl (map f l1 ++ map f l2) (map f (l1 ++/ l2)).
 Proof.
   intros x. cbv [app_no_dups]. rewrite map_app. do 2 rewrite in_app_iff.
   intros [H|H]; auto. repeat rewrite in_map_iff in *. fwd.
@@ -841,19 +840,19 @@ Proof.
 Qed.
 
 Lemma lower_idx_keeps_vars e :
-  subset (vars_of_expr (lower_idx e)) (map inl (vars_of_Zexpr e)).
+  incl (vars_of_expr (lower_idx e)) (map inl (vars_of_Zexpr e)).
 Proof.
-  induction e; simpl; try rewrite app_nil_r; try rewrite map_app; try apply subset_refl.
-  all: eapply subset_trans; [|apply map_app_no_dups_subset].
-  all: apply subset_app_app; auto.
+  induction e; simpl; try rewrite app_nil_r; try rewrite map_app; try apply incl_refl.
+  all: eapply incl_tran; [|apply map_app_no_dups_incl].
+  all: apply incl_app_app; auto.
 Qed.
 
 Lemma lower_guard_keeps_vars e :
-  subset (vars_of_expr (lower_guard e)) (map inl (vars_of_Bexpr e)).
+  incl (vars_of_expr (lower_guard e)) (map inl (vars_of_Bexpr e)).
 Proof.
-  induction e; simpl; try rewrite app_nil_r; try rewrite map_app; try apply subset_refl.
-  all: eapply subset_trans; [|apply map_app_no_dups_subset].
-  all: apply subset_app_app; auto using lower_idx_keeps_vars.
+  induction e; simpl; try rewrite app_nil_r; try rewrite map_app; try apply incl_refl.
+  all: eapply incl_tran; [|apply map_app_no_dups_incl].
+  all: apply incl_app_app; auto using lower_idx_keeps_vars.
 Qed.
     
 Lemma ctxs_agree ctx1 ctx2 idxs idxs' :
@@ -871,9 +870,9 @@ Proof.
   fwd. specialize (IHHgood _ ltac:(eassumption) ltac:(eassumption)).
   rewrite <- map_map in IHHgood. rewrite Forall_map in IHHgood.
   pose proof IHHgood as IHHgood'.
-  eapply Forall_subset in IHHgood; eauto.
+  eapply incl_Forall in IHHgood; eauto.
   rewrite <- Forall_map in IHHgood.
-  eapply Forall_subset in IHHgood; [|apply lower_idx_keeps_vars].
+  eapply incl_Forall in IHHgood; [|apply lower_idx_keeps_vars].
   epose proof interp_expr_agree_on as H'.
   specialize (H' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
   epose proof interp_expr_det as H''.
