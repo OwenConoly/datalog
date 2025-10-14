@@ -119,8 +119,11 @@ Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
 End Forall.
 
 Section misc.
-Context {A B : Type}.
+Context {A B C : Type}.
 Implicit Type xs : list A.  
+Lemma map_is_flat_map (f : A -> B) xs :
+  map f xs = flat_map (fun x => [f x]) xs.
+Proof. induction xs; eauto. Qed.
 
 Lemma invert_concat_same xss xss' :
   concat xss = concat xss' ->
@@ -160,7 +163,7 @@ Proof.
   - destruct H; subst; auto using incl_appr, incl_appl, incl_refl.
 Qed.  
 
-Lemma incl_flat_map_flat_map_strong (f g : A -> list B) l l' :
+Lemma incl_flat_map_strong (f g : A -> list B) l l' :
   incl l l' ->
   (forall x, incl (f x) (g x)) ->
   incl (flat_map f l) (flat_map g l').
@@ -170,6 +173,20 @@ Proof.
   - intros. apply incl_cons_inv in H. fwd.
     eauto using incl_app, incl_flat_map_r, incl_tran.
 Qed.
+
+Hint Unfold incl : core.
+
+Lemma incl_firstn (l : list A) n :
+  incl (firstn n l) l.
+Proof. eauto using in_firstn. Qed.
+
+Lemma flat_map_map (g : A -> B) (f : B -> list C) l :
+  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
+Proof. induction l; simpl; f_equal; auto. Qed.
+
+Lemma flat_map_flat_map (f : B -> list C) (g : A -> list B) l :
+  flat_map f (flat_map g l) = flat_map (fun x => flat_map f (g x)) l.
+Proof. induction l; simpl; eauto. rewrite flat_map_app. f_equal. assumption. Qed.
 End misc.
 
 From Stdlib Require Import Lia.
@@ -223,6 +240,11 @@ Proof.
   cbv [option_map]. destruct_one_match; try congruence.
   invert 1. eauto.
 Qed.
+
+Lemma option_map_None X Y (f : X -> Y) x :
+  option_map f x = None ->
+  x = None.
+Proof. cbv [option_map]. destruct_one_match; congruence. Qed.
 
 (*copied from https://velus.inria.fr/emsoft2021/html/Velus.Common.CommonList.html*)
 Section Forall3.
@@ -344,3 +366,8 @@ Lemma Forall3_combine12 {A B C} (R : A * B -> C -> Prop) xs ys zs :
   Forall3 (fun x y => R (x, y)) xs ys zs ->
   Forall2 R (combine xs ys) zs.
 Proof. induction 1; simpl; eauto. Qed.    
+
+Hint Immediate incl_refl incl_nil_l : incl.
+Hint Resolve incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl : incl.
+  
+  

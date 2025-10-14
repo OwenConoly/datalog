@@ -198,4 +198,12 @@ Proof.
   | H: _ |- _ => specialize (H _ eq_refl); discriminate H
   end.
 Qed.
+
+Lemma zipped_lookup_notin_None (k : key) ks (vs : list value) :
+  ~ In k ks ->
+  map.zipped_lookup (key_eqb := key_eqb) ks vs k = None.
+Proof.
+  intros. destruct (map.zipped_lookup ks vs k) eqn:E; [|reflexivity].
+  Search map.zipped_lookup. apply map.zipped_lookup_Some_in in E. exfalso. auto.
+Qed.
 End Map.
