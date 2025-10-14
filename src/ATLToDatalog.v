@@ -13,12 +13,9 @@ From Stdlib Require Import Logic.FunctionalExtensionality.
 
 Import ListNotations.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
-From Lower Require Import Zexpr Bexpr Array Range Sexpr Result ListMisc
-  Meshgrid VarGeneration Injective Constant InterpretReindexer
-  WellFormedEnvironment.
+From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
+  Meshgrid ContextsAgree ATLDeep Range.
 
-Require Import ATLDeep.
-Require Import ContextsAgree.
 From Datalog Require Import Datalog Map List Tactics. 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable.
 
@@ -78,13 +75,6 @@ Definition interp_Rfn (f : Rfn) (l : list obj) : option R :=
 Variant fn : Set :=
   fn_B (_ : Bfn) | fn_Z (_ : Zfn) | fn_R (_ : Rfn).
 
-Definition interp_fn (f : fn) (l : list obj) : option obj :=
-  match f with
-  | fn_B f => option_map Bobj (interp_Bfn f l)
-  | fn_Z f => interp_Zfn f l
-  | fn_R f => option_map Robj (interp_Rfn f l)
-  end.
-
 Variant rel : Set :=
   | str_rel (s : string)
   | nat_rel (n : nat)
@@ -100,45 +90,49 @@ Definition var_eqb (x y : var) : bool :=
   | _, _ => false
   end.
 
-Definition get_set (x : obj) : option (list obj) :=
-  match x with
-  | Bobj _ => None
-  | Zobj _ => None
-  | Robj _ => None
-  | Setobj min max => Some (map Zobj (map Z.of_nat (seq (Z.to_nat min) (Z.to_nat (max - min)))))
-  end.
-               
-Definition agg_id (a : aggregator) :=
-  match a with
-  | sum => Robj 0
-  end.
-
-Definition interp_agg (a : aggregator) (x y : obj) :=
-  match a, x, y with
-  | sum, Robj x, Robj y => Robj (x + y)
-  | _, _, _ => Robj 0 (*garbage*)
-  end.
-
-Require Import coqutil.Tactics.destr.
-
 Lemma var_eqb_spec x y : BoolSpec (x = y) (x <> y) (var_eqb x y).
 Proof.
   destruct x, y; simpl; try (constructor; congruence).
   - destr (s =? s0); constructor; congruence.
   - destr (n =? n0)%nat; constructor; congruence.
 Qed.
+Section __.
+  Let interp_fun f l :=
+        match f with
+        | fn_B f => option_map Bobj (interp_Bfn f l)
+        | fn_Z f => interp_Zfn f l
+        | fn_R f => option_map Robj (interp_Rfn f l)
+        end.
+  Let get_set x :=
+        match x with
+        | Bobj _ => None
+        | Zobj _ => None
+        | Robj _ => None
+        | Setobj min max => Some (map Zobj (map Z.of_nat (seq (Z.to_nat min) (Z.to_nat (max - min)))))
+        end.
+  Let agg_id a :=
+        match a with
+        | sum => Robj 0
+        end.
+  Let interp_agg a x y :=
+        match a, x, y with
+        | sum, Robj x, Robj y => Robj (x + y)
+        | _, _, _ => Robj 0 (*garbage*)
+        end.
+  Instance ATLSig : signature fn aggregator obj :=
+    { interp_fun := interp_fun ;
+      get_set := get_set;
+      agg_id := agg_id;
+      interp_agg := interp_agg }.
+End __.
 
+#[local] Existing Instance ATLSig.
 Existing Instance var_eqb_spec.
 Existing Instance String.eqb_spec.
 Section __.
 Context {valuation' : map.map Var.var Z} {valuation'_ok : map.ok valuation'}.
 Context {context : map.map var obj} {context_ok : map.ok context}.
 Context {str_nat : map.map string nat} {str_nat_ok : map.ok str_nat}.
-
-Notation prog_impl_fact := (prog_impl_fact interp_fn get_set agg_id interp_agg).
-Notation rule_impl := (rule_impl interp_fn get_set agg_id interp_agg).
-Notation interp_expr := (interp_expr interp_fn).
-Notation interp_fact := (interp_fact interp_fn).
 
 Inductive result_has_shape' : list nat -> result -> Prop :=
 | ScalarShape' s : result_has_shape' [] (Result.S s)
@@ -318,7 +312,7 @@ Fixpoint lower_rec
       let i' := Datatypes.S x in
       let y := Datatypes.S i' in
       let aux := name in
-      let (name', rules) := lower_rec body (nat_rel aux) (S aux) (idxs ++ [(i, lo(*TODO could make this zero*))]) def_depth in
+      let (name', rules) := lower_rec body (nat_rel aux) (S aux) (idxs ++ [(i, lo (*TODO make this zero?*))]) def_depth in
       (name',
         rules ++
           [{| rule_agg :=
@@ -326,11 +320,14 @@ Fixpoint lower_rec
                  (inr y, {| agg_agg := sum;
                            agg_i := inr i';
                            agg_vs := [inr x];
-                           agg_s := fun_expr (fn_Z fn_ZRange) [lower_idx lo; lower_idx hi];
+                           agg_s := fun_expr (fn_Z fn_ZRange) [
+                                        fun_expr (fn_Z (fn_ZLit 0)) [];
+                                        lower_idx (ZMinus hi lo)];
                            agg_body := var_expr (inr x);
                            agg_hyps := [{| fact_R := nat_rel aux;
                                       fact_args :=
                                         var_expr (inr x) ::
+                                          map lower_idx_with_offset idxs ++
                                           var_expr (inr i') ::
                                           map var_expr dimvars |}] |} : agg_expr rel var fn aggregator);
              rule_concls := [{| fact_R := out;
@@ -655,9 +652,9 @@ Definition lower e out :=
 (*this is a very (unnecessarily) strong property.  happily, ATL programs are
   very-obviously functional, so they meet it.*)
 Definition obviously_non_intersecting (r1 r2 : rule rel var fn aggregator) :=
-  forall R1 R2 idxs1 idxs2 hyps1 hyps2 x1 x2,
-  rule_impl r1 (R1, x1 :: idxs1) hyps1 ->
-  rule_impl r2 (R2, x2 :: idxs2) hyps2 ->
+  forall R1 R2 idxs1 idxs2 hyps1 hyps2 agg_hyps1 agg_hyps2 x1 x2,
+  rule_impl' r1 (R1, x1 :: idxs1) hyps1 agg_hyps1 ->
+  rule_impl' r2 (R2, x2 :: idxs2) hyps2 agg_hyps2 ->
   R1 = R2 ->
   idxs1 = idxs2 ->
   In (true_rel, [Bobj false]) hyps1 \/ In (true_rel, [Bobj false]) hyps2.
@@ -666,7 +663,7 @@ Lemma obviously_non_intersecting_comm r1 r2 :
   obviously_non_intersecting r1 r2 ->
   obviously_non_intersecting r2 r1.
 Proof. cbv [obviously_non_intersecting]. intros.
-       specialize (H _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(auto) ltac:(auto)). destruct H; auto.
+       specialize (H _ _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(auto) ltac:(auto)). destruct H; auto.
 Qed.
 
 Definition pairwise_ni (p : list (rule rel var fn aggregator)) :=
@@ -763,12 +760,12 @@ Proof.
   cbv [good_rel]. intros a. destruct (fact_R a); auto. intuition lia.
 Qed.
 
-Lemma rule_impl_rel (r : rule rel var fn aggregator) R args hyps :
-  rule_impl r (R, args) hyps ->
+Lemma rule_impl_rel (r : rule rel var fn aggregator) R args hyps agg_hyps :
+  rule_impl' r (R, args) hyps agg_hyps ->
   exists c, In c r.(rule_concls) /\ c.(fact_R) = R.
 Proof.
-  intros H. cbv [rule_impl] in H. fwd. invert Hp1.
-  apply Exists_exists in H0. fwd. invert H0p1. eauto.
+  intros H. invert H.
+  apply Exists_exists in H1. fwd. invert H1p1. eauto.
 Qed.
 
 Lemma pairwise_ni_app p1 p2 :
@@ -809,13 +806,13 @@ I changed my mind; I will do an equivalent slight variation on 3, with the vars_
 (*TODO factor out the list part at least*)
 Ltac invert_stuff :=
   match goal with
-  | H : rule_impl _ _ _ |- _ => invert H
+  | H : rule_impl' _ _ _ _ |- _ => invert H
   | H : interp_fact _ _ _ |- _ => invert H
   | H : interp_expr _ (fun_expr _ _) _ |- _ => invert H
   | H : interp_expr _ (var_expr _) _ |- _ => invert H
+  | H : interp_option_agg_expr _ None _ _ |- _ => invert H
   | _ => destruct_option_map_Some
   | _ => invert_list_stuff
-  | H : Some _ = Some _ |- _ => invert H
   end.
 
 (* This is becoming insane.  I don't technically have to do this, because I could just
@@ -873,9 +870,9 @@ Proof.
   rewrite <- Forall_map in IHHgood.
   eapply incl_Forall in IHHgood; [|apply lower_idx_keeps_vars].
   epose proof interp_expr_agree_on as H'.
-  specialize (H' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+  specialize (H' _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
   epose proof interp_expr_det as H''.
-  specialize (H'' _ _ _ _ _ H' H3). invert H''.
+  specialize (H'' _ _ _ _ H' H3). invert H''.
   rewrite Forall_map in IHHgood'. rewrite Forall_map. apply Forall_app. split; auto.
   constructor; [|constructor]. simpl. cbv [agree_on]. rewrite H1, H5. f_equal. f_equal.
   lia.
@@ -1000,15 +997,15 @@ Proof.
           pose proof ctxs_agree as H'.
           specialize H' with (1 := Hidxs) (2 := HAp0) (3 := HBp0).
           rewrite <- map_map in H'.
-          rewrite Forall_map in H'. eapply Forall_subset in H'; eauto.
+          rewrite Forall_map in H'. eapply incl_Forall in H'; eauto.
           rewrite <- Forall_map in H'.
-          eapply Forall_subset in H'. 2: apply lower_guard_keeps_vars.
+          eapply incl_Forall in H'. 2: apply lower_guard_keeps_vars.
           epose proof interp_expr_agree_on as H''.
-          epose proof (H'' _ _ _ _ _) as H''.
+          epose proof (H'' _ _ _ _) as H''.
           specialize' H''. 2: specialize (H'' ltac:(eassumption)). 1: eassumption.
           epose proof interp_expr_det as H'''.
           match goal with
-          | H1: _, H2: _ |- _ => specialize (H''' _ _ _ _ _ H1 H2)
+          | H1: _, H2: _ |- _ => specialize (H''' _ _ _ _ H1 H2)
           end.
           subst. clear. destruct b0; auto. }
         constructor. }
@@ -1034,8 +1031,6 @@ Proof.
     + apply pairwise_ni'_sound. constructor.
       { constructor.
         { cbv [obviously_non_intersecting]. intros. subst.
-          repeat (invert_stuff; simpl in * ).
-          (*from H13 and H14, i want to conclude that ctx and ctx0 agree on idxs*)
           repeat (invert_stuff; simpl in * ).
           (*from HA and HB, i want to conclude that ctx and ctx0 agree on idxs*)
           match goal with
@@ -1173,25 +1168,21 @@ Proof.
     constructor; [|constructor]. simpl. auto.
 Qed.
 
-Definition functional (p : list (rule rel var fn aggregator)) :=
-  forall idxs r x1 x2,
-    prog_impl_fact p (r, x1 :: idxs) ->
-    prog_impl_fact p (r, x2 :: idxs) ->
-    x1 = x2.
+(* Definition functional (p : list (rule rel var fn aggregator)) := *)
+(*   forall idxs r x1 x2, *)
+(*     prog_impl_fact p (r, x1 :: idxs) -> *)
+(*     prog_impl_fact p (r, x2 :: idxs) -> *)
+(*     x1 = x2. *)
 
-Lemma ni_impl_functional p :
-  pairwise_ni p ->
-  dag p ->
-  Forall non_self_intersecting p ->
-  functional p.
+(* Lemma ni_impl_functional p : *)
+(*   pairwise_ni p -> *)
+(*   dag p -> *)
+(*   Forall non_self_intersecting p -> *)
+(*   functional p. *)
 
-Lemma lower_functional e out :
-  ~(out \in vars_of e) ->
-  functional (lower e out).
-  
-
-
-
+(* Lemma lower_functional e out : *)
+(*   ~(out \in vars_of e) -> *)
+(*   functional (lower e out). *)
 
 (*i do not like fmaps, because you cannot iterate over them,
   so i work with coqutil maps instead.
@@ -1416,32 +1407,34 @@ Proof.
   destruct (nth_error idxs x); auto. exfalso. eauto.
 Qed.
 
-Ltac simpl_map' solve_map_get := repeat (rewrite map.get_putmany_left by apply context_of_inr) || rewrite map.get_put_same || (erewrite context_of_fw by solve_map_get) || rewrite map.get_put_diff by (let x := fresh "x" in intros x; invert x; lia).
+Ltac simpl_map :=
+  repeat (rewrite map.get_putmany_left by isNone_solver) ||
+    rewrite map.get_put_same ||
+    (erewrite context_of_fw by solve_map_get) ||
+    rewrite map.get_put_diff by (let x := fresh "x" in intros x; invert x; lia)
 
-Ltac solve_map_get :=
-  simpl_map' solve_map_get;
-  (reflexivity || (apply map.get_putmany_right; solve_map_get) || (apply map.get_putmany_left; solve_map_get)).
-
-Ltac simpl_map := simpl_map' solve_map_get.
-
-(* Ltac simpl_map_cons := *)
-(*   repeat (rewrite map_cons_something || rewrite map_cons_nothing by (let H := fresh "H" in intros H; invert H; lia)). *)
+      with solve_map_get :=
+    simpl_map;
+    (reflexivity ||
+       (apply map.get_putmany_right; solve_map_get) ||
+         (apply map.get_putmany_left; solve_map_get))
+      with isNone_solver :=
+      simpl_map;
+      apply context_of_inr ||
+        (apply putmany_None; isNone_solver) ||
+        apply map.get_empty ||
+        reflexivity ||
+        (apply idx_map_None; simpl; repeat rewrite length_map; simpl; lia) ||
+        (rewrite <- fmap_of_spec; solve [eauto using None_dom_lookup]) ||
+        idtac.
 
 Ltac domain_in_ints_solver :=
   apply domain_in_ints_idx_map.
 
-Ltac isNone_solver :=
-  simpl_map;
-  apply context_of_inr ||
-  (apply putmany_None; isNone_solver) ||
-    reflexivity ||
-    (apply idx_map_None; simpl; repeat rewrite length_map; simpl; lia) ||
-    (rewrite <- fmap_of_spec; solve [eauto using None_dom_lookup]) ||
-    idtac.
-
 Ltac disj_solver' disj_solver :=
     (eapply domain_in_ints_disj_substn_of; domain_in_ints_solver) ||
       (apply map.disjoint_put_l; [isNone_solver|disj_solver]) ||
+      (apply map.disjoint_put_r; [isNone_solver|disj_solver]) ||
       (apply map.disjoint_empty_r || apply map.disjoint_empty_l).
 
 Ltac disj_solver :=
@@ -1453,18 +1446,17 @@ Ltac ext_refl :=
       tryif is_evar a then fail else tryif is_evar b then fail else apply map.extends_refl
   end.
 
-(*important to have the backtracking here because of the eapply extends_trans*)
-Ltac extends_solver' extends_solver :=
-  (apply extends_put; isNone_solver) +
-    (apply extends_putmany_left; disj_solver) +
-    (apply extends_putmany_putmany; solve[extends_solver]) +
-    (apply extends_context_of; extends_solver) +
-    (apply extends_putmany_right) +
-    ext_refl.
-
 Ltac extends_solver :=
-  solve [eauto] || extends_solver' extends_solver ||
-    (eapply extends_trans; [solve[extends_solver' extends_solver] | solve [extends_solver] ]) || idtac.
+  solve [eauto] || extends_solver' ||
+    (eapply extends_trans; [solve[extends_solver'] | solve [extends_solver] ]) || idtac
+    (*important to have the backtracking here because of the eapply extends_trans*)
+    with extends_solver' :=
+    (apply extends_put; isNone_solver) +
+      (apply extends_putmany_left; disj_solver) +
+      (apply extends_putmany_putmany; solve[extends_solver]) +
+      (apply extends_context_of; extends_solver) +
+      (apply extends_putmany_right) +
+      ext_refl.
 
 Ltac interp_exprs :=
   repeat rewrite map_app; simpl;
@@ -2036,23 +2028,6 @@ Proof.
     rewrite Forall_forall in H0. auto.
 Qed.
 
-Lemma nth_error_skipn {A : Type} (l : list A) n1 n2 :
-  nth_error (skipn n1 l) n2 = nth_error l (n1 + n2).
-Proof.
-  revert n1 n2. induction l; intros n1 n2; simpl.
-  - destruct n1, n2; reflexivity.
-  - destruct n1; simpl; auto.
-Qed.
-
-Lemma Forall2_firstn {A B : Type} (l1 : list A) (l2 : list B) R n :
-  Forall2 R l1 l2 ->
-  Forall2 R (firstn n l1) (firstn n l2).
-Proof.
-  revert l1 l2. induction n; simpl.
-  - intros. constructor.
-  - intros. invert H; constructor; auto.
-Qed.
-
 Lemma nth_error_Forall2_r {A B : Type} (R : A -> B -> Prop) l1 l2 n x2 :
   Forall2 R l1 l2 ->
   nth_error l2 n = Some x2 ->
@@ -2065,16 +2040,6 @@ Proof.
   invert H3. apply Forall2_length in H2. rewrite <- H2.
   exists x. split; [|assumption]. rewrite nth_error_app2 by lia. replace _ with O by lia.
   reflexivity.
-Qed.
-
-Lemma Forall2_impl_in_l {A B : Type} (R1 R2 : A -> B -> Prop) l1 l2 :
-  (forall x y, In x l1 -> R1 x y -> R2 x y) ->
-  Forall2 R1 l1 l2 ->
-  Forall2 R2 l1 l2.
-Proof.
-  intros H1 H2. revert H1. induction H2; intros H1.
-  - constructor.
-  - simpl in *. constructor; auto.
 Qed.
 
 (*TODO use result_has_shape_flatten_result instead*)
@@ -2243,7 +2208,7 @@ Proof.
     pose proof dimensions_right as H'.
     specialize (H' _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
     invert H0. simpl in H1. destruct H1 as (_&_&H1).
-    specialize IHe with (2 := H10) (3 := H1) (4 := H2).
+    specialize IHe with (2 := H10) (3 := H1).
     apply invert_eval_sum in H.
     destruct H as (loz&hiz&summands&Hlen&Hloz&Hhiz&Hsummands&Hbody).
     specialize Hsummands with (1 := H3). destruct Hsummands as (ss&Hs&Hss).
@@ -2254,11 +2219,12 @@ Proof.
     + apply eval_Zexpr_Z_eval_Zexpr in Hhiz, Hloz.
       apply eval_Zexpr_to_substn in Hhiz, Hloz.
       simpl. apply Exists_app. left. destr_lower. simpl. apply Exists_app. simpl. right.
-      apply Exists_cons_hd. eapply agg_rule_impl with (ctx := s).
-      -- econstructor.
+      apply Exists_cons_hd. cbv [rule_impl]. do 2 eexists. split; [reflexivity|].
+      eapply mk_rule_impl' with (ctx := s).
+      -- constructor. econstructor.
          { interp_exprs. }
          { reflexivity. }
-         { instantiate (2 := map Robj (map toR ss)). apply Forall3.Forall3_zip3.
+         { instantiate (2 := map Robj (map toR ss)). apply Forall3_zip3.
            move Hss at bottom. move Hs at bottom. move Hbody at bottom.
            apply Forall2_nth_error.
            { repeat rewrite length_map. rewrite length_seq. apply Forall2_length in Hs. lia. }
@@ -2271,14 +2237,39 @@ Proof.
            destruct Hbody as (_&_&Hbody). replace (Z.to_nat _) with n in Hbody by lia.
            epose proof nth_error_Forall2_r as H'. specialize H' with (1 := Hs) (2 := E1).
            destruct H' as (summand&Hsummand1&Hsummand2). rewrite Hsummand1 in Hbody.
-           eexists [_]. simpl. instantiate (2 := fun _ _ => _). interp_exprs. }
+           eexists [_]. simpl. eexists. split; [reflexivity|].
+           instantiate (2 := fun _ _ => _). interp_exprs. }
          { reflexivity. }
       -- apply Exists_cons_hd. constructor. simpl. constructor.
          { repeat econstructor. simpl_map. rewrite Hss. f_equal.
            clear. induction ss; simpl; auto. rewrite IHss. reflexivity. }
          interp_exprs.
       -- constructor.
-    + constructor.
+    + simpl. apply Forall_concat. apply Forall_zip. apply Forall2_nth_error.
+      { repeat rewrite length_map. rewrite length_seq. apply Forall2_length in Hs. lia. }
+      intros n x1 x2 H H0. constructor; [|solve[constructor]].
+      repeat rewrite nth_error_map in *.
+      repeat destruct_option_map_Some. apply nth_error_seq_Some in E1. subst.
+      specialize (Hbody (loz + Z.of_nat n)%Z).
+      eassert _ as blah. 2: specialize (Hbody blah); clear blah.
+      { split; try lia. apply nth_error_Some in E0.
+        apply Forall2_length in Hs. lia. }
+      destruct Hbody as (?&_&Hbody). replace (Z.to_nat _) with n in Hbody by lia.
+      epose proof nth_error_Forall2_r as H'. specialize H' with (1 := Hs) (2 := E0).
+      destruct H' as (summand&Hsummand1&Hsummand2). rewrite Hsummand1 in Hbody.
+      rewrite add_fmap_of in Hbody.
+      eapply prog_impl_fact_subset; cycle 1.
+      { eassert (idx_ctx' ++ _ :: _ = (_ ++ [_]) ++ _) as ->.
+        { rewrite <- app_assoc. reflexivity. }
+        eapply IHe with (idx_ctx := idx_ctx ++ [(i, lo)]) (name := S name).
+        - eassumption.
+        - intros. specialize (H2 _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+          fwd. do 2 eexists. rewrite length_app. intuition eauto. 1: lia.
+          rewrite firstn_app. replace (_ - _) with O by lia. simpl. rewrite app_nil_r.
+          interp_exprs.
+        - assumption.
+        - interp_exprs. simpl. f_equal. f_equal. lia. }
+      intros x Hx. destr_lower. simpl. repeat rewrite in_app_iff in *. simpl. tauto.
   - simpl. intros. invert H0.
     pose proof dimensions_right as H'. 
     pose proof dim_idxs as H''.
@@ -2391,7 +2382,7 @@ Proof.
       constructor; [|solve[constructor]].
       simpl. econstructor.
       { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_hd.
-        econstructor; [|solve[constructor]]. apply Exists_cons_hd.
+        eapply normal_rule_impl; [|solve[constructor]]. apply Exists_cons_hd.
         interp_exprs. simpl. f_equal. f_equal. remember (Z.of_nat _) as y.
         destr (x <? y)%Z; [reflexivity|lia]. }
       constructor.
@@ -2429,7 +2420,7 @@ Proof.
         intros. rewrite E0 in *. repeat rewrite in_app_iff in *. tauto. }
       simpl. constructor; [|solve[constructor]]. econstructor.
       { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_hd.
-        econstructor; [|solve[constructor]]. apply Exists_cons_hd. interp_exprs.
+        eapply normal_rule_impl; [|solve[constructor]]. apply Exists_cons_hd. interp_exprs.
         simpl. f_equal. f_equal. remember (Z.of_nat _) as y.
         destr (y <=? x)%Z; [reflexivity|lia]. }
       constructor.
@@ -2555,7 +2546,7 @@ Proof.
         intros. rewrite E in *. repeat rewrite in_app_iff in *. tauto. }
       constructor; [|solve[constructor]]. econstructor.
       { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_hd.
-        econstructor; [|solve[constructor]]. apply Exists_cons_hd. interp_exprs.
+        eapply normal_rule_impl; [|solve[constructor]]. apply Exists_cons_hd. interp_exprs.
         simpl. f_equal. f_equal. remember (Z.of_nat _) as y.
         destr (x =? y / Z.of_nat k')%Z; destr (y mod Z.of_nat k' <=? x0)%Z; try reflexivity.
         subst. rewrite <- H12 in *. clear -H' E0.
@@ -2711,7 +2702,7 @@ Proof.
         simpl. intros. rewrite E in *. repeat rewrite in_app_iff in *. tauto. }
       constructor; [|solve[constructor]]. econstructor.
       { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_hd.
-        econstructor; [|solve[constructor]]. apply Exists_cons_hd. interp_exprs.
+        eapply normal_rule_impl; [|solve[constructor]]. apply Exists_cons_hd. interp_exprs.
         simpl. f_equal. f_equal. remember (Z.of_nat _) as y.
         destr (x <? y)%Z; try reflexivity. apply nth_error_Some in H5.
         rewrite <- result_has_shape'_iff in He. invert He. lia. }
@@ -2792,7 +2783,7 @@ Proof.
         simpl. intros. rewrite E in *. repeat rewrite in_app_iff in *. tauto. }
       constructor; [|solve[constructor]]. econstructor.
       { apply Exists_app. right. apply Exists_app. right. apply Exists_cons_hd.
-        econstructor; [|solve[constructor]]. apply Exists_cons_hd. interp_exprs.
+        eapply normal_rule_impl; [|solve[constructor]]. apply Exists_cons_hd. interp_exprs.
         simpl. f_equal. f_equal. remember (Z.of_nat _) as y.
         destr (x <? y)%Z; destr (y <=? x)%Z; reflexivity || lia. }
       constructor.
@@ -2819,16 +2810,12 @@ Lemma lower_correct out e r l :
   constant_nonneg_bounds e ->
   forall (idxs : list Z) (val : scalar_result),
     result_lookup_Z' idxs r val ->
-    prog_impl_fact (lower e out) (out, Robj (toR val) :: map Zobj idxs).
+    prog_impl_fact (lower e out) (str_rel out, Robj (toR val) :: map Zobj idxs).
 Proof.
   intros. pose proof lower_correct_rec as H'.
   specialize H' with (idx_ctx' := nil) (datalog_ctx := nil) (v := map.empty).
   simpl in H'. eapply H'; eauto.
   - rewrite fmap_of_empty. eassumption.
   - clear. intros * H. rewrite lookup_empty in H. discriminate H.
-Qed.
-
-
-                                                                               
-       
+Qed.   
 End __.

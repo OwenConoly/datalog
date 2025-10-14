@@ -38,7 +38,20 @@ Implicit Type zs : list C.
 Lemma Forall2_combine R xs ys :
   Forall2 R xs ys ->
   Forall (fun '(x, y) => R x y) (combine xs ys).
-Proof. induction 1; simpl; eauto. Qed.    
+Proof. induction 1; simpl; eauto. Qed.
+
+Lemma Forall_combine R xs ys :
+  Forall2 (fun x y => R (x, y)) xs ys ->
+  Forall R (combine xs ys).
+Proof. induction 1; simpl; eauto. Qed.
+
+Lemma Forall_zip (R : C -> Prop) xs ys f :
+  Forall2 (fun x y => R (f x y)) xs ys ->
+  Forall R (zip f xs ys).
+Proof.
+  intros. cbv [zip]. apply Forall_map.
+  apply Forall_combine. assumption.
+Qed.
 
 Lemma Forall2_forget_l R xs ys :
   Forall2 R xs ys ->
@@ -121,6 +134,11 @@ Lemma in_fst (x : A) (y : B) xys :
   In (x, y) xys ->
   In x (map fst xys).
 Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
+
+Lemma Forall2_firstn R xs ys n :
+  Forall2 R xs ys ->
+  Forall2 R (firstn n xs) (firstn n ys).
+Proof. intros H. revert n. induction H; destruct n; simpl; eauto. Qed.
 End Forall.
 
 Section misc.

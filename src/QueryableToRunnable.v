@@ -360,17 +360,6 @@ Section Transform.
     apply in_map_iff in H0p0p1. fwd. invert H0p1. reflexivity.
   Qed.
 
-  Lemma Forall2_In_r {X Y : Type} (R : X -> Y -> Prop) xs ys y :
-    Forall2 R xs ys ->
-    In y ys ->
-    Exists (fun x => R x y) xs.
-  Proof. induction 1; simpl; intuition. subst. eauto. Qed.    
-
-  Lemma Forall2_firstn {X Y : Type} (R : X -> Y -> Prop) xs ys n :
-    Forall2 R xs ys ->
-    Forall2 R (firstn n xs) (firstn n ys).
-  Proof. intros H. revert n. induction H; destruct n; simpl; eauto. Qed.
-
   Lemma rule_impl_request_hyps r R args R' args' hyps' :
     goodish_rule r (*very necessary, finally*)->
     rule_impl r (R, args) hyps' ->
@@ -386,9 +375,10 @@ Section Transform.
     - constructor.
     - do 2 rewrite Exists_map. apply Exists_app.
       rewrite in_app_iff in Hin. destruct Hin as [Hin|Hin].
-      + left. eapply Exists_impl. 2: eapply Forall2_In_r; eauto using Exists_app.
-        simpl. intros f Hf. invert Hf. constructor. simpl. cbv [fact_ins].
-        apply Forall2_firstn. eassumption.
+      + left. apply Forall2_forget_l in H1. rewrite Forall_forall in H1.
+        specialize (H1 _ ltac:(eassumption)). fwd. rewrite Exists_exists.
+        eexists. split; [eassumption|]. invert H1p1. constructor.
+        simpl. cbv [fact_ins]. apply Forall2_firstn. eassumption.
       + right. cbv [rule_agg_hyps]. invert H. 1: simpl in Hin; contradiction.
         rewrite <- H2 in *. fwd. invert H4. simpl in *.
         rewrite in_concat in Hin. fwd. apply Forall3_ignore12 in H5.
@@ -501,8 +491,10 @@ Qed.
   Proof.
     intros H. cbv [request_hyps rule_impl] in H. fwd. invert Hp1. simpl in *.
     apply Forall_forall.
-    intros x Hx. invert H. rewrite app_nil_r in Hx. eapply Forall2_In_r in H1. 2: eassumption.
-      rewrite Exists_map in H1. apply Exists_exists in H1. fwd. invert H1p1. reflexivity.
+    intros x Hx. invert H. rewrite app_nil_r in Hx. rewrite map_map in H1.
+    apply Forall2_forget_l in H1. rewrite Forall_forall in H1.
+    specialize (H1 _ ltac:(eassumption)). fwd.
+    apply in_map_iff in H1p0. fwd. invert H1p1. reflexivity.
   Qed.
 
   Lemma f_fixpoint' r S w :
