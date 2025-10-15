@@ -105,9 +105,6 @@ Section relmap.
   Proof. induction 1; simpl; fwd; intuition eauto. invert H. simpl. f_equal; auto. Qed.  
 End relmap.
 
-Class query_signature (rel : Type) :=
-  { ins : rel -> nat }.
-
 Section Transform.
   Context {rel var fn aggregator T : Type}.
   Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
@@ -123,36 +120,6 @@ Section Transform.
   
   Notation plus_false := (fun x => (x, false)).
   Notation plus_true := (fun x => (x, true)).
-
-  Definition fact_outs (f : fact) := skipn (ins f.(fact_R)) f.(fact_args).
-  Definition fact_ins (f : fact) := firstn (ins f.(fact_R)) f.(fact_args).
-
-  Definition with_only_ins (f : fact) :=
-    {| fact_R := f.(fact_R); fact_args := fact_ins f |}.
-
-  (*2 conditions.
-   * hyp_ins only depend on concl_ins, and
-   * whole thing only depends on (concl_ins \cup vars_bare_in_hyps)
-   (implicit conditions: every concl_in is of the form var_expr blah, where blah was not
-   bound to the agg_expr)
-   *)
-  Definition goodish_rule (r : rule) :=
-    exists concl invars,
-      r.(rule_concls) = [concl] /\
-        fact_ins concl = map var_expr invars /\
-        ~(exists invar ae, In invar invars /\ r.(rule_agg) = Some (invar, ae)) /\
-        (forall v, (*alternatively, could write appears_in_outs here*)appears_in_rule v r ->
-              In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
-                In v invars) /\
-        (forall v, In v (flat_map vars_of_expr (flat_map fact_ins (rule_hyps r))) ->
-              In v invars) /\
-        match r.(rule_agg) with
-        | None => True
-        | Some (_, aexpr) =>
-            good_agg_expr aexpr /\
-              forall v, In v (flat_map vars_of_expr (flat_map fact_ins aexpr.(agg_hyps))) ->
-                   In v invars /\ ~In v aexpr.(agg_vs) /\ v <> aexpr.(agg_i)
-        end.
 
   Definition agree (p : list rule) (r1 r2 : rule) :=
     forall R args1 args2 hyps1 hyps2,
@@ -412,19 +379,11 @@ Section Transform.
           - eapply Hargs1p1. apply in_app_iff. rewrite in_concat. eauto.
           - eapply Hargs2p1. apply in_app_iff. rewrite in_concat. eauto.
           - assumption. }
-        subst. clear H'. Search rule_impl'.
-           all: eauto using Forall_impl, prog_impl_fact_subset. 1: eassumption.
-           ++ cbv [rule_impl]. eauto. econstructor; eauto. apply H. cbv [obviously_non_intersecting] in H0.
-         cbv [rule_impl] in H4p0, H4p3. fwd.
-         specialize (H0 _ _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(reflexivity) ltac:(reflexivity)).
-         destruct H0 as [H0|H0].
-         ++ apply Forall_app in H4p1. fwd. rewrite Forall_forall in H4p1p0.
-            eapply prog_impl_fact_subset. 2: apply H4p1p0; auto. simpl. auto.
-         ++ apply Forall_app in H5. fwd. rewrite Forall_forall in H5p0.
-            eapply prog_impl_fact_subset. 2: apply H5p0; auto. simpl. auto.
-
-
-      
+        subst. clear H'.
+        apply eval_rule_q_complete in Hargs1p0p1, Hargs2p0p1; try assumption.
+        rewrite Hins in *. rewrite Hargs1p0p1 in Hargs2p0p1. invert_list_stuff.
+        reflexivity.
+  Qed.      
 
   (*if we get a message saying concls of r need to be computed, then send out messages
     saying premises of r need to be computed*)
@@ -447,11 +406,11 @@ Section Transform.
   Definition make_good (p : list rule) : list rule' :=
     map request_hyps p ++ map add_hyp p.
 
-  Lemma incl_fact_ins f :
+  Lemma incl_fact_ins (f : fact) :
     incl (fact_ins f) (fact_args f).
   Proof. apply incl_firstn. Qed.
 
-  Lemma appears_with_only_ins v f :
+  Lemma appears_with_only_ins v (f : fact) :
     In v (vars_of_fact (with_only_ins f)) ->
     In v (vars_of_fact f).
   Proof.
@@ -459,7 +418,7 @@ Section Transform.
     rewrite in_flat_map in *. fwd. eauto using In_firstn_to_In.
   Qed.
 
-  Lemma barely_appears_with_only_ins v f :
+  Lemma barely_appears_with_only_ins v (f : fact) :
     In (var_expr v) (with_only_ins f).(fact_args) ->
     In (var_expr v) f.(fact_args).
   Proof.
@@ -543,7 +502,7 @@ Section Transform.
       left. split; eauto. cbv [with_only_ins vars_of_fact] in Hv.
       rewrite Hgoodp1 in Hv. simpl in Hv. rewrite flat_map_map in Hv. simpl in Hv.
       rewrite <- map_is_flat_map, map_id in Hv. intros ?. fwd. eauto.
-    - right. right. destruct_option_map_Some. destruct p. invert H0. eauto.
+    - invert_list_stuff. eauto 7.
   Qed.
   
   Lemma add_hyp_good r :

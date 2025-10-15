@@ -33,9 +33,13 @@ Class signature {fn aggregator T : Type} : Type :=
     interp_agg : aggregator -> T -> T -> T; }.
 Arguments signature : clear implicits.
 
+Class query_signature {rel : Type} :=
+  { ins : rel -> nat }.
+Arguments query_signature : clear implicits.
+
 Section __.
   Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T}.
+  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
   Context {context : map.map var T} {context_ok : map.ok context}.
   Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
 
@@ -512,6 +516,36 @@ Section __.
 
   Definition good_prog (p : list rule) := Forall good_rule p.
 
+  Definition fact_outs (f : fact) := skipn (ins f.(fact_R)) f.(fact_args).
+  Definition fact_ins (f : fact) := firstn (ins f.(fact_R)) f.(fact_args).
+
+  Definition with_only_ins (f : fact) :=
+    {| fact_R := f.(fact_R); fact_args := fact_ins f |}.
+
+  (*2 conditions.
+   * hyp_ins only depend on concl_ins, and
+   * whole thing only depends on (concl_ins \cup vars_bare_in_hyps)
+   (implicit conditions: every concl_in is of the form var_expr blah, where blah was not
+   bound to the agg_expr)
+   *)
+  Definition goodish_rule (r : rule) :=
+    exists concl invars,
+      r.(rule_concls) = [concl] /\
+        fact_ins concl = map var_expr invars /\
+        ~(exists invar ae, In invar invars /\ r.(rule_agg) = Some (invar, ae)) /\
+        (forall v, (*alternatively, could write appears_in_outs here*)appears_in_rule v r ->
+              In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
+                In v invars) /\
+        (forall v, In v (flat_map vars_of_expr (flat_map fact_ins (rule_hyps r))) ->
+              In v invars) /\
+        match r.(rule_agg) with
+        | None => True
+        | Some (_, aexpr) =>
+            good_agg_expr aexpr /\
+              forall v, In v (flat_map vars_of_expr (flat_map fact_ins aexpr.(agg_hyps))) ->
+                   In v invars /\ ~In v aexpr.(agg_vs) /\ v <> aexpr.(agg_i)
+        end.
+  
   Definition rule_agg_hyps r :=
     match r.(rule_agg) with
     | None => []

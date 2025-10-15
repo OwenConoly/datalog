@@ -818,7 +818,6 @@ Ltac invert_stuff :=
   | H : interp_expr _ (fun_expr _ _) _ |- _ => invert H
   | H : interp_expr _ (var_expr _) _ |- _ => invert H
   | H : interp_option_agg_expr _ None _ _ |- _ => invert H
-  | _ => destruct_option_map_Some
   | _ => invert_list_stuff
   end.
 
@@ -1014,7 +1013,7 @@ Proof.
           match goal with
           | H1: _, H2: _ |- _ => specialize (H''' _ _ _ _ H1 H2)
           end.
-          subst. clear. destruct b0; auto. }
+          subst. clear. destruct b; auto. }
         constructor. }
       repeat constructor.
     + prove_rels_diff.
@@ -1058,7 +1057,10 @@ Proof.
                  | H : Some _ = Some _ |- _ => invert H
                  end.
           remember (Z.of_nat _) as blah eqn:Eblah. clear Eblah.
-          destr (z0 <? blah)%Z; destr (blah <=? z0)%Z; try lia; auto. }
+          match goal with
+          | |- context[(?a <? ?b)%Z] => 
+              destr (a <? b)%Z; destr (b <=? a)%Z; auto; lia
+          end. }
         constructor. }
       repeat constructor.
     + prove_rels_diff.
@@ -1139,7 +1141,10 @@ Proof.
          repeat match goal with
                 | H : Some _ = Some _ |- _ => invert H
                 end.
-         destr (z0 <? x)%Z; destr (x <=? z0)%Z; auto; lia.
+         match goal with
+         | |- context[(?a <? ?b)%Z] => 
+             destr (a <? b)%Z; destr (b <=? a)%Z; auto; lia
+         end.
       -- repeat constructor.
     + prove_rels_diff.
   - apply pairwise_ni_app; auto.
@@ -1166,7 +1171,10 @@ Proof.
          repeat match goal with
                 | H : Some _ = Some _ |- _ => invert H
                 end.
-         destr (z0 <? x)%Z; destr (x <=? z0)%Z; auto; lia.
+         match goal with
+         | |- context[(?a <? ?b)%Z] => 
+             destr (a <? b)%Z; destr (b <=? a)%Z; auto; lia
+         end.
       -- repeat constructor.
     + prove_rels_diff.
   - destruct (lower_Sexpr idxs depths 0 s) as ((val&hyps)&_). split; [lia|]. split.
