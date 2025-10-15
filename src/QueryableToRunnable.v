@@ -11,7 +11,7 @@ From Stdlib Require Import micromega.Lia.
 
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
-From Datalog Require Import Datalog Map Tactics Fp List.
+From Datalog Require Import Datalog Map Tactics Fp List Interpreter.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
@@ -105,12 +105,14 @@ Section relmap.
   Proof. induction 1; simpl; fwd; intuition eauto. invert H. simpl. f_equal; auto. Qed.  
 End relmap.
 
+Class query_signature (rel : Type) :=
+  { ins : rel -> nat }.
+
 Section Transform.
   Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T}.
+  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
   Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
-  Context (ins : rel -> nat).
+  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}. 
 
   Local Notation rule' := (rule (rel*bool) var fn aggregator).
   Local Notation rule := (rule rel var fn aggregator).
@@ -151,6 +153,278 @@ Section Transform.
               forall v, In v (flat_map vars_of_expr (flat_map fact_ins aexpr.(agg_hyps))) ->
                    In v invars /\ ~In v aexpr.(agg_vs) /\ v <> aexpr.(agg_i)
         end.
+
+  Definition agree (p : list rule) (r1 r2 : rule) :=
+    forall R args1 args2 hyps1 hyps2,
+      rule_impl r1 (R, args1) hyps1 ->
+      rule_impl r2 (R, args2) hyps2 ->
+      Forall (prog_impl_fact p) hyps1 ->
+      Forall (prog_impl_fact p) hyps2 ->
+      firstn (ins R) args1 = firstn (ins R) args2 ->
+      args1 = args2.
+
+  Lemma agree_weaken p1 p2 r1 r2 :
+    agree p1 r1 r2 ->
+    incl p2 p1 ->
+    agree p2 r1 r2.
+  Proof. cbv [agree]. eauto 6 using Forall_impl, prog_impl_fact_subset. Qed.    
+
+  (*very (unnecessarily) strong, but good enough for me*)
+  Definition non_intersecting false_fact (r1 r2 : rule) :=
+    forall R args1 args2 hyps1 ahyps1 hyps2 ahyps2,
+      rule_impl' r1 (R, args1) hyps1 ahyps1 ->
+      rule_impl' r2 (R, args2) hyps2 ahyps2 ->
+      firstn (ins R) args1 = firstn (ins R) args2 ->
+      In false_fact hyps1 \/ In false_fact hyps2.
+
+  Definition pairs_satisfy {X : Type} (P : X -> X -> Prop) (l : list X) :=
+    forall x1 x2, In x1 l -> In x2 l -> x1 = x2 \/ P x1 x2.
+
+  Lemma pairs_satisfy_weaken {X : Type} P1 P2 (l1 l2 : list X) :
+    pairs_satisfy P1 l1 ->
+    (forall x y, P1 x y -> P2 x y) ->
+    incl l2 l1 ->
+    pairs_satisfy P2 l2.
+  Proof.
+    cbv [pairs_satisfy]. intros H1 H2 H3 x y Hx Hy.
+    specialize (H1 x y ltac:(eauto) ltac:(eauto)). destruct H1; auto.
+  Qed.
+
+  Definition functional (p : list rule) :=
+    forall args1 args2 R,
+      prog_impl_fact p (R, args1) ->
+      prog_impl_fact p (R, args2) ->
+      firstn (ins R) args1 = firstn (ins R) args2 ->
+      args1 = args2.
+  
+  Hint Resolve pairs_satisfy_weaken agree_weaken : core.
+
+  Lemma hyp_ins_det' (r : rule) R (args : list T) hyps ahyps :
+    goodish_rule r ->
+    rule_impl' r (R, args) hyps ahyps ->
+    exists concl,
+      r.(rule_concls) = [concl] /\
+        let ctx := map.of_list (context_of_args (firstn (ins R) concl.(fact_args)) (firstn (ins R) args)) in
+        Forall2 (fun f '(R, hyp_args) =>
+                   f.(fact_R) = R /\ Forall2 (interp_expr ctx) (firstn (ins R) f.(fact_args)) (firstn (ins R) hyp_args))
+          r.(rule_hyps) hyps.
+  Proof.
+    intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd. eexists.
+    split; [eassumption|]. simpl.
+    rewrite Hgoodp0 in *. invert_list_stuff.
+    eapply Forall2_impl_strong; [|eassumption].
+    intros f (Ry&argsy) Hfy Hf Hy. invert Hfy. split; [reflexivity|].
+    eapply Forall2_impl_strong. 2: apply Forall2_firstn; eassumption.
+    intros x y Hx Hy0 Hxy. eapply interp_expr_agree_on; [eassumption|].
+    rewrite Forall_forall. intros v Hv. assert (In v invars).
+    { apply Hgoodp4. apply in_flat_map. eexists. split; eauto.
+      apply in_flat_map. eauto. }
+    invert H3. eapply Forall2_firstn in H6. pose proof H6 as H6'.
+    eapply bare_in_context_args in H6.
+    2: { cbv [fact_ins] in Hgoodp1. rewrite Hgoodp1. apply in_map. eassumption. }
+    apply interp_args_context_right in H6'.
+    fwd. cbv [agree_on]. apply in_fst in H6. apply in_of_list_Some_strong in H6.
+    fwd. rewrite H6p0. rewrite Forall_forall in H6'. apply H6' in H6p1.
+    move H0 at bottom. invert H0; [assumption|]. rewrite <- H1 in *.
+    rewrite map.get_put_diff in H6p1; auto. intros ?. subst. eauto.
+  Qed.
+
+  Lemma hyp_ins_det (r : rule) R args1 args2 hyps1 hyps2 ahyps1 ahyps2 :
+    goodish_rule r ->
+    rule_impl' r (R, args1) hyps1 ahyps1 ->
+    rule_impl' r (R, args2) hyps2 ahyps2 ->
+    firstn (ins R) args1 = firstn (ins R) args2 ->
+    Forall2 (fun '(R1, hyp1) '(R2, hyp2) =>
+               R1 = R2 /\ firstn (ins R1) hyp1 = firstn (ins R2) hyp2)
+      hyps1 hyps2.
+  Proof.
+    intros Hgood H1 H2 Hsame. eapply hyp_ins_det' in H1, H2; try assumption.
+    fwd. rewrite H1p0 in *. invert H2p0. simpl in *.
+    apply Forall2_flip in H1p1. eapply Forall2_Forall2_Forall3 in H2p1; [|exact H1p1].
+    apply Forall3_ignore2 in H2p1. eapply Forall2_impl; [|eassumption].
+    simpl. intros [Ra argsa] [Rb argsb] H. fwd. split; [reflexivity|].
+    apply Forall2_flip in Hp1p1. eapply Forall2_Forall2_Forall3 in Hp3; [|exact Hp1p1].
+    apply Forall3_ignore2 in Hp3. apply Forall2_eq_eq.
+    eapply Forall2_impl; [|eassumption]. simpl. intros a b Hab. fwd.
+    rewrite Hsame in *. eapply interp_expr_det; eassumption.
+  Qed.
+
+  Lemma ahyp_ins_det'1 (r : rule) R (args : list T) hyps ahypss :
+    goodish_rule r ->
+    rule_impl' r (R, args) hyps ahypss ->
+    exists concl,
+      r.(rule_concls) = [concl] /\
+        match r.(rule_agg) with
+        | None => ahypss = []
+        | Some (_, aexpr) =>
+            let ctx := map.of_list (context_of_args (firstn (ins R) concl.(fact_args)) (firstn (ins R) args)) in
+            Forall (fun ahyps =>
+                      Forall2 (fun f '(R, hyp_args) =>
+                                 f.(fact_R) = R /\ Forall2 (interp_expr ctx) (firstn (ins R) f.(fact_args)) (firstn (ins R) hyp_args))
+                        aexpr.(agg_hyps) ahyps) ahypss
+        end.
+  Proof.
+    intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd. eexists.
+    split; [eassumption|]. simpl.
+    rewrite Hgoodp0 in *. invert_list_stuff. invert H0. 1: reflexivity.
+    rewrite <- H in *. invert H4. simpl in *. apply Forall3_ignore12 in H5.
+    rewrite Forall_forall in *. intros ahyps Hahyps. specialize (H5 _ Hahyps).
+    fwd. eapply Forall2_impl_strong; [|eassumption]. intros f [R' args'] Hff' Hf Hf'.
+    invert Hff'. split; [reflexivity|]. eapply Forall2_impl_strong.
+    2: apply Forall2_firstn; eassumption.
+    intros e e' Hee' He He'. eapply interp_expr_agree_on; [eassumption|].
+    rewrite Forall_forall. intros v Hv. move H3 at bottom. invert H3.
+    eapply Forall2_firstn in H7. pose proof H7 as H7'.
+    specialize (Hgoodp5p1 v). specialize' Hgoodp5p1.
+    { apply in_flat_map. eexists. split; eauto. apply in_flat_map. eauto. }
+    fwd. eapply bare_in_context_args in H7.
+    2: { cbv [fact_ins] in Hgoodp1. rewrite Hgoodp1. apply in_map. eassumption. }
+    fwd. apply interp_args_context_right in H7'. cbv [agree_on].
+    apply in_fst in H7. apply in_of_list_Some_strong in H7. fwd.
+    rewrite H7p0. clear H7p0. rewrite Forall_forall in H7'. apply H7' in H7p1.
+    rewrite map.get_putmany_left.
+    2: { erewrite map.get_of_list_zip by eassumption.
+         apply zipped_lookup_notin_None. assumption. }
+    rewrite map.get_put_diff by assumption.
+    rewrite map.get_put_diff in H7p1.
+    2: { intros H'. subst. eauto. }
+    assumption.
+  Qed.
+
+  Lemma ahyp_ins_det'2 (r : rule) R (args : list T) hyps ahypss :
+    goodish_rule r ->
+    rule_impl' r (R, args) hyps ahypss ->
+    exists concl,
+      r.(rule_concls) = [concl] /\
+        match r.(rule_agg) with
+        | None => ahypss = []
+        | Some (_, aexpr) =>
+            let ctx := map.putmany (map.of_list (context_of_args (firstn (ins R) concl.(fact_args)) (firstn (ins R) args))) (map.of_list (context_of_hyps r.(rule_hyps) hyps)) in
+            option_map (@length _)(*????*) (option_coalesce (option_map get_set (subst_in_expr ctx aexpr.(agg_s)))) = Some (length ahypss) 
+        end.
+  Proof.
+    intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd. eexists.
+    split; [eassumption|]. simpl.
+    rewrite Hgoodp0 in *. invert_list_stuff. invert H0. 1: reflexivity.
+    rewrite <- H in *. invert H4. simpl in *. erewrite subst_in_expr_complete.
+    { simpl. rewrite H1. simpl. apply Forall3_length in H5. fwd. f_equal. lia. }
+    eapply interp_expr_agree_on; [eassumption|]. clear H5. rewrite Forall_forall. fwd.
+    intros v Hv. cbv [agree_on]. invert H3.
+    specialize (Hgoodp3 v). specialize' Hgoodp3.
+    { cbv [appears_in_rule appears_in_agg_expr]. rewrite <- H. eauto 7. }
+    move Hgoodp3 at bottom. rewrite map.get_putmany_dec. destruct_one_match.
+    - apply of_list_Some_in in E. apply interp_hyps_context_right in H2.
+      rewrite Forall_forall in H2. apply H2 in E. exact E.
+    - apply get_of_list_None_bw in E. destruct Hgoodp3 as [H'|H'].
+      { exfalso. apply E. clear E. eapply bare_in_context_hyps in H'.
+        2: { eassumption. }
+        fwd. eapply in_fst. eassumption. }
+      clear H2. eapply Forall2_firstn in H6. pose proof H6 as H6'.
+      eapply bare_in_context_args in H6.
+      2: { cbv [fact_ins] in Hgoodp1. rewrite Hgoodp1. apply in_map. eassumption. }
+      fwd. apply interp_args_context_right in H6'. rewrite Forall_forall in H6'.
+      apply in_fst in H6. apply in_of_list_Some_strong in H6. fwd. rewrite H6p0.
+      apply H6' in H6p1. rewrite map.get_put_diff in H6p1; auto. intros ?. subst. eauto.
+  Qed.
+  
+  Lemma ahyp_ins_det (r : rule) R args1 args2 hyps ahypss1 ahypss2 :
+    goodish_rule r ->
+    rule_impl' r (R, args1) hyps ahypss1 ->
+    rule_impl' r (R, args2) hyps ahypss2 ->
+    firstn (ins R) args1 = firstn (ins R) args2 ->
+    Forall2 (Forall2 (fun '(R1, hyp1) '(R2, hyp2) =>
+                        R1 = R2 /\ firstn (ins R1) hyp1 = firstn (ins R2) hyp2))
+      ahypss1 ahypss2.
+  Proof.
+    intros Hgood H1 H2 Hsame. pose proof H1 as H1'. pose proof H2 as H2'.
+    apply ahyp_ins_det'1 in H1, H2; try assumption.
+    apply ahyp_ins_det'2 in H1', H2'; try assumption.
+    fwd. rewrite H1p0 in *. invert_list_stuff. destruct r.(rule_agg) as [(?&?)|]; simpl in *.
+    2: subst; constructor. invert_list_stuff. rewrite Hsame in *.
+    rewrite H2'p1p0p0 in *. invert_list_stuff. rewrite H2'p1p0p1 in *.
+    invert_list_stuff. eapply Forall2_impl_strong.
+    2: { apply Forall2_true. lia. }
+    intros ahyps1 ahyps2 _ H1 H2. rewrite Forall_forall in *. apply H1p1 in H1.
+    apply H2p1 in H2. apply Forall2_flip in H1.
+    eapply Forall2_Forall2_Forall3 in H2; [|exact H1]. apply Forall3_ignore2 in H2.
+    eapply Forall2_impl; [|eassumption]. simpl. intros [? ?] [? ?] H. fwd.
+    split; [reflexivity|]. apply Forall2_eq_eq. apply Forall2_flip in Hp1p1.
+    eapply Forall2_Forall2_Forall3 in Hp3; [|exact Hp1p1]. apply Forall3_ignore2 in Hp3.
+    eapply Forall2_impl; [|eassumption]. simpl. intros. fwd.
+    eapply interp_expr_det; eassumption.
+  Qed.
+
+  Lemma ni_functional p :
+    dag p ->
+    Forall goodish_rule p ->
+    pairs_satisfy (agree p) p ->
+    functional p.
+  Proof.
+    induction 1.
+    - intros. clear. cbv [functional]. intros. invert H. invert_list_stuff.
+    - intros H1 H2. invert H1. specialize (IHdag ltac:(assumption)). specialize' IHdag.
+      { eauto with incl. }
+      cbv [functional]. intros args1 args2 R Hargs1 Hargs2 Hins.
+      eapply dag_terminates' in Hargs1, Hargs2; eauto.
+      destruct Hargs1 as [Hargs1|Hargs1]; destruct Hargs2 as [Hargs2|Hargs2].
+      + eapply IHdag; eassumption.
+      + fwd. invert Hargs1. apply Exists_exists in H1. fwd. cbv [pairs_satisfy] in H2.
+        simpl in H2. specialize (H2 r x ltac:(auto) ltac:(auto)). destruct H2 as [H2|H2].
+        -- subst. eapply IHdag.
+           ++ econstructor. 1: apply Exists_exists; eauto. assumption.
+           ++ econstructor. 1: eapply Exists_exists; eauto. assumption.
+           ++ assumption.
+        -- symmetry. eapply H2; eassumption || auto.
+           ++ eapply Forall_impl; [|eassumption]. intros.
+              eapply prog_impl_fact_subset; simpl; eauto.
+           ++ eapply Forall_impl; [|eassumption]. intros.
+              eapply prog_impl_fact_subset; simpl; eauto.
+      + fwd. invert Hargs2. apply Exists_exists in H1. fwd. cbv [pairs_satisfy] in H2.
+        simpl in H2. specialize (H2 r x ltac:(auto) ltac:(auto)). destruct H2 as [H2|H2].
+        -- subst. eapply IHdag.
+           ++ econstructor. 1: apply Exists_exists; eauto. assumption.
+           ++ econstructor. 1: eapply Exists_exists; eauto. assumption.
+           ++ assumption.
+        -- eapply H2; eassumption || auto.
+           ++ eapply Forall_impl; [|eassumption]. intros.
+              eapply prog_impl_fact_subset; simpl; eauto.
+           ++ eapply Forall_impl; [|eassumption]. intros.
+              eapply prog_impl_fact_subset; simpl; eauto.
+      + fwd. cbv [rule_impl] in *. fwd.
+        pose proof hyp_ins_det as H'. epose proof (H' _ _ args1 args2) as H'.
+        specialize (H' _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
+        assert (hyps' = hyps'1).
+        { apply Forall2_eq_eq. eapply Forall2_impl_strong; [|eassumption].
+          simpl. intros [R1' args1'] [R2' args2'] H12 H1' H2'. fwd. f_equal.
+          rewrite Forall_forall in *. eapply IHdag.
+          - eapply Hargs1p1. apply in_app_iff. eauto.
+          - eapply Hargs2p1. apply in_app_iff. eauto.
+          - assumption. }
+        subst. clear H'.
+        pose proof ahyp_ins_det as H'. epose proof (H' _ _ args1 args2) as H'.
+        specialize (H' _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
+        assert (agg_hyps's0 = agg_hyps's).
+        { apply Forall2_eq_eq. eapply Forall2_impl_strong; [|eassumption].
+          simpl. intros xs ys Hxsys Hxs Hys. apply Forall2_eq_eq.
+          eapply Forall2_impl_strong; [|eassumption]. simpl.
+          intros [R1' args1'] [R2' args2'] H12 H1' H2'. fwd. f_equal.
+          rewrite Forall_forall in *. eapply IHdag.
+          - eapply Hargs1p1. apply in_app_iff. rewrite in_concat. eauto.
+          - eapply Hargs2p1. apply in_app_iff. rewrite in_concat. eauto.
+          - assumption. }
+        subst. clear H'. Search rule_impl'.
+           all: eauto using Forall_impl, prog_impl_fact_subset. 1: eassumption.
+           ++ cbv [rule_impl]. eauto. econstructor; eauto. apply H. cbv [obviously_non_intersecting] in H0.
+         cbv [rule_impl] in H4p0, H4p3. fwd.
+         specialize (H0 _ _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(reflexivity) ltac:(reflexivity)).
+         destruct H0 as [H0|H0].
+         ++ apply Forall_app in H4p1. fwd. rewrite Forall_forall in H4p1p0.
+            eapply prog_impl_fact_subset. 2: apply H4p1p0; auto. simpl. auto.
+         ++ apply Forall_app in H5. fwd. rewrite Forall_forall in H5p0.
+            eapply prog_impl_fact_subset. 2: apply H5p0; auto. simpl. auto.
+
+
+      
 
   (*if we get a message saying concls of r need to be computed, then send out messages
     saying premises of r need to be computed*)

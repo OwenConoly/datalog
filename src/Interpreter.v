@@ -23,6 +23,7 @@ Section __.
   Context {context : map.map var T} {context_ok : map.ok context}.
   Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
 
+  Local Notation expr := (expr var fn).
   Local Notation rule := (rule rel var fn aggregator).
   Local Notation fact := (fact rel var fn).
   Local Notation agg_expr := (agg_expr rel var fn aggregator).
@@ -131,7 +132,7 @@ Section __.
   Proof.
     revert v. induction e; simpl; intros; eauto.
     apply option_coalesce_Some, option_map_Some in H0. fwd.
-    apply option_all_Some_Forall2 in H0p0. econstructor; eauto.
+    apply option_all_Forall2 in H0p0. econstructor; eauto.
     rewrite <- Forall2_map_l in H0p0. eapply Forall2_impl_strong; [|eassumption].
     simpl. intros. rewrite Forall_forall in H. eauto.
   Qed.
@@ -141,7 +142,7 @@ Section __.
     subst_in_expr ctx e = Some v.
   Proof.
     revert v. induction e; invert 1; simpl; eauto.
-    erewrite Forall2_option_all_some.
+    erewrite Forall2_option_all.
     2: { rewrite <- Forall2_map_l. eapply Forall2_impl_strong; [|eassumption].
          rewrite Forall_forall in H. eauto. }
     simpl. rewrite H5. reflexivity.
@@ -156,7 +157,7 @@ Section __.
     interp_fact ctx f f'.
   Proof.
     cbv [subst_in_fact]. intros H. apply option_map_Some in H.
-    fwd. apply option_all_Some_Forall2 in Hp0. constructor.
+    fwd. apply option_all_Forall2 in Hp0. constructor.
     rewrite <- Forall2_map_l in Hp0. eapply Forall2_impl; [|eassumption].
     simpl. auto using subst_in_expr_sound.
   Qed.
@@ -166,7 +167,7 @@ Section __.
     subst_in_fact ctx f = Some f'.
   Proof.
     intros H. invert H. cbv [subst_in_fact].
-    erewrite Forall2_option_all_some; [reflexivity|].
+    erewrite Forall2_option_all; [reflexivity|].
     rewrite <- Forall2_map_l. eapply Forall2_impl; [|eassumption].
     auto using subst_in_expr_complete.
   Qed.
@@ -178,7 +179,7 @@ Section __.
   Proof.
     intros H. revert v. induction e; simpl; intros; eauto. rewrite Forall_forall in H0.
     apply option_coalesce_Some, option_map_Some in H1. fwd.
-    apply option_all_Some_Forall2 in H1p0. erewrite Forall2_option_all_some.
+    apply option_all_Forall2 in H1p0. erewrite Forall2_option_all.
     2: { rewrite <- Forall2_map_l in *. eapply Forall2_impl_strong; [|eassumption].
          simpl. eauto. }
     simpl. rewrite H1p1. reflexivity.
@@ -195,12 +196,15 @@ Section __.
       rewrite Forall_forall in *. eauto.
   Qed.
 
-  Definition context_of_fact (f : fact) (f' : rel * list T) :=
+  Definition context_of_args (args : list expr) (args' : list T) :=
     concat (zip (fun arg arg' =>
                    match arg with
                    | var_expr v => [(v, arg')]
                    | _ => []
-                   end) f.(fact_args) (snd f')).
+                   end) args args').
+
+  Definition context_of_fact (f : fact) (f' : rel * list T) :=
+    context_of_args f.(fact_args) (snd f').
   
   Definition context_of_hyps (hyps : list fact) (hyps' : list (rel * list T)) :=
     concat (zip context_of_fact hyps hyps').
@@ -215,16 +219,25 @@ Section __.
         end
     end.
 
+  Lemma bare_in_context_args ctx x args args' :
+    In (var_expr x) args ->
+    Forall2 (interp_expr ctx) args args' ->
+    exists v, In (x, v) (context_of_args args args').
+  Proof.
+    intros H1 H2. cbv [context_of_args]. apply Forall2_forget_r_strong in H2.
+    rewrite Forall_forall in H2. specialize (H2 _ H1). fwd.
+    exists y. cbv [zip]. rewrite in_concat. eexists. rewrite in_map_iff. split.
+    { eexists. split; [|eassumption]. reflexivity. }
+    simpl. auto.
+  Qed.
+  
   Lemma bare_in_context_fact ctx x f f' :
     In (var_expr x) f.(fact_args) ->
     interp_fact ctx f f' ->
     exists v, In (x, v) (context_of_fact f f').
   Proof.
-    intros H1 H2. invert H2. cbv [context_of_fact]. apply Forall2_forget_r_strong in H.
-    rewrite Forall_forall in H. specialize (H _ H1). fwd.
-    exists y. cbv [zip]. rewrite in_concat. eexists. rewrite in_map_iff. split.
-    { eexists. split; [|eassumption]. reflexivity. }
-    simpl. auto.
+    intros H1 H2. cbv [context_of_fact]. invert H2.
+    eapply bare_in_context_args; eassumption.
   Qed.
 
   Lemma bare_in_context_hyps ctx x hyps hyps' :
@@ -240,15 +253,22 @@ Section __.
     eassumption.
   Qed.
 
+  Lemma interp_args_context_right ctx args args' :
+    Forall2 (interp_expr ctx) args args' ->
+    Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_args args args').
+  Proof.
+    intros H. apply Forall2_combine in H. rewrite Forall_forall in *.
+    intros [x v] Hx. cbv [context_of_fact] in Hx. apply in_concat in Hx. fwd.
+    cbv [zip] in Hxp0. apply in_map_iff in Hxp0. fwd. apply H in Hxp0p1.
+    do 2 (destruct_one_match_hyp; simpl in Hxp1; try contradiction).
+    destruct Hxp1; try contradiction. invert H0. invert Hxp0p1. assumption.
+  Qed.  
+  
   Lemma interp_fact_context_right ctx f f' :
     interp_fact ctx f f' ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_fact f f').
   Proof.
-    intros H. invert H. apply Forall2_combine in H0. rewrite Forall_forall in *.
-    intros [x v] Hx. cbv [context_of_fact] in Hx. apply in_concat in Hx. fwd.
-    cbv [zip] in Hxp0. apply in_map_iff in Hxp0. fwd. apply H0 in Hxp0p1.
-    do 2 (destruct_one_match_hyp; simpl in Hxp1; try contradiction).
-    destruct Hxp1; try contradiction. invert H. invert Hxp0p1. assumption.
+    intros H. invert H. apply interp_args_context_right. assumption.
   Qed.
 
   Lemma interp_hyps_context_right ctx hyps hyps' :
@@ -328,7 +348,7 @@ Section __.
   Proof.
     intros Hgood H. invert H. cbv [eval_aexpr]. simpl.
     apply subst_in_expr_complete in H0. rewrite H0. simpl. rewrite H1.
-    erewrite Forall2_option_all_some. 1: reflexivity.
+    erewrite Forall2_option_all. 1: reflexivity.
     cbv [zip]. rewrite <- Forall2_map_l. eapply Forall3_combine12.
     apply Forall3_swap23. eapply Forall3_impl; [|eassumption]. simpl.
     clear H2. intros x y z Hxyz. fwd.

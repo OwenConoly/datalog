@@ -1,6 +1,6 @@
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd.
 From ATL Require Import FrapWithoutSets.
-From Datalog Require Import Tactics.
+From Datalog Require Import Tactics List.
 
 
 Section Map.

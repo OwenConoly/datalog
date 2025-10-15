@@ -4,6 +4,25 @@ From Lower Require Import ListMisc.
 From coqutil Require Import Datatypes.List Tactics.fwd Tactics.destr Tactics.
 Require Import Datalog.Tactics.
 
+Local Ltac invert_list_stuff' :=
+  repeat match goal with
+    | H: Forall _ (cons _ _) |- _ => invert H
+    | H : Forall _ nil |- _ => invert H
+    | H : Forall2 _ (cons _ _) _ |- _ => invert H
+    | H : Forall2 _ _ (cons _ _) |- _ => invert H
+    | H : Forall2 _ nil _ |- _ => invert H
+    | H : Forall2 _ _ nil |- _ => invert H
+    | H : Exists _ nil |- _ => invert H
+    | H : Exists _ (cons _ nil) |- _ => invert H
+    | H : Some _ = Some _ |- _ => invert H
+    | H : Some _ = None |- _ => invert H
+    | H : None = Some _ |- _ => invert H
+    | H : [] = [] |- _ => invert H
+    | H : _ :: _ = _ :: _ |- _ => invert H
+    | H : _ :: _ = [] |- _ => discriminate H
+    | H : [] = _ :: _ |- _ => discriminate H
+  end.
+
 Import ListNotations.
 Section subset.
 Context {A : Type}.
@@ -88,14 +107,14 @@ Lemma Forall2_unique_r R xs ys ys' :
   (forall x y y', R x y -> R x y' -> y = y') ->
   ys = ys'.
 Proof.
-  intros H. revert ys'. induction H; intros; invert_list_stuff; f_equal; eauto.
+  intros H. revert ys'. induction H; intros; invert_list_stuff'; f_equal; eauto.
 Qed.
 
 Lemma Forall2_and R1 R2 xs ys :
   Forall2 R1 xs ys ->
   Forall2 R2 xs ys ->
   Forall2 (fun x y => R1 x y /\ R2 x y) xs ys.
-Proof. induction 1; intros; invert_list_stuff; eauto. Qed.
+Proof. induction 1; intros; invert_list_stuff'; eauto. Qed.
 
 Lemma Forall2_true xs ys :
   length xs = length ys ->
@@ -141,83 +160,6 @@ Lemma Forall2_firstn R xs ys n :
 Proof. intros H. revert n. induction H; destruct n; simpl; eauto. Qed.
 End Forall.
 
-Section misc.
-Context {A B C : Type}.
-Implicit Type xs : list A.  
-
-Lemma In_skipn x n xs :
-  In x (skipn n xs) ->
-  In x xs.
-Proof. intros. erewrite <- firstn_skipn. apply in_app_iff. eauto. Qed.
-
-Lemma map_is_flat_map (f : A -> B) xs :
-  map f xs = flat_map (fun x => [f x]) xs.
-Proof. induction xs; eauto. Qed.
-
-Lemma invert_concat_same xss xss' :
-  concat xss = concat xss' ->
-  Forall2 (fun xs xs' => length xs = length xs') xss xss' ->
-  xss = xss'.
-Proof.
-  induction 2; simpl in *; eauto. eapply invert_app in H; eauto.
-  fwd. f_equal. eauto.
-Qed.
-
-Lemma invert_concat_same' xss xss' n :
-  concat xss = concat xss' ->
-  length xss = length xss' ->
-  Forall (fun xs => length xs = n) xss ->
-  Forall (fun xs => length xs = n) xss' ->
-  xss = xss'.
-Proof.
-  intros H H0 H1 H2. apply invert_concat_same; auto.
-  eapply Forall2_impl_strong; [|apply Forall2_true; auto].
-  intros x y _ Hx Hy. rewrite Forall_forall in *. rewrite H1, H2; auto.
-Qed.
-
-Lemma incl_concat_l ls (l : list A) :
-  incl (concat ls) l ->
-  Forall (fun l' => incl l' l) ls.
-Proof.
-  cbv [incl]. intros H. apply Forall_forall.
-  intros. apply H. apply in_concat. eauto.
-Qed.
-
-Lemma incl_flat_map_r (f : A -> list B) x xs :
-  In x xs ->
-  incl (f x) (flat_map f xs).
-Proof.
-  intros H. induction xs; simpl in *.
-  - contradiction.
-  - destruct H; subst; auto using incl_appr, incl_appl, incl_refl.
-Qed.  
-
-Lemma incl_flat_map_strong (f g : A -> list B) l l' :
-  incl l l' ->
-  (forall x, incl (f x) (g x)) ->
-  incl (flat_map f l) (flat_map g l').
-Proof.
-  induction l; simpl.
-  - intros. apply incl_nil_l.
-  - intros. apply incl_cons_inv in H. fwd.
-    eauto using incl_app, incl_flat_map_r, incl_tran.
-Qed.
-
-Hint Unfold incl : core.
-
-Lemma incl_firstn (l : list A) n :
-  incl (firstn n l) l.
-Proof. eauto using in_firstn. Qed.
-
-Lemma flat_map_map (g : A -> B) (f : B -> list C) l :
-  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
-Proof. induction l; simpl; f_equal; auto. Qed.
-
-Lemma flat_map_flat_map (f : B -> list C) (g : A -> list B) l :
-  flat_map f (flat_map g l) = flat_map (fun x => flat_map f (g x)) l.
-Proof. induction l; simpl; eauto. rewrite flat_map_app. f_equal. assumption. Qed.
-End misc.
-
 From Stdlib Require Import Lia.
 Lemma list_sum_repeat n m :
   list_sum (repeat n m) = n * m.
@@ -231,7 +173,7 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma option_all_Some_Forall2 X (xs : list (option X)) xs' :
+Lemma option_all_Forall2 X (xs : list (option X)) xs' :
   option_all xs = Some xs' ->
   Forall2 (fun x x' => x = Some x') xs xs'.
 Proof.
@@ -241,7 +183,7 @@ Proof.
   invert 1. eauto.
 Qed.
 
-Lemma Forall2_option_all_some X (xs : list (option X)) xs' :
+Lemma Forall2_option_all X (xs : list (option X)) xs' :
   Forall2 (fun x x' => x = Some x') xs xs' ->
   option_all xs = Some xs'.
 Proof.
@@ -347,8 +289,12 @@ Section Forall3.
   Lemma Forall3_ignore2:
     forall xs ys zs,
       Forall3 xs ys zs ->
-      Forall2 (fun x z => exists y, R x y z) xs zs.
-  Proof. induction 1; eauto. Qed.
+      Forall2 (fun x z => exists y, In y ys /\ R x y z) xs zs.
+  Proof.
+    induction 1; econstructor; simpl; eauto.
+    eapply Forall2_impl; [|eassumption].
+    simpl. intros. fwd. eauto.
+  Qed.
 
   Lemma Forall3_ignore3:
     forall xs ys zs,
@@ -367,18 +313,130 @@ Section Forall3.
     (forall x y y' z, R x y z -> R x y' z -> y = y') ->
     ys = ys'.
   Proof. intros H. revert ys'. induction H; invert 1; intros; f_equal; eauto. Qed.
+
+  Lemma Forall3_firstn n xs ys zs :
+    Forall3 xs ys zs ->
+    Forall3 (firstn n xs) (firstn n ys) (firstn n zs).
+  Proof. intros H. revert n. induction H; destruct n; simpl; constructor; eauto. Qed.
 End Forall3.
 
-Lemma Forall3_impl {A B C} xs ys zs (R1 R2 : A -> B -> C -> Prop) :
+Section misc.
+Context {A B C D : Type}.
+Implicit Type xs : list A.
+Implicit Type ys : list B.
+Implicit Type zs : list C.
+
+Lemma Forall2_flat_map xs ys R (f : A -> list C) (g : B -> list D) :
+  Forall2 (fun x y => Forall2 R (f x) (g y)) xs ys ->
+  Forall2 R (flat_map f xs) (flat_map g ys).
+Proof. induction 1; simpl; eauto using Forall2_app. Qed.
+
+Lemma In_skipn x n xs :
+  In x (skipn n xs) ->
+  In x xs.
+Proof. intros. erewrite <- firstn_skipn. apply in_app_iff. eauto. Qed.
+
+Lemma map_is_flat_map (f : A -> B) xs :
+  map f xs = flat_map (fun x => [f x]) xs.
+Proof. induction xs; eauto. Qed.
+
+Lemma invert_concat_same xss xss' :
+  concat xss = concat xss' ->
+  Forall2 (fun xs xs' => length xs = length xs') xss xss' ->
+  xss = xss'.
+Proof.
+  induction 2; simpl in *; eauto. eapply invert_app in H; eauto.
+  fwd. f_equal. eauto.
+Qed.
+
+Lemma invert_concat_same' xss xss' n :
+  concat xss = concat xss' ->
+  length xss = length xss' ->
+  Forall (fun xs => length xs = n) xss ->
+  Forall (fun xs => length xs = n) xss' ->
+  xss = xss'.
+Proof.
+  intros H H0 H1 H2. apply invert_concat_same; auto.
+  eapply Forall2_impl_strong; [|apply Forall2_true; auto].
+  intros x y _ Hx Hy. rewrite Forall_forall in *. rewrite H1, H2; auto.
+Qed.
+
+Lemma incl_concat_l ls (l : list A) :
+  incl (concat ls) l ->
+  Forall (fun l' => incl l' l) ls.
+Proof.
+  cbv [incl]. intros H. apply Forall_forall.
+  intros. apply H. apply in_concat. eauto.
+Qed.
+
+Lemma incl_flat_map_r (f : A -> list B) x xs :
+  In x xs ->
+  incl (f x) (flat_map f xs).
+Proof.
+  intros H. induction xs; simpl in *.
+  - contradiction.
+  - destruct H; subst; auto using incl_appr, incl_appl, incl_refl.
+Qed.  
+
+Lemma incl_flat_map_strong (f g : A -> list B) l l' :
+  incl l l' ->
+  (forall x, incl (f x) (g x)) ->
+  incl (flat_map f l) (flat_map g l').
+Proof.
+  induction l; simpl.
+  - intros. apply incl_nil_l.
+  - intros. apply incl_cons_inv in H. fwd.
+    eauto using incl_app, incl_flat_map_r, incl_tran.
+Qed.
+
+Hint Unfold incl : core.
+
+Lemma incl_firstn (l : list A) n :
+  incl (firstn n l) l.
+Proof. eauto using in_firstn. Qed.
+
+Lemma flat_map_map (g : A -> B) (f : B -> list C) l :
+  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
+Proof. induction l; simpl; f_equal; auto. Qed.
+
+Lemma flat_map_flat_map (f : B -> list C) (g : A -> list B) l :
+  flat_map f (flat_map g l) = flat_map (fun x => flat_map f (g x)) l.
+Proof. induction l; simpl; eauto. rewrite flat_map_app. f_equal. assumption. Qed.
+
+Lemma Forall3_impl xs ys zs R1 R2 :
   (forall x y z, R1 x y z -> R2 x y z) ->
   Forall3 R1 xs ys zs ->
   Forall3 R2 xs ys zs.
 Proof. induction 2; constructor; eauto. Qed.
 
-Lemma Forall3_swap23 {A B C} xs ys zs (R : A -> B -> C -> Prop) :
+Lemma Forall3_swap23 R xs ys zs :
   Forall3 (fun x z y => R x y z) xs zs ys ->
   Forall3 R xs ys zs.
 Proof. induction 1; constructor; eauto. Qed.
+
+Lemma Forall3_combine12 R xs ys zs :
+  Forall3 (fun x y => R (x, y)) xs ys zs ->
+  Forall2 R (combine xs ys) zs.
+Proof. induction 1; simpl; eauto. Qed.    
+
+Lemma Forall2_Forall2_Forall3 R1 R2 xs ys zs :
+  Forall2 R1 xs ys ->
+  Forall2 R2 ys zs ->
+  Forall3 (fun x y z => R1 x y /\ R2 y z) xs ys zs.
+Proof.
+  intros H. revert zs. induction H; invert 1; constructor; eauto.
+Qed.
+
+Lemma Forall2_eq_eq xs xs' :
+  Forall2 eq xs xs' ->
+  xs = xs'.
+Proof. induction 1; subst; reflexivity. Qed.  
+
+Lemma Forall2_concat R xss yss :
+  Forall2 (fun xs ys => Forall2 R xs ys) xss yss ->
+  Forall2 R (concat xss) (concat yss).
+Proof. induction 1; simpl; eauto using Forall2_app. Qed.
+End misc.
 
 Lemma Forall3_map3 {A B C D} (f : C -> D) xs ys zs (R : A -> B -> D -> Prop) :
   Forall3 (fun x y z => R x y (f z)) xs ys zs <->
@@ -387,16 +445,17 @@ Proof.
   split.
   - induction 1; simpl; econstructor; eauto.
   - remember (map _ _) eqn:E. intros H. revert zs E.
-    induction H; intros zs; destruct zs; intros; simpl in *; invert_list_stuff;
+    induction H; intros zs; destruct zs; intros; simpl in *; invert_list_stuff';
       econstructor; eauto.
 Qed.
-
-Lemma Forall3_combine12 {A B C} (R : A * B -> C -> Prop) xs ys zs :
-  Forall3 (fun x y => R (x, y)) xs ys zs ->
-  Forall2 R (combine xs ys) zs.
-Proof. induction 1; simpl; eauto. Qed.    
 
 Hint Immediate incl_refl incl_nil_l : incl.
 Hint Resolve incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl : incl.
   
-  
+Ltac invert_list_stuff :=
+  repeat match goal with
+    | H: option_map _ _ = None |- _ => apply option_map_None in H; fwd
+    | H: option_map _ _ = Some _ |- _ => apply option_map_Some in H; fwd
+    | H: option_coalesce _ = Some _ |- _ => apply option_coalesce_Some in H; fwd
+    | _ => invert_list_stuff'
+    end.
