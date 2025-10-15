@@ -6,17 +6,19 @@ These are the datalog programs where each premise of a rule has only bare variab
 
 A formal definition of a SuperNice program doesn't appear in this repo, since my compiler doesn't generate SuperNice programs.
 
-## Runnable programs (a subset of the SuperNice programs)
+## Runnable programs (a superset of the SuperNice programs)
 
 These are those programs where each variable appearing in a rule appears "bare" at least once in a premise of the rule.
 
 Formal definition is here: TODO add reference
 
-## Queryable programs (a subset of the Runnable programs)
+## Queryable programs (a superset of the Runnable programs)
 
 ...
 
 Formal definition is here: TODO add reference
+
+TODO is there a nice way of talking about termination for general queryable programs?
 
 ## Remarks
 
