@@ -727,12 +727,6 @@ Definition good_rel name name' (P : string -> Prop) (true_ok : bool) (R : rel) :
   | true_rel => if true_ok then True else False
   end.
 
-Definition rule_agg_hyps (r : rule) :=
-  match r.(rule_agg) with
-  | None => []
-  | Some (_, aexpr) => aexpr.(agg_hyps)
-  end.
-
 Definition good_rule_hyps name name' (P : string -> Prop) (r : rule) :=
   Forall (fun f => good_rel name name' P true f.(fact_R)) (rule_agg_hyps r ++ r.(rule_hyps)).
 

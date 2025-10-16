@@ -1,4 +1,4 @@
-From Stdlib Require Import Lists.List.
+From Stdlib Require Import Lists.List Permutation.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import ListMisc.
 From coqutil Require Import Datatypes.List Tactics.fwd Tactics.destr Tactics.
@@ -28,6 +28,11 @@ Section subset.
 Context {A : Type}.
 Context (eqb : A -> A -> bool) {eqb_spec :  forall x0 y0 : A, BoolSpec (x0 = y0) (x0 <> y0) (eqb x0 y0)}.
 Implicit Type l : list A.
+
+Lemma Permutation_incl l l' :
+  Permutation l l' ->
+  incl l l'.
+Proof. cbv [incl]. eauto using Permutation_in. Qed.
 
 Lemma incl_app_bw_l l l1 l2 :
   incl (l1 ++ l2) l ->
@@ -494,6 +499,7 @@ Ltac invert_list_stuff :=
     | _ => invert_list_stuff'
     end.
 
+Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
-Hint Resolve incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons : incl.
+Hint Resolve incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_sym : incl.
   

@@ -13,7 +13,7 @@ From Stdlib Require Import Permutation.
 
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
-From Datalog Require Import Datalog Map Tactics Fp List.
+From Datalog Require Import Datalog Map Tactics Fp List Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
@@ -34,140 +34,10 @@ Section __.
   Implicit Type ctx : context.
   Implicit Type aexpr : agg_expr.
 
-  Definition not_appears_in_a_hyp R r :=
-    ~In R (map fact_R r.(rule_hyps)) /\
-      match r.(rule_agg) with
-      | None => True
-      | Some (_, aexpr) => ~In R (map fact_R aexpr.(agg_hyps))
-      end.
+  Definition edges_of_rule r :=
+    flat_map (fun c => map (fun h => (c.(fact_R), h.(fact_R))) (rule_agg_hyps r ++ r.(rule_hyps))) r.(rule_concls).
 
-  (*adding r to p definitely doesn't create any cycles*)
-  Definition no_cycles r p :=
-    Forall
-      (fun concl => Forall (not_appears_in_a_hyp concl.(fact_R)) p)
-      r.(rule_concls).
-  
-  (*not only is it a dag, but it's in topological order*)
-  Inductive dag : list rule -> Prop :=
-  | dag_nil : dag []
-  | dag_cons r p :
-    dag p ->
-    no_cycles r (r :: p) ->
-    dag (r :: p).
-
-  Inductive dag' : list rule -> Prop :=
-  | dag'_nil : dag' []
-  | dag'_cons p1 p2 r :
-    dag' (p1 ++ p2) ->
-    no_cycles r (r :: p1 ++ p2) ->
-    dag' (p1 ++ r :: p2).
-
-  Hint Constructors dag dag' : core.
-
-  Lemma no_cycles_app r p1 p2:
-    no_cycles r p1 ->
-    no_cycles r p2 ->
-    no_cycles r (p1 ++ p2).
-  Proof.
-    intros H1 H2. cbv [no_cycles] in *. eapply Forall_impl.
-    2: apply Forall_and; [exact H1|exact H2]. clear. simpl. intros. fwd.
-    rewrite Forall_app. auto.
-  Qed.
-
-  Lemma no_cycles_incl r p1 p2 :
-    no_cycles r p2 ->
-    incl p1 p2 ->
-    no_cycles r p1.
-  Proof.
-    intros H1 H2. cbv [no_cycles] in *. eapply Forall_impl; [|eassumption].
-    simpl. intros f Hf. eauto using incl_Forall.
-  Qed.
-  
-  Lemma dag'_dag p' :
-    dag' p' ->
-    exists p,
-      incl p' p /\ incl p p' /\ dag p.
-  Proof.
-    intros H. induction H.
-    - eauto with incl. 
-    - fwd. exists (r :: p). ssplit.
-      + apply incl_app; eauto 4 with incl.
-      + apply incl_cons.
-        -- apply in_app_iff. auto with incl.
-        -- eapply incl_tran; [eassumption|]. eauto with incl.
-      + constructor; auto. eauto using no_cycles_incl with incl.
-  Qed.
-
-  Lemma dag_dag' p :
-    dag p ->
-    dag' p.
-  Proof.
-    intros H. induction H; eauto. apply (dag'_cons nil); auto.
-  Qed.
-
-  Search Permutation repeat. (*wow that is exactly what i was looking for*)
-
-  Lemma dag'_permutation p1 p2 :
-    Permutation p1 p2 ->
-    dag' p1 ->
-    dag' p2.
-  Proof.
-    revert p2. remember (length p1) as n eqn:E. revert p1 E. induction n.
-    - intros p1 E p2 H1 H2. apply Permutation_length in H1.
-      destruct p2; simpl in *; try congruence. constructor.
-    - intros p1 E p2 H1 H2. invert H2; try discriminate E.
-      pose proof Permutation_in as H'. specialize H' with (1 := H1).
-      specialize (H' r). specialize (H' ltac:(apply in_elt)).
-      Search In (_ ++ _ :: _). apply in_split in H'. fwd. 
-      apply Permutation_app_inv in H1. constructor.
-      + eapply IHn; eauto. rewrite length_app in *. simpl in *. lia.
-      + eapply no_cycles_incl; [eassumption|]. Search Permutation In.
-        cbv [incl]. intros. eapply Permutation_in. 2: eassumption.
-        Search Permutation. apply Permutation_sym. apply perm_skip. assumption.
-  Qed.
-
-  Lemma dag'_consn n r p :
-    no_cycles r (r :: p) ->
-    dag' p ->
-    dag' (repeat r n ++ p).
-  Proof.
-    intros. induction n.
-    - assumption.
-    - simpl. apply (dag'_cons nil); simpl; try assumption.
-      eapply no_cycles_incl; [eassumption|]. apply incl_cons; auto with incl.
-      apply incl_app; auto with incl. cbv [incl]. intros r' Hr'. Search In repeat.
-      apply repeat_spec in Hr'. subst. simpl. auto.
-  Qed.
-
-  Lemma dag'_incl p1 p2 :
-    incl p1 p2 ->
-    dag' p2 ->
-    dag' p1.
-  Proof.
-    intros H1 H2. revert p1 H1. induction H2; intros p0 H0.
-    - apply incl_l_nil in H0. subst. constructor.
-    - Search Permutation repeat. eassert (incl _ (r :: p1 ++ p2)) as H'.
-      { eapply incl_tran; [eassumption|]. apply incl_app; auto with incl. }
-      clear H0. Search Permutation repeat. apply Permutation_incl_cons_inv_r in H'.
-      fwd. eapply dag'_permutation; [apply Permutation_sym; eassumption|].
-      apply dag'_consn.
-      + eauto using no_cycles_incl with incl.
-      + apply IHdag'. assumption.
-  Qed.
-
-  Lemma dag'_app p1 p2 :
-    Forall (fun r => no_cycles r p2) p1 ->
-    dag' p1 ->
-    dag' p2 ->
-    dag' (p1 ++ p2).
-  Proof.
-    intros H1 H2 H3. induction H2.
-    - assumption.
-    - rewrite <- app_assoc. simpl. apply Forall_app in H1. fwd.
-      rewrite Forall_app in IHdag'. specialize (IHdag' ltac:(auto)).
-      rewrite <- app_assoc in IHdag'. constructor; [assumption|].
-      rewrite app_assoc. Search (_ :: _ ++ _). rewrite app_comm_cons. apply no_cycles_app; assumption.
-  Qed.
+  Definition rel_graph := flat_map edges_of_rule.
   
   Definition diff_rels (p1 p2 : list rule) :=
     forall r1 r2 c1 c2,
@@ -199,15 +69,21 @@ Section __.
   Qed.
 
   Lemma no_cycles_spec r p f hyps :
-    no_cycles r p ->
+    Forall (fun e => no_cycles e (rel_graph p)) (edges_of_rule r) ->
     Exists (fun r : rule => rule_impl r f hyps) p ->
     Forall (fun hyp => ~In (fst hyp) (map fact_R (rule_concls r))) hyps.
   Proof.
     intros H1 H2. cbv [no_cycles] in H1. rewrite Forall_forall in *.
-    intros x Hx H'. rewrite in_map_iff in H'. fwd. specialize (H1 _ H'p1).
+    intros x Hx H'. rewrite in_map_iff in H'. fwd.
+    rewrite Exists_exists in H2. fwd.
+    apply rule_impl_hyp_relname_in in H2p1. rewrite Forall_forall in H2p1.
+    specialize (H2p1 _ Hx). rewrite in_map_iff in H2p1. fwd. eapply H1.
+    - cbv [edges_of_rule]. rewrite in_flat_map. eexists. split; eauto.
+      apply in_map. eassumption. apply in_app_iff. destruct H2p1 as [H2p1|H2p1].
+      + 
+    specialize (H1 _ H'p1).
     rewrite Exists_exists in H2. rewrite Forall_forall in H1. fwd.
     specialize (H1 _ H2p0). cbv [not_appears_in_a_hyp] in H1. fwd.
-    apply rule_impl_hyp_relname_in in H2p1. rewrite Forall_forall in H2p1.
     specialize (H2p1 _ Hx). destruct H2p1 as [H2p1|H2p1].
     - apply H1p0. rewrite in_map_iff in H2p1. fwd. rewrite H'p0. apply in_map_iff.
       eauto.

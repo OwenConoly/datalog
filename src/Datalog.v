@@ -554,7 +554,7 @@ Section __.
 
   Definition agg_hyps_elt_lengths r := length (rule_agg_hyps r).
 
-    Lemma rule_impl_concl_relname_in r x hyps :
+  Lemma rule_impl_concl_relname_in r x hyps :
     rule_impl r x hyps ->
     In (fst x) (map fact_R (rule_concls r)).
   Proof.
@@ -571,32 +571,25 @@ Section __.
     apply Forall2_forget_l in Hp1. eapply Forall_impl; [|eassumption].
     simpl. clear. intros. fwd. invert Hp1. simpl. apply in_map. assumption.
   Qed.
-  
+
   Lemma rule_impl'_hyp_relname_in r x hyps agg_hyps' :
     rule_impl' r x hyps agg_hyps' ->
     Forall (fun hyp => In (fst hyp) (map fact_R (rule_hyps r))) hyps /\
-      Forall (fun hyp => match r.(rule_agg) with
-                      | Some (_, aexpr) => In (fst hyp) (map fact_R aexpr.(agg_hyps))
-                      | None => False
-                      end)
+      Forall (fun hyp => In (fst hyp) (map fact_R (rule_agg_hyps r)))
       (concat agg_hyps').
   Proof.
     intros H. invert H. split.
     - apply Forall2_forget_l in H2. eapply Forall_impl; [|eassumption].
       simpl. intros. fwd. invert Hp1. simpl. apply in_map. assumption.
-    - invert H0; auto. eapply interp_agg_expr_hyp_relname_in. eassumption.
+    - cbv [rule_agg_hyps]. invert H0; auto. eapply interp_agg_expr_hyp_relname_in. eassumption.
   Qed.
 
   Lemma rule_impl_hyp_relname_in r x hyps :
     rule_impl r x hyps ->
-    Forall (fun hyp => In (fst hyp) (map fact_R (rule_hyps r)) \/
-                      match r.(rule_agg) with
-                      | Some (_, aexpr) => In (fst hyp) (map fact_R aexpr.(agg_hyps))
-                      | None => False
-                      end) hyps.
+    Forall (fun hyp => In (fst hyp) (map fact_R (rule_agg_hyps r ++ rule_hyps r))) hyps.
   Proof.
     cbv [rule_impl]. intros. fwd. apply rule_impl'_hyp_relname_in in Hp1.
-    fwd. apply Forall_app. split; eapply Forall_impl; eauto; simpl; eauto.
+    fwd. apply Forall_app. rewrite map_app.  split; eapply Forall_impl; eauto; intros; rewrite in_app_iff; simpl; eauto.
   Qed.
 End __.
 Arguments fact : clear implicits.
