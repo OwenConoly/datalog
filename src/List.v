@@ -195,6 +195,11 @@ Lemma Forall2_firstn R xs ys n :
   Forall2 R xs ys ->
   Forall2 R (firstn n xs) (firstn n ys).
 Proof. intros H. revert n. induction H; destruct n; simpl; eauto. Qed.
+
+Lemma Forall_or P Q xs :
+  Forall (fun x => P x \/ Q x) xs ->
+  Forall P xs \/ Exists Q xs.
+Proof. induction 1; eauto. destruct H, IHForall; auto. Qed.
 End Forall.
 
 From Stdlib Require Import Lia.

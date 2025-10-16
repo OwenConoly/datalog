@@ -68,57 +68,67 @@ Section __.
     intros H. rewrite Forall_forall in H. cbv [diff_rels]. eauto.
   Qed.
 
-  Lemma no_cycles_spec r p f hyps :
-    Forall (fun e => no_cycles e (rel_graph p)) (edges_of_rule r) ->
-    Exists (fun r : rule => rule_impl r f hyps) p ->
-    Forall (fun hyp => ~In (fst hyp) (map fact_R (rule_concls r))) hyps.
-  Proof.
-    intros H1 H2. cbv [no_cycles] in H1. rewrite Forall_forall in *.
-    intros x Hx H'. rewrite in_map_iff in H'. fwd.
-    rewrite Exists_exists in H2. fwd.
-    apply rule_impl_hyp_relname_in in H2p1. rewrite Forall_forall in H2p1.
-    specialize (H2p1 _ Hx). rewrite in_map_iff in H2p1. fwd. eapply H1.
-    - cbv [edges_of_rule]. rewrite in_flat_map. eexists. split; eauto.
-      apply in_map. eassumption. apply in_app_iff. destruct H2p1 as [H2p1|H2p1].
-      + 
-    specialize (H1 _ H'p1).
-    rewrite Exists_exists in H2. rewrite Forall_forall in H1. fwd.
-    specialize (H1 _ H2p0). cbv [not_appears_in_a_hyp] in H1. fwd.
-    specialize (H2p1 _ Hx). destruct H2p1 as [H2p1|H2p1].
-    - apply H1p0. rewrite in_map_iff in H2p1. fwd. rewrite H'p0. apply in_map_iff.
-      eauto.
-    - destruct (rule_agg x1) as [(?&?)|]; [|assumption]. rewrite <- H'p0 in H2p1. auto.
-  Qed.           
+  Lemma edges_of_rule_spec r f hyps :
+    rule_impl r f hyps ->
+    Forall (fun hyp => In (fst f, fst hyp) (edges_of_rule r)) hyps.
+  Proof. Admitted.
+
+  Lemma rel_graph_spec p f hyps :
+    Exists (fun r => rule_impl r f hyps) p ->
+    Forall (fun hyp => In (fst f, fst hyp) (rel_graph p)) hyps.
+  Proof. Admitted.
   
-  Lemma dag_terminates'' r p f :
-    prog_impl_fact (r :: p) f ->
-    ~In (fst f) (map fact_R r.(rule_concls)) ->
-    no_cycles r (r :: p) ->
-    prog_impl_fact p f.
-  Proof.
-    intros H1 H2 H3. induction H1. invert H.
-    { apply rule_impl_concl_relname_in in H5. exfalso. auto. }
-    econstructor; [eassumption|]. epose proof no_cycles_spec as H5'.
-    specialize (H5' _ _ _ _ ltac:(eauto) ltac:(eauto)). clear H5. clear H2 H0 x.
-    rewrite Forall_forall in *. intros x Hx. apply H1; auto.
-  Qed.
+  (* Lemma no_cycles_spec r p f hyps : *)
+  (*   no_cycles (edges_of_rule r) (rel_graph p) -> *)
+  (*   Exists (fun r : rule => rule_impl r f hyps) p -> *)
+  (*   Forall (fun hyp => ~In (fst hyp) (map fact_R (rule_concls r))) hyps. *)
+  (* Proof. *)
+  (*   intros H1 H2. cbv [no_cycles] in H1. rewrite Forall_forall in *. *)
+  (*   intros x Hx H'. rewrite in_map_iff in H'. fwd. *)
+  (*   rewrite Exists_exists in H2. fwd. *)
+  (*   apply rule_impl_hyp_relname_in in H2p1. rewrite Forall_forall in H2p1. *)
+  (*   specialize (H2p1 _ Hx). rewrite in_map_iff in H2p1. fwd. eapply H1. *)
+  (*   - cbv [edges_of_rule]. rewrite in_flat_map. eexists. split; eauto. *)
+  (*     apply in_map. eassumption. apply in_app_iff. destruct H2p1 as [H2p1|H2p1]. *)
+  (*     +  *)
+  (*   specialize (H1 _ H'p1). *)
+  (*   rewrite Exists_exists in H2. rewrite Forall_forall in H1. fwd. *)
+  (*   specialize (H1 _ H2p0). cbv [not_appears_in_a_hyp] in H1. fwd. *)
+  (*   specialize (H2p1 _ Hx). destruct H2p1 as [H2p1|H2p1]. *)
+  (*   - apply H1p0. rewrite in_map_iff in H2p1. fwd. rewrite H'p0. apply in_map_iff. *)
+  (*     eauto. *)
+  (*   - destruct (rule_agg x1) as [(?&?)|]; [|assumption]. rewrite <- H'p0 in H2p1. auto. *)
+  (* Qed.            *)
   
-  Lemma dag_terminates' r p f :
-    prog_impl_fact (r :: p) f ->
-    no_cycles r (r :: p) ->
-    prog_impl_fact p f \/
-      exists hyps',
-        rule_impl r f hyps' /\
-          Forall (prog_impl_fact p) hyps'.
-  Proof.
-    intros H1 H2. invert H1. pose proof no_cycles_spec as H'.
-    specialize (H' _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-    invert H.
-    - right. eexists. split; [eassumption|]. rewrite Forall_forall in *.
-      intros x Hx. specialize (H0 _ Hx). eapply dag_terminates'' in H0; eauto.
-    - left. econstructor; eauto. rewrite Forall_forall in *. intros x Hx.
-      eapply dag_terminates''; eauto. apply H0. assumption.
-  Qed.
+  (* Lemma dag_terminates'' r p f : *)
+  (*   prog_impl_fact (r :: p) f -> *)
+  (*   ~In (fst f) (map fact_R r.(rule_concls)) -> *)
+  (*   no_cycles r (r :: p) -> *)
+  (*   prog_impl_fact p f. *)
+  (* Proof. *)
+  (*   intros H1 H2 H3. induction H1. invert H. *)
+  (*   { apply rule_impl_concl_relname_in in H5. exfalso. auto. } *)
+  (*   econstructor; [eassumption|]. epose proof no_cycles_spec as H5'. *)
+  (*   specialize (H5' _ _ _ _ ltac:(eauto) ltac:(eauto)). clear H5. clear H2 H0 x. *)
+  (*   rewrite Forall_forall in *. intros x Hx. apply H1; auto. *)
+  (* Qed. *)
+  
+  (* Lemma dag_terminates' r p f : *)
+  (*   prog_impl_fact (r :: p) f -> *)
+  (*   no_cycles r (r :: p) -> *)
+  (*   prog_impl_fact p f \/ *)
+  (*     exists hyps', *)
+  (*       rule_impl r f hyps' /\ *)
+  (*         Forall (prog_impl_fact p) hyps'. *)
+  (* Proof. *)
+  (*   intros H1 H2. invert H1. pose proof no_cycles_spec as H'. *)
+  (*   specialize (H' _ _ _ _ ltac:(eassumption) ltac:(eassumption)). *)
+  (*   invert H. *)
+  (*   - right. eexists. split; [eassumption|]. rewrite Forall_forall in *. *)
+  (*     intros x Hx. specialize (H0 _ Hx). eapply dag_terminates'' in H0; eauto. *)
+  (*   - left. econstructor; eauto. rewrite Forall_forall in *. intros x Hx. *)
+  (*     eapply dag_terminates''; eauto. apply H0. assumption. *)
+  (* Qed. *)
 
   Fixpoint choose_any_n {X : Type} n (fs : list X) :=
     match n with
@@ -591,9 +601,23 @@ Section __.
 
   Definition step_everybody p fs := flat_map (fun r => step r fs) p.
 
+  Lemma step_everybody_complete p hyps' facts f :
+    Forall good_rule p ->
+    incl hyps' facts ->
+    Exists (fun r => rule_impl r f hyps') p ->
+    In f (step_everybody p facts).
+  Proof.
+    intros H1 H2 H3. rewrite Forall_forall in H1. apply Exists_exists in H3.
+    fwd. specialize (H1 _ H3p0). cbv [step_everybody]. apply in_flat_map.
+    eexists. split; eauto. eapply step_complete; eauto.
+  Qed.
+
   Definition eval n p := iter n (fun fs => step_everybody p fs ++ fs) nil.
 
-  Definition eval_dag p := eval (length p) p.
+  (*a bit conservative*)
+  Definition count_rels p := S (length (rel_graph p)).
+  
+  Definition eval_dag p := eval (count_rels p) p.
 
   Lemma choose_any_n_mono {A : Type} n (xs ys : list A) :
     incl xs ys ->
@@ -626,25 +650,33 @@ Section __.
     incl (iter n f x) (iter n g x).
   Proof. intros. induction n; simpl; auto with incl. Qed.
 
+  Lemma eval_complete p n :
+    Forall good_rule p ->
+    forall f,
+      prog_impl_fact p f ->
+      In f (eval n p) \/
+        (exists l, path (rel_graph p) (fst f) l /\ n <= length l).
+  Proof.
+    intros Hp. induction n.
+    - intros. simpl. right. exists nil. simpl. split; [constructor|lia].
+    - intros f Hf. simpl. invert Hf. eapply Forall_impl in H0.
+      2: { intros x Hx. apply IHn in Hx. exact Hx. }
+      apply Forall_or in H0. destruct H0 as [H0|H0].
+      + left. apply in_app_iff. left. eapply step_everybody_complete; eauto.
+        rewrite Forall_forall in H0. auto.
+      + right. rewrite Exists_exists in H0. fwd. exists ((fst x) :: l0). simpl. split; [|lia].
+        constructor; auto. Check rel_graph_spec. apply rel_graph_spec in H.
+        rewrite Forall_forall in H. apply H. assumption.
+  Qed.
+
   Lemma eval_dag_complete p :
     Forall good_rule p ->
-    dag p ->
+    dag (rel_graph p) ->
     forall f,
       prog_impl_fact p f ->
       In f (eval_dag p).
   Proof.
-    intros Hgood H. induction H.
-    - simpl. intros f Hf. invert Hf. invert_list_stuff.
-    - invert Hgood. specialize (IHdag ltac:(assumption)). intros.
-      cbv [eval_dag eval]. cbn [length iter]. (*does nothing.  why would you use nat_rect instead of fixpoint?*)
-      rewrite iter_succ. 
-      pose proof dag_terminates' as H'.
-      specialize (H' _ _ _ ltac:(eassumption) ltac:(eassumption)).
-      apply in_app_iff. destruct H' as [H'|H'].
-      + right. apply IHdag in H'. eapply eval_mono in H'; eauto with incl.
-      + left. fwd. unfold step_everybody at 1. cbn [flat_map]. apply in_app_iff. left.
-        eapply step_complete; try eassumption. eapply incl_tran.
-        { intros hyp' H'. apply IHdag. rewrite Forall_forall in H'p1. auto. }
-        apply incl_mono_fun. cbv [step_everybody]. auto with incl.
+    intros. eapply eval_complete in H; eauto. destruct H; [eassumption|].
+    fwd. eapply dag_paths_short in H0; eauto. cbv [count_rels] in *. lia.
   Qed.
 End __.
