@@ -914,14 +914,6 @@ Ltac prove_IH_hyp :=
      | H: ~ (exists _ : _, _) |- False => apply H; try (eexists; split; [|reflexivity]; solve[sets]) 
      end).
 
-Ltac epose_dep H :=
-  repeat lazymatch type of H with
-  | ?A -> ?B => fail
-  | forall _, _ => epose proof (H _) as H
-  end.
-
-Goal (forall (x : nat), x = x -> True) -> True. intros H. epose_dep H. Abort.
-
 Ltac prove_IH_hyps IH :=
   epose_dep IH;
   match goal with
@@ -1242,9 +1234,6 @@ Proof.
     apply pairwise_ni'_sound. repeat constructor.
 Qed.
 
-Lemma incl_rev_r {A : Type} (l : list A) : incl l (rev l).
-Proof. cbv [incl]. intros. rewrite <- in_rev. assumption. Qed.
-
 Lemma no_cycles_cons (r : rule) p :
   Forall (fun concl => not_appears_in_a_hyp concl.(fact_R) r) r.(rule_concls) ->
   no_cycles r p ->
@@ -1362,6 +1351,42 @@ Proof.
   Unshelve. (*TODO why*) all: exact "".
 Qed.
 
+Lemma lower_functional e out :
+  vars_good [] e ->
+  ~(out \in vars_of e) ->
+  pairwise_ni (lower e out).
+Proof.
+  intros H1 H2. pose proof lower_functional_rec as H'.
+  cbv [lower]. epose_dep H'. destr_lower. rewrite E in H'.
+  simpl. apply relnames_good in E. fwd. apply pairwise_ni_app.
+  - apply H'; simpl; eauto.
+    + constructor.
+    + intros ?. fwd. auto.
+  - apply pairwise_ni'_sound. repeat constructor.
+  - apply diff_rels_Forall_r. constructor; [|constructor].
+    rewrite Forall_forall in Ep1. intros r1 c1 c2 Hr1 Hc1 Hc2. simpl in Hc2.
+    destruct Hc2; contradiction || subst. simpl. intros ?. apply Ep1 in Hr1.
+    cbv [good_rule_or_out] in Hr1. rewrite Forall_forall in Hr1. apply Hr1 in Hc1.
+    rewrite H in Hc1. destruct Hc1; try congruence. simpl in H0. contradiction.
+Qed.
+
+Lemma lower_dag e out :
+  vars_good [] e ->
+  ~(out \in vars_of e \cup referenced_vars e) ->
+  dag' (lower e out).
+Proof.
+  intros H1 H2. pose proof lower_dag_rec as H'.
+  cbv [lower]. destr_lower. epose_dep H'. rewrite E in H'.
+  simpl. apply relnames_good in E. fwd. apply dag'_app.
+  - eapply Forall_impl; [|exact Ep1]. intros. cbv [no_cycles].
+    cbv [good_rule_or_out] in H. eapply Forall_impl; [|eassumption].
+    prove_no_cycles'.
+  - apply H'; simpl; eauto. intros ?. fwd. sets.
+  - apply (dag'_cons nil).
+    + constructor.
+    + repeat constructor. simpl. auto.
+Qed.
+
 Instance query_sig : query_signature rel :=
   { ins R :=
       match R with
@@ -1369,11 +1394,6 @@ Instance query_sig : query_signature rel :=
       | nat_rel _ => 1
       | true_rel => 0
       end }.
-
-Lemma map_cons_eq {A B : Type} (f : A -> B) x l l' :
-  map f l = l' ->
-  map f (x :: l) = f x :: l'.
-Proof. simpl. intros. f_equal. assumption. Qed.
 
 Lemma lower_goodish e out name idxs depths :
   Forall goodish_rule (snd (lower_rec e out name idxs depths)).
@@ -1397,10 +1417,6 @@ Proof.
         repeat reflexivity || apply List.map_nil || apply map_cons_eq. }
     { intros H'. fwd. Abort. (*oops args are backwards*)
 
-Lemma lower_functional e out :
-  ~(out \in vars_of e) ->
-  functional (lower e out).
-Abort.
 
 (*i do not like fmaps, because you cannot iterate over them,
   so i work with coqutil maps instead.

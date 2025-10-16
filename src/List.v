@@ -481,6 +481,11 @@ Proof.
       econstructor; eauto.
 Qed.
 
+Lemma map_cons_eq {A B : Type} (f : A -> B) x l l' :
+  map f l = l' ->
+  map f (x :: l) = f x :: l'.
+Proof. simpl. intros. f_equal. assumption. Qed.
+
 Ltac invert_list_stuff :=
   repeat match goal with
     | H: option_map _ _ = None |- _ => apply option_map_None in H; fwd
