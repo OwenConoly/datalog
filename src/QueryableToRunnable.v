@@ -17,25 +17,6 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 
 Import ListNotations.
 
-From Stdlib Require Import Arith.Arith.
-From Stdlib Require Import Arith.EqNat.
-From Stdlib Require Import Arith.PeanoNat. Import Nat.
-From Stdlib Require Import Bool.Bool.
-From Stdlib Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
-From Stdlib Require Import ZArith.Int.
-From Stdlib Require Import ZArith.Znat.
-From Stdlib Require Import Strings.String.
-From Stdlib Require Import Lists.List.
-From Stdlib Require Import micromega.Lia.
-
-From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
-
-From Datalog Require Import Datalog Map Tactics Fp List.
-
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
-
-Import ListNotations.
-
 Section relmap.
   Context {rel1 rel2 var fn aggregator T : Type}.
   Context `{sig : signature fn aggregator T}.
@@ -135,14 +116,6 @@ Section Transform.
     incl p2 p1 ->
     agree p2 r1 r2.
   Proof. cbv [agree]. eauto 6 using Forall_impl, prog_impl_fact_subset. Qed.    
-
-  (*very (unnecessarily) strong, but good enough for me*)
-  Definition non_intersecting false_fact (r1 r2 : rule) :=
-    forall R args1 args2 hyps1 ahyps1 hyps2 ahyps2,
-      rule_impl' r1 (R, args1) hyps1 ahyps1 ->
-      rule_impl' r2 (R, args2) hyps2 ahyps2 ->
-      firstn (ins R) args1 = firstn (ins R) args2 ->
-      In false_fact hyps1 \/ In false_fact hyps2.
 
   Definition pairs_satisfy {X : Type} (P : X -> X -> Prop) (l : list X) :=
     forall x1 x2, In x1 l -> In x2 l -> x1 = x2 \/ P x1 x2.
@@ -321,7 +294,7 @@ Section Transform.
     eapply interp_expr_det; eassumption.
   Qed.
 
-  Lemma ni_functional p :
+  Lemma agree_functional p :
     dag p ->
     Forall goodish_rule p ->
     pairs_satisfy (agree p) p ->

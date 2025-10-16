@@ -27,6 +27,17 @@ Import ListNotations.
 Section subset.
 Context {A : Type}.
 Context (eqb : A -> A -> bool) {eqb_spec :  forall x0 y0 : A, BoolSpec (x0 = y0) (x0 <> y0) (eqb x0 y0)}.
+Implicit Type l : list A.
+
+Lemma incl_app_bw_l l l1 l2 :
+  incl (l1 ++ l2) l ->
+  incl l1 l.
+Proof. intros H. cbv [incl] in *. intros. apply H. apply in_app_iff. auto. Qed.
+
+Lemma incl_app_bw_r l l1 l2 :
+  incl (l1 ++ l2) l ->
+  incl l2 l.
+Proof. intros H. cbv [incl] in *. intros. apply H. apply in_app_iff. auto. Qed.
 
 (*I would like to do some magic to make this infer the eqb to use, but idk how*)
 (*hmm i am making my compiler take quadratic time.  i guess it already did though.*)
@@ -46,6 +57,27 @@ Lemma incl_app_app (x1 : list A) y1 x2 y2 :
   incl y1 y2 ->
   incl (x1 ++ y1) (x2 ++ y2).
 Proof. cbv [incl]. intros. repeat rewrite in_app_iff in *. intuition auto. Qed.
+
+Lemma incl_cons_idk x l1 l2 :
+  incl l1 (x :: l2) ->
+  exists l1',
+    incl l1' l2 /\
+      incl l1 (x :: l1') /\
+      incl l1' l1.
+Proof.
+  intros H. induction l1.
+  - exists nil. auto using incl_nil_l.
+  - apply incl_cons_inv in H. fwd. simpl in Hp0. specialize (IHl1 Hp1).
+    fwd. destruct Hp0.
+    + subst. exists l1'. split; auto. split.
+      -- apply incl_cons; simpl; auto.
+      -- apply incl_tl. assumption.
+    + exists (a :: l1'). ssplit.
+      -- apply incl_cons; auto.
+      -- apply incl_cons; simpl; auto. eapply incl_tran; [exact IHl1p1|].
+         apply incl_cons; simpl; auto. do 2 apply incl_tl. apply incl_refl.
+      -- apply incl_cons; simpl; auto. apply incl_tl. assumption.
+Qed.
 End subset.
 
 Section Forall.
@@ -449,9 +481,6 @@ Proof.
       econstructor; eauto.
 Qed.
 
-Hint Immediate incl_refl incl_nil_l : incl.
-Hint Resolve incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl : incl.
-  
 Ltac invert_list_stuff :=
   repeat match goal with
     | H: option_map _ _ = None |- _ => apply option_map_None in H; fwd
@@ -459,3 +488,7 @@ Ltac invert_list_stuff :=
     | H: option_coalesce _ = Some _ |- _ => apply option_coalesce_Some in H; fwd
     | _ => invert_list_stuff'
     end.
+
+Hint Immediate incl_refl incl_nil_l in_eq : incl.
+Hint Resolve incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons : incl.
+  
