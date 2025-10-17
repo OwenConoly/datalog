@@ -59,6 +59,18 @@ Inductive dag'_alt : list (V * V) -> Prop :=
 
 Hint Constructors dag dag' dag'_alt : core.
 
+Lemma not_in_snd_cons v e g :
+  v <> snd e ->
+  not_in_snd g v ->
+  not_in_snd (e :: g) v.
+Proof.
+  cbv [not_in_snd]. intros H1 H2 H3. simpl in H3. destruct H3; subst; auto.
+Qed.
+
+Lemma not_in_snd_nil v :
+  not_in_snd [] v.
+Proof. cbv [not_in_snd]. simpl. auto. Qed.
+
 Lemma not_in_snd_app v g1 g2:
   not_in_snd g1 v ->
   not_in_snd g2 v ->
@@ -250,6 +262,16 @@ Lemma dag'_swap g :
   dag' (map swap g).
 Proof.
   intros. apply dag'_alt_dag'. apply dag'_flip_to_alt. assumption.
+Qed.
+
+Lemma concl_same_dag v g :
+  Forall (fun '(x, y) => x = v /\ y <> v) g ->
+  dag g.
+Proof.
+  intros H. induction H; eauto. destruct x. fwd. constructor; eauto.
+  simpl. apply not_in_snd_cons; auto. rewrite Forall_forall in H0.
+  cbv [not_in_snd]. intros H'. rewrite in_map_iff in H'. fwd. apply H0 in H'p1.
+  destruct x. fwd. eauto.
 Qed.
 
 Inductive path (g : list (V * V)) : V -> list V -> Prop :=

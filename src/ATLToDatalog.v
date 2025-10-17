@@ -16,7 +16,7 @@ From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
   Meshgrid ContextsAgree ATLDeep Range.
 
-From Datalog Require Import Datalog Map List Tactics Interpreter QueryableToRunnable. 
+From Datalog Require Import Datalog Dag Map List Tactics Interpreter QueryableToRunnable. 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable.
 
 Import Datatypes.
@@ -1228,49 +1228,37 @@ Proof.
     apply pairwise_ni'_sound. repeat constructor.
 Qed.
 
-Lemma no_cycles_cons (r : rule) p :
-  Forall (fun concl => not_appears_in_a_hyp concl.(fact_R) r) r.(rule_concls) ->
-  no_cycles r p ->
-  no_cycles r (r :: p).
-Proof.
-  cbv [no_cycles]. intros H1 H2. eapply Forall_impl.
-  2: { apply Forall_and; [exact H1|exact H2]. }
-  simpl. clear. intros. fwd. auto.
-Qed.
-  
-Lemma good_no_cycles r p name name' P :
-  Forall (fun concl => ~good_rel name name' P true concl.(fact_R)) r.(rule_concls) ->
+Lemma good_not_in_snd p name name' P R :
+  ~good_rel name name' P true R ->
   Forall (good_rule_hyps name name' P) p ->
-  no_cycles r p.
+  not_in_snd (rel_graph p) R.
 Proof.
-  intros H1 H2. cbv [no_cycles]. eapply Forall_impl; [|eassumption].
-  clear H1. simpl. intros f Hf. eapply Forall_impl; [|eassumption].
-  intros r' Hr'. clear -Hr' Hf.
-  cbv [good_rule_hyps] in Hr'. cbv [not_appears_in_a_hyp]. apply Forall_app in Hr'. fwd.
-  rewrite Forall_forall in *. split.
-  - intros H. apply in_map_iff in H. fwd. rewrite <- Hp0 in *. eauto.
-  - cbv [rule_agg_hyps] in *. destruct r'.(rule_agg) as [(?&?)|]; auto.
-    intros H. apply in_map_iff in H. fwd. rewrite <- Hp0 in *. eauto.
+  intros H1 H2. cbv [not_in_snd]. intros H'. apply H1. apply in_map_iff in H'.
+  fwd. rewrite Forall_forall in H2. cbv [rel_graph] in H'p1.
+  rewrite in_flat_map in H'p1. fwd. apply H2 in H'p1p0. cbv [edges_of_rule] in H'p1p1.
+  cbv [good_rule_hyps] in H'p1p0. rewrite in_flat_map in H'p1p1. fwd.
+  rewrite in_map_iff in H'p1p1p1. fwd. rewrite Forall_forall in H'p1p0. apply H'p1p0.
+  assumption.
 Qed.
 
-Lemma good_rule_hyps_not_appears r name name' P R :
-  ~good_rel name name' P true R ->
-  good_rule_hyps name name' P r ->
-  not_appears_in_a_hyp R r.
-Proof.
-  cbv [good_rule_hyps not_appears_in_a_hyp]. intros H1 H2. rewrite Forall_app in H2.
-  fwd. rewrite Forall_forall in *. split.
-  - intros H. apply in_map_iff in H. fwd. apply H2p1 in Hp1. auto.
-  - cbv [rule_agg_hyps] in H2p0. destruct r.(rule_agg) as [(?&?)|]; auto.
-    intros H. apply in_map_iff in H. fwd. apply H2p0 in Hp1. auto.
-Qed.
+(* Lemma good_rule_hyps_not_appears r name name' P R : *)
+(*   ~good_rel name name' P true R -> *)
+(*   good_rule_hyps name name' P r -> *)
+(*    R r. *)
+(* Proof. *)
+(*   cbv [good_rule_hyps not_appears_in_a_hyp]. intros H1 H2. rewrite Forall_app in H2. *)
+(*   fwd. rewrite Forall_forall in *. split. *)
+(*   - intros H. apply in_map_iff in H. fwd. apply H2p1 in Hp1. auto. *)
+(*   - cbv [rule_agg_hyps] in H2p0. destruct r.(rule_agg) as [(?&?)|]; auto. *)
+(*     intros H. apply in_map_iff in H. fwd. apply H2p0 in Hp1. auto. *)
+(* Qed. *)
 
 Lemma lower_dag_rec e out name idxs depths name' rules idxs0 :
   vars_good idxs0 e -> (*this is unnecessarily stong*)
   ~ (exists out', out' \in vars_of e \cup referenced_vars e /\ out = str_rel out') ->
   out_smaller out name ->
   lower_rec e out name idxs depths = (name', rules) ->
-  dag' rules.
+  dag' (rel_graph rules).
 Proof.
   revert out name idxs depths name' rules idxs0. 
   induction e;
@@ -1281,12 +1269,13 @@ Proof.
       | H: _ = (_, _), G: _ = (_, _) |- _ => let H' := fresh "H00" in pose proof H as H'; apply relnames_good in H; let G' := fresh "G00" in pose proof G as G'; apply relnames_good in G; destruct H as (?&?&?); destruct G as (?&?&?)
       | H: _ = (_, _) |- _ => let H' := fresh "H00" in pose proof H as H'; apply relnames_good in H; destruct H as (?&_&?)
       end; fwd;
-    try (prove_IH_hyps IHe || (prove_IH_hyps IHe1; prove_IH_hyps IHe2)).
+    try (prove_IH_hyps IHe || (prove_IH_hyps IHe1; prove_IH_hyps IHe2));
+    cbv [rel_graph] in *; repeat rewrite flat_map_app; simpl; repeat rewrite app_nil_r; simpl.
   Ltac prove_no_cycles' :=
     repeat match goal with
-      | |- _ => progress (intros; subst; fwd; cbv [good_rel good_rule_hyps not_appears_in_a_hyp]; simpl in * )
-      | H: context[match (?out: rel) with _ => _ end] |- _ => destr out
-      | |- context[match (?out: rel) with _ => _ end] => destr out
+      | |- _ => progress (intros; subst; fwd; cbv [good_rel good_rule_hyps]; simpl in * )
+      | H: context[match ?out with _ => _ end] |- _ => destr out
+      | |- context[match ?out with _ => _ end] => destr out
       | |- Forall _ (_ :: _) => constructor
       | |- Forall _ [] => constructor
       | |- _ => solve [sets]
@@ -1296,52 +1285,38 @@ Proof.
       | H: _ \/ _ |- _ => destruct H; [solve[prove_no_cycles'] |]
       end. Check dag'_cons.
   Ltac prove_no_cycles :=
-    eapply good_no_cycles; [|repeat rewrite Forall_app; ssplit; [eassumption|..]]; prove_no_cycles'.
-  all: repeat match goal with
-         | |- _ => eassumption
-         | |- _ => apply dag'_cons; repeat rewrite app_nil_r
-         | |- no_cycles ?r (?r :: _) => apply no_cycles_cons; [prove_no_cycles'|]
-         | |- no_cycles _ _ => solve[prove_no_cycles]
-         end.
+    repeat match goal with
+      | |- _ => eassumption
+      | |- _ => apply dag'_cons; repeat rewrite app_nil_r
+      | |- not_in_snd (_ :: _) _ => apply not_in_snd_cons; [prove_no_cycles'|]
+      | |- not_in_snd (_ ++ _) _ => apply not_in_snd_app
+      | |- not_in_snd [] _ => apply not_in_snd_nil
+      | |- not_in_snd _ _ => solve [eapply good_not_in_snd; [|eassumption]; prove_no_cycles']
+      end.
+  all: prove_no_cycles.
   all: cycle -1.
-  { apply (dag'_cons nil); simpl; [constructor|]. cbv [no_cycles].
-    repeat constructor. simpl. Search lower_Sexpr. apply lower_Sexpr_relnames_good in E.
-    rewrite Forall_forall in E. intros H. apply in_map_iff in H. fwd.
-    apply E in Hp1. fwd. rewrite Hp1p1 in *. apply Hout1. eexists. intuition eauto.
-    sets. }
+  { cbv [edges_of_rule]. simpl. rewrite app_nil_r.
+    apply lower_Sexpr_relnames_good in E. apply dag_dag'. eapply concl_same_dag.
+    apply Forall_map. eapply Forall_impl; [|eassumption]. simpl. intros. fwd.
+    split; eauto. intros H. subst. apply Hout1. eexists. intuition eauto. sets. }
   { (*should come from the fact that vars_of e2 \cap referenced_vars e1 is empty*)
     (*that is, concls of rules1 \cap hyps of rules0 is empty*)
     clear H11 (*hyps or rules1*) H1 (*concls of rules0*). eapply dag'_permutation.
     { apply Permutation.Permutation_app_comm. }
-    apply dag'_app; auto. eapply Forall_impl; [|eassumption]. intros r Hr.
-    cbv [good_rule_or_out] in Hr. prove_no_cycles. eapply Forall_impl; [|eassumption].
-    prove_no_cycles'. }
-  { (*TODO: approach here seems more principled than the repeat match above,
-      so could try adapting it to do the same*)
-    rewrite app_assoc. apply dag'_cons.
-    2: { eapply no_cycles_cons; [prove_no_cycles'|].
-         cbv [no_cycles]. simpl. constructor; [|constructor]. simpl.
-         repeat rewrite Forall_app. ssplit; [| |prove_no_cycles'].
-         - eapply Forall_impl; [|eassumption]. intros.
-           eapply good_rule_hyps_not_appears; [|eassumption].
-           prove_no_cycles'.
-         - eapply Forall_impl; [|eassumption]. intros.
-           eapply good_rule_hyps_not_appears; [|eassumption].
-           prove_no_cycles'. }
-    apply dag'_cons; rewrite app_nil_r.
-    2: { eapply no_cycles_cons; [prove_no_cycles'|].
-         cbv [no_cycles]. simpl. constructor; [|constructor]. simpl.
-         repeat rewrite Forall_app. split.
-         - eapply Forall_impl; [|eassumption]. intros.
-           eapply good_rule_hyps_not_appears; [|eassumption].
-           prove_no_cycles'.
-         - eapply Forall_impl; [|eassumption]. intros.
-           eapply good_rule_hyps_not_appears; [|eassumption].
-           prove_no_cycles'. }
+    apply dag'_app; auto. cbv [no_cycles]. apply Forall_map. apply Forall_flat_map.
+    eapply Forall_impl; [|eassumption]. intros r Hr.
+    cbv [good_rule_or_out] in Hr. apply Forall_flat_map.
+    eapply Forall_impl; [|eassumption]. simpl. intros. rewrite <- Forall_map.
+    rewrite map_map. simpl. rewrite map_const. apply Forall_repeat.
+    prove_no_cycles. }
+  { rewrite app_assoc. prove_no_cycles.
     clear H8 H6. (*arbitrary choice, but works with dag'_app*)
-    apply dag'_app; auto. eapply Forall_impl; [|eassumption]. intros r Hr.
-    cbv [good_rule_or_out] in Hr. prove_no_cycles. eapply Forall_impl; [|eassumption].
-    prove_no_cycles'. }
+    apply dag'_app; auto. cbv [no_cycles]. apply Forall_map. apply Forall_flat_map.
+    eapply Forall_impl; [|eassumption]. intros r Hr.
+    cbv [good_rule_or_out] in Hr. apply Forall_flat_map.
+    eapply Forall_impl; [|eassumption]. simpl. intros. rewrite <- Forall_map.
+    rewrite map_map. simpl. rewrite map_const. apply Forall_repeat.
+    prove_no_cycles. } 
   Unshelve. (*TODO why*) all: exact "".
 Qed.
 
@@ -1367,18 +1342,12 @@ Qed.
 Lemma lower_dag e out :
   vars_good [] e ->
   ~(out \in vars_of e \cup referenced_vars e) ->
-  dag' (lower e out).
+  dag' (rel_graph (lower e out)).
 Proof.
   intros H1 H2. pose proof lower_dag_rec as H'.
   cbv [lower]. destr_lower. epose_dep H'. rewrite E in H'.
-  simpl. apply relnames_good in E. fwd. apply dag'_app.
-  - eapply Forall_impl; [|exact Ep1]. intros. cbv [no_cycles].
-    cbv [good_rule_or_out] in H. eapply Forall_impl; [|eassumption].
-    prove_no_cycles'.
-  - apply H'; simpl; eauto. intros ?. fwd. sets.
-  - apply (dag'_cons nil).
-    + constructor.
-    + repeat constructor. simpl. auto.
+  simpl. apply relnames_good in E. fwd. cbv [rel_graph]. rewrite flat_map_app.
+  simpl. rewrite app_nil_r. eapply H'; eauto; prove_no_cycles'.
 Qed.
 
 Instance query_sig : query_signature rel :=
