@@ -200,6 +200,11 @@ Lemma Forall_or P Q xs :
   Forall (fun x => P x \/ Q x) xs ->
   Forall P xs \/ Exists Q xs.
 Proof. induction 1; eauto. destruct H, IHForall; auto. Qed.
+
+Lemma Forall2_rev R xs ys :
+  Forall2 R xs ys ->
+  Forall2 R (rev xs) (rev ys).
+Proof. induction 1; simpl; auto using Forall2_app. Qed.
 End Forall.
 
 From Stdlib Require Import Lia.

@@ -95,9 +95,10 @@ Section __.
   Inductive interp_option_agg_expr : _ -> _ -> _ -> _ -> Prop :=
   | ioae_None ctx :
     interp_option_agg_expr ctx None ctx []
-  | ioae_Some ctx res res' aexpr agg_hyps's :
+  | ioae_Some ctx ctx' res res' aexpr agg_hyps's :
+    ctx' = map.put ctx res res' ->
     interp_agg_expr ctx aexpr res' agg_hyps's ->
-    interp_option_agg_expr ctx (Some (res, aexpr)) (map.put ctx res res') agg_hyps's.
+    interp_option_agg_expr ctx (Some (res, aexpr)) ctx' agg_hyps's.
   
   Inductive rule_impl' : rule -> rel * list T -> list (rel * list T) -> list (list (rel * list T)) -> Prop :=
   | mk_rule_impl' r agg_hyps's ctx' f' hyps' ctx :

@@ -343,7 +343,7 @@ Section __.
       length agg_hyps's = agg_hyps'_len r hyps.
   Proof.
     intros Hgood agg_hyps' H. invert H. cbv [agg_hyps'_len].
-    invert H0; [reflexivity|]. invert H4. simpl. erewrite subst_in_expr_complete.
+    invert H0; [reflexivity|]. invert H5. simpl. erewrite subst_in_expr_complete.
     2: { eapply interp_expr_agree_on; eauto. apply Forall_forall.
          cbv [good_rule] in Hgood.
          destruct Hgood as (Hgood&_). intros x Hx. specialize (Hgood x).
@@ -354,7 +354,7 @@ Section __.
          apply in_fst in Hgood. apply in_of_list_Some in Hgood. fwd. cbv [agree_on].
          rewrite Hgood. apply interp_hyps_context_right_weak in H2.
          apply H2 in Hgood. rewrite Hgood. reflexivity. }
-   simpl. rewrite H3. apply Forall3_length in H5. fwd. lia.
+   simpl. rewrite H3. apply Forall3_length in H4. fwd. lia.
   Qed.
 
   Definition eval_aexpr aexpr ctx agg_hyps's :=
@@ -507,13 +507,13 @@ Section __.
              destruct Hgoodp3 as [H'|H'].
              -- eapply bare_in_context_hyps in H'; [|eassumption]. fwd.
                 apply in_fst in H'. exfalso. auto.
-             -- invert H3. eapply Forall2_firstn in H5. pose proof H5 as H5'.
-                apply interp_args_context_right in H5. rewrite Forall_forall in H5.
-                cbv [fact_ins] in Hgoodp1. eapply bare_in_context_args in H5'.
+             -- invert H3. eapply Forall2_firstn in H4. pose proof H4 as H4'.
+                apply interp_args_context_right in H4. rewrite Forall_forall in H4.
+                cbv [fact_ins] in Hgoodp1. eapply bare_in_context_args in H4'.
                 2: { rewrite Hgoodp1. apply in_map. eassumption. }
-                fwd. apply in_fst in H5'. apply in_of_list_Some_strong in H5'.
-                fwd. apply H5 in H5'p1. cbv [fact_ins]. rewrite H5'p0.
-                rewrite map.get_put_diff in H5'p1; auto. intros ?. subst. eauto. }
+                fwd. apply in_fst in H4'. apply in_of_list_Some_strong in H4'.
+                fwd. apply H4 in H4'p1. cbv [fact_ins]. rewrite H4'p0.
+                rewrite map.get_put_diff in H4'p1; auto. intros ?. subst. eauto. }
       erewrite subst_in_fact_complete. 1: reflexivity.
       eapply interp_fact_agree_on; [eassumption|].
       apply Forall_forall. intros v H. cbv [agree_on]. invert H3.
