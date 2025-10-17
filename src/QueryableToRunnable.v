@@ -11,7 +11,7 @@ From Stdlib Require Import micromega.Lia.
 
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
-From Datalog Require Import Datalog Map Tactics Fp List Interpreter.
+From Datalog Require Import Datalog Map Tactics Fp List Interpreter Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
@@ -120,6 +120,8 @@ Section Transform.
   Definition pairs_satisfy {X : Type} (P : X -> X -> Prop) (l : list X) :=
     forall x1 x2, In x1 l -> In x2 l -> x1 = x2 \/ P x1 x2.
 
+  Definition disjoint_pairs_satisfy : nat. Admitted.
+  
   Lemma pairs_satisfy_weaken {X : Type} P1 P2 (l1 l2 : list X) :
     pairs_satisfy P1 l1 ->
     (forall x y, P1 x y -> P2 x y) ->
@@ -295,67 +297,48 @@ Section Transform.
   Qed.
 
   Lemma agree_functional p :
-    dag p ->
+    dag (rel_graph p) ->
     Forall goodish_rule p ->
     pairs_satisfy (agree p) p ->
     functional p.
   Proof.
-    induction 1.
-    - intros. clear. cbv [functional]. intros. invert H. invert_list_stuff.
-    - intros H1 H2. invert H1. specialize (IHdag ltac:(assumption)). specialize' IHdag.
-      { eauto with incl. }
-      cbv [functional]. intros args1 args2 R Hargs1 Hargs2 Hins.
-      eapply dag_terminates' in Hargs1, Hargs2; eauto.
-      destruct Hargs1 as [Hargs1|Hargs1]; destruct Hargs2 as [Hargs2|Hargs2].
-      + eapply IHdag; eassumption.
-      + fwd. invert Hargs1. apply Exists_exists in H1. fwd. cbv [pairs_satisfy] in H2.
-        simpl in H2. specialize (H2 r x ltac:(auto) ltac:(auto)). destruct H2 as [H2|H2].
-        -- subst. eapply IHdag.
-           ++ econstructor. 1: apply Exists_exists; eauto. assumption.
-           ++ econstructor. 1: eapply Exists_exists; eauto. assumption.
-           ++ assumption.
-        -- symmetry. eapply H2; eassumption || auto.
-           ++ eapply Forall_impl; [|eassumption]. intros.
-              eapply prog_impl_fact_subset; simpl; eauto.
-           ++ eapply Forall_impl; [|eassumption]. intros.
-              eapply prog_impl_fact_subset; simpl; eauto.
-      + fwd. invert Hargs2. apply Exists_exists in H1. fwd. cbv [pairs_satisfy] in H2.
-        simpl in H2. specialize (H2 r x ltac:(auto) ltac:(auto)). destruct H2 as [H2|H2].
-        -- subst. eapply IHdag.
-           ++ econstructor. 1: apply Exists_exists; eauto. assumption.
-           ++ econstructor. 1: eapply Exists_exists; eauto. assumption.
-           ++ assumption.
-        -- eapply H2; eassumption || auto.
-           ++ eapply Forall_impl; [|eassumption]. intros.
-              eapply prog_impl_fact_subset; simpl; eauto.
-           ++ eapply Forall_impl; [|eassumption]. intros.
-              eapply prog_impl_fact_subset; simpl; eauto.
-      + fwd. cbv [rule_impl] in *. fwd.
-        pose proof hyp_ins_det as H'. epose proof (H' _ _ args1 args2) as H'.
-        specialize (H' _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
-        assert (hyps' = hyps'1).
-        { apply Forall2_eq_eq. eapply Forall2_impl_strong; [|eassumption].
-          simpl. intros [R1' args1'] [R2' args2'] H12 H1' H2'. fwd. f_equal.
-          rewrite Forall_forall in *. eapply IHdag.
-          - eapply Hargs1p1. apply in_app_iff. eauto.
-          - eapply Hargs2p1. apply in_app_iff. eauto.
-          - assumption. }
-        subst. clear H'.
-        pose proof ahyp_ins_det as H'. epose proof (H' _ _ args1 args2) as H'.
-        specialize (H' _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
-        assert (agg_hyps's0 = agg_hyps's).
-        { apply Forall2_eq_eq. eapply Forall2_impl_strong; [|eassumption].
-          simpl. intros xs ys Hxsys Hxs Hys. apply Forall2_eq_eq.
-          eapply Forall2_impl_strong; [|eassumption]. simpl.
-          intros [R1' args1'] [R2' args2'] H12 H1' H2'. fwd. f_equal.
-          rewrite Forall_forall in *. eapply IHdag.
-          - eapply Hargs1p1. apply in_app_iff. rewrite in_concat. eauto.
-          - eapply Hargs2p1. apply in_app_iff. rewrite in_concat. eauto.
-          - assumption. }
-        subst. clear H'.
-        apply eval_rule_q_complete in Hargs1p0p1, Hargs2p0p1; try assumption.
-        rewrite Hins in *. rewrite Hargs1p0p1 in Hargs2p0p1. invert_list_stuff.
-        reflexivity.
+    intros H1 H2 H3. cbv [functional]. intros args1 args2 R. revert args1 args2.
+    apply dag_wf in H1. specialize (H1 R). induction H1. clear H.
+    intros args1 args2 Hargs1 Hargs2 Hins.
+    invert Hargs1. invert Hargs2.
+    pose proof H as Hrel1. pose proof H4 as Hrel2.
+    apply rel_graph_spec in Hrel1, Hrel2. 
+    cbv [pairs_satisfy] in H3. rewrite Exists_exists in *. fwd.
+    match goal with
+    | H1: _ , H2: _ |- _ => specialize (H3 _ _ H1 H2)
+    end.
+    destruct H3; [|solve[eauto]]. subst. cbv [rule_impl] in *. fwd.
+    pose proof hyp_ins_det as H'. epose proof (H' _ _ args1 args2) as H'.
+    rewrite Forall_forall in *.
+    specialize (H' _ _ _ _ ltac:(eauto) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
+    assert (hyps'0 = hyps').
+    { apply Forall2_eq_eq. eapply Forall2_impl_strong; [|eassumption].
+      simpl. intros [R1' args1'] [R2' args2'] H12 H1' H2'. fwd. f_equal.
+      eapply H0; eauto.
+      - move Hrel1 at bottom. eapply (Hrel1 (_, _)). apply in_app_iff. eauto.
+      - eapply H1. apply in_app_iff. eauto.
+      - eapply H5. apply in_app_iff. eauto. }
+    subst. clear H'.
+    pose proof ahyp_ins_det as H'. epose proof (H' _ _ args1 args2) as H'.
+    specialize (H' _ _ _ ltac:(eauto) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
+    assert (agg_hyps's0 = agg_hyps's).
+    { apply Forall2_eq_eq. eapply Forall2_impl_strong; [|eassumption].
+      simpl. intros xs ys Hxsys Hxs Hys. apply Forall2_eq_eq.
+      eapply Forall2_impl_strong; [|eassumption]. simpl.
+      intros [R1' args1'] [R2' args2'] H12 H1' H2'. fwd. f_equal.
+      eapply H0; eauto.
+      - move Hrel1 at bottom. eapply (Hrel1 (_, _)). apply in_app_iff. rewrite in_concat. eauto.
+      - eapply H1. apply in_app_iff. rewrite in_concat. eauto.
+      - eapply H5. apply in_app_iff. rewrite in_concat. eauto. }
+    subst. clear H'.
+    apply eval_rule_q_complete in Hp1p1, H4p1p1; auto.
+    rewrite Hins in *. rewrite Hp1p1 in H4p1p1. invert_list_stuff.
+    reflexivity.
   Qed.      
 
   (*if we get a message saying concls of r need to be computed, then send out messages
