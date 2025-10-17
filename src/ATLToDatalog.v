@@ -16,7 +16,7 @@ From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
   Meshgrid ContextsAgree ATLDeep Range.
 
-From Datalog Require Import Datalog Dag Map List Tactics Interpreter QueryableToRunnable. 
+From Datalog Require Import Datalog RevRel Dag Map List Tactics Interpreter QueryableToRunnable. 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable.
 
 Import Datatypes.
@@ -677,19 +677,20 @@ Definition lower e out :=
 (*this is a very (unnecessarily) strong property.  happily, ATL programs are
   very-obviously functional, so they meet it.*)
 Definition obviously_non_intersecting (r1 r2 : rule) :=
-  forall R1 R2 idxs1 idxs2 hyps1 hyps2 agg_hyps1 agg_hyps2 x1 x2,
-  rule_impl' r1 (R1, x1 :: idxs1) hyps1 agg_hyps1 ->
-  rule_impl' r2 (R2, x2 :: idxs2) hyps2 agg_hyps2 ->
-  R1 = R2 ->
-  idxs1 = idxs2 ->
+  forall R idxs hyps1 hyps2 agg_hyps1 agg_hyps2 x1 x2,
+  rule_impl' r1 (R, x1 :: idxs) hyps1 agg_hyps1 ->
+  rule_impl' r2 (R, x2 :: idxs) hyps2 agg_hyps2 ->
   In (true_rel, [Bobj false]) hyps1 \/ In (true_rel, [Bobj false]) hyps2.
 
 Lemma obviously_non_intersecting_comm r1 r2 :
   obviously_non_intersecting r1 r2 ->
   obviously_non_intersecting r2 r1.
-Proof. cbv [obviously_non_intersecting]. intros.
-       specialize (H _ _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(auto) ltac:(auto)). destruct H; auto.
+Proof.
+  cbv [obviously_non_intersecting]. intros.
+  specialize (H _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+  destruct H; auto.
 Qed.
+
 Definition pairwise_ni := pairs_satisfy obviously_non_intersecting.
 
 Inductive pairwise_ni' : list rule -> Prop :=
@@ -1351,36 +1352,40 @@ Instance query_sig : query_signature rel :=
       | str_rel _ => 1
       | nat_rel _ => 1
       | true_rel => 0
-      end }.
-
-Lemma ni_agree p r1 r2 :
-  obviously_non_intersecting r1 r2 ->
-  agree p r1 r2.
-Proof.
-  intros H.
+      end }. 
 
 Lemma lower_goodish e out name idxs depths :
-  Forall goodish_rule (snd (lower_rec e out name idxs depths)).
+  Forall goodish_rule (rev_prog_rels (snd (lower_rec e out name idxs depths))).
 Proof.
   revert out name idxs depths.
   induction e; simpl; intros; repeat destr_lower; simpl.
-  all: try (epose proof (IHe _ _ _ _) as IHe; rewrite E in IHe).
-  all: try (epose proof (IHe1 _ _ _ _) as IHe1; epose proof (IHe2 _ _ _ _) as IHe2; rewrite E in *; rewrite E0 in * ).
-  all: simpl in *.
+  all: try (epose_dep IHe; rewrite E in IHe).
+  all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in * ).
+  all: cbv [rev_prog_rels] in *; simpl in *.
+  all: repeat rewrite map_app; simpl.
   all: try (apply Forall_app; split; [assumption|]).
   all: auto.
   all: repeat constructor.
-  { cbv [goodish_rule]. simpl. eexists.
-    eexists (match out with
-             | true_rel => _
-             | _ => _
-             end). split; [reflexivity|].
-    ssplit.
-    { cbv [fact_ins]. simpl. symmetry.
-      destruct_one_match; simpl;
-        repeat reflexivity || apply List.map_nil || apply map_cons_eq. }
-    { intros H'. fwd. Abort. (*oops args are backwards*)
-
+  { repeat match goal with
+           | |- goodish_rule _ => cbv [goodish_rule]; eexists; eexists (match out with
+                                                                      | true_rel => _
+                                                                      | _ => _
+                                                                      end);
+                                split; [reflexivity|]; ssplit
+           | _ => progress (cbv [rev_fact_rels rev_rule_rels rev_aexpr_rels fact_ins]; simpl; repeat rewrite app_nil_r; repeat rewrite map_app; repeat rewrite rev_app_distr)
+           end.
+  (* { . simpl. *)
+  (*   repeat rewrite rev_app_distr. simpl. repeat rewrite app_nil_r. eexists. *)
+  (*   eexists (match out with *)
+  (*            | true_rel => _ *)
+  (*            | _ => _ *)
+  (*            end). split; [reflexivity|]. *)
+  (*   ssplit; simpl. *)
+  (*   { destruct_one_match. cbv [fact_ins]. simpl. symmetry. *)
+  (*     destruct_one_match; simpl; *)
+  (*       repeat reflexivity || apply List.map_nil || apply map_cons_eq. } *)
+  (*   { intros H'. fwd. Abort. (*oops args are backwards*) *)
+Abort.
 
 (*i do not like fmaps, because you cannot iterate over them,
   so i work with coqutil maps instead.
