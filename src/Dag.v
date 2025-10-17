@@ -347,9 +347,115 @@ Proof.
     + eauto with incl.
     + intros ?. subst. cbv [edge_rel] in Hy. cbv [not_in_snd] in H0. apply H0.
       apply in_map_iff. eexists (_, _). simpl. eauto.
-Qed.
+Qed. 
 
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties Relations.Relations.
+
+Lemma subrel_Acc {X : Type} R1 R2 (z : X) :
+  Acc R2 z ->
+  (forall x y, R1 x y -> R2 x y) ->
+  Acc R1 z.
+Proof. induction 1. constructor. auto. Qed.
+
+Lemma subrel_wf {X : Type} (R1 R2 : X -> X -> Prop) :
+  well_founded R2 ->
+  (forall x y, R1 x y -> R2 x y) ->
+  well_founded R1.
+Proof. cbv [well_founded]. eauto using subrel_Acc. Qed.
+
+Lemma dag'_wf g :
+  dag' g ->
+  well_founded (edge_rel g).
+Proof.
+  intros H. apply dag'_dag in H. fwd. apply dag_wf in Hp1.
+  eapply subrel_wf; eauto. cbv [edge_rel]. eauto with incl.
+Qed.
+
+Lemma Acc_not_symm {X : Type} (R : X -> X -> Prop) x :
+  Acc R x ->
+  R x x ->
+  False.
+Proof. induction 1; eauto. Qed.
+
+Lemma wf_dag''' g v :
+  Acc (edge_rel g) v ->
+  In v (map fst g) ->
+  Forall (fun e => In (snd e) (map fst g)) g ->
+  False.
+Proof.
+  intros H1 H2 H3. induction H1. rewrite Forall_forall in H3. apply in_map_iff in H2.
+  fwd. destruct x0 as (e1&e2). simpl in *. eapply H0; [eassumption|].
+  apply H3 in H2p1. assumption.
+Qed.
+
+Lemma In_dec {X : Type} (x : X) l :
+  (forall x y : X, x = y \/ x <> y) ->
+  In x l \/ ~In x l.
+Proof.
+  intros H. induction l; auto. destruct IHl; simpl; auto.
+  specialize (H a x). intuition auto.
+Qed.
+
+Lemma Forall_dec {X : Type} P (l : list X) :
+  (forall x, P x \/ ~ P x) ->
+  Forall P l \/ Exists (fun x => ~P x) l.
+Proof.
+  intros H. induction l; auto. destruct IHl; auto. specialize (H a). intuition auto.
+Qed.
+
+Lemma wf_dag'' g :
+  (forall x y : V, x = y \/ x <> y) ->
+  well_founded (edge_rel g) ->
+  Exists (fun e => ~In (snd e) (map fst g)) g \/ g = [].
+Proof.
+  intros Hdec H. destruct g as [|e g]; [auto|]. left.
+  specialize (H (fst e)). epose proof Forall_dec as H'.
+  edestruct H' as [H''|H'']; [| |exact H''].
+  { intros ?. apply In_dec. assumption. }
+  exfalso. eapply wf_dag'''; eauto. simpl. auto.
+Qed.
+Search Exists app.
+Lemma Exists_split {X : Type} (l : list X) P :
+  Exists P l ->
+  exists l1 x l2,
+    P x /\ l = l1 ++ x :: l2.
+Proof.
+  induction 1.
+  - exists nil. simpl. eauto.
+  - fwd. eexists (_ :: _). simpl. eauto.
+Qed.
+    
+Lemma wf_dag' g :
+  (forall x y : V, x = y \/ x <> y) ->
+  well_founded (edge_rel g) ->
+  dag' g.
+Proof.
+  intros Hdec. remember (length g) as n eqn:E. revert g E. induction n; intros g E H.
+  - destruct g; try discriminate E. constructor.
+  - pose proof H as H'. apply wf_dag'' in H; auto. destruct H; [|subst; constructor].
+    apply Exists_split in H. fwd. apply dag'_alt_dag'. constructor.
+    + apply dag'_dag_alt. apply IHn.
+      -- rewrite length_app in *. simpl in *. lia.
+      -- intros ?. eapply subrel_Acc; eauto. intros.
+         eapply edge_rel_weaken; eauto with incl.
+    + eapply not_in_fst_incl; [eassumption|]. apply incl_cons; auto with incl.
+      apply in_app_iff. simpl. auto.
+Qed.
+
+Lemma wf_dag'''' g :
+  well_founded (edge_rel g) ->
+  g = [] \/ exists e, In e g /\ not_in_snd g (fst e).
+Proof.
+  intros H. induction g.
+  - auto.
+  - right. specialize' IHg. 1: admit.
+    destruct IHg as [IHg|IHg]. 1: admit.
+    specialize (H (fst a)). invert H.
+Abort.
+
+Lemma wf_dag_em :
+  (forall g, well_founded (edge_rel g) -> dag' g) -> (forall x y : V, x = y \/ x <> y).
+Proof. (*seems true*) Abort.
 
 Lemma clos_trans_list x y l g :
   path g x l ->
@@ -373,12 +479,6 @@ Proof.
   apply IHHy1; auto. intros. apply IHHy2; auto. eauto using t_trans, t_step.
 Qed.
 
-Lemma Acc_not_symm {X : Type} (R : X -> X -> Prop) x :
-  Acc R x ->
-  R x x ->
-  False.
-Proof. induction 1; eauto. Qed.
-      
 Lemma dags_have_no_cycles' x l g :
   dag g ->
   path g x l ->

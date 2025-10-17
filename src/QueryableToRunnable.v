@@ -8,6 +8,7 @@ From Stdlib Require Import ZArith.Znat.
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
+From Stdlib Require Import Permutation.
 
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
@@ -90,7 +91,8 @@ Section Transform.
   Context {rel var fn aggregator T : Type}.
   Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
   Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}. 
+  Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec :  forall x0 y0, BoolSpec (x0 = y0) (x0 <> y0) (rel_eqb x0 y0)}.
+  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}. 
 
   Local Notation rule' := (rule (rel*bool) var fn aggregator).
   Local Notation rule := (rule rel var fn aggregator).
@@ -120,8 +122,6 @@ Section Transform.
   Definition pairs_satisfy {X : Type} (P : X -> X -> Prop) (l : list X) :=
     forall x1 x2, In x1 l -> In x2 l -> x1 = x2 \/ P x1 x2.
 
-  Definition disjoint_pairs_satisfy : nat. Admitted.
-  
   Lemma pairs_satisfy_weaken {X : Type} P1 P2 (l1 l2 : list X) :
     pairs_satisfy P1 l1 ->
     (forall x y, P1 x y -> P2 x y) ->
@@ -362,6 +362,125 @@ Section Transform.
   Definition make_good (p : list rule) : list rule' :=
     map request_hyps p ++ map add_hyp p.
 
+  Ltac t :=
+    repeat match goal with
+      | _ => assumption || contradiction
+      | H: context[In _ (flat_map _ _)] |- _ => rewrite in_flat_map in H
+      | H: context[In _ (map _ _)] |- _ => rewrite in_map_iff in H
+      | H: context[In _ (_ ++ _)] |- _ => rewrite in_app_iff in H
+      | |- In _ (map _ _) => apply in_map_iff
+      | |- In _ (flat_map _ _) => apply in_flat_map
+      | |- In _ (_ ++ _) => apply in_app_iff
+      | |- exists _, _ /\ _ => eexists; split; [solve[eauto] |]
+      | |- _ /\ _ => split; [solve[eauto] |]
+      | _ => progress (intros; cbv [rel_graph edges_of_rule add_hyp rule_agg_hyps] in *; fwd; subst; simpl in * )
+      | _ => progress invert_list_stuff
+      | _ => destruct_one_match_hyp
+      | _ => solve[eauto]
+      | H: _ = [_] |- _ => rewrite H in *
+      | |- _ \/ False => left
+      | H: _ \/ _ |- _ => destruct H
+      end.
+
+  Lemma request_hyps_dag' b1 b2 R1 R2 r :
+    In ((R1, b1), (R2, b2)) (edges_of_rule (request_hyps r)) ->
+    b1 = false /\ b2 = false /\ In (R2, R1) (edges_of_rule r).
+  Proof. t. Qed.
+
+  Lemma add_hyp_dag' b1 b2 R1 R2 r concl :
+    r.(rule_concls) = [concl] ->
+    In ((R1, b1), (R2, b2)) (edges_of_rule (add_hyp r)) ->
+    b1 = true /\ if b2 then In (R1, R2) (edges_of_rule r) else R2 = R1.
+  Proof. t. Qed.
+
+  Lemma map_request_hyps_dag' b1 b2 R1 R2 p :
+    In ((R1, b1), (R2, b2)) (rel_graph (map request_hyps p)) ->
+    b1 = false /\ b2 = false /\ In (R2, R1) (rel_graph p).
+  Proof.
+    intros H. apply in_flat_map in H. fwd. apply in_map_iff in Hp0. fwd.
+    apply request_hyps_dag' in Hp1. t.    
+  Qed.
+
+  Lemma map_add_hyp_dag' b1 b2 R1 R2 p :
+    Forall (fun r => exists concl, r.(rule_concls) = [concl]) p ->
+    In ((R1, b1), (R2, b2)) (rel_graph (map add_hyp p)) ->
+    b1 = true /\ if b2 then In (R1, R2) (rel_graph p) else R2 = R1.
+  Proof.
+    intros H1 H2. apply in_flat_map in H2. fwd. apply in_map_iff in H2p0. fwd.
+    rewrite Forall_forall in H1. specialize (H1 _ H2p0p1). fwd.
+    eapply add_hyp_dag' in H2p1; eauto. fwd. destruct b2; auto. intuition auto.
+    apply in_flat_map. eauto.
+  Qed.
+
+  Lemma map_request_hyps_dag p :
+    dag' (rel_graph p) ->
+    dag' (rel_graph (map request_hyps p)).
+  Proof.
+    intros H. apply dag'_swap in H. apply wf_dag'.
+    { intros (x1&x2) (y1&y2). destr (rel_eqb x1 y1); destruct x2, y2; auto.
+      all: (left; congruence) || (right; congruence). }
+    apply dag'_wf in H.
+    intros (R, b). constructor. intros (R', b') H'.
+    apply map_request_hyps_dag' in H'. fwd. clear -H. rename R' into R.
+    specialize (H R). induction H. constructor. intros (R', b') H'.
+    apply map_request_hyps_dag' in H'. fwd. apply H0. cbv [edge_rel]. apply in_map_iff.
+    eexists. split; eauto. reflexivity.
+  Qed.
+  
+  Lemma map_add_hyp_dag p :
+    Forall (fun r : rule => exists concl : fact, rule_concls r = [concl]) p ->
+    dag' (rel_graph p) ->
+    dag' (rel_graph (map add_hyp p)).
+  Proof.
+    intros H0 H. apply wf_dag'.
+    { intros (x1&x2) (y1&y2). destr (rel_eqb x1 y1); destruct x2, y2; auto.
+      all: (left; congruence) || (right; congruence). }
+    apply dag'_wf in H.
+    intros (R, b). specialize (H R). induction H. constructor. intros (Ry, By) Hy.
+    apply map_add_hyp_dag' in Hy; auto. fwd. destruct By.
+    { apply H1. assumption. }
+    subst. constructor. clear -H0. intros (Ry, By) Hy. apply map_add_hyp_dag' in Hy; auto.
+    fwd. congruence.
+  Qed.
+
+  Lemma request_hyps_hyps_false p :
+    Forall (fun '(R, b) => b = false) (map snd (rel_graph (map request_hyps p))).
+  Proof.
+    apply Forall_map. apply Forall_flat_map. apply Forall_map. apply Forall_forall.
+    intros r _. apply Forall_flat_map. apply Forall_forall. intros f' _.
+    apply Forall_map. apply Forall_app. split.
+    - destruct r. simpl. constructor.
+    - destruct r. simpl. apply Forall_map. apply Forall_map. apply Forall_forall.
+      intros f _. simpl. reflexivity.
+  Qed.
+
+  Lemma add_hyps_concls_true p :
+    Forall (fun '(R, b) => b = true) (map fst (rel_graph (map add_hyp p))).
+  Proof.
+    apply Forall_map. apply Forall_flat_map. apply Forall_map. apply Forall_forall.
+    intros r _. apply Forall_flat_map. apply Forall_forall. intros f' Hf'.
+    apply Forall_map. simpl. apply Forall_forall. intros _ _. destruct r. simpl in *.
+    apply in_map_iff in Hf'. fwd. reflexivity.
+  Qed.
+
+  Lemma make_good_dag p :
+    Forall goodish_rule p ->
+    dag' (rel_graph p) ->
+    dag' (rel_graph (make_good p)).
+  Proof.
+    intros H1 H2. cbv [rel_graph make_good]. rewrite flat_map_app.
+    eapply dag'_permutation.
+    { apply Permutation_app_comm. }
+    apply dag'_app; cycle 1.
+    { apply map_add_hyp_dag; auto. eapply Forall_impl; [|eassumption].
+      cbv [goodish_rule]. intros. fwd. eauto. }
+    { apply map_request_hyps_dag. assumption. }
+    cbv [no_cycles]. eapply Forall_impl; [|apply add_hyps_concls_true].
+    intros (?, ?) H. subst. cbv [not_in_snd]. intros H.
+    epose proof (request_hyps_hyps_false _) as H'. rewrite Forall_forall in H'.
+    apply H' in H. congruence.
+  Qed.
+  
   Lemma incl_fact_ins (f : fact) :
     incl (fact_ins f) (fact_args f).
   Proof. apply incl_firstn. Qed.
@@ -674,7 +793,7 @@ Qed.
            destruct b as [[? ?] ?]; simpl in *. destruct a0. exact H.
   Qed.      
 
-  Lemma request_hyps_hyps_false r R b args hyps' :
+  Lemma request_hyps_hyps'_false r R b args hyps' :
     rule_impl (request_hyps r) (R, b, args) hyps' ->
     Forall (fun hyp' => snd (fst hyp') = false) hyps'.
   Proof.
@@ -700,7 +819,7 @@ Qed.
       apply invert_rule_impl_request_hyps in H1. subst. apply Wfp. right. right.
       exists hyps'. split.
       { constructor. assumption. }
-      apply request_hyps_hyps_false in H1'. rewrite Forall_forall in Hxp1, H1'.
+      apply request_hyps_hyps'_false in H1'. rewrite Forall_forall in Hxp1, H1'.
       rewrite Forall_forall. intros x Hx. specialize (Hxp1 _ Hx). specialize (H1' _ Hx).
       destruct x as [ [R' b'] args']. simpl in Hxp1, H1'. subst. assumption.
     - invert_list_stuff. eapply invert_rule_impl_add_hyp in H2; eauto. fwd. simpl.
@@ -875,3 +994,4 @@ Qed.
       apply partial_in. reflexivity.
   Qed.
 End Transform.
+
