@@ -690,12 +690,7 @@ Lemma obviously_non_intersecting_comm r1 r2 :
 Proof. cbv [obviously_non_intersecting]. intros.
        specialize (H _ _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(auto) ltac:(auto)). destruct H; auto.
 Qed.
-
-Definition pairwise_ni (p : list rule) :=
-  forall r1 r2,
-    In r1 p ->
-    In r2 p ->
-    r1 = r2 \/ obviously_non_intersecting r1 r2.
+Definition pairwise_ni := pairs_satisfy obviously_non_intersecting.
 
 Inductive pairwise_ni' : list rule -> Prop :=
 | pni_nil : pairwise_ni' []
@@ -708,7 +703,7 @@ Lemma pairwise_ni'_sound p :
   pairwise_ni' p ->
   pairwise_ni p.
 Proof.
-  cbv [pairwise_ni].
+  cbv [pairwise_ni pairs_satisfy].
   induction 1; simpl; [solve [intuition] |]. intros.
   rewrite Forall_forall in H.
   destruct H1, H2; subst; auto using obviously_non_intersecting_comm.
@@ -718,7 +713,7 @@ Lemma pairwise_ni_incl p1 p2 :
   incl p1 p2 ->
   pairwise_ni p2 ->
   pairwise_ni p1.
-Proof. cbv [pairwise_ni]. auto. Qed.
+Proof. cbv [pairwise_ni pairs_satisfy]. auto. Qed.
 
 Definition good_rel name name' (P : string -> Prop) (true_ok : bool) (R : rel) :=
   match R with
@@ -776,7 +771,7 @@ Lemma pairwise_ni_app p1 p2 :
   diff_rels p1 p2 ->
   pairwise_ni (p1 ++ p2).
 Proof.
-  cbv [pairwise_ni diff_rels]. intros. rewrite in_app_iff in H2, H3.
+  cbv [pairwise_ni pairs_satisfy diff_rels]. intros. rewrite in_app_iff in H2, H3.
   destruct H2, H3; eauto.
   - cbv [obviously_non_intersecting]. right. intros. subst.
     apply rule_impl_rel in H4, H5. fwd. exfalso. intuition eauto. 
@@ -1320,7 +1315,7 @@ Proof.
   Unshelve. (*TODO why*) all: exact "".
 Qed.
 
-Lemma lower_functional e out :
+Lemma lower_functional' e out :
   vars_good [] e ->
   ~(out \in vars_of e) ->
   pairwise_ni (lower e out).
@@ -1357,6 +1352,12 @@ Instance query_sig : query_signature rel :=
       | nat_rel _ => 1
       | true_rel => 0
       end }.
+
+Lemma ni_agree p r1 r2 :
+  obviously_non_intersecting r1 r2 ->
+  agree p r1 r2.
+Proof.
+  intros H.
 
 Lemma lower_goodish e out name idxs depths :
   Forall goodish_rule (snd (lower_rec e out name idxs depths)).
@@ -2418,7 +2419,7 @@ Proof.
       simpl. apply Exists_app. left. destr_lower. simpl. apply Exists_app. simpl. right.
       apply Exists_cons_hd. cbv [rule_impl]. do 2 eexists. split; [reflexivity|].
       eapply mk_rule_impl' with (ctx := s).
-      -- constructor. econstructor.
+      -- econstructor; [reflexivity|]. econstructor.
          { interp_exprs. }
          { reflexivity. }
          { instantiate (2 := map Robj (map toR ss)). apply Forall3_zip3.

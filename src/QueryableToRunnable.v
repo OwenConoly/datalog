@@ -209,8 +209,8 @@ Section Transform.
     intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd. eexists.
     split; [eassumption|]. simpl.
     rewrite Hgoodp0 in *. invert_list_stuff. invert H0. 1: reflexivity.
-    rewrite <- H in *. invert H4. simpl in *. apply Forall3_ignore12 in H5.
-    rewrite Forall_forall in *. intros ahyps Hahyps. specialize (H5 _ Hahyps).
+    rewrite <- H in *. invert H5. simpl in *. apply Forall3_ignore12 in H4.
+    rewrite Forall_forall in *. intros ahyps Hahyps. specialize (H4 _ Hahyps).
     fwd. eapply Forall2_impl_strong; [|eassumption]. intros f [R' args'] Hff' Hf Hf'.
     invert Hff'. split; [reflexivity|]. eapply Forall2_impl_strong.
     2: apply Forall2_firstn; eassumption.
@@ -248,9 +248,9 @@ Section Transform.
     intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd. eexists.
     split; [eassumption|]. simpl.
     rewrite Hgoodp0 in *. invert_list_stuff. invert H0. 1: reflexivity.
-    rewrite <- H in *. invert H4. simpl in *. erewrite subst_in_expr_complete.
-    { simpl. rewrite H1. simpl. apply Forall3_length in H5. fwd. f_equal. lia. }
-    eapply interp_expr_agree_on; [eassumption|]. clear H5. rewrite Forall_forall. fwd.
+    rewrite <- H in *. invert H5. simpl in *. erewrite subst_in_expr_complete.
+    { simpl. rewrite H1. simpl. apply Forall3_length in H4. fwd. f_equal. lia. }
+    eapply interp_expr_agree_on; [eassumption|]. clear H4. rewrite Forall_forall. fwd.
     intros v Hv. cbv [agree_on]. invert H3.
     specialize (Hgoodp3 v). specialize' Hgoodp3.
     { cbv [appears_in_rule appears_in_agg_expr]. rewrite <- H. eauto 7. }
@@ -297,13 +297,13 @@ Section Transform.
   Qed.
 
   Lemma agree_functional p :
-    dag (rel_graph p) ->
+    dag' (rel_graph p) ->
     Forall goodish_rule p ->
     pairs_satisfy (agree p) p ->
     functional p.
   Proof.
     intros H1 H2 H3. cbv [functional]. intros args1 args2 R. revert args1 args2.
-    apply dag_wf in H1. specialize (H1 R). induction H1. clear H.
+    apply dag'_wf in H1. specialize (H1 R). induction H1. clear H.
     intros args1 args2 Hargs1 Hargs2 Hins.
     invert Hargs1. invert Hargs2.
     pose proof H as Hrel1. pose proof H4 as Hrel2.
@@ -613,7 +613,7 @@ Section Transform.
     cbv [add_hyp]. invert Hp1.
     (*TODO I don't completely understand why i have to do this*)
     eapply mk_rule_impl' with (ctx := ctx) (ctx' := ctx'); simpl.
-    { invert H; simpl; constructor. auto. }
+    { invert H; simpl; econstructor; auto. }
     { apply Exists_map. eapply Exists_impl; [|eassumption]. simpl. intros.
       eapply interp_fact_relmap in H2. Fail eassumption. Fail apply H2. exact H2. }
     rewrite Hgoodp0. simpl. constructor.
@@ -688,14 +688,14 @@ Section Transform.
         eexists. split; [eassumption|]. invert H1p1. constructor.
         simpl. cbv [fact_ins]. apply Forall2_firstn. eassumption.
       + right. cbv [rule_agg_hyps]. invert H. 1: simpl in Hin; contradiction.
-        rewrite <- H2 in *. fwd. invert H4. simpl in *.
-        rewrite in_concat in Hin. fwd. apply Forall3_ignore12 in H5.
-        rewrite Forall_forall in H5. specialize (H5 _ ltac:(eassumption)). fwd.
-        apply Forall2_forget_l in H5p1. rewrite Forall_forall in H5p1.
-        specialize (H5p1 _ ltac:(eassumption)). fwd. rewrite Exists_exists.
+        rewrite <- H2 in *. fwd. invert H5. simpl in *.
+        rewrite in_concat in Hin. fwd. apply Forall3_ignore12 in H4.
+        rewrite Forall_forall in H4. specialize (H4 _ ltac:(eassumption)). fwd.
+        apply Forall2_forget_l in H4p1. rewrite Forall_forall in H4p1.
+        specialize (H4p1 _ ltac:(eassumption)). fwd. rewrite Exists_exists.
         eexists. split; [eassumption|].
-        eapply interp_fact_relmap with (g := plus_false) in H5p1p1. simpl in H5p1p1.
-        invert H5p1p1. constructor. simpl. cbv [fact_ins]. eapply Forall2_impl_strong.
+        eapply interp_fact_relmap with (g := plus_false) in H4p1p1. simpl in H4p1p1.
+        invert H4p1p1. constructor. simpl. cbv [fact_ins]. eapply Forall2_impl_strong.
         2: apply Forall2_firstn; eassumption. intros x2 y2 Hx2y2 Hx2 Hy2.
         simpl in H6. move Hgoodp5p1 at bottom.
         eapply interp_expr_agree_on; [eassumption|]. apply Forall_forall.
@@ -775,7 +775,7 @@ Qed.
     - symmetry in H1. apply option_map_Some in H1. fwd. rewrite H1p0 in *.
       split.
       + apply Forall_app. split; [assumption|]. apply Forall_concat.
-        invert H4. apply Forall3_ignore12 in H12. rewrite Forall_forall in *.
+        invert H5. apply Forall3_ignore12 in H12. rewrite Forall_forall in *.
         intros x Hx. specialize (H12 _ Hx). simpl in *. fwd.
         apply Forall2_forget_l in H12p1. rewrite Forall_forall in *. intros z Hz.
         specialize (H12p1 _ Hz). fwd. apply in_map_iff in H12p1p0. fwd.
@@ -783,9 +783,9 @@ Qed.
       + cbv [rule_impl]. do 2 eexists. split.
         { rewrite map_app. rewrite concat_map. reflexivity. }
         eapply mk_rule_impl' with (ctx := ctx); eauto.
-        -- rewrite H1p0. constructor. eapply interp_agg_expr_relmap with (g := fst) in H4.
-           rewrite agg_expr_relmap_comp in H4. rewrite agg_expr_relmap_id in H4.
-           apply H4.
+        -- rewrite H1p0. econstructor; eauto. eapply interp_agg_expr_relmap with (g := fst) in H5.
+           rewrite agg_expr_relmap_comp in H5. rewrite agg_expr_relmap_id in H5.
+           apply H5.
         -- rewrite Hgoodp0. constructor. constructor. assumption.
         -- rewrite map_map in H6p1. rewrite <- Forall2_map_l, <- Forall2_map_r in H6p1.
            erewrite <- Forall2_map_r. eapply Forall2_impl; [|eassumption]. simpl.
