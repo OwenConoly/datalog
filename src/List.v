@@ -196,6 +196,11 @@ Lemma Forall2_firstn R xs ys n :
   Forall2 R (firstn n xs) (firstn n ys).
 Proof. intros H. revert n. induction H; destruct n; simpl; eauto. Qed.
 
+Lemma Forall2_skipn R xs ys n :
+  Forall2 R xs ys ->
+  Forall2 R (skipn n xs) (skipn n ys).
+Proof. intros H. revert n. induction H; destruct n; simpl; eauto. Qed.
+
 Lemma Forall_or P Q xs :
   Forall (fun x => P x \/ Q x) xs ->
   Forall P xs \/ Exists Q xs.
@@ -442,6 +447,10 @@ Lemma incl_firstn (l : list A) n :
   incl (firstn n l) l.
 Proof. eauto using in_firstn. Qed.
 
+Lemma incl_skipn (l : list A) n :
+  incl (skipn n l) l.
+Proof. eauto using in_skipn. Qed.
+
 Lemma flat_map_map (g : A -> B) (f : B -> list C) l :
   flat_map f (map g l) = flat_map (fun x => f (g x)) l.
 Proof. induction l; simpl; f_equal; auto. Qed.
@@ -500,6 +509,8 @@ Lemma map_cons_eq {A B : Type} (f : A -> B) x l l' :
   map f l = l' ->
   map f (x :: l) = f x :: l'.
 Proof. simpl. intros. f_equal. assumption. Qed.
+
+
 
 Ltac invert_list_stuff :=
   repeat match goal with

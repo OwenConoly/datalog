@@ -34,7 +34,7 @@ Class signature {fn aggregator T : Type} : Type :=
 Arguments signature : clear implicits.
 
 Class query_signature {rel : Type} :=
-  { ins : rel -> nat }.
+  { outs : rel -> nat }.
 Arguments query_signature : clear implicits.
 
 Section __.
@@ -50,7 +50,7 @@ Section __.
   | fun_expr (f : fn) (args : list expr).
   Set Elimination Schemes.
 
-  Inductive fact :=
+  Record fact :=
     { fact_R : rel;
       fact_args : list expr }.
 
@@ -517,8 +517,8 @@ Section __.
 
   Definition good_prog (p : list rule) := Forall good_rule p.
 
-  Definition fact_outs (f : fact) := skipn (ins f.(fact_R)) f.(fact_args).
-  Definition fact_ins (f : fact) := firstn (ins f.(fact_R)) f.(fact_args).
+  Definition fact_outs (f : fact) := firstn (outs f.(fact_R)) f.(fact_args).
+  Definition fact_ins (f : fact) := skipn (outs f.(fact_R)) f.(fact_args).
 
   Definition with_only_ins (f : fact) :=
     {| fact_R := f.(fact_R); fact_args := fact_ins f |}.

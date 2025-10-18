@@ -472,7 +472,7 @@ Section __.
   Lemma eval_rule_q_complete R args r hyps' agg_hyps's :
     goodish_rule r ->
     rule_impl' r (R, args) hyps' agg_hyps's ->
-    eval_rule_q r (firstn (ins R) args) hyps' agg_hyps's = [(R, args)].
+    eval_rule_q r (skipn (outs R) args) hyps' agg_hyps's = [(R, args)].
   Proof.
     intros Hgood Himpl. cbv [eval_rule_q]. cbv [goodish_rule] in Hgood. fwd.
     invert Himpl. rewrite Hgoodp0 in *. invert_list_stuff. simpl. rewrite app_nil_r.
@@ -490,7 +490,7 @@ Section __.
         destruct Hgoodp3 as [H'|H'].
         -- eapply bare_in_context_hyps in H'; [|eassumption]. fwd.
            apply in_fst in H'. exfalso. auto.
-        -- eapply Forall2_firstn in H5. pose proof H5 as H5'.
+        -- eapply Forall2_skipn in H5. pose proof H5 as H5'.
            apply interp_args_context_right in H5. rewrite Forall_forall in H5.
            cbv [fact_ins] in Hgoodp1. eapply bare_in_context_args in H5'.
            2: { rewrite Hgoodp1. apply in_map. eassumption. }
@@ -507,7 +507,7 @@ Section __.
              destruct Hgoodp3 as [H'|H'].
              -- eapply bare_in_context_hyps in H'; [|eassumption]. fwd.
                 apply in_fst in H'. exfalso. auto.
-             -- invert H3. eapply Forall2_firstn in H4. pose proof H4 as H4'.
+             -- invert H3. eapply Forall2_skipn in H4. pose proof H4 as H4'.
                 apply interp_args_context_right in H4. rewrite Forall_forall in H4.
                 cbv [fact_ins] in Hgoodp1. eapply bare_in_context_args in H4'.
                 2: { rewrite Hgoodp1. apply in_map. eassumption. }
@@ -528,7 +528,7 @@ Section __.
         destruct Hgoodp3 as [H'|H'].
         -- eapply bare_in_context_hyps in H'; [|eassumption]. fwd.
            apply in_fst in H'. exfalso. auto.
-        -- eapply Forall2_firstn in H6. pose proof H6 as H6'.
+        -- eapply Forall2_skipn in H6. pose proof H6 as H6'.
            apply interp_args_context_right in H6. rewrite Forall_forall in H6.
            cbv [fact_ins] in Hgoodp1. eapply bare_in_context_args in H6'.
            2: { rewrite Hgoodp1. apply in_map. eassumption. }

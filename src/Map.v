@@ -206,4 +206,15 @@ Proof.
   intros. destruct (map.zipped_lookup ks vs k) eqn:E; [|reflexivity].
   apply map.zipped_lookup_Some_in in E. exfalso. auto.
 Qed.
+
+Definition disjointb (m1 m2 : mp) :=
+  map.forallb (fun k1 _ => map.forallb (fun k2 _ => negb (key_eqb k1 k2)) m2) m1.
+
+Lemma disjointb_disjoint m1 m2 :
+  disjointb m1 m2 = true ->
+  map.disjoint m1 m2.
+Proof.
+  cbv [map.disjoint]. intros H k **. eapply map.get_forallb in H; eauto.
+  eapply map.get_forallb in H; eauto. destr (key_eqb k k); simpl in *; congruence.
+Qed.
 End Map.

@@ -128,7 +128,7 @@ End __.
 
 #[local] Existing Instance ATLSig.
 Existing Instance var_eqb_spec.
-Existing Instance String.eqb_spec.
+Instance str_eqb_spec : EqDecider String.eqb := String.eqb_spec.
 Section __.
 Context {valuation' : map.map Var.var Z} {valuation'_ok : map.ok valuation'}.
 Context {context : map.map var obj} {context_ok : map.ok context}.
@@ -263,6 +263,33 @@ Fixpoint referenced_vars e :=
   | Lbind _ e1 e2 | Concat e1 e2 =>
                       referenced_vars e1 \cup referenced_vars e2
   | Scalar s => vars_of_Sexpr s
+  end.
+
+Fixpoint dims_of_Sexpr s :=
+  match s with
+  | Var x => Some (map.put map.empty x 0)
+  | Get x idxs => Some (map.put map.empty x (length idxs))
+  | Mul x y | Div x y | Add x y | Sub x y =>
+                                    match dims_of_Sexpr x, dims_of_Sexpr y with
+                                    | Some ds1, Some ds2 =>
+                                        if disjointb (key_eqb := String.eqb) ds1 ds2 then Some (map.putmany ds1 ds2) else None
+                                    | _ , _ => None
+                                    end
+  | Lit x => Some map.empty
+  end.
+
+Fixpoint dims_of_expr e :=
+  match e with
+  | Gen _ _ _ e1 | Sum _ _ _ e1 | Guard _ e1 | Flatten e1 | Split _ e1
+  | Transpose e1 | Truncr _ e1 | Truncl _ e1 | Padr _ e1 | Padl _ e1 =>
+                                                             dims_of_expr e1
+  | Lbind _ e1 e2 | Concat e1 e2 =>
+                      match dims_of_expr e1, dims_of_expr e2 with
+                      | Some ds1, Some ds2 =>
+                          if disjointb (key_eqb := String.eqb) ds1 ds2 then Some (map.putmany ds1 ds2) else None
+                      | _, _ => None
+                      end
+  | Scalar s => dims_of_Sexpr s
   end.
 
 Inductive vars_good : list string -> ATLexpr -> Prop :=
@@ -1346,21 +1373,28 @@ Proof.
   simpl. rewrite app_nil_r. eapply H'; eauto; prove_no_cycles'.
 Qed.
 
-Instance query_sig : query_signature rel :=
-  { ins R :=
-      match R with
-      | str_rel _ => 1
-      | nat_rel _ => 1
-      | true_rel => 0
-      end }. 
+Print goodish_rule.
 
-Lemma lower_goodish e out name idxs depths :
-  Forall goodish_rule (rev_prog_rels (snd (lower_rec e out name idxs depths))).
+Definition dims_of_prog p :=
+  
+
+(* Instance query_sig : query_signature rel := *)
+(*   { ins R := *)
+(*       match R with *)
+(*       | str_rel _ => 1 *)
+(*       | nat_rel _ => 1 *)
+(*       | true_rel => 0 *)
+(*       end }.  *)
+
+Lemma lower_goodish dims e out name idxs depths :
+  dims_of_expr e = Some dims ->
+  Forall (@goodish_rule _ _ _ _ ) (rev_prog_rels (snd (lower_rec e out name idxs depths))).
 Proof.
-  revert out name idxs depths.
+  revert dims out name idxs depths.
   induction e; simpl; intros; repeat destr_lower; simpl.
   all: try (epose_dep IHe; rewrite E in IHe).
   all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in * ).
+  all: try (specialize (IHe ltac:(eassumption))); try specialize (IHe1 ltac:(eassumption)); try specialize (IHe2 ltac:(eassumption)).
   all: cbv [rev_prog_rels] in *; simpl in *.
   all: repeat rewrite map_app; simpl.
   all: try (apply Forall_app; split; [assumption|]).
