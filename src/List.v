@@ -488,6 +488,11 @@ Lemma Forall2_eq_eq xs xs' :
   xs = xs'.
 Proof. induction 1; subst; reflexivity. Qed.  
 
+Lemma eq_Forall2_eq xs xs' :
+  xs = xs' ->
+  Forall2 eq xs xs'.
+Proof. intros. subst. induction xs'; eauto. Qed.  
+
 Lemma Forall2_concat R xss yss :
   Forall2 (fun xs ys => Forall2 R xs ys) xss yss ->
   Forall2 R (concat xss) (concat yss).

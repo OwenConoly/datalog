@@ -151,6 +151,10 @@ Lemma eval_Zexpr_Z_complete z v x :
   eval_Zexpr v z x -> eval_Zexpr_Z v z = Some x.
 Proof. rewrite eval_Zexpr_Z_eval_Zexpr. auto. Qed.
 
+Lemma eval_Zexpr_Z_total_complete z v x :
+  eval_Zexpr v z x -> eval_Zexpr_Z_total v z = x.
+Proof. rewrite eval_Zexpr_Z_eval_Zexpr. cbv [eval_Zexpr_Z_total]. intros H. rewrite H. auto. Qed.
+
 Lemma eval_Zexpr_Z_sound z v x :
   eval_Zexpr_Z v z = Some x -> eval_Zexpr v z x.
 Proof. rewrite eval_Zexpr_Z_eval_Zexpr. auto. Qed.
@@ -168,38 +172,189 @@ Search eq_zexpr.
 Definition better_Zexpr e1 e2 :=
   forall ctx e', eval_Zexpr ctx e2 e' -> eval_Zexpr ctx e1 e'.
 
+Lemma no_vars_of_subst_in_Zexpr substn e :
+  vars_of_Zexpr e = [] ->
+  vars_of_Zexpr (subst_vars_in_Zexpr substn e) = [].
+Proof. Admitted.
 
-Lemma zero_lbs_rec_size_of offsets e sh :
-  size_of e sh ->
-  exists sh',
-    (forall lz ctx ctx', ctxs_correspond offsets ctx ctx' ->
-                    eval_Zexprlist ctx sh lz ->
-                    eval_Zexprlist ctx' sh' lz) /\
-      size_of (zero_lbs_rec offsets e) sh'.
+Lemma no_vars_of_offset_Zexpr offsets e :
+  vars_of_Zexpr e = [] ->
+  vars_of_Zexpr (offset_Zexpr offsets e) = [].
+Proof. Admitted.
+
+Search eval_Zexpr eval_Zexpr_Z_total.
+Lemma no_vars_eval_Zexpr e v :
+  vars_of_Zexpr e = [] ->
+  eval_Zexpr v e (eval_Zexpr_Z_total $0 e).
+Proof. Admitted.
+
+Print ctxs_correspond.
+Lemma empty_ctxs_correspond offsets ctx' :
+  ctxs_correspond offsets $0 ctx'.
 Proof.
-  intros H. revert offsets. induction H; intros offsets; simpl; eauto.
-  - epose_dep IHsize_of. fwd. eexists. split.
-    2: { constructor. eassumption. }
-    intros. invert H1. constructor; eauto.
-    2: { eapply IHsize_ofp0. 2: eassumption. Abort.
-    eauto. cbv [better_Zexpr].
-    intros. eassert (e' = _) as ->. 2: econstructor; eauto.
-    2: { eapply offset_Zexpr_correct. 2: eassumption. econstructor; eauto. 2: constructor. split; [constructor; eauto|].
-    eexists. remember (Gen _ _ _). eassert (offset_Zexpr _ _ = _) as ->. 2: subst; econstructor; eauto. Abort.
+  cbv [ctxs_correspond]. intros. rewrite lookup_empty in *. congruence.
+Qed. Print constant_nonneg_bounds.
+
+Print constant_nonneg_bounds. Search ZDivc. Locate "//". Search div_ceil nat.
+
+Inductive size_of' : ATLexpr -> list nat -> Prop :=
+| SizeOfGen : forall i lo loz hi hiz body sh d,
+    size_of' body sh ->
+    eval_Zexpr $0 lo loz ->
+    eval_Zexpr $0 hi hiz ->
+    d = Z.to_nat (hiz - loz) ->
+    size_of' (Gen i lo hi body) (d :: sh)
+| SizeOfSum : forall i lo hi body sh,
+    size_of' body sh ->
+    size_of' (Sum i lo hi body) sh
+| SizeOfGuard : forall p e sh,
+    size_of' e sh ->
+    size_of' (Guard p e) sh
+| SizeOfLBind : forall e1 e2 x sh2,
+    size_of' e2 sh2 ->
+    size_of' (Lbind x e1 e2) sh2
+| SizeOfConcat : forall e1 e2 l1 l2 n m d,
+    size_of' e1 (n::l1) ->
+    size_of' e2 (m::l2) ->
+    d = n + m ->
+    size_of' (Concat e1 e2) (d::l1)
+| SizeOfFlatten : forall e n m sh d,
+    size_of' e (n :: m :: sh) ->
+    d = n * m ->
+    size_of' (Flatten e) (d :: sh)
+| SizeOfSplit : forall e n sh k kz d1 d2,
+    size_of' e (n::sh) ->
+    eval_Zexpr $0 k kz ->
+    d1 = n //n (Z.to_nat kz) ->
+    d2 = Z.to_nat kz ->
+    size_of' (Split k e) (d1 :: d2 :: sh)
+| SizeOfTranspose : forall e n m sh,
+    size_of' e (n::m::sh) ->
+    size_of' (Transpose e) (m::n::sh)
+| SizeOfTruncr : forall n nz e m sh d,
+    size_of' e (m::sh) ->
+    eval_Zexpr $0 n nz ->
+    d = m - Z.to_nat nz ->
+    size_of' (Truncr n e) (d :: sh)
+| SizeOfTruncl : forall n nz e m sh d,
+    size_of' e (m :: sh) ->
+    eval_Zexpr $0 n nz ->
+    d = m - Z.to_nat nz ->
+    size_of' (Truncl n e) (d :: sh)
+| SizeOfPadr : forall n nz e m sh d,
+    size_of' e (m :: sh) ->
+    eval_Zexpr $0 n nz ->
+    d = m + Z.to_nat nz ->
+    size_of' (Padr n e) (d :: sh)
+| SizeOfPadl : forall n nz e m sh d,
+    size_of' e (m :: sh) ->
+    eval_Zexpr $0 n nz ->
+    d = m + Z.to_nat nz ->
+    size_of' (Padl n e) (d :: sh)
+| SizeOfScalar : forall s,
+    size_of' (Scalar s) [].
+
+Lemma const_size_of_size_of' e sz sh :
+  constant_nonneg_bounds e ->
+  size_of e sz ->
+  eval_Zexprlist $0 sz sh ->
+  size_of' e (map Z.to_nat sh).
+Proof.
+  intros H1 H2. revert H1. revert sh. induction H2; simpl; intros sh Hc He; fwd; try invert1 He; simpl; try solve [econstructor; eauto].
+  - invert H3. econstructor; eauto.
+  - invert H3. econstructor.
+    + eapply (IHsize_of1 (_ :: _)); eauto.
+    + eapply (IHsize_of2 (_ :: _)); eauto. constructor; eauto.
+      apply forall_no_vars_eval_Zexpr_Z_total.
+      eapply constant_nonneg_bounds_size_of_no_vars in Hcp1; [|eauto].
+      invert_list_stuff. assumption.
+    + eapply constant_nonneg_bounds_size_of_nonneg in Hcp0, Hcp1; eauto.
+      2: { econstructor; eauto.
+           apply forall_no_vars_eval_Zexpr_Z_total.
+           eapply constant_nonneg_bounds_size_of_no_vars in Hcp1; [|eauto].
+           invert_list_stuff. assumption. }
+      invert_list_stuff. lia.
+  - invert H3. econstructor.
+    + eapply (IHsize_of (_ :: _ :: _)); eauto.
+    + eapply constant_nonneg_bounds_size_of_nonneg in Hc; eauto.
+      invert_list_stuff. rewrite Z2Nat.inj_mul; lia.
+  - invert H3. invert H5. simpl. econstructor; eauto.
+    + eapply (IHsize_of (_ :: _)); eauto.
+    + eapply constant_nonneg_bounds_size_of_nonneg in Hcp1; eauto. invert_list_stuff.
+      rewrite eval_Zexpr_Z_eval_Zexpr in H4. cbv [eval_Zexpr_Z_total] in Hcp2.
+      rewrite H4 in Hcp2. rewrite eval_Zexpr_Z_eval_Zexpr in H6. rewrite H4 in H6.
+      invert_list_stuff. rewrite Z2Nat_div_distr; eauto.
+  - invert H5. simpl. econstructor; eauto. eapply (IHsize_of (_ :: _ :: _)); eauto.
+  - invert H3. econstructor; eauto.
+    + eapply (IHsize_of (_ :: _)); eauto.
+    + clear Hcp3. rewrite eval_Zexpr_Z_eval_Zexpr in H6.
+      cbv [eval_Zexpr_Z_total] in Hcp2. rewrite H6 in Hcp2. lia.
+  - invert H3. econstructor; eauto.
+    + eapply (IHsize_of (_ :: _)); eauto.
+    + clear Hcp3. rewrite eval_Zexpr_Z_eval_Zexpr in H6.
+      cbv [eval_Zexpr_Z_total] in Hcp2. rewrite H6 in Hcp2. lia.
+  - invert H3. econstructor; eauto.
+    + eapply (IHsize_of (_ :: _)); eauto.
+    + rewrite eval_Zexpr_Z_eval_Zexpr in H6.
+      cbv [eval_Zexpr_Z_total] in Hcp2. rewrite H6 in Hcp2.
+      eapply constant_nonneg_bounds_size_of_nonneg in Hcp0; eauto. invert_list_stuff.
+      lia.
+  - invert H3. econstructor; eauto.
+    + eapply (IHsize_of (_ :: _)); eauto.
+    + rewrite eval_Zexpr_Z_eval_Zexpr in H6.
+      cbv [eval_Zexpr_Z_total] in Hcp2. rewrite H6 in Hcp2.
+      eapply constant_nonneg_bounds_size_of_nonneg in Hcp0; eauto. invert_list_stuff.
+      lia.
+Qed.
+
+Lemma size_of'_size_of e sh' :
+  size_of' e sh' ->
+  exists sh sh0',
+    size_of e sh /\
+      eval_Zexprlist $0 sh sh0' /\
+      sh' = map Z.to_nat sh0'.
+Proof.
+  intros H. induction H; fwd; subst; simpl in *;
+    repeat match goal with
+    | H: _ :: _ = map _ ?x |- _ => is_var x; destruct x; simpl in *; invert_list_stuff
+    end; invs; eexists; eexists; eauto 6.
+  - split.
+    + econstructor; eauto. admit.
+    + split; eauto. simpl. f_equal. lia.
+  
+  - eexists. eexists. split; eauto.
+
+Hint Resolve offset_Zexpr_correct : core.
+Hint Immediate empty_ctxs_correspond : core.
+Hint Constructors size_of' : core.
 
 Opaque offset_Zexpr.
-Lemma zero_lbs_rec_correct sh ctx ec e r ctx' offsets :
+Lemma zero_lbs_rec_size_of' offsets e sh :
+  size_of' e sh ->
+  size_of' (zero_lbs_rec offsets e) sh.
+Proof.
+  intros H. revert offsets. induction H; simpl; intros; econstructor; eauto; lia.
+Qed.
+
+Hint Resolve zero_lbs_rec_size_of' : core.
+
+Lemma zero_lbs_rec_correct sh' sh ctx ec e r ctx' offsets :
   eval_expr sh ctx ec e r ->
+  size_of' e sh' ->
   ctxs_correspond offsets ctx ctx' ->
   eval_expr sh ctx' ec (zero_lbs_rec offsets e) r.
-Proof. Check subst_vars_in_Zexpr_correct.
-  intros H. revert ctx' offsets. 
-  induction H; intros ctx' offsets Hctx'; simpl; eauto 7.
-       - econstructor; simpl; eauto 6.
-       - (* :(( *) econstructor; simpl; eauto 6; admit.
-       - econstructor; simpl; eauto 6; admit.
-       - econstructor; simpl; eauto 6; admit.
+Proof.
+  intros H. revert ctx' offsets sh'. 
+  induction H; intros ctx' offsets sh' Hsz Hctx'; invert Hsz; simpl; eauto 7.
+  - econstructor; simpl; eauto 6.
+    eapply eval_Zexpr_includes_valuation in H8, H9; try apply empty_includes.
+    rewrite eval_Zexpr_Z_eval_Zexpr in H8, H9. rewrite H9 in H0. rewrite H8 in H.
+    invert_list_stuff. lia.
+  - (* :(( *) econstructor; simpl; eauto 6. all: admit.
+  - econstructor; simpl; eauto 6. all: admit.
+  - econstructor; simpl; eauto 6. all: admit.
+  - eapply EvalGuardFalse; eauto. econstructor; simpl; eauto 6.
        - econstructor; simpl; eauto. all: admit.
        - econstructor; simpl; eauto. all: admit.
-       - Search Lbind. eapply EvalLbindV; simpl. ; eauto.
+       - split. 1: eapply EvalLbindV; simpl. all: admit.
        - eapply EvalGuardTrue; eauto.
