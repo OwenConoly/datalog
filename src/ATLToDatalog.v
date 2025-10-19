@@ -133,6 +133,7 @@ Section __.
 Context {valuation' : map.map Var.var Z} {valuation'_ok : map.ok valuation'}.
 Context {context : map.map var obj} {context_ok : map.ok context}.
 Context {str_nat : map.map string nat} {str_nat_ok : map.ok str_nat}.
+Context {str_Zexpr : map.map string Zexpr} {str_Zexpr_ok : map.ok str_Zexpr}.
 Local Notation rule := (rule rel var fn aggregator).
 
 Inductive result_has_shape' : list nat -> result -> Prop :=
@@ -190,7 +191,7 @@ Definition lower_idx_with_offset (idx_offset : string * Zexpr) : expr var fn :=
   let (idx, offset) := idx_offset in
   fun_expr (fn_Z fn_ZMinus) [var_expr (inl idx); lower_idx offset].
 
-Fixpoint lower_Sexpr (idxs0 : list (string * Zexpr)(*TODO optimization: don't actually need offsets here*)) (def_depth : str_nat) (next_varname : nat) (e : Sexpr) :
+Fixpoint lower_Sexpr (idxs0 : list string) (def_depth : str_nat) (next_varname : nat) (e : Sexpr) :
   expr var fn (*value of expr*) *
     list (fact rel var fn) (*hypotheses*) *
     nat (*next varname *) :=
@@ -200,7 +201,7 @@ Fixpoint lower_Sexpr (idxs0 : list (string * Zexpr)(*TODO optimization: don't ac
       | None => (var_expr (inl x), nil, O) (*garbage*)
       | Some n =>
           (var_expr (inr next_varname),
-              [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map lower_idx_with_offset (firstn n idxs0) |}],
+              [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map var_expr (map inl (firstn n idxs0)) |}],
               S next_varname)
       end
       
@@ -209,7 +210,7 @@ Fixpoint lower_Sexpr (idxs0 : list (string * Zexpr)(*TODO optimization: don't ac
       | None => (var_expr (inl x), nil, O) (*garbage*)
       | Some n =>
           (var_expr (inr next_varname),
-            [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map lower_idx_with_offset (firstn n idxs0) ++ map lower_idx idxs' |}],
+            [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map var_expr (map inl (firstn n idxs0)) ++ map lower_idx idxs' |}],
             S next_varname)
       end
   (*copy-pasted monstrosity*)
@@ -325,19 +326,19 @@ Fixpoint lower_rec
   (e : ATLexpr)
   (out: rel)
   (name: nat)
-  (idxs : list (string (*variable*) * Zexpr (*"lo" value, to be subtracted*)))
+  (idxs : list string)
   (def_depth : str_nat)
   : nat (*next unused name*) * list rule :=
   match e with
   | Gen i lo hi body =>
-      lower_rec body out name (idxs ++ [(i, lo)]) def_depth
+      lower_rec body out name (idxs ++ [i]) def_depth
   | Sum i lo hi body =>
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
       let i' := Datatypes.S x in
       let y := Datatypes.S i' in
       let aux := name in
-      let (name', rules) := lower_rec body (nat_rel aux) (S aux) (idxs ++ [(i, lo (*TODO make this zero?*))]) def_depth in
+      let (name', rules) := lower_rec body (nat_rel aux) (S aux) (idxs ++ [i]) def_depth in
       (name',
         rules ++
           [{| rule_agg :=
@@ -352,12 +353,12 @@ Fixpoint lower_rec
                            agg_hyps := [{| fact_R := nat_rel aux;
                                       fact_args :=
                                         var_expr (inr x) ::
-                                          map lower_idx_with_offset idxs ++
+                                          map var_expr (map inl idxs) ++
                                           var_expr (inr i') ::
                                           map var_expr dimvars |}] |} : agg_expr rel var fn aggregator);
              rule_concls := [{| fact_R := out;
                                fact_args := var_expr (inr y) ::
-                                              map lower_idx_with_offset idxs ++
+                                              map var_expr (map inl idxs) ++
                                               map var_expr dimvars |}];
              rule_hyps := []; |}])
   | Guard b body =>
@@ -371,12 +372,12 @@ Fixpoint lower_rec
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr (inr x) ::
-                                   map lower_idx_with_offset idxs ++
+                                   map var_expr (map inl idxs) ++
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := nat_rel aux;
                              fact_args :=
                                var_expr (inr x) ::
-                                 map lower_idx_with_offset idxs ++
+                                 map var_expr (map inl idxs) ++
                                  map var_expr dimvars |};
                            {| fact_R := true_rel;
                              fact_args := [lower_guard b] |}] |};
@@ -384,7 +385,7 @@ Fixpoint lower_rec
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  fun_expr (fn_R (fn_SLit 0%R)) [] ::
-                                   map lower_idx_with_offset idxs ++       
+                                   map var_expr (map inl idxs) ++       
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := true_rel;
                              fact_args := [fun_expr (fn_B fn_BNot) [lower_guard b]] |}] |}])
@@ -412,12 +413,12 @@ Fixpoint lower_rec
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr (inr x) ::
-                                   map lower_idx_with_offset idxs ++
+                                   map var_expr (map inl idxs) ++
                                    map var_expr (dimvarO :: dimvars) |}];
              rule_hyps := [{| fact_R := nat_rel aux1;
                              fact_args :=
                                var_expr (inr x) ::
-                                 map lower_idx_with_offset idxs ++
+                                 map var_expr (map inl idxs) ++
                                  map var_expr (dimvarO :: dimvars) |};
                            {| fact_R := true_rel;
                              fact_args := [fun_expr (fn_B fn_BLt)
@@ -428,13 +429,13 @@ Fixpoint lower_rec
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr (inr x) ::
-                                   map lower_idx_with_offset idxs ++
+                                   map var_expr (map inl idxs) ++
                                    var_expr dimvarO ::
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := nat_rel aux2;
                              fact_args :=
                                var_expr (inr x) ::
-                                 map lower_idx_with_offset idxs ++
+                                 map var_expr (map inl idxs) ++
                                  fun_expr (fn_Z fn_ZMinus)
                                  [var_expr dimvarO;
                                   fun_expr (fn_Z (fn_ZLit len1)) []] ::
@@ -460,12 +461,12 @@ Fixpoint lower_rec
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr x ::
-                                   map lower_idx_with_offset idxs ++
+                                   map var_expr (map inl idxs) ++
                                    var_expr dimvarO ::
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := nat_rel aux;
                              fact_args := var_expr x ::
-                                            map lower_idx_with_offset idxs ++
+                                            map var_expr (map inl idxs) ++
                                             fun_expr (fn_Z fn_ZDivf)
                                             [var_expr dimvarO;
                                              fun_expr (fn_Z (fn_ZLit len2)) []] ::
@@ -493,13 +494,13 @@ Fixpoint lower_rec
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr x ::
-                                   map lower_idx_with_offset idxs ++
+                                   map var_expr (map inl idxs) ++
                                    var_expr dimvar1 ::
                                    var_expr dimvar2 ::
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := nat_rel aux;
                              fact_args := var_expr x ::
-                                   map lower_idx_with_offset idxs ++
+                                   map var_expr (map inl idxs) ++
                                             fun_expr (fn_Z fn_ZPlus)
                                             [fun_expr (fn_Z fn_ZTimes)
                                                [var_expr dimvar1;
@@ -519,7 +520,7 @@ Fixpoint lower_rec
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  fun_expr (fn_R (fn_SLit 0%R)) [] ::
-                                   map lower_idx_with_offset idxs ++
+                                   map var_expr (map inl idxs) ++
                                    fun_expr (fn_Z (fn_ZLit (len / k'))) [] ::
                                    var_expr dimvar1 ::
                                    map var_expr dimvars |}];
@@ -540,14 +541,14 @@ Fixpoint lower_rec
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr x ::
-                                   map lower_idx_with_offset idxs ++
+                                   map var_expr (map inl idxs) ++
                                    var_expr dimvar2 ::
                                    var_expr dimvar1 ::
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := aux;
                              fact_args :=
                                var_expr x ::
-                                   map lower_idx_with_offset idxs ++
+                                   map var_expr (map inl idxs) ++
                                  var_expr dimvar1 ::
                                  var_expr dimvar2 ::
                                  map var_expr dimvars |}] |}])
@@ -566,13 +567,13 @@ Fixpoint lower_rec
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
-                                map lower_idx_with_offset idxs ++
+                                map var_expr (map inl idxs) ++
                                 var_expr dimvar1 ::
                                 map var_expr dimvars |}];
            rule_hyps := [{| fact_R := aux;
                            fact_args :=
                              var_expr x ::
-                                map lower_idx_with_offset idxs ++
+                                map var_expr (map inl idxs) ++
                                fun_expr (fn_Z fn_ZPlus)
                                [fun_expr (fn_Z (fn_ZLit k')) [];
                                 var_expr dimvar1] ::
@@ -594,13 +595,13 @@ Fixpoint lower_rec
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
-                                map lower_idx_with_offset idxs ++
+                                map var_expr (map inl idxs) ++
                                 var_expr dimvar1 ::
                                 map var_expr dimvars |}];
            rule_hyps := [{| fact_R := aux;
                            fact_args :=
                              var_expr x ::
-                                map lower_idx_with_offset idxs ++
+                                map var_expr (map inl idxs) ++
                                var_expr dimvar1 ::
                                map var_expr dimvars |};
                          {| fact_R := true_rel;
@@ -611,7 +612,7 @@ Fixpoint lower_rec
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0)) [] ::
-                                map lower_idx_with_offset idxs ++
+                                map var_expr (map inl idxs) ++
                                 var_expr dimvar1 ::
                                 map var_expr dimvars |}];
            rule_hyps := [{| fact_R := true_rel;
@@ -631,13 +632,13 @@ Fixpoint lower_rec
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               var_expr x ::
-                                map lower_idx_with_offset idxs ++
+                                map var_expr (map inl idxs) ++
                                 var_expr dimvar1 ::
                                 map var_expr dimvars |}];
            rule_hyps := [{| fact_R := aux;
                            fact_args :=
                              var_expr x ::
-                                map lower_idx_with_offset idxs ++
+                                map var_expr (map inl idxs) ++
                                fun_expr (fn_Z fn_ZMinus)
                                [var_expr dimvar1;
                                 fun_expr (fn_Z (fn_ZLit k')) []] ::
@@ -650,7 +651,7 @@ Fixpoint lower_rec
            rule_concls := [{| fact_R := out;
                             fact_args :=
                               fun_expr (fn_R (fn_SLit 0)) [] ::
-                                map lower_idx_with_offset idxs ++
+                                map var_expr (map inl idxs) ++
                                 var_expr dimvar1 ::
                                 map var_expr dimvars |}];
            rule_hyps := [{| fact_R := true_rel;
@@ -662,7 +663,7 @@ Fixpoint lower_rec
       (name,
         [{| rule_agg := None;
            rule_hyps := hyps;
-           rule_concls := [{| fact_R := out; fact_args := val :: map lower_idx_with_offset idxs |}] |}])
+           rule_concls := [{| fact_R := out; fact_args := val :: map var_expr (map inl idxs) |}] |}])
   end.
 
 Definition true_rule : rule :=
@@ -815,12 +816,12 @@ Ltac invert_stuff :=
 (* This is becoming insane.  I don't technically have to do this, because I could just
    use that bounds are constants... but that still seems wrong somehow, especially for
    summations.  Why should summation bounds have to be constant?*)
-Inductive idxs_good : list (string * Zexpr) -> Prop :=
+Inductive idxs_good : list string -> Prop :=
 | idxs_good_nil : idxs_good []
 | idxs_good_cons idxs i lo :
   idxs_good idxs ->
-  incl (vars_of_Zexpr lo) (map fst idxs) ->
-  idxs_good (idxs ++ [(i, lo)]).
+  incl (vars_of_Zexpr lo) idxs ->
+  idxs_good (idxs ++ [i]).
 
 Lemma map_app_no_dups_incl {B : Type} l1 l2 (f : _ -> B) :
   incl (map f l1 ++ map f l2) (map f (l1 ++/ l2)).
