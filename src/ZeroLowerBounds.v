@@ -203,9 +203,3 @@ Proof. Check subst_vars_in_Zexpr_correct.
        - econstructor; simpl; eauto. all: admit.
        - Search Lbind. eapply EvalLbindV; simpl. ; eauto.
        - eapply EvalGuardTrue; eauto.
-         
-       - 
-         
-         + apply eval_Zexpr_Z_complete. eapply offset_Zexpr_correct; eauto.
-    +lia.  simpl. Search eval_Zexpr eval_Zexpr_Z. apply eval_Zexpr_Z_eval_Zexpr. econstructor; eauto. apply eval_Zexpr_eval_Zexpr_Z. 1: econstructor; eauto. ; try econstructor. eauto.
-  - 
