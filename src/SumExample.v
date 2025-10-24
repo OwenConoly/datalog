@@ -12,7 +12,7 @@ From Stdlib Require Import micromega.Lia.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver.
-From Datalog Require Import Datalog.
+From Datalog Require Import Datalog FancyNotations.
 Import ListNotations.
 
 Definition rel := string.
@@ -20,7 +20,8 @@ Definition var := string.
 Inductive fn :=
 | plus
 | times
-| range.
+| range
+| lit (a : nat).
 Inductive T :=
 | nat_range (lo hi : nat)
 | nat_val (n : nat).
@@ -32,6 +33,7 @@ Definition interp_fn (f : fn) (args : list T) : option T :=
   | plus, [nat_val a; nat_val b] => Some (nat_val (a + b))
   | times, [nat_val a; nat_val b] => Some (nat_val (a * b))
   | range, [nat_val a; nat_val b] => Some (nat_range a b)
+  | lit a, [] => Some (nat_val a)
   | _, _ => None
   end.
 Definition get_set (x : T) : option (list T) :=
@@ -56,28 +58,21 @@ Definition interp_agg (a : aggregator) (x y : T) :=
  *)
 (*the program above becomes the following rule.
   note that A(i, x) means that A[i] = x *)
-Definition the_rule : rule rel var fn aggregator T :=
-  {| rule_hyps := [];
-    rule_concls := [
-      {| fact_R := "A";
-        fact_args := [
-          var_expr "i";
-          agg_expr
-            sum
-            "j" (*iteration variable*)
-            ["x"] (*other variables that can appear in hyps*)
-            (fun_expr range [lit_expr (nat_val 0); var_expr "i"]) (*set to iterate over*)
-            (fun_expr times [var_expr "x"; var_expr "x"]) (*body of summation*)
-            [{| fact_R := "B"; fact_args := [var_expr "j"; var_expr "x"] |}] (*hyps*)
-        ] |}
-    ] |}.
+
+Definition the_rule : rule rel var fn aggregator :=
+  datalog_rule:(
+                  let y := #sum# for j \in #range#( #lit 0#( ), $i) (with [x]) of
+                                             #times#($x, $x) : [B($j, $x)] in
+                    [A($i, $y)] :- []
+                ).
 (*note: the rule above is bad because it has some variables that appear in the conclusion
   but not in the hypotheses.  this problem is beside the point here, so we ignore it
   for simplicity.*)
 
-Definition set_b_i_to_x i x : rule rel var fn aggregator T :=
-  {| rule_hyps := [];
-    rule_concls := [{| fact_R := "B"; fact_args := [lit_expr (nat_val i); lit_expr (nat_val x)] |}] |}.
+Definition set_b_i_to_x i x : rule rel var fn aggregator :=
+  datalog_rule:(
+                  [B(#lit i#( ), #lit x#( ))] :- []
+                ).
 
 Lemma Forall2_map_Forall {A B : Type} (R : A -> B -> Prop) f l :
   Forall (fun x => R x (f x)) l ->
