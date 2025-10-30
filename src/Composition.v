@@ -10,7 +10,6 @@ From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
 
-
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import ATLDeep.
 
@@ -39,10 +38,8 @@ Section __.
   Implicit Type ctx : context.
   Implicit Type aexpr : agg_expr.
 
-  Print lower.
-  
   Definition composed_lower e out :=
-    rev_prog_rels (make_good (rev_prog_rels (lower e out))).
+    make_good (lower e out).
   (*TODO correcness proof*)
 
 End __.
