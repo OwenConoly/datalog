@@ -378,6 +378,16 @@ Implicit Type xs : list A.
 Implicit Type ys : list B.
 Implicit Type zs : list C.
 
+Lemma nth_error_repeat' (x : A) y m n :
+  nth_error (repeat x m) n = Some y ->
+  x = y.
+Proof.
+  intros H. epose proof nth_error_Some as H1.
+  specialize (H1 _ _ _ ltac:(eassumption)). pose proof nth_error_repeat as H2.
+  rewrite repeat_length in H1. rewrite nth_error_repeat in H by lia. invert H.
+  reflexivity.
+Qed.
+
 Lemma Forall2_flat_map xs ys R (f : A -> list C) (g : B -> list D) :
   Forall2 (fun x y => Forall2 R (f x) (g y)) xs ys ->
   Forall2 R (flat_map f xs) (flat_map g ys).

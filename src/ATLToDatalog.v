@@ -187,9 +187,9 @@ Fixpoint vars_of_Bexpr (b : Bexpr) : list string :=
   | Bexpr.Lt x y | Bexpr.Le x y | Bexpr.Eq x y => vars_of_Zexpr x ++/ vars_of_Zexpr y
   end.
 
-Definition lower_idx_with_offset (idx_offset : string * Zexpr) : expr var fn :=
-  let (idx, offset) := idx_offset in
-  fun_expr (fn_Z fn_ZMinus) [var_expr (inl idx); lower_idx offset].
+(* Definition lower_idx_with_offset (idx_offset : string * Zexpr) : expr var fn := *)
+(*   let (idx, offset) := idx_offset in *)
+(*   fun_expr (fn_Z fn_ZMinus) [var_expr (inl idx); lower_idx offset]. *)
 
 Fixpoint lower_Sexpr (idxs0 : list string) (def_depth : str_nat) (next_varname : nat) (e : Sexpr) :
   expr var fn (*value of expr*) *
@@ -235,12 +235,6 @@ Fixpoint lower_Sexpr (idxs0 : list string) (def_depth : str_nat) (next_varname :
                 (hyps1 ++ hyps2)%list,
                 next_varname)
   | Lit x => (fun_expr (fn_R (fn_SLit x)) [], [], next_varname)
-  end.
-
-Definition toR (s : scalar_result) :=
-  match s with
-  | SS s => s
-  | SX => 0%R
   end.
 
 (*we want to ignore bounds.  to avoid generating wrong answers, then, due to ignoring bounds, we have two options.
@@ -400,11 +394,10 @@ Fixpoint lower_rec
       let x := length (sizeof e1) in
       let aux1 := name in
       let aux2 := S name in
-      (*here is the first place i use the const_nonneg_bounds hypothesis*)
-      let len1 := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 (match sizeof e1 with
-                                                             | [] => (| 0 |)%z
-                                                             | n :: _ => n
-                                                             end))) in
+      let len1 := Z.of_nat match sizeof e1 with
+                    | [] => 0
+                    | n :: _ => n
+                    end in
       let (name', rules1) := lower_rec e1 (nat_rel aux1) (S aux2) idxs def_depth in
       let (name'', rules2) := lower_rec e2 (nat_rel aux2) name' idxs def_depth in
       (name'',
@@ -448,11 +441,11 @@ Fixpoint lower_rec
       let dimvars := map inr (seq O (length (sizeof e) - 2)) in
       let dimvarO := inr (length (sizeof e) - 2) in
       let x := inr (length (sizeof e) - 1) in
-      let len2 := 
-        match sizeof e with
-        | _ :: di :: _ => Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 di))
-        | _ => 0%Z
-        end in
+      let len2 :=
+        Z.of_nat match sizeof e with
+          | _ :: di :: _ => di
+          | _ => 0
+          end in
       let aux := name in
       let (name', rules) := lower_rec e (nat_rel aux) (S aux) idxs def_depth in
       (name',
@@ -481,10 +474,10 @@ Fixpoint lower_rec
       let x := inr (S (length (sizeof e))) in
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let len :=
-        match sizeof e with
-        | d :: _ => Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 d))
-        | _ => 0%Z
-        end in
+        Z.of_nat match sizeof e with
+          | d :: _ => d
+          | _ => 0
+          end in
       let aux := name in
       let pad_start := (len mod k')%Z in
       let (name', rules) := lower_rec e (nat_rel aux) (S aux) idxs def_depth in
@@ -585,10 +578,10 @@ Fixpoint lower_rec
       let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
       let len :=
-        match sizeof e with
-        | d :: _ => Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 d))
-        | _ => 0%Z
-        end in
+        Z.of_nat match sizeof e with
+          | d :: _ => d
+          | _ => 0
+          end in
       let (name', rules) := lower_rec e aux (S name) idxs def_depth in
       (name',
         rules ++ [{| rule_agg := None;
@@ -1458,26 +1451,6 @@ Proof.
   - simpl. constructor; eauto using eval_Zexpr_to_substn.
 Qed.
 
-Inductive result_lookup_Z' : list Z -> result -> scalar_result -> Prop :=
-| rlz'_cons x xs v v' val : (0 <= x)%Z ->
-                            nth_error v (Z.to_nat x) = Some v' ->
-                            result_lookup_Z' xs v' val ->
-                            result_lookup_Z' (x :: xs) (V v) val
-| rlz'_nil val : result_lookup_Z' [] (Result.S val) val.
-
-(*closely following lemma eval_get_lookup_result_Z*)
-Lemma eval_get_lookup_result_Z' : forall l v rs r,
-    eval_get v rs l r ->
-    forall x0,
-      eval_Zexprlist v l x0 ->
-      result_lookup_Z' x0 (V rs) r.
-Proof.
-  induct 1; intros.
-  - invert H3. simpl.
-    eq_eval_Z. econstructor; eauto.
-  - invert H2. invert H8. eq_eval_Z. econstructor; eauto. constructor.
-Qed.
-
 Definition domain_in_ints low high (ctx : context) :=
   forall x y, map.get ctx x = Some y ->
          match x with
@@ -1833,198 +1806,6 @@ Proof.
     interp_exprs. split.
     { constructor. }
     interp_exprs.
-Qed.
-
-(*because i really want to do induction on syntax, not execution*)
-Lemma invert_eval_gen sh v ctx i lo hi body r :
-  eval_expr sh v ctx (Gen i lo hi body) r ->
-  exists loz hiz rl,
-    r = V rl /\
-      length rl = Z.to_nat (hiz - loz) /\
-      eval_Zexpr_Z v lo = Some loz /\
-      eval_Zexpr_Z v hi = Some hiz /\
-      (forall i', (loz <= i' < hiz)%Z ->
-             (~ i \in dom v) /\
-               (~ contains_substring "?" i) /\
-               match nth_error rl (Z.to_nat (i' - loz)) with
-               | None => False
-               | Some r =>  eval_expr sh (v $+ (i, i')) ctx body r
-               end).
-Proof.
-  intros H. remember (Gen _ _ _ _) as e eqn:E. revert lo E.
-  induction H; intros lo_ H'; invert H'.
-  - exists loz, hiz, nil. simpl. intuition lia.
-  - clear IHeval_expr1.
-    specialize (IHeval_expr2 _ ltac:(reflexivity)). (*why is eq_refl not eq_refl*)
-    destruct IHeval_expr2 as (loz_&hiz_&l_&Hl_&Hlen&Hloz&Hhiz&IH2).
-    rewrite H0 in Hhiz. invert Hhiz. invert Hl_.
-    simpl in Hloz. rewrite H in Hloz. invert Hloz.
-    eexists _, _, _. intuition eauto.
-    { simpl. lia. }
-    assert (Hor : (i' = loz \/ loz + 1 <= i')%Z) by lia.
-    destruct Hor as [Hle|Heq].
-    + subst. replace (Z.to_nat _) with O by lia. simpl. assumption.
-    + specialize (IH2 i' ltac:(lia)). destruct (Z.to_nat (i' - loz)) eqn:E. 1: lia.
-      simpl. destruct IH2 as (_&_&IH2). replace (Z.to_nat _) with n in IH2 by lia.
-      apply IH2.
-Qed.
-
-Lemma nth_error_repeat' {A : Type} (x : A) y m n :
-  nth_error (repeat x m) n = Some y ->
-  x = y.
-Proof.
-  intros H. epose proof nth_error_Some as H1.
-  specialize (H1 _ _ _ ltac:(eassumption)). pose proof nth_error_repeat as H2.
-  rewrite repeat_length in H1. rewrite nth_error_repeat in H by lia. invert H.
-  reflexivity.
-Qed.
-
-Lemma pad_lookup_SX sh idxs val :
-  result_lookup_Z' idxs (gen_pad sh) val ->
-  val = SX.
-Proof.
-  revert idxs val. induction sh.
-  - intros * H. invert H. reflexivity.
-  - intros * H. invert H. apply nth_error_repeat' in H2. subst. eapply IHsh; eauto.
-Qed.
-
-Check add_scalar_result.
-Definition add_scalar_result' (x y : scalar_result) :=
-  match x, y with
-  | SX, SX => SX
-  | SX, SS sy => SS sy
-  | SS sx, SX => SS sx
-  | SS sx, SS sy => SS (sx + sy)
-  end.
-
-Lemma add_scalar_result_iff_add_scalar_result' a b c :
-  add_scalar_result' a b = c <-> add_scalar_result a b c.
-Proof.
-  split.
-  - intros. subst. destruct a, b; constructor.
-  - intros H. invert H; reflexivity.
-Qed.
-
-Lemma add_list_nth a b c a' b' i :
-  add_list a b c ->
-  nth_error a i = Some a' ->
-  nth_error b i = Some b' ->
-  exists c',
-    nth_error c i = Some c' /\
-      add_result a' b' c'.
-Proof.
-  intros H. revert a' b' i. induction H.
-  - intros * H1 H2. destruct i; simpl in *.
-    + invert H1. invert H2. eauto.
-    + specialize IHadd_list with (1 := H1) (2 := H2).
-      destruct IHadd_list as (c'&IH1&IH2). eauto.
-  - intros. destruct i; simpl in *; congruence.
-Qed.
-
-Lemma add_list_nth_bw a b c c' i :
-  add_list a b c ->
-  nth_error c i = Some c' ->
-  exists a' b',
-    nth_error a i = Some a' /\
-      nth_error b i = Some b' /\
-      add_result a' b' c'.
-Proof.
-  intros H. revert c' i. induction H.
-  - intros * H1. destruct i; simpl in *.
-    + invert H1. eauto.
-    + specialize IHadd_list with (1 := H1). destruct IHadd_list as (a'&b'&IH1&IH2&IH3).
-      eauto.
-  - intros. destruct i; simpl in *; congruence.
-Qed.
-
-Lemma add_result_lookup_Z' idxs x y z x' y' :
-  add_result x y z ->
-  result_lookup_Z' idxs x x' ->
-  result_lookup_Z' idxs y y' ->
-  result_lookup_Z' idxs z (add_scalar_result' x' y').
-Proof. 
-  revert x y z. induction idxs.
-  - intros x y z H H1 H2.
-    invert H1. invert H2. invert H.
-    apply add_scalar_result_iff_add_scalar_result' in H2. subst. constructor.
-  - intros x y z H H1 H2. invert H1. invert H2. invert H.
-    pose proof add_list_nth as H'. specialize (H' _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
-    destruct H' as (c'&H'1&H'2). econstructor; eauto.
-Qed.
-
-Lemma add_result_same_domain_bw idxs x y z z' :
-  add_result x y z ->
-  result_lookup_Z' idxs z z' ->
-  exists x' y',
-    result_lookup_Z' idxs x x' /\
-      result_lookup_Z' idxs y y' /\
-      z' = add_scalar_result' x' y'.
-Proof.
-  revert x y z. induction idxs; intros x y z H1 H2.
-  - invert H2. invert H1. do 2 eexists.
-    apply add_scalar_result_iff_add_scalar_result' in H3. subst.
-    intuition constructor.
-  - invert H2. invert H1.
-    pose proof add_list_nth_bw as H'. specialize (H' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-    destruct H' as (?&?&?&?&?). specialize (IHidxs _ _ _ ltac:(eassumption) ltac:(eassumption)). destruct IHidxs as (?&?&?&?). do 2 eexists. intuition eauto; econstructor; eauto.
-Qed.
-
-Lemma add_result_has_shape a b c :
-  exists sh,
-    add_result a b c ->
-    result_has_shape c sh.
-Proof.
-  revert a b. induction c; intros a b; subst.
-  - eexists. econstructor.
-  - destruct v.
-    + eexists. econstructor.
-    + invert H. specialize (H2 a b). destruct H2 as [sh H2].
-      eexists. intros H. invert H. invert H5.
-Abort. (*not true*) Locate "+".
-
-Lemma invert_eval_sum sh v ctx i lo hi body r :
-  eval_expr sh v ctx (Sum i lo hi body) r ->
-  exists loz hiz summands,
-    length summands = Z.to_nat (hiz - loz) /\
-      eval_Zexpr_Z v lo = Some loz /\
-      eval_Zexpr_Z v hi = Some hiz /\
-      (forall idxs val,
-          result_lookup_Z' idxs r val ->
-          exists scalar_summands,
-            Forall2 (result_lookup_Z' idxs) summands scalar_summands /\
-              toR val = fold_right Rplus 0%R (map toR scalar_summands)) /\
-      (forall i', (loz <= i' < hiz)%Z ->
-             (~ i \in dom v) /\
-               (~ contains_substring "?" i) /\
-               match nth_error summands (Z.to_nat (i' - loz)) with
-               | None => False
-               | Some r =>  eval_expr sh (v $+ (i, i')) ctx body r
-               end).
-Proof.
-  intros H. remember (Sum _ _ _ _) as e eqn:E. revert lo E.
-  induction H; intros lo_ H'; invert H'.
-  2: { exists loz, hiz, nil. simpl. intuition auto; try lia.
-       exists nil. split; [constructor|]. simpl. apply pad_lookup_SX in H4. subst.
-       reflexivity. }
-  clear IHeval_expr1. specialize (IHeval_expr2 _ Logic.eq_refl).
-  destruct IHeval_expr2 as (loz'&hiz'&summands'&Hlen&Hloz'&Hhiz'&Hsummands'&IH).
-  simpl in Hloz'. rewrite H0 in Hhiz'. invert Hhiz'. rewrite H in Hloz'. invert Hloz'.
-  exists loz, hiz', (r :: summands'). intuition.
-  + simpl. lia.
-  + pose proof add_result_same_domain_bw as H'.
-    specialize (H' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)). destruct H' as (x'&y'&Hx'&Hy'&Hval). subst.
-    specialize (Hsummands' _ _ ltac:(eassumption)). destruct Hsummands' as (ss&Hss1&Hss2).
-    exists (x' :: ss). split.
-    -- constructor; [eassumption|]. assumption.
-    -- simpl. rewrite <- Hss2. destruct x', y'; simpl; ring.
-  + clear Hsummands'.
-    assert (Hor : (i' = loz \/ loz + 1 <= i')%Z) by lia.
-    destruct Hor as [Hle|Heq].
-    -- subst. replace (Z.to_nat _) with O by lia. simpl. assumption.
-    -- 
-      specialize (IH i' ltac:(lia)). destruct IH as (_&_&IH).
-      replace (Z.to_nat (i' - loz)) with (Datatypes.S (Z.to_nat (i' - (loz + 1)))) by lia.
-      simpl. assumption.
 Qed.
 
 Lemma gen_pad_bounds idxs dims val :
