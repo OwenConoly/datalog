@@ -129,7 +129,7 @@ Section __.
     Forall (pftree P) l ->
     pftree P x.
   Set Elimination Schemes.
-
+  
   (*semantics of programs*)
   Definition prog_impl_fact (p : list rule) : rel * list T -> Prop :=
     pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
@@ -162,6 +162,17 @@ Section __.
      *)
     intros x Hx. invert Hx. eapply H; eauto.
     clear -self H1. induction H1; eauto.
+  Qed.
+
+  Lemma pftree_weaken_strong {T1 T2 : Type}
+    (P1 : T1 -> list T1 -> Prop) (P2 : T2 -> list T2 -> Prop) x f :
+    pftree P1 x ->
+    (forall x l, P1 x l -> P2 (f x) (map f l)) ->
+    pftree P2 (f x).
+  Proof.
+    intros H1 H. induction H1. econstructor.
+    2: { eapply Forall_map. eassumption. }
+    apply H. assumption.
   Qed.
 
   Lemma partial_pftree_ind {U : Type} (P : U -> list U -> Prop) Q R :
