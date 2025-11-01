@@ -17,7 +17,7 @@ From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
   Meshgrid ContextsAgree ATLDeep Range.
 
 From Datalog Require Import Datalog RevRel Dag Map List Tactics Interpreter QueryableToRunnable. 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable Datatypes.List.
 
 Import Datatypes.
 
@@ -54,6 +54,33 @@ Proof.
     + specialize (IH2 i' ltac:(lia)). destruct (Z.to_nat (i' - loz)) eqn:E. 1: lia.
       simpl. destruct IH2 as (_&_&IH2). replace (Z.to_nat _) with n in IH2 by lia.
       apply IH2.
+Qed.
+
+Lemma mk_eval_gen sh v ctx i lo hi body loz hiz rl :
+  length rl = Z.to_nat (hiz - loz) ->
+  eval_Zexpr_Z v lo = Some loz ->
+  eval_Zexpr_Z v hi = Some hiz ->
+  (forall i', (loz <= i' < hiz)%Z ->
+         (~ i \in dom v) /\
+           (~ contains_substring "?" i) /\
+           match nth_error rl (Z.to_nat (i' - loz)) with
+           | None => False
+           | Some r =>  eval_expr sh (v $+ (i, i')) ctx body r
+           end) ->
+  eval_expr sh v ctx (Gen i lo hi body) (V rl).
+Proof.
+  intros Hlen Hlo Hhi Hbody. revert lo loz Hlen Hlo Hbody.
+  induction rl; intros lo loz Hlen Hlo Hbody.
+  - eapply EvalGenBase; eauto. simpl in Hlen. lia.
+  - simpl in Hlen.
+    pose proof (Hbody loz ltac:(lia)) as Hbody0. fwd.
+    replace (loz - loz)%Z with 0%Z in * by lia. simpl in *. fwd.
+    econstructor; eauto; try lia. eapply IHrl; eauto.
+    2: { simpl. rewrite Hlo. reflexivity. }
+    { lia. }
+    intros i' Hi'. specialize (Hbody i' ltac:(lia)). fwd. intuition.
+    replace (Z.to_nat (i' - loz)) with (S (Z.to_nat (i' - (loz + 1)))) in * by lia.
+    simpl in E. rewrite E. assumption.
 Qed.
 
 Definition toR (s : scalar_result) :=
@@ -182,6 +209,101 @@ Proof.
   - invert H2. invert H1.
     pose proof add_list_nth_bw as H'. specialize (H' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
     destruct H' as (?&?&?&?&?). specialize (IHidxs _ _ _ ltac:(eassumption) ltac:(eassumption)). destruct IHidxs as (?&?&?&?). do 2 eexists. intuition eauto; econstructor; eauto.
+Qed.
+
+Print add_result.
+Search (?T -> ?T -> Prop) (list ?T -> Prop).
+Print fold_left.
+Fixpoint fold_left_rel {A B : Type} (R : A -> B -> A -> Prop) (l : list B) (P0 : A -> Prop) :=
+  match l with
+  | [] => P0
+  | b :: l0 => fun a => exists a0, P0 a0 /\ fold_left_rel R l0 (R a0 b) a
+  end.
+
+Inductive fold_left_rel' {A B : Type} (R : A -> B -> A -> Prop) : list B -> (A -> Prop) -> A -> Prop :=
+| flr_nil P0 a : P0 a -> fold_left_rel' R [] P0 a
+| flr_cons P0 b l0 a0 a :
+  P0 a0 ->
+  fold_left_rel' R l0 (R a0 b) a ->
+  fold_left_rel' R (b :: l0) P0 a
+.
+
+Print fold_right.
+Inductive fold_right_rel' {A B : Type} (R : B -> A -> A -> Prop) : (A -> Prop) -> list B -> A -> Prop :=
+| frr_nil P0 a : P0 a -> fold_right_rel' R P0 [] a
+| frr_cons P0 b l0 a a' :
+  fold_right_rel' R P0 l0 a' ->
+  R b a' a ->
+  fold_right_rel' R P0 (b :: l0) a
+.
+Hint Constructors fold_right_rel' : core.
+
+Definition add_list_result sh :=
+  fold_right_rel' add_result (Logic.eq (gen_pad sh)).
+
+Lemma invert_eval_sum' sh v ctx i lo hi body r :
+  eval_expr sh v ctx (Sum i lo hi body) r ->
+  exists loz hiz summands sz,
+    size_of body sz /\
+      length summands = Z.to_nat (hiz - loz) /\
+      eval_Zexpr_Z v lo = Some loz /\
+      eval_Zexpr_Z v hi = Some hiz /\
+      add_list_result sz summands r /\
+      (forall i', (loz <= i' < hiz)%Z ->
+             (~ i \in dom v) /\
+               (~ contains_substring "?" i) /\
+               match nth_error summands (Z.to_nat (i' - loz)) with
+               | None => False
+               | Some r =>  eval_expr sh (v $+ (i, i')) ctx body r
+               end).
+Proof.
+  intros H. remember (Sum _ _ _ _) as e eqn:E. revert lo E.
+  induction H; intros lo_ H'; invert H'.
+  2: { exists loz, hiz, nil, sz. simpl. intuition auto; try lia.
+       constructor. eauto. }
+  clear IHeval_expr1. specialize (IHeval_expr2 _ Logic.eq_refl).
+  destruct IHeval_expr2 as (loz'&hiz'&summands'&sz'&Hsz'&Hlen&Hloz'&Hhiz'&Hsummands'&IH).
+  simpl in Hloz'. rewrite H0 in Hhiz'. invert Hhiz'. rewrite H in Hloz'. invert Hloz'.
+  exists loz, hiz', (r :: summands'), sz'. intuition.
+  + simpl. lia.
+  + econstructor. 1: eassumption. assumption.
+  + clear Hsummands'.
+    assert (Hor : (i' = loz \/ loz + 1 <= i')%Z) by lia.
+    destruct Hor as [Hle|Heq].
+    -- subst. replace (Z.to_nat _) with O by lia. simpl. assumption.
+    -- 
+      specialize (IH i' ltac:(lia)). destruct IH as (_&_&IH).
+      replace (Z.to_nat (i' - loz)) with (Datatypes.S (Z.to_nat (i' - (loz + 1)))) by lia.
+      simpl. assumption.
+Qed.
+
+Lemma mk_eval_sum' sz sh v ctx i lo hi body r loz hiz summands :
+  size_of body sz ->
+  length summands = Z.to_nat (hiz - loz) ->
+  eval_Zexpr_Z v lo = Some loz ->
+  eval_Zexpr_Z v hi = Some hiz ->
+  add_list_result sz summands r ->
+  (forall i', (loz <= i' < hiz)%Z ->
+         (~ i \in dom v) /\
+           (~ contains_substring "?" i) /\
+           match nth_error summands (Z.to_nat (i' - loz)) with
+           | None => False
+           | Some r =>  eval_expr sh (v $+ (i, i')) ctx body r
+           end) ->
+  eval_expr sh v ctx (Sum i lo hi body) r.
+Proof.
+  intros Hsz Hlen Hlo Hhi Hsum Hbody. revert lo loz r Hlen Hlo Hsum Hbody.
+  induction summands; intros lo loz r Hlen Hlo Hsum Hbody.
+  - invert Hsum. fwd. eapply EvalSumBase; eauto. simpl in Hlen. lia.
+  - simpl in Hlen. invert Hsum.
+    pose proof (Hbody loz ltac:(lia)) as Hbody0. fwd.
+    replace (loz - loz)%Z with 0%Z in * by lia. simpl in *. fwd.
+    econstructor; eauto; try lia. eapply IHsummands; eauto.
+    2: { simpl. rewrite Hlo. reflexivity. }
+    { lia. }
+    intros i' Hi'. specialize (Hbody i' ltac:(lia)). fwd. intuition.
+    replace (Z.to_nat (i' - loz)) with (S (Z.to_nat (i' - (loz + 1)))) in * by lia.
+    simpl in E. rewrite E. assumption.
 Qed.
 
 Lemma invert_eval_sum sh v ctx i lo hi body r :

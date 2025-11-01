@@ -111,14 +111,13 @@ Definition ctxs_correspond offsets ctx ctx' :=
   forall v v',
     ctx $? v = Some v' ->
     match map.get offsets v with
-    | Some lo => exists v0' lo', ctx' $? v = Some v0' /\
-                             eval_Zexpr ctx' lo lo' /\
-                             (v' = v0' - lo')%Z
+    | Some lo => exists lo', eval_Zexpr ctx' lo lo' /\
+                         ctx' $? v = Some (v' - lo')%Z
     | None => ctx' $? v = Some v'
     end.
 
 Definition offset_Zexpr offsets e :=
-  subst_vars_in_Zexpr (fun i => option_map (fun lo => ZMinus (ZVar i) lo) (map.get offsets i)) e.
+  subst_vars_in_Zexpr (fun i => option_map (fun lo => ZPlus (ZVar i) lo) (map.get offsets i)) e.
 
 Lemma offset_Zexpr_correct offsets ctx ctx' e e' :
   ctxs_correspond offsets ctx ctx' ->
@@ -127,6 +126,7 @@ Lemma offset_Zexpr_correct offsets ctx ctx' e e' :
 Proof.
   intros H1 H2. cbv [offset_Zexpr]. eapply subst_vars_in_Zexpr_correct; eauto.
   intros v v' Hv. apply H1 in Hv. destruct (map.get offsets v); fwd; simpl; eauto.
+  eenough (v' = _) as ->; [eauto|]. lia.
 Qed.  
 
 Fixpoint zero_lbs_rec offsets e :=
@@ -166,10 +166,46 @@ Hint Extern 2 (_ <= _)%Z => lia : core.
 Hint Constructors eval_expr : core.
 Hint Constructors size_of : core.
 
-Lemma empty_ctxs_correspond offsets ctx' :
+Lemma empty_ctxs_correspond offsets ctx':
   ctxs_correspond offsets $0 ctx'.
 Proof.
-  cbv [ctxs_correspond]. intros. rewrite lookup_empty in *. congruence.
+  cbv [ctxs_correspond]. intuition auto.
+Qed.
+
+Lemma ctxs_correspond_put_offset i lo offsets ctx ctx' loz i' :
+  ~ i \in dom ctx' ->
+  eval_Zexpr ctx' lo loz ->
+  ctxs_correspond offsets ctx ctx' ->
+  ctxs_correspond (map.put offsets i lo) (ctx $+ (i, (loz + i')%Z)) (ctx' $+ (i, i')).
+Proof.
+  intros H0 H1 H2. cbv [ctxs_correspond]. ssplit.
+  - intros v v' H. rewrite map.get_put_dec. destr (i =? v).
+    + rewrite lookup_add_eq in * by reflexivity. fwd. eexists. split.
+      -- eapply eval_Zexpr_includes_valuation; eauto.
+         apply includes_add_new. apply None_dom_lookup. sets.
+      -- f_equal. lia.
+    + rewrite lookup_add_ne in * by auto. specialize (H2 _ _ ltac:(eassumption)).
+      destruct_one_match_hyp; eauto. fwd. eexists. split; eauto.
+      eapply eval_Zexpr_includes_valuation; eauto.
+      apply includes_add_new. apply None_dom_lookup. sets.
+Qed.
+
+Lemma ctxs_correspond_put_no_offset i offsets ctx ctx' i' :
+  ~ i \in dom ctx' ->
+  map.get offsets i = None ->
+  ctxs_correspond offsets ctx ctx' ->
+  ctxs_correspond offsets (ctx $+ (i, i')) (ctx' $+ (i, i')).
+Proof.
+  intros H1 H2 H3. cbv [ctxs_correspond].
+  intros v v' H. assert (Hor: i = v \/ i <> v) by sets.
+  (*is it sneakily using excluded middle?*)
+  destruct Hor.
+  + subst. rewrite lookup_add_eq in H by reflexivity. fwd.
+    apply lookup_add_eq. reflexivity.
+  + rewrite lookup_add_ne in * by auto. specialize (H3 _ _ ltac:(eassumption)).
+    destruct_one_match_hyp; eauto. fwd. eexists. split; eauto.
+    eapply eval_Zexpr_includes_valuation; eauto.
+    apply includes_add_new. apply None_dom_lookup. sets.
 Qed.
 
 Hint Resolve offset_Zexpr_correct : core.
@@ -181,25 +217,38 @@ Ltac size_of_constr :=
   | |- size_of _ ?x => eassert (x = _) as ->; cycle 1; [econstructor|]
   end.
 
-Lemma zero_lbs_rec_size_of offsets e sh :
+Lemma size_of_zero_lbs_rec offsets e sh :
   size_of e sh ->
   size_of (zero_lbs_rec offsets e) sh.
 Proof.
   intros H. revert offsets.
   induction H; simpl; intros; size_of_constr; eauto; lia || (f_equal; lia).
 Qed.
-Hint Resolve zero_lbs_rec_size_of : core.
+Hint Resolve size_of_zero_lbs_rec : core.
+
+Lemma vars_of_zero_lbs_rec offsets e :
+  vars_of (zero_lbs_rec offsets e) = vars_of e.
+Proof.
+  revert offsets. induction e; simpl; sets.
+Qed.
+
+(*hmm can i "autorewrite" instead?*)
+Hint Extern 3 => match goal with
+                | |- context[vars_of (zero_lbs_rec _ _)] => rewrite vars_of_zero_lbs_rec
+                end : core.
 
 Opaque offset_Zexpr.
 Lemma zero_lbs_rec_correct sh' sh ctx ec e r ctx' offsets :
   eval_expr sh ctx ec e r ->
   size_of e sh' ->
   ctxs_correspond offsets ctx ctx' ->
+  dom ctx = dom ctx' ->
+  (forall x, ~x \in dom ctx -> map.get offsets x = None) ->
   eval_expr sh ctx' ec (zero_lbs_rec offsets e) r.
 Proof.
   revert sh ctx ec r ctx' offsets sh'. 
-  induction e; intros sh ctx ec r ctx' offsets sh' Heval Hsz Hctx';
-    (apply invert_eval_sum in Heval || apply invert_eval_gen in Heval || invert Heval);
+  induction e; intros sh ctx ec r ctx' offsets sh' Heval Hsz Hctx' Hdom1 Hdom2;
+    (apply invert_eval_sum' in Heval || apply invert_eval_gen in Heval || invert Heval);
     fwd;
   invert Hsz; simpl;
     repeat lazymatch goal with
@@ -208,10 +257,26 @@ Proof.
           pose proof H2;
           apply eval_Zexpr_includes_valuation with (v' := v) in H2;
           try apply empty_includes; []; eq_eval_Z
-      end; try solve [econstructor;eauto].
-  (*bafflingly, doing just "eauto" does not solve Padr or Padl cases*)
-  { admit. (*need converse of invert_eval_sum*) }
-  { admit. (*need converse of invert_eval_gen*) }
-  { econstructor; eauto. (*need lemma bout vars_of zero_lbs_rec*) all: admit. }
-  { Print eval_expr. eapply EvalLbindV; eauto. (*ditto*) all: admit. }
-Admitted.
+      end; try solve [econstructor; eauto].
+  (*bafflingly, doing just "eauto 6" solves fewer cases*)
+  - eapply mk_eval_gen; [|eauto..].
+    + lia.
+    + intros i' Hi'. specialize (Hevalp4 (loz0 + i')%Z ltac:(lia)). fwd.
+      ssplit; auto.
+      -- sets.
+      -- eenough (Z.to_nat _ = _) as ->; [rewrite E|lia]. eapply IHe; eauto.
+         ++ eapply ctxs_correspond_put_offset; eauto. 1: sets.
+         (*what is happening here?*)
+            eapply eval_Zexpr_includes_valuation; eauto using empty_includes.
+         ++ do 2 rewrite dom_add. sets.
+         ++ rewrite dom_add. intros. rewrite map.get_put_dec. destr (i =? x); sets.
+  - eq_size_of. eapply mk_eval_sum'; [eauto| |eauto..].
+    + lia.
+    + intros i' Hi'. specialize (Hevalp5 (i')%Z ltac:(lia)). fwd.
+      ssplit; auto.
+      -- sets.
+      -- eapply IHe; eauto.
+         ++ eapply ctxs_correspond_put_no_offset; eauto. sets.
+         ++ do 2 rewrite dom_add. sets.
+         ++ rewrite dom_add. intros. apply Hdom2. sets.
+Qed.
