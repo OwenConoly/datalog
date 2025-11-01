@@ -350,3 +350,45 @@ Proof.
       replace (Z.to_nat (i' - loz)) with (Datatypes.S (Z.to_nat (i' - (loz + 1)))) by lia.
       simpl. assumption.
 Qed.
+
+Inductive result_has_shape' : list nat -> result -> Prop :=
+| ScalarShape' s : result_has_shape' [] (Result.S s)
+| VectorShape' xs n sh :
+  n = length xs ->
+  Forall (result_has_shape' sh) xs ->
+  result_has_shape' (n :: sh) (V xs).
+
+Lemma result_has_shape'_iff r sh :
+  result_has_shape' sh r <-> result_has_shape r sh.
+Proof.
+  revert sh. induction r.
+  - intros sh. split; intros H; invert H; constructor.
+  - intros sh. split; intros H'; invert H'.
+    + destruct v.
+      -- constructor.
+      -- invert H3. invert H. simpl. constructor; auto. 1: apply H3; assumption.
+         eapply Forall_impl. 2: apply Forall_and; [apply H4|apply H5]. simpl.
+         intros ? (?&H'). edestruct H'. eauto.
+    + constructor; auto.
+    + constructor; auto. invert H. constructor. 1: apply H4; assumption.
+      eapply Forall_impl. 2: apply Forall_and; [apply H3|apply H5]. simpl.
+      intros ? (?&H'). edestruct H'. eauto.
+Qed.
+
+Fixpoint vars_of_Sexpr s :=
+  match s with
+  | Var x => constant [x]
+  | Get x _ => constant [x]
+  | Mul x y | Div x y | Add x y | Sub x y => vars_of_Sexpr x \cup vars_of_Sexpr y
+  | Lit x => constant []
+  end.
+
+Fixpoint referenced_vars e :=
+  match e with
+  | Gen _ _ _ e1 | Sum _ _ _ e1 | Guard _ e1 | Flatten e1 | Split _ e1
+  | Transpose e1 | Truncr _ e1 | Truncl _ e1 | Padr _ e1 | Padl _ e1 =>
+                                                             referenced_vars e1
+  | Lbind _ e1 e2 | Concat e1 e2 =>
+                      referenced_vars e1 \cup referenced_vars e2
+  | Scalar s => vars_of_Sexpr s
+  end.

@@ -16,7 +16,7 @@ From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
   Meshgrid ContextsAgree ATLDeep Range.
 
-From Datalog Require Import Datalog RevRel Dag Map List Tactics Interpreter QueryableToRunnable. 
+From Datalog Require Import Datalog RevRel Dag Map List Tactics Interpreter QueryableToRunnable ATLUtils. 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable.
 
 Import Datatypes.
@@ -136,30 +136,6 @@ Context {str_nat : map.map string nat} {str_nat_ok : map.ok str_nat}.
 Context {str_Zexpr : map.map string Zexpr} {str_Zexpr_ok : map.ok str_Zexpr}.
 Local Notation rule := (rule rel var fn aggregator).
 
-Inductive result_has_shape' : list nat -> result -> Prop :=
-| ScalarShape' s : result_has_shape' [] (Result.S s)
-| VectorShape' xs n sh :
-  n = length xs ->
-  Forall (result_has_shape' sh) xs ->
-  result_has_shape' (n :: sh) (V xs).
-
-Lemma result_has_shape'_iff r sh :
-  result_has_shape' sh r <-> result_has_shape r sh.
-Proof.
-  revert sh. induction r.
-  - intros sh. split; intros H; invert H; constructor.
-  - intros sh. split; intros H'; invert H'.
-    + destruct v.
-      -- constructor.
-      -- invert H3. invert H. simpl. constructor; auto. 1: apply H3; assumption.
-         eapply Forall_impl. 2: apply Forall_and; [apply H4|apply H5]. simpl.
-         intros ? (?&H'). edestruct H'. eauto.
-    + constructor; auto.
-    + constructor; auto. invert H. constructor. 1: apply H4; assumption.
-      eapply Forall_impl. 2: apply Forall_and; [apply H3|apply H5]. simpl.
-      intros ? (?&H'). edestruct H'. eauto.
-Qed.
-
 Fixpoint lower_idx (idx: Zexpr) : expr var fn :=
   match idx with
   (*copy-pasted monstrosity*)
@@ -242,24 +218,6 @@ Fixpoint lower_Sexpr (idxs0 : list string) (def_depth : str_nat) (next_varname :
   2. before using something, check---if necessary---that it's in bounds.  (this sounds much less bad, since we usually won't need to do a check).
  *)
 
-Fixpoint vars_of_Sexpr s :=
-  match s with
-  | Var x => constant [x]
-  | Get x _ => constant [x]
-  | Mul x y | Div x y | Add x y | Sub x y => vars_of_Sexpr x \cup vars_of_Sexpr y
-  | Lit x => constant []
-  end.
-
-Fixpoint referenced_vars e :=
-  match e with
-  | Gen _ _ _ e1 | Sum _ _ _ e1 | Guard _ e1 | Flatten e1 | Split _ e1
-  | Transpose e1 | Truncr _ e1 | Truncl _ e1 | Padr _ e1 | Padl _ e1 =>
-                                                             referenced_vars e1
-  | Lbind _ e1 e2 | Concat e1 e2 =>
-                      referenced_vars e1 \cup referenced_vars e2
-  | Scalar s => vars_of_Sexpr s
-  end.
-
 Inductive vars_good : list string -> ATLexpr -> Prop :=
 | vg_Gen i lo hi body idxs :
   incl (vars_of_Zexpr lo) idxs ->
@@ -341,8 +299,8 @@ Fixpoint lower_rec
                            agg_i := inr i';
                            agg_vs := [inr x];
                            agg_s := fun_expr (fn_Z fn_ZRange) [
-                                        fun_expr (fn_Z (fn_ZLit 0)) [];
-                                        lower_idx (ZMinus hi lo)];
+                                        lower_idx lo;
+                                        lower_idx hi];
                            agg_body := var_expr (inr x);
                            agg_hyps := [{| fact_R := nat_rel aux;
                                       fact_args :=
@@ -814,7 +772,7 @@ Inductive idxs_good : list string -> Prop :=
 | idxs_good_cons idxs i lo :
   idxs_good idxs ->
   incl (vars_of_Zexpr lo) idxs ->
-  idxs_good (idxs ++ [i]).
+  idxs_good (idxs ++ [i]). Print size_of.
 
 Lemma map_app_no_dups_incl {B : Type} l1 l2 (f : _ -> B) :
   incl (map f l1 ++ map f l2) (map f (l1 ++/ l2)).
@@ -841,33 +799,33 @@ Proof.
   all: eapply incl_tran; [|apply map_app_no_dups_incl].
   all: apply incl_app_app; auto using lower_idx_keeps_vars.
 Qed.
-    
-Lemma ctxs_agree ctx1 ctx2 idxs idxs' :
-  idxs_good idxs ->
-  Forall2 (interp_expr ctx1) (map lower_idx_with_offset idxs) idxs' ->
-  Forall2 (interp_expr ctx2) (map lower_idx_with_offset idxs) idxs' ->
-  Forall (agree_on ctx1 ctx2) (map (fun idx => (inl (fst idx))) idxs).
-Proof.
-  intros Hgood. revert idxs'. induction Hgood. 1: constructor.
-  intros idxs' H1 H2. rewrite map_app in H1, H2. apply Forall2_app_inv_l in H1, H2.
-  fwd. simpl in *. repeat (invert_stuff; simpl in * ).
-  apply invert_app in H1p2.
-  2: { eassert (forall x y, x = y -> length x = length y) as blah by (intros; subst; reflexivity).
-       apply blah in H1p2. do 2 rewrite length_app in H1p2. simpl in H1p2. lia. }
-  fwd. specialize (IHHgood _ ltac:(eassumption) ltac:(eassumption)).
-  rewrite <- map_map in IHHgood. rewrite Forall_map in IHHgood.
-  pose proof IHHgood as IHHgood'.
-  eapply incl_Forall in IHHgood; eauto.
-  rewrite <- Forall_map in IHHgood.
-  eapply incl_Forall in IHHgood; [|apply lower_idx_keeps_vars].
-  epose proof interp_expr_agree_on as H'.
-  specialize (H' _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-  epose proof interp_expr_det as H''.
-  specialize (H'' _ _ _ _ H' H3). invert H''.
-  rewrite Forall_map in IHHgood'. rewrite Forall_map. apply Forall_app. split; auto.
-  constructor; [|constructor]. simpl. cbv [agree_on]. rewrite H1, H5. f_equal. f_equal.
-  lia.
-Qed.
+
+(* Lemma ctxs_agree ctx1 ctx2 idxs idxs' : *)
+(*   idxs_good idxs -> *)
+(*   Forall2 (interp_expr ctx1) (map lower_idx_with_offset idxs) idxs' -> *)
+(*   Forall2 (interp_expr ctx2) (map lower_idx_with_offset idxs) idxs' -> *)
+(*   Forall (agree_on ctx1 ctx2) (map (fun idx => (inl (fst idx))) idxs). *)
+(* Proof. *)
+(*   intros Hgood. revert idxs'. induction Hgood. 1: constructor. *)
+(*   intros idxs' H1 H2. rewrite map_app in H1, H2. apply Forall2_app_inv_l in H1, H2. *)
+(*   fwd. simpl in *. repeat (invert_stuff; simpl in * ). *)
+(*   apply invert_app in H1p2. *)
+(*   2: { eassert (forall x y, x = y -> length x = length y) as blah by (intros; subst; reflexivity). *)
+(*        apply blah in H1p2. do 2 rewrite length_app in H1p2. simpl in H1p2. lia. } *)
+(*   fwd. specialize (IHHgood _ ltac:(eassumption) ltac:(eassumption)). *)
+(*   rewrite <- map_map in IHHgood. rewrite Forall_map in IHHgood. *)
+(*   pose proof IHHgood as IHHgood'. *)
+(*   eapply incl_Forall in IHHgood; eauto. *)
+(*   rewrite <- Forall_map in IHHgood. *)
+(*   eapply incl_Forall in IHHgood; [|apply lower_idx_keeps_vars]. *)
+(*   epose proof interp_expr_agree_on as H'. *)
+(*   specialize (H' _ _ _ _ ltac:(eassumption) ltac:(eassumption)). *)
+(*   epose proof interp_expr_det as H''. *)
+(*   specialize (H'' _ _ _ _ H' H3). invert H''. *)
+(*   rewrite Forall_map in IHHgood'. rewrite Forall_map. apply Forall_app. split; auto. *)
+(*   constructor; [|constructor]. simpl. cbv [agree_on]. rewrite H1, H5. f_equal. f_equal. *)
+(*   lia. *)
+(* Qed. *)
 
 Definition out_smaller out name :=
   match out with
@@ -967,7 +925,6 @@ Ltac prove_rel_diff :=
 
 Ltac prove_rels_diff :=
   apply diff_rels_Forall_r; repeat (constructor; [prove_rel_diff|]); try constructor.
-Check lower_rec. Search ATLexpr (list Var.var).
 
 Hint Extern 3 (_ \in _) => solve [sets] : autosets.
 
@@ -996,7 +953,7 @@ Qed.
 
 Lemma lower_functional_rec e out name idxs depths :
   idxs_good idxs ->
-  vars_good (map fst idxs) e ->
+  vars_good idxs e ->
   ~ (exists out', out' \in vars_of e /\ out = str_rel out') ->
   out_smaller out name ->
   let (name', rules) := lower_rec e out name idxs depths in
@@ -1031,9 +988,11 @@ Proof.
             pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
             fwd. auto. }
           subst. clear HAp2.
-          pose proof ctxs_agree as H'.
-          specialize H' with (1 := Hidxs) (2 := HAp0) (3 := HBp0).
-          rewrite <- map_map in H'.
+          assert (Forall (agree_on ctx' ctx'0) (map inl idxs)) as H'.
+          { eapply Forall2_and in HAp0; [|eassumption].
+            apply Forall2_forget_r in HAp0. rewrite Forall_map in HAp0.
+            eapply Forall_impl; [|eassumption]. simpl. intros a Ha. fwd.
+            invert Hap1. invert Hap2. cbv [agree_on]. eauto using Logic.eq_trans. }
           rewrite Forall_map in H'. eapply incl_Forall in H'; eauto.
           rewrite <- Forall_map in H'.
           eapply incl_Forall in H'. 2: apply lower_guard_keeps_vars.
@@ -1136,14 +1095,14 @@ Proof.
            fwd. auto. }
          subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst.
          repeat (invert_stuff; simpl in * ).
-         remember (match sizeof e with | [] => 0%Z | _ => _ end) as x eqn:Ex. clear Ex.
+         remember (match sizeof e with | [] => 0 | _ => _ end) as x eqn:Ex. clear Ex.
          repeat match goal with
                 | H: map.get _ _ = Some _ |- _ => rewrite H in *
                 end.
          repeat match goal with
                 | H : Some _ = Some _ |- _ => invert H
                 end.
-         remember (x / _)%Z as xx eqn:Exx. remember (x mod _)%Z as yy eqn:Eyy.
+         remember (Z.of_nat x / _)%Z as xx eqn:Exx. remember (Z.of_nat x mod _)%Z as yy eqn:Eyy.
          clear Exx Eyy. rewrite Z.eqb_refl. destruct (yy <=? _)%Z; auto.
       -- repeat constructor.
     + prove_rels_diff.
@@ -1171,7 +1130,7 @@ Proof.
            fwd. auto. }
          subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst.
          repeat (invert_stuff; simpl in * ).
-         remember (match sizeof e with | [] => 0%Z | _ => _ end) as x eqn:Ex. clear Ex.
+         remember (Z.of_nat match sizeof e with | [] => 0 | _ => _ end) as x eqn:Ex. clear Ex.
          repeat match goal with
                 | H: map.get _ _ = Some _ |- _ => rewrite H in *
                 end.
@@ -1349,26 +1308,128 @@ Instance query_sig : query_signature rel :=
       end }.
 
 Lemma lower_goodish e out name idxs depths :
+  out <> true_rel ->
+  vars_good idxs e ->
   Forall goodish_rule (snd (lower_rec e out name idxs depths)).
 Proof.
   revert out name idxs depths.
-  induction e; simpl; intros; repeat destr_lower; simpl.
-  all: try (epose_dep IHe; rewrite E in IHe).
-  all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in * ).
+  induction e; simpl; intros out name idxs depths Hout Hgood;
+    invert Hgood; repeat destr_lower; simpl. 
+  all: try (epose_dep IHe; rewrite E in IHe; specialize (IHe ltac:(congruence) ltac:(assumption))). 
+  all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in *; specialize (IHe1 ltac:(congruence) ltac:(assumption)); specialize (IHe2 ltac:(congruence) ltac:(assumption))).
   all: cbv [rev_prog_rels] in *; simpl in *.
   all: repeat rewrite map_app; simpl.
-  all: try (apply Forall_app; split; [assumption|]).
-  all: auto.
+  all: repeat (apply Forall_app; split; [eauto|]).
+  all: eauto.
   all: repeat constructor.
-  { repeat match goal with
+
+  Ltac prove_invars :=
+      repeat match goal with
+        | |- context[skipn (match ?x with _ => _ end)] => destr x
+        | |- map var_expr _ ++ _ = map var_expr _ =>
+            symmetry; rewrite map_app; symmetry; ((f_equal; []) || (f_equal; fail))
+        | |- var_expr _ :: _ = map var_expr _ =>
+            symmetry; rewrite map_cons; symmetry; ((f_equal; []) || (f_equal; fail))
+        | _ => progress (intros; cbv [rev_fact_rels rev_rule_rels rev_aexpr_rels fact_ins]; simpl in *; repeat rewrite app_nil_r)
+        | _ => congruence
+        | _ => destruct_one_match
+        end.
+    Ltac prove_letin_ok :=
+      intro; fwd; destruct_one_match_hyp;
+      try congruence;
+      repeat match goal with
+        | H: In _ (_ ++ _) |- _ => rewrite in_app_iff in H; destruct H
+        | |- _ => progress fwd || rewrite in_map_iff in * || rewrite in_seq in * || rewrite in_flat_map in *
+        | |- _ => congruence || lia
+        end.
+    Ltac prove_goodish_rule out :=
+      cbv [goodish_rule]; eexists; eexists (match out with
+                                            | true_rel => _
+                                            | _ => _
+                                            end);
+      split; [reflexivity|];
+      simpl;
+      split; [solve[prove_invars] |];
+      split; [solve[prove_letin_ok] |].
+    all: try (cbv [goodish_rule]; eexists; eexists (match out with
+                                                    | true_rel => _
+                                                    | _ => _
+                                                    end)).
+    all: try (split; [reflexivity|]).
+    all: simpl.
+    all: try (split; [solve[prove_invars] |]; idtac "1").
+    all: try (split; [solve[prove_letin_ok] |]; idtac "2").
+    8: { split.
+         { prove_invars.
+    3: { split.
+         { intro; fwd; destruct_one_match_hyp. prove_letin_ok.
+    all: try (prove_goodish_rule out).
+    3: { Ltac prove_goodish_rule out ::=
+      cbv [goodish_rule]; eexists; eexists .
+      (* split; [try reflexivity|]; *)
+      (* simpl; *)
+      (* split; [try prove_invars |]; *)
+      (* split; [try prove_letin_ok |]. *)
+      prove_goodish_rule out.
+      simpl.
+      split; [reflexivity|].
+      split.
+      { prove_invars. }
+      split.
+      
+      { 
+      congruence. destruct_one_match.
+        - simpl. cbv [fact_ins]. simpl. simpl.
+      { simpl.
+  { 
+    
+    prove_goodish_rule out.
+    split.
+    { 
+                                                                                                                                    
+    Ltac letin_goodish :=
+
+    repeat match goal with
+           | |- False \/ _ => right
+           | H: False \/ _ |- _ => destruct H; [contradiction|]
+           | |- (exists _, inl _ = inr _ /\ _) \/ _ => right
+           | |- exists _, _ => eexists
            | |- goodish_rule _ => cbv [goodish_rule]; eexists; eexists (match out with
                                                                       | true_rel => _
                                                                       | _ => _
                                                                       end);
                                 split; [reflexivity|]; ssplit
-           | _ => progress (cbv [rev_fact_rels rev_rule_rels rev_aexpr_rels fact_ins]; simpl; repeat rewrite app_nil_r)
-           | |- context[skipn (match ?x with _ => _ end)] => destr x
-                  end. Print goodish_rule.
+           | H: appears_in_rule _ _ |- _ => simpl in H; destruct H; fwd
+           | H: appears_in_agg_expr _ _ |- _ => destruct H; fwd
+           | H: _ = _ \/ _ |- _ => destruct H; subst
+           | |- ~ _ => intro
+           | |- _ => lia || congruence
+           | |- _ => destruct_one_match_hyp
+           | |- _ => destruct_one_match
+           | H: ~_ |- _ => solve [exfalso; apply H; eauto]
+           | |- _ => solve[eauto]
+           end. Search vars_of_expr. Print vars_good. 3: { Print appears_in_agg_expr.
+    { match goal with
+      end.
+
+      cbv [appears_in_rule] in *. simpl in *. right. destruct H0.
+      { destruct_one_match; try congruence.
+        { fwd.
+
+          match goal with
+          | H: _ = _ \/ _ |- _ => destruct H; subst
+          end.
+
+            exfalso. apply H0. eexists. f_equal. f_equal. Search v. eauto. simpl. Set Printing All. Check H0. destruct H0.
+      destruct_one_match; try congruence.
+    - Print goodish_rule. intros H'. fwd. destruct_one_match_hyp.
+      + apply in_app_iff in H'p0. do 2 rewrite in_map_iff in H'p0. destruct H'p0.
+        -- fwd. congruence.
+        -- fwd. apply in_seq in H0p1. lia.
+      + apply in_app_iff in H'p0. do 2 rewrite in_map_iff in H'p0. destruct H'p0.
+        -- fwd. congruence.
+        -- fwd. apply in_seq in H0p1. lia.
+      + congruence. apply in_app_
     t out. 1: t out. 1: t out. 1: t out.
   (* { . simpl. *)
   (*   repeat rewrite rev_app_distr. simpl. repeat rewrite app_nil_r. eexists. *)
