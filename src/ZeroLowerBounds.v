@@ -21,9 +21,6 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc T
 
 Import Datatypes.
 
-Open Scope list_scope.
-
-
 (*I can't have arbitrary Zexprs in idxs of conclusion.  Two options to accomplish this:
   1) zero out lower bounds of gens and sums
   2) leave the lower bounds as they are, but index into arrays starting from lb instead of zero-indexing.
@@ -147,6 +144,8 @@ Fixpoint zero_lbs_rec offsets e :=
   | Scalar s => Scalar (map_Zexprs_in_Sexpr offset s)
   end.
 
+Definition zero_lbs := zero_lbs_rec map.empty.
+
 Lemma eval_Zexpr_Z_complete z v x :
   eval_Zexpr v z x -> eval_Zexpr_Z v z = Some x.
 Proof. rewrite eval_Zexpr_Z_eval_Zexpr. auto. Qed.
@@ -207,7 +206,7 @@ Proof.
     eapply eval_Zexpr_includes_valuation; eauto.
     apply includes_add_new. apply None_dom_lookup. sets.
 Qed.
-
+Print Assumptions ctxs_correspond_put_no_offset.
 Hint Resolve offset_Zexpr_correct : core.
 Hint Immediate empty_ctxs_correspond : core.
 
@@ -280,3 +279,32 @@ Proof.
          ++ do 2 rewrite dom_add. sets.
          ++ rewrite dom_add. intros. apply Hdom2. sets.
 Qed.
+
+Lemma zero_lbs_correct sz sh ctx ec e r :
+  size_of e sz ->
+  eval_expr sh ctx ec e r ->
+  eval_expr sh ctx ec (zero_lbs e) r.
+Proof.
+  intros. eapply zero_lbs_rec_correct; eauto.
+  - cbv [ctxs_correspond]. intros. rewrite map.get_empty. assumption.
+  - intros. apply map.get_empty.
+Qed.
+
+Fixpoint gen_lbs_zero e :=
+  match e with
+  | Gen _ lo _ e1 => lo = | 0 |%z /\ gen_lbs_zero e1
+  | Sum _ _ _ e1 | Guard _ e1 | Flatten e1 | Split _ e1 | Transpose e1
+  | Truncr _ e1 | Truncl _ e1 | Padr _ e1 | Padl _ e1 =>
+                                              gen_lbs_zero e1
+  | Lbind _ e1 e2 | Concat e1 e2 =>
+                      gen_lbs_zero e1 /\ gen_lbs_zero e2
+  | Scalar _ => True
+  end.
+
+Lemma zero_lbs_rec_zeroes_lbs offsets e :
+  gen_lbs_zero (zero_lbs_rec offsets e).
+Proof. revert offsets. induction e; simpl; auto. Qed.
+
+Lemma zero_lbs_zeroes_lbs e :
+  gen_lbs_zero (zero_lbs e).
+Proof. apply zero_lbs_rec_zeroes_lbs. Qed.
