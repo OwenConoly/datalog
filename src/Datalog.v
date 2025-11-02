@@ -541,21 +541,23 @@ Section __.
    bound to the agg_expr)
    *)
   Definition goodish_rule (r : rule) :=
-    exists concl invars,
+    exists concl,
       r.(rule_concls) = [concl] /\
-        fact_ins concl = map var_expr invars /\
-        ~(exists invar ae, In invar invars /\ r.(rule_agg) = Some (invar, ae)) /\
+        ~(exists v ae, In v (flat_map vars_of_expr (fact_ins concl)) /\
+                    r.(rule_agg) = Some (v, ae)) /\
         (forall v, (*alternatively, could write appears_in_outs here*)appears_in_rule v r ->
               In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
-                In v invars) /\
+                In (var_expr v) (fact_ins concl)) /\
         (forall v, In v (flat_map vars_of_expr (flat_map fact_ins (rule_hyps r))) ->
-              In v invars) /\
+              In (var_expr v) (fact_ins concl)) /\
+        (forall v, In v (flat_map vars_of_expr (fact_ins concl)) ->
+              In (var_expr v) (fact_ins concl)) /\
         match r.(rule_agg) with
         | None => True
         | Some (_, aexpr) =>
             good_agg_expr aexpr /\
               forall v, In v (flat_map vars_of_expr (flat_map fact_ins aexpr.(agg_hyps))) ->
-                   In v invars /\ ~In v aexpr.(agg_vs) /\ v <> aexpr.(agg_i)
+                   In (var_expr v) (fact_ins concl) /\ ~In v aexpr.(agg_vs) /\ v <> aexpr.(agg_i)
         end.
   
   Definition rule_agg_hyps r :=
