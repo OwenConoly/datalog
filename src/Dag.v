@@ -17,6 +17,8 @@ From Datalog Require Import Datalog Map Tactics Fp List.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
+From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties Relations.Relations.
+
 Import ListNotations.
 
 Section __.
@@ -35,13 +37,15 @@ Definition not_in_snd g v :=
 Definition no_cycles g1 g2 :=
   Forall (not_in_snd g2) (map fst g1).
 
-(*not only is it a dag, but it's in topological order*)
-Inductive dag : list (V * V) -> Prop :=
-| dag_nil : dag []
-| dag_cons e g :
-  dag g ->
-  not_in_snd (e :: g) (fst e) ->
-  dag (e :: g).
+Definition edge_rel g x y := In (y, x) g.
+
+Lemma edge_rel_weaken g1 g2 x y :
+  edge_rel g1 x y ->
+  incl g1 g2 ->
+  edge_rel g2 x y.
+Proof. cbv [edge_rel incl]. auto. Qed.
+
+Definition dag g := well_founded (edge_rel g).
 
 Inductive dag' : list (V * V) -> Prop :=
 | dag'_nil : dag' []
@@ -56,222 +60,82 @@ Inductive dag'_alt : list (V * V) -> Prop :=
   dag'_alt (g1 ++ g2) ->
   not_in_fst (e :: g1 ++ g2) (snd e) ->
   dag'_alt (g1 ++ e :: g2).
+Hint Constructors dag' dag'_alt : core.
 
-Hint Constructors dag dag' dag'_alt : core.
+Lemma subrel_Acc {X : Type} R1 R2 (z : X) :
+  Acc R2 z ->
+  (forall x y, R1 x y -> R2 x y) ->
+  Acc R1 z.
+Proof. induction 1. constructor. auto. Qed.
 
-Lemma not_in_snd_cons v e g :
-  v <> snd e ->
-  not_in_snd g v ->
-  not_in_snd (e :: g) v.
+Lemma subrel_Acc_strong {X : Type} P R1 R2 (z : X) :
+  Acc R2 z ->
+  P z ->
+  (forall x y, R1 x y -> P y -> R2 x y /\ P x) ->
+  Acc R1 z.
 Proof.
-  cbv [not_in_snd]. intros H1 H2 H3. simpl in H3. destruct H3; subst; auto.
+  intros H1 H2 H. induction H1. constructor. intros y Hy.
+  specialize (H _ _ ltac:(eassumption) ltac:(eassumption)). fwd. auto.
 Qed.
 
-Lemma not_in_snd_nil v :
-  not_in_snd [] v.
-Proof. cbv [not_in_snd]. simpl. auto. Qed.
+Lemma subrel_wf {X : Type} (R1 R2 : X -> X -> Prop) :
+  well_founded R2 ->
+  (forall x y, R1 x y -> R2 x y) ->
+  well_founded R1.
+Proof. cbv [well_founded]. eauto using subrel_Acc. Qed.
 
-Lemma not_in_snd_app v g1 g2:
-  not_in_snd g1 v ->
-  not_in_snd g2 v ->
-  not_in_snd (g1 ++ g2) v.
-Proof.
-  intros H1 H2. cbv [not_in_snd] in *. rewrite map_app. rewrite in_app_iff.
-  intros [?|?]; auto.
-Qed.
+Lemma Acc_not_symm {X : Type} (R : X -> X -> Prop) x :
+  Acc R x ->
+  R x x ->
+  False.
+Proof. induction 1; eauto. Qed.
 
-Lemma not_in_fst_incl v g1 g2 :
-  not_in_fst g2 v ->
-  incl g1 g2 ->
-  not_in_fst g1 v.
-Proof.
-  intros H1 H2. cbv [not_in_fst] in *. eapply incl_map in H2. eauto.
-Qed.
-
-Lemma not_in_snd_incl v g1 g2 :
-  not_in_snd g2 v ->
-  incl g1 g2 ->
-  not_in_snd g1 v.
-Proof.
-  intros H1 H2. cbv [not_in_snd] in *. eapply incl_map in H2. eauto.
-Qed.
-
-Hint Resolve not_in_snd_app not_in_snd_incl not_in_fst_incl : core.
-(* Hint Extern 3 (In _ _) => let H := fresh "H" in eassert (incl _ _) as H; [|eapply H] : incl. *)
-
-Lemma dag'_dag g' :
-  dag' g' ->
-  exists g, Permutation g g' /\ dag g.
-Proof.
-  intros H. induction H.
-  - eauto with incl. 
-  - fwd. exists (e :: g). split.
-    + apply Permutation_cons_app. assumption.
-    + constructor; auto. eapply not_in_snd_incl; eauto. auto with incl.
-Qed.
-
-Lemma dag_dag' g :
-  dag g ->
-  dag' g.
-Proof.
-  intros H. induction H; eauto. apply (dag'_cons nil); auto.
-Qed.
-
-Search Permutation repeat. (*wow that is exactly what i was looking for*)
-
-Lemma dag'_permutation g1 g2 :
-  Permutation g1 g2 ->
-  dag' g1 ->
-  dag' g2.
-Proof.
-  revert g2. remember (length g1) as n eqn:E. revert g1 E. induction n.
-  - intros g1 E g2 H1 H2. apply Permutation_length in H1.
-    destruct g2; simpl in *; try congruence. constructor.
-  - intros g1 E g2 H1 H2. invert H2; try discriminate E.
-    pose proof Permutation_in as H'. specialize H' with (1 := H1).
-    specialize (H' e). specialize (H' ltac:(apply in_elt)).
-    apply in_split in H'. fwd. apply Permutation_app_inv in H1. constructor.
-    + eapply IHn; eauto. rewrite length_app in *. simpl in *. lia.
-    + eapply not_in_snd_incl. 1: eauto with incl. auto with incl.
-Qed.
-
-Lemma dag'_consn n e g :
-  not_in_snd (e :: g) (fst e) ->
+Lemma dag'_dag g :
   dag' g ->
-  dag' (repeat e n ++ g).
+  dag g.
 Proof.
-  intros. induction n.
-  - assumption.
-  - simpl. apply (dag'_cons nil); simpl; try assumption.
-    eapply not_in_snd_incl; [eassumption|]. apply incl_cons; auto with incl.
-    apply incl_app; auto with incl. cbv [incl]. intros r' Hr'. Search In repeat.
-    apply repeat_spec in Hr'. subst. simpl. auto.
+  induction 1.
+  - constructor. destruct 1.
+  - constructor. intros y Hy. cbv [edge_rel] in Hy.
+    eapply subrel_Acc_strong with (P := fun x => x <> fst e).
+    + apply IHdag'.
+    + intros H'. subst. apply H0. apply in_map_iff.
+      eexists (_, _). split; [reflexivity|].
+      simpl. rewrite in_app_iff in *. simpl in Hy.
+      destruct Hy as [? | [?|?] ]; eauto.
+    + intros. cbv [edge_rel] in *. clear Hy. rewrite in_app_iff in *. simpl in *. split.
+      -- destruct H1 as [? | [?|?] ]; auto. subst. simpl in H2. congruence.
+      -- intro. subst. apply H0. apply in_map_iff.
+         eexists (_, _). split; [reflexivity|].
+         simpl. rewrite in_app_iff. destruct H1 as [? | [?|?] ]; eauto.
 Qed.
 
-Lemma dag'_incl g1 g2 :
-  dag' g2 ->
+Lemma dag_incl g1 g2 :
+  dag g2 ->
   incl g1 g2 ->
-  dag' g1.
+  dag g1.
 Proof.
-  intros H2 H1. revert g1 H1. induction H2; intros g0 H0.
-  - apply incl_l_nil in H0. subst. constructor.
-  - Search Permutation repeat. eassert (incl _ (e :: g1 ++ g2)) as H'.
-    { eapply incl_tran; [eassumption|]. auto with incl. }
-    clear H0. apply Permutation_incl_cons_inv_r in H'.
-    fwd. eapply dag'_permutation; [apply Permutation_sym; eassumption|].
-    apply dag'_consn.
-    + eauto using not_in_snd_incl with incl.
-    + apply IHdag'. assumption.
+  cbv [incl dag edge_rel].
+  intros H1 H2. eapply subrel_wf; eauto.
+  simpl. eauto.
 Qed.
 
 Lemma dag'_app g1 g2 :
   no_cycles g1 g2 ->
-  dag' g1 ->
-  dag' g2 ->
-  dag' (g1 ++ g2).
+  dag g1 ->
+  dag g2 ->
+  dag (g1 ++ g2).
 Proof.
-  intros H1 H2 H3. cbv [no_cycles] in H1. rewrite Lists.List.Forall_map in H1. induction H2.
-  - assumption.
-  - rewrite <- app_assoc. simpl. apply Forall_app in H1. fwd.
-    rewrite Forall_app in IHdag'. specialize (IHdag' ltac:(auto)).
-    rewrite <- app_assoc in IHdag'. constructor; [assumption|].
-    rewrite app_assoc. rewrite app_comm_cons. auto with incl.
-Qed.
-
-Definition swap {A B : Type} (x : A * B) := (snd x, fst x).
-
-Lemma dag_at_start g e :
-  dag g ->
-  not_in_fst (e :: g) (snd e) ->
-  dag (g ++ [e]).
-Proof.
-  intros H1. induction H1; intros H2.
-  - simpl. repeat constructor. cbv [not_in_fst not_in_snd] in *.
-    simpl in *. intros [?|?]; auto.
-  - simpl. constructor.
-    + apply IHdag. eauto with incl.
-    + rewrite app_comm_cons. apply not_in_snd_app; auto. clear -H2.
-      cbv [not_in_fst not_in_snd] in *. simpl. simpl in *. intros [?|?]; auto.
-Qed.
-
-Lemma dag'_at_start g e :
-  dag' g ->
-  not_in_fst (e :: g) (snd e) ->
-  dag' (e :: g).
-Proof.
-  intros H1 H2. apply dag'_dag in H1. fwd. eapply dag_at_start in H1p1.
-  2: { eapply not_in_fst_incl; eauto. auto with incl. }
-  apply dag_dag' in H1p1. eapply dag'_incl; eauto. apply incl_cons; auto with incl.
-  apply in_app_iff. simpl. auto.
-Qed.
-  
-Lemma dag'_alt_dag' g :
-  dag'_alt g ->
-  dag' g.
-Proof.
-  intros H. induction H; auto.
-  enough (dag' (e :: g1 ++ g2)).
-  { eapply dag'_incl; eauto. Fail solve [eauto with incl]. auto with incl. (*what have i done*) }
-  apply dag'_at_start; assumption.
-Qed.
-
-Lemma nis_swap_nif g v :
-  not_in_snd g v ->
-  not_in_fst (map swap g) v.
-Proof.
-  cbv [not_in_fst not_in_snd]. rewrite map_map. auto.
-Qed.
-
-Lemma nif_swap_nis g v :
-  not_in_fst g v ->
-  not_in_snd (map swap g) v.
-Proof.
-  cbv [not_in_fst not_in_snd]. rewrite map_map. auto.
-Qed.
-
-Lemma dag'_flip_to_alt g :
-  dag' g ->
-  dag'_alt (map swap g).
-Proof.
-  intros H. induction H.
-  - simpl. constructor.
-  - apply nis_swap_nif in H0. simpl in *. rewrite map_app in *. simpl. auto.
-Qed.
-
-Lemma dag'_alt_flip_to g :
-  dag'_alt g ->
-  dag' (map swap g).
-Proof.
-  intros H. induction H.
-  - simpl. constructor.
-  - apply nif_swap_nis in H0. simpl in *. rewrite map_app in *. simpl. auto.
-Qed.
-
-Lemma dag'_dag_alt g :
-  dag' g ->
-  dag'_alt g.
-Proof.
-  intros H. apply dag'_flip_to_alt in H. apply dag'_alt_dag' in H.
-  apply dag'_flip_to_alt in H. rewrite map_map in H. erewrite map_ext, map_id in H.
-  - assumption.
-  - intros [? ?]. reflexivity.
-Qed.
-
-Lemma dag'_swap g :
-  dag' g ->
-  dag' (map swap g).
-Proof.
-  intros. apply dag'_alt_dag'. apply dag'_flip_to_alt. assumption.
+  intros H1 H2 H3.
+  TODO
 Qed.
 
 Lemma concl_same_dag v g :
   Forall (fun '(x, y) => x = v /\ y <> v) g ->
   dag g.
 Proof.
-  intros H. induction H; eauto. destruct x. fwd. constructor; eauto.
-  simpl. apply not_in_snd_cons; auto. rewrite Forall_forall in H0.
-  cbv [not_in_snd]. intros H'. rewrite in_map_iff in H'. fwd. apply H0 in H'p1.
-  destruct x. fwd. eauto.
+  intros H. constructor. intros y Hy. constructor. intros z Hz.
+  exfalso. rewrite Forall_forall in H. apply H in Hy, Hz. fwd. congruence.
 Qed.
 
 Inductive path (g : list (V * V)) : V -> list V -> Prop :=
@@ -315,148 +179,6 @@ Proof.
     eapply (H nil). reflexivity.
 Qed.
 
-Definition edge_rel g x y := In (y, x) g.
-
-Lemma edge_rel_weaken g1 g2 x y :
-  edge_rel g1 x y ->
-  incl g1 g2 ->
-  edge_rel g2 x y.
-Proof. cbv [edge_rel incl]. auto. Qed.
-
-Lemma dag_wf'' e g x :
-  not_in_snd g (fst e) ->
-  x <> fst e ->
-  Acc (edge_rel g) x ->
-  Acc (edge_rel (e :: g)) x.
-Proof.
-  intros H1 H2 H3. induction H3. constructor. intros y Hy. cbv [edge_rel] in Hy.
-  simpl in Hy. destruct Hy as [Hy|Hy].
-  { subst. simpl in *. congruence. }
-  apply H0; auto. intros H'. subst. apply H1. apply in_map_iff. eexists. split; eauto.
-  simpl. reflexivity.
-Qed.
-
-Lemma dag_wf g :
-  dag g ->
-  well_founded (edge_rel g).
-Proof.
-  intros H. induction H.
-  - cbv [edge_rel]. simpl. intros ?. constructor. contradiction.
-  - cbv [well_founded] in *. intros x. constructor. intros y Hy.
-    apply dag_wf''; auto.
-    + eauto with incl.
-    + intros ?. subst. cbv [edge_rel] in Hy. cbv [not_in_snd] in H0. apply H0.
-      apply in_map_iff. eexists (_, _). simpl. eauto.
-Qed. 
-
-From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties Relations.Relations.
-
-Lemma subrel_Acc {X : Type} R1 R2 (z : X) :
-  Acc R2 z ->
-  (forall x y, R1 x y -> R2 x y) ->
-  Acc R1 z.
-Proof. induction 1. constructor. auto. Qed.
-
-Lemma subrel_wf {X : Type} (R1 R2 : X -> X -> Prop) :
-  well_founded R2 ->
-  (forall x y, R1 x y -> R2 x y) ->
-  well_founded R1.
-Proof. cbv [well_founded]. eauto using subrel_Acc. Qed.
-
-Lemma dag'_wf g :
-  dag' g ->
-  well_founded (edge_rel g).
-Proof.
-  intros H. apply dag'_dag in H. fwd. apply dag_wf in Hp1.
-  eapply subrel_wf; eauto. cbv [edge_rel]. eauto with incl.
-Qed.
-
-Lemma Acc_not_symm {X : Type} (R : X -> X -> Prop) x :
-  Acc R x ->
-  R x x ->
-  False.
-Proof. induction 1; eauto. Qed.
-
-Lemma wf_dag''' g v :
-  Acc (edge_rel g) v ->
-  In v (map fst g) ->
-  Forall (fun e => In (snd e) (map fst g)) g ->
-  False.
-Proof.
-  intros H1 H2 H3. induction H1. rewrite Forall_forall in H3. apply in_map_iff in H2.
-  fwd. destruct x0 as (e1&e2). simpl in *. eapply H0; [eassumption|].
-  apply H3 in H2p1. assumption.
-Qed.
-
-Lemma In_dec {X : Type} (x : X) l :
-  (forall x y : X, x = y \/ x <> y) ->
-  In x l \/ ~In x l.
-Proof.
-  intros H. induction l; auto. destruct IHl; simpl; auto.
-  specialize (H a x). intuition auto.
-Qed.
-
-Lemma Forall_dec {X : Type} P (l : list X) :
-  (forall x, P x \/ ~ P x) ->
-  Forall P l \/ Exists (fun x => ~P x) l.
-Proof.
-  intros H. induction l; auto. destruct IHl; auto. specialize (H a). intuition auto.
-Qed.
-
-Lemma wf_dag'' g :
-  (forall x y : V, x = y \/ x <> y) ->
-  well_founded (edge_rel g) ->
-  Exists (fun e => ~In (snd e) (map fst g)) g \/ g = [].
-Proof.
-  intros Hdec H. destruct g as [|e g]; [auto|]. left.
-  specialize (H (fst e)). epose proof Forall_dec as H'.
-  edestruct H' as [H''|H'']; [| |exact H''].
-  { intros ?. apply In_dec. assumption. }
-  exfalso. eapply wf_dag'''; eauto. simpl. auto.
-Qed.
-Search Exists app.
-Lemma Exists_split {X : Type} (l : list X) P :
-  Exists P l ->
-  exists l1 x l2,
-    P x /\ l = l1 ++ x :: l2.
-Proof.
-  induction 1.
-  - exists nil. simpl. eauto.
-  - fwd. eexists (_ :: _). simpl. eauto.
-Qed.
-    
-Lemma wf_dag' g :
-  (forall x y : V, x = y \/ x <> y) ->
-  well_founded (edge_rel g) ->
-  dag' g.
-Proof.
-  intros Hdec. remember (length g) as n eqn:E. revert g E. induction n; intros g E H.
-  - destruct g; try discriminate E. constructor.
-  - pose proof H as H'. apply wf_dag'' in H; auto. destruct H; [|subst; constructor].
-    apply Exists_split in H. fwd. apply dag'_alt_dag'. constructor.
-    + apply dag'_dag_alt. apply IHn.
-      -- rewrite length_app in *. simpl in *. lia.
-      -- intros ?. eapply subrel_Acc; eauto. intros.
-         eapply edge_rel_weaken; eauto with incl.
-    + eapply not_in_fst_incl; [eassumption|]. apply incl_cons; auto with incl.
-      apply in_app_iff. simpl. auto.
-Qed.
-
-Lemma wf_dag'''' g :
-  well_founded (edge_rel g) ->
-  g = [] \/ exists e, In e g /\ not_in_snd g (fst e).
-Proof.
-  intros H. induction g.
-  - auto.
-  - right. specialize' IHg. 1: admit.
-    destruct IHg as [IHg|IHg]. 1: admit.
-    specialize (H (fst a)). invert H.
-Abort.
-
-Lemma wf_dag_em :
-  (forall g, well_founded (edge_rel g) -> dag' g) -> (forall x y : V, x = y \/ x <> y).
-Proof. (*seems true*) Abort.
-
 Lemma clos_trans_list x y l g :
   path g x l ->
   In y l ->
@@ -468,7 +190,6 @@ Proof.
     + apply t_step. subst. assumption.
     + apply IHpath in H'. clear IHpath. eapply t_trans; eauto. apply t_step. assumption.
 Qed.
-
 
 Search clos_trans Acc. (*nothing?*)
 Lemma Acc_clos_trans {X : Type} (R : X -> X -> Prop) x :
@@ -485,7 +206,7 @@ Lemma dags_have_no_cycles' x l g :
   ~In x l.
 Proof.
   intros H1 H2 H3. eapply Acc_not_symm.
-  - apply Acc_clos_trans. apply dag_wf. eassumption.
+  - apply Acc_clos_trans. apply H1.
   - eapply clos_trans_list; eassumption.
 Qed.
 
