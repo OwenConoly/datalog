@@ -1,23 +1,13 @@
-From Stdlib Require Import Arith.Arith.
-From Stdlib Require Import Arith.EqNat.
-From Stdlib Require Import Arith.PeanoNat. Import Nat.
-From Stdlib Require Import Bool.Bool.
-From Stdlib Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
-From Stdlib Require Import ZArith.Int.
-From Stdlib Require Import ZArith.Znat.
-From Stdlib Require Import Strings.String.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
-From Stdlib Require Import Permutation.
-
-
-From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
-
-From Datalog Require Import Datalog Map Tactics Fp List.
-
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
+From ATL Require Import Tactics FrapWithoutSets.
+From Datalog Require Import Tactics List.
+From coqutil Require Import Tactics Tactics.fwd Datatypes.List.
 
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties Relations.Relations.
+From Stdlib Require Import Wellfounded.Union.
+From Stdlib Require Import Wellfounded.Inclusion.
+From Stdlib Require Import Wellfounded Wellfounded.Transitive_Closure.
 
 Import ListNotations.
 
@@ -62,12 +52,6 @@ Inductive dag'_alt : list (V * V) -> Prop :=
   dag'_alt (g1 ++ e :: g2).
 Hint Constructors dag' dag'_alt : core.
 
-Lemma subrel_Acc {X : Type} R1 R2 (z : X) :
-  Acc R2 z ->
-  (forall x y, R1 x y -> R2 x y) ->
-  Acc R1 z.
-Proof. induction 1. constructor. auto. Qed.
-
 Lemma subrel_Acc_strong {X : Type} P R1 R2 (z : X) :
   Acc R2 z ->
   P z ->
@@ -77,12 +61,6 @@ Proof.
   intros H1 H2 H. induction H1. constructor. intros y Hy.
   specialize (H _ _ ltac:(eassumption) ltac:(eassumption)). fwd. auto.
 Qed.
-
-Lemma subrel_wf {X : Type} (R1 R2 : X -> X -> Prop) :
-  well_founded R2 ->
-  (forall x y, R1 x y -> R2 x y) ->
-  well_founded R1.
-Proof. cbv [well_founded]. eauto using subrel_Acc. Qed.
 
 Lemma Acc_not_symm {X : Type} (R : X -> X -> Prop) x :
   Acc R x ->
@@ -116,18 +94,30 @@ Lemma dag_incl g1 g2 :
   dag g1.
 Proof.
   cbv [incl dag edge_rel].
-  intros H1 H2. eapply subrel_wf; eauto.
-  simpl. eauto.
+  intros H1 H2. eapply wf_incl; eauto.
+  cbv [inclusion]. simpl. eauto.
 Qed.
 
-Lemma dag'_app g1 g2 :
+Lemma no_cycles_commut g1 g2 :
+  no_cycles g2 g1 ->
+  commut _ (edge_rel g1) (edge_rel g2).
+Proof.
+  cbv [no_cycles]. intros H. cbv [commut]. intros x y Hx z Hz.
+  exfalso. cbv [edge_rel] in Hx, Hz. rewrite Forall_forall in H.
+  apply in_fst in Hz. apply H in Hz. cbv [not_in_snd] in Hz.
+  apply Hz. apply in_map_iff. eexists (_, _). simpl. eauto.
+Qed.
+
+Lemma dag_app g1 g2 :
   no_cycles g1 g2 ->
   dag g1 ->
   dag g2 ->
   dag (g1 ++ g2).
 Proof.
-  intros H1 H2 H3.
-  TODO
+  intros H1 H2 H3. eapply wf_incl; cycle 1.
+  - eapply wf_union; eauto using no_cycles_commut.
+  - cbv [inclusion]. intros ? ? H. apply in_app_iff in H.
+    cbv [union edge_rel]. destruct H; auto.
 Qed.
 
 Lemma concl_same_dag v g :
@@ -191,15 +181,6 @@ Proof.
     + apply IHpath in H'. clear IHpath. eapply t_trans; eauto. apply t_step. assumption.
 Qed.
 
-Search clos_trans Acc. (*nothing?*)
-Lemma Acc_clos_trans {X : Type} (R : X -> X -> Prop) x :
-  Acc R x ->
-  Acc (clos_trans _ R) x.
-Proof.
-  induction 1. constructor. intros y Hy. clear H. induction Hy; auto.
-  apply IHHy1; auto. intros. apply IHHy2; auto. eauto using t_trans, t_step.
-Qed.
-
 Lemma dags_have_no_cycles' x l g :
   dag g ->
   path g x l ->
@@ -235,7 +216,7 @@ Lemma dag_paths_short x l g :
   length l <= length g.
 Proof.
   intros H1 H2. eapply dags_have_no_cycles in H1; eauto.
-  apply path_incl in H2. Search incl NoDup. rewrite <- (length_map snd).
+  apply path_incl in H2. rewrite <- (length_map snd).
   invert H1. apply NoDup_incl_length; assumption.
 Qed.
 End __.
