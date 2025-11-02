@@ -89,9 +89,8 @@ Section __.
     result = fold_right (fun (x y : T) => interp_agg a x y) (agg_id a) body's ->
     interp_agg_expr _ {| agg_agg := a; agg_i := i; agg_vs := vs; agg_s := s; agg_body := body; agg_hyps := hyps |} result hyps's.
 
-  Record rule := { rule_agg : option (var * agg_expr); rule_concls : list fact; rule_hyps : list fact }.
+  Record rule := { rule_agg : option (var * agg_expr); rule_concls : list fact; rule_hyps : list fact; rule_set_hyps : list (expr * expr) }.
 
-  (*semantics of rules*)
   Inductive interp_option_agg_expr : _ -> _ -> _ -> _ -> Prop :=
   | ioae_None ctx :
     interp_option_agg_expr ctx None ctx []
@@ -99,12 +98,22 @@ Section __.
     ctx' = map.put ctx res res' ->
     interp_agg_expr ctx aexpr res' agg_hyps's ->
     interp_option_agg_expr ctx (Some (res, aexpr)) ctx' agg_hyps's.
+
+  Definition x_in_S ctx (x_S : expr * expr) :=
+    let (x, s) := x_S in
+    exists x' s' l,
+      interp_expr ctx x x' /\
+        interp_expr ctx s s' /\
+        get_set s' = Some l /\
+        In x' l.
   
+  (*semantics of rules*)
   Inductive rule_impl' : rule -> rel * list T -> list (rel * list T) -> list (list (rel * list T)) -> Prop :=
   | mk_rule_impl' r agg_hyps's ctx' f' hyps' ctx :
     interp_option_agg_expr ctx r.(rule_agg) ctx' agg_hyps's ->
     Exists (fun c => interp_fact ctx' c f') r.(rule_concls) ->
     Forall2 (interp_fact ctx) r.(rule_hyps) hyps' ->
+    Forall (x_in_S ctx) r.(rule_set_hyps) ->
     rule_impl' r f' hyps' agg_hyps's.
 
   Hint Constructors rule_impl' interp_option_agg_expr : core.
@@ -116,7 +125,7 @@ Section __.
   Lemma normal_rule_impl hyps concls f' hyps' ctx :
     Exists (fun c => interp_fact ctx c f') concls ->
     Forall2 (interp_fact ctx) hyps hyps' ->
-    rule_impl {| rule_agg := None; rule_hyps := hyps; rule_concls := concls|} f' hyps'.
+    rule_impl {| rule_agg := None; rule_hyps := hyps; rule_set_hyps := []; rule_concls := concls|} f' hyps'.
   Proof.
     intros. cbv [rule_impl]. exists hyps', nil. rewrite app_nil_r. intuition.
     econstructor; simpl; eauto.
