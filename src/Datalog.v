@@ -527,6 +527,7 @@ Section __.
       In v (flat_map vars_of_fact r.(rule_hyps)) \/
       (exists w ae, r.(rule_agg) = Some (w, ae) /\ appears_in_agg_expr v ae).
 
+  FIX ME
   Definition good_rule (r : rule) :=
     (forall v, appears_in_rule v r ->
           In (var_expr v) (flat_map fact_args r.(rule_hyps))) /\
@@ -549,6 +550,7 @@ Section __.
    (implicit conditions: every concl_in is of the form var_expr blah, where blah was not
    bound to the agg_expr)
    *)
+  FIX ME
   Definition goodish_rule (r : rule) :=
     exists concl,
       r.(rule_concls) = [concl] /\
