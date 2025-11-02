@@ -233,8 +233,8 @@ Section Transform.
     rewrite map.get_put_diff by assumption.
     rewrite map.get_put_diff in H7p1.
     2: { intros ?. subst.
-         Search res. apply Hgoodp1. do 2 eexists. split; [|reflexivity].
-         apply in_flat_map. eexists. split; [eassumption|]. simpl. auto.}
+         apply Hgoodp1. do 2 eexists. split; [|reflexivity].
+         apply in_flat_map. eexists. split; [eassumption|]. simpl. auto. }
     assumption.
   Qed.
 
@@ -991,4 +991,3 @@ Qed.
       apply partial_in. reflexivity.
   Qed.
 End Transform.
-

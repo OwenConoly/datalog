@@ -221,10 +221,12 @@ Fixpoint lower_Sexpr (idxs0 : list string) (def_depth : str_nat) (next_varname :
 Inductive vars_good : list string -> ATLexpr -> Prop :=
 | vg_Gen i lo hi body idxs :
   incl (vars_of_Zexpr lo) idxs ->
+  incl (vars_of_Zexpr hi) idxs ->
   vars_good (idxs ++ [i]) body ->
   vars_good idxs (Gen i lo hi body)
 | vg_Sum i lo hi body idxs :
   incl (vars_of_Zexpr lo) idxs ->
+  incl (vars_of_Zexpr hi) idxs ->
   vars_good (idxs ++ [i]) body ->
   vars_good idxs (Sum i lo hi body)
 | vg_Guard b body idxs :
@@ -1322,91 +1324,83 @@ Proof.
   all: repeat (apply Forall_app; split; [eauto|]).
   all: eauto.
   all: repeat constructor.
-
-  Ltac prove_invars :=
-      repeat match goal with
-        | |- context[skipn (match ?x with _ => _ end)] => destr x
-        | |- map var_expr _ ++ _ = map var_expr _ =>
-            symmetry; rewrite map_app; symmetry; ((f_equal; []) || (f_equal; fail))
-        | |- var_expr _ :: _ = map var_expr _ =>
-            symmetry; rewrite map_cons; symmetry; ((f_equal; []) || (f_equal; fail))
-        | _ => progress (intros; cbv [rev_fact_rels rev_rule_rels rev_aexpr_rels fact_ins]; simpl in *; repeat rewrite app_nil_r)
-        | _ => congruence
-        | _ => destruct_one_match
-        end.
-    Ltac prove_letin_ok :=
-      intro; fwd; destruct_one_match_hyp;
-      try congruence;
-      repeat match goal with
-        | H: In _ (_ ++ _) |- _ => rewrite in_app_iff in H; destruct H
-        | |- _ => progress fwd || rewrite in_map_iff in * || rewrite in_seq in * || rewrite in_flat_map in *
-        | |- _ => congruence || lia
-        end.
-    Ltac prove_goodish_rule out :=
-      cbv [goodish_rule]; eexists; eexists (match out with
-                                            | true_rel => _
-                                            | _ => _
-                                            end);
-      split; [reflexivity|];
-      simpl;
-      split; [solve[prove_invars] |];
-      split; [solve[prove_letin_ok] |].
-    all: try (cbv [goodish_rule]; eexists; eexists (match out with
-                                                    | true_rel => _
-                                                    | _ => _
-                                                    end)).
-    all: try (split; [reflexivity|]).
-    all: simpl.
-    all: try (split; [solve[prove_invars] |]; idtac "1").
-    all: try (split; [solve[prove_letin_ok] |]; idtac "2").
-    8: { split.
-         { prove_invars.
-    3: { split.
-         { intro; fwd; destruct_one_match_hyp. prove_letin_ok.
-    all: try (prove_goodish_rule out).
-    3: { Ltac prove_goodish_rule out ::=
-      cbv [goodish_rule]; eexists; eexists .
-      (* split; [try reflexivity|]; *)
-      (* simpl; *)
-      (* split; [try prove_invars |]; *)
-      (* split; [try prove_letin_ok |]. *)
-      prove_goodish_rule out.
-      simpl.
-      split; [reflexivity|].
-      split.
-      { prove_invars. }
-      split.
-      
-      { 
-      congruence. destruct_one_match.
-        - simpl. cbv [fact_ins]. simpl. simpl.
-      { simpl.
-  { 
-    
-    prove_goodish_rule out.
-    split.
-    { 
-                                                                                                                                    
+  all: (eexists; split; [reflexivity|]; cbv [fact_ins]; simpl) || idtac "fail".
+  Ltac prove_letin_ok :=
+    intro; fwd;
+    try congruence;
+    repeat match goal with
+      | H: _ \/ False |- _ => destruct H; [|contradiction]
+      | |- _ => progress (intros; simpl in *; fwd)
+      | |- _ => rewrite in_map_iff in * || rewrite in_seq in * || rewrite in_flat_map in * 
+      | H: In _ (_ ++ _) |- _ => rewrite in_app_iff in H; destruct H
+      | |- _ => congruence || lia
+      | |- _ => destruct_one_match_hyp
+      end.
+  all: (split; [solve[prove_letin_ok] |]) || idtac "fail".
+  Ltac t :=
+    repeat match goal with
+      | H: exists _, _ |- _ => destruct H
+      | H: _ /\ _ |- _ => destruct H
+      | H: Some _ = Some _ |- _ => invert H
+      | H: In _ (map _ _) |- _ => apply in_map_iff in H
+      | H: In _ (seq _ _) |- _ => apply in_seq in H
+      | H: In _ (flat_map _ _) |- _ => apply in_flat_map in H
+      | H: appears_in_rule _ _ |- _ => destruct H as [? | [? | ?] ]
+      | |- _ => progress (intros; cbv [vars_of_fact] in *; simpl in *; subst)
+      | H: In _ (vars_of_expr (lower_idx _)) |- _ => apply lower_idx_keeps_vars in H
+      | H: In _ (vars_of_expr (lower_guard _)) |- _ => apply lower_guard_keeps_vars in H
+      | H: In _ ?l, H': incl ?l ?l' |- _ => apply H' in H
+      | |- False \/ _ => right
+      | H: False \/ _ |- _ => destruct H; [contradiction|]
+      | H: _ \/ False |- _ => destruct H; [|contradiction]
+      | H: appears_in_agg_expr _ _ |- _ => destruct H as [? | (?&[?|?]) ]
+      | H: _ = _ \/ _ |- _ => destruct H; subst
+      | |- (exists _, inl _ = inr _ /\ _) \/ _ => right
+      | |- exists _, _ => eexists
+      | |- _ = _ /\ _ => split; [reflexivity|]
+      | |- _ /\ _ => split
+      | H: In _ (_ ++ _) |- _ => rewrite in_app_iff in H; destruct H
+      | |- _ => congruence || lia
+      | |- _ => destruct_one_match_hyp
+      | |- _ => destruct_one_match
+      | |- In _ (_ ++ _) => apply in_app_iff
+      | |- In _ (map _ _) => apply in_map_iff
+      | |- In _ (seq _ _) => apply in_seq
+      | H: ~_ |- _ => solve [exfalso; apply H; eauto]
+      | |- _ => solve[auto]
+      | |- _ \/ _ => (left; solve[t]) || (right; solve [t])
+      end.
+  all: (split; [solve[t] | ]) || idtac "fail".
+  all: (split; [solve[t] | ]) || idtac "fail".
+  all: (split; [solve[t] | ]) || idtac "fail".
+  all: try solve [constructor].
+  { split.
+    2: { Print goodish_rule. t. intros.
+  1: split; t.
+  { Set Ltac Profiling. split; [solve[t] |]. Show Ltac Profile.
+  all: (split; [solve[t] |]) || idtac "fail".
+  2: split; [solve[t] |].
+  3: 
+  2: { simpl in H. Print appears_in_rule. repeat rewrite in_app_iff in *. auto.
+  2: 
+  all: (split; [solve[t] |]) || idtac "fail".
+  
+  { split.
+    { t. 2: { 3: { Search vars_of_expr lower_idx. { left. t.
+  
+                                           
     Ltac letin_goodish :=
 
     repeat match goal with
-           | |- False \/ _ => right
-           | H: False \/ _ |- _ => destruct H; [contradiction|]
-           | |- (exists _, inl _ = inr _ /\ _) \/ _ => right
-           | |- exists _, _ => eexists
            | |- goodish_rule _ => cbv [goodish_rule]; eexists; eexists (match out with
                                                                       | true_rel => _
                                                                       | _ => _
                                                                       end);
                                 split; [reflexivity|]; ssplit
-           | H: appears_in_rule _ _ |- _ => simpl in H; destruct H; fwd
-           | H: appears_in_agg_expr _ _ |- _ => destruct H; fwd
-           | H: _ = _ \/ _ |- _ => destruct H; subst
            | |- ~ _ => intro
            | |- _ => lia || congruence
            | |- _ => destruct_one_match_hyp
            | |- _ => destruct_one_match
-           | H: ~_ |- _ => solve [exfalso; apply H; eauto]
            | |- _ => solve[eauto]
            end. Search vars_of_expr. Print vars_good. 3: { Print appears_in_agg_expr.
     { match goal with

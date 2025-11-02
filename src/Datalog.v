@@ -557,7 +557,9 @@ Section __.
         | Some (_, aexpr) =>
             good_agg_expr aexpr /\
               forall v, In v (flat_map vars_of_expr (flat_map fact_ins aexpr.(agg_hyps))) ->
-                   In (var_expr v) (fact_ins concl) /\ ~In v aexpr.(agg_vs) /\ v <> aexpr.(agg_i)
+                   In (var_expr v) (fact_ins concl) /\ ~In v aexpr.(agg_vs) /\ v <> aexpr.(agg_i) \/
+                     v = aexpr.(agg_i) /\ (forall u, In u (vars_of_expr aexpr.(agg_s)) ->
+                                               In (var_expr u) (fact_ins concl))
         end.
   
   Definition rule_agg_hyps r :=
