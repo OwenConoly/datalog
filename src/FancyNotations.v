@@ -56,10 +56,20 @@ Notation "agg 'for' i '\in' S ( 'with' vs ) 'of' body : hyps" := ({| agg_agg := 
 (*why is 'of' a keyword?*)
 Check datalog_agg_expr:( sum for i \in $S (with [x]) of $x : [ R($x, $i) ] ).
 
+Declare Custom Entry datalog_pair_expr.
+Notation "x1 '\in' x2" := (x1, x2) (in custom datalog_pair_expr at level 0, x1 custom datalog_expr, x2 custom datalog_expr).
+
+Declare Custom Entry datalog_pair_expr_list.
+Notation "[ ]" := nil (in custom datalog_pair_expr_list, format "[ ]").
+Notation "[ x ]" := (cons x nil) (in custom datalog_pair_expr_list, x custom datalog_pair_expr).
+Notation "[ x ; y ; .. ; z ]" := (cons x (cons y .. (cons z nil) ..)) (in custom datalog_pair_expr_list, x custom datalog_pair_expr, y custom datalog_pair_expr, z custom datalog_pair_expr).
+
 Declare Custom Entry datalog_rule.
 Notation "datalog_rule:( e )" := e (e custom datalog_rule, format "'datalog_rule:(' e ')'").
-Notation "concls ':-' hyps" := ({| rule_concls := concls; rule_hyps := hyps; rule_agg := None |}) (in custom datalog_rule at level 0, concls custom datalog_fact_list, hyps custom datalog_fact_list).
-Notation "'let' x ':=' val 'in' concls ':-' hyps" := ({| rule_concls := concls; rule_hyps := hyps; rule_agg := Some (x, val) |}) (in custom datalog_rule at level 0, x custom datalog_id, val custom datalog_agg_expr, concls custom datalog_fact_list, hyps custom datalog_fact_list).
+Notation "concls ':-' hyps" := ({| rule_concls := concls; rule_hyps := hyps; rule_agg := None; rule_set_hyps := [] |}) (in custom datalog_rule at level 0, concls custom datalog_fact_list, hyps custom datalog_fact_list).
+Notation "concls ':-' hyps 'and' set_hyps" := ({| rule_concls := concls; rule_hyps := hyps; rule_agg := None; rule_set_hyps := set_hyps |}) (in custom datalog_rule at level 0, concls custom datalog_fact_list, hyps custom datalog_fact_list, set_hyps custom datalog_pair_expr_list).
+Notation "'let' x ':=' val 'in' concls ':-' hyps" := ({| rule_concls := concls; rule_hyps := hyps; rule_agg := Some (x, val); rule_set_hyps := [] |}) (in custom datalog_rule at level 0, x custom datalog_id, val custom datalog_agg_expr, concls custom datalog_fact_list, hyps custom datalog_fact_list).
+Notation "'let' x ':=' val 'in' concls ':-' hyps 'and' set_hyps" := ({| rule_concls := concls; rule_hyps := hyps; rule_agg := Some (x, val); rule_set_hyps := set_hyps |}) (in custom datalog_rule at level 0, x custom datalog_id, val custom datalog_agg_expr, concls custom datalog_fact_list, hyps custom datalog_fact_list, set_hyps custom datalog_pair_expr_list).
 Check datalog_rule:( [path($x, $y)] :- [edge($x, $y)] ).
 Check datalog_rule:( let y := sum for i \in $S (with [x]) of $x : [ R($x, $i) ] in [R($x, $y)] :- [Q($x)]).
 
@@ -72,10 +82,18 @@ Check datalog_prog:( [ [path($x, $y)] :- [edge($x, $y)] ] ).
 
 
 Module examples.
-Definition graph_prog : list (rule string string string string) :=
-  datalog_prog:(
-                  [ [path($x, $y)] :- [edge($x, $y)];
-                    [path($x, $y)] :- [path($x, $z); edge($z, $y)]
-                  ]
-                ).
+  Definition graph_prog : list (rule string string string string) :=
+    datalog_prog:(
+                    [ [path($x, $y)] :- [edge($x, $y)];
+                      [path($x, $y)] :- [path($x, $z); edge($z, $y)]
+                    ]
+                  ).
+  Definition stupid_nat_enumerator : list (rule string string string string) :=
+    datalog_prog:(
+                    [ [nat''( S($x) )] :- [nat''($x)];
+                      [nat''(O( ) )] :- [] and [];
+                      [nat'(nat_range(O ( ), $s))] :- [nat''($s)];
+                      [nat($x)] :- [nat'($s)] and [$x \in $s]
+                    ]
+                  ).
 End examples.
