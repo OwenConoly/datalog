@@ -11,7 +11,7 @@ From Stdlib Require Import micromega.Lia.
 
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
-From Datalog Require Import Map Tactics Fp List.
+From Datalog Require Import Map Tactics Fp List Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
@@ -341,10 +341,18 @@ Section __.
     intros Hext H. revert s s' Hext v H. induction e; intros s s' Hext v0 Hv0.
     - invert Hv0. constructor. auto. (*idk how it knows to unfold map.extends*)
     - invert Hv0. econstructor; eauto.
-      (*should prove a lemma to not have to do induction here*)
-      clear -H H2 Hext. induction H2; invert H; eauto.
+      eapply Forall2_impl_strong; [|eassumption]. intros. rewrite Forall_forall in H.
+      eauto.
   Qed.
 
+  Lemma x_in_S_subst_more ctx ctx' x_s :
+    x_in_S ctx x_s ->
+    map.extends ctx' ctx ->
+    x_in_S ctx' x_s.
+  Proof.
+    destruct x_s as [x s]. simpl. intros. fwd. eauto 10 using interp_expr_subst_more.
+  Qed.
+  
   Lemma interp_fact_subst_more s s' f f' :
     map.extends s' s ->
     interp_fact s f f' ->
@@ -521,16 +529,26 @@ Section __.
     res = res'.
   Proof. eauto using interp_agg_expr_agree_on, interp_agg_expr_det. Qed.
 
+  Definition in_set_hyps v set_hyps :=
+    In v (flat_map vars_of_expr (map fst set_hyps)) \/
+      In v (flat_map vars_of_expr (map snd set_hyps)).      
+
   Definition appears_in_rule v r :=
     ~(exists ae, r.(rule_agg) = Some (v, ae)) /\
       In v (flat_map vars_of_fact r.(rule_concls)) \/
       In v (flat_map vars_of_fact r.(rule_hyps)) \/
+      in_set_hyps v r.(rule_set_hyps) \/
       (exists w ae, r.(rule_agg) = Some (w, ae) /\ appears_in_agg_expr v ae).
 
-  FIX ME
+  Definition depends_on_in_set_hyps set_hyps y x :=
+    exists y', In y (vars_of_expr y') /\
+            In (var_expr x, y') set_hyps.
+  
   Definition good_rule (r : rule) :=
     (forall v, appears_in_rule v r ->
-          In (var_expr v) (flat_map fact_args r.(rule_hyps))) /\
+          In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
+            In (var_expr v) (map fst r.(rule_set_hyps))) /\
+      well_founded (depends_on_in_set_hyps r.(rule_set_hyps)) /\
       match r.(rule_agg) with
       | None => True
       | Some (_, ae) => good_agg_expr ae
@@ -550,7 +568,6 @@ Section __.
    (implicit conditions: every concl_in is of the form var_expr blah, where blah was not
    bound to the agg_expr)
    *)
-  FIX ME
   Definition goodish_rule (r : rule) :=
     exists concl,
       r.(rule_concls) = [concl] /\
@@ -558,6 +575,7 @@ Section __.
                     r.(rule_agg) = Some (v, ae)) /\
         (forall v, (*alternatively, could write appears_in_outs here*)appears_in_rule v r ->
               In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
+                In (var_expr v) (map fst r.(rule_set_hyps)) \/
                 In (var_expr v) (fact_ins concl)) /\
         (forall v, In v (flat_map vars_of_expr (flat_map fact_ins (rule_hyps r))) ->
               In (var_expr v) (fact_ins concl)) /\
@@ -567,10 +585,10 @@ Section __.
         | None => True
         | Some (_, aexpr) =>
             good_agg_expr aexpr /\
-              forall v, In v (flat_map vars_of_expr (flat_map fact_ins aexpr.(agg_hyps))) ->
-                   In (var_expr v) (fact_ins concl) /\ ~In v aexpr.(agg_vs) /\ v <> aexpr.(agg_i) \/
-                     v = aexpr.(agg_i) /\ (forall u, In u (vars_of_expr aexpr.(agg_s)) ->
-                                               In (var_expr u) (fact_ins concl))
+              (forall u, In u (vars_of_expr aexpr.(agg_s)) ->
+                    In (var_expr u) (fact_ins concl)) /\
+              (forall v, In v (flat_map vars_of_expr (flat_map fact_ins aexpr.(agg_hyps))) ->
+                    v = aexpr.(agg_i) \/ In (var_expr v) (fact_ins concl) /\ ~In v aexpr.(agg_vs))
         end.
   
   Definition rule_agg_hyps r :=

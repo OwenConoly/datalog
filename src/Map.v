@@ -52,6 +52,14 @@ Lemma extends_trans (m1 m2 m3 : mp) :
   map.extends m1 m3.
 Proof. cbv [map.extends]. auto. Qed.
 
+Lemma extends_None (m1 m2 : mp) k :
+  map.extends m1 m2 ->
+  map.get m1 k = None ->
+  map.get m2 k = None.
+Proof.
+  intros. destr (map.get m2 k); auto. apply H in E. congruence.
+Qed.
+
 Lemma extends_put (m : mp) k v :
   map.get m k = None ->
   map.extends (map.put m k v) m.
