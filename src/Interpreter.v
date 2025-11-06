@@ -263,6 +263,18 @@ Section __.
     destruct Hxp1; try contradiction. invert H0. invert Hxp0p1. assumption.
   Qed.  
   
+  Lemma context_of_args_agree_on ctx args args' v :
+    Forall2 (interp_expr ctx) args args' ->
+    In (var_expr v) args ->
+    agree_on ctx (map.of_list (context_of_args args args')) v.
+  Proof.
+    intros H Hv. pose proof H as H'.
+    Search context_of_args. eapply bare_in_context_args in H'; eauto. fwd.
+    apply in_fst in H'. apply in_of_list_Some_strong in H'. fwd.
+    apply interp_args_context_right in H. rewrite Forall_forall in H.
+    specialize (H _ H'p1). simpl in H. cbv [agree_on]. eauto using eq_trans.
+  Qed.
+  
   Lemma interp_fact_context_right ctx f f' :
     interp_fact ctx f f' ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_fact f f').
@@ -290,7 +302,7 @@ Section __.
     apply H in H0. assumption.
   Qed.
   
-  Lemma interp_hyps_agree ctx hyps hyps' v :
+  Lemma context_of_hyps_agree ctx hyps hyps' v :
     Forall2 (interp_fact ctx) hyps hyps' ->
     In (var_expr v) (flat_map fact_args hyps) ->
     agree_on ctx (map.of_list (context_of_hyps hyps hyps')) v.

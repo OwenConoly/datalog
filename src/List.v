@@ -350,7 +350,18 @@ Section Forall3.
       Forall (fun y => exists x z, R x y z) ys.
   Proof. induction 1; eauto. Qed.
 
-  Lemma Forall3_ignore12:
+  Lemma Forall3_ignore12_strong:
+    forall xs ys zs,
+      Forall3 xs ys zs ->
+      Forall (fun z => exists x y, In x xs /\ In y ys /\ R x y z) zs.
+  Proof.
+    induction 1; eauto.
+    constructor; simpl; eauto 7.
+    eapply Forall_impl; [|eassumption].
+    simpl. intros. fwd. eauto 7.
+  Qed.
+
+  Lemma Forall3_ignore12 :
     forall xs ys zs,
       Forall3 xs ys zs ->
       Forall (fun z => exists x y, R x y z) zs.

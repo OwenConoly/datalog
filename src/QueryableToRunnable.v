@@ -255,20 +255,65 @@ Section Transform.
         | None => ahypss = []
         | Some (_, aexpr) =>
             let ctx := map.of_list (context_of_args (skipn (outs R) concl.(fact_args)) (skipn (outs R) args)) in
-            exists i' s',
+            exists s',
               interp_expr ctx aexpr.(agg_s) s' /\
-                In i' (option_default (get_set s') []) /\
-                let ctx' := map.put ctx aexpr.(agg_i) i' in
                 Forall (fun ahyps =>
-                          Forall2 (fun f '(R, hyp_args) =>
-                                     f.(fact_R) = R /\ Forall2 (interp_expr ctx) (skipn (outs R) f.(fact_args)) (skipn (outs R) hyp_args))
-                            aexpr.(agg_hyps) ahyps) ahypss
+                          exists i',
+                            In i' (option_default (get_set s') []) /\
+                              let ctx' := map.put ctx aexpr.(agg_i) i' in
+                              Forall2 (fun f '(R, hyp_args) =>
+                                         f.(fact_R) = R /\ Forall2 (interp_expr ctx) (skipn (outs R) f.(fact_args)) (skipn (outs R) hyp_args))
+                                aexpr.(agg_hyps) ahyps) ahypss
         end.
   Proof.
-    intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd. eexists.
-    split; [eassumption|]. simpl.
-    rewrite Hgoodp0 in *. invert_list_stuff. invert H0. 1: reflexivity.
-    rewrite <- H in *. invert H6. simpl in *. apply Forall3_ignore12 in H5.
+    intros Hgood_idx Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd.
+    rewrite Hgoodp0 in *. invert_list_stuff. eexists.
+    split; [reflexivity|]. simpl. invert H0. 1: reflexivity.
+    rewrite <- H in *. fwd. invert H6. simpl in *. apply Forall3_ignore12_strong in H5.
+    eexists. split.
+    { eapply interp_expr_agree_on; [eassumption|].
+      apply Forall_forall. intros v Hv. Search ctx0. apply Hgoodp5p1 in Hv.
+      invert H4. eapply Forall2_skipn in H8.
+      apply context_of_args_agree_on; auto.
+      eapply Forall2_impl_strong; [|eassumption].
+      intros e e' He Hin _. eapply interp_expr_agree_on; [eassumption|].
+      apply Forall_forall. intros v' Hv'. cbv [agree_on]. apply map.get_put_diff.
+      intros H'. subst. apply Hgoodp1. eexists. eexists. intuition eauto.
+      apply in_flat_map. eauto. }
+    eapply Forall_impl; [|eassumption].
+    simpl. intros ahyps' Hh. fwd. eexists. split.
+    { rewrite H1. simpl. eassumption. }
+    eapply Forall2_impl_strong; [|eassumption].
+    intros f (R'&args'). invert 1. intros Hin1 Hin2. split; [reflexivity|].
+    eapply Forall2_impl. 2: apply Forall2_skipn; eassumption.
+    intros e e' He. eapply interp_expr_agree_on; [eassumption|].
+    apply Forall_forall. intros v Hv. apply context_of_args_agree_on.
+    - invert H4. eapply Forall2_impl_strong. 2: apply Forall2_skipn; eassumption.
+      intros e0 e0' He0 Hine0 Hine0'. eapply interp_expr_agree_on; [eassumption|].
+      apply Forall_forall. intros v0 Hv0. cbv [agree_on].
+      rewrite map.get_put_diff; cycle 1.
+      { intros H'. subst. apply Hgoodp1. eexists. eexists. intuition eauto.
+        apply in_flat_map. eauto. }
+      rewrite map.get_put_diff; cycle 1.
+      { intros H'. subst. cbv [good_index] in Hgood_idx. move Hgood_idx at bottom.
+        rewrite <- H in *. simpl in Hgood_idx. fwd. apply Hgood_idxp0.
+        apply in_flat_map. eexists. rewrite in_flat_map. rewrite Hgoodp0. simpl. eauto. }
+      Search ctx'. Search
+      
+      Search i. Search ctx'.
+      Search args. Search concl.
+    
+
+      eapply bare_in_context_args in Hv; [|exact H8].
+      Search context_of_args.
+      Check interp_args_context_right_weak.
+      apply interp_args_context_right in H8. fwd. rewrite Forall_forall in H8.
+      specialize (H8 _ Hv). simpl in H8. Search res.
+      eapply Forall2_forget_r_strong in H8. rewrite Forall_forall in H8.
+      specialize (H8 _ Hv). Search context_of_args. fwd.
+      
+
+      apply interp_hyps_agree.
     rewrite Forall_forall in *. intros ahyps Hahyps. specialize (H5 _ Hahyps).
     fwd. eapply Forall2_impl_strong; [|eassumption]. intros f [R' args'] Hff' Hf Hf'.
     invert Hff'. split; [reflexivity|]. eapply Forall2_impl_strong.
