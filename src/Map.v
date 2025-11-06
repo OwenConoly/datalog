@@ -160,6 +160,30 @@ Proof.
     + rewrite <- H1p0, <- H1p1. reflexivity.
 Qed.
 
+Lemma of_list_zip_ext (m1 m2 : mp) ks vs vs' :
+  map.of_list_zip ks vs = Some m1 ->
+  map.of_list_zip ks vs' = Some m2 ->
+  Forall (agree_on m1 m2) ks ->
+  m1 = m2.
+Proof. intros. eapply putmany_of_list_ext; eauto. Qed.
+
+Lemma of_list_zip_ext' (m1 m2 : mp) ks vs vs' k :
+  map.of_list_zip ks vs = Some m1 ->
+  map.of_list_zip ks vs' = Some m2 ->
+  (In k ks -> map.get m1 k = map.get m2 k) ->
+  map.get m1 k = map.get m2 k.
+Proof.
+  intros H1 H2 H3. do 2 erewrite map.get_of_list_zip in * by eassumption.
+  destruct (map.zipped_lookup _ vs _) eqn:E1, (map.zipped_lookup _ vs' _) eqn:E2; auto.
+  - apply H3. eapply map.zipped_lookup_Some_in. eassumption.
+  - apply map.zipped_lookup_Some_in in E1.
+    apply map.zipped_lookup_None_notin in E2; auto. Search map.putmany_of_list Datatypes.length.
+    eapply map.putmany_of_list_zip_sameLength. eassumption.
+  - apply map.zipped_lookup_Some_in in E2.
+    apply map.zipped_lookup_None_notin in E1; auto.
+    eapply map.putmany_of_list_zip_sameLength. eassumption.
+Qed.
+
 Lemma agree_on_putmany_r (m m1 m2 : mp) k :
   agree_on (map.putmany m m1) (map.putmany m m2) k ->
   agree_on m1 m2 k.

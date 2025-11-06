@@ -141,9 +141,9 @@ Section Transform.
   
   Hint Resolve pairs_satisfy_weaken agree_weaken : core.
 
-  Lemma hyp_ins_det' (r : rule) R (args : list T) hyps ahyps :
+  Lemma hyp_ins_det' ctx (r : rule) R (args : list T) hyps ahyps :
     goodish_rule r ->
-    rule_impl' r (R, args) hyps ahyps ->
+    rule_impl' ctx r (R, args) hyps ahyps ->
     exists concl,
       r.(rule_concls) = [concl] /\
         let ctx := map.of_list (context_of_args (skipn (outs R) concl.(fact_args)) (skipn (outs R) args)) in
@@ -161,23 +161,23 @@ Section Transform.
     rewrite Forall_forall. intros v Hv. assert (In (var_expr v) (fact_ins concl)).
     { apply Hgoodp3. apply in_flat_map. eexists. split; eauto.
       apply in_flat_map. eauto. }
-    invert H3. eapply Forall2_skipn in H6. pose proof H6 as H6'.
-    eapply bare_in_context_args in H6.
+    invert H4. eapply Forall2_skipn in H7. pose proof H7 as H7'.
+    eapply bare_in_context_args in H7.
     2: { apply Hgoodp3. apply in_flat_map. eexists. split; [|eassumption].
          apply in_flat_map. eauto. }
-    apply interp_args_context_right in H6'.
-    fwd. cbv [agree_on]. apply in_fst in H6. apply in_of_list_Some_strong in H6.
-    fwd. rewrite H6p0. rewrite Forall_forall in H6'. apply H6' in H6p1.
+    apply interp_args_context_right in H7'.
+    fwd. cbv [agree_on]. apply in_fst in H7. apply in_of_list_Some_strong in H7.
+    fwd. rewrite H7p0. rewrite Forall_forall in H7'. apply H7' in H7p1.
     move H0 at bottom. invert H0; [assumption|]. rewrite <- H1 in *.
-    rewrite map.get_put_diff in H6p1; auto. intros ?. subst.
+    rewrite map.get_put_diff in H7p1; auto. intros ?. subst.
     Search res. apply Hgoodp1. do 2 eexists. split; [|reflexivity].
     apply in_flat_map. eexists. split; [eassumption|]. simpl. auto.
   Qed.
 
-  Lemma hyp_ins_det (r : rule) R args1 args2 hyps1 hyps2 ahyps1 ahyps2 :
+  Lemma hyp_ins_det (r : rule) ctx1 ctx2 R args1 args2 hyps1 hyps2 ahyps1 ahyps2 :
     goodish_rule r ->
-    rule_impl' r (R, args1) hyps1 ahyps1 ->
-    rule_impl' r (R, args2) hyps2 ahyps2 ->
+    rule_impl' ctx1 r (R, args1) hyps1 ahyps1 ->
+    rule_impl' ctx2 r (R, args2) hyps2 ahyps2 ->
     skipn (outs R) args1 = skipn (outs R) args2 ->
     Forall2 (fun '(R1, hyp1) '(R2, hyp2) =>
                R1 = R2 /\ skipn (outs R1) hyp1 = skipn (outs R2) hyp2)
@@ -194,35 +194,96 @@ Section Transform.
     rewrite Hsame in *. eapply interp_expr_det; eassumption.
   Qed.
 
-  Lemma ahyp_ins_det'1 (r : rule) R (args : list T) hyps ahypss :
+    (*if we get a message saying concls of r need to be computed, then send out messages
+    saying premises of r need to be computed*)
+  (*note: this is nonsensical if length r.(rule_concls) > 1*)
+  Definition request_hyps (r : rule) : rule' :=
+    {| rule_agg := None;
+      rule_hyps := map (fact_relmap plus_false) (map with_only_ins r.(rule_concls));
+      rule_concls := map (fact_relmap plus_false) (map with_only_ins r.(rule_hyps));
+      rule_set_hyps := []
+    |}.
+
+  Definition noop_rule : rule' :=
+    {| rule_agg := None;
+      rule_hyps := [];
+      rule_concls := [];
+      rule_set_hyps := [] |}.
+
+  (*due apparently to dumb luck (??), this transformation is correct even when the variable
+    "i" is used in other places.  so yet again I avoid having to reason about naming clashes.
+    is this just luck?  is there some principle here? *)
+  Definition request_agg_hyps (r : rule) : rule' :=
+    match r.(rule_agg) with
+    | Some (res, aexpr) =>
+        {| rule_agg := None;
+          rule_hyps := map (fact_relmap plus_false) (map with_only_ins r.(rule_concls));
+          rule_concls := map (fact_relmap plus_false) (map with_only_ins aexpr.(agg_hyps));
+          rule_set_hyps := [(var_expr aexpr.(agg_i), aexpr.(agg_s))] |}
+    | None => noop_rule
+    end.
+
+  (*add a hypothesis saying that the conclusion is something we need to compute*)
+  (*note: this is fairly nonsensical (not semantically equivalent) if length r.(rule_concls) > 1*)
+  Definition add_hyp (r : rule) : rule' :=
+    {| rule_agg := option_map (fun '(x, y) => (x, agg_expr_relmap plus_true y)) r.(rule_agg);
+      rule_hyps := map (fact_relmap plus_false) (map with_only_ins r.(rule_concls)) ++
+                     map (fact_relmap plus_true) r.(rule_hyps);
+      rule_concls := map (fact_relmap plus_true) r.(rule_concls);
+      rule_set_hyps := r.(rule_set_hyps) |}.
+
+  (*semanticallly equivalent if each rule has concl length at most 1*)
+  Definition make_good (p : list rule) : list rule' :=
+    map request_hyps p ++ map request_agg_hyps p ++ map add_hyp p.
+
+  Print goodish_rule.
+  Definition good_index (r : rule) :=
+    match r.(rule_agg) with
+    | None => True
+    | Some (_, aexpr) =>
+        ~In aexpr.(agg_i) (flat_map vars_of_expr (flat_map fact_ins r.(rule_concls))) /\
+          ~In aexpr.(agg_i) (flat_map vars_of_expr (flat_map fact_ins r.(rule_hyps)))
+    end.
+
+  Lemma ahyp_ins_det'1 ctx0 (r : rule) R (args : list T) hyps ahypss :
+    good_index r ->
     goodish_rule r ->
-    rule_impl' r (R, args) hyps ahypss ->
+    rule_impl' ctx0 r (R, args) hyps ahypss ->
     exists concl,
       r.(rule_concls) = [concl] /\
         match r.(rule_agg) with
         | None => ahypss = []
         | Some (_, aexpr) =>
             let ctx := map.of_list (context_of_args (skipn (outs R) concl.(fact_args)) (skipn (outs R) args)) in
-            Forall (fun ahyps =>
-                      Forall2 (fun f '(R, hyp_args) =>
-                                 f.(fact_R) = R /\ Forall2 (interp_expr ctx) (skipn (outs R) f.(fact_args)) (skipn (outs R) hyp_args))
-                        aexpr.(agg_hyps) ahyps) ahypss
+            exists i' s',
+              interp_expr ctx aexpr.(agg_s) s' /\
+                In i' (option_default (get_set s') []) /\
+                let ctx' := map.put ctx aexpr.(agg_i) i' in
+                Forall (fun ahyps =>
+                          Forall2 (fun f '(R, hyp_args) =>
+                                     f.(fact_R) = R /\ Forall2 (interp_expr ctx) (skipn (outs R) f.(fact_args)) (skipn (outs R) hyp_args))
+                            aexpr.(agg_hyps) ahyps) ahypss
         end.
   Proof.
     intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd. eexists.
     split; [eassumption|]. simpl.
     rewrite Hgoodp0 in *. invert_list_stuff. invert H0. 1: reflexivity.
-    rewrite <- H in *. invert H5. simpl in *. apply Forall3_ignore12 in H4.
-    rewrite Forall_forall in *. intros ahyps Hahyps. specialize (H4 _ Hahyps).
+    rewrite <- H in *. invert H6. simpl in *. apply Forall3_ignore12 in H5.
+    rewrite Forall_forall in *. intros ahyps Hahyps. specialize (H5 _ Hahyps).
     fwd. eapply Forall2_impl_strong; [|eassumption]. intros f [R' args'] Hff' Hf Hf'.
     invert Hff'. split; [reflexivity|]. eapply Forall2_impl_strong.
     2: apply Forall2_skipn; eassumption.
     intros e e' Hee' He He'. eapply interp_expr_agree_on; [eassumption|].
-    rewrite Forall_forall. intros v Hv. move H3 at bottom. invert H3.
-    eapply Forall2_skipn in H7. pose proof H7 as H7'.
-    specialize (Hgoodp5p1 v). specialize' Hgoodp5p1.
+    rewrite Forall_forall. intros v Hv. move H4 at bottom. invert H4.
+    specialize (Hgoodp5p2 v). specialize' Hgoodp5p2.
     { apply in_flat_map. eexists. split; eauto. apply in_flat_map. eauto. }
-    fwd. eapply bare_in_context_args in H7.
+    destruct Hgoodp5p2 as [Hgoodp5p2|Hgoodp5p2].
+    { subst. 
+    eapply Forall2_skipn in H8. pose proof H8 as H8'.
+    fwd.
+    eapply bare_in_context_args in H8.
+    2: { Search v. apply Hgoodp4. cbv [fact_ins] in Hgoodp0. rewrite Hgoodp1. apply in_map. eassumption. }
+
     2: { eassumption. }
     fwd. apply interp_args_context_right in H7'. cbv [agree_on].
     apply in_fst in H7. apply in_of_list_Some_strong in H7. fwd.
@@ -348,27 +409,6 @@ Section Transform.
     rewrite Hins in *. rewrite Hp1p1 in H4p1p1. invert_list_stuff.
     reflexivity.
   Qed.      
-
-  (*if we get a message saying concls of r need to be computed, then send out messages
-    saying premises of r need to be computed*)
-  (*note: this is nonsensical if length r.(rule_concls) > 1*)
-  Definition request_hyps (r : rule) : rule' :=
-    {| rule_agg := None;
-      rule_hyps := map (fact_relmap plus_false) (map with_only_ins r.(rule_concls));
-      rule_concls := map (fact_relmap plus_false) (map with_only_ins (r.(rule_hyps) ++ rule_agg_hyps r))
-    |}.
-
-  (*add a hypothesis saying that the conclusion is something we need to compute*)
-  (*note: this is fairly nonsensical (not semantically equivalent) if length r.(rule_concls) > 1*)
-  Definition add_hyp (r : rule) : rule' :=
-    {| rule_agg := option_map (fun '(x, y) => (x, agg_expr_relmap plus_true y)) r.(rule_agg);
-      rule_hyps := map (fact_relmap plus_false) (map with_only_ins r.(rule_concls)) ++
-                     map (fact_relmap plus_true) r.(rule_hyps);
-      rule_concls := map (fact_relmap plus_true) r.(rule_concls) |}.
-
-  (*semanticallly equivalent if each rule has concl length at most 1*)
-  Definition make_good (p : list rule) : list rule' :=
-    map request_hyps p ++ map add_hyp p.
 
   Ltac t :=
     repeat match goal with

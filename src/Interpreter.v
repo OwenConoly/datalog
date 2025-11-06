@@ -310,7 +310,7 @@ Section __.
         
         let body's := zip (fun i' agg_hyps' =>
                              let bodyctx := map.of_list (context_of_hyps aexpr.(agg_hyps) agg_hyps') in
-                             let bodyctx := map.putmany (map.put ctx aexpr.(agg_i) i') bodyctx in
+                             let bodyctx := map.putmany ctx (map.put bodyctx aexpr.(agg_i) i') in
                              subst_in_expr bodyctx aexpr.(agg_body)) s' agg_hyps's in
         match option_all body's with
         | None => None
@@ -318,6 +318,19 @@ Section __.
             Some (fold_right (interp_agg aexpr.(agg_agg)) (agg_id aexpr.(agg_agg)) body's)
         end
     end.
+
+  Lemma in_vars_interp_expr_not_None ctx e e' v :
+    interp_expr ctx e e' ->
+    In v (vars_of_expr e) ->
+    map.get ctx v <> None.
+  Proof.
+    intros H1 H2. revert e' H1. induction e.
+    - intros e' H. invert H. simpl in H2. destruct H2; congruence.
+    - intros e' H'. invert H'. apply Forall2_forget_r in H3.
+      eapply Forall_and in H3; [|exact H]. clear H. simpl in H2.
+      apply in_flat_map in H2. fwd. rewrite Forall_forall in H3.
+      specialize (H3 _ H2p0). fwd. eapply H3p0; eauto.
+  Qed.
 
   Lemma eval_aexpr_complete ctx aexpr res agg_hyps's :
     good_agg_expr aexpr ->
@@ -333,19 +346,23 @@ Section __.
     apply subst_in_expr_complete. 
     eapply interp_expr_agree_on; eauto. cbv [good_agg_expr] in Hgood.
     simpl in Hgood. rewrite Forall_forall in Hgood. rewrite Forall_forall.
-    intros v Hv. eassert (map.putmany _ _ = _) as ->. 2: apply agree_on_refl.
-    apply putmany_extends_idk.
-    - eapply interp_hyps_context_right_weak. eassumption.
-    - cbv [map.extends]. intros k0 v0 Hkv.
-      pose proof Hkv as Hkv'.
-      erewrite map.get_of_list_zip in Hkv by eassumption.
-      apply map.zipped_lookup_Some_in in Hkv. specialize (Hgood _ Hkv). clear Hkv.
-      eapply bare_in_context_hyps in Hgood; eauto.
+    intros v Hv. cbv [agree_on]. rewrite map.get_putmany_dec.
+    do 2 rewrite map.get_put_dec. destr (var_eqb i v); [reflexivity|].
+    destruct (map.get ctx' v) eqn:E'. 
+    - Search context_of_hyps. pose proof Hxyzp1 as Hxyzp1'.
       apply interp_hyps_context_right in Hxyzp1.
-      fwd. apply in_fst in Hgood. apply in_of_list_Some_strong in Hgood.
-      fwd. rewrite Forall_forall in Hxyzp1. specialize (Hxyzp1 _ Hgoodp1).
-      simpl in Hxyzp1. rewrite map.get_putmany_dec in Hxyzp1. rewrite Hkv' in Hxyzp1.
-      invert Hxyzp1. assumption.
+      pose proof E' as E''.
+      erewrite map.get_of_list_zip in E' by eassumption.
+      apply map.zipped_lookup_Some_in in E'.
+      apply Hgood in E'. Search context_of_hyps var_expr.
+      eapply bare_in_context_hyps in Hxyzp1'; eauto. fwd.
+      apply in_fst in Hxyzp1'. apply in_of_list_Some_strong in Hxyzp1'.
+      fwd. 
+      rewrite Forall_forall in Hxyzp1. specialize (Hxyzp1 _ Hxyzp1'p1).
+      simpl in Hxyzp1. rewrite <- E''. rewrite <- Hxyzp1.
+      rewrite map.get_put_diff by auto. reflexivity.
+    - eapply in_vars_interp_expr_not_None in Hxyzp2; eauto.
+      rewrite map.get_put_diff in Hxyzp2 by auto. exfalso. auto.
   Qed.
 
   (*repeatedly iterate over set hyps.
@@ -973,17 +990,17 @@ Section __.
     destruct (option_coalesce _); [|reflexivity].
     erewrite zip_ext_in.
     2: { intros x y Hin. apply subst_in_expr_ctxs_agree.
-         instantiate (1 := (map.putmany (map.put ctx' (agg_i aexpr) x)
-                              (map.of_list (context_of_hyps (agg_hyps aexpr) y)))).
+         instantiate (1 := (map.putmany ctx'
+                              (map.put (map.of_list (context_of_hyps (agg_hyps aexpr) y)) (agg_i aexpr) x))).
          apply Forall_forall.
          intros v Hv. cbv [agree_on]. do 2 rewrite map.get_putmany_dec.
-         destruct_one_match; [reflexivity|]. do 2 rewrite map.get_put_dec.
          destruct_one_match; [reflexivity|]. apply in_combine_r in Hin.
          invert H. simpl in *. apply Forall3_ignore12 in H2.
          rewrite Forall_forall in H2. specialize (H2 _ ltac:(eassumption)).
          fwd. apply Hagree. cbv [appears_in_agg_expr].
-         right. simpl. split; auto. intros [H'|H']; auto.
-         Search vs. Search var_expr context_of_hyps. eapply bare_in_context_hyps in H2p1.
+         right. simpl. split; auto. rewrite map.get_put_dec in E.
+         destr (var_eqb i v); [congruence|]. intros [H'|H']; auto.
+         eapply bare_in_context_hyps in H2p1.
          2: { move Hgood at bottom. cbv [good_agg_expr] in Hgood. simpl in Hgood.
               rewrite Forall_forall in Hgood. apply Hgood. eassumption. }
          fwd. apply in_fst in H2p1. apply in_of_list_Some in H2p1. fwd.
