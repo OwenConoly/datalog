@@ -108,26 +108,26 @@ Section __.
         In x' l.
   
   (*semantics of rules*)
-  Inductive rule_impl' : rule -> rel * list T -> list (rel * list T) -> list (list (rel * list T)) -> Prop :=
+  Inductive rule_impl' : context -> rule -> rel * list T -> list (rel * list T) -> list (list (rel * list T)) -> Prop :=
   | mk_rule_impl' r agg_hyps's ctx' f' hyps' ctx :
     interp_option_agg_expr ctx r.(rule_agg) ctx' agg_hyps's ->
     Exists (fun c => interp_fact ctx' c f') r.(rule_concls) ->
     Forall2 (interp_fact ctx) r.(rule_hyps) hyps' ->
     Forall (x_in_S ctx) r.(rule_set_hyps) ->
-    rule_impl' r f' hyps' agg_hyps's.
+    rule_impl' ctx r f' hyps' agg_hyps's.
 
   Hint Constructors rule_impl' interp_option_agg_expr : core.
 
   Definition rule_impl r f hyps'_agg_hyps's :=
-    exists hyps' agg_hyps's,
-      hyps'_agg_hyps's = hyps' ++ concat agg_hyps's /\ rule_impl' r f hyps' agg_hyps's.
+    exists ctx hyps' agg_hyps's,
+      hyps'_agg_hyps's = hyps' ++ concat agg_hyps's /\ rule_impl' ctx r f hyps' agg_hyps's.
 
   Lemma normal_rule_impl hyps concls f' hyps' ctx :
     Exists (fun c => interp_fact ctx c f') concls ->
     Forall2 (interp_fact ctx) hyps hyps' ->
     rule_impl {| rule_agg := None; rule_hyps := hyps; rule_set_hyps := []; rule_concls := concls|} f' hyps'.
   Proof.
-    intros. cbv [rule_impl]. exists hyps', nil. rewrite app_nil_r. intuition.
+    intros. cbv [rule_impl]. exists ctx, hyps', nil. rewrite app_nil_r. intuition.
     econstructor; simpl; eauto.
   Qed.
 
@@ -330,7 +330,7 @@ Section __.
     prog_impl_fact p2 f.
   Proof.
     intros H H0. eapply pftree_weaken; simpl; eauto. simpl.
-    intros. apply Exists_exists in H1. apply Exists_exists. firstorder.
+    intros. apply Exists_exists in H1. apply Exists_exists. fwd. eauto.
   Qed.
 
   Lemma interp_expr_subst_more s s' v e :
@@ -617,8 +617,8 @@ Section __.
     simpl. clear. intros. fwd. invert Hp1. simpl. apply in_map. assumption.
   Qed.
 
-  Lemma rule_impl'_hyp_relname_in r x hyps agg_hyps' :
-    rule_impl' r x hyps agg_hyps' ->
+  Lemma rule_impl'_hyp_relname_in ctx r x hyps agg_hyps' :
+    rule_impl' ctx r x hyps agg_hyps' ->
     Forall (fun hyp => In (fst hyp) (map fact_R (rule_hyps r))) hyps /\
       Forall (fun hyp => In (fst hyp) (map fact_R (rule_agg_hyps r)))
       (concat agg_hyps').

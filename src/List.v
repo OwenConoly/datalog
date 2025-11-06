@@ -210,6 +210,24 @@ Lemma Forall2_rev R xs ys :
   Forall2 R xs ys ->
   Forall2 R (rev xs) (rev ys).
 Proof. induction 1; simpl; auto using Forall2_app. Qed.
+
+Lemma zip_ext_in (f : _ -> _ -> C) g xs ys :
+  (forall x y, In (x, y) (combine xs ys) -> f x y = g x y) ->
+  zip f xs ys = zip g xs ys.
+Proof.
+  intros. revert ys H. induction xs; eauto.
+  intros ys. destruct ys; simpl; eauto. cbv [zip].
+  simpl. intros. f_equal; eauto.
+Qed.
+
+Lemma zip_ext (f : _ -> _ -> C) g xs ys :
+  (forall x y, f x y = g x y) ->
+  zip f xs ys = zip g xs ys.
+Proof.
+  intros. apply zip_ext_in; auto.
+Qed.
+
+
 End Forall.
 
 From Stdlib Require Import Lia.
