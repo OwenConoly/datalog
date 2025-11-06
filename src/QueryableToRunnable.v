@@ -262,7 +262,7 @@ Section Transform.
                             In i' (option_default (get_set s') []) /\
                               let ctx' := map.put ctx aexpr.(agg_i) i' in
                               Forall2 (fun f '(R, hyp_args) =>
-                                         f.(fact_R) = R /\ Forall2 (interp_expr ctx) (skipn (outs R) f.(fact_args)) (skipn (outs R) hyp_args))
+                                         f.(fact_R) = R /\ Forall2 (interp_expr ctx') (skipn (outs R) f.(fact_args)) (skipn (outs R) hyp_args))
                                 aexpr.(agg_hyps) ahyps) ahypss
         end.
   Proof.
@@ -272,7 +272,7 @@ Section Transform.
     rewrite <- H in *. fwd. invert H6. simpl in *. apply Forall3_ignore12_strong in H5.
     eexists. split.
     { eapply interp_expr_agree_on; [eassumption|].
-      apply Forall_forall. intros v Hv. Search ctx0. apply Hgoodp5p1 in Hv.
+      apply Forall_forall. intros v Hv. apply Hgoodp5p1 in Hv.
       invert H4. eapply Forall2_skipn in H8.
       apply context_of_args_agree_on; auto.
       eapply Forall2_impl_strong; [|eassumption].
@@ -285,63 +285,23 @@ Section Transform.
     { rewrite H1. simpl. eassumption. }
     eapply Forall2_impl_strong; [|eassumption].
     intros f (R'&args'). invert 1. intros Hin1 Hin2. split; [reflexivity|].
-    eapply Forall2_impl. 2: apply Forall2_skipn; eassumption.
-    intros e e' He. eapply interp_expr_agree_on; [eassumption|].
-    apply Forall_forall. intros v Hv. apply context_of_args_agree_on.
-    - invert H4. eapply Forall2_impl_strong. 2: apply Forall2_skipn; eassumption.
-      intros e0 e0' He0 Hine0 Hine0'. eapply interp_expr_agree_on; [eassumption|].
-      apply Forall_forall. intros v0 Hv0. cbv [agree_on].
-      rewrite map.get_put_diff; cycle 1.
-      { intros H'. subst. apply Hgoodp1. eexists. eexists. intuition eauto.
-        apply in_flat_map. eauto. }
-      rewrite map.get_put_diff; cycle 1.
-      { intros H'. subst. cbv [good_index] in Hgood_idx. move Hgood_idx at bottom.
-        rewrite <- H in *. simpl in Hgood_idx. fwd. apply Hgood_idxp0.
-        apply in_flat_map. eexists. rewrite in_flat_map. rewrite Hgoodp0. simpl. eauto. }
-      Search ctx'. Search
-      
-      Search i. Search ctx'.
-      Search args. Search concl.
-    
-
-      eapply bare_in_context_args in Hv; [|exact H8].
-      Search context_of_args.
-      Check interp_args_context_right_weak.
-      apply interp_args_context_right in H8. fwd. rewrite Forall_forall in H8.
-      specialize (H8 _ Hv). simpl in H8. Search res.
-      eapply Forall2_forget_r_strong in H8. rewrite Forall_forall in H8.
-      specialize (H8 _ Hv). Search context_of_args. fwd.
-      
-
-      apply interp_hyps_agree.
-    rewrite Forall_forall in *. intros ahyps Hahyps. specialize (H5 _ Hahyps).
-    fwd. eapply Forall2_impl_strong; [|eassumption]. intros f [R' args'] Hff' Hf Hf'.
-    invert Hff'. split; [reflexivity|]. eapply Forall2_impl_strong.
-    2: apply Forall2_skipn; eassumption.
-    intros e e' Hee' He He'. eapply interp_expr_agree_on; [eassumption|].
-    rewrite Forall_forall. intros v Hv. move H4 at bottom. invert H4.
-    specialize (Hgoodp5p2 v). specialize' Hgoodp5p2.
-    { apply in_flat_map. eexists. split; eauto. apply in_flat_map. eauto. }
-    destruct Hgoodp5p2 as [Hgoodp5p2|Hgoodp5p2].
-    { subst. 
-    eapply Forall2_skipn in H8. pose proof H8 as H8'.
-    fwd.
-    eapply bare_in_context_args in H8.
-    2: { Search v. apply Hgoodp4. cbv [fact_ins] in Hgoodp0. rewrite Hgoodp1. apply in_map. eassumption. }
-
+    eapply Forall2_impl_strong. 2: apply Forall2_skipn; eassumption.
+    intros e e' He Hine Hine'. eapply interp_expr_agree_on; [eassumption|].
+    apply Forall_forall. intros v Hv. cbv [agree_on].
+    rewrite <- map.put_putmany_commute. do 2 rewrite map.get_put_dec.
+    destr (var_eqb i v); [reflexivity|].
+    move H4 at bottom. invert H4.
+    move Hgoodp5p2 at bottom. specialize (Hgoodp5p2 v). specialize' Hgoodp5p2.
+    { apply in_flat_map. eexists. intuition eauto. apply in_flat_map. eauto. }
+    destruct Hgoodp5p2 as [Hgoodp5p2|Hgoodp5p2]; [congruence|]. fwd.
+    eapply Forall2_skipn in H8. eapply context_of_args_agree_on in H8.
     2: { eassumption. }
-    fwd. apply interp_args_context_right in H7'. cbv [agree_on].
-    apply in_fst in H7. apply in_of_list_Some_strong in H7. fwd.
-    rewrite H7p0. clear H7p0. rewrite Forall_forall in H7'. apply H7' in H7p1.
-    rewrite map.get_putmany_left.
-    2: { erewrite map.get_of_list_zip by eassumption.
-         apply zipped_lookup_notin_None. assumption. }
-    rewrite map.get_put_diff by assumption.
-    rewrite map.get_put_diff in H7p1.
-    2: { intros ?. subst.
-         apply Hgoodp1. do 2 eexists. split; [|reflexivity].
-         apply in_flat_map. eexists. split; [eassumption|]. simpl. auto. }
-    assumption.
+    cbv [agree_on] in H8. rewrite map.get_put_diff in H8; cycle 1.
+    { intros H'. subst. apply Hgoodp1. eexists. eexists. intuition eauto.
+      apply in_flat_map. exists (var_expr res). simpl. eauto. }
+    rewrite <- H8. rewrite map.get_putmany_dec. destruct_one_match; auto.
+    exfalso. erewrite map.get_of_list_zip in E0 by eassumption.
+    apply map.zipped_lookup_Some_in in E0. auto.
   Qed.
 
   Lemma ahyp_ins_det'2 (r : rule) R (args : list T) hyps ahypss :

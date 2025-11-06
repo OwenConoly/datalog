@@ -82,7 +82,7 @@ Section __.
     Forall3 (fun i' body' hyps' =>
                exists vs' ctx',
                  map.of_list_zip vs vs' = Some ctx' /\
-                   let ctx'' := map.put ctx' i i' in
+                   let ctx'' := map.putmany ctx (map.put ctx' i i') in
                    Forall2 (interp_fact ctx'') hyps hyps' /\
                      interp_expr ctx'' body body')
       i's body's hyps's ->
@@ -413,26 +413,25 @@ Section __.
   Proof.
     intros H1 H2. invert H1. econstructor; eauto.
     - eapply interp_expr_agree_on; eauto. apply Forall_forall. auto.
-    (*   eauto. *)
-    (* - eapply Forall3_impl; [|eassumption]. simpl. clear H3. intros x y z Hxyz. fwd. *)
-    (*   exists vs', ctx'. split; [assumption|]. split. *)
-    (*   + eapply Forall2_impl_strong; [|eassumption]. intros x' y' Hx'y' Hx' Hy'. *)
-    (*     eapply interp_fact_agree_on; [eassumption|]. *)
-    (*     apply Forall_forall. intros. cbv [agree_on]. do 2 rewrite map.get_putmany_dec. *)
-    (*     destruct_one_match; [reflexivity|]. do 2 rewrite map.get_put_dec. *)
-    (*     destr (var_eqb i x0); [reflexivity|]. apply H2. *)
-    (*     cbv [appears_in_agg_expr]. simpl. right. split. *)
-    (*     { intros [H'|H']; [solve[auto] |]. *)
-    (*       eapply map.putmany_of_list_zip_get in Hxyzp0; eauto. } *)
-    (*     right. apply in_flat_map. eauto. *)
-    (*   + eapply interp_expr_agree_on; eauto. *)
-    (*     apply Forall_forall. intros. cbv [agree_on]. do 2 rewrite map.get_putmany_dec. *)
-    (*     destruct_one_match; [reflexivity|]. do 2 rewrite map.get_put_dec. *)
-    (*     destr (var_eqb i x0); [reflexivity|]. apply H2. *)
-    (*     cbv [appears_in_agg_expr]. simpl. right. split. *)
-    (*     { intros [H'|H']; [solve [auto] |]. *)
-    (*       eapply map.putmany_of_list_zip_get in Hxyzp0; eauto. } *)
-    (*     left. eauto. *)
+    - eapply Forall3_impl; [|eassumption]. simpl. clear H3. intros x y z Hxyz. fwd.
+      exists vs', ctx'. split; [assumption|]. split.
+      + eapply Forall2_impl_strong; [|eassumption]. intros x' y' Hx'y' Hx' Hy'.
+        eapply interp_fact_agree_on; [eassumption|].
+        apply Forall_forall. intros. cbv [agree_on]. do 2 rewrite map.get_putmany_dec.
+        destruct_one_match; [reflexivity|]. rewrite map.get_put_dec in E.
+        destr (var_eqb i x0); [congruence|]. apply H2.
+        cbv [appears_in_agg_expr]. simpl. right. split.
+        { intros [H'|H']; [solve[auto] |].
+          eapply map.putmany_of_list_zip_get in Hxyzp0; eauto. }
+        right. apply in_flat_map. eauto.
+      + eapply interp_expr_agree_on; eauto.
+        apply Forall_forall. intros. cbv [agree_on]. do 2 rewrite map.get_putmany_dec.
+        destruct_one_match; [reflexivity|]. rewrite map.get_put_dec in E.
+        destr (var_eqb i x0); [congruence|]. apply H2.
+        cbv [appears_in_agg_expr]. simpl. right. split.
+        { intros [H'|H']; [solve [auto] |].
+          eapply map.putmany_of_list_zip_get in Hxyzp0; eauto. }
+        left. eauto.
   Qed.
 
   Lemma interp_expr_det ctx e v1 v2 :
@@ -514,8 +513,16 @@ Section __.
       intros Hk. specialize (Hgood _ Hk).
       rewrite in_flat_map in Hgood. fwd. specialize (Hp1 _ Hgoodp0). fwd.
       eapply interp_fact_same_agree in Hp1p1; eauto.
-      cbv [agree_on] in *. do 2 rewrite map.get_put_dec in Hp1p1.
-      destr (var_eqb i k); fwd; auto. congruence. }
+      cbv [agree_on] in *. do 2 rewrite map.get_putmany_dec in Hp1p1.
+      do 2 rewrite map.get_put_dec in Hp1p1.
+      destr (var_eqb i k); fwd; try congruence.
+      destruct_one_match_hyp; destruct_one_match_hyp; auto.
+      - erewrite map.get_of_list_zip in E2 by eassumption.
+        apply map.putmany_of_list_zip_sameLength in H0p0.
+        apply map.zipped_lookup_None_notin in E2; auto. exfalso. auto.
+      - erewrite map.get_of_list_zip in E1 by eassumption.
+        apply map.putmany_of_list_zip_sameLength in Hp0.
+        apply map.zipped_lookup_None_notin in E1; auto. exfalso. auto. }
     rewrite H in *. eapply interp_expr_det; eassumption.
   Qed.
 

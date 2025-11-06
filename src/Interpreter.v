@@ -358,7 +358,7 @@ Section __.
     apply subst_in_expr_complete. 
     eapply interp_expr_agree_on; eauto. cbv [good_agg_expr] in Hgood.
     simpl in Hgood. rewrite Forall_forall in Hgood. rewrite Forall_forall.
-    intros v Hv. cbv [agree_on]. rewrite map.get_putmany_dec.
+    intros v Hv. cbv [agree_on]. do 2 rewrite map.get_putmany_dec.
     do 2 rewrite map.get_put_dec. destr (var_eqb i v); [reflexivity|].
     destruct (map.get ctx' v) eqn:E'. 
     - Search context_of_hyps. pose proof Hxyzp1 as Hxyzp1'.
@@ -372,9 +372,13 @@ Section __.
       fwd. 
       rewrite Forall_forall in Hxyzp1. specialize (Hxyzp1 _ Hxyzp1'p1).
       simpl in Hxyzp1. rewrite <- E''. rewrite <- Hxyzp1.
-      rewrite map.get_put_diff by auto. reflexivity.
-    - eapply in_vars_interp_expr_not_None in Hxyzp2; eauto.
-      rewrite map.get_put_diff in Hxyzp2 by auto. exfalso. auto.
+      rewrite map.get_putmany_dec. rewrite map.get_put_diff by auto. rewrite E''.
+      reflexivity.
+    - destruct_one_match; auto.
+      Search context_of_hyps.
+      apply interp_hyps_context_right_weak in Hxyzp1. apply Hxyzp1 in E0.
+      rewrite map.get_putmany_dec in E0. rewrite map.get_put_diff in E0 by auto.
+      rewrite E' in E0. apply E0.
   Qed.
 
   (*repeatedly iterate over set hyps.
