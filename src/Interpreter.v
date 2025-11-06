@@ -710,6 +710,7 @@ Section __.
     do 2 rewrite length_map in *. lia.
   Qed.
 
+  Print goodish_rule.
   Definition all_rule_ctxs hyps set_hyps hyps' :=
     let ctx := map.of_list (context_of_hyps hyps hyps') in
     all_set_hyps_ctxs ctx set_hyps.

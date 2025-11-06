@@ -1,6 +1,5 @@
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Arith.EqNat.
-From Stdlib Require Import Arith.PeanoNat. Import Nat.
 From Stdlib Require Import Bool.Bool.
 From Stdlib Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
 From Stdlib Require Import ZArith.Int.
@@ -246,7 +245,6 @@ Section Transform.
     end.
 
   Lemma ahyp_ins_det'1 ctx0 (r : rule) R (args : list T) hyps ahypss :
-    good_index r ->
     goodish_rule r ->
     rule_impl' ctx0 r (R, args) hyps ahypss ->
     exists concl,
@@ -257,19 +255,17 @@ Section Transform.
             let ctx := map.of_list (context_of_args (skipn (outs R) concl.(fact_args)) (skipn (outs R) args)) in
             exists s',
               interp_expr ctx aexpr.(agg_s) s' /\
-                Forall (fun ahyps =>
-                          exists i',
-                            In i' (option_default (get_set s') []) /\
-                              let ctx' := map.put ctx aexpr.(agg_i) i' in
-                              Forall2 (fun f '(R, hyp_args) =>
-                                         f.(fact_R) = R /\ Forall2 (interp_expr ctx') (skipn (outs R) f.(fact_args)) (skipn (outs R) hyp_args))
-                                aexpr.(agg_hyps) ahyps) ahypss
+                Forall2 (fun i' ahyps =>
+                          let ctx' := map.put ctx aexpr.(agg_i) i' in
+                          Forall2 (fun f '(R, hyp_args) =>
+                                     f.(fact_R) = R /\ Forall2 (interp_expr ctx') (skipn (outs R) f.(fact_args)) (skipn (outs R) hyp_args))
+                            aexpr.(agg_hyps) ahyps) (option_default (get_set s') []) ahypss
         end.
   Proof.
-    intros Hgood_idx Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd.
+    intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd.
     rewrite Hgoodp0 in *. invert_list_stuff. eexists.
     split; [reflexivity|]. simpl. invert H0. 1: reflexivity.
-    rewrite <- H in *. fwd. invert H6. simpl in *. apply Forall3_ignore12_strong in H5.
+    rewrite <- H in *. fwd. invert H6. simpl in *.
     eexists. split.
     { eapply interp_expr_agree_on; [eassumption|].
       apply Forall_forall. intros v Hv. apply Hgoodp5p1 in Hv.
@@ -280,9 +276,9 @@ Section Transform.
       apply Forall_forall. intros v' Hv'. cbv [agree_on]. apply map.get_put_diff.
       intros H'. subst. apply Hgoodp1. eexists. eexists. intuition eauto.
       apply in_flat_map. eauto. }
-    eapply Forall_impl; [|eassumption].
-    simpl. intros ahyps' Hh. fwd. eexists. split.
-    { rewrite H1. simpl. eassumption. }
+    apply Forall3_ignore2 in H5. rewrite H1. simpl.
+    eapply Forall2_impl; [|eassumption].
+    simpl. intros i' ahyps' Hh. fwd.
     eapply Forall2_impl_strong; [|eassumption].
     intros f (R'&args'). invert 1. intros Hin1 Hin2. split; [reflexivity|].
     eapply Forall2_impl_strong. 2: apply Forall2_skipn; eassumption.
@@ -304,70 +300,34 @@ Section Transform.
     apply map.zipped_lookup_Some_in in E0. auto.
   Qed.
 
-  Lemma ahyp_ins_det'2 (r : rule) R (args : list T) hyps ahypss :
+  Lemma ahyp_ins_det ctx1 ctx2 (r : rule) R args1 args2 hyps ahypss1 ahypss2 :
     goodish_rule r ->
-    rule_impl' r (R, args) hyps ahypss ->
-    exists concl,
-      r.(rule_concls) = [concl] /\
-        match r.(rule_agg) with
-        | None => ahypss = []
-        | Some (_, aexpr) =>
-            let ctx := map.putmany (map.of_list (context_of_args (skipn (outs R) concl.(fact_args)) (skipn (outs R) args))) (map.of_list (context_of_hyps r.(rule_hyps) hyps)) in
-            option_map (@length _)(*????*) (option_coalesce (option_map get_set (subst_in_expr ctx aexpr.(agg_s)))) = Some (length ahypss) 
-        end.
-  Proof.
-    intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd. eexists.
-    split; [eassumption|]. simpl.
-    rewrite Hgoodp0 in *. invert_list_stuff. invert H0. 1: reflexivity.
-    rewrite <- H in *. invert H5. simpl in *. erewrite subst_in_expr_complete.
-    { simpl. rewrite H1. simpl. apply Forall3_length in H4. fwd. f_equal. lia. }
-    eapply interp_expr_agree_on; [eassumption|]. clear H4. rewrite Forall_forall. fwd.
-    intros v Hv. cbv [agree_on]. invert H3.
-    specialize (Hgoodp2 v). specialize' Hgoodp2.
-    { cbv [appears_in_rule appears_in_agg_expr]. rewrite <- H. eauto 7. }
-    move Hgoodp3 at bottom. rewrite map.get_putmany_dec. destruct_one_match.
-    - apply of_list_Some_in in E. apply interp_hyps_context_right in H2.
-      rewrite Forall_forall in H2. apply H2 in E. exact E.
-    - apply get_of_list_None_bw in E. destruct Hgoodp2 as [H'|H'].
-      { exfalso. apply E. clear E. eapply bare_in_context_hyps in H'.
-        2: { eassumption. }
-        fwd. eapply in_fst. eassumption. }
-      clear H2. eapply Forall2_skipn in H6. pose proof H6 as H6'.
-      eapply bare_in_context_args in H6.
-      2: { eassumption. }
-      fwd. apply interp_args_context_right in H6'. rewrite Forall_forall in H6'.
-      apply in_fst in H6. apply in_of_list_Some_strong in H6. fwd. rewrite H6p0.
-      apply H6' in H6p1. rewrite map.get_put_diff in H6p1; auto.
-      intros ?. subst.
-      apply Hgoodp1. do 2 eexists. split; [|reflexivity].
-      apply in_flat_map. eexists. split; [eassumption|]. simpl. auto.
-  Qed.
-  
-  Lemma ahyp_ins_det (r : rule) R args1 args2 hyps ahypss1 ahypss2 :
-    goodish_rule r ->
-    rule_impl' r (R, args1) hyps ahypss1 ->
-    rule_impl' r (R, args2) hyps ahypss2 ->
+    rule_impl' ctx1 r (R, args1) hyps ahypss1 ->
+    rule_impl' ctx2 r (R, args2) hyps ahypss2 ->
     skipn (outs R) args1 = skipn (outs R) args2 ->
     Forall2 (Forall2 (fun '(R1, hyp1) '(R2, hyp2) =>
                         R1 = R2 /\ skipn (outs R1) hyp1 = skipn (outs R2) hyp2))
       ahypss1 ahypss2.
   Proof.
-    intros Hgood H1 H2 Hsame. pose proof H1 as H1'. pose proof H2 as H2'.
+    intros Hgood H1 H2 Hsame.
     apply ahyp_ins_det'1 in H1, H2; try assumption.
-    apply ahyp_ins_det'2 in H1', H2'; try assumption.
-    fwd. rewrite H1p0 in *. invert_list_stuff. destruct r.(rule_agg) as [(?&?)|]; simpl in *.
+    fwd. rewrite H1p0 in *. invert_list_stuff.
+    destruct r.(rule_agg) as [(?&?)|]; simpl in *.
     2: subst; constructor. invert_list_stuff. rewrite Hsame in *.
-    rewrite H2'p1p0p0 in *. invert_list_stuff. rewrite H2'p1p0p1 in *.
-    invert_list_stuff. eapply Forall2_impl_strong.
-    2: { apply Forall2_true. lia. }
-    intros ahyps1 ahyps2 _ H1 H2. rewrite Forall_forall in *. apply H1p1 in H1.
-    apply H2p1 in H2. apply Forall2_flip in H1.
-    eapply Forall2_Forall2_Forall3 in H2; [|exact H1]. apply Forall3_ignore2 in H2.
-    eapply Forall2_impl; [|eassumption]. simpl. intros [? ?] [? ?] H. fwd.
-    split; [reflexivity|]. apply Forall2_eq_eq. apply Forall2_flip in Hp1p1.
-    eapply Forall2_Forall2_Forall3 in Hp3; [|exact Hp1p1]. apply Forall3_ignore2 in Hp3.
-    eapply Forall2_impl; [|eassumption]. simpl. intros. fwd.
-    eapply interp_expr_det; eassumption.
+    fwd. eapply interp_expr_det in H1p1p0; [|exact H2p1p0]. subst.
+    apply Forall2_flip in H1p1p1.
+    eapply Forall2_Forall2_Forall3 in H2p1p1; [|exact H1p1p1].
+    clear H1p1p1. apply Forall3_ignore2 in H2p1p1.
+    eapply Forall2_impl; [|eassumption]. simpl. intros l1 l2 H. fwd.
+    apply Forall2_flip in Hp1. eapply Forall2_Forall2_Forall3 in Hp2; [|exact Hp1].
+    clear Hp1. clear H2p1p1. apply Forall3_ignore2 in Hp2.
+    eapply Forall2_impl; [|eassumption]. simpl. intros [? ?] [? ?] H'. fwd.
+    split; [reflexivity|].
+    apply Forall2_flip in H'p1p1.
+    eapply Forall2_Forall2_Forall3 in H'p3; [|exact H'p1p1].
+    clear H'p1p1. clear Hp2. apply Forall3_ignore2 in H'p3. apply Forall2_eq_eq.
+    eapply Forall2_impl; [|eassumption].
+    simpl. intros. fwd. eapply interp_expr_det; eassumption.
   Qed.
 
   Lemma agree_functional p :
