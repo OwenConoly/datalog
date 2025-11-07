@@ -711,25 +711,6 @@ Section Transform.
       specialize (H2 _ ltac:(eassumption)). fwd. rewrite Exists_exists.
       eexists. split; [eassumption|]. invert H2p1. constructor.
       simpl. cbv [fact_ins]. apply Forall2_skipn. eassumption.
-      (* + right. cbv [rule_agg_hyps]. invert H. 1: simpl in Hin; contradiction. *)
-      (*   rewrite <- H2 in *. fwd. invert H5. simpl in *. *)
-      (*   rewrite in_concat in Hin. fwd. apply Forall3_ignore12 in H4. *)
-      (*   rewrite Forall_forall in H4. specialize (H4 _ ltac:(eassumption)). fwd. *)
-      (*   apply Forall2_forget_l in H4p1. rewrite Forall_forall in H4p1. *)
-      (*   specialize (H4p1 _ ltac:(eassumption)). fwd. rewrite Exists_exists. *)
-      (*   eexists. split; [eassumption|]. *)
-      (*   eapply interp_fact_relmap with (g := plus_false) in H4p1p1. simpl in H4p1p1. *)
-      (*   invert H4p1p1. constructor. simpl. cbv [fact_ins]. eapply Forall2_impl_strong. *)
-      (*   2: apply Forall2_skipn; eassumption. intros x2 y2 Hx2y2 Hx2 Hy2. *)
-      (*   simpl in H6. move Hgoodp5p1 at bottom. *)
-      (*   eapply interp_expr_agree_on; [eassumption|]. apply Forall_forall. *)
-      (*   intros v Hv. specialize (Hgoodp5p1 v). specialize' Hgoodp5p1. *)
-      (*   { apply in_flat_map. eexists. split; eauto. apply in_flat_map. eauto. } *)
-      (*   cbv [agree_on]. fwd. Fail solve [map_solver context_ok]. *)
-      (*   erewrite map.get_putmany_left. *)
-      (*   { apply map.get_put_diff. assumption. } *)
-      (*   erewrite map.get_of_list_zip by eassumption. apply zipped_lookup_notin_None. *)
-      (*   assumption. *)
     - constructor; [|solve[constructor]]. rewrite Hgoodp0 in H1. invert_list_stuff.
       invert H4. constructor. simpl.
       eapply Forall2_skipn in H5. invert H0; [eassumption|].
@@ -744,7 +725,7 @@ Section Transform.
 
   Lemma rule_impl_request_agg_hyps ctx r R args R' args' hyps' agg_hyps's :
     good_index r ->
-    goodish_rule r (*very necessary, finally*)->
+    goodish_rule r ->
     rule_impl' ctx r (R, args) hyps' agg_hyps's ->
     Exists (fun agg_hyps' => In (R', args') agg_hyps') agg_hyps's ->
     rule_impl (request_agg_hyps r) (R', false, skipn (outs R') args')
