@@ -7,7 +7,8 @@ From coqutil Require Import Tactics Tactics.fwd Datatypes.List.
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties Relations.Relations.
 From Stdlib Require Import Wellfounded.Union.
 From Stdlib Require Import Wellfounded.Inclusion.
-From Stdlib Require Import Wellfounded Wellfounded.Transitive_Closure.
+From Stdlib Require Import Wellfounded Wellfounded.Wellfounded Wellfounded.Transitive_Closure.
+From Stdlib Require Import Wellfounded.Inverse_Image.
 
 Import ListNotations.
 
@@ -36,6 +37,9 @@ Lemma edge_rel_weaken g1 g2 x y :
 Proof. cbv [edge_rel incl]. auto. Qed.
 
 Definition dag g := well_founded (edge_rel g).
+Definition dag_alt g := well_founded (fun x y => edge_rel g y x).
+Lemma wf_empty {T : Type} : well_founded (fun (_ _ : T) => False).
+Proof. intro. constructor. contradiction. Qed.
 
 Inductive dag' : list (V * V) -> Prop :=
 | dag'_nil : dag' []
@@ -98,6 +102,31 @@ Proof.
   cbv [inclusion]. simpl. eauto.
 Qed.
 
+Lemma dag_irrefl g v :
+  dag g ->
+  clos_trans _ (edge_rel g) v v ->
+  False.
+Proof.
+  intros H1 H2. eapply Acc_not_symm. 2: exact H2. apply Acc_clos_trans. apply H1.
+Qed.
+
+(* Lemma dag_dag_alt g : *)
+(*   dag g -> *)
+(*   dag_alt g. *)
+(* Proof. *)
+(*   induction g. *)
+(*   - intros. apply wf_empty. *)
+(*   - intros. specialize' IHg. *)
+(*     { eauto using dag_incl with incl. } *)
+(*     intros v. specialize (IHg v). induction IHg as [v H1 H2]. clear H1. *)
+(*     constructor. intros u Hu. cbv [edge_rel] in Hu. simpl in Hu. *)
+(*     destruct Hu as [Hu|Hu]. *)
+(*     + subst. apply H2.  *)
+(*       cbv [dag_alt]. *)
+(*   intros H. cbv [dag_alt]. intro v.  *)
+(*   Search well_founded. Check wf_inverse_rel. *)
+
+
 Lemma no_cycles_commut g1 g2 :
   no_cycles g2 g1 ->
   commut _ (edge_rel g1) (edge_rel g2).
@@ -118,6 +147,67 @@ Proof.
   - eapply wf_union; eauto using no_cycles_commut.
   - cbv [inclusion]. intros ? ? H. apply in_app_iff in H.
     cbv [union edge_rel]. destruct H; auto.
+Qed.
+
+Hint Constructors clos_trans : core.
+Lemma clos_trans_monotone {T : Type} (R1 R2 : T -> T -> Prop) :
+  (forall x y, R1 x y -> R2 x y) ->
+  (forall x y, clos_trans _ R1 x y -> clos_trans _ R2 x y).
+Proof. induction 2; eauto. Qed.
+
+Lemma irrefl_dag g :
+  (forall v, clos_trans _ (edge_rel g) v v -> False) ->
+  dag g.
+Proof.
+  induction g.
+  - intros. apply wf_empty.
+  - intros H. specialize' IHg.
+    { intros. eapply H. eapply clos_trans_monotone; [|eassumption].
+      intros. eapply edge_rel_weaken; [eassumption|]. auto with incl. }
+    pose proof IHg as Hwf.
+    intros v. specialize (IHg v). induction IHg as [v _ Hv].
+    constructor. intros u Hu. cbv [edge_rel] in Hu. simpl in Hu.
+    destruct Hu as [Hu|Hu]; cycle 1.
+    { apply Hv. apply Hu. }
+    subst.
+    eapply subrel_Acc_strong with (P := fun v' => clos_trans _ (edge_rel ((v, u) :: g)) v' v).
+    + apply Hwf.
+    + apply t_step. cbv [edge_rel]. simpl. auto.
+    + intros x y H1 H2. cbv [edge_rel] in H1. simpl in H1.
+      destruct H1 as [H1|H1].
+      { exfalso. invert H1. eapply H. apply H2. }
+      split.
+      -- exact H1.
+      -- eapply t_trans. 2: eassumption. apply t_step. cbv [edge_rel]. simpl. auto.
+Qed.
+
+Lemma clos_trans_swap {T : Type} (R1 R2 : T -> T -> Prop) :
+  (forall x y, R1 x y -> R2 y x) ->
+  forall x y, clos_trans _ R1 x y -> clos_trans _ R2 y x.
+Proof. induction 2; eauto. Qed.
+
+Lemma dag_dag_alt g :
+  dag g ->
+  dag_alt g.
+Proof.
+  intros H. enough (H': dag (map (fun '(x, y) => (y, x)) g)).
+  - eapply wf_incl; [|eassumption]. cbv [inclusion]. intros.
+    cbv [edge_rel] in *. apply in_map_iff. eexists (_, _). eauto.
+  - apply irrefl_dag. intros. eapply dag_irrefl; [eassumption|].
+    eapply clos_trans_swap; [|eassumption]. intros ? ? H'. cbv [edge_rel] in *.
+    apply in_map_iff in H'. fwd. auto.
+Qed.
+
+Lemma dag_alt_dag g :
+  dag_alt g ->
+  dag g.
+Proof.
+  intros H. enough (H': dag (map (fun '(x, y) => (y, x)) g)).
+  - eapply irrefl_dag. intros. eapply dag_irrefl; [eassumption|].
+    eapply clos_trans_swap; [|eassumption]. intros ? ? H1. cbv [edge_rel] in *.
+    apply in_map_iff. fwd. eexists (_, _). eauto.
+  - eapply wf_incl; [|eassumption]. cbv [inclusion]. intros ? ? H'.
+    cbv [edge_rel] in *. apply in_map_iff in H'. fwd. auto.
 Qed.
 
 Lemma concl_same_dag v g :
@@ -176,9 +266,7 @@ Lemma clos_trans_list x y l g :
 Proof.
   intros H. induction H.
   - simpl. contradiction.
-  - intros [H'|H'].
-    + apply t_step. subst. assumption.
-    + apply IHpath in H'. clear IHpath. eapply t_trans; eauto. apply t_step. assumption.
+  - intros [H'|H']; subst; eauto.
 Qed.
 
 Lemma dags_have_no_cycles' x l g :

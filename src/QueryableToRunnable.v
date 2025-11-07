@@ -387,7 +387,7 @@ Section Transform.
       | |- In _ (_ ++ _) => apply in_app_iff
       | |- exists _, _ /\ _ => eexists; split; [solve[eauto] |]
       | |- _ /\ _ => split; [solve[eauto] |]
-      | _ => progress (intros; cbv [rel_graph edges_of_rule add_hyp rule_agg_hyps] in *; fwd; subst; simpl in * )
+      | _ => progress (intros; cbv [rel_graph edges_of_rule add_hyp request_agg_hyps rule_agg_hyps] in *; fwd; subst; simpl in * )
       | _ => progress invert_list_stuff
       | _ => destruct_one_match_hyp
       | _ => solve[eauto]
@@ -398,6 +398,11 @@ Section Transform.
 
   Lemma request_hyps_dag' b1 b2 R1 R2 r :
     In ((R1, b1), (R2, b2)) (edges_of_rule (request_hyps r)) ->
+    b1 = false /\ b2 = false /\ In (R2, R1) (edges_of_rule r).
+  Proof. t. Qed.
+
+  Lemma request_agg_hyps_dag' b1 b2 R1 R2 r :
+    In ((R1, b1), (R2, b2)) (edges_of_rule (request_agg_hyps r)) ->
     b1 = false /\ b2 = false /\ In (R2, R1) (edges_of_rule r).
   Proof. t. Qed.
 
@@ -427,29 +432,33 @@ Section Transform.
   Qed.
 
   Lemma map_request_hyps_dag p :
-    dag' (rel_graph p) ->
-    dag' (rel_graph (map request_hyps p)).
+    inclusion (rel_graph p) ->
+    dag (rel_graph (map request_hyps p)).
   Proof.
-    intros H. apply dag'_swap in H. apply wf_dag'.
-    { intros (x1&x2) (y1&y2). destr (rel_eqb x1 y1); destruct x2, y2; auto.
-      all: (left; congruence) || (right; congruence). }
-    apply dag'_wf in H.
+    intros H. apply dag_dag_alt in H.
     intros (R, b). constructor. intros (R', b') H'.
     apply map_request_hyps_dag' in H'. fwd. clear -H. rename R' into R.
     specialize (H R). induction H. constructor. intros (R', b') H'.
-    apply map_request_hyps_dag' in H'. fwd. apply H0. cbv [edge_rel]. apply in_map_iff.
-    eexists. split; eauto. reflexivity.
+    apply map_request_hyps_dag' in H'. fwd. apply H0. cbv [edge_rel]. assumption.
+  Qed.
+  
+  Lemma map_request_agg_hyps_dag p :
+    dag (rel_graph p) ->
+    dag (rel_graph (map request_hyps p)).
+  Proof.
+    intros H. apply dag_dag_alt in H.
+    intros (R, b). constructor. intros (R', b') H'.
+    apply map_request_hyps_dag' in H'. fwd. clear -H. rename R' into R.
+    specialize (H R). induction H. constructor. intros (R', b') H'.
+    apply map_request_hyps_dag' in H'. fwd. apply H0. cbv [edge_rel]. assumption.
   Qed.
   
   Lemma map_add_hyp_dag p :
     Forall (fun r : rule => exists concl : fact, rule_concls r = [concl]) p ->
-    dag' (rel_graph p) ->
-    dag' (rel_graph (map add_hyp p)).
+    dag (rel_graph p) ->
+    dag (rel_graph (map add_hyp p)).
   Proof.
-    intros H0 H. apply wf_dag'.
-    { intros (x1&x2) (y1&y2). destr (rel_eqb x1 y1); destruct x2, y2; auto.
-      all: (left; congruence) || (right; congruence). }
-    apply dag'_wf in H.
+    intros H0 H.
     intros (R, b). specialize (H R). induction H. constructor. intros (Ry, By) Hy.
     apply map_add_hyp_dag' in Hy; auto. fwd. destruct By.
     { apply H1. assumption. }
@@ -479,10 +488,10 @@ Section Transform.
 
   Lemma make_good_dag p :
     Forall goodish_rule p ->
-    dag' (rel_graph p) ->
-    dag' (rel_graph (make_good p)).
+    dag (rel_graph p) ->
+    dag (rel_graph (make_good p)).
   Proof.
-    intros H1 H2. cbv [rel_graph make_good]. rewrite flat_map_app.
+    intros H1 H2. cbv [rel_graph make_good]. do 2 rewrite flat_map_app.
     eapply dag'_permutation.
     { apply Permutation_app_comm. }
     apply dag'_app; cycle 1.
