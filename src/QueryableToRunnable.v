@@ -1,7 +1,6 @@
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Arith.EqNat.
 From Stdlib Require Import Bool.Bool.
-From Stdlib Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
 From Stdlib Require Import ZArith.Int.
 From Stdlib Require Import ZArith.Znat.
 From Stdlib Require Import Strings.String.
@@ -527,79 +526,61 @@ Section Transform.
 
   Hint Extern 3 => progress simpl : core.
     
-  Lemma appears_in_rule_request_hyps v r :
-    goodish_rule r ->
-    appears_in_rule v (request_hyps r) ->
-    appears_in_rule v r.
-  Proof.
-    clear. intros Hgood H. cbv [goodish_rule] in Hgood. fwd.
-    cbv [appears_in_rule] in *. simpl in *. rewrite Hgoodp0 in *.
-    destruct H as [H| [H| [H|H]]]; fwd.
-    - rewrite 2 flat_map_map in Hp1. erewrite flat_map_ext in Hp1.
-      2: intros; apply vars_of_fact_relmap.
-      right. left. cbv [vars_of_fact] in *. simpl in *.
-      eapply incl_flat_map_strong; eauto; eauto with incl.
-    - left. split.
-      2: { simpl in *. rewrite app_nil_r in *. rewrite vars_of_fact_relmap in H. eauto. }
-      intros H'. fwd. apply Hgoodp1. do 2 eexists. split; [|eassumption].
-      apply in_flat_map in H. fwd. simpl in Hp0. destruct Hp0; [|contradiction].
-      subst. rewrite vars_of_fact_relmap in Hp1. apply Hp1.
-    - cbv [in_set_hyps] in H. simpl in H. destruct H; contradiction.
-    - congruence.
-  Qed.
+  (* Lemma appears_in_rule_request_hyps v r : *)
+  (*   goodish_rule r -> *)
+  (*   appears_in_rule v (request_hyps r) -> *)
+  (*   appears_in_rule v r. *)
+  (* Proof. *)
+  (*   clear. intros Hgood H. cbv [goodish_rule] in Hgood. fwd. *)
+  (*   cbv [appears_in_rule] in *. simpl in *. rewrite Hgoodp0 in *. *)
+  (*   destruct H as [H| [H| [H|H]]]; fwd. *)
+  (*   - rewrite 2 flat_map_map in Hp1. erewrite flat_map_ext in Hp1. *)
+  (*     2: intros; apply vars_of_fact_relmap. *)
+  (*     right. left. cbv [vars_of_fact] in *. simpl in *. *)
+  (*     eapply incl_flat_map_strong; eauto; eauto with incl. *)
+  (*   - left. split. *)
+  (*     2: { simpl in *. rewrite app_nil_r in *. rewrite vars_of_fact_relmap in H. eauto. } *)
+  (*     intros H'. fwd. apply Hgoodp1. do 2 eexists. split; [|eassumption]. *)
+  (*     apply in_flat_map in H. fwd. simpl in Hp0. destruct Hp0; [|contradiction]. *)
+  (*     subst. rewrite vars_of_fact_relmap in Hp1. apply Hp1. *)
+  (*   - cbv [in_set_hyps] in H. simpl in H. destruct H; contradiction. *)
+  (*   - congruence. *)
+  (* Qed. *)
 
-  Lemma appears_in_rule_request_agg_hyps v r :
-    goodish_rule r ->
-    appears_in_rule v (request_agg_hyps r) ->
-    appears_in_rule v r.
-  Proof.
-    clear. intros Hgood H. cbv [goodish_rule] in Hgood. fwd.
-    cbv [appears_in_rule] in *. simpl in *. rewrite Hgoodp0 in *.
-    destruct r. simpl in *. rewrite app_nil_r.
-    destruct rule_agg as [(?&?)|]; simpl in *;
-      destruct H as [H| [H| [H| H]]]; fwd; t; eauto.
-    - rewrite vars_of_fact_relmap in *. right. right. right. eexists. eexists.
-      split; [reflexivity|]. cbv [appears_in_agg_expr]. right.
-      specialize (Hgoodp5p2 v). specialize' Hgoodp5p2.
-      { cbv [with_only_ins vars_of_fact] in Hp1p1. simpl in Hp1p1.
-        apply in_flat_map. rewrite in_flat_map in Hp1p1. fwd. eexists.
-        rewrite in_flat_map. eauto. }
+  (* Lemma appears_in_rule_request_agg_hyps v r : *)
+  (*   goodish_rule r -> *)
+  (*   appears_in_rule v (request_agg_hyps r) -> *)
+  (*   appears_in_rule v r. *)
+  (* Proof. *)
+  (*   clear. intros Hgood H. cbv [goodish_rule] in Hgood. fwd. *)
+  (*   cbv [appears_in_rule] in *. simpl in *. rewrite Hgoodp0 in *. *)
+  (*   destruct r. simpl in *. rewrite app_nil_r. *)
+  (*   destruct rule_agg as [(?&?)|]; simpl in *; cycle 1. *)
+  (*   { exfalso. destruct H as [H| [H| [H| H]]]; fwd; try contradiction || congruence. *)
+  (*     cbv [in_set_hyps] in H. simpl in H. destruct H; contradiction. } *)
+  (*   destruct H as [H| [H| [H| H]]]; fwd; t; eauto. *)
+  (*   - rewrite vars_of_fact_relmap in *. right. right. right. eexists. eexists. *)
+  (*     split; [reflexivity|]. cbv [appears_in_agg_expr]. right. *)
+  (*     specialize (Hgoodp5p2 v). specialize' Hgoodp5p2. *)
+  (*     { cbv [with_only_ins vars_of_fact] in Hp1p1. simpl in Hp1p1. *)
+  (*       apply in_flat_map. rewrite in_flat_map in Hp1p1. fwd. eexists. *)
+  (*       rewrite in_flat_map. eauto. } *)
       
-      psplit; eauto. eauto. split; [eassumption|]. eauto. cbv [vars_ simpl in Hp1p1. t. eexists. rewrite in_flat_map. eauto. t. eauto.
+  (*     psplit; eauto. eauto. split; [eassumption|]. eauto. cbv [vars_ simpl in Hp1p1. t. eexists. rewrite in_flat_map. eauto. t. eauto. *)
 
-        right. eauto 10. euaot. apply in_flat_map in Hp1. fwd. cbv [request_agg_hyps] in Hp1p0. eauto. fwd.
-    - rewrite 2 flat_map_map in Hp1. erewrite flat_map_ext in Hp1.
-      2: intros; apply vars_of_fact_relmap.
-      right. left. cbv [vars_of_fact] in *. simpl in *.
-      eapply incl_flat_map_strong; eauto; eauto with incl.
-    - left. split.
-      2: { simpl in *. rewrite app_nil_r in *. rewrite vars_of_fact_relmap in H. eauto. }
-      intros H'. fwd. apply Hgoodp1. do 2 eexists. split; [|eassumption].
-      apply in_flat_map in H. fwd. simpl in Hp0. destruct Hp0; [|contradiction].
-      subst. rewrite vars_of_fact_relmap in Hp1. apply Hp1.
-    - cbv [in_set_hyps] in H. simpl in H. destruct H; contradiction.
-    - congruence.
-  Qed.
-
-  Lemma request_hyps_good r :
-    goodish_rule r ->
-    good_rule (request_hyps r).
-  Proof.
-    intros H. cbv [goodish_rule] in H. fwd. split; [|constructor].
-    intros v Hv. simpl. rewrite Hp0. simpl. rewrite app_nil_r.
-    destruct Hv as [Hv| [Hv|Hv]]; fwd; simpl in *.
-    - cbv [vars_of_fact] in Hvp1. do 2 rewrite flat_map_map in Hvp1.
-      simpl in Hvp1. rewrite flat_map_app in Hvp1.
-      rewrite in_app_iff in Hvp1. destruct Hvp1.
-      { apply Hp3. rewrite flat_map_flat_map. assumption. }
-      cbv [rule_agg_hyps] in H. destruct (rule_agg r) as [(?&?)|]; fwd.
-      + rewrite flat_map_flat_map in Hp5p1. apply Hp5p1 in H. fwd. auto.
-      + simpl in H. contradiction.
-    - rewrite Hp0 in Hv. simpl in Hv. rewrite app_nil_r, vars_of_fact_relmap in Hv.
-      cbv [with_only_ins] in Hv. cbv [vars_of_fact] in Hv.
-      simpl in Hv. apply Hp4. assumption.
-    - congruence.
-  Qed.
+  (*       right. eauto 10. euaot. apply in_flat_map in Hp1. fwd. cbv [request_agg_hyps] in Hp1p0. eauto. fwd. *)
+  (*   - rewrite 2 flat_map_map in Hp1. erewrite flat_map_ext in Hp1. *)
+  (*     2: intros; apply vars_of_fact_relmap. *)
+  (*     right. left. cbv [vars_of_fact] in *. simpl in *. *)
+  (*     eapply incl_flat_map_strong; eauto; eauto with incl. *)
+  (*   - left. split. *)
+  (*     2: { simpl in *. rewrite app_nil_r in *. rewrite vars_of_fact_relmap in H. eauto. } *)
+  (*     intros H'. fwd. apply Hgoodp1. do 2 eexists. split; [|eassumption]. *)
+  (*     apply in_flat_map in H. fwd. simpl in Hp0. destruct Hp0; [|contradiction]. *)
+  (*     subst. rewrite vars_of_fact_relmap in Hp1. apply Hp1. *)
+  (*   - cbv [in_set_hyps] in H. simpl in H. destruct H; contradiction. *)
+  (*   - congruence. *)
+  (* Qed. *)
 
   Lemma appears_in_rule_add_hyp v r :
     goodish_rule r ->
@@ -608,7 +589,7 @@ Section Transform.
   Proof.
     destruct r; cbv [appears_in_rule add_hyp]; simpl.
     intros Hgood. cbv [goodish_rule] in Hgood. simpl in Hgood. fwd.
-    cbv [appears_in_rule] in *. simpl in *. intros [Hv| [Hv|Hv]]; fwd.
+    cbv [appears_in_rule] in *. simpl in *. intros [Hv| [Hv| [Hv|Hv]]]; fwd.
     - left. split; eauto. intros H'. apply Hvp0.
       fwd. simpl. eauto.
     - rewrite flat_map_map in Hv. rewrite vars_of_fact_relmap in Hv.
@@ -616,19 +597,88 @@ Section Transform.
       apply in_app_iff in Hv. rewrite app_nil_r. destruct Hv as [Hv|Hv]; eauto.
       left. split; eauto. cbv [with_only_ins vars_of_fact] in Hv.
       simpl in Hv. intros H'. fwd. apply Hgoodp1. eauto.
-    - invert_list_stuff. eauto 7.
+    - invert_list_stuff. eauto.
+    - invert_list_stuff. eauto 8.
   Qed.
   
   Lemma add_hyp_good r :
     goodish_rule r ->
+    well_founded (depends_on_in_set_hyps (rule_set_hyps r)) ->
     good_rule (add_hyp r).
   Proof.
-    intros HH. pose proof HH as (Hgood0&H). fwd. split.
+    intros HH H0. pose proof HH as (Hgood0&H). fwd. split.
     - intros v Hv. simpl. rewrite Hp0. simpl.
       apply appears_in_rule_add_hyp in Hv; [|assumption].
-      apply Hp2 in Hv. rewrite flat_map_map. simpl. apply in_app_iff.
-      destruct Hv as [Hv|Hv]; auto.
+      apply Hp2 in Hv. rewrite flat_map_map. simpl. rewrite in_app_iff.
+      destruct Hv as [Hv| [Hv|Hv]]; auto.
     - simpl. destruct (rule_agg r) as [(?&?)|]; simpl; fwd; auto.
+  Qed.
+
+  Lemma request_hyps_good r :
+    goodish_rule r ->
+    good_rule (request_hyps r).
+  Proof.
+    intros H. cbv [goodish_rule] in H. fwd. cbv [good_rule]. ssplit; cycle 1.
+    - cbv [depends_on_in_set_hyps]. eapply wf_incl. 2: apply wf_empty.
+      intros x y Hxy. fwd. cbv [rule_set_hyps] in Hxyp1. simpl in Hxyp1. contradiction.
+    - constructor.
+    - intros v Hv. simpl. rewrite Hp0. simpl. rewrite app_nil_r. left.
+      destruct Hv as [Hv| [Hv| [Hv|Hv]]]; fwd; simpl in *.
+      + cbv [vars_of_fact] in Hvp1. do 2 rewrite flat_map_map in Hvp1.
+        simpl in Hvp1. apply Hp3. rewrite flat_map_flat_map. assumption.
+      + apply Hp4. rewrite Hp0 in Hv. simpl in Hv. rewrite app_nil_r in Hv.
+        rewrite vars_of_fact_relmap in Hv. apply Hv.
+      + cbv [in_set_hyps] in Hv. simpl in Hv. destruct Hv; contradiction.
+      + congruence.
+  Qed.
+
+  Lemma singleton_wf {U : Type} (R : U -> U -> Prop) y :
+    (forall x' y', R x' y' -> y' = y /\ x' <> y) ->
+    well_founded R.
+  Proof.
+    intros H y'. constructor. intros x Hx. apply H in Hx. fwd.
+    constructor. intros z Hz. apply H in Hz. fwd. congruence.
+  Qed.
+
+  Lemma noop_rule_good :
+    good_rule noop_rule.
+  Proof.
+    cbv [good_rule]. simpl. intuition auto.
+    - cbv [appears_in_rule] in H. simpl in H. destruct H as [H| [H| [H|H]]]; fwd; auto.
+      congruence.
+    - eapply wf_incl. 2: apply wf_empty. intros x y Hxy.
+      cbv [depends_on_in_set_hyps] in Hxy. simpl in Hxy. fwd. contradiction.
+  Qed.
+
+  Lemma request_agg_hyps_good r :
+    good_index r ->
+    goodish_rule r ->
+    good_rule (request_agg_hyps r).
+  Proof.
+    intros Hidx H. cbv [good_index] in Hidx. cbv [goodish_rule] in H. fwd.
+    rewrite Hp0 in *. simpl in *. rewrite app_nil_r in *.
+    cbv [request_agg_hyps]. destruct (rule_agg r) as [(?&?)|]; [|apply noop_rule_good].
+    fwd. cbv [good_rule]. simpl. ssplit; cycle 1.
+    - cbv [depends_on_in_set_hyps]. cbv [rule_set_hyps request_agg_hyps].
+      + eapply singleton_wf. intros x' y' H. fwd. simpl in Hp6.
+        destruct Hp6; [|contradiction]. invert H. split; [reflexivity|].
+        intro. subst. apply Hp5p1 in Hp5. apply Hidxp0. apply in_flat_map. eauto.
+    - constructor.
+    - intros v0 Hv0. simpl. rewrite Hp0. simpl. rewrite app_nil_r.
+      destruct Hv0 as [Hv0| [Hv0| [Hv0|Hv0]]]; fwd; simpl in *.
+      + cbv [vars_of_fact] in Hv0p1. do 2 rewrite flat_map_map in Hv0p1.
+        rewrite <- flat_map_flat_map in Hv0p1. specialize (Hp5p2 v0). specialize' Hp5p2.
+        { apply in_flat_map in Hv0p1. apply in_flat_map. fwd.
+          apply in_flat_map in Hv0p1p0. fwd. simpl in Hv0p1p0p1. eexists.
+          rewrite in_flat_map. eauto. }
+        destruct Hp5p2 as [Hp5p2|Hp5p2]; subst; fwd; auto.
+      + rewrite Hp0 in *. simpl in Hv0. rewrite app_nil_r in Hv0. left.
+        apply Hp4. assumption.
+      + cbv [in_set_hyps] in Hv0. simpl in Hv0. rewrite app_nil_r in Hv0.
+        destruct Hv0 as [Hv0|Hv0].
+        -- destruct Hv0; contradiction || subst. auto.
+        -- left. apply Hp5p1. assumption.
+      + congruence.
   Qed.
 
   Hint Resolve interp_fact_relmap : core.
@@ -646,7 +696,7 @@ Section Transform.
       (((R, false), skipn (outs R) args') :: map (fact'_relmap plus_true) hyps').
   Proof.
     intros Hgood H. cbv [goodish_rule] in Hgood. fwd.
-    cbv [rule_impl] in *. fwd. eexists (_ :: _), _. split.
+    cbv [rule_impl] in *. fwd. eexists _, (_ :: _), _. split.
     { simpl. f_equal. rewrite map_app. rewrite concat_map. (*what a goofy name*)
       reflexivity. }
     cbv [add_hyp]. invert Hp1.
@@ -654,12 +704,13 @@ Section Transform.
     eapply mk_rule_impl' with (ctx := ctx) (ctx' := ctx'); simpl.
     { invert H; simpl; econstructor; auto. }
     { apply Exists_map. eapply Exists_impl; [|eassumption]. simpl. intros.
-      eapply interp_fact_relmap in H2. Fail eassumption. Fail apply H2. exact H2. }
+      eapply interp_fact_relmap in H3. Fail eassumption. Fail apply H3. exact H3. }
+    2: assumption.
     rewrite Hgoodp0. simpl. constructor.
     2: { rewrite <- Forall2_map_l, <- Forall2_map_r. eauto using Forall2_impl. }
     cbv [with_only_ins]. rewrite Hgoodp0 in H0. invert_list_stuff.
-    cbv [fact_relmap]. simpl. invert H3. constructor. simpl.
-    eapply Forall2_skipn in H4. invert H; [eassumption|].
+    cbv [fact_relmap]. simpl. invert H4. constructor. simpl.
+    eapply Forall2_skipn in H5. invert H; [eassumption|].
     symmetry in H0. fwd. eapply Forall2_impl_strong; [|eassumption].
     intros x y Hxy Hx _. eapply interp_expr_agree_on; eauto. apply Forall_forall.
     intros v Hv. cbv [agree_on]. rewrite map.get_put_dec.
