@@ -534,26 +534,52 @@ Section Transform.
   Proof.
     clear. intros Hgood H. cbv [goodish_rule] in Hgood. fwd.
     cbv [appears_in_rule] in *. simpl in *. rewrite Hgoodp0 in *.
-    destruct H as [H| [H|H]]; fwd.
+    destruct H as [H| [H| [H|H]]]; fwd.
     - rewrite 2 flat_map_map in Hp1. erewrite flat_map_ext in Hp1.
-      2: intros; apply vars_of_fact_relmap. rewrite flat_map_app, in_app_iff in Hp1.
-      destruct Hp1 as [Hp1|Hp1].
-      + right. left. cbv [vars_of_fact] in *. simpl in *.
-        eapply incl_flat_map_strong; eauto; eauto with incl.
-      + right. right. cbv [rule_agg_hyps] in Hp1.
-        destruct (rule_agg r) as [(?&aexpr)|]; fwd. 2: simpl in Hp1; contradiction.
-        do 2 eexists. split; [reflexivity|]. cbv [appears_in_agg_expr]. right. split.
-        { rewrite flat_map_flat_map in Hgoodp5p1. apply Hgoodp5p1 in Hp1. fwd. simpl.
-          intuition auto. }
-        right. eapply incl_flat_map_strong; eauto; eauto with incl. simpl. cbv [incl].
-        eauto using appears_with_only_ins.
+      2: intros; apply vars_of_fact_relmap.
+      right. left. cbv [vars_of_fact] in *. simpl in *.
+      eapply incl_flat_map_strong; eauto; eauto with incl.
     - left. split.
       2: { simpl in *. rewrite app_nil_r in *. rewrite vars_of_fact_relmap in H. eauto. }
       intros H'. fwd. apply Hgoodp1. do 2 eexists. split; [|eassumption].
       apply in_flat_map in H. fwd. simpl in Hp0. destruct Hp0; [|contradiction].
       subst. rewrite vars_of_fact_relmap in Hp1. apply Hp1.
+    - cbv [in_set_hyps] in H. simpl in H. destruct H; contradiction.
     - congruence.
-  Qed.      
+  Qed.
+
+  Lemma appears_in_rule_request_agg_hyps v r :
+    goodish_rule r ->
+    appears_in_rule v (request_agg_hyps r) ->
+    appears_in_rule v r.
+  Proof.
+    clear. intros Hgood H. cbv [goodish_rule] in Hgood. fwd.
+    cbv [appears_in_rule] in *. simpl in *. rewrite Hgoodp0 in *.
+    destruct r. simpl in *. rewrite app_nil_r.
+    destruct rule_agg as [(?&?)|]; simpl in *;
+      destruct H as [H| [H| [H| H]]]; fwd; t; eauto.
+    - rewrite vars_of_fact_relmap in *. right. right. right. eexists. eexists.
+      split; [reflexivity|]. cbv [appears_in_agg_expr]. right.
+      specialize (Hgoodp5p2 v). specialize' Hgoodp5p2.
+      { cbv [with_only_ins vars_of_fact] in Hp1p1. simpl in Hp1p1.
+        apply in_flat_map. rewrite in_flat_map in Hp1p1. fwd. eexists.
+        rewrite in_flat_map. eauto. }
+      
+      psplit; eauto. eauto. split; [eassumption|]. eauto. cbv [vars_ simpl in Hp1p1. t. eexists. rewrite in_flat_map. eauto. t. eauto.
+
+        right. eauto 10. euaot. apply in_flat_map in Hp1. fwd. cbv [request_agg_hyps] in Hp1p0. eauto. fwd.
+    - rewrite 2 flat_map_map in Hp1. erewrite flat_map_ext in Hp1.
+      2: intros; apply vars_of_fact_relmap.
+      right. left. cbv [vars_of_fact] in *. simpl in *.
+      eapply incl_flat_map_strong; eauto; eauto with incl.
+    - left. split.
+      2: { simpl in *. rewrite app_nil_r in *. rewrite vars_of_fact_relmap in H. eauto. }
+      intros H'. fwd. apply Hgoodp1. do 2 eexists. split; [|eassumption].
+      apply in_flat_map in H. fwd. simpl in Hp0. destruct Hp0; [|contradiction].
+      subst. rewrite vars_of_fact_relmap in Hp1. apply Hp1.
+    - cbv [in_set_hyps] in H. simpl in H. destruct H; contradiction.
+    - congruence.
+  Qed.
 
   Lemma request_hyps_good r :
     goodish_rule r ->
