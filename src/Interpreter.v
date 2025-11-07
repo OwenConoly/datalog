@@ -38,6 +38,10 @@ Section __.
 
   Definition rel_graph := flat_map edges_of_rule.
   
+  Lemma rel_graph_app p1 p2 :
+    rel_graph (p1 ++ p2) = rel_graph p1 ++ rel_graph p2.
+  Proof. cbv [rel_graph]. apply flat_map_app. Qed.
+  
   Definition diff_rels (p1 p2 : list rule) :=
     forall r1 r2 c1 c2,
       In r1 p1 ->

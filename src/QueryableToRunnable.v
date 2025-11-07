@@ -15,6 +15,11 @@ From Datalog Require Import Datalog Map Tactics Fp List Interpreter Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
+From Stdlib Require Import Wellfounded.Inclusion.
+From Stdlib Require Import Wellfounded Wellfounded.Wellfounded Wellfounded.Transitive_Closure.
+From Stdlib Require Import Wellfounded.Inverse_Image.
+From Stdlib Require Import Relations.Relation_Definitions.
+
 Import ListNotations.
 
 Section relmap.
@@ -233,7 +238,7 @@ Section Transform.
 
   (*semanticallly equivalent if each rule has concl length at most 1*)
   Definition make_good (p : list rule) : list rule' :=
-    map request_hyps p ++ map request_agg_hyps p ++ map add_hyp p.
+    map add_hyp p ++ map request_hyps p ++ map request_agg_hyps p.
 
   Print goodish_rule.
   Definition good_index (r : rule) :=
@@ -412,14 +417,6 @@ Section Transform.
     b1 = true /\ if b2 then In (R1, R2) (edges_of_rule r) else R2 = R1.
   Proof. t. Qed.
 
-  Lemma map_request_hyps_dag' b1 b2 R1 R2 p :
-    In ((R1, b1), (R2, b2)) (rel_graph (map request_hyps p)) ->
-    b1 = false /\ b2 = false /\ In (R2, R1) (rel_graph p).
-  Proof.
-    intros H. apply in_flat_map in H. fwd. apply in_map_iff in Hp0. fwd.
-    apply request_hyps_dag' in Hp1. t.    
-  Qed.
-
   Lemma map_add_hyp_dag' b1 b2 R1 R2 p :
     Forall (fun r => exists concl, r.(rule_concls) = [concl]) p ->
     In ((R1, b1), (R2, b2)) (rel_graph (map add_hyp p)) ->
@@ -431,26 +428,28 @@ Section Transform.
     apply in_flat_map. eauto.
   Qed.
 
-  Lemma map_request_hyps_dag p :
-    inclusion (rel_graph p) ->
-    dag (rel_graph (map request_hyps p)).
+  Lemma map_request_hyps_incl p :
+    inclusion _
+      (edge_rel (rel_graph (map request_hyps p ++ map request_agg_hyps p)))
+      (fun x y => snd x = false /\ snd y = false /\ edge_rel (rel_graph p) (fst y) (fst x)).
   Proof.
-    intros H. apply dag_dag_alt in H.
-    intros (R, b). constructor. intros (R', b') H'.
-    apply map_request_hyps_dag' in H'. fwd. clear -H. rename R' into R.
-    specialize (H R). induction H. constructor. intros (R', b') H'.
-    apply map_request_hyps_dag' in H'. fwd. apply H0. cbv [edge_rel]. assumption.
+    intros [R1 b1] [R2 b2] H. cbv [edge_rel] in *. rewrite rel_graph_app in H.
+    apply in_app_iff in H. destruct H.
+    - cbv [rel_graph] in H. rewrite flat_map_map in H. rewrite in_flat_map in H.
+      fwd. apply request_hyps_dag' in Hp1. fwd. simpl. intuition auto.
+      cbv [rel_graph]. apply in_flat_map. eauto.
+    - cbv [rel_graph] in H. rewrite flat_map_map in H. rewrite in_flat_map in H.
+      fwd. apply request_agg_hyps_dag' in Hp1. fwd. simpl. intuition auto.
+      cbv [rel_graph]. apply in_flat_map. eauto.
   Qed.
-  
-  Lemma map_request_agg_hyps_dag p :
+
+  Lemma map_request_hyps_dag p :
     dag (rel_graph p) ->
-    dag (rel_graph (map request_hyps p)).
+    dag (rel_graph (map request_hyps p ++ map request_agg_hyps p)).
   Proof.
-    intros H. apply dag_dag_alt in H.
-    intros (R, b). constructor. intros (R', b') H'.
-    apply map_request_hyps_dag' in H'. fwd. clear -H. rename R' into R.
-    specialize (H R). induction H. constructor. intros (R', b') H'.
-    apply map_request_hyps_dag' in H'. fwd. apply H0. cbv [edge_rel]. assumption.
+    intros H. eapply wf_incl. 1: apply map_request_hyps_incl.
+    eapply wf_incl. 2: apply wf_inverse_image; apply dag_dag_alt; eassumption.
+    intros x y Hxy. fwd. eassumption.
   Qed.
   
   Lemma map_add_hyp_dag p :
@@ -491,17 +490,15 @@ Section Transform.
     dag (rel_graph p) ->
     dag (rel_graph (make_good p)).
   Proof.
-    intros H1 H2. cbv [rel_graph make_good]. do 2 rewrite flat_map_app.
-    eapply dag'_permutation.
-    { apply Permutation_app_comm. }
-    apply dag'_app; cycle 1.
+    intros H1 H2. cbv [make_good]. do 2 rewrite rel_graph_app.
+    apply dag_app; cycle 1.
     { apply map_add_hyp_dag; auto. eapply Forall_impl; [|eassumption].
       cbv [goodish_rule]. intros. fwd. eauto. }
-    { apply map_request_hyps_dag. assumption. }
+    { rewrite <- rel_graph_app. apply map_request_hyps_dag. assumption. }
     cbv [no_cycles]. eapply Forall_impl; [|apply add_hyps_concls_true].
     intros (?, ?) H. subst. cbv [not_in_snd]. intros H.
-    epose proof (request_hyps_hyps_false _) as H'. rewrite Forall_forall in H'.
-    apply H' in H. congruence.
+    rewrite <- rel_graph_app in H. apply in_map_iff in H. fwd. destruct x.
+    apply map_request_hyps_incl in Hp1. simpl in *. fwd. subst. simpl in *. congruence.
   Qed.
   
   Lemma incl_fact_ins (f : fact) :
