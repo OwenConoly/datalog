@@ -693,6 +693,16 @@ Section Transform.
     apply in_map_iff in H0p0p1. fwd. invert H0p1. reflexivity.
   Qed.
 
+  Lemma invert_rule_impl_request_agg_hyps R r b ins' hyps' :
+    rule_impl (request_agg_hyps r) (R, b, ins') hyps' -> b = false.
+  Proof.
+    cbv [rule_impl]. intros H. fwd. invert Hp1. apply Exists_exists in H0. fwd.
+    cbv [request_agg_hyps] in H0p0. destruct (rule_agg r) as [(?&?)|].
+    - simpl in H0p0. rewrite in_map_iff in H0p0. fwd.
+      apply in_map_iff in H0p0p1. fwd. invert H0p1. reflexivity.
+    - simpl in H0p0. contradiction.
+  Qed.
+
   Lemma rule_impl_request_hyps ctx r R args R' args' hyps' agg_hyps's :
     goodish_rule r (*very necessary, finally*)->
     rule_impl' ctx r (R, args) hyps' agg_hyps's ->
@@ -891,9 +901,9 @@ Section Transform.
 
   Lemma f_fixpoint' r S w :
     goodish_rule r ->
-    fp (F [request_hyps r]) w ->
+    fp (F [request_hyps r; request_agg_hyps r]) w ->
     fp (F [r]) S ->
-    fp (F [request_hyps r; add_hyp r]) (f w S).
+    fp (F [request_hyps r; request_agg_hyps r; add_hyp r]) (f w S).
   Proof.
     cbv [fp F]. intros Hgood Wfp H [P [[R b] args]] Hx. simpl.
     destruct Hx as [Hx| [Hx|Hx]]; auto.
@@ -906,23 +916,31 @@ Section Transform.
       apply request_hyps_hyps'_false in H1'. rewrite Forall_forall in Hxp1, H1'.
       rewrite Forall_forall. intros x Hx. specialize (Hxp1 _ Hx). specialize (H1' _ Hx).
       destruct x as [ [R' b'] args']. simpl in Hxp1, H1'. subst. assumption.
-    - invert_list_stuff. eapply invert_rule_impl_add_hyp in H2; eauto. fwd. simpl.
-      apply H. right. right. eexists. split; eauto. apply Forall_map. eapply Forall_impl.
-      2: { eapply Forall_and. 1: apply Hxp1p1. apply H2p1p1. }
+    - invert H1.
+      + simpl. rename H2 into H1. pose proof H1 as H1'.
+        apply invert_rule_impl_request_agg_hyps in H1. subst. apply Wfp. right. right.
+      exists hyps'. split.
+      { apply Exists_cons_tl. constructor. assumption. }
+      apply request_agg_hyps_hyps'_false in H1'. rewrite Forall_forall in Hxp1, H1'.
+      rewrite Forall_forall. intros x Hx. specialize (Hxp1 _ Hx). specialize (H1' _ Hx).
+      destruct x as [ [R' b'] args']. simpl in Hxp1, H1'. subst. assumption.
+      + invert_list_stuff. eapply invert_rule_impl_add_hyp in H1; eauto. fwd. simpl.
+        apply H. right. right. eexists. split; eauto. apply Forall_map. eapply Forall_impl.
+      2: { eapply Forall_and. 1: apply Hxp1p1. apply H1p1p1. }
       simpl. intros [[R' b'] args']. simpl. intros. fwd. assumption.
   Qed.
 
   Lemma g_fixpoint' r S :
     goodish_rule r ->
     S_sane S ->
-    fp (F [request_hyps r; add_hyp r]) S ->
+    fp (F [request_hyps r; request_agg_hyps r; add_hyp r]) S ->
     fp (F [r]) (g S).
   Proof.
     cbv [fp F]. intros Hgood (Sgood1&Sgood2) H [P x] Hx. destruct Hx as [Hx| [Hx|Hx]]; auto.
     fwd. destruct x as [R args]. invert_list_stuff.
     pose proof rule_impl_add_hyp as H1'. specialize H1' with (1 := Hgood) (2 := H1).
     simpl. apply H. right. right. eexists. split.
-    { apply Exists_cons_tl. constructor. eassumption. }
+    { apply Exists_cons_tl. apply Exists_cons_tl. constructor. eassumption. }
     constructor.
     { auto. }
     apply Forall_map. pose proof Hxp1 as H'. rewrite Forall_forall in H'.
