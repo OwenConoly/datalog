@@ -835,126 +835,122 @@ Section __.
   Definition goodish_fun (r : rule) :=
     exists concl,
       r.(rule_concls) = [concl] /\
-        forall v, In v (vars_of_fact concl) ->
+        (forall v,  ~ (exists ae : agg_expr, rule_agg r = Some (v, ae)) /\ In v (vars_of_fact concl) ->
              In (var_expr v) (fact_ins concl) \/
-               In (var_expr v) (flat_map fact_args r.(rule_hyps)).
+               In (var_expr v) (flat_map fact_args r.(rule_hyps))) /\
+        match r.(rule_agg) with
+        | Some (_, aexpr) =>
+            (forall v, appears_in_agg_expr v aexpr ->
+                  In (var_expr v) (fact_ins concl) \/
+                    In (var_expr v) (flat_map fact_args r.(rule_hyps)))
+        | None => True
+        end.
 
   (*conjunction of this and goodish_rule imply goodish_fun*)
-  Definition goodish_fun' (r : rule) :=
+  Definition no_set_hyps (r : rule) :=
     r.(rule_set_hyps) = nil.
 
-  Lemma goodish_fun_sound' r ctx0 R args hyps' agg_hyps's :
+  Lemma no_set_hyps_enough r :
+    goodish_rule r ->
+    no_set_hyps r ->
+    goodish_fun r.
+  Proof.
+    cbv [goodish_rule no_set_hyps goodish_fun]. intros H H0. fwd.
+    eexists. intuition eauto.
+    - specialize (Hp2 v). specialize' Hp2.
+      { cbv [appears_in_rule]. rewrite Hp0. simpl. rewrite app_nil_r. left. auto. }
+      destruct Hp2 as [Hp2 | [Hp2|Hp2]]; auto. rewrite H0 in Hp2. simpl in Hp2.
+      contradiction.
+    - destruct (rule_agg r) as [(?&?)|] eqn:E; auto. fwd. intros.
+      specialize (Hp2 v0). specialize' Hp2.
+      { cbv [appears_in_rule]. rewrite Hp0. simpl. rewrite app_nil_r. eauto 10. }
+      destruct Hp2 as [Hp2 | [Hp2|Hp2]]; auto. rewrite H0 in Hp2. simpl in Hp2.
+      contradiction.
+  Qed.    
+
+  Definition eval_rule_q r concl_ins hyps' agg_hyps's :=
+    let ctx := map.putmany (map.of_list (context_of_args (flat_map fact_ins r.(rule_concls)) concl_ins)) (map.of_list (context_of_hyps r.(rule_hyps) hyps')) in
+    let ctx' :=
+      match r.(rule_agg) with
+      | None => Some ctx
+      | Some (res, aexpr) =>
+          match eval_aexpr aexpr ctx agg_hyps's with
+          | None => None
+          | Some res' => Some (map.put ctx res res')
+          end
+      end in
+    match ctx' with
+    | None => []
+    | Some ctx' =>
+        ListMisc.extract_Some (map (subst_in_fact ctx') r.(rule_concls))
+    end.
+
+  Lemma eval_rule_q_complete ctx0 R args r hyps' agg_hyps's :
     goodish_rule r ->
     goodish_fun r ->
     rule_impl' ctx0 r (R, args) hyps' agg_hyps's ->
-    let ctx := map.putmany (map.of_list (context_of_args (flat_map fact_ins r.(rule_concls)) (skipn (outs R) args))) (map.of_list (context_of_hyps r.(rule_hyps) hyps')) in
-    forall v, appears_in_rule v r -> agree_on ctx0 ctx v.
+    eval_rule_q r (skipn (outs R) args) hyps' agg_hyps's = [(R, args)].
   Proof.
-    intros Hgood Hfun H ctx. invert H. cbv [goodish_rule] in Hgood. fwd. subst ctx.
-    intros v Hv. cbv [appears_in_rule] in Hv. rewrite Hgoodp0 in *. invert_list_stuff.
-    simpl in *. rewrite app_nil_r in *. cbv [goodish_fun] in Hfun. fwd.
-    rewrite Hfunp0 in *. invert_list_stuff. destruct Hv as [(Hv1&Hv2)| [Hv|Hv] ].
-    - apply Hfunp1 in Hv2. cbv [agree_on]. rewrite map.get_putmany_dec.
-      destruct_one_match.
-      + eapply interp_hyps_context_right_weak; eassumption.
-      + destruct Hv2 as [Hv2|Hv2].
-        -- invert H4. eapply Forall2_skipn in H5.
-           eapply context_of_args_agree_on in H5; cycle 1.
-           { eassumption. }
-           cbv [agree_on] in H5. cbv [fact_ins]. rewrite <- H5.
-           clear -Hv1 H0 context_ok. invert H0; [reflexivity|]. invert H3.
-           symmetry. apply map.get_put_diff. intros ?. subst. apply Hv1. eauto.
-        -- Search context_of_hyps. eapply bare_in_context_hyps in Hv2; [|eassumption].
-           fwd. Search map.get map.of_list. apply get_of_list_None_bw in E.
-           apply in_fst in Hv2. exfalso. auto.
-    - Search enough (map.get _ v = map.
-    
-  (* Definition eval_rule_q r concl_ins hyps' agg_hyps's := *)
-  (*   let ctx := map.putmany (map.of_list (context_of_args (flat_map fact_ins r.(rule_concls)) concl_ins)) (map.of_list (context_of_hyps r.(rule_hyps) hyps')) in *)
-  (*   let ctx' := *)
-  (*     match r.(rule_agg) with *)
-  (*     | None => Some ctx *)
-  (*     | Some (res, aexpr) => *)
-  (*         match eval_aexpr aexpr ctx agg_hyps's with *)
-  (*         | None => None *)
-  (*         | Some res' => Some (map.put ctx res res') *)
-  (*         end *)
-  (*     end in *)
-  (*   match ctx' with *)
-  (*   | None => [] *)
-  (*   | Some ctx' => *)
-  (*       ListMisc.extract_Some (map (subst_in_fact ctx') r.(rule_concls)) *)
-  (*   end. *)
-
-  (* Lemma eval_rule_q_complete R args r hyps' agg_hyps's : *)
-  (*   goodish_rule r -> *)
-  (*   rule_impl' r (R, args) hyps' agg_hyps's -> *)
-  (*   eval_rule_q r (skipn (outs R) args) hyps' agg_hyps's = [(R, args)]. *)
-  (* Proof. *)
-  (*   intros Hgood Himpl. cbv [eval_rule_q]. cbv [goodish_rule] in Hgood. fwd. *)
-  (*   invert Himpl. rewrite Hgoodp0 in *. invert_list_stuff. simpl. rewrite app_nil_r. *)
-  (*   invert H. *)
-  (*   - rewrite <- H5 in *. fwd. erewrite subst_in_fact_complete. 1: reflexivity. *)
-  (*     eapply interp_fact_agree_on; [eassumption|]. *)
-  (*     apply Forall_forall. intros v H. cbv [agree_on]. invert H4. *)
-  (*     rewrite map.get_putmany_dec. destruct_one_match. *)
-  (*     + apply of_list_Some_in in E. apply interp_hyps_context_right in H1. *)
-  (*       rewrite Forall_forall in H1. apply H1 in E. assumption. *)
-  (*     + apply get_of_list_None_bw in E. specialize (Hgoodp2 v). specialize' Hgoodp2. *)
-  (*       { cbv [appears_in_rule]. left. rewrite <- H5. *)
-  (*         split; [intros ?; fwd; congruence|]. rewrite Hgoodp0. simpl. rewrite app_nil_r. *)
-  (*         assumption. } *)
-  (*       destruct Hgoodp2 as [H'|H']. *)
-  (*       -- eapply bare_in_context_hyps in H'; [|eassumption]. fwd. *)
-  (*          apply in_fst in H'. exfalso. auto. *)
-  (*       -- eapply Forall2_skipn in H6. pose proof H6 as H6'. *)
-  (*          apply interp_args_context_right in H6. rewrite Forall_forall in H6. *)
-  (*          cbv [fact_ins] in Hgoodp1. eapply bare_in_context_args in H6'. *)
-  (*          2: { eassumption. } *)
-  (*          fwd. apply in_fst in H6'. apply in_of_list_Some_strong in H6'. *)
-  (*          fwd. apply H6 in H6'p1. cbv [fact_ins]. rewrite H6'p0, H6'p1. reflexivity. *)
-  (*   - rewrite <- H0 in *. fwd. erewrite eval_aexpr_complete; try assumption. *)
-  (*     2: { eapply interp_agg_expr_agree_on; [eassumption|]. intros v Hv. *)
-  (*          specialize (Hgoodp2 v). specialize' Hgoodp2. *)
-  (*          { cbv [appears_in_rule]. right. right. eauto. } *)
-  (*          cbv [agree_on]. rewrite map.get_putmany_dec. destruct_one_match. *)
-  (*          + apply of_list_Some_in in E. apply interp_hyps_context_right in H1. *)
-  (*            rewrite Forall_forall in H1. apply H1 in E. assumption. *)
-  (*          + apply get_of_list_None_bw in E. *)
-  (*            destruct Hgoodp2 as [H'|H']. *)
-  (*            -- eapply bare_in_context_hyps in H'; [|eassumption]. fwd. *)
-  (*               apply in_fst in H'. exfalso. auto. *)
-  (*            -- invert H4. eapply Forall2_skipn in H5. pose proof H5 as H5'. *)
-  (*               apply interp_args_context_right in H5. rewrite Forall_forall in H5. *)
-  (*               cbv [fact_ins] in Hgoodp1. eapply bare_in_context_args in H5'. *)
-  (*               2: { eassumption. } *)
-  (*               fwd. apply in_fst in H5'. apply in_of_list_Some_strong in H5'. *)
-  (*               fwd. apply H5 in H5'p1. cbv [fact_ins]. rewrite H5'p0. *)
-  (*               rewrite map.get_put_diff in H5'p1; auto. intros ?. subst. *)
-  (*               Search res. apply Hgoodp1. do 2 eexists. split; [|reflexivity]. *)
-  (*               apply in_flat_map. eexists. split; [eassumption|]. simpl. auto. } *)
-  (*     erewrite subst_in_fact_complete. 1: reflexivity. *)
-  (*     eapply interp_fact_agree_on; [eassumption|]. *)
-  (*     apply Forall_forall. intros v H. cbv [agree_on]. invert H4. *)
-  (*     do 2 rewrite map.get_put_dec. destruct_one_match; try reflexivity. *)
-  (*     rewrite map.get_putmany_dec. destruct_one_match. *)
-  (*     + apply of_list_Some_in in E0. apply interp_hyps_context_right in H1. *)
-  (*       rewrite Forall_forall in H1. apply H1 in E0. assumption. *)
-  (*     + apply get_of_list_None_bw in E0. specialize (Hgoodp2 v). specialize' Hgoodp2. *)
-  (*       { cbv [appears_in_rule]. left. rewrite <- H0. *)
-  (*         split; [intros ?; fwd; congruence|]. rewrite Hgoodp0. simpl. rewrite app_nil_r. *)
-  (*         assumption. } *)
-  (*       destruct Hgoodp2 as [H'|H']. *)
-  (*       -- eapply bare_in_context_hyps in H'; [|eassumption]. fwd. *)
-  (*          apply in_fst in H'. exfalso. auto. *)
-  (*       -- eapply Forall2_skipn in H7. pose proof H7 as H7'. *)
-  (*          apply interp_args_context_right in H7. rewrite Forall_forall in H7. *)
-  (*          cbv [fact_ins] in Hgoodp1. eapply bare_in_context_args in H7'. *)
-  (*          2: { eassumption. } *)
-  (*          fwd. apply in_fst in H7'. apply in_of_list_Some_strong in H7'. *)
-  (*          fwd. apply H7 in H7'p1. cbv [fact_ins]. rewrite H7'p0. *)
-  (*          rewrite map.get_put_diff in H7'p1; auto. *)
-  (* Qed. *)
+    intros Hgood Hfun Himpl. cbv [eval_rule_q]. cbv [goodish_rule] in Hgood.
+    cbv [goodish_fun] in Hfun. fwd.
+    invert Himpl. rewrite Hgoodp0 in *. invert_list_stuff. simpl. rewrite app_nil_r.
+    invert H.
+    - rewrite <- H5 in *. fwd. erewrite subst_in_fact_complete. 1: reflexivity.
+      eapply interp_fact_agree_on; [eassumption|].
+      apply Forall_forall. intros v H. cbv [agree_on]. invert H4.
+      rewrite map.get_putmany_dec. destruct_one_match.
+      + apply of_list_Some_in in E. apply interp_hyps_context_right in H1.
+        rewrite Forall_forall in H1. apply H1 in E. assumption.
+      + apply get_of_list_None_bw in E. specialize (Hfunp1 v). specialize' Hfunp1.
+        { split; auto. intro. fwd. congruence. }
+        destruct Hfunp1 as [Hfunp1|Hfunp1].
+        -- eapply Forall2_skipn in H6. pose proof H6 as H6'.
+           apply interp_args_context_right in H6. rewrite Forall_forall in H6.
+           cbv [fact_ins] in Hgoodp1. eapply bare_in_context_args in H6'.
+           2: { eassumption. }
+           fwd. apply in_fst in H6'. apply in_of_list_Some_strong in H6'.
+           fwd. apply H6 in H6'p1. cbv [fact_ins]. rewrite H6'p0, H6'p1. reflexivity.
+        -- eapply bare_in_context_hyps in Hfunp1; [|eassumption]. fwd.
+           apply in_fst in Hfunp1. exfalso. auto.
+    - rewrite <- H0 in *. fwd. erewrite eval_aexpr_complete; try assumption.
+      2: { eapply interp_agg_expr_agree_on; [eassumption|]. intros v Hv.
+           specialize (Hfunp2 _ Hv).
+           cbv [agree_on]. rewrite map.get_putmany_dec. destruct_one_match.
+           + apply of_list_Some_in in E. apply interp_hyps_context_right in H1.
+             rewrite Forall_forall in H1. apply H1 in E. assumption.
+           + apply get_of_list_None_bw in E. Print appears_in_agg_expr.
+             destruct Hfunp2 as [H'|H'].
+             -- invert H4. eapply Forall2_skipn in H5. pose proof H5 as H5'.
+                apply interp_args_context_right in H5. rewrite Forall_forall in H5.
+                cbv [fact_ins] in Hgoodp1. eapply bare_in_context_args in H5'.
+                2: { eassumption. }
+                fwd. apply in_fst in H5'. apply in_of_list_Some_strong in H5'.
+                fwd. apply H5 in H5'p1. cbv [fact_ins]. rewrite H5'p0.
+                rewrite map.get_put_diff in H5'p1; auto. intros ?. subst.
+                Search res. apply Hgoodp1. do 2 eexists. split; [|reflexivity].
+                apply in_flat_map. eexists. split; [eassumption|]. simpl. auto.
+             -- eapply bare_in_context_hyps in H'; [|eassumption]. fwd.
+                apply in_fst in H'. exfalso. auto. }
+      erewrite subst_in_fact_complete. 1: reflexivity.
+      eapply interp_fact_agree_on; [eassumption|].
+      apply Forall_forall. intros v Hv. cbv [agree_on]. invert H4.
+      do 2 rewrite map.get_put_dec. destruct_one_match; try reflexivity.
+      rewrite map.get_putmany_dec. destruct_one_match.
+      + apply of_list_Some_in in E0. apply interp_hyps_context_right in H1.
+        rewrite Forall_forall in H1. apply H1 in E0. assumption.
+      + apply get_of_list_None_bw in E0. specialize (Hfunp1 v). specialize' Hfunp1.
+        { split; auto. intro. fwd. congruence. }
+        destruct Hfunp1 as [H'|H'].
+        -- eapply Forall2_skipn in H5. pose proof H5 as H5'.
+           apply interp_args_context_right in H5. rewrite Forall_forall in H5.
+           cbv [fact_ins] in Hgoodp1. eapply bare_in_context_args in H5'.
+           2: { eassumption. }
+           fwd. apply in_fst in H5'. apply in_of_list_Some_strong in H5'.
+           fwd. apply H5 in H5'p1. cbv [fact_ins]. rewrite H5'p0.
+           rewrite map.get_put_diff in H5'p1; auto.
+        -- eapply bare_in_context_hyps in H'; [|eassumption]. fwd.
+           apply in_fst in H'. exfalso. auto.
+  Qed.
 
   Definition num_agg_hyps r :=
     match r.(rule_agg) with
