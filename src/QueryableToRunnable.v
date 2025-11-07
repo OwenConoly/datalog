@@ -1123,10 +1123,12 @@ Section Transform.
            1: apply H2p1; eauto. intros [[Ry By] argsy]. intros Hy. destruct By.
            - apply partial_in. assumption.
            - clear H2p0. invert Hy. eapply partial_step.
-             { cbv [make_good]. apply Exists_app. right. apply Exists_map.
-               apply Exists_exists. exists x. split; [assumption|].
-               eapply rule_impl_request_hyps; eauto.
-               apply in_map_iff. eexists (_, _, _). simpl. eauto. }
+             { cbv [make_good]. apply Exists_app. right.
+               eapply rule_impl_request in Hp1p1p2; eauto.
+               2: { apply in_map_iff. eexists (_, _, _). eauto. }
+               apply Exists_app.
+               destruct Hp1p1p2 as [Hp1p1p2|Hp1p1p2]; [left|right];
+                 apply Exists_map; apply Exists_exists; eauto. }
              constructor; [|constructor]. apply partial_in. reflexivity. }
       apply partial_in. reflexivity.
   Qed.
