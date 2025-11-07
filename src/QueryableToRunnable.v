@@ -806,12 +806,12 @@ Section Transform.
   Proof.
     intros Hgood H. cbv [goodish_rule] in Hgood. fwd. cbv [rule_impl add_hyp] in H.
     fwd. invert Hp1; simpl in *. rewrite Hgoodp0 in *. simpl in *. invert_list_stuff.
-    invert H2. split; [reflexivity|].
-    cbv [with_only_ins] in H4. cbv [fact_relmap] in H3.
-    simpl in H3. simpl in *. invert H4. simpl. simpl in H0.
+    invert H3. split; [reflexivity|].
+    cbv [with_only_ins] in H5. cbv [fact_relmap] in H4.
+    simpl in H4. simpl in *. invert H5. simpl. simpl in H0.
       assert (args'0 = skipn (outs (fact_R concl)) args').
-      { move H at bottom. move H3 at bottom. simpl in H3.
-        eapply Forall2_skipn in H3. eapply Forall2_unique_r. 1: exact H0.
+      { move H at bottom. move H4 at bottom. simpl in H4.
+        eapply Forall2_skipn in H4. eapply Forall2_unique_r. 1: exact H0.
         2: apply interp_expr_det.
         invert H; [eassumption|].
         eapply Forall2_impl_strong; [|eassumption].
@@ -821,21 +821,21 @@ Section Transform.
         do 2 eexists. split; [|eassumption].
         apply in_flat_map. eauto. }
       subst. eexists. split; [reflexivity|].
-      apply interp_facts_relmap with (g := fst) in H6. fwd.
-      rewrite map_map in H6p0. simpl in H6p0.
+      apply interp_facts_relmap with (g := fst) in H7. fwd.
+      rewrite map_map in H7p0. simpl in H7p0.
       eassert (H': forall x y, x = y -> map snd x = map snd y) by (intros; subst; reflexivity).
-      apply H' in H6p0. clear H'. do 2 rewrite map_map in H6p0. simpl in H6p0.
-      rewrite map_const in H6p0. eassert (H6p0': Forall _ _).
+      apply H' in H7p0. clear H'. do 2 rewrite map_map in H7p0. simpl in H7p0.
+      rewrite map_const in H7p0. eassert (H7p0': Forall _ _).
       { apply Forall_forall. intros x Hx. apply repeat_spec in Hx. exact Hx. }
-      rewrite H6p0 in H6p0'. clear H6p0. apply Lists.List.Forall_map in H6p0'.
+      rewrite H7p0 in H7p0'. clear H7p0. apply Lists.List.Forall_map in H7p0'.
       invert H; simpl in *.
-    - rewrite app_nil_r. symmetry in H4. apply option_map_None in H4. rewrite H4 in *.
-      split; [assumption|]. cbv [rule_impl]. do 2 eexists.
+    - rewrite app_nil_r. symmetry in H5. apply option_map_None in H5. rewrite H5 in *.
+      split; [assumption|]. cbv [rule_impl]. do 3 eexists.
       split; cycle 1.
       + eapply mk_rule_impl' with (ctx := ctx'); eauto.
-        -- rewrite H4. constructor.
+        -- rewrite H5. constructor.
         -- rewrite Hgoodp0. constructor. constructor. assumption.
-        -- rewrite map_map in H6p1. rewrite <- Forall2_map_l, <- Forall2_map_r in H6p1.
+        -- rewrite map_map in H7p1. rewrite <- Forall2_map_l, <- Forall2_map_r in H7p1.
            erewrite <- Forall2_map_r. eapply Forall2_impl; [|eassumption]. simpl.
            intros. cbv [fact'_relmap fact_relmap] in H. simpl in H.
            instantiate (1 := fun _ => _). destruct a; simpl in *. exact H.
@@ -844,19 +844,19 @@ Section Transform.
     - symmetry in H1. apply option_map_Some in H1. fwd. rewrite H1p0 in *.
       split.
       + apply Forall_app. split; [assumption|]. apply Forall_concat.
-        invert H5. apply Forall3_ignore12 in H12. rewrite Forall_forall in *.
-        intros x Hx. specialize (H12 _ Hx). simpl in *. fwd.
-        apply Forall2_forget_l in H12p1. rewrite Forall_forall in *. intros z Hz.
-        specialize (H12p1 _ Hz). fwd. apply in_map_iff in H12p1p0. fwd.
-        invert H12p1p1. reflexivity.
-      + cbv [rule_impl]. do 2 eexists. split.
+        invert H6. apply Forall3_ignore12 in H13. rewrite Forall_forall in *.
+        intros x Hx. specialize (H13 _ Hx). simpl in *. fwd.
+        apply Forall2_forget_l in H13p1. rewrite Forall_forall in *. intros z Hz.
+        specialize (H13p1 _ Hz). fwd. apply in_map_iff in H13p1p0. fwd.
+        invert H13p1p1. reflexivity.
+      + cbv [rule_impl]. do 3 eexists. split.
         { rewrite map_app. rewrite concat_map. reflexivity. }
         eapply mk_rule_impl' with (ctx := ctx); eauto.
-        -- rewrite H1p0. econstructor; eauto. eapply interp_agg_expr_relmap with (g := fst) in H5.
-           rewrite agg_expr_relmap_comp in H5. rewrite agg_expr_relmap_id in H5.
-           apply H5.
+        -- rewrite H1p0. econstructor; eauto. eapply interp_agg_expr_relmap with (g := fst) in H6.
+           rewrite agg_expr_relmap_comp in H6. rewrite agg_expr_relmap_id in H6.
+           apply H6.
         -- rewrite Hgoodp0. constructor. constructor. assumption.
-        -- rewrite map_map in H6p1. rewrite <- Forall2_map_l, <- Forall2_map_r in H6p1.
+        -- rewrite map_map in H7p1. rewrite <- Forall2_map_l, <- Forall2_map_r in H7p1.
            erewrite <- Forall2_map_r. eapply Forall2_impl; [|eassumption]. simpl.
            intros. cbv [fact'_relmap fact_relmap] in H. simpl in H.
            destruct b as [[? ?] ?]; simpl in *. destruct a0. exact H.
@@ -867,6 +867,21 @@ Section Transform.
     Forall (fun hyp' => snd (fst hyp') = false) hyps'.
   Proof.
     intros H. cbv [request_hyps rule_impl] in H. fwd. invert Hp1. simpl in *.
+    apply Forall_forall.
+    intros x Hx. invert H. rewrite app_nil_r in Hx. rewrite map_map in H1.
+    apply Forall2_forget_l in H1. rewrite Forall_forall in H1.
+    specialize (H1 _ ltac:(eassumption)). fwd.
+    apply in_map_iff in H1p0. fwd. invert H1p1. reflexivity.
+  Qed.
+
+  Lemma request_agg_hyps_hyps'_false r R b args hyps' :
+    rule_impl (request_agg_hyps r) (R, b, args) hyps' ->
+    Forall (fun hyp' => snd (fst hyp') = false) hyps'.
+  Proof.
+    intros H. cbv [request_agg_hyps rule_impl] in H. fwd.
+    destruct (rule_agg r) as [(?&?)|]; cycle 1.
+    { invert Hp1. simpl in *. invert_list_stuff. }
+    invert Hp1. simpl in *.
     apply Forall_forall.
     intros x Hx. invert H. rewrite app_nil_r in Hx. rewrite map_map in H1.
     apply Forall2_forget_l in H1. rewrite Forall_forall in H1.
@@ -897,7 +912,7 @@ Section Transform.
       simpl. intros [[R' b'] args']. simpl. intros. fwd. assumption.
   Qed.
 
-  Lemma g_fixpoint' (*P*) r S :
+  Lemma g_fixpoint' r S :
     goodish_rule r ->
     S_sane S ->
     fp (F [request_hyps r; add_hyp r]) S ->
