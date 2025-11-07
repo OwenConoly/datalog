@@ -332,11 +332,12 @@ Section Transform.
 
   Lemma agree_functional p :
     dag (rel_graph p) ->
+    Forall goodish_fun p ->
     Forall goodish_rule p ->
     pairs_satisfy (agree p) p ->
     functional p.
   Proof.
-    intros H1 H2 H3. cbv [functional]. intros args1 args2 R. revert args1 args2.
+    intros H1 Hfun H2 H3. cbv [functional]. intros args1 args2 R. revert args1 args2.
     specialize (H1 R). induction H1. clear H.
     intros args1 args2 Hargs1 Hargs2 Hins.
     invert Hargs1. invert Hargs2.
