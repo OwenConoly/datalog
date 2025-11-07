@@ -538,6 +538,12 @@ Section __.
     In v (flat_map vars_of_expr (map fst set_hyps)) \/
       In v (flat_map vars_of_expr (map snd set_hyps)).      
 
+  Lemma not_in_set_hyps_nil v :
+    in_set_hyps v [] -> False.
+  Proof.
+    cbv [in_set_hyps]. simpl. destruct 1; assumption.
+  Qed.
+  
   Definition appears_in_rule v r :=
     ~(exists ae, r.(rule_agg) = Some (v, ae)) /\
       In v (flat_map vars_of_fact r.(rule_concls)) \/

@@ -16,7 +16,7 @@ From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
   Meshgrid ContextsAgree ATLDeep Range.
 
-From Datalog Require Import Datalog RevRel Dag Map List Tactics Interpreter QueryableToRunnable ATLUtils. 
+From Datalog Require Import Datalog Dag Map List Tactics Interpreter QueryableToRunnable ATLUtils. 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable.
 
 Import Datatypes.
@@ -135,8 +135,9 @@ Context {context : map.map var obj} {context_ok : map.ok context}.
 Context {str_nat : map.map string nat} {str_nat_ok : map.ok str_nat}.
 Context {str_Zexpr : map.map string Zexpr} {str_Zexpr_ok : map.ok str_Zexpr}.
 Local Notation rule := (rule rel var fn aggregator).
+Local Notation expr := (expr var fn).
 
-Fixpoint lower_idx (idx: Zexpr) : expr var fn :=
+Fixpoint lower_idx (idx: Zexpr) : expr :=
   match idx with
   (*copy-pasted monstrosity*)
   | ZPlus x y => fun_expr (fn_Z fn_ZPlus) [lower_idx x; lower_idx y]
@@ -149,7 +150,7 @@ Fixpoint lower_idx (idx: Zexpr) : expr var fn :=
   | ZVar x => var_expr (inl x)
   end.
 
-Fixpoint lower_guard (g: Bexpr) : expr var fn :=
+Fixpoint lower_guard (g: Bexpr) : expr :=
   match g with
   | Bexpr.And x y => fun_expr (fn_B fn_BAnd) [lower_guard x; lower_guard y]
   | Bexpr.Lt x y => fun_expr (fn_B fn_BLt) [lower_idx x; lower_idx y]
@@ -168,13 +169,13 @@ Fixpoint vars_of_Bexpr (b : Bexpr) : list string :=
 (*   fun_expr (fn_Z fn_ZMinus) [var_expr (inl idx); lower_idx offset]. *)
 
 Fixpoint lower_Sexpr (idxs0 : list string) (def_depth : str_nat) (next_varname : nat) (e : Sexpr) :
-  expr var fn (*value of expr*) *
+  expr (*value of expr*) *
     list (fact rel var fn) (*hypotheses*) *
     nat (*next varname *) :=
   match e with
   | Var x =>
       match map.get def_depth x with
-      | None => (var_expr (inl x), nil, O) (*garbage*)
+      | None => (fun_expr (fn_Z (fn_ZLit 0)) [], nil, O) (*garbage*)
       | Some n =>
           (var_expr (inr next_varname),
               [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map var_expr (map inl (firstn n idxs0)) |}],
@@ -183,7 +184,7 @@ Fixpoint lower_Sexpr (idxs0 : list string) (def_depth : str_nat) (next_varname :
       
   | Get x idxs' =>
       match map.get def_depth x with
-      | None => (var_expr (inl x), nil, O) (*garbage*)
+      | None => (fun_expr (fn_Z (fn_ZLit 0)) [], nil, O) (*garbage*)
       | Some n =>
           (var_expr (inr next_varname),
             [{| fact_R := str_rel x; fact_args := var_expr (inr next_varname) :: map var_expr (map inl (firstn n idxs0)) ++ map lower_idx idxs' |}],
@@ -305,16 +306,17 @@ Fixpoint lower_rec
                                         lower_idx hi];
                            agg_body := var_expr (inr x);
                            agg_hyps := [{| fact_R := nat_rel aux;
-                                      fact_args :=
-                                        var_expr (inr x) ::
-                                          map var_expr (map inl idxs) ++
-                                          var_expr (inr i') ::
-                                          map var_expr dimvars |}] |} : agg_expr rel var fn aggregator);
+                                          fact_args :=
+                                            var_expr (inr x) ::
+                                              map var_expr (map inl idxs) ++
+                                              var_expr (inr i') ::
+                                              map var_expr dimvars |}] |} : agg_expr rel var fn aggregator);
+             rule_set_hyps := [];
              rule_concls := [{| fact_R := out;
                                fact_args := var_expr (inr y) ::
                                               map var_expr (map inl idxs) ++
                                               map var_expr dimvars |}];
-             rule_hyps := []; |}])
+             rule_hyps := [] |}])
   | Guard b body =>
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
@@ -323,6 +325,7 @@ Fixpoint lower_rec
       (name',
         rules ++
           [{| rule_agg := None;
+             rule_set_hyps := [];
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr (inr x) ::
@@ -336,6 +339,7 @@ Fixpoint lower_rec
                            {| fact_R := true_rel;
                              fact_args := [lower_guard b] |}] |};
            {| rule_agg := None;
+             rule_set_hyps := [];
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  fun_expr (fn_R (fn_SLit 0%R)) [] ::
@@ -363,6 +367,7 @@ Fixpoint lower_rec
       (name'',
         rules1 ++ rules2 ++
           [{| rule_agg := None;
+             rule_set_hyps := [];
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr (inr x) ::
@@ -379,6 +384,7 @@ Fixpoint lower_rec
                                               fun_expr (fn_Z (fn_ZLit len1)) []]] |}
              ] |};
            {| rule_agg := None;
+             rule_set_hyps := [];
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr (inr x) ::
@@ -411,6 +417,7 @@ Fixpoint lower_rec
       (name',
         rules ++
           [{| rule_agg := None;
+             rule_set_hyps := [];
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr x ::
@@ -444,6 +451,7 @@ Fixpoint lower_rec
       (name',
         rules ++
           [{| rule_agg := None;
+             rule_set_hyps := [];
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr x ::
@@ -453,7 +461,7 @@ Fixpoint lower_rec
                                    map var_expr dimvars |}];
              rule_hyps := [{| fact_R := nat_rel aux;
                              fact_args := var_expr x ::
-                                   map var_expr (map inl idxs) ++
+                                            map var_expr (map inl idxs) ++
                                             fun_expr (fn_Z fn_ZPlus)
                                             [fun_expr (fn_Z fn_ZTimes)
                                                [var_expr dimvar1;
@@ -470,6 +478,7 @@ Fixpoint lower_rec
                                                    [fun_expr (fn_Z (fn_ZLit pad_start)) [];
                                                     var_expr dimvar2]]]] |}] |};
            {| rule_agg := None;
+             rule_set_hyps := [];
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  fun_expr (fn_R (fn_SLit 0%R)) [] ::
@@ -491,6 +500,7 @@ Fixpoint lower_rec
       (name',
         rules ++
           [{| rule_agg := None;
+             rule_set_hyps := [];
              rule_concls := [{| fact_R := out;
                                fact_args :=
                                  var_expr x ::
@@ -501,7 +511,7 @@ Fixpoint lower_rec
              rule_hyps := [{| fact_R := aux;
                              fact_args :=
                                var_expr x ::
-                                   map var_expr (map inl idxs) ++
+                                 map var_expr (map inl idxs) ++
                                  var_expr dimvar1 ::
                                  var_expr dimvar2 ::
                                  map var_expr dimvars |}] |}])
@@ -517,20 +527,21 @@ Fixpoint lower_rec
       (name',
         rules ++
           [{| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              var_expr x ::
-                                map var_expr (map inl idxs) ++
-                                var_expr dimvar1 ::
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := aux;
-                           fact_args :=
-                             var_expr x ::
-                                map var_expr (map inl idxs) ++
-                               fun_expr (fn_Z fn_ZPlus)
-                               [fun_expr (fn_Z (fn_ZLit k')) [];
-                                var_expr dimvar1] ::
-                               map var_expr dimvars |}] |}])
+             rule_set_hyps := [];
+             rule_concls := [{| fact_R := out;
+                               fact_args :=
+                                 var_expr x ::
+                                   map var_expr (map inl idxs) ++
+                                   var_expr dimvar1 ::
+                                   map var_expr dimvars |}];
+             rule_hyps := [{| fact_R := aux;
+                             fact_args :=
+                               var_expr x ::
+                                 map var_expr (map inl idxs) ++
+                                 fun_expr (fn_Z fn_ZPlus)
+                                 [fun_expr (fn_Z (fn_ZLit k')) [];
+                                  var_expr dimvar1] ::
+                                 map var_expr dimvars |}] |}])
   | Padr k e =>
       let dimvars := map inr (seq O (length (sizeof e) - 1)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
@@ -545,33 +556,35 @@ Fixpoint lower_rec
       let (name', rules) := lower_rec e aux (S name) idxs def_depth in
       (name',
         rules ++ [{| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              var_expr x ::
-                                map var_expr (map inl idxs) ++
-                                var_expr dimvar1 ::
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := aux;
-                           fact_args :=
-                             var_expr x ::
-                                map var_expr (map inl idxs) ++
-                               var_expr dimvar1 ::
-                               map var_expr dimvars |};
-                         {| fact_R := true_rel;
-                           fact_args := [fun_expr (fn_B fn_BLt)
-                                           [var_expr dimvar1;
-                                            fun_expr (fn_Z (fn_ZLit len)) []]] |}] |};
-         {| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              fun_expr (fn_R (fn_SLit 0)) [] ::
-                                map var_expr (map inl idxs) ++
-                                var_expr dimvar1 ::
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := true_rel;
-                           fact_args := [fun_expr (fn_B fn_BLe)
-                                           [fun_expr (fn_Z (fn_ZLit len)) [];
-                                            var_expr dimvar1]] |}] |}])
+                    rule_set_hyps := [];
+                    rule_concls := [{| fact_R := out;
+                                      fact_args :=
+                                        var_expr x ::
+                                          map var_expr (map inl idxs) ++
+                                          var_expr dimvar1 ::
+                                          map var_expr dimvars |}];
+                    rule_hyps := [{| fact_R := aux;
+                                    fact_args :=
+                                      var_expr x ::
+                                        map var_expr (map inl idxs) ++
+                                        var_expr dimvar1 ::
+                                        map var_expr dimvars |};
+                                  {| fact_R := true_rel;
+                                    fact_args := [fun_expr (fn_B fn_BLt)
+                                                    [var_expr dimvar1;
+                                                     fun_expr (fn_Z (fn_ZLit len)) []]] |}] |};
+                  {| rule_agg := None;
+                    rule_set_hyps := [];
+                    rule_concls := [{| fact_R := out;
+                                      fact_args :=
+                                        fun_expr (fn_R (fn_SLit 0)) [] ::
+                                          map var_expr (map inl idxs) ++
+                                          var_expr dimvar1 ::
+                                          map var_expr dimvars |}];
+                    rule_hyps := [{| fact_R := true_rel;
+                                    fact_args := [fun_expr (fn_B fn_BLe)
+                                                    [fun_expr (fn_Z (fn_ZLit len)) [];
+                                                     var_expr dimvar1]] |}] |}])
   | Padl k e =>
       let dimvars := map inr (seq O (length (sizeof e) - 1)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
@@ -581,46 +594,50 @@ Fixpoint lower_rec
       let (name', rules) := lower_rec e aux (S name) idxs def_depth in
       (name',
         rules ++
-        [{| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              var_expr x ::
-                                map var_expr (map inl idxs) ++
-                                var_expr dimvar1 ::
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := aux;
-                           fact_args :=
-                             var_expr x ::
-                                map var_expr (map inl idxs) ++
-                               fun_expr (fn_Z fn_ZMinus)
-                               [var_expr dimvar1;
-                                fun_expr (fn_Z (fn_ZLit k')) []] ::
-                               map var_expr dimvars |};
-                         {| fact_R := true_rel;
-                           fact_args := [fun_expr (fn_B fn_BLe)
-                                           [fun_expr (fn_Z (fn_ZLit k')) [];
-                                            var_expr dimvar1]] |}] |};
-         {| rule_agg := None;
-           rule_concls := [{| fact_R := out;
-                            fact_args :=
-                              fun_expr (fn_R (fn_SLit 0)) [] ::
-                                map var_expr (map inl idxs) ++
-                                var_expr dimvar1 ::
-                                map var_expr dimvars |}];
-           rule_hyps := [{| fact_R := true_rel;
-                           fact_args := [fun_expr (fn_B fn_BLt)
-                                           [var_expr dimvar1;
-                                            fun_expr (fn_Z (fn_ZLit k')) []]] |}] |}])
+          [{| rule_agg := None;
+             rule_set_hyps := [];
+             rule_concls := [{| fact_R := out;
+                               fact_args :=
+                                 var_expr x ::
+                                   map var_expr (map inl idxs) ++
+                                   var_expr dimvar1 ::
+                                   map var_expr dimvars |}];
+             rule_hyps := [{| fact_R := aux;
+                             fact_args :=
+                               var_expr x ::
+                                 map var_expr (map inl idxs) ++
+                                 fun_expr (fn_Z fn_ZMinus)
+                                 [var_expr dimvar1;
+                                  fun_expr (fn_Z (fn_ZLit k')) []] ::
+                                 map var_expr dimvars |};
+                           {| fact_R := true_rel;
+                             fact_args := [fun_expr (fn_B fn_BLe)
+                                             [fun_expr (fn_Z (fn_ZLit k')) [];
+                                              var_expr dimvar1]] |}] |};
+           {| rule_agg := None;
+             rule_set_hyps := [];
+             rule_concls := [{| fact_R := out;
+                               fact_args :=
+                                 fun_expr (fn_R (fn_SLit 0)) [] ::
+                                   map var_expr (map inl idxs) ++
+                                   var_expr dimvar1 ::
+                                   map var_expr dimvars |}];
+             rule_hyps := [{| fact_R := true_rel;
+                             fact_args := [fun_expr (fn_B fn_BLt)
+                                             [var_expr dimvar1;
+                                              fun_expr (fn_Z (fn_ZLit k')) []]] |}] |}])
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr idxs def_depth O s in
       (name,
         [{| rule_agg := None;
+           rule_set_hyps := [];
            rule_hyps := hyps;
            rule_concls := [{| fact_R := out; fact_args := val :: map var_expr (map inl idxs) |}] |}])
   end.
 
 Definition true_rule : rule :=
   {| rule_agg := None;
+    rule_set_hyps := [];
     rule_concls := [{| fact_R := true_rel;
                       fact_args := [fun_expr (fn_B (fn_BLit true)) []] |}];
     rule_hyps := [] |}.
@@ -631,9 +648,9 @@ Definition lower e out :=
 (*this is a very (unnecessarily) strong property.  happily, ATL programs are
   very-obviously functional, so they meet it.*)
 Definition obviously_non_intersecting (r1 r2 : rule) :=
-  forall R idxs hyps1 hyps2 agg_hyps1 agg_hyps2 x1 x2,
-  rule_impl' r1 (R, x1 :: idxs) hyps1 agg_hyps1 ->
-  rule_impl' r2 (R, x2 :: idxs) hyps2 agg_hyps2 ->
+  forall R idxs ctx1 ctx2 hyps1 hyps2 agg_hyps1 agg_hyps2 x1 x2,
+  rule_impl' ctx1 r1 (R, x1 :: idxs) hyps1 agg_hyps1 ->
+  rule_impl' ctx2 r2 (R, x2 :: idxs) hyps2 agg_hyps2 ->
   In (true_rel, [Bobj false]) hyps1 \/ In (true_rel, [Bobj false]) hyps2.
 
 Lemma obviously_non_intersecting_comm r1 r2 :
@@ -641,7 +658,7 @@ Lemma obviously_non_intersecting_comm r1 r2 :
   obviously_non_intersecting r2 r1.
 Proof.
   cbv [obviously_non_intersecting]. intros.
-  specialize (H _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+  specialize (H _ _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
   destruct H; auto.
 Qed.
 
@@ -712,8 +729,8 @@ Proof.
   cbv [good_rel]. intros a. destruct (fact_R a); auto. intuition lia.
 Qed.
 
-Lemma rule_impl_rel (r : rule) R args hyps agg_hyps :
-  rule_impl' r (R, args) hyps agg_hyps ->
+Lemma rule_impl_rel ctx (r : rule) R args hyps agg_hyps :
+  rule_impl' ctx r (R, args) hyps agg_hyps ->
   exists c, In c r.(rule_concls) /\ c.(fact_R) = R.
 Proof.
   intros H. invert H.
@@ -758,7 +775,7 @@ I changed my mind; I will do an equivalent slight variation on 3, with the vars_
 (*TODO factor out the list part at least*)
 Ltac invert_stuff :=
   match goal with
-  | H : rule_impl' _ _ _ _ |- _ => invert H
+  | H : rule_impl' _ _ _ _ _ |- _ => invert H
   | H : interp_fact _ _ _ |- _ => invert H
   | H : interp_expr _ (fun_expr _ _) _ |- _ => invert H
   | H : interp_expr _ (var_expr _) _ |- _ => invert H
@@ -977,7 +994,7 @@ Proof.
   - apply pairwise_ni_app; auto.
     + apply pairwise_ni'_sound. constructor.
       { constructor.
-        { cbv [obviously_non_intersecting]. intros. subst.
+        { cbv [obviously_non_intersecting]. intros.
           repeat (invert_stuff; simpl in * ).
           (*from HA and HB, i want to conclude that ctx and ctx0 agree on idxs*)
           match goal with
@@ -1209,7 +1226,7 @@ Lemma lower_dag_rec e out name idxs depths name' rules idxs0 :
   ~ (exists out', out' \in vars_of e \cup referenced_vars e /\ out = str_rel out') ->
   out_smaller out name ->
   lower_rec e out name idxs depths = (name', rules) ->
-  dag' (rel_graph rules).
+  dag (rel_graph rules).
 Proof.
   revert out name idxs depths name' rules idxs0. 
   induction e;
@@ -1234,11 +1251,11 @@ Proof.
       | |- _ /\ _ => split
       | H: ~_ |- False => apply H; eexists; intuition eauto; []
       | H: _ \/ _ |- _ => destruct H; [solve[prove_no_cycles'] |]
-      end. Check dag'_cons.
+      end.
   Ltac prove_no_cycles :=
     repeat match goal with
       | |- _ => eassumption
-      | |- _ => apply dag'_cons; repeat rewrite app_nil_r
+      | |- _ => apply dag_cons; repeat rewrite app_nil_r
       | |- not_in_snd (_ :: _) _ => apply not_in_snd_cons; [prove_no_cycles'|]
       | |- not_in_snd (_ ++ _) _ => apply not_in_snd_app
       | |- not_in_snd [] _ => apply not_in_snd_nil
@@ -1247,14 +1264,14 @@ Proof.
   all: prove_no_cycles.
   all: cycle -1.
   { cbv [edges_of_rule]. simpl. rewrite app_nil_r.
-    apply lower_Sexpr_relnames_good in E. apply dag_dag'. eapply concl_same_dag.
+    apply lower_Sexpr_relnames_good in E. eapply concl_same_dag.
     apply Forall_map. eapply Forall_impl; [|eassumption]. simpl. intros. fwd.
     split; eauto. intros H. subst. apply Hout1. eexists. intuition eauto. sets. }
   { (*should come from the fact that vars_of e2 \cap referenced_vars e1 is empty*)
     (*that is, concls of rules1 \cap hyps of rules0 is empty*)
-    clear H11 (*hyps or rules1*) H1 (*concls of rules0*). eapply dag'_permutation.
-    { apply Permutation.Permutation_app_comm. }
-    apply dag'_app; auto. cbv [no_cycles]. apply Forall_map. apply Forall_flat_map.
+    clear H11 (*hyps or rules1*) H1 (*concls of rules0*). eapply dag_incl.
+    2: { apply Permutation_incl. apply Permutation.Permutation_app_comm. }
+    apply dag_app; auto. cbv [no_cycles]. apply Forall_map. apply Forall_flat_map.
     eapply Forall_impl; [|eassumption]. intros r Hr.
     cbv [good_rule_or_out] in Hr. apply Forall_flat_map.
     eapply Forall_impl; [|eassumption]. simpl. intros. rewrite <- Forall_map.
@@ -1262,7 +1279,7 @@ Proof.
     prove_no_cycles. }
   { rewrite app_assoc. prove_no_cycles.
     clear H8 H6. (*arbitrary choice, but works with dag'_app*)
-    apply dag'_app; auto. cbv [no_cycles]. apply Forall_map. apply Forall_flat_map.
+    apply dag_app; auto. cbv [no_cycles]. apply Forall_map. apply Forall_flat_map.
     eapply Forall_impl; [|eassumption]. intros r Hr.
     cbv [good_rule_or_out] in Hr. apply Forall_flat_map.
     eapply Forall_impl; [|eassumption]. simpl. intros. rewrite <- Forall_map.
@@ -1293,7 +1310,7 @@ Qed.
 Lemma lower_dag e out :
   vars_good [] e ->
   ~(out \in vars_of e \cup referenced_vars e) ->
-  dag' (rel_graph (lower e out)).
+  dag (rel_graph (lower e out)).
 Proof.
   intros H1 H2. pose proof lower_dag_rec as H'.
   cbv [lower]. destr_lower. epose_dep H'. rewrite E in H'.
@@ -1309,6 +1326,74 @@ Instance query_sig : query_signature rel :=
       | true_rel => 0
       end }.
 
+Ltac t :=
+    repeat match goal with
+      | H: exists _, _ |- _ => destruct H
+      | H: inr _ = inr _ |- _ => invert H
+      | H: (_, _, _) = (_, _, _) |- _ => invert H
+      | H: _ /\ _ |- _ => destruct H
+      | H: Some _ = Some _ |- _ => invert H
+      | H: In _ (map _ _) |- _ => apply in_map_iff in H
+      | H: In _ (seq _ _) |- _ => apply in_seq in H
+      | H: In _ (flat_map _ _) |- _ => apply in_flat_map in H
+      | H: appears_in_rule _ _ |- _ => destruct H as [? | [? | ?] ]
+      | |- _ => progress (intros; cbv [good_agg_expr vars_of_fact] in *; simpl in *; subst)
+      | |- ~_ => intro
+      | H: In _ (vars_of_expr (lower_idx _)) |- _ => apply lower_idx_keeps_vars in H
+      | H: In _ (vars_of_expr (lower_guard _)) |- _ => apply lower_guard_keeps_vars in H
+      | H: In _ ?l, H': incl ?l ?l' |- _ => apply H' in H
+      | |- False \/ _ => right
+      | H: False \/ _ |- _ => destruct H; [contradiction|]
+      | H: in_set_hyps _ [] \/ _ |- _ => destruct H as [H|H];
+                                      [exfalso; solve[eauto using not_in_set_hyps_nil] |]
+      | H: _ \/ False |- _ => destruct H; [|contradiction]
+      | H: appears_in_agg_expr _ _ |- _ => destruct H as [? | (?&[?|?]) ]
+      | H: _ = _ \/ _ |- _ => destruct H; subst
+      | |- (exists _, inl _ = inr _ /\ _) \/ _ => right
+      | |- exists _, _ => eexists
+      | |- _ = _ /\ _ => split; [reflexivity|]
+      | |- _ /\ _ => split
+      | H: In _ (_ ++ _) |- _ => rewrite in_app_iff in H; destruct H
+      | |- _ => congruence || lia
+      | |- _ => destruct_one_match_hyp
+      | |- _ => destruct_one_match
+      | |- In _ (_ ++ _) => apply in_app_iff
+      | |- In _ (map _ _) => apply in_map_iff
+      | |- In _ (flat_map _ _) => apply in_flat_map
+      | |- In _ (seq _ _) => apply in_seq
+      | H: ~_ |- _ => solve [exfalso; apply H; eauto]
+      | |- _ => solve[eauto]
+      | |- _ \/ _ => (left; solve[t]) || (right; solve [t])
+      end.
+
+Search lower_Sexpr.
+Lemma lower_Sexpr_goodish idxs s depths e n hyps n' v :
+  lower_Sexpr idxs depths n s = (e, hyps, n') ->
+  In v (vars_of_expr e) ->
+  In v (map inl idxs) \/ In (var_expr v) (flat_map fact_args hyps).
+Proof.
+  revert idxs depths n e hyps n' v. induction s; t;
+  match goal with
+  | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; eauto; []; destruct H
+  end;
+  rewrite flat_map_app; rewrite in_app_iff; eauto.
+Qed.
+
+Lemma lower_Sexpr_goodish' idxs s depths e n hyps n' v :
+  lower_Sexpr idxs depths n s = (e, hyps, n') ->
+  In v (flat_map vars_of_fact hyps) ->
+  In v (map inl idxs) \/ In (var_expr v) (flat_map fact_args hyps).
+Proof.
+  revert idxs depths n e hyps n' v. induction s; t.
+  { right. right. t. left. t. right. Abort.
+  (*   Search lower_idx. apply in_map_iff. eexists. split. *)
+  (*   {  *)
+  (*   Lemma lower_idx_really_keeps_vars *)
+  (* match goal with *)
+  (* | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; eauto; []; destruct H *)
+  (* end; *)
+  (* rewrite flat_map_app; rewrite in_app_iff; eauto. *)
+
 Lemma lower_goodish e out name idxs depths :
   out <> true_rel ->
   vars_good idxs e ->
@@ -1319,7 +1404,6 @@ Proof.
     invert Hgood; repeat destr_lower; simpl. 
   all: try (epose_dep IHe; rewrite E in IHe; specialize (IHe ltac:(congruence) ltac:(assumption))). 
   all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in *; specialize (IHe1 ltac:(congruence) ltac:(assumption)); specialize (IHe2 ltac:(congruence) ltac:(assumption))).
-  all: cbv [rev_prog_rels] in *; simpl in *.
   all: repeat rewrite map_app; simpl.
   all: repeat (apply Forall_app; split; [eauto|]).
   all: eauto.
@@ -1337,44 +1421,32 @@ Proof.
       | |- _ => destruct_one_match_hyp
       end.
   all: (split; [solve[prove_letin_ok] |]) || idtac "fail".
-  Ltac t :=
-    repeat match goal with
-      | H: exists _, _ |- _ => destruct H
-      | H: _ /\ _ |- _ => destruct H
-      | H: Some _ = Some _ |- _ => invert H
-      | H: In _ (map _ _) |- _ => apply in_map_iff in H
-      | H: In _ (seq _ _) |- _ => apply in_seq in H
-      | H: In _ (flat_map _ _) |- _ => apply in_flat_map in H
-      | H: appears_in_rule _ _ |- _ => destruct H as [? | [? | ?] ]
-      | |- _ => progress (intros; cbv [vars_of_fact] in *; simpl in *; subst)
-      | H: In _ (vars_of_expr (lower_idx _)) |- _ => apply lower_idx_keeps_vars in H
-      | H: In _ (vars_of_expr (lower_guard _)) |- _ => apply lower_guard_keeps_vars in H
-      | H: In _ ?l, H': incl ?l ?l' |- _ => apply H' in H
-      | |- False \/ _ => right
-      | H: False \/ _ |- _ => destruct H; [contradiction|]
-      | H: _ \/ False |- _ => destruct H; [|contradiction]
-      | H: appears_in_agg_expr _ _ |- _ => destruct H as [? | (?&[?|?]) ]
-      | H: _ = _ \/ _ |- _ => destruct H; subst
-      | |- (exists _, inl _ = inr _ /\ _) \/ _ => right
-      | |- exists _, _ => eexists
-      | |- _ = _ /\ _ => split; [reflexivity|]
-      | |- _ /\ _ => split
-      | H: In _ (_ ++ _) |- _ => rewrite in_app_iff in H; destruct H
-      | |- _ => congruence || lia
-      | |- _ => destruct_one_match_hyp
-      | |- _ => destruct_one_match
-      | |- In _ (_ ++ _) => apply in_app_iff
-      | |- In _ (map _ _) => apply in_map_iff
-      | |- In _ (seq _ _) => apply in_seq
-      | H: ~_ |- _ => solve [exfalso; apply H; eauto]
-      | |- _ => solve[auto]
-      | |- _ \/ _ => (left; solve[t]) || (right; solve [t])
-      end.
+  
   all: (split; [solve[t] | ]) || idtac "fail".
   all: (split; [solve[t] | ]) || idtac "fail".
   all: (split; [solve[t] | ]) || idtac "fail".
-  all: try solve [constructor].
-  { split.
+  all: solve [constructor] || idtac "fail".
+  1: solve[t].
+  t.
+  constructor; [|constructor].
+  eexists; split; [reflexivity|]; cbv [fact_ins]; simpl.
+  split; [solve[prove_letin_ok] |].
+  split.
+  { intros. t;
+      try solve [try match goal with
+      | H: lower_Sexpr _ _ _ _  = _ |- _ => eapply lower_Sexpr_goodish in H; eauto; []; destruct E
+                   end; t].
+    { Search lower_Sexpr. 
+                             eapply lower_Sexpr_goodish in E.
+
+  split; t.
+  t.
+
+  t.
+  { t.
+    - right. t.
+    - cbv [good_agg_expr]. simpl. t.
+    - right. t. t.
     2: { Print goodish_rule. t. intros.
   1: split; t.
   { Set Ltac Profiling. split; [solve[t] |]. Show Ltac Profile.

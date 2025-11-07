@@ -24,6 +24,27 @@ Definition not_in_fst g v :=
 Definition not_in_snd g v :=
   ~In v (map snd g).
 
+Lemma not_in_snd_cons v e g :
+  v <> snd e ->
+  not_in_snd g v ->
+  not_in_snd (e :: g) v.
+Proof.
+  cbv [not_in_snd]. intros H1 H2 H3. simpl in H3. destruct H3; subst; auto.
+Qed.
+
+Lemma not_in_snd_nil v :
+  not_in_snd [] v.
+Proof. cbv [not_in_snd]. simpl. auto. Qed.
+
+Lemma not_in_snd_app v g1 g2:
+  not_in_snd g1 v ->
+  not_in_snd g2 v ->
+  not_in_snd (g1 ++ g2) v.
+Proof.
+  intros H1 H2. cbv [not_in_snd] in *. rewrite map_app. rewrite in_app_iff.
+  intros [?|?]; auto.
+Qed.
+
 (*adding g1 to g2 definitely doesn't create any cycles*)
 Definition no_cycles g1 g2 :=
   Forall (not_in_snd g2) (map fst g1).
@@ -72,13 +93,13 @@ Lemma Acc_not_symm {X : Type} (R : X -> X -> Prop) x :
   False.
 Proof. induction 1; eauto. Qed.
 
-Lemma dag'_dag g :
-  dag' g ->
-  dag g.
+Lemma dag_cons g1 g2 e :
+  dag (g1 ++ g2) ->
+  not_in_snd (e :: g1 ++ g2) (fst e) ->
+  dag (g1 ++ e :: g2).
 Proof.
-  induction 1.
-  - constructor. destruct 1.
-  - constructor. intros y Hy. cbv [edge_rel] in Hy.
+  intros IHdag' H0 H.
+  constructor. intros y Hy. cbv [edge_rel] in Hy.
     eapply subrel_Acc_strong with (P := fun x => x <> fst e).
     + apply IHdag'.
     + intros H'. subst. apply H0. apply in_map_iff.
@@ -90,6 +111,15 @@ Proof.
       -- intro. subst. apply H0. apply in_map_iff.
          eexists (_, _). split; [reflexivity|].
          simpl. rewrite in_app_iff. destruct H1 as [? | [?|?] ]; eauto.
+Qed.
+
+Lemma dag'_dag g :
+  dag' g ->
+  dag g.
+Proof.
+  induction 1.
+  - constructor. destruct 1.
+  - apply dag_cons; assumption.
 Qed.
 
 Lemma dag_incl g1 g2 :
