@@ -331,13 +331,13 @@ Section Transform.
   Qed.
 
   Lemma agree_functional p :
-    dag' (rel_graph p) ->
+    dag (rel_graph p) ->
     Forall goodish_rule p ->
     pairs_satisfy (agree p) p ->
     functional p.
   Proof.
     intros H1 H2 H3. cbv [functional]. intros args1 args2 R. revert args1 args2.
-    apply dag'_wf in H1. specialize (H1 R). induction H1. clear H.
+    specialize (H1 R). induction H1. clear H.
     intros args1 args2 Hargs1 Hargs2 Hins.
     invert Hargs1. invert Hargs2.
     pose proof H as Hrel1. pose proof H4 as Hrel2.
@@ -347,7 +347,7 @@ Section Transform.
     | H1: _ , H2: _ |- _ => specialize (H3 _ _ H1 H2)
     end.
     destruct H3; [|solve[eauto]]. subst. cbv [rule_impl] in *. fwd.
-    pose proof hyp_ins_det as H'. epose proof (H' _ _ args1 args2) as H'.
+    pose proof hyp_ins_det as H'. epose proof (H' _ _ _ _ args1 args2) as H'.
     rewrite Forall_forall in *.
     specialize (H' _ _ _ _ ltac:(eauto) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
     assert (hyps'0 = hyps').
@@ -358,7 +358,7 @@ Section Transform.
       - eapply H1. apply in_app_iff. eauto.
       - eapply H5. apply in_app_iff. eauto. }
     subst. clear H'.
-    pose proof ahyp_ins_det as H'. epose proof (H' _ _ args1 args2) as H'.
+    pose proof ahyp_ins_det as H'. epose proof (H' _ _ _ _ args1 args2) as H'.
     specialize (H' _ _ _ ltac:(eauto) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
     assert (agg_hyps's0 = agg_hyps's).
     { apply Forall2_eq_eq. eapply Forall2_impl_strong; [|eassumption].
@@ -369,7 +369,7 @@ Section Transform.
       - move Hrel1 at bottom. eapply (Hrel1 (_, _)). apply in_app_iff. rewrite in_concat. eauto.
       - eapply H1. apply in_app_iff. rewrite in_concat. eauto.
       - eapply H5. apply in_app_iff. rewrite in_concat. eauto. }
-    subst. clear H'.
+    subst. clear H'. Print goodish_rule.
     apply eval_rule_q_complete in Hp1p1, H4p1p1; auto.
     rewrite Hins in *. rewrite Hp1p1 in H4p1p1. invert_list_stuff.
     reflexivity.

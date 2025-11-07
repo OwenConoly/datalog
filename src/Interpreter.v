@@ -830,6 +830,45 @@ Section __.
       apply subst_in_fact_complete. assumption.
   Qed.
 
+  (*if r is a goodish rule, and this condition holds, then we get the functionalish
+    behavrios as encapsulated in lemma agree_fucntional*)
+  Definition goodish_fun (r : rule) :=
+    exists concl,
+      r.(rule_concls) = [concl] /\
+        forall v, In v (vars_of_fact concl) ->
+             In (var_expr v) (fact_ins concl) \/
+               In (var_expr v) (flat_map fact_args r.(rule_hyps)).
+
+  (*conjunction of this and goodish_rule imply goodish_fun*)
+  Definition goodish_fun' (r : rule) :=
+    r.(rule_set_hyps) = nil.
+
+  Lemma goodish_fun_sound' r ctx0 R args hyps' agg_hyps's :
+    goodish_rule r ->
+    goodish_fun r ->
+    rule_impl' ctx0 r (R, args) hyps' agg_hyps's ->
+    let ctx := map.putmany (map.of_list (context_of_args (flat_map fact_ins r.(rule_concls)) (skipn (outs R) args))) (map.of_list (context_of_hyps r.(rule_hyps) hyps')) in
+    forall v, appears_in_rule v r -> agree_on ctx0 ctx v.
+  Proof.
+    intros Hgood Hfun H ctx. invert H. cbv [goodish_rule] in Hgood. fwd. subst ctx.
+    intros v Hv. cbv [appears_in_rule] in Hv. rewrite Hgoodp0 in *. invert_list_stuff.
+    simpl in *. rewrite app_nil_r in *. cbv [goodish_fun] in Hfun. fwd.
+    rewrite Hfunp0 in *. invert_list_stuff. destruct Hv as [(Hv1&Hv2)| [Hv|Hv] ].
+    - apply Hfunp1 in Hv2. cbv [agree_on]. rewrite map.get_putmany_dec.
+      destruct_one_match.
+      + eapply interp_hyps_context_right_weak; eassumption.
+      + destruct Hv2 as [Hv2|Hv2].
+        -- invert H4. eapply Forall2_skipn in H5.
+           eapply context_of_args_agree_on in H5; cycle 1.
+           { eassumption. }
+           cbv [agree_on] in H5. cbv [fact_ins]. rewrite <- H5.
+           clear -Hv1 H0 context_ok. invert H0; [reflexivity|]. invert H3.
+           symmetry. apply map.get_put_diff. intros ?. subst. apply Hv1. eauto.
+        -- Search context_of_hyps. eapply bare_in_context_hyps in Hv2; [|eassumption].
+           fwd. Search map.get map.of_list. apply get_of_list_None_bw in E.
+           apply in_fst in Hv2. exfalso. auto.
+    - Search enough (map.get _ v = map.
+    
   (* Definition eval_rule_q r concl_ins hyps' agg_hyps's := *)
   (*   let ctx := map.putmany (map.of_list (context_of_args (flat_map fact_ins r.(rule_concls)) concl_ins)) (map.of_list (context_of_hyps r.(rule_hyps) hyps')) in *)
   (*   let ctx' := *)
