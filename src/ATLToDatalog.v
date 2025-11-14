@@ -1621,33 +1621,6 @@ Proof.
   destruct y; [congruence|]. apply nth_error_Some in H. assumption.
 Qed.
 
-Lemma Forall2_nth_error (A B : Type) (R : A -> B -> Prop) l1 l2 :
-  length l1 = length l2 ->
-  (forall n x1 x2,
-      nth_error l1 n = Some x1 ->
-      nth_error l2 n = Some x2 ->
-      R x1 x2) ->
-  Forall2 R l1 l2.
-Proof.
-  revert l2. induction l1; intros l2 H1 H2.
-  - destruct l2; [|discriminate H1]. constructor.
-  - destruct l2; [discriminate H1|]. simpl in H1. invert H1.
-    pose proof (H2 O _ _ ltac:(reflexivity) ltac:(reflexivity)).
-    constructor; [assumption|]. apply IHl1; auto. intros n.
-    specialize (H2 (S n)). simpl in H2. exact H2.
-Qed.
-
-Lemma nth_error_seq_Some n1 n2 n3 n4 :
-  nth_error (seq n1 n2) n3 = Some n4 ->
-  n4 = n1 + n3.
-Proof.
-  revert n1 n3 n4. induction n2; intros n1 n3 n4 H; simpl in *.
-  - destruct n3; discriminate H.
-  - destruct n3; simpl in H.
-    + invert H. lia.
-    + apply IHn2 in H. lia.
-Qed.
-
 Lemma idx_map_works idxs :
   Forall2 (interp_expr (idx_map (map Zobj idxs)))
     (map var_expr (map inr (seq O (length idxs))))

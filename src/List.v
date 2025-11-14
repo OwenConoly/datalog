@@ -536,6 +536,22 @@ Lemma Forall2_concat R xss yss :
   Forall2 (fun xs ys => Forall2 R xs ys) xss yss ->
   Forall2 R (concat xss) (concat yss).
 Proof. induction 1; simpl; eauto using Forall2_app. Qed.
+
+Lemma Forall2_nth_error R xs ys :
+  length xs = length ys ->
+  (forall n x y,
+      nth_error xs n = Some x ->
+      nth_error ys n = Some y ->
+      R x y) ->
+  Forall2 R xs ys.
+Proof.
+  revert ys. induction xs; intros ys H1 H2.
+  - destruct ys; [|discriminate H1]. constructor.
+  - destruct ys; [discriminate H1|]. simpl in H1. invert H1.
+    pose proof (H2 O _ _ ltac:(reflexivity) ltac:(reflexivity)).
+    constructor; [assumption|]. apply IHxs; auto. intros n.
+    specialize (H2 (S n)). simpl in H2. exact H2.
+Qed.
 End misc.
 
 Lemma Forall3_map3 {A B C D} (f : C -> D) xs ys zs (R : A -> B -> D -> Prop) :
@@ -563,6 +579,17 @@ Ltac invert_list_stuff :=
     | H: option_coalesce _ = Some _ |- _ => apply option_coalesce_Some in H; fwd
     | _ => invert_list_stuff'
     end.
+
+Lemma nth_error_seq_Some n1 n2 n3 n4 :
+  nth_error (seq n1 n2) n3 = Some n4 ->
+  n4 = n1 + n3.
+Proof.
+  revert n1 n3 n4. induction n2; intros n1 n3 n4 H; simpl in *.
+  - destruct n3; discriminate H.
+  - destruct n3; simpl in H.
+    + invert H. lia.
+    + apply IHn2 in H. lia.
+Qed.
 
 Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
