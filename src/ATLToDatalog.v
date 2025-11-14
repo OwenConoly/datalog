@@ -880,7 +880,7 @@ Ltac prove_IH_hyp :=
     (eapply out_smaller_weaken; solve [eauto]) ||
     solve[sets] ||
     (match goal with
-     | H: ~ (exists _ : _, _) |- False => apply H; try (eexists; split; [|reflexivity]; solve[repeat rewrite <- union_constant; sets]) 
+     | H: ~ (exists _ : _, _) |- False => apply H; try (eexists; split; [|reflexivity]; solve[sets]) 
      end).
 
 Ltac prove_IH_hyps IH :=
@@ -1254,7 +1254,7 @@ Proof.
       | |- context[match ?out with _ => _ end] => destr out
       | |- Forall _ (_ :: _) => constructor
       | |- Forall _ [] => constructor
-      | |- _ => solve [repeat rewrite <- union_constant; sets]
+      | |- _ => solve [sets]
       | |- ~_ => intros ?
       | |- _ /\ _ => split
       | H: ~_ |- False => apply H; eexists; intuition eauto; []
@@ -1466,91 +1466,6 @@ Proof.
   { apply lower_Sexpr_relnames_good in E. rewrite Forall_forall in E.
     specialize (E _ ltac:(eassumption)). fwd. congruence. }
 Qed.
-    Search idxs.
-  
-  { sp
-  ssplit; try solve [t].
-  { Check lower_Sexpr_goodish1.
-    
-  Print goodish_rule. Print lower_Sexpr. Print lower_rec.
-  Print lower_Sexpr. Print vars_good.
-  { intros. t;
-      try solve [try match goal with
-      | H: lower_Sexpr _ _ _ _  = _ |- _ => eapply lower_Sexpr_goodish in H; eauto; []; destruct H
-                   end; t].
-    {  Search lower_Sexpr. 
-                             eapply lower_Sexpr_goodish in E.
-
-  split; t.
-  t.
-
-  t.
-  { t.
-    - right. t.
-    - cbv [good_agg_expr]. simpl. t.
-    - right. t. t.
-    2: { Print goodish_rule. t. intros.
-  1: split; t.
-  { Set Ltac Profiling. split; [solve[t] |]. Show Ltac Profile.
-  all: (split; [solve[t] |]) || idtac "fail".
-  2: split; [solve[t] |].
-  3: 
-  2: { simpl in H. Print appears_in_rule. repeat rewrite in_app_iff in *. auto.
-  2: 
-  all: (split; [solve[t] |]) || idtac "fail".
-  
-  { split.
-    { t. 2: { 3: { Search vars_of_expr lower_idx. { left. t.
-  
-                                           
-    Ltac letin_goodish :=
-
-    repeat match goal with
-           | |- goodish_rule _ => cbv [goodish_rule]; eexists; eexists (match out with
-                                                                      | true_rel => _
-                                                                      | _ => _
-                                                                      end);
-                                split; [reflexivity|]; ssplit
-           | |- ~ _ => intro
-           | |- _ => lia || congruence
-           | |- _ => destruct_one_match_hyp
-           | |- _ => destruct_one_match
-           | |- _ => solve[eauto]
-           end. Search vars_of_expr. Print vars_good. 3: { Print appears_in_agg_expr.
-    { match goal with
-      end.
-
-      cbv [appears_in_rule] in *. simpl in *. right. destruct H0.
-      { destruct_one_match; try congruence.
-        { fwd.
-
-          match goal with
-          | H: _ = _ \/ _ |- _ => destruct H; subst
-          end.
-
-            exfalso. apply H0. eexists. f_equal. f_equal. Search v. eauto. simpl. Set Printing All. Check H0. destruct H0.
-      destruct_one_match; try congruence.
-    - Print goodish_rule. intros H'. fwd. destruct_one_match_hyp.
-      + apply in_app_iff in H'p0. do 2 rewrite in_map_iff in H'p0. destruct H'p0.
-        -- fwd. congruence.
-        -- fwd. apply in_seq in H0p1. lia.
-      + apply in_app_iff in H'p0. do 2 rewrite in_map_iff in H'p0. destruct H'p0.
-        -- fwd. congruence.
-        -- fwd. apply in_seq in H0p1. lia.
-      + congruence. apply in_app_
-    t out. 1: t out. 1: t out. 1: t out.
-  (* { . simpl. *)
-  (*   repeat rewrite rev_app_distr. simpl. repeat rewrite app_nil_r. eexists. *)
-  (*   eexists (match out with *)
-  (*            | true_rel => _ *)
-  (*            | _ => _ *)
-  (*            end). split; [reflexivity|]. *)
-  (*   ssplit; simpl. *)
-  (*   { destruct_one_match. cbv [fact_ins]. simpl. symmetry. *)
-  (*     destruct_one_match; simpl; *)
-  (*       repeat reflexivity || apply List.map_nil || apply map_cons_eq. } *)
-  (*   { intros H'. fwd. Abort. (*oops args are backwards*) *)
-Abort.
 
 (*i do not like fmaps, because you cannot iterate over them,
   so i work with coqutil maps instead.
