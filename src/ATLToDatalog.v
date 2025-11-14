@@ -164,9 +164,15 @@ Fixpoint vars_of_Bexpr (b : Bexpr) : list string :=
   | Bexpr.Lt x y | Bexpr.Le x y | Bexpr.Eq x y => vars_of_Zexpr x ++/ vars_of_Zexpr y
   end.
 
-(* Definition lower_idx_with_offset (idx_offset : string * Zexpr) : expr var fn := *)
-(*   let (idx, offset) := idx_offset in *)
-(*   fun_expr (fn_Z fn_ZMinus) [var_expr (inl idx); lower_idx offset]. *)
+Print Sexpr.
+Fixpoint idx_vars_of_Sexpr (s : Sexpr) : list string :=
+  match s with
+  | Var _ => []
+  | Get _ idxs => flat_map vars_of_Zexpr idxs
+  | Mul s1 s2 | Add s1 s2 | Div s1 s2 | Sub s1 s2 =>
+                                          idx_vars_of_Sexpr s1 ++ idx_vars_of_Sexpr s2
+  | Lit _ => []
+  end.
 
 Fixpoint lower_Sexpr (idxs0 : list string) (def_depth : str_nat) (next_varname : nat) (e : Sexpr) :
   expr (*value of expr*) *
@@ -219,6 +225,7 @@ Fixpoint lower_Sexpr (idxs0 : list string) (def_depth : str_nat) (next_varname :
   2. before using something, check---if necessary---that it's in bounds.  (this sounds much less bad, since we usually won't need to do a check).
  *)
 
+(*this is horribly long and repetitive; it should be a fixpoint*)
 Inductive vars_good : list string -> ATLexpr -> Prop :=
 | vg_Gen i lo hi body idxs :
   incl (vars_of_Zexpr lo) idxs ->
@@ -247,7 +254,7 @@ Inductive vars_good : list string -> ATLexpr -> Prop :=
 | vg_Concat e1 e2 idxs :
   vars_of e1 \cap vars_of e2 = constant [] ->
   vars_of e1 \cap referenced_vars e2 = constant [] ->
-  (*note: it would probably be nice to include the symmetric condition,
+  (*note: it would probably make sense to include the symmetric condition,
     vars_of e2 \cap referenced_vars e1 = constant [],
     but i don't need it for anything and am lazy*)
   vars_good idxs e1 ->
@@ -275,6 +282,7 @@ Inductive vars_good : list string -> ATLexpr -> Prop :=
   vars_good idxs e ->
   vars_good idxs (Padr k e)
 | vg_Scalar s idxs :
+  incl (idx_vars_of_Sexpr s) idxs ->
   vars_good idxs (Scalar s).
 
 Fixpoint lower_rec
@@ -872,7 +880,7 @@ Ltac prove_IH_hyp :=
     (eapply out_smaller_weaken; solve [eauto]) ||
     solve[sets] ||
     (match goal with
-     | H: ~ (exists _ : _, _) |- False => apply H; try (eexists; split; [|reflexivity]; solve[sets]) 
+     | H: ~ (exists _ : _, _) |- False => apply H; try (eexists; split; [|reflexivity]; solve[repeat rewrite <- union_constant; sets]) 
      end).
 
 Ltac prove_IH_hyps IH :=
@@ -900,30 +908,6 @@ Ltac prove_good_rule_hyp := simpl; try lia.
 Ltac prove_good_rule_hyps :=
   cbv [good_rule_hyps]; simpl;
   repeat (constructor; [solve[prove_good_rule_hyp] |]); constructor.
-
-Ltac prove_good_rules :=
-  repeat match goal with
-    | |- Forall _ (_ ++ _) => apply Forall_app; split
-    | |- Forall _ (_ :: _) => constructor; [solve [prove_good_rule] || solve[prove_good_rule_hyps] |]
-    | |- Forall _ nil => constructor
-    | H: context[good_rule_or_out] |- Forall (good_rule_or_out _ _ _ _) _ =>
-        eapply Forall_impl; [|exact H]; intros;
-        cbv [good_rule_or_out] in *
-    | H: context[good_rule_hyps] |- Forall (good_rule_hyps _ _ _) _ =>
-        eapply Forall_impl; [|exact H]; intros;
-        cbv [good_rule_hyps] in *;
-        try match goal with
-          | H: _ |- _ => rewrite Forall_app in H
-          end; fwd
-    | |- Forall _ _ =>
-        eapply Forall_impl; [  | eassumption ]; simpl;
-        ((intros ?x [?Hx| ?Hx]; try rewrite Hx) || (intros ?x ?Hx; try rewrite Hx));
-        simpl; try (try right; reflexivity);
-        try
-          (try left; try lia; eapply good_rel_weaken; simpl;
-           (solve [ eauto ]) || (solve [ sets ]) || intuition lia);
-        try (try left; (solve [ sets ]))
-    end.
 
 Ltac prove_rel_diff :=
   let H := fresh "H" in
@@ -954,7 +938,7 @@ Proof.
   revert idxs depths n e hyps n'. induction s; simpl; intros *;
     repeat destruct_one_match; simpl in *; invert1 1; eauto with autosets.
   all: apply Forall_app; split; eapply Forall_impl; eauto; simpl; intros; fwd.
-  all: eexists; split; eauto; sets.
+  all: eexists; split; eauto; sets. 
 Qed.
 
 Lemma relnames_good e out name idxs depths name' rules :
@@ -964,7 +948,31 @@ Proof.
   revert out name idxs depths name' rules.
   induction e; simpl; intros *; repeat destr_lower; intros * H; invert H;
     try apply IHe in E; try apply IHe1 in E; try apply IHe2 in E0; fwd; auto;
-    (ssplit; [lia|prove_good_rules|prove_good_rules]).
+    (ssplit; [lia| |]);
+    repeat match goal with
+    | |- Forall _ (_ ++ _) => apply Forall_app; split
+    | |- Forall _ (_ :: _) => constructor; [solve [prove_good_rule] || solve[prove_good_rule_hyps] |]
+    | |- Forall _ nil => constructor
+    | H: context[good_rule_or_out] |- Forall (good_rule_or_out _ _ _ _) _ =>
+        eapply Forall_impl; [|exact H]; intros;
+        cbv [good_rule_or_out] in *
+    | H: context[good_rule_hyps] |- Forall (good_rule_hyps _ _ _) _ =>
+        eapply Forall_impl; [|exact H]; intros;
+        cbv [good_rule_hyps] in *;
+        try match goal with
+          | H: _ |- _ => rewrite Forall_app in H
+          end; fwd
+    | |- Forall _ _ =>
+        eapply Forall_impl; [  | eassumption ]; simpl;
+        ((intros ?x [?Hx| ?Hx]; try rewrite Hx) || (intros ?x ?Hx; try rewrite Hx))
+      | |- _ \/ _ =>
+          (right; subst; reflexivity) ||
+          (left; simpl; lia) ||
+            (left; simpl; solve[sets]) ||
+            (left; eapply good_rel_weaken; [eassumption|lia|lia|sets])
+      | |- good_rel _ _ _ _ _ => eapply good_rel_weaken; [eassumption|lia|lia|sets]
+      | |- In _ (_ ++ _) => apply in_app_iff; eauto
+      end.
   constructor; [|constructor]. cbv [good_rule_hyps]. simpl.
   eapply Forall_impl. 2: eauto using lower_Sexpr_relnames_good. simpl.
   intros * H. fwd. rewrite Hp1. simpl. assumption.
@@ -1238,7 +1246,7 @@ Proof.
       | H: _ = (_, _) |- _ => let H' := fresh "H00" in pose proof H as H'; apply relnames_good in H; destruct H as (?&_&?)
       end; fwd;
     try (prove_IH_hyps IHe || (prove_IH_hyps IHe1; prove_IH_hyps IHe2));
-    cbv [rel_graph] in *; repeat rewrite flat_map_app; simpl; repeat rewrite app_nil_r; simpl.
+    cbv [rel_graph] in *; repeat rewrite flat_map_app; simpl; repeat rewrite app_nil_r; simpl. Print prove_IH_hyps.
   Ltac prove_no_cycles' :=
     repeat match goal with
       | |- _ => progress (intros; subst; fwd; cbv [good_rel good_rule_hyps]; simpl in * )
@@ -1246,7 +1254,7 @@ Proof.
       | |- context[match ?out with _ => _ end] => destr out
       | |- Forall _ (_ :: _) => constructor
       | |- Forall _ [] => constructor
-      | |- _ => solve [sets]
+      | |- _ => solve [repeat rewrite <- union_constant; sets]
       | |- ~_ => intros ?
       | |- _ /\ _ => split
       | H: ~_ |- False => apply H; eexists; intuition eauto; []
@@ -1326,7 +1334,7 @@ Instance query_sig : query_signature rel :=
       | true_rel => 0
       end }.
 
-Ltac t :=
+Ltac t0 tac :=
     repeat match goal with
       | H: exists _, _ |- _ => destruct H
       | H: inr _ = inr _ |- _ => invert H
@@ -1350,7 +1358,6 @@ Ltac t :=
       | H: appears_in_agg_expr _ _ |- _ => destruct H as [? | (?&[?|?]) ]
       | H: _ = _ \/ _ |- _ => destruct H; subst
       | |- (exists _, inl _ = inr _ /\ _) \/ _ => right
-      | |- exists _, _ => eexists
       | |- _ = _ /\ _ => split; [reflexivity|]
       | |- _ /\ _ => split
       | H: In _ (_ ++ _) |- _ => rewrite in_app_iff in H; destruct H
@@ -1363,36 +1370,47 @@ Ltac t :=
       | |- In _ (seq _ _) => apply in_seq
       | H: ~_ |- _ => solve [exfalso; apply H; eauto]
       | |- _ => solve[eauto]
-      | |- _ \/ _ => (left; solve[t]) || (right; solve [t])
+      | |- _ \/ _ => (left; solve[t0 tac]) || (right; solve [t0 tac])
+      | |- exists _, _ => eexists; t0 tac; tac
       end.
 
-Search lower_Sexpr.
-Lemma lower_Sexpr_goodish idxs s depths e n hyps n' v :
+Ltac t := t0 idtac.
+Ltac t' := t0 fail.
+
+Lemma lower_Sexpr_goodish1 idxs s depths e n hyps n' v :
   lower_Sexpr idxs depths n s = (e, hyps, n') ->
   In v (vars_of_expr e) ->
-  In v (map inl idxs) \/ In (var_expr v) (flat_map fact_args hyps).
+  In (var_expr v) (flat_map fact_args hyps).
 Proof.
-  revert idxs depths n e hyps n' v. induction s; t;
-  match goal with
-  | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; eauto; []; destruct H
-  end;
-  rewrite flat_map_app; rewrite in_app_iff; eauto.
+  revert idxs depths n e hyps n' v. induction s; t';
+    match goal with
+    | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; eauto; []
+  end; t.
 Qed.
 
-Lemma lower_Sexpr_goodish' idxs s depths e n hyps n' v :
+Lemma lower_Sexpr_goodish2 idxs depths n s e hyps n' v :
+  lower_Sexpr idxs depths n s = (e, hyps, n') ->
+  In v (flat_map vars_of_expr (flat_map fact_ins hyps)) ->
+  In v (map inl idxs) \/ In v (map inl (idx_vars_of_Sexpr s)).
+Proof.
+  revert idxs depths n e hyps n' v. induction s; cbv [fact_ins] in *; simpl in *; t'; invert_list_stuff; t.
+  { invert E. left. apply in_firstn in H2. t. }
+  { invert E. left. apply in_firstn in H2. t. }
+  all: match goal with
+    | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; t; []; destruct H
+  end; t.
+Qed.
+
+Lemma lower_Sexpr_goodish3 idxs depths n s e hyps n' v :
   lower_Sexpr idxs depths n s = (e, hyps, n') ->
   In v (flat_map vars_of_fact hyps) ->
-  In v (map inl idxs) \/ In (var_expr v) (flat_map fact_args hyps).
+  In (var_expr v) (flat_map fact_args hyps) \/ (In v (map inl idxs) \/ In v (map inl (idx_vars_of_Sexpr s))).
 Proof.
   revert idxs depths n e hyps n' v. induction s; t.
-  { right. right. t. left. t. right. Abort.
-  (*   Search lower_idx. apply in_map_iff. eexists. split. *)
-  (*   {  *)
-  (*   Lemma lower_idx_really_keeps_vars *)
-  (* match goal with *)
-  (* | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; eauto; []; destruct H *)
-  (* end; *)
-  (* rewrite flat_map_app; rewrite in_app_iff; eauto. *)
+  all: match goal with
+    | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; t; []; destruct H as [? | [?|?]]
+  end; t.
+Qed.
 
 Lemma lower_goodish e out name idxs depths :
   out <> true_rel ->
@@ -1431,12 +1449,36 @@ Proof.
   constructor; [|constructor].
   eexists; split; [reflexivity|]; cbv [fact_ins]; simpl.
   split; [solve[prove_letin_ok] |].
-  split.
+  pose proof lower_Sexpr_goodish1 as H1'.
+  pose proof lower_Sexpr_goodish2 as H2'.
+  pose proof lower_Sexpr_goodish3 as H3'.
+  specialize H1' with (1 := E). specialize H2' with (1 := E).
+  specialize H3' with (1 := E).
+  t'.
+  { specialize (H3' _ ltac:(t)). destruct H3' as [? | [?|?]]; t. }
+  { specialize (H3' _ ltac:(t)). destruct H3' as [? | [?|?]]; t. }
+  { eexists. t'. epose_dep H2'. specialize' H2'.
+    { t. cbv [fact_ins]. rewrite E1. t. }
+    destruct H2' as [?|?]; t. }
+  all: try (eexists; t'; epose_dep H2'; specialize' H2'; [t; cbv [fact_ins]; rewrite E1; t|]; destruct H2'; solve[t]).
+  { apply lower_Sexpr_relnames_good in E. rewrite Forall_forall in E.
+    specialize (E _ ltac:(eassumption)). fwd. congruence. }
+  { apply lower_Sexpr_relnames_good in E. rewrite Forall_forall in E.
+    specialize (E _ ltac:(eassumption)). fwd. congruence. }
+Qed.
+    Search idxs.
+  
+  { sp
+  ssplit; try solve [t].
+  { Check lower_Sexpr_goodish1.
+    
+  Print goodish_rule. Print lower_Sexpr. Print lower_rec.
+  Print lower_Sexpr. Print vars_good.
   { intros. t;
       try solve [try match goal with
-      | H: lower_Sexpr _ _ _ _  = _ |- _ => eapply lower_Sexpr_goodish in H; eauto; []; destruct E
+      | H: lower_Sexpr _ _ _ _  = _ |- _ => eapply lower_Sexpr_goodish in H; eauto; []; destruct H
                    end; t].
-    { Search lower_Sexpr. 
+    {  Search lower_Sexpr. 
                              eapply lower_Sexpr_goodish in E.
 
   split; t.
