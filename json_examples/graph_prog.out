@@ -1,0 +1,2 @@
+     = "[{""agg"":{},""concls"":[{""rel_name"":""path"",""args"":[{""var_name"":""x""},{""var_name"":""y""}]}],""hyps"":[{""rel_name"":""edge"",""args"":[{""var_name"":""x""},{""var_name"":""y""}]}],""set_hyps"":[]},{""agg"":{},""concls"":[{""rel_name"":""path"",""args"":[{""var_name"":""x""},{""var_name"":""y""}]}],""hyps"":[{""rel_name"":""path"",""args"":[{""var_name"":""x""},{""var_name"":""z""}]},{""rel_name"":""edge"",""args"":[{""var_name"":""z""},{""var_name"":""y""}]}],""set_hyps"":[]}]"
+     : string

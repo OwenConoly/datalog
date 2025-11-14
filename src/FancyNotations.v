@@ -81,7 +81,7 @@ Notation "[ x ; y ; .. ; z ]" := (cons x (cons y .. (cons z nil) ..)) (in custom
 Check datalog_prog:( [ [path($x, $y)] :- [edge($x, $y)] ] ).
 
 
-Module examples.
+Module Examples.
   Definition graph_prog : list (rule string string string string) :=
     datalog_prog:(
                     [ [path($x, $y)] :- [edge($x, $y)];
@@ -96,4 +96,4 @@ Module examples.
                       [nat($x)] :- [nat'($s)] and [$x \in $s]
                     ]
                   ).
-End examples.
+End Examples.
