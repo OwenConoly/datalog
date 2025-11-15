@@ -127,7 +127,7 @@ Section Transform.
 
   Lemma pairs_satisfy_weaken {X : Type} P1 P2 (l1 l2 : list X) :
     pairs_satisfy P1 l1 ->
-    (forall x y, P1 x y -> P2 x y) ->
+    (forall x y, In x l2 -> In y l2 -> P1 x y -> P2 x y) ->
     incl l2 l1 ->
     pairs_satisfy P2 l2.
   Proof.

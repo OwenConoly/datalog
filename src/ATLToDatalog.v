@@ -1331,7 +1331,7 @@ Instance query_sig : query_signature rel :=
       match R with
       | str_rel _ => 1
       | nat_rel _ => 1
-      | true_rel => 0
+      | true_rel => 0 (*why did i choose to make this zero instead of 1?*)
       end }.
 
 Ltac t0 tac :=
@@ -1530,15 +1530,61 @@ Proof.
     repeat (invert_stuff || simpl in * ).
 Qed.
 
-Lemma oni_agree x y p :
-  obviously_non_intersecting x y ->
-  ~prog_impl_fact p (true_rel, [Bobj false]) ->
-  agree p x y.
+Definition nothing_zeroary (r : rule) :=
+  Forall (fun c => 0 < length c.(fact_args)) r.(rule_concls).
+
+Lemma no_zeroary_rules_lower_rec e out name idxs depths :
+  Forall nothing_zeroary (snd (lower_rec e out name idxs depths)).
 Proof.
-  cbv [obviously_non_intersecting agree]. intros H Htrue * H1 H2 H3 H4 H5.
-  cbv [rule_impl] in *. fwd.
-  specialize H with (1 := H1p1) (2 := H2p1).
+  revert out name idxs depths. unfold nothing_zeroary.
+  induction e; simpl; intros out name idxs depths;
+    repeat destr_lower; simpl. 
+  all: try (epose_dep IHe; rewrite E in IHe). 
+  all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in * ).
+  all: repeat rewrite map_app; simpl.
+  all: repeat (apply Forall_app; split; [eauto|]).
+  all: eauto.
+  all: repeat (apply Forall_cons || apply Forall_nil); simpl.
+  all: try lia.
+  destruct (lower_Sexpr _ _ _ _) as [[? ?] ?]. simpl.
+  all: repeat (apply Forall_cons || apply Forall_nil ); simpl.
+  lia.
+Qed.
+
+Lemma no_zeroary_rules_lower e out :
+  Forall nothing_zeroary (lower e out).
+Proof.
+  cbv [lower]. apply Forall_app. split.
+  - apply no_zeroary_rules_lower_rec.
+  - repeat constructor.
+Qed.
     
+Lemma oni_agree r1 r2 p :
+  nothing_zeroary r1 ->
+  nothing_zeroary r2 ->
+  obviously_non_intersecting r1 r2 ->
+  ~prog_impl_fact p (true_rel, [Bobj false]) ->
+  agree p r1 r2.
+Proof.
+  cbv [obviously_non_intersecting agree]. intros Hr1 Hr2 H Htrue * H1 H2 H3 H4 H5.
+  cbv [rule_impl] in *. fwd.
+  assert (Hor: outs R2 = 1 \/ outs R2 = 0) by (destruct R2; auto).
+  destruct Hor as [Hor|Hor]; rewrite Hor in *. 2: exact H5.
+  destruct args1.
+  { exfalso. invert H1p1. apply Exists_exists in H1. fwd.
+    repeat invert_stuff. cbv [nothing_zeroary] in Hr1. rewrite Forall_forall in Hr1.
+    specialize (Hr1 _ ltac:(eassumption)). rewrite <- H11 in *. simpl in Hr1. lia. }
+  destruct args2.
+  { exfalso. invert H2p1. apply Exists_exists in H1. fwd.
+    repeat invert_stuff. cbv [nothing_zeroary] in Hr2. rewrite Forall_forall in Hr2.
+    specialize (Hr2 _ ltac:(eassumption)). rewrite <- H11 in *. simpl in Hr2. lia. }
+  simpl in H5. subst.
+  specialize H with (1 := H1p1) (2 := H2p1).
+  destruct H as [H|H]; exfalso.
+  - apply Htrue. rewrite Forall_forall in H3. apply H3. apply in_app_iff. eauto.
+  - apply Htrue. rewrite Forall_forall in H4. apply H4. apply in_app_iff. eauto.
+Qed.
+
 Lemma lower_functional e out :
   vars_good [] e ->
   ~ out \in vars_of e \cup referenced_vars e ->
@@ -1551,10 +1597,10 @@ Proof.
   - eapply pairs_satisfy_weaken; cycle -1.
     + apply incl_refl.
     + apply lower_functional'; auto. sets.
-    +
-
-
-
+    + intros. pose proof no_zeroary_rules_lower as H'. epose_dep H'.
+      rewrite Forall_forall in H'. apply oni_agree; eauto.
+      intro. eapply false_not_true. eassumption.
+Qed.
 
 (*i do not like fmaps, because you cannot iterate over them,
   so i work with coqutil maps instead.
