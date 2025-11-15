@@ -1503,6 +1503,31 @@ Proof.
   specialize H1' with (1 := E). t.
 Qed.
 
+Lemma good_index_lower_rec out idxs e name depths :
+  Forall good_index (snd (lower_rec e out name idxs depths)).
+Proof.
+  revert out name idxs depths.
+  induction e; simpl; intros out name idxs depths;
+    repeat destr_lower; simpl. 
+  all: try (epose_dep IHe; rewrite E in IHe). 
+  all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in * ).
+  all: repeat (apply Forall_app; split; [eauto|]).
+  all: eauto.
+  all: repeat constructor.
+  all: t.
+  { cbv [fact_ins] in *. simpl in *. t. }
+  constructor; t.
+  cbv [good_index]. t.
+Qed.
+    
+Lemma good_index_lower e out :
+  Forall good_index (lower e out).
+Proof.
+  cbv [lower]. apply Forall_app. split.
+  - apply good_index_lower_rec.
+  - repeat constructor.
+Qed.
+  
 Lemma lower_goodish_fun e out :
   vars_good [] e ->
   Forall goodish_fun (lower e out).
@@ -1558,7 +1583,7 @@ Proof.
   - apply no_zeroary_rules_lower_rec.
   - repeat constructor.
 Qed.
-    
+
 Lemma oni_agree r1 r2 p :
   nothing_zeroary r1 ->
   nothing_zeroary r2 ->

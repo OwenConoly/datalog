@@ -198,6 +198,14 @@ Section __.
     clear -H0 self. induction H0; eauto.
   Qed.
 
+  Lemma pftree_partial_pftree {U : Type} P1 P2 Q (x : U) :
+    pftree P1 x ->
+    (forall y l, P1 y l -> P2 y l \/ Q y) ->
+    partial_pftree P2 Q x.
+  Proof.
+    intros H1 H2. induction H1; eauto. apply H2 in H. destruct H; eauto.
+  Qed.
+
   Lemma partial_pftree_trans {U : Type} P (x : U) Q :
     partial_pftree P (partial_pftree P Q) x ->
     partial_pftree P Q x.
@@ -205,6 +213,30 @@ Section __.
     
   Definition prog_impl_implication (p : list rule) : (rel * list T -> Prop) -> rel * list T -> Prop :=
     partial_pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
+
+  Lemma prog_impl_fact_prog_impl_implication p1 p2 Q f :
+    prog_impl_fact p1 f ->
+    (forall r f hyps, In r p1 ->
+                 rule_impl r f hyps ->
+                 In r p2 \/ Q f) ->
+    prog_impl_implication p2 Q f.
+  Proof.
+    intros. eapply pftree_partial_pftree; [eassumption|]. simpl.
+    intros y l Hy. apply Exists_exists in Hy. fwd.
+    eapply H0 in Hyp0; eauto. rewrite Exists_exists. destruct Hyp0 as [H'|H']; eauto.
+  Qed.
+  
+  Lemma partial_pftree_weaken_hyp {U : Type} P (x : U) Q1 Q2 :
+    partial_pftree P Q1 x ->
+    (forall y, Q1 y -> Q2 y) ->
+    partial_pftree P Q2 x.
+  Proof. intros H1 H2. induction H1; eauto. Qed.
+  
+  Lemma prog_impl_implication_weaken_hyp p x Q1 Q2 :
+    prog_impl_implication p Q1 x ->
+    (forall y, Q1 y -> Q2 y) ->
+    prog_impl_implication p Q2 x.
+  Proof. cbv [prog_impl_implication]. eauto using partial_pftree_weaken_hyp. Qed.    
   
   Lemma pftree_lfp {U : Type} (P : U -> list U -> Prop) :
     equiv (pftree P) (lfp (fun Q x => Q x \/ exists l, P x l /\ Forall Q l)).
