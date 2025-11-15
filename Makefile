@@ -7,6 +7,7 @@ COQC ?= "$(COQBIN)coqc"
 all: Makefile.coq
 	$(MAKE) -C coqutil
 	$(MAKE) -C verified-scheduling/src low
+	$(MAKE) -C verified-scheduling/src examples
 	$(MAKE) -f Makefile.coq
 
 COQ_MAKEFILE := $(COQBIN)coq_makefile -docroot datalog $(COQMF_ARGS)
