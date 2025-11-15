@@ -213,9 +213,6 @@ Section Transform.
       rule_concls := [];
       rule_set_hyps := [] |}.
 
-  (*due apparently to dumb luck (??), this transformation is correct even when the variable
-    "i" is used in other places.  so yet again I avoid having to reason about naming clashes.
-    is this just luck?  is there some principle here? *)
   Definition request_agg_hyps (r : rule) : rule' :=
     match r.(rule_agg) with
     | Some (res, aexpr) =>
