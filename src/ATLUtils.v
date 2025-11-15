@@ -392,3 +392,233 @@ Fixpoint referenced_vars e :=
                       referenced_vars e1 \cup referenced_vars e2
   | Scalar s => vars_of_Sexpr s
   end.
+
+Lemma gen_pad_bounds idxs dims val :
+  result_lookup_Z' idxs (gen_pad dims) val ->
+  length dims = length idxs.
+Proof.
+  revert dims. induction idxs.
+  - simpl. intros dims H. invert H. destruct dims; [reflexivity|].
+    simpl in H0. discriminate H0.
+  - intros dims H. invert H. destruct dims; [discriminate H2|].
+    simpl in H2. invert H2. simpl. f_equal. apply IHidxs.
+    apply nth_error_repeat' in H4. subst. assumption.
+Qed.
+
+Inductive result_has_dim : nat -> result -> Prop :=
+| ScalarDim s : result_has_dim O (Result.S s)
+| VectorConsDim n xs : Forall (result_has_dim n) xs ->
+                       result_has_dim (S n) (V xs).
+
+Lemma dim_sum a b c n :
+  add_result a b c ->
+  result_has_dim n a ->
+  result_has_dim n c.
+Proof.
+  revert a b c. induction n; intros a b c Hadd Ha; invert Hadd; invert Ha.
+  - constructor.
+  - constructor. revert v1 v2 H H2. induction r; intros v1 v2 H H2.
+    + constructor.
+    + invert H. invert H2. constructor; eauto.
+Qed.
+
+Lemma dim_gen_pad l :
+  result_has_dim (length l) (gen_pad l).
+Proof.
+  induction l; simpl; constructor. apply Forall_repeat. assumption.
+Qed.
+
+Lemma dim_gen_pad' l n :
+  length l = n ->
+  result_has_dim n (gen_pad l).
+Proof. intros. subst. apply dim_gen_pad. Qed.
+
+Lemma dim_gen_pad_list sh :
+  Forall (result_has_dim (length sh - 1)) (gen_pad_list sh).
+Proof.
+  destruct sh; simpl. 1: constructor. apply Forall_repeat. apply dim_gen_pad'. lia.
+Qed.
+
+Lemma dim_gen_pad_list' sh n :
+  length sh - 1 = n ->
+  Forall (result_has_dim n) (gen_pad_list sh).
+Proof. intros. subst. apply dim_gen_pad_list. Qed.
+
+Lemma dim_pad_list_result_to_shape l sh :
+  Forall (result_has_dim (length sh - 1)) l ->
+  Forall (result_has_dim (length sh - 1)) (pad_list_result_to_shape l sh).
+Proof.
+  intros H. cbv [pad_list_result_to_shape]. destruct l; [|assumption].
+  apply dim_gen_pad_list'. reflexivity.
+Qed.
+
+Lemma dim_pad_list_result_to_shape' l sh n :
+  length sh - 1 = n ->
+  Forall (result_has_dim n) l ->
+  Forall (result_has_dim n) (pad_list_result_to_shape l sh).
+Proof. intros. subst. apply dim_pad_list_result_to_shape. assumption. Qed.
+
+Lemma dim_goes_down n v x r :
+  nth_error v x = Some r ->
+  result_has_dim (S n) (V v) ->
+  result_has_dim n r.
+Proof.
+  intros H1 H2. invert H2. apply nth_error_In in H1.
+  rewrite Forall_forall in H3. auto.
+Qed.
+
+Lemma dim_transpose_result_list l n m :
+  Forall (result_has_dim (S n)) l ->
+  Forall (result_has_dim (S n)) (transpose_result_list l m).
+Proof.
+  intros H. induction m.
+  - simpl. constructor.
+  - simpl. constructor. 2: assumption. constructor.
+    remember (row_length l - S m) as x. clear Heqx. clear IHm. revert x.
+    induction l; intros x; simpl.
+    + constructor.
+    + destruct a. 1: constructor. destruct (nth_error v x) eqn:E. 2: constructor.
+      invert H. constructor. 2: auto. eapply dim_goes_down; eauto.
+Qed.
+
+Lemma dim_transpose_result n l sh :
+  length sh = S (S n) ->
+  result_has_dim (S (S n)) (V l) ->
+  result_has_dim (S (S n)) (transpose_result l sh).
+Proof.
+  intros ? H. subst. cbv [transpose_result]. invert H. constructor.
+  apply dim_pad_list_result_to_shape'. 1: lia. apply dim_transpose_result_list.
+  assumption.
+Qed.
+
+Lemma dim_flatten_result n l :
+  result_has_dim (S (S n)) (V l) ->
+  Forall (result_has_dim n) (flatten_result l).
+Proof.
+  intros H. invert H. induction l; simpl.
+  - constructor.
+  - invert H2. invert H1. apply Forall_app. auto.
+Qed.
+
+Lemma dim_result_shape_nat n r :
+  result_has_dim n r ->
+  length (result_shape_nat r) = n.
+Proof.
+  revert r. induction n; intros r H; invert H.
+  - reflexivity.
+  - simpl. destruct xs. Abort.
+
+Lemma dim_gen_pad_result_shape_nat n r :
+  result_has_dim n r ->
+  result_has_dim n (gen_pad (result_shape_nat r)).
+Proof.
+  revert r. induction n; intros r H; invert H.
+  - simpl. constructor.
+  - simpl. destruct xs.
+    + constructor. simpl. constructor.
+    + simpl. constructor. invert H1. constructor. 1: auto.
+      apply Forall_repeat. auto.
+Qed.
+
+Lemma dim_split_result n k l :
+  Forall (result_has_dim n) l ->
+  Forall (result_has_dim (S n)) (split_result k l).
+Proof.
+  intros H. cbv [split_result]. apply Forall_map. apply Forall_forall. intros x Hx.
+  apply In_nat_range in Hx. constructor. destruct l.
+  { destruct k.
+    - simpl in Hx. vm_compute in Hx. lia.
+    - simpl in Hx. rewrite div_ceil_n_0 in Hx by lia. lia. }
+  cbn -[gen_pad_list List.app]. apply forall_firstn. apply forall_skipn.
+  apply Forall_app. split; [assumption|]. simpl.
+  apply Forall_repeat. apply dim_gen_pad_result_shape_nat. invert H. assumption.
+Qed.
+
+Lemma dimensions_right sh v ctx e r l :
+  eval_expr sh v ctx e r ->
+  size_of e l ->
+  result_has_dim (length l) r.
+Proof.
+  intros H. revert l. induction H; intros lsz Hsz; invert Hsz.
+  - constructor. constructor.
+  - simpl in *. constructor.
+    specialize (IHeval_expr2 _ ltac:(constructor; eauto)).
+    simpl in IHeval_expr2. invert IHeval_expr2. constructor; eauto.
+  - simpl in *. eapply dim_sum; eauto.
+  - apply size_of_sizeof in H2, H8. subst.
+    apply dim_gen_pad'. reflexivity.
+  - simpl. apply size_of_sizeof in H0, H4. subst.
+    apply dim_gen_pad'. reflexivity.
+  - eauto.
+  - eauto.
+  - eauto.
+  - simpl. constructor. apply Forall_app; auto.
+    specialize (IHeval_expr1 _ ltac:(eassumption)).
+    specialize (IHeval_expr2 _ ltac:(eassumption)).
+    simpl in *. invert IHeval_expr1. invert IHeval_expr2. auto.
+  - simpl. specialize (IHeval_expr _ ltac:(eassumption)).
+    apply size_of_sizeof in H0, H2. rewrite H0 in H2. invert H2.
+    apply dim_transpose_result.
+    + reflexivity.
+    + assumption.
+  - simpl in *. constructor. specialize (IHeval_expr _ ltac:(eassumption)).
+    simpl in IHeval_expr. apply dim_flatten_result. assumption.
+  - simpl in *. constructor. specialize (IHeval_expr _ ltac:(eassumption)).
+    simpl in *. invert IHeval_expr. apply dim_split_result. assumption.
+  - simpl in *. constructor. specialize (IHeval_expr _ ltac:(eassumption)).
+    simpl in *. apply Forall_rev. invert IHeval_expr. rewrite truncl_list_skipn.
+    apply forall_skipn. apply Forall_rev. assumption.
+  - simpl in *. constructor. specialize (IHeval_expr _ ltac:(eassumption)).
+    simpl in *. invert IHeval_expr. rewrite truncl_list_skipn. apply forall_skipn.
+    assumption.
+  - simpl in *. constructor. specialize (IHeval_expr _ ltac:(eassumption)).
+    simpl in *. invert IHeval_expr. apply Forall_app. split; [assumption|].
+    apply Forall_repeat. apply dim_gen_pad'. apply size_of_sizeof in H1, H7.
+    rewrite H1 in H7. invert H7. reflexivity.
+  - simpl in *. constructor. specialize (IHeval_expr _ ltac:(eassumption)).
+    simpl in *. invert IHeval_expr. apply Forall_app. split; [|assumption].
+    apply Forall_repeat. apply dim_gen_pad'. apply size_of_sizeof in H1, H7.
+    rewrite H1 in H7. invert H7. reflexivity.
+  - simpl. constructor.
+Qed.
+
+Lemma dim_idxs n r val idxs :
+  result_has_dim n r ->
+  result_lookup_Z' idxs r val ->
+  length idxs = n.
+Proof.
+  revert r val idxs. induction n; intros r val idxs H1 H2; invert H1; invert H2.
+  - reflexivity.
+  - simpl. f_equal. eapply IHn; eauto. apply nth_error_In in H3.
+    rewrite Forall_forall in H0. auto.
+Qed.
+
+Lemma length_zrange min max :
+  length (zrange min max) = Z.to_nat (max - min).
+Proof.
+  cbv [zrange]. rewrite length_zrange'. reflexivity.
+Qed.
+
+Search zrange'.
+
+Lemma zrange'_seq x n start :
+  zrange' x n = map (fun y => x + Z.of_nat y - Z.of_nat start)%Z (seq start n).
+Proof.
+  revert x start. induction n; simpl; auto. intros. f_equal; [lia|]. erewrite IHn.
+  apply map_ext. lia.
+Qed.
+
+Lemma zrange_seq min max :
+  zrange min max = map (fun y => min + Z.of_nat y)%Z (seq O (Z.to_nat (max - min))).
+Proof.
+  cbv [zrange]. erewrite zrange'_seq. apply map_ext. lia.
+Qed.
+
+Check nth_error_seq_Some.
+Lemma nth_error_zrange_Some min max n x :
+  nth_error (zrange min max) n = Some x ->
+  x = (min + Z.of_nat n)%Z.
+Proof.
+  rewrite zrange_seq, nth_error_map. intros H. invert_list_stuff.
+  apply nth_error_seq_Some in Hp0. subst. lia.
+Qed.
