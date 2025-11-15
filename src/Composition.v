@@ -13,7 +13,7 @@ From Stdlib Require Import Permutation.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import ATLDeep.
 
-From Datalog Require Import QueryableToRunnable RevRel Datalog Map Tactics Fp List Dag Interpreter.
+From Datalog Require Import QueryableToRunnable Datalog Map Tactics Fp List Dag Interpreter ZeroLowerBounds ATLUtils.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
@@ -38,8 +38,17 @@ Section __.
   Implicit Type ctx : context.
   Implicit Type aexpr : agg_expr.
 
-  Definition composed_lower e out :=
-    make_good (lower e out).
+  Definition composed_lower e out := make_good (lower e out).
+
+  Check lower_correct.
+  Lemma lower_complete e out :
+    eval_expr $0 $0 $0 e r ->
+    size_of e l ->
+    gen_lbs_zero e ->
+    forall idxs val,
+      result_lookup_Z' idxs r val ->
+      prog_impl_
+    
   (*TODO correcness proof*)
 
 End __.
