@@ -75,4 +75,14 @@ Section __.
         -- eassumption.
       + simpl. intros (?&?) H'. discriminate H'.
   Qed.
+
+  Lemma composed_lower_dag e out :
+    vars_good [] e ->
+    ~ out \in vars_of e \cup referenced_vars e ->
+    dag (rel_graph (composed_lower e out)).
+  Proof.
+    intros. apply make_good_dag.
+    - apply lower_goodish. assumption.
+    - apply lower_dag; auto.
+  Qed.
 End __.
