@@ -1,6 +1,5 @@
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Arith.EqNat.
-From Stdlib Require Import Arith.PeanoNat. Import Nat.
 From Stdlib Require Import Bool.Bool.
 From Stdlib Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
 From Stdlib Require Import ZArith.Zdiv.
@@ -827,33 +826,6 @@ Proof.
   all: apply incl_app_app; auto using lower_idx_keeps_vars.
 Qed.
 
-(* Lemma ctxs_agree ctx1 ctx2 idxs idxs' : *)
-(*   idxs_good idxs -> *)
-(*   Forall2 (interp_expr ctx1) (map lower_idx_with_offset idxs) idxs' -> *)
-(*   Forall2 (interp_expr ctx2) (map lower_idx_with_offset idxs) idxs' -> *)
-(*   Forall (agree_on ctx1 ctx2) (map (fun idx => (inl (fst idx))) idxs). *)
-(* Proof. *)
-(*   intros Hgood. revert idxs'. induction Hgood. 1: constructor. *)
-(*   intros idxs' H1 H2. rewrite map_app in H1, H2. apply Forall2_app_inv_l in H1, H2. *)
-(*   fwd. simpl in *. repeat (invert_stuff; simpl in * ). *)
-(*   apply invert_app in H1p2. *)
-(*   2: { eassert (forall x y, x = y -> length x = length y) as blah by (intros; subst; reflexivity). *)
-(*        apply blah in H1p2. do 2 rewrite length_app in H1p2. simpl in H1p2. lia. } *)
-(*   fwd. specialize (IHHgood _ ltac:(eassumption) ltac:(eassumption)). *)
-(*   rewrite <- map_map in IHHgood. rewrite Forall_map in IHHgood. *)
-(*   pose proof IHHgood as IHHgood'. *)
-(*   eapply incl_Forall in IHHgood; eauto. *)
-(*   rewrite <- Forall_map in IHHgood. *)
-(*   eapply incl_Forall in IHHgood; [|apply lower_idx_keeps_vars]. *)
-(*   epose proof interp_expr_agree_on as H'. *)
-(*   specialize (H' _ _ _ _ ltac:(eassumption) ltac:(eassumption)). *)
-(*   epose proof interp_expr_det as H''. *)
-(*   specialize (H'' _ _ _ _ H' H3). invert H''. *)
-(*   rewrite Forall_map in IHHgood'. rewrite Forall_map. apply Forall_app. split; auto. *)
-(*   constructor; [|constructor]. simpl. cbv [agree_on]. rewrite H1, H5. f_equal. f_equal. *)
-(*   lia. *)
-(* Qed. *)
-
 Definition out_smaller out name :=
   match out with
   | str_rel _ => True
@@ -1216,18 +1188,6 @@ Proof.
   rewrite in_map_iff in H'p1p1p1. fwd. rewrite Forall_forall in H'p1p0. apply H'p1p0.
   assumption.
 Qed.
-
-(* Lemma good_rule_hyps_not_appears r name name' P R : *)
-(*   ~good_rel name name' P true R -> *)
-(*   good_rule_hyps name name' P r -> *)
-(*    R r. *)
-(* Proof. *)
-(*   cbv [good_rule_hyps not_appears_in_a_hyp]. intros H1 H2. rewrite Forall_app in H2. *)
-(*   fwd. rewrite Forall_forall in *. split. *)
-(*   - intros H. apply in_map_iff in H. fwd. apply H2p1 in Hp1. auto. *)
-(*   - cbv [rule_agg_hyps] in H2p0. destruct r.(rule_agg) as [(?&?)|]; auto. *)
-(*     intros H. apply in_map_iff in H. fwd. apply H2p0 in Hp1. auto. *)
-(* Qed. *)
 
 Lemma lower_dag_rec e out name idxs depths name' rules idxs0 :
   vars_good idxs0 e -> (*this is unnecessarily stong*)
@@ -1915,7 +1875,7 @@ Proof.
     fwd. rewrite app_nil_r in H2p1.
     eexists. exists (map.put map.empty (inr name) (Robj (toR r))). split.
     { lia. } split.
-    { apply domain_in_ints_cons. 2: cbv [succ]; lia. apply domain_in_ints_empty. }
+    { apply domain_in_ints_cons. 2: lia. apply domain_in_ints_empty. }
     split.
     { interp_exprs. }
     split.
@@ -1927,7 +1887,7 @@ Proof.
     specialize (H2 _ _ _ _ ltac:(eassumption) ltac:(eassumption)). fwd.
     eexists. exists (map.put map.empty (inr name) (Robj (toR r))). split.
     { lia. } split.
-    { apply domain_in_ints_cons. 2: cbv [succ]; lia. apply domain_in_ints_empty. }
+    { apply domain_in_ints_cons. 2: lia. apply domain_in_ints_empty. }
     split.
     { interp_exprs. }
     split.
@@ -2068,7 +2028,7 @@ Lemma div_le_div_ceil a b :
 Proof.
   cbv [div_ceil_n]. destruct b.
   { simpl. lia. }
-  apply Div0.div_le_mono. lia.
+  apply Nat.Div0.div_le_mono. lia.
 Qed.
 
 Lemma nth_error_split_result' l k x :
@@ -2106,13 +2066,13 @@ Proof.
     assert (H''': length l mod k = 0 \/ length l mod k <> 0) by lia.
     destruct H''' as [H'''|H'''].
     { rewrite H'''. exfalso. apply H' in H'''. rewrite H''' in E.
-      apply Div0.div_le_mono with (c := k) in H. lia. }
+      apply Nat.Div0.div_le_mono with (c := k) in H. lia. }
     pose proof (div_le_div_ceil (length l) k).
     assert (H2: length l //n k = length l / k + 1) by lia.
     rewrite H2 in E. clear -E H H''' H1.
-    apply Div0.div_le_mono with (c := k) in H.
+    apply Nat.Div0.div_le_mono with (c := k) in H.
     assert (x / k = length l / k) by lia.
-    rewrite mod_small by lia.
+    rewrite Nat.mod_small by lia.
     eassert (x - length l = _) as ->. { rewrite (Nat.div_mod_eq (length l) k). reflexivity. }
     assert (length l mod k < k).
     { apply Nat.mod_upper_bound. lia. }
@@ -2167,7 +2127,7 @@ Proof.
   - destruct k; simpl; auto.
 Qed.
 
-Lemma lower_correct_rec e idx_ctx idx_ctx' depths out sh v ctx r datalog_ctx l :
+Lemma lower_rec_complete e idx_ctx idx_ctx' depths out sh v ctx r datalog_ctx l :
   eval_expr sh (fmap_of v) ctx e r ->
   size_of e l ->
   gen_lbs_zero e ->
@@ -2461,7 +2421,7 @@ Proof.
       rewrite Z2Nat.inj_mul in H''' by lia.
       rewrite Z2Nat.inj_div in H''' by lia.
       replace (Z.to_nat (Z.of_nat m)) with m in H''' by lia.
-      rewrite <- mul_lt_mono_pos_r in H''' by lia.
+      rewrite <- Nat.mul_lt_mono_pos_r in H''' by lia.
       rewrite Z2Nat.inj_lt by lia. rewrite Z2Nat.inj_div by lia.
       do 2 rewrite Nat2Z.id. assumption. }
     { apply mod_nonneg. lia. }
@@ -2516,13 +2476,13 @@ Proof.
     assert (Hx0: Z.to_nat x0 < k').
     { apply nth_error_Some in H17. apply nth_error_In in H6.
       rewrite Forall_forall in H10. apply H10 in H6. invert H6. lia. }
-    rewrite div_add_l in H' by lia.
-    rewrite div_small in H' by lia.
+    rewrite Nat.div_add_l in H' by lia.
+    rewrite Nat.div_small in H' by lia.
     replace (Z.to_nat x + 0) with (Z.to_nat x) in H' by lia.
-    rewrite H6 in H'. rewrite Div0.add_mod in H' by lia.
-    rewrite Div0.mod_mul in H' by lia. simpl in H'.
-    rewrite Div0.mod_mod in H' by lia.
-    rewrite mod_small in H' by lia.
+    rewrite H6 in H'. rewrite Nat.Div0.add_mod in H' by lia.
+    rewrite Nat.Div0.mod_mul in H' by lia. simpl in H'.
+    rewrite Nat.Div0.mod_mod in H' by lia.
+    rewrite Nat.mod_small in H' by lia.
     destruct H' as [(H'&H'')|(H'&H''&H''')].
     + econstructor.
       { apply Exists_app. left. apply Exists_app. right. apply Exists_cons_hd. simpl.
@@ -2797,7 +2757,7 @@ Proof.
     Unshelve. (*why*) all: exact map.empty.
 Qed.
 
-Lemma lower_correct out e r l :
+Lemma lower_complete out e r l :
   eval_expr $0 $0 $0 e r ->
   size_of e l ->
   gen_lbs_zero e ->
@@ -2805,10 +2765,28 @@ Lemma lower_correct out e r l :
     result_lookup_Z' idxs r val ->
     prog_impl_fact (lower e out) (str_rel out, Robj (toR val) :: map Zobj idxs).
 Proof.
-  intros. pose proof lower_correct_rec as H'.
+  intros. pose proof lower_rec_complete as H'.
   specialize H' with (idx_ctx' := nil) (datalog_ctx := nil) (v := map.empty).
   simpl in H'. eapply H'; eauto.
   - rewrite fmap_of_empty. eassumption.
   - clear. intros * H. rewrite lookup_empty in H. discriminate H.
-Qed.   
+Qed.
+
+Lemma lower_correct out e r l :
+  eval_expr $0 $0 $0 e r ->
+  size_of e l ->
+  vars_good [] e ->
+  gen_lbs_zero e ->
+  ~ out \in vars_of e \cup referenced_vars e ->
+  forall idxs val,
+    result_lookup_Z' idxs r val ->
+    (forall val',
+         val' = Robj (toR val) <->
+          prog_impl_fact (lower e out) (str_rel out, val' :: map Zobj idxs)).
+Proof.
+  intros H1 H2 H3 H5 H6 idxs val H4 val'.
+  split; intros H; subst; eauto using lower_complete.
+  eapply lower_complete in H4; eauto. eapply lower_functional in H; auto.
+  specialize (H H4). simpl in H. specialize (H eq_refl). invert H. reflexivity.
+Qed.
 End __.

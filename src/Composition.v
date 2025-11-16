@@ -42,26 +42,37 @@ Section __.
 
   (*this theorem only says things about closed terms, which doesn't seem very useful*)
   (*it's modeled after the top-level ATL -> C theorem, which apparently has the same restriction?*)
-  Lemma composed_lower_complete e out res sz :
+  Lemma composed_lower_correct e out res sz :
     eval_expr $0 $0 $0 e res ->
     size_of e sz ->
     vars_good [] e ->
     gen_lbs_zero e ->
+    ~ out \in vars_of e \cup referenced_vars e ->
     forall idxs val,
       result_lookup_Z' idxs res val ->
-      prog_impl_implication (composed_lower e out)
-        (fun x => x = ((str_rel out, false), map Zobj idxs))
-        ((str_rel out, true), Robj (toR val) :: map Zobj idxs).
+      (forall val',
+          val' = Robj (toR val) <->
+            prog_impl_implication (composed_lower e out)
+              (fun x => x = ((str_rel out, false), map Zobj idxs))
+              ((str_rel out, true), val' :: map Zobj idxs)).
   Proof.
     intros. pose proof lower_correct as H'.
-    specialize (H' out _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ _ ltac:(eassumption)).
-    eapply prog_impl_implication_weaken_hyp.
-    - apply source_impl_target.
-      + apply good_index_lower.
-      + apply lower_goodish. auto.
-      + eapply prog_impl_fact_prog_impl_implication with (Q := fun _ => False); [eassumption|].
-        auto.
-    - simpl. intros. destruct y as [[? ?] ?]. destruct b; [contradiction|].
-      invert H4. reflexivity.
+    specialize (H' out _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ _ ltac:(eassumption)).
+    rewrite H'. clear H'. split; intros.
+    - eapply prog_impl_implication_weaken_hyp.
+      + apply source_impl_target.
+        -- apply good_index_lower.
+        -- apply lower_goodish. auto.
+        -- eapply prog_impl_fact_prog_impl_implication with (Q := fun _ => False); [eassumption|].
+           auto.
+      + simpl. intros. destruct y as [[? ?] ?]. destruct b; [contradiction|].
+        invert H6. reflexivity.
+    - apply prog_impl_implication_prog_impl_fact.
+      eapply prog_impl_implication_weaken_hyp.
+      + apply target_impl_source.
+        -- apply good_index_lower.
+        -- apply lower_goodish. auto.
+        -- eassumption.
+      + simpl. intros (?&?) H'. discriminate H'.
   Qed.
 End __.

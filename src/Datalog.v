@@ -138,6 +138,7 @@ Section __.
     Forall (pftree P) l ->
     pftree P x.
   Set Elimination Schemes.
+  Hint Constructors pftree : core.
   
   (*semantics of programs*)
   Definition prog_impl_fact (p : list rule) : rel * list T -> Prop :=
@@ -206,6 +207,11 @@ Section __.
     intros H1 H2. induction H1; eauto. apply H2 in H. destruct H; eauto.
   Qed.
 
+  Lemma partial_pftree_pftree {U : Type} P (x : U) :
+    partial_pftree P (fun y => False) x ->
+    pftree P x.
+  Proof. induction 1; eauto. contradiction. Qed.
+
   Lemma partial_pftree_trans {U : Type} P (x : U) Q :
     partial_pftree P (partial_pftree P Q) x ->
     partial_pftree P Q x.
@@ -224,6 +230,14 @@ Section __.
     intros. eapply pftree_partial_pftree; [eassumption|]. simpl.
     intros y l Hy. apply Exists_exists in Hy. fwd.
     eapply H0 in Hyp0; eauto. rewrite Exists_exists. destruct Hyp0 as [H'|H']; eauto.
+  Qed.
+
+  Lemma prog_impl_implication_prog_impl_fact p f :
+    prog_impl_implication p (fun _ => False) f ->
+    prog_impl_fact p f.
+  Proof.
+    cbv [prog_impl_implication prog_impl_fact].
+    eauto using partial_pftree_pftree.
   Qed.
   
   Lemma partial_pftree_weaken_hyp {U : Type} P (x : U) Q1 Q2 :
