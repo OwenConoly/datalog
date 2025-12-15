@@ -69,10 +69,10 @@ Section __.
   | meta_fact (mf_rel : rel) (mf_set : list T -> Prop).
   
   (*semantics of clauses*)
-  Inductive interp_clause (ctx: context) : clause -> fact -> Prop :=
+  Inductive interp_clause (ctx: context) : clause -> rel * list T  -> Prop :=
   | mk_interp_clause f args' :
     Forall2 (interp_expr ctx) f.(fact_args) args' ->
-    interp_clause ctx f (normal_fact f.(fact_R) args').
+    interp_clause ctx f (f.(fact_R), args').
 
   (* target_rel, source_rel should both be unary, rule says that target_rule(x)
      holds if x = agg source_rel
@@ -84,10 +84,11 @@ Section __.
       (source_rels : list rel).
 
   Inductive rule_impl : rule -> fact -> list fact -> Prop :=
-  | normal_rule_impl rule_concls rule_hyps ctx f' hyps' :
-    Exists (fun c => interp_clause ctx c f') rule_concls ->
+  | normal_rule_impl rule_concls rule_hyps ctx R args hyps' :
+    Exists (fun c => interp_clause ctx c (R, args)) rule_concls ->
     Forall2 (interp_clause ctx) rule_hyps hyps' ->
-    rule_impl (normal_rule rule_concls rule_hyps) f' hyps'
+    rule_impl (normal_rule rule_concls rule_hyps) (normal_fact R args)
+      (map (fun '(R, args) => normal_fact R args) hyps')
   | agg_rule_impl rule_agg target_rel source_rel S vals :
     (forall x, S x -> exists y, x = [y] /\ In y vals) ->
     rule_impl
