@@ -23,8 +23,6 @@ Class signature {fn aggregator T : Type} : Type :=
   {
     (*returning None means inputs not in domain (e.g., number of args was wrong)*)
     interp_fun : fn -> list T -> option T;
-    (*if x represents a finite set, then get_set x = Some ([x1; ...; xn]), where x1, ..., xn are the elements of the set*)
-    get_set : T -> option (list T);
     (*agg_id sum = O, agg_id prod = 1, agg_id min = inf, etc*)
     agg_id : aggregator -> T;
     (*interp_agg takes an aggregator and returns the corresponding binop...
@@ -33,13 +31,9 @@ Class signature {fn aggregator T : Type} : Type :=
     interp_agg : aggregator -> T -> T -> T; }.
 Arguments signature : clear implicits.
 
-Class query_signature {rel : Type} :=
-  { outs : rel -> nat }.
-Arguments query_signature : clear implicits.
-
 Section __.
   Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
+  Context `{sig : signature fn aggregator T}.
   Context {context : map.map var T} {context_ok : map.ok context}.
   Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
 
@@ -50,9 +44,13 @@ Section __.
   | fun_expr (f : fn) (args : list expr).
   Set Elimination Schemes.
 
-  Record fact :=
+  Record clause :=
     { fact_R : rel;
       fact_args : list expr }.
+
+  Record meta_clause :=
+    { mc_rel : rel;
+      mc_set : var }.
 
   Unset Elimination Schemes.
   (*semantics of expressions*)
@@ -66,70 +64,41 @@ Section __.
     interp_expr ctx (fun_expr f args) x.
   Set Elimination Schemes.
 
-  (*semantics of facts*)
-  Inductive interp_fact (ctx: context) : fact -> rel * list T -> Prop :=
-  | mk_interp_fact f args' :
-    Forall2 (interp_expr ctx) f.(fact_args) args' ->
-    interp_fact ctx f (f.(fact_R), args').
-
-  Record agg_expr :=
-    { agg_agg : aggregator; agg_i : var; agg_vs : list var; agg_s: expr; agg_body: expr; agg_hyps: list fact }.
-
-  Inductive interp_agg_expr (ctx : context) : agg_expr -> T -> list (list (rel * list T)) -> Prop :=
-  | mk_interp_agg_expr (a : aggregator) i vs s s' i's body's body hyps hyps's (result : T) :
-    interp_expr ctx s s' ->
-    get_set s' = Some i's ->
-    Forall3 (fun i' body' hyps' =>
-               exists vs' ctx',
-                 map.of_list_zip vs vs' = Some ctx' /\
-                   let ctx'' := map.putmany ctx (map.put ctx' i i') in
-                   Forall2 (interp_fact ctx'') hyps hyps' /\
-                     interp_expr ctx'' body body')
-      i's body's hyps's ->
-    result = fold_right (fun (x y : T) => interp_agg a x y) (agg_id a) body's ->
-    interp_agg_expr _ {| agg_agg := a; agg_i := i; agg_vs := vs; agg_s := s; agg_body := body; agg_hyps := hyps |} result hyps's.
-
-  Record rule := { rule_agg : option (var * agg_expr); rule_concls : list fact; rule_hyps : list fact; rule_set_hyps : list (expr * expr) }.
-
-  Inductive interp_option_agg_expr : _ -> _ -> _ -> _ -> Prop :=
-  | ioae_None ctx :
-    interp_option_agg_expr ctx None ctx []
-  | ioae_Some ctx ctx' res res' aexpr agg_hyps's :
-    ctx' = map.put ctx res res' ->
-    interp_agg_expr ctx aexpr res' agg_hyps's ->
-    interp_option_agg_expr ctx (Some (res, aexpr)) ctx' agg_hyps's.
-
-  Definition x_in_S ctx (x_S : expr * expr) :=
-    let (x, s) := x_S in
-    exists x' s' l,
-      interp_expr ctx x x' /\
-        interp_expr ctx s s' /\
-        get_set s' = Some l /\
-        In x' l.
+  Inductive fact :=
+  | normal_fact (nf_rel : rel) (nf_args : list T)
+  | meta_fact (mf_rel : rel) (mf_set : list T -> Prop).
   
-  (*semantics of rules*)
-  Inductive rule_impl' : context -> rule -> rel * list T -> list (rel * list T) -> list (list (rel * list T)) -> Prop :=
-  | mk_rule_impl' r agg_hyps's ctx' f' hyps' ctx :
-    interp_option_agg_expr ctx r.(rule_agg) ctx' agg_hyps's ->
-    Exists (fun c => interp_fact ctx' c f') r.(rule_concls) ->
-    Forall2 (interp_fact ctx) r.(rule_hyps) hyps' ->
-    Forall (x_in_S ctx) r.(rule_set_hyps) ->
-    rule_impl' ctx r f' hyps' agg_hyps's.
+  (*semantics of clauses*)
+  Inductive interp_clause (ctx: context) : clause -> fact -> Prop :=
+  | mk_interp_clause f args' :
+    Forall2 (interp_expr ctx) f.(fact_args) args' ->
+    interp_clause ctx f (normal_fact f.(fact_R) args').
 
-  Hint Constructors rule_impl' interp_option_agg_expr : core.
+  (* target_rel, source_rel should both be unary, rule says that target_rule(x)
+     holds if x = agg source_rel
+   *)
+  Inductive rule :=
+  | normal_rule (rule_concls : list clause) (rule_hyps : list clause)
+  | agg_rule (rule_agg : aggregator) (target_rel : rel) (source_rel : rel)
+  | meta_rule (target_rel: rel) (target_set : list (list T -> Prop) -> (list T -> Prop))
+      (source_rels : list rel).
 
-  Definition rule_impl r f hyps'_agg_hyps's :=
-    exists ctx hyps' agg_hyps's,
-      hyps'_agg_hyps's = hyps' ++ concat agg_hyps's /\ rule_impl' ctx r f hyps' agg_hyps's.
-
-  Lemma normal_rule_impl hyps concls f' hyps' ctx :
-    Exists (fun c => interp_fact ctx c f') concls ->
-    Forall2 (interp_fact ctx) hyps hyps' ->
-    rule_impl {| rule_agg := None; rule_hyps := hyps; rule_set_hyps := []; rule_concls := concls|} f' hyps'.
-  Proof.
-    intros. cbv [rule_impl]. exists ctx, hyps', nil. rewrite app_nil_r. intuition.
-    econstructor; simpl; eauto.
-  Qed.
+  Inductive rule_impl : rule -> fact -> list fact -> Prop :=
+  | normal_rule_impl rule_concls rule_hyps ctx f' hyps' :
+    Exists (fun c => interp_clause ctx c f') rule_concls ->
+    Forall2 (interp_clause ctx) rule_hyps hyps' ->
+    rule_impl (normal_rule rule_concls rule_hyps) f' hyps'
+  | agg_rule_impl rule_agg target_rel source_rel S vals :
+    (forall x, S x -> exists y, x = [y] /\ In y vals) ->
+    rule_impl
+      (agg_rule rule_agg target_rel source_rel)
+      (normal_fact target_rel [fold_right (interp_agg rule_agg) (agg_id rule_agg) vals])
+      (meta_fact source_rel S :: map (fun val => normal_fact source_rel [val]) vals)
+  | meta_rule_impl target_rel target_set source_rels source_sets :
+    rule_impl
+      (meta_rule target_rel target_set source_rels) 
+      (meta_fact target_rel (target_set source_sets))
+      (zip meta_fact source_rels source_sets).
 
   Unset Elimination Schemes.
   Inductive pftree {T : Type} (P : T -> list T -> Prop) : T -> Prop :=
@@ -141,7 +110,7 @@ Section __.
   Hint Constructors pftree : core.
   
   (*semantics of programs*)
-  Definition prog_impl_fact (p : list rule) : rel * list T -> Prop :=
+  Definition prog_impl_fact (p : list rule) : fact -> Prop :=
     pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
 
   Unset Elimination Schemes.
@@ -217,7 +186,7 @@ Section __.
     partial_pftree P Q x.
   Proof. induction 1; eauto. Qed.
     
-  Definition prog_impl_implication (p : list rule) : (rel * list T -> Prop) -> rel * list T -> Prop :=
+  Definition prog_impl_implication (p : list rule) : (fact -> Prop) -> fact -> Prop :=
     partial_pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
 
   Lemma prog_impl_fact_prog_impl_implication p1 p2 Q f :
@@ -377,35 +346,6 @@ Section __.
   Proof.
     intros H H0. eapply pftree_weaken; simpl; eauto. simpl.
     intros. apply Exists_exists in H1. apply Exists_exists. fwd. eauto.
-  Qed.
-
-  Lemma interp_expr_subst_more s s' v e :
-    map.extends s' s ->
-    interp_expr s e v ->
-    interp_expr s' e v.
-  Proof.
-    intros Hext H. revert s s' Hext v H. induction e; intros s s' Hext v0 Hv0.
-    - invert Hv0. constructor. auto. (*idk how it knows to unfold map.extends*)
-    - invert Hv0. econstructor; eauto.
-      eapply Forall2_impl_strong; [|eassumption]. intros. rewrite Forall_forall in H.
-      eauto.
-  Qed.
-
-  Lemma x_in_S_subst_more ctx ctx' x_s :
-    x_in_S ctx x_s ->
-    map.extends ctx' ctx ->
-    x_in_S ctx' x_s.
-  Proof.
-    destruct x_s as [x s]. simpl. intros. fwd. eauto 10 using interp_expr_subst_more.
-  Qed.
-  
-  Lemma interp_fact_subst_more s s' f f' :
-    map.extends s' s ->
-    interp_fact s f f' ->
-    interp_fact s' f f'.
-  Proof.
-    intros. invert H0. constructor.
-    eauto using interp_expr_subst_more.
   Qed.
 
   Fixpoint vars_of_expr (e : expr) : list var :=
