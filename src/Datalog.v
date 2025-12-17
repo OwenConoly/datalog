@@ -190,6 +190,12 @@ Section __.
   Definition prog_impl_implication (p : list rule) : (fact -> Prop) -> fact -> Prop :=
     partial_pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
 
+  Lemma prog_impl_step p Q f hyps' :
+    Exists (fun r : rule => rule_impl r f hyps') p ->
+    Forall (prog_impl_implication p Q) hyps' ->
+    prog_impl_implication p Q f.
+  Proof. intros. eapply partial_step; eauto. Qed.
+
   Lemma prog_impl_fact_prog_impl_implication p1 p2 Q f :
     prog_impl_fact p1 f ->
     (forall r f hyps, In r p1 ->
