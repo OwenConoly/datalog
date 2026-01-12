@@ -99,6 +99,7 @@ Section __.
       (normal_fact target_rel [fold_right (interp_agg rule_agg) (agg_id rule_agg) vals])
       (meta_fact source_rel S :: map (fun val => normal_fact source_rel [val]) vals)
   | meta_rule_impl target_rel target_set source_rels source_sets :
+    length source_rels = length source_sets ->
     rule_impl
       (meta_rule target_rel target_set source_rels) 
       (meta_fact target_rel (target_set source_sets))
