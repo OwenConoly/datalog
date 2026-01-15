@@ -109,6 +109,15 @@ Proof.
   apply Forall_combine. assumption.
 Qed.
 
+Lemma Forall2_zip (R : C -> Prop) xs ys f :
+  length xs = length ys ->
+  Forall R (zip f xs ys) ->
+  Forall2 (fun x y => R (f x y)) xs ys.
+Proof.
+  revert ys. induction xs; intros [|y ys] H; try discriminate H; auto.
+  cbv [zip]. simpl. invert 1. auto.
+Qed.
+
 Lemma Forall2_forget_l R xs ys :
   Forall2 R xs ys ->
   Forall (fun y => exists x, In x xs /\ R x y) ys.
