@@ -91,6 +91,11 @@ Implicit Type xs : list A.
 Implicit Type ys : list B.
 Implicit Type zs : list C.
 
+Lemma Forall2_same R xs :
+  Forall (fun x => R x x) xs ->
+  Forall2 R xs xs.
+Proof. induction 1; auto. Qed.
+
 Lemma Forall2_combine R xs ys :
   Forall2 R xs ys ->
   Forall (fun '(x, y) => R x y) (combine xs ys).
