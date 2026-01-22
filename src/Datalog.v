@@ -98,11 +98,12 @@ Section __.
       (agg_rule rule_agg target_rel source_rel)
       (normal_fact target_rel [fold_right (interp_agg rule_agg) (agg_id rule_agg) vals])
       (meta_fact source_rel S :: map (fun val => normal_fact source_rel [val]) vals)
-  | meta_rule_impl target_rel target_set source_rels source_sets :
+  | meta_rule_impl target_rel target_set target_set' source_rels source_sets :
     length source_rels = length source_sets ->
+    (forall x, target_set' x <-> target_set source_sets x) ->
     rule_impl
       (meta_rule target_rel target_set source_rels) 
-      (meta_fact target_rel (target_set source_sets))
+      (meta_fact target_rel target_set')
       (zip meta_fact source_rels source_sets).
 
   Unset Elimination Schemes.
