@@ -106,7 +106,7 @@ Section __.
         interp_expr ctx s s' /\
         get_set s' = Some l /\
         In x' l.
-  
+
   (*semantics of rules*)
   Inductive rule_impl' : context -> rule -> rel * list T -> list (rel * list T) -> list (list (rel * list T)) -> Prop :=
   | mk_rule_impl' r agg_hyps's ctx' f' hyps' ctx :
@@ -139,7 +139,7 @@ Section __.
     pftree P x.
   Set Elimination Schemes.
   Hint Constructors pftree : core.
-  
+
   (*semantics of programs*)
   Definition prog_impl_fact (p : list rule) : rel * list T -> Prop :=
     pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
@@ -154,7 +154,7 @@ Section __.
     Forall (partial_pftree _ _) l ->
     partial_pftree _ _ x.
   Set Elimination Schemes.
-  
+
   Hint Constructors partial_pftree : core.
 
   Lemma pftree_ind {U : Type} (P : U -> list U -> Prop) Q :
@@ -194,7 +194,7 @@ Section __.
         R x) ->
     forall x, partial_pftree P Q x -> R x.
   Proof.
-    intros H1 H2. fix self 2. 
+    intros H1 H2. fix self 2.
     intros x Hx. invert Hx. 1: auto. eapply H2. 1,2: eassumption.
     clear -H0 self. induction H0; eauto.
   Qed.
@@ -216,7 +216,7 @@ Section __.
     partial_pftree P (partial_pftree P Q) x ->
     partial_pftree P Q x.
   Proof. induction 1; eauto. Qed.
-    
+
   Definition prog_impl_implication (p : list rule) : (rel * list T -> Prop) -> rel * list T -> Prop :=
     partial_pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
 
@@ -245,19 +245,19 @@ Section __.
     cbv [prog_impl_implication prog_impl_fact].
     eauto using partial_pftree_pftree.
   Qed.
-  
+
   Lemma partial_pftree_weaken_hyp {U : Type} P (x : U) Q1 Q2 :
     partial_pftree P Q1 x ->
     (forall y, Q1 y -> Q2 y) ->
     partial_pftree P Q2 x.
   Proof. intros H1 H2. induction H1; eauto. Qed.
-  
+
   Lemma prog_impl_implication_weaken_hyp p x Q1 Q2 :
     prog_impl_implication p Q1 x ->
     (forall y, Q1 y -> Q2 y) ->
     prog_impl_implication p Q2 x.
-  Proof. cbv [prog_impl_implication]. eauto using partial_pftree_weaken_hyp. Qed.    
-  
+  Proof. cbv [prog_impl_implication]. eauto using partial_pftree_weaken_hyp. Qed.
+
   Lemma pftree_lfp {U : Type} (P : U -> list U -> Prop) :
     equiv (pftree P) (lfp (fun Q x => Q x \/ exists l, P x l /\ Forall Q l)).
   Proof.
@@ -278,7 +278,7 @@ Section __.
     cbv [F]. intros Hle [P x] H. intuition auto. fwd. right. right. eexists.
     split; [eassumption|]. eapply Forall_impl; eauto. simpl. auto.
   Qed.
-    
+
   Definition S_sane {U : Type} (S : (U -> Prop) * U -> Prop) :=
     (forall P x, P x -> S (P, x)) /\
       (forall P1 x P2,
@@ -297,7 +297,7 @@ Section __.
     - apply (H (fun '(Q, x) => _)). clear. intros [Q x]. intros [Hx| [Hx |Hx] ]; eauto.
       fwd. eapply partial_step; eassumption.
   Qed.
-      
+
   Lemma prog_impl_fact_lfp p :
     equiv (fun '(P, f) => prog_impl_implication p P f) (lfp (F p)).
   Proof.
@@ -320,20 +320,20 @@ Section __.
 
   Hint Extern 2 => eapply Forall_impl; [|eassumption]; cbv beta : core.
   Hint Extern 2 => eapply Forall2_impl; [|eassumption]; cbv beta : core.
-  
+
   Lemma partial_pftree_weaken {U : Type} P Q1 Q2 (x : U) :
     partial_pftree P Q1 x ->
     (forall y, Q1 y -> Q2 y) ->
     partial_pftree P Q2 x.
   Proof. induction 1; eauto. Qed.
-  
+
   Lemma S_sane_lfp p : S_sane (lfp (F p)).
   Proof.
     eapply S_sane_ext; [apply prog_impl_fact_lfp|]. cbv [S_sane]. split; intros; eauto.
     Fail Fail solve [induction H; eauto].
     eapply partial_pftree_trans. eapply partial_pftree_weaken; eauto.
   Qed.
-  
+
   Lemma split_fixpoint (p : list rule) S :
     (forall P x, P x -> S (P, x)) ->
     (forall r, In r p -> fp (F [r]) S) <->
@@ -352,7 +352,7 @@ Section __.
     | var_expr _ => O
     | fun_expr _ args => S (fold_right Nat.max O (map expr_size args))
     end.
-  
+
   (*This is stupid.  how do people normally do it?*)
   Lemma expr_ind P :
     (forall v, P (var_expr v)) ->
@@ -404,7 +404,7 @@ Section __.
   Proof.
     destruct x_s as [x s]. simpl. intros. fwd. eauto 10 using interp_expr_subst_more.
   Qed.
-  
+
   Lemma interp_fact_subst_more s s' f f' :
     map.extends s' s ->
     interp_fact s f f' ->
@@ -447,7 +447,7 @@ Section __.
   Qed.
 
   Hint Resolve interp_expr_agree_on : core.
-  
+
   Lemma interp_fact_agree_on ctx1 ctx2 f f' :
     interp_fact ctx1 f f' ->
     Forall (agree_on ctx1 ctx2) (vars_of_fact f) ->
@@ -515,7 +515,7 @@ Section __.
     intros H1 H2. invert H1. invert H2. f_equal.
     eapply Forall2_unique_r; eauto. apply interp_expr_det.
   Qed.
-      
+
   Lemma interp_fact_det' f ctx1 ctx2 f1 f2 :
     interp_fact ctx1 f f1 ->
     interp_fact ctx2 f f2 ->
@@ -534,7 +534,7 @@ Section __.
     rewrite Forall_forall in H. apply H in Hv. fwd. invert Hvp1. invert Hvp2.
     cbv [agree_on]. rewrite H1, H2. reflexivity.
   Qed.
-  
+
   Lemma interp_agg_expr_det ctx ae res res' agg_hyps :
     good_agg_expr ae ->
     interp_agg_expr ctx ae res agg_hyps ->
@@ -588,14 +588,14 @@ Section __.
 
   Definition in_set_hyps v set_hyps :=
     In v (flat_map vars_of_expr (map fst set_hyps)) \/
-      In v (flat_map vars_of_expr (map snd set_hyps)).      
+      In v (flat_map vars_of_expr (map snd set_hyps)).
 
   Lemma not_in_set_hyps_nil v :
     in_set_hyps v [] -> False.
   Proof.
     cbv [in_set_hyps]. simpl. destruct 1; assumption.
   Qed.
-  
+
   Definition appears_in_rule v r :=
     ~(exists ae, r.(rule_agg) = Some (v, ae)) /\
       In v (flat_map vars_of_fact r.(rule_concls)) \/
@@ -606,7 +606,7 @@ Section __.
   Definition depends_on_in_set_hyps set_hyps y x :=
     exists y', In y (vars_of_expr y') /\
             In (var_expr x, y') set_hyps.
-  
+
   Definition good_rule (r : rule) :=
     (forall v, appears_in_rule v r ->
           In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
@@ -653,7 +653,7 @@ Section __.
               (forall v, In v (flat_map vars_of_expr (flat_map fact_ins aexpr.(agg_hyps))) ->
                     v = aexpr.(agg_i) \/ In (var_expr v) (fact_ins concl) /\ ~In v aexpr.(agg_vs))
         end.
-  
+
   Definition rule_agg_hyps r :=
     match r.(rule_agg) with
     | None => []

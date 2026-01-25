@@ -23,6 +23,9 @@ Local Ltac invert_list_stuff' :=
     | H : [] = _ :: _ |- _ => discriminate H
   end.
 
+Definition is_list_set {X : Type} (S : X -> Prop) (l : list X) :=
+  (forall x, S x <-> In x l) /\ NoDup l.
+
 Import ListNotations.
 Section subset.
 Context {A : Type}.
@@ -415,11 +418,134 @@ Section Forall3.
   Proof. intros H. revert n. induction H; destruct n; simpl; constructor; eauto. Qed.
 End Forall3.
 
+Section Existsn.
+  Context {T : Type} (P : T -> Prop).
+  Implicit Type l : list T.
+
+  Inductive Existsn : nat -> list T -> Prop :=
+  | Existsn_nil : Existsn 0 []
+  | Existsn_no x n l :
+    ~P x ->
+    Existsn n l ->
+    Existsn n (x :: l)
+  | Existsn_yes x n l :
+    P x ->
+    Existsn n l ->
+    Existsn (S n) (x :: l).
+  Hint Constructors Existsn : core.
+
+  Lemma Existsn_S n l :
+    Existsn (S n) l ->
+    exists l1 x l2,
+      l = l1 ++ x :: l2 /\
+        P x /\
+        Existsn n (l1 ++ l2).
+  Proof.
+    induction l; invert 1.
+    - specialize (IHl ltac:(assumption)). fwd. do 3 eexists. split.
+      { apply app_comm_cons. }
+      simpl. auto.
+    - exists nil. simpl. eauto.
+  Qed.
+
+  Lemma Existsn_app n1 n2 l1 l2 :
+    Existsn n1 l1 ->
+    Existsn n2 l2 ->
+    Existsn (n1 + n2) (l1 ++ l2).
+  Proof.
+    intros H1. revert n2 l2.
+    induction H1; intros; simpl; eauto.
+  Qed.
+  
+  Lemma Existsn_split n l1 l2 :
+    Existsn n (l1 ++ l2) ->
+    exists n1 n2,
+      n = n1 + n2 /\
+        Existsn n1 l1 /\
+        Existsn n2 l2.
+  Proof.
+    revert n. induction l1; intros n H.
+    - simpl in H. exists 0, n. auto.
+    - invert H.
+      + specialize (IHl1 _ ltac:(eassumption)). fwd. eauto 6.
+      + specialize (IHl1 _ ltac:(eassumption)). fwd.
+        do 2 eexists. split; [|eauto]. lia.
+  Qed.
+
+  Lemma Existsn_perm n l1 l2 :
+    Existsn n l1 ->
+    Permutation l1 l2 ->
+    Existsn n l2.
+  Proof.
+    intros H Hperm. revert n H. induction Hperm; intros n H.
+    - auto.
+    - invert H; eauto.
+    - do 2 match goal with
+        | H: Existsn _ (_ :: _) |- _ => invert H
+        end; auto.
+    - eauto.
+  Qed.
+
+  Lemma Existsn_0_Forall_not l :
+    Existsn 0 l ->
+    Forall (fun x => ~P x) l.
+  Proof. induction l; invert 1; auto. Qed.
+
+  Lemma Forall_not_Existsn_0 l :
+    Forall (fun x => ~P x) l ->
+    Existsn 0 l.
+  Proof. induction 1; auto. Qed.
+
+  Lemma Existsn_unique n m l :
+    Existsn n l ->
+    Existsn m l ->
+    n = m.
+  Proof.
+    intros H. revert m. induction H; invert 1; auto.
+    all: exfalso; auto.
+  Qed.
+End Existsn.
+Hint Constructors Existsn : core.
+
 Section misc.
 Context {A B C D : Type}.
 Implicit Type xs : list A.
 Implicit Type ys : list B.
 Implicit Type zs : list C.
+
+Lemma list_set_Existsn_1 S xs x :
+  is_list_set S xs ->
+  S x ->
+  Existsn (eq x) 1 xs.
+Proof.
+  intros Hls Hx. destruct Hls as [H1 H2].
+  apply H1 in Hx. apply in_split in Hx. fwd.
+  apply NoDup_remove_2 in H2. rewrite in_app_iff in H2.
+  replace 1 with (0 + 1) by lia. apply Existsn_app.
+  - apply Forall_not_Existsn_0. apply Forall_forall. intros ? ? ?. subst. auto.
+  - apply Existsn_yes; auto.
+    apply Forall_not_Existsn_0. apply Forall_forall. intros ? ? ?. subst. auto.
+Qed.
+
+Lemma Existsn_map P n xs (f : A -> B) :
+  Existsn P n (map f xs) <-> Existsn (fun x => P (f x)) n xs.
+Proof.
+  revert n. induction xs; intros n; simpl; split; invert 1; auto.
+  - apply Existsn_no; auto. apply IHxs. auto.
+  - apply Existsn_yes; auto. apply IHxs. auto.
+  - apply Existsn_no; auto. apply IHxs. auto.
+  - apply Existsn_yes; auto. apply IHxs. auto.
+Qed.
+
+Lemma Existsn_iff P1 P2 n xs :
+  Existsn P1 n xs ->
+  (forall x, P1 x <-> P2 x) ->
+  Existsn P2 n xs.
+Proof.
+  intros H1 H2. induction H1; auto.
+  - apply Existsn_no; auto. rewrite <- H2. auto.
+  - apply Existsn_yes; auto. rewrite <- H2. auto.
+Qed.
 
 Lemma nth_error_repeat' (x : A) y m n :
   nth_error (repeat x m) n = Some y ->
@@ -583,8 +709,6 @@ Lemma map_cons_eq {A B : Type} (f : A -> B) x l l' :
   map f l = l' ->
   map f (x :: l) = f x :: l'.
 Proof. simpl. intros. f_equal. assumption. Qed.
-
-
 
 Ltac invert_list_stuff :=
   repeat match goal with
