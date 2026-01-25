@@ -83,9 +83,6 @@ Section __.
   | meta_rule (target_rel: rel) (target_set : list (list T -> Prop) -> (list T -> Prop))
       (source_rels : list rel).
 
-  Definition is_list_set {X : Type} (S : X -> Prop) (l : list X) :=
-    (forall x, S x <-> In x l) /\ NoDup l.
-
   Inductive rule_impl : rule -> fact -> list fact -> Prop :=
   | normal_rule_impl rule_concls rule_hyps ctx R args hyps' :
     Exists (fun c => interp_clause ctx c (R, args)) rule_concls ->
