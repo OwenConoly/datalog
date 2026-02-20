@@ -376,7 +376,7 @@ Section __.
     | var_expr v => [v]
     end.
 
-  Definition vars_of_fact (c : clause) : list var :=
+  Definition vars_of_clause (c : clause) : list var :=
     flat_map vars_of_expr c.(clause_args).
 
   Lemma interp_expr_agree_on ctx1 ctx2 e v :
@@ -396,12 +396,12 @@ Section __.
 
   Lemma interp_clause_agree_on ctx1 ctx2 f f' :
     interp_clause ctx1 f f' ->
-    Forall (agree_on ctx1 ctx2) (vars_of_fact f) ->
+    Forall (agree_on ctx1 ctx2) (vars_of_clause f) ->
     interp_clause ctx2 f f'.
   Proof.
     cbv [interp_clause].
     intros H1 H2. fwd. split; auto. eapply Forall2_impl_strong; [|eassumption].
-    intros. cbv [vars_of_fact] in H2. rewrite Forall_flat_map, Forall_forall in H2.
+    intros. cbv [vars_of_clause] in H2. rewrite Forall_flat_map, Forall_forall in H2.
     eauto using interp_expr_agree_on.
   Qed.
 
@@ -438,7 +438,7 @@ Section __.
   Lemma interp_clause_det' f ctx1 ctx2 f1 f2 :
     interp_clause ctx1 f f1 ->
     interp_clause ctx2 f f2 ->
-    Forall (agree_on ctx1 ctx2) (vars_of_fact f) ->
+    Forall (agree_on ctx1 ctx2) (vars_of_clause f) ->
     f1 = f2.
   Proof. eauto using interp_clause_det, interp_clause_agree_on. Qed.
 
@@ -465,33 +465,25 @@ Section __.
     cbv [in_set_hyps]. simpl. destruct 1; assumption.
   Qed.
 
-  Definition appears_in_rule v r :=
-    In v (flat_map vars_of_fact r.(rule_concls)) \/
-      In v (flat_map vars_of_fact r.(rule_hyps)) \/
-      in_set_hyps v r.(rule_set_hyps) \/
-      (exists w ae, r.(rule_agg) = Some (w, ae) /\ appears_in_agg_expr v ae).
+  Definition good_rule' concls hyps :=
+    forall v,
+      In v (flat_map vars_of_clause concls) \/ In v (flat_map vars_of_clause hyps) ->
+      In (var_expr v) (flat_map clause_args hyps).
 
-  Definition depends_on_in_set_hyps set_hyps y x :=
-    exists y', In y (vars_of_expr y') /\
-            In (var_expr x, y') set_hyps.
-
-  Definition good_rule (r : rule) :=
-    (forall v, appears_in_rule v r ->
-          In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
-            In (var_expr v) (map fst r.(rule_set_hyps))) /\
-      well_founded (depends_on_in_set_hyps r.(rule_set_hyps)) /\
-      match r.(rule_agg) with
-      | None => True
-      | Some (_, ae) => good_agg_expr ae
-      end.
+  Definition good_rule r :=
+    match r with
+    | normal_rule concls hyps => good_rule' concls hyps
+    | agg_rule _ _ _ => True
+    | meta_rule concl _ hyps => good_rule' [concl] hyps
+    end.
 
   Definition good_prog (p : list rule) := Forall good_rule p.
 
-  Definition fact_outs (f : fact) := firstn (outs f.(fact_R)) f.(fact_args).
-  Definition fact_ins (f : fact) := skipn (outs f.(fact_R)) f.(fact_args).
+  (* Definition fact_outs (f : fact) := firstn (outs f.(fact_R)) f.(fact_args). *)
+  (* Definition fact_ins (f : fact) := skipn (outs f.(fact_R)) f.(fact_args). *)
 
-  Definition with_only_ins (f : fact) :=
-    {| fact_R := f.(fact_R); fact_args := fact_ins f |}.
+  (* Definition with_only_ins (f : fact) := *)
+  (*   {| fact_R := f.(fact_R); fact_args := fact_ins f |}. *)
 
   (*2 conditions.
    * hyp_ins only depend on concl_ins, and
@@ -499,36 +491,18 @@ Section __.
    (implicit conditions: every concl_in is of the form var_expr blah, where blah was not
    bound to the agg_expr)
    *)
+  Definition goodish_rule' concl hyps :=
+    (forall v, (*alternatively, could write appears_in_outs here*)appears_in_rule v r ->
+          In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
+            In (var_expr v) (fact_ins concl)) /\
+      (forall v, In v (flat_map vars_of_expr (flat_map fact_ins (rule_hyps r))) ->
+            In (var_expr v) (fact_ins concl)) /\
+      (forall v, In v (flat_map vars_of_expr (fact_ins concl)) ->
+            In (var_expr v) (fact_ins concl)).
   Definition goodish_rule (r : rule) :=
     exists concl,
       r.(rule_concls) = [concl] /\
-        ~(exists v ae, In v (flat_map vars_of_expr (fact_ins concl)) /\
-                    r.(rule_agg) = Some (v, ae)) /\
-        (forall v, (*alternatively, could write appears_in_outs here*)appears_in_rule v r ->
-              In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
-                In (var_expr v) (map fst r.(rule_set_hyps)) \/
-                In (var_expr v) (fact_ins concl)) /\
-        (forall v, In v (flat_map vars_of_expr (flat_map fact_ins (rule_hyps r))) ->
-              In (var_expr v) (fact_ins concl)) /\
-        (forall v, In v (flat_map vars_of_expr (fact_ins concl)) ->
-              In (var_expr v) (fact_ins concl)) /\
-        match r.(rule_agg) with
-        | None => True
-        | Some (_, aexpr) =>
-            good_agg_expr aexpr /\
-              (forall u, In u (vars_of_expr aexpr.(agg_s)) ->
-                    In (var_expr u) (fact_ins concl)) /\
-              (forall v, In v (flat_map vars_of_expr (flat_map fact_ins aexpr.(agg_hyps))) ->
-                    v = aexpr.(agg_i) \/ In (var_expr v) (fact_ins concl) /\ ~In v aexpr.(agg_vs))
-        end.
-
-  Definition rule_agg_hyps r :=
-    match r.(rule_agg) with
-    | None => []
-    | Some (_, aexpr) => aexpr.(agg_hyps)
-    end.
-
-  Definition agg_hyps_elt_lengths r := length (rule_agg_hyps r).
+        .
 
   Lemma rule_impl_concl_relname_in r x hyps :
     rule_impl r x hyps ->
