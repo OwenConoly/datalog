@@ -31,71 +31,84 @@ Class query_signature {rel : Type} :=
 Arguments query_signature : clear implicits.
 
 Section __.
-  Context {rel var fn aggregator T : Type}.
+  Context {rel fn aggregator T : Type}.
   Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
-  Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
+  Definition var := tt.
 
   (*avoid generating useless induction principle*)
   Unset Elimination Schemes.
-  Inductive expr :=
-  | var_expr (v : var)
-  | fun_expr (f : fn) (args : list expr).
+  Inductive expr {var} :=
+  | Var (v : var)
+  | FunExpr (f : fn) (args : list expr).
+  Arguments expr : clear implicits.
   Set Elimination Schemes.
 
-  Record clause := { clause_R : rel; clause_args : list expr }.
+  Variant arg {var} := expr_arg (_ : expr var) | set_arg (_ : T -> Prop).
+  Arguments arg : clear implicits.
 
-  Inductive fact :=
-  (* normal_fact R args       means that R(args) is true*)
-  | normal_fact : rel -> list T -> fact
-  (* meta_fact R args S       means that for all x, R(x, args) holds iff x \in S*)
-  | meta_fact : rel -> (T -> Prop) -> list T -> fact.
+  Record clause {var} := { clause_R : rel; clause_args : list (arg var) }.
+  Arguments clause : clear implicits.
+
+  Variant val := T_val (_ : T) | set_val (_ : T -> Prop).
+
+  Record fact := { fact_R : rel; fact_args : list val }.
 
   Unset Elimination Schemes.
   (*semantics of expressions*)
-  Inductive interp_expr (ctx : context) : expr -> T -> Prop :=
-  | interp_var_expr x v :
-    map.get ctx x = Some v ->
-    interp_expr ctx (var_expr x) v
+  Inductive interp_expr : expr T -> T -> Prop :=
+  | interp_var_expr v :
+    interp_expr (Var v) v
   | interp_fun_expr f args args' x :
-    Forall2 (interp_expr ctx) args args' ->
+    Forall2 interp_expr args args' ->
     interp_fun f args' = Some x ->
-    interp_expr ctx (fun_expr f args) x.
+    interp_expr (FunExpr f args) x.
   Set Elimination Schemes.
 
-  Definition interp_clause (ctx: context) (c : clause) (nf : rel * list T) : Prop :=
-    c.(clause_R) = (fst nf) /\
-      Forall2 (interp_expr ctx) c.(clause_args) (snd nf).
+  Inductive interp_arg : arg T -> val -> Prop :=
+  | interp_expr_arg e e' :
+    interp_expr e e' ->
+    interp_arg (expr_arg e) (T_val e')
+  | interp_set_arg P Q :
+    (forall x, P x <-> Q x) ->
+    interp_arg (set_arg P) (set_val Q).
 
-  Inductive rule :=
-  (* means what you'd expect it to *)
-  | normal_rule (rule_concls : list clause) (rule_hyps : list clause)
-  (* agg_rule A a B      means that A(x, args) holds iff x is the result of performing aggregation a over all y such that B(x, args) holds*)
-  | agg_rule (target_rel : rel) (rule_agg : aggregator) (source_rel : rel)
-  (* meta_rule A f Rs    means TODO *)
-  | meta_rule (rule_concl : clause) (target_set : list (T -> Prop) -> (T -> Prop)) (rule_hyps : list clause).
+  Definition interp_clause (c : clause T) (f : fact) : Prop :=
+    c.(clause_R) = f.(fact_R) /\
+      Forall2 interp_arg c.(clause_args) f.(fact_args).
 
-  Inductive rule_impl : rule -> fact -> list fact -> Prop :=
-  | normal_rule_impl rule_concls rule_hyps ctx R args hyps :
-    Exists (fun c => interp_clause ctx c (R, args)) rule_concls ->
-    Forall2 (interp_clause ctx) rule_hyps hyps ->
-    rule_impl (normal_rule rule_concls rule_hyps) (normal_fact R args)
-      (map (fun '(R, args) => normal_fact R args) hyps)
+  Inductive normal_rule {var} :=
+  | nr_nil (rule_concls : list (clause var)) (rule_hyps : list (clause var))
+  | nr_cons_set (r : (T -> Prop) -> normal_rule)
+  | nr_cons_var (r : var -> normal_rule).
+  Arguments normal_rule : clear implicits.
+
+  Inductive rule {var} :=
+  | normal_rule_rule (r : normal_rule var)
+  | agg_rule (target_rel : rel) (rule_agg : aggregator) (source_rel : rel).
+  Arguments rule : clear implicits.
+
+  Inductive normal_rule_impl : normal_rule T -> fact -> list fact -> Prop :=
+  | nr_impl_nil rule_concls rule_hyps f hyps :
+    Exists (fun c => interp_clause c f) rule_concls ->
+    Forall2 interp_clause rule_hyps hyps ->
+    normal_rule_impl (nr_nil rule_concls rule_hyps) f hyps
+  | nr_impl_cons_set r P f hyps :
+    normal_rule_impl (r P) f hyps ->
+    normal_rule_impl (nr_cons_set r) f hyps
+  | nr_impl_cons_var r x f hyps :
+    normal_rule_impl (r x) f hyps ->
+    normal_rule_impl (nr_cons_var r) f hyps.
+
+  Inductive rule_impl : rule T -> fact -> list fact -> Prop :=
+  | nr_rule_impl r f hyps :
+    normal_rule_impl r f hyps ->
+    rule_impl (normal_rule_rule r) f hyps
   | agg_rule_impl rule_agg target_rel source_rel S vals args :
     is_list_set (fun x => S x) vals ->
     rule_impl
       (agg_rule target_rel rule_agg source_rel)
-      (normal_fact target_rel [fold_right (interp_agg rule_agg) (agg_id rule_agg) vals])
-      (meta_fact source_rel S args :: map (fun val => normal_fact source_rel (val :: args)) vals)
-  | meta_rule_impl ctx rule_concl target_set target_set' rule_hyps source_sets R args hyps :
-    interp_clause ctx rule_concl (R, args) ->
-    Forall2 (interp_clause ctx) rule_hyps hyps ->
-    length rule_hyps = length source_sets ->
-    (forall x, target_set' x <-> target_set source_sets x) ->
-    rule_impl
-      (meta_rule rule_concl target_set rule_hyps)
-      (meta_fact R target_set' args)
-      (zip (fun '(R', args') S' => meta_fact R' S' args) hyps source_sets).
+      ({| fact_R := target_rel; fact_args := (fold_right (interp_agg rule_agg) (agg_id rule_agg) vals) :: args |})
+      ({| fact_R := source_rel; fact_args := S args |} :: map (fun val => {| fact_R := source_rel; fact_args := (val :: args) |}) vals).
 
   Unset Elimination Schemes.
   Inductive pftree {T : Type} (P : T -> list T -> Prop) : T -> Prop :=
