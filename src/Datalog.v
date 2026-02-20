@@ -103,12 +103,12 @@ Section __.
   | nr_rule_impl r f hyps :
     normal_rule_impl r f hyps ->
     rule_impl (normal_rule_rule r) f hyps
-  | agg_rule_impl rule_agg target_rel source_rel S vals args :
+  | agg_rule_impl rule_agg target_rel source_rel S (vals : list T) args :
     is_list_set (fun x => S x) vals ->
     rule_impl
       (agg_rule target_rel rule_agg source_rel)
-      ({| fact_R := target_rel; fact_args := (fold_right (interp_agg rule_agg) (agg_id rule_agg) vals) :: args |})
-      ({| fact_R := source_rel; fact_args := S args |} :: map (fun val => {| fact_R := source_rel; fact_args := (val :: args) |}) vals).
+      ({| fact_R := target_rel; fact_args := T_val (fold_right (interp_agg rule_agg) (agg_id rule_agg) vals) :: args |})
+      ({| fact_R := source_rel; fact_args := set_val S :: args |} :: map (fun val => {| fact_R := source_rel; fact_args := (T_val val :: args) |}) vals).
 
   Unset Elimination Schemes.
   Inductive pftree {T : Type} (P : T -> list T -> Prop) : T -> Prop :=
@@ -120,7 +120,7 @@ Section __.
   Hint Constructors pftree : core.
 
   (*semantics of programs*)
-  Definition prog_impl_fact (p : list rule) : fact -> Prop :=
+  Definition prog_impl_fact (p : list (rule T)) : fact -> Prop :=
     pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
 
   Unset Elimination Schemes.
@@ -195,11 +195,11 @@ Section __.
     partial_pftree P Q x.
   Proof. induction 1; eauto. Qed.
 
-  Definition prog_impl_implication (p : list rule) : (fact -> Prop) -> fact -> Prop :=
+  Definition prog_impl_implication (p : list (rule T)) : (fact -> Prop) -> fact -> Prop :=
     partial_pftree (fun f' hyps' => Exists (fun r => rule_impl r f' hyps') p).
 
   Lemma prog_impl_step p Q f hyps' :
-    Exists (fun r : rule => rule_impl r f hyps') p ->
+    Exists (fun r => rule_impl r f hyps') p ->
     Forall (prog_impl_implication p Q) hyps' ->
     prog_impl_implication p Q f.
   Proof. intros. eapply partial_step; eauto. Qed.
@@ -312,7 +312,7 @@ Section __.
     eapply partial_pftree_trans. eapply partial_pftree_weaken; eauto.
   Qed.
 
-  Lemma split_fixpoint (p : list rule) S :
+  Lemma split_fixpoint (p : list (rule T)) S :
     (forall P x, P x -> S (P, x)) ->
     (forall r, In r p -> fp (F [r]) S) <->
       fp (F p) S.
@@ -325,17 +325,17 @@ Section __.
       apply H. right. right. eexists. split; [|eassumption]. apply Exists_exists. eauto.
   Qed.
 
-  Fixpoint expr_size (e : expr) :=
+  Fixpoint expr_size {var} (e : expr var) :=
     match e with
-    | var_expr _ => O
-    | fun_expr _ args => S (fold_right Nat.max O (map expr_size args))
+    | Var _ => O
+    | FunExpr _ args => S (fold_right Nat.max O (map expr_size args))
     end.
 
-  Lemma expr_ind P :
-    (forall v, P (var_expr v)) ->
+  Lemma expr_ind var (P : expr var -> _) :
+    (forall v, P (Var v)) ->
     (forall f args,
         Forall P args ->
-        P (fun_expr f args)) ->
+        P (FunExpr f args)) ->
     forall e, P e.
   Proof.
     intros. remember (expr_size e) as sz eqn:E.
@@ -353,7 +353,7 @@ Section __.
     pftree P2 x.
   Proof. intros H0 H. induction H0; econstructor; eauto. Qed.
 
-  Lemma prog_impl_fact_subset (p1 p2 : list rule) f :
+  Lemma prog_impl_fact_subset (p1 p2 : list (rule T)) f :
     (forall x, In x p1 -> In x p2) ->
     prog_impl_fact p1 f ->
     prog_impl_fact p2 f.
@@ -362,69 +362,75 @@ Section __.
     intros. apply Exists_exists in H1. apply Exists_exists. fwd. eauto.
   Qed.
 
-  Lemma interp_expr_subst_more s s' v e :
-    map.extends s' s ->
-    interp_expr s e v ->
-    interp_expr s' e v.
-  Proof.
-    intros Hext H. revert s s' Hext v H. induction e; intros s s' Hext v0 Hv0.
-    - invert Hv0. constructor. auto.
-    - invert Hv0. econstructor; eauto.
-      eapply Forall2_impl_strong; [|eassumption]. intros. rewrite Forall_forall in H.
-      eauto.
-  Qed.
+  (* Lemma interp_expr_subst_more s s' v e : *)
+  (*   map.extends s' s -> *)
+  (*   interp_expr s e v -> *)
+  (*   interp_expr s' e v. *)
+  (* Proof. *)
+  (*   intros Hext H. revert s s' Hext v H. induction e; intros s s' Hext v0 Hv0. *)
+  (*   - invert Hv0. constructor. auto. *)
+  (*   - invert Hv0. econstructor; eauto. *)
+  (*     eapply Forall2_impl_strong; [|eassumption]. intros. rewrite Forall_forall in H. *)
+  (*     eauto. *)
+  (* Qed. *)
 
-  Lemma interp_clause_subst_more s s' f f' :
-    map.extends s' s ->
-    interp_clause s f f' ->
-    interp_clause s' f f'.
-  Proof.
-    cbv [interp_clause]. intros. fwd.
-    eauto using interp_expr_subst_more.
-  Qed.
+  (* Lemma interp_clause_subst_more s s' f f' : *)
+  (*   map.extends s' s -> *)
+  (*   interp_clause s f f' -> *)
+  (*   interp_clause s' f f'. *)
+  (* Proof. *)
+  (*   cbv [interp_clause]. intros. fwd. *)
+  (*   eauto using interp_expr_subst_more. *)
+  (* Qed. *)
 
-  Fixpoint vars_of_expr (e : expr) : list var :=
+  Fixpoint vars_of_expr {var} (e : expr var) : list var :=
     match e with
-    | fun_expr _ args => flat_map vars_of_expr args
-    | var_expr v => [v]
+    | FunExpr _ args => flat_map vars_of_expr args
+    | Var v => [v]
     end.
 
-  Definition vars_of_clause (c : clause) : list var :=
-    flat_map vars_of_expr c.(clause_args).
+  Definition vars_of_arg {var} (a : arg var) : list var :=
+    match a with
+    | expr_arg e => vars_of_expr e
+    | set_arg _ => []
+    end.
 
-  Lemma interp_expr_agree_on ctx1 ctx2 e v :
-    interp_expr ctx1 e v ->
-    Forall (agree_on ctx1 ctx2) (vars_of_expr e) ->
-    interp_expr ctx2 e v.
-  Proof.
-    revert v. induction e; intros v0 H0 H1; simpl in *.
-    - invert H1. invert H4. invert H0. rewrite H3 in H1. constructor. assumption.
-    - invert H0. econstructor; eauto. clear -H H1 H4. apply Forall_flat_map in H1.
-      revert H H1. induction H4.
-      + constructor.
-      + intros H1 H2. invert H1. invert H2. auto.
-  Qed.
+  Definition vars_of_clause {var} (c : clause var) : list var :=
+    flat_map vars_of_arg c.(clause_args).
 
-  Hint Resolve interp_expr_agree_on : core.
+  (* Lemma interp_expr_agree_on ctx1 ctx2 e v : *)
+  (*   interp_expr ctx1 e v -> *)
+  (*   Forall (agree_on ctx1 ctx2) (vars_of_expr e) -> *)
+  (*   interp_expr ctx2 e v. *)
+  (* Proof. *)
+  (*   revert v. induction e; intros v0 H0 H1; simpl in *. *)
+  (*   - invert H1. invert H4. invert H0. rewrite H3 in H1. constructor. assumption. *)
+  (*   - invert H0. econstructor; eauto. clear -H H1 H4. apply Forall_flat_map in H1. *)
+  (*     revert H H1. induction H4. *)
+  (*     + constructor. *)
+  (*     + intros H1 H2. invert H1. invert H2. auto. *)
+  (* Qed. *)
 
-  Lemma interp_clause_agree_on ctx1 ctx2 f f' :
-    interp_clause ctx1 f f' ->
-    Forall (agree_on ctx1 ctx2) (vars_of_clause f) ->
-    interp_clause ctx2 f f'.
-  Proof.
-    cbv [interp_clause].
-    intros H1 H2. fwd. split; auto. eapply Forall2_impl_strong; [|eassumption].
-    intros. cbv [vars_of_clause] in H2. rewrite Forall_flat_map, Forall_forall in H2.
-    eauto using interp_expr_agree_on.
-  Qed.
+  (* Hint Resolve interp_expr_agree_on : core. *)
 
-  Lemma interp_expr_det ctx e v1 v2 :
-    interp_expr ctx e v1 ->
-    interp_expr ctx e v2 ->
+  (* Lemma interp_clause_agree_on ctx1 ctx2 f f' : *)
+  (*   interp_clause ctx1 f f' -> *)
+  (*   Forall (agree_on ctx1 ctx2) (vars_of_clause f) -> *)
+  (*   interp_clause ctx2 f f'. *)
+  (* Proof. *)
+  (*   cbv [interp_clause]. *)
+  (*   intros H1 H2. fwd. split; auto. eapply Forall2_impl_strong; [|eassumption]. *)
+  (*   intros. cbv [vars_of_clause] in H2. rewrite Forall_flat_map, Forall_forall in H2. *)
+  (*   eauto using interp_expr_agree_on. *)
+  (* Qed. *)
+
+  Lemma interp_expr_det e v1 v2 :
+    interp_expr e v1 ->
+    interp_expr e v2 ->
     v1 = v2.
   Proof.
     revert v1 v2. induction e; simpl; intros.
-    - invert H. invert H0. rewrite H2 in H1. invert H1. auto.
+    - invert H. invert H0. reflexivity.
     - invert H0. invert H1. enough (args' = args'0).
       { subst. rewrite H6 in H7. invert H7. reflexivity. }
       clear -H3 H4 H. revert args'0 H3. induction H4; intros; invert H; invert H3.
@@ -432,71 +438,84 @@ Section __.
       + f_equal; auto.
   Qed.
 
-  Lemma interp_expr_det' e ctx1 ctx2 v1 v2 :
-    interp_expr ctx1 e v1 ->
-    interp_expr ctx2 e v2 ->
-    Forall (agree_on ctx1 ctx2) (vars_of_expr e) ->
+  Lemma interp_arg_det a v1 v2 :
+    interp_arg a v1 ->
+    interp_arg a v2 ->
     v1 = v2.
-  Proof. eauto using interp_expr_det, interp_expr_agree_on. Qed.
+  Proof.
+    destruct a; invert 1; invert 1; f_equal; eauto using interp_expr_det.
+  Admitted.
 
-  Lemma interp_clause_det ctx f f1 f2 :
-    interp_clause ctx f f1 ->
-    interp_clause ctx f f2 ->
+  (* Lemma interp_expr_det' e ctx1 ctx2 v1 v2 : *)
+  (*   interp_expr ctx1 e v1 -> *)
+  (*   interp_expr ctx2 e v2 -> *)
+  (*   Forall (agree_on ctx1 ctx2) (vars_of_expr e) -> *)
+  (*   v1 = v2. *)
+  (* Proof. eauto using interp_expr_det, interp_expr_agree_on. Qed. *)
+
+  Lemma interp_clause_det f f1 f2 :
+    interp_clause f f1 ->
+    interp_clause f f2 ->
     f1 = f2.
   Proof.
     cbv [interp_clause]. intros. fwd. destruct f1, f2. simpl in *. subst.
-    f_equal. eapply Forall2_unique_r; eauto. apply interp_expr_det.
+    f_equal. eapply Forall2_unique_r; eauto. apply interp_arg_det.
   Qed.
 
-  Lemma interp_clause_det' f ctx1 ctx2 f1 f2 :
-    interp_clause ctx1 f f1 ->
-    interp_clause ctx2 f f2 ->
-    Forall (agree_on ctx1 ctx2) (vars_of_clause f) ->
-    f1 = f2.
-  Proof. eauto using interp_clause_det, interp_clause_agree_on. Qed.
+  (* Lemma interp_clause_det' f ctx1 ctx2 f1 f2 : *)
+  (*   interp_clause ctx1 f f1 -> *)
+  (*   interp_clause ctx2 f f2 -> *)
+  (*   Forall (agree_on ctx1 ctx2) (vars_of_clause f) -> *)
+  (*   f1 = f2. *)
+  (* Proof. eauto using interp_clause_det, interp_clause_agree_on. Qed. *)
 
-  Lemma interp_clause_same_agree ctx1 ctx2 f f' v :
-    interp_clause ctx1 f f' ->
-    interp_clause ctx2 f f' ->
-    In (var_expr v) f.(clause_args) ->
-    agree_on ctx1 ctx2 v.
-  Proof.
-    cbv [interp_clause]. destruct f, f'. simpl.
-    intros H1 H2 Hv. fwd.
-    eapply Forall2_and in H1p1; eauto. apply Forall2_forget_r in H1p1.
-    rewrite Forall_forall in H1p1. apply H1p1 in Hv. fwd. invert Hvp1. invert Hvp2.
-    cbv [agree_on]. eauto using eq_trans.
-  Qed.
+  (* Lemma interp_clause_same_agree ctx1 ctx2 f f' v : *)
+  (*   interp_clause ctx1 f f' -> *)
+  (*   interp_clause ctx2 f f' -> *)
+  (*   In (var_expr v) f.(clause_args) -> *)
+  (*   agree_on ctx1 ctx2 v. *)
+  (* Proof. *)
+  (*   cbv [interp_clause]. destruct f, f'. simpl. *)
+  (*   intros H1 H2 Hv. fwd. *)
+  (*   eapply Forall2_and in H1p1; eauto. apply Forall2_forget_r in H1p1. *)
+  (*   rewrite Forall_forall in H1p1. apply H1p1 in Hv. fwd. invert Hvp1. invert Hvp2. *)
+  (*   cbv [agree_on]. eauto using eq_trans. *)
+  (* Qed. *)
 
-  Definition in_set_hyps v set_hyps :=
-    In v (flat_map vars_of_expr (map fst set_hyps)) \/
-      In v (flat_map vars_of_expr (map snd set_hyps)).
+  (* Definition in_set_hyps v set_hyps := *)
+  (*   In v (flat_map vars_of_expr (map fst set_hyps)) \/ *)
+  (*     In v (flat_map vars_of_expr (map snd set_hyps)). *)
 
-  Lemma not_in_set_hyps_nil v :
-    in_set_hyps v [] -> False.
-  Proof.
-    cbv [in_set_hyps]. simpl. destruct 1; assumption.
-  Qed.
+  (* Lemma not_in_set_hyps_nil v : *)
+  (*   in_set_hyps v [] -> False. *)
+  (* Proof. *)
+  (*   cbv [in_set_hyps]. simpl. destruct 1; assumption. *)
+  (* Qed. *)
 
-  Definition good_rule' concls hyps :=
-    forall v,
-      In v (flat_map vars_of_clause concls) \/ In v (flat_map vars_of_clause hyps) ->
-      In (var_expr v) (flat_map clause_args hyps).
+  Fixpoint good_normal_rule (lbl : nat) (sets : list (T -> Prop)) (r : normal_rule nat) :=
+    match r with
+    | nr_nil concls hyps =>
+        (forall P,
+            In P sets ->
+            In (set_arg P) (flat_map clause_args hyps)) /\
+          (forall lbl0, lbl0 < lbl -> In (expr_arg (Var lbl0)) (flat_map clause_args hyps))
+    | nr_cons_set r => forall P, good_normal_rule lbl (P :: sets) (r P)
+    | nr_cons_var r => good_normal_rule (S lbl) sets (r lbl)
+    end.
 
   Definition good_rule r :=
     match r with
-    | normal_rule concls hyps => good_rule' concls hyps
+    | normal_rule_rule nr => good_normal_rule O [] nr
     | agg_rule _ _ _ => True
-    | meta_rule concl _ hyps => good_rule' [concl] hyps
     end.
 
-  Definition good_prog (p : list rule) := Forall good_rule p.
+  Definition good_prog (p : list (rule nat)) := Forall good_rule p.
 
-  (* Definition fact_outs (f : fact) := firstn (outs f.(fact_R)) f.(fact_args). *)
-  (* Definition fact_ins (f : fact) := skipn (outs f.(fact_R)) f.(fact_args). *)
+  Definition clause_outs {var} (f : clause var) := firstn (outs f.(clause_R)) f.(clause_args).
+  Definition clause_ins {var} (f : clause var) := skipn (outs f.(clause_R)) f.(clause_args).
 
-  (* Definition with_only_ins (f : fact) := *)
-  (*   {| fact_R := f.(fact_R); fact_args := fact_ins f |}. *)
+  Definition with_only_ins {var} (f : clause var) :=
+    {| clause_R := f.(clause_R); clause_args := clause_ins f |}.
 
   (*2 conditions.
    * hyp_ins only depend on concl_ins, and
@@ -504,18 +523,33 @@ Section __.
    (implicit conditions: every concl_in is of the form var_expr blah, where blah was not
    bound to the agg_expr)
    *)
-  Definition goodish_rule' concl hyps :=
-    (forall v, (*alternatively, could write appears_in_outs here*)appears_in_rule v r ->
-          In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
-            In (var_expr v) (fact_ins concl)) /\
-      (forall v, In v (flat_map vars_of_expr (flat_map fact_ins (rule_hyps r))) ->
-            In (var_expr v) (fact_ins concl)) /\
-      (forall v, In v (flat_map vars_of_expr (fact_ins concl)) ->
-            In (var_expr v) (fact_ins concl)).
-  Definition goodish_rule (r : rule) :=
-    exists concl,
-      r.(rule_concls) = [concl] /\
-        .
+  Fixpoint goodish_normal_rule (lbl : nat) (sets : list (T -> Prop)) (r : normal_rule nat) :=
+    match r with
+    | nr_nil concls hyps =>
+        exists concl,
+        concls = [concl] /\
+        (forall P,
+            In P sets ->
+            In (set_arg P) (flat_map clause_args hyps)) /\
+          (forall lbl0,
+              lbl0 < lbl ->
+              In (expr_arg (Var lbl0)) (flat_map clause_args hyps) \/
+                In (expr_arg (Var lbl0)) (clause_ins concl)) /\
+          (forall v,
+              In v (flat_map vars_of_arg (flat_map clause_ins hyps)) ->
+              In (expr_arg (Var v)) (clause_ins concl)) /\
+          (forall v,
+              In v (flat_map vars_of_arg (clause_ins concl)) ->
+              In (expr_arg (Var v)) (clause_ins concl))
+    | nr_cons_set r => forall P, goodish_normal_rule lbl (P :: sets) (r P)
+    | nr_cons_var r => goodish_normal_rule (S lbl) sets (r lbl)
+    end.
+
+  Definition goodish_rule (r : rule nat) :=
+    match r with
+    | normal_rule_rule nr => goodish_normal_rule O [] nr
+    | agg_rule _ _ _ => True
+    end.
 
   Lemma rule_impl_concl_relname_in r x hyps :
     rule_impl r x hyps ->
