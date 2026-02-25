@@ -464,31 +464,23 @@ Section __.
     cbv [agree_on]. congruence.
   Qed.
 
-  Print rule.
-  Definition appears_in_rule v r :=
-    ~(exists ae, r.(rule_agg) = Some (v, ae)) /\
-      In v (flat_map vars_of_fact r.(rule_concls)) \/
-      In v (flat_map vars_of_fact r.(rule_hyps)) \/
-      in_set_hyps v r.(rule_set_hyps) \/
-      (exists w ae, r.(rule_agg) = Some (w, ae) /\ appears_in_agg_expr v ae).
-
   Definition good_rule (r : rule) :=
-    (forall v, appears_in_rule v r ->
-          In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
-            In (var_expr v) (map fst r.(rule_set_hyps))) /\
-      well_founded (depends_on_in_set_hyps r.(rule_set_hyps)) /\
-      match r.(rule_agg) with
-      | None => True
-      | Some (_, ae) => good_agg_expr ae
-      end.
+    match r with
+    | normal_rule rule_concls rule_hyps =>
+        forall v,
+          In v (flat_map vars_of_clause rule_concls) \/
+            In v (flat_map vars_of_clause rule_hyps) ->
+          In (var_expr v) (flat_map clause_args rule_hyps)
+    | agg_rule _ _ _ => True
+    end.
 
   Definition good_prog (p : list rule) := Forall good_rule p.
 
-  Definition fact_outs (f : fact) := firstn (outs f.(fact_R)) f.(fact_args).
-  Definition fact_ins (f : fact) := skipn (outs f.(fact_R)) f.(fact_args).
+  Definition clause_outs (c : clause) := firstn (outs (fst c.(clause_R))) c.(clause_args).
+  Definition clause_ins (c : clause) := skipn (outs (fst c.(clause_R))) c.(clause_args).
 
-  Definition with_only_ins (f : fact) :=
-    {| fact_R := f.(fact_R); fact_args := fact_ins f |}.
+  Definition with_only_ins (c : clause) :=
+    {| clause_R := c.(clause_R); clause_args := clause_ins c |}.
 
   (*2 conditions.
    * hyp_ins only depend on concl_ins, and
@@ -497,75 +489,40 @@ Section __.
    bound to the agg_expr)
    *)
   Definition goodish_rule (r : rule) :=
-    exists concl,
-      r.(rule_concls) = [concl] /\
-        ~(exists v ae, In v (flat_map vars_of_expr (fact_ins concl)) /\
-                    r.(rule_agg) = Some (v, ae)) /\
-        (forall v, (*alternatively, could write appears_in_outs here*)appears_in_rule v r ->
-              In (var_expr v) (flat_map fact_args r.(rule_hyps)) \/
-                In (var_expr v) (map fst r.(rule_set_hyps)) \/
-                In (var_expr v) (fact_ins concl)) /\
-        (forall v, In v (flat_map vars_of_expr (flat_map fact_ins (rule_hyps r))) ->
-              In (var_expr v) (fact_ins concl)) /\
-        (forall v, In v (flat_map vars_of_expr (fact_ins concl)) ->
-              In (var_expr v) (fact_ins concl)) /\
-        match r.(rule_agg) with
-        | None => True
-        | Some (_, aexpr) =>
-            good_agg_expr aexpr /\
-              (forall u, In u (vars_of_expr aexpr.(agg_s)) ->
-                    In (var_expr u) (fact_ins concl)) /\
-              (forall v, In v (flat_map vars_of_expr (flat_map fact_ins aexpr.(agg_hyps))) ->
-                    v = aexpr.(agg_i) \/ In (var_expr v) (fact_ins concl) /\ ~In v aexpr.(agg_vs))
-        end.
-
-  Definition rule_agg_hyps r :=
-    match r.(rule_agg) with
-    | None => []
-    | Some (_, aexpr) => aexpr.(agg_hyps)
+    match r with
+    | normal_rule rule_concls rule_hyps =>
+        exists concl,
+        rule_concls = [concl] /\
+          (forall v,
+              In v (flat_map vars_of_clause rule_concls) \/
+                In v (flat_map vars_of_clause rule_hyps) ->
+              In (var_expr v) (flat_map clause_args rule_hyps) \/
+                In (var_expr v) (clause_ins concl)) /\
+          (forall v, In v (flat_map vars_of_expr (flat_map clause_ins rule_hyps)) ->
+                In (var_expr v) (clause_ins concl)) /\
+          (forall v, In v (flat_map vars_of_expr (clause_ins concl)) ->
+                In (var_expr v) (clause_ins concl))
+    | agg_rule _ _ _ => True
     end.
 
-  Definition agg_hyps_elt_lengths r := length (rule_agg_hyps r).
-
-  Lemma rule_impl_concl_relname_in r x hyps :
-    rule_impl r x hyps ->
-    In (fst x) (map fact_R (rule_concls r)).
+  Lemma rule_impl_concl_relname_in rule_concls rule_hyps f hyps :
+    rule_impl (normal_rule rule_concls rule_hyps) f hyps ->
+    In f.(fact_R) (map clause_R rule_concls).
   Proof.
-    intros H. invert H. fwd. invert H0p1. apply Exists_exists in H0.
-    fwd. invert H0p1. simpl. apply in_map. assumption.
+    invert 1. apply Exists_exists in H2.
+    cbv [interp_clause] in H2. fwd.
+    apply in_map_iff. eauto.
   Qed.
 
-  Lemma interp_agg_expr_hyp_relname_in ctx aexpr res' agg_hyps' :
-    interp_agg_expr ctx aexpr res' agg_hyps' ->
-    Forall (fun hyp => In (fst hyp) (map fact_R (agg_hyps aexpr))) (concat agg_hyps').
+  Lemma rule_impl_hyp_relname_in rule_concls rule_hyps f hyps :
+    rule_impl (normal_rule rule_concls rule_hyps) f hyps ->
+    Forall (fun hyp => In hyp.(fact_R) (map clause_R rule_hyps)) hyps.
   Proof.
-    intros H. invert H. simpl. apply Forall3_ignore12 in H2. apply Forall_concat.
-    eapply Forall_impl; [|eassumption]. simpl. clear. intros. fwd.
-    apply Forall2_forget_l in Hp1. eapply Forall_impl; [|eassumption].
-    simpl. clear. intros. fwd. invert Hp1. simpl. apply in_map. assumption.
-  Qed.
-
-  Lemma rule_impl'_hyp_relname_in ctx r x hyps agg_hyps' :
-    rule_impl' ctx r x hyps agg_hyps' ->
-    Forall (fun hyp => In (fst hyp) (map fact_R (rule_hyps r))) hyps /\
-      Forall (fun hyp => In (fst hyp) (map fact_R (rule_agg_hyps r)))
-      (concat agg_hyps').
-  Proof.
-    intros H. invert H. split.
-    - apply Forall2_forget_l in H2. eapply Forall_impl; [|eassumption].
-      simpl. intros. fwd. invert Hp1. simpl. apply in_map. assumption.
-    - cbv [rule_agg_hyps]. invert H0; auto. eapply interp_agg_expr_hyp_relname_in. eassumption.
-  Qed.
-
-  Lemma rule_impl_hyp_relname_in r x hyps :
-    rule_impl r x hyps ->
-    Forall (fun hyp => In (fst hyp) (map fact_R (rule_agg_hyps r ++ rule_hyps r))) hyps.
-  Proof.
-    cbv [rule_impl]. intros. fwd. apply rule_impl'_hyp_relname_in in Hp1.
-    fwd. apply Forall_app. rewrite map_app.  split; eapply Forall_impl; eauto; intros; rewrite in_app_iff; simpl; eauto.
+    invert 1. eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
+    simpl. cbv [interp_clause]. intros. fwd. apply in_map_iff. eauto.
   Qed.
 End __.
+Arguments clause : clear implicits.
 Arguments fact : clear implicits.
 Arguments rule : clear implicits.
 Arguments expr : clear implicits.
-Arguments agg_expr : clear implicits.
