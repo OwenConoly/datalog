@@ -22,6 +22,7 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc T
 Import Datatypes.
 
 Open Scope list_scope.
+Open Scope nat_scope.
 
 Definition var : Type := string + nat.
 
@@ -88,16 +89,16 @@ Variant aggregator : Set :=
 
 Definition var_eqb (x y : var) : bool :=
   match x, y with
-  | inl x, inl y => x =? y
-  | inr x, inr y => (x =? y)%nat
+  | inl x, inl y => (x =? y)%string
+  | inr x, inr y => x =? y
   | _, _ => false
   end.
 
 Lemma var_eqb_spec x y : BoolSpec (x = y) (x <> y) (var_eqb x y).
 Proof.
   destruct x, y; simpl; try (constructor; congruence).
-  - destr (s =? s0); constructor; congruence.
-  - destr (n =? n0)%nat; constructor; congruence.
+  - destr (s =? s0)%string; constructor; congruence.
+  - destr (n =? n0); constructor; congruence.
 Qed.
 
 Definition sum_objs (objs : list (obj * obj)) :=
@@ -290,6 +291,7 @@ Inductive vars_good : list string -> ATLexpr -> Prop :=
   incl (idx_vars_of_Sexpr s) idxs ->
   vars_good idxs (Scalar s).
 
+Print rule_impl.
 Fixpoint lower_rec
   (e : ATLexpr)
   (out: rel)
@@ -306,30 +308,24 @@ Fixpoint lower_rec
       let i' := Datatypes.S x in
       let y := Datatypes.S i' in
       let aux := name in
-      let (name', rules) := lower_rec body (nat_rel aux) (S aux) (idxs ++ [i]) def_depth in
+      let aux' := S aux in
+      let (name', rules) := lower_rec body (nat_rel aux) (S aux') (idxs ++ [i]) def_depth in
       (name',
         rules ++
-          [{| rule_agg :=
-               Some
-                 (inr y, {| agg_agg := sum;
-                           agg_i := inr i';
-                           agg_vs := [inr x];
-                           agg_s := fun_expr (fn_Z fn_ZRange) [
-                                        lower_idx lo;
-                                        lower_idx hi];
-                           agg_body := var_expr (inr x);
-                           agg_hyps := [{| clause_R := nat_rel aux;
-                                          clause_args :=
-                                            var_expr (inr x) ::
-                                              map var_expr (map inl idxs) ++
-                                              var_expr (inr i') ::
-                                              map var_expr dimvars |}] |} : agg_expr rel var fn aggregator);
-             rule_set_hyps := [];
-             rule_concls := [{| clause_R := out;
-                               clause_args := var_expr (inr y) ::
-                                              map var_expr (map inl idxs) ++
-                                              map var_expr dimvars |}];
-             rule_hyps := [] |}])
+          [agg_rule out sum (nat_rel aux');
+           normal_rule
+             [{| clause_R := (nat_rel aux', normal);
+                clause_args :=
+                  var_expr (inr i') ::
+                    var_expr (inr x) ::
+                    map var_expr (map inl idxs) ++
+                    map var_expr dimvars |}]
+             [{| clause_R := (nat_rel aux, normal);
+                clause_args :=
+                  var_expr (inr x) ::
+                    map var_expr (map inl idxs) ++
+                    var_expr (inr i') ::
+                    map var_expr dimvars |}] ] )
   | Guard b body =>
       let dimvars := map inr (seq O (length (sizeof body))) in
       let x := length (sizeof body) in
@@ -338,25 +334,25 @@ Fixpoint lower_rec
       (name',
         rules ++
           [normal_rule
-             [{| clause_R := out;
+             [{| clause_R := (out, normal);
                 clause_args :=
                   var_expr (inr x) ::
                     map var_expr (map inl idxs) ++
                     map var_expr dimvars |}]
-             [{| clause_R := nat_rel aux;
+             [{| clause_R := (nat_rel aux, normal);
                 clause_args :=
                   var_expr (inr x) ::
                     map var_expr (map inl idxs) ++
                     map var_expr dimvars |};
-              {| clause_R := true_rel;
+              {| clause_R := (true_rel, normal);
                 clause_args := [lower_guard b] |}];
            normal_rule
-             [{| clause_R := out;
+             [{| clause_R := (out, normal);
                 clause_args :=
-                  fun_expr (fn_R (fn_SLit 0%R)) [] ::
+                  fun_expr (fn_R (fn_SLit 0%Q)) [] ::
                     map var_expr (map inl idxs) ++
                     map var_expr dimvars |}]
-             [{| clause_R := true_rel;
+             [{| clause_R := (true_rel, normal);
                 clause_args := [fun_expr (fn_B fn_BNot) [lower_guard b]] |}] ])
   | Lbind x e1 e2 =>
       let (name', rules1) := lower_rec e1 (str_rel x) name idxs def_depth in
@@ -369,8 +365,9 @@ Fixpoint lower_rec
       let x := length (sizeof e1) in
       let aux1 := name in
       let aux2 := S name in
-      let len1 := Z.of_nat match sizeof e1 with
-                    | [] => 0
+      (*TODO think carefully about what is len1 here; what are the variables?*)
+      let len1 := match sizeof e1 with
+                    | [] => ZLit 0%Z
                     | n :: _ => n
                     end in
       let (name', rules1) := lower_rec e1 (nat_rel aux1) (S aux2) idxs def_depth in
@@ -378,122 +375,124 @@ Fixpoint lower_rec
       (name'',
         rules1 ++ rules2 ++
           [normal_rule
-             [{| clause_R := out;
+             [{| clause_R := (out, normal);
                 clause_args :=
                   var_expr (inr x) ::
                     map var_expr (map inl idxs) ++
                     map var_expr (dimvarO :: dimvars) |}]
-             [{| clause_R := nat_rel aux1;
+             [{| clause_R := (nat_rel aux1, normal);
                 clause_args :=
                   var_expr (inr x) ::
                     map var_expr (map inl idxs) ++
                     map var_expr (dimvarO :: dimvars) |};
-              {| clause_R := true_rel;
+              {| clause_R := (true_rel, normal);
                 clause_args := [fun_expr (fn_B fn_BLt)
                                   [var_expr dimvarO;
-                                   fun_expr (fn_Z (fn_ZLit len1)) []]] |}];
+                                   lower_idx len1]] |}];
            normal_rule
-             [{| clause_R := out;
+             [{| clause_R := (out, normal);
                 clause_args :=
                   var_expr (inr x) ::
                     map var_expr (map inl idxs) ++
                     var_expr dimvarO ::
                     map var_expr dimvars |}]
-             [{| clause_R := nat_rel aux2;
+             [{| clause_R := (nat_rel aux2, normal);
                 clause_args :=
                   var_expr (inr x) ::
                     map var_expr (map inl idxs) ++
                     fun_expr (fn_Z fn_ZMinus)
                     [var_expr dimvarO;
-                     fun_expr (fn_Z (fn_ZLit len1)) []] ::
+                     lower_idx len1] ::
                     map var_expr dimvars |};
-              {| clause_R := true_rel;
+              {| clause_R := (true_rel, normal);
                 clause_args := [fun_expr (fn_B fn_BLe)
-                                  [fun_expr (fn_Z (fn_ZLit len1)) [];
+                                  [lower_idx len1;
                                    var_expr dimvarO]] |}] ])
   | Flatten e =>
       let dimvars := map inr (seq O (length (sizeof e) - 2)) in
       let dimvarO := inr (length (sizeof e) - 2) in
       let x := inr (length (sizeof e) - 1) in
+      (*TODO what is len2 here*)
       let len2 :=
-        Z.of_nat match sizeof e with
+        match sizeof e with
           | _ :: di :: _ => di
-          | _ => 0
+          | _ => ZLit 0
           end in
       let aux := name in
       let (name', rules) := lower_rec e (nat_rel aux) (S aux) idxs def_depth in
       (name',
         rules ++
           [normal_rule
-             [{| clause_R := out;
+             [{| clause_R := (out, normal);
                 clause_args :=
                   var_expr x ::
                     map var_expr (map inl idxs) ++
                     var_expr dimvarO ::
                     map var_expr dimvars |}]
-             [{| clause_R := nat_rel aux;
+             [{| clause_R := (nat_rel aux, normal);
                 clause_args := var_expr x ::
                                  map var_expr (map inl idxs) ++
                                  fun_expr (fn_Z fn_ZDivf)
                                  [var_expr dimvarO;
-                                  fun_expr (fn_Z (fn_ZLit len2)) []] ::
+                                  lower_idx len2] ::
                                  fun_expr (fn_Z fn_ZMod)
                                  [var_expr dimvarO;
-                                  fun_expr (fn_Z (fn_ZLit len2)) []] ::
+                                  lower_idx len2] ::
                                  map var_expr dimvars |}]])
   | Split k e =>
       let dimvars := map inr (seq O (length (sizeof e) - 1)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
       let dimvar2 := inr (length (sizeof e)) in
       let x := inr (S (length (sizeof e))) in
-      let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
+      (*TODO what is len*)
       let len :=
-        Z.of_nat match sizeof e with
+        match sizeof e with
           | d :: _ => d
-          | _ => 0
+          | _ => ZLit 0
           end in
       let aux := name in
-      let pad_start := (len mod k')%Z in
+      let pad_start := (ZMod len k)%z in
       let (name', rules) := lower_rec e (nat_rel aux) (S aux) idxs def_depth in
       (name',
         rules ++
           [normal_rule
-             [{| clause_R := out;
+             [{| clause_R := (out, normal);
                 clause_args :=
                   var_expr x ::
                     map var_expr (map inl idxs) ++
                     var_expr dimvar1 ::
                     var_expr dimvar2 ::
                     map var_expr dimvars |}]
-             [{| clause_R := nat_rel aux;
+             [{| clause_R := (nat_rel aux, normal);
                 clause_args := var_expr x ::
                                  map var_expr (map inl idxs) ++
                                  fun_expr (fn_Z fn_ZPlus)
                                  [fun_expr (fn_Z fn_ZTimes)
                                     [var_expr dimvar1;
-                                     fun_expr (fn_Z (fn_ZLit k')) []];
+                                     lower_idx k];
                                   var_expr dimvar2] ::
                                  map var_expr dimvars |};
-              {| clause_R := true_rel;
+              {| clause_R := (true_rel, normal);
                 clause_args := [fun_expr (fn_B fn_BNot)
                                   [fun_expr (fn_B fn_BAnd)
                                      [fun_expr (fn_B fn_BEq)
                                         [var_expr dimvar1;
-                                         fun_expr (fn_Z (fn_ZLit (len / k'))) []];
+                                         fun_expr (fn_Z fn_ZDivf)
+                                           [lower_idx len; lower_idx k]];
                                       fun_expr (fn_B fn_BLe)
-                                        [fun_expr (fn_Z (fn_ZLit pad_start)) [];
+                                        [lower_idx pad_start;
                                          var_expr dimvar2]]]] |}];
            normal_rule
-             [{| clause_R := out;
+             [{| clause_R := (out, normal);
                 clause_args :=
-                  fun_expr (fn_R (fn_SLit 0%R)) [] ::
+                  fun_expr (fn_R (fn_SLit 0)) [] ::
                     map var_expr (map inl idxs) ++
-                    fun_expr (fn_Z (fn_ZLit (len / k'))) [] ::
+                    fun_expr (fn_Z fn_ZDivf) [lower_idx len; lower_idx k] ::
                     var_expr dimvar1 ::
                     map var_expr dimvars |}]
-             [{| clause_R := true_rel;
+             [{| clause_R := (true_rel, normal);
                 clause_args := [fun_expr (fn_B fn_BLe)
-                                  [fun_expr (fn_Z (fn_ZLit pad_start)) [];
+                                  [lower_idx pad_start;
                                    var_expr dimvar1]] |} ] ])
   | Transpose e =>
       let dimvars := map inr (seq O (length (sizeof e) - 2)) in
@@ -505,14 +504,14 @@ Fixpoint lower_rec
       (name',
         rules ++
           [normal_rule
-             [{| clause_R := out;
+             [{| clause_R := (out, normal);
                 clause_args :=
                   var_expr x ::
                     map var_expr (map inl idxs) ++
                     var_expr dimvar2 ::
                     var_expr dimvar1 ::
                     map var_expr dimvars |}]
-             [{| clause_R := aux;
+             [{| clause_R := (aux, normal);
                 clause_args :=
                   var_expr x ::
                     map var_expr (map inl idxs) ++
@@ -525,111 +524,109 @@ Fixpoint lower_rec
       let dimvars := map inr (seq O (length (sizeof e) - 1)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
       let x := inr (length (sizeof e)) in
-      let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
       let (name', rules) := lower_rec e aux (S name) idxs def_depth in
       (name',
         rules ++
           [normal_rule
-             [{| clause_R := out;
+             [{| clause_R := (out, normal);
                 clause_args :=
                   var_expr x ::
                     map var_expr (map inl idxs) ++
                     var_expr dimvar1 ::
                     map var_expr dimvars |}]
-             [{| clause_R := aux;
+             [{| clause_R := (aux, normal);
                 clause_args :=
                   var_expr x ::
                     map var_expr (map inl idxs) ++
                     fun_expr (fn_Z fn_ZPlus)
-                    [fun_expr (fn_Z (fn_ZLit k')) [];
+                    [lower_idx k;
                      var_expr dimvar1] ::
                     map var_expr dimvars |}] ])
   | Padr k e =>
       let dimvars := map inr (seq O (length (sizeof e) - 1)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
       let x := inr (length (sizeof e)) in
-      let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
+      (*TODO what is len*)
       let len :=
-        Z.of_nat match sizeof e with
+        match sizeof e with
           | d :: _ => d
-          | _ => 0
+          | _ => ZLit 0
           end in
       let (name', rules) := lower_rec e aux (S name) idxs def_depth in
       (name',
         rules ++ [normal_rule
-                    [{| clause_R := out;
+                    [{| clause_R := (out, normal);
                        clause_args :=
                          var_expr x ::
                            map var_expr (map inl idxs) ++
                            var_expr dimvar1 ::
                            map var_expr dimvars |}]
-                    [{| clause_R := aux;
+                    [{| clause_R := (aux, normal);
                        clause_args :=
                          var_expr x ::
                            map var_expr (map inl idxs) ++
                            var_expr dimvar1 ::
                            map var_expr dimvars |};
-                     {| clause_R := true_rel;
+                     {| clause_R := (true_rel, normal);
                        clause_args := [fun_expr (fn_B fn_BLt)
                                          [var_expr dimvar1;
-                                          fun_expr (fn_Z (fn_ZLit len)) []]] |}];
+                                          lower_idx len]] |}];
                   normal_rule
-                    [{| clause_R := out;
+                    [{| clause_R := (out, normal);
                        clause_args :=
                          fun_expr (fn_R (fn_SLit 0)) [] ::
                            map var_expr (map inl idxs) ++
                            var_expr dimvar1 ::
                            map var_expr dimvars |}]
-                    [{| clause_R := true_rel;
+                    [{| clause_R := (true_rel, normal);
                        clause_args := [fun_expr (fn_B fn_BLe)
-                                         [fun_expr (fn_Z (fn_ZLit len)) [];
+                                         [lower_idx len;
                                           var_expr dimvar1]] |}] ])
   | Padl k e =>
       let dimvars := map inr (seq O (length (sizeof e) - 1)) in
       let dimvar1 := inr (length (sizeof e) - 1) in
       let x := inr (length (sizeof e)) in
-      let k' := Z.of_nat (Z.to_nat (eval_Zexpr_Z_total $0 k)) in
       let aux := nat_rel name in
       let (name', rules) := lower_rec e aux (S name) idxs def_depth in
       (name',
         rules ++
           [normal_rule
-             [{| clause_R := out;
+             [{| clause_R := (out, normal);
                 clause_args :=
                   var_expr x ::
                     map var_expr (map inl idxs) ++
                     var_expr dimvar1 ::
                     map var_expr dimvars |}]
-             [{| clause_R := aux;
+             [{| clause_R := (aux, normal);
                 clause_args :=
                   var_expr x ::
                     map var_expr (map inl idxs) ++
                     fun_expr (fn_Z fn_ZMinus)
                     [var_expr dimvar1;
-                     fun_expr (fn_Z (fn_ZLit k')) []] ::
+                     lower_idx k] ::
                     map var_expr dimvars |};
-              {| clause_R := true_rel;
+              {| clause_R := (true_rel, normal);
                 clause_args := [fun_expr (fn_B fn_BLe)
-                                  [fun_expr (fn_Z (fn_ZLit k')) [];
+                                  [lower_idx k;
                                    var_expr dimvar1]] |}];
            normal_rule
-             [{| clause_R := out;
+             [{| clause_R := (out, normal);
                 clause_args :=
                   fun_expr (fn_R (fn_SLit 0)) [] ::
                     map var_expr (map inl idxs) ++
                     var_expr dimvar1 ::
                     map var_expr dimvars |}]
-             [{| clause_R := true_rel;
+             [{| clause_R := (true_rel, normal);
                 clause_args := [fun_expr (fn_B fn_BLt)
                                   [var_expr dimvar1;
-                                   fun_expr (fn_Z (fn_ZLit k')) []]] |}] ])
+                                   lower_idx k]] |}] ])
   | Scalar s =>
       let '(val, hyps, _) := lower_Sexpr idxs def_depth O s in
       (name,
         [normal_rule
-           [{| clause_R := out; clause_args := val :: map var_expr (map inl idxs) |}]
+           [{| clause_R := (out, normal); clause_args := val :: map var_expr (map inl idxs) |}]
            hyps
       ])
   end.
