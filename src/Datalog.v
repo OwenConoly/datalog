@@ -372,7 +372,7 @@ Section __.
       eauto.
   Qed.
 
-  Lemma interp_fact_subst_more s s' f f' :
+  Lemma interp_clause_subst_more s s' f f' :
     map.extends s' s ->
     interp_clause s f f' ->
     interp_clause s' f f'.

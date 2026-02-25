@@ -632,11 +632,10 @@ Fixpoint lower_rec
   end.
 
 Definition true_rule : rule :=
-  {| rule_agg := None;
-    rule_set_hyps := [];
-    rule_concls := [{| clause_R := true_rel;
-                      clause_args := [fun_expr (fn_B (fn_BLit true)) []] |}];
-    rule_hyps := [] |}.
+  normal_rule
+    [{| clause_R := (true_rel, normal);
+       clause_args := [fun_expr (fn_B (fn_BLit true)) []] |}]
+    [].
 
 Definition lower e out :=
   snd (lower_rec e (str_rel out) O [] map.empty) ++ [true_rule].
@@ -644,44 +643,45 @@ Definition lower e out :=
 (*this is a very (unnecessarily) strong property.  happily, ATL programs are
   very-obviously functional, so they meet it.*)
 Definition obviously_non_intersecting (r1 r2 : rule) :=
-  forall R idxs ctx1 ctx2 hyps1 hyps2 agg_hyps1 agg_hyps2 x1 x2,
-  rule_impl' ctx1 r1 (R, x1 :: idxs) hyps1 agg_hyps1 ->
-  rule_impl' ctx2 r2 (R, x2 :: idxs) hyps2 agg_hyps2 ->
-  In (true_rel, [Bobj false]) hyps1 \/ In (true_rel, [Bobj false]) hyps2.
+  forall R idxs hyps1 hyps2 x1 x2,
+  rule_impl r1 {| fact_R := R; fact_args := x1 :: idxs |} hyps1 ->
+  rule_impl r2 {| fact_R := R; fact_args := x2 :: idxs |} hyps2 ->
+  In {| fact_R := (true_rel, normal); fact_args := [Bobj false] |} hyps1 \/
+    In {| fact_R := (true_rel, normal); fact_args := [Bobj false] |} hyps2.
 
 Lemma obviously_non_intersecting_comm r1 r2 :
   obviously_non_intersecting r1 r2 ->
   obviously_non_intersecting r2 r1.
 Proof.
   cbv [obviously_non_intersecting]. intros.
-  specialize (H _ _ _ _ _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+  specialize (H _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
   destruct H; auto.
 Qed.
 
-Definition pairwise_ni := pairs_satisfy obviously_non_intersecting.
+(* Definition pairwise_ni := pairs_satisfy obviously_non_intersecting. *)
 
-Inductive pairwise_ni' : list rule -> Prop :=
-| pni_nil : pairwise_ni' []
-| pni_cons r1 p :
-  Forall (obviously_non_intersecting r1) p ->
-  pairwise_ni' p ->
-  pairwise_ni' (r1 :: p).
+(* Inductive pairwise_ni' : list rule -> Prop := *)
+(* | pni_nil : pairwise_ni' [] *)
+(* | pni_cons r1 p : *)
+(*   Forall (obviously_non_intersecting r1) p -> *)
+(*   pairwise_ni' p -> *)
+(*   pairwise_ni' (r1 :: p). *)
 
-Lemma pairwise_ni'_sound p :
-  pairwise_ni' p ->
-  pairwise_ni p.
-Proof.
-  cbv [pairwise_ni pairs_satisfy].
-  induction 1; simpl; [solve [intuition] |]. intros.
-  rewrite Forall_forall in H.
-  destruct H1, H2; subst; auto using obviously_non_intersecting_comm.
-Qed.
+(* Lemma pairwise_ni'_sound p : *)
+(*   pairwise_ni' p -> *)
+(*   pairwise_ni p. *)
+(* Proof. *)
+(*   cbv [pairwise_ni pairs_satisfy]. *)
+(*   induction 1; simpl; [solve [intuition] |]. intros. *)
+(*   rewrite Forall_forall in H. *)
+(*   destruct H1, H2; subst; auto using obviously_non_intersecting_comm. *)
+(* Qed. *)
 
-Lemma pairwise_ni_incl p1 p2 :
-  incl p1 p2 ->
-  pairwise_ni p2 ->
-  pairwise_ni p1.
-Proof. cbv [pairwise_ni pairs_satisfy]. auto. Qed.
+(* Lemma pairwise_ni_incl p1 p2 : *)
+(*   incl p1 p2 -> *)
+(*   pairwise_ni p2 -> *)
+(*   pairwise_ni p1. *)
+(* Proof. cbv [pairwise_ni pairs_satisfy]. auto. Qed. *)
 
 Definition good_rel name name' (P : string -> Prop) (true_ok : bool) (R : rel) :=
   match R with
@@ -690,8 +690,20 @@ Definition good_rel name name' (P : string -> Prop) (true_ok : bool) (R : rel) :
   | true_rel => if true_ok then True else False
   end.
 
+Definition hyps_of (r : rule) :=
+  match r with
+  | normal_rule _ rule_hyps => rule_hyps
+  | agg_rule _ _ _ => []
+  end.
+
+Definition concls_of (r : rule) :=
+  match r with
+  | normal_rule rule_concls _ => rule_concls
+  | agg_rule _ _ _ => []
+  end.
+
 Definition good_rule_hyps name name' (P : string -> Prop) (r : rule) :=
-  Forall (fun f => good_rel name name' P true f.(clause_R)) (rule_agg_hyps r ++ r.(rule_hyps)).
+  Forall (fun c => good_rel name name' P true (fst c.(clause_R))) (hyps_of r).
 
 Lemma good_rel_weaken P1 P2 R name1 name2 name'1 true_ok name'2 :
   good_rel name1 name'1 P1 true_ok R ->
@@ -702,7 +714,7 @@ Lemma good_rel_weaken P1 P2 R name1 name2 name'1 true_ok name'2 :
 Proof. cbv [good_rel]. destruct R; auto. lia. Qed.
 
 Definition good_rule_or_out out name name' (P : string -> Prop) (r : rule) :=
-  Forall (fun f => good_rel name name' P false f.(clause_R) \/ f.(clause_R) = out) r.(rule_concls).
+  Forall (fun c => good_rel name name' P false (fst c.(clause_R)) \/ c.(clause_R) = out) (concls_of r).
 
 Lemma good_rule_weaken P1 P2 name1 name2 name'1 name'2 r :
   good_rule_hyps name1 name'1 P1 r ->
@@ -722,30 +734,31 @@ Lemma good_rule_or_out_weaken out name1 name2 name'1 name'2 v r :
   good_rule_or_out out name2 name'2 v r.
 Proof.
   cbv [good_rule]. intros. eapply Forall_impl; eauto. simpl.
-  cbv [good_rel]. intros a. destruct (clause_R a); auto. intuition lia.
+  cbv [good_rel]. intros a. destruct (fst (clause_R a)); auto. intuition lia.
 Qed.
 
-Lemma rule_impl_rel ctx (r : rule) R args hyps agg_hyps :
-  rule_impl' ctx r (R, args) hyps agg_hyps ->
-  exists c, In c r.(rule_concls) /\ c.(clause_R) = R.
+Lemma rule_impl_rel rule_concls rule_hyps f hyps :
+  rule_impl (normal_rule rule_concls rule_hyps : rule) f hyps ->
+  exists c, In c rule_concls /\ c.(clause_R) = f.(fact_R).
 Proof.
   intros H. invert H.
-  apply Exists_exists in H1. fwd. invert H1p1. eauto.
+  apply Exists_exists in H2. fwd.
+  cbv [interp_clause] in *. fwd. eauto.
 Qed.
 
-Lemma pairwise_ni_app p1 p2 :
-  pairwise_ni p1 ->
-  pairwise_ni p2 ->
-  diff_rels p1 p2 ->
-  pairwise_ni (p1 ++ p2).
-Proof.
-  cbv [pairwise_ni pairs_satisfy diff_rels]. intros. rewrite in_app_iff in H2, H3.
-  destruct H2, H3; eauto.
-  - cbv [obviously_non_intersecting]. right. intros. subst.
-    apply rule_impl_rel in H4, H5. fwd. exfalso. intuition eauto.
-  - cbv [obviously_non_intersecting]. right. intros. subst.
-    apply rule_impl_rel in H4, H5. fwd. exfalso. intuition eauto.
-Qed.
+(* Lemma pairwise_ni_app p1 p2 : *)
+(*   pairwise_ni p1 -> *)
+(*   pairwise_ni p2 -> *)
+(*   diff_rels p1 p2 -> *)
+(*   pairwise_ni (p1 ++ p2). *)
+(* Proof. *)
+(*   cbv [pairwise_ni pairs_satisfy diff_rels]. intros. rewrite in_app_iff in H2, H3. *)
+(*   destruct H2, H3; eauto. *)
+(*   - cbv [obviously_non_intersecting]. right. intros. subst. *)
+(*     apply rule_impl_rel in H4, H5. fwd. exfalso. intuition eauto. *)
+(*   - cbv [obviously_non_intersecting]. right. intros. subst. *)
+(*     apply rule_impl_rel in H4, H5. fwd. exfalso. intuition eauto. *)
+(* Qed. *)
 
 (*
   I need to ensure that index and guard expressions only include variables in scope.
@@ -768,14 +781,11 @@ I choose option 3.  I will modify the compiler accordingly.
 I changed my mind; I will do an equivalent slight variation on 3, with the vars_good thing.
  *)
 
-(*TODO factor out the list part at least*)
 Ltac invert_stuff :=
   match goal with
-  | H : rule_impl' _ _ _ _ _ |- _ => invert H
-  | H : interp_fact _ _ _ |- _ => invert H
-  | H : interp_expr _ (fun_expr _ _) _ |- _ => invert H
-  | H : interp_expr _ (var_expr _) _ |- _ => invert H
-  | H : interp_option_agg_expr _ None _ _ |- _ => invert H
+  | H : rule_impl _ _ _ |- _ => invert1 H
+  | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
+  | H : interp_expr _ _ _ |- _ => invert1 H
   | _ => invert_list_stuff
   end.
 
@@ -787,7 +797,7 @@ Inductive idxs_good : list string -> Prop :=
 | idxs_good_cons idxs i lo :
   idxs_good idxs ->
   incl (vars_of_Zexpr lo) idxs ->
-  idxs_good (idxs ++ [i]). Print size_of.
+  idxs_good (idxs ++ [i]).
 
 Lemma map_app_no_dups_incl {B : Type} l1 l2 (f : _ -> B) :
   incl (map f l1 ++ map f l2) (map f (l1 ++/ l2)).
@@ -888,693 +898,693 @@ Ltac prove_rel_diff :=
   end; destruct H as [H|H]; prove_IH_hyp.
 
 Ltac prove_rels_diff :=
-  apply diff_rels_Forall_r; repeat (constructor; [prove_rel_diff|]); try constructor.
+  (*apply diff_rels_Forall_r*) (*TODO*) idtac; repeat (constructor; [prove_rel_diff|]); try constructor.
 
 Hint Extern 3 (_ \in _) => solve [sets] : autosets.
 
-Lemma lower_Sexpr_relnames_good idxs depths n s e hyps n' :
-  lower_Sexpr idxs depths n s = (e, hyps, n') ->
-  Forall (fun f => exists x, x \in vars_of_Sexpr s /\ f.(clause_R) = str_rel x) hyps.
-Proof.
-  revert idxs depths n e hyps n'. induction s; simpl; intros *;
-    repeat destruct_one_match; simpl in *; invert1 1; eauto with autosets.
-  all: apply Forall_app; split; eapply Forall_impl; eauto; simpl; intros; fwd.
-  all: eexists; split; eauto; sets.
-Qed.
+(* Lemma lower_Sexpr_relnames_good idxs depths n s e hyps n' : *)
+(*   lower_Sexpr idxs depths n s = (e, hyps, n') -> *)
+(*   Forall (fun f => exists x, x \in vars_of_Sexpr s /\ f.(clause_R) = str_rel x) hyps. *)
+(* Proof. *)
+(*   revert idxs depths n e hyps n'. induction s; simpl; intros *; *)
+(*     repeat destruct_one_match; simpl in *; invert1 1; eauto with autosets. *)
+(*   all: apply Forall_app; split; eapply Forall_impl; eauto; simpl; intros; fwd. *)
+(*   all: eexists; split; eauto; sets. *)
+(* Qed. *)
 
-Lemma lower_rec_relnames_good e out name idxs depths name' rules :
-  lower_rec e out name idxs depths = (name', rules) ->
-  name <= name' /\ Forall (good_rule_or_out out name name' (fun str => str \in vars_of e)) rules /\ Forall (good_rule_hyps name name' (fun str => str \in referenced_vars e)) rules.
-Proof.
-  revert out name idxs depths name' rules.
-  induction e; simpl; intros *; repeat destr_lower; intros * H; invert H;
-    try apply IHe in E; try apply IHe1 in E; try apply IHe2 in E0; fwd; auto;
-    (ssplit; [lia| |]);
-    repeat match goal with
-    | |- Forall _ (_ ++ _) => apply Forall_app; split
-    | |- Forall _ (_ :: _) => constructor; [solve [prove_good_rule] || solve[prove_good_rule_hyps] |]
-    | |- Forall _ nil => constructor
-    | H: context[good_rule_or_out] |- Forall (good_rule_or_out _ _ _ _) _ =>
-        eapply Forall_impl; [|exact H]; intros;
-        cbv [good_rule_or_out] in *
-    | H: context[good_rule_hyps] |- Forall (good_rule_hyps _ _ _) _ =>
-        eapply Forall_impl; [|exact H]; intros;
-        cbv [good_rule_hyps] in *;
-        try match goal with
-          | H: _ |- _ => rewrite Forall_app in H
-          end; fwd
-    | |- Forall _ _ =>
-        eapply Forall_impl; [  | eassumption ]; simpl;
-        ((intros ?x [?Hx| ?Hx]; try rewrite Hx) || (intros ?x ?Hx; try rewrite Hx))
-      | |- _ \/ _ =>
-          (right; subst; reflexivity) ||
-          (left; simpl; lia) ||
-            (left; simpl; solve[sets]) ||
-            (left; eapply good_rel_weaken; [eassumption|lia|lia|sets])
-      | |- good_rel _ _ _ _ _ => eapply good_rel_weaken; [eassumption|lia|lia|sets]
-      | |- In _ (_ ++ _) => apply in_app_iff; eauto
-      end.
-  constructor; [|constructor]. cbv [good_rule_hyps]. simpl.
-  eapply Forall_impl. 2: eauto using lower_Sexpr_relnames_good. simpl.
-  intros * H. fwd. rewrite Hp1. simpl. assumption.
-Qed.
+(* Lemma lower_rec_relnames_good e out name idxs depths name' rules : *)
+(*   lower_rec e out name idxs depths = (name', rules) -> *)
+(*   name <= name' /\ Forall (good_rule_or_out out name name' (fun str => str \in vars_of e)) rules /\ Forall (good_rule_hyps name name' (fun str => str \in referenced_vars e)) rules. *)
+(* Proof. *)
+(*   revert out name idxs depths name' rules. *)
+(*   induction e; simpl; intros *; repeat destr_lower; intros * H; invert H; *)
+(*     try apply IHe in E; try apply IHe1 in E; try apply IHe2 in E0; fwd; auto; *)
+(*     (ssplit; [lia| |]); *)
+(*     repeat match goal with *)
+(*     | |- Forall _ (_ ++ _) => apply Forall_app; split *)
+(*     | |- Forall _ (_ :: _) => constructor; [solve [prove_good_rule] || solve[prove_good_rule_hyps] |] *)
+(*     | |- Forall _ nil => constructor *)
+(*     | H: context[good_rule_or_out] |- Forall (good_rule_or_out _ _ _ _) _ => *)
+(*         eapply Forall_impl; [|exact H]; intros; *)
+(*         cbv [good_rule_or_out] in * *)
+(*     | H: context[good_rule_hyps] |- Forall (good_rule_hyps _ _ _) _ => *)
+(*         eapply Forall_impl; [|exact H]; intros; *)
+(*         cbv [good_rule_hyps] in *; *)
+(*         try match goal with *)
+(*           | H: _ |- _ => rewrite Forall_app in H *)
+(*           end; fwd *)
+(*     | |- Forall _ _ => *)
+(*         eapply Forall_impl; [  | eassumption ]; simpl; *)
+(*         ((intros ?x [?Hx| ?Hx]; try rewrite Hx) || (intros ?x ?Hx; try rewrite Hx)) *)
+(*       | |- _ \/ _ => *)
+(*           (right; subst; reflexivity) || *)
+(*           (left; simpl; lia) || *)
+(*             (left; simpl; solve[sets]) || *)
+(*             (left; eapply good_rel_weaken; [eassumption|lia|lia|sets]) *)
+(*       | |- good_rel _ _ _ _ _ => eapply good_rel_weaken; [eassumption|lia|lia|sets] *)
+(*       | |- In _ (_ ++ _) => apply in_app_iff; eauto *)
+(*       end. *)
+(*   constructor; [|constructor]. cbv [good_rule_hyps]. simpl. *)
+(*   eapply Forall_impl. 2: eauto using lower_Sexpr_relnames_good. simpl. *)
+(*   intros * H. fwd. rewrite Hp1. simpl. assumption. *)
+(* Qed. *)
 
-Lemma lower_functional_rec e out name idxs depths :
-  idxs_good idxs ->
-  vars_good idxs e ->
-  ~ (exists out', out' \in vars_of e /\ out = str_rel out') ->
-  out_smaller out name ->
-  let (name', rules) := lower_rec e out name idxs depths in
-  pairwise_ni rules.
-Proof.
-  revert out name idxs depths.
-  induction e;
-    simpl; intros out name idxs depths Hidxs Hvars_good Hout1 Hout2; invert Hvars_good;
-    repeat destr_lower;
-    try match goal with
-      | H: _ = (_, _), G: _ = (_, _) |- _ => let H' := fresh "H00" in pose proof H as H'; apply lower_rec_relnames_good in H; let G' := fresh "G00" in pose proof G as G'; apply lower_rec_relnames_good in G; destruct H as (?&?&_); destruct G as (?&?&_)
-      | H: _ = (_, _) |- _ => let H' := fresh "H00" in pose proof H as H'; apply lower_rec_relnames_good in H; destruct H as (?&?&_)
-    end; fwd;
-    try (prove_IH_hyps IHe || (prove_IH_hyps IHe1; prove_IH_hyps IHe2)).
-  - auto.
-  - apply pairwise_ni_app; [assumption|..].
-    + apply pairwise_ni'_sound. repeat constructor.
-    + prove_rels_diff.
-  - apply pairwise_ni_app; auto.
-    + apply pairwise_ni'_sound. constructor.
-      { constructor.
-        { cbv [obviously_non_intersecting]. intros.
-          repeat (invert_stuff; simpl in * ).
-          (*from HA and HB, i want to conclude that ctx and ctx0 agree on idxs*)
-          match goal with
-          | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ =>
-              rename H1 into HA; rename H2 into HB
-          end.
-          apply Forall2_app_inv_l in HA, HB. fwd. clear HAp1 HBp1.
-          assert (l1' = l1'0).
-          { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0.
-            pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-            fwd. auto. }
-          subst. clear HAp2.
-          assert (Forall (agree_on ctx' ctx'0) (map inl idxs)) as H'.
-          { eapply Forall2_and in HAp0; [|eassumption].
-            apply Forall2_forget_r in HAp0. rewrite Forall_map in HAp0.
-            eapply Forall_impl; [|eassumption]. simpl. intros a Ha. fwd.
-            invert Hap1. invert Hap2. cbv [agree_on]. eauto using Logic.eq_trans. }
-          rewrite Forall_map in H'. eapply incl_Forall in H'; eauto.
-          rewrite <- Forall_map in H'.
-          eapply incl_Forall in H'. 2: apply lower_guard_keeps_vars.
-          epose proof interp_expr_agree_on as H''.
-          epose proof (H'' _ _ _ _) as H''.
-          specialize' H''. 2: specialize (H'' ltac:(eassumption)). 1: eassumption.
-          epose proof interp_expr_det as H'''.
-          match goal with
-          | H1: _, H2: _ |- _ => specialize (H''' _ _ _ _ H1 H2)
-          end.
-          subst. clear. destruct b; auto. }
-        constructor. }
-      repeat constructor.
-    + prove_rels_diff.
-  - apply pairwise_ni_app; auto. cbv [diff_rels].
-    intros r1 r2 c1 c2 Hr1 Hr2 Hc1 Hc2. rewrite Forall_forall in *.
-    match goal with
-    | H1: _ , H2: _ |- _ => apply H1 in Hr1; apply H2 in Hr2
-    end. (*i gues this is quadratic?*)
-    cbv [good_rule_or_out] in Hr1, Hr2.
-    rewrite Forall_forall in Hr1, Hr2. apply Hr1 in Hc1. apply Hr2 in Hc2.
-    clear Hr1 Hr2. move Hout1 at bottom. move Hout2 at bottom.
-    intros H'. rewrite H' in *. clear H'. cbv [out_smaller] in Hout2.
-    destruct Hc1 as [Hc1|Hc1]; destruct Hc2 as [Hc2|Hc2].
-    + cbv [good_rel] in Hc1, Hc2. destruct (clause_R c2); try congruence.
-      -- sets.
-      -- lia.
-    + subst. destruct (clause_R c2); try congruence.
-      -- simpl in Hc1. apply Hout1. exists s. intuition auto. sets.
-      -- simpl in Hc1. lia.
-    + destruct (clause_R c2); try congruence. simpl in Hc2. invert Hc1.
-      Fail Fail auto. sets.
-    + subst. rewrite Hc1 in *. apply Hout1. eexists. intuition eauto. sets.
-  - apply pairwise_ni_app; [|apply pairwise_ni_app|]; auto.
-    + apply pairwise_ni'_sound. constructor.
-      { constructor.
-        { cbv [obviously_non_intersecting]. intros. subst.
-          repeat (invert_stuff; simpl in * ).
-          (*from HA and HB, i want to conclude that ctx and ctx0 agree on idxs*)
-          match goal with
-          | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ =>
-              rename H1 into HA; rename H2 into HB
-          end.
-          apply Forall2_app_inv_l in HA, HB. fwd.
-          assert (l1' = l1'0).
-          { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0.
-            pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-            fwd. auto. }
-          subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst.
-          invert HAp1. invert HBp1. repeat invert_stuff.
-          repeat match goal with
-                 | H: map.get _ _ = Some _ |- _ => rewrite H in *
-                 end.
-          repeat match goal with
-                 | H : Some _ = Some _ |- _ => invert H
-                 end.
-          remember (Z.of_nat _) as blah eqn:Eblah. clear Eblah.
-          match goal with
-          | |- context[(?a <? ?b)%Z] =>
-              destr (a <? b)%Z; destr (b <=? a)%Z; auto; lia
-          end. }
-        constructor. }
-      repeat constructor.
-    + prove_rels_diff.
-    + apply diff_rels_app_r.
-      -- cbv [diff_rels].
-         intros r1 r2 c1 c2 Hr1 Hr2 Hc1 Hc2. rewrite Forall_forall in *.
-         match goal with
-         | H1: _ , H2: _ |- _ => apply H1 in Hr1; apply H2 in Hr2
-         end.
-         cbv [good_rule_or_out] in Hr1, Hr2.
-         rewrite Forall_forall in Hr1, Hr2. apply Hr1 in Hc1. apply Hr2 in Hc2.
-         clear Hr1 Hr2. move Hout1 at bottom. move Hout2 at bottom.
-         intros H'. rewrite H' in *. clear H'. cbv [out_smaller] in Hout2.
-         destruct Hc1 as [Hc1|Hc1]; destruct Hc2 as [Hc2|Hc2].
-         ++ cbv [good_rel] in Hc1, Hc2. destruct (clause_R c2); try congruence.
-            --- sets.
-            --- lia.
-         ++ subst. destruct (clause_R c2); try congruence. invert Hc2. simpl in Hc1. lia.
-         ++ rewrite Hc1 in Hc2. simpl in Hc2. lia.
-         ++ rewrite Hc1 in Hc2. invert Hc2. lia.
-      -- prove_rels_diff.
-  - apply pairwise_ni_app; auto.
-    + apply pairwise_ni'_sound. repeat constructor.
-    + prove_rels_diff.
-  - apply pairwise_ni_app; auto.
-    + apply pairwise_ni'_sound. constructor.
-      -- simpl. constructor; [|constructor].
-         cbv [obviously_non_intersecting]. intros. subst.
-         repeat (invert_stuff; simpl in * ).
-         (*want to conclude that ctxs agree on dimvar1 and dimvar2*)
-         match goal with
-          | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ =>
-              rename H1 into HA; rename H2 into HB
-          end.
-          apply Forall2_app_inv_l in HA, HB. fwd.
-         assert (l1' = l1'0).
-         { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0.
-           pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-           fwd. auto. }
-         subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst.
-         repeat (invert_stuff; simpl in * ).
-         remember (match sizeof e with | [] => 0 | _ => _ end) as x eqn:Ex. clear Ex.
-         repeat match goal with
-                | H: map.get _ _ = Some _ |- _ => rewrite H in *
-                end.
-         repeat match goal with
-                | H : Some _ = Some _ |- _ => invert H
-                end.
-         remember (Z.of_nat x / _)%Z as xx eqn:Exx. remember (Z.of_nat x mod _)%Z as yy eqn:Eyy.
-         clear Exx Eyy. rewrite Z.eqb_refl. destruct (yy <=? _)%Z; auto.
-      -- repeat constructor.
-    + prove_rels_diff.
-  - apply pairwise_ni_app; auto.
-    + apply pairwise_ni'_sound. repeat constructor.
-    + prove_rels_diff.
-  - auto.
-  - apply pairwise_ni_app; auto.
-    + apply pairwise_ni'_sound. repeat constructor.
-    + prove_rels_diff.
-  - apply pairwise_ni_app; auto.
-    + apply pairwise_ni'_sound. constructor.
-      -- simpl. constructor; [|constructor].
-         cbv [obviously_non_intersecting]. intros. subst.
-         repeat (invert_stuff; simpl in * ).
-         (*want to conclude that ctxs agree on dimvar1 and dimvar2*)
-         match goal with
-          | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ =>
-              rename H1 into HA; rename H2 into HB
-          end.
-         apply Forall2_app_inv_l in HA, HB. fwd.
-         assert (l1' = l1'0).
-         { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0.
-           pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-           fwd. auto. }
-         subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst.
-         repeat (invert_stuff; simpl in * ).
-         remember (Z.of_nat match sizeof e with | [] => 0 | _ => _ end) as x eqn:Ex. clear Ex.
-         repeat match goal with
-                | H: map.get _ _ = Some _ |- _ => rewrite H in *
-                end.
-         repeat match goal with
-                | H : Some _ = Some _ |- _ => invert H
-                end.
-         match goal with
-         | |- context[(?a <? ?b)%Z] =>
-             destr (a <? b)%Z; destr (b <=? a)%Z; auto; lia
-         end.
-      -- repeat constructor.
-    + prove_rels_diff.
-  - apply pairwise_ni_app; auto.
-    + apply pairwise_ni'_sound. constructor.
-      -- simpl. constructor; [|constructor].
-         cbv [obviously_non_intersecting]. intros. subst.
-         repeat (invert_stuff; simpl in * ).
-         (*want to conclude that ctxs agree on dimvar1 and dimvar2*)
-         match goal with
-          | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ =>
-              rename H1 into HA; rename H2 into HB
-          end.
-         apply Forall2_app_inv_l in HA, HB. fwd.
-         assert (l1' = l1'0).
-         { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0.
-           pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-           fwd. auto. }
-         subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst.
-         repeat (invert_stuff; simpl in * ).
-         remember (Z.of_nat _) as x eqn:Ex. clear Ex.
-         repeat match goal with
-                | H: map.get _ _ = Some _ |- _ => rewrite H in *
-                end.
-         repeat match goal with
-                | H : Some _ = Some _ |- _ => invert H
-                end.
-         match goal with
-         | |- context[(?a <? ?b)%Z] =>
-             destr (a <? b)%Z; destr (b <=? a)%Z; auto; lia
-         end.
-      -- repeat constructor.
-    + prove_rels_diff.
-  - destruct (lower_Sexpr idxs depths 0 s) as ((val&hyps)&_).
-    apply pairwise_ni'_sound. repeat constructor.
-Qed.
+(* Lemma lower_functional_rec e out name idxs depths : *)
+(*   idxs_good idxs -> *)
+(*   vars_good idxs e -> *)
+(*   ~ (exists out', out' \in vars_of e /\ out = str_rel out') -> *)
+(*   out_smaller out name -> *)
+(*   let (name', rules) := lower_rec e out name idxs depths in *)
+(*   pairwise_ni rules. *)
+(* Proof. *)
+(*   revert out name idxs depths. *)
+(*   induction e; *)
+(*     simpl; intros out name idxs depths Hidxs Hvars_good Hout1 Hout2; invert Hvars_good; *)
+(*     repeat destr_lower; *)
+(*     try match goal with *)
+(*       | H: _ = (_, _), G: _ = (_, _) |- _ => let H' := fresh "H00" in pose proof H as H'; apply lower_rec_relnames_good in H; let G' := fresh "G00" in pose proof G as G'; apply lower_rec_relnames_good in G; destruct H as (?&?&_); destruct G as (?&?&_) *)
+(*       | H: _ = (_, _) |- _ => let H' := fresh "H00" in pose proof H as H'; apply lower_rec_relnames_good in H; destruct H as (?&?&_) *)
+(*     end; fwd; *)
+(*     try (prove_IH_hyps IHe || (prove_IH_hyps IHe1; prove_IH_hyps IHe2)). *)
+(*   - auto. *)
+(*   - apply pairwise_ni_app; [assumption|..]. *)
+(*     + apply pairwise_ni'_sound. repeat constructor. *)
+(*     + prove_rels_diff. *)
+(*   - apply pairwise_ni_app; auto. *)
+(*     + apply pairwise_ni'_sound. constructor. *)
+(*       { constructor. *)
+(*         { cbv [obviously_non_intersecting]. intros. *)
+(*           repeat (invert_stuff; simpl in * ). *)
+(*           (*from HA and HB, i want to conclude that ctx and ctx0 agree on idxs*) *)
+(*           match goal with *)
+(*           | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ => *)
+(*               rename H1 into HA; rename H2 into HB *)
+(*           end. *)
+(*           apply Forall2_app_inv_l in HA, HB. fwd. clear HAp1 HBp1. *)
+(*           assert (l1' = l1'0). *)
+(*           { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0. *)
+(*             pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)). *)
+(*             fwd. auto. } *)
+(*           subst. clear HAp2. *)
+(*           assert (Forall (agree_on ctx' ctx'0) (map inl idxs)) as H'. *)
+(*           { eapply Forall2_and in HAp0; [|eassumption]. *)
+(*             apply Forall2_forget_r in HAp0. rewrite Forall_map in HAp0. *)
+(*             eapply Forall_impl; [|eassumption]. simpl. intros a Ha. fwd. *)
+(*             invert Hap1. invert Hap2. cbv [agree_on]. eauto using Logic.eq_trans. } *)
+(*           rewrite Forall_map in H'. eapply incl_Forall in H'; eauto. *)
+(*           rewrite <- Forall_map in H'. *)
+(*           eapply incl_Forall in H'. 2: apply lower_guard_keeps_vars. *)
+(*           epose proof interp_expr_agree_on as H''. *)
+(*           epose proof (H'' _ _ _ _) as H''. *)
+(*           specialize' H''. 2: specialize (H'' ltac:(eassumption)). 1: eassumption. *)
+(*           epose proof interp_expr_det as H'''. *)
+(*           match goal with *)
+(*           | H1: _, H2: _ |- _ => specialize (H''' _ _ _ _ H1 H2) *)
+(*           end. *)
+(*           subst. clear. destruct b; auto. } *)
+(*         constructor. } *)
+(*       repeat constructor. *)
+(*     + prove_rels_diff. *)
+(*   - apply pairwise_ni_app; auto. cbv [diff_rels]. *)
+(*     intros r1 r2 c1 c2 Hr1 Hr2 Hc1 Hc2. rewrite Forall_forall in *. *)
+(*     match goal with *)
+(*     | H1: _ , H2: _ |- _ => apply H1 in Hr1; apply H2 in Hr2 *)
+(*     end. (*i gues this is quadratic?*) *)
+(*     cbv [good_rule_or_out] in Hr1, Hr2. *)
+(*     rewrite Forall_forall in Hr1, Hr2. apply Hr1 in Hc1. apply Hr2 in Hc2. *)
+(*     clear Hr1 Hr2. move Hout1 at bottom. move Hout2 at bottom. *)
+(*     intros H'. rewrite H' in *. clear H'. cbv [out_smaller] in Hout2. *)
+(*     destruct Hc1 as [Hc1|Hc1]; destruct Hc2 as [Hc2|Hc2]. *)
+(*     + cbv [good_rel] in Hc1, Hc2. destruct (clause_R c2); try congruence. *)
+(*       -- sets. *)
+(*       -- lia. *)
+(*     + subst. destruct (clause_R c2); try congruence. *)
+(*       -- simpl in Hc1. apply Hout1. exists s. intuition auto. sets. *)
+(*       -- simpl in Hc1. lia. *)
+(*     + destruct (clause_R c2); try congruence. simpl in Hc2. invert Hc1. *)
+(*       Fail Fail auto. sets. *)
+(*     + subst. rewrite Hc1 in *. apply Hout1. eexists. intuition eauto. sets. *)
+(*   - apply pairwise_ni_app; [|apply pairwise_ni_app|]; auto. *)
+(*     + apply pairwise_ni'_sound. constructor. *)
+(*       { constructor. *)
+(*         { cbv [obviously_non_intersecting]. intros. subst. *)
+(*           repeat (invert_stuff; simpl in * ). *)
+(*           (*from HA and HB, i want to conclude that ctx and ctx0 agree on idxs*) *)
+(*           match goal with *)
+(*           | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ => *)
+(*               rename H1 into HA; rename H2 into HB *)
+(*           end. *)
+(*           apply Forall2_app_inv_l in HA, HB. fwd. *)
+(*           assert (l1' = l1'0). *)
+(*           { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0. *)
+(*             pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)). *)
+(*             fwd. auto. } *)
+(*           subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst. *)
+(*           invert HAp1. invert HBp1. repeat invert_stuff. *)
+(*           repeat match goal with *)
+(*                  | H: map.get _ _ = Some _ |- _ => rewrite H in * *)
+(*                  end. *)
+(*           repeat match goal with *)
+(*                  | H : Some _ = Some _ |- _ => invert H *)
+(*                  end. *)
+(*           remember (Z.of_nat _) as blah eqn:Eblah. clear Eblah. *)
+(*           match goal with *)
+(*           | |- context[(?a <? ?b)%Z] => *)
+(*               destr (a <? b)%Z; destr (b <=? a)%Z; auto; lia *)
+(*           end. } *)
+(*         constructor. } *)
+(*       repeat constructor. *)
+(*     + prove_rels_diff. *)
+(*     + apply diff_rels_app_r. *)
+(*       -- cbv [diff_rels]. *)
+(*          intros r1 r2 c1 c2 Hr1 Hr2 Hc1 Hc2. rewrite Forall_forall in *. *)
+(*          match goal with *)
+(*          | H1: _ , H2: _ |- _ => apply H1 in Hr1; apply H2 in Hr2 *)
+(*          end. *)
+(*          cbv [good_rule_or_out] in Hr1, Hr2. *)
+(*          rewrite Forall_forall in Hr1, Hr2. apply Hr1 in Hc1. apply Hr2 in Hc2. *)
+(*          clear Hr1 Hr2. move Hout1 at bottom. move Hout2 at bottom. *)
+(*          intros H'. rewrite H' in *. clear H'. cbv [out_smaller] in Hout2. *)
+(*          destruct Hc1 as [Hc1|Hc1]; destruct Hc2 as [Hc2|Hc2]. *)
+(*          ++ cbv [good_rel] in Hc1, Hc2. destruct (clause_R c2); try congruence. *)
+(*             --- sets. *)
+(*             --- lia. *)
+(*          ++ subst. destruct (clause_R c2); try congruence. invert Hc2. simpl in Hc1. lia. *)
+(*          ++ rewrite Hc1 in Hc2. simpl in Hc2. lia. *)
+(*          ++ rewrite Hc1 in Hc2. invert Hc2. lia. *)
+(*       -- prove_rels_diff. *)
+(*   - apply pairwise_ni_app; auto. *)
+(*     + apply pairwise_ni'_sound. repeat constructor. *)
+(*     + prove_rels_diff. *)
+(*   - apply pairwise_ni_app; auto. *)
+(*     + apply pairwise_ni'_sound. constructor. *)
+(*       -- simpl. constructor; [|constructor]. *)
+(*          cbv [obviously_non_intersecting]. intros. subst. *)
+(*          repeat (invert_stuff; simpl in * ). *)
+(*          (*want to conclude that ctxs agree on dimvar1 and dimvar2*) *)
+(*          match goal with *)
+(*           | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ => *)
+(*               rename H1 into HA; rename H2 into HB *)
+(*           end. *)
+(*           apply Forall2_app_inv_l in HA, HB. fwd. *)
+(*          assert (l1' = l1'0). *)
+(*          { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0. *)
+(*            pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)). *)
+(*            fwd. auto. } *)
+(*          subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst. *)
+(*          repeat (invert_stuff; simpl in * ). *)
+(*          remember (match sizeof e with | [] => 0 | _ => _ end) as x eqn:Ex. clear Ex. *)
+(*          repeat match goal with *)
+(*                 | H: map.get _ _ = Some _ |- _ => rewrite H in * *)
+(*                 end. *)
+(*          repeat match goal with *)
+(*                 | H : Some _ = Some _ |- _ => invert H *)
+(*                 end. *)
+(*          remember (Z.of_nat x / _)%Z as xx eqn:Exx. remember (Z.of_nat x mod _)%Z as yy eqn:Eyy. *)
+(*          clear Exx Eyy. rewrite Z.eqb_refl. destruct (yy <=? _)%Z; auto. *)
+(*       -- repeat constructor. *)
+(*     + prove_rels_diff. *)
+(*   - apply pairwise_ni_app; auto. *)
+(*     + apply pairwise_ni'_sound. repeat constructor. *)
+(*     + prove_rels_diff. *)
+(*   - auto. *)
+(*   - apply pairwise_ni_app; auto. *)
+(*     + apply pairwise_ni'_sound. repeat constructor. *)
+(*     + prove_rels_diff. *)
+(*   - apply pairwise_ni_app; auto. *)
+(*     + apply pairwise_ni'_sound. constructor. *)
+(*       -- simpl. constructor; [|constructor]. *)
+(*          cbv [obviously_non_intersecting]. intros. subst. *)
+(*          repeat (invert_stuff; simpl in * ). *)
+(*          (*want to conclude that ctxs agree on dimvar1 and dimvar2*) *)
+(*          match goal with *)
+(*           | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ => *)
+(*               rename H1 into HA; rename H2 into HB *)
+(*           end. *)
+(*          apply Forall2_app_inv_l in HA, HB. fwd. *)
+(*          assert (l1' = l1'0). *)
+(*          { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0. *)
+(*            pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)). *)
+(*            fwd. auto. } *)
+(*          subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst. *)
+(*          repeat (invert_stuff; simpl in * ). *)
+(*          remember (Z.of_nat match sizeof e with | [] => 0 | _ => _ end) as x eqn:Ex. clear Ex. *)
+(*          repeat match goal with *)
+(*                 | H: map.get _ _ = Some _ |- _ => rewrite H in * *)
+(*                 end. *)
+(*          repeat match goal with *)
+(*                 | H : Some _ = Some _ |- _ => invert H *)
+(*                 end. *)
+(*          match goal with *)
+(*          | |- context[(?a <? ?b)%Z] => *)
+(*              destr (a <? b)%Z; destr (b <=? a)%Z; auto; lia *)
+(*          end. *)
+(*       -- repeat constructor. *)
+(*     + prove_rels_diff. *)
+(*   - apply pairwise_ni_app; auto. *)
+(*     + apply pairwise_ni'_sound. constructor. *)
+(*       -- simpl. constructor; [|constructor]. *)
+(*          cbv [obviously_non_intersecting]. intros. subst. *)
+(*          repeat (invert_stuff; simpl in * ). *)
+(*          (*want to conclude that ctxs agree on dimvar1 and dimvar2*) *)
+(*          match goal with *)
+(*           | H1: Forall2 _ (_ ++ _) _, H2: Forall2 _ (_ ++ _) _ |- _ => *)
+(*               rename H1 into HA; rename H2 into HB *)
+(*           end. *)
+(*          apply Forall2_app_inv_l in HA, HB. fwd. *)
+(*          assert (l1' = l1'0). *)
+(*          { apply Forall2_length in HAp0, HBp0. rewrite HBp0 in HAp0. *)
+(*            pose proof (invert_app _ _ _ _ ltac:(eassumption) ltac:(eassumption)). *)
+(*            fwd. auto. } *)
+(*          subst. clear HAp0 HBp0. apply app_inv_head in HAp2. subst. *)
+(*          repeat (invert_stuff; simpl in * ). *)
+(*          remember (Z.of_nat _) as x eqn:Ex. clear Ex. *)
+(*          repeat match goal with *)
+(*                 | H: map.get _ _ = Some _ |- _ => rewrite H in * *)
+(*                 end. *)
+(*          repeat match goal with *)
+(*                 | H : Some _ = Some _ |- _ => invert H *)
+(*                 end. *)
+(*          match goal with *)
+(*          | |- context[(?a <? ?b)%Z] => *)
+(*              destr (a <? b)%Z; destr (b <=? a)%Z; auto; lia *)
+(*          end. *)
+(*       -- repeat constructor. *)
+(*     + prove_rels_diff. *)
+(*   - destruct (lower_Sexpr idxs depths 0 s) as ((val&hyps)&_). *)
+(*     apply pairwise_ni'_sound. repeat constructor. *)
+(* Qed. *)
 
-Lemma good_not_in_snd p name name' P R :
-  ~good_rel name name' P true R ->
-  Forall (good_rule_hyps name name' P) p ->
-  not_in_snd (rel_graph p) R.
-Proof.
-  intros H1 H2. cbv [not_in_snd]. intros H'. apply H1. apply in_map_iff in H'.
-  fwd. rewrite Forall_forall in H2. cbv [rel_graph] in H'p1.
-  rewrite in_flat_map in H'p1. fwd. apply H2 in H'p1p0. cbv [edges_of_rule] in H'p1p1.
-  cbv [good_rule_hyps] in H'p1p0. rewrite in_flat_map in H'p1p1. fwd.
-  rewrite in_map_iff in H'p1p1p1. fwd. rewrite Forall_forall in H'p1p0. apply H'p1p0.
-  assumption.
-Qed.
+(* Lemma good_not_in_snd p name name' P R : *)
+(*   ~good_rel name name' P true R -> *)
+(*   Forall (good_rule_hyps name name' P) p -> *)
+(*   not_in_snd (rel_graph p) R. *)
+(* Proof. *)
+(*   intros H1 H2. cbv [not_in_snd]. intros H'. apply H1. apply in_map_iff in H'. *)
+(*   fwd. rewrite Forall_forall in H2. cbv [rel_graph] in H'p1. *)
+(*   rewrite in_flat_map in H'p1. fwd. apply H2 in H'p1p0. cbv [edges_of_rule] in H'p1p1. *)
+(*   cbv [good_rule_hyps] in H'p1p0. rewrite in_flat_map in H'p1p1. fwd. *)
+(*   rewrite in_map_iff in H'p1p1p1. fwd. rewrite Forall_forall in H'p1p0. apply H'p1p0. *)
+(*   assumption. *)
+(* Qed. *)
 
-Lemma lower_dag_rec e out name idxs depths name' rules idxs0 :
-  vars_good idxs0 e -> (*this is unnecessarily stong*)
-  ~ (exists out', out' \in vars_of e \cup referenced_vars e /\ out = str_rel out') ->
-  out_smaller out name ->
-  lower_rec e out name idxs depths = (name', rules) ->
-  dag (rel_graph rules).
-Proof.
-  revert out name idxs depths name' rules idxs0.
-  induction e;
-    simpl; intros out name idxs depths name' rules idxs0 Hvars_good Hout1 Hout2;
-    invert Hvars_good;
-    repeat destr_lower; intros H;
-    try match goal with
-      | H: _ = (_, _), G: _ = (_, _) |- _ => let H' := fresh "H00" in pose proof H as H'; apply lower_rec_relnames_good in H; let G' := fresh "G00" in pose proof G as G'; apply lower_rec_relnames_good in G; destruct H as (?&?&?); destruct G as (?&?&?)
-      | H: _ = (_, _) |- _ => let H' := fresh "H00" in pose proof H as H'; apply lower_rec_relnames_good in H; destruct H as (?&_&?)
-      end; fwd;
-    try (prove_IH_hyps IHe || (prove_IH_hyps IHe1; prove_IH_hyps IHe2));
-    cbv [rel_graph] in *; repeat rewrite flat_map_app; simpl; repeat rewrite app_nil_r; simpl.
-  Ltac prove_no_cycles' :=
-    repeat match goal with
-      | |- _ => progress (intros; subst; fwd; cbv [good_rel good_rule_hyps]; simpl in * )
-      | H: context[match ?out with _ => _ end] |- _ => destr out
-      | |- context[match ?out with _ => _ end] => destr out
-      | |- Forall _ (_ :: _) => constructor
-      | |- Forall _ [] => constructor
-      | |- _ => solve [sets]
-      | |- ~_ => intros ?
-      | |- _ /\ _ => split
-      | H: ~_ |- False => apply H; eexists; intuition eauto; []
-      | H: _ \/ _ |- _ => destruct H; [solve[prove_no_cycles'] |]
-      end.
-  Ltac prove_no_cycles :=
-    repeat match goal with
-      | |- _ => eassumption
-      | |- _ => apply dag_cons; repeat rewrite app_nil_r
-      | |- not_in_snd (_ :: _) _ => apply not_in_snd_cons; [prove_no_cycles'|]
-      | |- not_in_snd (_ ++ _) _ => apply not_in_snd_app
-      | |- not_in_snd [] _ => apply not_in_snd_nil
-      | |- not_in_snd _ _ => solve [eapply good_not_in_snd; [|eassumption]; prove_no_cycles']
-      end.
-  all: prove_no_cycles.
-  all: cycle -1.
-  { cbv [edges_of_rule]. simpl. rewrite app_nil_r.
-    apply lower_Sexpr_relnames_good in E. eapply concl_same_dag.
-    apply Forall_map. eapply Forall_impl; [|eassumption]. simpl. intros. fwd.
-    split; eauto. intros H. subst. apply Hout1. eexists. intuition eauto. sets. }
-  { (*should come from the fact that vars_of e2 \cap referenced_vars e1 is empty*)
-    (*that is, concls of rules1 \cap hyps of rules0 is empty*)
-    clear H11 (*hyps or rules1*) H1 (*concls of rules0*). eapply dag_incl.
-    2: { apply Permutation_incl. apply Permutation.Permutation_app_comm. }
-    apply dag_app; auto. cbv [no_cycles]. apply Forall_map. apply Forall_flat_map.
-    eapply Forall_impl; [|eassumption]. intros r Hr.
-    cbv [good_rule_or_out] in Hr. apply Forall_flat_map.
-    eapply Forall_impl; [|eassumption]. simpl. intros. rewrite <- Forall_map.
-    rewrite map_map. simpl. rewrite map_const. apply Forall_repeat.
-    prove_no_cycles. }
-  { rewrite app_assoc. prove_no_cycles.
-    clear H8 H6. (*arbitrary choice, but works with dag'_app*)
-    apply dag_app; auto. cbv [no_cycles]. apply Forall_map. apply Forall_flat_map.
-    eapply Forall_impl; [|eassumption]. intros r Hr.
-    cbv [good_rule_or_out] in Hr. apply Forall_flat_map.
-    eapply Forall_impl; [|eassumption]. simpl. intros. rewrite <- Forall_map.
-    rewrite map_map. simpl. rewrite map_const. apply Forall_repeat.
-    prove_no_cycles. }
-  Unshelve. (*TODO why*) all: exact "".
-Qed.
+(* Lemma lower_dag_rec e out name idxs depths name' rules idxs0 : *)
+(*   vars_good idxs0 e -> (*this is unnecessarily stong*) *)
+(*   ~ (exists out', out' \in vars_of e \cup referenced_vars e /\ out = str_rel out') -> *)
+(*   out_smaller out name -> *)
+(*   lower_rec e out name idxs depths = (name', rules) -> *)
+(*   dag (rel_graph rules). *)
+(* Proof. *)
+(*   revert out name idxs depths name' rules idxs0. *)
+(*   induction e; *)
+(*     simpl; intros out name idxs depths name' rules idxs0 Hvars_good Hout1 Hout2; *)
+(*     invert Hvars_good; *)
+(*     repeat destr_lower; intros H; *)
+(*     try match goal with *)
+(*       | H: _ = (_, _), G: _ = (_, _) |- _ => let H' := fresh "H00" in pose proof H as H'; apply lower_rec_relnames_good in H; let G' := fresh "G00" in pose proof G as G'; apply lower_rec_relnames_good in G; destruct H as (?&?&?); destruct G as (?&?&?) *)
+(*       | H: _ = (_, _) |- _ => let H' := fresh "H00" in pose proof H as H'; apply lower_rec_relnames_good in H; destruct H as (?&_&?) *)
+(*       end; fwd; *)
+(*     try (prove_IH_hyps IHe || (prove_IH_hyps IHe1; prove_IH_hyps IHe2)); *)
+(*     cbv [rel_graph] in *; repeat rewrite flat_map_app; simpl; repeat rewrite app_nil_r; simpl. *)
+(*   Ltac prove_no_cycles' := *)
+(*     repeat match goal with *)
+(*       | |- _ => progress (intros; subst; fwd; cbv [good_rel good_rule_hyps]; simpl in * ) *)
+(*       | H: context[match ?out with _ => _ end] |- _ => destr out *)
+(*       | |- context[match ?out with _ => _ end] => destr out *)
+(*       | |- Forall _ (_ :: _) => constructor *)
+(*       | |- Forall _ [] => constructor *)
+(*       | |- _ => solve [sets] *)
+(*       | |- ~_ => intros ? *)
+(*       | |- _ /\ _ => split *)
+(*       | H: ~_ |- False => apply H; eexists; intuition eauto; [] *)
+(*       | H: _ \/ _ |- _ => destruct H; [solve[prove_no_cycles'] |] *)
+(*       end. *)
+(*   Ltac prove_no_cycles := *)
+(*     repeat match goal with *)
+(*       | |- _ => eassumption *)
+(*       | |- _ => apply dag_cons; repeat rewrite app_nil_r *)
+(*       | |- not_in_snd (_ :: _) _ => apply not_in_snd_cons; [prove_no_cycles'|] *)
+(*       | |- not_in_snd (_ ++ _) _ => apply not_in_snd_app *)
+(*       | |- not_in_snd [] _ => apply not_in_snd_nil *)
+(*       | |- not_in_snd _ _ => solve [eapply good_not_in_snd; [|eassumption]; prove_no_cycles'] *)
+(*       end. *)
+(*   all: prove_no_cycles. *)
+(*   all: cycle -1. *)
+(*   { cbv [edges_of_rule]. simpl. rewrite app_nil_r. *)
+(*     apply lower_Sexpr_relnames_good in E. eapply concl_same_dag. *)
+(*     apply Forall_map. eapply Forall_impl; [|eassumption]. simpl. intros. fwd. *)
+(*     split; eauto. intros H. subst. apply Hout1. eexists. intuition eauto. sets. } *)
+(*   { (*should come from the fact that vars_of e2 \cap referenced_vars e1 is empty*) *)
+(*     (*that is, concls of rules1 \cap hyps of rules0 is empty*) *)
+(*     clear H11 (*hyps or rules1*) H1 (*concls of rules0*). eapply dag_incl. *)
+(*     2: { apply Permutation_incl. apply Permutation.Permutation_app_comm. } *)
+(*     apply dag_app; auto. cbv [no_cycles]. apply Forall_map. apply Forall_flat_map. *)
+(*     eapply Forall_impl; [|eassumption]. intros r Hr. *)
+(*     cbv [good_rule_or_out] in Hr. apply Forall_flat_map. *)
+(*     eapply Forall_impl; [|eassumption]. simpl. intros. rewrite <- Forall_map. *)
+(*     rewrite map_map. simpl. rewrite map_const. apply Forall_repeat. *)
+(*     prove_no_cycles. } *)
+(*   { rewrite app_assoc. prove_no_cycles. *)
+(*     clear H8 H6. (*arbitrary choice, but works with dag'_app*) *)
+(*     apply dag_app; auto. cbv [no_cycles]. apply Forall_map. apply Forall_flat_map. *)
+(*     eapply Forall_impl; [|eassumption]. intros r Hr. *)
+(*     cbv [good_rule_or_out] in Hr. apply Forall_flat_map. *)
+(*     eapply Forall_impl; [|eassumption]. simpl. intros. rewrite <- Forall_map. *)
+(*     rewrite map_map. simpl. rewrite map_const. apply Forall_repeat. *)
+(*     prove_no_cycles. } *)
+(*   Unshelve. (*TODO why*) all: exact "". *)
+(* Qed. *)
 
-Lemma lower_functional' e out :
-  vars_good [] e ->
-  ~(out \in vars_of e) ->
-  pairwise_ni (lower e out).
-Proof.
-  intros H1 H2. pose proof lower_functional_rec as H'.
-  cbv [lower]. epose_dep H'. destr_lower. rewrite E in H'.
-  simpl. apply lower_rec_relnames_good in E. fwd. apply pairwise_ni_app.
-  - apply H'; simpl; eauto.
-    + constructor.
-    + intros ?. fwd. auto.
-  - apply pairwise_ni'_sound. repeat constructor.
-  - apply diff_rels_Forall_r. constructor; [|constructor].
-    rewrite Forall_forall in Ep1. intros r1 c1 c2 Hr1 Hc1 Hc2. simpl in Hc2.
-    destruct Hc2; contradiction || subst. simpl. intros ?. apply Ep1 in Hr1.
-    cbv [good_rule_or_out] in Hr1. rewrite Forall_forall in Hr1. apply Hr1 in Hc1.
-    rewrite H in Hc1. destruct Hc1; try congruence. simpl in H0. contradiction.
-Qed.
+(* Lemma lower_functional' e out : *)
+(*   vars_good [] e -> *)
+(*   ~(out \in vars_of e) -> *)
+(*   pairwise_ni (lower e out). *)
+(* Proof. *)
+(*   intros H1 H2. pose proof lower_functional_rec as H'. *)
+(*   cbv [lower]. epose_dep H'. destr_lower. rewrite E in H'. *)
+(*   simpl. apply lower_rec_relnames_good in E. fwd. apply pairwise_ni_app. *)
+(*   - apply H'; simpl; eauto. *)
+(*     + constructor. *)
+(*     + intros ?. fwd. auto. *)
+(*   - apply pairwise_ni'_sound. repeat constructor. *)
+(*   - apply diff_rels_Forall_r. constructor; [|constructor]. *)
+(*     rewrite Forall_forall in Ep1. intros r1 c1 c2 Hr1 Hc1 Hc2. simpl in Hc2. *)
+(*     destruct Hc2; contradiction || subst. simpl. intros ?. apply Ep1 in Hr1. *)
+(*     cbv [good_rule_or_out] in Hr1. rewrite Forall_forall in Hr1. apply Hr1 in Hc1. *)
+(*     rewrite H in Hc1. destruct Hc1; try congruence. simpl in H0. contradiction. *)
+(* Qed. *)
 
-Lemma lower_dag e out :
-  vars_good [] e ->
-  ~(out \in vars_of e \cup referenced_vars e) ->
-  dag (rel_graph (lower e out)).
-Proof.
-  intros H1 H2. pose proof lower_dag_rec as H'.
-  cbv [lower]. destr_lower. epose_dep H'. rewrite E in H'.
-  simpl. apply lower_rec_relnames_good in E. fwd. cbv [rel_graph]. rewrite flat_map_app.
-  simpl. rewrite app_nil_r. eapply H'; eauto; prove_no_cycles'.
-Qed.
+(* Lemma lower_dag e out : *)
+(*   vars_good [] e -> *)
+(*   ~(out \in vars_of e \cup referenced_vars e) -> *)
+(*   dag (rel_graph (lower e out)). *)
+(* Proof. *)
+(*   intros H1 H2. pose proof lower_dag_rec as H'. *)
+(*   cbv [lower]. destr_lower. epose_dep H'. rewrite E in H'. *)
+(*   simpl. apply lower_rec_relnames_good in E. fwd. cbv [rel_graph]. rewrite flat_map_app. *)
+(*   simpl. rewrite app_nil_r. eapply H'; eauto; prove_no_cycles'. *)
+(* Qed. *)
 
-Instance query_sig : query_signature rel :=
-  { outs R :=
-      match R with
-      | str_rel _ => 1
-      | nat_rel _ => 1
-      | true_rel => 0 (*why did i choose to make this zero instead of 1?*)
-      end }.
+(* Instance query_sig : query_signature rel := *)
+(*   { outs R := *)
+(*       match R with *)
+(*       | str_rel _ => 1 *)
+(*       | nat_rel _ => 1 *)
+(*       | true_rel => 0 (*why did i choose to make this zero instead of 1?*) *)
+(*       end }. *)
 
-Ltac t0 tac :=
-    repeat match goal with
-      | H: exists _, _ |- _ => destruct H
-      | H: inr _ = inr _ |- _ => invert H
-      | H: (_, _, _) = (_, _, _) |- _ => invert H
-      | H: _ /\ _ |- _ => destruct H
-      | H: Some _ = Some _ |- _ => invert H
-      | H: In _ (map _ _) |- _ => apply in_map_iff in H
-      | H: In _ (seq _ _) |- _ => apply in_seq in H
-      | H: In _ (flat_map _ _) |- _ => apply in_flat_map in H
-      | H: appears_in_rule _ _ |- _ => destruct H as [? | [? | ?] ]
-      | |- _ => progress (intros; cbv [good_agg_expr vars_of_fact] in *; simpl in *; subst)
-      | |- ~_ => intro
-      | H: In _ (vars_of_expr (lower_idx _)) |- _ => apply lower_idx_keeps_vars in H
-      | H: In _ (vars_of_expr (lower_guard _)) |- _ => apply lower_guard_keeps_vars in H
-      | H: In _ ?l, H': incl ?l ?l' |- _ => apply H' in H
-      | |- False \/ _ => right
-      | H: False \/ _ |- _ => destruct H; [contradiction|]
-      | H: in_set_hyps _ [] \/ _ |- _ => destruct H as [H|H];
-                                      [exfalso; solve[eauto using not_in_set_hyps_nil] |]
-      | H: _ \/ False |- _ => destruct H; [|contradiction]
-      | H: appears_in_agg_expr _ _ |- _ => destruct H as [? | (?&[?|?]) ]
-      | H: _ = _ \/ _ |- _ => destruct H; subst
-      | |- (exists _, inl _ = inr _ /\ _) \/ _ => right
-      | |- _ = _ /\ _ => split; [reflexivity|]
-      | |- _ /\ _ => split
-      | H: In _ (_ ++ _) |- _ => rewrite in_app_iff in H; destruct H
-      | |- _ => congruence || lia
-      | |- _ => destruct_one_match_hyp
-      | |- _ => destruct_one_match
-      | |- In _ (_ ++ _) => apply in_app_iff
-      | |- In _ (map _ _) => apply in_map_iff
-      | |- In _ (flat_map _ _) => apply in_flat_map
-      | |- In _ (seq _ _) => apply in_seq
-      | H: ~_ |- _ => solve [exfalso; apply H; eauto]
-      | |- _ => solve[eauto]
-      | |- _ \/ _ => (left; solve[t0 tac]) || (right; solve [t0 tac])
-      | |- exists _, _ => eexists; t0 tac; tac
-      end.
+(* Ltac t0 tac := *)
+(*     repeat match goal with *)
+(*       | H: exists _, _ |- _ => destruct H *)
+(*       | H: inr _ = inr _ |- _ => invert H *)
+(*       | H: (_, _, _) = (_, _, _) |- _ => invert H *)
+(*       | H: _ /\ _ |- _ => destruct H *)
+(*       | H: Some _ = Some _ |- _ => invert H *)
+(*       | H: In _ (map _ _) |- _ => apply in_map_iff in H *)
+(*       | H: In _ (seq _ _) |- _ => apply in_seq in H *)
+(*       | H: In _ (flat_map _ _) |- _ => apply in_flat_map in H *)
+(*       | H: appears_in_rule _ _ |- _ => destruct H as [? | [? | ?] ] *)
+(*       | |- _ => progress (intros; cbv [good_agg_expr vars_of_fact] in *; simpl in *; subst) *)
+(*       | |- ~_ => intro *)
+(*       | H: In _ (vars_of_expr (lower_idx _)) |- _ => apply lower_idx_keeps_vars in H *)
+(*       | H: In _ (vars_of_expr (lower_guard _)) |- _ => apply lower_guard_keeps_vars in H *)
+(*       | H: In _ ?l, H': incl ?l ?l' |- _ => apply H' in H *)
+(*       | |- False \/ _ => right *)
+(*       | H: False \/ _ |- _ => destruct H; [contradiction|] *)
+(*       | H: in_set_hyps _ [] \/ _ |- _ => destruct H as [H|H]; *)
+(*                                       [exfalso; solve[eauto using not_in_set_hyps_nil] |] *)
+(*       | H: _ \/ False |- _ => destruct H; [|contradiction] *)
+(*       | H: appears_in_agg_expr _ _ |- _ => destruct H as [? | (?&[?|?]) ] *)
+(*       | H: _ = _ \/ _ |- _ => destruct H; subst *)
+(*       | |- (exists _, inl _ = inr _ /\ _) \/ _ => right *)
+(*       | |- _ = _ /\ _ => split; [reflexivity|] *)
+(*       | |- _ /\ _ => split *)
+(*       | H: In _ (_ ++ _) |- _ => rewrite in_app_iff in H; destruct H *)
+(*       | |- _ => congruence || lia *)
+(*       | |- _ => destruct_one_match_hyp *)
+(*       | |- _ => destruct_one_match *)
+(*       | |- In _ (_ ++ _) => apply in_app_iff *)
+(*       | |- In _ (map _ _) => apply in_map_iff *)
+(*       | |- In _ (flat_map _ _) => apply in_flat_map *)
+(*       | |- In _ (seq _ _) => apply in_seq *)
+(*       | H: ~_ |- _ => solve [exfalso; apply H; eauto] *)
+(*       | |- _ => solve[eauto] *)
+(*       | |- _ \/ _ => (left; solve[t0 tac]) || (right; solve [t0 tac]) *)
+(*       | |- exists _, _ => eexists; t0 tac; tac *)
+(*       end. *)
 
-Ltac t := t0 idtac.
-Ltac t' := t0 fail.
+(* Ltac t := t0 idtac. *)
+(* Ltac t' := t0 fail. *)
 
-Lemma lower_Sexpr_goodish1 idxs s depths e n hyps n' v :
-  lower_Sexpr idxs depths n s = (e, hyps, n') ->
-  In v (vars_of_expr e) ->
-  In (var_expr v) (flat_map clause_args hyps).
-Proof.
-  revert idxs depths n e hyps n' v. induction s; t';
-    match goal with
-    | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; eauto; []
-  end; t.
-Qed.
+(* Lemma lower_Sexpr_goodish1 idxs s depths e n hyps n' v : *)
+(*   lower_Sexpr idxs depths n s = (e, hyps, n') -> *)
+(*   In v (vars_of_expr e) -> *)
+(*   In (var_expr v) (flat_map clause_args hyps). *)
+(* Proof. *)
+(*   revert idxs depths n e hyps n' v. induction s; t'; *)
+(*     match goal with *)
+(*     | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; eauto; [] *)
+(*   end; t. *)
+(* Qed. *)
 
-Lemma lower_Sexpr_goodish2 idxs depths n s e hyps n' v :
-  lower_Sexpr idxs depths n s = (e, hyps, n') ->
-  In v (flat_map vars_of_expr (flat_map clause_ins hyps)) ->
-  In v (map inl idxs) \/ In v (map inl (idx_vars_of_Sexpr s)).
-Proof.
-  revert idxs depths n e hyps n' v. induction s; cbv [clause_ins] in *; simpl in *; t'; invert_list_stuff; t.
-  { invert E. left. apply in_firstn in H2. t. }
-  { invert E. left. apply in_firstn in H2. t. }
-  all: match goal with
-    | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; t; []; destruct H
-  end; t.
-Qed.
+(* Lemma lower_Sexpr_goodish2 idxs depths n s e hyps n' v : *)
+(*   lower_Sexpr idxs depths n s = (e, hyps, n') -> *)
+(*   In v (flat_map vars_of_expr (flat_map clause_ins hyps)) -> *)
+(*   In v (map inl idxs) \/ In v (map inl (idx_vars_of_Sexpr s)). *)
+(* Proof. *)
+(*   revert idxs depths n e hyps n' v. induction s; cbv [clause_ins] in *; simpl in *; t'; invert_list_stuff; t. *)
+(*   { invert E. left. apply in_firstn in H2. t. } *)
+(*   { invert E. left. apply in_firstn in H2. t. } *)
+(*   all: match goal with *)
+(*     | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; t; []; destruct H *)
+(*   end; t. *)
+(* Qed. *)
 
-Lemma lower_Sexpr_goodish3 idxs depths n s e hyps n' v :
-  lower_Sexpr idxs depths n s = (e, hyps, n') ->
-  In v (flat_map vars_of_fact hyps) ->
-  In (var_expr v) (flat_map clause_args hyps) \/ (In v (map inl idxs) \/ In v (map inl (idx_vars_of_Sexpr s))).
-Proof.
-  revert idxs depths n e hyps n' v. induction s; t.
-  all: match goal with
-    | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; t; []; destruct H as [? | [?|?]]
-  end; t.
-Qed.
+(* Lemma lower_Sexpr_goodish3 idxs depths n s e hyps n' v : *)
+(*   lower_Sexpr idxs depths n s = (e, hyps, n') -> *)
+(*   In v (flat_map vars_of_fact hyps) -> *)
+(*   In (var_expr v) (flat_map clause_args hyps) \/ (In v (map inl idxs) \/ In v (map inl (idx_vars_of_Sexpr s))). *)
+(* Proof. *)
+(*   revert idxs depths n e hyps n' v. induction s; t. *)
+(*   all: match goal with *)
+(*     | IH: forall _ _ _ _ _ _ _, _ -> _ -> _, H: lower_Sexpr _ _ _ _ = _ |- _ => eapply IH in H; t; []; destruct H as [? | [?|?]] *)
+(*   end; t. *)
+(* Qed. *)
 
-Lemma lower_rec_goodish e out name idxs depths :
-  out <> true_rel ->
-  vars_good idxs e ->
-  Forall goodish_rule (snd (lower_rec e out name idxs depths)).
-Proof.
-  revert out name idxs depths.
-  induction e; simpl; intros out name idxs depths Hout Hgood;
-    invert Hgood; repeat destr_lower; simpl.
-  all: try (epose_dep IHe; rewrite E in IHe; specialize (IHe ltac:(congruence) ltac:(assumption))).
-  all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in *; specialize (IHe1 ltac:(congruence) ltac:(assumption)); specialize (IHe2 ltac:(congruence) ltac:(assumption))).
-  all: repeat rewrite map_app; simpl.
-  all: repeat (apply Forall_app; split; [eauto|]).
-  all: eauto.
-  all: repeat constructor.
-  all: (eexists; split; [reflexivity|]; cbv [clause_ins]; simpl) || idtac "fail".
-  Ltac prove_letin_ok :=
-    intro; fwd;
-    try congruence;
-    repeat match goal with
-      | H: _ \/ False |- _ => destruct H; [|contradiction]
-      | |- _ => progress (intros; simpl in *; fwd)
-      | |- _ => rewrite in_map_iff in * || rewrite in_seq in * || rewrite in_flat_map in *
-      | H: In _ (_ ++ _) |- _ => rewrite in_app_iff in H; destruct H
-      | |- _ => congruence || lia
-      | |- _ => destruct_one_match_hyp
-      end.
-  all: (split; [solve[prove_letin_ok] |]) || idtac "fail".
+(* Lemma lower_rec_goodish e out name idxs depths : *)
+(*   out <> true_rel -> *)
+(*   vars_good idxs e -> *)
+(*   Forall goodish_rule (snd (lower_rec e out name idxs depths)). *)
+(* Proof. *)
+(*   revert out name idxs depths. *)
+(*   induction e; simpl; intros out name idxs depths Hout Hgood; *)
+(*     invert Hgood; repeat destr_lower; simpl. *)
+(*   all: try (epose_dep IHe; rewrite E in IHe; specialize (IHe ltac:(congruence) ltac:(assumption))). *)
+(*   all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in *; specialize (IHe1 ltac:(congruence) ltac:(assumption)); specialize (IHe2 ltac:(congruence) ltac:(assumption))). *)
+(*   all: repeat rewrite map_app; simpl. *)
+(*   all: repeat (apply Forall_app; split; [eauto|]). *)
+(*   all: eauto. *)
+(*   all: repeat constructor. *)
+(*   all: (eexists; split; [reflexivity|]; cbv [clause_ins]; simpl) || idtac "fail". *)
+(*   Ltac prove_letin_ok := *)
+(*     intro; fwd; *)
+(*     try congruence; *)
+(*     repeat match goal with *)
+(*       | H: _ \/ False |- _ => destruct H; [|contradiction] *)
+(*       | |- _ => progress (intros; simpl in *; fwd) *)
+(*       | |- _ => rewrite in_map_iff in * || rewrite in_seq in * || rewrite in_flat_map in * *)
+(*       | H: In _ (_ ++ _) |- _ => rewrite in_app_iff in H; destruct H *)
+(*       | |- _ => congruence || lia *)
+(*       | |- _ => destruct_one_match_hyp *)
+(*       end. *)
+(*   all: (split; [solve[prove_letin_ok] |]) || idtac "fail". *)
 
-  all: (split; [solve[t] | ]) || idtac "fail".
-  all: (split; [solve[t] | ]) || idtac "fail".
-  all: (split; [solve[t] | ]) || idtac "fail".
-  all: solve [constructor] || idtac "fail".
-  1: solve[t].
-  t.
-  constructor; [|constructor].
-  eexists; split; [reflexivity|]; cbv [clause_ins]; simpl.
-  split; [solve[prove_letin_ok] |].
-  pose proof lower_Sexpr_goodish1 as H1'.
-  pose proof lower_Sexpr_goodish2 as H2'.
-  pose proof lower_Sexpr_goodish3 as H3'.
-  specialize H1' with (1 := E). specialize H2' with (1 := E).
-  specialize H3' with (1 := E).
-  t'.
-  { specialize (H3' _ ltac:(t)). destruct H3' as [? | [?|?]]; t. }
-  { specialize (H3' _ ltac:(t)). destruct H3' as [? | [?|?]]; t. }
-  { eexists. t'. epose_dep H2'. specialize' H2'.
-    { t. cbv [clause_ins]. rewrite E1. t. }
-    destruct H2' as [?|?]; t. }
-  all: try (eexists; t'; epose_dep H2'; specialize' H2'; [t; cbv [clause_ins]; rewrite E1; t|]; destruct H2'; solve[t]).
-  { apply lower_Sexpr_relnames_good in E. rewrite Forall_forall in E.
-    specialize (E _ ltac:(eassumption)). fwd. congruence. }
-  { apply lower_Sexpr_relnames_good in E. rewrite Forall_forall in E.
-    specialize (E _ ltac:(eassumption)). fwd. congruence. }
-Qed.
+(*   all: (split; [solve[t] | ]) || idtac "fail". *)
+(*   all: (split; [solve[t] | ]) || idtac "fail". *)
+(*   all: (split; [solve[t] | ]) || idtac "fail". *)
+(*   all: solve [constructor] || idtac "fail". *)
+(*   1: solve[t]. *)
+(*   t. *)
+(*   constructor; [|constructor]. *)
+(*   eexists; split; [reflexivity|]; cbv [clause_ins]; simpl. *)
+(*   split; [solve[prove_letin_ok] |]. *)
+(*   pose proof lower_Sexpr_goodish1 as H1'. *)
+(*   pose proof lower_Sexpr_goodish2 as H2'. *)
+(*   pose proof lower_Sexpr_goodish3 as H3'. *)
+(*   specialize H1' with (1 := E). specialize H2' with (1 := E). *)
+(*   specialize H3' with (1 := E). *)
+(*   t'. *)
+(*   { specialize (H3' _ ltac:(t)). destruct H3' as [? | [?|?]]; t. } *)
+(*   { specialize (H3' _ ltac:(t)). destruct H3' as [? | [?|?]]; t. } *)
+(*   { eexists. t'. epose_dep H2'. specialize' H2'. *)
+(*     { t. cbv [clause_ins]. rewrite E1. t. } *)
+(*     destruct H2' as [?|?]; t. } *)
+(*   all: try (eexists; t'; epose_dep H2'; specialize' H2'; [t; cbv [clause_ins]; rewrite E1; t|]; destruct H2'; solve[t]). *)
+(*   { apply lower_Sexpr_relnames_good in E. rewrite Forall_forall in E. *)
+(*     specialize (E _ ltac:(eassumption)). fwd. congruence. } *)
+(*   { apply lower_Sexpr_relnames_good in E. rewrite Forall_forall in E. *)
+(*     specialize (E _ ltac:(eassumption)). fwd. congruence. } *)
+(* Qed. *)
 
-Lemma lower_goodish e out :
-  vars_good [] e ->
-  Forall goodish_rule (lower e out).
-Proof.
-  intros H. cbv [lower]. apply Forall_app. split.
-  - apply lower_rec_goodish; auto. congruence.
-  - constructor; [|constructor]. cbv [goodish_rule]. t.
-Qed.
+(* Lemma lower_goodish e out : *)
+(*   vars_good [] e -> *)
+(*   Forall goodish_rule (lower e out). *)
+(* Proof. *)
+(*   intros H. cbv [lower]. apply Forall_app. split. *)
+(*   - apply lower_rec_goodish; auto. congruence. *)
+(*   - constructor; [|constructor]. cbv [goodish_rule]. t. *)
+(* Qed. *)
 
-Lemma lower_rec_goodish_fun out idxs e name depths :
-  out <> true_rel ->
-  vars_good idxs e ->
-  Forall goodish_fun (snd (lower_rec e out name idxs depths)).
-Proof.
-  revert out name idxs depths.
-  induction e; simpl; intros out name idxs depths Hout Hgood;
-    invert Hgood; repeat destr_lower; simpl.
-  all: try (epose_dep IHe; rewrite E in IHe; specialize (IHe ltac:(congruence) ltac:(assumption))).
-  all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in *; specialize (IHe1 ltac:(congruence) ltac:(assumption)); specialize (IHe2 ltac:(congruence) ltac:(assumption))).
-  all: repeat rewrite map_app; simpl.
-  all: repeat (apply Forall_app; split; [eauto|]).
-  all: eauto.
-  all: repeat constructor.
-  all: (eexists; split; [reflexivity|]; cbv [clause_ins]; simpl) || idtac "fail".
-  all: (split; [solve[t] |]) || idtac "fail".
-  all: solve [constructor] || idtac "fail".
-  1: solve[t].
-  t.
-  constructor; [|constructor].
-  eexists; split; [reflexivity|]; cbv [clause_ins]; simpl.
-  split; [|constructor].
-  intros. fwd.
-  pose proof lower_Sexpr_goodish1 as H1'.
-  specialize H1' with (1 := E). t.
-Qed.
+(* Lemma lower_rec_goodish_fun out idxs e name depths : *)
+(*   out <> true_rel -> *)
+(*   vars_good idxs e -> *)
+(*   Forall goodish_fun (snd (lower_rec e out name idxs depths)). *)
+(* Proof. *)
+(*   revert out name idxs depths. *)
+(*   induction e; simpl; intros out name idxs depths Hout Hgood; *)
+(*     invert Hgood; repeat destr_lower; simpl. *)
+(*   all: try (epose_dep IHe; rewrite E in IHe; specialize (IHe ltac:(congruence) ltac:(assumption))). *)
+(*   all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in *; specialize (IHe1 ltac:(congruence) ltac:(assumption)); specialize (IHe2 ltac:(congruence) ltac:(assumption))). *)
+(*   all: repeat rewrite map_app; simpl. *)
+(*   all: repeat (apply Forall_app; split; [eauto|]). *)
+(*   all: eauto. *)
+(*   all: repeat constructor. *)
+(*   all: (eexists; split; [reflexivity|]; cbv [clause_ins]; simpl) || idtac "fail". *)
+(*   all: (split; [solve[t] |]) || idtac "fail". *)
+(*   all: solve [constructor] || idtac "fail". *)
+(*   1: solve[t]. *)
+(*   t. *)
+(*   constructor; [|constructor]. *)
+(*   eexists; split; [reflexivity|]; cbv [clause_ins]; simpl. *)
+(*   split; [|constructor]. *)
+(*   intros. fwd. *)
+(*   pose proof lower_Sexpr_goodish1 as H1'. *)
+(*   specialize H1' with (1 := E). t. *)
+(* Qed. *)
 
-Lemma good_index_lower_rec out idxs e name depths :
-  Forall good_index (snd (lower_rec e out name idxs depths)).
-Proof.
-  revert out name idxs depths.
-  induction e; simpl; intros out name idxs depths;
-    repeat destr_lower; simpl.
-  all: try (epose_dep IHe; rewrite E in IHe).
-  all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in * ).
-  all: repeat (apply Forall_app; split; [eauto|]).
-  all: eauto.
-  all: repeat constructor.
-  all: t.
-  { cbv [clause_ins] in *. simpl in *. t. }
-  constructor; t.
-  cbv [good_index]. t.
-Qed.
+(* Lemma good_index_lower_rec out idxs e name depths : *)
+(*   Forall good_index (snd (lower_rec e out name idxs depths)). *)
+(* Proof. *)
+(*   revert out name idxs depths. *)
+(*   induction e; simpl; intros out name idxs depths; *)
+(*     repeat destr_lower; simpl. *)
+(*   all: try (epose_dep IHe; rewrite E in IHe). *)
+(*   all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in * ). *)
+(*   all: repeat (apply Forall_app; split; [eauto|]). *)
+(*   all: eauto. *)
+(*   all: repeat constructor. *)
+(*   all: t. *)
+(*   { cbv [clause_ins] in *. simpl in *. t. } *)
+(*   constructor; t. *)
+(*   cbv [good_index]. t. *)
+(* Qed. *)
 
-Lemma good_index_lower e out :
-  Forall good_index (lower e out).
-Proof.
-  cbv [lower]. apply Forall_app. split.
-  - apply good_index_lower_rec.
-  - repeat constructor.
-Qed.
+(* Lemma good_index_lower e out : *)
+(*   Forall good_index (lower e out). *)
+(* Proof. *)
+(*   cbv [lower]. apply Forall_app. split. *)
+(*   - apply good_index_lower_rec. *)
+(*   - repeat constructor. *)
+(* Qed. *)
 
-Lemma lower_goodish_fun e out :
-  vars_good [] e ->
-  Forall goodish_fun (lower e out).
-Proof.
-  intros H. cbv [lower]. apply Forall_app. split.
-  - apply lower_rec_goodish_fun; auto. congruence.
-  - constructor; [|constructor]. cbv [goodish_fun]. t.
-Qed.
+(* Lemma lower_goodish_fun e out : *)
+(*   vars_good [] e -> *)
+(*   Forall goodish_fun (lower e out). *)
+(* Proof. *)
+(*   intros H. cbv [lower]. apply Forall_app. split. *)
+(*   - apply lower_rec_goodish_fun; auto. congruence. *)
+(*   - constructor; [|constructor]. cbv [goodish_fun]. t. *)
+(* Qed. *)
 
-Check agree_functional. Print goodish_fun. Search agree. Search goodish_rule.
+(* Check agree_functional. Print goodish_fun. Search agree. Search goodish_rule. *)
 
-Lemma false_not_true e out :
-  prog_impl_fact (lower e out) (true_rel, [Bobj false]) -> False.
-Proof.
-  intros H. cbv [lower] in H. invert H. apply Exists_app in H0.
-  destruct H0 as [H0|H0].
-  - revert H0. destr_lower. intros H0. simpl in *. apply lower_rec_relnames_good in E.
-    fwd. apply Exists_exists in H0. fwd. rewrite Forall_forall in Ep1.
-    apply Ep1 in H0p0. cbv [good_rule_or_out] in H0p0.
-    cbv [rule_impl] in H0p1. fwd. invert H0p1p1. clear H2 H3 H.
-    apply Exists_exists in H0. rewrite Forall_forall in H0p0. fwd.
-    apply H0p0 in H0p1. invert H0p2. destruct H0p1; [|congruence].
-    rewrite H in H0. simpl in H0. destruct H0.
-  - invert_list_stuff. cbv [rule_impl] in H2. fwd. invert H2p1.
-    repeat (invert_stuff || simpl in * ).
-Qed.
+(* Lemma false_not_true e out : *)
+(*   prog_impl_fact (lower e out) (true_rel, [Bobj false]) -> False. *)
+(* Proof. *)
+(*   intros H. cbv [lower] in H. invert H. apply Exists_app in H0. *)
+(*   destruct H0 as [H0|H0]. *)
+(*   - revert H0. destr_lower. intros H0. simpl in *. apply lower_rec_relnames_good in E. *)
+(*     fwd. apply Exists_exists in H0. fwd. rewrite Forall_forall in Ep1. *)
+(*     apply Ep1 in H0p0. cbv [good_rule_or_out] in H0p0. *)
+(*     cbv [rule_impl] in H0p1. fwd. invert H0p1p1. clear H2 H3 H. *)
+(*     apply Exists_exists in H0. rewrite Forall_forall in H0p0. fwd. *)
+(*     apply H0p0 in H0p1. invert H0p2. destruct H0p1; [|congruence]. *)
+(*     rewrite H in H0. simpl in H0. destruct H0. *)
+(*   - invert_list_stuff. cbv [rule_impl] in H2. fwd. invert H2p1. *)
+(*     repeat (invert_stuff || simpl in * ). *)
+(* Qed. *)
 
-Definition nothing_zeroary (r : rule) :=
-  Forall (fun c => 0 < length c.(fact_args)) r.(rule_concls).
+(* Definition nothing_zeroary (r : rule) := *)
+(*   Forall (fun c => 0 < length c.(fact_args)) r.(rule_concls). *)
 
-Lemma no_zeroary_rules_lower_rec e out name idxs depths :
-  Forall nothing_zeroary (snd (lower_rec e out name idxs depths)).
-Proof.
-  revert out name idxs depths. unfold nothing_zeroary.
-  induction e; simpl; intros out name idxs depths;
-    repeat destr_lower; simpl.
-  all: try (epose_dep IHe; rewrite E in IHe).
-  all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in * ).
-  all: repeat rewrite map_app; simpl.
-  all: repeat (apply Forall_app; split; [eauto|]).
-  all: eauto.
-  all: repeat (apply Forall_cons || apply Forall_nil); simpl.
-  all: try lia.
-  destruct (lower_Sexpr _ _ _ _) as [[? ?] ?]. simpl.
-  all: repeat (apply Forall_cons || apply Forall_nil ); simpl.
-  lia.
-Qed.
+(* Lemma no_zeroary_rules_lower_rec e out name idxs depths : *)
+(*   Forall nothing_zeroary (snd (lower_rec e out name idxs depths)). *)
+(* Proof. *)
+(*   revert out name idxs depths. unfold nothing_zeroary. *)
+(*   induction e; simpl; intros out name idxs depths; *)
+(*     repeat destr_lower; simpl. *)
+(*   all: try (epose_dep IHe; rewrite E in IHe). *)
+(*   all: try (epose_dep IHe1; epose_dep IHe2; rewrite E in *; rewrite E0 in * ). *)
+(*   all: repeat rewrite map_app; simpl. *)
+(*   all: repeat (apply Forall_app; split; [eauto|]). *)
+(*   all: eauto. *)
+(*   all: repeat (apply Forall_cons || apply Forall_nil); simpl. *)
+(*   all: try lia. *)
+(*   destruct (lower_Sexpr _ _ _ _) as [[? ?] ?]. simpl. *)
+(*   all: repeat (apply Forall_cons || apply Forall_nil ); simpl. *)
+(*   lia. *)
+(* Qed. *)
 
-Lemma no_zeroary_rules_lower e out :
-  Forall nothing_zeroary (lower e out).
-Proof.
-  cbv [lower]. apply Forall_app. split.
-  - apply no_zeroary_rules_lower_rec.
-  - repeat constructor.
-Qed.
+(* Lemma no_zeroary_rules_lower e out : *)
+(*   Forall nothing_zeroary (lower e out). *)
+(* Proof. *)
+(*   cbv [lower]. apply Forall_app. split. *)
+(*   - apply no_zeroary_rules_lower_rec. *)
+(*   - repeat constructor. *)
+(* Qed. *)
 
-Lemma oni_agree r1 r2 p :
-  nothing_zeroary r1 ->
-  nothing_zeroary r2 ->
-  obviously_non_intersecting r1 r2 ->
-  ~prog_impl_fact p (true_rel, [Bobj false]) ->
-  agree p r1 r2.
-Proof.
-  cbv [obviously_non_intersecting agree]. intros Hr1 Hr2 H Htrue * H1 H2 H3 H4 H5.
-  cbv [rule_impl] in *. fwd.
-  assert (Hor: outs R2 = 1 \/ outs R2 = 0) by (destruct R2; auto).
-  destruct Hor as [Hor|Hor]; rewrite Hor in *. 2: exact H5.
-  destruct args1.
-  { exfalso. invert H1p1. apply Exists_exists in H1. fwd.
-    repeat invert_stuff. cbv [nothing_zeroary] in Hr1. rewrite Forall_forall in Hr1.
-    specialize (Hr1 _ ltac:(eassumption)). rewrite <- H11 in *. simpl in Hr1. lia. }
-  destruct args2.
-  { exfalso. invert H2p1. apply Exists_exists in H1. fwd.
-    repeat invert_stuff. cbv [nothing_zeroary] in Hr2. rewrite Forall_forall in Hr2.
-    specialize (Hr2 _ ltac:(eassumption)). rewrite <- H11 in *. simpl in Hr2. lia. }
-  simpl in H5. subst.
-  specialize H with (1 := H1p1) (2 := H2p1).
-  destruct H as [H|H]; exfalso.
-  - apply Htrue. rewrite Forall_forall in H3. apply H3. apply in_app_iff. eauto.
-  - apply Htrue. rewrite Forall_forall in H4. apply H4. apply in_app_iff. eauto.
-Qed.
+(* Lemma oni_agree r1 r2 p : *)
+(*   nothing_zeroary r1 -> *)
+(*   nothing_zeroary r2 -> *)
+(*   obviously_non_intersecting r1 r2 -> *)
+(*   ~prog_impl_fact p (true_rel, [Bobj false]) -> *)
+(*   agree p r1 r2. *)
+(* Proof. *)
+(*   cbv [obviously_non_intersecting agree]. intros Hr1 Hr2 H Htrue * H1 H2 H3 H4 H5. *)
+(*   cbv [rule_impl] in *. fwd. *)
+(*   assert (Hor: outs R2 = 1 \/ outs R2 = 0) by (destruct R2; auto). *)
+(*   destruct Hor as [Hor|Hor]; rewrite Hor in *. 2: exact H5. *)
+(*   destruct args1. *)
+(*   { exfalso. invert H1p1. apply Exists_exists in H1. fwd. *)
+(*     repeat invert_stuff. cbv [nothing_zeroary] in Hr1. rewrite Forall_forall in Hr1. *)
+(*     specialize (Hr1 _ ltac:(eassumption)). rewrite <- H11 in *. simpl in Hr1. lia. } *)
+(*   destruct args2. *)
+(*   { exfalso. invert H2p1. apply Exists_exists in H1. fwd. *)
+(*     repeat invert_stuff. cbv [nothing_zeroary] in Hr2. rewrite Forall_forall in Hr2. *)
+(*     specialize (Hr2 _ ltac:(eassumption)). rewrite <- H11 in *. simpl in Hr2. lia. } *)
+(*   simpl in H5. subst. *)
+(*   specialize H with (1 := H1p1) (2 := H2p1). *)
+(*   destruct H as [H|H]; exfalso. *)
+(*   - apply Htrue. rewrite Forall_forall in H3. apply H3. apply in_app_iff. eauto. *)
+(*   - apply Htrue. rewrite Forall_forall in H4. apply H4. apply in_app_iff. eauto. *)
+(* Qed. *)
 
-Lemma lower_functional e out :
-  vars_good [] e ->
-  ~ out \in vars_of e \cup referenced_vars e ->
-  functional (lower e out).
-Proof.
-  intros. apply agree_functional.
-  - apply lower_dag; auto.
-  - apply lower_goodish_fun; auto.
-  - apply lower_goodish; auto.
-  - eapply pairs_satisfy_weaken; cycle -1.
-    + apply incl_refl.
-    + apply lower_functional'; auto. sets.
-    + intros. pose proof no_zeroary_rules_lower as H'. epose_dep H'.
-      rewrite Forall_forall in H'. apply oni_agree; eauto.
-      intro. eapply false_not_true. eassumption.
-Qed.
+(* Lemma lower_functional e out : *)
+(*   vars_good [] e -> *)
+(*   ~ out \in vars_of e \cup referenced_vars e -> *)
+(*   functional (lower e out). *)
+(* Proof. *)
+(*   intros. apply agree_functional. *)
+(*   - apply lower_dag; auto. *)
+(*   - apply lower_goodish_fun; auto. *)
+(*   - apply lower_goodish; auto. *)
+(*   - eapply pairs_satisfy_weaken; cycle -1. *)
+(*     + apply incl_refl. *)
+(*     + apply lower_functional'; auto. sets. *)
+(*     + intros. pose proof no_zeroary_rules_lower as H'. epose_dep H'. *)
+(*       rewrite Forall_forall in H'. apply oni_agree; eauto. *)
+(*       intro. eapply false_not_true. eassumption. *)
+(* Qed. *)
 
 (*i do not like fmaps, because you cannot iterate over them,
   so i work with coqutil maps instead.
@@ -1582,7 +1592,6 @@ Qed.
   about fmaps constructed from coqutil maps.
   annoyingly, i cannot construct an equivalent coqutil map from an fmap.
  *)
-
 Definition context_of (v : valuation') : context :=
   map.fold (fun mp k v => map.put mp (inl k) (Zobj v)) map.empty v.
 
@@ -1593,7 +1602,7 @@ Proof.
   intros H. cbv [context_of]. revert H. apply map.fold_spec.
   - rewrite map.get_empty. congruence.
   - intros. rewrite map.get_put_dec in H1.
-    rewrite map.get_put_dec. simpl. destr (k0 =? k); auto. congruence.
+    rewrite map.get_put_dec. simpl. destr (k0 =? k)%string; auto. congruence.
 Qed.
 
 Lemma context_of_bw k val v :
@@ -1608,7 +1617,7 @@ Proof.
   - intros. rewrite map.get_put_dec in H1. destr (var_eqb (inl k0) k).
     + invert H1. rewrite map.get_put_same. reflexivity.
     + apply H0 in H1. clear H0. destr k; auto. destr v; auto.
-      rewrite map.get_put_dec. destr (k0 =? s); congruence.
+      rewrite map.get_put_dec. destr (k0 =? s)%string; congruence.
 Qed.
 
 Lemma extends_context_of v1 v2 : map.extends v1 v2 -> map.extends (context_of v1) (context_of v2).
@@ -1829,33 +1838,34 @@ Ltac interp_exprs :=
         eapply interp_expr_subst_more; [|eapply eval_Bexpr_to_substn; eassumption]
     | |- interp_expr _ _ _ =>
         eapply interp_expr_subst_more; [|eassumption]
-    | |- interp_fact _ _ _ =>
+    | |- interp_clause _ _ _ =>
         eapply interp_clause_subst_more; [|eassumption]
     | |- map.extends _ _ => extends_solver
     | |- map.get ?ctx' _ = _ => try subst ctx'; solve_map_get
     | |- map.get ?ctx' _ = _ => let H := fresh "H" in eenough (map.extends _ _) as H; [apply H; eassumption|]; solve[extends_solver]
-    | |- interp_fact _ _ _ => constructor; simpl
+    | |- interp_clause _ _ _ => constructor; simpl
     | |- _ /\ _ => split; [solve [interp_exprs] |]
     | |- Exists _ [_] => apply Exists_cons_hd
     | |- Forall2 _ (map lower_idx _) _ => eapply Forall2_impl; [|apply eval_Zexprlist_to_substn; eassumption]; intros
     | |- _ => reflexivity
     end.
 
-Lemma lower_Sexpr_correct idxs0 depths sh v ec s (datalog_ctx : list rule) idxs0':
+Lemma lower_Sexpr_correct idxs0 depths v ec s (datalog_ctx : list rule) idxs0':
   Forall2 (fun x y => map.get (context_of v) (inl x) = Some y) idxs0 idxs0' ->
   (forall x r idxs val,
       ec $? x = Some r ->
       result_lookup_Z' idxs r val ->
       exists n,
         map.get depths x = Some n /\
-          prog_impl_fact datalog_ctx (str_rel x, Robj (toR val) :: firstn n idxs0' ++ map Zobj idxs)) ->
+          prog_impl_fact datalog_ctx {| fact_R := (str_rel x, normal);
+                                       fact_args := Robj (toR val) :: firstn n idxs0' ++ map Zobj idxs |}) ->
   forall val name val0 hyps name',
-    eval_Sexpr sh (fmap_of v) ec s val ->
+    eval_Sexpr (fmap_of v) ec s val ->
     lower_Sexpr idxs0 depths name s = (val0, hyps, name') ->
     exists hyps' substn,
       name <= name' /\
         domain_in_ints name name' substn /\
-        Forall2 (interp_fact (map.putmany substn (context_of v))) hyps hyps' /\
+        Forall2 (interp_clause (map.putmany substn (context_of v))) hyps hyps' /\
         Forall (prog_impl_fact datalog_ctx) hyps' /\
         interp_expr (map.putmany substn (context_of v)) val0 (Robj (toR val)).
 Proof.
