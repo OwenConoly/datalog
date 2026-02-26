@@ -151,7 +151,9 @@ Context {context : map.map var obj} {context_ok : map.ok context}.
 Context {str_nat : map.map string nat} {str_nat_ok : map.ok str_nat}.
 Context {str_Zexpr : map.map string Zexpr} {str_Zexpr_ok : map.ok str_Zexpr}.
 Local Notation rule := (rule rel var fn aggregator).
+Local Notation fact := (fact rel obj).
 Local Notation expr := (expr var fn).
+Implicit Type ctx : context.
 
 Fixpoint lower_idx (idx: Zexpr) : expr :=
   match idx with
@@ -1813,9 +1815,16 @@ Ltac extends_solver :=
       (apply extends_putmany_right) +
       ext_refl.
 
+(*TODO there's got to be a less hacky way to do this*)
+Lemma decomp_fact ctx y blah1 blah2 :
+  interp_clause ctx y ({| fact_R := blah1; fact_args := blah2 |} : fact) ->
+  interp_clause ctx y {| fact_R := blah1; fact_args := blah2 |}.
+Proof. auto. Qed.
+
 Ltac interp_exprs :=
   repeat rewrite map_app; simpl;
   repeat match goal with
+    | _ => progress simpl
     | |- Forall2 _ (_ ++ _) _ => apply Forall2_app
     | |- Forall2 _ (_ :: _) _ => constructor
     | |- Forall2 _ nil _ => constructor
@@ -1843,7 +1852,8 @@ Ltac interp_exprs :=
     | |- map.extends _ _ => extends_solver
     | |- map.get ?ctx' _ = _ => try subst ctx'; solve_map_get
     | |- map.get ?ctx' _ = _ => let H := fresh "H" in eenough (map.extends _ _) as H; [apply H; eassumption|]; solve[extends_solver]
-    | |- interp_clause _ _ _ => constructor; simpl
+    | |- interp_clause _ _ ?x =>
+        try (is_evar x; eapply decomp_fact); split
     | |- _ /\ _ => split; [solve [interp_exprs] |]
     | |- Exists _ [_] => apply Exists_cons_hd
     | |- Forall2 _ (map lower_idx _) _ => eapply Forall2_impl; [|apply eval_Zexprlist_to_substn; eassumption]; intros
@@ -1870,22 +1880,13 @@ Lemma lower_Sexpr_correct idxs0 depths v ec s (datalog_ctx : list rule) idxs0':
         interp_expr (map.putmany substn (context_of v)) val0 (Robj (toR val)).
 Proof.
   intros H1 H2. induction s; intros; simpl in *.
-  - invert H. epose_dep H2. specialize (H2 ltac:(eassumption) ltac:(econstructor)).
-    fwd. rewrite app_nil_r in H2p1.
-    eexists. exists (map.put map.empty (inr name) (Robj (toR r))). split.
-    { lia. } split.
-    { apply domain_in_ints_cons. 2: lia. apply domain_in_ints_empty. }
-    split.
-    { interp_exprs. }
-    split.
-    { interp_exprs. repeat constructor. assumption. }
-    interp_exprs. destruct r; solve_map_get.
   - invert H.
     pose proof (eval_get_eval_Zexprlist _ _ _ _ ltac:(eassumption)) as [idxs Hidxs].
     pose proof (eval_get_lookup_result_Z' _ _ _ _ ltac:(eassumption) _ ltac:(eassumption)) as Hr.
     specialize (H2 _ _ _ _ ltac:(eassumption) ltac:(eassumption)). fwd.
     eexists. exists (map.put map.empty (inr name) (Robj (toR r))). split.
-    { lia. } split.
+    { lia. }
+    split.
     { apply domain_in_ints_cons. 2: lia. apply domain_in_ints_empty. }
     split.
     { interp_exprs. }
