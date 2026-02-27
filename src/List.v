@@ -276,7 +276,7 @@ Lemma Forall2_option_all X (xs : list (option X)) xs' :
 Proof.
   intros H. induction H; simpl; eauto.
   repeat (destruct_one_match; try congruence).
-Qed.    
+Qed.
 
 Definition option_coalesce {X : Type} (x : option (option X)) :=
   match x with
@@ -456,7 +456,7 @@ Section Existsn.
     intros H1. revert n2 l2.
     induction H1; intros; simpl; eauto.
   Qed.
-  
+
   Lemma Existsn_split n l1 l2 :
     Existsn n (l1 ++ l2) ->
     exists n1 n2,
@@ -607,7 +607,7 @@ Proof.
   intros H. induction xs; simpl in *.
   - contradiction.
   - destruct H; subst; auto using incl_appr, incl_appl, incl_refl.
-Qed.  
+Qed.
 
 Lemma incl_flat_map_strong (f g : A -> list B) l l' :
   incl l l' ->
@@ -652,7 +652,7 @@ Proof. induction 1; constructor; eauto. Qed.
 Lemma Forall3_combine12 R xs ys zs :
   Forall3 (fun x y => R (x, y)) xs ys zs ->
   Forall2 R (combine xs ys) zs.
-Proof. induction 1; simpl; eauto. Qed.    
+Proof. induction 1; simpl; eauto. Qed.
 
 Lemma Forall2_Forall2_Forall3 R1 R2 xs ys zs :
   Forall2 R1 xs ys ->
@@ -665,12 +665,12 @@ Qed.
 Lemma Forall2_eq_eq xs xs' :
   Forall2 eq xs xs' ->
   xs = xs'.
-Proof. induction 1; subst; reflexivity. Qed.  
+Proof. induction 1; subst; reflexivity. Qed.
 
 Lemma eq_Forall2_eq xs xs' :
   xs = xs' ->
   Forall2 eq xs xs'.
-Proof. intros. subst. induction xs'; eauto. Qed.  
+Proof. intros. subst. induction xs'; eauto. Qed.
 
 Lemma Forall2_concat R xss yss :
   Forall2 (fun xs ys => Forall2 R xs ys) xss yss ->
@@ -732,4 +732,3 @@ Qed.
 Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
 Hint Resolve incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_in Permutation_sym : incl.
-  
