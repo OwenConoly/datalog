@@ -181,6 +181,27 @@ Fixpoint referenced_vars e :=
   | Scalar s => vars_of_Sexpr s
   end.
 
+Fixpoint iter_vars e :=
+  match e with
+  | Gen i _ _ e1 | Sum i _ _ e1 => constant [i] \cup iter_vars e1
+  | Guard _ e1 | Flatten e1 | Split _ e1 | Transpose e1 | Truncr _ e1
+  | Truncl _ e1 | Padr _ e1 | Padl _ e1 =>
+                                iter_vars e1
+  | Lbind _ e1 e2 | Concat e1 e2 => iter_vars e1 \cup iter_vars e2
+  | Scalar s => constant []
+  end.
+
+Fixpoint no_shadowing vars e :=
+  match e with
+  | Gen i _ _ e1 | Sum i _ _ e1 =>
+                     ~ i \in vars /\ no_shadowing (constant [i] \cup vars) e1
+  | Guard _ e1 | Flatten e1 | Split _ e1 | Transpose e1 | Truncr _ e1
+  | Truncl _ e1 | Padr _ e1 | Padl _ e1 =>
+                                no_shadowing vars e1
+  | Lbind _ e1 e2 | Concat e1 e2 => no_shadowing vars e1 /\ no_shadowing vars e2
+  | Scalar s => True
+  end.
+
 Lemma gen_pad_bounds idxs dims val :
   result_lookup_Z' idxs (gen_pad dims) val ->
   length dims = length idxs.

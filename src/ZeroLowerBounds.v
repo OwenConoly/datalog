@@ -16,7 +16,7 @@ From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
   Meshgrid ContextsAgree ATLDeep Range.
 
-From Datalog Require Import Datalog Dag Map List Tactics Interpreter QueryableToRunnable ATLUtils.
+From Datalog Require Import Datalog Dag Map List Tactics ATLUtils.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable.
 
 Import Datatypes.
@@ -67,7 +67,6 @@ Qed.
 
 Fixpoint map_Zexprs_in_Sexpr f e :=
   match e with
-  | Var x => Var x
   | Get x idxs => Get x (map f idxs)
   | Mul x y => Mul (map_Zexprs_in_Sexpr f x) (map_Zexprs_in_Sexpr f y)
   | Div x y => Div (map_Zexprs_in_Sexpr f x) (map_Zexprs_in_Sexpr f y)
@@ -76,18 +75,16 @@ Fixpoint map_Zexprs_in_Sexpr f e :=
   | Lit x => Lit x
   end.
 
-Lemma map_Zexprs_in_Sexpr_same sh ectx ctx ctx' e e' f :
+Lemma map_Zexprs_in_Sexpr_same ectx ctx ctx' e e' f :
   (forall ze ze', eval_Zexpr ctx ze ze' ->
              eval_Zexpr ctx' (f ze) ze') ->
-  eval_Sexpr sh ctx ectx e e' ->
-  eval_Sexpr sh ctx' ectx (map_Zexprs_in_Sexpr f e) e'.
+  eval_Sexpr ctx ectx e e' ->
+  eval_Sexpr ctx' ectx (map_Zexprs_in_Sexpr f e) e'.
 Proof.
   induction 2; simpl; try econstructor; eauto.
-  - rewrite length_map. assumption.
-  - (*it'd be nice if eval_get were characterized in terms of eval_Zexprlist*)
-    clear -H3 H.
-    (*this is confusing and magical.  somehow solve makes econstructor pick the right constructor.  that is, induction H3; econstructor; eauto leaves goals unsolved*)
-    induction H3; solve [econstructor; eauto].
+  (*it'd be nice if eval_get were characterized in terms of eval_Zexprlist*)
+  clear -H1 H.
+  induction H1; econstructor; eauto.
 Qed.
 
 Lemma subst_vars_in_Zexpr_correct ctx ctx' e e' substn :
@@ -124,12 +121,12 @@ Proof.
   intros H1 H2. cbv [offset_Zexpr]. eapply subst_vars_in_Zexpr_correct; eauto.
   intros v v' Hv. apply H1 in Hv. destruct (map.get offsets v); fwd; simpl; eauto.
   eenough (v' = _) as ->; [eauto|]. lia.
-Qed.  
+Qed.
 
 Fixpoint zero_lbs_rec offsets e :=
   let offset := offset_Zexpr offsets in
   match e with
-  | Gen i lo hi e1 => Gen i (ZLit 0) (offset (ZMinus hi lo)) (zero_lbs_rec (map.put offsets i lo) e1)
+  | Gen i lo hi e1 => Gen i (ZLit 0) (offset (ZMinus hi lo)) (zero_lbs_rec (map.put offsets i (offset lo)) e1)
   | Sum i lo hi e1 => Sum i (offset lo) (offset hi) (zero_lbs_rec offsets e1)
   | Guard g e1 => Guard (map_Zexprs_in_Bexpr offset g) (zero_lbs_rec offsets e1)
   | Flatten e1 => Flatten (zero_lbs_rec offsets e1)
@@ -181,12 +178,10 @@ Proof.
   - intros v v' H. rewrite map.get_put_dec. destr (i =? v).
     + rewrite lookup_add_eq in * by reflexivity. fwd. eexists. split.
       -- eapply eval_Zexpr_includes_valuation; eauto.
-         apply includes_add_new. apply None_dom_lookup. sets.
       -- f_equal. lia.
     + rewrite lookup_add_ne in * by auto. specialize (H2 _ _ ltac:(eassumption)).
       destruct_one_match_hyp; eauto. fwd. eexists. split; eauto.
       eapply eval_Zexpr_includes_valuation; eauto.
-      apply includes_add_new. apply None_dom_lookup. sets.
 Qed.
 
 Lemma ctxs_correspond_put_no_offset i offsets ctx ctx' i' :
@@ -204,7 +199,6 @@ Proof.
   + rewrite lookup_add_ne in * by auto. specialize (H3 _ _ ltac:(eassumption)).
     destruct_one_match_hyp; eauto. fwd. eexists. split; eauto.
     eapply eval_Zexpr_includes_valuation; eauto.
-    apply includes_add_new. apply None_dom_lookup. sets.
 Qed.
 Print Assumptions ctxs_correspond_put_no_offset.
 Hint Resolve offset_Zexpr_correct : core.
@@ -212,16 +206,61 @@ Hint Immediate empty_ctxs_correspond : core.
 
 Ltac size_of_constr :=
   match goal with
-  | |- size_of _ ?x => is_evar x; econstructor
-  | |- size_of _ ?x => eassert (x = _) as ->; cycle 1; [econstructor|]
+  | |- size_of _ _ ?x => is_evar x; econstructor
+  | |- size_of _ _ ?x => eassert (x = _) as ->; cycle 1; [econstructor|]
   end.
 
-Lemma size_of_zero_lbs_rec offsets e sh :
-  size_of e sh ->
-  size_of (zero_lbs_rec offsets e) sh.
+Lemma eval_expr_iter_vars_disj v ec e r :
+  eval_expr v ec e r ->
+  dom v \cap iter_vars e = constant [].
 Proof.
-  intros H. revert offsets.
-  induction H; simpl; intros; size_of_constr; eauto; lia || (f_equal; lia).
+  induction 1; simpl; eauto.
+  (*not true*)
+Abort.
+
+Lemma ctxs_correspond_put_not_in offsets ctx ctx' i x :
+  ctxs_correspond offsets ctx ctx' ->
+  ctx $? i = None ->
+  ctxs_correspond (map.put offsets i x) ctx ctx'.
+Proof.
+  intros H1 H2. cbv [ctxs_correspond]. intros i' x' H'.
+  rewrite map.get_put_dec. destr (i =? i').
+  - congruence.
+  - apply H1. assumption.
+Qed.
+
+(* Lemma size_of_zero_lbs_rec v v' offsets e sh : *)
+(*   size_of v e sh -> *)
+(*   dom v \cap iter_vars e = constant [] -> *)
+(*   ctxs_correspond offsets v v' -> *)
+(*   size_of v' (zero_lbs_rec offsets e) sh. *)
+(* Proof. *)
+(*   intros H1 H2. revert offsets. *)
+(*   induction H1; simpl in *; intros; size_of_constr; eauto; try (lia || f_equal; lia). *)
+(*   apply IHsize_of; auto. apply ctxs_correspond_put_not_in; auto. *)
+(*   apply None_dom_lookup. sets. *)
+(* Qed. *)
+
+Lemma no_shadowing_subset s s' e :
+  no_shadowing s' e ->
+  s \subseteq s' ->
+  no_shadowing s e.
+Proof.
+  revert s s'. induction e; simpl; intros; fwd; eauto.
+  - split; [sets|]. eapply IHe; eauto.
+  - split; [sets|]. eapply IHe; eauto.
+Qed.
+Hint Resolve no_shadowing_subset : core.
+
+Lemma size_of_zero_lbs_rec v v' offsets e sh :
+  size_of v e sh ->
+  no_shadowing (dom v) e ->
+  ctxs_correspond offsets v v' ->
+  size_of v' (zero_lbs_rec offsets e) sh.
+Proof.
+  intros H1 H2. revert offsets.
+  induction H1; simpl in *; fwd; intros; size_of_constr; eauto; try (lia || f_equal; lia).
+  apply IHsize_of; eauto. apply ctxs_correspond_put_not_in; auto.
 Qed.
 Hint Resolve size_of_zero_lbs_rec : core.
 
@@ -237,53 +276,54 @@ Hint Extern 3 => match goal with
                 end : core.
 
 Opaque offset_Zexpr.
-Lemma zero_lbs_rec_correct sh' sh ctx ec e r ctx' offsets :
-  eval_expr sh ctx ec e r ->
-  size_of e sh' ->
+Lemma zero_lbs_rec_correct sh ctx ec e r ctx' offsets :
+  eval_expr ctx ec e r ->
+  size_of ctx e sh ->
   ctxs_correspond offsets ctx ctx' ->
   dom ctx = dom ctx' ->
   (forall x, ~x \in dom ctx -> map.get offsets x = None) ->
-  eval_expr sh ctx' ec (zero_lbs_rec offsets e) r.
+  no_shadowing (dom ctx) e ->
+  eval_expr ctx' ec (zero_lbs_rec offsets e) r.
 Proof.
-  revert sh ctx ec r ctx' offsets sh'. 
-  induction e; intros sh ctx ec r ctx' offsets sh' Heval Hsz Hctx' Hdom1 Hdom2;
-    (apply invert_eval_sum' in Heval || apply invert_eval_gen in Heval || invert Heval);
+  revert sh ctx ec r ctx' offsets.
+  induction e; intros sh ctx ec r ctx' offsets Heval Hsz Hctx' Hdom1 Hdom2 Hdom3;
+    ((pose proof Heval as Heval'; apply invert_eval_sum' in Heval) || apply invert_eval_gen in Heval || invert Heval);
+    simpl in *;
     fwd;
-  invert Hsz; simpl;
-    repeat lazymatch goal with
-      | H1: eval_Zexpr_Z ?v ?x = _, H2: eval_Zexpr $0 ?x _ |- _ =>
-          apply eval_Zexpr_Z_eval_Zexpr in H1;
-          pose proof H2;
-          apply eval_Zexpr_includes_valuation with (v' := v) in H2;
-          try apply empty_includes; []; eq_eval_Z
-      end; try solve [econstructor; eauto].
+    invert Hsz; simpl;
+    repeat match goal with
+      | H: eval_Zexpr_Z _ _ = Some _ |- _ => apply eval_Zexpr_Z_eval_Zexpr in H
+      end;
+    eq_eval_Z;
+    try solve [econstructor; eauto].
   (*bafflingly, doing just "eauto 6" solves fewer cases*)
   - eapply mk_eval_gen; [|eauto..].
+    + eauto.
     + lia.
     + intros i' Hi'. specialize (Hevalp4 (loz0 + i')%Z ltac:(lia)). fwd.
       ssplit; auto.
       -- sets.
-      -- eenough (Z.to_nat _ = _) as ->; [rewrite E|lia]. eapply IHe; eauto.
-         ++ eapply ctxs_correspond_put_offset; eauto. 1: sets.
-         (*what is happening here?*)
-            eapply eval_Zexpr_includes_valuation; eauto using empty_includes.
+      -- eenough (Z.to_nat _ = _) as ->; [rewrite E|lia]. eapply IHe; eauto 4.
+         ++ eapply ctxs_correspond_put_offset; eauto. sets.
          ++ do 2 rewrite dom_add. sets.
          ++ rewrite dom_add. intros. rewrite map.get_put_dec. destr (i =? x); sets.
-  - eq_size_of. eapply mk_eval_sum'; [eauto| |eauto..].
-    + lia.
-    + intros i' Hi'. specialize (Hevalp5 (i')%Z ltac:(lia)). fwd.
-      ssplit; auto.
-      -- sets.
-      -- eapply IHe; eauto.
-         ++ eapply ctxs_correspond_put_no_offset; eauto. sets.
-         ++ do 2 rewrite dom_add. sets.
-         ++ rewrite dom_add. intros. apply Hdom2. sets.
-Qed.
+         ++ rewrite dom_add. simpl in *. sets.
+  - simpl in *. fwd. eq_size_of. eapply mk_eval_sum; eauto.
+    intros i' Hi'. specialize (Hevalp5 (i')%Z ltac:(lia)). fwd.
+    ssplit; auto.
+    -- sets.
+    -- eapply IHe; eauto 4.
+       ++ eapply ctxs_correspond_put_no_offset; eauto. sets.
+       ++ do 2 rewrite dom_add. sets.
+       ++ rewrite dom_add. intros. apply Hdom2. sets.
+       ++ rewrite dom_add. eauto.
+ Qed.
 
-Lemma zero_lbs_correct sz sh ctx ec e r :
-  size_of e sz ->
-  eval_expr sh ctx ec e r ->
-  eval_expr sh ctx ec (zero_lbs e) r.
+Lemma zero_lbs_correct sz ctx ec e r :
+  size_of ctx e sz ->
+  no_shadowing (dom ctx) e ->
+  eval_expr ctx ec e r ->
+  eval_expr ctx ec (zero_lbs e) r.
 Proof.
   intros. eapply zero_lbs_rec_correct; eauto.
   - cbv [ctxs_correspond]. intros. rewrite map.get_empty. assumption.
