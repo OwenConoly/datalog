@@ -23,7 +23,9 @@ Class signature {fn aggregator T : Type} : Type :=
   {
     (*returning None means inputs not in domain (e.g., number of args was wrong)*)
     interp_fun : fn -> list T -> option T;
-    (*if x represents a finite set S then get_set x = Some S*)
+    (*if x represents a finite set S then get_set x = Some S.
+      note: suffices to have this be T -> option nat, for cardinality...
+      should i do that? *)
     get_set : T -> option (T -> Prop);
     blank : T;
     interp_agg : aggregator -> list (T * T) -> T; }.

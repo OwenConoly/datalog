@@ -11,7 +11,17 @@ Section __.
 Variant bop := sum | prod.
 Variant type := val | set.
 Let rel : Type := nat.
-Let rule := rule rel nat bop bop.
+Variant obj :=
+  | natobj (_ : nat)
+  | setobj (_ : nat -> Prop)
+  | listsetobj (_ : list nat -> Prop)
+  | blank.
+
+Variant fn :=
+  | fn_lit (o : obj)
+  | fn_bop (o : bop).
+Let rule := rule rel nat fn bop.
+Let expr := expr nat fn.
 
 Definition bop_id o :=
   match o with
@@ -31,12 +41,18 @@ Inductive Sexpr {var} : type -> Type :=
 | bop_over_set : bop -> Sexpr set -> Sexpr val.
 Arguments Sexpr : clear implicits.
 
+Definition lit x : expr := fun_expr (fn_lit x) [].
+
 Fixpoint compile_Sexpr (name : nat) (out : rel) {t} (e : Sexpr (fun _ => nat) t) : nat * list rule :=
   match e with
   | Var t x => (name,
                 [normal_rule
                    [{| clause_R := (out, normal); clause_args := [var_expr O] |}]
-                   [{| clause_R := (x, normal); clause_args := [var_expr O] |}]])
+                   [{| clause_R := (x, normal); clause_args := [var_expr O] |}];
+                 normal_rule
+                   [{| clause_R := (out, meta); clause_args := [var_expr O; lit blank] |}]
+                   [{| clause_R := (x, meta); clause_args := [var_expr O; lit blank] |}]
+                ])
   | bop_over_vals o x y =>
       let x' := name in
       let (name1, p1) := compile_Sexpr (S name) x' x in
@@ -44,11 +60,13 @@ Fixpoint compile_Sexpr (name : nat) (out : rel) {t} (e : Sexpr (fun _ => nat) t)
       let (name2, p2) := compile_Sexpr (S name1) y' y in
       (name2,
         normal_rule
-          [{| clause_R := (out, normal); clause_args := [fun_expr o [var_expr O; var_expr (S O)]] |}]
+          [{| clause_R := (out, normal); clause_args := [fun_expr (fn_bop o) [var_expr O; var_expr (S O)]] |}]
           [{| clause_R := (x', normal); clause_args := [var_expr O] |};
            {| clause_R := (y', normal); clause_args := [var_expr (S O)] |}]
           :: p1 ++ p2)
-  | empty => (name, [])
+  | empty => (name, [normal_rule
+                      [{| clause_R := (out, meta); clause_args := [fun_expr (fn_lit (listsetobj (fun _ => False))) []; fun_expr (fn_lit blank) []] |}]
+                      []])
   | singleton x => (*we happen to represent sets in the same format as elements*)
       compile_Sexpr name out x
   | intersection x y =>
