@@ -26,8 +26,13 @@ Open Scope nat_scope.
 
 Definition var : Type := string + nat.
 
-Variant obj : Set :=
-  Bobj : bool -> obj | Zobj : Z -> obj | Robj : R -> obj | Setobj (min : Z) (max : Z).
+Variant obj : Type :=
+  | Bobj : bool -> obj
+  | Zobj : Z -> obj
+  | Robj : R -> obj
+  | Setobj (min : Z) (max : Z)
+  | Zset : (Z -> Prop) -> obj
+  | blank.
 
 (*just like Bexpr, except i added blit*)
 Variant Bfn : Set :=
@@ -131,6 +136,12 @@ Section __.
                     | Zobj z => (min <= z < max)%Z
                     | _ => False
                     end)
+        | Zset Sz => Some (fun y =>
+                           match y with
+                           | Zobj z => Sz z
+                           | _ => False
+                           end)
+        | blank => None
         end.
   Let interp_agg a xs :=
         match a with
@@ -139,6 +150,7 @@ Section __.
   Instance ATLSig : signature fn aggregator obj :=
     { interp_fun := interp_fun ;
       get_set := get_set;
+      blank := blank;
       interp_agg := interp_agg }.
 End __.
 
@@ -2129,6 +2141,18 @@ Lemma lower_rec_complete e idx_ctx idx_ctx' depths out v ec r datalog_ctx l :
           prog_impl_fact datalog_ctx
                          {| fact_R := (str_rel x, normal);
                            fact_args := Robj (toR val) :: firstn n idx_ctx' ++ map Zobj idxs |}) ->
+  (* (forall x (r : result) m, *)
+  (*     ec $? x = Some r -> *)
+  (*     result_has_dim m r -> *)
+  (*     exists n, *)
+  (*       map.get depths x = Some n /\ *)
+  (*         n <= length idx_ctx /\ *)
+  (*         prog_impl_fact datalog_ctx {| fact_R := (str_rel x, meta); *)
+  (*                                      fact_args := blank :: firstn n idx_ctx' ++  *)
+  (*     result_lookup_Z' idxs r val -> *)
+  (*         prog_impl_fact datalog_ctx *)
+  (*                        {| fact_R := (str_rel x, normal); *)
+  (*                          fact_args := Robj (toR val) :: firstn n idx_ctx' ++ map Zobj idxs |}) -> *)
   forall idxs name val,
     result_lookup_Z' idxs r val ->
     Forall2 (fun x y => map.get (context_of v) (inl x) = Some y) idx_ctx idx_ctx' ->
@@ -2167,23 +2191,23 @@ Proof.
     { interp_exprs. }
     rewrite <- app_assoc in IHe. simpl in IHe.
     simpl. apply IHe.
-  - intros.
+  - simpl in *. fwd.
     pose proof dimensions_right as H'.
-    specialize (H' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-    specialize (H' _ _ _ _ _ _ ltac:(eassumption)).
-    invert H0. simpl in H1.
-    specialize IHe with (2 := H10) (3 := H1).
-    apply invert_eval_sum in H.
-    destruct H as (loz&hiz&summands&Hlen&Hloz&Hhiz&Hsummands&Hbody).
-    specialize Hsummands with (1 := H3). destruct Hsummands as (ss&Hs&Hss).
+    specialize (H' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
+    invert Hsz. simpl in Hlbs.
+    apply invert_eval_sum' in Heval.
+    destruct Heval as (loz&hiz&summands&sz&Hsz_body&Hlen&Hloz&Hhiz&Hsummands&Hbody).
+    epose_dep IHe.
     pose proof dim_idxs as H''. specialize (H'' _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
-    apply size_of_sizeof in H10. subst. clear H'.
+    apply size_of_sizeof in H4; eauto. fwd.
     set (s := map.putmany (context_of v) (idx_map (map Zobj idxs))).
     econstructor.
-    + apply eval_Zexpr_Z_eval_Zexpr in Hhiz, Hloz.
+    + progress unfp.
       apply eval_Zexpr_to_substn in Hhiz, Hloz.
       simpl. apply Exists_app. left. destr_lower. simpl. apply Exists_app. simpl. right.
-      apply Exists_cons_hd. cbv [rule_impl]. do 3 eexists. split; [reflexivity|].
+      apply Exists_cons_hd. eassert (Robj _ = _) as ->.
+      2: { econstructor. Print rule_impl.
+      ; [|econstructor]. Print rule_impl. econstructor. cbv [rule_impl]. do 3 eexists. split; [reflexivity|].
       eapply mk_rule_impl' with (ctx := s).
       -- econstructor; [reflexivity|]. econstructor.
          { interp_exprs. }

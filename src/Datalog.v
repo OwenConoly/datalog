@@ -25,6 +25,7 @@ Class signature {fn aggregator T : Type} : Type :=
     interp_fun : fn -> list T -> option T;
     (*if x represents a finite set S then get_set x = Some S*)
     get_set : T -> option (T -> Prop);
+    blank : T;
     interp_agg : aggregator -> list (T * T) -> T; }.
 Arguments signature : clear implicits.
 
@@ -101,8 +102,8 @@ Section __.
     rule_impl
       (agg_rule concl_rel agg hyp_rel)
       {| fact_R := (concl_rel, normal);
-        fact_args := (interp_agg agg vals : T) :: args |}
-      ({| fact_R := (hyp_rel, meta); fact_args := S :: args |} ::
+        fact_args := interp_agg agg vals :: args |}
+      ({| fact_R := (hyp_rel, meta); fact_args := S :: blank :: blank :: args |} ::
          map (fun '(i, x_i) => {| fact_R := (hyp_rel, normal); fact_args := i :: x_i :: args |}) vals).
   Hint Constructors rule_impl : core.
 
