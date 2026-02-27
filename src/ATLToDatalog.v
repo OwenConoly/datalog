@@ -2015,14 +2015,6 @@ Proof.
     2: { econstructor; [reflexivity|]. assumption. } lia.
 Qed.
 
-Lemma nat_range_seq n k :
-  nat_range_rec n k = seq k n.
-Proof.
-  revert k. induction n.
-  - reflexivity.
-  - intros. simpl. rewrite IHn. f_equal. f_equal. lia.
-Qed.
-
 Lemma div_le_div_ceil a b :
   a / b <= a //n b.
 Proof.
@@ -2050,7 +2042,7 @@ Proof.
   intros H1. cbv [split_result]. rewrite nth_error_map.
   destruct (nth_error _ _) eqn:E.
   2: { simpl. constructor. } cbv [gen_pad_list].
-  simpl. cbv [nat_range] in E. rewrite nat_range_seq in E.
+  simpl. cbv [nat_range] in E.
   pose proof E as E'. apply nth_error_seq_Some in E'. subst.
   replace (0 + x / k) with (x / k) by lia.
   rewrite nth_error_firstn_elim.
@@ -2117,14 +2109,6 @@ Proof.
   erewrite <- nth_error_get_col in H8 by (eassumption || lia).
   clear H7. destruct (nth_error l' (Z.to_nat z0)) eqn:E; [|discriminate H8].
   destruct r0; [discriminate H8|]. econstructor; eauto. econstructor; eauto.
-Qed.
-
-Lemma length_truncl_list {A : Type} k (l : list A) :
-  length (truncl_list k l) = length l - k.
-Proof.
-  revert k. induction l; intros k.
-  - destruct k; simpl; lia.
-  - destruct k; simpl; auto.
 Qed.
 
 Lemma lower_rec_complete e idx_ctx idx_ctx' depths out sh v ctx r datalog_ctx l :
