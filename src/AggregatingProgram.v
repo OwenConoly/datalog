@@ -43,7 +43,18 @@ Arguments Sexpr : clear implicits.
 
 Definition lit x : expr := fun_expr (fn_lit x) [].
 
-Fixpoint compile_Sexpr (name : nat) (out : rel) {t} (e : Sexpr (fun _ => nat) t) : nat * list rule :=
+Definition bare_rule : Type := (rel * list expr) * list (rel * list expr).
+
+Definition is_blank (e : expr) :=
+  match e with
+  | fun_expr (fn_lit blank) [] => true
+  | _ => false
+  end.
+
+(* Definition meta_rule_of (p : list rule) (r : bare_rule) := *)
+(*   let (concl, hyps) := r in *)
+
+Fixpoint compile_Sexpr (name : nat) (out : rel) {t} (e : Sexpr (fun _ => nat) t) : nat * list rule * :=
   match e with
   | Var t x => (name,
                 [normal_rule
