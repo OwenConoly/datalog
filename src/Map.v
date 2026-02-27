@@ -6,7 +6,7 @@ From Datalog Require Import Tactics List.
 Section Map.
   Context {key value : Type} {mp : map.map key value} {mp_ok : map.ok mp}.
   Context {key_eqb : key -> key -> bool} {key_eqb_correct : forall x y : key, BoolSpec (x = y) (x <> y) (key_eqb x y)}.
-  
+
 Lemma extends_putmany_putmany (m1 m2 m : mp) :
   map.extends m1 m2 ->
   map.extends (map.putmany m1 m) (map.putmany m2 m).
@@ -92,7 +92,7 @@ Proof.
   rewrite fmap_of_spec, map.get_empty, lookup_empty.
   reflexivity.
 Qed.
-    
+
 Lemma add_fmap_of m k v :
   fmap_of m $+ (k, v) = fmap_of (map.put m k v).
 Proof.
@@ -100,6 +100,14 @@ Proof.
   rewrite map.get_put_dec. destr (key_eqb k k0).
   - rewrite lookup_add_eq; auto.
   - rewrite lookup_add_ne; auto. apply fmap_of_spec.
+Qed.
+
+Lemma fmap_of_extends_includes m1 m2 :
+  map.extends m2 m1 ->
+  fmap_of m1 $<= fmap_of m2.
+Proof.
+  intros H. apply includes_intro. intros k v Hkv.
+  rewrite fmap_of_spec in *. auto.
 Qed.
 
 Definition agree_on (m1 m2 : mp) k :=

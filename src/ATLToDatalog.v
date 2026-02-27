@@ -16,7 +16,7 @@ From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
   Meshgrid ContextsAgree ATLDeep Range.
 
-From Datalog Require Import Datalog Dag Map List Tactics (*Interpreter QueryableToRunnable*) ATLUtils (*ZeroLowerBounds*).
+From Datalog Require Import Datalog Dag Map List Tactics (*Interpreter QueryableToRunnable*) ATLUtils ZeroLowerBounds.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable Datatypes.List.
 
 Import Datatypes.
@@ -293,7 +293,6 @@ Inductive vars_good : list string -> ATLexpr -> Prop :=
   incl (idx_vars_of_Sexpr s) idxs ->
   vars_good idxs (Scalar s).
 
-Print rule_impl.
 Fixpoint lower_rec
   (e : ATLexpr)
   (out: rel)
@@ -2111,48 +2110,67 @@ Proof.
   destruct r0; [discriminate H8|]. econstructor; eauto. econstructor; eauto.
 Qed.
 
-Lemma lower_rec_complete e idx_ctx idx_ctx' depths out sh v ctx r datalog_ctx l :
-  eval_expr sh (fmap_of v) ctx e r ->
-  size_of e l ->
+Ltac unfp :=
+  repeat match goal with
+    | H: eval_Zexpr_Z _ _ = Some _ |- _ => apply eval_Zexpr_Z_eval_Zexpr in H
+    end.
+
+Lemma lower_rec_complete e idx_ctx idx_ctx' depths out v ec r datalog_ctx l :
+  eval_expr (fmap_of v) ec e r ->
+  size_of (fmap_of v) e l ->
+  nonneg_bounds (fmap_of v) e ->
   gen_lbs_zero e ->
   (forall x (r : result) (idxs : list Z) (val : scalar_result),
-      ctx $? x = Some r ->
+      ec $? x = Some r ->
       result_lookup_Z' idxs r val ->
       exists n,
         map.get depths x = Some n /\
           n <= length idx_ctx /\
-          prog_impl_fact datalog_ctx (str_rel x, Robj (toR val) :: firstn n idx_ctx' ++ map Zobj idxs)) ->
+          prog_impl_fact datalog_ctx
+                         {| fact_R := (str_rel x, normal);
+                           fact_args := Robj (toR val) :: firstn n idx_ctx' ++ map Zobj idxs |}) ->
   forall idxs name val,
     result_lookup_Z' idxs r val ->
     Forall2 (fun x y => map.get (context_of v) (inl x) = Some y) idx_ctx idx_ctx' ->
-    prog_impl_fact (snd (lower_rec e out name idx_ctx depths) ++ datalog_ctx ++ [true_rule]) (out, Robj (toR val) :: idx_ctx' ++ map Zobj idxs).
+    prog_impl_fact (snd (lower_rec e out name idx_ctx depths) ++ datalog_ctx ++ [true_rule])
+                   {| fact_R := (out, normal);
+                     fact_args := Robj (toR val) :: idx_ctx' ++ map Zobj idxs|}.
 Proof.
-  revert idx_ctx idx_ctx' depths out sh v ctx r datalog_ctx l. induction e.
-  - simpl. intros. apply invert_eval_gen in H.
-    destruct H as (loz&hiz&rl&Hrl&Hlen&Hlo&Hhi&Hbody). subst.
-    move IHe at bottom. invert H3. move Hbody at bottom. specialize (Hbody (loz + x)%Z).
-    epose proof nth_error_Some as E'. specialize E' with (1 := H6).
+  revert idx_ctx idx_ctx' depths out v ec r datalog_ctx l. induction e;
+    intros idx_ctx idx_ctx' depths out v ec r datalog_ctx l Heval Hsz Hbds Hlbs IH' idxs name val Hidxs Hidx_ctx.
+  - simpl in *. fwd. apply invert_eval_gen in Heval.
+    destruct Heval as (loz0&hiz0&rl&Hrl&Hlen&Hlo&Hhi&Hbody). unfp. eq_eval_Z.
+    move IHe at bottom. invs. invert Hidxs.
+    move Hbody at bottom. specialize (Hbody (x)%Z).
+    epose proof nth_error_Some as E'. specialize (E' _ _ _ ltac:(eassumption)).
     specialize (Hbody ltac:(lia)). clear E'.
-    destruct Hbody as (Hdom&_&Hbody). replace (loz + x - loz)%Z with x in Hbody by lia.
-    rewrite H6 in Hbody. rewrite add_fmap_of in Hbody.
-    specialize IHe with (1 := Hbody). invert H0. destruct H1 as (?&H1). subst.
-    invert H11. invert Hlo.
-    specialize IHe with (1 := H13) (2 := H1) (4 := H8).
-    epose proof (IHe (idx_ctx ++ [i]) (idx_ctx' ++ [_]) _ _ _) as IHe.
+    destruct Hbody as (Hdom&_&Hbody). replace (x - 0)%Z with x in Hbody by lia.
+    rewrite H1 in Hbody. rewrite add_fmap_of in Hbody.
+    specialize IHe with (1 := Hbody).
+    epose proof (IHe (idx_ctx ++ [i]) (idx_ctx' ++ [_]) _ _ _ _) as IHe.
     specialize' IHe.
-    { move H2 at bottom. intros.
-      specialize (H2 _ _ _ _ ltac:(eassumption) ltac:(eassumption)). fwd.
+    { eapply size_of_includes; [|eauto].
+      apply fmap_of_extends_includes. extends_solver. }
+    specialize' IHe.
+    { eapply nonneg_bounds_includes; [|eauto].
+      apply fmap_of_extends_includes. extends_solver. }
+    specialize (IHe ltac:(assumption)).
+    specialize' IHe.
+    { move IH' at bottom. intros.
+      specialize (IH' _ _ _ _ ltac:(eassumption) ltac:(eassumption)). fwd.
       eexists. split; [eassumption|]. rewrite length_app. simpl. split; [lia|].
-      apply Forall2_length in H4.
+      apply Forall2_length in Hidx_ctx.
       rewrite firstn_app. replace (_ - _) with O by lia. simpl. rewrite app_nil_r.
       eassumption. }
-    epose proof (IHe _) as IHe. specialize' IHe.
+    epose_dep IHe. specialize (IHe ltac:(eassumption)).
+    specialize' IHe.
     { interp_exprs. }
     rewrite <- app_assoc in IHe. simpl in IHe.
     simpl. apply IHe.
   - intros.
     pose proof dimensions_right as H'.
-    specialize (H' _ _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+    specialize (H' _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)).
+    specialize (H' _ _ _ _ _ _ ltac:(eassumption)).
     invert H0. simpl in H1.
     specialize IHe with (2 := H10) (3 := H1).
     apply invert_eval_sum in H.
