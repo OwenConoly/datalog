@@ -133,56 +133,66 @@ Definition is_blank (e : expr) :=
 (* Definition meta_rule_of (p : list rule) (r : bare_rule) := *)
 (*   let (concl, hyps) := r in *)
 
-Fixpoint compile_Sexpr (name : nat) (out : rel) {t} (e : Sexpr (fun _ => nat) t) : nat * list rule :=
+Fixpoint compile_Sexpr (name : nat) (out : rel) {t} (e : Sexpr (fun _ => nat) t) : nat * list rule * (list rule -> list rule) :=
   match e with
   | Var t x => (name,
                 [normal_rule
                    [{| clause_R := (out, normal); clause_args := [var_expr O] |}]
-                   [{| clause_R := (x, normal); clause_args := [var_expr O] |}];
-                 normal_rule
-                   [{| clause_R := (out, meta); clause_args := [var_expr O; lit blank] |}]
-                   [{| clause_R := (x, meta); clause_args := [var_expr O; lit blank] |}]
-                ])
+                   [{| clause_R := (x, normal); clause_args := [var_expr O] |}]],
+                fun p =>
+                  [normal_rule
+                     [{| clause_R := (out, meta); clause_args := [var_expr O; lit blank] |}]
+                     [{| clause_R := (x, meta); clause_args := [var_expr O; lit blank] |}]
+              ])
   | bop_over_vals o x y =>
       let x' := name in
-      let (name1, p1) := compile_Sexpr (S name) x' x in
+      let '(name1, p1, p1') := compile_Sexpr (S name) x' x in
       let y' := name1 in
-      let (name2, p2) := compile_Sexpr (S name1) y' y in
+      let '(name2, p2, p2') := compile_Sexpr (S name1) y' y in
       (name2,
         normal_rule
           [{| clause_R := (out, normal); clause_args := [fun_expr (fn_bop o) [var_expr O; var_expr (S O)]] |}]
           [{| clause_R := (x', normal); clause_args := [var_expr O] |};
            {| clause_R := (y', normal); clause_args := [var_expr (S O)] |}]
-          :: normal_rule
-          [{| clause_R := (out, meta); clause_args := [union; lit blank]|}]
-          [{| clause_R := (x', meta); clause_args := [var_expr O; lit blank]|};
-           {| clause_R := (y', meta); clause_args := [var_expr (S O); lit blank]|}]
-          :: p1 ++ p2)
-  | empty => (name, [normal_rule
-                      [{| clause_R := (out, meta); clause_args := [fun_expr (fn_lit (listsetobj (fun _ => False))) []; fun_expr (fn_lit blank) []] |}]
+          :: p1 ++ p2,
+        fun p =>
+          normal_rule
+            [{| clause_R := (out, meta); clause_args := [closure p [var_expr O; var_expr (S O)]; lit blank]|}]
+            [{| clause_R := (x', meta); clause_args := [var_expr O; lit blank]|};
+             {| clause_R := (y', meta); clause_args := [var_expr (S O); lit blank]|}]
+            :: p1' p ++ p2' p)
+  | empty => (name, [],
+              fun p =>[normal_rule
+                      [{| clause_R := (out, meta); clause_args := [fun_expr (fn_lit (factset (fun _ => False))) []; fun_expr (fn_lit blank) []] |}]
                       []])
   | singleton x => (*we happen to represent sets in the same format as elements*)
       compile_Sexpr name out x
   | intersection x y =>
       let x' := name in
-      let (name1, p1) := compile_Sexpr (S name) x' x in
+      let '(name1, p1, p1') := compile_Sexpr (S name) x' x in
       let y' := name1 in
-      let (name2, p2) := compile_Sexpr (S name1) y' y in
+      let '(name2, p2, p2') := compile_Sexpr (S name1) y' y in
       (name2,
         normal_rule
           [{| clause_R := (out, normal); clause_args := [var_expr O] |}]
           [{| clause_R := (x', normal); clause_args := [var_expr O] |};
            {| clause_R := (y', normal); clause_args := [var_expr O] |}]
-          :: p1 ++ p2)
+          :: p1 ++ p2,
+        fun p =>
+          normal_rule
+            [{| clause_R := (out, meta); clause_args := [closure p [var_expr O; var_expr (S O)]] |}]
+            [{| clause_R := (x', meta); clause_args := [var_expr O; lit blank] |};
+             {| clause_R := (y', meta); clause_args := [var_expr O; lit blank] |}]
+            :: p1' p ++ p2' p)
   | let_in t1 t2 x y =>
       let x' := name in
-      let (name1, p1) := compile_Sexpr (S name) x' x in
-      let (name2, p2) := compile_Sexpr (S name1) out (y x') in
-      (name2, p1 ++ p2)
+      let '(name1, p1, p1') := compile_Sexpr (S name) x' x in
+      let '(name2, p2, p2') := compile_Sexpr (S name1) out (y x') in
+      (name2, p1 ++ p2, fun p => p1' p ++ p2' p)
   | bop_over_set o x =>
       let x' := name in
-      let (name1, p1) := compile_Sexpr (S name) x' x in
-      (name1, agg_rule out o x' :: p1)
+      let '(name1, p1, p1') := compile_Sexpr (S name) x' x in
+      (name1, agg_rule out o x' :: p1, p1')
   end.
 
 Definition interp_type t : Type :=
