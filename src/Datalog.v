@@ -27,7 +27,7 @@ Class signature {fn aggregator T : Type} : Type :=
       note: suffices to have this be T -> option nat, for cardinality...
       should i do that? *)
     get_set : T -> option (T -> Prop);
-    blank : T;
+    iter : T;
     interp_agg : aggregator -> list (T * T) -> T; }.
 Arguments signature : clear implicits.
 
@@ -105,7 +105,7 @@ Section __.
       (agg_rule concl_rel agg hyp_rel)
       {| fact_R := (concl_rel, normal);
         fact_args := interp_agg agg vals :: args |}
-      ({| fact_R := (hyp_rel, meta); fact_args := S :: blank :: blank :: args |} ::
+      ({| fact_R := (hyp_rel, meta); fact_args := S :: iter :: args |} ::
          map (fun '(i, x_i) => {| fact_R := (hyp_rel, normal); fact_args := i :: x_i :: args |}) vals).
   Hint Constructors rule_impl : core.
 
