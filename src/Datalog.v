@@ -299,17 +299,17 @@ Section __.
   Hint Extern 2 => eapply Forall_impl; [|eassumption]; cbv beta : core.
   Hint Extern 2 => eapply Forall2_impl; [|eassumption]; cbv beta : core.
 
-  Lemma partial_pftree_weaken {U : Type} P Q1 Q2 (x : U) :
-    partial_pftree P Q1 x ->
-    (forall y, Q1 y -> Q2 y) ->
-    partial_pftree P Q2 x.
+  Lemma partial_pftree_weaken {U : Type} P1 P2 Q (x : U) :
+    partial_pftree P1 Q x ->
+    (forall y l, P1 y l -> P2 y l) ->
+    partial_pftree P2 Q x.
   Proof. induction 1; eauto. Qed.
 
   Lemma S_sane_lfp p : S_sane (lfp (F p)).
   Proof.
     eapply S_sane_ext; [apply prog_impl_fact_lfp|]. cbv [S_sane]. split; intros; eauto.
     Fail Fail solve [induction H; eauto].
-    eapply partial_pftree_trans. eapply partial_pftree_weaken; eauto.
+    eapply partial_pftree_trans. eapply partial_pftree_weaken_hyp; eauto.
   Qed.
 
   Lemma split_fixpoint (p : list rule) S :
@@ -360,6 +360,15 @@ Section __.
     prog_impl_fact p2 f.
   Proof.
     intros H H0. eapply pftree_weaken; simpl; eauto. simpl.
+    intros. apply Exists_exists in H1. apply Exists_exists. fwd. eauto.
+  Qed.
+
+  Lemma prog_impl_implication_subset (p1 p2 : list rule) Q f :
+    (forall x, In x p1 -> In x p2) ->
+    prog_impl_implication p1 Q f ->
+    prog_impl_implication p2 Q f.
+  Proof.
+    intros H H0. eapply partial_pftree_weaken; simpl; eauto. simpl.
     intros. apply Exists_exists in H1. apply Exists_exists. fwd. eauto.
   Qed.
 
@@ -508,24 +517,94 @@ Section __.
     | agg_rule _ _ _ => True
     end.
 
-  Lemma rule_impl_concl_relname_in rule_concls rule_hyps f hyps :
-    rule_impl (normal_rule rule_concls rule_hyps) f hyps ->
-    In f.(fact_R) (map clause_R rule_concls).
+  Definition concl_rels r :=
+    match r with
+    | normal_rule rule_concls _ => map fst (map clause_R rule_concls)
+    | agg_rule R _ _ => [R]
+    end.
+
+  Definition hyp_rels r :=
+    match r with
+    | normal_rule _ rule_hyps => map fst (map clause_R rule_hyps)
+    | agg_rule _ _ R => [R]
+    end.
+
+  Lemma rule_impl_concl_relname_in r f hyps :
+    rule_impl r f hyps ->
+    In (fst f.(fact_R)) (concl_rels r).
   Proof.
-    invert 1. apply Exists_exists in H2.
-    cbv [interp_clause] in H2. fwd.
-    apply in_map_iff. eauto.
+    invert 1.
+    - apply Exists_exists in H0. cbv [interp_clause] in *. fwd.
+      simpl. apply in_map_iff. eexists. split; [reflexivity|].
+      apply in_map_iff. eauto.
+    - simpl. auto.
   Qed.
 
-  Lemma rule_impl_hyp_relname_in rule_concls rule_hyps f hyps :
-    rule_impl (normal_rule rule_concls rule_hyps) f hyps ->
-    Forall (fun hyp => In hyp.(fact_R) (map clause_R rule_hyps)) hyps.
+  Lemma rule_impl_hyp_relname_in r f hyps :
+    rule_impl r f hyps ->
+    Forall (fun hyp => In (fst hyp.(fact_R)) (hyp_rels r)) hyps.
   Proof.
-    invert 1. eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
-    simpl. cbv [interp_clause]. intros. fwd. apply in_map_iff. eauto.
+    invert 1.
+    - eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
+      simpl. cbv [interp_clause]. intros. fwd. apply in_map_iff.
+      eexists. split; [reflexivity|]. apply in_map_iff. eauto.
+    - simpl. constructor; simpl; auto. apply Forall_map. apply Forall_forall.
+      intros (?, ?) ?. simpl. auto.
+  Qed.
+
+  Definition disjoint_lists {T} (l1 l2 : list T) :=
+    forall x, In x l1 -> In x l2 -> False.
+
+  Lemma staged_program p1 p2 Q f :
+    disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) ->
+    prog_impl_implication (p1 ++ p2) Q f ->
+    prog_impl_implication p1 (prog_impl_implication p2 Q) f.
+  Proof.
+    intros Hdisj. induction 1.
+    - apply partial_in. apply partial_in. assumption.
+    - fold (prog_impl_implication (p1 ++ p2)) in *.
+      apply Exists_app in H. destruct H as [H|H].
+      + eapply prog_impl_step; [eassumption|]. assumption.
+      + apply partial_in. eapply prog_impl_step; [eassumption|].
+        rewrite Forall_forall in *. intros f Hf. specialize (H1 _ Hf).
+        invert H1; auto. fold (prog_impl_implication p1) in *.
+        apply Exists_exists in H, H2. fwd. apply rule_impl_hyp_relname_in in Hp1.
+        apply rule_impl_concl_relname_in in H2p1. rewrite Forall_forall in Hp1.
+        specialize (Hp1 _ Hf). exfalso. eapply Hdisj.
+        -- apply in_flat_map. eauto.
+        -- apply in_flat_map. eauto.
+  Qed.
+
+  Lemma loopless_program p Q f :
+    disjoint_lists (flat_map concl_rels p) (flat_map hyp_rels p) ->
+    prog_impl_implication p Q f ->
+    Q f \/
+      exists hyps,
+        Forall Q hyps /\
+          Exists (fun r => rule_impl r f hyps) p.
+  Proof.
+    intros Hdisj. induction 1.
+    - auto.
+    - right. fold (prog_impl_implication p) in *. eexists. split; [|eassumption].
+      rewrite Forall_forall in *. intros f Hf. specialize (H1 _ Hf).
+      destruct H1 as [H1|H1]; auto. fwd. rewrite Exists_exists in *. fwd.
+      apply rule_impl_hyp_relname_in in Hp1. apply rule_impl_concl_relname_in in H1p1p1.
+      rewrite Forall_forall in Hp1. specialize (Hp1 _ Hf). exfalso. eapply Hdisj.
+      + apply in_flat_map. eauto.
+      + apply in_flat_map. eauto.
   Qed.
 End __.
 Arguments clause : clear implicits.
 Arguments fact : clear implicits.
 Arguments rule : clear implicits.
 Arguments expr : clear implicits.
+
+Ltac invert_stuff :=
+  repeat match goal with
+    | _ => progress cbn [fact_R clause_R fact_args clause_args] in *
+    | H : rule_impl _ _ _ |- _ => invert1 H
+    | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
+    | H : interp_expr _ _ _ |- _ => invert1 H
+    | _ => invert_list_stuff
+    | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; subst
+    end.
