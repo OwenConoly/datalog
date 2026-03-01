@@ -794,14 +794,6 @@ I choose option 3.  I will modify the compiler accordingly.
 I changed my mind; I will do an equivalent slight variation on 3, with the vars_good thing.
  *)
 
-Ltac invert_stuff :=
-  match goal with
-  | H : rule_impl _ _ _ |- _ => invert1 H
-  | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
-  | H : interp_expr _ _ _ |- _ => invert1 H
-  | _ => invert_list_stuff
-  end.
-
 (* This is becoming insane.  I don't technically have to do this, because I could just
    use that bounds are constants... but that still seems wrong somehow, especially for
    summations.  Why should summation bounds have to be constant?*)

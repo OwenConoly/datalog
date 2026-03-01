@@ -3,8 +3,8 @@ From Stdlib Require Import Arith.EqNat.
 From Stdlib Require Import Bool.Bool.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Datatypes.List.
-From Datalog Require Import List Datalog (* FancyNotations *) .
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Datatypes.List Tactics Tactics.fwd.
+From Datalog Require Import List Datalog (* FancyNotations *) Tactics.
 Import ListNotations.
 
 Section __.
@@ -21,7 +21,7 @@ Variant obj :=
   | factset (_ : rel * list obj0 -> Prop)
   | blank
   | iter.
-Context (context : map.map nat obj).
+Context {context : map.map nat obj} {context_ok : map.ok context}.
 Definition natobj x := primitive (natobj' x).
 Let fact : Type := fact rel obj.
 Variant fn :=
@@ -48,6 +48,37 @@ Inductive Sexpr {var} : type -> Type :=
 | let_in t1 t2 : Sexpr t1 -> (var t1 -> Sexpr t2) -> Sexpr t2
 | bop_over_set : bop -> Sexpr set -> Sexpr val.
 Arguments Sexpr : clear implicits.
+
+Section well_formed.
+  Context {var1 var2 : type -> Type}.
+  Record ctx_elt2 :=
+    { ctx_elt_t : type; ctx_elt_p1 : var1 ctx_elt_t; ctx_elt_p2 : var2 ctx_elt_t }.
+
+  Inductive wf_Sexpr : list ctx_elt2 -> forall t, Sexpr var1 t -> Sexpr var2 t -> Prop :=
+  | wf_Var ctx t x1 x2 :
+    In {| ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} ctx ->
+    wf_Sexpr ctx _ (Var t x1) (Var t x2)
+  | wf_bop_over_vals ctx o x1 x2 y1 y2 :
+    wf_Sexpr ctx _ x1 x2 ->
+    wf_Sexpr ctx _ y1 y2 ->
+    wf_Sexpr ctx _ (bop_over_vals o x1 y1) (bop_over_vals o x2 y2)
+  | wf_empty ctx :
+    wf_Sexpr ctx _ empty empty
+  | wf_singleton ctx x1 x2 :
+    wf_Sexpr ctx _ x1 x2 ->
+    wf_Sexpr ctx _ (singleton x1) (singleton x2)
+  | wf_intersection ctx x1 x2 y1 y2 :
+    wf_Sexpr ctx _ x1 x2 ->
+    wf_Sexpr ctx _ y1 y2 ->
+    wf_Sexpr ctx _ (intersection x1 y1) (intersection x2 y2)
+  | wf_let_in ctx t1 t2 x1 x2 y1 y2 :
+    wf_Sexpr ctx _ x1 x2 ->
+    (forall x1' x2', wf_Sexpr ({| ctx_elt_p1 := x1'; ctx_elt_p2 := x2' |} :: ctx) _ (y1 x1') (y2 x2')) ->
+    wf_Sexpr ctx _ (let_in t1 t2 x1 y1) (let_in _ _ x2 y2)
+  | wf_bop_over_set ctx o x1 x2 :
+    wf_Sexpr ctx _ x1 x2 ->
+    wf_Sexpr ctx _ (bop_over_set o x1) (bop_over_set o x2).
+End well_formed.
 
 Definition lit x : expr := fun_expr (fn_lit x) [].
 
@@ -111,7 +142,7 @@ Definition interp_agg o (i_xis : list (obj * obj)) :=
 Instance Sig : signature fn bop obj :=
   { interp_fun := interp_fn ;
     get_set := get_set;
-    blank := blank;
+    iter := iter;
     interp_agg := interp_agg }.
 
 Definition closure (p : list rule) : list expr -> expr :=
@@ -234,3 +265,89 @@ Inductive Sexpr_with_args {var} : type -> Type :=
 | with_args_nil t : Sexpr var t -> Sexpr_with_args t
 | with_args_cons t : var t -> Sexpr_with_args t.
 Arguments Sexpr_with_args : clear implicits.
+
+Definition agrees Q (p : list rule) t name (e' : interp_type t) :=
+  match t return interp_type t -> _ with
+  | set => fun e' =>
+            (forall x,
+                prog_impl_implication p Q
+                                      {| fact_R := (name, normal);
+                                        fact_args := [natobj x] |} <->
+                  e' x)
+  | _ => fun e' =>
+          forall x,
+            prog_impl_implication p Q {| fact_R := (name, normal);
+                                        fact_args := [natobj x] |} <->
+              e' = x
+  end e'.
+
+Ltac dep_invert H :=
+  invert H;
+  repeat match goal with
+    | H: existT _ _ _ = existT _ _ _ |- _ => apply Eqdep.EqdepTheory.inj_pair2 in H
+    end;
+  subst.
+
+Lemma cons_is_app {T} (x : T) l :
+  x :: l = [x] ++ l.
+Proof. reflexivity. Qed.
+
+Lemma cons_two_is_app {T} (x y : T) l :
+  x :: y :: l = [x; y] ++ l.
+Proof. reflexivity. Qed.
+
+Lemma disjoint_lists_alt {T} (l1 l2 : list T) :
+  Forall (fun x => Forall (fun y => y <> x) l2) l1 ->
+  disjoint_lists l1 l2.
+Proof.
+  cbv [disjoint_lists]. induction 1; simpl.
+  - auto.
+  - intros ? [?|?]; subst; eauto.
+    rewrite Forall_forall in *. unfold not in *. eauto.
+Qed.
+
+Lemma compile_Sexpr_correct Q datalog_ctx ctx t e e_nat e' name out name' p p' :
+  wf_Sexpr ctx t e e_nat ->
+  Forall (fun elt => agrees Q datalog_ctx _ elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
+  ~In out (map (fun x => @ctx_elt_p2 _ (fun _ => nat) x) ctx) ->
+  Forall (fun R => R <> out) (flat_map hyp_rels datalog_ctx) ->
+  interp_Sexpr e e' ->
+  compile_Sexpr name out e_nat = (name', p, p') ->
+  agrees Q (p ++ p' p ++ datalog_ctx) t out e'.
+Proof.
+  intros Hwf. revert datalog_ctx.
+  induction Hwf; intros datalog_ctx Hctx Hout1 Hout2 He' Hcomp.
+  - dep_invert He'. simpl in Hcomp. invert Hcomp. destruct t; simpl.
+    + intros x. split.
+      -- intros Himpl. rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
+         2: { simpl. apply disjoint_lists_alt; auto. }
+         apply loopless_program in Himpl.
+         2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
+              intro. subst. apply Hout1. apply in_map_iff. eexists.
+              split; [|eassumption]. reflexivity. }
+         destruct Himpl as [Himpl|Himpl].
+         ++ admit.
+         ++ fwd. apply Exists_cons in Himplp1. destruct Himplp1 as [Himpl|Himpl].
+            --- rewrite Forall_forall in Hctx.
+                specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. apply Hctx.
+                invert_stuff. eassert (_ = y) as ->.
+                { destruct y. simpl in *. f_equal; auto; congruence. }
+                assumption.
+            --- invert_stuff.
+      -- intros. subst. eapply prog_impl_step.
+         ++ apply Exists_cons_hd. Check map.put.
+            apply normal_rule_impl with (ctx := map.put map.empty 0 (natobj x)).
+            --- apply Exists_cons_hd. cbv [interp_clause]. simpl. split; auto.
+                constructor; [|constructor]. constructor.
+                (*map_solver context_ok. (*anomaly*) *)
+                rewrite map.get_put_same. reflexivity.
+            --- constructor; [|constructor]. cbv [interp_clause]. simpl.
+                instantiate (1 := {| fact_R := _; fact_args := _ |}).
+                simpl. split; eauto. constructor; [|constructor].
+                constructor. apply map.get_put_same.
+         ++ constructor; [|constructor]. rewrite Forall_forall in Hctx.
+            specialize (Hctx _ ltac:(eassumption)). simpl in Hctx.
+            eapply prog_impl_implication_subset; [|apply Hctx; reflexivity].
+            intros. simpl. auto.
+    + intros x. split.
+      --
