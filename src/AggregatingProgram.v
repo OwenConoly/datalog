@@ -193,7 +193,7 @@ Fixpoint compile_Sexpr (name : nat) (out : rel) {t} (e : Sexpr (fun _ => nat) t)
              {| clause_R := (y', meta); clause_args := [var_expr (S O); lit blank]|}]
             :: p1' p ++ p2' p)
   | empty => (name, [],
-              fun p =>[normal_rule
+              fun p => [normal_rule
                       [{| clause_R := (out, meta); clause_args := [fun_expr (fn_lit (factset (fun _ => False))) []; fun_expr (fn_lit blank) []] |}]
                       []])
   | singleton x => (*we happen to represent sets in the same format as elements*)
@@ -314,12 +314,13 @@ Lemma compile_Sexpr_correct Q datalog_ctx ctx t e e_nat e' name out name' p p' :
   interp_Sexpr e e' ->
   compile_Sexpr name out e_nat = (name', p, p') ->
   name <= name' /\
-    agrees Q (p ++ p' p ++ datalog_ctx) t out e'.
+    forall p0,
+      agrees Q (p ++ p' p0 ++ datalog_ctx) t out e'.
 Proof.
   intros Hwf. revert datalog_ctx name out name' p p'.
   induction Hwf; intros datalog_ctx name out name' p p' Hctx Hnames Hout He' Hcomp.
   - dep_invert He'. simpl in Hcomp. invert Hcomp. split; [lia|]. destruct t; simpl.
-    + intros x. split.
+    + intros p0 x. split.
       -- intros Himpl. rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
          2: { simpl. apply disjoint_lists_alt.
               constructor.
@@ -358,7 +359,7 @@ Proof.
             specialize (Hctx _ ltac:(eassumption)). simpl in Hctx.
             eapply prog_impl_implication_subset; [|apply Hctx; reflexivity].
             intros. simpl. auto.
-    + intros x. split.
+    + intros p0 x. split.
       -- intros Himpl. rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
          2: { simpl. apply disjoint_lists_alt.
               constructor.
@@ -415,6 +416,27 @@ Proof.
     specialize' IHHwf2.
     { eassumption. }
     fwd.
+    split; [lia|]. admit.
+  - admit.
+  - admit.
+  - admit.
+  - admit.
+  - dep_invert He'. simpl in Hcomp. fwd.
+    specialize IHHwf with (5 := E).
+    epose_dep IHHwf.
+    specialize' IHHwf.
+    { eassumption. }
+    specialize' IHHwf.
+    { eapply Forall_impl; [|eassumption]. simpl. lia. }
+    specialize' IHHwf.
+    { eapply Forall_impl; [|eassumption]. simpl. lia. }
+    specialize (IHHwf ltac:(eassumption)). fwd.
     split; [lia|].
+    intros p0. specialize (IHHwfp1 p0).
+    cbv [agrees].
+    simpl. intros x. split; intros Hx.
+    +
+    (* for any p0, if p0 derives the same R-facts as p for appropriate R,
+       then p' p0 works. *)
     Check IHHwf1. Check IHHwf2.
     specialize IHHwf1 with (5 := E).
