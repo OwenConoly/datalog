@@ -306,6 +306,12 @@ Proof.
     rewrite Forall_forall in *. unfold not in *. eauto.
 Qed.
 
+Lemma option_all_map_Some {T} (l : list T) :
+  option_all (map Some l) = Some l.
+Proof.
+  induction l; simpl; auto. rewrite IHl. reflexivity.
+Qed.
+
 Lemma compile_Sexpr_correct Q datalog_ctx ctx t e e_nat e' name out name' p p' :
   wf_Sexpr ctx t e e_nat ->
   Forall (fun elt => agrees Q datalog_ctx _ elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
@@ -435,7 +441,17 @@ Proof.
     intros p0. specialize (IHHwfp1 p0).
     cbv [agrees].
     simpl. intros x. split; intros Hx.
-    +
+    + admit.
+    + eapply prog_impl_step.
+      -- apply Exists_cons_hd. eassert ([natobj _] = _) as ->. 2: econstructor.
+         ++ simpl. cbv [interp_agg].
+            instantiate (2 := combine (map natobj l) (map natobj l)).
+            Search snd combine. rewrite map_combine_snd by reflexivity.
+            rewrite map_map. simpl. rewrite option_all_map_Some. instantiate (1 := []).
+            subst. reflexivity.
+         ++ admit.
+         ++ rewrite map_combine_fst by reflexivity. admit.
+      --
     (* for any p0, if p0 derives the same R-facts as p for appropriate R,
        then p' p0 works. *)
     Check IHHwf1. Check IHHwf2.
