@@ -53,7 +53,6 @@ Section well_formed.
   Context {var1 var2 : type -> Type}.
   Record ctx_elt2 :=
     { ctx_elt_t : type; ctx_elt_p1 : var1 ctx_elt_t; ctx_elt_p2 : var2 ctx_elt_t }.
-
   Inductive wf_Sexpr : list ctx_elt2 -> forall t, Sexpr var1 t -> Sexpr var2 t -> Prop :=
   | wf_Var ctx t x1 x2 :
     In {| ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} ctx ->
