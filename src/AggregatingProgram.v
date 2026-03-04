@@ -467,8 +467,17 @@ Proof.
                 specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. fwd.
                 eapply prog_impl_implication_subset; [|apply Hctxp0; assumption].
                 intros. simpl. auto.
-      -- eexists.
-
+      -- rewrite Forall_forall in Hctx. specialize (Hctx _ ltac:(eassumption)).
+         simpl in Hctx. fwd. eexists. eapply prog_impl_step.
+         ++ apply Exists_cons_tl. apply Exists_cons_hd.
+            eapply normal_rule_impl with (ctx := map.put map.empty 0 (factset _)).
+            --- apply Exists_cons_hd. interp_exprs.
+                { apply map.get_put_same. }
+                simpl. reflexivity.
+            --- interp_exprs. apply map.get_put_same.
+         ++ constructor; [|constructor].
+            eapply prog_impl_implication_subset; [|eassumption].
+            simpl. auto.
          intros S0.
          match goal with
          | |- ?P1 <-> _ => eassert (P1 <-> _)
