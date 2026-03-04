@@ -381,13 +381,20 @@ Ltac interp_exprs :=
     | |- _ => reflexivity
     end.
 
-
 Definition mrs_very_sound_for (p : list rule) R :=
   forall Q S0,
     prog_impl_implication p Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} ->
     forall x,
       prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} <->
         S0 (R, [x]).
+
+Definition closure_rule (p : list rule) R (Rs : list unit) : rule :=
+  normal_rule
+    [{| clause_R := (R, meta); clause_args := [closure p (map var_expr (seq O (length Rs))); lit blank] |}]
+    [].
+
+Definition describes R Rs p :=
+
 
 Lemma compile_Sexpr_correct datalog_ctx ctx t e e_nat e' name out name' p p' :
   wf_Sexpr ctx t e e_nat ->
@@ -398,11 +405,13 @@ Lemma compile_Sexpr_correct datalog_ctx ctx t e e_nat e' name out name' p p' :
   interp_Sexpr e e' ->
   compile_Sexpr name out e_nat = (name', p, p') ->
   name <= name' /\
-    agrees (fun _ => False) (p ++ p' p ++ datalog_ctx) t out e'.
+    agrees (fun _ => False) (p ++ p' p ++ datalog_ctx) t out e' /\
+    (forall R, mrs_very_sound_for (p ++ p' p ++ datalog_ctx) R).
 Proof.
   intros Hwf. revert datalog_ctx name out name' p p'.
   induction Hwf; intros datalog_ctx name out name' p p' Hctx Hnames Hout1 Hout2 He' Hcomp.
-  - dep_invert He'. simpl in Hcomp. invert Hcomp. split; [lia|]. destruct t; simpl.
+  - dep_invert He'. simpl in Hcomp. invert Hcomp. split; [lia|]. split.
+    * destruct t; simpl.
     + intros x. split.
       -- intros Himpl. rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
          2: { simpl. apply disjoint_lists_alt.
@@ -485,7 +494,18 @@ Proof.
          ++ constructor; [|constructor].
             eapply prog_impl_implication_subset; [|eassumption].
             simpl. auto.
-         intros S0.
+      * intros R. destr (Nat.eqb R out).
+        { cbv [mrs_very_sound_for]. intros Q S0 HS0 x.
+          simpl. rewrite cons_two_is_app. rewrite staged_program_iff.
+          2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
+               intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
+               specialize' Hnames.
+               { apply in_map_iff. eexists.
+                 split; [|eassumption]. reflexivity. }
+               simpl in Hnames. fwd. congruence. }
+
+          2: { split.
+            intros S0.
          match goal with
          | |- ?P1 <-> _ => eassert (P1 <-> _)
          end.
