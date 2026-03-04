@@ -85,14 +85,12 @@ Definition lit x : expr := fun_expr (fn_lit x) [].
 Definition union : list expr -> expr :=
   fun_expr (fn_fun (fun args x => Exists (fun P => P x) args)).
 
-Print signature.
-
 Definition interp_bop o x y :=
   match o with
   | sum => x + y
   | prod => x * y
   end.
-Print fn. Print option_all.
+
 Definition interp_fn (f : fn) (args : list obj) : option obj :=
   match f with
   | fn_lit x => Some x
@@ -112,7 +110,7 @@ Definition interp_fn (f : fn) (args : list obj) : option obj :=
       | None => None
       end
   end.
-Print signature. Print obj.
+
 Definition get_set (s : obj) :=
   match s with
   | primitive _ => None
@@ -126,7 +124,6 @@ Definition get_set (s : obj) :=
   | iter => None
   end.
 
-Check fold_right.
 Definition extract_nat (x : obj) :=
   match x with
   | primitive (natobj' x0) => Some x0
@@ -286,15 +283,10 @@ Definition agrees Q (p : list rule) t name (e' : interp_type t) :=
                                       {| fact_R := (name, normal);
                                         fact_args := [natobj x] |} <->
                   e' x) /\
-              (forall x,
-                  prog_impl_implication p Q
-                                        {| fact_R := (name, meta);
-                                          fact_args := [factset x; blank] |} <->
-                    (forall y,
-                        prog_impl_implication p Q
-                                        {| fact_R := (name, normal);
-                                          fact_args := [natobj y] |} <->
-                          x (name, [natobj' y])))
+              exists x,
+                prog_impl_implication p Q
+                                      {| fact_R := (name, meta);
+                                        fact_args := [factset x; blank] |}
   | _ => fun e' =>
           forall x,
             prog_impl_implication p Q {| fact_R := (name, normal);
@@ -475,7 +467,30 @@ Proof.
                 specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. fwd.
                 eapply prog_impl_implication_subset; [|apply Hctxp0; assumption].
                 intros. simpl. auto.
-      -- intros S0. split; intros Himpl.
+      -- eexists.
+
+         intros S0.
+         match goal with
+         | |- ?P1 <-> _ => eassert (P1 <-> _)
+         end.
+         { rewrite cons_two_is_app. apply staged_program_iff. simpl. admit. }
+         rewrite H0. clear H0.
+         match goal with
+         | |- ?P1 <-> _ => eassert (P1 <-> _)
+         end.
+         { apply loopless_program_iff. simpl. admit. }
+         rewrite H0. clear H0.
+         match goal with
+         | |- ?P1 <-> _ => eassert (P1 <-> _)
+         end.
+         {
+         split.
+           { intros H'. rewrite staged_program_iff in H'. rewrite @staged_program_iff. Check staged_program.
+        intros S0.
+         match goal with
+         | |- context[closure ?x] => remember x as p eqn:Ep
+         end.
+         split; intros Himpl.
          ++ rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
             2: { simpl. apply disjoint_lists_alt.
                  constructor.
@@ -516,7 +531,9 @@ Proof.
                            split; [|eassumption]. reflexivity. }
                          simpl in Hnames. fwd. congruence. }
                     destruct Himpl as [Himpl|Himpl].
-                    { (*Himpl is contradiction*) admit. }
+                    { apply idk in Himpl; [contradiction|]. simpl.
+                      intros H'. rewrite Forall_forall in Hout2. apply Hout2 in H'.
+                      fwd. congruence. }
                     fwd. apply Exists_cons in Himplp1. destruct Himplp1 as [Himpl|Himpl].
                     2: { invert_stuff. }
                     invert_stuff. rewrite H2 in H8. fwd.
@@ -530,7 +547,27 @@ Proof.
                     apply partial_in. eexists (_, [_]). split; [|reflexivity].
                     apply Exists_cons_hd. move Hctxp1 at bottom.
                     eapply Hctxp1 in H4. apply H4. assumption.
-                +++
+                +++ apply loopless_program in Himpl.
+                    2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
+                         intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
+                         specialize' Hnames.
+                         { apply in_map_iff. eexists.
+                           split; [|eassumption]. reflexivity. }
+                         simpl in Hnames. fwd. congruence. }
+                    (* eapply prog_impl_step. *)
+                    (* { apply Exists_cons_hd. *)
+                    (*   eapply normal_rule_impl with (ctx := map.put map.empty 0 (natobj _)). *)
+                    (*   - apply Exists_cons_hd. interp_exprs. apply map.get_put_same. *)
+                    (*   - interp_exprs. apply map.get_put_same. } *)
+                    (* constructor; [|constructor]. *)
+                    destruct Himpl as [Himpl|Himpl].
+                    { fwd. simpl in *. destruct y'. simpl in *. subst. invert_stuff.
+                      destruct l; simpl in *; invert_stuff.
+                      destruct l; simpl in *; invert_stuff. rewrite H1 in H3. fwd.
+                      eapply Hctxp1 in H4. eapply prog_impl_implication_subset.
+                      2: { apply H4. assumption.
+
+                        apply H4 in H5.
                   invert Himpl.
                     apply staged_program in H'.
                 rewrite H1 in H5. fwd. subst.

@@ -575,6 +575,24 @@ Section __.
         -- apply in_flat_map. eauto.
   Qed.
 
+  Lemma prog_impl_trans p Q f :
+    prog_impl_implication p (prog_impl_implication p Q) f ->
+    prog_impl_implication p Q f.
+  Proof. apply partial_pftree_trans. Qed.
+
+  Lemma staged_program_iff p1 p2 Q f :
+    disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) ->
+    prog_impl_implication (p1 ++ p2) Q f <->
+    prog_impl_implication p1 (prog_impl_implication p2 Q) f.
+  Proof.
+    split; auto using staged_program. intros.
+    apply prog_impl_trans. eapply prog_impl_implication_subset.
+    2: { eapply prog_impl_implication_weaken_hyp; [eassumption|].
+         intros. eapply prog_impl_implication_subset; [|eassumption].
+         intros. rewrite in_app_iff. auto. }
+    intros. rewrite in_app_iff. auto.
+  Qed.
+
   Lemma loopless_program p Q f :
     disjoint_lists (flat_map concl_rels p) (flat_map hyp_rels p) ->
     prog_impl_implication p Q f ->
@@ -592,6 +610,17 @@ Section __.
       rewrite Forall_forall in Hp1. specialize (Hp1 _ Hf). exfalso. eapply Hdisj.
       + apply in_flat_map. eauto.
       + apply in_flat_map. eauto.
+  Qed.
+
+  Lemma loopless_program_iff p Q f :
+    disjoint_lists (flat_map concl_rels p) (flat_map hyp_rels p) ->
+    prog_impl_implication p Q f <->
+      (Q f \/
+         exists hyps,
+           Forall Q hyps /\
+             Exists (fun r => rule_impl r f hyps) p).
+  Proof.
+    intros. split; auto using loopless_program. intros [H'|H']; fwd; eauto.
   Qed.
 End __.
 Arguments clause : clear implicits.
