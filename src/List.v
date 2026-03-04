@@ -26,6 +26,26 @@ Local Ltac invert_list_stuff' :=
 Definition is_list_set {X : Type} (S : X -> Prop) (l : list X) :=
   (forall x, S x <-> In x l) /\ NoDup l.
 
+Lemma is_list_set_map X Y S l (f : X -> Y) :
+  FinFun.Injective f ->
+  is_list_set S l ->
+  is_list_set (fun y => exists x, y = f x /\ S x) (map f l).
+Proof.
+  intros Hf [H1 H2]. split.
+  - intros. split; intros H3; fwd.
+    + apply in_map_iff. apply H1 in H3p1. eauto.
+    + apply in_map_iff in H3. fwd. apply H1 in H3p1. eauto.
+  - apply FinFun.Injective_map_NoDup; assumption.
+Qed.
+
+Lemma is_list_set_ext X (S1 S2 : X -> _) l :
+  is_list_set S1 l ->
+  (forall x, S1 x <-> S2 x) ->
+  is_list_set S2 l.
+Proof.
+  intros [H1 H2] H3. split; auto. intros. rewrite <- H3. apply H1.
+Qed.
+
 Import ListNotations.
 Section subset.
 Context {A : Type}.
