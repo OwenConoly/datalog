@@ -172,7 +172,7 @@ Fixpoint compile_Sexpr (name : nat) (out : rel) {t} (e : Sexpr (fun _ => nat) t)
                    [{| clause_R := (x, normal); clause_args := [var_expr O] |}]],
                 fun p =>
                   [normal_rule
-                     [{| clause_R := (out, meta); clause_args := [var_expr O; lit blank] |}]
+                     [{| clause_R := (out, meta); clause_args := [closure p [var_expr O]; lit blank] |}]
                      [{| clause_R := (x, meta); clause_args := [var_expr O; lit blank] |}]
               ])
   | bop_over_vals o x y =>
@@ -286,11 +286,15 @@ Definition agrees Q (p : list rule) t name (e' : interp_type t) :=
                                       {| fact_R := (name, normal);
                                         fact_args := [natobj x] |} <->
                   e' x) /\
-              (forall x x0,
+              (forall x,
                   prog_impl_implication p Q
                                         {| fact_R := (name, meta);
-                                          fact_args := [setobj x0; blank] |} <->
-                    x0 = x)
+                                          fact_args := [factset x; blank] |} <->
+                    (forall y,
+                        prog_impl_implication p Q
+                                        {| fact_R := (name, normal);
+                                          fact_args := [natobj y] |} <->
+                          x (name, [natobj' y])))
   | _ => fun e' =>
           forall x,
             prog_impl_implication p Q {| fact_R := (name, normal);
@@ -395,13 +399,12 @@ Lemma compile_Sexpr_correct datalog_ctx ctx t e e_nat e' name out name' p p' :
   interp_Sexpr e e' ->
   compile_Sexpr name out e_nat = (name', p, p') ->
   name <= name' /\
-    forall p0,
-      agrees (fun _ => False) (p ++ p' p0 ++ datalog_ctx) t out e'.
+    agrees (fun _ => False) (p ++ p' p ++ datalog_ctx) t out e'.
 Proof.
   intros Hwf. revert datalog_ctx name out name' p p'.
   induction Hwf; intros datalog_ctx name out name' p p' Hctx Hnames Hout1 Hout2 He' Hcomp.
   - dep_invert He'. simpl in Hcomp. invert Hcomp. split; [lia|]. destruct t; simpl.
-    + intros p0 x. split.
+    + intros x. split.
       -- intros Himpl. rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
          2: { simpl. apply disjoint_lists_alt.
               constructor.
@@ -436,7 +439,7 @@ Proof.
             specialize (Hctx _ ltac:(eassumption)). simpl in Hctx.
             eapply prog_impl_implication_subset; [|apply Hctx; reflexivity].
             intros. simpl. auto.
-    + intros p0. split.
+    + split.
       -- intros x. split.
          ++ intros Himpl. rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
             2: { simpl. apply disjoint_lists_alt.
@@ -458,27 +461,21 @@ Proof.
                 fwd. congruence.
             --- fwd. apply Exists_cons in Himplp1. destruct Himplp1 as [Himpl|Himpl].
                 +++ rewrite Forall_forall in Hctx.
-                    specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. apply Hctx.
-                    invert_stuff. eassert (_ = y) as ->.
+                    specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. fwd.
+                    apply Hctxp0. invert_stuff. eassert (_ = y) as ->.
                     { destruct y. simpl in *. f_equal; auto; congruence. }
                     assumption.
                 +++ invert_stuff.
          ++ intros. subst. eapply prog_impl_step.
-            --- apply Exists_cons_hd. Check map.put.
+            --- apply Exists_cons_hd.
                 apply normal_rule_impl with (ctx := map.put map.empty 0 (natobj x)).
-                +++ apply Exists_cons_hd. cbv [interp_clause]. simpl. split; auto.
-                    constructor; [|constructor]. constructor.
-                    (*map_solver context_ok. (*anomaly*) *)
-                    rewrite map.get_put_same. reflexivity.
-                +++ constructor; [|constructor]. cbv [interp_clause]. simpl.
-                    instantiate (1 := {| fact_R := _; fact_args := _ |}).
-                    simpl. split; eauto. constructor; [|constructor].
-                    constructor. apply map.get_put_same.
+                +++ apply Exists_cons_hd. interp_exprs. apply map.get_put_same.
+                +++ interp_exprs. apply map.get_put_same.
             --- constructor; [|constructor]. rewrite Forall_forall in Hctx.
-                specialize (Hctx _ ltac:(eassumption)). simpl in Hctx.
-                eapply prog_impl_implication_subset; [|apply Hctx; assumption].
+                specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. fwd.
+                eapply prog_impl_implication_subset; [|apply Hctxp0; assumption].
                 intros. simpl. auto.
-      -- intros x x0. split; intros Himpl.
+      -- intros S0. split; intros Himpl.
          ++ rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
             2: { simpl. apply disjoint_lists_alt.
                  constructor.
@@ -501,7 +498,44 @@ Proof.
                 { invert_stuff. }
                 invert_stuff.
                 rewrite Forall_forall in Hctx.
-                specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. apply Hctx.
+                specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. fwd.
+                intros. (*specialize (Hctxp1 S0). move Hctxp1 at bottom.*)
+                destruct y; simpl in *; fwd. split; intros Himpl.
+                +++ rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
+                    2: { simpl. apply disjoint_lists_alt.
+                         constructor.
+                         { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
+                         constructor.
+                         { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
+                         constructor. }
+                    apply loopless_program in Himpl.
+                    2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
+                         intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
+                         specialize' Hnames.
+                         { apply in_map_iff. eexists.
+                           split; [|eassumption]. reflexivity. }
+                         simpl in Hnames. fwd. congruence. }
+                    destruct Himpl as [Himpl|Himpl].
+                    { (*Himpl is contradiction*) admit. }
+                    fwd. apply Exists_cons in Himplp1. destruct Himplp1 as [Himpl|Himpl].
+                    2: { invert_stuff. }
+                    invert_stuff. rewrite H2 in H8. fwd.
+                    destruct y. simpl in *. subst. rewrite H1 in H3. fwd.
+                    move H4 at bottom. eapply prog_impl_step.
+                    { apply Exists_cons_hd.
+                      eapply normal_rule_impl with (ctx := map.put map.empty 0 (natobj _)).
+                      - apply Exists_cons_hd. interp_exprs. apply map.get_put_same.
+                      - interp_exprs. apply map.get_put_same. }
+                    constructor; [|constructor].
+                    apply partial_in. eexists (_, [_]). split; [|reflexivity].
+                    apply Exists_cons_hd. move Hctxp1 at bottom.
+                    eapply Hctxp1 in H4. apply H4. assumption.
+                +++
+                  invert Himpl.
+                    apply staged_program in H'.
+                rewrite H1 in H5. fwd. subst.
+                eapply Hctxp1 in H4. (*seems true *) rewrite <- H4.
+                apply Hctxp1.
                 invert_stuff. eassert (_ = y) as ->.
                 { destruct y. simpl in *. f_equal; auto; congruence. }
                 assumption.
