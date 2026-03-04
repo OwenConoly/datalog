@@ -383,8 +383,8 @@ Ltac interp_exprs :=
     end.
 
 
-Definition mrs_very_sound (p : list rule) :=
-  forall Q R S0,
+Definition mrs_very_sound_for (p : list rule) R :=
+  forall Q S0,
     prog_impl_implication p Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} ->
     forall x,
       prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} <->
