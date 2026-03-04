@@ -534,13 +534,12 @@ Proof.
     + eapply prog_impl_step.
       -- apply Exists_cons_hd. eassert ([natobj _] = _) as ->. 2: econstructor.
          ++ simpl. cbv [interp_agg].
-            instantiate (2 := combine (map natobj l) (map natobj l)).
-            rewrite map_combine_snd by reflexivity.
-            rewrite map_map. simpl. rewrite option_all_map_Some. instantiate (1 := []).
+            instantiate (2 := map (fun x => (natobj x, natobj x)) l).
+            do 2 rewrite map_map. simpl. rewrite option_all_map_Some.
+            instantiate (1 := []).
             subst. reflexivity.
          ++ instantiate (2 := setobj _). simpl. reflexivity.
-         ++ rewrite map_combine_fst by reflexivity.
-            eapply is_list_set_ext.
+         ++ rewrite map_map. simpl. eapply is_list_set_ext.
             { apply is_list_set_map; [|eassumption].
               cbv [FinFun.Injective]. invert 1. reflexivity. }
             intros x0. simpl.
@@ -567,4 +566,15 @@ Proof.
                   { econstructor; [constructor|]. reflexivity. }
                   constructor. }
                 constructor.
-            ---
+            --- constructor; [|constructor]. eapply prog_impl_implication_subset.
+                2: { fwd. specialize (IHHwfp1p1 x' x'). apply IHHwfp1p1. reflexivity. }
+                simpl. auto.
+         ++ apply Forall_map. apply Forall_map.
+            rename H2 into Hl. move Hl at bottom. destruct Hl as [Hlp0 Hlp1].
+            apply Forall_forall. intros x0 Hx0. apply Hlp0 in Hx0.
+            fwd. apply IHHwfp1p0 in Hx0.
+            eapply prog_impl_step.
+            --- apply Exists_cons_tl. apply Exists_cons_hd.
+                eapply normal_rule_impl with (ctx := map.put map.empty 0 (setobj _)).
+                +++ apply Exists_cons_hd. cbv [interp_clause].
+            Search
