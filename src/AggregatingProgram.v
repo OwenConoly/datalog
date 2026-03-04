@@ -382,6 +382,14 @@ Ltac interp_exprs :=
     | |- _ => reflexivity
     end.
 
+
+Definition mrs_very_sound (p : list rule) :=
+  forall Q R S0,
+    prog_impl_implication p Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} ->
+    forall x,
+      prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} <->
+        S0 (R, [x]).
+
 Lemma compile_Sexpr_correct datalog_ctx ctx t e e_nat e' name out name' p p' :
   wf_Sexpr ctx t e e_nat ->
   Forall (fun elt => agrees (fun _ => False) datalog_ctx _ elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
