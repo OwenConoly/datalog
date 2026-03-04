@@ -339,6 +339,53 @@ Proof.
   exfalso. eauto.
 Qed.
 
+(*TODO there's got to be a less hacky way to do this*)
+Lemma decomp_fact (ctx : context) y blah1 blah2 :
+  interp_clause ctx y ({| fact_R := blah1; fact_args := blah2 |} : fact) ->
+  interp_clause ctx y {| fact_R := blah1; fact_args := blah2 |}.
+Proof. auto. Qed.
+
+Ltac interp_exprs :=
+  repeat rewrite map_app; simpl;
+  repeat match goal with
+    | _ => progress simpl
+    | |- Forall2 _ (_ ++ _) _ => apply Forall2_app
+    | |- Forall2 _ (_ :: _) _ => constructor
+    | |- Forall2 _ nil _ => constructor
+    | |- Forall2 _ (map var_expr (map inl _)) _ =>
+        do 2 rewrite <- Forall2_map_l; try apply Forall2_firstn; solve [interp_exprs]
+    | |- Forall2 _ _ _ =>
+        (eapply Forall2_impl; [|eassumption]; simpl; intros) ||
+          (* (eapply Forall2_impl; *)
+          (*  [|apply idx_map_works || *)
+          (*      (match goal with *)
+          (*       | H: _ = length ?x |- context[seq _ (length ?x)] => rewrite <- H *)
+          (*       | H: length ?x = _ |- context[seq _ (length ?x)] => rewrite H *)
+          (*       end; *)
+    (*       apply idx_map_works)]; simpl; intros) *)
+                                                             idtac
+    | |- interp_expr _ _ _ => econstructor
+    (* | |- interp_expr _ (fun_expr _ _) _ => econstructor *)
+    (* | |- interp_expr _ (var_expr _) _ => constructor *)
+    (* | |- interp_expr _ (lower_idx _) _ => *)
+    (*     eapply interp_expr_subst_more; [|eapply eval_Zexpr_to_substn; eassumption || (apply eval_Zexpr_Z_eval_Zexpr; eassumption)] *)
+    (* | |- interp_expr _ (lower_guard _) _ => *)
+    (*     eapply interp_expr_subst_more; [|eapply eval_Bexpr_to_substn; eassumption] *)
+    | |- interp_expr _ _ _ =>
+        eapply interp_expr_subst_more; [|eassumption]
+    | |- interp_clause _ _ _ =>
+        eapply interp_clause_subst_more; [|eassumption]
+    (* | |- map.extends _ _ => extends_solver *)
+    (* | |- map.get ?ctx' _ = _ => try subst ctx'; solve_map_get *)
+    (* | |- map.get ?ctx' _ = _ => let H := fresh "H" in eenough (map.extends _ _) as H; [apply H; eassumption|]; solve[extends_solver] *)
+    | |- interp_clause _ _ ?x =>
+        try (is_evar x; eapply decomp_fact); split
+    | |- _ /\ _ => split; [solve [interp_exprs] |]
+    | |- Exists _ [_] => apply Exists_cons_hd
+    (* | |- Forall2 _ (map lower_idx _) _ => eapply Forall2_impl; [|apply eval_Zexprlist_to_substn; eassumption]; intros *)
+    | |- _ => reflexivity
+    end.
+
 Lemma compile_Sexpr_correct datalog_ctx ctx t e e_nat e' name out name' p p' :
   wf_Sexpr ctx t e e_nat ->
   Forall (fun elt => agrees (fun _ => False) datalog_ctx _ elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
@@ -383,14 +430,8 @@ Proof.
       -- intros. subst. eapply prog_impl_step.
          ++ apply Exists_cons_hd. Check map.put.
             apply normal_rule_impl with (ctx := map.put map.empty 0 (natobj x)).
-            --- apply Exists_cons_hd. cbv [interp_clause]. simpl. split; auto.
-                constructor; [|constructor]. constructor.
-                (*map_solver context_ok. (*anomaly*) *)
-                rewrite map.get_put_same. reflexivity.
-            --- constructor; [|constructor]. cbv [interp_clause]. simpl.
-                instantiate (1 := {| fact_R := _; fact_args := _ |}).
-                simpl. split; eauto. constructor; [|constructor].
-                constructor. apply map.get_put_same.
+            --- apply Exists_cons_hd. interp_exprs. apply map.get_put_same.
+            --- interp_exprs. apply map.get_put_same.
          ++ constructor; [|constructor]. rewrite Forall_forall in Hctx.
             specialize (Hctx _ ltac:(eassumption)). simpl in Hctx.
             eapply prog_impl_implication_subset; [|apply Hctx; reflexivity].
@@ -467,20 +508,8 @@ Proof.
          ++ subst. eapply prog_impl_step.
             --- apply Exists_cons_tl. apply Exists_cons_hd.
                 eapply normal_rule_impl with (ctx := map.put map.empty 0 (setobj _)).
-                +++ apply Exists_cons_hd. cbv [interp_clause]. simpl.
-                    split; [reflexivity|].
-                    constructor.
-                    { constructor. apply map.get_put_same. }
-                    constructor.
-                    { econstructor; [constructor|]. reflexivity. }
-                    constructor.
-                +++ constructor; [|constructor]. cbv [interp_clause]. simpl.
-                    instantiate (1 := {| fact_R := _; fact_args := _ |}).
-                    simpl. split; eauto. constructor.
-                    { constructor. apply map.get_put_same. }
-                    constructor.
-                    { econstructor; [constructor|]. reflexivity. }
-                    constructor.
+                +++ apply Exists_cons_hd. interp_exprs. apply map.get_put_same.
+                +++ interp_exprs. apply map.get_put_same.
             --- constructor; [|constructor]. rewrite Forall_forall in Hctx.
                 specialize (Hctx _ ltac:(eassumption)). simpl in Hctx.
                 fwd.
@@ -551,21 +580,8 @@ Proof.
          ++ eapply prog_impl_step.
             --- apply Exists_cons_tl. apply Exists_cons_hd.
                 eapply normal_rule_impl with (ctx := map.put map.empty 0 (setobj _)).
-                { apply Exists_cons_hd. cbv [interp_clause]. simpl.
-                  split; [reflexivity|]. constructor.
-                  { constructor. apply map.get_put_same. }
-                  constructor.
-                  { econstructor; [constructor|]. reflexivity. }
-                  constructor. }
-                constructor.
-                { cbv [interp_clause].
-                  instantiate (1 := {| fact_R := (_, _); fact_args := _ |}). simpl.
-                  split; [reflexivity|]. constructor.
-                  { constructor. apply map.get_put_same. }
-                  constructor.
-                  { econstructor; [constructor|]. reflexivity. }
-                  constructor. }
-                constructor.
+                +++ apply Exists_cons_hd. interp_exprs. apply map.get_put_same.
+                +++ interp_exprs. apply map.get_put_same.
             --- constructor; [|constructor]. eapply prog_impl_implication_subset.
                 2: { fwd. specialize (IHHwfp1p1 x' x'). apply IHHwfp1p1. reflexivity. }
                 simpl. auto.
@@ -574,7 +590,11 @@ Proof.
             apply Forall_forall. intros x0 Hx0. apply Hlp0 in Hx0.
             fwd. apply IHHwfp1p0 in Hx0.
             eapply prog_impl_step.
-            --- apply Exists_cons_tl. apply Exists_cons_hd.
-                eapply normal_rule_impl with (ctx := map.put map.empty 0 (setobj _)).
-                +++ apply Exists_cons_hd. cbv [interp_clause].
+            --- apply Exists_cons_tl. apply Exists_cons_tl. apply Exists_cons_hd.
+                eapply normal_rule_impl with (ctx := map.put map.empty 0 (natobj _)).
+                +++ apply Exists_cons_hd. interp_exprs. 1,2: apply map.get_put_same.
+                +++ interp_exprs. apply map.get_put_same.
+            --- constructor; [|constructor].
+                eapply prog_impl_implication_subset; [|eassumption].
+                simpl. auto.
             Search
