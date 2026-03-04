@@ -437,6 +437,56 @@ Proof.
                 specialize (Hctx _ ltac:(eassumption)). simpl in Hctx.
                 eapply prog_impl_implication_subset; [|apply Hctx; assumption].
                 intros. simpl. auto.
+      -- intros x x0. split; intros Himpl.
+         ++ rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
+            2: { simpl. apply disjoint_lists_alt.
+                 constructor.
+                 { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
+                 constructor.
+                 { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
+                 constructor. }
+            apply loopless_program in Himpl.
+            2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
+                 intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
+                 specialize' Hnames.
+                 { apply in_map_iff. eexists.
+                   split; [|eassumption]. reflexivity. }
+                 simpl in Hnames. fwd. congruence. }
+            destruct Himpl as [Himpl|Himpl].
+            --- apply idk in Himpl; [contradiction|]. simpl.
+                rewrite Forall_forall in Hout2. intros H'. apply Hout2 in H'.
+                fwd. congruence.
+            --- fwd. apply Exists_cons in Himplp1. destruct Himplp1 as [Himpl|Himpl].
+                { invert_stuff. }
+                invert_stuff.
+                rewrite Forall_forall in Hctx.
+                specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. apply Hctx.
+                invert_stuff. eassert (_ = y) as ->.
+                { destruct y. simpl in *. f_equal; auto; congruence. }
+                assumption.
+         ++ subst. eapply prog_impl_step.
+            --- apply Exists_cons_tl. apply Exists_cons_hd.
+                eapply normal_rule_impl with (ctx := map.put map.empty 0 (setobj _)).
+                +++ apply Exists_cons_hd. cbv [interp_clause]. simpl.
+                    split; [reflexivity|].
+                    constructor.
+                    { constructor. apply map.get_put_same. }
+                    constructor.
+                    { econstructor; [constructor|]. reflexivity. }
+                    constructor.
+                +++ constructor; [|constructor]. cbv [interp_clause]. simpl.
+                    instantiate (1 := {| fact_R := _; fact_args := _ |}).
+                    simpl. split; eauto. constructor.
+                    { constructor. apply map.get_put_same. }
+                    constructor.
+                    { econstructor; [constructor|]. reflexivity. }
+                    constructor.
+            --- constructor; [|constructor]. rewrite Forall_forall in Hctx.
+                specialize (Hctx _ ltac:(eassumption)). simpl in Hctx.
+                fwd.
+                eapply prog_impl_implication_subset.
+                2: { simpl in *. specialize (Hctxp1 x x). apply Hctxp1. reflexivity. }
+                intros. simpl. auto.
   - dep_invert He'. simpl in Hcomp. fwd.
     epose_dep IHHwf1. specialize IHHwf1 with (6 := E).
     specialize (IHHwf1 ltac:(eassumption)).
