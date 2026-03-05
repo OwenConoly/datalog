@@ -403,9 +403,10 @@ Lemma depends_only_on_mrs_very_sound_for p R Rs :
   (*seems ugly to require Rs <> []..*)
   depends_only_on p R Rs ->
   mrs_very_sound_for p R ->
+  (* Forall (mrs_very_sound_for p) Rs -> *)
   mrs_very_sound_for (closure_rule p R Rs :: p) R.
 Proof.
-  intros HR1 HR2 HRs Hp. intros Q S0 HQ HS0 x. split; intros Hx.
+  intros HR1 HR2 HRs Hp1 (*Hp2*). intros Q S0 HQ HS0 x. split; intros Hx.
   - assert (Hstaged : disjoint_lists [R] (flat_map hyp_rels p)).
     { simpl. apply disjoint_lists_alt. constructor; [|constructor].
       apply Forall_forall. intros x0 Hx0 ?. subst. auto. }
@@ -428,13 +429,42 @@ Proof.
     destruct Hx as [Hx|Hx].
     2: { clear -Hx. fwd. invert_stuff. }
     destruct HS0 as [HS0|HS0].
-    { apply Hp in HS0. 2: assumption. apply HS0. assumption. }
+    { apply Hp1 in HS0. 2: assumption. apply HS0. assumption. }
     cbv [depends_only_on] in HRs. specialize (HRs _ _ Hx).
     destruct HRs as [HRs|HRs].
-    {
+    { apply HQ in HRs. simpl in HRs. congruence. }
     fwd. invert_stuff. clear Hstaged Hloopless.
     simpl in *. invert_stuff. destruct (option_all _) eqn:E; [|discriminate]. fwd.
-    apply option_all_Forall2 in E. Search q. simpl. move HRs at bottom.
+    simpl. eapply prog_impl_implication_weaken_hyp; [exact HRs|].
+    simpl. intros f [Hf1 Hf2].
+    apply option_all_Forall2 in E. apply Forall2_forget_r in H5.
+    rewrite Lists.List.Forall_map in H5. apply Forall_combine_Forall2 in H5.
+    2: { rewrite length_seq. reflexivity. }
+    apply Forall2_forget_r in H5. rewrite Forall_forall in H5.
+    specialize (H5 _ Hf2). fwd. invert_stuff. apply Forall2_forget_r in H3.
+    rewrite Forall_forall in H3. epose_dep H3. specialize' H3.
+    { apply in_map. eassumption. }
+    fwd. invert_stuff. rewrite H2 in *. fwd. simpl in *. fwd.
+    apply Forall2_map_l in E. apply Forall2_forget_r in E.
+    rewrite Forall_forall in E. specialize (E _ ltac:(eassumption)). fwd.
+    destruct f as [[? ?] ?]. simpl in *. destruct y0. simpl in *. subst.
+    eexists (_, _). split.
+    2: { simpl.
+    (* rewrite Forall_forall in HS0p0. specialize (HS0p0  _ ltac:(eassumption)). *)
+    move Hp2 at bottom. rewrite Forall_forall in Hp2.
+    specialize (Hp2 _ ltac:(eassumption)). apply Hp2 in HS0p0.
+    2: { assumption.
+    cbv [mrs_very_sound_for] in Hp.
+    specialize Hp with (2 := HS0p0).
+    eapply Hp in HS0p0.
+    eexists (_, _). simpl. Search y.
+    fwd. simpl in *. split.
+    { apply Exists_exists. eexists. split; [eassumption|]. eauto. eexists.
+    apply in_map_iff. eexists.
+
+      Search args'0.
+    Search Forall combine.
+    Search q. simpl. move HRs at bottom.
       Search q.
       Search option_all. subst.
       fwd.

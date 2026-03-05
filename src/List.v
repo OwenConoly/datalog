@@ -124,6 +124,16 @@ Lemma Forall2_combine R xs ys :
   Forall (fun '(x, y) => R x y) (combine xs ys).
 Proof. induction 1; simpl; eauto. Qed.
 
+Lemma Forall_combine_Forall2 R xs ys :
+  Forall R (combine xs ys) ->
+  length xs = length ys ->
+  Forall2 (fun x y => R (x, y)) xs ys.
+Proof.
+  revert ys.
+  induction xs; intros ys H Hlen; destruct ys; simpl in Hlen; try discriminate;
+    simpl in *; invert_list_stuff'; auto.
+Qed.
+
 Lemma Forall_combine R xs ys :
   Forall2 (fun x y => R (x, y)) xs ys ->
   Forall R (combine xs ys).
