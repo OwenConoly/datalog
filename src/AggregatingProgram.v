@@ -18,7 +18,7 @@ Variant obj :=
   (* | setobj (_ : nat -> Prop) *)
   (* | listsetobj (_ : list nat -> Prop) *)
   | setobj (_ : nat -> Prop)
-  | factset (_ : rel * list obj0 -> Prop)
+  | factset (_ : list obj0 -> Prop)
   | blank
   | iter.
 Context {context : map.map nat obj} {context_ok : map.ok context}.
@@ -27,7 +27,7 @@ Let fact : Type := fact rel obj.
 Variant fn :=
   | fn_lit (o : obj)
   | fn_bop (o : bop)
-  | fn_fun (f : list (rel * list obj0 -> Prop) -> rel * list obj0 -> Prop).
+  | fn_fun (f : list (list obj0 -> Prop) -> list obj0 -> Prop).
 Let rule := rule rel nat fn bop.
 Let expr := expr nat fn.
 
@@ -142,21 +142,21 @@ Instance Sig : signature fn bop obj :=
     interp_agg := interp_agg }.
 
 (*TODO i'll want to use this one eventually*)
-Definition closure' (p : list rule) : list expr -> expr :=
+Definition closure' (p : list rule) R (Rs : list rel) : list expr -> expr :=
   fun_expr (fn_fun (fun args x => prog_impl_implication (sig := Sig) p
-                                 (fun y => exists y',
-                                      Exists (fun P => P y') args /\
-                                        y = {| fact_R := (fst y', normal);
-                                              fact_args := map primitive (snd y') |})
-                                 {| fact_R := (fst x, normal); fact_args := map primitive (snd x) |})).
+                                 (fun y => exists R' y',
+                                      Exists (fun '(R0, P) => R0 = R' /\ P y') (combine Rs args) /\
+                                        y = {| fact_R := (R', normal);
+                                              fact_args := map primitive y' |})
+                                 {| fact_R := (R, normal); fact_args := map primitive x |})).
 
-Definition closure (p : list rule) : list expr -> expr :=
+Definition closure (p : list rule) R Rs : list expr -> expr :=
   fun_expr (fn_fun (fun args x => prog_impl_implication (sig := Sig) p
-                                 (fun y => exists R x0,
-                                      Exists (fun P => P (R, [x0])) args /\
-                                        y = {| fact_R := (R, normal);
+                                 (fun y => exists R' x0,
+                                      Exists (fun '(R0, P) => R0 = R' /\ P [x0]) (combine Rs args) /\
+                                        y = {| fact_R := (R', normal);
                                               fact_args := [primitive x0] |})
-                                 {| fact_R := (fst x, normal); fact_args := map primitive (snd x) |})).
+                                 {| fact_R := (R, normal); fact_args := map primitive x |})).
 
 Definition bare_rule : Type := (rel * list expr) * list (rel * list expr).
 
@@ -171,7 +171,7 @@ Definition is_blank (e : expr) :=
 
 Definition closure_rule (p : list rule) R (Rs : list rel) : rule :=
   normal_rule
-    [{| clause_R := (R, meta); clause_args := [closure p (map var_expr (seq O (length Rs))); lit blank] |}]
+    [{| clause_R := (R, meta); clause_args := [closure p R Rs (map var_expr (seq O (length Rs))); lit blank] |}]
     (map (fun '(R', i) => {| clause_R := (R', meta); clause_args := [var_expr i; lit blank] |}) (combine Rs (seq O (length Rs)))).
 
 Fixpoint compile_Sexpr (name : nat) (out : rel) {t} (e : Sexpr (fun _ => nat) t) : nat * list rule * (list rule -> list rule) :=
@@ -195,7 +195,7 @@ Fixpoint compile_Sexpr (name : nat) (out : rel) {t} (e : Sexpr (fun _ => nat) t)
           :: p1 ++ p2,
         fun p =>
           normal_rule
-            [{| clause_R := (out, meta); clause_args := [closure p [var_expr O; var_expr (S O)]; lit blank]|}]
+            [{| clause_R := (out, meta); clause_args := [closure p out [x'; y'] [var_expr O; var_expr (S O)]; lit blank]|}]
             [{| clause_R := (x', meta); clause_args := [var_expr O; lit blank]|};
              {| clause_R := (y', meta); clause_args := [var_expr (S O); lit blank]|}]
             :: p1' p ++ p2' p)
@@ -392,7 +392,7 @@ Definition consistent (Q : fact -> Prop) :=
     Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} ->
     forall x,
       Q {| fact_R := (R, normal); fact_args := [primitive x] |} <->
-        S0 (R, [x]).
+        S0 [x].
 
 Definition good_inputs is_input (Q : fact -> Prop) :=
   forall f, Q f -> is_input (fst f.(fact_R)).
@@ -404,7 +404,7 @@ Definition mrs_very_sound_for is_input (p : list rule) R :=
     prog_impl_implication p Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} ->
     forall x,
       prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} <->
-        S0 (R, [x]).
+        S0 [x].
 
 (*i want to say that R depends only on Rs*)
 Definition depends_only_on is_input (p : list rule) R Rs :=
@@ -466,22 +466,23 @@ Proof.
     simpl. intros f Hf. fwd.
     apply option_all_Forall2 in E. apply Forall2_forget_r in H5.
     rewrite Lists.List.Forall_map in H5. apply Forall_combine_Forall2 in H5.
-    2: { rewrite length_seq. reflexivity. } Search args'0.
-    apply Forall2_forget_r in H5. rewrite Forall_forall in H5. fwd.
-    specialize (H5 _ Hfp0). fwd. invert_stuff. apply Forall2_forget_r in H3.
-    rewrite Forall_forall in H3. epose_dep H3. specialize' H3.
-    { apply in_map. eassumption. }
-    fwd. invert_stuff. rewrite H2 in *. fwd. simpl in *. fwd.
-    apply Forall2_map_l in E. apply Forall2_forget_r in E.
-    rewrite Forall_forall in E. specialize (E _ ltac:(eassumption)). fwd.
-    destruct y0. simpl in *. subst.
+    2: { rewrite length_seq. reflexivity. }
+    apply Forall2_map_l in H3.
+    eapply Forall2_Forall2_Forall3 in H3; [|exact H5]. clear H5.
+    apply Forall3_ignore2 in H3. apply Forall2_map_l in E.
+    eapply Forall2_Forall2_Forall3 in E; [|exact H3]. clear H3.
+    apply Forall3_ignore2 in E. Search Forall2 combine.
+    apply Forall2_forget_r_strong in E. rewrite Forall_forall in E.
+    specialize (E _ ltac:(eassumption)). fwd. invert_stuff. simpl in *. fwd.
+    destruct y2. simpl in *. subst. rewrite H0 in *. fwd.
     rewrite Forall_forall in HS0p0. specialize (HS0p0  _ ltac:(eassumption)).
     eexists _, _. split.
     2: { simpl. reflexivity. }
-    apply Exists_exists. eexists. split; [eassumption|].
+    apply Exists_exists. eexists. split; [eassumption|]. simpl.
     move Hp2 at bottom. rewrite Forall_forall in Hp2.
     specialize (Hp2 _ ltac:(eassumption)). apply Hp2 in HS0p0.
     2,3: assumption.
+    split; [reflexivity|].
     apply HS0p0. assumption.
   - destruct HS0 as [HS0|HS0].
     { apply Hp1 in HS0; try assumption. eapply prog_impl_implication_subset.
@@ -491,38 +492,25 @@ Proof.
     simpl in *. invert_stuff. destruct (option_all _) eqn:E; [|discriminate]. fwd.
     simpl in Hx. apply prog_impl_implication_subset with (p1 := p).
     { simpl. auto. }
-    eapply prog_impl_trans. eapply prog_impl_implication_weaken_hyp; [exact Hx|].
+    eapply prog_impl_trans.
+    eapply prog_impl_implication_weaken_hyp; [eassumption|].
     simpl. intros f Hf. fwd.
-    apply option_all_Forall2 in E. apply Exists_exists in Hfp0.
-    fwd. apply Forall2_forget_l in E. rewrite Forall_forall in E.
-    specialize (E _ ltac:(eassumption)). fwd. apply in_map_iff in Ep0.
-    fwd. apply Forall2_forget_l in H3. rewrite Forall_forall in H3.
-    specialize (H3 _ ltac:(eassumption)). fwd. apply in_map_iff in H3p0.
-    fwd.
-    apply Forall2_forget_r in H5.
+    apply option_all_Forall2 in E. apply Forall2_forget_r in H5.
     rewrite Lists.List.Forall_map in H5. apply Forall_combine_Forall2 in H5.
     2: { rewrite length_seq. reflexivity. }
-    apply Forall2_forget_l in H5. rewrite Forall_forall in H5.
-    specialize (H5 _ ltac:(eassumption)). fwd. invert_stuff.
-    rewrite H0 in *. fwd. simpl in *. fwd.
+    apply Forall2_map_l in H3.
+    eapply Forall2_Forall2_Forall3 in H3; [|exact H5]. clear H5.
+    apply Forall3_ignore2 in H3. apply Forall2_map_l in E.
+    eapply Forall2_Forall2_Forall3 in E; [|exact H3]. clear H3.
+    apply Forall3_ignore2 in E. apply Forall2_combine in E.
+    apply Exists_exists in Hfp0. fwd. rewrite Forall_forall in E.
+    specialize (E _ ltac:(eassumption)). fwd. invert_stuff. simpl in *. fwd.
+    rewrite H0 in *. fwd. destruct y1. simpl in *. subst.
     rewrite Forall_forall in HS0p0. specialize (HS0p0 _ ltac:(eassumption)).
-    destruct y. simpl in *. subst.
-    rewrite Forall_forall in Hp2. specialize (Hp2 _ ltac:(eassumption)).
-    apply Hp2 in HS0p0. 2,3: assumption. apply HS0p0. Search y'. Search x0.
-
-    subst. cbv [mrs_very_sound_for] in Hp1.
-    specialize Hp1 with (3 := HS0p0).
-    apply Hp1 in HS0p0.
-    apply Exists_exists in
-      specialize (H5 _ Hfp0). fwd. invert_stuff. apply Forall2_forget_r in H3.
-    rewrite Forall_forall in H3. epose_dep H3. specialize' H3.
-    { apply in_map. eassumption. }
-
-      Search l.
-
-    apply staged_program in HS0.  eapply prog_impl_step.
-    + apply Exists_cons_hd. cbv [closure_rule]. eapply normal_rule_impl.
-      -- interp_exprs.
+    rewrite Forall_forall in Hp2. apply Hp2 in HS0p0; try assumption.
+    2: { apply in_combine_l in Hfp0p0. assumption. }
+    apply HS0p0. assumption.
+Qed.
 
 Lemma compile_Sexpr_correct datalog_ctx ctx t e e_nat e' name out name' p p' :
   wf_Sexpr ctx t e e_nat ->
