@@ -406,18 +406,18 @@ Definition mrs_very_sound_for is_input (p : list rule) R :=
       prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} <->
         S0 [x].
 
-(*i want to say that R depends only on Rs*)
+(*should allow depending on meta facts.?*)
+(*i want to say that R depends only on Rs.  this onlymakes sense when R is not an input*)
 Definition depends_only_on is_input (p : list rule) R Rs :=
   forall Q x,
     consistent Q ->
     good_inputs is_input Q ->
     prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} ->
-    Q ({| fact_R := (R, normal); fact_args := [primitive x] |}) \/
-      prog_impl_implication p (fun f =>
-                                 exists x R',
-                                   In R' Rs /\
-                                     f = {| fact_R := (R', normal); fact_args := [primitive x] |} /\
-                                     prog_impl_implication p Q f) {| fact_R := (R, normal); fact_args := [primitive x] |}.
+    prog_impl_implication p (fun f =>
+                               exists x R',
+                                 In R' Rs /\
+                                   f = {| fact_R := (R', normal); fact_args := [primitive x] |} /\
+                                   prog_impl_implication p Q f) {| fact_R := (R, normal); fact_args := [primitive x] |}.
 
 Definition syntactically_depends_only_on (p : list rule) R Rs :=
   Forall (fun r => In R (concl_rels r) -> incl (hyp_rels r) Rs) p.
@@ -458,8 +458,6 @@ Proof.
     destruct HS0 as [HS0|HS0].
     { apply Hp1 in HS0. 2,3: assumption. apply HS0. assumption. }
     cbv [depends_only_on] in HRs. specialize (HRs _ _ HQ1 HQ2 Hx).
-    destruct HRs as [HRs|HRs].
-    { apply HQ2 in HRs. simpl in HRs. exfalso. auto. }
     fwd. invert_stuff. clear Hstaged Hloopless.
     simpl in *. invert_stuff. destruct (option_all _) eqn:E; [|discriminate]. fwd.
     simpl. eapply prog_impl_implication_weaken_hyp; [exact HRs|].
@@ -511,6 +509,29 @@ Proof.
     2: { apply in_combine_l in Hfp0p0. assumption. }
     apply HS0p0. assumption.
 Qed.
+
+Lemma syntactically_depends_only_on_correct is_input p R Rs :
+  ~is_input R ->
+  syntactically_depends_only_on p R Rs ->
+  depends_only_on is_input p R Rs.
+Proof.
+  cbv [syntactically_depends_only_on depends_only_on]. intros HR H Q x HQ1 HQ2 H'.
+  apply invert_prog_impl in H'. destruct H' as [H'|H'].
+  { exfalso. apply HQ2 in H'. simpl in H'. auto. }
+  fwd. eapply prog_impl_step.
+  { eassumption. }
+  apply Exists_exists in H'p0. fwd. rewrite Forall_forall in H.
+  specialize (H _ ltac:(eassumption)). Search rule_impl concl_rels.
+  specialize' H.
+  { apply rule_impl_concl_relname_in in H'p0p1. simpl in H'p0p1. assumption. }
+  apply rule_impl_hyp_relname_in in H'p0p1. rewrite Forall_forall in H'p0p1, H'p1.
+  apply Forall_forall. intros f Hf. specialize (H'p0p1 _ Hf). specialize (H'p1 _ Hf).
+  apply partial_in. destruct f as [[? ?] ?]. simpl in *. do 2 eexists.
+  split.
+  { apply H. apply H'p0p1. }
+  split; [|assumption]. Print depends_only_on.
+  eapply prog_impl
+  ; auto. right.
 
 Lemma compile_Sexpr_correct datalog_ctx ctx t e e_nat e' name out name' p p' :
   wf_Sexpr ctx t e e_nat ->
