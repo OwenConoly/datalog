@@ -529,9 +529,11 @@ Proof.
   { apply rule_impl_concl_relname_in in H'p0p1. simpl in H'p0p1. assumption. }
   apply rule_impl_hyp_relname_in in H'p0p1. rewrite Forall_forall in H'p0p1, H'p1.
   apply Forall_forall. intros f Hf. specialize (H'p0p1 _ Hf). specialize (H'p1 _ Hf).
-  apply partial_in. destruct f as [[? ?] ?]. simpl in *. do 2 eexists.
-  split.
-  { apply H. apply H'p0p1. }
+  apply partial_in. destruct f as [[? ?] ?]. simpl in *.
+  apply H in H'p0p1. apply in_map_iff in H'p0p1. fwd.
+  do 2 eexists.
+  split; [eassumption|].
+  { apapply  }
   split; [|assumption]. Print depends_only_on.
   eapply prog_impl
   ; auto. right.
