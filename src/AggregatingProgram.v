@@ -331,7 +331,7 @@ Proof.
 Qed.
 
 Lemma idk (p : list rule) Q f :
-  ~In (fst f.(fact_R)) (flat_map concl_rels p) ->
+  ~In f.(fact_R) (flat_map concl_rels p) ->
   prog_impl_implication p Q f ->
   Q f.
 Proof.
@@ -419,12 +419,18 @@ Definition depends_only_on is_input (p : list rule) R Rs :=
                                    f = {| fact_R := (R', normal); fact_args := [primitive x] |} /\
                                    prog_impl_implication p Q f) {| fact_R := (R, normal); fact_args := [primitive x] |}.
 
+Definition is_normal (r : rule) :=
+  match r with
+  | normal_rule _ _ => True
+  | agg_rule _ _ _ => False
+  end.
+
 Definition syntactically_depends_only_on (p : list rule) R Rs :=
-  Forall (fun r => In R (concl_rels r) -> incl (hyp_rels r) Rs) p.
+  Forall (fun r => In (R, normal) (concl_rels r) -> incl (hyp_rels r) (map (fun x => (x, normal)) Rs)) p.
 
 Lemma depends_only_on_mrs_very_sound_for is_input p R Rs :
   (*this hypothesis should be more fine-grained; we just need that R meta-facts don't allow any new conclusions from p*)
-  ~In R (flat_map hyp_rels p) ->
+  ~In (R, meta) (flat_map hyp_rels p) ->
   ~In R Rs ->
   ~is_input R ->
   depends_only_on is_input p R Rs ->
@@ -433,19 +439,16 @@ Lemma depends_only_on_mrs_very_sound_for is_input p R Rs :
   mrs_very_sound_for is_input (closure_rule p R Rs :: p) R.
 Proof.
   intros HR1 HR2 HR3 HRs Hp1 Hp2. intros Q S0 HQ1 HQ2 HS0 x.
-  assert (Hstaged : disjoint_lists [R] (flat_map hyp_rels p)).
+  assert (Hstaged : disjoint_lists [(R, meta)] (flat_map hyp_rels p)).
   { simpl. apply disjoint_lists_alt. constructor; [|constructor].
     apply Forall_forall. intros x0 Hx0 ?. subst. auto. }
   assert (Hloopless : disjoint_lists
                         (flat_map concl_rels [closure_rule p R Rs])
                         (flat_map hyp_rels [closure_rule p R Rs])).
-  { simpl. do 2 rewrite map_map. apply disjoint_lists_alt.
+  { simpl. rewrite map_map. apply disjoint_lists_alt.
     constructor; [|constructor]. rewrite app_nil_r.
-    rewrite map_ext with (g := fst).
-    2: { intros (?, ?). reflexivity. }
-    rewrite map_combine_fst.
-    - apply Forall_forall. intros ? ? ?. subst. auto.
-    - rewrite length_seq. reflexivity. }
+    apply Forall_map. apply Forall_forall. intros (R', ?). intros HR'.
+    apply in_combine_l in HR'. simpl. intro. fwd. auto. }
   rewrite cons_is_app in HS0.
   apply staged_program in HS0; [|assumption].
   apply loopless_program in HS0; [|assumption].
@@ -510,7 +513,7 @@ Proof.
     apply HS0p0. assumption.
 Qed.
 
-Lemma syntactically_depends_only_on_correct is_input p R Rs :
+Lemma syntactically_depends_only_on_correct (is_input : rel -> _) p R Rs :
   ~is_input R ->
   syntactically_depends_only_on p R Rs ->
   depends_only_on is_input p R Rs.

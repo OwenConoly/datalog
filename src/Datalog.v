@@ -527,35 +527,34 @@ Section __.
 
   Definition concl_rels r :=
     match r with
-    | normal_rule rule_concls _ => map fst (map clause_R rule_concls)
-    | agg_rule R _ _ => [R]
+    | normal_rule rule_concls _ => map clause_R rule_concls
+    | agg_rule R _ _ => [(R, normal)]
     end.
 
   Definition hyp_rels r :=
     match r with
-    | normal_rule _ rule_hyps => map fst (map clause_R rule_hyps)
-    | agg_rule _ _ R => [R]
+    | normal_rule _ rule_hyps => map clause_R rule_hyps
+    | agg_rule _ _ R => [(R, meta); (R, normal)]
     end.
 
   Lemma rule_impl_concl_relname_in r f hyps :
     rule_impl r f hyps ->
-    In (fst f.(fact_R)) (concl_rels r).
+    In f.(fact_R) (concl_rels r).
   Proof.
     invert 1.
     - apply Exists_exists in H0. cbv [interp_clause] in *. fwd.
-      simpl. apply in_map_iff. eexists. split; [reflexivity|].
-      apply in_map_iff. eauto.
+      simpl. apply in_map_iff. eexists. split; [eassumption|]. assumption.
     - simpl. auto.
   Qed.
 
   Lemma rule_impl_hyp_relname_in r f hyps :
     rule_impl r f hyps ->
-    Forall (fun hyp => In (fst hyp.(fact_R)) (hyp_rels r)) hyps.
+    Forall (fun hyp => In hyp.(fact_R) (hyp_rels r)) hyps.
   Proof.
     invert 1.
     - eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
       simpl. cbv [interp_clause]. intros. fwd. apply in_map_iff.
-      eexists. split; [reflexivity|]. apply in_map_iff. eauto.
+      eexists. split; [eassumption|]. assumption.
     - simpl. constructor; simpl; auto. apply Forall_map. apply Forall_forall.
       intros (?, ?) ?. simpl. auto.
   Qed.
