@@ -204,6 +204,14 @@ Section __.
     prog_impl_implication p Q f.
   Proof. intros. eapply partial_step; eauto. Qed.
 
+  Lemma invert_prog_impl p Q f :
+    prog_impl_implication p Q f ->
+    Q f \/
+      exists hyps',
+        Exists (fun r : rule => rule_impl r f hyps') p /\
+          Forall (prog_impl_implication p Q) hyps'.
+  Proof. invert 1; eauto. Qed.
+
   Lemma prog_impl_fact_prog_impl_implication p1 p2 Q f :
     prog_impl_fact p1 f ->
     (forall r f hyps, In r p1 ->
