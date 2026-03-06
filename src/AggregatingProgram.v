@@ -378,35 +378,52 @@ Ltac interp_exprs :=
     | |- _ => reflexivity
     end.
 
-Definition mrs_very_sound_for (p : list rule) R :=
+Definition consistent (Q : fact -> Prop) :=
+  forall R S0,
+    Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} ->
+    forall x,
+      Q {| fact_R := (R, normal); fact_args := [primitive x] |} <->
+        S0 (R, [x]).
+
+Definition good_inputs is_input (Q : fact -> Prop) :=
+  forall f, Q f -> is_input (fst f.(fact_R)).
+
+Definition mrs_very_sound_for is_input (p : list rule) R :=
   forall Q S0,
-    (forall f, Q f -> f.(fact_R) <> (R, normal)) ->
+    consistent Q ->
+    good_inputs is_input Q ->
     prog_impl_implication p Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} ->
     forall x,
       prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} <->
         S0 (R, [x]).
 
 (*i want to say that R depends only on Rs*)
-Definition depends_only_on (p : list rule) R Rs :=
+Definition depends_only_on is_input (p : list rule) R Rs :=
   forall Q x,
+    consistent Q ->
+    good_inputs is_input Q ->
     prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} ->
     Q ({| fact_R := (R, normal); fact_args := [primitive x] |}) \/
-      prog_impl_implication p (fun f => Q f /\ In (fst f.(fact_R)) Rs) {| fact_R := (R, normal); fact_args := [primitive x] |}.
+      prog_impl_implication p (fun f =>
+                                 exists x R',
+                                   In R' Rs /\
+                                     f = {| fact_R := (R', normal); fact_args := [primitive x] |} /\
+                                     prog_impl_implication p Q f) {| fact_R := (R, normal); fact_args := [primitive x] |}.
 
 Definition syntactically_depends_only_on (p : list rule) R Rs :=
   Forall (fun r => In R (concl_rels r) -> incl (hyp_rels r) Rs) p.
 
-Lemma depends_only_on_mrs_very_sound_for p R Rs :
+Lemma depends_only_on_mrs_very_sound_for is_input p R Rs :
   (*this hypothesis should be more fine-grained; we just need that R meta-facts don't allow any new conclusions from p*)
   ~In R (flat_map hyp_rels p) ->
   ~In R Rs ->
-  (*seems ugly to require Rs <> []..*)
-  depends_only_on p R Rs ->
-  mrs_very_sound_for p R ->
-  (* Forall (mrs_very_sound_for p) Rs -> *)
-  mrs_very_sound_for (closure_rule p R Rs :: p) R.
+  ~is_input R ->
+  depends_only_on is_input p R Rs ->
+  mrs_very_sound_for is_input p R ->
+  Forall (mrs_very_sound_for is_input p) Rs ->
+  mrs_very_sound_for is_input (closure_rule p R Rs :: p) R.
 Proof.
-  intros HR1 HR2 HRs Hp1 (*Hp2*). intros Q S0 HQ HS0 x. split; intros Hx.
+  intros HR1 HR2 HR3 HRs Hp1 Hp2. intros Q S0 HQ1 HQ2 HS0 x. split; intros Hx.
   - assert (Hstaged : disjoint_lists [R] (flat_map hyp_rels p)).
     { simpl. apply disjoint_lists_alt. constructor; [|constructor].
       apply Forall_forall. intros x0 Hx0 ?. subst. auto. }
@@ -429,48 +446,34 @@ Proof.
     destruct Hx as [Hx|Hx].
     2: { clear -Hx. fwd. invert_stuff. }
     destruct HS0 as [HS0|HS0].
-    { apply Hp1 in HS0. 2: assumption. apply HS0. assumption. }
-    cbv [depends_only_on] in HRs. specialize (HRs _ _ Hx).
+    { apply Hp1 in HS0. 2,3: assumption. apply HS0. assumption. }
+    cbv [depends_only_on] in HRs. specialize (HRs _ _ HQ1 HQ2 Hx).
     destruct HRs as [HRs|HRs].
-    { apply HQ in HRs. simpl in HRs. congruence. }
+    { apply HQ2 in HRs. simpl in HRs. exfalso. auto. }
     fwd. invert_stuff. clear Hstaged Hloopless.
     simpl in *. invert_stuff. destruct (option_all _) eqn:E; [|discriminate]. fwd.
     simpl. eapply prog_impl_implication_weaken_hyp; [exact HRs|].
-    simpl. intros f [Hf1 Hf2].
+    simpl. intros f Hf. fwd.
     apply option_all_Forall2 in E. apply Forall2_forget_r in H5.
     rewrite Lists.List.Forall_map in H5. apply Forall_combine_Forall2 in H5.
-    2: { rewrite length_seq. reflexivity. }
-    apply Forall2_forget_r in H5. rewrite Forall_forall in H5.
-    specialize (H5 _ Hf2). fwd. invert_stuff. apply Forall2_forget_r in H3.
+    2: { rewrite length_seq. reflexivity. } Search args'0.
+    apply Forall2_forget_r in H5. rewrite Forall_forall in H5. fwd.
+    specialize (H5 _ Hfp0). fwd. invert_stuff. apply Forall2_forget_r in H3.
     rewrite Forall_forall in H3. epose_dep H3. specialize' H3.
     { apply in_map. eassumption. }
     fwd. invert_stuff. rewrite H2 in *. fwd. simpl in *. fwd.
     apply Forall2_map_l in E. apply Forall2_forget_r in E.
     rewrite Forall_forall in E. specialize (E _ ltac:(eassumption)). fwd.
-    destruct f as [[? ?] ?]. simpl in *. destruct y0. simpl in *. subst.
-    eexists (_, _). split.
-    2: { simpl.
-    (* rewrite Forall_forall in HS0p0. specialize (HS0p0  _ ltac:(eassumption)). *)
+    destruct y0. simpl in *. subst.
+    rewrite Forall_forall in HS0p0. specialize (HS0p0  _ ltac:(eassumption)).
+    eexists (_, [_]). split.
+    2: { simpl. reflexivity. }
+    apply Exists_exists. eexists. split; [eassumption|].
     move Hp2 at bottom. rewrite Forall_forall in Hp2.
     specialize (Hp2 _ ltac:(eassumption)). apply Hp2 in HS0p0.
-    2: { assumption.
-    cbv [mrs_very_sound_for] in Hp.
-    specialize Hp with (2 := HS0p0).
-    eapply Hp in HS0p0.
-    eexists (_, _). simpl. Search y.
-    fwd. simpl in *. split.
-    { apply Exists_exists. eexists. split; [eassumption|]. eauto. eexists.
-    apply in_map_iff. eexists.
-
-      Search args'0.
-    Search Forall combine.
-    Search q. simpl. move HRs at bottom.
-      Search q.
-      Search option_all. subst.
-      fwd.
-
-      assumption.
-         instantiate reflexivity. apply Forall_map.
+    2,3: assumption.
+    apply HS0p0. assumption.
+  -
 
 Lemma compile_Sexpr_correct datalog_ctx ctx t e e_nat e' name out name' p p' :
   wf_Sexpr ctx t e e_nat ->
