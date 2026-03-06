@@ -141,12 +141,21 @@ Instance Sig : signature fn bop obj :=
     iter := iter;
     interp_agg := interp_agg }.
 
-Definition closure (p : list rule) : list expr -> expr :=
+(*TODO i'll want to use this one eventually*)
+Definition closure' (p : list rule) : list expr -> expr :=
   fun_expr (fn_fun (fun args x => prog_impl_implication (sig := Sig) p
                                  (fun y => exists y',
                                       Exists (fun P => P y') args /\
                                         y = {| fact_R := (fst y', normal);
                                               fact_args := map primitive (snd y') |})
+                                 {| fact_R := (fst x, normal); fact_args := map primitive (snd x) |})).
+
+Definition closure (p : list rule) : list expr -> expr :=
+  fun_expr (fn_fun (fun args x => prog_impl_implication (sig := Sig) p
+                                 (fun y => exists R x0,
+                                      Exists (fun P => P (R, [x0])) args /\
+                                        y = {| fact_R := (R, normal);
+                                              fact_args := [primitive x0] |})
                                  {| fact_R := (fst x, normal); fact_args := map primitive (snd x) |})).
 
 Definition bare_rule : Type := (rel * list expr) * list (rel * list expr).
@@ -423,24 +432,25 @@ Lemma depends_only_on_mrs_very_sound_for is_input p R Rs :
   Forall (mrs_very_sound_for is_input p) Rs ->
   mrs_very_sound_for is_input (closure_rule p R Rs :: p) R.
 Proof.
-  intros HR1 HR2 HR3 HRs Hp1 Hp2. intros Q S0 HQ1 HQ2 HS0 x. split; intros Hx.
-  - assert (Hstaged : disjoint_lists [R] (flat_map hyp_rels p)).
-    { simpl. apply disjoint_lists_alt. constructor; [|constructor].
-      apply Forall_forall. intros x0 Hx0 ?. subst. auto. }
-    assert (Hloopless : disjoint_lists
-                          (flat_map concl_rels [closure_rule p R Rs])
-                          (flat_map hyp_rels [closure_rule p R Rs])).
-    { simpl. do 2 rewrite map_map. apply disjoint_lists_alt.
-      constructor; [|constructor]. rewrite app_nil_r.
-      rewrite map_ext with (g := fst).
-      2: { intros (?, ?). reflexivity. }
-      rewrite map_combine_fst.
-      - apply Forall_forall. intros ? ? ?. subst. auto.
-      - rewrite length_seq. reflexivity. }
-    rewrite cons_is_app in HS0.
-    apply staged_program in HS0; [|assumption].
-    apply loopless_program in HS0; [|assumption].
-    rewrite cons_is_app in Hx.
+  intros HR1 HR2 HR3 HRs Hp1 Hp2. intros Q S0 HQ1 HQ2 HS0 x.
+  assert (Hstaged : disjoint_lists [R] (flat_map hyp_rels p)).
+  { simpl. apply disjoint_lists_alt. constructor; [|constructor].
+    apply Forall_forall. intros x0 Hx0 ?. subst. auto. }
+  assert (Hloopless : disjoint_lists
+                        (flat_map concl_rels [closure_rule p R Rs])
+                        (flat_map hyp_rels [closure_rule p R Rs])).
+  { simpl. do 2 rewrite map_map. apply disjoint_lists_alt.
+    constructor; [|constructor]. rewrite app_nil_r.
+    rewrite map_ext with (g := fst).
+    2: { intros (?, ?). reflexivity. }
+    rewrite map_combine_fst.
+    - apply Forall_forall. intros ? ? ?. subst. auto.
+    - rewrite length_seq. reflexivity. }
+  rewrite cons_is_app in HS0.
+  apply staged_program in HS0; [|assumption].
+  apply loopless_program in HS0; [|assumption].
+  split; intros Hx.
+  - rewrite cons_is_app in Hx.
     apply staged_program in Hx; [|assumption].
     apply loopless_program in Hx; [|assumption].
     destruct Hx as [Hx|Hx].
@@ -466,14 +476,53 @@ Proof.
     rewrite Forall_forall in E. specialize (E _ ltac:(eassumption)). fwd.
     destruct y0. simpl in *. subst.
     rewrite Forall_forall in HS0p0. specialize (HS0p0  _ ltac:(eassumption)).
-    eexists (_, [_]). split.
+    eexists _, _. split.
     2: { simpl. reflexivity. }
     apply Exists_exists. eexists. split; [eassumption|].
     move Hp2 at bottom. rewrite Forall_forall in Hp2.
     specialize (Hp2 _ ltac:(eassumption)). apply Hp2 in HS0p0.
     2,3: assumption.
     apply HS0p0. assumption.
-  -
+  - destruct HS0 as [HS0|HS0].
+    { apply Hp1 in HS0; try assumption. eapply prog_impl_implication_subset.
+      2: { apply HS0. assumption. }
+      simpl. auto. }
+    fwd. invert_stuff. clear Hstaged Hloopless.
+    simpl in *. invert_stuff. destruct (option_all _) eqn:E; [|discriminate]. fwd.
+    simpl in Hx. apply prog_impl_implication_subset with (p1 := p).
+    { simpl. auto. }
+    eapply prog_impl_trans. eapply prog_impl_implication_weaken_hyp; [exact Hx|].
+    simpl. intros f Hf. fwd.
+    apply option_all_Forall2 in E. apply Exists_exists in Hfp0.
+    fwd. apply Forall2_forget_l in E. rewrite Forall_forall in E.
+    specialize (E _ ltac:(eassumption)). fwd. apply in_map_iff in Ep0.
+    fwd. apply Forall2_forget_l in H3. rewrite Forall_forall in H3.
+    specialize (H3 _ ltac:(eassumption)). fwd. apply in_map_iff in H3p0.
+    fwd.
+    apply Forall2_forget_r in H5.
+    rewrite Lists.List.Forall_map in H5. apply Forall_combine_Forall2 in H5.
+    2: { rewrite length_seq. reflexivity. }
+    apply Forall2_forget_l in H5. rewrite Forall_forall in H5.
+    specialize (H5 _ ltac:(eassumption)). fwd. invert_stuff.
+    rewrite H0 in *. fwd. simpl in *. fwd.
+    rewrite Forall_forall in HS0p0. specialize (HS0p0 _ ltac:(eassumption)).
+    destruct y. simpl in *. subst.
+    rewrite Forall_forall in Hp2. specialize (Hp2 _ ltac:(eassumption)).
+    apply Hp2 in HS0p0. 2,3: assumption. apply HS0p0. Search y'. Search x0.
+
+    subst. cbv [mrs_very_sound_for] in Hp1.
+    specialize Hp1 with (3 := HS0p0).
+    apply Hp1 in HS0p0.
+    apply Exists_exists in
+      specialize (H5 _ Hfp0). fwd. invert_stuff. apply Forall2_forget_r in H3.
+    rewrite Forall_forall in H3. epose_dep H3. specialize' H3.
+    { apply in_map. eassumption. }
+
+      Search l.
+
+    apply staged_program in HS0.  eapply prog_impl_step.
+    + apply Exists_cons_hd. cbv [closure_rule]. eapply normal_rule_impl.
+      -- interp_exprs.
 
 Lemma compile_Sexpr_correct datalog_ctx ctx t e e_nat e' name out name' p p' :
   wf_Sexpr ctx t e e_nat ->
