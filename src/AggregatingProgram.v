@@ -394,8 +394,19 @@ Definition consistent (Q : fact -> Prop) :=
       Q {| fact_R := (R, normal); fact_args := [primitive x] |} <->
         S0 [x].
 
+Definition well_typed (f : fact) :=
+  match snd f.(fact_R) with
+  | normal => exists x, f.(fact_args) = [primitive x]
+  | meta => exists S0, f.(fact_args) = [factset S0; blank]
+  end.
+
 Definition good_inputs is_input (Q : fact -> Prop) :=
-  forall f, Q f -> is_input (fst f.(fact_R)).
+  forall f, Q f -> is_input (fst f.(fact_R)) /\ well_typed f.
+
+Definition well_typed_prog (p : list rule) :=
+  forall Q,
+    (forall f, Q f -> well_typed f) ->
+    (forall f, prog_impl_implication p Q f -> well_typed f).
 
 Definition mrs_very_sound_for is_input (p : list rule) R :=
   forall Q S0,
@@ -407,7 +418,7 @@ Definition mrs_very_sound_for is_input (p : list rule) R :=
         S0 [x].
 
 (*should allow depending on meta facts.?*)
-(*i want to say that R depends only on Rs.  this onlymakes sense when R is not an input*)
+(*i want to say that R depends only on Rs.  this only makes sense when R is not an input*)
 Definition depends_only_on is_input (p : list rule) R Rs :=
   forall Q x,
     consistent Q ->
@@ -515,12 +526,13 @@ Qed.
 
 Lemma syntactically_depends_only_on_correct (is_input : rel -> _) p R Rs :
   ~is_input R ->
+  well_typed_prog p ->
   syntactically_depends_only_on p R Rs ->
   depends_only_on is_input p R Rs.
 Proof.
-  cbv [syntactically_depends_only_on depends_only_on]. intros HR H Q x HQ1 HQ2 H'.
+  cbv [syntactically_depends_only_on depends_only_on]. intros HR Hp H Q x HQ1 HQ2 H'.
   apply invert_prog_impl in H'. destruct H' as [H'|H'].
-  { exfalso. apply HQ2 in H'. simpl in H'. auto. }
+  { exfalso. apply HQ2 in H'. simpl in H'. fwd. auto. }
   fwd. eapply prog_impl_step.
   { eassumption. }
   apply Exists_exists in H'p0. fwd. rewrite Forall_forall in H.
@@ -531,12 +543,15 @@ Proof.
   apply Forall_forall. intros f Hf. specialize (H'p0p1 _ Hf). specialize (H'p1 _ Hf).
   apply partial_in. destruct f as [[? ?] ?]. simpl in *.
   apply H in H'p0p1. apply in_map_iff in H'p0p1. fwd.
+  pose proof H'p1 as H'p1'.
+  apply Hp in H'p1'.
+  2: { cbv [good_inputs] in HQ2. intros f' Hf'. apply HQ2 in Hf'. fwd. assumption. }
+  cbv [well_typed] in H'p1'. simpl in H'p1'. fwd.
   do 2 eexists.
   split; [eassumption|].
-  { apapply  }
-  split; [|assumption]. Print depends_only_on.
-  eapply prog_impl
-  ; auto. right.
+  split; [reflexivity|].
+  assumption.
+Qed.
 
 Lemma compile_Sexpr_correct datalog_ctx ctx t e e_nat e' name out name' p p' :
   wf_Sexpr ctx t e e_nat ->
