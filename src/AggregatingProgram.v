@@ -408,10 +408,9 @@ Definition well_typed_prog (p : list rule) :=
     (forall f, Q f -> well_typed f) ->
     (forall f, prog_impl_implication p Q f -> well_typed f).
 
-Definition mrs_very_sound_for is_input (p : list rule) R :=
+Definition mrs_very_sound_for (p : list rule) R :=
   forall Q S0,
     consistent Q ->
-    good_inputs is_input Q ->
     prog_impl_implication p Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} ->
     forall x,
       prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} <->
@@ -419,10 +418,9 @@ Definition mrs_very_sound_for is_input (p : list rule) R :=
 
 (*should allow depending on meta facts.?*)
 (*i want to say that R depends only on Rs.  this only makes sense when R is not an input*)
-Definition depends_only_on is_input (p : list rule) R Rs :=
+Definition depends_only_on (p : list rule) R Rs :=
   forall Q x,
     consistent Q ->
-    good_inputs is_input Q ->
     prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} ->
     prog_impl_implication p (fun f =>
                                exists x R',
@@ -439,16 +437,15 @@ Definition is_normal (r : rule) :=
 Definition syntactically_depends_only_on (p : list rule) R Rs :=
   Forall (fun r => In (R, normal) (concl_rels r) -> incl (hyp_rels r) (map (fun x => (x, normal)) Rs)) p.
 
-Lemma depends_only_on_mrs_very_sound_for is_input p R Rs :
+Lemma depends_only_on_mrs_very_sound_for p R Rs :
   ~In (R, meta) (flat_map hyp_rels p) ->
   ~In R Rs ->
-  ~is_input R ->
-  depends_only_on is_input p R Rs ->
-  mrs_very_sound_for is_input p R ->
-  Forall (mrs_very_sound_for is_input p) Rs ->
-  mrs_very_sound_for is_input (closure_rule p R Rs :: p) R.
+  depends_only_on p R Rs ->
+  mrs_very_sound_for p R ->
+  Forall (mrs_very_sound_for p) Rs ->
+  mrs_very_sound_for (closure_rule p R Rs :: p) R.
 Proof.
-  intros HR1 HR2 HR3 HRs Hp1 Hp2. intros Q S0 HQ1 HQ2 HS0 x.
+  intros HR1 HR2 HRs Hp1 Hp2. intros Q S0 HQ1 HS0 x.
   assert (Hstaged : disjoint_lists [(R, meta)] (flat_map hyp_rels p)).
   { simpl. apply disjoint_lists_alt. constructor; [|constructor].
     apply Forall_forall. intros x0 Hx0 ?. subst. auto. }
@@ -469,8 +466,8 @@ Proof.
     destruct Hx as [Hx|Hx].
     2: { clear -Hx. fwd. invert_stuff. }
     destruct HS0 as [HS0|HS0].
-    { apply Hp1 in HS0. 2,3: assumption. apply HS0. assumption. }
-    cbv [depends_only_on] in HRs. specialize (HRs _ _ HQ1 HQ2 Hx).
+    { apply Hp1 in HS0. 2: assumption. apply HS0. assumption. }
+    cbv [depends_only_on] in HRs. specialize (HRs _ _ HQ1 Hx).
     fwd. invert_stuff. clear Hstaged Hloopless.
     simpl in *. invert_stuff. destruct (option_all _) eqn:E; [|discriminate]. fwd.
     simpl. eapply prog_impl_implication_weaken_hyp; [exact HRs|].
@@ -492,7 +489,7 @@ Proof.
     apply Exists_exists. eexists. split; [eassumption|]. simpl.
     move Hp2 at bottom. rewrite Forall_forall in Hp2.
     specialize (Hp2 _ ltac:(eassumption)). apply Hp2 in HS0p0.
-    2,3: assumption.
+    2: assumption.
     split; [reflexivity|].
     apply HS0p0. assumption.
   - destruct HS0 as [HS0|HS0].
@@ -523,7 +520,7 @@ Proof.
     apply HS0p0. assumption.
 Qed.
 
-Definition mrs_very_sound is_input p := forall R, mrs_very_sound_for is_input p R.
+Definition mrs_very_sound p := forall R, mrs_very_sound_for p R.
 
 Ltac plda :=
   repeat lazymatch goal with
@@ -532,36 +529,34 @@ Ltac plda :=
     | |- _ => intros; fwd; congruence
     end.
 
-Lemma depends_only_on_mrs_very_sound is_input p R Rs :
+Lemma depends_only_on_mrs_very_sound p R Rs :
   ~In (R, meta) (flat_map hyp_rels p) ->
   ~In R Rs ->
-  ~is_input R ->
-  depends_only_on is_input p R Rs ->
-  mrs_very_sound is_input p ->
-  mrs_very_sound is_input (closure_rule p R Rs :: p).
+  depends_only_on p R Rs ->
+  mrs_very_sound p ->
+  mrs_very_sound (closure_rule p R Rs :: p).
 Proof.
-  intros. cbv [mrs_very_sound]. intros R0. destr (Nat.eqb R R0).
+  intros HR1 HR2 Hdep Hsound. cbv [mrs_very_sound]. intros R0. destr (Nat.eqb R R0).
   - apply depends_only_on_mrs_very_sound_for; auto. apply Forall_forall. auto.
-  - cbv [mrs_very_sound_for]. intros Q S0 HQ1 HQ2 HS0 x.
+  - cbv [mrs_very_sound_for]. intros Q S0 HQ1 HS0 x.
     rewrite cons_is_app in HS0. apply staged_program in HS0.
     2: { simpl. apply disjoint_lists_alt. plda. }
     apply invert_prog_impl in HS0. destruct HS0 as [HS0|HS0].
     2: { fwd. invert_stuff. simpl in *. fwd. congruence. }
     rewrite cons_is_app. rewrite staged_program_iff.
     2: { simpl. apply disjoint_lists_alt. plda. }
-    apply H3 in HS0; auto. rewrite <- HS0. split.
+    apply Hsound in HS0; auto. rewrite <- HS0. split.
     + intros H'. apply invert_prog_impl in H'. destruct H' as [H'|H']; auto.
       fwd. invert_stuff.
     + intros. apply partial_in. assumption.
 Qed.
 
-Lemma syntactically_depends_only_on_correct (is_input : rel -> _) p R Rs :
-  ~is_input R ->
+Lemma syntactically_depends_only_on_correct p R Rs :
   well_typed_prog p ->
   syntactically_depends_only_on p R Rs ->
-  depends_only_on is_input p R Rs.
+  depends_only_on p R Rs.
 Proof.
-  cbv [syntactically_depends_only_on depends_only_on]. intros HR Hp H Q x HQ1 HQ2 H'.
+  cbv [syntactically_depends_only_on depends_only_on]. intros Hp H Q x HQ1 H'.
   apply invert_prog_impl in H'. destruct H' as [H'|H'].
   { exfalso. apply HQ2 in H'. simpl in H'. fwd. auto. }
   fwd. eapply prog_impl_step.
