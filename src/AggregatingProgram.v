@@ -553,17 +553,24 @@ Proof.
   assumption.
 Qed.
 
-Lemma compile_Sexpr_correct datalog_ctx ctx t e e_nat e' name out name' p p' :
+Ltac plda :=
+  repeat lazymatch goal with
+    | |- Forall _ _ => first [constructor | eapply Forall_impl; [|eassumption]; cbv beta ]
+    | |- _ <> _ => intro
+    | |- _ => intros; fwd; congruence
+    end.
+
+Lemma compile_Sexpr_correct is_input datalog_ctx ctx t e e_nat e' name out name' p p' :
   wf_Sexpr ctx t e e_nat ->
   Forall (fun elt => agrees (fun _ => False) datalog_ctx _ elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
   Forall (fun name0 => name0 <> out /\ name0 < name) (map (fun x => @ctx_elt_p2 _ (fun _ => nat) x) ctx) ->
-  Forall (fun name0 => name0 <> out /\ name0 < name) (flat_map hyp_rels datalog_ctx) ->
-  Forall (fun name0 => name0 <> out /\ name0 < name) (flat_map concl_rels datalog_ctx) ->
+  Forall (fun '(name0, _) => name0 <> out /\ name0 < name) (flat_map hyp_rels datalog_ctx) ->
+  Forall (fun '(name0, _) => name0 <> out /\ name0 < name) (flat_map concl_rels datalog_ctx) ->
   interp_Sexpr e e' ->
   compile_Sexpr name out e_nat = (name', p, p') ->
   name <= name' /\
     agrees (fun _ => False) (p ++ p' p ++ datalog_ctx) t out e' /\
-    (forall R, mrs_very_sound_for (p ++ p' p ++ datalog_ctx) R).
+    (forall R, mrs_very_sound_for is_input (p ++ p' p ++ datalog_ctx) R).
 Proof.
   intros Hwf. revert datalog_ctx name out name' p p'.
   induction Hwf; intros datalog_ctx name out name' p p' Hctx Hnames Hout1 Hout2 He' Hcomp.
@@ -571,14 +578,9 @@ Proof.
     * destruct t; simpl.
     + intros x. split.
       -- intros Himpl. rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
-         2: { simpl. apply disjoint_lists_alt.
-              constructor.
-              { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
-              constructor.
-              { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
-              constructor. }
+         2: { simpl. apply disjoint_lists_alt. plda. }
          apply loopless_program in Himpl.
-         2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
+         2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by plda.
               intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
               specialize' Hnames.
               { apply in_map_iff. eexists.
@@ -607,14 +609,9 @@ Proof.
     + split.
       -- intros x. split.
          ++ intros Himpl. rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
-            2: { simpl. apply disjoint_lists_alt.
-                 constructor.
-                 { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
-                 constructor.
-                 { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
-                 constructor. }
+            2: { simpl. apply disjoint_lists_alt. plda. }
             apply loopless_program in Himpl.
-            2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
+            2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by plda.
                  intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
                  specialize' Hnames.
                  { apply in_map_iff. eexists.
@@ -652,8 +649,10 @@ Proof.
             eapply prog_impl_implication_subset; [|eassumption].
             simpl. auto.
       * intros R. destr (Nat.eqb R out).
-        { cbv [mrs_very_sound_for]. intros Q S0 HS0 x.
-          simpl. rewrite cons_two_is_app. rewrite staged_program_iff.
+        { cbv [mrs_very_sound_for]. intros Q HQ1 HQ2 S0 HS0 x.
+          simpl. rewrite cons_two_is_app.
+          Fail rewrite staged_program_iff.
+          cbv [rule]. rewrite staged_program_iff.
           2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
                intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
                specialize' Hnames.
