@@ -10,7 +10,7 @@ Import ListNotations.
 Section __.
 Variant bop := sum | prod.
 Variant type := val | set.
-Let rel : Type := nat.
+Notation rel := nat.
 Variant obj0 :=
   | natobj' (_ : nat).
 Variant obj :=
@@ -23,13 +23,13 @@ Variant obj :=
   | iter.
 Context {context : map.map nat obj} {context_ok : map.ok context}.
 Definition natobj x := primitive (natobj' x).
-Let fact : Type := fact rel obj.
+Notation fact := (fact rel obj).
 Variant fn :=
   | fn_lit (o : obj)
   | fn_bop (o : bop)
   | fn_fun (f : list (list obj0 -> Prop) -> list obj0 -> Prop).
-Let rule := rule rel nat fn bop.
-Let expr := expr nat fn.
+Notation rule := (rule rel nat fn bop).
+Notation expr := (expr nat fn).
 
 Definition bop_id o :=
   match o with
@@ -440,7 +440,6 @@ Definition syntactically_depends_only_on (p : list rule) R Rs :=
   Forall (fun r => In (R, normal) (concl_rels r) -> incl (hyp_rels r) (map (fun x => (x, normal)) Rs)) p.
 
 Lemma depends_only_on_mrs_very_sound_for is_input p R Rs :
-  (*this hypothesis should be more fine-grained; we just need that R meta-facts don't allow any new conclusions from p*)
   ~In (R, meta) (flat_map hyp_rels p) ->
   ~In R Rs ->
   ~is_input R ->
@@ -524,6 +523,38 @@ Proof.
     apply HS0p0. assumption.
 Qed.
 
+Definition mrs_very_sound is_input p := forall R, mrs_very_sound_for is_input p R.
+
+Ltac plda :=
+  repeat lazymatch goal with
+    | |- Forall _ _ => first [constructor | eapply Forall_impl; [|eassumption]; cbv beta | apply Forall_forall; intros ]
+    | |- _ <> _ => intro
+    | |- _ => intros; fwd; congruence
+    end.
+
+Lemma depends_only_on_mrs_very_sound is_input p R Rs :
+  ~In (R, meta) (flat_map hyp_rels p) ->
+  ~In R Rs ->
+  ~is_input R ->
+  depends_only_on is_input p R Rs ->
+  mrs_very_sound is_input p ->
+  mrs_very_sound is_input (closure_rule p R Rs :: p).
+Proof.
+  intros. cbv [mrs_very_sound]. intros R0. destr (Nat.eqb R R0).
+  - apply depends_only_on_mrs_very_sound_for; auto. apply Forall_forall. auto.
+  - cbv [mrs_very_sound_for]. intros Q S0 HQ1 HQ2 HS0 x.
+    rewrite cons_is_app in HS0. apply staged_program in HS0.
+    2: { simpl. apply disjoint_lists_alt. plda. }
+    apply invert_prog_impl in HS0. destruct HS0 as [HS0|HS0].
+    2: { fwd. invert_stuff. simpl in *. fwd. congruence. }
+    rewrite cons_is_app. rewrite staged_program_iff.
+    2: { simpl. apply disjoint_lists_alt. plda. }
+    apply H3 in HS0; auto. rewrite <- HS0. split.
+    + intros H'. apply invert_prog_impl in H'. destruct H' as [H'|H']; auto.
+      fwd. invert_stuff.
+    + intros. apply partial_in. assumption.
+Qed.
+
 Lemma syntactically_depends_only_on_correct (is_input : rel -> _) p R Rs :
   ~is_input R ->
   well_typed_prog p ->
@@ -553,12 +584,17 @@ Proof.
   assumption.
 Qed.
 
-Ltac plda :=
-  repeat lazymatch goal with
-    | |- Forall _ _ => first [constructor | eapply Forall_impl; [|eassumption]; cbv beta ]
-    | |- _ <> _ => intro
-    | |- _ => intros; fwd; congruence
-    end.
+Lemma mrs_very_sound_staged is_input p1 p2 :
+  disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) ->
+  mrs_very_sound is_input p1 ->
+  mrs_very_sound is_input p2 ->
+  mrs_very_sound is_input (p1 ++ p2).
+Proof.
+  intros Hdisj H1 H2. cbv [mrs_very_sound mrs_very_sound_for].
+  intros R Q S0 HQ1 HQ2 HS0 x. apply staged_program in HS0; [|assumption].
+  rewrite staged_program_iff; [|assumption].
+  Print mrs_very_sound_for.
+
 
 Lemma compile_Sexpr_correct is_input datalog_ctx ctx t e e_nat e' name out name' p p' :
   wf_Sexpr ctx t e e_nat ->
@@ -570,7 +606,7 @@ Lemma compile_Sexpr_correct is_input datalog_ctx ctx t e e_nat e' name out name'
   compile_Sexpr name out e_nat = (name', p, p') ->
   name <= name' /\
     agrees (fun _ => False) (p ++ p' p ++ datalog_ctx) t out e' /\
-    (forall R, mrs_very_sound_for is_input (p ++ p' p ++ datalog_ctx) R).
+    mrs_very_sound is_input (p ++ p' p ++ datalog_ctx).
 Proof.
   intros Hwf. revert datalog_ctx name out name' p p'.
   induction Hwf; intros datalog_ctx name out name' p p' Hctx Hnames Hout1 Hout2 He' Hcomp.
@@ -648,12 +684,12 @@ Proof.
          ++ constructor; [|constructor].
             eapply prog_impl_implication_subset; [|eassumption].
             simpl. auto.
-      * intros R. destr (Nat.eqb R out).
-        { cbv [mrs_very_sound_for]. intros Q HQ1 HQ2 S0 HS0 x.
-          simpl. rewrite cons_two_is_app.
-          Fail rewrite staged_program_iff.
-          cbv [rule]. rewrite staged_program_iff.
-          2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
+      * Check staged_program.
+
+          intros R. destr (Nat.eqb R out).
+        { eapply mrs_ cbv [mrs_very_sound_for]. intros Q HQ1 HQ2 S0 HS0 x.
+          simpl. rewrite cons_two_is_app. rewrite staged_program_iff.
+          2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by plda.
                intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
                specialize' Hnames.
                { apply in_map_iff. eexists.
