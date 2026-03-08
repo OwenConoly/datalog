@@ -414,7 +414,7 @@ Definition mrs_very_sound_for (p : list rule) R :=
     prog_impl_implication p Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} ->
     forall x,
       prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} <->
-        S0 [x].
+        Q {| fact_R := (R, normal); fact_args := [primitive x] |} \/ S0 [x].
 
 (*should allow depending on meta facts.?*)
 (*i want to say that R depends only on Rs.  this only makes sense when R is not an input*)
@@ -422,11 +422,12 @@ Definition depends_only_on (p : list rule) R Rs :=
   forall Q x,
     consistent Q ->
     prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} ->
-    prog_impl_implication p (fun f =>
-                               exists x R',
-                                 In R' Rs /\
-                                   f = {| fact_R := (R', normal); fact_args := [primitive x] |} /\
-                                   prog_impl_implication p Q f) {| fact_R := (R, normal); fact_args := [primitive x] |}.
+    Q {| fact_R := (R, normal); fact_args := [primitive x] |} \/
+      prog_impl_implication p (fun f =>
+                                 exists x R',
+                                   In R' Rs /\
+                                     f = {| fact_R := (R', normal); fact_args := [primitive x] |} /\
+                                     prog_impl_implication p Q f) {| fact_R := (R, normal); fact_args := [primitive x] |}.
 
 Definition is_normal (r : rule) :=
   match r with
@@ -459,19 +460,19 @@ Proof.
   rewrite cons_is_app in HS0.
   apply staged_program in HS0; [|assumption].
   apply loopless_program in HS0; [|assumption].
+  rewrite (cons_is_app _ p).
+  rewrite staged_program_iff; [|assumption].
+  rewrite loopless_program_iff; [|assumption].
+  destruct HS0 as [HS0|HS0].
+  { apply Hp1 in HS0; [|assumption]. epose_dep HS0. rewrite HS0. split; auto.
+    intros [[?|?]|?]; auto. fwd. invert_stuff. }
+  fwd. invert_stuff. clear Hstaged Hloopless.
+  simpl in *. invert_stuff. destruct (option_all _) eqn:E; [|discriminate]. fwd.
   split; intros Hx.
-  - rewrite cons_is_app in Hx.
-    apply staged_program in Hx; [|assumption].
-    apply loopless_program in Hx; [|assumption].
-    destruct Hx as [Hx|Hx].
+  - destruct Hx as [Hx|Hx].
     2: { clear -Hx. fwd. invert_stuff. }
-    destruct HS0 as [HS0|HS0].
-    { apply Hp1 in HS0. 2: assumption. apply HS0. assumption. }
     cbv [depends_only_on] in HRs. specialize (HRs _ _ HQ1 Hx).
-    fwd. invert_stuff. clear Hstaged Hloopless.
-    simpl in *. invert_stuff. destruct (option_all _) eqn:E; [|discriminate]. fwd.
-    simpl. eapply prog_impl_implication_weaken_hyp; [exact HRs|].
-    simpl. intros f Hf. fwd.
+    destruct HRs as [HRs|HRs]; auto.
     apply option_all_Forall2 in E. apply Forall2_forget_r in H5.
     rewrite Lists.List.Forall_map in H5. apply Forall_combine_Forall2 in H5.
     2: { rewrite length_seq. reflexivity. }
@@ -479,8 +480,10 @@ Proof.
     eapply Forall2_Forall2_Forall3 in H3; [|exact H5]. clear H5.
     apply Forall3_ignore2 in H3. apply Forall2_map_l in E.
     eapply Forall2_Forall2_Forall3 in E; [|exact H3]. clear H3.
-    apply Forall3_ignore2 in E. Search Forall2 combine.
+    apply Forall3_ignore2 in E.
     apply Forall2_forget_r_strong in E. rewrite Forall_forall in E.
+    right. eapply prog_impl_implication_weaken_hyp; [exact HRs|].
+    simpl. intros f Hf. fwd.
     specialize (E _ ltac:(eassumption)). fwd. invert_stuff. simpl in *. fwd.
     destruct y2. simpl in *. subst. rewrite H0 in *. fwd.
     rewrite Forall_forall in HS0p0. specialize (HS0p0  _ ltac:(eassumption)).
