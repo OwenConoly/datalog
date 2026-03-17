@@ -240,6 +240,11 @@ Fixpoint compile_Sexpr (name : nat) (out : rel) {t} (e : Sexpr (fun _ => nat) t)
                 :: p1, p1')
   end.
 
+Definition sum_expr {var} (S : var set) :=
+  bop_over_set sum (Var _ S).
+Print compile_Sexpr.
+Compute (compile_Sexpr 2 1 (sum_expr 0)).
+
 Definition interp_type t : Type :=
   match t with
   | val => nat
