@@ -99,24 +99,18 @@ Section __.
         nf = normal_fact R nf_args /\
         mf = meta_fact R mf_args mf_set.
 
-  Inductive rule_impl' (closure : (fact -> Prop) -> (fact -> Prop) -> Prop) : rule -> fact -> list fact -> Prop :=
+  Inductive non_meta_rule_impl : rule -> fact -> list fact -> Prop :=
   | normal_rule_impl rule_concls rule_hyps ctx f hyps :
     Exists (fun c => interp_clause ctx c f) rule_concls ->
     Forall2 (interp_clause ctx) rule_hyps hyps ->
-    rule_impl' _ (normal_rule rule_concls rule_hyps) f hyps
-  | meta_rule_impl rule_concls rule_hyps ctx R args hyps S :
-    Exists (fun c => interp_meta_clause ctx c (meta_fact R args (fun args' => S (normal_fact R args')))) rule_concls ->
-    Forall2 (interp_meta_clause ctx) rule_hyps hyps ->
-    closure (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) hyps) S ->
-    rule_impl' _ (meta_rule rule_concls rule_hyps) (meta_fact R args (fun args' => S (normal_fact R args'))) hyps
+    non_meta_rule_impl (normal_rule rule_concls rule_hyps) f hyps
   | agg_rule_impl S vals concl_rel agg hyp_rel (args : list T) :
     is_list_set (fun '(i, x) => S (i :: x :: args)) vals ->
-    rule_impl' _
+    non_meta_rule_impl
       (agg_rule concl_rel agg hyp_rel)
       (normal_fact concl_rel (interp_agg agg vals :: args))
       (meta_fact hyp_rel (None :: None :: map Some args) S ::
          map (fun '(i, x_i) => normal_fact hyp_rel (i :: x_i :: args)) vals).
-  Hint Constructors rule_impl' : core.
 
   Unset Elimination Schemes.
   Inductive pftree {T : Type} (P : T -> list T -> Prop) (Q : T -> Prop) : T -> Prop :=
@@ -129,6 +123,22 @@ Section __.
     pftree _ _ x.
   Set Elimination Schemes.
   Hint Constructors pftree : core.
+
+  Definition prog_impl_with_no_meta_rules (p : list rule) : (fact -> Prop) -> fact -> Prop :=
+    pftree (fun f hyps => Exists (fun r => non_meta_rule_impl r f hyps) p).
+
+  Inductive rule_impl p : rule -> fact -> list fact -> Prop :=
+  | simple_rule_impl r f hyps :
+    non_meta_rule_impl r f hyps ->
+    rule_impl _ r f hyps
+  | meta_rule_impl rule_concls rule_hyps ctx R args hyps S :
+    Exists (fun c => interp_meta_clause ctx c (meta_fact R args (fun args' => S (normal_fact R args')))) rule_concls ->
+    Forall2 (interp_meta_clause ctx) rule_hyps hyps ->
+    (forall f',
+        S f' <->
+          prog_impl_with_no_meta_rules p (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) hyps) f') ->
+    rule_impl _ (meta_rule rule_concls rule_hyps) (meta_fact R args (fun args' => S (normal_fact R args'))) hyps.
+  Hint Constructors rule_impl : core.
 
   Lemma pftree_ind {U : Type} (P : U -> list U -> Prop) Q R :
     (forall x, Q x -> R x) ->
@@ -149,105 +159,48 @@ Section __.
     pftree P Q x.
   Proof. induction 1; eauto. Qed.
 
-  Definition prog_impl_with_no_meta_rules (p : list rule) : (fact -> Prop) -> fact -> Prop :=
-    pftree (fun f hyps => Exists (fun r => rule_impl' (fun _ _ => False) r f hyps) p).
-
-  (*closure p Q0 Q1 says "Q1 is the closure of Q0 under p", where we don't allow any meta rules to be used in p.*)
-  Definition closure' p Q := eq (prog_impl_with_no_meta_rules p Q).
-
   Definition prog_impl (p : list rule) : (fact -> Prop) -> fact -> Prop :=
-    pftree (fun f hyps => Exists (fun r => rule_impl' (closure' p) r f hyps) p).
+    pftree (fun f hyps => Exists (fun r => rule_impl p r f hyps) p).
 
-  Definition closure p Q := eq (prog_impl p Q).
+  Lemma prog_impl_ind p Q R :
+    (forall f, Q f -> R f) ->
+    (forall f hyps,
+        Exists (fun r => rule_impl p r f hyps) p ->
+        Forall (prog_impl p Q) hyps ->
+        Forall R hyps ->
+        R f) ->
+    forall f, prog_impl p Q f -> R f.
+  Proof. apply pftree_ind. Qed.
 
-  Definition rule_impl p := rule_impl' (closure p).
-  Hint Unfold rule_impl : core.
-
-  Lemma rule_impl_iff_rule_impl'_closure' p r f hyps :
-    rule_impl p r f hyps <-> rule_impl' (closure' p) r f hyps.
-  Proof.
-    split; invert 1; eauto.
-    - econstructor; eauto. cbv [closure] in *. subst. cbv [closure'].
-      apply prop_ext.
-      admit.
-    - econstructor; eauto.
-
-  (*prog_impl should never be unfolded, because i want to be able to forget that prog_impl_with_no_meta_rules exists.  so instead use this characterisation.*)
-  Lemma prog_impl_defn p Q f :
-    prog_impl p Q f <-> partial_pftree (fun f hyps => Exists (fun r => rule_impl p r f hyps) p) Q f.
-  Proof.
-
-    Global Opaque prog_impl.
-
-  Definition prog_impl p :=
-    partial_pftree (fun f hyps => Exists (fun r => rule_impl p r f hyps) p).
-
-  Require Import Coq.Logic.FunctionalExtensionality.
-  Lemma closure_doesnt_matter :
-    rule_impl' = rule_impl.
-  Proof.
-    apply functional_extensionality. intros p.
-    repeat (apply functional_extensionality || intros).
-    apply fun_ext.
-
-  Lemma prog_impl_step p Q f hyps' :
-    Exists (fun r : rule => rule_impl r f hyps') p ->
-    Forall (prog_impl_implication p Q) hyps' ->
-    prog_impl_implication p Q f.
-  Proof. intros. eapply partial_step; eauto. Qed.
+  (* Lemma prog_impl_step p Q f hyps' : *)
+  (*   Exists (fun r : rule => rule_impl r f hyps') p -> *)
+  (*   Forall (prog_impl_implication p Q) hyps' -> *)
+  (*   prog_impl_implication p Q f. *)
+  (* Proof. intros. eapply partial_step; eauto. Qed. *)
 
   Lemma invert_prog_impl p Q f :
-    prog_impl_implication p Q f ->
+    prog_impl p Q f ->
     Q f \/
       exists hyps',
-        Exists (fun r : rule => rule_impl r f hyps') p /\
-          Forall (prog_impl_implication p Q) hyps'.
+        Exists (fun r : rule => rule_impl p r f hyps') p /\
+          Forall (prog_impl p Q) hyps'.
   Proof. invert 1; eauto. Qed.
 
-  Lemma prog_impl_fact_prog_impl_implication p1 p2 Q f :
-    prog_impl_fact p1 f ->
-    (forall r f hyps, In r p1 ->
-                 rule_impl r f hyps ->
-                 In r p2 \/ Q f) ->
-    prog_impl_implication p2 Q f.
-  Proof.
-    intros. eapply pftree_partial_pftree; [eassumption|]. simpl.
-    intros y l Hy. apply Exists_exists in Hy. fwd.
-    eapply H0 in Hyp0; eauto. rewrite Exists_exists. destruct Hyp0 as [H'|H']; eauto.
-  Qed.
-
-  Lemma prog_impl_implication_prog_impl_fact p f :
-    prog_impl_implication p (fun _ => False) f ->
-    prog_impl_fact p f.
-  Proof.
-    cbv [prog_impl_implication prog_impl_fact].
-    eauto using partial_pftree_pftree.
-  Qed.
-
-  Lemma partial_pftree_weaken_hyp {U : Type} P (x : U) Q1 Q2 :
-    partial_pftree P Q1 x ->
+  Lemma pftree_weaken_hyp {U : Type} P (x : U) Q1 Q2 :
+    pftree P Q1 x ->
     (forall y, Q1 y -> Q2 y) ->
-    partial_pftree P Q2 x.
+    pftree P Q2 x.
   Proof. intros H1 H2. induction H1; eauto. Qed.
 
-  Lemma prog_impl_implication_weaken_hyp p x Q1 Q2 :
-    prog_impl_implication p Q1 x ->
+  Lemma prog_impl_weaken_hyp p x Q1 Q2 :
+    prog_impl p Q1 x ->
     (forall y, Q1 y -> Q2 y) ->
-    prog_impl_implication p Q2 x.
-  Proof. cbv [prog_impl_implication]. eauto using partial_pftree_weaken_hyp. Qed.
-
-  Lemma pftree_lfp {U : Type} (P : U -> list U -> Prop) :
-    equiv (pftree P) (lfp (fun Q x => Q x \/ exists l, P x l /\ Forall Q l)).
-  Proof.
-    intros x. split; intros Hx.
-    - intros S Hfp. move Hx at bottom. induction Hx. eauto.
-    - cbv [lfp] in Hx. apply Hx. clear x Hx. cbv [fp]. intros x Hx.
-      destruct Hx; eauto. fwd. econstructor; eauto.
-  Qed.
+    prog_impl p Q2 x.
+  Proof. cbv [prog_impl]. eauto using pftree_weaken_hyp. Qed.
 
   Definition F p Q Px :=
     let '(P, x) := Px in
-    P x \/ Q (P, x) \/ exists hyps', Exists (fun r => rule_impl r x hyps') p /\ Forall (fun x => Q (P, x)) hyps'.
+    P x \/ Q (P, x) \/ exists hyps', Exists (fun r => rule_impl p r x hyps') p /\ Forall (fun x => Q (P, x)) hyps'.
 
   Lemma F_mono p S1 S2 :
     (forall x, S1 x -> S2 x) ->
@@ -264,8 +217,8 @@ Section __.
           (forall y, P1 y -> S (P2, y)) ->
           S (P2, x)).
 
-  Lemma partial_pftree_lfp {U : Type} (P : U -> list U -> Prop) :
-    equiv (fun '(Q0, x) => partial_pftree P Q0 x)
+  Lemma pftree_lfp {U : Type} (P : U -> list U -> Prop) :
+    equiv (fun '(Q0, x) => pftree P Q0 x)
       (lfp (fun Q '(Q0, x) => Q0 x \/ Q (Q0, x) \/ exists l, P x l /\ Forall (fun y => Q (Q0, y)) l)).
   Proof.
     cbv [equiv lfp fp]. intros [Q0 x]. split; intros; fwd.
@@ -273,14 +226,14 @@ Section __.
       right. right. exists l. split; [assumption|]. eapply Forall_impl; [|eassumption].
       simpl. intros y. apply (H0 (_, _)).
     - apply (H (fun '(Q, x) => _)). clear. intros [Q x]. intros [Hx| [Hx |Hx] ]; eauto.
-      fwd. eapply partial_step; eassumption.
+      fwd. eapply pftree_step; eassumption.
   Qed.
 
-  Lemma prog_impl_fact_lfp p :
-    equiv (fun '(P, f) => prog_impl_implication p P f) (lfp (F p)).
+  Lemma prog_impl_lfp p :
+    equiv (fun '(P, f) => prog_impl p P f) (lfp (F p)).
   Proof.
-    cbv [equiv]. intros. cbv [prog_impl_implication].
-    epose proof partial_pftree_lfp as H. cbv [equiv] in H. rewrite H.
+    cbv [equiv]. intros. cbv [prog_impl].
+    epose proof pftree_lfp as H. cbv [equiv] in H. rewrite H.
     cbv [F]. reflexivity.
   Qed.
 
@@ -294,24 +247,25 @@ Section __.
     fwd. eauto 9.
   Qed.
 
-  Hint Unfold prog_impl_implication : core.
+  Hint Unfold prog_impl : core.
 
   Hint Extern 2 => eapply Forall_impl; [|eassumption]; cbv beta : core.
   Hint Extern 2 => eapply Forall2_impl; [|eassumption]; cbv beta : core.
 
-  Lemma partial_pftree_weaken {U : Type} P1 P2 Q (x : U) :
-    partial_pftree P1 Q x ->
+  Lemma pftree_weaken {U : Type} P1 P2 Q (x : U) :
+    pftree P1 Q x ->
     (forall y l, P1 y l -> P2 y l) ->
-    partial_pftree P2 Q x.
+    pftree P2 Q x.
   Proof. induction 1; eauto. Qed.
 
   Lemma S_sane_lfp p : S_sane (lfp (F p)).
   Proof.
-    eapply S_sane_ext; [apply prog_impl_fact_lfp|]. cbv [S_sane]. split; intros; eauto.
+    eapply S_sane_ext; [apply prog_impl_lfp|]. cbv [S_sane]. split; intros; eauto.
     Fail Fail solve [induction H; eauto].
-    eapply partial_pftree_trans. eapply partial_pftree_weaken_hyp; eauto.
+    eapply pftree_trans. eapply pftree_weaken_hyp; eauto.
   Qed.
 
+  (*this gets more complicated due to meta rules :((( *)
   Lemma split_fixpoint (p : list rule) S :
     (forall P x, P x -> S (P, x)) ->
     (forall r, In r p -> fp (F [r]) S) <->
@@ -319,11 +273,12 @@ Section __.
   Proof.
     intros Sgood1. cbv [fp F]. split.
     - intros H [P x] Hx. destruct Hx as [Hx| [Hx|Hx]]; eauto.
-      fwd. apply Exists_exists in Hxp0. fwd. eapply H; eauto 6.
+      fwd. apply Exists_exists in Hxp0. fwd. eapply H; eauto 6. admit.
     - intros H r Hr [P x] Hx. destruct Hx as [Hx| [Hx|Hx]]; eauto. fwd.
       invert_list_stuff.
       apply H. right. right. eexists. split; [|eassumption]. apply Exists_exists. eauto.
-  Qed.
+      admit.
+  Abort.
 
   Fixpoint expr_size (e : expr) :=
     match e with
@@ -331,7 +286,6 @@ Section __.
     | fun_expr _ args => S (fold_right Nat.max O (map expr_size args))
     end.
 
-  (*This is stupid.  how do people normally do it?*)
   Lemma expr_ind P :
     (forall v, P (var_expr v)) ->
     (forall f args,
@@ -348,29 +302,30 @@ Section __.
         simpl in *. constructor; [|apply IHargs; lia]. apply IHn. lia.
   Qed.
 
-  Lemma pftree_weaken {U : Type} (P1 P2 : U -> list U -> Prop) x :
-    pftree P1 x ->
-    (forall x l, P1 x l -> P2 x l) ->
-    pftree P2 x.
-  Proof. intros H0 H. induction H0; econstructor; eauto. Qed.
+  Definition consistent mf_rel mf_args mf_set S :=
+    forall nf_args,
+      Forall2 matches mf_args nf_args ->
+      mf_set nf_args <-> S (normal_fact mf_rel nf_args).
 
-  Lemma prog_impl_fact_subset (p1 p2 : list rule) f :
-    (forall x, In x p1 -> In x p2) ->
-    prog_impl_fact p1 f ->
-    prog_impl_fact p2 f.
-  Proof.
-    intros H H0. eapply pftree_weaken; simpl; eauto. simpl.
-    intros. apply Exists_exists in H1. apply Exists_exists. fwd. eauto.
-  Qed.
+  Definition doesnt_lie p Q :=
+    forall mf_rel mf_args mf_set,
+      prog_impl p Q (meta_fact mf_rel mf_args mf_set) ->
+      consistent mf_rel mf_args mf_set (prog_impl p Q).
 
-  Lemma prog_impl_implication_subset (p1 p2 : list rule) Q f :
+  (*ugh idk what to say here*)
+  Lemma prog_impl_subset (p1 p2 : list rule) Q f :
+    doesnt_lie p1 Q ->
+    doesnt_lie p2 Q ->
     (forall x, In x p1 -> In x p2) ->
-    prog_impl_implication p1 Q f ->
-    prog_impl_implication p2 Q f.
+    prog_impl p1 Q f ->
+    prog_impl p2 Q f.
   Proof.
-    intros H H0. eapply partial_pftree_weaken; simpl; eauto. simpl.
-    intros. apply Exists_exists in H1. apply Exists_exists. fwd. eauto.
-  Qed.
+    intros H1 H2 Hsub H. eapply pftree_weaken; simpl; eauto. simpl.
+    intros ? ? Hr. apply Exists_exists in Hr. apply Exists_exists. fwd.
+    eexists. split; [eauto|].
+  Abort.
+
+
 
   Lemma interp_expr_subst_more s s' v e :
     map.extends s' s ->
