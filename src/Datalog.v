@@ -1,19 +1,10 @@
 From Stdlib Require Import Arith.Arith.
-From Stdlib Require Import Arith.EqNat.
-From Stdlib Require Import Arith.PeanoNat. Import Nat.
-From Stdlib Require Import Bool.Bool.
-From Stdlib Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
-From Stdlib Require Import ZArith.Int.
-From Stdlib Require Import ZArith.Znat.
-From Stdlib Require Import Strings.String.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 
-From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
-
 From Datalog Require Import Map Tactics Fp List Dag.
 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option.
 
 Import ListNotations.
 
@@ -48,26 +39,19 @@ Section __.
   | fun_expr (f : fn) (args : list expr).
   Set Elimination Schemes.
 
-  (*help this needs better name*)
-  Variant rel_type :=
-    | normal (* R(x_1, ..., x_n) *)
-    | meta   (* R(S, x_2, ..., x_n) means that S is the set of x_1's s.t. R(x_1, ..., x_n) *).
-
-  (* Variant rel_type := *)
-  (* | logical (_ : logical_rel_type) *)
-  (* | done   (* R(_, x_2, _, _, x_5, ..., x_n) means that we are done deriving all R-facts with all the x_i's in their respsective positions *) *)
-  (* . *)
-
   Record clause :=
-    { clause_R : rel * rel_type;
+    { clause_rel : rel;
       clause_args : list expr }.
 
-  Record fact :=
-    { fact_R : rel * rel_type;
-      fact_args : list T }.
+  Record meta_clause :=
+    { meta_clause_rel : rel;
+      meta_clause_args : list (option expr) }.
+
+  Variant fact :=
+    | normal_fact (nf_rel : rel) (nf_args : list T)
+    | meta_fact (mf_rel : rel) (mf_args : list (option T)) (mf_set : list T -> Prop).
 
   Unset Elimination Schemes.
-  (*semantics of expressions*)
   Inductive interp_expr (ctx : context) : expr -> T -> Prop :=
   | interp_var_expr x v :
     map.get ctx x = Some v ->
@@ -78,125 +62,133 @@ Section __.
     interp_expr ctx (fun_expr f args) x.
   Set Elimination Schemes.
 
-  (*semantics of clauses*)
   Definition interp_clause (ctx: context) (c : clause) (f : fact) : Prop :=
-    c.(clause_R) = f.(fact_R) /\
-      Forall2 (interp_expr ctx) c.(clause_args) f.(fact_args).
+    exists nf_args,
+      Forall2 (interp_expr ctx) c.(clause_args) nf_args /\
+        f = normal_fact c.(clause_rel) nf_args.
+
+  Definition interp_meta_clause (ctx: context) (c : meta_clause) (f : fact) : Prop :=
+    exists mf_args mf_set,
+      Forall2 (option_relation (interp_expr ctx)) c.(meta_clause_args) mf_args /\
+        f = meta_fact c.(meta_clause_rel) mf_args mf_set.
 
   Inductive rule :=
   | normal_rule (rule_concls : list clause) (rule_hyps : list clause)
+  | meta_rule (rule_concls : list meta_clause) (rule_hyps : list meta_clause)
   (* we deduce concl_rel(\sum_{i \in S} x_i, y_1, ..., y_n)
      from agg_rule concl_rel sum hyp_rel
      where S and x are s.t. the target_rel facts are of the form
      { target_rel(i, x_i, y_1, ..., y_n) : i \in S }.
    *)
-  | agg_rule (concl_rel : rel) (agg : aggregator) (hyp_rel : rel).
+  | agg_rule (concl_rel : rel) (agg : aggregator) (hyp_rel : rel)
+  (*TODO uncomment following*)
+  (*hmm maybe this shoudl actually be some construct for injection of normlal facts into fmeta facsts, then could just do agg_over_rel?*)
+  (*| agg_over_set (concl_rel : rel) (agg : aggregator) (cardinality : expr) (hyp_rel : rel) (hyp_args : list var)*).
 
-  (*semantics of rules*) Check interp_agg.
-  Inductive rule_impl : rule -> fact -> list fact -> Prop :=
+  (*None is a wildcard*)
+  Definition matches (x : option T) y :=
+    match x with
+    | None => True
+    | Some x0 => x0 = y
+    end.
+
+  Definition fact_matches nf mf :=
+    exists R nf_args mf_args mf_set,
+      Forall2 matches mf_args nf_args /\
+        mf_set nf_args /\
+        nf = normal_fact R nf_args /\
+        mf = meta_fact R mf_args mf_set.
+
+  Inductive rule_impl' (closure : (fact -> Prop) -> (fact -> Prop) -> Prop) : rule -> fact -> list fact -> Prop :=
   | normal_rule_impl rule_concls rule_hyps ctx f hyps :
     Exists (fun c => interp_clause ctx c f) rule_concls ->
     Forall2 (interp_clause ctx) rule_hyps hyps ->
-    rule_impl (normal_rule rule_concls rule_hyps) f hyps
-  | agg_rule_impl S S' vals concl_rel agg hyp_rel (args : list T) :
-    get_set S = Some S' ->
-    is_list_set S' (map fst vals) ->
-    rule_impl
+    rule_impl' _ (normal_rule rule_concls rule_hyps) f hyps
+  | meta_rule_impl rule_concls rule_hyps ctx R args hyps S :
+    Exists (fun c => interp_meta_clause ctx c (meta_fact R args (fun args' => S (normal_fact R args')))) rule_concls ->
+    Forall2 (interp_meta_clause ctx) rule_hyps hyps ->
+    closure (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) hyps) S ->
+    rule_impl' _ (meta_rule rule_concls rule_hyps) (meta_fact R args (fun args' => S (normal_fact R args'))) hyps
+  | agg_rule_impl S vals concl_rel agg hyp_rel (args : list T) :
+    is_list_set (fun '(i, x) => S (i :: x :: args)) vals ->
+    rule_impl' _
       (agg_rule concl_rel agg hyp_rel)
-      {| fact_R := (concl_rel, normal);
-        fact_args := interp_agg agg vals :: args |}
-      ({| fact_R := (hyp_rel, meta); fact_args := S :: iter :: args |} ::
-         map (fun '(i, x_i) => {| fact_R := (hyp_rel, normal); fact_args := i :: x_i :: args |}) vals).
-  Hint Constructors rule_impl : core.
+      (normal_fact concl_rel (interp_agg agg vals :: args))
+      (meta_fact hyp_rel (None :: None :: map Some args) S ::
+         map (fun '(i, x_i) => normal_fact hyp_rel (i :: x_i :: args)) vals).
+  Hint Constructors rule_impl' : core.
 
   Unset Elimination Schemes.
-  Inductive pftree {T : Type} (P : T -> list T -> Prop) : T -> Prop :=
-  | mkpftree x l :
+  Inductive pftree {T : Type} (P : T -> list T -> Prop) (Q : T -> Prop) : T -> Prop :=
+  | pftree_leaf x :
+    Q x ->
+    pftree _ _ x
+  | pftree_step x l :
     P x l ->
-    Forall (pftree P) l ->
-    pftree P x.
+    Forall (pftree _ _) l ->
+    pftree _ _ x.
   Set Elimination Schemes.
   Hint Constructors pftree : core.
 
-  (*semantics of programs*)
-  Definition prog_impl_fact (p : list rule) : fact -> Prop :=
-    pftree (fun f hyps => Exists (fun r => rule_impl r f hyps) p).
-
-  Unset Elimination Schemes.
-  Inductive partial_pftree {T : Type} (P : T -> list T -> Prop) (Q : T -> Prop) : T -> Prop :=
-  | partial_in x :
-    Q x ->
-    partial_pftree _ _ x
-  | partial_step x l :
-    P x l ->
-    Forall (partial_pftree _ _) l ->
-    partial_pftree _ _ x.
-  Set Elimination Schemes.
-
-  Hint Constructors partial_pftree : core.
-
-  Lemma pftree_ind {U : Type} (P : U -> list U -> Prop) Q :
-    (forall x l,
-        P x l ->
-        Forall (pftree P) l ->
-        Forall Q l ->
-        Q x) ->
-    forall x, pftree P x -> Q x.
-  Proof.
-    intros H. fix self 2.
-    (*i find using fix to be hacky ( e.g. i can't use Forall_impl here :( )
-      but i don't know an easy way to get around it.
-      trick with expr below doesn't easily work, since pftree goes to Prop.
-     *)
-    intros x Hx. invert Hx. eapply H; eauto.
-    clear -self H1. induction H1; eauto.
-  Qed.
-
-  Lemma pftree_weaken_strong {T1 T2 : Type}
-    (P1 : T1 -> list T1 -> Prop) (P2 : T2 -> list T2 -> Prop) x f :
-    pftree P1 x ->
-    (forall x l, P1 x l -> P2 (f x) (map f l)) ->
-    pftree P2 (f x).
-  Proof.
-    intros H1 H. induction H1. econstructor.
-    2: { eapply Forall_map. eassumption. }
-    apply H. assumption.
-  Qed.
-
-  Lemma partial_pftree_ind {U : Type} (P : U -> list U -> Prop) Q R :
+  Lemma pftree_ind {U : Type} (P : U -> list U -> Prop) Q R :
     (forall x, Q x -> R x) ->
     (forall x l,
         P x l ->
-        Forall (partial_pftree P Q) l ->
+        Forall (pftree P Q) l ->
         Forall R l ->
         R x) ->
-    forall x, partial_pftree P Q x -> R x.
+    forall x, pftree P Q x -> R x.
   Proof.
     intros H1 H2. fix self 2.
     intros x Hx. invert Hx. 1: auto. eapply H2. 1,2: eassumption.
     clear -H0 self. induction H0; eauto.
   Qed.
 
-  Lemma pftree_partial_pftree {U : Type} P1 P2 Q (x : U) :
-    pftree P1 x ->
-    (forall y l, P1 y l -> P2 y l \/ Q y) ->
-    partial_pftree P2 Q x.
-  Proof.
-    intros H1 H2. induction H1; eauto. apply H2 in H. destruct H; eauto.
-  Qed.
-
-  Lemma partial_pftree_pftree {U : Type} P (x : U) :
-    partial_pftree P (fun y => False) x ->
-    pftree P x.
-  Proof. induction 1; eauto. contradiction. Qed.
-
-  Lemma partial_pftree_trans {U : Type} P (x : U) Q :
-    partial_pftree P (partial_pftree P Q) x ->
-    partial_pftree P Q x.
+  Lemma pftree_trans {U : Type} P (x : U) Q :
+    pftree P (pftree P Q) x ->
+    pftree P Q x.
   Proof. induction 1; eauto. Qed.
 
-  Definition prog_impl_implication (p : list rule) : (fact -> Prop) -> fact -> Prop :=
-    partial_pftree (fun f hyps => Exists (fun r => rule_impl r f hyps) p).
+  Definition prog_impl_with_no_meta_rules (p : list rule) : (fact -> Prop) -> fact -> Prop :=
+    pftree (fun f hyps => Exists (fun r => rule_impl' (fun _ _ => False) r f hyps) p).
+
+  (*closure p Q0 Q1 says "Q1 is the closure of Q0 under p", where we don't allow any meta rules to be used in p.*)
+  Definition closure' p Q := eq (prog_impl_with_no_meta_rules p Q).
+
+  Definition prog_impl (p : list rule) : (fact -> Prop) -> fact -> Prop :=
+    pftree (fun f hyps => Exists (fun r => rule_impl' (closure' p) r f hyps) p).
+
+  Definition closure p Q := eq (prog_impl p Q).
+
+  Definition rule_impl p := rule_impl' (closure p).
+  Hint Unfold rule_impl : core.
+
+  Lemma rule_impl_iff_rule_impl'_closure' p r f hyps :
+    rule_impl p r f hyps <-> rule_impl' (closure' p) r f hyps.
+  Proof.
+    split; invert 1; eauto.
+    - econstructor; eauto. cbv [closure] in *. subst. cbv [closure'].
+      apply prop_ext.
+      admit.
+    - econstructor; eauto.
+
+  (*prog_impl should never be unfolded, because i want to be able to forget that prog_impl_with_no_meta_rules exists.  so instead use this characterisation.*)
+  Lemma prog_impl_defn p Q f :
+    prog_impl p Q f <-> partial_pftree (fun f hyps => Exists (fun r => rule_impl p r f hyps) p) Q f.
+  Proof.
+
+    Global Opaque prog_impl.
+
+  Definition prog_impl p :=
+    partial_pftree (fun f hyps => Exists (fun r => rule_impl p r f hyps) p).
+
+  Require Import Coq.Logic.FunctionalExtensionality.
+  Lemma closure_doesnt_matter :
+    rule_impl' = rule_impl.
+  Proof.
+    apply functional_extensionality. intros p.
+    repeat (apply functional_extensionality || intros).
+    apply fun_ext.
 
   Lemma prog_impl_step p Q f hyps' :
     Exists (fun r : rule => rule_impl r f hyps') p ->
