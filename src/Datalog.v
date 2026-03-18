@@ -526,8 +526,8 @@ Section __.
   (*     intros (?, ?) ?. simpl. auto. *)
   (* Qed. *)
 
-  (* Definition disjoint_lists {T} (l1 l2 : list T) := *)
-  (*   forall x, In x l1 -> In x l2 -> False. *)
+  Definition disjoint_lists {T} (l1 l2 : list T) :=
+    forall x, In x l1 -> In x l2 -> False.
 
   (* Lemma staged_program p1 p2 Q f : *)
   (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
@@ -603,6 +603,19 @@ Arguments fact_args : clear implicits.
 Arguments rule : clear implicits.
 Arguments expr : clear implicits.
 
+Ltac invert_stuff :=
+  match goal with
+    | _ => progress cbn [rel_of clause_rel clause_args] in *
+    | H : rule_impl _ _ _ _ |- _ => invert1 H
+    | H : non_meta_rule_impl _ _ _ |- _ => progress (invert1 H)
+    | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
+    | H : interp_expr _ _ _ |- _ => invert1 H
+    | H : In _ [_] |- _ => destruct H; [|contradiction]
+    | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
+    | _ => progress subst
+    | _ => progress invert_list_stuff
+    end.
+
 Section Blocks.
   Context (lvar gvar exprvar fn aggregator T : Type).
   Context (ret : lvar).
@@ -621,7 +634,7 @@ Section Blocks.
 
   Inductive blocks_prog {var} :=
   | LetIn (x : blocks_prog) (f : var -> blocks_prog)
-  | SetGlobal (x : gvar) (v : blocks_prog) (rest : blocks_prog)
+  | SetGlobal (x : gvar) (v : blocks_prog)
   | Block (p : list (block_rule var)).
   Arguments blocks_prog : clear implicits.
 
@@ -633,14 +646,15 @@ Section Blocks.
               | Var R' => R' (args_of f)
               end).
 
-  Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : fact_args T -> Prop :=
+  Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : gmap * (fact_args T -> Prop) :=
     match e with
     | LetIn x f =>
-        interp_blocks_prog globals (f (interp_blocks_prog globals x))
-    | SetGlobal x v rest => interp_blocks_prog
-                             (map.put globals x (interp_blocks_prog globals v))
-                             rest
-    | Block p => fun args => block_prog_impl globals p (fun _ => False) (fact_of (local ret) args)
+        let (globals', x') := interp_blocks_prog globals x in
+        interp_blocks_prog globals (f x')
+    | SetGlobal x v =>
+        let (globals', x') := interp_blocks_prog globals v in
+        (map.put globals' x x', fun _ => False (*dummy return value, means nothing*))
+    | Block p => (globals, fun args => block_prog_impl globals p (fun _ => False) (fact_of (local ret) args))
     end.
 
   (*given A B, compute (A \cup B) \cap (A \cup B).
@@ -660,14 +674,110 @@ Section Blocks.
                   [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
                   [{| clause_rel := Var union; clause_args := [var_expr dummy] |};
                    {| clause_rel := Var union; clause_args := [var_expr dummy] |}]]).
-End Blocks.
 
-(* Ltac invert_stuff := *)
-(*   repeat match goal with *)
-(*     | _ => progress cbn [fact_R clause_R fact_args clause_args] in * *)
-(*     | H : rule_impl _ _ _ |- _ => invert1 H *)
-(*     | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd *)
-(*     | H : interp_expr _ _ _ |- _ => invert1 H *)
-(*     | _ => invert_list_stuff *)
-(*     | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; subst *)
-(*     end. *)
+  Goal forall A B A' B' x,
+      A <> B ->
+      let (_, iou) := interp_blocks_prog (map.put (map.put map.empty A A') B B') (intersection_of_unions A B _) in
+      iou (normal_fact_args [x]) <-> A' (normal_fact_args [x]) \/ B' (normal_fact_args [x]).
+  Proof.
+    simpl. intros A B A' B' x HAB. split; intros H.
+    - invert H.
+      { contradiction. }
+      simpl in *. rename H0 into Hr. apply Exists_exists in Hr. fwd.
+      repeat invert_stuff. clear H4. invert H5.
+      { contradiction. }
+      simpl in *. invert H.
+      { contradiction. }
+      simpl in *. invert H2.
+      + repeat invert_stuff. invert H6; [contradiction|]. simpl in *. fwd.
+        rewrite map.get_put_diff in * by assumption.
+        rewrite map.get_put_same in * by assumption.
+        invert_stuff. auto.
+      + repeat invert_stuff. invert H6; [contradiction|]. simpl in *. fwd.
+        rewrite map.get_put_same in * by assumption.
+        invert_stuff. auto.
+    - destruct H as [H|H].
+      + eapply pftree_step; simpl.
+        -- apply Exists_cons_hd. constructor.
+           eapply normal_rule_impl with (ctx := map.put map.empty dummy _).
+           ++ apply Exists_cons_hd. cbv [interp_clause]. simpl. eexists.
+              split; eauto. constructor; eauto. constructor.
+              apply map.get_put_same.
+           ++ constructor.
+              --- cbv [interp_clause]. simpl. eexists. split; eauto.
+                  constructor; [|constructor]. constructor. apply map.get_put_same.
+              --- constructor; [|constructor].
+                  cbv [interp_clause]. simpl. eexists. split; eauto.
+                  constructor; [|constructor]. constructor. apply map.get_put_same.
+        -- constructor.
+           { eapply pftree_step with (l := nil); [|constructor]. simpl.
+             eapply pftree_step.
+             - simpl. apply Exists_cons_hd. constructor.
+               eapply normal_rule_impl with (ctx := map.put map.empty dummy _).
+               + apply Exists_cons_hd. cbv [interp_clause]. simpl. eexists.
+                 split; eauto. constructor; eauto. constructor.
+                 apply map.get_put_same.
+               + constructor; [|constructor].
+                 cbv [interp_clause]. simpl. eexists. split; eauto.
+                 constructor; [|constructor]. constructor. apply map.get_put_same.
+             - constructor; [|constructor]. eapply pftree_step with (l := nil); simpl.
+               2: constructor. eexists. split; [|eassumption].
+               rewrite map.get_put_diff by assumption. apply map.get_put_same. }
+           constructor; [|constructor].
+           eapply pftree_step with (l := nil); [|constructor].
+           simpl.
+           { eapply pftree_step.
+             - simpl. apply Exists_cons_hd. constructor.
+               eapply normal_rule_impl with (ctx := map.put map.empty dummy _).
+               + apply Exists_cons_hd. cbv [interp_clause]. simpl. eexists.
+                 split; eauto. constructor; eauto. constructor.
+                 apply map.get_put_same.
+               + constructor; [|constructor].
+                 cbv [interp_clause]. simpl. eexists. split; eauto.
+                 constructor; [|constructor]. constructor. apply map.get_put_same.
+             - constructor; [|constructor]. eapply pftree_step with (l := nil); simpl.
+               2: constructor. eexists. split; [|eassumption].
+               rewrite map.get_put_diff by assumption. apply map.get_put_same. }
+      + eapply pftree_step; simpl.
+        -- apply Exists_cons_hd. constructor.
+           eapply normal_rule_impl with (ctx := map.put map.empty dummy _).
+           ++ apply Exists_cons_hd. cbv [interp_clause]. simpl. eexists.
+              split; eauto. constructor; eauto. constructor.
+              apply map.get_put_same.
+           ++ constructor.
+              --- cbv [interp_clause]. simpl. eexists. split; eauto.
+                  constructor; [|constructor]. constructor. apply map.get_put_same.
+              --- constructor; [|constructor].
+                  cbv [interp_clause]. simpl. eexists. split; eauto.
+                  constructor; [|constructor]. constructor. apply map.get_put_same.
+        -- constructor.
+           { eapply pftree_step with (l := nil); [|constructor]. simpl.
+             eapply pftree_step.
+             - simpl. apply Exists_cons_tl. apply Exists_cons_hd. constructor.
+               eapply normal_rule_impl with (ctx := map.put map.empty dummy _).
+               + apply Exists_cons_hd. cbv [interp_clause]. simpl. eexists.
+                 split; eauto. constructor; eauto. constructor.
+                 apply map.get_put_same.
+               + constructor; [|constructor].
+                 cbv [interp_clause]. simpl. eexists. split; eauto.
+                 constructor; [|constructor]. constructor. apply map.get_put_same.
+             - constructor; [|constructor]. eapply pftree_step with (l := nil); simpl.
+               2: constructor. eexists. split; [|eassumption].
+               apply map.get_put_same. }
+           constructor; [|constructor].
+           eapply pftree_step with (l := nil); [|constructor].
+           simpl.
+           { eapply pftree_step.
+             - simpl. apply Exists_cons_tl. apply Exists_cons_hd. constructor.
+               eapply normal_rule_impl with (ctx := map.put map.empty dummy _).
+               + apply Exists_cons_hd. cbv [interp_clause]. simpl. eexists.
+                 split; eauto. constructor; eauto. constructor.
+                 apply map.get_put_same.
+               + constructor; [|constructor].
+                 cbv [interp_clause]. simpl. eexists. split; eauto.
+                 constructor; [|constructor]. constructor. apply map.get_put_same.
+             - constructor; [|constructor]. eapply pftree_step with (l := nil); simpl.
+               2: constructor. eexists. split; [|eassumption].
+               apply map.get_put_same. }
+  Qed.
+End Blocks.
