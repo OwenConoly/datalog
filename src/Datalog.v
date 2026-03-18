@@ -375,6 +375,22 @@ Section __.
     | meta_fact R _ _ => R
     end.
 
+  Variant fact_args :=
+    | normal_fact_args (nf_args : list T)
+    | meta_fact_args (mf_args : list (option T)) (mf_set : list T -> Prop).
+
+  Definition args_of f :=
+    match f with
+    | normal_fact _ nf_args => normal_fact_args nf_args
+    | meta_fact _ mf_args mf_set => meta_fact_args mf_args mf_set
+    end.
+
+  Definition fact_of R args :=
+    match args with
+    | normal_fact_args nf_args => normal_fact R nf_args
+    | meta_fact_args mf_args mf_set => meta_fact R mf_args mf_set
+    end.
+
   (* Lemma interp_clause_agree_on ctx1 ctx2 c f : *)
   (*   interp_clause ctx1 c f -> *)
   (*   Forall (agree_on ctx1 ctx2) (vars_of_clause c) -> *)
@@ -583,65 +599,68 @@ Section __.
 End __.
 Arguments clause : clear implicits.
 Arguments fact : clear implicits.
+Arguments fact_args : clear implicits.
 Arguments rule : clear implicits.
 Arguments expr : clear implicits.
 
-Section blocks.
+Section Blocks.
   Context (lvar gvar exprvar fn aggregator T : Type).
   Context (ret : lvar).
   Context {sig : signature fn aggregator T}.
-  Context {gmap : map.map gvar (list T -> Prop)} {gmap_ok : map.ok gmap}.
+  Context {gmap : map.map gvar (fact_args T -> Prop)} {gmap_ok : map.ok gmap}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
 
-  Variant blocky_rel {var} :=
+  Variant blocks_rel {var} :=
     | local (x : lvar)
     | global (x : gvar)
     | Var (x : var).
-  Arguments blocky_rel : clear implicits.
+  Arguments blocks_rel : clear implicits.
 
-  Definition blocky_rule var :=
-    rule (blocky_rel var) exprvar fn aggregator.
+  Definition block_rule var :=
+    rule (blocks_rel var) exprvar fn aggregator.
 
-  Inductive blocky_prog {var} :=
-  | LetIn (x : blocky_prog) (f : var -> blocky_prog)
-  | SetGlobal (x : gvar) (v : blocky_prog) (rest : blocky_prog)
-  | Block (p : list (blocky_rule var)).
-  Arguments blocky_prog : clear implicits.
+  Inductive blocks_prog {var} :=
+  | LetIn (x : blocks_prog) (f : var -> blocks_prog)
+  | SetGlobal (x : gvar) (v : blocks_prog) (rest : blocks_prog)
+  | Block (p : list (block_rule var)).
+  Arguments blocks_prog : clear implicits.
 
-  Print prog_impl.
-  Print consistent.
-
-  (*bad name*)
-  Definition fact_consistent (f : fact (blocky_rel (list T -> Prop)) T) (R' : list T -> Prop) :=
-    match f with
-    | meta_fact mf_rel mf_args mf_set =>
-        forall nf_args,
-          Forall2 matches mf_args nf_args ->
-          mf_set nf_args <-> R' nf_args
-    | normal_fact nf_rel nf_args =>
-        R' nf_args
-    end.
-
-  Definition block_prog_impl (globals : gmap) (p : list (blocky_rule _)) :=
-    pftree (fun (f : fact (blocky_rel _) T) hyps =>
+  Definition block_prog_impl (globals : gmap) (p : list (block_rule _)) :=
+    pftree (fun (f : fact (blocks_rel _) T) hyps =>
               match rel_of f with
               | local R => Exists (fun r => rule_impl p r f hyps) p
-              | global R => exists R', map.get globals R = Some R' /\ fact_consistent f R'
-              | Var R' => fact_consistent f R'
+              | global R => exists R', map.get globals R = Some R' /\ R' (args_of f)
+              | Var R' => R' (args_of f)
               end).
 
-  Print fact.
-  Variant fact_args :=
-    | list T0
-
-  Fixpoint interp_blocky_prog (globals : gmap) (e : blocky_prog (list T -> Prop)) : list T -> Prop :=
+  Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : fact_args T -> Prop :=
     match e with
-    | LetIn x f => interp_blocky_prog globals (f (interp_blocky_prog globals x))
-    | SetGlobal x v rest => interp_blocky_prog
-                             (map.put globals x (interp_blocky_prog globals v))
+    | LetIn x f =>
+        interp_blocks_prog globals (f (interp_blocks_prog globals x))
+    | SetGlobal x v rest => interp_blocks_prog
+                             (map.put globals x (interp_blocks_prog globals v))
                              rest
-    | Block p => fun args => block_prog_impl globals p (fun _ => False) normal_fact (local ret)
+    | Block p => fun args => block_prog_impl globals p (fun _ => False) (fact_of (local ret) args)
     end.
+
+  (*given A B, compute (A \cup B) \cap (A \cup B).
+    (a rather uninteresting function to compute, but whatever)
+   *)
+  Axiom (dummy : exprvar).
+  Example intersection_of_unions (A B : gvar) var : blocks_prog var :=
+    LetIn
+      (Block [normal_rule
+                [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
+                [{| clause_rel := global A; clause_args := [var_expr dummy] |}];
+              normal_rule
+                [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
+                [{| clause_rel := global B; clause_args := [var_expr dummy] |}]])
+      (fun union =>
+         Block [normal_rule
+                  [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
+                  [{| clause_rel := Var union; clause_args := [var_expr dummy] |};
+                   {| clause_rel := Var union; clause_args := [var_expr dummy] |}]]).
+End Blocks.
 
 (* Ltac invert_stuff := *)
 (*   repeat match goal with *)
