@@ -638,20 +638,11 @@ Section Blocks.
   | Block (p : list (block_rule var)).
   Arguments blocks_prog : clear implicits.
 
-  Definition get_global (globals : gmap) (x : gvar) : fact_args T -> Prop :=
-    match map.get globals x with
-    | Some R' => R'
-    | None => fun _ => False
-    end.
-
-  Definition upd_global (globals : gmap) (x : gvar) (v : _) : gmap :=
-    map.put globals x (fun args => get_global globals x args \/ v args).
-
   Definition block_prog_impl (globals : gmap) (p : list (block_rule _)) :=
     pftree (fun (f : fact (blocks_rel _) T) hyps =>
               match rel_of f with
               | local R => Exists (fun r => rule_impl p r f hyps) p
-              | global R => get_global globals R (args_of f)
+              | global R => exists R', map.get globals R = Some R' /\ R' (args_of f)
               | Var R' => R' (args_of f)
               end).
 
