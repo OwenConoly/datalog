@@ -124,6 +124,18 @@ Section __.
   Set Elimination Schemes.
   Hint Constructors pftree : core.
 
+  Unset Elimination Schemes.
+  Inductive pftree' {T : Type} (P : T -> (T -> Prop) -> Prop) (Q : T -> Prop) : T -> Prop :=
+  | pftree'_leaf x :
+    Q x ->
+    pftree' _ _ x
+  | pftree'_step x Q' :
+    P x Q' ->
+    (forall x, Q' x -> (pftree' _ _) x) ->
+    pftree' _ _ x.
+  Set Elimination Schemes.
+  Hint Constructors pftree' : core.
+
   Definition prog_impl_with_no_meta_rules (p : list rule) : (fact -> Prop) -> fact -> Prop :=
     pftree (fun f hyps => Exists (fun r => non_meta_rule_impl r f hyps) p).
 
@@ -625,50 +637,62 @@ Section Blocks.
 
   Variant blocks_rel {var} :=
     | local (x : lvar)
-    | global (x : gvar)
     | Var (x : var).
   Arguments blocks_rel : clear implicits.
 
   Definition block_rule var :=
     rule (blocks_rel var) exprvar fn aggregator.
 
+  From coqutil Require Import Datatypes.HList.
+  Print tuple. (*could use this but idk*)
+  Fixpoint ntuple (X : Type) n : Type :=
+    match n with
+    | O => unit
+    | S n' => X * ntuple X n'
+    end.
+
+  Open Scope type_scope.
   Inductive blocks_prog {var} :=
   | LetIn (x : blocks_prog) (f : var -> blocks_prog)
-  | SetGlobal (x : gvar) (v : blocks_prog)
-  | Block (p : list (block_rule var)).
+  | BigBlock (p : list (sigT (fun n => (ntuple var n -> blocks_prog) * ntuple lvar n)))
+  | Block (p : list (block_rule var)) : blocks_prog
+  .
   Arguments blocks_prog : clear implicits.
 
-  Definition block_prog_impl (globals : gmap) (p : list (block_rule _)) :=
+  Definition block_prog_impl (p : list (block_rule _)) :=
     pftree (fun (f : fact (blocks_rel _) T) hyps =>
               match rel_of f with
               | local R => Exists (fun r => rule_impl p r f hyps) p
-              | global R => exists R', map.get globals R = Some R' /\ R' (args_of f)
               | Var R' => R' (args_of f)
               end).
 
-  Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : gmap * (fact_args T -> Prop) :=
-    match e with
-    | LetIn x f =>
-        let (globals', x') := interp_blocks_prog globals x in
-        interp_blocks_prog globals (f x')
-    | SetGlobal x v =>
-        let (globals', x') := interp_blocks_prog globals v in
-        (map.put globals' x x', fun _ => False (*dummy return value, means nothing*))
-    | Block p => (globals, fun args => block_prog_impl globals p (fun _ => False) (fact_of (local ret) args))
+  Inductive interp_blocks_prog : blocks_prog (fact_args T -> Prop) -> (fact_args T -> Prop) :=
+  | interp_LetIn x f :
+    interp_blocks_prog (f (interp_blocks_prog x))
+  | interp_Block p :
+    interp_blocks_prog (Block p) (fun args => block_prog_impl p (fun _ => False) (fact_of (local ret) args))
+  | interp_BigBlock p :
+                                   p => pftree' (fun f hyps =>
+                              match rel_of f with
+                              | local R => Exists (fun b =>
+
+                                            ) p
+                              | Var R' => R' (args_of f)
+                              end)
     end.
 
   (*given A B, compute (A \cup B) \cap (A \cup B).
     (a rather uninteresting function to compute, but whatever)
    *)
   Axiom (dummy : exprvar).
-  Example intersection_of_unions (A B : gvar) var : blocks_prog var :=
+  Example intersection_of_unions var (A B : var) : blocks_prog var :=
     LetIn
       (Block [normal_rule
                 [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
-                [{| clause_rel := global A; clause_args := [var_expr dummy] |}];
+                [{| clause_rel := Var A; clause_args := [var_expr dummy] |}];
               normal_rule
                 [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
-                [{| clause_rel := global B; clause_args := [var_expr dummy] |}]])
+                [{| clause_rel := Var B; clause_args := [var_expr dummy] |}]])
       (fun union =>
          Block [normal_rule
                   [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
@@ -676,7 +700,6 @@ Section Blocks.
                    {| clause_rel := Var union; clause_args := [var_expr dummy] |}]]).
 
   Goal forall A B A' B' x,
-      A <> B ->
       let (_, iou) := interp_blocks_prog (map.put (map.put map.empty A A') B B') (intersection_of_unions A B _) in
       iou (normal_fact_args [x]) <-> A' (normal_fact_args [x]) \/ B' (normal_fact_args [x]).
   Proof.
