@@ -625,37 +625,52 @@ Section Blocks.
 
   Variant blocks_rel {var} :=
     | local (x : lvar)
-    | global (x : gvar)
     | Var (x : var).
   Arguments blocks_rel : clear implicits.
 
   Definition block_rule var :=
     rule (blocks_rel var) exprvar fn aggregator.
 
-  Inductive blocks_prog {var} :=
+  From coqutil Require Import Datatypes.HList.
+  Print hlist. Print tuple.
+  Inductive tuple' T : nat -> Type :=
+  | ntuple_nil : tuple' _ O
+  | ntuple_cons n (_ : T) (_ : tuple' _ n) : tuple' _ (S n).
+  Fail Inductive blocks_prog {var} :=
   | LetIn (x : blocks_prog) (f : var -> blocks_prog)
-  | SetGlobal (x : gvar) (v : blocks_prog)
-  | Block (p : list (block_rule var)).
+  | Block (p : list (block_rule var))
+  | BigBlock n (f : tuple var n -> tuple blocks_prog n).
+  Inductive blocks_prog {var} : nat -> Type :=
+  | LetIn n m (x : blocks_prog n) (f : tuple var n -> blocks_prog m) : blocks_prog m
+  | Pair n m (x1 : blocks_prog n) (x2 : blocks_prog m) : blocks_prog (n + m)
+  | Block (p : list (block_rule var)) : blocks_prog (S O)
+  | BigBlock n (f : tuple var n -> blocks_prog n) : blocks_prog n.
   Arguments blocks_prog : clear implicits.
 
-  Definition block_prog_impl (globals : gmap) (p : list (block_rule _)) :=
+  Definition block_prog_impl (p : list (block_rule _)) :=
     pftree (fun (f : fact (blocks_rel _) T) hyps =>
               match rel_of f with
               | local R => Exists (fun r => rule_impl p r f hyps) p
-              | global R => exists R', map.get globals R = Some R' /\ R' (args_of f)
               | Var R' => R' (args_of f)
               end).
+  Print hlist.
+  Import PrimitivePair.pair.
 
-  Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : gmap * (fact_args T -> Prop) :=
-    match e with
-    | LetIn x f =>
-        let (globals', x') := interp_blocks_prog globals x in
-        interp_blocks_prog globals (f x')
-    | SetGlobal x v =>
-        let (globals', x') := interp_blocks_prog globals v in
-        (map.put globals' x x', fun _ => False (*dummy return value, means nothing*))
-    | Block p => (globals, fun args => block_prog_impl globals p (fun _ => False) (fact_of (local ret) args))
-    end.
+  Inductive interp_blocks_prog : forall n, blocks_prog (fact_args T -> Prop) n -> tuple (fact_args T -> Prop) n -> Prop :=
+  | interp_LetIn n m x x' f fx' :
+    interp_blocks_prog n x x' ->
+    interp_blocks_prog m (f x') fx' ->
+    interp_blocks_prog m (LetIn n m x f) fx'
+  | interp_Block p :
+    interp_blocks_prog (S O) (Block p) (mk (fun args => block_prog_impl p (fun _ => False) (fact_of (local ret) args)) tt)
+  | interp_Pair n m x1 x1' x2 x2' :
+    interp_blocks_prog n x1 x1' ->
+    interp_blocks_prog m x2 x2' ->
+    interp_blocks_prog (n + m) (Pair n m x1 x2) (tuple.app x1' x2')
+  | interp_BigBlock_step n f Rs :
+    interp_blocks_prog n (BigBlock n f) Rs ->
+    interp_blocks_prog n (BigBlock n f) Rs
+  .
 
   (*given A B, compute (A \cup B) \cap (A \cup B).
     (a rather uninteresting function to compute, but whatever)
