@@ -667,8 +667,15 @@ Section Blocks.
     interp_blocks_prog n x1 x1' ->
     interp_blocks_prog m x2 x2' ->
     interp_blocks_prog (n + m) (Pair n m x1 x2) (tuple.app x1' x2')
-  | interp_BigBlock_step n f Rs :
+  | interp_BigBlock n f Rs :
+    of_list (map ((hyps =>
+              nth i (to_list (f Rs))) ()
     interp_blocks_prog n (BigBlock n f) Rs ->
+
+    Forall2 () (to_list Rs)
+    forall interp_blocks_prog n
+    pftree (fun '(f, i) hyps =>
+              nth
     interp_blocks_prog n (BigBlock n f) Rs
   .
 
