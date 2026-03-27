@@ -618,7 +618,6 @@ Ltac invert_stuff :=
 
 Section Blocks.
   Context (lvar gvar exprvar fn aggregator T : Type).
-  Context (ret : lvar).
   Context {sig : signature fn aggregator T}.
   Context {gmap : map.map gvar (fact_args T -> Prop)} {gmap_ok : map.ok gmap}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
@@ -634,8 +633,8 @@ Section Blocks.
 
   Inductive blocks_prog {var} :=
   | LetIn (x : blocks_prog) (f : var -> blocks_prog)
-  | SetGlobal (x : gvar) (v : blocks_prog)
-  | Block (p : list (block_rule var)).
+  (* | SetGlobal (x : gvar) (v : blocks_prog) *)
+  | Block (ret : lvar) (p : list (block_rule var)).
   Arguments blocks_prog : clear implicits.
 
   Definition block_prog_impl (globals : gmap) (p : list (block_rule _)) :=
@@ -646,38 +645,34 @@ Section Blocks.
               | Var R' => R' (args_of f)
               end).
 
-  Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : gmap * (fact_args T -> Prop) :=
+  Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : fact_args T -> Prop :=
     match e with
     | LetIn x f =>
-        let (globals', x') := interp_blocks_prog globals x in
-        interp_blocks_prog globals (f x')
-    | SetGlobal x v =>
-        let (globals', x') := interp_blocks_prog globals v in
-        (map.put globals' x x', fun _ => False (*dummy return value, means nothing*))
-    | Block p => (globals, fun args => block_prog_impl globals p (fun _ => False) (fact_of (local ret) args))
+        interp_blocks_prog globals (f (interp_blocks_prog globals x))
+    | Block ret p => fun args => block_prog_impl globals p (fun _ => False) (fact_of (local ret) args)
     end.
 
   (*given A B, compute (A \cup B) \cap (A \cup B).
     (a rather uninteresting function to compute, but whatever)
    *)
-  Axiom (dummy : exprvar).
+  Axiom (dummy : exprvar) (ret : lvar).
   Example intersection_of_unions (A B : gvar) var : blocks_prog var :=
     LetIn
-      (Block [normal_rule
-                [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
-                [{| clause_rel := global A; clause_args := [var_expr dummy] |}];
-              normal_rule
-                [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
-                [{| clause_rel := global B; clause_args := [var_expr dummy] |}]])
+      (Block ret [normal_rule
+                    [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
+                    [{| clause_rel := global A; clause_args := [var_expr dummy] |}];
+                  normal_rule
+                    [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
+                    [{| clause_rel := global B; clause_args := [var_expr dummy] |}]])
       (fun union =>
-         Block [normal_rule
-                  [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
-                  [{| clause_rel := Var union; clause_args := [var_expr dummy] |};
-                   {| clause_rel := Var union; clause_args := [var_expr dummy] |}]]).
+         Block ret [normal_rule
+                      [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
+                      [{| clause_rel := Var union; clause_args := [var_expr dummy] |};
+                       {| clause_rel := Var union; clause_args := [var_expr dummy] |}]]).
 
   Goal forall A B A' B' x,
       A <> B ->
-      let (_, iou) := interp_blocks_prog (map.put (map.put map.empty A A') B B') (intersection_of_unions A B _) in
+      let iou := interp_blocks_prog (map.put (map.put map.empty A A') B B') (intersection_of_unions A B _) in
       iou (normal_fact_args [x]) <-> A' (normal_fact_args [x]) \/ B' (normal_fact_args [x]).
   Proof.
     simpl. intros A B A' B' x HAB. split; intros H.
