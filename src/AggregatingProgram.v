@@ -295,53 +295,6 @@ Qed.
 (*   exfalso. eauto. *)
 (* Qed. *)
 
-(*TODO there's got to be a less hacky way to do this*)
-(* Lemma decomp_fact (ctx : context) y blah1 blah2 : *)
-(*   interp_clause ctx y ({| fact_R := blah1; fact_args := blah2 |} : fact) -> *)
-(*   interp_clause ctx y {| fact_R := blah1; fact_args := blah2 |}. *)
-(* Proof. auto. Qed. *)
-
-Ltac interp_exprs :=
-  repeat rewrite map_app; simpl;
-  repeat match goal with
-    | _ => progress simpl
-    | |- Forall2 _ (_ ++ _) _ => apply Forall2_app
-    | |- Forall2 _ (_ :: _) _ => constructor
-    | |- Forall2 _ nil _ => constructor
-    | |- Forall2 _ (map var_expr (map inl _)) _ =>
-        do 2 rewrite <- Forall2_map_l; try apply Forall2_firstn; solve [interp_exprs]
-    | |- Forall2 _ _ _ =>
-        (eapply Forall2_impl; [|eassumption]; simpl; intros) ||
-          (* (eapply Forall2_impl; *)
-          (*  [|apply idx_map_works || *)
-          (*      (match goal with *)
-          (*       | H: _ = length ?x |- context[seq _ (length ?x)] => rewrite <- H *)
-          (*       | H: length ?x = _ |- context[seq _ (length ?x)] => rewrite H *)
-          (*       end; *)
-    (*       apply idx_map_works)]; simpl; intros) *)
-                                                             idtac
-    | |- interp_expr _ _ _ => econstructor
-    (* | |- interp_expr _ (fun_expr _ _) _ => econstructor *)
-    (* | |- interp_expr _ (var_expr _) _ => constructor *)
-    (* | |- interp_expr _ (lower_idx _) _ => *)
-    (*     eapply interp_expr_subst_more; [|eapply eval_Zexpr_to_substn; eassumption || (apply eval_Zexpr_Z_eval_Zexpr; eassumption)] *)
-    (* | |- interp_expr _ (lower_guard _) _ => *)
-    (*     eapply interp_expr_subst_more; [|eapply eval_Bexpr_to_substn; eassumption] *)
-    | |- interp_expr _ _ _ =>
-        eapply interp_expr_subst_more; [|eassumption]
-    | |- interp_clause _ _ _ =>
-        eapply interp_clause_subst_more; [|eassumption]
-    (* | |- map.extends _ _ => extends_solver *)
-    (* | |- map.get ?ctx' _ = _ => try subst ctx'; solve_map_get *)
-    (* | |- map.get ?ctx' _ = _ => let H := fresh "H" in eenough (map.extends _ _) as H; [apply H; eassumption|]; solve[extends_solver] *)
-    (* | |- interp_clause _ _ ?x => *)
-    (*     try (is_evar x; eapply decomp_fact); split *)
-    | |- _ /\ _ => split; [solve [interp_exprs] |]
-    | |- Exists _ [_] => apply Exists_cons_hd
-    (* | |- Forall2 _ (map lower_idx _) _ => eapply Forall2_impl; [|apply eval_Zexprlist_to_substn; eassumption]; intros *)
-    | |- _ => reflexivity
-    end.
-
 (* Definition consistent (Q : fact -> Prop) := *)
 (*   forall R S0, *)
 (*     Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} -> *)
@@ -548,19 +501,19 @@ Ltac plda :=
 (*   rewrite staged_program_iff; [|assumption]. *)
 (*   Print mrs_very_sound_for. *)
 
-Definition agrees {t} (e : fact_args _ -> Prop) (e' : interp_type t) :=
-  match t return interp_type t -> _ with
-  | set => fun e' =>
-            forall x,
-              e' x <-> e (normal_fact_args [natobj x])
-  | val => fun e' =>
-            forall x,
-              x = e' <-> e (normal_fact_args [natobj x])
+Definition set_of {t} (e' : interp_type t) :=
+  match t return interp_type t -> interp_type val -> Prop with
+  | set => fun e' => e'
+  | val => fun e' => eq e'
   end e'.
-Check block_prog_impl.
-Ltac invert_stuff :=
+
+Definition agrees {t} (e : fact_args _ -> Prop) (e' : interp_type t) :=
+  forall x,
+    set_of e' x <-> e (normal_fact_args [natobj x]).
+
+Ltac invert_stuff0 :=
   match goal with
-  | _ => progress cbn [rel_of clause_rel clause_args] in *
+  | _ => progress cbn [rel_of fact_of args_of clause_rel clause_args] in *
   | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
   | H : block_prog_impl _ _ _ _ |- _ => apply inv_block_prog_impl in H; try (destruct H as [H|H]; [contradiction|])
   | H : non_meta_rule_impl _ _ _ |- _ => progress (invert1 H) || invert0 H
@@ -571,7 +524,53 @@ Ltac invert_stuff :=
   | _ => progress subst
   | _ => progress invert_list_stuff
   | _ => progress fwd
+  | _ => congruence
   end.
+
+Ltac invert0_Exists H :=
+  repeat first [invert0 H |
+                 apply Exists_cons in H; destruct H as [H|H]; [solve[repeat invert_stuff] | invert0_Exists H] ].
+
+Ltac invert1_Exists H :=
+  repeat first [invert0 H |
+                 apply Exists_cons in H; destruct H as [H|H]; [solve[repeat invert_stuff] | invert1_Exists H] |
+                 apply Exists_cons in H; destruct H as [H|H]; [|invert0_Exists H] ].
+
+Ltac invert_stuff :=
+  first [invert_stuff0 |
+          match goal with
+          | H: natobj _ = natobj _ |- _ => invert H
+          | H: Exists _ _ |- _ => invert1_Exists H
+          end].
+
+Ltac interp_exprs :=
+  repeat rewrite map_app; simpl;
+  repeat match goal with
+    | _ => progress simpl
+    | |- Forall2 _ (_ ++ _) _ => apply Forall2_app
+    | |- Forall2 _ (_ :: _) _ => constructor
+    | |- Forall2 _ nil _ => constructor
+    | |- Forall2 _ _ _ =>
+        (eapply Forall2_impl; [|eassumption]; simpl; intros) ||
+          idtac
+    | |- interp_expr _ _ _ => econstructor
+    | |- interp_expr _ _ _ =>
+        eapply interp_expr_subst_more; [|eassumption]
+    | |- interp_clause _ _ _ =>
+        eapply interp_clause_subst_more; [|eassumption]
+    | |- interp_clause _ _ _ => cbv [interp_clause]; eexists; split; [|reflexivity]; simpl
+    | |- _ /\ _ => split; [solve [interp_exprs] |]
+    | |- Exists _ [_] => apply Exists_cons_hd
+
+    | |- _ => rewrite map.get_put_diff by congruence
+    | |- _ => rewrite map.get_put_same by reflexivity
+
+    | |- _ => reflexivity
+    end.
+
+Ltac simp := cbv [agrees] in *; simpl in *.
+
+Lemma block_prog_impl_step : False. Abort.
 
 Lemma compile_Sexpr_correct ctx t e e0 e' :
   wf_Sexpr ctx t e e0 ->
@@ -582,23 +581,93 @@ Proof.
   intros Hwf Hctx. revert e'. induction Hwf; intros e' He'.
   - dep_invert He'. rewrite Forall_forall in Hctx.
     specialize (Hctx _ H). clear H. simpl in Hctx.
-    destruct t; simpl; intros x.
-    + split.
-      -- intros. subst. eapply pftree_step.
-         ++ simpl. apply Exists_cons_hd. constructor.
-            eapply normal_rule_impl with (ctx := map.put map.empty 0 _).
-            --- apply Exists_cons_hd. interp_exprs. cbv [interp_clause]. simpl.
-                eexists. split; eauto. constructor; eauto. constructor.
-                rewrite map.get_put_same. reflexivity.
-            --- constructor; eauto. cbv [interp_clause]. simpl.
-                eexists. split; eauto. constructor; eauto. constructor.
-                apply map.get_put_same.
-         ++ constructor; [|constructor]. eapply pftree_step; [|constructor].
-            simpl. apply Hctx. reflexivity.
-      -- intros H. repeat invert_stuff. invert Hp0.
-         { repeat invert_stuff. apply Hctx. assumption. }
-         repeat invert_stuff.
-    +
+    simpl. intros x.  cbv [agrees] in Hctx. rewrite Hctx. clear Hctx.
+    split.
+    + intros. subst. eapply pftree_step.
+      -- simpl. apply Exists_cons_hd. constructor.
+         eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+      -- constructor; [|constructor]. eapply pftree_step; [|constructor].
+         simpl. auto.
+    + intros. repeat invert_stuff.
+  - dep_invert He'.
+    specialize (IHHwf1 ltac:(eassumption )_ ltac:(eassumption)).
+    specialize (IHHwf2 ltac:(eassumption )_ ltac:(eassumption)).
+    simpl in IHHwf1, IHHwf2.
+    simpl. intros x. simpl. split.
+    + intros. subst. eapply pftree_step.
+      -- simpl. apply Exists_cons_hd. constructor.
+         eapply normal_rule_impl with (ctx := map.put (map.put map.empty 0 (natobj _)) 1 (natobj _)); interp_exprs.
+      -- constructor.
+         { eapply pftree_step; [|constructor]. simpl. apply IHHwf1. reflexivity. }
+         constructor.
+         { eapply pftree_step; [|constructor]. simpl. apply IHHwf2. reflexivity. }
+         constructor.
+    + intros H. repeat invert_stuff. simpl in *. repeat invert_stuff.
+        match goal with
+        | H: _ |- _ => apply IHHwf1 in H
+        end.
+        match goal with
+        | H: _ |- _ => apply IHHwf2 in H
+        end.
+        cbv [set_of] in *. subst. reflexivity.
+  - dep_invert He'. simpl. intros x. split.
+    + contradiction.
+    + intros H. repeat invert_stuff.
+  - dep_invert He'.
+    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
+    cbv [agrees] in IHHwf. cbv [agrees]. intros x. rewrite <- IHHwf. split; auto.
+  - dep_invert He'.
+    specialize (IHHwf1 ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf2 ltac:(eassumption) _ ltac:(eassumption)).
+    cbv [agrees] in IHHwf1, IHHwf2. cbv [agrees]. simpl.
+    intros x. rewrite IHHwf1, IHHwf2. clear IHHwf1 IHHwf2. split.
+    + intros [? ?]. eapply pftree_step.
+      -- simpl. apply Exists_cons_hd. constructor.
+         eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+      -- constructor.
+         { simpl. eapply pftree_step; [|constructor]. simpl. assumption. }
+         constructor.
+         { simpl. eapply pftree_step; [|constructor]. simpl. assumption. }
+         constructor.
+    + intros H. repeat invert_stuff. auto.
+  - rename H0 into IHHwf'.
+    dep_invert He'.
+    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf' _ _ ltac:(eauto) _ ltac:(eauto)).
+    clear Hctx. cbv [agrees] in *.
+    intros x. rewrite IHHwf'. clear IHHwf'.
+    simpl. reflexivity.
+  - dep_invert He'.
+    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
+    cbv [agrees]. simpl. cbv [agrees] in IHHwf. simpl in IHHwf. intros x. split.
+    + intros. subst. eapply pftree_step.
+      -- simpl. eapply Exists_cons_hd. constructor.
+         eassert (natobj _ = _) as ->.
+         2: { constructor. eapply is_list_set_ext. 1: exact H2. eassumption. eassumption.
+         eapply agg_rule_impl.
+    simpl in IHHwf.
+    simpl.
+    epose_dep IHHwf'. specialize' IHHwf'.
+    { constructor; eauto.
+    simpl in Hwf. simpl.
+      invert1_Exists Hp0.
+                              (
+
+      match goal with
+        | H: Exists _ (_ :: _) =>
+        end.
+      Search Exists.
+      repeat match goal
+      invert Hp0.
+         interp_exprs.
+      { repeat invert_stuff. }
+
+      invert_stuff.
+
+        fwd. invert H. invert_stuff.
+         ; [|constructor]. interp_exprs.
+         instan
+
 
     cbv [agrees]. simpl.
   revert datalog_ctx name out name' p p'.
