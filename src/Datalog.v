@@ -617,7 +617,7 @@ Ltac invert_stuff :=
     end.
 
 Section Blocks.
-  Context (lvar gvar exprvar fn aggregator T : Type).
+  Context {lvar gvar exprvar fn aggregator T : Type}.
   Context {sig : signature fn aggregator T}.
   Context {gmap : map.map gvar (fact_args T -> Prop)} {gmap_ok : map.ok gmap}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
@@ -644,6 +644,18 @@ Section Blocks.
               | global R => exists R', map.get globals R = Some R' /\ R' (args_of f)
               | Var R' => R' (args_of f)
               end).
+
+  Lemma inv_block_prog_impl globals p Q f :
+    block_prog_impl globals p Q f ->
+    Q f \/
+      exists hyps,
+        match rel_of f with
+        | local R => Exists (fun r => rule_impl p r f hyps) p
+        | global R => exists R', map.get globals R = Some R' /\ R' (args_of f)
+        | Var R' => R' (args_of f)
+        end /\
+          Forall (block_prog_impl globals p Q) hyps.
+  Proof. invert 1; eauto. Qed.
 
   Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : fact_args T -> Prop :=
     match e with
@@ -776,3 +788,4 @@ Section Blocks.
                apply map.get_put_same. }
   Qed.
 End Blocks.
+Arguments blocks_prog : clear implicits.
