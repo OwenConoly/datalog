@@ -572,14 +572,15 @@ Ltac interp_exprs :=
     end.
 
 Hint Unfold Option.option_relation : core.
-
+Print blocks_prog_doesnt_lie. Print consistent.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
   wf_Sexpr ctx t e e0 ->
   Forall (fun elt => agrees elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
+  blocks_prog_doesnt_lie map.empty (compile_Sexpr e0) ->
   interp_Sexpr e e' ->
   agrees (interp_blocks_prog map.empty (compile_Sexpr e0)) e'.
 Proof.
-  intros Hwf Hctx. revert e'. induction Hwf; intros e' He'.
+  intros Hwf Hctx Hnl. revert e'. induction Hwf; intros e' He'.
   - dep_invert He'. rewrite Forall_forall in Hctx.
     specialize (Hctx _ H). clear H. simpl in Hctx.
     simpl. intros x.  cbv [agrees] in Hctx. rewrite Hctx. clear Hctx.
@@ -591,8 +592,9 @@ Proof.
          simpl. auto.
     + intros. repeat invert_stuff.
   - dep_invert He'.
-    specialize (IHHwf1 ltac:(eassumption )_ ltac:(eassumption)).
-    specialize (IHHwf2 ltac:(eassumption )_ ltac:(eassumption)).
+    cbn [blocks_prog_doesnt_lie compile_Sexpr] in Hnl. fwd.
+    specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     simpl in IHHwf1, IHHwf2.
     simpl. intros x. simpl. split.
     + intros. subst. eapply block_prog_impl_step.
@@ -615,11 +617,12 @@ Proof.
     + contradiction.
     + intros H. repeat invert_stuff.
   - dep_invert He'.
-    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf. cbv [agrees]. intros x. rewrite <- IHHwf. split; auto.
   - dep_invert He'.
-    specialize (IHHwf1 ltac:(eassumption) _ ltac:(eassumption)).
-    specialize (IHHwf2 ltac:(eassumption) _ ltac:(eassumption)).
+    cbn [blocks_prog_doesnt_lie compile_Sexpr] in Hnl. fwd.
+    specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf1, IHHwf2. cbv [agrees]. simpl.
     intros x. rewrite IHHwf1, IHHwf2. clear IHHwf1 IHHwf2. split.
     + intros [? ?]. eapply block_prog_impl_step.
@@ -633,13 +636,15 @@ Proof.
     + intros H. repeat invert_stuff. auto.
   - rename H0 into IHHwf'.
     dep_invert He'.
-    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
-    specialize (IHHwf' _ _ ltac:(eauto) _ ltac:(eauto)).
+    cbn [blocks_prog_doesnt_lie compile_Sexpr] in Hnl. fwd.
+    specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf' _ _ ltac:(eauto) ltac:(eauto) _ ltac:(eauto)).
     clear Hctx. cbv [agrees] in *.
     intros x. rewrite IHHwf'. clear IHHwf'.
     simpl. reflexivity.
   - dep_invert He'.
-    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
+    cbn [blocks_prog_doesnt_lie compile_Sexpr] in Hnl. fwd.
+    specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees]. simpl. cbv [agrees] in IHHwf. simpl in IHHwf. intros x. split.
     + intros. subst. eapply block_prog_impl_step.
       -- simpl. eapply Exists_cons_hd. constructor.
@@ -656,11 +661,10 @@ Proof.
                 simpl. reflexivity. }
          simpl. cbv [interp_agg]. do 2 rewrite map_map. simpl.
          rewrite option_all_map_Some. reflexivity.
-      --
-
-
-        constructor.
-         ++ eapply block_prog_impl_step.
+      -- constructor.
+         ++ eassert (meta_fact _ _ _ = _) as ->; cycle 1.
+            --- Print consistent.
+            eapply block_prog_impl_step.
             --- simpl. do 3 apply Exists_cons_tl. apply Exists_cons_hd.
                 eapply meta_rule_impl with (ctx := map.empty).
                 +++ apply Exists_cons_hd. cbv [interp_meta_clause].
