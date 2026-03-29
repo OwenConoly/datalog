@@ -645,6 +645,17 @@ Section Blocks.
               | Var R' => R' (args_of f)
               end).
 
+  Lemma block_prog_impl_step globals p Q f hyps :
+    match rel_of f with
+    | local _ => Exists (fun r => rule_impl p r f hyps) p
+    | global R =>
+        exists R', map.get globals R = Some R' /\ R' (args_of f)
+    | Var R' => R' (args_of f)
+    end ->
+    Forall (block_prog_impl globals p Q) hyps ->
+    block_prog_impl globals p Q f.
+  Proof. intros. eapply pftree_step; eassumption. Qed.
+
   Lemma inv_block_prog_impl globals p Q f :
     block_prog_impl globals p Q f ->
     Q f \/
@@ -663,6 +674,14 @@ Section Blocks.
         interp_blocks_prog globals (f (interp_blocks_prog globals x))
     | Block ret p => fun args => block_prog_impl globals p (fun _ => False) (fact_of (local ret) args)
     end.
+
+  Fixpoint blocks_prog_doesnt_lie globals e :=
+    match e with
+    | LetIn x f =>
+        blocks_prog_doesnt_lie globals x /\
+          blocks_prog_doesnt_lie globals (f (interp_blocks_prog globals x))
+    | Block ret p =>
+
 
   (*given A B, compute (A \cup B) \cap (A \cup B).
     (a rather uninteresting function to compute, but whatever)
