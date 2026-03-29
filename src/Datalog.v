@@ -132,12 +132,12 @@ Section __.
     non_meta_rule_impl r f hyps ->
     rule_impl _ r f hyps
   | meta_rule_impl rule_concls rule_hyps ctx R args hyps S :
-    Exists (fun c => interp_meta_clause ctx c (meta_fact R args (fun args' => S (normal_fact R args')))) rule_concls ->
+    Exists (fun c => interp_meta_clause ctx c (meta_fact R args (fun args' => S args'))) rule_concls ->
     Forall2 (interp_meta_clause ctx) rule_hyps hyps ->
-    (forall f',
-        S f' <->
-          prog_impl_with_no_meta_rules p (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) hyps) f') ->
-    rule_impl _ (meta_rule rule_concls rule_hyps) (meta_fact R args (fun args' => S (normal_fact R args'))) hyps.
+    (forall args'',
+        S args'' <->
+          prog_impl_with_no_meta_rules p (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) hyps) (normal_fact R args'')) ->
+    rule_impl _ (meta_rule rule_concls rule_hyps) (meta_fact R args S) hyps.
   Hint Constructors rule_impl : core.
 
   Lemma pftree_ind {U : Type} (P : U -> list U -> Prop) Q R :

@@ -643,7 +643,32 @@ Proof.
     + intros. subst. eapply pftree_step.
       -- simpl. eapply Exists_cons_hd. constructor.
          eassert (natobj _ = _) as ->.
-         2: { constructor. eapply is_list_set_ext. 1: exact H2. eassumption. eassumption.
+         2: { constructor. eapply is_list_set_ext.
+              - apply is_list_set_map with (f := fun x => (natobj x, natobj x)).
+                2: eassumption.
+                cbv [FinFun.Injective]. invert 1. reflexivity.
+              - simpl. intros [? ?]. instantiate (1 := fun x =>
+                                                         match x with
+                                                         | [_; _] => _
+                                                         | _ => _
+                                                         end).
+                simpl. reflexivity. }
+         simpl. cbv [interp_agg]. do 2 rewrite map_map. simpl.
+         rewrite option_all_map_Some. reflexivity.
+      -- constructor.
+         ++ eapply pftree_step.
+            --- simpl. do 3 apply Exists_cons_tl. apply Exists_cons_hd.
+                eapply meta_rule_impl.
+                eassert ((fun (_ : list obj) => _) = _) as ->.
+                Check meta_rule_impl.
+                2: eapply meta_rule_impl.
+                { instantiate (1 :=
+                Check meta_rule_impl.
+                2: apply meta_rule_impl.
+
+                eapply meta_rule_impl.  with (ctx := map.empty).
+         cbv [Datalog.interp_agg].
+                1: exact H2. eassumption. eassumption.
          eapply agg_rule_impl.
     simpl in IHHwf.
     simpl.
