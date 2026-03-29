@@ -9,24 +9,13 @@ Section __.
 Variant bop := sum | prod.
 Variant type := val | set.
 Notation rel := nat (only parsing).
-Variant obj0 :=
-  | natobj' (_ : nat).
-Variant obj :=
-  | primitive (_ : obj0)
-  (* | setobj (_ : nat -> Prop) *)
-  (* | listsetobj (_ : list nat -> Prop) *)
-  | setobj (_ : nat -> Prop)
-  | factset (_ : list obj0 -> Prop)
-  | blank
-  | iter.
+Definition obj := nat.
 Context {context : map.map nat obj} {context_ok : map.ok context}.
 Context {gmap : map.map rel (fact_args obj -> Prop)} {gmap_ok : map.ok gmap}.
-Definition natobj x := primitive (natobj' x).
 Notation fact := (fact rel obj).
 Variant fn :=
   | fn_lit (o : obj)
-  | fn_bop (o : bop)
-  | fn_fun (f : list (list obj0 -> Prop) -> list obj0 -> Prop).
+  | fn_bop (o : bop).
 Notation rule := (rule rel nat fn bop).
 Notation expr := (expr nat fn).
 Notation blocks_prog var := (@blocks_prog nat nat nat fn bop var).
@@ -81,9 +70,6 @@ End well_formed.
 
 Definition lit x : expr := fun_expr (fn_lit x) [].
 
-Definition union : list expr -> expr :=
-  fun_expr (fn_fun (fun args x => Exists (fun P => P x) args)).
-
 Definition interp_bop o x y :=
   match o with
   | sum => x + y
@@ -95,44 +81,19 @@ Definition interp_fn (f : fn) (args : list obj) : option obj :=
   | fn_lit x => Some x
   | fn_bop o =>
       match args with
-      | [primitive (natobj' x); primitive (natobj' y)] => Some (natobj (interp_bop o x y))
+      | [x; y] => Some (interp_bop o x y)
       | _ => None
       end
-  | fn_fun g =>
-      match option_all (map (fun x =>
-                               match x with
-                               | factset f => Some f
-                               | _ => None
-                               end) args)
-      with
-      | Some args' => Some (factset (g args'))
-      | None => None
-      end
   end.
 
-Definition get_set (s : obj) :=
-  match s with
-  | primitive _ => None
-  | setobj P => Some (fun x =>
-                       match x with
-                       | primitive (natobj' x0) => P x0
-                       | _ => False
-                       end)
-  | factset fs => None
-  | blank => None
-  | iter => None
-  end.
-
+(*might become less trivial later idk*)
 Definition extract_nat (x : obj) :=
-  match x with
-  | primitive (natobj' x0) => Some x0
-  | _ => None
-  end.
+  Some x.
 
 Definition interp_agg o (i_xis : list (obj * obj)) :=
   match option_all (map extract_nat (map snd i_xis)) with
-  | Some xis => natobj (fold_right (interp_bop o) (bop_id o) xis)
-  | None => natobj O
+  | Some xis => fold_right (interp_bop o) (bop_id o) xis
+  | None => O
   end.
 
 Instance Sig : signature fn bop obj :=
@@ -509,14 +470,14 @@ Definition set_of {t} (e' : interp_type t) :=
 
 Definition agrees {t} (e : fact_args _ -> Prop) (e' : interp_type t) :=
   forall x,
-    set_of e' x <-> e (normal_fact_args [natobj x]).
+    set_of e' x <-> e (normal_fact_args [x]).
 
 Ltac invert_stuff0 :=
   match goal with
-  | _ => progress cbn [rel_of fact_of args_of clause_rel clause_args] in *
+  | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args] in *
   | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
-  | H : block_prog_impl _ _ _ _ |- _ => apply inv_block_prog_impl in H; try (destruct H as [H|H]; [contradiction|])
-  | H : non_meta_rule_impl _ _ _ |- _ => progress (invert1 H) || invert0 H
+  | H : block_prog_impl _ _ _ |- _ => apply inv_block_prog_impl in H; try (destruct H as [H|H]; [contradiction|])
+  | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
   | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
   | H : interp_expr _ _ _ |- _ => invert1 H
   | H : In _ [_] |- _ => destruct H; [|contradiction]
@@ -539,7 +500,6 @@ Ltac invert1_Exists H :=
 Ltac invert_stuff :=
   first [invert_stuff0 |
           match goal with
-          | H: natobj _ = natobj _ |- _ => invert H
           | H: Exists _ _ |- _ => invert1_Exists H
           end].
 
@@ -572,11 +532,10 @@ Ltac interp_exprs :=
     end.
 
 Hint Unfold Option.option_relation : core.
-Print blocks_prog_doesnt_lie. Print consistent.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
   wf_Sexpr ctx t e e0 ->
   Forall (fun elt => agrees elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
-  blocks_prog_doesnt_lie map.empty (compile_Sexpr e0) ->
+  honest_blocks_prog map.empty (compile_Sexpr e0) ->
   interp_Sexpr e e' ->
   agrees (interp_blocks_prog map.empty (compile_Sexpr e0)) e'.
 Proof.
@@ -590,16 +549,16 @@ Proof.
          eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
       -- constructor; [|constructor]. eapply block_prog_impl_step; [|constructor].
          simpl. auto.
-    + intros. repeat invert_stuff.
+    + intros. repeat invert_stuff. assumption.
   - dep_invert He'.
-    cbn [blocks_prog_doesnt_lie compile_Sexpr] in Hnl. fwd.
+    cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
     specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     simpl in IHHwf1, IHHwf2.
     simpl. intros x. simpl. split.
     + intros. subst. eapply block_prog_impl_step.
       -- simpl. apply Exists_cons_hd. constructor.
-         eapply normal_rule_impl with (ctx := map.put (map.put map.empty 0 (natobj _)) 1 (natobj _)); interp_exprs.
+         eapply normal_rule_impl with (ctx := map.put (map.put map.empty 0 _) 1 _); interp_exprs.
       -- constructor.
          { eapply block_prog_impl_step; [|constructor]. simpl. apply IHHwf1. reflexivity. }
          constructor.
@@ -620,7 +579,7 @@ Proof.
     specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf. cbv [agrees]. intros x. rewrite <- IHHwf. split; auto.
   - dep_invert He'.
-    cbn [blocks_prog_doesnt_lie compile_Sexpr] in Hnl. fwd.
+    cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
     specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf1, IHHwf2. cbv [agrees]. simpl.
@@ -636,21 +595,21 @@ Proof.
     + intros H. repeat invert_stuff. auto.
   - rename H0 into IHHwf'.
     dep_invert He'.
-    cbn [blocks_prog_doesnt_lie compile_Sexpr] in Hnl. fwd.
+    cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
     specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     specialize (IHHwf' _ _ ltac:(eauto) ltac:(eauto) _ ltac:(eauto)).
     clear Hctx. cbv [agrees] in *.
     intros x. rewrite IHHwf'. clear IHHwf'.
     simpl. reflexivity.
   - dep_invert He'.
-    cbn [blocks_prog_doesnt_lie compile_Sexpr] in Hnl. fwd.
+    cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
     specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees]. simpl. cbv [agrees] in IHHwf. simpl in IHHwf. intros x. split.
     + intros. subst. eapply block_prog_impl_step.
       -- simpl. eapply Exists_cons_hd. constructor.
-         eassert (natobj _ = _) as ->.
+         eassert (fold_right _ _ _ = _) as ->.
          2: { constructor. eapply is_list_set_ext.
-              - apply is_list_set_map with (f := fun x => (natobj x, natobj x)).
+              - apply is_list_set_map with (f := fun x => (x, x)).
                 2: eassumption.
                 cbv [FinFun.Injective]. invert 1. reflexivity.
               - simpl. intros [? ?]. instantiate (1 := fun x =>
@@ -660,16 +619,36 @@ Proof.
                                                          end).
                 simpl. reflexivity. }
          simpl. cbv [interp_agg]. do 2 rewrite map_map. simpl.
-         rewrite option_all_map_Some. reflexivity.
+         cbv [extract_nat]. rewrite option_all_map_Some. reflexivity.
       -- constructor.
-         ++ eassert (meta_fact _ _ _ = _) as ->; cycle 1.
-            --- Print consistent.
-            eapply block_prog_impl_step.
-            --- simpl. do 3 apply Exists_cons_tl. apply Exists_cons_hd.
-                eapply meta_rule_impl with (ctx := map.empty).
-                +++ apply Exists_cons_hd. cbv [interp_meta_clause].
-                    simpl. do 2 eexists. split; [eauto|]. reflexivity.
-                +++ interp_exprs.
+         ++ eapply block_prog_impl_mf_ext.
+            --- eapply use_honest_block_prog; [assumption|].
+                eapply block_prog_impl_step.
+                +++ simpl. do 3 apply Exists_cons_tl. apply Exists_cons_hd.
+                    eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
+                +++ constructor.
+                    { simpl. eapply block_prog_impl_step; [|constructor]. simpl.
+                      admit. (*this is where we need IH about meta fact*) }
+                    constructor.
+            --- simpl. intros. repeat invert_stuff. split.
+                +++ intros H. repeat invert_stuff.
+                    eexists. split; [reflexivity|]. apply IHHwf. assumption.
+                +++ intros H. fwd.
+                    eapply block_prog_impl_step.
+                    ---- simpl. do 2 apply Exists_cons_tl. apply Exists_cons_hd.
+                         constructor.
+                         eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+                    ---- simpl. constructor.
+                         { eapply block_prog_impl_step; [|constructor]. simpl.
+                           apply IHHwf. assumption. }
+                         constructor.
+         ++
+                         interp_exprs.
+                      interp_exprs.
+                    intros. reflexivity.
+                    ---- interp_exprs. apply Exists_cons_hd. interp_exprs. cbv [interp_meta_clause].
+                         simpl. do 2 eexists. split; [eauto|]. reflexivity.
+                    ---- interp_exprs.
                 +++ intros args Print interp_exprs.
 
                     { eauto. } constructor. 1: simpl. eauto.
