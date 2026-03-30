@@ -429,65 +429,119 @@ Section __.
     | meta_fact_args mf_args mf_set => meta_fact R mf_args mf_set
     end.
 
-  (* Lemma interp_clause_agree_on ctx1 ctx2 c f : *)
-  (*   interp_clause ctx1 c f -> *)
-  (*   Forall (agree_on ctx1 ctx2) (vars_of_clause c) -> *)
-  (*   interp_clause ctx2 c f. *)
-  (* Proof. *)
-  (*   intros [H1 H3] H2. split; auto. eapply Forall2_impl_strong; [|eassumption]. *)
-  (*   intros. cbv [vars_of_clause] in H2. rewrite Forall_flat_map, Forall_forall in H2. *)
-  (*   eauto using interp_expr_agree_on. *)
-  (* Qed. *)
+  Ltac invert_stuff :=
+    match goal with
+    | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args] in *
+    | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
+    | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
+    | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
+    | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
+    | H : interp_expr _ _ _ |- _ => invert1 H
+    | H : In _ [_] |- _ => destruct H; [|contradiction]
+    | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
+    | _ => progress subst
+    | _ => progress invert_list_stuff
+    | _ => progress fwd
+    | _ => congruence
+    end.
 
-  (* Lemma interp_expr_det ctx e v1 v2 : *)
-  (*   interp_expr ctx e v1 -> *)
-  (*   interp_expr ctx e v2 -> *)
-  (*   v1 = v2. *)
-  (* Proof. *)
-  (*   revert v1 v2. induction e; simpl; intros. *)
-  (*   - invert H. invert H0. rewrite H2 in H1. invert H1. auto. *)
-  (*   - invert H0. invert H1. enough (args' = args'0). *)
-  (*     { subst. rewrite H6 in H7. invert H7. reflexivity. } *)
-  (*     clear -H3 H4 H. revert args'0 H3. induction H4; intros; invert H; invert H3. *)
-  (*     + reflexivity. *)
-  (*     + f_equal; auto. *)
-  (* Qed. *)
+  Ltac interp_exprs :=
+  repeat rewrite map_app; simpl;
+  repeat match goal with
+    | _ => progress simpl
 
-  (* Lemma interp_expr_det' e ctx1 ctx2 v1 v2 : *)
-  (*   interp_expr ctx1 e v1 -> *)
-  (*   interp_expr ctx2 e v2 -> *)
-  (*   Forall (agree_on ctx1 ctx2) (vars_of_expr e) -> *)
-  (*   v1 = v2. *)
-  (* Proof. eauto using interp_expr_det, interp_expr_agree_on. Qed. *)
+    | |- Forall2 _ (_ ++ _) _ => apply Forall2_app
+    | |- Forall2 _ (_ :: _) _ => constructor
+    | |- Forall2 _ nil _ => constructor
+    | |- Forall2 _ _ _ =>
+        (eapply Forall2_impl; [|eassumption]; simpl; intros) ||
+          idtac
 
-  (* Lemma interp_clause_det ctx c f1 f2 : *)
-  (*   interp_clause ctx c f1 -> *)
-  (*   interp_clause ctx c f2 -> *)
-  (*   f1 = f2. *)
-  (* Proof. *)
-  (*   intros [H1 H2] [H3 H4]. destruct f1, f2. simpl in *. *)
-  (*   f_equal; [congruence|]. *)
-  (*   eapply Forall2_unique_r; eauto. apply interp_expr_det. *)
-  (* Qed. *)
+    | |- Forall _ (_ :: _) => constructor; [interp_exprs|]
+    | |- Forall _ [] => constructor
 
-  (* Lemma interp_clause_det' c ctx1 ctx2 f1 f2 : *)
-  (*   interp_clause ctx1 c f1 -> *)
-  (*   interp_clause ctx2 c f2 -> *)
-  (*   Forall (agree_on ctx1 ctx2) (vars_of_clause c) -> *)
-  (*   f1 = f2. *)
-  (* Proof. eauto using interp_clause_det, interp_clause_agree_on. Qed. *)
+    | |- interp_expr _ _ _ => econstructor
+    (* | |- interp_expr _ _ _ => *)
+    (*     eapply interp_expr_subst_more; [|eassumption] *)
+    | |- interp_clause _ _ _ =>
+        eapply interp_clause_subst_more; [|eassumption]
+    | |- interp_clause _ _ _ =>
+        cbv [interp_clause]; eexists; split; [|reflexivity]; simpl
+    | |- interp_meta_clause _ _ _ =>
+        cbv [interp_meta_clause]; do 2 eexists; split; [|reflexivity]; simpl
+    | |- _ /\ _ => split; [solve [interp_exprs] |]
+    | |- Exists _ [_] => apply Exists_cons_hd
 
-  (* Lemma interp_clause_same_agree ctx1 ctx2 c f v : *)
-  (*   interp_clause ctx1 c f -> *)
-  (*   interp_clause ctx2 c f -> *)
-  (*   In (var_expr v) c.(clause_args) -> *)
-  (*   agree_on ctx1 ctx2 v. *)
-  (* Proof. *)
-  (*   intros [H1 H2] [H3 H4] Hv. *)
-  (*   eapply Forall2_and in H4; [|exact H2]. apply Forall2_forget_r in H4. *)
-  (*   rewrite Forall_forall in H4. apply H4 in Hv. fwd. invert Hvp1. invert Hvp2. *)
-  (*   cbv [agree_on]. congruence. *)
-  (* Qed. *)
+    | |- _ => rewrite map.get_put_diff by congruence
+    | |- _ => rewrite map.get_put_same by reflexivity
+
+    | |- _ => reflexivity
+    | |- _ => eassumption (*hsould this just be assumption?*)
+    end.
+
+  Lemma interp_clause_agree_on ctx1 ctx2 c f :
+    interp_clause ctx1 c f ->
+    Forall (agree_on ctx1 ctx2) (vars_of_clause c) ->
+    interp_clause ctx2 c f.
+  Proof.
+    cbv [interp_clause]. intros Hinterp Hagree. fwd.
+    eexists. split; [|auto].
+    eapply Forall2_impl_strong; [|eassumption].
+    intros. cbv [vars_of_clause] in Hagree.
+    rewrite Forall_flat_map, Forall_forall in Hagree.
+    eauto using interp_expr_agree_on.
+  Qed.
+
+  Lemma interp_expr_det ctx e v1 v2 :
+    interp_expr ctx e v1 ->
+    interp_expr ctx e v2 ->
+    v1 = v2.
+  Proof.
+    revert v1 v2. induction e; simpl; intros.
+    - repeat invert_stuff.
+    - repeat invert_stuff. enough (args' = args'0).
+      { repeat invert_stuff. }
+      clear -H3 H4 H. revert args'0 H3. induction H4; intros; invert_stuff.
+      + reflexivity.
+      + f_equal; auto.
+  Qed.
+
+  Lemma interp_expr_det' e ctx1 ctx2 v1 v2 :
+    interp_expr ctx1 e v1 ->
+    interp_expr ctx2 e v2 ->
+    Forall (agree_on ctx1 ctx2) (vars_of_expr e) ->
+    v1 = v2.
+  Proof. eauto using interp_expr_det, interp_expr_agree_on. Qed.
+
+  Lemma interp_clause_det ctx c f1 f2 :
+    interp_clause ctx c f1 ->
+    interp_clause ctx c f2 ->
+    f1 = f2.
+  Proof.
+    intros. repeat invert_stuff. f_equal.
+    eapply Forall2_unique_r; eauto. apply interp_expr_det.
+  Qed.
+
+  Lemma interp_clause_det' c ctx1 ctx2 f1 f2 :
+    interp_clause ctx1 c f1 ->
+    interp_clause ctx2 c f2 ->
+    Forall (agree_on ctx1 ctx2) (vars_of_clause c) ->
+    f1 = f2.
+  Proof. eauto using interp_clause_det, interp_clause_agree_on. Qed.
+
+  Lemma interp_clause_same_agree ctx1 ctx2 c f v :
+    interp_clause ctx1 c f ->
+    interp_clause ctx2 c f ->
+    In (var_expr v) c.(clause_args) ->
+    agree_on ctx1 ctx2 v.
+  Proof.
+    cbv [interp_clause]. intros H1 H2 Hv. fwd.
+    eapply Forall2_and in H2p0; [|exact H1p0].
+    apply Forall2_forget_r in H2p0.
+    rewrite Forall_forall in H2p0. apply H2p0 in Hv.
+    fwd. invert Hvp1. invert Hvp2.
+    cbv [agree_on]. congruence.
+  Qed.
 
   (* Definition good_rule (r : rule) := *)
   (*   match r with *)
@@ -530,62 +584,90 @@ Section __.
   (*   | agg_rule _ _ _ => True *)
   (*   end. *)
 
-  (* Definition concl_rels r := *)
-  (*   match r with *)
-  (*   | normal_rule rule_concls _ => map clause_R rule_concls *)
-  (*   | agg_rule R _ _ => [(R, normal)] *)
-  (*   end. *)
+  Definition concl_rels (r : rule) : list rel :=
+    match r with
+    | normal_rule rule_concls _ => map clause_rel rule_concls
+    | meta_rule rule_concls _ => map meta_clause_rel rule_concls
+    | agg_rule concl_rel _ _ => [concl_rel]
+    end.
 
-  (* Definition hyp_rels r := *)
-  (*   match r with *)
-  (*   | normal_rule _ rule_hyps => map clause_R rule_hyps *)
-  (*   | agg_rule _ _ R => [(R, meta); (R, normal)] *)
-  (*   end. *)
+  Definition hyp_rels (r : rule) : list rel :=
+    match r with
+    | normal_rule _ rule_hyps => map clause_rel rule_hyps
+    | meta_rule _ rule_hyps => map meta_clause_rel rule_hyps
+    | agg_rule _ _ hyp_rel => [hyp_rel]
+    end.
 
-  (* Lemma rule_impl_concl_relname_in r f hyps : *)
-  (*   rule_impl r f hyps -> *)
-  (*   In f.(fact_R) (concl_rels r). *)
-  (* Proof. *)
-  (*   invert 1. *)
-  (*   - apply Exists_exists in H0. cbv [interp_clause] in *. fwd. *)
-  (*     simpl. apply in_map_iff. eexists. split; [eassumption|]. assumption. *)
-  (*   - simpl. auto. *)
-  (* Qed. *)
+  Lemma rule_impl_concl_relname_in p r f hyps :
+    rule_impl p r f hyps ->
+    In (rel_of f) (concl_rels r).
+  Proof.
+    invert 1.
+    - match goal with
+      | H: non_meta_rule_impl _ _ _ _ |- _ => invert H
+      end.
+      + rewrite Exists_exists in *. repeat invert_stuff.
+        apply in_map_iff. eauto.
+      + left. reflexivity.
+    - rewrite Exists_exists in *. fwd. apply in_map_iff.
+      repeat invert_stuff. eauto.
+  Qed.
 
-  (* Lemma rule_impl_hyp_relname_in r f hyps : *)
-  (*   rule_impl r f hyps -> *)
-  (*   Forall (fun hyp => In hyp.(fact_R) (hyp_rels r)) hyps. *)
-  (* Proof. *)
-  (*   invert 1. *)
-  (*   - eapply Forall_impl; [|eapply Forall2_forget_l; eassumption]. *)
-  (*     simpl. cbv [interp_clause]. intros. fwd. apply in_map_iff. *)
-  (*     eexists. split; [eassumption|]. assumption. *)
-  (*   - simpl. constructor; simpl; auto. apply Forall_map. apply Forall_forall. *)
-  (*     intros (?, ?) ?. simpl. auto. *)
-  (* Qed. *)
+  Lemma rule_impl_hyp_relname_in p r f hyps :
+    rule_impl p r f hyps ->
+    Forall (fun hyp => In (rel_of hyp) (hyp_rels r)) hyps.
+  Proof.
+    invert 1.
+    - match goal with
+      | H: non_meta_rule_impl _ _ _ _ |- _ => invert H
+      end.
+      + simpl.
+        eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
+        intros. repeat invert_stuff.
+        eauto using in_map.
+      + simpl. constructor; eauto.
+        apply Forall_map. apply Forall_forall.
+        intros [? ?]. simpl. auto.
+    - simpl.
+      eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
+      intros. repeat invert_stuff.
+      eauto using in_map.
+  Qed.
 
   Definition disjoint_lists {T} (l1 l2 : list T) :=
     forall x, In x l1 -> In x l2 -> False.
 
-  (* Lemma staged_program p1 p2 Q f : *)
-  (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
-  (*   prog_impl_implication (p1 ++ p2) Q f -> *)
-  (*   prog_impl_implication p1 (prog_impl_implication p2 Q) f. *)
-  (* Proof. *)
-  (*   intros Hdisj. induction 1. *)
-  (*   - apply partial_in. apply partial_in. assumption. *)
-  (*   - fold (prog_impl_implication (p1 ++ p2)) in *. *)
-  (*     apply Exists_app in H. destruct H as [H|H]. *)
-  (*     + eapply prog_impl_step; [eassumption|]. assumption. *)
-  (*     + apply partial_in. eapply prog_impl_step; [eassumption|]. *)
-  (*       rewrite Forall_forall in *. intros f Hf. specialize (H1 _ Hf). *)
-  (*       invert H1; auto. fold (prog_impl_implication p1) in *. *)
-  (*       apply Exists_exists in H, H2. fwd. apply rule_impl_hyp_relname_in in Hp1. *)
-  (*       apply rule_impl_concl_relname_in in H2p1. rewrite Forall_forall in Hp1. *)
-  (*       specialize (Hp1 _ Hf). exfalso. eapply Hdisj. *)
-  (*       -- apply in_flat_map. eauto. *)
-  (*       -- apply in_flat_map. eauto. *)
-  (* Qed. *)
+  Check rule_impl.
+  Lemma staged_program_rule_impl p1 p2 r f hyps :
+    disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) ->
+    rule_impl (p1 ++ p2) r f hyps ->
+    rule_impl p2 r f hyps.
+  Proof.
+    Abort.
+
+
+  Lemma staged_program p1 p2 Q f :
+    disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) ->
+    prog_impl (p1 ++ p2) Q f ->
+    prog_impl p1 (prog_impl p2 Q) f.
+  Proof.
+    intros Hdisj. induction 1 using prog_impl_ind.
+    - apply pftree_leaf. apply pftree_leaf. assumption.
+    - apply Exists_app in H. destruct H as [H|H].
+      + eapply prog_impl_step. 2: eassumption. eapply Exists_impl; [|eassumption].
+        simpl.
+        ~In R (flat_map concl_rels p1) ->
+        prog_impl (p1 ++ p2) hyps ->
+        eapply prog_impl_step; [eassumption|]. assumption.
+      + apply partial_in. eapply prog_impl_step; [eassumption|].
+        rewrite Forall_forall in *. intros f Hf. specialize (H1 _ Hf).
+        invert H1; auto. fold (prog_impl_implication p1) in *.
+        apply Exists_exists in H, H2. fwd. apply rule_impl_hyp_relname_in in Hp1.
+        apply rule_impl_concl_relname_in in H2p1. rewrite Forall_forall in Hp1.
+        specialize (Hp1 _ Hf). exfalso. eapply Hdisj.
+        -- apply in_flat_map. eauto.
+        -- apply in_flat_map. eauto.
+  Qed.
 
   Lemma prog_impl_trans p Q f :
     prog_impl p (prog_impl p Q) f ->
@@ -636,141 +718,8 @@ Section __.
   (* Qed. *)
 End __.
 Arguments clause : clear implicits.
+Arguments meta_clause : clear implicits.
 Arguments fact : clear implicits.
 Arguments fact_args : clear implicits.
 Arguments rule : clear implicits.
 Arguments expr : clear implicits.
-
-Ltac invert_stuff :=
-  match goal with
-    | _ => progress cbn [rel_of clause_rel clause_args] in *
-    | H : rule_impl _ _ _ _ |- _ => invert1 H
-    | H : non_meta_rule_impl _ _ _ |- _ => progress (invert1 H)
-    | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
-    | H : interp_expr _ _ _ |- _ => invert1 H
-    | H : In _ [_] |- _ => destruct H; [|contradiction]
-    | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
-    | _ => progress subst
-    | _ => progress invert_list_stuff
-    end.
-
-Section Blocks.
-  Context {lvar gvar exprvar fn aggregator T : Type}.
-  Context {sig : signature fn aggregator T}.
-  Context {gmap : map.map gvar (fact_args T -> Prop)} {gmap_ok : map.ok gmap}.
-  Context {context : map.map exprvar T} {context_ok : map.ok context}.
-
-  Variant blocks_rel {var} :=
-    | local (x : lvar)
-    | global (x : gvar)
-    | Var (x : var).
-  Arguments blocks_rel : clear implicits.
-
-  Definition block_rule var :=
-    rule (blocks_rel var) exprvar fn aggregator.
-
-  Inductive blocks_prog {var} :=
-  | LetIn (x : blocks_prog) (f : var -> blocks_prog)
-  (* | SetGlobal (x : gvar) (v : blocks_prog) *)
-  | Block (ret : lvar) (p : list (block_rule var)).
-  Arguments blocks_prog : clear implicits.
-
-  Definition block_prog_impl (globals : gmap) (p : list (block_rule _)) :=
-    pftree (fun (f : fact (blocks_rel _) T) hyps =>
-              match rel_of f with
-              | local R => Exists (fun r => rule_impl p r f hyps) p
-              | global R => exists R', map.get globals R = Some R' /\ R' (args_of f)
-              | Var R' => R' (args_of f)
-              end)
-      (fun _ => False).
-
-  Lemma block_prog_impl_step globals p f hyps :
-    match rel_of f with
-    | local _ => Exists (fun r => rule_impl p r f hyps) p
-    | global R =>
-        exists R', map.get globals R = Some R' /\ R' (args_of f)
-    | Var R' => R' (args_of f)
-    end ->
-    Forall (block_prog_impl globals p) hyps ->
-    block_prog_impl globals p f.
-  Proof. intros. eapply pftree_step; eassumption. Qed.
-
-  Lemma inv_block_prog_impl globals p f :
-    block_prog_impl globals p f ->
-    exists hyps,
-      match rel_of f with
-      | local R => Exists (fun r => rule_impl p r f hyps) p
-      | global R => exists R', map.get globals R = Some R' /\ R' (args_of f)
-      | Var R' => R' (args_of f)
-      end /\
-        Forall (block_prog_impl globals p) hyps.
-  Proof. invert 1; contradiction || eauto. Qed.
-
-  Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : fact_args T -> Prop :=
-    match e with
-    | LetIn x f =>
-        interp_blocks_prog globals (f (interp_blocks_prog globals x))
-    | Block ret p => fun args => block_prog_impl globals p (fact_of (local ret) args)
-    end.
-
-  Definition honest_block_prog globals p :=
-    forall mf_rel mf_args mf_set,
-      block_prog_impl globals p (meta_fact mf_rel mf_args mf_set) ->
-      consistent mf_rel mf_args mf_set (block_prog_impl globals p).
-
-  Lemma block_prog_impl_mf_ext globals p mf_rel mf_args mf_set mf_set' :
-    block_prog_impl globals p (meta_fact (local mf_rel) mf_args mf_set) ->
-    (forall nf_args,
-        Forall2 matches mf_args nf_args ->
-        mf_set nf_args <-> mf_set' nf_args) ->
-    block_prog_impl globals p (meta_fact (local mf_rel) mf_args mf_set').
-  Proof.
-    intros H1 H2. apply inv_block_prog_impl in H1. simpl in H1. fwd.
-    eapply block_prog_impl_step; [|eassumption].
-    simpl. eapply Exists_impl; [|eassumption].
-    simpl. eauto using rule_impl_mf_ext.
-  Qed.
-
-  Lemma use_honest_block_prog globals p mf_rel mf_args mf_set :
-    honest_block_prog globals p ->
-    block_prog_impl globals p (meta_fact (local mf_rel) mf_args mf_set) ->
-    block_prog_impl globals p (meta_fact (local mf_rel) mf_args (fun args => block_prog_impl globals p (normal_fact (local mf_rel) args))).
-  Proof.
-    intros H1 H2. eapply block_prog_impl_mf_ext; [eassumption|].
-    cbv [honest_block_prog] in H1. apply H1. apply H2.
-  Qed.
-
-  Fixpoint honest_blocks_prog globals e :=
-    match e with
-    | LetIn x f =>
-        honest_blocks_prog globals x /\
-          honest_blocks_prog globals (f (interp_blocks_prog globals x))
-    | Block ret p =>
-        honest_block_prog globals p
-    end.
-
-  (*given A B, compute (A \cup B) \cap (A \cup B).
-    (a rather uninteresting function to compute, but whatever)
-   *)
-  Axiom (dummy : exprvar) (ret : lvar).
-  Example intersection_of_unions (A B : gvar) var : blocks_prog var :=
-    LetIn
-      (Block ret [normal_rule
-                    [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
-                    [{| clause_rel := global A; clause_args := [var_expr dummy] |}];
-                  normal_rule
-                    [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
-                    [{| clause_rel := global B; clause_args := [var_expr dummy] |}]])
-      (fun union =>
-         Block ret [normal_rule
-                      [{| clause_rel := local ret; clause_args := [var_expr dummy] |}]
-                      [{| clause_rel := Var union; clause_args := [var_expr dummy] |};
-                       {| clause_rel := Var union; clause_args := [var_expr dummy] |}]]).
-
-  Goal forall A B A' B' x,
-      A <> B ->
-      let iou := interp_blocks_prog (map.put (map.put map.empty A A') B B') (intersection_of_unions A B _) in
-      iou (normal_fact_args [x]) <-> A' (normal_fact_args [x]) \/ B' (normal_fact_args [x]).
-  Proof. Abort.
-End Blocks.
-Arguments blocks_prog : clear implicits.

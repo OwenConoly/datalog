@@ -472,23 +472,6 @@ Definition agrees {t} (e : fact_args _ -> Prop) (e' : interp_type t) :=
   (forall x, set_of e' x <-> e (normal_fact_args [x])) /\
     (exists S, e (meta_fact_args [None] S)).
 
-Ltac invert_stuff0 :=
-  match goal with
-  | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args] in *
-  | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
-  | H : block_prog_impl _ _ _ |- _ => apply inv_block_prog_impl in H; try (destruct H as [H|H]; [contradiction|])
-  | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
-  | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
-  | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
-  | H : interp_expr _ _ _ |- _ => invert1 H
-  | H : In _ [_] |- _ => destruct H; [|contradiction]
-  | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
-  | _ => progress subst
-  | _ => progress invert_list_stuff
-  | _ => progress fwd
-  | _ => congruence
-  end.
-
 Ltac invert0_Exists H :=
   repeat first [invert0 H |
                  apply Exists_cons in H; destruct H as [H|H]; [solve[repeat invert_stuff] | invert0_Exists H] ].
@@ -503,48 +486,6 @@ Ltac invert_stuff :=
           match goal with
           | H: Exists _ _ |- _ => invert1_Exists H
           end].
-
-Ltac interp_exprs :=
-  repeat rewrite map_app; simpl;
-  repeat match goal with
-    | _ => progress simpl
-
-    | |- Forall2 _ (_ ++ _) _ => apply Forall2_app
-    | |- Forall2 _ (_ :: _) _ => constructor
-    | |- Forall2 _ nil _ => constructor
-    | |- Forall2 _ _ _ =>
-        (eapply Forall2_impl; [|eassumption]; simpl; intros) ||
-          idtac
-
-    | |- Forall _ (_ :: _) => constructor; [interp_exprs|]
-    | |- Forall _ [] => constructor
-
-    | |- block_prog_impl _ _ ?f =>
-        let x := constr:(rel_of f) in
-        let x := (eval simpl in x) in
-        match x with
-        | global _ => idtac
-        | Datalog.Var _ => idtac
-        end;
-        apply block_prog_impl_step with (hyps := []); [|constructor]
-    | |- interp_expr _ _ _ => econstructor
-    | |- interp_expr _ _ _ =>
-        eapply interp_expr_subst_more; [|eassumption]
-    | |- interp_clause _ _ _ =>
-        eapply interp_clause_subst_more; [|eassumption]
-    | |- interp_clause _ _ _ =>
-        cbv [interp_clause]; eexists; split; [|reflexivity]; simpl
-    | |- interp_meta_clause _ _ _ =>
-        cbv [interp_meta_clause]; do 2 eexists; split; [|reflexivity]; simpl
-    | |- _ /\ _ => split; [solve [interp_exprs] |]
-    | |- Exists _ [_] => apply Exists_cons_hd
-
-    | |- _ => rewrite map.get_put_diff by congruence
-    | |- _ => rewrite map.get_put_same by reflexivity
-
-    | |- _ => reflexivity
-    | |- _ => eassumption (*hsould this just be assumption?*)
-    end.
 
 Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
