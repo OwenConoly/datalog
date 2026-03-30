@@ -469,8 +469,8 @@ Definition set_of {t} (e' : interp_type t) :=
   end e'.
 
 Definition agrees {t} (e : fact_args _ -> Prop) (e' : interp_type t) :=
-  forall x,
-    set_of e' x <-> e (normal_fact_args [x]).
+  (forall x, set_of e' x <-> e (normal_fact_args [x])) /\
+    (exists S, e (meta_fact_args [None] S)).
 
 Ltac invert_stuff0 :=
   match goal with
@@ -557,136 +557,167 @@ Proof.
   intros Hwf Hctx Hnl. revert e'. induction Hwf; intros e' He'.
   - dep_invert He'. rewrite Forall_forall in Hctx.
     specialize (Hctx _ H). clear H. simpl in Hctx.
-    simpl. intros x.  cbv [agrees] in Hctx. rewrite Hctx. clear Hctx.
-    split.
-    + intros. subst. eapply block_prog_impl_step.
-      -- simpl. apply Exists_cons_hd. constructor.
-         eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+    cbv [agrees] in Hctx. fwd. cbv [agrees]. simpl. split.
+    + intros. rewrite Hctxp0. clear Hctxp0. split.
+      -- intros. eapply block_prog_impl_step.
+         ++ simpl. apply Exists_cons_hd. constructor.
+            eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+         ++ interp_exprs.
+      -- intros. repeat invert_stuff. assumption.
+    (*meta fact*)
+    + eexists. eapply block_prog_impl_step.
+      -- simpl. apply Exists_cons_tl. apply Exists_cons_hd.
+         eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
       -- interp_exprs.
-    + intros. repeat invert_stuff. assumption.
   - dep_invert He'.
     cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
     specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
-    simpl in IHHwf1, IHHwf2.
-    simpl. intros x. simpl. split.
-    + intros. subst. eapply block_prog_impl_step.
-      -- simpl. apply Exists_cons_hd. constructor.
-         eapply normal_rule_impl with (ctx := map.put (map.put map.empty 0 _) 1 _); interp_exprs.
+    cbv [agrees] in IHHwf1, IHHwf2. fwd.
+    simpl. split.
+    + intros x. simpl. split.
+      -- intros. subst. eapply block_prog_impl_step.
+         ++ simpl. apply Exists_cons_hd. constructor.
+            eapply normal_rule_impl with (ctx := map.put (map.put map.empty 0 _) 1 _); interp_exprs.
+         ++ interp_exprs.
+            --- apply IHHwf1p0. reflexivity.
+            --- apply IHHwf2p0. reflexivity.
+      -- intros H. repeat invert_stuff. simpl in *. repeat invert_stuff.
+         match goal with
+         | H: _ |- _ => apply IHHwf1p0 in H
+         end.
+         match goal with
+         | H: _ |- _ => apply IHHwf2p0 in H
+         end.
+         cbv [set_of] in *. subst. reflexivity.
+    + eexists. eapply block_prog_impl_step.
+      -- simpl. apply Exists_cons_tl. apply Exists_cons_hd.
+         eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
       -- interp_exprs.
-         ++ apply IHHwf1. reflexivity.
-         ++ apply IHHwf2. reflexivity.
-    + intros H. repeat invert_stuff. simpl in *. repeat invert_stuff.
-        match goal with
-        | H: _ |- _ => apply IHHwf1 in H
-        end.
-        match goal with
-        | H: _ |- _ => apply IHHwf2 in H
-        end.
-        cbv [set_of] in *. subst. reflexivity.
-  - dep_invert He'. simpl. intros x. split.
-    + contradiction.
-    + intros H. repeat invert_stuff.
+  - dep_invert He'. simpl. split.
+    + intros x. split.
+      -- contradiction.
+      -- intros H. repeat invert_stuff.
+    + eexists. eapply block_prog_impl_step.
+      -- simpl. apply Exists_cons_hd.
+         eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
+      -- interp_exprs.
   - dep_invert He'.
     specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
-    cbv [agrees] in IHHwf. cbv [agrees]. intros x. rewrite <- IHHwf. split; auto.
+    cbv [agrees] in IHHwf. fwd. split.
+    + intros x. rewrite <- IHHwfp0. split; auto.
+    + eauto.
   - dep_invert He'.
     cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
     specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
-    cbv [agrees] in IHHwf1, IHHwf2. cbv [agrees]. simpl.
-    intros x. rewrite IHHwf1, IHHwf2. clear IHHwf1 IHHwf2. split.
-    + intros [? ?]. eapply block_prog_impl_step.
-      -- simpl. apply Exists_cons_hd. constructor.
-         eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+    cbv [agrees] in IHHwf1, IHHwf2. cbv [agrees]. fwd. simpl. split.
+    + intros x. rewrite IHHwf1p0, IHHwf2p0. clear IHHwf1p0 IHHwf2p0. split.
+      -- intros [? ?]. eapply block_prog_impl_step.
+         ++ simpl. apply Exists_cons_hd. constructor.
+            eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+         ++ interp_exprs.
+      -- intros H. repeat invert_stuff. auto.
+    + eexists. eapply block_prog_impl_step.
+      -- simpl. apply Exists_cons_tl. apply Exists_cons_hd.
+         eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
       -- interp_exprs.
-    + intros H. repeat invert_stuff. auto.
   - rename H0 into IHHwf'.
     dep_invert He'.
     cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
     specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     specialize (IHHwf' _ _ ltac:(eauto) ltac:(eauto) _ ltac:(eauto)).
-    clear Hctx. cbv [agrees] in *.
-    intros x. rewrite IHHwf'. clear IHHwf'.
-    simpl. reflexivity.
+    clear Hctx. cbv [agrees] in *. fwd. split.
+    + intros x. rewrite IHHwf'p0. clear IHHwf'p0.
+      simpl. reflexivity.
+    + simpl. eauto.
   - dep_invert He'.
     cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
     rename H2 into Hset.
     specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
-    cbv [agrees]. simpl. cbv [agrees] in IHHwf. simpl in IHHwf. intros x. split.
-    + intros. subst. eapply block_prog_impl_step.
-      -- simpl. eapply Exists_cons_hd. constructor.
-         eassert (fold_right _ _ _ = _) as ->.
-         2: { constructor. eapply is_list_set_ext.
-              - apply is_list_set_map with (f := fun x => (x, x)).
-                2: eassumption.
-                cbv [FinFun.Injective]. invert 1. reflexivity.
-              - simpl. intros [? ?]. instantiate (1 := fun x =>
-                                                         match x with
-                                                         | [_; _] => _
-                                                         | _ => _
-                                                         end).
-                simpl. reflexivity. }
+    cbv [agrees]. simpl. cbv [agrees] in IHHwf. fwd. split.
+    + intros x. split.
+      -- intros. subst. eapply block_prog_impl_step.
+         ++ simpl. eapply Exists_cons_hd. constructor.
+            eassert (fold_right _ _ _ = _) as ->.
+            2: { constructor. eapply is_list_set_ext.
+                 - apply is_list_set_map with (f := fun x => (x, x)).
+                   2: eassumption.
+                   cbv [FinFun.Injective]. invert 1. reflexivity.
+                 - simpl. intros [? ?]. instantiate (1 := fun x =>
+                                                            match x with
+                                                            | [_; _] => _
+                                                            | _ => _
+                                                            end).
+                   simpl. reflexivity. }
          simpl. cbv [interp_agg]. do 2 rewrite map_map. simpl.
          cbv [extract_nat]. rewrite option_all_map_Some. reflexivity.
-      -- constructor.
-         ++ eapply block_prog_impl_mf_ext.
-            --- eapply use_honest_block_prog; [assumption|].
+         ++ constructor.
+         --- eapply block_prog_impl_mf_ext.
+            +++ eapply use_honest_block_prog; [assumption|].
                 eapply block_prog_impl_step.
-                +++ simpl. do 3 apply Exists_cons_tl. apply Exists_cons_hd.
+                ---- simpl. do 3 apply Exists_cons_tl. apply Exists_cons_hd.
                     eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
-                +++ interp_exprs. admit. (*this is where we need IH about meta fact*)
-            --- simpl. intros. repeat invert_stuff. split.
-                +++ intros H. repeat invert_stuff.
-                    eexists. split; [reflexivity|]. apply IHHwf. assumption.
-                +++ intros H. fwd.
+                ---- interp_exprs.
+            +++ simpl. intros. repeat invert_stuff. split.
+                ---- intros H. repeat invert_stuff.
+                    eexists. split; [reflexivity|]. apply IHHwfp0. assumption.
+                ---- intros H. fwd.
                     eapply block_prog_impl_step.
-                    ---- simpl. do 2 apply Exists_cons_tl. apply Exists_cons_hd.
+                    ++++ simpl. do 2 apply Exists_cons_tl. apply Exists_cons_hd.
                          constructor.
                          eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
-                    ---- interp_exprs. apply IHHwf. assumption.
-         ++ rewrite map_map. apply Forall_map.
+                    ++++ interp_exprs. apply IHHwfp0. assumption.
+         --- rewrite map_map. apply Forall_map.
             cbv [is_list_set] in Hset. fwd. apply Forall_forall.
-            intros x Hx. apply Hsetp0 in Hx. apply IHHwf in Hx.
+            intros x Hx. apply Hsetp0 in Hx. apply IHHwfp0 in Hx.
             eapply block_prog_impl_step.
-            --- simpl. do 2 apply Exists_cons_tl. apply Exists_cons_hd.
+            +++ simpl. do 2 apply Exists_cons_tl. apply Exists_cons_hd.
                 constructor.
                 eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
-            --- interp_exprs.
-    + intros H. Print honest_block_prog.
-      repeat lazymatch goal with
-             | H: block_prog_impl _ _ (meta_fact _ _ _) |- _ => fail
-             | _ => invert_stuff
-             end.
-      lazymatch goal with
-      | H: block_prog_impl _ _ (meta_fact _ _ _) |- _ => rename H into Hmf
-      end.
-      apply Hnlp1 in Hmf. move Hmf at bottom.
-      assert (Heq: forall x y, (x = y /\ x' x) <-> S [x; y]).
-      { intros x y. cbv [consistent] in Hmf. rewrite Hmf; [|interp_exprs].
-        rewrite IHHwf. split.
-        - intros H. fwd. eapply block_prog_impl_step.
-          + simpl. do 2 apply Exists_cons_tl. apply Exists_cons_hd. constructor.
-            eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
-          + interp_exprs.
-        - intros H. repeat invert_stuff. auto. }
-      match goal with
-      | H: is_list_set (fun _ => _) _ |- _ => rename H into Hset'
-      end.
-      move Hset at bottom. move Hset' at bottom.
-      cbv [interp_agg]. cbv [extract_nat]. rewrite option_all_map_Some.
-      apply fold_right_change_order.
-      { (*all bops are commutative, for a certain interpretation of the word*)
-        intros. destruct o; simpl; lia. }
-      eapply is_list_set_perm. 1: eassumption.
-      cbv [is_list_set] in Hset, Hset'. fwd. split.
-      { intros x. split; intros Hx.
-        - rewrite in_map_iff. eexists (_, _). rewrite <- Hset'p0. rewrite <- Heq.
-          simpl. eauto.
-        - apply in_map_iff in Hx. fwd. apply Hset'p0 in Hxp1. destruct x0.
-          apply Heq in Hxp1. fwd. assumption. }
-      apply FinFun.Injective_map_NoDup_in; [|assumption].
-      intros (?, ?) (?, ?). simpl. intros H1' H2' ?. subst.
-      apply Hset'p0 in H1', H2'. apply Heq in H1', H2'. fwd. reflexivity.
-      Unshelve.
-      all: exact True || exact (fun _ => True).
+            +++ interp_exprs.
+      -- intros H. Print honest_block_prog.
+         repeat lazymatch goal with
+                | H: block_prog_impl _ _ (meta_fact _ _ _) |- _ => fail
+                | _ => invert_stuff
+                end.
+         lazymatch goal with
+         | H: block_prog_impl _ _ (meta_fact _ _ _) |- _ => rename H into Hmf
+         end.
+         apply Hnlp1 in Hmf. move Hmf at bottom.
+         assert (Heq: forall x y, (x = y /\ x' x) <-> S0 [x; y]).
+         { intros x y. cbv [consistent] in Hmf. rewrite Hmf; [|interp_exprs].
+           rewrite IHHwfp0. split.
+           - intros H. fwd. eapply block_prog_impl_step.
+             + simpl. do 2 apply Exists_cons_tl. apply Exists_cons_hd. constructor.
+               eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+             + interp_exprs.
+           - intros H. repeat invert_stuff. auto. }
+         match goal with
+         | H: is_list_set (fun _ => _) _ |- _ => rename H into Hset'
+         end.
+         move Hset at bottom. move Hset' at bottom.
+         cbv [interp_agg]. cbv [extract_nat]. rewrite option_all_map_Some.
+         apply fold_right_change_order.
+         { (*all bops are commutative, for a certain interpretation of the word*)
+           intros. destruct o; simpl; lia. }
+         eapply is_list_set_perm. 1: eassumption.
+         cbv [is_list_set] in Hset, Hset'. fwd. split.
+         { intros x. split; intros Hx.
+           - rewrite in_map_iff. eexists (_, _). rewrite <- Hset'p0. rewrite <- Heq.
+             simpl. eauto.
+           - apply in_map_iff in Hx. fwd. apply Hset'p0 in Hxp1. destruct x0.
+             apply Heq in Hxp1. fwd. assumption. }
+         apply FinFun.Injective_map_NoDup_in; [|assumption].
+         intros (?, ?) (?, ?). simpl. intros H1' H2' ?. subst.
+         apply Hset'p0 in H1', H2'. apply Heq in H1', H2'. fwd. reflexivity.
+    + eexists. eapply block_prog_impl_step.
+      -- simpl. apply Exists_cons_tl. apply Exists_cons_hd.
+         eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
+      -- interp_exprs. eapply block_prog_impl_step.
+         ++ simpl. do 3 apply Exists_cons_tl. apply Exists_cons_hd.
+            eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
+         ++ interp_exprs.
+            Unshelve.
+            all: exact True.
+Qed.
