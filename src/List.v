@@ -46,6 +46,15 @@ Proof.
   intros [H1 H2] H3. split; auto. intros. rewrite <- H3. apply H1.
 Qed.
 
+Lemma is_list_set_perm X (S : X -> _) l1 l2 :
+  is_list_set S l1 ->
+  is_list_set S l2 ->
+  Permutation.Permutation l1 l2.
+Proof.
+  intros [H1 H2] [H3 H4]. apply NoDup_Permutation; auto.
+  intros. rewrite <- H1, H3. reflexivity.
+Qed.
+
 Import ListNotations.
 Section subset.
 Context {A : Type}.

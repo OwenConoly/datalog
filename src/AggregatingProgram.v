@@ -474,11 +474,12 @@ Definition agrees {t} (e : fact_args _ -> Prop) (e' : interp_type t) :=
 
 Ltac invert_stuff0 :=
   match goal with
-  | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args] in *
+  | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args] in *
   | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
   | H : block_prog_impl _ _ _ |- _ => apply inv_block_prog_impl in H; try (destruct H as [H|H]; [contradiction|])
   | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
   | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
+  | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
   | H : interp_expr _ _ _ |- _ => invert1 H
   | H : In _ [_] |- _ => destruct H; [|contradiction]
   | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
@@ -507,12 +508,25 @@ Ltac interp_exprs :=
   repeat rewrite map_app; simpl;
   repeat match goal with
     | _ => progress simpl
+
     | |- Forall2 _ (_ ++ _) _ => apply Forall2_app
     | |- Forall2 _ (_ :: _) _ => constructor
     | |- Forall2 _ nil _ => constructor
     | |- Forall2 _ _ _ =>
         (eapply Forall2_impl; [|eassumption]; simpl; intros) ||
           idtac
+
+    | |- Forall _ (_ :: _) => constructor; [interp_exprs|]
+    | |- Forall _ [] => constructor
+
+    | |- block_prog_impl _ _ ?f =>
+        let x := constr:(rel_of f) in
+        let x := (eval simpl in x) in
+        match x with
+        | global _ => idtac
+        | Datalog.Var _ => idtac
+        end;
+        apply block_prog_impl_step with (hyps := []); [|constructor]
     | |- interp_expr _ _ _ => econstructor
     | |- interp_expr _ _ _ =>
         eapply interp_expr_subst_more; [|eassumption]
@@ -529,6 +543,7 @@ Ltac interp_exprs :=
     | |- _ => rewrite map.get_put_same by reflexivity
 
     | |- _ => reflexivity
+    | |- _ => eassumption (*hsould this just be assumption?*)
     end.
 
 Hint Unfold Option.option_relation : core.
@@ -547,8 +562,7 @@ Proof.
     + intros. subst. eapply block_prog_impl_step.
       -- simpl. apply Exists_cons_hd. constructor.
          eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
-      -- constructor; [|constructor]. eapply block_prog_impl_step; [|constructor].
-         simpl. auto.
+      -- interp_exprs.
     + intros. repeat invert_stuff. assumption.
   - dep_invert He'.
     cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
@@ -559,11 +573,9 @@ Proof.
     + intros. subst. eapply block_prog_impl_step.
       -- simpl. apply Exists_cons_hd. constructor.
          eapply normal_rule_impl with (ctx := map.put (map.put map.empty 0 _) 1 _); interp_exprs.
-      -- constructor.
-         { eapply block_prog_impl_step; [|constructor]. simpl. apply IHHwf1. reflexivity. }
-         constructor.
-         { eapply block_prog_impl_step; [|constructor]. simpl. apply IHHwf2. reflexivity. }
-         constructor.
+      -- interp_exprs.
+         ++ apply IHHwf1. reflexivity.
+         ++ apply IHHwf2. reflexivity.
     + intros H. repeat invert_stuff. simpl in *. repeat invert_stuff.
         match goal with
         | H: _ |- _ => apply IHHwf1 in H
@@ -587,11 +599,7 @@ Proof.
     + intros [? ?]. eapply block_prog_impl_step.
       -- simpl. apply Exists_cons_hd. constructor.
          eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
-      -- constructor.
-         { simpl. eapply block_prog_impl_step; [|constructor]. simpl. assumption. }
-         constructor.
-         { simpl. eapply block_prog_impl_step; [|constructor]. simpl. assumption. }
-         constructor.
+      -- interp_exprs.
     + intros H. repeat invert_stuff. auto.
   - rename H0 into IHHwf'.
     dep_invert He'.
@@ -603,6 +611,7 @@ Proof.
     simpl. reflexivity.
   - dep_invert He'.
     cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
+    rename H2 into Hset.
     specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees]. simpl. cbv [agrees] in IHHwf. simpl in IHHwf. intros x. split.
     + intros. subst. eapply block_prog_impl_step.
@@ -626,10 +635,7 @@ Proof.
                 eapply block_prog_impl_step.
                 +++ simpl. do 3 apply Exists_cons_tl. apply Exists_cons_hd.
                     eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
-                +++ constructor.
-                    { simpl. eapply block_prog_impl_step; [|constructor]. simpl.
-                      admit. (*this is where we need IH about meta fact*) }
-                    constructor.
+                +++ interp_exprs. admit. (*this is where we need IH about meta fact*)
             --- simpl. intros. repeat invert_stuff. split.
                 +++ intros H. repeat invert_stuff.
                     eexists. split; [reflexivity|]. apply IHHwf. assumption.
@@ -638,342 +644,49 @@ Proof.
                     ---- simpl. do 2 apply Exists_cons_tl. apply Exists_cons_hd.
                          constructor.
                          eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
-                    ---- simpl. constructor.
-                         { eapply block_prog_impl_step; [|constructor]. simpl.
-                           apply IHHwf. assumption. }
-                         constructor.
-         ++
-                         interp_exprs.
-                      interp_exprs.
-                    intros. reflexivity.
-                    ---- interp_exprs. apply Exists_cons_hd. interp_exprs. cbv [interp_meta_clause].
-                         simpl. do 2 eexists. split; [eauto|]. reflexivity.
-                    ---- interp_exprs.
-                +++ intros args Print interp_exprs.
-
-                    { eauto. } constructor. 1: simpl. eauto.
-                eassert ((fun (_ : list obj) => _) = _) as ->.
-                Check meta_rule_impl.
-                2: eapply meta_rule_impl.
-                { instantiate (1 :=
-                Check meta_rule_impl.
-                2: apply meta_rule_impl.
-
-                eapply meta_rule_impl.  with (ctx := map.empty).
-         cbv [Datalog.interp_agg].
-                1: exact H2. eassumption. eassumption.
-         eapply agg_rule_impl.
-    simpl in IHHwf.
-    simpl.
-    epose_dep IHHwf'. specialize' IHHwf'.
-    { constructor; eauto.
-    simpl in Hwf. simpl.
-      invert1_Exists Hp0.
-                              (
-
+                    ---- interp_exprs. apply IHHwf. assumption.
+         ++ rewrite map_map. apply Forall_map.
+            cbv [is_list_set] in Hset. fwd. apply Forall_forall.
+            intros x Hx. apply Hsetp0 in Hx. apply IHHwf in Hx.
+            eapply block_prog_impl_step.
+            --- simpl. do 2 apply Exists_cons_tl. apply Exists_cons_hd.
+                constructor.
+                eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+            --- interp_exprs.
+    + intros H. Print honest_block_prog.
+      repeat lazymatch goal with
+             | H: block_prog_impl _ _ (meta_fact _ _ _) |- _ => fail
+             | _ => invert_stuff
+             end.
+      lazymatch goal with
+      | H: block_prog_impl _ _ (meta_fact _ _ _) |- _ => rename H into Hmf
+      end.
+      apply Hnlp1 in Hmf. move Hmf at bottom.
+      assert (Heq: forall x y, (x = y /\ x' x) <-> S [x; y]).
+      { intros x y. cbv [consistent] in Hmf. rewrite Hmf; [|interp_exprs].
+        rewrite IHHwf. split.
+        - intros H. fwd. eapply block_prog_impl_step.
+          + simpl. do 2 apply Exists_cons_tl. apply Exists_cons_hd. constructor.
+            eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+          + interp_exprs.
+        - intros H. repeat invert_stuff. auto. }
       match goal with
-        | H: Exists _ (_ :: _) =>
-        end.
-      Search Exists.
-      repeat match goal
-      invert Hp0.
-         interp_exprs.
-      { repeat invert_stuff. }
-
-      invert_stuff.
-
-        fwd. invert H. invert_stuff.
-         ; [|constructor]. interp_exprs.
-         instan
-
-
-    cbv [agrees]. simpl.
-  revert datalog_ctx name out name' p p'.
-  induction Hwf; intros datalog_ctx name out name' p p' Hctx Hnames Hout1 Hout2 He' Hcomp.
-  - dep_invert He'. simpl in Hcomp. invert Hcomp. split; [lia|]. split.
-    * destruct t; simpl.
-    + intros x. split.
-      -- intros Himpl. rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
-         2: { simpl. apply disjoint_lists_alt. plda. }
-         apply loopless_program in Himpl.
-         2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by plda.
-              intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
-              specialize' Hnames.
-              { apply in_map_iff. eexists.
-                split; [|eassumption]. reflexivity. }
-              simpl in Hnames. fwd. congruence. }
-         destruct Himpl as [Himpl|Himpl].
-         ++ apply idk in Himpl; [contradiction|]. simpl.
-            rewrite Forall_forall in Hout2. intros H'. apply Hout2 in H'.
-            fwd. congruence.
-         ++ fwd. apply Exists_cons in Himplp1. destruct Himplp1 as [Himpl|Himpl].
-            --- rewrite Forall_forall in Hctx.
-                specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. apply Hctx.
-                invert_stuff. eassert (_ = y) as ->.
-                { destruct y. simpl in *. f_equal; auto; congruence. }
-                assumption.
-            --- invert_stuff.
-      -- intros. subst. eapply prog_impl_step.
-         ++ apply Exists_cons_hd. Check map.put.
-            apply normal_rule_impl with (ctx := map.put map.empty 0 (natobj x)).
-            --- apply Exists_cons_hd. interp_exprs. apply map.get_put_same.
-            --- interp_exprs. apply map.get_put_same.
-         ++ constructor; [|constructor]. rewrite Forall_forall in Hctx.
-            specialize (Hctx _ ltac:(eassumption)). simpl in Hctx.
-            eapply prog_impl_implication_subset; [|apply Hctx; reflexivity].
-            intros. simpl. auto.
-    + split.
-      -- intros x. split.
-         ++ intros Himpl. rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
-            2: { simpl. apply disjoint_lists_alt. plda. }
-            apply loopless_program in Himpl.
-            2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by plda.
-                 intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
-                 specialize' Hnames.
-                 { apply in_map_iff. eexists.
-                   split; [|eassumption]. reflexivity. }
-                 simpl in Hnames. fwd. congruence. }
-            destruct Himpl as [Himpl|Himpl].
-            --- apply idk in Himpl; [contradiction|]. simpl.
-                rewrite Forall_forall in Hout2. intros H'. apply Hout2 in H'.
-                fwd. congruence.
-            --- fwd. apply Exists_cons in Himplp1. destruct Himplp1 as [Himpl|Himpl].
-                +++ rewrite Forall_forall in Hctx.
-                    specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. fwd.
-                    apply Hctxp0. invert_stuff. eassert (_ = y) as ->.
-                    { destruct y. simpl in *. f_equal; auto; congruence. }
-                    assumption.
-                +++ invert_stuff.
-         ++ intros. subst. eapply prog_impl_step.
-            --- apply Exists_cons_hd.
-                apply normal_rule_impl with (ctx := map.put map.empty 0 (natobj x)).
-                +++ apply Exists_cons_hd. interp_exprs. apply map.get_put_same.
-                +++ interp_exprs. apply map.get_put_same.
-            --- constructor; [|constructor]. rewrite Forall_forall in Hctx.
-                specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. fwd.
-                eapply prog_impl_implication_subset; [|apply Hctxp0; assumption].
-                intros. simpl. auto.
-      -- rewrite Forall_forall in Hctx. specialize (Hctx _ ltac:(eassumption)).
-         simpl in Hctx. fwd. eexists. eapply prog_impl_step.
-         ++ apply Exists_cons_tl. apply Exists_cons_hd.
-            eapply normal_rule_impl with (ctx := map.put map.empty 0 (factset _)).
-            --- apply Exists_cons_hd. interp_exprs.
-                { apply map.get_put_same. }
-                simpl. reflexivity.
-            --- interp_exprs. apply map.get_put_same.
-         ++ constructor; [|constructor].
-            eapply prog_impl_implication_subset; [|eassumption].
-            simpl. auto.
-      * Check staged_program.
-
-          intros R. destr (Nat.eqb R out).
-        { eapply mrs_ cbv [mrs_very_sound_for]. intros Q HQ1 HQ2 S0 HS0 x.
-          simpl. rewrite cons_two_is_app. rewrite staged_program_iff.
-          2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by plda.
-               intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
-               specialize' Hnames.
-               { apply in_map_iff. eexists.
-                 split; [|eassumption]. reflexivity. }
-               simpl in Hnames. fwd. congruence. }
-
-          2: { split.
-            intros S0.
-         match goal with
-         | |- ?P1 <-> _ => eassert (P1 <-> _)
-         end.
-         { rewrite cons_two_is_app. apply staged_program_iff. simpl. admit. }
-         rewrite H0. clear H0.
-         match goal with
-         | |- ?P1 <-> _ => eassert (P1 <-> _)
-         end.
-         { apply loopless_program_iff. simpl. admit. }
-         rewrite H0. clear H0.
-         match goal with
-         | |- ?P1 <-> _ => eassert (P1 <-> _)
-         end.
-         {
-         split.
-           { intros H'. rewrite staged_program_iff in H'. rewrite @staged_program_iff. Check staged_program.
-        intros S0.
-         match goal with
-         | |- context[closure ?x] => remember x as p eqn:Ep
-         end.
-         split; intros Himpl.
-         ++ rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
-            2: { simpl. apply disjoint_lists_alt.
-                 constructor.
-                 { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
-                 constructor.
-                 { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
-                 constructor. }
-            apply loopless_program in Himpl.
-            2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
-                 intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
-                 specialize' Hnames.
-                 { apply in_map_iff. eexists.
-                   split; [|eassumption]. reflexivity. }
-                 simpl in Hnames. fwd. congruence. }
-            destruct Himpl as [Himpl|Himpl].
-            --- apply idk in Himpl; [contradiction|]. simpl.
-                rewrite Forall_forall in Hout2. intros H'. apply Hout2 in H'.
-                fwd. congruence.
-            --- fwd. apply Exists_cons in Himplp1. destruct Himplp1 as [Himpl|Himpl].
-                { invert_stuff. }
-                invert_stuff.
-                rewrite Forall_forall in Hctx.
-                specialize (Hctx _ ltac:(eassumption)). simpl in Hctx. fwd.
-                intros. (*specialize (Hctxp1 S0). move Hctxp1 at bottom.*)
-                destruct y; simpl in *; fwd. split; intros Himpl.
-                +++ rewrite cons_two_is_app in Himpl. apply staged_program in Himpl.
-                    2: { simpl. apply disjoint_lists_alt.
-                         constructor.
-                         { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
-                         constructor.
-                         { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto. }
-                         constructor. }
-                    apply loopless_program in Himpl.
-                    2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
-                         intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
-                         specialize' Hnames.
-                         { apply in_map_iff. eexists.
-                           split; [|eassumption]. reflexivity. }
-                         simpl in Hnames. fwd. congruence. }
-                    destruct Himpl as [Himpl|Himpl].
-                    { apply idk in Himpl; [contradiction|]. simpl.
-                      intros H'. rewrite Forall_forall in Hout2. apply Hout2 in H'.
-                      fwd. congruence. }
-                    fwd. apply Exists_cons in Himplp1. destruct Himplp1 as [Himpl|Himpl].
-                    2: { invert_stuff. }
-                    invert_stuff. rewrite H2 in H8. fwd.
-                    destruct y. simpl in *. subst. rewrite H1 in H3. fwd.
-                    move H4 at bottom. eapply prog_impl_step.
-                    { apply Exists_cons_hd.
-                      eapply normal_rule_impl with (ctx := map.put map.empty 0 (natobj _)).
-                      - apply Exists_cons_hd. interp_exprs. apply map.get_put_same.
-                      - interp_exprs. apply map.get_put_same. }
-                    constructor; [|constructor].
-                    apply partial_in. eexists (_, [_]). split; [|reflexivity].
-                    apply Exists_cons_hd. move Hctxp1 at bottom.
-                    eapply Hctxp1 in H4. apply H4. assumption.
-                +++ apply loopless_program in Himpl.
-                    2: { simpl. apply disjoint_lists_alt. enough (x2 <> out) by auto.
-                         intro. subst. rewrite Forall_forall in Hnames. epose_dep Hnames.
-                         specialize' Hnames.
-                         { apply in_map_iff. eexists.
-                           split; [|eassumption]. reflexivity. }
-                         simpl in Hnames. fwd. congruence. }
-                    (* eapply prog_impl_step. *)
-                    (* { apply Exists_cons_hd. *)
-                    (*   eapply normal_rule_impl with (ctx := map.put map.empty 0 (natobj _)). *)
-                    (*   - apply Exists_cons_hd. interp_exprs. apply map.get_put_same. *)
-                    (*   - interp_exprs. apply map.get_put_same. } *)
-                    (* constructor; [|constructor]. *)
-                    destruct Himpl as [Himpl|Himpl].
-                    { fwd. simpl in *. destruct y'. simpl in *. subst. invert_stuff.
-                      destruct l; simpl in *; invert_stuff.
-                      destruct l; simpl in *; invert_stuff. rewrite H1 in H3. fwd.
-                      eapply Hctxp1 in H4. eapply prog_impl_implication_subset.
-                      2: { apply H4. assumption.
-
-                        apply H4 in H5.
-                  invert Himpl.
-                    apply staged_program in H'.
-                rewrite H1 in H5. fwd. subst.
-                eapply Hctxp1 in H4. (*seems true *) rewrite <- H4.
-                apply Hctxp1.
-                invert_stuff. eassert (_ = y) as ->.
-                { destruct y. simpl in *. f_equal; auto; congruence. }
-                assumption.
-         ++ subst. eapply prog_impl_step.
-            --- apply Exists_cons_tl. apply Exists_cons_hd.
-                eapply normal_rule_impl with (ctx := map.put map.empty 0 (setobj _)).
-                +++ apply Exists_cons_hd. interp_exprs. apply map.get_put_same.
-                +++ interp_exprs. apply map.get_put_same.
-            --- constructor; [|constructor]. rewrite Forall_forall in Hctx.
-                specialize (Hctx _ ltac:(eassumption)). simpl in Hctx.
-                fwd.
-                eapply prog_impl_implication_subset.
-                2: { simpl in *. specialize (Hctxp1 x x). apply Hctxp1. reflexivity. }
-                intros. simpl. auto.
-  - dep_invert He'. simpl in Hcomp. fwd.
-    epose_dep IHHwf1. specialize IHHwf1 with (6 := E).
-    specialize (IHHwf1 ltac:(eassumption)).
-    specialize' IHHwf1.
-    { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. lia. }
-    specialize' IHHwf1.
-    { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. lia. }
-    specialize' IHHwf1.
-    { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. lia. }
-    specialize' IHHwf1.
-    { eassumption. }
-    epose_dep IHHwf2. specialize IHHwf2 with (6 := E0).
-    specialize (IHHwf2 ltac:(eassumption)).
-    specialize' IHHwf2.
-    { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. lia. }
-    specialize' IHHwf2.
-    { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. lia. }
-    specialize' IHHwf2.
-    { eapply Forall_impl; [|eassumption]. simpl. intros. fwd. lia. }
-    specialize' IHHwf2.
-    { eassumption. }
-    fwd.
-    split; [lia|]. admit.
-  - admit.
-  - admit.
-  - admit.
-  - admit.
-  - dep_invert He'. simpl in Hcomp. fwd.
-    specialize IHHwf with (6 := E).
-    epose_dep IHHwf.
-    specialize' IHHwf.
-    { eassumption. }
-    specialize' IHHwf.
-    { eapply Forall_impl; [|eassumption]. simpl. lia. }
-    specialize' IHHwf.
-    { eapply Forall_impl; [|eassumption]. simpl. lia. }
-    specialize' IHHwf.
-    { eapply Forall_impl; [|eassumption]. simpl. lia. }
-    specialize (IHHwf ltac:(eassumption)). fwd.
-    split; [lia|].
-    intros p0. specialize (IHHwfp1 p0).
-    cbv [agrees].
-    simpl. intros x. split; intros Hx.
-    + admit.
-    + eapply prog_impl_step.
-      -- apply Exists_cons_hd. eassert ([natobj _] = _) as ->. 2: econstructor.
-         ++ simpl. cbv [interp_agg].
-            instantiate (2 := map (fun x => (natobj x, natobj x)) l).
-            do 2 rewrite map_map. simpl. rewrite option_all_map_Some.
-            instantiate (1 := []).
-            subst. reflexivity.
-         ++ instantiate (2 := setobj _). simpl. reflexivity.
-         ++ rewrite map_map. simpl. eapply is_list_set_ext.
-            { apply is_list_set_map; [|eassumption].
-              cbv [FinFun.Injective]. invert 1. reflexivity. }
-            intros x0. simpl.
-            destruct x0; split; intros Hx0;
-              try contradiction; try (fwd; discriminate Hx0p0).
-            --- fwd. cbv [natobj] in *. invert Hx0p0. exact Hx0p1.
-            --- destruct o0. cbv [natobj]. eauto.
-      -- simpl in IHHwfp1. constructor.
-         ++ eapply prog_impl_step.
-            --- apply Exists_cons_tl. apply Exists_cons_hd.
-                eapply normal_rule_impl with (ctx := map.put map.empty 0 (setobj _)).
-                +++ apply Exists_cons_hd. interp_exprs. apply map.get_put_same.
-                +++ interp_exprs. apply map.get_put_same.
-            --- constructor; [|constructor]. eapply prog_impl_implication_subset.
-                2: { fwd. specialize (IHHwfp1p1 x' x'). apply IHHwfp1p1. reflexivity. }
-                simpl. auto.
-         ++ apply Forall_map. apply Forall_map.
-            rename H2 into Hl. move Hl at bottom. destruct Hl as [Hlp0 Hlp1].
-            apply Forall_forall. intros x0 Hx0. apply Hlp0 in Hx0.
-            fwd. apply IHHwfp1p0 in Hx0.
-            eapply prog_impl_step.
-            --- apply Exists_cons_tl. apply Exists_cons_tl. apply Exists_cons_hd.
-                eapply normal_rule_impl with (ctx := map.put map.empty 0 (natobj _)).
-                +++ apply Exists_cons_hd. interp_exprs. 1,2: apply map.get_put_same.
-                +++ interp_exprs. apply map.get_put_same.
-            --- constructor; [|constructor].
-                eapply prog_impl_implication_subset; [|eassumption].
-                simpl. auto.
-            Search
+      | H: is_list_set (fun _ => _) _ |- _ => rename H into Hset'
+      end.
+      move Hset at bottom. move Hset' at bottom.
+      cbv [interp_agg]. cbv [extract_nat]. rewrite option_all_map_Some.
+      apply fold_right_change_order.
+      { (*all bops are commutative, for a certain interpretation of the word*)
+        intros. destruct o; simpl; lia. }
+      eapply is_list_set_perm. 1: eassumption.
+      cbv [is_list_set] in Hset, Hset'. fwd. split.
+      { intros x. split; intros Hx.
+        - rewrite in_map_iff. eexists (_, _). rewrite <- Hset'p0. rewrite <- Heq.
+          simpl. eauto.
+        - apply in_map_iff in Hx. fwd. apply Hset'p0 in Hxp1. destruct x0.
+          apply Heq in Hxp1. fwd. assumption. }
+      apply FinFun.Injective_map_NoDup_in; [|assumption].
+      intros (?, ?) (?, ?). simpl. intros H1' H2' ?. subst.
+      apply Hset'p0 in H1', H2'. apply Heq in H1', H2'. fwd. reflexivity.
+      Unshelve.
+      all: exact True || exact (fun _ => True).
