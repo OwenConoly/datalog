@@ -591,7 +591,14 @@ Section __.
     | agg_rule concl_rel _ _ => [concl_rel]
     end.
 
-  Definition hyp_rels (r : rule) : list rel :=
+  Definition meta_concl_rels (r : rule) : list rel :=
+    match r with
+    | normal_rule _ _ => []
+    | meta_rule rule_concls _ => map meta_clause_rel rule_concls
+    | agg_rule _ _ _ => []
+    end.
+
+  Definition hyp_rels_alt (r : rule) : list rel :=
     match r with
     | normal_rule _ rule_hyps => map clause_rel rule_hyps
     (*it is maybe a bit unexpected to have meta-clause rule_concls here.
@@ -608,8 +615,8 @@ Section __.
     | agg_rule _ _ hyp_rel => [hyp_rel]
     end.
 
-  (*not equivalent to hyp_rels*)
-  Definition hyp_rels_alt (r : rule) : list rel :=
+  (*not equivalent to hyp_rels_alt*)
+  Definition hyp_rels (r : rule) : list rel :=
     match r with
     | normal_rule _ rule_hyps => map clause_rel rule_hyps
     | meta_rule rule_concls rule_hyps => map meta_clause_rel rule_hyps
@@ -658,7 +665,7 @@ Section __.
     - eapply non_meta_rule_impl_hyp_relname_in. eassumption.
     - simpl.
       eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
-      intros. repeat invert_stuff. apply in_app_iff.
+      intros. repeat invert_stuff.
       eauto using in_map.
   Qed.
 
@@ -702,7 +709,7 @@ Section __.
 
   Lemma staged_program_rule_impl2 p1 p2 r f hyps :
     disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) ->
-    ~In (rel_of f) (flat_map concl_rels p1) ->
+    Forall (fun R' => ~In R' (flat_map concl_rels p1)) (meta_concl_rels r) ->
     rule_impl (p1 ++ p2) r f hyps ->
     rule_impl p2 r f hyps.
   Proof.
@@ -715,24 +722,47 @@ Section __.
       + apply staged_program_prog_impl_with_no_meta_rules in H'; [|assumption].
         invert H'; [assumption|].
         exfalso.
-        fwd. apply Hout. simpl. rewrite Exists_exists in *. fwd.
-        repeat invert_stuff. apply non_meta_rule_impl_concl_relname_in in Hp1p1.
-        apply in_flat_map. eauto.
+        fwd.
+        rewrite Exists_exists in Hp1. fwd.
+        apply non_meta_rule_impl_concl_relname_in in Hp1p1.
+        simpl in Hout.
+        rewrite Exists_exists in H0. fwd. repeat invert_stuff.
+        rewrite Lists.List.Forall_map in Hout. rewrite Forall_forall in Hout.
+        eapply Hout; try eassumption. apply in_flat_map. eauto.
       + eapply prog_impl_with_no_meta_rules_subset; [|eassumption].
         auto with incl.
   Qed.
 
   Lemma staged_program p1 p2 Q f :
     disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) ->
+    disjoint_lists (flat_map meta_concl_rels p1) (flat_map concl_rels p2) ->
+    disjoint_lists (flat_map meta_concl_rels p2) (flat_map concl_rels p1) ->
     prog_impl (p1 ++ p2) Q f ->
     prog_impl p1 (prog_impl p2 Q) f.
   Proof.
-    intros Hdisj. induction 1 using prog_impl_ind.
+    intros Hdisj Hmr1 Hmr2. induction 1 using prog_impl_ind.
     - apply pftree_leaf. apply pftree_leaf. assumption.
     - apply Exists_app in H. destruct H as [H|H].
       + eapply prog_impl_step. 2: eassumption.
         eapply Exists_impl; [|eassumption].
-        simpl. intros r. enough (In r p1).
+        simpl. admit.
+      + apply pftree_leaf. eapply prog_impl_step.
+        -- rewrite Exists_exists in *. fwd. eexists. split; [eassumption|].
+           eapply staged_program_rule_impl2; [eassumption| |eassumption].
+           apply Forall_forall.
+           intros R HR1 HR2.
+           eapply Hmr2; eauto. apply in_flat_map. eauto.
+        -- rewrite Exists_exists in H. fwd.
+           apply rule_impl_hyp_relname_in in Hp1.
+           eapply Forall_impl.
+           2: { eapply Forall_and; [apply Hp1|apply H1]. }
+           simpl. intros f' [Hf'1 Hf'2].
+           invert Hf'2; [assumption|].
+           apply Exists_exists in H. fwd. apply rule_impl_concl_relname_in in Hp3.
+eapply Forall_impl; [|
+           eapply Exists_impl.
+        ; eauto. apply Exists_exists
+        intros r. enough (In r p1).
         {
         ~In R (flat_map concl_rels p1) ->
         prog_impl (p1 ++ p2) hyps ->
