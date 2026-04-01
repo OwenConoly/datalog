@@ -427,6 +427,19 @@ Section __.
     | meta_fact_args mf_args mf_set => meta_fact R mf_args mf_set
     end.
 
+  Lemma interp_clause_agree_on ctx1 ctx2 c f :
+    interp_clause ctx1 c f ->
+    Forall (agree_on ctx1 ctx2) (vars_of_clause c) ->
+    interp_clause ctx2 c f.
+  Proof.
+    cbv [interp_clause]. intros Hinterp Hagree. fwd.
+    eexists. split; [|auto].
+    eapply Forall2_impl_strong; [|eassumption].
+    intros. cbv [vars_of_clause] in Hagree.
+    rewrite Forall_flat_map, Forall_forall in Hagree.
+    eauto using interp_expr_agree_on.
+  Qed.
+
   Ltac invert_stuff :=
     match goal with
     | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args] in *
@@ -442,53 +455,6 @@ Section __.
     | _ => progress fwd
     | _ => congruence
     end.
-
-  Ltac interp_exprs :=
-  repeat rewrite map_app; simpl;
-  repeat match goal with
-    | _ => progress simpl
-
-    | |- Forall2 _ (_ ++ _) _ => apply Forall2_app
-    | |- Forall2 _ (_ :: _) _ => constructor
-    | |- Forall2 _ nil _ => constructor
-    | |- Forall2 _ _ _ =>
-        (eapply Forall2_impl; [|eassumption]; simpl; intros) ||
-          idtac
-
-    | |- Forall _ (_ :: _) => constructor; [interp_exprs|]
-    | |- Forall _ [] => constructor
-
-    | |- interp_expr _ _ _ => econstructor
-    (* | |- interp_expr _ _ _ => *)
-    (*     eapply interp_expr_subst_more; [|eassumption] *)
-    | |- interp_clause _ _ _ =>
-        eapply interp_clause_subst_more; [|eassumption]
-    | |- interp_clause _ _ _ =>
-        cbv [interp_clause]; eexists; split; [|reflexivity]; simpl
-    | |- interp_meta_clause _ _ _ =>
-        cbv [interp_meta_clause]; do 2 eexists; split; [|reflexivity]; simpl
-    | |- _ /\ _ => split; [solve [interp_exprs] |]
-    | |- Exists _ [_] => apply Exists_cons_hd
-
-    | |- _ => rewrite map.get_put_diff by congruence
-    | |- _ => rewrite map.get_put_same by reflexivity
-
-    | |- _ => reflexivity
-    | |- _ => eassumption (*hsould this just be assumption?*)
-    end.
-
-  Lemma interp_clause_agree_on ctx1 ctx2 c f :
-    interp_clause ctx1 c f ->
-    Forall (agree_on ctx1 ctx2) (vars_of_clause c) ->
-    interp_clause ctx2 c f.
-  Proof.
-    cbv [interp_clause]. intros Hinterp Hagree. fwd.
-    eexists. split; [|auto].
-    eapply Forall2_impl_strong; [|eassumption].
-    intros. cbv [vars_of_clause] in Hagree.
-    rewrite Forall_flat_map, Forall_forall in Hagree.
-    eauto using interp_expr_agree_on.
-  Qed.
 
   Lemma interp_expr_det ctx e v1 v2 :
     interp_expr ctx e v1 ->
@@ -1001,3 +967,54 @@ Arguments fact : clear implicits.
 Arguments fact_args : clear implicits.
 Arguments rule : clear implicits.
 Arguments expr : clear implicits.
+
+Ltac interp_exprs :=
+  repeat rewrite map_app; simpl;
+  repeat match goal with
+    | _ => progress simpl
+
+    | |- Forall2 _ (_ ++ _) _ => apply Forall2_app
+    | |- Forall2 _ (_ :: _) _ => constructor
+    | |- Forall2 _ nil _ => constructor
+    | |- Forall2 _ _ _ =>
+        (eapply Forall2_impl; [|eassumption]; simpl; intros) ||
+          idtac
+
+    | |- Forall _ (_ :: _) => constructor; [interp_exprs|]
+    | |- Forall _ [] => constructor
+
+    | |- interp_expr _ _ _ => econstructor
+    | |- interp_expr _ _ _ =>
+        eapply interp_expr_subst_more; [|eassumption]
+    | |- interp_clause _ _ _ =>
+        eapply interp_clause_subst_more; [|eassumption]
+    | |- interp_clause _ _ _ =>
+        cbv [interp_clause]; eexists; split; [|reflexivity]; simpl
+    | |- interp_meta_clause _ _ _ =>
+        cbv [interp_meta_clause]; do 2 eexists; split; [|reflexivity]; simpl
+    | |- _ /\ _ => split; [solve [interp_exprs] |]
+    | |- Exists _ [_] => apply Exists_cons_hd
+
+    | |- _ => rewrite map.get_put_diff by congruence
+    | |- _ => rewrite map.get_put_same by reflexivity
+
+    | |- _ => reflexivity
+    | |- _ => eassumption (*hsould this just be assumption?*)
+    end.
+
+(*TODO this is reproduced within the section, and idk how to get it out*)
+Ltac invert_stuff :=
+  match goal with
+  | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args] in *
+  | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
+  | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
+  | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
+  | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
+  | H : interp_expr _ _ _ |- _ => invert1 H
+  | H : In _ [_] |- _ => destruct H; [|contradiction]
+  | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
+  | _ => progress subst
+  | _ => progress invert_list_stuff
+  | _ => progress fwd
+  | _ => congruence
+  end.

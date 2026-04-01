@@ -2,7 +2,7 @@ From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Datatypes.List Tactics Tactics.fwd.
-From Datalog Require Import List Datalog (* FancyNotations *) Tactics.
+From Datalog Require Import List Datalog (* FancyNotations *) Tactics Blocks.
 Import ListNotations.
 
 Section __.
@@ -107,17 +107,17 @@ Definition is_blank (e : expr) :=
   | fun_expr (fn_lit blank) [] => true
   | _ => false
   end.
-Print meta_rule. Print meta_clause. Print Datalog.blocks_prog. Print LetIn.
+Print meta_rule. Print meta_clause. Print blocks_prog. Print LetIn.
 Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var :=
   match e with
   | Var t x =>
       Block O
         [normal_rule
            [{| clause_rel := local O; clause_args := [var_expr O] |}]
-           [{| clause_rel := Datalog.Var x; clause_args := [var_expr O] |}];
+           [{| clause_rel := Blocks.Var x; clause_args := [var_expr O] |}];
          meta_rule
            [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-           [{| meta_clause_rel := Datalog.Var x; meta_clause_args := [None] |}]]
+           [{| meta_clause_rel := Blocks.Var x; meta_clause_args := [None] |}]]
   | bop_over_vals o x y =>
       LetIn (compile_Sexpr x)
         (fun x' =>
@@ -126,12 +126,12 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
                 Block O
                   [normal_rule
                      [{| clause_rel := local O; clause_args := [fun_expr (fn_bop o) [var_expr O; var_expr (S O)]] |}]
-                     [{| clause_rel := Datalog.Var x'; clause_args := [var_expr O] |};
-                      {| clause_rel := Datalog.Var y'; clause_args := [var_expr (S O)] |}];
+                     [{| clause_rel := Blocks.Var x'; clause_args := [var_expr O] |};
+                      {| clause_rel := Blocks.Var y'; clause_args := [var_expr (S O)] |}];
                    meta_rule
                      [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                     [{| meta_clause_rel := Datalog.Var x'; meta_clause_args := [None] |};
-                      {| meta_clause_rel := Datalog.Var y'; meta_clause_args := [None] |}]]))
+                     [{| meta_clause_rel := Blocks.Var x'; meta_clause_args := [None] |};
+                      {| meta_clause_rel := Blocks.Var y'; meta_clause_args := [None] |}]]))
   | empty => Block O [meta_rule
                        [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
                        []]
@@ -145,12 +145,12 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
                 Block O
                   [normal_rule
                      [{| clause_rel := local O; clause_args := [var_expr O] |}]
-                     [{| clause_rel := Datalog.Var x'; clause_args := [var_expr O] |};
-                      {| clause_rel := Datalog.Var y'; clause_args := [var_expr O] |}];
+                     [{| clause_rel := Blocks.Var x'; clause_args := [var_expr O] |};
+                      {| clause_rel := Blocks.Var y'; clause_args := [var_expr O] |}];
                    meta_rule
                      [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                     [{| meta_clause_rel := Datalog.Var x'; meta_clause_args := [None] |};
-                      {| meta_clause_rel := Datalog.Var y'; meta_clause_args := [None] |}]]))
+                     [{| meta_clause_rel := Blocks.Var x'; meta_clause_args := [None] |};
+                      {| meta_clause_rel := Blocks.Var y'; meta_clause_args := [None] |}]]))
   | let_in t1 t2 x f =>
       LetIn (compile_Sexpr x)
         (fun x' => compile_Sexpr (f x'))
@@ -164,10 +164,10 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
                 [{| meta_clause_rel := local (S O); meta_clause_args := [None; None] |}];
               normal_rule
                 [{| clause_rel := local (S O); clause_args := [var_expr O; var_expr O] |}]
-                [{| clause_rel := Datalog.Var x'; clause_args := [var_expr O] |}];
+                [{| clause_rel := Blocks.Var x'; clause_args := [var_expr O] |}];
               meta_rule
                 [{| meta_clause_rel := local (S O); meta_clause_args := [None; None] |}]
-                [{| meta_clause_rel := Datalog.Var x'; meta_clause_args := [None] |}]])
+                [{| meta_clause_rel := Blocks.Var x'; meta_clause_args := [None] |}]])
   end.
 
 Definition sum_expr {var} (S : var set) :=
@@ -482,10 +482,12 @@ Ltac invert1_Exists H :=
                  apply Exists_cons in H; destruct H as [H|H]; [|invert0_Exists H] ].
 
 Ltac invert_stuff :=
-  first [invert_stuff0 |
+  first [Blocks.invert_stuff |
           match goal with
           | H: Exists _ _ |- _ => invert1_Exists H
           end].
+
+Ltac interp_exprs := Blocks.interp_exprs.
 
 Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :

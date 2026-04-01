@@ -106,24 +106,6 @@ Section Blocks.
     intros H1 H2. eapply block_prog_impl_mf_ext; [eassumption|].
     cbv [honest_block_prog] in H1. apply H1. apply H2.
   Qed.
-  Ltac invert_stuff :=
-    first [Datalog.invert_stuff |
-            match goal with
-            | H : block_prog_impl _ _ _ |- _ => apply inv_block_prog_impl in H; try (destruct H as [H|H]; [contradiction|])
-            end].
-
-  Ltac interp_exprs :=
-    first [Datalog.interp_exprs |
-            match goal with
-            | |- block_prog_impl _ _ ?f =>
-                let x := constr:(rel_of f) in
-                let x := (eval simpl in x) in
-                match x with
-                | global _ => idtac
-                | Datalog.Var _ => idtac
-                end;
-                apply block_prog_impl_step with (hyps := []); [|constructor]
-            end.
 
   Fixpoint honest_blocks_prog globals e :=
     match e with
@@ -196,8 +178,29 @@ Section Blocks.
     | Block ret p => (S name, lvar_rel name ret, map (map_rule_rels (flatten_rel name)) p)
     end.
 
-  Lemma flatten_correct name e :
-
+  (* Lemma flatten_correct name e : *)
+  (*   True. *)
 
 End Blocks.
 Arguments blocks_prog : clear implicits.
+
+Ltac invert_stuff :=
+  first [Datalog.invert_stuff |
+          match goal with
+          | H: block_rule_impl _ _ _ _ |- _ => cbv [block_rule_impl] in H; simpl in H
+          | H : block_prog_impl _ _ _ |- _ => apply inv_block_prog_impl in H; try (destruct H as [H|H]; [contradiction|])
+          end].
+
+Ltac interp_exprs :=
+  repeat first [match goal with
+                | |- block_prog_impl _ _ ?f =>
+                    let x := constr:(rel_of f) in
+                    let x := (eval simpl in x) in
+                    match x with
+                    | global _ => idtac
+                    | Var _ => idtac
+                    end;
+                    apply block_prog_impl_step with (hyps := []); [|constructor]
+                | |- block_rule_impl _ _ _ _ => cbv [block_rule_impl]; simpl
+                end |
+                 Datalog.interp_exprs ].
