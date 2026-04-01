@@ -206,6 +206,16 @@ Section __.
     prog_impl p Q2 x.
   Proof. cbv [prog_impl]. eauto using pftree_weaken_hyp. Qed.
 
+  Lemma prog_impl_hyp_ext p f Q1 Q2 :
+    (forall f', Q1 f' <-> Q2 f') ->
+    prog_impl p Q1 f <-> prog_impl p Q2 f.
+  Proof.
+    intros H.
+    split; intros; eapply prog_impl_weaken_hyp; try eassumption.
+    - intros. apply H. assumption.
+    - intros. apply H. assumption.
+  Qed.
+
   Lemma rule_impl_mf_ext p Q mf_rel mf_args hyps mf_set mf_set' :
     rule_impl p Q (meta_fact mf_rel mf_args mf_set) hyps ->
     (forall nf_args,
@@ -426,6 +436,10 @@ Section __.
     | normal_fact_args nf_args => normal_fact R nf_args
     | meta_fact_args mf_args mf_set => meta_fact R mf_args mf_set
     end.
+
+  Lemma fact_of_rel_of_args_of f :
+    fact_of (rel_of f) (args_of f) = f.
+  Proof. destruct f; reflexivity. Qed.
 
   Lemma interp_clause_agree_on ctx1 ctx2 c f :
     interp_clause ctx1 c f ->

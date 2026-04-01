@@ -214,13 +214,14 @@ Section Blocks.
         (name'', Rfx, p1 ++ p2)
     | Block ret p => (S name, lvar_rel name ret, map (map_rule_rels (flatten_rel name)) p)
     end.
-
+  Search (Datalog.fact _ _ -> Datalog.fact_args _).
   Lemma flatten_correct ctx name e e0 name' Rret p :
     wf_blocks_prog ctx e e0 ->
     flatten name e0 = (name', Rret, p) ->
     forall args,
       interp_blocks_prog map.empty e args <->
-        prog_impl p (fun _ => False) (fact_of Rret args).
+        prog_impl p (fun f => exists R, In (R, rel_of f) ctx /\ R (args_of f))
+          (fact_of Rret args).
   Proof.
     intros Hwf. revert name name' Rret p.
     induction Hwf;
@@ -231,6 +232,13 @@ Section Blocks.
     - rewrite staged_program_iff.
       2: { admit. }
       rewrite H0 by eassumption.
+      apply prog_impl_hyp_ext. intros f'. split; intros Hf'; fwd.
+      + simpl in Hf'p0. destruct Hf'p0 as [Hf'p0|Hf'p0].
+        -- fwd. rewrite IHHwf in Hf'p1 by eassumption.
+           rewrite fact_of_rel_of_args_of in Hf'p1. exact Hf'p1.
+        --
+           simpl in Hf'p1.
+      Search prog_impl.
       admit.
     - simpl.
       split; intros Hargs.
