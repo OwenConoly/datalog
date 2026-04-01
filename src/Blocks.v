@@ -29,6 +29,43 @@ Section Blocks.
   | Block (ret : lvar) (p : list (block_rule var)).
   Arguments blocks_prog : clear implicits.
 
+  Section well_formed.
+    Context {var1 var2 : Type}.
+
+    Inductive wf_blocks_rel (ctx : list (var1 * var2)) : blocks_rel var1 -> blocks_rel var2 -> Prop :=
+    | wf_local_rel x :
+      wf_blocks_rel _ (local x) (local x)
+    | wf_global_rel x :
+      wf_blocks_rel _ (global x) (global x)
+    | wf_Var_rel x1 x2 :
+      In (x1, x2) ctx ->
+      wf_blocks_rel _ (Var x1) (Var x2).
+
+    Inductive wf_block_rule (ctx : list (var1 * var2)) : block_rule var1 -> block_rule var2 -> Prop :=
+    | wf_normal_rule concls1 concls2 hyps1 hyps2 :
+      Forall2 (wf_blocks_rel ctx) (map clause_rel concls1) (map clause_rel concls2) ->
+      Forall2 (wf_blocks_rel ctx) (map clause_rel hyps1) (map clause_rel hyps2) ->
+      wf_block_rule _ (normal_rule concls1 hyps1) (normal_rule concls2 hyps2)
+    | wf_meta_rule concls1 concls2 hyps1 hyps2 :
+      Forall2 (wf_blocks_rel ctx) (map meta_clause_rel concls1) (map meta_clause_rel concls2) ->
+      Forall2 (wf_blocks_rel ctx) (map meta_clause_rel hyps1) (map meta_clause_rel hyps2) ->
+      wf_block_rule _ (meta_rule concls1 hyps1) (meta_rule concls2 hyps2)
+    | wf_agg_rule R1 R2 R1' R2' a :
+      wf_blocks_rel ctx R1 R2 ->
+      wf_blocks_rel ctx R1' R2' ->
+      wf_block_rule _ (agg_rule R1 a R1') (agg_rule R2 a R2').
+
+    Inductive wf_blocks_prog : list (var1 * var2) -> blocks_prog var1 -> blocks_prog var2 -> Prop :=
+    | wf_LetIn ctx x1 x2 f1 f2 :
+      wf_blocks_prog ctx x1 x2 ->
+      (forall x1' x2', wf_blocks_prog ((x1', x2') :: ctx) (f1 x1') (f2 x2')) ->
+      wf_blocks_prog ctx (LetIn x1 f1) (LetIn x2 f2)
+    | wf_Block ctx ret p1 p2 :
+      Forall2 (wf_block_rule ctx) p1 p2 ->
+      wf_blocks_prog ctx (Block ret p1) (Block ret p2).
+  End well_formed.
+
+
   (*bad name, confused me*)
   Definition block_rule_impl globals (p : list (block_rule _)) f hyps :=
     match rel_of f with
@@ -172,14 +209,37 @@ Section Blocks.
   Fixpoint flatten (name : nat) (e : blocks_prog flat_rel) : nat * flat_rel * list (rule flat_rel exprvar fn aggregator) :=
     match e with
     | LetIn x f =>
-        let '(name', Rx, p1) := flatten name x in
-        let '(name'', Rfx, p2) := flatten name' (f Rx) in
+        let '(name', Rx, p2) := flatten name x in
+        let '(name'', Rfx, p1) := flatten name' (f Rx) in
         (name'', Rfx, p1 ++ p2)
     | Block ret p => (S name, lvar_rel name ret, map (map_rule_rels (flatten_rel name)) p)
     end.
 
-  (* Lemma flatten_correct name e : *)
-  (*   True. *)
+  Lemma flatten_correct ctx name e e0 name' Rret p :
+    wf_blocks_prog ctx e e0 ->
+    flatten name e0 = (name', Rret, p) ->
+    forall args,
+      interp_blocks_prog map.empty e args <->
+        prog_impl p (fun _ => False) (fact_of Rret args).
+  Proof.
+    intros Hwf. revert name name' Rret p.
+    induction Hwf;
+      intros name name' Rret p Hflat args;
+      simpl in Hflat;
+      fwd;
+      simpl.
+    - rewrite staged_program_iff.
+      2: { admit. }
+      rewrite H0 by eassumption.
+      admit.
+    - simpl.
+      split; intros Hargs.
+      + eapply IHHwf.
+      split; intros Hargs.
+      +
+    forall args,
+      e' args <->
+    True.
 
 End Blocks.
 Arguments blocks_prog : clear implicits.
