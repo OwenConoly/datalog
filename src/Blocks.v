@@ -248,11 +248,23 @@ Section Blocks.
     | gvar_rel _ => False
     end.
 
+  Definition not_as_big_as hi x :=
+    match x with
+    | lvar_rel block_id _ => block_id < hi
+    | gvar_rel _ => True
+    end.
+
   Lemma in_range_weaken lo0 lo hi hi0 x :
     in_range lo hi x ->
     lo0 <= lo ->
     hi <= hi0 ->
     in_range lo0 hi0 x.
+  Proof. destruct x; simpl; auto; lia. Qed.
+
+  Lemma not_as_big_as_weaken hi hi0 x :
+    not_as_big_as hi x ->
+    hi <= hi0 ->
+    not_as_big_as hi0 x.
   Proof. destruct x; simpl; auto; lia. Qed.
 
 
@@ -287,46 +299,138 @@ Section Blocks.
     - reflexivity.
   Qed.
 
-  Lemma flatten_rels_good e0 name name' Rret p :
-    flatten name e0 = (name', Rret, p) ->
-    name <= name' /\
-      Forall (in_range name name') (flat_map concl_rels p).
+  Lemma all_rels_map_rule_rels {R1 R2} (f : R1 -> R2) (r : rule R1 exprvar fn aggregator) :
+    all_rels (map_rule_rels f r) = map f (all_rels r).
   Proof.
-    revert name name' Rret p.
-    induction e0;
-      intros name name' Rret p0 Hflat;
-      simpl in Hflat;
-      fwd;
-      repeat match goal with
-        | IH: forall _ _ _ _ _, _ -> _ |- _ => specialize (IH _ _ _ _ _ ltac:(eassumption))
-        | IH: forall _ _ _ _, _ -> _ |- _ => specialize (IH _ _ _ _ ltac:(eassumption))
+    destruct r; simpl.
+    - rewrite map_app. do 4 rewrite map_map. reflexivity.
+    - rewrite map_app. do 4 rewrite map_map. reflexivity.
+    - reflexivity.
+  Qed.
+
+  Lemma incl_all_rels_keep_local_concls {var} (r r' : block_rule var) :
+    In r' (keep_local_concls r) ->
+    incl (all_rels r') (all_rels r).
+  Proof.
+    destruct r; simpl.
+    - intros [<- | []] R. simpl. rewrite !in_app_iff. intros [HR | HR].
+      + left. apply in_map_iff in HR. destruct HR as [c [<- Hc]].
+        apply filter_In in Hc. destruct Hc as [Hc _].
+        apply in_map_iff. eauto.
+      + right. assumption.
+    - intros [<- | []] R. simpl. rewrite !in_app_iff. intros [HR | HR].
+      + left. apply in_map_iff in HR. destruct HR as [c [<- Hc]].
+        apply filter_In in Hc. destruct Hc as [Hc _].
+        apply in_map_iff. eauto.
+      + right. assumption.
+    - destruct (is_local_rel concl_rel) eqn:E.
+      + intros [<- | []] R HR. exact HR.
+      + intros [].
+  Qed.
+
+  Lemma Forall2_wf_blocks_rel_Var_in_ctx {var1 var2} (ctx : list (var1 * var2)) R1s R2s x :
+    Forall2 (wf_blocks_rel ctx) R1s R2s ->
+    In (Var x) R2s ->
+    In x (map snd ctx).
+  Proof.
+    intros Hwf HIn.
+    apply Forall2_forget_l in Hwf.
+    rewrite Forall_forall in Hwf.
+    apply Hwf in HIn. fwd. invert HInp1.
+    apply in_map_iff. eexists (_, _); split; [reflexivity | eassumption].
+  Qed.
+
+  Lemma wf_block_rule_Var_in_ctx {var1 var2} ctx (r1 : block_rule var1) (r2 : block_rule var2) x :
+    wf_block_rule ctx r1 r2 ->
+    In (Var x) (all_rels r2) ->
+    In x (map snd ctx).
+  Proof.
+    intros Hwf HIn. invert Hwf; simpl in HIn.
+    - apply in_app_iff in HIn. destruct HIn as [HIn | HIn];
+        eauto using Forall2_wf_blocks_rel_Var_in_ctx.
+    - apply in_app_iff in HIn. destruct HIn as [HIn | HIn];
+        eauto using Forall2_wf_blocks_rel_Var_in_ctx.
+    - destruct HIn as [-> | [-> | []]];
+        match goal with
+        | H : wf_blocks_rel _ _ (Var x) |- _ => invert H
         end;
+        apply in_map_iff; eexists (_, _); (split; [reflexivity | eassumption]).
+  Qed.
+
+  Lemma flatten_rels_good var1 ctx (e : blocks_prog var1) e0 name name' Rret p :
+    wf_blocks_prog ctx e e0 ->
+    flatten name e0 = (name', Rret, p) ->
+    Forall (fun '(_, R) => not_as_big_as name R) ctx ->
+    name <= name' /\
+      not_as_big_as name' Rret /\
+      Forall (in_range name name') (flat_map concl_rels p) /\
+      Forall (not_as_big_as name') (flat_map all_rels p).
+  Proof.
+    intros Hwf.
+    revert name name' Rret p.
+    induction Hwf;
+      intros name name' Rret p0 Hflat Hctx;
+      simpl in Hflat;
       fwd.
-    - ssplit.
+    - epose_dep IHHwf.
+      specialize (IHHwf ltac:(eassumption)). specialize' IHHwf.
+      { eapply Forall_impl; [|eassumption].
+        intros [? ?]. intros. eapply not_as_big_as_weaken; [eassumption|]. lia. }
+      fwd.
+      rename H0 into IH'. epose_dep IH'.
+      specialize (IH' ltac:(eassumption)). specialize' IH'.
+      { constructor; [eassumption|]. eapply Forall_impl; [|eassumption].
+        intros [? ?]. intros. eapply not_as_big_as_weaken; [eassumption|]. lia. }
+      fwd. ssplit.
       + lia.
+      + assumption.
       + rewrite flat_map_app. apply Forall_app.
         eauto 10 using Forall_impl, in_range_weaken.
+      + rewrite flat_map_app. apply Forall_app.
+        eauto 10 using Forall_impl, not_as_big_as_weaken.
     - ssplit.
       + lia.
+      + simpl. lia.
       + apply Forall_flat_map. apply Forall_map. apply Forall_flat_map.
         apply Forall_forall. intros r _. apply Forall_forall. intros r' Hr'.
         rewrite concl_rels_map_rule_rels. apply Forall_map.
         apply in_keep_local_concls_Forall_local in Hr'.
         eapply Forall_impl; [|eassumption]. simpl. intros R.
         destruct R; simpl; try congruence. lia.
-  Qed.
+      + apply Forall_flat_map. apply Forall_map. apply Forall_flat_map.
+        apply Forall_forall. intros r Hr. apply Forall_forall. intros r' Hr'.
+        rewrite all_rels_map_rule_rels. apply Forall_map.
+        apply Forall_forall. intros R HR.
+        destruct R; simpl; auto.
+        apply Forall2_forget_l in H.
+        rewrite Forall_forall in H.
+        specialize (H _ Hr). fwd.
+        eapply wf_block_rule_Var_in_ctx in Hp1; [|].
+        2: { eapply incl_all_rels_keep_local_concls; [eassumption|eassumption]. }
+        rewrite Forall_forall in Hctx.
+        apply in_map_iff in Hp1. destruct Hp1 as [[? ?] Hp1]. fwd.
+        apply Hctx in Hp1p1. eapply not_as_big_as_weaken; [eassumption|]. lia.
+        Unshelve. auto.
+
+  Abort.
 
   Lemma flatten_correct ctx name e e0 name' Rret p :
+    Forall (fun '(_, R) => not_as_big_as name' R) ctx ->
     wf_blocks_prog ctx e e0 ->
+    flatten name e0 = (name', Rret, p) ->
     forall args,
       interp_blocks_prog map.empty e args <->
         prog_impl p (fun f => exists R, In (R, rel_of f) ctx /\ R (args_of f))
           (fact_of Rret args).
   Proof.
-    intros Hwf. revert name name' Rret p.
+    intros Hctx Hwf. revert name name' Rret p.
     induction Hwf;
-      intros name name' Rret p Hflat Hrels args;
+      intros name name' Rret p Hflat args;
       simpl in Hflat;
+      fwd;
+      repeat match goal with
+        | IH: forall _ _ _ _, _ -> _ |- _ => specialize (IH _ _ _ _ ltac:(eassumption))
+        end;
       fwd;
       simpl.
     - rewrite staged_program_iff.
