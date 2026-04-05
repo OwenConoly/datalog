@@ -421,6 +421,18 @@ Section Blocks.
     False.
   Proof. destruct x; simpl; auto. lia. Qed.
 
+  Definition is_global x :=
+    match x with
+    | gvar_rel _ => True
+    | lvar_rel _ _ => False
+    end.
+
+  Lemma in_range_not_global lo hi x :
+    in_range lo hi x ->
+    is_global x ->
+    False.
+  Proof. destruct x; auto. Qed.
+
   Lemma flatten_correct ctx name e e0 name' Rret p :
     wf_blocks_prog ctx e e0 ->
     flatten name e0 = (name', Rret, p) ->
@@ -428,7 +440,7 @@ Section Blocks.
     name <= name' /\
       in_range name name' Rret /\
       Forall (in_range name name') (flat_map concl_rels p) /\
-      Forall (fun R => in_range name name' R \/ In R (map snd ctx)) (flat_map all_rels p) /\
+      Forall (fun R => in_range name name' R \/ In R (map snd ctx) \/ is_global R) (flat_map all_rels p) /\
       forall args,
         interp_blocks_prog map.empty e args <->
           prog_impl p (fun f => exists R, In (R, rel_of f) ctx /\ R (args_of f))
@@ -458,17 +470,18 @@ Section Blocks.
         eauto 10 using Forall_impl, in_range_weaken.
       + rewrite flat_map_app. apply Forall_app. split.
         -- eapply Forall_impl; [|eassumption]. simpl.
-           intros R [HR| [HR|HR]]; subst; eauto using in_range_weaken.
+           intros R [HR| [[HR|HR]|HR]]; subst; eauto using in_range_weaken.
         -- eapply Forall_impl; [|eassumption]. simpl.
            intros R [HR|HR]; eauto using in_range_weaken.
       + intros args.
         rewrite staged_program_iff.
         2: { intros x H1 H2. rewrite Forall_forall in *.
-             apply IH'p2 in H1. apply IHHwfp3 in H2. destruct H2 as [H2|H2].
+             apply IH'p2 in H1. apply IHHwfp3 in H2. destruct H2 as [H2|[H2|H2]].
              - eapply in_nonoverlapping_ranges. 1: exact H2. 1: exact H1. lia.
              - apply in_map_iff in H2. destruct H2 as [[? ?] H2]. fwd.
                apply Hctx in H2p1. simpl in H1.
-               eapply in_nonoverlapping_ranges. 1: exact H2p1. 1: exact H1. lia. }
+               eapply in_nonoverlapping_ranges. 1: exact H2p1. 1: exact H1. lia.
+             - eauto using in_range_not_global. }
         rewrite IH'p4.
         apply prog_impl_hyp_ext_strong.
         { split; intros Hargs; simpl; fwd; exfalso.
@@ -498,17 +511,27 @@ Section Blocks.
            ++ fwd. rewrite IHHwfp4 in Hf'p1 by eassumption.
               rewrite fact_of_rel_of_args_of in Hf'p1. exact Hf'p1.
            ++ apply prog_impl_leaf. eauto.
-        -- apply prog_impl_rel_of in Hf'. destruct Hf' as [Hf'|Hf'].
+        -- pose proof Hf' as Hf''.
+           apply prog_impl_rel_of in Hf'. destruct Hf' as [Hf'|Hf'].
            ++ fwd. simpl. eauto.
-           ++ rewrite Forall_forall in IH'p3. apply IH'p2 in Hf'.
-              rewrite Forall_forall in Hctx. apply Hctx in Hf'p0.
-              simpl. eauto.
-              eauto.
-              eauto using in_nonoverlapping_ranges.
-            + rewrite rel_of_fact_of in Hargs.
-              rewrite Forall_forall in IHHwfp2.
-              apply IHHwfp2 in Hargs.
-              eauto using in_nonoverlapping_ranges.
+           ++ rewrite Forall_forall in IH'p3.
+              eapply incl_flat_map_strong in HRf'.
+              2: { apply incl_refl. }
+              2: { intros. Search hyp_rels. apply hyp_rels_incl_all_rels. }
+              apply IH'p3 in HRf'.
+              rewrite Forall_forall in IHHwfp2. apply IHHwfp2 in Hf'.
+              destruct HRf' as [HRf'|HRf'].
+              { exfalso. eauto using in_nonoverlapping_ranges. }
+              simpl in HRf'. destruct HRf' as [[HRf'|HRf']|HRf'].
+              { subst. simpl. eexists. split; eauto. apply IHHwfp4.
+                rewrite fact_of_rel_of_args_of. assumption. }
+              2: { exfalso. eauto using in_range_not_global. }
+              apply in_map_iff in HRf'. destruct HRf' as [[? ?] HRf'].
+              simpl in HRf'. fwd.
+              Search ctx.
+              rewrite Forall_forall in Hctx.
+              apply Hctx in HRf'p1.
+              exfalso. eauto using in_nonoverlapping_ranges.
     - ssplit.
       + lia.
       + lia.
@@ -529,9 +552,7 @@ Section Blocks.
         specialize (H _ Hr). fwd.
         eapply wf_block_rule_Var_in_ctx in Hp1; [|].
         2: { eapply incl_all_rels_keep_local_concls; [eassumption|eassumption]. }
-        rewrite Forall_forall in Hctx.
-        apply in_map_iff in Hp1. destruct Hp1 as [[? ?] Hp1]. fwd.
-        apply Hctx in Hp1p1. eapply not_as_big_as_weaken; [eassumption|]. lia.
+        rewrite Forall_forall in Hctx. auto.
       + intros args.
         split; intros Hargs.
         -- admit.
