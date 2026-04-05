@@ -415,38 +415,75 @@ Section Blocks.
   Abort.
 
   Lemma flatten_correct ctx name e e0 name' Rret p :
-    Forall (fun '(_, R) => not_as_big_as name' R) ctx ->
     wf_blocks_prog ctx e e0 ->
     flatten name e0 = (name', Rret, p) ->
-    forall args,
-      interp_blocks_prog map.empty e args <->
-        prog_impl p (fun f => exists R, In (R, rel_of f) ctx /\ R (args_of f))
-          (fact_of Rret args).
+    Forall (fun '(_, R) => not_as_big_as name R) ctx ->
+    name <= name' /\
+      not_as_big_as name' Rret /\
+      Forall (in_range name name') (flat_map concl_rels p) /\
+      Forall (not_as_big_as name') (flat_map all_rels p) /\
+      forall args,
+        interp_blocks_prog map.empty e args <->
+          prog_impl p (fun f => exists R, In (R, rel_of f) ctx /\ R (args_of f))
+            (fact_of Rret args).
   Proof.
-    intros Hctx Hwf. revert name name' Rret p.
+    intros Hwf. revert name name' Rret p.
     induction Hwf;
-      intros name name' Rret p Hflat args;
+      intros name name' Rret p Hflat Hctx;
       simpl in Hflat;
       fwd;
-      repeat match goal with
-        | IH: forall _ _ _ _, _ -> _ |- _ => specialize (IH _ _ _ _ ltac:(eassumption))
-        end;
-      fwd;
       simpl.
-    - rewrite staged_program_iff.
-      2: { admit. }
-      rewrite H0 by eassumption.
-      apply prog_impl_hyp_ext. intros f'. split; intros Hf'; fwd.
-      + simpl in Hf'p0. destruct Hf'p0 as [Hf'p0|Hf'p0].
-        -- fwd. rewrite IHHwf in Hf'p1 by eassumption.
-           rewrite fact_of_rel_of_args_of in Hf'p1. exact Hf'p1.
-        -- apply prog_impl_leaf. eauto.
-      + rewrite <- fact_of_rel_of_args_of in Hf'. rewrite <- IHHwf in Hf'. eassumption.
-           simpl in Hf'p1.
-      Search prog_impl.
-      admit.
-    - simpl.
-      split; intros Hargs.
+    - epose_dep IHHwf.
+      specialize (IHHwf ltac:(eassumption)). specialize' IHHwf.
+      { eapply Forall_impl; [|eassumption].
+        intros [? ?]. intros. eapply not_as_big_as_weaken; [eassumption|]. lia. }
+      fwd.
+      rename H0 into IH'. epose_dep IH'.
+      specialize (IH' ltac:(eassumption)). specialize' IH'.
+      { constructor; [eassumption|]. eapply Forall_impl; [|eassumption].
+        intros [? ?]. intros. eapply not_as_big_as_weaken; [eassumption|]. lia. }
+      fwd. ssplit.
+      + lia.
+      + assumption.
+      + rewrite flat_map_app. apply Forall_app.
+        eauto 10 using Forall_impl, in_range_weaken.
+      + rewrite flat_map_app. apply Forall_app.
+        eauto 10 using Forall_impl, not_as_big_as_weaken.
+      + intros args.
+        rewrite staged_program_iff.
+        2: { admit. }
+        rewrite IH'p4.
+        apply prog_impl_hyp_ext. intros f'. split; intros Hf'; fwd.
+        -- simpl in Hf'p0. destruct Hf'p0 as [Hf'p0|Hf'p0].
+           ++ fwd. rewrite IHHwfp4 in Hf'p1 by eassumption.
+              rewrite fact_of_rel_of_args_of in Hf'p1. exact Hf'p1.
+           ++ apply prog_impl_leaf. eauto.
+        -- admit.
+    - ssplit.
+      + lia.
+      + simpl. lia.
+      + apply Forall_flat_map. apply Forall_map. apply Forall_flat_map.
+        apply Forall_forall. intros r _. apply Forall_forall. intros r' Hr'.
+        rewrite concl_rels_map_rule_rels. apply Forall_map.
+        apply in_keep_local_concls_Forall_local in Hr'.
+        eapply Forall_impl; [|eassumption]. simpl. intros R.
+        destruct R; simpl; try congruence. lia.
+      + apply Forall_flat_map. apply Forall_map. apply Forall_flat_map.
+        apply Forall_forall. intros r Hr. apply Forall_forall. intros r' Hr'.
+        rewrite all_rels_map_rule_rels. apply Forall_map.
+        apply Forall_forall. intros R HR.
+        destruct R; simpl; auto.
+        apply Forall2_forget_l in H.
+        rewrite Forall_forall in H.
+        specialize (H _ Hr). fwd.
+        eapply wf_block_rule_Var_in_ctx in Hp1; [|].
+        2: { eapply incl_all_rels_keep_local_concls; [eassumption|eassumption]. }
+        rewrite Forall_forall in Hctx.
+        apply in_map_iff in Hp1. destruct Hp1 as [[? ?] Hp1]. fwd.
+        apply Hctx in Hp1p1. eapply not_as_big_as_weaken; [eassumption|]. lia.
+      + intros args.
+        split; intros Hargs.
+        --
       + eapply IHHwf.
       split; intros Hargs.
       +
