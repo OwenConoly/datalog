@@ -414,6 +414,12 @@ Section Blocks.
 
   Abort.
 
+  Lemma in_range_not_as_big_as_False lo hi x :
+    in_range lo hi x ->
+    not_as_big_as lo x ->
+    False.
+  Proof. destruct x; simpl; auto. lia. Qed.
+
   Lemma flatten_correct ctx name e e0 name' Rret p :
     wf_blocks_prog ctx e e0 ->
     flatten name e0 = (name', Rret, p) ->
@@ -451,7 +457,8 @@ Section Blocks.
         eauto 10 using Forall_impl, not_as_big_as_weaken.
       + intros args.
         rewrite staged_program_iff.
-        2: { admit. }
+        2: { intros x H1 H2. rewrite Forall_forall in *.
+             eapply in_range_not_as_big_as_False; eauto. }
         rewrite IH'p4.
         apply prog_impl_hyp_ext. intros f'. split; intros Hf'; fwd.
         -- simpl in Hf'p0. destruct Hf'p0 as [Hf'p0|Hf'p0].
