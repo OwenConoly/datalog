@@ -414,20 +414,21 @@ Section Blocks.
 
   Abort.
 
-  Lemma in_range_not_as_big_as_False lo hi x :
-    in_range lo hi x ->
-    not_as_big_as lo x ->
+  Lemma in_nonoverlapping_ranges lo1 hi1 lo2 hi2 x :
+    in_range lo1 hi1 x ->
+    in_range lo2 hi2 x ->
+    hi1 <= lo2 ->
     False.
   Proof. destruct x; simpl; auto. lia. Qed.
 
   Lemma flatten_correct ctx name e e0 name' Rret p :
     wf_blocks_prog ctx e e0 ->
     flatten name e0 = (name', Rret, p) ->
-    Forall (fun '(_, R) => not_as_big_as name R) ctx ->
+    Forall (fun '(_, R) => in_range O name R) ctx ->
     name <= name' /\
-      not_as_big_as name' Rret /\
+      in_range name name' Rret /\
       Forall (in_range name name') (flat_map concl_rels p) /\
-      Forall (not_as_big_as name') (flat_map all_rels p) /\
+      Forall (fun R => in_range name name' R \/ In R (map snd ctx)) (flat_map all_rels p) /\
       forall args,
         interp_blocks_prog map.empty e args <->
           prog_impl p (fun f => exists R, In (R, rel_of f) ctx /\ R (args_of f))
@@ -442,23 +443,32 @@ Section Blocks.
     - epose_dep IHHwf.
       specialize (IHHwf ltac:(eassumption)). specialize' IHHwf.
       { eapply Forall_impl; [|eassumption].
-        intros [? ?]. intros. eapply not_as_big_as_weaken; [eassumption|]. lia. }
+        intros [? ?]. intros. assumption. }
       fwd.
       rename H0 into IH'. epose_dep IH'.
       specialize (IH' ltac:(eassumption)). specialize' IH'.
-      { constructor; [eassumption|]. eapply Forall_impl; [|eassumption].
-        intros [? ?]. intros. eapply not_as_big_as_weaken; [eassumption|]. lia. }
+      { constructor.
+        - eapply in_range_weaken; [eassumption| |]; lia.
+        - eapply Forall_impl; [|eassumption].
+          intros [? ?]. intros. eapply in_range_weaken; [eassumption| |]; lia. }
       fwd. ssplit.
       + lia.
-      + assumption.
+      + eapply in_range_weaken; [eassumption| |]; lia.
       + rewrite flat_map_app. apply Forall_app.
         eauto 10 using Forall_impl, in_range_weaken.
-      + rewrite flat_map_app. apply Forall_app.
-        eauto 10 using Forall_impl, not_as_big_as_weaken.
+      + rewrite flat_map_app. apply Forall_app. split.
+        -- eapply Forall_impl; [|eassumption]. simpl.
+           intros R [HR| [HR|HR]]; subst; eauto using in_range_weaken.
+        -- eapply Forall_impl; [|eassumption]. simpl.
+           intros R [HR|HR]; eauto using in_range_weaken.
       + intros args.
         rewrite staged_program_iff.
         2: { intros x H1 H2. rewrite Forall_forall in *.
-             eapply in_range_not_as_big_as_False; eauto. }
+             apply IH'p2 in H1. apply IHHwfp3 in H2. destruct H2 as [H2|H2].
+             - eapply in_nonoverlapping_ranges. 1: exact H2. 1: exact H1. lia.
+             - apply in_map_iff in H2. destruct H2 as [[? ?] H2]. fwd.
+               apply Hctx in H2p1. simpl in H1.
+               eapply in_nonoverlapping_ranges. 1: exact H2p1. 1: exact H1. lia. }
         rewrite IH'p4.
         apply prog_impl_hyp_ext. intros f'. split; intros Hf'; fwd.
         -- simpl in Hf'p0. destruct Hf'p0 as [Hf'p0|Hf'p0].
@@ -490,13 +500,10 @@ Section Blocks.
         apply Hctx in Hp1p1. eapply not_as_big_as_weaken; [eassumption|]. lia.
       + intros args.
         split; intros Hargs.
-        --
-      + eapply IHHwf.
-      split; intros Hargs.
-      +
-    forall args,
-      e' args <->
-    True.
+        -- admit.
+        -- admit.
+           all: fail.
+  Abort.
 
 End Blocks.
 Arguments blocks_prog : clear implicits.
