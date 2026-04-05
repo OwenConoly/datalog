@@ -181,6 +181,28 @@ Section Blocks.
     | lvar_rel (block_id : nat) (lvar_name : lvar)
     | gvar_rel (gvar_name : gvar).
 
+  Definition is_local_rel {var} (R : blocks_rel var) :=
+    match R with
+    | local _ => true
+    | _ => false
+    end.
+
+  Definition is_local_clause {var} (c : clause (blocks_rel var) exprvar fn) :=
+    is_local_rel c.(clause_rel).
+
+  Definition is_local_meta_clause {var} (c : meta_clause (blocks_rel var) exprvar fn) :=
+    is_local_rel c.(meta_clause_rel).
+
+  Definition keep_local_concls {var} (r : block_rule var) : list (block_rule var) :=
+    match r with
+    | normal_rule concls hyps =>
+        [normal_rule (filter is_local_clause concls) hyps]
+    | meta_rule concls hyps =>
+        [meta_rule (filter is_local_meta_clause concls) hyps]
+    | agg_rule concl agg hyp =>
+        if is_local_rel concl then [r] else []
+    end.
+
   Definition map_clause_rel {R1 R2} (f : R1 -> R2) (c : clause R1 exprvar fn) :=
     {| clause_rel := f c.(clause_rel);
        clause_args := c.(clause_args) |}.
@@ -212,12 +234,90 @@ Section Blocks.
         let '(name', Rx, p2) := flatten name x in
         let '(name'', Rfx, p1) := flatten name' (f Rx) in
         (name'', Rfx, p1 ++ p2)
-    | Block ret p => (S name, lvar_rel name ret, map (map_rule_rels (flatten_rel name)) p)
+    | Block ret p =>
+        let p' := flat_map keep_local_concls p in
+        let p'' := map (map_rule_rels (flatten_rel name)) p' in
+        (S name, lvar_rel name ret, p'')
     end.
+
   Search (Datalog.fact _ _ -> Datalog.fact_args _).
+  Print rule.
+  Definition in_range lo hi x :=
+    match x with
+    | lvar_rel block_id _ => lo <= block_id < hi
+    | gvar_rel _ => False
+    end.
+
+  Lemma in_range_weaken lo0 lo hi hi0 x :
+    in_range lo hi x ->
+    lo0 <= lo ->
+    hi <= hi0 ->
+    in_range lo0 hi0 x.
+  Proof. destruct x; simpl; auto; lia. Qed.
+
+
+  Lemma in_keep_local_concls_Forall_local {var} (r r' : block_rule var) :
+    In r' (keep_local_concls r) ->
+    Forall (fun R => is_local_rel R = true) (concl_rels r').
+  Proof.
+    destruct r; simpl.
+    - intros [<- | []]. apply Forall_map, Forall_filter. auto.
+    - intros [<- | []]. apply Forall_map, Forall_filter. intros []; auto.
+    - destruct (is_local_rel concl_rel) eqn:E.
+      + intros [<- | []]. constructor; auto.
+      + intros [].
+  Qed.
+
+  (* Lemma in_concl_rels_keep_local_concls {var} (r : block_rule var) R : *)
+  (*   In R (flat_map concl_rels (keep_local_concls r)) -> *)
+  (*   In R (concl_rels r) /\ is_local_rel R = true. *)
+  (* Proof. *)
+  (*   destruct r; simpl; try rewrite app_nil_r; intros H. *)
+  (*   - apply in_map_iff in H. fwd. apply filter_In in Hp1. fwd. auto using in_map. *)
+  (*   - apply in_map_iff in H. fwd. apply filter_In in Hp1. fwd. auto using in_map. *)
+  (*   - destruct (is_local_rel concl_rel) eqn:E; simpl in H; intuition congruence. *)
+  (* Qed. *)
+
+  Lemma concl_rels_map_rule_rels {R1 R2} (f : R1 -> R2) (r : rule R1 exprvar fn aggregator) :
+    concl_rels (map_rule_rels f r) = map f (concl_rels r).
+  Proof.
+    destruct r; simpl.
+    - do 2 rewrite map_map. reflexivity.
+    - do 2 rewrite map_map. reflexivity.
+    - reflexivity.
+  Qed.
+
+  Lemma flatten_rels_good e0 name name' Rret p :
+    flatten name e0 = (name', Rret, p) ->
+    name <= name' /\
+      Forall (in_range name name') (flat_map concl_rels p).
+  Proof.
+    revert name name' Rret p.
+    induction e0;
+      intros name name' Rret p0 Hflat;
+      simpl in Hflat;
+      fwd;
+      repeat match goal with
+        | IH: forall _ _ _ _ _, _ -> _ |- _ => specialize (IH _ _ _ _ _ ltac:(eassumption))
+        | IH: forall _ _ _ _, _ -> _ |- _ => specialize (IH _ _ _ _ ltac:(eassumption))
+        end;
+      fwd.
+    - ssplit.
+      + lia.
+      + rewrite flat_map_app. apply Forall_app.
+        eauto 10 using Forall_impl, in_range_weaken.
+    - ssplit.
+      + lia.
+      + apply Forall_flat_map. apply Forall_map. apply Forall_flat_map.
+        apply Forall_forall. intros r _. apply Forall_forall. intros r' Hr'.
+        rewrite concl_rels_map_rule_rels. apply Forall_map.
+        apply in_keep_local_concls_Forall_local in Hr'.
+        eapply Forall_impl; [|eassumption]. simpl. intros R.
+        destruct R; simpl; try congruence. lia.
+  Qed.
+
   Lemma flatten_correct ctx name e e0 name' Rret p :
     wf_blocks_prog ctx e e0 ->
-    flatten name e0 = (name', Rret, p) ->
     forall args,
       interp_blocks_prog map.empty e args <->
         prog_impl p (fun f => exists R, In (R, rel_of f) ctx /\ R (args_of f))
@@ -225,7 +325,7 @@ Section Blocks.
   Proof.
     intros Hwf. revert name name' Rret p.
     induction Hwf;
-      intros name name' Rret p Hflat args;
+      intros name name' Rret p Hflat Hrels args;
       simpl in Hflat;
       fwd;
       simpl.
@@ -236,7 +336,8 @@ Section Blocks.
       + simpl in Hf'p0. destruct Hf'p0 as [Hf'p0|Hf'p0].
         -- fwd. rewrite IHHwf in Hf'p1 by eassumption.
            rewrite fact_of_rel_of_args_of in Hf'p1. exact Hf'p1.
-        --
+        -- apply prog_impl_leaf. eauto.
+      + rewrite <- fact_of_rel_of_args_of in Hf'. rewrite <- IHHwf in Hf'. eassumption.
            simpl in Hf'p1.
       Search prog_impl.
       admit.
