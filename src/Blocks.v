@@ -1175,27 +1175,6 @@ Section Blocks.
              eauto using is_bijection_sym, Forall2_flip, Forall2_impl.
   Qed.
 
-  Lemma wf_rule_impl {var1 var2} (ctx : list (var1 * var2)) p1 p2 r1 r2 f1 hyps1 :
-    Forall2 (wf_block_rule ctx) p1 p2 ->
-    wf_block_rule ctx r1 r2 ->
-    rule_impl p1 r1 f1 hyps1 ->
-    exists f2 hyps2,
-      rule_impl p2 r2 f2 hyps2 /\
-        wf_fact ctx f1 f2 /\
-        Forall2 (wf_fact ctx) hyps1 hyps2.
-  Proof.
-    intros Hp Hwf. invert 1.
-    - edestruct wf_non_meta_rule_impl as [R2 [hyps2 [Himpl [Hrel Hhyps]]]]; eauto.
-      eauto 10.
-    - invert Hwf. repeat invert_stuff.
-      eexists (meta_fact _ _ _), _. ssplit.
-      + econstructor. ; [admit | admit | admit].
-      + constructor; eauto.
-      + eauto.
-    intros Hp Hwf. invert 1.
-    - eexists (normal_fact _ _), _. ssplit.
-      + constructor.
-
   Lemma block_prog_impl_to_flat ctx p1 p2 name f1 f2 :
     Forall2 (wf_block_rule ctx) p1 p2 ->
     wf_blocks_rel ctx (rel_of f1) (rel_of f2) ->
