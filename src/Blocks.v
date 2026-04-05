@@ -433,6 +433,146 @@ Section Blocks.
     False.
   Proof. destruct x; auto. Qed.
 
+  (*BEGIN BLOCK_PROG LEMMAS*)
+
+  Lemma pftree_equiv {U} (P1 P2 : U -> list U -> Prop) Q (x:U) :
+    (forall y l, P1 y l <-> P2 y l) ->
+    pftree P1 Q x <-> pftree P2 Q x.
+  Proof.
+    intros H. split; intros Htree.
+    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
+    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
+  Qed.
+
+  Lemma interp_clause_local {var} ctx (c : clause (blocks_rel var) exprvar fn) R args :
+    interp_clause ctx c (normal_fact (local R) args) ->
+    is_local_clause c = true.
+  Proof.
+    cbv [interp_clause is_local_clause is_local_rel].
+    intros [nf_args [H1 H2]]. invert H2. reflexivity.
+  Qed.
+
+  Lemma interp_meta_clause_local {var} ctx (c : meta_clause (blocks_rel var) exprvar fn) R args S :
+    interp_meta_clause ctx c (meta_fact (local R) args S) ->
+    is_local_meta_clause c = true.
+  Proof.
+    cbv [interp_meta_clause is_local_meta_clause is_local_rel].
+    intros [mf_args [mf_set [H1 H2]]]. invert H2. reflexivity.
+  Qed.
+
+  Lemma non_meta_rule_impl_local_iff {var} (r : block_rule var) R args hyps :
+    non_meta_rule_impl r (local R) args hyps <->
+    Exists (fun r' => non_meta_rule_impl r' (local R) args hyps) (keep_local_concls r).
+  Proof.
+    destruct r; simpl.
+    - split; intros H.
+      + constructor. invert H. econstructor; eauto.
+        rewrite Exists_exists in *. fwd.
+        eexists. split; [|eassumption].
+        apply filter_In. split; [eassumption|].
+        eapply interp_clause_local; eauto.
+      + repeat invert_stuff. econstructor; eauto.
+        rewrite Exists_exists in *. fwd. rewrite filter_In in *.
+        fwd. eauto.
+    - split; intros; repeat invert_stuff.
+    - destruct concl_rel eqn:E; subst; simpl; split; intros; repeat invert_stuff.
+      + constructor. constructor. assumption.
+      + constructor. assumption.
+  Qed.
+
+  Lemma meta_fact_rule_impl_local_iff {var} p (r : block_rule var) R args S hyps :
+    rule_impl p r (meta_fact (local R) args S) hyps <->
+    Exists (fun r' => rule_impl p r' (meta_fact (local R) args S) hyps) (keep_local_concls r).
+  Proof.
+    destruct r as [concls hyps_rule | concls hyps_rule | concl agg hyp]; simpl.
+    - split; intros; repeat invert_stuff.
+    - split; intros H.
+      + constructor. invert H. econstructor; eauto.
+        rewrite Exists_exists in *. fwd.
+        eexists. split; [|eassumption].
+        apply filter_In. split; [eassumption|].
+        eapply interp_meta_clause_local; eauto.
+      + repeat invert_stuff. econstructor; eauto.
+        rewrite Exists_exists in *. fwd. rewrite filter_In in *.
+        fwd. eauto.
+    - destruct (is_local_rel concl) eqn:E; split; intros; repeat invert_stuff.
+  Qed.
+
+  Lemma meta_condition_equiv {var} (p : list (block_rule var)) R args'' S_cond :
+    (exists r hyps'', In r p /\ non_meta_rule_impl r (local R) args'' hyps'' /\ S_cond hyps'') <->
+    (exists r' hyps'', In r' (flat_map keep_local_concls p) /\ non_meta_rule_impl r' (local R) args'' hyps'' /\ S_cond hyps'').
+  Proof.
+    split; intros H; fwd.
+    - apply non_meta_rule_impl_local_iff in Hp1.
+      rewrite Exists_exists in *. fwd.
+      do 2 eexists. split; eauto. apply in_flat_map. eauto.
+    - rewrite in_flat_map in *. fwd.
+      do 2 eexists. split; eauto. split; eauto.
+      apply non_meta_rule_impl_local_iff.
+      apply Exists_exists. eauto.
+  Qed.
+
+  Lemma rule_impl_local_iff {var} (p : list (block_rule var)) (r : block_rule var) f hyps :
+    forall R, rel_of f = local R ->
+      rule_impl p r f hyps <->
+      Exists (fun r' => rule_impl (flat_map keep_local_concls p) r' f hyps) (keep_local_concls r).
+  Proof.
+    intros R Heq. destruct f; simpl in *; subst.
+    - split; intros H.
+      + repeat invert_stuff. rewrite non_meta_rule_impl_local_iff in *.
+        eapply Exists_impl; [|eassumption]. simpl. eauto.
+      + constructor. apply non_meta_rule_impl_local_iff.
+        eapply Exists_impl; [|eassumption]. simpl. intros.
+        repeat invert_stuff.
+    - split; intros H.
+      + apply meta_fact_rule_impl_local_iff in H.
+        eapply Exists_impl; [|eassumption]. simpl.
+        invert 1. econstructor; eauto.
+        intros. rewrite H8 by assumption. apply meta_condition_equiv.
+      + apply meta_fact_rule_impl_local_iff.
+        eapply Exists_impl; [|eassumption]. simpl.
+        invert 1. econstructor; eauto.
+        intros. rewrite H8 by assumption. symmetry. apply meta_condition_equiv.
+  Qed.
+
+  Lemma exists_rule_impl_local_iff {var} (p : list (block_rule var)) f hyps :
+    (exists R, rel_of f = local R) ->
+    Exists (fun r => rule_impl p r f hyps) p <->
+    Exists (fun r' => rule_impl (flat_map keep_local_concls p) r' f hyps) (flat_map keep_local_concls p).
+  Proof.
+    intros [R Heq].
+    split; intros H.
+    - rewrite Exists_exists in *. fwd.
+      rewrite rule_impl_local_iff in * by eassumption.
+      rewrite Exists_exists in *. fwd. eexists.
+      rewrite in_flat_map. eauto.
+    - rewrite Exists_exists in *. fwd.
+      rewrite in_flat_map in *. fwd.
+      eexists. rewrite rule_impl_local_iff by eassumption.
+      rewrite Exists_exists. eauto.
+  Qed.
+
+  Lemma block_rule_impl_keep_local_concls globals p f hyps :
+    block_rule_impl globals (flat_map keep_local_concls p) f hyps <->
+    block_rule_impl globals p f hyps.
+  Proof.
+    cbv [block_rule_impl]. destruct (rel_of f) eqn:E.
+    - symmetry. apply exists_rule_impl_local_iff. eexists; eauto.
+    - reflexivity.
+    - reflexivity.
+  Qed.
+
+  Lemma block_prog_impl_keep_local_concls globals p f :
+    block_prog_impl globals (flat_map keep_local_concls p) f <->
+    block_prog_impl globals p f.
+  Proof.
+    cbv [block_prog_impl].
+    apply pftree_equiv.
+    intros y l. apply block_rule_impl_keep_local_concls.
+  Qed.
+
+  (*END BLOCK_PROG LEMMAS*)
+
   Lemma flatten_correct ctx name e e0 name' Rret p :
     wf_blocks_prog ctx e e0 ->
     flatten name e0 = (name', Rret, p) ->
@@ -552,7 +692,11 @@ Section Blocks.
         eapply wf_block_rule_Var_in_ctx in Hp1; [|].
         2: { eapply incl_all_rels_keep_local_concls; [eassumption|eassumption]. }
         rewrite Forall_forall in Hctx. auto.
-      + intros args.
+      + intros args. rewrite <- block_prog_impl_keep_local_concls.
+        647892
+          ,6
+           +   CTRN6 `a|
+         98765432xdfgy          /
         split; intros Hargs.
         -- admit.
         -- admit.

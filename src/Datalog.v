@@ -146,6 +146,7 @@ Section __.
       (interp_agg agg vals :: args)
       (meta_fact hyp_rel (None :: None :: map Some args) S ::
          map (fun '(i, x_i) => normal_fact hyp_rel (i :: x_i :: args)) vals).
+  Hint Constructors non_meta_rule_impl : core.
 
   Unset Elimination Schemes.
   Inductive pftree {T : Type} (P : T -> list T -> Prop) (Q : T -> Prop) : T -> Prop :=
@@ -1052,6 +1053,8 @@ Arguments fact : clear implicits.
 Arguments fact_args : clear implicits.
 Arguments rule : clear implicits.
 Arguments expr : clear implicits.
+Hint Constructors non_meta_rule_impl : core.
+Hint Constructors rule_impl : core.
 
 Ltac interp_exprs :=
   repeat rewrite map_app; simpl;
