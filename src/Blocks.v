@@ -528,7 +528,6 @@ Section Blocks.
               2: { exfalso. eauto using in_range_not_global. }
               apply in_map_iff in HRf'. destruct HRf' as [[? ?] HRf'].
               simpl in HRf'. fwd.
-              Search ctx.
               rewrite Forall_forall in Hctx.
               apply Hctx in HRf'p1.
               exfalso. eauto using in_nonoverlapping_ranges.
