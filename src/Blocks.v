@@ -41,14 +41,24 @@ Section Blocks.
       In (x1, x2) ctx ->
       wf_blocks_rel _ (Var x1) (Var x2).
 
+    Inductive wf_clause (ctx : list (var1 * var2)) : clause (blocks_rel var1) exprvar fn -> clause (blocks_rel var2) exprvar fn -> Prop :=
+    | wf_clause_intro R1 R2 args :
+      wf_blocks_rel ctx R1 R2 ->
+      wf_clause ctx {| clause_rel := R1; clause_args := args |} {| clause_rel := R2; clause_args := args |}.
+
+    Inductive wf_meta_clause (ctx : list (var1 * var2)) : meta_clause (blocks_rel var1) exprvar fn -> meta_clause (blocks_rel var2) exprvar fn -> Prop :=
+    | wf_meta_clause_intro R1 R2 args :
+      wf_blocks_rel ctx R1 R2 ->
+      wf_meta_clause ctx {| meta_clause_rel := R1; meta_clause_args := args |} {| meta_clause_rel := R2; meta_clause_args := args |}.
+
     Inductive wf_block_rule (ctx : list (var1 * var2)) : block_rule var1 -> block_rule var2 -> Prop :=
     | wf_normal_rule concls1 concls2 hyps1 hyps2 :
-      Forall2 (wf_blocks_rel ctx) (map clause_rel concls1) (map clause_rel concls2) ->
-      Forall2 (wf_blocks_rel ctx) (map clause_rel hyps1) (map clause_rel hyps2) ->
+      Forall2 (wf_clause ctx) concls1 concls2 ->
+      Forall2 (wf_clause ctx) hyps1 hyps2 ->
       wf_block_rule _ (normal_rule concls1 hyps1) (normal_rule concls2 hyps2)
     | wf_meta_rule concls1 concls2 hyps1 hyps2 :
-      Forall2 (wf_blocks_rel ctx) (map meta_clause_rel concls1) (map meta_clause_rel concls2) ->
-      Forall2 (wf_blocks_rel ctx) (map meta_clause_rel hyps1) (map meta_clause_rel hyps2) ->
+      Forall2 (wf_meta_clause ctx) concls1 concls2 ->
+      Forall2 (wf_meta_clause ctx) hyps1 hyps2 ->
       wf_block_rule _ (meta_rule concls1 hyps1) (meta_rule concls2 hyps2)
     | wf_agg_rule R1 R2 R1' R2' a :
       wf_blocks_rel ctx R1 R2 ->
@@ -64,8 +74,7 @@ Section Blocks.
       Forall2 (wf_block_rule ctx) p1 p2 ->
       wf_blocks_prog ctx (Block ret p1) (Block ret p2).
   End well_formed.
-
-
+  Hint Constructors wf_blocks_rel wf_clause wf_meta_clause wf_block_rule wf_blocks_prog : core.
   (*bad name, confused me*)
   Definition block_rule_impl globals (p : list (block_rule _)) f hyps :=
     match rel_of f with
@@ -328,16 +337,30 @@ Section Blocks.
       + intros [].
   Qed.
 
-  Lemma Forall2_wf_blocks_rel_Var_in_ctx {var1 var2} (ctx : list (var1 * var2)) R1s R2s x :
-    Forall2 (wf_blocks_rel ctx) R1s R2s ->
-    In (Var x) R2s ->
+  Lemma Forall2_wf_clause_Var_in_ctx {var1 var2} (ctx : list (var1 * var2)) cs1 cs2 x :
+    Forall2 (wf_clause ctx) cs1 cs2 ->
+    In (Var x) (map clause_rel cs2) ->
     In x (map snd ctx).
   Proof.
     intros Hwf HIn.
     apply Forall2_forget_l in Hwf.
     rewrite Forall_forall in Hwf.
-    apply Hwf in HIn. fwd. invert HInp1.
-    apply in_map_iff. eexists (_, _); split; [reflexivity | eassumption].
+    apply in_map_iff in HIn. fwd.
+    apply Hwf in HInp1. fwd. invert HInp1p1. simpl in *. subst.
+    apply in_map_iff. invert H. eexists (_, _); split; [reflexivity |eassumption].
+  Qed.
+
+  Lemma Forall2_wf_meta_clause_Var_in_ctx {var1 var2} (ctx : list (var1 * var2)) cs1 cs2 x :
+    Forall2 (wf_meta_clause ctx) cs1 cs2 ->
+    In (Var x) (map meta_clause_rel cs2) ->
+    In x (map snd ctx).
+  Proof.
+    intros Hwf HIn.
+    apply Forall2_forget_l in Hwf.
+    rewrite Forall_forall in Hwf.
+    apply in_map_iff in HIn. fwd.
+    apply Hwf in HInp1. fwd. invert HInp1p1. simpl in *. subst.
+    apply in_map_iff. invert H. eexists (_, _); split; [reflexivity |eassumption].
   Qed.
 
   Lemma wf_block_rule_Var_in_ctx {var1 var2} ctx (r1 : block_rule var1) (r2 : block_rule var2) x :
@@ -347,9 +370,9 @@ Section Blocks.
   Proof.
     intros Hwf HIn. invert Hwf; simpl in HIn.
     - apply in_app_iff in HIn. destruct HIn as [HIn | HIn];
-        eauto using Forall2_wf_blocks_rel_Var_in_ctx.
+        eauto using Forall2_wf_clause_Var_in_ctx.
     - apply in_app_iff in HIn. destruct HIn as [HIn | HIn];
-        eauto using Forall2_wf_blocks_rel_Var_in_ctx.
+        eauto using Forall2_wf_meta_clause_Var_in_ctx.
     - destruct HIn as [-> | [-> | []]];
         match goal with
         | H : wf_blocks_rel _ _ (Var x) |- _ => invert H
@@ -821,6 +844,358 @@ Section Blocks.
         symmetry. apply meta_cond_map_iff. assumption.
   Qed.
 
+  Lemma fact_of_g_args_of {R1 R2} (g : R1 -> R2) f :
+    fact_of (g (rel_of f)) (args_of f) = map_fact g f.
+  Proof. destruct f; reflexivity. Qed.
+
+  Definition wf_fact {var1 var2} (ctx : list (var1 * var2)) (f1 : fact (blocks_rel var1) T) (f2 : fact (blocks_rel var2) T) : Prop :=
+    wf_blocks_rel ctx (rel_of f1) (rel_of f2) /\ args_of f1 = args_of f2.
+
+  Hint Unfold wf_fact : core.
+  Lemma interp_clause_wf {var1 var2} ctx s (c1 : clause (blocks_rel var1) _ _) (c2 : clause (blocks_rel var2) _ _) f1 :
+    wf_clause ctx c1 c2 ->
+    interp_clause s c1 f1 ->
+    exists f2,
+      interp_clause (context := context) s c2 f2 /\
+        wf_fact ctx f1 f2.
+  Proof.
+    cbv [interp_clause]. invert 1. intros. fwd. simpl in *. eauto 7.
+  Qed.
+
+  Ltac invs :=
+    repeat match goal with
+      | H: wf_fact _ (normal_fact _ _) ?f |- _ =>
+          destruct H as [? ?];
+          destruct f;
+          simpl in *;
+          [fwd|congruence];
+          subst
+      | H: wf_fact _ (meta_fact _ _ _) ?f |- _ =>
+          destruct H as [? ?];
+          destruct f;
+          simpl in *;
+          [congruence|fwd];
+          subst
+      end.
+
+  Lemma Forall2_interp_clause_wf {var1 var2} (ctx : list (var1 * var2)) ctx0 cs1 cs2 fs1 :
+    Forall2 (wf_clause ctx) cs1 cs2 ->
+    Forall2 (interp_clause ctx0) cs1 fs1 ->
+    exists fs2,
+      Forall2 (interp_clause ctx0) cs2 fs2 /\
+      Forall2 (wf_fact ctx) fs1 fs2.
+  Proof.
+    intros Hwf Hinterp. revert cs2 Hwf.
+    induction Hinterp; intros cs2 Hwf; invert Hwf.
+    - eauto.
+    - edestruct @interp_clause_wf as [f2 [Hinterp2 Hwf_f]]; eauto.
+      edestruct IHHinterp as [fs2 [Hinterp_fs2 Hwf_fs]]; eauto.
+  Qed.
+
+  Lemma wf_non_meta_rule_impl var1 var2 ctx (r1 : block_rule var1) (r2 : block_rule var2) R1 args hyps1 :
+    wf_block_rule ctx r1 r2 ->
+    non_meta_rule_impl r1 R1 args hyps1 ->
+    exists R2 hyps2,
+      non_meta_rule_impl r2 R2 args hyps2 /\
+        wf_blocks_rel ctx R1 R2 /\
+        Forall2 (wf_fact ctx) hyps1 hyps2.
+  Proof.
+    intros Hwf Himpl.
+    destruct r1, r2; invert Himpl; invert Hwf; repeat invert_stuff.
+    - rewrite Exists_exists in *. fwd. apply Forall2_forget_r in H3.
+      rewrite Forall_forall in H3. specialize (H3 _ ltac:(eassumption)).
+      fwd. eapply interp_clause_wf in H1p1; eauto. fwd. invs.
+      edestruct @Forall2_interp_clause_wf as [hyps2 [Hinterp2 Hwf_hyps]]; eauto.
+      do 2 eexists. ssplit.
+      + econstructor.
+        -- apply Exists_exists. eauto.
+        -- eassumption.
+      + assumption.
+      + assumption.
+    - do 2 eexists.
+      ssplit; eauto.
+      constructor; simpl; eauto.
+      rewrite <- Forall2_map_l, <- Forall2_map_r.
+      apply Forall2_same.
+      apply Forall_forall.
+      intros [? ?] _. eauto.
+  Qed.
+
+  Lemma interp_meta_clause_wf {var1 var2} ctx s (c1 : meta_clause (blocks_rel var1) _ _) (c2 : meta_clause (blocks_rel var2) _ _) f1 :
+    wf_meta_clause ctx c1 c2 ->
+    interp_meta_clause s c1 f1 ->
+    exists f2, interp_meta_clause s c2 f2 /\ wf_fact ctx f1 f2.
+  Proof.
+    cbv [interp_meta_clause]. invert 1. simpl. intros. fwd.
+    eexists. split; eauto. constructor; simpl; auto.
+  Qed.
+
+  Lemma Forall2_interp_meta_clause_wf {var1 var2} (ctx : list (var1 * var2)) ctx0 cs1 cs2 fs1 :
+    Forall2 (wf_meta_clause ctx) cs1 cs2 ->
+    Forall2 (interp_meta_clause ctx0) cs1 fs1 ->
+    exists fs2, Forall2 (interp_meta_clause ctx0) cs2 fs2 /\ Forall2 (wf_fact ctx) fs1 fs2.
+  Proof.
+    intros Hwf Hinterp. revert cs2 Hwf.
+    induction Hinterp; intros cs2 Hwf; invert Hwf.
+    - eauto.
+    - edestruct @interp_meta_clause_wf as [f2 [Hinterp2 Hwf_f]]; eauto.
+      edestruct IHHinterp as [fs2 [Hinterp_fs2 Hwf_fs]]; eauto.
+  Qed.
+
+  (* --- Core List Extraction Lemmas --- *)
+
+  Lemma NoDup_map_in_inj {A B} (f : A -> B) (l : list A) x1 x2 :
+    NoDup (map f l) ->
+    In x1 l ->
+    In x2 l ->
+    f x1 = f x2 ->
+    x1 = x2.
+  Proof.
+    intros Hnodup H1 H2 Heq.
+    apply in_split in H1. destruct H1 as [l1 [l2 ->]].
+    rewrite map_app in Hnodup. simpl in Hnodup.
+    apply NoDup_remove_2 in Hnodup.
+
+    apply in_app_or in H2. destruct H2 as [H2 | [H2 | H2]].
+    - exfalso. apply Hnodup. apply in_or_app. left.
+      rewrite Heq. apply in_map. exact H2.
+    - exact H2.
+    - exfalso. apply Hnodup. apply in_or_app. right.
+      rewrite Heq. apply in_map. exact H2.
+  Qed.
+
+  Lemma NoDup_fst_In_inj {A B} (l : list (A * B)) k v1 v2 :
+    NoDup (map fst l) ->
+    In (k, v1) l ->
+    In (k, v2) l ->
+    v1 = v2.
+  Proof.
+    intros Hnodup H1 H2.
+    assert (Heq : (k, v1) = (k, v2)) by (eapply NoDup_map_in_inj; eauto).
+    congruence.
+  Qed.
+
+  Lemma NoDup_snd_In_inj {A B} (l : list (A * B)) k v1 v2 :
+    NoDup (map snd l) ->
+    In (v1, k) l ->
+    In (v2, k) l ->
+    v1 = v2.
+  Proof.
+    intros Hnodup H1 H2.
+    assert (Heq : (v1, k) = (v2, k)) by (eapply NoDup_map_in_inj; eauto).
+    congruence.
+  Qed.
+
+  Definition is_bijection {var1 var2} (ctx : list (var1 * var2)) : Prop :=
+    NoDup (map fst ctx) /\ NoDup (map snd ctx).
+
+  Lemma wf_blocks_rel_det {var1 var2} (ctx : list (var1 * var2)) R R1' R2' :
+    NoDup (map fst ctx) ->
+    wf_blocks_rel ctx R R1' ->
+    wf_blocks_rel ctx R R2' ->
+    R1' = R2'.
+  Proof.
+    intros Hnodup H1 H2.
+    invert H1; invert H2; auto.
+    f_equal. eapply NoDup_fst_In_inj; eauto.
+  Qed.
+
+  Lemma wf_blocks_rel_inj {var1 var2} (ctx : list (var1 * var2)) R1 R1' R2 :
+    NoDup (map snd ctx) ->
+    wf_blocks_rel ctx R1 R2 ->
+    wf_blocks_rel ctx R1' R2 ->
+    R1 = R1'.
+  Proof.
+    intros Hnodup H1 H2.
+    invert H1; invert H2; auto.
+    f_equal. eapply NoDup_snd_In_inj; eauto.
+  Qed.
+
+  Lemma wf_fact_det {var1 var2} (ctx : list (var1 * var2)) f f1 f2 :
+    NoDup (map fst ctx) ->
+    wf_fact ctx f f1 ->
+    wf_fact ctx f f2 ->
+    f1 = f2.
+  Proof.
+    intros Hnodup [Hrel1 Hargs1] [Hrel2 Hargs2].
+    assert (Hrel_eq : rel_of f1 = rel_of f2) by (eapply wf_blocks_rel_det; eauto).
+    assert (Hargs_eq : args_of f1 = args_of f2) by congruence.
+    rewrite <- (fact_of_rel_of_args_of f1).
+    rewrite <- (fact_of_rel_of_args_of f2).
+    congruence.
+  Qed.
+
+  Lemma wf_fact_inj {var1 var2} (ctx : list (var1 * var2)) f1 f2 f :
+    NoDup (map snd ctx) ->
+    wf_fact ctx f1 f ->
+    wf_fact ctx f2 f ->
+    f1 = f2.
+  Proof.
+    intros Hnodup [Hrel1 Hargs1] [Hrel2 Hargs2].
+    assert (Hrel_eq : rel_of f1 = rel_of f2) by (eapply wf_blocks_rel_inj; eauto).
+    assert (Hargs_eq : args_of f1 = args_of f2) by congruence.
+    rewrite <- (fact_of_rel_of_args_of f1).
+    rewrite <- (fact_of_rel_of_args_of f2).
+    congruence.
+  Qed.
+
+  Lemma fact_matches_wf_fw {var1 var2} (ctx : list (var1 * var2)) f1 hyp1 f2 hyp2 :
+    NoDup (map fst ctx) ->
+    wf_fact ctx f1 f2 ->
+    wf_fact ctx hyp1 hyp2 ->
+    fact_matches f1 hyp1 ->
+    fact_matches f2 hyp2.
+  Proof.
+    intros Hnodup [Hrel1 Hargs1] [Hrel2 Hargs2] Hmatch.
+    cbv [fact_matches] in *. fwd.
+    simpl in *.
+    destruct f2, hyp2; simpl in *; try discriminate.
+    fwd.
+    assert (nf_rel = mf_rel) by (eapply wf_blocks_rel_det; eauto).
+    subst. do 4 eexists. split; [eassumption | split; [eassumption | split; reflexivity]].
+  Qed.
+
+  Lemma wf_meta_cond_iff' {var1 var2} (ctx : list (var1 * var2)) p1 p2 (R1 : blocks_rel var1) (R2 : blocks_rel var2) args'' hyps1 hyps2 :
+    is_bijection ctx ->
+    Forall2 (wf_block_rule ctx) p1 p2 ->
+    wf_blocks_rel ctx R1 R2 ->
+    Forall2 (wf_fact ctx) hyps1 hyps2 ->
+    (exists r1 hyps1'',
+       In r1 p1 /\
+       non_meta_rule_impl r1 R1 args'' hyps1'' /\
+       Forall (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) hyps1) hyps1'')
+    ->
+    (exists r2 hyps2'',
+       In r2 p2 /\
+       non_meta_rule_impl r2 R2 args'' hyps2'' /\
+       Forall (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) hyps2) hyps2'').
+  Proof.
+    intros Hctx H1 H2 H3.
+    intros H. fwd.
+
+    apply Forall2_forget_r in H1. rewrite Forall_forall in H1.
+    apply H1 in Hp0. fwd.
+    edestruct wf_non_meta_rule_impl as [R2' [hyps2'' [Himpl [Hrel Hhyps]]]]; eauto.
+    eapply wf_blocks_rel_det in Hrel.
+    2: { destruct Hctx. assumption. }
+    2: { exact H2. }
+    subst.
+    do 2 eexists. ssplit; eauto.
+    apply Forall2_forget_l in Hhyps.
+    eapply Forall_impl; [|eassumption].
+    simpl. intros f' H. fwd. rewrite Forall_forall in Hp2. apply Hp2 in Hp0.
+    apply Forall2_forget_r in H3. rewrite Forall_forall in H3.
+    rewrite Exists_exists in *. fwd. apply H3 in Hp0p2. fwd.
+    eexists. split; [eassumption|].
+    destruct Hp0p3 as [Hp0p3|Hp0p3].
+    + subst. eapply wf_fact_det in Hp3.
+      3: exact Hp0p2p1. 2: destruct Hctx; assumption.
+      subst. auto.
+    + right.
+      destruct Hctx as [Hfst_nodup Hsnd_nodup].
+      eapply fact_matches_wf_fw; eauto.
+  Qed.
+
+  Lemma wf_blocks_rel_sym {var1 var2} (ctx : list (var1 * var2)) R1 R2 :
+    wf_blocks_rel ctx R1 R2 ->
+    wf_blocks_rel (map (fun '(a, b) => (b, a)) ctx) R2 R1.
+  Proof.
+    invert 1; constructor.
+    apply in_map_iff. eexists (_, _). eauto.
+  Qed.
+  Hint Resolve wf_blocks_rel_sym : core.
+
+  Lemma wf_clause_sym {var1 var2} (ctx : list (var1 * var2)) c1 c2 :
+    wf_clause ctx c1 c2 ->
+    wf_clause (map (fun '(a, b) => (b, a)) ctx) c2 c1.
+  Proof.
+    invert 1; eauto.
+  Qed.
+  Hint Resolve wf_clause_sym : core.
+
+  Lemma wf_meta_clause_sym {var1 var2} (ctx : list (var1 * var2)) c1 c2 :
+    wf_meta_clause ctx c1 c2 ->
+    wf_meta_clause (map (fun '(a, b) => (b, a)) ctx) c2 c1.
+  Proof.
+    invert 1; eauto.
+  Qed.
+  Hint Resolve wf_meta_clause_sym : core.
+
+  Lemma wf_fact_sym {var1 var2} (ctx : list (var1 * var2)) f1 f2 :
+    wf_fact ctx f1 f2 ->
+    wf_fact (map (fun '(a, b) => (b, a)) ctx) f2 f1.
+  Proof.
+    intros [Hrel Hargs]. eauto.
+  Qed.
+  Hint Resolve wf_fact_sym : core.
+
+  Lemma wf_block_rule_sym {var1 var2} (ctx : list (var1 * var2)) r1 r2 :
+    wf_block_rule ctx r1 r2 ->
+    wf_block_rule (map (fun '(a, b) => (b, a)) ctx) r2 r1.
+  Proof.
+    invert 1; eauto 10 using Forall2_flip, Forall2_impl.
+  Qed.
+  Hint Resolve wf_block_rule_sym : core.
+
+  Lemma is_bijection_sym {var1 var2} (ctx : list (var1 * var2)) :
+    is_bijection ctx ->
+    is_bijection (map (fun '(a, b) => (b, a)) ctx).
+  Proof.
+    intros [Hfst Hsnd]. cbv [is_bijection]. split.
+    - rewrite map_map. erewrite map_ext; [eassumption|]. intros [? ?]. reflexivity.
+    - rewrite map_map. erewrite map_ext; [eassumption|]. intros [? ?]. reflexivity.
+  Qed.
+
+  Lemma wf_rule_impl {var1 var2} (ctx : list (var1 * var2)) p1 p2 r1 r2 f1 hyps1 :
+    is_bijection ctx ->
+    Forall2 (wf_block_rule ctx) p1 p2 ->
+    wf_block_rule ctx r1 r2 ->
+    rule_impl p1 r1 f1 hyps1 ->
+    exists f2 hyps2,
+      rule_impl p2 r2 f2 hyps2 /\
+        wf_fact ctx f1 f2 /\
+        Forall2 (wf_fact ctx) hyps1 hyps2.
+  Proof.
+    intros Hctx Hp Hwf. invert 1.
+    - edestruct wf_non_meta_rule_impl as [R2 [hyps2 [Himpl [Hrel Hhyps]]]]; eauto.
+      eexists (normal_fact _ _), _. eauto 6.
+    - invert Hwf. rewrite Exists_exists in *. fwd.
+      apply Forall2_forget_r in H4.
+      rewrite Forall_forall in H4. specialize (H4 _ ltac:(eassumption)).
+      fwd. eapply interp_meta_clause_wf in H4p1; eauto. fwd. invs.
+      edestruct @Forall2_interp_meta_clause_wf as [? [? ?]]; eauto.
+      eexists (meta_fact _ _ _), _. ssplit; [|eauto|eauto].
+      2: { constructor; simpl; eauto. }
+      econstructor.
+      + apply Exists_exists. eauto.
+      + eassumption.
+      + intros. rewrite H2 by eassumption. split; intros H'.
+        -- eapply wf_meta_cond_iff'; eassumption.
+        -- eapply wf_meta_cond_iff' with (ctx := map (fun '(x, y) => (y, x)) ctx);
+             eauto using is_bijection_sym, Forall2_flip, Forall2_impl.
+  Qed.
+
+  Lemma wf_rule_impl {var1 var2} (ctx : list (var1 * var2)) p1 p2 r1 r2 f1 hyps1 :
+    Forall2 (wf_block_rule ctx) p1 p2 ->
+    wf_block_rule ctx r1 r2 ->
+    rule_impl p1 r1 f1 hyps1 ->
+    exists f2 hyps2,
+      rule_impl p2 r2 f2 hyps2 /\
+        wf_fact ctx f1 f2 /\
+        Forall2 (wf_fact ctx) hyps1 hyps2.
+  Proof.
+    intros Hp Hwf. invert 1.
+    - edestruct wf_non_meta_rule_impl as [R2 [hyps2 [Himpl [Hrel Hhyps]]]]; eauto.
+      eauto 10.
+    - invert Hwf. repeat invert_stuff.
+      eexists (meta_fact _ _ _), _. ssplit.
+      + econstructor. ; [admit | admit | admit].
+      + constructor; eauto.
+      + eauto.
+    intros Hp Hwf. invert 1.
+    - eexists (normal_fact _ _), _. ssplit.
+      + constructor.
+
   Lemma block_prog_impl_to_flat ctx p1 p2 name f1 f2 :
     Forall2 (wf_block_rule ctx) p1 p2 ->
     wf_blocks_rel ctx (rel_of f1) (rel_of f2) ->
@@ -837,10 +1212,14 @@ Section Blocks.
     - apply Exists_exists in H. fwd.
       rewrite rule_impl_local_iff in Hp1 by eassumption.
       apply Exists_exists in Hp1. fwd.
-      eapply rule_impl_map_rule_rels_fw in Hp1p1.
       + eapply prog_impl_step.
         -- apply Exists_exists. eexists. split.
-           ++ apply in_map. apply in_flat_map. eexists. split; [|eassumption]. eauto. split; [|eassumption]. eauto.
+           ++ admit.
+           ++ rewrite fact_of_g_args_of. apply rule_impl_map_rule_rels_fw.
+              { admit. }
+
+
+              apply in_map. apply in_flat_map. eexists. split; [|eassumption]. eauto. split; [|eassumption]. eauto.
     induction H.
     - contradiction.
     - (* Handled via rule_impl induction mapping Hwf to the translated p2 *)
