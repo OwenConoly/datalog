@@ -12,6 +12,11 @@ Ltac epose_dep H :=
   | forall _, _ => epose proof (H _) as H
   end.
 
+Ltac apply_somewhere H :=
+  match goal with
+  | H' : _ |- _ => apply H in H'
+  end.
+
 Ltac invert' H := inversion H; clear H; subst.
 
 Ltac invertN n :=

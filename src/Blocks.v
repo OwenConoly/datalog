@@ -435,141 +435,182 @@ Section Blocks.
 
   (*BEGIN BLOCK_PROG LEMMAS*)
 
-  Lemma pftree_equiv {U} (P1 P2 : U -> list U -> Prop) Q (x:U) :
-    (forall y l, P1 y l <-> P2 y l) ->
-    pftree P1 Q x <-> pftree P2 Q x.
+  Definition map_fact {R1 R2} (g : R1 -> R2) (f : fact R1 T) : fact R2 T :=
+    match f with
+    | normal_fact R args => normal_fact (g R) args
+    | meta_fact R mf_args mf_set => meta_fact (g R) mf_args mf_set
+    end.
+
+  (* --- Helper Lemmas for Clause & List Mapping --- *)
+
+  Lemma interp_clause_map_fw {R1 R2} (g : R1 -> R2) ctx c f :
+    interp_clause ctx c f ->
+    interp_clause ctx (map_clause_rel g c) (map_fact g f).
+  Proof. intros. repeat invert_stuff. interp_exprs. Qed.
+
+  Lemma interp_clause_map_bw {R1 R2} (g : R1 -> R2) ctx c f :
+    (forall x y, g x = g y -> x = y) ->
+    interp_clause ctx (map_clause_rel g c) (map_fact g f) ->
+    interp_clause ctx c f.
   Proof.
-    intros H. split; intros Htree.
-    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
-    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
+    intros H. intros.
+    destruct f, c; simpl in *; repeat invert_stuff; simpl in *.
+    apply_somewhere H. subst. interp_exprs.
   Qed.
 
-  Lemma interp_clause_local {var} ctx (c : clause (blocks_rel var) exprvar fn) R args :
-    interp_clause ctx c (normal_fact (local R) args) ->
-    is_local_clause c = true.
+  Lemma Forall2_interp_clause_map_fw {R1 R2} (g : R1 -> R2) ctx hyps1 hyps2 :
+    Forall2 (interp_clause ctx) hyps1 hyps2 ->
+    Forall2 (interp_clause ctx) (map (map_clause_rel g) hyps1) (map (map_fact g) hyps2).
   Proof.
-    cbv [interp_clause is_local_clause is_local_rel].
-    intros [nf_args [H1 H2]]. invert H2. reflexivity.
+    intros.
+    rewrite <- Forall2_map_l, <- Forall2_map_r.
+    eapply Forall2_impl; [|eassumption].
+    eauto using interp_clause_map_fw.
   Qed.
 
-  Lemma interp_meta_clause_local {var} ctx (c : meta_clause (blocks_rel var) exprvar fn) R args S :
-    interp_meta_clause ctx c (meta_fact (local R) args S) ->
-    is_local_meta_clause c = true.
+  Lemma Forall2_interp_clause_map_bw {R1 R2} (g : R1 -> R2) ctx hyps1 hyps2 :
+    (forall x y, g x = g y -> x = y) ->
+    Forall2 (interp_clause ctx) (map (map_clause_rel g) hyps1) (map (map_fact g) hyps2) ->
+    Forall2 (interp_clause ctx) hyps1 hyps2.
   Proof.
-    cbv [interp_meta_clause is_local_meta_clause is_local_rel].
-    intros [mf_args [mf_set [H1 H2]]]. invert H2. reflexivity.
+    intros Hinj H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
+    eapply Forall2_impl; [|eassumption].
+    eauto using interp_clause_map_bw.
   Qed.
 
-  Lemma non_meta_rule_impl_local_iff {var} (r : block_rule var) R args hyps :
-    non_meta_rule_impl r (local R) args hyps <->
-    Exists (fun r' => non_meta_rule_impl r' (local R) args hyps) (keep_local_concls r).
+  Lemma non_meta_rule_impl_map_fw {R1 R2} (g : R1 -> R2) (r : rule R1 exprvar fn aggregator) R args hyps :
+    non_meta_rule_impl r R args hyps ->
+    non_meta_rule_impl (map_rule_rels g r) (g R) args (map (map_fact g) hyps).
   Proof.
-    destruct r; simpl.
-    - split; intros H.
-      + constructor. invert H. econstructor; eauto.
-        rewrite Exists_exists in *. fwd.
-        eexists. split; [|eassumption].
-        apply filter_In. split; [eassumption|].
-        eapply interp_clause_local; eauto.
-      + repeat invert_stuff. econstructor; eauto.
-        rewrite Exists_exists in *. fwd. rewrite filter_In in *.
-        fwd. eauto.
-    - split; intros; repeat invert_stuff.
-    - destruct concl_rel eqn:E; subst; simpl; split; intros; repeat invert_stuff.
-      + constructor. constructor. assumption.
-      + constructor. assumption.
+    invert 1.
+    - econstructor.
+      + apply Exists_map. eapply Exists_impl; [|eassumption].
+        simpl. intros c Hc. eapply interp_clause_map_fw in Hc. eassumption.
+      + apply Forall2_interp_clause_map_fw. eassumption.
+    - simpl. eassert (meta_fact _ _ _ :: _ = _) as ->.
+      2: { econstructor. eassumption. }
+      f_equal. rewrite map_map. apply map_ext. intros [? ?]. reflexivity.
   Qed.
 
-  Lemma meta_fact_rule_impl_local_iff {var} p (r : block_rule var) R args S hyps :
-    rule_impl p r (meta_fact (local R) args S) hyps <->
-    Exists (fun r' => rule_impl p r' (meta_fact (local R) args S) hyps) (keep_local_concls r).
+  Lemma map_fact_inj {R1 R2} (g : R1 -> R2) (f1 f2 : fact R1 T) :
+    (forall x y, g x = g y -> x = y) ->
+    map_fact g f1 = map_fact g f2 ->
+    f1 = f2.
   Proof.
-    destruct r as [concls hyps_rule | concls hyps_rule | concl agg hyp]; simpl.
-    - split; intros; repeat invert_stuff.
-    - split; intros H.
-      + constructor. invert H. econstructor; eauto.
-        rewrite Exists_exists in *. fwd.
-        eexists. split; [|eassumption].
-        apply filter_In. split; [eassumption|].
-        eapply interp_meta_clause_local; eauto.
-      + repeat invert_stuff. econstructor; eauto.
-        rewrite Exists_exists in *. fwd. rewrite filter_In in *.
-        fwd. eauto.
-    - destruct (is_local_rel concl) eqn:E; split; intros; repeat invert_stuff.
+    intros Hinj Heq.
+    destruct f1, f2; simpl in Heq; try discriminate;
+      repeat invert_stuff; apply_somewhere Hinj; subst; auto.
   Qed.
 
-  Lemma meta_condition_equiv {var} (p : list (block_rule var)) R args'' S_cond :
-    (exists r hyps'', In r p /\ non_meta_rule_impl r (local R) args'' hyps'' /\ S_cond hyps'') <->
-    (exists r' hyps'', In r' (flat_map keep_local_concls p) /\ non_meta_rule_impl r' (local R) args'' hyps'' /\ S_cond hyps'').
+  Lemma non_meta_rule_impl_map_bw {R1 R2} (g : R1 -> R2) (r : rule R1 exprvar fn aggregator) R args hyps :
+    (forall x y, g x = g y -> x = y) ->
+    non_meta_rule_impl (map_rule_rels g r) (g R) args (map (map_fact g) hyps) ->
+    non_meta_rule_impl r R args hyps.
   Proof.
-    split; intros H; fwd.
-    - apply non_meta_rule_impl_local_iff in Hp1.
-      rewrite Exists_exists in *. fwd.
-      do 2 eexists. split; eauto. apply in_flat_map. eauto.
-    - rewrite in_flat_map in *. fwd.
-      do 2 eexists. split; eauto. split; eauto.
-      apply non_meta_rule_impl_local_iff.
-      apply Exists_exists. eauto.
+    intros Hinj H. destruct r; invert H.
+    - econstructor.
+      + rewrite Exists_map in *. eapply Exists_impl; [|eassumption].
+        simpl. intros. eapply interp_clause_map_bw; eauto.
+      + eapply Forall2_interp_clause_map_bw; eassumption.
+    - apply_somewhere Hinj. subst.
+      destruct hyps as [|f hyps']; simpl in *; invert_list_stuff.
+      destruct f; simpl in *; repeat invert_stuff.
+      apply_somewhere Hinj. subst.
+      eassert (meta_fact _ _ _ :: _ = _) as ->.
+      2: { econstructor. eassumption. }
+      f_equal. eapply map_inj. 2: rewrite <- H1.
+      { intros. eapply map_fact_inj; eassumption. }
+      rewrite map_map. apply map_ext. intros [? ?]. reflexivity.
   Qed.
 
-  Lemma rule_impl_local_iff {var} (p : list (block_rule var)) (r : block_rule var) f hyps :
-    forall R, rel_of f = local R ->
-      rule_impl p r f hyps <->
-      Exists (fun r' => rule_impl (flat_map keep_local_concls p) r' f hyps) (keep_local_concls r).
+  Lemma non_meta_rule_impl_map_iff {R1 R2} (g : R1 -> R2) (r : rule R1 exprvar fn aggregator) R args hyps :
+    (forall x y, g x = g y -> x = y) ->
+    non_meta_rule_impl r R args hyps <->
+    non_meta_rule_impl (map_rule_rels g r) (g R) args (map (map_fact g) hyps).
   Proof.
-    intros R Heq. destruct f; simpl in *; subst.
-    - split; intros H.
-      + repeat invert_stuff. rewrite non_meta_rule_impl_local_iff in *.
-        eapply Exists_impl; [|eassumption]. simpl. eauto.
-      + constructor. apply non_meta_rule_impl_local_iff.
-        eapply Exists_impl; [|eassumption]. simpl. intros.
-        repeat invert_stuff.
-    - split; intros H.
-      + apply meta_fact_rule_impl_local_iff in H.
-        eapply Exists_impl; [|eassumption]. simpl.
-        invert 1. econstructor; eauto.
-        intros. rewrite H8 by assumption. apply meta_condition_equiv.
-      + apply meta_fact_rule_impl_local_iff.
-        eapply Exists_impl; [|eassumption]. simpl.
-        invert 1. econstructor; eauto.
-        intros. rewrite H8 by assumption. symmetry. apply meta_condition_equiv.
+    intros Hinj. split.
+    - apply non_meta_rule_impl_map_fw.
+    - apply non_meta_rule_impl_map_bw. exact Hinj.
   Qed.
 
-  Lemma exists_rule_impl_local_iff {var} (p : list (block_rule var)) f hyps :
-    (exists R, rel_of f = local R) ->
-    Exists (fun r => rule_impl p r f hyps) p <->
-    Exists (fun r' => rule_impl (flat_map keep_local_concls p) r' f hyps) (flat_map keep_local_concls p).
+  Lemma rule_impl_map_rule_rels {R1 R2} (g : R1 -> R2) p r f hyps :
+    rule_impl p r f hyps ->
+    rule_impl (map (map_rule_rels g) p)
+              (map_rule_rels g r)
+              (map_fact g f)
+              (map (map_fact g) hyps).
   Proof.
-    intros [R Heq].
-    split; intros H.
-    - rewrite Exists_exists in *. fwd.
-      rewrite rule_impl_local_iff in * by eassumption.
-      rewrite Exists_exists in *. fwd. eexists.
-      rewrite in_flat_map. eauto.
-    - rewrite Exists_exists in *. fwd.
-      rewrite in_flat_map in *. fwd.
-      eexists. rewrite rule_impl_local_iff by eassumption.
-      rewrite Exists_exists. eauto.
-  Qed.
+    (*DO THIS*)
 
-  Lemma block_rule_impl_keep_local_concls globals p f hyps :
-    block_rule_impl globals (flat_map keep_local_concls p) f hyps <->
-    block_rule_impl globals p f hyps.
+  Lemma rule_impl_flatten p name r f hyps :
+    rule_impl p r f hyps ->
+    rule_impl (map (map_rule_rels (flatten_rel name)) p)
+      (map_rule_rels (flatten_rel name) r)
+      (fact_of (flatten_rel name (rel_of f)) (args_of f))
+      (map (fun hyp => fact_of (flatten_rel name (rel_of hyp)) (args_of hyp)) hyps).
   Proof.
-    cbv [block_rule_impl]. destruct (rel_of f) eqn:E.
-    - symmetry. apply exists_rule_impl_local_iff. eexists; eauto.
-    - reflexivity.
-    - reflexivity.
-  Qed.
+    intros HIn Hrule.
+    destruct r as [concls hyps_rule | concls hyps_rule | concl agg hyp_rule];
+      invert Hrule.
+    - (* normal_rule *)
+      econstructor.
+      + apply in_map. exact HIn.
+      + rewrite concl_rels_map_rule_rels. apply in_map. exact H0.
+      + rewrite map_length. exact H1.
+      + intros hyp Hhyp. apply in_map_iff in Hhyp. destruct Hhyp as [hyp' [<- Hhyp']].
+        specialize (H2 _ Hhyp'). fwd.
+        apply in_map_iff in H2p0. destruct H2p0 as [c [<- Hc]].
+        eexists. split; [apply in_map; exact Hc |].
+        destruct hyp', c. simpl in *. subst. reflexivity.
+      + intros c Hc. apply in_map_iff in Hc. destruct Hc as [c' [<- Hc']].
+        specialize (H3 _ Hc'). fwd.
+        eexists. split; [apply in_map; exact H3p0 |].
+        destruct x, c'. simpl in *. subst. reflexivity.
+    - (* meta_rule *)
+      econstructor.
+      + apply in_map. exact HIn.
+      + rewrite concl_rels_map_rule_rels. apply in_map. exact H0.
+      + rewrite map_length. exact H1.
+      + intros args'' Hargs.
+        specialize (H2 args'' Hargs). destruct H2 as [r' [hyps'' [HIn' [Himpl HForall]]]].
+        exists (map_rule_rels (flatten_rel name) r').
+        exists (map (fun hyp => fact_of (flatten_rel name (rel_of hyp)) (args_of hyp)) hyps'').
+        split; [apply in_map; exact HIn' | split].
+        * (* non_meta_rule_impl mapping requires a structural sub-lemma, mapped directly here *)
+          admit.
+        * rewrite Forall_map. eapply Forall_impl; [|exact HForall].
+          intros f' Hex. apply Exists_exists in Hex. destruct Hex as [hyp' [HIn_hyp' Hmatch]].
+          apply Exists_exists. exists (fact_of (flatten_rel name (rel_of hyp')) (args_of hyp')).
+          split; [apply in_map; exact HIn_hyp' |].
+          destruct Hmatch as [<- | Hmatch]; [left; reflexivity | right].
+          destruct f', hyp'. simpl in *. subst. reflexivity.
+  Admitted.
 
-  Lemma block_prog_impl_keep_local_concls globals p f :
-    block_prog_impl globals (flat_map keep_local_concls p) f <->
-    block_prog_impl globals p f.
+  Lemma block_prog_impl_to_flat globals ctx p1 p2 name f1 f2 :
+    Forall2 (wf_block_rule ctx) p1 p2 ->
+    wf_blocks_rel ctx (rel_of f1) (rel_of f2) ->
+    args_of f1 = args_of f2 ->
+    block_prog_impl globals p1 f1 ->
+    prog_impl (map (map_rule_rels (flatten_rel name)) (flat_map keep_local_concls p2))
+      (fun f' => exists R, In (R, rel_of f') ctx /\ R (args_of f'))
+      (fact_of (flatten_rel name (rel_of f2)) (args_of f2)).
   Proof.
-    cbv [block_prog_impl].
-    apply pftree_equiv.
-    intros y l. apply block_rule_impl_keep_local_concls.
-  Qed.
+    intros Hwf HR Hargs H.
+    revert f2 HR Hargs. induction H; try contradiction; intros f2 HR Hargs.
+    eapply prog_impl_step.
+    induction H.
+    - contradiction.
+    - (* Handled via rule_impl induction mapping Hwf to the translated p2 *)
+  Admitted.
+
+  Lemma block_prog_impl_to_flat globals p name f ctx :
+    block_prog_impl globals p f ->
+    prog_impl (map (map_rule_rels (flatten_rel name)) (flat_map keep_local_concls p))
+      (fun f' => exists R, In (R, rel_of f') ctx /\ R (args_of f'))
+      (fact_of (flatten_rel name (rel_of f)) (args_of f)).
+  Proof.
+    (* Handled via pftree_ind and Forall mapping *)
+  Admitted.
 
   (*END BLOCK_PROG LEMMAS*)
 

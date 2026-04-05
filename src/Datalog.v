@@ -1072,10 +1072,10 @@ Ltac interp_exprs :=
     | |- Forall _ [] => constructor
 
     | |- interp_expr _ _ _ => econstructor
-    | |- interp_expr _ _ _ =>
-        eapply interp_expr_subst_more; [|eassumption]
-    | |- interp_clause _ _ _ =>
-        eapply interp_clause_subst_more; [|eassumption]
+    (* | |- interp_expr _ _ _ => *)
+    (*     eapply interp_expr_subst_more; [|eassumption] *)
+    (* | |- interp_clause _ _ _ => *)
+    (*     eapply interp_clause_subst_more; [|eassumption] *)
     | |- interp_clause _ _ _ =>
         cbv [interp_clause]; eexists; split; [|reflexivity]; simpl
     | |- interp_meta_clause _ _ _ =>

@@ -552,6 +552,15 @@ Implicit Type xs : list A.
 Implicit Type ys : list B.
 Implicit Type zs : list C.
 
+Lemma map_inj (f : A -> B) (l1 l2 : list A) :
+  (forall x y, f x = f y -> x = y) ->
+  map f l1 = map f l2 ->
+  l1 = l2.
+Proof.
+  intros Hinj. revert l2. induction l1 as [|x xs IH]; intros [|y ys] H; simpl in H; auto; try discriminate.
+  invert H. f_equal; auto.
+Qed.
+
 Lemma list_set_Existsn_1 S xs x :
   is_list_set S xs ->
   S x ->
