@@ -470,13 +470,47 @@ Section Blocks.
                apply Hctx in H2p1. simpl in H1.
                eapply in_nonoverlapping_ranges. 1: exact H2p1. 1: exact H1. lia. }
         rewrite IH'p4.
-        apply prog_impl_hyp_ext. intros f'. split; intros Hf'; fwd.
+        apply prog_impl_hyp_ext_strong.
+        { split; intros Hargs; simpl; fwd; exfalso.
+          - destruct Hargsp0 as [Hargsp0|Hargsp0]; fwd.
+            + apply IHHwfp4 in Hargsp1. rewrite fact_of_rel_of_args_of in Hargsp1.
+              apply prog_impl_rel_of in Hargsp1. destruct Hargsp1 as [Hargsp1|Hargsp1].
+              -- fwd. rewrite rel_of_fact_of in Hargsp1p0.
+                 rewrite Forall_forall in Hctx. apply Hctx in Hargsp1p0.
+                 eauto using in_nonoverlapping_ranges.
+              -- rewrite rel_of_fact_of in Hargsp1.
+                 rewrite Forall_forall in IHHwfp2.
+                 apply IHHwfp2 in Hargsp1.
+                 eauto using in_nonoverlapping_ranges.
+            + rewrite rel_of_fact_of in Hargsp0.
+              rewrite Forall_forall in Hctx. apply Hctx in Hargsp0.
+              eauto using in_nonoverlapping_ranges.
+          - apply prog_impl_rel_of in Hargs. destruct Hargs as [Hargs|Hargs].
+            + fwd. rewrite rel_of_fact_of in Hargsp0.
+              rewrite Forall_forall in Hctx. apply Hctx in Hargsp0.
+              eauto using in_nonoverlapping_ranges.
+            + rewrite rel_of_fact_of in Hargs.
+              rewrite Forall_forall in IHHwfp2.
+              apply IHHwfp2 in Hargs.
+              eauto using in_nonoverlapping_ranges. }
+        intros f' HRf'. split; intros Hf'; fwd.
         -- simpl in Hf'p0. destruct Hf'p0 as [Hf'p0|Hf'p0].
            ++ fwd. rewrite IHHwfp4 in Hf'p1 by eassumption.
               rewrite fact_of_rel_of_args_of in Hf'p1. exact Hf'p1.
            ++ apply prog_impl_leaf. eauto.
-        -- admit.
+        -- apply prog_impl_rel_of in Hf'. destruct Hf' as [Hf'|Hf'].
+           ++ fwd. simpl. eauto.
+           ++ rewrite Forall_forall in IH'p3. apply IH'p2 in Hf'.
+              rewrite Forall_forall in Hctx. apply Hctx in Hf'p0.
+              simpl. eauto.
+              eauto.
+              eauto using in_nonoverlapping_ranges.
+            + rewrite rel_of_fact_of in Hargs.
+              rewrite Forall_forall in IHHwfp2.
+              apply IHHwfp2 in Hargs.
+              eauto using in_nonoverlapping_ranges.
     - ssplit.
+      + lia.
       + lia.
       + simpl. lia.
       + apply Forall_flat_map. apply Forall_map. apply Forall_flat_map.

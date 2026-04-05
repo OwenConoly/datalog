@@ -51,6 +51,40 @@ Section __.
     | normal_fact (nf_rel : rel) (nf_args : list T)
     | meta_fact (mf_rel : rel) (mf_args : list (option T)) (mf_set : list T -> Prop).
 
+  Definition rel_of (f : fact) :=
+    match f with
+    | normal_fact R _ => R
+    | meta_fact R _ _ => R
+    end.
+
+  Variant fact_args :=
+    | normal_fact_args (nf_args : list T)
+    | meta_fact_args (mf_args : list (option T)) (mf_set : list T -> Prop).
+
+  Definition args_of f :=
+    match f with
+    | normal_fact _ nf_args => normal_fact_args nf_args
+    | meta_fact _ mf_args mf_set => meta_fact_args mf_args mf_set
+    end.
+
+  Definition fact_of R args :=
+    match args with
+    | normal_fact_args nf_args => normal_fact R nf_args
+    | meta_fact_args mf_args mf_set => meta_fact R mf_args mf_set
+    end.
+
+  Lemma fact_of_rel_of_args_of f :
+    fact_of (rel_of f) (args_of f) = f.
+  Proof. destruct f; reflexivity. Qed.
+
+  Lemma rel_of_fact_of R args :
+    rel_of (fact_of R args) = R.
+  Proof. destruct args; reflexivity. Qed.
+
+  Lemma args_of_fact_of R args :
+    args_of (fact_of R args) = args.
+  Proof. destruct args; reflexivity. Qed.
+
   Unset Elimination Schemes.
   Inductive interp_expr (ctx : context) : expr -> T -> Prop :=
   | interp_var_expr x v :
@@ -415,32 +449,6 @@ Section __.
   Qed.
   Hint Resolve interp_expr_agree_on : core.
 
-  Definition rel_of (f : fact) :=
-    match f with
-    | normal_fact R _ => R
-    | meta_fact R _ _ => R
-    end.
-
-  Variant fact_args :=
-    | normal_fact_args (nf_args : list T)
-    | meta_fact_args (mf_args : list (option T)) (mf_set : list T -> Prop).
-
-  Definition args_of f :=
-    match f with
-    | normal_fact _ nf_args => normal_fact_args nf_args
-    | meta_fact _ mf_args mf_set => meta_fact_args mf_args mf_set
-    end.
-
-  Definition fact_of R args :=
-    match args with
-    | normal_fact_args nf_args => normal_fact R nf_args
-    | meta_fact_args mf_args mf_set => meta_fact R mf_args mf_set
-    end.
-
-  Lemma fact_of_rel_of_args_of f :
-    fact_of (rel_of f) (args_of f) = f.
-  Proof. destruct f; reflexivity. Qed.
-
   Lemma interp_clause_agree_on ctx1 ctx2 c f :
     interp_clause ctx1 c f ->
     Forall (agree_on ctx1 ctx2) (vars_of_clause c) ->
@@ -576,14 +584,6 @@ Section __.
     | agg_rule _ _ _ => []
     end.
 
-  (*not equivalent to hyp_rels_alt*)
-  Definition hyp_rels (r : rule) : list rel :=
-    match r with
-    | normal_rule _ rule_hyps => map clause_rel rule_hyps
-    | meta_rule rule_concls rule_hyps => map meta_clause_rel rule_hyps
-    | agg_rule _ _ hyp_rel => [hyp_rel]
-    end.
-
   Definition all_rels (r : rule) : list rel :=
     match r with
     | normal_rule rule_concls rule_hyps =>
@@ -591,6 +591,14 @@ Section __.
     | meta_rule rule_concls rule_hyps =>
         map meta_clause_rel rule_concls ++ map meta_clause_rel rule_hyps
     | agg_rule concl_rel _ hyp_rel => [concl_rel; hyp_rel]
+    end.
+
+    (*not equivalent to hyp_rels_alt*)
+  Definition hyp_rels (r : rule) : list rel :=
+    match r with
+    | normal_rule _ rule_hyps => map clause_rel rule_hyps
+    | meta_rule rule_concls rule_hyps => map meta_clause_rel rule_hyps
+    | agg_rule _ _ hyp_rel => [hyp_rel]
     end.
 
   Lemma non_meta_rule_impl_concl_relname_in r R args hyps :
@@ -637,6 +645,58 @@ Section __.
       eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
       intros. repeat invert_stuff.
       eauto using in_map.
+  Qed.
+
+  Lemma pftree_weaken_hyp_strong {U : Type} (P : U -> list U -> Prop) Q1 Q2 (x : U) (Inv : U -> Prop) :
+    (Q1 x -> Q2 x) ->
+    (forall y l, P y l -> Forall Inv l) ->
+    (forall y, Inv y -> Q1 y -> Q2 y) ->
+    pftree P Q1 x -> pftree P Q2 x.
+  Proof.
+    intros Hx Hstep Hinv Htree.
+    assert (Hgen: forall y, pftree P Q1 y -> (Q1 y -> Q2 y) \/ Inv y -> pftree P Q2 y).
+    { intros y Hy. induction Hy.
+      - intros Hcond. apply pftree_leaf. destruct Hcond as [Hcond | Hcond].
+        + apply Hcond. exact H.
+        + apply Hinv; auto.
+      - intros _. eapply pftree_step; [exact H |].
+        pose proof (Hstep _ _ H) as Hinv_l.
+        rewrite Forall_forall in H1, Hinv_l |- *.
+        intros z Hz. apply H1; [exact Hz |].
+        right. apply Hinv_l. exact Hz. }
+    apply Hgen; auto.
+  Qed.
+
+  Lemma pftree_hyp_ext_framed {U : Type} (P : U -> list U -> Prop) Q1 Q2 (x : U) (Inv : U -> Prop) :
+    (Q1 x <-> Q2 x) ->
+    (forall y l, P y l -> Forall Inv l) ->
+    (forall y, Inv y -> Q1 y <-> Q2 y) ->
+    pftree P Q1 x <-> pftree P Q2 x.
+  Proof.
+    intros Hx Hstep Hinv. split; apply pftree_weaken_hyp_strong with (Inv := Inv).
+    - apply Hx.
+    - exact Hstep.
+    - intros; apply Hinv; auto.
+    - apply Hx.
+    - exact Hstep.
+    - intros; apply Hinv; auto.
+  Qed.
+
+  Lemma prog_impl_hyp_ext_strong p Q1 Q2 f :
+    (Q1 f <-> Q2 f) ->
+    (forall f', In (rel_of f') (flat_map hyp_rels p) -> Q1 f' <-> Q2 f') ->
+    prog_impl p Q1 f <-> prog_impl p Q2 f.
+  Proof.
+    intros Hf Hhyps.
+    apply pftree_hyp_ext_framed with (Inv := fun f' => In (rel_of f') (flat_map hyp_rels p)).
+    - exact Hf.
+    - intros y l Hex.
+      apply Exists_exists in Hex. fwd.
+      apply rule_impl_hyp_relname_in in Hexp1.
+      eapply Forall_impl; [|exact Hexp1].
+      simpl. intros hyp Hhyp.
+      apply in_flat_map. eexists; split; eauto.
+    - exact Hhyps.
   Qed.
 
   Definition disjoint_lists {T} (l1 l2 : list T) :=
@@ -943,6 +1003,17 @@ Section __.
     eapply disjoint_lists_incl; [eassumption | |]; auto with incl.
     apply incl_flat_map_strong; auto with incl.
     intros. eapply incl_tran; auto with incl.
+  Qed.
+
+  Lemma prog_impl_rel_of p Q f :
+    prog_impl p Q f ->
+    Q f \/ In (rel_of f) (flat_map concl_rels p).
+  Proof.
+    intros H. apply invert_prog_impl in H. destruct H as [Hq | [hyps' [Hex _]]].
+    - left. exact Hq.
+    - right. apply Exists_exists in Hex. destruct Hex as [r [Hrin Hrule]].
+      apply in_flat_map. exists r. split; [exact Hrin |].
+      eapply rule_impl_concl_relname_in. exact Hrule.
   Qed.
 
   (* Lemma loopless_program p Q f : *)
