@@ -165,12 +165,13 @@ Section __.
   Definition fact_supported (meta_facts : list fact) (f : fact) : Prop :=
     Exists (fun hyp => f = hyp \/ fact_matches f hyp) meta_facts.
 
-  Definition one_step_derives (p : list rule) (meta_facts : list fact) (R : rel) (args : list T) : Prop :=
+  Definition one_step_derives0 fact_supported (p : list rule) (meta_facts : list fact) (R : rel) (args : list T) : Prop :=
     exists r hyps,
       In r p /\
         non_meta_rule_impl r R args hyps /\
         Forall (fact_supported meta_facts) hyps.
-  Hint Unfold one_step_derives : core.
+  Definition one_step_derives := one_step_derives0 fact_supported.
+  Hint Unfold one_step_derives0 fact_supported : core.
 
   Inductive rule_impl (env : list fact -> rel -> list T -> Prop) : rule -> fact -> list fact -> Prop :=
   | simple_rule_impl r R args hyps :
@@ -777,7 +778,7 @@ Section __.
       + constructor. econstructor; eassumption.
     - econstructor; try eassumption.
       intros args'' Hargs''. rewrite H2 by assumption.
-      cbv [one_step_derives]. split; intros H'.
+      cbv [one_step_derives one_step_derives0]. split; intros H'.
       + fwd. rewrite in_app_iff in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto 6.
         apply non_meta_rule_impl_concl_relname_in in H'p1.
         rewrite Exists_exists in H0. fwd. repeat invert_stuff.
@@ -798,7 +799,7 @@ Section __.
       + constructor. econstructor; eassumption.
     - econstructor; try eassumption.
       intros args'' Hargs''. rewrite H2 by assumption.
-      cbv [one_step_derives]. split; intros H'.
+      cbv [one_step_derives one_step_derives0]. split; intros H'.
       + fwd. do 2 eexists. rewrite in_app_iff. eauto.
       + fwd. do 2 eexists. eauto. rewrite in_app_iff in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto.
         apply non_meta_rule_impl_concl_relname_in in H'p1.
@@ -831,7 +832,7 @@ Section __.
     intros H Hiff. invert H.
     - constructor. assumption.
     - econstructor; try eassumption. intros. rewrite H2 by assumption.
-      clear -Hiff. cbv [one_step_derives].
+      clear -Hiff. cbv [one_step_derives one_step_derives0].
       split; intros; fwd; do 2 eexists; edestruct Hiff; eauto.
   Qed.
 

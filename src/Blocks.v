@@ -83,11 +83,8 @@ Section Blocks.
     | Var R => R (args_of f)
     end.
 
-  Definition block_one_step_derives globals (p : list (block_rule _)) (hyps : list (fact _ _)) (R : blocks_rel _) (args : list T) : Prop :=
-    exists r hyps'',
-      In r p /\
-        non_meta_rule_impl (context := context) r R args hyps'' /\
-        Forall (block_fact_supported globals hyps) hyps''.
+  Definition block_one_step_derives globals meta_facts :=
+    one_step_derives0 (context := context) (block_fact_supported globals) meta_facts.
 
   (*bad name, confused me*)
   Definition block_rule_impl globals (p : list (block_rule _)) f hyps :=
@@ -533,11 +530,11 @@ Section Blocks.
     - destruct (is_local_rel concl) eqn:E; split; intros; repeat invert_stuff.
   Qed.
 
-  Lemma meta_condition_equiv {var} (p : list (block_rule var)) R args'' S_cond :
-    (exists r hyps'', In r p /\ non_meta_rule_impl r (local R) args'' hyps'' /\ S_cond hyps'') <->
-    (exists r' hyps'', In r' (flat_map keep_local_concls p) /\ non_meta_rule_impl r' (local R) args'' hyps'' /\ S_cond hyps'').
+  Lemma meta_condition_equiv {var} fact_supported0 (p : list (block_rule var)) hyps R args :
+    one_step_derives0 fact_supported0 p hyps (local R) args <->
+      one_step_derives0 fact_supported0 (flat_map keep_local_concls p) hyps (local R) args.
   Proof.
-    split; intros H; fwd.
+    cbv [one_step_derives one_step_derives0]. split; intros H; fwd.
     - apply non_meta_rule_impl_local_iff in Hp1.
       rewrite Exists_exists in *. fwd.
       do 2 eexists. split; eauto. apply in_flat_map. eauto.
@@ -547,10 +544,10 @@ Section Blocks.
       apply Exists_exists. eauto.
   Qed.
 
-  Lemma rule_impl_local_iff {var} (p : list (block_rule var)) (r : block_rule var) f hyps :
+  Lemma rule_impl_local_iff {var} fact_supported0 (p : list (block_rule var)) (r : block_rule var) f hyps :
     forall R, rel_of f = local R ->
-      rule_impl (block_one_step_derives map.empty p) r f hyps <->
-      Exists (fun r' => rule_impl (flat_map keep_local_concls p) r' f hyps) (keep_local_concls r).
+      rule_impl (one_step_derives0 fact_supported0 p) r f hyps <->
+      Exists (fun r' => rule_impl (one_step_derives0 fact_supported0 (flat_map keep_local_concls p)) r' f hyps) (keep_local_concls r).
   Proof.
     intros R Heq. destruct f; simpl in *; subst.
     - split; intros H.
@@ -605,7 +602,6 @@ Section Blocks.
   (*   apply pftree_equiv. *)
   (*   intros y l. apply block_rule_impl_keep_local_concls. *)
   (* Qed. *)
-
 
   Definition map_fact {R1 R2} (g : R1 -> R2) (f : fact R1 T) : fact R2 T :=
     match f with
@@ -785,37 +781,30 @@ Section Blocks.
     eapply Forall2_impl; [|eassumption].
     eauto using interp_meta_clause_map_bw.
   Qed.
-
-  Lemma meta_cond_map_iff {R1 R2} (g : R1 -> R2) p (R : R1) (args'' : list T) hyps :
+  Print one_step_derives0. Print block_fact_supported.
+  Lemma meta_cond_map_iff {R1 R2} fact_supported1 fact_supported2 (g : R1 -> R2) p (R : R1) (args : list T) hyps :
     (forall x y, g x = g y -> x = y) ->
-    (exists r hyps'',
-       In r p /\
-       non_meta_rule_impl r R args'' hyps'' /\
-       Forall (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) hyps) hyps'')
-    <->
-    (exists r_map hyps''_map,
-       In r_map (map (map_rule_rels g) p) /\
-       non_meta_rule_impl r_map (g R) args'' hyps''_map /\
-       Forall (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) (map (map_fact g) hyps)) hyps''_map).
+    one_step_derives0 fact_supported1 p hyps R args <->
+      one_step_derives0 fact_supported2 (map (map_rule_rels g) p) (map (map_fact g) hyps) (g R) args.
   Proof.
-    intros Hinj. split; intros H; fwd.
+    intros Hinj. cbv [one_step_derives0]. split; intros H; fwd.
     - do 2 eexists.
       split; [apply in_map; eassumption | split].
       + apply non_meta_rule_impl_map_fw. eassumption.
       + rewrite Lists.List.Forall_map. eapply Forall_impl; [|eassumption].
-        intros f' Hex. apply Exists_exists in Hex. fwd.
-        apply Exists_exists. eexists. split; [apply in_map; eassumption |].
-        destruct Hexp1 as [<- | Hmatch]; [left; reflexivity | right].
-        apply fact_matches_map_fw. eassumption.
+        intros f' Hex. admit. (* apply Exists_exists in Hex. fwd. *)
+        (* apply Exists_exists. eexists. split; [apply in_map; eassumption |]. *)
+        (* destruct Hexp1 as [<- | Hmatch]; [left; reflexivity | right]. *)
+        (* apply fact_matches_map_fw. eassumption. *)
     - apply in_map_iff in Hp0. fwd.
       pose proof Hp1 as Hp1'.
       apply non_meta_rule_invert_map in Hp1; [|assumption]. fwd.
       do 2 eexists. split; [eassumption | split].
-      + eapply non_meta_rule_impl_map_bw; eassumption.
+      + eapply non_meta_rule_impl_map_bw; eassumption. Print fact_supported.
       + rewrite Lists.List.Forall_map in Hp2. eapply Forall_impl; [|eassumption].
-        simpl. intros f Hf. apply Exists_map in Hf. eapply Exists_impl; [|eassumption].
-        simpl. intros f' Hf'. destruct Hf' as [Hf' | Hf']; eauto using map_fact_inj, fact_matches_map_bw.
-  Qed.
+        simpl. intros f Hf. admit. (* apply Exists_map in Hf. eapply Exists_impl; [|eassumption]. *)
+        (* simpl. intros f' Hf'. destruct Hf' as [Hf' | Hf']; eauto using map_fact_inj, fact_matches_map_bw. *)
+  Admitted.
 
   Lemma rule_impl_map_rule_rels_fw {R1 R2} (g : R1 -> R2) p r f hyps :
     (forall x y, g x = g y -> x = y) ->
@@ -998,33 +987,33 @@ Section Blocks.
     congruence.
   Qed.
 
-  Definition is_bijection {var1 var2} (ctx : list (var1 * var2)) : Prop :=
-    NoDup (map fst ctx) /\ NoDup (map snd ctx).
+  (* Definition is_bijection {var1 var2} (ctx : list (var1 * var2)) : Prop := *)
+  (*   NoDup (map fst ctx) /\ NoDup (map snd ctx). *)
 
-  Lemma wf_blocks_rel_det {var1 var2} (ctx : list (var1 * var2)) R R1' R2' :
-    NoDup (map fst ctx) ->
-    wf_blocks_rel ctx R R1' ->
-    wf_blocks_rel ctx R R2' ->
-    R1' = R2'.
-  Proof.
-    intros Hnodup H1 H2.
-    invert H1; invert H2; auto.
-    f_equal. eapply NoDup_fst_In_inj; eauto.
-  Qed.
+  (* Lemma wf_blocks_rel_det {var1 var2} (ctx : list (var1 * var2)) R R1' R2' : *)
+  (*   NoDup (map fst ctx) -> *)
+  (*   wf_blocks_rel ctx R R1' -> *)
+  (*   wf_blocks_rel ctx R R2' -> *)
+  (*   R1' = R2'. *)
+  (* Proof. *)
+  (*   intros Hnodup H1 H2. *)
+  (*   invert H1; invert H2; auto. *)
+  (*   f_equal. eapply NoDup_fst_In_inj; eauto. *)
+  (* Qed. *)
 
-  Lemma wf_fact_det {var1 var2} (ctx : list (var1 * var2)) f f1 f2 :
-    NoDup (map fst ctx) ->
-    wf_fact ctx f f1 ->
-    wf_fact ctx f f2 ->
-    f1 = f2.
-  Proof.
-    intros Hnodup [Hrel1 Hargs1] [Hrel2 Hargs2].
-    assert (Hrel_eq : rel_of f1 = rel_of f2) by (eapply wf_blocks_rel_det; eauto).
-    assert (Hargs_eq : args_of f1 = args_of f2) by congruence.
-    rewrite <- (fact_of_rel_of_args_of f1).
-    rewrite <- (fact_of_rel_of_args_of f2).
-    congruence.
-  Qed.
+  (* Lemma wf_fact_det {var1 var2} (ctx : list (var1 * var2)) f f1 f2 : *)
+  (*   NoDup (map fst ctx) -> *)
+  (*   wf_fact ctx f f1 -> *)
+  (*   wf_fact ctx f f2 -> *)
+  (*   f1 = f2. *)
+  (* Proof. *)
+  (*   intros Hnodup [Hrel1 Hargs1] [Hrel2 Hargs2]. *)
+  (*   assert (Hrel_eq : rel_of f1 = rel_of f2) by (eapply wf_blocks_rel_det; eauto). *)
+  (*   assert (Hargs_eq : args_of f1 = args_of f2) by congruence. *)
+  (*   rewrite <- (fact_of_rel_of_args_of f1). *)
+  (*   rewrite <- (fact_of_rel_of_args_of f2). *)
+  (*   congruence. *)
+  (* Qed. *)
 
   Lemma fact_matches_wf_local_fw {var1 var2} (ctx : list (var1 * var2)) f1 hyp1 f2 hyp2 x :
     wf_fact ctx f1 f2 ->
@@ -1042,7 +1031,6 @@ Section Blocks.
   Qed.
 
   Lemma wf_meta_cond_iff' {var1 var2} (ctx : list (var1 * var2)) p1 p2 (R1 : blocks_rel var1) (R2 : blocks_rel var2) args'' hyps1 hyps2 :
-    is_bijection ctx ->
     Forall2 (wf_block_rule ctx) p1 p2 ->
     wf_blocks_rel ctx R1 R2 ->
     Forall2 (wf_fact ctx) hyps1 hyps2 ->
@@ -1056,31 +1044,32 @@ Section Blocks.
        non_meta_rule_impl r2 R2 args'' hyps2'' /\
        Forall (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) hyps2) hyps2'').
   Proof.
-    intros Hctx H1 H2 H3.
+    intros H1 H2 H3.
     intros H. fwd.
 
     apply Forall2_forget_r in H1. rewrite Forall_forall in H1.
     apply H1 in Hp0. fwd.
     edestruct wf_non_meta_rule_impl as [R2' [hyps2'' [Himpl [Hrel Hhyps]]]]; eauto.
-    eapply wf_blocks_rel_det in Hrel.
-    2: { destruct Hctx. assumption. }
-    2: { exact H2. }
-    subst.
-    do 2 eexists. ssplit; eauto.
-    apply Forall2_forget_l in Hhyps.
-    eapply Forall_impl; [|eassumption].
-    simpl. intros f' H. fwd. rewrite Forall_forall in Hp2. apply Hp2 in Hp0.
-    apply Forall2_forget_r in H3. rewrite Forall_forall in H3.
-    rewrite Exists_exists in *. fwd. apply H3 in Hp0p2. fwd.
-    eexists. split; [eassumption|].
-    destruct Hp0p3 as [Hp0p3|Hp0p3].
-    + subst. Print wf_blocks_rel. eapply wf_fact_det in Hp3.
-      3: exact Hp0p2p1. 2: destruct Hctx; assumption.
-      subst. auto.
-    + right.
-      destruct Hctx as [Hfst_nodup Hsnd_nodup].
-      eapply fact_matches_wf_fw; eauto.
-  Qed.
+  (*   eapply wf_blocks_rel_det in Hrel. *)
+  (*   2: { destruct Hctx. assumption. } *)
+  (*   2: { exact H2. } *)
+  (*   subst. *)
+  (*   do 2 eexists. ssplit; eauto. *)
+  (*   apply Forall2_forget_l in Hhyps. *)
+  (*   eapply Forall_impl; [|eassumption]. *)
+  (*   simpl. intros f' H. fwd. rewrite Forall_forall in Hp2. apply Hp2 in Hp0. *)
+  (*   apply Forall2_forget_r in H3. rewrite Forall_forall in H3. *)
+  (*   rewrite Exists_exists in *. fwd. apply H3 in Hp0p2. fwd. *)
+  (*   eexists. split; [eassumption|]. *)
+  (*   destruct Hp0p3 as [Hp0p3|Hp0p3]. *)
+  (*   + subst. Print wf_blocks_rel. eapply wf_fact_det in Hp3. *)
+  (*     3: exact Hp0p2p1. 2: destruct Hctx; assumption. *)
+  (*     subst. auto. *)
+  (*   + right. *)
+  (*     destruct Hctx as [Hfst_nodup Hsnd_nodup]. *)
+  (*     eapply fact_matches_wf_fw; eauto. *)
+    (* Qed. *)
+    Abort.
 
   Lemma wf_blocks_rel_sym {var1 var2} (ctx : list (var1 * var2)) R1 R2 :
     wf_blocks_rel ctx R1 R2 ->
@@ -1123,20 +1112,19 @@ Section Blocks.
   Qed.
   Hint Resolve wf_block_rule_sym : core.
 
-  Lemma is_bijection_sym {var1 var2} (ctx : list (var1 * var2)) :
-    is_bijection ctx ->
-    is_bijection (map (fun '(a, b) => (b, a)) ctx).
-  Proof.
-    intros [Hfst Hsnd]. cbv [is_bijection]. split.
-    - rewrite map_map. erewrite map_ext; [eassumption|]. intros [? ?]. reflexivity.
-    - rewrite map_map. erewrite map_ext; [eassumption|]. intros [? ?]. reflexivity.
-  Qed.
+  (* Lemma is_bijection_sym {var1 var2} (ctx : list (var1 * var2)) : *)
+  (*   is_bijection ctx -> *)
+  (*   is_bijection (map (fun '(a, b) => (b, a)) ctx). *)
+  (* Proof. *)
+  (*   intros [Hfst Hsnd]. cbv [is_bijection]. split. *)
+  (*   - rewrite map_map. erewrite map_ext; [eassumption|]. intros [? ?]. reflexivity. *)
+  (*   - rewrite map_map. erewrite map_ext; [eassumption|]. intros [? ?]. reflexivity. *)
+  (* Qed. *)
 
   Lemma wf_rule_impl {var1 var2} (ctx : list (var1 * var2)) p1 p2 r1 r2 f1 hyps1 :
-    is_bijection ctx ->
     Forall2 (wf_block_rule ctx) p1 p2 ->
     wf_block_rule ctx r1 r2 ->
-    rule_impl p1 r1 f1 hyps1 ->
+    rule_impl (p1 r1 f1 hyps1 ->
     exists f2 hyps2,
       rule_impl p2 r2 f2 hyps2 /\
         wf_fact ctx f1 f2 /\
