@@ -75,10 +75,24 @@ Section Blocks.
       wf_blocks_prog ctx (Block ret p1) (Block ret p2).
   End well_formed.
   Hint Constructors wf_blocks_rel wf_clause wf_meta_clause wf_block_rule wf_blocks_prog : core.
+
+  Definition block_fact_supported globals meta_facts (f : fact (blocks_rel (fact_args T -> Prop)) T) : Prop :=
+    match rel_of f with
+    | local R => Exists (fun hyp => f = hyp \/ fact_matches f hyp) meta_facts
+    | global R => exists R', map.get globals R = Some R' /\ R' (args_of f)
+    | Var R => R (args_of f)
+    end.
+
+  Definition block_one_step_derives globals (p : list (block_rule _)) (hyps : list (fact _ _)) (R : blocks_rel _) (args : list T) : Prop :=
+    exists r hyps'',
+      In r p /\
+        non_meta_rule_impl (context := context) r R args hyps'' /\
+        Forall (block_fact_supported globals hyps) hyps''.
+
   (*bad name, confused me*)
   Definition block_rule_impl globals (p : list (block_rule _)) f hyps :=
     match rel_of f with
-    | local R => Exists (fun r => rule_impl p r f hyps) p
+    | local R => Exists (fun r => rule_impl (block_one_step_derives globals p) r f hyps) p
     | global R => exists R', map.get globals R = Some R' /\ R' (args_of f)
     | Var R' => R' (args_of f)
     end.
@@ -535,7 +549,7 @@ Section Blocks.
 
   Lemma rule_impl_local_iff {var} (p : list (block_rule var)) (r : block_rule var) f hyps :
     forall R, rel_of f = local R ->
-      rule_impl p r f hyps <->
+      rule_impl (block_one_step_derives map.empty p) r f hyps <->
       Exists (fun r' => rule_impl (flat_map keep_local_concls p) r' f hyps) (keep_local_concls r).
   Proof.
     intros R Heq. destruct f; simpl in *; subst.

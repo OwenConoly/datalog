@@ -160,21 +160,29 @@ Section __.
   Set Elimination Schemes.
   Hint Constructors pftree : core.
 
-  Inductive rule_impl p : rule -> fact -> list fact -> Prop :=
+  (*TODO: meta_facts should have a type that restricts it to just being meta-facts?*)
+  (*fact_supported is a goofy name*)
+  Definition fact_supported (meta_facts : list fact) (f : fact) : Prop :=
+    Exists (fun hyp => f = hyp \/ fact_matches f hyp) meta_facts.
+
+  Definition one_step_derives (p : list rule) (meta_facts : list fact) (R : rel) (args : list T) : Prop :=
+    exists r hyps,
+      In r p /\
+        non_meta_rule_impl r R args hyps /\
+        Forall (fact_supported meta_facts) hyps.
+  Hint Unfold one_step_derives : core.
+
+  Inductive rule_impl (env : list fact -> rel -> list T -> Prop) : rule -> fact -> list fact -> Prop :=
   | simple_rule_impl r R args hyps :
     non_meta_rule_impl r R args hyps ->
     rule_impl _ r (normal_fact R args) hyps
   | meta_rule_impl rule_concls rule_hyps ctx R args hyps S :
     Exists (fun c => interp_meta_clause ctx c (meta_fact R args (fun args' => S args'))) rule_concls ->
-    Forall2 (interp_meta_clause ctx) rule_hyps hyps ->
-    (forall args'',
-        Forall2 matches args args'' ->
-        S args'' <->
-          exists r hyps'',
-            In r p /\
-              non_meta_rule_impl r R args'' hyps'' /\
-              Forall (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) hyps) hyps'') ->
-    rule_impl _ (meta_rule rule_concls rule_hyps) (meta_fact R args S) hyps.
+      Forall2 (interp_meta_clause ctx) rule_hyps hyps ->
+      (forall args'',
+          Forall2 matches args args'' ->
+          S args'' <-> env hyps R args'') ->
+      rule_impl env (meta_rule rule_concls rule_hyps) (meta_fact R args S) hyps.
   Hint Constructors rule_impl : core.
 
   Lemma pftree_ind {U : Type} (P : U -> list U -> Prop) Q R :
@@ -197,12 +205,12 @@ Section __.
   Proof. induction 1; eauto. Qed.
 
   Definition prog_impl (p : list rule) : (fact -> Prop) -> fact -> Prop :=
-    pftree (fun f hyps => Exists (fun r => rule_impl p r f hyps) p).
+    pftree (fun f hyps => Exists (fun r => rule_impl (one_step_derives p) r f hyps) p).
 
   Lemma prog_impl_ind p Q R :
     (forall f, Q f -> R f) ->
     (forall f hyps,
-        Exists (fun r => rule_impl p r f hyps) p ->
+        Exists (fun r => rule_impl (one_step_derives p) r f hyps) p ->
         Forall (prog_impl p Q) hyps ->
         Forall R hyps ->
         R f) ->
@@ -210,7 +218,7 @@ Section __.
   Proof. apply pftree_ind. Qed.
 
   Lemma prog_impl_step p Q f hyps' :
-    Exists (fun r : rule => rule_impl p r f hyps') p ->
+    Exists (fun r => rule_impl (one_step_derives p) r f hyps') p ->
     Forall (prog_impl p Q) hyps' ->
     prog_impl p Q f.
   Proof. intros. eapply pftree_step; eauto. Qed.
@@ -225,7 +233,7 @@ Section __.
     prog_impl p Q f ->
     Q f \/
       exists hyps',
-        Exists (fun r : rule => rule_impl p r f hyps') p /\
+        Exists (fun r : rule => rule_impl (one_step_derives p) r f hyps') p /\
           Forall (prog_impl p Q) hyps'.
   Proof. invert 1; eauto. Qed.
 
@@ -281,7 +289,7 @@ Section __.
 
   Definition F p Q Px :=
     let '(P, x) := Px in
-    P x \/ Q (P, x) \/ exists hyps', Exists (fun r => rule_impl p r x hyps') p /\ Forall (fun x => Q (P, x)) hyps'.
+    P x \/ Q (P, x) \/ exists hyps', Exists (fun r => rule_impl (one_step_derives p) r x hyps') p /\ Forall (fun x => Q (P, x)) hyps'.
 
   Lemma F_mono p S1 S2 :
     (forall x, S1 x -> S2 x) ->
@@ -760,16 +768,17 @@ Section __.
 
   Lemma staged_program_rule_impl p1 p2 r f hyps :
     disjoint_lists (meta_concl_rels r) (flat_map concl_rels p2) ->
-    rule_impl (p1 ++ p2) r f hyps ->
-    rule_impl p1 r f hyps.
+    rule_impl (one_step_derives (p1 ++ p2)) r f hyps ->
+    rule_impl (one_step_derives p1) r f hyps.
   Proof.
     intros Hout. invert 1.
     - invert H0.
       + constructor. econstructor; eassumption.
       + constructor. econstructor; eassumption.
     - econstructor; try eassumption.
-      intros args'' Hargs''. rewrite H2 by assumption. split; intros H'.
-      + fwd. rewrite in_app_iff in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto.
+      intros args'' Hargs''. rewrite H2 by assumption.
+      cbv [one_step_derives]. split; intros H'.
+      + fwd. rewrite in_app_iff in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto 6.
         apply non_meta_rule_impl_concl_relname_in in H'p1.
         rewrite Exists_exists in H0. fwd. repeat invert_stuff.
         exfalso. eapply Hout.
@@ -780,15 +789,16 @@ Section __.
 
   Lemma staged_program_rule_impl_bw p1 p2 r f hyps :
     disjoint_lists (meta_concl_rels r) (flat_map concl_rels p2) ->
-    rule_impl p1 r f hyps ->
-    rule_impl (p1 ++ p2) r f hyps.
+    rule_impl (one_step_derives p1) r f hyps ->
+    rule_impl (one_step_derives (p1 ++ p2)) r f hyps.
   Proof.
     intros Hout. invert 1.
     - invert H0.
       + constructor. econstructor; eassumption.
       + constructor. econstructor; eassumption.
     - econstructor; try eassumption.
-      intros args'' Hargs''. rewrite H2 by assumption. split; intros H'.
+      intros args'' Hargs''. rewrite H2 by assumption.
+      cbv [one_step_derives]. split; intros H'.
       + fwd. do 2 eexists. rewrite in_app_iff. eauto.
       + fwd. do 2 eexists. eauto. rewrite in_app_iff in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto.
         apply non_meta_rule_impl_concl_relname_in in H'p1.
@@ -814,14 +824,15 @@ Section __.
   Qed.
 
   Lemma rule_impl_list_set p1 p2 r f hyps :
-    rule_impl p1 r f hyps ->
+    rule_impl (one_step_derives p1) r f hyps ->
     same_set p1 p2 ->
-    rule_impl p2 r f hyps.
+    rule_impl (one_step_derives p2) r f hyps.
   Proof.
     intros H Hiff. invert H.
     - constructor. assumption.
     - econstructor; try eassumption. intros. rewrite H2 by assumption.
-      clear -Hiff. split; intros; fwd; do 2 eexists; edestruct Hiff; eauto.
+      clear -Hiff. cbv [one_step_derives].
+      split; intros; fwd; do 2 eexists; edestruct Hiff; eauto.
   Qed.
 
   Lemma prog_impl_same_set p1 p2 Q f :
