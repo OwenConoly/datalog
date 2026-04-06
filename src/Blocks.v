@@ -249,8 +249,6 @@ Section Blocks.
         (S name, lvar_rel name ret, p'')
     end.
 
-  Search (Datalog.fact _ _ -> Datalog.fact_args _).
-  Print rule.
   Definition in_range lo hi x :=
     match x with
     | lvar_rel block_id _ => lo <= block_id < hi
@@ -1000,17 +998,6 @@ Section Blocks.
     f_equal. eapply NoDup_fst_In_inj; eauto.
   Qed.
 
-  Lemma wf_blocks_rel_inj {var1 var2} (ctx : list (var1 * var2)) R1 R1' R2 :
-    NoDup (map snd ctx) ->
-    wf_blocks_rel ctx R1 R2 ->
-    wf_blocks_rel ctx R1' R2 ->
-    R1 = R1'.
-  Proof.
-    intros Hnodup H1 H2.
-    invert H1; invert H2; auto.
-    f_equal. eapply NoDup_snd_In_inj; eauto.
-  Qed.
-
   Lemma wf_fact_det {var1 var2} (ctx : list (var1 * var2)) f f1 f2 :
     NoDup (map fst ctx) ->
     wf_fact ctx f f1 ->
@@ -1025,34 +1012,19 @@ Section Blocks.
     congruence.
   Qed.
 
-  Lemma wf_fact_inj {var1 var2} (ctx : list (var1 * var2)) f1 f2 f :
-    NoDup (map snd ctx) ->
-    wf_fact ctx f1 f ->
-    wf_fact ctx f2 f ->
-    f1 = f2.
-  Proof.
-    intros Hnodup [Hrel1 Hargs1] [Hrel2 Hargs2].
-    assert (Hrel_eq : rel_of f1 = rel_of f2) by (eapply wf_blocks_rel_inj; eauto).
-    assert (Hargs_eq : args_of f1 = args_of f2) by congruence.
-    rewrite <- (fact_of_rel_of_args_of f1).
-    rewrite <- (fact_of_rel_of_args_of f2).
-    congruence.
-  Qed.
-
-  Lemma fact_matches_wf_fw {var1 var2} (ctx : list (var1 * var2)) f1 hyp1 f2 hyp2 :
-    NoDup (map fst ctx) ->
+  Lemma fact_matches_wf_local_fw {var1 var2} (ctx : list (var1 * var2)) f1 hyp1 f2 hyp2 x :
     wf_fact ctx f1 f2 ->
     wf_fact ctx hyp1 hyp2 ->
+    rel_of f1 = local x ->
     fact_matches f1 hyp1 ->
     fact_matches f2 hyp2.
   Proof.
-    intros Hnodup [Hrel1 Hargs1] [Hrel2 Hargs2] Hmatch.
+    intros [Hrel1 Hargs1] [Hrel2 Hargs2] Hloc Hmatch.
     cbv [fact_matches] in *. fwd.
-    simpl in *.
-    destruct f2, hyp2; simpl in *; try discriminate.
-    fwd.
-    assert (nf_rel = mf_rel) by (eapply wf_blocks_rel_det; eauto).
-    subst. do 4 eexists. split; [eassumption | split; [eassumption | split; reflexivity]].
+    destruct f2, hyp2; simpl in *; try discriminate; repeat invert_stuff.
+    subst.
+    invert Hrel1. invert Hrel2.
+    do 4 eexists. split; [eassumption | split; [eassumption | split; reflexivity]].
   Qed.
 
   Lemma wf_meta_cond_iff' {var1 var2} (ctx : list (var1 * var2)) p1 p2 (R1 : blocks_rel var1) (R2 : blocks_rel var2) args'' hyps1 hyps2 :
@@ -1088,7 +1060,7 @@ Section Blocks.
     rewrite Exists_exists in *. fwd. apply H3 in Hp0p2. fwd.
     eexists. split; [eassumption|].
     destruct Hp0p3 as [Hp0p3|Hp0p3].
-    + subst. eapply wf_fact_det in Hp3.
+    + subst. Print wf_blocks_rel. eapply wf_fact_det in Hp3.
       3: exact Hp0p2p1. 2: destruct Hctx; assumption.
       subst. auto.
     + right.
@@ -1191,9 +1163,10 @@ Section Blocks.
     - apply Exists_exists in H. fwd.
       rewrite rule_impl_local_iff in Hp1 by eassumption.
       apply Exists_exists in Hp1. fwd.
+      eapply
       + eapply prog_impl_step.
         -- apply Exists_exists. eexists. split.
-           ++ admit.
+           ++ apply in_map. apply in_flat_map. eauto. admit.
            ++ rewrite fact_of_g_args_of. apply rule_impl_map_rule_rels_fw.
               { admit. }
 
