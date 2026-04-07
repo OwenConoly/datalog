@@ -8,6 +8,8 @@ all: Makefile.coq
 	$(MAKE) -C coqutil
 	$(MAKE) -C verified-scheduling/src low
 	$(MAKE) -C verified-scheduling/src examples
+	$(MAKE) -C verified-scheduling/src codegen
+	$(MAKE) -C verified-scheduling/src padtest
 	$(MAKE) -f Makefile.coq
 
 COQ_MAKEFILE := $(COQBIN)coq_makefile -docroot datalog $(COQMF_ARGS)
