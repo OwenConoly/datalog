@@ -941,8 +941,11 @@ Section Blocks.
            2: { apply block_fact_supported'. 1: exact map.empty. exact ctx. }
            intros. apply blah; try assumption. }
       2: { rewrite E. admit. }
-      fwd. Check wf_rule_impl.
-      eapply wf_rule_impl with (wf_rel := fun_rel (flatten_rel name)) (fact_supported2 := fact_supported) in Hp1p0.
+      fwd.
+      cbv [wf_fact] in Hp1p1. fwd. rewrite E in *. invert Hp1p1p0.
+      rewrite rule_impl_local_iff' in Hp1p0 by eauto.
+      apply Exists_exists in Hp1p0. fwd.
+      eapply wf_rule_impl with (wf_rel := fun_rel (flatten_rel name)) (fact_supported2 := fact_supported) in Hp1p0p1.
       4: { apply map_rule_wf. }
       3: { instantiate (1 := map _ _). rewrite <- Forall2_map_r.
            apply Forall2_same. apply Forall_forall. intros ? _.
@@ -951,30 +954,22 @@ Section Blocks.
       2: { admit. }
       fwd.
       eapply prog_impl_step.
-      -- apply Exists_map.
-
-                                               Check block_fact_supported. eapply block_fact_supported.
-      Print wf_block_rule.
-      rewrite rule_impl_local_iff in Hp1 by eassumption.
-      apply Exists_exists in Hp1. fwd.
-      Check p1. Check p2.
-      fwd. eapply wf_rule_impl in Hp1p1.
-      4: {
-      ; try eassumption.
-
-      eapply rule_impl
-      eapply prog_impl_step.
-        -- apply Exists_exists. eexists. split.
-           ++ apply in_map. apply in_flat_map. eauto. admit.
-           ++ rewrite fact_of_g_args_of. apply rule_impl_map_rule_rels_fw.
-              { admit. }
-
-
-              apply in_map. apply in_flat_map. eexists. split; [|eassumption]. eauto. split; [|eassumption]. eauto.
-    induction H.
-    - contradiction.
-    - (* Handled via rule_impl induction mapping Hwf to the translated p2 *)
-  Admitted.
+      -- apply Exists_map. apply Exists_flat_map.
+         apply Exists_exists. eexists. split; [eassumption|].
+         apply Exists_exists. eexists. split; [eassumption|].
+         eassert (fact_of _ _ = _) as ->; [|eassumption].
+         cbv [wf_fact wf_block_fact fun_rel] in *. fwd.
+         rewrite E in Hfp0. invert Hfp0. simpl in *. rewrite <- Hfp1.
+         destruct f1, x, f0; simpl in *; f_equal; subst; try congruence || reflexivity.
+      -- apply Forall2_forget_l in Hp1p0p1p2. apply Forall2_forget_l in Hp1p2.
+         rewrite Forall_forall in *. intros f2' Hf2'. move H1 at bottom.
+         specialize (Hp1p0p1p2 _ Hf2'). fwd. cbv [wf_fact fun_rel] in *. fwd.
+         specialize (Hp1p2 _ ltac:(eassumption)). fwd.
+         specialize (H1 _ ltac:(eassumption)).
+         Search rel_of args_of. rewrite <- fact_of_rel_of_args_of.
+         rewrite <- Hp1p0p1p2p1p1. rewrite <- Hp1p0p1p2p1p0. apply H1.
+         cbv [wf_block_fact wf_fact]. auto.
+    -
 
   Lemma block_prog_impl_to_flat globals p name f ctx :
     block_prog_impl globals p f ->
