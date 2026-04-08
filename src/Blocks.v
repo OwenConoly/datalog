@@ -47,18 +47,16 @@ Section Blocks.
   Section well_formed.
     Context {var1 var2 : Type} {rel1 rel2 : Type}.
     Section with_ctx.
-      Context
-        (wf_rel : list (var1 * var2) -> rel1 -> rel2 -> Prop)
-        (ctx : list (var1 * var2)).
+      Context (wf_rel : rel1 -> rel2 -> Prop).
 
       Inductive wf_clause : clause rel1 exprvar fn -> clause rel2 exprvar fn -> Prop :=
       | wf_clause_intro R1 R2 args :
-        wf_rel ctx R1 R2 ->
+        wf_rel R1 R2 ->
         wf_clause {| clause_rel := R1; clause_args := args |} {| clause_rel := R2; clause_args := args |}.
 
       Inductive wf_meta_clause : meta_clause rel1 exprvar fn -> meta_clause rel2 exprvar fn -> Prop :=
       | wf_meta_clause_intro R1 R2 args :
-        wf_rel ctx R1 R2 ->
+        wf_rel R1 R2 ->
         wf_meta_clause {| meta_clause_rel := R1; meta_clause_args := args |} {| meta_clause_rel := R2; meta_clause_args := args |}.
 
       Inductive wf_rule : rule rel1 exprvar fn aggregator -> rule rel2 exprvar fn aggregator -> Prop :=
@@ -71,12 +69,12 @@ Section Blocks.
         Forall2 wf_meta_clause hyps1 hyps2 ->
         wf_rule (meta_rule concls1 hyps1) (meta_rule concls2 hyps2)
       | wf_agg_rule R1 R2 R1' R2' a :
-        wf_rel ctx R1 R2 ->
-        wf_rel ctx R1' R2' ->
+        wf_rel R1 R2 ->
+        wf_rel R1' R2' ->
         wf_rule (agg_rule R1 a R1') (agg_rule R2 a R2').
 
       Definition wf_fact (f1 : fact rel1 T) (f2 : fact rel2 T) : Prop :=
-        wf_rel ctx (rel_of f1) (rel_of f2) /\ args_of f1 = args_of f2.
+        wf_rel (rel_of f1) (rel_of f2) /\ args_of f1 = args_of f2.
       Hint Unfold wf_fact : core.
 
       Ltac invs :=
@@ -125,7 +123,7 @@ Section Blocks.
         non_meta_rule_impl r1 R1 args hyps1 ->
         exists R2 hyps2,
           non_meta_rule_impl r2 R2 args hyps2 /\
-            wf_rel ctx R1 R2 /\
+            wf_rel R1 R2 /\
             Forall2 wf_fact hyps1 hyps2.
       Proof.
         intros Hwf Himpl.
@@ -172,8 +170,8 @@ Section Blocks.
 
       Lemma wf_meta_cond_iff' fact_supported1 fact_supported2 p1 p2 (R1 : rel1) (R2 : rel2) args'' hyps1 hyps2 :
         Forall2 wf_rule p1 p2 ->
-        wf_rel ctx R1 R2 ->
-        (forall R2', wf_rel ctx R1 R2' -> R2 = R2') ->
+        wf_rel R1 R2 ->
+        (forall R2', wf_rel R1 R2' -> R2 = R2') ->
         Forall2 wf_fact hyps1 hyps2 ->
         (forall f1 f2,
             Forall2 wf_fact hyps1 hyps2 ->
@@ -206,14 +204,14 @@ Section Blocks.
       Ltac t :=
         repeat match goal with
           | |- _ => progress (intros; simpl)
-          | |- wf_clause _ _ ?x _ => is_var x; destruct x
-          | |- wf_meta_clause _ _ ?x _ => is_var x; destruct x
-          | |- wf_rule _ _ ?x _ => is_var x; destruct x
-          | |- wf_fact _ _ ?x _ => is_var x; destruct x
-          | H: wf_clause _ _ _ _ |- _ => invert H
-          | H: wf_meta_clause _ _ _ _ |- _ => invert H
-          | H: wf_rule _ _ _ _ |- _ => invert H
-          | H: wf_fact _ _ ?x ?y |- _ => is_var x; cbv [wf_fact] in H; destruct x, y; simpl in H; fwd; try congruence
+          | |- wf_clause _ ?x _ => is_var x; destruct x
+          | |- wf_meta_clause _ ?x _ => is_var x; destruct x
+          | |- wf_rule _ ?x _ => is_var x; destruct x
+          | |- wf_fact _ ?x _ => is_var x; destruct x
+          | H: wf_clause _ _ _ |- _ => invert H
+          | H: wf_meta_clause _ _ _ |- _ => invert H
+          | H: wf_rule _ _ _ |- _ => invert H
+          | H: wf_fact _ ?x ?y |- _ => is_var x; cbv [wf_fact] in H; destruct x, y; simpl in H; fwd; try congruence
           | H: fun_rel _ _ _ |- _ => cbv [fun_rel] in H; subst
           | |- Forall2 _ _ (map _ _) => rewrite <- Forall2_map_r
           | |- Forall2 _ ?x ?x => apply Forall2_same; apply Forall_forall; intros
@@ -225,11 +223,11 @@ Section Blocks.
           end.
 
       Lemma map_clause_wf c :
-        wf_clause (fun _ => fun_rel f) [] c (map_clause_rel c).
+        wf_clause (fun_rel f) c (map_clause_rel c).
       Proof. t. Qed.
 
       Lemma map_clause_wf_bw c c' :
-        wf_clause (fun _ => fun_rel f) [] c c' ->
+        wf_clause (fun_rel f) c c' ->
         c' = map_clause_rel c.
       Proof. t. Qed.
 
@@ -238,14 +236,14 @@ Section Blocks.
           meta_clause_args := c.(meta_clause_args) |}.
 
       Lemma map_meta_clause_wf c :
-        wf_meta_clause (fun _ => fun_rel f) [] c (map_meta_clause_rel c).
+        wf_meta_clause (fun_rel f) c (map_meta_clause_rel c).
       Proof. t. Qed.
 
       Lemma map_meta_clause_wf_bw c c' :
-        wf_meta_clause (fun _ => fun_rel f) [] c c' ->
+        wf_meta_clause (fun_rel f) c c' ->
         c' = map_meta_clause_rel c.
       Proof. t. Qed.
-      
+
       Definition map_rule_rels (r : rule rel1 exprvar fn aggregator) :=
         match r with
         | normal_rule concls hyps =>
@@ -257,11 +255,11 @@ Section Blocks.
         end.
 
       Lemma map_rule_wf r :
-        wf_rule (fun _ => fun_rel f) [] r (map_rule_rels r).
+        wf_rule (fun_rel f) r (map_rule_rels r).
       Proof. t. Qed.
 
       Lemma map_rule_wf_bw r r' :
-        wf_rule (fun _ => fun_rel f) [] r r' ->
+        wf_rule (fun_rel f) r r' ->
         r' = map_rule_rels r.
       Proof. t. Qed.
 
@@ -272,14 +270,14 @@ Section Blocks.
         end.
 
       Lemma map_fact_wf fct :
-        wf_fact (fun _ => fun_rel f) [] fct (map_fact fct).
+        wf_fact (fun_rel f) fct (map_fact fct).
       Proof. t. Qed.
 
       Lemma map_fact_wf_bw fct fct' :
-        wf_fact (fun _ => fun_rel f) [] fct fct' ->
+        wf_fact (fun_rel f) fct fct' ->
         fct' = map_fact fct.
       Proof. t. Qed.
-      
+
       Lemma fact_of_g_args_of fct :
         fact_of (f (rel_of fct)) (args_of fct) = map_fact fct.
       Proof. destruct fct; reflexivity. Qed.
@@ -291,55 +289,20 @@ Section Blocks.
   Section wf_symm.
     Context {var1 var2 : Type}
       (rel : Type -> Type)
-      (wf_rel : forall {var1 var2}, list (var1 * var2) -> rel var1 -> rel var2 -> Prop).
+      (wf_rel : forall {var1 var2}, rel var1 -> rel var2 -> Prop).
     Arguments wf_rel {_ _}.
-    Context (wf_rel_sym :
-              forall ctx (R1 : rel var1) (R2 : rel var2),
-                wf_rel ctx R1 R2 ->
-                wf_rel (map (fun '(a, b) => (b, a)) ctx) R2 R1).
-    Lemma wf_clause_sym (ctx : list (var1 * var2)) c1 c2 :
-      wf_clause wf_rel ctx c1 c2 ->
-      wf_clause wf_rel (map (fun '(a, b) => (b, a)) ctx) c2 c1.
-    Proof.
-      invert 1; eauto.
-    Qed.
-    Hint Resolve wf_clause_sym : core.
-
-    Lemma wf_meta_clause_sym (ctx : list (var1 * var2)) c1 c2 :
-      wf_meta_clause wf_rel ctx c1 c2 ->
-      wf_meta_clause wf_rel (map (fun '(a, b) => (b, a)) ctx) c2 c1.
-    Proof.
-      invert 1; eauto.
-    Qed.
-    Hint Resolve wf_meta_clause_sym : core.
-
-    Lemma wf_fact_sym (ctx : list (var1 * var2)) f1 f2 :
-      wf_fact wf_rel ctx f1 f2 ->
-      wf_fact wf_rel (map (fun '(a, b) => (b, a)) ctx) f2 f1.
-    Proof.
-      intros [Hrel Hargs]. eauto.
-    Qed.
-    Hint Resolve wf_fact_sym : core.
-
-    Lemma wf_rule_sym (ctx : list (var1 * var2)) r1 r2 :
-      wf_rule wf_rel ctx r1 r2 ->
-      wf_rule wf_rel (map (fun '(a, b) => (b, a)) ctx) r2 r1.
-    Proof.
-      invert 1; eauto 10 using Forall2_flip, Forall2_impl.
-    Qed.
-    Hint Resolve wf_rule_sym : core.
   End wf_symm.
 
 
   Ltac invs :=
     repeat match goal with
-      | H: wf_fact _ _ (normal_fact _ _) ?f |- _ =>
+      | H: wf_fact _ (normal_fact _ _) ?f |- _ =>
           destruct H as [? ?];
           destruct f;
           simpl in *;
           [fwd|congruence];
           subst
-      | H: wf_fact _ _ (meta_fact _ _ _) ?f |- _ =>
+      | H: wf_fact _ (meta_fact _ _ _) ?f |- _ =>
           destruct H as [? ?];
           destruct f;
           simpl in *;
@@ -348,26 +311,55 @@ Section Blocks.
       end.
 
   Section rel_again.
-    Context rel (wf_rel : forall {var1 var2}, list (var1 * var2) -> rel var1 -> rel var2 -> Prop).
-    Arguments wf_rel {_ _}.
-    Context (wf_rel_sym :
-              forall var1 var2 ctx (R1 : rel var1) (R2 : rel var2),
-                wf_rel ctx R1 R2 ->
-                wf_rel (map (fun '(a, b) => (b, a)) ctx) R2 R1).
+    Context rel1 rel2 (wf_rel : rel1 -> rel2 -> Prop).
+    Lemma wf_clause_sym (c1 : clause rel1 _ _) (c2 : clause rel2 _ _) :
+      wf_clause wf_rel c1 c2 ->
+      wf_clause (fun r2 r1 => wf_rel r1 r2) c2 c1.
+    Proof.
+      invert 1; eauto.
+    Qed.
+    Hint Resolve wf_clause_sym : core.
 
-    Lemma wf_rule_impl var1 var2 (ctx : list (var1 * var2)) fact_supported1 fact_supported2 p1 p2 r1 r2 f1 hyps1 :
+    Lemma wf_meta_clause_sym c1 c2 :
+      wf_meta_clause wf_rel c1 c2 ->
+      wf_meta_clause (fun r2 r1 => wf_rel r1 r2) c2 c1.
+    Proof.
+      invert 1; eauto.
+    Qed.
+    Hint Resolve wf_meta_clause_sym : core.
+
+    Lemma wf_fact_sym f1 f2 :
+      wf_fact wf_rel f1 f2 ->
+      wf_fact (fun R2 R1 => wf_rel R1 R2) f2 f1.
+    Proof.
+      intros [Hrel Hargs]. eauto.
+    Qed.
+    Hint Resolve wf_fact_sym : core.
+
+    Lemma wf_rule_sym r1 r2 :
+      wf_rule wf_rel r1 r2 ->
+      wf_rule (fun R2 R1 => wf_rel R1 R2) r2 r1.
+    Proof.
+      invert 1; eauto 10 using Forall2_flip, Forall2_impl.
+    Qed.
+    Hint Resolve wf_rule_sym : core.
+  End rel_again.
+  Section rel_again.
+    Context rel1 rel2 (wf_rel : rel1 -> rel2 -> Prop).
+
+    Lemma wf_rule_impl fact_supported1 fact_supported2 p1 p2 r1 r2 f1 hyps1 :
       (forall hyps2 f1 f2,
-          Forall2 (wf_fact wf_rel ctx) hyps1 hyps2 ->
-          wf_fact wf_rel ctx f1 f2 ->
+          Forall2 (wf_fact wf_rel) hyps1 hyps2 ->
+          wf_fact wf_rel f1 f2 ->
           fact_supported1 hyps1 f1 <-> fact_supported2 hyps2 f2) ->
-      Forall2 (wf_rule wf_rel ctx) p1 p2 ->
-      wf_rule wf_rel ctx r1 r2 ->
-      one_to_one (wf_rel ctx) (rel_of f1) ->
+      Forall2 (wf_rule wf_rel) p1 p2 ->
+      wf_rule wf_rel r1 r2 ->
+      one_to_one (wf_rel) (rel_of f1) ->
       rule_impl (one_step_derives0 fact_supported1 p1) r1 f1 hyps1 ->
       exists f2 hyps2,
         rule_impl (one_step_derives0 fact_supported2 p2) r2 f2 hyps2 /\
-          wf_fact wf_rel ctx f1 f2 /\
-          Forall2 (wf_fact wf_rel ctx) hyps1 hyps2.
+          wf_fact wf_rel f1 f2 /\
+          Forall2 (wf_fact wf_rel) hyps1 hyps2.
     Proof.
       intros Hfs Hp Hwf Hoo. invert 1.
       - edestruct @wf_non_meta_rule_impl as [R2 [hyps2 [Himpl [Hrel Hhyps]]]]; eauto.
@@ -378,7 +370,7 @@ Section Blocks.
         fwd. eapply interp_meta_clause_wf in H4p1; eauto. fwd. invs.
         edestruct @Forall2_interp_meta_clause_wf as [? [? ?]]; eauto.
         eexists (meta_fact _ _ _), _. ssplit; [|eauto|eauto].
-        2: { constructor; simpl; eauto. }
+        2: { constructor; simpl; eauto. Search wf_rel. }
         econstructor.
         + apply Exists_exists. eauto.
         + eassumption.
@@ -386,21 +378,15 @@ Section Blocks.
           -- intros H'. eapply wf_meta_cond_iff'; try eassumption.
              ++ intros. apply Hoo in H5. fwd. auto.
              ++ apply Hfs.
-          -- intros H'. eapply wf_meta_cond_iff' with (wf_rel := wf_rel).
+          -- intros H'. eapply wf_meta_cond_iff'.
              ++ eauto using Forall2_flip, Forall2_impl, wf_rule_sym.
-           ++ eauto.
-           ++ intros R2' HR2'. apply wf_rel_sym in HR2'.
-              rewrite map_map in HR2'. erewrite map_ext in HR2'.
-              1: rewrite map_id in HR2'.
-              2: { intros [? ?]. reflexivity. }
+           ++ simpl. eauto.
+           ++ simpl. intros R2' HR2'.
               apply Hoo in HR2'; auto.
            ++ eauto using Forall2_flip, Forall2_impl, wf_fact_sym.
            ++ intros ? ? ? Hf. eapply Hfs; try eassumption.
-              apply wf_fact_sym in Hf; eauto.
-              rewrite map_map in Hf. erewrite map_ext in Hf.
-              1: rewrite map_id in Hf.
-              2: { intros [? ?]. reflexivity. }
-              assumption.
+              eapply wf_fact_sym in Hf.
+              eauto using wf_fact_sym.
            ++ assumption.
   Qed.
   End rel_again.
@@ -416,10 +402,10 @@ Section Blocks.
       In (x1, x2) ctx ->
       wf_blocks_rel _ (Var x1) (Var x2).
 
-    Definition wf_blocks_clause := wf_clause wf_blocks_rel.
-    Definition wf_blocks_meta_clause := wf_meta_clause wf_blocks_rel.
-    Definition wf_block_rule := wf_rule wf_blocks_rel.
-    Definition wf_block_fact := wf_fact wf_blocks_rel.
+    Definition wf_blocks_clause ctx := wf_clause (wf_blocks_rel ctx).
+    Definition wf_blocks_meta_clause ctx := wf_meta_clause (wf_blocks_rel ctx).
+    Definition wf_block_rule ctx := wf_rule (wf_blocks_rel ctx).
+    Definition wf_block_fact ctx := wf_fact (wf_blocks_rel ctx).
 
     Inductive wf_blocks_prog : list (var1 * var2) -> blocks_prog var1 -> blocks_prog var2 -> Prop :=
     | wf_LetIn ctx x1 x2 f1 f2 :
@@ -950,15 +936,22 @@ Section Blocks.
       pose proof Hp as Hp'.
       apply Forall2_forget_r in Hp. rewrite Forall_forall in Hp. apply Hp in Hp0.
       fwd. eapply wf_rule_impl in Hp1.
-      4,5: eassumption.
-      2: { admit. }
+      3,4: eassumption.
       2: { Print block_fact_supported. Unshelve.
            2: { apply block_fact_supported'. 1: exact map.empty. exact ctx. }
            intros. apply blah; try assumption. }
       2: { rewrite E. admit. }
+      fwd. Check wf_rule_impl.
+      eapply wf_rule_impl with (wf_rel := fun_rel (flatten_rel name)) (fact_supported2 := fact_supported) in Hp1p0.
+      4: { apply map_rule_wf. }
+      3: { instantiate (1 := map _ _). rewrite <- Forall2_map_r.
+           apply Forall2_same. apply Forall_forall. intros ? _.
+           apply map_rule_wf. }
+      3: { (*suffices to say that flatten_rel is injective*) admit. }
+      2: { admit. }
       fwd.
-      eapply wf_rule_impl with (fact_supported2 := fact_supported) in Hp1p0.
-
+      eapply prog_impl_step.
+      -- apply Exists_map.
 
                                                Check block_fact_supported. eapply block_fact_supported.
       Print wf_block_rule.
