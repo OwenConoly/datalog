@@ -13,6 +13,16 @@ Definition one_to_one {U1 U2} (P : U1 -> U2 -> Prop) x1 :=
     P x1 x2 ->
     (forall x2', P x1 x2' -> x2' = x2) /\ (forall x1', P x1' x2 -> x1' = x1).
 
+Definition fun_rel {U1 U2} (f : U1 -> U2) x y := f x = y.
+
+Lemma Forall2_eq_map {A B} (f : B -> A) (l1 : list A) (l2 : list B) :
+  Forall2 (fun_rel f) l2 l1 <-> l1 = map f l2.
+Proof.
+  split.
+  - induction 1; simpl; congruence.
+  - intros ->. induction l2; constructor; reflexivity || assumption.
+Qed.
+
 Section Blocks.
   Context {lvar gvar exprvar fn aggregator T : Type}.
   Context {sig : signature fn aggregator T}.
@@ -35,11 +45,11 @@ Section Blocks.
   Arguments blocks_prog : clear implicits.
 
   Section well_formed.
-    Context {var1 var2 : Type} {rel1 rel2 : Type}
-      (wf_rel : list (var1 * var2) -> rel1 -> rel2 -> Prop).
-
+    Context {var1 var2 : Type} {rel1 rel2 : Type}.
     Section with_ctx.
-      Context (ctx : list (var1 * var2)).
+      Context
+        (wf_rel : list (var1 * var2) -> rel1 -> rel2 -> Prop)
+        (ctx : list (var1 * var2)).
 
       Inductive wf_clause : clause rel1 exprvar fn -> clause rel2 exprvar fn -> Prop :=
       | wf_clause_intro R1 R2 args :
@@ -187,40 +197,93 @@ Section Blocks.
       Qed.
     End with_ctx.
 
-    Definition map_clause_rel (f : rel1 -> rel2) (c : clause rel1 exprvar fn) :=
-      {| clause_rel := f c.(clause_rel);
-        clause_args := c.(clause_args) |}.
+    Section map.
+      Context (f : rel1 -> rel2).
+      Definition map_clause_rel (c : clause rel1 exprvar fn) :=
+        {| clause_rel := f c.(clause_rel);
+          clause_args := c.(clause_args) |}.
 
-    Lemma map_clause_wf c f:
-      exists ctx,
-        wf_clause ctx c (map_clause_rel f c).
-    Proof.
+      Ltac t :=
+        repeat match goal with
+          | |- _ => progress (intros; simpl)
+          | |- wf_clause _ _ ?x _ => is_var x; destruct x
+          | |- wf_meta_clause _ _ ?x _ => is_var x; destruct x
+          | |- wf_rule _ _ ?x _ => is_var x; destruct x
+          | |- wf_fact _ _ ?x _ => is_var x; destruct x
+          | H: wf_clause _ _ _ _ |- _ => invert H
+          | H: wf_meta_clause _ _ _ _ |- _ => invert H
+          | H: wf_rule _ _ _ _ |- _ => invert H
+          | H: wf_fact _ _ ?x ?y |- _ => is_var x; cbv [wf_fact] in H; destruct x, y; simpl in H; fwd; try congruence
+          | H: fun_rel _ _ _ |- _ => cbv [fun_rel] in H; subst
+          | |- Forall2 _ _ (map _ _) => rewrite <- Forall2_map_r
+          | |- Forall2 _ ?x ?x => apply Forall2_same; apply Forall_forall; intros
+          | |- Forall2 _ _ _ => eapply Forall2_impl; [|eassumption]
+          | |- _ = map _ _ => apply Forall2_eq_map
+          | |- _ => constructor
+          | |- _ => reflexivity
+          | |- _ => f_equal; [solve[t]|solve[t]|..]
+          end.
 
+      Lemma map_clause_wf c :
+        wf_clause (fun _ => fun_rel f) [] c (map_clause_rel c).
+      Proof. t. Qed.
 
+      Lemma map_clause_wf_bw c c' :
+        wf_clause (fun _ => fun_rel f) [] c c' ->
+        c' = map_clause_rel c.
+      Proof. t. Qed.
 
-  Definition map_meta_clause_rel (f : rel1 -> rel2) (c : meta_clause rel1 exprvar fn) :=
-    {| meta_clause_rel := f c.(meta_clause_rel);
-      meta_clause_args := c.(meta_clause_args) |}.
+      Definition map_meta_clause_rel (c : meta_clause rel1 exprvar fn) :=
+        {| meta_clause_rel := f c.(meta_clause_rel);
+          meta_clause_args := c.(meta_clause_args) |}.
 
-  Definition map_rule_rels (f : rel1 -> rel2) (r : rule rel1 exprvar fn aggregator) :=
-    match r with
-    | normal_rule concls hyps =>
-        normal_rule (map (map_clause_rel f) concls) (map (map_clause_rel f) hyps)
-    | meta_rule concls hyps =>
-        meta_rule (map (map_meta_clause_rel f) concls) (map (map_meta_clause_rel f) hyps)
-    | agg_rule concl agg hyp =>
-        agg_rule (f concl) agg (f hyp)
-    end.
+      Lemma map_meta_clause_wf c :
+        wf_meta_clause (fun _ => fun_rel f) [] c (map_meta_clause_rel c).
+      Proof. t. Qed.
 
-  Definition map_fact (g : rel1 -> rel2) (f : fact rel1 T) : fact rel2 T :=
-    match f with
-    | normal_fact R args => normal_fact (g R) args
-    | meta_fact R mf_args mf_set => meta_fact (g R) mf_args mf_set
-    end.
+      Lemma map_meta_clause_wf_bw c c' :
+        wf_meta_clause (fun _ => fun_rel f) [] c c' ->
+        c' = map_meta_clause_rel c.
+      Proof. t. Qed.
+      
+      Definition map_rule_rels (r : rule rel1 exprvar fn aggregator) :=
+        match r with
+        | normal_rule concls hyps =>
+            normal_rule (map (map_clause_rel) concls) (map (map_clause_rel) hyps)
+        | meta_rule concls hyps =>
+            meta_rule (map (map_meta_clause_rel) concls) (map (map_meta_clause_rel) hyps)
+        | agg_rule concl agg hyp =>
+            agg_rule (f concl) agg (f hyp)
+        end.
 
-  Lemma fact_of_g_args_of g f :
-    fact_of (g (rel_of f)) (args_of f) = map_fact g f.
-  Proof. destruct f; reflexivity. Qed.
+      Lemma map_rule_wf r :
+        wf_rule (fun _ => fun_rel f) [] r (map_rule_rels r).
+      Proof. t. Qed.
+
+      Lemma map_rule_wf_bw r r' :
+        wf_rule (fun _ => fun_rel f) [] r r' ->
+        r' = map_rule_rels r.
+      Proof. t. Qed.
+
+      Definition map_fact (fct : fact rel1 T) : fact rel2 T :=
+        match fct with
+        | normal_fact R args => normal_fact (f R) args
+        | meta_fact R mf_args mf_set => meta_fact (f R) mf_args mf_set
+        end.
+
+      Lemma map_fact_wf fct :
+        wf_fact (fun _ => fun_rel f) [] fct (map_fact fct).
+      Proof. t. Qed.
+
+      Lemma map_fact_wf_bw fct fct' :
+        wf_fact (fun _ => fun_rel f) [] fct fct' ->
+        fct' = map_fact fct.
+      Proof. t. Qed.
+      
+      Lemma fact_of_g_args_of fct :
+        fact_of (f (rel_of fct)) (args_of fct) = map_fact fct.
+      Proof. destruct fct; reflexivity. Qed.
+    End map.
   End well_formed.
   Hint Constructors wf_clause wf_meta_clause wf_rule : core.
   Hint Unfold wf_fact : core.
