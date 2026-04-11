@@ -348,6 +348,15 @@ Section __.
     pftree P2 Q x.
   Proof. induction 1; eauto. Qed.
 
+  Lemma pftree_equiv {U} (P1 P2 : U -> list U -> Prop) Q (x:U) :
+    (forall y l, P1 y l <-> P2 y l) ->
+    pftree P1 Q x <-> pftree P2 Q x.
+  Proof.
+    intros H. split; intros Htree.
+    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
+    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
+  Qed.
+
   Lemma S_sane_lfp p : S_sane (lfp (F p)).
   Proof.
     eapply S_sane_ext; [apply prog_impl_lfp|]. cbv [S_sane]. split; intros; eauto.

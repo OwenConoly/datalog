@@ -777,6 +777,48 @@ Proof.
     + apply IHn2 in H. lia.
 Qed.
 
+Lemma NoDup_map_in_inj {A B} (f : A -> B) (l : list A) x1 x2 :
+  NoDup (map f l) ->
+  In x1 l ->
+  In x2 l ->
+  f x1 = f x2 ->
+  x1 = x2.
+Proof.
+  intros Hnodup H1 H2 Heq.
+  apply in_split in H1. destruct H1 as [l1 [l2 ->]].
+  rewrite map_app in Hnodup. simpl in Hnodup.
+  apply NoDup_remove_2 in Hnodup.
+
+  apply in_app_or in H2. destruct H2 as [H2 | [H2 | H2]].
+  - exfalso. apply Hnodup. apply in_or_app. left.
+    rewrite Heq. apply in_map. exact H2.
+  - exact H2.
+  - exfalso. apply Hnodup. apply in_or_app. right.
+    rewrite Heq. apply in_map. exact H2.
+Qed.
+
+Lemma NoDup_fst_In_inj {A B} (l : list (A * B)) k v1 v2 :
+  NoDup (map fst l) ->
+  In (k, v1) l ->
+  In (k, v2) l ->
+  v1 = v2.
+Proof.
+  intros Hnodup H1 H2.
+  assert (Heq : (k, v1) = (k, v2)) by (eapply NoDup_map_in_inj; eauto).
+  congruence.
+Qed.
+
+Lemma NoDup_snd_In_inj {A B} (l : list (A * B)) k v1 v2 :
+  NoDup (map snd l) ->
+  In (v1, k) l ->
+  In (v2, k) l ->
+  v1 = v2.
+Proof.
+  intros Hnodup H1 H2.
+  assert (Heq : (v1, k) = (v2, k)) by (eapply NoDup_map_in_inj; eauto).
+  congruence.
+Qed.
+
 Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
 Hint Resolve incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_in Permutation_sym : incl.
