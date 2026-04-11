@@ -12,11 +12,19 @@ Definition paired {U1 U2} (P : U1 -> U2 -> Prop) x1 x2 :=
   (forall x2', P x1 x2' -> x2' = x2) /\ (forall x1', P x1' x2 -> x1' = x1).
 
 Definition one_to_one {U1 U2} (P : U1 -> U2 -> Prop) R1 R2 x1 :=
-  R1 x1 /\
-    forall x2,
-      P x1 x2 ->
-      R2 x2 ->
-      (forall x2', P x1 x2' -> R2 x2' -> x2' = x2) /\ (forall x1', P x1' x2 -> R1 x1' -> x1' = x1).
+  forall x2,
+    P x1 x2 ->
+    R2 x2 ->
+    (forall x2', P x1 x2' -> R2 x2' -> x2' = x2) /\ (forall x1', P x1' x2 -> R1 x1' -> x1' = x1).
+
+Lemma one_to_one_smaller_sets U1 U2 (P : U1 -> U2 -> _) R1 R2 R1' R2' x1 :
+  (forall x1', R1' x1' -> R1 x1') ->
+  (forall x2', R2' x2' -> R2 x2') ->
+  one_to_one P R1 R2 x1 ->
+  one_to_one P R1' R2' x1.
+Proof.
+  cbv [one_to_one]. intros ? ? H **. edestruct H; eauto 6.
+Qed.
 
 Definition fun_rel {U1 U2} (f : U1 -> U2) x y := f x = y.
 
@@ -370,7 +378,7 @@ Section Blocks.
           fact_supported1 hyps1 f1 <-> fact_supported2 hyps2 f2) ->
       Forall2 (wf_rule wf_rel) p1 p2 ->
       wf_rule wf_rel r1 r2 ->
-      one_to_one wf_rel (fun R1 => In R1 (flat_map concl_rels p1)) (fun R2 => In R2 (flat_map concl_rels p2)) (rel_of f1) ->
+      one_to_one wf_rel (fun R1 => In R1 (flat_map concl_rels p1) \/ In R1 (concl_rels r1)) (fun R2 => In R2 (flat_map concl_rels p2) \/ In R2 (concl_rels r2)) (rel_of f1) ->
       rule_impl (one_step_derives0 fact_supported1 p1) r1 f1 hyps1 ->
       exists f2 hyps2,
         rule_impl (one_step_derives0 fact_supported2 p2) r2 f2 hyps2 /\
@@ -392,13 +400,17 @@ Section Blocks.
         + eassumption.
         + intros. rewrite H2 by eassumption. split.
           -- intros H'. eapply wf_meta_cond_iff'; try eassumption.
-             ++ intros. apply Hoo in H5; auto. fwd. apply H5p0; auto.
+             ++ intros. apply Hoo in H5; auto. fwd. apply H5; auto.
+                right. apply in_map_iff. eexists. split; [|eassumption].
+                cbv [interp_meta_clause] in H4p1p0. fwd. reflexivity.
              ++ apply Hfs.
           -- intros H'. eapply wf_meta_cond_iff'.
              ++ eauto using Forall2_flip, Forall2_impl, wf_rule_sym.
            ++ simpl. eauto.
-           ++ simpl. intros R2' HR2'.
+           ++ simpl. intros R2' HR2' HR2'0.
               apply Hoo in HR2'; auto.
+              right. apply in_map_iff. eexists. split; [|eassumption].
+              cbv [interp_meta_clause] in H4p1p0. fwd. reflexivity.
            ++ eauto using Forall2_flip, Forall2_impl, wf_fact_sym.
            ++ intros ? ? ? Hf. eapply Hfs; try eassumption.
               eapply wf_fact_sym in Hf.
@@ -481,8 +493,10 @@ Section Blocks.
     | local R => Exists (fun hyp => f = hyp \/ fact_matches f hyp) meta_facts
     | global R => exists R', map.get globals R = Some R' /\ R' (args_of f)
     | Var R => R (args_of f)
-    end.
+    end. Print one_step_derives0.
+  Print rule_impl. Print fact_supported. Print fact_matches.
 
+  Print one_step_derives0.
   Definition block_one_step_derives globals meta_facts :=
     one_step_derives0 (context := context) (block_fact_supported globals) meta_facts.
 
@@ -953,10 +967,21 @@ Section Blocks.
   Qed.
 
   Lemma wf_blocks_rel_local_one_to_one {var1 var2} (ctx: list (var1 * var2)) x :
-    one_to_one (wf_blocks_rel ctx) (local x).
+    one_to_one (wf_blocks_rel ctx) (fun _ => True) (fun _ => True) (local x).
   Proof.
     cbv [one_to_one paired]. intros y Hwf. invert Hwf.
     split; intros ? Hwf; invert Hwf; reflexivity.
+  Qed.
+
+  Lemma fun_rel_flatten_rel_local_one_to_one name x R1 R2 :
+    (forall R, R1 R -> is_local_rel R = true) ->
+    one_to_one (fun_rel (flatten_rel name)) R1 R2 (local x).
+  Proof.
+    intros HR1.
+    cbv [one_to_one fun_rel flatten_rel]. intros y H H_R2.
+    subst y. split; intros ? H H_R; subst; auto.
+    apply HR1 in H_R. destruct x1'; try discriminate.
+    congruence.
   Qed.
 
   Lemma block_prog_impl_to_flat ctx p1 p2 name f1 f2 :
@@ -981,7 +1006,9 @@ Section Blocks.
       2: { Print block_fact_supported. Unshelve.
            2: { apply block_fact_supported'. 1: exact map.empty. exact ctx. }
            intros. apply blah; try assumption. }
-      2: { rewrite E. apply wf_blocks_rel_local_one_to_one. }
+      2: { rewrite E. eapply one_to_one_smaller_sets.
+           3: apply wf_blocks_rel_local_one_to_one.
+           1,2: simpl; auto. }
       fwd.
       cbv [wf_fact] in Hp1p1. fwd. rewrite E in *. invert Hp1p1p0.
       rewrite rule_impl_local_iff' in Hp1p0 by eauto.
@@ -991,8 +1018,29 @@ Section Blocks.
       3: { instantiate (1 := map _ _). rewrite <- Forall2_map_r.
            apply Forall2_same. apply Forall_forall. intros ? _.
            apply map_rule_wf. }
-      3: { (*suffices to say that flatten_rel is injective*) admit. }
-      2: { admit. }
+      3: { rewrite <- H.
+           apply fun_rel_flatten_rel_local_one_to_one.
+           intros R [HR|HR].
+           - apply in_flat_map in HR. destruct HR as [r'' [Hr'' H_R]].
+             apply in_flat_map in Hr''. destruct Hr'' as [r_orig [H_orig H_keep]].
+             eapply in_keep_local_concls_Forall_local in H_keep.
+             rewrite Forall_forall in H_keep. apply H_keep. exact H_R.
+           - eapply in_keep_local_concls_Forall_local in Hp1p0p0.
+             rewrite Forall_forall in Hp1p0p0. apply Hp1p0p0. exact HR. }
+      2: { intros hyps' f3 f4 Hhyps Hfs. destruct Hfs as [Hfs1 Hfs2].
+           cbv [fun_rel] in Hfs1. cbv [block_fact_supported'].
+           cbv [fact_supported]. destruct (rel_of f3).
+           - admit.
+           - admit.
+           - split; intros H'.
+             + fwd. simpl in Hfs1. subst.
+             , f4; simpl in Hfs1, Hfs2; try discriminate Hfs2; fwd; subst.
+           - cbv [block_fact_supported' fact_supported]. simpl.
+           simpl in Hfs1.
+           invert Hfs1
+           split; intros H'.
+           - cbv [block_fact_supported'] in H'.
+           Print fact_supported. Print block_fact_supported'. admit. }
       fwd.
       eapply prog_impl_step.
       -- apply Exists_map. apply Exists_flat_map.
