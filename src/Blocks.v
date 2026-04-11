@@ -8,10 +8,15 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 
 Import ListNotations.
 
-Definition one_to_one {U1 U2} (P : U1 -> U2 -> Prop) x1 :=
-  forall x2,
-    P x1 x2 ->
-    (forall x2', P x1 x2' -> x2' = x2) /\ (forall x1', P x1' x2 -> x1' = x1).
+Definition paired {U1 U2} (P : U1 -> U2 -> Prop) x1 x2 :=
+  (forall x2', P x1 x2' -> x2' = x2) /\ (forall x1', P x1' x2 -> x1' = x1).
+
+Definition one_to_one {U1 U2} (P : U1 -> U2 -> Prop) R1 R2 x1 :=
+  R1 x1 /\
+    forall x2,
+      P x1 x2 ->
+      R2 x2 ->
+      (forall x2', P x1 x2' -> R2 x2' -> x2' = x2) /\ (forall x1', P x1' x2 -> R1 x1' -> x1' = x1).
 
 Definition fun_rel {U1 U2} (f : U1 -> U2) x y := f x = y.
 
@@ -171,7 +176,7 @@ Section Blocks.
       Lemma wf_meta_cond_iff' fact_supported1 fact_supported2 p1 p2 (R1 : rel1) (R2 : rel2) args'' hyps1 hyps2 :
         Forall2 wf_rule p1 p2 ->
         wf_rel R1 R2 ->
-        (forall R2', wf_rel R1 R2' -> R2 = R2') ->
+        (forall R2', wf_rel R1 R2' -> In R2' (flat_map concl_rels p2) -> R2 = R2') ->
         Forall2 wf_fact hyps1 hyps2 ->
         (forall f1 f2,
             Forall2 wf_fact hyps1 hyps2 ->
@@ -186,7 +191,11 @@ Section Blocks.
         apply Forall2_forget_r in H1. rewrite Forall_forall in H1.
         apply H1 in Hp0. fwd.
         edestruct wf_non_meta_rule_impl as [R2' [hyps2'' [Himpl [Hrel Hhyps]]]]; eauto.
-        apply HR2 in Hrel. subst.
+        apply HR2 in Hrel.
+        2: { apply in_flat_map. eexists. split; [eassumption|].
+             eapply non_meta_rule_impl_concl_relname_in.
+             eassumption. }
+        subst.
         do 2 eexists. split; [eassumption|]. split; [eassumption|].
         apply Forall2_forget_l in Hhyps.
         rewrite Forall_forall in Hhyps, Hp2. rewrite Forall_forall.
@@ -336,6 +345,12 @@ Section Blocks.
     Qed.
     Hint Resolve wf_fact_sym : core.
 
+    Lemma wf_fact_weaken_wf_rel wf_rel' f1 f2 :
+      (forall R1 R2, wf_rel R1 R2 -> wf_rel' R1 R2) ->
+      wf_fact wf_rel f1 f2 ->
+      wf_fact wf_rel' f1 f2.
+    Proof. invert 2; eauto. Qed.
+
     Lemma wf_rule_sym r1 r2 :
       wf_rule wf_rel r1 r2 ->
       wf_rule (fun R2 R1 => wf_rel R1 R2) r2 r1.
@@ -344,6 +359,7 @@ Section Blocks.
     Qed.
     Hint Resolve wf_rule_sym : core.
   End rel_again.
+
   Section rel_again.
     Context rel1 rel2 (wf_rel : rel1 -> rel2 -> Prop).
 
@@ -354,7 +370,7 @@ Section Blocks.
           fact_supported1 hyps1 f1 <-> fact_supported2 hyps2 f2) ->
       Forall2 (wf_rule wf_rel) p1 p2 ->
       wf_rule wf_rel r1 r2 ->
-      one_to_one (wf_rel) (rel_of f1) ->
+      one_to_one wf_rel (fun R1 => In R1 (flat_map concl_rels p1)) (fun R2 => In R2 (flat_map concl_rels p2)) (rel_of f1) ->
       rule_impl (one_step_derives0 fact_supported1 p1) r1 f1 hyps1 ->
       exists f2 hyps2,
         rule_impl (one_step_derives0 fact_supported2 p2) r2 f2 hyps2 /\
@@ -376,7 +392,7 @@ Section Blocks.
         + eassumption.
         + intros. rewrite H2 by eassumption. split.
           -- intros H'. eapply wf_meta_cond_iff'; try eassumption.
-             ++ intros. apply Hoo in H5. fwd. auto.
+             ++ intros. apply Hoo in H5; auto. fwd. apply H5p0; auto.
              ++ apply Hfs.
           -- intros H'. eapply wf_meta_cond_iff'.
              ++ eauto using Forall2_flip, Forall2_impl, wf_rule_sym.
@@ -890,15 +906,14 @@ Section Blocks.
     congruence.
   Qed.
 
-  Lemma blah ctx hyps1 hyps2 :
+  Lemma blah ctx hyps1 hyps2 f1 (f2 : fact (blocks_rel flat_rel) T) :
     NoDup (map snd ctx) ->
-    forall (f1 : fact (blocks_rel (fact_args T -> Prop)) T) (f2 : fact (blocks_rel flat_rel) T),
-      Forall2 (wf_block_fact ctx) hyps1 hyps2 ->
-      wf_block_fact ctx f1 f2 ->
-      block_fact_supported map.empty hyps1 f1 <->
-        block_fact_supported' map.empty ctx hyps2 f2.
+    Forall2 (wf_block_fact ctx) hyps1 hyps2 ->
+    wf_block_fact ctx f1 f2 ->
+    block_fact_supported map.empty hyps1 f1 <->
+      block_fact_supported' map.empty ctx hyps2 f2.
   Proof.
-    intros Hctx f1 f2 Hhyps Hf.
+    intros Hctx Hhyps Hf.
     cbv [block_fact_supported block_fact_supported'].
     destruct Hf as [Hf1 Hf2]. invert Hf1.
     - split; intros H'.
@@ -906,17 +921,43 @@ Section Blocks.
         rewrite Forall_forall in Hhyps. apply Hhyps in H'p0. fwd.
         eexists. split; [eassumption|].
         destruct H'p1 as [H'p1|H'p1].
-        -- subst. left. admit.
+        -- subst. left. cbv [wf_block_fact wf_fact] in H'p0p1.
+           fwd. destruct f2, y, x0; simpl in *; subst; fwd; try congruence;
+             match goal with
+             | H: wf_blocks_rel _ (local _) _ |- _ => invert H
+             end;
+             reflexivity.
         -- right. eapply fact_matches_wf_local_fw; eauto. cbv [wf_fact]. split; eauto.
            rewrite <- H0, <- H. constructor.
-      + (*similar*) admit.
+      + rewrite Exists_exists in *. fwd. apply Forall2_forget_l in Hhyps.
+        rewrite Forall_forall in Hhyps. apply Hhyps in H'p0. fwd.
+        eexists. split; [eassumption|].
+        destruct H'p1 as [H'p1|H'p1].
+        -- subst. left. cbv [wf_block_fact wf_fact] in H'p0p1.
+           fwd. destruct f1, x1, x0; simpl in *; subst; fwd; try congruence;
+             match goal with
+             | H: wf_blocks_rel _ _ (local _) |- _ => invert H
+             end;
+             reflexivity.
+        -- right. eapply fact_matches_wf_local_fw; eauto.
+           ++ cbv [wf_block_fact wf_fact]. split; eauto.
+              apply wf_blocks_rel_sym. rewrite <- H0, <- H. constructor.
+           ++ apply wf_fact_sym. eapply wf_fact_weaken_wf_rel; [|eassumption].
+              intros. apply wf_blocks_rel_sym. eassumption.
     - rewrite Hf2. reflexivity.
     - rewrite Hf2. split; eauto.
       intros. fwd.
       assert (x1 = R') by (eapply NoDup_snd_In_inj; eauto).
       subst.
       exact H2p1.
-  Admitted.
+  Qed.
+
+  Lemma wf_blocks_rel_local_one_to_one {var1 var2} (ctx: list (var1 * var2)) x :
+    one_to_one (wf_blocks_rel ctx) (local x).
+  Proof.
+    cbv [one_to_one paired]. intros y Hwf. invert Hwf.
+    split; intros ? Hwf; invert Hwf; reflexivity.
+  Qed.
 
   Lemma block_prog_impl_to_flat ctx p1 p2 name f1 f2 :
     NoDup (map snd ctx) ->
@@ -940,7 +981,7 @@ Section Blocks.
       2: { Print block_fact_supported. Unshelve.
            2: { apply block_fact_supported'. 1: exact map.empty. exact ctx. }
            intros. apply blah; try assumption. }
-      2: { rewrite E. admit. }
+      2: { rewrite E. apply wf_blocks_rel_local_one_to_one. }
       fwd.
       cbv [wf_fact] in Hp1p1. fwd. rewrite E in *. invert Hp1p1p0.
       rewrite rule_impl_local_iff' in Hp1p0 by eauto.
@@ -966,7 +1007,7 @@ Section Blocks.
          specialize (Hp1p0p1p2 _ Hf2'). fwd. cbv [wf_fact fun_rel] in *. fwd.
          specialize (Hp1p2 _ ltac:(eassumption)). fwd.
          specialize (H1 _ ltac:(eassumption)).
-         Search rel_of args_of. rewrite <- fact_of_rel_of_args_of.
+         rewrite <- fact_of_rel_of_args_of.
          rewrite <- Hp1p0p1p2p1p1. rewrite <- Hp1p0p1p2p1p0. apply H1.
          cbv [wf_block_fact wf_fact]. auto.
     -
