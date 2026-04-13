@@ -26,6 +26,17 @@ Proof.
   cbv [one_to_one]. intros ? ? H **. edestruct H; eauto 6.
 Qed.
 
+Lemma map_eq_Forall2 {A B C} (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
+    map f l1 = map g l2 ->
+    Forall2 (fun x y => f x = g y) l1 l2.
+  Proof.
+    revert l2. induction l1 as [|x l1' IH]; destruct l2 as [|y l2']; simpl; intro H; try discriminate.
+    - constructor.
+    - injection H as Heq Htail. constructor.
+      + exact Heq.
+      + apply IH. exact Htail.
+  Qed.
+
 Definition fun_rel {U1 U2} (f : U1 -> U2) x y := f x = y.
 
 Lemma Forall2_eq_map {A B} (f : B -> A) (l1 : list A) (l2 : list B) :
@@ -89,13 +100,20 @@ Section Blocks.
     wf_blocks_prog ctx (Block ret inps1 p) (Block ret inps2 p).
 
   Section map.
-    Context {rel1 rel2} (f : rel1 -> rel2) (Hf : forall x y, f x = f y -> x = y).
+    Context {rel1 rel2} (f : rel1 -> rel2).
+
+    Definition injective_on (x : rel1) : Prop :=
+      forall y, f x = f y -> x = y.
+
+    Definition rel_equiv R1 R2 := f R1 = f R2.
 
     Definition map_fact (fct : fact rel1 T) : fact rel2 T :=
       match fct with
       | normal_fact R args => normal_fact (f R) args
       | meta_fact R mf_args mf_set => meta_fact (f R) mf_args mf_set
       end.
+
+    Definition fact_equiv f1 f2 := map_fact f1 = map_fact f2.
 
     Definition map_clause_rel (c : clause rel1 exprvar fn) :=
       {| clause_rel := f c.(clause_rel);
@@ -106,13 +124,16 @@ Section Blocks.
       interp_clause ctx (map_clause_rel c) (map_fact h).
     Proof. intros. repeat invert_stuff. interp_exprs. Qed.
 
+    Hint Unfold interp_clause rel_equiv fact_equiv : core.
     Lemma interp_clause_map_bw ctx c h :
       interp_clause ctx (map_clause_rel c) (map_fact h) ->
-      interp_clause ctx c h.
+      exists h', fact_equiv h h' /\ interp_clause ctx c h'.
     Proof.
-      intros.
-      destruct h, c; simpl in *; repeat invert_stuff; simpl in *.
-      apply_somewhere Hf. subst. interp_exprs.
+      intros H. cbv [interp_clause] in H. fwd.
+      destruct h; simpl in *; repeat invert_stuff.
+      eexists (normal_fact (clause_rel c) _). split.
+      - cbv [fact_equiv]. simpl. f_equal. assumption.
+      - eauto.
     Qed.
 
     Lemma Forall2_interp_clause_map_fw ctx hyps1 hyps2 :
@@ -127,7 +148,21 @@ Section Blocks.
 
     Lemma Forall2_interp_clause_map_bw ctx hyps1 hyps2 :
       Forall2 (interp_clause ctx) (map map_clause_rel hyps1) (map map_fact hyps2) ->
-      Forall2 (interp_clause ctx) hyps1 hyps2.
+      exists hyps2',
+        Forall2 fact_equiv hyps2 hyps2' /\
+        Forall2 (interp_clause ctx) hyps1 hyps2'.
+    Proof.
+      intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
+      induction H.
+      - eexists []. split; constructor.
+      - apply interp_clause_map_bw in H. destruct H as [h' [Heq Hinterp]].
+        destruct IHForall2 as [hyps2' [HForall_eq HForall_interp]].
+        eexists (h' :: hyps2'). split; constructor; eauto.
+    Qed.
+
+    Lemma Forall2_interp_clause_map_bw' ctx hyps1 hyps2 :
+      Forall2 (interp_clause ctx) (map map_clause_rel hyps1) (map map_fact hyps2) ->
+      Forall2 (fun c h => exists h', fact_equiv h h' /\ interp_clause ctx c h') hyps1 hyps2.
     Proof.
       intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
       eapply Forall2_impl; [|eassumption].
@@ -186,62 +221,85 @@ Section Blocks.
   Qed.
 
   Lemma fact_matches_map_bw f1 f2 :
-    fact_matches (map_fact f1) (map_fact f2) ->
-    fact_matches f1 f2.
-  Proof.
-    intros H. cbv [fact_matches] in H. fwd.
-    destruct f1, f2; simpl in *; try discriminate.
-    repeat invert_stuff.
-    apply_somewhere Hf. subst.
-    cbv [fact_matches]. eauto 10.
-  Qed.
-
-  Lemma interp_meta_clause_map_bw ctx c f0 :
-    interp_meta_clause ctx (map_meta_clause_rel c) (map_fact f0) ->
-    interp_meta_clause ctx c f0.
-  Proof.
-    intros H. cbv [interp_meta_clause] in *. fwd.
-    destruct f0; simpl in *; try discriminate.
-    repeat invert_stuff. apply_somewhere Hf. subst.
-    eauto.
-  Qed.
-
-  Lemma Forall2_interp_meta_clause_map_bw ctx hyps1 hyps2 :
-    Forall2 (interp_meta_clause ctx) (map map_meta_clause_rel hyps1) (map map_fact hyps2) ->
-    Forall2 (interp_meta_clause ctx) hyps1 hyps2.
-  Proof.
-    intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
-    eapply Forall2_impl; [|eassumption].
-    eauto using interp_meta_clause_map_bw.
-  Qed.
-
-    Lemma map_fact_inj f1 f2 :
-      map_fact f1 = map_fact f2 ->
-      f1 = f2.
+      fact_matches (map_fact f1) (map_fact f2) ->
+      exists f1' f2',
+        fact_equiv f1 f1' /\
+        fact_equiv f2 f2' /\
+        fact_matches f1' f2'.
     Proof.
-      intros Heq.
-      destruct f1, f2; simpl in Heq; try discriminate;
-        repeat invert_stuff; apply_somewhere Hf; subst; auto.
+      intros H. cbv [fact_matches] in H. fwd.
+      destruct f1, f2; simpl in *; repeat invert_stuff.
+      exists (normal_fact nf_rel nf_args), (meta_fact nf_rel mf_args mf_set).
+      split; [|split].
+      - cbv [fact_equiv]. simpl. f_equal.
+      - cbv [fact_equiv]. simpl. f_equal. congruence.
+      - cbv [fact_matches]. eauto 10.
+    Qed.
+
+    Hint Unfold interp_meta_clause : core.
+    Lemma interp_meta_clause_map_bw ctx c h :
+      interp_meta_clause ctx (map_meta_clause_rel c) (map_fact h) ->
+      exists h', fact_equiv h h' /\ interp_meta_clause ctx c h'.
+    Proof.
+      intros H. cbv [interp_meta_clause] in H. fwd.
+      destruct h; simpl in *; repeat invert_stuff.
+      eexists (meta_fact (meta_clause_rel c) _ _). split.
+      - cbv [fact_equiv]. simpl. f_equal. assumption.
+      - eauto.
+    Qed.
+
+    Lemma Forall2_interp_meta_clause_map_bw' ctx hyps1 hyps2 :
+      Forall2 (interp_meta_clause ctx) (map map_meta_clause_rel hyps1) (map map_fact hyps2) ->
+      Forall2 (fun c h => exists h', fact_equiv h h' /\ interp_meta_clause ctx c h') hyps1 hyps2.
+    Proof.
+      intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
+      eapply Forall2_impl; [|eassumption].
+      eauto using interp_meta_clause_map_bw.
+    Qed.
+
+        Lemma rel_of_map_fact fct :
+      rel_of (map_fact fct) = f (rel_of fct).
+    Proof.
+      destruct fct; reflexivity.
+    Qed.
+
+    Lemma args_of_map_fact fct :
+      args_of (map_fact fct) = args_of fct.
+    Proof.
+      destruct fct; reflexivity.
     Qed.
 
     Lemma non_meta_rule_impl_map_bw r R args hyps :
       non_meta_rule_impl (map_rule_rels r) (f R) args (map map_fact hyps) ->
-      non_meta_rule_impl r R args hyps.
+      exists R0 hyps0,
+        rel_equiv R R0 /\
+        Forall2 fact_equiv hyps hyps0 /\
+          non_meta_rule_impl r R0 args hyps0.
     Proof.
       intros H. destruct r; invert H.
-      - econstructor.
-        + rewrite Exists_map in *. eapply Exists_impl; [|eassumption].
-          simpl. intros. eapply interp_clause_map_bw; eauto.
-        + eapply Forall2_interp_clause_map_bw; eassumption.
-      - apply_somewhere Hf. subst.
-        destruct hyps as [|f0 hyps']; simpl in *; invert_list_stuff.
-        destruct f0; simpl in *; repeat invert_stuff.
-        apply_somewhere Hf. subst.
-        eassert (meta_fact _ _ _ :: _ = _) as ->.
+      - rewrite Exists_map in H2.
+        apply Forall2_interp_clause_map_bw in H6.
+        apply Exists_exists in H2. fwd.
+        apply interp_clause_map_bw with (h := normal_fact _ _) in H2p1.
+        fwd. cbv [fact_equiv] in H2p1p0. simpl in H2p1p0.
+        destruct h'; simpl in H2p1p0; congruence || fwd.
+        eexists nf_rel, _. ssplit; eauto.
+        econstructor.
+        + apply Exists_exists. eexists. split; [exact H2p0 |].
+          eassumption.
+        + eassumption.
+      - destruct hyps as [|hyp hyps]; simpl in *; discriminate || fwd.
+        destruct hyp; simpl in *; discriminate || fwd.
+        do 2 eexists. split; [symmetry; eassumption|].
+        split.
         2: { econstructor. eassumption. }
-        f_equal. eapply map_inj. 2: rewrite <- H1.
-        { intros. eapply map_fact_inj; eassumption. }
-        rewrite map_map. apply map_ext. intros [? ?]. reflexivity.
+        constructor.
+        { cbv [fact_equiv]. simpl. f_equal. auto. }
+        rewrite <- Forall2_map_r.
+        eapply Forall2_impl.
+        2: { eapply map_eq_Forall2. symmetry. eassumption. }
+        simpl. intros f' (?, ?) Hf'. destruct f'; simpl in Hf'; discriminate || fwd.
+        cbv [fact_equiv]. simpl. f_equal. auto.
     Qed.
 
     Lemma non_meta_rule_invert_map r R args hyps :
@@ -428,17 +486,6 @@ Section Blocks.
       destruct args; reflexivity.
     Qed.
 
-    Lemma rel_of_map_fact fct :
-      rel_of (map_fact fct) = f (rel_of fct).
-    Proof.
-      destruct fct; reflexivity.
-    Qed.
-
-    Lemma args_of_map_fact fct :
-      args_of (map_fact fct) = args_of fct.
-    Proof.
-      destruct fct; reflexivity.
-    Qed.
   End map.
 
   Inductive flat_rel : Type :=
