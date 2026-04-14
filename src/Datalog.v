@@ -283,6 +283,12 @@ Section __.
     intros f Hf. eapply fact_supported_ext; eassumption.
   Qed.
 
+  Definition is_meta f :=
+    match f with
+    | meta_fact _ _ _ => True
+    | normal_fact _ _ => False
+    end.
+
   Lemma extensionally_equal_sym : forall f1 f2,
     extensionally_equal f1 f2 -> extensionally_equal f2 f1.
   Proof.
@@ -1365,6 +1371,16 @@ Section __.
     - eapply Forall_impl; [|eassumption]. simpl. intros ? [?|?]; fwd; eauto 6 with incl.
   Qed.
 
+  Lemma meta_hyps_are_meta_facts env r mf_rel mf_args mf_set hyps :
+    rule_impl env r (meta_fact mf_rel mf_args mf_set) hyps ->
+    Forall is_meta hyps.
+  Proof.
+    invert 1. eapply Forall_impl.
+    2: { eapply Forall2_forget_l. eassumption. }
+    simpl. intros. fwd. cbv [interp_meta_clause] in *. fwd.
+    exact I.
+  Qed.
+
   Lemma meta_facts_consistent p Q f1 f2 :
     (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
     (forall mf_rel mf_args1 mf_args2 mf_set1 mf_set2,
@@ -1424,6 +1440,10 @@ Section __.
     invert Hf1p0p1. invert Hfs2p0p1.
     rewrite H11 by assumption. rewrite H8 by assumption.
     clear H11 H8. clear H5 H6 H7 H10 ctx ctx0.
+    assert (Forall is_meta l) as Hml.
+    { eapply meta_hyps_are_meta_facts. eassumption. }
+    assert (Forall is_meta l0) as Hml0.
+    { eapply meta_hyps_are_meta_facts. eassumption. }
     apply Hvalid in Hmr1, Hmr2; try assumption.
     cbv [one_step_derives one_step_derives0]. split; intros Hderiv.
     - fwd. specialize (Hmr2 _ _ _ ltac:(eassumption) ltac:(eauto)).
@@ -1435,7 +1455,8 @@ Section __.
         eexists. split; [eassumption|].
         cbv [fact_supported] in Hfp1. apply Exists_exists in Hfp1. fwd.
         destruct Hfp1p1 as [Hfp1p1|Hfp1p1].
-        { admit. (*obviously contradiction*) }
+        { exfalso. cbv [extensionally_equal] in Hfp1p1. fwd.
+          rewrite Forall_forall in Hml. apply Hml in Hfp1p0. exact Hfp1p0. }
         cbv [fact_matches] in Hfp1p1. fwd. right.
         cbv [fact_matches]. do 4 eexists. ssplit; try reflexivity.
         -- assumption.
@@ -1450,18 +1471,50 @@ Section __.
         cbv [fact_supported] in Hfp1. apply Exists_exists in Hfp1. fwd.
         destruct Hfp1p1 as [Hfp1p1|Hfp1p1].
         2: { cbv [fact_matches] in Hfp1p1. fwd. discriminate. }
-        left.
-           apply Hf1p1
-           rewrite Hfs1'.  by eassumption.
-        cbv [fact_suport
-
-
-
-      { apply H1; auto.
-    (meta_fact mf_rel mf_args mf_set1) ->
-    prog_impl p Q (meta_fact mf_rel mf_args mf_set2) ->
-
-
+        left. cbv [extensionally_equal]. ssplit; auto.
+        cbv [extensionally_equal] in Hfp1p1. fwd.
+        intros. rewrite Hfp1p1p2 by assumption.
+        move Hfs1' at bottom.
+        epose_dep Hfs1'. specialize' Hfs1'.
+        { apply Hf1p1. eassumption. }
+        specialize' Hfs1'.
+        { apply Hfs2p1. eassumption. }
+        apply Hfs1'; assumption.
+    - fwd. specialize (Hmr1 _ _ _ ltac:(eassumption) ltac:(eauto)).
+      do 2 eexists. split; [eassumption|]. split; [eassumption|].
+      eapply Forall_impl.
+      2: { apply Forall_and; [apply Hmr1|apply Hderivp2]. }
+      simpl. intros f Hf. fwd. destruct f; fwd.
+      + cbv [fact_supported]. apply Exists_exists.
+        eexists. split; [eassumption|].
+        cbv [fact_supported] in Hfp1. apply Exists_exists in Hfp1. fwd.
+        destruct Hfp1p1 as [Hfp1p1|Hfp1p1].
+        { exfalso. cbv [extensionally_equal] in Hfp1p1. fwd.
+          rewrite Forall_forall in Hml0. apply Hml0 in Hfp1p0. exact Hfp1p0. }
+        cbv [fact_matches] in Hfp1p1. fwd. right.
+        cbv [fact_matches]. do 4 eexists. ssplit; try reflexivity.
+        -- assumption.
+        -- move Hfs1' at bottom.
+           epose_dep Hfs1'. specialize' Hfs1'.
+           { apply Hf1p1. eassumption. }
+           specialize' Hfs1'.
+           { apply Hfs2p1. eassumption. }
+           apply Hfs1'; assumption.
+      + cbv [fact_supported]. apply Exists_exists.
+        eexists. split; [eassumption|].
+        cbv [fact_supported] in Hfp1. apply Exists_exists in Hfp1. fwd.
+        destruct Hfp1p1 as [Hfp1p1|Hfp1p1].
+        2: { cbv [fact_matches] in Hfp1p1. fwd. discriminate. }
+        left. cbv [extensionally_equal]. ssplit; auto.
+        cbv [extensionally_equal] in Hfp1p1. fwd.
+        intros. rewrite Hfp1p1p2 by assumption.
+        move Hfs1' at bottom.
+        epose_dep Hfs1'. specialize' Hfs1'.
+        { apply Hf1p1. eassumption. }
+        specialize' Hfs1'.
+        { apply Hfs2p1. eassumption. }
+        symmetry. apply Hfs1'; assumption.
+  Qed.
 
   Definition honest_prog p :=
     forall Q,
