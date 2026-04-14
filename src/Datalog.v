@@ -1381,7 +1381,7 @@ Section __.
     exact I.
   Qed.
 
-  Lemma meta_facts_consistent p Q f1 f2 :
+  Lemma meta_facts_consistent' p Q f1 f2 :
     (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
     (forall mf_rel mf_args1 mf_args2 mf_set1 mf_set2,
         Q (meta_fact mf_rel mf_args1 mf_set1) ->
@@ -1514,6 +1514,28 @@ Section __.
         specialize' Hfs1'.
         { apply Hfs2p1. eassumption. }
         symmetry. apply Hfs1'; assumption.
+  Qed.
+
+  Lemma meta_facts_consistent p Q mf_rel mf_args1 mf_args2 mf_set1 mf_set2 :
+    (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
+    (forall mf_rel mf_args1 mf_args2 mf_set1 mf_set2,
+        Q (meta_fact mf_rel mf_args1 mf_set1) ->
+        Q (meta_fact mf_rel mf_args2 mf_set2) ->
+        forall nf_args : list T,
+          Forall2 matches mf_args1 nf_args ->
+          Forall2 matches mf_args2 nf_args ->
+          mf_set1 nf_args <-> mf_set2 nf_args) ->
+    meta_rules_valid p ->
+    prog_impl p Q (meta_fact mf_rel mf_args1 mf_set1) ->
+    prog_impl p Q (meta_fact mf_rel mf_args2 mf_set2) ->
+    forall nf_args,
+      Forall2 matches mf_args1 nf_args ->
+      Forall2 matches mf_args2 nf_args ->
+      mf_set1 nf_args <-> mf_set2 nf_args.
+  Proof.
+    intros H1 H2 H3 H4 H5 ? H6 H7. pose proof meta_facts_consistent' as H'.
+    epose proof (H' _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) H4 H5) as H''.
+    simpl in H''. apply H''; auto.
   Qed.
 
   Definition honest_prog p :=
