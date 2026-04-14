@@ -1254,6 +1254,215 @@ Section __.
       S (meta_fact mf_rel mf_args mf_set) ->
       consistent mf_rel mf_args mf_set S.
 
+  Check meta_rules_valid_step.
+
+  Print pftree.
+  (*this is a lemma about pairwise properties, because that is all that i need to reasona baout.
+    it is also true for n-wise properties, or even properties of arbitrary-length finite lists.
+   it is not true for infinite sets. *)
+
+  Inductive is_dag_ish {U} Q (P : U -> list U -> _) : list U -> Prop :=
+  | is_dag_ish_nil : is_dag_ish _ _ []
+  | is_dag_ish_cons x xs :
+    Q x \/ (exists l, P x l /\ incl l xs) ->
+    is_dag_ish _ _ xs ->
+    is_dag_ish _ _ (x :: xs).
+  Hint Constructors is_dag_ish : core.
+
+  Lemma is_dag_ish_app U (Q : U -> _) P xs1 xs2 :
+    is_dag_ish Q P xs1 ->
+    is_dag_ish Q P xs2 ->
+    is_dag_ish Q P (xs1 ++ xs2).
+  Proof.
+    intros H1 H2. induction H1; simpl; auto.
+    constructor; auto. destruct H as [H|H]; auto.
+    fwd. right. eexists. split; [eassumption|].
+    auto with incl.
+  Qed.
+
+  Lemma is_dag_ish_concat U (Q : U -> _) P xss :
+    Forall (is_dag_ish Q P) xss ->
+    is_dag_ish Q P (concat xss).
+  Proof. induction 1; simpl; auto using is_dag_ish_app. Qed.
+
+  Lemma pftree_something_idk U (P : U -> list U -> _) Q x :
+    pftree P Q x ->
+    exists xs,
+      is_dag_ish Q P xs /\ In x xs.
+  Proof.
+    induction 1.
+    - exists [x]. simpl. auto.
+    - apply Forall_exists_r_Forall2 in H1. fwd.
+      exists (x :: concat ys). simpl. split; auto. constructor.
+      + right. eexists. split; [eassumption|].
+        apply Forall2_forget_r in H1. cbv [incl]. apply Forall_forall.
+        eapply Forall_impl; [|eassumption].
+        simpl. intros. fwd. rewrite in_concat. eauto.
+      + apply is_dag_ish_concat.
+        apply Forall2_forget_l in H1. eapply Forall_impl; [|eassumption].
+        simpl. intros. fwd. assumption.
+  Qed.
+
+  Lemma is_dag_ish_pftree U (P : U -> _ -> _) Q xs :
+    is_dag_ish Q P xs ->
+    Forall (pftree P Q) xs.
+  Proof.
+    induction 1; constructor; auto.
+    destruct H; fwd; auto.
+    eapply pftree_step; [eassumption|].
+    Search Forall incl. eauto using incl_Forall.
+  Qed.
+
+  Hint Unfold In : core.
+  Lemma stepping_induction' U (P : U -> list U -> _) R Q :
+    (forall x1 x2, R x1 x2 <-> R x2 x1) ->
+    (forall xs,
+        (forall x1 x2, In x1 xs -> In x2 xs -> R x1 x2) ->
+        forall x,
+        is_dag_ish Q P (x :: xs) ->
+        (forall y, In y (x :: xs) -> R x y)) ->
+    forall xs,
+      is_dag_ish Q P xs ->
+      forall x1 x2,
+        In x1 xs ->
+        In x2 xs ->
+        R x1 x2.
+  Proof.
+    intros Hcomm Hstep xs Hxs.
+    induction Hxs.
+    - simpl. contradiction.
+    - specialize (Hstep _ IHHxs).
+      intros x1 x2 [H1|H1] [H2|H2]; subst; auto.
+      apply Hcomm. auto.
+  Qed.
+
+  Lemma stepping_induction U (P : U -> list U -> _) R Q :
+    (forall x1 x2, R x1 x2 <-> R x2 x1) ->
+    (forall xs,
+        (forall x1 x2, In x1 xs -> In x2 xs -> R x1 x2) ->
+        forall x,
+        is_dag_ish Q P (x :: xs) ->
+        (forall y, In y (x :: xs) -> R x y)) ->
+    forall x1 x2,
+      pftree P Q x1 ->
+      pftree P Q x2 ->
+      R x1 x2.
+  Proof.
+    intros ? ? x1 x2 H1 H2. apply pftree_something_idk in H1, H2.
+    fwd. eapply is_dag_ish_app in H1p0; [|exact H2p0].
+    clear H2p0. eapply stepping_induction'; try eassumption.
+    1,2: apply in_app_iff; auto.
+  Qed.
+
+  Print is_dag_ish.
+  Lemma is_dag_ish_idk U (P : U -> _ -> _) Q xs :
+    is_dag_ish Q P xs ->
+    Forall (fun x => Q x \/ (exists l : list U, P x l /\ incl l xs)) xs.
+  Proof.
+    induction 1; auto. constructor.
+    - destruct H; fwd; auto. right. eexists. split; [eassumption|].
+      auto with incl.
+    - eapply Forall_impl; [|eassumption]. simpl. intros ? [?|?]; fwd; eauto 6 with incl.
+  Qed.
+
+  Lemma meta_facts_consistent p Q f1 f2 :
+    (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
+    (forall mf_rel mf_args1 mf_args2 mf_set1 mf_set2,
+        Q (meta_fact mf_rel mf_args1 mf_set1) ->
+        Q (meta_fact mf_rel mf_args2 mf_set2) ->
+        forall nf_args : list T,
+          Forall2 matches mf_args1 nf_args ->
+          Forall2 matches mf_args2 nf_args ->
+          mf_set1 nf_args <-> mf_set2 nf_args) ->
+    meta_rules_valid p ->
+    prog_impl p Q f1 ->
+    prog_impl p Q f2 ->
+    match f1, f2 with
+    | meta_fact mf_rel1 mf_args1 mf_set1, meta_fact mf_rel2 mf_args2 mf_set2 =>
+        mf_rel1 = mf_rel2 ->
+        (forall nf_args,
+            Forall2 matches mf_args1 nf_args ->
+            Forall2 matches mf_args2 nf_args ->
+            mf_set1 nf_args <-> mf_set2 nf_args)
+    | _, _ => True
+    end.
+  Proof.
+    intros Hinp Hinp2 Hvalid H1 H2. eapply stepping_induction with (x1 := f1) (x2 := f2).
+    3,4: eassumption.
+    { intros x1 x2. destruct x1, x2; split; intros; subst; auto; symmetry; auto. }
+    clear f1 f2 H1 H2.
+    intros fs Hfs1.
+    assert (Hfs1': forall mf_rel mf_args1 mf_args2 mf_set1 mf_set2,
+               In (meta_fact mf_rel mf_args1 mf_set1) fs ->
+               In (meta_fact mf_rel mf_args2 mf_set2) fs ->
+               forall nf_args : list T,
+                 Forall2 matches mf_args1 nf_args ->
+                 Forall2 matches mf_args2 nf_args ->
+                 mf_set1 nf_args <-> mf_set2 nf_args).
+    { intros mf_rel mf_args1 mf_args2 mf_set1 mf_set2 H1 H2.
+      specialize (Hfs1 _ _ H1 H2). simpl in Hfs1. auto. }
+    clear Hfs1.
+    intros f1 Hfs2 f2 Hf2. invert Hfs2. rename H1 into Hf1. rename H2 into Hfs2.
+    destruct f1, f2; try exact I. intros. subst.
+    destruct Hf2 as [Hf2|Hf2].
+    { fwd. reflexivity. }
+    destruct Hf1 as [Hf1|Hf1].
+    { apply is_dag_ish_pftree in Hfs2. rewrite Forall_forall in Hfs2.
+      apply Hfs2 in Hf2.
+      apply invert_prog_impl in Hf2. destruct Hf2 as [Hf2|Hf2]; eauto.
+      exfalso. fwd. apply Exists_exists in Hf2p0. fwd.
+      apply rule_impl_concl_relname_in in Hf2p0p1. simpl in Hf2p0p1.
+      eapply Hinp; eauto. simpl. apply in_flat_map. eauto. }
+    apply is_dag_ish_idk in Hfs2. rewrite Forall_forall in Hfs2.
+    specialize (Hfs2 _ Hf2).
+    fwd. apply Exists_exists in Hf1p0. fwd.
+    destruct Hfs2 as [Hfs2|Hfs2].
+    { exfalso. eapply Hinp; eauto. simpl. apply rule_impl_concl_relname_in in Hf1p0p1.
+      simpl in Hf1p0p1. apply in_flat_map. eauto. }
+    fwd. apply Exists_exists in Hfs2p0. fwd.
+    pose proof Hf1p0p1 as Hmr1. pose proof Hfs2p0p1 as Hmr2.
+    invert Hf1p0p1. invert Hfs2p0p1.
+    rewrite H11 by assumption. rewrite H8 by assumption.
+    clear H11 H8. clear H5 H6 H7 H10 ctx ctx0.
+    apply Hvalid in Hmr1, Hmr2; try assumption.
+    cbv [one_step_derives one_step_derives0]. split; intros Hderiv.
+    - fwd. specialize (Hmr2 _ _ _ ltac:(eassumption) ltac:(eauto)).
+      do 2 eexists. split; [eassumption|]. split; [eassumption|].
+      eapply Forall_impl.
+      2: { apply Forall_and; [apply Hmr2|apply Hderivp2]. }
+      simpl. intros f Hf. fwd. destruct f; fwd.
+      + cbv [fact_supported]. apply Exists_exists.
+        eexists. split; [eassumption|].
+        cbv [fact_supported] in Hfp1. apply Exists_exists in Hfp1. fwd.
+        destruct Hfp1p1 as [Hfp1p1|Hfp1p1].
+        { admit. (*obviously contradiction*) }
+        cbv [fact_matches] in Hfp1p1. fwd. right.
+        cbv [fact_matches]. do 4 eexists. ssplit; try reflexivity.
+        -- assumption.
+        -- move Hfs1' at bottom.
+           epose_dep Hfs1'. specialize' Hfs1'.
+           { apply Hf1p1. eassumption. }
+           specialize' Hfs1'.
+           { apply Hfs2p1. eassumption. }
+           apply Hfs1'; assumption.
+      + cbv [fact_supported]. apply Exists_exists.
+        eexists. split; [eassumption|].
+        cbv [fact_supported] in Hfp1. apply Exists_exists in Hfp1. fwd.
+        destruct Hfp1p1 as [Hfp1p1|Hfp1p1].
+        2: { cbv [fact_matches] in Hfp1p1. fwd. discriminate. }
+        left.
+           apply Hf1p1
+           rewrite Hfs1'.  by eassumption.
+        cbv [fact_suport
+
+
+
+      { apply H1; auto.
+    (meta_fact mf_rel mf_args mf_set1) ->
+    prog_impl p Q (meta_fact mf_rel mf_args mf_set2) ->
+
+
+
   Definition honest_prog p :=
     forall Q,
       (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
@@ -1410,7 +1619,172 @@ Section __.
   (*       split; [exact H_in_hyps|]. left. reflexivity. *)
   (* Qed. *)
 
-  Print meta_rules_valid.
+  Lemma valid_impl_honest p :
+    meta_rules_valid p ->
+    honest_prog p.
+  Proof.
+    intros Hvalid Q Hdisj Q_honest.
+    cbv [honest_prog doesnt_lie].
+    intros mf_rel mf_args mf_set H_prog_M.
+    eenough (H: forall f1 f2,
+                 prog_impl p Q f1 ->
+                 prog_impl p Q f2 ->
+
+
+    eenough (H: consistent mf_rel mf_args mf_set (prog_impl p Q) /\
+                forall mf_set',
+                prog_impl p Q (meta_fact mf_rel mf_args mf_set') ->
+                (forall nf_args,
+                    Forall2 matches mf_args nf_args ->
+                    mf_set' nf_args <-> mf_set nf_args)).
+    { exact (proj1 H). }
+    remember (meta_fact mf_rel mf_args mf_set) as f eqn:Ef.
+    revert mf_rel mf_args mf_set Ef.
+    induction H_prog_M using prog_impl_ind;
+      intros mf_rel mf_args mf_set Ef;
+      subst.
+    - split.
+      + intros nf_args Hargs. cbv [doesnt_lie consistent] in Q_honest.
+        rewrite Q_honest by eassumption. split; intros H'.
+        -- apply prog_impl_leaf. assumption.
+        -- apply invert_prog_impl in H'. destruct H' as [H'|H']; [assumption|].
+           exfalso. fwd. apply Exists_exists in H'p0. fwd.
+           eapply Hdisj; [eassumption|]. simpl.
+           apply in_flat_map. eexists. split; [eassumption|].
+           apply rule_impl_concl_relname_in in H'p0p1.
+           exact H'p0p1.
+      + cbv [doesnt_lie consistent] in Q_honest.
+        intros mf_set' Hmf_set' nf_args Hargs.
+        apply invert_prog_impl in Hmf_set'. destruct Hmf_set' as [H_in_Q | H_derived].
+        * do 2 rewrite Q_honest by eassumption. reflexivity.
+        * exfalso. destruct H_derived as [hyps' [H_ex_mr' H_for_hyps']].
+          apply Exists_exists in H_ex_mr'. destruct H_ex_mr' as [mr' [Hmr'_in Hmr'_impl]].
+          eapply Hdisj; [eassumption|]. simpl.
+          apply in_flat_map. eexists. split; [eassumption|].
+          apply rule_impl_concl_relname_in in Hmr'_impl. assumption.
+    - split.
+      + apply Exists_exists in H. destruct H as [mr1 [Hmr1_in Hmr1_impl]].
+        eapply meta_rules_valid_step; try eassumption.
+        * intros mf_rel' mf_args' mf_set' Hin.
+          rewrite Forall_forall in H1. specialize (H1 _ Hin _ _ _ eq_refl).
+          exact (proj1 H1).
+        * intros mf_rel' mf_args' mf_set' mf_set'0 Hin HS'0 nf_args' Hmatch'.
+          rewrite Forall_forall in H1. specialize (H1 _ Hin _ _ _ eq_refl).
+          fwd. symmetry. apply H1p1; assumption.
+      + intros mf_set' Hmf_set' nf_args Hargs.
+        apply invert_prog_impl in Hmf_set'. destruct Hmf_set' as [H_in_Q | H_derived].
+        * exfalso. apply Exists_exists in H. destruct H as [mr1 [Hmr1_in Hmr1_impl]].
+          eapply Hdisj; [eassumption|]. simpl. apply in_flat_map.
+          eexists. split; [eassumption|].
+          apply rule_impl_concl_relname_in in Hmr1_impl. eassumption.
+        * apply Exists_exists in H. destruct H as [mr1 [Hmr1_in Hmr1_impl]].
+          destruct H_derived as [hyps' [H_ex_mr2 H_for_hyps']].
+          apply Exists_exists in H_ex_mr2. destruct H_ex_mr2 as [mr2 [Hmr2_in Hmr2_impl]].
+          Check meta_rules_valid_step.
+
+
+          pose proof Hmr1_impl as Hmr1_impl_copy. invert Hmr1_impl.
+          pose proof Hmr2_impl as Hmr2_impl_copy. invert Hmr2_impl.
+          match goal with | H_eq : forall args, Forall2 matches _ args -> _ <-> _ |- _ => pose proof (H_eq _ Hargs) as H_set1 end.
+          match goal with | H_eq : forall args, Forall2 matches _ args -> _ <-> _ |- _ => pose proof (H_eq _ Hargs) as H_set2 end.
+          split; intros H_dir.
+
+          -- (* Forward Extensionality: mf_set' -> mf_set *)
+             apply (proj1 H_set2) in H_dir. cbv [one_step_derives one_step_derives0] in H_dir.
+             destruct H_dir as [nr [hyps_norm [Hnr_in [Hnr_impl Hnr_supp]]]].
+             apply (proj2 H_set1).
+             assert (exists hyps_norm1, Forall2 (fun x y => fact_supported hyps y /\ extensionally_equal x y) hyps_norm hyps_norm1) as [hyps_norm1 H_forall2].
+             { apply Forall_exists_r_Forall2.
+               rewrite Forall_forall in Hnr_supp. apply Forall_forall.
+               pose proof (Hvalid _ _ _ _ _ mr1 Hmr1_impl_copy _ _ _ Hnr_in Hnr_impl) as Hsupp1.
+               pose proof (Hvalid _ _ _ _ _ mr2 Hmr2_impl_copy _ _ _ Hnr_in Hnr_impl) as Hsupp2.
+               intros f_norm Hf_norm.
+               specialize (Hnr_supp _ Hf_norm). cbv [fact_supported] in Hnr_supp.
+               rewrite Forall_forall in Hsupp1. specialize (Hsupp1 _ Hf_norm).
+               rewrite Forall_forall in Hsupp2. specialize (Hsupp2 _ Hf_norm).
+               destruct f_norm as [R' nf_args' | R' mf_args_nr mf_set_nr].
+               ++ destruct Hsupp1 as [mf_args'_supp1 [mf_set'_supp1 [H_in_hyps1 H_match_supp1]]].
+                  destruct Hsupp2 as [mf_args'_supp2 [mf_set'_supp2 [H_in_hyps2 H_match_supp2]]].
+                  eexists. split.
+                  ** apply Exists_exists. exists (meta_fact R' mf_args'_supp1 mf_set'_supp1).
+                     split; [exact H_in_hyps1|].
+                     right. cbv [fact_matches]. eexists _, _, _, _.
+                     split; [exact H_match_supp1|].
+                     split; [|split; [reflexivity|reflexivity]].
+                     rewrite Forall_forall in H1.
+                     pose proof (H1 _ H_in_hyps1 _ _ _ eq_refl) as H1_supp1.
+                     destruct H1_supp1 as [_ H1_supp1_second].
+                     apply (H1_supp1_second mf_set'_supp2).
+                     --- rewrite Forall_forall in H_for_hyps'. apply H_for_hyps'. exact H_in_hyps2.
+                     --- exact H_match_supp1.
+                  ** simpl. auto.
+               ++ destruct Hsupp1 as [mf_set'_supp1 H_in_hyps1].
+                  destruct Hsupp2 as [mf_set'_supp2 H_in_hyps2].
+                  eexists. split.
+                  ** apply Exists_exists. exists (meta_fact R' mf_args_nr mf_set'_supp1).
+                     split; [exact H_in_hyps1|]. left. reflexivity.
+                  ** simpl. ssplit; auto.
+                     intros args_ext Hmatch_ext.
+                     rewrite Forall_forall in H1.
+                     pose proof (H1 _ H_in_hyps1 _ _ _ eq_refl) as H1_supp1.
+                     destruct H1_supp1 as [_ H1_supp1_second].
+                     apply (H1_supp1_second mf_set'_supp2).
+                     --- rewrite Forall_forall in H_for_hyps'. apply H_for_hyps'. exact H_in_hyps2.
+                     --- exact Hmatch_ext. }
+             eexists _, _. split; [exact Hnr_in|].
+             split. 2: { apply Forall2_forget_l in H_forall2. eapply Forall_impl; [|exact H_forall2]. simpl. intros ? ? [Hsupp_y _]. exact Hsupp_y. }
+             eapply non_meta_rule_impl_ext; [exact Hnr_impl|].
+             eapply Forall2_impl; [|exact H_forall2].
+             simpl. intros x y [_ Hext_y]. exact Hext_y.
+
+          -- (* Backward Extensionality: mf_set -> mf_set' *)
+             apply (proj1 H_set1) in H_dir. cbv [one_step_derives one_step_derives0] in H_dir.
+             destruct H_dir as [nr [hyps_norm [Hnr_in [Hnr_impl Hnr_supp]]]].
+             apply (proj2 H_set2).
+             assert (exists hyps_norm2, Forall2 (fun x y => fact_supported hyps' y /\ extensionally_equal x y) hyps_norm hyps_norm2) as [hyps_norm2 H_forall2].
+             { apply Forall_exists_r_Forall2.
+               rewrite Forall_forall in Hnr_supp. apply Forall_forall.
+               pose proof (Hvalid _ _ _ _ _ mr1 Hmr1_impl_copy _ _ _ Hnr_in Hnr_impl) as Hsupp1.
+               pose proof (Hvalid _ _ _ _ _ mr2 Hmr2_impl_copy _ _ _ Hnr_in Hnr_impl) as Hsupp2.
+               intros f_norm Hf_norm.
+               specialize (Hnr_supp _ Hf_norm). cbv [fact_supported] in Hnr_supp.
+               rewrite Forall_forall in Hsupp1. specialize (Hsupp1 _ Hf_norm).
+               rewrite Forall_forall in Hsupp2. specialize (Hsupp2 _ Hf_norm).
+               destruct f_norm as [R' nf_args' | R' mf_args_nr mf_set_nr].
+               ++ destruct Hsupp1 as [mf_args'_supp1 [mf_set'_supp1 [H_in_hyps1 H_match_supp1]]].
+                  destruct Hsupp2 as [mf_args'_supp2 [mf_set'_supp2 [H_in_hyps2 H_match_supp2]]].
+                  eexists. split.
+                  ** apply Exists_exists. exists (meta_fact R' mf_args'_supp2 mf_set'_supp2).
+                     split; [exact H_in_hyps2|].
+                     right. cbv [fact_matches]. eexists _, _, _, _.
+                     split; [exact H_match_supp2|].
+                     split; [|split; [reflexivity|reflexivity]].
+                     rewrite Forall_forall in H1.
+                     pose proof (H1 _ H_in_hyps1 _ _ _ eq_refl) as H1_supp1.
+                     destruct H1_supp1 as [_ H1_supp1_second].
+                     symmetry. apply (H1_supp1_second mf_set'_supp2).
+                     --- rewrite Forall_forall in H_for_hyps'. apply H_for_hyps'. exact H_in_hyps2.
+                     --- exact H_match_supp1.
+                  ** simpl. auto.
+               ++ destruct Hsupp1 as [mf_set'_supp1 H_in_hyps1].
+                  destruct Hsupp2 as [mf_set'_supp2 H_in_hyps2].
+                  eexists. split.
+                  ** apply Exists_exists. exists (meta_fact R' mf_args_nr mf_set'_supp2).
+                     split; [exact H_in_hyps2|]. left. reflexivity.
+                  ** simpl. ssplit; auto.
+                     intros args_ext Hmatch_ext.
+                     rewrite Forall_forall in H1.
+                     pose proof (H1 _ H_in_hyps1 _ _ _ eq_refl) as H1_supp1.
+                     destruct H1_supp1 as [_ H1_supp1_second].
+                     symmetry. apply (H1_supp1_second mf_set'_supp2).
+                     --- rewrite Forall_forall in H_for_hyps'. apply H_for_hyps'. exact H_in_hyps2.
+                     --- exact Hmatch_ext. }
+             eexists _, _. split; [exact Hnr_in|].
+             split. 2: { apply Forall2_forget_l in H_forall2. eapply Forall_impl; [|exact H_forall2]. simpl. intros ? ? [Hsupp_y _]. exact Hsupp_y. }
+             eapply non_meta_rule_impl_ext; [exact Hnr_impl|].
+             eapply Forall2_impl; [|exact H_forall2].
+             simpl. intros x y [_ Hext_y]. exact Hext_y.
+  Qed.
 
   Lemma valid_impl_honest p :
     meta_rules_valid p ->
