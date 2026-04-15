@@ -10,6 +10,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: rocq/rocq-prover:9.0.0
 
     steps:
       - name: Checkout code
@@ -17,18 +19,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set workspace permissions for Docker
-        run: |
-          sudo chown -R 1000:1000 .
-
       - name: Compile with Rocq 9.0.0
-        uses: coq-community/docker-coq-action@v1
-        with:
-          custom_image: rocq/rocq-prover:9.0.0
-          custom_script: |
-            startGroup "Rocq version"
-              rocq --version
-            endGroup
-            startGroup "Compile"
-              make
-            endGroup
+        run: |
+          coqc --version
+          make
