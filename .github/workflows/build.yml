@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rocq/rocq-prover:9.0
-      options: --user 1001
+      options: --user 1001:1000
 
     steps:
       - name: Checkout code
@@ -25,35 +25,49 @@ jobs:
           export ROCQ_BIN=/home/rocq/.opam/4.14.2+flambda/bin
           export PATH="$ROCQ_BIN:$PATH"
           export COQBIN=/tmp/coq-compat-bin/
+          export HOME=/home/rocq
+          export OPAMROOT=/home/rocq/.opam
+          export OPAM_INSTALL_MAX_RETRIES=3
+          export OPAM_INSTALL_RETRY_DELAY=5
 
           mkdir -p "$COQBIN"
-          cat > "${COQBIN}rocq" <<'EOF'
+          cat > "${COQBIN}rocq" <<EOF
           #!/bin/sh
-          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq "$@"
+          exec "${ROCQ_BIN}/rocq" "\$@"
           EOF
-          cat > "${COQBIN}coqc" <<'EOF'
+          cat > "${COQBIN}coqc" <<EOF
           #!/bin/sh
-          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq compile "$@"
+          exec "${ROCQ_BIN}/rocq" compile "\$@"
           EOF
-          cat > "${COQBIN}coqdep" <<'EOF'
+          cat > "${COQBIN}coqdep" <<EOF
           #!/bin/sh
-          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq dep "$@"
+          exec "${ROCQ_BIN}/rocq" dep "\$@"
           EOF
-          cat > "${COQBIN}coq_makefile" <<'EOF'
+          cat > "${COQBIN}coq_makefile" <<EOF
           #!/bin/sh
-          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq makefile "$@"
+          exec "${ROCQ_BIN}/rocq" makefile "\$@"
           EOF
-          cat > "${COQBIN}coqdoc" <<'EOF'
+          cat > "${COQBIN}coqdoc" <<EOF
           #!/bin/sh
-          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq doc "$@"
+          exec "${ROCQ_BIN}/rocq" doc "\$@"
           EOF
-          cat > "${COQBIN}coqchk" <<'EOF'
+          cat > "${COQBIN}coqchk" <<EOF
           #!/bin/sh
-          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq check "$@"
+          exec "${ROCQ_BIN}/rocq" check "\$@"
           EOF
           chmod +x "${COQBIN}"*
           export PATH="$COQBIN:$PATH"
 
+          for attempt in $(seq 1 "$OPAM_INSTALL_MAX_RETRIES"); do
+            if opam install -y coq-json; then
+              break
+            fi
+            if [ "$attempt" -eq "$OPAM_INSTALL_MAX_RETRIES" ]; then
+              echo "opam install -y coq-json failed after ${OPAM_INSTALL_MAX_RETRIES} attempts" >&2
+              exit 1
+            fi
+            sleep "$OPAM_INSTALL_RETRY_DELAY"
+          done
           rocq --version
           make
 
