@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rocq/rocq-prover:9.0
+      options: --user 1001:1000
 
     steps:
       - name: Checkout code
@@ -21,5 +22,90 @@ jobs:
 
       - name: Compile with Rocq 9.0.0
         run: |
-          coqc --version
+          export ROCQ_BIN=/home/rocq/.opam/4.14.2+flambda/bin
+          export PATH="$ROCQ_BIN:$PATH"
+          export COQBIN=/tmp/coq-compat-bin/
+          export HOME=/home/rocq
+          export OPAMROOT=/home/rocq/.opam
+          export OPAM_INSTALL_MAX_RETRIES=3
+          export OPAM_INSTALL_RETRY_DELAY=5
+
+          mkdir -p "$COQBIN"
+          cat > "${COQBIN}rocq" <<EOF
+          #!/bin/sh
+          exec "${ROCQ_BIN}/rocq" "\$@"
+          EOF
+          cat > "${COQBIN}coqc" <<EOF
+          #!/bin/sh
+          exec "${ROCQ_BIN}/rocq" compile "\$@"
+          EOF
+          cat > "${COQBIN}coqdep" <<EOF
+          #!/bin/sh
+          exec "${ROCQ_BIN}/rocq" dep "\$@"
+          EOF
+          cat > "${COQBIN}coq_makefile" <<EOF
+          #!/bin/sh
+          exec "${ROCQ_BIN}/rocq" makefile "\$@"
+          EOF
+          cat > "${COQBIN}coqdoc" <<EOF
+          #!/bin/sh
+          exec "${ROCQ_BIN}/rocq" doc "\$@"
+          EOF
+          cat > "${COQBIN}coqchk" <<EOF
+          #!/bin/sh
+          exec "${ROCQ_BIN}/rocq" check "\$@"
+          EOF
+          chmod +x "${COQBIN}"*
+          export PATH="$COQBIN:$PATH"
+
+          for attempt in $(seq 1 "$OPAM_INSTALL_MAX_RETRIES"); do
+            if opam install -y coq-json; then
+              break
+            fi
+            if [ "$attempt" -eq "$OPAM_INSTALL_MAX_RETRIES" ]; then
+              echo "opam install -y coq-json failed after ${OPAM_INSTALL_MAX_RETRIES} attempts" >&2
+              exit 1
+            fi
+            sleep "$OPAM_INSTALL_RETRY_DELAY"
+          done
+          rocq --version
           make
+
+  notify-copilot-on-failure:
+    if: ${{ failure() && github.event_name == 'pull_request' }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    env:
+      COPILOT_TRIGGER_TOKEN: ${{ secrets.COPILOT_TRIGGER_TOKEN }}
+    steps:
+      - name: Ask Copilot to fix failing checks
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.COPILOT_TRIGGER_TOKEN || github.token }}
+          script: |
+            const tokenConfigured = Boolean(process.env.COPILOT_TRIGGER_TOKEN);
+            const body = tokenConfigured
+              ? (
+                  `@copilot the ${context.workflow} workflow failed. ` +
+                  `Please investigate and fix it.\n\n` +
+                  `Failing run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+                )
+              : (
+                  `The ${context.workflow} workflow failed, but this workflow cannot directly trigger ` +
+                  `a Copilot response when commenting as github-actions[bot].\n\n` +
+                  `To auto-trigger Copilot from this workflow, add a repository secret named ` +
+                  `COPILOT_TRIGGER_TOKEN (a fine-grained PAT from a trusted maintainer account ` +
+                  `with Pull requests: Read and write, and Issues: Read and write).\n\n` +
+                  `Failing run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+                );
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body
+            });
