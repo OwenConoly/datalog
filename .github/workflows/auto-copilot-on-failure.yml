@@ -1,0 +1,45 @@
+name: Auto-trigger Copilot on failed checks
+
+on:
+  workflow_run:
+    workflows: ["Build Coq Code"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  comment-on-failure:
+    if: >-
+      ${{
+        github.event.workflow_run.conclusion == 'failure' &&
+        github.event.workflow_run.event == 'pull_request'
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask Copilot to fix failing checks
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const prs = run.pull_requests || [];
+            if (prs.length === 0) {
+              core.info('No associated pull requests found.');
+              return;
+            }
+
+            const body =
+              `@copilot the ${run.name} workflow failed. ` +
+              `Please investigate and fix it.\n\n` +
+              `Failing run: ${run.html_url}`;
+
+            for (const pr of prs) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body
+              });
+            }
