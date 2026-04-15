@@ -570,15 +570,67 @@ Section Blocks.
         eexists (meta_fact _ _ _). reflexivity.
     Qed.
 
+    Lemma prog_impl_fact_equiv (p : list (rule rel1 exprvar fn aggregator)) Q f1 f2 :
+      Forall injective_on (flat_map concl_rels p) ->
+      (forall f1' f2', fact_equiv f1' f2' -> Q f1' <-> Q f2') ->
+      fact_equiv f1 f2 ->
+      prog_impl p Q f1 <-> prog_impl p Q f2.
+    Proof.
+      intros Hinj HQ Heq. split; intros Hprog.
+      - pose proof Hprog as Hprog_copy. apply prog_impl_rel_of in Hprog_copy.
+        destruct Hprog_copy as [HQ1 | Hconcl].
+        + apply prog_impl_leaf. apply (proj1 (HQ _ _ Heq)). exact HQ1.
+        + rewrite Forall_forall in Hinj. apply Hinj in Hconcl. cbv [injective_on] in Hconcl.
+          destruct f1 as [R1 args1 | R1 mf_args1 S1], f2 as [R2 args2 | R2 mf_args2 S2];
+            cbv [fact_equiv map_fact] in Heq; try discriminate;
+            inversion Heq;
+            assert (f R1 = f R2) by congruence;
+            apply Hconcl in H; subst; exact Hprog.
+      - pose proof Hprog as Hprog_copy. apply prog_impl_rel_of in Hprog_copy.
+        destruct Hprog_copy as [HQ2 | Hconcl].
+        + apply prog_impl_leaf. apply (proj2 (HQ _ _ Heq)). exact HQ2.
+        + rewrite Forall_forall in Hinj. apply Hinj in Hconcl. cbv [injective_on] in Hconcl.
+          destruct f1 as [R1 args1 | R1 mf_args1 S1], f2 as [R2 args2 | R2 mf_args2 S2];
+            cbv [fact_equiv map_fact] in Heq; try discriminate;
+            inversion Heq;
+            assert (f R2 = f R1) by congruence;
+            apply Hconcl in H; subst; exact Hprog.
+    Qed.
+
     Lemma prog_impl_map_rule_rels_fw p Q f0 :
+      meta_rules_valid p ->
+      (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
+      doesnt_lie Q ->
+      (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
+      Forall injective_on (flat_map concl_rels p) ->
       prog_impl p Q f0 ->
       prog_impl (map map_rule_rels p) (fun f' => exists f, f' = map_fact f /\ Q f) (map_fact f0).
     Proof.
-      induction 1.
+      intros Hvalid Hinp Hlie HQ Hinj Hprog.
+      induction Hprog.
       - apply prog_impl_leaf. eexists; eauto.
-      - eapply prog_impl_step.
-        + apply Exists_map. eapply Exists_impl; [|eassumption].
-          simpl. intros r Hr. apply rule_impl_map_rule_rels_fw. eassumption.
+      - apply Exists_exists in H. destruct H as [r [Hr_in Hr_impl]].
+        eapply prog_impl_step.
+        + apply Exists_map. apply Exists_exists. exists r. split; [exact Hr_in|].
+          eapply rule_impl_map_rule_rels_fw; try eassumption.
+          * rewrite Forall_forall in Hinj. apply Hinj. apply in_flat_map.
+            eexists. split; [eassumption|].
+            eapply rule_impl_concl_relname_in. eassumption.
+          * intros R1 args1 S1 R2 args2 S2 Hin1 Hin2 Heq nf_args Hmatch1 Hmatch2.
+            rewrite Forall_forall in H0.
+            eapply meta_facts_consistent.
+            -- eassumption.
+            -- intros R' args1' args2' S1' S2' HQ1 HQ2 nf_args' Hmatch1' Hmatch2'.
+               cbv [doesnt_lie consistent] in Hlie.
+               rewrite (Hlie _ _ _ HQ1 _ Hmatch1'), (Hlie _ _ _ HQ2 _ Hmatch2').
+               reflexivity.
+            -- Fail assumption. (*why*) eassumption.
+            -- apply H0. exact Hin1.
+            -- rewrite prog_impl_fact_equiv; try eassumption.
+               ++ apply H0. exact Hin2.
+               ++ cbv [fact_equiv]. simpl. f_equal. congruence.
+            -- eassumption.
+            -- eassumption.
         + rewrite Lists.List.Forall_map. eapply Forall_impl; [|eassumption].
           simpl. auto.
     Qed.
