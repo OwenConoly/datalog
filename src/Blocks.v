@@ -320,19 +320,53 @@ Section Blocks.
         apply map_ext. intros [? ?]. reflexivity.
     Qed.
 
-    Lemma meta_cond_map_iff p R (args'' : list T) meta_hyps :
-      injective_on R ->
-      (exists r hyps,
-          In r p /\
-            non_meta_rule_impl r R args'' hyps /\
-            Forall (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) meta_hyps) hyps)
-      <->
-        (exists r_map hyps_map,
-            In r_map (map map_rule_rels p) /\
-              non_meta_rule_impl r_map (f R) args'' hyps_map /\
-              Forall (fun f' => Exists (fun hyp => f' = hyp \/ fact_matches f' hyp) (map map_fact meta_hyps)) hyps_map).
+    Lemma extensionally_equal_map_fw f1 f2 :
+      extensionally_equal f1 f2 ->
+      extensionally_equal (map_fact f1) (map_fact f2).
     Proof.
-      intros Hinj.
+      intros H. destruct f1, f2; cbv [extensionally_equal] in *; try contradiction; fwd.
+      - split; [f_equal; auto | auto].
+      - split; [f_equal; auto | split; auto].
+    Qed.
+
+    Lemma extensionally_equal_map_bw f1 f2 :
+      extensionally_equal (map_fact f1) (map_fact f2) ->
+      exists f1' f2',
+        fact_equiv f1 f1' /\
+        fact_equiv f2 f2' /\
+        extensionally_equal f1' f2'.
+    Proof.
+      intros H. destruct f1 as [R1 args1 | R1 mf_args1 mf_set1],
+                         f2 as [R2 args2 | R2 mf_args2 mf_set2];
+      cbv [extensionally_equal] in H; try contradiction; fwd.
+      - exists (normal_fact R1 args1), (normal_fact R1 args2).
+        simpl in *. fwd.
+        split; [|split].
+        + cbv [fact_equiv]. reflexivity.
+        + cbv [fact_equiv]. simpl in *. f_equal. congruence.
+        + cbv [extensionally_equal]. auto.
+      - exists (meta_fact R1 mf_args1 mf_set1), (meta_fact R1 mf_args2 mf_set2).
+        simpl in *. fwd.
+        split; [|split].
+        + cbv [fact_equiv]. reflexivity.
+        + cbv [fact_equiv]. simpl. f_equal. congruence.
+        + cbv [extensionally_equal]. eauto.
+    Qed.
+
+    Lemma meta_cond_map_iff mr mf_args mf_set p R (args : list T) meta_hyps :
+      meta_rules_valid p ->
+      In mr p ->
+      rule_impl (one_step_derives p) mr (meta_fact R mf_args mf_set) meta_hyps ->
+      Forall2 matches mf_args args ->
+      injective_on R ->
+      one_step_derives p meta_hyps R args <->
+        one_step_derives (map map_rule_rels p) (map map_fact meta_hyps) (f R) args.
+    Proof.
+      intros Hvalid HIn Hmr Hmf_args Hinj. cbv [one_step_derives one_step_derives0].
+      pose proof Hmr as Hmh.
+      apply meta_hyps_are_meta_facts in Hmh.
+      apply Hvalid in Hmr; [|assumption].
+      clear Hvalid HIn.
       split; intros H; fwd.
       - do 2 eexists.
         split; [apply in_map; eassumption | split].
@@ -340,28 +374,45 @@ Section Blocks.
         + rewrite Lists.List.Forall_map. eapply Forall_impl; [|eassumption].
           intros f' Hex. apply Exists_exists in Hex. fwd.
           apply Exists_exists. eexists. split; [apply in_map; eassumption |].
-          destruct Hexp1 as [<- | Hmatch]; [left; reflexivity | right].
-          apply fact_matches_map_fw. eassumption.
+          destruct Hexp1 as [Hext | Hmatch].
+          * left. apply extensionally_equal_map_fw. eassumption.
+          * right. apply fact_matches_map_fw. eassumption.
       - apply in_map_iff in Hp0. fwd.
         pose proof Hp1 as Hp1'.
         apply non_meta_rule_invert_map in Hp1. fwd.
         eapply non_meta_rule_impl_map_bw in Hp1'. fwd.
         apply Hinj in Hp1'p0. subst.
+        specialize (Hmr _ _ _ ltac:(eassumption) ltac:(eauto) ltac:(eassumption)).
         do 2 eexists. split; [eassumption | split].
         + eassumption.
-        + rewrite Lists.List.Forall_map in Hp2.
-          apply Forall2_forget_l in Hp1'p1. eapply Forall_impl; [|eassumption].
-          simpl. intros f' Hf'. fwd. rewrite Forall_forall in Hp2.
-          apply Hp2 in Hf'p0. apply Exists_map in Hf'p0.
-          eapply Exists_impl; [|eassumption]. simpl. intros.
-          (*I need to use *)
-          non_meta_rule_impl r R args hyps ->
-                          In
-    Abort. (* eapply Forall_impl; [|eassumption]. *)
-    (*       simpl. intros f0 Hf0. apply Exists_map in Hf0. *)
-    (*       eapply Exists_impl; [|eassumption]. *)
-    (*       simpl. intros f' Hf'. destruct Hf' as [Hf' | Hf']; eauto using map_fact_inj, fact_matches_map_bw. *)
-    (* Qed. *)
+        + clear Hp1'p2.
+          rewrite Lists.List.Forall_map in Hp2.
+          apply Forall2_forget_l in Hp1'p1. apply Forall_forall.
+          intros f' Hf'. rewrite Forall_forall in Hp1'p1.
+          specialize (Hp1'p1 _ Hf'). fwd.
+          rewrite Forall_forall in Hp2.
+          specialize (Hp2 _ ltac:(eassumption)). apply Exists_map in Hp2.
+          apply Exists_exists in Hp2. fwd.
+          rewrite Forall_forall in Hmr. specialize (Hmr _ Hf').
+          rewrite Forall_forall in Hmh. specialize (Hmh _ ltac:(eassumption)).
+          destruct Hp2p1 as [Hext | Hmatch].
+          * apply extensionally_equal_map_bw in Hext. fwd.
+            destruct f'.
+            { (*contradictory*) admit. }
+            fwd.
+            apply Exists_exists. eexists. split; [exact Hmr|].
+            left. simpl. ssplit; auto.
+          (*just need something saying that all meta-facts are consistent...*)
+          admit.
+          * apply fact_matches_map_bw in Hmatch. fwd.
+            destruct f'.
+            2: { (*contradictory*) admit. }
+            fwd. apply Exists_exists. eexists. split; [exact Hmrp0|].
+            right. cbv [fact_matches]. do 4 eexists. ssplit; try reflexivity.
+            1: assumption.
+            (*just need that meta-facts don't lie.*)
+            admit.
+    Abort.
 
     Lemma rule_impl_map_rule_rels_fw p r f0 hyps :
       rule_impl (one_step_derives p) r f0 hyps ->

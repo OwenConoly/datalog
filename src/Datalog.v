@@ -1137,6 +1137,7 @@ Section __.
       forall nr args hyps,
         In nr p ->
         rule_impl (one_step_derives p) nr (normal_fact R args) hyps ->
+        Forall2 matches mf_args args ->
         Forall (fun f =>
                   match f with
                   | normal_fact R' nf_args' =>
@@ -1206,7 +1207,7 @@ Section __.
         apply in_flat_map. apply rule_impl_concl_relname_in in Hmr_impl. simpl in Hmr_impl. eauto. }
       clear H1 H2.
       fwd. apply Exists_exists in Hnf_argsp0. fwd.
-      specialize (Hvalid _ _ _ ltac:(eassumption) ltac:(eassumption)).
+      specialize (Hvalid _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
       invert Hmr_impl. rewrite H9 by assumption.
       invert Hnf_argsp0p1. cbv [one_step_derives one_step_derives0].
       do 2 eexists. split; [eassumption|]. split; [eassumption|].
@@ -1412,7 +1413,7 @@ Section __.
     { eapply meta_hyps_are_meta_facts. eassumption. }
     apply Hvalid in Hmr1, Hmr2; try assumption.
     cbv [one_step_derives one_step_derives0]. split; intros Hderiv.
-    - fwd. specialize (Hmr2 _ _ _ ltac:(eassumption) ltac:(eauto)).
+    - fwd. specialize (Hmr2 _ _ _ ltac:(eassumption) ltac:(eauto) ltac:(eassumption)).
       do 2 eexists. split; [eassumption|]. split; [eassumption|].
       eapply Forall_impl.
       2: { apply Forall_and; [apply Hmr2|apply Hderivp2]. }
@@ -1446,7 +1447,7 @@ Section __.
         specialize' Hfs1'.
         { apply Hfs2p1. eassumption. }
         apply Hfs1'; assumption.
-    - fwd. specialize (Hmr1 _ _ _ ltac:(eassumption) ltac:(eauto)).
+    - fwd. specialize (Hmr1 _ _ _ ltac:(eassumption) ltac:(eauto) ltac:(eassumption)).
       do 2 eexists. split; [eassumption|]. split; [eassumption|].
       eapply Forall_impl.
       2: { apply Forall_and; [apply Hmr1|apply Hderivp2]. }
