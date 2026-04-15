@@ -22,7 +22,39 @@ jobs:
 
       - name: Compile with Rocq 9.0.0
         run: |
-          coqc --version
+          export ROCQ_BIN=/home/rocq/.opam/4.14.2+flambda/bin
+          export PATH="$ROCQ_BIN:$PATH"
+          export COQBIN=/tmp/coq-compat-bin/
+
+          mkdir -p "$COQBIN"
+          cat > "${COQBIN}rocq" <<'EOF'
+          #!/bin/sh
+          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq "$@"
+          EOF
+          cat > "${COQBIN}coqc" <<'EOF'
+          #!/bin/sh
+          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq compile "$@"
+          EOF
+          cat > "${COQBIN}coqdep" <<'EOF'
+          #!/bin/sh
+          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq dep "$@"
+          EOF
+          cat > "${COQBIN}coq_makefile" <<'EOF'
+          #!/bin/sh
+          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq makefile "$@"
+          EOF
+          cat > "${COQBIN}coqdoc" <<'EOF'
+          #!/bin/sh
+          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq doc "$@"
+          EOF
+          cat > "${COQBIN}coqchk" <<'EOF'
+          #!/bin/sh
+          exec /home/rocq/.opam/4.14.2+flambda/bin/rocq check "$@"
+          EOF
+          chmod +x "${COQBIN}"*
+          export PATH="$COQBIN:$PATH"
+
+          rocq --version
           make
 
   notify-copilot-on-failure:
