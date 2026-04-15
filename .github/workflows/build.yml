@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rocq/rocq-prover:9.0
+      options: --user root
 
     steps:
       - name: Checkout code
