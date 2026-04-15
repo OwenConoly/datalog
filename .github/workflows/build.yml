@@ -24,3 +24,42 @@ jobs:
         run: |
           coqc --version
           make
+
+  notify-copilot-on-failure:
+    if: ${{ failure() && github.event_name == 'pull_request' }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    env:
+      COPILOT_TRIGGER_TOKEN_CONFIGURED: ${{ secrets.COPILOT_TRIGGER_TOKEN != '' }}
+    steps:
+      - name: Ask Copilot to fix failing checks
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.COPILOT_TRIGGER_TOKEN || github.token }}
+          script: |
+            const tokenConfigured = process.env.COPILOT_TRIGGER_TOKEN_CONFIGURED === 'true';
+            const body = tokenConfigured
+              ? (
+                  `@copilot the ${context.workflow} workflow failed. ` +
+                  `Please investigate and fix it.\n\n` +
+                  `Failing run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+                )
+              : (
+                  `The ${context.workflow} workflow failed, but this workflow cannot directly trigger ` +
+                  `a Copilot response when commenting as github-actions[bot].\n\n` +
+                  `To auto-trigger Copilot from this workflow, add a repository secret named ` +
+                  `COPILOT_TRIGGER_TOKEN (a PAT from a trusted maintainer account with ` +
+                  `pull requests: write and issues: write).\n\n` +
+                  `Failing run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+                );
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body
+            });
