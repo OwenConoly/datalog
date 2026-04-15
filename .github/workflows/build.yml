@@ -17,10 +17,18 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Coq
+      - name: Set workspace permissions for Docker
         run: |
-          sudo apt-get update
-          sudo apt-get install -y coq
+          sudo chown -R 1000:1000 .
 
-      - name: Compile
-        run: make
+      - name: Compile with Rocq 9.0.0
+        uses: coq-community/docker-coq-action@v1
+        with:
+          custom_image: rocq/rocq-prover:9.0.0
+          custom_script: |
+            startGroup "Rocq version"
+              rocq --version
+            endGroup
+            startGroup "Compile"
+              make
+            endGroup
