@@ -53,7 +53,7 @@ jobs:
                   `a Copilot response when commenting as github-actions[bot].\n\n` +
                   `To auto-trigger Copilot from this workflow, add a repository secret named ` +
                   `COPILOT_TRIGGER_TOKEN (a PAT from a trusted maintainer account with ` +
-                  `pull requests: write and issues: write).\n\n` +
+                  `pull-requests: write and issues: write).\n\n` +
                   `Failing run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
                 );
 
