@@ -18,10 +18,13 @@ jobs:
         github.event.workflow_run.event == 'pull_request'
       }}
     runs-on: ubuntu-latest
+    env:
+      COPILOT_TRIGGER_TOKEN_CONFIGURED: ${{ secrets.COPILOT_TRIGGER_TOKEN != '' }}
     steps:
       - name: Ask Copilot to fix failing checks
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
+          github-token: ${{ secrets.COPILOT_TRIGGER_TOKEN || github.token }}
           script: |
             const run = context.payload.workflow_run;
             const prs = run.pull_requests || [];
@@ -30,10 +33,21 @@ jobs:
               return;
             }
 
-            const body =
-              `@copilot the ${run.name} workflow failed. ` +
-              `Please investigate and fix it.\n\n` +
-              `Failing run: ${run.html_url}`;
+            const tokenConfigured = process.env.COPILOT_TRIGGER_TOKEN_CONFIGURED === 'true';
+            const body = tokenConfigured
+              ? (
+                  `@copilot the ${run.name} workflow failed. ` +
+                  `Please investigate and fix it.\n\n` +
+                  `Failing run: ${run.html_url}`
+                )
+              : (
+                  `The ${run.name} workflow failed, but this workflow cannot directly trigger ` +
+                  `a Copilot response when commenting as github-actions[bot].\n\n` +
+                  `To auto-trigger Copilot from this workflow, add a repository secret named ` +
+                  `COPILOT_TRIGGER_TOKEN (a PAT from a trusted maintainer account with ` +
+                  `pull requests: write and issues: write).\n\n` +
+                  `Failing run: ${run.html_url}`
+                );
 
             for (const pr of prs) {
               await github.rest.issues.createComment({
