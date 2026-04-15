@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   comment-on-failure:
@@ -31,7 +31,7 @@ jobs:
             }
 
             const body =
-              `@copilot the Build Coq Code workflow failed. ` +
+              `@copilot the ${run.name} workflow failed. ` +
               `Please investigate and fix it.\n\n` +
               `Failing run: ${run.html_url}`;
 
