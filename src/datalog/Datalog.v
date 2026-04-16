@@ -1205,7 +1205,7 @@ Section __.
     intros nf_args Hmatch.
     apply (proj2 (Heq _)) in Hmeta.
     specialize (Hhas mf_args mf_set Hmeta nf_args Hmatch).
-    specialize (Heq nf_args). tauto.
+    specialize (Heq (normal_fact_args nf_args)). tauto.
   Qed.
 
   (*this is a lemma about pairwise properties, because that is all that i need to reasona baout.
