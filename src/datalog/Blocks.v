@@ -539,7 +539,7 @@ Section Blocks.
       enough (forall g1 g2, fact_equiv g1 g2 -> prog_impl p Q g1 -> prog_impl p Q g2) as Help.
       { split; intro Hprog.
         - exact (Help f1 f2 Heq Hprog).
-        - apply (Help f2 f1). cbv [fact_equiv] in *; congruence. exact Hprog. }
+        - apply (Help f2 f1); [cbv [fact_equiv] in *; congruence | exact Hprog]. }
       clear Heq. intros g1 g2 Hg Hprog.
       pose proof Hprog as Hprog_copy. apply prog_impl_rel_of in Hprog_copy.
       destruct Hprog_copy as [HQ1 | Hconcl].
