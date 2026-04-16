@@ -535,25 +535,19 @@ Section Blocks.
       fact_equiv f1 f2 ->
       prog_impl p Q f1 <-> prog_impl p Q f2.
     Proof.
-      intros Hinj HQ Heq. split; intros Hprog.
-      - pose proof Hprog as Hprog_copy. apply prog_impl_rel_of in Hprog_copy.
-        destruct Hprog_copy as [HQ1 | Hconcl].
-        + apply prog_impl_leaf. apply (proj1 (HQ _ _ Heq)). exact HQ1.
-        + rewrite Forall_forall in Hinj. apply Hinj in Hconcl. cbv [injective_on] in Hconcl.
-          destruct f1 as [R1 args1 | R1 mf_args1 S1], f2 as [R2 args2 | R2 mf_args2 S2];
-            cbv [fact_equiv map_fact] in Heq; try discriminate;
-            inversion Heq;
-            assert (f R1 = f R2) by congruence;
-            apply Hconcl in H; subst; exact Hprog.
-      - pose proof Hprog as Hprog_copy. apply prog_impl_rel_of in Hprog_copy.
-        destruct Hprog_copy as [HQ2 | Hconcl].
-        + apply prog_impl_leaf. apply (proj2 (HQ _ _ Heq)). exact HQ2.
-        + rewrite Forall_forall in Hinj. apply Hinj in Hconcl. cbv [injective_on] in Hconcl.
-          destruct f1 as [R1 args1 | R1 mf_args1 S1], f2 as [R2 args2 | R2 mf_args2 S2];
-            cbv [fact_equiv map_fact] in Heq; try discriminate;
-            inversion Heq;
-            assert (f R2 = f R1) by congruence;
-            apply Hconcl in H; subst; exact Hprog.
+      intros Hinj HQ Heq.
+      enough (forall g1 g2, fact_equiv g1 g2 -> prog_impl p Q g1 -> prog_impl p Q g2) as Help.
+      { split; intro Hprog; apply Help; try exact Hprog; cbv [fact_equiv] in *; congruence. }
+      clear Heq. intros g1 g2 Hg Hprog.
+      pose proof Hprog as Hprog_copy. apply prog_impl_rel_of in Hprog_copy.
+      destruct Hprog_copy as [HQ1 | Hconcl].
+      - apply prog_impl_leaf. exact (proj1 (HQ _ _ Hg) HQ1).
+      - rewrite Forall_forall in Hinj. apply Hinj in Hconcl. cbv [injective_on] in Hconcl.
+        destruct g1 as [R1 args1 | R1 mf_args1 S1], g2 as [R2 args2 | R2 mf_args2 S2];
+          cbv [fact_equiv map_fact] in Hg; try discriminate;
+          inversion Hg;
+          assert (HR : f R1 = f R2) by congruence;
+          apply Hconcl in HR; subst; exact Hprog.
     Qed.
 
     Lemma prog_impl_map_rule_rels_fw p Q f0 :

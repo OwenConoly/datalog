@@ -212,8 +212,8 @@ Section __.
         R x) ->
     forall x, pftree P Q x -> R x.
   Proof.
-    intros H1 H2. fix self 2.
-    intros x Hx. invert Hx. 1: auto. eapply H2. 1,2: eassumption.
+    intros Hbase Hstep. fix self 2.
+    intros x Hx. invert Hx. 1: auto. eapply Hstep. 1,2: eassumption.
     clear -H0 self. induction H0; eauto.
   Qed.
 
@@ -268,8 +268,8 @@ Section __.
     fact_supported hyps f ->
     fact_supported hyps' f.
   Proof.
-    intros H1 H2. cbv [fact_supported] in *. apply Exists_exists in H2. fwd.
-    apply Forall2_forget_r in H1. rewrite Forall_forall in H1. apply H1 in H2p0.
+    intros Hext H2. cbv [fact_supported] in *. apply Exists_exists in H2. fwd.
+    apply Forall2_forget_r in Hext. rewrite Forall_forall in Hext. apply Hext in H2p0.
     fwd. apply Exists_exists. eexists. split; [eassumption|].
     destruct f, x, y; destruct H2p1; simpl in *; fwd; contradiction || eauto.
     - right. cbv [fact_matches] in H. fwd. cbv [fact_matches].
@@ -283,7 +283,7 @@ Section __.
     Forall2 extensionally_equal hyps hyps' ->
     one_step_derives p hyps R args'' -> one_step_derives p hyps' R args''.
   Proof.
-    intros H1 H2. cbv [one_step_derives one_step_derives0] in *. fwd.
+    intros Hext Hderiv. cbv [one_step_derives one_step_derives0] in *. fwd.
     do 2 eexists. split; [eassumption|]. split; [eassumption|].
     eapply Forall_impl; [|eassumption].
     intros f Hf. eapply fact_supported_ext; eassumption.
@@ -357,7 +357,7 @@ Section __.
     pftree P Q1 x ->
     (forall y, Q1 y -> Q2 y) ->
     pftree P Q2 x.
-  Proof. intros H1 H2. induction H1; eauto. Qed.
+  Proof. intros Hpftree Hweaken. induction Hpftree; eauto. Qed.
 
   Lemma prog_impl_weaken_hyp p x Q1 Q2 :
     prog_impl p Q1 x ->
@@ -394,7 +394,7 @@ Section __.
     Q (meta_fact mf_rel mf_args mf_set) \/
       prog_impl p Q (meta_fact mf_rel mf_args mf_set').
   Proof.
-    intros H1 H2. apply invert_prog_impl in H1. destruct H1 as [H1|H1]; auto.
+    intros Hprog Hmf_ext. apply invert_prog_impl in Hprog. destruct Hprog as [Hprog|Hprog]; auto.
     fwd. right. eapply prog_impl_step; [|eassumption].
     eapply Exists_impl; [|eassumption]. simpl.
     eauto using rule_impl_mf_ext.
@@ -1200,14 +1200,12 @@ Section __.
     honest_args S1 ->
     honest_args S2.
   Proof.
-    intros Heq H1 mf_args mf_set Hmeta.
+    intros Heq Hhas mf_args mf_set Hmeta.
     cbv [honest_args args_consistent] in *.
     intros nf_args Hmatch.
     apply (proj2 (Heq _)) in Hmeta.
-    specialize (H1 mf_args mf_set Hmeta nf_args Hmatch).
-    split; intro H_dir.
-    - apply (proj1 (Heq _)). apply (proj1 H1). exact H_dir.
-    - apply (proj2 H1). apply (proj2 (Heq _)). exact H_dir.
+    specialize (Hhas mf_args mf_set Hmeta nf_args Hmatch).
+    specialize (Heq nf_args). tauto.
   Qed.
 
   (*this is a lemma about pairwise properties, because that is all that i need to reasona baout.
@@ -1227,7 +1225,7 @@ Section __.
     is_dag_ish Q P xs2 ->
     is_dag_ish Q P (xs1 ++ xs2).
   Proof.
-    intros H1 H2. induction H1; simpl; auto.
+    intros Hdag1 Hdag2. induction Hdag1; simpl; auto.
     constructor; auto. destruct H as [H|H]; auto.
     fwd. right. eexists. split; [eassumption|].
     auto with incl.
