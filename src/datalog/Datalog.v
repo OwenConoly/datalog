@@ -932,20 +932,42 @@ Section __.
     exists l3, disjoint_lists l1 l3 /\ same_set (l1 ++ l3) l2.
   Proof.
     intros H_incl.
-    assert (In_dec : forall (a : U) (l : list U), {In a l} + {~ In a l}).
-    { intros a l. induction l as [|x l' [IH|IH]].
-      - right; auto.
-      - left; right; auto.
-      - destruct (eq_prop a x); [left; left; auto | right; intros [->|]; auto]. }
-    exists (filter (fun x => if In_dec x l1 then false else true) l2).
-    split.
-    - intros x Hx1 Hx2. apply filter_In in Hx2 as [_ Hx2].
-      destruct (In_dec x l1); discriminate.
-    - intros x. rewrite in_app_iff, filter_In. split.
-      + intros [Hx | [Hx _]]; auto using H_incl.
-      + intros Hx. destruct (In_dec x l1).
-        * left; auto.
-        * right; split; [auto | destruct (In_dec x l1); auto].
+    assert (In_dec : forall a (l : list U), In a l \/ ~ In a l).
+    { intros a l. induction l as [|x l' IH].
+      - right. intro H. destruct H.
+      - destruct (eq_prop a x) as [Heq | Hneq].
+        + left. left. auto.
+        + destruct IH as [HIn | HNin].
+          * left. right. auto.
+          * right. intro H. destruct H; auto. }
+    assert (H_diff : forall l, exists l3, forall x, In x l3 <-> In x l /\ ~ In x l1).
+    { intro l. induction l as [|a l' IHl'].
+      - exists []. intros x. intuition.
+      - destruct IHl' as [l3' Hl3'].
+        destruct (In_dec a l1) as [Hin | Hnin].
+        + exists l3'. intros x. split; intro H.
+          * apply Hl3' in H. intuition.
+          * destruct H as [[Heq|Hin_l'] Hnin_x].
+            -- subst. congruence.
+            -- apply Hl3'. intuition.
+        + exists (a :: l3'). intros x. split; intro H.
+          * destruct H as [Heq | Hin_l3'].
+            -- subst. intuition.
+            -- apply Hl3' in Hin_l3'. intuition.
+          * destruct H as [[Heq|Hin_l'] Hnin_x].
+            -- left. auto.
+            -- right. apply Hl3'. intuition. }
+    destruct (H_diff l2) as [l3 H_l3].
+    exists l3. split.
+    - cbv [disjoint_lists]. intros x H_in_l1 H_in_l3.
+      apply H_l3 in H_in_l3. intuition.
+    - cbv [same_set]. intros x. split; intro H.
+      + apply in_app_or in H. destruct H as [H_in_l1 | H_in_l3].
+        * apply H_incl. exact H_in_l1.
+        * apply H_l3 in H_in_l3. intuition.
+      + destruct (In_dec x l1) as [H_in_l1 | H_nin_l1].
+        * apply in_or_app. auto.
+        * apply in_or_app. right. apply H_l3. intuition.
   Qed.
 
   From Stdlib Require Import Classical.
