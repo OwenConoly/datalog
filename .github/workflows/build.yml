@@ -69,7 +69,7 @@ jobs:
             sleep "$OPAM_INSTALL_RETRY_DELAY"
           done
           rocq --version
-          make
+          make datalog
 
   notify-copilot-on-failure:
     if: ${{ failure() && github.event_name == 'pull_request' }}
