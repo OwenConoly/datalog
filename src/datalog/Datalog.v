@@ -1203,10 +1203,14 @@ Section __.
     honest_args S1 ->
     honest_args S2.
   Proof.
-    intros Heq H1 mf_args mf_set Hmeta nf_args Hmatch.
+    intros Heq H1 mf_args mf_set Hmeta.
     cbv [honest_args args_consistent] in *.
+    intros nf_args Hmatch.
     apply (proj2 (Heq _)) in Hmeta.
-    pose proof (H1 _ _ Hmeta _ Hmatch) as H. rewrite Heq. exact H.
+    specialize (H1 mf_args mf_set Hmeta nf_args Hmatch).
+    split; intro H_dir.
+    - apply (proj1 (Heq _)). apply (proj1 H1). exact H_dir.
+    - apply (proj2 H1). apply (proj2 (Heq _)). exact H_dir.
   Qed.
 
   (*this is a lemma about pairwise properties, because that is all that i need to reasona baout.
