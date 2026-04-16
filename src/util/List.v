@@ -287,6 +287,8 @@ Proof.
   intros. apply zip_ext_in; auto.
 Qed.
 
+End Forall.
+
 Lemma map_eq_Forall2 {A B C} (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
   map f l1 = map g l2 ->
   Forall2 (fun x y => f x = g y) l1 l2.
@@ -315,8 +317,6 @@ Proof.
   - exists []. auto.
   - exists (z :: zs). auto.
 Qed.
-
-End Forall.
 
 From Stdlib Require Import Lia.
 Lemma list_sum_repeat n m :
