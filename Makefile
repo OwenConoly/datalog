@@ -4,10 +4,13 @@
 
 COQC ?= "$(COQBIN)coqc"
 
+UTIL_V_FILES := $(wildcard src/util/*.v)
+UTIL_VO_FILES := $(UTIL_V_FILES:%.v=%.vo)
+
 util: Makefile.coq
 	$(MAKE) -C coqutil
 	$(MAKE) -C verified-scheduling/src atl
-	$(MAKE) -f Makefile.coq src/util/*.vo
+	$(MAKE) -f Makefile.coq $(UTIL_VO_FILES)
 
 datalog: util
 	$(MAKE) -f Makefile.coq src/datalog/Datalog.vo src/datalog/Blocks.vo
@@ -18,6 +21,8 @@ atl: datalog
 	$(MAKE) -C verified-scheduling/src codegen
 	$(MAKE) -C verified-scheduling/src padtest
 	$(MAKE) -f Makefile.coq
+
+all: atl
 
 COQ_MAKEFILE := $(COQBIN)coq_makefile -docroot datalog $(COQMF_ARGS)
 
