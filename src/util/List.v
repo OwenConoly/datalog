@@ -1,8 +1,7 @@
 From Stdlib Require Import Lists.List Permutation.
-From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
-From Lower Require Import ListMisc.
 From coqutil Require Import Datatypes.List Tactics.fwd Tactics.destr Tactics.
 Require Import Datalog.Tactics.
+Import ListNotations.
 
 Local Ltac invert_list_stuff' :=
   repeat match goal with
@@ -604,10 +603,9 @@ Lemma nth_error_repeat' (x : A) y m n :
   nth_error (repeat x m) n = Some y ->
   x = y.
 Proof.
-  intros H. epose proof nth_error_Some as H1.
-  specialize (H1 _ _ _ ltac:(eassumption)). pose proof nth_error_repeat as H2.
-  rewrite repeat_length in H1. rewrite nth_error_repeat in H by lia. invert H.
-  reflexivity.
+  intros H. pose proof H as H0.
+  apply nth_error_Some_bound_index in H0. rewrite repeat_length in H0.
+  rewrite nth_error_repeat in H by lia. congruence.
 Qed.
 
 Lemma Forall2_flat_map xs ys R (f : A -> list C) (g : B -> list D) :
@@ -624,12 +622,23 @@ Lemma map_is_flat_map (f : A -> B) xs :
   map f xs = flat_map (fun x => [f x]) xs.
 Proof. induction xs; eauto. Qed.
 
+Lemma app_inv_length1 (l1 l1' l2 l2' : list A) :
+  l1 ++ l2 = l1' ++ l2' ->
+  length l1 = length l1' ->
+  l1 = l1' /\ l2 = l2'.
+Proof.
+  revert l1'.
+  induction l1; intros l1'; destruct l1'; simpl; intros; try lia; auto.
+  fwd. specialize (IHl1 _ ltac:(eassumption) ltac:(eassumption)). fwd.
+  split; f_equal; auto.
+Qed.
+
 Lemma invert_concat_same xss xss' :
   concat xss = concat xss' ->
   Forall2 (fun xs xs' => length xs = length xs') xss xss' ->
   xss = xss'.
 Proof.
-  induction 2; simpl in *; eauto. eapply invert_app in H; eauto.
+  induction 2; simpl in *; eauto. apply app_inv_length1 in H; eauto.
   fwd. f_equal. eauto.
 Qed.
 
@@ -677,11 +686,11 @@ Hint Unfold incl : core.
 
 Lemma incl_firstn (l : list A) n :
   incl (firstn n l) l.
-Proof. eauto using in_firstn. Qed.
+Proof. eauto using In_firstn_to_In. Qed.
 
 Lemma incl_skipn (l : list A) n :
   incl (skipn n l) l.
-Proof. eauto using in_skipn. Qed.
+Proof. eauto using In_skipn. Qed.
 
 Lemma flat_map_map (g : A -> B) (f : B -> list C) l :
   flat_map f (map g l) = flat_map (fun x => f (g x)) l.

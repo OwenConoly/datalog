@@ -1,6 +1,5 @@
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
-From ATL Require Import Tactics FrapWithoutSets.
 From Datalog Require Import Tactics List.
 From coqutil Require Import Tactics Tactics.fwd Datatypes.List.
 
@@ -278,7 +277,7 @@ Lemma path_alt_tl x l g :
 Proof.
   cbv [path_alt] in *. intros. subst. eapply (H (_ :: _)). reflexivity.
 Qed.
-  
+
 Lemma path_alt_path g x l :
   path_alt g (x :: l) ->
   path g x l.

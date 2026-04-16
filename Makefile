@@ -1,11 +1,18 @@
 .DEFAULT_GOAL := all
 
-.PHONY: clean all
+.PHONY: clean all atl datalog util
 
 COQC ?= "$(COQBIN)coqc"
 
-all: Makefile.coq
+util: Makefile.coq
 	$(MAKE) -C coqutil
+	$(MAKE) -C verified-scheduling/src atl
+	$(MAKE) -f Makefile.coq src/util/*.vo
+
+datalog: util
+	$(MAKE) -f Makefile.coq src/datalog/Datalog.vo src/datalog/Blocks.vo
+
+atl: datalog
 	$(MAKE) -C verified-scheduling/src low
 	$(MAKE) -C verified-scheduling/src examples
 	$(MAKE) -C verified-scheduling/src codegen
