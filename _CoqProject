@@ -6,6 +6,10 @@
 -Q verified-scheduling/src/verified_lowering/stringify Stringify
 -Q verified-scheduling/src/examples/ Examples
 -Q coqutil/src/coqutil coqutil
--Q src/ Datalog
+-Q src/util Datalog
+-Q src/datalog Datalog
+-Q src/atl Datalog
 
-src/
+src/util/
+src/datalog/
+src/atl/
