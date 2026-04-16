@@ -4,12 +4,17 @@ From ATL Require Import FrapWithoutSets Tactics.
 Ltac specialize' H :=
   let hyp := fresh "hyp" in
   eassert _ as hyp;
-  [clear H|specialize (H hyp); clear hyp].  
+  [clear H|specialize (H hyp); clear hyp].
 
 Ltac epose_dep H :=
   repeat lazymatch type of H with
   | ?A -> ?B => fail
   | forall _, _ => epose proof (H _) as H
+  end.
+
+Ltac apply_somewhere H :=
+  match goal with
+  | H' : _ |- _ => apply H in H'
   end.
 
 Ltac invert' H := inversion H; clear H; subst.
@@ -29,3 +34,6 @@ Ltac invertN n :=
   end.
 
 Ltac invert e := invertN e || invert' e.
+
+Ltac invert0 H := invert H; fail.
+Ltac invert1 H := invert H; [].

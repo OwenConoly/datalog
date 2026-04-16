@@ -26,6 +26,35 @@ Local Ltac invert_list_stuff' :=
 Definition is_list_set {X : Type} (S : X -> Prop) (l : list X) :=
   (forall x, S x <-> In x l) /\ NoDup l.
 
+Lemma is_list_set_map X Y S l (f : X -> Y) :
+  FinFun.Injective f ->
+  is_list_set S l ->
+  is_list_set (fun y => exists x, y = f x /\ S x) (map f l).
+Proof.
+  intros Hf [H1 H2]. split.
+  - intros. split; intros H3; fwd.
+    + apply in_map_iff. apply H1 in H3p1. eauto.
+    + apply in_map_iff in H3. fwd. apply H1 in H3p1. eauto.
+  - apply FinFun.Injective_map_NoDup; assumption.
+Qed.
+
+Lemma is_list_set_ext X (S1 S2 : X -> _) l :
+  is_list_set S1 l ->
+  (forall x, S1 x <-> S2 x) ->
+  is_list_set S2 l.
+Proof.
+  intros [H1 H2] H3. split; auto. intros. rewrite <- H3. apply H1.
+Qed.
+
+Lemma is_list_set_perm X (S : X -> _) l1 l2 :
+  is_list_set S l1 ->
+  is_list_set S l2 ->
+  Permutation.Permutation l1 l2.
+Proof.
+  intros [H1 H2] [H3 H4]. apply NoDup_Permutation; auto.
+  intros. rewrite <- H1, H3. reflexivity.
+Qed.
+
 Import ListNotations.
 Section subset.
 Context {A : Type}.
@@ -103,6 +132,16 @@ Lemma Forall2_combine R xs ys :
   Forall2 R xs ys ->
   Forall (fun '(x, y) => R x y) (combine xs ys).
 Proof. induction 1; simpl; eauto. Qed.
+
+Lemma Forall_combine_Forall2 R xs ys :
+  Forall R (combine xs ys) ->
+  length xs = length ys ->
+  Forall2 (fun x y => R (x, y)) xs ys.
+Proof.
+  revert ys.
+  induction xs; intros ys H Hlen; destruct ys; simpl in Hlen; try discriminate;
+    simpl in *; invert_list_stuff'; auto.
+Qed.
 
 Lemma Forall_combine R xs ys :
   Forall2 (fun x y => R (x, y)) xs ys ->
@@ -208,6 +247,11 @@ Lemma in_fst (x : A) (y : B) xys :
   In x (map fst xys).
 Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
 
+Lemma in_snd (x : A) (y : B) xys :
+  In (x, y) xys ->
+  In y (map snd xys).
+Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
+
 Lemma Forall2_firstn R xs ys n :
   Forall2 R xs ys ->
   Forall2 R (firstn n xs) (firstn n ys).
@@ -276,7 +320,7 @@ Lemma Forall2_option_all X (xs : list (option X)) xs' :
 Proof.
   intros H. induction H; simpl; eauto.
   repeat (destruct_one_match; try congruence).
-Qed.    
+Qed.
 
 Definition option_coalesce {X : Type} (x : option (option X)) :=
   match x with
@@ -456,7 +500,7 @@ Section Existsn.
     intros H1. revert n2 l2.
     induction H1; intros; simpl; eauto.
   Qed.
-  
+
   Lemma Existsn_split n l1 l2 :
     Existsn n (l1 ++ l2) ->
     exists n1 n2,
@@ -512,6 +556,15 @@ Context {A B C D : Type}.
 Implicit Type xs : list A.
 Implicit Type ys : list B.
 Implicit Type zs : list C.
+
+Lemma map_inj (f : A -> B) (l1 l2 : list A) :
+  (forall x y, f x = f y -> x = y) ->
+  map f l1 = map f l2 ->
+  l1 = l2.
+Proof.
+  intros Hinj. revert l2. induction l1 as [|x xs IH]; intros [|y ys] H; simpl in H; auto; try discriminate.
+  invert H. f_equal; auto.
+Qed.
 
 Lemma list_set_Existsn_1 S xs x :
   is_list_set S xs ->
@@ -607,7 +660,7 @@ Proof.
   intros H. induction xs; simpl in *.
   - contradiction.
   - destruct H; subst; auto using incl_appr, incl_appl, incl_refl.
-Qed.  
+Qed.
 
 Lemma incl_flat_map_strong (f g : A -> list B) l l' :
   incl l l' ->
@@ -652,7 +705,7 @@ Proof. induction 1; constructor; eauto. Qed.
 Lemma Forall3_combine12 R xs ys zs :
   Forall3 (fun x y => R (x, y)) xs ys zs ->
   Forall2 R (combine xs ys) zs.
-Proof. induction 1; simpl; eauto. Qed.    
+Proof. induction 1; simpl; eauto. Qed.
 
 Lemma Forall2_Forall2_Forall3 R1 R2 xs ys zs :
   Forall2 R1 xs ys ->
@@ -665,12 +718,12 @@ Qed.
 Lemma Forall2_eq_eq xs xs' :
   Forall2 eq xs xs' ->
   xs = xs'.
-Proof. induction 1; subst; reflexivity. Qed.  
+Proof. induction 1; subst; reflexivity. Qed.
 
 Lemma eq_Forall2_eq xs xs' :
   xs = xs' ->
   Forall2 eq xs xs'.
-Proof. intros. subst. induction xs'; eauto. Qed.  
+Proof. intros. subst. induction xs'; eauto. Qed.
 
 Lemma Forall2_concat R xss yss :
   Forall2 (fun xs ys => Forall2 R xs ys) xss yss ->
@@ -729,7 +782,48 @@ Proof.
     + apply IHn2 in H. lia.
 Qed.
 
+Lemma NoDup_map_in_inj {A B} (f : A -> B) (l : list A) x1 x2 :
+  NoDup (map f l) ->
+  In x1 l ->
+  In x2 l ->
+  f x1 = f x2 ->
+  x1 = x2.
+Proof.
+  intros Hnodup H1 H2 Heq.
+  apply in_split in H1. destruct H1 as [l1 [l2 ->]].
+  rewrite map_app in Hnodup. simpl in Hnodup.
+  apply NoDup_remove_2 in Hnodup.
+
+  apply in_app_or in H2. destruct H2 as [H2 | [H2 | H2]].
+  - exfalso. apply Hnodup. apply in_or_app. left.
+    rewrite Heq. apply in_map. exact H2.
+  - exact H2.
+  - exfalso. apply Hnodup. apply in_or_app. right.
+    rewrite Heq. apply in_map. exact H2.
+Qed.
+
+Lemma NoDup_fst_In_inj {A B} (l : list (A * B)) k v1 v2 :
+  NoDup (map fst l) ->
+  In (k, v1) l ->
+  In (k, v2) l ->
+  v1 = v2.
+Proof.
+  intros Hnodup H1 H2.
+  assert (Heq : (k, v1) = (k, v2)) by (eapply NoDup_map_in_inj; eauto).
+  congruence.
+Qed.
+
+Lemma NoDup_snd_In_inj {A B} (l : list (A * B)) k v1 v2 :
+  NoDup (map snd l) ->
+  In (v1, k) l ->
+  In (v2, k) l ->
+  v1 = v2.
+Proof.
+  intros Hnodup H1 H2.
+  assert (Heq : (v1, k) = (v2, k)) by (eapply NoDup_map_in_inj; eauto).
+  congruence.
+Qed.
+
 Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
 Hint Resolve incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_in Permutation_sym : incl.
-  
