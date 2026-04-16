@@ -300,7 +300,7 @@ Section __.
   Proof.
     destruct f1 as [R1 args1 | R1 mf_args1 mf_set1],
              f2 as [R2 args2 | R2 mf_args2 mf_set2];
-      cbv [extensionally_equal] in *; try contradiction.
+      cbv [extensionally_equal] in *; try contradiction; intro H.
     - destruct H as [<- <-]. split; reflexivity.
     - destruct H as [<- [<- Hext]].
       split; [reflexivity |]. split; [reflexivity |].
