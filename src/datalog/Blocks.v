@@ -746,6 +746,17 @@ Section Blocks.
         (S name, lvar_rel name ret, p')
     end.
 
+  (* Lemma use_honest_prog p Q mf_rel mf_args mf_set : *)
+  (*   honest_block_prog p -> *)
+  (*   prog_impl p Q (meta_fact mf_rel mf_args mf_set) -> *)
+  (*   prog_impl p Q (meta_fact mf_rel mf_args (fun args => prog_impl p Q (normal_fact mf_rel args))). *)
+  (* Proof. *)
+  (*   intros H1 H2. *)
+  (*   (*   eapply prog_impl_mf_ext; [eassumption|]. *) *)
+  (*   (*   cbv [honest_block_prog] in H1. apply H1. apply H2. *) *)
+  (*   (* Qed. *) *)
+  (* Abort. *)
+
   Definition in_range lo hi x :=
     match x with
     | lvar_rel block_id _ => lo <= block_id < hi
