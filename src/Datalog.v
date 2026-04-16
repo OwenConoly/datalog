@@ -1229,7 +1229,54 @@ Section __.
       S (meta_fact mf_rel mf_args mf_set) ->
       consistent mf_rel mf_args mf_set S.
 
-  Print pftree.
+  Definition args_consistent mf_args mf_set (S_args : fact_args -> Prop) :=
+    forall nf_args,
+      Forall2 matches mf_args nf_args ->
+      mf_set nf_args <-> S_args (normal_fact_args nf_args).
+
+  Definition honest_args (S_args : fact_args -> Prop) :=
+    forall mf_args mf_set,
+      S_args (meta_fact_args mf_args mf_set) ->
+      args_consistent mf_args mf_set S_args.
+
+  Lemma doesnt_lie_honest_args S R :
+    doesnt_lie S ->
+    honest_args (fun args => S (fact_of R args)).
+  Proof.
+    intros Hlie mf_args mf_set Hmeta.
+    cbv [honest_args args_consistent].
+    intros nf_args Hmatch.
+
+    (* Unpack doesnt_lie and feed it the reconstructed meta_fact *)
+    cbv [doesnt_lie consistent] in Hlie.
+    specialize (Hlie R mf_args mf_set Hmeta nf_args Hmatch).
+
+    (* The equivalence holds perfectly because fact_of R (normal_fact_args ...)
+       evaluates directly to normal_fact R ... *)
+    exact Hlie.
+  Qed.
+
+  Lemma honest_args_ext S1 S2 :
+    (forall args, S1 args <-> S2 args) ->
+    honest_args S1 ->
+    honest_args S2.
+  Proof.
+    intros Heq H1 mf_args mf_set Hmeta.
+    cbv [honest_args args_consistent] in *.
+    intros nf_args Hmatch.
+    
+    (* 1. Use the equivalence to translate the Hmeta assumption from S2 to S1 *)
+    apply (proj2 (Heq _)) in Hmeta.
+    
+    (* 2. Feed it into the known honesty of S1 *)
+    specialize (H1 mf_args mf_set Hmeta nf_args Hmatch).
+    
+    (* 3. Bridge the resulting S1 evaluation back to S2 for the goal *)
+    split; intro H_dir.
+    - apply (proj1 (Heq _)). apply (proj1 H1). exact H_dir.
+    - apply (proj2 H1). apply (proj2 (Heq _)). exact H_dir.
+  Qed.
+  
   (*this is a lemma about pairwise properties, because that is all that i need to reasona baout.
     it is also true for n-wise properties, or even properties of arbitrary-length finite lists.
    it is not true for infinite sets. *)

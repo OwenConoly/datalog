@@ -247,6 +247,11 @@ Lemma in_fst (x : A) (y : B) xys :
   In x (map fst xys).
 Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
 
+Lemma in_snd (x : A) (y : B) xys :
+  In (x, y) xys ->
+  In y (map snd xys).
+Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
+
 Lemma Forall2_firstn R xs ys n :
   Forall2 R xs ys ->
   Forall2 R (firstn n xs) (firstn n ys).

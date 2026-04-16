@@ -696,15 +696,40 @@ Section Blocks.
         rewrite <- prog_impl_fact_equiv; eassumption.
     Qed.
 
+    Lemma map_fact_inj f0 f0' :
+      injective_on (rel_of f0) ->
+      map_fact f0 = map_fact f0' ->
+      f0 = f0'.
+    Proof.
+      intros Hinj Heq.
+      destruct f0 as [R1 args1 | R1 mf_args1 S1],
+               f0' as [R2 args2 | R2 mf_args2 S2];
+        cbv [map_fact rel_of] in *; try discriminate.
+      - (* Case: normal_fact *)
+        inversion Heq; subst.
+        assert (R1 = R2) by (apply Hinj; congruence).
+        subst. reflexivity.
+      - (* Case: meta_fact *)
+        inversion Heq; subst.
+        assert (R1 = R2) by (apply Hinj; congruence).
+        subst. reflexivity.
+    Qed.
+
     Lemma prog_impl_map_rule_rels_iff p Q f0 :
+      meta_rules_valid p ->
+      (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
+      doesnt_lie Q ->
+      (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
+      Forall injective_on (flat_map concl_rels p) ->
+      injective_on (rel_of f0) ->
       prog_impl p Q f0 <->
       prog_impl (map map_rule_rels p) (fun f' => exists f, f' = map_fact f /\ Q f) (map_fact f0).
     Proof.
-      split.
-      - apply prog_impl_map_rule_rels_fw.
-      - intros H. eapply prog_impl_map_rule_rels_bw' in H.
-        destruct H as [f0' [Heq Hprog]].
-        apply map_fact_inj in Heq. subst. assumption.
+      intros. split; intros H'.
+      - apply prog_impl_map_rule_rels_fw; assumption.
+      - eapply prog_impl_map_rule_rels_bw' in H'; try assumption.
+        destruct H' as [f0' [Heq Hprog]].
+        eapply map_fact_inj in Heq; try assumption. subst. assumption.
     Qed.
 
     Lemma concl_rels_map_rule_rels r :
@@ -888,15 +913,80 @@ Section Blocks.
     | LetIn x f =>
         valid_blocks_prog x /\ (forall v, valid_blocks_prog (f v))
     | Block ret inputs p =>
-        NoDup (map fst inputs)
+        meta_rules_valid p /\
+          NoDup (map fst inputs) /\
+          (forall l, ~ In (input l) (flat_map concl_rels p))
     end.
 
+  Lemma interp_blocks_prog_honest {var2} (x : var2) ctx (e : blocks_prog (fact_args T -> Prop)) (e0 : blocks_prog var2) :
+    wf_blocks_prog ctx e e0 ->
+    valid_blocks_prog e ->
+    Forall honest_args (map fst ctx) ->
+    honest_args (interp_blocks_prog map.empty e).
+  Proof.
+    intros Hwf.
+    induction Hwf as [ctx x1 x2 f1 f2 Hwf1 IH1 Hwf2 IH2 | ctx ret inps1 inps2 p Hfor];
+      intros Hvalid Hctx.
+    - (* Case: wf_LetIn *)
+      simpl in Hvalid. destruct Hvalid as [Hvalid_x Hvalid_f].
+      simpl.
+      eapply IH2.
+      + apply Hvalid_f.
+      + simpl. constructor; [|exact Hctx].
+        apply IH1; assumption.
+
+    - (* Case: wf_Block *)
+      simpl in Hvalid. destruct Hvalid as [Hvalid_p [Hnodup Hno_input]].
+      simpl. apply doesnt_lie_honest_args.
+      eapply valid_impl_honest.
+      + exact Hvalid_p.
+
+      + (* Prove Q doesn't overlap with concl_rels *)
+        intros f_target Hf_target.
+        apply Exists_exists in Hf_target. destruct Hf_target as [[R R'] [Hin [Hrel Hargs]]].
+        rewrite <- Hrel. apply Hno_input.
+
+      + (* Prove doesnt_lie using the context! *)
+        cbv [doesnt_lie consistent].
+        intros mf_rel mf_args mf_set Hmf nf_args Hmatch.
+        apply Exists_exists in Hmf. destruct Hmf as [[R R'] [Hin [Hrel Hargs]]].
+        simpl in Hrel. subst.
+
+        (* 1. Extract the context binding from wf_Block's Forall2 *)
+        apply Forall2_forget_r in Hfor. rewrite Forall_forall in Hfor.
+        specialize (Hfor _ Hin). fwd.
+
+        (* 2. Extract honest_args R' from the Hctx hypothesis *)
+        assert (honest_args R') as Hhonest_R'.
+        { rewrite Forall_forall in Hctx. apply Hctx.
+          apply in_map_iff. eexists (_, _). simpl. eauto. }
+
+        (* 3. Feed it into our evaluation! *)
+        cbv [honest_args args_consistent] in Hhonest_R'.
+        rewrite Hhonest_R' by eassumption.
+
+        split; intros H'.
+        * (* Forward *)
+          apply Exists_exists. eexists (_, _). simpl. eauto.
+        * (* Backward *)
+          apply Exists_exists in H'. destruct H' as [[R0 R0'] [Hin0 [Hrel0 Hargs0]]].
+          simpl in Hrel0. fwd.
+          (* Enforce functional determinism using NoDup on the inputs list *)
+          assert (R' = R0').
+          { eapply NoDup_fst_In_inj; eassumption. }
+
+          subst R0'. exact Hargs0.
+          Unshelve. assumption.
+  Qed.
+
+  Hint Resolve in_fst in_snd : core.
   Lemma flatten_correct ctx name e e0 name' Rret p :
     wf_blocks_prog ctx e e0 ->
-    valid_blocks_prog e0 ->
+    valid_blocks_prog e ->
     flatten name e0 = (name', Rret, p) ->
-    Forall (fun '(_, R) => in_range O name R) ctx ->
+    Forall (in_range O name) (map snd ctx) ->
     NoDup (map snd ctx) ->
+    Forall honest_args (map fst ctx) ->
     name <= name' /\
       in_range name name' Rret /\
       Forall (in_range name name') (flat_map concl_rels p) /\
@@ -908,24 +998,28 @@ Section Blocks.
   Proof.
     intros Hwf Hvalid. revert name name' Rret p.
     induction Hwf;
-      intros name name' Rret p0 Hflat Hctx1 Hctx2;
+      intros name name' Rret p0 Hflat Hctx1 Hctx2 Hctx3;
       simpl in Hflat;
       fwd;
       simpl.
     - simpl in Hvalid. fwd.
       specialize (IHHwf ltac:(assumption)). epose_dep IHHwf.
-      specialize (IHHwf ltac:(eassumption) ltac:(eassumption) ltac:(assumption)).
+      specialize (IHHwf ltac:(eassumption) ltac:(eassumption) ltac:(assumption) ltac:(eassumption)).
       fwd.
-      rename H0 into IH'. epose_dep IH'. specialize (IH' ltac:(eauto)). epose_dep IH'.
+      rename H0 into IH'. specialize (IH' (interp_blocks_prog map.empty x1)).
+      epose_dep IH'. specialize (IH' ltac:(eauto)). epose_dep IH'.
       specialize (IH' ltac:(eassumption)). specialize' IH'.
       { constructor.
         - eapply in_range_weaken; [eassumption| |]; lia.
         - eapply Forall_impl; [|eassumption].
-          intros [? ?]. intros. eapply in_range_weaken; [eassumption| |]; lia. }
+          intros. eapply in_range_weaken; [eassumption| |]; lia. }
       specialize' IH'.
       { simpl. constructor; auto. rewrite Forall_forall in Hctx1.
         intros Hf. apply in_map_iff in Hf. destruct Hf as [(?, ?) Hf]. fwd.
-        simpl in *. apply Hctx1 in Hfp1. eauto using in_nonoverlapping_ranges. }
+        simpl in *. specialize (Hctx1 _ ltac:(eauto)).
+        eauto using in_nonoverlapping_ranges. }
+      specialize' IH'.
+      { simpl. constructor; auto. eauto using interp_blocks_prog_honest. }
       fwd. ssplit.
       + lia.
       + eapply in_range_weaken; [eassumption| |]; lia.
@@ -942,8 +1036,8 @@ Section Blocks.
              apply IH'p2 in H1. apply IHHwfp3 in H2. destruct H2 as [H2|H2].
              - eapply in_nonoverlapping_ranges. 1: exact H2. 1: exact H1. lia.
              - apply in_map_iff in H2. destruct H2 as [[? ?] H2]. fwd.
-               apply Hctx1 in H2p1. simpl in H1.
-               eapply in_nonoverlapping_ranges. 1: exact H2p1. 1: exact H1. lia. }
+               specialize (Hctx1 _ ltac:(eauto)). simpl in H1.
+               eapply in_nonoverlapping_ranges. 1: exact Hctx1. 1: exact H1. lia. }
         rewrite IH'p4.
         apply prog_impl_hyp_ext_strong.
         { split; intros Hargs; simpl; fwd; exfalso.
@@ -951,18 +1045,21 @@ Section Blocks.
             + apply IHHwfp4 in Hargsp1. rewrite fact_of_rel_of_args_of in Hargsp1.
               apply prog_impl_rel_of in Hargsp1. destruct Hargsp1 as [Hargsp1|Hargsp1].
               -- fwd. rewrite rel_of_fact_of in Hargsp1p0.
-                 rewrite Forall_forall in Hctx1. apply Hctx1 in Hargsp1p0.
+                 rewrite Forall_forall in Hctx1. apply in_snd in Hargsp1p0.
+                 apply Hctx1 in Hargsp1p0.
                  eauto using in_nonoverlapping_ranges.
               -- rewrite rel_of_fact_of in Hargsp1.
                  rewrite Forall_forall in IHHwfp2.
                  apply IHHwfp2 in Hargsp1.
                  eauto using in_nonoverlapping_ranges.
             + rewrite rel_of_fact_of in Hargsp0.
-              rewrite Forall_forall in Hctx1. apply Hctx1 in Hargsp0.
+              rewrite Forall_forall in Hctx1. apply in_snd in Hargsp0.
+              apply Hctx1 in Hargsp0.
               eauto using in_nonoverlapping_ranges.
           - apply prog_impl_rel_of in Hargs. destruct Hargs as [Hargs|Hargs].
             + fwd. rewrite rel_of_fact_of in Hargsp0.
-              rewrite Forall_forall in Hctx1. apply Hctx1 in Hargsp0.
+              rewrite Forall_forall in Hctx1. apply in_snd in Hargsp0.
+              apply Hctx1 in Hargsp0.
               eauto using in_nonoverlapping_ranges.
             + rewrite rel_of_fact_of in Hargs.
               rewrite Forall_forall in IHHwfp2.
@@ -990,21 +1087,27 @@ Section Blocks.
               apply in_map_iff in HRf'. destruct HRf' as [[? ?] HRf'].
               simpl in HRf'. fwd.
               rewrite Forall_forall in Hctx1.
-              apply Hctx1 in HRf'p1.
+              apply in_snd in HRf'p1. apply Hctx1 in HRf'p1.
               exfalso. eauto using in_nonoverlapping_ranges.
-    - simpl in Hvalid. ssplit.
+    - simpl in Hvalid.
+      eassert (inps_eq : map fst _ = map fst _).
+      { apply Forall2_eq_eq. rewrite <- Forall2_map_l, <- Forall2_map_r.
+        eapply Forall2_impl; [|eassumption]. intros (?, ?) (?, ?) ?. fwd. reflexivity. }
+      ssplit.
       + lia.
       + lia.
       + simpl. lia.
       + apply Forall_flat_map. apply Forall_map. apply Forall_forall.
-        intros r _. rewrite concl_rels_map_rule_rels. apply Forall_map.
-        (* eapply Forall_impl; [|eassumption]. simpl. intros R. *)
-        (* destruct R; simpl; try congruence. lia. *)
-        admit.
-      + (* apply Forall_flat_map. apply Forall_map. apply Forall_forall. *)
-        (* intros r Hr. rewrite all_rels_map_rule_rels. apply Forall_map. *)
-        (* apply Forall_forall. intros R HR. *)
-        (* destruct R; simpl; auto. *)
+        intros r Hr. rewrite concl_rels_map_rule_rels. apply Forall_map.
+        fwd. apply Forall_forall. intros R HR. destruct R.
+        2: { exfalso. eapply Hvalidp2. apply in_flat_map. eauto. }
+        simpl. lia.
+      + apply Forall_flat_map. apply Forall_map. apply Forall_forall.
+        intros r Hr. rewrite all_rels_map_rule_rels. apply Forall_map.
+        apply Forall_forall. intros R HR.
+        destruct R; try solve [simpl; auto]. simpl. right.
+        erewrite map.get_of_list_In_NoDup; try eassumption.
+
         (* apply Forall2_forget_l in H. *)
         (* rewrite Forall_forall in H. *)
         (* specialize (H _ Hr). fwd. *)
@@ -1018,49 +1121,58 @@ Section Blocks.
               --- apply Exists_exists in H'p1. fwd.
                   apply Forall2_forget_r in H. rewrite Forall_forall in H.
                   specialize (H _ ltac:(eassumption)). fwd.
-                  rewrite Forall_forall in Hctx1. specialize (Hctx1 _ ltac:(eassumption)).
+                  rewrite Forall_forall in Hctx1. apply in_snd in Hp1p1.
+                  specialize (Hctx1 _ ltac:(eassumption)).
                   simpl in Hctx1.
                   assert (H_rel : rel_of (fact_of (lvar_rel name ret) args) = rel_of (map_fact (flatten_rel name (map.of_list inps2)) f)) by congruence.
                   rewrite rel_of_fact_of, rel_of_map_fact in H_rel.
                   rewrite <- H'p1p1p0 in H_rel.
                   cbv [flatten_rel] in H_rel.
-                  erewrite map.get_of_list_In_NoDup in H_rel by eassumption.
+                  erewrite map.get_of_list_In_NoDup in H_rel; try eassumption.
+                  2: { rewrite <- inps_eq. assumption. }
                   rewrite <- H_rel in Hp1p1.
                   destruct f0; simpl in Hctx1; try contradiction.
                   fwd.
                   lia.
               --- rewrite rel_of_fact_of in H'p0. rewrite args_of_fact_of in H'p1.
-                  rewrite Forall_forall in Hctx1.
+                  rewrite Forall_forall in Hctx1. apply in_snd in H'p0.
                   specialize (Hctx1 _ ltac:(eassumption)). simpl in Hctx1. lia.
            ++ intros f'. split; intros H'; fwd.
               --- rewrite rel_of_map_fact, args_of_map_fact.
                   apply Exists_exists in H'p1. fwd. apply Forall2_forget_r in H.
                   rewrite Forall_forall in H. apply H in H'p1p0. fwd.
                   rewrite <- H'p1p1p0. simpl.
-                  erewrite map.get_of_list_In_NoDup by eassumption.
+                  erewrite map.get_of_list_In_NoDup; try eassumption.
+                  2: { rewrite <- inps_eq. assumption. }
                   eauto.
-              --- rewrite Forall_forall in Hctx1. specialize (Hctx1 _ ltac:(eassumption)).
-                 simpl in Hctx1.
-                 rewrite <- (fact_of_rel_of_args_of f').
-                 destruct (rel_of f'); simpl in Hctx1; try contradiction.
-                 rewrite in_flat_map in *. fwd. rewrite in_map_iff in *. fwd.
-                 rewrite hyp_rels_map_rule_rels in *. rewrite in_map_iff in *.
-                 fwd.
-                 eexists (fact_of _ _). rewrite map_fact_fact_of.
-                 rewrite H0p1p0. split; [reflexivity|].
-                 match goal with
-                 | H: flatten_rel _ _ ?x = lvar_rel _ _ |- _ => destruct x; simpl in H
-                 end.
-                 { fwd. lia. }
-                 destruct (map.get _ _) eqn:E; subst; try discriminate.
-                 apply of_list_Some_in in E.
-                 apply Forall2_forget_l in H. rewrite Forall_forall in H.
-                 specialize (H _ ltac:(eassumption)). destruct H as [(?, ?) H].
-                 fwd.
-                 epose proof NoDup_snd_In_inj as H'.
-                 specialize (H' _ _ _ _ ltac:(eassumption) Hp2 H'p0). subst.
-                 rewrite rel_of_fact_of, args_of_fact_of.
+              --- rewrite Forall_forall in Hctx1.
+                  specialize (Hctx1 _ ltac:(eauto)).
+                  simpl in Hctx1.
+                  rewrite <- (fact_of_rel_of_args_of f').
+                  destruct (rel_of f'); simpl in Hctx1; try contradiction.
+                  rewrite in_flat_map in *. fwd. rewrite in_map_iff in *. fwd.
+                  rewrite hyp_rels_map_rule_rels in *. rewrite in_map_iff in *.
+                  fwd.
+                  eexists (fact_of _ _). rewrite map_fact_fact_of.
+                  rewrite H0p1p0. split; [reflexivity|].
+                  match goal with
+                  | H: flatten_rel _ _ ?x = lvar_rel _ _ |- _ => destruct x; simpl in H
+                  end.
+                  { fwd. lia. }
+                  destruct (map.get _ _) eqn:E; subst; try discriminate.
+                  apply of_list_Some_in in E.
+                  apply Forall2_forget_l in H. rewrite Forall_forall in H.
+                  specialize (H _ ltac:(eassumption)). destruct H as [(?, ?) H].
+                  fwd.
+                  epose proof NoDup_snd_In_inj as H'.
+                  specialize (H' _ _ _ _ ltac:(eassumption) Hp2 H'p0). subst.
+                  rewrite rel_of_fact_of, args_of_fact_of.
                  apply Exists_exists. eexists (_, _). eauto.
+        -- fwd. assumption.
+        -- intros f Hf. apply Exists_exists in Hf. fwd. rewrite <- Hfp1p0.
+           auto.
+        -- cbv [doesnt_lie]. intros mf_rel mf_args mf_set Hmf.
+           apply Exists_exists in Hmf. fwd. simpl in *. subst.
         -- apply flatten_rel_inj.
            ++ intros v1 v2 Rval Hget1 Hget2.
               apply of_list_Some_in in Hget1.
