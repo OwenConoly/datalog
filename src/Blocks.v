@@ -8,24 +8,6 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 
 Import ListNotations.
 
-Definition paired {U1 U2} (P : U1 -> U2 -> Prop) x1 x2 :=
-  (forall x2', P x1 x2' -> x2' = x2) /\ (forall x1', P x1' x2 -> x1' = x1).
-
-Definition one_to_one {U1 U2} (P : U1 -> U2 -> Prop) R1 R2 x1 :=
-  forall x2,
-    P x1 x2 ->
-    R2 x2 ->
-    (forall x2', P x1 x2' -> R2 x2' -> x2' = x2) /\ (forall x1', P x1' x2 -> R1 x1' -> x1' = x1).
-
-Lemma one_to_one_smaller_sets U1 U2 (P : U1 -> U2 -> _) R1 R2 R1' R2' x1 :
-  (forall x1', R1' x1' -> R1 x1') ->
-  (forall x2', R2' x2' -> R2 x2') ->
-  one_to_one P R1 R2 x1 ->
-  one_to_one P R1' R2' x1.
-Proof.
-  cbv [one_to_one]. intros ? ? H **. edestruct H; eauto 6.
-Qed.
-
 Lemma map_eq_Forall2 {A B C} (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
     map f l1 = map g l2 ->
     Forall2 (fun x y => f x = g y) l1 l2.
