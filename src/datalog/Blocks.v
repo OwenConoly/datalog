@@ -686,28 +686,19 @@ Section Blocks.
     Lemma concl_rels_map_rule_rels r :
       concl_rels (map_rule_rels r) = map f (concl_rels r).
     Proof.
-      destruct r; simpl.
-      - do 2 rewrite map_map. reflexivity.
-      - do 2 rewrite map_map. reflexivity.
-      - reflexivity.
+      destruct r; simpl; try (do 2 rewrite map_map); reflexivity.
     Qed.
 
     Lemma hyp_rels_map_rule_rels r :
       hyp_rels (map_rule_rels r) = map f (hyp_rels r).
     Proof.
-      destruct r; simpl.
-      - do 2 rewrite map_map. reflexivity.
-      - do 2 rewrite map_map. reflexivity.
-      - reflexivity.
+      destruct r; simpl; try (do 2 rewrite map_map); reflexivity.
     Qed.
 
     Lemma all_rels_map_rule_rels r :
       all_rels (map_rule_rels r) = map f (all_rels r).
     Proof.
-      destruct r; simpl.
-      - rewrite map_app. do 4 rewrite map_map. reflexivity.
-      - rewrite map_app. do 4 rewrite map_map. reflexivity.
-      - reflexivity.
+      destruct r; simpl; try (rewrite map_app; do 4 rewrite map_map); reflexivity.
     Qed.
 
     Lemma fact_of_g_args_of fct :
@@ -754,17 +745,6 @@ Section Blocks.
         let p' := map (map_rule_rels (flatten_rel name (map.of_list inputs))) p in
         (S name, lvar_rel name ret, p')
     end.
-
-  (* Lemma use_honest_prog p Q mf_rel mf_args mf_set : *)
-  (*   honest_block_prog p -> *)
-  (*   prog_impl p Q (meta_fact mf_rel mf_args mf_set) -> *)
-  (*   prog_impl p Q (meta_fact mf_rel mf_args (fun args => prog_impl p Q (normal_fact mf_rel args))). *)
-  (* Proof. *)
-  (*   intros H1 H2. *)
-  (*   (*   eapply prog_impl_mf_ext; [eassumption|]. *) *)
-  (*   (*   cbv [honest_block_prog] in H1. apply H1. apply H2. *) *)
-  (*   (* Qed. *) *)
-  (* Abort. *)
 
   Definition in_range lo hi x :=
     match x with
