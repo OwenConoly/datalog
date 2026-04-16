@@ -85,6 +85,13 @@ Section __.
     args_of (fact_of R args) = args.
   Proof. destruct args; reflexivity. Qed.
 
+  Lemma fact_of_inj R args R' args' :
+    fact_of R args = fact_of R' args' ->
+    R = R' /\ args = args'.
+  Proof.
+    destruct args, args'; simpl; intros; congruence || fwd; auto.
+  Qed.
+
   Unset Elimination Schemes.
   Inductive interp_expr (ctx : context) : expr -> T -> Prop :=
   | interp_var_expr x v :
@@ -1264,19 +1271,19 @@ Section __.
     intros Heq H1 mf_args mf_set Hmeta.
     cbv [honest_args args_consistent] in *.
     intros nf_args Hmatch.
-    
+
     (* 1. Use the equivalence to translate the Hmeta assumption from S2 to S1 *)
     apply (proj2 (Heq _)) in Hmeta.
-    
+
     (* 2. Feed it into the known honesty of S1 *)
     specialize (H1 mf_args mf_set Hmeta nf_args Hmatch).
-    
+
     (* 3. Bridge the resulting S1 evaluation back to S2 for the goal *)
     split; intro H_dir.
     - apply (proj1 (Heq _)). apply (proj1 H1). exact H_dir.
     - apply (proj2 H1). apply (proj2 (Heq _)). exact H_dir.
   Qed.
-  
+
   (*this is a lemma about pairwise properties, because that is all that i need to reasona baout.
     it is also true for n-wise properties, or even properties of arbitrary-length finite lists.
    it is not true for infinite sets. *)
