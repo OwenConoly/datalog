@@ -7,7 +7,7 @@ COQC ?= "$(COQBIN)coqc"
 util: Makefile.coq
 	$(MAKE) -C coqutil
 	$(MAKE) -C verified-scheduling/src atl
-	$(MAKE) -f Makefile.coq src/util/*.vo
+	$(MAKE) -f Makefile.coq src/util/Tactics.vo src/util/Map.vo src/util/Fp.vo src/util/List.vo src/util/Dag.vo
 
 datalog: util
 	$(MAKE) -f Makefile.coq src/datalog/Datalog.vo src/datalog/Blocks.vo

@@ -241,7 +241,6 @@ Section __.
     prog_impl p Q f.
   Proof. intros. eapply pftree_step; eauto. Qed.
 
-  Print non_meta_rule_impl.
   Lemma non_meta_rule_impl_ext r R args hyps hyps' :
     non_meta_rule_impl r R args hyps ->
     Forall2 extensionally_equal hyps hyps' ->
@@ -299,19 +298,9 @@ Section __.
   Lemma extensionally_equal_sym : forall f1 f2,
     extensionally_equal f1 f2 -> extensionally_equal f2 f1.
   Proof.
-    intros f1 f2 Heq.
-    destruct f1 as [R1 args1 | R1 mf_args1 mf_set1],
-             f2 as [R2 args2 | R2 mf_args2 mf_set2];
-    cbv [extensionally_equal] in *; try contradiction.
-    - (* Case: normal_fact *)
-      destruct Heq as [<- <-].
-      split; reflexivity.
-    - (* Case: meta_fact *)
-      destruct Heq as [<- [<- Hext]].
-      split; [reflexivity |].
-      split; [reflexivity |].
-      intros args Hmatch.
-      symmetry. apply Hext. exact Hmatch.
+    destruct f1, f2; cbv [extensionally_equal] in *; try contradiction; fwd.
+    - auto.
+    - repeat split; auto. intros. symmetry. auto.
   Qed.
 
   Lemma rule_impl_ext p r f hyps hyps' :
@@ -482,7 +471,6 @@ Section __.
   Lemma S_sane_lfp p : S_sane (lfp (F p)).
   Proof.
     eapply S_sane_ext; [apply prog_impl_lfp|]. cbv [S_sane]. split; intros; eauto.
-    Fail Fail solve [induction H; eauto].
     eapply pftree_trans. eapply pftree_weaken_hyp; eauto.
   Qed.
 
@@ -817,30 +805,6 @@ Section __.
     - exact Hhyps.
   Qed.
 
-  Definition disjoint_lists {T} (l1 l2 : list T) :=
-    forall x, In x l1 -> In x l2 -> False.
-
-  Definition same_set {T} (l1 l2 : list T) :=
-    forall x, In x l1 <-> In x l2.
-
-  Lemma disjoint_lists_comm {U} (l1 l2 : list U) :
-    disjoint_lists l1 l2 ->
-    disjoint_lists l2 l1.
-  Proof. cbv [disjoint_lists]. eauto. Qed.
-
-  Lemma disjoint_lists_incl_l {U} (l1 l1' l2 : list U) :
-    disjoint_lists l1 l2 ->
-    incl l1' l1 ->
-    disjoint_lists l1' l2.
-  Proof. cbv [disjoint_lists]. eauto. Qed.
-
-  Lemma disjoint_lists_incl {U} (l1 l1' l2 l2' : list U) :
-    disjoint_lists l1 l2 ->
-    incl l1' l1 ->
-    incl l2' l2 ->
-    disjoint_lists l1' l2'.
-  Proof. cbv [disjoint_lists]. eauto. Qed.
-
   (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
   (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
   (*   prog_impl_with_no_meta_rules (p1 ++ p2) Q f -> *)
@@ -1033,13 +997,6 @@ Section __.
     eapply H21; eauto. apply in_flat_map. eauto.
   Qed.
 
-  Lemma same_set_app_comm {U} (p1 p2 : list U) :
-    same_set (p1 ++ p2) (p2 ++ p1).
-  Proof.
-    cbv [same_set]. intros x. split; intro H;
-      apply in_app_or in H; apply in_or_app; intuition idtac.
-  Qed.
-
   Lemma staged_program p1 p2 Q f :
     disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) ->
     disjoint_lists (flat_map meta_concl_rels p1) (flat_map concl_rels p2) ->
@@ -1163,19 +1120,7 @@ Section __.
 
   Lemma extensionally_equal_refl : forall f,
     extensionally_equal f f.
-  Proof.
-    intros f.
-    destruct f as [R args | R mf_args mf_set].
-    - (* Case: normal_fact *)
-      cbv [extensionally_equal].
-      split; reflexivity.
-    - (* Case: meta_fact *)
-      cbv [extensionally_equal].
-      split; [reflexivity |].
-      split; [reflexivity |].
-      intros args_ext Hmatch.
-      reflexivity.
-  Qed.
+  Proof. destruct f; cbv [extensionally_equal]; repeat split; intros; tauto. Qed.
 
   Lemma meta_rules_valid_step' p Q mf_rel mf_args mf_set mr mhyps :
     (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
@@ -1381,7 +1326,6 @@ Section __.
     1,2: apply in_app_iff; auto.
   Qed.
 
-  Print is_dag_ish.
   Lemma is_dag_ish_idk U (P : U -> _ -> _) Q xs :
     is_dag_ish Q P xs ->
     Forall (fun x => Q x \/ (exists l : list U, P x l /\ incl l xs)) xs.
@@ -1592,7 +1536,6 @@ Section __.
         rewrite Forall_forall in H1. specialize (H1 _ Hin _ _ _ eq_refl).
         exact H1.
       * intros.
-        Check meta_facts_consistent.
         eapply meta_facts_consistent; try eassumption.
         2: { rewrite Forall_forall in H0. auto. }
         clear -Q_honest.
