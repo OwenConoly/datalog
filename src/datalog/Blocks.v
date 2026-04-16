@@ -8,27 +8,6 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 
 Import ListNotations.
 
-Lemma map_eq_Forall2 {A B C} (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
-    map f l1 = map g l2 ->
-    Forall2 (fun x y => f x = g y) l1 l2.
-  Proof.
-    revert l2. induction l1 as [|x l1' IH]; destruct l2 as [|y l2']; simpl; intro H; try discriminate.
-    - constructor.
-    - injection H as Heq Htail. constructor.
-      + exact Heq.
-      + apply IH. exact Htail.
-  Qed.
-
-Definition fun_rel {U1 U2} (f : U1 -> U2) x y := f x = y.
-
-Lemma Forall2_eq_map {A B} (f : B -> A) (l1 : list A) (l2 : list B) :
-  Forall2 (fun_rel f) l2 l1 <-> l1 = map f l2.
-Proof.
-  split.
-  - induction 1; simpl; congruence.
-  - intros ->. induction l2; constructor; reflexivity || assumption.
-Qed.
-
 Section Blocks.
   Context {lvar gvar exprvar fn aggregator T : Type}.
   Context {sig : signature fn aggregator T}.
@@ -63,8 +42,6 @@ Section Blocks.
 
   Context (lvar1 lvar2 : lvar).
   Context (p1 p2 : list block_rule).
-  Print fact_args.
-  Print fact.
   Definition example {var} : @blocks_prog var :=
     LetIn (Block lvar1 [] p1) (fun val =>
                                 Block lvar1 [(lvar2, val)] p2).
@@ -142,12 +119,7 @@ Section Blocks.
         Forall2 fact_equiv hyps2 hyps2' /\
         Forall2 (interp_clause ctx) hyps1 hyps2'.
     Proof.
-      intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
-      induction H.
-      - eexists []. split; constructor.
-      - apply interp_clause_map_bw in H. destruct H as [h' [Heq Hinterp]].
-        destruct IHForall2 as [hyps2' [HForall_eq HForall_interp]].
-        eexists (h' :: hyps2'). split; constructor; eauto.
+      intros H%Forall2_interp_clause_map_bw'. apply Forall2_exists_factor. assumption.
     Qed.
 
     Lemma Forall2_interp_clause_map_bw' ctx hyps1 hyps2 :
@@ -400,8 +372,7 @@ Section Blocks.
           destruct Hp2p1 as [Hext | Hmatch].
           * apply extensionally_equal_map_bw in Hext. fwd.
             destruct f'.
-            { (*gross*)
-              exfalso.
+            { exfalso.
               destruct x0, x1, f1', f2';
                 cbv [is_meta] in Hmh; try contradiction;
                 cbv [fact_equiv map_fact] in Hp1'p1p1; try discriminate Hp1'p1p1;
@@ -474,11 +445,9 @@ Section Blocks.
         Forall2 (interp_meta_clause ctx) hyps1 hyps2'.
     Proof.
       intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
-      induction H.
-      - eexists []. split; constructor.
-      - apply interp_meta_clause_map_bw in H. destruct H as [h' [Heq Hinterp]].
-        destruct IHForall2 as [hyps2' [HForall_eq HForall_interp]].
-        eexists (h' :: hyps2'). split; constructor; eauto.
+      apply Forall2_exists_factor.
+      eapply Forall2_impl; [|eassumption].
+      eauto using interp_meta_clause_map_bw.
     Qed.
 
     Lemma meta_facts_consistent_with_map_equiv hyps hyps' :
@@ -614,7 +583,7 @@ Section Blocks.
                cbv [doesnt_lie consistent] in Hlie.
                rewrite (Hlie _ _ _ HQ1 _ Hmatch1'), (Hlie _ _ _ HQ2 _ Hmatch2').
                reflexivity.
-            -- Fail assumption. (*why*) eassumption.
+            -- eassumption.
             -- apply H0. exact Hin1.
             -- rewrite prog_impl_fact_equiv; try eassumption.
                ++ apply H0. exact Hin2.
@@ -652,14 +621,14 @@ Section Blocks.
           - rewrite Forall_forall in Hinj. apply Hinj. apply in_flat_map.
             eexists. split; [eassumption|]. assumption.
           - intros R1 args1 S1 R2 args2 S2 Hin1 Hin2 Heq nf_args Hmatch1 Hmatch2.
-            rewrite Forall_forall in H0. Check meta_facts_consistent.
+            rewrite Forall_forall in H0.
             eapply meta_facts_consistent.
             -- eassumption.
             -- intros R' args1' args2' S1' S2' HQ1 HQ2 nf_args' Hmatch1' Hmatch2'.
                cbv [doesnt_lie consistent] in Hlie.
                rewrite (Hlie _ _ _ HQ1 _ Hmatch1'), (Hlie _ _ _ HQ2 _ Hmatch2').
                reflexivity.
-            -- Fail assumption. (*why*) eassumption.
+            -- eassumption.
             -- apply Forall2_forget_l in H1. rewrite Forall_forall in H1.
                apply H1 in Hin1. fwd. eassumption.
             -- rewrite prog_impl_fact_equiv; try eassumption.
@@ -857,54 +826,34 @@ Section Blocks.
     intros Hwf.
     induction Hwf as [ctx x1 x2 f1 f2 Hwf1 IH1 Hwf2 IH2 | ctx ret inps1 inps2 p Hfor];
       intros Hvalid Hctx.
-    - (* Case: wf_LetIn *)
-      simpl in Hvalid. destruct Hvalid as [Hvalid_x Hvalid_f].
-      simpl.
-      eapply IH2.
+    - simpl in Hvalid. destruct Hvalid as [Hvalid_x Hvalid_f].
+      simpl. eapply IH2.
       + apply Hvalid_f.
-      + simpl. constructor; [|exact Hctx].
-        apply IH1; assumption.
+      + simpl. constructor; [|exact Hctx]. apply IH1; assumption.
 
-    - (* Case: wf_Block *)
-      simpl in Hvalid. destruct Hvalid as [Hvalid_p [Hnodup Hno_input]].
+    - simpl in Hvalid. destruct Hvalid as [Hvalid_p [Hnodup Hno_input]].
       simpl. apply doesnt_lie_honest_args.
       eapply valid_impl_honest.
       + exact Hvalid_p.
-
-      + (* Prove Q doesn't overlap with concl_rels *)
-        intros f_target Hf_target.
+      + intros f_target Hf_target.
         apply Exists_exists in Hf_target. destruct Hf_target as [[R R'] [Hin [Hrel Hargs]]].
         rewrite <- Hrel. apply Hno_input.
-
-      + (* Prove doesnt_lie using the context! *)
-        cbv [doesnt_lie consistent].
+      + cbv [doesnt_lie consistent].
         intros mf_rel mf_args mf_set Hmf nf_args Hmatch.
         apply Exists_exists in Hmf. destruct Hmf as [[R R'] [Hin [Hrel Hargs]]].
         simpl in Hrel. subst.
-
-        (* 1. Extract the context binding from wf_Block's Forall2 *)
         apply Forall2_forget_r in Hfor. rewrite Forall_forall in Hfor.
         specialize (Hfor _ Hin). fwd.
-
-        (* 2. Extract honest_args R' from the Hctx hypothesis *)
         assert (honest_args R') as Hhonest_R'.
         { rewrite Forall_forall in Hctx. apply Hctx.
           apply in_map_iff. eexists (_, _). simpl. eauto. }
-
-        (* 3. Feed it into our evaluation! *)
         cbv [honest_args args_consistent] in Hhonest_R'.
         rewrite Hhonest_R' by eassumption.
-
         split; intros H'.
-        * (* Forward *)
-          apply Exists_exists. eexists (_, _). simpl. eauto.
-        * (* Backward *)
-          apply Exists_exists in H'. destruct H' as [[R0 R0'] [Hin0 [Hrel0 Hargs0]]].
+        * apply Exists_exists. eexists (_, _). simpl. eauto.
+        * apply Exists_exists in H'. destruct H' as [[R0 R0'] [Hin0 [Hrel0 Hargs0]]].
           simpl in Hrel0. fwd.
-          (* Enforce functional determinism using NoDup on the inputs list *)
-          assert (R' = R0').
-          { eapply NoDup_fst_In_inj; eassumption. }
-
+          assert (R' = R0') by (eapply NoDup_fst_In_inj; eassumption).
           subst R0'. exact Hargs0.
           Unshelve. assumption.
   Qed.

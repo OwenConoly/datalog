@@ -295,7 +295,7 @@ Section __.
     | normal_fact _ _ => False
     end.
 
-  Lemma extensionally_equal_sym : forall f1 f2,
+  Lemma extensionally_equal_sym f1 f2 :
     extensionally_equal f1 f2 -> extensionally_equal f2 f1.
   Proof.
     destruct f1, f2; cbv [extensionally_equal] in *; try contradiction; fwd.
@@ -920,54 +920,26 @@ Section __.
       edestruct Hiff; eauto using rule_impl_list_set.
   Qed.
 
-  (*gemini tries*)
-  Lemma incl_exists_app_eq_set' {U} (eq_prop : forall x y : U, x = y \/ x <> y) (l1 l2 : list U) :
+  Lemma incl_exists_app_eq_set' {U} (eq_prop : forall x y : U, x = y \/ x <> y)
+      (l1 l2 : list U) :
     incl l1 l2 ->
     exists l3, disjoint_lists l1 l3 /\ same_set (l1 ++ l3) l2.
   Proof.
     intros H_incl.
-
-    (* 1. Propositional decidability of list membership *)
-    assert (In_dec : forall a (l : list U), In a l \/ ~ In a l).
-    { intros a l. induction l as [|x l' IH].
-      - right. intro H. destruct H.
-      - destruct (eq_prop a x) as [Heq | Hneq].
-        + left. left. auto.
-        + destruct IH as [HIn | HNin].
-          * left. right. auto.
-          * right. intro H. destruct H; auto. }
-
-    (* 2. Construct l3 independent of incl to avoid IH implication issues *)
-    assert (H_diff : forall l, exists l3, forall x, In x l3 <-> In x l /\ ~ In x l1).
-    { intro l. induction l as [|a l' IHl'].
-      - exists []. intros x. intuition.
-      - destruct IHl' as [l3' Hl3'].
-        destruct (In_dec a l1) as [Hin | Hnin].
-        + exists l3'. intros x. split; intro H.
-          * apply Hl3' in H. intuition.
-          * destruct H as [[Heq|Hin_l'] Hnin_x].
-            -- subst. congruence.
-            -- apply Hl3'. intuition.
-        + exists (a :: l3'). intros x. split; intro H.
-          * destruct H as [Heq | Hin_l3'].
-            -- subst. intuition.
-            -- apply Hl3' in Hin_l3'. intuition.
-          * destruct H as [[Heq|Hin_l'] Hnin_x].
-            -- left. auto.
-            -- right. apply Hl3'. intuition. }
-
-    (* 3. Extract the witness for l2 and prove the main goals *)
-    destruct (H_diff l2) as [l3 H_l3].
-    exists l3. split.
-    - cbv [disjoint_lists]. intros x H_in_l1 H_in_l3.
-      apply H_l3 in H_in_l3. intuition.
-    - cbv [same_set]. intros x. split; intro H.
-      + apply in_app_or in H. destruct H as [H_in_l1 | H_in_l3].
-        * apply H_incl. exact H_in_l1.
-        * apply H_l3 in H_in_l3. intuition.
-      + destruct (In_dec x l1) as [H_in_l1 | H_nin_l1].
-        * apply in_or_app. auto.
-        * apply in_or_app. right. apply H_l3. intuition.
+    assert (In_dec : forall (a : U) (l : list U), {In a l} + {~ In a l}).
+    { intros a l. induction l as [|x l' [IH|IH]].
+      - right; auto.
+      - left; right; auto.
+      - destruct (eq_prop a x); [left; left; auto | right; intros [->|]; auto]. }
+    exists (filter (fun x => if In_dec x l1 then false else true) l2).
+    split.
+    - intros x Hx1 Hx2. apply filter_In in Hx2 as [_ Hx2].
+      destruct (In_dec x l1); discriminate.
+    - intros x. rewrite in_app_iff, filter_In. split.
+      + intros [Hx | [Hx _]]; auto using H_incl.
+      + intros Hx. destruct (In_dec x l1).
+        * left; auto.
+        * right; split; [auto | destruct (In_dec x l1); auto].
   Qed.
 
   From Stdlib Require Import Classical.
@@ -1118,7 +1090,7 @@ Section __.
       Forall2 matches mf_args nf_args ->
       mf_set nf_args <-> S (normal_fact mf_rel nf_args).
 
-  Lemma extensionally_equal_refl : forall f,
+  Lemma extensionally_equal_refl f :
     extensionally_equal f f.
   Proof. destruct f; cbv [extensionally_equal]; repeat split; intros; tauto. Qed.
 
@@ -1195,17 +1167,7 @@ Section __.
     doesnt_lie S ->
     honest_args (fun args => S (fact_of R args)).
   Proof.
-    intros Hlie mf_args mf_set Hmeta.
-    cbv [honest_args args_consistent].
-    intros nf_args Hmatch.
-
-    (* Unpack doesnt_lie and feed it the reconstructed meta_fact *)
-    cbv [doesnt_lie consistent] in Hlie.
-    specialize (Hlie R mf_args mf_set Hmeta nf_args Hmatch).
-
-    (* The equivalence holds perfectly because fact_of R (normal_fact_args ...)
-       evaluates directly to normal_fact R ... *)
-    exact Hlie.
+    cbv [doesnt_lie honest_args args_consistent consistent fact_of]. eauto.
   Qed.
 
   Lemma honest_args_ext S1 S2 :
@@ -1213,20 +1175,10 @@ Section __.
     honest_args S1 ->
     honest_args S2.
   Proof.
-    intros Heq H1 mf_args mf_set Hmeta.
+    intros Heq H1 mf_args mf_set Hmeta nf_args Hmatch.
     cbv [honest_args args_consistent] in *.
-    intros nf_args Hmatch.
-
-    (* 1. Use the equivalence to translate the Hmeta assumption from S2 to S1 *)
     apply (proj2 (Heq _)) in Hmeta.
-
-    (* 2. Feed it into the known honesty of S1 *)
-    specialize (H1 mf_args mf_set Hmeta nf_args Hmatch).
-
-    (* 3. Bridge the resulting S1 evaluation back to S2 for the goal *)
-    split; intro H_dir.
-    - apply (proj1 (Heq _)). apply (proj1 H1). exact H_dir.
-    - apply (proj2 H1). apply (proj2 (Heq _)). exact H_dir.
+    pose proof (H1 _ _ Hmeta _ Hmatch) as H. rewrite Heq. exact H.
   Qed.
 
   (*this is a lemma about pairwise properties, because that is all that i need to reasona baout.
