@@ -6,25 +6,6 @@
 -Q verified-scheduling/src/verified_lowering/stringify Stringify
 -Q verified-scheduling/src/examples/ Examples
 -Q coqutil/src/coqutil coqutil
--Q src/util Datalog
--Q src/datalog Datalog
--Q src/atl Datalog
+-Q src/ Datalog
 
-src/util/Tactics.v
-src/util/Fp.v
-src/util/List.v
-src/util/Map.v
-src/util/Dag.v
-src/datalog/Datalog.v
-src/datalog/FancyNotations.v
-src/datalog/Blocks.v
-src/datalog/AggregatingProgram.v
-src/datalog/Interpreter.v
-src/datalog/JSON.v
-src/datalog/QueryableToRunnable.v
-src/datalog/SumExample.v
-src/atl/ATLUtils.v
-src/atl/ZeroLowerBounds.v
-src/atl/ATLToDatalog.v
-src/atl/Composition.v
-src/atl/CompilerExamples.v
+src/
