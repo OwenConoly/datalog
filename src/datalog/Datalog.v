@@ -464,7 +464,9 @@ Section __.
     (forall y l, P1 y l <-> P2 y l) ->
     pftree P1 Q x <-> pftree P2 Q x.
   Proof.
-    intros H. split; intros Htree; eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
+    intros H. split; intros Htree.
+    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
+    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
   Qed.
 
   Lemma S_sane_lfp p : S_sane (lfp (F p)).
