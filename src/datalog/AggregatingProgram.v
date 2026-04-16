@@ -18,7 +18,7 @@ Variant fn :=
   | fn_bop (o : bop).
 Notation rule := (rule rel nat fn bop).
 Notation expr := (expr nat fn).
-Notation blocks_prog var := (@blocks_prog nat nat nat fn bop var).
+Notation blocks_prog var := (@blocks_prog nat nat fn bop var).
 
 Definition bop_id o :=
   match o with
