@@ -891,11 +891,11 @@ Proof.
 Qed.
 
 (* Factor the existential out of a Forall2:
-   Forall2 (fun x y => exists z, P z y /\ Q x z) xs ys
+   Forall2 (fun x y => exists z, P y z /\ Q x z) xs ys
    -> exists zs, Forall2 P ys zs /\ Forall2 Q xs zs *)
-Lemma Forall2_exists_factor {A B C} (P : C -> B -> Prop) (Q : A -> C -> Prop)
+Lemma Forall2_exists_factor {A B C} (P : B -> C -> Prop) (Q : A -> C -> Prop)
     (xs : list A) (ys : list B) :
-  Forall2 (fun x y => exists z, P z y /\ Q x z) xs ys ->
+  Forall2 (fun x y => exists z, P y z /\ Q x z) xs ys ->
   exists zs, Forall2 P ys zs /\ Forall2 Q xs zs.
 Proof.
   induction 1 as [|x y xs' ys' [z [Hp Hq]] _ [zs [IHp IHq]]].
