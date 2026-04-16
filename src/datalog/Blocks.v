@@ -113,15 +113,6 @@ Section Blocks.
       eauto using interp_clause_map_fw.
     Qed.
 
-    Lemma Forall2_interp_clause_map_bw ctx hyps1 hyps2 :
-      Forall2 (interp_clause ctx) (map map_clause_rel hyps1) (map map_fact hyps2) ->
-      exists hyps2',
-        Forall2 fact_equiv hyps2 hyps2' /\
-        Forall2 (interp_clause ctx) hyps1 hyps2'.
-    Proof.
-      intros H%Forall2_interp_clause_map_bw'. apply Forall2_exists_factor. assumption.
-    Qed.
-
     Lemma Forall2_interp_clause_map_bw' ctx hyps1 hyps2 :
       Forall2 (interp_clause ctx) (map map_clause_rel hyps1) (map map_fact hyps2) ->
       Forall2 (fun c h => exists h', fact_equiv h h' /\ interp_clause ctx c h') hyps1 hyps2.
@@ -129,6 +120,15 @@ Section Blocks.
       intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
       eapply Forall2_impl; [|eassumption].
       eauto using interp_clause_map_bw.
+    Qed.
+
+    Lemma Forall2_interp_clause_map_bw ctx hyps1 hyps2 :
+      Forall2 (interp_clause ctx) (map map_clause_rel hyps1) (map map_fact hyps2) ->
+      exists hyps2',
+        Forall2 fact_equiv hyps2 hyps2' /\
+        Forall2 (interp_clause ctx) hyps1 hyps2'.
+    Proof.
+      intros H%Forall2_interp_clause_map_bw'. apply Forall2_exists_factor. assumption.
     Qed.
 
     Definition map_meta_clause_rel (c : meta_clause rel1 exprvar fn) :=
