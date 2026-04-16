@@ -298,9 +298,13 @@ Section __.
   Lemma extensionally_equal_sym f1 f2 :
     extensionally_equal f1 f2 -> extensionally_equal f2 f1.
   Proof.
-    destruct f1, f2; cbv [extensionally_equal] in *; try contradiction; fwd.
-    - auto.
-    - repeat split; auto. intros. symmetry. auto.
+    destruct f1 as [R1 args1 | R1 mf_args1 mf_set1],
+             f2 as [R2 args2 | R2 mf_args2 mf_set2];
+      cbv [extensionally_equal] in *; try contradiction.
+    - destruct H as [<- <-]. split; reflexivity.
+    - destruct H as [<- [<- Hext]].
+      split; [reflexivity |]. split; [reflexivity |].
+      intros args Hmatch. symmetry. apply Hext. exact Hmatch.
   Qed.
 
   Lemma rule_impl_ext p r f hyps hyps' :
