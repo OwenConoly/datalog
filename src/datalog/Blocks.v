@@ -655,15 +655,10 @@ Section Blocks.
       intros Hinj Heq.
       destruct f0 as [R1 args1 | R1 mf_args1 S1],
                f0' as [R2 args2 | R2 mf_args2 S2];
-        cbv [map_fact rel_of] in *; try discriminate.
-      - (* Case: normal_fact *)
-        inversion Heq; subst.
-        assert (R1 = R2) by (apply Hinj; congruence).
-        subst. reflexivity.
-      - (* Case: meta_fact *)
-        inversion Heq; subst.
-        assert (R1 = R2) by (apply Hinj; congruence).
-        subst. reflexivity.
+        cbv [map_fact rel_of] in *; try discriminate;
+        inversion Heq; subst;
+        assert (R1 = R2) by (apply Hinj; congruence);
+        subst; reflexivity.
     Qed.
 
     Lemma prog_impl_map_rule_rels_iff p Q f0 :

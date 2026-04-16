@@ -287,6 +287,34 @@ Proof.
   intros. apply zip_ext_in; auto.
 Qed.
 
+Lemma map_eq_Forall2 {A' B' C'} (f : A' -> C') (g : B' -> C') (l1 : list A') (l2 : list B') :
+  map f l1 = map g l2 ->
+  Forall2 (fun x y => f x = g y) l1 l2.
+Proof.
+  revert l2. induction l1 as [|x l1' IH]; destruct l2 as [|y l2']; simpl; intro H; try discriminate.
+  - constructor.
+  - injection H as Heq Htail. constructor; auto.
+Qed.
+
+Definition fun_rel {U1 U2} (f : U1 -> U2) x y := f x = y.
+
+Lemma Forall2_eq_map {A' B'} (f : B' -> A') (l1 : list A') (l2 : list B') :
+  Forall2 (fun_rel f) l2 l1 <-> l1 = map f l2.
+Proof.
+  split.
+  - induction 1; simpl; congruence.
+  - intros ->. induction l2; constructor; reflexivity || assumption.
+Qed.
+
+Lemma Forall2_exists_factor {A' B' C'} (P : B' -> C' -> Prop) (Q : A' -> C' -> Prop)
+    (xs : list A') (ys : list B') :
+  Forall2 (fun x y => exists z, P y z /\ Q x z) xs ys ->
+  exists zs, Forall2 P ys zs /\ Forall2 Q xs zs.
+Proof.
+  induction 1 as [|x y xs' ys' [z [Hp Hq]] _ [zs [IHp IHq]]].
+  - exists []. auto.
+  - exists (z :: zs). auto.
+Qed.
 
 End Forall.
 
@@ -754,6 +782,37 @@ Proof.
     constructor; [assumption|]. apply IHxs; auto. intros n.
     specialize (H2 (S n)). simpl in H2. exact H2.
 Qed.
+
+Definition disjoint_lists {T} (l1 l2 : list T) :=
+  forall x, In x l1 -> In x l2 -> False.
+
+Definition same_set {T} (l1 l2 : list T) :=
+  forall x, In x l1 <-> In x l2.
+
+Lemma disjoint_lists_comm {U} (l1 l2 : list U) :
+  disjoint_lists l1 l2 ->
+  disjoint_lists l2 l1.
+Proof. cbv [disjoint_lists]. eauto. Qed.
+
+Lemma disjoint_lists_incl_l {U} (l1 l1' l2 : list U) :
+  disjoint_lists l1 l2 ->
+  incl l1' l1 ->
+  disjoint_lists l1' l2.
+Proof. cbv [disjoint_lists]. eauto. Qed.
+
+Lemma disjoint_lists_incl {U} (l1 l1' l2 l2' : list U) :
+  disjoint_lists l1 l2 ->
+  incl l1' l1 ->
+  incl l2' l2 ->
+  disjoint_lists l1' l2'.
+Proof. cbv [disjoint_lists]. eauto. Qed.
+
+Lemma same_set_app_comm {U} (p1 p2 : list U) :
+  same_set (p1 ++ p2) (p2 ++ p1).
+Proof.
+  cbv [same_set]. intros x. rewrite !in_app_iff. tauto.
+Qed.
+
 End misc.
 
 Lemma Forall3_map3 {A B C D} (f : C -> D) xs ys zs (R : A -> B -> D -> Prop) :
@@ -836,69 +895,3 @@ Qed.
 Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
 Hint Resolve incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_in Permutation_sym : incl.
-
-(* ---- Lemmas moved from Datalog.v ---- *)
-
-Definition disjoint_lists {T} (l1 l2 : list T) :=
-  forall x, In x l1 -> In x l2 -> False.
-
-Definition same_set {T} (l1 l2 : list T) :=
-  forall x, In x l1 <-> In x l2.
-
-Lemma disjoint_lists_comm {U} (l1 l2 : list U) :
-  disjoint_lists l1 l2 ->
-  disjoint_lists l2 l1.
-Proof. cbv [disjoint_lists]. eauto. Qed.
-
-Lemma disjoint_lists_incl_l {U} (l1 l1' l2 : list U) :
-  disjoint_lists l1 l2 ->
-  incl l1' l1 ->
-  disjoint_lists l1' l2.
-Proof. cbv [disjoint_lists]. eauto. Qed.
-
-Lemma disjoint_lists_incl {U} (l1 l1' l2 l2' : list U) :
-  disjoint_lists l1 l2 ->
-  incl l1' l1 ->
-  incl l2' l2 ->
-  disjoint_lists l1' l2'.
-Proof. cbv [disjoint_lists]. eauto. Qed.
-
-Lemma same_set_app_comm {U} (p1 p2 : list U) :
-  same_set (p1 ++ p2) (p2 ++ p1).
-Proof.
-  cbv [same_set]. intros x. rewrite !in_app_iff. tauto.
-Qed.
-
-(* ---- Lemmas moved from Blocks.v ---- *)
-
-Lemma map_eq_Forall2 {A B C} (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
-  map f l1 = map g l2 ->
-  Forall2 (fun x y => f x = g y) l1 l2.
-Proof.
-  revert l2. induction l1 as [|x l1' IH]; destruct l2 as [|y l2']; simpl; intro H; try discriminate.
-  - constructor.
-  - injection H as Heq Htail. constructor; auto.
-Qed.
-
-Definition fun_rel {U1 U2} (f : U1 -> U2) x y := f x = y.
-
-Lemma Forall2_eq_map {A B} (f : B -> A) (l1 : list A) (l2 : list B) :
-  Forall2 (fun_rel f) l2 l1 <-> l1 = map f l2.
-Proof.
-  split.
-  - induction 1; simpl; congruence.
-  - intros ->. induction l2; constructor; reflexivity || assumption.
-Qed.
-
-(* Factor the existential out of a Forall2:
-   Forall2 (fun x y => exists z, P y z /\ Q x z) xs ys
-   -> exists zs, Forall2 P ys zs /\ Forall2 Q xs zs *)
-Lemma Forall2_exists_factor {A B C} (P : B -> C -> Prop) (Q : A -> C -> Prop)
-    (xs : list A) (ys : list B) :
-  Forall2 (fun x y => exists z, P y z /\ Q x z) xs ys ->
-  exists zs, Forall2 P ys zs /\ Forall2 Q xs zs.
-Proof.
-  induction 1 as [|x y xs' ys' [z [Hp Hq]] _ [zs [IHp IHq]]].
-  - exists []. auto.
-  - exists (z :: zs). auto.
-Qed.

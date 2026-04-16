@@ -369,10 +369,7 @@ Section __.
     (forall f', Q1 f' <-> Q2 f') ->
     prog_impl p Q1 f <-> prog_impl p Q2 f.
   Proof.
-    intros H.
-    split; intros; eapply prog_impl_weaken_hyp; try eassumption.
-    - intros. apply H. assumption.
-    - intros. apply H. assumption.
+    intros H. split; intros; eapply prog_impl_weaken_hyp; try eassumption; intros; apply H; assumption.
   Qed.
 
   Lemma rule_impl_mf_ext p Q mf_rel mf_args hyps mf_set mf_set' :
@@ -467,9 +464,7 @@ Section __.
     (forall y l, P1 y l <-> P2 y l) ->
     pftree P1 Q x <-> pftree P2 Q x.
   Proof.
-    intros H. split; intros Htree.
-    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
-    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
+    intros H. split; intros Htree; eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
   Qed.
 
   Lemma S_sane_lfp p : S_sane (lfp (F p)).
