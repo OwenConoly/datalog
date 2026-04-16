@@ -287,7 +287,7 @@ Proof.
   intros. apply zip_ext_in; auto.
 Qed.
 
-Lemma map_eq_Forall2 {A' B' C'} (f : A' -> C') (g : B' -> C') (l1 : list A') (l2 : list B') :
+Lemma map_eq_Forall2 {A B C} (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
   map f l1 = map g l2 ->
   Forall2 (fun x y => f x = g y) l1 l2.
 Proof.
@@ -298,7 +298,7 @@ Qed.
 
 Definition fun_rel {U1 U2} (f : U1 -> U2) x y := f x = y.
 
-Lemma Forall2_eq_map {A' B'} (f : B' -> A') (l1 : list A') (l2 : list B') :
+Lemma Forall2_eq_map {A B} (f : B -> A) (l1 : list A) (l2 : list B) :
   Forall2 (fun_rel f) l2 l1 <-> l1 = map f l2.
 Proof.
   split.
@@ -306,8 +306,8 @@ Proof.
   - intros ->. induction l2; constructor; reflexivity || assumption.
 Qed.
 
-Lemma Forall2_exists_factor {A' B' C'} (P : B' -> C' -> Prop) (Q : A' -> C' -> Prop)
-    (xs : list A') (ys : list B') :
+Lemma Forall2_exists_factor {A B C} (P : B -> C -> Prop) (Q : A -> C -> Prop)
+    (xs : list A) (ys : list B) :
   Forall2 (fun x y => exists z, P y z /\ Q x z) xs ys ->
   exists zs, Forall2 P ys zs /\ Forall2 Q xs zs.
 Proof.
