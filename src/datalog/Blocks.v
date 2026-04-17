@@ -151,6 +151,40 @@ Definition mut_example {var} : string_blocks_prog var :=
                     Block "ret" [("input1", Rzero); ("input2", Reven')] union_prog
     ])).
 
+(*the compilation of the pure function init() in the source program*)
+Definition some_init_function {var} : string_blocks_prog var.
+Admitted.
+
+(*the compilation of the pure function f(x) in the source program*)
+Definition some_update_function {var} (x : var) : string_blocks_prog var.
+Admitted.
+
+(*the compilation of x = init()*)
+Definition init_block {var} : string_blocks_prog var :=
+  LetIn some_init_function
+    (fun x_init =>
+       Block "ret" [("x_init", x_init)]
+         [normal_rule
+            [{| clause_rel := local "ret"; clause_args := [var_expr "v"; fun_expr (lit 0) []] |}]
+            [{| clause_rel := input "x_init"; clause_args := [var_expr "v"]|}]]).
+
+(*the compilation of x = f(x)*)
+Definition loop_body_block {var} (Rx : var) : string_blocks_prog var :=
+  LetIn
+    (Block "ret" [()])
+
+(*
+  x = init()
+  while 1:
+        x = f(x);
+ *)
+Definition cfg_example1 {var} : string_blocks_prog var :=
+  Mutual 2
+    (listify 3 (fun Rx_base Rx_step Rx =>
+                  [some_init_function;
+                   some_update_function Rx;
+                   Block "ret" [("input1", Rx_base); ("input2", Rx_step)] union_prog])).
+
 Definition isEven n := exists m, n = m * 2.
 
 Definition interp_fun f xs :=
