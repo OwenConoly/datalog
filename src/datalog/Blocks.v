@@ -62,11 +62,23 @@ Section Blocks.
   | Block (ret : lvar) (inputs : list (lvar * var)) (p : list block_rule).
   Arguments blocks_prog : clear implicits.
 
-  Context (lvar1 lvar2 : lvar).
-  Context (p1 p2 : list block_rule).
-  Definition example {var} : @blocks_prog var :=
-    LetIn (Block lvar1 [] p1) (fun val =>
-                                Block lvar1 [(lvar2, val)] p2).
+  From coqutil Require Import Datatypes.HList.
+  Check arrows. (*why this weird list*)
+  Fixpoint arrows (args : list Type) (ret: Type) :=
+    match args with
+    | [] => ret
+    | arg :: args' => arg -> arrows args' ret
+    end.
+
+  Fixpoint listify {T ret} n (f : arrows (repeat T n) (list ret)) l :=
+    match n return arrows (repeat _ n) _ -> list ret with
+    | O => fun f => f
+    | S n' => fun f =>
+        match l with
+        | x :: l' => listify n' (f x) l'
+        | _ => nil
+        end
+    end f.
 
   Inductive goofy_pftree {U : Type} (P : nat -> U -> list (U -> Prop) -> Prop) : nat -> U -> Prop :=
   | goofy_pftree_step n x l :
@@ -93,6 +105,78 @@ Section Blocks.
             (fun f => Exists (fun '(R, R') => input R = rel_of f /\ R' (args_of f)) inputs)
             (fact_of (local ret) args)
     end.
+End Blocks.
+
+From Stdlib Require Import String.
+Open Scope string_scope.
+Variant fn :=
+  | add
+  | lit (_ : nat).
+Definition string_blocks_prog var := blocks_prog (lvar := string) (exprvar := string) (fn := fn) (aggregator := False) (var := var).
+Definition string_block_rule := block_rule (lvar := string) (exprvar := string) (fn := fn) (aggregator := False).
+
+Definition increment_prog : list string_block_rule :=
+  [normal_rule
+     [{| clause_rel := local "ret";
+        clause_args := [fun_expr add [var_expr "x"; fun_expr (lit 1) []]]|}]
+     [{| clause_rel := input "input";
+        clause_args := [var_expr "x"]|}]].
+
+Definition zero_prog : list string_block_rule :=
+  [normal_rule
+     [{| clause_rel := local "ret";
+        clause_args := [fun_expr (lit O) []]|}]
+     []].
+
+Definition union_prog : list string_block_rule :=
+  [normal_rule
+     [{| clause_rel := local "ret"; clause_args := [var_expr "x"] |}]
+     [{| clause_rel := input "input1"; clause_args := [var_expr "x"] |}];
+   normal_rule
+     [{| clause_rel := local "ret"; clause_args := [var_expr "x"] |}]
+     [{| clause_rel := input "input1"; clause_args := [var_expr "x"] |}]].
+
+Definition mut_example {var} : string_blocks_prog var :=
+  Mutual 3 (*says: pick out 3th thing here, and that is the return value.  so here we return Reven*)
+    (listify 4 (fun Reven' Rodd Rzero Reven =>
+                  [
+                    (*Reven'(x + 1) :- Rodd(x)*)
+                    Block "ret" [("input", Rodd)] increment_prog;
+                    (*Rodd(x + 1) :- Reven(x)*)
+                    Block "ret" [("input", Reven)] increment_prog;
+                    (*Rzero(0) :-*)
+                    Block "ret" [] zero_prog;
+                    (*Reven(x) :- Rzero(x);
+                      Reven(x) :- Reven'(x).*)
+                    Block "ret" [("input1", Rzero); ("input2", Reven')] union_prog
+    ])).
+
+Definition isEven n := exists m, n = m * 2.
+
+Definition interp_fun f xs :=
+  match f, xs with
+  | add, [a; b] => Some (a + b)
+  | lit x, [] => Some x
+  | _, _ => None
+  end.
+Instance Sig : signature fn False nat :=
+  { interp_fun := interp_fun ;
+    interp_agg := fun _ _ => O }.
+
+Lemma mut_example_correct n gvar gmap strmap :
+  interp_blocks_prog (context := strmap) (gvar := gvar) (gmap := gmap) map.empty
+    mut_example (normal_fact_args [n]) <-> isEven n.
+Proof.
+  cbv [mut_example]. split; intros H.
+  - simpl in H. invert H.
+    destruct l as [|R1 l]; [contradiction|].
+    destruct l as [|R2 l]; [contradiction|].
+    simpl in *.
+
+
+    simpl in *. invert l. simpl in H0.
+
+
 
   Inductive wf_blocks_prog {var1 var2} : list (var1 * var2) -> blocks_prog var1 -> blocks_prog var2 -> Prop :=
   | wf_LetIn ctx x1 x2 f1 f2 :
