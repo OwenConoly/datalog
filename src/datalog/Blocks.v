@@ -42,6 +42,7 @@ Section Blocks.
   Definition block_rule := rule block_rel exprvar fn aggregator.
 
   Inductive blocks_prog {var} :=
+  | Mutual (ret : nat) (rules : list var -> list blocks_prog)
   | LetIn (x : blocks_prog) (f : var -> blocks_prog)
   (* | SetGlobal (x : gvar) (v : blocks_prog) *)
   (* why the inputs nonsense?  because---to give meta-rules correct semantics---
@@ -63,14 +64,27 @@ Section Blocks.
 
   Context (lvar1 lvar2 : lvar).
   Context (p1 p2 : list block_rule).
-  Print fact_args.
-  Print fact.
   Definition example {var} : @blocks_prog var :=
     LetIn (Block lvar1 [] p1) (fun val =>
                                 Block lvar1 [(lvar2, val)] p2).
 
+  Inductive goofy_pftree {U : Type} (P : nat -> U -> list (U -> Prop) -> Prop) : nat -> U -> Prop :=
+  | goofy_pftree_step n x l :
+    P n x l ->
+    (forall i y Q, nth_error l i = Some Q -> Q y -> goofy_pftree _ i y) ->
+    goofy_pftree _ n x.
+
   Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : fact_args T -> Prop :=
     match e with
+    | Mutual ret rules =>
+        let rules' fs := map (fun r => interp_blocks_prog globals r) (rules fs) in
+        fun args =>
+          goofy_pftree (fun n f fs =>
+                          match nth_error (rules' fs) n with
+                          | Some r => r f
+                          | None => False
+                          end)
+            ret args
     | LetIn x f =>
         interp_blocks_prog globals (f (interp_blocks_prog globals x))
     | Block ret inputs p =>
