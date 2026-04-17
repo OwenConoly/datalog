@@ -134,7 +134,7 @@ Definition union_prog : list string_block_rule :=
      [{| clause_rel := input "input1"; clause_args := [var_expr "x"] |}];
    normal_rule
      [{| clause_rel := local "ret"; clause_args := [var_expr "x"] |}]
-     [{| clause_rel := input "input1"; clause_args := [var_expr "x"] |}]].
+     [{| clause_rel := input "input2"; clause_args := [var_expr "x"] |}]].
 
 Definition mut_example {var} : string_blocks_prog var :=
   Mutual 3 (*says: pick out 3th thing here, and that is the return value.  so here we return Reven*)
