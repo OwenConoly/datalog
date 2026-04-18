@@ -229,17 +229,17 @@ CFG:
 
 
 (*the compilation of the pure function init() in the source program*)
-(*spec: Rinit(init(), t) :- active(t)*)
+(*spec: Rinit(init(), t + 1) :- active(t)*)
 Definition Rinit {var} (active : var) : string_blocks_prog var 1.
 Admitted.
 
 (*the compilation of the pure function f(x) in the source program*)
-(*spec: Rf(f(x), t) :- active(t), Rx(x, t) *)
+(*spec: Rf(f(x), t + 1) :- active(t), Rx(x, t) *)
 Definition Rf {var} (active : var) (Rx : var) : string_blocks_prog var 1.
 Admitted.
 
 (*the compilation of the pure function g(x) in the source program*)
-(*spec: Rg(g(x), t) :- active(t), Rx(x, t) *)
+(*spec: Rg(g(x), t + 1) :- active(t), Rx(x, t) *)
 Definition Rg {var} (active : var) (Rx : var) : string_blocks_prog var 1.
 Admitted.
 
@@ -258,7 +258,7 @@ Definition cond_false_incr {var} (active Rcond : var) : string_blocks_prog var 1
        [{| clause_rel := input "active"; clause_args := [var_expr "t"] |};
         {| clause_rel := input "Rcond"; clause_args := [lit_ 0; var_expr "t"] |}]].
 
-(*spec: cond_false_incr(t + 1) :- active(t), Rcond(x, t), x <> 0*)
+(*spec: cond_true_incr(t + 1) :- active(t), Rcond(x, t), x <> 0*)
 Definition cond_true_incr {var} (active Rcond : var) : string_blocks_prog var 1.
 (*i can't actually write this one yet, because i have no way of checking that something is nonzero.
   but it should be analogous to cond_false_incr*)
@@ -282,7 +282,7 @@ Definition cfg_block1 {var} (active1 : var) : string_blocks_prog var 2 :=
   let^[1] active2_1 := incr active1 in
   Tuple [| Rx_1; active2_1 |].
 
-(*the compilation of the basic block {while (x <> 0) {x = f(x)}}
+(*the compilation of the basic block {do while (x <> 0) {x = f(x)}}
   when condition is true, jump to self (block2).
   when condition is false, jump to block3.*)
 Definition cfg_block2 {var} (active2 : var) (Rx : var) : string_blocks_prog var 3 :=
