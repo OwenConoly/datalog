@@ -59,7 +59,8 @@ Section Blocks.
     : blocks_prog.
 
   Inductive blocks_prog {var} : nat -> Type :=
-  | Mutual n (names : tuple' lvar n) (rules : tuple' var n -> tuple' (sigT (fun p => tuple' lvar p * blocks_prog p)%type) n)
+  (*yes, you have to name all of them... should be fine, i think*)
+  | Mutual n (names : tuple' lvar n) (rules : tuple' var n -> blocks_prog n)
     : blocks_prog n
   | LetIn n m (x : blocks_prog n) (f : tuple' var n -> blocks_prog m)
     : blocks_prog m
@@ -126,18 +127,15 @@ Section Blocks.
   Fixpoint interp_blocks_prog (globals : gmap) {n} (e : blocks_prog (fact_args T -> Prop) n) : tuple' (fact_args T -> Prop) n :=
     match e with
     | Mutual n rets rules =>
-        let rules' fs := tuple_map (sigT_map (fun _ '(names, p) => (names, interp_blocks_prog globals p))) (rules fs) in
+        let rules' fs := interp_blocks_prog globals (rules fs) in
         tuple_map (fun ret args =>
                      wide_pftree (fun f Q =>
                                     exists (fs : tuple' (fact_args T -> Prop) n),
-                                      Exists_tuple (fun '(existT _ _ (names, Sargss)) =>
-                                                      Exists_tuple (fun '(name, Sargs) =>
-                                                                      name = rel_of f /\ Sargs (args_of f))
-                                                        (combine_tuple names Sargss))
-                                        (rules' fs) /\
-                         Q = fun f' =>
-                               Exists_tuple (fun '(name, Sargs) => name = rel_of f' /\ Sargs (args_of f'))
-                                 (combine_tuple rets fs))
+                                      Exists_tuple (fun '(name, Sargs) => name = rel_of f /\ Sargs (args_of f))
+                                        (combine_tuple rets (rules' fs)) /\
+                       Q = fun f' =>
+                             Exists_tuple (fun '(name, Sargs) => name = rel_of f' /\ Sargs (args_of f'))
+                               (combine_tuple rets fs))
                        (fact_of ret args))
                   rets
     | LetIn n m x f =>
@@ -148,7 +146,7 @@ Section Blocks.
                        (fun f => Exists (fun '(R, R') => input R = rel_of f /\ R' (args_of f)) inputs)
                        (fact_of (local ret) args))
           rets
-    end. Print interp_blocks_prog.
+    end.
 End Blocks.
 
 From Stdlib Require Import String.
