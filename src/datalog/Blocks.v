@@ -41,9 +41,28 @@ Section Blocks.
 
   Definition block_rule := rule block_rel exprvar fn aggregator.
 
-  Inductive blocks_prog {var} :=
-  | Mutual (ret : lvar) (rules : list var -> list (lvar * blocks_prog))
-  | LetIn (x : blocks_prog) (f : var -> blocks_prog)
+  Fixpoint tuple T n : Type :=
+    match n with
+    | S n' => T * tuple T n'
+    | O => unit
+    end.
+
+  Inductive tuple' T : nat -> Type :=
+  | ntuple_nil : tuple' _ O
+  | ntuple_cons n (_ : T) (_ : tuple' _ n) : tuple' _ (S n).
+
+  Fail Inductive blocks_prog {var} : Type :=
+  | Mutual m n (ret : tuple lvar m) (rules : tuple var n -> tuple ( blocks_prog) n)
+    : blocks_prog.
+  Succeed Inductive blocks_prog {var} : Type :=
+  | Mutual m n (ret : tuple lvar m) (rules : tuple var n -> tuple' ( blocks_prog) n)
+    : blocks_prog.
+
+  Inductive blocks_prog {var} : nat -> Type :=
+  | Mutual m n (ret : tuple lvar m) (rules : tuple var n -> tuple' (sigT (fun p => tuple lvar p * blocks_prog p)%type) n)
+    : blocks_prog m
+  | LetIn n m (x : blocks_prog n) (f : tuple var n -> blocks_prog m)
+    : blocks_prog m
   (* | SetGlobal (x : gvar) (v : blocks_prog) *)
   (* why the inputs nonsense?  because---to give meta-rules correct semantics---
      we need to be able to distinguish between different relations that have the
@@ -59,27 +78,12 @@ Section Blocks.
      note: probably i should let an input have type var or be a global.
      but i am ignoring globals for now.
    *)
-  | Block (ret : lvar) (inputs : list (lvar * var)) (p : list block_rule).
+  | Block n (rets : tuple lvar n) (inputs : list (lvar * var)) (p : list block_rule)
+    : blocks_prog n
+  .
   Arguments blocks_prog : clear implicits.
 
   From coqutil Require Import Datatypes.HList.
-  Check arrows. (*why this weird list*)
-  Fixpoint arrows (args : list Type) (ret: Type) :=
-    match args with
-    | [] => ret
-    | arg :: args' => arg -> arrows args' ret
-    end.
-
-  Fixpoint listify {T ret} n (f : arrows (repeat T n) (list ret)) l :=
-    match n return arrows (repeat _ n) _ -> list ret with
-    | O => fun f => f
-    | S n' => fun f =>
-        match l with
-        | x :: l' => listify n' (f x) l'
-        | _ => nil
-        end
-    end f.
-
   Inductive wide_pftree {U : Type} (P : U -> (U -> Prop) -> Prop) : U -> Prop :=
   | wide_pftree_step x l :
     P x l ->
@@ -93,8 +97,7 @@ Section Blocks.
         fun args =>
           wide_pftree (fun f Q =>
                          exists fs,
-                           Exists (fun '(name, Sargs) => name = rel_of f /\ Sargs (args_of f))
-                             (rules' (map snd fs)) /\
+                           Exists (fun '(name, Sargs) => name = rel_of f /\ Sargs (args_of f)) (rules' (map snd fs)) /\
                              Q = fun f' =>
                                    Exists (fun '(name, Sargs) => name = rel_of f' /\ Sargs (args_of f'))
                                      fs)
