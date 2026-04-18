@@ -59,9 +59,9 @@ Section Blocks.
     : blocks_prog.
 
   Inductive blocks_prog {var} : nat -> Type :=
-  | Mutual m n (ret : tuple lvar m) (rules : tuple' var n -> tuple' (sigT (fun p => tuple lvar p * blocks_prog p)%type) n)
-    : blocks_prog m
-  | LetIn n m (x : blocks_prog n) (f : tuple var n -> blocks_prog m)
+  | Mutual n (names : tuple' lvar n) (rules : tuple' var n -> tuple' (sigT (fun p => tuple' lvar p * blocks_prog p)%type) n)
+    : blocks_prog n
+  | LetIn n m (x : blocks_prog n) (f : tuple' var n -> blocks_prog m)
     : blocks_prog m
   (* | SetGlobal (x : gvar) (v : blocks_prog) *)
   (* why the inputs nonsense?  because---to give meta-rules correct semantics---
@@ -78,7 +78,7 @@ Section Blocks.
      note: probably i should let an input have type var or be a global.
      but i am ignoring globals for now.
    *)
-  | Block n (rets : tuple lvar n) (inputs : list (lvar * var)) (p : list block_rule)
+  | Block n (rets : tuple' lvar n) (inputs : list (lvar * var)) (p : list block_rule)
     : blocks_prog n
   .
   Arguments blocks_prog : clear implicits.
@@ -102,26 +102,53 @@ Section Blocks.
     | existT _ x p_val => existT _ x (f p_val)
     end.
 
-  Fixpoint interp_blocks_prog (globals : gmap) {n} (e : blocks_prog (fact_args T -> Prop) n) : fact_args T -> Prop :=
+  Inductive Exists_tuple {A : Type} (P : A -> Prop) : forall {n : nat}, tuple' A n -> Prop :=
+  | Exists_here : forall {n : nat} (x : A) (xs : tuple' A n),
+      P x -> Exists_tuple P (ntuple_cons _ _ x xs)
+  | Exists_there : forall {n : nat} (x : A) (xs : tuple' A n),
+      Exists_tuple P xs -> Exists_tuple P (ntuple_cons _ _ x xs).
+
+  Fixpoint combine_tuple {A B : Type} {n : nat} (t1 : tuple' A n) : tuple' B n -> tuple' (A * B) n :=
+    match t1 in tuple' _ n return tuple' B n -> tuple' (A * B) n with
+    | ntuple_nil _ => fun _ => ntuple_nil _
+    | ntuple_cons _ n' x xs => fun t2 =>
+                                match t2 in tuple' _ m return
+                                      match m with
+                                      | O => unit
+                                      | S m' => (tuple' B m' -> tuple' (A * B) m') -> tuple' (A * B) (S m')
+                                      end
+                                with
+                                | ntuple_nil _ => tt
+                                | ntuple_cons _ m' y ys => fun rec => ntuple_cons _ _ (x, y) (rec ys)
+                                end (combine_tuple xs)
+    end.
+
+  Fixpoint interp_blocks_prog (globals : gmap) {n} (e : blocks_prog (fact_args T -> Prop) n) : tuple' (fact_args T -> Prop) n :=
     match e with
-    | Mutual n m ret rules =>
+    | Mutual n rets rules =>
         let rules' fs := tuple_map (sigT_map (fun _ '(names, p) => (names, interp_blocks_prog globals p))) (rules fs) in
-        fun args =>
-          wide_pftree (fun f Q =>
-                         exists (fs : tuple' (sigT (fun p => tuple lvar p * blocks_prog _ p)%type) n), True
-                           (* Exists (fun '(existT _ _ (f, Sargs)) => name = rel_of f /\ Sargs (args_of f)) (rules' (tuple_map (sigT_map snd) fs)) /\ *)
-                           (*   Q = fun f' => *)
-                           (*         Exists (fun '(name, Sargs) => name = rel_of f' /\ Sargs (args_of f')) *)
-                           (*           fs *))
-            (fact_of ret args)
+        tuple_map (fun ret args =>
+                     wide_pftree (fun f Q =>
+                                    exists (fs : tuple' (fact_args T -> Prop) n),
+                                      Exists_tuple (fun '(existT _ _ (names, Sargss)) =>
+                                                      Exists_tuple (fun '(name, Sargs) =>
+                                                                      name = rel_of f /\ Sargs (args_of f))
+                                                        (combine_tuple names Sargss))
+                                        (rules' fs) /\
+                         Q = fun f' =>
+                               Exists_tuple (fun '(name, Sargs) => name = rel_of f' /\ Sargs (args_of f'))
+                                 (combine_tuple rets fs))
+                       (fact_of ret args))
+                  rets
     | LetIn n m x f =>
         interp_blocks_prog globals (f (interp_blocks_prog globals x))
-    | Block n ret inputs p =>
-        fun args =>
-          prog_impl p
-            (fun f => Exists (fun '(R, R') => input R = rel_of f /\ R' (args_of f)) inputs)
-            (fact_of (local ret) args)
-    end.
+    | Block n rets inputs p =>
+        tuple_map (fun ret args =>
+                     prog_impl p
+                       (fun f => Exists (fun '(R, R') => input R = rel_of f /\ R' (args_of f)) inputs)
+                       (fact_of (local ret) args))
+          rets
+    end. Print interp_blocks_prog.
 End Blocks.
 
 From Stdlib Require Import String.
