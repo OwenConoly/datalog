@@ -59,7 +59,7 @@ Section Blocks.
     : blocks_prog.
 
   Inductive blocks_prog {var} : nat -> Type :=
-  | Mutual m n (ret : tuple lvar m) (rules : tuple var n -> tuple' (sigT (fun p => tuple lvar p * blocks_prog p)%type) n)
+  | Mutual m n (ret : tuple lvar m) (rules : tuple' var n -> tuple' (sigT (fun p => tuple lvar p * blocks_prog p)%type) n)
     : blocks_prog m
   | LetIn n m (x : blocks_prog n) (f : tuple var n -> blocks_prog m)
     : blocks_prog m
@@ -90,21 +90,33 @@ Section Blocks.
     (forall y, l y -> wide_pftree _ y) ->
     wide_pftree _ x.
 
-  Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : fact_args T -> Prop :=
+  Fixpoint tuple_map {A B : Type} (f : A -> B) {n : nat} (t : tuple' A n) : tuple' B n :=
+    match t with
+    | ntuple_nil _ => ntuple_nil B
+    | ntuple_cons _ n' x xs => ntuple_cons B n' (f x) (tuple_map f xs)
+    end.
+
+  Definition sigT_map {A : Type} {P Q : A -> Type}
+    (f : forall {x}, P x -> Q x) (s : sigT P) : sigT Q :=
+    match s with
+    | existT _ x p_val => existT _ x (f p_val)
+    end.
+
+  Fixpoint interp_blocks_prog (globals : gmap) {n} (e : blocks_prog (fact_args T -> Prop) n) : fact_args T -> Prop :=
     match e with
-    | Mutual ret rules =>
-        let rules' fs := map (fun '(name, p) => (name, interp_blocks_prog globals p)) (rules fs) in
+    | Mutual n m ret rules =>
+        let rules' fs := tuple_map (sigT_map (fun _ '(names, p) => (names, interp_blocks_prog globals p))) (rules fs) in
         fun args =>
           wide_pftree (fun f Q =>
-                         exists fs,
-                           Exists (fun '(name, Sargs) => name = rel_of f /\ Sargs (args_of f)) (rules' (map snd fs)) /\
-                             Q = fun f' =>
-                                   Exists (fun '(name, Sargs) => name = rel_of f' /\ Sargs (args_of f'))
-                                     fs)
+                         exists (fs : tuple' (sigT (fun p => tuple lvar p * blocks_prog _ p)%type) n), True
+                           (* Exists (fun '(existT _ _ (f, Sargs)) => name = rel_of f /\ Sargs (args_of f)) (rules' (tuple_map (sigT_map snd) fs)) /\ *)
+                           (*   Q = fun f' => *)
+                           (*         Exists (fun '(name, Sargs) => name = rel_of f' /\ Sargs (args_of f')) *)
+                           (*           fs *))
             (fact_of ret args)
-    | LetIn x f =>
+    | LetIn n m x f =>
         interp_blocks_prog globals (f (interp_blocks_prog globals x))
-    | Block ret inputs p =>
+    | Block n ret inputs p =>
         fun args =>
           prog_impl p
             (fun f => Exists (fun '(R, R') => input R = rel_of f /\ R' (args_of f)) inputs)
