@@ -59,10 +59,10 @@ Section Blocks.
     : blocks_prog.
 
   Inductive blocks_prog {var} : nat -> Type :=
-  (*yes, you have to name all of them... should be fine, i think*)
-  | Mutual n (names : tuple' lvar n) (rules : tuple' var n -> blocks_prog n)
+  (*yes, you have to name all of them... should be fine for now, i think*)
+  | Mutual {n} (names : tuple' lvar n) (rules : tuple' var n -> blocks_prog n)
     : blocks_prog n
-  | LetIn n m (x : blocks_prog n) (f : tuple' var n -> blocks_prog m)
+  | LetIn {n m} (x : blocks_prog n) (f : tuple' var n -> blocks_prog m)
     : blocks_prog m
   (* | SetGlobal (x : gvar) (v : blocks_prog) *)
   (* why the inputs nonsense?  because---to give meta-rules correct semantics---
@@ -79,7 +79,9 @@ Section Blocks.
      note: probably i should let an input have type var or be a global.
      but i am ignoring globals for now.
    *)
-  | Block n (rets : tuple' lvar n) (inputs : list (lvar * var)) (p : list block_rule)
+  | Block {n} (rets : tuple' lvar n) (inputs : list (lvar * var)) (p : list block_rule)
+    : blocks_prog n
+  | Tuple {n} (_ : tuple' var n)
     : blocks_prog n
   .
   Arguments blocks_prog : clear implicits.
@@ -126,7 +128,7 @@ Section Blocks.
 
   Fixpoint interp_blocks_prog (globals : gmap) {n} (e : blocks_prog (fact_args T -> Prop) n) : tuple' (fact_args T -> Prop) n :=
     match e with
-    | Mutual n rets rules =>
+    | @Mutual _ n rets rules =>
         let rules' fs := interp_blocks_prog globals (rules fs) in
         tuple_map (fun ret args =>
                      wide_pftree (fun f Q =>
@@ -138,14 +140,15 @@ Section Blocks.
                                (combine_tuple rets fs))
                        (fact_of ret args))
                   rets
-    | LetIn n m x f =>
+    | LetIn x f =>
         interp_blocks_prog globals (f (interp_blocks_prog globals x))
-    | Block n rets inputs p =>
+    | Block rets inputs p =>
         tuple_map (fun ret args =>
                      prog_impl p
                        (fun f => Exists (fun '(R, R') => input R = rel_of f /\ R' (args_of f)) inputs)
                        (fact_of (local ret) args))
           rets
+    | Tuple (*Var*) args => args
     end.
 End Blocks.
 
@@ -157,75 +160,158 @@ Variant fn :=
 Definition string_blocks_prog var := blocks_prog (lvar := string) (exprvar := string) (fn := fn) (aggregator := False) (var := var).
 Definition string_block_rule := block_rule (lvar := string) (exprvar := string) (fn := fn) (aggregator := False).
 
-Definition increment_prog : list string_block_rule :=
-  [normal_rule
-     [{| clause_rel := local "ret";
-        clause_args := [fun_expr add [var_expr "x"; fun_expr (lit 1) []]]|}]
-     [{| clause_rel := input "input";
-        clause_args := [var_expr "x"]|}]].
-
 Definition zero_prog : list string_block_rule :=
   [normal_rule
      [{| clause_rel := local "ret";
         clause_args := [fun_expr (lit O) []]|}]
      []].
 
-Definition union_prog : list string_block_rule :=
-  [normal_rule
-     [{| clause_rel := local "ret"; clause_args := [var_expr "x"] |}]
-     [{| clause_rel := input "input1"; clause_args := [var_expr "x"] |}];
-   normal_rule
-     [{| clause_rel := local "ret"; clause_args := [var_expr "x"] |}]
-     [{| clause_rel := input "input2"; clause_args := [var_expr "x"] |}]].
+Notation "[| |]" := (ntuple_nil _).
+Notation "[| x |]" := (ntuple_cons _ O x (ntuple_nil _)).
+Notation "[| x ; .. ; y |]" := (ntuple_cons _ _ x .. (ntuple_cons _ _ y (ntuple_nil _)) ..).
 
-Definition mut_example {var} : string_blocks_prog var :=
-  Mutual 3 (*says: pick out 3th thing here, and that is the return value.  so here we return Reven*)
-    (listify 4 (fun Reven' Rodd Rzero Reven =>
-                  [
-                    (*Reven'(x + 1) :- Rodd(x)*)
-                    Block "ret" [("input", Rodd)] increment_prog;
-                    (*Rodd(x + 1) :- Reven(x)*)
-                    Block "ret" [("input", Reven)] increment_prog;
-                    (*Rzero(0) :-*)
-                    Block "ret" [] zero_prog;
-                    (*Reven(x) :- Rzero(x);
-                      Reven(x) :- Reven'(x).*)
-                    Block "ret" [("input1", Rzero); ("input2", Reven')] union_prog
-    ])).
+Fixpoint arrows (T : Type) (n : nat) (R : Type) : Type :=
+  match n with
+  | O => R
+  | S n' => T -> arrows T n' R
+  end.
+
+Fixpoint tuple_uncurry {T R : Type} (n : nat) (f : arrows T n R) (t : tuple' T n) : R :=
+  match t in tuple' _ m return arrows T m R -> R with
+  | ntuple_nil _ => fun (v : R) => v
+  | ntuple_cons _ m' x xs => fun (fn : T -> arrows T m' R) => tuple_uncurry m' (fn x) xs
+  end f.
+
+Definition lit_ x : expr string fn := fun_expr (lit x) [].
+Notation "'tfun' [ n ] x .. y => body" :=
+  (@tuple_uncurry _ _ n (fun x => .. (fun y => body) ..))
+    (at level 200, x binder, y binder, right associativity).
+Notation "'let^' [ n ] x .. y ':=' e1 'in' e2" :=
+  (LetIn e1 (@tuple_uncurry _ _ n (fun x => .. (fun y => e2) ..)))
+    (at level 200, x binder, y binder, right associativity).
+
+(*
+  The following is a manual compilation of the program
+{ x = init();
+  do while x != 0:
+     x = f(x);
+  return g(x); }
+
+where init,f,g are pure functions.
+
+CFG:
+
+       +-----------------+
+       |     block 1     |
+       |   x = init()    |
+       +-------+---------+
+               |
+               v
+     +-->+-----+-----+
+     |   |  block 2  |
+     |   |  x = f(x) |
+     |   +-----+-----+
+     |         |
+     |         v
+     |   +-----+-----+
+     ^   |   x!=0?   |
+     |   +--+--+-----+
+     |      |  |
+     |  yes |  | no
+     +------+  |
+               v
+       +-------+---------+
+       |     block 3     |
+       |   return g(x)   |
+       +-----------------+
+
+ *)
+
 
 (*the compilation of the pure function init() in the source program*)
-Definition some_init_function {var} : string_blocks_prog var.
+(*spec: Rinit(init(), t) :- active(t)*)
+Definition Rinit {var} (active : var) : string_blocks_prog var 1.
 Admitted.
 
 (*the compilation of the pure function f(x) in the source program*)
-Definition some_update_function {var} (x : var) : string_blocks_prog var.
+(*spec: Rf(f(x), t) :- active(t), Rx(x, t) *)
+Definition Rf {var} (active : var) (Rx : var) : string_blocks_prog var 1.
 Admitted.
 
-(*the compilation of x = init()*)
-Definition init_block {var} : string_blocks_prog var :=
-  LetIn some_init_function
-    (fun x_init =>
-       Block "ret" [("x_init", x_init)]
-         [normal_rule
-            [{| clause_rel := local "ret"; clause_args := [var_expr "v"; fun_expr (lit 0) []] |}]
-            [{| clause_rel := input "x_init"; clause_args := [var_expr "v"]|}]]).
+(*the compilation of the pure function g(x) in the source program*)
+(*spec: Rg(g(x), t) :- active(t), Rx(x, t) *)
+Definition Rg {var} (active : var) (Rx : var) : string_blocks_prog var 1.
+Admitted.
 
-(*the compilation of x = f(x)*)
-Definition loop_body_block {var} (Rx : var) : string_blocks_prog var :=
-  LetIn
-    (Block "ret" [()])
+(*spec: incr(t + 1) :- active(t)*)
+Definition incr {var} (active : var) : string_blocks_prog var 1 :=
+  Block [|"ret"|] [("input", active)]
+    [normal_rule
+       [{| clause_rel := local "ret"; clause_args := [fun_expr add [var_expr "t"; lit_ 1]]|}]
+       [{| clause_rel := input "input"; clause_args := [var_expr "t"]|}]].
 
-(*
-  x = init()
-  while 1:
-        x = f(x);
+(*spec: cond_false_incr(t + 1) :- active(t), Rcond(0, t)*)
+Definition cond_false_incr {var} (active Rcond : var) : string_blocks_prog var 1 :=
+  Block [|"ret"|] [("active", active); ("Rcond", Rcond)]
+    [normal_rule
+       [{| clause_rel := local "ret"; clause_args := [fun_expr add [var_expr "t"; lit_ 1]]|}]
+       [{| clause_rel := input "active"; clause_args := [var_expr "t"] |};
+        {| clause_rel := input "Rcond"; clause_args := [lit_ 0; var_expr "t"] |}]].
+
+(*spec: cond_false_incr(t + 1) :- active(t), Rcond(x, t), x <> 0*)
+Definition cond_true_incr {var} (active Rcond : var) : string_blocks_prog var 1.
+(*i can't actually write this one yet, because i have no way of checking that something is nonzero.
+  but it should be analogous to cond_false_incr*)
+Admitted.
+
+Definition union {var} (R1 R2 : var) : string_blocks_prog var 1 :=
+  Block [|"ret"|] [("R1", R1); ("R2", R2)]
+    [normal_rule
+       [{| clause_rel := local "ret"; clause_args := [var_expr "x"] |}]
+       [{| clause_rel := input "R1"; clause_args := [var_expr "x"] |}];
+     normal_rule
+       [{| clause_rel := local "ret"; clause_args := [var_expr "x"] |}]
+       [{| clause_rel := input "R2"; clause_args := [var_expr "x"] |}]].
+
+(*the compilation of the basic block x = init().
+  when done, jump to block2*)
+(*spec: we have Rx1(init(), t + 1) :- active1(t), and active2(t + 1) :- active1(t)
  *)
-Definition cfg_example1 {var} : string_blocks_prog var :=
-  Mutual 2
-    (listify 3 (fun Rx_base Rx_step Rx =>
-                  [some_init_function;
-                   some_update_function Rx;
-                   Block "ret" [("input1", Rx_base); ("input2", Rx_step)] union_prog])).
+Definition cfg_block1 {var} (active1 : var) : string_blocks_prog var 2 :=
+  let^[1] Rx_1 := Rinit active1 in
+  let^[1] active2_1 := incr active1 in
+  Tuple [| Rx_1; active2_1 |].
+
+(*the compilation of the basic block {while (x <> 0) {x = f(x)}}
+  when condition is true, jump to self (block2).
+  when condition is false, jump to block3.*)
+Definition cfg_block2 {var} (active2 : var) (Rx : var) : string_blocks_prog var 3 :=
+  let^[1] Rx_2 := Rf active2 Rx in
+  let^[1] active2_2 := cond_true_incr active2 Rx in
+  let^[1] active3_2 := cond_false_incr active2 Rx in
+  Tuple [| Rx_2; active2_2; active3_2 |].
+
+(*the compilation of the basic block { return g(x) }*)
+Definition cfg_block3 {var} (active3 : var) (Rx : var) : string_blocks_prog var 1 :=
+  let^[1] ret := Rg active3 Rx in
+  Tuple [| ret |].
+
+(*The compilation of the whole cfg.*)
+Definition cfg' {var} (active1 : var) : string_blocks_prog var 4 :=
+  Mutual [| "ret"; "Rx"; "active2"; "active3" |]
+    (tfun[4] ret Rx active2 active3 =>
+       let^[2] Rx_1 active2_1 := cfg_block1 active1 in
+       let^[3] Rx_2 active2_2 active3_2 := cfg_block2 active2 Rx in
+       let^[1] ret' := cfg_block3 active3 Rx in
+       let^[1] Rx' := union Rx_1 Rx_2 in
+       let^[1] active2' := union active2_1 active2_2 in
+       let active3' := active3_2 in
+       Tuple [| ret'; Rx'; active2'; active3' |]).
+
+(*Extract the only relation that we care about.*)
+Definition cfg {var} (active1 : var) : string_blocks_prog var 1 :=
+  let^[4] ret _ _ _ := cfg' active1 in
+  Tuple [| ret |].
 
 Definition isEven n := exists m, n = m * 2.
 
