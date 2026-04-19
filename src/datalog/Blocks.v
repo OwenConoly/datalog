@@ -122,6 +122,28 @@ Section Blocks.
     tuple_of_rel (wide_pftree (fun f hyps =>
                                  exists us, rel_of_tuple (step us) f /\ hyps = rel_of_tuple us)).
 
+  Lemma tuple_lfp_invariant_induction U n (P : tuple (U -> Prop) n -> Prop) step :
+    (forall x, P x -> P (step x)) ->
+    P (tuple_lfp step).
+  Proof. (* very not true, unless we have some termination condition. *) Abort.
+
+  Definition compact {U n} (P : tuple (U -> Prop) n -> Prop) :=
+    exists P0, forall Ss, P Ss <-> (forall l, Forall (rel_of_tuple Ss) l -> P0 l).
+
+  Definition empty_tuple {U n} : tuple (U -> Prop) n :=
+    tuple_of_rel (fun _ => False).
+
+  Lemma tuple_lfp_invariant_induction U n (P : tuple (U -> Prop) n -> Prop) step :
+    compact P ->
+    P empty_tuple ->
+    (forall x, P x -> P (fun y => x y \/ step x y)) ->
+    P (tuple_lfp step).
+  Proof.
+    intros
+
+
+
+
   Fixpoint interp_blocks_prog (globals : gmap) {n} (e : blocks_prog (fact_args T -> Prop) n) : tuple (fact_args T -> Prop) n :=
     match e with
     | @Mutual _ n rules =>
@@ -296,22 +318,20 @@ Definition cfg_block3 {var} (active3 : var) (Rx : var) : string_blocks_prog var 
   Tuple [| ret |].
 
 (*The compilation of the whole cfg.*)
-Definition cfg' {var} (active1 : var) : string_blocks_prog var 4 :=
-  Mutual (tfun[4] ret Rx active2 active3 =>
-            let^[2] Rx_1 active2_1 := cfg_block1 active1 in
-            let^[3] Rx_2 active2_2 active3_2 := cfg_block2 active2 Rx in
-            let^[1] ret' := cfg_block3 active3 Rx in
-            let^[1] Rx' := union Rx_1 Rx_2 in
-            let^[1] active2' := union active2_1 active2_2 in
-            let active3' := active3_2 in
-            Tuple [| ret'; Rx'; active2'; active3' |]).
+Definition cfg' {var} (active1 : var) : tuple var 4 -> string_blocks_prog var 4 :=
+  tfun[4] ret Rx active2 active3 =>
+    let^[2] Rx_1 active2_1 := cfg_block1 active1 in
+    let^[3] Rx_2 active2_2 active3_2 := cfg_block2 active2 Rx in
+    let^[1] ret' := cfg_block3 active3 Rx in
+    let^[1] Rx' := union Rx_1 Rx_2 in
+    let^[1] active2' := union active2_1 active2_2 in
+    let active3' := active3_2 in
+    Tuple [| ret'; Rx'; active2'; active3' |].
 
 (*Extract the only relation that we care about.*)
 Definition cfg {var} (active1 : var) : string_blocks_prog var 1 :=
-  let^[4] ret _ _ _ := cfg' active1 in
+  let^[4] ret _ _ _ := Mutual (cfg' active1) in
   Tuple [| ret |].
-
-Definition isEven n := exists m, n = m * 2.
 
 Definition interp_fun f xs :=
   match f, xs with
@@ -323,7 +343,20 @@ Instance Sig : signature fn False nat :=
   { interp_fun := interp_fun ;
     interp_agg := fun _ _ => O }.
 
-Lemma mut_example_correct n gvar gmap strmap :
+Inductive AtMostOne {U : Type} (P : U -> Prop) : list U -> Prop :=
+| AMO_nil : AtMostOne P []
+| AMO_true : forall x xs, P x -> Forall (fun x => ~P x) xs -> AtMostOne P (x :: xs)
+| AMO_false : forall x xs, ~ P x -> AtMostOne P xs -> AtMostOne P (x :: xs).
+Print string_blocks_prog.
+Print interp_blocks_prog.
+Axiom (gvar : Type) (gmap : map.map gvar (fact_args nat -> Prop)) (context : map.map string nat).
+Definition interp_string_blocks_prog := @interp_blocks_prog string gvar string fn False nat Sig gmap context.
+Lemma cfg'_only_one_active active1 ret Rx active2 active3 ret' Rx' active2' active3' :
+  AtMostOne
+  interp_string_blocks_prog map.empty _ (cfg' active1 [| ret; Rx; active2; active3 |]) = [| ret'; Rx'; active2'; active3' |] ->
+
+  True.
+  forall t,
   interp_blocks_prog (context := strmap) (gvar := gvar) (gmap := gmap) map.empty
     mut_example (normal_fact_args [n]) <-> isEven n.
 Proof.
