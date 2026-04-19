@@ -116,16 +116,16 @@ Section Blocks.
   Definition tuple_of_rel {U : Type} {n : nat} (R : nat * U -> Prop) : tuple (U -> Prop) n :=
     tuple_map (fun idx args => R (idx, args)) (tuple_seq O n).
 
-  (*computes the least fixed point, for appropriate definitions of "least" and,
-    "fixed point" of the step function.*)
-  Definition tuple_lfp {U n} (step : tuple (U -> Prop) n -> tuple (U -> Prop) n) : nat * U -> Prop :=
-    wide_pftree (fun f hyps =>
-                   exists us, rel_of_tuple (step us) f /\ hyps = rel_of_tuple us).
+  (*computes the least fixed point, for appropriate definitions of "least" and
+    "fixed point", of the step function.*)
+  Definition tuple_lfp {U n} (step : tuple (U -> Prop) n -> tuple (U -> Prop) n) : tuple (U -> Prop) n :=
+    tuple_of_rel (wide_pftree (fun f hyps =>
+                                 exists us, rel_of_tuple (step us) f /\ hyps = rel_of_tuple us)).
 
   Fixpoint interp_blocks_prog (globals : gmap) {n} (e : blocks_prog (fact_args T -> Prop) n) : tuple (fact_args T -> Prop) n :=
     match e with
     | @Mutual _ n rules =>
-        tuple_of_rel (tuple_lfp (fun fs => interp_blocks_prog globals (rules fs)))
+        tuple_lfp (fun fs => interp_blocks_prog globals (rules fs))
     | LetIn x f =>
         interp_blocks_prog globals (f (interp_blocks_prog globals x))
     | Block rets inputs p =>
