@@ -122,28 +122,6 @@ Section Blocks.
     tuple_of_rel (wide_pftree (fun f hyps =>
                                  exists us, rel_of_tuple (step us) f /\ hyps = rel_of_tuple us)).
 
-  Lemma tuple_lfp_invariant_induction U n (P : tuple (U -> Prop) n -> Prop) step :
-    (forall x, P x -> P (step x)) ->
-    P (tuple_lfp step).
-  Proof. (* very not true, unless we have some termination condition. *) Abort.
-
-  Definition compact {U n} (P : tuple (U -> Prop) n -> Prop) :=
-    exists P0, forall Ss, P Ss <-> (forall l, Forall (rel_of_tuple Ss) l -> P0 l).
-
-  Definition empty_tuple {U n} : tuple (U -> Prop) n :=
-    tuple_of_rel (fun _ => False).
-
-  Lemma tuple_lfp_invariant_induction U n (P : tuple (U -> Prop) n -> Prop) step :
-    compact P ->
-    P empty_tuple ->
-    (forall x, P x -> P (fun y => x y \/ step x y)) ->
-    P (tuple_lfp step).
-  Proof.
-    intros
-
-
-
-
   Fixpoint interp_blocks_prog (globals : gmap) {n} (e : blocks_prog (fact_args T -> Prop) n) : tuple (fact_args T -> Prop) n :=
     match e with
     | @Mutual _ n rules =>
@@ -345,15 +323,78 @@ Instance Sig : signature fn False nat :=
 
 Inductive AtMostOne {U : Type} (P : U -> Prop) : list U -> Prop :=
 | AMO_nil : AtMostOne P []
-| AMO_true : forall x xs, P x -> Forall (fun x => ~P x) xs -> AtMostOne P (x :: xs)
+| AMO_true : forall x xs, (*P x ->*) Forall (fun x => ~P x) xs -> AtMostOne P (x :: xs)
 | AMO_false : forall x xs, ~ P x -> AtMostOne P xs -> AtMostOne P (x :: xs).
-Print string_blocks_prog.
-Print interp_blocks_prog.
+
 Axiom (gvar : Type) (gmap : map.map gvar (fact_args nat -> Prop)) (context : map.map string nat).
 Definition interp_string_blocks_prog := @interp_blocks_prog string gvar string fn False nat Sig gmap context.
-Lemma cfg'_only_one_active active1 ret Rx active2 active3 ret' Rx' active2' active3' :
-  AtMostOne
-  interp_string_blocks_prog map.empty _ (cfg' active1 [| ret; Rx; active2; active3 |]) = [| ret'; Rx'; active2'; active3' |] ->
+Ltac simplify_blocks :=
+  repeat (
+      cbn [interp_string_blocks_prog interp_blocks_prog] in *;
+      simpl in *;
+      fwd;
+      subst;
+    match goal with
+    | H : context [ match ?x with | (_, _) => _ end ] |- _ =>
+        match x with
+        | (_, _) => fail 1
+        | _ =>
+            let E := fresh "E_eval" in
+            destruct x as [? ?] eqn:E
+        end
+    end);
+  simpl in *; fwd; subst;
+  repeat match goal with
+    | x: tt |- _ => destruct x
+    end.
+
+Lemma union_spec (R1 R2 : fact_args nat -> Prop) ret :
+  interp_string_blocks_prog map.empty _ (union R1 R2) = [| ret |] ->
+  forall x, ret (normal_fact_args [x]) <-> R1 (normal_fact_args [x]) \/ R2 (normal_fact_args [x]).
+Proof.
+  cbv [union]. intros H args. simpl in H. fwd. simpl.
+  (*easy*)
+Admitted.
+
+Lemma cfg'_only_one_active active1 ret Rx active2 active3 t :
+  (forall t, active1 (normal_fact_args [t]) <-> t = 0) ->
+  interp_string_blocks_prog map.empty _ (Mutual (cfg' active1)) = [| ret; Rx; active2; active3 |] ->
+  (*for proof by induction to work, we also need to prove that Rx(x1, t) -> Rx(x2, t) -> x1 = x2.  otherwise, we might take two branches at once!*)
+  AtMostOne (fun active => active (normal_fact_args [t])) [active1; active2; active3].
+Proof.
+  intros Hactive1.
+  intros H. cbv [cfg'] in H. simpl in H. cbv [tuple_lfp] in H. simpl in H.
+  cbv [tuple_of_rel] in H. simpl in H. fwd.
+  induction t.
+  - apply AMO_true.
+    constructor.
+    { intros H. invert H. fwd. simpl in H0p0. fwd. cbv [cfg'] in E.
+      destruct us as [ret [Rx [active2 [active3 ?]]]].
+      Opaque cfg_block1 cfg_block2 cfg_block3 union.
+      simplify_blocks. eapply union_spec in E_eval3. rewrite E_eval3 in H0p0p1.
+      clear E_eval3. clear E_eval2.
+      (*can get a contradiction using specs for cfg_block1, cfg_block3*)
+      admit. }
+    constructor.
+    { (*should be analogous*) admit. }
+    constructor.
+  - invert IHt.
+    +
+Abort.
+    simpl in IHt.
+      simpl in E. Set Printing All.
+      repeat match goal with
+             | H : context[let '(_, _) := ?x in _] |- _ =>
+                 let E := fresh "E" in
+                 destruct x as [? ?] eqn:E
+             | H : context[let '(_, (_, _)) := ?x in _] |- _ =>
+                 let E := fresh "E" in
+                 destruct x as [? ?] eqn:E
+             end;
+        cbn [interp_string_blocks_prog interp_blocks_prog] in *.
+      cbv [cfg'] in E. simpl in E. destruct fwd.
+
+    simpl. cbv [tuple_lfp cfg' tuple_of_rel tuple_map].
 
   True.
   forall t,
