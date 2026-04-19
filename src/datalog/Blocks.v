@@ -152,9 +152,22 @@ Definition zero_prog : list string_block_rule :=
         clause_args := [fun_expr (lit O) []]|}]
      []].
 
-Notation "[| |]" := (ntuple_nil _).
-Notation "[| x |]" := (ntuple_cons _ O x (ntuple_nil _)).
-Notation "[| x ; .. ; y |]" := (ntuple_cons _ _ x .. (ntuple_cons _ _ y (ntuple_nil _)) ..).
+Class InferTuple {T : Type} (Raw : Type) (n : nat) := {
+  as_tuple : Raw -> tuple T n
+}.
+
+Instance infer_nil {T : Type} : InferTuple (T:=T) unit O := {
+  as_tuple := fun _ => tt
+}.
+
+Instance infer_cons {T : Type} {RawTail : Type} {n : nat}
+  `{InferTuple T RawTail n} : InferTuple (T:=T) (T * RawTail) (S n) := {
+  as_tuple := fun '(x, xs) => (x, as_tuple xs)
+}.
+
+Notation "[| |]" := (as_tuple tt).
+Notation "[| x |]" := (as_tuple (x, tt)).
+Notation "[| x ; .. ; y |]" := (as_tuple (x, .. (y, tt) ..)).
 
 Fixpoint arrows (T : Type) (n : nat) (R : Type) : Type :=
   match n with
@@ -162,11 +175,11 @@ Fixpoint arrows (T : Type) (n : nat) (R : Type) : Type :=
   | S n' => T -> arrows T n' R
   end.
 
-Fixpoint tuple_uncurry {T R : Type} (n : nat) (f : arrows T n R) (t : tuple' T n) : R :=
-  match t in tuple' _ m return arrows T m R -> R with
-  | ntuple_nil _ => fun (v : R) => v
-  | ntuple_cons _ m' x xs => fun (fn : T -> arrows T m' R) => tuple_uncurry m' (fn x) xs
-  end f.
+Fixpoint tuple_uncurry {T R : Type} (n : nat) : arrows T n R -> tuple T n -> R :=
+  match n return arrows T n R -> tuple T n -> R with
+  | O => fun (v : R) _ => v
+  | S n' => fun f '(x, xs) => tuple_uncurry n' (f x) xs
+  end.
 
 Definition lit_ x : expr string fn := fun_expr (lit x) [].
 Notation "'tfun' [ n ] x .. y => body" :=
@@ -284,15 +297,14 @@ Definition cfg_block3 {var} (active3 : var) (Rx : var) : string_blocks_prog var 
 
 (*The compilation of the whole cfg.*)
 Definition cfg' {var} (active1 : var) : string_blocks_prog var 4 :=
-  Mutual [| "ret"; "Rx"; "active2"; "active3" |]
-    (tfun[4] ret Rx active2 active3 =>
-       let^[2] Rx_1 active2_1 := cfg_block1 active1 in
-       let^[3] Rx_2 active2_2 active3_2 := cfg_block2 active2 Rx in
-       let^[1] ret' := cfg_block3 active3 Rx in
-       let^[1] Rx' := union Rx_1 Rx_2 in
-       let^[1] active2' := union active2_1 active2_2 in
-       let active3' := active3_2 in
-       Tuple [| ret'; Rx'; active2'; active3' |]).
+  Mutual (tfun[4] ret Rx active2 active3 =>
+            let^[2] Rx_1 active2_1 := cfg_block1 active1 in
+            let^[3] Rx_2 active2_2 active3_2 := cfg_block2 active2 Rx in
+            let^[1] ret' := cfg_block3 active3 Rx in
+            let^[1] Rx' := union Rx_1 Rx_2 in
+            let^[1] active2' := union active2_1 active2_2 in
+            let active3' := active3_2 in
+            Tuple [| ret'; Rx'; active2'; active3' |]).
 
 (*Extract the only relation that we care about.*)
 Definition cfg {var} (active1 : var) : string_blocks_prog var 1 :=
