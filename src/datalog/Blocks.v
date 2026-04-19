@@ -41,28 +41,19 @@ Section Blocks.
 
   Definition block_rule := rule block_rel exprvar fn aggregator.
 
+  From coqutil Require Import Datatypes.HList. Print tuple.
   Fixpoint tuple T n : Type :=
     match n with
     | S n' => T * tuple T n'
     | O => unit
     end.
-
-  Inductive tuple' T : nat -> Type :=
-  | ntuple_nil : tuple' _ O
-  | ntuple_cons n (_ : T) (_ : tuple' _ n) : tuple' _ (S n).
-
-  Fail Inductive blocks_prog {var} : Type :=
-  | Mutual m n (ret : tuple lvar m) (rules : tuple var n -> tuple ( blocks_prog) n)
-    : blocks_prog.
-  Succeed Inductive blocks_prog {var} : Type :=
-  | Mutual m n (ret : tuple lvar m) (rules : tuple var n -> tuple' ( blocks_prog) n)
-    : blocks_prog.
+  (*alternatively, could define arrows T n T'...*)
 
   Inductive blocks_prog {var} : nat -> Type :=
   (*yes, you have to name all of them... should be fine for now, i think*)
-  | Mutual {n} (names : tuple' lvar n) (rules : tuple' var n -> blocks_prog n)
+  | Mutual {n} (names : tuple lvar n) (rules : tuple var n -> blocks_prog n)
     : blocks_prog n
-  | LetIn {n m} (x : blocks_prog n) (f : tuple' var n -> blocks_prog m)
+  | LetIn {n m} (x : blocks_prog n) (f : tuple var n -> blocks_prog m)
     : blocks_prog m
   (* | SetGlobal (x : gvar) (v : blocks_prog) *)
   (* why the inputs nonsense?  because---to give meta-rules correct semantics---
@@ -79,65 +70,86 @@ Section Blocks.
      note: probably i should let an input have type var or be a global.
      but i am ignoring globals for now.
    *)
-  | Block {n} (rets : tuple' lvar n) (inputs : list (lvar * var)) (p : list block_rule)
+  | Block {n} (rets : tuple lvar n) (inputs : list (lvar * var)) (p : list block_rule)
     : blocks_prog n
-  | Tuple {n} (_ : tuple' var n)
+  | Tuple {n} (_ : tuple var n)
     : blocks_prog n
   .
   Arguments blocks_prog : clear implicits.
 
-  From coqutil Require Import Datatypes.HList.
   Inductive wide_pftree {U : Type} (P : U -> (U -> Prop) -> Prop) : U -> Prop :=
   | wide_pftree_step x l :
     P x l ->
     (forall y, l y -> wide_pftree _ y) ->
     wide_pftree _ x.
 
-  Fixpoint tuple_map {A B : Type} (f : A -> B) {n : nat} (t : tuple' A n) : tuple' B n :=
-    match t with
-    | ntuple_nil _ => ntuple_nil B
-    | ntuple_cons _ n' x xs => ntuple_cons B n' (f x) (tuple_map f xs)
+  Fixpoint tuple_map {A B : Type} (f : A -> B) {n : nat} : tuple A n -> tuple B n :=
+    match n return tuple A n -> tuple B n with
+    | O => fun _ => tt
+    | S n' => fun '(x, xs) => (f x, tuple_map f xs)
     end.
 
-  Definition sigT_map {A : Type} {P Q : A -> Type}
-    (f : forall {x}, P x -> Q x) (s : sigT P) : sigT Q :=
-    match s with
-    | existT _ x p_val => existT _ x (f p_val)
+  Fixpoint combine_tuple {A B : Type} {n : nat} : tuple A n -> tuple B n -> tuple (A * B) n :=
+    match n return tuple A n -> tuple B n -> tuple (A * B) n with
+    | O => fun _ _ => tt
+    | S n' => fun '(x, xs) '(y, ys) => ((x, y), combine_tuple xs ys)
     end.
 
-  Inductive Exists_tuple {A : Type} (P : A -> Prop) : forall {n : nat}, tuple' A n -> Prop :=
-  | Exists_here : forall {n : nat} (x : A) (xs : tuple' A n),
-      P x -> Exists_tuple P (ntuple_cons _ _ x xs)
-  | Exists_there : forall {n : nat} (x : A) (xs : tuple' A n),
-      Exists_tuple P xs -> Exists_tuple P (ntuple_cons _ _ x xs).
-
-  Fixpoint combine_tuple {A B : Type} {n : nat} (t1 : tuple' A n) : tuple' B n -> tuple' (A * B) n :=
-    match t1 in tuple' _ n return tuple' B n -> tuple' (A * B) n with
-    | ntuple_nil _ => fun _ => ntuple_nil _
-    | ntuple_cons _ n' x xs => fun t2 =>
-                                match t2 in tuple' _ m return
-                                      match m with
-                                      | O => unit
-                                      | S m' => (tuple' B m' -> tuple' (A * B) m') -> tuple' (A * B) (S m')
-                                      end
-                                with
-                                | ntuple_nil _ => tt
-                                | ntuple_cons _ m' y ys => fun rec => ntuple_cons _ _ (x, y) (rec ys)
-                                end (combine_tuple xs)
+  Fixpoint Exists_tuple {A : Type} (P : A -> Prop) {n : nat} : tuple A n -> Prop :=
+    match n return tuple A n -> Prop with
+    | O => fun _ => False
+    | S n' => fun '(x, xs) => P x \/ Exists_tuple P xs
     end.
 
-  Fixpoint interp_blocks_prog (globals : gmap) {n} (e : blocks_prog (fact_args T -> Prop) n) : tuple' (fact_args T -> Prop) n :=
+  Fixpoint tuple_of_list {A : Type} (l : list A) : tuple A (length l) :=
+    match l return tuple A (length l) with
+    | [] => tt
+    | x :: xs => (x, tuple_of_list xs)
+    end.
+
+  Fixpoint tuple_nth_error {A : Type} {n : nat} (i : nat) : tuple A n -> option A :=
+    match n return tuple A n -> option A with
+    | O => fun _ => None
+    | S n' => fun '(x, xs) =>
+               match i with
+               | O => Some x
+               | S i' => tuple_nth_error i' xs
+               end
+    end.
+
+  Definition tuple_seq n m := tuple_of_list (seq n m).
+  From Coq Require Import Vectors.Fin.
+
+  Definition rel_of_tuple {U : Type} {n : nat} (t : tuple (U -> Prop) n) : nat * U -> Prop :=
+    fun '(idx, u) => exists P, tuple_nth_error idx t = Some P /\ P u.
+
+  (*computes the least fixed point, for appropriate definitions of "least" and,
+    "fixed point" of the step function.*)
+  Definition tuple_lfp {U n} (step : tuple (U -> Prop) n -> tuple (U -> Prop) n) : nat * U -> Prop :=
+    wide_pftree (fun f hyps =>
+                   exists us, rel_of_tuple (step us) f /\ hyps = rel_of_tuple us).
+  Definition tuple_lfp' {U n} (step : tuple (U -> Prop) n -> tuple (U -> Prop) n) : nat * U -> Prop :=
+    wide_pftree (fun '(n, u) hyps =>
+                   exists Su us,
+                     tuple_nth_error n (step us) = Some Su /\
+                       Su u /\
+                       hyps = fun '(n', u') =>
+                                exists Su',
+                                  tuple_nth_error n' us = Some Su' /\
+                                    Su' u').
+
+  Fixpoint interp_blocks_prog (globals : gmap) {n} (e : blocks_prog (fact_args T -> Prop) n) : tuple (fact_args T -> Prop) n :=
     match e with
     | @Mutual _ n rets rules =>
         let rules' fs := interp_blocks_prog globals (rules fs) in
         tuple_map (fun ret args =>
-                     wide_pftree (fun f Q =>
-                                    exists (fs : tuple' (fact_args T -> Prop) n),
+                     wide_pftree (fun f hyps =>
+                                    exists (fs : tuple (fact_args T -> Prop) n),
                                       Exists_tuple (fun '(name, Sargs) => name = rel_of f /\ Sargs (args_of f))
                                         (combine_tuple rets (rules' fs)) /\
-                       Q = fun f' =>
-                             Exists_tuple (fun '(name, Sargs) => name = rel_of f' /\ Sargs (args_of f'))
-                               (combine_tuple rets fs))
+                                        hyps = fun f' =>
+                                                 Exists_tuple (fun '(name, Sargs) => name = rel_of f' /\ Sargs (args_of f'))
+                                                   (combine_tuple rets fs))
                        (fact_of ret args))
                   rets
     | LetIn x f =>
@@ -148,8 +160,8 @@ Section Blocks.
                        (fun f => Exists (fun '(R, R') => input R = rel_of f /\ R' (args_of f)) inputs)
                        (fact_of (local ret) args))
           rets
-    | Tuple (*Var*) args => args
-    end.
+    | Tuple args => args
+    end. Print interp_blocks_prog.
 End Blocks.
 
 From Stdlib Require Import String.
