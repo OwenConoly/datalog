@@ -230,22 +230,6 @@ Lemma cons_two_is_app {T} (x y : T) l :
   x :: y :: l = [x; y] ++ l.
 Proof. reflexivity. Qed.
 
-Lemma disjoint_lists_alt {T} (l1 l2 : list T) :
-  Forall (fun x => Forall (fun y => y <> x) l2) l1 ->
-  disjoint_lists l1 l2.
-Proof.
-  cbv [disjoint_lists]. induction 1; simpl.
-  - auto.
-  - intros ? [?|?]; subst; eauto.
-    rewrite Forall_forall in *. unfold not in *. eauto.
-Qed.
-
-Lemma option_all_map_Some {T} (l : list T) :
-  option_all (map Some l) = Some l.
-Proof.
-  induction l; simpl; auto. rewrite IHl. reflexivity.
-Qed.
-
 (* Lemma idk (p : list rule) Q f : *)
 (*   ~In f.(fact_R) (flat_map concl_rels p) -> *)
 (*   prog_impl_implication p Q f -> *)

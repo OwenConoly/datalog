@@ -20,6 +20,8 @@ Local Ltac invert_list_stuff' :=
     | H : _ :: _ = _ :: _ |- _ => invert H
     | H : _ :: _ = [] |- _ => discriminate H
     | H : [] = _ :: _ |- _ => discriminate H
+    | H : In _ [_] |- _ => destruct H; [|contradiction]
+    | H : In _ [] |- _ => contradiction
   end.
 
 Definition is_list_set {X : Type} (S : X -> Prop) (l : list X) :=
@@ -774,6 +776,17 @@ Proof.
     specialize (H2 (S n)). simpl in H2. exact H2.
 Qed.
 
+Definition keep_Some : _ -> list A :=
+  flat_map (fun x => match x with | Some y => [y] | None => [] end).
+
+Lemma in_keep_Some k l :
+  In (Some k) l <-> In k (keep_Some l).
+Proof.
+  cbv [keep_Some]. rewrite in_flat_map. split; intros H.
+  - eexists (Some _). simpl. eauto.
+  - fwd. destruct x; invert_list_stuff'; subst; auto.
+Qed.
+
 Definition disjoint_lists (l1 l2 : list A) :=
   forall x, In x l1 -> In x l2 -> False.
 
@@ -832,6 +845,22 @@ Proof.
     specialize (IHn hyps _ ltac:(lia) ltac:(eassumption)).
     simpl. apply in_flat_map. eexists. split; [eassumption|].
     apply in_map. assumption.
+Qed.
+
+Lemma disjoint_lists_alt (l1 l2 : list A) :
+  Forall (fun x => Forall (fun y => y <> x) l2) l1 ->
+  disjoint_lists l1 l2.
+Proof.
+  cbv [disjoint_lists]. induction 1; simpl.
+  - auto.
+  - intros ? [?|?]; subst; eauto.
+    rewrite Forall_forall in *. unfold not in *. eauto.
+Qed.
+
+Lemma option_all_map_Some (l : list A) :
+  option_all (map Some l) = Some l.
+Proof.
+  induction l; simpl; auto. rewrite IHl. reflexivity.
 Qed.
 End misc.
 

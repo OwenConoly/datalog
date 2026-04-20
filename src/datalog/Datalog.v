@@ -13,6 +13,7 @@ Hint Extern 6 => match goal with
                 | H: forall x, _ <-> _ |- _ => apply H
                 | H: _ <-> _ |- _ => apply H
                 end : core.
+Hint Extern 7 (_ <-> _) => split : core.
 
 (*relations, variables, functions, and "aggregator functions" (e.g. min, max, sum, prod)*)
 (* A datalog program talks about facts R(x1, ..., xn), where (R : rel) and (x1 : T), (x2 : T), etc. *)
@@ -548,9 +549,6 @@ Section __.
 
   Definition vars_of_clause (c : clause) : list var :=
     flat_map vars_of_expr c.(clause_args).
-
-  Definition keep_Some {X} : _ -> list X :=
-    flat_map (fun x => match x with | Some y => [y] | None => [] end).
 
   Definition vars_of_meta_clause (c : meta_clause) : list var :=
     flat_map vars_of_expr (keep_Some c.(meta_clause_args)).
@@ -1120,21 +1118,10 @@ Section __.
       Forall2 matches mf_args nf_args ->
       mf_set nf_args <-> S (normal_fact mf_rel nf_args).
 
+  Hint Unfold extensionally_equal : core.
   Lemma extensionally_equal_refl : forall f,
     extensionally_equal f f.
-  Proof.
-    intros f.
-    destruct f as [R args | R mf_args mf_set].
-    - (* Case: normal_fact *)
-      cbv [extensionally_equal].
-      split; reflexivity.
-    - (* Case: meta_fact *)
-      cbv [extensionally_equal].
-      split; [reflexivity |].
-      split; [reflexivity |].
-      intros args_ext Hmatch.
-      reflexivity.
-  Qed.
+  Proof. destruct f; auto. Qed.
 
   Lemma meta_rules_valid_step' p Q mf_rel mf_args mf_set mr mhyps :
     (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
@@ -1579,6 +1566,8 @@ Arguments rule : clear implicits.
 Arguments expr : clear implicits.
 Hint Constructors non_meta_rule_impl : core.
 Hint Constructors rule_impl : core.
+Hint Immediate extensionally_equal_refl : core.
+Hint Unfold extensionally_equal : core.
 
 Ltac interp_exprs :=
   repeat rewrite map_app; simpl;
@@ -1623,7 +1612,6 @@ Ltac invert_stuff :=
   | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
   | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
   | H : interp_expr _ _ _ |- _ => invert1 H
-  | H : In _ [_] |- _ => destruct H; [|contradiction]
   | H : Exists _ _ |- _ => apply Exists_exists in H; fwd
   | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
   | _ => progress subst
