@@ -1,5 +1,5 @@
 From Stdlib Require Import Lists.List Permutation.
-From coqutil Require Import Datatypes.List Tactics.fwd Tactics.destr Tactics.
+From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics.
 Require Import Datalog.Tactics.
 Import ListNotations.
 
@@ -643,6 +643,14 @@ Lemma map_is_flat_map (f : A -> B) xs :
   map f xs = flat_map (fun x => [f x]) xs.
 Proof. induction xs; eauto. Qed.
 
+Lemma flat_map_map (g : A -> B) (f : B -> list C) l :
+  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
+Proof. induction l; simpl; f_equal; auto. Qed.
+
+Lemma flat_map_flat_map (f : B -> list C) (g : A -> list B) l :
+  flat_map f (flat_map g l) = flat_map (fun x => flat_map f (g x)) l.
+Proof. induction l; simpl; eauto. rewrite flat_map_app. f_equal. assumption. Qed.
+
 Lemma app_inv_length1 (l1 l1' l2 l2' : list A) :
   l1 ++ l2 = l1' ++ l2' ->
   length l1 = length l1' ->
@@ -713,13 +721,12 @@ Lemma incl_skipn (l : list A) n :
   incl (skipn n l) l.
 Proof. eauto using In_skipn. Qed.
 
-Lemma flat_map_map (g : A -> B) (f : B -> list C) l :
-  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
-Proof. induction l; simpl; f_equal; auto. Qed.
-
-Lemma flat_map_flat_map (f : B -> list C) (g : A -> list B) l :
-  flat_map f (flat_map g l) = flat_map (fun x => flat_map f (g x)) l.
-Proof. induction l; simpl; eauto. rewrite flat_map_app. f_equal. assumption. Qed.
+Lemma seq_incl start len1 len2 :
+  len1 <= len2 ->
+  incl (seq start len1) (seq start len2).
+Proof.
+  intros Hlen x Hx. apply in_seq in Hx. apply in_seq. lia.
+Qed.
 
 Lemma Forall3_impl xs ys zs R1 R2 :
   (forall x y z, R1 x y z -> R2 x y z) ->
@@ -774,17 +781,6 @@ Proof.
     pose proof (H2 O _ _ ltac:(reflexivity) ltac:(reflexivity)).
     constructor; [assumption|]. apply IHxs; auto. intros n.
     specialize (H2 (S n)). simpl in H2. exact H2.
-Qed.
-
-Definition keep_Some : _ -> list A :=
-  flat_map (fun x => match x with | Some y => [y] | None => [] end).
-
-Lemma in_keep_Some k l :
-  In (Some k) l <-> In k (keep_Some l).
-Proof.
-  cbv [keep_Some]. rewrite in_flat_map. split; intros H.
-  - eexists (Some _). simpl. eauto.
-  - fwd. destruct x; invert_list_stuff'; subst; auto.
 Qed.
 
 Definition disjoint_lists (l1 l2 : list A) :=
@@ -862,7 +858,38 @@ Lemma option_all_map_Some (l : list A) :
 Proof.
   induction l; simpl; auto. rewrite IHl. reflexivity.
 Qed.
+
 End misc.
+
+Section misc.
+Context {A B C D : Type}.
+Implicit Type xs : list A.
+Implicit Type ys : list B.
+Implicit Type zs : list C.
+Definition keep_Some : _ -> list A :=
+  flat_map (fun x => match x with | Some y => [y] | None => [] end).
+
+Lemma in_keep_Some k l :
+  In (Some k) l <-> In k (keep_Some l).
+Proof.
+  cbv [keep_Some]. rewrite in_flat_map. split; intros H.
+  - eexists (Some _). simpl. eauto.
+  - fwd. destruct x; invert_list_stuff'; subst; auto.
+Qed.
+
+Lemma keep_Some_flat_map (f : B -> list (option A)) (l : list B) :
+  keep_Some (flat_map f l) = flat_map (fun x => keep_Some (f x)) l.
+Proof. cbv [keep_Some]. apply flat_map_flat_map. Qed.
+End misc.
+
+Lemma Forall2_option_relation_keep_Some {A B} (R : A -> B -> Prop) l1 l2 :
+  Forall2 (option_relation R) l1 l2 ->
+  Forall2 R (keep_Some l1) (keep_Some l2).
+Proof.
+  induction 1; simpl; auto.
+  cbv [option_relation] in H.
+  destruct x, y; simpl; contradiction || congruence || auto.
+Qed.
 
 Lemma Forall3_map3 {A B C D} (f : C -> D) xs ys zs (R : A -> B -> D -> Prop) :
   Forall3 (fun x y z => R x y (f z)) xs ys zs <->
@@ -943,4 +970,10 @@ Qed.
 
 Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
-Hint Resolve incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_in Permutation_sym : incl.
+Hint Resolve seq_incl incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_in Permutation_sym : incl.
+
+Lemma choose_any_n_mono {A} n (xs ys : list A) :
+  incl xs ys ->
+  incl (choose_any_n n xs) (choose_any_n n ys).
+Proof. induction n; simpl; auto with incl. Qed.
+Hint Resolve choose_any_n_mono : incl.
