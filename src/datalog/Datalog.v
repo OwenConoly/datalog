@@ -24,7 +24,6 @@ Class signature {fn aggregator T : Type} : Type :=
     (*   note: suffices to have this be T -> option nat, for cardinality... *)
     (*   should i do that? *) *)
     (* get_set : T -> option (T -> Prop); *)
-    (* iter : T; *)
     interp_agg : aggregator -> list (T * T) -> T; }.
 Arguments signature : clear implicits.
 
@@ -1018,13 +1017,6 @@ Section __.
     eapply H21; eauto. apply in_flat_map. eauto.
   Qed.
 
-  Lemma same_set_app_comm {U} (p1 p2 : list U) :
-    same_set (p1 ++ p2) (p2 ++ p1).
-  Proof.
-    cbv [same_set]. intros x. split; intro H;
-      apply in_app_or in H; apply in_or_app; intuition idtac.
-  Qed.
-
   Lemma staged_program p1 p2 Q f :
     disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) ->
     disjoint_lists (flat_map meta_concl_rels p1) (flat_map concl_rels p2) ->
@@ -1234,57 +1226,24 @@ Section __.
   Lemma doesnt_lie_honest_args S R :
     doesnt_lie S ->
     honest_args (fun args => S (fact_of R args)).
-  Proof.
-    intros Hlie mf_args mf_set Hmeta.
-    cbv [honest_args args_consistent].
-    intros nf_args Hmatch.
-
-    (* Unpack doesnt_lie and feed it the reconstructed meta_fact *)
-    cbv [doesnt_lie consistent] in Hlie.
-    specialize (Hlie R mf_args mf_set Hmeta nf_args Hmatch).
-
-    (* The equivalence holds perfectly because fact_of R (normal_fact_args ...)
-       evaluates directly to normal_fact R ... *)
-    exact Hlie.
-  Qed.
-
-  Lemma honest_args_ext S1 S2 :
-    (forall args, S1 args <-> S2 args) ->
-    honest_args S1 ->
-    honest_args S2.
-  Proof.
-    intros Heq H1 mf_args mf_set Hmeta.
-    cbv [honest_args args_consistent] in *.
-    intros nf_args Hmatch.
-
-    (* 1. Use the equivalence to translate the Hmeta assumption from S2 to S1 *)
-    apply (proj2 (Heq _)) in Hmeta.
-
-    (* 2. Feed it into the known honesty of S1 *)
-    specialize (H1 mf_args mf_set Hmeta nf_args Hmatch).
-
-    (* 3. Bridge the resulting S1 evaluation back to S2 for the goal *)
-    split; intro H_dir.
-    - apply (proj1 (Heq _)). apply (proj1 H1). exact H_dir.
-    - apply (proj2 H1). apply (proj2 (Heq _)). exact H_dir.
-  Qed.
+  Proof. cbv [doesnt_lie honest_args consistent args_consistent]. eauto. Qed.
 
   (*this is a lemma about pairwise properties, because that is all that i need to reasona baout.
     it is also true for n-wise properties, or even properties of arbitrary-length finite lists.
    it is not true for infinite sets. *)
 
-  Inductive is_dag_ish {U} Q (P : U -> list U -> _) : list U -> Prop :=
-  | is_dag_ish_nil : is_dag_ish _ _ []
+  Inductive is_flat_pftree {U} Q (P : U -> list U -> _) : list U -> Prop :=
+  | is_flat_pftree_nil : is_flat_pftree _ _ []
   | is_dag_ish_cons x xs :
     Q x \/ (exists l, P x l /\ incl l xs) ->
-    is_dag_ish _ _ xs ->
-    is_dag_ish _ _ (x :: xs).
-  Hint Constructors is_dag_ish : core.
+    is_flat_pftree _ _ xs ->
+    is_flat_pftree _ _ (x :: xs).
+  Hint Constructors is_flat_pftree : core.
 
-  Lemma is_dag_ish_app U (Q : U -> _) P xs1 xs2 :
-    is_dag_ish Q P xs1 ->
-    is_dag_ish Q P xs2 ->
-    is_dag_ish Q P (xs1 ++ xs2).
+  Lemma is_flat_pftree_app U (Q : U -> _) P xs1 xs2 :
+    is_flat_pftree Q P xs1 ->
+    is_flat_pftree Q P xs2 ->
+    is_flat_pftree Q P (xs1 ++ xs2).
   Proof.
     intros H1 H2. induction H1; simpl; auto.
     constructor; auto. destruct H as [H|H]; auto.
@@ -1292,15 +1251,15 @@ Section __.
     auto with incl.
   Qed.
 
-  Lemma is_dag_ish_concat U (Q : U -> _) P xss :
-    Forall (is_dag_ish Q P) xss ->
-    is_dag_ish Q P (concat xss).
-  Proof. induction 1; simpl; auto using is_dag_ish_app. Qed.
+  Lemma is_flat_pftree_concat U (Q : U -> _) P xss :
+    Forall (is_flat_pftree Q P) xss ->
+    is_flat_pftree Q P (concat xss).
+  Proof. induction 1; simpl; auto using is_flat_pftree_app. Qed.
 
-  Lemma pftree_something_idk U (P : U -> list U -> _) Q x :
+  Lemma pftree_impl_exists_flat_pftree U (P : U -> list U -> _) Q x :
     pftree P Q x ->
     exists xs,
-      is_dag_ish Q P xs /\ In x xs.
+      is_flat_pftree Q P xs /\ In x xs.
   Proof.
     induction 1.
     - exists [x]. simpl. auto.
@@ -1310,13 +1269,13 @@ Section __.
         apply Forall2_forget_r in H1. cbv [incl]. apply Forall_forall.
         eapply Forall_impl; [|eassumption].
         simpl. intros. fwd. rewrite in_concat. eauto.
-      + apply is_dag_ish_concat.
+      + apply is_flat_pftree_concat.
         apply Forall2_forget_l in H1. eapply Forall_impl; [|eassumption].
         simpl. intros. fwd. assumption.
   Qed.
 
-  Lemma is_dag_ish_pftree U (P : U -> _ -> _) Q xs :
-    is_dag_ish Q P xs ->
+  Lemma is_flat_pftree_pftree U (P : U -> _ -> _) Q xs :
+    is_flat_pftree Q P xs ->
     Forall (pftree P Q) xs.
   Proof.
     induction 1; constructor; auto.
@@ -1331,10 +1290,10 @@ Section __.
     (forall xs,
         (forall x1 x2, In x1 xs -> In x2 xs -> R x1 x2) ->
         forall x,
-        is_dag_ish Q P (x :: xs) ->
+        is_flat_pftree Q P (x :: xs) ->
         (forall y, In y (x :: xs) -> R x y)) ->
     forall xs,
-      is_dag_ish Q P xs ->
+      is_flat_pftree Q P xs ->
       forall x1 x2,
         In x1 xs ->
         In x2 xs ->
@@ -1353,22 +1312,21 @@ Section __.
     (forall xs,
         (forall x1 x2, In x1 xs -> In x2 xs -> R x1 x2) ->
         forall x,
-        is_dag_ish Q P (x :: xs) ->
+        is_flat_pftree Q P (x :: xs) ->
         (forall y, In y (x :: xs) -> R x y)) ->
     forall x1 x2,
       pftree P Q x1 ->
       pftree P Q x2 ->
       R x1 x2.
   Proof.
-    intros ? ? x1 x2 H1 H2. apply pftree_something_idk in H1, H2.
-    fwd. eapply is_dag_ish_app in H1p0; [|exact H2p0].
+    intros ? ? x1 x2 H1 H2. apply pftree_impl_exists_flat_pftree in H1, H2.
+    fwd. eapply is_flat_pftree_app in H1p0; [|exact H2p0].
     clear H2p0. eapply stepping_induction'; try eassumption.
     1,2: apply in_app_iff; auto.
   Qed.
 
-  Print is_dag_ish.
-  Lemma is_dag_ish_idk U (P : U -> _ -> _) Q xs :
-    is_dag_ish Q P xs ->
+  Lemma is_flat_pftree_forall_step U (P : U -> _ -> _) Q xs :
+    is_flat_pftree Q P xs ->
     Forall (fun x => Q x \/ (exists l : list U, P x l /\ incl l xs)) xs.
   Proof.
     induction 1; auto. constructor.
@@ -1429,13 +1387,13 @@ Section __.
     destruct Hf2 as [Hf2|Hf2].
     { fwd. reflexivity. }
     destruct Hf1 as [Hf1|Hf1].
-    { apply is_dag_ish_pftree in Hfs2. rewrite Forall_forall in Hfs2.
+    { apply is_flat_pftree_pftree in Hfs2. rewrite Forall_forall in Hfs2.
       apply Hfs2 in Hf2.
       apply invert_prog_impl in Hf2. destruct Hf2 as [Hf2|Hf2]; eauto.
       exfalso. fwd. apply Exists_exists in Hf2p0. fwd.
       apply rule_impl_concl_relname_in in Hf2p0p1. simpl in Hf2p0p1.
       eapply Hinp; eauto. simpl. apply in_flat_map. eauto. }
-    apply is_dag_ish_idk in Hfs2. rewrite Forall_forall in Hfs2.
+    apply is_flat_pftree_forall_step in Hfs2. rewrite Forall_forall in Hfs2.
     specialize (Hfs2 _ Hf2).
     fwd. apply Exists_exists in Hf1p0. fwd.
     destruct Hfs2 as [Hfs2|Hfs2].

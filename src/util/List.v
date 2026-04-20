@@ -780,6 +780,13 @@ Definition disjoint_lists (l1 l2 : list A) :=
 Definition same_set (l1 l2 : list A) :=
   forall x, In x l1 <-> In x l2.
 
+Lemma same_set_app_comm (p1 p2 : list A) :
+  same_set (p1 ++ p2) (p2 ++ p1).
+Proof.
+  cbv [same_set]. intros x. split; intro H;
+    apply in_app_or in H; apply in_or_app; intuition idtac.
+Qed.
+
 Lemma disjoint_lists_comm (l1 l2 : list A) :
   disjoint_lists l1 l2 ->
   disjoint_lists l2 l1.

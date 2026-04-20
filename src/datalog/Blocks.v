@@ -496,8 +496,8 @@ Section Blocks.
       - destruct f0; simpl in *; repeat invert_stuff.
         eassert (H':_) by (eapply non_meta_rule_impl_map_bw; eassumption).
         fwd. apply Hinj in H'p0. subst. eauto 7.
-      - destruct f0; simpl in *; repeat invert_stuff.
-        destruct r; simpl in *; repeat invert_stuff.
+      - destruct f0; simpl in *; congruence || fwd.
+        destruct r; simpl in *; congruence || fwd.
         apply Forall2_interp_meta_clause_map_bw in H2. fwd.
         rewrite Exists_map in H1. apply Exists_exists in H1. fwd.
         apply interp_meta_clause_map_bw with (h := meta_fact _ _ _) in H1p1. fwd.
