@@ -8,27 +8,6 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 
 Import ListNotations.
 
-Lemma map_eq_Forall2 {A B C} (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
-    map f l1 = map g l2 ->
-    Forall2 (fun x y => f x = g y) l1 l2.
-  Proof.
-    revert l2. induction l1 as [|x l1' IH]; destruct l2 as [|y l2']; simpl; intro H; try discriminate.
-    - constructor.
-    - injection H as Heq Htail. constructor.
-      + exact Heq.
-      + apply IH. exact Htail.
-  Qed.
-
-Definition fun_rel {U1 U2} (f : U1 -> U2) x y := f x = y.
-
-Lemma Forall2_eq_map {A B} (f : B -> A) (l1 : list A) (l2 : list B) :
-  Forall2 (fun_rel f) l2 l1 <-> l1 = map f l2.
-Proof.
-  split.
-  - induction 1; simpl; congruence.
-  - intros ->. induction l2; constructor; reflexivity || assumption.
-Qed.
-
 Section Blocks.
   Context {lvar gvar exprvar fn aggregator T : Type}.
   Context {sig : signature fn aggregator T}.
@@ -645,7 +624,7 @@ Section Blocks.
         pose proof H1 as H1'.
         apply Forall2_flip in H1'. eapply Forall2_impl in H1'.
         1: eapply Forall2_eq_map in H1'.
-        2: { cbv [fun_rel]. intros. fwd. eauto. }
+        2: { intros. fwd. eauto. }
         subst.
         eassert (H':_).
         { eapply rule_impl_map_rule_rels_bw; try eassumption.
@@ -735,10 +714,9 @@ Section Blocks.
     Lemma all_rels_map_rule_rels r :
       all_rels (map_rule_rels r) = map f (all_rels r).
     Proof.
-      destruct r; simpl.
-      - rewrite map_app. do 4 rewrite map_map. reflexivity.
-      - rewrite map_app. do 4 rewrite map_map. reflexivity.
-      - reflexivity.
+      cbv [all_rels].
+      rewrite concl_rels_map_rule_rels, hyp_rels_map_rule_rels.
+      rewrite map_app. reflexivity.
     Qed.
 
     Lemma fact_of_g_args_of fct :

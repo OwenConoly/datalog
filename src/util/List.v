@@ -231,6 +231,25 @@ Proof.
   split; auto using Forall2_flip.
 Qed.
 
+Lemma map_eq_Forall2 (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
+    map f l1 = map g l2 ->
+    Forall2 (fun x y => f x = g y) l1 l2.
+  Proof.
+    revert l2. induction l1 as [|x l1' IH]; destruct l2 as [|y l2']; simpl; intro H; try discriminate.
+    - constructor.
+    - injection H as Heq Htail. constructor.
+      + exact Heq.
+      + apply IH. exact Htail.
+  Qed.
+
+Lemma Forall2_eq_map (f : B -> A) (l1 : list A) (l2 : list B) :
+  Forall2 (fun x y => y = f x) l2 l1 <-> l1 = map f l2.
+Proof.
+  split.
+  - induction 1; simpl; congruence.
+  - intros ->. induction l2; constructor; reflexivity || assumption.
+Qed.
+
 Lemma in_combine_l_iff xs ys x (y : B) :
   (exists y, In (x, y) (combine xs ys)) <-> In x (firstn (length ys) xs).
 Proof.
@@ -753,6 +772,59 @@ Proof.
     pose proof (H2 O _ _ ltac:(reflexivity) ltac:(reflexivity)).
     constructor; [assumption|]. apply IHxs; auto. intros n.
     specialize (H2 (S n)). simpl in H2. exact H2.
+Qed.
+
+Definition disjoint_lists (l1 l2 : list A) :=
+  forall x, In x l1 -> In x l2 -> False.
+
+Definition same_set (l1 l2 : list A) :=
+  forall x, In x l1 <-> In x l2.
+
+Lemma disjoint_lists_comm (l1 l2 : list A) :
+  disjoint_lists l1 l2 ->
+  disjoint_lists l2 l1.
+Proof. cbv [disjoint_lists]. eauto. Qed.
+
+Lemma disjoint_lists_incl_l (l1 l1' l2 : list A) :
+  disjoint_lists l1 l2 ->
+  incl l1' l1 ->
+  disjoint_lists l1' l2.
+Proof. cbv [disjoint_lists]. eauto. Qed.
+
+Lemma disjoint_lists_incl (l1 l1' l2 l2' : list A) :
+  disjoint_lists l1 l2 ->
+  incl l1' l1 ->
+  incl l2' l2 ->
+  disjoint_lists l1' l2'.
+Proof. cbv [disjoint_lists]. eauto. Qed.
+
+Lemma disjoint_lists_app_r (l1 l2 l3 : list A) :
+  disjoint_lists l1 l2 ->
+  disjoint_lists l1 l3 ->
+  disjoint_lists l1 (l2 ++ l3).
+Proof.
+  cbv [disjoint_lists]. intros ? ? ? ? H.
+  rewrite in_app_iff in H. destruct H; eauto.
+Qed.
+
+Fixpoint choose_any_n n (fs : list A) :=
+  match n with
+  | S n' => flat_map (fun f => map (cons f) (choose_any_n n' fs)) fs
+  | O => [[]]
+  end.
+
+Lemma choose_n_spec n (hyps fs : list A) :
+  length hyps = n ->
+  incl hyps fs ->
+  In hyps (choose_any_n n fs).
+Proof.
+  revert hyps fs. induction n; intros hyps fs Hlen Hincl.
+  - destruct hyps; [|discriminate Hlen]. simpl. auto.
+  - destruct hyps; [discriminate Hlen|]. simpl in Hlen.
+    apply incl_cons_inv in Hincl. fwd.
+    specialize (IHn hyps _ ltac:(lia) ltac:(eassumption)).
+    simpl. apply in_flat_map. eexists. split; [eassumption|].
+    apply in_map. assumption.
 Qed.
 End misc.
 

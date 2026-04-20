@@ -8,6 +8,12 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 
 Import ListNotations.
 
+Hint Unfold iff : core.
+Hint Extern 6 => match goal with
+                | H: forall x, _ <-> _ |- _ => apply H
+                | H: _ <-> _ |- _ => apply H
+                end : core.
+
 (*relations, variables, functions, and "aggregator functions" (e.g. min, max, sum, prod)*)
 (* A datalog program talks about facts R(x1, ..., xn), where (R : rel) and (x1 : T), (x2 : T), etc. *)
 Class signature {fn aggregator T : Type} : Type :=
@@ -296,22 +302,13 @@ Section __.
     | normal_fact _ _ => False
     end.
 
-  Lemma extensionally_equal_sym : forall f1 f2,
-    extensionally_equal f1 f2 -> extensionally_equal f2 f1.
+  Lemma extensionally_equal_sym f1 f2 :
+    extensionally_equal f1 f2 ->
+    extensionally_equal f2 f1.
   Proof.
-    intros f1 f2 Heq.
-    destruct f1 as [R1 args1 | R1 mf_args1 mf_set1],
-             f2 as [R2 args2 | R2 mf_args2 mf_set2];
-    cbv [extensionally_equal] in *; try contradiction.
-    - (* Case: normal_fact *)
-      destruct Heq as [<- <-].
-      split; reflexivity.
-    - (* Case: meta_fact *)
-      destruct Heq as [<- [<- Hext]].
-      split; [reflexivity |].
-      split; [reflexivity |].
-      intros args Hmatch.
-      symmetry. apply Hext. exact Hmatch.
+    cbv [extensionally_equal]. intros.
+    destruct f1, f2; fwd; auto.
+    ssplit; auto. symmetry. auto.
   Qed.
 
   Lemma rule_impl_ext p r f hyps hyps' :
@@ -325,8 +322,10 @@ Section __.
       + eassumption.
       + eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
         apply Forall3_ignore2 in H2. eapply Forall2_impl; [|eassumption].
-        simpl. intros. fwd. cbv [interp_meta_clause extensionally_equal] in *. fwd. eauto.
-      + intros. rewrite H3 by assumption. split; intros; eapply one_step_derives_ext; eauto.
+        simpl. intros. fwd. cbv [interp_meta_clause extensionally_equal] in *.
+        fwd. eauto.
+      + intros. rewrite H3 by assumption.
+        split; intros; eapply one_step_derives_ext; eauto.
         apply Forall2_flip. eapply Forall2_impl; [|eassumption].
         auto using extensionally_equal_sym.
   Qed.
@@ -339,7 +338,8 @@ Section __.
     intros H1 H2. apply Forall_exists_r_Forall2 in H2.
     fwd.
     eapply prog_impl_step.
-    - eapply Exists_impl; [|eassumption]. simpl. intros. eapply rule_impl_ext; try eassumption.
+    - eapply Exists_impl; [|eassumption]. simpl. intros.
+      eapply rule_impl_ext; try eassumption.
       eapply Forall2_impl; [|eassumption].
       simpl. intros. fwd. auto using extensionally_equal_sym.
     - eapply Forall2_forget_l in H2. eapply Forall_impl; [|eassumption].
@@ -376,10 +376,7 @@ Section __.
     (forall f', Q1 f' <-> Q2 f') ->
     prog_impl p Q1 f <-> prog_impl p Q2 f.
   Proof.
-    intros H.
-    split; intros; eapply prog_impl_weaken_hyp; try eassumption.
-    - intros. apply H. assumption.
-    - intros. apply H. assumption.
+    eauto using prog_impl_weaken_hyp.
   Qed.
 
   Lemma rule_impl_mf_ext p Q mf_rel mf_args hyps mf_set mf_set' :
@@ -553,6 +550,12 @@ Section __.
   Definition vars_of_clause (c : clause) : list var :=
     flat_map vars_of_expr c.(clause_args).
 
+  Definition keep_Some {X} : _ -> list X :=
+    flat_map (fun x => match x with | Some y => [y] | None => [] end).
+
+  Definition vars_of_meta_clause (c : meta_clause) : list var :=
+    flat_map vars_of_expr (keep_Some c.(meta_clause_args)).
+
   Lemma interp_expr_agree_on ctx1 ctx2 e v :
     interp_expr ctx1 e v ->
     Forall (agree_on ctx1 ctx2) (vars_of_expr e) ->
@@ -589,6 +592,7 @@ Section __.
     | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
     | H : interp_expr _ _ _ |- _ => invert1 H
     | H : In _ [_] |- _ => destruct H; [|contradiction]
+    | H : Exists _ _ |- _ => apply Exists_exists in H; fwd
     | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
     | _ => progress subst
     | _ => progress invert_list_stuff
@@ -647,17 +651,57 @@ Section __.
     cbv [agree_on]. congruence.
   Qed.
 
-  (* Definition good_rule (r : rule) := *)
-  (*   match r with *)
-  (*   | normal_rule rule_concls rule_hyps => *)
-  (*       forall v, *)
-  (*         In v (flat_map vars_of_clause rule_concls) \/ *)
-  (*           In v (flat_map vars_of_clause rule_hyps) -> *)
-  (*         In (var_expr v) (flat_map clause_args rule_hyps) *)
-  (*   | agg_rule _ _ _ => True *)
-  (*   end. *)
 
-  (* Definition good_prog (p : list rule) := Forall good_rule p. *)
+  Definition concl_rels (r : rule) : list rel :=
+    match r with
+    | normal_rule rule_concls _ => map clause_rel rule_concls
+    | meta_rule rule_concls _ => map meta_clause_rel rule_concls
+    | agg_rule concl_rel _ _ => [concl_rel]
+    end.
+
+  Definition meta_concl_rels (r : rule) : list rel :=
+    match r with
+    | normal_rule _ _ => []
+    | meta_rule rule_concls _ => map meta_clause_rel rule_concls
+    | agg_rule _ _ _ => []
+    end.
+
+  Definition hyp_rels (r : rule) : list rel :=
+    match r with
+    | normal_rule _ rule_hyps => map clause_rel rule_hyps
+    | meta_rule rule_concls rule_hyps => map meta_clause_rel rule_hyps
+    | agg_rule _ _ hyp_rel => [hyp_rel]
+    end.
+
+  Definition all_rels (r : rule) : list rel :=
+    concl_rels r ++ hyp_rels r.
+
+  Definition concl_vars r :=
+    match r with
+    | normal_rule rule_concls rule_hyps =>
+        flat_map vars_of_clause rule_concls
+    | meta_rule rule_concls rule_hyps =>
+        flat_map vars_of_meta_clause rule_concls
+    | agg_rule _ _ _ => []
+    end.
+
+  Definition hyp_vars (r : rule) : list var. Admitted.
+
+  Definition all_vars r := concl_vars r ++ hyp_vars r.
+
+  Definition rule_hyp_args r :=
+    match r with
+    | normal_rule _ rule_hyps =>
+        flat_map clause_args rule_hyps
+    | meta_rule _ rule_hyps =>
+        keep_Some (flat_map meta_clause_args rule_hyps)
+    | agg_rule _ _ _ => []
+    end.
+
+  Definition good_rule (r : rule) :=
+    forall v, In v (all_vars r) -> In (var_expr v) (rule_hyp_args r).
+
+  Definition good_prog (p : list rule) := Forall good_rule p.
 
   (* Definition clause_outs (c : clause) := firstn (outs (fst c.(clause_R))) c.(clause_args). *)
   (* Definition clause_ins (c : clause) := skipn (outs (fst c.(clause_R))) c.(clause_args). *)
@@ -688,44 +732,12 @@ Section __.
   (*   | agg_rule _ _ _ => True *)
   (*   end. *)
 
-  Definition concl_rels (r : rule) : list rel :=
-    match r with
-    | normal_rule rule_concls _ => map clause_rel rule_concls
-    | meta_rule rule_concls _ => map meta_clause_rel rule_concls
-    | agg_rule concl_rel _ _ => [concl_rel]
-    end.
-
-  Definition meta_concl_rels (r : rule) : list rel :=
-    match r with
-    | normal_rule _ _ => []
-    | meta_rule rule_concls _ => map meta_clause_rel rule_concls
-    | agg_rule _ _ _ => []
-    end.
-
-  Definition all_rels (r : rule) : list rel :=
-    match r with
-    | normal_rule rule_concls rule_hyps =>
-        map clause_rel rule_concls ++ map clause_rel rule_hyps
-    | meta_rule rule_concls rule_hyps =>
-        map meta_clause_rel rule_concls ++ map meta_clause_rel rule_hyps
-    | agg_rule concl_rel _ hyp_rel => [concl_rel; hyp_rel]
-    end.
-
-    (*not equivalent to hyp_rels_alt*)
-  Definition hyp_rels (r : rule) : list rel :=
-    match r with
-    | normal_rule _ rule_hyps => map clause_rel rule_hyps
-    | meta_rule rule_concls rule_hyps => map meta_clause_rel rule_hyps
-    | agg_rule _ _ hyp_rel => [hyp_rel]
-    end.
-
   Lemma non_meta_rule_impl_concl_relname_in r R args hyps :
     non_meta_rule_impl r R args hyps ->
     In R (concl_rels r).
   Proof.
     invert 1.
-    - rewrite Exists_exists in *. repeat invert_stuff.
-      apply in_map_iff. eauto.
+    - repeat invert_stuff. apply in_map_iff. eauto.
     - left. reflexivity.
   Qed.
 
@@ -734,9 +746,8 @@ Section __.
     In (rel_of f) (concl_rels r).
   Proof.
     invert 1.
-    - eapply  non_meta_rule_impl_concl_relname_in. eassumption.
-    - rewrite Exists_exists in *. fwd. apply in_map_iff.
-      repeat invert_stuff. eauto.
+    - eapply non_meta_rule_impl_concl_relname_in. eassumption.
+    - repeat invert_stuff. apply in_map_iff. eauto.
   Qed.
 
   Lemma non_meta_rule_impl_hyp_relname_in r R args hyps :
@@ -817,30 +828,6 @@ Section __.
     - exact Hhyps.
   Qed.
 
-  Definition disjoint_lists {T} (l1 l2 : list T) :=
-    forall x, In x l1 -> In x l2 -> False.
-
-  Definition same_set {T} (l1 l2 : list T) :=
-    forall x, In x l1 <-> In x l2.
-
-  Lemma disjoint_lists_comm {U} (l1 l2 : list U) :
-    disjoint_lists l1 l2 ->
-    disjoint_lists l2 l1.
-  Proof. cbv [disjoint_lists]. eauto. Qed.
-
-  Lemma disjoint_lists_incl_l {U} (l1 l1' l2 : list U) :
-    disjoint_lists l1 l2 ->
-    incl l1' l1 ->
-    disjoint_lists l1' l2.
-  Proof. cbv [disjoint_lists]. eauto. Qed.
-
-  Lemma disjoint_lists_incl {U} (l1 l1' l2 l2' : list U) :
-    disjoint_lists l1 l2 ->
-    incl l1' l1 ->
-    incl l2' l2 ->
-    disjoint_lists l1' l2'.
-  Proof. cbv [disjoint_lists]. eauto. Qed.
-
   (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
   (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
   (*   prog_impl_with_no_meta_rules (p1 ++ p2) Q f -> *)
@@ -889,8 +876,7 @@ Section __.
       cbv [one_step_derives one_step_derives0]. split; intros H'.
       + fwd. rewrite in_app_iff in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto 6.
         apply non_meta_rule_impl_concl_relname_in in H'p1.
-        rewrite Exists_exists in H0. fwd. repeat invert_stuff.
-        exfalso. eapply Hout.
+        repeat invert_stuff. exfalso. eapply Hout.
         -- apply in_map. eassumption.
         -- apply in_flat_map. eauto.
       + fwd. do 2 eexists. rewrite in_app_iff. eauto.
@@ -911,8 +897,7 @@ Section __.
       + fwd. do 2 eexists. rewrite in_app_iff. eauto.
       + fwd. do 2 eexists. eauto. rewrite in_app_iff in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto.
         apply non_meta_rule_impl_concl_relname_in in H'p1.
-        rewrite Exists_exists in H0. fwd. repeat invert_stuff.
-        exfalso. eapply Hout.
+        repeat invert_stuff. exfalso. eapply Hout.
         -- apply in_map. eassumption.
         -- apply in_flat_map. eauto.
   Qed.
@@ -1082,12 +1067,12 @@ Section __.
 
   Lemma concl_rels_incl_all_rels r :
     incl (concl_rels r) (all_rels r).
-  Proof. destruct r; simpl; auto with incl. Qed.
+  Proof. cbv [all_rels]. auto with incl. Qed.
   Hint Resolve concl_rels_incl_all_rels : incl.
 
   Lemma hyp_rels_incl_all_rels r :
     incl (hyp_rels r) (all_rels r).
-  Proof. destruct r; simpl; auto with incl. Qed.
+  Proof. cbv [all_rels]. auto with incl. Qed.
   Hint Resolve hyp_rels_incl_all_rels : incl.
 
   Lemma staged_program_weak p1 p2 Q f :
@@ -1699,6 +1684,7 @@ Ltac invert_stuff :=
   | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
   | H : interp_expr _ _ _ |- _ => invert1 H
   | H : In _ [_] |- _ => destruct H; [|contradiction]
+  | H : Exists _ _ |- _ => apply Exists_exists in H; fwd
   | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
   | _ => progress subst
   | _ => progress invert_list_stuff
