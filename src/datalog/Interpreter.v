@@ -28,11 +28,12 @@ Section __.
   Local Notation rule := (rule rel var fn aggregator).
   Local Notation clause := (clause rel var fn).
   Local Notation meta_clause := (meta_clause rel var fn).
+  Local Notation fact:= (fact rel T).
 
   Implicit Type r : rule.
   Implicit Type ctx : context.
 
-  Print list_prod. (*why is this not defined in terms of flat_map?*)
+  (* Print list_prod. (*why is this not defined in terms of flat_map?*) *)
   Definition edges_of_rule r :=
     list_prod (concl_rels r) (hyp_rels r).
 
@@ -170,10 +171,14 @@ Section __.
                    | _ => []
                    end) args args').
 
-  Definition context_of_clause (c : clause) (args : list T) :=
-    context_of_args c.(clause_args) args.
+  Definition context_of_clause (c : clause) (f : fact) :=
+    match f with
+    | normal_fact _ args =>
+        context_of_args c.(clause_args) args
+    | meta_fact _ _ _ => []
+    end.
 
-  Definition context_of_hyps (hyps : list clause) (hyps' : list (list T)) :=
+  Definition context_of_hyps (hyps : list clause) (hyps' : list fact) :=
     concat (zip context_of_clause hyps hyps').
 
   Lemma bare_in_context_args ctx x args args' :
@@ -193,13 +198,13 @@ Section __.
     interp_clause ctx c f ->
     exists v, In (x, v) (context_of_clause c f).
   Proof.
-    intros H1 H2. cbv [context_of_fact]. invert H2.
+    intros H1 H2. cbv [context_of_clause]. invert_stuff.
     eapply bare_in_context_args; eassumption.
   Qed.
 
   Lemma bare_in_context_hyps ctx x hyps hyps' :
-    In (var_expr x) (flat_map fact_args hyps) ->
-    Forall2 (interp_fact ctx) hyps hyps' ->
+    In (var_expr x) (flat_map clause_args hyps) ->
+    Forall2 (interp_clause ctx) hyps hyps' ->
     exists v, In (x, v) (context_of_hyps hyps hyps').
   Proof.
     intros H1 H2. apply in_flat_map in H1. fwd. cbv [context_of_hyps].
@@ -215,7 +220,7 @@ Section __.
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_args args args').
   Proof.
     intros H. apply Forall2_combine in H. rewrite Forall_forall in *.
-    intros [x v] Hx. cbv [context_of_fact] in Hx. apply in_concat in Hx. fwd.
+    intros [x v] Hx. cbv [context_of_clause] in Hx. apply in_concat in Hx. fwd.
     cbv [zip] in Hxp0. apply in_map_iff in Hxp0. fwd. apply H in Hxp0p1.
     do 2 (destruct_one_match_hyp; simpl in Hxp1; try contradiction).
     destruct Hxp1; try contradiction. invert H0. invert Hxp0p1. assumption.
@@ -233,26 +238,26 @@ Section __.
     specialize (H _ H'p1). simpl in H. cbv [agree_on]. eauto using eq_trans.
   Qed.
 
-  Lemma interp_fact_context_right ctx f f' :
-    interp_fact ctx f f' ->
-    Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_fact f f').
+  Lemma interp_clause_context_right ctx f f' :
+    interp_clause ctx f f' ->
+    Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_clause f f').
   Proof.
-    intros H. invert H. apply interp_args_context_right. assumption.
+    intros. invert_stuff. apply interp_args_context_right. assumption.
   Qed.
 
   Lemma interp_hyps_context_right ctx hyps hyps' :
-    Forall2 (interp_fact ctx) hyps hyps' ->
+    Forall2 (interp_clause ctx) hyps hyps' ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_hyps hyps hyps').
   Proof.
     intros H. apply Forall2_combine in H. rewrite Forall_forall in *.
     intros x Hx. cbv [context_of_hyps] in *. rewrite in_concat in Hx.
     fwd. cbv [zip] in Hxp0. rewrite in_map_iff in Hxp0. fwd. destruct x1 as [v v'].
-    apply H in Hxp0p1. apply interp_fact_context_right in Hxp0p1.
+    apply H in Hxp0p1. apply interp_clause_context_right in Hxp0p1.
     rewrite Forall_forall in Hxp0p1. apply Hxp0p1 in Hxp1. assumption.
   Qed.
 
   Lemma interp_hyps_context_right_weak ctx hyps hyps' :
-    Forall2 (interp_fact ctx) hyps hyps' ->
+    Forall2 (interp_clause ctx) hyps hyps' ->
     map.extends ctx (map.of_list (context_of_hyps hyps hyps')).
   Proof.
     intros H. apply interp_hyps_context_right in H. cbv [map.extends].
@@ -261,8 +266,8 @@ Section __.
   Qed.
 
   Lemma context_of_hyps_agree ctx hyps hyps' v :
-    Forall2 (interp_fact ctx) hyps hyps' ->
-    In (var_expr v) (flat_map fact_args hyps) ->
+    Forall2 (interp_clause ctx) hyps hyps' ->
+    In (var_expr v) (flat_map clause_args hyps) ->
     agree_on ctx (map.of_list (context_of_hyps hyps hyps')) v.
   Proof.
     intros H1 H2.
@@ -272,22 +277,6 @@ Section __.
     eapply interp_hyps_context_right_weak in H1; eauto.
     specialize (H1 _ _ H'p0). cbv [agree_on]. rewrite H1, H'p0. reflexivity.
   Qed.
-
-  Definition eval_aexpr aexpr ctx agg_hyps's :=
-    match option_coalesce (option_map get_set (subst_in_expr ctx aexpr.(agg_s))) with
-    | None => None
-    | Some s' =>
-
-        let body's := zip (fun i' agg_hyps' =>
-                             let bodyctx := map.of_list (context_of_hyps aexpr.(agg_hyps) agg_hyps') in
-                             let bodyctx := map.putmany ctx (map.put bodyctx aexpr.(agg_i) i') in
-                             subst_in_expr bodyctx aexpr.(agg_body)) s' agg_hyps's in
-        match option_all body's with
-        | None => None
-        | Some body's =>
-            Some (fold_right (interp_agg aexpr.(agg_agg)) (agg_id aexpr.(agg_agg)) body's)
-        end
-    end.
 
   Lemma in_vars_interp_expr_not_None ctx e e' v :
     interp_expr ctx e e' ->
@@ -302,428 +291,13 @@ Section __.
       specialize (H3 _ H2p0). fwd. eapply H3p0; eauto.
   Qed.
 
-  Lemma eval_aexpr_complete ctx aexpr res agg_hyps's :
-    good_agg_expr aexpr ->
-    interp_agg_expr ctx aexpr res agg_hyps's ->
-    eval_aexpr aexpr ctx agg_hyps's = Some res.
-  Proof.
-    intros Hgood H. invert H. cbv [eval_aexpr]. simpl.
-    apply subst_in_expr_complete in H0. rewrite H0. simpl. rewrite H1.
-    erewrite Forall2_option_all. 1: reflexivity.
-    cbv [zip]. rewrite <- Forall2_map_l. eapply Forall3_combine12.
-    apply Forall3_swap23. eapply Forall3_impl; [|eassumption]. simpl.
-    clear H2. intros x y z Hxyz. fwd.
-    apply subst_in_expr_complete.
-    eapply interp_expr_agree_on; eauto. cbv [good_agg_expr] in Hgood.
-    simpl in Hgood. rewrite Forall_forall in Hgood. rewrite Forall_forall.
-    intros v Hv. cbv [agree_on]. do 2 rewrite map.get_putmany_dec.
-    do 2 rewrite map.get_put_dec. destr (var_eqb i v); [reflexivity|].
-    destruct (map.get ctx' v) eqn:E'.
-    - Search context_of_hyps. pose proof Hxyzp1 as Hxyzp1'.
-      apply interp_hyps_context_right in Hxyzp1.
-      pose proof E' as E''.
-      erewrite map.get_of_list_zip in E' by eassumption.
-      apply map.zipped_lookup_Some_in in E'.
-      apply Hgood in E'. Search context_of_hyps var_expr.
-      eapply bare_in_context_hyps in Hxyzp1'; eauto. fwd.
-      apply in_fst in Hxyzp1'. apply in_of_list_Some_strong in Hxyzp1'.
-      fwd.
-      rewrite Forall_forall in Hxyzp1. specialize (Hxyzp1 _ Hxyzp1'p1).
-      simpl in Hxyzp1. rewrite <- E''. rewrite <- Hxyzp1.
-      rewrite map.get_putmany_dec. rewrite map.get_put_diff by auto. rewrite E''.
-      reflexivity.
-    - destruct_one_match; auto.
-      Search context_of_hyps.
-      apply interp_hyps_context_right_weak in Hxyzp1. apply Hxyzp1 in E0.
-      rewrite map.get_putmany_dec in E0. rewrite map.get_put_diff in E0 by auto.
-      rewrite E' in E0. apply E0.
-  Qed.
+  Definition all_rule_ctxs hyps hyps' :=
+    map.of_list (context_of_hyps hyps hyps').
 
-  (*repeatedly iterate over set hyps.
-    if we find x \in S, where S is bound to something,
-    then seize on it.  for each x' in get_set S,
-    bind x to x', and repeat.
-   *)
-  Definition is_Some {T : Type} (x : option T) :=
-    match x with
-    | Some _ => true
-    | None => false
-    end.
-  Definition is_None {T : Type} (x : option T) :=
-    match x with
-    | Some _ => false
-    | None => true
-    end.
-  Print find.
-  Search (option _ -> option _ -> option _).
-  Definition option_or {T : Type} (x y : option T) : option T :=
-    match x, y with
-    | Some x, _ => Some x
-    | None, Some y => Some y
-    | None, None => None
-    end.
-  Fixpoint find_Some {T U : Type} (f : T -> option U) (l : list T) :=
-    match l with
-    | a :: l => option_or (f a) (find_Some f l)
-    | [] => None
-    end.
-
-  Lemma option_or_Some {U : Type} (x y : option U) z :
-    option_or x y = Some z ->
-    x = Some z \/ x = None /\ y = Some z.
-  Proof.
-    destruct x, y; simpl; intros; fwd; auto; congruence.
-  Qed.
-
-  Lemma option_or_None {U : Type} (x y : option U) :
-    option_or x y = None ->
-    x = None /\ y = None.
-  Proof.
-    destruct x, y; simpl; auto; congruence.
-  Qed.
-
-  Lemma find_Some_sound {V U : Type} (f : V -> option U) l y :
-    find_Some f l = Some y ->
-    Exists (fun x => f x = Some y) l.
-  Proof.
-    induction l; simpl.
-    - congruence.
-    - intros H. apply option_or_Some in H. destruct H; fwd; auto.
-  Qed.
-
-  Lemma find_Some_complete {V U : Type} (f : V -> option U) l :
-    find_Some f l = None ->
-    Forall (fun x => f x = None) l.
-  Proof.
-    induction l; simpl; auto.
-    intros H. apply option_or_None in H. fwd. auto.
-  Qed.
-
-  Notation "x <- a ; f" := (match a with Some x => f | _ => None end)
-                             (right associativity, at level 70).
-
-  Definition get_one_binding ctx (set_hyps : list (expr * expr)) :=
-    find_Some
-      (fun '(x, s) =>
-         x <- match x with
-             | var_expr x => Some x
-             | _ => None end;
-       match map.get ctx x, subst_in_expr ctx s with
-       | None, Some s' => Some (x, s')
-       | _, _ => None
-       end)
-      set_hyps.
-
-  Definition option_default {T : Type} (x : option T) (d : T) :=
-    match x with
-    | Some x => x
-    | None => d
-    end.
-
-  Definition expand_ctx_from_set_hyps set_hyps ctx :=
-    match get_one_binding ctx set_hyps with
-    | Some (x, s') => map (map.put ctx x) (option_default (get_set s') [])
-    | None => [ctx]
-    end.
-
-  Definition step_set_hyps_ctxs set_hyps ctxs :=
-    flat_map (expand_ctx_from_set_hyps set_hyps) ctxs.
-
-  Lemma get_one_binding_sound ctx ctx' set_hyps x s' :
-    map.extends ctx' ctx ->
-    Forall (x_in_S ctx') set_hyps ->
-    get_one_binding ctx set_hyps = Some (x, s') ->
-    map.get ctx x = None /\
-      In (var_expr x) (map fst set_hyps) /\
-      exists x',
-        map.get ctx' x = Some x' /\
-          In x' (option_default (get_set s') []).
-  Proof.
-    intros Hext Hsat H. cbv [get_one_binding] in H.
-    apply find_Some_sound in H. apply Exists_exists in H. fwd.
-    rewrite Forall_forall in Hsat. split; [assumption|]. split.
-    { apply in_map_iff. eexists (_, _). simpl. eauto. }
-    apply Hsat in Hp0. simpl in Hp0. fwd.
-    invert Hp0p0. eexists. split; [eassumption|].
-    apply subst_in_expr_sound in E1. eapply interp_expr_subst_more in E1; eauto.
-    eapply interp_expr_det in E1. 2: exact Hp0p1. subst. rewrite Hp0p2. assumption.
-  Qed.
-
-  Lemma get_one_binding_extends ctx set_hyps x s' :
-    get_one_binding ctx set_hyps = Some (x, s') ->
-    map.get ctx x = None.
-  Proof.
-    intros H. cbv [get_one_binding] in H. apply find_Some_sound in H.
-    apply Exists_exists in H. fwd. auto.
-  Qed.
-
-  (*I basically have no idea what this is or why i proved it*)
-  (*I am sleepy*)
-  Lemma idk P (set_hyps : list (expr * expr)) :
-    (forall x y,
-        In (var_expr x, y) set_hyps ->
-        (forall v, In v (vars_of_expr y) -> P v) ->
-        P x) ->
-    (forall v, in_set_hyps v set_hyps ->
-          P v \/ In (var_expr v) (map fst set_hyps)) ->
-    well_founded (depends_on_in_set_hyps set_hyps) ->
-    forall v, in_set_hyps v set_hyps ->
-         P v.
-  Proof.
-    intros H1 H2 H3. intros v. specialize (H3 v). induction H3 as [v H3 H4].
-    intros H5. apply H2 in H5. destruct H5 as [H5|H5]; auto. clear H3.
-    apply in_map_iff in H5. fwd. destruct x as [x s]. simpl in H5p0. subst.
-    eapply H1; eauto. intros. apply H4.
-    - cbv [depends_on_in_set_hyps]. eauto.
-    - cbv [in_set_hyps]. right. rewrite in_flat_map. eexists. rewrite in_map_iff. eauto.
-  Qed.
-
-  Lemma get_one_binding_complete ctx ctx' set_hyps :
-    map.extends ctx' ctx ->
-    Forall (x_in_S ctx') set_hyps ->
-    get_one_binding ctx set_hyps = None ->
-    (forall v, in_set_hyps v set_hyps ->
-          map.get ctx v <> None \/ In (var_expr v) (map fst set_hyps)) ->
-    well_founded (depends_on_in_set_hyps set_hyps) ->
-    Forall (x_in_S ctx) set_hyps.
-  Proof.
-    intros Hext Hsat H Hwf1 Hwf2. cbv [get_one_binding] in H.
-    apply find_Some_complete in H.
-    assert (H': forall v, in_set_hyps v set_hyps -> map.get ctx v <> None).
-    { apply idk; auto. intros x y H0 H1. intros H'. rewrite Forall_forall in H.
-      specialize (H _ ltac:(eassumption)). simpl in H. rewrite H' in H.
-      destruct_one_match_hyp; [congruence|]. rewrite Forall_forall in Hsat.
-      specialize (Hsat _ ltac:(eassumption)). simpl in Hsat. fwd.
-      eapply interp_expr_agree_on in Hsatp1.
-      { apply subst_in_expr_complete in Hsatp1. rewrite E in Hsatp1. congruence. }
-      apply Forall_forall. intros x0 ?. specialize (H1 _ ltac:(eassumption)).
-      destruct (map.get ctx x0) eqn:Ex0; [|congruence].
-      cbv [agree_on]. rewrite Ex0. apply Hext in Ex0. rewrite Ex0. reflexivity. }
-    clear -Hext Hsat H'. rewrite Forall_forall in *. intros [x y] Hxy.
-    specialize (Hsat _ Hxy). simpl in Hsat. fwd. cbv [x_in_S]. do 3 eexists.
-    ssplit; eauto.
-    - eapply interp_expr_agree_on; eauto. apply Forall_forall. intros v Hv.
-      cbv [agree_on]. specialize (H' v). specialize' H'.
-      { cbv [in_set_hyps]. left. rewrite in_flat_map. eexists. rewrite in_map_iff. eauto. }
-      destruct (map.get ctx v) eqn:Ev; [|congruence]. apply Hext. apply Ev.
-    - eapply interp_expr_agree_on; eauto. apply Forall_forall. intros v Hv.
-      cbv [agree_on]. specialize (H' v). specialize' H'.
-      { cbv [in_set_hyps]. right. rewrite in_flat_map. eexists. rewrite in_map_iff. eauto. }
-      destruct (map.get ctx v) eqn:Ev; [|congruence]. apply Hext. apply Ev.
-  Qed.
-
-  Lemma step_progress' ctx'' ctx set_hyps :
-    map.extends ctx'' ctx ->
-    Forall (x_in_S ctx'') set_hyps ->
-    (forall v, in_set_hyps v set_hyps ->
-          map.get ctx v <> None \/ In (var_expr v) (map fst set_hyps)) ->
-    well_founded (depends_on_in_set_hyps set_hyps) ->
-    Exists (fun ctx' =>
-              map.extends ctx'' ctx' /\
-                (ctx' = ctx /\
-                   Forall (x_in_S ctx) set_hyps \/
-                   exists x,
-                     map.get ctx' x <> None /\
-                       map.get ctx x = None /\
-                       In (var_expr x) (map fst set_hyps)))
-      (expand_ctx_from_set_hyps set_hyps ctx).
-  Proof.
-    intros Hext Hsat Hwf1 Hwf2. cbv [expand_ctx_from_set_hyps].
-    destruct (get_one_binding ctx set_hyps) as [(x&s')|] eqn:E.
-    - eapply get_one_binding_sound in E; eauto. fwd. apply Exists_map.
-      apply Exists_exists. eexists. split; [eassumption|]. split.
-      { map_solver context_ok. }
-      right. exists x. rewrite map.get_put_same. intuition (try congruence).
-    - eapply get_one_binding_complete in E; eauto.
-  Qed.
-
-  Lemma step_progress ctx'' ctx ctxs set_hyps :
-    map.extends ctx'' ctx ->
-    In ctx ctxs ->
-    Forall (x_in_S ctx'') set_hyps ->
-    Forall (fun ctx =>
-              (forall v, in_set_hyps v set_hyps ->
-                    map.get ctx v <> None \/ In (var_expr v) (map fst set_hyps))) ctxs ->
-    well_founded (depends_on_in_set_hyps set_hyps) ->
-    Exists (fun ctx' =>
-              map.extends ctx'' ctx' /\
-                (ctx' = ctx /\
-                Forall (x_in_S ctx) set_hyps \/
-                exists x,
-                    map.get ctx' x <> None /\
-                    map.get ctx x = None /\
-                    In (var_expr x) (map fst set_hyps)))
-      (step_set_hyps_ctxs set_hyps ctxs).
-  Proof.
-    intros Hext Hin Hsat Hwf1 Hwf2. cbv [step_set_hyps_ctxs]. apply Exists_flat_map.
-    apply Exists_exists. eexists. split; [eassumption|]. apply step_progress'; auto.
-    rewrite Forall_forall in Hwf1. auto.
-  Qed.
-
-  Lemma expand_ctx_from_set_hyps_extends set_hyps ctx :
-    Forall (fun ctx' => map.extends ctx' ctx) (expand_ctx_from_set_hyps set_hyps ctx).
-  Proof.
-    cbv [expand_ctx_from_set_hyps]. destruct (get_one_binding _ _) as [(x&s')|] eqn:E.
-    - apply get_one_binding_extends in E. apply Forall_map. apply Forall_forall.
-      intros x' _. map_solver context_ok.
-    - eauto using map.extends_refl.
-  Qed.
-
-  Lemma step_extends set_hyps ctxs :
-    Forall (fun ctx' => exists ctx, In ctx ctxs /\ map.extends ctx' ctx) (step_set_hyps_ctxs set_hyps ctxs).
-  Proof.
-    cbv [step_set_hyps_ctxs]. apply Forall_flat_map. apply Forall_forall.
-    intros ctx Hctx. eapply Forall_impl. 2: apply expand_ctx_from_set_hyps_extends.
-    simpl. eauto.
-  Qed.
-
-  Lemma steps_extends set_hyps ctxs n :
-    Forall (fun ctx' => exists ctx, In ctx ctxs /\ map.extends ctx' ctx) (Nat.iter n (step_set_hyps_ctxs set_hyps) ctxs).
-  Proof.
-    apply Nat.iter_invariant.
-    - intros x H. eapply Forall_impl. 2: apply step_extends. simpl. intros. fwd.
-      rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)). fwd.
-      eauto using extends_trans.
-    - apply Forall_forall. eauto using map.extends_refl.
-  Qed.
-
-  Check Exists_impl.
-  Lemma Exists_impl_strong {A : Type} (P Q : A -> Prop) l :
-    Exists P l ->
-    (forall a, In a l -> P a -> Q a) ->
-    Exists Q l.
-  Proof. do 2 rewrite Exists_exists. intros. fwd. eauto. Qed.
-
-  Lemma steps_progress ctx'' n ctx set_hyps :
-    map.extends ctx'' ctx ->
-    Forall (x_in_S ctx'') set_hyps ->
-    (forall v, in_set_hyps v set_hyps ->
-                    map.get ctx v <> None \/ In (var_expr v) (map fst set_hyps)) ->
-    well_founded (depends_on_in_set_hyps set_hyps) ->
-    Exists (fun ctx' =>
-              map.extends ctx'' ctx' /\
-              (Forall (x_in_S ctx') set_hyps \/
-                exists l,
-                  length l = n /\ NoDup l /\
-                    Forall (fun x => map.get ctx' x <> None /\
-                                    map.get ctx x = None /\
-                                    In (var_expr x) (map fst set_hyps)) l))
-      (Nat.iter n (step_set_hyps_ctxs set_hyps) [ctx]).
-  Proof.
-    intros H H1 H2 H3. induction n.
-    - simpl. apply Exists_exists. eexists. split; [simpl; eauto|].
-      split; [assumption|]. right. exists nil. simpl. intuition constructor.
-    - simpl. apply Exists_exists in IHn. fwd. cbv [step_set_hyps_ctxs].
-      apply Exists_flat_map. eapply Exists_exists. eexists. split; [eassumption|].
-      eapply Forall_forall in IHnp0. 2: apply steps_extends. simpl in IHnp0. fwd.
-      eapply Exists_impl_strong.
-      { apply step_progress'; auto. 2: eassumption. 1: assumption.
-        intros v Hv. apply H2 in Hv. destruct Hv as [Hv|Hv]; auto. left. intros H'.
-        apply Hv. destruct IHnp0p0; contradiction || subst.
-        eauto using extends_None. }
-      simpl. intros ctx' Hin Hctx'. fwd. split; [assumption|].
-      eapply Forall_forall in Hin. 2: apply expand_ctx_from_set_hyps_extends.
-      simpl in Hin. destruct IHnp2 as [IHnp2|IHnp2].
-      { left. eapply Forall_impl; [|eassumption]. eauto using x_in_S_subst_more. }
-      destruct Hctx'p1 as [Hctx'p1|Hctx'p1].
-      { fwd. left. eapply Forall_impl; [|eassumption]. eauto using x_in_S_subst_more. }
-      fwd. right. exists (x0 :: l). split; [reflexivity|]. split.
-      + constructor; auto. intros H'. rewrite Forall_forall in IHnp2p2.
-        apply IHnp2p2 in H'. fwd. auto.
-      + constructor.
-        -- intuition auto. subst. eauto using extends_None.
-        -- eapply Forall_impl; [|eassumption]. simpl. intros. fwd. intuition auto.
-           subst. eauto using extends_None.
-  Qed.
-
-  (*get all the possible contexts *)
-  Definition all_set_hyps_ctxs ctx set_hyps :=
-    Nat.iter (S (length set_hyps)) (step_set_hyps_ctxs set_hyps) [ctx].
-  (* S is artifcat of dumb proof, not actually required. *)
-
-  Lemma all_set_hyps_ctxs_extend ctx set_hyps :
-    Forall (fun ctx' => map.extends ctx' ctx) (all_set_hyps_ctxs ctx set_hyps).
-  Proof.
-    cbv [all_set_hyps_ctxs]. eapply Forall_impl. 2: apply steps_extends.
-    simpl. intros. fwd. destruct Hp0; contradiction || subst. assumption.
-  Qed.
-
-  Lemma all_set_hyps_ctxs_correct ctx'' ctx set_hyps :
-    map.extends ctx'' ctx ->
-    Forall (x_in_S ctx'') set_hyps ->
-    (forall v, in_set_hyps v set_hyps ->
-          map.get ctx v <> None \/ In (var_expr v) (map fst set_hyps)) ->
-    well_founded (depends_on_in_set_hyps set_hyps) ->
-    Exists (fun ctx' => map.extends ctx'' ctx' /\ Forall (x_in_S ctx') set_hyps)
-      (all_set_hyps_ctxs ctx set_hyps).
-  Proof.
-    intros. eapply Exists_impl; cycle 1.
-    { cbv [all_set_hyps_ctxs]. apply steps_progress; eauto. }
-    clear. simpl. intros ctx' Hctx'. fwd. destruct Hctx'p1; auto. fwd.
-    exfalso. assert (H: incl (map var_expr l) (map fst set_hyps)).
-    { rewrite Forall_forall in Hp2. intros x Hx. apply in_map_iff in Hx.
-      fwd. apply Hp2 in Hxp1. fwd. assumption. }
-    eapply NoDup_incl_length in H.
-    2: { apply FinFun.Injective_map_NoDup; auto. cbv [FinFun.Injective]. congruence. }
-    do 2 rewrite length_map in *. lia.
-  Qed.
-
-  Print goodish_rule.
-  Definition all_rule_ctxs hyps set_hyps hyps' :=
-    let ctx := map.of_list (context_of_hyps hyps hyps') in
-    all_set_hyps_ctxs ctx set_hyps.
-
-  (*this is a bit wordy because it should be applicable to stuff in agg_expr too,
-    once/if i add set hyps there*)
-  Lemma all_rule_ctxs_correct'' ctx hyps set_hyps hyps' :
-    (forall v : var,
-        in_set_hyps v set_hyps ->
-        In (var_expr v) (flat_map fact_args hyps) \/
-          In (var_expr v) (map fst set_hyps)) ->
-    (forall v : var,
-        In v (flat_map vars_of_fact hyps) ->
-        In (var_expr v) (flat_map fact_args hyps) \/
-          In (var_expr v) (map fst set_hyps)) ->
-    well_founded (depends_on_in_set_hyps set_hyps) ->
-    Forall2 (interp_fact ctx) hyps hyps' ->
-    Forall (x_in_S ctx) set_hyps ->
-    exists ctx',
-      In ctx' (all_rule_ctxs hyps set_hyps hyps') /\
-        map.extends ctx ctx' /\
-        Forall2 (interp_fact ctx') hyps hyps' /\
-        Forall (x_in_S ctx') set_hyps.
-  Proof.
-    intros Hwf1 Hgood Hwf2 Hh Hsh. cbv [all_rule_ctxs]. pose proof Hh as Hh'.
-    apply interp_hyps_context_right in Hh'.
-    eapply all_set_hyps_ctxs_correct in Hsh; cycle 1.
-    { apply interp_hyps_context_right_weak. eassumption. }
-    { intros v Hv. specialize (Hwf1 v Hv). destruct Hwf1 as [Hwf1|Hwf1]; auto.
-      left. Search context_of_hyps. eapply bare_in_context_hyps in Hwf1; eauto.
-      fwd. Search map.of_list. Search In fst. apply in_fst in Hwf1.
-      apply in_of_list_Some in Hwf1. fwd. congruence. }
-    { apply Hwf2. }
-    rewrite Exists_exists in Hsh. fwd. exists x. intuition auto.
-    - eapply Forall2_impl_strong; [|eassumption]. intros f (R&es') Hfes Hf Hes.
-      eapply interp_fact_agree_on; [eassumption|].
-      apply Forall_forall. intros v Hv. specialize (Hgood v).
-      rewrite in_flat_map in Hgood. specialize (Hgood ltac:(eauto)).
-      destruct Hgood as [Hgood|Hgood].
-      + eapply bare_in_context_hyps in Hgood; eauto.
-        fwd. apply in_fst in Hgood. apply in_of_list_Some_strong in Hgood. fwd.
-        rewrite Forall_forall in Hh'. apply Hh' in Hgoodp1. cbv [agree_on].
-        eapply Forall_forall in Hshp0. 2: apply all_set_hyps_ctxs_extend.
-        simpl in Hshp0. apply Hshp0 in Hgoodp0. eauto using eq_trans.
-      + apply in_map_iff in Hgood. fwd. rewrite Forall_forall in Hshp2.
-        apply Hshp2 in Hgoodp1. destruct x0 as [x0 s0]. simpl in Hgoodp0. subst.
-        simpl in Hgoodp1. fwd. invert Hgoodp1p0. cbv [agree_on]. rewrite H0.
-        apply Hshp1 in H0. rewrite H0. reflexivity.
-  Qed.
-
-  Hint Unfold appears_in_rule : core.
+  Print good_rule.
   Lemma all_rule_ctxs_correct' r ctx hyps' :
     good_rule r ->
     Forall2 (interp_fact ctx) r.(rule_hyps) hyps' ->
-    Forall (x_in_S ctx) r.(rule_set_hyps) ->
     exists ctx',
       In ctx' (all_rule_ctxs r.(rule_hyps) r.(rule_set_hyps) hyps') /\
         map.extends ctx ctx' /\
