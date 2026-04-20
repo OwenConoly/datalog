@@ -940,63 +940,44 @@ Section __.
       edestruct Hiff; eauto using rule_impl_list_set.
   Qed.
 
-  (*gemini tries*)
-  Lemma incl_exists_app_eq_set' {U} (eq_prop : forall x y : U, x = y \/ x <> y) (l1 l2 : list U) :
-    incl l1 l2 ->
-    exists l3, disjoint_lists l1 l3 /\ same_set (l1 ++ l3) l2.
+  Lemma one_step_derives_subset p1 p2 hyps R args :
+    incl p1 p2 ->
+    (forall r', In r' p2 -> In r' p1 \/ disjoint_lists (flat_map meta_concl_rels p1) (concl_rels r')) ->
+    In R (flat_map meta_concl_rels p1) ->
+    one_step_derives p1 hyps R args <-> one_step_derives p2 hyps R args.
   Proof.
-    intros H_incl.
-
-    (* 1. Propositional decidability of list membership *)
-    assert (In_dec : forall a (l : list U), In a l \/ ~ In a l).
-    { intros a l. induction l as [|x l' IH].
-      - right. intro H. destruct H.
-      - destruct (eq_prop a x) as [Heq | Hneq].
-        + left. left. auto.
-        + destruct IH as [HIn | HNin].
-          * left. right. auto.
-          * right. intro H. destruct H; auto. }
-
-    (* 2. Construct l3 independent of incl to avoid IH implication issues *)
-    assert (H_diff : forall l, exists l3, forall x, In x l3 <-> In x l /\ ~ In x l1).
-    { intro l. induction l as [|a l' IHl'].
-      - exists []. intros x. intuition.
-      - destruct IHl' as [l3' Hl3'].
-        destruct (In_dec a l1) as [Hin | Hnin].
-        + exists l3'. intros x. split; intro H.
-          * apply Hl3' in H. intuition.
-          * destruct H as [[Heq|Hin_l'] Hnin_x].
-            -- subst. congruence.
-            -- apply Hl3'. intuition.
-        + exists (a :: l3'). intros x. split; intro H.
-          * destruct H as [Heq | Hin_l3'].
-            -- subst. intuition.
-            -- apply Hl3' in Hin_l3'. intuition.
-          * destruct H as [[Heq|Hin_l'] Hnin_x].
-            -- left. auto.
-            -- right. apply Hl3'. intuition. }
-
-    (* 3. Extract the witness for l2 and prove the main goals *)
-    destruct (H_diff l2) as [l3 H_l3].
-    exists l3. split.
-    - cbv [disjoint_lists]. intros x H_in_l1 H_in_l3.
-      apply H_l3 in H_in_l3. intuition.
-    - cbv [same_set]. intros x. split; intro H.
-      + apply in_app_or in H. destruct H as [H_in_l1 | H_in_l3].
-        * apply H_incl. exact H_in_l1.
-        * apply H_l3 in H_in_l3. intuition.
-      + destruct (In_dec x l1) as [H_in_l1 | H_nin_l1].
-        * apply in_or_app. auto.
-        * apply in_or_app. right. apply H_l3. intuition.
+    intros Hincl Hdisj HR. cbv [one_step_derives one_step_derives0].
+    split; intros [r' [hyps' [Hr_in [Himpl Hsupp]]]].
+    - exists r', hyps'. split; [apply Hincl; exact Hr_in |].
+      split; assumption.
+    - destruct (Hdisj r' Hr_in) as [Hr_in_p1 | Hdisj_r'].
+      + exists r', hyps'. split; [exact Hr_in_p1 |].
+        split; assumption.
+      + exfalso. eapply Hdisj_r'; [exact HR |].
+        eapply non_meta_rule_impl_concl_relname_in; exact Himpl.
   Qed.
 
-  From Stdlib Require Import Classical.
-  Lemma incl_exists_app_eq_set {U} (l1 l2 : list U) :
-    incl l1 l2 ->
-    exists l3, disjoint_lists l1 l3 /\ same_set (l1 ++ l3) l2.
+  Lemma rule_impl_subset p1 p2 r f hyps :
+    incl p1 p2 ->
+    (forall r', In r' p2 -> In r' p1 \/ disjoint_lists (flat_map meta_concl_rels p1) (concl_rels r')) ->
+    In r p1 ->
+    rule_impl (one_step_derives p1) r f hyps ->
+    rule_impl (one_step_derives p2) r f hyps.
   Proof.
-    apply incl_exists_app_eq_set'.
-    intros x y. apply classic.
+    intros Hincl Hdisj Hrin Hrule.
+    inversion Hrule; subst.
+    - constructor. assumption.
+    - econstructor; [eassumption | eassumption |].
+      intros args'' Hargs''.
+      rewrite H1 by assumption.
+      apply one_step_derives_subset; auto.
+      apply in_flat_map. exists (meta_rule rule_concls rule_hyps).
+      split; [exact Hrin |].
+      simpl. apply Exists_exists in H. destruct H as [c [Hcin Hc]].
+      cbv [interp_meta_clause] in Hc.
+      destruct Hc as [mf_args [mf_set [H_forall2 H_eq]]].
+      inversion H_eq; subst.
+      apply in_map_iff. exists c. split; [reflexivity | exact Hcin].
   Qed.
 
   Lemma prog_impl_subset p1 p2 Q f :
@@ -1007,14 +988,15 @@ Section __.
     prog_impl p1 Q f ->
     prog_impl p2 Q f.
   Proof.
-    intros H12 H21 H1. apply incl_exists_app_eq_set in H12. fwd.
-    eapply prog_impl_same_set; [|eassumption].
-    apply prog_impl_subset'; [|assumption].
-    intros R HR1 HR2. apply in_flat_map in HR1, HR2. fwd.
-    epose_dep H21. specialize' H21.
-    { apply H12p1. apply in_app_iff. right. eassumption. }
-    destruct H21 as [H21|H21]; eauto.
-    eapply H21; eauto. apply in_flat_map. eauto.
+    intros Hincl Hdisj Hprog.
+    induction Hprog using prog_impl_ind.
+    - apply prog_impl_leaf. assumption.
+    - apply Exists_exists in H. destruct H as [r [Hrin Hrule]].
+      eapply prog_impl_step.
+      + apply Exists_exists. exists r. split.
+        * apply Hincl. exact Hrin.
+        * eapply rule_impl_subset; eassumption.
+      + assumption.
   Qed.
 
   Lemma staged_program p1 p2 Q f :
