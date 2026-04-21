@@ -861,8 +861,6 @@ Section __.
   Context {var_var : map.map var var} {var_var_ok : map.ok var_var}.
   Context {fn_eqb : fn -> fn -> bool} {fn_eqb_spec : EqDecider fn_eqb}.
 
-  Definition disjoint_union_of_list : False. Admitted.
-
   Fixpoint can_rename_into (e1 e2 : expr) : option var_var :=
     match e1, e2 with
     | Datalog.var_expr v1, Datalog.var_expr v2 =>

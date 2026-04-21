@@ -1,4 +1,4 @@
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.Option.
 From ATL Require Import FrapWithoutSets.
 From Datalog Require Import Tactics List.
 
@@ -6,6 +6,7 @@ From Datalog Require Import Tactics List.
 Section Map.
   Context {key value : Type} {mp : map.map key value} {mp_ok : map.ok mp}.
   Context {key_eqb : key -> key -> bool} {key_eqb_spec : EqDecider key_eqb}.
+  Context {value_eqb : value -> value -> bool} {value_eqb_spec : EqDecider value_eqb}.
 
 Lemma extends_putmany_putmany (m1 m2 m : mp) :
   map.extends m1 m2 ->
@@ -258,18 +259,76 @@ Proof.
   eapply map.get_forallb in H; eauto. destr (key_eqb k k); simpl in *; congruence.
 Qed.
 
-Definition disjoint_union (m1 m2 : mp) : option mp :=
-  if disjointb m1 m2 then Some (map.putmany m1 m2) else None.
+Definition agree_on_overlap (m1 m2 : mp) : Prop :=
+  forall k v1 v2, map.get m1 k = Some v1 -> map.get m2 k = Some v2 -> v1 = v2.
 
-Lemma disjoint_union_sound (m1 m2 m : mp) :
-  disjoint_union m1 m2 = Some m ->
-  map.disjoint m1 m2 /\ m = map.putmany m1 m2.
+Definition agree_on_overlapb (m1 m2 : mp) : bool :=
+  map.forallb (fun k v1 =>
+                 match map.get m2 k with
+                 | Some v2 => value_eqb v1 v2
+                 | None => true
+                 end) m1.
+
+Lemma agree_on_overlapb_sound m1 m2 :
+  agree_on_overlapb m1 m2 = true ->
+  agree_on_overlap m1 m2.
 Proof.
-  cbv [disjoint_union].
-  destruct (disjointb m1 m2) eqn:E; intros H.
+  cbv [agree_on_overlapb agree_on_overlap]. intros H k v1 v2 H1 H2.
+  eapply map.get_forallb in H; eauto.
+  rewrite H2 in H.
+  destr (value_eqb v1 v2); [reflexivity | discriminate].
+Qed.
+
+Definition compatible_union (m1 m2 : mp) : option mp :=
+  if agree_on_overlapb m1 m2 then Some (map.putmany m1 m2) else None.
+
+Lemma compatible_union_sound (m1 m2 m : mp) :
+  compatible_union m1 m2 = Some m ->
+  agree_on_overlap m1 m2 /\ m = map.putmany m1 m2.
+Proof.
+  cbv [compatible_union].
+  destruct (agree_on_overlapb m1 m2) eqn:E; intros H.
   - inversion H; subst; clear H.
     split; [|reflexivity].
-    apply disjointb_disjoint. assumption.
+    apply agree_on_overlapb_sound. assumption.
   - discriminate H.
+Qed.
+
+Definition compatible_union_of_list (ms : list mp) : option mp :=
+  fold_right (fun x y => option_coalesce (option_map (compatible_union x) y)) (Some map.empty) ms.
+
+Lemma compatible_union_get m1 m2 m k v :
+  compatible_union m1 m2 = Some m ->
+  map.get m k = Some v <-> map.get m1 k = Some v \/ map.get m2 k = Some v.
+Proof.
+  intros H. apply compatible_union_sound in H. destruct H as [Hagree ->].
+  rewrite map.get_putmany_dec.
+  destruct (map.get m2 k) eqn:E2.
+  - split; intros H.
+    + invert_list_stuff. auto.
+    + destruct H.
+      * f_equal. symmetry. eapply Hagree; eassumption.
+      * invert_list_stuff. reflexivity.
+  - split; auto. intros [?|?]; invert_list_stuff; auto.
+Qed.
+
+Lemma compatible_union_of_list_get ms m :
+  compatible_union_of_list ms = Some m ->
+  forall k v, map.get m k = Some v <-> (exists m', In m' ms /\ map.get m' k = Some v).
+Proof.
+  revert m. induction ms as [| m_head ms' IH]; simpl; intros m H k v.
+  - invert_list_stuff. split; intros H.
+    + rewrite map.get_empty in H. discriminate H.
+    + destruct H as [m' [Hin _]]. contradiction.
+  - destruct (compatible_union_of_list ms') as [m_tail|] eqn:Etail; [|discriminate H].
+    simpl in H. fwd.
+    eapply compatible_union_get in E.
+    split; intros Hget.
+    + apply E in Hget. destruct Hget as [Hhead | Htail].
+      * eauto.
+      * apply IH in Htail; auto. fwd. eauto.
+    + fwd. destruct Hgetp0 as [Heq | Hin].
+      * subst. apply E. auto.
+      * apply E. right. apply IH; eauto.
 Qed.
 End Map.
