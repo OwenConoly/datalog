@@ -1203,7 +1203,7 @@ Section __.
 
   Inductive is_flat_pftree {U} Q (P : U -> list U -> _) : list U -> Prop :=
   | is_flat_pftree_nil : is_flat_pftree _ _ []
-  | is_dag_ish_cons x xs :
+  | is_flat_pftree_cons x xs :
     Q x \/ (exists l, P x l /\ incl l xs) ->
     is_flat_pftree _ _ xs ->
     is_flat_pftree _ _ (x :: xs).

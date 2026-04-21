@@ -12,9 +12,9 @@ From Stdlib Require Import Permutation.
 
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 
-From Datalog Require Import Datalog Map Tactics Fp List Dag.
-
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option.
+
+From Datalog Require Import Datalog Map Tactics Fp List Dag.
 
 Import ListNotations.
 
@@ -22,7 +22,7 @@ Section __.
   Context {rel var fn aggregator T : Type}.
   Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
   Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
+  Context {var_eqb : var -> var -> bool} {var_eqb_spec : EqDecider var_eqb}.
 
   Local Notation expr := (expr var fn).
   Local Notation rule := (rule rel var fn aggregator).
@@ -844,4 +844,46 @@ Section __.
     eapply eval_complete in Hf; eauto. destruct Hf as [Hf|Hf]; eauto.
     fwd. eapply dag_paths_short in Hfp0; eauto. cbv [count_rels] in *. lia.
   Qed.
+
+  Print ctx_of_rule.
+  Print context_of_meta_hyps. Print Datalog.meta_clause.
+  Definition all_equal (things : list (expr * expr)) : bool. Admitted.
+  (*A short answer to "why is completeness hard":
+    R(x * x, x) :- Q(x).
+    R(-1, _) :-.
+    In principle, the expression language could include a function f(x, y) := if [the xth Turing machine terminates in y steps] then 1 else 0.  Then completeness is even harder:
+    R(f(x, y), x) :- Q(x, y).
+    R(0, 42) :-.
+    is valid iff 42nd Turing machine never halts.
+   *)
+
+  (*does there exist a variable renaming which agrees with ctx and transforms e1 into e2?*)
+  Context {var_var : map.map var var} {var_var_ok : map.ok var_var}.
+  Context {fn_eqb : fn -> fn -> bool} {fn_eqb_spec : EqDecider fn_eqb}.
+
+  Definition disjoint_union_of_list : False. Admitted.
+
+  Fixpoint can_rename_into (e1 e2 : expr) : option var_var :=
+    match e1, e2 with
+    | Datalog.var_expr v1, Datalog.var_expr v2 =>
+        Some (map.put map.empty v1 v2)
+    | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
+        if fn_eqb f1 f2 && Nat.eqb (List.length args1) (List.length args2) then
+          fold_right (fun x y => option_coalesce (option_map2 (disjoint_union (key_eqb := var_eqb)) x y)) (Some map.empty) (map2 can_rename_into args1 args2)
+        else
+          None
+    | _, _ => None
+    end.
+
+  Print Datalog.meta_clause.
+  Definition check_meta_rule_against_normal_rule mconcl mhyps nconcl nhyps : option (list (expr * expr)) :=
+    (*in the happy case, the meta clause is just the normal clause with some variables
+      zeroed out.*)
+    if rel_eqb mconcl.(meta_clause_rel) nconcl.(clause_rel) then
+      if length mhyps =? length nhyps then
+        disjoint_union_of_list ...
+      else false
+    else
+      true
+
 End __.

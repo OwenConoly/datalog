@@ -5,7 +5,7 @@ From Datalog Require Import Tactics List.
 
 Section Map.
   Context {key value : Type} {mp : map.map key value} {mp_ok : map.ok mp}.
-  Context {key_eqb : key -> key -> bool} {key_eqb_correct : forall x y : key, BoolSpec (x = y) (x <> y) (key_eqb x y)}.
+  Context {key_eqb : key -> key -> bool} {key_eqb_spec : EqDecider key_eqb}.
 
 Lemma extends_putmany_putmany (m1 m2 m : mp) :
   map.extends m1 m2 ->
@@ -256,5 +256,20 @@ Lemma disjointb_disjoint m1 m2 :
 Proof.
   cbv [map.disjoint]. intros H k **. eapply map.get_forallb in H; eauto.
   eapply map.get_forallb in H; eauto. destr (key_eqb k k); simpl in *; congruence.
+Qed.
+
+Definition disjoint_union (m1 m2 : mp) : option mp :=
+  if disjointb m1 m2 then Some (map.putmany m1 m2) else None.
+
+Lemma disjoint_union_sound (m1 m2 m : mp) :
+  disjoint_union m1 m2 = Some m ->
+  map.disjoint m1 m2 /\ m = map.putmany m1 m2.
+Proof.
+  cbv [disjoint_union].
+  destruct (disjointb m1 m2) eqn:E; intros H.
+  - inversion H; subst; clear H.
+    split; [|reflexivity].
+    apply disjointb_disjoint. assumption.
+  - discriminate H.
 Qed.
 End Map.

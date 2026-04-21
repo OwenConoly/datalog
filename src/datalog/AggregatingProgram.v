@@ -111,30 +111,30 @@ Print meta_rule. Print meta_clause. Print blocks_prog. Print LetIn.
 Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var :=
   match e with
   | Var t x =>
-      Block O
+      Block O [(O, x)]
         [normal_rule
            [{| clause_rel := local O; clause_args := [var_expr O] |}]
-           [{| clause_rel := Blocks.Var x; clause_args := [var_expr O] |}];
+           [{| clause_rel := input O; clause_args := [var_expr O] |}];
          meta_rule
            [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-           [{| meta_clause_rel := Blocks.Var x; meta_clause_args := [None] |}]]
+           [{| meta_clause_rel := input O; meta_clause_args := [None] |}]]
   | bop_over_vals o x y =>
       LetIn (compile_Sexpr x)
         (fun x' =>
            LetIn (compile_Sexpr y)
              (fun y' =>
-                Block O
+                Block O [(O, x'); (1, y')]
                   [normal_rule
                      [{| clause_rel := local O; clause_args := [fun_expr (fn_bop o) [var_expr O; var_expr (S O)]] |}]
-                     [{| clause_rel := Blocks.Var x'; clause_args := [var_expr O] |};
-                      {| clause_rel := Blocks.Var y'; clause_args := [var_expr (S O)] |}];
+                     [{| clause_rel := input 0; clause_args := [var_expr O] |};
+                      {| clause_rel := input 1; clause_args := [var_expr (S O)] |}];
                    meta_rule
                      [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                     [{| meta_clause_rel := Blocks.Var x'; meta_clause_args := [None] |};
-                      {| meta_clause_rel := Blocks.Var y'; meta_clause_args := [None] |}]]))
-  | empty => Block O [meta_rule
-                       [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                       []]
+                     [{| meta_clause_rel := input 0; meta_clause_args := [None] |};
+                      {| meta_clause_rel := input 1; meta_clause_args := [None] |}]]))
+  | empty => Block O [] [meta_rule
+                          [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
+                          []]
   | singleton x => (*we happen to represent sets in the same format as elements*)
       compile_Sexpr x
   | intersection x y =>
@@ -142,32 +142,32 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
         (fun x' =>
            LetIn (compile_Sexpr y)
              (fun y' =>
-                Block O
+                Block O [(0, x'); (1, y')]
                   [normal_rule
                      [{| clause_rel := local O; clause_args := [var_expr O] |}]
-                     [{| clause_rel := Blocks.Var x'; clause_args := [var_expr O] |};
-                      {| clause_rel := Blocks.Var y'; clause_args := [var_expr O] |}];
+                     [{| clause_rel := input 0; clause_args := [var_expr O] |};
+                      {| clause_rel := input 1; clause_args := [var_expr O] |}];
                    meta_rule
                      [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                     [{| meta_clause_rel := Blocks.Var x'; meta_clause_args := [None] |};
-                      {| meta_clause_rel := Blocks.Var y'; meta_clause_args := [None] |}]]))
+                     [{| meta_clause_rel := input 0; meta_clause_args := [None] |};
+                      {| meta_clause_rel := input 1; meta_clause_args := [None] |}]]))
   | let_in t1 t2 x f =>
       LetIn (compile_Sexpr x)
         (fun x' => compile_Sexpr (f x'))
   | bop_over_set o x =>
       LetIn (compile_Sexpr x)
         (fun x' =>
-           Block O
+           Block O [(0, x')]
              [agg_rule (local O) o (local (S O));
               meta_rule
                 [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
                 [{| meta_clause_rel := local (S O); meta_clause_args := [None; None] |}];
               normal_rule
                 [{| clause_rel := local (S O); clause_args := [var_expr O; var_expr O] |}]
-                [{| clause_rel := Blocks.Var x'; clause_args := [var_expr O] |}];
+                [{| clause_rel := input 0; clause_args := [var_expr O] |}];
               meta_rule
                 [{| meta_clause_rel := local (S O); meta_clause_args := [None; None] |}]
-                [{| meta_clause_rel := Blocks.Var x'; meta_clause_args := [None] |}]])
+                [{| meta_clause_rel := input 0; meta_clause_args := [None] |}]])
   end.
 
 Definition sum_expr {var} (S : var set) :=
@@ -230,23 +230,6 @@ Lemma cons_two_is_app {T} (x y : T) l :
   x :: y :: l = [x; y] ++ l.
 Proof. reflexivity. Qed.
 
-(* Lemma idk (p : list rule) Q f : *)
-(*   ~In f.(fact_R) (flat_map concl_rels p) -> *)
-(*   prog_impl_implication p Q f -> *)
-(*   Q f. *)
-(* Proof. *)
-(*   intros Hp H. invert H; auto. apply Exists_exists in H0. fwd. *)
-(*   apply rule_impl_concl_relname_in in H0p1. rewrite in_flat_map in Hp. *)
-(*   exfalso. eauto. *)
-(* Qed. *)
-
-(* Definition consistent (Q : fact -> Prop) := *)
-(*   forall R S0, *)
-(*     Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} -> *)
-(*     forall x, *)
-(*       Q {| fact_R := (R, normal); fact_args := [primitive x] |} <-> *)
-(*         S0 [x]. *)
-
 (* Definition well_typed (f : fact) := *)
 (*   match snd f.(fact_R) with *)
 (*   | normal => exists x, f.(fact_args) = [primitive x] *)
@@ -261,27 +244,6 @@ Proof. reflexivity. Qed.
 (*     (forall f, Q f -> well_typed f) -> *)
 (*     (forall f, prog_impl_implication p Q f -> well_typed f). *)
 
-(* Definition mrs_very_sound_for (p : list rule) R := *)
-(*   forall Q S0, *)
-(*     consistent Q -> *)
-(*     prog_impl_implication p Q {| fact_R := (R, meta); fact_args := [factset S0; blank] |} -> *)
-(*     forall x, *)
-(*       prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} <-> *)
-(*         Q {| fact_R := (R, normal); fact_args := [primitive x] |} \/ S0 [x]. *)
-
-(*should allow depending on meta facts.?*)
-(*i want to say that R depends only on Rs.  this only makes sense when R is not an input*)
-(* Definition depends_only_on (p : list rule) R Rs := *)
-(*   forall Q x, *)
-(*     consistent Q -> *)
-(*     prog_impl_implication p Q {| fact_R := (R, normal); fact_args := [primitive x] |} -> *)
-(*     Q {| fact_R := (R, normal); fact_args := [primitive x] |} \/ *)
-(*       prog_impl_implication p (fun f => *)
-(*                                  exists x R', *)
-(*                                    In R' Rs /\ *)
-(*                                      f = {| fact_R := (R', normal); fact_args := [primitive x] |} /\ *)
-(*                                      prog_impl_implication p Q f) {| fact_R := (R, normal); fact_args := [primitive x] |}. *)
-
 (* Definition is_normal (r : rule) := *)
 (*   match r with *)
 (*   | normal_rule _ _ => True *)
@@ -291,91 +253,6 @@ Proof. reflexivity. Qed.
 (* Definition syntactically_depends_only_on (p : list rule) R Rs := *)
 (*   Forall (fun r => In (R, normal) (concl_rels r) -> incl (hyp_rels r) (map (fun x => (x, normal)) Rs)) p. *)
 
-(* Lemma depends_only_on_mrs_very_sound_for p R Rs : *)
-(*   ~In (R, meta) (flat_map hyp_rels p) -> *)
-(*   ~In R Rs -> *)
-(*   depends_only_on p R Rs -> *)
-(*   mrs_very_sound_for p R -> *)
-(*   Forall (mrs_very_sound_for p) Rs -> *)
-(*   mrs_very_sound_for (closure_rule p R Rs :: p) R. *)
-(* Proof. *)
-(*   intros HR1 HR2 HRs Hp1 Hp2. intros Q S0 HQ1 HS0 x. *)
-(*   assert (Hstaged : disjoint_lists [(R, meta)] (flat_map hyp_rels p)). *)
-(*   { simpl. apply disjoint_lists_alt. constructor; [|constructor]. *)
-(*     apply Forall_forall. intros x0 Hx0 ?. subst. auto. } *)
-(*   assert (Hloopless : disjoint_lists *)
-(*                         (flat_map concl_rels [closure_rule p R Rs]) *)
-(*                         (flat_map hyp_rels [closure_rule p R Rs])). *)
-(*   { simpl. rewrite map_map. apply disjoint_lists_alt. *)
-(*     constructor; [|constructor]. rewrite app_nil_r. *)
-(*     apply Forall_map. apply Forall_forall. intros (R', ?). intros HR'. *)
-(*     apply in_combine_l in HR'. simpl. intro. fwd. auto. } *)
-(*   rewrite cons_is_app in HS0. *)
-(*   apply staged_program in HS0; [|assumption]. *)
-(*   apply loopless_program in HS0; [|assumption]. *)
-(*   rewrite (cons_is_app _ p). *)
-(*   rewrite staged_program_iff; [|assumption]. *)
-(*   rewrite loopless_program_iff; [|assumption]. *)
-(*   destruct HS0 as [HS0|HS0]. *)
-(*   { apply Hp1 in HS0; [|assumption]. epose_dep HS0. rewrite HS0. split; auto. *)
-(*     intros [[?|?]|?]; auto. fwd. invert_stuff. } *)
-(*   fwd. invert_stuff. clear Hstaged Hloopless. *)
-(*   simpl in *. invert_stuff. destruct (option_all _) eqn:E; [|discriminate]. fwd. *)
-(*   split; intros Hx. *)
-(*   - destruct Hx as [Hx|Hx]. *)
-(*     2: { clear -Hx. fwd. invert_stuff. } *)
-(*     cbv [depends_only_on] in HRs. specialize (HRs _ _ HQ1 Hx). *)
-(*     destruct HRs as [HRs|HRs]; auto. *)
-(*     apply option_all_Forall2 in E. apply Forall2_forget_r in H5. *)
-(*     rewrite Lists.List.Forall_map in H5. apply Forall_combine_Forall2 in H5. *)
-(*     2: { rewrite length_seq. reflexivity. } *)
-(*     apply Forall2_map_l in H3. *)
-(*     eapply Forall2_Forall2_Forall3 in H3; [|exact H5]. clear H5. *)
-(*     apply Forall3_ignore2 in H3. apply Forall2_map_l in E. *)
-(*     eapply Forall2_Forall2_Forall3 in E; [|exact H3]. clear H3. *)
-(*     apply Forall3_ignore2 in E. *)
-(*     apply Forall2_forget_r_strong in E. rewrite Forall_forall in E. *)
-(*     right. eapply prog_impl_implication_weaken_hyp; [exact HRs|]. *)
-(*     simpl. intros f Hf. fwd. *)
-(*     specialize (E _ ltac:(eassumption)). fwd. invert_stuff. simpl in *. fwd. *)
-(*     destruct y2. simpl in *. subst. rewrite H0 in *. fwd. *)
-(*     rewrite Forall_forall in HS0p0. specialize (HS0p0  _ ltac:(eassumption)). *)
-(*     eexists _, _. split. *)
-(*     2: { simpl. reflexivity. } *)
-(*     apply Exists_exists. eexists. split; [eassumption|]. simpl. *)
-(*     move Hp2 at bottom. rewrite Forall_forall in Hp2. *)
-(*     specialize (Hp2 _ ltac:(eassumption)). apply Hp2 in HS0p0. *)
-(*     2: assumption. *)
-(*     split; [reflexivity|]. *)
-(*     apply HS0p0. assumption. *)
-(*   - destruct HS0 as [HS0|HS0]. *)
-(*     { apply Hp1 in HS0; try assumption. eapply prog_impl_implication_subset. *)
-(*       2: { apply HS0. assumption. } *)
-(*       simpl. auto. } *)
-(*     fwd. invert_stuff. clear Hstaged Hloopless. *)
-(*     simpl in *. invert_stuff. destruct (option_all _) eqn:E; [|discriminate]. fwd. *)
-(*     simpl in Hx. apply prog_impl_implication_subset with (p1 := p). *)
-(*     { simpl. auto. } *)
-(*     eapply prog_impl_trans. *)
-(*     eapply prog_impl_implication_weaken_hyp; [eassumption|]. *)
-(*     simpl. intros f Hf. fwd. *)
-(*     apply option_all_Forall2 in E. apply Forall2_forget_r in H5. *)
-(*     rewrite Lists.List.Forall_map in H5. apply Forall_combine_Forall2 in H5. *)
-(*     2: { rewrite length_seq. reflexivity. } *)
-(*     apply Forall2_map_l in H3. *)
-(*     eapply Forall2_Forall2_Forall3 in H3; [|exact H5]. clear H5. *)
-(*     apply Forall3_ignore2 in H3. apply Forall2_map_l in E. *)
-(*     eapply Forall2_Forall2_Forall3 in E; [|exact H3]. clear H3. *)
-(*     apply Forall3_ignore2 in E. apply Forall2_combine in E. *)
-(*     apply Exists_exists in Hfp0. fwd. rewrite Forall_forall in E. *)
-(*     specialize (E _ ltac:(eassumption)). fwd. invert_stuff. simpl in *. fwd. *)
-(*     rewrite H0 in *. fwd. destruct y1. simpl in *. subst. *)
-(*     rewrite Forall_forall in HS0p0. specialize (HS0p0 _ ltac:(eassumption)). *)
-(*     rewrite Forall_forall in Hp2. apply Hp2 in HS0p0; try assumption. *)
-(*     2: { apply in_combine_l in Hfp0p0. assumption. } *)
-(*     apply HS0p0. assumption. *)
-(* Qed. *)
-
 (* Definition mrs_very_sound p := forall R, mrs_very_sound_for p R. *)
 
 Ltac plda :=
@@ -384,67 +261,6 @@ Ltac plda :=
     | |- _ <> _ => intro
     | |- _ => intros; fwd; congruence
     end.
-
-(* Lemma depends_only_on_mrs_very_sound p R Rs : *)
-(*   ~In (R, meta) (flat_map hyp_rels p) -> *)
-(*   ~In R Rs -> *)
-(*   depends_only_on p R Rs -> *)
-(*   mrs_very_sound p -> *)
-(*   mrs_very_sound (closure_rule p R Rs :: p). *)
-(* Proof. *)
-(*   intros HR1 HR2 Hdep Hsound. cbv [mrs_very_sound]. intros R0. destr (Nat.eqb R R0). *)
-(*   - apply depends_only_on_mrs_very_sound_for; auto. apply Forall_forall. auto. *)
-(*   - cbv [mrs_very_sound_for]. intros Q S0 HQ1 HS0 x. *)
-(*     rewrite cons_is_app in HS0. apply staged_program in HS0. *)
-(*     2: { simpl. apply disjoint_lists_alt. plda. } *)
-(*     apply invert_prog_impl in HS0. destruct HS0 as [HS0|HS0]. *)
-(*     2: { fwd. invert_stuff. simpl in *. fwd. congruence. } *)
-(*     rewrite cons_is_app. rewrite staged_program_iff. *)
-(*     2: { simpl. apply disjoint_lists_alt. plda. } *)
-(*     apply Hsound in HS0; auto. rewrite <- HS0. split. *)
-(*     + intros H'. apply invert_prog_impl in H'. destruct H' as [H'|H']; auto. *)
-(*       fwd. invert_stuff. *)
-(*     + intros. apply partial_in. assumption. *)
-(* Qed. *)
-
-(* Lemma syntactically_depends_only_on_correct p R Rs : *)
-(*   well_typed_prog p -> *)
-(*   syntactically_depends_only_on p R Rs -> *)
-(*   depends_only_on p R Rs. *)
-(* Proof. *)
-(*   cbv [syntactically_depends_only_on depends_only_on]. intros Hp H Q x HQ1 H'. *)
-(*   apply invert_prog_impl in H'. destruct H' as [H'|H']. *)
-(*   { exfalso. apply HQ2 in H'. simpl in H'. fwd. auto. } *)
-(*   fwd. eapply prog_impl_step. *)
-(*   { eassumption. } *)
-(*   apply Exists_exists in H'p0. fwd. rewrite Forall_forall in H. *)
-(*   specialize (H _ ltac:(eassumption)). Search rule_impl concl_rels. *)
-(*   specialize' H. *)
-(*   { apply rule_impl_concl_relname_in in H'p0p1. simpl in H'p0p1. assumption. } *)
-(*   apply rule_impl_hyp_relname_in in H'p0p1. rewrite Forall_forall in H'p0p1, H'p1. *)
-(*   apply Forall_forall. intros f Hf. specialize (H'p0p1 _ Hf). specialize (H'p1 _ Hf). *)
-(*   apply partial_in. destruct f as [[? ?] ?]. simpl in *. *)
-(*   apply H in H'p0p1. apply in_map_iff in H'p0p1. fwd. *)
-(*   pose proof H'p1 as H'p1'. *)
-(*   apply Hp in H'p1'. *)
-(*   2: { cbv [good_inputs] in HQ2. intros f' Hf'. apply HQ2 in Hf'. fwd. assumption. } *)
-(*   cbv [well_typed] in H'p1'. simpl in H'p1'. fwd. *)
-(*   do 2 eexists. *)
-(*   split; [eassumption|]. *)
-(*   split; [reflexivity|]. *)
-(*   assumption. *)
-(* Qed. *)
-
-(* Lemma mrs_very_sound_staged is_input p1 p2 : *)
-(*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
-(*   mrs_very_sound is_input p1 -> *)
-(*   mrs_very_sound is_input p2 -> *)
-(*   mrs_very_sound is_input (p1 ++ p2). *)
-(* Proof. *)
-(*   intros Hdisj H1 H2. cbv [mrs_very_sound mrs_very_sound_for]. *)
-(*   intros R Q S0 HQ1 HQ2 HS0 x. apply staged_program in HS0; [|assumption]. *)
-(*   rewrite staged_program_iff; [|assumption]. *)
-(*   Print mrs_very_sound_for. *)
 
 Definition set_of {t} (e' : interp_type t) :=
   match t return interp_type t -> interp_type val -> Prop with
@@ -466,12 +282,12 @@ Ltac invert1_Exists H :=
                  apply Exists_cons in H; destruct H as [H|H]; [|invert0_Exists H] ].
 
 Ltac invert_stuff :=
-  first [Blocks.invert_stuff |
+  first [invert_stuff |
           match goal with
           | H: Exists _ _ |- _ => invert1_Exists H
           end].
 
-Ltac interp_exprs := Blocks.interp_exprs.
+Ltac interp_exprs := interp_exprs.
 
 Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :

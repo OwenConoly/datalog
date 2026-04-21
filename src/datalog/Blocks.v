@@ -835,54 +835,36 @@ Section Blocks.
     intros Hwf.
     induction Hwf as [ctx x1 x2 f1 f2 Hwf1 IH1 Hwf2 IH2 | ctx ret inps1 inps2 p Hfor];
       intros Hvalid Hctx.
-    - (* Case: wf_LetIn *)
-      simpl in Hvalid. destruct Hvalid as [Hvalid_x Hvalid_f].
+    - simpl in Hvalid. destruct Hvalid as [Hvalid_x Hvalid_f].
       simpl.
       eapply IH2.
       + apply Hvalid_f.
       + simpl. constructor; [|exact Hctx].
         apply IH1; assumption.
-
-    - (* Case: wf_Block *)
-      simpl in Hvalid. destruct Hvalid as [Hvalid_p [Hnodup Hno_input]].
+    - simpl in Hvalid. destruct Hvalid as [Hvalid_p [Hnodup Hno_input]].
       simpl. apply doesnt_lie_honest_args.
       eapply valid_impl_honest.
       + exact Hvalid_p.
-
-      + (* Prove Q doesn't overlap with concl_rels *)
-        intros f_target Hf_target.
+      + intros f_target Hf_target.
         apply Exists_exists in Hf_target. destruct Hf_target as [[R R'] [Hin [Hrel Hargs]]].
         rewrite <- Hrel. apply Hno_input.
-
-      + (* Prove doesnt_lie using the context! *)
-        cbv [doesnt_lie consistent].
+      + cbv [doesnt_lie consistent].
         intros mf_rel mf_args mf_set Hmf nf_args Hmatch.
         apply Exists_exists in Hmf. destruct Hmf as [[R R'] [Hin [Hrel Hargs]]].
         simpl in Hrel. subst.
-
-        (* 1. Extract the context binding from wf_Block's Forall2 *)
         apply Forall2_forget_r in Hfor. rewrite Forall_forall in Hfor.
         specialize (Hfor _ Hin). fwd.
-
-        (* 2. Extract honest_args R' from the Hctx hypothesis *)
         assert (honest_args R') as Hhonest_R'.
         { rewrite Forall_forall in Hctx. apply Hctx.
           apply in_map_iff. eexists (_, _). simpl. eauto. }
-
-        (* 3. Feed it into our evaluation! *)
         cbv [honest_args args_consistent] in Hhonest_R'.
         rewrite Hhonest_R' by eassumption.
-
         split; intros H'.
-        * (* Forward *)
-          apply Exists_exists. eexists (_, _). simpl. eauto.
-        * (* Backward *)
-          apply Exists_exists in H'. destruct H' as [[R0 R0'] [Hin0 [Hrel0 Hargs0]]].
+        * apply Exists_exists. eexists (_, _). simpl. eauto.
+        * apply Exists_exists in H'. destruct H' as [[R0 R0'] [Hin0 [Hrel0 Hargs0]]].
           simpl in Hrel0. fwd.
-          (* Enforce functional determinism using NoDup on the inputs list *)
           assert (R' = R0').
           { eapply NoDup_fst_In_inj; eassumption. }
-
           subst R0'. exact Hargs0.
           Unshelve. assumption.
   Qed.

@@ -866,6 +866,13 @@ Context {A B C D : Type}.
 Implicit Type xs : list A.
 Implicit Type ys : list B.
 Implicit Type zs : list C.
+
+Fixpoint map2 {A B C : Type} (f : A -> B -> C) l1 l2 :=
+  match l1, l2 with
+  | x1 :: l1', x2 :: l2' => f x1 x2 :: map2 f l1' l2'
+  | _, _ => []
+  end.
+
 Definition keep_Some : _ -> list A :=
   flat_map (fun x => match x with | Some y => [y] | None => [] end).
 
