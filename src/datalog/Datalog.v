@@ -8,13 +8,6 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 
 Import ListNotations.
 
-Hint Unfold iff : core.
-Hint Extern 6 => match goal with
-                | H: forall x, _ <-> _ |- _ => apply H
-                | H: _ <-> _ |- _ => apply H
-                end : core.
-Hint Extern 7 (_ <-> _) => split : core.
-
 (*relations, variables, functions, and "aggregator functions" (e.g. min, max, sum, prod)*)
 (* A datalog program talks about facts R(x1, ..., xn), where (R : rel) and (x1 : T), (x2 : T), etc. *)
 Class signature {fn aggregator T : Type} : Type :=

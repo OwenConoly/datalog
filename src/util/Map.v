@@ -1,4 +1,4 @@
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.Option.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.Option Datatypes.List.
 From ATL Require Import FrapWithoutSets.
 From Datalog Require Import Tactics List.
 
@@ -296,6 +296,9 @@ Qed.
 
 Definition compatible_union_of_list (ms : list mp) : option mp :=
   fold_right (fun x y => option_coalesce (option_map (compatible_union x) y)) (Some map.empty) ms.
+
+Definition compatible_union_of_option_list ms :=
+  option_coalesce (option_map compatible_union_of_list (option_all ms)).
 
 Lemma compatible_union_get m1 m2 m k v :
   compatible_union m1 m2 = Some m ->

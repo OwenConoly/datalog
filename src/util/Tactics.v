@@ -36,3 +36,10 @@ Ltac invert e := invertN e || invert' e.
 
 Ltac invert0 H := invert H; fail.
 Ltac invert1 H := invert H; [].
+
+Hint Unfold iff : core.
+Hint Extern 6 => match goal with
+                | H: forall x, _ <-> _ |- _ => apply H
+                | H: _ <-> _ |- _ => apply H
+                end : core.
+Hint Extern 7 (_ <-> _) => split : core.

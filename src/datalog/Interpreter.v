@@ -1,10 +1,6 @@
 From Stdlib Require Import Arith.Arith.
-From Stdlib Require Import Arith.EqNat.
-From Stdlib Require Import Bool.Bool.
-From Stdlib Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
 From Stdlib Require Import ZArith.Int.
 From Stdlib Require Import ZArith.Znat.
-From Stdlib Require Import Strings.String.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
@@ -857,31 +853,59 @@ Section __.
     is valid iff 42nd Turing machine never halts.
    *)
 
-  (*does there exist a variable renaming which agrees with ctx and transforms e1 into e2?*)
   Context {var_var : map.map var var} {var_var_ok : map.ok var_var}.
   Context {fn_eqb : fn -> fn -> bool} {fn_eqb_spec : EqDecider fn_eqb}.
-
-  Fixpoint can_rename_into (e1 e2 : expr) : option var_var :=
+  Context {rel_eqb : fn -> fn -> bool} {rel_eqb_spec : EqDecider fn_eqb}.
+  (*half of alpha equivalence, or a restricted form of theta subsumption, or "we can rename variables in e1 to get e2"*)
+  Fixpoint expr_subsumes (e1 e2 : expr) : option var_var :=
     match e1, e2 with
     | Datalog.var_expr v1, Datalog.var_expr v2 =>
         Some (map.put map.empty v1 v2)
     | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
         if fn_eqb f1 f2 && Nat.eqb (List.length args1) (List.length args2) then
-          fold_right (fun x y => option_coalesce (option_map2 (disjoint_union (key_eqb := var_eqb)) x y)) (Some map.empty) (map2 can_rename_into args1 args2)
+          compatible_union_of_option_list (value_eqb := var_eqb)
+            (map2 expr_subsumes args1 args2)
         else
           None
     | _, _ => None
     end.
 
   Print Datalog.meta_clause.
-  Definition check_meta_rule_against_normal_rule mconcl mhyps nconcl nhyps : option (list (expr * expr)) :=
-    (*in the happy case, the meta clause is just the normal clause with some variables
-      zeroed out.*)
-    if rel_eqb mconcl.(meta_clause_rel) nconcl.(clause_rel) then
-      if length mhyps =? length nhyps then
-        disjoint_union_of_list ...
-      else false
+  (*None is a wildcard.*)
+  Definition meta_clause_subsumes_clause mc nc : option var_var :=
+    if rel_eqb mc.(meta_clause_rel) nc.(clause_rel) &&
+         (length mc.(meta_clause_args) =? length nc.(clause_args))%nat then
+      let ctxs := map2 (fun e1 e2 =>
+                          match e1 with
+                          | Some e1 => expr_subsumes e1 e2
+                          | None => Some map.empty
+                          end)
+                    mc.(meta_clause_args)
+                         nc.(clause_args) in
+      compatible_union_of_option_list (value_eqb := var_eqb) ctxs
     else
-      true
+      None.
 
+  Definition check_meta_rule_against_normal_rule mconcls mhyps nconcls nhyps : bool :=
+    (*for each nconcl C:
+      given nhyps H1, ..., Hn, can we pick mhyps mH1, ..., mHn and mconcl mC such that
+      mC :- mH1, ..., mHn subsumes C :- H1, ..., Hn
+     *)
+    (*pickink mH1, ..., mHn naively would be exponential, so let's do something slightly smarter*)
+    let same_rel nhyp mhyp := rel_eqb nhyp.(clause_rel) mhyp.(meta_clause_rel) in
+    let hyp_matches nhyp := filter (same_rel nhyp) mhyps in
+    let hyps_matches := cartesian_prod (map hyp_matches nhyps) in
+    forallb (fun nconcl =>
+               let concl_matches := filter (same_rel nconcl) mconcls in
+               let matches := list_prod concl_matches hyps_matches in
+               existsb (fun '(concl_match, hyps_match) =>
+                          is_Some
+                            (compatible_union_of_option_list (value_eqb := var_eqb)
+                               (map2 meta_clause_subsumes_clause
+                                  (concl_match :: hyps_match)
+                                  (nconcl :: nhyps))))
+                 matches)
+      nconcls.
+
+  Check meta_rules_valid.
 End __.

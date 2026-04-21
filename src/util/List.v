@@ -258,7 +258,7 @@ Proof.
   revert ys. induction xs; simpl; intros; eauto.
   - destruct (length _); simpl; split; intros; fwd; eauto.
   - destruct ys; simpl; split; intros; fwd; eauto.
-    + destruct H; fwd; eauto. rewrite <- IHxs. eauto.
+    + destruct H; fwd; eauto.
     + destruct H; subst; fwd; eauto. rewrite <- IHxs in H. fwd. eauto.
 Qed.
 
@@ -604,10 +604,6 @@ Lemma Existsn_map P n xs (f : A -> B) :
   Existsn P n (map f xs) <-> Existsn (fun x => P (f x)) n xs.
 Proof.
   revert n. induction xs; intros n; simpl; split; invert 1; auto.
-  - apply Existsn_no; auto. apply IHxs. auto.
-  - apply Existsn_yes; auto. apply IHxs. auto.
-  - apply Existsn_no; auto. apply IHxs. auto.
-  - apply Existsn_yes; auto. apply IHxs. auto.
 Qed.
 
 Lemma Existsn_iff P1 P2 n xs :
@@ -616,8 +612,6 @@ Lemma Existsn_iff P1 P2 n xs :
   Existsn P2 n xs.
 Proof.
   intros H1 H2. induction H1; auto.
-  - apply Existsn_no; auto. rewrite <- H2. auto.
-  - apply Existsn_yes; auto. rewrite <- H2. auto.
 Qed.
 
 Lemma nth_error_repeat' (x : A) y m n :
@@ -859,6 +853,8 @@ Proof.
   induction l; simpl; auto. rewrite IHl. reflexivity.
 Qed.
 
+Definition is_Some (x : option A) :=
+  if x then true else false.
 End misc.
 
 Section misc.
@@ -866,6 +862,27 @@ Context {A B C D : Type}.
 Implicit Type xs : list A.
 Implicit Type ys : list B.
 Implicit Type zs : list C.
+
+(*when l has length 2, this is like list_prod in stdlib*)
+Fixpoint cartesian_prod (l : list (list A)) : list (list A) :=
+  match l with
+  | [] => [[]]
+  | xs :: xss =>
+      let rest := cartesian_prod xss in
+      flat_map (fun x => map (fun r => x :: r) rest) xs
+  end.
+
+Lemma cartesian_product_spec l x :
+  In x (cartesian_prod l) <-> Forall2 (@In _) x l.
+Proof.
+  revert x. induction l; intros x; simpl.
+  - split; intros H.
+    + destruct H; subst; auto. contradiction.
+    + invert H. auto.
+  - rewrite in_flat_map. split; intros H.
+    + fwd. rewrite in_map_iff in *. fwd. eauto.
+    + invert H. eexists. rewrite in_map_iff. eauto.
+Qed.
 
 Fixpoint map2 {A B C : Type} (f : A -> B -> C) l1 l2 :=
   match l1, l2 with
