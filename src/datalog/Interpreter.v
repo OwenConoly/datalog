@@ -872,6 +872,17 @@ Section __.
     | _, _ => None
     end.
 
+  Definition clause_compat (mc : meta_clause) (nc : clause) : option (list (var * var)) :=
+    (*require the relations to be equal?*)
+    option_map (@concat _)
+      (option_all (map2 (fun me e =>
+                           match me with
+                           | Some me' => expr_compat me' e
+                           | None => Some []
+                           end)
+                     mc.(meta_clause_args)
+                          nc.(clause_args))).
+
   Fixpoint expr_matches (equalities : list (var * var)) (e1 e2 : expr) :=
     match e1, e2 with
     | Datalog.var_expr v1, Datalog.var_expr v2 =>
@@ -883,70 +894,37 @@ Section __.
     | _, _ => false
     end.
 
-  Definition clause_matches (equalities : list (var * var)) (mc : meta_clause) (nc : normal_clause) :=
+  Definition clause_matches (equalities : list (var * var)) (mc : meta_clause) (nc : clause) :=
+    rel_eqb mc.(meta_clause_rel) nc.(clause_rel) &&
+      (length mc.(meta_clause_args) =? length nc.(clause_args))%nat &&
+      forallb
+        (eqb true)
+        (map2 (fun me e =>
+                 match me with
+                 | Some me' => expr_matches equalities me' e
+                 | None => true
+                 end)
+           mc.(meta_clause_args)
+                nc.(clause_args)).
 
-
-  (*half of alpha equivalence, or a restricted form of theta subsumption, or "we can rename variables in e1 to get e2"*)
-  Fixpoint expr_subsumes (e1 e2 : expr) : option var_var :=
-    match e1, e2 with
-    | Datalog.var_expr v1, Datalog.var_expr v2 =>
-        Some (map.put map.empty v1 v2)
-    | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
-        if fn_eqb f1 f2 && Nat.eqb (List.length args1) (List.length args2) then
-          compatible_union_of_option_list (value_eqb := var_eqb)
-            (map2 expr_subsumes args1 args2)
-        else
-          None
-    | _, _ => None
-    end.
-
-  Lemma expr_subsumes_sound e1 e2 sigma ctx_M ctx_N v :
-    expr_subsumes e1 e2 = Some sigma ->
-    interp_expr ctx_N e2 v ->
-    (forall x y, map.get sigma x = Some y -> map.get ctx_M x = map.get ctx_N y) ->
-    interp_expr ctx_M e1 v.
-  Proof.
-    revert e2 sigma v. induction e1; intros e2 sigma v0 Hsub H_N Hctx.
-  Admitted.
-
-  Print Datalog.meta_clause.
-  (*None is a wildcard.*)
-  Definition meta_clause_subsumes_clause mc nc : option var_var :=
-    if rel_eqb mc.(meta_clause_rel) nc.(clause_rel) &&
-         (length mc.(meta_clause_args) =? length nc.(clause_args))%nat then
-      let ctxs := map2 (fun e1 e2 =>
-                          match e1 with
-                          | Some e1 => expr_subsumes e1 e2
-                          | None => Some map.empty
-                          end)
-                    mc.(meta_clause_args)
-                         nc.(clause_args) in
-      compatible_union_of_option_list (value_eqb := var_eqb) ctxs
-    else
-      None.
-  Print meta_rules_valid. Print fact_potentially_supported.
-Check meta_clause_subsumes_clause.
   Definition check_meta_rule_against_normal_rule mconcls mhyps nconcls nhyps : bool :=
     (*for each nconcl C:
       given nhyps H1, ..., Hn, can we pick mhyps mH1, ..., mHn and mconcl mC such that
       mC :- mH1, ..., mHn subsumes C :- H1, ..., Hn
      *)
     (*pickink mH1, ..., mHn naively would be exponential, so let's do something slightly smarter*)
-    let same_rel_nm nhyp mhyp := rel_eqb nhyp.(clause_rel) mhyp.(meta_clause_rel) in
     let same_rel_mn mhyp nhyp := rel_eqb mhyp.(meta_clause_rel) nhyp.(clause_rel) in
-
-    let hyp_matches nhyp := filter (same_rel_nm nhyp) mhyps in
-    let hyps_matches := cartesian_prod (map hyp_matches nhyps) in
     forallb (fun mconcl =>
                let nconcl_matches := filter (same_rel_mn mconcl) nconcls in
                forallb (fun nconcl =>
-                          existsb (fun hyps_match =>
-                                     is_Some
-                                       (compatible_union_of_option_list (value_eqb := var_eqb)
-                                          (map2 meta_clause_subsumes_clause
-                                             (mconcl :: hyps_match)
-                                             (nconcl :: nhyps))))
-                            hyps_matches)
+                          match clause_compat mconcl nconcl with
+                          | Some equalities =>
+                              forallb (fun nhyp =>
+                                         existsb (fun mhyp => clause_matches equalities mhyp nhyp)
+                                           mhyps)
+                                nhyps
+                          | None => true
+                          end)
                  nconcl_matches)
       mconcls.
 
