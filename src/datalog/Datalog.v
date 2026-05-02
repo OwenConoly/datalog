@@ -1087,6 +1087,18 @@ Section __.
       eapply rule_impl_concl_relname_in. exact Hrule.
   Qed.
 
+  (*just like fact_supported, except it puts no constraint on the sets*)
+  Definition fact_potentially_supported (mhyps : list fact) (f : fact) : Prop :=
+    match f with
+    | normal_fact R' nf_args' =>
+        exists mf_args' mf_set',
+        In (meta_fact R' mf_args' mf_set') mhyps /\
+          Forall2 matches mf_args' nf_args'
+    | meta_fact R' mf_args' _ =>
+        exists mf_set',
+        In (meta_fact R' mf_args' mf_set') mhyps
+    end.
+
   Definition meta_rules_valid p :=
     forall R mf_args mf_set mhyps mr,
       In mr p ->
@@ -1095,16 +1107,7 @@ Section __.
         In nr p ->
         rule_impl (one_step_derives p) nr (normal_fact R args) hyps ->
         Forall2 matches mf_args args ->
-        Forall (fun f =>
-                  match f with
-                  | normal_fact R' nf_args' =>
-                      exists mf_args' mf_set',
-                      In (meta_fact R' mf_args' mf_set') mhyps /\
-                        Forall2 matches mf_args' nf_args'
-                  | meta_fact R' mf_args' _ =>
-                      exists mf_set',
-                      In (meta_fact R' mf_args' mf_set') mhyps
-                  end) hyps.
+        Forall (fact_potentially_supported mhyps) hyps.
 
   Definition consistent mf_rel mf_args mf_set S :=
     forall nf_args,
@@ -1160,7 +1163,8 @@ Section __.
       eapply Forall_impl.
       2: { apply Forall_and; [exact Hvalid|exact Hnf_argsp1]. }
       clear hyps' Hvalid Hnf_argsp1 H7.
-      simpl. intros f Hf. fwd. destruct f; fwd.
+      simpl. intros f Hf. fwd.
+      cbv [fact_potentially_supported] in Hfp0. destruct f; fwd.
       + cbv [fact_supported]. apply Exists_exists. eexists. split; [eassumption|].
         right. cbv [fact_matches]. do 4 eexists. ssplit; try reflexivity.
         1: assumption. apply H4 in Hfp0p0. cbv [consistent] in Hfp0p0.
@@ -1376,7 +1380,8 @@ Section __.
       do 2 eexists. split; [eassumption|]. split; [eassumption|].
       eapply Forall_impl.
       2: { apply Forall_and; [apply Hmr2|apply Hderivp2]. }
-      simpl. intros f Hf. fwd. destruct f; fwd.
+      simpl. intros f Hf.
+      cbv [fact_potentially_supported] in Hf. fwd. destruct f; fwd.
       + cbv [fact_supported]. apply Exists_exists.
         eexists. split; [eassumption|].
         cbv [fact_supported] in Hfp1. apply Exists_exists in Hfp1. fwd.
@@ -1410,7 +1415,8 @@ Section __.
       do 2 eexists. split; [eassumption|]. split; [eassumption|].
       eapply Forall_impl.
       2: { apply Forall_and; [apply Hmr1|apply Hderivp2]. }
-      simpl. intros f Hf. fwd. destruct f; fwd.
+      simpl. intros f Hf.
+      cbv [fact_potentially_supported] in Hf. fwd. destruct f; fwd.
       + cbv [fact_supported]. apply Exists_exists.
         eexists. split; [eassumption|].
         cbv [fact_supported] in Hfp1. apply Exists_exists in Hfp1. fwd.

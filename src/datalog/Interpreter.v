@@ -855,7 +855,37 @@ Section __.
 
   Context {var_var : map.map var var} {var_var_ok : map.ok var_var}.
   Context {fn_eqb : fn -> fn -> bool} {fn_eqb_spec : EqDecider fn_eqb}.
-  Context {rel_eqb : fn -> fn -> bool} {rel_eqb_spec : EqDecider fn_eqb}.
+  Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec : EqDecider rel_eqb}.
+  Context (fn_inj : fn -> bool).
+
+  (*var * var may as well be separate namepsaces, e.g. mvar * nvar*)
+  Fixpoint expr_compat (e1 e2 : expr) : option (list (var * var)) :=
+    match e1, e2 with
+    | Datalog.var_expr v1, Datalog.var_expr v2 => Some [(v1, v2)]
+    | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
+        if fn_eqb f1 f2 &&
+             fn_inj f1 &&
+             Nat.eqb (List.length args1) (List.length args2) then
+          option_map (@concat _) (option_all (map2 expr_compat args1 args2))
+        else
+          None
+    | _, _ => None
+    end.
+
+  Fixpoint expr_matches (equalities : list (var * var)) (e1 e2 : expr) :=
+    match e1, e2 with
+    | Datalog.var_expr v1, Datalog.var_expr v2 =>
+        inb (eqb_prod var_eqb var_eqb) (v1, v2) equalities
+    | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
+        fn_eqb f1 f2 &&
+          Nat.eqb (List.length args1) (List.length args2) &&
+          forallb (eqb true) (map2 (expr_matches equalities) args1 args2)
+    | _, _ => false
+    end.
+
+  Definition clause_matches (equalities : list (var * var)) (mc : meta_clause) (nc : normal_clause) :=
+
+
   (*half of alpha equivalence, or a restricted form of theta subsumption, or "we can rename variables in e1 to get e2"*)
   Fixpoint expr_subsumes (e1 e2 : expr) : option var_var :=
     match e1, e2 with
@@ -869,6 +899,15 @@ Section __.
           None
     | _, _ => None
     end.
+
+  Lemma expr_subsumes_sound e1 e2 sigma ctx_M ctx_N v :
+    expr_subsumes e1 e2 = Some sigma ->
+    interp_expr ctx_N e2 v ->
+    (forall x y, map.get sigma x = Some y -> map.get ctx_M x = map.get ctx_N y) ->
+    interp_expr ctx_M e1 v.
+  Proof.
+    revert e2 sigma v. induction e1; intros e2 sigma v0 Hsub H_N Hctx.
+  Admitted.
 
   Print Datalog.meta_clause.
   (*None is a wildcard.*)
@@ -885,27 +924,62 @@ Section __.
       compatible_union_of_option_list (value_eqb := var_eqb) ctxs
     else
       None.
-
+  Print meta_rules_valid. Print fact_potentially_supported.
+Check meta_clause_subsumes_clause.
   Definition check_meta_rule_against_normal_rule mconcls mhyps nconcls nhyps : bool :=
     (*for each nconcl C:
       given nhyps H1, ..., Hn, can we pick mhyps mH1, ..., mHn and mconcl mC such that
       mC :- mH1, ..., mHn subsumes C :- H1, ..., Hn
      *)
     (*pickink mH1, ..., mHn naively would be exponential, so let's do something slightly smarter*)
-    let same_rel nhyp mhyp := rel_eqb nhyp.(clause_rel) mhyp.(meta_clause_rel) in
-    let hyp_matches nhyp := filter (same_rel nhyp) mhyps in
-    let hyps_matches := cartesian_prod (map hyp_matches nhyps) in
-    forallb (fun nconcl =>
-               let concl_matches := filter (same_rel nconcl) mconcls in
-               let matches := list_prod concl_matches hyps_matches in
-               existsb (fun '(concl_match, hyps_match) =>
-                          is_Some
-                            (compatible_union_of_option_list (value_eqb := var_eqb)
-                               (map2 meta_clause_subsumes_clause
-                                  (concl_match :: hyps_match)
-                                  (nconcl :: nhyps))))
-                 matches)
-      nconcls.
+    let same_rel_nm nhyp mhyp := rel_eqb nhyp.(clause_rel) mhyp.(meta_clause_rel) in
+    let same_rel_mn mhyp nhyp := rel_eqb mhyp.(meta_clause_rel) nhyp.(clause_rel) in
 
-  Check meta_rules_valid.
+    let hyp_matches nhyp := filter (same_rel_nm nhyp) mhyps in
+    let hyps_matches := cartesian_prod (map hyp_matches nhyps) in
+    forallb (fun mconcl =>
+               let nconcl_matches := filter (same_rel_mn mconcl) nconcls in
+               forallb (fun nconcl =>
+                          existsb (fun hyps_match =>
+                                     is_Some
+                                       (compatible_union_of_option_list (value_eqb := var_eqb)
+                                          (map2 meta_clause_subsumes_clause
+                                             (mconcl :: hyps_match)
+                                             (nconcl :: nhyps))))
+                            hyps_matches)
+                 nconcl_matches)
+      mconcls.
+
+  Ltac destr_sth x :=
+    match goal with
+    | H: context[x ?a ?b] |- _ => destr (x a b)
+    | |- context[x ?a ?b] => destr (x a b)
+    end.
+
+  Lemma check_meta_rule_against_normal_rule_sound env mconcls mhyps nconcls nhyps R mf_args mf_set args mhyps' nhyps' :
+    check_meta_rule_against_normal_rule mconcls mhyps nconcls nhyps = true ->
+    rule_impl env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
+    rule_impl env (normal_rule nconcls nhyps) (normal_fact R args) nhyps' ->
+    Forall2 matches mf_args args ->
+    Forall (fact_potentially_supported mhyps') nhyps'.
+  Proof.
+    intros H Hm Hn Hmatch. repeat invert_stuff.
+    cbv [check_meta_rule_against_normal_rule] in H.
+    apply forallb_sound in H. rewrite Forall_forall in H.
+    specialize (H _ ltac:(eassumption)).
+    apply forallb_sound in H. rewrite Forall_forall in H.
+    epose_dep H. specialize' H.
+    { apply filter_In. destr_sth rel_eqb; eauto. }
+    apply existsb_exists in H. fwd. apply cartesian_product_spec in Hp0.
+    apply Forall2_map_r in Hp0.
+    Print meta_rules_valid.
+    simpl. eaut
+    specialize (H _ ltac:(eassumption)).
+    Search Forall forallb.
+    About forallb_to_Forall.
+    rewrite forallb_to_Forall in H.
+    invert Hm. invert Hn. invert H.
+
+
+
 End __.

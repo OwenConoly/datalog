@@ -1,4 +1,4 @@
-From Stdlib Require Import Lists.List Permutation.
+From Stdlib Require Import Lists.List Permutation Bool.
 From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics.
 Require Import Datalog.Tactics.
 Import ListNotations.
@@ -863,6 +863,11 @@ Implicit Type xs : list A.
 Implicit Type ys : list B.
 Implicit Type zs : list C.
 
+Lemma forallb_sound f xs :
+  forallb f xs = true ->
+  Forall (fun x => f x = true) xs.
+Proof. eauto using forallb_to_Forall. Qed.
+
 (*when l has length 2, this is like list_prod in stdlib*)
 Fixpoint cartesian_prod (l : list (list A)) : list (list A) :=
   match l with
@@ -904,6 +909,30 @@ Qed.
 Lemma keep_Some_flat_map (f : B -> list (option A)) (l : list B) :
   keep_Some (flat_map f l) = flat_map (fun x => keep_Some (f x)) l.
 Proof. cbv [keep_Some]. apply flat_map_flat_map. Qed.
+
+Context (eqbA : A -> A -> bool) `{EqDecider eqbA}.
+Context (eqbB : B -> B -> bool) `{EqDecider eqbB}.
+
+Definition eqb_prod (x y : A * B) :=
+  eqbA (fst x) (fst y) && eqbB (snd x) (snd y).
+
+#[global] Instance eqb_prod_spec: EqDecider eqb_prod.
+Proof.
+  intros a b. cbv [eqb_prod].
+  destruct a, b; simpl; destr_sth eqbA; destr_sth eqbB;
+    simpl; constructor; congruence.
+Qed.
+
+Definition inb (x : A) (l : list A) : bool :=
+  existsb (eqbA x) l.
+
+Lemma inb_spec x l :
+  inb x l = true <-> In x l.
+Proof.
+  cbv [inb]. rewrite existsb_exists.
+  split; intros H; fwd; eauto.
+  exists x. destr (eqbA x x); try congruence; auto.
+Qed.
 End misc.
 
 Lemma Forall2_option_relation_keep_Some {A B} (R : A -> B -> Prop) l1 l2 :

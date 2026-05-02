@@ -43,3 +43,11 @@ Hint Extern 6 => match goal with
                 | H: _ <-> _ |- _ => apply H
                 end : core.
 Hint Extern 7 (_ <-> _) => split : core.
+
+From coqutil Require Import Tactics.
+
+Ltac destr_sth x :=
+  match goal with
+  | H: context[x ?a ?b] |- _ => destr (x a b)
+  | |- context[x ?a ?b] => destr (x a b)
+  end.
