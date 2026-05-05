@@ -1008,12 +1008,36 @@ Section __.
            mc.(meta_clause_args)
                 nc.(clause_args)).
 
+  Lemma clause_matches_sound equalities mc nc ctx1 ctx2 R argsM argsN setM :
+    clause_matches equalities mc nc = true ->
+    Forall (fun '(x, y) => map.get ctx1 x = map.get ctx2 y) equalities ->
+    interp_meta_clause ctx1 mc (meta_fact R argsM setM) ->
+    interp_clause ctx2 nc (normal_fact R argsN) ->
+    Forall2 matches argsM argsN.
+  Proof.
+    intros Hmatch Heq Hmc Hnc.
+    cbv [clause_matches] in Hmatch. destruct mc, nc. simpl in *.
+    repeat invert_stuff.
+    (*TODO BoolSpec for forallb?*)
+    apply forallb_sound in Hmatchp1.
+    rewrite map2_eq_map_combine in Hmatchp1.
+    rewrite Lists.List.Forall_map in Hmatchp1.
+    apply Forall_combine_Forall2 in Hmatchp1; [|assumption].
+    apply Forall2_flip in Hmcp0.
+    apply Forall2_flip in Hmatchp1.
+    eapply Forall2_same_r in Hmcp0; [|exact Hmatchp1].
+    apply Forall2_flip in Hncp0, Hmcp0.
+    eapply Forall2_same_r in Hmcp0; [|exact Hncp0].
+    apply Forall2_flip in Hmcp0.
+    eapply Forall2_impl; [|eassumption].
+    simpl. intros argM argN H. fwd.
+    cbv [option_relation] in Hp2p2.
+    destruct_one_match_hyp; fwd; subst; simpl; auto.
+    eapply interp_expr_det; [|eassumption].
+    eapply expr_matches_sound; eauto.
+  Qed.
+
   Definition check_meta_rule_against_normal_rule mconcls mhyps nconcls nhyps : bool :=
-    (*for each nconcl C:
-      given nhyps H1, ..., Hn, can we pick mhyps mH1, ..., mHn and mconcl mC such that
-      mC :- mH1, ..., mHn subsumes C :- H1, ..., Hn
-     *)
-    (*pickink mH1, ..., mHn naively would be exponential, so let's do something slightly smarter*)
     let same_rel_mn mhyp nhyp := rel_eqb mhyp.(meta_clause_rel) nhyp.(clause_rel) in
     forallb (fun mconcl =>
                let nconcl_matches := filter (same_rel_mn mconcl) nconcls in
