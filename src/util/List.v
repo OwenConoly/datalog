@@ -881,6 +881,33 @@ Lemma forallb_sound f xs :
   Forall (fun x => f x = true) xs.
 Proof. eauto using forallb_to_Forall. Qed.
 
+#[global] Instance forallb_spec f xs :
+  BoolSpec (Forall (fun x => f x = true) xs) (Exists (fun x => f x = false) xs) (forallb f xs).
+Proof.
+  destruct (forallb _ _) eqn:E; constructor.
+  - apply forallb_sound. assumption.
+  - assert (E': forallb f xs <> true) by congruence.
+    rewrite forallb_forall in E'.
+    rewrite <- Forall_forall in E'.
+    rewrite <- Exists_Forall_neg in E'.
+    2: intros; destruct (f _); auto.
+    eapply Exists_impl; [|eassumption].
+    simpl. intros. destruct (f _); congruence.
+Qed.
+
+#[global] Instance existsb_spec f xs :
+  BoolSpec (Exists (fun x => f x = true) xs) (Forall (fun x => f x = false) xs) (existsb f xs).
+Proof.
+  destruct (existsb _ _) eqn:E; constructor.
+  - apply existsb_exists in E. fwd. apply Exists_exists. eauto.
+  - assert (E': existsb f xs <> true) by congruence.
+    rewrite existsb_exists in E'.
+    rewrite <- Exists_exists in E'.
+    rewrite <- Forall_Exists_neg in E'.
+    eapply Forall_impl; [|eassumption].
+    simpl. intros. destruct (f _); congruence.
+Qed.
+
 (*when l has length 2, this is like list_prod in stdlib*)
 Fixpoint cartesian_prod (l : list (list A)) : list (list A) :=
   match l with

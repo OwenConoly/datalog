@@ -841,9 +841,6 @@ Section __.
     fwd. eapply dag_paths_short in Hfp0; eauto. cbv [count_rels] in *. lia.
   Qed.
 
-  Print ctx_of_rule.
-  Print context_of_meta_hyps. Print Datalog.meta_clause.
-  Definition all_equal (things : list (expr * expr)) : bool. Admitted.
   (*A short answer to "why is completeness hard":
     R(x * x, x) :- Q(x).
     R(-1, _) :-.
@@ -853,7 +850,6 @@ Section __.
     is valid iff 42nd Turing machine never halts.
    *)
 
-  Context {var_var : map.map var var} {var_var_ok : map.ok var_var}.
   Context {fn_eqb : fn -> fn -> bool} {fn_eqb_spec : EqDecider fn_eqb}.
   Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec : EqDecider rel_eqb}.
   Context (fn_inj : fn -> bool).
@@ -975,19 +971,15 @@ Section __.
     induction e1; intros e2 ctx1 ctx2 val Hmatch Heq H1.
     - destruct e2; simpl in Hmatch; try discriminate.
       repeat invert_stuff.
-      (*TODO BoolSpec for existsb?*)
-      apply existsb_eqb_in in Hmatch.
-      rewrite Forall_forall in Heq. apply Heq in Hmatch.
-      rewrite Hmatch in *. auto.
+      rewrite Forall_forall in Heq. apply Heq in Hmatchp0.
+      rewrite Hmatchp0 in *. auto.
     - destruct e2; simpl in Hmatch; try discriminate.
       repeat invert_stuff.
-      econstructor; [|eassumption].
-      (*TODO BoolSpec for forallb?*)
-      rewrite forallb_forall, <- Forall_forall in Hmatchp1.
       rewrite map2_eq_map_combine in Hmatchp1.
       rewrite Lists.List.Forall_map in Hmatchp1.
       apply Forall_combine_Forall2 in Hmatchp1.
       2: { assumption. }
+      econstructor; [|eassumption].
       eapply Forall2_impl.
       2: { eapply Forall2_same_r; apply Forall2_flip; eassumption. }
       simpl.
@@ -1008,18 +1000,16 @@ Section __.
            mc.(meta_clause_args)
                 nc.(clause_args)).
 
-  Lemma clause_matches_sound equalities mc nc ctx1 ctx2 R argsM argsN setM :
+  Lemma clause_matches_sound equalities mc nc ctx1 ctx2 RM RN argsM argsN setM :
     clause_matches equalities mc nc = true ->
     Forall (fun '(x, y) => map.get ctx1 x = map.get ctx2 y) equalities ->
-    interp_meta_clause ctx1 mc (meta_fact R argsM setM) ->
-    interp_clause ctx2 nc (normal_fact R argsN) ->
-    Forall2 matches argsM argsN.
+    interp_meta_clause ctx1 mc (meta_fact RM argsM setM) ->
+    interp_clause ctx2 nc (normal_fact RN argsN) ->
+    RM = RN /\ Forall2 matches argsM argsN.
   Proof.
     intros Hmatch Heq Hmc Hnc.
     cbv [clause_matches] in Hmatch. destruct mc, nc. simpl in *.
-    repeat invert_stuff.
-    (*TODO BoolSpec for forallb?*)
-    apply forallb_sound in Hmatchp1.
+    repeat invert_stuff. split; [reflexivity|].
     rewrite map2_eq_map_combine in Hmatchp1.
     rewrite Lists.List.Forall_map in Hmatchp1.
     apply Forall_combine_Forall2 in Hmatchp1; [|assumption].
@@ -1048,7 +1038,7 @@ Section __.
                                          existsb (fun mhyp => clause_matches equalities mhyp nhyp)
                                            mhyps)
                                 nhyps
-                          | None => true
+                          | None => false (*we already know they have the same relation, so they'd better be compatible*)
                           end)
                  nconcl_matches)
       mconcls.
@@ -1059,6 +1049,8 @@ Section __.
     | |- context[x ?a ?b] => destr (x a b)
     end.
 
+  Opaque clause_matches.
+  Hint Unfold interp_meta_clause interp_clause : core.
   Lemma check_meta_rule_against_normal_rule_sound env mconcls mhyps nconcls nhyps R mf_args mf_set args mhyps' nhyps' :
     check_meta_rule_against_normal_rule mconcls mhyps nconcls nhyps = true ->
     rule_impl env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
@@ -1067,22 +1059,39 @@ Section __.
     Forall (fact_potentially_supported mhyps') nhyps'.
   Proof.
     intros H Hm Hn Hmatch. repeat invert_stuff.
-    cbv [check_meta_rule_against_normal_rule] in H.
-    apply forallb_sound in H. rewrite Forall_forall in H.
-    specialize (H _ ltac:(eassumption)).
-    apply forallb_sound in H. rewrite Forall_forall in H.
+    rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)).
+    fwd. rewrite Forall_forall in H.
     epose_dep H. specialize' H.
     { apply filter_In. destr_sth rel_eqb; eauto. }
-    apply existsb_exists in H. fwd. apply cartesian_product_spec in Hp0.
-    apply Forall2_map_r in Hp0.
-    Print meta_rules_valid.
-    simpl. eaut
-    specialize (H _ ltac:(eassumption)).
-    Search Forall forallb.
-    About forallb_to_Forall.
-    rewrite forallb_to_Forall in H.
-    invert Hm. invert Hn. invert H.
+    fwd. eapply Forall_impl.
+    2: { eapply Forall2_forget_l. eassumption. }
+    simpl. intros f Hf. fwd. rewrite Forall_forall in H.
+    specialize (H _ ltac:(eassumption)). fwd. apply Exists_exists in H. fwd.
+    repeat invert_stuff. simpl.
+    match goal with
+    | H: Forall2 (interp_meta_clause _) _ _ |- _ => rename H into Hmhyps
+    end.
+    apply Forall2_forget_r in Hmhyps. rewrite Forall_forall in Hmhyps.
+    specialize (Hmhyps _ ltac:(eassumption)). repeat invert_stuff.
+    eapply clause_matches_sound in Hp1; eauto.
+    { fwd. rewrite <- Hp1p0. eauto. }
+    eapply Forall_impl; cycle 1.
+    { eapply clause_compat_sound; eauto. rewrite <- H2. eauto. }
+    simpl. intros. fwd. congruence.
+    Unshelve. all: exact (fun _ => True).
+  Qed.
 
+  Lemma check_meta_rule_against_agg_rule_sound env mconcls mhyps concl_rel agg hyp_rel R mf_args mf_set args mhyps' nhyps' :
+    (*TODO what hypothesis here*)
+    rule_impl (context := context) env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
+    rule_impl (context := context) env (agg_rule concl_rel agg hyp_rel) (normal_fact R args) nhyps' ->
+    Forall2 matches mf_args args ->
+    Forall (fact_potentially_supported (rel := rel) mhyps') nhyps'.
+  Proof.
+    intros Hm Hn Hmatch. repeat invert_stuff.
+  Qed.
 
-
+  Definition check_meta_rule_against_rule mr nr :=
+    match mr, nr with
+    | meta_rule
 End __.
