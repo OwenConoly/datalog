@@ -858,6 +858,12 @@ Section __.
   Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec : EqDecider rel_eqb}.
   Context (fn_inj : fn -> bool).
 
+  (*Note: this can be weakened; we only need injectivity on length-n lists (for each n)*)
+  Context (fn_inj_spec :
+            forall f,
+              fn_inj f = true ->
+              partial_injective (interp_fun f)).
+
   (*var * var may as well be separate namepsaces, e.g. mvar * nvar*)
   Fixpoint expr_compat (e1 e2 : expr) : option (list (var * var)) :=
     match e1, e2 with
@@ -872,8 +878,45 @@ Section __.
     | _, _ => None
     end.
 
+  Lemma expr_compat_sound e1 e2 l ctx1 ctx2 val :
+    expr_compat e1 e2 = Some l ->
+    interp_expr ctx1 e1 val ->
+    interp_expr ctx2 e2 val ->
+    Forall (fun '(v1, v2) =>
+              exists val', map.get ctx1 v1 = Some val' /\ map.get ctx2 v2 = Some val') l.
+  Proof.
+    revert e2 l ctx1 ctx2 val.
+    induction e1; intros e2 l ctx1 ctx2 val Hcomp H1 H2.
+    - destruct e2; simpl in Hcomp; try discriminate.
+      repeat invert_stuff.
+      eauto.
+    - destruct e2; simpl in Hcomp; try discriminate.
+      repeat invert_stuff.
+      apply option_all_Forall2 in Hcompp0.
+      eapply fn_inj_spec in Ep0p1. cbv [partial_injective] in Ep0p1.
+      match goal with
+      | H1: interp_fun _ _ = Some _, H2: interp_fun _ _ = Some _ |- _ =>
+          specialize (Ep0p1 _ _ _ H1 H2)
+      end.
+      subst.
+      apply Forall_concat.
+      eapply Forall_impl.
+      2: { eapply Forall2_forget_l. eassumption. }
+      simpl. intros vs Hvs. fwd.
+      rewrite map2_eq_map_combine in Hvsp0. apply in_map_iff in Hvsp0.
+      fwd.
+      match goal with
+      | H1: Forall2 (interp_expr ctx1) _ _, H2: Forall2 (interp_expr ctx2) _ _ |- _ =>
+          eapply Forall2_same_r in H2; [|exact H1];
+          rename H2 into Hargs
+      end.
+      apply Forall2_combine in Hargs.
+      rewrite Forall_forall in Hargs.
+      specialize (Hargs _ ltac:(eassumption)). simpl in Hargs. fwd.
+      rewrite Forall_forall in H. eauto using in_combine_l.
+  Qed.
+
   Definition clause_compat (mc : meta_clause) (nc : clause) : option (list (var * var)) :=
-    (*require the relations to be equal?*)
     option_map (@concat _)
       (option_all (map2 (fun me e =>
                            match me with
@@ -883,16 +926,74 @@ Section __.
                      mc.(meta_clause_args)
                           nc.(clause_args))).
 
+  Lemma clause_compat_sound mc nc l ctx1 ctx2 R argsM argsN setM :
+    clause_compat mc nc = Some l ->
+    interp_meta_clause ctx1 mc (meta_fact R argsM setM) ->
+    interp_clause ctx2 nc (normal_fact R argsN) ->
+    Forall2 matches argsM argsN ->
+    Forall (fun '(v1, v2) => exists val', map.get ctx1 v1 = Some val' /\ map.get ctx2 v2 = Some val') l.
+  Proof.
+    intros Hcomp Hmc Hnc Hmatch.
+    cbv [clause_compat] in Hcomp. destruct mc, nc. simpl in *.
+    repeat invert_stuff.
+    apply Forall_concat.
+    apply option_all_Forall2 in Hcompp0.
+    eapply Forall_impl.
+    2: { eapply Forall2_forget_l. eassumption. }
+    clear Hcompp0. simpl. intros vs Hvs. fwd.
+    apply Forall2_flip in Hmatch.
+    eapply Forall2_same_r in Hmcp0; [|exact Hmatch]. clear Hmatch.
+    apply Forall2_flip in Hmcp0. eapply Forall2_same_r in Hmcp0; [|exact Hncp0].
+    rewrite map2_eq_map_combine in Hvsp0.
+    apply Forall2_flip in Hmcp0.
+    apply Forall2_combine in Hmcp0. rewrite Forall_forall in Hmcp0.
+    apply in_map_iff in Hvsp0. destruct Hvsp0 as [[res ?] Hvsp0]. fwd.
+    apply Hmcp0 in Hvsp0p1. fwd. cbv [option_relation] in Hvsp0p1p2p1.
+    destruct res; fwd; auto.
+    simpl in *. fwd. simpl in *. subst.
+    eapply expr_compat_sound; eauto.
+  Qed.
+
   Fixpoint expr_matches (equalities : list (var * var)) (e1 e2 : expr) :=
     match e1, e2 with
     | Datalog.var_expr v1, Datalog.var_expr v2 =>
-        inb (eqb_prod var_eqb var_eqb) (v1, v2) equalities
+        existsb (eqb_prod var_eqb var_eqb (v1, v2)) equalities
     | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
         fn_eqb f1 f2 &&
           Nat.eqb (List.length args1) (List.length args2) &&
           forallb (eqb true) (map2 (expr_matches equalities) args1 args2)
     | _, _ => false
     end.
+
+  Lemma expr_matches_sound equalities e1 e2 ctx1 ctx2 val :
+    expr_matches equalities e1 e2 = true ->
+    Forall (fun '(x, y) => map.get ctx1 x = map.get ctx2 y) equalities ->
+    interp_expr ctx1 e1 val ->
+    interp_expr ctx2 e2 val.
+  Proof.
+    revert e2 ctx1 ctx2 val.
+    induction e1; intros e2 ctx1 ctx2 val Hmatch Heq H1.
+    - destruct e2; simpl in Hmatch; try discriminate.
+      repeat invert_stuff.
+      (*TODO BoolSpec for existsb?*)
+      apply existsb_eqb_in in Hmatch.
+      rewrite Forall_forall in Heq. apply Heq in Hmatch.
+      rewrite Hmatch in *. auto.
+    - destruct e2; simpl in Hmatch; try discriminate.
+      repeat invert_stuff.
+      econstructor; [|eassumption].
+      (*TODO BoolSpec for forallb?*)
+      rewrite forallb_forall, <- Forall_forall in Hmatchp1.
+      rewrite map2_eq_map_combine in Hmatchp1.
+      rewrite Lists.List.Forall_map in Hmatchp1.
+      apply Forall_combine_Forall2 in Hmatchp1.
+      2: { assumption. }
+      eapply Forall2_impl.
+      2: { eapply Forall2_same_r; apply Forall2_flip; eassumption. }
+      simpl.
+      intros e e' He. fwd.
+      rewrite Forall_forall in H. eapply H; eauto.
+  Qed.
 
   Definition clause_matches (equalities : list (var * var)) (mc : meta_clause) (nc : clause) :=
     rel_eqb mc.(meta_clause_rel) nc.(clause_rel) &&

@@ -342,6 +342,9 @@ Proof.
   repeat (destruct_one_match; try congruence).
 Qed.
 
+Definition partial_injective {A B} (f : A -> option B) : Prop :=
+  forall x y v, f x = Some v -> f y = Some v -> x = y.
+
 Definition option_coalesce {X : Type} (x : option (option X)) :=
   match x with
   | Some (Some x) => Some x
@@ -863,6 +866,16 @@ Implicit Type xs : list A.
 Implicit Type ys : list B.
 Implicit Type zs : list C.
 
+Lemma Forall2_same_r (R1 : A -> C -> Prop) (R2 : B -> C -> Prop) (l1 : list A) (l2 : list B) (l : list C) :
+    Forall2 R1 l1 l ->
+    Forall2 R2 l2 l ->
+    Forall2 (fun x y => exists z, In z l /\ R1 x z /\ R2 y z) l1 l2.
+Proof.
+  intros H1 H2. apply Forall2_flip in H2.
+  eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
+  apply Forall3_ignore2 in H2. exact H2.
+Qed.
+
 Lemma forallb_sound f xs :
   forallb f xs = true ->
   Forall (fun x => f x = true) xs.
@@ -889,11 +902,18 @@ Proof.
     + invert H. eexists. rewrite in_map_iff. eauto.
 Qed.
 
-Fixpoint map2 {A B C : Type} (f : A -> B -> C) l1 l2 :=
+Fixpoint map2 (f : A -> B -> C) l1 l2 :=
   match l1, l2 with
   | x1 :: l1', x2 :: l2' => f x1 x2 :: map2 f l1' l2'
   | _, _ => []
   end.
+
+Lemma map2_eq_map_combine (f : A -> B -> C) (l1 : list A) (l2 : list B) :
+  map2 f l1 l2 = map (fun '(a,b) => f a b) (combine l1 l2).
+Proof.
+  revert l2. induction l1 as [|a l1 IH]; destruct l2; simpl; auto.
+  f_equal. apply IH.
+Qed.
 
 Definition keep_Some : _ -> list A :=
   flat_map (fun x => match x with | Some y => [y] | None => [] end).
@@ -923,16 +943,19 @@ Proof.
     simpl; constructor; congruence.
 Qed.
 
-Definition inb (x : A) (l : list A) : bool :=
-  existsb (eqbA x) l.
+(* Definition inb (x : A) (l : list A) : bool := *)
+(*   existsb (eqbA x) l. *)
 
-Lemma inb_spec x l :
-  inb x l = true <-> In x l.
-Proof.
-  cbv [inb]. rewrite existsb_exists.
-  split; intros H; fwd; eauto.
-  exists x. destr (eqbA x x); try congruence; auto.
-Qed.
+(* Print BoolSpec. *)
+(* Lemma inb_spec x l : *)
+(*   BoolSpec (In x l) (~In x l) (inb x l). *)
+(* Proof. *)
+(*   cbv [inb]. destruct (existsb _ _) eqn:E; constructor. *)
+(*   - apply existsb_exists in E. fwd. auto. *)
+(*   - Search existsb. About existsb_eqb_in. *)
+(*   split; intros H; fwd; eauto. *)
+(*   exists x. destr (eqbA x x); try congruence; auto. *)
+(* Qed. *)
 End misc.
 
 Lemma Forall2_option_relation_keep_Some {A B} (R : A -> B -> Prop) l1 l2 :
