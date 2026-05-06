@@ -857,16 +857,13 @@ Section __.
   Definition my_list_eqb {A} (aeqb : A -> A -> bool) (x y : list A) :=
     (length x =? length y) && forallb (eqb true) (map2 aeqb x y).
 
-  Definition expr_eqb : Eqb.Eqb expr :=
-    fix expr_eqb e1 e2 :=
+  Fixpoint expr_eqb e1 e2 :=
       match e1, e2 with
       | Datalog.var_expr v1, Datalog.var_expr v2 => var_eqb v1 v2
       | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
           fn_eqb f1 f2 && my_list_eqb expr_eqb args1 args2
       | _, _ => false
       end.
-
-  #[global] Existing Instance expr_eqb.
 
   Lemma my_list_eqb_is_eqb A (aeqb : A -> _) x y :
     my_list_eqb aeqb x y = list_eqb aeqb x y.
@@ -931,7 +928,7 @@ Section __.
       eauto.
     - destruct e2; simpl in Hcomp; try discriminate.
       repeat invert_stuff.
-      apply option_all_Forall2 in Hcompp0.
+      apply eq_Forall2_eq in Hcompp0. apply Forall2_map_r in Hcompp0.
       eapply fn_inj_spec in Ep0p1. cbv [partial_injective] in Ep0p1.
       match goal with
       | H1: interp_fun _ _ = Some _, H2: interp_fun _ _ = Some _ |- _ =>
@@ -976,7 +973,7 @@ Section __.
     cbv [clause_compat] in Hcomp. destruct mc, nc. simpl in *.
     repeat invert_stuff.
     apply Forall_concat.
-    apply option_all_Forall2 in Hcompp0.
+    apply eq_Forall2_eq in Hcompp0. apply Forall2_map_r in Hcompp0.
     eapply Forall_impl.
     2: { eapply Forall2_forget_l. eassumption. }
     clear Hcompp0. simpl. intros vs Hvs. fwd.
@@ -1096,14 +1093,10 @@ Section __.
                           rel_eqb mhyp.(meta_clause_rel) hyp_rel &&
                             match mhyp.(meta_clause_args) with
                             | None :: None :: stuff' =>
-                                forallb
-                                  (eqb true)
-                                  (map2 (fun ec eh =>
-                                           match eh with
-                                           | None => true
-                                           | Some _ => option_eqb _ ec eh
-                                           end)
-                                     stuff stuff')
+                                match option_all stuff, option_all stuff' with
+                                | Some stuff, Some stuff' => list_eqb expr_eqb stuff stuff'
+                                | _, _ => false
+                                end
                             | _ => false
                             end)
                        mhyps
@@ -1149,6 +1142,7 @@ Section __.
     Unshelve. all: exact (fun _ => True).
   Qed.
 
+  Hint Unfold matches : core.
   Lemma check_meta_rule_against_agg_rule_sound env mconcls mhyps concl_rel agg hyp_rel R mf_args mf_set args mhyps' nhyps' :
     (*TODO what hypothesis here*)
     check_meta_rule_against_agg_rule mconcls mhyps concl_rel hyp_rel = true ->
@@ -1166,11 +1160,21 @@ Section __.
         specialize (H _ ltac:(eassumption)); rename H into Hmhyps'
     end.
     fwd. repeat invert_stuff. rewrite E0 in *. repeat invert_stuff.
-    match goal with
-    |
-    cbv [option_relation] in *.
+    apply Forall2_flip in H4. eapply Forall2_same_r in H6; [|exact H4].
+    apply Forall2_map_r in H6. simpl in H6.
+    apply Forall2_flip in H11. apply Forall2_map_r in H11.
+    eapply Forall2_same_r in H6; [|exact H11].
+    assert (l'0 = map Some args0).
+    { apply Forall2_eq_eq. rewrite <- Forall2_map_r.
+      eapply Forall2_impl; [|eassumption]. simpl.
+      intros. fwd. cbn [matches] in *. subst. f_equal.
+      eapply interp_expr_det; eassumption. }
+    subst.
     constructor.
-    { simpl. rewrite  eexists. rewrite
+    { simpl. eauto. }
+    apply Forall_map. apply Forall_forall. intros (?, ?) _. simpl.
+    do 2 eexists. split; [eassumption|]. constructor; auto. constructor; auto.
+    rewrite <- Forall2_map_l. apply Forall2_same. apply Forall_forall. auto.
   Qed.
 
   Definition check_meta_rule_against_rule mr nr :=

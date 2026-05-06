@@ -856,6 +856,14 @@ Section misc.
     induction l; simpl; auto. rewrite IHl. reflexivity.
   Qed.
 
+  Lemma option_all_map_Some' (l : list A) l' :
+    option_all l' = Some l ->
+    l' = map Some l.
+  Proof.
+    revert l. induction l'; simpl; intros l H; invert_list_stuff'; auto.
+    fwd. simpl. f_equal. auto.
+  Qed.
+
   Definition is_Some (x : option A) :=
     if x then true else false.
 End misc.
@@ -1030,6 +1038,7 @@ Ltac invert_list_stuff :=
     | H: option_map _ _ = Some _ |- _ => apply option_map_Some in H; fwd
     | H: option_coalesce _ = Some _ |- _ => apply option_coalesce_Some in H; fwd
     | H: option_relation _ _ _ |- _ => progress (simpl in H; subst)
+    | H: option_all _ = Some _ |- _ => apply option_all_map_Some' in H; subst
     | _ => invert_list_stuff'
     end.
 
