@@ -375,6 +375,7 @@ Section Blocks.
           specialize (Hp2 _ ltac:(eassumption)). apply Exists_map in Hp2.
           apply Exists_exists in Hp2. fwd.
           rewrite Forall_forall in Hmr. specialize (Hmr _ Hf').
+          cbv [fact_potentially_supported] in Hmr.
           rewrite Forall_forall in Hmh. specialize (Hmh _ ltac:(eassumption)).
           destruct Hp2p1 as [Hext | Hmatch].
           * apply extensionally_equal_map_bw in Hext. fwd.

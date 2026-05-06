@@ -2,7 +2,7 @@ From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Datatypes.List Tactics Tactics.fwd.
-From Datalog Require Import List Datalog (* FancyNotations *) Tactics Blocks.
+From Datalog Require Import List Datalog (* FancyNotations *) Tactics Blocks Interpreter.
 Import ListNotations.
 
 Section __.
@@ -19,6 +19,12 @@ Variant fn :=
 Notation rule := (rule rel nat fn bop).
 Notation expr := (expr nat fn). Print blocks_prog.
 Notation blocks_prog var := (@blocks_prog nat nat fn bop var).
+
+Definition fn_inj f :=
+  match f with
+  | fn_lit _ => true
+  | fn_bop _ => false
+  end.
 
 Definition bop_id o :=
   match o with
@@ -78,7 +84,11 @@ Definition interp_bop o x y :=
 
 Definition interp_fn (f : fn) (args : list obj) : option obj :=
   match f with
-  | fn_lit x => Some x
+  | fn_lit x =>
+      match args with
+      | [] => Some x
+      | _ => None
+      end
   | fn_bop o =>
       match args with
       | [x; y] => Some (interp_bop o x y)
@@ -100,14 +110,17 @@ Instance Sig : signature fn bop obj :=
   { interp_fun := interp_fn ;
     interp_agg := interp_agg }.
 
+Lemma fn_inj_correct f :
+  fn_inj f = true ->
+  partial_injective (interp_fun f).
+Proof.
+  destruct f; simpl; try congruence.
+  intros _. intros x y v Hx Hy.
+  destruct x, y; simpl in *; try discriminate; auto.
+Qed.
+
 Definition bare_rule : Type := (rel * list expr) * list (rel * list expr).
 
-Definition is_blank (e : expr) :=
-  match e with
-  | fun_expr (fn_lit blank) [] => true
-  | _ => false
-  end.
-Print meta_rule. Print meta_clause. Print blocks_prog. Print LetIn.
 Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var :=
   match e with
   | Var t x =>
@@ -289,6 +302,15 @@ Ltac invert_stuff :=
 
 Ltac interp_exprs := interp_exprs.
 
+Check compile_Sexpr.
+Lemma compile_Sexpr_valid var t (e : Sexpr (fun _ => var) t) :
+  valid_blocks_prog (compile_Sexpr e).
+Proof.
+  induction e; simpl; ssplit; auto.
+  - eapply check_meta_rules_valid_sound. 1: apply fn_inj_correct.
+    Set Printing All.
+    compute.
+    simpl.
 Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
   wf_Sexpr ctx t e e0 ->
