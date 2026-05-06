@@ -4,11 +4,10 @@ From Stdlib Require Import ZArith.Znat.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
-
-
-From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
+From Stdlib Require Import Bool.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option.
+
 
 From Datalog Require Import Datalog Map Tactics Fp List Dag.
 
@@ -854,6 +853,50 @@ Section __.
   Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec : EqDecider rel_eqb}.
   Context (fn_inj : fn -> bool).
 
+  (*TODO put in coqutil?*)
+  Definition my_list_eqb {A} (aeqb : A -> A -> bool) (x y : list A) :=
+    (length x =? length y) && forallb (eqb true) (map2 aeqb x y).
+
+  Definition expr_eqb : Eqb.Eqb expr :=
+    fix expr_eqb e1 e2 :=
+      match e1, e2 with
+      | Datalog.var_expr v1, Datalog.var_expr v2 => var_eqb v1 v2
+      | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
+          fn_eqb f1 f2 && my_list_eqb expr_eqb args1 args2
+      | _, _ => false
+      end.
+
+  #[global] Existing Instance expr_eqb.
+
+  Lemma my_list_eqb_is_eqb A (aeqb : A -> _) x y :
+    my_list_eqb aeqb x y = list_eqb aeqb x y.
+  Proof.
+    cbv [my_list_eqb list_eqb]. f_equal. rewrite map2_eq_map_combine.
+    rewrite forallb_map. apply forallb_ext. intros (?, ?). simpl.
+    destruct_one_match; reflexivity.
+  Qed.
+
+  Opaque list_eqb.
+  #[global] Instance eqb_prod_spec: EqDecider expr_eqb.
+  Proof.
+    intros e1. induction e1; intros e2; destruct e2; simpl; try (constructor; discriminate).
+    - destr_sth var_eqb; constructor; congruence.
+    - destruct (_ && _) eqn:E; constructor.
+      + fwd. f_equal. rewrite map2_eq_map_combine in Ep2.
+        apply Lists.List.Forall_map in Ep2. apply Forall_combine_Forall2 in Ep2; auto.
+        apply Forall2_eq_eq. eapply Forall2_impl_strong; [|eassumption].
+        simpl. intros. destruct_one_match_hyp; try discriminate.
+        rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)).
+        epose_dep H. rewrite E in H. invert H. reflexivity.
+      + fwd. intros H'. invert H'. destruct E as [E|[E|E]]; try congruence.
+        apply Exists_exists in E. fwd. rewrite map2_eq_map_combine in Ep0.
+        rewrite Forall_forall in H. apply in_map_iff in Ep0. fwd.
+        epose proof (eq_Forall2_eq _ _ eq_refl) as E'. eapply Forall2_combine in E'.
+        rewrite Forall_forall in E'. specialize  (E' _ ltac:(eassumption)).
+        simpl in E'. subst. apply in_combine_l in Ep0p1. eapply H in Ep0p1.
+        rewrite Ep0p0 in Ep0p1. invert Ep0p1. congruence.
+  Qed.
+
   (*Note: this can be weakened; we only need injectivity on length-n lists (for each n)*)
   Context (fn_inj_spec :
             forall f,
@@ -1043,6 +1086,31 @@ Section __.
                  nconcl_matches)
       mconcls.
 
+  Definition check_meta_rule_against_agg_rule (mconcls mhyps : list meta_clause) (concl_rel hyp_rel : rel) : bool :=
+    forallb (fun mconcl =>
+               negb (rel_eqb mconcl.(meta_clause_rel) concl_rel) ||
+                 match mconcl.(meta_clause_args) with
+                 | _ :: stuff =>
+                     existsb
+                       (fun mhyp =>
+                          rel_eqb mhyp.(meta_clause_rel) hyp_rel &&
+                            match mhyp.(meta_clause_args) with
+                            | None :: None :: stuff' =>
+                                forallb
+                                  (eqb true)
+                                  (map2 (fun ec eh =>
+                                           match eh with
+                                           | None => true
+                                           | Some _ => option_eqb _ ec eh
+                                           end)
+                                     stuff stuff')
+                            | _ => false
+                            end)
+                       mhyps
+                 | [] => false
+                 end)
+      mconcls.
+
   Ltac destr_sth x :=
     match goal with
     | H: context[x ?a ?b] |- _ => destr (x a b)
@@ -1083,12 +1151,26 @@ Section __.
 
   Lemma check_meta_rule_against_agg_rule_sound env mconcls mhyps concl_rel agg hyp_rel R mf_args mf_set args mhyps' nhyps' :
     (*TODO what hypothesis here*)
+    check_meta_rule_against_agg_rule mconcls mhyps concl_rel hyp_rel = true ->
     rule_impl (context := context) env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
     rule_impl (context := context) env (agg_rule concl_rel agg hyp_rel) (normal_fact R args) nhyps' ->
     Forall2 matches mf_args args ->
     Forall (fact_potentially_supported (rel := rel) mhyps') nhyps'.
   Proof.
-    intros Hm Hn Hmatch. repeat invert_stuff.
+    intros H Hm Hn Hmatch. repeat invert_stuff.
+    rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)). fwd.
+    destruct H as [H|H]; [congruence|]. fwd. apply Exists_exists in H. fwd.
+    match goal with
+    | H: Forall2 (interp_meta_clause _) _ _ |- _ =>
+        apply Forall2_forget_r in H; rewrite Forall_forall in H;
+        specialize (H _ ltac:(eassumption)); rename H into Hmhyps'
+    end.
+    fwd. repeat invert_stuff. rewrite E0 in *. repeat invert_stuff.
+    match goal with
+    |
+    cbv [option_relation] in *.
+    constructor.
+    { simpl. rewrite  eexists. rewrite
   Qed.
 
   Definition check_meta_rule_against_rule mr nr :=

@@ -22,7 +22,7 @@ Local Ltac invert_list_stuff' :=
     | H : [] = _ :: _ |- _ => discriminate H
     | H : In _ [_] |- _ => destruct H; [|contradiction]
     | H : In _ [] |- _ => contradiction
-  end.
+    end.
 
 Definition is_list_set {X : Type} (S : X -> Prop) (l : list X) :=
   (forall x, S x <-> In x l) /\ NoDup l.
@@ -58,182 +58,182 @@ Qed.
 
 Import ListNotations.
 Section subset.
-Context {A : Type}.
-Context (eqb : A -> A -> bool) {eqb_spec :  forall x0 y0 : A, BoolSpec (x0 = y0) (x0 <> y0) (eqb x0 y0)}.
-Implicit Type l : list A.
+  Context {A : Type}.
+  Context (eqb : A -> A -> bool) {eqb_spec :  forall x0 y0 : A, BoolSpec (x0 = y0) (x0 <> y0) (eqb x0 y0)}.
+  Implicit Type l : list A.
 
-Lemma Permutation_incl l l' :
-  Permutation l l' ->
-  incl l l'.
-Proof. cbv [incl]. eauto using Permutation_in. Qed.
+  Lemma Permutation_incl l l' :
+    Permutation l l' ->
+    incl l l'.
+  Proof. cbv [incl]. eauto using Permutation_in. Qed.
 
-Lemma incl_app_bw_l l l1 l2 :
-  incl (l1 ++ l2) l ->
-  incl l1 l.
-Proof. intros H. cbv [incl] in *. intros. apply H. apply in_app_iff. auto. Qed.
+  Lemma incl_app_bw_l l l1 l2 :
+    incl (l1 ++ l2) l ->
+    incl l1 l.
+  Proof. intros H. cbv [incl] in *. intros. apply H. apply in_app_iff. auto. Qed.
 
-Lemma incl_app_bw_r l l1 l2 :
-  incl (l1 ++ l2) l ->
-  incl l2 l.
-Proof. intros H. cbv [incl] in *. intros. apply H. apply in_app_iff. auto. Qed.
+  Lemma incl_app_bw_r l l1 l2 :
+    incl (l1 ++ l2) l ->
+    incl l2 l.
+  Proof. intros H. cbv [incl] in *. intros. apply H. apply in_app_iff. auto. Qed.
 
-(*I would like to do some magic to make this infer the eqb to use, but idk how*)
-(*hmm i am making my compiler take quadratic time.  i guess it already did though.*)
-Definition inclb (l1 l2 : list A) :=
-  forallb (fun x => existsb (eqb x) l2) l1.
+  (*I would like to do some magic to make this infer the eqb to use, but idk how*)
+  (*hmm i am making my compiler take quadratic time.  i guess it already did though.*)
+  Definition inclb (l1 l2 : list A) :=
+    forallb (fun x => existsb (eqb x) l2) l1.
 
-Lemma inclb_incl l1 l2 :
-  inclb l1 l2 = true <-> incl l1 l2.
-Proof.
-  cbv [inclb]. rewrite forallb_forall. split.
-  - intros H a H0. apply H in H0. rewrite existsb_exists in H0. fwd. auto.
-  - intros. rewrite existsb_exists. eexists ?[x0]. destr (eqb x ?x0); eauto.
-Qed.
+  Lemma inclb_incl l1 l2 :
+    inclb l1 l2 = true <-> incl l1 l2.
+  Proof.
+    cbv [inclb]. rewrite forallb_forall. split.
+    - intros H a H0. apply H in H0. rewrite existsb_exists in H0. fwd. auto.
+    - intros. rewrite existsb_exists. eexists ?[x0]. destr (eqb x ?x0); eauto.
+  Qed.
 
-Lemma incl_app_app (x1 : list A) y1 x2 y2 :
-  incl x1 x2 ->
-  incl y1 y2 ->
-  incl (x1 ++ y1) (x2 ++ y2).
-Proof. cbv [incl]. intros. repeat rewrite in_app_iff in *. intuition auto. Qed.
+  Lemma incl_app_app (x1 : list A) y1 x2 y2 :
+    incl x1 x2 ->
+    incl y1 y2 ->
+    incl (x1 ++ y1) (x2 ++ y2).
+  Proof. cbv [incl]. intros. repeat rewrite in_app_iff in *. intuition auto. Qed.
 
-Lemma incl_cons_idk x l1 l2 :
-  incl l1 (x :: l2) ->
-  exists l1',
-    incl l1' l2 /\
-      incl l1 (x :: l1') /\
-      incl l1' l1.
-Proof.
-  intros H. induction l1.
-  - exists nil. auto using incl_nil_l.
-  - apply incl_cons_inv in H. fwd. simpl in Hp0. specialize (IHl1 Hp1).
-    fwd. destruct Hp0.
-    + subst. exists l1'. split; auto. split.
-      -- apply incl_cons; simpl; auto.
-      -- apply incl_tl. assumption.
-    + exists (a :: l1'). ssplit.
-      -- apply incl_cons; auto.
-      -- apply incl_cons; simpl; auto. eapply incl_tran; [exact IHl1p1|].
-         apply incl_cons; simpl; auto. do 2 apply incl_tl. apply incl_refl.
-      -- apply incl_cons; simpl; auto. apply incl_tl. assumption.
-Qed.
+  Lemma incl_cons_idk x l1 l2 :
+    incl l1 (x :: l2) ->
+    exists l1',
+      incl l1' l2 /\
+        incl l1 (x :: l1') /\
+        incl l1' l1.
+  Proof.
+    intros H. induction l1.
+    - exists nil. auto using incl_nil_l.
+    - apply incl_cons_inv in H. fwd. simpl in Hp0. specialize (IHl1 Hp1).
+      fwd. destruct Hp0.
+      + subst. exists l1'. split; auto. split.
+        -- apply incl_cons; simpl; auto.
+        -- apply incl_tl. assumption.
+      + exists (a :: l1'). ssplit.
+        -- apply incl_cons; auto.
+        -- apply incl_cons; simpl; auto. eapply incl_tran; [exact IHl1p1|].
+           apply incl_cons; simpl; auto. do 2 apply incl_tl. apply incl_refl.
+        -- apply incl_cons; simpl; auto. apply incl_tl. assumption.
+  Qed.
 End subset.
 
 Section Forall.
-Context {A B C : Type}.
-Implicit Type xs : list A.
-Implicit Type ys : list B.
-Implicit Type zs : list C.
+  Context {A B C : Type}.
+  Implicit Type xs : list A.
+  Implicit Type ys : list B.
+  Implicit Type zs : list C.
 
-Lemma Forall2_same R xs :
-  Forall (fun x => R x x) xs ->
-  Forall2 R xs xs.
-Proof. induction 1; auto. Qed.
+  Lemma Forall2_same R xs :
+    Forall (fun x => R x x) xs ->
+    Forall2 R xs xs.
+  Proof. induction 1; auto. Qed.
 
-Lemma Forall2_combine R xs ys :
-  Forall2 R xs ys ->
-  Forall (fun '(x, y) => R x y) (combine xs ys).
-Proof. induction 1; simpl; eauto. Qed.
+  Lemma Forall2_combine R xs ys :
+    Forall2 R xs ys ->
+    Forall (fun '(x, y) => R x y) (combine xs ys).
+  Proof. induction 1; simpl; eauto. Qed.
 
-Lemma Forall_combine_Forall2 R xs ys :
-  Forall R (combine xs ys) ->
-  length xs = length ys ->
-  Forall2 (fun x y => R (x, y)) xs ys.
-Proof.
-  revert ys.
-  induction xs; intros ys H Hlen; destruct ys; simpl in Hlen; try discriminate;
-    simpl in *; invert_list_stuff'; auto.
-Qed.
+  Lemma Forall_combine_Forall2 R xs ys :
+    Forall R (combine xs ys) ->
+    length xs = length ys ->
+    Forall2 (fun x y => R (x, y)) xs ys.
+  Proof.
+    revert ys.
+    induction xs; intros ys H Hlen; destruct ys; simpl in Hlen; try discriminate;
+      simpl in *; invert_list_stuff'; auto.
+  Qed.
 
-Lemma Forall_combine R xs ys :
-  Forall2 (fun x y => R (x, y)) xs ys ->
-  Forall R (combine xs ys).
-Proof. induction 1; simpl; eauto. Qed.
+  Lemma Forall_combine R xs ys :
+    Forall2 (fun x y => R (x, y)) xs ys ->
+    Forall R (combine xs ys).
+  Proof. induction 1; simpl; eauto. Qed.
 
-Lemma Forall_zip (R : C -> Prop) xs ys f :
-  Forall2 (fun x y => R (f x y)) xs ys ->
-  Forall R (zip f xs ys).
-Proof.
-  intros. cbv [zip]. apply Forall_map.
-  apply Forall_combine. assumption.
-Qed.
+  Lemma Forall_zip (R : C -> Prop) xs ys f :
+    Forall2 (fun x y => R (f x y)) xs ys ->
+    Forall R (zip f xs ys).
+  Proof.
+    intros. cbv [zip]. apply Forall_map.
+    apply Forall_combine. assumption.
+  Qed.
 
-Lemma Forall2_zip (R : C -> Prop) xs ys f :
-  length xs = length ys ->
-  Forall R (zip f xs ys) ->
-  Forall2 (fun x y => R (f x y)) xs ys.
-Proof.
-  revert ys. induction xs; intros [|y ys] H; try discriminate H; auto.
-  cbv [zip]. simpl. invert 1. auto.
-Qed.
+  Lemma Forall2_zip (R : C -> Prop) xs ys f :
+    length xs = length ys ->
+    Forall R (zip f xs ys) ->
+    Forall2 (fun x y => R (f x y)) xs ys.
+  Proof.
+    revert ys. induction xs; intros [|y ys] H; try discriminate H; auto.
+    cbv [zip]. simpl. invert 1. auto.
+  Qed.
 
-Lemma Forall2_forget_l R xs ys :
-  Forall2 R xs ys ->
-  Forall (fun y => exists x, In x xs /\ R x y) ys.
-Proof.
-  induction 1; eauto. simpl. econstructor; eauto.
-  eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto.
-Qed.
+  Lemma Forall2_forget_l R xs ys :
+    Forall2 R xs ys ->
+    Forall (fun y => exists x, In x xs /\ R x y) ys.
+  Proof.
+    induction 1; eauto. simpl. econstructor; eauto.
+    eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto.
+  Qed.
 
-Lemma Forall2_forget_r R xs ys :
-  Forall2 R xs ys ->
-  Forall (fun x => exists y, In y ys /\ R x y) xs.
-Proof.
-  induction 1; eauto. simpl. econstructor; eauto.
-  eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto.
-Qed.
+  Lemma Forall2_forget_r R xs ys :
+    Forall2 R xs ys ->
+    Forall (fun x => exists y, In y ys /\ R x y) xs.
+  Proof.
+    induction 1; eauto. simpl. econstructor; eauto.
+    eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto.
+  Qed.
 
-Lemma Forall2_forget_r_strong R xs ys :
-  Forall2 R xs ys ->
-  Forall (fun x => exists y, In (x, y) (combine xs ys) /\ R x y) xs.
-Proof.
-  induction 1; eauto. simpl. econstructor; eauto.
-  eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto.
-Qed.
+  Lemma Forall2_forget_r_strong R xs ys :
+    Forall2 R xs ys ->
+    Forall (fun x => exists y, In (x, y) (combine xs ys) /\ R x y) xs.
+  Proof.
+    induction 1; eauto. simpl. econstructor; eauto.
+    eapply Forall_impl; [|eassumption]. simpl. intros. fwd. eauto.
+  Qed.
 
-Lemma Forall_exists_r_Forall2 R xs :
-  Forall (fun x => exists y, R x y) xs ->
-  exists ys, Forall2 R xs ys.
-Proof. induction 1; fwd; eauto. Qed.
+  Lemma Forall_exists_r_Forall2 R xs :
+    Forall (fun x => exists y, R x y) xs ->
+    exists ys, Forall2 R xs ys.
+  Proof. induction 1; fwd; eauto. Qed.
 
-Lemma Forall2_unique_r R xs ys ys' :
-  Forall2 R xs ys ->
-  Forall2 R xs ys' ->
-  (forall x y y', R x y -> R x y' -> y = y') ->
-  ys = ys'.
-Proof.
-  intros H. revert ys'. induction H; intros; invert_list_stuff'; f_equal; eauto.
-Qed.
+  Lemma Forall2_unique_r R xs ys ys' :
+    Forall2 R xs ys ->
+    Forall2 R xs ys' ->
+    (forall x y y', R x y -> R x y' -> y = y') ->
+    ys = ys'.
+  Proof.
+    intros H. revert ys'. induction H; intros; invert_list_stuff'; f_equal; eauto.
+  Qed.
 
-Lemma Forall2_and R1 R2 xs ys :
-  Forall2 R1 xs ys ->
-  Forall2 R2 xs ys ->
-  Forall2 (fun x y => R1 x y /\ R2 x y) xs ys.
-Proof. induction 1; intros; invert_list_stuff'; eauto. Qed.
+  Lemma Forall2_and R1 R2 xs ys :
+    Forall2 R1 xs ys ->
+    Forall2 R2 xs ys ->
+    Forall2 (fun x y => R1 x y /\ R2 x y) xs ys.
+  Proof. induction 1; intros; invert_list_stuff'; eauto. Qed.
 
-Lemma Forall2_true xs ys :
-  length xs = length ys ->
-  Forall2 (fun _ _ => True) xs ys.
-Proof. revert ys. induction xs; destruct ys; simpl; try congruence; eauto. Qed.
+  Lemma Forall2_true xs ys :
+    length xs = length ys ->
+    Forall2 (fun _ _ => True) xs ys.
+  Proof. revert ys. induction xs; destruct ys; simpl; try congruence; eauto. Qed.
 
-Lemma Forall2_map_l R (f : A -> B) (l1 : list A) (l2 : list C) :
-  Forall2 (fun x => R (f x)) l1 l2 <->
-    Forall2 R (map f l1) l2.
-Proof.
-  split; intros H.
-  - induction H. 1: constructor. constructor; assumption.
-  - remember (map f l1) as l1' eqn:E. revert l1 E. induction H; intros l1 Hl1.
-    + destruct l1; inversion Hl1. constructor.
-    + destruct l1; inversion Hl1. subst. constructor; auto.
-Qed.
+  Lemma Forall2_map_l R (f : A -> B) (l1 : list A) (l2 : list C) :
+    Forall2 (fun x => R (f x)) l1 l2 <->
+      Forall2 R (map f l1) l2.
+  Proof.
+    split; intros H.
+    - induction H. 1: constructor. constructor; assumption.
+    - remember (map f l1) as l1' eqn:E. revert l1 E. induction H; intros l1 Hl1.
+      + destruct l1; inversion Hl1. constructor.
+      + destruct l1; inversion Hl1. subst. constructor; auto.
+  Qed.
 
-Lemma Forall2_flip_iff R (l1 : list A) (l2 : list B) :
-  Forall2 (fun x y => R y x) l2 l1 <->
-    Forall2 R l1 l2.
-Proof.
-  split; auto using Forall2_flip.
-Qed.
+  Lemma Forall2_flip_iff R (l1 : list A) (l2 : list B) :
+    Forall2 (fun x y => R y x) l2 l1 <->
+      Forall2 R l1 l2.
+  Proof.
+    split; auto using Forall2_flip.
+  Qed.
 
-Lemma map_eq_Forall2 (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
+  Lemma map_eq_Forall2 (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
     map f l1 = map g l2 ->
     Forall2 (fun x y => f x = g y) l1 l2.
   Proof.
@@ -244,69 +244,69 @@ Lemma map_eq_Forall2 (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
       + apply IH. exact Htail.
   Qed.
 
-Lemma Forall2_eq_map (f : B -> A) (l1 : list A) (l2 : list B) :
-  Forall2 (fun x y => y = f x) l2 l1 <-> l1 = map f l2.
-Proof.
-  split.
-  - induction 1; simpl; congruence.
-  - intros ->. induction l2; constructor; reflexivity || assumption.
-Qed.
+  Lemma Forall2_eq_map (f : B -> A) (l1 : list A) (l2 : list B) :
+    Forall2 (fun x y => y = f x) l2 l1 <-> l1 = map f l2.
+  Proof.
+    split.
+    - induction 1; simpl; congruence.
+    - intros ->. induction l2; constructor; reflexivity || assumption.
+  Qed.
 
-Lemma in_combine_l_iff xs ys x (y : B) :
-  (exists y, In (x, y) (combine xs ys)) <-> In x (firstn (length ys) xs).
-Proof.
-  revert ys. induction xs; simpl; intros; eauto.
-  - destruct (length _); simpl; split; intros; fwd; eauto.
-  - destruct ys; simpl; split; intros; fwd; eauto.
-    + destruct H; fwd; eauto.
-    + destruct H; subst; fwd; eauto. rewrite <- IHxs in H. fwd. eauto.
-Qed.
+  Lemma in_combine_l_iff xs ys x (y : B) :
+    (exists y, In (x, y) (combine xs ys)) <-> In x (firstn (length ys) xs).
+  Proof.
+    revert ys. induction xs; simpl; intros; eauto.
+    - destruct (length _); simpl; split; intros; fwd; eauto.
+    - destruct ys; simpl; split; intros; fwd; eauto.
+      + destruct H; fwd; eauto.
+      + destruct H; subst; fwd; eauto. rewrite <- IHxs in H. fwd. eauto.
+  Qed.
 
-Lemma in_fst (x : A) (y : B) xys :
-  In (x, y) xys ->
-  In x (map fst xys).
-Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
+  Lemma in_fst (x : A) (y : B) xys :
+    In (x, y) xys ->
+    In x (map fst xys).
+  Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
 
-Lemma in_snd (x : A) (y : B) xys :
-  In (x, y) xys ->
-  In y (map snd xys).
-Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
+  Lemma in_snd (x : A) (y : B) xys :
+    In (x, y) xys ->
+    In y (map snd xys).
+  Proof. induction xys; simpl; eauto. destruct 1; subst; eauto. Qed.
 
-Lemma Forall2_firstn R xs ys n :
-  Forall2 R xs ys ->
-  Forall2 R (firstn n xs) (firstn n ys).
-Proof. intros H. revert n. induction H; destruct n; simpl; eauto. Qed.
+  Lemma Forall2_firstn R xs ys n :
+    Forall2 R xs ys ->
+    Forall2 R (firstn n xs) (firstn n ys).
+  Proof. intros H. revert n. induction H; destruct n; simpl; eauto. Qed.
 
-Lemma Forall2_skipn R xs ys n :
-  Forall2 R xs ys ->
-  Forall2 R (skipn n xs) (skipn n ys).
-Proof. intros H. revert n. induction H; destruct n; simpl; eauto. Qed.
+  Lemma Forall2_skipn R xs ys n :
+    Forall2 R xs ys ->
+    Forall2 R (skipn n xs) (skipn n ys).
+  Proof. intros H. revert n. induction H; destruct n; simpl; eauto. Qed.
 
-Lemma Forall_or P Q xs :
-  Forall (fun x => P x \/ Q x) xs ->
-  Forall P xs \/ Exists Q xs.
-Proof. induction 1; eauto. destruct H, IHForall; auto. Qed.
+  Lemma Forall_or P Q xs :
+    Forall (fun x => P x \/ Q x) xs ->
+    Forall P xs \/ Exists Q xs.
+  Proof. induction 1; eauto. destruct H, IHForall; auto. Qed.
 
-Lemma Forall2_rev R xs ys :
-  Forall2 R xs ys ->
-  Forall2 R (rev xs) (rev ys).
-Proof. induction 1; simpl; auto using Forall2_app. Qed.
+  Lemma Forall2_rev R xs ys :
+    Forall2 R xs ys ->
+    Forall2 R (rev xs) (rev ys).
+  Proof. induction 1; simpl; auto using Forall2_app. Qed.
 
-Lemma zip_ext_in (f : _ -> _ -> C) g xs ys :
-  (forall x y, In (x, y) (combine xs ys) -> f x y = g x y) ->
-  zip f xs ys = zip g xs ys.
-Proof.
-  intros. revert ys H. induction xs; eauto.
-  intros ys. destruct ys; simpl; eauto. cbv [zip].
-  simpl. intros. f_equal; eauto.
-Qed.
+  Lemma zip_ext_in (f : _ -> _ -> C) g xs ys :
+    (forall x y, In (x, y) (combine xs ys) -> f x y = g x y) ->
+    zip f xs ys = zip g xs ys.
+  Proof.
+    intros. revert ys H. induction xs; eauto.
+    intros ys. destruct ys; simpl; eauto. cbv [zip].
+    simpl. intros. f_equal; eauto.
+  Qed.
 
-Lemma zip_ext (f : _ -> _ -> C) g xs ys :
-  (forall x y, f x y = g x y) ->
-  zip f xs ys = zip g xs ys.
-Proof.
-  intros. apply zip_ext_in; auto.
-Qed.
+  Lemma zip_ext (f : _ -> _ -> C) g xs ys :
+    (forall x y, f x y = g x y) ->
+    zip f xs ys = zip g xs ys.
+  Proof.
+    intros. apply zip_ext_in; auto.
+  Qed.
 
 
 End Forall.
@@ -379,7 +379,7 @@ Section Forall3.
   Inductive Forall3 : list A -> list B -> list C -> Prop :=
   | Forall3_nil : Forall3 [] [] []
   | Forall3_cons : forall (x : A) (y : B) (z: C)
-                     (l0 : list A) (l1 : list B) (l2 : list C),
+                          (l0 : list A) (l1 : list B) (l2 : list C),
       R x y z ->
       Forall3 l0 l1 l2 ->
       Forall3 (x :: l0) (y :: l1) (z :: l2).
@@ -394,7 +394,7 @@ Section Forall3.
 
   Lemma Forall3_in_right:
     forall (xs : list A)
-      (ys : list B) (zs : list C) (z : C),
+           (ys : list B) (zs : list C) (z : C),
       Forall3 xs ys zs ->
       In z zs -> exists (x : A) (y : B), In x xs /\ In y ys /\ R x y z.
   Proof.
@@ -409,10 +409,10 @@ Section Forall3.
 
   Remark Forall3_tl:
     forall (x : A)
-      (y : B) (z : C) (l0 : list A) (l1 : list B) (l2 : list C),
+           (y : B) (z : C) (l0 : list A) (l1 : list B) (l2 : list C),
       Forall3 (x :: l0) (y :: l1) (z :: l2) -> Forall3 l0 l1 l2.
   Proof.
-      intros * HF. invert HF. auto.
+    intros * HF. invert HF. auto.
   Qed.
 
   Fixpoint forall3b (f : A -> B -> C -> bool) l1 l2 l3 :=
@@ -575,414 +575,428 @@ End Existsn.
 Hint Constructors Existsn : core.
 
 Section misc.
-Context {A B C D : Type}.
-Implicit Type xs : list A.
-Implicit Type ys : list B.
-Implicit Type zs : list C.
+  Context {A B C D : Type}.
+  Implicit Type xs : list A.
+  Implicit Type ys : list B.
+  Implicit Type zs : list C.
 
-Lemma map_inj (f : A -> B) (l1 l2 : list A) :
-  (forall x y, f x = f y -> x = y) ->
-  map f l1 = map f l2 ->
-  l1 = l2.
-Proof.
-  intros Hinj. revert l2. induction l1 as [|x xs IH]; intros [|y ys] H; simpl in H; auto; try discriminate.
-  invert H. f_equal; auto.
-Qed.
+  Lemma map_inj (f : A -> B) (l1 l2 : list A) :
+    (forall x y, f x = f y -> x = y) ->
+    map f l1 = map f l2 ->
+    l1 = l2.
+  Proof.
+    intros Hinj. revert l2. induction l1 as [|x xs IH]; intros [|y ys] H; simpl in H; auto; try discriminate.
+    invert H. f_equal; auto.
+  Qed.
 
-Lemma list_set_Existsn_1 S xs x :
-  is_list_set S xs ->
-  S x ->
-  Existsn (eq x) 1 xs.
-Proof.
-  intros Hls Hx. destruct Hls as [H1 H2].
-  apply H1 in Hx. apply in_split in Hx. fwd.
-  apply NoDup_remove_2 in H2. rewrite in_app_iff in H2.
-  replace 1 with (0 + 1) by lia. apply Existsn_app.
-  - apply Forall_not_Existsn_0. apply Forall_forall. intros ? ? ?. subst. auto.
-  - apply Existsn_yes; auto.
-    apply Forall_not_Existsn_0. apply Forall_forall. intros ? ? ?. subst. auto.
-Qed.
+  Lemma list_set_Existsn_1 S xs x :
+    is_list_set S xs ->
+    S x ->
+    Existsn (eq x) 1 xs.
+  Proof.
+    intros Hls Hx. destruct Hls as [H1 H2].
+    apply H1 in Hx. apply in_split in Hx. fwd.
+    apply NoDup_remove_2 in H2. rewrite in_app_iff in H2.
+    replace 1 with (0 + 1) by lia. apply Existsn_app.
+    - apply Forall_not_Existsn_0. apply Forall_forall. intros ? ? ?. subst. auto.
+    - apply Existsn_yes; auto.
+      apply Forall_not_Existsn_0. apply Forall_forall. intros ? ? ?. subst. auto.
+  Qed.
 
-Lemma Existsn_map P n xs (f : A -> B) :
-  Existsn P n (map f xs) <-> Existsn (fun x => P (f x)) n xs.
-Proof.
-  revert n. induction xs; intros n; simpl; split; invert 1; auto.
-Qed.
+  Lemma Existsn_map P n xs (f : A -> B) :
+    Existsn P n (map f xs) <-> Existsn (fun x => P (f x)) n xs.
+  Proof.
+    revert n. induction xs; intros n; simpl; split; invert 1; auto.
+  Qed.
 
-Lemma Existsn_iff P1 P2 n xs :
-  Existsn P1 n xs ->
-  (forall x, P1 x <-> P2 x) ->
-  Existsn P2 n xs.
-Proof.
-  intros H1 H2. induction H1; auto.
-Qed.
+  Lemma Existsn_iff P1 P2 n xs :
+    Existsn P1 n xs ->
+    (forall x, P1 x <-> P2 x) ->
+    Existsn P2 n xs.
+  Proof.
+    intros H1 H2. induction H1; auto.
+  Qed.
 
-Lemma nth_error_repeat' (x : A) y m n :
-  nth_error (repeat x m) n = Some y ->
-  x = y.
-Proof.
-  intros H. pose proof H as H0.
-  apply nth_error_Some_bound_index in H0. rewrite repeat_length in H0.
-  rewrite nth_error_repeat in H by lia. congruence.
-Qed.
+  Lemma nth_error_repeat' (x : A) y m n :
+    nth_error (repeat x m) n = Some y ->
+    x = y.
+  Proof.
+    intros H. pose proof H as H0.
+    apply nth_error_Some_bound_index in H0. rewrite repeat_length in H0.
+    rewrite nth_error_repeat in H by lia. congruence.
+  Qed.
 
-Lemma Forall2_flat_map xs ys R (f : A -> list C) (g : B -> list D) :
-  Forall2 (fun x y => Forall2 R (f x) (g y)) xs ys ->
-  Forall2 R (flat_map f xs) (flat_map g ys).
-Proof. induction 1; simpl; eauto using Forall2_app. Qed.
+  Lemma Forall2_flat_map xs ys R (f : A -> list C) (g : B -> list D) :
+    Forall2 (fun x y => Forall2 R (f x) (g y)) xs ys ->
+    Forall2 R (flat_map f xs) (flat_map g ys).
+  Proof. induction 1; simpl; eauto using Forall2_app. Qed.
 
-Lemma In_skipn x n xs :
-  In x (skipn n xs) ->
-  In x xs.
-Proof. intros. erewrite <- firstn_skipn. apply in_app_iff. eauto. Qed.
+  Lemma In_skipn x n xs :
+    In x (skipn n xs) ->
+    In x xs.
+  Proof. intros. erewrite <- firstn_skipn. apply in_app_iff. eauto. Qed.
 
-Lemma map_is_flat_map (f : A -> B) xs :
-  map f xs = flat_map (fun x => [f x]) xs.
-Proof. induction xs; eauto. Qed.
+  Lemma map_is_flat_map (f : A -> B) xs :
+    map f xs = flat_map (fun x => [f x]) xs.
+  Proof. induction xs; eauto. Qed.
 
-Lemma flat_map_map (g : A -> B) (f : B -> list C) l :
-  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
-Proof. induction l; simpl; f_equal; auto. Qed.
+  Lemma flat_map_map (g : A -> B) (f : B -> list C) l :
+    flat_map f (map g l) = flat_map (fun x => f (g x)) l.
+  Proof. induction l; simpl; f_equal; auto. Qed.
 
-Lemma flat_map_flat_map (f : B -> list C) (g : A -> list B) l :
-  flat_map f (flat_map g l) = flat_map (fun x => flat_map f (g x)) l.
-Proof. induction l; simpl; eauto. rewrite flat_map_app. f_equal. assumption. Qed.
+  Lemma flat_map_flat_map (f : B -> list C) (g : A -> list B) l :
+    flat_map f (flat_map g l) = flat_map (fun x => flat_map f (g x)) l.
+  Proof. induction l; simpl; eauto. rewrite flat_map_app. f_equal. assumption. Qed.
 
-Lemma app_inv_length1 (l1 l1' l2 l2' : list A) :
-  l1 ++ l2 = l1' ++ l2' ->
-  length l1 = length l1' ->
-  l1 = l1' /\ l2 = l2'.
-Proof.
-  revert l1'.
-  induction l1; intros l1'; destruct l1'; simpl; intros; try lia; auto.
-  fwd. specialize (IHl1 _ ltac:(eassumption) ltac:(eassumption)). fwd.
-  split; f_equal; auto.
-Qed.
+  Lemma app_inv_length1 (l1 l1' l2 l2' : list A) :
+    l1 ++ l2 = l1' ++ l2' ->
+    length l1 = length l1' ->
+    l1 = l1' /\ l2 = l2'.
+  Proof.
+    revert l1'.
+    induction l1; intros l1'; destruct l1'; simpl; intros; try lia; auto.
+    fwd. specialize (IHl1 _ ltac:(eassumption) ltac:(eassumption)). fwd.
+    split; f_equal; auto.
+  Qed.
 
-Lemma invert_concat_same xss xss' :
-  concat xss = concat xss' ->
-  Forall2 (fun xs xs' => length xs = length xs') xss xss' ->
-  xss = xss'.
-Proof.
-  induction 2; simpl in *; eauto. apply app_inv_length1 in H; eauto.
-  fwd. f_equal. eauto.
-Qed.
+  Lemma invert_concat_same xss xss' :
+    concat xss = concat xss' ->
+    Forall2 (fun xs xs' => length xs = length xs') xss xss' ->
+    xss = xss'.
+  Proof.
+    induction 2; simpl in *; eauto. apply app_inv_length1 in H; eauto.
+    fwd. f_equal. eauto.
+  Qed.
 
-Lemma invert_concat_same' xss xss' n :
-  concat xss = concat xss' ->
-  length xss = length xss' ->
-  Forall (fun xs => length xs = n) xss ->
-  Forall (fun xs => length xs = n) xss' ->
-  xss = xss'.
-Proof.
-  intros H H0 H1 H2. apply invert_concat_same; auto.
-  eapply Forall2_impl_strong; [|apply Forall2_true; auto].
-  intros x y _ Hx Hy. rewrite Forall_forall in *. rewrite H1, H2; auto.
-Qed.
+  Lemma invert_concat_same' xss xss' n :
+    concat xss = concat xss' ->
+    length xss = length xss' ->
+    Forall (fun xs => length xs = n) xss ->
+    Forall (fun xs => length xs = n) xss' ->
+    xss = xss'.
+  Proof.
+    intros H H0 H1 H2. apply invert_concat_same; auto.
+    eapply Forall2_impl_strong; [|apply Forall2_true; auto].
+    intros x y _ Hx Hy. rewrite Forall_forall in *. rewrite H1, H2; auto.
+  Qed.
 
-Lemma incl_concat_l ls (l : list A) :
-  incl (concat ls) l ->
-  Forall (fun l' => incl l' l) ls.
-Proof.
-  cbv [incl]. intros H. apply Forall_forall.
-  intros. apply H. apply in_concat. eauto.
-Qed.
+  Lemma incl_concat_l ls (l : list A) :
+    incl (concat ls) l ->
+    Forall (fun l' => incl l' l) ls.
+  Proof.
+    cbv [incl]. intros H. apply Forall_forall.
+    intros. apply H. apply in_concat. eauto.
+  Qed.
 
-Lemma incl_flat_map_r (f : A -> list B) x xs :
-  In x xs ->
-  incl (f x) (flat_map f xs).
-Proof.
-  intros H. induction xs; simpl in *.
-  - contradiction.
-  - destruct H; subst; auto using incl_appr, incl_appl, incl_refl.
-Qed.
+  Lemma incl_flat_map_r (f : A -> list B) x xs :
+    In x xs ->
+    incl (f x) (flat_map f xs).
+  Proof.
+    intros H. induction xs; simpl in *.
+    - contradiction.
+    - destruct H; subst; auto using incl_appr, incl_appl, incl_refl.
+  Qed.
 
-Lemma incl_flat_map_strong (f g : A -> list B) l l' :
-  incl l l' ->
-  (forall x, incl (f x) (g x)) ->
-  incl (flat_map f l) (flat_map g l').
-Proof.
-  induction l; simpl.
-  - intros. apply incl_nil_l.
-  - intros. apply incl_cons_inv in H. fwd.
-    eauto using incl_app, incl_flat_map_r, incl_tran.
-Qed.
+  Lemma incl_flat_map_strong (f g : A -> list B) l l' :
+    incl l l' ->
+    (forall x, incl (f x) (g x)) ->
+    incl (flat_map f l) (flat_map g l').
+  Proof.
+    induction l; simpl.
+    - intros. apply incl_nil_l.
+    - intros. apply incl_cons_inv in H. fwd.
+      eauto using incl_app, incl_flat_map_r, incl_tran.
+  Qed.
 
-Hint Unfold incl : core.
+  Hint Unfold incl : core.
 
-Lemma incl_firstn (l : list A) n :
-  incl (firstn n l) l.
-Proof. eauto using In_firstn_to_In. Qed.
+  Lemma incl_firstn (l : list A) n :
+    incl (firstn n l) l.
+  Proof. eauto using In_firstn_to_In. Qed.
 
-Lemma incl_skipn (l : list A) n :
-  incl (skipn n l) l.
-Proof. eauto using In_skipn. Qed.
+  Lemma incl_skipn (l : list A) n :
+    incl (skipn n l) l.
+  Proof. eauto using In_skipn. Qed.
 
-Lemma seq_incl start len1 len2 :
-  len1 <= len2 ->
-  incl (seq start len1) (seq start len2).
-Proof.
-  intros Hlen x Hx. apply in_seq in Hx. apply in_seq. lia.
-Qed.
+  Lemma seq_incl start len1 len2 :
+    len1 <= len2 ->
+    incl (seq start len1) (seq start len2).
+  Proof.
+    intros Hlen x Hx. apply in_seq in Hx. apply in_seq. lia.
+  Qed.
 
-Lemma Forall3_impl xs ys zs R1 R2 :
-  (forall x y z, R1 x y z -> R2 x y z) ->
-  Forall3 R1 xs ys zs ->
-  Forall3 R2 xs ys zs.
-Proof. induction 2; constructor; eauto. Qed.
+  Lemma Forall3_impl xs ys zs R1 R2 :
+    (forall x y z, R1 x y z -> R2 x y z) ->
+    Forall3 R1 xs ys zs ->
+    Forall3 R2 xs ys zs.
+  Proof. induction 2; constructor; eauto. Qed.
 
-Lemma Forall3_swap23 R xs ys zs :
-  Forall3 (fun x z y => R x y z) xs zs ys ->
-  Forall3 R xs ys zs.
-Proof. induction 1; constructor; eauto. Qed.
+  Lemma Forall3_swap23 R xs ys zs :
+    Forall3 (fun x z y => R x y z) xs zs ys ->
+    Forall3 R xs ys zs.
+  Proof. induction 1; constructor; eauto. Qed.
 
-Lemma Forall3_combine12 R xs ys zs :
-  Forall3 (fun x y => R (x, y)) xs ys zs ->
-  Forall2 R (combine xs ys) zs.
-Proof. induction 1; simpl; eauto. Qed.
+  Lemma Forall3_combine12 R xs ys zs :
+    Forall3 (fun x y => R (x, y)) xs ys zs ->
+    Forall2 R (combine xs ys) zs.
+  Proof. induction 1; simpl; eauto. Qed.
 
-Lemma Forall2_Forall2_Forall3 R1 R2 xs ys zs :
-  Forall2 R1 xs ys ->
-  Forall2 R2 ys zs ->
-  Forall3 (fun x y z => R1 x y /\ R2 y z) xs ys zs.
-Proof.
-  intros H. revert zs. induction H; invert 1; constructor; eauto.
-Qed.
+  Lemma Forall2_Forall2_Forall3 R1 R2 xs ys zs :
+    Forall2 R1 xs ys ->
+    Forall2 R2 ys zs ->
+    Forall3 (fun x y z => R1 x y /\ R2 y z) xs ys zs.
+  Proof.
+    intros H. revert zs. induction H; invert 1; constructor; eauto.
+  Qed.
 
-Lemma Forall2_eq_eq xs xs' :
-  Forall2 eq xs xs' ->
-  xs = xs'.
-Proof. induction 1; subst; reflexivity. Qed.
+  Lemma Forall2_eq_eq xs xs' :
+    Forall2 eq xs xs' ->
+    xs = xs'.
+  Proof. induction 1; subst; reflexivity. Qed.
 
-Lemma eq_Forall2_eq xs xs' :
-  xs = xs' ->
-  Forall2 eq xs xs'.
-Proof. intros. subst. induction xs'; eauto. Qed.
+  Lemma eq_Forall2_eq xs xs' :
+    xs = xs' ->
+    Forall2 eq xs xs'.
+  Proof. intros. subst. induction xs'; eauto. Qed.
 
-Lemma Forall2_concat R xss yss :
-  Forall2 (fun xs ys => Forall2 R xs ys) xss yss ->
-  Forall2 R (concat xss) (concat yss).
-Proof. induction 1; simpl; eauto using Forall2_app. Qed.
+  Lemma Forall2_concat R xss yss :
+    Forall2 (fun xs ys => Forall2 R xs ys) xss yss ->
+    Forall2 R (concat xss) (concat yss).
+  Proof. induction 1; simpl; eauto using Forall2_app. Qed.
 
-Lemma Forall2_nth_error R xs ys :
-  length xs = length ys ->
-  (forall n x y,
-      nth_error xs n = Some x ->
-      nth_error ys n = Some y ->
-      R x y) ->
-  Forall2 R xs ys.
-Proof.
-  revert ys. induction xs; intros ys H1 H2.
-  - destruct ys; [|discriminate H1]. constructor.
-  - destruct ys; [discriminate H1|]. simpl in H1. invert H1.
-    pose proof (H2 O _ _ ltac:(reflexivity) ltac:(reflexivity)).
-    constructor; [assumption|]. apply IHxs; auto. intros n.
-    specialize (H2 (S n)). simpl in H2. exact H2.
-Qed.
+  Lemma Forall2_nth_error R xs ys :
+    length xs = length ys ->
+    (forall n x y,
+        nth_error xs n = Some x ->
+        nth_error ys n = Some y ->
+        R x y) ->
+    Forall2 R xs ys.
+  Proof.
+    revert ys. induction xs; intros ys H1 H2.
+    - destruct ys; [|discriminate H1]. constructor.
+    - destruct ys; [discriminate H1|]. simpl in H1. invert H1.
+      pose proof (H2 O _ _ ltac:(reflexivity) ltac:(reflexivity)).
+      constructor; [assumption|]. apply IHxs; auto. intros n.
+      specialize (H2 (S n)). simpl in H2. exact H2.
+  Qed.
 
-Definition disjoint_lists (l1 l2 : list A) :=
-  forall x, In x l1 -> In x l2 -> False.
+  Definition disjoint_lists (l1 l2 : list A) :=
+    forall x, In x l1 -> In x l2 -> False.
 
-Definition same_set (l1 l2 : list A) :=
-  forall x, In x l1 <-> In x l2.
+  Definition same_set (l1 l2 : list A) :=
+    forall x, In x l1 <-> In x l2.
 
-Lemma same_set_app_comm (p1 p2 : list A) :
-  same_set (p1 ++ p2) (p2 ++ p1).
-Proof.
-  cbv [same_set]. intros x. split; intro H;
-    apply in_app_or in H; apply in_or_app; intuition idtac.
-Qed.
+  Lemma same_set_app_comm (p1 p2 : list A) :
+    same_set (p1 ++ p2) (p2 ++ p1).
+  Proof.
+    cbv [same_set]. intros x. split; intro H;
+      apply in_app_or in H; apply in_or_app; intuition idtac.
+  Qed.
 
-Lemma disjoint_lists_comm (l1 l2 : list A) :
-  disjoint_lists l1 l2 ->
-  disjoint_lists l2 l1.
-Proof. cbv [disjoint_lists]. eauto. Qed.
+  Lemma disjoint_lists_comm (l1 l2 : list A) :
+    disjoint_lists l1 l2 ->
+    disjoint_lists l2 l1.
+  Proof. cbv [disjoint_lists]. eauto. Qed.
 
-Lemma disjoint_lists_incl_l (l1 l1' l2 : list A) :
-  disjoint_lists l1 l2 ->
-  incl l1' l1 ->
-  disjoint_lists l1' l2.
-Proof. cbv [disjoint_lists]. eauto. Qed.
+  Lemma disjoint_lists_incl_l (l1 l1' l2 : list A) :
+    disjoint_lists l1 l2 ->
+    incl l1' l1 ->
+    disjoint_lists l1' l2.
+  Proof. cbv [disjoint_lists]. eauto. Qed.
 
-Lemma disjoint_lists_incl (l1 l1' l2 l2' : list A) :
-  disjoint_lists l1 l2 ->
-  incl l1' l1 ->
-  incl l2' l2 ->
-  disjoint_lists l1' l2'.
-Proof. cbv [disjoint_lists]. eauto. Qed.
+  Lemma disjoint_lists_incl (l1 l1' l2 l2' : list A) :
+    disjoint_lists l1 l2 ->
+    incl l1' l1 ->
+    incl l2' l2 ->
+    disjoint_lists l1' l2'.
+  Proof. cbv [disjoint_lists]. eauto. Qed.
 
-Lemma disjoint_lists_app_r (l1 l2 l3 : list A) :
-  disjoint_lists l1 l2 ->
-  disjoint_lists l1 l3 ->
-  disjoint_lists l1 (l2 ++ l3).
-Proof.
-  cbv [disjoint_lists]. intros ? ? ? ? H.
-  rewrite in_app_iff in H. destruct H; eauto.
-Qed.
+  Lemma disjoint_lists_app_r (l1 l2 l3 : list A) :
+    disjoint_lists l1 l2 ->
+    disjoint_lists l1 l3 ->
+    disjoint_lists l1 (l2 ++ l3).
+  Proof.
+    cbv [disjoint_lists]. intros ? ? ? ? H.
+    rewrite in_app_iff in H. destruct H; eauto.
+  Qed.
 
-Fixpoint choose_any_n n (fs : list A) :=
-  match n with
-  | S n' => flat_map (fun f => map (cons f) (choose_any_n n' fs)) fs
-  | O => [[]]
-  end.
+  Fixpoint choose_any_n n (fs : list A) :=
+    match n with
+    | S n' => flat_map (fun f => map (cons f) (choose_any_n n' fs)) fs
+    | O => [[]]
+    end.
 
-Lemma choose_n_spec n (hyps fs : list A) :
-  length hyps = n ->
-  incl hyps fs ->
-  In hyps (choose_any_n n fs).
-Proof.
-  revert hyps fs. induction n; intros hyps fs Hlen Hincl.
-  - destruct hyps; [|discriminate Hlen]. simpl. auto.
-  - destruct hyps; [discriminate Hlen|]. simpl in Hlen.
-    apply incl_cons_inv in Hincl. fwd.
-    specialize (IHn hyps _ ltac:(lia) ltac:(eassumption)).
-    simpl. apply in_flat_map. eexists. split; [eassumption|].
-    apply in_map. assumption.
-Qed.
+  Lemma choose_n_spec n (hyps fs : list A) :
+    length hyps = n ->
+    incl hyps fs ->
+    In hyps (choose_any_n n fs).
+  Proof.
+    revert hyps fs. induction n; intros hyps fs Hlen Hincl.
+    - destruct hyps; [|discriminate Hlen]. simpl. auto.
+    - destruct hyps; [discriminate Hlen|]. simpl in Hlen.
+      apply incl_cons_inv in Hincl. fwd.
+      specialize (IHn hyps _ ltac:(lia) ltac:(eassumption)).
+      simpl. apply in_flat_map. eexists. split; [eassumption|].
+      apply in_map. assumption.
+  Qed.
 
-Lemma disjoint_lists_alt (l1 l2 : list A) :
-  Forall (fun x => Forall (fun y => y <> x) l2) l1 ->
-  disjoint_lists l1 l2.
-Proof.
-  cbv [disjoint_lists]. induction 1; simpl.
-  - auto.
-  - intros ? [?|?]; subst; eauto.
-    rewrite Forall_forall in *. unfold not in *. eauto.
-Qed.
+  Lemma disjoint_lists_alt (l1 l2 : list A) :
+    Forall (fun x => Forall (fun y => y <> x) l2) l1 ->
+    disjoint_lists l1 l2.
+  Proof.
+    cbv [disjoint_lists]. induction 1; simpl.
+    - auto.
+    - intros ? [?|?]; subst; eauto.
+      rewrite Forall_forall in *. unfold not in *. eauto.
+  Qed.
 
-Lemma option_all_map_Some (l : list A) :
-  option_all (map Some l) = Some l.
-Proof.
-  induction l; simpl; auto. rewrite IHl. reflexivity.
-Qed.
+  Lemma option_all_map_Some (l : list A) :
+    option_all (map Some l) = Some l.
+  Proof.
+    induction l; simpl; auto. rewrite IHl. reflexivity.
+  Qed.
 
-Definition is_Some (x : option A) :=
-  if x then true else false.
+  Definition is_Some (x : option A) :=
+    if x then true else false.
 End misc.
 
 Section misc.
-Context {A B C D : Type}.
-Implicit Type xs : list A.
-Implicit Type ys : list B.
-Implicit Type zs : list C.
+  Context {A B C D : Type}.
+  Implicit Type xs : list A.
+  Implicit Type ys : list B.
+  Implicit Type zs : list C.
 
-Lemma Forall2_same_r (R1 : A -> C -> Prop) (R2 : B -> C -> Prop) (l1 : list A) (l2 : list B) (l : list C) :
+  Lemma Forall2_same_r (R1 : A -> C -> Prop) (R2 : B -> C -> Prop) (l1 : list A) (l2 : list B) (l : list C) :
     Forall2 R1 l1 l ->
     Forall2 R2 l2 l ->
     Forall2 (fun x y => exists z, In z l /\ R1 x z /\ R2 y z) l1 l2.
-Proof.
-  intros H1 H2. apply Forall2_flip in H2.
-  eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
-  apply Forall3_ignore2 in H2. exact H2.
-Qed.
+  Proof.
+    intros H1 H2. apply Forall2_flip in H2.
+    eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
+    apply Forall3_ignore2 in H2. exact H2.
+  Qed.
 
-Lemma forallb_sound f xs :
-  forallb f xs = true ->
-  Forall (fun x => f x = true) xs.
-Proof. eauto using forallb_to_Forall. Qed.
+  Lemma forallb_map (f : B -> bool) (g : A -> B) (l : list A) :
+    forallb f (map g l) = forallb (fun x => f (g x)) l.
+  Proof.
+    induction l; simpl; auto. f_equal. assumption.
+  Qed.
 
-#[global] Instance forallb_spec f xs :
-  BoolSpec (Forall (fun x => f x = true) xs) (Exists (fun x => f x = false) xs) (forallb f xs).
-Proof.
-  destruct (forallb _ _) eqn:E; constructor.
-  - apply forallb_sound. assumption.
-  - assert (E': forallb f xs <> true) by congruence.
-    rewrite forallb_forall in E'.
-    rewrite <- Forall_forall in E'.
-    rewrite <- Exists_Forall_neg in E'.
-    2: intros; destruct (f _); auto.
-    eapply Exists_impl; [|eassumption].
-    simpl. intros. destruct (f _); congruence.
-Qed.
+  Lemma forallb_ext (f g : A -> bool) (l : list A) :
+    (forall x, In x l -> f x = g x) ->
+    forallb f l = forallb g l.
+  Proof.
+    intros Hext. induction l; simpl; auto.
+    simpl in *. f_equal; auto.
+  Qed.
 
-#[global] Instance existsb_spec f xs :
-  BoolSpec (Exists (fun x => f x = true) xs) (Forall (fun x => f x = false) xs) (existsb f xs).
-Proof.
-  destruct (existsb _ _) eqn:E; constructor.
-  - apply existsb_exists in E. fwd. apply Exists_exists. eauto.
-  - assert (E': existsb f xs <> true) by congruence.
-    rewrite existsb_exists in E'.
-    rewrite <- Exists_exists in E'.
-    rewrite <- Forall_Exists_neg in E'.
-    eapply Forall_impl; [|eassumption].
-    simpl. intros. destruct (f _); congruence.
-Qed.
+  Lemma forallb_sound f xs :
+    forallb f xs = true ->
+    Forall (fun x => f x = true) xs.
+  Proof. eauto using forallb_to_Forall. Qed.
 
-(*when l has length 2, this is like list_prod in stdlib*)
-Fixpoint cartesian_prod (l : list (list A)) : list (list A) :=
-  match l with
-  | [] => [[]]
-  | xs :: xss =>
-      let rest := cartesian_prod xss in
-      flat_map (fun x => map (fun r => x :: r) rest) xs
-  end.
+  #[global] Instance forallb_spec f xs :
+    BoolSpec (Forall (fun x => f x = true) xs) (Exists (fun x => f x = false) xs) (forallb f xs).
+  Proof.
+    destruct (forallb _ _) eqn:E; constructor.
+    - apply forallb_sound. assumption.
+    - assert (E': forallb f xs <> true) by congruence.
+      rewrite forallb_forall in E'.
+      rewrite <- Forall_forall in E'.
+      rewrite <- Exists_Forall_neg in E'.
+      2: intros; destruct (f _); auto.
+      eapply Exists_impl; [|eassumption].
+      simpl. intros. destruct (f _); congruence.
+  Qed.
 
-Lemma cartesian_product_spec l x :
-  In x (cartesian_prod l) <-> Forall2 (@In _) x l.
-Proof.
-  revert x. induction l; intros x; simpl.
-  - split; intros H.
-    + destruct H; subst; auto. contradiction.
-    + invert H. auto.
-  - rewrite in_flat_map. split; intros H.
-    + fwd. rewrite in_map_iff in *. fwd. eauto.
-    + invert H. eexists. rewrite in_map_iff. eauto.
-Qed.
+  #[global] Instance existsb_spec f xs :
+    BoolSpec (Exists (fun x => f x = true) xs) (Forall (fun x => f x = false) xs) (existsb f xs).
+  Proof.
+    destruct (existsb _ _) eqn:E; constructor.
+    - apply existsb_exists in E. fwd. apply Exists_exists. eauto.
+    - assert (E': existsb f xs <> true) by congruence.
+      rewrite existsb_exists in E'.
+      rewrite <- Exists_exists in E'.
+      rewrite <- Forall_Exists_neg in E'.
+      eapply Forall_impl; [|eassumption].
+      simpl. intros. destruct (f _); congruence.
+  Qed.
 
-Fixpoint map2 (f : A -> B -> C) l1 l2 :=
-  match l1, l2 with
-  | x1 :: l1', x2 :: l2' => f x1 x2 :: map2 f l1' l2'
-  | _, _ => []
-  end.
+  (*when l has length 2, this is like list_prod in stdlib*)
+  Fixpoint cartesian_prod (l : list (list A)) : list (list A) :=
+    match l with
+    | [] => [[]]
+    | xs :: xss =>
+        let rest := cartesian_prod xss in
+        flat_map (fun x => map (fun r => x :: r) rest) xs
+    end.
 
-Lemma map2_eq_map_combine (f : A -> B -> C) (l1 : list A) (l2 : list B) :
-  map2 f l1 l2 = map (fun '(a,b) => f a b) (combine l1 l2).
-Proof.
-  revert l2. induction l1 as [|a l1 IH]; destruct l2; simpl; auto.
-  f_equal. apply IH.
-Qed.
+  Lemma cartesian_product_spec l x :
+    In x (cartesian_prod l) <-> Forall2 (@In _) x l.
+  Proof.
+    revert x. induction l; intros x; simpl.
+    - split; intros H.
+      + destruct H; subst; auto. contradiction.
+      + invert H. auto.
+    - rewrite in_flat_map. split; intros H.
+      + fwd. rewrite in_map_iff in *. fwd. eauto.
+      + invert H. eexists. rewrite in_map_iff. eauto.
+  Qed.
 
-Definition keep_Some : _ -> list A :=
-  flat_map (fun x => match x with | Some y => [y] | None => [] end).
+  Fixpoint map2 (f : A -> B -> C) l1 l2 :=
+    match l1, l2 with
+    | x1 :: l1', x2 :: l2' => f x1 x2 :: map2 f l1' l2'
+    | _, _ => []
+    end.
 
-Lemma in_keep_Some k l :
-  In (Some k) l <-> In k (keep_Some l).
-Proof.
-  cbv [keep_Some]. rewrite in_flat_map. split; intros H.
-  - eexists (Some _). simpl. eauto.
-  - fwd. destruct x; invert_list_stuff'; subst; auto.
-Qed.
+  Lemma map2_eq_map_combine (f : A -> B -> C) (l1 : list A) (l2 : list B) :
+    map2 f l1 l2 = map (fun '(a,b) => f a b) (combine l1 l2).
+  Proof.
+    revert l2. induction l1 as [|a l1 IH]; destruct l2; simpl; auto.
+    f_equal. apply IH.
+  Qed.
 
-Lemma keep_Some_flat_map (f : B -> list (option A)) (l : list B) :
-  keep_Some (flat_map f l) = flat_map (fun x => keep_Some (f x)) l.
-Proof. cbv [keep_Some]. apply flat_map_flat_map. Qed.
+  Definition keep_Some : _ -> list A :=
+    flat_map (fun x => match x with | Some y => [y] | None => [] end).
 
-Context (eqbA : A -> A -> bool) `{EqDecider eqbA}.
-Context (eqbB : B -> B -> bool) `{EqDecider eqbB}.
+  Lemma in_keep_Some k l :
+    In (Some k) l <-> In k (keep_Some l).
+  Proof.
+    cbv [keep_Some]. rewrite in_flat_map. split; intros H.
+    - eexists (Some _). simpl. eauto.
+    - fwd. destruct x; invert_list_stuff'; subst; auto.
+  Qed.
 
-Definition eqb_prod (x y : A * B) :=
-  eqbA (fst x) (fst y) && eqbB (snd x) (snd y).
+  Lemma keep_Some_flat_map (f : B -> list (option A)) (l : list B) :
+    keep_Some (flat_map f l) = flat_map (fun x => keep_Some (f x)) l.
+  Proof. cbv [keep_Some]. apply flat_map_flat_map. Qed.
 
-#[global] Instance eqb_prod_spec: EqDecider eqb_prod.
-Proof.
-  intros a b. cbv [eqb_prod].
-  destruct a, b; simpl; destr_sth eqbA; destr_sth eqbB;
-    simpl; constructor; congruence.
-Qed.
+  Context (eqbA : A -> A -> bool) `{EqDecider eqbA}.
+  Context (eqbB : B -> B -> bool) `{EqDecider eqbB}.
 
-(* Definition inb (x : A) (l : list A) : bool := *)
-(*   existsb (eqbA x) l. *)
+  Definition eqb_prod (x y : A * B) :=
+    eqbA (fst x) (fst y) && eqbB (snd x) (snd y).
 
-(* Print BoolSpec. *)
-(* Lemma inb_spec x l : *)
-(*   BoolSpec (In x l) (~In x l) (inb x l). *)
-(* Proof. *)
-(*   cbv [inb]. destruct (existsb _ _) eqn:E; constructor. *)
-(*   - apply existsb_exists in E. fwd. auto. *)
-(*   - Search existsb. About existsb_eqb_in. *)
-(*   split; intros H; fwd; eauto. *)
-(*   exists x. destr (eqbA x x); try congruence; auto. *)
-(* Qed. *)
+  #[global] Instance eqb_prod_spec: EqDecider eqb_prod.
+  Proof.
+    intros a b. cbv [eqb_prod].
+    destruct a, b; simpl; destr_sth eqbA; destr_sth eqbB;
+      simpl; constructor; congruence.
+  Qed.
+
+  (* Definition inb (x : A) (l : list A) : bool := *)
+  (*   existsb (eqbA x) l. *)
+
+  (* Print BoolSpec. *)
+  (* Lemma inb_spec x l : *)
+  (*   BoolSpec (In x l) (~In x l) (inb x l). *)
+  (* Proof. *)
+  (*   cbv [inb]. destruct (existsb _ _) eqn:E; constructor. *)
+  (*   - apply existsb_exists in E. fwd. auto. *)
+  (*   - Search existsb. About existsb_eqb_in. *)
+  (*   split; intros H; fwd; eauto. *)
+  (*   exists x. destr (eqbA x x); try congruence; auto. *)
+  (* Qed. *)
 End misc.
 
 Lemma Forall2_option_relation_keep_Some {A B} (R : A -> B -> Prop) l1 l2 :
@@ -996,7 +1010,7 @@ Qed.
 
 Lemma Forall3_map3 {A B C D} (f : C -> D) xs ys zs (R : A -> B -> D -> Prop) :
   Forall3 (fun x y z => R x y (f z)) xs ys zs <->
-  Forall3 R xs ys (map f zs).
+    Forall3 R xs ys (map f zs).
 Proof.
   split.
   - induction 1; simpl; econstructor; eauto.
@@ -1009,12 +1023,13 @@ Lemma map_cons_eq {A B : Type} (f : A -> B) x l l' :
   map f l = l' ->
   map f (x :: l) = f x :: l'.
 Proof. simpl. intros. f_equal. assumption. Qed.
-
+Print invert_list_stuff'.
 Ltac invert_list_stuff :=
   repeat match goal with
     | H: option_map _ _ = None |- _ => apply option_map_None in H; fwd
     | H: option_map _ _ = Some _ |- _ => apply option_map_Some in H; fwd
     | H: option_coalesce _ = Some _ |- _ => apply option_coalesce_Some in H; fwd
+    | H: option_relation _ _ _ |- _ => progress (simpl in H; subst)
     | _ => invert_list_stuff'
     end.
 
