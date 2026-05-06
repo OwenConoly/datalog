@@ -1144,7 +1144,6 @@ Section __.
 
   Hint Unfold matches : core.
   Lemma check_meta_rule_against_agg_rule_sound env mconcls mhyps concl_rel agg hyp_rel R mf_args mf_set args mhyps' nhyps' :
-    (*TODO what hypothesis here*)
     check_meta_rule_against_agg_rule mconcls mhyps concl_rel hyp_rel = true ->
     rule_impl (context := context) env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
     rule_impl (context := context) env (agg_rule concl_rel agg hyp_rel) (normal_fact R args) nhyps' ->
@@ -1177,7 +1176,44 @@ Section __.
     rewrite <- Forall2_map_l. apply Forall2_same. apply Forall_forall. auto.
   Qed.
 
-  Definition check_meta_rule_against_rule mr nr :=
-    match mr, nr with
-    | meta_rule
+  Definition check_meta_rule_against_rule (mr nr : rule) :=
+    match mr with
+    | meta_rule mconcls mhyps =>
+        match nr with
+        | meta_rule _ _ => true
+        | normal_rule nconcls nhyps =>
+            check_meta_rule_against_normal_rule mconcls mhyps nconcls nhyps
+        | agg_rule concl_rel _ hyp_rel =>
+            check_meta_rule_against_agg_rule mconcls mhyps concl_rel hyp_rel
+        end
+    | _ => true
+    end.
+
+  Lemma check_meta_rule_against_rule_sound env mr nr R mf_args mf_set args mhyps' nhyps' :
+    check_meta_rule_against_rule mr nr = true ->
+    rule_impl env mr (meta_fact R mf_args mf_set) mhyps' ->
+    rule_impl env nr (normal_fact R args) nhyps' ->
+    Forall2 matches mf_args args ->
+    Forall (fact_potentially_supported mhyps') nhyps'.
+  Proof.
+    intros.
+    destruct mr; try solve [repeat invert_stuff].
+    destruct nr; try solve [repeat invert_stuff].
+    - simpl in *. eapply check_meta_rule_against_normal_rule_sound; eassumption.
+    - simpl in *. eapply check_meta_rule_against_agg_rule_sound; eassumption.
+  Qed.
+
+  Definition check_meta_rules_valid p :=
+    forallb (fun '(mr, nr) => check_meta_rule_against_rule mr nr) (list_prod p p).
+
+  Lemma check_meta_rules_valid_sound p :
+    check_meta_rules_valid p = true ->
+    meta_rules_valid p.
+  Proof.
+    cbv [check_meta_rules_valid meta_rules_valid].
+    intros H. intros.
+    eapply check_meta_rule_against_rule_sound; eauto.
+    rewrite forallb_forall in H. apply (H (_, _)).
+    apply in_prod_iff. auto.
+  Qed.
 End __.
