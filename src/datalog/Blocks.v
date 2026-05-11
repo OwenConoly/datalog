@@ -764,17 +764,6 @@ Section Blocks.
         (S name, lvar_rel name ret, p')
     end.
 
-  (* Lemma use_honest_prog p Q mf_rel mf_args mf_set : *)
-  (*   honest_block_prog p -> *)
-  (*   prog_impl p Q (meta_fact mf_rel mf_args mf_set) -> *)
-  (*   prog_impl p Q (meta_fact mf_rel mf_args (fun args => prog_impl p Q (normal_fact mf_rel args))). *)
-  (* Proof. *)
-  (*   intros H1 H2. *)
-  (*   (*   eapply prog_impl_mf_ext; [eassumption|]. *) *)
-  (*   (*   cbv [honest_block_prog] in H1. apply H1. apply H2. *) *)
-  (*   (* Qed. *) *)
-  (* Abort. *)
-
   Definition in_range lo hi x :=
     match x with
     | lvar_rel block_id _ => lo <= block_id < hi
@@ -823,6 +812,10 @@ Section Blocks.
           Forall is_not_input (flat_map concl_rels p)
     end.
 
+  Lemma valid_blocks_prog_LetIn {var : Type} (x : blocks_prog var) (f : var -> blocks_prog var) :
+    valid_blocks_prog (LetIn x f) = (valid_blocks_prog x /\ forall v, valid_blocks_prog (f v)).
+  Proof. reflexivity. Qed.
+
   Lemma interp_blocks_prog_honest {var2} (x : var2) ctx (e : blocks_prog (fact_args T -> Prop)) (e0 : blocks_prog var2) :
     wf_blocks_prog ctx e e0 ->
     valid_blocks_prog e ->
@@ -866,6 +859,17 @@ Section Blocks.
           subst R0'. exact Hargs0.
           Unshelve. assumption.
   Qed.
+
+  Lemma use_honest_prog p mf_args mf_set :
+    valid_blocks_prog p ->
+    interp_blocks_prog p (meta_fact_args mf_args mf_set) ->
+    interp_blocks_prog p (meta_fact_args mf_args (fun args => interp_blocks_prog p (normal_fact_args args))).
+  Proof.
+    intros H1 H2.
+    (*   eapply prog_impl_mf_ext; [eassumption|]. *)
+    (*   cbv [honest_block_prog] in H1. apply H1. apply H2. *)
+    (* Qed. *)
+  Abort.
 
   Hint Resolve in_fst in_snd : core.
   Lemma flatten_correct' ctx name e e0 name' Rret p :

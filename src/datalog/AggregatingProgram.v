@@ -334,10 +334,13 @@ Ltac invert1_Exists H :=
                  apply Exists_cons in H; destruct H as [H|H]; [|invert0_Exists H] ].
 
 Ltac invert_stuff :=
-  first [Datalog.invert_stuff |
-          match goal with
-          | H: Exists _ _ |- _ => invert1_Exists H
-          end].
+  match goal with
+  | _ => Datalog.invert_stuff
+  | H: Exists _ _ |- _ => invert1_Exists H
+  | H: prog_impl _ _ (normal_fact _ _) |- _ =>
+      (apply invert_prog_impl in H; destruct H; [solve[repeat invert_stuff]|]) ||
+      (apply invert_prog_impl in H; destruct H; [|solve[repeat invert_stuff]])
+  end.
 
 Lemma check_is_not_input var (vs : list (@block_rel var)):
   forallb (fun v => match v with | input _ => false | local _ => true end) vs = true ->
@@ -367,11 +370,32 @@ Proof.
       end.
 Qed.
 
+Ltac doExists n :=
+  match n with
+  | 0 => apply Exists_cons_hd
+  | S ?n' => apply Exists_cons_tl; doExists n'
+  end.
+
 Ltac interp_exprs :=
   repeat match goal with
     | |- prog_impl _ _ (normal_fact (input _) _) =>
         apply prog_impl_leaf
-    | _ => Datalog.interp_exprs
+    | |- prog_impl _ _ (meta_fact (input _) _ _) =>
+        apply prog_impl_leaf
+    | _ => progress Datalog.interp_exprs
+    | _ => (doExists 0 + doExists 1); split; [reflexivity|]
+    end.
+
+Ltac destr_vbp :=
+  repeat match goal with
+    | H: valid_blocks_prog _ |- _ =>
+        progress (cbn [compile_Sexpr] in H;
+                  repeat rewrite valid_blocks_prog_LetIn in H;
+                  fwd)
+    | H: forall _, valid_blocks_prog _ |- _ =>
+        specialize (H (fun _ => False))
+    | H: forall _, valid_blocks_prog _ /\ _ |- _ =>
+        specialize (H (fun _ => False))
     end.
 
 Hint Unfold Option.option_relation : core.
@@ -393,18 +417,18 @@ Proof.
          ++ interp_exprs.
       -- intros. repeat invert_stuff. assumption.
     (*meta fact*)
-    + eexists. eapply block_prog_impl_step.
+    + eexists. eapply prog_impl_step.
       -- simpl. apply Exists_cons_tl. apply Exists_cons_hd.
          eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
       -- interp_exprs.
   - dep_invert He'.
-    cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
+    destr_vbp.
     specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf1, IHHwf2. fwd.
     simpl. split.
     + intros x. simpl. split.
-      -- intros. subst. eapply block_prog_impl_step.
+      -- intros. subst. eapply prog_impl_step.
          ++ simpl. apply Exists_cons_hd. constructor.
             eapply normal_rule_impl with (ctx := map.put (map.put map.empty 0 _) 1 _); interp_exprs.
          ++ interp_exprs.
@@ -418,15 +442,15 @@ Proof.
          | H: _ |- _ => apply IHHwf2p0 in H
          end.
          cbv [set_of] in *. subst. reflexivity.
-    + eexists. eapply block_prog_impl_step.
-      -- simpl. apply Exists_cons_tl. apply Exists_cons_hd.
+    + eexists. eapply prog_impl_step.
+      -- simpl. doExists 1.
          eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
       -- interp_exprs.
   - dep_invert He'. simpl. split.
     + intros x. split.
       -- contradiction.
       -- intros H. repeat invert_stuff.
-    + eexists. eapply block_prog_impl_step.
+    + eexists. eapply prog_impl_step.
       -- simpl. apply Exists_cons_hd.
          eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
       -- interp_exprs.
@@ -436,23 +460,23 @@ Proof.
     + intros x. rewrite <- IHHwfp0. split; auto.
     + eauto.
   - dep_invert He'.
-    cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
+    destr_vbp.
     specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf1, IHHwf2. cbv [agrees]. fwd. simpl. split.
     + intros x. rewrite IHHwf1p0, IHHwf2p0. clear IHHwf1p0 IHHwf2p0. split.
-      -- intros [? ?]. eapply block_prog_impl_step.
+      -- intros [? ?]. eapply prog_impl_step.
          ++ simpl. apply Exists_cons_hd. constructor.
             eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
          ++ interp_exprs.
       -- intros H. repeat invert_stuff. auto.
-    + eexists. eapply block_prog_impl_step.
+    + eexists. eapply prog_impl_step.
       -- simpl. apply Exists_cons_tl. apply Exists_cons_hd.
          eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
       -- interp_exprs.
   - rename H0 into IHHwf'.
     dep_invert He'.
-    cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
+    simpl in Hnl. fwd.
     specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     specialize (IHHwf' _ _ ltac:(eauto) ltac:(eauto) _ ltac:(eauto)).
     clear Hctx. cbv [agrees] in *. fwd. split.
@@ -460,12 +484,12 @@ Proof.
       simpl. reflexivity.
     + simpl. eauto.
   - dep_invert He'.
-    cbn [honest_blocks_prog compile_Sexpr] in Hnl. fwd.
+    destr_vbp.
     rename H2 into Hset.
     specialize (IHHwf ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees]. simpl. cbv [agrees] in IHHwf. fwd. split.
     + intros x. split.
-      -- intros. subst. eapply block_prog_impl_step.
+      -- intros. subst. eapply prog_impl_step.
          ++ simpl. eapply Exists_cons_hd. constructor.
             eassert (fold_right _ _ _ = _) as ->.
             2: { constructor. eapply is_list_set_ext.
@@ -481,7 +505,7 @@ Proof.
          simpl. cbv [interp_agg]. do 2 rewrite map_map. simpl.
          cbv [extract_nat]. rewrite option_all_map_Some. reflexivity.
          ++ constructor.
-         --- eapply block_prog_impl_mf_ext.
+         --- eapply prog_impl_mf_ext'.
             +++ eapply use_honest_block_prog; [assumption|].
                 eapply block_prog_impl_step.
                 ---- simpl. do 3 apply Exists_cons_tl. apply Exists_cons_hd.

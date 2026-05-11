@@ -1001,6 +1001,12 @@ Section __.
     | _, _ => false
     end.
 
+  Ltac invert_stuff :=
+    match goal with
+    | _ => Datalog.invert_stuff
+    | H : Exists _ _ |- _ => apply Exists_exists in H; fwd
+    end.
+
   Lemma expr_matches_sound equalities e1 e2 ctx1 ctx2 val :
     expr_matches equalities e1 e2 = true ->
     Forall (fun '(x, y) => map.get ctx1 x = map.get ctx2 y) equalities ->

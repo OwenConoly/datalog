@@ -400,6 +400,18 @@ Section __.
     eauto using rule_impl_mf_ext.
   Qed.
 
+  Lemma prog_impl_mf_ext' p Q mf_rel mf_args mf_set mf_set' :
+    prog_impl p Q (meta_fact mf_rel mf_args mf_set) ->
+    (forall nf_args,
+        Forall2 matches mf_args nf_args ->
+        mf_set nf_args <-> mf_set' nf_args) ->
+    ~Q (meta_fact mf_rel mf_args mf_set) ->
+    prog_impl p Q (meta_fact mf_rel mf_args mf_set').
+  Proof.
+    intros H1 H2 H3. eapply prog_impl_mf_ext in H1. 2: exact H2.
+    destruct H1; eauto. exfalso. auto.
+  Qed.
+
   Definition F p Q Px :=
     let '(P, x) := Px in
     P x \/ Q (P, x) \/ exists hyps', Exists (fun r => rule_impl (one_step_derives p) r x hyps') p /\ Forall (fun x => Q (P, x)) hyps'.
@@ -1583,7 +1595,7 @@ Section __.
   Definition state : Type :=
     list rule_state.
 
-  Definition rules_of (p : prog) :=
+  Definition rules_of (p : prog) : list rule :=
     map (fun '(c, h) => meta_rule c h) p.(meta_rules) ++ map rule_of p.(non_meta_rules).
 
   Definition stepOne {T} (do_step : T -> T -> Prop) : list T -> list T -> Prop :=
@@ -1602,7 +1614,7 @@ Section __.
   (*we can deduce result, via rule r, from the set of known_facts*)
   Definition fire_rule (r : non_meta_rule) (known_facts : list dfact) (result : dfact) : Prop.
   Admitted.
-
+  Print prog.
   Definition add_waiting_fact f (rs : rule_state) :=
     {| known_facts := rs.(known_facts);
       waiting_facts := f :: rs.(waiting_facts) |}.
@@ -1671,7 +1683,6 @@ Ltac invert_stuff :=
   | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
   | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
   | H : interp_expr _ _ _ |- _ => invert1 H
-  | H : Exists _ _ |- _ => apply Exists_exists in H; fwd
   | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
   | _ => progress subst
   | _ => progress invert_list_stuff
