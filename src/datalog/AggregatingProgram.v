@@ -334,12 +334,10 @@ Ltac invert1_Exists H :=
                  apply Exists_cons in H; destruct H as [H|H]; [|invert0_Exists H] ].
 
 Ltac invert_stuff :=
-  first [invert_stuff |
+  first [Datalog.invert_stuff |
           match goal with
           | H: Exists _ _ |- _ => invert1_Exists H
           end].
-
-Ltac interp_exprs := interp_exprs.
 
 Lemma check_is_not_input var (vs : list (@block_rel var)):
   forallb (fun v => match v with | input _ => false | local _ => true end) vs = true ->
@@ -369,6 +367,13 @@ Proof.
       end.
 Qed.
 
+Ltac interp_exprs :=
+  repeat match goal with
+    | |- prog_impl _ _ (normal_fact (input _) _) =>
+        apply prog_impl_leaf
+    | _ => Datalog.interp_exprs
+    end.
+
 Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
   wf_Sexpr ctx t e e0 ->
@@ -383,7 +388,7 @@ Proof.
     cbv [agrees] in Hctx. fwd. cbv [agrees]. simpl. split.
     + intros. rewrite Hctxp0. clear Hctxp0. split.
       -- intros. eapply prog_impl_step.
-         ++ simpl. apply Exists_cons_hd. constructor.
+         ++ apply Exists_cons_hd. constructor.
             eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
          ++ interp_exprs.
       -- intros. repeat invert_stuff. assumption.

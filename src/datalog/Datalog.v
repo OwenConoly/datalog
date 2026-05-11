@@ -1556,6 +1556,66 @@ Section __.
   (* Proof. *)
   (*   intros. split; auto using loopless_program. intros [H'|H']; fwd; eauto. *)
   (* Qed. *)
+
+  Check prog_impl.
+  Print rule.
+  Inductive non_meta_rule :=
+  | nmr_normal (_ _ : list clause)
+  | nmr_agg (_ : rel) (_ : aggregator) (_ : rel).
+  Definition rule_of nmr :=
+    match nmr with
+    | nmr_normal concls hyps => normal_rule concls hyps
+    | nmr_agg concl_rel agg hyp_rel => agg_rule concl_rel agg hyp_rel
+    end.
+
+  Inductive dfact :=
+  | normal_dfact (nf_rel: rel) (nf_args: list T)
+  | meta_dfact (mf_rel: rel) (source: option nat) (expected_msgs: nat) (*number of messages that node "source" will ever send about mf_rel*).
+
+  Record prog :=
+    { meta_rules : list (list meta_clause * list meta_clause);
+      non_meta_rules : list non_meta_rule }.
+
+  Record rule_state :=
+    { known_facts : list dfact;
+      waiting_facts : list dfact }.
+
+  Definition state : Type :=
+    list rule_state.
+
+  Definition rules_of (p : prog) :=
+    map (fun '(c, h) => meta_rule c h) p.(meta_rules) ++ map rule_of p.(non_meta_rules).
+
+  Definition stepOne {T} (do_step : T -> T -> Prop) : list T -> list T -> Prop :=
+    fun start finish =>
+      exists l1 x y l2,
+        start = l1 ++ x :: l2 /\
+          finish = l1 ++ y :: l2 /\
+          do_step x y.
+
+  Definition learn_fact_at_rule (s1 s2 : rule_state) : Prop :=
+    exists l1 x l2,
+      s2.(known_facts) = x :: s1.(known_facts) /\
+        s1.(waiting_facts) = l1 ++ x :: l2 /\
+        s2.(waiting_facts) = l1 ++ l2.
+
+  (*we can deduce result, via rule r, from the set of known_facts*)
+  Definition fire_rule (r : non_meta_rule) (known_facts : list dfact) (result : dfact) : Prop.
+  Admitted.
+
+  Definition add_waiting_fact f (rs : rule_state) :=
+    {| known_facts := rs.(known_facts);
+      waiting_facts := f :: rs.(waiting_facts) |}.
+
+  (*TODO add case for fire_meta_rule*)
+  Inductive step (p : prog) : state -> state -> Prop :=
+  | learn_fact s1 s2 :
+    stepOne learn_fact_at_rule s1 s2 ->
+    step _ s1 s2
+  | fire_normal_rule new_fact s1 :
+    Exists (fun '(r, rs) => fire_rule r rs.(known_facts) new_fact) (combine p.(non_meta_rules) s1) ->
+    step _ s1 (map (add_waiting_fact new_fact) s1).
+
 End __.
 Arguments clause : clear implicits.
 Arguments meta_clause : clear implicits.
