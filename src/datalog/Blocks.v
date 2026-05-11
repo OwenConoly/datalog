@@ -9,9 +9,8 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 Import ListNotations.
 
 Section Blocks.
-  Context {lvar gvar exprvar fn aggregator T : Type}.
+  Context {lvar exprvar fn aggregator T : Type}.
   Context {sig : signature fn aggregator T}.
-  Context {gmap : map.map gvar (fact_args T -> Prop)} {gmap_ok : map.ok gmap}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
 
   Inductive block_rel :=
@@ -48,10 +47,10 @@ Section Blocks.
     LetIn (Block lvar1 [] p1) (fun val =>
                                 Block lvar1 [(lvar2, val)] p2).
 
-  Fixpoint interp_blocks_prog (globals : gmap) (e : blocks_prog (fact_args T -> Prop)) : fact_args T -> Prop :=
+  Fixpoint interp_blocks_prog (e : blocks_prog (fact_args T -> Prop)) : fact_args T -> Prop :=
     match e with
     | LetIn x f =>
-        interp_blocks_prog globals (f (interp_blocks_prog globals x))
+        interp_blocks_prog (f (interp_blocks_prog x))
     | Block ret inputs p =>
         fun args =>
           prog_impl p
@@ -808,14 +807,11 @@ Section Blocks.
     False.
   Proof. destruct x; simpl; auto. lia. Qed.
 
-  Definition is_input R :=
+  Definition is_not_input R :=
     match R with
-    | local _ => false
-    | input _ => true
+    | local _ => True
+    | input _ => False
     end.
-
-  Definition no_input_concls_in_block (p : list block_rule) :=
-    forallb (fun R => negb (is_input R)) (flat_map concl_rels p).
 
   Fixpoint valid_blocks_prog {var} (e : blocks_prog var) : Prop :=
     match e with
@@ -824,14 +820,14 @@ Section Blocks.
     | Block ret inputs p =>
         meta_rules_valid p /\
           NoDup (map fst inputs) /\
-          (forall l, ~ In (input l) (flat_map concl_rels p))
+          Forall is_not_input (flat_map concl_rels p)
     end.
 
   Lemma interp_blocks_prog_honest {var2} (x : var2) ctx (e : blocks_prog (fact_args T -> Prop)) (e0 : blocks_prog var2) :
     wf_blocks_prog ctx e e0 ->
     valid_blocks_prog e ->
     Forall honest_args (map fst ctx) ->
-    honest_args (interp_blocks_prog map.empty e).
+    honest_args (interp_blocks_prog e).
   Proof.
     intros Hwf.
     induction Hwf as [ctx x1 x2 f1 f2 Hwf1 IH1 Hwf2 IH2 | ctx ret inps1 inps2 p Hfor];
@@ -848,7 +844,8 @@ Section Blocks.
       + exact Hvalid_p.
       + intros f_target Hf_target.
         apply Exists_exists in Hf_target. destruct Hf_target as [[R R'] [Hin [Hrel Hargs]]].
-        rewrite <- Hrel. apply Hno_input.
+        rewrite <- Hrel. intros H'. rewrite Forall_forall in Hno_input.
+        apply Hno_input in H'. apply H'.
       + cbv [doesnt_lie consistent].
         intros mf_rel mf_args mf_set Hmf nf_args Hmatch.
         apply Exists_exists in Hmf. destruct Hmf as [[R R'] [Hin [Hrel Hargs]]].
@@ -883,7 +880,7 @@ Section Blocks.
       Forall (in_range name name') (flat_map concl_rels p) /\
       Forall (fun R => in_range name name' R \/ In R (map snd ctx) \/ R = false_rel) (flat_map all_rels p) /\
       forall args,
-        interp_blocks_prog map.empty e args <->
+        interp_blocks_prog e args <->
           prog_impl p (fun f => exists R, In (R, rel_of f) ctx /\ R (args_of f))
             (fact_of Rret args).
   Proof.
@@ -897,7 +894,7 @@ Section Blocks.
       specialize (IHHwf ltac:(assumption)). epose_dep IHHwf.
       specialize (IHHwf ltac:(eassumption) ltac:(eassumption) ltac:(assumption) ltac:(eassumption)).
       fwd.
-      rename H0 into IH'. specialize (IH' (interp_blocks_prog map.empty x1)).
+      rename H0 into IH'. specialize (IH' (interp_blocks_prog x1)).
       epose_dep IH'. specialize (IH' ltac:(eauto)). epose_dep IH'.
       specialize (IH' ltac:(eassumption)). specialize' IH'.
       { constructor.
@@ -996,7 +993,8 @@ Section Blocks.
       + apply Forall_flat_map. apply Forall_map. apply Forall_forall.
         intros r Hr. rewrite concl_rels_map_rule_rels. apply Forall_map.
         fwd. apply Forall_forall. intros R HR. destruct R.
-        2: { exfalso. eapply Hvalidp2. apply in_flat_map. eauto. }
+        2: { exfalso. rewrite Forall_forall in Hvalidp2.
+             eapply (Hvalidp2 (input _)). apply in_flat_map. eauto. }
         simpl. lia.
       + apply Forall_flat_map. apply Forall_map. apply Forall_forall.
         intros r Hr. rewrite all_rels_map_rule_rels. apply Forall_map.
@@ -1062,7 +1060,8 @@ Section Blocks.
                  apply Exists_exists. eexists (_, _). eauto.
         -- fwd. assumption.
         -- intros f Hf. apply Exists_exists in Hf. fwd. rewrite <- Hfp1p0.
-           auto.
+           rewrite Forall_forall in Hvalidp2. intros H'. eapply (Hvalidp2 (input _)).
+           eassumption.
         -- cbv [doesnt_lie]. intros mf_rel mf_args mf_set Hmf.
            apply Exists_exists in Hmf. fwd. simpl in *. subst.
            cbv [consistent]. intros nf_args Hnf_args.
@@ -1099,7 +1098,8 @@ Section Blocks.
            eapply NoDup_snd_In_inj in Hp2. 3: exact Hp1p1. 2: assumption.
            subst. rewrite <- Hequivp1. assumption.
         -- fwd. apply Forall_forall. intros R HR. destruct R.
-           2: { exfalso. eapply Hvalidp2. eassumption. }
+           2: { exfalso. rewrite Forall_forall in Hvalidp2.
+                eapply (Hvalidp2 (input _)). eassumption. }
            cbv [injective_on]. simpl. intros R' HR'.
            destruct R'; simpl in HR'; fwd; auto. exfalso.
            apply of_list_Some_in in E. apply Forall2_forget_l in H.

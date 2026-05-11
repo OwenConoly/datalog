@@ -1095,6 +1095,29 @@ Proof.
   congruence.
 Qed.
 
+Fixpoint nodupb {T : Type} (eqb : T -> T -> bool) l :=
+  match l with
+  | x :: l' => if existsb (eqb x) l' then false else nodupb eqb l'
+  | [] => true
+  end.
+
+#[global] Instance nodupb_correct T (eqb : T -> _) `{EqDecider eqb} l :
+  BoolSpec (NoDup l) (~NoDup l) (nodupb eqb l).
+Proof.
+  induction l; simpl in *.
+  - constructor. constructor.
+  - destr_sth existsb; fwd.
+    + constructor. intros H'. invert H'. apply Exists_exists in E. fwd. auto.
+    + rewrite Forall_forall in E. invert IHl; constructor.
+      -- constructor; auto. intros H'. apply E in H'. fwd. congruence.
+      -- intros H'. invert H'. auto.
+Qed.
+
+Lemma nodupb_sound T (eqb : T -> _) `{EqDecider eqb} l :
+  nodupb eqb l = true ->
+  NoDup l.
+Proof. intros. fwd. assumption. Qed.
+
 Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
 Hint Resolve seq_incl incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_in Permutation_sym : incl.

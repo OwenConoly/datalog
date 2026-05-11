@@ -17,7 +17,7 @@ Variant fn :=
   | fn_lit (o : obj)
   | fn_bop (o : bop).
 Notation rule := (rule rel nat fn bop).
-Notation expr := (expr nat fn). Print blocks_prog.
+Notation expr := (expr nat fn).
 Notation blocks_prog var := (@blocks_prog nat nat fn bop var).
 
 Definition fn_inj f :=
@@ -25,6 +25,30 @@ Definition fn_inj f :=
   | fn_lit _ => true
   | fn_bop _ => false
   end.
+
+Definition bop_eqb (o1 o2 : bop) :=
+  match o1, o2 with
+  | sum, sum => true
+  | prod, prod => true
+  | _, _ => false
+  end.
+
+#[global] Instance bop_eqb_correct : EqDecider bop_eqb.
+Proof. intros x y. destruct x, y; constructor; congruence. Qed.
+
+Definition fn_eqb (f1 f2 : fn) :=
+  match f1, f2 with
+  | fn_lit l1, fn_lit l2 => l1 =? l2
+  | fn_bop o1, fn_bop o2 => bop_eqb o1 o2
+  | _, _ => false
+  end.
+
+#[global] Instance fn_eqb_correct : EqDecider fn_eqb.
+Proof.
+  intros x y. destruct x, y; simpl; try (constructor; congruence).
+  - destr_sth Nat.eqb; constructor; congruence.
+  - destr_sth bop_eqb; constructor; congruence.
+Qed.
 
 Definition bop_id o :=
   match o with
@@ -117,6 +141,21 @@ Proof.
   destruct f; simpl; try congruence.
   intros _. intros x y v Hx Hy.
   destruct x, y; simpl in *; try discriminate; auto.
+Qed.
+
+Print block_rel.
+Definition block_rel_eqb {A} (aeqb : A -> A -> bool) R1 R2 :=
+  match R1, R2 with
+  | local l1, local l2 => aeqb l1 l2
+  | input l1, input l2 => aeqb l1 l2
+  | _, _ => false
+  end.
+
+#[global] Instance block_rel_eqb_correct {A aeqb} `{EqDecider aeqb} : EqDecider (@block_rel_eqb A aeqb).
+Proof.
+  intros x y. destruct x, y; simpl; try (constructor; congruence).
+  - destr_sth aeqb; constructor; congruence.
+  - destr_sth aeqb; constructor; congruence.
 Qed.
 
 Definition bare_rule : Type := (rel * list expr) * list (rel * list expr).
@@ -302,29 +341,48 @@ Ltac invert_stuff :=
 
 Ltac interp_exprs := interp_exprs.
 
-Check compile_Sexpr.
+Lemma check_is_not_input var (vs : list (@block_rel var)):
+  forallb (fun v => match v with | input _ => false | local _ => true end) vs = true ->
+  Forall is_not_input vs.
+Proof.
+  intros H. fwd. eapply Forall_impl; [|eassumption]. simpl.
+  intros R. destruct R; simpl; congruence || auto.
+Qed.
+
+(*why is this not done in coqutil, and why doesn't it help here?*)
+(* #[global] Existing Instance Nat.eqb_spec. *)
 Lemma compile_Sexpr_valid var t (e : Sexpr (fun _ => var) t) :
   valid_blocks_prog (compile_Sexpr e).
 Proof.
-  induction e; simpl; ssplit; auto.
-  - eapply check_meta_rules_valid_sound. 1: apply fn_inj_correct.
-    Set Printing All.
-    compute.
-    simpl.
+  induction e; simpl;
+    repeat match goal with
+      | _ => progress (intros; ssplit; auto)
+      | |- meta_rules_valid _ =>
+          apply check_meta_rules_valid_sound with (fn_inj := fn_inj);
+          [apply fn_inj_correct|];
+          reflexivity
+      | |- NoDup _ =>
+          apply nodupb_sound with (eqb := Nat.eqb); [typeclasses eauto|];
+          reflexivity
+      | |- Forall is_not_input _ =>
+          apply check_is_not_input; reflexivity
+      end.
+Qed.
+
 Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
   wf_Sexpr ctx t e e0 ->
   Forall (fun elt => agrees elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
-  honest_blocks_prog map.empty (compile_Sexpr e0) ->
+  valid_blocks_prog (compile_Sexpr e0) ->
   interp_Sexpr e e' ->
-  agrees (interp_blocks_prog map.empty (compile_Sexpr e0)) e'.
+  agrees (interp_blocks_prog (compile_Sexpr e0)) e'.
 Proof.
   intros Hwf Hctx Hnl. revert e'. induction Hwf; intros e' He'.
   - dep_invert He'. rewrite Forall_forall in Hctx.
     specialize (Hctx _ H). clear H. simpl in Hctx.
     cbv [agrees] in Hctx. fwd. cbv [agrees]. simpl. split.
     + intros. rewrite Hctxp0. clear Hctxp0. split.
-      -- intros. eapply block_prog_impl_step.
+      -- intros. eapply prog_impl_step.
          ++ simpl. apply Exists_cons_hd. constructor.
             eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
          ++ interp_exprs.
