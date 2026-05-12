@@ -67,6 +67,7 @@ Section Blocks.
     Forall2 (fun '(x1, R1) '(x2, R2) => x1 = x2 /\ In (R1, R2) ctx) inps1 inps2 ->
     wf_blocks_prog ctx (Block ret inps1 p) (Block ret inps2 p).
 
+  (*TODO try out (var -> Prop) instead of (list var) ??*)
   Inductive vars_in {var} : list var -> blocks_prog var -> Prop :=
   | vars_in_LetIn ctx x f :
     vars_in ctx x ->

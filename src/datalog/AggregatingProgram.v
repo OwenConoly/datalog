@@ -411,8 +411,19 @@ Ltac destr_vbp :=
         specialize (H (fun _ => False))
     end.
 
-Definition proj2 {var1 var2} (e : @ctx_elt2 var1 var2) :=
-  {| ctx_elt_p1 := e.(ctx_elt_p2); ctx_elt_p2 := e.(ctx_elt_p2) |}.
+Hint Constructors vars_in : core.
+Lemma compile_Sexpr_honest_args var1 var2 t e (ctx : list (@ctx_elt2 var1 (fun _ => var2))) e0 :
+  wf_Sexpr ctx t e e0 ->
+  vars_in (map (@ctx_elt_p2 _ (fun _ => _)) ctx) (compile_Sexpr e0).
+Proof.
+  induction 1; simpl; eauto.
+  - constructor. constructor; eauto. apply in_map_iff. eauto. eexists.
+    split; [|eassumption]. reflexivity.
+  - constructor; eauto. intros. constructor; eauto. 1: admit.
+    intros. constructor; eauto. constructor; simpl; eauto.
+  - constructor; eauto. intros. constructor; eauto. 1: admit.
+    intros. constructor; eauto.
+Abort.
 
 Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
@@ -527,7 +538,9 @@ Proof.
                     eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
                 ---- simpl. constructor; [|constructor]. apply prog_impl_leaf.
                      simpl. doExists 0. split; [reflexivity|].
-                     eapply use_valid_blocks_prog; [|try eauto..].
+                     eapply use_valid_blocks_prog; [eauto|eauto|idtac|eauto].
+
+
                 (*TODO continue here; instead of using wf_blah should have some
                  simpler predicate that says something about all variables
                  in the program satisfying some property*)
