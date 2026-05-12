@@ -348,81 +348,80 @@ Section Blocks.
       apply Hvalid in Hmr; [|assumption].
       clear Hvalid HIn.
       split; intros H; fwd.
-      - do 2 eexists.
-        split; [apply in_map; eassumption | split].
-        + apply non_meta_rule_impl_map_fw. eassumption.
-        + rewrite Lists.List.Forall_map. eapply Forall_impl; [|eassumption].
-          intros f' Hex. apply Exists_exists in Hex. fwd.
-          apply Exists_exists. eexists. split; [apply in_map; eassumption |].
-          destruct Hexp1 as [Hext | Hmatch].
-          * left. apply extensionally_equal_map_fw. eassumption.
-          * right. apply fact_matches_map_fw. eassumption.
-      - apply in_map_iff in Hp0. fwd.
-        pose proof Hp1 as Hp1'.
-        apply non_meta_rule_invert_map in Hp1. fwd.
+      - eexists. split.
+        { apply Exists_map. eapply Exists_impl; [|eassumption]. simpl.
+          intros. apply non_meta_rule_impl_map_fw. eassumption. }
+        rewrite Lists.List.Forall_map. eapply Forall_impl; [|eassumption].
+        intros f' Hex. apply Exists_exists in Hex. fwd.
+        apply Exists_exists. eexists. split; [apply in_map; eassumption |].
+        destruct Hexp1 as [Hext | Hmatch].
+        + left. apply extensionally_equal_map_fw. eassumption.
+        + right. apply fact_matches_map_fw. eassumption.
+      - apply Exists_map in Hp0. apply Exists_exists in Hp0. fwd.
+        pose proof Hp0p1 as Hp1'.
+        apply non_meta_rule_invert_map in Hp0p1. fwd.
         eapply non_meta_rule_impl_map_bw in Hp1'. fwd.
         apply Hinj in Hp1'p0. subst.
         specialize (Hmr _ _ _ ltac:(eassumption) ltac:(eauto) ltac:(eassumption)).
-        do 2 eexists. split; [eassumption | split].
-        + eassumption.
-        + clear Hp1'p2.
-          rewrite Lists.List.Forall_map in Hp2.
-          apply Forall2_forget_l in Hp1'p1. apply Forall_forall.
-          intros f' Hf'. rewrite Forall_forall in Hp1'p1.
-          specialize (Hp1'p1 _ Hf'). fwd.
-          rewrite Forall_forall in Hp2.
-          specialize (Hp2 _ ltac:(eassumption)). apply Exists_map in Hp2.
-          apply Exists_exists in Hp2. fwd.
-          rewrite Forall_forall in Hmr. specialize (Hmr _ Hf').
-          cbv [fact_potentially_supported] in Hmr.
-          rewrite Forall_forall in Hmh. specialize (Hmh _ ltac:(eassumption)).
-          destruct Hp2p1 as [Hext | Hmatch].
-          * apply extensionally_equal_map_bw in Hext. fwd.
-            destruct f'.
-            { (*gross*)
-              exfalso.
-              destruct x0, x1, f1', f2';
-                cbv [is_meta] in Hmh; try contradiction;
-                cbv [fact_equiv map_fact] in Hp1'p1p1; try discriminate Hp1'p1p1;
-                cbv [fact_equiv map_fact] in Hextp0; try discriminate Hextp0;
-                cbv [fact_equiv map_fact] in Hextp1; try discriminate Hextp1;
-                cbv [extensionally_equal] in Hextp2; try contradiction. }
-            fwd.
-            apply Exists_exists. eexists. split; [exact Hmr|].
-            left. simpl. ssplit; auto.
-            intros args' Hargs'.
-                        cbv [fact_equiv map_fact] in Hp1'p1p1, Hextp0, Hextp1.
-            destruct x0 as [| R_x0 args_x0 S_x0]; try discriminate.
-            destruct f1' as [| R_f1 args_f1 S_f1]; try discriminate.
-            destruct f2' as [| R_f2 args_f2 S_f2]; try contradiction.
-            destruct x1 as [| R_x1 args_x1 S_x1]; try discriminate.
-            simpl in Hextp2. fwd.
-            rewrite Hextp2p2 by assumption.
-            eapply Hmfs_consistent; try eassumption.
-            congruence.
-          * apply fact_matches_map_bw in Hmatch. fwd.
-            destruct f'.
-            2: { exfalso.
-                 cbv [fact_matches] in Hmatchp2. fwd.
-                 cbv [fact_equiv map_fact] in Hmatchp0, Hp1'p1p1.
-                 destruct x0; congruence. }
-            fwd. apply Exists_exists. eexists. split; [exact Hmrp0|].
-            right. cbv [fact_matches]. do 4 eexists. ssplit; try reflexivity.
-            1: assumption.
-            cbv [fact_matches] in Hmatchp2.
-            destruct Hmatchp2 as [R_f [nf_args_f [mf_args_f [mf_set_f [H_match_args [H_set_eval [H_f1' H_f2']]]]]]].
-            subst f1' f2'.
+        eexists. split; [apply Exists_exists; eauto |].
+        clear Hp1'p2.
+        rewrite Lists.List.Forall_map in Hp1.
+        apply Forall2_forget_l in Hp1'p1. apply Forall_forall.
+        intros f' Hf'. rewrite Forall_forall in Hp1'p1.
+        specialize (Hp1'p1 _ Hf'). fwd.
+        rewrite Forall_forall in Hp1.
+        specialize (Hp1 _ ltac:(eassumption)). apply Exists_map in Hp1.
+        apply Exists_exists in Hp1. fwd.
+        rewrite Forall_forall in Hmr. specialize (Hmr _ Hf').
+        cbv [fact_potentially_supported] in Hmr.
+        rewrite Forall_forall in Hmh. specialize (Hmh _ ltac:(eassumption)).
+        destruct Hp1p1 as [Hext | Hmatch].
+        * apply extensionally_equal_map_bw in Hext. fwd.
+          destruct f'.
+          { (*gross*)
+            exfalso.
+            destruct x0, x1, f1', f2';
+              cbv [is_meta] in Hmh; try contradiction;
+              cbv [fact_equiv map_fact] in Hp1'p1p1; try discriminate Hp1'p1p1;
+              cbv [fact_equiv map_fact] in Hextp0; try discriminate Hextp0;
+              cbv [fact_equiv map_fact] in Hextp1; try discriminate Hextp1;
+              cbv [extensionally_equal] in Hextp2; try contradiction. }
+          fwd.
+          apply Exists_exists. eexists. split; [exact Hmr|].
+          left. simpl. ssplit; auto.
+          intros args' Hargs'.
+          cbv [fact_equiv map_fact] in Hp1'p1p1, Hextp0, Hextp1.
+          destruct x0 as [| R_x0 args_x0 S_x0]; try discriminate.
+          destruct f1' as [| R_f1 args_f1 S_f1]; try discriminate.
+          destruct f2' as [| R_f2 args_f2 S_f2]; try contradiction.
+          destruct x1 as [| R_x1 args_x1 S_x1]; try discriminate.
+          simpl in Hextp2. fwd.
+          rewrite Hextp2p2 by assumption.
+          eapply Hmfs_consistent; try eassumption.
+          congruence.
+        * apply fact_matches_map_bw in Hmatch. fwd.
+          destruct f'.
+          2: { exfalso.
+               cbv [fact_matches] in Hmatchp2. fwd.
+               cbv [fact_equiv map_fact] in Hmatchp0, Hp1'p1p1.
+               destruct x0; congruence. }
+          fwd. apply Exists_exists. eexists. split; [exact Hmrp0|].
+          right. cbv [fact_matches]. do 4 eexists. ssplit; try reflexivity.
+          1: assumption.
+          cbv [fact_matches] in Hmatchp2.
+          destruct Hmatchp2 as [R_f [nf_args_f [mf_args_f [mf_set_f [H_match_args [H_set_eval [H_f1' H_f2']]]]]]].
+          subst f1' f2'.
 
-            cbv [fact_equiv map_fact] in Hp1'p1p1, Hmatchp0, Hmatchp1.
-            destruct x0 as [R_x0 args_x0 | ]; try discriminate.
-            destruct x1 as [ | R_x1 mf_args_x1 S_x1]; try contradiction.
+          cbv [fact_equiv map_fact] in Hp1'p1p1, Hmatchp0, Hmatchp1.
+          destruct x0 as [R_x0 args_x0 | ]; try discriminate.
+          destruct x1 as [ | R_x1 mf_args_x1 S_x1]; try contradiction.
 
-            inversion Hp1'p1p1; subst.
-            inversion Hmatchp0; subst.
-            inversion Hmatchp1; subst.
+          inversion Hp1'p1p1; subst.
+          inversion Hmatchp0; subst.
+          inversion Hmatchp1; subst.
 
-            eapply (proj1 (Hmfs_consistent _ _ _ _ _ _ Hp2p0 Hmrp0 ltac:(congruence) _ H_match_args Hmrp1)).
-            exact H_set_eval.
+          eapply (proj1 (Hmfs_consistent _ _ _ _ _ _ Hp1p0 Hmrp0 ltac:(congruence) _ H_match_args Hmrp1)).
+          exact H_set_eval.
     Qed.
 
     Lemma rule_impl_map_rule_rels_fw p r f0 hyps :
@@ -835,41 +834,58 @@ Section Blocks.
       simpl. apply doesnt_lie_honest_args.
       eapply valid_impl_honest.
       + exact Hvalid_p.
-      + intros f_target Hf_target.
-        apply Exists_exists in Hf_target. destruct Hf_target as [[R R'] [Hin [Hrel Hargs]]].
-        rewrite <- Hrel. intros H'. rewrite Forall_forall in Hno_input.
-        apply Hno_input in H'. apply H'.
-      + cbv [doesnt_lie consistent].
-        intros mf_rel mf_args mf_set Hmf nf_args Hmatch.
-        apply Exists_exists in Hmf. destruct Hmf as [[R R'] [Hin [Hrel Hargs]]].
-        simpl in Hrel. subst.
-        apply Forall2_forget_r in Hfor. rewrite Forall_forall in Hfor.
-        specialize (Hfor _ Hin). fwd.
-        assert (honest_args R') as Hhonest_R'.
-        { rewrite Forall_forall in Hctx. apply Hctx.
-          apply in_map_iff. eexists (_, _). simpl. eauto. }
-        cbv [honest_args args_consistent] in Hhonest_R'.
-        rewrite Hhonest_R' by eassumption.
-        split; intros H'.
-        * apply Exists_exists. eexists (_, _). simpl. eauto.
-        * apply Exists_exists in H'. destruct H' as [[R0 R0'] [Hin0 [Hrel0 Hargs0]]].
-          simpl in Hrel0. fwd.
-          assert (R' = R0').
-          { eapply NoDup_fst_In_inj; eassumption. }
-          subst R0'. exact Hargs0.
-          Unshelve. assumption.
+      + split.
+        -- intros f_target Hf_target.
+           apply Exists_exists in Hf_target. destruct Hf_target as [[R R'] [Hin [Hrel Hargs]]].
+           rewrite <- Hrel. intros H'. rewrite Forall_forall in Hno_input.
+           apply Hno_input in H'. apply H'.
+        -- cbv [doesnt_lie consistent].
+           intros mf_rel mf_args mf_set Hmf nf_args Hmatch.
+           apply Exists_exists in Hmf. destruct Hmf as [[R R'] [Hin [Hrel Hargs]]].
+           simpl in Hrel. subst.
+           apply Forall2_forget_r in Hfor. rewrite Forall_forall in Hfor.
+           specialize (Hfor _ Hin). fwd.
+           assert (honest_args R') as Hhonest_R'.
+           { rewrite Forall_forall in Hctx. apply Hctx.
+             apply in_map_iff. eexists (_, _). simpl. eauto. }
+           cbv [honest_args args_consistent] in Hhonest_R'.
+           rewrite Hhonest_R' by eassumption.
+           split; intros H'.
+           ** apply Exists_exists. eexists (_, _). simpl. eauto.
+           ** apply Exists_exists in H'. destruct H' as [[R0 R0'] [Hin0 [Hrel0 Hargs0]]].
+              simpl in Hrel0. fwd.
+              assert (R' = R0').
+              { eapply NoDup_fst_In_inj; eassumption. }
+              subst R0'. exact Hargs0.
+              Unshelve. assumption.
   Qed.
 
-  Lemma use_honest_prog p mf_args mf_set :
+  Lemma blocks_prog_impl_mf_ext (e : blocks_prog (fact_args T -> Prop)) mf_args mf_set mf_set' :
+    interp_blocks_prog e (meta_fact_args mf_args mf_set) ->
+    (forall nf_args,
+        Forall2 matches mf_args nf_args ->
+        mf_set nf_args <-> mf_set' nf_args) ->
+    interp_blocks_prog e (meta_fact_args mf_args mf_set').
+  Proof.
+    revert mf_args mf_set mf_set'.
+    induction e; intros mf_args mf_set mf_set' Himpl Hext.
+    - simpl in *. eauto.
+    - simpl in *.
+      eapply prog_impl_mf_ext'; [exact Himpl | exact Hext |].
+      intro H_Q. apply Exists_exists in H_Q. fwd. discriminate.
+  Qed.
+
+  Lemma use_valid_blocks_prog {var2} (x : var2) (ctx : list (_ * var2)) p p0 mf_args mf_set :
     valid_blocks_prog p ->
+    wf_blocks_prog ctx p p0 ->
+    Forall honest_args (map fst ctx) ->
     interp_blocks_prog p (meta_fact_args mf_args mf_set) ->
     interp_blocks_prog p (meta_fact_args mf_args (fun args => interp_blocks_prog p (normal_fact_args args))).
   Proof.
-    intros H1 H2.
-    (*   eapply prog_impl_mf_ext; [eassumption|]. *)
-    (*   cbv [honest_block_prog] in H1. apply H1. apply H2. *)
-    (* Qed. *)
-  Abort.
+    intros.
+    eapply blocks_prog_impl_mf_ext; [eassumption|].
+    intros. eapply interp_blocks_prog_honest; [|try eassumption..]. assumption.
+  Qed.
 
   Hint Resolve in_fst in_snd : core.
   Lemma flatten_correct' ctx name e e0 name' Rret p :

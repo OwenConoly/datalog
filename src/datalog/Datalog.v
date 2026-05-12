@@ -182,9 +182,8 @@ Section __.
     Exists (fun hyp => extensionally_equal f hyp \/ fact_matches f hyp) meta_facts.
 
   Definition one_step_derives0 fact_supported (p : list rule) (meta_facts : list fact) (R : rel) (args : list T) : Prop :=
-    exists r hyps,
-      In r p /\
-        non_meta_rule_impl r R args hyps /\
+    exists hyps,
+      Exists (fun r => non_meta_rule_impl r R args hyps) p /\
         Forall (fact_supported meta_facts) hyps.
   Definition one_step_derives := one_step_derives0 fact_supported.
   Hint Unfold one_step_derives0 fact_supported : core.
@@ -284,8 +283,7 @@ Section __.
     one_step_derives p hyps R args'' -> one_step_derives p hyps' R args''.
   Proof.
     intros H1 H2. cbv [one_step_derives one_step_derives0] in *. fwd.
-    do 2 eexists. split; [eassumption|]. split; [eassumption|].
-    eapply Forall_impl; [|eassumption].
+    eexists. split; [eassumption|]. eapply Forall_impl; [|eassumption].
     intros f Hf. eapply fact_supported_ext; eassumption.
   Qed.
 
@@ -876,12 +874,13 @@ Section __.
     - econstructor; try eassumption.
       intros args'' Hargs''. rewrite H2 by assumption.
       cbv [one_step_derives one_step_derives0]. split; intros H'.
-      + fwd. rewrite in_app_iff in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto 6.
-        apply non_meta_rule_impl_concl_relname_in in H'p1.
+      + fwd. apply Exists_app in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto 6.
+        apply Exists_exists in H'p0. fwd.
+        apply non_meta_rule_impl_concl_relname_in in H'p0p1.
         repeat invert_stuff. exfalso. eapply Hout.
         -- apply in_map. eassumption.
         -- apply in_flat_map. eauto.
-      + fwd. do 2 eexists. rewrite in_app_iff. eauto.
+      + fwd. eexists. rewrite Exists_app. eauto.
   Qed.
 
   Lemma staged_program_rule_impl_bw p1 p2 r f hyps :
@@ -896,9 +895,10 @@ Section __.
     - econstructor; try eassumption.
       intros args'' Hargs''. rewrite H2 by assumption.
       cbv [one_step_derives one_step_derives0]. split; intros H'.
-      + fwd. do 2 eexists. rewrite in_app_iff. eauto.
-      + fwd. do 2 eexists. eauto. rewrite in_app_iff in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto.
-        apply non_meta_rule_impl_concl_relname_in in H'p1.
+      + fwd. eexists. rewrite Exists_app. eauto.
+      + fwd. eexists. rewrite Exists_app in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto.
+        apply Exists_exists in H'p0. fwd.
+        apply non_meta_rule_impl_concl_relname_in in H'p0p1.
         repeat invert_stuff. exfalso. eapply Hout.
         -- apply in_map. eassumption.
         -- apply in_flat_map. eauto.
@@ -928,7 +928,9 @@ Section __.
     - constructor. assumption.
     - econstructor; try eassumption. intros. rewrite H2 by assumption.
       clear -Hiff. cbv [one_step_derives one_step_derives0].
-      split; intros; fwd; do 2 eexists; edestruct Hiff; eauto.
+      split; intros; fwd.
+      + eexists. split; eauto. rewrite Exists_exists in *. fwd. edestruct Hiff; eauto.
+      + eexists. split; eauto. rewrite Exists_exists in *. fwd. edestruct Hiff; eauto.
   Qed.
 
   Lemma prog_impl_same_set p1 p2 Q f :
@@ -950,14 +952,13 @@ Section __.
     one_step_derives p1 hyps R args <-> one_step_derives p2 hyps R args.
   Proof.
     intros Hincl Hdisj HR. cbv [one_step_derives one_step_derives0].
-    split; intros [r' [hyps' [Hr_in [Himpl Hsupp]]]].
-    - exists r', hyps'. split; [apply Hincl; exact Hr_in |].
-      split; assumption.
-    - destruct (Hdisj r' Hr_in) as [Hr_in_p1 | Hdisj_r'].
-      + exists r', hyps'. split; [exact Hr_in_p1 |].
-        split; assumption.
+    split; intros; fwd.
+    - eexists. split; eauto. eapply incl_Exists; eassumption.
+    - apply Exists_exists in Hp0. fwd.
+      destruct (Hdisj _ ltac:(eassumption)) as [Hr_in_p1 | Hdisj_r'].
+      + eexists. rewrite Exists_exists. eauto.
       + exfalso. eapply Hdisj_r'; [exact HR |].
-        eapply non_meta_rule_impl_concl_relname_in; exact Himpl.
+        eapply non_meta_rule_impl_concl_relname_in; eassumption.
   Qed.
 
   Lemma rule_impl_subset p1 p2 r f hyps :
@@ -1154,7 +1155,7 @@ Section __.
     - clear H5 Hvalid. invert Hmr_impl. rewrite H10 in Hnf_args by assumption.
       cbv [one_step_derives one_step_derives0] in Hnf_args. fwd.
       eapply prog_impl_step_strong.
-      { apply Exists_exists. eauto. }
+      { eapply Exists_impl; [|eassumption]. simpl. eauto. }
       eapply Forall_impl; [|eassumption]. intros f' Hf'.
 
       cbv [fact_supported] in Hf'. apply Exists_exists in Hf'. fwd.
@@ -1171,7 +1172,7 @@ Section __.
       specialize (Hvalid _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
       invert Hmr_impl. rewrite H9 by assumption.
       invert Hnf_argsp0p1. cbv [one_step_derives one_step_derives0].
-      do 2 eexists. split; [eassumption|]. split; [eassumption|].
+      eexists. rewrite Exists_exists. split; [eauto|].
       eapply Forall_impl.
       2: { apply Forall_and; [exact Hvalid|exact Hnf_argsp1]. }
       clear hyps' Hvalid Hnf_argsp1 H7.
@@ -1388,10 +1389,11 @@ Section __.
     { eapply meta_hyps_are_meta_facts. eassumption. }
     apply Hvalid in Hmr1, Hmr2; try assumption.
     cbv [one_step_derives one_step_derives0]. split; intros Hderiv.
-    - fwd. specialize (Hmr2 _ _ _ ltac:(eassumption) ltac:(eauto) ltac:(eassumption)).
-      do 2 eexists. split; [eassumption|]. split; [eassumption|].
+    - fwd. apply Exists_exists in Hderivp0. fwd.
+      specialize (Hmr2 _ _ _ ltac:(eassumption) ltac:(eauto) ltac:(eassumption)).
+      eexists. rewrite Exists_exists. split; [eauto|].
       eapply Forall_impl.
-      2: { apply Forall_and; [apply Hmr2|apply Hderivp2]. }
+      2: { apply Forall_and; [apply Hmr2|apply Hderivp1]. }
       simpl. intros f Hf.
       cbv [fact_potentially_supported] in Hf. fwd. destruct f; fwd.
       + cbv [fact_supported]. apply Exists_exists.
@@ -1423,10 +1425,11 @@ Section __.
         specialize' Hfs1'.
         { apply Hfs2p1. eassumption. }
         apply Hfs1'; assumption.
-    - fwd. specialize (Hmr1 _ _ _ ltac:(eassumption) ltac:(eauto) ltac:(eassumption)).
-      do 2 eexists. split; [eassumption|]. split; [eassumption|].
+    - fwd. apply Exists_exists in Hderivp0. fwd.
+      specialize (Hmr1 _ _ _ ltac:(eassumption) ltac:(eauto) ltac:(eassumption)).
+      eexists. rewrite Exists_exists. split; [eauto|].
       eapply Forall_impl.
-      2: { apply Forall_and; [apply Hmr1|apply Hderivp2]. }
+      2: { apply Forall_and; [apply Hmr1|apply Hderivp1]. }
       simpl. intros f Hf.
       cbv [fact_potentially_supported] in Hf. fwd. destruct f; fwd.
       + cbv [fact_supported]. apply Exists_exists.
@@ -1482,17 +1485,21 @@ Section __.
     simpl in H''. apply H''; auto.
   Qed.
 
+  Definition good_inputs p Q :=
+    (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) /\
+      doesnt_lie Q.
+
+
   Definition honest_prog p :=
     forall Q,
-      (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
-      doesnt_lie Q ->
+      good_inputs p Q ->
       doesnt_lie (prog_impl p Q).
 
   Lemma valid_impl_honest p :
     meta_rules_valid p ->
     honest_prog p.
   Proof.
-    intros Hvalid Q Hdisj Q_honest.
+    intros Hvalid Q [Hdisj Q_honest].
     cbv [honest_prog doesnt_lie].
     intros mf_rel mf_args mf_set H_prog_M.
     remember (meta_fact mf_rel mf_args mf_set) as f eqn:Ef.
@@ -1523,6 +1530,18 @@ Section __.
         intros mf_rel mf_args1 mf_args2 mf_set1 mf_set2 H1 H2 nf_args Hargs1 Hargs2.
         apply Q_honest in H1, H2.
         cbv [consistent] in H1, H2. rewrite H1, H2 by assumption. reflexivity.
+  Qed.
+
+  Lemma use_honest_prog p Q mf_rel mf_args mf_set :
+    honest_prog p ->
+    good_inputs p Q ->
+    prog_impl p Q (meta_fact mf_rel mf_args mf_set) ->
+    Q (meta_fact mf_rel mf_args mf_set) \/
+      prog_impl p Q (meta_fact mf_rel mf_args (fun args => prog_impl p Q (normal_fact mf_rel args))).
+  Proof.
+    intros H1 H2 H3.
+    eapply prog_impl_mf_ext; [eassumption|].
+    cbv [honest_prog] in H1. apply H1; assumption.
   Qed.
 
   (*ugh idk what to say here*)

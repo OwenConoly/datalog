@@ -333,6 +333,19 @@ Ltac invert1_Exists H :=
                  apply Exists_cons in H; destruct H as [H|H]; [solve[repeat invert_stuff] | invert1_Exists H] |
                  apply Exists_cons in H; destruct H as [H|H]; [|invert0_Exists H] ].
 
+(* Ltac invert0_In H := *)
+(*   simpl in H; *)
+(*   match type of H with *)
+(*   | False => solve[destruct H] *)
+(*   | _ \/ _ => destruct H as [H|H]; [fwd; solve[repeat invert_stuff] | invert0_In H] *)
+(*   end. *)
+
+(* Ltac invert1_In H := *)
+(*   simpl in H; *)
+(*   invert0_In H || *)
+(*     destruct H as [H|H]; [solve[repeat invert_stuff] | invert1_In H] || *)
+(*     destruct H as [H|H]; [| invert0_In H]. *)
+
 Ltac invert_stuff :=
   match goal with
   | _ => Datalog.invert_stuff
@@ -506,14 +519,25 @@ Proof.
          cbv [extract_nat]. rewrite option_all_map_Some. reflexivity.
          ++ constructor.
          --- eapply prog_impl_mf_ext'.
-            +++ eapply use_honest_block_prog; [assumption|].
-                eapply block_prog_impl_step.
+            +++ eapply prog_impl_step.
                 ---- simpl. do 3 apply Exists_cons_tl. apply Exists_cons_hd.
                     eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
-                ---- interp_exprs.
+                ---- interp_exprs. (* simpl. constructor; [|constructor]. apply prog_impl_leaf. *)
+                     (* simpl. doExists 0. split; [reflexivity|]. *)
+                     (* eapply use_valid_blocks_prog; [|try eauto..]. *)
             +++ simpl. intros. repeat invert_stuff. split.
-                ---- intros H. repeat invert_stuff.
-                    eexists. split; [reflexivity|]. apply IHHwfp0. assumption.
+                ---- intros H. cbv [one_step_derives one_step_derives0] in H. fwd. repeat invert_stuff.
+                     eexists. split; [reflexivity|]. apply IHHwfp0.
+                     cbv [fact_supported] in H4. repeat invert_stuff.
+                     simpl in H0. destruct H0; try contradiction.
+                     cbv [fact_matches] in H. repeat invert_stuff.
+
+
+                     Search valid_blocks_prog.
+                     eapply interp_blocks_prog_honest
+                     Check compile_Sexpr.
+                     simpl in H.
+                     Search y. Search y. assumption.
                 ---- intros H. fwd.
                     eapply block_prog_impl_step.
                     ++++ simpl. do 2 apply Exists_cons_tl. apply Exists_cons_hd.
