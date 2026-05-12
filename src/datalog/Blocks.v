@@ -67,6 +67,15 @@ Section Blocks.
     Forall2 (fun '(x1, R1) '(x2, R2) => x1 = x2 /\ In (R1, R2) ctx) inps1 inps2 ->
     wf_blocks_prog ctx (Block ret inps1 p) (Block ret inps2 p).
 
+  Inductive vars_in {var} : list var -> blocks_prog var -> Prop :=
+  | vars_in_LetIn ctx x f :
+    vars_in ctx x ->
+    (forall x', vars_in (x' :: ctx) (f x')) ->
+    vars_in ctx (LetIn x f)
+  | vars_in_Block ctx ret inps p :
+    Forall (fun '(_, R) => In R ctx) inps ->
+    vars_in ctx (Block ret inps p).
+
   Section map.
     Context {rel1 rel2} (f : rel1 -> rel2).
 
@@ -815,49 +824,40 @@ Section Blocks.
     valid_blocks_prog (LetIn x f) = (valid_blocks_prog x /\ forall v, valid_blocks_prog (f v)).
   Proof. reflexivity. Qed.
 
-  Lemma interp_blocks_prog_honest {var2} (x : var2) ctx (e : blocks_prog (fact_args T -> Prop)) (e0 : blocks_prog var2) :
-    wf_blocks_prog ctx e e0 ->
+  Hint Constructors vars_in : core.
+
+  Lemma interp_blocks_prog_honest ctx (e : blocks_prog (fact_args T -> Prop)) :
     valid_blocks_prog e ->
-    Forall honest_args (map fst ctx) ->
+    vars_in ctx e ->
+    Forall honest_args ctx ->
     honest_args (interp_blocks_prog e).
   Proof.
-    intros Hwf.
-    induction Hwf as [ctx x1 x2 f1 f2 Hwf1 IH1 Hwf2 IH2 | ctx ret inps1 inps2 p Hfor];
-      intros Hvalid Hctx.
-    - simpl in Hvalid. destruct Hvalid as [Hvalid_x Hvalid_f].
-      simpl.
-      eapply IH2.
-      + apply Hvalid_f.
-      + simpl. constructor; [|exact Hctx].
-        apply IH1; assumption.
-    - simpl in Hvalid. destruct Hvalid as [Hvalid_p [Hnodup Hno_input]].
+    intros Hvalid. induction 1; intros Hctx; simpl.
+    - simpl in Hvalid. fwd. eauto.
+    - simpl in Hvalid. fwd.
       simpl. apply doesnt_lie_honest_args.
-      eapply valid_impl_honest.
-      + exact Hvalid_p.
-      + split.
-        -- intros f_target Hf_target.
-           apply Exists_exists in Hf_target. destruct Hf_target as [[R R'] [Hin [Hrel Hargs]]].
-           rewrite <- Hrel. intros H'. rewrite Forall_forall in Hno_input.
-           apply Hno_input in H'. apply H'.
-        -- cbv [doesnt_lie consistent].
-           intros mf_rel mf_args mf_set Hmf nf_args Hmatch.
-           apply Exists_exists in Hmf. destruct Hmf as [[R R'] [Hin [Hrel Hargs]]].
-           simpl in Hrel. subst.
-           apply Forall2_forget_r in Hfor. rewrite Forall_forall in Hfor.
-           specialize (Hfor _ Hin). fwd.
-           assert (honest_args R') as Hhonest_R'.
-           { rewrite Forall_forall in Hctx. apply Hctx.
-             apply in_map_iff. eexists (_, _). simpl. eauto. }
-           cbv [honest_args args_consistent] in Hhonest_R'.
-           rewrite Hhonest_R' by eassumption.
-           split; intros H'.
-           ** apply Exists_exists. eexists (_, _). simpl. eauto.
-           ** apply Exists_exists in H'. destruct H' as [[R0 R0'] [Hin0 [Hrel0 Hargs0]]].
-              simpl in Hrel0. fwd.
-              assert (R' = R0').
-              { eapply NoDup_fst_In_inj; eassumption. }
-              subst R0'. exact Hargs0.
-              Unshelve. assumption.
+      eapply valid_impl_honest; eauto.
+      split.
+      + intros f_target Hf_target.
+        apply Exists_exists in Hf_target. fwd.
+        rewrite <- Hf_targetp1p0. intros H'. rewrite Forall_forall in Hvalidp2.
+        apply Hvalidp2 in H'. apply H'.
+      + cbv [doesnt_lie consistent].
+        intros mf_rel mf_args mf_set Hmf nf_args Hmatch.
+        apply Exists_exists in Hmf. fwd. simpl in *. subst.
+        rewrite Forall_forall in H.
+        specialize (H _ ltac:(eassumption)). simpl in H.
+        assert (honest_args P) as Hhonest_P.
+        { rewrite Forall_forall in Hctx. apply Hctx. assumption. }
+        cbv [honest_args args_consistent] in Hhonest_P.
+        rewrite Hhonest_P by eassumption.
+        split; intros H'.
+        ** apply Exists_exists. eexists (_, _). simpl. eauto.
+        ** apply Exists_exists in H'. destruct H' as [[R0 R0'] [Hin0 [Hrel0 Hargs0]]].
+           simpl in Hrel0. fwd.
+           assert (P = R0').
+           { eapply NoDup_fst_In_inj; eassumption. }
+           subst R0'. exact Hargs0.
   Qed.
 
   Lemma blocks_prog_impl_mf_ext (e : blocks_prog (fact_args T -> Prop)) mf_args mf_set mf_set' :
@@ -875,16 +875,26 @@ Section Blocks.
       intro H_Q. apply Exists_exists in H_Q. fwd. discriminate.
   Qed.
 
-  Lemma use_valid_blocks_prog {var2} (x : var2) (ctx : list (_ * var2)) p p0 mf_args mf_set :
+  Lemma use_valid_blocks_prog ctx p mf_args mf_set :
     valid_blocks_prog p ->
-    wf_blocks_prog ctx p p0 ->
-    Forall honest_args (map fst ctx) ->
+    vars_in ctx p ->
+    Forall honest_args ctx ->
     interp_blocks_prog p (meta_fact_args mf_args mf_set) ->
     interp_blocks_prog p (meta_fact_args mf_args (fun args => interp_blocks_prog p (normal_fact_args args))).
   Proof.
     intros.
     eapply blocks_prog_impl_mf_ext; [eassumption|].
     intros. eapply interp_blocks_prog_honest; [|try eassumption..]. assumption.
+  Qed.
+
+  Lemma wf_blocks_prog_vars_in {var1 var2} (x : var2) (ctx : list (var1 * var2)) (p : blocks_prog var1) (p' : blocks_prog var2) :
+    wf_blocks_prog ctx p p' ->
+    vars_in (map fst ctx) p.
+  Proof.
+    induction 1; simpl in *; eauto.
+    constructor. eapply Forall_impl.
+    2: { eapply Forall2_forget_r. eassumption. }
+    simpl. intros [? ?] ?. fwd. eapply in_fst. eassumption.
   Qed.
 
   Hint Resolve in_fst in_snd : core.
@@ -927,7 +937,7 @@ Section Blocks.
         simpl in *. specialize (Hctx1 _ ltac:(eauto)).
         eauto using in_nonoverlapping_ranges. }
       specialize' IH'.
-      { simpl. constructor; auto. eauto using interp_blocks_prog_honest. }
+      { simpl. eauto using interp_blocks_prog_honest, wf_blocks_prog_vars_in. }
       fwd. ssplit.
       + lia.
       + eapply in_range_weaken; [eassumption| |]; lia.
