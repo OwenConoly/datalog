@@ -134,10 +134,10 @@ Section __.
 
   Definition fact_matches nf mf :=
     exists R nf_args mf_args mf_set,
-      Forall2 matches mf_args nf_args /\
-        mf_set nf_args /\
-        nf = normal_fact R nf_args /\
-        mf = meta_fact R mf_args mf_set.
+      nf = normal_fact R nf_args /\
+        mf = meta_fact R mf_args mf_set /\
+        Forall2 matches mf_args nf_args /\
+        mf_set nf_args.
 
   Inductive non_meta_rule_impl : rule -> rel -> list T -> list fact -> Prop :=
   | normal_rule_impl rule_concls rule_hyps ctx R args hyps :
@@ -1696,7 +1696,10 @@ Ltac interp_exprs :=
 (*TODO this is reproduced within the section, and idk how to get it out*)
 Ltac invert_stuff :=
   match goal with
-  | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args] in *
+  | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args fact_supported extensionally_equal] in *
+  | H : one_step_derives _ _ _ _ |- _ => cbv [one_step_derives one_step_derives0] in H; fwd
+  | H : fact_matches _ _ |- _ => cbv [fact_matches] in H; fwd
+  | H : fact_supported _ _ |- _ => cbv [fact_supported] in H
   | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
   | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
   | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd

@@ -425,13 +425,9 @@ Section Blocks.
           cbv [fact_equiv map_fact] in Hp1'p1p1, Hmatchp0, Hmatchp1.
           destruct x0 as [R_x0 args_x0 | ]; try discriminate.
           destruct x1 as [ | R_x1 mf_args_x1 S_x1]; try contradiction.
-
-          inversion Hp1'p1p1; subst.
-          inversion Hmatchp0; subst.
-          inversion Hmatchp1; subst.
-
-          eapply (proj1 (Hmfs_consistent _ _ _ _ _ _ Hp1p0 Hmrp0 ltac:(congruence) _ H_match_args Hmrp1)).
-          exact H_set_eval.
+          fwd.
+          fwd. cbv [meta_facts_consistent_with_map] in Hmfs_consistent.
+          rewrite Hmfs_consistent; eauto. congruence.
     Qed.
 
     Lemma rule_impl_map_rule_rels_fw p r f0 hyps :

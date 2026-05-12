@@ -5,7 +5,9 @@ Import ListNotations.
 
 Local Ltac invert_list_stuff' :=
   repeat match goal with
-    | H: Forall _ (cons _ _) |- _ => invert H
+    | H : False \/ _ |- _ => destruct H as [[]|H]
+    | H : _ \/ False |- _ => destruct H as [H|[]]
+    | H : Forall _ (cons _ _) |- _ => invert H
     | H : Forall _ nil |- _ => invert H
     | H : Forall2 _ (cons _ _) _ |- _ => invert H
     | H : Forall2 _ _ (cons _ _) |- _ => invert H
