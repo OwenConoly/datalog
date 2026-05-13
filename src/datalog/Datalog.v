@@ -1609,9 +1609,9 @@ Section __.
   Record rule_state :=
     { known_facts : list dfact;
       waiting_facts : list dfact;
-      sent_msgs : rel -> list (option T) -> nat }.
+      sent_facts : list dfact }.
 
-  Definition state : Type :=
+  Definition state :=
     list rule_state.
 
   Context (is_input : rel -> bool).
@@ -1626,6 +1626,13 @@ Section __.
         start = l1 ++ x :: l2 /\
           finish = l1 ++ y :: l2 /\
           do_step x y.
+
+  Definition stepWithLabel {T U} (do_step : U -> T -> T -> Prop) (labels : list U) : list T -> list T -> Prop :=
+    fun start finish =>
+      exists l1 n x y l2,
+        combine labels start = l1 ++ (n, x) :: l2 /\
+          finish = map snd l1 ++ y :: map snd l2 /\
+          do_step n x y.
 
   Definition learn_fact_at_rule (s1 s2 : rule_state) : Prop :=
     exists l1 x l2,
@@ -1659,44 +1666,68 @@ Section __.
               mf_set nf_args <-> In (normal_dfact mf_rel nf_args) dfacts)
     end.
 
-  Definition can_learn_normal_fact (r : non_meta_rule) (known_facts : list dfact) (result : dfact) :=
-    exists hyps nf_rel nf_args,
-      result = normal_dfact nf_rel nf_args /\
-        non_meta_rule_impl (rule_of r) nf_rel nf_args hyps /\
+  Definition can_deduce_normal_fact (r : non_meta_rule) (known_facts : list dfact) nf_rel nf_args :=
+    exists hyps,
+      non_meta_rule_impl (rule_of r) nf_rel nf_args hyps /\
         Forall (knows_datalog_fact known_facts) hyps.
 
-  Definition can_learn_meta_fact (mf_concls mf_hyps : list meta_clause) (r : non_meta_rule) (source : nat) (sent : rel -> list (option T) -> nat) (known_facts : list dfact) (result : dfact) :=
-    exists ctx hyps mf_rel mf_args,
-      result = meta_dfact mf_rel mf_args (Some source) (sent mf_rel mf_args) /\
+  Definition can_deduce_meta_fact (mf_concls mf_hyps : list meta_clause) (r : non_meta_rule) (source : nat) (sent_facts : list dfact) (known_facts : list dfact) (result : dfact) :=
+    exists ctx hyps mf_rel mf_args mf_cnt,
+      result = meta_dfact mf_rel mf_args (Some source) mf_cnt /\
+        Existsn (dfact_matches mf_rel mf_args) mf_cnt sent_facts /\
         Exists (fun c => interp_meta_clause ctx c (meta_fact mf_rel mf_args (fun _ => False))) mf_concls /\
         Forall2 (interp_meta_clause ctx) mf_hyps hyps /\
         Forall (knows_datalog_fact known_facts) hyps /\
         (forall nf_args,
-            can_learn_normal_fact r known_facts (normal_dfact mf_rel nf_args) ->
+            can_deduce_normal_fact r known_facts mf_rel nf_args ->
             Forall2 matches mf_args nf_args ->
             In (normal_dfact mf_rel nf_args) known_facts).
 
   Definition add_waiting_fact f (rs : rule_state) :=
     {| known_facts := rs.(known_facts);
       waiting_facts := f :: rs.(waiting_facts);
-      sent_msgs := rs.(sent_msgs); |}.
+      sent_facts := rs.(sent_facts); |}.
 
-  (*TODO add case for fire_meta_rule*)
-  Inductive step (p : prog) : state -> state -> Prop :=
+  Definition send_fact f rs :=
+    {| known_facts := rs.(known_facts);
+      waiting_facts := rs.(waiting_facts);
+      sent_facts := f :: rs.(sent_facts) |}.
+
+  Inductive comp_step (p : prog) : state -> state -> Prop :=
   | learn_fact s1 s2 :
     stepOne learn_fact_at_rule s1 s2 ->
-    step _ s1 s2
-  | fire_normal_rule new_fact s1 :
-    Exists (fun '(r, rs) => can_learn_normal_fact r rs.(known_facts) new_fact) (combine p.(non_meta_rules) s1) ->
-    step _ s1 (map (add_waiting_fact new_fact) s1)
-  | fire_meta_rule mf_concls mf_hyps new_fact s1 s2 :
+    comp_step _ s1 s2
+  | fire_normal_rule nf_rel nf_args s1 s2 :
+    stepWithLabel (fun '(r, n) rs rs' =>
+                     can_deduce_normal_fact r rs.(known_facts) nf_rel nf_args /\
+                       (forall mf_args num,
+                           In (meta_dfact nf_rel mf_args (Some n) num) rs.(sent_facts) ->
+                           Forall2 matches mf_args nf_args ->
+                           False) /\
+                       rs' = send_fact (normal_dfact nf_rel nf_args) rs)
+      (combine p.(non_meta_rules) (seq O (length s1))) s1 s2 ->
+    comp_step _ s1 (map (add_waiting_fact (normal_dfact nf_rel nf_args)) s2)
+  | fire_meta_rule mf_concls mf_hyps new_fact s1 :
     In (mf_concls, mf_hyps) p.(meta_rules) ->
     Exists
       (fun '(r, rs, source) =>
-         can_learn_meta_fact mf_concls mf_hyps r source rs.(sent_msgs) rs.(known_facts) new_fact)
+         can_deduce_meta_fact mf_concls mf_hyps r source rs.(sent_facts) rs.(known_facts) new_fact)
       (combine (combine p.(non_meta_rules) s1) (seq O (length s1))) ->
-    step _ s1 s2.
+    comp_step _ s1 (map (add_waiting_fact new_fact) s1).
 
+  Definition is_input_fact f :=
+    match f with
+    | normal_dfact R _ => is_input R
+    | meta_dfact R _ None _ => is_input R
+    | meta_dfact _ _ (Some _) _ => false
+    end.
+
+  Definition inputs := list dfact.
+
+  Inductive inp_step (p : prog) : state -> inputs -> state -> inputs -> Prop :=
+  | Receive s1 inps1 new_fact :
+    is_input_fact new_fact = true ->
+    inp_step _ s1 inps1 (map (add_waiting_fact new_fact) s1) (new_fact :: inps1).
 
 End __.
 Arguments clause : clear implicits.
