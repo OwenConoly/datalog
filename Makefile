@@ -13,7 +13,7 @@ util: Makefile.coq
 	$(MAKE) -f Makefile.coq $(UTIL_VO_FILES)
 
 datalog: util
-	$(MAKE) -f Makefile.coq src/datalog/Datalog.vo src/datalog/Blocks.vo
+	$(MAKE) -f Makefile.coq src/datalog/Datalog.vo src/datalog/Blocks.vo src/datalog/Interpreter.vo src/datalog/AggregatingProgram.vo
 
 atl: datalog
 	$(MAKE) -C verified-scheduling/src low

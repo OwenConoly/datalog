@@ -11,7 +11,6 @@ Variant type := val | set.
 Notation rel := nat (only parsing).
 Definition obj := nat.
 Context {context : map.map nat obj} {context_ok : map.ok context}.
-Context {gmap : map.map rel (fact_args obj -> Prop)} {gmap_ok : map.ok gmap}.
 Notation fact := (fact rel obj).
 Variant fn :=
   | fn_lit (o : obj)
@@ -147,7 +146,6 @@ Proof.
   destruct x, y; simpl in *; try discriminate; auto.
 Qed.
 
-Print block_rel.
 Definition block_rel_eqb {A} (aeqb : A -> A -> bool) R1 R2 :=
   match R1, R2 with
   | local l1, local l2 => aeqb l1 l2
@@ -228,8 +226,6 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
 
 Definition sum_expr {var} (S : var set) :=
   bop_over_set sum (Var _ S).
-Print compile_Sexpr.
-Compute (compile_Sexpr (sum_expr 0)).
 
 Definition interp_type t : Type :=
   match t with
@@ -667,3 +663,4 @@ Proof.
   - apply compile_Sexpr_valid.
   - exact Hinterp.
 Qed.
+End __.
