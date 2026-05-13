@@ -1588,11 +1588,10 @@ Section __.
   (*   intros. split; auto using loopless_program. intros [H'|H']; fwd; eauto. *)
   (* Qed. *)
 
-  Check prog_impl.
-  Print rule.
   Inductive non_meta_rule :=
   | nmr_normal (_ _ : list clause)
   | nmr_agg (_ : rel) (_ : aggregator) (_ : rel).
+
   Definition rule_of nmr :=
     match nmr with
     | nmr_normal concls hyps => normal_rule concls hyps
@@ -1600,8 +1599,8 @@ Section __.
     end.
 
   Inductive dfact :=
-  | normal_dfact (nf_rel: rel) (nf_args: list T)
-  | meta_dfact (mf_rel: rel) (source: option nat) (expected_msgs: nat) (*number of messages that node "source" will ever send about mf_rel*).
+  | normal_dfact (nf_rel : rel) (nf_args : list T)
+  | meta_dfact (mf_rel : rel) (mf_args : list (option T)) (source : option nat) (expected_msgs : nat) (*number of messages that node "source" will ever send about mf_rel*).
 
   Record prog :=
     { meta_rules : list (list meta_clause * list meta_clause);
@@ -1614,7 +1613,10 @@ Section __.
   Definition state : Type :=
     list rule_state.
 
-  Definition rules_of (p : prog) : list rule :=
+  Context (is_input : rel -> bool).
+  Context (p : prog).
+
+  Definition rules_of : list rule :=
     map (fun '(c, h) => meta_rule c h) p.(meta_rules) ++ map rule_of p.(non_meta_rules).
 
   Definition stepOne {T} (do_step : T -> T -> Prop) : list T -> list T -> Prop :=
@@ -1630,10 +1632,32 @@ Section __.
         s1.(waiting_facts) = l1 ++ x :: l2 /\
         s2.(waiting_facts) = l1 ++ l2.
 
-  (*we can deduce result, via rule r, from the set of known_facts*)
-  Definition fire_rule (r : non_meta_rule) (known_facts : list dfact) (result : dfact) : Prop.
-  Admitted.
-  Print prog.
+  Definition expect_num_R_facts R mf_args known_facts num :=
+    if is_input R then
+      In (meta_dfact R mf_args None num) known_facts
+    else
+      exists expected_msgss,
+        Forall2 (fun n expected_msgs => In (meta_dfact R mf_args (Some n) expected_msgs) known_facts) (seq O (length p.(non_meta_rules))) expected_msgss /\
+          num = fold_left Nat.add expected_msgss O.
+
+  Definition know_datalog_fact (dfacts : list dfact) (f : fact) :=
+    match f with
+    | normal_fact nf_rel nf_args =>
+        In (normal_dfact nf_rel nf_args) dfacts
+    | meta_fact mf_rel mf_args mf_set =>
+        exists num,
+        expect_num_R_facts mf_rel mf_args dfacts num /\
+          (forall nf_args,
+              Forall2 matches mf_args nf_args ->
+              mf_set nf_args <-> In (normal_dfact mf_rel nf_args) dfacts)
+    end.
+
+  Definition can_learn_normal_fact (r : non_meta_rule) (known_facts : list dfact) (result : dfact) :=
+    exists hyps nf_rel nf_args,
+      result = normal_dfact nf_rel nf_args /\
+        non_meta_rule_impl (rule_of r) nf_rel nf_args hyps /\
+        Forall (know_datalog_fact known_facts) hyps.
+
   Definition add_waiting_fact f (rs : rule_state) :=
     {| known_facts := rs.(known_facts);
       waiting_facts := f :: rs.(waiting_facts) |}.
@@ -1644,7 +1668,7 @@ Section __.
     stepOne learn_fact_at_rule s1 s2 ->
     step _ s1 s2
   | fire_normal_rule new_fact s1 :
-    Exists (fun '(r, rs) => fire_rule r rs.(known_facts) new_fact) (combine p.(non_meta_rules) s1) ->
+    Exists (fun '(r, rs) => can_learn_normal_fact r rs.(known_facts) new_fact) (combine p.(non_meta_rules) s1) ->
     step _ s1 (map (add_waiting_fact new_fact) s1).
 
 End __.
