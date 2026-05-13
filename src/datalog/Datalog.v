@@ -1693,10 +1693,10 @@ Section __.
       waiting_facts := rs.(waiting_facts);
       sent_facts := f :: rs.(sent_facts) |}.
 
-  Inductive comp_step (p : prog) : state -> state -> Prop :=
+  Inductive comp_step : state -> state -> Prop :=
   | learn_fact s1 s2 :
     stepOne learn_fact_at_rule s1 s2 ->
-    comp_step _ s1 s2
+    comp_step s1 s2
   | fire_normal_rule nf_rel nf_args s1 s2 :
     stepWithLabel (fun '(r, n) rs rs' =>
                      can_deduce_normal_fact r rs.(known_facts) nf_rel nf_args /\
@@ -1706,14 +1706,14 @@ Section __.
                            False) /\
                        rs' = send_fact (normal_dfact nf_rel nf_args) rs)
       (combine p.(non_meta_rules) (seq O (length s1))) s1 s2 ->
-    comp_step _ s1 (map (add_waiting_fact (normal_dfact nf_rel nf_args)) s2)
+    comp_step s1 (map (add_waiting_fact (normal_dfact nf_rel nf_args)) s2)
   | fire_meta_rule mf_concls mf_hyps new_fact s1 :
     In (mf_concls, mf_hyps) p.(meta_rules) ->
     Exists
       (fun '(r, rs, source) =>
          can_deduce_meta_fact mf_concls mf_hyps r source rs.(sent_facts) rs.(known_facts) new_fact)
       (combine (combine p.(non_meta_rules) s1) (seq O (length s1))) ->
-    comp_step _ s1 (map (add_waiting_fact new_fact) s1).
+    comp_step s1 (map (add_waiting_fact new_fact) s1).
 
   Definition is_input_fact f :=
     match f with
@@ -1724,10 +1724,15 @@ Section __.
 
   Definition inputs := list dfact.
 
-  Inductive inp_step (p : prog) : state -> inputs -> state -> inputs -> Prop :=
+  Inductive inp_step : state -> inputs -> state -> inputs -> Prop :=
   | Receive s1 inps1 new_fact :
     is_input_fact new_fact = true ->
-    inp_step _ s1 inps1 (map (add_waiting_fact new_fact) s1) (new_fact :: inps1).
+    inp_step s1 inps1 (map (add_waiting_fact new_fact) s1) (new_fact :: inps1).
+
+  Context (Hmeta_rules : meta_rules_valid rules_of).
+
+  Lemma comp_step_sound : False. Abort.
+
 
 End __.
 Arguments clause : clear implicits.
