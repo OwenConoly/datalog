@@ -1731,6 +1731,67 @@ Section __.
 
   Context (Hmeta_rules : meta_rules_valid rules_of).
 
+  Definition rule_has_dfact rs f :=
+    In f rs.(known_facts) \/ In f rs.(waiting_facts).
+
+  Definition knows_dfact (s : state) f :=
+    Exists (fun rs => rule_has_dfact rs f) s.
+
+  Definition nth_sat {T} (l : list T) n (P : T -> Prop) :=
+    match nth_error l n with
+    | Some x => P x
+    | None => False
+    end.
+
+  Definition good_input_facts input_facts :=
+    Forall (fun f => is_input_fact f = true) input_facts /\
+      (forall R mf_args num,
+          In (meta_dfact R mf_args None num) input_facts ->
+          (forall num0, In (meta_dfact R mf_args None num0) input_facts -> num0 = num) /\
+            exists num',
+              num' <= num /\
+                Existsn (dfact_matches R mf_args) num' input_facts).
+
+  Definition sane_state (input_facts : list dfact) (s : state) :=
+    (forall R mf_args num,
+        knows_dfact s (meta_dfact R mf_args None num) ->
+        In (meta_dfact R mf_args None num) input_facts) /\
+      (*I think this condition is both unnecessary and untrue*)
+      (* (forall R mf_args n num, *)
+      (*     knows_dfact s (meta_dfact R mf_args (Some n) num) -> *)
+      (*     nth_sat s n (fun rs => In (meta_dfact R mf_args (Some n) num) rs.(known_facts))) *)
+      (forall R mf_args n num,
+          knows_dfact s (meta_dfact R mf_args (Some n) num) ->
+          nth_sat s n (fun rs =>
+                         Existsn (dfact_matches R mf_args) num rs.(sent_facts))) /\
+      (forall f,
+          knows_dfact s f ->
+          Forall (fun rs => rule_has_dfact rs f) s) /\
+      (forall R mf_args,
+        exists msgs_sents,
+          Forall2 (fun rs msgs_sent =>
+                     Existsn (dfact_matches R mf_args) msgs_sent rs.(sent_facts))
+            s msgs_sents /\
+            forall n,
+            exists num_known num_wait num_inp,
+              nth_sat s n
+                (fun rs_n =>
+                   Existsn (dfact_matches R mf_args) num_known rs_n.(known_facts) /\
+                     Existsn (dfact_matches R mf_args) num_wait rs_n.(waiting_facts) /\
+                     Existsn (dfact_matches R mf_args) num_inp input_facts /\
+                     num_known + num_wait = num_inp + fold_left Nat.add msgs_sents O)) /\
+      (forall R,
+          is_input R = true ->
+          (forall mf_args, Forall (fun rs => Existsn (dfact_matches R mf_args) O rs.(sent_facts)) s) /\
+            (forall mf_args n num, ~knows_dfact s (meta_dfact R mf_args (Some n) num))).
+
+  Lemma step_preserves_sane inputs s1 s2 :
+    good_input_facts inputs ->
+    sane_state inputs s1 ->
+    sane_state inputs s2.
+  Proof.
+  Admitted.
+
   Lemma comp_step_sound : False. Abort.
 
 
