@@ -2,6 +2,7 @@ From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
+From Stdlib Require Import Classical_Prop.
 
 From Datalog Require Import Map Tactics Fp List Dag.
 
@@ -1979,6 +1980,13 @@ Section __.
     rule_has_dfact (add_waiting_fact F rs) F.
   Proof. cbv [rule_has_dfact add_waiting_fact]; simpl; auto. Qed.
 
+  Lemma fold_left_add_from_0 (l : list nat) (n : nat) :
+    fold_left Nat.add l n = fold_left Nat.add l 0 + n.
+  Proof.
+    revert n. induction l as [|a l IH]; intros n; simpl; [reflexivity|].
+    rewrite IH, (IH a). lia.
+  Qed.
+
   Lemma can_deduce_implies_not_input r kf nf_rel nf_args :
     good_non_meta_rule r ->
     can_deduce_normal_fact r kf nf_rel nf_args ->
@@ -2137,7 +2145,88 @@ Section __.
              ++ apply rule_has_dfact_afw.
                 cbv [rule_has_dfact send_fact]; simpl. exact Hxf.
              ++ eapply Forall_impl; [|exact HF2]. intros. apply rule_has_dfact_afw; assumption.
-      + (* C4: count invariant *) admit.
+      + (* C4: count invariant *)
+        intros R mf_args.
+        specialize (Hcount R mf_args). fwd.
+        apply Forall2_app_inv_l in Hcountp0.
+        destruct Hcountp0 as (ms_pre & ms_rest & Hms_pre & Hms_rest & ?). subst.
+        inversion Hms_rest; subst.
+        rename y into ms_x. rename l' into ms_post.
+        rename H1 into Hms_x. rename H3 into Hms_post.
+        apply Forall_app in Hcountp2. destruct Hcountp2 as (Hcountp2_pre & Hcountp2_rest).
+        apply Forall_cons_iff in Hcountp2_rest.
+        destruct Hcountp2_rest as (Hcountp2_x & Hcountp2_post).
+        destruct (classic (dfact_matches R mf_args (normal_dfact nf_rel nf_args))) as [Hdf | Hdf].
+        * (* dfact_matches: delta = 1 *)
+          exists (ms_pre ++ S ms_x :: ms_post), num_inp. ssplit.
+          -- rewrite <- Forall2_map_l.
+             apply Forall2_app; [|constructor].
+             ++ eapply Forall2_impl; [|exact Hms_pre]. intros y m Hy.
+                cbv [add_waiting_fact]; simpl. exact Hy.
+             ++ cbv [add_waiting_fact send_fact]; simpl.
+                apply Existsn_yes; assumption.
+             ++ eapply Forall2_impl; [|exact Hms_post]. intros y m Hy.
+                cbv [add_waiting_fact]; simpl. exact Hy.
+          -- assumption.
+          -- apply Forall_map.
+             apply Forall_app; split.
+             ++ eapply Forall_impl; [|exact Hcountp2_pre].
+                intros y (num_k & num_w & Hk_y & Hw_y & Hsum).
+                exists num_k, (S num_w). cbv [add_waiting_fact]; simpl. ssplit.
+                ** exact Hk_y.
+                ** apply Existsn_yes; assumption.
+                ** rewrite ! fold_left_app in *. simpl in *.
+                   rewrite (fold_left_add_from_0 ms_post _) in Hsum.
+                   rewrite (fold_left_add_from_0 ms_post _).
+                   lia.
+             ++ constructor.
+                ** destruct Hcountp2_x as (num_k & num_w & Hk_x & Hw_x & Hsum).
+                   exists num_k, (S num_w). cbv [add_waiting_fact send_fact]; simpl. ssplit.
+                   --- exact Hk_x.
+                   --- apply Existsn_yes; assumption.
+                   --- rewrite ! fold_left_app in *. simpl in *.
+                       rewrite (fold_left_add_from_0 ms_post _) in Hsum.
+                       rewrite (fold_left_add_from_0 ms_post _).
+                       lia.
+                ** eapply Forall_impl; [|exact Hcountp2_post].
+                   intros y (num_k & num_w & Hk_y & Hw_y & Hsum).
+                   exists num_k, (S num_w). cbv [add_waiting_fact]; simpl. ssplit.
+                   --- exact Hk_y.
+                   --- apply Existsn_yes; assumption.
+                   --- rewrite ! fold_left_app in *. simpl in *.
+                       rewrite (fold_left_add_from_0 ms_post _) in Hsum.
+                       rewrite (fold_left_add_from_0 ms_post _).
+                       lia.
+        * (* ~dfact_matches: delta = 0 *)
+          exists (ms_pre ++ ms_x :: ms_post), num_inp. ssplit.
+          -- rewrite <- Forall2_map_l.
+             apply Forall2_app; [|constructor].
+             ++ eapply Forall2_impl; [|exact Hms_pre]. intros y m Hy.
+                cbv [add_waiting_fact]; simpl. exact Hy.
+             ++ cbv [add_waiting_fact send_fact]; simpl. apply Existsn_no; assumption.
+             ++ eapply Forall2_impl; [|exact Hms_post]. intros y m Hy.
+                cbv [add_waiting_fact]; simpl. exact Hy.
+          -- assumption.
+          -- apply Forall_map.
+             apply Forall_app; split.
+             ++ eapply Forall_impl; [|exact Hcountp2_pre].
+                intros y (num_k & num_w & Hk_y & Hw_y & Hsum).
+                exists num_k, num_w. cbv [add_waiting_fact]; simpl. ssplit.
+                ** exact Hk_y.
+                ** apply Existsn_no; assumption.
+                ** assumption.
+             ++ constructor.
+                ** destruct Hcountp2_x as (num_k & num_w & Hk_x & Hw_x & Hsum).
+                   exists num_k, num_w. cbv [add_waiting_fact send_fact]; simpl. ssplit.
+                   --- exact Hk_x.
+                   --- apply Existsn_no; assumption.
+                   --- assumption.
+                ** eapply Forall_impl; [|exact Hcountp2_post].
+                   intros y (num_k & num_w & Hk_y & Hw_y & Hsum).
+                   exists num_k, num_w. cbv [add_waiting_fact]; simpl. ssplit.
+                   --- exact Hk_y.
+                   --- apply Existsn_no; assumption.
+                   --- assumption.
       + (* C5: input-relation constraints *)
         intros R HR.
         specialize (Hinp_sane R HR). fwd.
