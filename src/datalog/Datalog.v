@@ -1733,6 +1733,14 @@ Section __.
 
   Context (Hmeta_rules : meta_rules_valid rules_of).
 
+  Definition good_non_meta_rule (r : non_meta_rule) : Prop :=
+    match r with
+    | nmr_normal cs _ => Forall (fun c => is_input c.(clause_rel) = false) cs
+    | nmr_agg concl _ _ => is_input concl = false
+    end.
+
+  Context (Hp_input : Forall good_non_meta_rule p.(non_meta_rules)).
+
   Definition rule_has_dfact rs f :=
     In f rs.(known_facts) \/ In f rs.(waiting_facts).
 
@@ -1755,6 +1763,7 @@ Section __.
                 Existsn (dfact_matches R mf_args) num' input_facts).
 
   Definition sane_state (input_facts : list dfact) (s : state) :=
+    length s = length p.(non_meta_rules) /\
     (forall R mf_args num,
         knows_dfact s (meta_dfact R mf_args None num) ->
         In (meta_dfact R mf_args None num) input_facts) /\
@@ -1882,6 +1891,112 @@ Section __.
     exists n1, n2. ssplit; [exact Hcatp1 | exact Hcatp2 | lia].
   Qed.
 
+  (* Helpers for the fire_* cases. *)
+
+  Lemma map_snd_combine A B (l1 : list A) (l2 : list B) :
+    length l1 = length l2 ->
+    map snd (combine l1 l2) = l2.
+  Proof.
+    revert l2. induction l1 as [|a l1 IH]; intros [|b l2] H; simpl in *;
+      try discriminate; auto.
+    f_equal. apply IH. lia.
+  Qed.
+
+  Lemma map_fst_combine A B (l1 : list A) (l2 : list B) :
+    length l1 = length l2 ->
+    map fst (combine l1 l2) = l1.
+  Proof.
+    revert l2. induction l1 as [|a l1 IH]; intros [|b l2] H; simpl in *;
+      try discriminate; auto.
+    f_equal. apply IH. lia.
+  Qed.
+
+  Lemma nth_error_app_middle A (l1 : list A) x l2 n :
+    nth_error (l1 ++ x :: l2) n =
+    match Nat.compare n (length l1) with
+    | Lt => nth_error l1 n
+    | Eq => Some x
+    | Gt => nth_error l2 (n - length l1 - 1)
+    end.
+  Proof.
+    destruct (Nat.compare_spec n (length l1)) as [-> | Hlt | Hgt].
+    - rewrite nth_error_app2 by lia. rewrite Nat.sub_diag. reflexivity.
+    - rewrite nth_error_app1 by assumption. reflexivity.
+    - rewrite nth_error_app2 by lia.
+      destruct (n - length l1) eqn:E; [exfalso; lia|].
+      simpl. f_equal. lia.
+  Qed.
+
+  Lemma nth_sat_app_middle A (l1 : list A) x l2 n P :
+    nth_sat (l1 ++ x :: l2) n P =
+    match Nat.compare n (length l1) with
+    | Lt => nth_sat l1 n P
+    | Eq => P x
+    | Gt => nth_sat l2 (n - length l1 - 1) P
+    end.
+  Proof.
+    cbv [nth_sat]. rewrite nth_error_app_middle.
+    destruct (Nat.compare_spec n (length l1)) as [-> | Hlt | Hgt]; reflexivity.
+  Qed.
+
+  Lemma nth_sat_map A B (f : A -> B) l n (P : B -> Prop) :
+    nth_sat (map f l) n P <-> nth_sat l n (fun x => P (f x)).
+  Proof.
+    cbv [nth_sat]. rewrite nth_error_map.
+    destruct (nth_error l n); reflexivity.
+  Qed.
+
+  Lemma knows_dfact_add_waiting F s f :
+    knows_dfact (map (add_waiting_fact F) s) f -> f = F \/ knows_dfact s f.
+  Proof.
+    cbv [knows_dfact rule_has_dfact]. intros HE. apply Exists_exists in HE.
+    destruct HE as (rs' & Hin' & [Hk | Hw]).
+    - apply in_map_iff in Hin'. destruct Hin' as (rs & Heq & Hin); subst rs'.
+      cbv [add_waiting_fact] in Hk; simpl in Hk.
+      right. apply Exists_exists. exists rs. auto.
+    - apply in_map_iff in Hin'. destruct Hin' as (rs & Heq & Hin); subst rs'.
+      cbv [add_waiting_fact] in Hw; simpl in Hw.
+      destruct Hw as [<-|Hw]; auto.
+      right. apply Exists_exists. exists rs. auto.
+  Qed.
+
+  Lemma knows_dfact_after_step F l1 x l2 f :
+    knows_dfact (map (add_waiting_fact F) (l1 ++ send_fact F x :: l2)) f ->
+    f = F \/ knows_dfact (l1 ++ x :: l2) f.
+  Proof.
+    intros HE. apply knows_dfact_add_waiting in HE.
+    destruct HE as [|HE]; [auto|]. right.
+    cbv [knows_dfact rule_has_dfact send_fact] in *.
+    rewrite Exists_app in HE |- *. simpl in HE |- *.
+    rewrite Exists_cons in HE |- *. intuition.
+  Qed.
+
+  Lemma rule_has_dfact_afw F rs f :
+    rule_has_dfact rs f -> rule_has_dfact (add_waiting_fact F rs) f.
+  Proof. cbv [rule_has_dfact add_waiting_fact]; simpl; intuition. Qed.
+
+  Lemma rule_has_dfact_afw_F F rs :
+    rule_has_dfact (add_waiting_fact F rs) F.
+  Proof. cbv [rule_has_dfact add_waiting_fact]; simpl; auto. Qed.
+
+  Lemma can_deduce_implies_not_input r kf nf_rel nf_args :
+    good_non_meta_rule r ->
+    can_deduce_normal_fact r kf nf_rel nf_args ->
+    is_input nf_rel = false.
+  Proof.
+    intros Hgood (hyps & Himpl & _).
+    destruct r as [cs hs | concl agg hyp]; simpl in Himpl, Hgood.
+    - invert Himpl.
+      match goal with
+      | H : Exists _ _ |- _ =>
+        apply Exists_exists in H; destruct H as (c & Hin_c & Hint)
+      end.
+      cbv [interp_clause] in Hint. destruct Hint as (nfargs & _ & Heq).
+      injection Heq as -> ->.
+      rewrite Forall_forall in Hgood. apply Hgood; exact Hin_c.
+    - invert Himpl. exact Hgood.
+  Qed.
+
   Lemma step_preserves_sane inputs s1 s2 :
     good_input_facts inputs ->
     sane_state inputs s1 ->
@@ -1889,7 +2004,7 @@ Section __.
     sane_state inputs s2.
   Proof.
     intros Hinp Hsane Hstep.
-    destruct Hsane as (Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
+    destruct Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
     invert Hstep.
     - (* learn_fact *)
       cbv [stepOne] in H. fwd.
@@ -1898,6 +2013,8 @@ Section __.
       assert (Hkd_bw : forall f, knows_dfact (l1 ++ y :: l2) f -> knows_dfact (l1 ++ x :: l2) f).
       { intros f. cbv [knows_dfact]. apply exists_swap. apply Hpres_rhd. }
       cbv [sane_state]. ssplit.
+      + (* length preserved *)
+        rewrite ! length_app in *. simpl in *. lia.
       + (* C1: meta_dfact (None) -> input *)
         intros R mf_args num Hk. apply Hkd_bw in Hk. eapply Hmf_inp. eassumption.
       + (* C2: meta_dfact (Some n) num matches sent_facts at n *)
