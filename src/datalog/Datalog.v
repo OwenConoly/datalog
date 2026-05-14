@@ -1,6 +1,7 @@
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
+From Stdlib Require Import Permutation.
 
 From Datalog Require Import Map Tactics Fp List Dag.
 
@@ -1638,7 +1639,8 @@ Section __.
     exists l1 x l2,
       s2.(known_facts) = x :: s1.(known_facts) /\
         s1.(waiting_facts) = l1 ++ x :: l2 /\
-        s2.(waiting_facts) = l1 ++ l2.
+        s2.(waiting_facts) = l1 ++ l2 /\
+        s2.(sent_facts) = s1.(sent_facts).
 
   Definition expect_num_R_facts R mf_args known_facts num :=
     if is_input R then
@@ -1707,13 +1709,13 @@ Section __.
                        rs' = send_fact (normal_dfact nf_rel nf_args) rs)
       (combine p.(non_meta_rules) (seq O (length s1))) s1 s2 ->
     comp_step s1 (map (add_waiting_fact (normal_dfact nf_rel nf_args)) s2)
-  | fire_meta_rule mf_concls mf_hyps new_fact s1 :
+  | fire_meta_rule mf_concls mf_hyps new_fact s1 s2 :
     In (mf_concls, mf_hyps) p.(meta_rules) ->
-    Exists
-      (fun '(r, rs, source) =>
-         can_deduce_meta_fact mf_concls mf_hyps r source rs.(sent_facts) rs.(known_facts) new_fact)
-      (combine (combine p.(non_meta_rules) s1) (seq O (length s1))) ->
-    comp_step s1 (map (add_waiting_fact new_fact) s1).
+    stepWithLabel (fun '(r, n) rs rs' =>
+                     can_deduce_meta_fact mf_concls mf_hyps r n rs.(sent_facts) rs.(known_facts) new_fact /\
+                       rs' = send_fact new_fact rs)
+      (combine p.(non_meta_rules) (seq O (length s1))) s1 s2 ->
+    comp_step s1 (map (add_waiting_fact new_fact) s2).
 
   Definition is_input_fact f :=
     match f with
@@ -1768,28 +1770,49 @@ Section __.
           knows_dfact s f ->
           Forall (fun rs => rule_has_dfact rs f) s) /\
       (forall R mf_args,
-        exists msgs_sents,
+        exists msgs_sents num_inp,
           Forall2 (fun rs msgs_sent =>
                      Existsn (dfact_matches R mf_args) msgs_sent rs.(sent_facts))
             s msgs_sents /\
-            forall n,
-            exists num_known num_wait num_inp,
-              nth_sat s n
-                (fun rs_n =>
-                   Existsn (dfact_matches R mf_args) num_known rs_n.(known_facts) /\
-                     Existsn (dfact_matches R mf_args) num_wait rs_n.(waiting_facts) /\
-                     Existsn (dfact_matches R mf_args) num_inp input_facts /\
-                     num_known + num_wait = num_inp + fold_left Nat.add msgs_sents O)) /\
+            Existsn (dfact_matches R mf_args) num_inp input_facts /\
+            Forall (fun rs_n =>
+                      exists num_known num_wait,
+                        Existsn (dfact_matches R mf_args) num_known rs_n.(known_facts) /\
+                          Existsn (dfact_matches R mf_args) num_wait rs_n.(waiting_facts) /\
+                          num_known + num_wait = num_inp + fold_left Nat.add msgs_sents O) s) /\
       (forall R,
           is_input R = true ->
           (forall mf_args, Forall (fun rs => Existsn (dfact_matches R mf_args) O rs.(sent_facts)) s) /\
             (forall mf_args n num, ~knows_dfact s (meta_dfact R mf_args (Some n) num))).
 
+  (* Helper: learn_fact_at_rule preserves rule_has_dfact (the moved fact w
+     migrates from waiting to known, but is still "had"). *)
+  Lemma learn_fact_at_rule_rule_has_dfact rs1 rs2 :
+    learn_fact_at_rule rs1 rs2 ->
+    forall f, rule_has_dfact rs1 f <-> rule_has_dfact rs2 f.
+  Proof.
+    cbv [learn_fact_at_rule rule_has_dfact]. intros H f. fwd.
+    rewrite Hp0, Hp1, Hp2. simpl. repeat rewrite in_app_iff. simpl.
+    intuition congruence.
+  Qed.
+
+  Lemma learn_fact_at_rule_sent rs1 rs2 :
+    learn_fact_at_rule rs1 rs2 ->
+    rs2.(sent_facts) = rs1.(sent_facts).
+  Proof. cbv [learn_fact_at_rule]. intros H. fwd. assumption. Qed.
+
   Lemma step_preserves_sane inputs s1 s2 :
     good_input_facts inputs ->
     sane_state inputs s1 ->
+    comp_step s1 s2 ->
     sane_state inputs s2.
   Proof.
+    intros Hinp Hsane Hstep.
+    destruct Hsane as (Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
+    invert Hstep.
+    - (* learn_fact *) admit.
+    - (* fire_normal_rule *) admit.
+    - (* fire_meta_rule *) admit.
   Admitted.
 
   Lemma comp_step_sound : False. Abort.
