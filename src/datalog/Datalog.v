@@ -1765,7 +1765,8 @@ Section __.
       (forall R mf_args n num,
           knows_dfact s (meta_dfact R mf_args (Some n) num) ->
           nth_sat s n (fun rs =>
-                         Existsn (dfact_matches R mf_args) num rs.(sent_facts))) /\
+                         Existsn (dfact_matches R mf_args) num rs.(sent_facts) /\
+                         In (meta_dfact R mf_args (Some n) num) rs.(sent_facts))) /\
       (forall f,
           knows_dfact s f ->
           Forall (fun rs => rule_has_dfact rs f) s) /\
@@ -1801,6 +1802,86 @@ Section __.
     rs2.(sent_facts) = rs1.(sent_facts).
   Proof. cbv [learn_fact_at_rule]. intros H. fwd. assumption. Qed.
 
+  (* Generic "swap one element in the middle of a list" lemmas, used to
+     transfer hypotheses/conclusions across the changed index in stepOne /
+     stepWithLabel. *)
+
+  Lemma exists_swap A (P : A -> Prop) l1 x y l2 :
+    (P x -> P y) ->
+    Exists P (l1 ++ x :: l2) -> Exists P (l1 ++ y :: l2).
+  Proof.
+    intros H Hex.
+    apply Exists_app in Hex. apply Exists_app. destruct Hex as [Hex|Hex]; auto.
+    right. apply Exists_cons in Hex. apply Exists_cons.
+    destruct Hex as [Hx|Hl2]; auto.
+  Qed.
+
+  Lemma forall_swap A (P : A -> Prop) l1 x y l2 :
+    (P x -> P y) ->
+    Forall P (l1 ++ x :: l2) -> Forall P (l1 ++ y :: l2).
+  Proof.
+    intros H Hf.
+    apply Forall_app in Hf. apply Forall_app. destruct Hf as [Hf1 Hf2]. split; auto.
+    apply Forall_cons_iff in Hf2. apply Forall_cons_iff.
+    destruct Hf2 as [Hx Hl2]. auto.
+  Qed.
+
+  Lemma nth_sat_swap A l1 (x y : A) l2 (P : A -> Prop) k :
+    (P x -> P y) ->
+    nth_sat (l1 ++ x :: l2) k P -> nth_sat (l1 ++ y :: l2) k P.
+  Proof.
+    intros H. cbv [nth_sat].
+    destruct (Nat.lt_ge_cases k (length l1)) as [Hk|Hk].
+    - rewrite ! nth_error_app1 by assumption. auto.
+    - rewrite ! nth_error_app2 by assumption.
+      destruct (k - length l1) eqn:E; simpl; auto.
+  Qed.
+
+  Lemma forall2_swap_l A B l1 (x y : A) l2 (ms : list B) (P : A -> B -> Prop) :
+    (forall m, P x m -> P y m) ->
+    Forall2 P (l1 ++ x :: l2) ms ->
+    Forall2 P (l1 ++ y :: l2) ms.
+  Proof.
+    intros H Hf.
+    apply Forall2_app_inv_l in Hf.
+    destruct Hf as (ms1 & ms2 & Hf1 & Hf2 & ?). subst.
+    inversion Hf2 as [|? msh ? mst Hh Ht]; subst.
+    apply Forall2_app; [assumption|]. constructor; auto.
+  Qed.
+
+  (* The multiset of "had" facts (known ++ waiting) is preserved across a
+     learn_fact_at_rule step. *)
+  Lemma learn_fact_at_rule_perm rs1 rs2 :
+    learn_fact_at_rule rs1 rs2 ->
+    Permutation (rs1.(known_facts) ++ rs1.(waiting_facts))
+                (rs2.(known_facts) ++ rs2.(waiting_facts)).
+  Proof.
+    cbv [learn_fact_at_rule]. intros H. fwd.
+    rewrite Hp0, Hp1, Hp2. simpl.
+    eapply perm_trans.
+    - apply Permutation_app_head. apply Permutation_sym. apply Permutation_middle.
+    - apply Permutation_sym. apply Permutation_middle.
+  Qed.
+
+  (* Therefore counting matching facts in known + waiting is preserved. *)
+  Lemma learn_fact_at_rule_existsn_split (P : dfact -> Prop) rs1 rs2 :
+    learn_fact_at_rule rs1 rs2 ->
+    forall num_k num_w,
+      Existsn P num_k rs1.(known_facts) ->
+      Existsn P num_w rs1.(waiting_facts) ->
+      exists num_k' num_w',
+        Existsn P num_k' rs2.(known_facts) /\
+        Existsn P num_w' rs2.(waiting_facts) /\
+        num_k' + num_w' = num_k + num_w.
+  Proof.
+    intros H num_k num_w Hk Hw.
+    pose proof (learn_fact_at_rule_perm _ _ H) as Hperm.
+    pose proof (Existsn_app _ _ _ _ _ Hk Hw) as Hcat.
+    eapply Existsn_perm in Hcat. 2: exact Hperm.
+    apply Existsn_split in Hcat. fwd.
+    exists n1, n2. ssplit; [exact Hcatp1 | exact Hcatp2 | lia].
+  Qed.
+
   Lemma step_preserves_sane inputs s1 s2 :
     good_input_facts inputs ->
     sane_state inputs s1 ->
@@ -1810,7 +1891,47 @@ Section __.
     intros Hinp Hsane Hstep.
     destruct Hsane as (Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
     invert Hstep.
-    - (* learn_fact *) admit.
+    - (* learn_fact *)
+      cbv [stepOne] in H. fwd.
+      pose proof (learn_fact_at_rule_rule_has_dfact _ _ Hp2) as Hpres_rhd.
+      pose proof (learn_fact_at_rule_sent _ _ Hp2) as Hpres_sent.
+      assert (Hkd_bw : forall f, knows_dfact (l1 ++ y :: l2) f -> knows_dfact (l1 ++ x :: l2) f).
+      { intros f. cbv [knows_dfact]. apply exists_swap. apply Hpres_rhd. }
+      cbv [sane_state]. ssplit.
+      + (* C1: meta_dfact (None) -> input *)
+        intros R mf_args num Hk. apply Hkd_bw in Hk. eapply Hmf_inp. eassumption.
+      + (* C2: meta_dfact (Some n) num matches sent_facts at n *)
+        intros R mf_args n num Hk. apply Hkd_bw in Hk.
+        specialize (Hmf_sent _ _ _ _ Hk).
+        eapply nth_sat_swap; [|exact Hmf_sent].
+        cbv beta. intros (HE & HI). rewrite Hpres_sent. split; assumption.
+      + (* C3: full broadcast *)
+        intros f Hk. pose proof Hk as Hk0. apply Hkd_bw in Hk0.
+        specialize (Heverywhere _ Hk0).
+        eapply forall_swap; [|exact Heverywhere].
+        cbv beta. apply Hpres_rhd.
+      + (* C4: count invariant *)
+        intros R mf_args.
+        specialize (Hcount R mf_args). fwd.
+        exists msgs_sents, num_inp. ssplit.
+        * (* Forall2 sent unchanged at the moved rule *)
+          eapply forall2_swap_l; [|exact Hcountp0].
+          intros msg He. rewrite Hpres_sent. assumption.
+        * assumption.
+        * (* per-rule known/waiting invariant: known + waiting sum unchanged *)
+          eapply forall_swap; [|exact Hcountp2].
+          cbv beta. intros (num_k & num_w & Hk_x & Hw_x & Hsum_x).
+          pose proof (learn_fact_at_rule_existsn_split _ _ _ Hp2 _ _ Hk_x Hw_x)
+            as (num_k' & num_w' & Hk_y & Hw_y & Hsum_y).
+          exists num_k', num_w'. ssplit; [exact Hk_y | exact Hw_y | lia].
+      + (* C5: input-relation constraints *)
+        intros R HR. specialize (Hinp_sane R HR). fwd.
+        split.
+        * intros mf_args. specialize (Hinp_sanep0 mf_args).
+          eapply forall_swap; [|exact Hinp_sanep0].
+          cbv beta. intros He. rewrite Hpres_sent. assumption.
+        * intros mf_args n num Hk. apply Hkd_bw in Hk.
+          exact (Hinp_sanep1 _ _ _ Hk).
     - (* fire_normal_rule *) admit.
     - (* fire_meta_rule *) admit.
   Admitted.
