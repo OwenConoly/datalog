@@ -2049,7 +2049,113 @@ Section __.
           cbv beta. intros He. rewrite Hpres_sent. assumption.
         * intros mf_args n num Hk. apply Hkd_bw in Hk.
           exact (Hinp_sanep1 _ _ _ Hk).
-    - (* fire_normal_rule *) admit.
+    - (* fire_normal_rule *)
+      cbv [stepWithLabel] in H. fwd. destruct n as [r k].
+      destruct Hp2 as (Hcan & Hnometa & Hyq). subst y.
+      assert (Hlc : length (combine (non_meta_rules p) (seq 0 (length s1))) = length s1).
+      { rewrite length_combine, length_seq. lia. }
+      assert (Hs1_eq : s1 = map snd l1 ++ x :: map snd l2).
+      { apply (f_equal (map snd)) in Hp0.
+        rewrite map_snd_combine in Hp0 by assumption.
+        rewrite map_app in Hp0. simpl in Hp0. exact Hp0. }
+      assert (Hlen_lt : length l1 < length s1).
+      { rewrite Hs1_eq, length_app, ! length_map. simpl. lia. }
+      assert (Hk_eq : k = length l1).
+      { assert (Hlen_seq : length (non_meta_rules p) = length (seq 0 (length s1))).
+        { rewrite length_seq. lia. }
+        pose proof Hp0 as Hp0a.
+        apply (f_equal (map fst)) in Hp0a.
+        rewrite map_app in Hp0a. simpl in Hp0a.
+        rewrite map_fst_combine in Hp0a by assumption.
+        apply (f_equal (map snd)) in Hp0a.
+        rewrite map_app in Hp0a. simpl in Hp0a.
+        rewrite map_snd_combine in Hp0a by assumption.
+        pose proof (f_equal (fun ll => nth_error ll (length l1)) Hp0a) as HnE.
+        cbv beta in HnE.
+        rewrite nth_error_app_middle in HnE.
+        rewrite ! length_map in HnE.
+        rewrite Nat.compare_refl in HnE.
+        rewrite nth_error_seq in HnE.
+        assert (E : length l1 <? length s1 = true) by (apply Nat.ltb_lt; lia).
+        rewrite E in HnE.
+        injection HnE as ->. lia. }
+      assert (Hin_r : In r p.(non_meta_rules)).
+      { assert (Hin_outer : In (r, k, x) (combine (combine (non_meta_rules p) (seq 0 (length s1))) s1)).
+        { rewrite Hp0. apply in_or_app. right. simpl. auto. }
+        apply in_combine_l in Hin_outer.
+        apply in_combine_l in Hin_outer. exact Hin_outer. }
+      assert (Hnf_noninput : is_input nf_rel = false).
+      { rewrite Forall_forall in Hp_input. apply Hp_input in Hin_r.
+        eapply can_deduce_implies_not_input; eassumption. }
+      rewrite Hs1_eq in Hmf_inp, Hmf_sent, Heverywhere, Hcount, Hinp_sane, Hlen.
+      cbv [sane_state]. ssplit.
+      + (* C0: length *)
+        rewrite length_map, length_app in *. cbn [length] in *.
+        rewrite ! length_map in *. lia.
+      + (* C1: knows_dfact None -> input *)
+        intros R mf_args num Hk.
+        apply knows_dfact_after_step in Hk.
+        destruct Hk as [Hk | Hk]; [discriminate|].
+        eapply Hmf_inp; eassumption.
+      + (* C2: knows_dfact (Some n') -> nth_sat with Existsn count and In meta *)
+        intros R mf_args n' num Hk.
+        apply knows_dfact_after_step in Hk.
+        destruct Hk as [Hk | Hk]; [discriminate|].
+        specialize (Hmf_sent _ _ _ _ Hk).
+        rewrite nth_sat_map. cbv beta.
+        rewrite nth_sat_app_middle. rewrite length_map.
+        rewrite nth_sat_app_middle in Hmf_sent. rewrite length_map in Hmf_sent.
+        destruct (Nat.compare_spec n' (length l1)) as [Hl' | Hl' | Hl'].
+        * subst n'.
+          destruct Hmf_sent as (HE & HI).
+          cbv [add_waiting_fact send_fact]; simpl.
+          assert (Hnmatch : ~ dfact_matches R mf_args (normal_dfact nf_rel nf_args)).
+          { intros (nf_args0 & Heqf & Hmatch).
+            injection Heqf as H_rel H_args. subst R nf_args0.
+            eapply Hnometa with (mf_args := mf_args) (num := num).
+            - rewrite Hk_eq. exact HI.
+            - exact Hmatch. }
+          split.
+          -- apply Existsn_no; assumption.
+          -- right. exact HI.
+        * cbv [add_waiting_fact]; simpl. exact Hmf_sent.
+        * cbv [add_waiting_fact]; simpl. exact Hmf_sent.
+      + (* C3: full broadcast *)
+        intros f Hk.
+        apply Forall_map.
+        pose proof Hk as Hk0.
+        apply knows_dfact_after_step in Hk0.
+        destruct Hk0 as [Hk0 | Hk0].
+        * subst f.
+          apply Forall_forall. intros y _. apply rule_has_dfact_afw_F.
+        * specialize (Heverywhere _ Hk0).
+          apply Forall_app in Heverywhere. destruct Heverywhere as (HF1 & HF2).
+          apply Forall_cons_iff in HF2. destruct HF2 as (Hxf & HF2).
+          apply Forall_app. split.
+          -- eapply Forall_impl; [|exact HF1]. intros. apply rule_has_dfact_afw; assumption.
+          -- constructor.
+             ++ apply rule_has_dfact_afw.
+                cbv [rule_has_dfact send_fact]; simpl. exact Hxf.
+             ++ eapply Forall_impl; [|exact HF2]. intros. apply rule_has_dfact_afw; assumption.
+      + (* C4: count invariant *) admit.
+      + (* C5: input-relation constraints *)
+        intros R HR.
+        specialize (Hinp_sane R HR). fwd.
+        split.
+        * intros mf_args. specialize (Hinp_sanep0 mf_args).
+          apply Forall_map.
+          eapply forall_swap with (x := x); cycle 1.
+          -- eapply Forall_impl; [|exact Hinp_sanep0]. intros y Hy.
+             cbv [add_waiting_fact]; simpl. exact Hy.
+          -- cbv [add_waiting_fact send_fact]; simpl. intros Hx_zero.
+             apply Existsn_no; [|exact Hx_zero].
+             intros (nf_args0 & Heqf & Hmatch).
+             inversion Heqf as [[H_rel H_args]]. subst.
+             congruence.
+        * intros mf_args n num Hk.
+          apply knows_dfact_after_step in Hk.
+          destruct Hk as [Hk | Hk]; [discriminate|].
+          apply (Hinp_sanep1 _ _ _ Hk).
     - (* fire_meta_rule *) admit.
   Admitted.
 
