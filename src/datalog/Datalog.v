@@ -2598,9 +2598,30 @@ Section __.
             split.
             { rewrite Hysent. exact HEx. }
             split; [exact Hconcl|]. split; [exact Hinterp|]. split.
-            { (* Forall (knows_datalog_fact (wf :: known x)) hyps -- need preservation under fact addition *)
+            { (* Forall (knows_datalog_fact (wf :: known x)) hyps.
+                 Doable, by case on each hyp h:
+                 - normal_fact: In is monotonic under cons.
+                 - meta_fact R' mf_args' mf_set': uniqueness of num in
+                   sane_state's strengthened C2 means adding wf either gives
+                   a duplicate (same num) or no match.  Existsn count over
+                   normal_dfacts of R' is unchanged (use
+                   expect_num_R_facts_no_waiting to rule out
+                   normal-dfact-matching wf). *)
               admit. }
-            { (* closure at new known *)
+            { (* closure at new known.
+                 Doable, by argument:
+                 1. r's normal-rule for the meta-fact's rel R has hyps with
+                    rels in mf_hyps' rels (= source rels) by meta_rules_valid.
+                 2. Source rels are saturated at known x (by
+                    knows_datalog_fact known x for each meta hyp in
+                    Hknown_hyps + expect_num_R_facts_no_waiting).
+                 3. wf in waiting at rule (length l1) + source-rel saturation
+                    means wf's rel is not a source rel.
+                 4. Hence wf doesn't help r derive new facts:
+                    can_deduce_normal_fact at (wf :: known x) =
+                    can_deduce_normal_fact at known x.
+                 5. Apply old closure to get In ... at known x; then In ...
+                    at (wf :: known x) by cons monotonicity. *)
               admit. } }
         * (* n < length l1 *)
           replace ((n ?= length l1)) with Lt in Hk_rs by (symmetry; apply Nat.compare_lt_iff; lia).
