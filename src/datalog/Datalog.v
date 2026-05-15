@@ -2348,6 +2348,16 @@ Section __.
           -- apply (Hinp_sanep1 _ _ _ Hk).
   Qed.
 
+  Lemma expect_num_R_facts_no_waiting inputs s rs R mf_args nf_args num :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    In rs s ->
+    expect_num_R_facts R mf_args rs.(known_facts) num ->
+    In (normal_dfact R nf_args) rs.(waiting_facts) ->
+    Forall2 matches mf_args nf_args ->
+    False.
+  Proof. Admitted.
+  
   Lemma comp_step_sound : False. Abort.
 
 
