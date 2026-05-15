@@ -2522,6 +2522,125 @@ Section __.
     comp_step s s' ->
     meta_facts_correct s'.
   Proof.
+    intros Hinp Hsane Hmfc Hstep.
+    pose proof Hsane as Hsane'.
+    destruct Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
+    invert Hstep.
+    - (* learn_fact *) admit.
+    - (* fire_normal_rule *)
+      cbv [stepWithLabel] in H. fwd. destruct n as [r_fire k_fire].
+      destruct Hp2 as (Hcan & Hnometa & Hyq). subst y.
+      assert (Hlc : length (combine (non_meta_rules p) (seq 0 (length s))) = length s).
+      { rewrite length_combine, length_seq. lia. }
+      assert (Hs_eq : s = map snd l1 ++ x :: map snd l2).
+      { apply (f_equal (map snd)) in Hp0.
+        rewrite map_app in Hp0. simpl in Hp0.
+        rewrite map_combine_snd in Hp0 by exact Hlc.
+        exact Hp0. }
+      assert (Hlen_lt : length l1 < length s).
+      { rewrite Hs_eq, length_app, ! length_map. simpl. lia. }
+      assert (Hk_eq : k_fire = length l1).
+      { assert (Hlen_seq : length (non_meta_rules p) = length (seq 0 (length s))).
+        { rewrite length_seq. lia. }
+        pose proof Hp0 as Hp0a.
+        apply (f_equal (map fst)) in Hp0a.
+        rewrite map_app in Hp0a. simpl in Hp0a.
+        rewrite map_combine_fst in Hp0a by exact Hlc.
+        apply (f_equal (map snd)) in Hp0a.
+        rewrite map_app in Hp0a. simpl in Hp0a.
+        rewrite map_combine_snd in Hp0a by exact Hlen_seq.
+        pose proof (f_equal (fun ll => nth_error ll (length l1)) Hp0a) as HnE.
+        cbv beta in HnE.
+        rewrite nth_error_app_middle in HnE.
+        rewrite ! length_map in HnE.
+        rewrite Nat.compare_refl in HnE.
+        rewrite nth_error_seq in HnE.
+        assert (E : length l1 <? length s = true) by (apply Nat.ltb_lt; lia).
+        rewrite E in HnE.
+        injection HnE as ->. lia. }
+      cbv [meta_facts_correct] in Hmfc |- *.
+      apply Forall3_nth_error_bwd.
+      + rewrite Hs_eq, length_app, ! length_map in Hlen. simpl in Hlen.
+        rewrite ! length_map in Hlen.
+        rewrite length_map, length_app, length_map. simpl. rewrite length_map. lia.
+      + rewrite length_map, length_seq, length_app, ! length_map. reflexivity.
+      + intros n r rs k_seq Hk_r Hk_rs Hk_k.
+        rewrite nth_error_seq in Hk_k.
+        destruct (n <? _) eqn:Hltb in Hk_k; [|discriminate].
+        injection Hk_k as <-. apply Nat.ltb_lt in Hltb.
+        rewrite nth_error_map in Hk_rs.
+        destruct (nth_error (map snd l1 ++ send_fact (normal_dfact nf_rel nf_args) x :: map snd l2) n)
+          as [rs_inner|] eqn:Hk_rsi; [|discriminate].
+        simpl in Hk_rs. injection Hk_rs as <-.
+        (* Get old meta_facts_correct_at_rule from Hmfc *)
+        assert (Hold_get : forall n0 r0 rs0,
+                   nth_error (non_meta_rules p) n0 = Some r0 ->
+                   nth_error s n0 = Some rs0 ->
+                   meta_facts_correct_at_rule (meta_rules p) n0 rs0 r0).
+        { intros n0 r0 rs0 Hr0 Hrs0.
+          eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc); try eassumption.
+          rewrite nth_error_seq.
+          assert (Hltb' : n0 <? length s = true).
+          { apply Nat.ltb_lt. apply nth_error_Some_bound_index in Hrs0. assumption. }
+          rewrite Hltb'. reflexivity. }
+        rewrite nth_error_app_middle, length_map in Hk_rsi.
+        destruct (Nat.compare_spec n (length l1)) as [Heq | Hlt | Hgt].
+        * (* n = length l1: firing rule *)
+          subst n.
+          replace ((length l1 ?= length l1)) with Eq in Hk_rsi by (symmetry; apply Nat.compare_refl).
+          injection Hk_rsi as <-.
+          assert (Hxs : nth_error s (length l1) = Some x).
+          { rewrite Hs_eq, nth_error_app2 by (rewrite length_map; lia).
+            rewrite length_map, Nat.sub_diag. reflexivity. }
+          specialize (Hold_get _ _ _ Hk_r Hxs).
+          cbv [meta_facts_correct_at_rule] in Hold_get |- *.
+          intros R mf_args num HIn. simpl in HIn.
+          specialize (Hold_get _ _ _ HIn).
+          fwd. exists mf_concls, mf_hyps. split; [assumption|].
+          cbv [can_deduce_meta_fact] in Hold_getp1 |- *.
+          destruct Hold_getp1 as (ctx & hyps & mf_rel' & mf_args' & mf_cnt' & Hres & HEx & Hconcl & Hinterp & Hknown_hyps & Hclo).
+          injection Hres as Heq1 Heq2 Heq3.
+          subst mf_rel' mf_args' mf_cnt'.
+          exists ctx, hyps, R, mf_args, num. split; [reflexivity|].
+          split.
+          { (* Existsn count over (F :: x.sent) — need to show F doesn't match *)
+            simpl.
+            assert (Hnomatch : ~ dfact_matches R mf_args (normal_dfact nf_rel nf_args)).
+            { intros [nf_args2 [Heq Hmatch]]. injection Heq as -> ->.
+              eapply Hnometa; [|eassumption].
+              assert (Hknows : knows_dfact s (meta_dfact R mf_args (Some (length l1)) num)).
+              { cbv [knows_dfact]. apply Exists_exists.
+                exists x. split.
+                - rewrite Hs_eq. apply in_app_iff. simpl. eauto.
+                - cbv [rule_has_dfact]. eauto. }
+              specialize (Hmf_sent _ _ _ _ Hknows).
+              cbv [nth_sat] in Hmf_sent.
+              rewrite Hxs in Hmf_sent. simpl in Hmf_sent. destruct Hmf_sent as [_ HinSent].
+              rewrite Hk_eq. exact HinSent. }
+            apply Existsn_no; assumption. }
+          split; [assumption|]. split; [assumption|]. split; [assumption|].
+          assumption.
+        * (* n < length l1: unchanged rule *)
+          replace ((n ?= length l1)) with Lt in Hk_rsi by (symmetry; apply Nat.compare_lt_iff; lia).
+          rewrite nth_error_map in Hk_rsi.
+          destruct (nth_error l1 n) as [pair_n|] eqn:Hl1n; [|discriminate].
+          simpl in Hk_rsi. injection Hk_rsi as Hri.
+          assert (Hsn : nth_error s n = Some rs_inner).
+          { rewrite Hs_eq, nth_error_app1 by (rewrite length_map; lia).
+            rewrite nth_error_map, Hl1n. simpl. f_equal. assumption. }
+          specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
+        * (* n > length l1: unchanged rule *)
+          replace ((n ?= length l1)) with Gt in Hk_rsi by (symmetry; apply Nat.compare_gt_iff; lia).
+          rewrite nth_error_map in Hk_rsi.
+          destruct (nth_error l2 (n - length l1 - 1)) as [pair_n|] eqn:Hl2n; [|discriminate].
+          simpl in Hk_rsi. injection Hk_rsi as Hri.
+          assert (Hsn : nth_error s n = Some rs_inner).
+          { rewrite Hs_eq, nth_error_app2 by (rewrite length_map; lia).
+            rewrite length_map.
+            assert (Hoff : n - length l1 = S (n - length l1 - 1)) by lia.
+            rewrite Hoff. simpl. rewrite nth_error_map, Hl2n. simpl. f_equal. assumption. }
+          specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
+    - (* fire_meta_rule *) admit.
   Admitted.
 
   Lemma comp_step_sound : False. Abort.
