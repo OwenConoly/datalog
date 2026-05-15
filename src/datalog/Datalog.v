@@ -2526,7 +2526,46 @@ Section __.
     pose proof Hsane as Hsane'.
     destruct Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
     invert Hstep.
-    - (* learn_fact *) admit.
+    - (* learn_fact *)
+      cbv [stepOne learn_fact_at_rule] in H.
+      destruct H as (l1 & x & y & l2 & Hseq & Hs'eq & Hlfr).
+      destruct Hlfr as (lw1 & wf & lw2 & Hyknown & Hxwait & Hywait & Hysent).
+      assert (Hlen_lt : length l1 < length s).
+      { rewrite Hseq, length_app. simpl. lia. }
+      cbv [meta_facts_correct] in Hmfc |- *.
+      apply Forall3_nth_error_bwd.
+      + rewrite Hs'eq, ! length_app. simpl. rewrite Hseq, length_app in Hlen. simpl in Hlen. lia.
+      + rewrite Hs'eq, length_seq, length_app. reflexivity.
+      + intros n r rs k_seq Hk_r Hk_rs Hk_k.
+        rewrite nth_error_seq in Hk_k.
+        rewrite Hs'eq in Hk_k. rewrite length_app in Hk_k. simpl in Hk_k.
+        destruct (n <? _) eqn:Hltb in Hk_k; [|discriminate].
+        injection Hk_k as <-. apply Nat.ltb_lt in Hltb.
+        assert (Hold_get : forall n0 r0 rs0,
+                   nth_error (non_meta_rules p) n0 = Some r0 ->
+                   nth_error s n0 = Some rs0 ->
+                   meta_facts_correct_at_rule (meta_rules p) n0 rs0 r0).
+        { intros n0 r0 rs0 Hr0 Hrs0.
+          eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc); try eassumption.
+          rewrite nth_error_seq.
+          assert (Hltb' : n0 <? length s = true).
+          { apply Nat.ltb_lt. apply nth_error_Some_bound_index in Hrs0. assumption. }
+          rewrite Hltb'. reflexivity. }
+        rewrite Hs'eq, nth_error_app_middle in Hk_rs.
+        destruct (Nat.compare_spec n (length l1)) as [Heq | Hlt | Hgt].
+        * (* n = length l1 *) admit.
+        * (* n < length l1 *)
+          replace ((n ?= length l1)) with Lt in Hk_rs by (symmetry; apply Nat.compare_lt_iff; lia).
+          assert (Hsn : nth_error s n = Some rs).
+          { rewrite Hseq, nth_error_app1 by lia. assumption. }
+          specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
+        * (* n > length l1 *)
+          replace ((n ?= length l1)) with Gt in Hk_rs by (symmetry; apply Nat.compare_gt_iff; lia).
+          assert (Hsn : nth_error s n = Some rs).
+          { rewrite Hseq, nth_error_app2 by lia.
+            assert (Hoff : n - length l1 = S (n - length l1 - 1)) by lia.
+            rewrite Hoff. simpl. assumption. }
+          specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
     - (* fire_normal_rule *)
       cbv [stepWithLabel] in H. fwd. destruct n as [r_fire k_fire].
       destruct Hp2 as (Hcan & Hnometa & Hyq). subst y.
