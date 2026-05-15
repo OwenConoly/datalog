@@ -2348,15 +2348,130 @@ Section __.
           -- apply (Hinp_sanep1 _ _ _ Hk).
   Qed.
 
+  Lemma fold_left_add_zero (l : list nat) :
+    Forall (eq 0) l ->
+    fold_left Nat.add l 0 = 0.
+  Proof.
+    induction 1; simpl; auto. subst. simpl. assumption.
+  Qed.
+
+  Lemma Forall2_nth_error_fwd {A B} (R : A -> B -> Prop) xs ys :
+    Forall2 R xs ys ->
+    forall n x y,
+      nth_error xs n = Some x ->
+      nth_error ys n = Some y ->
+      R x y.
+  Proof.
+    induction 1; intros [|n] x' y' Hx Hy; simpl in *; try discriminate.
+    - injection Hx as ->. injection Hy as ->. assumption.
+    - eapply IHForall2; eassumption.
+  Qed.
+
+  (* For the count argument to close (analog of SimpleDataflow's
+     expect_num_R_facts_no_travellers using msgs_received = num), we need
+     the local count of matching normal facts in known.  SimpleDataflow gets
+     this for free because there is no waiting in that model.  Here we
+     require it explicitly --- it matches the second conjunct of
+     [knows_datalog_fact dfacts (meta_fact R mf_args _)]. *)
   Lemma expect_num_R_facts_no_waiting inputs s rs R mf_args nf_args num :
     good_input_facts inputs ->
     sane_state inputs s ->
     In rs s ->
     expect_num_R_facts R mf_args rs.(known_facts) num ->
+    Existsn (dfact_matches R mf_args) num rs.(known_facts) ->
     In (normal_dfact R nf_args) rs.(waiting_facts) ->
     Forall2 matches mf_args nf_args ->
     False.
-  Proof. Admitted.
+  Proof.
+    intros Hinp Hsane Hin Hexp Hex_kn Hwait Hmatch.
+    destruct Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
+    specialize (Hcount R mf_args). fwd.
+    rewrite Forall_forall in Hcountp2.
+    specialize (Hcountp2 _ Hin).
+    destruct Hcountp2 as (num_known & num_wait & Hex_known & Hex_wait & Hsum).
+    pose proof (Existsn_unique _ _ _ _ Hex_kn Hex_known) as Hnk_eq.
+    subst num_known.
+    cbv [expect_num_R_facts] in Hexp.
+    destruct (is_input R) eqn:ER.
+    - (* input: meta_dfact in rs.known --> in inputs.  num_inp <= num.
+         All rules have sent_facts count = 0 for input R.  Per-rule sum
+         then forces num_wait <= 0; In matching contradicts. *)
+      assert (Hk : knows_dfact s (meta_dfact R mf_args None num)).
+      { cbv [knows_dfact]. apply Exists_exists. exists rs. split; auto.
+        cbv [rule_has_dfact]. left. exact Hexp. }
+      specialize (Hmf_inp _ _ _ Hk).
+      destruct Hinp as (_ & Hinp_cnt).
+      specialize (Hinp_cnt _ _ _ Hmf_inp).
+      destruct Hinp_cnt as (_ & num' & Hle & Hexists_inp).
+      pose proof (Existsn_unique _ _ _ _ Hexists_inp Hcountp1) as Hni_eq.
+      subst num'.
+      specialize (Hinp_sane R ER). destruct Hinp_sane as (Hinp_sane_zero & _).
+      specialize (Hinp_sane_zero mf_args).
+      assert (Hms_zero : Forall (eq 0) msgs_sents).
+      { clear -Hcountp0 Hinp_sane_zero.
+        induction Hcountp0; constructor.
+        - apply Forall_cons_iff in Hinp_sane_zero. destruct Hinp_sane_zero as (Hzero & _).
+          symmetry. eapply Existsn_unique; eassumption.
+        - apply IHHcountp0.
+          apply Forall_cons_iff in Hinp_sane_zero. apply (proj2 Hinp_sane_zero). }
+      rewrite (fold_left_add_zero _ Hms_zero) in Hsum.
+      assert (num_wait = 0) by lia.
+      subst num_wait.
+      apply Existsn_0_Forall_not in Hex_wait.
+      rewrite Forall_forall in Hex_wait.
+      apply (Hex_wait _ Hwait).
+      exists nf_args. split; auto.
+    - (* non-input: each per-rule meta_dfact in rs.known is consistent with
+         that rule's sent_facts count, so msgs_sents = expected_msgss
+         pointwise; sum equals num.  num_inp = 0 (non-input means no
+         matching normals in inputs).  Per-rule sum forces num_wait = 0. *)
+      fwd.
+      assert (Hni_zero : num_inp = 0).
+      { destruct Hinp as (Hrel & _).
+        assert (Hno : Existsn (dfact_matches R mf_args) 0 inputs).
+        { apply Forall_not_Existsn_0.
+          apply Forall_forall. intros f Hin_f Hdf.
+          destruct Hdf as (nf_args0 & Heq & _). subst f.
+          rewrite Forall_forall in Hrel. specialize (Hrel _ Hin_f).
+          simpl in Hrel. congruence. }
+        symmetry. eapply Existsn_unique; eassumption. }
+      subst num_inp.
+      assert (Hms_eq : msgs_sents = expected_msgss).
+      { apply nth_error_ext. intros k.
+        pose proof (Forall2_length Hcountp0) as Hlen_ms.
+        pose proof (Forall2_length Hexpp0) as Hlen_es.
+        rewrite length_seq in Hlen_es.
+        destruct (Nat.lt_ge_cases k (length msgs_sents)) as [Hkk | Hkk].
+        + destruct (nth_error msgs_sents k) as [ms|] eqn:Hms; [|apply nth_error_None in Hms; lia].
+          destruct (nth_error expected_msgss k) as [es|] eqn:Hes; [|apply nth_error_None in Hes; lia].
+          f_equal.
+          destruct (nth_error s k) as [rs_k|] eqn:Hrs_k; [|apply nth_error_None in Hrs_k; lia].
+          pose proof (Forall2_nth_error_fwd _ _ _ Hcountp0 _ _ _ Hrs_k Hms) as HE_ms.
+          cbv beta in HE_ms.
+          assert (Hseq_k : nth_error (seq 0 (length (non_meta_rules p))) k = Some k).
+          { rewrite nth_error_seq.
+            assert (Hltb : (k <? length (non_meta_rules p)) = true) by (apply Nat.ltb_lt; lia).
+            rewrite Hltb. reflexivity. }
+          pose proof (Forall2_nth_error_fwd _ _ _ Hexpp0 _ _ _ Hseq_k Hes) as HE_es_in.
+          cbv beta in HE_es_in.
+          assert (Hknows : knows_dfact s (meta_dfact R mf_args (Some k) es)).
+          { cbv [knows_dfact]. apply Exists_exists. exists rs. split; auto.
+            cbv [rule_has_dfact]. left. exact HE_es_in. }
+          specialize (Hmf_sent _ _ _ _ Hknows).
+          cbv [nth_sat] in Hmf_sent. rewrite Hrs_k in Hmf_sent.
+          destruct Hmf_sent as (HE_es & _).
+          eapply Existsn_unique; eassumption.
+        + rewrite (proj2 (nth_error_None _ _)) by lia.
+          rewrite (proj2 (nth_error_None _ _)) by lia.
+          reflexivity. }
+      subst expected_msgss.
+      assert (num_wait = 0) by lia.
+      subst num_wait.
+      apply Existsn_0_Forall_not in Hex_wait.
+      rewrite Forall_forall in Hex_wait.
+      apply (Hex_wait _ Hwait).
+      exists nf_args. split; auto.
+  Qed.
   
   Lemma comp_step_sound : False. Abort.
 
