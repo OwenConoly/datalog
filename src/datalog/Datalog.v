@@ -2525,10 +2525,11 @@ Section __.
     In x s ->
     In wf x.(waiting_facts) ->
     In (mf_concls, mf_hyps) p.(meta_rules) ->
+    In r p.(non_meta_rules) ->
     can_deduce_meta_fact mf_concls mf_hyps r n x.(sent_facts) x.(known_facts) result ->
     can_deduce_meta_fact mf_concls mf_hyps r n x.(sent_facts) (wf :: x.(known_facts)) result.
   Proof.
-    intros Hinp Hsane Hxs_in Hwf_in_wait Hmr_in Hcdm.
+    intros Hinp Hsane Hxs_in Hwf_in_wait Hmr_in Hr_in Hcdm.
     cbv [can_deduce_meta_fact] in Hcdm |- *.
     destruct Hcdm as (ctx & hyps & mf_rel' & mf_args' & mf_cnt' & Hres & HEx & Hconcl & Hinterp & Hknown_hyps & Hclo).
     exists ctx, hyps, mf_rel', mf_args', mf_cnt'. split; [exact Hres|].
@@ -2560,18 +2561,67 @@ Section __.
              ++ exfalso. eapply expect_num_R_facts_no_waiting; try eassumption.
                 rewrite Hwf_eq in Hwf_in_wait. exact Hwf_in_wait.
              ++ apply Hsetcorr_h. exact Hin_old. }
-    { (* closure at (wf :: x.known).
-         Argument: can_deduce_normal_fact at (wf :: x.known) = at x.known.
-         By meta_rules_valid, r's hyp rels are in mf_hyps' rels (source
-         rels).  By Hknown_hyps + expect_num_R_facts_no_waiting, source
-         rels are saturated at x.known; so wf cannot be a source-rel
-         normal_dfact matching r's hyp patterns.  For meta hyps of r,
-         the (R, mf_args) values are shared with OUTER mf_hyps (by
-         fact_potentially_supported), so the same saturation +
-         uniqueness arguments apply.  Hence can_deduce at NEW collapses
-         to can_deduce at OLD; apply Hclo + in_cons. *)
-      admit. }
-  Admitted.
+    { (* closure at (wf :: x.known) *)
+      intros nf_args0 Hded Hmatch.
+      destruct Hded as (hyps_d & Himpl & Hkn_d_new).
+      (* Build rule_impl for the meta-rule with a constructed set *)
+      pose (S_constr := fun args'' => one_step_derives rules_of hyps mf_rel' args'').
+      assert (Hri_meta : rule_impl (one_step_derives rules_of) (meta_rule mf_concls mf_hyps)
+                          (meta_fact mf_rel' mf_args' S_constr) hyps).
+      { eapply meta_rule_impl with (ctx := ctx).
+        - eapply Exists_impl; [|exact Hconcl]. intros c (mf_args0 & mf_set0 & Hf2 & Heq).
+          injection Heq as Hrel Hargs _. subst.
+          exists mf_args0, S_constr. split; [exact Hf2|]. reflexivity.
+        - exact Hinterp.
+        - intros args'' _. subst S_constr. simpl. reflexivity. }
+      (* Build rule_impl for r *)
+      assert (Hri_normal : rule_impl (one_step_derives rules_of) (rule_of r)
+                            (normal_fact mf_rel' nf_args0) hyps_d).
+      { apply simple_rule_impl. exact Himpl. }
+      (* Apply meta_rules_valid *)
+      assert (HFPS : Forall (fact_potentially_supported hyps) hyps_d).
+      { eapply Hmeta_rules with (mr := meta_rule mf_concls mf_hyps)
+                                 (nr := rule_of r); try eassumption.
+        - cbv [rules_of]. apply in_app_iff. left.
+          apply in_map_iff. exists (mf_concls, mf_hyps). split; [reflexivity|]. exact Hmr_in.
+        - cbv [rules_of]. apply in_app_iff. right.
+          apply in_map_iff. exists r. split; [reflexivity|]. exact Hr_in. }
+      (* Now transfer Hkn_d_new (at NEW) to Hkn_d_old (at OLD) *)
+      assert (Hkn_d_old : Forall (knows_datalog_fact x.(known_facts)) hyps_d).
+      { rewrite Forall_forall in Hkn_d_new, HFPS, Hknown_hyps |- *.
+        intros h Hh_in. specialize (Hkn_d_new _ Hh_in). specialize (HFPS _ Hh_in).
+        destruct h as [R_h nf_args_h | R_h mf_args_h mf_set_h].
+        - (* normal_fact h: use saturation to rule out h = wf *)
+          cbv [fact_potentially_supported] in HFPS.
+          destruct HFPS as (mf_args_h' & mf_set_h' & Hin_mhyp & Hmatch_h).
+          specialize (Hknown_hyps _ Hin_mhyp).
+          simpl in Hkn_d_new, Hknown_hyps |- *.
+          destruct Hkn_d_new as [Hwf_is | Hkn_old]; [|exact Hkn_old].
+          exfalso. destruct Hknown_hyps as (num_h & Hexp_h & Hex_h & _).
+          eapply expect_num_R_facts_no_waiting; try eassumption.
+          rewrite <- Hwf_is. exact Hwf_in_wait.
+        - (* meta_fact h: use mhyps's knows_datalog_fact via Hknown_hyps *)
+          cbv [fact_potentially_supported] in HFPS.
+          destruct HFPS as (mf_set_h' & Hin_mhyp).
+          specialize (Hknown_hyps _ Hin_mhyp).
+          simpl in Hkn_d_new, Hknown_hyps |- *.
+          destruct Hkn_d_new as (num & Hexp_new & Hex_new & Hsetcorr_new).
+          destruct Hknown_hyps as (num_old & Hexp_old & Hex_old & _).
+          exists num_old. split; [exact Hexp_old|]. split; [exact Hex_old|].
+          intros nf_args1 Hmatch1.
+          specialize (Hsetcorr_new _ Hmatch1).
+          split.
+          + intros Hs. apply Hsetcorr_new in Hs. simpl in Hs.
+            destruct Hs as [Hwf_eq | Hold_in]; [|exact Hold_in].
+            exfalso. eapply expect_num_R_facts_no_waiting; try eassumption.
+            rewrite Hwf_eq in Hwf_in_wait. exact Hwf_in_wait.
+          + intros Hin. apply Hsetcorr_new. apply in_cons. exact Hin. }
+      (* Apply Hclo to get In ... at OLD *)
+      assert (Hded_old : can_deduce_normal_fact r x.(known_facts) mf_rel' nf_args0).
+      { cbv [can_deduce_normal_fact]. exists hyps_d. split; assumption. }
+      specialize (Hclo _ Hded_old Hmatch).
+      apply in_cons. exact Hclo. }
+  Qed.
 
   Lemma step_preserves_mfs_correct inputs s s' :
     good_input_facts inputs ->
@@ -2629,6 +2679,7 @@ Section __.
           eapply can_deduce_meta_fact_learn_fact; try eassumption.
           { eapply nth_error_In; eassumption. }
           { rewrite Hxwait. apply in_app_iff. right. left. reflexivity. }
+          { eapply nth_error_In; eassumption. }
         * (* n < length l1 *)
           replace ((n ?= length l1)) with Lt in Hk_rs by (symmetry; apply Nat.compare_lt_iff; lia).
           assert (Hsn : nth_error s n = Some rs).
@@ -2880,7 +2931,7 @@ Section __.
             assert (Hoff : n - length l1 = S (n - length l1 - 1)) by lia.
             rewrite Hoff. simpl. rewrite nth_error_map, Hl2n. simpl. f_equal. assumption. }
           specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
-  Admitted.
+  Qed.
 
   Lemma comp_step_sound : False. Abort.
 
