@@ -1688,7 +1688,7 @@ Section __.
 
   Definition meta_facts_correct_at_rule mrs n rs r :=
     forall R mf_args num,
-      In (meta_dfact R mf_args (Some n) num) rs.(known_facts) ->
+      In (meta_dfact R mf_args (Some n) num) rs.(sent_facts) ->
       exists mf_concls mf_hyps,
         In (mf_concls, mf_hyps) mrs /\
           can_deduce_meta_fact mf_concls mf_hyps r n rs.(sent_facts) rs.(known_facts) (meta_dfact R mf_args (Some n) num).
