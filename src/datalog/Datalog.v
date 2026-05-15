@@ -1686,6 +1686,18 @@ Section __.
             Forall2 matches mf_args nf_args ->
             In (normal_dfact mf_rel nf_args) known_facts).
 
+  Definition meta_facts_correct_at_rule mrs n rs r :=
+    forall R mf_args num,
+      In (meta_dfact R mf_args (Some n) num) rs.(known_facts) ->
+      exists mf_concls mf_hyps,
+        In (mf_concls, mf_hyps) mrs /\
+          can_deduce_meta_fact mf_concls mf_hyps r n rs.(sent_facts) rs.(known_facts) (meta_dfact R mf_args (Some n) num).
+
+  Definition meta_facts_correct (s : state) :=
+    Forall3 (fun r rs n =>
+               meta_facts_correct_at_rule p.(meta_rules) n rs r)
+            p.(non_meta_rules) s (seq 0 (length s)).
+
   Definition add_waiting_fact f (rs : rule_state) :=
     {| known_facts := rs.(known_facts);
       waiting_facts := f :: rs.(waiting_facts);
