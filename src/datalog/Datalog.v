@@ -2553,7 +2553,55 @@ Section __.
           rewrite Hltb'. reflexivity. }
         rewrite Hs'eq, nth_error_app_middle in Hk_rs.
         destruct (Nat.compare_spec n (length l1)) as [Heq | Hlt | Hgt].
-        * (* n = length l1 *) admit.
+        * (* n = length l1: rule where learn_fact happened *)
+          subst n.
+          replace ((length l1 ?= length l1)) with Eq in Hk_rs by (symmetry; apply Nat.compare_refl).
+          injection Hk_rs as <-.
+          assert (Hxs : nth_error s (length l1) = Some x).
+          { rewrite Hseq, nth_error_app2 by lia.
+            rewrite Nat.sub_diag. reflexivity. }
+          specialize (Hold_get _ _ _ Hk_r Hxs).
+          cbv [meta_facts_correct_at_rule] in Hold_get |- *.
+          intros R mf_args num HIn.
+          (* HIn is in known_facts y = wf :: known_facts x *)
+          rewrite Hyknown in HIn. simpl in HIn. destruct HIn as [Hwf_is | HIn_old].
+          { (* Case B: HIn is wf itself.  wf = meta_dfact R mf_args (Some (length l1)) num.
+               INTERESTING DIFFERENCE from SimpleDataflow: in SimpleDataflow,
+               fire_meta_rule directly puts the new meta-fact into the source's
+               known_facts (no broadcast latency at source), so there is no
+               "newly learned (Some n) meta-fact at rule n" case.  Here,
+               fire_meta_rule broadcasts via send_fact; the source picks it up
+               later via learn_fact.  This case is precisely that window.
+               To produce the (mf_concls, mf_hyps) witness for wf, we would
+               need the witness that was used at the original fire_meta_rule
+               step, which is no longer available in the current state.
+               Hmfc only tracks witnesses for meta-facts in known_facts; wf
+               was in waiting_facts (not known_facts) at the previous step,
+               so Hmfc cannot help.  Two ways to fix:
+                 (a) Change meta_facts_correct_at_rule to check sent_facts
+                     instead of known_facts.  Then fire_meta_rule's witness
+                     gets registered immediately at the source's sent, and
+                     learn_fact (which doesn't touch sent) introduces no new
+                     obligations.
+                 (b) Add a sane_state-level invariant: for every (Some n)
+                     meta-fact in rule n's sent_facts, a witness exists.
+                     Then learn_fact's Case B is discharged by extracting it. *)
+            admit. }
+          { (* Case A: HIn is in old known_facts x. Use Hold_get. *)
+            specialize (Hold_get _ _ _ HIn_old).
+            fwd. exists mf_concls, mf_hyps. split; [assumption|].
+            cbv [can_deduce_meta_fact] in Hold_getp1 |- *.
+            destruct Hold_getp1 as (ctx & hyps & mf_rel' & mf_args' & mf_cnt' & Hres & HEx & Hconcl & Hinterp & Hknown_hyps & Hclo).
+            injection Hres as Heq1 Heq2 Heq3.
+            subst mf_rel' mf_args' mf_cnt'.
+            exists ctx, hyps, R, mf_args, num. split; [reflexivity|].
+            split.
+            { rewrite Hysent. exact HEx. }
+            split; [exact Hconcl|]. split; [exact Hinterp|]. split.
+            { (* Forall (knows_datalog_fact (wf :: known x)) hyps -- need preservation under fact addition *)
+              admit. }
+            { (* closure at new known *)
+              admit. } }
         * (* n < length l1 *)
           replace ((n ?= length l1)) with Lt in Hk_rs by (symmetry; apply Nat.compare_lt_iff; lia).
           assert (Hsn : nth_error s n = Some rs).
