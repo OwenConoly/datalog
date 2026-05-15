@@ -1774,10 +1774,6 @@ Section __.
     (forall R mf_args num,
         knows_dfact s (meta_dfact R mf_args None num) ->
         In (meta_dfact R mf_args None num) input_facts) /\
-      (*I think this condition is both unnecessary and untrue*)
-      (* (forall R mf_args n num, *)
-      (*     knows_dfact s (meta_dfact R mf_args (Some n) num) -> *)
-      (*     nth_sat s n (fun rs => In (meta_dfact R mf_args (Some n) num) rs.(known_facts))) *)
       (forall R mf_args n num,
           knows_dfact s (meta_dfact R mf_args (Some n) num) ->
           nth_sat s n (fun rs =>
@@ -1802,8 +1798,6 @@ Section __.
           (forall mf_args, Forall (fun rs => Existsn (dfact_matches R mf_args) O rs.(sent_facts)) s) /\
             (forall mf_args n num, ~knows_dfact s (meta_dfact R mf_args (Some n) num))).
 
-  (* Helper: learn_fact_at_rule preserves rule_has_dfact (the moved fact w
-     migrates from waiting to known, but is still "had"). *)
   Lemma learn_fact_at_rule_rule_has_dfact rs1 rs2 :
     learn_fact_at_rule rs1 rs2 ->
     forall f, rule_has_dfact rs1 f <-> rule_has_dfact rs2 f.
@@ -1817,10 +1811,6 @@ Section __.
     learn_fact_at_rule rs1 rs2 ->
     rs2.(sent_facts) = rs1.(sent_facts).
   Proof. cbv [learn_fact_at_rule]. intros H. fwd. assumption. Qed.
-
-  (* Generic "swap one element in the middle of a list" lemmas, used to
-     transfer hypotheses/conclusions across the changed index in stepOne /
-     stepWithLabel. *)
 
   Lemma exists_swap A (P : A -> Prop) l1 x y l2 :
     (P x -> P y) ->
@@ -1859,14 +1849,10 @@ Section __.
     Forall2 P (l1 ++ y :: l2) ms.
   Proof.
     intros H Hf.
-    apply Forall2_app_inv_l in Hf.
-    destruct Hf as (ms1 & ms2 & Hf1 & Hf2 & ?). subst.
-    inversion Hf2 as [|? msh ? mst Hh Ht]; subst.
+    apply Forall2_app_inv_l in Hf. fwd. invert_list_stuff.
     apply Forall2_app; [assumption|]. constructor; auto.
   Qed.
 
-  (* The multiset of "had" facts (known ++ waiting) is preserved across a
-     learn_fact_at_rule step. *)
   Lemma learn_fact_at_rule_perm rs1 rs2 :
     learn_fact_at_rule rs1 rs2 ->
     Permutation (rs1.(known_facts) ++ rs1.(waiting_facts))
@@ -1879,7 +1865,6 @@ Section __.
     - apply Permutation_sym. apply Permutation_middle.
   Qed.
 
-  (* Therefore counting matching facts in known + waiting is preserved. *)
   Lemma learn_fact_at_rule_existsn_split (P : dfact -> Prop) rs1 rs2 :
     learn_fact_at_rule rs1 rs2 ->
     forall num_k num_w,
@@ -1894,28 +1879,7 @@ Section __.
     pose proof (learn_fact_at_rule_perm _ _ H) as Hperm.
     pose proof (Existsn_app _ _ _ _ _ Hk Hw) as Hcat.
     eapply Existsn_perm in Hcat. 2: exact Hperm.
-    apply Existsn_split in Hcat. fwd.
-    exists n1, n2. ssplit; [exact Hcatp1 | exact Hcatp2 | lia].
-  Qed.
-
-  (* Helpers for the fire_* cases. *)
-
-  Lemma map_snd_combine A B (l1 : list A) (l2 : list B) :
-    length l1 = length l2 ->
-    map snd (combine l1 l2) = l2.
-  Proof.
-    revert l2. induction l1 as [|a l1 IH]; intros [|b l2] H; simpl in *;
-      try discriminate; auto.
-    f_equal. apply IH. lia.
-  Qed.
-
-  Lemma map_fst_combine A B (l1 : list A) (l2 : list B) :
-    length l1 = length l2 ->
-    map fst (combine l1 l2) = l1.
-  Proof.
-    revert l2. induction l1 as [|a l1 IH]; intros [|b l2] H; simpl in *;
-      try discriminate; auto.
-    f_equal. apply IH. lia.
+    apply Existsn_split in Hcat. fwd. eauto.
   Qed.
 
   Lemma nth_error_app_middle A (l1 : list A) x l2 n :
@@ -2020,57 +1984,47 @@ Section __.
     intros Hinp Hsane Hstep.
     destruct Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
     invert Hstep.
-    - (* learn_fact *)
-      cbv [stepOne] in H. fwd.
+    - cbv [stepOne] in H. fwd.
       pose proof (learn_fact_at_rule_rule_has_dfact _ _ Hp2) as Hpres_rhd.
       pose proof (learn_fact_at_rule_sent _ _ Hp2) as Hpres_sent.
       assert (Hkd_bw : forall f, knows_dfact (l1 ++ y :: l2) f -> knows_dfact (l1 ++ x :: l2) f).
       { intros f. cbv [knows_dfact]. apply exists_swap. apply Hpres_rhd. }
       cbv [sane_state]. ssplit.
-      + (* length preserved *)
-        rewrite ! length_app in *. simpl in *. lia.
-      + (* C1: meta_dfact (None) -> input *)
-        intros R mf_args num Hk. apply Hkd_bw in Hk. eapply Hmf_inp. eassumption.
-      + (* C2: meta_dfact (Some n) num matches sent_facts at n *)
-        intros R mf_args n num Hk. apply Hkd_bw in Hk.
+      + rewrite ! length_app in *. simpl in *. lia.
+      + intros R mf_args num Hk. apply Hkd_bw in Hk. eapply Hmf_inp. eassumption.
+      + intros R mf_args n num Hk. apply Hkd_bw in Hk.
         specialize (Hmf_sent _ _ _ _ Hk).
         eapply nth_sat_swap; [|exact Hmf_sent].
-        cbv beta. intros (HE & HI). rewrite Hpres_sent. split; assumption.
-      + (* C3: full broadcast *)
-        intros f Hk. pose proof Hk as Hk0. apply Hkd_bw in Hk0.
+        intros. fwd. rewrite Hpres_sent. split; assumption.
+      + intros f Hk. pose proof Hk as Hk0. apply Hkd_bw in Hk0.
         specialize (Heverywhere _ Hk0).
         eapply forall_swap; [|exact Heverywhere].
         cbv beta. apply Hpres_rhd.
-      + (* C4: count invariant *)
-        intros R mf_args.
+      + intros R mf_args.
         specialize (Hcount R mf_args). fwd.
         exists msgs_sents, num_inp. ssplit.
-        * (* Forall2 sent unchanged at the moved rule *)
-          eapply forall2_swap_l; [|exact Hcountp0].
+        * eapply forall2_swap_l; [|exact Hcountp0].
           intros msg He. rewrite Hpres_sent. assumption.
         * assumption.
-        * (* per-rule known/waiting invariant: known + waiting sum unchanged *)
-          eapply forall_swap; [|exact Hcountp2].
+        * eapply forall_swap; [|exact Hcountp2].
           cbv beta. intros (num_k & num_w & Hk_x & Hw_x & Hsum_x).
           pose proof (learn_fact_at_rule_existsn_split _ _ _ Hp2 _ _ Hk_x Hw_x)
             as (num_k' & num_w' & Hk_y & Hw_y & Hsum_y).
-          exists num_k', num_w'. ssplit; [exact Hk_y | exact Hw_y | lia].
-      + (* C5: input-relation constraints *)
-        intros R HR. specialize (Hinp_sane R HR). fwd.
+          do 2 eexists. ssplit; eauto. lia.
+      + intros R HR. specialize (Hinp_sane R HR). fwd.
         split.
         * intros mf_args. specialize (Hinp_sanep0 mf_args).
           eapply forall_swap; [|exact Hinp_sanep0].
           cbv beta. intros He. rewrite Hpres_sent. assumption.
         * intros mf_args n num Hk. apply Hkd_bw in Hk.
           exact (Hinp_sanep1 _ _ _ Hk).
-    - (* fire_normal_rule *)
-      cbv [stepWithLabel] in H. fwd. destruct n as [r k].
+    - cbv [stepWithLabel] in H. fwd. destruct n as [r k].
       destruct Hp2 as (Hcan & Hnometa & Hyq). subst y.
       assert (Hlc : length (combine (non_meta_rules p) (seq 0 (length s1))) = length s1).
       { rewrite length_combine, length_seq. lia. }
       assert (Hs1_eq : s1 = map snd l1 ++ x :: map snd l2).
       { apply (f_equal (map snd)) in Hp0.
-        rewrite map_snd_combine in Hp0 by assumption.
+        rewrite map_combine_snd in Hp0 by assumption.
         rewrite map_app in Hp0. simpl in Hp0. exact Hp0. }
       assert (Hlen_lt : length l1 < length s1).
       { rewrite Hs1_eq, length_app, ! length_map. simpl. lia. }
@@ -2080,10 +2034,10 @@ Section __.
         pose proof Hp0 as Hp0a.
         apply (f_equal (map fst)) in Hp0a.
         rewrite map_app in Hp0a. simpl in Hp0a.
-        rewrite map_fst_combine in Hp0a by assumption.
+        rewrite map_combine_fst in Hp0a by assumption.
         apply (f_equal (map snd)) in Hp0a.
         rewrite map_app in Hp0a. simpl in Hp0a.
-        rewrite map_snd_combine in Hp0a by assumption.
+        rewrite map_combine_snd in Hp0a by assumption.
         pose proof (f_equal (fun ll => nth_error ll (length l1)) Hp0a) as HnE.
         cbv beta in HnE.
         rewrite nth_error_app_middle in HnE.
@@ -2103,16 +2057,13 @@ Section __.
         eapply can_deduce_implies_not_input; eassumption. }
       rewrite Hs1_eq in Hmf_inp, Hmf_sent, Heverywhere, Hcount, Hinp_sane, Hlen.
       cbv [sane_state]. ssplit.
-      + (* C0: length *)
-        rewrite length_map, length_app in *. cbn [length] in *.
+      + rewrite length_map, length_app in *. cbn [length] in *.
         rewrite ! length_map in *. lia.
-      + (* C1: knows_dfact None -> input *)
-        intros R mf_args num Hk.
+      + intros R mf_args num Hk.
         apply knows_dfact_after_step in Hk.
         destruct Hk as [Hk | Hk]; [discriminate|].
         eapply Hmf_inp; eassumption.
-      + (* C2: knows_dfact (Some n') -> nth_sat with Existsn count and In meta *)
-        intros R mf_args n' num Hk.
+      + intros R mf_args n' num Hk.
         apply knows_dfact_after_step in Hk.
         destruct Hk as [Hk | Hk]; [discriminate|].
         specialize (Hmf_sent _ _ _ _ Hk).
@@ -2134,8 +2085,7 @@ Section __.
           -- right. exact HI.
         * cbv [add_waiting_fact]; simpl. exact Hmf_sent.
         * cbv [add_waiting_fact]; simpl. exact Hmf_sent.
-      + (* C3: full broadcast *)
-        intros f Hk.
+      + intros f Hk.
         apply Forall_map.
         pose proof Hk as Hk0.
         apply knows_dfact_after_step in Hk0.
@@ -2151,8 +2101,7 @@ Section __.
              ++ apply rule_has_dfact_afw.
                 cbv [rule_has_dfact send_fact]; simpl. exact Hxf.
              ++ eapply Forall_impl; [|exact HF2]. intros. apply rule_has_dfact_afw; assumption.
-      + (* C4: count invariant *)
-        intros R mf_args.
+      + intros R mf_args.
         specialize (Hcount R mf_args). fwd.
         apply Forall2_app_inv_l in Hcountp0.
         destruct Hcountp0 as (ms_pre & ms_rest & Hms_pre & Hms_rest & ?). subst.
@@ -2163,8 +2112,7 @@ Section __.
         apply Forall_cons_iff in Hcountp2_rest.
         destruct Hcountp2_rest as (Hcountp2_x & Hcountp2_post).
         destruct (classic (dfact_matches R mf_args (normal_dfact nf_rel nf_args))) as [Hdf | Hdf].
-        * (* dfact_matches: delta = 1 *)
-          exists (ms_pre ++ S ms_x :: ms_post), num_inp. ssplit.
+        * exists (ms_pre ++ S ms_x :: ms_post), num_inp. ssplit.
           -- rewrite <- Forall2_map_l.
              apply Forall2_app; [|constructor].
              ++ eapply Forall2_impl; [|exact Hms_pre]. intros y m Hy.
@@ -2203,8 +2151,7 @@ Section __.
                        rewrite (fold_left_add_from_0 ms_post _) in Hsum.
                        rewrite (fold_left_add_from_0 ms_post _).
                        lia.
-        * (* ~dfact_matches: delta = 0 *)
-          exists (ms_pre ++ ms_x :: ms_post), num_inp. ssplit.
+        * exists (ms_pre ++ ms_x :: ms_post), num_inp. ssplit.
           -- rewrite <- Forall2_map_l.
              apply Forall2_app; [|constructor].
              ++ eapply Forall2_impl; [|exact Hms_pre]. intros y m Hy.
@@ -2233,8 +2180,7 @@ Section __.
                    --- exact Hk_y.
                    --- apply Existsn_no; assumption.
                    --- assumption.
-      + (* C5: input-relation constraints *)
-        intros R HR.
+      + intros R HR.
         specialize (Hinp_sane R HR). fwd.
         split.
         * intros mf_args. specialize (Hinp_sanep0 mf_args).
@@ -2251,8 +2197,7 @@ Section __.
           apply knows_dfact_after_step in Hk.
           destruct Hk as [Hk | Hk]; [discriminate|].
           apply (Hinp_sanep1 _ _ _ Hk).
-    - (* fire_meta_rule *)
-      cbv [stepWithLabel] in H0. fwd. destruct n as [r k].
+    - cbv [stepWithLabel] in H0. fwd. destruct n as [r k].
       destruct H0p2 as (Hcdmf & Hyq). subst y.
       cbv [can_deduce_meta_fact] in Hcdmf.
       destruct Hcdmf as (ctx & hyps & mf_rel & mf_args_new & mf_cnt & Hnf_eq
@@ -2261,7 +2206,7 @@ Section __.
       { rewrite length_combine, length_seq. lia. }
       assert (Hs1_eq : s1 = map snd l1 ++ x :: map snd l2).
       { apply (f_equal (map snd)) in H0p0.
-        rewrite map_snd_combine in H0p0 by assumption.
+        rewrite map_combine_snd in H0p0 by assumption.
         rewrite map_app in H0p0. simpl in H0p0. exact H0p0. }
       assert (Hlen_lt : length l1 < length s1).
       { rewrite Hs1_eq, length_app, ! length_map. simpl. lia. }
@@ -2271,10 +2216,10 @@ Section __.
         pose proof H0p0 as Hp0a.
         apply (f_equal (map fst)) in Hp0a.
         rewrite map_app in Hp0a. simpl in Hp0a.
-        rewrite map_fst_combine in Hp0a by assumption.
+        rewrite map_combine_fst in Hp0a by assumption.
         apply (f_equal (map snd)) in Hp0a.
         rewrite map_app in Hp0a. simpl in Hp0a.
-        rewrite map_snd_combine in Hp0a by assumption.
+        rewrite map_combine_snd in Hp0a by assumption.
         pose proof (f_equal (fun ll => nth_error ll (length l1)) Hp0a) as HnE.
         cbv beta in HnE.
         rewrite nth_error_app_middle in HnE.
@@ -2297,22 +2242,18 @@ Section __.
       subst new_fact.
       rewrite Hs1_eq in Hmf_inp, Hmf_sent, Heverywhere, Hcount, Hinp_sane, Hlen.
       cbv [sane_state]. ssplit.
-      + (* C0: length *)
-        rewrite length_map, length_app in *. cbn [length] in *.
+      + rewrite length_map, length_app in *. cbn [length] in *.
         rewrite ! length_map in *. lia.
-      + (* C1: knows_dfact None -> input *)
-        intros R mf_args num Hk.
+      + intros R mf_args num Hk.
         apply knows_dfact_after_step in Hk.
         destruct Hk as [Hk | Hk]; [discriminate|].
         eapply Hmf_inp; eassumption.
-      + (* C2: knows_dfact (Some n') -> nth_sat ... *)
-        intros R mf_args n' num Hk.
+      + intros R mf_args n' num Hk.
         apply knows_dfact_after_step in Hk.
         rewrite nth_sat_map. cbv beta.
         rewrite nth_sat_app_middle. rewrite length_map.
         destruct Hk as [Hk | Hk].
-        * (* f = new_fact *)
-          injection Hk as -> -> -> ->.
+        * injection Hk as -> -> -> ->.
           rewrite <- Hk_eq. rewrite Nat.compare_refl.
           cbv [add_waiting_fact send_fact]; simpl. split.
           -- apply Existsn_no; [|exact HsentExistsn].
@@ -2321,8 +2262,7 @@ Section __.
         * specialize (Hmf_sent _ _ _ _ Hk).
           rewrite nth_sat_app_middle in Hmf_sent. rewrite length_map in Hmf_sent.
           destruct (Nat.compare_spec n' (length l1)) as [Hl' | Hl' | Hl'].
-          -- (* Eq *)
-             subst n'.
+          -- subst n'.
              destruct Hmf_sent as (HE & HI).
              cbv [add_waiting_fact send_fact]; simpl. split.
              ++ apply Existsn_no; [|exact HE].
@@ -2330,8 +2270,7 @@ Section __.
              ++ right. exact HI.
           -- cbv [add_waiting_fact]; simpl. exact Hmf_sent.
           -- cbv [add_waiting_fact]; simpl. exact Hmf_sent.
-      + (* C3: full broadcast *)
-        intros f Hk.
+      + intros f Hk.
         apply Forall_map.
         pose proof Hk as Hk0.
         apply knows_dfact_after_step in Hk0.
@@ -2347,8 +2286,7 @@ Section __.
              ++ apply rule_has_dfact_afw.
                 cbv [rule_has_dfact send_fact]; simpl. exact Hxf.
              ++ eapply Forall_impl; [|exact HF2]. intros. apply rule_has_dfact_afw; assumption.
-      + (* C4: count invariant *)
-        intros R mf_args.
+      + intros R mf_args.
         specialize (Hcount R mf_args). fwd.
         apply Forall2_app_inv_l in Hcountp0.
         destruct Hcountp0 as (ms_pre & ms_rest & Hms_pre & Hms_rest & ?). subst.
@@ -2358,7 +2296,6 @@ Section __.
         apply Forall_app in Hcountp2. destruct Hcountp2 as (Hcountp2_pre & Hcountp2_rest).
         apply Forall_cons_iff in Hcountp2_rest.
         destruct Hcountp2_rest as (Hcountp2_x & Hcountp2_post).
-        (* F = meta_dfact, doesn't match dfact_matches. msgs_sents unchanged. *)
         exists (ms_pre ++ ms_x :: ms_post), num_inp. ssplit.
         * rewrite <- Forall2_map_l.
           apply Forall2_app; [|constructor].
@@ -2372,7 +2309,7 @@ Section __.
         * assumption.
         * apply Forall_map.
           apply Forall_app; split.
-          -- eapply Forall_impl; [|exact Hcountp2_pre].
+          -- eapply Forall_impl; [|eassumption].
              intros y (num_k & num_w & Hk_y & Hw_y & Hsum).
              exists num_k, num_w. cbv [add_waiting_fact]; simpl. ssplit.
              ++ exact Hk_y.
@@ -2393,8 +2330,7 @@ Section __.
                 ** apply Existsn_no; [|exact Hw_y].
                    intros (? & Heq & _). discriminate.
                 ** assumption.
-      + (* C5: input *)
-        intros R HR.
+      + intros R HR.
         specialize (Hinp_sane R HR). fwd.
         split.
         * intros mf_args. specialize (Hinp_sanep0 mf_args).
