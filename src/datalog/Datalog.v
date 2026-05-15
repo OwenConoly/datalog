@@ -2598,16 +2598,41 @@ Section __.
             split.
             { rewrite Hysent. exact HEx. }
             split; [exact Hconcl|]. split; [exact Hinterp|]. split.
-            { (* Forall (knows_datalog_fact (wf :: known x)) hyps.
-                 Doable, by case on each hyp h:
-                 - normal_fact: In is monotonic under cons.
-                 - meta_fact R' mf_args' mf_set': uniqueness of num in
-                   sane_state's strengthened C2 means adding wf either gives
-                   a duplicate (same num) or no match.  Existsn count over
-                   normal_dfacts of R' is unchanged (use
-                   expect_num_R_facts_no_waiting to rule out
-                   normal-dfact-matching wf). *)
-              admit. }
+            { (* Forall (knows_datalog_fact (wf :: known x)) hyps *)
+              rewrite Hyknown.
+              assert (Hxs_in : In x s) by (eapply nth_error_In; eassumption).
+              assert (Hwf_in_wait : In wf (waiting_facts x)).
+              { rewrite Hxwait. apply in_app_iff. right. left. reflexivity. }
+              eapply Forall_impl; [|exact Hknown_hyps].
+              intros h Hold. destruct h as [R_h nf_args_h | R_h mf_args_h mf_set_h].
+              + (* normal_fact h: In is monotonic *)
+                simpl in Hold |- *. apply in_cons. exact Hold.
+              + (* meta_fact h *)
+                simpl in Hold |- *.
+                destruct Hold as (num_h & Hexp_h & Hex_h & Hsetcorr_h).
+                exists num_h. split; [|split].
+                * (* expect_num_R_facts (wf :: known x) num_h *)
+                  cbv [expect_num_R_facts] in Hexp_h |- *.
+                  destruct (is_input R_h) eqn:Hin_R.
+                  -- right. exact Hexp_h.
+                  -- destruct Hexp_h as (expected_msgss & Hf2 & Hsum).
+                     exists expected_msgss. split; [|exact Hsum].
+                     eapply Forall2_impl_strong; [|exact Hf2].
+                     intros n_pos exp_n Hin_old _ _. apply in_cons. exact Hin_old.
+                * (* Existsn count over (wf :: known x) = num_h *)
+                  apply Existsn_no; [|exact Hex_h].
+                  intros [nf_args_w [Hwf_eq Hmatch_w]].
+                  eapply expect_num_R_facts_no_waiting; try eassumption.
+                  rewrite Hwf_eq in Hwf_in_wait. exact Hwf_in_wait.
+                * (* mf_set ↔ In normal_dfact ... *)
+                  intros nf_args0 Hmatch.
+                  specialize (Hsetcorr_h _ Hmatch).
+                  split.
+                  -- intros Hset. apply in_cons. apply Hsetcorr_h. exact Hset.
+                  -- intros Hin. simpl in Hin. destruct Hin as [Hwf_eq | Hin_old].
+                     ++ exfalso. eapply expect_num_R_facts_no_waiting; try eassumption.
+                        rewrite Hwf_eq in Hwf_in_wait. exact Hwf_in_wait.
+                     ++ apply Hsetcorr_h. exact Hin_old. }
             { (* closure at new known.
                  Doable, by argument:
                  1. r's normal-rule for the meta-fact's rel R has hyps with
