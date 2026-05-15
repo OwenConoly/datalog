@@ -2485,6 +2485,45 @@ Section __.
       exists nf_args. split; auto.
   Qed.
   
+  Lemma Forall3_nth_error_fwd {A B C} (R : A -> B -> C -> Prop) xs ys zs :
+    Forall3 R xs ys zs ->
+    forall n x y z,
+      nth_error xs n = Some x ->
+      nth_error ys n = Some y ->
+      nth_error zs n = Some z ->
+      R x y z.
+  Proof.
+    induction 1; intros [|n] x' y' z' Hx Hy Hz; simpl in *; try discriminate.
+    - injection Hx as ->. injection Hy as ->. injection Hz as ->. assumption.
+    - eapply IHForall3; eassumption.
+  Qed.
+
+  Lemma Forall3_nth_error_bwd {A B C} (R : A -> B -> C -> Prop) xs ys zs :
+    length xs = length ys ->
+    length ys = length zs ->
+    (forall n x y z,
+        nth_error xs n = Some x ->
+        nth_error ys n = Some y ->
+        nth_error zs n = Some z ->
+        R x y z) ->
+    Forall3 R xs ys zs.
+  Proof.
+    revert ys zs.
+    induction xs as [|x xs IH]; intros [|y ys] [|z zs] Hl1 Hl2 H;
+      simpl in *; try discriminate; try constructor.
+    - apply (H 0); reflexivity.
+    - apply IH; auto. intros n x' y' z' Hx Hy Hz. apply (H (S n)); auto.
+  Qed.
+
+  Lemma step_preserves_mfs_correct inputs s s' :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    comp_step s s' ->
+    meta_facts_correct s'.
+  Proof.
+  Admitted.
+
   Lemma comp_step_sound : False. Abort.
 
 
