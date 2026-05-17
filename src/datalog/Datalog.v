@@ -3,12 +3,16 @@ From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
+From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties.
 
 From Datalog Require Import Map Tactics Fp List Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option.
 
 Import ListNotations.
+
+Notation "R ^*" := (clos_refl_trans_1n _ R) (format "R ^*").
+#[global] Hint Constructors clos_refl_trans_1n : core.
 
 (*relations, variables, functions, and "aggregator functions" (e.g. min, max, sum, prod)*)
 (* A datalog program talks about facts R(x1, ..., xn), where (R : rel) and (x1 : T), (x2 : T), etc. *)
@@ -2931,6 +2935,30 @@ Section __.
             assert (Hoff : n - length l1 = S (n - length l1 - 1)) by lia.
             rewrite Hoff. simpl. rewrite nth_error_map, Hl2n. simpl. f_equal. assumption. }
           specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
+  Qed.
+
+  Lemma steps_preserves_sane inputs s s' :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    comp_step^* s s' ->
+    sane_state inputs s'.
+  Proof.
+    intros Hinp Hsane Hsteps. induction Hsteps; auto.
+    apply IHHsteps; auto.
+    eapply step_preserves_sane; eassumption.
+  Qed.
+
+  Lemma steps_preserves_mfs_correct inputs s s' :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    comp_step^* s s' ->
+    meta_facts_correct s'.
+  Proof.
+    intros Hinp Hsane Hmfc Hsteps. induction Hsteps; auto.
+    apply IHHsteps; auto.
+    - eapply step_preserves_sane; eassumption.
+    - eapply step_preserves_mfs_correct; eassumption.
   Qed.
 
   Lemma comp_step_sound : False. Abort.
