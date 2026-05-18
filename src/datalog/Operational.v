@@ -3737,8 +3737,21 @@ Section __.
       { induction n as [|n IH]; intros Hn.
         - exists s. split; [apply rt1n_refl|]. intros k Hk. lia.
         - destruct (IH ltac:(lia)) as (s' & Hsteps_s' & Hk_lt_n).
-          (* Now at s', fire fire_meta_rule at source n to emit meta_dfact (Some n).
-             Need to flush hyps_facts at rule n, build can_deduce_meta_fact, apply fire_meta_rule. *)
+          (* Fire fire_meta_rule at source n. Setup: *)
+          assert (Hsane_s' : sane_state inputs s') by eauto using steps_preserves_sane.
+          assert (Hlen_s_outer : length s = length p.(non_meta_rules))
+            by (destruct Hsane as (Hl & _); exact Hl).
+          assert (Hlen_s' : length s' = length p.(non_meta_rules)).
+          { erewrite <- steps_preserves_length; eauto. }
+          assert (Hn_lt_s' : n < length s') by lia.
+          assert (Hn_lt_p : n < length p.(non_meta_rules)) by lia.
+          destruct (nth_error p.(non_meta_rules) n) as [rn|] eqn:Hnth_rn;
+            [|apply nth_error_None in Hnth_rn; lia].
+          destruct (nth_error s' n) as [rs_n|] eqn:Hnth_rs_n;
+            [|apply nth_error_None in Hnth_rs_n; lia].
+          (* The substantive parts (Forall knows_datalog_fact on hyps_facts +
+             forcing clause for can_deduce_meta_fact) require analogs of the agg
+             machinery for each meta_fact hyp. *)
           admit. }
       specialize (Hgoal_n (length p.(non_meta_rules)) ltac:(lia)).
       destruct Hgoal_n as (s' & Hsteps & Hknows_all).
