@@ -3132,8 +3132,62 @@ Section __.
               subst F. injection Heq as Heq1 _. contradiction.
             - intros Hk. right. exact Hk. }
           apply Hsound. split; assumption.
-    - (* fire_meta_rule: new meta fact added to waiting at all rules *)
-      admit.
+    - (* fire_meta_rule: new meta_fact new_fact added to waiting at all rules;
+         one rule additionally has new_fact in its sent_facts. *)
+      rename H into Hin_mr.
+      rename H0 into HstepL.
+      cbv [stepWithLabel] in HstepL.
+      destruct HstepL as (l1 & label_fire & x & y & l2 & Hcomb & Hs2_eq & Hstepfire).
+      destruct label_fire as (r_fire & k_fire).
+      destruct Hstepfire as (Hcan & Hy_eq). subst y.
+      set (F := new_fact) in *.
+      assert (Hlen_s : length s = length p.(non_meta_rules))
+        by (destruct Hsane as (H0&_); exact H0).
+      assert (Hlc : length (combine (non_meta_rules p) (seq 0 (length s))) = length s).
+      { rewrite length_combine, length_seq. lia. }
+      assert (Hs_eq : s = map snd l1 ++ x :: map snd l2).
+      { apply (f_equal (map snd)) in Hcomb.
+        rewrite map_combine_snd in Hcomb by assumption.
+        rewrite map_app in Hcomb. simpl in Hcomb. exact Hcomb. }
+      assert (Hkd_iff : forall g,
+                 knows_dfact (map (add_waiting_fact F) s2) g <-> g = F \/ knows_dfact s g).
+      { intros g. rewrite Hs2_eq, Hs_eq. split.
+        - apply knows_dfact_after_step.
+        - apply knows_dfact_after_step_bw. }
+      (* F is a meta_dfact (from can_deduce_meta_fact), so knows_dfact s'
+         (normal _ _) = knows_dfact s (normal _ _). *)
+      assert (HF_meta : exists mf_rel mf_args mf_cnt,
+                 F = meta_dfact mf_rel mf_args (Some k_fire) mf_cnt).
+      { cbv [can_deduce_meta_fact] in Hcan.
+        destruct Hcan as (ctx & hyps & mf_rel & mf_args & mf_cnt & Heq & _).
+        exists mf_rel, mf_args, mf_cnt. subst F. exact Heq. }
+      assert (Hkd_normal : forall R0 args0,
+                 knows_dfact (map (add_waiting_fact F) s2) (normal_dfact R0 args0) <->
+                 knows_dfact s (normal_dfact R0 args0)).
+      { intros. rewrite Hkd_iff. split; [intros [Heq|Hkd]|tauto].
+        - destruct HF_meta as (? & ? & ? & ->). discriminate.
+        - assumption. }
+      destruct f as [R args | R mf_args mf_set].
+      + (* f = normal_fact R args: new fact is meta, so Hf1 lifts directly *)
+        simpl in Hf1. apply Hkd_normal in Hf1.
+        apply Hsound. simpl. split; [exact Hf1|exact I].
+      + (* f = meta_fact R mf_args mf_set *)
+        simpl in Hf1, Hf2.
+        assert (Hf2_s : mf_consistent_state s (meta_fact R mf_args mf_set)).
+        { simpl. intros args0 Hmatch. specialize (Hf2 _ Hmatch).
+          rewrite Hf2. exact (Hkd_normal R args0). }
+        destruct (is_input R) eqn:HER.
+        * (* is_input R: F = meta_dfact ... (Some k_fire) can't equal (None _).
+             Lift Hf1 and apply Hsound. *)
+          destruct Hf1 as (num & Hk).
+          rewrite Hkd_iff in Hk.
+          destruct Hk as [Heq | Hk_s].
+          -- destruct HF_meta as (? & ? & ? & HFeq). rewrite HFeq in Heq. discriminate.
+          -- apply Hsound. simpl. split; [|exact Hf2_s].
+             simpl. rewrite HER. exists num. exact Hk_s.
+        * (* not is_input R: for k != k_fire lifts directly; for k = k_fire, the
+             new fact may be the only witness, requiring derivation via the meta-rule. *)
+          admit.
   Admitted.
 
 
