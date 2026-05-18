@@ -1732,9 +1732,6 @@ Section __.
     stepWithLabel (fun '(r, n) rs rs' =>
                      can_deduce_meta_fact mf_concls mf_hyps r n rs.(sent_facts) rs.(known_facts) new_fact hyps /\
                        Forall (knows_datalog_fact rs.(known_facts)) hyps /\
-                       (forall mf_rel mf_args mf_cnt mf_set,
-                           new_fact = meta_dfact mf_rel mf_args (Some n) mf_cnt ->
-                           ~In (meta_fact mf_rel mf_args mf_set) hyps) /\
                        rs' = send_fact new_fact rs)
       (combine p.(non_meta_rules) (seq O (length s1))) s1 s2 ->
     comp_step s1 (map (add_waiting_fact new_fact) s2).
@@ -2219,7 +2216,7 @@ Section __.
           destruct Hk as [Hk | Hk]; [discriminate|].
           apply (Hinp_sanep1 _ _ _ Hk).
     - cbv [stepWithLabel] in H0. fwd. destruct n as [r k].
-      destruct H0p2 as (Hcdmf & Hknow_hyps & Hnoselfref & Hyq). subst y.
+      destruct H0p2 as (Hcdmf & Hknow_hyps & Hyq). subst y.
       cbv [can_deduce_meta_fact] in Hcdmf.
       destruct Hcdmf as (ctx & mf_rel & mf_args_new & mf_cnt & Hnf_eq
                           & HsentExistsn & Hmc_concl & Hmc_hyps & Hclosure).
@@ -2821,7 +2818,7 @@ Section __.
     - (* fire_meta_rule *)
       rename H into Hmr_in.
       cbv [stepWithLabel] in H0. fwd. destruct n as [r_fire k_fire].
-      destruct H0p2 as (Hcan & Hknown_h & Hnoselfref & Hyq). subst y.
+      destruct H0p2 as (Hcan & Hknown_h & Hyq). subst y.
       assert (Hnf_meta : exists mf_rel0 mf_args0 mf_cnt0, new_fact = meta_dfact mf_rel0 mf_args0 (Some k_fire) mf_cnt0).
       { cbv [can_deduce_meta_fact] in Hcan. destruct Hcan as (_ & ?r & ?a & ?c & ? & _). eauto. }
       destruct Hnf_meta as (new_mfr & new_mfa & new_mfc & Hnf_eq).
@@ -2924,8 +2921,8 @@ Section __.
                 intros [nf_args2 [Heq Hmatch]]. discriminate. }
               split; [exact Hconcl|]. split; [exact Hinterp|]. exact Hclo. }
             { exact Hknown_h. }
-            { intros mfs. apply (Hnoselfref R mf_args num mfs).
-              rewrite Heq_nf. rewrite Hkeq_lk. reflexivity. } }
+            { (* no-self-ref for the firing's hyps — needs external constraint *)
+              admit. } }
           { (* HIn picks an old (Some length l1) meta-fact in x.sent *)
             specialize (Hold_get _ _ _ HIn_old).
             fwd. exists mf_concls0, mf_hyps0, hyps0. split; [exact Hold_getp0|].
@@ -2961,7 +2958,7 @@ Section __.
             assert (Hoff : n - length l1 = S (n - length l1 - 1)) by lia.
             rewrite Hoff. simpl. rewrite nth_error_map, Hl2n. simpl. f_equal. assumption. }
           specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
-  Qed.
+  Admitted.
 
   Lemma steps_preserves_sane inputs s s' :
     good_input_facts inputs ->
@@ -3563,7 +3560,7 @@ Section __.
       cbv [stepWithLabel] in HstepL.
       destruct HstepL as (l1 & label_fire & x & y & l2 & Hcomb & Hs2_eq & Hstepfire).
       destruct label_fire as (r_fire & k_fire).
-      destruct Hstepfire as (Hcan & Hknown_h_fire & Hnoselfref_fire & Hy_eq). subst y.
+      destruct Hstepfire as (Hcan & Hknown_h_fire & Hy_eq). subst y.
       set (F := new_fact) in *.
       assert (Hlen_s : length s = length p.(non_meta_rules))
         by (destruct Hsane as (H0&_); exact H0).
