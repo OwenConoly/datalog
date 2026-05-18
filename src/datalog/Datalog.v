@@ -2987,6 +2987,33 @@ Section __.
       has_derived_datalog_fact s f /\ mf_consistent_state s f ->
       prog_impl rules_of (knows_datalog_fact inputs) f.
 
+  Lemma send_fact_rule_has_dfact F rs f :
+    rule_has_dfact (send_fact F rs) f <-> rule_has_dfact rs f.
+  Proof. cbv [send_fact rule_has_dfact]. simpl. reflexivity. Qed.
+
+  Lemma knows_dfact_send_fact_in_middle F l1 x l2 f :
+    knows_dfact (l1 ++ send_fact F x :: l2) f <-> knows_dfact (l1 ++ x :: l2) f.
+  Proof.
+    cbv [knows_dfact]. split; apply exists_swap; cbv [send_fact rule_has_dfact]; simpl; auto.
+  Qed.
+
+  Lemma knows_dfact_after_step_bw F l1 x l2 f :
+    f = F \/ knows_dfact (l1 ++ x :: l2) f ->
+    knows_dfact (map (add_waiting_fact F) (l1 ++ send_fact F x :: l2)) f.
+  Proof.
+    intros [Heq|Hkd].
+    - subst f. cbv [knows_dfact rule_has_dfact add_waiting_fact send_fact].
+      rewrite map_app. simpl. apply Exists_app. right.
+      apply Exists_cons_hd. simpl. right. left. reflexivity.
+    - rewrite <- knows_dfact_send_fact_in_middle in Hkd.
+      cbv [knows_dfact] in *.
+      apply Exists_exists in Hkd. apply Exists_exists.
+      destruct Hkd as (rs & Hin & Hd). exists (add_waiting_fact F rs).
+      split.
+      + apply in_map_iff. exists rs. split; [reflexivity|exact Hin].
+      + cbv [add_waiting_fact rule_has_dfact] in *. simpl. intuition.
+  Qed.
+
   Lemma learn_fact_preserves_knows_dfact s s' f :
     stepOne learn_fact_at_rule s s' ->
     knows_dfact s f <-> knows_dfact s' f.
