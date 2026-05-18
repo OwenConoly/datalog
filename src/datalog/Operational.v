@@ -3423,14 +3423,36 @@ Section __.
                    eexists. split; [reflexivity|].
                    rewrite Hs1_eq. apply in_or_app. right. left. reflexivity.
                 ** cbv [rule_has_dfact add_waiting_fact]. simpl. right. left. reflexivity.
-    - (* meta_rule_impl: ru = meta_rule, conclusion = meta_fact R args S.
-         Strategy: for each source index k, flush the interpreted meta-clause
-         hyps' dfact reps at that rule's known and apply fire_meta_rule to
-         emit a meta_dfact (Some k). fire_meta_rule requires only:
-         (a) can_deduce_meta_fact witness, (b) Forall (knows_datalog_fact rs.known) hyps,
-         (c) the send_fact equation — no no-self-ref needed at construction
-         (that's an invariant property, not a constructor precondition).
-         Mirrors SimpleDataflow's induction over firstn len all_nodes. *)
+    - (* meta_rule_impl: ru = meta_rule rule_concls rule_hyps.
+         f = meta_fact R args S.
+         By Hp_meta_input + good_meta_rule_inputs, is_input R = false. *)
+      rename hyps into hyps_facts.
+      rename H into Hexists_meta_concl, H0 into Hforall2_meta_hyps, H1 into HS_def.
+      rename R into R_concl, args into args_concl, S into S_set.
+      (* ru = meta_rule rule_concls rule_hyps is in rules_of, so
+         (rule_concls, rule_hyps) ∈ p.(meta_rules). *)
+      assert (Hin_mr : In (rule_concls, rule_hyps) p.(meta_rules)).
+      { cbv [rules_of] in Hin_r. apply in_app_or in Hin_r.
+        destruct Hin_r as [Hin_meta | Hin_nm].
+        - apply in_map_iff in Hin_meta.
+          destruct Hin_meta as ((c, h) & Heq & Hin_mr). inversion Heq; subst. exact Hin_mr.
+        - exfalso. apply in_map_iff in Hin_nm.
+          destruct Hin_nm as (nmr & Heq & _). destruct nmr; discriminate. }
+      (* is_input R_concl = false: derived from good_meta_rule_inputs *)
+      assert (HR_noninput : is_input R_concl = false).
+      { rewrite Forall_forall in Hp_meta_input.
+        specialize (Hp_meta_input _ Hin_mr). simpl in Hp_meta_input.
+        rewrite Forall_forall in Hp_meta_input.
+        apply Exists_exists in Hexists_meta_concl.
+        destruct Hexists_meta_concl as (c & Hin_c & Hint).
+        cbv [interp_meta_clause] in Hint.
+        destruct Hint as (mfa & mfs & _ & Heq).
+        injection Heq as -> _ _.
+        apply (Hp_meta_input _ Hin_c). }
+      (* Goal: exists s', comp_step^* s s' /\ has_derived s' (meta_fact R_concl args_concl S_set).
+         For non-input R: forall k_target, exists num, knows_dfact s' (meta_dfact ...). *)
+      (* Strategy: induct on k_target = 0..length non_meta_rules - 1.
+         At each step, fire fire_meta_rule at source k_target to emit a meta_dfact (Some k_target). *)
       admit.
   Admitted.
 
