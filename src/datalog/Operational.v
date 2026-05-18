@@ -854,6 +854,23 @@ Section __.
     - eapply IHForall2; eassumption.
   Qed.
 
+  Lemma Forall2_nth_error_bwd {A B} (R : A -> B -> Prop) xs ys :
+    length xs = length ys ->
+    (forall n x y,
+      nth_error xs n = Some x ->
+      nth_error ys n = Some y ->
+      R x y) ->
+    Forall2 R xs ys.
+  Proof.
+    revert ys. induction xs as [|x xs IH]; intros [|y ys] Hlen H; simpl in *;
+      try discriminate.
+    - constructor.
+    - constructor.
+      + apply (H 0); reflexivity.
+      + apply IH; [lia|]. intros n x' y' Hx Hy.
+        apply (H (S n)); assumption.
+  Qed.
+
   (* For the count argument to close (analog of SimpleDataflow's
      expect_num_R_facts_no_travellers using msgs_received = num), we need
      the local count of matching normal facts in known.  SimpleDataflow gets
@@ -2648,6 +2665,84 @@ Section __.
       + rewrite seq_S.
         apply Forall2_app; [exact HF2|].
         constructor; [exact Hnum|constructor].
+  Qed.
+
+  (* Analog of SimpleDataflow's node_can_receive_meta_facts: given that the
+     meta-fact count info for (mf_rel, mf_args) is knowable in s (input case:
+     a single meta_dfact with None source; non-input case: per-source counts),
+     reach a state where expect_num_R_facts holds locally at rule k's known.
+     Also preserves knows_dfact iff (since the trace is learn_fact only). *)
+  Lemma flush_meta_count_for_rule inputs s k mf_rel mf_args :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    k < length s ->
+    (if is_input mf_rel then
+       exists num, knows_dfact s (meta_dfact mf_rel mf_args None num)
+     else
+       forall k_src, k_src < length p.(non_meta_rules) ->
+         exists num, knows_dfact s (meta_dfact mf_rel mf_args (Some k_src) num)) ->
+    exists s' rs' num,
+      comp_step^* s s' /\
+        nth_error s' k = Some rs' /\
+        expect_num_R_facts mf_rel mf_args rs'.(known_facts) num /\
+        (forall g, knows_dfact s' g <-> knows_dfact s g).
+  Proof.
+    intros Hinp Hsane Hk Hknow.
+    destruct (is_input mf_rel) eqn:Hinp_rel.
+    - (* Input case: single meta_dfact with None *)
+      destruct Hknow as (num & Hknows_m).
+      pose proof (flush_waiting_to_known inputs s k
+                    [meta_dfact mf_rel mf_args None num]
+                    Hinp Hsane
+                    ltac:(constructor; [exact Hknows_m|constructor])
+                    Hk) as (s' & rs_k & Hsteps & Hnth & Hin_dfs & Hiff).
+      exists s', rs_k, num. ssplit; auto.
+      + cbv [expect_num_R_facts]. rewrite Hinp_rel.
+        apply Forall_cons_iff in Hin_dfs. apply Hin_dfs.
+    - (* Non-input case: per-source counts *)
+      pose proof (extract_per_source_meta_dfacts s mf_rel mf_args (length p.(non_meta_rules)) Hknow)
+        as (nums & Hlen_nums & HF2_nums).
+      pose (meta_dfs := map (fun '(k_src, num) => meta_dfact mf_rel mf_args (Some k_src) num)
+                            (combine (seq 0 (length p.(non_meta_rules))) nums)).
+      assert (Hnth_combine_split : forall {A B} (l1 : list A) (l2 : list B) i a b,
+                nth_error (combine l1 l2) i = Some (a, b) ->
+                nth_error l1 i = Some a /\ nth_error l2 i = Some b).
+      { clear. intros A B l1. induction l1 as [|x xs IH]; intros l2 i a b;
+          destruct l2 as [|y ys]; destruct i; simpl; try discriminate.
+        - intros [= -> ->]. split; reflexivity.
+        - intros H. apply (IH _ _ _ _ H). }
+      assert (Hkn_meta_dfs : Forall (knows_dfact s) meta_dfs).
+      { unfold meta_dfs.
+        apply Forall_forall. intros df Hin.
+        apply in_map_iff in Hin. destruct Hin as ((k_src, num) & Heq & Hin_pair). subst df.
+        apply In_nth_error in Hin_pair. destruct Hin_pair as (i & Hnth_c).
+        destruct (Hnth_combine_split nat nat _ _ _ _ _ Hnth_c) as (Hi_seq & Hi_nums).
+        pose proof (Forall2_nth_error_fwd _ _ _ HF2_nums i k_src num Hi_seq Hi_nums)
+          as Hknows. exact Hknows. }
+      pose proof (flush_waiting_to_known inputs s k meta_dfs Hinp Hsane Hkn_meta_dfs Hk)
+        as (s' & rs_k & Hsteps & Hnth & Hin_dfs & Hiff).
+      exists s', rs_k, (fold_left Nat.add nums 0). ssplit; auto.
+      cbv [expect_num_R_facts]. rewrite Hinp_rel.
+      exists nums. split; [|reflexivity].
+      apply Forall2_nth_error_bwd; [rewrite length_seq; lia|].
+      intros i k_src num Hi_seq Hi_nums.
+      rewrite Forall_forall in Hin_dfs.
+      apply Hin_dfs.
+      unfold meta_dfs. apply in_map_iff.
+      exists (k_src, num). split; [reflexivity|].
+      apply nth_error_In with (n := i).
+      (* combine at position i should give (k_src, num) *)
+      assert (Hcomb_nth : nth_error (combine (seq 0 (length p.(non_meta_rules))) nums) i =
+                          Some (k_src, num)).
+      { (* nth_error_combine inversion (the reverse direction) *)
+        clear -Hi_seq Hi_nums.
+        revert nums i Hi_seq Hi_nums.
+        generalize (seq 0 (length p.(non_meta_rules))) as l1.
+        induction l1 as [|a l1' IH]; intros [|b nums'] i Hi_seq Hi_nums;
+          destruct i; simpl in *; try discriminate.
+        - injection Hi_seq as ->. injection Hi_nums as ->. reflexivity.
+        - apply IH; assumption. }
+      exact Hcomb_nth.
   Qed.
 
   (* Lifts soundness in the reverse direction: if a fact is both prog_impl-derivable
