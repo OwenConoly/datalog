@@ -3451,9 +3451,22 @@ Section __.
         apply (Hp_meta_input _ Hin_c). }
       (* Goal: exists s', comp_step^* s s' /\ has_derived s' (meta_fact R_concl args_concl S_set).
          For non-input R: forall k_target, exists num, knows_dfact s' (meta_dfact ...). *)
-      (* Strategy: induct on k_target = 0..length non_meta_rules - 1.
-         At each step, fire fire_meta_rule at source k_target to emit a meta_dfact (Some k_target). *)
-      admit.
+      (* Strategy: induct on n = number of source rules to fire. *)
+      assert (Hgoal_n : forall n, n <= length p.(non_meta_rules) ->
+                exists s', comp_step^* s s' /\
+                  (forall k, k < n ->
+                     exists num, knows_dfact s' (meta_dfact R_concl args_concl (Some k) num))).
+      { induction n as [|n IH]; intros Hn.
+        - exists s. split; [apply rt1n_refl|]. intros k Hk. lia.
+        - destruct (IH ltac:(lia)) as (s' & Hsteps_s' & Hk_lt_n).
+          (* Now at s', fire fire_meta_rule at source n to emit meta_dfact (Some n).
+             Need to flush hyps_facts at rule n, build can_deduce_meta_fact, apply fire_meta_rule. *)
+          admit. }
+      specialize (Hgoal_n (length p.(non_meta_rules)) ltac:(lia)).
+      destruct Hgoal_n as (s' & Hsteps & Hknows_all).
+      exists s'. split; [exact Hsteps|].
+      cbv [has_derived_datalog_fact]. rewrite HR_noninput.
+      intros k Hk_lt. apply Hknows_all. exact Hk_lt.
   Admitted.
 
   Definition state_complete (inputs : list dfact) (s : state) :=
