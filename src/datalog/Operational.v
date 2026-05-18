@@ -2266,6 +2266,270 @@ Section __.
              apply Hsound. split; assumption.
   Qed.
 
+  (* ===== Monotonicity helpers for completeness ===== *)
+
+  Lemma afw_known F rs :
+    (add_waiting_fact F rs).(known_facts) = rs.(known_facts).
+  Proof. cbv [add_waiting_fact]. simpl. reflexivity. Qed.
+
+  Lemma send_fact_known F rs :
+    (send_fact F rs).(known_facts) = rs.(known_facts).
+  Proof. cbv [send_fact]. simpl. reflexivity. Qed.
+
+  Lemma comp_step_known_facts_incl inputs s s' :
+    sane_state inputs s ->
+    comp_step s s' ->
+    Forall2 (fun rs rs' => incl rs.(known_facts) rs'.(known_facts)) s s'.
+  Proof.
+    intros Hsane Hstep.
+    destruct Hsane as (Hlen & _).
+    invert Hstep.
+    - (* learn_fact *)
+      cbv [stepOne] in H. fwd.
+      cbv [learn_fact_at_rule] in Hp2.
+      destruct Hp2 as (lw1 & wf & lw2 & Hykn & Hxwait & Hywait & Hysent).
+      apply Forall2_app; [|constructor].
+      + clear. induction l1; constructor; auto. apply incl_refl.
+      + rewrite Hykn. apply incl_tl. apply incl_refl.
+      + clear. induction l2; constructor; auto. apply incl_refl.
+    - (* fire_normal_rule *)
+      cbv [stepWithLabel] in H. fwd. destruct n as [r k].
+      destruct Hp2 as (_ & _ & Hys). subst y.
+      assert (Hlc : length (combine (non_meta_rules p) (seq 0 (length s))) = length s).
+      { rewrite length_combine, length_seq. lia. }
+      assert (Hs_eq : s = map snd l1 ++ x :: map snd l2).
+      { apply (f_equal (map snd)) in Hp0.
+        rewrite map_combine_snd in Hp0 by assumption.
+        rewrite map_app in Hp0. simpl in Hp0. exact Hp0. }
+      rewrite Hs_eq. rewrite map_app. simpl.
+      apply Forall2_app; [|constructor].
+      + clear. induction (map snd l1); constructor; auto.
+        rewrite afw_known. apply incl_refl.
+      + rewrite afw_known, send_fact_known. apply incl_refl.
+      + clear. induction (map snd l2); constructor; auto.
+        rewrite afw_known. apply incl_refl.
+    - (* fire_meta_rule *)
+      cbv [stepWithLabel] in H0. fwd. destruct n as [r k].
+      destruct H0p2 as (_ & _ & Hys). subst y.
+      assert (Hlc : length (combine (non_meta_rules p) (seq 0 (length s))) = length s).
+      { rewrite length_combine, length_seq. lia. }
+      assert (Hs_eq : s = map snd l1 ++ x :: map snd l2).
+      { apply (f_equal (map snd)) in H0p0.
+        rewrite map_combine_snd in H0p0 by assumption.
+        rewrite map_app in H0p0. simpl in H0p0. exact H0p0. }
+      rewrite Hs_eq. rewrite map_app. simpl.
+      apply Forall2_app; [|constructor].
+      + clear. induction (map snd l1); constructor; auto.
+        rewrite afw_known. apply incl_refl.
+      + rewrite afw_known, send_fact_known. apply incl_refl.
+      + clear. induction (map snd l2); constructor; auto.
+        rewrite afw_known. apply incl_refl.
+  Qed.
+
+  Lemma comp_steps_known_facts_incl inputs s s' :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    comp_step^* s s' ->
+    Forall2 (fun rs rs' => incl rs.(known_facts) rs'.(known_facts)) s s'.
+  Proof.
+    intros Hinp Hsane Hsteps. revert Hsane. induction Hsteps; intros Hsane.
+    - clear. induction x; constructor; auto. apply incl_refl.
+    - assert (Hsane_y : sane_state inputs y) by eauto using step_preserves_sane.
+      specialize (IHHsteps Hsane_y).
+      pose proof (comp_step_known_facts_incl _ _ _ Hsane H) as Hstep_incl.
+      clear -Hstep_incl IHHsteps.
+      revert z IHHsteps. induction Hstep_incl; intros z Hyz.
+      + inversion Hyz; subst. constructor.
+      + inversion Hyz; subst. constructor.
+        * eapply incl_tran; eassumption.
+        * apply IHHstep_incl. assumption.
+  Qed.
+
+  Lemma comp_step_preserves_known_at s s' j rs :
+    Forall2 (fun rs0 rs0' => incl rs0.(known_facts) rs0'.(known_facts)) s s' ->
+    nth_error s j = Some rs ->
+    exists rs', nth_error s' j = Some rs' /\ incl rs.(known_facts) rs'.(known_facts).
+  Proof.
+    intros HF2 Hnth. revert j rs Hnth.
+    induction HF2; intros j rs Hnth.
+    - destruct j; discriminate.
+    - destruct j; simpl in *.
+      + injection Hnth as <-. eauto.
+      + apply IHHF2. assumption.
+  Qed.
+
+  Lemma step_preserves_knows_dfact_with_sane inputs s s' f :
+    sane_state inputs s ->
+    comp_step s s' -> knows_dfact s f -> knows_dfact s' f.
+  Proof.
+    intros Hsane Hstep Hk. destruct Hsane as (Hlen & _).
+    invert Hstep.
+    - apply (proj1 (learn_fact_preserves_knows_dfact _ _ _ H)). exact Hk.
+    - cbv [stepWithLabel] in H. fwd. destruct n as [r k].
+      destruct Hp2 as (_ & _ & Hys). subst y.
+      assert (Hlc : length (combine (non_meta_rules p) (seq 0 (length s))) = length s).
+      { rewrite length_combine, length_seq. lia. }
+      assert (Hs_eq : s = map snd l1 ++ x :: map snd l2).
+      { apply (f_equal (map snd)) in Hp0.
+        rewrite map_combine_snd in Hp0 by assumption.
+        rewrite map_app in Hp0. simpl in Hp0. exact Hp0. }
+      rewrite Hs_eq in Hk.
+      apply knows_dfact_after_step_bw. right. exact Hk.
+    - cbv [stepWithLabel] in H0. fwd. destruct n as [r k].
+      destruct H0p2 as (_ & _ & Hys). subst y.
+      assert (Hlc : length (combine (non_meta_rules p) (seq 0 (length s))) = length s).
+      { rewrite length_combine, length_seq. lia. }
+      assert (Hs_eq : s = map snd l1 ++ x :: map snd l2).
+      { apply (f_equal (map snd)) in H0p0.
+        rewrite map_combine_snd in H0p0 by assumption.
+        rewrite map_app in H0p0. simpl in H0p0. exact H0p0. }
+      rewrite Hs_eq in Hk.
+      apply knows_dfact_after_step_bw. right. exact Hk.
+  Qed.
+
+  Lemma steps_preserves_knows_dfact inputs s s' f :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    comp_step^* s s' -> knows_dfact s f -> knows_dfact s' f.
+  Proof.
+    intros Hinp Hsane Hsteps. revert Hsane.
+    induction Hsteps; intros Hsane Hk; [exact Hk|].
+    apply IHHsteps.
+    - eapply step_preserves_sane; eassumption.
+    - eapply step_preserves_knows_dfact_with_sane; eassumption.
+  Qed.
+
+  Lemma step_preserves_has_derived inputs s s' f :
+    sane_state inputs s ->
+    comp_step s s' ->
+    has_derived_datalog_fact s f -> has_derived_datalog_fact s' f.
+  Proof.
+    intros Hsane Hstep Hd. cbv [has_derived_datalog_fact] in *.
+    destruct f as [R args | R mf_args mf_set].
+    - eapply step_preserves_knows_dfact_with_sane; eassumption.
+    - destruct (is_input R).
+      + destruct Hd as (num & Hk). exists num.
+        eapply step_preserves_knows_dfact_with_sane; eassumption.
+      + intros k Hk_lt. specialize (Hd k Hk_lt). destruct Hd as (num & Hk).
+        exists num. eapply step_preserves_knows_dfact_with_sane; eassumption.
+  Qed.
+
+  Lemma steps_preserves_has_derived inputs s s' f :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    comp_step^* s s' ->
+    has_derived_datalog_fact s f -> has_derived_datalog_fact s' f.
+  Proof.
+    intros Hinp Hsane Hsteps. revert Hsane.
+    induction Hsteps; intros Hsane Hd; [exact Hd|].
+    apply IHHsteps.
+    - eapply step_preserves_sane; eassumption.
+    - eapply step_preserves_has_derived; eassumption.
+  Qed.
+
+  Lemma steps_preserves_length inputs s s' :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    comp_step^* s s' ->
+    length s = length s'.
+  Proof.
+    intros Hinp Hsane Hsteps.
+    pose proof (comp_steps_known_facts_incl _ _ _ Hinp Hsane Hsteps) as HF2.
+    apply Forall2_length in HF2. exact HF2.
+  Qed.
+
+  (* ===== Single-step path from waiting to known ===== *)
+
+  Lemma learn_fact_path inputs s k f :
+    sane_state inputs s ->
+    knows_dfact s f ->
+    k < length s ->
+    exists s' rs',
+      comp_step^* s s' /\
+        nth_error s' k = Some rs' /\
+        In f rs'.(known_facts).
+  Proof.
+    intros Hsane Hk Hlt.
+    pose proof Hsane as Hsane'.
+    destruct Hsane as (_ & _ & _ & Heverywhere & _ & _ & _).
+    specialize (Heverywhere _ Hk).
+    rewrite Forall_forall in Heverywhere.
+    (* Get rs at position k *)
+    destruct (nth_error s k) as [rs|] eqn:Hnth; [|apply nth_error_None in Hnth; lia].
+    pose proof Hnth as Hnth_save.
+    apply nth_error_split in Hnth.
+    destruct Hnth as (l1 & l2 & Hs_eq & Hl1).
+    pose proof (Heverywhere rs) as Hrhd.
+    specialize' Hrhd. { rewrite Hs_eq. apply in_or_app. right. left. reflexivity. }
+    cbv [rule_has_dfact] in Hrhd.
+    destruct Hrhd as [Hin_k | Hin_w].
+    - (* f already in rs.known: 0 steps *)
+      exists s, rs. split; [apply rt1n_refl|]. split; [exact Hnth_save | exact Hin_k].
+    - (* f in rs.waiting: 1 learn_fact step *)
+      apply in_split in Hin_w. destruct Hin_w as (lw1 & lw2 & Hwait_eq).
+      pose (rs' := {| known_facts := f :: rs.(known_facts);
+                      waiting_facts := lw1 ++ lw2;
+                      sent_facts := rs.(sent_facts) |}).
+      exists (l1 ++ rs' :: l2), rs'.
+      split.
+      + eapply Relation_Operators.rt1n_trans; [|apply rt1n_refl].
+        apply learn_fact. cbv [stepOne].
+        exists l1, rs, rs', l2. ssplit; auto.
+        cbv [learn_fact_at_rule]. exists lw1, f, lw2.
+        ssplit; auto.
+      + split.
+        * rewrite nth_error_app2 by lia.
+          rewrite Hl1, Nat.sub_diag. reflexivity.
+        * simpl. left. reflexivity.
+  Qed.
+
+  Lemma steps_preserves_known_at inputs s s' j rs :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    comp_step^* s s' ->
+    nth_error s j = Some rs ->
+    exists rs', nth_error s' j = Some rs' /\ incl rs.(known_facts) rs'.(known_facts).
+  Proof.
+    intros Hinp Hsane Hsteps Hnth.
+    pose proof (comp_steps_known_facts_incl _ _ _ Hinp Hsane Hsteps) as HF2.
+    eapply comp_step_preserves_known_at; eassumption.
+  Qed.
+
+  Lemma flush_waiting_to_known inputs s k hyps :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    Forall (knows_dfact s) hyps ->
+    k < length s ->
+    exists s' rs',
+      comp_step^* s s' /\
+        nth_error s' k = Some rs' /\
+        Forall (fun h => In h rs'.(known_facts)) hyps.
+  Proof.
+    intros Hinp Hsane Hkn Hk.
+    induction Hkn as [|h hs Hh Hhs IH].
+    - destruct (nth_error s k) as [rs|] eqn:Hnth; [|apply nth_error_None in Hnth; lia].
+      exists s, rs. split; [apply rt1n_refl|]. split; [exact Hnth | constructor].
+    - destruct IH as (s' & rs_k & Hsteps & Hnth_k & Hin_hs).
+      assert (Hsane' : sane_state inputs s') by eauto using steps_preserves_sane.
+      assert (Hk' : k < length s').
+      { erewrite <- steps_preserves_length; eassumption. }
+      assert (Hh' : knows_dfact s' h) by eauto using steps_preserves_knows_dfact.
+      pose proof (learn_fact_path inputs s' k h Hsane' Hh' Hk') as Hpath.
+      destruct Hpath as (s'' & rs_k'' & Hsteps' & Hnth_k'' & Hin_h).
+      exists s'', rs_k''. ssplit.
+      + eapply Operators_Properties.clos_rt1n_rt in Hsteps.
+        eapply Operators_Properties.clos_rt1n_rt in Hsteps'.
+        eapply Operators_Properties.clos_rt_rt1n.
+        eapply Relation_Operators.rt_trans; eassumption.
+      + exact Hnth_k''.
+      + constructor; [exact Hin_h|].
+        pose proof (steps_preserves_known_at _ _ _ _ _ Hinp Hsane' Hsteps' Hnth_k) as Hincl.
+        destruct Hincl as (rs_k_incl & Hnth_eq & Hincl).
+        rewrite Hnth_eq in Hnth_k''. injection Hnth_k'' as ->.
+        eapply Forall_impl; [|exact Hin_hs].
+        cbv beta. intros h0 Hin_h0. apply Hincl. exact Hin_h0.
+  Qed.
+
   Definition state_complete (inputs : list dfact) (s : state) :=
     forall f,
       prog_impl rules_of (knows_datalog_fact inputs) f ->
