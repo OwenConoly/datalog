@@ -2530,6 +2530,66 @@ Section __.
         cbv beta. intros h0 Hin_h0. apply Hincl. exact Hin_h0.
   Qed.
 
+  Lemma comp_steps_sound inputs s s' :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    state_correct inputs s ->
+    comp_step^* s s' ->
+    state_correct inputs s'.
+  Proof.
+    intros Hinp Hsane Hmfc Hsound Hsteps. revert Hsane Hmfc Hsound.
+    induction Hsteps; intros; auto.
+    apply IHHsteps.
+    - eapply step_preserves_sane; eassumption.
+    - eapply step_preserves_mfs_correct; eassumption.
+    - eapply comp_step_sound; eassumption.
+  Qed.
+
+  Lemma crt1n_trans_compose {A R} (x y z : A) :
+    clos_refl_trans_1n A R x y ->
+    clos_refl_trans_1n A R y z ->
+    clos_refl_trans_1n A R x z.
+  Proof.
+    intros H1 H2.
+    eapply Operators_Properties.clos_rt1n_rt in H1.
+    eapply Operators_Properties.clos_rt1n_rt in H2.
+    eapply Operators_Properties.clos_rt_rt1n.
+    eapply Relation_Operators.rt_trans; eassumption.
+  Qed.
+
+  Lemma compose_completion inputs s hyps :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    state_correct inputs s ->
+    Forall (fun h =>
+      forall s0,
+        sane_state inputs s0 ->
+        meta_facts_correct s0 ->
+        state_correct inputs s0 ->
+        exists s', comp_step^* s0 s' /\ has_derived_datalog_fact s' h) hyps ->
+    exists s',
+      comp_step^* s s' /\
+      Forall (has_derived_datalog_fact s') hyps.
+  Proof.
+    intros Hinp Hsane Hmfc Hsound HF.
+    revert s Hsane Hmfc Hsound.
+    induction HF as [|h hs Hh Hhs IH]; intros s Hsane Hmfc Hsound.
+    - exists s. split; [apply rt1n_refl|]. constructor.
+    - specialize (IH s Hsane Hmfc Hsound).
+      destruct IH as (s_mid & Hsteps_mid & Hderived_hs).
+      assert (Hsane_mid : sane_state inputs s_mid) by eauto using steps_preserves_sane.
+      assert (Hmfc_mid : meta_facts_correct s_mid) by eauto using steps_preserves_mfs_correct.
+      assert (Hsound_mid : state_correct inputs s_mid) by eauto using comp_steps_sound.
+      destruct (Hh s_mid Hsane_mid Hmfc_mid Hsound_mid) as (s' & Hsteps' & Hh_derived).
+      exists s'. ssplit.
+      + eapply crt1n_trans_compose; eassumption.
+      + constructor; [exact Hh_derived|].
+        eapply Forall_impl; [|exact Hderived_hs].
+        cbv beta. intros h0. eapply steps_preserves_has_derived; eauto.
+  Qed.
+
   Definition state_complete (inputs : list dfact) (s : state) :=
     forall f,
       prog_impl rules_of (knows_datalog_fact inputs) f ->
