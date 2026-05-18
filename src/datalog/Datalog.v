@@ -3108,8 +3108,30 @@ Section __.
           admit.
         * (* old normal fact; apply Hsound on s *)
           apply Hsound. simpl. split; [exact Hf1|exact I].
-      + (* f = meta_fact R mf_args mf_set *)
-        admit.
+      + (* f = meta_fact R mf_args mf_set.  Lift Hf1 from s' to s via Hkd_meta.
+           For Hf2: when R != nf_rel, F = normal_dfact nf_rel ... can't equal
+           normal_dfact R nf_args, so knows_dfact unchanged; lift directly.
+           When R = nf_rel, the new fact may force mf_set nf_args_fire = true
+           even though knows_dfact s (normal nf_rel nf_args_fire) might be false.
+           That sub-case is admitted below. *)
+        simpl in Hf1, Hf2.
+        assert (Hf1_s : has_derived_datalog_fact s (meta_fact R mf_args mf_set)).
+        { simpl. destruct (is_input R) eqn:HER.
+          - destruct Hf1 as (num & Hk). exists num. apply Hkd_meta in Hk. exact Hk.
+          - intros k Hk. specialize (Hf1 k Hk). destruct Hf1 as (num & Hknk).
+            exists num. apply Hkd_meta in Hknk. exact Hknk. }
+        destruct (classic (R = nf_rel)) as [HReq | HRneq].
+        * (* R = nf_rel: mf_set may include the newly-derived nf_args; needs
+             a derivation of normal_fact nf_rel nf_args_fire to extend.  Admit. *)
+          admit.
+        * (* R != nf_rel: knows_dfact unchanged for (normal R _); lift Hf2 *)
+          assert (Hf2_s : mf_consistent_state s (meta_fact R mf_args mf_set)).
+          { simpl. intros args0 Hmatch. specialize (Hf2 _ Hmatch).
+            rewrite Hf2, Hkd_iff. split.
+            - intros [Heq | Hk]; [|exact Hk].
+              subst F. injection Heq as Heq1 _. contradiction.
+            - intros Hk. right. exact Hk. }
+          apply Hsound. split; assumption.
     - (* fire_meta_rule: new meta fact added to waiting at all rules *)
       admit.
   Admitted.
