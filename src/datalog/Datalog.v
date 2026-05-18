@@ -2961,7 +2961,40 @@ Section __.
     - eapply step_preserves_mfs_correct; eassumption.
   Qed.
 
-  Lemma comp_step_sound : False. Abort.
+  Definition has_derived_datalog_fact (s : state) (f : fact) :=
+    match f with
+    | normal_fact R args => knows_dfact s (normal_dfact R args)
+    | meta_fact R mf_args mf_set =>
+        if is_input R then
+          exists num, knows_dfact s (meta_dfact R mf_args None num)
+        else
+          forall k, k < length p.(non_meta_rules) ->
+            exists num,
+              knows_dfact s (meta_dfact R mf_args (Some k) num)
+    end.
+
+  Definition mf_consistent_state (s : state) (f : fact) :=
+    match f with
+    | normal_fact _ _ => True
+    | meta_fact R mf_args mf_set =>
+        forall nf_args,
+          Forall2 matches mf_args nf_args ->
+          mf_set nf_args <-> knows_dfact s (normal_dfact R nf_args)
+    end.
+
+  Definition state_correct (inputs : list dfact) (s : state) :=
+    forall f,
+      has_derived_datalog_fact s f /\ mf_consistent_state s f ->
+      prog_impl rules_of (knows_datalog_fact inputs) f.
+
+  Lemma comp_step_sound inputs s s' :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    state_correct inputs s ->
+    comp_step s s' ->
+    state_correct inputs s'.
+  Admitted.
 
 
 End __.
