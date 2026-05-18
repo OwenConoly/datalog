@@ -2893,12 +2893,13 @@ Section __.
            target rule k's known_facts. Then can_deduce_normal_fact + fire. *)
         admit.
     - (* meta_rule_impl: ru = meta_rule, conclusion = meta_fact R args S.
-         Strategy: pick a source index k (any rule); flush the interpreted
-         meta-clause hyps' dfact reps at that rule's known; apply fire_meta_rule.
-         The no-self-reference clause needs to be derived (same pattern as in
-         step_preserves_mfs_correct). Resulting state has new meta_dfact (Some k)
-         at rs_k.sent; combined with sane_state's Hcount, this gives has_derived
-         at all rule indices via the count-tracking infrastructure. *)
+         Strategy: for each source index k, flush the interpreted meta-clause
+         hyps' dfact reps at that rule's known and apply fire_meta_rule to
+         emit a meta_dfact (Some k). fire_meta_rule requires only:
+         (a) can_deduce_meta_fact witness, (b) Forall (knows_datalog_fact rs.known) hyps,
+         (c) the send_fact equation — no no-self-ref needed at construction
+         (that's an invariant property, not a constructor precondition).
+         Mirrors SimpleDataflow's induction over firstn len all_nodes. *)
       admit.
   Admitted.
 
