@@ -3299,15 +3299,69 @@ Section __.
                Requires deriving prog_impl ... f via the firing meta-rule. *)
           destruct HF_meta as (mf_rel0 & mf_args0 & mf_cnt0 & HFeq).
           destruct (classic (R = mf_rel0 /\ mf_args = mf_args0)) as [[HReq HMeq] | HNeq].
-          -- (* Case A: R = mf_rel0, mf_args = mf_args0.
-                The new fact F = meta_dfact R mf_args (Some k_fire) mf_cnt0 may be
-                the only witness for k = k_fire.  Must derive prog_impl ... f via
-                meta_rule_impl with the firing rule (mf_concls, mf_hyps), using
-                Hcan as the witness data.  The hard step is bridging the resulting
-                S_constr = one_step_derives rules_of hyps_d R to mf_set; this needs
-                a completeness lemma along the lines of SimpleDataflow's
-                use_meta_facts_correct (~100 lines). *)
-             admit.
+          -- (* Case A: R = mf_rel0, mf_args = mf_args0.  Build prog_impl ...
+                (meta_fact R mf_args S_constr) via meta_rule_impl, then bridge to
+                mf_set via prog_impl_mf_ext'.  S_constr is forced by meta_rule_impl
+                to be (fun args'' => one_step_derives rules_of hyps_d R args'').
+                The bridge iff (S_constr <-> mf_set) requires completeness — see
+                inner admit below. *)
+             subst R mf_args.
+             cbv [can_deduce_meta_fact] in Hcan.
+             destruct Hcan as (ctx & hyps_d & mf_rel_c & mf_args_c & mf_cnt_c
+                              & Heq_F & Hexn_F & Hexists_concl & Hf2_h & Hkdf_h & Hsound_can).
+             rewrite HFeq in Heq_F. injection Heq_F as Hr_eq Ha_eq Hc_eq.
+             subst mf_rel_c mf_args_c mf_cnt_c.
+             pose (S_constr := fun args'' => one_step_derives rules_of hyps_d mf_rel0 args'').
+             assert (Hprog_constr :
+                       prog_impl rules_of (knows_datalog_fact inputs)
+                         (meta_fact mf_rel0 mf_args0 S_constr)).
+             { eapply prog_impl_step.
+               - apply Exists_exists. exists (meta_rule mf_concls mf_hyps). split.
+                 + unfold rules_of. apply in_or_app. left. apply in_map_iff.
+                   exists (mf_concls, mf_hyps). split; [reflexivity|exact Hin_mr].
+                 + apply meta_rule_impl with (ctx := ctx).
+                   * eapply Exists_impl; [|exact Hexists_concl].
+                     intros c Hclause. cbv [interp_meta_clause] in Hclause |- *.
+                     destruct Hclause as (mfa_v & mfs_v & Hf2_v & Heq_v).
+                     injection Heq_v as Hcrel Hcargs _.
+                     exists mfa_v, S_constr. rewrite Hcargs. split; [exact Hf2_v|].
+                     rewrite <- Hcrel. reflexivity.
+                   * exact Hf2_h.
+                   * intros args'' Hmatch_args''. subst S_constr. reflexivity.
+               - rewrite Forall_forall in Hkdf_h |- *. intros h Hin_h.
+                 specialize (Hkdf_h _ Hin_h).
+                 apply Hsound. split.
+                 + eapply knows_datalog_fact_local_lift_has_derived; try eassumption.
+                   rewrite Hs_eq. apply in_or_app. right. apply in_eq.
+                 + eapply knows_datalog_fact_local_lift_mf_consistent; try eassumption.
+                   rewrite Hs_eq. apply in_or_app. right. apply in_eq. }
+             eapply prog_impl_mf_ext'; [exact Hprog_constr | | ].
+             ++ (* iff: S_constr nf_args <-> mf_set nf_args.
+                   Needs a use_meta_facts_correct-style completeness lemma. *)
+                admit.
+             ++ (* ~Q (meta_fact mf_rel0 mf_args0 S_constr): inputs has no
+                   (Some k) meta-facts (by good_input_facts), so expect_num_R_facts
+                   fails for non-input mf_rel0. *)
+                intros HQ. simpl in HQ. destruct HQ as (num & Hexp & _ & _).
+                cbv [expect_num_R_facts] in Hexp. rewrite HER in Hexp.
+                destruct Hexp as (msgss & Hf2_msgs & _).
+                pose proof (Forall2_length Hf2_msgs) as Hlen_msgs.
+                rewrite length_seq in Hlen_msgs.
+                assert (Hlen_pos : 0 < length p.(non_meta_rules)).
+                { rewrite <- Hlen_s. rewrite Hs_eq, length_app. simpl. lia. }
+                assert (H0_seq : nth_error (seq 0 (length p.(non_meta_rules))) 0 = Some 0).
+                { rewrite nth_error_seq.
+                  assert (E : 0 <? length p.(non_meta_rules) = true)
+                    by (apply Nat.ltb_lt; exact Hlen_pos).
+                  rewrite E. reflexivity. }
+                assert (H0_msg : exists m, nth_error msgss 0 = Some m).
+                { destruct (nth_error msgss 0) eqn:E; [eauto|].
+                  apply nth_error_None in E. lia. }
+                destruct H0_msg as (m & H0m).
+                pose proof (Forall2_nth_error_fwd _ _ _ Hf2_msgs 0 0 m H0_seq H0m)
+                  as Hin_m.
+                destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
+                specialize (Hinp_all _ Hin_m). simpl in Hinp_all. congruence.
           -- (* Case B: lift Hf1 to s entirely *)
              assert (Hf1_s : has_derived_datalog_fact s (meta_fact R mf_args mf_set)).
              { simpl. rewrite HER. intros k Hk. specialize (Hf1 k Hk).
