@@ -2627,6 +2627,16 @@ Section __.
         exists mk. apply Hinp_prop. exact Hin_mk.
   Qed.
 
+  (* Lifts soundness in the reverse direction: if a fact is both prog_impl-derivable
+     and has_derived in s, then its mf_consistent_state holds in s.
+     Analog of SimpleDataflow's correct_impl_consistent. *)
+  Hypothesis correct_impl_consistent : forall inputs s f,
+    good_input_facts inputs ->
+    state_correct inputs s ->
+    prog_impl rules_of (knows_datalog_fact inputs) f ->
+    has_derived_datalog_fact s f ->
+    mf_consistent_state s f.
+
   (* Per-rule completeness: given a rule r in rules_of, hyps derived in s, and
      mf_consistent_state for meta-fact hyps, we can step to a state where the
      conclusion of r is derived. *)
@@ -2678,29 +2688,27 @@ Section __.
       intros f0 hyps Hexists Hforall_pi Hforall_R s0 Hsane0 Hmfc0 Hsound0.
       apply Exists_exists in Hexists.
       destruct Hexists as (ru & Hin_r & Hrule_impl).
-      (* Build mf_consistent_state for hyps using state_correct + prog_impl *)
-      assert (Hforall_consistent : Forall (fun h =>
-        forall s', sane_state inputs s' -> meta_facts_correct s' -> state_correct inputs s' ->
-        forall s'',
-        comp_step^* s' s'' ->
-        has_derived_datalog_fact s'' h ->
-        mf_consistent_state s'' h) hyps).
-      { admit. }
       (* Apply compose_completion to get s1 reachable with Forall has_derived s1 hyps *)
       pose proof (compose_completion inputs s0 hyps Hinp Hsane0 Hmfc0 Hsound0 Hforall_R)
         as (s1 & Hsteps1 & Hderived1).
       assert (Hsane1 : sane_state inputs s1) by eauto using steps_preserves_sane.
       assert (Hmfc1 : meta_facts_correct s1) by eauto using steps_preserves_mfs_correct.
       assert (Hsound1 : state_correct inputs s1) by eauto using comp_steps_sound.
-      (* Build mf_consistent_state for hyps at s1 *)
+      (* Build mf_consistent_state for hyps at s1 via correct_impl_consistent *)
       assert (Hcons1 : Forall (mf_consistent_state s1) hyps).
-      { admit. }
+      { rewrite Forall_forall in *.
+        intros h Hin_h.
+        eapply correct_impl_consistent.
+        - exact Hinp.
+        - exact Hsound1.
+        - apply Hforall_pi. assumption.
+        - apply Hderived1. assumption. }
       (* Apply good_layout_complete_rule *)
       pose proof (good_layout_complete_rule inputs s1 ru f0 hyps
                     Hinp Hsane1 Hmfc1 Hsound1 Hin_r Hrule_impl Hderived1 Hcons1)
         as (s2 & Hsteps2 & Hderived2).
       exists s2. split; [|exact Hderived2].
       eapply crt1n_trans_compose; eassumption.
-  Admitted.
+  Qed.
 
 End __.
