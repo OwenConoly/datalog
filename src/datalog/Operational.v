@@ -2884,9 +2884,21 @@ Section __.
                 eexists. split; [reflexivity|].
                 rewrite Hs1_eq. apply in_or_app. right. left. reflexivity.
              ++ cbv [rule_has_dfact add_waiting_fact]. simpl. right. left. reflexivity.
-      + (* agg_rule_impl: hyps = meta_fact :: list of normal_facts *)
+      + (* agg_rule_impl: hyps = meta_fact hyp_rel ... S :: map ... vals
+           ru = agg_rule cr ag hr, nmr = nmr_agg cr ag hr.
+           Conclusion: normal_fact cr (interp_agg ag vals :: args).
+           Strategy mirrors normal_rule_impl but with an extra step to flush
+           the meta_fact's meta_dfacts (one per source rule index k_src) plus
+           the normal_dfacts representing the aggregation pairs (i, x_i) at the
+           target rule k's known_facts. Then can_deduce_normal_fact + fire. *)
         admit.
-    - (* meta_rule_impl: ru = meta_rule, conclusion = meta_fact *)
+    - (* meta_rule_impl: ru = meta_rule, conclusion = meta_fact R args S.
+         Strategy: pick a source index k (any rule); flush the interpreted
+         meta-clause hyps' dfact reps at that rule's known; apply fire_meta_rule.
+         The no-self-reference clause needs to be derived (same pattern as in
+         step_preserves_mfs_correct). Resulting state has new meta_dfact (Some k)
+         at rs_k.sent; combined with sane_state's Hcount, this gives has_derived
+         at all rule indices via the count-tracking infrastructure. *)
       admit.
   Admitted.
 
