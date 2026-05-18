@@ -2627,6 +2627,26 @@ Section __.
         exists mk. apply Hinp_prop. exact Hin_mk.
   Qed.
 
+  (* Extract a list of per-source meta_dfacts from has_derived's forall-exists form.
+     Each (Some k_src) meta_dfact has its own count num_k; we collect them into a list. *)
+  Lemma extract_per_source_meta_dfacts s mf_rel mf_args n :
+    (forall k_src, k_src < n -> exists num, knows_dfact s (meta_dfact mf_rel mf_args (Some k_src) num)) ->
+    exists nums : list nat,
+      length nums = n /\
+      Forall2 (fun k_src num => knows_dfact s (meta_dfact mf_rel mf_args (Some k_src) num))
+              (seq 0 n) nums.
+  Proof.
+    induction n; intros H.
+    - exists []. split; [reflexivity|]. constructor.
+    - specialize (IHn ltac:(intros k_src Hk; apply H; lia)) as (nums & Hlen & HF2).
+      destruct (H n ltac:(lia)) as (num & Hnum).
+      exists (nums ++ [num]). split.
+      + rewrite length_app. simpl. lia.
+      + rewrite seq_S.
+        apply Forall2_app; [exact HF2|].
+        constructor; [exact Hnum|constructor].
+  Qed.
+
   (* Lifts soundness in the reverse direction: if a fact is both prog_impl-derivable
      and has_derived in s, then its mf_consistent_state holds in s.
      Analog of SimpleDataflow's correct_impl_consistent.
@@ -2946,8 +2966,49 @@ Section __.
                               (map (fun '(i, x_i) => normal_fact hr (i :: x_i :: args_rest)) vals_pairs)).
           { apply in_map_iff. exists (i, x_i). split; [reflexivity|exact Hin_pair]. }
           specialize (Hd_normals _ Hin_map). simpl in Hd_normals. exact Hd_normals. }
-        (* TODO: also flush meta_dfacts from Hd_meta. For now, flush only val_dfs. *)
-        admit.
+        (* Now extract meta_dfacts from Hd_meta, case-splitting on is_input hr *)
+        pose (mf_args := None :: None :: map Some args_rest : list (option T)).
+        destruct (is_input hr) eqn:Hhr_inp.
+        * (* Input hr: single meta_dfact with None source *)
+          cbv [has_derived_datalog_fact] in Hd_meta.
+          rewrite Hhr_inp in Hd_meta.
+          destruct Hd_meta as (num_inp & Hknows_meta).
+          pose (all_dfs := meta_dfact hr mf_args None num_inp :: val_dfs).
+          assert (Hkn_all_dfs : Forall (knows_dfact s) all_dfs).
+          { constructor; [exact Hknows_meta|exact Hkn_val_dfs]. }
+          (* Flush *)
+          pose proof (flush_waiting_to_known inputs s k all_dfs Hinp Hsane_save Hkn_all_dfs Hk_lt_s)
+            as (s1 & rs_k & Hsteps1 & Hnth_k & Hin_all_dfs).
+          admit.
+        * (* Non-input hr: per-source meta_dfacts *)
+          cbv [has_derived_datalog_fact] in Hd_meta.
+          rewrite Hhr_inp in Hd_meta.
+          (* Hd_meta : forall k_src < length non_meta_rules, exists num, knows_dfact s (meta_dfact hr mf_args (Some k_src) num) *)
+          pose proof (extract_per_source_meta_dfacts s hr mf_args (length p.(non_meta_rules)) Hd_meta)
+            as (nums & Hlen_nums & HF2_nums).
+          pose (meta_dfs := map (fun '(k_src, num) => meta_dfact hr mf_args (Some k_src) num)
+                                (combine (seq 0 (length p.(non_meta_rules))) nums)).
+          assert (Hnth_combine_split : forall {A B} (l1 : list A) (l2 : list B) i a b,
+                    nth_error (combine l1 l2) i = Some (a, b) ->
+                    nth_error l1 i = Some a /\ nth_error l2 i = Some b).
+          { clear. intros A B l1. induction l1 as [|x xs IH]; intros l2 i a b;
+              destruct l2 as [|y ys]; destruct i; simpl; try discriminate.
+            - intros [= -> ->]. split; reflexivity.
+            - intros H. apply (IH _ _ _ _ H). }
+          assert (Hkn_meta_dfs : Forall (knows_dfact s) meta_dfs).
+          { unfold meta_dfs.
+            apply Forall_forall. intros df Hin.
+            apply in_map_iff in Hin. destruct Hin as ((k_src, num) & Heq & Hin_pair). subst df.
+            apply In_nth_error in Hin_pair. destruct Hin_pair as (i & Hnth).
+            destruct (Hnth_combine_split nat nat _ _ _ _ _ Hnth) as (Hi_seq & Hi_nums).
+            pose proof (Forall2_nth_error_fwd _ _ _ HF2_nums i k_src num Hi_seq Hi_nums)
+              as Hknows. exact Hknows. }
+          pose (all_dfs := meta_dfs ++ val_dfs).
+          assert (Hkn_all_dfs : Forall (knows_dfact s) all_dfs).
+          { unfold all_dfs. apply Forall_app. split; assumption. }
+          pose proof (flush_waiting_to_known inputs s k all_dfs Hinp Hsane_save Hkn_all_dfs Hk_lt_s)
+            as (s1 & rs_k & Hsteps1 & Hnth_k & Hin_all_dfs).
+          admit.
     - (* meta_rule_impl: ru = meta_rule, conclusion = meta_fact R args S.
          Strategy: for each source index k, flush the interpreted meta-clause
          hyps' dfact reps at that rule's known and apply fire_meta_rule to
