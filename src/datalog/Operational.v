@@ -239,7 +239,8 @@ Section __.
       (forall R,
           is_input R = true ->
           (forall mf_args, Forall (fun rs => Existsn (dfact_matches R mf_args) O rs.(sent_facts)) s) /\
-            (forall mf_args n num, ~knows_dfact s (meta_dfact R mf_args (Some n) num))).
+            (forall mf_args n num, ~knows_dfact s (meta_dfact R mf_args (Some n) num))) /\
+      (forall f, In f input_facts -> knows_dfact s f).
 
   Lemma learn_fact_at_rule_rule_has_dfact rs1 rs2 :
     learn_fact_at_rule rs1 rs2 ->
@@ -418,6 +419,42 @@ Section __.
     - invert Himpl. exact Hgood.
   Qed.
 
+  Lemma send_fact_rule_has_dfact F rs f :
+    rule_has_dfact (send_fact F rs) f <-> rule_has_dfact rs f.
+  Proof. cbv [send_fact rule_has_dfact]. simpl. reflexivity. Qed.
+
+  Lemma knows_dfact_send_fact_in_middle F l1 x l2 f :
+    knows_dfact (l1 ++ send_fact F x :: l2) f <-> knows_dfact (l1 ++ x :: l2) f.
+  Proof.
+    cbv [knows_dfact]. split; apply exists_swap; cbv [send_fact rule_has_dfact]; simpl; auto.
+  Qed.
+
+  Lemma knows_dfact_add_waiting_mono F s g :
+    knows_dfact s g -> knows_dfact (map (add_waiting_fact F) s) g.
+  Proof.
+    cbv [knows_dfact]. intros HE. apply Exists_exists in HE. apply Exists_exists.
+    destruct HE as (rs & Hin & Hd). exists (add_waiting_fact F rs).
+    split; [apply in_map; exact Hin|].
+    cbv [add_waiting_fact rule_has_dfact] in *. simpl. intuition.
+  Qed.
+
+  Lemma knows_dfact_after_step_bw F l1 x l2 f :
+    f = F \/ knows_dfact (l1 ++ x :: l2) f ->
+    knows_dfact (map (add_waiting_fact F) (l1 ++ send_fact F x :: l2)) f.
+  Proof.
+    intros [Heq|Hkd].
+    - subst f. cbv [knows_dfact rule_has_dfact add_waiting_fact send_fact].
+      rewrite map_app. simpl. apply Exists_app. right.
+      apply Exists_cons_hd. simpl. right. left. reflexivity.
+    - rewrite <- knows_dfact_send_fact_in_middle in Hkd.
+      cbv [knows_dfact] in *.
+      apply Exists_exists in Hkd. apply Exists_exists.
+      destruct Hkd as (rs & Hin & Hd). exists (add_waiting_fact F rs).
+      split.
+      + apply in_map_iff. exists rs. split; [reflexivity|exact Hin].
+      + cbv [add_waiting_fact rule_has_dfact] in *. simpl. intuition.
+  Qed.
+
   Lemma step_preserves_sane inputs s1 s2 :
     good_input_facts inputs ->
     sane_state inputs s1 ->
@@ -425,7 +462,7 @@ Section __.
     sane_state inputs s2.
   Proof.
     intros Hinp Hsane Hstep.
-    destruct Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
+    destruct Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane & Hinp_propagated).
     invert Hstep.
     - cbv [stepOne] in H. fwd.
       pose proof (learn_fact_at_rule_rule_has_dfact _ _ Hp2) as Hpres_rhd.
@@ -461,6 +498,9 @@ Section __.
           cbv beta. intros He. rewrite Hpres_sent. assumption.
         * intros mf_args n num Hk. apply Hkd_bw in Hk.
           exact (Hinp_sanep1 _ _ _ Hk).
+      + intros f HIn. specialize (Hinp_propagated f HIn).
+        cbv [knows_dfact] in *.
+        eapply exists_swap; [|exact Hinp_propagated]. apply Hpres_rhd.
     - cbv [stepWithLabel] in H. fwd. destruct n as [r k].
       destruct Hp2 as (Hcan & Hnometa & Hyq). subst y.
       assert (Hlc : length (combine (non_meta_rules p) (seq 0 (length s1))) = length s1).
@@ -498,7 +538,7 @@ Section __.
       assert (Hnf_noninput : is_input nf_rel = false).
       { rewrite Forall_forall in Hp_input. apply Hp_input in Hin_r.
         eapply can_deduce_implies_not_input; eassumption. }
-      rewrite Hs1_eq in Hmf_inp, Hmf_sent, Heverywhere, Hcount, Hinp_sane, Hlen.
+      rewrite Hs1_eq in Hmf_inp, Hmf_sent, Heverywhere, Hcount, Hinp_sane, Hlen, Hinp_propagated.
       cbv [sane_state]. ssplit.
       + rewrite length_map, length_app in *. cbn [length] in *.
         rewrite ! length_map in *. lia.
@@ -640,6 +680,8 @@ Section __.
           apply knows_dfact_after_step in Hk.
           destruct Hk as [Hk | Hk]; [discriminate|].
           apply (Hinp_sanep1 _ _ _ Hk).
+      + intros f HIn. specialize (Hinp_propagated f HIn).
+        apply knows_dfact_after_step_bw. right. exact Hinp_propagated.
     - cbv [stepWithLabel] in H0. fwd. destruct n as [r k].
       destruct H0p2 as (Hcdmf & Hknow_hyps & Hyq). subst y.
       cbv [can_deduce_meta_fact] in Hcdmf.
@@ -683,7 +725,7 @@ Section __.
         injection Heq as -> _ _.
         apply (Hp_meta_input _ Hin_c). }
       subst new_fact.
-      rewrite Hs1_eq in Hmf_inp, Hmf_sent, Heverywhere, Hcount, Hinp_sane, Hlen.
+      rewrite Hs1_eq in Hmf_inp, Hmf_sent, Heverywhere, Hcount, Hinp_sane, Hlen, Hinp_propagated.
       cbv [sane_state]. ssplit.
       + rewrite length_map, length_app in *. cbn [length] in *.
         rewrite ! length_map in *. lia.
@@ -789,6 +831,8 @@ Section __.
           destruct Hk as [Hk | Hk].
           -- injection Hk as -> _ _ _. congruence.
           -- apply (Hinp_sanep1 _ _ _ Hk).
+      + intros f HIn. specialize (Hinp_propagated f HIn).
+        apply knows_dfact_after_step_bw. right. exact Hinp_propagated.
   Qed.
 
   Lemma fold_left_add_zero (l : list nat) :
@@ -827,7 +871,7 @@ Section __.
     False.
   Proof.
     intros Hinp Hsane Hin Hexp Hex_kn Hwait Hmatch.
-    destruct Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
+    destruct Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane & _).
     specialize (Hcount R mf_args). fwd.
     rewrite Forall_forall in Hcountp2.
     specialize (Hcountp2 _ Hin).
@@ -1066,7 +1110,7 @@ Section __.
   Proof.
     intros Hinp Hsane Hmfc Hstep.
     pose proof Hsane as Hsane'.
-    destruct Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
+    destruct Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane & _).
     invert Hstep.
     - (* learn_fact *)
       cbv [stepOne learn_fact_at_rule] in H.
@@ -1556,42 +1600,6 @@ Section __.
       exfalso. eapply expect_num_R_facts_no_waiting; eassumption.
   Qed.
 
-  Lemma send_fact_rule_has_dfact F rs f :
-    rule_has_dfact (send_fact F rs) f <-> rule_has_dfact rs f.
-  Proof. cbv [send_fact rule_has_dfact]. simpl. reflexivity. Qed.
-
-  Lemma knows_dfact_send_fact_in_middle F l1 x l2 f :
-    knows_dfact (l1 ++ send_fact F x :: l2) f <-> knows_dfact (l1 ++ x :: l2) f.
-  Proof.
-    cbv [knows_dfact]. split; apply exists_swap; cbv [send_fact rule_has_dfact]; simpl; auto.
-  Qed.
-
-  Lemma knows_dfact_add_waiting_mono F s g :
-    knows_dfact s g -> knows_dfact (map (add_waiting_fact F) s) g.
-  Proof.
-    cbv [knows_dfact]. intros HE. apply Exists_exists in HE. apply Exists_exists.
-    destruct HE as (rs & Hin & Hd). exists (add_waiting_fact F rs).
-    split; [apply in_map; exact Hin|].
-    cbv [add_waiting_fact rule_has_dfact] in *. simpl. intuition.
-  Qed.
-
-  Lemma knows_dfact_after_step_bw F l1 x l2 f :
-    f = F \/ knows_dfact (l1 ++ x :: l2) f ->
-    knows_dfact (map (add_waiting_fact F) (l1 ++ send_fact F x :: l2)) f.
-  Proof.
-    intros [Heq|Hkd].
-    - subst f. cbv [knows_dfact rule_has_dfact add_waiting_fact send_fact].
-      rewrite map_app. simpl. apply Exists_app. right.
-      apply Exists_cons_hd. simpl. right. left. reflexivity.
-    - rewrite <- knows_dfact_send_fact_in_middle in Hkd.
-      cbv [knows_dfact] in *.
-      apply Exists_exists in Hkd. apply Exists_exists.
-      destruct Hkd as (rs & Hin & Hd). exists (add_waiting_fact F rs).
-      split.
-      + apply in_map_iff. exists rs. split; [reflexivity|exact Hin].
-      + cbv [add_waiting_fact rule_has_dfact] in *. simpl. intuition.
-  Qed.
-
   Lemma learn_fact_preserves_knows_dfact s s' f :
     stepOne learn_fact_at_rule s s' ->
     knows_dfact s f <-> knows_dfact s' f.
@@ -1752,7 +1760,7 @@ Section __.
       (* Extract meta-fact knowledge for index k *)
       simpl in HR. rewrite HER in HR.
       specialize (HR _ Hk_lt). destruct HR as (num_k & Hkknows).
-      pose proof Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane).
+      pose proof Hsane as (Hlen & Hmf_inp & Hmf_sent & Heverywhere & Hcount & Hinp_sane & _).
       pose proof (Hmf_sent _ _ _ _ Hkknows) as Hsent_k.
       cbv [nth_sat] in Hsent_k.
       destruct (nth_error s k) as [rs_k|] eqn:Hnth_s; [|contradiction].
