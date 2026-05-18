@@ -2918,15 +2918,17 @@ Section __.
                 rewrite Hs1_eq. apply in_or_app. right. left. reflexivity.
              ++ cbv [rule_has_dfact add_waiting_fact]. simpl. right. left. reflexivity.
       + (* agg_rule_impl: ru = agg_rule cr ag hr, nmr = nmr_agg cr ag hr.
-           After invert, hyps = meta_fact hyp_rel (None :: None :: map Some args) S
-                              :: map (fun '(i, x_i) => normal_fact hyp_rel (...)) vals.
-           Conclusion: normal_fact cr (interp_agg ag vals :: args).
-           Strategy: flush meta_dfacts (one per source rule, since hyp_rel is
-           non-input by Hp_input/good_non_meta_rule) AND all normal_dfacts
-           matching the aggregation pairs into rule k's known. The bicondition
-           and count for can_deduce_normal_fact's meta-fact hyp then hold from
-           mf_consistent_state + state correctness. *)
+           After invert, hyps = meta_fact hr (None :: None :: map Some args0) S
+                              :: map (fun '(i, x_i) => normal_fact hr (...)) vals.
+           Conclusion: normal_fact cr (interp_agg ag vals :: args0).
+           Key insight: is_list_set ensures vals is finite enumeration of S's
+           pairs (modulo args0), making the bicondition tractable. *)
         set (nmr := nmr_agg cr ag hr) in *.
+        rename R into R_concl, args into args_concl.
+        inversion Hnmri; subst.
+        match goal with H : is_list_set _ _ |- _ => rename H into His_set end.
+        rename args into args_rest, S into S_set, vals into vals_pairs.
+        (* The val-derived normal_facts: their dfact reps are knows_dfact s *)
         admit.
     - (* meta_rule_impl: ru = meta_rule, conclusion = meta_fact R args S.
          Strategy: for each source index k, flush the interpreted meta-clause
