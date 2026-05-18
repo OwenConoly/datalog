@@ -3267,10 +3267,61 @@ Section __.
           { cbv [can_deduce_normal_fact]. eexists. split.
             - unfold nmr. cbn [rule_of]. exact Hnmri.
             - constructor.
-              + (* meta_fact case: knows_datalog_fact rs_k.known (meta_fact hr mf_args S_set) *)
-                admit. (* Non-input case: expected_msgss = nums (extracted per-source counts),
-                          all In rs_k.known after flush. num = sum nums.
-                          Bicondition via mf_consistent_state + is_list_set + Heverywhere. *)
+              + (* meta_fact case (non-input hr) *)
+                cbv [knows_datalog_fact].
+                exists (fold_left Nat.add nums 0). ssplit.
+                * (* expect_num_R_facts: Forall2 ... In meta_dfact ... rs_k.known per source *)
+                  cbv [expect_num_R_facts]. rewrite Hhr_inp.
+                  exists nums. split; [|reflexivity].
+                  (* meta_dfs (all flushed) at each source; show via Forall2_nth_error_bwd *)
+                  apply Forall2_nth_error_bwd; [rewrite length_seq; lia|].
+                  intros i k_src num_i Hi_seq Hi_nums.
+                  apply Forall_app in Hin_all_dfs. destruct Hin_all_dfs as (Hin_meta_dfs & _).
+                  rewrite Forall_forall in Hin_meta_dfs.
+                  apply Hin_meta_dfs.
+                  unfold meta_dfs. apply in_map_iff.
+                  exists (k_src, num_i). split; [reflexivity|].
+                  apply nth_error_In with (n := i).
+                  (* combine at position i gives (k_src, num_i) *)
+                  clear -Hi_seq Hi_nums.
+                  revert nums i Hi_seq Hi_nums.
+                  generalize (seq 0 (length p.(non_meta_rules))) as l1.
+                  induction l1 as [|a l1' IH]; intros [|b nums'] i Hi_seq Hi_nums;
+                    destruct i; simpl in *; try discriminate.
+                  -- injection Hi_seq as ->. injection Hi_nums as ->. reflexivity.
+                  -- apply IH; assumption.
+                * (* Existsn count *)
+                  admit. (* count argument: sum of nums matches matching count in rs_k.known *)
+                * (* Bicondition (same as input case) *)
+                  intros nf_args Hmatch.
+                  cbv [mf_consistent_state] in Hc_meta. specialize (Hc_meta nf_args Hmatch).
+                  split.
+                  -- intros HS.
+                     destruct His_set as (His_iff & _).
+                     inversion Hmatch as [|? y1 ? rr1 H1 Hmatch']; subst.
+                     inversion Hmatch' as [|? y2 ? rr2 H2 Hmatch'']; subst.
+                     assert (Hrest : rr2 = args_rest).
+                     { clear -Hmatch''.
+                       revert rr2 Hmatch''. induction args_rest as [|a args_r IH];
+                         intros rr2 Hm.
+                       - inversion Hm; reflexivity.
+                       - simpl in Hm. inversion Hm as [|? ? ? rs Hmm Hmm']; subst.
+                         cbv [matches] in Hmm. subst.
+                         f_equal. apply IH. assumption. }
+                     subst rr2.
+                     pose proof (His_iff (y1, y2)) as His_y.
+                     apply His_y in HS.
+                     apply Forall_app in Hin_all_dfs. destruct Hin_all_dfs as (_ & Hin_val_dfs).
+                     rewrite Forall_forall in Hin_val_dfs.
+                     apply Hin_val_dfs.
+                     unfold val_dfs. apply in_map_iff. exists (y1, y2).
+                     split; [reflexivity|exact HS].
+                  -- intros Hin_kn.
+                     apply Hc_meta.
+                     rewrite <- Hiff_kn.
+                     cbv [knows_dfact]. apply Exists_exists.
+                     exists rs_k. split; [apply nth_error_In in Hnth_k; exact Hnth_k|].
+                     left. exact Hin_kn.
               + apply Forall_forall. intros f Hin.
                 apply in_map_iff in Hin. destruct Hin as ((i, x_i) & <- & Hin_pair).
                 simpl.
