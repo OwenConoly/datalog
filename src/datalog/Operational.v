@@ -2639,7 +2639,39 @@ Section __.
 
   (* Per-rule completeness: given a rule r in rules_of, hyps derived in s, and
      mf_consistent_state for meta-fact hyps, we can step to a state where the
-     conclusion of r is derived. *)
+     conclusion of r is derived.
+
+     ROADMAP for the three admits below:
+
+     Normal-rule subcase (simple_rule_impl + normal_rule_impl):
+       1. From the Forall2 (interp_clause ctx) Hyps, each hyp = normal_fact R' args'.
+          Extract list dfs = map (fun (normal_fact R' args') => normal_dfact R' args').
+       2. From Hderived: Forall (knows_dfact s) dfs.
+       3. Flush via flush_waiting_to_known at index k: get s1 with rs_k.known
+          containing all dfs.
+       4. Case split on whether rs_k.sent contains a (meta_dfact R mf_args (Some k) num)
+          with mf_args matching args:
+            (a) If YES: use meta_facts_correct_at_rule + can_deduce_meta_fact's
+                forcing clause to conclude (normal_dfact R args) is already in
+                rs_k.known. Done with 0 additional steps.
+            (b) If NO: apply fire_normal_rule, get s2 = map (afw F) (... send_fact F :: ...).
+                The new state has (normal_dfact R args) in every rule's waiting.
+                Therefore knows_dfact s2 (normal_dfact R args), i.e., has_derived s2 f.
+
+     Agg-rule subcase (simple_rule_impl + agg_rule_impl):
+       Similar to normal-rule but hyps = meta_fact :: list of normal_facts.
+       The meta_fact hyp needs flushing of multiple meta_dfacts (one per k).
+       Uses mf_consistent_state to establish the aggregation's source set.
+
+     Meta-rule subcase (meta_rule_impl):
+       ru = meta_rule mf_concls mf_hyps. Conclusion = meta_fact R args S.
+       Pick a source-index k. Flush all interpreted meta-clause hyps into rule k's
+       known. Apply fire_meta_rule. The new meta_dfact (Some k) is in rs_k.sent,
+       and via the count infrastructure (Hcount) plus the fired num matching,
+       has_derived holds at all rules.
+
+     Each subcase also needs the no-self-reference clause for fire_meta_rule, derived
+     from meta_facts_correct_at_rule (same pattern as step_preserves_mfs_correct). *)
   Lemma good_layout_complete_rule inputs s (ru : rule) f hyps :
     good_input_facts inputs ->
     sane_state inputs s ->
