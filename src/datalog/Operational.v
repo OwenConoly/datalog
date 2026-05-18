@@ -2985,9 +2985,23 @@ Section __.
           (* Build can_deduce_normal_fact at rs_k *)
           assert (Hcdn : can_deduce_normal_fact nmr rs_k.(known_facts)
                           R_concl (interp_agg ag vals_pairs :: args_rest)).
-          { admit. (* Requires knows_datalog_fact rs_k.known on meta_fact hyp:
-              count = num_inp (from Hcount + Hinp_sane for input hr),
-              bicondition (from mf_consistent_state + is_list_set + Heverywhere). *) }
+          { cbv [can_deduce_normal_fact]. eexists. split.
+            - (* non_meta_rule_impl (rule_of nmr) R_concl ... hyps *)
+              unfold nmr. cbn [rule_of]. exact Hnmri.
+            - (* Forall (knows_datalog_fact rs_k.known) on the hyps list *)
+              constructor.
+              + (* meta_fact case: knows_datalog_fact rs_k.known (meta_fact hr mf_args S_set) *)
+                admit. (* Requires count = num_inp (from Hcount + Hinp_sane for input hr),
+                          bicondition (from mf_consistent_state + is_list_set + Heverywhere). *)
+              + (* val normals: each In rs_k.known via Hin_all_dfs *)
+                apply Forall_forall. intros f Hin.
+                apply in_map_iff in Hin. destruct Hin as ((i, x_i) & <- & Hin_pair).
+                simpl.
+                apply Forall_cons_iff in Hin_all_dfs. destruct Hin_all_dfs as (_ & Hin_val_dfs).
+                rewrite Forall_forall in Hin_val_dfs.
+                apply Hin_val_dfs.
+                unfold val_dfs. apply in_map_iff.
+                exists (i, x_i). split; [reflexivity|exact Hin_pair]. }
           (* The rest mirrors normal_rule_impl: case split on conflict, fire *)
           destruct (classic (exists mf_args' num,
                               In (meta_dfact R_concl mf_args' (Some k) num) rs_k.(sent_facts) /\
@@ -3115,10 +3129,22 @@ Section __.
           assert (Hsound1 : state_correct inputs s1) by eauto using comp_steps_sound.
           assert (Hcdn : can_deduce_normal_fact nmr rs_k.(known_facts)
                           R_concl (interp_agg ag vals_pairs :: args_rest)).
-          { admit. (* Requires knows_datalog_fact rs_k.known on meta_fact hyp:
-              non-input case: expected_msgss = nums (the extracted per-source counts),
-              all In rs_k.known after flush. num = sum nums = total matching count.
-              Bicondition via mf_consistent_state + is_list_set + Heverywhere. *) }
+          { cbv [can_deduce_normal_fact]. eexists. split.
+            - unfold nmr. cbn [rule_of]. exact Hnmri.
+            - constructor.
+              + (* meta_fact case: knows_datalog_fact rs_k.known (meta_fact hr mf_args S_set) *)
+                admit. (* Non-input case: expected_msgss = nums (extracted per-source counts),
+                          all In rs_k.known after flush. num = sum nums.
+                          Bicondition via mf_consistent_state + is_list_set + Heverywhere. *)
+              + apply Forall_forall. intros f Hin.
+                apply in_map_iff in Hin. destruct Hin as ((i, x_i) & <- & Hin_pair).
+                simpl.
+                (* all_dfs = meta_dfs ++ val_dfs; val_dfs has the normal_dfact *)
+                apply Forall_app in Hin_all_dfs. destruct Hin_all_dfs as (_ & Hin_val_dfs).
+                rewrite Forall_forall in Hin_val_dfs.
+                apply Hin_val_dfs.
+                unfold val_dfs. apply in_map_iff.
+                exists (i, x_i). split; [reflexivity|exact Hin_pair]. }
           (* Mirror the input-case case-split + fire structure *)
           destruct (classic (exists mf_args' num,
                               In (meta_dfact R_concl mf_args' (Some k) num) rs_k.(sent_facts) /\
