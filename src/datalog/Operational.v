@@ -3110,6 +3110,94 @@ Section __.
         subst r. destruct nmr; simpl in Hri; inversion Hri.
   Qed.
 
+  (* Flush all meta_fact hyps to rule k's known via iterated flush_one_meta_hyp. *)
+  Lemma flush_all_meta_hyps inputs s k hyps_facts :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    state_correct inputs s ->
+    k < length s ->
+    0 < length p.(non_meta_rules) ->
+    Forall (has_derived_datalog_fact s) hyps_facts ->
+    Forall (mf_consistent_state s) hyps_facts ->
+    Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps_facts ->
+    Forall (fun h => exists R mf_args mf_set, h = meta_fact R mf_args mf_set) hyps_facts ->
+    exists s' rs',
+      comp_step^* s s' /\
+        nth_error s' k = Some rs' /\
+        Forall (knows_datalog_fact rs'.(known_facts)) hyps_facts /\
+        (forall g, knows_dfact s' g <-> knows_dfact s g).
+  Proof.
+    intros Hinp Hsane Hmfc Hsound Hk Hlen_pos Hd Hc Hpi Hshape.
+    revert s Hsane Hmfc Hsound Hk Hd Hc Hpi.
+    induction hyps_facts as [|h hs IH]; intros s Hsane Hmfc Hsound Hk Hd Hc Hpi.
+    - destruct (nth_error s k) as [rs_k|] eqn:Hnth; [|apply nth_error_None in Hnth; lia].
+      exists s, rs_k. ssplit.
+      + apply rt1n_refl.
+      + exact Hnth.
+      + constructor.
+      + intros g. reflexivity.
+    - apply Forall_cons_iff in Hd. destruct Hd as (Hd_h & Hd_hs).
+      apply Forall_cons_iff in Hc. destruct Hc as (Hc_h & Hc_hs).
+      apply Forall_cons_iff in Hpi. destruct Hpi as (Hpi_h & Hpi_hs).
+      apply Forall_cons_iff in Hshape. destruct Hshape as (Hshape_h & Hshape_hs).
+      destruct Hshape_h as (R_h & mf_args_h & mf_set_h & ->).
+      (* Flush h first *)
+      pose proof (flush_one_meta_hyp inputs s k R_h mf_args_h mf_set_h
+                    Hinp Hsane Hmfc Hsound Hk Hd_h Hc_h Hpi_h Hlen_pos)
+        as (s1 & rs_k1 & Hsteps1 & Hnth_k1 & Hknow_h & Hiff1).
+      assert (Hsane1 : sane_state inputs s1) by eauto using steps_preserves_sane.
+      assert (Hmfc1 : meta_facts_correct s1) by eauto using steps_preserves_mfs_correct.
+      assert (Hsound1 : state_correct inputs s1) by eauto using comp_steps_sound.
+      assert (Hk1 : k < length s1).
+      { erewrite <- steps_preserves_length; eauto. }
+      (* Update Hd_hs, Hc_hs, Hpi_hs to s1 via iff and preservation *)
+      assert (Hd_hs_s1 : Forall (has_derived_datalog_fact s1) hs).
+      { eapply Forall_impl; [|exact Hd_hs].
+        intros h0 Hd0.
+        eapply steps_preserves_has_derived;
+          [exact Hinp | exact Hsane | exact Hsteps1 | exact Hd0]. }
+      assert (Hc_hs_s1 : Forall (mf_consistent_state s1) hs).
+      { eapply Forall_impl; [|exact Hc_hs]. intros h0.
+        cbv [mf_consistent_state]. destruct h0; auto.
+        intros Hbi nf_args Hmatch. rewrite Hiff1. apply Hbi. exact Hmatch. }
+      (* Recurse on hs *)
+      specialize (IH Hshape_hs s1 Hsane1 Hmfc1 Hsound1 Hk1 Hd_hs_s1 Hc_hs_s1 Hpi_hs).
+      destruct IH as (s' & rs_k' & Hsteps' & Hnth_k' & Hknow_hs & Hiff').
+      exists s', rs_k'. ssplit; try assumption.
+      + eapply crt1n_trans_compose; eassumption.
+      + constructor.
+        * (* knows_datalog_fact rs_k'.known h — need to extend from rs_k1.known *)
+          pose proof (steps_preserves_known_at _ _ _ _ _ Hinp Hsane1 Hsteps' Hnth_k1)
+            as (rs_k1' & Hnth_eq & Hincl).
+          rewrite Hnth_eq in Hnth_k'. injection Hnth_k' as ->.
+          (* Need: knows_datalog_fact rs_k'.known (meta_fact R_h mf_args_h mf_set_h) *)
+          (* From knows_datalog_fact rs_k1.known (Hknow_h), lift via Hincl and Hiff. *)
+          cbv [knows_datalog_fact] in Hknow_h |- *.
+          destruct Hknow_h as (num_h & Hexp_h & Hex_h & Hbi_h).
+          exists num_h. ssplit.
+          -- (* expect_num_R_facts *)
+             cbv [expect_num_R_facts] in *.
+             destruct (is_input R_h).
+             ++ apply Hincl. exact Hexp_h.
+             ++ destruct Hexp_h as (msgs & Hf2 & Heq).
+                exists msgs. split; [|exact Heq].
+                eapply Forall2_impl_strong; [|exact Hf2].
+                intros n exp Hexp_in _ _. apply Hincl. exact Hexp_in.
+          -- (* Existsn count — count might have shifted, but matching positions can only grow *)
+             admit. (* requires showing count is preserved despite Hincl extension *)
+          -- (* Bicondition *)
+             intros nf_args Hmatch.
+             specialize (Hbi_h nf_args Hmatch).
+             rewrite Hbi_h. split.
+             ++ intros Hin. apply Hincl. exact Hin.
+             ++ (* In rs_k'.known → In rs_k1.known? Not necessarily *)
+                admit. (* requires more care for backward direction *)
+        * (* Forall (knows_datalog_fact rs_k'.known) hs — already from IH *)
+          exact Hknow_hs.
+      + intros g. rewrite Hiff', Hiff1. reflexivity.
+  Admitted.
+
   (* Lifts soundness in the reverse direction: if a fact is both prog_impl-derivable
      and has_derived in s, then its mf_consistent_state holds in s.
      Analog of SimpleDataflow's correct_impl_consistent.
