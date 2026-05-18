@@ -3749,9 +3749,25 @@ Section __.
             [|apply nth_error_None in Hnth_rn; lia].
           destruct (nth_error s' n) as [rs_n|] eqn:Hnth_rs_n;
             [|apply nth_error_None in Hnth_rs_n; lia].
-          (* The substantive parts (Forall knows_datalog_fact on hyps_facts +
-             forcing clause for can_deduce_meta_fact) require analogs of the agg
-             machinery for each meta_fact hyp. *)
+          (* REMAINING WORK (admitted):
+             To fire fire_meta_rule at source n, we need:
+             (A) Forall (knows_datalog_fact rs_n.known) hyps_facts — each
+                 meta_fact hyp must be locally knowable. Requires per-hyp:
+                 expect_num_R_facts (via flush_meta_count_for_rule), Existsn count
+                 (via flush_all_matching_from_waiting + Hcount), bicondition
+                 (via Hiff + mf_consistent_state + interp_meta_clause analysis).
+                 Each hyp's mf_consistent_state derives from Hcons + state_correct
+                 (using correct_impl_consistent as in comp_step_complete).
+             (B) Forcing clause of can_deduce_meta_fact: forall nf_args matching args_concl,
+                 can_deduce_normal_fact rn rs_n.known R_concl nf_args →
+                 In (normal_dfact R_concl nf_args) rs_n.known.
+                 Requires "closure under normal-rule derivation" at rs_n.known.
+                 Analog of SimpleDataflow's node_can_find_all_conclusions which
+                 either provides the meta_dfact directly or steps to a state
+                 satisfying the forcing. Uses classical excluded middle + induction
+                 over candidate normal_dfacts. This is a substantial helper lemma.
+             (C) Apply fire_meta_rule with appropriate combine decomposition
+                 (same machinery as fire_normal_rule in agg/normal cases). *)
           admit. }
       specialize (Hgoal_n (length p.(non_meta_rules)) ltac:(lia)).
       destruct Hgoal_n as (s' & Hsteps & Hknows_all).
