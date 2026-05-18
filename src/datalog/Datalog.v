@@ -3204,17 +3204,31 @@ Section __.
           - intros k Hk. specialize (Hf1 k Hk). destruct Hf1 as (num & Hknk).
             exists num. apply Hkd_meta in Hknk. exact Hknk. }
         destruct (classic (R = nf_rel)) as [HReq | HRneq].
-        * (* R = nf_rel: hard case.  Hf2 says
-             mf_set nf_args <-> (nf_args = nf_args_fire) \/ knows_dfact s (normal nf_rel nf_args).
-             Three sub-cases:
-             (i)  Forall2 matches mf_args nf_args_fire is FALSE: lift Hf2 directly.
-             (ii) matches AND knows_dfact s (normal nf_rel nf_args_fire) is TRUE: same.
-             (iii)matches AND knows_dfact s = FALSE: mf_set nf_args_fire is forced true
-                  but no rule has the dfact in known.  Must derive normal_fact via firing
-                  rule and combine with a meta-rule derivation for f.  Mirror of
-                  SimpleDataflow's LearnFact + meta-fact + agg-rule case using
-                  meta_facts_consistent. *)
-          admit.
+        * (* R = nf_rel: Hf2 says mf_set nf_args <-> (nf_args = nf_args_fire) OR
+             knows_dfact s (normal nf_rel nf_args).  Lift to mf_consistent_state s f
+             succeeds EXCEPT when nf_args_fire matches mf_args AND
+             ~knows_dfact s (normal nf_rel nf_args_fire) — case (iii) below.  In
+             that sub-case mf_consistent_state s f is genuinely violated and
+             Hsound is unusable; the derivation must come from the firing rule. *)
+          subst R.
+          assert (Hf2_s : mf_consistent_state s (meta_fact nf_rel mf_args mf_set)).
+          { simpl. intros nf_args0 Hmatch0. specialize (Hf2 _ Hmatch0).
+            destruct (classic (nf_args0 = nf_args)) as [-> | HNe].
+            - (* nf_args0 = nf_args (the newly fired fact's args).  Need
+                 mf_set nf_args <-> knows_dfact s (normal nf_rel nf_args). *)
+              destruct (classic (knows_dfact s (normal_dfact nf_rel nf_args)))
+                as [Hk | Hnk].
+              + (* case (ii) knows_dfact s = true: Hf2 RHS reduces to true *)
+                split; intros _; [exact Hk|].
+                rewrite Hf2, Hkd_iff. right. exact Hk.
+              + (* case (iii) knows_dfact s = false: hard.  See comment above. *)
+                admit.
+            - (* case (i) nf_args0 != nf_args: lift Hf2 directly *)
+              rewrite Hf2, Hkd_iff. split.
+              + intros [Heq | Hk]; [|exact Hk].
+                subst F. injection Heq as Heq2. contradiction.
+              + intros Hk. right. exact Hk. }
+          apply Hsound. split; assumption.
         * (* R != nf_rel: knows_dfact unchanged for (normal R _); lift Hf2 *)
           assert (Hf2_s : mf_consistent_state s (meta_fact R mf_args mf_set)).
           { simpl. intros args0 Hmatch. specialize (Hf2 _ Hmatch).
