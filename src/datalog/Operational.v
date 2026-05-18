@@ -2829,6 +2829,34 @@ Section __.
     eapply flush_all_matching_from_waiting_aux; eauto.
   Qed.
 
+  (* If a prog_impl-derivable meta_fact has input rel, it must come from Q-leaf
+     (no meta-rule can produce input meta-facts by good_meta_rule_inputs). *)
+  Lemma prog_impl_input_meta_implies_Q_leaf_early inputs mf_rel mf_args mf_set :
+    is_input mf_rel = true ->
+    prog_impl rules_of (knows_datalog_fact inputs) (meta_fact mf_rel mf_args mf_set) ->
+    knows_datalog_fact inputs (meta_fact mf_rel mf_args mf_set).
+  Proof.
+    intros HER Himpl. invert Himpl.
+    - (* Q-leaf *) exact H.
+    - (* rule-step: contradict via Hp_meta_input *)
+      exfalso. apply Exists_exists in H. destruct H as (r & Hin_r & Hri).
+      cbv [rules_of] in Hin_r. apply in_app_or in Hin_r.
+      destruct Hin_r as [Hin_meta | Hin_nm].
+      + apply in_map_iff in Hin_meta. destruct Hin_meta as ((c, h) & Heq & Hin_mr).
+        subst r. invert Hri.
+        rewrite Forall_forall in Hp_meta_input.
+        specialize (Hp_meta_input _ Hin_mr). simpl in Hp_meta_input.
+        rewrite Forall_forall in Hp_meta_input.
+        match goal with H : Exists _ _ |- _ => apply Exists_exists in H;
+                          destruct H as (c0 & Hin_c0 & Hint_c) end.
+        cbv [interp_meta_clause] in Hint_c.
+        destruct Hint_c as (mfa & mfs & _ & Heq_c).
+        injection Heq_c as -> _ _.
+        pose proof (Hp_meta_input _ Hin_c0). congruence.
+      + apply in_map_iff in Hin_nm. destruct Hin_nm as (nmr & Heq_r & _).
+        subst r. destruct nmr; simpl in Hri; inversion Hri.
+  Qed.
+
   (* For a meta_fact h satisfying has_derived + mf_consistent_state at s, flush
      the necessary meta_dfacts and matching normal_dfacts so that
      knows_datalog_fact rs_k.known h holds at the resulting state.
@@ -2901,8 +2929,119 @@ Section __.
       destruct Hforall_kn as (num_known & num_wait & Hex_kn & Hex_w & Hsum).
       pose proof (Existsn_unique _ _ _ _ Hex_w Hex_w_0) as Hnw_eq.
       subst num_wait. rewrite Nat.add_0_r in Hsum.
-      (* Need num_known = num_meta. Two cases on is_input. *)
-      admit. (* Existsn count argument: similar to agg cases, depends on is_input *)
+      destruct (is_input mf_rel) eqn:Hinp_rel.
+      + (* input case: num_meta = num_inp_actual via Q-leaf + uniqueness *)
+        (* sum_sent = 0 for input rel *)
+        pose proof (Hinp_sane' mf_rel Hinp_rel) as (Hinp_zero & _).
+        specialize (Hinp_zero mf_args).
+        assert (Hsum_msgs_zero : fold_left Nat.add msgs_sents 0 = 0).
+        { clear -Hinp_zero Hf2_msgs.
+          revert msgs_sents Hf2_msgs Hinp_zero.
+          induction s' as [|rs s'' IH]; intros [|m ms] Hf2 Hi.
+          - reflexivity.
+          - inversion Hf2.
+          - inversion Hf2.
+          - inversion Hf2 as [|? ? ? ? Hex' Hf2_rest]; subst.
+            apply Forall_cons_iff in Hi. destruct Hi as (Hrs_zero & Hi_rest).
+            pose proof (Existsn_unique _ _ _ _ Hex' Hrs_zero) as Heq. subst m.
+            simpl. apply IH; assumption. }
+        rewrite Hsum_msgs_zero in Hsum. rewrite Nat.add_0_r in Hsum. subst num_known.
+        (* num_inp_actual = num_meta: prog_impl_input_meta_implies_Q_leaf *)
+        pose proof (prog_impl_input_meta_implies_Q_leaf_early inputs mf_rel mf_args mf_set
+                      Hinp_rel Hpi) as HQ.
+        cbv [knows_datalog_fact] in HQ.
+        destruct HQ as (num_q & Hexp_q & Hex_q & _).
+        cbv [expect_num_R_facts] in Hexp_q. rewrite Hinp_rel in Hexp_q.
+        (* From has_derived (input case): knows_dfact s (meta_dfact mf_rel mf_args None num_meta).
+           By Hmf_inp at s, In ... inputs. *)
+        cbv [has_derived_datalog_fact] in Hd. rewrite Hinp_rel in Hd.
+        destruct Hd as (num_d & Hknows_d).
+        (* num_d = num_meta (both extracted from same Hknow_meta_info source) *)
+        (* But that's not directly evident. Let me use Hmf_inp at s' instead. *)
+        (* By Hexp_int we have meta_dfact at rs_k_int.known with num_meta.
+           After flush, still in rs_k.known by Hincl. So knows_dfact s' (...) with num_meta. *)
+        assert (Hknows_meta_s' : knows_dfact s' (meta_dfact mf_rel mf_args None num_meta)).
+        { cbv [knows_dfact]. apply Exists_exists. exists rs_k.
+          split; [apply nth_error_In in Hnth_eq; exact Hnth_eq|].
+          left.
+          cbv [expect_num_R_facts] in Hexp_int. rewrite Hinp_rel in Hexp_int.
+          apply Hincl. exact Hexp_int. }
+        pose proof (Hmf_inp' _ _ _ Hknows_meta_s') as Hmf_inp_meta.
+        (* good_input_facts uniqueness: num_q = num_meta *)
+        destruct Hinp as (_ & Hinp_unique).
+        pose proof (Hinp_unique mf_rel mf_args num_q Hexp_q) as (Hunq & _).
+        specialize (Hunq num_meta Hmf_inp_meta). subst num_q.
+        (* Existsn_unique: num_meta = num_inp_actual *)
+        pose proof (Existsn_unique _ _ _ _ Hex_q Hex_inp_actual) as Hex_unq.
+        subst num_inp_actual. exact Hex_kn.
+      + (* non-input case: num_meta = sum_sent *)
+        (* num_inp_actual = 0 for non-input rel *)
+        assert (Hinp_zero : num_inp_actual = 0).
+        { destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
+          clear -Hex_inp_actual Hinp_all Hinp_rel.
+          revert num_inp_actual Hex_inp_actual.
+          induction inputs as [|f rest IH]; intros num_inp_actual Hex.
+          - inversion Hex; reflexivity.
+          - inversion Hex as [|? ? ? Hnot Hex_rest|? ? ? Hyes Hex_rest]; subst.
+            + apply IH; auto.
+              intros f' Hf'. apply Hinp_all. right. exact Hf'.
+            + exfalso.
+              destruct Hyes as (nf_args & Heq & _). subst f.
+              specialize (Hinp_all _ (or_introl eq_refl)).
+              simpl in Hinp_all. congruence. }
+        subst num_inp_actual. simpl in Hsum.
+        (* num_known = sum_sent. Need sum_sent = num_meta. *)
+        (* num_meta = fold_left Nat.add nums 0 from flush_meta_count_for_rule's structure.
+           We need to extract nums and compare to msgs_sents. *)
+        (* Actually flush_meta_count_for_rule's signature has num as existential; in non-input
+           case it returns fold_left of internal nums. Let me extract via Hexp_int. *)
+        cbv [expect_num_R_facts] in Hexp_int. rewrite Hinp_rel in Hexp_int.
+        destruct Hexp_int as (nums_int & HF2_int & Hnum_meta_eq).
+        (* HF2_int: Forall2 ... rs_k_int.known each (Some n) nums_int[n].
+           Show msgs_sents = nums_int via knows_dfact transitivity. *)
+        assert (Hmsgs_eq : Forall2 eq msgs_sents nums_int).
+        { eapply Forall2_nth_error_bwd.
+          { pose proof (Forall2_length Hf2_msgs) as Hl_ms.
+            apply Forall2_length in HF2_int. rewrite length_seq in HF2_int.
+            pose proof (steps_preserves_length _ _ _ Hinp Hsane_save Hsteps_total) as Hlen_s'.
+            pose proof Hsane_save as (Hlen_s_o & _). lia. }
+          intros i ms_i num_i Hi_ms Hi_num.
+          (* num_i = In (meta_dfact ... (Some i) num_i) rs_k_int.known via HF2_int *)
+          pose proof (Forall2_length HF2_int) as Hlen_int.
+          rewrite length_seq in Hlen_int.
+          assert (Hi_lt_n : i < length p.(non_meta_rules)).
+          { apply nth_error_Some_bound_index in Hi_num. lia. }
+          assert (Hi_seq : nth_error (seq 0 (length p.(non_meta_rules))) i = Some i).
+          { rewrite nth_error_seq.
+            assert (E : i <? length p.(non_meta_rules) = true) by (apply Nat.ltb_lt; lia).
+            rewrite E. reflexivity. }
+          pose proof (Forall2_nth_error_fwd _ _ _ HF2_int i i num_i Hi_seq Hi_num) as Hin_meta_int.
+          (* In meta_dfact ... rs_k_int.known. Lift to s' via Hincl. *)
+          apply Hincl in Hin_meta_int.
+          (* knows_dfact s' (meta_dfact ... (Some i) num_i) *)
+          assert (Hknows_s' : knows_dfact s' (meta_dfact mf_rel mf_args (Some i) num_i)).
+          { cbv [knows_dfact]. apply Exists_exists. exists rs_k.
+            split; [apply nth_error_In in Hnth_eq; exact Hnth_eq|]. left. exact Hin_meta_int. }
+          specialize (Hmf_sent' _ _ _ _ Hknows_s').
+          cbv [nth_sat] in Hmf_sent'.
+          pose proof (Forall2_length Hf2_msgs) as Hf2_len.
+          assert (Hi_s' : exists rs_i, nth_error s' i = Some rs_i).
+          { destruct (nth_error s' i) eqn:E; [eauto|].
+            apply nth_error_None in E.
+            apply nth_error_Some_bound_index in Hi_ms. lia. }
+          destruct Hi_s' as (rs_i & Hnth_s'_i).
+          rewrite Hnth_s'_i in Hmf_sent'.
+          destruct Hmf_sent' as (Hex_num_i & _).
+          pose proof (Forall2_nth_error_fwd _ _ _ Hf2_msgs i rs_i ms_i Hnth_s'_i Hi_ms)
+            as Hex_ms_i.
+          pose proof (Existsn_unique _ _ _ _ Hex_ms_i Hex_num_i) as Heq. exact Heq. }
+        assert (Hsents_eq : fold_left Nat.add msgs_sents 0 = fold_left Nat.add nums_int 0).
+        { assert (Heq : msgs_sents = nums_int).
+          { clear -Hmsgs_eq. induction Hmsgs_eq; subst; reflexivity. }
+          subst. reflexivity. }
+        rewrite Hsents_eq in Hsum.
+        rewrite <- Hnum_meta_eq in Hsum.
+        rewrite <- Hsum. exact Hex_kn.
     - (* Bicondition *)
       intros nf_args Hmatch.
       cbv [mf_consistent_state] in Hc. specialize (Hc nf_args Hmatch).
