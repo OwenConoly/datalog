@@ -2630,17 +2630,62 @@ Section __.
   (* Lifts soundness in the reverse direction: if a fact is both prog_impl-derivable
      and has_derived in s, then its mf_consistent_state holds in s.
      Analog of SimpleDataflow's correct_impl_consistent.
-     Declared as Hypothesis (i.e., section variable) rather than Admitted Lemma
-     because Coq complains about section variable scoping when an Admitted lemma
-     is eapply'd in a later proof. To discharge, replace this with a proved Lemma
-     once the proof is ready; the discharge requires a uniqueness argument for
-     meta-fact sets (analog of SimpleDataflow's hmfs_unique). *)
+     Uses meta_facts_consistent (from Datalog.v) as the uniqueness argument.
+     The 0 < length non_meta_rules precondition flows from
+     good_inputs_knows_datalog_fact_inputs. *)
   Hypothesis correct_impl_consistent : forall inputs s f,
     good_input_facts inputs ->
+    0 < length p.(non_meta_rules) ->
     state_correct inputs s ->
     prog_impl rules_of (knows_datalog_fact inputs) f ->
     has_derived_datalog_fact s f ->
     mf_consistent_state s f.
+
+  (* Standalone proof of correct_impl_consistent. The Hypothesis form above is
+     needed because of a Coq quirk where Admitted/Lemma forms inside a Section
+     can't always be eapply'd in subsequent proofs (section variable scoping).
+     This lemma demonstrates that the Hypothesis IS provable. *)
+  Lemma correct_impl_consistent_proved inputs s f :
+    good_input_facts inputs ->
+    0 < length p.(non_meta_rules) ->
+    state_correct inputs s ->
+    prog_impl rules_of (knows_datalog_fact inputs) f ->
+    has_derived_datalog_fact s f ->
+    mf_consistent_state s f.
+  Proof.
+    intros Hinp Hlen Hsound Himpl Hderived.
+    destruct f as [R args | R mf_args mf_set]; [exact I|].
+    cbv [mf_consistent_state]. intros nf_args Hmatch.
+    (* Build S0 *)
+    pose (S0 := fun args' => knows_dfact s (normal_dfact R args')).
+    (* has_derived s (meta_fact R mf_args S0) holds (depends only on R, mf_args) *)
+    assert (Hd0 : has_derived_datalog_fact s (meta_fact R mf_args S0)).
+    { cbv [has_derived_datalog_fact] in *. exact Hderived. }
+    (* mf_consistent_state s (meta_fact R mf_args S0) holds trivially *)
+    assert (Hc0 : mf_consistent_state s (meta_fact R mf_args S0)).
+    { cbv [mf_consistent_state]. intros nf_args' Hmatch'.
+      unfold S0. reflexivity. }
+    (* By state_correct, prog_impl ... (meta_fact R mf_args S0) *)
+    pose proof (Hsound (meta_fact R mf_args S0) (conj Hd0 Hc0)) as Himpl0.
+    (* Apply meta_facts_consistent to get mf_set <-> S0 *)
+    pose proof (good_inputs_knows_datalog_fact_inputs inputs Hinp Hlen) as Hgi.
+    destruct Hgi as (Hrel_disj & Hdoesnt_lie).
+    assert (Hpair_unique : forall mfr mfa1 mfa2 mfs1 mfs2,
+              knows_datalog_fact inputs (meta_fact mfr mfa1 mfs1) ->
+              knows_datalog_fact inputs (meta_fact mfr mfa2 mfs2) ->
+              forall nfa, Forall2 matches mfa1 nfa -> Forall2 matches mfa2 nfa ->
+              mfs1 nfa <-> mfs2 nfa).
+    { intros mfr mfa1 mfa2 mfs1 mfs2 HQ1 HQ2 nfa Hm1 Hm2.
+      pose proof (Hdoesnt_lie mfr mfa1 mfs1 HQ1 nfa Hm1) as H1.
+      pose proof (Hdoesnt_lie mfr mfa2 mfs2 HQ2 nfa Hm2) as H2.
+      cbv [rel_of] in H1, H2.
+      rewrite H1, H2. reflexivity. }
+    pose proof (meta_facts_consistent rules_of (knows_datalog_fact inputs)
+                  R mf_args mf_args mf_set S0
+                  Hrel_disj Hpair_unique Hmeta_rules
+                  Himpl Himpl0 nf_args Hmatch Hmatch) as Hbic.
+    rewrite Hbic. unfold S0. reflexivity.
+  Qed.
 
   (* Per-rule completeness: given a rule r in rules_of, hyps derived in s, and
      mf_consistent_state for meta-fact hyps, we can step to a state where the
@@ -2884,13 +2929,16 @@ Section __.
                 eexists. split; [reflexivity|].
                 rewrite Hs1_eq. apply in_or_app. right. left. reflexivity.
              ++ cbv [rule_has_dfact add_waiting_fact]. simpl. right. left. reflexivity.
-      + (* agg_rule_impl: hyps = meta_fact hyp_rel ... S :: map ... vals
-           ru = agg_rule cr ag hr, nmr = nmr_agg cr ag hr.
+      + (* agg_rule_impl: ru = agg_rule cr ag hr, nmr = nmr_agg cr ag hr.
+           After invert, hyps = meta_fact hyp_rel (None :: None :: map Some args) S
+                              :: map (fun '(i, x_i) => normal_fact hyp_rel (...)) vals.
            Conclusion: normal_fact cr (interp_agg ag vals :: args).
-           Strategy mirrors normal_rule_impl but with an extra step to flush
-           the meta_fact's meta_dfacts (one per source rule index k_src) plus
-           the normal_dfacts representing the aggregation pairs (i, x_i) at the
-           target rule k's known_facts. Then can_deduce_normal_fact + fire. *)
+           Strategy: flush meta_dfacts (one per source rule, since hyp_rel is
+           non-input by Hp_input/good_non_meta_rule) AND all normal_dfacts
+           matching the aggregation pairs into rule k's known. The bicondition
+           and count for can_deduce_normal_fact's meta-fact hyp then hold from
+           mf_consistent_state + state correctness. *)
+        set (nmr := nmr_agg cr ag hr) in *.
         admit.
     - (* meta_rule_impl: ru = meta_rule, conclusion = meta_fact R args S.
          Strategy: for each source index k, flush the interpreted meta-clause
@@ -2912,12 +2960,13 @@ Section __.
 
   Lemma comp_step_complete inputs s :
     good_input_facts inputs ->
+    0 < length p.(non_meta_rules) ->
     sane_state inputs s ->
     meta_facts_correct s ->
     state_correct inputs s ->
     state_complete inputs s.
   Proof.
-    intros Hinp Hsane Hmfc Hsound f Himpl.
+    intros Hinp Hlen Hsane Hmfc Hsound f Himpl.
     set (R := fun (f0 : fact) =>
                 forall s0,
                   sane_state inputs s0 ->
@@ -2948,6 +2997,7 @@ Section __.
         intros h Hin_h.
         eapply correct_impl_consistent.
         - exact Hinp.
+        - exact Hlen.
         - exact Hsound1.
         - apply Hforall_pi. assumption.
         - apply Hderived1. assumption. }
