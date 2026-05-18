@@ -3304,8 +3304,50 @@ Section __.
             simpl. apply Hbic. exact Hmatch_nf. }
         pose proof (valid_impl_honest _ Hmeta_rules _ Hgood_inputs_Q) as Hhonest.
         cbv [doesnt_lie] in Hhonest.
+        assert (Hin_rs_k : In rs_k s) by (eapply nth_error_In; eassumption).
         (* Now handle h based on its shape *)
-        admit. }
+        destruct h as [R' args' | R' mf_args' mf_set'_h].
+        + (* normal hyp *)
+          cbv [fact_potentially_supported] in Hpot_h.
+          destruct Hpot_h as (mf_args' & mf_set'_m & Hin_m & Hmatch_m).
+          pose proof (Hkdf_h _ Hin_m) as Hkd_m.
+          destruct (classic ((R, mf_args) = (R', mf_args'))) as [Heq | Hne].
+          * (* self-recursive case: admit (needs recursion or stronger invariant) *)
+            admit.
+          * (* non-self-recursive case *)
+            pose proof (knows_datalog_fact_local_lift_has_derived _ _ _ _ Hinp Hsane Hin_rs_k Hkd_m) as Hhd_m.
+            pose proof (knows_datalog_fact_local_lift_mf_consistent _ _ _ _ Hinp Hsane Hin_rs_k Hkd_m) as Hmc_m.
+            pose proof (HRs _ _ _ Hne (conj Hhd_m Hmc_m)) as Hprog_m.
+            pose proof (Hhonest _ _ _ Hprog_m) as Hcon_m.
+            cbv [consistent] in Hcon_m.
+            specialize (Hcon_m _ Hmatch_m).
+            apply Hcon_m in Hprog_h.
+            simpl in Hkd_m. destruct Hkd_m as (num_m & _ & _ & Hbic_m).
+            specialize (Hbic_m _ Hmatch_m).
+            simpl. apply Hbic_m. exact Hprog_h.
+        + (* meta hyp *)
+          cbv [fact_potentially_supported] in Hpot_h.
+          destruct Hpot_h as (mf_set'_m & Hin_m).
+          pose proof (Hkdf_h _ Hin_m) as Hkd_m.
+          destruct (classic ((R, mf_args) = (R', mf_args'))) as [Heq | Hne].
+          * (* self-recursive case: admit *)
+            admit.
+          * (* non-self-recursive *)
+            pose proof (knows_datalog_fact_local_lift_has_derived _ _ _ _ Hinp Hsane Hin_rs_k Hkd_m) as Hhd_m.
+            pose proof (knows_datalog_fact_local_lift_mf_consistent _ _ _ _ Hinp Hsane Hin_rs_k Hkd_m) as Hmc_m.
+            pose proof (HRs _ _ _ Hne (conj Hhd_m Hmc_m)) as Hprog_m.
+            pose proof (Hhonest _ _ _ Hprog_m) as Hcon_m.
+            pose proof (Hhonest _ _ _ Hprog_h) as Hcon_h.
+            cbv [consistent] in Hcon_m, Hcon_h.
+            (* Both consistent: mf_set'_h and mf_set'_m agree with prog_impl_normal *)
+            simpl in Hkd_m |- *.
+            destruct Hkd_m as (num_m & Hexp_m & Hexn_m & Hbic_m).
+            exists num_m. split; [exact Hexp_m|]. split; [exact Hexn_m|].
+            intros nf_args0 Hmatch_nf.
+            specialize (Hbic_m _ Hmatch_nf).
+            specialize (Hcon_m _ Hmatch_nf).
+            specialize (Hcon_h _ Hmatch_nf).
+            rewrite Hcon_h, <- Hcon_m. exact Hbic_m. }
       (* Apply soundness clause *)
       specialize (Hsound_can _ Hcan_nf Hmatch).
       cbv [knows_dfact]. apply Exists_exists. exists rs_k. split.
