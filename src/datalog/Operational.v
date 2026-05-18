@@ -2633,19 +2633,7 @@ Section __.
      Uses meta_facts_consistent (from Datalog.v) as the uniqueness argument.
      The 0 < length non_meta_rules precondition flows from
      good_inputs_knows_datalog_fact_inputs. *)
-  Hypothesis correct_impl_consistent : forall inputs s f,
-    good_input_facts inputs ->
-    0 < length p.(non_meta_rules) ->
-    state_correct inputs s ->
-    prog_impl rules_of (knows_datalog_fact inputs) f ->
-    has_derived_datalog_fact s f ->
-    mf_consistent_state s f.
-
-  (* Standalone proof of correct_impl_consistent. The Hypothesis form above is
-     needed because of a Coq quirk where Admitted/Lemma forms inside a Section
-     can't always be eapply'd in subsequent proofs (section variable scoping).
-     This lemma demonstrates that the Hypothesis IS provable. *)
-  Lemma correct_impl_consistent_proved inputs s f :
+  Lemma correct_impl_consistent inputs s f :
     good_input_facts inputs ->
     0 < length p.(non_meta_rules) ->
     state_correct inputs s ->
@@ -2993,14 +2981,14 @@ Section __.
       assert (Hsound1 : state_correct inputs s1) by eauto using comp_steps_sound.
       (* Build mf_consistent_state for hyps at s1 via correct_impl_consistent *)
       assert (Hcons1 : Forall (mf_consistent_state s1) hyps).
-      { rewrite Forall_forall in *.
+      { apply Forall_forall.
         intros h Hin_h.
         eapply correct_impl_consistent.
         - exact Hinp.
         - exact Hlen.
         - exact Hsound1.
-        - apply Hforall_pi. assumption.
-        - apply Hderived1. assumption. }
+        - rewrite Forall_forall in Hforall_pi. apply Hforall_pi. assumption.
+        - rewrite Forall_forall in Hderived1. apply Hderived1. assumption. }
       (* Apply good_layout_complete_rule *)
       pose proof (good_layout_complete_rule inputs s1 ru f0 hyps
                     Hinp Hsane1 Hmfc1 Hsound1 Hin_r Hrule_impl Hderived1 Hcons1)
