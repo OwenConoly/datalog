@@ -2997,6 +2997,15 @@ Section __.
     cbv [knows_dfact]. split; apply exists_swap; cbv [send_fact rule_has_dfact]; simpl; auto.
   Qed.
 
+  Lemma knows_dfact_add_waiting_mono F s g :
+    knows_dfact s g -> knows_dfact (map (add_waiting_fact F) s) g.
+  Proof.
+    cbv [knows_dfact]. intros HE. apply Exists_exists in HE. apply Exists_exists.
+    destruct HE as (rs & Hin & Hd). exists (add_waiting_fact F rs).
+    split; [apply in_map; exact Hin|].
+    cbv [add_waiting_fact rule_has_dfact] in *. simpl. intuition.
+  Qed.
+
   Lemma knows_dfact_after_step_bw F l1 x l2 f :
     f = F \/ knows_dfact (l1 ++ x :: l2) f ->
     knows_dfact (map (add_waiting_fact F) (l1 ++ send_fact F x :: l2)) f.
@@ -3062,8 +3071,45 @@ Section __.
       apply Hsound. split.
       + apply (learn_fact_preserves_has_derived_datalog_fact _ _ _ H); assumption.
       + apply (learn_fact_preserves_mf_consistent_state _ _ _ H); assumption.
-    - (* fire_normal_rule: new normal fact added to waiting at all rules *)
-      admit.
+    - (* fire_normal_rule: new normal fact F = normal_dfact nf_rel nf_args added to
+         waiting at all rules; one rule additionally has F in its sent_facts. *)
+      rename H into HstepL.
+      set (F := normal_dfact nf_rel nf_args) in *.
+      cbv [stepWithLabel] in HstepL.
+      destruct HstepL as (l1 & label_fire & x & y & l2 & Hcomb & Hs2_eq & Hstepfire).
+      destruct label_fire as (r_fire & k_fire).
+      destruct Hstepfire as (Hded & Hno_sent & Hy_eq). subst y.
+      assert (Hlen_s : length s = length p.(non_meta_rules))
+        by (destruct Hsane as (H0&_); exact H0).
+      assert (Hlc : length (combine (non_meta_rules p) (seq 0 (length s))) = length s).
+      { rewrite length_combine, length_seq. lia. }
+      assert (Hs_eq : s = map snd l1 ++ x :: map snd l2).
+      { apply (f_equal (map snd)) in Hcomb.
+        rewrite map_combine_snd in Hcomb by assumption.
+        rewrite map_app in Hcomb. simpl in Hcomb. exact Hcomb. }
+      (* knows_dfact s' g <-> g = F \/ knows_dfact s g *)
+      assert (Hkd_iff : forall g,
+                 knows_dfact (map (add_waiting_fact F) s2) g <-> g = F \/ knows_dfact s g).
+      { intros g. rewrite Hs2_eq, Hs_eq. split.
+        - apply knows_dfact_after_step.
+        - apply knows_dfact_after_step_bw. }
+      (* knows_dfact s' (meta_dfact ...) iff knows_dfact s (meta_dfact ...) since F is normal *)
+      assert (Hkd_meta : forall R0 mf_args0 opt num,
+                 knows_dfact (map (add_waiting_fact F) s2) (meta_dfact R0 mf_args0 opt num) <->
+                 knows_dfact s (meta_dfact R0 mf_args0 opt num)).
+      { intros. rewrite Hkd_iff. split; [intros [Heq|Hkd]|tauto].
+        - subst F. discriminate.
+        - assumption. }
+      destruct f as [R args | R mf_args mf_set].
+      + (* f = normal_fact R args *)
+        simpl in Hf1. apply Hkd_iff in Hf1. destruct Hf1 as [Heq|Hf1].
+        * (* args is the newly fired fact's args *)
+          subst F. injection Heq as -> ->.
+          admit.
+        * (* old normal fact; apply Hsound on s *)
+          apply Hsound. simpl. split; [exact Hf1|exact I].
+      + (* f = meta_fact R mf_args mf_set *)
+        admit.
     - (* fire_meta_rule: new meta fact added to waiting at all rules *)
       admit.
   Admitted.
