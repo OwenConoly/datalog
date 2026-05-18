@@ -3352,13 +3352,27 @@ Section __.
                Requires deriving prog_impl ... f via the firing meta-rule. *)
           destruct HF_meta as (mf_rel0 & mf_args0 & mf_cnt0 & HFeq).
           destruct (classic (R = mf_rel0 /\ mf_args = mf_args0)) as [[HReq HMeq] | HNeq].
-          -- (* Case A: R = mf_rel0, mf_args = mf_args0.  Build prog_impl ...
-                (meta_fact R mf_args S_constr) via meta_rule_impl, then bridge to
-                mf_set via prog_impl_mf_ext'.  S_constr is forced by meta_rule_impl
-                to be (fun args'' => one_step_derives rules_of hyps_d R args'').
-                The bridge iff (S_constr <-> mf_set) requires completeness — see
-                inner admit below. *)
+          -- (* Case A: R = mf_rel0, mf_args = mf_args0.  Further split on whether
+                s has a pre-existing witness for k = k_fire:
+                  A.1: lift Hf1 to s entirely, apply Hsound.
+                  A.2: F is the only witness, must derive via meta_rule_impl
+                       + bridge (~100 lines, needs use_meta_facts_correct analog). *)
              subst R mf_args.
+             destruct (classic (exists num0,
+                          knows_dfact s (meta_dfact mf_rel0 mf_args0 (Some k_fire) num0)))
+                as [HA1 | HA2].
+             { (* A.1: lift Hf1 to s for all k *)
+               assert (Hf1_s : has_derived_datalog_fact s
+                                 (meta_fact mf_rel0 mf_args0 mf_set)).
+               { simpl. rewrite HER. intros k Hk.
+                 destruct (classic (k = k_fire)) as [-> | Hk_ne]; [exact HA1|].
+                 specialize (Hf1 k Hk). destruct Hf1 as (num & Hk_s').
+                 rewrite Hkd_iff in Hk_s'.
+                 destruct Hk_s' as [Heq | Hk_s]; [|exists num; exact Hk_s].
+                 exfalso. rewrite HFeq in Heq.
+                 injection Heq as Heq_k _. apply Hk_ne. assumption. }
+               apply Hsound. split; assumption. }
+             (* A.2 below: no pre-existing witness *)
              cbv [can_deduce_meta_fact] in Hcan.
              destruct Hcan as (ctx & hyps_d & mf_rel_c & mf_args_c & mf_cnt_c
                               & Heq_F & Hexn_F & Hexists_concl & Hf2_h & Hkdf_h & Hsound_can).
