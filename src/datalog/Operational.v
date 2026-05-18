@@ -2829,6 +2829,120 @@ Section __.
     eapply flush_all_matching_from_waiting_aux; eauto.
   Qed.
 
+  (* For a meta_fact h satisfying has_derived + mf_consistent_state at s, flush
+     the necessary meta_dfacts and matching normal_dfacts so that
+     knows_datalog_fact rs_k.known h holds at the resulting state.
+     Generalizes the agg case's per-hyp logic. *)
+  Lemma flush_one_meta_hyp inputs s k mf_rel mf_args mf_set :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    state_correct inputs s ->
+    k < length s ->
+    has_derived_datalog_fact s (meta_fact mf_rel mf_args mf_set) ->
+    mf_consistent_state s (meta_fact mf_rel mf_args mf_set) ->
+    prog_impl rules_of (knows_datalog_fact inputs) (meta_fact mf_rel mf_args mf_set) ->
+    0 < length p.(non_meta_rules) ->
+    exists s' rs',
+      comp_step^* s s' /\
+        nth_error s' k = Some rs' /\
+        knows_datalog_fact rs'.(known_facts) (meta_fact mf_rel mf_args mf_set) /\
+        (forall g, knows_dfact s' g <-> knows_dfact s g).
+  Proof.
+    intros Hinp Hsane Hmfc Hsound Hk Hd Hc Hpi Hlen_pos.
+    pose proof Hsane as Hsane_save.
+    (* Extract the meta-count info from has_derived *)
+    assert (Hknow_meta_info :
+              if is_input mf_rel then
+                exists num, knows_dfact s (meta_dfact mf_rel mf_args None num)
+              else
+                forall k_src, k_src < length p.(non_meta_rules) ->
+                  exists num, knows_dfact s (meta_dfact mf_rel mf_args (Some k_src) num)).
+    { cbv [has_derived_datalog_fact] in Hd.
+      destruct (is_input mf_rel); exact Hd. }
+    (* Apply flush_meta_count_for_rule *)
+    pose proof (flush_meta_count_for_rule inputs s k mf_rel mf_args Hinp Hsane Hk Hknow_meta_info)
+      as (s_int & rs_k_int & num_meta & Hsteps_int & Hnth_int & Hexp_int & Hiff_int).
+    assert (Hsane_int : sane_state inputs s_int) by eauto using steps_preserves_sane.
+    assert (Hk_int : k < length s_int).
+    { erewrite <- steps_preserves_length; eauto. }
+    (* Drain matching from rs_k_int.waiting *)
+    pose proof (flush_all_matching_from_waiting inputs s_int k mf_rel mf_args
+                  Hinp Hsane_int Hk_int)
+      as (s' & rs_k & Hsteps_drain & Hnth_k & Hex_w_0 & Hiff_drain).
+    assert (Hsane' : sane_state inputs s') by eauto using steps_preserves_sane.
+    assert (Hmfc' : meta_facts_correct s') by eauto using steps_preserves_mfs_correct.
+    (* Compose traces and iff *)
+    assert (Hsteps_total : comp_step^* s s') by (eapply crt1n_trans_compose; eassumption).
+    assert (Hsound' : state_correct inputs s') by eauto using comp_steps_sound.
+    assert (Hiff_total : forall g, knows_dfact s' g <-> knows_dfact s g).
+    { intros g. rewrite Hiff_drain, Hiff_int. reflexivity. }
+    (* Get expect_num_R_facts at rs_k's known (via incl from rs_k_int) *)
+    pose proof (steps_preserves_known_at _ _ _ _ _ Hinp Hsane_int Hsteps_drain Hnth_int)
+      as (rs_k' & Hnth_eq & Hincl).
+    rewrite Hnth_eq in Hnth_k. injection Hnth_k as ->.
+    exists s', rs_k. ssplit; try assumption.
+    cbv [knows_datalog_fact]. exists num_meta. ssplit.
+    - (* expect_num_R_facts: extend from rs_k_int via Hincl *)
+      cbv [expect_num_R_facts] in *.
+      destruct (is_input mf_rel) eqn:Hinp_rel.
+      + apply Hincl. exact Hexp_int.
+      + destruct Hexp_int as (msgs & Hf2 & Heq).
+        exists msgs. split; [|exact Heq].
+        eapply Forall2_impl_strong; [|exact Hf2].
+        intros n exp Hexp Hn_in Hexp_in.
+        apply Hincl. exact Hexp.
+    - (* Existsn count = num_meta via Hcount + drain *)
+      destruct Hsane' as (_ & Hmf_inp' & Hmf_sent' & _ & Hcount' & Hinp_sane' & _).
+      pose proof (Hcount' mf_rel mf_args) as Hcount_R.
+      destruct Hcount_R as (msgs_sents & num_inp_actual & Hf2_msgs & Hex_inp_actual & Hforall_kn).
+      rewrite Forall_forall in Hforall_kn.
+      specialize (Hforall_kn rs_k (nth_error_In _ _ Hnth_eq)).
+      destruct Hforall_kn as (num_known & num_wait & Hex_kn & Hex_w & Hsum).
+      pose proof (Existsn_unique _ _ _ _ Hex_w Hex_w_0) as Hnw_eq.
+      subst num_wait. rewrite Nat.add_0_r in Hsum.
+      (* Need num_known = num_meta. Two cases on is_input. *)
+      admit. (* Existsn count argument: similar to agg cases, depends on is_input *)
+    - (* Bicondition *)
+      intros nf_args Hmatch.
+      cbv [mf_consistent_state] in Hc. specialize (Hc nf_args Hmatch).
+      split.
+      + intros HS_set.
+        (* S_set → knows_dfact s → knows_dfact s' → In rs_k.known? Hmm not quite *)
+        (* We need: matching knows_dfact s for normal_dfact mf_rel nf_args → In rs_k.known *)
+        (* From Heverywhere at s' (preserved): knows_dfact s' f → Forall rule_has_dfact rs in s'.
+           Then rule_has_dfact rs_k = In rs_k.known ∪ In rs_k.waiting.
+           For matching: by Hex_w_0, In rs_k.waiting is False.
+           So In rs_k.known. *)
+        apply Hc in HS_set.
+        rewrite <- Hiff_total in HS_set.
+        (* By Heverywhere at s' *)
+        destruct Hsane' as (_ & _ & _ & Hev' & _).
+        specialize (Hev' _ HS_set).
+        rewrite Forall_forall in Hev'.
+        pose proof (Hev' _ (nth_error_In _ _ Hnth_eq)) as Hrhd.
+        cbv [rule_has_dfact] in Hrhd.
+        destruct Hrhd as [Hin_k | Hin_w]; [exact Hin_k|].
+        (* In rs_k.waiting: but Hex_w_0 says no matching there *)
+        exfalso.
+        assert (Hmatch_df : dfact_matches mf_rel mf_args (normal_dfact mf_rel nf_args)).
+        { cbv [dfact_matches]. exists nf_args. split; [reflexivity|exact Hmatch]. }
+        apply in_split in Hin_w. destruct Hin_w as (lw1 & lw2 & Heq_w).
+        rewrite Heq_w in Hex_w_0.
+        apply Existsn_split in Hex_w_0.
+        destruct Hex_w_0 as (n1 & n2 & Hsum_n & _ & Hex_cons).
+        assert (n2 = 0) by lia. subst n2.
+        inversion Hex_cons; subst.
+        all: try contradiction.
+        all: try lia.
+      + intros Hin_kn.
+        apply Hc.
+        rewrite <- Hiff_total.
+        cbv [knows_dfact]. apply Exists_exists.
+        exists rs_k. split; [apply nth_error_In in Hnth_eq; exact Hnth_eq|].
+        left. exact Hin_kn.
+  Admitted.
+
   (* If a prog_impl-derivable meta_fact has input rel, it must come from Q-leaf
      (no meta-rule can produce input meta-facts by good_meta_rule_inputs). *)
   Lemma prog_impl_input_meta_implies_Q_leaf inputs mf_rel mf_args mf_set :
