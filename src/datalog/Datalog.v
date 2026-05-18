@@ -2987,6 +2987,40 @@ Section __.
       has_derived_datalog_fact s f /\ mf_consistent_state s f ->
       prog_impl rules_of (knows_datalog_fact inputs) f.
 
+  Lemma learn_fact_preserves_knows_dfact s s' f :
+    stepOne learn_fact_at_rule s s' ->
+    knows_dfact s f <-> knows_dfact s' f.
+  Proof.
+    intros (l1 & x & y & l2 & Hs & Hs' & Hlfr).
+    pose proof (learn_fact_at_rule_rule_has_dfact _ _ Hlfr f) as Hpres.
+    subst. cbv [knows_dfact]. split; apply exists_swap; apply Hpres.
+  Qed.
+
+  Lemma learn_fact_preserves_has_derived_datalog_fact s s' f :
+    stepOne learn_fact_at_rule s s' ->
+    has_derived_datalog_fact s f <-> has_derived_datalog_fact s' f.
+  Proof.
+    intros Hstep. cbv [has_derived_datalog_fact].
+    destruct f as [R args | R mf_args mf_set]; [apply learn_fact_preserves_knows_dfact; assumption|].
+    destruct (is_input R).
+    - split; intros (num & Hk); exists num;
+        apply (learn_fact_preserves_knows_dfact _ _ _ Hstep); assumption.
+    - split; intros H k Hk; specialize (H k Hk);
+        destruct H as (num & Hk_d); exists num;
+        apply (learn_fact_preserves_knows_dfact _ _ _ Hstep); assumption.
+  Qed.
+
+  Lemma learn_fact_preserves_mf_consistent_state s s' f :
+    stepOne learn_fact_at_rule s s' ->
+    mf_consistent_state s f <-> mf_consistent_state s' f.
+  Proof.
+    intros Hstep. cbv [mf_consistent_state].
+    destruct f as [|R mf_args mf_set]; [reflexivity|].
+    split; intros H nf_args Hmatch; specialize (H nf_args Hmatch); rewrite H.
+    - apply learn_fact_preserves_knows_dfact. assumption.
+    - symmetry. apply learn_fact_preserves_knows_dfact. assumption.
+  Qed.
+
   Lemma comp_step_sound inputs s s' :
     good_input_facts inputs ->
     sane_state inputs s ->
@@ -2994,6 +3028,17 @@ Section __.
     state_correct inputs s ->
     comp_step s s' ->
     state_correct inputs s'.
+  Proof.
+    intros Hinp Hsane Hmfc Hsound Hstep f (Hf1 & Hf2).
+    invert Hstep.
+    - (* learn_fact: waiting -> known at some rule.  Nothing new known. *)
+      apply Hsound. split.
+      + apply (learn_fact_preserves_has_derived_datalog_fact _ _ _ H); assumption.
+      + apply (learn_fact_preserves_mf_consistent_state _ _ _ H); assumption.
+    - (* fire_normal_rule: new normal fact added to waiting at all rules *)
+      admit.
+    - (* fire_meta_rule: new meta fact added to waiting at all rules *)
+      admit.
   Admitted.
 
 
