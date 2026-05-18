@@ -2590,6 +2590,61 @@ Section __.
         cbv beta. intros h0. eapply steps_preserves_has_derived; eauto.
   Qed.
 
+  (* Lift a knows_datalog_fact inputs claim into a has_derived_datalog_fact claim
+     in any state s satisfying our standard conditions. This is the analog of
+     SimpleDataflow's fact_in_inputs_knows_datalog_fact, made direct here by the
+     new "inputs propagated" conjunct of sane_state. *)
+  Lemma knows_datalog_fact_inputs_has_derived inputs s f :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    knows_datalog_fact inputs f ->
+    has_derived_datalog_fact s f.
+  Proof.
+    intros Hinp Hsane Hkdf.
+    pose proof Hsane as Hsane'.
+    destruct Hsane as (_ & _ & _ & _ & _ & _ & Hinp_prop).
+    destruct f as [R args | R mf_args mf_set]; cbv [has_derived_datalog_fact] in *.
+    - (* normal_fact *)
+      apply Hinp_prop. exact Hkdf.
+    - (* meta_fact *)
+      simpl in Hkdf. destruct Hkdf as (num & Hexp & _ & _).
+      cbv [expect_num_R_facts] in Hexp.
+      destruct (is_input R) eqn:HER.
+      + exists num. apply Hinp_prop. exact Hexp.
+      + intros k Hk.
+        destruct Hexp as (msgss & Hf2 & Hnum_eq).
+        pose proof (Forall2_length Hf2) as Hlen_eq.
+        rewrite length_seq in Hlen_eq.
+        assert (Hk_seq : nth_error (seq 0 (length p.(non_meta_rules))) k = Some k).
+        { rewrite nth_error_seq.
+          assert (E : k <? length p.(non_meta_rules) = true) by (apply Nat.ltb_lt; lia).
+          rewrite E. reflexivity. }
+        assert (Hk_msgs : exists m, nth_error msgss k = Some m).
+        { destruct (nth_error msgss k) eqn:Em; [eauto|].
+          apply nth_error_None in Em. lia. }
+        destruct Hk_msgs as (mk & Hmk).
+        pose proof (Forall2_nth_error_fwd _ _ _ Hf2 k k mk Hk_seq Hmk) as Hin_mk.
+        exists mk. apply Hinp_prop. exact Hin_mk.
+  Qed.
+
+  (* Per-rule completeness: given a rule r in rules_of, hyps derived in s, and
+     mf_consistent_state for meta-fact hyps, we can step to a state where the
+     conclusion of r is derived. *)
+  Lemma good_layout_complete_rule inputs s (ru : rule) f hyps :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    state_correct inputs s ->
+    In ru rules_of ->
+    rule_impl (one_step_derives rules_of) ru f hyps ->
+    Forall (has_derived_datalog_fact s) hyps ->
+    Forall (mf_consistent_state s) hyps ->
+    exists s',
+      comp_step^* s s' /\
+        has_derived_datalog_fact s' f.
+  Proof.
+  Admitted.
+
   Definition state_complete (inputs : list dfact) (s : state) :=
     forall f,
       prog_impl rules_of (knows_datalog_fact inputs) f ->
@@ -2604,6 +2659,48 @@ Section __.
     state_correct inputs s ->
     state_complete inputs s.
   Proof.
+    intros Hinp Hsane Hmfc Hsound f Himpl.
+    set (R := fun (f0 : fact) =>
+                forall s0,
+                  sane_state inputs s0 ->
+                  meta_facts_correct s0 ->
+                  state_correct inputs s0 ->
+                  exists s', comp_step^* s0 s' /\ has_derived_datalog_fact s' f0).
+    enough (HR : R f).
+    { apply HR; assumption. }
+    revert f Himpl.
+    apply prog_impl_ind.
+    - (* base case: knows_datalog_fact inputs f *)
+      intros f0 Hkdf s0 Hsane0 Hmfc0 Hsound0.
+      exists s0. split; [apply rt1n_refl|].
+      eapply knows_datalog_fact_inputs_has_derived; eassumption.
+    - (* step case *)
+      intros f0 hyps Hexists Hforall_pi Hforall_R s0 Hsane0 Hmfc0 Hsound0.
+      apply Exists_exists in Hexists.
+      destruct Hexists as (ru & Hin_r & Hrule_impl).
+      (* Build mf_consistent_state for hyps using state_correct + prog_impl *)
+      assert (Hforall_consistent : Forall (fun h =>
+        forall s', sane_state inputs s' -> meta_facts_correct s' -> state_correct inputs s' ->
+        forall s'',
+        comp_step^* s' s'' ->
+        has_derived_datalog_fact s'' h ->
+        mf_consistent_state s'' h) hyps).
+      { admit. }
+      (* Apply compose_completion to get s1 reachable with Forall has_derived s1 hyps *)
+      pose proof (compose_completion inputs s0 hyps Hinp Hsane0 Hmfc0 Hsound0 Hforall_R)
+        as (s1 & Hsteps1 & Hderived1).
+      assert (Hsane1 : sane_state inputs s1) by eauto using steps_preserves_sane.
+      assert (Hmfc1 : meta_facts_correct s1) by eauto using steps_preserves_mfs_correct.
+      assert (Hsound1 : state_correct inputs s1) by eauto using comp_steps_sound.
+      (* Build mf_consistent_state for hyps at s1 *)
+      assert (Hcons1 : Forall (mf_consistent_state s1) hyps).
+      { admit. }
+      (* Apply good_layout_complete_rule *)
+      pose proof (good_layout_complete_rule inputs s1 ru f0 hyps
+                    Hinp Hsane1 Hmfc1 Hsound1 Hin_r Hrule_impl Hderived1 Hcons1)
+        as (s2 & Hsteps2 & Hderived2).
+      exists s2. split; [|exact Hderived2].
+      eapply crt1n_trans_compose; eassumption.
   Admitted.
 
 End __.
