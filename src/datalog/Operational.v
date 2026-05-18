@@ -2928,7 +2928,25 @@ Section __.
         inversion Hnmri; subst.
         match goal with H : is_list_set _ _ |- _ => rename H into His_set end.
         rename args into args_rest, S into S_set, vals into vals_pairs.
-        (* The val-derived normal_facts: their dfact reps are knows_dfact s *)
+        (* Decompose Hderived into meta-fact and val-normals *)
+        apply Forall_cons_iff in Hderived.
+        destruct Hderived as (Hd_meta & Hd_normals).
+        apply Forall_cons_iff in Hcons.
+        destruct Hcons as (Hc_meta & _).
+        (* dfs from val normals *)
+        pose (val_dfs := map (fun (p_pair : T * T) =>
+                                let '(i, x_i) := p_pair in normal_dfact hr (i :: x_i :: args_rest))
+                             vals_pairs).
+        assert (Hkn_val_dfs : Forall (knows_dfact s) val_dfs).
+        { unfold val_dfs.
+          apply Forall_forall. intros df Hin.
+          apply in_map_iff in Hin. destruct Hin as ((i, x_i) & Heq & Hin_pair). subst df.
+          rewrite Forall_forall in Hd_normals.
+          assert (Hin_map : In (normal_fact hr (i :: x_i :: args_rest))
+                              (map (fun '(i, x_i) => normal_fact hr (i :: x_i :: args_rest)) vals_pairs)).
+          { apply in_map_iff. exists (i, x_i). split; [reflexivity|exact Hin_pair]. }
+          specialize (Hd_normals _ Hin_map). simpl in Hd_normals. exact Hd_normals. }
+        (* TODO: also flush meta_dfacts from Hd_meta. For now, flush only val_dfs. *)
         admit.
     - (* meta_rule_impl: ru = meta_rule, conclusion = meta_fact R args S.
          Strategy: for each source index k, flush the interpreted meta-clause
