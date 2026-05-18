@@ -3088,9 +3088,46 @@ Section __.
               unfold nmr. cbn [rule_of]. exact Hnmri.
             - (* Forall (knows_datalog_fact rs_k.known) on the hyps list *)
               constructor.
-              + (* meta_fact case: knows_datalog_fact rs_k.known (meta_fact hr mf_args S_set) *)
-                admit. (* Requires count = num_inp (from Hcount + Hinp_sane for input hr),
-                          bicondition (from mf_consistent_state + is_list_set + Hiff_kn). *)
+              + (* meta_fact case *)
+                cbv [knows_datalog_fact]. exists num_inp. ssplit.
+                * (* expect_num_R_facts: In meta_dfact rs_k.known *)
+                  cbv [expect_num_R_facts]. rewrite Hhr_inp.
+                  apply Forall_cons_iff in Hin_all_dfs. apply Hin_all_dfs.
+                * (* Existsn count = num_inp *)
+                  admit. (* count argument: requires num_inp = num_inp_actual AND num_wait_at_rs_k matching = 0 *)
+                * (* Bicondition *)
+                  intros nf_args Hmatch.
+                  cbv [mf_consistent_state] in Hc_meta. specialize (Hc_meta nf_args Hmatch).
+                  split.
+                  -- (* S_set nf_args → In normal_dfact rs_k.known *)
+                     intros HS.
+                     destruct His_set as (His_iff & _).
+                     (* Extract i, x: nf_args = y1 :: y2 :: args_rest by matching mf_args structure *)
+                     inversion Hmatch as [|? y1 ? rr1 H1 Hmatch']; subst.
+                     inversion Hmatch' as [|? y2 ? rr2 H2 Hmatch'']; subst.
+                     assert (Hrest : rr2 = args_rest).
+                     { clear -Hmatch''.
+                       revert rr2 Hmatch''. induction args_rest as [|a args_r IH];
+                         intros rr2 Hm.
+                       - inversion Hm; reflexivity.
+                       - simpl in Hm. inversion Hm as [|? ? ? rs Hmm Hmm']; subst.
+                         cbv [matches] in Hmm. subst.
+                         f_equal. apply IH. assumption. }
+                     subst rr2.
+                     pose proof (His_iff (y1, y2)) as His_y.
+                     apply His_y in HS.
+                     apply Forall_cons_iff in Hin_all_dfs. destruct Hin_all_dfs as (_ & Hin_val_dfs).
+                     rewrite Forall_forall in Hin_val_dfs.
+                     apply Hin_val_dfs.
+                     unfold val_dfs. apply in_map_iff. exists (y1, y2).
+                     split; [reflexivity|exact HS].
+                  -- (* In normal_dfact rs_k.known → S_set nf_args *)
+                     intros Hin_kn.
+                     apply Hc_meta.
+                     rewrite <- Hiff_kn.
+                     cbv [knows_dfact]. apply Exists_exists.
+                     exists rs_k. split; [apply nth_error_In in Hnth_k; exact Hnth_k|].
+                     left. exact Hin_kn.
               + (* val normals: each In rs_k.known via Hin_all_dfs *)
                 apply Forall_forall. intros f Hin.
                 apply in_map_iff in Hin. destruct Hin as ((i, x_i) & <- & Hin_pair).
