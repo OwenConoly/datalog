@@ -2987,6 +2987,63 @@ Section __.
       has_derived_datalog_fact s f /\ mf_consistent_state s f ->
       prog_impl rules_of (knows_datalog_fact inputs) f.
 
+  (* Lift a per-rule [knows_datalog_fact rs.known h] to [has_derived_datalog_fact s h]
+     for any rs in s.  For normal facts this is just "exists rs with the dfact".  For
+     meta facts the input branch uses the [expect_num_R_facts] count directly; the
+     non-input branch extracts the per-source-rule count witness from the Forall2. *)
+  Lemma knows_datalog_fact_local_lift_has_derived inputs s rs h :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    In rs s ->
+    knows_datalog_fact rs.(known_facts) h ->
+    has_derived_datalog_fact s h.
+  Proof.
+    intros _ Hsane Hin Hkdf.
+    destruct h as [R0 args0 | R0 mf_args0 mf_set0]; simpl in Hkdf |- *.
+    - cbv [knows_dfact]. apply Exists_exists. exists rs. split; [exact Hin|].
+      left. exact Hkdf.
+    - destruct Hkdf as (num & Hsat & _ & _).
+      cbv [expect_num_R_facts] in Hsat.
+      destruct (is_input R0) eqn:HER0.
+      + exists num. cbv [knows_dfact]. apply Exists_exists.
+        exists rs. split; [exact Hin|]. left. exact Hsat.
+      + intros k Hk. destruct Hsat as (msgss & Hf2 & _).
+        pose proof (Forall2_length Hf2) as Hlen_msgs. rewrite length_seq in Hlen_msgs.
+        assert (Hk_seq : nth_error (seq 0 (length p.(non_meta_rules))) k = Some k).
+        { rewrite nth_error_seq.
+          assert (E : k <? length p.(non_meta_rules) = true) by (apply Nat.ltb_lt; exact Hk).
+          rewrite E. reflexivity. }
+        assert (Hk_msg : exists m, nth_error msgss k = Some m).
+        { destruct (nth_error msgss k) eqn:E; [eauto|].
+          apply nth_error_None in E. lia. }
+        destruct Hk_msg as (m & Hkm).
+        pose proof (Forall2_nth_error_fwd _ _ _ Hf2 k k m Hk_seq Hkm) as Hin_m.
+        exists m. cbv [knows_dfact]. apply Exists_exists. exists rs.
+        split; [exact Hin|]. left. exact Hin_m.
+  Qed.
+
+  Lemma knows_datalog_fact_local_lift_mf_consistent inputs s rs h :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    In rs s ->
+    knows_datalog_fact rs.(known_facts) h ->
+    mf_consistent_state s h.
+  Proof.
+    intros Hinp Hsane Hin Hkdf.
+    destruct h as [R0 args0 | R0 mf_args0 mf_set0]; simpl; [exact I|].
+    intros nf_args Hmatch.
+    destruct Hkdf as (num & Hsat & Hexn & Hbic).
+    specialize (Hbic _ Hmatch). rewrite Hbic. split.
+    - intros Hin_k. cbv [knows_dfact]. apply Exists_exists. exists rs.
+      split; [exact Hin|]. left. exact Hin_k.
+    - intros Hkd.
+      pose proof Hsane as (_ & _ & _ & Heverywhere & _ & _).
+      pose proof (Heverywhere _ Hkd) as Hev. rewrite Forall_forall in Hev.
+      specialize (Hev _ Hin). cbv [rule_has_dfact] in Hev.
+      destruct Hev as [Hin_k | Hin_w]; [exact Hin_k|].
+      exfalso. eapply expect_num_R_facts_no_waiting; eassumption.
+  Qed.
+
   Lemma send_fact_rule_has_dfact F rs f :
     rule_has_dfact (send_fact F rs) f <-> rule_has_dfact rs f.
   Proof. cbv [send_fact rule_has_dfact]. simpl. reflexivity. Qed.
@@ -3120,13 +3177,18 @@ Section __.
              rewrite Forall_forall in Hkdf_hyps |- *. intros h Hin_h.
              specialize (Hkdf_hyps _ Hin_h).
              destruct h as [R' args' | R' mf_args' mf_set'].
-             ++ (* normal hyp: knows_datalog_fact x.known means In x.known *)
-                apply Hsound. simpl. split; [|exact I].
-                cbv [knows_dfact]. apply Exists_exists. exists x. split.
-                ** rewrite Hs_eq. apply in_or_app. right. apply in_eq.
-                ** left. exact Hkdf_hyps.
-             ++ (* meta hyp: needs lift of mf_set consistency from x.known to s *)
-                admit.
+             ++ (* normal hyp: lift via helper *)
+                apply Hsound. split.
+                ** eapply knows_datalog_fact_local_lift_has_derived; try eassumption.
+                   rewrite Hs_eq. apply in_or_app. right. apply in_eq.
+                ** eapply knows_datalog_fact_local_lift_mf_consistent; try eassumption.
+                   rewrite Hs_eq. apply in_or_app. right. apply in_eq.
+             ++ (* meta hyp: lift via helper *)
+                apply Hsound. split.
+                ** eapply knows_datalog_fact_local_lift_has_derived; try eassumption.
+                   rewrite Hs_eq. apply in_or_app. right. apply in_eq.
+                ** eapply knows_datalog_fact_local_lift_mf_consistent; try eassumption.
+                   rewrite Hs_eq. apply in_or_app. right. apply in_eq.
         * (* old normal fact; apply Hsound on s *)
           apply Hsound. simpl. split; [exact Hf1|exact I].
       + (* f = meta_fact R mf_args mf_set.  Lift Hf1 from s' to s via Hkd_meta.
