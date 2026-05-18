@@ -2745,6 +2745,90 @@ Section __.
       exact Hcomb_nth.
   Qed.
 
+  (* Drain all matching items from rule k's waiting via repeated learn_fact.
+     Preserves knows_dfact iff. *)
+  Lemma flush_one_matching_from_waiting inputs s k mf_rel mf_args n rs :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    k < length s ->
+    nth_error s k = Some rs ->
+    Existsn (dfact_matches mf_rel mf_args) (S n) rs.(waiting_facts) ->
+    exists s' rs',
+      comp_step s s' /\
+        nth_error s' k = Some rs' /\
+        Existsn (dfact_matches mf_rel mf_args) n rs'.(waiting_facts) /\
+        (forall g, knows_dfact s' g <-> knows_dfact s g).
+  Proof.
+    intros Hinp Hsane Hk Hnth Hex.
+    apply Existsn_S in Hex.
+    destruct Hex as (lw1 & wf & lw2 & Hwait_eq & Hwf_match & Hex_rest).
+    apply nth_error_split in Hnth.
+    destruct Hnth as (l1 & l2 & Hs_eq & Hl1_len).
+    pose (rs' := {| known_facts := wf :: rs.(known_facts);
+                    waiting_facts := lw1 ++ lw2;
+                    sent_facts := rs.(sent_facts) |}).
+    assert (Hstep_one : stepOne learn_fact_at_rule s (l1 ++ rs' :: l2)).
+    { cbv [stepOne]. exists l1, rs, rs', l2. ssplit; auto.
+      cbv [learn_fact_at_rule]. exists lw1, wf, lw2. ssplit; auto. }
+    exists (l1 ++ rs' :: l2), rs'. ssplit.
+    - apply learn_fact. exact Hstep_one.
+    - rewrite nth_error_app2 by lia.
+      rewrite Hl1_len, Nat.sub_diag. reflexivity.
+    - unfold rs'. simpl. exact Hex_rest.
+    - intros g. symmetry. apply learn_fact_preserves_knows_dfact. exact Hstep_one.
+  Qed.
+
+  Lemma flush_all_matching_from_waiting_aux inputs mf_rel mf_args num_wait :
+    forall s k,
+      good_input_facts inputs ->
+      sane_state inputs s ->
+      k < length s ->
+      (exists rs, nth_error s k = Some rs /\
+                  Existsn (dfact_matches mf_rel mf_args) num_wait rs.(waiting_facts)) ->
+      exists s' rs',
+        comp_step^* s s' /\
+          nth_error s' k = Some rs' /\
+          Existsn (dfact_matches mf_rel mf_args) 0 rs'.(waiting_facts) /\
+          (forall g, knows_dfact s' g <-> knows_dfact s g).
+  Proof.
+    induction num_wait as [|nw IH]; intros s k Hinp Hsane Hk (rs & Hnth & Hex_w).
+    - exists s, rs. ssplit; [apply rt1n_refl|exact Hnth|exact Hex_w|].
+      intros g. reflexivity.
+    - pose proof (flush_one_matching_from_waiting inputs s k mf_rel mf_args nw rs
+                    Hinp Hsane Hk Hnth Hex_w)
+        as (s_next & rs_next & Hstep1 & Hnth_next & Hex_w_next & Hiff1).
+      assert (Hsane_next : sane_state inputs s_next) by eauto using step_preserves_sane.
+      assert (Hk_next : k < length s_next).
+      { pose proof (comp_step_known_facts_incl _ _ _ Hsane Hstep1) as HF2.
+        apply Forall2_length in HF2. lia. }
+      specialize (IH s_next k Hinp Hsane_next Hk_next).
+      specialize' IH. { exists rs_next. split; assumption. }
+      destruct IH as (s' & rs' & Hsteps' & Hnth' & Hex_0 & Hiff_rest).
+      exists s', rs'. ssplit; auto.
+      + eapply Relation_Operators.rt1n_trans; eassumption.
+      + intros g. rewrite Hiff_rest, Hiff1. reflexivity.
+  Qed.
+
+  Lemma flush_all_matching_from_waiting inputs s k mf_rel mf_args :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    k < length s ->
+    exists s' rs',
+      comp_step^* s s' /\
+        nth_error s' k = Some rs' /\
+        Existsn (dfact_matches mf_rel mf_args) 0 rs'.(waiting_facts) /\
+        (forall g, knows_dfact s' g <-> knows_dfact s g).
+  Proof.
+    intros Hinp Hsane Hk.
+    pose proof Hsane as (_ & _ & _ & _ & Hcount & _ & _).
+    pose proof (Hcount mf_rel mf_args) as (msgs_sents & num_inp & _ & _ & Hcount_rs).
+    destruct (nth_error s k) as [rs_k|] eqn:Hnth; [|apply nth_error_None in Hnth; lia].
+    rewrite Forall_forall in Hcount_rs.
+    pose proof (Hcount_rs rs_k (nth_error_In _ _ Hnth)) as Hex_at_k.
+    destruct Hex_at_k as (_ & num_wait & _ & Hex_w & _).
+    eapply flush_all_matching_from_waiting_aux; eauto.
+  Qed.
+
   (* Lifts soundness in the reverse direction: if a fact is both prog_impl-derivable
      and has_derived in s, then its mf_consistent_state holds in s.
      Analog of SimpleDataflow's correct_impl_consistent.
