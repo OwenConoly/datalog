@@ -3110,7 +3110,107 @@ Section __.
           { unfold all_dfs. apply Forall_app. split; assumption. }
           pose proof (flush_waiting_to_known inputs s k all_dfs Hinp Hsane_save Hkn_all_dfs Hk_lt_s)
             as (s1 & rs_k & Hsteps1 & Hnth_k & Hin_all_dfs).
-          admit.
+          assert (Hsane1 : sane_state inputs s1) by eauto using steps_preserves_sane.
+          assert (Hmfc1 : meta_facts_correct s1) by eauto using steps_preserves_mfs_correct.
+          assert (Hsound1 : state_correct inputs s1) by eauto using comp_steps_sound.
+          assert (Hcdn : can_deduce_normal_fact nmr rs_k.(known_facts)
+                          R_concl (interp_agg ag vals_pairs :: args_rest)).
+          { admit. (* Requires knows_datalog_fact rs_k.known on meta_fact hyp:
+              non-input case: expected_msgss = nums (the extracted per-source counts),
+              all In rs_k.known after flush. num = sum nums = total matching count.
+              Bicondition via mf_consistent_state + is_list_set + Heverywhere. *) }
+          (* Mirror the input-case case-split + fire structure *)
+          destruct (classic (exists mf_args' num,
+                              In (meta_dfact R_concl mf_args' (Some k) num) rs_k.(sent_facts) /\
+                              Forall2 matches mf_args' (interp_agg ag vals_pairs :: args_rest))) as [Hconflict | Hno_conflict].
+          -- destruct Hconflict as (mf_args' & num_c & Hin_meta & Hmatch).
+             assert (Hk_seq : nth_error (seq 0 (length s1)) k = Some k).
+             { assert (Hk_lt_s1 : k < length s1) by (erewrite <- steps_preserves_length; eauto).
+               rewrite nth_error_seq.
+               assert (E : k <? length s1 = true) by (apply Nat.ltb_lt; lia).
+               rewrite E. reflexivity. }
+             assert (Hmfcr : meta_facts_correct_at_rule p.(meta_rules) k rs_k nmr).
+             { eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc1); eassumption. }
+             specialize (Hmfcr R_concl mf_args' num_c Hin_meta).
+             destruct Hmfcr as (mfc & mfh & hyps' & Hin_mr & Hcdmf & Hknown_hyps' & Hnoself).
+             cbv [can_deduce_meta_fact] in Hcdmf.
+             destruct Hcdmf as (ctx' & mfr' & mfa' & mfcnt' & Hres & _ & _ & _ & Hforce).
+             injection Hres as -> -> ->.
+             specialize (Hforce (interp_agg ag vals_pairs :: args_rest) Hcdn Hmatch).
+             exists s1. split; [exact Hsteps1|].
+             simpl. cbv [knows_dfact]. apply Exists_exists.
+             exists rs_k. split; [apply nth_error_In in Hnth_k; exact Hnth_k|].
+             left. exact Hforce.
+          -- pose proof Hnth_k as Hnth_save.
+             apply nth_error_split in Hnth_save.
+             destruct Hnth_save as (s1_pre & s1_post & Hs1_eq & Hs1_pre_len).
+             assert (Hk_lt_s1 : k < length s1) by (erewrite <- steps_preserves_length; eauto).
+             assert (Hlen_s1 : length s = length s1) by eauto using steps_preserves_length.
+             assert (Hk_seq : nth_error (seq 0 (length s1)) k = Some k).
+             { rewrite nth_error_seq.
+               assert (E : k <? length s1 = true) by (apply Nat.ltb_lt; lia).
+               rewrite E. reflexivity. }
+             set (labels := combine p.(non_meta_rules) (seq 0 (length s1))).
+             assert (Hcomb_decomp : exists l1 l2,
+                       combine labels s1 = l1 ++ ((nmr, k), rs_k) :: l2 /\
+                       map snd l1 = s1_pre /\ map snd l2 = s1_post /\
+                       length l1 = k).
+             { pose proof Hk_nmr as Hk_nmr_s.
+               apply nth_error_split in Hk_nmr_s.
+               destruct Hk_nmr_s as (nmrs_pre & nmrs_post & Hnmrs_eq & Hnmrs_pre_len).
+               pose proof Hk_seq as Hk_seq_s.
+               apply nth_error_split in Hk_seq_s.
+               destruct Hk_seq_s as (seq_pre & seq_post & Hseq_eq & Hseq_pre_len).
+               assert (Hlabels_split : labels =
+                         combine nmrs_pre seq_pre ++ (nmr, k) :: combine nmrs_post seq_post).
+               { unfold labels. rewrite Hnmrs_eq, Hseq_eq.
+                 rewrite combine_app by lia. simpl. reflexivity. }
+               assert (Hcc_pre_len : length (combine nmrs_pre seq_pre) = k).
+               { rewrite length_combine. lia. }
+               exists (combine (combine nmrs_pre seq_pre) s1_pre),
+                      (combine (combine nmrs_post seq_post) s1_post).
+               ssplit.
+               - rewrite Hlabels_split, Hs1_eq.
+                 rewrite combine_app by lia. simpl. reflexivity.
+               - apply map_combine_snd. lia.
+               - apply map_combine_snd. rewrite length_combine.
+                 assert (Hpost_eq : length s1_post = length nmrs_post).
+                 { pose proof (f_equal (@length _) Hs1_eq) as Hl_s1.
+                   rewrite length_app in Hl_s1. simpl in Hl_s1.
+                   pose proof (f_equal (@length _) Hnmrs_eq) as Hl_nm.
+                   rewrite length_app in Hl_nm. simpl in Hl_nm. lia. }
+                 assert (Hpost_seq_eq : length seq_post = length nmrs_post).
+                 { pose proof (f_equal (@length _) Hseq_eq) as Hl_sq.
+                   rewrite length_app in Hl_sq. simpl in Hl_sq.
+                   rewrite length_seq in Hl_sq.
+                   pose proof (f_equal (@length _) Hnmrs_eq) as Hl_nm.
+                   rewrite length_app in Hl_nm. simpl in Hl_nm. lia. }
+                 lia.
+               - rewrite length_combine. lia. }
+             destruct Hcomb_decomp as (l1 & l2 & Hcomb & Hl1_snd & Hl2_snd & Hl1_len).
+             set (F := normal_dfact R_concl (interp_agg ag vals_pairs :: args_rest)).
+             set (rs_k' := send_fact F rs_k).
+             set (s2 := map snd l1 ++ rs_k' :: map snd l2).
+             exists (map (add_waiting_fact F) s2).
+             split.
+             ++ eapply crt1n_trans_compose; [exact Hsteps1|].
+                eapply Relation_Operators.rt1n_trans; [|apply rt1n_refl].
+                apply (fire_normal_rule R_concl (interp_agg ag vals_pairs :: args_rest) s1 s2).
+                cbv [stepWithLabel].
+                exists l1, (nmr, k), rs_k, rs_k', l2.
+                ssplit.
+                { exact Hcomb. }
+                { unfold s2. rewrite Hl1_snd, Hl2_snd. reflexivity. }
+                { exact Hcdn. }
+                { intros mf_args' num_c Hin_meta Hmatch.
+                  apply Hno_conflict. exists mf_args', num_c. auto. }
+                { reflexivity. }
+             ++ simpl. cbv [knows_dfact]. apply Exists_exists.
+                eexists. split.
+                ** apply in_map_iff.
+                   eexists. split; [reflexivity|].
+                   rewrite Hs1_eq. apply in_or_app. right. left. reflexivity.
+                ** cbv [rule_has_dfact add_waiting_fact]. simpl. right. left. reflexivity.
     - (* meta_rule_impl: ru = meta_rule, conclusion = meta_fact R args S.
          Strategy: for each source index k, flush the interpreted meta-clause
          hyps' dfact reps at that rule's known and apply fire_meta_rule to
