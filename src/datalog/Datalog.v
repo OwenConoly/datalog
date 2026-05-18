@@ -3114,6 +3114,86 @@ Section __.
     - symmetry. apply learn_fact_preserves_knows_dfact. assumption.
   Qed.
 
+  Lemma good_inputs_knows_datalog_fact_inputs inputs :
+    good_input_facts inputs ->
+    0 < length p.(non_meta_rules) ->
+    good_inputs rules_of (knows_datalog_fact inputs).
+  Proof.
+    intros Hinp Hlt. split.
+    - intros f Hf. destruct f as [R0 args0 | R0 mf_args0 mf_set0]; simpl in Hf.
+      + destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
+        specialize (Hinp_all _ Hf). simpl in Hinp_all.
+        intros Hin_concl. apply in_flat_map in Hin_concl.
+        destruct Hin_concl as (r0 & Hin_r0 & Hin_rel).
+        unfold rules_of in Hin_r0. apply in_app_or in Hin_r0.
+        destruct Hin_r0 as [Hin_meta | Hin_nm].
+        * apply in_map_iff in Hin_meta.
+          destruct Hin_meta as ((c0, h0) & Heq & Hin_mr0). subst r0.
+          simpl in Hin_rel. apply in_map_iff in Hin_rel.
+          destruct Hin_rel as (mc & Hrel_eq & Hin_mc).
+          rewrite Forall_forall in Hp_meta_input.
+          specialize (Hp_meta_input _ Hin_mr0). simpl in Hp_meta_input.
+          rewrite Forall_forall in Hp_meta_input.
+          specialize (Hp_meta_input _ Hin_mc).
+          rewrite Hrel_eq in Hp_meta_input. congruence.
+        * apply in_map_iff in Hin_nm.
+          destruct Hin_nm as (nmr & Heq & Hin_nmr). subst r0.
+          rewrite Forall_forall in Hp_input.
+          specialize (Hp_input _ Hin_nmr).
+          destruct nmr as [cs hs | cr ag hr]; simpl in Hin_rel, Hp_input.
+          -- apply in_map_iff in Hin_rel.
+             destruct Hin_rel as (c & Hrel_eq & Hin_c).
+             rewrite Forall_forall in Hp_input. specialize (Hp_input _ Hin_c).
+             rewrite Hrel_eq in Hp_input. congruence.
+          -- destruct Hin_rel as [Hrel_eq|[]]. subst cr. congruence.
+      + destruct Hf as (num0 & Hexp & _ & _).
+        cbv [expect_num_R_facts] in Hexp.
+        destruct (is_input R0) eqn:HER0.
+        * intros Hin_concl. apply in_flat_map in Hin_concl.
+          destruct Hin_concl as (r0 & Hin_r0 & Hin_rel).
+          unfold rules_of in Hin_r0. apply in_app_or in Hin_r0.
+          destruct Hin_r0 as [Hin_meta | Hin_nm].
+          -- apply in_map_iff in Hin_meta.
+             destruct Hin_meta as ((c0, h0) & Heq & Hin_mr0). subst r0.
+             simpl in Hin_rel. apply in_map_iff in Hin_rel.
+             destruct Hin_rel as (mc & Hrel_eq & Hin_mc).
+             rewrite Forall_forall in Hp_meta_input.
+             specialize (Hp_meta_input _ Hin_mr0). simpl in Hp_meta_input.
+             rewrite Forall_forall in Hp_meta_input.
+             specialize (Hp_meta_input _ Hin_mc).
+             rewrite Hrel_eq in Hp_meta_input. simpl in Hp_meta_input. congruence.
+          -- apply in_map_iff in Hin_nm.
+             destruct Hin_nm as (nmr & Heq & Hin_nmr). subst r0.
+             rewrite Forall_forall in Hp_input.
+             specialize (Hp_input _ Hin_nmr).
+             destruct nmr as [cs hs | cr ag hr]; simpl in Hin_rel, Hp_input.
+             ++ apply in_map_iff in Hin_rel.
+                destruct Hin_rel as (c & Hrel_eq & Hin_c).
+                rewrite Forall_forall in Hp_input. specialize (Hp_input _ Hin_c).
+                rewrite Hrel_eq in Hp_input. simpl in Hp_input. congruence.
+             ++ destruct Hin_rel as [Hrel_eq|[]]. subst cr. simpl in Hp_input.
+                congruence.
+        * destruct Hexp as (msgss & Hf2_msgs & _).
+          pose proof (Forall2_length Hf2_msgs) as Hlen_msgs.
+          rewrite length_seq in Hlen_msgs.
+          assert (H0_seq : nth_error (seq 0 (length p.(non_meta_rules))) 0 = Some 0).
+          { rewrite nth_error_seq.
+            assert (E : 0 <? length p.(non_meta_rules) = true)
+              by (apply Nat.ltb_lt; exact Hlt).
+            rewrite E. reflexivity. }
+          assert (H0_msg : exists m, nth_error msgss 0 = Some m).
+          { destruct (nth_error msgss 0) eqn:Em; [eauto|].
+            apply nth_error_None in Em. lia. }
+          destruct H0_msg as (m0 & Hm0).
+          pose proof (Forall2_nth_error_fwd _ _ _ Hf2_msgs 0 0 m0 H0_seq Hm0)
+            as Hin_m0.
+          destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
+          specialize (Hinp_all _ Hin_m0). simpl in Hinp_all. congruence.
+    - cbv [doesnt_lie consistent]. intros mfr0 mfa0 mfs0 Hin nf_args0 Hmatch_nf.
+      simpl in Hin. destruct Hin as (num0 & _ & _ & Hbic).
+      simpl. apply Hbic. exact Hmatch_nf.
+  Qed.
+
   Lemma use_meta_facts_correct (R : rel) (mf_args : list (option T))
     (inputs : list dfact) (s : state) :
     good_input_facts inputs ->
@@ -3216,92 +3296,8 @@ Section __.
         rewrite Forall_forall in Hpot, Hkdf_h, Hhyps.
         pose proof (Hpot _ Hh) as Hpot_h.
         pose proof (Hhyps _ Hh) as Hprog_h.
-        (* Establish Q-honesty for use with valid_impl_honest *)
         assert (Hgood_inputs_Q : good_inputs rules_of (knows_datalog_fact inputs)).
-        { split.
-          - intros f Hf. destruct f as [R0 args0 | R0 mf_args0 mf_set0]; simpl in Hf.
-            + (* normal: f in inputs.  By good_input_facts, is_input R0.
-                 By Hp_input + Hp_meta_input, no rule concludes input rels. *)
-              destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
-              specialize (Hinp_all _ Hf). simpl in Hinp_all.
-              intros Hin_concl. apply in_flat_map in Hin_concl.
-              destruct Hin_concl as (r0 & Hin_r0 & Hin_rel).
-              unfold rules_of in Hin_r0. apply in_app_or in Hin_r0.
-              destruct Hin_r0 as [Hin_meta | Hin_nm].
-              * apply in_map_iff in Hin_meta.
-                destruct Hin_meta as ((c0, h0) & Heq & Hin_mr0). subst r0.
-                simpl in Hin_rel. apply in_map_iff in Hin_rel.
-                destruct Hin_rel as (mc & Hrel_eq & Hin_mc).
-                rewrite Forall_forall in Hp_meta_input.
-                specialize (Hp_meta_input _ Hin_mr0). simpl in Hp_meta_input.
-                rewrite Forall_forall in Hp_meta_input.
-                specialize (Hp_meta_input _ Hin_mc).
-                rewrite Hrel_eq in Hp_meta_input. congruence.
-              * apply in_map_iff in Hin_nm.
-                destruct Hin_nm as (nmr & Heq & Hin_nmr). subst r0.
-                rewrite Forall_forall in Hp_input.
-                specialize (Hp_input _ Hin_nmr).
-                destruct nmr as [cs hs | cr ag hr]; simpl in Hin_rel, Hp_input.
-                -- apply in_map_iff in Hin_rel.
-                   destruct Hin_rel as (c & Hrel_eq & Hin_c).
-                   rewrite Forall_forall in Hp_input. specialize (Hp_input _ Hin_c).
-                   rewrite Hrel_eq in Hp_input. congruence.
-                -- destruct Hin_rel as [Hrel_eq|[]]. subst cr. congruence.
-            + (* meta: similar argument *)
-              destruct Hf as (num0 & Hexp & _ & _).
-              cbv [expect_num_R_facts] in Hexp.
-              destruct (is_input R0) eqn:HER0.
-              * (* in input case: meta_dfact R0 mf_args0 None num0 in inputs *)
-                intros Hin_concl. apply in_flat_map in Hin_concl.
-                destruct Hin_concl as (r0 & Hin_r0 & Hin_rel).
-                unfold rules_of in Hin_r0. apply in_app_or in Hin_r0.
-                destruct Hin_r0 as [Hin_meta | Hin_nm].
-                -- apply in_map_iff in Hin_meta.
-                   destruct Hin_meta as ((c0, h0) & Heq & Hin_mr0). subst r0.
-                   simpl in Hin_rel. apply in_map_iff in Hin_rel.
-                   destruct Hin_rel as (mc & Hrel_eq & Hin_mc).
-                   rewrite Forall_forall in Hp_meta_input.
-                   specialize (Hp_meta_input _ Hin_mr0). simpl in Hp_meta_input.
-                   rewrite Forall_forall in Hp_meta_input.
-                   specialize (Hp_meta_input _ Hin_mc).
-                   rewrite Hrel_eq in Hp_meta_input. simpl in Hp_meta_input.
-                   congruence.
-                -- apply in_map_iff in Hin_nm.
-                   destruct Hin_nm as (nmr & Heq & Hin_nmr). subst r0.
-                   rewrite Forall_forall in Hp_input.
-                   specialize (Hp_input _ Hin_nmr).
-                   destruct nmr as [cs hs | cr ag hr]; simpl in Hin_rel, Hp_input.
-                   ++ apply in_map_iff in Hin_rel.
-                      destruct Hin_rel as (c & Hrel_eq & Hin_c).
-                      rewrite Forall_forall in Hp_input.
-                      specialize (Hp_input _ Hin_c).
-                      rewrite Hrel_eq in Hp_input. simpl in Hp_input. congruence.
-                   ++ destruct Hin_rel as [Hrel_eq|[]]. subst cr. simpl in Hp_input.
-                      congruence.
-              * (* non-input case: contradicts good_input_facts *)
-                destruct Hexp as (msgss & Hf2_msgs & _).
-                pose proof (Forall2_length Hf2_msgs) as Hlen_msgs.
-                rewrite length_seq in Hlen_msgs.
-                destruct (Compare_dec.le_lt_dec (length p.(non_meta_rules)) 0) as [Hle | Hlt].
-                -- (* no non_meta rules: degenerate.  In this case length s = 0,
-                      and the firing wouldn't have happened. *)
-                   assert (Hk : k < 0) by lia. lia.
-                -- assert (H0_seq : nth_error (seq 0 (length p.(non_meta_rules))) 0 = Some 0).
-                   { rewrite nth_error_seq.
-                     assert (E : 0 <? length p.(non_meta_rules) = true)
-                       by (apply Nat.ltb_lt; exact Hlt).
-                     rewrite E. reflexivity. }
-                   assert (H0_msg : exists m, nth_error msgss 0 = Some m).
-                   { destruct (nth_error msgss 0) eqn:Em; [eauto|].
-                     apply nth_error_None in Em. lia. }
-                   destruct H0_msg as (m0 & Hm0).
-                   pose proof (Forall2_nth_error_fwd _ _ _ Hf2_msgs 0 0 m0 H0_seq Hm0)
-                     as Hin_m0.
-                   destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
-                   specialize (Hinp_all _ Hin_m0). simpl in Hinp_all. congruence.
-          - cbv [doesnt_lie consistent]. intros mfr0 mfa0 mfs0 Hin nf_args0 Hmatch_nf.
-            simpl in Hin. destruct Hin as (num0 & Hexp & _ & Hbic).
-            simpl. apply Hbic. exact Hmatch_nf. }
+        { apply good_inputs_knows_datalog_fact_inputs; [exact Hinp|]. lia. }
         pose proof (valid_impl_honest _ Hmeta_rules _ Hgood_inputs_Q) as Hhonest.
         cbv [doesnt_lie] in Hhonest.
         assert (Hin_rs_k : In rs_k s) by (eapply nth_error_In; eassumption).
@@ -3535,6 +3531,7 @@ Section __.
          one rule additionally has new_fact in its sent_facts. *)
       rename H into Hin_mr.
       rename H0 into HstepL.
+      pose proof HstepL as HstepL_save.
       cbv [stepWithLabel] in HstepL.
       destruct HstepL as (l1 & label_fire & x & y & l2 & Hcomb & Hs2_eq & Hstepfire).
       destruct label_fire as (r_fire & k_fire).
@@ -3644,9 +3641,75 @@ Section __.
                  + eapply knows_datalog_fact_local_lift_mf_consistent; try eassumption.
                    rewrite Hs_eq. apply in_or_app. right. apply in_eq. }
              eapply prog_impl_mf_ext'; [exact Hprog_constr | | ].
-             ++ (* iff: S_constr nf_args <-> mf_set nf_args.
-                   Needs a use_meta_facts_correct-style completeness lemma. *)
-                admit.
+             ++ (* iff: S_constr nf_args <-> mf_set nf_args, via use_meta_facts_correct *)
+                intros nf_args1 Hmatch1.
+                (* Direction setup: use Hhonest to convert S_constr to prog_impl_normal *)
+                pose proof Hsane as Hsane'.
+                assert (Hstep_comp : comp_step s (map (add_waiting_fact F) s2)).
+                { subst F. econstructor; eassumption. }
+                assert (Hsane_s' : sane_state inputs (map (add_waiting_fact F) s2)).
+                { eapply step_preserves_sane; eassumption. }
+                assert (Hmfc_s' : meta_facts_correct (map (add_waiting_fact F) s2)).
+                { eapply step_preserves_mfs_correct; [exact Hinp|exact Hsane|exact Hmfc|exact Hstep_comp]. }
+                (* HRs for use_meta_facts_correct: state_correct restricted to s'-side *)
+                assert (HRs_umfc :
+                  forall mf_rel' mf_args' mf_set',
+                    (mf_rel0, mf_args0) <> (mf_rel', mf_args') ->
+                    has_derived_datalog_fact (map (add_waiting_fact F) s2)
+                      (meta_fact mf_rel' mf_args' mf_set') /\
+                    mf_consistent_state (map (add_waiting_fact F) s2)
+                      (meta_fact mf_rel' mf_args' mf_set') ->
+                    prog_impl rules_of (knows_datalog_fact inputs)
+                      (meta_fact mf_rel' mf_args' mf_set')).
+                { intros mfr' mfa' mfs' Hne (Hhd' & Hmc').
+                  (* Lift Hhd' and Hmc' from s' to s *)
+                  apply Hsound. split.
+                  - (* has_derived_datalog_fact s (meta_fact mfr' mfa' mfs') *)
+                    simpl. destruct (is_input mfr') eqn:HERmfr'.
+                    + simpl in Hhd'. rewrite HERmfr' in Hhd'.
+                      destruct Hhd' as (num & Hk). exists num.
+                      rewrite Hkd_iff in Hk. destruct Hk as [Heq | Hk_s]; [|exact Hk_s].
+                      exfalso. rewrite HFeq in Heq. discriminate.
+                    + simpl in Hhd'. rewrite HERmfr' in Hhd'.
+                      intros k Hk. specialize (Hhd' k Hk).
+                      destruct Hhd' as (num & Hknk).
+                      rewrite Hkd_iff in Hknk.
+                      destruct Hknk as [Heq | Hk_s]; [|exists num; exact Hk_s].
+                      rewrite HFeq in Heq. injection Heq as -> -> _ _.
+                      exfalso. apply Hne. reflexivity.
+                  - (* mf_consistent_state s f' *)
+                    simpl. intros nf_args2 Hmatch2.
+                    simpl in Hmc'. specialize (Hmc' _ Hmatch2).
+                    rewrite Hmc'. apply Hkd_normal. }
+                assert (Hf1_True : has_derived_datalog_fact (map (add_waiting_fact F) s2)
+                                     (meta_fact mf_rel0 mf_args0 (fun _ => True))).
+                { simpl. rewrite HER. exact Hf1. }
+                pose proof (use_meta_facts_correct mf_rel0 mf_args0 inputs
+                              (map (add_waiting_fact F) s2)
+                              Hinp Hsane_s' Hmfc_s' HER HRs_umfc
+                              Hf1_True nf_args1 Hmatch1) as Humfc.
+                assert (Hlen_pos_p : 0 < length p.(non_meta_rules)).
+                { rewrite <- Hlen_s, Hs_eq, length_app, ! length_map. simpl. lia. }
+                assert (Hgood_inputs_Q : good_inputs rules_of (knows_datalog_fact inputs))
+                  by (apply good_inputs_knows_datalog_fact_inputs; assumption).
+                pose proof (valid_impl_honest _ Hmeta_rules _ Hgood_inputs_Q) as Hhonest.
+                cbv [doesnt_lie] in Hhonest.
+                (* Humfc : prog_impl ... (normal_fact mf_rel0 nf_args1) ->
+                           knows_dfact s' (normal_dfact mf_rel0 nf_args1) *)
+                pose proof (Hhonest _ _ _ Hprog_constr) as Hcon_constr.
+                cbv [consistent] in Hcon_constr.
+                specialize (Hcon_constr _ Hmatch1).
+                rewrite Hcon_constr.
+                (* Goal: prog_impl ... (normal_fact mf_rel0 nf_args1) <-> mf_set nf_args1 *)
+                split.
+                ** (* prog_impl -> mf_set *)
+                   intros Hprog. apply Humfc in Hprog.
+                   apply (proj2 (Hf2 _ Hmatch1)). exact Hprog.
+                ** (* mf_set -> prog_impl *)
+                   intros Hms.
+                   apply (proj1 (Hf2 _ Hmatch1)) in Hms.
+                   apply Hkd_normal in Hms.
+                   apply Hsound. simpl. split; [exact Hms|exact I].
              ++ (* ~Q (meta_fact mf_rel0 mf_args0 S_constr): inputs has no
                    (Some k) meta-facts (by good_input_facts), so expect_num_R_facts
                    fails for non-input mf_rel0. *)
