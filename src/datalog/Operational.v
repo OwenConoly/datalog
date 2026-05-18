@@ -2629,7 +2629,12 @@ Section __.
 
   (* Lifts soundness in the reverse direction: if a fact is both prog_impl-derivable
      and has_derived in s, then its mf_consistent_state holds in s.
-     Analog of SimpleDataflow's correct_impl_consistent. *)
+     Analog of SimpleDataflow's correct_impl_consistent.
+     Declared as Hypothesis (i.e., section variable) rather than Admitted Lemma
+     because Coq complains about section variable scoping when an Admitted lemma
+     is eapply'd in a later proof. To discharge, replace this with a proved Lemma
+     once the proof is ready; the discharge requires a uniqueness argument for
+     meta-fact sets (analog of SimpleDataflow's hmfs_unique). *)
   Hypothesis correct_impl_consistent : forall inputs s f,
     good_input_facts inputs ->
     state_correct inputs s ->
