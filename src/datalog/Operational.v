@@ -2789,7 +2789,7 @@ Section __.
             rewrite E. reflexivity. }
           (* Forall3 → get the predicate at index k *)
           assert (Hmfcr : meta_facts_correct_at_rule p.(meta_rules) k rs_k nmr).
-          { admit. (* extract from Forall3 *) }
+          { eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc1); eassumption. }
           specialize (Hmfcr R_concl mf_args num Hin_meta).
           destruct Hmfcr as (mfc & mfh & hyps' & Hin_mr & Hcdmf & Hknown_hyps' & Hnoself).
           cbv [can_deduce_meta_fact] in Hcdmf.
@@ -2813,13 +2813,52 @@ Section __.
           assert (Hlen_s1 : length s = length s1) by eauto using steps_preserves_length.
           assert (Hlc1 : length (combine p.(non_meta_rules) (seq 0 (length s1))) = length s1).
           { rewrite length_combine, length_seq. lia. }
+          assert (Hk_seq : nth_error (seq 0 (length s1)) k = Some k).
+          { rewrite nth_error_seq.
+            assert (E : k <? length s1 = true) by (apply Nat.ltb_lt; lia).
+            rewrite E. reflexivity. }
           (* Compute combine labels s1 *)
           set (labels := combine p.(non_meta_rules) (seq 0 (length s1))).
           assert (Hcomb_decomp : exists l1 l2,
                     combine labels s1 = l1 ++ ((nmr, k), rs_k) :: l2 /\
                     map snd l1 = s1_pre /\ map snd l2 = s1_post /\
                     length l1 = k).
-          { admit. (* arithmetic on combine *) }
+          { (* Decompose non_meta_rules at k *)
+            pose proof Hk_nmr as Hk_nmr_s.
+            apply nth_error_split in Hk_nmr_s.
+            destruct Hk_nmr_s as (nmrs_pre & nmrs_post & Hnmrs_eq & Hnmrs_pre_len).
+            (* Decompose seq at k *)
+            pose proof Hk_seq as Hk_seq_s.
+            apply nth_error_split in Hk_seq_s.
+            destruct Hk_seq_s as (seq_pre & seq_post & Hseq_eq & Hseq_pre_len).
+            (* labels split *)
+            assert (Hlabels_split : labels =
+                      combine nmrs_pre seq_pre ++ (nmr, k) :: combine nmrs_post seq_post).
+            { unfold labels. rewrite Hnmrs_eq, Hseq_eq.
+              rewrite combine_app by lia. simpl. reflexivity. }
+            assert (Hcc_pre_len : length (combine nmrs_pre seq_pre) = k).
+            { rewrite length_combine. lia. }
+            exists (combine (combine nmrs_pre seq_pre) s1_pre),
+                   (combine (combine nmrs_post seq_post) s1_post).
+            ssplit.
+            - rewrite Hlabels_split, Hs1_eq.
+              rewrite combine_app by lia. simpl. reflexivity.
+            - apply map_combine_snd. lia.
+            - apply map_combine_snd. rewrite length_combine.
+              (* length s1_post and length combine nmrs_post seq_post *)
+              assert (Hpost_eq : length s1_post = length nmrs_post).
+              { pose proof (f_equal (@length _) Hs1_eq) as Hl_s1.
+                rewrite app_length in Hl_s1. simpl in Hl_s1.
+                pose proof (f_equal (@length _) Hnmrs_eq) as Hl_nm.
+                rewrite app_length in Hl_nm. simpl in Hl_nm. lia. }
+              assert (Hpost_seq_eq : length seq_post = length nmrs_post).
+              { pose proof (f_equal (@length _) Hseq_eq) as Hl_sq.
+                rewrite app_length in Hl_sq. simpl in Hl_sq.
+                rewrite length_seq in Hl_sq.
+                pose proof (f_equal (@length _) Hnmrs_eq) as Hl_nm.
+                rewrite app_length in Hl_nm. simpl in Hl_nm. lia. }
+              lia.
+            - rewrite length_combine. lia. }
           destruct Hcomb_decomp as (l1 & l2 & Hcomb & Hl1_snd & Hl2_snd & Hl1_len).
           (* Apply fire_normal_rule *)
           set (F := normal_dfact R_concl args_concl).
