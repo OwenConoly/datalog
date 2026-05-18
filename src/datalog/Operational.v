@@ -2266,4 +2266,20 @@ Section __.
              apply Hsound. split; assumption.
   Qed.
 
+  Definition state_complete (inputs : list dfact) (s : state) :=
+    forall f,
+      prog_impl rules_of (knows_datalog_fact inputs) f ->
+      exists s',
+        comp_step^* s s' /\
+          has_derived_datalog_fact s' f.
+
+  Lemma comp_step_complete inputs s :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    state_correct inputs s ->
+    state_complete inputs s.
+  Proof.
+  Admitted.
+
 End __.
