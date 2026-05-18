@@ -3440,8 +3440,25 @@ Section __.
           pose (all_dfs := meta_dfs ++ val_dfs).
           assert (Hkn_all_dfs : Forall (knows_dfact s) all_dfs).
           { unfold all_dfs. apply Forall_app. split; assumption. }
+          (* Initial flush *)
           pose proof (flush_waiting_to_known inputs s k all_dfs Hinp Hsane_save Hkn_all_dfs Hk_lt_s)
-            as (s1 & rs_k & Hsteps1 & Hnth_k & Hin_all_dfs & Hiff_kn).
+            as (s_int & rs_k_int & Hsteps_int & Hnth_k_int & Hin_all_dfs_int & Hiff_int).
+          assert (Hsane_int : sane_state inputs s_int) by eauto using steps_preserves_sane.
+          assert (Hk_lt_s_int : k < length s_int).
+          { erewrite <- steps_preserves_length; eauto. }
+          (* Drain remaining matching from waiting *)
+          pose proof (flush_all_matching_from_waiting inputs s_int k hr mf_args
+                       Hinp Hsane_int Hk_lt_s_int)
+            as (s1 & rs_k & Hsteps_drain & Hnth_k & Hex_w_0 & Hiff_drain).
+          assert (Hsteps1 : comp_step^* s s1) by (eapply crt1n_trans_compose; eassumption).
+          assert (Hiff_kn : forall g, knows_dfact s1 g <-> knows_dfact s g).
+          { intros g. rewrite Hiff_drain, Hiff_int. reflexivity. }
+          assert (Hin_all_dfs : Forall (fun h => In h rs_k.(known_facts)) all_dfs).
+          { pose proof (steps_preserves_known_at _ _ _ _ _ Hinp Hsane_int Hsteps_drain Hnth_k_int)
+              as (rs_k' & Hnth_eq & Hincl).
+            rewrite Hnth_eq in Hnth_k. injection Hnth_k as ->.
+            eapply Forall_impl; [|exact Hin_all_dfs_int].
+            cbv beta. intros f Hf. apply Hincl. exact Hf. }
           assert (Hsane1 : sane_state inputs s1) by eauto using steps_preserves_sane.
           assert (Hmfc1 : meta_facts_correct s1) by eauto using steps_preserves_mfs_correct.
           assert (Hsound1 : state_correct inputs s1) by eauto using comp_steps_sound.
@@ -3473,8 +3490,86 @@ Section __.
                     destruct i; simpl in *; try discriminate.
                   -- injection Hi_seq as ->. injection Hi_nums as ->. reflexivity.
                   -- apply IH; assumption.
-                * (* Existsn count *)
-                  admit. (* count argument: sum of nums matches matching count in rs_k.known *)
+                * (* Existsn count = fold_left Nat.add nums 0 *)
+                  destruct Hsane1 as (_ & _ & Hmf_sent_s1 & _ & Hcount_s1 & _ & _).
+                  pose proof (Hcount_s1 hr mf_args) as Hcount_hr.
+                  destruct Hcount_hr as (msgs_sents & num_inp_actual & Hf2_msgs & Hex_inp_actual & Hforall_kn).
+                  rewrite Forall_forall in Hforall_kn.
+                  specialize (Hforall_kn rs_k (nth_error_In _ _ Hnth_k)).
+                  destruct Hforall_kn as (num_known & num_wait & Hex_kn & Hex_w & Hsum).
+                  pose proof (Existsn_unique _ _ _ _ Hex_w Hex_w_0) as Hnw_eq.
+                  subst num_wait.
+                  rewrite Nat.add_0_r in Hsum.
+                  (* num_inp_actual = 0 for non-input rel *)
+                  assert (Hinp_zero : num_inp_actual = 0).
+                  { destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
+                    (* No matching items in inputs for non-input hr *)
+                    clear -Hex_inp_actual Hinp_all Hhr_inp.
+                    revert num_inp_actual Hex_inp_actual.
+                    induction inputs as [|f rest IH]; intros num_inp_actual Hex.
+                    - inversion Hex; reflexivity.
+                    - inversion Hex as [|? ? ? Hnot Hex_rest|? ? ? Hyes Hex_rest]; subst.
+                      + apply IH; auto.
+                        intros f' Hf'. apply Hinp_all. right. exact Hf'.
+                      + exfalso.
+                        destruct Hyes as (nf_args & Heq & _). subst f.
+                        specialize (Hinp_all _ (or_introl eq_refl)).
+                        simpl in Hinp_all. congruence. }
+                  subst num_inp_actual.
+                  simpl in Hsum.
+                  (* num_known = sum_sent. We want = num = fold_left Nat.add nums 0. *)
+                  (* sum_sent = fold_left Nat.add msgs_sents 0, where msgs_sents counts matching in each rule's sent. *)
+                  (* nums was constructed from per-source meta_dfact's count.
+                     By Hmf_sent_s1: nums[k_src] = matching count in rs_{k_src}.sent.
+                     msgs_sents[k_src] = matching count in rs_{k_src}.sent (by Hf2_msgs).
+                     So msgs_sents = nums (extensionally; Forall2_eq via uniqueness). *)
+                  (* Stronger: show fold_left = fold_left *)
+                  assert (Hsents_eq : forall (l1 l2 : list nat),
+                            Forall2 eq l1 l2 -> fold_left Nat.add l1 0 = fold_left Nat.add l2 0).
+                  { clear. intros l1 l2 H.
+                    assert (Heq : l1 = l2).
+                    { induction H; subst; reflexivity. }
+                    subst. reflexivity. }
+                  assert (Hmsgs_eq : Forall2 eq msgs_sents nums).
+                  { (* Both lists count matching in each rule's sent (by Hf2_msgs and HF2_nums via Hmf_sent_s1) *)
+                    eapply Forall2_nth_error_bwd.
+                    { pose proof (Forall2_length Hf2_msgs) as Hl_ms.
+                      apply Forall2_length in HF2_nums. rewrite length_seq in HF2_nums.
+                      pose proof (steps_preserves_length _ _ _ Hinp Hsane_save Hsteps1) as Hlen_s1.
+                      pose proof Hsane_save as (Hlen_s_outer & _). lia. }
+                    intros i ms_i num_i Hi_ms Hi_num.
+                    (* Step 1: knows_dfact s (meta_dfact ... (Some i) num_i) from HF2_nums *)
+                    pose proof (Forall2_length HF2_nums) as Hlen_HF2.
+                    rewrite length_seq in Hlen_HF2.
+                    assert (Hi_lt : i < length p.(non_meta_rules)).
+                    { apply nth_error_Some_bound_index in Hi_num. lia. }
+                    assert (Hi_seq : nth_error (seq 0 (length p.(non_meta_rules))) i = Some i).
+                    { rewrite nth_error_seq.
+                      assert (E : i <? length p.(non_meta_rules) = true) by (apply Nat.ltb_lt; lia).
+                      rewrite E. reflexivity. }
+                    pose proof (Forall2_nth_error_fwd _ _ _ HF2_nums i i num_i Hi_seq Hi_num)
+                      as Hknows_s.
+                    (* Step 2: knows_dfact s1 ... via Hiff_kn *)
+                    assert (Hknows_s1 : knows_dfact s1 (meta_dfact hr mf_args (Some i) num_i)).
+                    { apply Hiff_kn. exact Hknows_s. }
+                    (* Step 3: By Hmf_sent_s1, at rs_i_s1.sent matching count = num_i *)
+                    specialize (Hmf_sent_s1 _ _ _ _ Hknows_s1).
+                    cbv [nth_sat] in Hmf_sent_s1.
+                    (* Step 4: from Hf2_msgs at i, get Existsn at rs_i_s1.sent = ms_i *)
+                    pose proof (Forall2_length Hf2_msgs) as Hf2_len.
+                    assert (Hi_s1 : exists rs_i, nth_error s1 i = Some rs_i).
+                    { destruct (nth_error s1 i) eqn:E; [eauto|].
+                      apply nth_error_None in E.
+                      apply nth_error_Some_bound_index in Hi_ms. lia. }
+                    destruct Hi_s1 as (rs_i & Hnth_s1).
+                    rewrite Hnth_s1 in Hmf_sent_s1.
+                    destruct Hmf_sent_s1 as (Hex_num_i & _).
+                    pose proof (Forall2_nth_error_fwd _ _ _ Hf2_msgs i rs_i ms_i Hnth_s1 Hi_ms)
+                      as Hex_ms_i.
+                    pose proof (Existsn_unique _ _ _ _ Hex_ms_i Hex_num_i) as Heq. exact Heq. }
+                  apply Hsents_eq in Hmsgs_eq.
+                  rewrite Hmsgs_eq in Hsum.
+                  rewrite <- Hsum. exact Hex_kn.
                 * (* Bicondition (same as input case) *)
                   intros nf_args Hmatch.
                   cbv [mf_consistent_state] in Hc_meta. specialize (Hc_meta nf_args Hmatch).
