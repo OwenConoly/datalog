@@ -3221,8 +3221,61 @@ Section __.
               + (* case (ii) knows_dfact s = true: Hf2 RHS reduces to true *)
                 split; intros _; [exact Hk|].
                 rewrite Hf2, Hkd_iff. right. exact Hk.
-              + (* case (iii) knows_dfact s = false: hard.  See comment above. *)
-                admit.
+              + (* case (iii): knows_dfact s = false.  In fact this case is
+                   IMPOSSIBLE: has_derived_datalog_fact s f (which holds via
+                   Hf1_s, but we don't have it here in the consistent assert)
+                   would force a (Some k_fire) meta_dfact in s for (nf_rel,
+                   mf_args), and by Hmf_sent it'd be in x.sent_facts, which
+                   contradicts the fire_normal_rule precondition Hno_sent.
+                   We derive False directly from Hf1_s. *)
+                exfalso.
+                assert (Hin_r : In r_fire (non_meta_rules p)).
+                { assert (Hin_out : In (r_fire, k_fire, x)
+                    (combine (combine (non_meta_rules p) (seq 0 (length s))) s)).
+                  { rewrite Hcomb. apply in_or_app. right. simpl. auto. }
+                  apply in_combine_l in Hin_out.
+                  apply in_combine_l in Hin_out. exact Hin_out. }
+                assert (Hgood_r : good_non_meta_rule r_fire).
+                { rewrite Forall_forall in Hp_input. apply Hp_input. exact Hin_r. }
+                assert (HNI : is_input nf_rel = false).
+                { eapply can_deduce_implies_not_input; eassumption. }
+                assert (Hk_eq : k_fire = length l1).
+                { assert (Hlen_seq : length (non_meta_rules p) = length (seq 0 (length s))).
+                  { rewrite length_seq. lia. }
+                  pose proof Hcomb as Hp0a.
+                  apply (f_equal (map fst)) in Hp0a.
+                  rewrite map_app in Hp0a. simpl in Hp0a.
+                  rewrite map_combine_fst in Hp0a by assumption.
+                  apply (f_equal (map snd)) in Hp0a.
+                  rewrite map_app in Hp0a. simpl in Hp0a.
+                  rewrite map_combine_snd in Hp0a by assumption.
+                  pose proof (f_equal (fun ll => nth_error ll (length l1)) Hp0a) as HnE.
+                  cbv beta in HnE.
+                  rewrite nth_error_app_middle in HnE.
+                  rewrite ! length_map in HnE.
+                  rewrite Nat.compare_refl in HnE.
+                  rewrite nth_error_seq in HnE.
+                  assert (E : length l1 <? length s = true).
+                  { apply Nat.ltb_lt.
+                    rewrite Hs_eq, length_app, ! length_map. simpl. lia. }
+                  rewrite E in HnE.
+                  injection HnE as ->. lia. }
+                cbv [has_derived_datalog_fact] in Hf1_s.
+                rewrite HNI in Hf1_s.
+                assert (Hk_lt : k_fire < length p.(non_meta_rules)).
+                { rewrite Hk_eq. rewrite <- Hlen_s.
+                  rewrite Hs_eq, length_app, ! length_map. simpl. lia. }
+                specialize (Hf1_s _ Hk_lt). destruct Hf1_s as (num & Hknows).
+                pose proof Hsane as (_ & _ & Hmf_sent & _ & _ & _).
+                specialize (Hmf_sent _ _ _ _ Hknows).
+                cbv [nth_sat] in Hmf_sent.
+                assert (Hnth : nth_error s k_fire = Some x).
+                { rewrite Hs_eq, Hk_eq.
+                  rewrite nth_error_app2 by (rewrite length_map; lia).
+                  rewrite length_map, Nat.sub_diag. reflexivity. }
+                rewrite Hnth in Hmf_sent.
+                destruct Hmf_sent as (_ & Hin_x).
+                eapply Hno_sent; [exact Hin_x | exact Hmatch0].
             - (* case (i) nf_args0 != nf_args: lift Hf2 directly *)
               rewrite Hf2, Hkd_iff. split.
               + intros [Heq | Hk]; [|exact Hk].
