@@ -2667,11 +2667,25 @@ Section __.
         - apply in_map_iff in Hin_nm.
           destruct Hin_nm as (nmr & Heq & Hin_nmr). exists nmr. auto. }
       destruct Hin_nmr as (nmr & Hin_nmr & Hnmr_eq).
-      (* Three remaining tasks:
-         1. flush all hyps' dfacts into the rule k's known
-         2. show no prior meta_dfact at this rule conflicts
-         3. apply fire_normal_rule *)
-      admit.
+      (* Get the index k of nmr *)
+      apply In_nth_error in Hin_nmr. destruct Hin_nmr as (k & Hk_nmr).
+      apply nth_error_Some_bound_index in Hk_nmr as Hk_lt.
+      pose proof Hsane as Hsane_save.
+      destruct Hsane as (Hlen_s & _).
+      assert (Hk_lt_s : k < length s) by lia.
+      (* Convert Forall (has_derived s) hyps to Forall (knows_dfact s) on the dfacts.
+         Since each hyp from non_meta_rule_impl is a normal_fact (from interp_clause
+         or, for agg, a mix of meta_fact + normal_facts), we need to handle both. *)
+      (* Build dfact list from hyps. For now, focus on the case where all hyps are
+         normal_facts (the standard normal_rule_impl case). *)
+      invert Hnmri.
+      + (* normal_rule_impl: all hyps are normal_facts (from Forall2 interp_clause) *)
+        rename rule_concls into rcs, rule_hyps into rhs, ctx into ctx0.
+        (* All hyps : list fact, each of form normal_fact. *)
+        (* Build the dfact list and flush *)
+        admit.
+      + (* agg_rule_impl: hyps = meta_fact :: list of normal_facts *)
+        admit.
     - (* meta_rule_impl: ru = meta_rule, conclusion = meta_fact *)
       admit.
   Admitted.
