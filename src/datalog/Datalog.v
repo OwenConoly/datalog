@@ -3334,13 +3334,9 @@ Section __.
           destruct Hpot_h as (mf_args' & mf_set'_m & Hin_m & Hmatch_m).
           pose proof (Hkdf_h _ Hin_m) as Hkd_m.
           destruct (classic ((R, mf_args) = (R', mf_args'))) as [Heq | Hne].
-          * (* SELF-RECURSIVE: the meta-rule for R has a normal hyp that is also
-               about R with matching mf_args.  Without HRs (precondition fails),
-               we'd need to recursively conclude knows_dfact s for this normal hyp,
-               then lift via rs_k saturation (Hexn_m + expect_num_R_facts_no_waiting
-               + Heverywhere).  Requires either strong induction on prog_impl tree
-               or an additional hypothesis forbidding such self-references. *)
-            admit.
+          * (* SELF-RECURSIVE: ruled out by Hnoselfref_h *)
+            exfalso. injection Heq as -> ->.
+            apply (Hnoselfref_h mf_set'_m). exact Hin_m.
           * (* non-self-recursive case *)
             pose proof (knows_datalog_fact_local_lift_has_derived _ _ _ _ Hinp Hsane Hin_rs_k Hkd_m) as Hhd_m.
             pose proof (knows_datalog_fact_local_lift_mf_consistent _ _ _ _ Hinp Hsane Hin_rs_k Hkd_m) as Hmc_m.
@@ -3357,13 +3353,9 @@ Section __.
           destruct Hpot_h as (mf_set'_m & Hin_m).
           pose proof (Hkdf_h _ Hin_m) as Hkd_m.
           destruct (classic ((R, mf_args) = (R', mf_args'))) as [Heq | Hne].
-          * (* SELF-RECURSIVE: same situation for meta hyps.  Bridging mf_set'_h
-               (from prog_impl + Hhonest) and mf_set'_m (from rs_k.known biconditional
-               + lift helper) requires `prog_impl_normal -> knows_dfact s` for R-facts,
-               which is exactly the outer use_meta_facts_correct conclusion.  Strong
-               induction on prog_impl tree would work, or add a no-self-reference
-               hypothesis. *)
-            admit.
+          * (* SELF-RECURSIVE: ruled out by Hnoselfref_h *)
+            exfalso. injection Heq as -> ->.
+            apply (Hnoselfref_h mf_set'_m). exact Hin_m.
           * (* non-self-recursive *)
             pose proof (knows_datalog_fact_local_lift_has_derived _ _ _ _ Hinp Hsane Hin_rs_k Hkd_m) as Hhd_m.
             pose proof (knows_datalog_fact_local_lift_mf_consistent _ _ _ _ Hinp Hsane Hin_rs_k Hkd_m) as Hmc_m.
@@ -3385,7 +3377,7 @@ Section __.
       cbv [knows_dfact]. apply Exists_exists. exists rs_k. split.
       + apply nth_error_In with k. exact Hnth_s.
       + left. exact Hsound_can.
-  Admitted.
+  Qed.
 
   Lemma comp_step_sound inputs s s' :
     good_input_facts inputs ->
@@ -3778,7 +3770,7 @@ Section __.
                exfalso. rewrite HFeq in Heq. injection Heq as -> -> _ _.
                apply HNeq. split; reflexivity. }
              apply Hsound. split; assumption.
-  Admitted.
+  Qed.
 
 
 End __.
