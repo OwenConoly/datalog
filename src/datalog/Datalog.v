@@ -3290,15 +3290,32 @@ Section __.
           -- destruct HF_meta as (? & ? & ? & HFeq). rewrite HFeq in Heq. discriminate.
           -- apply Hsound. simpl. split; [|exact Hf2_s].
              simpl. rewrite HER. exists num. exact Hk_s.
-        * (* not is_input R.  Hf1 says: forall k < length non_meta_rules, exists num,
-             knows_dfact s' (meta_dfact R mf_args (Some k) num).  For k != k_fire,
-             lifts to knows_dfact s directly.  For k = k_fire, the new fact F may be
-             the only witness, in which case s does not know (Some k_fire) for this
-             (R, mf_args).  Then has_derived_datalog_fact s f fails, and we must
-             instead derive prog_impl ... f via the meta-rule that fired (mf_concls,
-             mf_hyps from Hin_mr) combined with meta_facts_consistent.  Mirrors
-             SimpleDataflow's LearnFact + meta-fact + meta-rule case. *)
-          admit.
+        * (* not is_input R.  Case-split on whether F matches the target meta-fact:
+             - Case B (F doesn't match): F = meta_dfact mf_rel0 mf_args0 ..., and
+               (R, mf_args) != (mf_rel0, mf_args0), so for every k the new fact
+               doesn't match meta_dfact R mf_args (Some k) num.  Hf1 lifts to s.
+             - Case A (F matches): R = mf_rel0 and mf_args = mf_args0.  Then F is
+               the witness for k = k_fire, and s may have no other witness.
+               Requires deriving prog_impl ... f via the firing meta-rule. *)
+          destruct HF_meta as (mf_rel0 & mf_args0 & mf_cnt0 & HFeq).
+          destruct (classic (R = mf_rel0 /\ mf_args = mf_args0)) as [[HReq HMeq] | HNeq].
+          -- (* Case A: R = mf_rel0, mf_args = mf_args0.
+                The new fact F = meta_dfact R mf_args (Some k_fire) mf_cnt0 may be
+                the only witness for k = k_fire.  Must derive prog_impl ... f via
+                meta_rule_impl with the firing rule (mf_concls, mf_hyps), using
+                Hcan as the witness data.  The hard step is bridging the resulting
+                S_constr = one_step_derives rules_of hyps_d R to mf_set; this needs
+                a completeness lemma along the lines of SimpleDataflow's
+                use_meta_facts_correct (~100 lines). *)
+             admit.
+          -- (* Case B: lift Hf1 to s entirely *)
+             assert (Hf1_s : has_derived_datalog_fact s (meta_fact R mf_args mf_set)).
+             { simpl. rewrite HER. intros k Hk. specialize (Hf1 k Hk).
+               destruct Hf1 as (num & Hk_s'). rewrite Hkd_iff in Hk_s'.
+               destruct Hk_s' as [Heq | Hk_s]; [|exists num; exact Hk_s].
+               exfalso. rewrite HFeq in Heq. injection Heq as -> -> _ _.
+               apply HNeq. split; reflexivity. }
+             apply Hsound. split; assumption.
   Admitted.
 
 
