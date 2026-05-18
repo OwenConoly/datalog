@@ -2653,6 +2653,27 @@ Section __.
       comp_step^* s s' /\
         has_derived_datalog_fact s' f.
   Proof.
+    intros Hinp Hsane Hmfc Hsound Hin_r Himpl Hderived Hcons.
+    invert Himpl.
+    - (* simple_rule_impl: ru = non-meta rule, conclusion = normal_fact R args *)
+      rename H into Hnmri.
+      (* Hnmri : non_meta_rule_impl ru R args hyps *)
+      (* Find the corresponding non_meta_rule nmr in p.(non_meta_rules) *)
+      assert (Hin_nmr : exists nmr, In nmr p.(non_meta_rules) /\ rule_of nmr = ru).
+      { cbv [rules_of] in Hin_r. apply in_app_or in Hin_r.
+        destruct Hin_r as [Hin_meta | Hin_nm].
+        - exfalso. apply in_map_iff in Hin_meta.
+          destruct Hin_meta as ((c, h) & Heq & _). subst ru. invert Hnmri.
+        - apply in_map_iff in Hin_nm.
+          destruct Hin_nm as (nmr & Heq & Hin_nmr). exists nmr. auto. }
+      destruct Hin_nmr as (nmr & Hin_nmr & Hnmr_eq).
+      (* Three remaining tasks:
+         1. flush all hyps' dfacts into the rule k's known
+         2. show no prior meta_dfact at this rule conflicts
+         3. apply fire_normal_rule *)
+      admit.
+    - (* meta_rule_impl: ru = meta_rule, conclusion = meta_fact *)
+      admit.
   Admitted.
 
   Definition state_complete (inputs : list dfact) (s : state) :=
