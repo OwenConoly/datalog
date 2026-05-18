@@ -3105,7 +3105,28 @@ Section __.
         simpl in Hf1. apply Hkd_iff in Hf1. destruct Hf1 as [Heq|Hf1].
         * (* args is the newly fired fact's args *)
           subst F. injection Heq as -> ->.
-          admit.
+          (* Use the firing rule to derive prog_impl ... (normal_fact nf_rel nf_args) *)
+          assert (Hin_r : In r_fire p.(non_meta_rules)).
+          { assert (Hin_out : In (r_fire, k_fire, x)
+                             (combine (combine (non_meta_rules p) (seq 0 (length s))) s)).
+            { rewrite Hcomb. apply in_or_app. right. simpl. auto. }
+            apply in_combine_l in Hin_out. apply in_combine_l in Hin_out. exact Hin_out. }
+          destruct Hded as (hyps & Hnmri & Hkdf_hyps).
+          eapply prog_impl_step.
+          -- apply Exists_exists. exists (rule_of r_fire). split.
+             ++ unfold rules_of. apply in_or_app. right. apply in_map. exact Hin_r.
+             ++ apply simple_rule_impl. exact Hnmri.
+          -- (* Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps *)
+             rewrite Forall_forall in Hkdf_hyps |- *. intros h Hin_h.
+             specialize (Hkdf_hyps _ Hin_h).
+             destruct h as [R' args' | R' mf_args' mf_set'].
+             ++ (* normal hyp: knows_datalog_fact x.known means In x.known *)
+                apply Hsound. simpl. split; [|exact I].
+                cbv [knows_dfact]. apply Exists_exists. exists x. split.
+                ** rewrite Hs_eq. apply in_or_app. right. apply in_eq.
+                ** left. exact Hkdf_hyps.
+             ++ (* meta hyp: needs lift of mf_set consistency from x.known to s *)
+                admit.
         * (* old normal fact; apply Hsound on s *)
           apply Hsound. simpl. split; [exact Hf1|exact I].
       + (* f = meta_fact R mf_args mf_set.  Lift Hf1 from s' to s via Hkd_meta.
