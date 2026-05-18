@@ -3204,8 +3204,16 @@ Section __.
           - intros k Hk. specialize (Hf1 k Hk). destruct Hf1 as (num & Hknk).
             exists num. apply Hkd_meta in Hknk. exact Hknk. }
         destruct (classic (R = nf_rel)) as [HReq | HRneq].
-        * (* R = nf_rel: mf_set may include the newly-derived nf_args; needs
-             a derivation of normal_fact nf_rel nf_args_fire to extend.  Admit. *)
+        * (* R = nf_rel: hard case.  Hf2 says
+             mf_set nf_args <-> (nf_args = nf_args_fire) \/ knows_dfact s (normal nf_rel nf_args).
+             Three sub-cases:
+             (i)  Forall2 matches mf_args nf_args_fire is FALSE: lift Hf2 directly.
+             (ii) matches AND knows_dfact s (normal nf_rel nf_args_fire) is TRUE: same.
+             (iii)matches AND knows_dfact s = FALSE: mf_set nf_args_fire is forced true
+                  but no rule has the dfact in known.  Must derive normal_fact via firing
+                  rule and combine with a meta-rule derivation for f.  Mirror of
+                  SimpleDataflow's LearnFact + meta-fact + agg-rule case using
+                  meta_facts_consistent. *)
           admit.
         * (* R != nf_rel: knows_dfact unchanged for (normal R _); lift Hf2 *)
           assert (Hf2_s : mf_consistent_state s (meta_fact R mf_args mf_set)).
@@ -3268,8 +3276,14 @@ Section __.
           -- destruct HF_meta as (? & ? & ? & HFeq). rewrite HFeq in Heq. discriminate.
           -- apply Hsound. simpl. split; [|exact Hf2_s].
              simpl. rewrite HER. exists num. exact Hk_s.
-        * (* not is_input R: for k != k_fire lifts directly; for k = k_fire, the
-             new fact may be the only witness, requiring derivation via the meta-rule. *)
+        * (* not is_input R.  Hf1 says: forall k < length non_meta_rules, exists num,
+             knows_dfact s' (meta_dfact R mf_args (Some k) num).  For k != k_fire,
+             lifts to knows_dfact s directly.  For k = k_fire, the new fact F may be
+             the only witness, in which case s does not know (Some k_fire) for this
+             (R, mf_args).  Then has_derived_datalog_fact s f fails, and we must
+             instead derive prog_impl ... f via the meta-rule that fired (mf_concls,
+             mf_hyps from Hin_mr) combined with meta_facts_consistent.  Mirrors
+             SimpleDataflow's LearnFact + meta-fact + meta-rule case. *)
           admit.
   Admitted.
 
