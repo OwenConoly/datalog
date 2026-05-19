@@ -3554,6 +3554,147 @@ Section __.
         satisfies S_h for every meta-hyp h (with R_h = R_concl, otherwise
         unaffected) by chaining: closure adds args via can_deduce → prog_impl →
         S_h (via correct_impl_consistent on h at the current state). *)
+  (* Atomic step: fire a single missing normal_dfact and flush it into rs.known.
+     The no-conflict precondition for fire_normal_rule is discharged via the
+     forcing clause of any conflicting meta_dfact in rs.sent (from
+     meta_facts_correct_at_rule). *)
+  Lemma force_one_missing_normal
+        inputs s n rn rs R_concl nf_args :
+    good_input_facts inputs ->
+    0 < length p.(non_meta_rules) ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    n < length s ->
+    nth_error p.(non_meta_rules) n = Some rn ->
+    nth_error s n = Some rs ->
+    can_deduce_normal_fact rn rs.(known_facts) R_concl nf_args ->
+    ~ In (normal_dfact R_concl nf_args) rs.(known_facts) ->
+    exists s' rs',
+      comp_step^* s s' /\
+        nth_error s' n = Some rs' /\
+        In (normal_dfact R_concl nf_args) rs'.(known_facts).
+  Proof.
+    intros Hinp Hlen_pos Hsane Hmfc Hn_lt Hnth_rn Hnth_rs Hcdn Hnot_in.
+    pose proof Hsane as Hsane_save.
+    destruct Hsane as (Hlen_s & _).
+    (* Step 1: discharge fire_normal_rule's no-conflict precondition. *)
+    assert (Hno_conflict :
+              forall mf_args num,
+                In (meta_dfact R_concl mf_args (Some n) num) rs.(sent_facts) ->
+                Forall2 matches mf_args nf_args ->
+                False).
+    { intros mf_args num Hin_meta Hmatch.
+      assert (Hk_seq : nth_error (seq 0 (length s)) n = Some n).
+      { rewrite nth_error_seq.
+        assert (E : n <? length s = true) by (apply Nat.ltb_lt; lia).
+        rewrite E. reflexivity. }
+      assert (Hmfcr : meta_facts_correct_at_rule p.(meta_rules) n rs rn).
+      { eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc); eassumption. }
+      specialize (Hmfcr R_concl mf_args num Hin_meta).
+      destruct Hmfcr as (mfc & mfh & hyps_d & _ & Hcdmf & _ & _).
+      cbv [can_deduce_meta_fact] in Hcdmf.
+      destruct Hcdmf as (ctx_d & mfr_d & mfa_d & mfcnt_d & Hres & _ & _ & _ & Hforce).
+      injection Hres as -> -> ->.
+      apply Hnot_in. exact (Hforce nf_args Hcdn Hmatch). }
+    (* Step 2: set up labels and decompose s at position n. *)
+    pose proof Hnth_rs as Hnth_save.
+    apply nth_error_split in Hnth_save.
+    destruct Hnth_save as (s_pre & s_post & Hs_eq & Hs_pre_len).
+    assert (Hk_seq : nth_error (seq 0 (length s)) n = Some n).
+    { rewrite nth_error_seq.
+      assert (E : n <? length s = true) by (apply Nat.ltb_lt; lia).
+      rewrite E. reflexivity. }
+    set (labels := combine p.(non_meta_rules) (seq 0 (length s))).
+    assert (Hcomb_decomp : exists l1 l2,
+              combine labels s = l1 ++ ((rn, n), rs) :: l2 /\
+              map snd l1 = s_pre /\ map snd l2 = s_post /\
+              length l1 = n).
+    { pose proof Hnth_rn as Hk_nmr_s.
+      apply nth_error_split in Hk_nmr_s.
+      destruct Hk_nmr_s as (nmrs_pre & nmrs_post & Hnmrs_eq & Hnmrs_pre_len).
+      pose proof Hk_seq as Hk_seq_s.
+      apply nth_error_split in Hk_seq_s.
+      destruct Hk_seq_s as (seq_pre & seq_post & Hseq_eq & Hseq_pre_len).
+      assert (Hlabels_split : labels =
+                combine nmrs_pre seq_pre ++ (rn, n) :: combine nmrs_post seq_post).
+      { unfold labels. rewrite Hnmrs_eq, Hseq_eq.
+        rewrite combine_app by lia. simpl. reflexivity. }
+      assert (Hcc_pre_len : length (combine nmrs_pre seq_pre) = n)
+        by (rewrite length_combine; lia).
+      exists (combine (combine nmrs_pre seq_pre) s_pre),
+             (combine (combine nmrs_post seq_post) s_post).
+      ssplit.
+      - rewrite Hlabels_split, Hs_eq.
+        rewrite combine_app by lia. simpl. reflexivity.
+      - apply map_combine_snd. lia.
+      - apply map_combine_snd. rewrite length_combine.
+        assert (Hpost_eq : length s_post = length nmrs_post).
+        { pose proof (f_equal (@length _) Hs_eq) as Hl1.
+          rewrite length_app in Hl1. simpl in Hl1.
+          pose proof (f_equal (@length _) Hnmrs_eq) as Hl2.
+          rewrite length_app in Hl2. simpl in Hl2. lia. }
+        assert (Hpost_seq_eq : length seq_post = length nmrs_post).
+        { pose proof (f_equal (@length _) Hseq_eq) as Hl3.
+          rewrite length_app in Hl3. simpl in Hl3.
+          rewrite length_seq in Hl3.
+          pose proof (f_equal (@length _) Hnmrs_eq) as Hl2.
+          rewrite length_app in Hl2. simpl in Hl2. lia. }
+        lia.
+      - rewrite length_combine. lia. }
+    destruct Hcomb_decomp as (l1 & l2 & Hcomb & Hl1_snd & Hl2_snd & Hl1_len).
+    (* Step 3: fire fire_normal_rule. *)
+    set (F := normal_dfact R_concl nf_args).
+    set (rs_post := send_fact F rs).
+    set (s_post_send := map snd l1 ++ rs_post :: map snd l2).
+    set (s_fire := map (add_waiting_fact F) s_post_send).
+    assert (Hstep_fire : comp_step s s_fire).
+    { unfold s_fire.
+      apply (fire_normal_rule R_concl nf_args s s_post_send).
+      cbv [stepWithLabel].
+      exists l1, (rn, n), rs, rs_post, l2.
+      ssplit.
+      { exact Hcomb. }
+      { unfold s_post_send. rewrite Hl1_snd, Hl2_snd. reflexivity. }
+      { exact Hcdn. }
+      { exact Hno_conflict. }
+      { reflexivity. } }
+    (* Step 4: apply learn_fact_path to flush F into rs's known at position n. *)
+    assert (Hsane_fire : sane_state inputs s_fire)
+      by (eapply step_preserves_sane; eauto).
+    assert (Hl1_pre_len : length l1 = length s_pre).
+    { rewrite <- (length_map snd l1), Hl1_snd. reflexivity. }
+    assert (Hl2_post_len : length l2 = length s_post).
+    { rewrite <- (length_map snd l2), Hl2_snd. reflexivity. }
+    assert (Hlen_s_eq : length s = length s_pre + S (length s_post)).
+    { rewrite Hs_eq, length_app. simpl. lia. }
+    assert (Hlen_s_post_send : length s_post_send = length s).
+    { unfold s_post_send. rewrite length_app. simpl.
+      rewrite !length_map. lia. }
+    assert (Hn_lt_fire : n < length s_fire).
+    { unfold s_fire. rewrite length_map. lia. }
+    assert (Hkn_F : knows_dfact s_fire F).
+    { (* F is in every rule's waiting via add_waiting_fact.
+         Pick rs at position n in s_fire. *)
+      cbv [knows_dfact]. apply Exists_exists.
+      assert (Hex_rs : exists rs_n_fire, nth_error s_fire n = Some rs_n_fire).
+      { destruct (nth_error s_fire n) as [r|] eqn:E; [eauto|].
+        apply nth_error_None in E. lia. }
+      destruct Hex_rs as (rs_n_fire & Hnth_fire).
+      exists rs_n_fire. split.
+      - eapply nth_error_In. exact Hnth_fire.
+      - (* rs_n_fire = add_waiting_fact F (some rs_n_post_send), so F in waiting *)
+        unfold s_fire in Hnth_fire.
+        rewrite nth_error_map in Hnth_fire.
+        destruct (nth_error s_post_send n) as [rs_n_pre|] eqn:Hnth_ps;
+          [|discriminate].
+        simpl in Hnth_fire. injection Hnth_fire as Heq. subst rs_n_fire.
+        cbv [rule_has_dfact add_waiting_fact]. simpl. right. left. reflexivity. }
+    pose proof (learn_fact_path inputs s_fire n F Hsane_fire Hkn_F Hn_lt_fire)
+      as (s' & rs' & Hsteps_learn & Hnth' & Hin_F & _ & _).
+    exists s', rs'. ssplit; try assumption.
+    eapply Relation_Operators.rt1n_trans; [exact Hstep_fire|exact Hsteps_learn].
+  Qed.
+
   Lemma rule_can_force_normal_dfacts
         inputs s n rn rs R_concl args_concl S_set rule_concls rule_hyps hyps :
     good_input_facts inputs ->
