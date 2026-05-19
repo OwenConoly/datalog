@@ -4095,12 +4095,34 @@ Section __.
           { eapply Forall_impl; [|exact Hderived].
             intros f Hd. eapply steps_preserves_has_derived;
               [exact Hinp | exact Hsane | exact Hsteps_s' | exact Hd]. }
+          (* prog_impl on each hyp via state_correct at s *)
+          assert (Hpi_hyps : Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps_facts).
+          { apply Forall_forall. intros h Hin.
+            apply Hsound. split.
+            - rewrite Forall_forall in Hderived. apply Hderived. exact Hin.
+            - rewrite Forall_forall in Hcons. apply Hcons. exact Hin. }
+          assert (Hpi_s' : Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps_facts)
+            by exact Hpi_hyps.
+          (* mf_consistent_state at s' via correct_impl_consistent *)
           assert (Hc_s' : Forall (mf_consistent_state s') hyps_facts).
-          { admit. (* requires mf_consistent_state preservation, similar argument to flush_all_meta_hyps *) }
-          assert (Hpi_s' : Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps_facts).
-          { admit. (* derive via state_correct + has_derived + mf_consistent at s' *) }
+          { apply Forall_forall. intros h Hin.
+            eapply correct_impl_consistent.
+            - exact Hinp.
+            - lia.
+            - exact Hsound_s'.
+            - rewrite Forall_forall in Hpi_s'. apply Hpi_s'. exact Hin.
+            - rewrite Forall_forall in Hd_s'. apply Hd_s'. exact Hin. }
+          (* Each hyp from interp_meta_clause is a meta_fact *)
           assert (Hshape_s' : Forall (fun h => exists R mf_args mf_set, h = meta_fact R mf_args mf_set) hyps_facts).
-          { admit. (* each hyp from interp_meta_clause is a meta_fact *) }
+          { apply Forall_forall. intros h Hin.
+            apply In_nth_error in Hin. destruct Hin as (i & Hnth_h).
+            destruct (nth_error rule_hyps i) as [c|] eqn:Hnth_c.
+            - pose proof (Forall2_nth_error_fwd _ _ _ Hforall2_meta_hyps _ _ _ Hnth_c Hnth_h) as Hint.
+              cbv [interp_meta_clause] in Hint.
+              destruct Hint as (mfa & mfs & _ & Heq). subst h. eauto.
+            - exfalso. apply nth_error_None in Hnth_c.
+              apply nth_error_Some_bound_index in Hnth_h.
+              apply Forall2_length in Hforall2_meta_hyps. lia. }
           pose proof (flush_all_meta_hyps inputs s' n hyps_facts
                        Hinp Hsane_s' Hmfc_s' Hsound_s' Hn_lt_s' ltac:(lia)
                        Hd_s' Hc_s' Hpi_s' Hshape_s')
