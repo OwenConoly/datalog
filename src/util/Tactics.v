@@ -1,4 +1,5 @@
 From Stdlib Require Import Lists.List.
+From Stdlib Require Import Eqdep.
 
 Ltac specialize' H :=
   let hyp := fresh "hyp" in
@@ -36,6 +37,13 @@ Ltac invert e := invertN e || invert' e.
 
 Ltac invert0 H := invert H; fail.
 Ltac invert1 H := invert H; [].
+
+Ltac dep_invert H :=
+  invert H;
+  repeat match goal with
+    | H: existT _ _ _ = existT _ _ _ |- _ => apply Eqdep.EqdepTheory.inj_pair2 in H
+    end;
+  subst.
 
 Hint Unfold iff : core.
 Hint Extern 6 => match goal with

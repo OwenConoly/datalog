@@ -67,35 +67,34 @@ Inductive Sexpr {var} : type -> Type :=
 | bop_over_set : bop -> Sexpr set -> Sexpr val.
 Arguments Sexpr : clear implicits.
 
-Section well_formed.
-  Context {var1 var2 : type -> Type}.
-  Record ctx_elt2 :=
-    { ctx_elt_t : type; ctx_elt_p1 : var1 ctx_elt_t; ctx_elt_p2 : var2 ctx_elt_t }.
-  Inductive wf_Sexpr : list ctx_elt2 -> forall t, Sexpr var1 t -> Sexpr var2 t -> Prop :=
-  | wf_Var ctx t x1 x2 :
-    In {| ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} ctx ->
-    wf_Sexpr ctx _ (Var t x1) (Var t x2)
-  | wf_bop_over_vals ctx o x1 x2 y1 y2 :
-    wf_Sexpr ctx _ x1 x2 ->
-    wf_Sexpr ctx _ y1 y2 ->
-    wf_Sexpr ctx _ (bop_over_vals o x1 y1) (bop_over_vals o x2 y2)
-  | wf_empty ctx :
-    wf_Sexpr ctx _ empty empty
-  | wf_singleton ctx x1 x2 :
-    wf_Sexpr ctx _ x1 x2 ->
-    wf_Sexpr ctx _ (singleton x1) (singleton x2)
-  | wf_intersection ctx x1 x2 y1 y2 :
-    wf_Sexpr ctx _ x1 x2 ->
-    wf_Sexpr ctx _ y1 y2 ->
-    wf_Sexpr ctx _ (intersection x1 y1) (intersection x2 y2)
-  | wf_let_in ctx t1 t2 x1 x2 y1 y2 :
-    wf_Sexpr ctx _ x1 x2 ->
-    (forall x1' x2', wf_Sexpr ({| ctx_elt_p1 := x1'; ctx_elt_p2 := x2' |} :: ctx) _ (y1 x1') (y2 x2')) ->
-    wf_Sexpr ctx _ (let_in t1 t2 x1 y1) (let_in _ _ x2 y2)
-  | wf_bop_over_set ctx o x1 x2 :
-    wf_Sexpr ctx _ x1 x2 ->
-    wf_Sexpr ctx _ (bop_over_set o x1) (bop_over_set o x2).
-End well_formed.
+Record ctx_elt2 {var1 var2 : type -> Type} :=
+  { ctx_elt_t : type; ctx_elt_p1 : var1 ctx_elt_t; ctx_elt_p2 : var2 ctx_elt_t }.
+Arguments ctx_elt2 : clear implicits.
+
+Inductive wf_Sexpr {var1 var2} : list (ctx_elt2 var1 var2) -> forall t, Sexpr var1 t -> Sexpr var2 t -> Prop :=
+| wf_Var ctx t x1 x2 :
+  In {| ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} ctx ->
+  wf_Sexpr ctx _ (Var t x1) (Var t x2)
+| wf_bop_over_vals ctx o x1 x2 y1 y2 :
+  wf_Sexpr ctx _ x1 x2 ->
+  wf_Sexpr ctx _ y1 y2 ->
+  wf_Sexpr ctx _ (bop_over_vals o x1 y1) (bop_over_vals o x2 y2)
+| wf_empty ctx :
+  wf_Sexpr ctx _ empty empty
+| wf_singleton ctx x1 x2 :
+  wf_Sexpr ctx _ x1 x2 ->
+  wf_Sexpr ctx _ (singleton x1) (singleton x2)
+| wf_intersection ctx x1 x2 y1 y2 :
+  wf_Sexpr ctx _ x1 x2 ->
+  wf_Sexpr ctx _ y1 y2 ->
+  wf_Sexpr ctx _ (intersection x1 y1) (intersection x2 y2)
+| wf_let_in ctx t1 t2 x1 x2 y1 y2 :
+  wf_Sexpr ctx _ x1 x2 ->
+  (forall x1' x2', wf_Sexpr ({| ctx_elt_p1 := x1'; ctx_elt_p2 := x2' |} :: ctx) _ (y1 x1') (y2 x2')) ->
+  wf_Sexpr ctx _ (let_in t1 t2 x1 y1) (let_in _ _ x2 y2)
+| wf_bop_over_set ctx o x1 x2 :
+  wf_Sexpr ctx _ x1 x2 ->
+  wf_Sexpr ctx _ (bop_over_set o x1) (bop_over_set o x2).
 
 Definition SExpr t := forall var, Sexpr var t.
 Definition Wf_Sexpr {t} (e : SExpr t) :=
@@ -159,8 +158,6 @@ Proof.
   - destr_sth aeqb; constructor; congruence.
   - destr_sth aeqb; constructor; congruence.
 Qed.
-
-Definition bare_rule : Type := (rel * list expr) * list (rel * list expr).
 
 Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var :=
   match e with
@@ -267,46 +264,6 @@ Inductive Sexpr_with_args {var} : type -> Type :=
 | with_args_cons t : var t -> Sexpr_with_args t.
 Arguments Sexpr_with_args : clear implicits.
 
-Ltac dep_invert H :=
-  invert H;
-  repeat match goal with
-    | H: existT _ _ _ = existT _ _ _ |- _ => apply Eqdep.EqdepTheory.inj_pair2 in H
-    end;
-  subst.
-
-Lemma cons_is_app {T} (x : T) l :
-  x :: l = [x] ++ l.
-Proof. reflexivity. Qed.
-
-Lemma cons_two_is_app {T} (x y : T) l :
-  x :: y :: l = [x; y] ++ l.
-Proof. reflexivity. Qed.
-
-(* Definition well_typed (f : fact) := *)
-(*   match snd f.(fact_R) with *)
-(*   | normal => exists x, f.(fact_args) = [primitive x] *)
-(*   | meta => exists S0, f.(fact_args) = [factset S0; blank] *)
-(*   end. *)
-
-(* Definition good_inputs is_input (Q : fact -> Prop) := *)
-(*   forall f, Q f -> is_input (fst f.(fact_R)) /\ well_typed f. *)
-
-(* Definition well_typed_prog (p : list rule) := *)
-(*   forall Q, *)
-(*     (forall f, Q f -> well_typed f) -> *)
-(*     (forall f, prog_impl_implication p Q f -> well_typed f). *)
-
-(* Definition is_normal (r : rule) := *)
-(*   match r with *)
-(*   | normal_rule _ _ => True *)
-(*   | agg_rule _ _ _ => False *)
-(*   end. *)
-
-(* Definition syntactically_depends_only_on (p : list rule) R Rs := *)
-(*   Forall (fun r => In (R, normal) (concl_rels r) -> incl (hyp_rels r) (map (fun x => (x, normal)) Rs)) p. *)
-
-(* Definition mrs_very_sound p := forall R, mrs_very_sound_for p R. *)
-
 Ltac plda :=
   repeat lazymatch goal with
     | |- Forall _ _ => first [constructor | eapply Forall_impl; [|eassumption]; cbv beta | apply Forall_forall; intros ]
@@ -349,7 +306,7 @@ Ltac invert1_Exists H :=
 Ltac invert_stuff :=
   match goal with
   | _ => Datalog.invert_stuff
-  | H: Exists _ _ |- _ => invert1_Exists H
+  | H: Exists _ _ |- _ => progress invert1_Exists H
   | H: prog_impl _ _ (normal_fact _ _) |- _ =>
       (apply invert_prog_impl in H; destruct H; [solve[repeat invert_stuff]|]) ||
       (apply invert_prog_impl in H; destruct H; [|solve[repeat invert_stuff]])
