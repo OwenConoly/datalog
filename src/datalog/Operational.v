@@ -3184,12 +3184,29 @@ Section __.
                 exists msgs. split; [|exact Heq].
                 eapply Forall2_impl_strong; [|exact Hf2].
                 intros n exp Hexp_in _ _. apply Hincl. exact Hexp_in.
-          -- (* Existsn count: subtle — Existsn = num_h might not be preserved after
-                more flushing. The right approach is to re-establish knows_datalog_fact
-                for h at the FINAL state (rs_k') using Hcount + drain + preserved
-                invariants, rather than lifting from rs_k1. *)
+          -- (* Existsn count: requires re-establishment at the FINAL state rs_k'.
+                The argument:
+                - At rs_k1 (after h's flush + drain), Existsn (dfact_matches R_h mf_args_h)
+                  0 rs_k1.waiting (drain established this).
+                - Subsequent comp_step^* (from recursive IH) uses ONLY learn_fact
+                  (since flush_one_meta_hyp internally uses learn_fact-only operations).
+                - learn_fact never ADDS to waiting; only moves from waiting to known.
+                - So at rs_k', matching count in waiting still = 0.
+                - By Hcount at s' (preserved sanity): num_known + num_wait = num_inp + sum_sent.
+                - With num_wait = 0, num_known = num_inp + sum_sent.
+                - For input case (sum_sent = 0): num_known = num_inp = num_h
+                  (by prog_impl_input_meta_implies_Q_leaf + uniqueness).
+                - For non-input case (num_inp = 0): num_known = sum_sent = num_h
+                  (by sum nums = sum_sent via Hmf_sent + Forall2 lemma).
+                ROADMAP TO COMPLETE: add `Existsn (dfact_matches mf_rel mf_args) 0
+                rs'.waiting_facts` to flush_one_meta_hyp's output AND prove a lemma
+                that "comp_step^* via learn_fact-only preserves Existsn 0 in waiting
+                for any predicate". Then apply at rs_k'. *)
              admit.
-          -- (* Bicondition: similarly requires final-state reasoning *)
+          -- (* Bicondition: at rs_k', use:
+                - mf_consistent_state s' (preserved via iff): S ↔ knows_dfact s'.
+                - knows_dfact s' matching ↔ In rs_k'.known (via Heverywhere + drain at rs_k').
+                Same `learn_fact-only preserves drain` argument as Existsn count. *)
              admit.
         * (* Forall (knows_datalog_fact rs_k'.known) hs — already from IH *)
           exact Hknow_hs.
