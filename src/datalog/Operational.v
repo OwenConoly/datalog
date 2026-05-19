@@ -4465,15 +4465,30 @@ Section __.
               - (* Forcing clause: forall nf_args, can_deduce_normal_fact rn rs_n_post.known
                    R_concl nf_args -> matches args_concl nf_args ->
                    In (normal_dfact R_concl nf_args) rs_n_post.known.
-                 ROADMAP: This is the analog of SimpleDataflow's
-                 node_can_find_all_conclusions. The clause requires that all locally-derivable
-                 normal_dfacts matching args_concl are present in rs_n_post.known.
-                 Approach: pre-flush ALL derivable normal_dfacts (matching args_concl) to
-                 rs_n.known BEFORE this fire step. SimpleDataflow uses classical excluded
-                 middle to either find an existing meta_dfact (skipping the fire) or step
-                 to a state with full closure (then fire). The closure step requires
-                 induction over candidate values from a finite source (via meta-fact
-                 finiteness). *)
+
+                   REMAINING WORK: This is the analog of SimpleDataflow's
+                   [node_can_find_all_conclusions] (SimpleDataflow.v:1392).  Discharging
+                   it requires NEW INFRASTRUCTURE not yet present in this file:
+
+                   1.  Add a [Context (Hmeta_finite : meta_facts_finite rules_of)]
+                       assumption that propagates finiteness from input meta-facts to
+                       all prog_impl-derivable meta-facts.  Analog of SimpleDataflow's
+                       [meta_facts_finite p] (line 2505) and its [Context (Hfinite : ...)]
+                       (line 2510).  Without this, we cannot bound the candidate set
+                       for the forcing closure.
+
+                   2.  Prove the analog [rule_can_force_normal_dfacts]: given a finite
+                       bound l on candidate nf_args (from Hmeta_finite + Hsound +
+                       prog_impl on the meta-fact being constructed), step to a state
+                       where the forcing closure holds at rule k.  Structure: classical
+                       EM + induction on length l, mirroring SimpleDataflow:1407-1460.
+                       Each iteration: either current state already satisfies closure
+                       (return), or pick a missing candidate from l and fire
+                       fire_normal_rule for it (recurse with smaller l).
+
+                   3.  Apply rule_can_force_normal_dfacts here BEFORE the fire_meta_rule
+                       step, replacing s'' with s''' where the closure holds.  Then
+                       fire_meta_rule's precondition is satisfied. *)
                 admit. }
             { exact Hknow_hyps_post. }
             { reflexivity. } }
@@ -4503,7 +4518,7 @@ Section __.
               ssplit.
               { exact Hcomb. }
               { unfold s2. rewrite Hl1_snd, Hl2_snd. reflexivity. }
-              { admit. (* same as above *) }
+              { admit. (* same forcing-clause issue; same fix via rule_can_force_normal_dfacts *) }
               { exact Hknow_hyps_post. }
               { reflexivity. } } }
       specialize (Hgoal_n (length p.(non_meta_rules)) ltac:(lia)).
