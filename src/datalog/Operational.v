@@ -4127,8 +4127,27 @@ Section __.
                        Hinp Hsane_s' Hmfc_s' Hsound_s' Hn_lt_s' ltac:(lia)
                        Hd_s' Hc_s' Hpi_s' Hshape_s')
             as (s'' & rs_n_post & Hsteps_flush & Hnth_rs_n_post & Hknow_hyps_post & Hiff_flush).
-          (* Now build can_deduce_meta_fact and fire_meta_rule *)
-          (* Remaining: build forcing clause, apply fire_meta_rule with combine decomposition. *)
+          assert (Hsane_s'' : sane_state inputs s'') by eauto using steps_preserves_sane.
+          assert (Hsteps_total : comp_step^* s s'').
+          { eapply crt1n_trans_compose; eassumption. }
+          (* Build can_deduce_meta_fact and apply fire_meta_rule *)
+          (* mf_cnt = matching count in rs_n_post.sent_facts *)
+          destruct Hsane_s'' as (Hlen_s'' & _ & Hmf_sent_s'' & _ & Hcount_s'' & _ & _).
+          (* Existsn count for matching in rs_n_post.sent: from Hcount *)
+          pose proof (Hcount_s'' R_concl args_concl) as (msgs_sents_post & num_inp_post & Hf2_post & _ & _).
+          assert (Hms_n_ex : exists ms_n, nth_error msgs_sents_post n = Some ms_n).
+          { pose proof (Forall2_length Hf2_post) as Hl_post.
+            destruct (nth_error msgs_sents_post n) as [mn|] eqn:Hnth_mn; [eauto|].
+            apply nth_error_None in Hnth_mn.
+            assert (Hn_lt_s'' : n < length s'') by
+              (erewrite <- steps_preserves_length;
+                [|exact Hinp|exact Hsane_s'|exact Hsteps_flush]; exact Hn_lt_s').
+            lia. }
+          destruct Hms_n_ex as (ms_n & Hms_n).
+          pose proof (Forall2_nth_error_fwd _ _ _ Hf2_post _ _ _ Hnth_rs_n_post Hms_n) as Hex_sent.
+          (* The actual fire requires extensive bookkeeping (combine decomposition, etc.)
+             plus the forcing clause for can_deduce_meta_fact.
+             Pattern is the same as agg's fire_normal_rule but for fire_meta_rule. *)
           admit. }
       specialize (Hgoal_n (length p.(non_meta_rules)) ltac:(lia)).
       destruct Hgoal_n as (s' & Hsteps & Hknows_all).
