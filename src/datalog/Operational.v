@@ -2829,6 +2829,43 @@ Section __.
     eapply flush_all_matching_from_waiting_aux; eauto.
   Qed.
 
+  (* learn_fact never adds to waiting; only moves from waiting to known.
+     So Existsn 0 in waiting (for any predicate P) is preserved across a learn_fact step. *)
+  Lemma learn_fact_step_preserves_existsn_0_waiting (P : dfact -> Prop) :
+    forall s s' k rs rs',
+      stepOne learn_fact_at_rule s s' ->
+      nth_error s k = Some rs ->
+      nth_error s' k = Some rs' ->
+      Existsn P 0 rs.(waiting_facts) ->
+      Existsn P 0 rs'.(waiting_facts).
+  Proof.
+    intros s s' k rs rs' Hstep Hnth Hnth' Hex.
+    cbv [stepOne] in Hstep.
+    destruct Hstep as (l1 & x & y & l2 & Hs_eq & Hs'_eq & Hlfr).
+    cbv [learn_fact_at_rule] in Hlfr.
+    destruct Hlfr as (lw1 & wf & lw2 & Hykn & Hxwait & Hywait & Hysent).
+    subst s s'.
+    (* Compare nth_error at l1 ++ x :: l2 vs l1 ++ y :: l2 at position k *)
+    destruct (Nat.lt_total k (length l1)) as [Hlt | [Heq | Hgt]].
+    - rewrite nth_error_app1 in Hnth, Hnth' by lia.
+      rewrite Hnth in Hnth'. injection Hnth' as ->. exact Hex.
+    - subst k.
+      rewrite nth_error_app2 in Hnth, Hnth' by lia.
+      rewrite Nat.sub_diag in Hnth, Hnth'. simpl in Hnth, Hnth'.
+      injection Hnth as ->. injection Hnth' as ->.
+      (* x.waiting = lw1 ++ wf :: lw2, y.waiting = lw1 ++ lw2 *)
+      (* Existsn P 0 (lw1 ++ wf :: lw2) → Existsn P 0 (lw1 ++ lw2) *)
+      rewrite Hxwait in Hex. rewrite Hywait.
+      apply Existsn_split in Hex. destruct Hex as (n1 & n2 & Hsum & Hex_lw1 & Hex_cons).
+      assert (n2 = 0) by lia. subst n2. assert (n1 = 0) by lia. subst n1.
+      inversion Hex_cons; subst.
+      all: try lia.
+      replace 0 with (0 + 0) by lia. apply Existsn_app; assumption.
+    - rewrite nth_error_app2 in Hnth, Hnth' by lia.
+      destruct (k - length l1) eqn:Hd; [lia|]. simpl in Hnth, Hnth'.
+      rewrite Hnth in Hnth'. injection Hnth' as ->. exact Hex.
+  Qed.
+
   (* If a prog_impl-derivable meta_fact has input rel, it must come from Q-leaf
      (no meta-rule can produce input meta-facts by good_meta_rule_inputs). *)
   Lemma prog_impl_input_meta_implies_Q_leaf_early inputs mf_rel mf_args mf_set :
