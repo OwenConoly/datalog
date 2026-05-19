@@ -191,6 +191,21 @@ Section __.
 
   Context (Hp_meta_input : Forall good_meta_rule_inputs p.(meta_rules)).
 
+  (* Propagation of meta-fact finiteness: analog of SimpleDataflow.v:2505
+     [meta_facts_finite].  If all "leaf" (Q-supported) meta-facts have a
+     finite S, then so do all prog_impl-derivable meta-facts.  We add this
+     as a Context assumption because the inductive hypothesis (meta-facts
+     stay finite across rule firings) is a global property of the program
+     that cannot be derived from local constraints over an unbounded T. *)
+  Definition meta_facts_finite :=
+    forall Q,
+      (forall R mf_args S, Q (meta_fact R mf_args S) ->
+                            exists l, forall args, S args -> In args l) ->
+      forall R mf_args S, prog_impl rules_of Q (meta_fact R mf_args S) ->
+                          exists l, forall args, S args -> In args l.
+
+  Context (Hmeta_finite : meta_facts_finite).
+
   Definition rule_has_dfact rs f :=
     In f rs.(known_facts) \/ In f rs.(waiting_facts).
 
@@ -3515,6 +3530,58 @@ Section __.
 
      Each subcase also needs the no-self-reference clause for fire_meta_rule, derived
      from meta_facts_correct_at_rule (same pattern as step_preserves_mfs_correct). *)
+
+  (* Analog of SimpleDataflow.v:1392 [node_can_find_all_conclusions].
+
+     Given that the constructed meta-fact is prog_impl-derivable (so its S has a
+     finite enumeration via [Hmeta_finite]), drives rule [n]'s known_facts to a
+     state where the forcing closure for [R_concl] (matching [args_concl]) holds:
+     every locally-derivable [normal_dfact R_concl nf_args] is already present.
+
+     PROOF SKETCH (mirroring SimpleDataflow.v:1407-1460):
+     1. Derive prog_impl on the constructed meta-fact via prog_impl_step.
+     2. Apply Hmeta_finite to obtain a finite enumeration l of all nf_args with
+        S_set nf_args.  Tighten via valid_impl_honest (Datalog.v:1500) +
+        good_inputs_knows_datalog_fact_inputs: knows_dfact-derivability of
+        normal_dfact R_concl nf_args (modulo matching) implies S_set nf_args,
+        hence nf_args in l.
+     3. Induct on length l: at each step, classical EM picks either:
+        (a) NO unforced candidate in l: return current state, forcing closure holds.
+        (b) SOME unforced candidate args: fire fire_normal_rule for it (no conflict
+            by meta_facts_correct), recurse on (l minus args).
+     4. Bicondition preservation across the closure: each added normal_dfact
+        satisfies S_h for every meta-hyp h (with R_h = R_concl, otherwise
+        unaffected) by chaining: closure adds args via can_deduce → prog_impl →
+        S_h (via correct_impl_consistent on h at the current state). *)
+  Lemma rule_can_force_normal_dfacts
+        inputs s n rn R_concl args_concl S_set rule_concls rule_hyps hyps :
+    good_input_facts inputs ->
+    0 < length p.(non_meta_rules) ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    state_correct inputs s ->
+    n < length s ->
+    nth_error p.(non_meta_rules) n = Some rn ->
+    In (rule_concls, rule_hyps) p.(meta_rules) ->
+    rule_impl (one_step_derives rules_of) (meta_rule rule_concls rule_hyps)
+              (meta_fact R_concl args_concl S_set) hyps ->
+    Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps ->
+    exists s' rs rs',
+      comp_step^* s s' /\
+      nth_error s n = Some rs /\
+      nth_error s' n = Some rs' /\
+      incl rs.(known_facts) rs'.(known_facts) /\
+      incl rs.(sent_facts) rs'.(sent_facts) /\
+      (forall nf_args,
+          can_deduce_normal_fact rn rs'.(known_facts) R_concl nf_args ->
+          Forall2 matches args_concl nf_args ->
+          In (normal_dfact R_concl nf_args) rs'.(known_facts)) /\
+      sane_state inputs s' /\
+      meta_facts_correct s' /\
+      state_correct inputs s' /\
+      Forall (knows_datalog_fact rs'.(known_facts)) hyps.
+  Admitted.
+
   Lemma good_layout_complete_rule inputs s (ru : rule) f hyps :
     good_input_facts inputs ->
     sane_state inputs s ->
@@ -3529,6 +3596,7 @@ Section __.
         has_derived_datalog_fact s' f.
   Proof.
     intros Hinp Hsane Hmfc Hsound Hin_r Himpl Hderived Hcons.
+    pose proof Himpl as Himpl_save.
     invert Himpl.
     - (* simple_rule_impl: ru = non-meta rule, conclusion = normal_fact R args *)
       rename H into Hnmri.
@@ -4362,8 +4430,29 @@ Section __.
           pose proof (flush_all_meta_hyps inputs s' n hyps_facts
                        Hinp Hsane_s' Hmfc_s' Hsound_s' Hn_lt_s' ltac:(lia)
                        Hd_s' Hc_s' Hpi_s' Hshape_s')
-            as (s'' & rs_n_post & Hsteps_flush & Hnth_rs_n_post & Hknow_hyps_post & Hiff_flush & _).
-          assert (Hsane_s'' : sane_state inputs s'') by eauto using steps_preserves_sane.
+            as (s_after_flush & rs_n_pre_force & Hsteps_flush_only & Hnth_rs_n_pre_force
+                & Hknow_hyps_pre_force & Hiff_flush_only & _).
+          assert (Hsane_s_after_flush : sane_state inputs s_after_flush) by eauto using steps_preserves_sane.
+          assert (Hmfc_s_after_flush : meta_facts_correct s_after_flush) by eauto using steps_preserves_mfs_correct.
+          assert (Hsound_s_after_flush : state_correct inputs s_after_flush) by eauto using comp_steps_sound.
+          assert (Hn_lt_s_after_flush : n < length s_after_flush)
+            by (erewrite <- steps_preserves_length;
+                  [|exact Hinp|exact Hsane_s'|exact Hsteps_flush_only]; exact Hn_lt_s').
+          (* Force closure: drive rs_n's known to contain all locally-derivable
+             normal_dfacts matching args_concl.  This is needed for fire_meta_rule's
+             can_deduce_meta_fact precondition (the forcing clause). *)
+          pose proof (rule_can_force_normal_dfacts inputs s_after_flush n rn R_concl args_concl
+                       S_set rule_concls rule_hyps hyps_facts Hinp ltac:(lia)
+                       Hsane_s_after_flush Hmfc_s_after_flush Hsound_s_after_flush Hn_lt_s_after_flush Hnth_rn
+                       Hin_mr Himpl_save Hpi_hyps)
+            as (s'' & rs_n_pre_chk & rs_n_post & Hsteps_force & Hnth_pre_chk
+                & Hnth_rs_n_post & Hincl_known & Hincl_sent & Hforcing
+                & Hsane_s'' & Hmfc_s'' & Hsound_s'' & Hknow_hyps_post).
+          (* rs_n_pre_chk = rs_n_pre_force *)
+          rewrite Hnth_pre_chk in Hnth_rs_n_pre_force.
+          injection Hnth_rs_n_pre_force as ->.
+          assert (Hsteps_flush : comp_step^* s' s'').
+          { eapply crt1n_trans_compose; eassumption. }
           assert (Hsteps_total : comp_step^* s s'').
           { eapply crt1n_trans_compose; eassumption. }
           (* Build can_deduce_meta_fact and apply fire_meta_rule *)
@@ -4462,34 +4551,8 @@ Section __.
                 + rewrite Hmfa. exact Hf2_args.
                 + rewrite Hrel. reflexivity.
               - exact Hforall2_meta_hyps.
-              - (* Forcing clause: forall nf_args, can_deduce_normal_fact rn rs_n_post.known
-                   R_concl nf_args -> matches args_concl nf_args ->
-                   In (normal_dfact R_concl nf_args) rs_n_post.known.
-
-                   REMAINING WORK: This is the analog of SimpleDataflow's
-                   [node_can_find_all_conclusions] (SimpleDataflow.v:1392).  Discharging
-                   it requires NEW INFRASTRUCTURE not yet present in this file:
-
-                   1.  Add a [Context (Hmeta_finite : meta_facts_finite rules_of)]
-                       assumption that propagates finiteness from input meta-facts to
-                       all prog_impl-derivable meta-facts.  Analog of SimpleDataflow's
-                       [meta_facts_finite p] (line 2505) and its [Context (Hfinite : ...)]
-                       (line 2510).  Without this, we cannot bound the candidate set
-                       for the forcing closure.
-
-                   2.  Prove the analog [rule_can_force_normal_dfacts]: given a finite
-                       bound l on candidate nf_args (from Hmeta_finite + Hsound +
-                       prog_impl on the meta-fact being constructed), step to a state
-                       where the forcing closure holds at rule k.  Structure: classical
-                       EM + induction on length l, mirroring SimpleDataflow:1407-1460.
-                       Each iteration: either current state already satisfies closure
-                       (return), or pick a missing candidate from l and fire
-                       fire_normal_rule for it (recurse with smaller l).
-
-                   3.  Apply rule_can_force_normal_dfacts here BEFORE the fire_meta_rule
-                       step, replacing s'' with s''' where the closure holds.  Then
-                       fire_meta_rule's precondition is satisfied. *)
-                admit. }
+              - (* Forcing clause: discharged via rule_can_force_normal_dfacts *)
+                exact Hforcing. }
             { exact Hknow_hyps_post. }
             { reflexivity. } }
           { (* has_derived part *)
@@ -4518,7 +4581,22 @@ Section __.
               ssplit.
               { exact Hcomb. }
               { unfold s2. rewrite Hl1_snd, Hl2_snd. reflexivity. }
-              { admit. (* same forcing-clause issue; same fix via rule_can_force_normal_dfacts *) }
+              { cbv [can_deduce_meta_fact].
+                apply Exists_exists in Hexists_meta_concl.
+                destruct Hexists_meta_concl as (c & Hin_c & Hint_c).
+                cbv [interp_meta_clause] in Hint_c.
+                destruct Hint_c as (mfa & mfs & Hf2_args & Heq_meta).
+                injection Heq_meta as Hrel Hmfa _.
+                exists ctx, R_concl, args_concl, ms_n. ssplit.
+                - reflexivity.
+                - exact Hex_sent.
+                - apply Exists_exists. exists c. split; [exact Hin_c|].
+                  cbv [interp_meta_clause]. exists args_concl, (fun _ => False).
+                  split.
+                  + rewrite Hmfa. exact Hf2_args.
+                  + rewrite Hrel. reflexivity.
+                - exact Hforall2_meta_hyps.
+                - exact Hforcing. }
               { exact Hknow_hyps_post. }
               { reflexivity. } } }
       specialize (Hgoal_n (length p.(non_meta_rules)) ltac:(lia)).
@@ -4526,7 +4604,7 @@ Section __.
       exists s'. split; [exact Hsteps|].
       cbv [has_derived_datalog_fact]. rewrite HR_noninput.
       intros k Hk_lt. apply Hknows_all. exact Hk_lt.
-  Admitted.
+  Qed.
 
   Definition state_complete (inputs : list dfact) (s : state) :=
     forall f,
