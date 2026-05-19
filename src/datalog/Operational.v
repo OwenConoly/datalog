@@ -4228,8 +4228,17 @@ Section __.
               - exact Hforall2_meta_hyps.
               - (* Forcing clause: forall nf_args, can_deduce_normal_fact rn rs_n_post.known
                    R_concl nf_args -> matches args_concl nf_args ->
-                   In (normal_dfact R_concl nf_args) rs_n_post.known *)
-                admit. (* Forcing clause: requires "closure" at rs_n_post.known *) }
+                   In (normal_dfact R_concl nf_args) rs_n_post.known.
+                 ROADMAP: This is the analog of SimpleDataflow's
+                 node_can_find_all_conclusions. The clause requires that all locally-derivable
+                 normal_dfacts matching args_concl are present in rs_n_post.known.
+                 Approach: pre-flush ALL derivable normal_dfacts (matching args_concl) to
+                 rs_n.known BEFORE this fire step. SimpleDataflow uses classical excluded
+                 middle to either find an existing meta_dfact (skipping the fire) or step
+                 to a state with full closure (then fire). The closure step requires
+                 induction over candidate values from a finite source (via meta-fact
+                 finiteness). *)
+                admit. }
             { exact Hknow_hyps_post. }
             { reflexivity. } }
           { (* has_derived part *)
