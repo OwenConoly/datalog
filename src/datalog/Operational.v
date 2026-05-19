@@ -192,17 +192,18 @@ Section __.
   Context (Hp_meta_input : Forall good_meta_rule_inputs p.(meta_rules)).
 
   (* Propagation of meta-fact finiteness: analog of SimpleDataflow.v:2505
-     [meta_facts_finite].  If all "leaf" (Q-supported) meta-facts have a
-     finite S, then so do all prog_impl-derivable meta-facts.  We add this
-     as a Context assumption because the inductive hypothesis (meta-facts
-     stay finite across rule firings) is a global property of the program
-     that cannot be derived from local constraints over an unbounded T. *)
+     [meta_facts_finite].  We constrain the matching nf_args range only,
+     because that is all the meta-fact semantics actually pin down (the
+     S predicate is opaque on non-matching args).  This makes the leaf
+     case provable from finiteness of the inputs list. *)
   Definition meta_facts_finite :=
     forall Q,
       (forall R mf_args S, Q (meta_fact R mf_args S) ->
-                            exists l, forall args, S args -> In args l) ->
+                            exists l, forall args,
+                              Forall2 matches mf_args args -> S args -> In args l) ->
       forall R mf_args S, prog_impl rules_of Q (meta_fact R mf_args S) ->
-                          exists l, forall args, S args -> In args l.
+                          exists l, forall args,
+                            Forall2 matches mf_args args -> S args -> In args l.
 
   Context (Hmeta_finite : meta_facts_finite).
 
@@ -3554,7 +3555,7 @@ Section __.
         unaffected) by chaining: closure adds args via can_deduce → prog_impl →
         S_h (via correct_impl_consistent on h at the current state). *)
   Lemma rule_can_force_normal_dfacts
-        inputs s n rn R_concl args_concl S_set rule_concls rule_hyps hyps :
+        inputs s n rn rs R_concl args_concl S_set rule_concls rule_hyps hyps :
     good_input_facts inputs ->
     0 < length p.(non_meta_rules) ->
     sane_state inputs s ->
@@ -3562,16 +3563,15 @@ Section __.
     state_correct inputs s ->
     n < length s ->
     nth_error p.(non_meta_rules) n = Some rn ->
+    nth_error s n = Some rs ->
     In (rule_concls, rule_hyps) p.(meta_rules) ->
     rule_impl (one_step_derives rules_of) (meta_rule rule_concls rule_hyps)
               (meta_fact R_concl args_concl S_set) hyps ->
     Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps ->
-    exists s' rs rs',
+    Forall (knows_datalog_fact rs.(known_facts)) hyps ->
+    exists s' rs',
       comp_step^* s s' /\
-      nth_error s n = Some rs /\
       nth_error s' n = Some rs' /\
-      incl rs.(known_facts) rs'.(known_facts) /\
-      incl rs.(sent_facts) rs'.(sent_facts) /\
       (forall nf_args,
           can_deduce_normal_fact rn rs'.(known_facts) R_concl nf_args ->
           Forall2 matches args_concl nf_args ->
@@ -4441,16 +4441,13 @@ Section __.
           (* Force closure: drive rs_n's known to contain all locally-derivable
              normal_dfacts matching args_concl.  This is needed for fire_meta_rule's
              can_deduce_meta_fact precondition (the forcing clause). *)
-          pose proof (rule_can_force_normal_dfacts inputs s_after_flush n rn R_concl args_concl
-                       S_set rule_concls rule_hyps hyps_facts Hinp ltac:(lia)
-                       Hsane_s_after_flush Hmfc_s_after_flush Hsound_s_after_flush Hn_lt_s_after_flush Hnth_rn
-                       Hin_mr Himpl_save Hpi_hyps)
-            as (s'' & rs_n_pre_chk & rs_n_post & Hsteps_force & Hnth_pre_chk
-                & Hnth_rs_n_post & Hincl_known & Hincl_sent & Hforcing
+          pose proof (rule_can_force_normal_dfacts inputs s_after_flush n rn rs_n_pre_force
+                       R_concl args_concl S_set rule_concls rule_hyps hyps_facts Hinp
+                       ltac:(lia) Hsane_s_after_flush Hmfc_s_after_flush Hsound_s_after_flush
+                       Hn_lt_s_after_flush Hnth_rn Hnth_rs_n_pre_force
+                       Hin_mr Himpl_save Hpi_hyps Hknow_hyps_pre_force)
+            as (s'' & rs_n_post & Hsteps_force & Hnth_rs_n_post & Hforcing
                 & Hsane_s'' & Hmfc_s'' & Hsound_s'' & Hknow_hyps_post).
-          (* rs_n_pre_chk = rs_n_pre_force *)
-          rewrite Hnth_pre_chk in Hnth_rs_n_pre_force.
-          injection Hnth_rs_n_pre_force as ->.
           assert (Hsteps_flush : comp_step^* s' s'').
           { eapply crt1n_trans_compose; eassumption. }
           assert (Hsteps_total : comp_step^* s s'').
