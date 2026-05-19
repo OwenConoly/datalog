@@ -3080,7 +3080,7 @@ Section __.
         cbv [knows_dfact]. apply Exists_exists.
         exists rs_k. split; [apply nth_error_In in Hnth_eq; exact Hnth_eq|].
         left. exact Hin_kn.
-  Admitted.
+  Qed.
 
   (* If a prog_impl-derivable meta_fact has input rel, it must come from Q-leaf
      (no meta-rule can produce input meta-facts by good_meta_rule_inputs). *)
