@@ -1,3 +1,13 @@
+(*I wrote the semantics, invariants, and most of the important lemma statements in this file.
+  However, I wrote basically none of the proof script.  It was all written by Claude Code, with some amount of guidance,
+  closely following the analogous proof in this file:
+  https://github.com/OwenConoly/ddatalog/blob/30627bc76021fca7f47dd2224e2456d2290360f0/src/SimpleDataflow.v
+  Although the proof here is basically conceptually identical to the proof in that file, there is no code shared
+  between the two proofs---just a lot of parallels.
+  Despite the fact that this proof should be simpler than that one, it is actually significantly longer...
+  I will see how well I can get Claude to simplify it.
+ *)
+
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
