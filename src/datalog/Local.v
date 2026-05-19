@@ -39,8 +39,10 @@ Section __.
     { known_facts : list dfact;
       sent_facts : list dfact }.
 
-  Inductive spec_node_step : spec_node_state -> spec_node_state -> Prop :=
-  (*TODO*).
+  Definition spec_node_prog :=
+    list rule.
+
+  Definition spec_node_step (p : list rule) : spec_node_state -> spec_node_state -> Prop. Admitted.
 
   Record local_rel_info :=
     { num_inputs : nat;
@@ -51,15 +53,27 @@ Section __.
 
   Context {local_rels_info : map.map lrel local_rel_info} {local_rels_info_ok : map.ok local_rels_info}.
 
-  Inductive local_clause :=
-  |
+  Inductive local_hyp :=
+  | inputs_and_outputs (name : lrel) (inputs : list expr) (outputs : list expr)
+  | some_aggregation (name : lrel) (inputs : list expr) (agg : aggregator)
+  | received (name : lrel) (inputs : list expr)
+  | sent (name : lrel) (inputs : list expr).
+
+  Record local_concl :=
+    { local_concl_name : lrel;
+      local_concl_inputs : list expr;
+      local_concl_outputs : list expr }.
+
+  Record local_rule :=
+    { local_rule_concls : list local_concl;
+      local_rule_hyps : list local_hyp }.
 
   Record node_prog :=
     { output_corresp : lrel_to_rel;
       input_corresp : rel_to_lrel;
       local_rels : local_rels_info;
-    }.
+      rules : list local_rule }.
 
+  Definition node_state : Type. Admitted.
 
-  Inductive lrule :=
-  |
+  Definition node_step (p : node_prog) : node_state -> node_state -> Prop. Admitted.
