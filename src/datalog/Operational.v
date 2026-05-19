@@ -26,9 +26,8 @@ Notation "R ^*" := (clos_refl_trans_1n _ R) (format "R ^*").
 
 Section __.
   Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
+  Context `{sig : signature fn aggregator T}.
   Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
 
   Local Notation clause := (clause rel var fn).
   Local Notation meta_clause := (meta_clause rel var fn).
@@ -1002,7 +1001,7 @@ Section __.
       apply (Hex_wait _ Hwait).
       exists nf_args. split; auto.
   Qed.
-  
+
   Lemma Forall3_nth_error_fwd {A B C} (R : A -> B -> C -> Prop) xs ys zs :
     Forall3 R xs ys zs ->
     forall n x y z,
