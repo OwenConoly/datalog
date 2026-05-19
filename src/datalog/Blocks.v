@@ -77,6 +77,16 @@ Section Blocks.
     Forall (fun '(_, R) => In R ctx) inps ->
     vars_in ctx (Block ret inps p).
 
+  Lemma vars_in_incl var (ctx1 ctx2 : list var) (p : blocks_prog var) :
+    incl ctx1 ctx2 ->
+    vars_in ctx1 p ->
+    vars_in ctx2 p.
+  Proof.
+    intros Hincl Hvars. revert ctx2 Hincl.
+    induction Hvars; intros; constructor; auto with incl.
+    eapply Forall_impl; [|eassumption]. intros [? ?]. auto with incl.
+  Qed.
+
   Section map.
     Context {rel1 rel2} (f : rel1 -> rel2).
 
@@ -1143,3 +1153,13 @@ Section Blocks.
   Qed.
 End Blocks.
 Arguments blocks_prog : clear implicits.
+
+Ltac interp_exprs :=
+  repeat match goal with
+    | |- prog_impl _ _ (normal_fact (input _) _) =>
+        apply prog_impl_leaf
+    | |- prog_impl _ _ (meta_fact (input _) _ _) =>
+        apply prog_impl_leaf
+    | _ => progress Datalog.interp_exprs
+    | _ => (doExists 0 + doExists 1); split; [reflexivity|]
+    end.

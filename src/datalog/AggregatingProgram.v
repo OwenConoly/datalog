@@ -264,13 +264,6 @@ Inductive Sexpr_with_args {var} : type -> Type :=
 | with_args_cons t : var t -> Sexpr_with_args t.
 Arguments Sexpr_with_args : clear implicits.
 
-Ltac plda :=
-  repeat lazymatch goal with
-    | |- Forall _ _ => first [constructor | eapply Forall_impl; [|eassumption]; cbv beta | apply Forall_forall; intros ]
-    | |- _ <> _ => intro
-    | |- _ => intros; fwd; congruence
-    end.
-
 Definition set_of {t} (e' : interp_type t) :=
   match t return interp_type t -> interp_type val -> Prop with
   | set => fun e' => e'
@@ -281,32 +274,10 @@ Definition agrees {t} (e : fact_args _ -> Prop) (e' : interp_type t) :=
   (forall x, set_of e' x <-> e (normal_fact_args [x])) /\
     (exists S, e (meta_fact_args [None] S)).
 
-Ltac invert0_Exists H :=
-  repeat first [invert0 H |
-                 apply Exists_cons in H; destruct H as [H|H]; [solve[repeat invert_stuff] | invert0_Exists H] ].
-
-Ltac invert1_Exists H :=
-  repeat first [invert0 H |
-                 apply Exists_cons in H; destruct H as [H|H]; [solve[repeat invert_stuff] | invert1_Exists H] |
-                 apply Exists_cons in H; destruct H as [H|H]; [|invert0_Exists H] ].
-
-(* Ltac invert0_In H := *)
-(*   simpl in H; *)
-(*   match type of H with *)
-(*   | False => solve[destruct H] *)
-(*   | _ \/ _ => destruct H as [H|H]; [fwd; solve[repeat invert_stuff] | invert0_In H] *)
-(*   end. *)
-
-(* Ltac invert1_In H := *)
-(*   simpl in H; *)
-(*   invert0_In H || *)
-(*     destruct H as [H|H]; [solve[repeat invert_stuff] | invert1_In H] || *)
-(*     destruct H as [H|H]; [| invert0_In H]. *)
-
 Ltac invert_stuff :=
   match goal with
   | _ => Datalog.invert_stuff
-  | H: Exists _ _ |- _ => progress invert1_Exists H
+  | H: Exists _ _ |- _ => invert1_Exists ltac:(repeat invert_stuff) H
   | H: prog_impl _ _ (normal_fact _ _) |- _ =>
       (apply invert_prog_impl in H; destruct H; [solve[repeat invert_stuff]|]) ||
       (apply invert_prog_impl in H; destruct H; [|solve[repeat invert_stuff]])
@@ -320,8 +291,6 @@ Proof.
   intros R. destruct R; simpl; congruence || auto.
 Qed.
 
-(*why is this not done in coqutil, and why doesn't it help here?*)
-(* #[global] Existing Instance Nat.eqb_spec. *)
 Lemma compile_Sexpr_valid var t (e : Sexpr (fun _ => var) t) :
   valid_blocks_prog (compile_Sexpr e).
 Proof.
@@ -333,28 +302,12 @@ Proof.
           [apply fn_inj_correct|];
           reflexivity
       | |- NoDup _ =>
-          apply nodupb_sound with (eqb := Nat.eqb); [typeclasses eauto|];
+          eapply @nodupb_sound; [typeclasses eauto|];
           reflexivity
       | |- Forall is_not_input _ =>
           apply check_is_not_input; reflexivity
       end.
 Qed.
-
-Ltac doExists n :=
-  match n with
-  | 0 => apply Exists_cons_hd
-  | S ?n' => apply Exists_cons_tl; doExists n'
-  end.
-
-Ltac interp_exprs :=
-  repeat match goal with
-    | |- prog_impl _ _ (normal_fact (input _) _) =>
-        apply prog_impl_leaf
-    | |- prog_impl _ _ (meta_fact (input _) _ _) =>
-        apply prog_impl_leaf
-    | _ => progress Datalog.interp_exprs
-    | _ => (doExists 0 + doExists 1); split; [reflexivity|]
-    end.
 
 Ltac destr_vbp :=
   repeat match goal with
@@ -368,17 +321,7 @@ Ltac destr_vbp :=
         specialize (H (fun _ => False))
     end.
 
-Lemma vars_in_incl var (ctx1 ctx2 : list var) (p : blocks_prog var) :
-  incl ctx1 ctx2 ->
-  vars_in ctx1 p ->
-  vars_in ctx2 p.
-Proof.
-  intros Hincl Hvars. revert ctx2 Hincl.
-  induction Hvars; intros; constructor; auto with incl.
-  eapply Forall_impl; [|eassumption]. intros [? ?]. auto with incl.
-Qed.
 Hint Resolve vars_in_incl : core.
-
 Hint Constructors vars_in : core.
 Lemma compile_Sexpr_vars_in var1 var2 t (dummy : forall t, var1 t) e (ctx : list (@ctx_elt2 var1 (fun _ => var2))) e0 :
   wf_Sexpr ctx t e e0 ->
@@ -404,6 +347,7 @@ Definition dummy (t : type) : interp_type t :=
   end.
 Hint Resolve dummy : core.
 
+Ltac interp_exprs := Blocks.interp_exprs.
 Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
   wf_Sexpr ctx t e e0 ->
