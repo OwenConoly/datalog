@@ -3184,15 +3184,13 @@ Section __.
                 exists msgs. split; [|exact Heq].
                 eapply Forall2_impl_strong; [|exact Hf2].
                 intros n exp Hexp_in _ _. apply Hincl. exact Hexp_in.
-          -- (* Existsn count — count might have shifted, but matching positions can only grow *)
-             admit. (* requires showing count is preserved despite Hincl extension *)
-          -- (* Bicondition *)
-             intros nf_args Hmatch.
-             specialize (Hbi_h nf_args Hmatch).
-             rewrite Hbi_h. split.
-             ++ intros Hin. apply Hincl. exact Hin.
-             ++ (* In rs_k'.known → In rs_k1.known? Not necessarily *)
-                admit. (* requires more care for backward direction *)
+          -- (* Existsn count: subtle — Existsn = num_h might not be preserved after
+                more flushing. The right approach is to re-establish knows_datalog_fact
+                for h at the FINAL state (rs_k') using Hcount + drain + preserved
+                invariants, rather than lifting from rs_k1. *)
+             admit.
+          -- (* Bicondition: similarly requires final-state reasoning *)
+             admit.
         * (* Forall (knows_datalog_fact rs_k'.known) hs — already from IH *)
           exact Hknow_hs.
       + intros g. rewrite Hiff', Hiff1. reflexivity.
@@ -4090,25 +4088,25 @@ Section __.
             [|apply nth_error_None in Hnth_rn; lia].
           destruct (nth_error s' n) as [rs_n|] eqn:Hnth_rs_n;
             [|apply nth_error_None in Hnth_rs_n; lia].
-          (* REMAINING WORK (admitted):
-             To fire fire_meta_rule at source n, we need:
-             (A) Forall (knows_datalog_fact rs_n.known) hyps_facts — each
-                 meta_fact hyp must be locally knowable. Requires per-hyp:
-                 expect_num_R_facts (via flush_meta_count_for_rule), Existsn count
-                 (via flush_all_matching_from_waiting + Hcount), bicondition
-                 (via Hiff + mf_consistent_state + interp_meta_clause analysis).
-                 Each hyp's mf_consistent_state derives from Hcons + state_correct
-                 (using correct_impl_consistent as in comp_step_complete).
-             (B) Forcing clause of can_deduce_meta_fact: forall nf_args matching args_concl,
-                 can_deduce_normal_fact rn rs_n.known R_concl nf_args →
-                 In (normal_dfact R_concl nf_args) rs_n.known.
-                 Requires "closure under normal-rule derivation" at rs_n.known.
-                 Analog of SimpleDataflow's node_can_find_all_conclusions which
-                 either provides the meta_dfact directly or steps to a state
-                 satisfying the forcing. Uses classical excluded middle + induction
-                 over candidate normal_dfacts. This is a substantial helper lemma.
-             (C) Apply fire_meta_rule with appropriate combine decomposition
-                 (same machinery as fire_normal_rule in agg/normal cases). *)
+          (* Apply flush_all_meta_hyps to get knows_datalog_fact on all hyps at rule n *)
+          assert (Hmfc_s' : meta_facts_correct s') by eauto using steps_preserves_mfs_correct.
+          assert (Hsound_s' : state_correct inputs s') by eauto using comp_steps_sound.
+          assert (Hd_s' : Forall (has_derived_datalog_fact s') hyps_facts).
+          { eapply Forall_impl; [|exact Hderived].
+            intros f Hd. eapply steps_preserves_has_derived;
+              [exact Hinp | exact Hsane | exact Hsteps_s' | exact Hd]. }
+          assert (Hc_s' : Forall (mf_consistent_state s') hyps_facts).
+          { admit. (* requires mf_consistent_state preservation, similar argument to flush_all_meta_hyps *) }
+          assert (Hpi_s' : Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps_facts).
+          { admit. (* derive via state_correct + has_derived + mf_consistent at s' *) }
+          assert (Hshape_s' : Forall (fun h => exists R mf_args mf_set, h = meta_fact R mf_args mf_set) hyps_facts).
+          { admit. (* each hyp from interp_meta_clause is a meta_fact *) }
+          pose proof (flush_all_meta_hyps inputs s' n hyps_facts
+                       Hinp Hsane_s' Hmfc_s' Hsound_s' Hn_lt_s' ltac:(lia)
+                       Hd_s' Hc_s' Hpi_s' Hshape_s')
+            as (s'' & rs_n_post & Hsteps_flush & Hnth_rs_n_post & Hknow_hyps_post & Hiff_flush).
+          (* Now build can_deduce_meta_fact and fire_meta_rule *)
+          (* Remaining: build forcing clause, apply fire_meta_rule with combine decomposition. *)
           admit. }
       specialize (Hgoal_n (length p.(non_meta_rules)) ltac:(lia)).
       destruct Hgoal_n as (s' & Hsteps & Hknows_all).
