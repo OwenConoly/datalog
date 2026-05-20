@@ -7,6 +7,19 @@ Section Map.
   Context {key value : Type} {mp : map.map key value} {mp_ok : map.ok mp}.
   Context {key_eqb : key -> key -> bool} {key_eqb_spec : EqDecider key_eqb}.
   Context {value_eqb : value -> value -> bool} {value_eqb_spec : EqDecider value_eqb}.
+  Implicit Type m : mp.
+
+Definition map_contains m k v :=
+  match map.get m k with
+  | Some v' => value_eqb v v'
+  | None => false
+  end.
+
+Definition set_contains m k :=
+  match map.get m k with
+  | Some _ => true
+  | None => false
+  end.
 
 Lemma extends_putmany_putmany (m1 m2 m : mp) :
   map.extends m1 m2 ->
