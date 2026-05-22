@@ -1002,36 +1002,6 @@ Section __.
       exists nf_args. split; auto.
   Qed.
 
-  Lemma Forall3_nth_error_fwd {A B C} (R : A -> B -> C -> Prop) xs ys zs :
-    Forall3 R xs ys zs ->
-    forall n x y z,
-      nth_error xs n = Some x ->
-      nth_error ys n = Some y ->
-      nth_error zs n = Some z ->
-      R x y z.
-  Proof.
-    induction 1; intros [|n] x' y' z' Hx Hy Hz; simpl in *; try discriminate.
-    - injection Hx as ->. injection Hy as ->. injection Hz as ->. assumption.
-    - eapply IHForall3; eassumption.
-  Qed.
-
-  Lemma Forall3_nth_error_bwd {A B C} (R : A -> B -> C -> Prop) xs ys zs :
-    length xs = length ys ->
-    length ys = length zs ->
-    (forall n x y z,
-        nth_error xs n = Some x ->
-        nth_error ys n = Some y ->
-        nth_error zs n = Some z ->
-        R x y z) ->
-    Forall3 R xs ys zs.
-  Proof.
-    revert ys zs.
-    induction xs as [|x xs IH]; intros [|y ys] [|z zs] Hl1 Hl2 H;
-      simpl in *; try discriminate; try constructor.
-    - apply (H 0); reflexivity.
-    - apply IH; auto. intros n x' y' z' Hx Hy Hz. apply (H (S n)); auto.
-  Qed.
-
   (* With sent-based meta_facts_correct, the only nontrivial known-growth
      issue is in the learn_fact case at the firing rule (where wf moves
      from waiting to known).  This helper lifts a witness across that
@@ -1143,6 +1113,23 @@ Section __.
              ++ apply Hsetcorr_h. exact Hin_old. }
   Qed.
 
+  Lemma meta_facts_correct_at_rule_add_waiting_fact F mrs n rs r :
+    meta_facts_correct_at_rule mrs n rs r ->
+    meta_facts_correct_at_rule mrs n (add_waiting_fact F rs) r.
+  Proof.
+    cbv [meta_facts_correct_at_rule add_waiting_fact]. simpl. auto.
+  Qed.
+
+  Lemma meta_facts_correct_lookup s k r rs :
+    meta_facts_correct s ->
+    nth_error p.(non_meta_rules) k = Some r ->
+    nth_error s k = Some rs ->
+    meta_facts_correct_at_rule p.(meta_rules) k rs r.
+  Proof.
+    cbv [meta_facts_correct]. intros HF Hr Hs.
+    exact (Forall3_seq_lookup _ _ _ _ _ _ HF Hr Hs).
+  Qed.
+
   Lemma step_preserves_mfs_correct inputs s s' :
     good_input_facts inputs ->
     sane_state inputs s ->
@@ -1158,66 +1145,29 @@ Section __.
       cbv [stepOne learn_fact_at_rule] in H.
       destruct H as (l1 & x & y & l2 & Hseq & Hs'eq & Hlfr).
       destruct Hlfr as (lw1 & wf & lw2 & Hyknown & Hxwait & Hywait & Hysent).
-      assert (Hlen_lt : length l1 < length s).
-      { rewrite Hseq, length_app. simpl. lia. }
       cbv [meta_facts_correct] in Hmfc |- *.
-      apply Forall3_nth_error_bwd.
-      + rewrite Hs'eq, ! length_app. simpl. rewrite Hseq, length_app in Hlen. simpl in Hlen. lia.
-      + rewrite Hs'eq, length_seq, length_app. reflexivity.
-      + intros n r rs k_seq Hk_r Hk_rs Hk_k.
-        rewrite nth_error_seq in Hk_k.
-        rewrite Hs'eq in Hk_k. rewrite length_app in Hk_k. simpl in Hk_k.
-        destruct (n <? _) eqn:Hltb in Hk_k; [|discriminate].
-        injection Hk_k as <-. apply Nat.ltb_lt in Hltb.
-        assert (Hold_get : forall n0 r0 rs0,
-                   nth_error (non_meta_rules p) n0 = Some r0 ->
-                   nth_error s n0 = Some rs0 ->
-                   meta_facts_correct_at_rule (meta_rules p) n0 rs0 r0).
-        { intros n0 r0 rs0 Hr0 Hrs0.
-          eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc); try eassumption.
-          rewrite nth_error_seq.
-          assert (Hltb' : n0 <? length s = true).
-          { apply Nat.ltb_lt. apply nth_error_Some_bound_index in Hrs0. assumption. }
-          rewrite Hltb'. reflexivity. }
-        rewrite Hs'eq, nth_error_app_middle in Hk_rs.
-        destruct (Nat.compare_spec n (length l1)) as [Heq | Hlt | Hgt].
-        * (* n = length l1: rule where learn_fact happened *)
-          subst n.
-          replace ((length l1 ?= length l1)) with Eq in Hk_rs by (symmetry; apply Nat.compare_refl).
-          injection Hk_rs as <-.
-          assert (Hxs : nth_error s (length l1) = Some x).
-          { rewrite Hseq, nth_error_app2 by lia.
-            rewrite Nat.sub_diag. reflexivity. }
-          specialize (Hold_get _ _ _ Hk_r Hxs).
-          cbv [meta_facts_correct_at_rule] in Hold_get |- *.
-          intros R mf_args num HIn.
-          (* HIn is in sent_facts y = sent_facts x (unchanged by learn_fact) *)
-          rewrite Hysent in HIn.
-          specialize (Hold_get _ _ _ HIn).
-          fwd. exists mf_concls, mf_hyps, hyps. split; [assumption|].
-          rewrite Hyknown, Hysent.
-          assert (Hboth : can_deduce_meta_fact mf_concls mf_hyps r (length l1)
-                            x.(sent_facts) (wf :: x.(known_facts))
-                            (meta_dfact R mf_args (Some (length l1)) num) hyps /\
-                          Forall (knows_datalog_fact (wf :: x.(known_facts))) hyps).
-          { eapply can_deduce_meta_fact_learn_fact; try eassumption.
-            { eapply nth_error_In; eassumption. }
-            { rewrite Hxwait. apply in_app_iff. right. left. reflexivity. }
-            { eapply nth_error_In; eassumption. } }
-          destruct Hboth as (Hcan_new & Hknown_new).
-          split; [exact Hcan_new|]. split; [exact Hknown_new|]. assumption.
-        * (* n < length l1 *)
-          replace ((n ?= length l1)) with Lt in Hk_rs by (symmetry; apply Nat.compare_lt_iff; lia).
-          assert (Hsn : nth_error s n = Some rs).
-          { rewrite Hseq, nth_error_app1 by lia. assumption. }
-          specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
-        * (* n > length l1 *)
-          replace ((n ?= length l1)) with Gt in Hk_rs by (symmetry; apply Nat.compare_gt_iff; lia).
-          assert (Hsn : nth_error s n = Some rs).
-          { rewrite Hseq, nth_error_app2 by lia.
-            assert (Hoff : n - length l1 = S (n - length l1 - 1)) by lia.
-            rewrite Hoff. simpl. assumption. }
-          specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
+      rewrite Hseq in Hmfc.
+      apply Forall3_seq_app_middle_inv_m in Hmfc
+        as (nmrs_pre & r_x & nmrs_post & Hnmrs & Hpre & Hmid & Hpost).
+      rewrite Hs'eq, Hnmrs.
+      apply Forall3_seq_app_middle; [exact Hpre| |exact Hpost].
+      cbv [meta_facts_correct_at_rule] in Hmid |- *.
+      intros R mf_args num HIn.
+      rewrite Hysent in HIn.
+      specialize (Hmid _ _ _ HIn).
+      fwd. exists mf_concls, mf_hyps, hyps. split; [assumption|].
+      rewrite Hyknown, Hysent.
+      assert (Hin_x : In x s) by (rewrite Hseq; apply in_or_app; right; left; reflexivity).
+      assert (Hin_r : In r_x p.(non_meta_rules))
+        by (rewrite Hnmrs; apply in_or_app; right; left; reflexivity).
+      assert (Hboth : can_deduce_meta_fact mf_concls mf_hyps r_x (length l1)
+                        x.(sent_facts) (wf :: x.(known_facts))
+                        (meta_dfact R mf_args (Some (length l1)) num) hyps /\
+                      Forall (knows_datalog_fact (wf :: x.(known_facts))) hyps).
+      { eapply can_deduce_meta_fact_learn_fact; try eassumption.
+        rewrite Hxwait. apply in_app_iff. right. left. reflexivity. }
+      destruct Hboth as (Hcan_new & Hknown_new).
+      split; [exact Hcan_new|]. split; [exact Hknown_new|]. assumption.
     - (* fire_normal_rule *)
       cbv [stepWithLabel] in H. fwd. destruct n as [r_fire k_fire].
       destruct Hp2 as (Hcan & Hnometa & Hyq). subst y.
@@ -1228,8 +1178,6 @@ Section __.
         rewrite map_app in Hp0. simpl in Hp0.
         rewrite map_combine_snd in Hp0 by exact Hlc.
         exact Hp0. }
-      assert (Hlen_lt : length l1 < length s).
-      { rewrite Hs_eq, length_app, ! length_map. simpl. lia. }
       assert (Hk_eq : k_fire = length l1).
       { assert (Hlen_seq : length (non_meta_rules p) = length (seq 0 (length s))).
         { rewrite length_seq. lia. }
@@ -1246,86 +1194,46 @@ Section __.
         rewrite ! length_map in HnE.
         rewrite Nat.compare_refl in HnE.
         rewrite nth_error_seq in HnE.
-        assert (E : length l1 <? length s = true) by (apply Nat.ltb_lt; lia).
+        assert (E : length l1 <? length s = true).
+        { apply Nat.ltb_lt. rewrite Hs_eq, length_app, ! length_map. simpl. lia. }
         rewrite E in HnE.
         injection HnE as ->. lia. }
       cbv [meta_facts_correct] in Hmfc |- *.
-      apply Forall3_nth_error_bwd.
-      + rewrite Hs_eq, length_app, ! length_map in Hlen. simpl in Hlen.
-        rewrite ! length_map in Hlen.
-        rewrite length_map, length_app, length_map. simpl. rewrite length_map. lia.
-      + rewrite length_map, length_seq, length_app, ! length_map. reflexivity.
-      + intros n r rs k_seq Hk_r Hk_rs Hk_k.
-        rewrite nth_error_seq in Hk_k.
-        destruct (n <? _) eqn:Hltb in Hk_k; [|discriminate].
-        injection Hk_k as <-. apply Nat.ltb_lt in Hltb.
-        rewrite nth_error_map in Hk_rs.
-        destruct (nth_error (map snd l1 ++ send_fact (normal_dfact nf_rel nf_args) x :: map snd l2) n)
-          as [rs_inner|] eqn:Hk_rsi; [|discriminate].
-        simpl in Hk_rs. injection Hk_rs as <-.
-        (* Get old meta_facts_correct_at_rule from Hmfc *)
-        assert (Hold_get : forall n0 r0 rs0,
-                   nth_error (non_meta_rules p) n0 = Some r0 ->
-                   nth_error s n0 = Some rs0 ->
-                   meta_facts_correct_at_rule (meta_rules p) n0 rs0 r0).
-        { intros n0 r0 rs0 Hr0 Hrs0.
-          eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc); try eassumption.
-          rewrite nth_error_seq.
-          assert (Hltb' : n0 <? length s = true).
-          { apply Nat.ltb_lt. apply nth_error_Some_bound_index in Hrs0. assumption. }
-          rewrite Hltb'. reflexivity. }
-        rewrite nth_error_app_middle, length_map in Hk_rsi.
-        destruct (Nat.compare_spec n (length l1)) as [Heq | Hlt | Hgt].
-        * (* n = length l1: firing rule *)
-          subst n.
-          replace ((length l1 ?= length l1)) with Eq in Hk_rsi by (symmetry; apply Nat.compare_refl).
-          injection Hk_rsi as <-.
-          assert (Hxs : nth_error s (length l1) = Some x).
-          { rewrite Hs_eq, nth_error_app2 by (rewrite length_map; lia).
-            rewrite length_map, Nat.sub_diag. reflexivity. }
-          specialize (Hold_get _ _ _ Hk_r Hxs).
-          cbv [meta_facts_correct_at_rule] in Hold_get |- *.
-          intros R mf_args num HIn. simpl in HIn.
-          destruct HIn as [Heq_F | HIn_old]; [discriminate|].
-          specialize (Hold_get _ _ _ HIn_old).
-          fwd. exists mf_concls, mf_hyps, hyps. split; [assumption|].
-          cbv [can_deduce_meta_fact] in Hold_getp1 |- *.
-          destruct Hold_getp1 as (ctx & mf_rel' & mf_args' & mf_cnt' & Hres & HEx & Hconcl & Hinterp & Hclo).
-          injection Hres as Heq1 Heq2 Heq3.
-          subst mf_rel' mf_args' mf_cnt'.
-          split; [|split].
-          { exists ctx, R, mf_args, num. split; [reflexivity|].
-            split.
-            { (* Existsn count over (F :: x.sent) — need to show F doesn't match *)
-              simpl.
-              assert (Hnomatch : ~ dfact_matches R mf_args (normal_dfact nf_rel nf_args)).
-              { intros [nf_args2 [Heq Hmatch]]. injection Heq as -> ->.
-                eapply Hnometa; [|eassumption].
-                rewrite Hk_eq. exact HIn_old. }
-              apply Existsn_no; assumption. }
-            split; [exact Hconcl|]. split; [exact Hinterp|]. exact Hclo. }
-          { assumption. }
-          { assumption. }
-        * (* n < length l1: unchanged rule *)
-          replace ((n ?= length l1)) with Lt in Hk_rsi by (symmetry; apply Nat.compare_lt_iff; lia).
-          rewrite nth_error_map in Hk_rsi.
-          destruct (nth_error l1 n) as [pair_n|] eqn:Hl1n; [|discriminate].
-          simpl in Hk_rsi. injection Hk_rsi as Hri.
-          assert (Hsn : nth_error s n = Some rs_inner).
-          { rewrite Hs_eq, nth_error_app1 by (rewrite length_map; lia).
-            rewrite nth_error_map, Hl1n. simpl. f_equal. assumption. }
-          specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
-        * (* n > length l1: unchanged rule *)
-          replace ((n ?= length l1)) with Gt in Hk_rsi by (symmetry; apply Nat.compare_gt_iff; lia).
-          rewrite nth_error_map in Hk_rsi.
-          destruct (nth_error l2 (n - length l1 - 1)) as [pair_n|] eqn:Hl2n; [|discriminate].
-          simpl in Hk_rsi. injection Hk_rsi as Hri.
-          assert (Hsn : nth_error s n = Some rs_inner).
-          { rewrite Hs_eq, nth_error_app2 by (rewrite length_map; lia).
-            rewrite length_map.
-            assert (Hoff : n - length l1 = S (n - length l1 - 1)) by lia.
-            rewrite Hoff. simpl. rewrite nth_error_map, Hl2n. simpl. f_equal. assumption. }
-          specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
+      rewrite Hs_eq in Hmfc.
+      apply Forall3_seq_app_middle_inv_m in Hmfc
+        as (nmrs_pre & r_x & nmrs_post & Hnmrs & Hpre & Hmid & Hpost).
+      rewrite ! length_map in Hpre. rewrite ! length_map in Hmid. rewrite ! length_map in Hpost.
+      rewrite Hnmrs, map_app. cbn [map].
+      apply Forall3_seq_app_middle.
+      + (* Pre: unchanged rules just get add_waiting_fact F *)
+        rewrite ! length_map. apply Forall3_map2.
+        eapply Forall3_impl; [|exact Hpre].
+        intros. apply meta_facts_correct_at_rule_add_waiting_fact. assumption.
+      + (* Firing rule: x becomes add_waiting_fact F (send_fact F x).  F is
+           a normal_dfact, so no meta_dfact in sent is added. *)
+        rewrite ! length_map.
+        apply meta_facts_correct_at_rule_add_waiting_fact.
+        cbv [meta_facts_correct_at_rule send_fact] in Hmid |- *. simpl.
+        intros R mf_args num HIn.
+        destruct HIn as [Heq_F | HIn_old]; [discriminate|].
+        specialize (Hmid _ _ _ HIn_old).
+        fwd. exists mf_concls, mf_hyps, hyps. split; [assumption|].
+        cbv [can_deduce_meta_fact] in Hmidp1 |- *.
+        destruct Hmidp1 as (ctx & mf_rel' & mf_args' & mf_cnt' & Hres & HEx & Hconcl & Hinterp & Hclo).
+        injection Hres as Heq1 Heq2 Heq3. subst mf_rel' mf_args' mf_cnt'.
+        split; [|split].
+        { exists ctx, R, mf_args, num. split; [reflexivity|].
+          split.
+          { simpl. apply Existsn_no; [|assumption].
+            intros [nf_args2 [Heq Hmatch]]. injection Heq as -> ->.
+            eapply Hnometa; [|eassumption]. rewrite Hk_eq. exact HIn_old. }
+          split; [exact Hconcl|]. split; [exact Hinterp|]. exact Hclo. }
+        { assumption. }
+        { assumption. }
+      + (* Post: same as Pre *)
+        rewrite ! length_map. apply Forall3_map2.
+        eapply Forall3_impl; [|exact Hpost].
+        intros. apply meta_facts_correct_at_rule_add_waiting_fact. assumption.
     - (* fire_meta_rule *)
       rename H into Hmr_in.
       cbv [stepWithLabel] in H0. fwd. destruct n as [r_fire k_fire].
@@ -1362,177 +1270,144 @@ Section __.
         rewrite E in HnE.
         injection HnE as ->. lia. }
       cbv [meta_facts_correct] in Hmfc |- *.
-      apply Forall3_nth_error_bwd.
-      + rewrite Hs_eq, length_app, ! length_map in Hlen. simpl in Hlen.
-        rewrite ! length_map in Hlen.
-        rewrite length_map, length_app, length_map. simpl. rewrite length_map. lia.
-      + rewrite length_map, length_seq, length_app, ! length_map. reflexivity.
-      + intros n r rs k_seq Hk_r Hk_rs Hk_k.
-        rewrite nth_error_seq in Hk_k.
-        destruct (n <? _) eqn:Hltb in Hk_k; [|discriminate].
-        injection Hk_k as <-. apply Nat.ltb_lt in Hltb.
-        rewrite nth_error_map in Hk_rs.
-        destruct (nth_error (map snd l1 ++ send_fact new_fact x :: map snd l2) n)
-          as [rs_inner|] eqn:Hk_rsi; [|discriminate].
-        simpl in Hk_rs. injection Hk_rs as <-.
-        assert (Hold_get : forall n0 r0 rs0,
-                   nth_error (non_meta_rules p) n0 = Some r0 ->
-                   nth_error s n0 = Some rs0 ->
-                   meta_facts_correct_at_rule (meta_rules p) n0 rs0 r0).
-        { intros n0 r0 rs0 Hr0 Hrs0.
-          eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc); try eassumption.
-          rewrite nth_error_seq.
-          assert (Hltb' : n0 <? length s = true).
-          { apply Nat.ltb_lt. apply nth_error_Some_bound_index in Hrs0. assumption. }
-          rewrite Hltb'. reflexivity. }
-        rewrite nth_error_app_middle, length_map in Hk_rsi.
-        destruct (Nat.compare_spec n (length l1)) as [Heq | Hlt | Hgt].
-        * (* n = length l1: firing rule *)
-          subst n.
-          replace ((length l1 ?= length l1)) with Eq in Hk_rsi by (symmetry; apply Nat.compare_refl).
-          injection Hk_rsi as <-.
-          assert (Hxs : nth_error s (length l1) = Some x).
-          { rewrite Hs_eq, nth_error_app2 by (rewrite length_map; lia).
-            rewrite length_map, Nat.sub_diag. reflexivity. }
-          specialize (Hold_get _ _ _ Hk_r Hxs).
-          cbv [meta_facts_correct_at_rule] in Hold_get |- *.
-          intros R mf_args num HIn. simpl in HIn.
-          destruct HIn as [Heq_nf | HIn_old].
-          { (* HIn picks new_fact = meta_dfact R mf_args (Some (length l1)) num *)
-            assert (Hr_eq : r = r_fire).
-            { assert (Hlen_seq : length (non_meta_rules p) = length (seq 0 (length s))).
-              { rewrite length_seq. lia. }
-              pose proof H0p0 as Hp0a.
-              apply (f_equal (map fst)) in Hp0a.
-              rewrite map_app in Hp0a. simpl in Hp0a.
-              rewrite map_combine_fst in Hp0a by exact Hlc.
-              apply (f_equal (map fst)) in Hp0a.
-              rewrite map_app in Hp0a. simpl in Hp0a.
-              rewrite map_combine_fst in Hp0a by exact Hlen_seq.
-              pose proof (f_equal (fun ll => nth_error ll (length l1)) Hp0a) as HnE.
-              cbv beta in HnE.
-              rewrite nth_error_app_middle in HnE.
-              rewrite ! length_map in HnE.
-              rewrite Nat.compare_refl in HnE.
-              rewrite HnE in Hk_r. injection Hk_r as ->. reflexivity. }
-            subst r.
-            cbv [can_deduce_meta_fact] in Hcan |- *.
-            destruct Hcan as (ctx & mf_rel' & mf_args' & mf_cnt' & Hres & HEx & Hconcl & Hinterp & Hclo).
-            pose proof (eq_trans (eq_sym Heq_nf) Hres) as Hcombined.
-            injection Hcombined as Heq_R Heq_args Hkeq_lk Heq_num.
-            subst mf_rel' mf_args' mf_cnt'.
-            (* R is non-input: by good_meta_rule_inputs applied to mf_concls *)
-            assert (HNI_R : is_input R = false).
-            { rewrite Forall_forall in Hp_meta_input.
-              specialize (Hp_meta_input _ Hmr_in). simpl in Hp_meta_input.
-              rewrite Forall_forall in Hp_meta_input.
-              apply Exists_exists in Hconcl. destruct Hconcl as (c_concl & Hin_c & Hint_c).
-              specialize (Hp_meta_input _ Hin_c).
-              cbv [interp_meta_clause] in Hint_c.
-              destruct Hint_c as (mfa_v & mfs_v & _ & Heqv).
-              injection Heqv as Hrel _ _. rewrite <- Hrel in Hp_meta_input. exact Hp_meta_input. }
-            (* Decide: does the firing's hyps contain a self-referential meta-fact? *)
-            destruct (classic (exists mfs', In (meta_fact R mf_args mfs') hyps))
-              as [Hself | Hnoself].
-            - (* SELF-REF: extract OLD witness with no-self-ref hyps_old *)
-              destruct Hself as (mfs' & Hin_hyp).
-              rewrite Forall_forall in Hknown_h.
-              pose proof (Hknown_h _ Hin_hyp) as Hkdf_self.
-              simpl in Hkdf_self.
-              destruct Hkdf_self as (num_self & Hexp_self & _ & _).
-              cbv [expect_num_R_facts] in Hexp_self. rewrite HNI_R in Hexp_self.
-              destruct Hexp_self as (expected_msgss & Hf2 & _).
-              pose proof (Forall2_length Hf2) as Hlen_msgs. rewrite length_seq in Hlen_msgs.
-              assert (Hlen_lt2 : length l1 < length p.(non_meta_rules)).
-              { rewrite Hs_eq, length_app, ! length_map in Hlen.
-                simpl in Hlen. lia. }
-              assert (Hk_seq2 : nth_error (seq 0 (length p.(non_meta_rules))) (length l1) = Some (length l1)).
-              { rewrite nth_error_seq.
-                assert (E : length l1 <? length p.(non_meta_rules) = true)
-                  by (apply Nat.ltb_lt; lia).
-                rewrite E. reflexivity. }
-              assert (Hk_msg : exists m, nth_error expected_msgss (length l1) = Some m).
-              { destruct (nth_error expected_msgss (length l1)) eqn:Em.
-                - eexists. reflexivity.
-                - apply nth_error_None in Em. lia. }
-              destruct Hk_msg as (num_old & Hmsg).
-              pose proof (Forall2_nth_error_fwd _ _ _ Hf2 (length l1) _ _ Hk_seq2 Hmsg)
-                as Hin_x_known.
-              (* Lift to x.sent via Hmf_sent — already in scope *)
-              assert (Hknows_old : knows_dfact s
-                (meta_dfact R mf_args (Some (length l1)) num_old)).
-              { cbv [knows_dfact]. apply Exists_exists. exists x. split.
-                - rewrite Hs_eq. apply in_or_app. right. apply in_eq.
-                - left. exact Hin_x_known. }
-              specialize (Hmf_sent _ _ _ _ Hknows_old).
-              cbv [nth_sat] in Hmf_sent.
-              assert (Hnth_x : nth_error s (length l1) = Some x).
-              { rewrite Hs_eq, nth_error_app2 by (rewrite length_map; lia).
-                rewrite length_map, Nat.sub_diag. reflexivity. }
-              rewrite Hnth_x in Hmf_sent.
-              destruct Hmf_sent as (_ & Hin_x_sent).
-              (* Apply OLD Hold_get *)
-              specialize (Hold_get R mf_args num_old Hin_x_sent).
-              destruct Hold_get as (mfc_old & mfh_old & hyps_old & Hin_mr_old & Hcan_old & Hknown_old & Hnoself_old).
-              exists mfc_old, mfh_old, hyps_old.
-              split; [exact Hin_mr_old|].
-              cbv [can_deduce_meta_fact] in Hcan_old |- *.
-              destruct Hcan_old as (ctx_old & mro & mao & mco & Hres_old & HEx_old & Hconcl_old & Hinterp_old & Hclo_old).
-              injection Hres_old as Hr_o Ha_o _. subst mro mao.
-              split; [|split].
-              + (* can_deduce_meta_fact: reuse OLD's structure, fresh mf_cnt = num *)
-                exists ctx_old, R, mf_args, num. split; [reflexivity|].
-                split.
-                { simpl. rewrite Heq_nf. apply Existsn_no; [|exact HEx].
-                  intros [nf_args2 [Heq _]]. discriminate. }
-                split; [exact Hconcl_old|]. split; [exact Hinterp_old|]. exact Hclo_old.
-              + exact Hknown_old.
-              + exact Hnoself_old.
-            - (* NO SELF-REF: use firing's hyps directly *)
-              exists mf_concls, mf_hyps, hyps. split; [exact Hmr_in|].
-              split; [|split].
-              { exists ctx, R, mf_args, num. split; [reflexivity|].
-                split.
-                { simpl. rewrite Heq_nf. apply Existsn_no; [|assumption].
-                  intros [nf_args2 [Heq Hmatch]]. discriminate. }
-                split; [exact Hconcl|]. split; [exact Hinterp|]. exact Hclo. }
-              { exact Hknown_h. }
-              { intros mfs Hin'. apply Hnoself. exists mfs. exact Hin'. } }
-          { (* HIn picks an old (Some length l1) meta-fact in x.sent *)
-            specialize (Hold_get _ _ _ HIn_old).
-            fwd. exists mf_concls0, mf_hyps0, hyps0. split; [exact Hold_getp0|].
-            cbv [can_deduce_meta_fact] in Hold_getp1 |- *.
-            destruct Hold_getp1 as (ctx & mf_rel' & mf_args' & mf_cnt' & Hres & HEx & Hconcl & Hinterp & Hclo).
-            injection Hres as Heq1 Heq2 Heq3.
-            subst mf_rel' mf_args' mf_cnt'.
+      rewrite Hs_eq in Hmfc.
+      apply Forall3_seq_app_middle_inv_m in Hmfc
+        as (nmrs_pre & r_x & nmrs_post & Hnmrs & Hpre & Hmid & Hpost).
+      rewrite ! length_map in Hpre. rewrite ! length_map in Hmid. rewrite ! length_map in Hpost.
+      (* r_x is the firing rule (same as r_fire). *)
+      assert (Hr_eq : r_x = r_fire).
+      { pose proof (f_equal (fun ll => nth_error ll (length l1)) Hnmrs) as Hr_x.
+        cbv beta in Hr_x.
+        pose proof (Forall3_length _ _ _ _ Hpre) as (Hlen_pre & _).
+        rewrite length_map in Hlen_pre.
+        rewrite nth_error_app2 in Hr_x by lia.
+        rewrite Hlen_pre, Nat.sub_diag in Hr_x. simpl in Hr_x.
+        assert (Hlen_seq : length (non_meta_rules p) = length (seq 0 (length s))).
+        { rewrite length_seq. lia. }
+        pose proof H0p0 as Hp0a.
+        apply (f_equal (map fst)) in Hp0a.
+        rewrite map_app in Hp0a. simpl in Hp0a.
+        rewrite map_combine_fst in Hp0a by exact Hlc.
+        apply (f_equal (map fst)) in Hp0a.
+        rewrite map_app in Hp0a. simpl in Hp0a.
+        rewrite map_combine_fst in Hp0a by exact Hlen_seq.
+        pose proof (f_equal (fun ll => nth_error ll (length l1)) Hp0a) as HnE.
+        cbv beta in HnE.
+        rewrite nth_error_app_middle in HnE.
+        rewrite ! length_map in HnE.
+        rewrite Nat.compare_refl in HnE.
+        rewrite HnE in Hr_x. injection Hr_x as ->. reflexivity. }
+      subst r_x.
+      rewrite Hnmrs, map_app. cbn [map].
+      apply Forall3_seq_app_middle.
+      + (* Pre *)
+        rewrite ! length_map. apply Forall3_map2.
+        eapply Forall3_impl; [|exact Hpre].
+        intros. apply meta_facts_correct_at_rule_add_waiting_fact. assumption.
+      + (* Firing rule *)
+        rewrite ! length_map.
+        apply meta_facts_correct_at_rule_add_waiting_fact.
+        cbv [meta_facts_correct_at_rule send_fact] in Hmid |- *. simpl.
+        intros R mf_args num HIn.
+        destruct HIn as [Heq_nf | HIn_old].
+        { (* HIn picks new_fact = meta_dfact R mf_args (Some (length l1)) num *)
+          cbv [can_deduce_meta_fact] in Hcan |- *.
+          destruct Hcan as (ctx & mf_rel' & mf_args' & mf_cnt' & Hres & HEx & Hconcl & Hinterp & Hclo).
+          pose proof (eq_trans (eq_sym Heq_nf) Hres) as Hcombined.
+          injection Hcombined as Heq_R Heq_args Hkeq_lk Heq_num.
+          subst mf_rel' mf_args' mf_cnt'.
+          (* R is non-input: by good_meta_rule_inputs applied to mf_concls *)
+          assert (HNI_R : is_input R = false).
+          { rewrite Forall_forall in Hp_meta_input.
+            specialize (Hp_meta_input _ Hmr_in). simpl in Hp_meta_input.
+            rewrite Forall_forall in Hp_meta_input.
+            apply Exists_exists in Hconcl. destruct Hconcl as (c_concl & Hin_c & Hint_c).
+            specialize (Hp_meta_input _ Hin_c).
+            cbv [interp_meta_clause] in Hint_c.
+            destruct Hint_c as (mfa_v & mfs_v & _ & Heqv).
+            injection Heqv as Hrel _ _. rewrite <- Hrel in Hp_meta_input. exact Hp_meta_input. }
+          destruct (classic (exists mfs', In (meta_fact R mf_args mfs') hyps))
+            as [Hself | Hnoself].
+          - (* SELF-REF: extract OLD witness with no-self-ref hyps_old *)
+            destruct Hself as (mfs' & Hin_hyp).
+            rewrite Forall_forall in Hknown_h.
+            pose proof (Hknown_h _ Hin_hyp) as Hkdf_self.
+            simpl in Hkdf_self.
+            destruct Hkdf_self as (num_self & Hexp_self & _ & _).
+            cbv [expect_num_R_facts] in Hexp_self. rewrite HNI_R in Hexp_self.
+            destruct Hexp_self as (expected_msgss & Hf2 & _).
+            pose proof (Forall2_length Hf2) as Hlen_msgs. rewrite length_seq in Hlen_msgs.
+            assert (Hlen_lt2 : length l1 < length p.(non_meta_rules)).
+            { rewrite Hs_eq, length_app, ! length_map in Hlen.
+              simpl in Hlen. lia. }
+            assert (Hk_seq2 : nth_error (seq 0 (length p.(non_meta_rules))) (length l1) = Some (length l1)).
+            { rewrite nth_error_seq.
+              assert (E : length l1 <? length p.(non_meta_rules) = true)
+                by (apply Nat.ltb_lt; lia).
+              rewrite E. reflexivity. }
+            assert (Hk_msg : exists m, nth_error expected_msgss (length l1) = Some m).
+            { destruct (nth_error expected_msgss (length l1)) eqn:Em.
+              - eexists. reflexivity.
+              - apply nth_error_None in Em. lia. }
+            destruct Hk_msg as (num_old & Hmsg).
+            pose proof (Forall2_nth_error_fwd _ _ _ Hf2 (length l1) _ _ Hk_seq2 Hmsg)
+              as Hin_x_known.
+            assert (Hknows_old : knows_dfact s
+              (meta_dfact R mf_args (Some (length l1)) num_old)).
+            { cbv [knows_dfact]. apply Exists_exists. exists x. split.
+              - rewrite Hs_eq. apply in_or_app. right. apply in_eq.
+              - left. exact Hin_x_known. }
+            specialize (Hmf_sent _ _ _ _ Hknows_old).
+            cbv [nth_sat] in Hmf_sent.
+            assert (Hnth_x : nth_error s (length l1) = Some x).
+            { rewrite Hs_eq, nth_error_app2 by (rewrite length_map; lia).
+              rewrite length_map, Nat.sub_diag. reflexivity. }
+            rewrite Hnth_x in Hmf_sent.
+            destruct Hmf_sent as (_ & Hin_x_sent).
+            specialize (Hmid R mf_args num_old Hin_x_sent).
+            destruct Hmid as (mfc_old & mfh_old & hyps_old & Hin_mr_old & Hcan_old & Hknown_old & Hnoself_old).
+            exists mfc_old, mfh_old, hyps_old.
+            split; [exact Hin_mr_old|].
+            cbv [can_deduce_meta_fact] in Hcan_old |- *.
+            destruct Hcan_old as (ctx_old & mro & mao & mco & Hres_old & HEx_old & Hconcl_old & Hinterp_old & Hclo_old).
+            injection Hres_old as Hr_o Ha_o _. subst mro mao.
+            split; [|split].
+            + exists ctx_old, R, mf_args, num. split; [reflexivity|].
+              split.
+              { simpl. rewrite Heq_nf. apply Existsn_no; [|exact HEx].
+                intros [nf_args2 [Heq _]]. discriminate. }
+              split; [exact Hconcl_old|]. split; [exact Hinterp_old|]. exact Hclo_old.
+            + exact Hknown_old.
+            + exact Hnoself_old.
+          - (* NO SELF-REF: use firing's hyps directly *)
+            exists mf_concls, mf_hyps, hyps. split; [exact Hmr_in|].
             split; [|split].
             { exists ctx, R, mf_args, num. split; [reflexivity|].
               split.
-              { simpl. rewrite Hnf_eq. apply Existsn_no; [|assumption].
+              { simpl. rewrite Heq_nf. apply Existsn_no; [|assumption].
                 intros [nf_args2 [Heq Hmatch]]. discriminate. }
               split; [exact Hconcl|]. split; [exact Hinterp|]. exact Hclo. }
-            { exact Hold_getp2. }
-            { exact Hold_getp3. } }
-        * (* n < length l1 *)
-          replace ((n ?= length l1)) with Lt in Hk_rsi by (symmetry; apply Nat.compare_lt_iff; lia).
-          rewrite nth_error_map in Hk_rsi.
-          destruct (nth_error l1 n) as [pair_n|] eqn:Hl1n; [|discriminate].
-          simpl in Hk_rsi. injection Hk_rsi as Hri.
-          assert (Hsn : nth_error s n = Some rs_inner).
-          { rewrite Hs_eq, nth_error_app1 by (rewrite length_map; lia).
-            rewrite nth_error_map, Hl1n. simpl. f_equal. assumption. }
-          specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
-        * (* n > length l1 *)
-          replace ((n ?= length l1)) with Gt in Hk_rsi by (symmetry; apply Nat.compare_gt_iff; lia).
-          rewrite nth_error_map in Hk_rsi.
-          destruct (nth_error l2 (n - length l1 - 1)) as [pair_n|] eqn:Hl2n; [|discriminate].
-          simpl in Hk_rsi. injection Hk_rsi as Hri.
-          assert (Hsn : nth_error s n = Some rs_inner).
-          { rewrite Hs_eq, nth_error_app2 by (rewrite length_map; lia).
-            rewrite length_map.
-            assert (Hoff : n - length l1 = S (n - length l1 - 1)) by lia.
-            rewrite Hoff. simpl. rewrite nth_error_map, Hl2n. simpl. f_equal. assumption. }
-          specialize (Hold_get _ _ _ Hk_r Hsn). exact Hold_get.
+            { exact Hknown_h. }
+            { intros mfs Hin'. apply Hnoself. exists mfs. exact Hin'. } }
+        { (* HIn picks an old meta-fact in x.sent *)
+          specialize (Hmid _ _ _ HIn_old).
+          fwd. exists mf_concls0, mf_hyps0, hyps0. split; [exact Hmidp0|].
+          cbv [can_deduce_meta_fact] in Hmidp1 |- *.
+          destruct Hmidp1 as (ctx & mf_rel' & mf_args' & mf_cnt' & Hres & HEx & Hconcl & Hinterp & Hclo).
+          injection Hres as Heq1 Heq2 Heq3.
+          subst mf_rel' mf_args' mf_cnt'.
+          split; [|split].
+          { exists ctx, R, mf_args, num. split; [reflexivity|].
+            split.
+            { simpl. rewrite Hnf_eq. apply Existsn_no; [|assumption].
+              intros [nf_args2 [Heq Hmatch]]. discriminate. }
+            split; [exact Hconcl|]. split; [exact Hinterp|]. exact Hclo. }
+          { exact Hmidp2. }
+          { exact Hmidp3. } }
+      + (* Post *)
+        rewrite ! length_map. apply Forall3_map2.
+        eapply Forall3_impl; [|exact Hpost].
+        intros. apply meta_facts_correct_at_rule_add_waiting_fact. assumption.
   Qed.
 
   Lemma steps_preserves_sane inputs s s' :
@@ -1808,13 +1683,7 @@ Section __.
       destruct (nth_error s k) as [rs_k|] eqn:Hnth_s; [|contradiction].
       destruct Hsent_k as (Hexn_k & Hin_k_sent).
       (* By meta_facts_correct, can_deduce_meta_fact witness at index k *)
-      cbv [meta_facts_correct] in Hmf.
-      assert (Hk_seq : nth_error (seq 0 (length s)) k = Some k).
-      { rewrite nth_error_seq.
-        assert (E : k <? length s = true) by (apply Nat.ltb_lt; lia).
-        rewrite E. reflexivity. }
-      assert (Hmf_k : meta_facts_correct_at_rule p.(meta_rules) k rs_k r_k).
-      { eapply (Forall3_nth_error_fwd _ _ _ _ Hmf); eassumption. }
+      pose proof (meta_facts_correct_lookup _ _ _ _ Hmf Hnth_k Hnth_s) as Hmf_k.
       cbv [meta_facts_correct_at_rule] in Hmf_k.
       specialize (Hmf_k _ _ _ Hin_k_sent).
       destruct Hmf_k as (mf_concls & mf_hyps & hyps_d & Hin_mr & Hcan & Hkdf_h & Hnoselfref_h).
@@ -1911,7 +1780,7 @@ Section __.
       (* Apply soundness clause *)
       specialize (Hsound_can _ Hcan_nf Hmatch).
       cbv [knows_dfact]. apply Exists_exists. exists rs_k. split.
-      + apply nth_error_In with k. exact Hnth_s.
+      + eapply nth_error_In; eassumption.
       + left. exact Hsound_can.
   Qed.
 
@@ -3597,12 +3466,7 @@ Section __.
                 Forall2 matches mf_args nf_args ->
                 False).
     { intros mf_args num Hin_meta Hmatch.
-      assert (Hk_seq : nth_error (seq 0 (length s)) n = Some n).
-      { rewrite nth_error_seq.
-        assert (E : n <? length s = true) by (apply Nat.ltb_lt; lia).
-        rewrite E. reflexivity. }
-      assert (Hmfcr : meta_facts_correct_at_rule p.(meta_rules) n rs rn).
-      { eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc); eassumption. }
+      pose proof (meta_facts_correct_lookup _ _ _ _ Hmfc Hnth_rn Hnth_rs) as Hmfcr.
       specialize (Hmfcr R_concl mf_args num Hin_meta).
       destruct Hmfcr as (mfc & mfh & hyps_d & _ & Hcdmf & _ & _).
       cbv [can_deduce_meta_fact] in Hcdmf.
@@ -4131,13 +3995,7 @@ Section __.
           assert (Hk_nm : nth_error p.(non_meta_rules) k = Some nmr) by exact Hk_nmr.
           assert (Hk_lt_s1 : k < length s1).
           { erewrite <- steps_preserves_length; eauto. }
-          assert (Hk_seq : nth_error (seq 0 (length s1)) k = Some k).
-          { rewrite nth_error_seq.
-            assert (E : k <? length s1 = true) by (apply Nat.ltb_lt; lia).
-            rewrite E. reflexivity. }
-          (* Forall3 → get the predicate at index k *)
-          assert (Hmfcr : meta_facts_correct_at_rule p.(meta_rules) k rs_k nmr).
-          { eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc1); eassumption. }
+          pose proof (meta_facts_correct_lookup _ _ _ _ Hmfc1 Hk_nm Hnth_k) as Hmfcr.
           specialize (Hmfcr R_concl mf_args num Hin_meta).
           destruct Hmfcr as (mfc & mfh & hyps' & Hin_mr & Hcdmf & Hknown_hyps' & Hnoself).
           cbv [can_deduce_meta_fact] in Hcdmf.
@@ -4411,13 +4269,7 @@ Section __.
                               Forall2 matches mf_args' (interp_agg ag vals_pairs :: args_rest))) as [Hconflict | Hno_conflict].
           -- (* Conflict case: meta_facts_correct forces normal_dfact in rs_k.known *)
              destruct Hconflict as (mf_args' & num & Hin_meta & Hmatch).
-             assert (Hk_seq : nth_error (seq 0 (length s1)) k = Some k).
-             { assert (Hk_lt_s1 : k < length s1) by (erewrite <- steps_preserves_length; eauto).
-               rewrite nth_error_seq.
-               assert (E : k <? length s1 = true) by (apply Nat.ltb_lt; lia).
-               rewrite E. reflexivity. }
-             assert (Hmfcr : meta_facts_correct_at_rule p.(meta_rules) k rs_k nmr).
-             { eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc1); eassumption. }
+             pose proof (meta_facts_correct_lookup _ _ _ _ Hmfc1 Hk_nmr Hnth_k) as Hmfcr.
              specialize (Hmfcr R_concl mf_args' num Hin_meta).
              destruct Hmfcr as (mfc & mfh & hyps' & Hin_mr & Hcdmf & Hknown_hyps' & Hnoself).
              cbv [can_deduce_meta_fact] in Hcdmf.
@@ -4699,13 +4551,7 @@ Section __.
                               In (meta_dfact R_concl mf_args' (Some k) num) rs_k.(sent_facts) /\
                               Forall2 matches mf_args' (interp_agg ag vals_pairs :: args_rest))) as [Hconflict | Hno_conflict].
           -- destruct Hconflict as (mf_args' & num_c & Hin_meta & Hmatch).
-             assert (Hk_seq : nth_error (seq 0 (length s1)) k = Some k).
-             { assert (Hk_lt_s1 : k < length s1) by (erewrite <- steps_preserves_length; eauto).
-               rewrite nth_error_seq.
-               assert (E : k <? length s1 = true) by (apply Nat.ltb_lt; lia).
-               rewrite E. reflexivity. }
-             assert (Hmfcr : meta_facts_correct_at_rule p.(meta_rules) k rs_k nmr).
-             { eapply (Forall3_nth_error_fwd _ _ _ _ Hmfc1); eassumption. }
+             pose proof (meta_facts_correct_lookup _ _ _ _ Hmfc1 Hk_nmr Hnth_k) as Hmfcr.
              specialize (Hmfcr R_concl mf_args' num_c Hin_meta).
              destruct Hmfcr as (mfc & mfh & hyps' & Hin_mr & Hcdmf & Hknown_hyps' & Hnoself).
              cbv [can_deduce_meta_fact] in Hcdmf.

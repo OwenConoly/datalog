@@ -485,7 +485,164 @@ Section Forall3.
     Forall3 xs ys zs ->
     Forall3 (firstn n xs) (firstn n ys) (firstn n zs).
   Proof. intros H. revert n. induction H; destruct n; simpl; constructor; eauto. Qed.
+
+  Lemma Forall3_app xs1 ys1 zs1 xs2 ys2 zs2 :
+    Forall3 xs1 ys1 zs1 ->
+    Forall3 xs2 ys2 zs2 ->
+    Forall3 (xs1 ++ xs2) (ys1 ++ ys2) (zs1 ++ zs2).
+  Proof. induction 1; simpl; auto. constructor; auto. Qed.
+
+  Lemma Forall3_app_inv_m xs ys1 ys2 zs :
+    Forall3 xs (ys1 ++ ys2) zs ->
+    exists xs1 xs2 zs1 zs2,
+      xs = xs1 ++ xs2 /\ zs = zs1 ++ zs2 /\
+      Forall3 xs1 ys1 zs1 /\ Forall3 xs2 ys2 zs2.
+  Proof.
+    revert xs zs. induction ys1 as [|y ys1 IH]; intros xs zs H.
+    - exists nil, xs, nil, zs. simpl. ssplit; auto. constructor.
+    - simpl in H. invert H.
+      specialize (IH _ _ ltac:(eassumption)). fwd.
+      exists (x :: xs1), xs2, (z :: zs1), zs2.
+      ssplit; simpl; auto. constructor; auto.
+  Qed.
+
+  Lemma Forall3_app_middle xs1 x xs2 ys1 y ys2 zs1 z zs2 :
+    Forall3 xs1 ys1 zs1 ->
+    R x y z ->
+    Forall3 xs2 ys2 zs2 ->
+    Forall3 (xs1 ++ x :: xs2) (ys1 ++ y :: ys2) (zs1 ++ z :: zs2).
+  Proof.
+    intros H1 Hm H2. apply Forall3_app; auto. constructor; auto.
+  Qed.
+
+  Lemma Forall3_app_middle_inv_m xs ys1 y ys2 zs :
+    Forall3 xs (ys1 ++ y :: ys2) zs ->
+    exists xs1 x xs2 zs1 z zs2,
+      xs = xs1 ++ x :: xs2 /\ zs = zs1 ++ z :: zs2 /\
+      Forall3 xs1 ys1 zs1 /\ R x y z /\ Forall3 xs2 ys2 zs2.
+  Proof.
+    intros H. apply Forall3_app_inv_m in H. fwd.
+    invert Hp3. do 6 eexists. ssplit; eauto.
+  Qed.
+
+  Lemma Forall3_app_inv_l xs1 xs2 ys zs :
+    Forall3 (xs1 ++ xs2) ys zs ->
+    exists ys1 ys2 zs1 zs2,
+      ys = ys1 ++ ys2 /\ zs = zs1 ++ zs2 /\
+      Forall3 xs1 ys1 zs1 /\ Forall3 xs2 ys2 zs2.
+  Proof.
+    revert ys zs. induction xs1 as [|x xs1 IH]; intros ys zs H.
+    - exists nil, ys, nil, zs. simpl. ssplit; auto. constructor.
+    - simpl in H. invert H.
+      specialize (IH _ _ ltac:(eassumption)). fwd.
+      exists (y :: ys1), ys2, (z :: zs1), zs2.
+      ssplit; simpl; auto. constructor; auto.
+  Qed.
+
+  Lemma Forall3_app_middle_inv_l xs1 x xs2 ys zs :
+    Forall3 (xs1 ++ x :: xs2) ys zs ->
+    exists ys1 y ys2 zs1 z zs2,
+      ys = ys1 ++ y :: ys2 /\ zs = zs1 ++ z :: zs2 /\
+      Forall3 xs1 ys1 zs1 /\ R x y z /\ Forall3 xs2 ys2 zs2.
+  Proof.
+    intros H. apply Forall3_app_inv_l in H. fwd.
+    invert Hp3. do 6 eexists. ssplit; eauto.
+  Qed.
 End Forall3.
+
+Lemma app_split_at_length {A} (l1 l2 l3 l4 : list A) :
+  l1 ++ l2 = l3 ++ l4 ->
+  length l1 = length l3 ->
+  l1 = l3 /\ l2 = l4.
+Proof.
+  revert l3. induction l1 as [|a l1 IH]; intros [|b l3] H Hlen;
+    simpl in *; try discriminate; auto.
+  injection H as -> H. specialize (IH _ H ltac:(lia)). fwd. auto.
+Qed.
+
+(* Wrappers for the common pattern of Forall3 ... xs ys (seq 0 (length ys)),
+   i.e. an indexed Forall2 disguised as a Forall3.  After splitting one of
+   the first two lists around a middle element, the seq splits at the
+   corresponding length. *)
+Lemma seq_app_middle base n m :
+  seq base (n + S m) = seq base n ++ (base + n) :: seq (S (base + n)) m.
+Proof.
+  rewrite seq_app. simpl. reflexivity.
+Qed.
+
+Lemma Forall3_seq_app_middle_inv_m {A B} (R : A -> B -> nat -> Prop) xs ys1 y ys2 :
+  Forall3 R xs (ys1 ++ y :: ys2) (seq 0 (length (ys1 ++ y :: ys2))) ->
+  exists xs1 x xs2,
+    xs = xs1 ++ x :: xs2 /\
+    Forall3 R xs1 ys1 (seq 0 (length ys1)) /\
+    R x y (length ys1) /\
+    Forall3 R xs2 ys2 (seq (S (length ys1)) (length ys2)).
+Proof.
+  intros H. apply Forall3_app_middle_inv_m in H.
+  destruct H as (xs1 & x & xs2 & zs1 & z & zs2 & Hxs & Hzs & H1 & Hm & H2).
+  pose proof (Forall3_length _ _ _ _ H1) as (Hlx1 & Hlz1).
+  pose proof (Forall3_length _ _ _ _ H2) as (Hlx2 & Hlz2).
+  rewrite length_app in Hzs. simpl in Hzs.
+  rewrite seq_app_middle in Hzs. simpl in Hzs.
+  apply app_split_at_length in Hzs as (Hzs1 & Hzs_tail); [|rewrite length_seq; lia].
+  injection Hzs_tail as Hz Hzs2.
+  subst zs1 z zs2.
+  exists xs1, x, xs2. ssplit; auto.
+Qed.
+
+Lemma Forall3_seq_app_middle_inv_l {A B} (R : A -> B -> nat -> Prop) xs1 x xs2 ys :
+  Forall3 R (xs1 ++ x :: xs2) ys (seq 0 (length ys)) ->
+  exists ys1 y ys2,
+    ys = ys1 ++ y :: ys2 /\
+    Forall3 R xs1 ys1 (seq 0 (length ys1)) /\
+    R x y (length xs1) /\
+    Forall3 R xs2 ys2 (seq (S (length xs1)) (length ys2)).
+Proof.
+  intros H. apply Forall3_app_middle_inv_l in H.
+  destruct H as (ys1 & y & ys2 & zs1 & z & zs2 & Hys & Hzs & H1 & Hm & H2).
+  pose proof (Forall3_length _ _ _ _ H1) as (Hly1 & Hlz1).
+  pose proof (Forall3_length _ _ _ _ H2) as (Hly2 & Hlz2).
+  rewrite Hys in Hzs. rewrite length_app in Hzs. simpl in Hzs.
+  rewrite seq_app_middle in Hzs. simpl in Hzs.
+  apply app_split_at_length in Hzs as (Hzs1 & Hzs_tail); [|rewrite length_seq; lia].
+  injection Hzs_tail as Hz Hzs2.
+  subst zs1 z zs2.
+  exists ys1, y, ys2. rewrite Hly1. ssplit; assumption.
+Qed.
+
+Lemma Forall3_seq_app_middle {A B} (R : A -> B -> nat -> Prop) xs1 x xs2 ys1 y ys2 :
+  Forall3 R xs1 ys1 (seq 0 (length ys1)) ->
+  R x y (length ys1) ->
+  Forall3 R xs2 ys2 (seq (S (length ys1)) (length ys2)) ->
+  Forall3 R (xs1 ++ x :: xs2) (ys1 ++ y :: ys2) (seq 0 (length (ys1 ++ y :: ys2))).
+Proof.
+  intros H1 Hm H2. rewrite length_app. simpl. rewrite seq_app_middle. simpl.
+  apply Forall3_app_middle; auto.
+Qed.
+
+(* Pointwise lookup for a seq-indexed Forall3.  Cleaner than the general
+   Forall3_nth_error_fwd at sites where the third argument is fixed to
+   [seq 0 (length ys)]: avoids the [nth_error_seq + Nat.ltb_lt] dance. *)
+Lemma Forall3_seq_lookup {A B} (R : A -> B -> nat -> Prop) xs ys k x y :
+  Forall3 R xs ys (seq 0 (length ys)) ->
+  nth_error xs k = Some x ->
+  nth_error ys k = Some y ->
+  R x y k.
+Proof.
+  intros HF Hx Hy.
+  apply nth_error_split in Hx as (xs1 & xs2 & Hxs & Hk_xs).
+  rewrite Hxs in HF.
+  apply Forall3_seq_app_middle_inv_l in HF
+    as (ys1 & y' & ys2 & Hys & Hpre & Hmid & _).
+  rewrite Hk_xs in Hmid.
+  rewrite Hys in Hy.
+  pose proof (Forall3_length _ _ _ _ Hpre) as (Hl_p & _).
+  assert (Hl_ys1 : length ys1 = k) by lia.
+  rewrite nth_error_app2 in Hy by lia.
+  replace (k - length ys1) with 0 in Hy by lia. simpl in Hy.
+  injection Hy as ->.
+  exact Hmid.
+Qed.
 
 Section Existsn.
   Context {T : Type} (P : T -> Prop).
@@ -1028,6 +1185,11 @@ Proof.
     induction H; intros zs; destruct zs; intros; simpl in *; invert_list_stuff';
       econstructor; eauto.
 Qed.
+
+Lemma Forall3_map2 {A B B' C} (f : B -> B') xs ys zs (R : A -> B' -> C -> Prop) :
+  Forall3 (fun x y z => R x (f y) z) xs ys zs ->
+  Forall3 R xs (map f ys) zs.
+Proof. induction 1; simpl; econstructor; eauto. Qed.
 
 Lemma map_cons_eq {A B : Type} (f : A -> B) x l l' :
   map f l = l' ->
