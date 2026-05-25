@@ -54,17 +54,31 @@ Section __.
 
   Context {local_rels_info : map.map lrel local_rel_info} {local_rels_info_ok : map.ok local_rels_info}.
 
-  Inductive local_hyp_clause :=
-  | outputs_hyp  (name : lrel) (inputs : list expr) (outputs : list expr)
-  | agg_hyp      (name : lrel) (inputs : list expr) (agg : aggregator) (num : var)
-  | received_hyp (name : lrel) (inputs : list expr) (num : var)
-  | sent_hyp     (name : lrel) (inputs : list expr) (num : var).
+  Inductive hyp_clause_val :=
+  | outputs_clause (outputs : list expr)
+  | agg_clause (agg : aggregator) (num : var)
+  | received_clause (num : var)
+  | sent_clause (num : var).
 
-  Inductive local_fact :=
-  | outputs_fact (name : lrel) (inputs : list T) (outputs : list T)
-  | agg_fact (name : lrel) (inputs : list T) (agg : aggregator) (num : T)
-  | received_fact (name : lrel) (inputs : list T) (num : nat)
-  | sent_fact (name : lrel) (inputs : list T) (num : nat).
+  Record hyp_clause_key :=
+    { hyp_clause_rel : lrel;
+      hyp_clause_inputs : list expr }.
+
+  Definition hyp_clause : Type :=
+    hyp_clause_key * hyp_clause_val.
+
+  Inductive hyp_fact_val :=
+  | outputs_fact (outputs : list T)
+  | agg_fact (agg : aggregator) (num : T)
+  | received_fact (num : nat)
+  | sent_fact (num : nat).
+
+  Record hyp_fact_key :=
+    { hyp_fact_rel : lrel;
+      hyp_fact_inputs : list T }.
+
+  Definition hyp_fact : Type :=
+    hyp_fact_key * hyp_fact_val.
 
   Record local_concl :=
     { local_concl_name : lrel;
@@ -73,7 +87,7 @@ Section __.
 
   Record local_rule :=
     { local_rule_concls : list local_concl;
-      local_rule_hyps : list local_hyp_clause }.
+      local_rule_hyps : list hyp_clause }.
 
   Record node_prog :=
     { output_corresp : lrel_to_rel;
@@ -96,47 +110,54 @@ Section __.
   Definition node_state :=
     lrel_to_all_inputs_data.
 
-  Definition inputs_of (f : local_fact) : lrel * list T :=
-    match f with
-    | outputs_fact name inputs _
-    | agg_fact name inputs _ _
-    | received_fact name inputs _
-    | sent_fact name inputs _ => (name, inputs)
-    end.
-
-  Definition inputs_data_of (s : node_state) (name_inputs : lrel * list T) : option inputs_data :=
-    let (name, inputs) := name_inputs in
-    match map.get s name with
-    | Some inp_datas => map.get inp_datas inputs
+  Definition inputs_data_of (s : node_state) (k : hyp_fact_key) : option inputs_data :=
+    match map.get s k.(hyp_fact_rel) with
+    | Some inp_datas => map.get inp_datas k.(hyp_fact_inputs)
     | None => None
     end.
 
-  Definition knows_local_fact (s : node_state) (f : local_fact) :=
-    match inputs_data_of s (inputs_of f) with
+  Definition knows_hyp_fact (s : node_state) (f : hyp_fact) :=
+    let (k, v) := f in
+    match inputs_data_of s k with
     | Some inp_data =>
-        match f with
-        | outputs_fact _ _ output =>
-            set_contains inp_data.(outputs) output
-        | agg_fact _ _ agg val =>
-            map_contains (value_eqb := T_eqb) inp_data.(aggs) agg val
-        | received_fact _ _ val =>
-            Nat.eqb inp_data.(msgs_received) val
-        | sent_fact _ _ val =>
-            Nat.eqb inp_data.(msgs_sent) val
+        match v with
+        | outputs_fact output =>
+            map.get inp_data.(outputs) output = Some tt
+        | agg_fact agg val =>
+            map.get inp_data.(aggs) agg = Some val
+        | received_fact val =>
+            inp_data.(msgs_received) = val
+        | sent_fact val =>
+            inp_data.(msgs_sent) = val
         end
-    | None => false
+    | None => False
     end.
 
-  Definition eval_local_hyp_clause (c : context) (h : local_hyp_clause) :=
-    match h with
-    | outputs_hyp name inputs outputs =>
-        match option_all (map (subst_in_expr c) inputs), option_all (map (subst_in_expr c) outputs) with
-        |
-        outputs_fact name (map
+  Definition eval_hyp_clause (c : context) (cl : hyp_clause) (f : hyp_fact) : Prop.
+  Admitted.
 
-  Definition local_hyps_match (hs : list local_hyp)
+  Print node_state. Print inputs_data.
+  Search map.rep. Print map.update. Check interp_agg.
+  Axiom interp_agg_bin : T -> T -> T.
+  Definition receive_fact (s : node_state) (R : lrel) (inps outs : list T) :=
+    mupd s R (fun all_inps =>
+                mupd all_inps inps
+                  (fun inp_data =>
+                     {| msgs_received := S inp_data.(msgs_received);
+                       msgs_sent := inp_data.(msgs_sent);
+                       aggs := match map.get inp_data.(outputs) outs with
+                               | Some tt =>
+                                   inp_data.(aggs)
+                               | None =>
+                                   map.map_values
+                                     (fun v =>
+                                        interp_agg_bin v
+                                     )
+                                     inp_data.(aggs)
+                               end;
+                       outputs := map.put inp_data.(outputs) outs tt; |})).
 
-  Definition node_step_rule (p : node_prog) (r : rule) (s : node_state) : node_state :=
-    match
+  Definition send_fact (s : node_state).
 
-  Definition node_comp_step (p : node_prog) (s : node_state) : node_state :=
+  Definition node_comp_step (p : node_prog) (s1 s2 : node_state) : Prop :=
+    forall f,

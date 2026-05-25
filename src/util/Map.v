@@ -9,6 +9,12 @@ Section Map.
   Context {value_eqb : value -> value -> bool} {value_eqb_spec : EqDecider value_eqb}.
   Implicit Type m : mp.
 
+  Definition mupd m k f :=
+    match map.get m k with
+    | Some v => map.put m k (f v)
+    | None => m
+    end.
+
 Definition map_contains m k v :=
   match map.get m k with
   | Some v' => value_eqb v v'
