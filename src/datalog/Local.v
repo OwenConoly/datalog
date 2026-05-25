@@ -89,6 +89,12 @@ Section __.
     { local_rule_concls : list local_concl;
       local_rule_hyps : list hyp_clause }.
 
+  Definition lower_rule (r : rule) :=
+    (*for each relation, find necessary index structures..
+      then, compile each rule.*)
+    match r with
+    |
+
   Record node_prog :=
     { output_corresp : lrel_to_rel;
       input_corresp : rel_to_lrel;
@@ -151,13 +157,26 @@ Section __.
                                | None =>
                                    map.map_values
                                      (fun v =>
-                                        interp_agg_bin v
-                                     )
+                                        match outs with
+                                        | [i; x] =>
+                                            interp_agg_bin v x
+                                        | _ => v
+                                        end)
                                      inp_data.(aggs)
                                end;
                        outputs := map.put inp_data.(outputs) outs tt; |})).
 
-  Definition send_fact (s : node_state).
+  Definition send_fact (s : node_state) (R : lrel) (inps outs : list T) :=
+    mupd s R (fun all_inps =>
+                mupd all_inps inps
+                  (fun inp_data =>
+                     {| msgs_received := inp_data.(msgs_received);
+                       msgs_sent := S inp_data.(msgs_sent);
+                       aggs := inp_data.(aggs) ;
+                       outputs := inp_data.(outputs); |})).
+
+  Print node_prog.
+  Definition can_deduce_fact p s
 
   Definition node_comp_step (p : node_prog) (s1 s2 : node_state) : Prop :=
     forall f,
