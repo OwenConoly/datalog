@@ -5,7 +5,7 @@ From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties.
 
-From Datalog Require Import Map Tactics Fp List Dag Datalog Operational Interpreter.
+From Datalog Require Import Map Tactics Fp List Dag Datalog Interpreter.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option.
 
@@ -30,8 +30,6 @@ Section __.
 
   Implicit Types known_facts sent_facts waiting_facts input_facts inputs : list dfact.
   Implicit Types nf result : dfact.
-  Implicit Types p : prog.
-  Implicit Types r : non_meta_rule.
   Implicit Types mf_rel : rel.
   Implicit Types mf_args : list (option T).
   Implicit Types nf_args : list T.
@@ -205,7 +203,24 @@ Section __.
       Exists (fun c => interp_concl_clause ctx c concl) r.(local_rule_concls) /\
         Forall2 (interp_hyp_clause ctx) r.(local_rule_hyps) hyps.
 
+  Definition can_deduce_fact (p : node_prog) (s : node_state) concl :=
+    exists r hyps,
+      In r p.(rules) /\
+        lrule_impl s r concl hyps /\
+        Forall (knows_hyp_fact s) hyps.
 
+  Print knows_hyp_fact.
+  Print spec_node_state.
+  Print fact_key. Print normal_dfact.
+  Definition dfact_of (f : concl_fact) : dfact. Admitted.
+  Definition corresp (ss : spec_node_state) (s : node_state) :=
+    forall fk,
+      (forall outs,
+          knows_hyp_fact s (fk, outputs_fact outs) <-> In (dfact_of (fk, outs)) ss.(known_facts)).
 
-  Definition node_comp_step (p : node_prog) (s1 s2 : node_state) : Prop :=
+  Definition step (event : input_or_output) (s1 s2 : node_state) : Prop. Admitted.
+  (*theorem : for any sequence of input_or_output events, node state and spec state can deduce same facts.*)
+
+  Definition learns_facts (p : node_prog) (s : node_state) new_facts :=
     forall f,
+      In f new_facts <-> can_deduce_fact p s f.
