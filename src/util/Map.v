@@ -1,5 +1,5 @@
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.Option Datatypes.List.
 From ATL Require Import FrapWithoutSets.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.Option Datatypes.List.
 From Datalog Require Import Tactics List.
 
 
@@ -8,6 +8,9 @@ Section Map.
   Context {key_eqb : key -> key -> bool} {key_eqb_spec : EqDecider key_eqb}.
   Context {value_eqb : value -> value -> bool} {value_eqb_spec : EqDecider value_eqb}.
   Implicit Type m : mp.
+
+  Definition preimage m (test : _ -> bool) :=
+    map.fold (fun (l : list key) k v => if test v then k :: l else l) [] m.
 
   Definition mupd m k f :=
     match map.get m k with

@@ -216,8 +216,37 @@ Section __.
         lrule_impl s r concl hyps /\
         Forall (knows_hyp_fact s) hyps.
 
+  From coqutil Require Import Sorting.OrderToPermutation.
+
+  Definition localize_one (p : node_prog) (R : lrel) (args : list T) : option concl_fact :=
+    match map.get p.(local_rels) R with
+    | Some rinfo =>
+        Some ({| fact_rel := R;
+                fact_inputs := firstn rinfo.(num_inputs) args |},
+            skipn rinfo.(num_inputs) args)
+    | None => None
+    end.
+
+  Definition localize (p : node_prog) (f : dfact) : option (list concl_fact) :=
+    match f with
+    | normal_dfact R args =>
+        option_all (map (fun '(lR, rc) =>
+                           let args' := apply_permutation rc.(indices) args in
+                           localize_one p lR args')
+                      (map.tuples p.(rel_corresps)))
+    | meta_dfact _ _ _ _ => None
+    end.
+
+  Print concl_fact. Print fact_key. Print node_prog.
   Search Permutation.
-  Definition dfact_of ((f : concl_fact) : dfact
+  Definition globalize (p : node_prog) (f : concl_fact) : option dfact :=
+    let (fk, fv) := f in
+    match map.get p.(rel_corresps) fk.(fact_rel) with
+    | Some rc =>
+        Some (normal_dfact rc.(the_rel) (apply_permutation (*TODO should invert this permutation*)rc.(indices) (fk.(fact_inputs) ++ fk.(fact_inputs))))
+    | _ =>
+        None
+    end.
 
   Definition corresp (ss : spec_node_state) (s : node_state) :=
     forall fk,
