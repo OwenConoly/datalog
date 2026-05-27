@@ -89,11 +89,11 @@ Section __.
     { local_rule_concls : list local_concl;
       local_rule_hyps : list hyp_clause }.
 
-  Definition lower_rule (r : rule) :=
-    (*for each relation, find necessary index structures..
-      then, compile each rule.*)
-    match r with
-    |
+  (* Definition lower_rule (r : rule) := *)
+  (*   (*for each relation, find necessary index structures.. *)
+  (*     then, compile each rule.*) *)
+  (*   match r with *)
+  (*   | *)
 
   Record node_prog :=
     { output_corresp : lrel_to_rel;
@@ -139,12 +139,31 @@ Section __.
     | None => False
     end.
 
-  Definition eval_hyp_clause (c : context) (cl : hyp_clause) (f : hyp_fact) : Prop.
-  Admitted.
+  Definition interp_hyp_clause_key ctx clk fk :=
+    clk.(hyp_clause_rel) = fk.(hyp_fact_rel) /\
+      Forall2 (interp_expr ctx) clk.(hyp_clause_inputs) fk.(hyp_fact_inputs).
 
-  Print node_state. Print inputs_data.
-  Search map.rep. Print map.update. Check interp_agg.
+  (*TODO add these to signature or sometihng*)
   Axiom interp_agg_bin : T -> T -> T.
+  Axiom get_nat : T -> nat.
+  Definition interp_hyp_clause_val ctx clv fv :=
+    match clv, fv with
+    | outputs_clause es, outputs_fact es' =>
+        Forall2 (interp_expr ctx) es es'
+    | agg_clause a v, agg_fact a' v' =>
+        a = a' /\ map.get ctx v = Some v'
+    | received_clause v, received_fact v' =>
+        option_map get_nat (map.get ctx v) = Some v'
+    | sent_clause v, sent_fact v' =>
+        option_map get_nat (map.get ctx v) = Some v'
+    | _, _ => False
+    end.
+
+  Definition interp_hyp_clause (ctx : context) (cl : hyp_clause) (f : hyp_fact) :=
+    let (clk, clv) := cl in
+    let (fk, fv) := f in
+    interp_hyp_clause_key ctx clk fk /\ interp_hyp_clause_val ctx clv fv.
+
   Definition receive_fact (s : node_state) (R : lrel) (inps outs : list T) :=
     mupd s R (fun all_inps =>
                 mupd all_inps inps
@@ -174,6 +193,18 @@ Section __.
                        msgs_sent := S inp_data.(msgs_sent);
                        aggs := inp_data.(aggs) ;
                        outputs := inp_data.(outputs); |})).
+
+  Definition concl_fact : Type :=
+    hyp_fact_key * list T.
+
+  Print local_concl.
+
+
+  Print local_rule. Search local_concl.
+  Definition lrule_impl (s : node_state) (r : local_rule) (concl : concl_fact) (hyps : list hyp_fact) :=
+    exists ctx,
+     Exists (fun c =>
+
 
   Print node_prog.
   Definition can_deduce_fact p s

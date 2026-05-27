@@ -14,6 +14,8 @@ Import ListNotations.
 (* A datalog program talks about facts R(x1, ..., xn), where (R : rel) and (x1 : T), (x2 : T), etc. *)
 Class signature {fn aggregator T : Type} : Type :=
   {
+    (*TODO these should not be able to return None;
+      static typing should ensure the relevant property.*)
     (*returning None means inputs not in domain (e.g., number of args was wrong)*)
     interp_fun : fn -> list T -> option T;
     (* (*if x represents a finite set S then get_set x = Some S. *)
