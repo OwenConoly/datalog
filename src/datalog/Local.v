@@ -16,8 +16,7 @@ Section __.
   Context `{sig : signature fn aggregator T}.
   Context {T_eqb : T -> T -> bool}.
   Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {lrel_to_rel : map.map lrel rel} {lrel_to_rel_ok : map.ok lrel_to_rel}.
-  Context {rel_to_lrel : map.map rel lrel} {rel_to_lrel_ok : map.ok rel_to_lrel}.
+  Context (num_args : rel -> nat).
 
   Local Notation clause := (clause rel var fn).
   Local Notation meta_clause := (meta_clause rel var fn).
@@ -91,9 +90,17 @@ Section __.
   (*   match r with *)
   (*   | *)
 
+  Record rel_corresp :=
+    { the_rel : rel;
+      indices : list nat }.
+
+  Context {lrel_to_rel_corresp : map.map lrel rel_corresp} {lrel_to_rel_ok : map.ok lrel_to_rel_corresp}.
+
   Record node_prog :=
-    { output_corresp : lrel_to_rel;
-      input_corresp : rel_to_lrel;
+    {
+      (*we could have separate relname correspondences for input facts and output
+        facts, but i don't see any reason to do that for now.*)
+      rel_corresps : lrel_to_rel_corresp;
       local_rels : local_rels_info;
       rules : list local_rule }.
 
@@ -209,14 +216,15 @@ Section __.
         lrule_impl s r concl hyps /\
         Forall (knows_hyp_fact s) hyps.
 
-  Print knows_hyp_fact.
-  Print spec_node_state.
-  Print fact_key. Print normal_dfact.
-  Definition dfact_of (f : concl_fact) : dfact. Admitted.
+  Search Permutation.
+  Definition dfact_of ((f : concl_fact) : dfact
+
   Definition corresp (ss : spec_node_state) (s : node_state) :=
     forall fk,
       (forall outs,
           knows_hyp_fact s (fk, outputs_fact outs) <-> In (dfact_of (fk, outs)) ss.(known_facts)).
+
+
 
   Definition step (event : input_or_output) (s1 s2 : node_state) : Prop. Admitted.
   (*theorem : for any sequence of input_or_output events, node state and spec state can deduce same facts.*)
