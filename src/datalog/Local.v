@@ -60,12 +60,12 @@ Section __.
   | received_clause (num : var)
   | sent_clause (num : var).
 
-  Record hyp_clause_key :=
-    { hyp_clause_rel : lrel;
-      hyp_clause_inputs : list expr }.
+  Record clause_key :=
+    { clause_rel : lrel;
+      clause_inputs : list expr }.
 
   Definition hyp_clause : Type :=
-    hyp_clause_key * hyp_clause_val.
+    clause_key * hyp_clause_val.
 
   Inductive hyp_fact_val :=
   | outputs_fact (outputs : list T)
@@ -73,20 +73,18 @@ Section __.
   | received_fact (num : nat)
   | sent_fact (num : nat).
 
-  Record hyp_fact_key :=
-    { hyp_fact_rel : lrel;
-      hyp_fact_inputs : list T }.
+  Record fact_key :=
+    { fact_rel : lrel;
+      fact_inputs : list T }.
 
   Definition hyp_fact : Type :=
-    hyp_fact_key * hyp_fact_val.
+    fact_key * hyp_fact_val.
 
-  Record local_concl :=
-    { local_concl_name : lrel;
-      local_concl_inputs : list expr;
-      local_concl_outputs : list expr }.
+  Definition concl_clause : Type :=
+    clause_key * list expr.
 
   Record local_rule :=
-    { local_rule_concls : list local_concl;
+    { local_rule_concls : list concl_clause;
       local_rule_hyps : list hyp_clause }.
 
   (* Definition lower_rule (r : rule) := *)
@@ -116,9 +114,9 @@ Section __.
   Definition node_state :=
     lrel_to_all_inputs_data.
 
-  Definition inputs_data_of (s : node_state) (k : hyp_fact_key) : option inputs_data :=
-    match map.get s k.(hyp_fact_rel) with
-    | Some inp_datas => map.get inp_datas k.(hyp_fact_inputs)
+  Definition inputs_data_of (s : node_state) (k : fact_key) : option inputs_data :=
+    match map.get s k.(fact_rel) with
+    | Some inp_datas => map.get inp_datas k.(fact_inputs)
     | None => None
     end.
 
@@ -139,9 +137,9 @@ Section __.
     | None => False
     end.
 
-  Definition interp_hyp_clause_key ctx clk fk :=
-    clk.(hyp_clause_rel) = fk.(hyp_fact_rel) /\
-      Forall2 (interp_expr ctx) clk.(hyp_clause_inputs) fk.(hyp_fact_inputs).
+  Definition interp_clause_key ctx clk fk :=
+    clk.(clause_rel) = fk.(fact_rel) /\
+      Forall2 (interp_expr ctx) clk.(clause_inputs) fk.(fact_inputs).
 
   (*TODO add these to signature or sometihng*)
   Axiom interp_agg_bin : T -> T -> T.
@@ -162,7 +160,7 @@ Section __.
   Definition interp_hyp_clause (ctx : context) (cl : hyp_clause) (f : hyp_fact) :=
     let (clk, clv) := cl in
     let (fk, fv) := f in
-    interp_hyp_clause_key ctx clk fk /\ interp_hyp_clause_val ctx clv fv.
+    interp_clause_key ctx clk fk /\ interp_hyp_clause_val ctx clv fv.
 
   Definition receive_fact (s : node_state) (R : lrel) (inps outs : list T) :=
     mupd s R (fun all_inps =>
@@ -195,19 +193,19 @@ Section __.
                        outputs := inp_data.(outputs); |})).
 
   Definition concl_fact : Type :=
-    hyp_fact_key * list T.
+    fact_key * list T.
 
-  Print local_concl.
+  Definition interp_concl_clause ctx c f :=
+    let '(ck, cv) := c in
+    let '(fk, fv) := f in
+    interp_clause_key ctx ck fk /\ Forall2 (interp_expr ctx) cv fv.
 
-
-  Print local_rule. Search local_concl.
   Definition lrule_impl (s : node_state) (r : local_rule) (concl : concl_fact) (hyps : list hyp_fact) :=
     exists ctx,
-     Exists (fun c =>
+      Exists (fun c => interp_concl_clause ctx c concl) r.(local_rule_concls) /\
+        Forall2 (interp_hyp_clause ctx) r.(local_rule_hyps) hyps.
 
 
-  Print node_prog.
-  Definition can_deduce_fact p s
 
   Definition node_comp_step (p : node_prog) (s1 s2 : node_state) : Prop :=
     forall f,
