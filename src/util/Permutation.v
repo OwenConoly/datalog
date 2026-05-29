@@ -3,20 +3,8 @@ From Stdlib Require Import Lists.List Arith.PeanoNat
 From coqutil Require Import Sorting.OrderToPermutation Datatypes.List.
 Import ListNotations.
 
-(** The inverse of a permutation [p].  If [p] is a permutation of
-    [seq 0 (length p)] (i.e., a valid permutation of [length p] elements),
-    then [invert_permutation p] is the [q] such that
-    [nth (nth i p 0) q 0 = i] and [nth (nth i q 0) p 0 = i] for all valid [i].
-
-    Implementation note: [order_to_permutation] from coqutil already computes
-    this — it pairs each element of its input with its index, sorts pairs by
-    the first component, and projects out the second components. *)
 Definition invert_permutation (p : list nat) : list nat :=
   order_to_permutation p.
-
-(* ===================================================================== *)
-(* Section 1.  Bookkeeping lemmas about lengths and projections.         *)
-(* ===================================================================== *)
 
 Lemma fst_zip_with_start_index : forall A (l : list A) start,
   map fst (zip_with_start_index start l) = l.
@@ -61,13 +49,6 @@ Proof.
   apply (length_map (fun i => List.nth i l d)).
 Qed.
 
-(* ===================================================================== *)
-(* Section 2.  Sorted permutations of [seq] are equal to [seq].          *)
-(* ===================================================================== *)
-
-(** A [Sorted le] list that is a permutation of [seq start n] must equal
-    [seq start n]: both have the same minimum element (the head of the
-    sorted list and [start]), so they agree on heads, and we recurse. *)
 Lemma sorted_le_perm_seq_eq : forall l start n,
   Sorted le l ->
   Permutation l (seq start n) ->
@@ -79,7 +60,6 @@ Proof.
   - assert (Hlen := Permutation_length Hperm).
     simpl in Hlen. rewrite length_seq in Hlen.
     destruct n as [|n']; [discriminate|].
-    (* Show a = start. *)
     assert (Ha : a = start). {
       assert (Ha_in : In a (seq start (S n'))) by
         (eapply Permutation_in; [exact Hperm | left; reflexivity]).
@@ -103,12 +83,6 @@ Proof.
       eapply Permutation_cons_inv. exact Hperm.
 Qed.
 
-(* ===================================================================== *)
-(* Section 3.  The sort of [zip_with_index p] has [seq 0 (length p)] as  *)
-(* its first components, when [p] is a permutation.                      *)
-(* ===================================================================== *)
-
-(** [LocallySorted] by [leb] on pairs ⇒ [Sorted le] on first components. *)
 Lemma sorted_fst_of_locally_sorted :
   forall (s : list (nat * nat)),
     LocallySorted (fun x y => is_true (FstNatOrder.leb x y)) s ->
@@ -139,10 +113,6 @@ Proof.
     + rewrite fst_zip_with_index. exact Hp.
 Qed.
 
-(* ===================================================================== *)
-(* Section 4.  Pairs in [zip_with_index] are recovered by [nth].         *)
-(* ===================================================================== *)
-
 Lemma in_zip_with_start_index :
   forall A (l : list A) start a b,
     In (a, b) (zip_with_start_index start l) ->
@@ -168,11 +138,6 @@ Proof.
   rewrite Nat.sub_0_r in Hnth. split; [lia | exact Hnth].
 Qed.
 
-(* ===================================================================== *)
-(* Section 5.  Pointwise lemmas for [apply_permutation_with_default].    *)
-(* ===================================================================== *)
-
-(** A reading of the i-th element of [apply_permutation_with_default p l d]. *)
 Lemma nth_apply_permutation_with_default :
   forall p A (l : list A) d d' i,
     i < length p ->
@@ -186,7 +151,6 @@ Proof.
     + apply IH. lia.
 Qed.
 
-(** When the indices in [p] are all valid for [l], we can switch the default. *)
 Lemma apply_permutation_with_default_indep :
   forall p A (l : list A) d1 d2,
     Forall (fun j => j < length l) p ->
@@ -199,9 +163,6 @@ Proof.
   apply nth_indep. exact Hp.
 Qed.
 
-(** When [l] is nonempty (or more generally, when [p]'s entries are valid),
-    [apply_permutation] coincides with [apply_permutation_with_default]
-    for any default. *)
 Lemma apply_permutation_eq_with_default :
   forall p A (l : list A) d,
     Forall (fun j => j < length l) p ->
@@ -220,11 +181,6 @@ Proof.
   - apply apply_permutation_with_default_indep. assumption.
 Qed.
 
-(* ===================================================================== *)
-(* Section 6.  The key inverse property of [invert_permutation].         *)
-(* ===================================================================== *)
-
-(** [invert_permutation p] is a right-inverse of [p] (pointwise). *)
 Lemma nth_invert_permutation_inv :
   forall p i,
     Permutation p (seq 0 (length p)) ->
@@ -233,20 +189,16 @@ Lemma nth_invert_permutation_inv :
 Proof.
   intros p i Hp Hi.
   unfold invert_permutation, order_to_permutation.
-  (* nth i (map snd (sort (...))) 0 = snd (nth i (sort (...)) (0,0)) *)
   set (s := FstNatSorting.sort (zip_with_index p)).
   assert (Hs_len : length s = length p).
   { unfold s. rewrite <- (Permutation_length (FstNatSorting.Permuted_sort _)).
     apply length_zip_with_index. }
-  (* Read off the i-th pair in s. *)
   destruct (nth i s (0, 0)) as [a b] eqn:Epair.
-  (* nth i (map snd s) 0 = snd (a, b) = b. *)
   assert (Hb : nth i (map snd s) 0 = b). {
     rewrite (nth_indep _ _ (snd (0, 0))) by (rewrite length_map; lia).
     rewrite map_nth. rewrite Epair. reflexivity.
   }
   rewrite Hb.
-  (* From In (a, b) (zip_with_index p): b < length p and nth b p a = a. *)
   assert (Hin : In (a, b) s). {
     rewrite <- Epair. apply nth_In. lia.
   }
@@ -256,7 +208,6 @@ Proof.
     - exact Hin.
   }
   apply in_zip_with_index_nth in Hin_zip as [Hblt Hnth].
-  (* Show a = i, using fst_sort_zip_with_index. *)
   assert (Ha : a = i). {
     pose proof (fst_sort_zip_with_index _ Hp) as Hfst.
     fold s in Hfst.
@@ -272,7 +223,6 @@ Proof.
   exact Hnth.
 Qed.
 
-(** Every entry of [invert_permutation p] is in range. *)
 Lemma invert_permutation_in_range : forall p i,
   Permutation p (seq 0 (length p)) ->
   In i (invert_permutation p) ->
@@ -290,12 +240,6 @@ Proof.
   apply in_zip_with_index_nth in H as [? _]. assumption.
 Qed.
 
-(* ===================================================================== *)
-(* Section 7.  Length and pointwise reading of [apply_permutation].      *)
-(* ===================================================================== *)
-
-(** Length of [apply_permutation p l] equals [length l] when [p] is a
-    valid permutation of indices. *)
 Lemma length_apply_permutation : forall p A (l : list A),
   Permutation p (seq 0 (length l)) ->
   length (apply_permutation p l) = length l.
@@ -305,15 +249,12 @@ Proof.
   apply Permutation_sym, apply_permutation_is_Permutation. exact Hp.
 Qed.
 
-(** Pointwise reading of [apply_permutation]: the i-th element is
-    [nth (nth i p 0) l d]. *)
 Lemma nth_apply_permutation : forall p A (l : list A) d i,
   Permutation p (seq 0 (length l)) ->
   i < length p ->
   nth i (apply_permutation p l) d = nth (nth i p 0) l d.
 Proof.
   intros p A l d i Hp Hi.
-  (* nth i p 0 is in p, so it is in seq 0 (length l), so < length l. *)
   assert (Hpi_lt : nth i p 0 < length l). {
     assert (In (nth i p 0) p) by (apply nth_In; exact Hi).
     assert (In (nth i p 0) (seq 0 (length l))) by
@@ -326,11 +267,6 @@ Proof.
   - rewrite (nth_apply_permutation_with_default _ _ _ a d _ Hi).
     apply nth_indep. exact Hpi_lt.
 Qed.
-
-(* ===================================================================== *)
-(* Section 8.  Main spec: applying [invert_permutation] undoes           *)
-(* [apply_permutation].                                                   *)
-(* ===================================================================== *)
 
 Lemma apply_invert_permutation : forall p A (l : list A),
   Permutation p (seq 0 (length l)) ->
@@ -347,11 +283,8 @@ Proof.
     unfold invert_permutation. apply order_to_permutation_is_Permutation.
   }
   pose proof (length_apply_permutation _ _ _ Hq) as Hlen_outer.
-  (* Split on whether l is empty.  When l = [] we can read off both sides
-     directly; otherwise we pick the head as the default for [nth_ext]. *)
   destruct l as [|d l'].
-  - (* l = []: then length p = 0, so p = []. *)
-    simpl in Hlen_p. assert (p = []) by (destruct p; [reflexivity | discriminate]).
+  - simpl in Hlen_p. assert (p = []) by (destruct p; [reflexivity | discriminate]).
     subst p. reflexivity.
   - apply nth_ext with (d := d) (d' := d).
     + rewrite Hlen_outer. exact Hlen_app.
