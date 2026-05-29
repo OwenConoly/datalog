@@ -5,9 +5,9 @@ From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties.
 
-From Datalog Require Import Map Tactics Fp List Dag Datalog Interpreter.
+From Datalog Require Import Permutation Map Tactics Fp List Dag Datalog Interpreter.
 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Sorting.OrderToPermutation.
 
 Import ListNotations.
 
@@ -216,8 +216,6 @@ Section __.
         lrule_impl s r concl hyps /\
         Forall (knows_hyp_fact s) hyps.
 
-  From coqutil Require Import Sorting.OrderToPermutation.
-
   Definition localize_one (p : node_prog) (R : lrel) (args : list T) : option concl_fact :=
     match map.get p.(local_rels) R with
     | Some rinfo =>
@@ -237,21 +235,19 @@ Section __.
     | meta_dfact _ _ _ _ => None
     end.
 
-  Print concl_fact. Print fact_key. Print node_prog.
-  Search Permutation.
   Definition globalize (p : node_prog) (f : concl_fact) : option dfact :=
     let (fk, fv) := f in
     match map.get p.(rel_corresps) fk.(fact_rel) with
     | Some rc =>
-        Some (normal_dfact rc.(the_rel) (apply_permutation (*TODO should invert this permutation*)rc.(indices) (fk.(fact_inputs) ++ fk.(fact_inputs))))
+        Some (normal_dfact rc.(the_rel) (apply_permutation (invert_permutation rc.(indices)) (fk.(fact_inputs) ++ fv)))
     | _ =>
         None
     end.
 
-  Definition corresp (ss : spec_node_state) (s : node_state) :=
+  Definition corresp (p : node_prog) (ss : spec_node_state) (s : node_state) :=
     forall fk,
       (forall outs,
-          knows_hyp_fact s (fk, outputs_fact outs) <-> In (dfact_of (fk, outs)) ss.(known_facts)).
+          knows_hyp_fact s (fk, outputs_fact outs) <-> In (globalize p (fk, outs)) ss.(known_facts)).
 
 
 
