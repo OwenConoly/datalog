@@ -46,6 +46,25 @@ Section __.
   Implicit Types mf_args : list (option T).
   Implicit Types nf_args : list T.
 
+  Inductive non_meta_rule :=
+  | nmr_normal (_ _ : list clause)
+  | nmr_agg (_ : rel) (_ : aggregator) (_ : rel).
+
+  Definition rule_of nmr :=
+    match nmr with
+    | nmr_normal concls hyps => normal_rule concls hyps
+    | nmr_agg concl_rel agg hyp_rel => agg_rule concl_rel agg hyp_rel
+    end.
+
+  Inductive dfact :=
+  | normal_dfact (nf_rel : rel) (nf_args : list T)
+  | meta_dfact (mf_rel : rel) (mf_args : list (option T)) (source : option nat) (expected_msgs : nat) (*number of messages that node "source" will ever send about mf_rel*).
+
+  Record prog :=
+    { meta_rules : list (list meta_clause * list meta_clause);
+      non_meta_rules : list non_meta_rule }.
+
+
   Record rule_state :=
     { known_facts : list dfact;
       waiting_facts : list dfact;

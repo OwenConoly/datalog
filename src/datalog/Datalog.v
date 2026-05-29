@@ -14,16 +14,24 @@ Import ListNotations.
 (* A datalog program talks about facts R(x1, ..., xn), where (R : rel) and (x1 : T), (x2 : T), etc. *)
 Class signature {fn aggregator T : Type} : Type :=
   {
-    (*TODO these should not be able to return None;
-      static typing should ensure the relevant property.*)
-    (*returning None means inputs not in domain (e.g., number of args was wrong)*)
-    interp_fun : fn -> list T -> option T;
+    interp_fun : fn -> list T -> T;
     (* (*if x represents a finite set S then get_set x = Some S. *)
     (*   note: suffices to have this be T -> option nat, for cardinality... *)
     (*   should i do that? *) *)
     (* get_set : T -> option (T -> Prop); *)
-    interp_agg : aggregator -> list (T * T) -> T; }.
+    get_nat : T -> nat;
+    agg_bop : aggregator -> T -> T -> T;
+    agg_id : aggregator -> T; }.
 Arguments signature : clear implicits.
+
+Class type_signature {rel fn aggregator : Type} : Type :=
+  {
+    type : Type;
+    fun_type : fn -> list type * type;
+    rel_type : rel -> list type;
+    agg_type : aggregator -> type * type;
+  }.
+Arguments type_signature : clear implicits.
 
 Class query_signature {rel : Type} :=
   { outs : rel -> nat }.
@@ -102,7 +110,7 @@ Section __.
     interp_expr ctx (var_expr x) v
   | interp_fun_expr f args args' x :
     Forall2 (interp_expr ctx) args args' ->
-    interp_fun f args' = Some x ->
+    interp_fun f args' = x ->
     interp_expr ctx (fun_expr f args) x.
   Set Elimination Schemes.
 
@@ -142,6 +150,9 @@ Section __.
         mf = meta_fact R mf_args mf_set /\
         Forall2 matches mf_args nf_args /\
         mf_set nf_args.
+
+  Definition interp_agg agg (vals : list (T * T)) :=
+    fold_right (agg_bop agg) (agg_id agg) (map snd vals).
 
   Inductive non_meta_rule_impl : rule -> rel -> list T -> list fact -> Prop :=
   | normal_rule_impl rule_concls rule_hyps ctx R args hyps :
@@ -1592,25 +1603,49 @@ Section __.
   (*   intros. split; auto using loopless_program. intros [H'|H']; fwd; eauto. *)
   (* Qed. *)
 
-  Inductive non_meta_rule :=
-  | nmr_normal (_ _ : list clause)
-  | nmr_agg (_ : rel) (_ : aggregator) (_ : rel).
+  Context `{tsig : type_signature rel fn aggregator}.
+  Context {type_context : map.map var type}
+          {type_context_ok : map.ok type_context}.
 
-  Definition rule_of nmr :=
-    match nmr with
-    | nmr_normal concls hyps => normal_rule concls hyps
-    | nmr_agg concl_rel agg hyp_rel => agg_rule concl_rel agg hyp_rel
+  Unset Elimination Schemes.
+  Inductive well_typed_expr (tctx : type_context) : expr -> type -> Prop :=
+  | wt_var_expr x t :
+    map.get tctx x = Some t ->
+    well_typed_expr tctx (var_expr x) t
+  | wt_fun_expr f args arg_ts t :
+    fun_type f = (arg_ts, t) ->
+    Forall2 (well_typed_expr tctx) args arg_ts ->
+    well_typed_expr tctx (fun_expr f args) t.
+  Set Elimination Schemes.
+
+  Definition well_typed_clause (tctx : type_context) (c : clause) : Prop :=
+    Forall2 (well_typed_expr tctx) c.(clause_args) (rel_type c.(clause_rel)).
+
+  Definition well_typed_opt_expr (tctx : type_context) (oe : option expr) (t : type) : Prop :=
+    match oe with
+    | None => True
+    | Some e => well_typed_expr tctx e t
     end.
 
-  Inductive dfact :=
-  | normal_dfact (nf_rel : rel) (nf_args : list T)
-  | meta_dfact (mf_rel : rel) (mf_args : list (option T)) (source : option nat) (expected_msgs : nat) (*number of messages that node "source" will ever send about mf_rel*).
+  Definition well_typed_meta_clause (tctx : type_context) (c : meta_clause) : Prop :=
+    Forall2 (well_typed_opt_expr tctx)
+            c.(meta_clause_args) (rel_type c.(meta_clause_rel)).
 
-  Record prog :=
-    { meta_rules : list (list meta_clause * list meta_clause);
-      non_meta_rules : list non_meta_rule }.
-
-
+  Definition well_typed_rule (r : rule) : Prop :=
+    exists tctx : type_context,
+      match r with
+      | normal_rule concls hyps =>
+          Forall (well_typed_clause tctx) concls /\
+          Forall (well_typed_clause tctx) hyps
+      | meta_rule concls hyps =>
+          Forall (well_typed_meta_clause tctx) concls /\
+          Forall (well_typed_meta_clause tctx) hyps
+      | agg_rule concl_rel agg hyp_rel =>
+          exists i_type in_type out_type shared,
+            agg_type agg = (in_type, out_type) /\
+            rel_type concl_rel = out_type :: shared /\
+            rel_type hyp_rel = i_type :: in_type :: shared
+      end.
 
 End __.
 Arguments clause : clear implicits.
@@ -1619,9 +1654,6 @@ Arguments fact : clear implicits.
 Arguments fact_args : clear implicits.
 Arguments rule : clear implicits.
 Arguments expr : clear implicits.
-Arguments dfact : clear implicits.
-Arguments non_meta_rule : clear implicits.
-Arguments prog : clear implicits.
 Hint Constructors non_meta_rule_impl : core.
 Hint Constructors rule_impl : core.
 Hint Immediate extensionally_equal_refl : core.
