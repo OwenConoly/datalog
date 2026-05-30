@@ -319,7 +319,7 @@ Qed.
 Definition compatible_union_of_list (ms : list mp) : option mp :=
   fold_right (fun x y => option_coalesce (option_map (compatible_union x) y)) (Some map.empty) ms.
 
-Definition compatible_union_of_option_list ms :=
+Definition compatible_union_of_list_option ms :=
   option_coalesce (option_map compatible_union_of_list (option_all ms)).
 
 Lemma compatible_union_get m1 m2 m k v :

@@ -4,9 +4,9 @@ From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
 
-From Datalog Require Import Map Tactics Fp List Dag.
-
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option.
+
+From Datalog Require Import Map Tactics Fp List Dag.
 
 Import ListNotations.
 
@@ -1647,6 +1647,62 @@ Section __.
             rel_type hyp_rel = i_type :: in_type :: shared
       end.
 
+  Context {type_eqb : type -> type -> bool}
+          {type_eqb_spec :
+             forall t1 t2, BoolSpec (t1 = t2) (t1 <> t2) (type_eqb t1 t2)}.
+
+  Fixpoint check_expr_type e t : option type_context :=
+    match e with
+    | var_expr x => Some (map.put map.empty x t)
+    | fun_expr f args =>
+        let '(arg_ts, ret_t) := fun_type f in
+        if (type_eqb ret_t t && Nat.eqb (length arg_ts) (length args))%bool
+        then compatible_union_of_list_option (value_eqb := type_eqb) (map2 check_expr_type args arg_ts)
+        else None
+    end.
+
+  Definition check_clause_type (c : clause) : option type_context :=
+    let arg_ts := rel_type c.(clause_rel) in
+    if Nat.eqb (length c.(clause_args)) (length arg_ts)
+    then compatible_union_of_list_option
+           (value_eqb := type_eqb) (map2 check_expr_type c.(clause_args) arg_ts)
+    else None.
+
+  Definition check_opt_expr_type (oe : option expr) (t : type) : option type_context :=
+    match oe with
+    | None => Some map.empty
+    | Some e => check_expr_type e t
+    end.
+
+  Definition check_meta_clause_type (c : meta_clause) : option type_context :=
+    let arg_ts := rel_type c.(meta_clause_rel) in
+    if Nat.eqb (length c.(meta_clause_args)) (length arg_ts)
+    then compatible_union_of_list_option
+           (value_eqb := type_eqb) (map2 check_opt_expr_type c.(meta_clause_args) arg_ts)
+    else None.
+
+  Definition check_rule_type (r : rule) : option type_context :=
+    match r with
+    | normal_rule concls hyps =>
+        compatible_union_of_list_option
+          (value_eqb := type_eqb)
+          (map check_clause_type (concls ++ hyps))
+    | meta_rule concls hyps =>
+        compatible_union_of_list_option
+          (value_eqb := type_eqb)
+          (map check_meta_clause_type (concls ++ hyps))
+    | agg_rule concl_rel agg hyp_rel =>
+        let '(in_type, out_type) := agg_type agg in
+        match rel_type concl_rel, rel_type hyp_rel with
+        | out_t :: c_shared, _ :: in_t :: h_shared =>
+            if (type_eqb out_type out_t &&
+                type_eqb in_type in_t &&
+                list_eqb type_eqb c_shared h_shared)%bool
+            then Some map.empty
+            else None
+        | _, _ => None
+        end
+    end.
 End __.
 Arguments clause : clear implicits.
 Arguments meta_clause : clear implicits.

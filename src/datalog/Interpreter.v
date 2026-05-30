@@ -84,7 +84,7 @@ Section __.
   Fixpoint subst_in_expr ctx e : option T :=
     match e with
     | var_expr v => map.get ctx v
-    | fun_expr f args => option_coalesce (option_map (interp_fun f) (option_all (map (subst_in_expr ctx) args)))
+    | fun_expr f args => option_map (interp_fun f) (option_all (map (subst_in_expr ctx) args))
     end.
 
   Hint Constructors interp_expr : core.
@@ -93,7 +93,7 @@ Section __.
     interp_expr ctx e v.
   Proof.
     revert v. induction e; simpl; intros; eauto.
-    apply option_coalesce_Some, option_map_Some in H0. fwd.
+    apply option_map_Some in H0. fwd.
     apply option_all_Forall2 in H0p0. econstructor; eauto.
     rewrite <- Forall2_map_l in H0p0. eapply Forall2_impl_strong; [|eassumption].
     simpl. intros. rewrite Forall_forall in H. eauto.
@@ -107,7 +107,7 @@ Section __.
     erewrite Forall2_option_all.
     2: { rewrite <- Forall2_map_l. eapply Forall2_impl_strong; [|eassumption].
          rewrite Forall_forall in H. eauto. }
-    simpl. rewrite H5. reflexivity.
+    simpl. reflexivity.
   Qed.
 
   Definition subst_in_clause ctx (c : clause) :=
@@ -182,11 +182,11 @@ Section __.
     subst_in_expr ctx' e = Some v.
   Proof.
     intros H. revert v. induction e; simpl; intros; eauto. rewrite Forall_forall in H0.
-    apply option_coalesce_Some, option_map_Some in H1. fwd.
+    apply option_map_Some in H1. fwd.
     apply option_all_Forall2 in H1p0. erewrite Forall2_option_all.
     2: { rewrite <- Forall2_map_l in *. eapply Forall2_impl_strong; [|eassumption].
          simpl. eauto. }
-    simpl. rewrite H1p1. reflexivity.
+    simpl. reflexivity.
   Qed.
 
   Lemma subst_expr_with_vars ctx ctx' e :
@@ -196,7 +196,7 @@ Section __.
   Proof.
     induction e; simpl; intros; invert_list_stuff.
     - destruct (map.get _ _) eqn:E; try congruence. symmetry. auto.
-    - rewrite Forall_flat_map in H0. f_equal. f_equal. f_equal. apply map_ext_in.
+    - rewrite Forall_flat_map in H0. f_equal. f_equal. apply map_ext_in.
       rewrite Forall_forall in *. eauto.
   Qed.
 
