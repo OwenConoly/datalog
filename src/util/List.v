@@ -469,6 +469,16 @@ Section Forall3.
       Forall2 (fun x y => exists z, R x y z) xs ys.
   Proof. induction 1; eauto. Qed.
 
+  Lemma Forall3_ignore3_strong:
+    forall xs ys zs,
+      Forall3 xs ys zs ->
+      Forall2 (fun x y => exists z, In z zs /\ R x y z) xs ys.
+  Proof.
+    induction 1; econstructor; simpl; eauto.
+    eapply Forall2_impl; [|eassumption].
+    simpl. intros. fwd. eauto.
+  Qed.
+
   Lemma Forall3_zip3 xs ys f :
     Forall2 (fun x y => R x y (f x y)) xs ys ->
     Forall3 xs ys (zip f xs ys).
@@ -1165,6 +1175,19 @@ Section misc.
   (*   exists x. destr (eqbA x x); try congruence; auto. *)
   (* Qed. *)
 End misc.
+
+Lemma option_all_map2_Forall3 {A B C} (f : A -> B -> option C) xs ys zs :
+  length xs = length ys ->
+  option_all (map2 f xs ys) = Some zs ->
+  Forall3 (fun x y z => f x y = Some z) xs ys zs.
+Proof.
+  revert ys zs. induction xs as [|x xs IH]; intros [|y ys] zs Hlen Hall;
+    simpl in Hlen, Hall; try discriminate.
+  - injection Hall as <-. constructor.
+  - destruct (f x y) as [z|] eqn:Efxy; [|discriminate].
+    destruct (option_all (map2 f xs ys)) as [zs'|] eqn:Erest; [|discriminate].
+    injection Hall as <-. constructor; auto.
+Qed.
 
 Lemma Forall2_option_relation_keep_Some {A B} (R : A -> B -> Prop) l1 l2 :
   Forall2 (option_relation R) l1 l2 ->
