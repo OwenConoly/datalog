@@ -171,20 +171,24 @@ Section __.
   Definition interp_agg agg (vals : list (T * T)) :=
     fold_right (agg_bop agg) (agg_id agg) (map snd vals).
 
-  Inductive non_meta_rule_impl : rule -> rel -> list T -> list fact -> Prop :=
-  | normal_rule_impl rule_concls rule_hyps ctx R args hyps :
+  Inductive non_meta_rule_impl_with_ctx (ctx : context) : rule -> rel -> list T -> list fact -> Prop :=
+  | normal_rule_impl rule_concls rule_hyps R args hyps :
     Exists (fun c => interp_clause ctx c (normal_fact R args)) rule_concls ->
     Forall2 (interp_clause ctx) rule_hyps hyps ->
-    non_meta_rule_impl (normal_rule rule_concls rule_hyps) R args hyps
+    non_meta_rule_impl_with_ctx ctx (normal_rule rule_concls rule_hyps) R args hyps
   | agg_rule_impl S vals concl_rel agg hyp_rel (args : list T) :
     is_list_set (fun '(i, x) => S (i :: x :: args)) vals ->
-    non_meta_rule_impl
+    non_meta_rule_impl_with_ctx ctx
       (agg_rule concl_rel agg hyp_rel)
       concl_rel
       (interp_agg agg vals :: args)
       (meta_fact hyp_rel (None :: None :: map Some args) S ::
          map (fun '(i, x_i) => normal_fact hyp_rel (i :: x_i :: args)) vals).
-  Hint Constructors non_meta_rule_impl : core.
+  Hint Constructors non_meta_rule_impl_with_ctx : core.
+
+  Definition non_meta_rule_impl (r : rule) (R : rel) (args : list T) (hyps : list fact) : Prop :=
+    exists ctx, non_meta_rule_impl_with_ctx ctx r R args hyps.
+  Hint Unfold non_meta_rule_impl : core.
 
   Unset Elimination Schemes.
   Inductive pftree {T : Type} (P : T -> list T -> Prop) (Q : T -> Prop) : T -> Prop :=
@@ -220,18 +224,28 @@ Section __.
   Definition one_step_derives := one_step_derives0 fact_supported.
   Hint Unfold one_step_derives0 fact_supported : core.
 
-  Inductive rule_impl (env : list fact -> rel -> list T -> Prop) : rule -> fact -> list fact -> Prop :=
+  Inductive rule_impl_with_ctx (env : list fact -> rel -> list T -> Prop) (ctx : context) : rule -> fact -> list fact -> Prop :=
   | simple_rule_impl r R args hyps :
-    non_meta_rule_impl r R args hyps ->
-    rule_impl _ r (normal_fact R args) hyps
-  | meta_rule_impl rule_concls rule_hyps ctx R args hyps S :
+    non_meta_rule_impl_with_ctx ctx r R args hyps ->
+    rule_impl_with_ctx env ctx r (normal_fact R args) hyps
+  | meta_rule_impl rule_concls rule_hyps R args hyps S :
     Exists (fun c => interp_meta_clause ctx c (meta_fact R args (fun args' => S args'))) rule_concls ->
       Forall2 (interp_meta_clause ctx) rule_hyps hyps ->
       (forall args'',
           Forall2 matches args args'' ->
           S args'' <-> env hyps R args'') ->
-      rule_impl env (meta_rule rule_concls rule_hyps) (meta_fact R args S) hyps.
-  Hint Constructors rule_impl : core.
+      rule_impl_with_ctx env ctx (meta_rule rule_concls rule_hyps) (meta_fact R args S) hyps.
+  Hint Constructors rule_impl_with_ctx : core.
+
+  Definition rule_impl (env : list fact -> rel -> list T -> Prop) (r : rule) (f : fact) (hyps : list fact) : Prop :=
+    exists ctx, rule_impl_with_ctx env ctx r f hyps.
+  Hint Unfold rule_impl : core.
+
+  Lemma simple_rule_impl_wrap env r R args hyps :
+    non_meta_rule_impl r R args hyps ->
+    rule_impl env r (normal_fact R args) hyps.
+  Proof. intros [ctx H]. exists ctx. constructor. assumption. Qed.
+  Hint Resolve simple_rule_impl_wrap : core.
 
   Lemma pftree_ind {U : Type} (P : U -> list U -> Prop) Q R :
     (forall x, Q x -> R x) ->
@@ -271,11 +285,10 @@ Section __.
     prog_impl p Q f.
   Proof. intros. eapply pftree_step; eauto. Qed.
 
-  Print non_meta_rule_impl.
-  Lemma non_meta_rule_impl_ext r R args hyps hyps' :
-    non_meta_rule_impl r R args hyps ->
+  Lemma non_meta_rule_impl_with_ctx_ext ctx r R args hyps hyps' :
+    non_meta_rule_impl_with_ctx ctx r R args hyps ->
     Forall2 extensionally_equal hyps hyps' ->
-    non_meta_rule_impl r R args hyps'.
+    non_meta_rule_impl_with_ctx ctx r R args hyps'.
   Proof.
     intros H1 H2. invert H1.
     - econstructor; eauto. eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
@@ -292,6 +305,14 @@ Section __.
       apply Forall2_eq_eq. apply Forall2_flip.
       rewrite <- Forall2_map_l in *. eapply Forall2_impl; [|eassumption].
       simpl. intros (?, ?) ? ?. cbv [extensionally_equal] in *. fwd. reflexivity.
+  Qed.
+
+  Lemma non_meta_rule_impl_ext r R args hyps hyps' :
+    non_meta_rule_impl r R args hyps ->
+    Forall2 extensionally_equal hyps hyps' ->
+    non_meta_rule_impl r R args hyps'.
+  Proof.
+    intros [ctx H1] H2. exists ctx. eauto using non_meta_rule_impl_with_ctx_ext.
   Qed.
 
   Lemma fact_supported_ext hyps hyps' f :
@@ -334,13 +355,13 @@ Section __.
     ssplit; auto. symmetry. auto.
   Qed.
 
-  Lemma rule_impl_ext p r f hyps hyps' :
-    rule_impl (one_step_derives p) r f hyps ->
+  Lemma rule_impl_with_ctx_ext p ctx r f hyps hyps' :
+    rule_impl_with_ctx (one_step_derives p) ctx r f hyps ->
     Forall2 extensionally_equal hyps hyps' ->
-    rule_impl (one_step_derives p) r f hyps'.
+    rule_impl_with_ctx (one_step_derives p) ctx r f hyps'.
   Proof.
     intros H1 H2. invert H1.
-    - constructor. eauto using non_meta_rule_impl_ext.
+    - constructor. eauto using non_meta_rule_impl_with_ctx_ext.
     - econstructor.
       + eassumption.
       + eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
@@ -351,6 +372,14 @@ Section __.
         split; intros; eapply one_step_derives_ext; eauto.
         apply Forall2_flip. eapply Forall2_impl; [|eassumption].
         auto using extensionally_equal_sym.
+  Qed.
+
+  Lemma rule_impl_ext p r f hyps hyps' :
+    rule_impl (one_step_derives p) r f hyps ->
+    Forall2 extensionally_equal hyps hyps' ->
+    rule_impl (one_step_derives p) r f hyps'.
+  Proof.
+    intros [ctx H1] H2. exists ctx. eauto using rule_impl_with_ctx_ext.
   Qed.
 
   Lemma prog_impl_step_strong p Q f hyps' :
@@ -402,6 +431,20 @@ Section __.
     eauto using prog_impl_weaken_hyp.
   Qed.
 
+  Lemma rule_impl_with_ctx_mf_ext p Q ctx mf_rel mf_args hyps mf_set mf_set' :
+    rule_impl_with_ctx p ctx Q (meta_fact mf_rel mf_args mf_set) hyps ->
+    (forall nf_args,
+        Forall2 matches mf_args nf_args ->
+        mf_set nf_args <-> mf_set' nf_args) ->
+    rule_impl_with_ctx p ctx Q (meta_fact mf_rel mf_args mf_set') hyps.
+  Proof.
+    invert 1. intros Heq.
+    econstructor; [|eassumption|].
+    { eapply Exists_impl; [|eassumption].
+      simpl. cbv [interp_meta_clause]. intros. fwd. eauto. }
+    intros. rewrite <- Heq by eassumption. auto.
+  Qed.
+
   Lemma rule_impl_mf_ext p Q mf_rel mf_args hyps mf_set mf_set' :
     rule_impl p Q (meta_fact mf_rel mf_args mf_set) hyps ->
     (forall nf_args,
@@ -409,11 +452,7 @@ Section __.
         mf_set nf_args <-> mf_set' nf_args) ->
     rule_impl p Q (meta_fact mf_rel mf_args mf_set') hyps.
   Proof.
-    invert 1. intros Heq.
-    econstructor; [|eassumption|].
-    { eapply Exists_impl; [|eassumption].
-      simpl. cbv [interp_meta_clause]. intros. fwd. eauto. }
-    intros. rewrite <- Heq by eassumption. auto.
+    intros [ctx H1] Heq. exists ctx. eauto using rule_impl_with_ctx_mf_ext.
   Qed.
 
   Lemma prog_impl_mf_ext p Q mf_rel mf_args mf_set mf_set' :
@@ -617,11 +656,10 @@ Section __.
 
   Ltac invert_stuff :=
     match goal with
-    | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args] in *
-    | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
-    | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
-    | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
-    | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
+    | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args rule_impl non_meta_rule_impl] in *
+    | _ => progress cbv [interp_clause interp_meta_clause rule_impl non_meta_rule_impl] in *|-
+    | H : rule_impl_with_ctx _ _ _ _ _ |- _ => invert1 H || invert0 H
+    | H : non_meta_rule_impl_with_ctx _ _ _ _ _ |- _ => progress (invert1 H) || invert0 H
     | H : interp_expr _ _ _ |- _ => invert1 H
     | H : In _ [_] |- _ => destruct H; [|contradiction]
     | H : Exists _ _ |- _ => apply Exists_exists in H; fwd
@@ -768,7 +806,7 @@ Section __.
     non_meta_rule_impl r R args hyps ->
     In R (concl_rels r).
   Proof.
-    invert 1.
+    intros [ctx H]. invert H.
     - repeat invert_stuff. apply in_map_iff. eauto.
     - left. reflexivity.
   Qed.
@@ -777,8 +815,8 @@ Section __.
     rule_impl p r f hyps ->
     In (rel_of f) (concl_rels r).
   Proof.
-    invert 1.
-    - eapply non_meta_rule_impl_concl_relname_in. eassumption.
+    intros [ctx H]. invert H.
+    - eapply non_meta_rule_impl_concl_relname_in. eexists. eassumption.
     - repeat invert_stuff. apply in_map_iff. eauto.
   Qed.
 
@@ -786,7 +824,7 @@ Section __.
     non_meta_rule_impl r R args hyps ->
     Forall (fun hyp => In (rel_of hyp) (hyp_rels r)) hyps.
   Proof.
-    invert 1.
+    intros [ctx H]. invert H.
     - simpl.
       eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
       intros. repeat invert_stuff.
@@ -800,8 +838,8 @@ Section __.
     rule_impl p r f hyps ->
     Forall (fun hyp => In (rel_of hyp) (hyp_rels r)) hyps.
   Proof.
-    invert 1.
-    - eapply non_meta_rule_impl_hyp_relname_in. eassumption.
+    intros [ctx H]. invert H.
+    - eapply non_meta_rule_impl_hyp_relname_in. eexists. eassumption.
     - simpl.
       eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
       intros. repeat invert_stuff.
@@ -899,7 +937,7 @@ Section __.
     rule_impl (one_step_derives (p1 ++ p2)) r f hyps ->
     rule_impl (one_step_derives p1) r f hyps.
   Proof.
-    intros Hout. invert 1.
+    intros Hout [ctx H]. exists ctx. invert H.
     - invert H0.
       + constructor. econstructor; eassumption.
       + constructor. econstructor; eassumption.
@@ -920,7 +958,7 @@ Section __.
     rule_impl (one_step_derives p1) r f hyps ->
     rule_impl (one_step_derives (p1 ++ p2)) r f hyps.
   Proof.
-    intros Hout. invert 1.
+    intros Hout [ctx H]. exists ctx. invert H.
     - invert H0.
       + constructor. econstructor; eassumption.
       + constructor. econstructor; eassumption.
@@ -956,7 +994,7 @@ Section __.
     same_set p1 p2 ->
     rule_impl (one_step_derives p2) r f hyps.
   Proof.
-    intros H Hiff. invert H.
+    intros [ctx H] Hiff. exists ctx. invert H.
     - constructor. assumption.
     - econstructor; try eassumption. intros. rewrite H2 by assumption.
       clear -Hiff. cbv [one_step_derives one_step_derives0].
@@ -1000,8 +1038,8 @@ Section __.
     rule_impl (one_step_derives p1) r f hyps ->
     rule_impl (one_step_derives p2) r f hyps.
   Proof.
-    intros Hincl Hdisj Hrin Hrule.
-    inversion Hrule; subst.
+    intros Hincl Hdisj Hrin [ctx Hrule].
+    exists ctx. inversion Hrule; subst.
     - constructor. assumption.
     - econstructor; [eassumption | eassumption |].
       intros args'' Hargs''.
@@ -1184,10 +1222,11 @@ Section __.
     intros Hinp H1 H2 Hmr_impl H4 H5 H6.
     pose proof Hmr_impl as Hvalid. apply H1 in Hvalid; [|assumption].
     cbv [consistent]. intros nf_args Hmatch. split; intros Hnf_args.
-    - clear H5 Hvalid. invert Hmr_impl. rewrite H10 in Hnf_args by assumption.
+    - clear H5 Hvalid. destruct Hmr_impl as [ctx Hmr_impl].
+      invert Hmr_impl. rewrite H10 in Hnf_args by assumption.
       cbv [one_step_derives one_step_derives0] in Hnf_args. fwd.
       eapply prog_impl_step_strong.
-      { eapply Exists_impl; [|eassumption]. simpl. eauto. }
+      { eapply Exists_impl; [|eassumption]. simpl. intros r [c Hr]. exists c. constructor. exact Hr. }
       eapply Forall_impl; [|eassumption]. intros f' Hf'.
 
       cbv [fact_supported] in Hf'. apply Exists_exists in Hf'. fwd.
@@ -1202,7 +1241,9 @@ Section __.
       clear H1 H2.
       fwd. apply Exists_exists in Hnf_argsp0. fwd.
       specialize (Hvalid _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
+      destruct Hmr_impl as [ctx Hmr_impl].
       invert Hmr_impl. rewrite H9 by assumption.
+      destruct Hnf_argsp0p1 as [ctx' Hnf_argsp0p1].
       invert Hnf_argsp0p1. cbv [one_step_derives one_step_derives0].
       eexists. rewrite Exists_exists. split; [eauto|].
       eapply Forall_impl.
@@ -1350,7 +1391,7 @@ Section __.
     rule_impl env r (meta_fact mf_rel mf_args mf_set) hyps ->
     Forall is_meta hyps.
   Proof.
-    invert 1. eapply Forall_impl.
+    intros [ctx H]. invert H. eapply Forall_impl.
     2: { eapply Forall2_forget_l. eassumption. }
     simpl. intros. fwd. cbv [interp_meta_clause] in *. fwd.
     exact I.
@@ -1412,6 +1453,7 @@ Section __.
       simpl in Hf1p0p1. apply in_flat_map. eauto. }
     fwd. apply Exists_exists in Hfs2p0. fwd.
     pose proof Hf1p0p1 as Hmr1. pose proof Hfs2p0p1 as Hmr2.
+    destruct Hf1p0p1 as [ctx Hf1p0p1]. destruct Hfs2p0p1 as [ctx0 Hfs2p0p1].
     invert Hf1p0p1. invert Hfs2p0p1.
     rewrite H11 by assumption. rewrite H8 by assumption.
     clear H11 H8. clear H5 H6 H7 H10 ctx ctx0.
@@ -1982,8 +2024,10 @@ Arguments fact : clear implicits.
 Arguments fact_args : clear implicits.
 Arguments rule : clear implicits.
 Arguments expr : clear implicits.
-Hint Constructors non_meta_rule_impl : core.
-Hint Constructors rule_impl : core.
+Hint Constructors non_meta_rule_impl_with_ctx : core.
+Hint Constructors rule_impl_with_ctx : core.
+Hint Unfold non_meta_rule_impl : core.
+Hint Unfold rule_impl : core.
 Hint Immediate extensionally_equal_refl : core.
 Hint Unfold extensionally_equal : core.
 
@@ -2024,14 +2068,13 @@ Ltac interp_exprs :=
 (*TODO this is reproduced within the section, and idk how to get it out*)
 Ltac invert_stuff :=
   match goal with
-  | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args fact_supported extensionally_equal] in *
+  | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args fact_supported extensionally_equal rule_impl non_meta_rule_impl] in *
+  | _ => progress cbv [interp_clause interp_meta_clause rule_impl non_meta_rule_impl] in *|-
   | H : one_step_derives _ _ _ _ |- _ => cbv [one_step_derives one_step_derives0] in H; fwd
   | H : fact_matches _ _ |- _ => cbv [fact_matches] in H; fwd
   | H : fact_supported _ _ |- _ => cbv [fact_supported] in H
-  | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
-  | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
-  | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
-  | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
+  | H : rule_impl_with_ctx _ _ _ _ _ |- _ => invert1 H || invert0 H
+  | H : non_meta_rule_impl_with_ctx _ _ _ _ _ |- _ => progress (invert1 H) || invert0 H
   | H : interp_expr _ _ _ |- _ => invert1 H
   | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
   | _ => progress subst

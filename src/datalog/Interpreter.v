@@ -236,7 +236,7 @@ Section __.
     interp_clause ctx c f ->
     exists v, In (x, v) (context_of_clause c f).
   Proof.
-    intros H1 H2. cbv [context_of_clause]. invert_stuff.
+    intros H1 H2. cbv [context_of_clause]. repeat invert_stuff.
     eapply bare_in_context_args; eassumption.
   Qed.
 
@@ -280,7 +280,7 @@ Section __.
     interp_clause ctx f f' ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_clause f f').
   Proof.
-    intros. invert_stuff. apply interp_args_context_right. assumption.
+    intros. repeat invert_stuff. apply interp_args_context_right. assumption.
   Qed.
 
   Lemma interp_hyps_context_right ctx hyps hyps' :
@@ -367,7 +367,7 @@ Section __.
       In (normal_fact R args) (eval_rule env ctx hyps r) /\
         matches_ctx r hyps ctx.
   Proof.
-    invert 1.
+    intros [ctx H]. invert H.
     - exists ctx. cbv [eval_rule].
       apply Exists_exists in H0. destruct H0 as [c [Hcin Hc]].
       cbv [keep_Some]. split; auto.
@@ -389,9 +389,9 @@ Section __.
         extensionally_equal f f' /\
         matches_ctx r hyps ctx.
   Proof.
-    invert 1.
-    - eapply non_meta_rule_impl_complete in H0.
-      fwd. eauto.
+    intros [ctx0 H]. invert H.
+    - assert (H0' : non_meta_rule_impl r R args hyps) by (exists ctx0; exact H0).
+      eapply non_meta_rule_impl_complete in H0'. fwd. eauto.
     - apply Exists_exists in H0. fwd. eexists _, _.
       split.
       + cbv [eval_rule].
@@ -536,7 +536,7 @@ Section __.
     non_meta_rule_impl r R args hyps ->
     In hyps (possible_hyps r facts).
   Proof.
-    intros Hincl. invert 1.
+    intros Hincl [ctx H]. invert H.
     - cbv [possible_hyps]. apply choose_n_spec; [|exact Hincl].
       eapply Forall2_length. apply Forall2_flip. eassumption.
     - cbv [possible_hyps]. apply in_flat_map.
@@ -556,8 +556,8 @@ Section __.
     rule_impl env r f hyps ->
     In hyps (possible_hyps r facts).
   Proof.
-    intros Hincl. invert 1.
-    - eapply non_meta_rule_impl_possible_hyps; eassumption.
+    intros Hincl [ctx0 H]. invert H.
+    - eapply non_meta_rule_impl_possible_hyps; [eassumption|]. eexists. eassumption.
     - cbv [possible_hyps]. apply choose_n_spec; [|exact Hincl].
       eauto using Forall2_length, Forall2_flip.
   Qed.
@@ -1163,14 +1163,14 @@ Section __.
   Proof.
     intros H Hm Hn Hmatch Hmwt Hnwt.
     (* First, invert Hm and Hn to expose ctxs, apply typing premises *)
-    inversion Hm; subst. clear Hm.
+    destruct Hm as [ctxm Hm]. inversion Hm; subst. clear Hm.
     match goal with
     | Hex : Exists _ mconcls, Hf2 : Forall2 _ mhyps _ |- _ =>
         specialize (Hmwt _ Hex Hf2); destruct Hmwt as [Hmwt_c Hmwt_h]
     end.
-    inversion Hn; subst. clear Hn.
+    destruct Hn as [ctxn Hn]. inversion Hn; subst. clear Hn.
     match goal with
-    | Hnmr : non_meta_rule_impl _ _ _ _ |- _ => inversion Hnmr; subst; clear Hnmr
+    | Hnmr : non_meta_rule_impl_with_ctx _ _ _ _ _ |- _ => inversion Hnmr; subst; clear Hnmr
     end.
     match goal with
     | Hex : Exists _ nconcls, Hf2 : Forall2 _ nhyps _ |- _ =>
@@ -1187,7 +1187,7 @@ Section __.
     specialize (H _ ltac:(eassumption)). fwd. apply Exists_exists in H. fwd.
     repeat invert_stuff. simpl.
     match goal with
-    | H: Forall2 (interp_meta_clause _) _ _ |- _ => rename H into Hmhyps
+    | H: Forall2 _ mhyps _ |- _ => rename H into Hmhyps
     end.
     apply Forall2_forget_r in Hmhyps. rewrite Forall_forall in Hmhyps.
     specialize (Hmhyps _ ltac:(eassumption)). repeat invert_stuff.
@@ -1214,7 +1214,7 @@ Section __.
     rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)). fwd.
     destruct H as [H|H]; [congruence|]. fwd. apply Exists_exists in H. fwd.
     match goal with
-    | H: Forall2 (interp_meta_clause _) _ _ |- _ =>
+    | H: Forall2 _ mhyps _ |- _ =>
         apply Forall2_forget_r in H; rewrite Forall_forall in H;
         specialize (H _ ltac:(eassumption)); rename H into Hmhyps'
     end.
