@@ -34,14 +34,7 @@ Section __.
   Local Notation fact := (fact rel T).
   Local Notation expr := (expr var fn).
   Local Notation rule := (rule rel var fn aggregator).
-  Local Notation non_meta_rule := (non_meta_rule rel var fn aggregator).
-  Local Notation dfact := (dfact rel T).
-  Local Notation prog := (prog rel var fn aggregator).
 
-  Implicit Types known_facts sent_facts waiting_facts input_facts inputs : list dfact.
-  Implicit Types nf result : dfact.
-  Implicit Types p : prog.
-  Implicit Types r : non_meta_rule.
   Implicit Types mf_rel : rel.
   Implicit Types mf_args : list (option T).
   Implicit Types nf_args : list T.
@@ -63,6 +56,11 @@ Section __.
   Record prog :=
     { meta_rules : list (list meta_clause * list meta_clause);
       non_meta_rules : list non_meta_rule }.
+
+  Implicit Types known_facts sent_facts waiting_facts input_facts inputs : list dfact.
+  Implicit Types nf result : dfact.
+  Implicit Types p : prog.
+  Implicit Types r : non_meta_rule.
 
 
   Record rule_state :=
@@ -4073,15 +4071,15 @@ Section __.
               (* length s1_post and length combine nmrs_post seq_post *)
               assert (Hpost_eq : length s1_post = length nmrs_post).
               { pose proof (f_equal (@length _) Hs1_eq) as Hl_s1.
-                rewrite app_length in Hl_s1. simpl in Hl_s1.
+                rewrite length_app in Hl_s1. simpl in Hl_s1.
                 pose proof (f_equal (@length _) Hnmrs_eq) as Hl_nm.
-                rewrite app_length in Hl_nm. simpl in Hl_nm. lia. }
+                rewrite length_app in Hl_nm. simpl in Hl_nm. lia. }
               assert (Hpost_seq_eq : length seq_post = length nmrs_post).
               { pose proof (f_equal (@length _) Hseq_eq) as Hl_sq.
-                rewrite app_length in Hl_sq. simpl in Hl_sq.
+                rewrite length_app in Hl_sq. simpl in Hl_sq.
                 rewrite length_seq in Hl_sq.
                 pose proof (f_equal (@length _) Hnmrs_eq) as Hl_nm.
-                rewrite app_length in Hl_nm. simpl in Hl_nm. lia. }
+                rewrite length_app in Hl_nm. simpl in Hl_nm. lia. }
               lia.
             - rewrite length_combine. lia. }
           destruct Hcomb_decomp as (l1 & l2 & Hcomb & Hl1_snd & Hl2_snd & Hl1_len).
