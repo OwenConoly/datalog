@@ -5,7 +5,7 @@ From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties.
 
-From Datalog Require Import Permutation Map Tactics Fp List Dag Datalog Interpreter.
+From Datalog Require Import Permutation Map Tactics Fp List Dag Datalog Interpreter Operational.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Sorting.OrderToPermutation.
 
@@ -84,12 +84,6 @@ Section __.
     { local_rule_concls : list concl_clause;
       local_rule_hyps : list hyp_clause }.
 
-  (* Definition lower_rule (r : rule) := *)
-  (*   (*for each relation, find necessary index structures.. *)
-  (*     then, compile each rule.*) *)
-  (*   match r with *)
-  (*   | *)
-
   Record rel_corresp :=
     { the_rel : rel;
       indices : list nat }.
@@ -146,9 +140,6 @@ Section __.
     clk.(clause_rel) = fk.(fact_rel) /\
       Forall2 (interp_expr ctx) clk.(clause_inputs) fk.(fact_inputs).
 
-  (*TODO add these to signature or sometihng*)
-  Axiom interp_agg_bin : T -> T -> T.
-  Axiom get_nat : T -> nat.
   Definition interp_hyp_clause_val ctx clv fv :=
     match clv, fv with
     | outputs_clause es, outputs_fact es' =>
@@ -177,11 +168,11 @@ Section __.
                                | Some tt =>
                                    inp_data.(aggs)
                                | None =>
-                                   map.map_values
-                                     (fun v =>
+                                   map_values' (value' := T)
+                                     (fun agg v =>
                                         match outs with
                                         | [i; x] =>
-                                            interp_agg_bin v x
+                                            agg_bop agg v x
                                         | _ => v
                                         end)
                                      inp_data.(aggs)
@@ -244,16 +235,76 @@ Section __.
         None
     end.
 
-  Definition corresp (p : node_prog) (ss : spec_node_state) (s : node_state) :=
+  Fail Definition corresp (p : node_prog) (ss : spec_node_state) (s : node_state) :=
     forall fk,
       (forall outs,
           knows_hyp_fact s (fk, outputs_fact outs) <-> In (globalize p (fk, outs)) ss.(known_facts)).
 
 
 
-  Definition step (event : input_or_output) (s1 s2 : node_state) : Prop. Admitted.
+  Fail Definition step (event : input_or_output) (s1 s2 : node_state) : Prop. Fail Admitted.
   (*theorem : for any sequence of input_or_output events, node state and spec state can deduce same facts.*)
 
   Definition learns_facts (p : node_prog) (s : node_state) new_facts :=
     forall f,
       In f new_facts <-> can_deduce_fact p s f.
+
+End __.
+Arguments concl_clause : clear implicits.
+Arguments hyp_clause : clear implicits.
+Arguments local_rule : clear implicits.
+
+Section __.
+  Context {rel var fn aggregator T : Type}.
+  Context `{sig : signature fn aggregator T}.
+  Context {T_eqb : T -> T -> bool}.
+  Context {context : map.map var T} {context_ok : map.ok context}.
+  Context (num_args : rel -> nat).
+
+  Local Notation clause := (clause rel var fn).
+  Local Notation meta_clause := (meta_clause rel var fn).
+  Local Notation fact := (fact rel T).
+  Local Notation expr := (expr var fn).
+  Local Notation rule := (rule rel var fn aggregator).
+  Local Notation non_meta_rule := (non_meta_rule rel var fn aggregator).
+  Local Notation dfact := (dfact rel T).
+  Local Notation prog := (prog rel var fn aggregator).
+
+  Implicit Types known_facts sent_facts waiting_facts input_facts inputs : list dfact.
+  Implicit Types nf result : dfact.
+  Implicit Types mf_rel : rel.
+  Implicit Types mf_args : list (option T).
+  Implicit Types nf_args : list T.
+
+  Variant lrel :=
+    | upper (_ : rel)
+    | permutation (num_inputs : nat) (perm : list nat).
+  Local Notation concl_clause := (concl_clause lrel var fn).
+  Local Notation hyp_clause := (hyp_clause lrel var fn aggregator).
+  Local Notation local_rule := (local_rule lrel var fn aggregator).
+  Definition lower_clause (c : clause) : clause_key :=
+    {| clause_rel := upper c.(Datalog.clause_rel);
+       clause_inputs := c.(Datalog.clause_args)
+     |}.
+  Print Local.hyp_clause. Print hyp_clause_val.
+  Print Datalog.rule.
+  Axiom count : aggregator.
+  Print Operational.dfact.
+
+  Definition lower_rule (r : rule) : list local_rule :=
+    match r with
+    | normal_rule concls hyps =>
+        [{| local_rule_concls := map (fun x => (lower_clause x, [])) concls;
+           local_rule_hyps := map (fun x => (lower_clause x, outputs_clause [])) hyps |}]
+    | meta_rule concls hyps =>
+    (*R(_, x) :- G(x, x) =>
+      done_sending(R, [1])(x, num_sent) :- done_receiving(G, [0, 1])(x, x)
+
+done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
+                           expected(G, [0, 1])(x, x)(N) *N is number of friends from which we expect to receive G-messages*
+     *)
+    | agg_rule target_rel agg source_rel =>
+    (* target_rel(val, c, d) :- done_receiving(source_rel, [2, 3])(c, d),
+                                agg(source_rel, [2, 3])(c, d) = val
+     *)
+    end.

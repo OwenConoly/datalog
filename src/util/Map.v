@@ -5,6 +5,7 @@ From Datalog Require Import Tactics List.
 
 Section Map.
   Context {key value : Type} {mp : map.map key value} {mp_ok : map.ok mp}.
+  Context {value' : Type} {mp' : map.map key value'}.
   Context {key_eqb : key -> key -> bool} {key_eqb_spec : EqDecider key_eqb}.
   Context {value_eqb : value -> value -> bool} {value_eqb_spec : EqDecider value_eqb}.
   Implicit Type m : mp.
@@ -12,7 +13,10 @@ Section Map.
   Definition preimage m (test : _ -> bool) :=
     map.fold (fun (l : list key) k v => if test v then k :: l else l) [] m.
 
-  Definition mupd m k f :=
+  Definition map_values' f m : mp' :=
+    map.of_list (map (fun '(k, v) => (k, f k v)) (map.tuples m)).
+
+Definition mupd m k f :=
     match map.get m k with
     | Some v => map.put m k (f v)
     | None => m

@@ -4967,3 +4967,4 @@ Section __.
   Qed.
 
 End __.
+Arguments dfact : clear implicits.
