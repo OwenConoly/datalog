@@ -1144,37 +1144,21 @@ Section __.
 
   Opaque clause_matches.
   Hint Unfold interp_meta_clause interp_clause : core.
-  Lemma check_meta_rule_against_normal_rule_sound env mconcls mhyps nconcls nhyps R mf_args mf_set args mhyps' nhyps' :
+  Lemma check_meta_rule_against_normal_rule_sound env mconcls mhyps nconcls nhyps R mf_args mf_set args mhyps' nhyps' ctxm ctxn :
     check_meta_rule_against_normal_rule mconcls mhyps nconcls nhyps = true ->
-    rule_impl env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
-    rule_impl env (normal_rule nconcls nhyps) (normal_fact R args) nhyps' ->
+    rule_impl_with_ctx env ctxm (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
+    rule_impl_with_ctx env ctxn (normal_rule nconcls nhyps) (normal_fact R args) nhyps' ->
     Forall2 matches mf_args args ->
-    (forall ctx,
-        Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args mf_set)) mconcls ->
-        Forall2 (interp_meta_clause ctx) mhyps mhyps' ->
-        Forall (well_typed_meta_clause_in_ctx ctx) mconcls /\
-        Forall (well_typed_meta_clause_in_ctx ctx) mhyps) ->
-    (forall ctx,
-        Exists (fun c => interp_clause ctx c (normal_fact R args)) nconcls ->
-        Forall2 (interp_clause ctx) nhyps nhyps' ->
-        Forall (well_typed_clause_in_ctx ctx) nconcls /\
-        Forall (well_typed_clause_in_ctx ctx) nhyps) ->
+    well_typed_rule_in_ctx ctxm (meta_rule mconcls mhyps) ->
+    well_typed_rule_in_ctx ctxn (normal_rule nconcls nhyps) ->
     Forall (fact_potentially_supported mhyps') nhyps'.
   Proof.
     intros H Hm Hn Hmatch Hmwt Hnwt.
-    (* First, invert Hm and Hn to expose ctxs, apply typing premises *)
-    destruct Hm as [ctxm Hm]. inversion Hm; subst. clear Hm.
-    match goal with
-    | Hex : Exists _ mconcls, Hf2 : Forall2 _ mhyps _ |- _ =>
-        specialize (Hmwt _ Hex Hf2); destruct Hmwt as [Hmwt_c Hmwt_h]
-    end.
-    destruct Hn as [ctxn Hn]. inversion Hn; subst. clear Hn.
+    destruct Hmwt as [Hmwt_c Hmwt_h]. destruct Hnwt as [Hnwt_c Hnwt_h].
+    inversion Hm; subst. clear Hm.
+    inversion Hn; subst. clear Hn.
     match goal with
     | Hnmr : non_meta_rule_impl_with_ctx _ _ _ _ _ |- _ => inversion Hnmr; subst; clear Hnmr
-    end.
-    match goal with
-    | Hex : Exists _ nconcls, Hf2 : Forall2 _ nhyps _ |- _ =>
-        specialize (Hnwt _ Hex Hf2); destruct Hnwt as [Hnwt_c Hnwt_h]
     end.
     repeat invert_stuff.
     rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)).
@@ -1249,33 +1233,22 @@ Section __.
     | _ => true
     end.
 
-  Lemma check_meta_rule_against_rule_sound env mr nr R mf_args mf_set args mhyps' nhyps' :
+  Lemma check_meta_rule_against_rule_sound env mr nr R mf_args mf_set args mhyps' nhyps' ctxm ctxn :
     check_meta_rule_against_rule mr nr = true ->
-    rule_impl env mr (meta_fact R mf_args mf_set) mhyps' ->
-    rule_impl env nr (normal_fact R args) nhyps' ->
+    rule_impl_with_ctx env ctxm mr (meta_fact R mf_args mf_set) mhyps' ->
+    rule_impl_with_ctx env ctxn nr (normal_fact R args) nhyps' ->
     Forall2 matches mf_args args ->
-    (forall ctx mconcls mhyps,
-        mr = meta_rule mconcls mhyps ->
-        Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args mf_set)) mconcls ->
-        Forall2 (interp_meta_clause ctx) mhyps mhyps' ->
-        Forall (well_typed_meta_clause_in_ctx ctx) mconcls /\
-        Forall (well_typed_meta_clause_in_ctx ctx) mhyps) ->
-    (forall ctx nconcls nhyps,
-        nr = normal_rule nconcls nhyps ->
-        Exists (fun c => interp_clause ctx c (normal_fact R args)) nconcls ->
-        Forall2 (interp_clause ctx) nhyps nhyps' ->
-        Forall (well_typed_clause_in_ctx ctx) nconcls /\
-        Forall (well_typed_clause_in_ctx ctx) nhyps) ->
+    well_typed_rule_in_ctx ctxm mr ->
+    well_typed_rule_in_ctx ctxn nr ->
     Forall (fact_potentially_supported mhyps') nhyps'.
   Proof.
     intros H Hm Hn Hmatch Hmwt Hnwt.
     destruct mr; try solve [repeat invert_stuff].
     destruct nr; try solve [repeat invert_stuff].
-    - simpl in *. eapply check_meta_rule_against_normal_rule_sound;
-        try eassumption.
-      + intros ctx Hex Hf2. eapply Hmwt; [reflexivity|eassumption|eassumption].
-      + intros ctx Hex Hf2. eapply Hnwt; [reflexivity|eassumption|eassumption].
-    - simpl in *. eapply check_meta_rule_against_agg_rule_sound; eassumption.
+    - simpl in *. eapply check_meta_rule_against_normal_rule_sound; eassumption.
+    - simpl in *.
+      eapply check_meta_rule_against_agg_rule_sound;
+        (eassumption || (eexists; eassumption)).
   Qed.
 
   Definition check_meta_rules_valid p :=
@@ -1283,22 +1256,19 @@ Section __.
 
   Lemma check_meta_rules_valid_sound p :
     check_meta_rules_valid p = true ->
-    (forall mr R mf_args mf_set mhyps' ctx mconcls mhyps,
-        In mr p ->
-        mr = meta_rule mconcls mhyps ->
-        Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args mf_set)) mconcls ->
-        Forall2 (interp_meta_clause ctx) mhyps mhyps' ->
-        Forall (well_typed_meta_clause_in_ctx ctx) mconcls /\
-        Forall (well_typed_meta_clause_in_ctx ctx) mhyps) ->
-    (forall nr R args nhyps' ctx nconcls nhyps,
-        In nr p ->
-        nr = normal_rule nconcls nhyps ->
-        Exists (fun c => interp_clause ctx c (normal_fact R args)) nconcls ->
-        Forall2 (interp_clause ctx) nhyps nhyps' ->
-        Forall (well_typed_clause_in_ctx ctx) nconcls /\
-        Forall (well_typed_clause_in_ctx ctx) nhyps) ->
+    (forall ctx r f hyps,
+        In r p ->
+        rule_impl_with_ctx (one_step_derives p) ctx r f hyps ->
+        well_typed_rule_in_ctx ctx r) ->
     meta_rules_valid p.
   Proof.
-    (* TODO: about to be replaced by ctx-parameterized rule_impl refactor *)
-  Admitted.
+    cbv [check_meta_rules_valid meta_rules_valid].
+    intros H Hwt R mf_args mf_set mhyps mr Hmr_in [ctxm Hmr]
+           nr args hyps Hnr_in [ctxn Hnr] Hmatch.
+    eapply check_meta_rule_against_rule_sound;
+      [|exact Hmr|exact Hnr|exact Hmatch
+       |eauto |eauto].
+    rewrite forallb_forall in H. apply (H (_, _)).
+    apply in_prod_iff. auto.
+  Qed.
 End __.

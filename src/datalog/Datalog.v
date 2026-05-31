@@ -1721,6 +1721,17 @@ Section __.
     Forall2 (well_typed_opt ctx)
             c.(meta_clause_args) (rel_type c.(meta_clause_rel)).
 
+  Definition well_typed_rule_in_ctx (ctx : context) (r : rule) : Prop :=
+    match r with
+    | normal_rule concls hyps =>
+        Forall (well_typed_clause_in_ctx ctx) concls /\
+        Forall (well_typed_clause_in_ctx ctx) hyps
+    | meta_rule concls hyps =>
+        Forall (well_typed_meta_clause_in_ctx ctx) concls /\
+        Forall (well_typed_meta_clause_in_ctx ctx) hyps
+    | agg_rule _ _ _ => True
+    end.
+
   Lemma well_typed_of ctx tctx e t :
     ctx_well_typed ctx tctx ->
     well_typed_expr tctx e t ->
