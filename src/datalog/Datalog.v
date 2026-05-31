@@ -14,7 +14,7 @@ Import ListNotations.
 (* A datalog program talks about facts R(x1, ..., xn), where (R : rel) and (x1 : T), (x2 : T), etc. *)
 Class signature {fn aggregator T : Type} : Type :=
   {
-    interp_fun : fn -> list T -> T;
+    interp_fun : fn -> list T -> option T;
     (* (*if x represents a finite set S then get_set x = Some S. *)
     (*   note: suffices to have this be T -> option nat, for cardinality... *)
     (*   should i do that? *) *)
@@ -110,7 +110,7 @@ Section __.
     interp_expr ctx (var_expr x) v
   | interp_fun_expr f args args' x :
     Forall2 (interp_expr ctx) args args' ->
-    interp_fun f args' = x ->
+    interp_fun f args' = Some x ->
     interp_expr ctx (fun_expr f args) x.
   Set Elimination Schemes.
 
