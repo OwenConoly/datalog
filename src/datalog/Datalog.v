@@ -1653,118 +1653,73 @@ Section __.
     forall x t, map.get tctx x = Some t ->
                 exists v, map.get ctx x = Some v /\ val_has_type v t.
 
-  Inductive interp_expr_typed (ctx : context) : expr -> type -> T -> Prop :=
-  | it_var x t v :
+  Inductive well_typed (ctx : context) : expr -> type -> Prop :=
+  | wt_var x t v :
     map.get ctx x = Some v ->
     val_has_type v t ->
-    interp_expr_typed ctx (var_expr x) t v
-  | it_fun f args argts t vals val :
+    well_typed ctx (var_expr x) t
+  | wt_fun f args argts t :
     fun_type f = (argts, t) ->
-    Forall3 (interp_expr_typed ctx) args argts vals ->
-    interp_fun f vals = val ->
-    interp_expr_typed ctx (fun_expr f args) t val.
+    Forall2 (well_typed ctx) args argts ->
+    well_typed ctx (fun_expr f args) t.
 
-  Lemma interp_expr_typed_of ctx tctx e :
-    forall t v',
-      ctx_well_typed ctx tctx ->
-      well_typed_expr tctx e t ->
-      interp_expr ctx e v' ->
-      interp_expr_typed ctx e t v'.
-  Proof.
-    induction e using expr_ind; intros t v' Hctx Hwt Hi.
-    - inversion Hwt; subst. inversion Hi; subst.
-      specialize (Hctx _ _ ltac:(eassumption)). fwd.
-      constructor; [assumption|].
-      enough (v' = v0) as -> by assumption. congruence.
-    - inversion Hwt; subst. inversion Hi; subst.
-      econstructor; [eassumption| |reflexivity].
-      rename H3 into His. rename H4 into Hwts.
-      clear Hwt Hi H2.
-      revert arg_ts Hwts. induction His; intros arg_ts Hwts.
-      + inversion Hwts; subst. constructor.
-      + inversion Hwts; subst. inversion H; subst.
-        constructor.
-        * apply H4; assumption.
-        * apply IHHis; assumption.
-  Qed.
+  Definition well_typed_opt (ctx : context) (oe : option expr) (t : type) : Prop :=
+    match oe with
+    | None => True
+    | Some e => well_typed ctx e t
+    end.
 
-  Lemma interp_expr_has_type ctx e :
-    forall t v',
-      interp_expr_typed ctx e t v' ->
-      val_has_type v' t.
+  Definition well_typed_clause_in_ctx (ctx : context) (c : clause) : Prop :=
+    Forall2 (well_typed ctx) c.(clause_args) (rel_type c.(clause_rel)).
+
+  Definition well_typed_meta_clause_in_ctx (ctx : context) (c : meta_clause) : Prop :=
+    Forall2 (well_typed_opt ctx)
+            c.(meta_clause_args) (rel_type c.(meta_clause_rel)).
+
+  Lemma well_typed_of ctx tctx e t :
+    ctx_well_typed ctx tctx ->
+    well_typed_expr tctx e t ->
+    well_typed ctx e t.
   Proof.
-    induction e using expr_ind; intros t v' Hi.
-    - inversion Hi; subst. assumption.
-    - inversion Hi; subst. eapply fun_sound; [eassumption|].
-      match goal with
-      | His3 : Forall3 _ _ _ _ |- _ =>
-          clear -H His3; induction His3
-      end.
+    intros Hctx Hwt. revert t Hwt.
+    induction e using expr_ind; intros t Hwt;
+      inversion Hwt as [|? ? argts ? Hft Hwts]; subst.
+    - specialize (Hctx _ _ ltac:(eassumption)). fwd.
+      econstructor; eassumption.
+    - econstructor; [eassumption|].
+      clear -H Hwts. revert argts Hwts.
+      induction args; intros argts Hwts; inversion Hwts; subst.
       + constructor.
       + inversion H; subst. constructor; eauto.
   Qed.
 
-  Lemma Forall2_interp_has_type ctx args argts vals :
-    Forall3 (interp_expr_typed ctx) args argts vals ->
+  Lemma interp_well_typed_has_type ctx e :
+    forall t v',
+      well_typed ctx e t ->
+      interp_expr ctx e v' ->
+      val_has_type v' t.
+  Proof.
+    induction e using expr_ind; intros t v' Hwt Hi.
+    - inversion Hwt; subst. inversion Hi; subst.
+      enough (v' = v0) as -> by assumption. congruence.
+    - inversion Hwt as [|? ? argts ? Hft Hwts]; subst.
+      inversion Hi as [|? ? vals ? His Hifun]; subst.
+      eapply fun_sound; [eassumption|].
+      clear -H Hwts His. revert vals His.
+      induction Hwts; intros vals His; inversion His; subst.
+      + constructor.
+      + inversion H; subst. constructor; eauto.
+  Qed.
+
+  Lemma Forall2_interp_well_typed_has_type ctx args argts vals :
+    Forall2 (interp_expr ctx) args vals ->
+    Forall2 (well_typed ctx) args argts ->
     Forall2 val_has_type vals argts.
   Proof.
-    induction 1; constructor; eauto using interp_expr_has_type.
-  Qed.
-
-  Definition opt_interp_expr_typed (ctx : context)
-    (oe : option expr) (t : type) (ov : option T) : Prop :=
-    match oe, ov with
-    | None, None => True
-    | Some e, Some v => interp_expr_typed ctx e t v
-    | _, _ => False
-    end.
-
-  Inductive interp_clause_typed (ctx : context) : clause -> fact -> Prop :=
-  | ict c vals :
-    Forall3 (interp_expr_typed ctx)
-            c.(clause_args) (rel_type c.(clause_rel)) vals ->
-    interp_clause_typed ctx c (normal_fact c.(clause_rel) vals).
-
-  Inductive interp_meta_clause_typed (ctx : context) : meta_clause -> fact -> Prop :=
-  | imct c mvals set :
-    Forall3 (opt_interp_expr_typed ctx)
-            c.(meta_clause_args) (rel_type c.(meta_clause_rel)) mvals ->
-    interp_meta_clause_typed ctx c (meta_fact c.(meta_clause_rel) mvals set).
-
-  Lemma interp_clause_typed_of ctx tctx c f :
-    ctx_well_typed ctx tctx ->
-    well_typed_clause tctx c ->
-    interp_clause ctx c f ->
-    interp_clause_typed ctx c f.
-  Proof.
-    intros Hctx Hwt Hi.
-    destruct Hi as [vals [His ->]].
-    cbv [well_typed_clause] in Hwt.
-    constructor.
-    revert vals His. induction Hwt; intros vals His; inversion His; subst.
+    intros His Hwts.
+    revert vals His. induction Hwts; intros vals His; inversion His; subst.
     - constructor.
-    - constructor; eauto using interp_expr_typed_of.
-  Qed.
-
-  Lemma interp_meta_clause_typed_of ctx tctx c f :
-    ctx_well_typed ctx tctx ->
-    well_typed_meta_clause tctx c ->
-    interp_meta_clause ctx c f ->
-    interp_meta_clause_typed ctx c f.
-  Proof.
-    intros Hctx Hwt Hi.
-    destruct Hi as [mvals [set [His ->]]].
-    cbv [well_typed_meta_clause] in Hwt.
-    constructor.
-    revert mvals His. induction Hwt as [|oe t oes ts Hwte Hwts IH];
-                      intros mvals His; inversion His as [|? mv ? mvs Hor Hors]; subst.
-    - constructor.
-    - constructor; [|eauto].
-      cbv [opt_interp_expr_typed].
-      cbv [well_typed_opt_expr] in Hwte.
-      cbv [option_relation] in Hor.
-      destruct oe, mv; try contradiction; try discriminate; auto.
-      eauto using interp_expr_typed_of.
+    - constructor; eauto using interp_well_typed_has_type.
   Qed.
 
   Definition well_typed_rule (r : rule) : Prop :=

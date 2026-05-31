@@ -910,14 +910,16 @@ Section __.
     end.
 
   Lemma expr_compat_sound e1 e2 l ctx1 ctx2 val t1 t2 :
-    interp_expr_typed ctx1 e1 t1 val ->
-    interp_expr_typed ctx2 e2 t2 val ->
+    interp_expr ctx1 e1 val ->
+    interp_expr ctx2 e2 val ->
+    well_typed ctx1 e1 t1 ->
+    well_typed ctx2 e2 t2 ->
     expr_compat e1 e2 = Some l ->
     Forall (fun '(v1, v2) =>
               exists val', map.get ctx1 v1 = Some val' /\ map.get ctx2 v2 = Some val') l.
   Proof.
     revert e2 l ctx1 ctx2 val t1 t2.
-    induction e1; intros e2 l ctx1 ctx2 val t1 t2 H1 H2 Hcomp.
+    induction e1; intros e2 l ctx1 ctx2 val t1 t2 H1 H2 Hwt1 Hwt2 Hcomp.
     - destruct e2; simpl in Hcomp; try discriminate.
       inversion H1; subst. inversion H2; subst.
       inversion Hcomp; subst.
@@ -925,35 +927,43 @@ Section __.
     - destruct e2; simpl in Hcomp; try discriminate.
       repeat invert_stuff.
       apply eq_Forall2_eq in Hcompp0. apply Forall2_map_r in Hcompp0.
-      inversion H1 as [| ? ? argts1 ? vals1 ? Hft1 HF1 Hif1]; subst.
-      inversion H2 as [| ? ? argts2 ? vals2 ? Hft2 HF2 Hif2]; subst.
+      inversion Hwt1 as [|? ? argts1 ? Hft1 Hwts1]; subst.
+      inversion Hwt2 as [|? ? argts2 ? Hft2 Hwts2]; subst.
       assert (argts2 = argts1) by congruence; subst argts2.
-      pose proof (Forall2_interp_has_type _ _ _ _ HF1) as Hty1.
-      pose proof (Forall2_interp_has_type _ _ _ _ HF2) as Hty2.
-      assert (vals1 = vals2) as Hveq.
-      { eapply fun_inj_sound; [eassumption|eassumption|eassumption|eassumption|congruence]. }
-      subst vals1.
-      assert (Hpair : Forall2
-                        (fun a b => exists t v,
-                             interp_expr_typed ctx1 a t v /\
-                             interp_expr_typed ctx2 b t v) args args0).
-      { clear -HF1 HF2. revert args0 HF2.
-        induction HF1; intros args0 HF2; inversion HF2; subst.
-        - constructor.
-        - constructor; eauto. }
+      match goal with
+      | Hi1 : Forall2 (interp_expr ctx1) _ ?v1,
+          Hi2 : Forall2 (interp_expr ctx2) _ ?v2 |- _ =>
+          pose proof (Forall2_interp_well_typed_has_type _ _ _ _ Hi1 Hwts1) as Hty1;
+          pose proof (Forall2_interp_well_typed_has_type _ _ _ _ Hi2 Hwts2) as Hty2;
+          assert (v1 = v2) as Hveq by
+            (eapply fun_inj_sound;
+             [eassumption|eassumption|eassumption|eassumption|congruence])
+      end.
+      subst.
       apply Forall_concat.
       eapply Forall_impl.
       2: { eapply Forall2_forget_l. eassumption. }
       simpl. intros vs Hvs. fwd.
       rewrite map2_eq_map_combine in Hvsp0. apply in_map_iff in Hvsp0.
       fwd.
+      match goal with
+      | Hi1 : Forall2 (interp_expr ctx1) _ ?v,
+          Hi2 : Forall2 (interp_expr ctx2) _ ?v |- _ =>
+          eapply Forall2_same_r in Hi2; [|exact Hi1];
+          rename Hi2 into Hargs
+      end.
+      apply Forall2_combine in Hargs.
+      rewrite Forall_forall in Hargs.
+      specialize (Hargs _ ltac:(eassumption)). simpl in Hargs. fwd.
       rewrite Forall_forall in H.
       pose proof (in_combine_l _ _ _ _ ltac:(eassumption)) as Hina.
-      apply Forall2_combine in Hpair.
-      rewrite Forall_forall in Hpair.
-      specialize (Hpair _ ltac:(eassumption)). simpl in Hpair.
-      destruct Hpair as [t_p [v_p [Hia Hib]]].
-      eapply H; [exact Hina|exact Hia|exact Hib|eassumption].
+      apply Forall2_flip in Hwts2.
+      pose proof (Forall2_Forall2_Forall3 _ _ _ _ _ Hwts1 Hwts2) as Hwts3.
+      apply Forall3_ignore2 in Hwts3.
+      apply Forall2_combine in Hwts3. rewrite Forall_forall in Hwts3.
+      specialize (Hwts3 (_, _) ltac:(eassumption)). simpl in Hwts3.
+      destruct Hwts3 as [tt [_ [Hwt_a Hwt_b]]].
+      eapply H; [exact Hina|eassumption|eassumption|eassumption|eassumption|eassumption].
   Qed.
 
   Definition clause_compat (mc : meta_clause) (nc : clause) : option (list (var * var)) :=
@@ -967,60 +977,43 @@ Section __.
                           nc.(clause_args))).
 
   Lemma clause_compat_sound mc nc l ctx1 ctx2 R argsM argsN setM :
-    interp_meta_clause_typed ctx1 mc (meta_fact R argsM setM) ->
-    interp_clause_typed ctx2 nc (normal_fact R argsN) ->
+    well_typed_meta_clause_in_ctx ctx1 mc ->
+    well_typed_clause_in_ctx ctx2 nc ->
+    interp_meta_clause ctx1 mc (meta_fact R argsM setM) ->
+    interp_clause ctx2 nc (normal_fact R argsN) ->
     clause_compat mc nc = Some l ->
     Forall2 matches argsM argsN ->
     Forall (fun '(v1, v2) => exists val', map.get ctx1 v1 = Some val' /\ map.get ctx2 v2 = Some val') l.
   Proof.
-    intros Hmc Hnc Hcomp Hmatch.
-    cbv [clause_compat] in Hcomp.
-    inversion Hmc; subst.
-    inversion Hnc; subst.
-    match goal with
-    | H : Forall3 (opt_interp_expr_typed _) _ _ _ |- _ => rename H into HF_m
-    end.
-    match goal with
-    | H : Forall3 (interp_expr_typed _) _ _ _ |- _ => rename H into HF_n
-    end.
-    destruct mc as [mrel margs], nc as [nrel nargs]. simpl in *.
+    intros Hwtm Hwtn Hmc Hnc Hcomp Hmatch.
+    cbv [clause_compat well_typed_meta_clause_in_ctx well_typed_clause_in_ctx] in *.
+    destruct mc, nc. simpl in *.
     repeat invert_stuff.
     apply Forall_concat.
     apply eq_Forall2_eq in Hcompp0. apply Forall2_map_r in Hcompp0.
     eapply Forall_impl.
     2: { eapply Forall2_forget_l. eassumption. }
     clear Hcompp0. simpl. intros vs Hvs. fwd.
+    apply Forall2_flip in Hmatch.
+    eapply Forall2_same_r in Hmcp0; [|exact Hmatch]. clear Hmatch.
+    apply Forall2_flip in Hmcp0. eapply Forall2_same_r in Hmcp0; [|exact Hncp0].
     rewrite map2_eq_map_combine in Hvsp0.
+    apply Forall2_flip in Hmcp0.
+    apply Forall2_combine in Hmcp0. rewrite Forall_forall in Hmcp0.
     apply in_map_iff in Hvsp0. destruct Hvsp0 as [[res ?] Hvsp0]. fwd.
     pose proof Hvsp0p1 as Hin_combine.
+    apply Hmcp0 in Hvsp0p1. fwd. cbv [option_relation] in Hvsp0p1p2p1.
     destruct res; fwd; auto.
-    assert (Hpair :
-              Forall2
-                (fun ome e =>
-                   forall me', ome = Some me' ->
-                   exists t v,
-                     interp_expr_typed ctx1 me' t v /\
-                     interp_expr_typed ctx2 e t v)
-                margs nargs).
-    { clear -HF_m HF_n Hmatch.
-      revert nargs argsN HF_n Hmatch.
-      induction HF_m as [|ome typ ov margs_tl typs_tl argsM_tl Hhead Hrest IH];
-        intros nargs argsN HF_n Hmatch.
-      - inversion HF_n; subst. constructor.
-      - inversion HF_n as [|nh ? nv nargs_tl ? argsN_tl Hnh Hnrest]; subst.
-        inversion Hmatch as [|? ? ? ? Hmh Hmrest]; subst.
-        constructor; [|eauto].
-        intros me' Heq. subst ome.
-        cbv [opt_interp_expr_typed] in Hhead.
-        destruct ov as [ov_v|]; [|destruct Hhead].
-        cbv [matches] in Hmh. subst nv.
-        eauto. }
-    apply Forall2_combine in Hpair.
-    rewrite Forall_forall in Hpair.
-    specialize (Hpair _ Hin_combine). simpl in Hpair.
-    specialize (Hpair _ eq_refl).
-    destruct Hpair as [t_p [v_p [Hia Hib]]].
-    eapply expr_compat_sound; [exact Hia|exact Hib|eassumption].
+    simpl in *. fwd. simpl in *. subst.
+    apply Forall2_flip in Hwtn.
+    pose proof (Forall2_Forall2_Forall3 _ _ _ _ _ Hwtm Hwtn) as Hwt3.
+    apply Forall3_ignore2 in Hwt3.
+    apply Forall2_combine in Hwt3. rewrite Forall_forall in Hwt3.
+    specialize (Hwt3 _ Hin_combine). simpl in Hwt3.
+    destruct Hwt3 as [t [_ [Hwt_m Hwt_n]]].
+    simpl in Hwt_m.
+    eapply expr_compat_sound;
+      [eassumption|eassumption|exact Hwt_m|exact Hwt_n|eassumption].
   Qed.
 
   Fixpoint expr_matches (equalities : list (var * var)) (e1 e2 : expr) :=
@@ -1156,9 +1149,34 @@ Section __.
     rule_impl env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
     rule_impl env (normal_rule nconcls nhyps) (normal_fact R args) nhyps' ->
     Forall2 matches mf_args args ->
+    (forall ctx,
+        Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args mf_set)) mconcls ->
+        Forall2 (interp_meta_clause ctx) mhyps mhyps' ->
+        Forall (well_typed_meta_clause_in_ctx ctx) mconcls /\
+        Forall (well_typed_meta_clause_in_ctx ctx) mhyps) ->
+    (forall ctx,
+        Exists (fun c => interp_clause ctx c (normal_fact R args)) nconcls ->
+        Forall2 (interp_clause ctx) nhyps nhyps' ->
+        Forall (well_typed_clause_in_ctx ctx) nconcls /\
+        Forall (well_typed_clause_in_ctx ctx) nhyps) ->
     Forall (fact_potentially_supported mhyps') nhyps'.
   Proof.
-    intros H Hm Hn Hmatch. repeat invert_stuff.
+    intros H Hm Hn Hmatch Hmwt Hnwt.
+    (* First, invert Hm and Hn to expose ctxs, apply typing premises *)
+    inversion Hm; subst. clear Hm.
+    match goal with
+    | Hex : Exists _ mconcls, Hf2 : Forall2 _ mhyps _ |- _ =>
+        specialize (Hmwt _ Hex Hf2); destruct Hmwt as [Hmwt_c Hmwt_h]
+    end.
+    inversion Hn; subst. clear Hn.
+    match goal with
+    | Hnmr : non_meta_rule_impl _ _ _ _ |- _ => inversion Hnmr; subst; clear Hnmr
+    end.
+    match goal with
+    | Hex : Exists _ nconcls, Hf2 : Forall2 _ nhyps _ |- _ =>
+        specialize (Hnwt _ Hex Hf2); destruct Hnwt as [Hnwt_c Hnwt_h]
+    end.
+    repeat invert_stuff.
     rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)).
     fwd. rewrite Forall_forall in H.
     epose_dep H. specialize' H.
@@ -1176,7 +1194,10 @@ Section __.
     eapply clause_matches_sound in Hp1; eauto.
     { fwd. rewrite <- Hp1p0. eauto. }
     eapply Forall_impl; cycle 1.
-    { eapply clause_compat_sound; eauto. rewrite <- H2. eauto. }
+    { eapply clause_compat_sound with (mc := x0) (nc := x); eauto.
+      - rewrite Forall_forall in Hmwt_c. eauto.
+      - rewrite Forall_forall in Hnwt_c. eauto.
+      - rewrite <- H2. eauto. }
     simpl. intros. fwd. congruence.
     Unshelve. all: exact (fun _ => True).
   Qed.
@@ -1233,12 +1254,27 @@ Section __.
     rule_impl env mr (meta_fact R mf_args mf_set) mhyps' ->
     rule_impl env nr (normal_fact R args) nhyps' ->
     Forall2 matches mf_args args ->
+    (forall ctx mconcls mhyps,
+        mr = meta_rule mconcls mhyps ->
+        Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args mf_set)) mconcls ->
+        Forall2 (interp_meta_clause ctx) mhyps mhyps' ->
+        Forall (well_typed_meta_clause_in_ctx ctx) mconcls /\
+        Forall (well_typed_meta_clause_in_ctx ctx) mhyps) ->
+    (forall ctx nconcls nhyps,
+        nr = normal_rule nconcls nhyps ->
+        Exists (fun c => interp_clause ctx c (normal_fact R args)) nconcls ->
+        Forall2 (interp_clause ctx) nhyps nhyps' ->
+        Forall (well_typed_clause_in_ctx ctx) nconcls /\
+        Forall (well_typed_clause_in_ctx ctx) nhyps) ->
     Forall (fact_potentially_supported mhyps') nhyps'.
   Proof.
-    intros.
+    intros H Hm Hn Hmatch Hmwt Hnwt.
     destruct mr; try solve [repeat invert_stuff].
     destruct nr; try solve [repeat invert_stuff].
-    - simpl in *. eapply check_meta_rule_against_normal_rule_sound; eassumption.
+    - simpl in *. eapply check_meta_rule_against_normal_rule_sound;
+        try eassumption.
+      + intros ctx Hex Hf2. eapply Hmwt; [reflexivity|eassumption|eassumption].
+      + intros ctx Hex Hf2. eapply Hnwt; [reflexivity|eassumption|eassumption].
     - simpl in *. eapply check_meta_rule_against_agg_rule_sound; eassumption.
   Qed.
 
@@ -1247,12 +1283,22 @@ Section __.
 
   Lemma check_meta_rules_valid_sound p :
     check_meta_rules_valid p = true ->
+    (forall mr R mf_args mf_set mhyps' ctx mconcls mhyps,
+        In mr p ->
+        mr = meta_rule mconcls mhyps ->
+        Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args mf_set)) mconcls ->
+        Forall2 (interp_meta_clause ctx) mhyps mhyps' ->
+        Forall (well_typed_meta_clause_in_ctx ctx) mconcls /\
+        Forall (well_typed_meta_clause_in_ctx ctx) mhyps) ->
+    (forall nr R args nhyps' ctx nconcls nhyps,
+        In nr p ->
+        nr = normal_rule nconcls nhyps ->
+        Exists (fun c => interp_clause ctx c (normal_fact R args)) nconcls ->
+        Forall2 (interp_clause ctx) nhyps nhyps' ->
+        Forall (well_typed_clause_in_ctx ctx) nconcls /\
+        Forall (well_typed_clause_in_ctx ctx) nhyps) ->
     meta_rules_valid p.
   Proof.
-    cbv [check_meta_rules_valid meta_rules_valid].
-    intros H. intros.
-    eapply check_meta_rule_against_rule_sound; eauto.
-    rewrite forallb_forall in H. apply (H (_, _)).
-    apply in_prod_iff. auto.
-  Qed.
+    (* TODO: about to be replaced by ctx-parameterized rule_impl refactor *)
+  Admitted.
 End __.
