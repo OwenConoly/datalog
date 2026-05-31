@@ -171,11 +171,11 @@ Section Blocks.
           agg_rule (f concl) agg (f hyp)
       end.
 
-    Lemma non_meta_rule_impl_map_fw r R args hyps :
-      non_meta_rule_impl r R args hyps ->
-      non_meta_rule_impl (map_rule_rels r) (f R) args (map map_fact hyps).
+    Lemma non_meta_rule_impl_with_ctx_map_fw ctx r R args hyps :
+      non_meta_rule_impl_with_ctx ctx r R args hyps ->
+      non_meta_rule_impl_with_ctx ctx (map_rule_rels r) (f R) args (map map_fact hyps).
     Proof.
-      invert 1.
+      intros H. invert H.
       - econstructor.
         + apply Exists_map. eapply Exists_impl; [|eassumption].
           simpl. intros c Hc. eapply interp_clause_map_fw in Hc. eassumption.
@@ -183,6 +183,13 @@ Section Blocks.
       - simpl. eassert (meta_fact _ _ _ :: _ = _) as ->.
         2: { econstructor. eassumption. }
         f_equal. rewrite map_map. apply map_ext. intros [? ?]. reflexivity.
+    Qed.
+
+    Lemma non_meta_rule_impl_map_fw r R args hyps :
+      non_meta_rule_impl r R args hyps ->
+      non_meta_rule_impl (map_rule_rels r) (f R) args (map map_fact hyps).
+    Proof.
+      intros [ctx H]. exists ctx. eauto using non_meta_rule_impl_with_ctx_map_fw.
     Qed.
 
     Lemma interp_meta_clause_map_fw ctx c f0 :
@@ -264,7 +271,7 @@ Section Blocks.
         Forall2 fact_equiv hyps hyps0 /\
           non_meta_rule_impl r R0 args hyps0.
     Proof.
-      intros H. destruct r; invert H.
+      intros [ctx H]. destruct r; invert H.
       - rewrite Exists_map in H2.
         apply Forall2_interp_clause_map_bw in H6.
         apply Exists_exists in H2. fwd.
@@ -272,7 +279,7 @@ Section Blocks.
         fwd. cbv [fact_equiv] in H2p1p0. simpl in H2p1p0.
         destruct h'; simpl in H2p1p0; congruence || fwd.
         eexists nf_rel, _. ssplit; eauto.
-        econstructor.
+        exists ctx. econstructor.
         + apply Exists_exists. eexists. split; [exact H2p0 |].
           eassumption.
         + eassumption.
@@ -280,7 +287,7 @@ Section Blocks.
         destruct hyp; simpl in *; discriminate || fwd.
         do 2 eexists. split; [symmetry; eassumption|].
         split.
-        2: { econstructor. eassumption. }
+        2: { exists ctx. econstructor. eassumption. }
         constructor.
         { cbv [fact_equiv]. simpl. f_equal. auto. }
         rewrite <- Forall2_map_r.
@@ -295,7 +302,7 @@ Section Blocks.
       exists hyps0,
         hyps = map map_fact hyps0.
     Proof.
-      intros H. destruct r; invert H.
+      intros [ctx H]. destruct r; invert H.
       - rewrite Exists_map in *. rewrite <- Forall2_map_l in *.
         epose proof Forall_exists_r_Forall2 as H'. edestruct H' as [hyps0 Hhyps0].
         2: { eexists. apply Forall2_eq_map. apply Forall2_flip. eassumption. }
@@ -377,12 +384,15 @@ Section Blocks.
         destruct Hexp1 as [Hext | Hmatch].
         + left. apply extensionally_equal_map_fw. eassumption.
         + right. apply fact_matches_map_fw. eassumption.
-      - apply Exists_map in Hp0. apply Exists_exists in Hp0. fwd.
+      - apply Exists_map with (f := map_rule_rels) (P := fun r => non_meta_rule_impl r (f R) args hyps) in Hp0.
+        apply Exists_exists in Hp0. fwd.
         pose proof Hp0p1 as Hp1'.
         apply non_meta_rule_invert_map in Hp0p1. fwd.
         eapply non_meta_rule_impl_map_bw in Hp1'. fwd.
         apply Hinj in Hp1'p0. subst.
-        specialize (Hmr _ _ _ ltac:(eassumption) ltac:(eauto) ltac:(eassumption)).
+        specialize (Hmr _ _ _ ltac:(eassumption)
+                       ltac:(apply simple_rule_impl_wrap; eassumption)
+                       ltac:(eassumption)).
         eexists. split; [apply Exists_exists; eauto |].
         clear Hp1'p2.
         rewrite Lists.List.Forall_map in Hp1.
@@ -451,8 +461,9 @@ Section Blocks.
         (map_fact f0)
         (map map_fact hyps).
     Proof.
-      intros Hvalid Hr Hinj Hcon Himpl. pose proof Himpl as Himpl0. invert Himpl.
-      - econstructor. apply non_meta_rule_impl_map_fw. eassumption.
+      intros Hvalid Hr Hinj Hcon Himpl. pose proof Himpl as Himpl0.
+      destruct Himpl as [ctx Himpl]. exists ctx. invert Himpl.
+      - econstructor. apply non_meta_rule_impl_with_ctx_map_fw. eassumption.
       - simpl. econstructor.
         + rewrite Exists_map. eapply Exists_impl; [|eassumption].
           simpl. intros c Hc. eapply interp_meta_clause_map_fw in Hc. eassumption.
@@ -507,10 +518,11 @@ Section Blocks.
         Forall2 fact_equiv hyps hyps' /\
         rule_impl (one_step_derives p) r f0' hyps'.
     Proof.
-      intros Hvalid Hr Hinj Hcon Himpl. invert Himpl.
+      intros Hvalid Hr Hinj Hcon [ctx Himpl]. invert Himpl.
       - destruct f0; simpl in *; repeat invert_stuff.
-        eassert (H':_) by (eapply non_meta_rule_impl_map_bw; eassumption).
-        fwd. apply Hinj in H'p0. subst. eauto 7.
+        eassert (H':_) by (eapply non_meta_rule_impl_map_bw; eexists; eassumption).
+        fwd. apply Hinj in H'p0. subst.
+        do 2 eexists. ssplit; eauto. eauto using simple_rule_impl_wrap.
       - destruct f0; simpl in *; congruence || fwd.
         destruct r; simpl in *; congruence || fwd.
         apply Forall2_interp_meta_clause_map_bw in H2. fwd.
@@ -519,7 +531,7 @@ Section Blocks.
         do 2 eexists. split; [eassumption|]. split; [eassumption|].
         cbv [fact_equiv] in H1p1p0. simpl in H1p1p0.
         destruct h'; simpl in H1p1p0; try discriminate. fwd.
-        econstructor.
+        eexists. econstructor.
         + apply Exists_exists. eauto.
         + assumption.
         + intros. rewrite H3 by assumption. symmetry.
@@ -530,7 +542,7 @@ Section Blocks.
                auto. }
           eapply meta_cond_map_iff; try eassumption.
           2: { eauto using meta_facts_consistent_with_map_equiv. }
-          econstructor.
+          eexists. econstructor.
           -- apply Exists_exists. eexists. split; [eassumption|].
              cbv [interp_meta_clause]. cbv [interp_meta_clause] in H1p1p1.
              fwd. eauto.
@@ -542,7 +554,7 @@ Section Blocks.
       rule_impl blah (map_rule_rels r) f_target hyps ->
       exists f0, f_target = map_fact f0 /\ In (rel_of f0) (concl_rels r).
     Proof.
-      invert 1.
+      intros [ctx H]. invert H.
       - destruct r; simpl in H0; invert H0.
         + rewrite Exists_map in H2. apply Exists_exists in H2. fwd.
           cbv [interp_clause] in H2p1. fwd.
@@ -632,7 +644,10 @@ Section Blocks.
       intros Hvalid Hinp Hlie HQ Hinj Hprog.
       induction Hprog.
       - fwd. eauto.
-      - apply Exists_map in H. apply Exists_exists in H. fwd.
+      - apply Exists_map with (f := map_rule_rels)
+          (P := fun r => rule_impl (one_step_derives (map map_rule_rels p)) r x l)
+          in H.
+        apply Exists_exists in H. fwd.
         pose proof Hp1 as H'. apply rule_impl_map_rule_rels_f_target in H'.
         fwd.
         apply Forall_exists_r_Forall2 in H1. fwd.

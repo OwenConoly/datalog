@@ -656,8 +656,11 @@ Section __.
 
   Ltac invert_stuff :=
     match goal with
-    | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args rule_impl non_meta_rule_impl] in *
-    | _ => progress cbv [interp_clause interp_meta_clause rule_impl non_meta_rule_impl] in *|-
+    | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args] in *
+    | H : rule_impl _ _ _ _ |- _ => cbv [rule_impl] in H; fwd
+    | H : non_meta_rule_impl _ _ _ _ |- _ => cbv [non_meta_rule_impl] in H; fwd
+    | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
+    | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
     | H : rule_impl_with_ctx _ _ _ _ _ |- _ => invert1 H || invert0 H
     | H : non_meta_rule_impl_with_ctx _ _ _ _ _ |- _ => progress (invert1 H) || invert0 H
     | H : interp_expr _ _ _ |- _ => invert1 H
@@ -2068,11 +2071,14 @@ Ltac interp_exprs :=
 (*TODO this is reproduced within the section, and idk how to get it out*)
 Ltac invert_stuff :=
   match goal with
-  | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args fact_supported extensionally_equal rule_impl non_meta_rule_impl] in *
-  | _ => progress cbv [interp_clause interp_meta_clause rule_impl non_meta_rule_impl] in *|-
+  | _ => progress cbn [matches rel_of fact_of args_of clause_rel clause_args meta_clause_rel meta_clause_args fact_supported extensionally_equal] in *
   | H : one_step_derives _ _ _ _ |- _ => cbv [one_step_derives one_step_derives0] in H; fwd
   | H : fact_matches _ _ |- _ => cbv [fact_matches] in H; fwd
   | H : fact_supported _ _ |- _ => cbv [fact_supported] in H
+  | H : rule_impl _ _ _ _ |- _ => cbv [rule_impl] in H; fwd
+  | H : non_meta_rule_impl _ _ _ _ |- _ => cbv [non_meta_rule_impl] in H; fwd
+  | H : interp_clause _ _ _ |- _ => cbv [interp_clause] in H; fwd
+  | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
   | H : rule_impl_with_ctx _ _ _ _ _ |- _ => invert1 H || invert0 H
   | H : non_meta_rule_impl_with_ctx _ _ _ _ _ |- _ => progress (invert1 H) || invert0 H
   | H : interp_expr _ _ _ |- _ => invert1 H
