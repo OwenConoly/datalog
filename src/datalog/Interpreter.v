@@ -16,6 +16,7 @@ Import ListNotations.
 Section __.
   Context {rel var fn aggregator T : Type}.
   Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
+  Context `{tsig : type_signature rel fn aggregator T}.
   Context {context : map.map var T} {context_ok : map.ok context}.
   Context {var_eqb : var -> var -> bool} {var_eqb_spec : EqDecider var_eqb}.
 
@@ -894,11 +895,14 @@ Section __.
         rewrite Ep0p0 in Ep0p1. invert Ep0p1. congruence.
   Qed.
 
-  (*Note: this can be weakened; we only need injectivity on length-n lists (for each n)*)
-  Context (fn_inj_spec :
-            forall f,
+  Context (fn_inj_sound :
+            forall f args1 args2 argts rett,
               fn_inj f = true ->
-              partial_injective (interp_fun f)).
+              fun_type f = (argts, rett) ->
+              Forall2 val_has_type args1 argts ->
+              Forall2 val_has_type args2 argts ->
+              interp_fun f args1 = interp_fun f args2 ->
+              args1 = args2).
 
   (*var * var may as well be separate namepsaces, e.g. mvar * nvar*)
   Fixpoint expr_compat (e1 e2 : expr) : option (list (var * var)) :=

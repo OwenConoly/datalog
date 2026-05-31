@@ -21,15 +21,18 @@ Class signature {fn aggregator T : Type} : Type :=
     (* get_set : T -> option (T -> Prop); *)
     get_nat : T -> nat;
     agg_bop : aggregator -> T -> T -> T;
-    agg_id : aggregator -> T; }.
+    agg_id : aggregator -> T;
+  }.
 Arguments signature : clear implicits.
 
-Class type_signature {rel fn aggregator : Type} : Type :=
+Class type_signature {rel fn aggregator T : Type} : Type :=
   {
     type : Type;
     fun_type : fn -> list type * type;
     rel_type : rel -> list type;
     agg_type : aggregator -> type * type;
+    fun_inj : fn -> bool;
+    val_has_type : T -> type -> Prop;
   }.
 Arguments type_signature : clear implicits.
 
