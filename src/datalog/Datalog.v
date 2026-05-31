@@ -40,9 +40,23 @@ Class query_signature {rel : Type} :=
   { outs : rel -> nat }.
 Arguments query_signature : clear implicits.
 
+Class good_type_signature {rel fn aggregator T} `{_ : signature fn aggregator T} `{_ : type_signature rel fn aggregator T} : Type :=
+  { fun_sound : forall f args argts rett,
+      fun_type f = (argts, rett) ->
+      Forall2 val_has_type args argts ->
+      val_has_type (interp_fun f args) rett;
+    fun_inj_sound : forall f args1 args2 argts rett,
+      fun_inj f = true ->
+      fun_type f = (argts, rett) ->
+      Forall2 val_has_type args1 argts ->
+      Forall2 val_has_type args2 argts ->
+      interp_fun f args1 = interp_fun f args2 ->
+      args1 = args2; }.
+Arguments good_type_signature : clear implicits.
+
 Section __.
   Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
+  Context {sig : signature fn aggregator T} {query_sig : query_signature rel}.
   Context {context : map.map var T} {context_ok : map.ok context}.
   Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
 
@@ -1606,7 +1620,8 @@ Section __.
   (*   intros. split; auto using loopless_program. intros [H'|H']; fwd; eauto. *)
   (* Qed. *)
 
-  Context `{tsig : type_signature rel fn aggregator}.
+  Check good_type_signature.
+  Context {tsig : type_signature rel fn aggregator T} {tsig_ok : good_type_signature rel fn aggregator T sig tsig}.
   Context {type_context : map.map var type}
           {type_context_ok : map.ok type_context}.
 
@@ -1633,6 +1648,47 @@ Section __.
   Definition well_typed_meta_clause (tctx : type_context) (c : meta_clause) : Prop :=
     Forall2 (well_typed_opt_expr tctx)
             c.(meta_clause_args) (rel_type c.(meta_clause_rel)).
+
+  Definition ctx_well_typed (ctx : context) (tctx : type_context) : Prop :=
+    forall x t, map.get tctx x = Some t ->
+                exists v, map.get ctx x = Some v /\ val_has_type v t.
+
+  Lemma interp_expr_has_type ctx tctx e :
+    forall t v,
+      well_typed_expr tctx e t ->
+      ctx_well_typed ctx tctx ->
+      interp_expr ctx e v ->
+      val_has_type v t.
+  Proof.
+    induction e using expr_ind; intros t' v' Hwt Hctx Hi.
+    - inversion Hwt; subst. inversion Hi; subst.
+      specialize (Hctx _ _ ltac:(eassumption)). fwd.
+      enough (v' = v0) as -> by assumption. congruence.
+    - inversion Hwt; subst. inversion Hi; subst.
+      eapply fun_sound; [eassumption|].
+      rename H3 into His. rename H4 into Hwts.
+      apply Forall2_flip in His.
+      pose proof (Forall2_Forall2_Forall3 _ _ _ _ _ His Hwts) as His3.
+      apply Forall3_ignore2 in His3.
+      eapply Forall2_impl_strong; [|exact His3].
+      intros v_a t_a [a [Hin [Hi_a Hwt_a]]] _ _.
+      rewrite Forall_forall in H. eauto.
+  Qed.
+
+  Lemma Forall2_interp_has_type ctx tctx args args' argts :
+    Forall2 (interp_expr ctx) args args' ->
+    Forall2 (well_typed_expr tctx) args argts ->
+    ctx_well_typed ctx tctx ->
+    Forall2 val_has_type args' argts.
+  Proof.
+    intros His Hwts Hctx.
+    apply Forall2_flip in His.
+    pose proof (Forall2_Forall2_Forall3 _ _ _ _ _ His Hwts) as His3.
+    apply Forall3_ignore2 in His3.
+    eapply Forall2_impl_strong; [|exact His3].
+    intros v_a t_a [a [Hin [Hi_a Hwt_a]]] _ _.
+    eauto using interp_expr_has_type.
+  Qed.
 
   Definition well_typed_rule (r : rule) : Prop :=
     exists tctx : type_context,
