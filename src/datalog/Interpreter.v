@@ -15,9 +15,10 @@ Import ListNotations.
 
 Section __.
   Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
-  Context `{tsig : type_signature rel fn aggregator T}.
+  Context {sig : signature fn aggregator T} {query_sig : query_signature rel}.
+  Context {tsig : type_signature rel fn aggregator T} {tsig_ok : good_type_signature rel fn aggregator T sig tsig}.
   Context {context : map.map var T} {context_ok : map.ok context}.
+  Context {type_context : map.map var type} {type_context_ok : map.ok type_context}.
   Context {var_eqb : var -> var -> bool} {var_eqb_spec : EqDecider var_eqb}.
 
   Local Notation expr := (expr var fn).
@@ -852,7 +853,6 @@ Section __.
 
   Context {fn_eqb : fn -> fn -> bool} {fn_eqb_spec : EqDecider fn_eqb}.
   Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec : EqDecider rel_eqb}.
-  Context (fn_inj : fn -> bool).
 
   (*TODO put in coqutil?*)
   Definition my_list_eqb {A} (aeqb : A -> A -> bool) (x y : list A) :=
@@ -895,22 +895,13 @@ Section __.
         rewrite Ep0p0 in Ep0p1. invert Ep0p1. congruence.
   Qed.
 
-  Context (fn_inj_sound :
-            forall f args1 args2 argts rett,
-              fn_inj f = true ->
-              fun_type f = (argts, rett) ->
-              Forall2 val_has_type args1 argts ->
-              Forall2 val_has_type args2 argts ->
-              interp_fun f args1 = interp_fun f args2 ->
-              args1 = args2).
-
   (*var * var may as well be separate namepsaces, e.g. mvar * nvar*)
   Fixpoint expr_compat (e1 e2 : expr) : option (list (var * var)) :=
     match e1, e2 with
     | Datalog.var_expr v1, Datalog.var_expr v2 => Some [(v1, v2)]
     | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
         if fn_eqb f1 f2 &&
-             fn_inj f1 &&
+             fun_inj f1 &&
              Nat.eqb (List.length args1) (List.length args2) then
           option_map (@concat _) (option_all (map2 expr_compat args1 args2))
         else
@@ -918,42 +909,51 @@ Section __.
     | _, _ => None
     end.
 
-  Lemma expr_compat_sound e1 e2 l ctx1 ctx2 val :
+  Lemma expr_compat_sound e1 e2 l ctx1 ctx2 val t1 t2 :
+    interp_expr_typed ctx1 e1 t1 val ->
+    interp_expr_typed ctx2 e2 t2 val ->
     expr_compat e1 e2 = Some l ->
-    interp_expr ctx1 e1 val ->
-    interp_expr ctx2 e2 val ->
     Forall (fun '(v1, v2) =>
               exists val', map.get ctx1 v1 = Some val' /\ map.get ctx2 v2 = Some val') l.
   Proof.
-    revert e2 l ctx1 ctx2 val.
-    induction e1; intros e2 l ctx1 ctx2 val Hcomp H1 H2.
+    revert e2 l ctx1 ctx2 val t1 t2.
+    induction e1; intros e2 l ctx1 ctx2 val t1 t2 H1 H2 Hcomp.
     - destruct e2; simpl in Hcomp; try discriminate.
-      repeat invert_stuff.
-      eauto.
+      inversion H1; subst. inversion H2; subst.
+      inversion Hcomp; subst.
+      repeat constructor. eauto.
     - destruct e2; simpl in Hcomp; try discriminate.
       repeat invert_stuff.
       apply eq_Forall2_eq in Hcompp0. apply Forall2_map_r in Hcompp0.
-      eapply fn_inj_spec in Ep0p1. cbv [partial_injective] in Ep0p1.
-      match goal with
-      | H1: interp_fun _ _ = Some _, H2: interp_fun _ _ = Some _ |- _ =>
-          specialize (Ep0p1 _ _ _ H1 H2)
-      end.
-      subst.
+      inversion H1 as [| ? ? argts1 ? vals1 ? Hft1 HF1 Hif1]; subst.
+      inversion H2 as [| ? ? argts2 ? vals2 ? Hft2 HF2 Hif2]; subst.
+      assert (argts2 = argts1) by congruence; subst argts2.
+      pose proof (Forall2_interp_has_type _ _ _ _ HF1) as Hty1.
+      pose proof (Forall2_interp_has_type _ _ _ _ HF2) as Hty2.
+      assert (vals1 = vals2) as Hveq.
+      { eapply fun_inj_sound; [eassumption|eassumption|eassumption|eassumption|congruence]. }
+      subst vals1.
+      assert (Hpair : Forall2
+                        (fun a b => exists t v,
+                             interp_expr_typed ctx1 a t v /\
+                             interp_expr_typed ctx2 b t v) args args0).
+      { clear -HF1 HF2. revert args0 HF2.
+        induction HF1; intros args0 HF2; inversion HF2; subst.
+        - constructor.
+        - constructor; eauto. }
       apply Forall_concat.
       eapply Forall_impl.
       2: { eapply Forall2_forget_l. eassumption. }
       simpl. intros vs Hvs. fwd.
       rewrite map2_eq_map_combine in Hvsp0. apply in_map_iff in Hvsp0.
       fwd.
-      match goal with
-      | H1: Forall2 (interp_expr ctx1) _ _, H2: Forall2 (interp_expr ctx2) _ _ |- _ =>
-          eapply Forall2_same_r in H2; [|exact H1];
-          rename H2 into Hargs
-      end.
-      apply Forall2_combine in Hargs.
-      rewrite Forall_forall in Hargs.
-      specialize (Hargs _ ltac:(eassumption)). simpl in Hargs. fwd.
-      rewrite Forall_forall in H. eauto using in_combine_l.
+      rewrite Forall_forall in H.
+      pose proof (in_combine_l _ _ _ _ ltac:(eassumption)) as Hina.
+      apply Forall2_combine in Hpair.
+      rewrite Forall_forall in Hpair.
+      specialize (Hpair _ ltac:(eassumption)). simpl in Hpair.
+      destruct Hpair as [t_p [v_p [Hia Hib]]].
+      eapply H; [exact Hina|exact Hia|exact Hib|eassumption].
   Qed.
 
   Definition clause_compat (mc : meta_clause) (nc : clause) : option (list (var * var)) :=
@@ -967,31 +967,60 @@ Section __.
                           nc.(clause_args))).
 
   Lemma clause_compat_sound mc nc l ctx1 ctx2 R argsM argsN setM :
+    interp_meta_clause_typed ctx1 mc (meta_fact R argsM setM) ->
+    interp_clause_typed ctx2 nc (normal_fact R argsN) ->
     clause_compat mc nc = Some l ->
-    interp_meta_clause ctx1 mc (meta_fact R argsM setM) ->
-    interp_clause ctx2 nc (normal_fact R argsN) ->
     Forall2 matches argsM argsN ->
     Forall (fun '(v1, v2) => exists val', map.get ctx1 v1 = Some val' /\ map.get ctx2 v2 = Some val') l.
   Proof.
-    intros Hcomp Hmc Hnc Hmatch.
-    cbv [clause_compat] in Hcomp. destruct mc, nc. simpl in *.
+    intros Hmc Hnc Hcomp Hmatch.
+    cbv [clause_compat] in Hcomp.
+    inversion Hmc; subst.
+    inversion Hnc; subst.
+    match goal with
+    | H : Forall3 (opt_interp_expr_typed _) _ _ _ |- _ => rename H into HF_m
+    end.
+    match goal with
+    | H : Forall3 (interp_expr_typed _) _ _ _ |- _ => rename H into HF_n
+    end.
+    destruct mc as [mrel margs], nc as [nrel nargs]. simpl in *.
     repeat invert_stuff.
     apply Forall_concat.
     apply eq_Forall2_eq in Hcompp0. apply Forall2_map_r in Hcompp0.
     eapply Forall_impl.
     2: { eapply Forall2_forget_l. eassumption. }
     clear Hcompp0. simpl. intros vs Hvs. fwd.
-    apply Forall2_flip in Hmatch.
-    eapply Forall2_same_r in Hmcp0; [|exact Hmatch]. clear Hmatch.
-    apply Forall2_flip in Hmcp0. eapply Forall2_same_r in Hmcp0; [|exact Hncp0].
     rewrite map2_eq_map_combine in Hvsp0.
-    apply Forall2_flip in Hmcp0.
-    apply Forall2_combine in Hmcp0. rewrite Forall_forall in Hmcp0.
     apply in_map_iff in Hvsp0. destruct Hvsp0 as [[res ?] Hvsp0]. fwd.
-    apply Hmcp0 in Hvsp0p1. fwd. cbv [option_relation] in Hvsp0p1p2p1.
+    pose proof Hvsp0p1 as Hin_combine.
     destruct res; fwd; auto.
-    simpl in *. fwd. simpl in *. subst.
-    eapply expr_compat_sound; eauto.
+    assert (Hpair :
+              Forall2
+                (fun ome e =>
+                   forall me', ome = Some me' ->
+                   exists t v,
+                     interp_expr_typed ctx1 me' t v /\
+                     interp_expr_typed ctx2 e t v)
+                margs nargs).
+    { clear -HF_m HF_n Hmatch.
+      revert nargs argsN HF_n Hmatch.
+      induction HF_m as [|ome typ ov margs_tl typs_tl argsM_tl Hhead Hrest IH];
+        intros nargs argsN HF_n Hmatch.
+      - inversion HF_n; subst. constructor.
+      - inversion HF_n as [|nh ? nv nargs_tl ? argsN_tl Hnh Hnrest]; subst.
+        inversion Hmatch as [|? ? ? ? Hmh Hmrest]; subst.
+        constructor; [|eauto].
+        intros me' Heq. subst ome.
+        cbv [opt_interp_expr_typed] in Hhead.
+        destruct ov as [ov_v|]; [|destruct Hhead].
+        cbv [matches] in Hmh. subst nv.
+        eauto. }
+    apply Forall2_combine in Hpair.
+    rewrite Forall_forall in Hpair.
+    specialize (Hpair _ Hin_combine). simpl in Hpair.
+    specialize (Hpair _ eq_refl).
+    destruct Hpair as [t_p [v_p [Hia Hib]]].
+    eapply expr_compat_sound; [exact Hia|exact Hib|eassumption].
   Qed.
 
   Fixpoint expr_matches (equalities : list (var * var)) (e1 e2 : expr) :=
@@ -1029,7 +1058,7 @@ Section __.
       rewrite Lists.List.Forall_map in Hmatchp1.
       apply Forall_combine_Forall2 in Hmatchp1.
       2: { assumption. }
-      econstructor; [|eassumption].
+      econstructor; [|reflexivity].
       eapply Forall2_impl.
       2: { eapply Forall2_same_r; apply Forall2_flip; eassumption. }
       simpl.
