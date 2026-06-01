@@ -1891,6 +1891,23 @@ Arguments fact : clear implicits.
 Arguments fact_args : clear implicits.
 Arguments rule : clear implicits.
 Arguments expr : clear implicits.
+
+Fixpoint expr_varmap {var1 var2 fn} (f : var1 -> var2) (e : expr var1 fn) : expr var2 fn :=
+  match e with
+  | var_expr v => var_expr (f v)
+  | fun_expr fu args => fun_expr fu (map (expr_varmap f) args)
+  end.
+
+Definition clause_varmap {rel var1 var2 fn} (f : var1 -> var2)
+  (c : clause rel var1 fn) : clause rel var2 fn :=
+  {| clause_rel := c.(clause_rel);
+     clause_args := map (expr_varmap f) c.(clause_args) |}.
+
+Definition meta_clause_varmap {rel var1 var2 fn} (f : var1 -> var2)
+  (c : meta_clause rel var1 fn) : meta_clause rel var2 fn :=
+  {| meta_clause_rel := c.(meta_clause_rel);
+     meta_clause_args := map (option_map (expr_varmap f)) c.(meta_clause_args) |}.
+
 Hint Constructors non_meta_rule_impl : core.
 Hint Constructors rule_impl : core.
 Hint Immediate extensionally_equal_refl : core.

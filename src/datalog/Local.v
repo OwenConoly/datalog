@@ -253,6 +253,7 @@ End __.
 Arguments concl_clause : clear implicits.
 Arguments hyp_clause : clear implicits.
 Arguments local_rule : clear implicits.
+Arguments clause_key : clear implicits.
 
 Section __.
   Context {rel var fn aggregator T : Type}.
@@ -280,21 +281,22 @@ Section __.
     | normal_rel (rel_name : rel) (rel_inputs : list bool)
     | done_receiving_rel (rel_name : rel) (rel_inputs : list bool)
     | done_sending_rel (rel_name : rel) (rel_inputs : list bool).
-  Definition lvar : Type := var * nat.
+  Definition lvar : Type := var + nat.
   Local Notation concl_clause := (concl_clause lrel lvar fn).
   Local Notation hyp_clause := (hyp_clause lrel lvar fn aggregator).
   Local Notation local_rule := (local_rule lrel lvar fn aggregator).
+  Local Notation clause_key := (clause_key lrel lvar fn).
   Definition lower_clause (c : clause) : clause_key :=
     {| clause_rel := normal_rel c.(Datalog.clause_rel)
                                     (map (fun _ => true) c.(Datalog.clause_args));
-      clause_inputs := c.(Datalog.clause_args)
+      clause_inputs := map (expr_varmap inl) c.(Datalog.clause_args)
     |}.
-  Search (option _ -> bool). About is_Some. About keep_Some.
+  Search (option _ -> bool). About is_Some. About keep_Some. Check meta_clause_varmap.
   Definition lower_meta_clause_concl (c : meta_clause) : concl_clause :=
     ({| clause_rel := done_sending_rel
                         c.(Datalog.meta_clause_rel)
                             (map is_Some c.(Datalog.meta_clause_args));
-       clause_inputs := keep_Some c.(Datalog.meta_clause_args);
+       clause_inputs := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args));
      |},
       []).
   Print hyp_clause_val.
@@ -302,13 +304,13 @@ Section __.
     ({| clause_rel := done_receiving_rel
                         c.(Datalog.meta_clause_rel)
                             (map is_Some c.(Datalog.meta_clause_args));
-       clause_inputs := keep_Some c.(Datalog.meta_clause_args);
+       clause_inputs := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args));
      |},
       outputs_clause []).
   Axiom count : aggregator.
   Print Operational.dfact.
 
-  Print Local.concl_clause. Print clause_key.
+  Print Local.concl_clause. Print clause_key. Print Local.hyp_clause_val.
   Definition lower_rule (r : rule) : list local_rule :=
     match r with
     | normal_rule concls hyps =>
@@ -324,10 +326,23 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
                            expected(G, [0, 1])(x, x)(N) *N is number of friends from which we expect to receive G-messages*
      *)
     | agg_rule target_rel agg source_rel =>
+        (*source_rel(_, _, 2, ... 9) concl_rel(_, 2, ..., 9)
+          assume source_rel is 10-ary.*)
         [{| local_rule_concls :=
-             [({| clause_rel := normal_rel target_rel (repeat true 10);
-                 clause_inputs :=
-               ]
+             [({| clause_rel := normal_rel target_rel (repeat true 9);
+                 clause_inputs := map var_expr (map inr (seq O 9)); |},
+                [])];
+           local_rule_hyps :=
+             [({| clause_rel := done_receiving_rel
+                                  source_rel
+                                  (false :: false :: repeat true 8);
+                 clause_inputs := map var_expr (map inr (seq 1 8)) |}, outputs_clause []);
+              ({| clause_rel := normal_rel
+                                  source_rel
+                                  (false :: false :: repeat true 8);
+                 clause_inputs := map var_expr (map inr (seq 1 8)) |},
+                agg_clause agg (inr O))];
+         |}]
     (* target_rel(val, c, d) :- done_receiving(source_rel, [2, 3])(c, d),
                                 agg(source_rel, [2, 3])(c, d) = val
      *)
