@@ -277,26 +277,46 @@ Section __.
   Implicit Types nf_args : list T.
 
   Variant lrel :=
-    | upper (_ : rel)
-    | permutation (num_inputs : nat) (perm : list nat).
-  Local Notation concl_clause := (concl_clause lrel var fn).
-  Local Notation hyp_clause := (hyp_clause lrel var fn aggregator).
-  Local Notation local_rule := (local_rule lrel var fn aggregator).
+    | normal_rel (rel_name : rel) (rel_inputs : list bool)
+    | done_receiving_rel (rel_name : rel) (rel_inputs : list bool)
+    | done_sending_rel (rel_name : rel) (rel_inputs : list bool).
+  Definition lvar : Type := var * nat.
+  Local Notation concl_clause := (concl_clause lrel lvar fn).
+  Local Notation hyp_clause := (hyp_clause lrel lvar fn aggregator).
+  Local Notation local_rule := (local_rule lrel lvar fn aggregator).
   Definition lower_clause (c : clause) : clause_key :=
-    {| clause_rel := upper c.(Datalog.clause_rel);
-       clause_inputs := c.(Datalog.clause_args)
-     |}.
-  Print Local.hyp_clause. Print hyp_clause_val.
-  Print Datalog.rule.
+    {| clause_rel := normal_rel c.(Datalog.clause_rel)
+                                    (map (fun _ => true) c.(Datalog.clause_args));
+      clause_inputs := c.(Datalog.clause_args)
+    |}.
+  Search (option _ -> bool). About is_Some. About keep_Some.
+  Definition lower_meta_clause_concl (c : meta_clause) : concl_clause :=
+    ({| clause_rel := done_sending_rel
+                        c.(Datalog.meta_clause_rel)
+                            (map is_Some c.(Datalog.meta_clause_args));
+       clause_inputs := keep_Some c.(Datalog.meta_clause_args);
+     |},
+      []).
+  Print hyp_clause_val.
+  Definition lower_meta_clause_hyp (c : meta_clause) : hyp_clause :=
+    ({| clause_rel := done_receiving_rel
+                        c.(Datalog.meta_clause_rel)
+                            (map is_Some c.(Datalog.meta_clause_args));
+       clause_inputs := keep_Some c.(Datalog.meta_clause_args);
+     |},
+      outputs_clause []).
   Axiom count : aggregator.
   Print Operational.dfact.
 
+  Print Local.concl_clause. Print clause_key.
   Definition lower_rule (r : rule) : list local_rule :=
     match r with
     | normal_rule concls hyps =>
         [{| local_rule_concls := map (fun x => (lower_clause x, [])) concls;
            local_rule_hyps := map (fun x => (lower_clause x, outputs_clause [])) hyps |}]
     | meta_rule concls hyps =>
+        [{| local_rule_concls := map lower_meta_clause_concl concls;
+           local_rule_hyps := map lower_meta_clause_hyp hyps |}]
     (*R(_, x) :- G(x, x) =>
       done_sending(R, [1])(x, num_sent) :- done_receiving(G, [0, 1])(x, x)
 
@@ -304,6 +324,10 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
                            expected(G, [0, 1])(x, x)(N) *N is number of friends from which we expect to receive G-messages*
      *)
     | agg_rule target_rel agg source_rel =>
+        [{| local_rule_concls :=
+             [({| clause_rel := normal_rel target_rel (repeat true 10);
+                 clause_inputs :=
+               ]
     (* target_rel(val, c, d) :- done_receiving(source_rel, [2, 3])(c, d),
                                 agg(source_rel, [2, 3])(c, d) = val
      *)
