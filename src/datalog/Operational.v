@@ -3767,23 +3767,24 @@ Section __.
     In (rule_concls, rule_hyps) p.(meta_rules) ->
     rule_impl (one_step_derives rules_of) (meta_rule rule_concls rule_hyps)
               (meta_fact R_concl args_concl S_set) hyps ->
-    Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps ->
     Forall (knows_datalog_fact rs.(known_facts)) hyps ->
     exists s' rs',
       comp_step^* s s' /\
       nth_error s' n = Some rs' /\
-      (forall nf_args,
-          can_deduce_normal_fact (rule_of rn) rs'.(known_facts) R_concl nf_args ->
-          Forall2 matches args_concl nf_args ->
-          In (normal_dfact R_concl nf_args) rs'.(known_facts)) /\
-      sane_state inputs s' /\
-      meta_facts_correct s' /\
-      meta_facts_ok s' /\
-      state_correct inputs s' /\
+      ok_to_deduce_fact (rule_of rn) n rs'.(known_facts) rs'.(sent_facts)
+        (meta_dfact R_concl args_concl (Some n) 0) /\
       Forall (knows_datalog_fact rs'.(known_facts)) hyps.
   Proof.
     intros Hinp Hlen_pos Hsane Hmfc Hmf_ok Hsound Hn_lt Hnth_rn Hnth_rs
-           Hin_mr Himpl Hpi_hyps Hknow_hyps.
+           Hin_mr Himpl Hknow_hyps.
+    (* Derive Forall (prog_impl ...) hyps from the local knows_datalog_fact via
+       state_correct, since rs lives in s. *)
+    assert (Hpi_hyps : Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps).
+    { assert (Hin_rs : In rs s) by (eapply nth_error_In; eassumption).
+      rewrite Forall_forall in Hknow_hyps |- *. intros h Hh.
+      specialize (Hknow_hyps _ Hh). apply Hsound. split.
+      - eapply knows_datalog_fact_local_lift_has_derived; eassumption.
+      - eapply knows_datalog_fact_local_lift_mf_consistent; eassumption. }
     (* Step 1: derive prog_impl on the constructed meta-fact. *)
     assert (Hpi_meta : prog_impl rules_of (knows_datalog_fact inputs)
                         (meta_fact R_concl args_concl S_set)).
@@ -4029,18 +4030,15 @@ Section __.
       { rewrite Hl_split in Hlen. rewrite length_app in *. simpl in *. lia. }
       specialize (IH s_fire rs_fire Hsane_fire Hmfc_fire Hmf_ok_fire Hsound_fire Hn_lt_fire
                      Hnth_check Hknow_hyps_fire Hl0_fire Hnomatch_fire).
-      destruct IH as (s' & rs' & Hsteps' & Hnth' & Hforcing' & Hsane' & Hmfc' & Hmf_ok' & Hsound' & Hknow').
+      destruct IH as (s' & rs' & Hsteps' & Hnth' & Hforcing' & Hknow').
       exists s', rs'. ssplit; try assumption.
       eapply crt1n_trans_compose; eassumption.
     + (* No missing candidate: current state IS the answer *)
       exists s, rs. ssplit.
       { apply rt1n_refl. }
       { exact Hnth_rs. }
-      2: { exact Hsane. }
-      2: { exact Hmfc. }
-      2: { exact Hmf_ok. }
-      2: { exact Hsound. }
       2: { exact Hknow_hyps. }
+      cbv [ok_to_deduce_fact].
       intros nf_args Hcdn Hmatch.
       destruct (classic (In (normal_dfact R_concl nf_args) rs.(known_facts))) as [Hin|Hnin].
       * exact Hin.
@@ -4930,11 +4928,19 @@ Section __.
                        ltac:(lia) Hsane_s_after_flush Hmfc_s_after_flush Hmf_ok_s_after_flush
                        Hsound_s_after_flush
                        Hn_lt_s_after_flush Hnth_rn Hnth_rs_n_pre_force
-                       Hin_mr Himpl_save Hpi_hyps Hknow_hyps_pre_force)
+                       Hin_mr Himpl_save Hknow_hyps_pre_force)
             as (s'' & rs_n_post & Hsteps_force & Hnth_rs_n_post & Hforcing
-                & Hsane_s'' & Hmfc_s'' & Hmf_ok_s'' & Hsound_s'' & Hknow_hyps_post).
+                & Hknow_hyps_post).
           assert (Hsteps_flush : comp_step^* s' s'').
           { eapply crt1n_trans_compose; eassumption. }
+          assert (Hsane_s'' : sane_state inputs s'')
+            by eauto using steps_preserves_sane.
+          assert (Hmfc_s'' : meta_facts_correct s'')
+            by eauto using steps_preserves_mfs_correct.
+          assert (Hmf_ok_s'' : meta_facts_ok s'')
+            by eauto using steps_preserves_meta_facts_ok.
+          assert (Hsound_s'' : state_correct inputs s'')
+            by eauto using comp_steps_sound.
           assert (Hsteps_total : comp_step^* s s'').
           { eapply crt1n_trans_compose; eassumption. }
           (* Build can_deduce_meta_fact and apply fire_meta_rule *)
