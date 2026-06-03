@@ -154,10 +154,11 @@ Section __.
     | normal_dfact nf_rel nf_args =>
         can_deduce_normal_fact r known nf_rel nf_args
     | meta_dfact mf_rel mf_args source num_msgs =>
-        exists mr_concls mr_hyps hyps,
-        r = meta_rule mr_concls mr_hyps /\
-          can_deduce_meta_fact mr_concls mr_hyps node sent (meta_dfact mf_rel mf_args (Some node) num_msgs) hyps /\
-          Forall (knows_datalog_fact known) hyps
+        source = Some node /\
+          exists mr_concls mr_hyps hyps,
+            r = meta_rule mr_concls mr_hyps /\
+              can_deduce_meta_fact mr_concls mr_hyps node sent f hyps /\
+              Forall (knows_datalog_fact known) hyps
     end.
 
   Definition meta_facts_correct_at_rule mrs n rs r :=
