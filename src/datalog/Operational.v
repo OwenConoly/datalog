@@ -160,15 +160,12 @@ Section __.
           Forall (knows_datalog_fact known) hyps
     end.
 
-  (*TODO: i have just jsplit can_deduce_meta_fact into can_deduce and ok_to_deduce...
-    which one belongs here?  both?
-   *)
   Definition meta_facts_correct_at_rule mrs n rs r :=
     forall R mf_args num,
       In (meta_dfact R mf_args (Some n) num) rs.(sent_facts) ->
       exists mf_concls mf_hyps hyps,
         In (mf_concls, mf_hyps) mrs /\
-          can_deduce_meta_fact mf_concls mf_hyps (rule_of r) n rs.(sent_facts) rs.(known_facts) (meta_dfact R mf_args (Some n) num) hyps /\
+          can_deduce_meta_fact mf_concls mf_hyps n rs.(sent_facts) (meta_dfact R mf_args (Some n) num) hyps /\
           Forall (knows_datalog_fact rs.(known_facts)) hyps /\
           (forall mf_set, ~In (meta_fact R mf_args mf_set) hyps).
 
@@ -187,26 +184,23 @@ Section __.
       waiting_facts := rs.(waiting_facts);
       sent_facts := f :: rs.(sent_facts) |}.
 
+  Definition can_fire_rule_at r fired_rule :=
+    fired_rule = rule_of r \/
+      exists mr_concls mr_hyps,
+        In (mr_concls, mr_hyps) p.(meta_rules) /\
+          fired_rule = meta_rule mr_concls mr_hyps.
+
   Inductive comp_step : state -> state -> Prop :=
   | learn_fact s1 s2 :
     stepOne learn_fact_at_rule s1 s2 ->
     comp_step s1 s2
-  | fire_normal_rule nf_rel nf_args s1 s2 :
+  | fire_rule new_fact s1 s2 :
     stepWithLabel (fun '(r, n) rs rs' =>
-                     can_deduce_normal_fact (rule_of r) rs.(known_facts) nf_rel nf_args /\
-                       (forall mf_args num,
-                           In (meta_dfact nf_rel mf_args (Some n) num) rs.(sent_facts) ->
-                           Forall2 matches mf_args nf_args ->
-                           False) /\
-                       rs' = send_fact (normal_dfact nf_rel nf_args) rs)
-      (combine p.(non_meta_rules) (seq O (length s1))) s1 s2 ->
-    comp_step s1 (map (add_waiting_fact (normal_dfact nf_rel nf_args)) s2)
-  | fire_meta_rule mf_concls mf_hyps hyps new_fact s1 s2 :
-    In (mf_concls, mf_hyps) p.(meta_rules) ->
-    stepWithLabel (fun '(r, n) rs rs' =>
-                     can_deduce_meta_fact mf_concls mf_hyps (rule_of r) n rs.(sent_facts) rs.(known_facts) new_fact hyps /\
-                       Forall (knows_datalog_fact rs.(known_facts)) hyps /\
-                       rs' = send_fact new_fact rs)
+                     exists fired_rule,
+                       can_fire_rule_at r fired_rule /\
+                         can_deduce_fact fired_rule n rs.(known_facts) rs.(sent_facts) new_fact /\
+                         ok_to_deduce_fact (rule_of r) n rs.(known_facts) rs.(sent_facts) new_fact /\
+                         rs' = send_fact new_fact rs)
       (combine p.(non_meta_rules) (seq O (length s1))) s1 s2 ->
     comp_step s1 (map (add_waiting_fact new_fact) s2).
 
