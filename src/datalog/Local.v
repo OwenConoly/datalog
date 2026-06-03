@@ -40,6 +40,8 @@ Section __.
   Definition spec_node_prog :=
     list rule.
 
+
+
   Definition spec_node_step (p : list rule) : spec_node_state -> spec_node_state -> Prop. Admitted.
 
   Record local_rel_info :=

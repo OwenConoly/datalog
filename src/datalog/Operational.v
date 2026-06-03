@@ -62,7 +62,6 @@ Section __.
   Implicit Types p : prog.
   Implicit Types r : non_meta_rule.
 
-
   Record rule_state :=
     { known_facts : list dfact;
       waiting_facts : list dfact;
@@ -124,28 +123,52 @@ Section __.
               mf_set nf_args <-> In (normal_dfact mf_rel nf_args) dfacts)
     end.
 
-  Definition can_deduce_normal_fact (r : non_meta_rule) (known_facts : list dfact) nf_rel nf_args :=
+  Definition can_deduce_normal_fact (r : rule) (known_facts : list dfact) nf_rel nf_args :=
     exists hyps,
-      non_meta_rule_impl (rule_of r) nf_rel nf_args hyps /\
+      non_meta_rule_impl r nf_rel nf_args hyps /\
         Forall (knows_datalog_fact known_facts) hyps.
 
-  Definition can_deduce_meta_fact (mf_concls mf_hyps : list meta_clause) (r : non_meta_rule) (source : nat) (sent_facts : list dfact) (known_facts : list dfact) (result : dfact) (hyps : list fact) :=
+  Definition can_deduce_meta_fact (mf_concls mf_hyps : list meta_clause) (node: nat) (sent_facts : list dfact) (result : dfact) (hyps : list fact) :=
     exists ctx mf_rel mf_args mf_cnt,
-      result = meta_dfact mf_rel mf_args (Some source) mf_cnt /\
+      result = meta_dfact mf_rel mf_args (Some node) mf_cnt /\
         Existsn (dfact_matches mf_rel mf_args) mf_cnt sent_facts /\
         Exists (fun c => interp_meta_clause ctx c (meta_fact mf_rel mf_args (fun _ => False))) mf_concls /\
-        Forall2 (interp_meta_clause ctx) mf_hyps hyps /\
-        (forall nf_args,
-            can_deduce_normal_fact r known_facts mf_rel nf_args ->
-            Forall2 matches mf_args nf_args ->
-            In (normal_dfact mf_rel nf_args) known_facts).
+        Forall2 (interp_meta_clause ctx) mf_hyps hyps.
 
+  Definition ok_to_deduce_fact (r : rule) node known sent f :=
+    match f with
+    | normal_dfact nf_rel nf_args =>
+        forall mf_args num,
+          In (meta_dfact nf_rel mf_args (Some node) num) sent ->
+          Forall2 matches mf_args nf_args ->
+          False
+    | meta_dfact mf_rel mf_args source num_msgs =>
+        forall nf_args,
+          can_deduce_normal_fact r known mf_rel nf_args ->
+          Forall2 matches mf_args nf_args ->
+          In (normal_dfact mf_rel nf_args) known
+    end.
+
+  Definition can_deduce_fact (r : rule) node known sent f :=
+    match f with
+    | normal_dfact nf_rel nf_args =>
+        can_deduce_normal_fact r known nf_rel nf_args
+    | meta_dfact mf_rel mf_args source num_msgs =>
+        exists mr_concls mr_hyps hyps,
+        r = meta_rule mr_concls mr_hyps /\
+          can_deduce_meta_fact mr_concls mr_hyps node sent (meta_dfact mf_rel mf_args (Some node) num_msgs) hyps /\
+          Forall (knows_datalog_fact known) hyps
+    end.
+
+  (*TODO: i have just jsplit can_deduce_meta_fact into can_deduce and ok_to_deduce...
+    which one belongs here?  both?
+   *)
   Definition meta_facts_correct_at_rule mrs n rs r :=
     forall R mf_args num,
       In (meta_dfact R mf_args (Some n) num) rs.(sent_facts) ->
       exists mf_concls mf_hyps hyps,
         In (mf_concls, mf_hyps) mrs /\
-          can_deduce_meta_fact mf_concls mf_hyps r n rs.(sent_facts) rs.(known_facts) (meta_dfact R mf_args (Some n) num) hyps /\
+          can_deduce_meta_fact mf_concls mf_hyps (rule_of r) n rs.(sent_facts) rs.(known_facts) (meta_dfact R mf_args (Some n) num) hyps /\
           Forall (knows_datalog_fact rs.(known_facts)) hyps /\
           (forall mf_set, ~In (meta_fact R mf_args mf_set) hyps).
 
@@ -170,7 +193,7 @@ Section __.
     comp_step s1 s2
   | fire_normal_rule nf_rel nf_args s1 s2 :
     stepWithLabel (fun '(r, n) rs rs' =>
-                     can_deduce_normal_fact r rs.(known_facts) nf_rel nf_args /\
+                     can_deduce_normal_fact (rule_of r) rs.(known_facts) nf_rel nf_args /\
                        (forall mf_args num,
                            In (meta_dfact nf_rel mf_args (Some n) num) rs.(sent_facts) ->
                            Forall2 matches mf_args nf_args ->
@@ -181,7 +204,7 @@ Section __.
   | fire_meta_rule mf_concls mf_hyps hyps new_fact s1 s2 :
     In (mf_concls, mf_hyps) p.(meta_rules) ->
     stepWithLabel (fun '(r, n) rs rs' =>
-                     can_deduce_meta_fact mf_concls mf_hyps r n rs.(sent_facts) rs.(known_facts) new_fact hyps /\
+                     can_deduce_meta_fact mf_concls mf_hyps (rule_of r) n rs.(sent_facts) rs.(known_facts) new_fact hyps /\
                        Forall (knows_datalog_fact rs.(known_facts)) hyps /\
                        rs' = send_fact new_fact rs)
       (combine p.(non_meta_rules) (seq O (length s1))) s1 s2 ->
