@@ -606,7 +606,7 @@ Section __.
         apply in_combine_l in Hin_outer.
         apply in_combine_l in Hin_outer. exact Hin_outer. }
       destruct new_fact as [nf_rel nf_args | mf_rel mf_args new_source num_msgs].
-      { (* fire_rule with a normal_dfact: the old fire_normal_rule case *)
+      { (* fire_rule with a normal_dfact *)
         cbv [can_deduce_fact] in Hcan_f. rename Hcan_f into Hcan.
         cbv [ok_to_deduce_fact] in Hok_f. rename Hok_f into Hnometa.
         assert (Hfr_eq : fired_rule = rule_of r).
@@ -761,7 +761,7 @@ Section __.
       + intros f HIn. specialize (Hinp_propagated f HIn).
         apply knows_dfact_after_step_bw. right. exact Hinp_propagated.
       }
-      { (* fire_rule with a meta_dfact: the old fire_meta_rule case *)
+      { (* fire_rule with a meta_dfact *)
       cbv [can_deduce_fact] in Hcan_f.
       destruct Hcan_f as (Hsrc & mf_concls & mf_hyps & hyps & Hfr_eq & Hcdmf & Hknow_hyps).
       subst new_source.
@@ -2023,8 +2023,7 @@ Section __.
            For Hf2: when R != nf_rel, F = normal_dfact nf_rel ... can't equal
            normal_dfact R nf_args, so knows_dfact unchanged; lift directly.
            When R = nf_rel, the new fact may force mf_set nf_args_fire = true
-           even though knows_dfact s (normal nf_rel nf_args_fire) might be false.
-           That sub-case is admitted below. *)
+           even though knows_dfact s (normal nf_rel nf_args_fire) might be false. *)
         simpl in Hf1, Hf2.
         assert (Hf1_s : has_derived_datalog_fact s (meta_fact R mf_args mf_set)).
         { simpl. destruct (is_input R) eqn:HER.
@@ -2054,7 +2053,7 @@ Section __.
                    Hf1_s, but we don't have it here in the consistent assert)
                    would force a (Some k_fire) meta_dfact in s for (nf_rel,
                    mf_args), and by Hmf_sent it'd be in x.sent_facts, which
-                   contradicts the fire_normal_rule precondition Hno_sent.
+                   contradicts the fire_rule precondition Hno_sent.
                    We derive False directly from Hf1_s. *)
                 exfalso.
                 assert (Hin_r : In r_fire (non_meta_rules p)).
@@ -3537,66 +3536,8 @@ Section __.
     rewrite Hbic. unfold S0. reflexivity.
   Qed.
 
-  (* Per-rule completeness: given a rule r in rules_of, hyps derived in s, and
-     mf_consistent_state for meta-fact hyps, we can step to a state where the
-     conclusion of r is derived.
-
-     ROADMAP for the three admits below:
-
-     Normal-rule subcase (simple_rule_impl + normal_rule_impl):
-       1. From the Forall2 (interp_clause ctx) Hyps, each hyp = normal_fact R' args'.
-          Extract list dfs = map (fun (normal_fact R' args') => normal_dfact R' args').
-       2. From Hderived: Forall (knows_dfact s) dfs.
-       3. Flush via flush_waiting_to_known at index k: get s1 with rs_k.known
-          containing all dfs.
-       4. Case split on whether rs_k.sent contains a (meta_dfact R mf_args (Some k) num)
-          with mf_args matching args:
-            (a) If YES: use meta_facts_correct_at_rule + can_deduce_meta_fact's
-                forcing clause to conclude (normal_dfact R args) is already in
-                rs_k.known. Done with 0 additional steps.
-            (b) If NO: apply fire_normal_rule, get s2 = map (afw F) (... send_fact F :: ...).
-                The new state has (normal_dfact R args) in every rule's waiting.
-                Therefore knows_dfact s2 (normal_dfact R args), i.e., has_derived s2 f.
-
-     Agg-rule subcase (simple_rule_impl + agg_rule_impl):
-       Similar to normal-rule but hyps = meta_fact :: list of normal_facts.
-       The meta_fact hyp needs flushing of multiple meta_dfacts (one per k).
-       Uses mf_consistent_state to establish the aggregation's source set.
-
-     Meta-rule subcase (meta_rule_impl):
-       ru = meta_rule mf_concls mf_hyps. Conclusion = meta_fact R args S.
-       Pick a source-index k. Flush all interpreted meta-clause hyps into rule k's
-       known. Apply fire_meta_rule. The new meta_dfact (Some k) is in rs_k.sent,
-       and via the count infrastructure (Hcount) plus the fired num matching,
-       has_derived holds at all rules.
-
-     Each subcase also needs the no-self-reference clause for fire_meta_rule, derived
-     from meta_facts_correct_at_rule (same pattern as step_preserves_mfs_correct). *)
-
-  (* Analog of SimpleDataflow.v:1392 [node_can_find_all_conclusions].
-
-     Given that the constructed meta-fact is prog_impl-derivable (so its S has a
-     finite enumeration via [Hmeta_finite]), drives rule [n]'s known_facts to a
-     state where the forcing closure for [R_concl] (matching [args_concl]) holds:
-     every locally-derivable [normal_dfact R_concl nf_args] is already present.
-
-     PROOF SKETCH (mirroring SimpleDataflow.v:1407-1460):
-     1. Derive prog_impl on the constructed meta-fact via prog_impl_step.
-     2. Apply Hmeta_finite to obtain a finite enumeration l of all nf_args with
-        S_set nf_args.  Tighten via valid_impl_honest (Datalog.v:1500) +
-        good_inputs_knows_datalog_fact_inputs: knows_dfact-derivability of
-        normal_dfact R_concl nf_args (modulo matching) implies S_set nf_args,
-        hence nf_args in l.
-     3. Induct on length l: at each step, classical EM picks either:
-        (a) NO unforced candidate in l: return current state, forcing closure holds.
-        (b) SOME unforced candidate args: fire fire_normal_rule for it (no conflict
-            by meta_facts_correct), recurse on (l minus args).
-     4. Bicondition preservation across the closure: each added normal_dfact
-        satisfies S_h for every meta-hyp h (with R_h = R_concl, otherwise
-        unaffected) by chaining: closure adds args via can_deduce → prog_impl →
-        S_h (via correct_impl_consistent on h at the current state). *)
   (* Atomic step: fire a single missing normal_dfact and flush it into rs.known.
-     The no-conflict precondition for fire_normal_rule is discharged via the
+     The no-conflict precondition for fire_rule is discharged via the
      forcing clause of any conflicting meta_dfact in rs.sent (from
      meta_facts_correct_at_rule).
 
@@ -3623,7 +3564,7 @@ Section __.
     intros Hinp Hlen_pos Hsane Hmfc Hmf_ok Hn_lt Hnth_rn Hnth_rs Hcdn Hnot_in.
     pose proof Hsane as Hsane_save.
     destruct Hsane as (Hlen_s & _).
-    (* Step 1: discharge fire_normal_rule's no-conflict precondition. *)
+    (* Step 1: discharge fire_rule's no-conflict precondition. *)
     assert (Hno_conflict :
               forall mf_args num,
                 In (meta_dfact R_concl mf_args (Some n) num) rs.(sent_facts) ->
@@ -3687,7 +3628,7 @@ Section __.
         lia.
       - rewrite length_combine. lia. }
     destruct Hcomb_decomp as (l1 & l2 & Hcomb & Hl1_snd & Hl2_snd & Hl1_len).
-    (* Step 3: fire fire_normal_rule. *)
+    (* Step 3: fire fire_rule. *)
     set (F := normal_dfact R_concl nf_args).
     set (rs_post := send_fact F rs).
     set (s_post_send := map snd l1 ++ rs_post :: map snd l2).
@@ -4186,7 +4127,7 @@ Section __.
           simpl. cbv [knows_dfact]. apply Exists_exists.
           apply nth_error_In in Hnth_k. eauto.
           exists rs_k. split; auto. left. exact Hmfor.
-        * (* No-conflict case: apply fire_normal_rule *)
+        * (* No-conflict case: apply fire_rule *)
           (* Build the labels list: combine non_meta_rules (seq 0 (length s1)) *)
           (* We need to fire at position k with rule nmr *)
           (* Split s1 at index k *)
@@ -4245,7 +4186,7 @@ Section __.
               lia.
             - rewrite length_combine. lia. }
           destruct Hcomb_decomp as (l1 & l2 & Hcomb & Hl1_snd & Hl2_snd & Hl1_len).
-          (* Apply fire_normal_rule *)
+          (* Apply fire_rule *)
           set (F := normal_dfact R_concl args_concl).
           set (rs_k' := send_fact F rs_k).
           set (s2 := map snd l1 ++ rs_k' :: map snd l2).
@@ -4466,7 +4407,7 @@ Section __.
              simpl. cbv [knows_dfact]. apply Exists_exists.
              exists rs_k. split; [apply nth_error_In in Hnth_k; exact Hnth_k|].
              left. exact Hmfor.
-          -- (* No-conflict: apply fire_normal_rule *)
+          -- (* No-conflict: apply fire_rule *)
              pose proof Hnth_k as Hnth_save.
              apply nth_error_split in Hnth_save.
              destruct Hnth_save as (s1_pre & s1_post & Hs1_eq & Hs1_pre_len).
@@ -4863,7 +4804,7 @@ Section __.
       { induction n as [|n IH]; intros Hn.
         - exists s. split; [apply rt1n_refl|]. intros k Hk. lia.
         - destruct (IH ltac:(lia)) as (s' & Hsteps_s' & Hk_lt_n).
-          (* Fire fire_meta_rule at source n. Setup: *)
+          (* Fire fire_rule with a meta_dfact at source n. Setup: *)
           assert (Hsane_s' : sane_state inputs s') by eauto using steps_preserves_sane.
           assert (Hlen_s_outer : length s = length p.(non_meta_rules))
             by (destruct Hsane as (Hl & _); exact Hl).
@@ -4922,8 +4863,8 @@ Section __.
             by (erewrite <- steps_preserves_length;
                   [|exact Hinp|exact Hsane_s'|exact Hsteps_flush_only]; exact Hn_lt_s').
           (* Force closure: drive rs_n's known to contain all locally-derivable
-             normal_dfacts matching args_concl.  This is needed for fire_meta_rule's
-             can_deduce_meta_fact precondition (the forcing clause). *)
+             normal_dfacts matching args_concl.  This is needed for fire_rule's
+             ok_to_deduce_fact precondition (the forcing clause). *)
           pose proof (rule_can_force_normal_dfacts inputs s_after_flush n rn rs_n_pre_force
                        R_concl args_concl S_set rule_concls rule_hyps hyps_facts Hinp
                        ltac:(lia) Hsane_s_after_flush Hmfc_s_after_flush Hmf_ok_s_after_flush
@@ -4944,7 +4885,7 @@ Section __.
             by eauto using comp_steps_sound.
           assert (Hsteps_total : comp_step^* s s'').
           { eapply crt1n_trans_compose; eassumption. }
-          (* Build can_deduce_meta_fact and apply fire_meta_rule *)
+          (* Build can_deduce_meta_fact and apply fire_rule *)
           (* mf_cnt = matching count in rs_n_post.sent_facts *)
           destruct Hsane_s'' as (Hlen_s'' & _ & Hmf_sent_s'' & _ & Hcount_s'' & _ & _).
           (* Existsn count for matching in rs_n_post.sent: from Hcount *)
@@ -4959,7 +4900,7 @@ Section __.
             lia. }
           destruct Hms_n_ex as (ms_n & Hms_n).
           pose proof (Forall2_nth_error_fwd _ _ _ Hf2_post _ _ _ Hnth_rs_n_post Hms_n) as Hex_sent.
-          (* Apply fire_meta_rule *)
+          (* Apply fire_rule *)
           assert (Hn_lt_s'' : n < length s'').
           { erewrite <- steps_preserves_length;
               [|exact Hinp|exact Hsane_s'|exact Hsteps_flush]. exact Hn_lt_s'. }
