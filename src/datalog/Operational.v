@@ -3013,7 +3013,6 @@ Section __.
     k < length s ->
     has_derived_datalog_fact s (meta_fact mf_rel mf_args mf_set) ->
     mf_consistent_state s (meta_fact mf_rel mf_args mf_set) ->
-    prog_impl rules_of (knows_datalog_fact inputs) (meta_fact mf_rel mf_args mf_set) ->
     0 < length p.(non_meta_rules) ->
     exists s' rs',
       comp_step^* s s' /\
@@ -3023,7 +3022,10 @@ Section __.
         (forall g, knows_dfact s' g <-> knows_dfact s g) /\
         clos_refl_trans_1n state (stepOne learn_fact_at_rule) s s'.
   Proof.
-    intros Hinp Hsane Hmfc Hmf_ok Hsound Hk Hd Hc Hpi Hlen_pos.
+    intros Hinp Hsane Hmfc Hmf_ok Hsound Hk Hd Hc Hlen_pos.
+    assert (Hpi : prog_impl rules_of (knows_datalog_fact inputs)
+                    (meta_fact mf_rel mf_args mf_set))
+      by (apply Hsound; split; assumption).
     pose proof Hsane as Hsane_save.
     (* Extract the meta-count info from has_derived *)
     assert (Hknow_meta_info :
@@ -3269,7 +3271,6 @@ Section __.
     0 < length p.(non_meta_rules) ->
     Forall (has_derived_datalog_fact s) hyps_facts ->
     Forall (mf_consistent_state s) hyps_facts ->
-    Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps_facts ->
     Forall (fun h => exists R mf_args mf_set, h = meta_fact R mf_args mf_set) hyps_facts ->
     exists s' rs',
       comp_step^* s s' /\
@@ -3278,9 +3279,9 @@ Section __.
         (forall g, knows_dfact s' g <-> knows_dfact s g) /\
         clos_refl_trans_1n state (stepOne learn_fact_at_rule) s s'.
   Proof.
-    intros Hinp Hsane Hmfc Hmf_ok Hsound Hk Hlen_pos Hd Hc Hpi Hshape.
-    revert s Hsane Hmfc Hmf_ok Hsound Hk Hd Hc Hpi.
-    induction hyps_facts as [|h hs IH]; intros s Hsane Hmfc Hmf_ok Hsound Hk Hd Hc Hpi.
+    intros Hinp Hsane Hmfc Hmf_ok Hsound Hk Hlen_pos Hd Hc Hshape.
+    revert s Hsane Hmfc Hmf_ok Hsound Hk Hd Hc.
+    induction hyps_facts as [|h hs IH]; intros s Hsane Hmfc Hmf_ok Hsound Hk Hd Hc.
     - destruct (nth_error s k) as [rs_k|] eqn:Hnth; [|apply nth_error_None in Hnth; lia].
       exists s, rs_k. ssplit.
       + apply rt1n_refl.
@@ -3290,12 +3291,14 @@ Section __.
       + apply rt1n_refl.
     - apply Forall_cons_iff in Hd. destruct Hd as (Hd_h & Hd_hs).
       apply Forall_cons_iff in Hc. destruct Hc as (Hc_h & Hc_hs).
-      apply Forall_cons_iff in Hpi. destruct Hpi as (Hpi_h & Hpi_hs).
       apply Forall_cons_iff in Hshape. destruct Hshape as (Hshape_h & Hshape_hs).
       destruct Hshape_h as (R_h & mf_args_h & mf_set_h & ->).
+      assert (Hpi_h : prog_impl rules_of (knows_datalog_fact inputs)
+                       (meta_fact R_h mf_args_h mf_set_h))
+        by (apply Hsound; split; assumption).
       (* Flush h first *)
       pose proof (flush_one_meta_hyp inputs s k R_h mf_args_h mf_set_h
-                    Hinp Hsane Hmfc Hmf_ok Hsound Hk Hd_h Hc_h Hpi_h Hlen_pos)
+                    Hinp Hsane Hmfc Hmf_ok Hsound Hk Hd_h Hc_h Hlen_pos)
         as (s1 & rs_k1 & Hsteps1 & Hnth_k1 & Hknow_h & Hex_w_0_h & Hiff1 & Hlo1).
       assert (Hsane1 : sane_state inputs s1) by eauto using steps_preserves_sane.
       assert (Hmfc1 : meta_facts_correct s1) by eauto using steps_preserves_mfs_correct.
@@ -3314,7 +3317,7 @@ Section __.
         cbv [mf_consistent_state]. destruct h0; auto.
         intros Hbi nf_args Hmatch. rewrite Hiff1. apply Hbi. exact Hmatch. }
       (* Recurse on hs *)
-      specialize (IH Hshape_hs s1 Hsane1 Hmfc1 Hmf_ok1 Hsound1 Hk1 Hd_hs_s1 Hc_hs_s1 Hpi_hs).
+      specialize (IH Hshape_hs s1 Hsane1 Hmfc1 Hmf_ok1 Hsound1 Hk1 Hd_hs_s1 Hc_hs_s1).
       destruct IH as (s' & rs_k' & Hsteps' & Hnth_k' & Hknow_hs & Hiff' & Hlo').
       assert (Hsane' : sane_state inputs s') by eauto using steps_preserves_sane.
       assert (Hsound' : state_correct inputs s') by eauto using comp_steps_sound.
@@ -4886,8 +4889,6 @@ Section __.
             apply Hsound. split.
             - rewrite Forall_forall in Hderived. apply Hderived. exact Hin.
             - rewrite Forall_forall in Hcons. apply Hcons. exact Hin. }
-          assert (Hpi_s' : Forall (prog_impl rules_of (knows_datalog_fact inputs)) hyps_facts)
-            by exact Hpi_hyps.
           (* mf_consistent_state at s' via correct_impl_consistent *)
           assert (Hc_s' : Forall (mf_consistent_state s') hyps_facts).
           { apply Forall_forall. intros h Hin.
@@ -4895,7 +4896,7 @@ Section __.
             - exact Hinp.
             - lia.
             - exact Hsound_s'.
-            - rewrite Forall_forall in Hpi_s'. apply Hpi_s'. exact Hin.
+            - rewrite Forall_forall in Hpi_hyps. apply Hpi_hyps. exact Hin.
             - rewrite Forall_forall in Hd_s'. apply Hd_s'. exact Hin. }
           (* Each hyp from interp_meta_clause is a meta_fact *)
           assert (Hshape_s' : Forall (fun h => exists R mf_args mf_set, h = meta_fact R mf_args mf_set) hyps_facts).
@@ -4910,7 +4911,7 @@ Section __.
               apply Forall2_length in Hforall2_meta_hyps. lia. }
           pose proof (flush_all_meta_hyps inputs s' n hyps_facts
                        Hinp Hsane_s' Hmfc_s' Hmf_ok_s' Hsound_s' Hn_lt_s' ltac:(lia)
-                       Hd_s' Hc_s' Hpi_s' Hshape_s')
+                       Hd_s' Hc_s' Hshape_s')
             as (s_after_flush & rs_n_pre_force & Hsteps_flush_only & Hnth_rs_n_pre_force
                 & Hknow_hyps_pre_force & Hiff_flush_only & _).
           assert (Hsane_s_after_flush : sane_state inputs s_after_flush) by eauto using steps_preserves_sane.
