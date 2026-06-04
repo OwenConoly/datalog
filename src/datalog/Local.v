@@ -54,7 +54,13 @@ Section __.
         (fun r => ok_to_deduce_fact r ss.(known_facts) f)
         p.(spec_node_rules).
 
-  Definition  (p : list rule) : spec_node_state -> spec_node_state -> Prop. Admitted.
+  Definition spec_input_fact ss f :=
+    {| known_facts := f :: ss.(known_facts);
+      sent_facts := ss.(sent_facts) |}.
+
+  Definition spec_output_fact ss f :=
+    {| known_facts := ss.(known_facts);
+      sent_facts := f :: ss.(sent_facts) |}.
 
   Record local_rel_info :=
     { num_inputs : nat;
@@ -75,8 +81,9 @@ Section __.
     { clause_rel : lrel;
       clause_inputs : list expr }.
 
-  Definition hyp_clause : Type :=
-    clause_key * hyp_clause_val.
+  Record hyp_clause : Type :=
+    { hc_key : clause_key;
+      hc_val : hyp_clause_val }.
 
   Inductive hyp_fact_val :=
   | outputs_fact (outputs : list T)
@@ -88,11 +95,13 @@ Section __.
     { fact_rel : lrel;
       fact_inputs : list T }.
 
-  Definition hyp_fact : Type :=
-    fact_key * hyp_fact_val.
+  Record hyp_fact : Type :=
+    { hf_key : fact_key;
+      hf_val : hyp_fact_val }.
 
-  Definition concl_clause : Type :=
-    clause_key * list expr.
+  Record concl_clause :=
+    { cc_key : clause_key;
+      cc_val : list expr }.
 
   Record local_rule :=
     { local_rule_concls : list concl_clause;
@@ -115,29 +124,21 @@ Section __.
   Context {outputs_set : map.map (list T) unit}.
   Context {agg_to_T : map.map aggregator T}.
 
-  Record inputs_data :=
+  Record val_data :=
     { msgs_received : nat;
       msgs_sent : nat;
       aggs : agg_to_T;
       outputs : outputs_set }.
 
-  Context {inputs_to_data : map.map (list T) inputs_data}.
-  Context {lrel_to_all_inputs_data : map.map lrel inputs_to_data}.
+  Context {map_factkey_valdata : map.map fact_key val_data}.
 
   Definition node_state :=
-    lrel_to_all_inputs_data.
-
-  Definition inputs_data_of (s : node_state) (k : fact_key) : option inputs_data :=
-    match map.get s k.(fact_rel) with
-    | Some inp_datas => map.get inp_datas k.(fact_inputs)
-    | None => None
-    end.
+    map_factkey_valdata.
 
   Definition knows_hyp_fact (s : node_state) (f : hyp_fact) :=
-    let (k, v) := f in
-    match inputs_data_of s k with
+    match map.get s f.(hf_key) with
     | Some inp_data =>
-        match v with
+        match f.(hf_val) with
         | outputs_fact output =>
             map.get inp_data.(outputs) output = Some tt
         | agg_fact agg val =>
@@ -168,58 +169,60 @@ Section __.
     end.
 
   Definition interp_hyp_clause (ctx : context) (cl : hyp_clause) (f : hyp_fact) :=
-    let (clk, clv) := cl in
-    let (fk, fv) := f in
-    interp_clause_key ctx clk fk /\ interp_hyp_clause_val ctx clv fv.
+    interp_clause_key ctx cl.(hc_key) f.(hf_key) /\
+      interp_hyp_clause_val ctx cl.(hc_val) f.(hf_val).
 
-  Definition receive_fact (s : node_state) (R : lrel) (inps outs : list T) :=
-    mupd s R (fun all_inps =>
-                mupd all_inps inps
-                  (fun inp_data =>
-                     {| msgs_received := S inp_data.(msgs_received);
-                       msgs_sent := inp_data.(msgs_sent);
-                       aggs := match map.get inp_data.(outputs) outs with
+  Record concl_fact :=
+    { cf_key : fact_key;
+      cf_val : list T }.
+
+  Definition receive_fact (s : node_state) (f : concl_fact) :=
+    mupd s f.(cf_key)
+               (fun val_data =>
+                     {| msgs_received := S val_data.(msgs_received);
+                       msgs_sent := val_data.(msgs_sent);
+                       aggs := match map.get val_data.(outputs) f.(cf_val) with
                                | Some tt =>
-                                   inp_data.(aggs)
+                                   val_data.(aggs)
                                | None =>
                                    map_values' (value' := T)
                                      (fun agg v =>
-                                        match outs with
+                                        match f.(cf_val) with
                                         | [i; x] =>
                                             agg_bop agg v x
                                         | _ => v
                                         end)
-                                     inp_data.(aggs)
+                                     val_data.(aggs)
                                end;
-                       outputs := map.put inp_data.(outputs) outs tt; |})).
+                       outputs := map.put val_data.(outputs) f.(cf_val) tt; |}).
 
-  Definition send_fact (s : node_state) (R : lrel) (inps outs : list T) :=
-    mupd s R (fun all_inps =>
-                mupd all_inps inps
-                  (fun inp_data =>
-                     {| msgs_received := inp_data.(msgs_received);
-                       msgs_sent := S inp_data.(msgs_sent);
-                       aggs := inp_data.(aggs) ;
-                       outputs := inp_data.(outputs); |})).
-
-  Definition concl_fact : Type :=
-    fact_key * list T.
+  Definition send_fact (s : node_state) (f : concl_fact) :=
+    mupd s f.(cf_key)
+               (fun val_data =>
+                  {| msgs_received := val_data.(msgs_received);
+                    msgs_sent := S val_data.(msgs_sent);
+                    aggs := val_data.(aggs) ;
+                    outputs := val_data.(outputs); |}).
 
   Definition interp_concl_clause ctx c f :=
-    let '(ck, cv) := c in
-    let '(fk, fv) := f in
-    interp_clause_key ctx ck fk /\ Forall2 (interp_expr ctx) cv fv.
+    interp_clause_key ctx c.(cc_key) f.(cf_key) /\
+      Forall2 (interp_expr ctx) c.(cc_val) f.(cf_val).
 
   Definition lrule_impl (s : node_state) (r : local_rule) (concl : concl_fact) (hyps : list hyp_fact) :=
     exists ctx,
       Exists (fun c => interp_concl_clause ctx c concl) r.(local_rule_concls) /\
         Forall2 (interp_hyp_clause ctx) r.(local_rule_hyps) hyps.
 
-  Definition can_deduce_fact (p : node_prog) (s : node_state) concl :=
+  Definition lcan_deduce_fact (p : node_prog) (s : node_state) concl :=
     exists r hyps,
       In r p.(rules) /\
         lrule_impl s r concl hyps /\
         Forall (knows_hyp_fact s) hyps.
+End __.
+Arguments concl_clause : clear implicits.
+Arguments hyp_clause : clear implicits.
+Arguments local_rule : clear implicits.
+Arguments clause_key : clear implicits.
 
   Definition localize_one (p : node_prog) (R : lrel) (args : list T) : option concl_fact :=
     match map.get p.(local_rels) R with
@@ -262,12 +265,6 @@ Section __.
   Definition learns_facts (p : node_prog) (s : node_state) new_facts :=
     forall f,
       In f new_facts <-> can_deduce_fact p s f.
-
-End __.
-Arguments concl_clause : clear implicits.
-Arguments hyp_clause : clear implicits.
-Arguments local_rule : clear implicits.
-Arguments clause_key : clear implicits.
 
 Section __.
   Context {rel var fn aggregator T : Type}.
