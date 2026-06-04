@@ -233,8 +233,6 @@ Section __.
             clrels
     | None => []
     end.
-
-  (*next step: handle the incongruity with whether we are sending meta facts and normal facts or just one type of fact.*)
 End __.
 Arguments concl_clause : clear implicits.
 Arguments hyp_clause : clear implicits.
@@ -249,7 +247,7 @@ Arguments hyp_clause_key : clear implicits.
   Fail Definition step (event : input_or_output) (s1 s2 : node_state) : Prop. Fail Admitted.
   (*theorem : for any sequence of input_or_output events, node state and spec state can deduce same facts.*)
 
-  Definition learns_facts (p : node_prog) (s : node_state) new_facts :=
+Fail Definition learns_facts (p : node_prog) (s : node_state) new_facts :=
     forall f,
       In f new_facts <-> can_deduce_fact p s f.
 
@@ -263,7 +261,6 @@ Section __.
   Local Notation clause := (clause rel var fn).
   Local Notation meta_clause := (meta_clause rel var fn).
   Local Notation fact := (fact rel T).
-  Local Notation expr := (expr var fn).
   Local Notation rule := (rule rel var fn aggregator).
   Local Notation non_meta_rule := (non_meta_rule rel var fn aggregator).
   Local Notation dfact := (dfact rel T).
@@ -275,45 +272,53 @@ Section __.
   Implicit Types mf_args : list (option T).
   Implicit Types nf_args : list T.
 
+  Variant low_rel :=
+    | normal_rel (rel_name : rel)
+    | done_receiving_rel (rel_name : rel) (to_keep : list bool)
+    | done_sending_rel (rel_name : rel) (to_keep : list bool).
+
   Variant lrel :=
-    | normal_rel (rel_name : rel) (rel_inputs : list bool)
-    | done_receiving_rel (rel_name : rel) (rel_inputs : list bool)
-    | done_sending_rel (rel_name : rel) (rel_inputs : list bool).
+    | normal_lrel (rel_name : rel) (rel_inputs : list bool)
+    | done_receiving_lrel (rel_name : rel) (to_keep : list bool)
+    | done_sending_lrel (rel_name : rel) (to_keep : list bool).
   Definition lvar : Type := var + nat.
-  Local Notation concl_clause := (concl_clause lrel lvar fn).
+  Local Notation concl_clause := (concl_clause low_rel lvar fn).
   Local Notation hyp_clause := (hyp_clause lrel lvar fn aggregator).
-  Local Notation local_rule := (local_rule lrel lvar fn aggregator).
-  Local Notation clause_key := (clause_key lrel lvar fn).
-  Definition lower_clause (c : clause) : clause_key :=
-    {| clause_rel := normal_rel c.(Datalog.clause_rel)
-                                    (map (fun _ => true) c.(Datalog.clause_args));
-      clause_inputs := map (expr_varmap inl) c.(Datalog.clause_args)
-    |}.
-  Search (option _ -> bool). About is_Some. About keep_Some. Check meta_clause_varmap.
+  Local Notation local_rule := (local_rule low_rel lrel lvar fn aggregator).
+  Local Notation clause_key := (hyp_clause_key lrel lvar fn).
+  Local Notation expr := (Datalog.expr lvar fn).
+
+  Definition lower_clause_hyp (c : clause) : hyp_clause :=
+    {| hc_key :=
+        {| clause_rel :=
+            normal_lrel c.(Datalog.clause_rel)
+                           (map (fun _ => true) c.(Datalog.clause_args));
+          clause_inputs := map (expr_varmap inl) c.(Datalog.clause_args) |};
+      hc_val := outputs_clause []; |}.
+  Definition lower_clause_concl (c : clause) : concl_clause :=
+    {| cc_rel := normal_rel c.(Datalog.clause_rel);
+      cc_args := map (expr_varmap inl) c.(Datalog.clause_args) |}.
   Definition lower_meta_clause_concl (c : meta_clause) : concl_clause :=
-    ({| clause_rel := done_sending_rel
-                        c.(Datalog.meta_clause_rel)
-                            (map is_Some c.(Datalog.meta_clause_args));
-       clause_inputs := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args));
-     |},
-      []).
-  Print hyp_clause_val.
+    {| cc_rel := done_sending_rel
+                   c.(Datalog.meta_clause_rel)
+                       (map is_Some c.(Datalog.meta_clause_args));
+      cc_args := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args)); |}.
   Definition lower_meta_clause_hyp (c : meta_clause) : hyp_clause :=
-    ({| clause_rel := done_receiving_rel
-                        c.(Datalog.meta_clause_rel)
-                            (map is_Some c.(Datalog.meta_clause_args));
-       clause_inputs := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args));
-     |},
-      outputs_clause []).
+    {| hc_key :=
+        {| clause_rel := done_receiving_lrel
+                           c.(Datalog.meta_clause_rel)
+                               (map is_Some c.(Datalog.meta_clause_args));
+          clause_inputs := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args)); |};
+      hc_val := outputs_clause [] |}.
   Axiom count : aggregator.
-  Print Operational.dfact.
 
   Print Local.concl_clause. Print clause_key. Print Local.hyp_clause_val.
+  Print Local.local_rule.
   Definition lower_rule (r : rule) : list local_rule :=
     match r with
     | normal_rule concls hyps =>
-        [{| local_rule_concls := map (fun x => (lower_clause x, [])) concls;
-           local_rule_hyps := map (fun x => (lower_clause x, outputs_clause [])) hyps |}]
+        [{| local_rule_concls := map lower_clause_concl concls;
+           local_rule_hyps := map lower_clause_hyp hyps |}]
     | meta_rule concls hyps =>
         [{| local_rule_concls := map lower_meta_clause_concl concls;
            local_rule_hyps := map lower_meta_clause_hyp hyps |}]
@@ -326,20 +331,21 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     | agg_rule target_rel agg source_rel =>
         (*source_rel(_, _, 2, ... 9) concl_rel(_, 2, ..., 9)
           assume source_rel is 10-ary.*)
+        let n := num_args source_rel in
         [{| local_rule_concls :=
-             [({| clause_rel := normal_rel target_rel (repeat true 9);
-                 clause_inputs := map var_expr (map inr (seq O 9)); |},
-                [])];
+             [{| cc_rel := normal_rel target_rel;
+                cc_args := map var_expr (map inr (seq O (n - 1))); |}];
            local_rule_hyps :=
-             [({| clause_rel := done_receiving_rel
-                                  source_rel
-                                  (false :: false :: repeat true 8);
-                 clause_inputs := map var_expr (map inr (seq 1 8)) |}, outputs_clause []);
-              ({| clause_rel := normal_rel
-                                  source_rel
-                                  (false :: false :: repeat true 8);
-                 clause_inputs := map var_expr (map inr (seq 1 8)) |},
-                agg_clause agg (inr O))];
+             [{| hc_key := {| clause_rel := done_receiving_lrel
+                                              source_rel
+                                              (false :: false :: repeat true (n - 2));
+                             clause_inputs := map var_expr (map inr (seq 1 (n - 2))) |};
+                hc_val := outputs_clause []; |};
+              {| hc_key := {| clause_rel := normal_lrel
+                                              source_rel
+                                              (false :: false :: repeat true 8);
+                             clause_inputs := map var_expr (map inr (seq 1 8)) |};
+                hc_val := agg_clause agg (inr O) |}];
          |}]
     (* target_rel(val, c, d) :- done_receiving(source_rel, [2, 3])(c, d),
                                 agg(source_rel, [2, 3])(c, d) = val
