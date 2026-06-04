@@ -71,10 +71,6 @@ Section __.
     list rule_state.
 
   Context (is_input : rel -> bool).
-  Context (p : prog).
-
-  Definition rules_of : list rule :=
-    map (fun '(c, h) => meta_rule c h) p.(meta_rules) ++ map rule_of p.(non_meta_rules).
 
   Definition stepOne {T} (do_step : T -> T -> Prop) : list T -> list T -> Prop :=
     fun start finish =>
@@ -97,12 +93,15 @@ Section __.
         s2.(waiting_facts) = l1 ++ l2 /\
         s2.(sent_facts) = s1.(sent_facts).
 
+  Section WithSenders.
+  Context (R_senders : rel -> list nat).
+
   Definition expect_num_R_facts R mf_args known_facts num :=
     if is_input R then
       In (meta_dfact R mf_args None num) known_facts
     else
       exists expected_msgss,
-        Forall2 (fun n expected_msgs => In (meta_dfact R mf_args (Some n) expected_msgs) known_facts) (seq O (length p.(non_meta_rules))) expected_msgss /\
+        Forall2 (fun n expected_msgs => In (meta_dfact R mf_args (Some n) expected_msgs) known_facts) (R_senders R) (* (seq O (length p.(non_meta_rules))) *) expected_msgss /\
           num = fold_left Nat.add expected_msgss O.
 
   Definition dfact_matches mf_rel mf_args nf :=
@@ -138,6 +137,8 @@ Section __.
   Definition ok_to_deduce_fact (r : rule) node known sent f :=
     match f with
     | normal_dfact nf_rel nf_args =>
+        (*TODO I think it would be more intuitive to put this under can_deduce_fact,
+          and just put True here.*)
         forall mf_args num,
           In (meta_dfact nf_rel mf_args (Some node) num) sent ->
           Forall2 matches mf_args nf_args ->
@@ -169,6 +170,8 @@ Section __.
           can_deduce_meta_fact mf_concls mf_hyps n rs.(sent_facts) (meta_dfact R mf_args (Some n) num) hyps /\
           Forall (knows_datalog_fact rs.(known_facts)) hyps /\
           (forall mf_set, ~In (meta_fact R mf_args mf_set) hyps).
+
+  Context (p : prog).
 
   Definition meta_facts_correct (s : state) :=
     Forall3 (fun r rs n =>
@@ -228,6 +231,9 @@ Section __.
   | Receive s1 inps1 new_fact :
     is_input_fact new_fact = true ->
     inp_step s1 inps1 (map (add_waiting_fact new_fact) s1) (new_fact :: inps1).
+
+  Definition rules_of : list rule :=
+    map (fun '(c, h) => meta_rule c h) p.(meta_rules) ++ map rule_of p.(non_meta_rules).
 
   Context (Hmeta_rules : meta_rules_valid rules_of).
 
