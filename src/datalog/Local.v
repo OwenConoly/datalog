@@ -34,6 +34,9 @@ Section __.
   Implicit Types nf_args : list T.
 
   Context (is_input : rel -> bool).
+  Context (senders : rel -> list nat).
+  Local Notation can_deduce_fact := (can_deduce_fact is_input senders).
+  Local Notation ok_to_deduce_fact := (ok_to_deduce_fact is_input senders).
 
   Record spec_node_state :=
     { known_facts : list dfact;
@@ -48,7 +51,7 @@ Section __.
       (fun r => can_deduce_fact r p.(spec_node_label) ss.(known_facts) ss.(sent_facts) f)
       p.(spec_node_rules) /\
       Forall
-        (fun r => ok_to_deduce_fact r p.(spec_node_label) ss.(known_facts) ss.(sent_facts) f)
+        (fun r => ok_to_deduce_fact r ss.(known_facts) f)
         p.(spec_node_rules).
 
   Definition  (p : list rule) : spec_node_state -> spec_node_state -> Prop. Admitted.
