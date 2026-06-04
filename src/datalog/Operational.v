@@ -93,7 +93,6 @@ Section __.
         s2.(waiting_facts) = l1 ++ l2 /\
         s2.(sent_facts) = s1.(sent_facts).
 
-  Section WithSenders.
   Context (R_senders : rel -> list nat).
 
   Definition expect_num_R_facts R mf_args known_facts num :=
@@ -101,7 +100,7 @@ Section __.
       In (meta_dfact R mf_args None num) known_facts
     else
       exists expected_msgss,
-        Forall2 (fun n expected_msgs => In (meta_dfact R mf_args (Some n) expected_msgs) known_facts) (R_senders R) (* (seq O (length p.(non_meta_rules))) *) expected_msgss /\
+        Forall2 (fun n expected_msgs => In (meta_dfact R mf_args (Some n) expected_msgs) known_facts) (R_senders R) expected_msgss /\
           num = fold_left Nat.add expected_msgss O.
 
   Definition dfact_matches mf_rel mf_args nf :=
@@ -134,15 +133,9 @@ Section __.
         Exists (fun c => interp_meta_clause ctx c (meta_fact mf_rel mf_args (fun _ => False))) mf_concls /\
         Forall2 (interp_meta_clause ctx) mf_hyps hyps.
 
-  Definition ok_to_deduce_fact (r : rule) node known sent f :=
+  Definition ok_to_deduce_fact (r : rule) known f :=
     match f with
-    | normal_dfact nf_rel nf_args =>
-        (*TODO I think it would be more intuitive to put this under can_deduce_fact,
-          and just put True here.*)
-        forall mf_args num,
-          In (meta_dfact nf_rel mf_args (Some node) num) sent ->
-          Forall2 matches mf_args nf_args ->
-          False
+    | normal_dfact nf_rel nf_args => True
     | meta_dfact mf_rel mf_args source num_msgs =>
         forall nf_args,
           can_deduce_normal_fact r known mf_rel nf_args ->
@@ -153,7 +146,11 @@ Section __.
   Definition can_deduce_fact (r : rule) node known sent f :=
     match f with
     | normal_dfact nf_rel nf_args =>
-        can_deduce_normal_fact r known nf_rel nf_args
+        can_deduce_normal_fact r known nf_rel nf_args /\
+          forall mf_args num,
+            In (meta_dfact nf_rel mf_args (Some node) num) sent ->
+            Forall2 matches mf_args nf_args ->
+            False
     | meta_dfact mf_rel mf_args source num_msgs =>
         source = Some node /\
           exists mr_concls mr_hyps hyps,
@@ -172,6 +169,7 @@ Section __.
           (forall mf_set, ~In (meta_fact R mf_args mf_set) hyps).
 
   Context (p : prog).
+  Context (R_senders_eq : forall R, R_senders R = seq O (length p.(non_meta_rules))).
 
   Definition meta_facts_correct (s : state) :=
     Forall3 (fun r rs n =>
