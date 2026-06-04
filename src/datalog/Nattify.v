@@ -52,6 +52,28 @@ Proof.
       f_equal. apply IH; assumption.
 Qed.
 
+Lemma find_index_In_lt {A} (eqb : A -> A -> bool)
+  `{Heqb : EqDecider eqb}
+  (xs : list A) (x : A) :
+  In x xs -> find_index eqb xs x < length xs.
+Proof.
+  induction xs as [|y ys IH]; simpl; [contradiction|].
+  intros Hin. destr (eqb x y); [apply Nat.lt_0_succ|].
+  apply -> Nat.succ_lt_mono. apply IH.
+  destruct Hin as [Heq|Hin]; [congruence|assumption].
+Qed.
+
+Lemma find_index_not_In_eq {A} (eqb : A -> A -> bool)
+  `{Heqb : EqDecider eqb}
+  (xs : list A) (x : A) :
+  ~ In x xs -> find_index eqb xs x = length xs.
+Proof.
+  induction xs as [|y ys IH]; simpl; [reflexivity|].
+  intros Hni. destr (eqb x y).
+  - exfalso. apply Hni. left. congruence.
+  - f_equal. apply IH. intros Hin. apply Hni. right. assumption.
+Qed.
+
 Lemma find_index_inj {A} (eqb : A -> A -> bool)
   `{Heqb : EqDecider eqb}
   (xs : list A) (x1 x2 : A) :
@@ -509,6 +531,24 @@ Section Nattify.
     Lemma nattify_fact_rel_of (t : nattify_tables) (f : fact rel T) :
       rel_of (nattify_fact t f) = encode_rel t (rel_of f).
     Proof. destruct f; reflexivity. Qed.
+
+    Lemma nattify_fact_eq_in_tbl (t : nattify_tables) (f1 f2 : fact rel T) :
+      nattify_fact t f1 = nattify_fact t f2 ->
+      In (rel_of f1) t.(tbl_rels) ->
+      In (rel_of f2) t.(tbl_rels).
+    Proof.
+      intros Heq Hin1.
+      assert (Henc : encode_rel t (rel_of f1) = encode_rel t (rel_of f2)).
+      { destruct f1, f2; simpl in *; try discriminate; injection Heq;
+          intros; assumption. }
+      destruct (Classical_Prop.classic (In (rel_of f2) t.(tbl_rels))) as [Hin|Hni];
+        [assumption|].
+      exfalso.
+      cbv [encode_rel] in Henc.
+      apply (find_index_In_lt rel_eqb) in Hin1.
+      apply (find_index_not_In_eq rel_eqb) in Hni.
+      rewrite Henc, Hni in Hin1. apply Nat.lt_irrefl in Hin1. assumption.
+    Qed.
 
     Lemma nattify_fact_inj (t : nattify_tables) (f1 f2 : fact rel T) :
       NoDup t.(tbl_rels) ->
@@ -1138,13 +1178,12 @@ Section Nattify.
       let t  := tables_of_prog p in
       let p' := fst (nattify_prog p) in
       In (rel_of f) t.(tbl_rels) ->
-      (forall f0, Q f0 -> In (rel_of f0) t.(tbl_rels)) ->
       (prog_impl p Q f <->
        prog_impl p'
          (fun fnat => exists f0, fnat = nattify_fact t f0 /\ Q f0)
          (nattify_fact t f)).
     Proof.
-      intros t p' Hf_in HQ_supp.
+      intros t p' Hf_in.
       split.
       - (* forward *)
         intros Hprog. clear Hf_in. revert f Hprog.
@@ -1160,12 +1199,12 @@ Section Nattify.
             assert (Hin_f : In (rel_of f0) t.(tbl_rels)).
             { apply rule_impl_concl_relname_in in Hrimpl.
               apply concl_rels_in_rels_of_rule in Hrimpl.
-              subst t. cbv [tables_of_prog tbl_rels].
-              apply dedup_In; [exact rel_eqb_spec|].
-              cbv [rels_of_prog]. apply in_flat_map. eauto. }
+              apply (rels_of_rule_in_tbl p r Hrin). assumption. }
             assert (Hin_hyps : Forall (fun h => In (rel_of h) t.(tbl_rels)) hyps).
-            { rewrite Forall_forall in HFprog |- *. intros h Hh.
-              eapply prog_impl_rel_in_table; eauto. }
+            { apply rule_impl_hyp_relname_in in Hrimpl as Hhrels.
+              rewrite Forall_forall in Hhrels |- *. intros h Hh.
+              apply (rels_of_rule_in_tbl p r Hrin).
+              apply hyp_rels_incl_rels_of_rule. apply Hhrels. assumption. }
             apply Exists_exists. exists (nattify_rule t r). split.
             { subst p'. cbv [nattify_prog]. simpl.
               apply in_map_iff. eexists. split; [reflexivity|]. assumption. }
@@ -1194,7 +1233,8 @@ Section Nattify.
           - (* base *)
             intros f1 HQnat f0 Heqf Hf0_in.
             destruct HQnat as [f2 [Hf2eq HQ2]].
-            assert (Hf2_in : In (rel_of f2) t.(tbl_rels)) by (apply HQ_supp; assumption).
+            assert (Hf2_in : In (rel_of f2) t.(tbl_rels)).
+            { eapply nattify_fact_eq_in_tbl; [|exact Hf0_in]. congruence. }
             assert (f0 = f2).
             { apply (nattify_fact_inj t f0 f2 Hnd_r Hf0_in Hf2_in). congruence. }
             subst f2. apply prog_impl_leaf. assumption.
