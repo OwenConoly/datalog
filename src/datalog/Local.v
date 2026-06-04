@@ -179,6 +179,8 @@ Section __.
     { lf_key : fact_key;
       lf_value : list T }.
 
+  (*TODO mupd should take as argument a default value, and it should be used here.*)
+
   Definition receive_fact (s : node_state) (f : local_fact) :=
     mupd s f.(lf_key)
       (fun val_data =>
@@ -204,7 +206,7 @@ Section __.
       (fun val_data =>
          {| msgs_received := val_data.(msgs_received);
            msgs_sent := S val_data.(msgs_sent);
-           aggs := val_data.(aggs) ;
+           aggs := val_data.(aggs);
            outputs := val_data.(outputs); |}).
 
   Definition interp_concl_clause ctx c f :=
@@ -238,11 +240,7 @@ Arguments concl_clause : clear implicits.
 Arguments hyp_clause : clear implicits.
 Arguments local_rule : clear implicits.
 Arguments hyp_clause_key : clear implicits.
-
-  Fail Definition corresp (p : node_prog) (ss : spec_node_state) (s : node_state) :=
-    forall fk,
-      (forall outs,
-          knows_hyp_fact s (fk, outputs_fact outs) <-> In (globalize p (fk, outs)) ss.(known_facts)).
+Arguments concl_fact : clear implicits.
 
   Fail Definition step (event : input_or_output) (s1 s2 : node_state) : Prop. Fail Admitted.
   (*theorem : for any sequence of input_or_output events, node state and spec state can deduce same facts.*)
@@ -287,6 +285,7 @@ Section __.
   Local Notation local_rule := (local_rule low_rel lrel lvar fn aggregator).
   Local Notation clause_key := (hyp_clause_key lrel lvar fn).
   Local Notation expr := (Datalog.expr lvar fn).
+  Local Notation concl_fact := (concl_fact rel T).
 
   Definition lower_clause_hyp (c : clause) : hyp_clause :=
     {| hc_key :=
@@ -350,4 +349,21 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     (* target_rel(val, c, d) :- done_receiving(source_rel, [2, 3])(c, d),
                                 agg(source_rel, [2, 3])(c, d) = val
      *)
+    end.
+
+  Print Operational.dfact. Print low_rel. Print concl_fact.
+  Print meta_dfact.
+  Definition corresp (p : node_prog) (ss : spec_node_state) (s : node_state) :=
+    forall fk,
+      (forall outs,
+          knows_hyp_fact s (fk, outputs_fact outs) <->
+            In (globalize p (fk, outs)) ss.(known_facts)).
+
+
+  Definition lower_dfact (f : dfact) : concl_fact :=
+    match f with
+    | normal_dfact R args =>
+        {| cf_rel := R; cf_args := args |}
+    | meta_dfact R args source num =>
+        {| cf_rel := R;
     end.
