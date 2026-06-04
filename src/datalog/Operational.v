@@ -179,7 +179,7 @@ Section __.
   Definition meta_facts_ok_at_rule n rs r :=
     forall mf_rel mf_args num,
       In (meta_dfact mf_rel mf_args (Some n) num) rs.(sent_facts) ->
-      ok_to_deduce_fact (rule_of r) n rs.(known_facts) rs.(sent_facts)
+      ok_to_deduce_fact (rule_of r) rs.(known_facts)
         (meta_dfact mf_rel mf_args (Some n) num).
 
   Definition meta_facts_ok (s : state) :=
@@ -211,7 +211,7 @@ Section __.
                      exists fired_rule,
                        can_fire_rule_at r fired_rule /\
                          can_deduce_fact fired_rule n rs.(known_facts) rs.(sent_facts) new_fact /\
-                         ok_to_deduce_fact (rule_of r) n rs.(known_facts) rs.(sent_facts) new_fact /\
+                         ok_to_deduce_fact (rule_of r) rs.(known_facts) new_fact /\
                          rs' = send_fact new_fact rs)
       (combine p.(non_meta_rules) (seq O (length s1))) s1 s2 ->
     comp_step s1 (map (add_waiting_fact new_fact) s2).
@@ -611,8 +611,8 @@ Section __.
         apply in_combine_l in Hin_outer. exact Hin_outer. }
       destruct new_fact as [nf_rel nf_args | mf_rel mf_args new_source num_msgs].
       { (* fire_rule with a normal_dfact *)
-        cbv [can_deduce_fact] in Hcan_f. rename Hcan_f into Hcan.
-        cbv [ok_to_deduce_fact] in Hok_f. rename Hok_f into Hnometa.
+        cbv [can_deduce_fact] in Hcan_f. destruct Hcan_f as (Hcan & Hnometa).
+        clear Hok_f.
         assert (Hfr_eq : fired_rule = rule_of r).
         { destruct Hcan as (hyps & Himpl & _).
           destruct Hcfr as [-> | (mc & mh & _ & ->)]; [reflexivity|invert Himpl]. }
@@ -1005,6 +1005,7 @@ Section __.
           simpl in Hrel. congruence. }
         symmetry. eapply Existsn_unique; eassumption. }
       subst num_inp.
+      rewrite R_senders_eq in Hexpp0.
       assert (Hms_eq : msgs_sents = expected_msgss).
       { apply nth_error_ext. intros k.
         pose proof (Forall2_length Hcountp0) as Hlen_ms.
@@ -1188,8 +1189,8 @@ Section __.
       rewrite ! length_map in Hpre. rewrite ! length_map in Hmid. rewrite ! length_map in Hpost.
       destruct new_fact as [nf_rel nf_args | new_mfr new_mfa new_source new_mfc].
       { (* fire_rule with normal_dfact *)
-        cbv [can_deduce_fact] in Hcan_f. rename Hcan_f into Hcan.
-        cbv [ok_to_deduce_fact] in Hok_f. rename Hok_f into Hnometa.
+        cbv [can_deduce_fact] in Hcan_f. destruct Hcan_f as (Hcan & Hnometa).
+        clear Hok_f.
         rewrite Hnmrs, map_app. cbn [map].
         apply Forall3_seq_app_middle.
         + rewrite ! length_map. apply Forall3_map2.
@@ -1291,6 +1292,7 @@ Section __.
             destruct Hkdf_self as (num_self & Hexp_self & _ & _).
             cbv [expect_num_R_facts] in Hexp_self. rewrite HNI_R in Hexp_self.
             destruct Hexp_self as (expected_msgss & Hf2 & _).
+            rewrite R_senders_eq in Hf2.
             pose proof (Forall2_length Hf2) as Hlen_msgs. rewrite length_seq in Hlen_msgs.
             assert (Hlen_lt2 : length l1 < length p.(non_meta_rules)).
             { rewrite Hs_eq, length_app, ! length_map in Hlen.
@@ -1437,6 +1439,7 @@ Section __.
       + exists num. cbv [knows_dfact]. apply Exists_exists.
         exists rs. split; [exact Hin|]. left. exact Hsat.
       + intros k Hk. destruct Hsat as (msgss & Hf2 & _).
+        rewrite R_senders_eq in Hf2.
         pose proof (Forall2_length Hf2) as Hlen_msgs. rewrite length_seq in Hlen_msgs.
         assert (Hk_seq : nth_error (seq 0 (length p.(non_meta_rules))) k = Some k).
         { rewrite nth_error_seq.
@@ -1567,6 +1570,7 @@ Section __.
              ++ destruct Hin_rel as [Hrel_eq|[]]. subst cr. simpl in Hp_input.
                 congruence.
         * destruct Hexp as (msgss & Hf2_msgs & _).
+          rewrite R_senders_eq in Hf2_msgs.
           pose proof (Forall2_length Hf2_msgs) as Hlen_msgs.
           rewrite length_seq in Hlen_msgs.
           assert (H0_seq : nth_error (seq 0 (length p.(non_meta_rules))) 0 = Some 0).
@@ -1962,12 +1966,12 @@ Section __.
       destruct new_fact as [nf_rel nf_args | new_mfr new_mfa new_source new_mfc].
       { (* fire_rule with normal_dfact: new fact F = normal_dfact nf_rel nf_args *)
       set (F := normal_dfact nf_rel nf_args) in *.
-      cbv [can_deduce_fact] in Hcan_f.
+      cbv [can_deduce_fact] in Hcan_f. destruct Hcan_f as (Hded & Hno_sent).
+      clear Hok_f.
       assert (Hfr_eq : fired_rule = rule_of r_fire).
       { destruct Hcfr as [-> | (mc & mh & _ & ->)]; [reflexivity|].
-        destruct Hcan_f as (hyps & Hnmri & _). invert Hnmri. }
-      subst fired_rule. rename Hcan_f into Hded.
-      cbv [ok_to_deduce_fact] in Hok_f. rename Hok_f into Hno_sent.
+        destruct Hded as (hyps & Hnmri & _). invert Hnmri. }
+      subst fired_rule.
       assert (Hlen_s : length s = length p.(non_meta_rules))
         by (destruct Hsane as (H0&_); exact H0).
       assert (Hlc : length (combine (non_meta_rules p) (seq 0 (length s))) = length s).
@@ -2314,6 +2318,7 @@ Section __.
                 intros HQ. simpl in HQ. destruct HQ as (num & Hexp & _ & _).
                 cbv [expect_num_R_facts] in Hexp. rewrite HER in Hexp.
                 destruct Hexp as (msgss & Hf2_msgs & _).
+                rewrite R_senders_eq in Hf2_msgs.
                 pose proof (Forall2_length Hf2_msgs) as Hlen_msgs.
                 rewrite length_seq in Hlen_msgs.
                 assert (Hlen_pos : 0 < length p.(non_meta_rules)).
@@ -2691,6 +2696,7 @@ Section __.
       + exists num. apply Hinp_prop. exact Hexp.
       + intros k Hk.
         destruct Hexp as (msgss & Hf2 & Hnum_eq).
+        rewrite R_senders_eq in Hf2.
         pose proof (Forall2_length Hf2) as Hlen_eq.
         rewrite length_seq in Hlen_eq.
         assert (Hk_seq : nth_error (seq 0 (length p.(non_meta_rules))) k = Some k).
@@ -2782,7 +2788,7 @@ Section __.
         as (s' & rs_k & Hsteps & Hnth & Hin_dfs & Hiff & Hlo).
       exists s', rs_k, (fold_left Nat.add nums 0). ssplit; auto.
       cbv [expect_num_R_facts]. rewrite Hinp_rel.
-      exists nums. split; [|reflexivity].
+      exists nums. rewrite R_senders_eq. split; [|reflexivity].
       apply Forall2_nth_error_bwd; [rewrite length_seq; lia|].
       intros i k_src num Hi_seq Hi_nums.
       rewrite Forall_forall in Hin_dfs.
@@ -3150,6 +3156,7 @@ Section __.
            case it returns fold_left of internal nums. Let me extract via Hexp_int. *)
         cbv [expect_num_R_facts] in Hexp_int. rewrite Hinp_rel in Hexp_int.
         destruct Hexp_int as (nums_int & HF2_int & Hnum_meta_eq).
+        rewrite R_senders_eq in HF2_int.
         (* HF2_int: Forall2 ... rs_k_int.known each (Some n) nums_int[n].
            Show msgs_sents = nums_int via knows_dfact transitivity. *)
         assert (Hmsgs_eq : Forall2 eq msgs_sents nums_int).
@@ -3408,6 +3415,7 @@ Section __.
                 subst num_inp_actual. simpl in Hsum.
                 cbv [expect_num_R_facts] in Hexp_h. rewrite Hinp_R_h in Hexp_h.
                 destruct Hexp_h as (nums_h & HF2_h & Hnum_h_eq).
+                rewrite R_senders_eq in HF2_h.
                 (* Show msgs_sents = nums_h: at each position, In meta_dfact ... (Some i) num_i
                    from HF2_h lifted to rs_k', then via Hmf_sent' get Existsn at index i *)
                 assert (Hmsgs_eq : Forall2 eq msgs_sents nums_h).
@@ -3647,8 +3655,8 @@ Section __.
       { unfold s_post_send. rewrite Hl1_snd, Hl2_snd. reflexivity. }
       exists (rule_of rn). ssplit.
       { left. reflexivity. }
-      { exact Hcdn. }
-      { exact Hno_conflict. }
+      { simpl. split; [exact Hcdn|exact Hno_conflict]. }
+      { exact I. }
       { reflexivity. } }
     (* Step 4: apply learn_fact_path to flush F into rs's known at position n. *)
     assert (Hsane_fire : sane_state inputs s_fire)
@@ -3719,7 +3727,7 @@ Section __.
     exists s' rs',
       comp_step^* s s' /\
       nth_error s' n = Some rs' /\
-      ok_to_deduce_fact (rule_of rn) n rs'.(known_facts) rs'.(sent_facts)
+      ok_to_deduce_fact (rule_of rn) rs'.(known_facts)
         (meta_dfact R_concl args_concl (Some n) 0) /\
       Forall (knows_datalog_fact rs'.(known_facts)) hyps.
   Proof.
@@ -4206,9 +4214,11 @@ Section __.
              { unfold s2. rewrite Hl1_snd, Hl2_snd. reflexivity. }
              exists (rule_of nmr). ssplit.
              { left. reflexivity. }
-             { exact Hcdn. }
-             { intros mf_args num Hin_meta Hmatch.
-               apply Hno_conflict. exists mf_args, num. auto. }
+             { simpl. split.
+               - exact Hcdn.
+               - intros mf_args num Hin_meta Hmatch.
+                 apply Hno_conflict. exists mf_args, num. auto. }
+             { exact I. }
              { reflexivity. }
           -- simpl. cbv [knows_dfact]. apply Exists_exists.
              eexists. split.
@@ -4474,9 +4484,11 @@ Section __.
                 { unfold s2. rewrite Hl1_snd, Hl2_snd. reflexivity. }
                 exists (rule_of nmr). ssplit.
                 { left. reflexivity. }
-                { exact Hcdn. }
-                { intros mf_args' num Hin_meta Hmatch.
-                  apply Hno_conflict. exists mf_args', num. auto. }
+                { simpl. split.
+                  - exact Hcdn.
+                  - intros mf_args' num Hin_meta Hmatch.
+                    apply Hno_conflict. exists mf_args', num. auto. }
+                { exact I. }
                 { reflexivity. }
              ++ simpl. cbv [knows_dfact]. apply Exists_exists.
                 eexists. split.
@@ -4543,7 +4555,7 @@ Section __.
                 exists (fold_left Nat.add nums 0). ssplit.
                 * (* expect_num_R_facts: Forall2 ... In meta_dfact ... rs_k.known per source *)
                   cbv [expect_num_R_facts]. rewrite Hhr_inp.
-                  exists nums. split; [|reflexivity].
+                  exists nums. rewrite R_senders_eq. split; [|reflexivity].
                   (* meta_dfs (all flushed) at each source; show via Forall2_nth_error_bwd *)
                   apply Forall2_nth_error_bwd; [rewrite length_seq; lia|].
                   intros i k_src num_i Hi_seq Hi_nums.
@@ -4762,9 +4774,11 @@ Section __.
                 { unfold s2. rewrite Hl1_snd, Hl2_snd. reflexivity. }
                 exists (rule_of nmr). ssplit.
                 { left. reflexivity. }
-                { exact Hcdn. }
-                { intros mf_args' num_c Hin_meta Hmatch.
-                  apply Hno_conflict. exists mf_args', num_c. auto. }
+                { simpl. split.
+                  - exact Hcdn.
+                  - intros mf_args' num_c Hin_meta Hmatch.
+                    apply Hno_conflict. exists mf_args', num_c. auto. }
+                { exact I. }
                 { reflexivity. }
              ++ simpl. cbv [knows_dfact]. apply Exists_exists.
                 eexists. split.
