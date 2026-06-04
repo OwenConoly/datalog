@@ -272,6 +272,9 @@ Section __.
 
   Variant low_rel :=
     | normal_rel (rel_name : rel)
+    | done_receiving_from (rel_name : rel) (to_keep : list bool)
+    (*above is like below, except it comes with two extra arguments:
+      which source did we receive it from, and how many did we receive*)
     | done_receiving_rel (rel_name : rel) (to_keep : list bool)
     | done_sending_rel (rel_name : rel) (to_keep : list bool).
 
@@ -285,7 +288,7 @@ Section __.
   Local Notation local_rule := (local_rule low_rel lrel lvar fn aggregator).
   Local Notation clause_key := (hyp_clause_key lrel lvar fn).
   Local Notation expr := (Datalog.expr lvar fn).
-  Local Notation concl_fact := (concl_fact rel T).
+  Local Notation concl_fact := (concl_fact low_rel T).
 
   Definition lower_clause_hyp (c : clause) : hyp_clause :=
     {| hc_key :=
@@ -351,19 +354,19 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
      *)
     end.
 
-  Print Operational.dfact. Print low_rel. Print concl_fact.
-  Print meta_dfact.
-  Definition corresp (p : node_prog) (ss : spec_node_state) (s : node_state) :=
-    forall fk,
-      (forall outs,
-          knows_hyp_fact s (fk, outputs_fact outs) <->
-            In (globalize p (fk, outs)) ss.(known_facts)).
-
-
   Definition lower_dfact (f : dfact) : concl_fact :=
     match f with
     | normal_dfact R args =>
-        {| cf_rel := R; cf_args := args |}
+        {| cf_rel := normal_rel R; cf_args := args |}
     | meta_dfact R args source num =>
-        {| cf_rel := R;
+        {| cf_rel := done_receiving_from R (map is_Some args);
+          cf_args := keep_Some args |}
     end.
+
+  Fail Definition hyp_fact_of (f : concl_fact) : hyp_fact.
+
+  Fail Definition corresp (p : node_prog) (ss : spec_node_state) (s : node_state) :=
+    forall f,
+      (forall outs,
+          knows_hyp_fact s (hyp_fact_of (lower_dfact f)) <->
+            In f ss.(known_facts)).
