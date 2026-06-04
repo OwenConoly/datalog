@@ -77,12 +77,12 @@ Section __.
   | received_clause (num : var)
   | sent_clause (num : var).
 
-  Record clause_key :=
+  Record hyp_clause_key :=
     { clause_rel : lrel;
       clause_inputs : list expr }.
 
   Record hyp_clause : Type :=
-    { hc_key : clause_key;
+    { hc_key : hyp_clause_key;
       hc_val : hyp_clause_val }.
 
   Inductive hyp_fact_val :=
@@ -100,24 +100,23 @@ Section __.
       hf_val : hyp_fact_val }.
 
   Record concl_clause :=
-    { cc_key : clause_key;
-      cc_val : list expr }.
+    { cc_rel : rel;
+      cc_args : list expr }.
 
   Record local_rule :=
     { local_rule_concls : list concl_clause;
       local_rule_hyps : list hyp_clause }.
 
-  Record rel_corresp :=
-    { the_rel : rel;
-      indices : list nat }.
+  Record corresponding_lrel :=
+    { corresp_lrel : lrel;
+      corresp_inputs : list nat;
+      corresp_outputs : list nat;
+    }.
 
-  Context {lrel_to_rel_corresp : map.map lrel rel_corresp} {lrel_to_rel_ok : map.ok lrel_to_rel_corresp}.
+  Context {rel_to_lrel : map.map rel (list corresponding_lrel)} {rel_to_lrel_ok : map.ok rel_to_lrel}.
 
   Record node_prog :=
-    {
-      (*we could have separate relname correspondences for input facts and output
-        facts, but i don't see any reason to do that for now.*)
-      rel_corresps : lrel_to_rel_corresp;
+    { local_forwarding_table : rel_to_lrel;
       local_rels : local_rels_info;
       rules : list local_rule }.
 
@@ -173,40 +172,44 @@ Section __.
       interp_hyp_clause_val ctx cl.(hc_val) f.(hf_val).
 
   Record concl_fact :=
-    { cf_key : fact_key;
-      cf_val : list T }.
+    { cf_rel : rel;
+      cf_args : list T }.
 
-  Definition receive_fact (s : node_state) (f : concl_fact) :=
-    mupd s f.(cf_key)
-               (fun val_data =>
-                     {| msgs_received := S val_data.(msgs_received);
-                       msgs_sent := val_data.(msgs_sent);
-                       aggs := match map.get val_data.(outputs) f.(cf_val) with
-                               | Some tt =>
-                                   val_data.(aggs)
-                               | None =>
-                                   map_values' (value' := T)
-                                     (fun agg v =>
-                                        match f.(cf_val) with
-                                        | [i; x] =>
-                                            agg_bop agg v x
-                                        | _ => v
-                                        end)
-                                     val_data.(aggs)
-                               end;
-                       outputs := map.put val_data.(outputs) f.(cf_val) tt; |}).
+  Record local_fact :=
+    { lf_key : fact_key;
+      lf_value : list T }.
 
-  Definition send_fact (s : node_state) (f : concl_fact) :=
-    mupd s f.(cf_key)
-               (fun val_data =>
-                  {| msgs_received := val_data.(msgs_received);
-                    msgs_sent := S val_data.(msgs_sent);
-                    aggs := val_data.(aggs) ;
-                    outputs := val_data.(outputs); |}).
+  Definition receive_fact (s : node_state) (f : local_fact) :=
+    mupd s f.(lf_key)
+      (fun val_data =>
+         {| msgs_received := S val_data.(msgs_received);
+           msgs_sent := val_data.(msgs_sent);
+           aggs := match map.get val_data.(outputs) f.(lf_value) with
+                   | Some tt =>
+                       val_data.(aggs)
+                   | None =>
+                       map_values' (value' := T)
+                         (fun agg v =>
+                            match f.(lf_value) with
+                            | [i; x] =>
+                                agg_bop agg v x
+                            | _ => v
+                            end)
+                         val_data.(aggs)
+                   end;
+           outputs := map.put val_data.(outputs) f.(lf_value) tt; |}).
+
+  Definition send_fact (s : node_state) (f : local_fact) :=
+    mupd s f.(lf_key)
+      (fun val_data =>
+         {| msgs_received := val_data.(msgs_received);
+           msgs_sent := S val_data.(msgs_sent);
+           aggs := val_data.(aggs) ;
+           outputs := val_data.(outputs); |}).
 
   Definition interp_concl_clause ctx c f :=
-    interp_clause_key ctx c.(cc_key) f.(cf_key) /\
-      Forall2 (interp_expr ctx) c.(cc_val) f.(cf_val).
+    c.(cc_rel) = f.(cf_rel) /\
+      Forall2 (interp_expr ctx) c.(cc_args) f.(cf_args).
 
   Definition lrule_impl (s : node_state) (r : local_rule) (concl : concl_fact) (hyps : list hyp_fact) :=
     exists ctx,
@@ -218,46 +221,30 @@ Section __.
       In r p.(rules) /\
         lrule_impl s r concl hyps /\
         Forall (knows_hyp_fact s) hyps.
+
+  Definition locally_forward (p : node_prog) (f : concl_fact) : list local_fact :=
+    match map.get p.(local_forwarding_table) f.(cf_rel) with
+    | Some clrels =>
+        map (fun clrel =>
+               {| lf_key :=
+                   {| fact_rel := clrel.(corresp_lrel);
+                     fact_inputs := apply_permutation clrel.(corresp_inputs) f.(cf_args) |};
+                 lf_value := apply_permutation clrel.(corresp_outputs) f.(cf_args) |})
+            clrels
+    | None => []
+    end.
+
+  (*next step: handle the incongruity with whether we are sending meta facts and normal facts or just one type of fact.*)
 End __.
 Arguments concl_clause : clear implicits.
 Arguments hyp_clause : clear implicits.
 Arguments local_rule : clear implicits.
-Arguments clause_key : clear implicits.
-
-  Definition localize_one (p : node_prog) (R : lrel) (args : list T) : option concl_fact :=
-    match map.get p.(local_rels) R with
-    | Some rinfo =>
-        Some ({| fact_rel := R;
-                fact_inputs := firstn rinfo.(num_inputs) args |},
-            skipn rinfo.(num_inputs) args)
-    | None => None
-    end.
-
-  Definition localize (p : node_prog) (f : dfact) : option (list concl_fact) :=
-    match f with
-    | normal_dfact R args =>
-        option_all (map (fun '(lR, rc) =>
-                           let args' := apply_permutation rc.(indices) args in
-                           localize_one p lR args')
-                      (map.tuples p.(rel_corresps)))
-    | meta_dfact _ _ _ _ => None
-    end.
-
-  Definition globalize (p : node_prog) (f : concl_fact) : option dfact :=
-    let (fk, fv) := f in
-    match map.get p.(rel_corresps) fk.(fact_rel) with
-    | Some rc =>
-        Some (normal_dfact rc.(the_rel) (apply_permutation (invert_permutation rc.(indices)) (fk.(fact_inputs) ++ fv)))
-    | _ =>
-        None
-    end.
+Arguments hyp_clause_key : clear implicits.
 
   Fail Definition corresp (p : node_prog) (ss : spec_node_state) (s : node_state) :=
     forall fk,
       (forall outs,
           knows_hyp_fact s (fk, outputs_fact outs) <-> In (globalize p (fk, outs)) ss.(known_facts)).
-
-
 
   Fail Definition step (event : input_or_output) (s1 s2 : node_state) : Prop. Fail Admitted.
   (*theorem : for any sequence of input_or_output events, node state and spec state can deduce same facts.*)
