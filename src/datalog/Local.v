@@ -33,16 +33,25 @@ Section __.
   Implicit Types mf_args : list (option T).
   Implicit Types nf_args : list T.
 
+  Context (is_input : rel -> bool).
+
   Record spec_node_state :=
     { known_facts : list dfact;
       sent_facts : list dfact }.
 
-  Definition spec_node_prog :=
-    list rule.
+  Record spec_node_prog :=
+    { spec_node_rules : list rule;
+      spec_node_label : nat }.
 
+  Definition new_facts (p : spec_node_prog) (ss : spec_node_state) f :=
+    Exists
+      (fun r => can_deduce_fact r p.(spec_node_label) ss.(known_facts) ss.(sent_facts) f)
+      p.(spec_node_rules) /\
+      Forall
+        (fun r => ok_to_deduce_fact r p.(spec_node_label) ss.(known_facts) ss.(sent_facts) f)
+        p.(spec_node_rules).
 
-
-  Definition spec_node_step (p : list rule) : spec_node_state -> spec_node_state -> Prop. Admitted.
+  Definition  (p : list rule) : spec_node_state -> spec_node_state -> Prop. Admitted.
 
   Record local_rel_info :=
     { num_inputs : nat;
