@@ -12,7 +12,7 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 Import ListNotations.
 
 Section __.
-  Context {rel lrel var fn aggregator T : Type}.
+  Context {rel var fn aggregator T : Type}.
   Context `{sig : signature fn aggregator T}.
   Context {T_eqb : T -> T -> bool}.
   Context {context : map.map var T} {context_ok : map.ok context}.
@@ -62,14 +62,16 @@ Section __.
     {| known_facts := ss.(known_facts);
       sent_facts := f :: ss.(sent_facts) |}.
 
-  Record local_rel_info :=
-    { num_inputs : nat;
-      num_outputs : nat;
+  (*for each relation, store a list of index structures---that is, key-value pairs, with information about what to store about each key.*)
+  Record view :=
+    { (*key_idxs ++ value_idxs should be (a prefix of?) a pemutation of (seq 0 arity)*)
+      key_idxs : list nat;
+      value_idxs : list nat;
       track_sent : bool;
       track_received : bool;
       agg_ops : list aggregator; }.
 
-  Context {local_rels_info : map.map lrel local_rel_info} {local_rels_info_ok : map.ok local_rels_info}.
+  Context {rel_views : map.map rel (list view)}.
 
   Inductive hyp_clause_val :=
   | outputs_clause (outputs : list expr)
@@ -77,11 +79,16 @@ Section __.
   | received_clause (num : var)
   | sent_clause (num : var).
 
-  Record hyp_clause_key :=
-    { clause_rel : lrel;
-      clause_inputs : list expr }.
+  Record hyp_rel :=
+    { hr_rel : rel;
+      hr_key_idxs : list nat;
+      hr_val_idxs : list nat; }.
 
-  Record hyp_clause : Type :=
+  Record hyp_clause_key :=
+    { hc_rel : hyp_rel;
+      hc_key_args : list expr; }.
+
+  Record hyp_clause :=
     { hc_key : hyp_clause_key;
       hc_val : hyp_clause_val }.
 
@@ -91,12 +98,12 @@ Section __.
   | received_fact (num : nat)
   | sent_fact (num : nat).
 
-  Record fact_key :=
-    { fact_rel : lrel;
-      fact_inputs : list T }.
+  Record hyp_fact_key :=
+    { hf_rel : hyp_rel;
+      hf_key_args : list T; }.
 
-  Record hyp_fact : Type :=
-    { hf_key : fact_key;
+  Record hyp_fact :=
+    { hf_key : hyp_fact_key;
       hf_val : hyp_fact_val }.
 
   Record concl_clause :=
@@ -107,18 +114,9 @@ Section __.
     { local_rule_concls : list concl_clause;
       local_rule_hyps : list hyp_clause }.
 
-  Record corresponding_lrel :=
-    { corresp_lrel : lrel;
-      corresp_inputs : list nat;
-      corresp_outputs : list nat;
-    }.
-
-  Context {rel_to_lrel : map.map rel (list corresponding_lrel)} {rel_to_lrel_ok : map.ok rel_to_lrel}.
-
   Record node_prog :=
-    { local_forwarding_table : rel_to_lrel;
-      local_rels : local_rels_info;
-      rules : list local_rule }.
+    { n_relviews : rel_views;
+      n_rules : list local_rule }.
 
   Context {outputs_set : map.map (list T) unit}.
   Context {agg_to_T : map.map aggregator T}.
@@ -129,10 +127,9 @@ Section __.
       aggs : agg_to_T;
       outputs : outputs_set }.
 
-  Context {map_factkey_valdata : map.map fact_key val_data}.
+  Context {rels_data : map.map hyp_fact_key val_data}.
 
-  Definition node_state :=
-    map_factkey_valdata.
+  Definition node_state := rels_data.
 
   Definition knows_hyp_fact (s : node_state) (f : hyp_fact) :=
     match map.get s f.(hf_key) with
@@ -150,9 +147,10 @@ Section __.
     | None => False
     end.
 
-  Definition interp_clause_key ctx clk fk :=
-    clk.(clause_rel) = fk.(fact_rel) /\
-      Forall2 (interp_expr ctx) clk.(clause_inputs) fk.(fact_inputs).
+  Print hyp_clause_key.
+  Definition interp_hyp_clause_key ctx clk fk :=
+    clk.(hc_rel) = fk.(hf_rel) /\
+      Forall2 (interp_expr ctx) clk.(hc_key_args) fk.(hf_key_args).
 
   Definition interp_hyp_clause_val ctx clv fv :=
     match clv, fv with
@@ -168,41 +166,42 @@ Section __.
     end.
 
   Definition interp_hyp_clause (ctx : context) (cl : hyp_clause) (f : hyp_fact) :=
-    interp_clause_key ctx cl.(hc_key) f.(hf_key) /\
+    interp_hyp_clause_key ctx cl.(hc_key) f.(hf_key) /\
       interp_hyp_clause_val ctx cl.(hc_val) f.(hf_val).
 
   Record concl_fact :=
     { cf_rel : rel;
       cf_args : list T }.
 
-  Record local_fact :=
-    { lf_key : fact_key;
-      lf_value : list T }.
+  (*hyp_facts are deducible from history of receiving and sending basic_hyp_facts*)
+  Record basic_hyp_fact :=
+    { blf_key : hyp_fact_key;
+      blf_value : list T }.
 
   (*TODO mupd should take as argument a default value, and it should be used here.*)
 
-  Definition receive_fact (s : node_state) (f : local_fact) :=
-    mupd s f.(lf_key)
+  Definition receive_fact (s : node_state) (f : basic_hyp_fact) :=
+    mupd s f.(blf_key)
       (fun val_data =>
          {| msgs_received := S val_data.(msgs_received);
            msgs_sent := val_data.(msgs_sent);
-           aggs := match map.get val_data.(outputs) f.(lf_value) with
+           aggs := match map.get val_data.(outputs) f.(blf_value) with
                    | Some tt =>
                        val_data.(aggs)
                    | None =>
                        map_values' (value' := T)
                          (fun agg v =>
-                            match f.(lf_value) with
+                            match f.(blf_value) with
                             | [i; x] =>
                                 agg_bop agg v x
                             | _ => v
                             end)
                          val_data.(aggs)
                    end;
-           outputs := map.put val_data.(outputs) f.(lf_value) tt; |}).
+           outputs := map.put val_data.(outputs) f.(blf_value) tt; |}).
 
-  Definition send_fact (s : node_state) (f : local_fact) :=
-    mupd s f.(lf_key)
+  Definition send_fact (s : node_state) (f : basic_hyp_fact) :=
+    mupd s f.(blf_key)
       (fun val_data =>
          {| msgs_received := val_data.(msgs_received);
            msgs_sent := S val_data.(msgs_sent);
@@ -220,19 +219,21 @@ Section __.
 
   Definition lcan_deduce_fact (p : node_prog) (s : node_state) concl :=
     exists r hyps,
-      In r p.(rules) /\
+      In r p.(n_rules) /\
         lrule_impl s r concl hyps /\
         Forall (knows_hyp_fact s) hyps.
 
-  Definition locally_forward (p : node_prog) (f : concl_fact) : list local_fact :=
-    match map.get p.(local_forwarding_table) f.(cf_rel) with
-    | Some clrels =>
-        map (fun clrel =>
+  Print node_prog.
+  Print n_relviews. Print rel_views. Print view.
+  Definition locally_forward (p : node_prog) (f : concl_fact) : list basic_hyp_fact :=
+    match map.get p.(n_relviews) f.(cf_rel) with
+    | Some vs =>
+        map (fun v =>
                {| lf_key :=
-                   {| fact_rel := clrel.(corresp_lrel);
+                   {| lf_rel := clrel.(corresp_lrel);
                      fact_inputs := apply_permutation clrel.(corresp_inputs) f.(cf_args) |};
                  lf_value := apply_permutation clrel.(corresp_outputs) f.(cf_args) |})
-            clrels
+            vs
     | None => []
     end.
 End __.
@@ -241,6 +242,7 @@ Arguments hyp_clause : clear implicits.
 Arguments local_rule : clear implicits.
 Arguments hyp_clause_key : clear implicits.
 Arguments concl_fact : clear implicits.
+Arguments hyp_fact : clear implicits.
 
   Fail Definition step (event : input_or_output) (s1 s2 : node_state) : Prop. Fail Admitted.
   (*theorem : for any sequence of input_or_output events, node state and spec state can deduce same facts.*)
@@ -282,6 +284,10 @@ Section __.
     | normal_lrel (rel_name : rel) (rel_inputs : list bool)
     | done_receiving_lrel (rel_name : rel) (to_keep : list bool)
     | done_sending_lrel (rel_name : rel) (to_keep : list bool).
+
+  Definition rel_to_trie (R : low_rel) : lrel :=
+
+
   Definition lvar : Type := var + nat.
   Local Notation concl_clause := (concl_clause low_rel lvar fn).
   Local Notation hyp_clause := (hyp_clause lrel lvar fn aggregator).
@@ -289,6 +295,7 @@ Section __.
   Local Notation clause_key := (hyp_clause_key lrel lvar fn).
   Local Notation expr := (Datalog.expr lvar fn).
   Local Notation concl_fact := (concl_fact low_rel T).
+  Local Notation hyp_fact := (hyp_fact lrel aggregator T).
 
   Definition lower_clause_hyp (c : clause) : hyp_clause :=
     {| hc_key :=
@@ -363,7 +370,14 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
           cf_args := keep_Some args |}
     end.
 
-  Fail Definition hyp_fact_of (f : concl_fact) : hyp_fact.
+  Print concl_fact.
+  Print low_rel.
+  (**)
+  Print lrel.
+
+  Definition hyp_fact_of (f : concl_fact) : hyp_fact :=
+    {| hf_key := {| fact_rel := f.(cf_rel); fact_inputs := f.(cf_args) |};
+      hf_val := outputs_fact [] |}.
 
   Fail Definition corresp (p : node_prog) (ss : spec_node_state) (s : node_state) :=
     forall f,
