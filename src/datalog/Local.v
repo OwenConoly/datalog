@@ -63,15 +63,19 @@ Section __.
       sent_facts := f :: ss.(sent_facts) |}.
 
   (*for each relation, store a list of index structures---that is, key-value pairs, with information about what to store about each key.*)
-  Record view :=
+
+  Record idx_struct :=
     { (*key_idxs ++ value_idxs should be (a prefix of?) a pemutation of (seq 0 arity)*)
       key_idxs : list nat;
-      value_idxs : list nat;
-      track_sent : bool;
+      value_idxs : list nat; }.
+
+  Record values_info :=
+    { track_sent : bool;
       track_received : bool;
       agg_ops : list aggregator; }.
 
-  Context {rel_views : map.map rel (list view)}.
+  Context {idx_structs_info : map.map idx_struct values_info}.
+  Context {rel_views : map.map rel idx_structs_info}.
 
   Inductive hyp_clause_val :=
   | outputs_clause (outputs : list expr)
@@ -224,16 +228,22 @@ Section __.
         Forall (knows_hyp_fact s) hyps.
 
   Print node_prog.
-  Print n_relviews. Print rel_views. Print view.
+  Print n_relviews. Print rel_views.
+  Print idx_structs_info.
+  Print idx_struct.
+  Print basic_hyp_fact.
+  Print hyp_fact_key. Print idx_struct.
   Definition locally_forward (p : node_prog) (f : concl_fact) : list basic_hyp_fact :=
     match map.get p.(n_relviews) f.(cf_rel) with
     | Some vs =>
-        map (fun v =>
-               {| lf_key :=
-                   {| lf_rel := clrel.(corresp_lrel);
-                     fact_inputs := apply_permutation clrel.(corresp_inputs) f.(cf_args) |};
-                 lf_value := apply_permutation clrel.(corresp_outputs) f.(cf_args) |})
-            vs
+        flat_map (fun '(R, iss_info) =>
+                    map (fun '(idx_str, vals_info) =>
+                           {| blf_key :=
+                               {| hf_rel := R;
+                                 hf_key_args := apply_permutation idx_str.(key_idxs) f.(cf_args) |};
+                             blf_value := apply_permutation idx_str.(value_idxs) f.(cf_args) |})
+                        (map.tuples iss_info))
+          (map.tuples vs)
     | None => []
     end.
 End __.
