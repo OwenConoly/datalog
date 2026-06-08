@@ -350,15 +350,17 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
              [{| cc_rel := normal_rel target_rel;
                 cc_args := map var_expr (map inr (seq O (n - 1))); |}];
            local_rule_hyps :=
-             [{| hc_key := {| clause_rel := done_receiving_lrel
-                                              source_rel
-                                              (false :: false :: repeat true (n - 2));
-                             clause_inputs := map var_expr (map inr (seq 1 (n - 2))) |};
+             [{| hc_key := {| hc_rel := {| hr_rel := done_receiving_rel
+                                                       source_rel
+                                                       (false :: false :: repeat true (n - 2));
+                                          hr_idxs := {| key_idxs := repeat true (n - 2);
+                                                       value_idxs := []; |} |};
+                             hc_key_args := map var_expr (map inr (seq 1 (n - 2))) |};
                 hc_val := outputs_clause []; |};
-              {| hc_key := {| clause_rel := normal_lrel
-                                              source_rel
-                                              (false :: false :: repeat true 8);
-                             clause_inputs := map var_expr (map inr (seq 1 8)) |};
+              {| hc_key := {| hc_rel := {| hr_rel := normal_rel source_rel;
+                                          hr_idxs := {| key_idxs := false :: false :: repeat true 8;
+                                                       value_idxs := []; |} |};
+                             hc_key_args := map var_expr (map inr (seq 1 8)) |};
                 hc_val := agg_clause agg (inr O) |}];
          |}]
     (* target_rel(val, c, d) :- done_receiving(source_rel, [2, 3])(c, d),
@@ -376,12 +378,13 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     end.
 
   Print concl_fact.
-  Print low_rel.
-  (**)
   Print lrel.
 
   Definition hyp_fact_of (f : concl_fact) : hyp_fact :=
-    {| hf_key := {| fact_rel := f.(cf_rel); fact_inputs := f.(cf_args) |};
+    {| hf_key := {| hf_rel := {| hr_rel := f.(cf_rel);
+                                hr_idxs := {| key_idxs := map (fun _ => true) f.(cf_args);
+                                             value_idxs := []; |} |};
+                   hf_key_args := f.(cf_args) |};
       hf_val := outputs_fact [] |}.
 
   Fail Definition corresp (p : node_prog) (ss : spec_node_state) (s : node_state) :=
@@ -389,3 +392,4 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
       (forall outs,
           knows_hyp_fact s (hyp_fact_of (lower_dfact f)) <->
             In f ss.(known_facts)).
+End __.
