@@ -238,6 +238,12 @@ Section __.
     Definition spec_output_fact ss f :=
       {| known_facts := ss.(known_facts);
         sent_facts := f :: ss.(sent_facts) |}.
+
+    Definition
+    Definition spec_node_step ss ss' :=
+      exists facts,
+        Forall (new_facts p ss) facts /\
+          ss' = fold_left (spec_
   End spec.
 
   Variant lrel :=
@@ -390,7 +396,8 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
       knows_hyp_fact0 s (hyp_fact_of (lower_dfact f)) <->
         In f ss.(known_facts).
 
-  Print learn_fact.
-  Lemma learn :
+  Print receive_fact.
+  Lemma receive_fact f :
+    correspreceive_fact
 
 End __.
