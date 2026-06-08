@@ -232,17 +232,17 @@ Section __.
   Print idx_structs_info.
   Print idx_struct.
   Print basic_hyp_fact.
-  Print hyp_fact_key. Print idx_struct.
+  Print hyp_fact_key. Print idx_struct. Print hyp_rel.
   Definition locally_forward (p : node_prog) (f : concl_fact) : list basic_hyp_fact :=
     match map.get p.(n_relviews) f.(cf_rel) with
     | Some vs =>
-        flat_map (fun '(R, iss_info) =>
-                    map (fun '(idx_str, vals_info) =>
-                           {| blf_key :=
-                               {| hf_rel := R;
-                                 hf_key_args := apply_permutation idx_str.(key_idxs) f.(cf_args) |};
-                             blf_value := apply_permutation idx_str.(value_idxs) f.(cf_args) |})
-                        (map.tuples iss_info))
+        map (fun '(idx_str, vals_info) =>
+               {| blf_key :=
+                   {| hf_rel := {| hr_rel := f.(cf_rel);
+                                  hr_key_idxs := idx_str.(key_idxs);
+                                  hr_val_idxs := idx_str.(value_idxs); |};
+                     hf_key_args := apply_permutation idx_str.(key_idxs) f.(cf_args) |};
+                 blf_value := apply_permutation idx_str.(value_idxs) f.(cf_args) |})
           (map.tuples vs)
     | None => []
     end.
@@ -282,7 +282,7 @@ Section __.
   Implicit Types mf_args : list (option T).
   Implicit Types nf_args : list T.
 
-  Variant low_rel :=
+  Variant lrel :=
     | normal_rel (rel_name : rel)
     | done_receiving_from (rel_name : rel) (to_keep : list bool)
     (*above is like below, except it comes with two extra arguments:
@@ -290,29 +290,21 @@ Section __.
     | done_receiving_rel (rel_name : rel) (to_keep : list bool)
     | done_sending_rel (rel_name : rel) (to_keep : list bool).
 
-  Variant lrel :=
-    | normal_lrel (rel_name : rel) (rel_inputs : list bool)
-    | done_receiving_lrel (rel_name : rel) (to_keep : list bool)
-    | done_sending_lrel (rel_name : rel) (to_keep : list bool).
-
-  Definition rel_to_trie (R : low_rel) : lrel :=
-
-
   Definition lvar : Type := var + nat.
-  Local Notation concl_clause := (concl_clause low_rel lvar fn).
+  Local Notation concl_clause := (concl_clause lrel lvar fn).
   Local Notation hyp_clause := (hyp_clause lrel lvar fn aggregator).
-  Local Notation local_rule := (local_rule low_rel lrel lvar fn aggregator).
+  Local Notation local_rule := (local_rule lrel lvar fn aggregator).
   Local Notation clause_key := (hyp_clause_key lrel lvar fn).
   Local Notation expr := (Datalog.expr lvar fn).
-  Local Notation concl_fact := (concl_fact low_rel T).
+  Local Notation concl_fact := (concl_fact lrel T).
   Local Notation hyp_fact := (hyp_fact lrel aggregator T).
 
   Definition lower_clause_hyp (c : clause) : hyp_clause :=
     {| hc_key :=
-        {| clause_rel :=
-            normal_lrel c.(Datalog.clause_rel)
-                           (map (fun _ => true) c.(Datalog.clause_args));
-          clause_inputs := map (expr_varmap inl) c.(Datalog.clause_args) |};
+        {| hc_rel := {| hr_rel := normal_rel c.(Datalog.clause_rel);
+                       hr_key_idxs := seq O (length c.(Datalog.clause_args));
+                       hr_val_idxs := []; |};
+          hc_key_args := map (expr_varmap inl) c.(Datalog.clause_args) |};
       hc_val := outputs_clause []; |}.
   Definition lower_clause_concl (c : clause) : concl_clause :=
     {| cc_rel := normal_rel c.(Datalog.clause_rel);
@@ -322,11 +314,14 @@ Section __.
                    c.(Datalog.meta_clause_rel)
                        (map is_Some c.(Datalog.meta_clause_args));
       cc_args := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args)); |}.
+  Definition idxs_satisfying {A} test (l : list A) :=
+    map fst (filter (fun '(x, _) => test x) (combine l (seq O (length l)))).
   Definition lower_meta_clause_hyp (c : meta_clause) : hyp_clause :=
     {| hc_key :=
-        {| clause_rel := done_receiving_lrel
-                           c.(Datalog.meta_clause_rel)
-                               (map is_Some c.(Datalog.meta_clause_args));
+        {| hc_rel := {| hr_rel := done_receiving_lrel
+                                    c.(Datalog.meta_clause_rel)
+                                        (map is_Some c.(Datalog.meta_clause_args));
+                       hr_key_idxs := idxs_satisfying is_Some c.(
           clause_inputs := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args)); |};
       hc_val := outputs_clause [] |}.
   Axiom count : aggregator.
