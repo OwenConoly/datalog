@@ -65,9 +65,8 @@ Section __.
   (*for each relation, store a list of index structures---that is, key-value pairs, with information about what to store about each key.*)
 
   Record idx_struct :=
-    { (*key_idxs ++ value_idxs should be (a prefix of?) a pemutation of (seq 0 arity)*)
-      key_idxs : list nat;
-      value_idxs : list nat; }.
+    { key_idxs : list bool;
+      value_idxs : list bool; }.
 
   Record values_info :=
     { track_sent : bool;
@@ -85,8 +84,7 @@ Section __.
 
   Record hyp_rel :=
     { hr_rel : rel;
-      hr_key_idxs : list nat;
-      hr_val_idxs : list nat; }.
+      hr_idxs : idx_struct }.
 
   Record hyp_clause_key :=
     { hc_rel : hyp_rel;
@@ -151,7 +149,6 @@ Section __.
     | None => False
     end.
 
-  Print hyp_clause_key.
   Definition interp_hyp_clause_key ctx clk fk :=
     clk.(hc_rel) = fk.(hf_rel) /\
       Forall2 (interp_expr ctx) clk.(hc_key_args) fk.(hf_key_args).
@@ -233,16 +230,19 @@ Section __.
   Print idx_struct.
   Print basic_hyp_fact.
   Print hyp_fact_key. Print idx_struct. Print hyp_rel.
+  Fail Fail Definition idxs_satisfying {A} test (l : list A) :=
+    map fst (filter (fun '(x, _) => test x) (combine l (seq O (length l)))).
+  Definition select {A} (bs : list bool) (l : list A) :=
+    map snd (filter (fun '(b, _) => b) (combine bs l)).
   Definition locally_forward (p : node_prog) (f : concl_fact) : list basic_hyp_fact :=
     match map.get p.(n_relviews) f.(cf_rel) with
     | Some vs =>
         map (fun '(idx_str, vals_info) =>
                {| blf_key :=
                    {| hf_rel := {| hr_rel := f.(cf_rel);
-                                  hr_key_idxs := idx_str.(key_idxs);
-                                  hr_val_idxs := idx_str.(value_idxs); |};
-                     hf_key_args := apply_permutation idx_str.(key_idxs) f.(cf_args) |};
-                 blf_value := apply_permutation idx_str.(value_idxs) f.(cf_args) |})
+                                  hr_idxs := idx_str; |};
+                     hf_key_args := select idx_str.(key_idxs) f.(cf_args) |};
+                 blf_value := select idx_str.(value_idxs) f.(cf_args) |})
           (map.tuples vs)
     | None => []
     end.
@@ -302,8 +302,8 @@ Section __.
   Definition lower_clause_hyp (c : clause) : hyp_clause :=
     {| hc_key :=
         {| hc_rel := {| hr_rel := normal_rel c.(Datalog.clause_rel);
-                       hr_key_idxs := seq O (length c.(Datalog.clause_args));
-                       hr_val_idxs := []; |};
+                       hr_idxs := {| key_idxs := map (fun _ => true) c.(Datalog.clause_args);
+                                    value_idxs := []; |}; |};
           hc_key_args := map (expr_varmap inl) c.(Datalog.clause_args) |};
       hc_val := outputs_clause []; |}.
   Definition lower_clause_concl (c : clause) : concl_clause :=
@@ -314,15 +314,15 @@ Section __.
                    c.(Datalog.meta_clause_rel)
                        (map is_Some c.(Datalog.meta_clause_args));
       cc_args := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args)); |}.
-  Definition idxs_satisfying {A} test (l : list A) :=
-    map fst (filter (fun '(x, _) => test x) (combine l (seq O (length l)))).
+  Print Local.hyp_clause_key.
   Definition lower_meta_clause_hyp (c : meta_clause) : hyp_clause :=
     {| hc_key :=
-        {| hc_rel := {| hr_rel := done_receiving_lrel
+        {| hc_rel := {| hr_rel := done_receiving_rel
                                     c.(Datalog.meta_clause_rel)
                                         (map is_Some c.(Datalog.meta_clause_args));
-                       hr_key_idxs := idxs_satisfying is_Some c.(
-          clause_inputs := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args)); |};
+                       hr_idxs := {| key_idxs := map is_Some c.(Datalog.meta_clause_args);
+                                    value_idxs := []; |} |};
+          hc_key_args := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args)); |};
       hc_val := outputs_clause [] |}.
   Axiom count : aggregator.
 
