@@ -272,6 +272,7 @@ Section __.
         bss_outputs : list dfact;
       }.
 
+    (*remaining problem: cannot prove that future_inputs are drained.*)
     Inductive spec_node_step p : big_spec_state -> (big_spec_state -> Prop) -> Prop :=
     | spec_node_dequeue_step bss input rest P :
       bss.(bss_queue) = input :: rest ->
