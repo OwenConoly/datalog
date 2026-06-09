@@ -9,6 +9,8 @@ From Datalog Require Import Permutation Map Tactics Fp List Dag Datalog Interpre
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Sorting.OrderToPermutation.
 
+From coqutil Require Import Semantics.OmniSmallstepCombinators.
+
 Import ListNotations.
 
 Section __.
@@ -239,11 +241,24 @@ Section __.
       {| known_facts := ss.(known_facts);
         sent_facts := f :: ss.(sent_facts) |}.
 
-    Definition
-    Definition spec_node_step ss ss' :=
-      exists facts,
-        Forall (new_facts p ss) facts /\
-          ss' = fold_left (spec_
+    (*want to prove that everything output by compiled program is submultiset of things output by *)
+    Definition spec_node_output_step p ss fact ss' :=
+      new_facts p ss fact /\ ss' = spec_output_fact ss fact.
+
+    Definition spec_node_inputs_step ss facts ss' :=
+      ss' = fold_left spec_input_fact facts ss.
+
+    (*some fun combination of demonic and angelic nondeterminism:
+      - inputs can arrive at any time, but
+      - our "spec node" magically fires the right rules to get to the postcondition.*)
+    Definition spec_node_step p ss P :=
+      forall inputs,
+      exists ss',
+        spec_node_inputs_step ss inputs ss' /\
+          exists output ss'' ss''',
+            spec_node_output_step p ss' output ss'' /\
+              spec_node_inputs_step ss'' [output] ss''' /\
+              P ss'''.
   End spec.
 
   Variant lrel :=
