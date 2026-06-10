@@ -23,10 +23,11 @@ Section __.
 
   Section impl.
     Context {rel var : Type}.
-    Context {context : map.map var T} {context_ok : map.ok context}.
+    Context {context : map.map var T}.
     Local Notation expr := (expr var fn).
 
     (*for each relation, store a list of index structures---that is, key-value pairs, with information about what to store about each key.*)
+    (*both lists have length n, where *)
     Record idx_struct :=
       { key_idxs : list bool;
         value_idxs : list bool; }.
@@ -57,6 +58,37 @@ Section __.
       { hc_key : hyp_clause_key;
         hc_val : hyp_clause_val }.
 
+    Record concl_clause :=
+      { cc_rel : rel;
+        cc_args : list expr }.
+
+    Record local_rule :=
+      { local_rule_concls : list concl_clause;
+        local_rule_hyps : list hyp_clause }.
+
+    (*Example: R(x, y) :- S(x, y)*)
+    Example example_local_rule (R S : rel) (x y : var) : local_rule :=
+      {| local_rule_concls :=
+          [{| cc_rel := R;
+              cc_args := [var_expr x; var_expr y] |}];
+         local_rule_hyps :=
+          [{| hc_key :=
+                {| hc_rel := {| hr_rel := S;
+                                hr_idxs := {| key_idxs := [true; true];
+                                              value_idxs := [] |} |};
+                   hc_key_args := [var_expr x; var_expr y] |};
+              hc_val := value_clause [] |}] |}.
+
+    Record node_prog :=
+      { n_relviews : rel_views;
+        n_rules : list local_rule }.
+
+    Record val_data :=
+      { msgs_received : nat;
+        msgs_sent : nat;
+        aggs : agg_to_T;
+        values : value_set }.
+
     Inductive hyp_fact_val :=
     | value_fact (value : list T)
     | agg_fact (agg : aggregator) (num : T)
@@ -70,24 +102,6 @@ Section __.
     Record hyp_fact :=
       { hf_key : hyp_fact_key;
         hf_val : hyp_fact_val }.
-
-    Record concl_clause :=
-      { cc_rel : rel;
-        cc_args : list expr }.
-
-    Record local_rule :=
-      { local_rule_concls : list concl_clause;
-        local_rule_hyps : list hyp_clause }.
-
-    Record node_prog :=
-      { n_relviews : rel_views;
-        n_rules : list local_rule }.
-
-    Record val_data :=
-      { msgs_received : nat;
-        msgs_sent : nat;
-        aggs : agg_to_T;
-        values : value_set }.
 
     Context {rels_data : map.map hyp_fact_key val_data}.
 
@@ -292,15 +306,15 @@ Section __.
       spec_node_step _ bss P.
 
 
-            spec_node_inputs_step sswq.(sswq_spec_node) inputs sswq'.(sswq_spec_node) /\
-              sswq.(
-      forall inputs,
-      exists ss',
-        spec_node_inputs_step ss inputs ss' /\
-          exists output ss'' ss''',
-            spec_node_output_step p ss' output ss'' /\
-              spec_node_inputs_step ss'' [output] ss''' /\
-              P (O_event output :: map I_event inputs) ss'''.
+            (* spec_node_inputs_step sswq.(sswq_spec_node) inputs sswq'.(sswq_spec_node) /\ *)
+      (*         sswq.( *)
+      (* forall inputs, *)
+      (* exists ss', *)
+      (*   spec_node_inputs_step ss inputs ss' /\ *)
+      (*     exists output ss'' ss''', *)
+      (*       spec_node_output_step p ss' output ss'' /\ *)
+      (*         spec_node_inputs_step ss'' [output] ss''' /\ *)
+      (*         P (O_event output :: map I_event inputs) ss'''. *)
 
 
   End spec.
@@ -334,25 +348,8 @@ Fail Definition learns_facts (p : node_prog) (s : node_state) new_facts :=
   Local Notation clause := (clause rel var fn).
   Local Notation hyp_clause0 := (hyp_clause lrel lvar).
   Local Notation meta_clause := (meta_clause rel var fn).
-  (* Local Notation fact := (fact rel T). *)
   Local Notation rule := (rule rel var fn aggregator).
-  (* Local Notation non_meta_rule := (non_meta_rule rel var fn aggregator). *)
   Local Notation dfact := (dfact rel T).
-  (* Local Notation prog := (prog rel var fn aggregator). *)
-  (* Local Notation node_prog := (node_prog rel var fn aggregator). *)
-
-  (* Implicit Types known_facts sent_facts waiting_facts input_facts inputs : list dfact. *)
-  (* Implicit Types nf result : dfact. *)
-  (* Implicit Types mf_rel : rel. *)
-  (* Implicit Types mf_args : list (option T). *)
-  (* Implicit Types nf_args : list T. *)
-
-  (* Local Notation concl_clause := (concl_clause lrel lvar fn). *)
-  (* Local Notation local_rule := (local_rule lrel lvar fn aggregator). *)
-  (* Local Notation clause_key := (hyp_clause_key lrel lvar fn). *)
-  (* Local Notation expr := (Datalog.expr lvar fn). *)
-  (* Local Notation concl_fact := (concl_fact lrel T). *)
-  (* Local Notation hyp_fact := (hyp_fact lrel aggregator T). *)
 
   Definition lower_clause_hyp (c : clause) : hyp_clause lrel lvar :=
     {| hc_key :=
@@ -361,9 +358,11 @@ Fail Definition learns_facts (p : node_prog) (s : node_state) new_facts :=
                                     value_idxs := []; |}; |};
           hc_key_args := map (expr_varmap inl) c.(Datalog.clause_args) |};
       hc_val := value_clause []; |}.
+
   Definition lower_clause_concl (c : clause) : concl_clause lrel lvar :=
     {| cc_rel := normal_rel c.(Datalog.clause_rel);
       cc_args := map (expr_varmap inl) c.(Datalog.clause_args) |}.
+
   Definition lower_meta_clause_concl (c : meta_clause) : concl_clause lrel lvar :=
     {| cc_rel := done_sending_rel
                    c.(Datalog.meta_clause_rel)
@@ -454,9 +453,5 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     forall f,
       knows_hyp_fact0 s (hyp_fact_of (lower_dfact f)) <->
         In f ss.(known_facts).
-
-  Print receive_fact.
-  Lemma receive_fact f :
-    correspreceive_fact
 
 End __.
