@@ -262,10 +262,6 @@ Section __.
     Definition spec_node_inputs_step ss facts ss' :=
       ss' = fold_left spec_input_fact facts ss.
 
-    Variant IO_event :=
-      | I_event (_ : dfact)
-      | O_event (_ : dfact).
-
     (*some fun combination of demonic and angelic nondeterminism:
       - inputs can arrive at any time, but
       - our "spec node" magically fires the right rules to get to the postcondition.*)
@@ -282,28 +278,31 @@ Section __.
     Record big_spec_state :=
       { bss_spec_node : spec_node_state;
         bss_queue : list dfact;
-        bss_future_inputs : list dfact;
-        bss_outputs : list dfact;
       }.
 
+    Variant event :=
+      | input_event (_ : dfact)
+      | output_event (_ : dfact)
+      | comp_event.
+
     (*remaining problem: cannot prove that future_inputs are drained.*)
-    Inductive spec_node_step p : big_spec_state -> (big_spec_state -> Prop) -> Prop :=
-    | spec_node_dequeue_step bss input rest P :
+    Inductive spec_node_step p : big_spec_state -> list event -> big_spec_state -> Prop :=
+    | spec_node_dequeue_step bss input rest :
       bss.(bss_queue) = input :: rest ->
-      P {| bss_spec_node := spec_input_fact bss.(bss_spec_node) input;
-          bss_queue := rest;
-          bss_future_inputs := bss.(bss_future_inputs);
-          bss_outputs := bss.(bss_outputs); |} ->
-      spec_node_step _ bss P
-    | spec_node_enqueue_step bss output P :
-      (forall inputs rest,
-          bss.(bss_future_inputs) = inputs ++ rest ->
-          new_facts p bss.(bss_spec_node) output ->
-          P {| bss_spec_node := spec_output_fact bss.(bss_spec_node) output;
-              bss_queue := bss.(bss_queue) ++ inputs ++ [output];
-              bss_future_inputs := rest;
-              bss_outputs := output :: bss.(bss_outputs); |}) ->
-      spec_node_step _ bss P.
+      spec_node_step _ bss
+                     {| bss_spec_node := spec_input_fact bss.(bss_spec_node) input;
+                       bss_queue := rest;
+                       bss_future_inputs := bss.(bss_future_inputs);
+                       bss_outputs := bss.(bss_outputs); |}
+    | spec_node_deduce_step bss output :
+      new_facts p bss.(bss_spec_node) output ->
+      spec_node_step _ bss
+                     {| bss_spec_node := spec_output_fact bss.(bss_spec_node) output;
+                       bss_queue := bss.(bss_queue) ++ [output];
+                       bss_future_inputs := bss.(bss_future_inputs);
+                       bss_outputs := output :: bss.(bss_outputs); |}
+    | spec_node_input_step bss input :
+      bss.(bss_future_inputs)
 
 
             (* spec_node_inputs_step sswq.(sswq_spec_node) inputs sswq'.(sswq_spec_node) /\ *)
