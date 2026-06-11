@@ -280,29 +280,40 @@ Section __.
         bss_queue : list dfact;
       }.
 
-    Variant event :=
-      | input_event (_ : dfact)
-      | output_event (_ : dfact)
-      | comp_event.
+    Variant IO_event :=
+      | I_event (_ : dfact)
+      | O_event (_ : dfact).
 
-    (*remaining problem: cannot prove that future_inputs are drained.*)
-    Inductive spec_node_step p : big_spec_state -> list event -> big_spec_state -> Prop :=
+    Inductive spec_node_step p : big_spec_state -> list IO_event -> big_spec_state -> Prop :=
     | spec_node_dequeue_step bss input rest :
       bss.(bss_queue) = input :: rest ->
-      spec_node_step _ bss
+      spec_node_step _ bss [I_event input]
                      {| bss_spec_node := spec_input_fact bss.(bss_spec_node) input;
-                       bss_queue := rest;
-                       bss_future_inputs := bss.(bss_future_inputs);
-                       bss_outputs := bss.(bss_outputs); |}
+                       bss_queue := rest; |}
     | spec_node_deduce_step bss output :
       new_facts p bss.(bss_spec_node) output ->
-      spec_node_step _ bss
+      spec_node_step _ bss [O_event output]
                      {| bss_spec_node := spec_output_fact bss.(bss_spec_node) output;
-                       bss_queue := bss.(bss_queue) ++ [output];
-                       bss_future_inputs := bss.(bss_future_inputs);
-                       bss_outputs := output :: bss.(bss_outputs); |}
+                       bss_queue := bss.(bss_queue) ++ [output]; |}
     | spec_node_input_step bss input :
-      bss.(bss_future_inputs)
+      spec_node_step _ bss []
+                     {| bss_spec_node := bss.(bss_spec_node);
+                       bss_queue := bss.(bss_queue) ++ [input] |}.
+
+    (*note that spec_node_step' is less detailed than spec_node_step.
+      TODO: prove that if two programs (or, later, semantics...) agree according to
+      spec_node_step'^*, then replacing one node with the other in a graph yields a new
+      graph with the same denotation.
+     *)
+    Inductive spec_node_step' p (G : list dfact) (P : list IO_event -> big_spec_state -> Prop) : forall (ss : big_spec_state) (t : list IO_event), Prop :=
+    | snrt_input ss t t' ss' inp :
+      (spec_node_step p)^* ss t' ss' ->
+      In inp G ->
+      ~In inp (t ++ t') ->
+      exists ss'',
+        spec_node_step p ss' [I_event inp] ss'' /\
+          P ss''.
+    |
 
 
             (* spec_node_inputs_step sswq.(sswq_spec_node) inputs sswq'.(sswq_spec_node) /\ *)
