@@ -5,7 +5,7 @@ From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties.
 
-From Datalog Require Import Permutation Map Tactics Fp List Dag Datalog Interpreter Operational.
+From Datalog Require Import Permutation Map Tactics Fp List Dag Datalog Interpreter Operational Smallstep.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Sorting.OrderToPermutation.
 
@@ -284,19 +284,19 @@ Section __.
       | I_event (_ : dfact)
       | O_event (_ : dfact).
 
-    Inductive spec_node_step p : big_spec_state -> list IO_event -> big_spec_state -> Prop :=
+    Inductive spec_node_step p : big_spec_state -> option IO_event -> big_spec_state -> Prop :=
     | spec_node_dequeue_step bss input rest :
       bss.(bss_queue) = input :: rest ->
-      spec_node_step _ bss [I_event input]
+      spec_node_step _ bss (Some (I_event input))
                      {| bss_spec_node := spec_input_fact bss.(bss_spec_node) input;
                        bss_queue := rest; |}
     | spec_node_deduce_step bss output :
       new_facts p bss.(bss_spec_node) output ->
-      spec_node_step _ bss [O_event output]
+      spec_node_step _ bss (Some (O_event output))
                      {| bss_spec_node := spec_output_fact bss.(bss_spec_node) output;
                        bss_queue := bss.(bss_queue) ++ [output]; |}
     | spec_node_input_step bss input :
-      spec_node_step _ bss []
+      spec_node_step _ bss None
                      {| bss_spec_node := bss.(bss_spec_node);
                        bss_queue := bss.(bss_queue) ++ [input] |}.
 
@@ -305,28 +305,23 @@ Section __.
       spec_node_step'^*, then replacing one node with the other in a graph yields a new
       graph with the same denotation.
      *)
-    Inductive spec_node_step' p (G : list dfact) (P : list IO_event -> big_spec_state -> Prop) : forall (ss : big_spec_state) (t : list IO_event), Prop :=
-    | snrt_input ss t t' ss' inp :
-      (spec_node_step p)^* ss t' ss' ->
-      In inp G ->
-      ~In inp (t ++ t') ->
-      exists ss'',
-        spec_node_step p ss' [I_event inp] ss'' /\
-          P ss''.
-    |
+    Definition event_guaranteed (t : list IO_event) (e : option IO_event) :=
+      match e with
+      | None => True
+      | Some (O_event out) => True (*or: ~In (O_event out) t*)
+      | Some (I_event inp) => ~In (I_event inp) t
+      end.
 
+    Definition spec_node_step' p (G : list dfact) '(ss, t) P : Prop :=
+      forall ss' t',
+        star (spec_node_step p) ss t' ss' ->
+        exists ss'' e,
+          event_guaranteed (t' ++ t) e /\
+            spec_node_step p ss' e ss'' /\
+            P (ss'', option_cons e t' ++ t).
 
-            (* spec_node_inputs_step sswq.(sswq_spec_node) inputs sswq'.(sswq_spec_node) /\ *)
-      (*         sswq.( *)
-      (* forall inputs, *)
-      (* exists ss', *)
-      (*   spec_node_inputs_step ss inputs ss' /\ *)
-      (*     exists output ss'' ss''', *)
-      (*       spec_node_output_step p ss' output ss'' /\ *)
-      (*         spec_node_inputs_step ss'' [output] ss''' /\ *)
-      (*         P (O_event output :: map I_event inputs) ss'''. *)
-
-
+    Definition stepsTo p G :=
+      eventually p G spec_node_step'.
   End spec.
 
   Variant lrel :=
