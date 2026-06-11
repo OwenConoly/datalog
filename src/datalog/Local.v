@@ -214,6 +214,49 @@ Section __.
             (map.tuples vs)
       | None => []
       end.
+
+    Record big_state :=
+      { bs_node : node_state;
+        bs_queue : list concl_fact;
+      }.
+
+    Variant IO_event :=
+      | I_event (_ : concl_fact)
+      | O_event (_ : list concl_fact).
+
+    Inductive node_step p : big_state -> option IO_event -> big_state -> Prop :=
+    | node_dequeue_step bs input rest :
+      bs.(bs_queue) = input :: rest ->
+      node_step _ bs (Some (I_event input))
+                {| bs_node := fold_left receive_fact (locally_forward p input) bs.(bs_node);
+                  bs_queue := rest; |}
+    | node_deduce_step bs facts :
+      is_list_set (lcan_deduce_fact p bs.(bs_node)) facts ->
+      node_step _ bs (Some (O_event facts))
+                {| bs_node := fold_left send_fact (flat_map (locally_forward p) facts) bs.(bs_node);
+                  bs_queue := bs.(bs_queue) ++ facts; |}
+    | node_input_step bs input :
+      node_step _ bs None
+                     {| bs_node := bs.(bs_node);
+                       bs_queue := bs.(bs_queue) ++ [input] |}.
+
+    Definition event_guaranteed (t : list IO_event) (e : option IO_event) :=
+      match e with
+      | None => True
+      | Some (O_event out) => True
+      | Some (I_event inp) => ~In (I_event inp) t
+      end.
+
+    Definition node_step' p (G : list concl_fact) '(ss, t) P : Prop :=
+      forall ss' t',
+        star (node_step p) ss t' ss' ->
+        exists ss'' e,
+          event_guaranteed (t' ++ t) e /\
+            node_step p ss' e ss'' /\
+            P (ss'', option_cons e t' ++ t).
+
+    Definition stepsTo p G :=
+      eventually p G node_step'.
   End impl.
   Arguments hyp_clause : clear implicits.
   Arguments concl_clause : clear implicits.
@@ -280,19 +323,19 @@ Section __.
         bss_queue : list dfact;
       }.
 
-    Variant IO_event :=
-      | I_event (_ : dfact)
-      | O_event (_ : dfact).
+    Variant spec_IO_event :=
+      | spec_I_event (_ : dfact)
+      | spec_O_event (_ : dfact).
 
-    Inductive spec_node_step p : big_spec_state -> option IO_event -> big_spec_state -> Prop :=
+    Inductive spec_node_step p : big_spec_state -> option spec_IO_event -> big_spec_state -> Prop :=
     | spec_node_dequeue_step bss input rest :
       bss.(bss_queue) = input :: rest ->
-      spec_node_step _ bss (Some (I_event input))
+      spec_node_step _ bss (Some (spec_I_event input))
                      {| bss_spec_node := spec_input_fact bss.(bss_spec_node) input;
                        bss_queue := rest; |}
     | spec_node_deduce_step bss output :
       new_facts p bss.(bss_spec_node) output ->
-      spec_node_step _ bss (Some (O_event output))
+      spec_node_step _ bss (Some (spec_O_event output))
                      {| bss_spec_node := spec_output_fact bss.(bss_spec_node) output;
                        bss_queue := bss.(bss_queue) ++ [output]; |}
     | spec_node_input_step bss input :
@@ -300,27 +343,27 @@ Section __.
                      {| bss_spec_node := bss.(bss_spec_node);
                        bss_queue := bss.(bss_queue) ++ [input] |}.
 
-    (*note that spec_node_step' is less detailed than spec_node_step.
-      TODO: prove that if two programs (or, later, semantics...) agree according to
-      spec_node_step'^*, then replacing one node with the other in a graph yields a new
-      graph with the same denotation.
-     *)
-    Definition event_guaranteed (t : list IO_event) (e : option IO_event) :=
+    Definition spec_event_guaranteed (t : list spec_IO_event) (e : option spec_IO_event) :=
       match e with
       | None => True
-      | Some (O_event out) => True (*or: ~In (O_event out) t*)
-      | Some (I_event inp) => ~In (I_event inp) t
+      | Some (spec_O_event out) => True (*or: ~In (O_event out) t*)
+      | Some (spec_I_event inp) => ~In (spec_I_event inp) t
       end.
 
     Definition spec_node_step' p (G : list dfact) '(ss, t) P : Prop :=
       forall ss' t',
         star (spec_node_step p) ss t' ss' ->
         exists ss'' e,
-          event_guaranteed (t' ++ t) e /\
+          spec_event_guaranteed (t' ++ t) e /\
             spec_node_step p ss' e ss'' /\
             P (ss'', option_cons e t' ++ t).
 
-    Definition stepsTo p G :=
+    (*note that spec_node_step' is less detailed than spec_node_step.
+      TODO: prove that if two programs (or, later, semantics...) agree according to
+      stepsTO, then replacing one node with the other in a graph yields a new
+      graph with the same denotation.
+     *)
+    Definition spec_stepsTo p G :=
       eventually p G spec_node_step'.
   End spec.
 
