@@ -16,10 +16,11 @@ Section Map.
   Definition map_values' f m : mp' :=
     map.of_list (map (fun '(k, v) => (k, f k v)) (map.tuples m)).
 
-Definition mupd m k f :=
+  (*d is a default value... basically, we consider the map to be total, with not-included values mapping to d*)
+Definition mupd d m k f :=
     match map.get m k with
     | Some v => map.put m k (f v)
-    | None => m
+    | None => map.put m k (f d)
     end.
 
 Definition map_contains m k v :=

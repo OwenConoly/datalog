@@ -153,10 +153,24 @@ Section __.
       { blf_key : hyp_fact_key;
         blf_value : list T }.
 
-    (*TODO mupd should take as argument a default value, and it should be used here.*)
+    Definition default_val_data (aggs : list aggregator) : val_data :=
+      {| msgs_received := 0;
+        msgs_sent := 0;
+        aggs := map.of_list (map (fun a => (a, agg_id a)) aggs);
+        values := map.empty; |}.
 
-    Definition receive_fact (s : node_state) (f : basic_hyp_fact) :=
-      mupd s f.(blf_key)
+    Definition agg_ops_of (p : node_prog) (k : hyp_fact_key) : list aggregator :=
+      match map.get p.(n_relviews) k.(hf_rel).(hr_rel) with
+      | Some idxs =>
+          match map.get idxs k.(hf_rel).(hr_idxs) with
+          | Some vi => vi.(agg_ops)
+          | None => []
+          end
+      | None => []
+      end.
+
+    Definition receive_fact (p : node_prog) (s : node_state) (f : basic_hyp_fact) :=
+      mupd (default_val_data (agg_ops_of p f.(blf_key))) s f.(blf_key)
                  (fun val_data =>
                     {| msgs_received := S val_data.(msgs_received);
                       msgs_sent := val_data.(msgs_sent);
@@ -175,8 +189,8 @@ Section __.
                               end;
                       values := map.put val_data.(values) f.(blf_value) tt; |}).
 
-    Definition send_fact (s : node_state) (f : basic_hyp_fact) :=
-      mupd s f.(blf_key)
+    Definition send_fact (p : node_prog) (s : node_state) (f : basic_hyp_fact) :=
+      mupd (default_val_data (agg_ops_of p f.(blf_key))) s f.(blf_key)
                  (fun val_data =>
                     {| msgs_received := val_data.(msgs_received);
                       msgs_sent := S val_data.(msgs_sent);
@@ -228,12 +242,12 @@ Section __.
     | node_dequeue_step bs input rest :
       bs.(bs_queue) = input :: rest ->
       node_step _ bs (Some (I_event input))
-                {| bs_node := fold_left receive_fact (locally_forward p input) bs.(bs_node);
+                {| bs_node := fold_left (receive_fact p) (locally_forward p input) bs.(bs_node);
                   bs_queue := rest; |}
     | node_deduce_step bs facts :
       is_list_set (lcan_deduce_fact p bs.(bs_node)) facts ->
       node_step _ bs (Some (O_event facts))
-                {| bs_node := fold_left send_fact (flat_map (locally_forward p) facts) bs.(bs_node);
+                {| bs_node := fold_left (send_fact p) (flat_map (locally_forward p) facts) bs.(bs_node);
                   bs_queue := bs.(bs_queue) ++ facts; |}
     | node_input_step bs input :
       node_step _ bs None
@@ -422,8 +436,8 @@ Fail Definition learns_facts (p : node_prog) (s : node_state) new_facts :=
         {| hc_rel := {| hr_rel := done_receiving_rel
                                     c.(Datalog.meta_clause_rel)
                                         (map is_Some c.(Datalog.meta_clause_args));
-                       hr_idxs := {| key_idxs := map is_Some c.(Datalog.meta_clause_args);
-                                    value_idxs := map negb (map is_Some c.(Datalog.meta_clause_args)); |} |};
+                       hr_idxs := {| key_idxs := map (fun _ => true) (keep_Some c.(Datalog.meta_clause_args));
+                                    value_idxs := map (fun _ => false) (keep_Some c.(Datalog.meta_clause_args)); |} |};
           hc_key_args := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args)); |};
       hc_val := value_clause [] |}.
   Axiom count : aggregator.
