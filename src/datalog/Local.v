@@ -103,9 +103,9 @@ Section __.
       { hf_key : hyp_fact_key;
         hf_val : hyp_fact_val }.
 
-    Context {rels_data : map.map hyp_fact_key val_data}.
+    Context {node_rels : map.map hyp_fact_key val_data}.
 
-    Definition node_state := rels_data.
+    Definition node_state := node_rels.
 
     Definition knows_hyp_fact (s : node_state) (f : hyp_fact) :=
       match map.get s f.(hf_key) with
@@ -150,13 +150,13 @@ Section __.
 
     (*hyp_facts are deducible from history of receiving and sending basic_hyp_facts*)
     Record basic_hyp_fact :=
-      { blf_key : hyp_fact_key;
-        blf_value : list T }.
+      { bhf_key : hyp_fact_key;
+        bhf_value : list T }.
 
-    Definition default_val_data (aggs : list aggregator) : val_data :=
+    Definition default_val_data (as_ : list aggregator) : val_data :=
       {| msgs_received := 0;
         msgs_sent := 0;
-        aggs := map.of_list (map (fun a => (a, agg_id a)) aggs);
+        aggs := map.of_list (map (fun a => (a, agg_id a)) as_);
         values := map.empty; |}.
 
     Definition agg_ops_of (p : node_prog) (k : hyp_fact_key) : list aggregator :=
@@ -170,27 +170,31 @@ Section __.
       end.
 
     Definition receive_fact (p : node_prog) (s : node_state) (f : basic_hyp_fact) :=
-      mupd (default_val_data (agg_ops_of p f.(blf_key))) s f.(blf_key)
+      mupd (default_val_data (agg_ops_of p f.(bhf_key))) s f.(bhf_key)
                  (fun val_data =>
                     {| msgs_received := S val_data.(msgs_received);
                       msgs_sent := val_data.(msgs_sent);
-                      aggs := match map.get val_data.(values) f.(blf_value) with
+                      (*Dedup by the full [bhf_value] tuple before folding into the
+                        aggregators.  We need this because we want to support things
+                        like sums over sets (non-set-monotone): receiving the same
+                        (i, x) twice should not double-count x in the sum.*)
+                      aggs := match map.get val_data.(values) f.(bhf_value) with
                               | Some tt =>
                                   val_data.(aggs)
                               | None =>
                                   map_values' (value' := T)
                                     (fun agg v =>
-                                       match f.(blf_value) with
+                                       match f.(bhf_value) with
                                        | [i; x] =>
                                            agg_bop agg v x
                                        | _ => v
                                        end)
                                     val_data.(aggs)
                               end;
-                      values := map.put val_data.(values) f.(blf_value) tt; |}).
+                      values := map.put val_data.(values) f.(bhf_value) tt; |}).
 
     Definition send_fact (p : node_prog) (s : node_state) (f : basic_hyp_fact) :=
-      mupd (default_val_data (agg_ops_of p f.(blf_key))) s f.(blf_key)
+      mupd (default_val_data (agg_ops_of p f.(bhf_key))) s f.(bhf_key)
                  (fun val_data =>
                     {| msgs_received := val_data.(msgs_received);
                       msgs_sent := S val_data.(msgs_sent);
@@ -220,11 +224,11 @@ Section __.
       match map.get p.(n_relviews) f.(cf_rel) with
       | Some vs =>
           map (fun '(idx_str, vals_info) =>
-                 {| blf_key :=
+                 {| bhf_key :=
                      {| hf_rel := {| hr_rel := f.(cf_rel);
                                     hr_idxs := idx_str; |};
                        hf_key_args := select idx_str.(key_idxs) f.(cf_args) |};
-                   blf_value := select idx_str.(value_idxs) f.(cf_args) |})
+                   bhf_value := select idx_str.(value_idxs) f.(cf_args) |})
             (map.tuples vs)
       | None => []
       end.
@@ -241,7 +245,7 @@ Section __.
     Inductive node_step p : big_state -> option IO_event -> big_state -> Prop :=
     | node_dequeue_step bs input rest :
       bs.(bs_queue) = input :: rest ->
-      node_step _ bs (Some (I_event input))
+      node_step _ bs None
                 {| bs_node := fold_left (receive_fact p) (locally_forward p input) bs.(bs_node);
                   bs_queue := rest; |}
     | node_deduce_step bs facts :
@@ -250,7 +254,7 @@ Section __.
                 {| bs_node := fold_left (send_fact p) (flat_map (locally_forward p) facts) bs.(bs_node);
                   bs_queue := bs.(bs_queue) ++ facts; |}
     | node_input_step bs input :
-      node_step _ bs None
+      node_step _ bs (Some (I_event input))
                      {| bs_node := bs.(bs_node);
                        bs_queue := bs.(bs_queue) ++ [input] |}.
 
@@ -319,18 +323,6 @@ Section __.
     Definition spec_node_inputs_step ss facts ss' :=
       ss' = fold_left spec_input_fact facts ss.
 
-    (*some fun combination of demonic and angelic nondeterminism:
-      - inputs can arrive at any time, but
-      - our "spec node" magically fires the right rules to get to the postcondition.*)
-
-    (*WROGN, makes input interleaving angelic*)
-    (* Inductive spec_node_step p : spec_state -> (IO_event -> spec_state -> Prop) -> Prop := *)
-    (* | spec_node_input_step ss input ss' : *)
-    (*   (forall input, *)
-    (*   spec_node_inputs_step ss input ss' -> *)
-    (*   P input ss' -> *)
-    (*   spec_node_step _ ss P  *)
-
     (*"big" because it contains the node, plus a bunch of other stuff...*)
     Record big_spec_state :=
       { bss_spec_node : spec_node_state;
@@ -344,7 +336,7 @@ Section __.
     Inductive spec_node_step p : big_spec_state -> option spec_IO_event -> big_spec_state -> Prop :=
     | spec_node_dequeue_step bss input rest :
       bss.(bss_queue) = input :: rest ->
-      spec_node_step _ bss (Some (spec_I_event input))
+      spec_node_step _ bss None
                      {| bss_spec_node := spec_input_fact bss.(bss_spec_node) input;
                        bss_queue := rest; |}
     | spec_node_deduce_step bss output :
@@ -353,7 +345,7 @@ Section __.
                      {| bss_spec_node := spec_output_fact bss.(bss_spec_node) output;
                        bss_queue := bss.(bss_queue) ++ [output]; |}
     | spec_node_input_step bss input :
-      spec_node_step _ bss None
+      spec_node_step _ bss (Some (spec_I_event input))
                      {| bss_spec_node := bss.(bss_spec_node);
                        bss_queue := bss.(bss_queue) ++ [input] |}.
 
@@ -364,6 +356,9 @@ Section __.
       | Some (spec_I_event inp) => In inp G /\ ~In (spec_I_event inp) t
       end.
 
+    (*some fun combination of demonic and angelic nondeterminism:
+      - inputs can arrive at any time, but
+      - our "spec node" magically fires the right rules to get to the postcondition.*)
     Definition spec_node_step' p (G : list dfact) '(ss, t) P : Prop :=
       forall ss' t',
         star (spec_node_step p) ss t' ss' ->
@@ -381,6 +376,16 @@ Section __.
       eventually (spec_node_step' p G).
   End spec.
 
+  (*Note on the two bitmasks in play once we lower meta-clauses:
+    - the [to_keep] bitmask in [lrel] constructors has length = length of the
+      spec-level [meta_clause_args].  It distinguishes views (i.e., it is part
+      of the lowered rel name) and encodes which positions of the original args
+      are wildcards vs specified.
+    - the [key_idxs]/[value_idxs] bitmasks in [idx_struct] (carried inside
+      [hyp_clause]/[hyp_fact]) operate over the impl-side positions, i.e., have
+      length = number of [Some]s in the [meta_clause_args] = arity of the
+      lowered rel.  They split those positions into key vs value.
+    These are not the same bitmask. *)
   Variant lrel :=
     | normal_rel (rel_name : rel)
     | done_receiving_from (rel_name : rel) (to_keep : list bool)
@@ -390,20 +395,6 @@ Section __.
     | done_sending_rel (rel_name : rel) (to_keep : list bool).
 
   Definition lvar : Type := var + nat.
-
-
-(* Arguments concl_clause : clear implicits. *)
-(* Arguments hyp_clause : clear implicits. *)
-(* Arguments local_rule : clear implicits. *)
-(* Arguments hyp_clause_key : clear implicits. *)
-(* Arguments concl_fact : clear implicits. *)
-
-  Fail Definition step (event : input_or_output) (s1 s2 : node_state) : Prop. Fail Admitted.
-  (*theorem : for any sequence of input_or_output events, node state and spec state can deduce same facts.*)
-
-Fail Definition learns_facts (p : node_prog) (s : node_state) new_facts :=
-    forall f,
-      In f new_facts <-> can_deduce_fact p s f.
 
   Context (num_args : rel -> nat).
 
@@ -511,7 +502,7 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     {rel_views : map.map lrel idx_structs_info}
     {rels_data : map.map (@hyp_fact_key lrel) val_data}.
   Local Notation node_prog0 := (node_prog lrel lvar idx_structs_info rel_views).
-  Local Notation knows_hyp_fact0 := (knows_hyp_fact (rels_data := rels_data)).
+  Local Notation knows_hyp_fact0 := (knows_hyp_fact (node_rels := rels_data)).
   Definition corresp (p : node_prog0) (ss : spec_node_state) (s : node_state) :=
     forall f,
       knows_hyp_fact0 s (hyp_fact_of (lower_dfact f)) <->
