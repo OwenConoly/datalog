@@ -1,7 +1,5 @@
 From Stdlib Require Import QArith.
 From Stdlib Require Import Arith.Arith.
-From Stdlib Require Import Arith.EqNat.
-From Stdlib Require Import Bool.Bool.
 From Stdlib Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
 From Stdlib Require Import ZArith.Zdiv.
 From Stdlib Require Import ZArith.Int.
@@ -9,17 +7,66 @@ From Stdlib Require Import ZArith.Znat.
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
-From Stdlib Require Import Logic.FunctionalExtensionality.
 
-Import ListNotations.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
   Meshgrid ContextsAgree ATLDeep Range.
+From Datalog Require Import Datalog Dag Map List Tactics (*Interpreter QueryableToRunnable*) (*ATLUtils*) (*ZeroLowerBounds*) Blocks.
+From Inferpad Require Import ATLPhoas.
 
-From Datalog Require Import Datalog Dag Map List Tactics (*Interpreter QueryableToRunnable*) ATLUtils ZeroLowerBounds.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable Datatypes.List.
 
 Import Datatypes.
+Import ListNotations.
+
+(*source language syntax*)
+Print pATLexpr.
+(*source language semantics*)
+Print result_of_pATLexpr.
+(*some property that valid source programs should probably (?) have*)
+Print sound_sizeof.
+
+(*target language syntax*)
+Print blocks_prog.
+(*target language semantics*)
+Print interp_blocks_prog.
+
+(*example source program*)
+(* GEN [i < 10] (IZR i) *)
+Check IZR. (*the inclusion Z -> R*)
+Definition example_pATLexpr {var} : pATLexpr var 1 :=
+  Gen (ZZ_of_nat 0) (ZZ_of_nat 10)
+    (fun i => SIZR (ZVar i)).
+
+(*TODO fill these in*)
+Axiom (lvar : Type).
+Axiom (exprvar : Type).
+Axiom (fn : Type).
+Axiom (aggregator : Type).
+Local Notation blocks_prog := (blocks_prog lvar exprvar fn aggregator).
+
+Definition var_of (var : Type) (t : type) : Type :=
+  match t with
+  | tZ => nat (*or exprvar, or something countably infinite...*)
+  | tB => unit (*shouldn't matter what is here?*)
+  | tensor_n _ => var
+  end.
+
+Definition lower_pATLexpr {var n} (e : pATLexpr (var_of var) n) : blocks_prog var.
+  (*TODO: write compiler *)
+Admitted.
+
+
+
+
+
+
+
+
+
+
+
+
 
 Open Scope list_scope.
 Open Scope nat_scope.
