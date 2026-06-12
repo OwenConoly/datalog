@@ -503,9 +503,16 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     {rels_data : map.map (@hyp_fact_key lrel) val_data}.
   Local Notation node_prog0 := (node_prog lrel lvar idx_structs_info rel_views).
   Local Notation knows_hyp_fact0 := (knows_hyp_fact (node_rels := rels_data)).
-  Definition corresp (p : node_prog0) (ss : spec_node_state) (s : node_state) :=
+  Definition corresp (p : node_prog0) (bss : big_spec_state) (bs : big_state) :=
     forall f,
-      knows_hyp_fact0 s (hyp_fact_of (lower_dfact f)) <->
-        In f ss.(known_facts).
+      knows_hyp_fact0 bs.(bs_node) (hyp_fact_of (lower_dfact f)) \/
+        In (lower_dfact f) bs.(bs_queue) <->
+        In f (bss.(bss_spec_node).(known_facts)) \/ In f bss.(bss_queue).
+
+  Lemma lower_rule_complete sp ss p s :
+    corresp p ss s ->
+    spec_stepsTo sp [] (fun _ => True) (ss, []) ->
+    stepsTo p [] (fun _ => True) (s, []).
+
 
 End __.
