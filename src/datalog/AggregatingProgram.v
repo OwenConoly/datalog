@@ -126,15 +126,11 @@ Definition interp_fn (f : fn) (args : list obj) : option obj :=
 Definition extract_nat (x : obj) :=
   Some x.
 
-Definition interp_agg o (i_xis : list (obj * obj)) :=
-  match option_all (map extract_nat (map snd i_xis)) with
-  | Some xis => fold_right (interp_bop o) (bop_id o) xis
-  | None => O
-  end.
-
 Instance Sig : signature fn bop obj :=
-  { interp_fun := interp_fn ;
-    interp_agg := interp_agg }.
+  { interp_fun := interp_fn;
+    get_nat := fun _ => O;
+    agg_bop := interp_bop;
+    agg_id := bop_id }.
 
 Lemma fn_inj_correct f :
   fn_inj f = true ->
@@ -458,8 +454,8 @@ Proof.
                                                             | _ => _
                                                             end).
                    simpl. reflexivity. }
-         simpl. cbv [interp_agg]. do 2 rewrite map_map. simpl.
-         cbv [extract_nat]. rewrite option_all_map_Some. reflexivity.
+         simpl. cbv [interp_agg]. rewrite map_map. simpl.
+         rewrite map_id. reflexivity.
          ++ constructor.
             --- eapply prog_impl_mf_ext'.
                 +++ eapply prog_impl_step.
@@ -526,7 +522,7 @@ Proof.
          | H: is_list_set (fun _ => _) _ |- _ => rename H into Hset'
          end.
          move Hset at bottom. move Hset' at bottom.
-         cbv [interp_agg]. cbv [extract_nat]. rewrite option_all_map_Some.
+         cbv [interp_agg]. simpl.
          apply fold_right_change_order.
          { (*all bops are commutative, for a certain interpretation of the word*)
            intros. destruct o; simpl; lia. }
