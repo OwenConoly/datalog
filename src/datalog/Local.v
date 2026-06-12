@@ -75,7 +75,7 @@ Section __.
           [{| hc_key :=
                 {| hc_rel := {| hr_rel := S;
                                 hr_idxs := {| key_idxs := [true; true];
-                                              value_idxs := [] |} |};
+                                              value_idxs := [false; false] |} |};
                    hc_key_args := [var_expr x; var_expr y] |};
               hc_val := value_clause [] |}] |}.
 
@@ -240,23 +240,23 @@ Section __.
                      {| bs_node := bs.(bs_node);
                        bs_queue := bs.(bs_queue) ++ [input] |}.
 
-    Definition event_guaranteed (t : list IO_event) (e : option IO_event) :=
+    Definition event_guaranteed (G : list concl_fact) (t : list IO_event) (e : option IO_event) :=
       match e with
       | None => True
       | Some (O_event out) => True
-      | Some (I_event inp) => ~In (I_event inp) t
+      | Some (I_event inp) => In inp G /\ ~In (I_event inp) t
       end.
 
     Definition node_step' p (G : list concl_fact) '(ss, t) P : Prop :=
       forall ss' t',
         star (node_step p) ss t' ss' ->
         exists ss'' e,
-          event_guaranteed (t' ++ t) e /\
+          event_guaranteed G (t' ++ t) e /\
             node_step p ss' e ss'' /\
             P (ss'', option_cons e t' ++ t).
 
     Definition stepsTo p G :=
-      eventually p G node_step'.
+      eventually (node_step' p G).
   End impl.
   Arguments hyp_clause : clear implicits.
   Arguments concl_clause : clear implicits.
@@ -343,18 +343,18 @@ Section __.
                      {| bss_spec_node := bss.(bss_spec_node);
                        bss_queue := bss.(bss_queue) ++ [input] |}.
 
-    Definition spec_event_guaranteed (t : list spec_IO_event) (e : option spec_IO_event) :=
+    Definition spec_event_guaranteed (G : list dfact) (t : list spec_IO_event) (e : option spec_IO_event) :=
       match e with
       | None => True
       | Some (spec_O_event out) => True (*or: ~In (O_event out) t*)
-      | Some (spec_I_event inp) => ~In (spec_I_event inp) t
+      | Some (spec_I_event inp) => In inp G /\ ~In (spec_I_event inp) t
       end.
 
     Definition spec_node_step' p (G : list dfact) '(ss, t) P : Prop :=
       forall ss' t',
         star (spec_node_step p) ss t' ss' ->
         exists ss'' e,
-          spec_event_guaranteed (t' ++ t) e /\
+          spec_event_guaranteed G (t' ++ t) e /\
             spec_node_step p ss' e ss'' /\
             P (ss'', option_cons e t' ++ t).
 
@@ -364,7 +364,7 @@ Section __.
       graph with the same denotation.
      *)
     Definition spec_stepsTo p G :=
-      eventually p G spec_node_step'.
+      eventually (spec_node_step' p G).
   End spec.
 
   Variant lrel :=
@@ -403,7 +403,7 @@ Fail Definition learns_facts (p : node_prog) (s : node_state) new_facts :=
     {| hc_key :=
         {| hc_rel := {| hr_rel := normal_rel c.(Datalog.clause_rel);
                        hr_idxs := {| key_idxs := map (fun _ => true) c.(Datalog.clause_args);
-                                    value_idxs := []; |}; |};
+                                    value_idxs := map (fun _ => false) c.(Datalog.clause_args); |}; |};
           hc_key_args := map (expr_varmap inl) c.(Datalog.clause_args) |};
       hc_val := value_clause []; |}.
 
@@ -423,7 +423,7 @@ Fail Definition learns_facts (p : node_prog) (s : node_state) new_facts :=
                                     c.(Datalog.meta_clause_rel)
                                         (map is_Some c.(Datalog.meta_clause_args));
                        hr_idxs := {| key_idxs := map is_Some c.(Datalog.meta_clause_args);
-                                    value_idxs := []; |} |};
+                                    value_idxs := map negb (map is_Some c.(Datalog.meta_clause_args)); |} |};
           hc_key_args := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args)); |};
       hc_val := value_clause [] |}.
   Axiom count : aggregator.
@@ -450,19 +450,20 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
         let n := num_args source_rel in
         [{| local_rule_concls :=
              [{| cc_rel := normal_rel target_rel;
+                (*inr 0 = aggregate result, inr 1..n-2 = the carried-through args*)
                 cc_args := map var_expr (map inr (seq O (n - 1))); |}];
            local_rule_hyps :=
              [{| hc_key := {| hc_rel := {| hr_rel := done_receiving_rel
                                                        source_rel
                                                        (false :: false :: repeat true (n - 2));
                                           hr_idxs := {| key_idxs := repeat true (n - 2);
-                                                       value_idxs := []; |} |};
+                                                       value_idxs := repeat false (n - 2); |} |};
                              hc_key_args := map var_expr (map inr (seq 1 (n - 2))) |};
                 hc_val := value_clause []; |};
               {| hc_key := {| hc_rel := {| hr_rel := normal_rel source_rel;
-                                          hr_idxs := {| key_idxs := false :: false :: repeat true 8;
-                                                       value_idxs := []; |} |};
-                             hc_key_args := map var_expr (map inr (seq 1 n)) |};
+                                          hr_idxs := {| key_idxs := false :: false :: repeat true (n - 2);
+                                                       value_idxs := true :: true :: repeat false (n - 2); |} |};
+                             hc_key_args := map var_expr (map inr (seq 1 (n - 2))) |};
                 hc_val := agg_clause agg (inr O) |}];
          |}]
     (* target_rel(val, c, d) :- done_receiving(source_rel, [2, 3])(c, d),
@@ -488,7 +489,7 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
   Definition hyp_fact_of (f : concl_fact) : hyp_fact lrel :=
     {| hf_key := {| hf_rel := {| hr_rel := f.(cf_rel);
                                 hr_idxs := {| key_idxs := map (fun _ => true) f.(cf_args);
-                                             value_idxs := []; |} |};
+                                             value_idxs := map (fun _ => false) f.(cf_args); |} |};
                    hf_key_args := f.(cf_args) |};
       hf_val := value_fact [] |}.
 
