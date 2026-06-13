@@ -1903,28 +1903,26 @@ Section __.
       exists map.empty, i_t, in_t, out_t, c_sh. auto.
   Qed.
 End __.
-Arguments clause : clear implicits.
-Arguments meta_clause : clear implicits.
-Arguments fact : clear implicits.
-Arguments fact_args : clear implicits.
-Arguments rule : clear implicits.
-Arguments expr : clear implicits.
 
-Fixpoint expr_varmap {var1 var2 fn} (f : var1 -> var2) (e : expr var1 fn) : expr var2 fn :=
+Fixpoint expr_varmap {s1 s2 : datalog_syntax}
+  (vf : @var s1 -> @var s2) (ff : @fn s1 -> @fn s2)
+  (e : @expr s1) : @expr s2 :=
   match e with
-  | var_expr v => var_expr (f v)
-  | fun_expr fu args => fun_expr fu (map (expr_varmap f) args)
+  | var_expr v => var_expr (vf v)
+  | fun_expr fu args => fun_expr (ff fu) (map (expr_varmap vf ff) args)
   end.
 
-Definition clause_varmap {rel var1 var2 fn} (f : var1 -> var2)
-  (c : clause rel var1 fn) : clause rel var2 fn :=
-  {| clause_rel := c.(clause_rel);
-     clause_args := map (expr_varmap f) c.(clause_args) |}.
+Definition clause_varmap {s1 s2 : datalog_syntax}
+  (vf : @var s1 -> @var s2) (ff : @fn s1 -> @fn s2) (rf : @rel s1 -> @rel s2)
+  (c : @clause s1) : @clause s2 :=
+  {| clause_rel := rf c.(clause_rel);
+     clause_args := map (expr_varmap vf ff) c.(clause_args) |}.
 
-Definition meta_clause_varmap {rel var1 var2 fn} (f : var1 -> var2)
-  (c : meta_clause rel var1 fn) : meta_clause rel var2 fn :=
-  {| meta_clause_rel := c.(meta_clause_rel);
-     meta_clause_args := map (option_map (expr_varmap f)) c.(meta_clause_args) |}.
+Definition meta_clause_varmap {s1 s2 : datalog_syntax}
+  (vf : @var s1 -> @var s2) (ff : @fn s1 -> @fn s2) (rf : @rel s1 -> @rel s2)
+  (c : @meta_clause s1) : @meta_clause s2 :=
+  {| meta_clause_rel := rf c.(meta_clause_rel);
+     meta_clause_args := map (option_map (expr_varmap vf ff)) c.(meta_clause_args) |}.
 
 Hint Constructors non_meta_rule_impl : core.
 Hint Constructors rule_impl : core.
