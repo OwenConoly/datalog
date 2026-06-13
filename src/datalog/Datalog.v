@@ -41,9 +41,8 @@ Section __.
   Context {rel var fn aggregator T : Type}.
   Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
   Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
+  Context {var_eqb : var -> var -> bool} {var_eqb_spec : EqDecider var_eqb}.
 
-  (*avoid generating useless induction principle*)
   Unset Elimination Schemes.
   Inductive expr :=
   | var_expr (v : var)
@@ -1648,8 +1647,7 @@ Section __.
       end.
 
   Context {type_eqb : type -> type -> bool}
-          {type_eqb_spec :
-             forall t1 t2, BoolSpec (t1 = t2) (t1 <> t2) (type_eqb t1 t2)}.
+          {type_eqb_spec : EqDecider type_eqb}.
 
   Fixpoint check_expr_type e t : option type_context :=
     match e with

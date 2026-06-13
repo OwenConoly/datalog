@@ -61,7 +61,7 @@ Qed.
 Import ListNotations.
 Section subset.
   Context {A : Type}.
-  Context (eqb : A -> A -> bool) {eqb_spec :  forall x0 y0 : A, BoolSpec (x0 = y0) (x0 <> y0) (eqb x0 y0)}.
+  Context (eqb : A -> A -> bool) {eqb_spec : EqDecider eqb}.
   Implicit Type l : list A.
 
   Lemma Permutation_incl l l' :
