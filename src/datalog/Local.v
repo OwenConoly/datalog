@@ -487,6 +487,17 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
      *)
     end.
 
+  Print node_prog.
+  Context {idx_structs_info : map.map idx_struct values_info}
+    {rel_views : map.map lrel idx_structs_info}
+    {rels_data : map.map (@hyp_fact_key lrel) val_data}
+    {lcontext : map.map lvar T}.
+
+  Local Notation node_prog0 := (node_prog lrel lvar idx_structs_info rel_views).
+  Definition lower_prog (sp : spec_node_prog) : node_prog0 :=
+    {| n_relviews := map.empty;
+      n_rules := flat_map lower_rule sp.(spec_node_rules) |}.
+
   Definition lower_dfact (f : dfact) : concl_fact :=
     match f with
     | normal_dfact R args =>
@@ -509,10 +520,6 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
                    hf_key_args := f.(cf_args) |};
       hf_val := value_fact [] |}.
 
-  Context {idx_structs_info : map.map idx_struct values_info}
-    {rel_views : map.map lrel idx_structs_info}
-    {rels_data : map.map (@hyp_fact_key lrel) val_data}.
-  Local Notation node_prog0 := (node_prog lrel lvar idx_structs_info rel_views).
   Local Notation knows_hyp_fact0 := (knows_hyp_fact (node_rels := rels_data)).
   Print node_state.
 
@@ -524,11 +531,16 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     knows_hyp_fact0 bs.(bs_node) (hyp_fact_of f) \/
       In f bs.(bs_queue).
 
-  Print spec_stepsTo.
+  Lemma lower_rule_complete (sp : spec_node_prog) G f :
+    spec_stepsTo sp G
+      (fun '(bss, _) => In f bss.(bss_spec_node).(known_facts))
+      (empty_big_spec_state, []) ->
+    stepsTo (lower_prog sp) (map lower_dfact G)
+      (fun '(bs, _) => knows_fact bs (lower_dfact f))
+      (empty_big_state, []).
+  Proof.
 
-  Lemma lower_rule_complete sp (p : node_prog0) s G f :
-    spec_stepsTo sp G (fun '(bss, t) => In f bss.(bss_spec_node).(known_facts)) (empty_big_spec_state, []) ->
-    stepsTo p [] (fun _ => True) (s, []).
+  Admitted.
 
 
 End __.
