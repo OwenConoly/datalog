@@ -540,7 +540,7 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
            P (bss', ts') /\
              (forall f, spec_knows_fact bss' f ->
                    knows_fact bs' (lower_dfact f))).
-  Admitted.
+  Proof. Abort.
 
   Lemma lower_rule_complete bss bs ts t (sp : spec_node_prog) P G :
     (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) ->
@@ -552,44 +552,5 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
                spec_knows_fact bss' f ->
                knows_fact bs (lower_dfact f))
       (bs, t).
-  Proof.
-    intros Hknows Hspec.
-    unfold spec_stepsTo in Hspec.
-    remember (bss, ts) as start eqn:Heq.
-    revert bs t bss ts Hknows Heq.
-    induction Hspec as [start HPstart | start midset Hstep IH_ev IH];
-      intros bs t bss ts Hknows Heq; subst start.
-    - (* eventually_done: P holds at (bss, ts). Use Hknows to transport
-         knowledge to the impl side and finish with eventually_done. *)
-      apply eventually_done. cbn.
-      exists bss, ts. split; [exact HPstart | exact Hknows].
-    - (* eventually_step: we have a spec angelic step from (bss, ts)
-         and we need an impl angelic step from (bs, t).
-         The IH is now usable: it says, for every mid in [midset] and
-         every impl state related to it by [Hknows]-style correspondence,
-         the impl reaches the goal.  What we still need is a simulation
-         lemma:
-
-           Lemma sim_step bss ts bs t midset :
-             (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) ->
-             spec_node_step' sp G (bss, ts) midset ->
-             exists midset',
-               node_step' (lower_prog sp) (map lower_dfact G) (bs, t) midset' /\
-               (forall bs' t',
-                 midset' (bs', t') ->
-                 exists bss' ts',
-                   midset (bss', ts') /\
-                   (forall f, spec_knows_fact bss' f ->
-                              knows_fact bs' (lower_dfact f))).
-
-         With [sim_step] in hand: pick the witness [midset'], use
-         [eventually_step] with it, then for each impl successor
-         [(bs', t')] use the second conjunct to find the matching spec
-         successor and apply [IH].
-
-         No such lemma exists yet — stuck. *)
-      Show.
-  Admitted.
-
-
+  Proof. Abort.
 End __.
