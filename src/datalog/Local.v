@@ -531,14 +531,16 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     knows_hyp_fact0 bs.(bs_node) (hyp_fact_of f) \/
       In f bs.(bs_queue).
 
-  Lemma lower_rule_complete bss bs ts t (sp : spec_node_prog) G :
+  Print eventually.
+  Lemma lower_rule_complete bss bs ts t (sp : spec_node_prog) P G :
     (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) ->
-    forall f,
-    spec_stepsTo sp G
-      (fun '(bss, _) => In f bss.(bss_spec_node).(known_facts))
-      (bss, ts) ->
+    spec_stepsTo sp G P (bss, ts) ->
     stepsTo (lower_prog sp) (map lower_dfact G)
-      (fun '(bs, _) => knows_fact bs (lower_dfact f))
+      (fun '(bs, _) => exists bss' ts',
+           P (bss', ts') /\
+             forall f,
+               spec_knows_fact bss' f ->
+               knows_fact bs (lower_dfact f))
       (bs, t).
   Proof.
     intros Hspec.
