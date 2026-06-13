@@ -12,36 +12,56 @@ Import ListNotations.
 
 (*relations, variables, functions, and "aggregator functions" (e.g. min, max, sum, prod)*)
 (* A datalog program talks about facts R(x1, ..., xn), where (R : rel) and (x1 : T), (x2 : T), etc. *)
-Class signature {fn aggregator T : Type} : Type :=
+
+Class datalog_syntax : Type :=
+  { rel : Type;
+    var : Type;
+    fn : Type;
+    aggregator : Type; }.
+
+Class datalog_semantics `{datalog_syntax} : Type :=
   {
-    interp_fun : fn -> list T -> option T;
+    value : Type;
+    context : map.map var value;
+    interp_fun : fn -> list value -> option value;
     (* (*if x represents a finite set S then get_set x = Some S. *)
     (*   note: suffices to have this be T -> option nat, for cardinality... *)
     (*   should i do that? *) *)
     (* get_set : T -> option (T -> Prop); *)
-    get_nat : T -> nat;
-    agg_bop : aggregator -> T -> T -> T;
-    agg_id : aggregator -> T; }.
-Arguments signature : clear implicits.
+    get_nat : value -> nat;
+    agg_bop : aggregator -> value -> value -> value;
+    agg_id : aggregator -> value; }.
 
-Class type_signature {rel fn aggregator : Type} : Type :=
+Class datalog_types `{datalog_syntax} : Type :=
   {
     type : Type;
     fun_type : fn -> list type * type;
     rel_type : rel -> list type;
     agg_type : aggregator -> type * type;
   }.
-Arguments type_signature : clear implicits.
 
-Class query_signature {rel : Type} :=
-  { outs : rel -> nat }.
-Arguments query_signature : clear implicits.
+(* Class query_signature {rel : Type} := *)
+(*   { outs : rel -> nat }. *)
+(* Arguments query_signature : clear implicits. *)
+
+Module Garbage.
+Section __.
+  Context `{datalog_syntax}.
+  Definition f := rel.
+End __.
+About f.
 
 Section __.
-  Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
-  Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec : EqDecider var_eqb}.
+  Context {H : datalog_syntax}.
+  Definition g := rel.
+End __.
+About g.
+End Garbage.
+
+Section __.
+  Context `{syntax : datalog_syntax} `{semantics : @datalog_semantics syntax}.
+  Context {var_eqb : var -> var -> bool} `{var_eqb_spec : EqDecider var_eqb}.
+  Context {context_ok : map.ok context}.
 
   Unset Elimination Schemes.
   Inductive expr :=
@@ -58,8 +78,8 @@ Section __.
       meta_clause_args : list (option expr) }.
 
   Variant fact :=
-    | normal_fact (nf_rel : rel) (nf_args : list T)
-    | meta_fact (mf_rel : rel) (mf_args : list (option T)) (mf_set : list T -> Prop).
+    | normal_fact (nf_rel : rel) (nf_args : list value)
+    | meta_fact (mf_rel : rel) (mf_args : list (option value)) (mf_set : list value -> Prop).
 
   Definition rel_of (f : fact) :=
     match f with
@@ -68,8 +88,8 @@ Section __.
     end.
 
   Variant fact_args :=
-    | normal_fact_args (nf_args : list T)
-    | meta_fact_args (mf_args : list (option T)) (mf_set : list T -> Prop).
+    | normal_fact_args (nf_args : list value)
+    | meta_fact_args (mf_args : list (option value)) (mf_set : list value -> Prop).
 
   Definition args_of f :=
     match f with
@@ -103,7 +123,7 @@ Section __.
   Qed.
 
   Unset Elimination Schemes.
-  Inductive interp_expr (ctx : context) : expr -> T -> Prop :=
+  Inductive interp_expr (ctx : context) : expr -> value -> Prop :=
   | interp_var_expr x v :
     map.get ctx x = Some v ->
     interp_expr ctx (var_expr x) v
@@ -137,7 +157,7 @@ Section __.
   (*| agg_over_set (concl_rel : rel) (agg : aggregator) (cardinality : expr) (hyp_rel : rel) (hyp_args : list var)*).
 
   (*None is a wildcard*)
-  Definition matches (x : option T) y :=
+  Definition matches (x : option value) y :=
     match x with
     | None => True
     | Some x0 => x0 = y
@@ -150,15 +170,15 @@ Section __.
         Forall2 matches mf_args nf_args /\
         mf_set nf_args.
 
-  Definition interp_agg agg (vals : list (T * T)) :=
+  Definition interp_agg agg (vals : list (value * value)) :=
     fold_right (agg_bop agg) (agg_id agg) (map snd vals).
 
-  Inductive non_meta_rule_impl : rule -> rel -> list T -> list fact -> Prop :=
+  Inductive non_meta_rule_impl : rule -> rel -> list value -> list fact -> Prop :=
   | normal_rule_impl rule_concls rule_hyps ctx R args hyps :
     Exists (fun c => interp_clause ctx c (normal_fact R args)) rule_concls ->
     Forall2 (interp_clause ctx) rule_hyps hyps ->
     non_meta_rule_impl (normal_rule rule_concls rule_hyps) R args hyps
-  | agg_rule_impl S vals concl_rel agg hyp_rel (args : list T) :
+  | agg_rule_impl S vals concl_rel agg hyp_rel (args : list value) :
     is_list_set (fun '(i, x) => S (i :: x :: args)) vals ->
     non_meta_rule_impl
       (agg_rule concl_rel agg hyp_rel)
@@ -195,14 +215,14 @@ Section __.
   Definition fact_supported (meta_facts : list fact) (f : fact) : Prop :=
     Exists (fun hyp => extensionally_equal f hyp \/ fact_matches f hyp) meta_facts.
 
-  Definition one_step_derives0 fact_supported (p : list rule) (meta_facts : list fact) (R : rel) (args : list T) : Prop :=
+  Definition one_step_derives0 fact_supported (p : list rule) (meta_facts : list fact) (R : rel) (args : list value) : Prop :=
     exists hyps,
       Exists (fun r => non_meta_rule_impl r R args hyps) p /\
         Forall (fact_supported meta_facts) hyps.
   Definition one_step_derives := one_step_derives0 fact_supported.
   Hint Unfold one_step_derives0 fact_supported : core.
 
-  Inductive rule_impl (env : list fact -> rel -> list T -> Prop) : rule -> fact -> list fact -> Prop :=
+  Inductive rule_impl (env : list fact -> rel -> list value -> Prop) : rule -> fact -> list fact -> Prop :=
   | simple_rule_impl r R args hyps :
     non_meta_rule_impl r R args hyps ->
     rule_impl _ r (normal_fact R args) hyps
@@ -1343,7 +1363,7 @@ Section __.
     (forall mf_rel mf_args1 mf_args2 mf_set1 mf_set2,
         Q (meta_fact mf_rel mf_args1 mf_set1) ->
         Q (meta_fact mf_rel mf_args2 mf_set2) ->
-        forall nf_args : list T,
+        forall nf_args,
           Forall2 matches mf_args1 nf_args ->
           Forall2 matches mf_args2 nf_args ->
           mf_set1 nf_args <-> mf_set2 nf_args) ->
@@ -1368,7 +1388,7 @@ Section __.
     assert (Hfs1': forall mf_rel mf_args1 mf_args2 mf_set1 mf_set2,
                In (meta_fact mf_rel mf_args1 mf_set1) fs ->
                In (meta_fact mf_rel mf_args2 mf_set2) fs ->
-               forall nf_args : list T,
+               forall nf_args,
                  Forall2 matches mf_args1 nf_args ->
                  Forall2 matches mf_args2 nf_args ->
                  mf_set1 nf_args <-> mf_set2 nf_args).
@@ -1482,7 +1502,7 @@ Section __.
     (forall mf_rel mf_args1 mf_args2 mf_set1 mf_set2,
         Q (meta_fact mf_rel mf_args1 mf_set1) ->
         Q (meta_fact mf_rel mf_args2 mf_set2) ->
-        forall nf_args : list T,
+        forall nf_args,
           Forall2 matches mf_args1 nf_args ->
           Forall2 matches mf_args2 nf_args ->
           mf_set1 nf_args <-> mf_set2 nf_args) ->
@@ -1602,7 +1622,7 @@ Section __.
   (*   intros. split; auto using loopless_program. intros [H'|H']; fwd; eauto. *)
   (* Qed. *)
 
-  Context `{tsig : type_signature rel fn aggregator}.
+  Context `{tsig : @datalog_types syntax}.
   Context {type_context : map.map var type}
           {type_context_ok : map.ok type_context}.
 
