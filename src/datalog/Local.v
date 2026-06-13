@@ -531,7 +531,17 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     knows_hyp_fact0 bs.(bs_node) (hyp_fact_of f) \/
       In f bs.(bs_queue).
 
-  Print eventually.
+  Lemma sim_step (sp : spec_node_prog) G bss ts bs t P :
+    (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) ->
+    spec_node_step' sp G (bss, ts) P ->
+    node_step' (lower_prog sp) (map lower_dfact G) (bs, t)
+      (fun '(bs', t') =>
+         exists bss' ts',
+           P (bss', ts') /\
+             (forall f, spec_knows_fact bss' f ->
+                   knows_fact bs' (lower_dfact f))).
+  Admitted.
+
   Lemma lower_rule_complete bss bs ts t (sp : spec_node_prog) P G :
     (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) ->
     spec_stepsTo sp G P (bss, ts) ->
@@ -543,53 +553,42 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
                knows_fact bs (lower_dfact f))
       (bs, t).
   Proof.
-    intros Hspec.
+    intros Hknows Hspec.
     unfold spec_stepsTo in Hspec.
-    remember (empty_big_spec_state, @nil spec_IO_event) as sp0 eqn:Heq.
-    revert Heq.
-    induction Hspec as [sp0 HP | sp0 midset Hstep IH]; intros Heq.
-    - (* eventually_done: the spec predicate already holds at the starting
-         state.  But [empty_big_spec_state] has no known facts, so this
-         case is impossible. *)
-      destruct sp0 as [bss t]. inversion Heq; subst. cbn in HP. destruct HP.
-    - destruct sp0 as [bss t]. inversion Heq; subst.
+    remember (bss, ts) as start eqn:Heq.
+    revert bs t bss ts Hknows Heq.
+    induction Hspec as [start HPstart | start midset Hstep IH_ev IH];
+      intros bs t bss ts Hknows Heq; subst start.
+    - (* eventually_done: P holds at (bss, ts). Use Hknows to transport
+         knowledge to the impl side and finish with eventually_done. *)
+      apply eventually_done. cbn.
+      exists bss, ts. split; [exact HPstart | exact Hknows].
+    - (* eventually_step: we have a spec angelic step from (bss, ts)
+         and we need an impl angelic step from (bs, t).
+         The IH is now usable: it says, for every mid in [midset] and
+         every impl state related to it by [Hknows]-style correspondence,
+         the impl reaches the goal.  What we still need is a simulation
+         lemma:
+
+           Lemma sim_step bss ts bs t midset :
+             (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) ->
+             spec_node_step' sp G (bss, ts) midset ->
+             exists midset',
+               node_step' (lower_prog sp) (map lower_dfact G) (bs, t) midset' /\
+               (forall bs' t',
+                 midset' (bs', t') ->
+                 exists bss' ts',
+                   midset (bss', ts') /\
+                   (forall f, spec_knows_fact bss' f ->
+                              knows_fact bs' (lower_dfact f))).
+
+         With [sim_step] in hand: pick the witness [midset'], use
+         [eventually_step] with it, then for each impl successor
+         [(bs', t')] use the second conjunct to find the matching spec
+         successor and apply [IH].
+
+         No such lemma exists yet — stuck. *)
       Show.
-      (* Stuck.  Here is the state at this point:
-           sp : spec_node_prog
-           G  : list dfact
-           f  : dfact
-           midset : big_spec_state * list spec_IO_event -> Prop
-           Hstep : spec_node_step' sp G (empty_big_spec_state, []) midset
-           IH : forall mid, midset mid ->
-                  mid = (empty_big_spec_state, []) ->
-                  stepsTo (lower_prog sp) (map lower_dfact G)
-                          (fun '(bs, _) => knows_fact bs (lower_dfact f))
-                          (empty_big_state, [])
-           ============================
-           stepsTo (lower_prog sp) (map lower_dfact G)
-                   (fun '(bs, _) => knows_fact bs (lower_dfact f))
-                   (empty_big_state, [])
-
-         The IH is degenerate: once the spec has taken a step, the new
-         spec state [mid] is no longer [(empty_big_spec_state, [])], so
-         IH's equality premise can never be satisfied and IH is useless.
-
-         To make progress we need to generalize the induction to carry a
-         correspondence relation between spec [big_spec_state]s and impl
-         [big_state]s.  Concretely, we are missing:
-           (a) corresp : big_spec_state -> big_state -> Prop,
-               with corresp empty_big_spec_state empty_big_state;
-           (b) a simulation lemma: for every spec step
-                 spec_node_step' sp G ss midset
-               and every impl state s related to ss by corresp, there is
-               a corresponding impl angelic step
-                 node_step' (lower_prog sp) (map lower_dfact G) s midset'
-               such that every mid' in midset' is related to some mid in
-               midset by corresp;
-           (c) a preservation lemma: if corresp bss bs and
-                 In f bss.(bss_spec_node).(known_facts),
-               then [knows_fact bs (lower_dfact f)].
-         None of (a)-(c) exist yet. *)
   Admitted.
 
 
