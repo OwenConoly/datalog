@@ -107,6 +107,8 @@ Section __.
 
     Definition node_state := node_rels.
 
+    Definition empty_node_state : node_state := map.empty.
+
     Definition knows_hyp_fact (s : node_state) (f : hyp_fact) :=
       match map.get s f.(hf_key) with
       | Some inp_data =>
@@ -238,6 +240,10 @@ Section __.
         bs_queue : list concl_fact;
       }.
 
+    Definition empty_big_state :=
+      {| bs_node := empty_node_state;
+        bs_queue := [] |}.
+
     Variant IO_event :=
       | I_event (_ : concl_fact)
       | O_event (_ : list concl_fact).
@@ -296,6 +302,9 @@ Section __.
       { known_facts : list dfact;
         sent_facts : list dfact }.
 
+    Definition empty_spec_state :=
+      {| known_facts := []; sent_facts := [] |}.
+
     Record spec_node_prog :=
       { spec_node_rules : list rule;
         spec_node_label : nat }.
@@ -328,6 +337,10 @@ Section __.
       { bss_spec_node : spec_node_state;
         bss_queue : list dfact;
       }.
+
+    Definition empty_big_spec_state :=
+      {| bss_spec_node := empty_spec_state;
+        bss_queue := [] |}.
 
     Variant spec_IO_event :=
       | spec_I_event (_ : dfact)
@@ -433,8 +446,6 @@ Section __.
       hc_val := value_clause [] |}.
   Axiom count : aggregator.
 
-  Print concl_clause. Print hyp_clause_val.
-  Print local_rule.
   Definition lower_rule (r : rule) : list local_rule :=
     match r with
     | normal_rule concls hyps =>
@@ -503,15 +514,20 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     {rels_data : map.map (@hyp_fact_key lrel) val_data}.
   Local Notation node_prog0 := (node_prog lrel lvar idx_structs_info rel_views).
   Local Notation knows_hyp_fact0 := (knows_hyp_fact (node_rels := rels_data)).
-  Definition corresp (p : node_prog0) (bss : big_spec_state) (bs : big_state) :=
-    forall f,
-      knows_hyp_fact0 bs.(bs_node) (hyp_fact_of (lower_dfact f)) \/
-        In (lower_dfact f) bs.(bs_queue) <->
-        In f (bss.(bss_spec_node).(known_facts)) \/ In f bss.(bss_queue).
+  Print node_state.
 
-  Lemma lower_rule_complete sp ss p s :
-    corresp p ss s ->
-    spec_stepsTo sp [] (fun _ => True) (ss, []) ->
+
+  Definition spec_knows_fact bss f :=
+    In f (bss.(bss_spec_node).(known_facts)) \/ In f bss.(bss_queue).
+
+  Definition knows_fact bs f :=
+    knows_hyp_fact0 bs.(bs_node) (hyp_fact_of f) \/
+      In f bs.(bs_queue).
+
+  Print spec_stepsTo.
+
+  Lemma lower_rule_complete sp (p : node_prog0) s G f :
+    spec_stepsTo sp G (fun '(bss, t) => In f bss.(bss_spec_node).(known_facts)) (empty_big_spec_state, []) ->
     stepsTo p [] (fun _ => True) (s, []).
 
 
