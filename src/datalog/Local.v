@@ -284,8 +284,7 @@ Section __.
   Arguments hyp_clause : clear implicits.
   Arguments concl_clause : clear implicits.
   Arguments hyp_fact : clear implicits.
-  Arguments node_prog : clear implicits.
-
+  Arguments node_prog _ _ {_ _}.
 
   Context {rel : relT} {exprvar : exprvarT}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
@@ -408,8 +407,6 @@ Section __.
 
   Context (num_args : rel -> nat).
 
-  Local Notation hyp_clause0 := (hyp_clause lrel lvar).
-
   Definition lower_clause_hyp (c : clause) : hyp_clause lrel lvar :=
     {| hc_key :=
         {| hc_rel := {| hr_rel := normal_rel c.(Datalog.clause_rel);
@@ -486,8 +483,7 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     {rels_data : map.map (@hyp_fact_key lrel) val_data}
     {lcontext : map.map lvar T}.
 
-  Local Notation node_prog0 := (node_prog lrel lvar idx_structs_info rel_views).
-  Definition lower_prog (sp : spec_node_prog) : node_prog0 :=
+  Definition lower_prog (sp : spec_node_prog) : node_prog lrel lvar :=
     {| n_relviews := map.empty;
       n_rules := flat_map lower_rule sp.(spec_node_rules) |}.
 
@@ -513,15 +509,11 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
                    hf_key_args := f.(cf_args) |};
       hf_val := value_fact [] |}.
 
-  Local Notation knows_hyp_fact0 := (knows_hyp_fact (node_rels := rels_data)).
-  Print node_state.
-
-
   Definition spec_knows_fact bss f :=
     In f (bss.(bss_spec_node).(known_facts)) \/ In f bss.(bss_queue).
 
   Definition knows_fact bs f :=
-    knows_hyp_fact0 bs.(bs_node) (hyp_fact_of f) \/
+    knows_hyp_fact bs.(bs_node) (hyp_fact_of f) \/
       In f bs.(bs_queue).
 
   Lemma sim_step (sp : spec_node_prog) G bss ts bs t P :
