@@ -14,16 +14,9 @@ From Datalog Require Import Datalog Map Tactics Fp List Dag.
 Import ListNotations.
 
 Section __.
-  Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
-  Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec : EqDecider var_eqb}.
-
-  Local Notation expr := (expr var fn).
-  Local Notation rule := (rule rel var fn aggregator).
-  Local Notation clause := (clause rel var fn).
-  Local Notation meta_clause := (meta_clause rel var fn).
-  Local Notation fact:= (fact rel T).
+  Context `{syntax : datalog_syntax} `{semantics : @datalog_semantics syntax}.
+  Context {context_ok : map.ok context}.
+  Context {var_eqb : var -> var -> bool} `{var_eqb_spec : EqDecider var_eqb}.
 
   Implicit Type r : rule.
   Implicit Type ctx : context.
@@ -81,7 +74,7 @@ Section __.
     apply in_flat_map. eauto.
   Qed.
 
-  Fixpoint subst_in_expr ctx e : option T :=
+  Fixpoint subst_in_expr ctx e : option value :=
     match e with
     | var_expr v => map.get ctx v
     | fun_expr f args => option_coalesce (option_map (interp_fun f) (option_all (map (subst_in_expr ctx) args)))
@@ -135,7 +128,7 @@ Section __.
     auto using subst_in_expr_complete.
   Qed.
 
-  Definition subst_in_meta_clause ctx (c : meta_clause) (S : list T -> Prop) :=
+  Definition subst_in_meta_clause ctx (c : meta_clause) (S : list value -> Prop) :=
     option_map (fun args => meta_fact c.(meta_clause_rel) args S)
       (option_all (map (fun o => match o with
                                  | None => Some None
@@ -200,7 +193,7 @@ Section __.
       rewrite Forall_forall in *. eauto.
   Qed.
 
-  Definition context_of_args (args : list expr) (args' : list T) :=
+  Definition context_of_args (args : list expr) (args' : list value) :=
     concat (zip (fun arg arg' =>
                    match arg with
                    | var_expr v => [(v, arg')]
@@ -1151,10 +1144,10 @@ Section __.
   Hint Unfold matches : core.
   Lemma check_meta_rule_against_agg_rule_sound env mconcls mhyps concl_rel agg hyp_rel R mf_args mf_set args mhyps' nhyps' :
     check_meta_rule_against_agg_rule mconcls mhyps concl_rel hyp_rel = true ->
-    rule_impl (context := context) env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
-    rule_impl (context := context) env (agg_rule concl_rel agg hyp_rel) (normal_fact R args) nhyps' ->
+    rule_impl env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
+    rule_impl env (agg_rule concl_rel agg hyp_rel) (normal_fact R args) nhyps' ->
     Forall2 matches mf_args args ->
-    Forall (fact_potentially_supported (rel := rel) mhyps') nhyps'.
+    Forall (fact_potentially_supported mhyps') nhyps'.
   Proof.
     intros H Hm Hn Hmatch. repeat invert_stuff.
     rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)). fwd.
