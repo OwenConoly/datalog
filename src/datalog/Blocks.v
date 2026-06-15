@@ -9,26 +9,15 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 Import ListNotations.
 
 Section Blocks.
-  Context {lvar : Type}.
-  Context {exprvar fn_t aggregator_t value_t : Type}.
-  Context {context_v : map.map exprvar value_t} {context_v_ok : map.ok context_v}.
-  Context {interp_fun_v : fn_t -> list value_t -> option value_t}.
-  Context {get_nat_v : value_t -> nat}.
-  Context {agg_bop_v : aggregator_t -> value_t -> value_t -> value_t}.
-  Context {agg_id_v : aggregator_t -> value_t}.
+  Context {lvar exprvar fn aggregator T : Type}.
+  Context {sig : signature fn aggregator T}.
+  Context {context : map.map exprvar T} {context_ok : map.ok context}.
 
   Inductive block_rel :=
   | local (_ : lvar)
   | input (_ : lvar).
 
-  #[local] Instance bsyntax : datalog_syntax :=
-    {| rel := block_rel; var := exprvar; fn := fn_t; aggregator := aggregator_t |}.
-  #[local] Instance bsem : @datalog_semantics bsyntax :=
-    {| value := value_t; context := context_v;
-       interp_fun := interp_fun_v; get_nat := get_nat_v;
-       agg_bop := agg_bop_v; agg_id := agg_id_v |}.
-
-  Definition block_rule := rule.
+  Definition block_rule := rule block_rel exprvar fn aggregator.
 
   Inductive blocks_prog {var} :=
   | LetIn (x : blocks_prog) (f : var -> blocks_prog)
@@ -58,7 +47,7 @@ Section Blocks.
     LetIn (Block lvar1 [] p1) (fun val =>
                                 Block lvar1 [(lvar2, val)] p2).
 
-  Fixpoint interp_blocks_prog (e : blocks_prog (fact_args -> Prop)) : fact_args -> Prop :=
+  Fixpoint interp_blocks_prog (e : blocks_prog (fact_args T -> Prop)) : fact_args T -> Prop :=
     match e with
     | LetIn x f =>
         interp_blocks_prog (f (interp_blocks_prog x))
@@ -101,42 +90,32 @@ Section Blocks.
   Section map.
     Context {rel1 rel2} (f : rel1 -> rel2).
 
-    #[local] Instance s1 : datalog_syntax :=
-      {| rel := rel1; var := exprvar; fn := fn_t; aggregator := aggregator_t |}.
-    #[local] Instance sm1 : @datalog_semantics s1 :=
-      {| value := value_t; context := context_v;
-         interp_fun := interp_fun_v; get_nat := get_nat_v;
-         agg_bop := agg_bop_v; agg_id := agg_id_v |}.
-    Definition s2 : datalog_syntax :=
-      {| rel := rel2; var := exprvar; fn := fn_t; aggregator := aggregator_t |}.
-    Definition sm2 : @datalog_semantics s2 :=
-      @Build_datalog_semantics s2 value_t context_v interp_fun_v get_nat_v agg_bop_v agg_id_v.
-
     Definition injective_on (x : rel1) : Prop :=
       forall y, f x = f y -> x = y.
 
     Definition rel_equiv R1 R2 := f R1 = f R2.
 
-    Definition map_fact (fct : @fact s1 sm1) : @fact s2 sm2 :=
+    Definition map_fact (fct : fact rel1 T) : fact rel2 T :=
       match fct with
-      | normal_fact R args => @normal_fact s2 sm2 (f R) args
-      | meta_fact R mf_args mf_set => @meta_fact s2 sm2 (f R) mf_args mf_set
+      | normal_fact R args => normal_fact (f R) args
+      | meta_fact R mf_args mf_set => meta_fact (f R) mf_args mf_set
       end.
 
     Definition fact_equiv f1 f2 := map_fact f1 = map_fact f2.
 
-    Definition map_clause_rel (c : @clause s1) : @clause s2 :=
-      @Build_clause s2 (f c.(clause_rel)) (map (@expr_varmap s1 s2 id id) c.(clause_args)).
+    Definition map_clause_rel (c : clause rel1 exprvar fn) :=
+      {| clause_rel := f c.(clause_rel);
+        clause_args := c.(clause_args) |}.
 
-    Lemma interp_clause_map_fw (ctx : context_v) (c : @clause s1) (h : @fact s1 sm1) :
-      @interp_clause s1 sm1 ctx c h ->
-      @interp_clause s2 sm2 ctx (map_clause_rel c) (map_fact h).
+    Lemma interp_clause_map_fw ctx c h :
+      interp_clause ctx c h ->
+      interp_clause ctx (map_clause_rel c) (map_fact h).
     Proof. intros. repeat invert_stuff. interp_exprs. Qed.
 
     Hint Unfold interp_clause rel_equiv fact_equiv : core.
-    Lemma interp_clause_map_bw (ctx : context_v) (c : @clause s1) (h : @fact s1 sm1) :
-      @interp_clause s2 sm2 ctx (map_clause_rel c) (map_fact h) ->
-      exists h', fact_equiv h h' /\ @interp_clause s1 sm1 ctx c h'.
+    Lemma interp_clause_map_bw ctx c h :
+      interp_clause ctx (map_clause_rel c) (map_fact h) ->
+      exists h', fact_equiv h h' /\ interp_clause ctx c h'.
     Proof.
       intros H. cbv [interp_clause] in H. fwd.
       destruct h; simpl in *; repeat invert_stuff.
@@ -854,7 +833,7 @@ Section Blocks.
 
   Hint Constructors vars_in : core.
 
-  Lemma interp_blocks_prog_honest ctx (e : blocks_prog (fact_args -> Prop)) :
+  Lemma interp_blocks_prog_honest ctx (e : blocks_prog (fact_args T -> Prop)) :
     valid_blocks_prog e ->
     vars_in ctx e ->
     Forall honest_args ctx ->
@@ -888,7 +867,7 @@ Section Blocks.
            subst R0'. exact Hargs0.
   Qed.
 
-  Lemma blocks_prog_impl_mf_ext (e : blocks_prog (fact_args -> Prop)) mf_args mf_set mf_set' :
+  Lemma blocks_prog_impl_mf_ext (e : blocks_prog (fact_args T -> Prop)) mf_args mf_set mf_set' :
     interp_blocks_prog e (meta_fact_args mf_args mf_set) ->
     (forall nf_args,
         Forall2 matches mf_args nf_args ->

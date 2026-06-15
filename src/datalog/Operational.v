@@ -25,12 +25,19 @@ Notation "R ^*" := (clos_refl_trans_1n _ R) (format "R ^*").
 #[global] Hint Constructors clos_refl_trans_1n : core.
 
 Section __.
-  Context `{syntax : datalog_syntax} `{semantics : @datalog_semantics syntax}.
-  Context {context_ok : map.ok context}.
+  Context {rel var fn aggregator T : Type}.
+  Context `{sig : signature fn aggregator T}.
+  Context {context : map.map var T} {context_ok : map.ok context}.
+
+  Local Notation clause := (clause rel var fn).
+  Local Notation meta_clause := (meta_clause rel var fn).
+  Local Notation fact := (fact rel T).
+  Local Notation expr := (expr var fn).
+  Local Notation rule := (rule rel var fn aggregator).
 
   Implicit Types mf_rel : rel.
-  Implicit Types mf_args : list (option value).
-  Implicit Types nf_args : list value.
+  Implicit Types mf_args : list (option T).
+  Implicit Types nf_args : list T.
 
   Inductive non_meta_rule :=
   | nmr_normal (_ _ : list clause)
@@ -43,8 +50,8 @@ Section __.
     end.
 
   Inductive dfact :=
-  | normal_dfact (nf_rel : rel) (nf_args : list value)
-  | meta_dfact (mf_rel : rel) (mf_args : list (option value)) (source : option nat) (expected_msgs : nat) (*number of messages that node "source" will ever send about mf_rel*).
+  | normal_dfact (nf_rel : rel) (nf_args : list T)
+  | meta_dfact (mf_rel : rel) (mf_args : list (option T)) (source : option nat) (expected_msgs : nat) (*number of messages that node "source" will ever send about mf_rel*).
 
   Record prog :=
     { meta_rules : list (list meta_clause * list meta_clause);
@@ -1584,7 +1591,7 @@ Section __.
       simpl. apply Hbic. exact Hmatch_nf.
   Qed.
 
-  Lemma use_meta_facts_correct (R : rel) (mf_args : list (option value))
+  Lemma use_meta_facts_correct (R : rel) (mf_args : list (option T))
     (inputs : list dfact) (s : state) :
     good_input_facts inputs ->
     sane_state inputs s ->
@@ -4236,7 +4243,7 @@ Section __.
         apply Forall_cons_iff in Hcons.
         destruct Hcons as (Hc_meta & _).
         (* dfs from val normals *)
-        pose (val_dfs := map (fun (p_pair : value * value) =>
+        pose (val_dfs := map (fun (p_pair : T * T) =>
                                 let '(i, x_i) := p_pair in normal_dfact hr (i :: x_i :: args_rest))
                              vals_pairs).
         assert (Hkn_val_dfs : Forall (knows_dfact s) val_dfs).
@@ -4249,7 +4256,7 @@ Section __.
           { apply in_map_iff. exists (i, x_i). split; [reflexivity|exact Hin_pair]. }
           specialize (Hd_normals _ Hin_map). simpl in Hd_normals. exact Hd_normals. }
         (* Now extract meta_dfacts from Hd_meta, case-splitting on is_input hr *)
-        pose (mf_args := None :: None :: map Some args_rest : list (option value)).
+        pose (mf_args := None :: None :: map Some args_rest : list (option T)).
         destruct (is_input hr) eqn:Hhr_inp.
         * (* Input hr: single meta_dfact with None source *)
           cbv [has_derived_datalog_fact] in Hd_meta.
