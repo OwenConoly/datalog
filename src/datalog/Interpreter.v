@@ -1146,10 +1146,10 @@ Section __.
   Hint Unfold matches : core.
   Lemma check_meta_rule_against_agg_rule_sound env mconcls mhyps concl_rel agg hyp_rel R mf_args mf_set args mhyps' nhyps' :
     check_meta_rule_against_agg_rule mconcls mhyps concl_rel hyp_rel = true ->
-    rule_impl (context := context) env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
-    rule_impl (context := context) env (agg_rule concl_rel agg hyp_rel) (normal_fact R args) nhyps' ->
+    rule_impl env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
+    rule_impl env (agg_rule concl_rel agg hyp_rel) (normal_fact R args) nhyps' ->
     Forall2 matches mf_args args ->
-    Forall (fact_potentially_supported (rel := rel) mhyps') nhyps'.
+    Forall (fact_potentially_supported mhyps') nhyps'.
   Proof.
     intros H Hm Hn Hmatch. repeat invert_stuff.
     rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)). fwd.

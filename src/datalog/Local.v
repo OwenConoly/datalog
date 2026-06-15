@@ -14,7 +14,7 @@ From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
 
 Section __.
-  Context {fn aggregator T : Type}.
+  Context {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
   Context {T_eqb : T -> T -> bool}.
   Context {value_set : map.map (list T) unit}.
@@ -22,9 +22,8 @@ Section __.
   Context (T_to_nat : T -> nat) (nat_to_T : nat -> T). (*bijection..*)
 
   Section impl.
-    Context {rel var : Type}.
-    Context {context : map.map var T}.
-    Local Notation expr := (expr var fn).
+    Context {rel : relT} {exprvar : exprvarT}.
+    Context {context : map.map exprvar T}.
 
     (*for each relation, store a list of index structures---that is, key-value pairs, with information about what to store about each key.*)
     (*both lists have length n, where *)
@@ -42,9 +41,9 @@ Section __.
 
     Inductive hyp_clause_val :=
     | value_clause (value : list expr)
-    | agg_clause (agg : aggregator) (num : var)
-    | received_clause (num : var)
-    | sent_clause (num : var).
+    | agg_clause (agg : aggregator) (num : exprvar)
+    | received_clause (num : exprvar)
+    | sent_clause (num : exprvar).
 
     Record hyp_rel :=
       { hr_rel : rel;
@@ -67,7 +66,7 @@ Section __.
         local_rule_hyps : list hyp_clause }.
 
     (*Example: R(x, y) :- S(x, y)*)
-    Example example_local_rule (R S : rel) (x y : var) : local_rule :=
+    Example example_local_rule (R S : rel) (x y : exprvar) : local_rule :=
       {| local_rule_concls :=
           [{| cc_rel := R;
               cc_args := [var_expr x; var_expr y] |}];
@@ -288,13 +287,11 @@ Section __.
   Arguments node_prog : clear implicits.
 
 
-  Context (rel var : Type).
-  Context {context : map.map var T} {context_ok : map.ok context}.
+  Context {rel : relT} {exprvar : exprvarT}.
+  Context {context : map.map exprvar T} {context_ok : map.ok context}.
   Context (is_input : rel -> bool).
   Context (senders : rel -> list nat).
   Section spec.
-    Local Notation dfact := (dfact rel T).
-    Local Notation rule := (rule rel var fn aggregator).
     Local Notation can_deduce_fact := (can_deduce_fact is_input senders).
     Local Notation ok_to_deduce_fact := (ok_to_deduce_fact is_input senders).
 
@@ -407,15 +404,11 @@ Section __.
     | done_receiving_rel (rel_name : rel) (to_keep : list bool)
     | done_sending_rel (rel_name : rel) (to_keep : list bool).
 
-  Definition lvar : Type := var + nat.
+  Definition lvar : Type := exprvar + nat.
 
   Context (num_args : rel -> nat).
 
-  Local Notation clause := (clause rel var fn).
   Local Notation hyp_clause0 := (hyp_clause lrel lvar).
-  Local Notation meta_clause := (meta_clause rel var fn).
-  Local Notation rule := (rule rel var fn aggregator).
-  Local Notation dfact := (dfact rel T).
 
   Definition lower_clause_hyp (c : clause) : hyp_clause lrel lvar :=
     {| hc_key :=
@@ -446,7 +439,7 @@ Section __.
       hc_val := value_clause [] |}.
   Axiom count : aggregator.
 
-  Definition lower_rule (r : rule) : list local_rule :=
+  Definition lower_rule (r : rule) : list (@local_rule lrel lvar) :=
     match r with
     | normal_rule concls hyps =>
         [{| local_rule_concls := map lower_clause_concl concls;
@@ -498,7 +491,7 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     {| n_relviews := map.empty;
       n_rules := flat_map lower_rule sp.(spec_node_rules) |}.
 
-  Definition lower_dfact (f : dfact) : concl_fact :=
+  Definition lower_dfact (f : dfact) : @concl_fact lrel :=
     match f with
     | normal_dfact R args =>
         {| cf_rel := normal_rel R; cf_args := args |}
@@ -513,7 +506,7 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
         |}
     end.
 
-  Definition hyp_fact_of (f : concl_fact) : hyp_fact lrel :=
+  Definition hyp_fact_of (f : @concl_fact lrel) : hyp_fact lrel :=
     {| hf_key := {| hf_rel := {| hr_rel := f.(cf_rel);
                                 hr_idxs := {| key_idxs := map (fun _ => true) f.(cf_args);
                                              value_idxs := map (fun _ => false) f.(cf_args); |} |};
