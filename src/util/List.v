@@ -1,6 +1,6 @@
-From Stdlib Require Import Lists.List Permutation Bool.
-From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics.
-Require Import Datalog.Tactics.
+From Stdlib Require Import Lists.List Permutation Bool Arith.PeanoNat.
+From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics Eqb.
+Require Import Datalog.Tactics Datalog.Eqb.
 Import ListNotations.
 
 Local Ltac invert_list_stuff' :=
@@ -61,7 +61,7 @@ Qed.
 Import ListNotations.
 Section subset.
   Context {A : Type}.
-  Context (eqb : A -> A -> bool) {eqb_spec : EqDecider eqb}.
+  Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.
   Implicit Type l : list A.
 
   Lemma Permutation_incl l l' :
@@ -1148,19 +1148,6 @@ Section misc.
     keep_Some (flat_map f l) = flat_map (fun x => keep_Some (f x)) l.
   Proof. cbv [keep_Some]. apply flat_map_flat_map. Qed.
 
-  Context (eqbA : A -> A -> bool) `{EqDecider eqbA}.
-  Context (eqbB : B -> B -> bool) `{EqDecider eqbB}.
-
-  Definition eqb_prod (x y : A * B) :=
-    eqbA (fst x) (fst y) && eqbB (snd x) (snd y).
-
-  #[global] Instance eqb_prod_spec: EqDecider eqb_prod.
-  Proof.
-    intros a b. cbv [eqb_prod].
-    destruct a, b; simpl; destr_sth eqbA; destr_sth eqbB;
-      simpl; constructor; congruence.
-  Qed.
-
   (* Definition inb (x : A) (l : list A) : bool := *)
   (*   existsb (eqbA x) l. *)
 
@@ -1282,13 +1269,39 @@ Proof.
   congruence.
 Qed.
 
+#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) :=
+  fun x y => (length x =? length y) && forallb (eqb true) (map2 aeqb x y).
+
+Lemma list_eqb_ok_strong {A} {aeqb : Eqb A} (x : list A) :
+  Forall (fun a => forall b, if aeqb a b then a = b else a <> b) x ->
+  forall y, if list_eqb x y then x = y else x <> y.
+Proof.
+  induction x as [|x0 x IH]; intros Hall [|y0 y];
+    cbv [eqb list_eqb]; simpl; try congruence.
+  inversion Hall as [|? ? Hx0 Hx]; subst.
+  pose proof (Hx0 y0) as Ha.
+  destruct (aeqb x0 y0); simpl.
+  - subst. specialize (IH Hx y). cbv [eqb list_eqb] in IH.
+    destruct (Nat.eqb_spec (length x) (length y)); simpl in IH; simpl;
+      [|congruence].
+    destruct (forallb _ _); simpl; congruence.
+  - destruct (Nat.eqb (length x) (length y)); simpl; congruence.
+Qed.
+
+#[global] Instance list_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
+  : Eqb_ok list_eqb.
+Proof.
+  intros x. apply list_eqb_ok_strong.
+  apply Forall_forall. intros a _ b. apply (eqb_spec a b).
+Qed.
+
 Fixpoint nodupb {T : Type} (eqb : T -> T -> bool) l :=
   match l with
   | x :: l' => if existsb (eqb x) l' then false else nodupb eqb l'
   | [] => true
   end.
 
-#[global] Instance nodupb_correct T (eqb : T -> _) `{EqDecider eqb} l :
+#[global] Instance nodupb_correct {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} l :
   BoolSpec (NoDup l) (~NoDup l) (nodupb eqb l).
 Proof.
   induction l; simpl in *.
@@ -1300,7 +1313,7 @@ Proof.
       -- intros H'. invert H'. auto.
 Qed.
 
-Lemma nodupb_sound T (eqb : T -> _) `{EqDecider eqb} l :
+Lemma nodupb_sound {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} l :
   nodupb eqb l = true ->
   NoDup l.
 Proof. intros. fwd. assumption. Qed.

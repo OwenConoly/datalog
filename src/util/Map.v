@@ -1,13 +1,13 @@
 From ATL Require Import FrapWithoutSets.
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.Option Datatypes.List.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.Option Datatypes.List Eqb.
+From Datalog Require Import Eqb.
 From Datalog Require Import Tactics List.
 
 
 Section Map.
   Context {key value : Type} {mp : map.map key value} {mp_ok : map.ok mp}.
   Context {value' : Type} {mp' : map.map key value'}.
-  Context {key_eqb : key -> key -> bool} {key_eqb_spec : EqDecider key_eqb}.
-  Context {value_eqb : value -> value -> bool} {value_eqb_spec : EqDecider value_eqb}.
+  Context {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb}.
   Implicit Type m : mp.
 
   Definition preimage m (test : _ -> bool) :=
@@ -22,12 +22,6 @@ Definition mupd d m k f :=
     | Some v => map.put m k (f v)
     | None => map.put m k (f d)
     end.
-
-Definition map_contains m k v :=
-  match map.get m k with
-  | Some v' => value_eqb v v'
-  | None => false
-  end.
 
 Definition set_contains m k :=
   match map.get m k with
@@ -108,7 +102,7 @@ Lemma fmap_of_spec (m : mp) k :
 Proof.
   cbv [fmap_of]. apply map.fold_spec.
   - rewrite map.get_empty, lookup_empty. reflexivity.
-  - intros k0 v m0 r H H0. rewrite map.get_put_dec. destr (key_eqb k0 k).
+  - intros k0 v m0 r H H0. rewrite map.get_put_dec. destr (eqb k0 k).
     + apply lookup_add_eq. reflexivity.
     + rewrite lookup_add_ne by auto. auto.
 Qed.
@@ -125,7 +119,7 @@ Lemma add_fmap_of m k v :
   fmap_of m $+ (k, v) = fmap_of (map.put m k v).
 Proof.
   apply fmap_ext. intros. rewrite fmap_of_spec.
-  rewrite map.get_put_dec. destr (key_eqb k k0).
+  rewrite map.get_put_dec. destr (eqb k k0).
   - rewrite lookup_add_eq; auto.
   - rewrite lookup_add_ne; auto. apply fmap_of_spec.
 Qed.
@@ -191,7 +185,7 @@ Proof.
   clear H0' H'. destruct H1 as [H1|H1].
   - cbv [PropSet.elem_of PropSet.of_list] in H1. rewrite Forall_forall in H5.
     apply H5. assumption.
-  - fwd. rewrite map.get_put_dec in H1p0, H1p1. destr (key_eqb a k).
+  - fwd. rewrite map.get_put_dec in H1p0, H1p1. destr (eqb a k).
     + apply H4.
     + rewrite <- H1p0, <- H1p1. reflexivity.
 Qed.
@@ -232,7 +226,7 @@ Lemma of_list_Some_in kvs k v :
 Proof.
   intros. induction kvs as [|(k0&v0)]; simpl in *.
   - map_solver mp_ok.
-  - rewrite map.get_put_dec in H. destr (key_eqb k0 k); intuition congruence.
+  - rewrite map.get_put_dec in H. destr (eqb k0 k); intuition congruence.
 Qed.
 
 Lemma in_of_list_Some_strong k kvs :
@@ -244,7 +238,7 @@ Proof.
   induction kvs as [|(k0&v0)]; simpl; [contradiction|].
   intros [H|H]; subst.
   - eauto using map.get_put_same.
-  - apply IHkvs in H. fwd. rewrite map.get_put_dec. destr (key_eqb k0 k); eauto.
+  - apply IHkvs in H. fwd. rewrite map.get_put_dec. destr (eqb k0 k); eauto.
 Qed.
 
 Lemma in_of_list_Some k kvs :
@@ -276,18 +270,26 @@ Proof.
 Qed.
 
 Definition disjointb (m1 m2 : mp) :=
-  map.forallb (fun k1 _ => map.forallb (fun k2 _ => negb (key_eqb k1 k2)) m2) m1.
+  map.forallb (fun k1 _ => map.forallb (fun k2 _ => negb (eqb k1 k2)) m2) m1.
 
 Lemma disjointb_disjoint m1 m2 :
   disjointb m1 m2 = true ->
   map.disjoint m1 m2.
 Proof.
   cbv [map.disjoint]. intros H k **. eapply map.get_forallb in H; eauto.
-  eapply map.get_forallb in H; eauto. destr (key_eqb k k); simpl in *; congruence.
+  eapply map.get_forallb in H; eauto. destr (eqb k k); simpl in *; congruence.
 Qed.
 
 Definition agree_on_overlap (m1 m2 : mp) : Prop :=
   forall k v1 v2, map.get m1 k = Some v1 -> map.get m2 k = Some v2 -> v1 = v2.
+
+Context {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
+
+Definition map_contains m k v :=
+  match map.get m k with
+  | Some v' => value_eqb v v'
+  | None => false
+  end.
 
 Definition agree_on_overlapb (m1 m2 : mp) : bool :=
   map.forallb (fun k v1 =>

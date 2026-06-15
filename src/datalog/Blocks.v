@@ -4,7 +4,7 @@ From Stdlib Require Import micromega.Lia.
 
 From Datalog Require Import Map Tactics Fp List Dag Datalog.
 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
 Import ListNotations.
 
@@ -758,7 +758,7 @@ Section Blocks.
   | lvar_rel (block : nat) (name : lvar).
 
   Context {relmap : map.map lvar flat_rel} {relmap_ok : map.ok relmap}.
-  Context {lvar_eqb : lvar -> lvar -> _} {lvar_eqb_spec : EqDecider lvar_eqb}.
+  Context {lvar_eqb : Eqb lvar} {lvar_eqb_ok : Eqb_ok lvar_eqb}.
 
   Definition flatten_rel (block : nat) (m : relmap) (R : block_rel) :=
     match R with

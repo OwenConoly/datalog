@@ -4,9 +4,9 @@ From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
-From Datalog Require Import Map Tactics Fp List Dag.
+From Datalog Require Import Map Tactics Fp List Dag Eqb.
 
 Import ListNotations.
 
@@ -48,6 +48,16 @@ Existing Class fnT.
 Existing Class aggregatorT.
 Existing Class valueT.
 
+Goal forall {exprvar : exprvarT} {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb} (v v0 : exprvar),
+    BoolSpec (v = v0) (v <> v0) (var_eqb v v0).
+Proof. intros. Fail typeclasses eauto. Abort.
+
+#[global] Typeclasses Transparent relT exprvarT fnT aggregatorT valueT.
+
+Goal forall {exprvar : exprvarT} {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb} (v v0 : exprvar),
+    BoolSpec (v = v0) (v <> v0) (var_eqb v v0).
+Proof. intros. typeclasses eauto. Abort.
+
 Class datalog_syntax : Type :=
   { rel :: relT;
     exprvar :: exprvarT;
@@ -58,7 +68,7 @@ Section __.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
-  Context {var_eqb : exprvar -> exprvar -> bool} {var_eqb_spec : EqDecider var_eqb}.
+  Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
 
   Unset Elimination Schemes.
   Inductive expr :=
@@ -1663,8 +1673,7 @@ Section __.
             rel_type hyp_rel = i_type :: in_type :: shared
       end.
 
-  Context {type_eqb : type -> type -> bool}
-          {type_eqb_spec : EqDecider type_eqb}.
+  Context {type_eqb : Eqb type} {type_eqb_ok : Eqb_ok type_eqb}.
 
   Fixpoint check_expr_type e t : option type_context :=
     match e with
@@ -1712,7 +1721,7 @@ Section __.
         | out_t :: c_shared, _ :: in_t :: h_shared =>
             if (type_eqb out_type out_t &&
                 type_eqb in_type in_t &&
-                list_eqb type_eqb c_shared h_shared)%bool
+                list_eqb c_shared h_shared)%bool
             then Some map.empty
             else None
         | _, _ => None
@@ -1774,7 +1783,7 @@ Section __.
       destruct ((type_eqb ret_t t' && Nat.eqb (length arg_ts) (length args))%bool) eqn:Echk;
         [|discriminate].
       apply Bool.andb_true_iff in Echk. destruct Echk as [Eret Elen].
-      destruct (type_eqb_spec ret_t t') as [<-|]; [|discriminate].
+      destr (type_eqb ret_t t'); [|discriminate].
       apply Nat.eqb_eq in Elen.
       cbv [compatible_union_of_list_option] in Hck.
       destruct (option_all (map2 check_expr_type args arg_ts)) as [ctxs|] eqn:Eall;
@@ -1890,14 +1899,14 @@ Section __.
       destruct (rel_type hr) as [|i_t [|in_t' h_sh]] eqn:Ehr; try discriminate.
       destruct ((type_eqb out_t out_t' &&
                  type_eqb in_t in_t' &&
-                 list_eqb type_eqb c_sh h_sh)%bool) eqn:Echk; [|discriminate].
+                 list_eqb c_sh h_sh)%bool) eqn:Echk; [|discriminate].
       intros _.
       apply Bool.andb_true_iff in Echk. destruct Echk as [Echk Esh].
       apply Bool.andb_true_iff in Echk. destruct Echk as [Eout Ein].
-      destruct (type_eqb_spec out_t out_t') as [<-|]; [|discriminate].
-      destruct (type_eqb_spec in_t in_t') as [<-|]; [|discriminate].
-      destruct (list_eqb_spec (aeqb := type_eqb) c_sh h_sh) as [<-|]; [|discriminate].
-      exists map.empty, i_t, in_t, out_t, c_sh. auto.
+      destr (type_eqb out_t out_t'); [|discriminate].
+      destr (type_eqb in_t in_t'); [|discriminate].
+      destr (list_eqb c_sh h_sh); [|discriminate].
+      exists map.empty, i_t, in_t', out_t', h_sh. auto.
   Qed.
 End __.
 

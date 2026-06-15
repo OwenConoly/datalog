@@ -6,7 +6,8 @@ From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
 From Stdlib Require Import Bool.
 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
+From Datalog Require Import Eqb.
 
 
 From Datalog Require Import Datalog Map Tactics Fp List Dag.
@@ -17,7 +18,7 @@ Section __.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
-  Context {var_eqb : exprvar -> exprvar -> bool} {var_eqb_spec : EqDecider var_eqb}.
+  Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
 
   Implicit Type r : rule.
   Implicit Type ctx : context.
@@ -843,49 +844,28 @@ Section __.
     is valid iff 42nd Turing machine never halts.
    *)
 
-  Context {fn_eqb : fn -> fn -> bool} {fn_eqb_spec : EqDecider fn_eqb}.
-  Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec : EqDecider rel_eqb}.
+  Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
+  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context (fn_inj : fn -> bool).
 
-  (*TODO put in coqutil?*)
-  Definition my_list_eqb {A} (aeqb : A -> A -> bool) (x y : list A) :=
-    (length x =? length y) && forallb (eqb true) (map2 aeqb x y).
-
-  Fixpoint expr_eqb e1 e2 :=
+  #[global] Instance expr_eqb : Eqb expr :=
+    fix expr_eqb e1 e2 :=
       match e1, e2 with
       | Datalog.var_expr v1, Datalog.var_expr v2 => var_eqb v1 v2
       | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
-          fn_eqb f1 f2 && my_list_eqb expr_eqb args1 args2
+          fn_eqb f1 f2 && list_eqb (aeqb := expr_eqb) args1 args2
       | _, _ => false
       end.
 
-  Lemma my_list_eqb_is_eqb A (aeqb : A -> _) x y :
-    my_list_eqb aeqb x y = list_eqb aeqb x y.
+  #[global] Instance expr_eqb_ok : Eqb_ok expr_eqb.
   Proof.
-    cbv [my_list_eqb list_eqb]. f_equal. rewrite map2_eq_map_combine.
-    rewrite forallb_map. apply forallb_ext. intros (?, ?). simpl.
-    destruct_one_match; reflexivity.
-  Qed.
-
-  Opaque list_eqb.
-  #[global] Instance eqb_prod_spec: EqDecider expr_eqb.
-  Proof.
-    intros e1. induction e1; intros e2; destruct e2; simpl; try (constructor; discriminate).
-    - destr_sth var_eqb; constructor; congruence.
-    - destruct (_ && _) eqn:E; constructor.
-      + fwd. f_equal. rewrite map2_eq_map_combine in Ep2.
-        apply Lists.List.Forall_map in Ep2. apply Forall_combine_Forall2 in Ep2; auto.
-        apply Forall2_eq_eq. eapply Forall2_impl_strong; [|eassumption].
-        simpl. intros. destruct_one_match_hyp; try discriminate.
-        rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)).
-        epose_dep H. rewrite E in H. invert H. reflexivity.
-      + fwd. intros H'. invert H'. destruct E as [E|[E|E]]; try congruence.
-        apply Exists_exists in E. fwd. rewrite map2_eq_map_combine in Ep0.
-        rewrite Forall_forall in H. apply in_map_iff in Ep0. fwd.
-        epose proof (eq_Forall2_eq _ _ eq_refl) as E'. eapply Forall2_combine in E'.
-        rewrite Forall_forall in E'. specialize  (E' _ ltac:(eassumption)).
-        simpl in E'. subst. apply in_combine_l in Ep0p1. eapply H in Ep0p1.
-        rewrite Ep0p0 in Ep0p1. invert Ep0p1. congruence.
+    intros e1. induction e1; intros [v0|f0 args0]; cbv [eqb] in *; simpl; try congruence.
+    - pose proof (eqb_spec v v0) as Hv. cbv [eqb] in Hv.
+      destruct (var_eqb v v0); subst; congruence.
+    - pose proof (eqb_spec f f0) as Hf. cbv [eqb] in Hf.
+      destruct (fn_eqb f f0); simpl; [subst|congruence].
+      pose proof (list_eqb_ok_strong args H args0) as Hl. cbv [eqb] in Hl.
+      destruct (list_eqb args args0); [subst|]; congruence.
   Qed.
 
   (*Note: this can be weakened; we only need injectivity on length-n lists (for each n)*)
@@ -987,7 +967,7 @@ Section __.
   Fixpoint expr_matches (equalities : list (exprvar * exprvar)) (e1 e2 : expr) :=
     match e1, e2 with
     | Datalog.var_expr v1, Datalog.var_expr v2 =>
-        existsb (eqb_prod var_eqb var_eqb (v1, v2)) equalities
+        existsb (eqb (v1, v2)) equalities
     | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
         fn_eqb f1 f2 &&
           Nat.eqb (List.length args1) (List.length args2) &&
@@ -1011,7 +991,6 @@ Section __.
     induction e1; intros e2 ctx1 ctx2 val Hmatch Heq H1.
     - destruct e2; simpl in Hmatch; try discriminate.
       repeat invert_stuff.
-      destruct x as [x1 x2]. simpl in *. subst.
       rewrite Forall_forall in Heq. apply Heq in Hmatchp0.
       rewrite Hmatchp0 in *. auto.
     - destruct e2; simpl in Hmatch; try discriminate.
@@ -1095,7 +1074,7 @@ Section __.
                             match mhyp.(meta_clause_args) with
                             | None :: None :: stuff' =>
                                 match option_all stuff, option_all stuff' with
-                                | Some stuff, Some stuff' => list_eqb expr_eqb stuff stuff'
+                                | Some stuff, Some stuff' => eqb stuff stuff'
                                 | _, _ => false
                                 end
                             | _ => false

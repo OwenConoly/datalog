@@ -1,7 +1,8 @@
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Datatypes.List Tactics Tactics.fwd.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Datatypes.List Tactics Tactics.fwd Eqb.
+From Datalog Require Import Eqb.
 From Datalog Require Import List Datalog (* FancyNotations *) Tactics Blocks Interpreter.
 Import ListNotations.
 
@@ -23,28 +24,31 @@ Definition fn_inj f :=
   | fn_bop _ => false
   end.
 
-Definition bop_eqb (o1 o2 : bop) :=
-  match o1, o2 with
-  | sum, sum => true
-  | prod, prod => true
-  | _, _ => false
-  end.
+#[global] Instance bop_eqb : Eqb bop :=
+  fun o1 o2 =>
+    match o1, o2 with
+    | sum, sum => true
+    | prod, prod => true
+    | _, _ => false
+    end.
 
-#[global] Instance bop_eqb_correct : EqDecider bop_eqb.
-Proof. intros x y. destruct x, y; constructor; congruence. Qed.
+#[global] Instance bop_eqb_ok : Eqb_ok bop_eqb.
+Proof. intros x y. cbv [eqb bop_eqb]. destruct x, y; congruence. Qed.
 
-Definition fn_eqb (f1 f2 : fn) :=
-  match f1, f2 with
-  | fn_lit l1, fn_lit l2 => l1 =? l2
-  | fn_bop o1, fn_bop o2 => bop_eqb o1 o2
-  | _, _ => false
-  end.
+#[global] Instance fn_eqb : Eqb fn :=
+  fun f1 f2 =>
+    match f1, f2 with
+    | fn_lit l1, fn_lit l2 => l1 =? l2
+    | fn_bop o1, fn_bop o2 => eqb o1 o2
+    | _, _ => false
+    end.
 
-#[global] Instance fn_eqb_correct : EqDecider fn_eqb.
+#[global] Instance fn_eqb_ok : Eqb_ok fn_eqb.
 Proof.
-  intros x y. destruct x, y; simpl; try (constructor; congruence).
-  - destr_sth Nat.eqb; constructor; congruence.
-  - destr_sth bop_eqb; constructor; congruence.
+  intros x y. cbv [eqb fn_eqb]. destruct x, y; try congruence.
+  - destruct (Nat.eqb_spec o o0); subst; congruence.
+  - pose proof (eqb_spec o o0) as Ho. cbv [eqb] in Ho.
+    destruct (bop_eqb o o0); subst; congruence.
 Qed.
 
 Definition bop_id o :=
@@ -139,18 +143,21 @@ Proof.
   destruct x, y; simpl in *; try discriminate; auto.
 Qed.
 
-Definition block_rel_eqb {A} (aeqb : A -> A -> bool) R1 R2 :=
-  match R1, R2 with
-  | local l1, local l2 => aeqb l1 l2
-  | input l1, input l2 => aeqb l1 l2
-  | _, _ => false
-  end.
+#[global] Instance block_rel_eqb {A} {aeqb : Eqb A} : Eqb (block_rel A) :=
+  fun R1 R2 =>
+    match R1, R2 with
+    | local l1, local l2 => aeqb l1 l2
+    | input l1, input l2 => aeqb l1 l2
+    | _, _ => false
+    end.
 
-#[global] Instance block_rel_eqb_correct {A aeqb} `{EqDecider aeqb} : EqDecider (@block_rel_eqb A aeqb).
+#[global] Instance block_rel_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
+  : Eqb_ok block_rel_eqb.
 Proof.
-  intros x y. destruct x, y; simpl; try (constructor; congruence).
-  - destr_sth aeqb; constructor; congruence.
-  - destr_sth aeqb; constructor; congruence.
+  intros x y. cbv [eqb block_rel_eqb].
+  destruct x, y; try congruence;
+    (pose proof (eqb_spec a a0) as Ha; cbv [eqb] in Ha;
+     destruct (aeqb a a0); subst; congruence).
 Qed.
 
 Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var :=
