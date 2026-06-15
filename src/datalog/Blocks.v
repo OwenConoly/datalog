@@ -9,15 +9,16 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 Import ListNotations.
 
 Section Blocks.
-  Context {lvar exprvar fn aggregator T : Type}.
-  Context {sig : signature fn aggregator T}.
+  Context {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+  Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
+  Context {lvar : Type}.
 
   Inductive block_rel :=
   | local (_ : lvar)
   | input (_ : lvar).
 
-  Definition block_rule := rule block_rel exprvar fn aggregator.
+  Definition block_rule := rule (rel := block_rel).
 
   Inductive blocks_prog {var} :=
   | LetIn (x : blocks_prog) (f : var -> blocks_prog)
@@ -47,7 +48,7 @@ Section Blocks.
     LetIn (Block lvar1 [] p1) (fun val =>
                                 Block lvar1 [(lvar2, val)] p2).
 
-  Fixpoint interp_blocks_prog (e : blocks_prog (fact_args T -> Prop)) : fact_args T -> Prop :=
+  Fixpoint interp_blocks_prog (e : blocks_prog (fact_args -> Prop)) : fact_args -> Prop :=
     match e with
     | LetIn x f =>
         interp_blocks_prog (f (interp_blocks_prog x))
@@ -95,7 +96,7 @@ Section Blocks.
 
     Definition rel_equiv R1 R2 := f R1 = f R2.
 
-    Definition map_fact (fct : fact rel1 T) : fact rel2 T :=
+    Definition map_fact (fct : fact) : fact :=
       match fct with
       | normal_fact R args => normal_fact (f R) args
       | meta_fact R mf_args mf_set => meta_fact (f R) mf_args mf_set
@@ -103,7 +104,7 @@ Section Blocks.
 
     Definition fact_equiv f1 f2 := map_fact f1 = map_fact f2.
 
-    Definition map_clause_rel (c : clause rel1 exprvar fn) :=
+    Definition map_clause_rel (c : clause) : clause :=
       {| clause_rel := f c.(clause_rel);
         clause_args := c.(clause_args) |}.
 
@@ -157,11 +158,11 @@ Section Blocks.
       eauto using interp_clause_map_bw.
     Qed.
 
-    Definition map_meta_clause_rel (c : meta_clause rel1 exprvar fn) :=
+    Definition map_meta_clause_rel (c : meta_clause) : meta_clause :=
       {| meta_clause_rel := f c.(meta_clause_rel);
         meta_clause_args := c.(meta_clause_args) |}.
 
-    Definition map_rule_rels (r : rule rel1 exprvar fn aggregator) :=
+    Definition map_rule_rels (r : rule) : rule :=
       match r with
       | normal_rule concls hyps =>
           normal_rule (map (map_clause_rel) concls) (map (map_clause_rel) hyps)
@@ -341,7 +342,7 @@ Section Blocks.
         + cbv [extensionally_equal]. eauto.
     Qed.
 
-    Definition meta_facts_consistent_with_map (meta_facts : list (fact rel1 T)) :=
+    Definition meta_facts_consistent_with_map (meta_facts : list fact) :=
       forall R1 args1 S1 R2 args2 S2,
         In (meta_fact R1 args1 S1) meta_facts ->
         In (meta_fact R2 args2 S2) meta_facts ->
@@ -554,7 +555,7 @@ Section Blocks.
         eexists (meta_fact _ _ _). simpl. auto using in_map.
     Qed.
 
-    Lemma prog_impl_fact_equiv (p : list (rule rel1 exprvar fn aggregator)) Q f1 f2 :
+    Lemma prog_impl_fact_equiv (p : list rule) Q f1 f2 :
       Forall injective_on (flat_map concl_rels p) ->
       (forall f1' f2', fact_equiv f1' f2' -> Q f1' <-> Q f2') ->
       fact_equiv f1 f2 ->
@@ -608,7 +609,7 @@ Section Blocks.
                cbv [doesnt_lie consistent] in Hlie.
                rewrite (Hlie _ _ _ HQ1 _ Hmatch1'), (Hlie _ _ _ HQ2 _ Hmatch2').
                reflexivity.
-            -- Fail assumption. (*why*) eassumption.
+            -- eassumption.
             -- apply H0. exact Hin1.
             -- rewrite prog_impl_fact_equiv; try eassumption.
                ++ apply H0. exact Hin2.
@@ -653,7 +654,7 @@ Section Blocks.
                cbv [doesnt_lie consistent] in Hlie.
                rewrite (Hlie _ _ _ HQ1 _ Hmatch1'), (Hlie _ _ _ HQ2 _ Hmatch2').
                reflexivity.
-            -- Fail assumption. (*why*) eassumption.
+            -- eassumption.
             -- apply Forall2_forget_l in H1. rewrite Forall_forall in H1.
                apply H1 in Hin1. fwd. eassumption.
             -- rewrite prog_impl_fact_equiv; try eassumption.
@@ -768,7 +769,7 @@ Section Blocks.
                 end
     end.
 
-  Fixpoint flatten (name : nat) (e : blocks_prog flat_rel) : nat * flat_rel * list (rule flat_rel exprvar fn aggregator) :=
+  Fixpoint flatten (name : nat) (e : blocks_prog flat_rel) : nat * flat_rel * list rule :=
     match e with
     | LetIn x f =>
         let '(name', Rx, p2) := flatten name x in
@@ -833,7 +834,7 @@ Section Blocks.
 
   Hint Constructors vars_in : core.
 
-  Lemma interp_blocks_prog_honest ctx (e : blocks_prog (fact_args T -> Prop)) :
+  Lemma interp_blocks_prog_honest ctx (e : blocks_prog (fact_args -> Prop)) :
     valid_blocks_prog e ->
     vars_in ctx e ->
     Forall honest_args ctx ->
@@ -867,7 +868,7 @@ Section Blocks.
            subst R0'. exact Hargs0.
   Qed.
 
-  Lemma blocks_prog_impl_mf_ext (e : blocks_prog (fact_args T -> Prop)) mf_args mf_set mf_set' :
+  Lemma blocks_prog_impl_mf_ext (e : blocks_prog (fact_args -> Prop)) mf_args mf_set mf_set' :
     interp_blocks_prog e (meta_fact_args mf_args mf_set) ->
     (forall nf_args,
         Forall2 matches mf_args nf_args ->
@@ -1152,7 +1153,9 @@ Section Blocks.
            simpl in Hctx1. lia.
   Qed.
 End Blocks.
-Arguments blocks_prog : clear implicits.
+
+Arguments blocks_prog {_ _ _ _} _.
+Arguments block_rel : clear implicits.
 
 Ltac interp_exprs :=
   repeat match goal with

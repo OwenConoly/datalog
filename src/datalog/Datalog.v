@@ -37,15 +37,32 @@ Class query_signature {rel : Type} :=
   { outs : rel -> nat }.
 Arguments query_signature : clear implicits.
 
+Definition relT := Type.
+Definition exprvarT := Type.
+Definition fnT := Type.
+Definition aggregatorT := Type.
+Definition valueT := Type.
+Existing Class relT.
+Existing Class exprvarT.
+Existing Class fnT.
+Existing Class aggregatorT.
+Existing Class valueT.
+
+Class datalog_syntax : Type :=
+  { rel :: relT;
+    exprvar :: exprvarT;
+    fn :: fnT;
+    aggregator :: aggregatorT; }.
+
 Section __.
-  Context {rel var fn aggregator T : Type}.
+  Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
-  Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec : EqDecider var_eqb}.
+  Context {context : map.map exprvar T} {context_ok : map.ok context}.
+  Context {var_eqb : exprvar -> exprvar -> bool} {var_eqb_spec : EqDecider var_eqb}.
 
   Unset Elimination Schemes.
   Inductive expr :=
-  | var_expr (v : var)
+  | var_expr (v : exprvar)
   | fun_expr (f : fn) (args : list expr).
   Set Elimination Schemes.
 
@@ -558,16 +575,16 @@ Section __.
     eauto using interp_expr_subst_more.
   Qed.
 
-  Fixpoint vars_of_expr (e : expr) : list var :=
+  Fixpoint vars_of_expr (e : expr) : list exprvar :=
     match e with
     | fun_expr _ args => flat_map vars_of_expr args
     | var_expr v => [v]
     end.
 
-  Definition vars_of_clause (c : clause) : list var :=
+  Definition vars_of_clause (c : clause) : list exprvar :=
     flat_map vars_of_expr c.(clause_args).
 
-  Definition vars_of_meta_clause (c : meta_clause) : list var :=
+  Definition vars_of_meta_clause (c : meta_clause) : list exprvar :=
     flat_map vars_of_expr (keep_Some c.(meta_clause_args)).
 
   Lemma interp_expr_agree_on ctx1 ctx2 e v :
@@ -699,7 +716,7 @@ Section __.
     | agg_rule _ _ _ => []
     end.
 
-  Definition hyp_vars (r : rule) : list var. Admitted.
+  Definition hyp_vars (r : rule) : list exprvar. Admitted.
 
   Definition all_vars r := concl_vars r ++ hyp_vars r.
 
@@ -1603,7 +1620,7 @@ Section __.
   (* Qed. *)
 
   Context `{tsig : type_signature rel fn aggregator}.
-  Context {type_context : map.map var type}
+  Context {type_context : map.map exprvar type}
           {type_context_ok : map.ok type_context}.
 
   Unset Elimination Schemes.
@@ -1883,26 +1900,21 @@ Section __.
       exists map.empty, i_t, in_t, out_t, c_sh. auto.
   Qed.
 End __.
-Arguments clause : clear implicits.
-Arguments meta_clause : clear implicits.
-Arguments fact : clear implicits.
-Arguments fact_args : clear implicits.
-Arguments rule : clear implicits.
-Arguments expr : clear implicits.
 
-Fixpoint expr_varmap {var1 var2 fn} (f : var1 -> var2) (e : expr var1 fn) : expr var2 fn :=
+Fixpoint expr_varmap {var1 var2 : exprvarT} {fn : fnT}
+  (f : var1 -> var2) (e : @expr var1 fn) : @expr var2 fn :=
   match e with
   | var_expr v => var_expr (f v)
   | fun_expr fu args => fun_expr fu (map (expr_varmap f) args)
   end.
 
-Definition clause_varmap {rel var1 var2 fn} (f : var1 -> var2)
-  (c : clause rel var1 fn) : clause rel var2 fn :=
+Definition clause_varmap {rel : relT} {var1 var2 : exprvarT} {fn : fnT}
+  (f : var1 -> var2) (c : @clause rel var1 fn) : @clause rel var2 fn :=
   {| clause_rel := c.(clause_rel);
      clause_args := map (expr_varmap f) c.(clause_args) |}.
 
-Definition meta_clause_varmap {rel var1 var2 fn} (f : var1 -> var2)
-  (c : meta_clause rel var1 fn) : meta_clause rel var2 fn :=
+Definition meta_clause_varmap {rel : relT} {var1 var2 : exprvarT} {fn : fnT}
+  (f : var1 -> var2) (c : @meta_clause rel var1 fn) : @meta_clause rel var2 fn :=
   {| meta_clause_rel := c.(meta_clause_rel);
      meta_clause_args := map (option_map (expr_varmap f)) c.(meta_clause_args) |}.
 

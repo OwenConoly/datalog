@@ -14,16 +14,10 @@ From Datalog Require Import Datalog Map Tactics Fp List Dag.
 Import ListNotations.
 
 Section __.
-  Context {rel var fn aggregator T : Type}.
+  Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
-  Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec : EqDecider var_eqb}.
-
-  Local Notation expr := (expr var fn).
-  Local Notation rule := (rule rel var fn aggregator).
-  Local Notation clause := (clause rel var fn).
-  Local Notation meta_clause := (meta_clause rel var fn).
-  Local Notation fact:= (fact rel T).
+  Context {context : map.map exprvar T} {context_ok : map.ok context}.
+  Context {var_eqb : exprvar -> exprvar -> bool} {var_eqb_spec : EqDecider var_eqb}.
 
   Implicit Type r : rule.
   Implicit Type ctx : context.
@@ -901,7 +895,7 @@ Section __.
               partial_injective (interp_fun f)).
 
   (*var * var may as well be separate namepsaces, e.g. mvar * nvar*)
-  Fixpoint expr_compat (e1 e2 : expr) : option (list (var * var)) :=
+  Fixpoint expr_compat (e1 e2 : expr) : option (list (exprvar * exprvar)) :=
     match e1, e2 with
     | Datalog.var_expr v1, Datalog.var_expr v2 => Some [(v1, v2)]
     | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
@@ -952,7 +946,7 @@ Section __.
       rewrite Forall_forall in H. eauto using in_combine_l.
   Qed.
 
-  Definition clause_compat (mc : meta_clause) (nc : clause) : option (list (var * var)) :=
+  Definition clause_compat (mc : meta_clause) (nc : clause) : option (list (exprvar * exprvar)) :=
     option_map (@concat _)
       (option_all (map2 (fun me e =>
                            match me with
@@ -990,7 +984,7 @@ Section __.
     eapply expr_compat_sound; eauto.
   Qed.
 
-  Fixpoint expr_matches (equalities : list (var * var)) (e1 e2 : expr) :=
+  Fixpoint expr_matches (equalities : list (exprvar * exprvar)) (e1 e2 : expr) :=
     match e1, e2 with
     | Datalog.var_expr v1, Datalog.var_expr v2 =>
         existsb (eqb_prod var_eqb var_eqb (v1, v2)) equalities
@@ -1017,6 +1011,7 @@ Section __.
     induction e1; intros e2 ctx1 ctx2 val Hmatch Heq H1.
     - destruct e2; simpl in Hmatch; try discriminate.
       repeat invert_stuff.
+      destruct x as [x1 x2]. simpl in *. subst.
       rewrite Forall_forall in Heq. apply Heq in Hmatchp0.
       rewrite Hmatchp0 in *. auto.
     - destruct e2; simpl in Hmatch; try discriminate.
@@ -1033,7 +1028,7 @@ Section __.
       rewrite Forall_forall in H. eapply H; eauto.
   Qed.
 
-  Definition clause_matches (equalities : list (var * var)) (mc : meta_clause) (nc : clause) :=
+  Definition clause_matches (equalities : list (exprvar * exprvar)) (mc : meta_clause) (nc : clause) :=
     rel_eqb mc.(meta_clause_rel) nc.(clause_rel) &&
       (length mc.(meta_clause_args) =? length nc.(clause_args))%nat &&
       forallb

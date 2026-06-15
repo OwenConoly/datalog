@@ -25,15 +25,9 @@ Notation "R ^*" := (clos_refl_trans_1n _ R) (format "R ^*").
 #[global] Hint Constructors clos_refl_trans_1n : core.
 
 Section __.
-  Context {rel var fn aggregator T : Type}.
+  Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
-  Context {context : map.map var T} {context_ok : map.ok context}.
-
-  Local Notation clause := (clause rel var fn).
-  Local Notation meta_clause := (meta_clause rel var fn).
-  Local Notation fact := (fact rel T).
-  Local Notation expr := (expr var fn).
-  Local Notation rule := (rule rel var fn aggregator).
+  Context {context : map.map exprvar T} {context_ok : map.ok context}.
 
   Implicit Types mf_rel : rel.
   Implicit Types mf_args : list (option T).

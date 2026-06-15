@@ -8,16 +8,14 @@ Import ListNotations.
 Section __.
 Variant bop := sum | prod.
 Variant type := val | set.
-Notation rel := nat (only parsing).
 Definition obj := nat.
 Context {context : map.map nat obj} {context_ok : map.ok context}.
-Notation fact := (fact rel obj).
-Variant fn :=
+Variant agg_fn :=
   | fn_lit (o : obj)
   | fn_bop (o : bop).
-Notation rule := (rule rel nat fn bop).
-Notation expr := (expr nat fn).
-Notation blocks_prog var := (@blocks_prog nat nat fn bop var).
+#[local] Instance agg_syntax : datalog_syntax :=
+  {| rel := block_rel nat; exprvar := nat; fn := agg_fn; aggregator := bop |}.
+#[local] Instance obj_valueT : valueT := obj.
 
 Definition fn_inj f :=
   match f with
@@ -266,7 +264,7 @@ Definition set_of {t} (e' : interp_type t) :=
   | val => fun e' => eq e'
   end e'.
 
-Definition agrees {t} (e : fact_args _ -> Prop) (e' : interp_type t) :=
+Definition agrees {t} (e : fact_args -> Prop) (e' : interp_type t) :=
   (forall x, set_of e' x <-> e (normal_fact_args [x])) /\
     (exists S, e (meta_fact_args [None] S)).
 
@@ -294,7 +292,7 @@ Proof.
     repeat match goal with
       | _ => progress (intros; ssplit; auto)
       | |- meta_rules_valid _ =>
-          apply check_meta_rules_valid_sound with (fn_inj := fn_inj);
+          eapply check_meta_rules_valid_sound with (fn_inj := fn_inj);
           [apply fn_inj_correct|];
           reflexivity
       | |- NoDup _ =>
