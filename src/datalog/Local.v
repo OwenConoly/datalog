@@ -274,7 +274,7 @@ Section __.
      *)
 
     Definition node_step' p G :=
-      can_step (node_step p) (event_guaranteed G).
+      can_step (node_step p) (fun _ => True) (event_guaranteed G).
 
     (*i think there are two pieces to saying that node_step and spec_node_step behave the same.
       first i want to prove that node_step steps to outputting some fact iff spec_node_step does.
@@ -373,7 +373,7 @@ Section __.
       - inputs can arrive at any time, but
       - our "spec node" magically fires the right rules to get to the postcondition.*)
     Definition spec_node_step' p G :=
-      can_step (spec_node_step p) (spec_event_guaranteed G).
+      can_step (spec_node_step p) (fun _ => True) (spec_event_guaranteed G).
 
     (*note that spec_node_step' is less detailed than spec_node_step.
       TODO: prove that if two programs (or, later, semantics...) agree according to

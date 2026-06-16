@@ -68,13 +68,20 @@ Section __.
       | I_event m => In m G /\ ~ In (I_event m) t
       end.
 
+    Definition allowed_IO_event (A : message -> Prop) (e : IO_event) : Prop :=
+      match e with
+      | I_event inp => A inp
+      | O_event _ => True
+      end.
+
     Definition node_might_output (A : message -> Prop) (G : list message) (output : message) : Prop :=
       exists t ns,
         star node_step initial_ns t ns /\
-        output_in_trace output t.
+          Forall (allowed_IO_event A) t /\
+          output_in_trace output t.
 
     Definition node_will_output (A : message -> Prop) (G : list message) (output : message) : Prop :=
-      eventually (can_step node_step (event_guaranteed G))
+      eventually (can_step node_step (Forall (allowed_IO_event A)) (event_guaranteed G))
                  (fun '(_, t) => output_in_trace output t)
                  (initial_ns, []).
   End node.

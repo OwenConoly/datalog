@@ -16,12 +16,14 @@ End __.
 Section __.
   Context {state event : Type}.
   Context (step : state -> event -> state -> Prop).
+  Context (allowed : list event -> Prop).
   Context (guaranteed : list event -> event -> Prop).
 
   (*the angel can step to the postcondition regardless of the demon's actions*)
   Definition can_step '(s, t) (P : state * list event -> Prop) : Prop :=
     forall s' t',
       star step s t' s' ->
+      allowed (t' ++ t) ->
       exists s'' e,
         guaranteed (t' ++ t) e /\
           step s' e s'' /\
