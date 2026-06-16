@@ -16,6 +16,26 @@ Section Map.
   Definition map_values' f m : mp' :=
     map.of_list (map (fun '(k, v) => (k, f k v)) (map.tuples m)).
 
+  Definition Forall2_map (R : key -> value -> value' -> Prop) (m : mp) (m' : mp') : Prop :=
+    forall k,
+      match map.get m k, map.get m' k with
+      | None, None => True
+      | Some v, Some v' => R k v v'
+      | _, _ => False
+      end.
+
+  Definition Forall4_map
+    {value2 value3 : Type}
+    {mp2 : map.map key value2} {mp3 : map.map key value3}
+    (R : key -> value -> value' -> value2 -> value3 -> Prop)
+    (m : mp) (m' : mp') (m2 : mp2) (m3 : mp3) : Prop :=
+    forall k,
+      match map.get m k, map.get m' k, map.get m2 k, map.get m3 k with
+      | None, None, None, None => True
+      | Some v, Some v', Some v2, Some v3 => R k v v' v2 v3
+      | _, _, _, _ => False
+      end.
+
   (*d is a default value... basically, we consider the map to be total, with not-included values mapping to d*)
 Definition mupd d m k f :=
     match map.get m k with

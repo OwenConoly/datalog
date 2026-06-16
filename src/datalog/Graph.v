@@ -1,7 +1,7 @@
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From Stdlib Require Import List.
-From Datalog Require Import Smallstep.
+From Datalog Require Import Smallstep Map.
 Import ListNotations.
 
 Definition node_id := nat.
@@ -86,13 +86,52 @@ Section __.
                  (initial_ns, []).
   End node.
 
+  Section nodes.
+    Context {node_state1 : Type}.
+    Context (node_step1 : node_state1 -> IO_event -> node_state1 -> Prop).
+    Context (initial_ns1 : node_state1).
+
+    Context {node_state2 : Type}.
+    Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
+    Context (initial_ns2 : node_state2).
+
+    Definition nodes_might_equiv : Prop :=
+      forall A G output,
+        node_might_output node_step1 initial_ns1 A G output <->
+        node_might_output node_step2 initial_ns2 A G output.
+
+    Definition nodes_will_equiv : Prop :=
+      forall A G output,
+        node_will_output node_step1 initial_ns1 A G output <->
+        node_will_output node_step2 initial_ns2 A G output.
+  End nodes.
+
   Section graphs.
     Context {node_prog1 : Type} {graph_prog1 : map.map node_id node_prog1}.
     Context {node_state1 : Type} {node_states1 : map.map node_id node_state1}.
     Context (p1 : graph_prog1).
+    Context (node_step1 : node_prog1 -> node_state1 -> IO_event -> node_state1 -> Prop).
+    Context (initial_ns1 : node_states1).
 
     Context {node_prog2 : Type} {graph_prog2 : map.map node_id node_prog2}.
     Context {node_state2 : Type} {node_states2 : map.map node_id node_state2}.
     Context (p2 : graph_prog2).
+    Context (node_step2 : node_prog2 -> node_state2 -> IO_event -> node_state2 -> Prop).
+    Context (initial_ns2 : node_states2).
+
+    Definition initial_gs1 : @graph_state node_state1 node_states1 :=
+      {| g_nodes := initial_ns1; g_messages := [] |}.
+
+    Definition initial_gs2 : @graph_state node_state2 node_states2 :=
+      {| g_nodes := initial_ns2; g_messages := [] |}.
+
+    Theorem graphs_might_equiv :
+      Forall4_map
+        (fun n np1 np2 ns1 ns2 =>
+           nodes_might_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
+        p1 p2 initial_ns1 initial_ns2 ->
+      nodes_might_equiv (graph_step p1 node_step1) initial_gs1
+                        (graph_step p2 node_step2) initial_gs2.
+    Proof. Abort.
   End graphs.
 End __.
