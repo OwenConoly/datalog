@@ -1,5 +1,7 @@
 From coqutil Require Import Map.Interface.
+From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From Stdlib Require Import List.
+From Datalog Require Import Smallstep.
 Import ListNotations.
 
 Definition node_id := nat.
@@ -48,6 +50,34 @@ Section __.
                  {| g_nodes := map.put gs.(g_nodes) n ns';
                    g_messages := ms1 ++ ms2 |}.
   End graph.
+
+  Section node.
+    Context {node_state : Type}.
+    Context (node_step : node_state -> IO_event -> node_state -> Prop).
+    Context (initial_ns : node_state).
+
+    Definition output_in_trace (output : message) (t : list IO_event) : Prop :=
+      exists outs, In (O_event outs) t /\ In output outs.
+
+    Definition inputs_of (t : list IO_event) : list message :=
+      flat_map (fun e => match e with I_event m => [m] | _ => [] end) t.
+
+    Definition event_guaranteed (G : list message) (t : list IO_event) (e : IO_event) : Prop :=
+      match e with
+      | O_event _ => True
+      | I_event m => In m G /\ ~ In (I_event m) t
+      end.
+
+    Definition node_might_output (A : message -> Prop) (G : list message) (output : message) : Prop :=
+      exists t ns,
+        star node_step initial_ns t ns /\
+        output_in_trace output t.
+
+    Definition node_will_output (A : message -> Prop) (G : list message) (output : message) : Prop :=
+      eventually (can_step node_step (event_guaranteed G))
+                 (fun '(_, t) => output_in_trace output t)
+                 (initial_ns, []).
+  End node.
 
   Section graphs.
     Context {node_prog1 : Type} {graph_prog1 : map.map node_id node_prog1}.
