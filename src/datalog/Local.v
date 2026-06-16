@@ -270,6 +270,10 @@ Section __.
       | Some (I_event inp) => In inp G /\ ~In (I_event inp) t
       end.
 
+    (*on the high level, eventually <-> maybe.
+      prove: HL eventually -> LL eventually -> LL maybe -> HL maybe.
+     *)
+
     Definition node_step' p (G : list concl_fact) '(ss, t) P : Prop :=
       forall ss' t',
         star (node_step p) ss t' ss' ->
