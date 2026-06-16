@@ -278,6 +278,13 @@ Section __.
             node_step p ss' e ss'' /\
             P (ss'', option_cons e t' ++ t).
 
+    (*i think there are two pieces to saying that node_step and spec_node_step behave the same.
+      first i want to prove that node_step steps to outputting some fact iff spec_node_step does.
+      this is a safety property of node_step (assuming the safety property holds for spec_node_step).
+      then i want to prove that stepsTo P holds iff spec_stepsTo P holds.
+      this is a liveness property (assuming the liveness property holds for spec_node_step).
+     *)
+
     Definition stepsTo p G :=
       eventually (node_step' p G).
   End impl.
