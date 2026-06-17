@@ -169,6 +169,16 @@ Section __.
       destruct e; auto.
     Qed.
 
+    Definition node_follows initial_ns1 initial_ns2 np1 np2 ns1 ns2 :=
+      exists t1 t2,
+        star (node_step1 np1) initial_ns1 t1 ns1 /\
+          star (node_step2 np2) initial_ns2 t2 ns2 /\
+          incl t1 t2.
+
+    Print graph_state.
+    Definition graph_follows gs1 gs2 :=
+      {
+
     Theorem graphs_equiv D :
       (forall t m, A t m) ->
       Forall4_map
@@ -179,6 +189,11 @@ Section __.
       node_described_by (graph_step p1 node_step1) D initial_gs1 ->
       node_described_by (graph_step p2 node_step2) D initial_gs2.
     Proof.
+      intros HA Hg HD. cbv [node_described_by]. intros H t ns Hns _. split.
+      - intros output Houtput. admit.
+      - intros output Houtput. edestruct H as [_ H1]. 2: admit.
+        2: { apply H1. admit. }
+
     Qed.
   End graphs.
 End __.

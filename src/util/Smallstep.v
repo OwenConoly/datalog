@@ -11,6 +11,13 @@ Inductive star : state -> trace -> state -> Prop :=
   step s e s' ->
   star s' t0 s'' ->
   star s (e :: t0) s''.
+
+Lemma star_app s1 t1 s2 t2 s3 :
+  star s1 t1 s2 -> star s2 t2 s3 -> star s1 (t1 ++ t2) s3.
+Proof.
+  induction 1; cbn; [auto|].
+  econstructor; eauto.
+Qed.
 End __.
 
 Section __.
