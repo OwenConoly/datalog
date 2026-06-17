@@ -460,7 +460,32 @@ Section __.
     Qed.
 
     (* The transport lemma we actually use in the theorem.
-       Currently Admitted: see comments below. *)
+       PROOF SKETCH (Admitted):
+       The natural decomposition is:
+         (1) drive_node_must: given node-level [eventually(can_step ...)
+             emit o] at node 2's initial state, construct graph-level
+             [eventually(can_step ...) emit o].
+         (2) Combined with project_node_gen + nodes_equiv at n + may/must
+             directions of node_described_by (as in ever_produces_same).
+       (2) is the same machinery we already used for ever_produces_same.
+       (1) is the obstacle: building graph 2's [eventually] proof from
+       node 2's [eventually] proof.
+         The construction is: at each graph-level can_step iteration, the
+         demon picks t_demon (a graph star advancing some nodes including
+         possibly node n).  After t_demon, node 2's state at n might differ;
+         we apply node_described_by at the post-demon (projected) state to
+         get a FRESH node-level [eventually] proof.  Use its angel choice for
+         graph 2's gstep_run.  Recurse.
+         Each path is finite (by the freshly-extracted node [eventually] at
+         that path's leaves, which is Inductive thus finite); the tree may
+         be infinitely-branching but Coq's Inductive [eventually] accepts
+         that.  However the recursion is not structural on the original
+         node-level [eventually]: post-demon, we use a FRESH proof, whose
+         depth has no a priori bound relative to the original.  Putting
+         this together in Coq needs either [Fix] with a non-obvious
+         well-founded measure, a coinductive intermediary, or a separate
+         small simulation framework.  I couldn't complete it in this
+         session. *)
     Lemma will_output_transport :
       (forall t m, A t m) ->
       Forall4_map
