@@ -188,16 +188,47 @@ Section __.
     Proof. Admitted.
 
     (* An env-only trace using the env-input sequence of an existing trace
-       is always reachable in graph 1.  This is the easy direction of
-       input-only lifting: env inputs don't depend on node behavior, so any
-       env-input sequence allowed under [input_allowed] is reachable. *)
+       is always reachable in graph 1.  [gstep_input] only checks
+       [input_allowed n m = true], independent of state, so any env-input
+       sequence taken by graph 2 can be replayed in graph 1.  Other steps
+       (gstep_run / gstep_receive) emit O_events and don't contribute to
+       [inputs_of], so we simply skip them in the replay. *)
+    Lemma env_only_lift_gen :
+      forall t gs0 gs2,
+        star (graph_step p2 node_step2) gs0 t gs2 ->
+        forall gs1_0,
+        exists T1 gs1,
+          star (graph_step p1 node_step1) gs1_0 T1 gs1 /\
+          inputs_of T1 = inputs_of t.
+    Proof.
+      induction 1 as [s|s e s' t0 s'' Hstep Hstar IH]; intros gs1_0.
+      - exists [], gs1_0. split; [constructor|reflexivity].
+      - inversion Hstep; subst.
+        + (* gstep_input n m *)
+          destruct (IH {| g_nodes := g_nodes gs1_0;
+                          g_messages := (n, m) :: g_messages gs1_0 |})
+            as (T1' & gs1' & HT1' & Hinp).
+          exists (I_event m :: T1'), gs1'.
+          split.
+          * econstructor; [|exact HT1']. apply gstep_input; auto.
+          * cbn. f_equal. exact Hinp.
+        + (* gstep_run *)
+          destruct (IH gs1_0) as (T1 & gs1 & HT1 & Hinp).
+          exists T1, gs1. split; [exact HT1|]. cbn. exact Hinp.
+        + (* gstep_receive *)
+          destruct (IH gs1_0) as (T1 & gs1 & HT1 & Hinp).
+          exists T1, gs1. split; [exact HT1|]. cbn. exact Hinp.
+    Qed.
+
     Lemma env_only_lift :
       forall t gs2,
         star (graph_step p2 node_step2) initial_gs2 t gs2 ->
         exists T1 gs1,
           star (graph_step p1 node_step1) initial_gs1 T1 gs1 /\
           inputs_of T1 = inputs_of t.
-    Proof. Admitted.
+    Proof.
+      intros. eapply env_only_lift_gen; eauto.
+    Qed.
 
     Lemma star_app {st ev} (step : st -> ev -> st -> Prop) s1 t1 s2 t2 s3 :
       star step s1 t1 s2 -> star step s2 t2 s3 -> star step s1 (t1 ++ t2) s3.
