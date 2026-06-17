@@ -7,7 +7,6 @@ Import ListNotations.
 Definition node_id := nat.
 Section __.
   Context {message : Type}.
-  Context (A : list message -> message -> Prop).
   Context (input_allowed : node_id -> message -> bool).
   Context (forward : node_id -> message -> list node_id).
   Context (output_visible : node_id -> message -> bool).
@@ -52,34 +51,61 @@ Section __.
                    g_messages := ms1 ++ ms2 |}.
   End graph.
 
+  Context (A : list message -> message -> Prop).
+
+  Definition inputs_of (t : list IO_event) :=
+    flat_map (fun e => match e with I_event m => [m] | _ => [] end) t.
+
+  Definition output_in_trace (output : message) (t : list IO_event) :=
+    exists outs, In (O_event outs) t /\ In output outs.
+
+  Definition event_guaranteed (e : IO_event) :=
+    match e with
+    | O_event _ => True
+    | I_event _ => False
+    end.
+
+  Definition allowed_IO_event (t : list IO_event) (e : IO_event) :=
+    match e with
+    | O_event _ => True
+    | I_event inp => A (inputs_of t) inp
+    end.
+
+  Definition allowed_trace t :=
+    forall t1 e t2,
+      t = t2 ++ e :: t1 ->
+      allowed_IO_event t1 e.
+
+  Lemma output_in_trace_app o (l1 l2 : list IO_event) :
+    output_in_trace o (l1 ++ l2) <-> output_in_trace o l1 \/ output_in_trace o l2.
+  Proof.
+    unfold output_in_trace; split.
+    - intros (outs & Hin & Hino).
+      apply in_app_or in Hin as [Hin|Hin]; [left|right]; eauto.
+    - intros [(outs & Hin & Hino)|(outs & Hin & Hino)];
+        exists outs; (split; [apply in_or_app|exact Hino]); auto.
+  Qed.
+
+  Lemma output_in_trace_rev o (l : list IO_event) :
+    output_in_trace o (rev l) <-> output_in_trace o l.
+  Proof.
+    unfold output_in_trace; split; intros (outs & Hin & Hino); exists outs;
+      (split; [|exact Hino]); apply in_rev; auto.
+    rewrite rev_involutive. exact Hin.
+  Qed.
+
+  Lemma allowed_trace_universal :
+    (forall t m, A t m) -> forall t, allowed_trace t.
+  Proof.
+    intros Au t. unfold allowed_trace, allowed_IO_event; intros.
+    destruct e; auto.
+  Qed.
+
   Section node.
     Context {node_state : Type}.
     Context (node_step : node_state -> IO_event -> node_state -> Prop).
     Context (D : list message (*inputs*) -> message (*output*) -> Prop).
     Context (initial_ns : node_state).
-
-    Definition inputs_of (t : list IO_event) :=
-      flat_map (fun e => match e with I_event m => [m] | _ => [] end) t.
-
-    Definition output_in_trace (output : message) (t : list IO_event) :=
-      exists outs, In (O_event outs) t /\ In output outs.
-
-    Definition event_guaranteed (e : IO_event) :=
-      match e with
-      | O_event _ => True
-      | I_event _ => False
-      end.
-
-    Definition allowed_IO_event (t : list IO_event) (e : IO_event) :=
-      match e with
-      | O_event _ => True
-      | I_event inp => A (inputs_of t) inp
-      end.
-
-    Definition allowed_trace t :=
-      forall t1 e t2,
-        t = t2 ++ e :: t1 ->
-        allowed_IO_event t1 e.
 
     Definition node_might_output start t (output : message) : Prop :=
       exists t' ns,
@@ -131,54 +157,6 @@ Section __.
     (step2 : NS2 -> IO_event -> NS2 -> Prop) (ns2 : NS2) :
     nodes_equiv step1 ns1 step2 ns2 -> nodes_equiv step2 ns2 step1 ns1.
   Proof. intros (D & Hm & H1 & H2). exists D. split; [|split]; assumption. Qed.
-
-  Lemma output_in_trace_app o (l1 l2 : list IO_event) :
-    output_in_trace o (l1 ++ l2) <-> output_in_trace o l1 \/ output_in_trace o l2.
-  Proof.
-    unfold output_in_trace; split.
-    - intros (outs & Hin & Hino).
-      apply in_app_or in Hin as [Hin|Hin]; [left|right]; eauto.
-    - intros [(outs & Hin & Hino)|(outs & Hin & Hino)];
-        exists outs; (split; [apply in_or_app|exact Hino]); auto.
-  Qed.
-
-  Lemma allowed_trace_universal :
-    (forall t m, A t m) -> forall t, allowed_trace t.
-  Proof.
-    intros Au t. unfold allowed_trace, allowed_IO_event; intros.
-    destruct e; auto.
-  Qed.
-
-  Section extract.
-    Context {state : Type} (step : state -> IO_event -> state -> Prop).
-
-    Lemma extract_will_to_star :
-      (forall t m, A t m) ->
-      forall (o : message) s t,
-        eventually (can_step step allowed_trace (fun _ => event_guaranteed))
-                   (fun '(_, t') => output_in_trace o t') (s, t) ->
-        exists T_extra s',
-          star step s T_extra s' /\ output_in_trace o (T_extra ++ t).
-    Proof.
-      intros A_univ o s0 t0 Hwill.
-      remember (s0, t0) as st eqn:Est.
-      revert s0 t0 Est.
-      induction Hwill as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
-        intros s0 t0 [= -> ->].
-      - exists [], s0. split; [constructor|exact HP].
-      - destruct (Hcan s0 [] (star_refl _ _) (allowed_trace_universal A_univ _))
-          as (s'' & e & _ & Hstep & Hmidset).
-        destruct (IH (s'', e :: t0) Hmidset s'' (e :: t0) eq_refl)
-          as (T_extra' & s_final & Hstar' & (outs & Hin & Hino)).
-        exists (e :: T_extra'), s_final.
-        split; [econstructor; eassumption|].
-        exists outs. split; [|exact Hino].
-        apply in_app_or in Hin as [Hin|[<-|Hin]]; cbn.
-        + right. apply in_or_app. left. exact Hin.
-        + left. reflexivity.
-        + right. apply in_or_app. right. exact Hin.
-    Qed.
-  End extract.
 
   Section gen.
     Context {NP : Type} {graph_prog : map.map node_id NP}.
@@ -481,11 +459,13 @@ Section __.
     Proof.
       intros A_univ Hcorr t gs2 o Hstar2 (T1 & gs1 & HT1 & _ & Hwill1).
       pose proof (allowed_trace_universal A_univ []) as Hnil.
-      destruct (extract_will_to_star (graph_step p1 node_step1) A_univ o gs1 T1 Hwill1)
-        as (T_extra & gs1' & Hstar_extra & Hout_extra).
-      assert (output_in_trace o (T1 ++ T_extra)) as Hout_full.
+      destruct (eventually_can_step_to_star (graph_step p1 node_step1) _ _ _ gs1 T1
+                  (fun _ => allowed_trace_universal A_univ _) Hwill1)
+        as (gs1' & tr & Hstar_extra & Hout_extra).
+      assert (output_in_trace o (T1 ++ tr)) as Hout_full.
       { apply output_in_trace_app.
-        apply output_in_trace_app in Hout_extra. tauto. }
+        apply output_in_trace_app in Hout_extra as [Hout|Hout];
+          [right; apply output_in_trace_rev; exact Hout|left; exact Hout]. }
       destruct (graph_emits_implies_node_emits p1 node_step1 _ _ _
                   (star_app _ _ _ _ _ _ HT1 Hstar_extra) _ Hout_full)
         as (n & np1 & ns1 & Hp1 & Hg1 & Hvis & tau1 & ns_end1 & Htau1 & Hout_tau1).
