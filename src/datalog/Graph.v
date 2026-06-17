@@ -149,6 +149,37 @@ Section __.
     destruct e; auto.
   Qed.
 
+  Section extract.
+    Context {state : Type} (step : state -> IO_event -> state -> Prop).
+
+    Lemma extract_will_to_star :
+      (forall t m, A t m) ->
+      forall (o : message) s t,
+        eventually (can_step step allowed_trace (fun _ => event_guaranteed))
+                   (fun '(_, t') => output_in_trace o t') (s, t) ->
+        exists T_extra s',
+          star step s T_extra s' /\ output_in_trace o (T_extra ++ t).
+    Proof.
+      intros A_univ o s0 t0 Hwill.
+      remember (s0, t0) as st eqn:Est.
+      revert s0 t0 Est.
+      induction Hwill as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
+        intros s0 t0 [= -> ->].
+      - exists [], s0. split; [constructor|exact HP].
+      - destruct (Hcan s0 [] (star_refl _ _) (allowed_trace_universal A_univ _))
+          as (s'' & e & _ & Hstep & Hmidset).
+        destruct (IH (s'', e :: t0) Hmidset s'' (e :: t0) eq_refl)
+          as (T_extra' & s_final & Hstar' & (outs & Hin & Hino)).
+        exists (e :: T_extra'), s_final.
+        split; [econstructor; eassumption|].
+        exists outs. split; [|exact Hino].
+        apply in_app_or in Hin as [Hin|[<-|Hin]]; cbn.
+        + right. apply in_or_app. left. exact Hin.
+        + left. reflexivity.
+        + right. apply in_or_app. right. exact Hin.
+    Qed.
+  End extract.
+
   Section gen.
     Context {NP : Type} {graph_prog : map.map node_id NP}.
     Context {NS : Type} {node_states : map.map node_id NS}.
@@ -434,34 +465,6 @@ Section __.
     Definition initial_gs2 : @graph_state node_state2 node_states2 :=
       {| g_nodes := initial_ns2; g_messages := [] |}.
 
-    Lemma extract_will_to_star :
-      (forall t m, A t m) ->
-      forall {state} (step : state -> IO_event -> state -> Prop),
-      forall (o : message) s t,
-        eventually (can_step step allowed_trace (fun _ => event_guaranteed))
-                   (fun '(_, t') => output_in_trace o t') (s, t) ->
-        exists T_extra s',
-          star step s T_extra s' /\ output_in_trace o (T_extra ++ t).
-    Proof.
-      intros A_univ state step o s0 t0 Hwill.
-      remember (s0, t0) as st eqn:Est.
-      revert s0 t0 Est.
-      induction Hwill as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
-        intros s0 t0 [= -> ->].
-      - exists [], s0. split; [constructor|exact HP].
-      - destruct (Hcan s0 [] (star_refl _ _) (allowed_trace_universal A_univ _))
-          as (s'' & e & _ & Hstep & Hmidset).
-        destruct (IH (s'', e :: t0) Hmidset s'' (e :: t0) eq_refl)
-          as (T_extra' & s_final & Hstar' & (outs & Hin & Hino)).
-        exists (e :: T_extra'), s_final.
-        split; [econstructor; eassumption|].
-        exists outs. split; [|exact Hino].
-        apply in_app_or in Hin as [Hin|[<-|Hin]]; cbn.
-        + right. apply in_or_app. left. exact Hin.
-        + left. reflexivity.
-        + right. apply in_or_app. right. exact Hin.
-    Qed.
-
     Lemma will_output_transport :
       (forall t m, A t m) ->
       Forall4_map
@@ -478,7 +481,7 @@ Section __.
     Proof.
       intros A_univ Hcorr t gs2 o Hstar2 (T1 & gs1 & HT1 & _ & Hwill1).
       pose proof (allowed_trace_universal A_univ []) as Hnil.
-      destruct (extract_will_to_star A_univ (graph_step p1 node_step1) o gs1 T1 Hwill1)
+      destruct (extract_will_to_star (graph_step p1 node_step1) A_univ o gs1 T1 Hwill1)
         as (T_extra & gs1' & Hstar_extra & Hout_extra).
       assert (output_in_trace o (T1 ++ T_extra)) as Hout_full.
       { apply output_in_trace_app.
