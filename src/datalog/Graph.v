@@ -101,6 +101,7 @@ Section __.
     Definition node_described_by :=
       forall t ns,
         star node_step initial_ns t ns ->
+        allowed_trace t ->
         (forall output,
             D (inputs_of t) output ->
             node_will_output ns t output) /\
