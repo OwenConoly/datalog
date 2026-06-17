@@ -165,46 +165,6 @@ Section __.
     Context (p : graph_prog).
     Context (node_step : NP -> NS -> IO_event -> NS -> Prop).
 
-    Lemma drive_node :
-      (forall t m, A t m) ->
-      forall (np : NP) (n : node_id) (o : message),
-        map.get p n = Some np ->
-        output_visible n o = true ->
-        forall (s : NS * list IO_event),
-          eventually (can_step (node_step np) allowed_trace
-                               (fun _ => event_guaranteed))
-                     (fun '(_, t') => output_in_trace o t')
-                     s ->
-          forall gs,
-            map.get (@g_nodes _ node_states gs) n = Some (fst s) ->
-            exists T gs',
-              star (graph_step p node_step) gs T gs' /\
-              (output_in_trace o T \/ output_in_trace o (snd s)).
-    Proof.
-      intros A_univ np n o Hp Hvis s Hwill.
-      induction Hwill as [[ns trace] HP | [ns trace] midset Hcan Hmid IH];
-        intros gs Hgs; cbn in *.
-      - exists [], gs. split; [constructor | right; exact HP].
-      - destruct (Hcan ns [] (star_refl _ _) (allowed_trace_universal A_univ _))
-          as (s'' & [m_|outs] & Hguar & Hstep & Hmidset); [contradiction|].
-        pose (gs' := {| g_nodes := map.put (g_nodes gs) n s'';
-                        g_messages := g_messages gs ++
-                          flat_map (fun m0 => map (fun n' => (n', m0))
-                                                  (forward n m0)) outs |}).
-        edestruct (IH _ Hmidset gs') as (T & gs'' & Hstar' & Hcase);
-          [cbn; apply map.get_put_same|].
-        exists (O_event (filter (output_visible n) outs) :: T), gs''.
-        split; [econstructor; [eapply gstep_run; eauto | exact Hstar']|].
-        destruct Hcase as [(outs' & Hin & Hino) | (outs' & Hin & Hino)].
-        + left. exists outs'. split; [right; exact Hin | exact Hino].
-        + destruct Hin as [Heq|Hin'].
-          * injection Heq as Heq; subst outs'.
-            left. exists (filter (output_visible n) outs).
-            split; [left; reflexivity|].
-            apply filter_In. split; assumption.
-          * right. exists outs'. split; assumption.
-    Qed.
-
     Lemma graph_emits_implies_node_emits :
       forall T gs0 gs,
         star (graph_step p node_step) gs0 T gs ->
@@ -401,24 +361,26 @@ Section __.
                           T gs /\ output_in_trace o T.
     Proof.
       intros A_univ Hcorr o T_s gs_s Hstar_s Hout_s.
-      pose proof (allowed_trace_universal A_univ []) as Hnil.
+      pose proof (allowed_trace_universal A_univ) as Ha.
       destruct (graph_emits_implies_node_emits p_s node_step_s _ _ _ Hstar_s _ Hout_s)
         as (n & np_s & ns_s & Hp_s & Hg_s & Hvis & tau & ns_end & Htau & Hout_tau).
       cbn in Hg_s. pose proof (Hcorr n) as Hn. rewrite Hp_s, Hg_s in Hn.
       destruct (map.get p_d n) as [np_d|] eqn:Hp_d; [|contradiction].
       destruct (map.get initial_ns_d n) as [ns_d|] eqn:Hg_d; [|contradiction].
       destruct Hn as (D & _ & Hd_s & Hd_d).
-      destruct (Hd_s [] ns_s (star_refl _ _) Hnil) as [_ Hmay].
-      destruct (Hd_d [] ns_d (star_refl _ _) Hnil) as [Hmust _].
+      destruct (Hd_s [] ns_s (star_refl _ _) (Ha _)) as [_ Hmay].
+      destruct (Hd_d [] ns_d (star_refl _ _) (Ha _)) as [Hmust _].
       assert (D [] o) as HD0.
       { apply Hmay. exists tau, ns_end. repeat split;
-          [exact Htau|apply allowed_trace_universal; auto
-          |rewrite app_nil_r; exact Hout_tau]. }
-      destruct (drive_node p_d node_step_d A_univ np_d n o Hp_d Hvis
-                           (ns_d, []) (Hmust o HD0)
-                           {| g_nodes := initial_ns_d; g_messages := [] |} Hg_d)
-        as (T & gs & Hstar & [Hout|(? & Hin & _)]); [|inversion Hin].
-      exists T, gs. split; assumption.
+          [exact Htau|apply Ha|rewrite app_nil_r; exact Hout_tau]. }
+      pose proof (drive_node_must p_d node_step_d A_univ np_d n o Hp_d Hvis
+                    (ns_d, []) (Hmust o HD0)
+                    {| g_nodes := initial_ns_d; g_messages := [] |} []
+                    Hg_d (fun H => H)) as Hever.
+      destruct (eventually_can_step_to_star (graph_step p_d node_step_d) _ _ _ _ []
+                  (fun _ => Ha _) Hever) as (gs & tr & Hstar & Hout).
+      cbn in Hout. rewrite app_nil_r, output_in_trace_rev in Hout.
+      exists tr, gs. split; assumption.
     Qed.
   End transfer.
 
@@ -449,15 +411,13 @@ Section __.
         (fun n np1 np2 ns1 ns2 =>
            nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
         p1 p2 initial_ns1 initial_ns2 ->
-      forall t gs2 o,
+      forall T1 gs1 t gs2 o,
+        star (graph_step p1 node_step1) initial_gs1 T1 gs1 ->
         star (graph_step p2 node_step2) initial_gs2 t gs2 ->
-        (exists T1 gs1,
-           star (graph_step p1 node_step1) initial_gs1 T1 gs1 /\
-           inputs_of T1 = inputs_of t /\
-           node_will_output (graph_step p1 node_step1) gs1 T1 o) ->
+        node_will_output (graph_step p1 node_step1) gs1 T1 o ->
         node_will_output (graph_step p2 node_step2) gs2 t o.
     Proof.
-      intros A_univ Hcorr t gs2 o Hstar2 (T1 & gs1 & HT1 & _ & Hwill1).
+      intros A_univ Hcorr T1 gs1 t gs2 o HT1 Hstar2 Hwill1.
       pose proof (allowed_trace_universal A_univ []) as Hnil.
       destruct (eventually_can_step_to_star (graph_step p1 node_step1) _ _ _ gs1 T1
                   (fun _ => allowed_trace_universal A_univ _) Hwill1)
@@ -528,9 +488,8 @@ Section __.
       split.
       - intros o Hd.
         destruct (env_only_lift _ _ _ Hstar2 initial_gs1) as (T1 & gs1 & HT1star & Heqinputs).
-        eapply will_output_transport; try eassumption.
-        exists T1, gs1; repeat split; auto.
         destruct (H1 _ _ HT1star (Ha _)) as [Hmust1 _].
+        apply (will_output_transport A_univ Hcorr _ _ _ _ _ HT1star Hstar2).
         apply Hmust1. rewrite Heqinputs; exact Hd.
       - intros o (t' & gs2' & Hstar' & _ & Hout).
         apply (Hmono [] (inputs_of t) o); [|apply incl_nil_l].
