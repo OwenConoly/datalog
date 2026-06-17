@@ -85,7 +85,7 @@ Section __.
       exists t' ns,
         star node_step start t' ns /\
           allowed_trace (t' ++ t) /\
-          output_in_trace output t.
+          output_in_trace output (t' ++ t).
 
     Definition node_will_output start t (output : message) : Prop :=
       eventually (can_step node_step allowed_trace (fun _ => event_guaranteed))
@@ -118,9 +118,9 @@ Section __.
     Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_state2).
 
-    Check node_described_by.
     Definition nodes_equiv :=
       exists D,
+        monotone D /\
         node_described_by node_step1 D initial_ns1 /\
           node_described_by node_step2 D initial_ns2.
   End nodes.
@@ -144,11 +144,12 @@ Section __.
     Definition initial_gs2 : @graph_state node_state2 node_states2 :=
       {| g_nodes := initial_ns2; g_messages := [] |}.
 
-    Theorem graphs_might_equiv D :
+    Theorem graphs_equiv D :
       Forall4_map
         (fun n np1 np2 ns1 ns2 =>
            nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
         p1 p2 initial_ns1 initial_ns2 ->
+      monotone D ->
       node_described_by (graph_step p1 node_step1) D initial_gs1 ->
       node_described_by (graph_step p2 node_step2) D initial_gs2.
     Proof. Abort.
