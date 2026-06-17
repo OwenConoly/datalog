@@ -1,6 +1,6 @@
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
-From Stdlib Require Import List.
+From Stdlib Require Import List PeanoNat.
 From Datalog Require Import Smallstep Map.
 Import ListNotations.
 
@@ -129,12 +129,14 @@ Section __.
   Section graphs.
     Context {node_prog1 : Type} {graph_prog1 : map.map node_id node_prog1}.
     Context {node_state1 : Type} {node_states1 : map.map node_id node_state1}.
+    Context {node_states1_ok : map.ok node_states1}.
     Context (p1 : graph_prog1).
     Context (node_step1 : node_prog1 -> node_state1 -> IO_event -> node_state1 -> Prop).
     Context (initial_ns1 : node_states1).
 
     Context {node_prog2 : Type} {graph_prog2 : map.map node_id node_prog2}.
     Context {node_state2 : Type} {node_states2 : map.map node_id node_state2}.
+    Context {node_states2_ok : map.ok node_states2}.
     Context (p2 : graph_prog2).
     Context (node_step2 : node_prog2 -> node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_states2).
@@ -178,6 +180,161 @@ Section __.
     Proof.
       intros Au t. unfold allowed_trace, allowed_IO_event; intros.
       destruct e; auto.
+    Qed.
+
+    (* Generic [drive_node]: given a node-level eventually-emit-o proof,
+       drive the graph (with that node's program) to emit o by doing
+       gstep_runs on n corresponding to the angel's choices. *)
+    Lemma drive_node_gen :
+      (forall t m, A t m) ->
+      forall {NP : Type} {graph_prog : map.map node_id NP}
+             {NS : Type} {node_states : map.map node_id NS}
+             {node_states_ok : map.ok node_states}
+             (p : graph_prog)
+             (node_step : NP -> NS -> IO_event -> NS -> Prop),
+      forall (np : NP) (n : node_id) (o : message),
+        map.get p n = Some np ->
+        output_visible n o = true ->
+        forall (s : NS * list IO_event),
+          eventually (can_step (node_step np) allowed_trace
+                               (fun _ => event_guaranteed))
+                     (fun '(_, t') => output_in_trace o t')
+                     s ->
+          forall gs,
+            map.get (@g_nodes _ node_states gs) n = Some (fst s) ->
+            exists T gs',
+              star (graph_step p node_step) gs T gs' /\
+              (output_in_trace o T \/ output_in_trace o (snd s)).
+    Proof.
+      intros A_univ NP graph_prog NS node_states node_states_ok p node_step np n o Hp Hvis s Hwill.
+      induction Hwill as [[ns_curr trace_curr] HP|
+                          [ns_curr trace_curr] midset Hcan Hmid IH];
+        intros gs Hgs.
+      - (* eventually_done: P (ns_curr, trace_curr) *)
+        cbn in HP. cbn.
+        exists [], gs. split; [constructor|right; exact HP].
+      - (* eventually_step *)
+        cbn in *.
+        pose proof (Hcan ns_curr []) as Hcan'.
+        specialize (Hcan' (star_refl _ _)).
+        assert (allowed_trace ([] ++ trace_curr)) as Hallow
+          by (apply allowed_trace_universal; auto).
+        specialize (Hcan' Hallow).
+        destruct Hcan' as (s'' & e & Hguar & Hstep & Hmidset).
+        destruct e as [m_|outs]; [cbn in Hguar; contradiction|].
+        set (gs_next :=
+               {| g_nodes := map.put (g_nodes gs) n s'';
+                  g_messages :=
+                    g_messages gs ++
+                    flat_map (fun m0 => map (fun n' => (n', m0))
+                                            (forward n m0)) outs |}).
+        assert (Hgstep : graph_step p node_step gs
+                                    (O_event (filter (output_visible n) outs))
+                                    gs_next).
+        { eapply gstep_run; eauto. }
+        cbn in IH.
+        specialize (IH (s'', O_event outs :: [] ++ trace_curr) Hmidset gs_next).
+        cbn in IH.
+        assert (map.get (g_nodes gs_next) n = Some s'') as Hgs_next.
+        { cbn. apply map.get_put_same. }
+        specialize (IH Hgs_next).
+        destruct IH as (T2' & gs'' & Hstar' & Hcase).
+        exists (O_event (filter (output_visible n) outs) :: T2'), gs''.
+        split.
+        { econstructor; eassumption. }
+        destruct Hcase as [Hout|Hout].
+        + left. destruct Hout as (outs' & Hin & Hino).
+          exists outs'. split; [right; exact Hin|exact Hino].
+        + destruct Hout as (outs' & Hin & Hino).
+          cbn in Hin. destruct Hin as [Heq|Hin'].
+          * injection Heq as Heqo. subst outs'.
+            left. exists (filter (output_visible n) outs). split.
+            { cbn. left; reflexivity. }
+            apply filter_In. split; [exact Hino|exact Hvis].
+          * right. exists outs'. split; [exact Hin'|exact Hino].
+    Qed.
+
+    (* Generic version: if a graph emits o, then some node has a node-level
+       trace from its starting state producing o, and o is visible at n. *)
+    Lemma graph_emits_implies_node_emits_gen :
+      forall {NP : Type} {graph_prog : map.map node_id NP}
+             {NS : Type} {node_states : map.map node_id NS}
+             {node_states_ok : map.ok node_states}
+             (p : graph_prog)
+             (node_step : NP -> NS -> IO_event -> NS -> Prop),
+      forall T gs0 gs,
+        star (graph_step p node_step) gs0 T gs ->
+        forall o, output_in_trace o T ->
+          exists n np ns_at_gs0,
+            map.get p n = Some np /\
+            map.get (@g_nodes _ node_states gs0) n = Some ns_at_gs0 /\
+            output_visible n o = true /\
+            exists tau ns,
+              star (node_step np) ns_at_gs0 tau ns /\
+              output_in_trace o tau.
+    Proof.
+      intros NP graph_prog NS node_states node_states_ok p node_step T gs0 gs Hstar.
+      induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH];
+        intros o (outs_o & Hin_o & Hino).
+      - inversion Hin_o.
+      - cbn in Hin_o. destruct Hin_o as [Heq|Hin_o'].
+        + (* e = O_event outs_o, in head position *)
+          subst e.
+          inversion Hstep; subst.
+          * (* gstep_run *)
+            apply filter_In in Hino as [Hino Hvis].
+            exists n, np, ns.
+            split; [auto|]. split; [auto|]. split; [auto|].
+            exists [O_event outs], ns'.
+            split.
+            { econstructor; [eassumption|constructor]. }
+            exists outs. split; [left; reflexivity|exact Hino].
+          * (* gstep_receive: O_event [], but In o [] is false *)
+            inversion Hino.
+        + (* o is in t0 *)
+          specialize (IH o (ex_intro _ outs_o (conj Hin_o' Hino))).
+          destruct IH as (nn & npp & ns_at_s' & Hp1 & Hgs' & Hvis & tau & ns_end & Htau & Houttau).
+          inversion Hstep; subst.
+          * (* gstep_input: g_nodes unchanged *)
+            cbn in Hgs'. exists nn, npp, ns_at_s'.
+            split; [exact Hp1|]. split; [exact Hgs'|]. split; [exact Hvis|].
+            exists tau, ns_end. split; [exact Htau|exact Houttau].
+          * (* gstep_run: variables n, np, ns, ns', outs from inversion *)
+            cbn in Hgs'.
+            destruct (Nat.eq_dec nn n) as [Heq|Hne].
+            -- (* nn = n: node nn was stepped *)
+               subst nn.
+               rewrite H in Hp1. inversion Hp1; subst npp.
+               rewrite map.get_put_same in Hgs'. inversion Hgs'; subst ns_at_s'.
+               exists n, np, ns.
+               split; [exact H|]. split; [exact H0|]. split; [exact Hvis|].
+               exists (O_event outs :: tau), ns_end.
+               split.
+               { econstructor; [exact H1|exact Htau]. }
+               destruct Houttau as (outs' & Hin' & Hino').
+               exists outs'. split; [right; exact Hin'|exact Hino'].
+            -- (* nn ≠ n *)
+               rewrite map.get_put_diff in Hgs' by auto.
+               exists nn, npp, ns_at_s'.
+               split; [exact Hp1|]. split; [exact Hgs'|]. split; [exact Hvis|].
+               exists tau, ns_end. split; [exact Htau|exact Houttau].
+          * (* gstep_receive: variables n, np, ns, ns', m, ms1, ms2 from inversion *)
+            cbn in Hgs'.
+            destruct (Nat.eq_dec nn n) as [Heq|Hne].
+            -- subst nn.
+               rewrite H in Hp1. inversion Hp1; subst npp.
+               rewrite map.get_put_same in Hgs'. inversion Hgs'; subst ns_at_s'.
+               exists n, np, ns.
+               split; [exact H|]. split; [exact H0|]. split; [exact Hvis|].
+               exists (I_event m :: tau), ns_end.
+               split.
+               { econstructor; [exact H1|exact Htau]. }
+               destruct Houttau as (outs' & Hin' & Hino').
+               exists outs'. split; [right; exact Hin'|exact Hino'].
+            -- rewrite map.get_put_diff in Hgs' by auto.
+               exists nn, npp, ns_at_s'.
+               split; [exact Hp1|]. split; [exact Hgs'|]. split; [exact Hvis|].
+               exists tau, ns_end. split; [exact Htau|exact Houttau].
     Qed.
 
     (* Bisimulation invariant: same queue, and pairwise [nodes_equiv] at each
@@ -327,7 +484,9 @@ Section __.
     Qed.
 
     (* The two graphs ever-produce the same outputs.
-       Proof: graph_simulation in each direction. *)
+       Direct proof via [graph_emits_implies_node_emits_gen] (project to a
+       node-level may-emit) + [nodes_equiv] (transfer to the other node) +
+       [drive_node_gen] (drive the other graph to emit). *)
     Lemma ever_produces_same :
       (forall t m, A t m) ->
       Forall4_map
@@ -341,16 +500,58 @@ Section __.
                         /\ output_in_trace o T2).
     Proof.
       intros A_univ Hcorr o.
-      pose proof (gs_related_initial Hcorr) as Hrel_init.
+      pose proof (allowed_trace_universal A_univ []) as Hallow_nil.
       split.
       - intros (T1 & gs1 & Hstar1 & Hout1).
-        destruct (graph_simulation A_univ _ _ _ Hstar1 _ Hrel_init)
-          as (T2 & gs2 & Hstar2 & _ & Houts).
-        exists T2, gs2. split; auto.
+        edestruct (graph_emits_implies_node_emits_gen p1 node_step1 _ _ _ Hstar1 _ Hout1)
+          as (n & np1 & ns_init1 & Hp1 & Hg1 & Hvis & tau & ns_end & Htau & Hout_tau).
+        cbn in Hg1.
+        pose proof (Hcorr n) as Hn.
+        rewrite Hp1, Hg1 in Hn.
+        destruct (map.get p2 n) as [np2|] eqn:Hp2; [|cbn in Hn; contradiction].
+        destruct (map.get initial_ns2 n) as [ns_init2|] eqn:Hg2;
+          [|cbn in Hn; contradiction].
+        destruct Hn as (D_n & Hmono_n & Hdesc1 & Hdesc2).
+        destruct (Hdesc1 [] ns_init1 (star_refl _ _) Hallow_nil) as [_ Hmay1].
+        assert (node_might_output (node_step1 np1) ns_init1 [] o) as Hmight.
+        { exists tau, ns_end. split; [exact Htau|].
+          split; [apply allowed_trace_universal; auto|].
+          rewrite app_nil_r. exact Hout_tau. }
+        pose proof (Hmay1 o Hmight) as HD0.
+        cbn in HD0.
+        destruct (Hdesc2 [] ns_init2 (star_refl _ _) Hallow_nil) as [Hmust2 _].
+        pose proof (Hmust2 o HD0) as Hwill2.
+        edestruct (drive_node_gen A_univ p2 node_step2 np2 n o Hp2 Hvis
+                                  (ns_init2, []) Hwill2 initial_gs2 Hg2)
+          as (T2 & gs2 & Hstar2 & Hcase).
+        exists T2, gs2. split; [auto|].
+        cbn in Hcase. destruct Hcase as [Hout|Hout]; [exact Hout|].
+        destruct Hout as (outs & Hin & _); inversion Hin.
       - intros (T2 & gs2 & Hstar2 & Hout2).
-        destruct (graph_simulation_rev A_univ _ _ _ Hstar2 _ Hrel_init)
-          as (T1 & gs1 & Hstar1 & _ & Houts).
-        exists T1, gs1. split; auto.
+        edestruct (graph_emits_implies_node_emits_gen p2 node_step2 _ _ _ Hstar2 _ Hout2)
+          as (n & np2 & ns_init2 & Hp2 & Hg2 & Hvis & tau & ns_end & Htau & Hout_tau).
+        cbn in Hg2.
+        pose proof (Hcorr n) as Hn.
+        rewrite Hp2, Hg2 in Hn.
+        destruct (map.get p1 n) as [np1|] eqn:Hp1; [|cbn in Hn; contradiction].
+        destruct (map.get initial_ns1 n) as [ns_init1|] eqn:Hg1;
+          [|cbn in Hn; contradiction].
+        destruct Hn as (D_n & Hmono_n & Hdesc1 & Hdesc2).
+        destruct (Hdesc2 [] ns_init2 (star_refl _ _) Hallow_nil) as [_ Hmay2].
+        assert (node_might_output (node_step2 np2) ns_init2 [] o) as Hmight.
+        { exists tau, ns_end. split; [exact Htau|].
+          split; [apply allowed_trace_universal; auto|].
+          rewrite app_nil_r. exact Hout_tau. }
+        pose proof (Hmay2 o Hmight) as HD0.
+        cbn in HD0.
+        destruct (Hdesc1 [] ns_init1 (star_refl _ _) Hallow_nil) as [Hmust1 _].
+        pose proof (Hmust1 o HD0) as Hwill1.
+        edestruct (drive_node_gen A_univ p1 node_step1 np1 n o Hp1 Hvis
+                                  (ns_init1, []) Hwill1 initial_gs1 Hg1)
+          as (T1 & gs1 & Hstar1 & Hcase).
+        exists T1, gs1. split; [auto|].
+        cbn in Hcase. destruct Hcase as [Hout|Hout]; [exact Hout|].
+        destruct Hout as (outs & Hin & _); inversion Hin.
     Qed.
 
     (* The eventually step's preservation under the bisimulation: given a
