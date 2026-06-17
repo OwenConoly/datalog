@@ -7,6 +7,7 @@ Import ListNotations.
 Definition node_id := nat.
 Section __.
   Context {message : Type}.
+  Context (A : list message -> message -> Prop).
   Context (input_allowed : node_id -> message -> bool).
   Context (forward : node_id -> message -> list node_id).
   Context (output_visible : node_id -> message -> bool).
@@ -54,36 +55,58 @@ Section __.
   Section node.
     Context {node_state : Type}.
     Context (node_step : node_state -> IO_event -> node_state -> Prop).
+    Context (D : list message (*inputs*) -> message (*output*) -> Prop).
     Context (initial_ns : node_state).
 
-    Definition output_in_trace (output : message) (t : list IO_event) : Prop :=
-      exists outs, In (O_event outs) t /\ In output outs.
-
-    Definition inputs_of (t : list IO_event) : list message :=
+    Definition inputs_of (t : list IO_event) :=
       flat_map (fun e => match e with I_event m => [m] | _ => [] end) t.
 
-    Definition event_guaranteed (G : list message) (t : list IO_event) (e : IO_event) : Prop :=
+    Definition output_in_trace (output : message) (t : list IO_event) :=
+      exists outs, In (O_event outs) t /\ In output outs.
+
+    Definition event_guaranteed (e : IO_event) :=
       match e with
       | O_event _ => True
-      | I_event m => In m G /\ ~ In (I_event m) t
+      | I_event _ => False
       end.
 
-    Definition allowed_IO_event (A : message -> Prop) (e : IO_event) : Prop :=
+    Definition allowed_IO_event (t : list IO_event) (e : IO_event) :=
       match e with
-      | I_event inp => A inp
       | O_event _ => True
+      | I_event inp => A (inputs_of t) inp
       end.
 
-    Definition node_might_output (A : message -> Prop) (G : list message) (output : message) : Prop :=
-      exists t ns,
-        star node_step initial_ns t ns /\
-          Forall (allowed_IO_event A) t /\
+    Definition allowed_trace t :=
+      forall t1 e t2,
+        t = t2 ++ e :: t1 ->
+        allowed_IO_event t1 e.
+
+    Definition node_might_output start t (output : message) : Prop :=
+      exists t' ns,
+        star node_step start t' ns /\
+          allowed_trace (t' ++ t) /\
           output_in_trace output t.
 
-    Definition node_will_output (A : message -> Prop) (G : list message) (output : message) : Prop :=
-      eventually (can_step node_step (Forall (allowed_IO_event A)) (event_guaranteed G))
-                 (fun '(_, t) => output_in_trace output t)
-                 (initial_ns, []).
+    Definition node_will_output start t (output : message) : Prop :=
+      eventually (can_step node_step allowed_trace (fun _ => event_guaranteed))
+        (fun '(_, t') => output_in_trace output t')
+        (start, t).
+
+    Definition monotone :=
+      forall inputs1 inputs2 output,
+        D inputs1 output ->
+        incl inputs1 inputs2 ->
+        D inputs2 output.
+
+    Definition node_described_by :=
+      forall t ns,
+        star node_step initial_ns t ns ->
+        (forall output,
+            D (inputs_of t) output ->
+            node_will_output ns t output) /\
+          (forall output,
+              node_might_output ns t output ->
+              D (inputs_of t) output).
   End node.
 
   Section nodes.
@@ -95,15 +118,11 @@ Section __.
     Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_state2).
 
-    Definition nodes_might_equiv : Prop :=
-      forall A G output,
-        node_might_output node_step1 initial_ns1 A G output <->
-        node_might_output node_step2 initial_ns2 A G output.
-
-    Definition nodes_will_equiv : Prop :=
-      forall A G output,
-        node_will_output node_step1 initial_ns1 A G output <->
-        node_will_output node_step2 initial_ns2 A G output.
+    Check node_described_by.
+    Definition nodes_equiv :=
+      exists D,
+        node_described_by node_step1 D initial_ns1 /\
+          node_described_by node_step2 D initial_ns2.
   End nodes.
 
   Section graphs.
@@ -125,13 +144,13 @@ Section __.
     Definition initial_gs2 : @graph_state node_state2 node_states2 :=
       {| g_nodes := initial_ns2; g_messages := [] |}.
 
-    Theorem graphs_might_equiv :
+    Theorem graphs_might_equiv D :
       Forall4_map
         (fun n np1 np2 ns1 ns2 =>
-           nodes_might_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
+           nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
         p1 p2 initial_ns1 initial_ns2 ->
-      nodes_might_equiv (graph_step p1 node_step1) initial_gs1
-                        (graph_step p2 node_step2) initial_gs2.
+      node_described_by (graph_step p1 node_step1) D initial_gs1 ->
+      node_described_by (graph_step p2 node_step2) D initial_gs2.
     Proof. Abort.
   End graphs.
 End __.
