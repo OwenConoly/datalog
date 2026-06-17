@@ -392,15 +392,15 @@ Section __.
         (fun n np_s np_d ns_s ns_d =>
            nodes_equiv (node_step_s np_s) ns_s (node_step_d np_d) ns_d)
         p_s p_d initial_ns_s initial_ns_d ->
-      forall o,
-        (exists T gs, star (graph_step p_s node_step_s)
-                           {| g_nodes := initial_ns_s; g_messages := [] |}
-                           T gs /\ output_in_trace o T) ->
-        (exists T gs, star (graph_step p_d node_step_d)
-                           {| g_nodes := initial_ns_d; g_messages := [] |}
-                           T gs /\ output_in_trace o T).
+      forall o T_s gs_s,
+        star (graph_step p_s node_step_s)
+             {| g_nodes := initial_ns_s; g_messages := [] |} T_s gs_s ->
+        output_in_trace o T_s ->
+        exists T gs, star (graph_step p_d node_step_d)
+                          {| g_nodes := initial_ns_d; g_messages := [] |}
+                          T gs /\ output_in_trace o T.
     Proof.
-      intros A_univ Hcorr o (T_s & gs_s & Hstar_s & Hout_s).
+      intros A_univ Hcorr o T_s gs_s Hstar_s Hout_s.
       pose proof (allowed_trace_universal A_univ []) as Hnil.
       destruct (graph_emits_implies_node_emits p_s node_step_s _ _ _ Hstar_s _ Hout_s)
         as (n & np_s & ns_s & Hp_s & Hg_s & Hvis & tau & ns_end & Htau & Hout_tau).
@@ -542,8 +542,8 @@ Section __.
           destruct (map.get p1 n), (map.get p2 n),
                    (map.get initial_ns1 n), (map.get initial_ns2 n);
             try contradiction; auto using nodes_equiv_sym. }
-        { exists (t ++ t'), gs2'. split; [eapply star_app; eauto|].
-          apply output_in_trace_app.
+        { eapply star_app; eauto. }
+        { apply output_in_trace_app.
           apply output_in_trace_app in Hout as [Houtl|Houtr];
             [right; exact Houtl|left; exact Houtr]. }
         exists T1, gs1. rewrite app_nil_r. repeat split; auto.
