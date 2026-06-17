@@ -55,13 +55,6 @@ Section __.
   Section node.
     Context {node_state : Type}.
     Context (node_step : node_state -> IO_event -> node_state -> Prop).
-    (* [A_node] is the rely on incoming I_events.  At the graph level we use
-       the outer [A] (env rely).  For the node-level [nodes_equiv] test we
-       use the universal rely [fun _ _ => True], so that two nodes counted
-       as equivalent must agree on ANY input pattern — including inter-node
-       messages routed by [forward], which need not satisfy [A].  See
-       GraphCounterexample.v for why the outer [A] would be too weak here. *)
-    Context (A_node : list message -> message -> Prop).
     Context (D : list message (*inputs*) -> message (*output*) -> Prop).
     Context (initial_ns : node_state).
 
@@ -80,7 +73,7 @@ Section __.
     Definition allowed_IO_event (t : list IO_event) (e : IO_event) :=
       match e with
       | O_event _ => True
-      | I_event inp => A_node (inputs_of t) inp
+      | I_event inp => A (inputs_of t) inp
       end.
 
     Definition allowed_trace t :=
@@ -126,14 +119,11 @@ Section __.
     Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_state2).
 
-    (* Tests both nodes under the universal rely, so equivalent nodes must
-       agree on ANY input pattern.  This is what compositionality needs:
-       a node's graph context can feed it arbitrary inter-node messages. *)
     Definition nodes_equiv :=
       exists D,
         monotone D /\
-        node_described_by node_step1 (fun _ _ => True) D initial_ns1 /\
-          node_described_by node_step2 (fun _ _ => True) D initial_ns2.
+        node_described_by node_step1 D initial_ns1 /\
+          node_described_by node_step2 D initial_ns2.
   End nodes.
 
   Section graphs.
@@ -161,8 +151,8 @@ Section __.
            nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
         p1 p2 initial_ns1 initial_ns2 ->
       monotone D ->
-      node_described_by (graph_step p1 node_step1) A D initial_gs1 ->
-      node_described_by (graph_step p2 node_step2) A D initial_gs2.
+      node_described_by (graph_step p1 node_step1) D initial_gs1 ->
+      node_described_by (graph_step p2 node_step2) D initial_gs2.
     Proof. Abort.
   End graphs.
 End __.
