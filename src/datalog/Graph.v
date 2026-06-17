@@ -337,152 +337,6 @@ Section __.
                exists tau, ns_end. split; [exact Htau|exact Houttau].
     Qed.
 
-    (* Bisimulation invariant: same queue, and pairwise [nodes_equiv] at each
-       node's current state.  By the theorem's hypothesis, this holds at the
-       initial states; the question is whether it is preserved by graph steps. *)
-    Definition gs_related (gs1 : @graph_state node_state1 node_states1)
-                          (gs2 : @graph_state node_state2 node_states2) : Prop :=
-      g_messages gs1 = g_messages gs2 /\
-      Forall4_map
-        (fun n np1 np2 ns1 ns2 =>
-           nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
-        p1 p2 (g_nodes gs1) (g_nodes gs2).
-
-    Lemma gs_related_initial :
-      Forall4_map
-        (fun n np1 np2 ns1 ns2 =>
-           nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
-        p1 p2 initial_ns1 initial_ns2 ->
-      gs_related initial_gs1 initial_gs2.
-    Proof.
-      intros Hcorr. split; [reflexivity|exact Hcorr].
-    Qed.
-
-    (* Preservation step: given [gs_related gs1 gs2] and a single [graph_step1]
-       step, exhibit a graph 2 trace reaching a related state with the same
-       outputs.  This is the stuttering bisimulation step.
-
-       Currently proved for the gstep_input case; gstep_run and gstep_receive
-       are admitted — both require non-trivial per-node simulation that goes
-       beyond what [nodes_equiv] (a may/must description) gives directly. *)
-    Lemma gs_related_step_preservation :
-      (forall t m, A t m) ->
-      forall gs1 gs2,
-        gs_related gs1 gs2 ->
-        forall e gs1',
-          graph_step p1 node_step1 gs1 e gs1' ->
-          exists T2 gs2',
-            star (graph_step p2 node_step2) gs2 T2 gs2' /\
-            gs_related gs1' gs2' /\
-            (forall o, output_in_trace o [e] -> output_in_trace o T2).
-    Proof.
-      intros A_univ gs1 gs2 Hrel e gs1' Hstep.
-      destruct Hrel as [Hmsg Hnodes].
-      inversion Hstep; subst.
-      - (* gstep_input n m: easy — graph 2 takes the same single step. *)
-        exists [I_event m].
-        eexists; split.
-        { econstructor; [|constructor]. apply gstep_input; eauto. }
-        split.
-        + cbn. split; [cbn; f_equal; exact Hmsg|exact Hnodes].
-        + intros o (outs & Hin & _); inversion Hin as [Heq|Heq];
-            [discriminate|inversion Heq].
-      - (* gstep_run *) admit.
-      - (* gstep_receive *) admit.
-    Admitted.
-
-    (* Iterating preservation gives a full graph 2 trace producing the same
-       outputs as any graph 1 trace. *)
-    Lemma graph_simulation :
-      (forall t m, A t m) ->
-      forall T1 gs1_start gs1,
-        star (graph_step p1 node_step1) gs1_start T1 gs1 ->
-        forall gs2_start,
-          gs_related gs1_start gs2_start ->
-          exists T2 gs2,
-            star (graph_step p2 node_step2) gs2_start T2 gs2 /\
-            gs_related gs1 gs2 /\
-            (forall o, output_in_trace o T1 -> output_in_trace o T2).
-    Proof.
-      intros A_univ T1 gs1_start gs1 Hstar.
-      induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH]; intros gs2_start Hrel.
-      - exists [], gs2_start. split; [constructor|]. split; [exact Hrel|].
-        intros o (outs & Hin & _); inversion Hin.
-      - destruct (gs_related_step_preservation A_univ _ _ Hrel _ _ Hstep)
-          as (T2a & gs2_mid & Hstar2a & Hrelmid & Houts_e).
-        destruct (IH gs2_mid Hrelmid)
-          as (T2b & gs2 & Hstar2b & Hrel_end & Houts_t0).
-        exists (T2a ++ T2b), gs2.
-        split; [eapply star_app; eassumption|].
-        split; [exact Hrel_end|].
-        intros o Hout.
-        change (e :: t0) with ([e] ++ t0) in Hout.
-        apply output_in_trace_app in Hout as [Hout|Hout].
-        + apply Houts_e in Hout.
-          apply output_in_trace_app. left. exact Hout.
-        + apply Houts_t0 in Hout.
-          apply output_in_trace_app. right. exact Hout.
-    Qed.
-
-    (* Symmetric preservation (graph 2 step → graph 1 simulates).
-       Same situation as [gs_related_step_preservation]. *)
-    Lemma gs_related_step_preservation_rev :
-      (forall t m, A t m) ->
-      forall gs1 gs2,
-        gs_related gs1 gs2 ->
-        forall e gs2',
-          graph_step p2 node_step2 gs2 e gs2' ->
-          exists T1 gs1',
-            star (graph_step p1 node_step1) gs1 T1 gs1' /\
-            gs_related gs1' gs2' /\
-            (forall o, output_in_trace o [e] -> output_in_trace o T1).
-    Proof.
-      intros A_univ gs1 gs2 Hrel e gs2' Hstep.
-      destruct Hrel as [Hmsg Hnodes].
-      inversion Hstep; subst.
-      - (* gstep_input n m: graph 1 takes the same single step. *)
-        exists [I_event m].
-        eexists; split.
-        { econstructor; [|constructor]. apply gstep_input; eauto. }
-        split.
-        + cbn. split; [cbn; f_equal; exact Hmsg|exact Hnodes].
-        + intros o (outs & Hin & _); inversion Hin as [Heq|Heq];
-            [discriminate|inversion Heq].
-      - (* gstep_run *) admit.
-      - (* gstep_receive *) admit.
-    Admitted.
-
-    Lemma graph_simulation_rev :
-      (forall t m, A t m) ->
-      forall T2 gs2_start gs2,
-        star (graph_step p2 node_step2) gs2_start T2 gs2 ->
-        forall gs1_start,
-          gs_related gs1_start gs2_start ->
-          exists T1 gs1,
-            star (graph_step p1 node_step1) gs1_start T1 gs1 /\
-            gs_related gs1 gs2 /\
-            (forall o, output_in_trace o T2 -> output_in_trace o T1).
-    Proof.
-      intros A_univ T2 gs2_start gs2 Hstar.
-      induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH]; intros gs1_start Hrel.
-      - exists [], gs1_start. split; [constructor|]. split; [exact Hrel|].
-        intros o (outs & Hin & _); inversion Hin.
-      - destruct (gs_related_step_preservation_rev A_univ _ _ Hrel _ _ Hstep)
-          as (T1a & gs1_mid & Hstar1a & Hrelmid & Houts_e).
-        destruct (IH gs1_mid Hrelmid)
-          as (T1b & gs1 & Hstar1b & Hrel_end & Houts_t0).
-        exists (T1a ++ T1b), gs1.
-        split; [eapply star_app; eassumption|].
-        split; [exact Hrel_end|].
-        intros o Hout.
-        change (e :: t0) with ([e] ++ t0) in Hout.
-        apply output_in_trace_app in Hout as [Hout|Hout].
-        + apply Houts_e in Hout.
-          apply output_in_trace_app. left. exact Hout.
-        + apply Houts_t0 in Hout.
-          apply output_in_trace_app. right. exact Hout.
-    Qed.
-
     (* The two graphs ever-produce the same outputs.
        Direct proof via [graph_emits_implies_node_emits_gen] (project to a
        node-level may-emit) + [nodes_equiv] (transfer to the other node) +
@@ -554,59 +408,59 @@ Section __.
         destruct Hout as (outs & Hin & _); inversion Hin.
     Qed.
 
-    (* The eventually step's preservation under the bisimulation: given a
-       [can_step] in graph 1 from [(gs1, T1)] and [gs_related gs1 gs2], we
-       need a corresponding [can_step] in graph 2 from [(gs2, t2)] producing
-       a related midset.  This is the must-direction analog of
-       [gs_related_step_preservation] and is genuinely harder (it has to
-       handle the [forall demon t'] in [can_step]).  Admitted. *)
-    Lemma can_step_transport :
-      (forall t m, A t m) ->
-      forall gs1 gs2 T1 t2 (midset : graph_state * list IO_event -> Prop),
-        gs_related gs1 gs2 ->
-        (forall o, output_in_trace o T1 -> output_in_trace o t2) ->
-        can_step (graph_step p1 node_step1) allowed_trace
-                 (fun _ => event_guaranteed) (gs1, T1) midset ->
-        exists midset',
-          can_step (graph_step p2 node_step2) allowed_trace
-                   (fun _ => event_guaranteed) (gs2, t2) midset' /\
-          (forall gs2' t2', midset' (gs2', t2') ->
-                            exists gs1' T1',
-                              midset (gs1', T1') /\
-                              gs_related gs1' gs2' /\
-                              (forall o, output_in_trace o T1' ->
-                                         output_in_trace o t2')).
-    Proof. Admitted.
-
-    (* The eventually-level bisimulation: with [gs_related] at the states and
-       the trace's outputs already covered, will-output transports across. *)
-    Lemma will_output_via_related :
-      (forall t m, A t m) ->
-      forall gs1 gs2 T1 t2 o,
-        gs_related gs1 gs2 ->
-        (forall o', output_in_trace o' T1 -> output_in_trace o' t2) ->
-        node_will_output (graph_step p1 node_step1) gs1 T1 o ->
-        node_will_output (graph_step p2 node_step2) gs2 t2 o.
+    (* Projection: graph 1's trace projects to a node-level trace at each
+       node, with the resulting state matching gs.g_nodes[n]. *)
+    Lemma project_node_gen :
+      forall {NP : Type} {graph_prog : map.map node_id NP}
+             {NS : Type} {node_states : map.map node_id NS}
+             {node_states_ok : map.ok node_states}
+             (p : graph_prog)
+             (node_step : NP -> NS -> IO_event -> NS -> Prop),
+      forall T gs0 gs,
+        star (graph_step p node_step) gs0 T gs ->
+        forall n np ns_at_gs0,
+          map.get p n = Some np ->
+          map.get (@g_nodes _ node_states gs0) n = Some ns_at_gs0 ->
+          exists tau ns_at_gs,
+            star (node_step np) ns_at_gs0 tau ns_at_gs /\
+            map.get (g_nodes gs) n = Some ns_at_gs.
     Proof.
-      intros A_univ gs1 gs2 T1 t2 o Hrel Houts Hwill.
-      unfold node_will_output in *.
-      remember (gs1, T1) as s1 eqn:Es1.
-      revert gs1 T1 Es1 gs2 t2 Hrel Houts.
-      induction Hwill as [s1' HP|s1' midset Hcan Hmid IH];
-        intros gs1 T1 Es1 gs2 t2 Hrel Houts; subst.
-      - (* eventually_done *)
-        apply eventually_done. cbn in *. apply Houts. exact HP.
-      - (* eventually_step *)
-        destruct (can_step_transport A_univ _ _ _ _ _ Hrel Houts Hcan)
-          as (midset' & Hcan' & Hmidset').
-        eapply eventually_step; [exact Hcan'|].
-        intros (gs2' & t2') Hmid2'.
-        destruct (Hmidset' _ _ Hmid2') as (gs1' & T1' & Hmid1 & Hrel' & Houts').
-        eapply IH; eauto.
+      intros NP graph_prog NS node_states node_states_ok p node_step T gs0 gs Hstar.
+      induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH];
+        intros n np ns_at_gs0 Hp Hg0.
+      - exists [], ns_at_gs0. split; [constructor|exact Hg0].
+      - inversion Hstep; subst.
+        + (* gstep_input: g_nodes unchanged *)
+          destruct (IH n np ns_at_gs0 Hp Hg0) as (tau & ns_at_gs & Htau & Hg).
+          exists tau, ns_at_gs. split; auto.
+        + (* gstep_run: variables n, np, ns, ns', outs from inversion *)
+          destruct (Nat.eq_dec n0 n) as [Heq|Hne].
+          * subst n0.
+            rewrite H in Hp. inversion Hp; subst np0.
+            rewrite H0 in Hg0. inversion Hg0; subst ns_at_gs0.
+            destruct (IH n np ns') as (tau & ns_at_gs & Htau & Hg);
+              [exact H | cbn; apply map.get_put_same|].
+            exists (O_event outs :: tau), ns_at_gs.
+            split; [econstructor; [exact H1|exact Htau]|exact Hg].
+          * destruct (IH n np ns_at_gs0 Hp) as (tau & ns_at_gs & Htau & Hg).
+            { cbn. rewrite map.get_put_diff by auto. exact Hg0. }
+            exists tau, ns_at_gs. split; auto.
+        + (* gstep_receive: variables n, np, ns, ns', m, ms1, ms2 *)
+          destruct (Nat.eq_dec n0 n) as [Heq|Hne].
+          * subst n0.
+            rewrite H in Hp. inversion Hp; subst np0.
+            rewrite H0 in Hg0. inversion Hg0; subst ns_at_gs0.
+            destruct (IH n np ns') as (tau & ns_at_gs & Htau & Hg);
+              [exact H | cbn; apply map.get_put_same|].
+            exists (I_event m :: tau), ns_at_gs.
+            split; [econstructor; [exact H1|exact Htau]|exact Hg].
+          * destruct (IH n np ns_at_gs0 Hp) as (tau & ns_at_gs & Htau & Hg).
+            { cbn. rewrite map.get_put_diff by auto. exact Hg0. }
+            exists tau, ns_at_gs. split; auto.
     Qed.
 
-    (* The transport lemma we actually use in the theorem.  Built on
-       will_output_via_related + graph_simulation_rev to obtain gs_related. *)
+    (* The transport lemma we actually use in the theorem.
+       Currently Admitted: see comments below. *)
     Lemma will_output_transport :
       (forall t m, A t m) ->
       Forall4_map
