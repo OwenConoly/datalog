@@ -156,7 +156,43 @@ Section __.
        [Admitted].  Once they are proved, the conclusion drops out via
        [monotone D] + [graph 1 ⊨ D]. *)
 
-    (* The two graphs ever-produce the same outputs. *)
+    (* Bisimulation invariant: same queue, and pairwise [nodes_equiv] at each
+       node's current state.  By the theorem's hypothesis, this holds at the
+       initial states; the question is whether it is preserved by graph steps. *)
+    Definition gs_related (gs1 : @graph_state node_state1 node_states1)
+                          (gs2 : @graph_state node_state2 node_states2) : Prop :=
+      g_messages gs1 = g_messages gs2 /\
+      Forall4_map
+        (fun n np1 np2 ns1 ns2 =>
+           nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
+        p1 p2 (g_nodes gs1) (g_nodes gs2).
+
+    Lemma gs_related_initial :
+      Forall4_map
+        (fun n np1 np2 ns1 ns2 =>
+           nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
+        p1 p2 initial_ns1 initial_ns2 ->
+      gs_related initial_gs1 initial_gs2.
+    Proof.
+      intros Hcorr. split; [reflexivity|exact Hcorr].
+    Qed.
+
+    (* The two graphs ever-produce the same outputs.
+       PROOF SKETCH (currently Admitted):
+       - Establish gs_related at the initial states (lemma above).
+       - Show gs_related is preserved by a STUTTERING simulation: for each
+         step graph 1 takes, graph 2 can take some sequence of steps reaching
+         a gs_related state.  gstep_input: graph 2 takes the same single
+         step (easy).  gstep_run on node n emitting outs containing o:
+         requires node 2 to reach the SAME outs after enough internal steps,
+         which is the per-node simulation content of [nodes_equiv] (its
+         must side gives that node 2 will eventually emit each individual
+         o, but BATCHING into the same outs is a separate, non-trivial
+         claim).  gstep_receive: similar.
+       - These node-step simulation lemmas are real bisimulation arguments
+         and require either (a) strengthening [nodes_equiv] to include a
+         step-level simulation, or (b) a multi-step "stuttering bisimulation"
+         argument with a separate invariant.  Neither is short. *)
     Lemma ever_produces_same :
       (forall t m, A t m) ->
       Forall4_map
@@ -171,7 +207,13 @@ Section __.
     Proof. Admitted.
 
     (* When graph 1 from a state reachable with the same inputs will output o,
-       graph 2 from any state reachable via t will too. *)
+       graph 2 from any state reachable via t will too.
+       PROOF SKETCH (currently Admitted):
+       - Same stuttering bisimulation as for [ever_produces_same], but lifted
+         to the [eventually(can_step ...)] level.  Each [eventually] step in
+         graph 1 corresponds to one or more steps in graph 2 reaching a
+         [gs_related] state; the can_step's existential ([angel picks a
+         step]) is transported by appealing to the per-node simulation. *)
     Lemma will_output_transport :
       (forall t m, A t m) ->
       Forall4_map
