@@ -136,28 +136,6 @@ Section __.
               D (inputs_of t) output).
   End node.
 
-  Section nodes.
-    Context {node_state1 : Type}.
-    Context (node_step1 : node_state1 -> IO_event -> node_state1 -> Prop).
-    Context (initial_ns1 : node_state1).
-
-    Context {node_state2 : Type}.
-    Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
-    Context (initial_ns2 : node_state2).
-
-    Definition nodes_equiv :=
-      exists D,
-        monotone D /\
-        node_described_by node_step1 D initial_ns1 /\
-          node_described_by node_step2 D initial_ns2.
-  End nodes.
-
-  Lemma nodes_equiv_sym {NS1 NS2}
-    (step1 : NS1 -> IO_event -> NS1 -> Prop) (ns1 : NS1)
-    (step2 : NS2 -> IO_event -> NS2 -> Prop) (ns2 : NS2) :
-    nodes_equiv step1 ns1 step2 ns2 -> nodes_equiv step2 ns2 step1 ns1.
-  Proof. intros (D & Hm & H1 & H2). exists D. split; [|split]; assumption. Qed.
-
   Section gen.
     Context {NP : Type} {graph_prog : map.map node_id NP}.
     Context {NS : Type} {node_states : map.map node_id NS}.
@@ -370,6 +348,28 @@ Section __.
             exists outs''. split; [right; apply in_or_app; right; exact Hin''|exact Hino''].
     Qed.
   End gen.
+
+  Section nodes.
+    Context {node_state1 : Type}.
+    Context (node_step1 : node_state1 -> IO_event -> node_state1 -> Prop).
+    Context (initial_ns1 : node_state1).
+
+    Context {node_state2 : Type}.
+    Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
+    Context (initial_ns2 : node_state2).
+
+    Definition nodes_equiv :=
+      exists D,
+        monotone D /\
+        node_described_by node_step1 D initial_ns1 /\
+          node_described_by node_step2 D initial_ns2.
+  End nodes.
+
+  Lemma nodes_equiv_sym {NS1 NS2}
+    (step1 : NS1 -> IO_event -> NS1 -> Prop) (ns1 : NS1)
+    (step2 : NS2 -> IO_event -> NS2 -> Prop) (ns2 : NS2) :
+    nodes_equiv step1 ns1 step2 ns2 -> nodes_equiv step2 ns2 step1 ns1.
+  Proof. intros (D & Hm & H1 & H2). exists D. split; [|split]; assumption. Qed.
 
   Section transfer.
     Context {NP_s : Type} {graph_prog_s : map.map node_id NP_s}.
