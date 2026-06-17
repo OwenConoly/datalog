@@ -353,14 +353,59 @@ Section __.
         exists T1, gs1. split; auto.
     Qed.
 
-    (* When graph 1 from a state reachable with the same inputs will output o,
-       graph 2 from any state reachable via t will too.
-       PROOF SKETCH (currently Admitted):
-       - Same stuttering bisimulation as for [ever_produces_same], but lifted
-         to the [eventually(can_step ...)] level.  Each [eventually] step in
-         graph 1 corresponds to one or more steps in graph 2 reaching a
-         [gs_related] state; the can_step's existential ([angel picks a
-         step]) is transported by appealing to the per-node simulation. *)
+    (* The eventually step's preservation under the bisimulation: given a
+       [can_step] in graph 1 from [(gs1, T1)] and [gs_related gs1 gs2], we
+       need a corresponding [can_step] in graph 2 from [(gs2, t2)] producing
+       a related midset.  This is the must-direction analog of
+       [gs_related_step_preservation] and is genuinely harder (it has to
+       handle the [forall demon t'] in [can_step]).  Admitted. *)
+    Lemma can_step_transport :
+      (forall t m, A t m) ->
+      forall gs1 gs2 T1 t2 (midset : graph_state * list IO_event -> Prop),
+        gs_related gs1 gs2 ->
+        (forall o, output_in_trace o T1 -> output_in_trace o t2) ->
+        can_step (graph_step p1 node_step1) allowed_trace
+                 (fun _ => event_guaranteed) (gs1, T1) midset ->
+        exists midset',
+          can_step (graph_step p2 node_step2) allowed_trace
+                   (fun _ => event_guaranteed) (gs2, t2) midset' /\
+          (forall gs2' t2', midset' (gs2', t2') ->
+                            exists gs1' T1',
+                              midset (gs1', T1') /\
+                              gs_related gs1' gs2' /\
+                              (forall o, output_in_trace o T1' ->
+                                         output_in_trace o t2')).
+    Proof. Admitted.
+
+    (* The eventually-level bisimulation: with [gs_related] at the states and
+       the trace's outputs already covered, will-output transports across. *)
+    Lemma will_output_via_related :
+      (forall t m, A t m) ->
+      forall gs1 gs2 T1 t2 o,
+        gs_related gs1 gs2 ->
+        (forall o', output_in_trace o' T1 -> output_in_trace o' t2) ->
+        node_will_output (graph_step p1 node_step1) gs1 T1 o ->
+        node_will_output (graph_step p2 node_step2) gs2 t2 o.
+    Proof.
+      intros A_univ gs1 gs2 T1 t2 o Hrel Houts Hwill.
+      unfold node_will_output in *.
+      remember (gs1, T1) as s1 eqn:Es1.
+      revert gs1 T1 Es1 gs2 t2 Hrel Houts.
+      induction Hwill as [s1' HP|s1' midset Hcan Hmid IH];
+        intros gs1 T1 Es1 gs2 t2 Hrel Houts; subst.
+      - (* eventually_done *)
+        apply eventually_done. cbn in *. apply Houts. exact HP.
+      - (* eventually_step *)
+        destruct (can_step_transport A_univ _ _ _ _ _ Hrel Houts Hcan)
+          as (midset' & Hcan' & Hmidset').
+        eapply eventually_step; [exact Hcan'|].
+        intros (gs2' & t2') Hmid2'.
+        destruct (Hmidset' _ _ Hmid2') as (gs1' & T1' & Hmid1 & Hrel' & Houts').
+        eapply IH; eauto.
+    Qed.
+
+    (* The transport lemma we actually use in the theorem.  Built on
+       will_output_via_related + graph_simulation_rev to obtain gs_related. *)
     Lemma will_output_transport :
       (forall t m, A t m) ->
       Forall4_map
