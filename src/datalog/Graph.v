@@ -139,6 +139,7 @@ Section __.
           node_can_output ns t output <-> D (inputs_of t) output.
 
     (*TODO: does having this for each node imply it for the graph?*)
+    (*TODO: this is definitely a property we want to prove about our Datalog nodes.*)
     Definition can_implies_will :=
       forall t ns o,
         star node_step initial_ns t ns ->
@@ -146,16 +147,22 @@ Section __.
         node_can_output ns t o ->
         node_will_output ns t o.
 
+    Definition node_monotone :=
+      forall t1 t2 ns1 ns2 o,
+        star node_step initial_ns t1 ns1 ->
+        star node_step initial_ns t2 ns2 ->
+        node_can_output ns1 t1 o ->
+        node_can_output ns2 t2 o.
+
+    (*we want something like this?  idk, anyway we want to find a hypothesis that is
+      the difference node_described_by - can_implies_will.
+      actually, ideally, we want node_described_by - can_implies_will - node_monotone
+     *)
     Lemma node_described_by_weak_implies_strong :
       node_described_by_weak ->
-      might_implies_will ->
+      can_implies_will ->
       node_described_by.
-    Proof.
-      intros Hweak Hwill t ns Hstar Hallowed. split.
-      - intros o HD. apply (Hwill _ _ _ Hstar Hallowed).
-        apply (proj2 (Hweak t ns Hstar Hallowed o)). exact HD.
-      - intros o Hmight. apply (proj1 (Hweak t ns Hstar Hallowed o)). exact Hmight.
-    Qed.
+    Proof. Abort.
   End node.
 
   Section nodes.
@@ -175,8 +182,8 @@ Section __.
         allowed_trace t2 ->
         incl (inputs_of t1) (inputs_of t2) ->
         forall o,
-          node_might_output node_step1 ns1 t o <->
-            node_might_output node_step2 ns2 t o.
+          node_might_output node_step1 ns1 t1 o <->
+            node_might_output node_step2 ns2 t2 o.
 
     Definition nodes_equiv :=
       exists D,
