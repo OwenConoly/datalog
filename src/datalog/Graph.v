@@ -51,7 +51,8 @@ Section __.
                    g_messages := ms1 ++ ms2 |}.
   End graph.
 
-  Context (A : list message -> message -> Prop).
+  Context (A : list message -> Prop).
+  (*domain is multisets*)
 
   Definition inputs_of (t : list IO_event) :=
     flat_map (fun e => match e with I_event m => [m] | _ => [] end) t.
@@ -65,16 +66,8 @@ Section __.
     | I_event _ => False
     end.
 
-  Definition allowed_IO_event (t : list IO_event) (e : IO_event) :=
-    match e with
-    | O_event _ => True
-    | I_event inp => A (inputs_of t) inp
-    end.
-
   Definition allowed_trace t :=
-    forall t1 e t2,
-      t = t2 ++ e :: t1 ->
-      allowed_IO_event t1 e.
+    A (inputs_of t).
 
   Lemma output_in_trace_app o (l1 l2 : list IO_event) :
     output_in_trace o (l1 ++ l2) <-> output_in_trace o l1 \/ output_in_trace o l2.
@@ -95,11 +88,8 @@ Section __.
   Qed.
 
   Lemma allowed_trace_universal :
-    (forall t m, A t m) -> forall t, allowed_trace t.
-  Proof.
-    intros Au t. unfold allowed_trace, allowed_IO_event; intros.
-    destruct e; auto.
-  Qed.
+    (forall t, A t) -> forall t, allowed_trace t.
+  Proof. unfold allowed_trace; auto. Qed.
 
   Section node.
     Context {node_state : Type}.
@@ -283,7 +273,7 @@ Section __.
     Qed.
 
     Lemma drive_node_must :
-      (forall t m, A t m) ->
+      (forall t, A t) ->
       forall (np : NP) (n : node_id) (o : message),
         map.get p n = Some np ->
         output_visible n o = true ->
@@ -347,7 +337,7 @@ Section __.
     Context (initial_ns_d : node_states_d).
 
     Lemma ever_produces_same :
-      (forall t m, A t m) ->
+      (forall t, A t) ->
       Forall4_map
         (fun n np_s np_d ns_s ns_d =>
            nodes_equiv (node_step_s np_s) ns_s (node_step_d np_d) ns_d)
@@ -406,7 +396,7 @@ Section __.
       {| g_nodes := initial_ns2; g_messages := [] |}.
 
     Lemma will_output_transport :
-      (forall t m, A t m) ->
+      (forall t, A t) ->
       Forall4_map
         (fun n np1 np2 ns1 ns2 =>
            nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
@@ -473,7 +463,7 @@ Section __.
     Qed.
 
     Theorem graphs_equiv D :
-      (forall t m, A t m) ->
+      (forall t, A t) ->
       Forall4_map
         (fun n np1 np2 ns1 ns2 =>
            nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
