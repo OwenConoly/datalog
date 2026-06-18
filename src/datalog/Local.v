@@ -459,7 +459,14 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
                    hf_key_args := f.(cf_args) |};
       hf_val := value_fact [] |}.
 
-  Axiom (A : list dfact -> Prop).
+  Definition A (input_facts : list dfact) :=
+    forall R mf_args num,
+      In (meta_dfact R mf_args None num) input_facts ->
+      (forall num0, In (meta_dfact R mf_args None num0) input_facts -> num0 = num) /\
+        exists num',
+          num' <= num /\
+            Existsn (dfact_matches R mf_args) num' input_facts.
+
   Lemma compiler_correct p :
     nodes_equiv A (spec_node_step p) empty_big_spec_state
                   (translate_step lower_dfact (node_step (lower_prog p))) empty_big_state.
