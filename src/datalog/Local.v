@@ -468,7 +468,7 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
             Existsn (dfact_matches R mf_args) num' input_facts.
 
   Lemma compiler_correct p :
-    nodes_equiv A (spec_node_step p) empty_big_spec_state
+    nodes_equiv_weak A (spec_node_step p) empty_big_spec_state
                   (translate_step lower_dfact (node_step (lower_prog p))) empty_big_state.
   Proof. Abort.
 

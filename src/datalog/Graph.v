@@ -126,6 +126,25 @@ Section __.
               D (inputs_of t) output).
   End node.
 
+  (*A node has no angelic-only outputs: whenever it might output, it will.*)
+  Definition might_implies_will {NS} (step : NS -> IO_event -> NS -> Prop) (init : NS) :=
+    forall t ns o,
+      star step init t ns ->
+      allowed_trace t ->
+      node_might_output step ns t o ->
+      node_will_output step ns t o.
+
+  (*Adding inputs preserves might-outputs.*)
+  Definition might_monotone {NS} (step : NS -> IO_event -> NS -> Prop) (init : NS) :=
+    forall t1 t2 ns1 ns2 o,
+      star step init t1 ns1 ->
+      star step init t2 ns2 ->
+      allowed_trace t1 ->
+      allowed_trace t2 ->
+      incl (inputs_of t1) (inputs_of t2) ->
+      node_might_output step ns1 t1 o ->
+      node_might_output step ns2 t2 o.
+
   Section nodes.
     Context {node_state1 : Type}.
     Context (node_step1 : node_state1 -> IO_event -> node_state1 -> Prop).
@@ -149,6 +168,14 @@ Section __.
         monotone D /\
         node_described_by node_step1 D initial_ns1 /\
           node_described_by node_step2 D initial_ns2.
+
+    Lemma nodes_equiv_weak_implies_strong :
+      nodes_equiv_weak ->
+      might_implies_will node_step1 initial_ns1 ->
+      might_implies_will node_step2 initial_ns2 ->
+      might_monotone node_step1 initial_ns1 ->
+      nodes_equiv.
+    Proof. Abort.
   End nodes.
 
   Lemma nodes_equiv_sym {NS1 NS2}
