@@ -459,6 +459,12 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
                    hf_key_args := f.(cf_args) |};
       hf_val := value_fact [] |}.
 
+  Axiom (A : list dfact -> Prop).
+  Lemma compiler_correct p :
+    nodes_equiv A (spec_node_step p) empty_big_spec_state
+                  (translate_step lower_dfact (node_step (lower_prog p))) empty_big_state.
+  Proof. Abort.
+
   Definition spec_knows_fact bss f :=
     In f (bss.(bss_spec_node).(known_facts)) \/ In f bss.(bss_queue).
 

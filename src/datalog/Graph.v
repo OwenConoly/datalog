@@ -500,3 +500,14 @@ Section __.
   End graphs.
 End __.
 Arguments IO_event : clear implicits.
+
+Definition translate_event {M M'} (t : M' -> M) (ev : IO_event M') : IO_event M :=
+  match ev with
+  | I_event m' => I_event (t m')
+  | O_event ms' => O_event (map t ms')
+  end.
+
+Definition translate_step {NS M M'} (t : M' -> M)
+  (step : NS -> IO_event M -> NS -> Prop)
+  : NS -> IO_event M' -> NS -> Prop :=
+  fun ns ev ns' => step ns (translate_event t ev) ns'.
