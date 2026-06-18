@@ -126,7 +126,7 @@ Section __.
               D (inputs_of t) output).
   End node.
 
-    Section nodes.
+  Section nodes.
     Context {node_state1 : Type}.
     Context (node_step1 : node_state1 -> IO_event -> node_state1 -> Prop).
     Context (initial_ns1 : node_state1).
@@ -134,6 +134,15 @@ Section __.
     Context {node_state2 : Type}.
     Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_state2).
+
+    Definition nodes_equiv_weak :=
+      forall t ns1 ns2,
+        star node_step1 initial_ns1 t ns1 ->
+        star node_step2 initial_ns2 t ns2 ->
+        allowed_trace t ->
+        forall output,
+          node_might_output node_step1 ns1 t output <->
+            node_might_output node_step2 ns2 t output.
 
     Definition nodes_equiv :=
       exists D,
