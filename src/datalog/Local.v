@@ -309,13 +309,6 @@ Section __.
       {| known_facts := ss.(known_facts);
         sent_facts := f :: ss.(sent_facts) |}.
 
-    (*want to prove that everything output by compiled program is submultiset of things output by *)
-    Definition spec_node_output_step p ss fact ss' :=
-      new_facts p ss fact /\ ss' = spec_output_fact ss fact.
-
-    Definition spec_node_inputs_step ss facts ss' :=
-      ss' = fold_left spec_input_fact facts ss.
-
     (*"big" because it contains the node, plus a bunch of other stuff...*)
     Record big_spec_state :=
       { bss_spec_node : spec_node_state;
@@ -435,7 +428,6 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
      *)
     end.
 
-  Print node_prog.
   Context {idx_structs_info : map.map idx_struct values_info}
     {rel_views : map.map lrel idx_structs_info}
     {rels_data : map.map (@hyp_fact_key lrel) val_data}
