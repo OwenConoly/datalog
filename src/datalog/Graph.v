@@ -151,6 +151,7 @@ Section __.
       forall t1 t2 ns1 ns2 o,
         star node_step initial_ns t1 ns1 ->
         star node_step initial_ns t2 ns2 ->
+        incl (inputs_of t1) (inputs_of t2) ->
         node_can_output ns1 t1 o ->
         node_can_output ns2 t2 o.
 
@@ -161,6 +162,7 @@ Section __.
     Lemma node_described_by_weak_implies_strong :
       node_described_by_weak ->
       can_implies_will ->
+      node_monotone ->
       node_described_by.
     Proof. Abort.
   End node.
