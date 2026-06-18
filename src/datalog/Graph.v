@@ -108,6 +108,12 @@ Section __.
         (fun '(_, t') => output_in_trace output t')
         (start, t).
 
+    Definition node_can_output start t output :=
+      exists t' ns,
+        star node_step start t' ns /\
+          Forall event_guaranteed t' /\
+          output_in_trace output (t' ++ t).
+
     Definition monotone :=
       forall inputs1 inputs2 output,
         D inputs1 output ->
@@ -124,26 +130,33 @@ Section __.
           (forall output,
               node_might_output ns t output ->
               D (inputs_of t) output).
+
+    Definition node_described_by_weak :=
+      forall t ns,
+        star node_step initial_ns t ns ->
+        allowed_trace t ->
+        forall output,
+          node_can_output ns t output <-> D (inputs_of t) output.
+
+    (*TODO: does having this for each node imply it for the graph?*)
+    Definition can_implies_will :=
+      forall t ns o,
+        star node_step initial_ns t ns ->
+        allowed_trace t ->
+        node_can_output ns t o ->
+        node_will_output ns t o.
+
+    Lemma node_described_by_weak_implies_strong :
+      node_described_by_weak ->
+      might_implies_will ->
+      node_described_by.
+    Proof.
+      intros Hweak Hwill t ns Hstar Hallowed. split.
+      - intros o HD. apply (Hwill _ _ _ Hstar Hallowed).
+        apply (proj2 (Hweak t ns Hstar Hallowed o)). exact HD.
+      - intros o Hmight. apply (proj1 (Hweak t ns Hstar Hallowed o)). exact Hmight.
+    Qed.
   End node.
-
-  (*A node has no angelic-only outputs: whenever it might output, it will.*)
-  Definition might_implies_will {NS} (step : NS -> IO_event -> NS -> Prop) (init : NS) :=
-    forall t ns o,
-      star step init t ns ->
-      allowed_trace t ->
-      node_might_output step ns t o ->
-      node_will_output step ns t o.
-
-  (*Adding inputs preserves might-outputs.*)
-  Definition might_monotone {NS} (step : NS -> IO_event -> NS -> Prop) (init : NS) :=
-    forall t1 t2 ns1 ns2 o,
-      star step init t1 ns1 ->
-      star step init t2 ns2 ->
-      allowed_trace t1 ->
-      allowed_trace t2 ->
-      incl (inputs_of t1) (inputs_of t2) ->
-      node_might_output step ns1 t1 o ->
-      node_might_output step ns2 t2 o.
 
   Section nodes.
     Context {node_state1 : Type}.
@@ -155,13 +168,15 @@ Section __.
     Context (initial_ns2 : node_state2).
 
     Definition nodes_equiv_weak :=
-      forall t ns1 ns2,
-        star node_step1 initial_ns1 t ns1 ->
-        star node_step2 initial_ns2 t ns2 ->
-        allowed_trace t ->
-        forall output,
-          node_might_output node_step1 ns1 t output <->
-            node_might_output node_step2 ns2 t output.
+      forall t1 t2 ns1 ns2,
+        star node_step1 initial_ns1 t1 ns1 ->
+        star node_step2 initial_ns2 t2 ns2 ->
+        allowed_trace t1 ->
+        allowed_trace t2 ->
+        incl (inputs_of t1) (inputs_of t2) ->
+        forall o,
+          node_might_output node_step1 ns1 t o <->
+            node_might_output node_step2 ns2 t o.
 
     Definition nodes_equiv :=
       exists D,
@@ -169,13 +184,6 @@ Section __.
         node_described_by node_step1 D initial_ns1 /\
           node_described_by node_step2 D initial_ns2.
 
-    Lemma nodes_equiv_weak_implies_strong :
-      nodes_equiv_weak ->
-      might_implies_will node_step1 initial_ns1 ->
-      might_implies_will node_step2 initial_ns2 ->
-      might_monotone node_step1 initial_ns1 ->
-      nodes_equiv.
-    Proof. Abort.
   End nodes.
 
   Lemma nodes_equiv_sym {NS1 NS2}
