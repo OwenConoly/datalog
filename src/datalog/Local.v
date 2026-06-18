@@ -5,7 +5,7 @@ From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties.
 
-From Datalog Require Import Permutation Map Tactics Fp List Dag Datalog Interpreter Operational Smallstep.
+From Datalog Require Import Permutation Map Tactics Fp List Dag Datalog Interpreter Operational Smallstep Graph.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Sorting.OrderToPermutation.
 
@@ -217,10 +217,9 @@ Section __.
           lrule_impl s r concl hyps /\
           Forall (knows_hyp_fact s) hyps.
 
-    Fail Fail Definition idxs_satisfying {A} test (l : list A) :=
-      map fst (filter (fun '(x, _) => test x) (combine l (seq O (length l)))).
     Definition select {A} (bs : list bool) (l : list A) :=
       map snd (filter (fun '(b, _) => b) (combine bs l)).
+
     Definition locally_forward (p : node_prog) (f : concl_fact) : list basic_hyp_fact :=
       match map.get p.(n_relviews) f.(cf_rel) with
       | Some vs =>
@@ -243,11 +242,7 @@ Section __.
       {| bs_node := empty_node_state;
         bs_queue := [] |}.
 
-    Variant IO_event :=
-      | I_event (_ : concl_fact)
-      | O_event (_ : list concl_fact).
-
-    Inductive node_step p : big_state -> IO_event -> big_state -> Prop :=
+    Inductive node_step p : big_state -> IO_event concl_fact -> big_state -> Prop :=
     | node_dequeue_step bs input rest :
       bs.(bs_queue) = input :: rest ->
       node_step _ bs (O_event [])
@@ -263,18 +258,9 @@ Section __.
                      {| bs_node := bs.(bs_node);
                        bs_queue := bs.(bs_queue) ++ [input] |}.
 
-    Definition event_guaranteed (G : list concl_fact) (t : list IO_event) (e : IO_event) :=
-      match e with
-      | O_event out => True
-      | I_event inp => In inp G /\ ~In (I_event inp) t
-      end.
-
     (*on the high level, eventually <-> maybe.
       prove: HL eventually -> LL eventually -> LL maybe -> HL maybe.
      *)
-
-    Definition node_step' p G :=
-      can_step (node_step p) (fun _ => True) (event_guaranteed G).
 
     (*i think there are two pieces to saying that node_step and spec_node_step behave the same.
       first i want to prove that node_step steps to outputting some fact iff spec_node_step does.
@@ -282,9 +268,6 @@ Section __.
       then i want to prove that stepsTo P holds iff spec_stepsTo P holds.
       this is a liveness property (assuming the liveness property holds for spec_node_step).
      *)
-
-    Definition stepsTo p G :=
-      eventually (node_step' p G).
   End impl.
   Arguments hyp_clause : clear implicits.
   Arguments concl_clause : clear implicits.
@@ -343,45 +326,21 @@ Section __.
       {| bss_spec_node := empty_spec_state;
         bss_queue := [] |}.
 
-    Variant spec_IO_event :=
-      | spec_I_event (_ : dfact)
-      | spec_O_event (_ : list dfact).
-
-    Inductive spec_node_step p : big_spec_state -> spec_IO_event -> big_spec_state -> Prop :=
+    Inductive spec_node_step p : big_spec_state -> IO_event dfact -> big_spec_state -> Prop :=
     | spec_node_dequeue_step bss input rest :
       bss.(bss_queue) = input :: rest ->
-      spec_node_step _ bss (spec_O_event [])
+      spec_node_step _ bss (O_event [])
                      {| bss_spec_node := spec_input_fact bss.(bss_spec_node) input;
                        bss_queue := rest; |}
     | spec_node_deduce_step bss output :
       new_facts p bss.(bss_spec_node) output ->
-      spec_node_step _ bss (spec_O_event [output])
+      spec_node_step _ bss (O_event [output])
                      {| bss_spec_node := spec_output_fact bss.(bss_spec_node) output;
                        bss_queue := bss.(bss_queue) ++ [output]; |}
     | spec_node_input_step bss input :
-      spec_node_step _ bss (spec_I_event input)
+      spec_node_step _ bss (I_event input)
                      {| bss_spec_node := bss.(bss_spec_node);
                        bss_queue := bss.(bss_queue) ++ [input] |}.
-
-    Definition spec_event_guaranteed (G : list dfact) (t : list spec_IO_event) (e : spec_IO_event) :=
-      match e with
-      | spec_O_event out => True (*or: ~In (O_event out) t*)
-      | spec_I_event inp => In inp G /\ ~In (spec_I_event inp) t
-      end.
-
-    (*some fun combination of demonic and angelic nondeterminism:
-      - inputs can arrive at any time, but
-      - our "spec node" magically fires the right rules to get to the postcondition.*)
-    Definition spec_node_step' p G :=
-      can_step (spec_node_step p) (fun _ => True) (spec_event_guaranteed G).
-
-    (*note that spec_node_step' is less detailed than spec_node_step.
-      TODO: prove that if two programs (or, later, semantics...) agree according to
-      stepsTO, then replacing one node with the other in a graph yields a new
-      graph with the same denotation.
-     *)
-    Definition spec_stepsTo p G :=
-      eventually (spec_node_step' p G).
   End spec.
 
   (*Note on the two bitmasks in play once we lower meta-clauses:
@@ -515,26 +474,26 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     knows_hyp_fact bs.(bs_node) (hyp_fact_of f) \/
       In f bs.(bs_queue).
 
-  Lemma sim_step (sp : spec_node_prog) G bss ts bs t P :
-    (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) ->
-    spec_node_step' sp G (bss, ts) P ->
-    node_step' (lower_prog sp) (map lower_dfact G) (bs, t)
-      (fun '(bs', t') =>
-         exists bss' ts',
-           P (bss', ts') /\
-             (forall f, spec_knows_fact bss' f ->
-                   knows_fact bs' (lower_dfact f))).
-  Proof. Abort.
+  (* Lemma sim_step (sp : spec_node_prog) G bss ts bs t P : *)
+  (*   (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) -> *)
+  (*   spec_node_step' sp G (bss, ts) P -> *)
+  (*   node_step' (lower_prog sp) (map lower_dfact G) (bs, t) *)
+  (*     (fun '(bs', t') => *)
+  (*        exists bss' ts', *)
+  (*          P (bss', ts') /\ *)
+  (*            (forall f, spec_knows_fact bss' f -> *)
+  (*                  knows_fact bs' (lower_dfact f))). *)
+  (* Proof. Abort. *)
 
-  Lemma lower_rule_complete bss bs ts t (sp : spec_node_prog) P G :
-    (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) ->
-    spec_stepsTo sp G P (bss, ts) ->
-    stepsTo (lower_prog sp) (map lower_dfact G)
-      (fun '(bs, _) => exists bss' ts',
-           P (bss', ts') /\
-             forall f,
-               spec_knows_fact bss' f ->
-               knows_fact bs (lower_dfact f))
-      (bs, t).
-  Proof. Abort.
+  (* Lemma lower_rule_complete bss bs ts t (sp : spec_node_prog) P G : *)
+  (*   (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) -> *)
+  (*   spec_stepsTo sp G P (bss, ts) -> *)
+  (*   stepsTo (lower_prog sp) (map lower_dfact G) *)
+  (*     (fun '(bs, _) => exists bss' ts', *)
+  (*          P (bss', ts') /\ *)
+  (*            forall f, *)
+  (*              spec_knows_fact bss' f -> *)
+  (*              knows_fact bs (lower_dfact f)) *)
+  (*     (bs, t). *)
+  (* Proof. Abort. *)
 End __.

@@ -499,3 +499,4 @@ Section __.
     Qed.
   End graphs.
 End __.
+Arguments IO_event : clear implicits.
