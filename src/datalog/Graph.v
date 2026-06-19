@@ -139,6 +139,21 @@ Section __.
     Definition node_described_by :=
       node_sound /\ node_complete.
 
+    CoInductive stream {T} :=
+    | scons : T -> stream -> stream.
+    Arguments stream : clear implicits.
+
+    Fail Definition allowed (s : stream IO_event) :=
+        forall o,
+          In o s <-> exists inps, D inps o /\ forall i, In i inps -> In i s.
+
+    Fail Definition node_described_by_omni :=
+      forall s,
+        ~allowed s ->
+        eventually (can_step node_step1 allowed_trace (fun _ => event_guaranteed))
+          (fun '(_, t) => ~prefix t s)
+          (initial_ns, []).
+
     Definition node_complete_weak :=
       forall t ns,
         star node_step initial_ns t ns ->
@@ -194,7 +209,7 @@ Section __.
     Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_state2).
 
-    Definition nodes_corresp :=
+    Definition nodes_corresp_complete :=
       forall t1 t2 ns1 ns2,
         star node_step1 initial_ns1 t1 ns1 ->
         star node_step2 initial_ns2 t2 ns2 ->
@@ -204,6 +219,30 @@ Section __.
         forall output,
           output_in_trace output t1 ->
           node_can_output node_step2 ns2 t2 output.
+
+    Definition nodes_corresp_sound :=
+      forall t2 ns2 output,
+        star node_step2 initial_ns2 t2 ns2 ->
+        allowed_trace t2 ->
+        output_in_trace output t2 ->
+        exists t1 ns1,
+          star node_step1 initial_ns1 t1 ns1 /\
+          inputs_of t1 = inputs_of t2 /\
+            output_in_trace output t1.
+
+    Definition nodes_corresp_omni :=
+      forall P,
+        eventually (can_step node_step1 allowed_trace (fun _ => event_guaranteed))
+          P (initial_ns1, []) ->
+        eventually (can_step node_step2 allowed_trace (fun _ => event_guaranteed))
+          (fun '(_, t2) =>
+             exists ns1 t1,
+               P (ns1, t1) /\
+                 incl (inputs_of t1) (inputs_of t2) /\
+                 forall o,
+                   output_in_trace o t1 ->
+                   output_in_trace o t2)
+          (initial_ns2, []).
 
     Definition nodes_bicorresp :=
       forall t1 t2 ns1 ns2,
@@ -243,73 +282,6 @@ Section __.
 
     Definition initial_gs2 : @graph_state node_state2 node_states2 :=
       {| g_nodes := initial_ns2; g_messages := [] |}.
-
-    Lemma will_output_transport :
-      (forall t, A t) ->
-      Forall4_map
-        (fun n np1 np2 ns1 ns2 =>
-           nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
-        p1 p2 initial_ns1 initial_ns2 ->
-      forall T1 gs1 t gs2 o,
-        star (graph_step p1 node_step1) initial_gs1 T1 gs1 ->
-        star (graph_step p2 node_step2) initial_gs2 t gs2 ->
-        node_will_output (graph_step p1 node_step1) gs1 T1 o ->
-        node_will_output (graph_step p2 node_step2) gs2 t o.
-    Proof.
-      intros A_univ Hcorr T1 gs1 t gs2 o HT1 Hstar2 Hwill1.
-      pose proof (allowed_trace_universal A_univ []) as Hnil.
-      destruct (eventually_can_step_to_star (graph_step p1 node_step1) _ _ _ gs1 T1
-                  (fun _ => allowed_trace_universal A_univ _) Hwill1)
-        as (gs1' & tr & Hstar_extra & Hout_extra).
-      assert (output_in_trace o (T1 ++ tr)) as Hout_full.
-      { apply output_in_trace_app.
-        apply output_in_trace_app in Hout_extra as [Hout|Hout];
-          [right; apply output_in_trace_rev; exact Hout|left; exact Hout]. }
-      destruct (graph_emits_implies_node_emits p1 node_step1 _ _ _
-                  (star_app _ _ _ _ _ _ HT1 Hstar_extra) _ Hout_full)
-        as (n & np1 & ns1 & Hp1 & Hg1 & Hvis & tau1 & ns_end1 & Htau1 & Hout_tau1).
-      cbn in Hg1.
-      pose proof (Hcorr n) as Hn. rewrite Hp1, Hg1 in Hn.
-      destruct (map.get p2 n) as [np2|] eqn:Hp2; [|contradiction].
-      destruct (map.get initial_ns2 n) as [ns2|] eqn:Hg2; [|contradiction].
-      destruct Hn as (D & Hmono & Hd1 & Hd2).
-      destruct (Hd1 [] _ (star_refl _ _) Hnil) as [_ Hmay].
-      destruct (project_node p2 node_step2 _ _ _ Hstar2 n np2 _ Hp2 Hg2)
-        as (tau2 & ns_at_gs2 & Htau2 & Hg_gs2 & Hpres2).
-      destruct (Hd2 tau2 _ Htau2 (allowed_trace_universal A_univ _)) as [Hmust _].
-      assert (D [] o) as HD0.
-      { apply Hmay. exists tau1, ns_end1. repeat split;
-          [exact Htau1|apply allowed_trace_universal; auto
-          |rewrite app_nil_r; exact Hout_tau1]. }
-      apply (drive_node_must p2 node_step2 A_univ np2 n o Hp2 Hvis
-                             (ns_at_gs2, tau2)
-                             (Hmust o (Hmono _ _ _ HD0 (incl_nil_l _)))
-                             gs2 t Hg_gs2).
-      intros Hout. apply Hpres2; assumption.
-    Qed.
-
-    Lemma env_only_lift :
-      forall t gs0_2 gs2,
-        star (graph_step p2 node_step2) gs0_2 t gs2 ->
-        forall gs0_1,
-        exists T1 gs1,
-          star (graph_step p1 node_step1) gs0_1 T1 gs1 /\
-          inputs_of T1 = inputs_of t.
-    Proof.
-      induction 1 as [|s e s' t0 s'' Hstep Hstar IH]; intros gs0_1;
-        [exists [], gs0_1; split; [constructor|reflexivity]|].
-      inversion Hstep; subst.
-      - destruct (IH {| g_nodes := g_nodes gs0_1;
-                        g_messages := (n, m) :: g_messages gs0_1 |})
-          as (T1' & gs1' & HT1' & Hinp).
-        exists (I_event m :: T1'), gs1'.
-        split; [econstructor; [apply gstep_input|exact HT1']
-               |cbn; f_equal; exact Hinp]; auto.
-      - destruct (IH gs0_1) as (T1 & gs1 & HT1 & Hinp).
-        exists T1, gs1. split; [exact HT1|exact Hinp].
-      - destruct (IH gs0_1) as (T1 & gs1 & HT1 & Hinp).
-        exists T1, gs1. split; [exact HT1|exact Hinp].
-    Qed.
 
     Theorem graphs_equiv D :
       (forall t, A t) ->
