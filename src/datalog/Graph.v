@@ -270,7 +270,7 @@ Section __.
         cbn. apply output_in_trace_swap. exact Hout'.
     Qed.
 
-    Fail Fail Definition node_monotone' :=
+    Definition node_monotone' :=
       forall t1 t2 ns1 ns2 o,
         star node_step initial_ns t1 ns1 ->
         star node_step initial_ns t2 ns2 ->
@@ -331,6 +331,12 @@ Section __.
       node_complete_weak node_step2 D initial_ns2.
     Proof. Abort.
 
+    Lemma sound_sound D :
+      node_sound node_step1 D initial_ns1 ->
+      nodes_corresp_sound ->
+      node_sound node_step2 D initial_ns2.
+    Proof. Abort.
+
     (*no good (eventually is not expressive enough), since angelic nondeterminism*)
     Fail Fail Definition nodes_corresp_omni :=
       forall P,
@@ -358,11 +364,12 @@ Section __.
           node_can_output node_step2 ns2 t2 output.
 
     Lemma sound_complete_bicorresp :
+      node_monotone' node_step1 initial_ns1 ->
       nodes_corresp_complete ->
       nodes_corresp_sound ->
       nodes_bicorresp.
     Proof.
-      intros Hcomp Hsound t1 t2 ns1 ns2 Hstar1 Hstar2 Hall1 Hall2 Heq o.
+      intros Hmono Hcomp Hsound t1 t2 ns1 ns2 Hstar1 Hstar2 Hall1 Hall2 Heq o.
       split.
       - intros (t' & ns' & Hstar' & Hguar & Hout).
         pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar') as Hstar1'.
@@ -384,11 +391,13 @@ Section __.
           destruct Hout as [Hout|Hout]; [right|left]; exact Hout. }
         destruct (Hsound _ _ _ Hstar2' Hall2' Hout2')
           as (t1' & ns1' & Hstar1' & Heqinp & Hout1).
-        (* Stuck: have output_in_trace o t1' for a t1' starting from init1,
-           but need extension of t1 from ns1.  The existential in sound gives
-           an unrelated branch.  Cf. discussion: sound is not the dual of
-           complete. *)
-    Abort.
+        assert (Hcan1' : node_can_output node_step1 ns1' t1' o).
+        { exists [], ns1'. split; [constructor|].
+          split; [constructor|exact Hout1]. }
+        apply (Hmono t1' t1 ns1' ns1 o Hstar1' Hstar1); auto.
+        rewrite Heqinp, inputs_of_app, Hinpt', app_nil_r, <- Heq.
+        apply incl_refl.
+    Qed.
 
     Fail Fail Definition nodes_equiv :=
       exists D,
@@ -416,11 +425,6 @@ Section __.
       nodes_corresp_sound node_step1 initial_ns1 node_step2 initial_ns2.
     Proof. Abort.
 
-    Lemma sound_sound D :
-      nodes_corresp_sound node_step1 initial_ns1 node_step2 initial_ns2 ->
-      node_sound node_step2 D initial_ns2 ->
-      node_sound node_step2 D initial_ns2.
-    Proof. Abort.
   End nodes.
 
   Section graph.
