@@ -96,13 +96,40 @@ Section __.
       complete_weak node_step1 A initial_ns1 D ->
       nodes_corresp_complete ->
       complete_weak node_step2 A initial_ns2 D.
-    Proof. Abort.
+    Proof.
+      intros Hcw1 Hcorresp t2 ns2 Hstar2 Hall2 o HD.
+      set (t1 := map I_event (inputs_of t2)).
+      set (ns1 := fold_left recv1 (inputs_of t2) initial_ns1).
+      assert (Hstar1 : star node_step1 initial_ns1 t1 ns1) by apply star_recv.
+      assert (Hinp1 : inputs_of t1 = inputs_of t2)
+        by (unfold t1; apply inputs_of_map_I_event).
+      assert (Hall1 : allowed_trace t1).
+      { unfold allowed_trace in Hall2 |- *. rewrite Hinp1. exact Hall2. }
+      assert (HD1 : D (inputs_of t1) o) by (rewrite Hinp1; exact HD).
+      apply (Hcw1 _ _ Hstar1 Hall1) in HD1.
+      destruct HD1 as (t' & ns' & Hstar' & Hinpt' & Hout).
+      pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar') as Hstar_full.
+      apply (Hcorresp (t1 ++ t') t2 ns' ns2); auto.
+      - unfold allowed_trace in Hall1 |- *.
+        rewrite inputs_of_app, Hinpt', app_nil_r. exact Hall1.
+      - rewrite inputs_of_app, Hinpt', app_nil_r. exact Hinp1.
+      - apply output_in_trace_app. apply output_in_trace_app in Hout.
+        destruct Hout as [Hout|Hout]; [right|left]; exact Hout.
+    Qed.
 
     Lemma sound_sound D :
       sound node_step1 A initial_ns1 D ->
       nodes_corresp_sound ->
       sound node_step2 A initial_ns2 D.
-    Proof. Abort.
+     Proof.
+      intros Hs1 Hcorresp t2 s2 Hstar2 Hall2 o Hout2.
+      destruct (Hcorresp _ _ _ Hstar2 Hall2 Hout2)
+        as (t1 & s1 & Hstar1 & Hinp & Hout1).
+      assert (Hall1 : allowed_trace t1).
+      { unfold allowed_trace in Hall2 |- *. rewrite Hinp. exact Hall2. }
+      pose proof (Hs1 _ _ Hstar1 Hall1 _ Hout1) as HD.
+      rewrite Hinp in HD. exact HD.
+    Qed.
 
     Definition nodes_bicorresp :=
       forall t1 t2 ns1 ns2,
