@@ -241,7 +241,7 @@ Section __.
     Lemma complete_sound D :
       node_complete_weak node_step1 D initial_ns1 ->
       nodes_corresp_complete ->
-      node_sound node_step2 D initial_ns2.
+      node_complete_weak node_step2 D initial_ns2.
     Proof. Abort.
 
     (*no good (eventually is not expressive enough), since angelic nondeterminism*)
