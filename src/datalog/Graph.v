@@ -139,14 +139,15 @@ Section __.
     Definition node_described_by :=
       node_sound /\ node_complete.
 
-    CoInductive stream {T} :=
+    Fail Fail CoInductive stream {T} :=
     | scons : T -> stream -> stream.
-    Arguments stream : clear implicits.
+    Fail Arguments stream : clear implicits.
 
     Fail Definition allowed (s : stream IO_event) :=
         forall o,
           In o s <-> exists inps, D inps o /\ forall i, In i inps -> In i s.
 
+    (*wrong, since angelic nondeterminism*)
     Fail Definition node_described_by_omni :=
       forall s,
         ~allowed s ->
@@ -209,6 +210,7 @@ Section __.
     Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_state2).
 
+    (*is this just the converse of nodes_corresp_sound?*)
     Definition nodes_corresp_complete :=
       forall t1 t2 ns1 ns2,
         star node_step1 initial_ns1 t1 ns1 ->
@@ -230,7 +232,20 @@ Section __.
           inputs_of t1 = inputs_of t2 /\
             output_in_trace output t1.
 
-    Definition nodes_corresp_omni :=
+    Lemma sound_sound D :
+      node_sound node_step1 D initial_ns1 ->
+      nodes_corresp_sound ->
+      node_sound node_step2 D initial_ns2.
+    Proof. Abort.
+
+    Lemma complete_sound D :
+      node_complete_weak node_step1 D initial_ns1 ->
+      nodes_corresp_complete ->
+      node_sound node_step2 D initial_ns2.
+    Proof. Abort.
+
+    (*no good (eventually is not expressive enough), since angelic nondeterminism*)
+    Fail Fail Definition nodes_corresp_omni :=
       forall P,
         eventually (can_step node_step1 allowed_trace (fun _ => event_guaranteed))
           P (initial_ns1, []) ->
