@@ -20,35 +20,34 @@ Section __.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
     Context {node_state : Type} {node_states : map.map node_id node_state}.
     Context (p : graph_prog).
-
-    Context (node_recv : node_prog -> node_state -> message -> node_state).
-    Context (node_emit : node_prog -> node_state -> list message -> node_state -> Prop).
+    Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
 
     Record graph_state :=
       { g_nodes : node_states;
         g_messages : list (node_id (*destination*) * message) }.
 
-    Definition graph_recv (gs : graph_state) (nm : node_id * message) : graph_state :=
-      let '(n, m) := nm in
-      {| g_nodes := gs.(g_nodes);
-        g_messages := (n, m) :: gs.(g_messages) |}.
-
-    Inductive graph_emit : graph_state -> list (node_id * message) -> graph_state -> Prop :=
-    | gemit_run gs n np ns ns' outs :
+    Inductive graph_step : graph_state -> IO_event -> graph_state -> Prop :=
+    | gstep_input gs n m :
+      input_allowed n m = true ->
+      graph_step gs (I_event m)
+                 {| g_nodes := gs.(g_nodes);
+                   g_messages := (n, m) :: gs.(g_messages) |}
+    | gstep_run gs n np ns ns' outs :
       map.get p n = Some np ->
       map.get gs.(g_nodes) n = Some ns ->
-      node_emit np ns outs ns' ->
-      graph_emit gs (map (fun m => (n, m)) (filter (output_visible n) outs))
+      node_step np ns (O_event outs) ns' ->
+      graph_step gs (O_event (filter (output_visible n) outs))
                  {| g_nodes := map.put gs.(g_nodes) n ns';
                    g_messages := gs.(g_messages) ++
                                       flat_map (fun m => map (fun n' => (n', m)) (forward n m))
                                       outs |}
-    | gemit_receive gs n np ns m ms1 ms2 :
+    | gstep_receive gs n np ns ns' m ms1 ms2 :
       map.get p n = Some np ->
       map.get gs.(g_nodes) n = Some ns ->
+      node_step np ns (I_event m) ns' ->
       gs.(g_messages) = ms1 ++ (n, m) :: ms2 ->
-      graph_emit gs []
-                 {| g_nodes := map.put gs.(g_nodes) n (node_recv np ns m);
+      graph_step gs (O_event [])
+                 {| g_nodes := map.put gs.(g_nodes) n ns';
                    g_messages := ms1 ++ ms2 |}.
   End graph.
 
@@ -56,17 +55,12 @@ Section __.
 
   Section nodes.
     Context {node_state1 : Type}.
-    Context (recv1 : node_state1 -> message -> node_state1).
-    Context (emit1 : node_state1 -> list message -> node_state1 -> Prop).
+    Context (node_step1 : node_state1 -> IO_event -> node_state1 -> Prop).
     Context (initial_ns1 : node_state1).
 
     Context {node_state2 : Type}.
-    Context (recv2 : node_state2 -> message -> node_state2).
-    Context (emit2 : node_state2 -> list message -> node_state2 -> Prop).
+    Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_state2).
-
-    Local Notation node_step1 := (step recv1 emit1).
-    Local Notation node_step2 := (step recv2 emit2).
 
     (*is this just the converse of nodes_corresp_sound?
       yes, obviously---this is why you defined nodes_bicorresp the way it is.
@@ -93,16 +87,14 @@ Section __.
             output_in_trace output t1.
 
     Lemma complete_sound D :
+      input_total node_step1 ->
       complete_weak node_step1 A initial_ns1 D ->
       nodes_corresp_complete ->
       complete_weak node_step2 A initial_ns2 D.
     Proof.
-      intros Hcw1 Hcorresp t2 ns2 Hstar2 Hall2 o HD.
-      set (t1 := map I_event (inputs_of t2)).
-      set (ns1 := fold_left recv1 (inputs_of t2) initial_ns1).
-      assert (Hstar1 : star node_step1 initial_ns1 t1 ns1) by apply star_recv.
-      assert (Hinp1 : inputs_of t1 = inputs_of t2)
-        by (unfold t1; apply inputs_of_map_I_event).
+      intros Hit1 Hcw1 Hcorresp t2 ns2 Hstar2 Hall2 o HD.
+      destruct (star_recv node_step1 Hit1 (inputs_of t2) initial_ns1)
+        as (t1 & ns1 & Hstar1 & Hinp1).
       assert (Hall1 : allowed_trace t1).
       { unfold allowed_trace in Hall2 |- *. rewrite Hinp1. exact Hall2. }
       assert (HD1 : D (inputs_of t1) o) by (rewrite Hinp1; exact HD).
@@ -185,23 +177,21 @@ Section __.
 
   Section nodes.
     Context {node_state1 : Type}.
-    Context (recv1 : node_state1 -> message -> node_state1).
-    Context (emit1 : node_state1 -> list message -> node_state1 -> Prop).
+    Context (node_step1 : node_state1 -> IO_event -> node_state1 -> Prop).
     Context (initial_ns1 : node_state1).
 
     Context {node_state2 : Type}.
-    Context (recv2 : node_state2 -> message -> node_state2).
-    Context (emit2 : node_state2 -> list message -> node_state2 -> Prop).
+    Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_state2).
 
     Lemma sound_impl_complete :
-      nodes_corresp_sound recv1 emit1 initial_ns1 recv2 emit2 initial_ns2 ->
-      nodes_corresp_complete recv2 emit2 initial_ns2 recv1 emit1 initial_ns1.
+      nodes_corresp_sound node_step1 initial_ns1 node_step2 initial_ns2 ->
+      nodes_corresp_complete node_step2 initial_ns2 node_step1 initial_ns1.
     Proof. Abort.
 
     Lemma complete_impl_sound :
-      nodes_corresp_complete recv2 emit2 initial_ns2 recv1 emit1 initial_ns1 ->
-      nodes_corresp_sound recv1 emit1 initial_ns1 recv2 emit2 initial_ns2.
+      nodes_corresp_complete node_step2 initial_ns2 node_step1 initial_ns1 ->
+      nodes_corresp_sound node_step1 initial_ns1 node_step2 initial_ns2.
     Proof. Abort.
 
   End nodes.
@@ -210,17 +200,14 @@ Section __.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
     Context {node_state : Type} {node_states : map.map node_id node_state}.
     Context (p : graph_prog) (initial_ns : node_states).
-    Context (node_recv : node_prog -> node_state -> message -> node_state).
-    Context (node_emit : node_prog -> node_state -> list message -> node_state -> Prop).
-    Context (A_graph : list (node_id * message) -> Prop).
+    Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
 
     Definition initial_graph_state : graph_state :=
       {| g_nodes := initial_ns; g_messages := [] |}.
 
     Lemma graph_can_implies_will :
-      Forall2_map (fun _ np ns =>
-                     can_implies_will (step (node_recv np) (node_emit np)) A ns) p initial_ns ->
-      can_implies_will (step graph_recv (graph_emit p node_recv node_emit)) A_graph initial_graph_state.
+      Forall2_map (fun _ np ns => can_implies_will (node_step np) A ns) p initial_ns ->
+      can_implies_will (graph_step p node_step) A initial_graph_state.
     Proof. Abort.
   End graph.
 

@@ -3,33 +3,6 @@ From Stdlib Require Import List.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
 
-Section io.
-  Context {message : Type}.
-
-  Variant IO_event : Type :=
-    | I_event : message -> IO_event
-    | O_event : list message -> IO_event.
-
-  Definition inputs_of (t : list IO_event) :=
-    flat_map (fun e => match e with I_event m => [m] | _ => [] end) t.
-
-  Definition output_in_trace (output : message) (t : list IO_event) :=
-    exists outs, In (O_event outs) t /\ In output outs.
-
-  Context {state : Type}.
-  Context (recv : state -> message -> state).
-  Context (emit : state -> list message -> state -> Prop).
-
-  Definition step : state -> IO_event -> state -> Prop :=
-    fun s ev s' =>
-      match ev with
-      | I_event m  => s' = recv s m
-      | O_event ms => emit s ms s'
-      end.
-End io.
-
-Arguments IO_event : clear implicits.
-
 Section star.
   Context {state event : Type} (trace := list event)
           (step : state -> event -> state -> Prop).
@@ -48,6 +21,30 @@ Section star.
     econstructor; eauto.
   Qed.
 End star.
+
+Section io.
+  Context {message : Type}.
+
+  Variant IO_event : Type :=
+    | I_event : message -> IO_event
+    | O_event : list message -> IO_event.
+
+  Definition inputs_of (t : list IO_event) :=
+    flat_map (fun e => match e with I_event m => [m] | _ => [] end) t.
+
+  Definition output_in_trace (output : message) (t : list IO_event) :=
+    exists outs, In (O_event outs) t /\ In output outs.
+
+  Lemma inputs_of_map_I_event (l : list message) :
+    inputs_of (map I_event l) = l.
+  Proof.
+    unfold inputs_of.
+    induction l as [|m l IH]; [reflexivity|].
+    cbn. rewrite IH. reflexivity.
+  Qed.
+End io.
+
+Arguments IO_event : clear implicits.
 
 Section __.
   Context {state message : Type}.
@@ -98,7 +95,28 @@ Section __.
         * apply in_or_app. right. right. exact Hin.
   Qed.
 
-  (*the angel can step to the postcondition regardless of the demon's actions*)
+  Definition input_total :=
+    forall s m, exists s', step s (I_event m) s'.
+
+  Lemma star_recv :
+    input_total ->
+    forall (inputs : list message) (s : state),
+      exists tr s', star step s tr s' /\ inputs_of tr = inputs.
+  Proof.
+    intros Htotal.
+    induction inputs as [|m inputs IH]; intros s.
+    - exists [], s. split; [constructor|reflexivity].
+    - destruct (Htotal s m) as (s' & Hstep).
+      destruct (IH s') as (tr & s'' & Hstar & Hinp).
+      exists (I_event m :: tr), s''. split.
+      + econstructor; eassumption.
+      + cbn. f_equal. exact Hinp.
+  Qed.
+
+  (*some fairness condition: we can eventually take the step that we want.
+    i wonder whether (exists outs) should appear before (forall s' t')?
+    probably not.
+   *)
   Definition can_step '(s, t) (P : state * list (IO_event message) -> Prop) : Prop :=
     forall s' t',
       star step s t' s' ->
