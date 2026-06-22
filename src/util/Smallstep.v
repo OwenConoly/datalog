@@ -312,9 +312,55 @@ Section __.
     forall t1 t2 s1 s2 o,
       star step initial t1 s1 ->
       star step initial t2 s2 ->
+      allowed_trace t1 ->
+      allowed_trace t2 ->
       incl (inputs_of t1) (inputs_of t2) ->
       can_output s1 t1 o ->
       can_output s2 t2 o.
+
+  Lemma ciw'_iff_ciw_and_monotone' :
+    can_implies_will' <-> can_implies_will /\ monotone'.
+  Proof.
+    split.
+    - (* → *)
+      intros Hciw'. split.
+      + (* can_implies_will *)
+        intros t s o Hstar Hall Hcan.
+        destruct Hcan as (T_a & s_f & Hstar_a & Hinp_a & Hout).
+        pose proof (star_app _ _ _ _ _ _ Hstar Hstar_a) as Hstar_T.
+        set (T := t ++ T_a) in *.
+        assert (HallT : allowed_trace T).
+        { unfold allowed_trace in *. subst T.
+          rewrite inputs_of_app, Hinp_a, app_nil_r. exact Hall. }
+        assert (HoutT : output_in_trace o T).
+        { subst T. apply output_in_trace_app.
+          apply output_in_trace_app in Hout as [Hout|Hout]; [right|left]; exact Hout. }
+        apply (Hciw' T s_f o Hstar_T HallT HoutT s t); auto.
+        subst T. rewrite inputs_of_app, Hinp_a, app_nil_r.
+        apply incl_refl.
+      + (* monotone' *)
+        intros t1 t2 s1 s2 o Hstar1 Hstar2 Hall1 Hall2 Hincl Hcan1.
+        destruct Hcan1 as (T_a & s_f & Hstar_a & Hinp_a & Hout).
+        pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar_a) as Hstar_T.
+        set (T := t1 ++ T_a) in *.
+        assert (HallT : allowed_trace T).
+        { unfold allowed_trace in *. subst T.
+          rewrite inputs_of_app, Hinp_a, app_nil_r. exact Hall1. }
+        assert (HoutT : output_in_trace o T).
+        { subst T. apply output_in_trace_app.
+          apply output_in_trace_app in Hout as [Hout|Hout]; [right|left]; exact Hout. }
+        assert (HinclT : incl (inputs_of T) (inputs_of t2)).
+        { subst T. rewrite inputs_of_app, Hinp_a, app_nil_r. exact Hincl. }
+        pose proof (Hciw' T s_f o Hstar_T HallT HoutT s2 t2 HinclT Hstar2 Hall2)
+          as Hwill.
+        apply will_implies_can; assumption.
+    - (* ← *)
+      intros [Hciw Hmono] t s o Hstar Hall Hout s' t' Hincl Hstar' Hall'.
+      apply Hciw; auto.
+      apply (Hmono t t' s s' o Hstar Hstar' Hall Hall' Hincl).
+      exists [], s. split; [constructor|]. split; [reflexivity|].
+      cbn. exact Hout.
+  Qed.
 
   Lemma ciw_monotone :
     can_implies_will ->
