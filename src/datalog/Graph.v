@@ -388,8 +388,16 @@ Section __.
             -- cbn. intros Hout_tau. apply Hpres; [exact Hvis | exact Hout_tau].
           * (* gstep_receive: outs = [] contradicts Hino *)
             cbn in Hino. contradiction.
-        + (* Deeper case: o is in t'_rest. *)
-          (* TODO: bridge from (gs, t) to (gs_mid, e :: t) then apply IH. *)
+        + (* Deeper case: o is in t'_rest.  The natural recursion via IH
+             requires bridging (gs, t) → (gs_mid, e :: t) inside an eventually
+             step.  The application requires Hstar at (gs_mid, e :: t) which
+             would have trace t ++ [e] (chronological, via star_app of Hstar
+             with single-step Hstep) but IH's eventually conclusion expects
+             trace e :: t (in the order can_step's add-at-head convention
+             produces).  Same multiset of events, but Coq's syntactic strictness
+             demands a Permutation/swap lemma for eventually's trace argument.
+             Closing this case cleanly needs that lemma, which I haven't
+             constructed here. *)
           admit.
     Admitted.
   End graph.
