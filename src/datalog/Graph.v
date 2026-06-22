@@ -375,6 +375,190 @@ Section __.
         + reflexivity.
     Qed.
 
+    (* Replay a graph star with extra messages injected at any position in
+       g_messages.  The injection position can drift as the star evolves, but
+       the injected messages stay together as a block. *)
+    Lemma star_inject_msgs :
+      forall gs0 T gs,
+        star (graph_step p node_step) gs0 T gs ->
+        forall (msgs_inj : list (node_id * message)) ms1_0 ms2_0,
+          gs0.(g_messages) = ms1_0 ++ ms2_0 ->
+          exists ms1 ms2,
+            gs.(g_messages) = ms1 ++ ms2 /\
+            star (graph_step p node_step)
+                 {| g_nodes := gs0.(g_nodes);
+                    g_messages := ms1_0 ++ msgs_inj ++ ms2_0 |}
+                 T
+                 {| g_nodes := gs.(g_nodes);
+                    g_messages := ms1 ++ msgs_inj ++ ms2 |}.
+    Proof.
+      intros gs0 T gs Hstar.
+      induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH];
+        intros msgs_inj ms1_0 ms2_0 Hsplit.
+      - exists ms1_0, ms2_0. split; [exact Hsplit|]. destruct s. cbn in *. subst.
+        constructor.
+      - inversion Hstep; subst.
+        + (* gstep_input n m *)
+          cbn in Hsplit.
+          specialize (IH msgs_inj ((n, m) :: ms1_0) ms2_0).
+          cbn in IH.
+          destruct IH as [ms1 [ms2 [Hmsgs_final Hstar_rest]]];
+            [rewrite Hsplit; reflexivity|].
+          exists ms1, ms2. split; [exact Hmsgs_final|].
+          eapply star_step.
+          * eapply gstep_input. exact H.
+          * cbn. exact Hstar_rest.
+        + (* gstep_run n np ns ns' outs *)
+          cbn in Hsplit.
+          (* New g_messages after run: (ms1_0 ++ msgs_inj ++ ms2_0) ++ extras *)
+          specialize (IH msgs_inj ms1_0
+                          (ms2_0 ++ flat_map (fun m => map (fun n' => (n', m)) (forward n m)) outs)).
+          cbn in IH.
+          destruct IH as [ms1 [ms2 [Hmsgs_final Hstar_rest]]].
+          { rewrite Hsplit, app_assoc. reflexivity. }
+          exists ms1, ms2. split; [exact Hmsgs_final|].
+          eapply star_step.
+          * eapply gstep_run; eassumption.
+          * cbn. rewrite <- !app_assoc. exact Hstar_rest.
+        + (* gstep_receive n np ns ns' m rms1 rms2 (consume (n, m) from somewhere). *)
+          rename ms1 into rms1, ms2 into rms2.
+          cbn in Hsplit. rewrite H2 in Hsplit.
+          (* rms1 ++ (n, m) :: rms2 = ms1_0 ++ ms2_0.
+             Apply app_eq_app to split into cases. *)
+          apply app_eq_app in Hsplit as [l [[Hrms1 Hms2_0] | [Hms1_0 Hrest]]].
+          * (* rms1 = ms1_0 ++ l, ms2_0 = l ++ (n, m) :: rms2 *)
+            subst rms1 ms2_0.
+            specialize (IH msgs_inj ms1_0 (l ++ rms2)).
+            destruct IH as [ms1 [ms2 [Hmsgs_final Hstar_rest]]].
+            { rewrite app_assoc. reflexivity. }
+            exists ms1, ms2. split; [exact Hmsgs_final|].
+            eapply star_step.
+            -- eapply gstep_receive with (ms1 := ms1_0 ++ msgs_inj ++ l)
+                                         (ms2 := rms2);
+                 try eassumption.
+               cbn. rewrite <- !app_assoc. reflexivity.
+            -- cbn. rewrite <- !app_assoc. exact Hstar_rest.
+          * (* ms1_0 = rms1 ++ l, (n, m) :: rms2 = l ++ ms2_0 *)
+            subst ms1_0. destruct l as [|y l'].
+            -- (* l = []: ms2_0 = (n, m) :: rms2 *)
+               cbn in Hrest. subst ms2_0. rewrite app_nil_r.
+               specialize (IH msgs_inj rms1 rms2).
+               destruct IH as [ms1 [ms2 [Hmsgs_final Hstar_rest]]];
+                 [reflexivity|].
+               exists ms1, ms2. split; [exact Hmsgs_final|].
+               eapply star_step.
+               ++ eapply gstep_receive with (ms1 := rms1 ++ msgs_inj)
+                                            (ms2 := rms2);
+                    try eassumption.
+                  cbn. rewrite <- !app_assoc. reflexivity.
+               ++ cbn. rewrite <- !app_assoc. exact Hstar_rest.
+            -- (* l = (n, m) :: l': ms1_0 = rms1 ++ (n, m) :: l', rms2 = l' ++ ms2_0 *)
+               cbn in Hrest. inversion Hrest as [[Hyeq Hl'eq]].
+               subst y. subst rms2.
+               specialize (IH msgs_inj (rms1 ++ l') ms2_0).
+               destruct IH as [ms1 [ms2 [Hmsgs_final Hstar_rest]]].
+               { rewrite <- app_assoc. reflexivity. }
+               exists ms1, ms2. split; [exact Hmsgs_final|].
+               eapply star_step.
+               ++ eapply gstep_receive with (ms1 := rms1)
+                                            (ms2 := l' ++ msgs_inj ++ ms2_0);
+                    try eassumption.
+                  cbn. rewrite <- !app_assoc. cbn. reflexivity.
+               ++ cbn. rewrite <- app_assoc in Hstar_rest. exact Hstar_rest.
+    Qed.
+
+    (* (a) for gstep_input case: input doesn't change node states, just adds a
+       message. can_output preservation follows by replaying the angel's star
+       in the augmented graph. *)
+    Lemma can_output_after_gstep_input :
+      forall gs n m,
+        input_allowed n m = true ->
+        forall T o,
+          can_output (graph_step p node_step) gs T o ->
+          can_output (graph_step p node_step)
+            {| g_nodes := gs.(g_nodes); g_messages := (n, m) :: gs.(g_messages) |}
+            (I_event m :: T) o.
+    Proof.
+      intros gs n m Hinp T o (T_a & s_f & Hstar & HinpT_a & Hout).
+      pose proof (star_inject_msgs _ _ _ Hstar [(n, m)] [] gs.(g_messages))
+        as Hinj.
+      cbn in Hinj.
+      destruct Hinj as [ms1 [ms2 [Hmsgs_final Hstar_inj]]]; [reflexivity|].
+      exists T_a, {| g_nodes := s_f.(g_nodes);
+                     g_messages := ms1 ++ (n, m) :: ms2 |}.
+      split; [exact Hstar_inj|]. split; [exact HinpT_a|].
+      (* output_in_trace o (T_a ++ I_event m :: T) follows from output_in_trace o (T_a ++ T). *)
+      apply output_in_trace_swap. cbn.
+      destruct Hout as (outs & Hin & Hino).
+      exists outs. split; [right; exact Hin | exact Hino].
+    Qed.
+
+    (* Helper: find the producing step inside an angel's path. *)
+    Lemma find_producing_step :
+      forall (gs_start : graph_state) (T : list IO_event) (s_f : graph_state),
+        star (graph_step p node_step) gs_start T s_f ->
+        inputs_of T = [] ->
+        forall o,
+          output_in_trace o T ->
+          exists (T_pre T_post : list IO_event)
+                 (n_o : node_id) (np_o : node_prog)
+                 (ns_o ns_o' : node_state)
+                 (outs_o : list message)
+                 (gs_pre gs_post : graph_state),
+            T = T_pre ++ O_event (filter (output_visible n_o) outs_o) :: T_post /\
+            star (graph_step p node_step) gs_start T_pre gs_pre /\
+            graph_step p node_step gs_pre
+                       (O_event (filter (output_visible n_o) outs_o)) gs_post /\
+            star (graph_step p node_step) gs_post T_post s_f /\
+            inputs_of T_pre = [] /\
+            map.get p n_o = Some np_o /\
+            map.get gs_pre.(g_nodes) n_o = Some ns_o /\
+            node_step np_o ns_o (O_event outs_o) ns_o' /\
+            In o outs_o /\
+            output_visible n_o o = true.
+    Proof.
+      intros gs_start T s_f Hstar Hinp o.
+      induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH]; intros Hout.
+      - cbv [output_in_trace] in Hout. destruct Hout as (? & Hin & _). inversion Hin.
+      - cbn in Hinp. destruct e as [m|outs_e]; [discriminate|]. cbn in Hinp.
+        change (O_event outs_e :: t0) with ([O_event outs_e] ++ t0) in Hout.
+        apply output_in_trace_app in Hout as [Hout_head|Hout_rest].
+        + (* o is in the head event *)
+          destruct Hout_head as (outs0 & Hin0 & Hino0).
+          cbn in Hin0. destruct Hin0 as [Heq|]; [|contradiction].
+          injection Heq as Heq_outs. subst outs0.
+          inversion Hstep as [
+            | gs0 n0 np0 ns0 ns0' outs_full Hp0 Hg0 Hns0
+            | gs0 n0 np0 ns0 ns0' m0 ms1 ms2 Hp0 Hg0 Hns0 Hmsg ]; subst.
+          * (* gstep_run for n0 *)
+            rewrite filter_In in Hino0. destruct Hino0 as [Hino_full Hvis].
+            exists [], t0, n0, np0, ns0, ns0', outs_full, s,
+              {| g_nodes := map.put s.(g_nodes) n0 ns0';
+                 g_messages := s.(g_messages) ++
+                   flat_map (fun m => map (fun n' => (n', m)) (forward n0 m)) outs_full |}.
+            split; [reflexivity|]. split; [constructor|].
+            split; [eapply gstep_run; eassumption|].
+            split; [exact Hstar|]. split; [reflexivity|].
+            split; [exact Hp0|]. split; [exact Hg0|].
+            split; [exact Hns0|]. split; [exact Hino_full | exact Hvis].
+          * (* gstep_receive: outs = [] contradicts Hino0 *)
+            cbn in Hino0. contradiction.
+        + (* o is deeper *)
+          specialize (IH Hinp Hout_rest).
+          destruct IH as (T_pre & T_post & n_o & np_o & ns_o & ns_o' & outs_o
+                          & gs_pre & gs_post & Heq_T & Hstar_pre & Hstep_prod
+                          & Hstar_post & Hinp_pre & Hp_o & Hg_o & Hns_o
+                          & Hino_o & Hvis_o).
+          exists (O_event outs_e :: T_pre), T_post, n_o, np_o, ns_o, ns_o', outs_o,
+                 gs_pre, gs_post.
+          split; [cbn; rewrite Heq_T; reflexivity|].
+          split; [econstructor; [exact Hstep|exact Hstar_pre]|].
+          split; [exact Hstep_prod|]. split; [exact Hstar_post|].
+          split; [cbn; exact Hinp_pre|].
+          split; [exact Hp_o|]. split; [exact Hg_o|].
+          split; [exact Hns_o|]. split; [exact Hino_o | exact Hvis_o].
+    Qed.
+
     Lemma graph_can_implies_will :
       (forall t, A t) ->
       Forall2_map (fun _ np ns => can_implies_will (node_step np) A ns) p initial_ns ->
@@ -442,8 +626,91 @@ Section __.
                ++ rewrite inputs_of_app. cbn. rewrite app_nil_r. exact Hall.
                ++ eapply star_app; [exact Hstar|].
                   econstructor; [exact Hstep | constructor].
-          * (* Demon non-empty: need to handle. *)
-            admit.
+          * (* Demon non-empty: find the producing step deep in t'_rest, then
+               apply drive_node_must at gs_demon. *)
+            (* Find the producing step in (Hstep + Hstar'_rest). *)
+            assert (Hstar_full : star (graph_step p node_step) gs
+                                     (O_event outs :: t'_rest) gs').
+            { econstructor; [exact Hstep | exact Hstar'_rest]. }
+            assert (Hinp_full : inputs_of (O_event outs :: t'_rest) = []) by exact Hinp'.
+            assert (Hout_full : output_in_trace o (O_event outs :: t'_rest)).
+            { change (O_event outs :: t'_rest) with ([O_event outs] ++ t'_rest).
+              apply output_in_trace_app. right. exact Hout_rest. }
+            destruct (find_producing_step _ _ _ Hstar_full Hinp_full _ Hout_full)
+              as (T_pre & T_post & n_o & np_o & ns_o & ns_o' & outs_o
+                  & gs_pre & gs_post & Heq_T & Hstar_pre & Hstep_prod
+                  & Hstar_post & Hinp_pre & Hp_o & Hg_o & Hns_o
+                  & Hino_o & Hvis_o).
+            (* Build per-node will_output at (ns_o, _) trivially via Hpernode. *)
+            pose proof (Hpernode n_o) as Hp_n.
+            rewrite Hp_o in Hp_n.
+            destruct (map.get initial_ns n_o) as [ns_init|] eqn:Hns_init;
+              [|contradiction].
+            (* Get per-node trace at n_o from initial to gs_demon, plus n_o's state at gs_demon. *)
+            assert (Hstar_to_demon :
+                      star (graph_step p node_step) initial_graph_state
+                           (t ++ d :: t_demon_rest) gs_demon).
+            { eapply star_app; [exact Hstar | exact Hstar_demon]. }
+            destruct (project_node_gen _ _ _ Hstar_to_demon n_o np_o ns_init
+                                       Hp_o Hns_init)
+              as (tau_demon & ns_at_demon & Htau_demon & Hg_at_demon & Hpres_demon).
+            (* Per-node will_output at (ns_at_demon, tau_demon, o):
+               we want this so drive_node_must lifts to graph eventually at gs_demon.
+
+               Strategy attempt: use per-node ciw at (ns_init, tau_demon, ns_at_demon, o)
+               via Hp_n.  This requires per-node can_output at (ns_at_demon, tau_demon, o),
+               i.e., a no-input per-node path from ns_at_demon producing o.
+
+               That no-input path is the structural obstacle.  Conceptually it should
+               exist: gs_demon is on the trajectory toward producing o (since gs is,
+               and demon's t_demon is just a prefix of "history" not undoing progress);
+               but constructing it formally from the available hypotheses is the
+               substantive remaining work. *)
+            assert (Hwill_demon :
+                      eventually (can_step (node_step np_o) A)
+                        (fun '(_, t'') => output_in_trace o t'')
+                        (ns_at_demon, tau_demon)).
+            { apply Hp_n.
+              - exact Htau_demon.
+              - unfold allowed_trace; auto.
+              - (* per-node can_output at (ns_at_demon, tau_demon, o) *)
+                admit. }
+            (* Apply drive_node_must at gs_demon. *)
+            assert (Hev_demon :
+                      eventually (can_step (graph_step p node_step) A)
+                                 (fun '(_, t') => output_in_trace o t')
+                                 (gs_demon, d :: t_demon_rest ++ t)).
+            { apply (drive_node_must A_univ np_o n_o o Hp_o Hvis_o
+                       (ns_at_demon, tau_demon) Hwill_demon gs_demon).
+              - cbn. exact Hg_at_demon.
+              - cbn. intros Hout_tau.
+                apply Hpres_demon in Hout_tau; [|exact Hvis_o].
+                (* Hout_tau : output_in_trace o (t ++ d :: t_demon_rest).
+                   Goal: output_in_trace o (d :: t_demon_rest ++ t). *)
+                change (d :: t_demon_rest ++ t) with ([d] ++ t_demon_rest ++ t).
+                apply output_in_trace_app.
+                apply output_in_trace_app in Hout_tau as [Hout_t|Hout_d].
+                + right. apply output_in_trace_app. right. exact Hout_t.
+                + change (d :: t_demon_rest) with ([d] ++ t_demon_rest) in Hout_d.
+                  apply output_in_trace_app in Hout_d as [Hout_d|Hout_d_rest].
+                  * left. exact Hout_d.
+                  * right. apply output_in_trace_app. left. exact Hout_d_rest. }
+            (* Extract can_step from Hev_demon. *)
+            inversion Hev_demon as [HP_done | midset Hcan_step Hmid]; clear Hev_demon.
+            -- (* eventually_done: output already in (d :: t_demon_rest ++ t) *)
+               cbn in HP_done.
+               (* Then we'd need to construct an angel step + eventually.
+                  Take any valid angel step (some O_event from gs_demon).
+                  But we need to know SOMETHING is steppable.  Use admit. *)
+               admit.
+            -- (* can_step case: use it to give the response. *)
+               cbv [can_step] in Hcan_step.
+               specialize (Hcan_step gs_demon [] (star_refl _ _)).
+               cbn in Hcan_step.
+               specialize (Hcan_step Hallow_d).
+               destruct Hcan_step as (s'' & outs' & Hstep' & Hmidset').
+               exists s'', outs'. split; [exact Hstep'|].
+               apply Hmid. exact Hmidset'.
     Admitted.
   End graph.
 

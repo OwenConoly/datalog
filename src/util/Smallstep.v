@@ -191,6 +191,79 @@ Section __.
       cbn. apply output_in_trace_swap. exact Hout''.
   Qed.
 
+  Lemma eventually_swap :
+    (forall t, allowed t) ->
+    forall (o : message) (s : state) (t1 t2 : list (IO_event message)),
+      (forall x, output_in_trace x t1 <-> output_in_trace x t2) ->
+      eventually can_step
+                 (fun '(_, t') => output_in_trace o t') (s, t1) ->
+      eventually can_step
+                 (fun '(_, t') => output_in_trace o t') (s, t2).
+  Proof.
+    intros A_univ o s t1 t2 Hout Hev.
+    remember (s, t1) as st eqn:Est.
+    revert s t1 t2 Hout Est.
+    induction Hev as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
+      intros s_orig t1 t2 Hout [= -> ->].
+    - apply eventually_done. cbn. apply Hout. exact HP.
+    - apply eventually_step_cps.
+      intros s'_d t_d Hstar_d Hallow_d.
+      assert (Hallow_d' : allowed_trace (t_d ++ t1))
+        by (unfold allowed_trace; auto).
+      specialize (Hcan s'_d t_d Hstar_d Hallow_d').
+      destruct Hcan as (s'' & outs & Hstep & Hmidset).
+      exists s'', outs. split; [exact Hstep|].
+      apply (IH _ Hmidset s'' (O_event outs :: t_d ++ t1)
+                (O_event outs :: t_d ++ t2)); [|reflexivity].
+      intros x.
+      change (O_event outs :: t_d ++ t1) with ([O_event outs] ++ (t_d ++ t1)).
+      change (O_event outs :: t_d ++ t2) with ([O_event outs] ++ (t_d ++ t2)).
+      rewrite !output_in_trace_app.
+      pose proof (output_in_trace_app x t_d t1) as Ht1.
+      pose proof (output_in_trace_app x t_d t2) as Ht2.
+      pose proof (Hout x). tauto.
+  Qed.
+
+  Lemma will_output_step :
+    (forall t, allowed t) ->
+    forall s e s' t o,
+      step s e s' ->
+      will_output s t o ->
+      will_output s' (e :: t) o.
+  Proof.
+    intros A_univ s e s' t o Hstep Hwill.
+    cbv [will_output] in *.
+    remember (s, t) as st eqn:Est.
+    revert s e s' t Hstep Est.
+    induction Hwill as [[s0 t0] HP | [s0 t0] midset Hcan Hmid IH];
+      intros s_orig e_orig s_new t_orig Hstep [= -> ->].
+    - apply eventually_done. cbn in HP |- *.
+      destruct HP as (outs & Hin & Hino).
+      exists outs. split; [right; exact Hin | exact Hino].
+    - apply eventually_step_cps.
+      intros s_d t_d Hstar_d Hallow_d.
+      pose proof (star_step _ _ _ _ _ _ Hstep Hstar_d) as Hstar_combined.
+      assert (Hallow_o : allowed_trace ((e_orig :: t_d) ++ t_orig))
+        by (unfold allowed_trace; auto).
+      specialize (Hcan s_d (e_orig :: t_d) Hstar_combined Hallow_o).
+      destruct Hcan as (s'' & outs & Hstep_a & Hmidset).
+      exists s'', outs. split; [exact Hstep_a|].
+      specialize (Hmid _ Hmidset).
+      apply (eventually_swap A_univ o s''
+              (O_event outs :: (e_orig :: t_d) ++ t_orig)
+              (O_event outs :: t_d ++ e_orig :: t_orig)); [|exact Hmid].
+      intros x.
+      change ((e_orig :: t_d) ++ t_orig) with (e_orig :: t_d ++ t_orig).
+      change (O_event outs :: e_orig :: t_d ++ t_orig)
+        with ([O_event outs] ++ (e_orig :: t_d ++ t_orig)).
+      change (O_event outs :: t_d ++ e_orig :: t_orig)
+        with ([O_event outs] ++ (t_d ++ e_orig :: t_orig)).
+      pose proof (output_in_trace_app x [O_event outs] (e_orig :: t_d ++ t_orig)) as H1.
+      pose proof (output_in_trace_app x [O_event outs] (t_d ++ e_orig :: t_orig)) as H2.
+      pose proof (output_in_trace_swap x t_d e_orig t_orig) as Hsw.
+      tauto.
+  Qed.
+
   Context (initial : state).
 
   Definition can_implies_will :=
@@ -199,6 +272,21 @@ Section __.
       allowed_trace t ->
       can_output s t o ->
       will_output s t o.
+
+  Lemma can_output_step_preserved :
+    can_implies_will ->
+    (forall t, allowed t) ->
+    forall ns tau e ns' o,
+      star step initial tau ns ->
+      step ns e ns' ->
+      can_output ns tau o ->
+      can_output ns' (e :: tau) o.
+  Proof.
+    intros Hciw A_univ ns tau e ns' o Hstar Hstep Hcan.
+    apply will_implies_can; [unfold allowed_trace; auto|].
+    apply (will_output_step A_univ ns e ns' tau o Hstep).
+    apply Hciw; [exact Hstar | unfold allowed_trace; auto | exact Hcan].
+  Qed.
 
   Definition monotone :=
     forall t1 t2 s1 s2 o,
