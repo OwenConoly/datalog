@@ -349,8 +349,33 @@ Section __.
       destruct Hcan as (t' & gs' & Hstar' & Hinp' & Hout).
       apply output_in_trace_app in Hout as [Hout_t' | Hout_t].
       2: { apply eventually_done. exact Hout_t. }
-      (* Find producing node n. *)
-      (* TODO: extract from Hstar' / Hout_t' the specific gstep_run and node. *)
+      (* o is in t'.  Induct on Hstar' (the can_output witness trace) and apply
+         drive_node_must at the first gstep_run that produces o. *)
+      clear Hstar Hall.
+      revert t Hinp' Hout_t'.
+      induction Hstar' as [gs | gs e gs_mid t'_rest gs' Hstep Hstar'_rest IH];
+        intros t Hinp' Hout_t'.
+      - cbv [output_in_trace] in Hout_t'.
+        destruct Hout_t' as (? & H & _). inversion H.
+      - cbn in Hinp'. destruct e as [m | outs]; [discriminate|]. cbn in Hinp'.
+        change (O_event outs :: t'_rest) with ([O_event outs] ++ t'_rest) in Hout_t'.
+        apply output_in_trace_app in Hout_t' as [Hout_head | Hout_rest].
+        2: { (* o is deeper; bridge from (gs, t) to (gs_mid, e :: t) via the angel
+               playing e, then recurse via IH at (gs_mid, e :: t).  This requires
+               a demon-resistance argument that's nontrivial; left as TODO. *)
+          admit. }
+        (* o is in the head O_event outs.  This came from a gstep_run for some n. *)
+        destruct Hout_head as (outs0 & Hin_head & Hino).
+        cbn in Hin_head. destruct Hin_head as [Heq|]; [|contradiction].
+        injection Heq as Heq. subst outs0.
+        inversion Hstep; subst.
+        + (* gstep_run for n0 producing outs_full; outs = filter (output_visible n0) outs_full *)
+          rewrite filter_In in Hino. destruct Hino as [Hino_full Hvis].
+          (* TODO: apply Hpernode at n0, project from the outer Hstar (lost via clear),
+             apply drive_node_must. *)
+          admit.
+        + (* gstep_receive emits O_event []; outs = [], so In o [] false. *)
+          cbn in Hino. contradiction.
     Admitted.
   End graph.
 
