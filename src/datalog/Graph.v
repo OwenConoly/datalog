@@ -193,7 +193,6 @@ Section __.
       nodes_corresp_complete node_step2 initial_ns2 node_step1 initial_ns1 ->
       nodes_corresp_sound node_step1 initial_ns1 node_step2 initial_ns2.
     Proof. Abort.
-
   End nodes.
 
   Section graph.
@@ -208,7 +207,17 @@ Section __.
     Lemma graph_can_implies_will :
       Forall2_map (fun _ np ns => can_implies_will (node_step np) A ns) p initial_ns ->
       can_implies_will (graph_step p node_step) A initial_graph_state.
-    Proof. Abort.
+    Proof.
+      (* Per-node can_implies_will lifts to graph can_implies_will via a
+         drive_node_must-style helper: identify the node n producing o, apply
+         per-node can_implies_will at n to get node-level will_output, then
+         lift via a graph<-node simulation (project graph traces to node n's
+         trace, replay node-level eventually as graph-level eventually with
+         gstep_run for n).  The lifting requires either A universal or a
+         per-node-trace-respects-allowed_trace argument.  Past commits had
+         this machinery (drive_node_must, project_node_gen, env_only_lift) but
+         these were removed in the recent refactor and not yet re-ported. *)
+    Admitted.
   End graph.
 
 End __.
