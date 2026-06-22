@@ -201,21 +201,6 @@ Section __.
     Proof. (*very easy*) Abort.
   End node.
 
-  Section graph.
-    Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
-    Context {node_state : Type} {node_states : map.map node_id node_state}.
-    Context (p : graph_prog) (initial_ns : node_states).
-    Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
-
-    Definition initial_graph_state : graph_state :=
-      {| g_nodes := initial_ns; g_messages := [] |}.
-
-    Lemma graph_can_implies_will :
-      Forall2_map (fun _ np ns => can_implies_will (node_step np) ns) p initial_ns ->
-      can_implies_will (graph_step p node_step) initial_graph_state.
-    Proof. Abort.
-  End graph.
-
   Section nodes.
     Context {node_state1 : Type}.
     Context (node_step1 : node_state1 -> IO_event -> node_state1 -> Prop).
@@ -307,13 +292,27 @@ Section __.
       nodes_corresp_sound node_step1 initial_ns1 node_step2 initial_ns2.
     Proof. Abort.
 
-    Lemma complete_sound_bw' D :
-      nodes_corresp_complete node_step1 initial_ns1 node_step2 initial_ns2 ->
+    Lemma sound_sound D :
+      nodes_corresp_sound node_step1 initial_ns1 node_step2 initial_ns2 ->
       node_sound node_step2 D initial_ns2 ->
       node_sound node_step2 D initial_ns2.
     Proof. Abort.
-
   End nodes.
+
+  Section graph.
+    Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
+    Context {node_state : Type} {node_states : map.map node_id node_state}.
+    Context (p : graph_prog) (initial_ns : node_states).
+    Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
+
+    Definition initial_graph_state : graph_state :=
+      {| g_nodes := initial_ns; g_messages := [] |}.
+
+    Lemma graph_can_implies_will :
+      Forall2_map (fun _ np ns => can_implies_will (node_step np) ns) p initial_ns ->
+      can_implies_will (graph_step p node_step) initial_graph_state.
+    Proof. Abort.
+  End graph.
 
   Section graphs.
     Context {node_prog1 : Type} {graph_prog1 : map.map node_id node_prog1}.
