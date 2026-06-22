@@ -11,6 +11,9 @@ Section __.
   Context (forward : node_id -> message -> list node_id).
   Context (output_visible : node_id -> message -> bool).
 
+  Context (A : list message -> Prop).
+  (*domain is multisets*)
+
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
     Context {node_state : Type} {node_states : map.map node_id node_state}.
@@ -50,9 +53,6 @@ Section __.
                  {| g_nodes := map.put gs.(g_nodes) n ns';
                    g_messages := ms1 ++ ms2 |}.
   End graph.
-
-  Context (A : list message -> Prop).
-  (*domain is multisets*)
 
   Definition inputs_of (t : list IO_event) :=
     flat_map (fun e => match e with I_event m => [m] | _ => [] end) t.
@@ -201,6 +201,21 @@ Section __.
     Proof. (*very easy*) Abort.
   End node.
 
+  Section graph.
+    Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
+    Context {node_state : Type} {node_states : map.map node_id node_state}.
+    Context (p : graph_prog) (initial_ns : node_states).
+    Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
+
+    Definition initial_graph_state : graph_state :=
+      {| g_nodes := initial_ns; g_messages := [] |}.
+
+    Lemma graph_can_implies_will :
+      Forall2_map (fun _ np ns => can_implies_will (node_step np) ns) p initial_ns ->
+      can_implies_will (graph_step p node_step) initial_graph_state.
+    Proof. Abort.
+  End graph.
+
   Section nodes.
     Context {node_state1 : Type}.
     Context (node_step1 : node_state1 -> IO_event -> node_state1 -> Prop).
@@ -234,12 +249,6 @@ Section __.
           inputs_of t1 = inputs_of t2 /\
             output_in_trace output t1.
 
-    Lemma sound_sound D :
-      node_sound node_step1 D initial_ns1 ->
-      nodes_corresp_sound ->
-      node_sound node_step2 D initial_ns2.
-    Proof. Abort.
-
     Lemma complete_sound D :
       node_complete_weak node_step1 D initial_ns1 ->
       nodes_corresp_complete ->
@@ -272,11 +281,38 @@ Section __.
           node_can_output node_step1 ns1 t1 output <->
           node_can_output node_step2 ns2 t2 output.
 
-    Definition nodes_equiv :=
+    Fail Fail Definition nodes_equiv :=
       exists D,
         (*monotone D /\*)
         node_described_by node_step1 D initial_ns1 /\
           node_described_by node_step2 D initial_ns2.
+  End nodes.
+
+  Section nodes.
+    Context {node_state1 : Type}.
+    Context (node_step1 : node_state1 -> IO_event -> node_state1 -> Prop).
+    Context (initial_ns1 : node_state1).
+
+    Context {node_state2 : Type}.
+    Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
+    Context (initial_ns2 : node_state2).
+
+    Lemma sound_impl_complete :
+      nodes_corresp_sound node_step1 initial_ns1 node_step2 initial_ns2 ->
+      nodes_corresp_complete node_step2 initial_ns2 node_step1 initial_ns1 .
+    Proof. Abort.
+
+    Lemma complete_impl_sound :
+      nodes_corresp_complete node_step2 initial_ns2 node_step1 initial_ns1 ->
+      nodes_corresp_sound node_step1 initial_ns1 node_step2 initial_ns2.
+    Proof. Abort.
+
+    Lemma complete_sound_bw' D :
+      nodes_corresp_complete node_step1 initial_ns1 node_step2 initial_ns2 ->
+      node_sound node_step2 D initial_ns2 ->
+      node_sound node_step2 D initial_ns2.
+    Proof. Abort.
+
   End nodes.
 
   Section graphs.
@@ -294,47 +330,23 @@ Section __.
     Context (node_step2 : node_prog2 -> node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_states2).
 
-    Definition initial_gs1 : @graph_state node_state1 node_states1 :=
-      {| g_nodes := initial_ns1; g_messages := [] |}.
-
-    Definition initial_gs2 : @graph_state node_state2 node_states2 :=
-      {| g_nodes := initial_ns2; g_messages := [] |}.
-
-    Theorem graphs_equiv D :
+    Theorem graphs_sound :
       (forall t, A t) ->
       Forall4_map
         (fun n np1 np2 ns1 ns2 =>
-           nodes_equiv (node_step1 np1) ns1 (node_step2 np2) ns2)
+           nodes_corresp_sound (node_step1 np1) ns1 (node_step2 np2) ns2)
         p1 p2 initial_ns1 initial_ns2 ->
-      monotone D ->
-      node_described_by (graph_step p1 node_step1) D initial_gs1 ->
-      node_described_by (graph_step p2 node_step2) D initial_gs2.
-    Proof.
-      intros A_univ Hcorr Hmono H1.
-      pose proof (allowed_trace_universal A_univ) as Ha.
-      intros t gs2 Hstar2 _.
-      split.
-      - intros o Hd.
-        destruct (env_only_lift _ _ _ Hstar2 initial_gs1) as (T1 & gs1 & HT1star & Heqinputs).
-        destruct (H1 _ _ HT1star (Ha _)) as [Hmust1 _].
-        apply (will_output_transport A_univ Hcorr _ _ _ _ _ HT1star Hstar2).
-        apply Hmust1. rewrite Heqinputs; exact Hd.
-      - intros o (t' & gs2' & Hstar' & _ & Hout).
-        apply (Hmono [] (inputs_of t) o); [|apply incl_nil_l].
-        destruct (H1 [] initial_gs1 (star_refl _ _) (Ha _)) as [_ Hmay1].
-        apply Hmay1.
-        edestruct (ever_produces_same p2 node_step2 initial_ns2 p1 node_step1 initial_ns1
-                                      A_univ) as (T1 & gs1 & HT1 & HT1out).
-        { intros n. specialize (Hcorr n).
-          destruct (map.get p1 n), (map.get p2 n),
-                   (map.get initial_ns1 n), (map.get initial_ns2 n);
-            try contradiction; auto using nodes_equiv_sym. }
-        { eapply star_app; eauto. }
-        { apply output_in_trace_app.
-          apply output_in_trace_app in Hout as [Houtl|Houtr];
-            [right; exact Houtl|left; exact Houtr]. }
-        exists T1, gs1. rewrite app_nil_r. repeat split; auto.
-    Qed.
+      nodes_corresp_sound (graph_step p1 node_step1) (initial_graph_state initial_ns1) (graph_step p2 node_step2) (initial_graph_state initial_ns2).
+    Proof. Abort.
+
+    Theorem graphs_complete :
+      (forall t, A t) ->
+      Forall4_map
+        (fun n np1 np2 ns1 ns2 =>
+           nodes_corresp_complete (node_step1 np1) ns1 (node_step2 np2) ns2)
+        p1 p2 initial_ns1 initial_ns2 ->
+      nodes_corresp_complete (graph_step p1 node_step1) (initial_graph_state initial_ns1) (graph_step p2 node_step2) (initial_graph_state initial_ns2).
+    Proof. Abort.
   End graphs.
 End __.
 Arguments IO_event : clear implicits.
