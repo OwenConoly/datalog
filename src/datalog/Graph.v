@@ -91,6 +91,17 @@ Section __.
     (forall t, A t) -> forall t, allowed_trace t.
   Proof. unfold allowed_trace; auto. Qed.
 
+  Lemma inputs_of_app t1 t2 :
+    inputs_of (t1 ++ t2) = inputs_of t1 ++ inputs_of t2.
+  Proof. apply flat_map_app. Qed.
+
+  Lemma inputs_of_event_guaranteed t :
+    Forall event_guaranteed t -> inputs_of t = [].
+  Proof.
+    induction 1; auto.
+    destruct x; cbn; auto. contradiction.
+  Qed.
+
   Section node.
     Context {node_state : Type}.
     Context (node_step : node_state -> IO_event -> node_state -> Prop).
@@ -175,12 +186,30 @@ Section __.
         node_can_output ns t o ->
         node_will_output ns t o.
 
-    Fail Fail Definition node_monotone :=
+    Definition node_monotone :=
       forall t1 t2 ns1 ns2 o,
         star node_step initial_ns t1 ns1 ->
         star node_step ns1 t2 ns2 ->
         node_can_output ns1 t1 o ->
         node_can_output ns2 (t2 ++ t1) o.
+
+    From Datalog Require Import Tactics.
+    From coqutil Require Import Tactics.fwd.
+    Lemma ciw_monotone :
+      can_implies_will ->
+      node_monotone.
+    Proof.
+      cbv [can_implies_will node_monotone].
+      intros H t1 t2 ns1 ns2 o H1 H2 Ho.
+      apply H in Ho; auto. 2: admit.
+      invert Ho.
+      { (*trivial*) admit. }
+      cbv [can_step] in H0. specialize (H0 _ _ H2).
+      specialize' H0.
+      { admit. }
+      fwd. apply H3 in H0p2.
+      (*should be straightforward from here, using will_implies_can...*)
+    Abort.
 
     Fail Fail Definition node_monotone' :=
       forall t1 t2 ns1 ns2 o,
@@ -268,6 +297,39 @@ Section __.
         forall output,
           node_can_output node_step1 ns1 t1 output <->
           node_can_output node_step2 ns2 t2 output.
+
+    Lemma sound_complete_bicorresp :
+      nodes_corresp_complete ->
+      nodes_corresp_sound ->
+      nodes_bicorresp.
+    Proof.
+      intros Hcomp Hsound t1 t2 ns1 ns2 Hstar1 Hstar2 Hall1 Hall2 Heq o.
+      split.
+      - intros (t' & ns' & Hstar' & Hguar & Hout).
+        pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar') as Hstar1'.
+        assert (Hinpt' : inputs_of t' = []) by (apply inputs_of_event_guaranteed; auto).
+        apply (Hcomp (t1 ++ t') t2 ns' ns2); auto.
+        + unfold allowed_trace.
+          rewrite inputs_of_app, Hinpt', app_nil_r. exact Hall1.
+        + rewrite inputs_of_app, Hinpt', app_nil_r. exact Heq.
+        + apply output_in_trace_app. apply output_in_trace_app in Hout.
+          destruct Hout as [Hout|Hout]; [right|left]; exact Hout.
+      - intros (t' & ns' & Hstar' & Hguar & Hout).
+        pose proof (star_app _ _ _ _ _ _ Hstar2 Hstar') as Hstar2'.
+        assert (Hinpt' : inputs_of t' = []) by (apply inputs_of_event_guaranteed; auto).
+        assert (Hall2' : allowed_trace (t2 ++ t')).
+        { unfold allowed_trace.
+          rewrite inputs_of_app, Hinpt', app_nil_r. exact Hall2. }
+        assert (Hout2' : output_in_trace o (t2 ++ t')).
+        { apply output_in_trace_app. apply output_in_trace_app in Hout.
+          destruct Hout as [Hout|Hout]; [right|left]; exact Hout. }
+        destruct (Hsound _ _ _ Hstar2' Hall2' Hout2')
+          as (t1' & ns1' & Hstar1' & Heqinp & Hout1).
+        (* Stuck: have output_in_trace o t1' for a t1' starting from init1,
+           but need extension of t1 from ns1.  The existential in sound gives
+           an unrelated branch.  Cf. discussion: sound is not the dual of
+           complete. *)
+    Abort.
 
     Fail Fail Definition nodes_equiv :=
       exists D,
