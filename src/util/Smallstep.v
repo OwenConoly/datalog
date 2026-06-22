@@ -16,12 +16,6 @@ Section io.
   Definition output_in_trace (output : message) (t : list IO_event) :=
     exists outs, In (O_event outs) t /\ In output outs.
 
-  Definition event_guaranteed (e : IO_event) :=
-    match e with
-    | O_event _ => True
-    | I_event _ => False
-    end.
-
   Context {state : Type}.
   Context (recv : state -> message -> state).
   Context (emit : state -> list message -> state -> Prop).
@@ -88,13 +82,6 @@ Section __.
     inputs_of (t1 ++ t2) = inputs_of t1 ++ inputs_of t2.
   Proof. apply flat_map_app. Qed.
 
-  Lemma inputs_of_event_guaranteed (t : list (IO_event message)) :
-    Forall event_guaranteed t -> inputs_of t = [].
-  Proof.
-    induction 1; auto.
-    destruct x; cbn; auto. contradiction.
-  Qed.
-
   Lemma output_in_trace_swap o l1 e (l2 : list (IO_event message)) :
     output_in_trace o (l1 ++ e :: l2) <-> output_in_trace o (e :: l1 ++ l2).
   Proof.
@@ -126,7 +113,7 @@ Section __.
       eventually can_step P (s, t) ->
       exists s' tr,
         star step s tr s' /\
-        Forall event_guaranteed tr /\
+        inputs_of tr = [] /\
         P (s', rev tr ++ t).
   Proof.
     intros P s0 t0 Hallow Hwill.
@@ -134,23 +121,23 @@ Section __.
     revert s0 t0 Hallow Est.
     induction Hwill as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
       intros s0 t0 Hallow [= -> ->].
-    - exists s0, []. split; [constructor|]. split; [constructor|exact HP].
+    - exists s0, []. split; [constructor|]. split; [reflexivity|exact HP].
     - destruct (Hcan s0 [] (star_refl _ _)) as (s'' & outs & Hstep & Hmidset).
       { cbn. exact Hallow. }
       assert (Hallow' : allowed_trace (O_event outs :: t0)).
       { unfold allowed_trace. cbn. exact Hallow. }
       destruct (IH _ Hmidset s'' (O_event outs :: t0) Hallow' eq_refl)
-        as (s_final & tr & Hstar & Hguar & HP).
+        as (s_final & tr & Hstar & Hinp & HP).
       exists s_final, (O_event outs :: tr).
       split; [econstructor; eassumption|].
-      split; [constructor; [exact I|exact Hguar]|].
+      split; [cbn; exact Hinp|].
       cbn. rewrite <- app_assoc. cbn. exact HP.
   Qed.
 
   Definition can_output start t output :=
     exists t' s',
       star step start t' s' /\
-        Forall event_guaranteed t' /\
+        inputs_of t' = [] /\
         output_in_trace output (t' ++ t).
 
   Definition will_output start t (output : message) : Prop :=
@@ -171,7 +158,7 @@ Section __.
     induction Hwill as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
       intros s0 t0 Hall [= -> ->].
     - exists [], s0. split; [constructor|].
-      split; [constructor|exact HP].
+      split; [reflexivity|exact HP].
     - cbv [can_step] in Hcan.
       specialize (Hcan s0 [] (star_refl _ _)).
       cbn in Hcan. specialize (Hcan Hall).
@@ -179,10 +166,10 @@ Section __.
       assert (Hall' : allowed_trace (O_event outs :: t0)).
       { unfold allowed_trace. cbn. exact Hall. }
       destruct (IH _ Hmidset s'' (O_event outs :: t0) Hall' eq_refl)
-        as (t'' & s''' & Hstar'' & Hforall'' & Hout'').
+        as (t'' & s''' & Hstar'' & Hinp'' & Hout'').
       exists (O_event outs :: t''), s'''.
       split; [econstructor; eassumption|].
-      split; [constructor; [exact I|exact Hforall'']|].
+      split; [cbn; exact Hinp''|].
       cbn. apply output_in_trace_swap. exact Hout''.
   Qed.
 
@@ -221,7 +208,7 @@ Section __.
     cbv [will_output] in Hcan.
     inversion Hcan as [HP | midset Hcan_step Hmid]; clear Hcan; subst.
     - exists [], s2. split; [constructor|].
-      split; [constructor|].
+      split; [reflexivity|].
       cbn. apply output_in_trace_app. right. exact HP.
     - cbv [can_step] in Hcan_step.
       specialize (Hcan_step _ _ Hstar2 Hallt).
@@ -230,10 +217,10 @@ Section __.
       assert (Hall' : allowed_trace (O_event outs :: t2 ++ t1)).
       { unfold allowed_trace. cbn. exact Hallt. }
       apply (will_implies_can _ _ _ Hall') in Hmid.
-      destruct Hmid as (t' & s''' & Hstar' & Hforall' & Hout').
+      destruct Hmid as (t' & s''' & Hstar' & Hinp' & Hout').
       exists (O_event outs :: t'), s'''.
       split; [econstructor; eassumption|].
-      split; [constructor; [exact I|exact Hforall']|].
+      split; [cbn; exact Hinp'|].
       cbn. apply output_in_trace_swap. exact Hout'.
   Qed.
 

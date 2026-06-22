@@ -123,18 +123,16 @@ Section __.
     Proof.
       intros Hmono Hcomp Hsound t1 t2 ns1 ns2 Hstar1 Hstar2 Hall1 Hall2 Heq o.
       split.
-      - intros (t' & ns' & Hstar' & Hguar & Hout).
+      - intros (t' & ns' & Hstar' & Hinpt' & Hout).
         pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar') as Hstar1'.
-        assert (Hinpt' : inputs_of t' = []) by (apply inputs_of_event_guaranteed; auto).
         apply (Hcomp (t1 ++ t') t2 ns' ns2); auto.
         + unfold allowed_trace.
           rewrite inputs_of_app, Hinpt', app_nil_r. exact Hall1.
         + rewrite inputs_of_app, Hinpt', app_nil_r. exact Heq.
         + apply output_in_trace_app. apply output_in_trace_app in Hout.
           destruct Hout as [Hout|Hout]; [right|left]; exact Hout.
-      - intros (t' & ns' & Hstar' & Hguar & Hout).
+      - intros (t' & ns' & Hstar' & Hinpt' & Hout).
         pose proof (star_app _ _ _ _ _ _ Hstar2 Hstar') as Hstar2'.
-        assert (Hinpt' : inputs_of t' = []) by (apply inputs_of_event_guaranteed; auto).
         assert (Hall2' : allowed_trace (t2 ++ t')).
         { unfold allowed_trace.
           rewrite inputs_of_app, Hinpt', app_nil_r. exact Hall2. }
@@ -145,7 +143,7 @@ Section __.
           as (t1' & ns1' & Hstar1' & Heqinp & Hout1).
         assert (Hcan1' : can_output node_step1 ns1' t1' o).
         { exists [], ns1'. split; [constructor|].
-          split; [constructor|exact Hout1]. }
+          split; [reflexivity|exact Hout1]. }
         apply (Hmono t1' t1 ns1' ns1 o Hstar1' Hstar1); auto.
         rewrite Heqinp, inputs_of_app, Hinpt', app_nil_r, <- Heq.
         apply incl_refl.
