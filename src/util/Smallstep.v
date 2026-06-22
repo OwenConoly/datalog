@@ -273,6 +273,17 @@ Section __.
       can_output s t o ->
       will_output s t o.
 
+  Definition can_implies_will' :=
+    forall t s o,
+      star step initial t s ->
+      allowed_trace t ->
+      output_in_trace o t ->
+      forall s' t',
+        incl (inputs_of t) (inputs_of t') ->
+        star step initial t' s' ->
+        allowed_trace t' ->
+        will_output s' t' o.
+
   Lemma can_output_step_preserved :
     can_implies_will ->
     (forall t, allowed t) ->
@@ -306,7 +317,8 @@ Section __.
       can_output s2 t2 o.
 
   Lemma ciw_monotone :
-    can_implies_will -> monotone.
+    can_implies_will ->
+    monotone.
   Proof.
     cbv [can_implies_will monotone].
     intros Hciw t1 t2 s1 s2 o Hstar1 Hstar2 Hall1 Hallt Hcan.
