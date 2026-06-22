@@ -198,7 +198,10 @@ Section __.
       node_complete_weak ->
       can_implies_will ->
       node_complete.
-    Proof. (*very easy*) Abort.
+    Proof.
+      intros Hweak Hcan t ns Hstar Hall o HD.
+      apply Hcan; auto.
+    Qed.
   End node.
 
   Section nodes.
