@@ -210,7 +210,9 @@ Section __.
     Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_state2).
 
-    (*is this just the converse of nodes_corresp_sound?*)
+    (*is this just the converse of nodes_corresp_sound?
+      yes, obviously---this is why you defined nodes_bicorresp the way it is.
+     *)
     Definition nodes_corresp_complete :=
       forall t1 t2 ns1 ns2,
         star node_step1 initial_ns1 t1 ns1 ->
