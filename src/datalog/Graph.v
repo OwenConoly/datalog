@@ -345,15 +345,52 @@ Section __.
       Forall2_map (fun _ np ns => can_implies_will (node_step np) A ns) p initial_ns ->
       can_implies_will (graph_step p node_step) A initial_graph_state.
     Proof.
-      (* Strategy: with helpers project_node_gen and drive_node_must above,
-         the proof should identify the producing node n0 from t', use
-         project_node_gen on (Hstar ++ prefix of Hstar') to get the per-node
-         trace tau_pre and state ns_pre right before the producing gstep_run,
-         show per-node can_output o at (ns_pre, tau_pre) (single emit witness),
-         apply Hpernode at n0 to get per-node will_output, then drive_node_must
-         lifts to graph will_output at the intermediate gs_pre.  Bridging from
-         (gs, t) to (gs_pre, ...) requires angel-replaying the prefix steps —
-         straightforward but tedious.  Not yet completed. *)
+      intros A_univ Hpernode t gs o Hstar Hall Hcan.
+      destruct Hcan as (t' & gs' & Hstar' & Hinp' & Hout).
+      apply output_in_trace_app in Hout as [Hout_t' | Hout_t].
+      2: { apply eventually_done. exact Hout_t. }
+      (* Induct on Hstar'. *)
+      revert t Hall Hinp' Hout_t' Hstar.
+      induction Hstar' as [gs | gs e gs_mid t'_rest gs' Hstep Hstar'_rest IH];
+        intros t Hall Hinp' Hout_t' Hstar.
+      - cbv [output_in_trace] in Hout_t'.
+        destruct Hout_t' as (? & H & _). inversion H.
+      - cbn in Hinp'. destruct e as [m | outs]; [discriminate|]. cbn in Hinp'.
+        change (O_event outs :: t'_rest) with ([O_event outs] ++ t'_rest) in Hout_t'.
+        apply output_in_trace_app in Hout_t' as [Hout_head | Hout_rest].
+        + (* Head case: o is in the head O_event outs. *)
+          destruct Hout_head as (outs0 & Hin_head & Hino).
+          cbn in Hin_head. destruct Hin_head as [Heq|]; [|contradiction].
+          injection Heq as Heq. subst outs0.
+          inversion Hstep as [|gs0 n0 np0 ns0 ns0' outs_full Hp0 Hg0 Hns0|
+                              gs0 n0 np0 ns0 ns0' m0 ms1 ms2 Hp0 Hg0 Hns0 Hmsg];
+            subst.
+          * (* gstep_run for n0 *)
+            rewrite filter_In in Hino. destruct Hino as [Hino_full Hvis].
+            pose proof (Hpernode n0) as Hp_n.
+            rewrite Hp0 in Hp_n.
+            destruct (map.get initial_ns n0) as [ns_init|] eqn:Hns_init; [|contradiction].
+            destruct (project_node_gen _ _ _ Hstar n0 np0 ns_init Hp0 Hns_init)
+              as (tau_outer & ns_at_gs & Htau_outer & Hg_at_gs & Hpres).
+            rewrite Hg_at_gs in Hg0. inversion Hg0. subst ns_at_gs.
+            assert (Hwill : eventually (can_step (node_step np0) A)
+                              (fun '(_, t'') => output_in_trace o t'')
+                              (ns0, tau_outer)).
+            { apply Hp_n.
+              - exact Htau_outer.
+              - unfold allowed_trace; auto.
+              - exists [O_event outs_full], ns0'. split.
+                + econstructor; [exact Hns0 | constructor].
+                + split; [reflexivity|].
+                  exists outs_full. split; [left; reflexivity|exact Hino_full]. }
+            apply (drive_node_must A_univ np0 n0 o Hp0 Hvis (ns0, tau_outer) Hwill gs t).
+            -- cbn. exact Hg_at_gs.
+            -- cbn. intros Hout_tau. apply Hpres; [exact Hvis | exact Hout_tau].
+          * (* gstep_receive: outs = [] contradicts Hino *)
+            cbn in Hino. contradiction.
+        + (* Deeper case: o is in t'_rest. *)
+          (* TODO: bridge from (gs, t) to (gs_mid, e :: t) then apply IH. *)
+          admit.
     Admitted.
   End graph.
 
