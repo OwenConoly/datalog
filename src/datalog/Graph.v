@@ -340,6 +340,41 @@ Section __.
                exists outs''. split; [right; apply in_or_app; right; exact Hin''|exact Hino''].
     Qed.
 
+    Lemma eventually_swap :
+      forall (o' : message) (s : graph_state) (t1 t2 : list IO_event),
+        inputs_of t1 = inputs_of t2 ->
+        (forall x, output_in_trace x t1 <-> output_in_trace x t2) ->
+        eventually (can_step (graph_step p node_step) A)
+                   (fun '(_, t') => output_in_trace o' t') (s, t1) ->
+        eventually (can_step (graph_step p node_step) A)
+                   (fun '(_, t') => output_in_trace o' t') (s, t2).
+    Proof.
+      intros o' s t1 t2 Hinp Hout Hev.
+      remember (s, t1) as st eqn:Est.
+      revert s t1 t2 Hinp Hout Est.
+      induction Hev as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
+        intros s_orig t1 t2 Hinp Hout [= -> ->].
+      - apply eventually_done. cbn. apply Hout. exact HP.
+      - apply eventually_step_cps.
+        intros s'_d t_d Hstar_d Hallow_d.
+        assert (Hallow_d' : allowed_trace (t_d ++ t1)).
+        { unfold allowed_trace in *. rewrite !inputs_of_app in *. rewrite Hinp.
+          exact Hallow_d. }
+        specialize (Hcan s'_d t_d Hstar_d Hallow_d').
+        destruct Hcan as (s'' & outs & Hstep & Hmidset).
+        exists s'', outs. split; [exact Hstep|].
+        apply (IH _ Hmidset s'' (O_event outs :: t_d ++ t1)
+                  (O_event outs :: t_d ++ t2)).
+        + change (inputs_of (t_d ++ t1) = inputs_of (t_d ++ t2)).
+          rewrite !inputs_of_app, Hinp. reflexivity.
+        + intros x.
+          change (O_event outs :: t_d ++ t1) with ([O_event outs] ++ (t_d ++ t1)).
+          change (O_event outs :: t_d ++ t2) with ([O_event outs] ++ (t_d ++ t2)).
+          rewrite !output_in_trace_app.
+          pose proof (Hout x). tauto.
+        + reflexivity.
+    Qed.
+
     Lemma graph_can_implies_will :
       (forall t, A t) ->
       Forall2_map (fun _ np ns => can_implies_will (node_step np) A ns) p initial_ns ->
@@ -388,17 +423,27 @@ Section __.
             -- cbn. intros Hout_tau. apply Hpres; [exact Hvis | exact Hout_tau].
           * (* gstep_receive: outs = [] contradicts Hino *)
             cbn in Hino. contradiction.
-        + (* Deeper case: o is in t'_rest.  The natural recursion via IH
-             requires bridging (gs, t) → (gs_mid, e :: t) inside an eventually
-             step.  The application requires Hstar at (gs_mid, e :: t) which
-             would have trace t ++ [e] (chronological, via star_app of Hstar
-             with single-step Hstep) but IH's eventually conclusion expects
-             trace e :: t (in the order can_step's add-at-head convention
-             produces).  Same multiset of events, but Coq's syntactic strictness
-             demands a Permutation/swap lemma for eventually's trace argument.
-             Closing this case cleanly needs that lemma, which I haven't
-             constructed here. *)
-          admit.
+        + (* Deeper case: o is in t'_rest.  Use eventually_step_cps to advance
+             one event, then recurse via IH. *)
+          apply eventually_step_cps.
+          intros gs_demon t_demon Hstar_demon Hallow_d.
+          (* For demon = empty: angel plays e, lands at (gs_mid, e :: t).
+             For demon non-empty: similar but need state tracking. *)
+          destruct t_demon as [|d t_demon_rest].
+          * inversion Hstar_demon; subst.
+            exists gs_mid, outs. split; [exact Hstep|].
+            apply (eventually_swap o gs_mid (t ++ [O_event outs]) (O_event outs :: t)).
+            -- rewrite inputs_of_app. cbn. rewrite app_nil_r. reflexivity.
+            -- intros x.
+               change (O_event outs :: t) with ([O_event outs] ++ t).
+               rewrite !output_in_trace_app. tauto.
+            -- apply (IH (t ++ [O_event outs]));
+                 [unfold allowed_trace | exact Hinp' | exact Hout_rest |].
+               ++ rewrite inputs_of_app. cbn. rewrite app_nil_r. exact Hall.
+               ++ eapply star_app; [exact Hstar|].
+                  econstructor; [exact Hstep | constructor].
+          * (* Demon non-empty: need to handle. *)
+            admit.
     Admitted.
   End graph.
 
