@@ -198,25 +198,159 @@ Section __.
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
     Context {node_state : Type} {node_states : map.map node_id node_state}.
+    Context {node_states_ok : map.ok node_states}.
     Context (p : graph_prog) (initial_ns : node_states).
     Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
 
     Definition initial_graph_state : graph_state :=
       {| g_nodes := initial_ns; g_messages := [] |}.
 
+    (* Project a graph trace to the trace of a specific node n.  Each gstep_run
+       and gstep_receive for n contribute to n's trace; gstep_input and steps for
+       other nodes do not change n's state. *)
+    Lemma project_node_gen :
+      forall T gs0 gs,
+        star (graph_step p node_step) gs0 T gs ->
+        forall n np ns_at_gs0,
+          map.get p n = Some np ->
+          map.get gs0.(g_nodes) n = Some ns_at_gs0 ->
+          exists tau ns_at_gs,
+            star (node_step np) ns_at_gs0 tau ns_at_gs /\
+            map.get gs.(g_nodes) n = Some ns_at_gs /\
+            (forall o, output_visible n o = true ->
+                       output_in_trace o tau -> output_in_trace o T).
+    Proof.
+      intros T gs0 gs Hstar.
+      induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH];
+        intros n np ns_at_gs0 Hp Hg0.
+      - exists [], ns_at_gs0. split; [constructor|]. split; [exact Hg0|].
+        intros o _ (outs & Hin & _); inversion Hin.
+      - inversion Hstep; subst.
+        + (* gstep_input: g_nodes unchanged *)
+          destruct (IH n np ns_at_gs0 Hp Hg0) as (tau & ns_at_gs & Htau & Hg & Hpres).
+          exists tau, ns_at_gs. split; [exact Htau|]. split; [exact Hg|].
+          intros o Hvis Hout. specialize (Hpres o Hvis Hout).
+          destruct Hpres as (outs' & Hin & Hino).
+          exists outs'. split; [right; exact Hin|exact Hino].
+        + (* gstep_run *)
+          destruct (Nat.eq_dec n0 n) as [Heq|Hne].
+          * subst n0.
+            assert (np0 = np) by congruence. subst np0.
+            assert (ns = ns_at_gs0) by congruence. subst ns_at_gs0.
+            destruct (IH n np ns') as (tau & ns_at_gs & Htau & Hg & Hpres);
+              [exact H | cbn; apply map.get_put_same|].
+            exists (O_event outs :: tau), ns_at_gs.
+            split; [econstructor; [exact H1|exact Htau]|]. split; [exact Hg|].
+            intros o Hvis (outs' & Hin & Hino).
+            cbn in Hin. destruct Hin as [Heq|Hin_rest].
+            -- injection Heq as Heq_outs. subst outs'.
+               exists (filter (output_visible n) outs).
+               split; [left; reflexivity|].
+               apply filter_In. split; [exact Hino|exact Hvis].
+            -- specialize (Hpres o Hvis (ex_intro _ outs' (conj Hin_rest Hino))).
+               destruct Hpres as (outs'' & Hin'' & Hino'').
+               exists outs''. split; [right; exact Hin''|exact Hino''].
+          * destruct (IH n np ns_at_gs0 Hp) as (tau & ns_at_gs & Htau & Hg & Hpres).
+            { cbn. rewrite map.get_put_diff by auto. exact Hg0. }
+            exists tau, ns_at_gs. split; [exact Htau|]. split; [exact Hg|].
+            intros o Hvis Hout. specialize (Hpres o Hvis Hout).
+            destruct Hpres as (outs' & Hin & Hino).
+            exists outs'. split; [right; exact Hin|exact Hino].
+        + (* gstep_receive *)
+          destruct (Nat.eq_dec n0 n) as [Heq|Hne].
+          * subst n0.
+            assert (np0 = np) by congruence. subst np0.
+            assert (ns = ns_at_gs0) by congruence. subst ns_at_gs0.
+            destruct (IH n np ns') as (tau & ns_at_gs & Htau & Hg & Hpres);
+              [exact H | cbn; apply map.get_put_same|].
+            exists (I_event m :: tau), ns_at_gs.
+            split; [econstructor; [exact H1|exact Htau]|]. split; [exact Hg|].
+            intros o Hvis (outs' & Hin & Hino).
+            cbn in Hin. destruct Hin as [Heq|Hin_rest]; [discriminate|].
+            specialize (Hpres o Hvis (ex_intro _ outs' (conj Hin_rest Hino))).
+            destruct Hpres as (outs'' & Hin'' & Hino'').
+            exists outs''. split; [right; exact Hin''|exact Hino''].
+          * destruct (IH n np ns_at_gs0 Hp) as (tau & ns_at_gs & Htau & Hg & Hpres).
+            { cbn. rewrite map.get_put_diff by auto. exact Hg0. }
+            exists tau, ns_at_gs. split; [exact Htau|]. split; [exact Hg|].
+            intros o Hvis Hout. specialize (Hpres o Hvis Hout).
+            destruct Hpres as (outs' & Hin & Hino).
+            exists outs'. split; [right; exact Hin|exact Hino].
+    Qed.
+
+    (* Lift a node-level will_output for node n to a graph-level will_output,
+       provided o is visible from n and the graph's node n is at the right state. *)
+    Lemma drive_node_must :
+      (forall t, A t) ->
+      forall (np : node_prog) (n : node_id) (o : message),
+        map.get p n = Some np ->
+        output_visible n o = true ->
+        forall (s : node_state * list IO_event),
+          eventually (can_step (node_step np) A)
+                     (fun '(_, t') => output_in_trace o t') s ->
+          forall gs t,
+            map.get gs.(g_nodes) n = Some (fst s) ->
+            (output_in_trace o (snd s) -> output_in_trace o t) ->
+            eventually (can_step (graph_step p node_step) A)
+                       (fun '(_, t') => output_in_trace o t') (gs, t).
+    Proof.
+      intros A_univ np n o Hp Hvis s Hwill.
+      induction Hwill as [[ns_curr trace_curr] HP|
+                          [ns_curr trace_curr] midset Hcan Hmid IH];
+        intros gs t Hg Hout_proj.
+      - apply eventually_done. cbn. apply Hout_proj. exact HP.
+      - cbn in Hg.
+        apply eventually_step_cps.
+        intros gs_demon t_demon Hstar_demon Hallow_g.
+        destruct (project_node_gen _ _ _ Hstar_demon n np _ Hp Hg)
+          as (tau_d & ns_d & Htau_d & Hg_d & Hpres_d).
+        pose proof (Hcan ns_d tau_d Htau_d) as Hcan'.
+        assert (Hallow_n : allowed_trace (tau_d ++ trace_curr))
+          by (unfold allowed_trace; auto).
+        specialize (Hcan' Hallow_n).
+        destruct Hcan' as (s'' & outs & Hns_step & Hmidset_at).
+        set (gs_next :=
+               {| g_nodes := map.put gs_demon.(g_nodes) n s'';
+                  g_messages :=
+                    gs_demon.(g_messages) ++
+                    flat_map (fun m0 => map (fun n' => (n', m0))
+                                            (forward n m0)) outs |}).
+        exists gs_next, (filter (output_visible n) outs).
+        split.
+        { eapply gstep_run; eauto. }
+        apply (IH (s'', O_event outs :: tau_d ++ trace_curr) Hmidset_at gs_next).
+        + cbn. apply map.get_put_same.
+        + intros (outs' & Hin & Hino).
+          cbn in Hin. destruct Hin as [Heq|Hin_rest].
+          * injection Heq as Heq_outs. subst outs'.
+            exists (filter (output_visible n) outs).
+            split; [left; reflexivity|].
+            apply filter_In. split; [exact Hino|exact Hvis].
+          * apply in_app_or in Hin_rest as [Hin_d|Hin_curr].
+            -- specialize (Hpres_d o Hvis
+                          (ex_intro _ outs' (conj Hin_d Hino))).
+               destruct Hpres_d as (outs'' & Hin'' & Hino'').
+               exists outs''. split.
+               { right. apply in_or_app. left. exact Hin''. }
+               exact Hino''.
+            -- assert (Hcurr : output_in_trace o trace_curr)
+                 by (exists outs'; split; [exact Hin_curr|exact Hino]).
+               specialize (Hout_proj Hcurr).
+               destruct Hout_proj as (outs'' & Hin'' & Hino'').
+               exists outs''. split; [right; apply in_or_app; right; exact Hin''|exact Hino''].
+    Qed.
+
     Lemma graph_can_implies_will :
+      (forall t, A t) ->
       Forall2_map (fun _ np ns => can_implies_will (node_step np) A ns) p initial_ns ->
       can_implies_will (graph_step p node_step) A initial_graph_state.
     Proof.
-      (* Per-node can_implies_will lifts to graph can_implies_will via a
-         drive_node_must-style helper: identify the node n producing o, apply
-         per-node can_implies_will at n to get node-level will_output, then
-         lift via a graph<-node simulation (project graph traces to node n's
-         trace, replay node-level eventually as graph-level eventually with
-         gstep_run for n).  The lifting requires either A universal or a
-         per-node-trace-respects-allowed_trace argument.  Past commits had
-         this machinery (drive_node_must, project_node_gen, env_only_lift) but
-         these were removed in the recent refactor and not yet re-ported. *)
+      intros A_univ Hpernode t gs o Hstar Hall Hcan.
+      destruct Hcan as (t' & gs' & Hstar' & Hinp' & Hout).
+      apply output_in_trace_app in Hout as [Hout_t' | Hout_t].
+      2: { apply eventually_done. exact Hout_t. }
+      (* Find producing node n. *)
+      (* TODO: extract from Hstar' / Hout_t' the specific gstep_run and node. *)
     Admitted.
   End graph.
 
