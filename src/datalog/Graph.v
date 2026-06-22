@@ -102,6 +102,22 @@ Section __.
     destruct x; cbn; auto. contradiction.
   Qed.
 
+  Lemma output_in_trace_swap o l1 e l2 :
+    output_in_trace o (l1 ++ e :: l2) <-> output_in_trace o (e :: l1 ++ l2).
+  Proof.
+    unfold output_in_trace.
+    split; intros (outs & Hin & Hino); exists outs; (split; [|exact Hino]).
+    - apply in_app_or in Hin. destruct Hin as [Hin | [Hin | Hin]].
+      + right. apply in_or_app. left. exact Hin.
+      + left. exact Hin.
+      + right. apply in_or_app. right. exact Hin.
+    - destruct Hin as [Hin | Hin].
+      + apply in_or_app. right. left. exact Hin.
+      + apply in_app_or in Hin. destruct Hin as [Hin | Hin].
+        * apply in_or_app. left. exact Hin.
+        * apply in_or_app. right. right. exact Hin.
+  Qed.
+
   Section node.
     Context {node_state : Type}.
     Context (node_step : node_state -> IO_event -> node_state -> Prop).
@@ -190,26 +206,69 @@ Section __.
       forall t1 t2 ns1 ns2 o,
         star node_step initial_ns t1 ns1 ->
         star node_step ns1 t2 ns2 ->
+        allowed_trace t1 ->
+        allowed_trace (t2 ++ t1) ->
         node_can_output ns1 t1 o ->
         node_can_output ns2 (t2 ++ t1) o.
 
     From Datalog Require Import Tactics.
     From coqutil Require Import Tactics.fwd.
+
+    Lemma will_implies_can :
+      forall ns t o,
+        allowed_trace t ->
+        node_will_output ns t o ->
+        node_can_output ns t o.
+    Proof.
+      intros ns0 t0 o Hall Hwill.
+      cbv [node_will_output] in Hwill.
+      remember (ns0, t0) as st eqn:Est.
+      revert ns0 t0 Hall Est.
+      induction Hwill as [[ns' t'] HP | [ns' t'] midset Hcan Hmid IH];
+        intros ns0 t0 Hall [= -> ->].
+      - exists [], ns0. split; [constructor|].
+        split; [constructor|exact HP].
+      - cbv [can_step] in Hcan.
+        specialize (Hcan ns0 [] (star_refl _ _)).
+        cbn in Hcan. specialize (Hcan Hall).
+        destruct Hcan as (ns'' & e & Hguar & Hstep & Hmidset).
+        cbn in Hguar.
+        assert (Hall' : allowed_trace (e :: t0)).
+        { unfold allowed_trace; cbn. destruct e; auto. contradiction. }
+        destruct (IH _ Hmidset ns'' (e :: t0) Hall' eq_refl)
+          as (t'' & ns''' & Hstar'' & Hforall'' & Hout'').
+        exists (e :: t''), ns'''.
+        split; [econstructor; eassumption|].
+        split; [constructor; auto|].
+        cbn. apply output_in_trace_swap. exact Hout''.
+    Qed.
+
     Lemma ciw_monotone :
       can_implies_will ->
       node_monotone.
     Proof.
       cbv [can_implies_will node_monotone].
-      intros H t1 t2 ns1 ns2 o H1 H2 Ho.
-      apply H in Ho; auto. 2: admit.
-      invert Ho.
-      { (*trivial*) admit. }
-      cbv [can_step] in H0. specialize (H0 _ _ H2).
-      specialize' H0.
-      { admit. }
-      fwd. apply H3 in H0p2.
-      (*should be straightforward from here, using will_implies_can...*)
-    Abort.
+      intros Hciw t1 t2 ns1 ns2 o Hstar1 Hstar2 Hall1 Hallt Hcan.
+      apply (Hciw _ _ _ Hstar1 Hall1) in Hcan.
+      cbv [node_will_output] in Hcan.
+      invert Hcan.
+      - exists [], ns2. split; [constructor|].
+        split; [constructor|].
+        cbn. apply output_in_trace_app. right. exact H.
+      - cbv [can_step] in H.
+        specialize (H _ _ Hstar2 Hallt).
+        destruct H as (ns'' & e & Hguar & Hstep & Hmidset).
+        cbn in Hguar.
+        specialize (H0 _ Hmidset).
+        assert (Hall' : allowed_trace (e :: t2 ++ t1)).
+        { unfold allowed_trace; cbn. destruct e; auto. contradiction. }
+        apply (will_implies_can _ _ _ Hall') in H0.
+        destruct H0 as (t' & ns''' & Hstar' & Hforall' & Hout').
+        exists (e :: t'), ns'''.
+        split; [econstructor; eassumption|].
+        split; [constructor; auto|].
+        cbn. apply output_in_trace_swap. exact Hout'.
+    Qed.
 
     Fail Fail Definition node_monotone' :=
       forall t1 t2 ns1 ns2 o,
