@@ -559,10 +559,10 @@ Section __.
           split; [exact Hns_o|]. split; [exact Hino_o | exact Hvis_o].
     Qed.
 
-    Lemma graph_can_implies_will :
+    Lemma graph_can_implies_will' :
       (forall t, A t) ->
-      Forall2_map (fun _ np ns => can_implies_will (node_step np) A ns) p initial_ns ->
-      can_implies_will (graph_step p node_step) A initial_graph_state.
+      Forall2_map (fun _ np ns => can_implies_will' (node_step np) A ns) p initial_ns ->
+      can_implies_will' (graph_step p node_step) A initial_graph_state.
     Proof.
       intros A_univ Hpernode t gs o Hstar Hall Hcan.
       destruct Hcan as (t' & gs' & Hstar' & Hinp' & Hout).
@@ -713,7 +713,6 @@ Section __.
                apply Hmid. exact Hmidset'.
     Admitted.
   End graph.
-
 End __.
 
 Definition translate_event {M M'} (t : M' -> M) (ev : IO_event M') : IO_event M :=
