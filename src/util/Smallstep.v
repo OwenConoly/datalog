@@ -472,6 +472,13 @@ Section steps_corresp.
         output_in_trace output t2 ->
         produces step1 initial1 (inputs_of t2) output.
 
+    Definition steps_corresp_sound' :=
+      forall ns2 inps o,
+        star step2 initial2 (map I_event inps) ns2 ->
+        allowed inps ->
+        will_output step2 allowed ns2 (map I_event inps) o ->
+        produces step1 initial1 inps o.
+
     Definition steps_corresp_complete :=
       forall t2 ns2 output,
         star step2 initial2 t2 ns2 ->
