@@ -284,6 +284,34 @@ Section __.
             exists outs'. split; [right; exact Hin|exact Hino].
     Qed.
 
+    (* Strengthening of project_node_gen: besides the projected node trace, every
+       message the node has emitted (output_in_trace mu tau) has been forwarded, so
+       for each downstream n'' it is either still queued or already delivered to n''
+       (n'' reached from its gs0-state via a trace whose inputs contain mu). *)
+    Definition node_received (gs0 gs : @graph_state node_state node_states)
+        (n'' : node_id) (mu : message) : Prop :=
+      exists np'' ns0'' tau'' ns'',
+        map.get p n'' = Some np'' /\
+        map.get gs0.(g_nodes) n'' = Some ns0'' /\
+        map.get gs.(g_nodes) n'' = Some ns'' /\
+        star (node_step np'') ns0'' tau'' ns'' /\ In mu (inputs_of tau'').
+
+    Lemma project_node_saturated :
+      forall T gs0 gs,
+        star (graph_step p node_step) gs0 T gs ->
+        forall n np ns_at_gs0,
+          map.get p n = Some np ->
+          map.get gs0.(g_nodes) n = Some ns_at_gs0 ->
+          exists tau ns_at_gs,
+            star (node_step np) ns_at_gs0 tau ns_at_gs /\
+            map.get gs.(g_nodes) n = Some ns_at_gs /\
+            (forall mu n'',
+               output_in_trace mu tau ->
+               In n'' (forward n mu) ->
+               In (n'', mu) gs.(g_messages) \/ node_received gs0 gs n'' mu).
+    Proof.
+    Admitted.
+
     (* Lift a node-level will_output for node n to a graph-level will_output,
        provided o is visible from n and the graph's node n is at the right state. *)
     Lemma drive_node_must :
