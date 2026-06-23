@@ -938,6 +938,134 @@ Section __.
           exists outs1. split; [right; exact Hin1 | exact Hino1].
     Qed.
 
+    (* Simulation used to replay an input-free witness from a dominating state.
+       gsB dominates gsA: every node of gsB is reached with an input-set that
+       includes gsA's (so it can do at least as much, via monotone'), and every
+       message queued in gsA is either queued in gsB or already delivered to its
+       destination in gsB. *)
+    Definition core_dom (gsA gsB : @graph_state node_state node_states) : Prop :=
+      (forall n np ns0 nsA,
+         map.get p n = Some np -> map.get initial_ns n = Some ns0 ->
+         map.get gsA.(g_nodes) n = Some nsA ->
+         exists tauA tauB nsB,
+           star (node_step np) ns0 tauA nsA /\
+           map.get gsB.(g_nodes) n = Some nsB /\
+           star (node_step np) ns0 tauB nsB /\
+           incl (inputs_of tauA) (inputs_of tauB))
+      /\
+      (forall n m, In (n, m) gsA.(g_messages) ->
+         In (n, m) gsB.(g_messages) \/
+         (exists np ns0 tauB nsB,
+            map.get p n = Some np /\ map.get initial_ns n = Some ns0 /\
+            map.get gsB.(g_nodes) n = Some nsB /\
+            star (node_step np) ns0 tauB nsB /\ In m (inputs_of tauB))).
+
+    (* A single graph step establishes the simulation from gs to gs'. *)
+    Lemma dom_of_step :
+      Forall2_map (fun _ np ns => can_implies_will' (node_step np) A ns) p initial_ns ->
+      forall T gs, star (graph_step p node_step) initial_graph_state T gs ->
+      forall e gs', graph_step p node_step gs e gs' ->
+      core_dom gs gs'.
+    Proof.
+      intros Hpernode T gs HT e gs' Hstep. split.
+      - intros n np ns0 nsA Hp Hns0 HgA.
+        destruct (project_node_gen _ _ _ HT n np ns0 Hp Hns0)
+          as (tauA & nsA' & HtauA & HgA' & _).
+        assert (nsA' = nsA) by congruence. subst nsA'.
+        inversion Hstep as [ gs0 ni mi Hia
+                           | gs0 ni npi nsi nsi' outsi Hpi Hgi Hsi
+                           | gs0 ni npi nsi nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst; cbn.
+        + exists tauA, tauA, nsA. split; [exact HtauA|]. split; [exact HgA|].
+          split; [exact HtauA|]. apply incl_refl.
+        + destruct (Nat.eq_dec n ni) as [Heq|Hne].
+          * subst ni. assert (nsi = nsA) by congruence. subst nsi.
+            assert (npi = np) by congruence. subst npi.
+            exists tauA, (tauA ++ [O_event outsi]), nsi'.
+            split; [exact HtauA|]. split; [apply map.get_put_same|].
+            split; [eapply star_app; [exact HtauA | econstructor; [exact Hsi | constructor]]|].
+            rewrite inputs_of_app. cbn. rewrite app_nil_r. apply incl_refl.
+          * exists tauA, tauA, nsA. split; [exact HtauA|].
+            split; [rewrite map.get_put_diff by auto; exact HgA|].
+            split; [exact HtauA|]. apply incl_refl.
+        + destruct (Nat.eq_dec n ni) as [Heq|Hne].
+          * subst ni. assert (nsi = nsA) by congruence. subst nsi.
+            assert (npi = np) by congruence. subst npi.
+            exists tauA, (tauA ++ [I_event mi]), nsi'.
+            split; [exact HtauA|]. split; [apply map.get_put_same|].
+            split; [eapply star_app; [exact HtauA | econstructor; [exact Hsi | constructor]]|].
+            rewrite inputs_of_app. cbn. apply incl_appl. apply incl_refl.
+          * exists tauA, tauA, nsA. split; [exact HtauA|].
+            split; [rewrite map.get_put_diff by auto; exact HgA|].
+            split; [exact HtauA|]. apply incl_refl.
+      - intros n m Hin.
+        inversion Hstep as [ gs0 ni mi Hia
+                           | gs0 ni npi nsi nsi' outsi Hpi Hgi Hsi
+                           | gs0 ni npi nsi nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst; cbn.
+        + left. right. exact Hin.
+        + left. apply in_or_app. left. exact Hin.
+        + rewrite Hmsg in Hin. apply in_app_or in Hin.
+          destruct Hin as [Hin_a | Hin_mid].
+          * left. apply in_or_app. left. exact Hin_a.
+          * cbn in Hin_mid. destruct Hin_mid as [Heq | Hin_b].
+            -- injection Heq as Hnieq Hmieq. subst.
+               right.
+               pose proof (Hpernode n) as Hpn. rewrite Hpi in Hpn.
+               destruct (map.get initial_ns n) as [ns0|] eqn:Hns0; [|contradiction].
+               destruct (project_node_gen _ _ _ HT n npi ns0 Hpi Hns0)
+                 as (tauB0 & nsB0 & HtauB0 & HgB0 & _).
+               assert (nsB0 = nsi) by congruence. subst nsB0.
+               exists npi, ns0, (tauB0 ++ [I_event m]), nsi'.
+               split; [exact Hpi|]. split; [reflexivity|].
+               split; [apply map.get_put_same|].
+               split; [eapply star_app; [exact HtauB0 | econstructor; [exact Hsi | constructor]]|].
+               rewrite inputs_of_app. cbn. apply in_or_app. right. left. reflexivity.
+            -- left. apply in_or_app. right. exact Hin_b.
+    Qed.
+
+    (* core_replay: the simulation transfers input-free reachability of an output.
+       This is the heart of can_output preservation; proved by replaying the
+       witness from the dominating state, re-deriving each node emission via
+       cap_transfer + lift_node_outputs. *)
+    Lemma core_replay :
+      (forall t, A t) ->
+      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
+      Forall2_map (fun _ np ns => can_implies_will' (node_step np) A ns) p initial_ns ->
+      forall TA gsA, star (graph_step p node_step) initial_graph_state TA gsA ->
+      forall W gsfA, star (graph_step p node_step) gsA W gsfA ->
+      inputs_of W = [] ->
+      forall TB gsB, star (graph_step p node_step) initial_graph_state TB gsB ->
+      core_dom gsA gsB ->
+      forall o, output_in_trace o W ->
+      exists WB gsfB,
+        star (graph_step p node_step) gsB WB gsfB /\
+        inputs_of WB = [] /\ output_in_trace o WB.
+    Proof.
+    Admitted.
+
+    (* can_output is preserved by any single graph step (the demon move). *)
+    Lemma can_output_step :
+      (forall t, A t) ->
+      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
+      Forall2_map (fun _ np ns => can_implies_will' (node_step np) A ns) p initial_ns ->
+      forall T gs, star (graph_step p node_step) initial_graph_state T gs ->
+      forall e gs', graph_step p node_step gs e gs' ->
+      forall t o, can_output (graph_step p node_step) gs t o ->
+                  can_output (graph_step p node_step) gs' (e :: t) o.
+    Proof.
+      intros A_univ Hit Hpernode T gs HT e gs' Hstep t o (W & gsf & HW & HinpW & Hout).
+      apply output_in_trace_app in Hout as [Hout_W | Hout_t].
+      - destruct (core_replay A_univ Hit Hpernode T gs HT W gsf HW HinpW
+                    (T ++ [e]) gs'
+                    (star_app _ _ _ _ _ _ HT (star_step _ _ _ _ _ _ Hstep (star_refl _ _)))
+                    (dom_of_step Hpernode T gs HT e gs' Hstep) o Hout_W)
+          as (WB & gsfB & HWB & HinpWB & HoutWB).
+        exists WB, gsfB. split; [exact HWB|]. split; [exact HinpWB|].
+        apply output_in_trace_app. left. exact HoutWB.
+      - exists [], gs'. split; [constructor|]. split; [reflexivity|].
+        cbn. destruct Hout_t as (outs & Hin & Hino).
+        exists outs. split; [right; exact Hin | exact Hino].
+    Qed.
+
     (* ORCHESTRATION (crux liveness lemma).  If the angel can win after the graph
        performs an internal (input-free) path T_pre, then it can win from gs.
        Intuition: the angel forces the graph along T_pre.  The demon interferes,
