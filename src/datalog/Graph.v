@@ -26,6 +26,9 @@ Section __.
       { g_nodes : node_states;
         g_messages : list (node_id (*destination*) * message) }.
 
+    (*note that this isn't actually a good way to write these semantics, since some IO_events are distinguishable from each other!
+      the problem is that inputting to one node is not the same as inputting to another node.
+      so instead, we should have graph_step : _ -> IO_event (message * node_id) -> _ -> Prop. *)
     Inductive graph_step : graph_state -> IO_event -> graph_state -> Prop :=
     | gstep_input gs n m :
       input_allowed n m = true ->
@@ -632,57 +635,63 @@ Section __.
     Lemma graph_can_implies_will' :
       (forall t, A t) ->
       Forall2_map (fun _ np ns => can_implies_will' (node_step np) A ns) p initial_ns ->
-      can_implies_will' (graph_step p node_step) A initial_graph_state.
+      can_implies_will (graph_step p node_step) A initial_graph_state.
     Proof.
-      intros A_univ Hpernode t gs o Hstar Hall Hout gs' t' Hincl Hstar' Hall'.
-      (* Step 2: Find producing step in t. *)
-      destruct (find_producing_step' _ _ _ Hstar _ Hout)
+      intros A_univ Hpernode t gs o Hstar Hall Hcan.
+      destruct Hcan as (T_a & s_f & Hstar_a & Hinp_a & Hout).
+      apply output_in_trace_app in Hout as [Hout_T | Hout_t].
+      2: { apply eventually_done. exact Hout_t. }
+      (* Find the producing step in T_a (which has inputs_of = []). *)
+      destruct (find_producing_step _ _ _ Hstar_a Hinp_a _ Hout_T)
         as (T_pre & T_post & n_o & np_o & ns_o & ns_o' & outs_o
-            & gs_pre & gs_post & Heq_T & Hstar_pre & Hstep_prod
-            & Hstar_post & Hp_o & Hg_o & Hns_o & Hino_o & Hvis_o).
-      (* Step 4: Get per-node ciw' at n_o. *)
+            & gs_pre & gs_post & Heq_T & Hstar_pre_a & Hstep_prod
+            & Hstar_post_a & Hinp_pre & Hp_o & Hg_o & Hns_o & Hino_o & Hvis_o).
+      (* Get per-node ciw' at n_o. *)
       pose proof (Hpernode n_o) as Hp_n.
       rewrite Hp_o in Hp_n.
       destruct (map.get initial_ns n_o) as [ns_init|] eqn:Hns_init; [|contradiction].
-      (* Step 5: Project Hstar_pre to per-node n_o. *)
-      destruct (project_node_gen _ _ _ Hstar_pre n_o np_o ns_init Hp_o Hns_init)
-        as (tau_pre & ns_at_gs_pre & Htau_pre & Hg_at_gs_pre & Hpres_pre).
-      rewrite Hg_at_gs_pre in Hg_o. inversion Hg_o. subst ns_at_gs_pre.
-      (* Step 6: Build per-node trace witnessing output_in_trace o. *)
-      set (tau_with_o := tau_pre ++ [O_event outs_o]).
+      (* Combined star: initial → t → gs → T_pre → gs_pre. *)
+      pose proof (star_app _ _ _ _ _ _ Hstar Hstar_pre_a) as Hstar_to_pre.
+      (* Project to n_o, getting per-node trace tau_to_pre that ends at ns_o. *)
+      destruct (project_node_gen _ _ _ Hstar_to_pre n_o np_o ns_init Hp_o Hns_init)
+        as (tau_to_pre & ns_at_pre & Htau_to_pre & Hg_at_pre & Hpres_to_pre).
+      rewrite Hg_at_pre in Hg_o. inversion Hg_o. subst ns_at_pre.
+      (* Build per-node trace with o by appending the producing step. *)
+      set (tau_with_o := tau_to_pre ++ [O_event outs_o]).
       assert (Htau_with_o : star (node_step np_o) ns_init tau_with_o ns_o').
-      { subst tau_with_o. eapply star_app; [exact Htau_pre|].
+      { subst tau_with_o. eapply star_app; [exact Htau_to_pre|].
         econstructor; [exact Hns_o | constructor]. }
       assert (Hout_tau_with_o : output_in_trace o tau_with_o).
       { subst tau_with_o. apply output_in_trace_app. right.
         exists outs_o. split; [left; reflexivity | exact Hino_o]. }
-      (* Step 7: Project Hstar' to per-node n_o. *)
-      destruct (project_node_gen _ _ _ Hstar' n_o np_o ns_init Hp_o Hns_init)
-        as (tau' & ns_at_gs' & Htau' & Hg_at_gs' & Hpres').
-      (* Step 8: Per-node incl.
-         Graph-level Hincl : incl (inputs_of t) (inputs_of t') only captures
-         gstep_input events.  Per-node tau_pre's inputs include I_event m's that
-         came from gstep_receive's of internally-forwarded messages (produced by
-         other nodes via gstep_run).  Those internal inputs are NOT in inputs_of t,
-         and need not appear in inputs_of t', so per-node incl does not follow
-         from graph incl.
+      (* Project Hstar (initial → t → gs) to per-node n_o.
+         tau_outer is n_o's per-node trace from initial up to gs. *)
+      destruct (project_node_gen _ _ _ Hstar n_o np_o ns_init Hp_o Hns_init)
+        as (tau_outer & ns_outer & Htau_outer & Hg_outer & Hpres_outer).
+      (* Per-node incl from tau_with_o to tau_outer:
+         tau_with_o = tau_outer ++ (T_pre's per-node events at n_o) ++ [O_event outs_o].
+         inputs_of tau_with_o = inputs_of tau_outer + (T_pre's per-node I_events at n_o).
+         T_pre is part of the angel's plan T_a (graph-level no-input), but it may
+         contain gstep_receive's for n_o — producing per-node I_events at n_o.
+         Those internal inputs are not in tau_outer, so the incl direction
+         (tau_with_o ⊆ tau_outer) does NOT hold in general.
          This is the obstacle. *)
-      assert (Hincl_per : incl (inputs_of tau_with_o) (inputs_of tau')).
+      assert (Hincl_per : incl (inputs_of tau_with_o) (inputs_of tau_outer)).
       { admit. }
-      (* Step 9: Apply per-node ciw'. *)
+      (* Per-node ciw' application. *)
       assert (Hwill_per :
                 eventually (can_step (node_step np_o) A)
                            (fun '(_, t'') => output_in_trace o t'')
-                           (ns_at_gs', tau')).
+                           (ns_outer, tau_outer)).
       { apply (Hp_n tau_with_o ns_o' o Htau_with_o);
           [unfold allowed_trace; auto | exact Hout_tau_with_o
-           | exact Hincl_per | exact Htau'
+           | exact Hincl_per | exact Htau_outer
            | unfold allowed_trace; auto]. }
-      (* Step 11: drive_node_must lifts per-node will_output to graph. *)
+      (* drive_node_must lifts per-node will_output to graph at (gs, t). *)
       apply (drive_node_must A_univ np_o n_o o Hp_o Hvis_o
-                             (ns_at_gs', tau') Hwill_per gs' t').
-      - cbn. exact Hg_at_gs'.
-      - cbn. intros Hout_tau'. apply Hpres'; [exact Hvis_o | exact Hout_tau'].
+                             (ns_outer, tau_outer) Hwill_per gs t).
+      - cbn. exact Hg_outer.
+      - cbn. intros Hout_tau. apply Hpres_outer; [exact Hvis_o | exact Hout_tau].
     Admitted.
   End graph.
 End __.
