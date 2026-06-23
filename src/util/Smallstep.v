@@ -46,7 +46,7 @@ End io.
 
 Arguments IO_event : clear implicits.
 
-Section __.
+Section step.
   Context {state message : Type}.
   Context (step : state -> IO_event message -> state -> Prop).
   Context (allowed : list message -> Prop).
@@ -160,6 +160,12 @@ Section __.
       star step start t' s' /\
         inputs_of t' = [] /\
         output_in_trace output (t' ++ t).
+
+  Definition produces (init : state) (inputs : list message) (output : message) : Prop :=
+    exists t ns,
+      star step init t ns /\
+      inputs_of t = inputs /\
+      output_in_trace output t.
 
   Definition will_output start t (output : message) : Prop :=
     eventually can_step
@@ -442,4 +448,150 @@ Section __.
     intros Hweak Hcan t s Hstar Hall o HD.
     apply Hcan; auto.
   Qed.
-End __.
+End step.
+
+Section steps_corresp.
+  Context {message : Type}.
+  Context (allowed : list message -> Prop).
+  Local Notation allowed_trace := (allowed_trace allowed).
+  Local Notation IO_event := (IO_event message).
+
+  Section steps.
+    Context {state1 : Type}.
+    Context (step1 : state1 -> IO_event -> state1 -> Prop).
+    Context (initial1 : state1).
+
+    Context {state2 : Type}.
+    Context (step2 : state2 -> IO_event -> state2 -> Prop).
+    Context (initial2 : state2).
+
+    (* These are exact duals over [produces step1 initial1]: soundness has it as a
+       conclusion (every actual system-2 output is system-1-producible at the same
+       inputs), completeness has it as a hypothesis (every system-1-producible
+       output is can_output-able by system 2 at the same inputs). *)
+    Definition steps_corresp_sound :=
+      forall t2 ns2 output,
+        star step2 initial2 t2 ns2 ->
+        allowed_trace t2 ->
+        output_in_trace output t2 ->
+        produces step1 initial1 (inputs_of t2) output.
+
+    Definition steps_corresp_complete :=
+      forall t2 ns2 output,
+        star step2 initial2 t2 ns2 ->
+        allowed_trace t2 ->
+        produces step1 initial1 (inputs_of t2) output ->
+        can_output step2 ns2 t2 output.
+
+    Lemma complete_sound D :
+      input_total step1 ->
+      complete_weak step1 allowed initial1 D ->
+      steps_corresp_complete ->
+      complete_weak step2 allowed initial2 D.
+    Proof.
+      intros Hit1 Hcw1 Hcorresp t2 ns2 Hstar2 Hall2 o HD.
+      destruct (star_recv step1 Hit1 (inputs_of t2) initial1)
+        as (t1 & ns1 & Hstar1 & Hinp1).
+      assert (Hall1 : allowed_trace t1).
+      { unfold allowed_trace in Hall2 |- *. rewrite Hinp1. exact Hall2. }
+      assert (HD1 : D (inputs_of t1) o) by (rewrite Hinp1; exact HD).
+      apply (Hcw1 _ _ Hstar1 Hall1) in HD1.
+      destruct HD1 as (t' & ns' & Hstar' & Hinpt' & Hout).
+      pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar') as Hstar_full.
+      apply (Hcorresp t2 ns2 o Hstar2 Hall2).
+      unfold produces. exists (t1 ++ t'), ns'.
+      split; [exact Hstar_full|]. split.
+      - rewrite inputs_of_app, Hinpt', app_nil_r. exact Hinp1.
+      - apply output_in_trace_app. apply output_in_trace_app in Hout.
+        destruct Hout as [Hout|Hout]; [right|left]; exact Hout.
+    Qed.
+
+    Lemma sound_sound D :
+      sound step1 allowed initial1 D ->
+      steps_corresp_sound ->
+      sound step2 allowed initial2 D.
+     Proof.
+      intros Hs1 Hcorresp t2 s2 Hstar2 Hall2 o Hout2.
+      pose proof (Hcorresp _ _ _ Hstar2 Hall2 Hout2) as Hpr. unfold produces in Hpr.
+      destruct Hpr as (t1 & s1 & Hstar1 & Hinp & Hout1).
+      assert (Hall1 : allowed_trace t1).
+      { unfold allowed_trace in Hall2 |- *. rewrite Hinp. exact Hall2. }
+      pose proof (Hs1 _ _ Hstar1 Hall1 _ Hout1) as HD.
+      rewrite Hinp in HD. exact HD.
+    Qed.
+
+    Definition steps_bicorresp :=
+      forall t1 t2 ns1 ns2,
+        star step1 initial1 t1 ns1 ->
+        star step2 initial2 t2 ns2 ->
+        allowed_trace t1 ->
+        allowed_trace t2 ->
+        inputs_of t1 = inputs_of t2 ->
+        forall output,
+          can_output step1 ns1 t1 output <->
+          can_output step2 ns2 t2 output.
+
+    Lemma sound_complete_bicorresp :
+      monotone' step1 allowed initial1 ->
+      steps_corresp_complete ->
+      steps_corresp_sound ->
+      steps_bicorresp.
+    Proof.
+      intros Hmono Hcomp Hsound t1 t2 ns1 ns2 Hstar1 Hstar2 Hall1 Hall2 Heq o.
+      split.
+      - intros (t' & ns' & Hstar' & Hinpt' & Hout).
+        pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar') as Hstar1'.
+        apply (Hcomp t2 ns2 o Hstar2 Hall2).
+        unfold produces. exists (t1 ++ t'), ns'.
+        split; [exact Hstar1'|]. split.
+        + rewrite inputs_of_app, Hinpt', app_nil_r. exact Heq.
+        + apply output_in_trace_app. apply output_in_trace_app in Hout.
+          destruct Hout as [Hout|Hout]; [right|left]; exact Hout.
+      - intros (t' & ns' & Hstar' & Hinpt' & Hout).
+        pose proof (star_app _ _ _ _ _ _ Hstar2 Hstar') as Hstar2'.
+        assert (Hall2' : allowed_trace (t2 ++ t')).
+        { unfold allowed_trace.
+          rewrite inputs_of_app, Hinpt', app_nil_r. exact Hall2. }
+        assert (Hout2' : output_in_trace o (t2 ++ t')).
+        { apply output_in_trace_app. apply output_in_trace_app in Hout.
+          destruct Hout as [Hout|Hout]; [right|left]; exact Hout. }
+        pose proof (Hsound _ _ _ Hstar2' Hall2' Hout2') as Hpr. unfold produces in Hpr.
+        destruct Hpr as (t1' & ns1' & Hstar1' & Heqinp & Hout1).
+        assert (Hcan1' : can_output step1 ns1' t1' o).
+        { exists [], ns1'. split; [constructor|].
+          split; [reflexivity|exact Hout1]. }
+        apply (Hmono t1' t1 ns1' ns1 o Hstar1' Hstar1); auto.
+        + (* allowed_trace t1' *)
+          unfold allowed_trace. rewrite Heqinp. exact Hall2'.
+        + (* incl *)
+          rewrite Heqinp, inputs_of_app, Hinpt', app_nil_r, <- Heq.
+          apply incl_refl.
+    Qed.
+
+    Fail Fail Definition steps_equiv :=
+      exists D,
+        (*monotone D /\*)
+        described_by step1 allowed initial1 D /\
+          described_by step2 allowed initial2 D.
+  End steps.
+
+  Section steps.
+    Context {state1 : Type}.
+    Context (step1 : state1 -> IO_event -> state1 -> Prop).
+    Context (initial1 : state1).
+
+    Context {state2 : Type}.
+    Context (step2 : state2 -> IO_event -> state2 -> Prop).
+    Context (initial2 : state2).
+
+    Lemma sound_impl_complete :
+      steps_corresp_sound step1 initial1 step2 initial2 ->
+      steps_corresp_complete step2 initial2 step1 initial1.
+    Proof. Abort.
+
+    Lemma complete_impl_sound :
+      steps_corresp_complete step2 initial2 step1 initial1 ->
+      steps_corresp_sound step1 initial1 step2 initial2.
+    Proof. Abort.
+  End steps.
+End steps_corresp.
