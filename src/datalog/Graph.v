@@ -632,12 +632,99 @@ Section __.
           split; [exact Hns_o|]. split; [exact Hino_o | exact Hvis_o].
     Qed.
 
-    Lemma graph_can_implies_will' :
+    (* Per-node ciw' gives per-node ciw. *)
+    Lemma pernode_ciw :
+      Forall2_map (fun _ np ns => can_implies_will' (node_step np) A ns) p initial_ns ->
+      forall n_o np_o ns_init,
+        map.get p n_o = Some np_o ->
+        map.get initial_ns n_o = Some ns_init ->
+        can_implies_will (node_step np_o) A ns_init.
+    Proof.
+      intros Hpernode n_o np_o ns_init Hp_o Hns_init.
+      pose proof (Hpernode n_o) as Hp_n.
+      rewrite Hp_o, Hns_init in Hp_n.
+      apply (ciw'_iff_ciw_and_monotone' (node_step np_o) A ns_init) in Hp_n.
+      apply Hp_n.
+    Qed.
+
+    (* Per-node ciw' gives per-node monotone'. *)
+    Lemma pernode_monotone' :
+      Forall2_map (fun _ np ns => can_implies_will' (node_step np) A ns) p initial_ns ->
+      forall n_o np_o ns_init,
+        map.get p n_o = Some np_o ->
+        map.get initial_ns n_o = Some ns_init ->
+        monotone' (node_step np_o) A ns_init.
+    Proof.
+      intros Hpernode n_o np_o ns_init Hp_o Hns_init.
+      pose proof (Hpernode n_o) as Hp_n.
+      rewrite Hp_o, Hns_init in Hp_n.
+      apply (ciw'_iff_ciw_and_monotone' (node_step np_o) A ns_init) in Hp_n.
+      apply Hp_n.
+    Qed.
+
+    (* L2: if node n_o is "armed" for o (node-level can_output o from its current
+       state, with empty past trace) and o is visible from n_o, then the graph can
+       force o.  This is the final-emission step of the orchestration. *)
+    Lemma armed_node_drives :
       (forall t, A t) ->
+      Forall2_map (fun _ np ns => can_implies_will' (node_step np) A ns) p initial_ns ->
+      forall (t : list IO_event) (gs : graph_state),
+        star (graph_step p node_step) initial_graph_state t gs ->
+        forall (n_o : node_id) (np_o : node_prog) (ns_o : node_state) (o : message),
+          map.get p n_o = Some np_o ->
+          map.get gs.(g_nodes) n_o = Some ns_o ->
+          output_visible n_o o = true ->
+          can_output (node_step np_o) ns_o [] o ->
+          will_output (graph_step p node_step) A gs t o.
+    Proof.
+      intros A_univ Hpernode t gs Hstar n_o np_o ns_o o Hp_o Hg_o Hvis Harmed.
+      destruct (map.get initial_ns n_o) as [ns_init|] eqn:Hns_init.
+      2:{ pose proof (Hpernode n_o) as Hp_n. rewrite Hp_o, Hns_init in Hp_n.
+          contradiction. }
+      pose proof (pernode_ciw Hpernode n_o np_o ns_init Hp_o Hns_init) as Hciw_node.
+      destruct (project_node_gen _ _ _ Hstar n_o np_o ns_init Hp_o Hns_init)
+        as (tau & ns_at_gs & Htau & Hg_at_gs & Hpres).
+      assert (ns_at_gs = ns_o) by congruence. subst ns_at_gs.
+      assert (Hcan_tau : can_output (node_step np_o) ns_o tau o).
+      { destruct Harmed as (t' & s' & Hstar' & Hinp' & Hout').
+        exists t', s'. split; [exact Hstar'|]. split; [exact Hinp'|].
+        apply output_in_trace_app. left. rewrite app_nil_r in Hout'. exact Hout'. }
+      pose proof (Hciw_node tau ns_o o Htau (allowed_trace_universal A A_univ tau) Hcan_tau)
+        as Hwill_node.
+      apply (drive_node_must A_univ np_o n_o o Hp_o Hvis (ns_o, tau) Hwill_node gs t).
+      - cbn. exact Hg_o.
+      - cbn. intros Hout_tau. apply Hpres; [exact Hvis | exact Hout_tau].
+    Qed.
+
+    (* ORCHESTRATION (crux liveness lemma).  If the angel can win after the graph
+       performs an internal (input-free) path T_pre, then it can win from gs.
+       Intuition: the angel forces the graph along T_pre.  The demon interferes,
+       but (i) input_total guarantees the angel can always deliver any queued
+       message, (ii) per-node ciw'/monotone' make "arming" permanent (a node that
+       can produce o keeps that ability under any further step), and the per-node
+       will-trees provide termination of each forced production. *)
+    Lemma orchestrate :
+      (forall t, A t) ->
+      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
+      Forall2_map (fun _ np ns => can_implies_will' (node_step np) A ns) p initial_ns ->
+      forall gs t,
+        star (graph_step p node_step) initial_graph_state t gs ->
+        forall T_pre gs_pre,
+          star (graph_step p node_step) gs T_pre gs_pre ->
+          inputs_of T_pre = [] ->
+          forall o,
+            will_output (graph_step p node_step) A gs_pre (T_pre ++ t) o ->
+            will_output (graph_step p node_step) A gs t o.
+    Proof.
+    Admitted.
+
+    Lemma graph_can_implies_will :
+      (forall t, A t) ->
+      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
       Forall2_map (fun _ np ns => can_implies_will' (node_step np) A ns) p initial_ns ->
       can_implies_will (graph_step p node_step) A initial_graph_state.
     Proof.
-      intros A_univ Hpernode t gs o Hstar Hall Hcan.
+      intros A_univ Hit Hpernode t gs o Hstar Hall Hcan.
       destruct Hcan as (T_a & s_f & Hstar_a & Hinp_a & Hout).
       apply output_in_trace_app in Hout as [Hout_T | Hout_t].
       2: { apply eventually_done. exact Hout_t. }
@@ -646,53 +733,29 @@ Section __.
         as (T_pre & T_post & n_o & np_o & ns_o & ns_o' & outs_o
             & gs_pre & gs_post & Heq_T & Hstar_pre_a & Hstep_prod
             & Hstar_post_a & Hinp_pre & Hp_o & Hg_o & Hns_o & Hino_o & Hvis_o).
-      (* Get per-node ciw' at n_o. *)
-      pose proof (Hpernode n_o) as Hp_n.
-      rewrite Hp_o in Hp_n.
-      destruct (map.get initial_ns n_o) as [ns_init|] eqn:Hns_init; [|contradiction].
-      (* Combined star: initial → t → gs → T_pre → gs_pre. *)
+      (* gs_pre is reachable from the initial state via t ++ T_pre. *)
       pose proof (star_app _ _ _ _ _ _ Hstar Hstar_pre_a) as Hstar_to_pre.
-      (* Project to n_o, getting per-node trace tau_to_pre that ends at ns_o. *)
-      destruct (project_node_gen _ _ _ Hstar_to_pre n_o np_o ns_init Hp_o Hns_init)
-        as (tau_to_pre & ns_at_pre & Htau_to_pre & Hg_at_pre & Hpres_to_pre).
-      rewrite Hg_at_pre in Hg_o. inversion Hg_o. subst ns_at_pre.
-      (* Build per-node trace with o by appending the producing step. *)
-      set (tau_with_o := tau_to_pre ++ [O_event outs_o]).
-      assert (Htau_with_o : star (node_step np_o) ns_init tau_with_o ns_o').
-      { subst tau_with_o. eapply star_app; [exact Htau_to_pre|].
-        econstructor; [exact Hns_o | constructor]. }
-      assert (Hout_tau_with_o : output_in_trace o tau_with_o).
-      { subst tau_with_o. apply output_in_trace_app. right.
-        exists outs_o. split; [left; reflexivity | exact Hino_o]. }
-      (* Project Hstar (initial → t → gs) to per-node n_o.
-         tau_outer is n_o's per-node trace from initial up to gs. *)
-      destruct (project_node_gen _ _ _ Hstar n_o np_o ns_init Hp_o Hns_init)
-        as (tau_outer & ns_outer & Htau_outer & Hg_outer & Hpres_outer).
-      (* Per-node incl from tau_with_o to tau_outer:
-         tau_with_o = tau_outer ++ (T_pre's per-node events at n_o) ++ [O_event outs_o].
-         inputs_of tau_with_o = inputs_of tau_outer + (T_pre's per-node I_events at n_o).
-         T_pre is part of the angel's plan T_a (graph-level no-input), but it may
-         contain gstep_receive's for n_o — producing per-node I_events at n_o.
-         Those internal inputs are not in tau_outer, so the incl direction
-         (tau_with_o ⊆ tau_outer) does NOT hold in general.
-         This is the obstacle. *)
-      assert (Hincl_per : incl (inputs_of tau_with_o) (inputs_of tau_outer)).
-      { admit. }
-      (* Per-node ciw' application. *)
-      assert (Hwill_per :
-                eventually (can_step (node_step np_o) A)
-                           (fun '(_, t'') => output_in_trace o t'')
-                           (ns_outer, tau_outer)).
-      { apply (Hp_n tau_with_o ns_o' o Htau_with_o);
-          [unfold allowed_trace; auto | exact Hout_tau_with_o
-           | exact Hincl_per | exact Htau_outer
-           | unfold allowed_trace; auto]. }
-      (* drive_node_must lifts per-node will_output to graph at (gs, t). *)
-      apply (drive_node_must A_univ np_o n_o o Hp_o Hvis_o
-                             (ns_outer, tau_outer) Hwill_per gs t).
-      - cbn. exact Hg_outer.
-      - cbn. intros Hout_tau. apply Hpres_outer; [exact Hvis_o | exact Hout_tau].
-    Admitted.
+      (* At gs_pre, node n_o is "armed" for o: it can emit o in one step. *)
+      assert (Harmed : can_output (node_step np_o) ns_o [] o).
+      { exists [O_event outs_o], ns_o'. split; [|split].
+        - econstructor; [exact Hns_o | constructor].
+        - reflexivity.
+        - apply output_in_trace_app. left.
+          exists outs_o. split; [left; reflexivity | exact Hino_o]. }
+      (* armed_node_drives: the angel wins from gs_pre (with past trace t ++ T_pre). *)
+      pose proof (armed_node_drives A_univ Hpernode (t ++ T_pre) gs_pre Hstar_to_pre
+                    n_o np_o ns_o o Hp_o Hg_o Hvis_o Harmed) as Hwill_pre.
+      (* Reorder the past trace to T_pre ++ t (allowed since A is universal). *)
+      assert (Hwill_pre' : will_output (graph_step p node_step) A gs_pre (T_pre ++ t) o).
+      { unfold will_output in *.
+        apply (eventually_swap o gs_pre (t ++ T_pre) (T_pre ++ t)).
+        - rewrite !inputs_of_app, Hinp_pre, app_nil_r. reflexivity.
+        - intros x. rewrite !output_in_trace_app. tauto.
+        - exact Hwill_pre. }
+      (* orchestrate: pull the win back from gs_pre to gs. *)
+      apply (orchestrate A_univ Hit Hpernode gs t Hstar T_pre gs_pre
+                         Hstar_pre_a Hinp_pre o Hwill_pre').
+    Qed.
   End graph.
 End __.
 
