@@ -60,6 +60,16 @@ Section __.
 
   Local Notation allowed_trace := (allowed_trace A).
 
+  (* [produces step init inputs output]: from [init], [step] has a run whose inputs
+     are exactly [inputs] and in which [output] is emitted.  This is the shared
+     notion underlying soundness/completeness between two node systems. *)
+  Definition produces {state} (step : state -> IO_event -> state -> Prop)
+                      (init : state) (inputs : list message) (output : message) : Prop :=
+    exists t ns,
+      star step init t ns /\
+      inputs_of t = inputs /\
+      output_in_trace output t.
+
   Section nodes.
     Context {node_state1 : Type}.
     Context (node_step1 : node_state1 -> IO_event -> node_state1 -> Prop).
@@ -69,29 +79,23 @@ Section __.
     Context (node_step2 : node_state2 -> IO_event -> node_state2 -> Prop).
     Context (initial_ns2 : node_state2).
 
-    (*is this just the converse of nodes_corresp_sound?
-      yes, obviously---this is why you defined nodes_bicorresp the way it is.
-     *)
-    Definition nodes_corresp_complete :=
-      forall t1 t2 ns1 ns2,
-        star node_step1 initial_ns1 t1 ns1 ->
-        star node_step2 initial_ns2 t2 ns2 ->
-        allowed_trace t1 ->
-        allowed_trace t2 ->
-        inputs_of t1 = inputs_of t2 ->
-        forall output,
-          output_in_trace output t1 ->
-          can_output node_step2 ns2 t2 output.
-
+    (* These are exact duals over [produces node_step1 initial_ns1]: soundness has
+       it as a conclusion (every actual node2 output is node1-producible at the same
+       inputs), completeness has it as a hypothesis (every node1-producible output is
+       can_output-able by node2 at the same inputs). *)
     Definition nodes_corresp_sound :=
       forall t2 ns2 output,
         star node_step2 initial_ns2 t2 ns2 ->
         allowed_trace t2 ->
         output_in_trace output t2 ->
-        exists t1 ns1,
-          star node_step1 initial_ns1 t1 ns1 /\
-          inputs_of t1 = inputs_of t2 /\
-            output_in_trace output t1.
+        produces node_step1 initial_ns1 (inputs_of t2) output.
+
+    Definition nodes_corresp_complete :=
+      forall t2 ns2 output,
+        star node_step2 initial_ns2 t2 ns2 ->
+        allowed_trace t2 ->
+        produces node_step1 initial_ns1 (inputs_of t2) output ->
+        can_output node_step2 ns2 t2 output.
 
     Lemma complete_sound D :
       input_total node_step1 ->
@@ -108,9 +112,9 @@ Section __.
       apply (Hcw1 _ _ Hstar1 Hall1) in HD1.
       destruct HD1 as (t' & ns' & Hstar' & Hinpt' & Hout).
       pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar') as Hstar_full.
-      apply (Hcorresp (t1 ++ t') t2 ns' ns2); auto.
-      - unfold allowed_trace in Hall1 |- *.
-        rewrite inputs_of_app, Hinpt', app_nil_r. exact Hall1.
+      apply (Hcorresp t2 ns2 o Hstar2 Hall2).
+      unfold produces. exists (t1 ++ t'), ns'.
+      split; [exact Hstar_full|]. split.
       - rewrite inputs_of_app, Hinpt', app_nil_r. exact Hinp1.
       - apply output_in_trace_app. apply output_in_trace_app in Hout.
         destruct Hout as [Hout|Hout]; [right|left]; exact Hout.
@@ -122,8 +126,8 @@ Section __.
       sound node_step2 A initial_ns2 D.
      Proof.
       intros Hs1 Hcorresp t2 s2 Hstar2 Hall2 o Hout2.
-      destruct (Hcorresp _ _ _ Hstar2 Hall2 Hout2)
-        as (t1 & s1 & Hstar1 & Hinp & Hout1).
+      pose proof (Hcorresp _ _ _ Hstar2 Hall2 Hout2) as Hpr. unfold produces in Hpr.
+      destruct Hpr as (t1 & s1 & Hstar1 & Hinp & Hout1).
       assert (Hall1 : allowed_trace t1).
       { unfold allowed_trace in Hall2 |- *. rewrite Hinp. exact Hall2. }
       pose proof (Hs1 _ _ Hstar1 Hall1 _ Hout1) as HD.
@@ -151,9 +155,9 @@ Section __.
       split.
       - intros (t' & ns' & Hstar' & Hinpt' & Hout).
         pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar') as Hstar1'.
-        apply (Hcomp (t1 ++ t') t2 ns' ns2); auto.
-        + unfold allowed_trace.
-          rewrite inputs_of_app, Hinpt', app_nil_r. exact Hall1.
+        apply (Hcomp t2 ns2 o Hstar2 Hall2).
+        unfold produces. exists (t1 ++ t'), ns'.
+        split; [exact Hstar1'|]. split.
         + rewrite inputs_of_app, Hinpt', app_nil_r. exact Heq.
         + apply output_in_trace_app. apply output_in_trace_app in Hout.
           destruct Hout as [Hout|Hout]; [right|left]; exact Hout.
@@ -165,8 +169,8 @@ Section __.
         assert (Hout2' : output_in_trace o (t2 ++ t')).
         { apply output_in_trace_app. apply output_in_trace_app in Hout.
           destruct Hout as [Hout|Hout]; [right|left]; exact Hout. }
-        destruct (Hsound _ _ _ Hstar2' Hall2' Hout2')
-          as (t1' & ns1' & Hstar1' & Heqinp & Hout1).
+        pose proof (Hsound _ _ _ Hstar2' Hall2' Hout2') as Hpr. unfold produces in Hpr.
+        destruct Hpr as (t1' & ns1' & Hstar1' & Heqinp & Hout1).
         assert (Hcan1' : can_output node_step1 ns1' t1' o).
         { exists [], ns1'. split; [constructor|].
           split; [reflexivity|exact Hout1]. }
