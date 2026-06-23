@@ -1194,6 +1194,80 @@ Section __.
       cbn in Hx0. eauto.
     Qed.
 
+    (* Re-emit a whole list of messages from node n at a reachable gsB, given n is
+       armed for each.  Each is either freshly emitted (lift_node_outputs forwards
+       it) or already in n's trace (graph_saturated already forwarded it).  After
+       the run, every target of every listed message is queued or has received it. *)
+    Lemma advance_emit :
+      (forall t, A t) ->
+      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
+      forall (ms : list message) (n : node_id) (np : node_prog),
+        map.get p n = Some np ->
+        forall Tb gsB, star (graph_step p node_step) initial_graph_state Tb gsB ->
+        forall nsB tB, map.get gsB.(g_nodes) n = Some (nsB, tB) ->
+        (forall mu, In mu ms -> can_output (node_step np) nsB tB mu) ->
+        exists WB gsfB nsB' tBe,
+          star (graph_step p node_step) gsB WB gsfB /\
+          inputs_of WB = [] /\
+          map.get gsfB.(g_nodes) n = Some (nsB', tB ++ tBe) /\
+          (forall n2, n2 <> n -> map.get gsfB.(g_nodes) n2 = map.get gsB.(g_nodes) n2) /\
+          (exists extra, gsfB.(g_messages) = gsB.(g_messages) ++ extra) /\
+          (forall mu n', In mu ms -> In n' (forward n mu) ->
+             In (n', mu) gsfB.(g_messages) \/ node_received gsfB n' mu).
+    Proof.
+      intros A_univ Hpernode ms n np Hp.
+      induction ms as [|mu ms IH]; intros Tb gsB HTb nsB tB Hg Hcan.
+      - exists [], gsB, nsB, []. rewrite app_nil_r.
+        split; [constructor|]. split; [reflexivity|]. split; [exact Hg|].
+        split; [reflexivity|]. split; [exists []; rewrite app_nil_r; reflexivity|].
+        intros mu n' [].
+      - (* node n's bare initial state, for arming permanence *)
+        destruct (reachable_state_initial _ _ HTb n _ Hg) as (ns0 & Hns0).
+        pose proof (pernode_ciw Hpernode n np ns0 Hp Hns0) as Hciw.
+        destruct (project_node_gen _ _ HTb n np ns0 Hp Hns0)
+          as (tauP & nsP & HstarP & HgP & _).
+        assert (nsP = nsB) by congruence. assert (tauP = tB) by congruence.
+        subst nsP tauP.
+        (* emit mu *)
+        destruct (Hcan mu (or_introl eq_refl)) as (tau & s' & Hstar_run & Hinp_run & Hout_run).
+        destruct (lift_node_outputs n np Hp nsB tau s' Hstar_run Hinp_run gsB tB Hg)
+          as (WB1 & gsB1 & HstarB1 & HinpB1 & HgB1 & HotherB1 & (extra1 & Hextra1) & HfwdB1 & _).
+        (* arming permanence for the rest of ms *)
+        assert (Hcan' : forall mu', In mu' ms -> can_output (node_step np) s' (tB ++ tau) mu').
+        { intros mu' Hin'.
+          eapply can_output_star_preserved;
+            [exact A_univ | exact Hciw | exact Hstar_run | exact HstarP
+            | apply (Hcan mu' (or_intror Hin'))]. }
+        destruct (IH (Tb ++ WB1) gsB1 (star_app _ _ _ _ _ _ HTb HstarB1) s' (tB ++ tau) HgB1 Hcan')
+          as (WB2 & gsfB & nsB'' & tBe2 & HstarB2 & HinpB2 & HgfB & HotherB2
+              & (extra2 & Hextra2) & HfwdB2).
+        exists (WB1 ++ WB2), gsfB, nsB'', (tau ++ tBe2).
+        split; [eapply star_app; eassumption|].
+        split; [rewrite inputs_of_app, HinpB1, HinpB2; reflexivity|].
+        split; [rewrite app_assoc; exact HgfB|].
+        split.
+        { intros n2 Hn2. rewrite (HotherB2 n2 Hn2). apply (HotherB1 n2 Hn2). }
+        split.
+        { exists (extra1 ++ extra2). rewrite Hextra2, Hextra1, app_assoc. reflexivity. }
+        intros mu0 n' Hin0 Hfwd0.
+        destruct Hin0 as [-> | Hin0'].
+        + (* mu0 = mu *)
+          apply output_in_trace_app in Hout_run as [Hmu_tau | Hmu_tB].
+          * (* freshly emitted in tau *)
+            destruct Hmu_tau as (outs0 & Hin_o0 & Hino0).
+            left. rewrite Hextra2. apply in_or_app. left.
+            apply (HfwdB1 outs0 mu0 n' Hin_o0 Hino0 Hfwd0).
+          * (* already in n's trace tB: saturation forwarded it *)
+            pose proof (graph_saturated _ _ HTb n np nsB tB Hp Hg mu0 n' Hmu_tB Hfwd0)
+              as [Hq | Hr].
+            -- left. rewrite Hextra2, Hextra1.
+               apply in_or_app. left. apply in_or_app. left. exact Hq.
+            -- right. apply (node_received_mono _ _ _
+                              (star_app _ _ _ _ _ _ HstarB1 HstarB2) n' mu0 Hr).
+        + (* mu0 in ms: from the recursive call *)
+          apply (HfwdB2 mu0 n' Hin0' Hfwd0).
+    Qed.
+
     (* core_replay: the simulation transfers input-free reachability of an output.
        This is the heart of can_output preservation; proved by replaying the
        witness from the dominating state, re-deriving each node emission via
