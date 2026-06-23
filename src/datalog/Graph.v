@@ -797,6 +797,45 @@ Section __.
       apply Hp_n.
     Qed.
 
+    (* If o' does not appear (as output) in the past trace tau, then can_output
+       with past tau collapses to can_output with empty past ("armed"). *)
+    Lemma can_output_drop_past :
+      forall (np : node_prog) (ns : node_state) (tau : list IO_event) (o' : message),
+        ~ output_in_trace o' tau ->
+        can_output (node_step np) ns tau o' ->
+        can_output (node_step np) ns [] o'.
+    Proof.
+      intros np ns tau o' Hno (t' & s' & Hstar' & Hinp' & Hout').
+      exists t', s'. split; [exact Hstar'|]. split; [exact Hinp'|].
+      rewrite app_nil_r.
+      apply output_in_trace_app in Hout' as [Hout|Hout]; [exact Hout | contradiction].
+    Qed.
+
+    (* cap_transfer: capability is monotone in the received-input set.  If node n
+       reaches ns_W via tau_W and ns_act via tau_act (both from its init), and
+       tau_W's inputs are included in tau_act's, then anything ns_W can output (with
+       past tau_W) ns_act can too (with past tau_act). Direct from monotone'. *)
+    Lemma cap_transfer :
+      (forall t, A t) ->
+      Forall2_map (fun _ np ns => can_implies_will' (node_step np) A ns) p initial_ns ->
+      forall n np ns0,
+        map.get p n = Some np ->
+        map.get initial_ns n = Some ns0 ->
+        forall tau_W ns_W tau_act ns_act o',
+          star (node_step np) ns0 tau_W ns_W ->
+          star (node_step np) ns0 tau_act ns_act ->
+          incl (inputs_of tau_W) (inputs_of tau_act) ->
+          can_output (node_step np) ns_W tau_W o' ->
+          can_output (node_step np) ns_act tau_act o'.
+    Proof.
+      intros A_univ Hpernode n np ns0 Hp Hns0 tau_W ns_W tau_act ns_act o'
+             HsW Hsact Hincl Hcan.
+      pose proof (pernode_monotone' Hpernode n np ns0 Hp Hns0) as Hmono.
+      apply (Hmono tau_W tau_act ns_W ns_act o' HsW Hsact
+               (allowed_trace_universal A A_univ tau_W)
+               (allowed_trace_universal A A_univ tau_act) Hincl Hcan).
+    Qed.
+
     (* L2: if node n_o is "armed" for o (node-level can_output o from its current
        state, with empty past trace) and o is visible from n_o, then the graph can
        force o.  This is the final-emission step of the orchestration. *)
