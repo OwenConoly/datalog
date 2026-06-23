@@ -1527,6 +1527,55 @@ Section __.
         exists outs. split; [right; exact Hin | exact Hino].
     Qed.
 
+    Lemma core_dom_refl : forall gs, core_dom gs gs.
+    Proof.
+      intros gs. split.
+      - intros n ns t Hg. exists ns, t. split; [exact Hg | apply incl_refl].
+      - intros n m Hin. left. exact Hin.
+    Qed.
+
+    Lemma core_dom_trans : forall a b c, core_dom a b -> core_dom b c -> core_dom a c.
+    Proof.
+      intros a b c [Hab_n Hab_m] [Hbc_n Hbc_m]. split.
+      - intros n ns t Hg.
+        destruct (Hab_n n ns t Hg) as (nsb & tb & Hgb & Hinclb).
+        destruct (Hbc_n n nsb tb Hgb) as (nsc & tc & Hgc & Hinclc).
+        exists nsc, tc. split; [exact Hgc | eapply incl_tran; eassumption].
+      - intros n m Hin.
+        destruct (Hab_m n m Hin) as [Hq | Hr].
+        + apply (Hbc_m n m Hq).
+        + right. destruct Hr as (ns & t & Hg & Hinm).
+          destruct (Hbc_n n ns t Hg) as (nsc & tc & Hgc & Hinclc).
+          exists nsc, tc. split; [exact Hgc | apply Hinclc; exact Hinm].
+    Qed.
+
+    (* core_dom in the second argument is preserved by any further run of it. *)
+    Lemma core_dom_run : forall a b T c,
+      core_dom a b -> star (graph_step p node_step) b T c -> core_dom a c.
+    Proof.
+      intros a b T c Hab Hstar. revert a Hab.
+      induction Hstar as [s | s e s' T0 s'' Hstep Hstar IH]; intros a Hab.
+      - exact Hab.
+      - apply IH. eapply core_dom_trans; [exact Hab | apply (dom_of_step s e s' Hstep)].
+    Qed.
+
+    (* Non-stuckness: if the graph can still output o (and o is not yet in the past
+       trace), then some output step is available right now. *)
+    Lemma graph_live :
+      forall gs T o,
+        can_output (graph_step p node_step) gs T o ->
+        ~ output_in_trace o T ->
+        exists outs gs', graph_step p node_step gs (O_event outs) gs'.
+    Proof.
+      intros gs T o (W & gsf & HW & HinpW & Hout) HnT.
+      apply output_in_trace_app in Hout as [HoW | HoT]; [|contradiction].
+      destruct W as [|e W'].
+      - destruct HoW as (? & [] & _).
+      - inversion HW as [|s0 e0 s1 t0 s2 Hstep0 Hstar0]; subst.
+        cbn in HinpW. destruct e as [m|outs]; [discriminate|].
+        exists outs, s1. exact Hstep0.
+    Qed.
+
     (* ORCHESTRATION (crux liveness lemma).  If the angel can win after the graph
        performs an internal (input-free) path T_pre, then it can win from gs.
        Intuition: the angel forces the graph along T_pre.  The demon interferes,
