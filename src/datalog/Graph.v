@@ -1268,6 +1268,169 @@ Section __.
           apply (HfwdB2 mu0 n' Hin0' Hfwd0).
     Qed.
 
+    (* Faithfully replay an input-free run of gsA from a dominating state gsB,
+       maintaining domination: each gstep_run is re-emitted (advance_emit), each
+       gstep_receive is matched by a delivery (queued at gsB) or skipped (already
+       delivered). *)
+    Lemma dom_advance :
+      (forall t, A t) ->
+      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
+      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
+      forall W gsfA gsA, star (graph_step p node_step) gsA W gsfA ->
+      inputs_of W = [] ->
+      forall TA, star (graph_step p node_step) initial_graph_state TA gsA ->
+      forall TB gsB, star (graph_step p node_step) initial_graph_state TB gsB ->
+      core_dom gsA gsB ->
+      exists WB gsfB,
+        star (graph_step p node_step) gsB WB gsfB /\
+        inputs_of WB = [] /\
+        core_dom gsfA gsfB.
+    Proof.
+      intros A_univ Hit Hpernode W gsfA gsA Hstar.
+      induction Hstar as [gA | gA e gA1 W' gfA Hstep Hstar' IH];
+        intros HinpW TA HTA TB gsB HTB Hdom.
+      - exists [], gsB. split; [constructor|]. split; [reflexivity|]. exact Hdom.
+      - destruct Hdom as [Hdom_n Hdom_m].
+        inversion Hstep as [ gs0 ni mi Hia
+                           | gs0 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
+                           | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst.
+        + (* gstep_input: contradicts inputs_of W = [] *)
+          cbn in HinpW. discriminate.
+        + (* gstep_run ni: re-emit outsi from gsB's node ni *)
+          cbn in HinpW.
+          destruct (Hdom_n ni nsi ti Hgi) as (nsB & tB & HgB & Hincl).
+          (* node ni's bare init, for the monotone' transfer *)
+          destruct (reachable_state_initial _ _ HTA ni _ Hgi) as (ns0 & Hns0).
+          pose proof (pernode_monotone' Hpernode ni npi ns0 Hpi Hns0) as Hmono.
+          destruct (project_node_gen _ _ HTA ni npi ns0 Hpi Hns0)
+            as (tauA & nsatA & HstarA & HgatA & _).
+          assert (nsatA = nsi) by congruence. assert (tauA = ti) by congruence.
+          subst nsatA tauA.
+          destruct (project_node_gen _ _ HTB ni npi ns0 Hpi Hns0)
+            as (tauB & nsatB & HstarB & HgatB & _).
+          assert (nsatB = nsB) by congruence. assert (tauB = tB) by congruence.
+          subst nsatB tauB.
+          assert (Hcan : forall mu, In mu outsi -> can_output (node_step npi) nsB tB mu).
+          { intros mu Hin.
+            apply (Hmono ti tB nsi nsB mu HstarA HstarB
+                     (allowed_trace_universal A A_univ ti)
+                     (allowed_trace_universal A A_univ tB) Hincl).
+            exists [O_event outsi], nsi'. split; [econstructor; [exact Hsi|constructor]|].
+            split; [reflexivity|]. exists outsi. split; [left; reflexivity | exact Hin]. }
+          destruct (advance_emit A_univ Hpernode outsi ni npi Hpi TB gsB HTB nsB tB HgB Hcan)
+            as (WB1 & gsB1 & nsB1 & tBe & HstarB1 & HinpB1 & HgB1 & HotherB1
+                & (extraB & HextraB) & HfwdB1).
+          (* core_dom gsA1 gsB1, then recurse *)
+          assert (Hdom1 : core_dom
+                    {| g_nodes := map.put (g_nodes gA) ni (nsi', ti ++ [O_event outsi]);
+                       g_messages := g_messages gA ++
+                         flat_map (fun m => map (fun n' => (n', m)) (forward ni m)) outsi |}
+                    gsB1).
+          { split.
+            - intros nn nsX tX HgX. cbn in HgX.
+              destruct (Nat.eq_dec nn ni) as [->|Hne].
+              + rewrite map.get_put_same in HgX. injection HgX as <- <-.
+                exists nsB1, (tB ++ tBe). split; [exact HgB1|].
+                rewrite inputs_of_app. cbn. rewrite app_nil_r.
+                eapply incl_tran; [exact Hincl|]. rewrite inputs_of_app. apply incl_appl, incl_refl.
+              + rewrite map.get_put_diff in HgX by auto.
+                destruct (Hdom_n nn nsX tX HgX) as (nsBn & tBn & HgBn & Hincln).
+                exists nsBn, tBn. split; [rewrite (HotherB1 nn Hne); exact HgBn | exact Hincln].
+            - intros nn m Hin. cbn in Hin. apply in_app_or in Hin as [Hin | Hin].
+              + destruct (Hdom_m nn m Hin) as [Hq | Hr].
+                * left. rewrite HextraB. apply in_or_app. left. exact Hq.
+                * right. apply (node_received_mono _ _ _ HstarB1 nn m Hr).
+              + apply in_flat_map in Hin as (mm & Hmm & Hin).
+                apply in_map_iff in Hin as (n'' & Heq & Hn'').
+                injection Heq as <- <-.
+                apply (HfwdB1 mm n'' Hmm Hn''). }
+          destruct (IH HinpW (TA ++ [O_event (filter (output_visible ni) outsi)])
+                      (star_app _ _ _ _ _ _ HTA
+                        (star_step _ _ _ _ _ _ Hstep (star_refl _ _)))
+                      (TB ++ WB1) gsB1
+                      (star_app _ _ _ _ _ _ HTB HstarB1) Hdom1)
+            as (WB2 & gsfB & HstarB2 & HinpB2 & Hdomf).
+          exists (WB1 ++ WB2), gsfB. split; [eapply star_app; eassumption|].
+          split; [rewrite inputs_of_app, HinpB1, HinpB2; reflexivity|]. exact Hdomf.
+        + (* gstep_receive ni mi: match the delivery from gsB *)
+          cbn in HinpW.
+          destruct (Hdom_n ni nsi ti Hgi) as (nsB & tB & HgB & Hincl).
+          assert (Hmrcv : In (ni, mi) (g_messages gsB) \/ node_received gsB ni mi).
+          { apply Hdom_m. rewrite Hmsg. apply in_or_app. right. left. reflexivity. }
+          destruct Hmrcv as [Hq | Hr].
+          * (* (ni,mi) queued at gsB: deliver it *)
+            apply in_split in Hq as (msaB & msbB & HqB).
+            destruct (Hit ni npi Hpi nsB mi) as (nsB' & HstepB).
+            set (gsB1 := {| g_nodes := map.put (g_nodes gsB) ni (nsB', tB ++ [I_event mi]);
+                            g_messages := msaB ++ msbB |}).
+            assert (HstepB1 : graph_step p node_step gsB (O_event []) gsB1)
+              by (eapply gstep_receive; [exact Hpi | exact HgB | exact HstepB | exact HqB]).
+            assert (Hdom1 : core_dom
+                      {| g_nodes := map.put (g_nodes gA) ni (nsi', ti ++ [I_event mi]);
+                         g_messages := msa ++ msb |} gsB1).
+            { split.
+              - intros nn nsX tX HgX. cbn in HgX.
+                destruct (Nat.eq_dec nn ni) as [->|Hne].
+                + rewrite map.get_put_same in HgX. injection HgX as <- <-.
+                  exists nsB', (tB ++ [I_event mi]).
+                  split; [cbn; apply map.get_put_same|].
+                  rewrite !inputs_of_app. cbn. apply incl_app_app; [exact Hincl | apply incl_refl].
+                + rewrite map.get_put_diff in HgX by auto.
+                  destruct (Hdom_n nn nsX tX HgX) as (nsBn & tBn & HgBn & Hincln).
+                  exists nsBn, tBn. split; [cbn; rewrite map.get_put_diff by auto; exact HgBn | exact Hincln].
+              - intros nn m Hin. cbn in Hin.
+                assert (HinA : In (nn, m) (g_messages gA)).
+                { rewrite Hmsg. apply in_app_iff. apply in_app_or in Hin as [H|H];
+                    [left; exact H | right; right; exact H]. }
+                destruct (Hdom_m nn m HinA) as [Hqd | Hrd].
+                + (* in gsB queue = msaB ++ (ni,mi)::msbB *)
+                  rewrite HqB in Hqd. apply in_app_or in Hqd as [H | Hqd2].
+                  * left. cbn. apply in_or_app. left. exact H.
+                  * cbn in Hqd2. destruct Hqd2 as [Heq | H].
+                    -- injection Heq as Hnieq Hmieq. subst nn m. right.
+                       exists nsB', (tB ++ [I_event mi]).
+                       split; [cbn; apply map.get_put_same|].
+                       rewrite inputs_of_app. apply in_or_app. right. left. reflexivity.
+                    -- left. cbn. apply in_or_app. right. exact H.
+                + right. apply (node_received_mono _ _ _
+                            (star_step _ _ _ _ _ _ HstepB1 (star_refl _ _)) nn m Hrd). }
+            destruct (IH HinpW (TA ++ [O_event []])
+                        (star_app _ _ _ _ _ _ HTA
+                          (star_step _ _ _ _ _ _ Hstep (star_refl _ _)))
+                        (TB ++ [O_event []]) gsB1
+                        (star_app _ _ _ _ _ _ HTB
+                          (star_step _ _ _ _ _ _ HstepB1 (star_refl _ _))) Hdom1)
+              as (WB2 & gsfB & HstarB2 & HinpB2 & Hdomf).
+            exists (O_event [] :: WB2), gsfB.
+            split; [econstructor; [exact HstepB1 | exact HstarB2]|].
+            split; [cbn; exact HinpB2|]. exact Hdomf.
+          * (* (ni,mi) already received at gsB: skip, gsB unchanged *)
+            assert (Hdom1 : core_dom
+                      {| g_nodes := map.put (g_nodes gA) ni (nsi', ti ++ [I_event mi]);
+                         g_messages := msa ++ msb |} gsB).
+            { split.
+              - intros nn nsX tX HgX. cbn in HgX.
+                destruct (Nat.eq_dec nn ni) as [->|Hne].
+                + rewrite map.get_put_same in HgX. injection HgX as <- <-.
+                  exists nsB, tB. split; [exact HgB|].
+                  destruct Hr as (nsr & tr & Hgr & Hinr).
+                  assert (tr = tB) by congruence. subst tr.
+                  rewrite inputs_of_app. cbn. apply incl_app; [exact Hincl|].
+                  intros x [<-|[]]. exact Hinr.
+                + rewrite map.get_put_diff in HgX by auto.
+                  apply (Hdom_n nn nsX tX HgX).
+              - intros nn m Hin. cbn in Hin. apply Hdom_m.
+                rewrite Hmsg. apply in_app_iff. apply in_app_or in Hin as [H|H].
+                + left. exact H.
+                + right. right. exact H. }
+            destruct (IH HinpW (TA ++ [O_event []])
+                        (star_app _ _ _ _ _ _ HTA
+                          (star_step _ _ _ _ _ _ Hstep (star_refl _ _)))
+                        TB gsB HTB Hdom1)
+              as (WB2 & gsfB & HstarB2 & HinpB2 & Hdomf).
+            exists WB2, gsfB. split; [exact HstarB2|]. split; [exact HinpB2|]. exact Hdomf.
+    Qed.
+
     (* core_replay: the simulation transfers input-free reachability of an output.
        This is the heart of can_output preservation; proved by replaying the
        witness from the dominating state, re-deriving each node emission via
