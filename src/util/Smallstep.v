@@ -465,10 +465,6 @@ Section steps_corresp.
     Context (step2 : state2 -> IO_event -> state2 -> Prop).
     Context (initial2 : state2).
 
-    (* These are exact duals over [produces step1 initial1]: soundness has it as a
-       conclusion (every actual system-2 output is system-1-producible at the same
-       inputs), completeness has it as a hypothesis (every system-1-producible
-       output is can_output-able by system 2 at the same inputs). *)
     Definition steps_corresp_sound :=
       forall t2 ns2 output,
         star step2 initial2 t2 ns2 ->
