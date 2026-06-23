@@ -1848,7 +1848,7 @@ Section __.
         (fun _ np1 '(ns1, _) np2 '(ns2, _) =>
            steps_corresp_sound A (node_step1 np1) ns1 (node_step2 np2) ns2)
         p1 initial_ns1 p2 initial_ns2 ->
-      steps_corresp_sound A
+      steps_corresp_sound' A
         (graph_step p1 node_step1) (initial_graph_state initial_ns1)
         (graph_step p2 node_step2) (initial_graph_state initial_ns2).
     Proof.

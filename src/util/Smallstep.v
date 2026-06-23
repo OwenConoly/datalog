@@ -113,6 +113,19 @@ Section step.
       + cbn. f_equal. exact Hinp.
   Qed.
 
+  Lemma star_recv_map :
+    input_total ->
+    forall (inputs : list message) (s : state),
+      exists s', star step s (map I_event inputs) s'.
+  Proof.
+    intros Htotal.
+    induction inputs as [|m inputs IH]; intros s.
+    - exists s. constructor.
+    - destruct (Htotal s m) as (s' & Hstep).
+      destruct (IH s') as (s'' & Hstar).
+      exists s''. cbn. econstructor; eassumption.
+  Qed.
+
   (*some fairness condition: we can eventually take the step that we want.
     i wonder whether (exists outs) should appear before (forall s' t')?
     probably not.
@@ -521,6 +534,23 @@ Section steps_corresp.
       { unfold allowed_trace in Hall2 |- *. rewrite Hinp. exact Hall2. }
       pose proof (Hs1 _ _ Hstar1 Hall1 _ Hout1) as HD.
       rewrite Hinp in HD. exact HD.
+    Qed.
+
+    Lemma steps_corresp_sound'_implies_sound :
+      input_total step2 ->
+      can_implies_will' step2 allowed initial2 ->
+      steps_corresp_sound' ->
+      steps_corresp_sound.
+    Proof.
+      intros Hit2 Hciw2 Hscs' t2 ns2 o Hstar2 Hall2 Hout2.
+      destruct (star_recv_map step2 Hit2 (inputs_of t2) initial2) as (ns2' & Hstar2').
+      assert (Hall' : allowed_trace (map I_event (inputs_of t2))).
+      { unfold allowed_trace. rewrite inputs_of_map_I_event. exact Hall2. }
+      assert (Hincl : incl (inputs_of t2) (inputs_of (map I_event (inputs_of t2)))).
+      { rewrite inputs_of_map_I_event. apply incl_refl. }
+      pose proof (Hciw2 t2 ns2 o Hstar2 Hall2 Hout2
+                       ns2' (map I_event (inputs_of t2)) Hincl Hstar2' Hall') as Hwill.
+      exact (Hscs' ns2' (inputs_of t2) o Hstar2' Hall2 Hwill).
     Qed.
 
     Definition steps_bicorresp :=
