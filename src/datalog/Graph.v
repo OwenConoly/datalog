@@ -1447,21 +1447,68 @@ Section __.
       forall o, output_in_trace o W ->
       exists WB gsfB,
         star (graph_step p node_step) gsB WB gsfB /\
-        inputs_of WB = [] /\ output_in_trace o WB.
+        inputs_of WB = [] /\ output_in_trace o (WB ++ TB).
     Proof.
-    Admitted.
+      intros A_univ Hit Hpernode TA gsA HTA W gsfA Hstar HinpW TB gsB HTB Hdom o Hout.
+      (* locate the step that emits o *)
+      destruct (find_producing_step _ _ _ Hstar HinpW _ Hout)
+        as (T_pre & T_post & n_o & np_o & ns_o & ns_o' & t_o & outs_o
+            & gs_preA & gs_postA & HeqW & Hstar_preA & Hprod & Hstar_postA
+            & Hinp_pre & Hp_o & Hg_o & Hns_o & Hino_o & Hvis_o).
+      (* domination-preserving replay of T_pre from gsB *)
+      destruct (dom_advance A_univ Hit Hpernode T_pre gs_preA gsA Hstar_preA Hinp_pre
+                  TA HTA TB gsB HTB Hdom)
+        as (WB1 & gs_preB & HstarB1 & HinpB1 & Hdom_pre).
+      pose proof (star_app _ _ _ _ _ _ HTA Hstar_preA) as HTApre.
+      pose proof (star_app _ _ _ _ _ _ HTB HstarB1) as HTBpre.
+      destruct Hdom_pre as [Hdpre_n _].
+      destruct (Hdpre_n n_o ns_o t_o Hg_o) as (nsBo & tBo & HgBo & Hinclo).
+      (* n_o's bare init and reachability of its projections *)
+      destruct (reachable_state_initial _ _ HTApre n_o _ Hg_o) as (ns0 & Hns0).
+      destruct (project_node_gen _ _ HTApre n_o np_o ns0 Hp_o Hns0)
+        as (tauPA & nsPA & HsPA & HgPA & _).
+      assert (nsPA = ns_o) by congruence. assert (tauPA = t_o) by congruence. subst nsPA tauPA.
+      destruct (project_node_gen _ _ HTBpre n_o np_o ns0 Hp_o Hns0)
+        as (tauPB & nsPB & HsPB & HgPB & HvisPB).
+      assert (nsPB = nsBo) by congruence. assert (tauPB = tBo) by congruence. subst nsPB tauPB.
+      (* transfer n_o's capability to emit o, via monotone' *)
+      pose proof (pernode_monotone' Hpernode n_o np_o ns0 Hp_o Hns0) as Hmono.
+      assert (Hcano : can_output (node_step np_o) ns_o t_o o).
+      { exists [O_event outs_o], ns_o'. split; [econstructor; [exact Hns_o|constructor]|].
+        split; [reflexivity|]. exists outs_o. split; [left; reflexivity | exact Hino_o]. }
+      pose proof (Hmono t_o tBo ns_o nsBo o HsPA HsPB
+                    (allowed_trace_universal A A_univ t_o)
+                    (allowed_trace_universal A A_univ tBo) Hinclo Hcano) as HcanBo.
+      destruct HcanBo as (tau & sfin & Hstau & Hinptau & Houttau).
+      apply output_in_trace_app in Houttau as [Ho_tau | Ho_tB].
+      - (* emit o fresh from gs_preB *)
+        destruct (lift_node_outputs n_o np_o Hp_o nsBo tau sfin Hstau Hinptau gs_preB tBo HgBo)
+          as (WBE & gs_preB' & HsBE & HinpBE & _ & _ & _ & _ & HvBE).
+        exists (WB1 ++ WBE), gs_preB'.
+        split; [eapply star_app; eassumption|].
+        split; [rewrite inputs_of_app, HinpB1, HinpBE; reflexivity|].
+        apply output_in_trace_app. left. apply output_in_trace_app. right.
+        apply (HvBE o Hvis_o Ho_tau).
+      - (* o already in n_o's stored trace at gs_preB: it is in the graph history *)
+        exists WB1, gs_preB. split; [exact HstarB1|]. split; [exact HinpB1|].
+        pose proof (HvisPB o Hvis_o Ho_tB) as Ho_graph.
+        apply output_in_trace_app in Ho_graph as [Ho | Ho]; apply output_in_trace_app.
+        + right. exact Ho.
+        + left. exact Ho.
+    Qed.
 
-    (* can_output is preserved by any single graph step (the demon move). *)
+    (* can_output is preserved by any single graph step (the demon move), where the
+       past trace is the reaching trace. *)
     Lemma can_output_step :
       (forall t, A t) ->
       (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
       Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
       forall T gs, star (graph_step p node_step) initial_graph_state T gs ->
       forall e gs', graph_step p node_step gs e gs' ->
-      forall t o, can_output (graph_step p node_step) gs t o ->
-                  can_output (graph_step p node_step) gs' (e :: t) o.
+      forall o, can_output (graph_step p node_step) gs T o ->
+                can_output (graph_step p node_step) gs' (e :: T) o.
     Proof.
-      intros A_univ Hit Hpernode T gs HT e gs' Hstep t o (W & gsf & HW & HinpW & Hout).
+      intros A_univ Hit Hpernode T gs HT e gs' Hstep o (W & gsf & HW & HinpW & Hout).
       apply output_in_trace_app in Hout as [Hout_W | Hout_t].
       - destruct (core_replay A_univ Hit Hpernode T gs HT W gsf HW HinpW
                     (T ++ [e]) gs'
@@ -1469,7 +1516,12 @@ Section __.
                     (dom_of_step gs e gs' Hstep) o Hout_W)
           as (WB & gsfB & HWB & HinpWB & HoutWB).
         exists WB, gsfB. split; [exact HWB|]. split; [exact HinpWB|].
-        apply output_in_trace_app. left. exact HoutWB.
+        (* output in WB ++ (T ++ [e]) -> output in WB ++ (e :: T) *)
+        apply output_in_trace_app in HoutWB as [Ho|Ho]; apply output_in_trace_app.
+        + left. exact Ho.
+        + right. apply output_in_trace_app in Ho as [Ho|Ho].
+          * change (e :: T) with ([e] ++ T). apply output_in_trace_app. right. exact Ho.
+          * change (e :: T) with ([e] ++ T). apply output_in_trace_app. left. exact Ho.
       - exists [], gs'. split; [constructor|]. split; [reflexivity|].
         cbn. destruct Hout_t as (outs & Hin & Hino).
         exists outs. split; [right; exact Hin | exact Hino].
