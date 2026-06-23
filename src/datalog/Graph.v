@@ -849,10 +849,10 @@ Section __.
           map.get p n_o = Some np_o ->
           map.get gs.(g_nodes) n_o = Some (ns_o, t_o) ->
           output_visible n_o o = true ->
-          can_output (node_step np_o) ns_o [] o ->
+          can_output (node_step np_o) ns_o t_o o ->
           will_output (graph_step p node_step) A gs t o.
     Proof.
-      intros A_univ Hpernode t gs Hstar n_o np_o ns_o t_o o Hp_o Hg_o Hvis Harmed.
+      intros A_univ Hpernode t gs Hstar n_o np_o ns_o t_o o Hp_o Hg_o Hvis Hcan_tau.
       destruct (map.get initial_ns n_o) as [ns0|] eqn:Hns0.
       2:{ pose proof (Hpernode n_o) as Hp_n. rewrite Hp_o, Hns0 in Hp_n.
           contradiction. }
@@ -861,10 +861,6 @@ Section __.
         as (tau & ns_at_gs & Htau & Hg_at_gs & Hpres).
       assert (ns_at_gs = ns_o) by congruence.
       assert (tau = t_o) by congruence. subst ns_at_gs tau.
-      assert (Hcan_tau : can_output (node_step np_o) ns_o t_o o).
-      { destruct Harmed as (t' & s' & Hstar' & Hinp' & Hout').
-        exists t', s'. split; [exact Hstar'|]. split; [exact Hinp'|].
-        apply output_in_trace_app. left. rewrite app_nil_r in Hout'. exact Hout'. }
       pose proof (Hciw_node t_o ns_o o Htau (allowed_trace_universal A A_univ t_o) Hcan_tau)
         as Hwill_node.
       apply (drive_node_must A_univ np_o n_o o Hp_o Hvis (ns_o, t_o) Hwill_node gs t).
@@ -1616,7 +1612,7 @@ Section __.
       (* gs_pre is reachable from the initial state via t ++ T_pre. *)
       pose proof (star_app _ _ _ _ _ _ Hstar Hstar_pre_a) as Hstar_to_pre.
       (* At gs_pre, node n_o is "armed" for o: it can emit o in one step. *)
-      assert (Harmed : can_output (node_step np_o) ns_o [] o).
+      assert (Harmed : can_output (node_step np_o) ns_o t_o o).
       { exists [O_event outs_o], ns_o'. split; [|split].
         - econstructor; [exact Hns_o | constructor].
         - reflexivity.
