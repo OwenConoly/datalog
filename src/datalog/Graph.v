@@ -1001,6 +1001,141 @@ Section __.
             -- left. apply in_or_app. right. exact Hin_b.
     Qed.
 
+    (* can_output depends on its past trace only through the past's output
+       multiset, so a past trace with more outputs can only help. *)
+    Lemma can_output_out_ext :
+      forall (np : node_prog) ns tau tau' mu,
+        (forall x, output_in_trace x tau -> output_in_trace x tau') ->
+        can_output (node_step np) ns tau mu ->
+        can_output (node_step np) ns tau' mu.
+    Proof.
+      intros np ns tau tau' mu Hsub (t' & s' & Hstar & Hinp & Hout).
+      exists t', s'. split; [exact Hstar|]. split; [exact Hinp|].
+      apply output_in_trace_app in Hout as [H|H].
+      - apply output_in_trace_app. left. exact H.
+      - apply output_in_trace_app. right. apply Hsub. exact H.
+    Qed.
+
+    (* Arming is permanent at the node level: if a node (reachable from its bare
+       init via tau, hence ciw applies) can output mu, then after any further node
+       run it can still output mu.  Iterates can_output_step_preserved. *)
+    Lemma can_output_star_preserved :
+      (forall t, A t) ->
+      forall (np : node_prog) ns0,
+        can_implies_will (node_step np) A ns0 ->
+        forall td ns ns', star (node_step np) ns td ns' ->
+        forall tau, star (node_step np) ns0 tau ns ->
+        forall mu, can_output (node_step np) ns tau mu ->
+          can_output (node_step np) ns' (tau ++ td) mu.
+    Proof.
+      intros A_univ np ns0 Hciw td ns ns' Hstar.
+      induction Hstar as [s | s e s2 td0 s3 Hstep Hstar IH];
+        intros tau Hreach mu Hcan.
+      - rewrite app_nil_r. exact Hcan.
+      - assert (Hcan2 : can_output (node_step np) s2 (e :: tau) mu)
+          by (eapply can_output_step_preserved; eauto).
+        assert (Hreach2 : star (node_step np) ns0 (tau ++ [e]) s2)
+          by (eapply star_app; [exact Hreach | econstructor; [exact Hstep | constructor]]).
+        assert (Hcan2' : can_output (node_step np) s2 (tau ++ [e]) mu).
+        { eapply can_output_out_ext; [|exact Hcan2]. intros x.
+          change (e :: tau) with ([e] ++ tau). rewrite !output_in_trace_app. tauto. }
+        specialize (IH (tau ++ [e]) Hreach2 mu Hcan2').
+        rewrite <- app_assoc in IH. cbn in IH. exact IH.
+    Qed.
+
+    (* Arming is permanent at the graph level: a node armed for mu at a reachable
+       gs stays armed after any further graph evolution. *)
+    Lemma node_armed_preserved :
+      (forall t, A t) ->
+      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
+      forall T gs, star (graph_step p node_step) initial_graph_state T gs ->
+      forall n np ns t_n mu,
+        map.get p n = Some np ->
+        map.get gs.(g_nodes) n = Some (ns, t_n) ->
+        can_output (node_step np) ns t_n mu ->
+        forall T2 gs', star (graph_step p node_step) gs T2 gs' ->
+        exists ns' t_n',
+          map.get gs'.(g_nodes) n = Some (ns', t_n') /\
+          can_output (node_step np) ns' t_n' mu.
+    Proof.
+      intros A_univ Hpernode T gs HT n np ns t_n mu Hp Hg Hcan T2 gs' Hstar2.
+      destruct (map.get initial_ns n) as [ns0|] eqn:Hns0.
+      2:{ pose proof (Hpernode n) as H. rewrite Hp, Hns0 in H. contradiction. }
+      pose proof (pernode_ciw Hpernode n np ns0 Hp Hns0) as Hciw.
+      destruct (project_node_gen _ _ HT n np ns0 Hp Hns0)
+        as (tau & ns_at & Htau & Hg_at & _).
+      assert (ns_at = ns) by congruence. assert (tau = t_n) by congruence.
+      subst ns_at tau.
+      destruct (node_drive_delta _ _ _ Hstar2 n np ns t_n Hp Hg)
+        as (ns' & td & Hg' & Hstd & _).
+      exists ns', (t_n ++ td). split; [exact Hg'|].
+      eapply can_output_star_preserved;
+        [exact A_univ | exact Hciw | exact Hstd | exact Htau | exact Hcan].
+    Qed.
+
+    (* "node n has emitted mu" — mu appears as an output in n's stored trace. *)
+    Definition node_emitted (gs : @graph_state node_state node_states)
+        (n : node_id) (mu : message) : Prop :=
+      exists ns t, map.get gs.(g_nodes) n = Some (ns, t) /\ output_in_trace mu t.
+
+    (* Lift a node-level will-to-emit-mu into a graph-level eventually that forces
+       mu into n's stored trace.  Mirrors drive_node_must, but tracks emission via
+       the node's stored trace (so mu need not be visible). *)
+    Lemma drive_node_emit :
+      (forall t, A t) ->
+      forall (np : node_prog) (n : node_id) (mu : message),
+        map.get p n = Some np ->
+        forall (s : node_state * list IO_event),
+          eventually (can_step (node_step np) A)
+                     (fun '(_, t') => output_in_trace mu t') s ->
+          forall gs t,
+            (exists tr, map.get gs.(g_nodes) n = Some (fst s, tr) /\
+                        (forall x, output_in_trace x (snd s) -> output_in_trace x tr)) ->
+            eventually (can_step (graph_step p node_step) A)
+                       (fun '(gs', _) => node_emitted gs' n mu) (gs, t).
+    Proof.
+      intros A_univ np n mu Hp s Hwill.
+      induction Hwill as [[ns_curr trace_curr] HP|
+                          [ns_curr trace_curr] midset Hcan Hmid IH];
+        intros gs t (tr & Hg & Hsub).
+      - apply eventually_done. cbn in HP |- *.
+        exists ns_curr, tr. split; [exact Hg|]. apply Hsub. exact HP.
+      - cbn in Hg, Hsub.
+        apply eventually_step_cps.
+        intros gs_demon t_demon Hstar_demon Hallow_g.
+        destruct (node_drive_delta _ _ _ Hstar_demon n np ns_curr tr Hp Hg)
+          as (ns_d & tau_d & Hg_d & Htau_d & Hpres_d).
+        pose proof (Hcan ns_d tau_d Htau_d) as Hcan'.
+        assert (Hallow_n : allowed_trace (tau_d ++ trace_curr))
+          by (unfold allowed_trace; auto).
+        specialize (Hcan' Hallow_n).
+        destruct Hcan' as (s'' & outs & Hns_step & Hmidset_at).
+        set (gs_next :=
+               {| g_nodes := map.put gs_demon.(g_nodes) n (s'', (tr ++ tau_d) ++ [O_event outs]);
+                  g_messages :=
+                    gs_demon.(g_messages) ++
+                    flat_map (fun m0 => map (fun n' => (n', m0))
+                                            (forward n m0)) outs |}).
+        exists gs_next, (filter (output_visible n) outs).
+        split.
+        { eapply gstep_run; [exact Hp | exact Hg_d | exact Hns_step]. }
+        apply (IH (s'', O_event outs :: tau_d ++ trace_curr) Hmidset_at gs_next
+                  (O_event (filter (output_visible n) outs) :: t_demon ++ t)).
+        cbn. exists ((tr ++ tau_d) ++ [O_event outs]).
+        split; [apply map.get_put_same|].
+        intros x Hx.
+        change (O_event outs :: tau_d ++ trace_curr)
+          with ([O_event outs] ++ (tau_d ++ trace_curr)) in Hx.
+        apply output_in_trace_app in Hx as [Hx|Hx].
+        + apply output_in_trace_app. right.
+          change [O_event outs] with ([] ++ [O_event outs]) in Hx.
+          apply output_in_trace_app in Hx as [Hx|Hx]; [destruct Hx as (?&[]&_)|exact Hx].
+        + apply output_in_trace_app in Hx as [Hx|Hx].
+          * apply output_in_trace_app. left. apply output_in_trace_app. right. exact Hx.
+          * apply output_in_trace_app. left. apply output_in_trace_app. left.
+            apply Hsub. exact Hx.
+    Qed.
+
     (* core_replay: the simulation transfers input-free reachability of an output.
        This is the heart of can_output preservation; proved by replaying the
        witness from the dominating state, re-deriving each node emission via
