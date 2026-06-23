@@ -1593,6 +1593,42 @@ Section __.
         exists outs, s1. exact Hstep0.
     Qed.
 
+    (* Force a queued message to be delivered to its consumer.  With the new
+       can_step, if the demon already delivered it the angel is simply done (the
+       left disjunct); otherwise the angel delivers it (input_total gives the step). *)
+    Lemma force_deliver :
+      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
+      forall TX gsX, star (graph_step p node_step) initial_graph_state TX gsX ->
+      forall c m npc ns0c,
+        map.get p c = Some npc ->
+        map.get initial_ns c = Some ns0c ->
+        (In (c, m) gsX.(g_messages) \/ node_received gsX c m) ->
+      forall t,
+        eventually (can_step (graph_step p node_step) A)
+          (fun '(gs', _) => node_received gs' c m) (gsX, t).
+    Proof.
+      intros Hit TX gsX HTX c m npc ns0c Hpc Hns0c Hcm t.
+      destruct Hcm as [Hq | Hr].
+      - apply eventually_step_cps.
+        intros gs_d t_d Hstar_d Hallow.
+        pose proof (star_app _ _ _ _ _ _ HTX Hstar_d) as HTd.
+        destruct (queue_fate _ _ _ Hstar_d c m Hq) as [Hqd | Hrd].
+        + right.
+          destruct (project_node_gen _ _ HTd c npc ns0c Hpc Hns0c)
+            as (tauc & nsc & _ & Hgc & _).
+          apply in_split in Hqd as (ms1 & ms2 & Hsplit).
+          destruct (Hit c npc Hpc nsc m) as (nsc' & Hstepc).
+          exists {| g_nodes := map.put gs_d.(g_nodes) c (nsc', tauc ++ [I_event m]);
+                    g_messages := ms1 ++ ms2 |}, [].
+          split.
+          * eapply gstep_receive; [exact Hpc | exact Hgc | exact Hstepc | exact Hsplit].
+          * apply eventually_done. cbn. exists nsc', (tauc ++ [I_event m]).
+            split; [apply map.get_put_same|].
+            rewrite inputs_of_app. apply in_or_app. right. left. reflexivity.
+        + left. apply eventually_done. exact Hrd.
+      - apply eventually_done. exact Hr.
+    Qed.
+
     (* ORCHESTRATION (crux liveness lemma).  If the angel can win after the graph
        performs an internal (input-free) path T_pre, then it can win from gs.
        Intuition: the angel forces the graph along T_pre.  The demon interferes,
