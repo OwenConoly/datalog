@@ -347,7 +347,15 @@ Section __.
         assert (Hallow_n : allowed_trace (tau_d ++ trace_curr))
           by (unfold allowed_trace; auto).
         specialize (Hcan' Hallow_n).
-        destruct Hcan' as (s'' & outs & Hns_step & Hmidset_at).
+        destruct Hcan' as [Hmid_left | (s'' & outs & Hns_step & Hmidset_at)].
+        { (* node already satisfies midset without emitting: no graph step needed *)
+          left.
+          apply (IH (ns_d, tau_d ++ trace_curr) Hmid_left gs_demon (t_demon ++ t)).
+          - cbn. exists (tr ++ tau_d). exact Hg_d.
+          - cbn. intros Hout_sd. apply output_in_trace_app in Hout_sd as [Ho_taud | Ho_curr].
+            + apply output_in_trace_app. left. apply (Hpres_d o Hvis Ho_taud).
+            + apply output_in_trace_app. right. apply Hout_proj. exact Ho_curr. }
+        right.
         set (gs_next :=
                {| g_nodes := map.put gs_demon.(g_nodes) n (s'', (tr ++ tau_d) ++ [O_event outs]);
                   g_messages :=
@@ -401,18 +409,22 @@ Section __.
         { unfold allowed_trace in *. rewrite !inputs_of_app in *. rewrite Hinp.
           exact Hallow_d. }
         specialize (Hcan s'_d t_d Hstar_d Hallow_d').
-        destruct Hcan as (s'' & outs & Hstep & Hmidset).
-        exists s'', outs. split; [exact Hstep|].
-        apply (IH _ Hmidset s'' (O_event outs :: t_d ++ t1)
-                  (O_event outs :: t_d ++ t2)).
-        + change (inputs_of (t_d ++ t1) = inputs_of (t_d ++ t2)).
-          rewrite !inputs_of_app, Hinp. reflexivity.
-        + intros x.
-          change (O_event outs :: t_d ++ t1) with ([O_event outs] ++ (t_d ++ t1)).
-          change (O_event outs :: t_d ++ t2) with ([O_event outs] ++ (t_d ++ t2)).
-          rewrite !output_in_trace_app.
-          pose proof (Hout x). tauto.
-        + reflexivity.
+        destruct Hcan as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
+        + left. apply (IH (s'_d, t_d ++ t1) Hmid_left s'_d (t_d ++ t1) (t_d ++ t2)).
+          * rewrite !inputs_of_app, Hinp. reflexivity.
+          * intros x. rewrite !output_in_trace_app. pose proof (Hout x). tauto.
+          * reflexivity.
+        + right. exists s'', outs. split; [exact Hstep|].
+          apply (IH _ Hmidset s'' (O_event outs :: t_d ++ t1)
+                    (O_event outs :: t_d ++ t2)).
+          * change (inputs_of (t_d ++ t1) = inputs_of (t_d ++ t2)).
+            rewrite !inputs_of_app, Hinp. reflexivity.
+          * intros x.
+            change (O_event outs :: t_d ++ t1) with ([O_event outs] ++ (t_d ++ t1)).
+            change (O_event outs :: t_d ++ t2) with ([O_event outs] ++ (t_d ++ t2)).
+            rewrite !output_in_trace_app.
+            pose proof (Hout x). tauto.
+          * reflexivity.
     Qed.
 
     (* Replay a graph star with extra messages injected at any position in
@@ -1105,7 +1117,14 @@ Section __.
         assert (Hallow_n : allowed_trace (tau_d ++ trace_curr))
           by (unfold allowed_trace; auto).
         specialize (Hcan' Hallow_n).
-        destruct Hcan' as (s'' & outs & Hns_step & Hmidset_at).
+        destruct Hcan' as [Hmid_left | (s'' & outs & Hns_step & Hmidset_at)].
+        { left.
+          apply (IH (ns_d, tau_d ++ trace_curr) Hmid_left gs_demon (t_demon ++ t)).
+          cbn. exists (tr ++ tau_d). split; [exact Hg_d|].
+          intros x Hx. apply output_in_trace_app in Hx as [Hx | Hx].
+          - apply output_in_trace_app. right. exact Hx.
+          - apply output_in_trace_app. left. apply Hsub. exact Hx. }
+        right.
         set (gs_next :=
                {| g_nodes := map.put gs_demon.(g_nodes) n (s'', (tr ++ tau_d) ++ [O_event outs]);
                   g_messages :=
@@ -1151,11 +1170,13 @@ Section __.
       - apply eventually_step_cps.
         intros gs_d t_d Hstar_d Hallow.
         specialize (Hcan gs_d t_d Hstar_d Hallow).
-        destruct Hcan as (s'' & outs & Hstep & Hmidset).
-        exists s'', outs. split; [exact Hstep|].
-        apply (IH _ Hmidset s'' (O_event outs :: t_d ++ t)); [|reflexivity].
-        eapply Hinv; [|exact HInv].
-        eapply star_app; [exact Hstar_d | econstructor; [exact Hstep | constructor]].
+        destruct Hcan as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
+        + left. apply (IH (gs_d, t_d ++ t) Hmid_left gs_d (t_d ++ t)
+                          (Hinv _ _ _ Hstar_d HInv) eq_refl).
+        + right. exists s'', outs. split; [exact Hstep|].
+          apply (IH _ Hmidset s'' (O_event outs :: t_d ++ t)); [|reflexivity].
+          eapply Hinv; [|exact HInv].
+          eapply star_app; [exact Hstar_d | econstructor; [exact Hstep | constructor]].
     Qed.
 
     (* The node-state domain is invariant under runs: any node with a state in a
