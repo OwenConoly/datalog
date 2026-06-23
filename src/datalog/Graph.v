@@ -1629,6 +1629,83 @@ Section __.
       - apply eventually_done. exact Hr.
     Qed.
 
+    (* Force a node f (armed for every message in [outs]) to emit all of them, so
+       each forwarded (n', mu) is queued or already delivered.  Induction on the
+       LIST [outs]; each element uses drive_node_emit (its own will-tree induction)
+       — no nested induction. *)
+    Lemma force_emit_list :
+      (forall t, A t) ->
+      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
+      forall (outs : list message) (f : node_id) npf ns0f,
+        map.get p f = Some npf ->
+        map.get initial_ns f = Some ns0f ->
+        forall TX gsX, star (graph_step p node_step) initial_graph_state TX gsX ->
+        forall nsf tf, map.get gsX.(g_nodes) f = Some (nsf, tf) ->
+        (forall mu, In mu outs -> can_output (node_step npf) nsf tf mu) ->
+        forall t,
+        eventually (can_step (graph_step p node_step) A)
+          (fun '(gs', _) =>
+             core_dom gsX gs' /\
+             (forall mu n', In mu outs -> In n' (forward f mu) ->
+                In (n', mu) gs'.(g_messages) \/ node_received gs' n' mu))
+          (gsX, t).
+    Proof.
+      intros A_univ Hpernode outs.
+      induction outs as [|mu outs IH];
+        intros f npf ns0f Hpf Hns0f TX gsX HTX nsf tf HgX Hcan t.
+      - apply eventually_done. split; [apply core_dom_refl|]. intros mu n' [] _.
+      - destruct (project_node_gen _ _ HTX f npf ns0f Hpf Hns0f)
+          as (tauX & nsXq & HsX & HgXq & _).
+        assert (nsXq = nsf) by congruence. assert (tauX = tf) by congruence. subst nsXq tauX.
+        pose proof (pernode_ciw Hpernode f npf ns0f Hpf Hns0f) as Hciwf.
+        assert (Hwillmu : eventually (can_step (node_step npf) A)
+                  (fun '(_, t') => output_in_trace mu t') (nsf, tf)).
+        { apply (Hciwf tf nsf mu HsX (allowed_trace_universal A A_univ tf)
+                   (Hcan mu (or_introl eq_refl))). }
+        pose proof (drive_node_emit A_univ npf f mu Hpf (nsf, tf) Hwillmu gsX t
+                      (ex_intro _ tf (conj HgX (fun x H => H)))) as Hemit.
+        eapply eventually_trans.
+        { apply (eventually_carry_inv
+                   (fun gs => (exists T, star (graph_step p node_step) initial_graph_state T gs)
+                              /\ core_dom gsX gs)
+                   ltac:(intros gs T gs' Hs [(T0 & HT0) Hdom]; split;
+                         [exists (T0 ++ T); eapply star_app; eassumption
+                         | eapply core_dom_run; eassumption])
+                   _ gsX t (conj (ex_intro _ TX HTX) (core_dom_refl gsX)) Hemit). }
+        intros [gsM tM] (Hemitted & (TM & HTM) & HdomM).
+        destruct Hemitted as (nsM & tfM & HgfM & HoutM).
+        assert (Hfwd_mu : forall n', In n' (forward f mu) ->
+                  In (n', mu) gsM.(g_messages) \/ node_received gsM n' mu).
+        { intros n' Hn'. apply (graph_saturated _ _ HTM f npf nsM tfM Hpf HgfM mu n' HoutM Hn'). }
+        destruct HdomM as [HdomM_n HdomM_m].
+        destruct (HdomM_n f nsf tf HgX) as (nsM' & tfM' & HgfM' & Hincl_f).
+        assert (nsM' = nsM) by congruence. assert (tfM' = tfM) by congruence. subst nsM' tfM'.
+        pose proof (pernode_monotone' Hpernode f npf ns0f Hpf Hns0f) as Hmonof.
+        destruct (project_node_gen _ _ HTM f npf ns0f Hpf Hns0f)
+          as (tauM & nsMq & HsM & HgMq & _).
+        assert (nsMq = nsM) by congruence. assert (tauM = tfM) by congruence. subst nsMq tauM.
+        assert (Hcan' : forall mu', In mu' outs -> can_output (node_step npf) nsM tfM mu').
+        { intros mu' Hin'. apply (Hmonof tf tfM nsf nsM mu' HsX HsM
+            (allowed_trace_universal A A_univ tf) (allowed_trace_universal A A_univ tfM)
+            Hincl_f (Hcan mu' (or_intror Hin'))). }
+        pose proof (IH f npf ns0f Hpf Hns0f TM gsM HTM nsM tfM HgfM Hcan' tM) as Hrec.
+        eapply eventually_trans.
+        { apply (eventually_carry_inv
+                   (fun gs => forall n', In n' (forward f mu) ->
+                      In (n', mu) gs.(g_messages) \/ node_received gs n' mu)
+                   ltac:(intros gs T gs' Hs Hinv n' Hn';
+                         destruct (Hinv n' Hn') as [Hq | Hr];
+                         [ apply (queue_fate _ _ _ Hs n' mu Hq)
+                         | right; apply (node_received_mono _ _ _ Hs n' mu Hr) ])
+                   _ gsM tM Hfwd_mu Hrec). }
+        intros [gsF tF] ((HdomMF & Hfwds') & Hfwd_mu_F).
+        apply eventually_done. split.
+        + eapply core_dom_trans; [exact (conj HdomM_n HdomM_m) | exact HdomMF].
+        + intros mu0 n' Hin0 Hn'. cbn in Hin0. destruct Hin0 as [-> | Hin0'].
+          * apply Hfwd_mu_F. exact Hn'.
+          * apply Hfwds'; assumption.
+    Qed.
+
     (* ORCHESTRATION (crux liveness lemma).  If the angel can win after the graph
        performs an internal (input-free) path T_pre, then it can win from gs.
        Intuition: the angel forces the graph along T_pre.  The demon interferes,
