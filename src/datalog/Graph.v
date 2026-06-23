@@ -1823,6 +1823,37 @@ Section __.
                (ex_intro _ tS HgS) (HRStar nsS tS HgS)).
     Qed.
   End graph.
+
+  Section graphs.
+    Context {node_prog1 : Type} {graph_prog1 : map.map node_id node_prog1}.
+    Context {node_state1 : Type}
+            {node_states1 : map.map node_id (node_state1 * list IO_event)}.
+    Context {node_states1_ok : map.ok node_states1}.
+    Context (p1 : graph_prog1) (initial_ns1 : node_states1).
+    Context (initial_ns1_empty :
+               forall n x, map.get initial_ns1 n = Some x -> snd x = []).
+    Context (node_step1 : node_prog1 -> node_state1 -> IO_event -> node_state1 -> Prop).
+
+    Context {node_prog2 : Type} {graph_prog2 : map.map node_id node_prog2}.
+    Context {node_state2 : Type}
+            {node_states2 : map.map node_id (node_state2 * list IO_event)}.
+    Context {node_states2_ok : map.ok node_states2}.
+    Context (p2 : graph_prog2) (initial_ns2 : node_states2).
+    Context (initial_ns2_empty :
+               forall n x, map.get initial_ns2 n = Some x -> snd x = []).
+    Context (node_step2 : node_prog2 -> node_state2 -> IO_event -> node_state2 -> Prop).
+
+    Lemma graphs_corresp_sound :
+      Forall4_map
+        (fun _ np1 '(ns1, _) np2 '(ns2, _) =>
+           steps_corresp_sound A (node_step1 np1) ns1 (node_step2 np2) ns2)
+        p1 initial_ns1 p2 initial_ns2 ->
+      steps_corresp_sound A
+        (graph_step p1 node_step1) (initial_graph_state initial_ns1)
+        (graph_step p2 node_step2) (initial_graph_state initial_ns2).
+    Proof.
+    Admitted.
+  End graphs.
 End __.
 
 Definition translate_event {M M'} (t : M' -> M) (ev : IO_event M') : IO_event M :=
