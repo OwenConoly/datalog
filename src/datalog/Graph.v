@@ -870,6 +870,74 @@ Section __.
       - cbn. intros Hout_tau. apply Hpres; [exact Hvis | exact Hout_tau].
     Qed.
 
+    (* A node's output-only run lifts to a graph run of that node: other nodes are
+       untouched, the queue only grows (and every forwarded message lands in it),
+       and the node's visible outputs appear in the graph trace.  Used to splice a
+       node's own production into a graph path during the witness replay. *)
+    Lemma lift_node_outputs :
+      forall (n : node_id) (np : node_prog),
+        map.get p n = Some np ->
+        forall (ns : node_state) (tau : list IO_event) (ns' : node_state),
+          star (node_step np) ns tau ns' ->
+          inputs_of tau = [] ->
+          forall gs, map.get gs.(g_nodes) n = Some ns ->
+          exists (T : list IO_event) (gs' : graph_state),
+            star (graph_step p node_step) gs T gs' /\
+            inputs_of T = [] /\
+            map.get gs'.(g_nodes) n = Some ns' /\
+            (forall n2, n2 <> n -> map.get gs'.(g_nodes) n2 = map.get gs.(g_nodes) n2) /\
+            (exists extra, gs'.(g_messages) = gs.(g_messages) ++ extra) /\
+            (forall outs mu n'', In (O_event outs) tau -> In mu outs ->
+                In n'' (forward n mu) -> In (n'', mu) gs'.(g_messages)) /\
+            (forall o', output_visible n o' = true -> output_in_trace o' tau ->
+                output_in_trace o' T).
+    Proof.
+      intros n np Hp ns tau ns' Hstar.
+      induction Hstar as [s | s e s2 tau0 s3 Hstep Hstar IH];
+        intros Hinp gs Hg.
+      - exists [], gs. split; [constructor|]. split; [reflexivity|].
+        split; [exact Hg|]. split; [reflexivity|].
+        split; [exists []; rewrite app_nil_r; reflexivity|].
+        split; [intros ? ? ? Hin; inversion Hin|].
+        intros o' _ (outs & Hin & _); inversion Hin.
+      - cbn in Hinp. destruct e as [m|outs]; [discriminate|]. cbn in Hinp.
+        assert (Hg1 : map.get (map.put gs.(g_nodes) n s2) n = Some s2)
+          by apply map.get_put_same.
+        destruct (IH Hinp {| g_nodes := map.put gs.(g_nodes) n s2;
+                             g_messages := gs.(g_messages) ++
+                               flat_map (fun mm => map (fun n' => (n', mm)) (forward n mm)) outs |}
+                    Hg1)
+          as (T & gsf & HstarT & HinpT & Hgf & Hother & (extra & Hextra) & Hfwd & Hvis).
+        cbn in Hother, Hextra.
+        exists (O_event (filter (output_visible n) outs) :: T), gsf.
+        split; [econstructor; [eapply gstep_run; eauto | exact HstarT]|].
+        split; [cbn; exact HinpT|].
+        split; [exact Hgf|].
+        split.
+        { intros n2 Hn2. rewrite (Hother n2 Hn2). rewrite map.get_put_diff by auto.
+          reflexivity. }
+        split.
+        { exists (flat_map (fun mm => map (fun n' => (n', mm)) (forward n mm)) outs ++ extra).
+          rewrite Hextra. rewrite app_assoc. reflexivity. }
+        split.
+        { intros outs0 mu n'' Hin0 Hinmu Hinn''.
+          cbn in Hin0. destruct Hin0 as [Heq | Hin_rest].
+          - injection Heq as Heq_outs. subst outs0.
+            rewrite Hextra. apply in_or_app. left.
+            apply in_or_app. right.
+            apply in_flat_map. exists mu. split; [exact Hinmu|].
+            apply in_map_iff. exists n''. split; [reflexivity | exact Hinn''].
+          - apply Hfwd with (outs := outs0); assumption. }
+        intros o' Hvis' (outs0 & Hin0 & Hino).
+        cbn in Hin0. destruct Hin0 as [Heq | Hin_rest].
+        + injection Heq as Heq_outs. subst outs0.
+          exists (filter (output_visible n) outs). split; [left; reflexivity|].
+          apply filter_In. split; [exact Hino | exact Hvis'].
+        + specialize (Hvis o' Hvis' (ex_intro _ outs0 (conj Hin_rest Hino))).
+          destruct Hvis as (outs1 & Hin1 & Hino1).
+          exists outs1. split; [right; exact Hin1 | exact Hino1].
+    Qed.
+
     (* ORCHESTRATION (crux liveness lemma).  If the angel can win after the graph
        performs an internal (input-free) path T_pre, then it can win from gs.
        Intuition: the angel forces the graph along T_pre.  The demon interferes,
