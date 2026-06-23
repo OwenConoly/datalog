@@ -346,6 +346,48 @@ Section __.
                exists outs''. split; [right; apply in_or_app; right; exact Hin''|exact Hino''].
     Qed.
 
+    (* Generalization of drive_node_must that targets an arbitrary STATE property
+       R of node n (rather than a visible output appearing in the trace).  Given a
+       per-node will to reach a node-state satisfying R, lift it to a graph will to
+       reach a graph-state where node n satisfies R.  The graph demon is handled by
+       projecting its drive onto node n and using the per-node will-tree. *)
+    Lemma drive_node_to_state :
+      (forall t, A t) ->
+      forall (np : node_prog) (n : node_id) (R : node_state -> Prop),
+        map.get p n = Some np ->
+        forall (s : node_state * list IO_event),
+          eventually (can_step (node_step np) A) (fun '(ns', _) => R ns') s ->
+          forall gs t,
+            map.get gs.(g_nodes) n = Some (fst s) ->
+            eventually (can_step (graph_step p node_step) A)
+                       (fun '(gs', _) => exists ns', map.get gs'.(g_nodes) n = Some ns' /\ R ns')
+                       (gs, t).
+    Proof.
+      intros A_univ np n R Hp s Hwill.
+      induction Hwill as [[ns_curr trace_curr] HP | [ns_curr trace_curr] midset Hcan Hmid IH];
+        intros gs t Hg.
+      - apply eventually_done. cbn in *. exists ns_curr. split; [exact Hg | exact HP].
+      - cbn in Hg. apply eventually_step_cps.
+        intros gs_demon t_demon Hstar_demon Hallow_g.
+        destruct (project_node_gen _ _ _ Hstar_demon n np _ Hp Hg)
+          as (tau_d & ns_d & Htau_d & Hg_d & Hpres_d).
+        pose proof (Hcan ns_d tau_d Htau_d) as Hcan'.
+        assert (Hallow_n : allowed_trace (tau_d ++ trace_curr)) by (unfold allowed_trace; auto).
+        specialize (Hcan' Hallow_n).
+        destruct Hcan' as (s'' & outs & Hns_step & Hmidset_at).
+        set (gs_next :=
+               {| g_nodes := map.put gs_demon.(g_nodes) n s'';
+                  g_messages :=
+                    gs_demon.(g_messages) ++
+                    flat_map (fun m0 => map (fun n' => (n', m0))
+                                            (forward n m0)) outs |}).
+        exists gs_next, (filter (output_visible n) outs).
+        split.
+        { eapply gstep_run; eauto. }
+        apply (IH (s'', O_event outs :: tau_d ++ trace_curr) Hmidset_at gs_next).
+        cbn. apply map.get_put_same.
+    Qed.
+
     Lemma eventually_swap :
       forall (o' : message) (s : graph_state) (t1 t2 : list IO_event),
         inputs_of t1 = inputs_of t2 ->
@@ -630,6 +672,99 @@ Section __.
           split; [exact Hstep_prod|]. split; [exact Hstar_post|].
           split; [exact Hp_o|]. split; [exact Hg_o|].
           split; [exact Hns_o|]. split; [exact Hino_o | exact Hvis_o].
+    Qed.
+
+    (* Message provenance: a message queued at gs is, after any graph evolution,
+       either still queued, or has been delivered to its destination node n (whose
+       state then advanced via a node-trace whose inputs contain m). *)
+    Lemma queue_fate :
+      forall gs T gs',
+        star (graph_step p node_step) gs T gs' ->
+        forall n m np ns_gs,
+          map.get p n = Some np ->
+          map.get gs.(g_nodes) n = Some ns_gs ->
+          In (n, m) gs.(g_messages) ->
+          In (n, m) gs'.(g_messages) \/
+          (exists tau ns', star (node_step np) ns_gs tau ns' /\
+                           map.get gs'.(g_nodes) n = Some ns' /\ In m (inputs_of tau)).
+    Proof.
+      intros gs T gs' Hstar.
+      induction Hstar as [s | s e s' T' s'' Hstep Hstar IH];
+        intros n m np ns_gs Hp Hgs Hin.
+      - left. exact Hin.
+      - inversion Hstep as [ gs0 ni mi Hia
+                           | gs0 ni npi nsi nsi' outsi Hpi Hgi Hsi
+                           | gs0 ni npi nsi nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst;
+          cbn in IH, Hgs |- *.
+        + (* gstep_input ni mi *)
+          edestruct (IH n m np ns_gs) as [Hq | (tau & ns' & Hst & Hg' & Hinm)].
+          * exact Hp.
+          * exact Hgs.
+          * right. exact Hin.
+          * left. exact Hq.
+          * right. exists tau, ns'. auto.
+        + (* gstep_run ni outsi *)
+          destruct (Nat.eq_dec n ni) as [Heq | Hne].
+          * subst ni. assert (nsi = ns_gs) by congruence. subst nsi.
+            assert (npi = np) by congruence. subst npi.
+            edestruct (IH n m np nsi') as [Hq | (tau & ns' & Hst & Hg' & Hinm)].
+            -- exact Hp.
+            -- apply map.get_put_same.
+            -- apply in_or_app; left; exact Hin.
+            -- left. exact Hq.
+            -- right. exists (O_event outsi :: tau), ns'. split; [|split].
+               ++ econstructor; [exact Hsi | exact Hst].
+               ++ exact Hg'.
+               ++ cbn. exact Hinm.
+          * edestruct (IH n m np ns_gs) as [Hq | (tau & ns' & Hst & Hg' & Hinm)].
+            -- exact Hp.
+            -- rewrite map.get_put_diff by auto. exact Hgs.
+            -- apply in_or_app; left; exact Hin.
+            -- left. exact Hq.
+            -- right. exists tau, ns'. auto.
+        + (* gstep_receive ni mi *)
+          rewrite Hmsg in Hin. apply in_app_or in Hin.
+          destruct (Nat.eq_dec n ni) as [Heq | Hne].
+          * subst ni. assert (nsi = ns_gs) by congruence. subst nsi.
+            assert (npi = np) by congruence. subst npi.
+            destruct Hin as [Hin_a | Hin_mid].
+            -- edestruct (IH n m np nsi') as [Hq | (tau & ns' & Hst & Hg' & Hinm)].
+               ++ exact Hp.
+               ++ apply map.get_put_same.
+               ++ apply in_or_app; left; exact Hin_a.
+               ++ left. exact Hq.
+               ++ right. exists (I_event mi :: tau), ns'. split; [|split].
+                  ** econstructor; [exact Hsi | exact Hst].
+                  ** exact Hg'.
+                  ** cbn. right. exact Hinm.
+            -- cbn in Hin_mid. destruct Hin_mid as [Heq2 | Hin_b].
+               ++ injection Heq2 as Hmeq. subst mi.
+                  edestruct (project_node_gen _ _ _ Hstar n np nsi' Hp)
+                    as (tau' & ns' & Hst' & Hg' & _).
+                  { cbn. apply map.get_put_same. }
+                  right. exists (I_event m :: tau'), ns'. split; [|split].
+                  ** econstructor; [exact Hsi | exact Hst'].
+                  ** exact Hg'.
+                  ** cbn. left. reflexivity.
+               ++ edestruct (IH n m np nsi') as [Hq | (tau & ns' & Hst & Hg' & Hinm)].
+                  ** exact Hp.
+                  ** apply map.get_put_same.
+                  ** apply in_or_app; right; exact Hin_b.
+                  ** left. exact Hq.
+                  ** right. exists (I_event mi :: tau), ns'. split; [|split].
+                     --- econstructor; [exact Hsi | exact Hst].
+                     --- exact Hg'.
+                     --- cbn. right. exact Hinm.
+          * edestruct (IH n m np ns_gs) as [Hq | (tau & ns' & Hst & Hg' & Hinm)].
+            -- exact Hp.
+            -- rewrite map.get_put_diff by auto. exact Hgs.
+            -- apply in_or_app. destruct Hin as [Hin_a | Hin_mid].
+               ++ left. exact Hin_a.
+               ++ cbn in Hin_mid. destruct Hin_mid as [Heq2 | Hin_b].
+                  ** injection Heq2 as Hnieq Hmieq. subst. contradiction Hne; reflexivity.
+                  ** right. exact Hin_b.
+            -- left. exact Hq.
+            -- right. exists tau, ns'. auto.
     Qed.
 
     (* Per-node ciw' gives per-node ciw. *)
