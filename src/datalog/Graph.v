@@ -1238,18 +1238,18 @@ Section __.
              (map I_event inps) gs ->
         gs.(g_nodes) = ini /\
         gs.(g_messages) =
-          fold_left (fun acc mn => (snd mn, fst mn) :: acc) inps m0 /\
-        (forall mn, In mn inps -> input_allowed (snd mn) (fst mn) = true).
+          fold_left (fun acc '(m, n) => (n, m) :: acc) inps m0 /\
+        (forall m n, In (m, n) inps -> input_allowed n m = true).
     Proof.
       intros NPr GPr NS NSM pp nstep ini m0 inps. revert m0.
       induction inps as [|mn inps IH]; intros m0 gs Hstar; cbn in Hstar.
-      - inversion Hstar; subst. split; [reflexivity|]. split; [reflexivity|]. intros ? [].
+      - inversion Hstar; subst. split; [reflexivity|]. split; [reflexivity|]. intros ? ? [].
       - inversion Hstar as [|s0 e s1 t0 s2 Hstep Hrest]; subst.
         inversion Hstep as [ gs' n' m' Hia | gs' n' np' ns' t' ns'' outs' Hp' Hg' Hs'
                            | gs' n' np' ns' t' ns'' m' msa msb Hp' Hg' Hs' Hmsg ]; subst.
         destruct (IH ((n', m') :: m0) gs Hrest) as (Hn & Hm & Hal).
         split; [exact Hn|]. split; [cbn; exact Hm|].
-        intros mn0 [<- | Hin]; [exact Hia | apply Hal; exact Hin].
+        intros mm nn [Heq | Hin]; [injection Heq as -> ->; exact Hia | apply (Hal mm nn Hin)].
     Qed.
 
     (* Build a graph's pure-input run for any inputs all of whose destinations
@@ -1259,11 +1259,11 @@ Section __.
              {NS : Type} {NSM : map.map node_id (NS * list IO_event)}
              (pp : GPr) (nstep : NPr -> NS -> IO_event -> NS -> Prop)
              (ini : NSM) (m0 : list (node_id * message)) inps,
-        (forall mn, In mn inps -> input_allowed (snd mn) (fst mn) = true) ->
+        (forall m n, In (m, n) inps -> input_allowed n m = true) ->
         star (graph_step pp nstep) {| g_nodes := ini; g_messages := m0 |}
              (map I_event inps)
              {| g_nodes := ini;
-                g_messages := fold_left (fun acc mn => (snd mn, fst mn) :: acc) inps m0 |}.
+                g_messages := fold_left (fun acc '(m, n) => (n, m) :: acc) inps m0 |}.
     Proof.
       intros NPr GPr NS NSM pp nstep ini m0 inps. revert m0.
       induction inps as [|mn inps IH]; intros m0 Hal; cbn.
@@ -1271,8 +1271,8 @@ Section __.
       - destruct mn as [mm nn]. cbn.
         eapply star_step.
         + apply (gstep_input pp nstep {| g_nodes := ini; g_messages := m0 |} nn mm).
-          apply (Hal (mm, nn)); left; reflexivity.
-        + cbn. apply IH. intros mn0 Hin. apply Hal. right. exact Hin.
+          apply (Hal mm nn); left; reflexivity.
+        + cbn. apply IH. intros mm0 nn0 Hin. apply (Hal mm0 nn0). right. exact Hin.
     Qed.
 
     (* Injecting the same inputs into graph 1 reaches a state dominating the graph-2
