@@ -571,6 +571,53 @@ Section __.
       rewrite Nat.compare_refl in HnE. exact HnE.
   Qed.
 
+  (* Construction counterpart of [fire_label_decomp]: firing rule [rn] (at index
+     [length l1]) on state [l1 ++ rs :: l2] is one [comp_step].  Lets callers
+     build a fire step from a positional witness without unfolding
+     [stepWithLabel]/[combine]. *)
+  Lemma fire_rule_at new_fact l1 rn rs rs' l2 :
+    length (l1 ++ rs :: l2) = length p.(non_meta_rules) ->
+    nth_error p.(non_meta_rules) (length l1) = Some rn ->
+    (exists fired_rule,
+        can_fire_rule_at rn fired_rule /\
+          can_deduce_fact fired_rule (length l1) rs.(known_facts) rs.(sent_facts) new_fact /\
+          ok_to_deduce_fact (rule_of rn) rs.(known_facts) new_fact /\
+          rs' = send_fact new_fact rs) ->
+    comp_step (l1 ++ rs :: l2) (map (add_waiting_fact new_fact) (l1 ++ rs' :: l2)).
+  Proof.
+    intros Hlen Hnth_rn Hstep.
+    apply (fire_rule new_fact (l1 ++ rs :: l2) (l1 ++ rs' :: l2)).
+    cbv [stepWithLabel].
+    apply nth_error_split in Hnth_rn.
+    destruct Hnth_rn as (nmrs_pre & nmrs_post & Hnmrs_eq & Hnmrs_pre_len).
+    assert (Hk_lt : length l1 < length (l1 ++ rs :: l2))
+      by (rewrite length_app; simpl; lia).
+    assert (Hk_seq : nth_error (seq 0 (length (l1 ++ rs :: l2))) (length l1) = Some (length l1)).
+    { rewrite nth_error_seq.
+      assert (E : length l1 <? length (l1 ++ rs :: l2) = true) by (apply Nat.ltb_lt; exact Hk_lt).
+      rewrite E. reflexivity. }
+    apply nth_error_split in Hk_seq.
+    destruct Hk_seq as (seq_pre & seq_post & Hseq_eq & Hseq_pre_len).
+    (* the post-pieces have length l2 *)
+    assert (Hnmrs_post_len : length nmrs_post = length l2).
+    { pose proof (f_equal (@length _) Hnmrs_eq) as Hl.
+      rewrite !length_app in Hl, Hlen. cbn [length] in Hl, Hlen. lia. }
+    assert (Hseq_post_len : length seq_post = length l2).
+    { pose proof (f_equal (@length _) Hseq_eq) as Hl.
+      rewrite length_seq, !length_app in Hl. rewrite !length_app in Hlen.
+      cbn [length] in Hl, Hlen. lia. }
+    assert (Hlabels_split : combine p.(non_meta_rules) (seq 0 (length (l1 ++ rs :: l2)))
+              = combine nmrs_pre seq_pre ++ (rn, length l1) :: combine nmrs_post seq_post).
+    { rewrite Hnmrs_eq, Hseq_eq. rewrite combine_app by lia. reflexivity. }
+    exists (combine (combine nmrs_pre seq_pre) l1), (rn, length l1), rs, rs',
+           (combine (combine nmrs_post seq_post) l2).
+    ssplit.
+    - rewrite Hlabels_split. rewrite combine_app by (rewrite length_combine; lia).
+      cbn [combine]. reflexivity.
+    - rewrite ! map_combine_snd by (rewrite ? length_combine; lia). reflexivity.
+    - exact Hstep.
+  Qed.
+
   Lemma step_preserves_sane inputs s1 s2 :
     good_input_facts inputs ->
     sane_state inputs s1 ->
@@ -3303,92 +3350,33 @@ Section __.
       specialize (Hmfor R_concl mf_args num Hin_meta).
       cbv [ok_to_deduce_fact] in Hmfor.
       apply Hnot_in. exact (Hmfor nf_args Hcdn Hmatch). }
-    (* Step 2: set up labels and decompose s at position n. *)
+    (* Step 2-3: fire fire_rule at position n (via fire_rule_at). *)
     pose proof Hnth_rs as Hnth_save.
     apply nth_error_split in Hnth_save.
     destruct Hnth_save as (s_pre & s_post & Hs_eq & Hs_pre_len).
-    assert (Hk_seq : nth_error (seq 0 (length s)) n = Some n).
-    { rewrite nth_error_seq.
-      assert (E : n <? length s = true) by (apply Nat.ltb_lt; lia).
-      rewrite E. reflexivity. }
-    set (labels := combine p.(non_meta_rules) (seq 0 (length s))).
-    assert (Hcomb_decomp : exists l1 l2,
-              combine labels s = l1 ++ ((rn, n), rs) :: l2 /\
-              map snd l1 = s_pre /\ map snd l2 = s_post /\
-              length l1 = n).
-    { pose proof Hnth_rn as Hk_nmr_s.
-      apply nth_error_split in Hk_nmr_s.
-      destruct Hk_nmr_s as (nmrs_pre & nmrs_post & Hnmrs_eq & Hnmrs_pre_len).
-      pose proof Hk_seq as Hk_seq_s.
-      apply nth_error_split in Hk_seq_s.
-      destruct Hk_seq_s as (seq_pre & seq_post & Hseq_eq & Hseq_pre_len).
-      assert (Hlabels_split : labels =
-                combine nmrs_pre seq_pre ++ (rn, n) :: combine nmrs_post seq_post).
-      { unfold labels. rewrite Hnmrs_eq, Hseq_eq.
-        rewrite combine_app by lia. simpl. reflexivity. }
-      assert (Hcc_pre_len : length (combine nmrs_pre seq_pre) = n)
-        by (rewrite length_combine; lia).
-      exists (combine (combine nmrs_pre seq_pre) s_pre),
-             (combine (combine nmrs_post seq_post) s_post).
-      ssplit.
-      - rewrite Hlabels_split, Hs_eq.
-        rewrite combine_app by lia. simpl. reflexivity.
-      - apply map_combine_snd. lia.
-      - apply map_combine_snd. rewrite length_combine.
-        assert (Hpost_eq : length s_post = length nmrs_post).
-        { pose proof (f_equal (@length _) Hs_eq) as Hl1.
-          rewrite length_app in Hl1. simpl in Hl1.
-          pose proof (f_equal (@length _) Hnmrs_eq) as Hl2.
-          rewrite length_app in Hl2. simpl in Hl2. lia. }
-        assert (Hpost_seq_eq : length seq_post = length nmrs_post).
-        { pose proof (f_equal (@length _) Hseq_eq) as Hl3.
-          rewrite length_app in Hl3. simpl in Hl3.
-          rewrite length_seq in Hl3.
-          pose proof (f_equal (@length _) Hnmrs_eq) as Hl2.
-          rewrite length_app in Hl2. simpl in Hl2. lia. }
-        lia.
-      - rewrite length_combine. lia. }
-    destruct Hcomb_decomp as (l1 & l2 & Hcomb & Hl1_snd & Hl2_snd & Hl1_len).
-    (* Step 3: fire fire_rule. *)
     set (F := normal_dfact R_concl nf_args).
     set (rs_post := send_fact F rs).
-    set (s_post_send := map snd l1 ++ rs_post :: map snd l2).
-    set (s_fire := map (add_waiting_fact F) s_post_send).
+    set (s_fire := map (add_waiting_fact F) (s_pre ++ rs_post :: s_post)).
     assert (Hstep_fire : comp_step s s_fire).
-    { unfold s_fire.
-      apply (fire_rule F s s_post_send).
-      cbv [stepWithLabel].
-      exists l1, (rn, n), rs, rs_post, l2.
-      ssplit.
-      { exact Hcomb. }
-      { unfold s_post_send. rewrite Hl1_snd, Hl2_snd. reflexivity. }
-      exists (rule_of rn). ssplit.
-      { left. reflexivity. }
-      { simpl. split; [exact Hcdn|exact Hno_conflict]. }
-      { exact I. }
-      { reflexivity. } }
-    (* Step 4: apply learn_fact_path to flush F into rs's known at position n. *)
+    { unfold s_fire. rewrite Hs_eq. eapply fire_rule_at.
+      - rewrite <- Hs_eq. exact Hlen_s.
+      - rewrite Hs_pre_len. exact Hnth_rn.
+      - rewrite Hs_pre_len. exists (rule_of rn). ssplit.
+        + left. reflexivity.
+        + simpl. split; [exact Hcdn|exact Hno_conflict].
+        + exact I.
+        + reflexivity. }
+    (* Step 4: flush F into rs's known at position n via a learn step. *)
     assert (Hsane_fire : sane_state inputs s_fire)
       by (eapply step_preserves_sane; eauto).
-    assert (Hl1_pre_len : length l1 = length s_pre).
-    { rewrite <- (length_map snd l1), Hl1_snd. reflexivity. }
-    assert (Hl2_post_len : length l2 = length s_post).
-    { rewrite <- (length_map snd l2), Hl2_snd. reflexivity. }
     assert (Hlen_s_eq : length s = length s_pre + S (length s_post)).
     { rewrite Hs_eq, length_app. simpl. lia. }
-    assert (Hlen_s_post_send : length s_post_send = length s).
-    { unfold s_post_send. rewrite length_app. simpl.
-      rewrite !length_map. lia. }
     assert (Hn_lt_fire : n < length s_fire).
-    { unfold s_fire. rewrite length_map. lia. }
-    (* Compute rs_n_fire at position n in s_fire = add_waiting_fact F (send_fact F rs). *)
-    assert (Hnth_n_post_send : nth_error s_post_send n = Some rs_post).
-    { unfold s_post_send. rewrite nth_error_app2.
-      - rewrite length_map.
-        replace (n - length l1) with 0 by lia. reflexivity.
-      - rewrite length_map. lia. }
+    { unfold s_fire. rewrite length_map, length_app. simpl. lia. }
     assert (Hnth_n_fire : nth_error s_fire n = Some (add_waiting_fact F rs_post)).
-    { unfold s_fire. rewrite nth_error_map, Hnth_n_post_send. reflexivity. }
+    { unfold s_fire. rewrite nth_error_map.
+      rewrite nth_error_app2 by lia.
+      rewrite Hs_pre_len, Nat.sub_diag. reflexivity. }
     set (rs_n_fire := add_waiting_fact F rs_post).
     (* Now do the learn_fact step manually to expose the structural equation. *)
     pose proof Hnth_n_fire as Hnth_save.
@@ -4211,116 +4199,16 @@ Section __.
           pose proof Hnth_rs_n_post as Hnth_save.
           apply nth_error_split in Hnth_save.
           destruct Hnth_save as (s''_pre & s''_post & Hs''_eq & Hs''_pre_len).
-          assert (Hk_seq : nth_error (seq 0 (length s'')) n = Some n).
-          { rewrite nth_error_seq.
-            assert (E : n <? length s'' = true) by (apply Nat.ltb_lt; lia).
-            rewrite E. reflexivity. }
-          set (labels := combine p.(non_meta_rules) (seq 0 (length s''))).
-          assert (Hcomb_decomp : exists l1 l2,
-                    combine labels s'' = l1 ++ ((rn, n), rs_n_post) :: l2 /\
-                    map snd l1 = s''_pre /\ map snd l2 = s''_post /\
-                    length l1 = n).
-          { pose proof Hnth_rn as Hk_nmr_s.
-            apply nth_error_split in Hk_nmr_s.
-            destruct Hk_nmr_s as (nmrs_pre & nmrs_post & Hnmrs_eq & Hnmrs_pre_len).
-            pose proof Hk_seq as Hk_seq_s.
-            apply nth_error_split in Hk_seq_s.
-            destruct Hk_seq_s as (seq_pre & seq_post & Hseq_eq & Hseq_pre_len).
-            assert (Hlabels_split : labels =
-                      combine nmrs_pre seq_pre ++ (rn, n) :: combine nmrs_post seq_post).
-            { unfold labels. rewrite Hnmrs_eq, Hseq_eq.
-              rewrite combine_app by lia. simpl. reflexivity. }
-            assert (Hcc_pre_len : length (combine nmrs_pre seq_pre) = n).
-            { rewrite length_combine. lia. }
-            exists (combine (combine nmrs_pre seq_pre) s''_pre),
-                   (combine (combine nmrs_post seq_post) s''_post).
-            ssplit.
-            - rewrite Hlabels_split, Hs''_eq.
-              rewrite combine_app by lia. simpl. reflexivity.
-            - apply map_combine_snd. lia.
-            - apply map_combine_snd. rewrite length_combine.
-              assert (Hpost_eq : length s''_post = length nmrs_post).
-              { pose proof (f_equal (@length _) Hs''_eq) as Hl1.
-                rewrite length_app in Hl1. simpl in Hl1.
-                pose proof (f_equal (@length _) Hnmrs_eq) as Hl2.
-                rewrite length_app in Hl2. simpl in Hl2. lia. }
-              assert (Hpost_seq_eq : length seq_post = length nmrs_post).
-              { pose proof (f_equal (@length _) Hseq_eq) as Hl3.
-                rewrite length_app in Hl3. simpl in Hl3.
-                rewrite length_seq in Hl3.
-                pose proof (f_equal (@length _) Hnmrs_eq) as Hl2.
-                rewrite length_app in Hl2. simpl in Hl2. lia. }
-              lia.
-            - rewrite length_combine. lia. }
-          destruct Hcomb_decomp as (l1 & l2 & Hcomb & Hl1_snd & Hl2_snd & Hl1_len).
-          (* Define the new meta_dfact and target state *)
           set (new_fact := meta_dfact R_concl args_concl (Some n) ms_n).
           set (rs_n_post' := send_fact new_fact rs_n_post).
-          set (s2 := map snd l1 ++ rs_n_post' :: map snd l2).
-          exists (map (add_waiting_fact new_fact) s2).
-          split.
-          { eapply crt1n_trans_compose; [exact Hsteps_total|].
-            eapply Relation_Operators.rt1n_trans; [|apply rt1n_refl].
-            apply (fire_rule new_fact s'' s2).
-            cbv [stepWithLabel].
-            exists l1, (rn, n), rs_n_post, rs_n_post', l2.
-            ssplit.
-            { exact Hcomb. }
-            { unfold s2. rewrite Hl1_snd, Hl2_snd. reflexivity. }
-            exists (meta_rule rule_concls rule_hyps). ssplit.
-            { right. exists rule_concls, rule_hyps. split; [exact Hin_mr|reflexivity]. }
-            { (* can_deduce_fact for meta_dfact *)
-              cbv [can_deduce_fact]. unfold new_fact. split; [reflexivity|].
-              exists rule_concls, rule_hyps, hyps_facts. split; [reflexivity|].
-              split.
-              { cbv [can_deduce_meta_fact].
-                apply Exists_exists in Hexists_meta_concl.
-                destruct Hexists_meta_concl as (c & Hin_c & Hint_c).
-                cbv [interp_meta_clause] in Hint_c.
-                destruct Hint_c as (mfa & mfs & Hf2_args & Heq_meta).
-                injection Heq_meta as Hrel Hmfa _.
-                exists ctx, R_concl, args_concl, ms_n. ssplit.
-                - reflexivity.
-                - exact Hex_sent.
-                - apply Exists_exists. exists c. split; [exact Hin_c|].
-                  cbv [interp_meta_clause]. exists args_concl, (fun _ => False).
-                  split.
-                  + rewrite Hmfa. exact Hf2_args.
-                  + rewrite Hrel. reflexivity.
-                - exact Hforall2_meta_hyps. }
-              { exact Hknow_hyps_post. } }
-            { (* ok_to_deduce_fact for meta_dfact: forcing clause *)
-              cbv [ok_to_deduce_fact]. unfold new_fact. exact Hforcing. }
-            { reflexivity. } }
-          { (* has_derived part *)
-            intros k Hk_lt.
-            destruct (Nat.eq_dec k n) as [Heq | Hneq].
-            - (* k = n: emit the new meta_dfact *)
-              subst k. exists ms_n.
-              cbv [knows_dfact]. apply Exists_exists.
-              eexists. split.
-              + apply in_map_iff. eexists. split; [reflexivity|].
-                unfold s2. apply in_or_app. right. left. reflexivity.
-              + cbv [rule_has_dfact add_waiting_fact]. simpl.
-                right. left. reflexivity.
-            - (* k < n: from IH *)
-              assert (Hk_lt_n_orig : k < n) by lia.
-              specialize (Hk_lt_n k Hk_lt_n_orig) as (num & Hk_knows).
-              exists num.
-              (* knows_dfact preserved across comp_step^* *)
-              eapply steps_preserves_knows_dfact;
-                [exact Hinp | exact Hsane_s' | | exact Hk_knows].
-              eapply crt1n_trans_compose; [exact Hsteps_flush|].
-              eapply Relation_Operators.rt1n_trans; [|apply rt1n_refl].
-              apply (fire_rule new_fact s'' s2).
-              cbv [stepWithLabel].
-              exists l1, (rn, n), rs_n_post, rs_n_post', l2.
-              ssplit.
-              { exact Hcomb. }
-              { unfold s2. rewrite Hl1_snd, Hl2_snd. reflexivity. }
-              exists (meta_rule rule_concls rule_hyps). ssplit.
-              { right. exists rule_concls, rule_hyps. split; [exact Hin_mr|reflexivity]. }
-              { cbv [can_deduce_fact]. unfold new_fact. split; [reflexivity|].
+          set (s2 := s''_pre ++ rs_n_post' :: s''_post).
+          assert (Hstep_fire : comp_step s'' (map (add_waiting_fact new_fact) s2)).
+          { unfold s2. rewrite Hs''_eq. eapply fire_rule_at.
+            - rewrite <- Hs''_eq. exact Hlen_s''.
+            - rewrite Hs''_pre_len. exact Hnth_rn.
+            - rewrite Hs''_pre_len. exists (meta_rule rule_concls rule_hyps). ssplit.
+              + right. exists rule_concls, rule_hyps. split; [exact Hin_mr|reflexivity].
+              + cbv [can_deduce_fact]. unfold new_fact. split; [reflexivity|].
                 exists rule_concls, rule_hyps, hyps_facts. split; [reflexivity|].
                 split.
                 { cbv [can_deduce_meta_fact].
@@ -4338,9 +4226,28 @@ Section __.
                     + rewrite Hmfa. exact Hf2_args.
                     + rewrite Hrel. reflexivity.
                   - exact Hforall2_meta_hyps. }
-                { exact Hknow_hyps_post. } }
-              { cbv [ok_to_deduce_fact]. unfold new_fact. exact Hforcing. }
-              { reflexivity. } } }
+                { exact Hknow_hyps_post. }
+              + cbv [ok_to_deduce_fact]. unfold new_fact. exact Hforcing.
+              + reflexivity. }
+          exists (map (add_waiting_fact new_fact) s2).
+          split.
+          { eapply crt1n_trans_compose; [exact Hsteps_total|].
+            eapply Relation_Operators.rt1n_trans; [|apply rt1n_refl]. exact Hstep_fire. }
+          { intros k Hk_lt.
+            destruct (Nat.eq_dec k n) as [Heq | Hneq].
+            - subst k. exists ms_n.
+              cbv [knows_dfact]. apply Exists_exists.
+              eexists. split.
+              + apply in_map_iff. eexists. split; [reflexivity|].
+                unfold s2. apply in_or_app. right. left. reflexivity.
+              + cbv [rule_has_dfact add_waiting_fact]. simpl. right. left. reflexivity.
+            - assert (Hk_lt_n_orig : k < n) by lia.
+              specialize (Hk_lt_n k Hk_lt_n_orig) as (num & Hk_knows).
+              exists num.
+              eapply steps_preserves_knows_dfact;
+                [exact Hinp | exact Hsane_s' | | exact Hk_knows].
+              eapply crt1n_trans_compose; [exact Hsteps_flush|].
+              eapply Relation_Operators.rt1n_trans; [|apply rt1n_refl]. exact Hstep_fire. } }
       specialize (Hgoal_n (length p.(non_meta_rules)) ltac:(lia)).
       destruct Hgoal_n as (s' & Hsteps & Hknows_all).
       exists s'. split; [exact Hsteps|].
