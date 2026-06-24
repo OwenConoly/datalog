@@ -499,6 +499,17 @@ Section steps_corresp.
         produces step1 initial1 (inputs_of t2) output ->
         can_output step2 ns2 t2 output.
 
+    (* Primed completeness: restrict system 2's observed trace to be input-only
+       (the dual restriction to steps_corresp_sound').  This is the form the
+       cross-graph completeness lemma proves directly; the bridge below recovers
+       the unprimed version from monotone'/input_total of system 2. *)
+    Definition steps_corresp_complete' :=
+      forall ns2 inps o,
+        star step2 initial2 (map I_event inps) ns2 ->
+        allowed inps ->
+        produces step1 initial1 inps o ->
+        can_output step2 ns2 (map I_event inps) o.
+
     Lemma complete_sound D :
       input_total step1 ->
       complete_weak step1 allowed initial1 D ->
@@ -551,6 +562,26 @@ Section steps_corresp.
       pose proof (Hciw2 t2 ns2 o Hstar2 Hall2 Hout2
                        ns2' (map I_event (inputs_of t2)) Hincl Hstar2' Hall') as Hwill.
       exact (Hscs' ns2' (inputs_of t2) o Hstar2' Hall2 Hwill).
+    Qed.
+
+    (* Dual bridge: recover unprimed completeness from the primed version, using
+       input_total (to realize the input-only run) and monotone' (to transfer the
+       capability to the actually-observed run on the same inputs). *)
+    Lemma steps_corresp_complete'_implies_complete :
+      input_total step2 ->
+      monotone' step2 allowed initial2 ->
+      steps_corresp_complete' ->
+      steps_corresp_complete.
+    Proof.
+      intros Hit2 Hmono2 Hcc' t2 ns2 o Hstar2 Hall2 Hprod.
+      destruct (star_recv_map step2 Hit2 (inputs_of t2) initial2) as (ns2' & Hstar2').
+      assert (Hallinps : allowed (inputs_of t2)) by exact Hall2.
+      pose proof (Hcc' ns2' (inputs_of t2) o Hstar2' Hallinps Hprod) as Hcan'.
+      apply (Hmono2 (map I_event (inputs_of t2)) t2 ns2' ns2 o Hstar2' Hstar2).
+      - unfold allowed_trace. rewrite inputs_of_map_I_event. exact Hall2.
+      - exact Hall2.
+      - rewrite inputs_of_map_I_event. apply incl_refl.
+      - exact Hcan'.
     Qed.
 
     Definition steps_bicorresp :=
