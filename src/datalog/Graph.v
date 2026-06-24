@@ -1182,10 +1182,10 @@ Section __.
         steps_corresp_sound A (node_step1 np1) (fst i1) (node_step2 np2) (fst i2).
     Proof.
       intros Hcorr n np2 Hp2. pose proof (Hcorr n) as H. rewrite Hp2 in H.
-      destruct (map.get p1 n) as [np1|] eqn:E1; try (cbn in H; contradiction).
-      destruct (map.get initial_ns1 n) as [[a1 b1]|] eqn:E2; try (cbn in H; contradiction).
-      destruct (map.get initial_ns2 n) as [[a2 b2]|] eqn:E3; try (cbn in H; contradiction).
-      cbn in H.
+      destruct (map.get p1 n) as [np1|] eqn:E1;
+        destruct (map.get initial_ns1 n) as [[a1 b1]|] eqn:E2;
+        destruct (map.get initial_ns2 n) as [[a2 b2]|] eqn:E3;
+        cbn in H; try contradiction.
       exists np1, (a1, b1), (a2, b2).
       split; [reflexivity|]. split; [reflexivity|]. split; [reflexivity|]. exact H.
     Qed.
@@ -1231,9 +1231,8 @@ Section __.
       pose proof (Hsc t2 ns2' mu Hstar2 (allowed_trace_universal A A_univ t2) Hmu) as Hprod.
       destruct Hprod as (tp & nsp & Hstarp & Hinpp & Houtp).
       assert (Hcanp : can_output (node_step1 np1) nsp tp mu).
-      { exists [], nsp. split; [constructor|]. split; [reflexivity|].
-        rewrite app_nil_r. exact Houtp. }
-      pose proof (pernode_monotone' p1 initial_ns1 node_step1 Hciw1 n np1 i1 Hp1 Hi1) as Hmono.
+      { exists [], nsp. split; [constructor|]. split; [reflexivity| exact Houtp]. }
+      pose proof (proj2 (pernode_spec p1 initial_ns1 node_step1 Hciw1 n np1 i1 Hp1 Hi1)) as Hmono.
       apply (Hmono tp t1 nsp ns1 mu Hstarp Hstar1
                (allowed_trace_universal A A_univ tp) (allowed_trace_universal A A_univ t1)).
       - rewrite Hinpp. exact Hincl.
@@ -1254,15 +1253,14 @@ Section __.
         gs.(g_messages) =
           fold_left (fun acc mn => (snd mn, fst mn) :: acc) inps m0.
     Proof.
-      intros NPr GPr NS NSM pp nstep ini.
-      induction inps as [|mn inps IH]; intros m0 gs Hstar.
-      - cbn in Hstar. inversion Hstar; subst. split; reflexivity.
-      - cbn in Hstar. inversion Hstar as [|s0 e s1 t0 s2 Hstep Hrest]; subst.
-        inversion Hstep as [ gs' nn mm Hia | gs' nn npn nsn tn nsn' outsn Hpn Hgn Hsn
-                           | gs' nn npn nsn tn nsn' mm msa msb Hpn Hgn Hsn Hmsg ]; subst.
-        injection H2 as Hmm Hnn. subst.
-        destruct (IH ((nn, mm) :: m0) gs Hrest) as (Hnodes & Hmsgs).
-        split; [exact Hnodes | exact Hmsgs].
+      intros NPr GPr NS NSM pp nstep ini m0 inps. revert m0.
+      induction inps as [|mn inps IH]; intros m0 gs Hstar; cbn in Hstar.
+      - inversion Hstar; subst. split; reflexivity.
+      - inversion Hstar as [|s0 e s1 t0 s2 Hstep Hrest]; subst.
+        inversion Hstep as [ gs' n' m' Hia | gs' n' np' ns' t' ns'' outs' Hp' Hg' Hs'
+                           | gs' n' np' ns' t' ns'' m' msa msb Hp' Hg' Hs' Hmsg ]; subst.
+        destruct (IH ((n', m') :: m0) gs Hrest) as (Hn & Hm).
+        split; [exact Hn|]. cbn. exact Hm.
     Qed.
 
     Lemma graphs_corresp_sound :
