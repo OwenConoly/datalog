@@ -19,7 +19,9 @@ Section __.
 
   (* The graph's output events are labelled by the node responsible: [receive n]
      for a delivery to node n, [run n lbl] for node n firing its [lbl]-output. *)
-  Variant graph_label := receive (_ : node_id) | run (_ : node_id) (_ : label).
+  Variant graph_label :=
+    | receive (_ : node_id) (_ : message)
+    | run (_ : node_id) (_ : label).
 
   (* The graph's external alphabet tags each message with the node it is
      delivered to / produced by, so inputs to different nodes are distinguishable. *)
@@ -59,7 +61,7 @@ Section __.
       map.get gs.(g_nodes) n = Some (ns, t) ->
       node_step np ns (I_event m) ns' ->
       gs.(g_messages) = ms1 ++ (n, m) :: ms2 ->
-      graph_step gs (O_event (receive n) [])
+      graph_step gs (O_event (receive n m) [])
                  {| g_nodes := map.put gs.(g_nodes) n (ns', t ++ [I_event m]);
                    g_messages := ms1 ++ ms2 |}.
   End graph.
@@ -938,7 +940,7 @@ Section __.
     Proof.
       intros Hit TX gsX HTX c m npc ns0c Hpc Hns0c Hcm t.
       destruct Hcm as [Hq | Hr].
-      - apply eventually_step_cps. exists (receive c).
+      - apply eventually_step_cps. exists (receive c m).
         intros gs_d t_d Hstar_d Hallow.
         pose proof (star_app _ _ _ _ _ _ HTX Hstar_d) as HTd.
         destruct (queue_fate _ _ _ Hstar_d c m Hq) as [Hqd | Hrd].
@@ -1126,7 +1128,7 @@ Section __.
             - intros nn mm Hin. cbn in Hin. apply (HdC_m nn mm).
               rewrite Hmsg. apply in_app_iff. apply in_app_or in Hin as [H|H];
                 [left; exact H | right; right; exact H]. }
-          apply (IH HinpTC (TC0 ++ [O_event (receive ni) []])
+          apply (IH HinpTC (TC0 ++ [O_event (receive ni mi) []])
                     (star_app _ _ _ _ _ _ HC0
                        (star_step _ _ _ _ _ _ Hstep (star_refl _ _)))
                     TX' gs' HTX' HdomC1 t').
@@ -1206,16 +1208,16 @@ Section __.
               change (O_event (run ni lbli) (map (fun m => (m, ni)) (filter (output_visible ni) outsi)) :: tt)
                 with ([O_event (run ni lbli) (map (fun m => (m, ni)) (filter (output_visible ni) outsi))] ++ tt).
               apply output_in_trace_app. right. exact Hotn.
-          + (* gstep_receive ni; the event is O_event (receive ni) [] *)
+          + (* gstep_receive ni; the event is O_event (receive ni mi) [] *)
             cbn in Hg'. destruct (Nat.eq_dec on ni) as [->|Hne].
             * rewrite map.get_put_same in Hg'. injection Hg' as <- <-.
               apply output_in_trace_app in Hotn as [Ho | Ho].
-              -- change (O_event (receive ni) [] :: tt) with ([O_event (receive ni) []] ++ tt).
+              -- change (O_event (receive ni mi) [] :: tt) with ([O_event (receive ni mi) []] ++ tt).
                  apply output_in_trace_app. right. apply (Href nsi ti Hgi Ho).
               -- destruct Ho as (lbo & os & [Heqo|[]] & _). discriminate Heqo.
             * rewrite map.get_put_diff in Hg' by auto.
               apply (Href ns tn Hg') in Hotn.
-              change (O_event (receive ni) [] :: tt) with ([O_event (receive ni) []] ++ tt).
+              change (O_event (receive ni mi) [] :: tt) with ([O_event (receive ni mi) []] ++ tt).
               apply output_in_trace_app. right. exact Hotn. }
       (* Force the graph from gs to a state dominating gs_pre, carrying R. *)
       eapply eventually_trans.
@@ -1532,7 +1534,7 @@ Section __.
             - intros nn mm Hin. cbn in Hin. apply (HdC_m nn mm).
               rewrite Hmsg. apply in_app_iff. apply in_app_or in Hin as [H|H];
                 [left; exact H | right; right; exact H]. }
-          apply (IH HinpTC (TC0 ++ [O_event (receive ni) []])
+          apply (IH HinpTC (TC0 ++ [O_event (receive ni mi) []])
                     (star_app _ _ _ _ _ _ HC0
                        (star_step _ _ _ _ _ _ Hstep (star_refl _ _)))
                     TX' gs' HTX' HdomC1 t').
@@ -1610,12 +1612,12 @@ Section __.
           + cbn in Hg'. destruct (Nat.eq_dec on ni) as [->|Hne].
             * rewrite map.get_put_same in Hg'. injection Hg' as <- <-.
               apply output_in_trace_app in Hotn as [Ho | Ho].
-              -- change (O_event (receive ni) [] :: tt) with ([O_event (receive ni) []] ++ tt).
+              -- change (O_event (receive ni mi) [] :: tt) with ([O_event (receive ni mi) []] ++ tt).
                  apply output_in_trace_app. right. apply (Href nsi ti Hgi Ho).
               -- destruct Ho as (lbo & os & [Heqo|[]] & _). discriminate Heqo.
             * rewrite map.get_put_diff in Hg' by auto.
               apply (Href ns tn Hg') in Hotn.
-              change (O_event (receive ni) [] :: tt) with ([O_event (receive ni) []] ++ tt).
+              change (O_event (receive ni mi) [] :: tt) with ([O_event (receive ni mi) []] ++ tt).
               apply output_in_trace_app. right. exact Hotn. }
       eapply eventually_trans.
       { apply (eventually_carry_inv2 p1 node_step1 R Hstarp Hostep _ gs t HR_init Hev). }
@@ -1954,7 +1956,7 @@ Section __.
             - intros nn mm Hin. cbn in Hin. apply (HdC_m nn mm).
               rewrite Hmsg. apply in_app_iff. apply in_app_or in Hin as [H|H];
                 [left; exact H | right; right; exact H]. }
-          apply (IH Hincl' (TC0 ++ [O_event (receive ni) []])
+          apply (IH Hincl' (TC0 ++ [O_event (receive ni mi) []])
                     (star_app _ _ _ _ _ _ HC0
                        (star_step _ _ _ _ _ _ Hstep (star_refl _ _)))
                     TX' gs' HTX' Habs' Hdom1 t').
@@ -2031,12 +2033,12 @@ Section __.
           + cbn in Hg'. destruct (Nat.eq_dec on ni) as [->|Hne].
             * rewrite map.get_put_same in Hg'. injection Hg' as <- <-.
               apply output_in_trace_app in Hotn as [Ho | Ho].
-              -- change (O_event (receive ni) [] :: tt) with ([O_event (receive ni) []] ++ tt).
+              -- change (O_event (receive ni mi) [] :: tt) with ([O_event (receive ni mi) []] ++ tt).
                  apply output_in_trace_app. right. apply (Href nsi ti Hgi Ho).
               -- destruct Ho as (lbo & os & [Heqo|[]] & _). discriminate Heqo.
             * rewrite map.get_put_diff in Hg' by auto.
               apply (Href ns tn Hg') in Hotn.
-              change (O_event (receive ni) [] :: tt) with ([O_event (receive ni) []] ++ tt).
+              change (O_event (receive ni mi) [] :: tt) with ([O_event (receive ni mi) []] ++ tt).
               apply output_in_trace_app. right. exact Hotn. }
       eapply eventually_trans.
       { apply (eventually_carry_inv2 p2 node_step2 R Hstarp Hostep _ gs t HR_init Hev). }
