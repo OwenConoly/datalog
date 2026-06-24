@@ -23,17 +23,17 @@ Section star.
 End star.
 
 Section io.
-  Context {message : Type}.
+  Context {label message : Type}.
 
   Variant IO_event : Type :=
     | I_event : message -> IO_event
-    | O_event : list message -> IO_event.
+    | O_event : label -> list message -> IO_event.
 
   Definition inputs_of (t : list IO_event) :=
     flat_map (fun e => match e with I_event m => [m] | _ => [] end) t.
 
   Definition output_in_trace (output : message) (t : list IO_event) :=
-    exists outs, In (O_event outs) t /\ In output outs.
+    exists lbl outs, In (O_event lbl outs) t /\ In output outs.
 
   Lemma inputs_of_map_I_event (l : list message) :
     inputs_of (map I_event l) = l.
@@ -47,26 +47,26 @@ End io.
 Arguments IO_event : clear implicits.
 
 Section step.
-  Context {state message : Type}.
-  Context (step : state -> IO_event message -> state -> Prop).
+  Context {state label message : Type}.
+  Context (step : state -> IO_event label message -> state -> Prop).
   Context (allowed : list message -> Prop).
 
-  Definition allowed_trace (t : list (IO_event message)) := allowed (inputs_of t).
+  Definition allowed_trace (t : list (IO_event label message)) := allowed (inputs_of t).
 
-  Lemma output_in_trace_app o (l1 l2 : list (IO_event message)) :
+  Lemma output_in_trace_app o (l1 l2 : list (IO_event label message)) :
     output_in_trace o (l1 ++ l2) <-> output_in_trace o l1 \/ output_in_trace o l2.
   Proof.
     unfold output_in_trace; split.
-    - intros (outs & Hin & Hino).
-      apply in_app_or in Hin as [Hin|Hin]; [left|right]; eauto.
-    - intros [(outs & Hin & Hino)|(outs & Hin & Hino)];
-        exists outs; (split; [apply in_or_app|exact Hino]); auto.
+    - intros (lbl & outs & Hin & Hino).
+      apply in_app_or in Hin as [Hin|Hin]; [left|right]; exists lbl, outs; split; assumption.
+    - intros [(lbl & outs & Hin & Hino)|(lbl & outs & Hin & Hino)];
+        exists lbl, outs; (split; [apply in_or_app|exact Hino]); auto.
   Qed.
 
-  Lemma output_in_trace_rev o (l : list (IO_event message)) :
+  Lemma output_in_trace_rev o (l : list (IO_event label message)) :
     output_in_trace o (rev l) <-> output_in_trace o l.
   Proof.
-    unfold output_in_trace; split; intros (outs & Hin & Hino); exists outs;
+    unfold output_in_trace; split; intros (lbl & outs & Hin & Hino); exists lbl, outs;
       (split; [|exact Hino]); apply in_rev; auto.
     rewrite rev_involutive. exact Hin.
   Qed.
@@ -75,15 +75,15 @@ Section step.
     (forall t, allowed t) -> forall t, allowed_trace t.
   Proof. unfold allowed_trace; auto. Qed.
 
-  Lemma inputs_of_app (t1 t2 : list (IO_event message)) :
+  Lemma inputs_of_app (t1 t2 : list (IO_event label message)) :
     inputs_of (t1 ++ t2) = inputs_of t1 ++ inputs_of t2.
   Proof. apply flat_map_app. Qed.
 
-  Lemma output_in_trace_swap o l1 e (l2 : list (IO_event message)) :
+  Lemma output_in_trace_swap o l1 e (l2 : list (IO_event label message)) :
     output_in_trace o (l1 ++ e :: l2) <-> output_in_trace o (e :: l1 ++ l2).
   Proof.
     unfold output_in_trace.
-    split; intros (outs & Hin & Hino); exists outs; (split; [|exact Hino]).
+    split; intros (lbl & outs & Hin & Hino); exists lbl, outs; (split; [|exact Hino]).
     - apply in_app_or in Hin. destruct Hin as [Hin | [Hin | Hin]].
       + right. apply in_or_app. left. exact Hin.
       + left. exact Hin.
@@ -130,17 +130,18 @@ Section step.
     i wonder whether (exists outs) should appear before (forall s' t')?
     probably not.
    *)
-  Definition can_step '(s, t) (P : state * list (IO_event message) -> Prop) : Prop :=
+  Definition can_step '(s, t) (P : state * list (IO_event label message) -> Prop) : Prop :=
+    exists lbl,
     forall s' t',
       star step s t' s' ->
       allowed_trace (t' ++ t) ->
       P (s', t' ++ t) \/
         exists s'' outs,
-          step s' (O_event outs) s'' /\
-            P (s'', O_event outs :: t' ++ t).
+          step s' (O_event lbl outs) s'' /\
+            P (s'', O_event lbl outs :: t' ++ t).
 
   Lemma eventually_can_step_to_star :
-    forall (P : state * list (IO_event message) -> Prop) s t,
+    forall (P : state * list (IO_event label message) -> Prop) s t,
       allowed_trace t ->
       eventually can_step P (s, t) ->
       exists s' tr,
@@ -154,15 +155,16 @@ Section step.
     induction Hwill as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
       intros s0 t0 Hallow [= -> ->].
     - exists s0, []. split; [constructor|]. split; [reflexivity|exact HP].
-    - assert (Hallow0 : allowed_trace ([] ++ t0)) by (cbn; exact Hallow).
+    - destruct Hcan as [lbl Hcan].
+      assert (Hallow0 : allowed_trace ([] ++ t0)) by (cbn; exact Hallow).
       destruct (Hcan s0 [] (star_refl _ _) Hallow0)
         as [Hmid0 | (s'' & outs & Hstep & Hmidset)].
       + apply (IH (s0, [] ++ t0) Hmid0 s0 t0 Hallow eq_refl).
-      + assert (Hallow' : allowed_trace (O_event outs :: t0)).
+      + assert (Hallow' : allowed_trace (O_event lbl outs :: t0)).
         { unfold allowed_trace. cbn. exact Hallow. }
-        destruct (IH _ Hmidset s'' (O_event outs :: t0) Hallow' eq_refl)
+        destruct (IH _ Hmidset s'' (O_event lbl outs :: t0) Hallow' eq_refl)
           as (s_final & tr & Hstar & Hinp & HP).
-        exists s_final, (O_event outs :: tr).
+        exists s_final, (O_event lbl outs :: tr).
         split; [econstructor; eassumption|].
         split; [cbn; exact Hinp|].
         cbn. rewrite <- app_assoc. cbn. exact HP.
@@ -199,16 +201,16 @@ Section step.
       intros s0 t0 Hall [= -> ->].
     - exists [], s0. split; [constructor|].
       split; [reflexivity|exact HP].
-    - cbv [can_step] in Hcan.
+    - cbv [can_step] in Hcan. destruct Hcan as [lbl Hcan].
       specialize (Hcan s0 [] (star_refl _ _)).
       cbn in Hcan. specialize (Hcan Hall).
       destruct Hcan as [Hmid0 | (s'' & outs & Hstep & Hmidset)].
       + apply (IH (s0, t0) Hmid0 s0 t0 Hall eq_refl).
-      + assert (Hall' : allowed_trace (O_event outs :: t0)).
+      + assert (Hall' : allowed_trace (O_event lbl outs :: t0)).
         { unfold allowed_trace. cbn. exact Hall. }
-        destruct (IH _ Hmidset s'' (O_event outs :: t0) Hall' eq_refl)
+        destruct (IH _ Hmidset s'' (O_event lbl outs :: t0) Hall' eq_refl)
           as (t'' & s''' & Hstar'' & Hinp'' & Hout'').
-        exists (O_event outs :: t''), s'''.
+        exists (O_event lbl outs :: t''), s'''.
         split; [econstructor; eassumption|].
         split; [cbn; exact Hinp''|].
         cbn. apply output_in_trace_swap. exact Hout''.
@@ -216,7 +218,7 @@ Section step.
 
   Lemma eventually_swap :
     (forall t, allowed t) ->
-    forall (o : message) (s : state) (t1 t2 : list (IO_event message)),
+    forall (o : message) (s : state) (t1 t2 : list (IO_event label message)),
       (forall x, output_in_trace x t1 <-> output_in_trace x t2) ->
       eventually can_step
                  (fun '(_, t') => output_in_trace o t') (s, t1) ->
@@ -229,7 +231,8 @@ Section step.
     induction Hev as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
       intros s_orig t1 t2 Hout [= -> ->].
     - apply eventually_done. cbn. apply Hout. exact HP.
-    - apply eventually_step_cps.
+    - destruct Hcan as [lbl Hcan].
+      apply eventually_step_cps. exists lbl.
       intros s'_d t_d Hstar_d Hallow_d.
       assert (Hallow_d' : allowed_trace (t_d ++ t1))
         by (unfold allowed_trace; auto).
@@ -239,11 +242,11 @@ Section step.
           [|reflexivity].
         intros x. rewrite !output_in_trace_app. pose proof (Hout x). tauto.
       + right. exists s'', outs. split; [exact Hstep|].
-        apply (IH _ Hmidset s'' (O_event outs :: t_d ++ t1)
-                  (O_event outs :: t_d ++ t2)); [|reflexivity].
+        apply (IH _ Hmidset s'' (O_event lbl outs :: t_d ++ t1)
+                  (O_event lbl outs :: t_d ++ t2)); [|reflexivity].
         intros x.
-        change (O_event outs :: t_d ++ t1) with ([O_event outs] ++ (t_d ++ t1)).
-        change (O_event outs :: t_d ++ t2) with ([O_event outs] ++ (t_d ++ t2)).
+        change (O_event lbl outs :: t_d ++ t1) with ([O_event lbl outs] ++ (t_d ++ t1)).
+        change (O_event lbl outs :: t_d ++ t2) with ([O_event lbl outs] ++ (t_d ++ t2)).
         rewrite !output_in_trace_app.
         pose proof (output_in_trace_app x t_d t1) as Ht1.
         pose proof (output_in_trace_app x t_d t2) as Ht2.
@@ -264,9 +267,10 @@ Section step.
     induction Hwill as [[s0 t0] HP | [s0 t0] midset Hcan Hmid IH];
       intros s_orig e_orig s_new t_orig Hstep [= -> ->].
     - apply eventually_done. cbn in HP |- *.
-      destruct HP as (outs & Hin & Hino).
-      exists outs. split; [right; exact Hin | exact Hino].
-    - apply eventually_step_cps.
+      destruct HP as (lbl & outs & Hin & Hino).
+      exists lbl, outs. split; [right; exact Hin | exact Hino].
+    - destruct Hcan as [lbl Hcan].
+      apply eventually_step_cps. exists lbl.
       intros s_d t_d Hstar_d Hallow_d.
       pose proof (star_step _ _ _ _ _ _ Hstep Hstar_d) as Hstar_combined.
       assert (Hallow_o : allowed_trace ((e_orig :: t_d) ++ t_orig))
@@ -284,16 +288,16 @@ Section step.
       + right. exists s'', outs. split; [exact Hstep_a|].
         specialize (Hmid _ Hmidset).
         apply (eventually_swap A_univ o s''
-                (O_event outs :: (e_orig :: t_d) ++ t_orig)
-                (O_event outs :: t_d ++ e_orig :: t_orig)); [|exact Hmid].
+                (O_event lbl outs :: (e_orig :: t_d) ++ t_orig)
+                (O_event lbl outs :: t_d ++ e_orig :: t_orig)); [|exact Hmid].
         intros x.
         change ((e_orig :: t_d) ++ t_orig) with (e_orig :: t_d ++ t_orig).
-        change (O_event outs :: e_orig :: t_d ++ t_orig)
-          with ([O_event outs] ++ (e_orig :: t_d ++ t_orig)).
-        change (O_event outs :: t_d ++ e_orig :: t_orig)
-          with ([O_event outs] ++ (t_d ++ e_orig :: t_orig)).
-        pose proof (output_in_trace_app x [O_event outs] (e_orig :: t_d ++ t_orig)) as H1.
-        pose proof (output_in_trace_app x [O_event outs] (t_d ++ e_orig :: t_orig)) as H2.
+        change (O_event lbl outs :: e_orig :: t_d ++ t_orig)
+          with ([O_event lbl outs] ++ (e_orig :: t_d ++ t_orig)).
+        change (O_event lbl outs :: t_d ++ e_orig :: t_orig)
+          with ([O_event lbl outs] ++ (t_d ++ e_orig :: t_orig)).
+        pose proof (output_in_trace_app x [O_event lbl outs] (e_orig :: t_d ++ t_orig)) as H1.
+        pose proof (output_in_trace_app x [O_event lbl outs] (t_d ++ e_orig :: t_orig)) as H2.
         pose proof (output_in_trace_swap x t_d e_orig t_orig) as Hsw.
         tauto.
   Qed.
@@ -408,16 +412,16 @@ Section step.
     - exists [], s2. split; [constructor|].
       split; [reflexivity|].
       cbn. apply output_in_trace_app. right. exact HP.
-    - cbv [can_step] in Hcan_step.
+    - cbv [can_step] in Hcan_step. destruct Hcan_step as [lbl Hcan_step].
       specialize (Hcan_step _ _ Hstar2 Hallt).
       destruct Hcan_step as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
       + exact (will_implies_can _ _ _ Hallt (Hmid _ Hmid_left)).
       + specialize (Hmid _ Hmidset).
-        assert (Hall' : allowed_trace (O_event outs :: t2 ++ t1)).
+        assert (Hall' : allowed_trace (O_event lbl outs :: t2 ++ t1)).
         { unfold allowed_trace. cbn. exact Hallt. }
         apply (will_implies_can _ _ _ Hall') in Hmid.
         destruct Hmid as (t' & s''' & Hstar' & Hinp' & Hout').
-        exists (O_event outs :: t'), s'''.
+        exists (O_event lbl outs :: t'), s'''.
         split; [econstructor; eassumption|].
         split; [cbn; exact Hinp'|].
         cbn. apply output_in_trace_swap. exact Hout'.
@@ -464,10 +468,10 @@ Section step.
 End step.
 
 Section steps_corresp.
-  Context {message : Type}.
+  Context {label message : Type}.
   Context (allowed : list message -> Prop).
   Local Notation allowed_trace := (allowed_trace allowed).
-  Local Notation IO_event := (IO_event message).
+  Local Notation IO_event := (IO_event label message).
 
   Section steps.
     Context {state1 : Type}.
@@ -555,9 +559,10 @@ Section steps_corresp.
     Proof.
       intros Hit2 Hciw2 Hscs' t2 ns2 o Hstar2 Hall2 Hout2.
       destruct (star_recv_map step2 Hit2 (inputs_of t2) initial2) as (ns2' & Hstar2').
-      assert (Hall' : allowed_trace (map I_event (inputs_of t2))).
+      assert (Hall' : allowed_trace (map I_event (inputs_of t2) : list IO_event)).
       { unfold allowed_trace. rewrite inputs_of_map_I_event. exact Hall2. }
-      assert (Hincl : incl (inputs_of t2) (inputs_of (map I_event (inputs_of t2)))).
+      assert (Hincl : incl (inputs_of t2)
+                           (inputs_of (map I_event (inputs_of t2) : list IO_event))).
       { rewrite inputs_of_map_I_event. apply incl_refl. }
       pose proof (Hciw2 t2 ns2 o Hstar2 Hall2 Hout2
                        ns2' (map I_event (inputs_of t2)) Hincl Hstar2' Hall') as Hwill.
