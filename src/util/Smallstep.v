@@ -126,10 +126,7 @@ Section step.
       exists s''. cbn. econstructor; eassumption.
   Qed.
 
-  (*some fairness condition: we can eventually take the step that we want.
-    i wonder whether (exists outs) should appear before (forall s' t')?
-    probably not.
-   *)
+  (*some fairness condition: we can eventually take the step that we want.*)
   Definition can_step '(s, t) (P : state * list (IO_event label message) -> Prop) : Prop :=
     exists lbl,
     forall s' t',
@@ -139,6 +136,15 @@ Section step.
         exists s'' outs,
           step s' (O_event lbl outs) s'' /\
             P (s'', O_event lbl outs :: t' ++ t).
+
+  (*this is not used anywhere, but without it can_step is a bit weird, since it allows
+    the good step to depend on the prior arbitrary sequence of steps.
+    maybe we will want it later?*)
+  Definition label_precise :=
+    forall s lbl outs1 s1' outs2 s2',
+      step s (O_event lbl outs1) s1' ->
+      step s (O_event lbl outs2) s2' ->
+      outs1 = outs2 /\ s1' = s2'.
 
   Lemma eventually_can_step_to_star :
     forall (P : state * list (IO_event label message) -> Prop) s t,
