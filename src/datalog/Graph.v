@@ -1168,8 +1168,106 @@ Section __.
                forall n x, map.get initial_ns2 n = Some x -> snd x = []).
     Context (node_step2 : node_prog2 -> node_state2 -> IO_event -> node_state2 -> Prop).
 
+    (* Extract the per-node correspondence at a node present in graph 2. *)
+    Lemma corr_at :
+      Forall4_map
+        (fun _ np1 '(ns1, _) np2 '(ns2, _) =>
+           steps_corresp_sound A (node_step1 np1) ns1 (node_step2 np2) ns2)
+        p1 initial_ns1 p2 initial_ns2 ->
+      forall n np2, map.get p2 n = Some np2 ->
+      exists np1 i1 i2,
+        map.get p1 n = Some np1 /\
+        map.get initial_ns1 n = Some i1 /\
+        map.get initial_ns2 n = Some i2 /\
+        steps_corresp_sound A (node_step1 np1) (fst i1) (node_step2 np2) (fst i2).
+    Proof.
+      intros Hcorr n np2 Hp2. pose proof (Hcorr n) as H. rewrite Hp2 in H.
+      destruct (map.get p1 n) as [np1|] eqn:E1; try (cbn in H; contradiction).
+      destruct (map.get initial_ns1 n) as [[a1 b1]|] eqn:E2; try (cbn in H; contradiction).
+      destruct (map.get initial_ns2 n) as [[a2 b2]|] eqn:E3; try (cbn in H; contradiction).
+      cbn in H.
+      exists np1, (a1, b1), (a2, b2).
+      split; [reflexivity|]. split; [reflexivity|]. split; [reflexivity|]. exact H.
+    Qed.
+
+    (* Cross-graph domination: graph-1 state gs1 dominates graph-2 state gs2 — each
+       node of gs1 has received a superset of gs2's node's inputs, and every message
+       queued in gs2 is queued or already delivered in gs1. *)
+    Definition xdom (gs2 : @graph_state node_state2 node_states2)
+                    (gs1 : @graph_state node_state1 node_states1) : Prop :=
+      (forall n ns2 t2, map.get gs2.(g_nodes) n = Some (ns2, t2) ->
+         exists ns1 t1, map.get gs1.(g_nodes) n = Some (ns1, t1) /\
+                        incl (inputs_of t2) (inputs_of t1))
+      /\
+      (forall n m, In (n, m) gs2.(g_messages) ->
+         In (n, m) gs1.(g_messages) \/ node_received gs1 n m).
+
+    (* Arming transfer: if node2-n produces mu (via a real node-2 run at inputs I),
+       then node1-n can_output mu from any reachable graph-1 state of n whose inputs
+       include I.  Uses steps_corresp_sound (per output) then monotone' (graph 1). *)
+    Lemma xarm :
+      (forall t, A t) ->
+      Forall2_map (fun _ np x => can_implies_will' (node_step1 np) A (fst x)) p1 initial_ns1 ->
+      Forall4_map
+        (fun _ np1 '(ns1, _) np2 '(ns2, _) =>
+           steps_corresp_sound A (node_step1 np1) ns1 (node_step2 np2) ns2)
+        p1 initial_ns1 p2 initial_ns2 ->
+      forall n np1 np2 i1 i2,
+        map.get p1 n = Some np1 ->
+        map.get p2 n = Some np2 ->
+        map.get initial_ns1 n = Some i1 ->
+        map.get initial_ns2 n = Some i2 ->
+        forall t2 ns2', star (node_step2 np2) (fst i2) t2 ns2' ->
+        forall mu, output_in_trace mu t2 ->
+        forall ns1 t1, star (node_step1 np1) (fst i1) t1 ns1 ->
+          incl (inputs_of t2) (inputs_of t1) ->
+          can_output (node_step1 np1) ns1 t1 mu.
+    Proof.
+      intros A_univ Hciw1 Hcorr n np1 np2 i1 i2 Hp1 Hp2 Hi1 Hi2
+             t2 ns2' Hstar2 mu Hmu ns1 t1 Hstar1 Hincl.
+      destruct (corr_at Hcorr n np2 Hp2) as (np1' & i1' & i2' & Hp1' & Hi1' & Hi2' & Hsc).
+      assert (np1' = np1) by congruence. assert (i1' = i1) by congruence.
+      assert (i2' = i2) by congruence. subst np1' i1' i2'.
+      pose proof (Hsc t2 ns2' mu Hstar2 (allowed_trace_universal A A_univ t2) Hmu) as Hprod.
+      destruct Hprod as (tp & nsp & Hstarp & Hinpp & Houtp).
+      assert (Hcanp : can_output (node_step1 np1) nsp tp mu).
+      { exists [], nsp. split; [constructor|]. split; [reflexivity|].
+        rewrite app_nil_r. exact Houtp. }
+      pose proof (pernode_monotone' p1 initial_ns1 node_step1 Hciw1 n np1 i1 Hp1 Hi1) as Hmono.
+      apply (Hmono tp t1 nsp ns1 mu Hstarp Hstar1
+               (allowed_trace_universal A A_univ tp) (allowed_trace_universal A A_univ t1)).
+      - rewrite Hinpp. exact Hincl.
+      - exact Hcanp.
+    Qed.
+
+    (* A pure-input graph run leaves all node states untouched and the message queue
+       determined solely by the injected inputs — identical for any graph with the
+       same routing. *)
+    Lemma input_run_msgs :
+      forall {NPr : Type} {GPr : map.map node_id NPr}
+             {NS : Type} {NSM : map.map node_id (NS * list IO_event)}
+             (pp : GPr) (nstep : NPr -> NS -> IO_event -> NS -> Prop)
+             (ini : NSM) (m0 : list (node_id * message)) inps gs,
+        star (graph_step pp nstep) {| g_nodes := ini; g_messages := m0 |}
+             (map I_event inps) gs ->
+        gs.(g_nodes) = ini /\
+        gs.(g_messages) =
+          fold_left (fun acc mn => (snd mn, fst mn) :: acc) inps m0.
+    Proof.
+      intros NPr GPr NS NSM pp nstep ini.
+      induction inps as [|mn inps IH]; intros m0 gs Hstar.
+      - cbn in Hstar. inversion Hstar; subst. split; reflexivity.
+      - cbn in Hstar. inversion Hstar as [|s0 e s1 t0 s2 Hstep Hrest]; subst.
+        inversion Hstep as [ gs' nn mm Hia | gs' nn npn nsn tn nsn' outsn Hpn Hgn Hsn
+                           | gs' nn npn nsn tn nsn' mm msa msb Hpn Hgn Hsn Hmsg ]; subst.
+        injection H2 as Hmm Hnn. subst.
+        destruct (IH ((nn, mm) :: m0) gs Hrest) as (Hnodes & Hmsgs).
+        split; [exact Hnodes | exact Hmsgs].
+    Qed.
+
     Lemma graphs_corresp_sound :
-      (* (forall n np, map.get p n = Some np -> input_total (node_step np)) -> *)
+      (forall t, A t) ->
+      (forall n np, map.get p1 n = Some np -> input_total (node_step1 np)) ->
       Forall2_map (fun _ np x => can_implies_will' (node_step1 np) A (fst x)) p1 initial_ns1 ->
       Forall4_map
         (fun _ np1 '(ns1, _) np2 '(ns2, _) =>
