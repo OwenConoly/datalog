@@ -63,8 +63,6 @@ Section __.
   (* The graph's allowed predicate: a tagged trace is allowed iff its underlying
      (untagged) inputs are allowed by A. *)
   Local Notation Ag := (fun (inps : list (message * node_id)) => A (map fst inps)).
-  Lemma Ag_univ : (forall t, A t) -> forall t, Ag t.
-  Proof. intros H t. apply H. Qed.
 
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
@@ -79,6 +77,44 @@ Section __.
 
     Definition initial_graph_state : graph_state :=
       {| g_nodes := initial_ns; g_messages := [] |}.
+
+    (* Abbreviations to keep statements readable. *)
+    Local Notation gstep := (graph_step p node_step).
+    (* The graph's external inputs are all allowed. *)
+    Local Notation A_total := (forall t, A t).
+    (* Every node accepts every input in every state. *)
+    Local Notation nodes_input_total :=
+      (forall n np, map.get p n = Some np -> input_total (node_step np)).
+    (* Every node satisfies the can-implies-will' contract from its initial state. *)
+    Local Notation nodes_ciw' :=
+      (Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns).
+    (* [gs] is reachable from the initial graph state. *)
+    Local Notation reachable gs := (exists T, star gstep initial_graph_state T gs).
+
+    (* Case-split a graph step into its three constructors with uniform hypothesis
+       names: gstep_input (ni, mi), gstep_run (ni, npi, nsi, ti, nsi', outsi), and
+       gstep_receive (ni, npi, nsi, ti, nsi', mi, msa, msb). *)
+    Ltac inv_gstep H :=
+      inversion H as [ gs0 ni mi Hia
+                     | gs0 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
+                     | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ].
+
+    (* Roadmap for [graph_can_implies_will] (the goal of this section).  Each node
+       stores its own IO trace, so a node's projection is just [snd (g_nodes n)];
+       [node_drive_delta] / [project_node_gen] / [node_run] relate a graph run to
+       the node run it induces.  Two ingredients drive the proof:
+
+       - [saturated] (every message a node has emitted is queued or delivered) and
+         [core_dom] (a state dominates another when its nodes have received at least
+         as much and its messages are at least as available);
+       - the "angel" forcing: [force_emit_list] / [force_deliver] make individual
+         progress, [force_dominator] chains them to drive the graph from any state
+         to one dominating a chosen checkpoint.
+
+       Given a [can_output] witness, [find_producing_step] locates the step that
+       emits it; [force_dominator] drives the graph to a state dominating that step's
+       pre-state; there the responsible node is still armed ([node_cap_transfer]) and
+       so will emit ([node_will], lifted to the graph by [drive_node_must]). *)
 
     (* Membership in a node's tagged output list: (o, n) is in node n's tagged
        outputs iff o is among the (untagged) outputs. *)
@@ -99,10 +135,10 @@ Section __.
 
     (* The state-stored projection: over any drive, node n's stored trace grows by
        a delta [td] that is a valid node run from n's state, whose visible outputs
-       all appear in the graph trace.  Replaces the old project_node_gen. *)
+       all appear in the graph trace. *)
     Lemma node_drive_delta :
       forall T gs0 gs,
-        star (graph_step p node_step) gs0 T gs ->
+        star gstep gs0 T gs ->
         forall n np ns t,
           map.get p n = Some np ->
           map.get gs0.(g_nodes) n = Some (ns, t) ->
@@ -117,9 +153,7 @@ Section __.
         intros n np ns t Hp Hg0.
       - exists ns, []. rewrite app_nil_r. split; [exact Hg0|]. split; [constructor|].
         intros o _ (outs & Hin & _); inversion Hin.
-      - inversion Hstep as [ gs1 ni mi Hia
-                           | gs1 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
-                           | gs1 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst.
+      - inv_gstep Hstep; subst.
         + destruct (IH n np ns t Hp Hg0) as (ns' & td & Hg & Hstd & Hpres).
           exists ns', td. split; [exact Hg|]. split; [exact Hstd|].
           intros o Hvis Hout. specialize (Hpres o Hvis Hout).
@@ -174,7 +208,7 @@ Section __.
        visible outputs all appear in the graph trace. *)
     Lemma project_node_gen :
       forall T gs,
-        star (graph_step p node_step) initial_graph_state T gs ->
+        star gstep initial_graph_state T gs ->
         forall n np ns0,
           map.get p n = Some np ->
           map.get initial_ns n = Some ns0 ->
@@ -193,6 +227,27 @@ Section __.
       exists td, ns'. split; [exact Hstd|]. split; [exact Hg|]. exact Hpres.
     Qed.
 
+    (* The "backward" reading of project_node_gen: given a node's current stored
+       state (ns, t) at a reachable graph state, recover its run from the bare
+       initial state and the fact that its visible outputs reach the graph trace.
+       Saves the caller the project + congruence dance. *)
+    Lemma node_run :
+      forall T gs, star gstep initial_graph_state T gs ->
+      forall n np ns0 ns t,
+        map.get p n = Some np ->
+        map.get initial_ns n = Some ns0 ->
+        map.get gs.(g_nodes) n = Some (ns, t) ->
+        star (node_step np) (fst ns0) t ns /\
+        (forall o, output_visible n o = true ->
+                   output_in_trace o t -> output_in_trace (o, n) T).
+    Proof.
+      intros T gs Hstar n np ns0 ns t Hp Hns0 Hg.
+      destruct (project_node_gen _ _ Hstar n np ns0 Hp Hns0)
+        as (tau & ns_at & Hrun & Hgat & Hpres).
+      assert (ns_at = ns) by congruence. assert (tau = t) by congruence. subst ns_at tau.
+      split; [exact Hrun | exact Hpres].
+    Qed.
+
     (* With traces stored in the state, "node n has received message mu" is simply:
        mu appears in the inputs of n's stored trace. *)
     Definition node_received (gs : @graph_state node_state node_states)
@@ -202,7 +257,7 @@ Section __.
     (* Lift a node-level will_output for node n to a graph-level will_output,
        provided o is visible from n and the graph's node n is at the right state. *)
     Lemma drive_node_must :
-      (forall t, A t) ->
+      A_total ->
       forall (np : node_prog) (n : node_id) (o : message),
         map.get p n = Some np ->
         output_visible n o = true ->
@@ -212,7 +267,7 @@ Section __.
           forall gs t,
             (exists tr, map.get gs.(g_nodes) n = Some (fst s, tr)) ->
             (output_in_trace o (snd s) -> output_in_trace (o, n) t) ->
-            eventually (can_step (graph_step p node_step) Ag)
+            eventually (can_step gstep Ag)
                        (fun '(_, t') => output_in_trace (o, n) t') (gs, t).
     Proof.
       intros A_univ np n o Hp Hvis s Hwill.
@@ -269,128 +324,10 @@ Section __.
                exists outs''. split; [right; apply in_or_app; right; exact Hin''|exact Hino''].
     Qed.
 
-    (* Replay a graph star with extra messages injected at any position in
-       g_messages.  The injection position can drift as the star evolves, but
-       the injected messages stay together as a block. *)
-    Lemma star_inject_msgs :
-      forall gs0 T gs,
-        star (graph_step p node_step) gs0 T gs ->
-        forall (msgs_inj : list (node_id * message)) ms1_0 ms2_0,
-          gs0.(g_messages) = ms1_0 ++ ms2_0 ->
-          exists ms1 ms2,
-            gs.(g_messages) = ms1 ++ ms2 /\
-            star (graph_step p node_step)
-                 {| g_nodes := gs0.(g_nodes);
-                    g_messages := ms1_0 ++ msgs_inj ++ ms2_0 |}
-                 T
-                 {| g_nodes := gs.(g_nodes);
-                    g_messages := ms1 ++ msgs_inj ++ ms2 |}.
-    Proof.
-      intros gs0 T gs Hstar.
-      induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH];
-        intros msgs_inj ms1_0 ms2_0 Hsplit.
-      - exists ms1_0, ms2_0. split; [exact Hsplit|]. destruct s. cbn in *. subst.
-        constructor.
-      - inversion Hstep; subst.
-        + (* gstep_input n m *)
-          cbn in Hsplit.
-          specialize (IH msgs_inj ((n, m) :: ms1_0) ms2_0).
-          cbn in IH.
-          destruct IH as [ms1 [ms2 [Hmsgs_final Hstar_rest]]];
-            [rewrite Hsplit; reflexivity|].
-          exists ms1, ms2. split; [exact Hmsgs_final|].
-          eapply star_step.
-          * eapply gstep_input. exact H.
-          * cbn. exact Hstar_rest.
-        + (* gstep_run n np ns ns' outs *)
-          cbn in Hsplit.
-          (* New g_messages after run: (ms1_0 ++ msgs_inj ++ ms2_0) ++ extras *)
-          specialize (IH msgs_inj ms1_0
-                          (ms2_0 ++ flat_map (fun m => map (fun n' => (n', m)) (forward n m)) outs)).
-          cbn in IH.
-          destruct IH as [ms1 [ms2 [Hmsgs_final Hstar_rest]]].
-          { rewrite Hsplit, app_assoc. reflexivity. }
-          exists ms1, ms2. split; [exact Hmsgs_final|].
-          eapply star_step.
-          * eapply gstep_run; eassumption.
-          * cbn. rewrite <- !app_assoc. exact Hstar_rest.
-        + (* gstep_receive n np ns ns' m rms1 rms2 (consume (n, m) from somewhere). *)
-          rename ms1 into rms1, ms2 into rms2.
-          cbn in Hsplit. rewrite H2 in Hsplit.
-          (* rms1 ++ (n, m) :: rms2 = ms1_0 ++ ms2_0.
-             Apply app_eq_app to split into cases. *)
-          apply app_eq_app in Hsplit as [l [[Hrms1 Hms2_0] | [Hms1_0 Hrest]]].
-          * (* rms1 = ms1_0 ++ l, ms2_0 = l ++ (n, m) :: rms2 *)
-            subst rms1 ms2_0.
-            specialize (IH msgs_inj ms1_0 (l ++ rms2)).
-            destruct IH as [ms1 [ms2 [Hmsgs_final Hstar_rest]]].
-            { rewrite app_assoc. reflexivity. }
-            exists ms1, ms2. split; [exact Hmsgs_final|].
-            eapply star_step.
-            -- eapply gstep_receive with (ms1 := ms1_0 ++ msgs_inj ++ l)
-                                         (ms2 := rms2);
-                 try eassumption.
-               cbn. rewrite <- !app_assoc. reflexivity.
-            -- cbn. rewrite <- !app_assoc. exact Hstar_rest.
-          * (* ms1_0 = rms1 ++ l, (n, m) :: rms2 = l ++ ms2_0 *)
-            subst ms1_0. destruct l as [|y l'].
-            -- (* l = []: ms2_0 = (n, m) :: rms2 *)
-               cbn in Hrest. subst ms2_0. rewrite app_nil_r.
-               specialize (IH msgs_inj rms1 rms2).
-               destruct IH as [ms1 [ms2 [Hmsgs_final Hstar_rest]]];
-                 [reflexivity|].
-               exists ms1, ms2. split; [exact Hmsgs_final|].
-               eapply star_step.
-               ++ eapply gstep_receive with (ms1 := rms1 ++ msgs_inj)
-                                            (ms2 := rms2);
-                    try eassumption.
-                  cbn. rewrite <- !app_assoc. reflexivity.
-               ++ cbn. rewrite <- !app_assoc. exact Hstar_rest.
-            -- (* l = (n, m) :: l': ms1_0 = rms1 ++ (n, m) :: l', rms2 = l' ++ ms2_0 *)
-               cbn in Hrest. inversion Hrest as [[Hyeq Hl'eq]].
-               subst y. subst rms2.
-               specialize (IH msgs_inj (rms1 ++ l') ms2_0).
-               destruct IH as [ms1 [ms2 [Hmsgs_final Hstar_rest]]].
-               { rewrite <- app_assoc. reflexivity. }
-               exists ms1, ms2. split; [exact Hmsgs_final|].
-               eapply star_step.
-               ++ eapply gstep_receive with (ms1 := rms1)
-                                            (ms2 := l' ++ msgs_inj ++ ms2_0);
-                    try eassumption.
-                  cbn. rewrite <- !app_assoc. cbn. reflexivity.
-               ++ cbn. rewrite <- app_assoc in Hstar_rest. exact Hstar_rest.
-    Qed.
-
-    (* (a) for gstep_input case: input doesn't change node states, just adds a
-       message. can_output preservation follows by replaying the angel's star
-       in the augmented graph. *)
-    Lemma can_output_after_gstep_input :
-      forall gs n m,
-        input_allowed n m = true ->
-        forall T o,
-          can_output (graph_step p node_step) gs T o ->
-          can_output (graph_step p node_step)
-            {| g_nodes := gs.(g_nodes); g_messages := (n, m) :: gs.(g_messages) |}
-            (I_event (m, n) :: T) o.
-    Proof.
-      intros gs n m Hinp T o (T_a & s_f & Hstar & HinpT_a & Hout).
-      pose proof (star_inject_msgs _ _ _ Hstar [(n, m)] [] gs.(g_messages))
-        as Hinj.
-      cbn in Hinj.
-      destruct Hinj as [ms1 [ms2 [Hmsgs_final Hstar_inj]]]; [reflexivity|].
-      exists T_a, {| g_nodes := s_f.(g_nodes);
-                     g_messages := ms1 ++ (n, m) :: ms2 |}.
-      split; [exact Hstar_inj|]. split; [exact HinpT_a|].
-      (* output_in_trace o (T_a ++ I_event m :: T) follows from output_in_trace o (T_a ++ T). *)
-      apply output_in_trace_swap. cbn.
-      destruct Hout as (outs & Hin & Hino).
-      exists outs. split; [right; exact Hin | exact Hino].
-    Qed.
-
     (* Helper: find the producing step inside an angel's path. *)
     Lemma find_producing_step :
       forall (gs_start : graph_state) (T : list gevent) (s_f : graph_state),
-        star (graph_step p node_step) gs_start T s_f ->
+        star gstep gs_start T s_f ->
         inputs_of T = [] ->
         forall (o : message) (n_o : node_id),
           output_in_trace (o, n_o) T ->
@@ -400,10 +337,10 @@ Section __.
                  (outs_o : list message)
                  (gs_pre gs_post : graph_state),
             T = T_pre ++ O_event (map (fun m => (m, n_o)) (filter (output_visible n_o) outs_o)) :: T_post /\
-            star (graph_step p node_step) gs_start T_pre gs_pre /\
-            graph_step p node_step gs_pre
+            star gstep gs_start T_pre gs_pre /\
+            gstep gs_pre
                        (O_event (map (fun m => (m, n_o)) (filter (output_visible n_o) outs_o))) gs_post /\
-            star (graph_step p node_step) gs_post T_post s_f /\
+            star gstep gs_post T_post s_f /\
             inputs_of T_pre = [] /\
             map.get p n_o = Some np_o /\
             map.get gs_pre.(g_nodes) n_o = Some (ns_o, t_o) /\
@@ -457,16 +394,14 @@ Section __.
     (* node_received is monotone under graph evolution: a node's stored trace only
        grows, so a delivered message stays recorded. *)
     Lemma node_received_mono :
-      forall gs T gs', star (graph_step p node_step) gs T gs' ->
+      forall gs T gs', star gstep gs T gs' ->
         forall n m, node_received gs n m -> node_received gs' n m.
     Proof.
       intros gs T gs' Hstar.
       induction Hstar as [s | s e s' T' s'' Hstep Hstar IH]; intros n m Hr.
       - exact Hr.
       - apply (IH n m). destruct Hr as (ns & t & Hg & Hin).
-        inversion Hstep as [ gs0 ni mi Hia
-                           | gs0 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
-                           | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst.
+        inv_gstep Hstep; subst.
         + exists ns, t. split; [exact Hg | exact Hin].
         + destruct (Nat.eq_dec n ni) as [->|Hne].
           * rewrite Hgi in Hg. injection Hg as Hns Ht; subst nsi ti.
@@ -488,17 +423,14 @@ Section __.
        either still queued, or has been delivered to its destination (recorded in
        that node's stored trace). *)
     Lemma queue_fate :
-      forall gs T gs', star (graph_step p node_step) gs T gs' ->
+      forall gs T gs', star gstep gs T gs' ->
         forall n m, In (n, m) gs.(g_messages) ->
           In (n, m) gs'.(g_messages) \/ node_received gs' n m.
     Proof.
       intros gs T gs' Hstar.
       induction Hstar as [s | s e s' T' s'' Hstep Hstar IH]; intros n m Hin.
       - left. exact Hin.
-      - inversion Hstep as [ gs0 ni mi Hia
-                           | gs0 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
-                           | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ];
-          subst; cbn [g_nodes g_messages] in IH |- *.
+      - inv_gstep Hstep; subst; cbn [g_nodes g_messages] in IH |- *.
         + edestruct (IH n m) as [Hq | Hr];
             [right; exact Hin | left; exact Hq | right; exact Hr].
         + edestruct (IH n m) as [Hq | Hr];
@@ -516,24 +448,6 @@ Section __.
                  [apply in_or_app; right; exact Hin_b | left; exact Hq | right; exact Hr].
     Qed.
 
-    (* A graph step preserves the node domain. *)
-    Lemma graph_step_dom :
-      forall gs e gs', graph_step p node_step gs e gs' ->
-      forall k, map.get gs.(g_nodes) k = None <-> map.get gs'.(g_nodes) k = None.
-    Proof.
-      intros gs e gs' Hstep k.
-      inversion Hstep as [ gs1 ni mi Hia
-                         | gs1 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
-                         | gs1 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst; cbn.
-      - reflexivity.
-      - destruct (Nat.eq_dec k ni) as [->|Hne].
-        + rewrite map.get_put_same, Hgi. split; intro HH; discriminate.
-        + rewrite map.get_put_diff by auto. reflexivity.
-      - destruct (Nat.eq_dec k ni) as [->|Hne].
-        + rewrite map.get_put_same, Hgi. split; intro HH; discriminate.
-        + rewrite map.get_put_diff by auto. reflexivity.
-    Qed.
-
     (* A graph state is "saturated" if every message any node has emitted (recorded
        in its stored trace) is still queued or already delivered to its target. *)
     Definition saturated (gs : @graph_state node_state node_states) : Prop :=
@@ -544,16 +458,14 @@ Section __.
           In (n', mu) gs.(g_messages) \/ node_received gs n' mu.
 
     Lemma sat_step :
-      forall gs e gs', graph_step p node_step gs e gs' -> saturated gs -> saturated gs'.
+      forall gs e gs', gstep gs e gs' -> saturated gs -> saturated gs'.
     Proof.
       intros gs e gs' Hstep Hsat n np ns t Hp Hg mu n' Hout Hfwd.
       assert (Hmono1 : forall n0 m0, node_received gs n0 m0 -> node_received gs' n0 m0).
       { intros n0 m0 Hr.
         apply (node_received_mono _ _ _ (star_step _ _ _ _ _ _ Hstep (star_refl _ _))).
         exact Hr. }
-      inversion Hstep as [ gs0 ni mi Hia
-                         | gs0 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
-                         | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst.
+      inv_gstep Hstep; subst.
       - (* gstep_input *)
         cbn in Hg.
         destruct (Hsat n np ns t Hp Hg mu n' Hout Hfwd) as [Hq | Hr].
@@ -606,7 +518,7 @@ Section __.
     Qed.
 
     Lemma saturated_star :
-      forall gs0 T gs, star (graph_step p node_step) gs0 T gs ->
+      forall gs0 T gs, star gstep gs0 T gs ->
         saturated gs0 -> saturated gs.
     Proof.
       intros gs0 T gs Hstar. induction Hstar as [s | s e s' T' s'' Hstep Hstar IH];
@@ -614,7 +526,7 @@ Section __.
     Qed.
 
     Lemma graph_saturated :
-      forall T gs, star (graph_step p node_step) initial_graph_state T gs -> saturated gs.
+      forall T gs, star gstep initial_graph_state T gs -> saturated gs.
     Proof.
       intros T gs Hstar. eapply saturated_star; [exact Hstar|].
       intros n np ns t Hp Hg mu n' Hout Hfwd.
@@ -622,177 +534,18 @@ Section __.
       destruct Hout as (outs & Hin & _); inversion Hin.
     Qed.
 
-    (* Per-node ciw' gives per-node ciw. *)
-    Lemma pernode_ciw :
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
-      forall n_o np_o ns0,
-        map.get p n_o = Some np_o ->
-        map.get initial_ns n_o = Some ns0 ->
-        can_implies_will (node_step np_o) A (fst ns0).
-    Proof.
-      intros Hpernode n_o np_o ns0 Hp_o Hns0.
-      pose proof (Hpernode n_o) as Hp_n.
-      rewrite Hp_o, Hns0 in Hp_n.
-      apply (ciw'_iff_ciw_and_monotone' (node_step np_o) A (fst ns0)) in Hp_n.
-      apply Hp_n.
-    Qed.
-
-    (* Per-node ciw' gives per-node monotone'. *)
-    Lemma pernode_monotone' :
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
-      forall n_o np_o ns0,
-        map.get p n_o = Some np_o ->
-        map.get initial_ns n_o = Some ns0 ->
-        monotone' (node_step np_o) A (fst ns0).
-    Proof.
-      intros Hpernode n_o np_o ns0 Hp_o Hns0.
-      pose proof (Hpernode n_o) as Hp_n.
-      rewrite Hp_o, Hns0 in Hp_n.
-      apply (ciw'_iff_ciw_and_monotone' (node_step np_o) A (fst ns0)) in Hp_n.
-      apply Hp_n.
-    Qed.
-
-    (* If o' does not appear (as output) in the past trace tau, then can_output
-       with past tau collapses to can_output with empty past ("armed"). *)
-    Lemma can_output_drop_past :
-      forall (np : node_prog) (ns : node_state) (tau : list IO_event) (o' : message),
-        ~ output_in_trace o' tau ->
-        can_output (node_step np) ns tau o' ->
-        can_output (node_step np) ns [] o'.
-    Proof.
-      intros np ns tau o' Hno (t' & s' & Hstar' & Hinp' & Hout').
-      exists t', s'. split; [exact Hstar'|]. split; [exact Hinp'|].
-      rewrite app_nil_r.
-      apply output_in_trace_app in Hout' as [Hout|Hout]; [exact Hout | contradiction].
-    Qed.
-
-    (* cap_transfer: capability is monotone in the received-input set.  If node n
-       reaches ns_W via tau_W and ns_act via tau_act (both from its init), and
-       tau_W's inputs are included in tau_act's, then anything ns_W can output (with
-       past tau_W) ns_act can too (with past tau_act). Direct from monotone'. *)
-    Lemma cap_transfer :
-      (forall t, A t) ->
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
+    (* Each node, read off the per-node hypothesis, satisfies both the ciw and the
+       monotone' contracts from its bare initial state. *)
+    Lemma pernode_spec :
+      nodes_ciw' ->
       forall n np ns0,
         map.get p n = Some np ->
         map.get initial_ns n = Some ns0 ->
-        forall tau_W ns_W tau_act ns_act o',
-          star (node_step np) (fst ns0) tau_W ns_W ->
-          star (node_step np) (fst ns0) tau_act ns_act ->
-          incl (inputs_of tau_W) (inputs_of tau_act) ->
-          can_output (node_step np) ns_W tau_W o' ->
-          can_output (node_step np) ns_act tau_act o'.
+        can_implies_will (node_step np) A (fst ns0) /\ monotone' (node_step np) A (fst ns0).
     Proof.
-      intros A_univ Hpernode n np ns0 Hp Hns0 tau_W ns_W tau_act ns_act o'
-             HsW Hsact Hincl Hcan.
-      pose proof (pernode_monotone' Hpernode n np ns0 Hp Hns0) as Hmono.
-      apply (Hmono tau_W tau_act ns_W ns_act o' HsW Hsact
-               (allowed_trace_universal A A_univ tau_W)
-               (allowed_trace_universal A A_univ tau_act) Hincl Hcan).
-    Qed.
-
-    (* L2: if node n_o is "armed" for o (node-level can_output o from its current
-       state, with empty past trace) and o is visible from n_o, then the graph can
-       force o.  This is the final-emission step of the orchestration. *)
-    Lemma armed_node_drives :
-      (forall t, A t) ->
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
-      forall (t : list gevent) (gs : graph_state),
-        star (graph_step p node_step) initial_graph_state t gs ->
-        forall (n_o : node_id) (np_o : node_prog) (ns_o : node_state)
-               (t_o : list IO_event) (o : message),
-          map.get p n_o = Some np_o ->
-          map.get gs.(g_nodes) n_o = Some (ns_o, t_o) ->
-          output_visible n_o o = true ->
-          can_output (node_step np_o) ns_o t_o o ->
-          will_output (graph_step p node_step) Ag gs t (o, n_o).
-    Proof.
-      intros A_univ Hpernode t gs Hstar n_o np_o ns_o t_o o Hp_o Hg_o Hvis Hcan_tau.
-      destruct (map.get initial_ns n_o) as [ns0|] eqn:Hns0.
-      2:{ pose proof (Hpernode n_o) as Hp_n. rewrite Hp_o, Hns0 in Hp_n.
-          contradiction. }
-      pose proof (pernode_ciw Hpernode n_o np_o ns0 Hp_o Hns0) as Hciw_node.
-      destruct (project_node_gen _ _ Hstar n_o np_o ns0 Hp_o Hns0)
-        as (tau & ns_at_gs & Htau & Hg_at_gs & Hpres).
-      assert (ns_at_gs = ns_o) by congruence.
-      assert (tau = t_o) by congruence. subst ns_at_gs tau.
-      pose proof (Hciw_node t_o ns_o o Htau (allowed_trace_universal A A_univ t_o) Hcan_tau)
-        as Hwill_node.
-      apply (drive_node_must A_univ np_o n_o o Hp_o Hvis (ns_o, t_o) Hwill_node gs t).
-      - cbn. exists t_o. exact Hg_o.
-      - cbn. intros Hout_tau. apply Hpres; [exact Hvis | exact Hout_tau].
-    Qed.
-
-    (* A node's output-only run lifts to a graph run of that node: other nodes are
-       untouched, the queue only grows (and every forwarded message lands in it),
-       and the node's visible outputs appear in the graph trace.  Used to splice a
-       node's own production into a graph path during the witness replay. *)
-    Lemma lift_node_outputs :
-      forall (n : node_id) (np : node_prog),
-        map.get p n = Some np ->
-        forall (ns : node_state) (tau : list IO_event) (ns' : node_state),
-          star (node_step np) ns tau ns' ->
-          inputs_of tau = [] ->
-          forall gs t_pre, map.get gs.(g_nodes) n = Some (ns, t_pre) ->
-          exists (T : list gevent) (gs' : graph_state),
-            star (graph_step p node_step) gs T gs' /\
-            inputs_of T = [] /\
-            map.get gs'.(g_nodes) n = Some (ns', t_pre ++ tau) /\
-            (forall n2, n2 <> n -> map.get gs'.(g_nodes) n2 = map.get gs.(g_nodes) n2) /\
-            (exists extra, gs'.(g_messages) = gs.(g_messages) ++ extra) /\
-            (forall outs mu n'', In (O_event outs) tau -> In mu outs ->
-                In n'' (forward n mu) -> In (n'', mu) gs'.(g_messages)) /\
-            (forall o', output_visible n o' = true -> output_in_trace o' tau ->
-                output_in_trace (o', n) T).
-    Proof.
-      intros n np Hp ns tau ns' Hstar.
-      induction Hstar as [s | s e s2 tau0 s3 Hstep Hstar IH];
-        intros Hinp gs t_pre Hg.
-      - exists [], gs. split; [constructor|]. split; [reflexivity|].
-        rewrite app_nil_r.
-        split; [exact Hg|]. split; [reflexivity|].
-        split; [exists []; rewrite app_nil_r; reflexivity|].
-        split; [intros ? ? ? Hin; inversion Hin|].
-        intros o' _ (outs & Hin & _); inversion Hin.
-      - cbn in Hinp. destruct e as [m|outs]; [discriminate|]. cbn in Hinp.
-        assert (Hg1 : map.get (map.put gs.(g_nodes) n (s2, t_pre ++ [O_event outs])) n
-                      = Some (s2, t_pre ++ [O_event outs]))
-          by apply map.get_put_same.
-        destruct (IH Hinp {| g_nodes := map.put gs.(g_nodes) n (s2, t_pre ++ [O_event outs]);
-                             g_messages := gs.(g_messages) ++
-                               flat_map (fun mm => map (fun n' => (n', mm)) (forward n mm)) outs |}
-                    (t_pre ++ [O_event outs])
-                    Hg1)
-          as (T & gsf & HstarT & HinpT & Hgf & Hother & (extra & Hextra) & Hfwd & Hvis).
-        cbn in Hother, Hextra.
-        exists (O_event (map (fun m => (m, n)) (filter (output_visible n) outs)) :: T), gsf.
-        split; [econstructor; [eapply gstep_run; eauto | exact HstarT]|].
-        split; [cbn; exact HinpT|].
-        split.
-        { rewrite <- app_assoc in Hgf. exact Hgf. }
-        split.
-        { intros n2 Hn2. rewrite (Hother n2 Hn2). rewrite map.get_put_diff by auto.
-          reflexivity. }
-        split.
-        { exists (flat_map (fun mm => map (fun n' => (n', mm)) (forward n mm)) outs ++ extra).
-          rewrite Hextra. rewrite app_assoc. reflexivity. }
-        split.
-        { intros outs0 mu n'' Hin0 Hinmu Hinn''.
-          cbn in Hin0. destruct Hin0 as [Heq | Hin_rest].
-          - injection Heq as Heq_outs. subst outs0.
-            rewrite Hextra. apply in_or_app. left.
-            apply in_or_app. right.
-            apply in_flat_map. exists mu. split; [exact Hinmu|].
-            apply in_map_iff. exists n''. split; [reflexivity | exact Hinn''].
-          - apply Hfwd with (outs := outs0); assumption. }
-        intros o' Hvis' (outs0 & Hin0 & Hino).
-        cbn in Hin0. destruct Hin0 as [Heq | Hin_rest].
-        + injection Heq as Heq_outs. subst outs0.
-          exists (map (fun m => (m, n)) (filter (output_visible n) outs)). split; [left; reflexivity|].
-          apply In_tag. apply filter_In. split; [exact Hino | exact Hvis'].
-        + specialize (Hvis o' Hvis' (ex_intro _ outs0 (conj Hin_rest Hino))).
-          destruct Hvis as (outs1 & Hin1 & Hino1).
-          exists outs1. split; [right; exact Hin1 | exact Hino1].
+      intros Hpernode n np ns0 Hp Hns0.
+      pose proof (Hpernode n) as Hn. rewrite Hp, Hns0 in Hn.
+      apply (ciw'_iff_ciw_and_monotone' (node_step np) A (fst ns0)) in Hn. exact Hn.
     Qed.
 
     (* Simulation used to replay an input-free witness from a dominating state.
@@ -812,14 +565,12 @@ Section __.
 
     (* A single graph step establishes the simulation from gs to gs'. *)
     Lemma dom_of_step :
-      forall gs e gs', graph_step p node_step gs e gs' ->
+      forall gs e gs', gstep gs e gs' ->
       core_dom gs gs'.
     Proof.
       intros gs e gs' Hstep. split.
       - intros n nsA tA HgA.
-        inversion Hstep as [ gs0 ni mi Hia
-                           | gs0 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
-                           | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst; cbn.
+        inv_gstep Hstep; subst; cbn.
         + exists nsA, tA. split; [exact HgA|]. apply incl_refl.
         + destruct (Nat.eq_dec n ni) as [Heq|Hne].
           * subst ni. cbn in HgA.
@@ -836,9 +587,7 @@ Section __.
           * exists nsA, tA. split; [rewrite map.get_put_diff by auto; exact HgA|].
             apply incl_refl.
       - intros n m Hin.
-        inversion Hstep as [ gs0 ni mi Hia
-                           | gs0 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
-                           | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst; cbn.
+        inv_gstep Hstep; subst; cbn.
         + left. right. exact Hin.
         + left. apply in_or_app. left. exact Hin.
         + rewrite Hmsg in Hin. apply in_app_or in Hin.
@@ -852,78 +601,6 @@ Section __.
             -- left. apply in_or_app. right. exact Hin_b.
     Qed.
 
-    (* can_output depends on its past trace only through the past's output
-       multiset, so a past trace with more outputs can only help. *)
-    Lemma can_output_out_ext :
-      forall (np : node_prog) ns tau tau' mu,
-        (forall x, output_in_trace x tau -> output_in_trace x tau') ->
-        can_output (node_step np) ns tau mu ->
-        can_output (node_step np) ns tau' mu.
-    Proof.
-      intros np ns tau tau' mu Hsub (t' & s' & Hstar & Hinp & Hout).
-      exists t', s'. split; [exact Hstar|]. split; [exact Hinp|].
-      apply output_in_trace_app in Hout as [H|H].
-      - apply output_in_trace_app. left. exact H.
-      - apply output_in_trace_app. right. apply Hsub. exact H.
-    Qed.
-
-    (* Arming is permanent at the node level: if a node (reachable from its bare
-       init via tau, hence ciw applies) can output mu, then after any further node
-       run it can still output mu.  Iterates can_output_step_preserved. *)
-    Lemma can_output_star_preserved :
-      (forall t, A t) ->
-      forall (np : node_prog) ns0,
-        can_implies_will (node_step np) A ns0 ->
-        forall td ns ns', star (node_step np) ns td ns' ->
-        forall tau, star (node_step np) ns0 tau ns ->
-        forall mu, can_output (node_step np) ns tau mu ->
-          can_output (node_step np) ns' (tau ++ td) mu.
-    Proof.
-      intros A_univ np ns0 Hciw td ns ns' Hstar.
-      induction Hstar as [s | s e s2 td0 s3 Hstep Hstar IH];
-        intros tau Hreach mu Hcan.
-      - rewrite app_nil_r. exact Hcan.
-      - assert (Hcan2 : can_output (node_step np) s2 (e :: tau) mu)
-          by (eapply can_output_step_preserved; eauto).
-        assert (Hreach2 : star (node_step np) ns0 (tau ++ [e]) s2)
-          by (eapply star_app; [exact Hreach | econstructor; [exact Hstep | constructor]]).
-        assert (Hcan2' : can_output (node_step np) s2 (tau ++ [e]) mu).
-        { eapply can_output_out_ext; [|exact Hcan2]. intros x.
-          change (e :: tau) with ([e] ++ tau). rewrite !output_in_trace_app. tauto. }
-        specialize (IH (tau ++ [e]) Hreach2 mu Hcan2').
-        rewrite <- app_assoc in IH. cbn in IH. exact IH.
-    Qed.
-
-    (* Arming is permanent at the graph level: a node armed for mu at a reachable
-       gs stays armed after any further graph evolution. *)
-    Lemma node_armed_preserved :
-      (forall t, A t) ->
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
-      forall T gs, star (graph_step p node_step) initial_graph_state T gs ->
-      forall n np ns t_n mu,
-        map.get p n = Some np ->
-        map.get gs.(g_nodes) n = Some (ns, t_n) ->
-        can_output (node_step np) ns t_n mu ->
-        forall T2 gs', star (graph_step p node_step) gs T2 gs' ->
-        exists ns' t_n',
-          map.get gs'.(g_nodes) n = Some (ns', t_n') /\
-          can_output (node_step np) ns' t_n' mu.
-    Proof.
-      intros A_univ Hpernode T gs HT n np ns t_n mu Hp Hg Hcan T2 gs' Hstar2.
-      destruct (map.get initial_ns n) as [ns0|] eqn:Hns0.
-      2:{ pose proof (Hpernode n) as H. rewrite Hp, Hns0 in H. contradiction. }
-      pose proof (pernode_ciw Hpernode n np ns0 Hp Hns0) as Hciw.
-      destruct (project_node_gen _ _ HT n np ns0 Hp Hns0)
-        as (tau & ns_at & Htau & Hg_at & _).
-      assert (ns_at = ns) by congruence. assert (tau = t_n) by congruence.
-      subst ns_at tau.
-      destruct (node_drive_delta _ _ _ Hstar2 n np ns t_n Hp Hg)
-        as (ns' & td & Hg' & Hstd & _).
-      exists ns', (t_n ++ td). split; [exact Hg'|].
-      eapply can_output_star_preserved;
-        [exact A_univ | exact Hciw | exact Hstd | exact Htau | exact Hcan].
-    Qed.
-
     (* "node n has emitted mu" — mu appears as an output in n's stored trace. *)
     Definition node_emitted (gs : @graph_state node_state node_states)
         (n : node_id) (mu : message) : Prop :=
@@ -933,7 +610,7 @@ Section __.
        mu into n's stored trace.  Mirrors drive_node_must, but tracks emission via
        the node's stored trace (so mu need not be visible). *)
     Lemma drive_node_emit :
-      (forall t, A t) ->
+      A_total ->
       forall (np : node_prog) (n : node_id) (mu : message),
         map.get p n = Some np ->
         forall (s : node_state * list IO_event),
@@ -942,7 +619,7 @@ Section __.
           forall gs t,
             (exists tr, map.get gs.(g_nodes) n = Some (fst s, tr) /\
                         (forall x, output_in_trace x (snd s) -> output_in_trace x tr)) ->
-            eventually (can_step (graph_step p node_step) Ag)
+            eventually (can_step gstep Ag)
                        (fun '(gs', _) => node_emitted gs' n mu) (gs, t).
     Proof.
       intros A_univ np n mu Hp s Hwill.
@@ -998,11 +675,11 @@ Section __.
        eventually: the angel reaches P-and-Inv whenever it can reach P. *)
     Lemma eventually_carry_inv :
       forall (Inv : graph_state -> Prop),
-        (forall gs T gs', star (graph_step p node_step) gs T gs' -> Inv gs -> Inv gs') ->
+        (forall gs T gs', star gstep gs T gs' -> Inv gs -> Inv gs') ->
         forall (P : graph_state * list gevent -> Prop) gs t,
           Inv gs ->
-          eventually (can_step (graph_step p node_step) Ag) P (gs, t) ->
-          eventually (can_step (graph_step p node_step) Ag)
+          eventually (can_step gstep Ag) P (gs, t) ->
+          eventually (can_step gstep Ag)
             (fun '(gs', t') => P (gs', t') /\ Inv gs') (gs, t).
     Proof.
       intros Inv Hinv P gs t HInv Hev.
@@ -1029,13 +706,13 @@ Section __.
     Lemma eventually_carry_inv2 :
       forall (R : graph_state -> list gevent -> Prop),
         (forall gs tt t_d s_d, R gs tt ->
-           star (graph_step p node_step) gs t_d s_d -> R s_d (t_d ++ tt)) ->
+           star gstep gs t_d s_d -> R s_d (t_d ++ tt)) ->
         (forall gs tt outs gs', R gs tt ->
-           graph_step p node_step gs (O_event outs) gs' -> R gs' (O_event outs :: tt)) ->
+           gstep gs (O_event outs) gs' -> R gs' (O_event outs :: tt)) ->
         forall (P : graph_state * list gevent -> Prop) gs tt,
           R gs tt ->
-          eventually (can_step (graph_step p node_step) Ag) P (gs, tt) ->
-          eventually (can_step (graph_step p node_step) Ag)
+          eventually (can_step gstep Ag) P (gs, tt) ->
+          eventually (can_step gstep Ag)
             (fun '(gs', t') => P (gs', t') /\ R gs' t') (gs, tt).
     Proof.
       intros R Hstarp Hostep P gs tt HR Hev.
@@ -1057,7 +734,7 @@ Section __.
     (* The node-state domain is invariant under runs: any node with a state in a
        later graph state already had one at the start. *)
     Lemma dom_preserved :
-      forall gs0 T gs, star (graph_step p node_step) gs0 T gs ->
+      forall gs0 T gs, star gstep gs0 T gs ->
       forall n x, map.get gs.(g_nodes) n = Some x ->
       exists x0, map.get gs0.(g_nodes) n = Some x0.
     Proof.
@@ -1065,9 +742,7 @@ Section __.
       induction Hstar as [s | s e s' t0 s'' Hstep Hstar IH]; intros n x Hg.
       - eauto.
       - destruct (IH n x Hg) as (x1 & Hx1).
-        inversion Hstep as [ gs1 ni mi Hia
-                           | gs1 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
-                           | gs1 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst; cbn in Hx1.
+        inv_gstep Hstep; subst; cbn in Hx1.
         + eauto.
         + destruct (Nat.eq_dec n ni) as [->|Hne]; [eauto|].
           rewrite map.get_put_diff in Hx1 by auto. eauto.
@@ -1077,7 +752,7 @@ Section __.
 
     (* Node states only ever arise from the initial state map. *)
     Lemma reachable_state_initial :
-      forall T gs, star (graph_step p node_step) initial_graph_state T gs ->
+      forall T gs, star gstep initial_graph_state T gs ->
       forall n x, map.get gs.(g_nodes) n = Some x ->
       exists ns0, map.get initial_ns n = Some ns0.
     Proof.
@@ -1086,338 +761,46 @@ Section __.
       cbn in Hx0. eauto.
     Qed.
 
-    (* Re-emit a whole list of messages from node n at a reachable gsB, given n is
-       armed for each.  Each is either freshly emitted (lift_node_outputs forwards
-       it) or already in n's trace (graph_saturated already forwarded it).  After
-       the run, every target of every listed message is queued or has received it. *)
-    Lemma advance_emit :
-      (forall t, A t) ->
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
-      forall (ms : list message) (n : node_id) (np : node_prog),
-        map.get p n = Some np ->
-        forall Tb gsB, star (graph_step p node_step) initial_graph_state Tb gsB ->
-        forall nsB tB, map.get gsB.(g_nodes) n = Some (nsB, tB) ->
-        (forall mu, In mu ms -> can_output (node_step np) nsB tB mu) ->
-        exists WB gsfB nsB' tBe,
-          star (graph_step p node_step) gsB WB gsfB /\
-          inputs_of WB = [] /\
-          map.get gsfB.(g_nodes) n = Some (nsB', tB ++ tBe) /\
-          (forall n2, n2 <> n -> map.get gsfB.(g_nodes) n2 = map.get gsB.(g_nodes) n2) /\
-          (exists extra, gsfB.(g_messages) = gsB.(g_messages) ++ extra) /\
-          (forall mu n', In mu ms -> In n' (forward n mu) ->
-             In (n', mu) gsfB.(g_messages) \/ node_received gsfB n' mu).
+    (* Capability transfer between two reachable graph states of the SAME node:
+       if node n is armed for o at gs1 (stored state ns1, trace t1) and the inputs
+       it received there are included in those at gs2, then it is armed at gs2 too.
+       This is the nodes' monotone' contract lifted to graph states. *)
+    Lemma node_cap_transfer :
+      A_total -> nodes_ciw' ->
+      forall n np, map.get p n = Some np ->
+      forall T1 gs1 ns1 t1, star gstep initial_graph_state T1 gs1 ->
+        map.get gs1.(g_nodes) n = Some (ns1, t1) ->
+      forall T2 gs2 ns2 t2, star gstep initial_graph_state T2 gs2 ->
+        map.get gs2.(g_nodes) n = Some (ns2, t2) ->
+        incl (inputs_of t1) (inputs_of t2) ->
+      forall o, can_output (node_step np) ns1 t1 o ->
+                can_output (node_step np) ns2 t2 o.
     Proof.
-      intros A_univ Hpernode ms n np Hp.
-      induction ms as [|mu ms IH]; intros Tb gsB HTb nsB tB Hg Hcan.
-      - exists [], gsB, nsB, []. rewrite app_nil_r.
-        split; [constructor|]. split; [reflexivity|]. split; [exact Hg|].
-        split; [reflexivity|]. split; [exists []; rewrite app_nil_r; reflexivity|].
-        intros mu n' [].
-      - (* node n's bare initial state, for arming permanence *)
-        destruct (reachable_state_initial _ _ HTb n _ Hg) as (ns0 & Hns0).
-        pose proof (pernode_ciw Hpernode n np ns0 Hp Hns0) as Hciw.
-        destruct (project_node_gen _ _ HTb n np ns0 Hp Hns0)
-          as (tauP & nsP & HstarP & HgP & _).
-        assert (nsP = nsB) by congruence. assert (tauP = tB) by congruence.
-        subst nsP tauP.
-        (* emit mu *)
-        destruct (Hcan mu (or_introl eq_refl)) as (tau & s' & Hstar_run & Hinp_run & Hout_run).
-        destruct (lift_node_outputs n np Hp nsB tau s' Hstar_run Hinp_run gsB tB Hg)
-          as (WB1 & gsB1 & HstarB1 & HinpB1 & HgB1 & HotherB1 & (extra1 & Hextra1) & HfwdB1 & _).
-        (* arming permanence for the rest of ms *)
-        assert (Hcan' : forall mu', In mu' ms -> can_output (node_step np) s' (tB ++ tau) mu').
-        { intros mu' Hin'.
-          eapply can_output_star_preserved;
-            [exact A_univ | exact Hciw | exact Hstar_run | exact HstarP
-            | apply (Hcan mu' (or_intror Hin'))]. }
-        destruct (IH (Tb ++ WB1) gsB1 (star_app _ _ _ _ _ _ HTb HstarB1) s' (tB ++ tau) HgB1 Hcan')
-          as (WB2 & gsfB & nsB'' & tBe2 & HstarB2 & HinpB2 & HgfB & HotherB2
-              & (extra2 & Hextra2) & HfwdB2).
-        exists (WB1 ++ WB2), gsfB, nsB'', (tau ++ tBe2).
-        split; [eapply star_app; eassumption|].
-        split; [rewrite inputs_of_app, HinpB1, HinpB2; reflexivity|].
-        split; [rewrite app_assoc; exact HgfB|].
-        split.
-        { intros n2 Hn2. rewrite (HotherB2 n2 Hn2). apply (HotherB1 n2 Hn2). }
-        split.
-        { exists (extra1 ++ extra2). rewrite Hextra2, Hextra1, app_assoc. reflexivity. }
-        intros mu0 n' Hin0 Hfwd0.
-        destruct Hin0 as [-> | Hin0'].
-        + (* mu0 = mu *)
-          apply output_in_trace_app in Hout_run as [Hmu_tau | Hmu_tB].
-          * (* freshly emitted in tau *)
-            destruct Hmu_tau as (outs0 & Hin_o0 & Hino0).
-            left. rewrite Hextra2. apply in_or_app. left.
-            apply (HfwdB1 outs0 mu0 n' Hin_o0 Hino0 Hfwd0).
-          * (* already in n's trace tB: saturation forwarded it *)
-            pose proof (graph_saturated _ _ HTb n np nsB tB Hp Hg mu0 n' Hmu_tB Hfwd0)
-              as [Hq | Hr].
-            -- left. rewrite Hextra2, Hextra1.
-               apply in_or_app. left. apply in_or_app. left. exact Hq.
-            -- right. apply (node_received_mono _ _ _
-                              (star_app _ _ _ _ _ _ HstarB1 HstarB2) n' mu0 Hr).
-        + (* mu0 in ms: from the recursive call *)
-          apply (HfwdB2 mu0 n' Hin0' Hfwd0).
+      intros A_univ Hpernode n np Hp T1 gs1 ns1 t1 HT1 Hg1 T2 gs2 ns2 t2 HT2 Hg2 Hincl o Hcan.
+      destruct (reachable_state_initial _ _ HT1 n _ Hg1) as (ns0 & Hns0).
+      destruct (node_run _ _ HT1 n np ns0 ns1 t1 Hp Hns0 Hg1) as (Hrun1 & _).
+      destruct (node_run _ _ HT2 n np ns0 ns2 t2 Hp Hns0 Hg2) as (Hrun2 & _).
+      destruct (pernode_spec Hpernode n np ns0 Hp Hns0) as (_ & Hmono).
+      apply (Hmono t1 t2 ns1 ns2 o Hrun1 Hrun2
+               (allowed_trace_universal A A_univ t1)
+               (allowed_trace_universal A A_univ t2) Hincl Hcan).
     Qed.
 
-    (* Faithfully replay an input-free run of gsA from a dominating state gsB,
-       maintaining domination: each gstep_run is re-emitted (advance_emit), each
-       gstep_receive is matched by a delivery (queued at gsB) or skipped (already
-       delivered). *)
-    Lemma dom_advance :
-      (forall t, A t) ->
-      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
-      forall W gsfA gsA, star (graph_step p node_step) gsA W gsfA ->
-      inputs_of W = [] ->
-      forall TA, star (graph_step p node_step) initial_graph_state TA gsA ->
-      forall TB gsB, star (graph_step p node_step) initial_graph_state TB gsB ->
-      core_dom gsA gsB ->
-      exists WB gsfB,
-        star (graph_step p node_step) gsB WB gsfB /\
-        inputs_of WB = [] /\
-        core_dom gsfA gsfB.
+    (* A capability at a reachable graph state is a node-level will_output: if node
+       n can output o from its current stored state, then it will. *)
+    Lemma node_will :
+      A_total -> nodes_ciw' ->
+      forall n np, map.get p n = Some np ->
+      forall T gs ns t, star gstep initial_graph_state T gs ->
+        map.get gs.(g_nodes) n = Some (ns, t) ->
+      forall o, can_output (node_step np) ns t o ->
+                will_output (node_step np) A ns t o.
     Proof.
-      intros A_univ Hit Hpernode W gsfA gsA Hstar.
-      induction Hstar as [gA | gA e gA1 W' gfA Hstep Hstar' IH];
-        intros HinpW TA HTA TB gsB HTB Hdom.
-      - exists [], gsB. split; [constructor|]. split; [reflexivity|]. exact Hdom.
-      - destruct Hdom as [Hdom_n Hdom_m].
-        inversion Hstep as [ gs0 ni mi Hia
-                           | gs0 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
-                           | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst.
-        + (* gstep_input: contradicts inputs_of W = [] *)
-          cbn in HinpW. discriminate.
-        + (* gstep_run ni: re-emit outsi from gsB's node ni *)
-          cbn in HinpW.
-          destruct (Hdom_n ni nsi ti Hgi) as (nsB & tB & HgB & Hincl).
-          (* node ni's bare init, for the monotone' transfer *)
-          destruct (reachable_state_initial _ _ HTA ni _ Hgi) as (ns0 & Hns0).
-          pose proof (pernode_monotone' Hpernode ni npi ns0 Hpi Hns0) as Hmono.
-          destruct (project_node_gen _ _ HTA ni npi ns0 Hpi Hns0)
-            as (tauA & nsatA & HstarA & HgatA & _).
-          assert (nsatA = nsi) by congruence. assert (tauA = ti) by congruence.
-          subst nsatA tauA.
-          destruct (project_node_gen _ _ HTB ni npi ns0 Hpi Hns0)
-            as (tauB & nsatB & HstarB & HgatB & _).
-          assert (nsatB = nsB) by congruence. assert (tauB = tB) by congruence.
-          subst nsatB tauB.
-          assert (Hcan : forall mu, In mu outsi -> can_output (node_step npi) nsB tB mu).
-          { intros mu Hin.
-            apply (Hmono ti tB nsi nsB mu HstarA HstarB
-                     (allowed_trace_universal A A_univ ti)
-                     (allowed_trace_universal A A_univ tB) Hincl).
-            exists [O_event outsi], nsi'. split; [econstructor; [exact Hsi|constructor]|].
-            split; [reflexivity|]. exists outsi. split; [left; reflexivity | exact Hin]. }
-          destruct (advance_emit A_univ Hpernode outsi ni npi Hpi TB gsB HTB nsB tB HgB Hcan)
-            as (WB1 & gsB1 & nsB1 & tBe & HstarB1 & HinpB1 & HgB1 & HotherB1
-                & (extraB & HextraB) & HfwdB1).
-          (* core_dom gsA1 gsB1, then recurse *)
-          assert (Hdom1 : core_dom
-                    {| g_nodes := map.put (g_nodes gA) ni (nsi', ti ++ [O_event outsi]);
-                       g_messages := g_messages gA ++
-                         flat_map (fun m => map (fun n' => (n', m)) (forward ni m)) outsi |}
-                    gsB1).
-          { split.
-            - intros nn nsX tX HgX. cbn in HgX.
-              destruct (Nat.eq_dec nn ni) as [->|Hne].
-              + rewrite map.get_put_same in HgX. injection HgX as <- <-.
-                exists nsB1, (tB ++ tBe). split; [exact HgB1|].
-                rewrite inputs_of_app. cbn. rewrite app_nil_r.
-                eapply incl_tran; [exact Hincl|]. rewrite inputs_of_app. apply incl_appl, incl_refl.
-              + rewrite map.get_put_diff in HgX by auto.
-                destruct (Hdom_n nn nsX tX HgX) as (nsBn & tBn & HgBn & Hincln).
-                exists nsBn, tBn. split; [rewrite (HotherB1 nn Hne); exact HgBn | exact Hincln].
-            - intros nn m Hin. cbn in Hin. apply in_app_or in Hin as [Hin | Hin].
-              + destruct (Hdom_m nn m Hin) as [Hq | Hr].
-                * left. rewrite HextraB. apply in_or_app. left. exact Hq.
-                * right. apply (node_received_mono _ _ _ HstarB1 nn m Hr).
-              + apply in_flat_map in Hin as (mm & Hmm & Hin).
-                apply in_map_iff in Hin as (n'' & Heq & Hn'').
-                injection Heq as <- <-.
-                apply (HfwdB1 mm n'' Hmm Hn''). }
-          destruct (IH HinpW (TA ++ [O_event (map (fun m => (m, ni)) (filter (output_visible ni) outsi))])
-                      (star_app _ _ _ _ _ _ HTA
-                        (star_step _ _ _ _ _ _ Hstep (star_refl _ _)))
-                      (TB ++ WB1) gsB1
-                      (star_app _ _ _ _ _ _ HTB HstarB1) Hdom1)
-            as (WB2 & gsfB & HstarB2 & HinpB2 & Hdomf).
-          exists (WB1 ++ WB2), gsfB. split; [eapply star_app; eassumption|].
-          split; [rewrite inputs_of_app, HinpB1, HinpB2; reflexivity|]. exact Hdomf.
-        + (* gstep_receive ni mi: match the delivery from gsB *)
-          cbn in HinpW.
-          destruct (Hdom_n ni nsi ti Hgi) as (nsB & tB & HgB & Hincl).
-          assert (Hmrcv : In (ni, mi) (g_messages gsB) \/ node_received gsB ni mi).
-          { apply Hdom_m. rewrite Hmsg. apply in_or_app. right. left. reflexivity. }
-          destruct Hmrcv as [Hq | Hr].
-          * (* (ni,mi) queued at gsB: deliver it *)
-            apply in_split in Hq as (msaB & msbB & HqB).
-            destruct (Hit ni npi Hpi nsB mi) as (nsB' & HstepB).
-            set (gsB1 := {| g_nodes := map.put (g_nodes gsB) ni (nsB', tB ++ [I_event mi]);
-                            g_messages := msaB ++ msbB |}).
-            assert (HstepB1 : graph_step p node_step gsB (O_event []) gsB1)
-              by (eapply gstep_receive; [exact Hpi | exact HgB | exact HstepB | exact HqB]).
-            assert (Hdom1 : core_dom
-                      {| g_nodes := map.put (g_nodes gA) ni (nsi', ti ++ [I_event mi]);
-                         g_messages := msa ++ msb |} gsB1).
-            { split.
-              - intros nn nsX tX HgX. cbn in HgX.
-                destruct (Nat.eq_dec nn ni) as [->|Hne].
-                + rewrite map.get_put_same in HgX. injection HgX as <- <-.
-                  exists nsB', (tB ++ [I_event mi]).
-                  split; [cbn; apply map.get_put_same|].
-                  rewrite !inputs_of_app. cbn. apply incl_app_app; [exact Hincl | apply incl_refl].
-                + rewrite map.get_put_diff in HgX by auto.
-                  destruct (Hdom_n nn nsX tX HgX) as (nsBn & tBn & HgBn & Hincln).
-                  exists nsBn, tBn. split; [cbn; rewrite map.get_put_diff by auto; exact HgBn | exact Hincln].
-              - intros nn m Hin. cbn in Hin.
-                assert (HinA : In (nn, m) (g_messages gA)).
-                { rewrite Hmsg. apply in_app_iff. apply in_app_or in Hin as [H|H];
-                    [left; exact H | right; right; exact H]. }
-                destruct (Hdom_m nn m HinA) as [Hqd | Hrd].
-                + (* in gsB queue = msaB ++ (ni,mi)::msbB *)
-                  rewrite HqB in Hqd. apply in_app_or in Hqd as [H | Hqd2].
-                  * left. cbn. apply in_or_app. left. exact H.
-                  * cbn in Hqd2. destruct Hqd2 as [Heq | H].
-                    -- injection Heq as Hnieq Hmieq. subst nn m. right.
-                       exists nsB', (tB ++ [I_event mi]).
-                       split; [cbn; apply map.get_put_same|].
-                       rewrite inputs_of_app. apply in_or_app. right. left. reflexivity.
-                    -- left. cbn. apply in_or_app. right. exact H.
-                + right. apply (node_received_mono _ _ _
-                            (star_step _ _ _ _ _ _ HstepB1 (star_refl _ _)) nn m Hrd). }
-            destruct (IH HinpW (TA ++ [O_event []])
-                        (star_app _ _ _ _ _ _ HTA
-                          (star_step _ _ _ _ _ _ Hstep (star_refl _ _)))
-                        (TB ++ [O_event []]) gsB1
-                        (star_app _ _ _ _ _ _ HTB
-                          (star_step _ _ _ _ _ _ HstepB1 (star_refl _ _))) Hdom1)
-              as (WB2 & gsfB & HstarB2 & HinpB2 & Hdomf).
-            exists (O_event [] :: WB2), gsfB.
-            split; [econstructor; [exact HstepB1 | exact HstarB2]|].
-            split; [cbn; exact HinpB2|]. exact Hdomf.
-          * (* (ni,mi) already received at gsB: skip, gsB unchanged *)
-            assert (Hdom1 : core_dom
-                      {| g_nodes := map.put (g_nodes gA) ni (nsi', ti ++ [I_event mi]);
-                         g_messages := msa ++ msb |} gsB).
-            { split.
-              - intros nn nsX tX HgX. cbn in HgX.
-                destruct (Nat.eq_dec nn ni) as [->|Hne].
-                + rewrite map.get_put_same in HgX. injection HgX as <- <-.
-                  exists nsB, tB. split; [exact HgB|].
-                  destruct Hr as (nsr & tr & Hgr & Hinr).
-                  assert (tr = tB) by congruence. subst tr.
-                  rewrite inputs_of_app. cbn. apply incl_app; [exact Hincl|].
-                  intros x [<-|[]]. exact Hinr.
-                + rewrite map.get_put_diff in HgX by auto.
-                  apply (Hdom_n nn nsX tX HgX).
-              - intros nn m Hin. cbn in Hin. apply Hdom_m.
-                rewrite Hmsg. apply in_app_iff. apply in_app_or in Hin as [H|H].
-                + left. exact H.
-                + right. right. exact H. }
-            destruct (IH HinpW (TA ++ [O_event []])
-                        (star_app _ _ _ _ _ _ HTA
-                          (star_step _ _ _ _ _ _ Hstep (star_refl _ _)))
-                        TB gsB HTB Hdom1)
-              as (WB2 & gsfB & HstarB2 & HinpB2 & Hdomf).
-            exists WB2, gsfB. split; [exact HstarB2|]. split; [exact HinpB2|]. exact Hdomf.
-    Qed.
-
-    (* core_replay: the simulation transfers input-free reachability of an output.
-       This is the heart of can_output preservation; proved by replaying the
-       witness from the dominating state, re-deriving each node emission via
-       cap_transfer + lift_node_outputs. *)
-    Lemma core_replay :
-      (forall t, A t) ->
-      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
-      forall TA gsA, star (graph_step p node_step) initial_graph_state TA gsA ->
-      forall W gsfA, star (graph_step p node_step) gsA W gsfA ->
-      inputs_of W = [] ->
-      forall TB gsB, star (graph_step p node_step) initial_graph_state TB gsB ->
-      core_dom gsA gsB ->
-      forall o, output_in_trace o W ->
-      exists WB gsfB,
-        star (graph_step p node_step) gsB WB gsfB /\
-        inputs_of WB = [] /\ output_in_trace o (WB ++ TB).
-    Proof.
-      intros A_univ Hit Hpernode TA gsA HTA W gsfA Hstar HinpW TB gsB HTB Hdom o Hout.
-      destruct o as (omsg, on).
-      (* locate the step that emits omsg from node on *)
-      destruct (find_producing_step _ _ _ Hstar HinpW omsg on Hout)
-        as (T_pre & T_post & np_o & ns_o & ns_o' & t_o & outs_o
-            & gs_preA & gs_postA & HeqW & Hstar_preA & Hprod & Hstar_postA
-            & Hinp_pre & Hp_o & Hg_o & Hns_o & Hino_o & Hvis_o).
-      (* domination-preserving replay of T_pre from gsB *)
-      destruct (dom_advance A_univ Hit Hpernode T_pre gs_preA gsA Hstar_preA Hinp_pre
-                  TA HTA TB gsB HTB Hdom)
-        as (WB1 & gs_preB & HstarB1 & HinpB1 & Hdom_pre).
-      pose proof (star_app _ _ _ _ _ _ HTA Hstar_preA) as HTApre.
-      pose proof (star_app _ _ _ _ _ _ HTB HstarB1) as HTBpre.
-      destruct Hdom_pre as [Hdpre_n _].
-      destruct (Hdpre_n on ns_o t_o Hg_o) as (nsBo & tBo & HgBo & Hinclo).
-      (* on's bare init and reachability of its projections *)
-      destruct (reachable_state_initial _ _ HTApre on _ Hg_o) as (ns0 & Hns0).
-      destruct (project_node_gen _ _ HTApre on np_o ns0 Hp_o Hns0)
-        as (tauPA & nsPA & HsPA & HgPA & _).
-      assert (nsPA = ns_o) by congruence. assert (tauPA = t_o) by congruence. subst nsPA tauPA.
-      destruct (project_node_gen _ _ HTBpre on np_o ns0 Hp_o Hns0)
-        as (tauPB & nsPB & HsPB & HgPB & HvisPB).
-      assert (nsPB = nsBo) by congruence. assert (tauPB = tBo) by congruence. subst nsPB tauPB.
-      (* transfer on's capability to emit omsg, via monotone' *)
-      pose proof (pernode_monotone' Hpernode on np_o ns0 Hp_o Hns0) as Hmono.
-      assert (Hcano : can_output (node_step np_o) ns_o t_o omsg).
-      { exists [O_event outs_o], ns_o'. split; [econstructor; [exact Hns_o|constructor]|].
-        split; [reflexivity|]. exists outs_o. split; [left; reflexivity | exact Hino_o]. }
-      pose proof (Hmono t_o tBo ns_o nsBo omsg HsPA HsPB
-                    (allowed_trace_universal A A_univ t_o)
-                    (allowed_trace_universal A A_univ tBo) Hinclo Hcano) as HcanBo.
-      destruct HcanBo as (tau & sfin & Hstau & Hinptau & Houttau).
-      apply output_in_trace_app in Houttau as [Ho_tau | Ho_tB].
-      - (* emit omsg fresh from gs_preB *)
-        destruct (lift_node_outputs on np_o Hp_o nsBo tau sfin Hstau Hinptau gs_preB tBo HgBo)
-          as (WBE & gs_preB' & HsBE & HinpBE & _ & _ & _ & _ & HvBE).
-        exists (WB1 ++ WBE), gs_preB'.
-        split; [eapply star_app; eassumption|].
-        split; [rewrite inputs_of_app, HinpB1, HinpBE; reflexivity|].
-        apply output_in_trace_app. left. apply output_in_trace_app. right.
-        apply (HvBE omsg Hvis_o Ho_tau).
-      - (* omsg already in on's stored trace at gs_preB: it is in the graph history *)
-        exists WB1, gs_preB. split; [exact HstarB1|]. split; [exact HinpB1|].
-        pose proof (HvisPB omsg Hvis_o Ho_tB) as Ho_graph.
-        apply output_in_trace_app in Ho_graph as [Ho | Ho]; apply output_in_trace_app.
-        + right. exact Ho.
-        + left. exact Ho.
-    Qed.
-
-    (* can_output is preserved by any single graph step (the demon move), where the
-       past trace is the reaching trace. *)
-    Lemma can_output_step :
-      (forall t, A t) ->
-      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
-      forall T gs, star (graph_step p node_step) initial_graph_state T gs ->
-      forall e gs', graph_step p node_step gs e gs' ->
-      forall o, can_output (graph_step p node_step) gs T o ->
-                can_output (graph_step p node_step) gs' (e :: T) o.
-    Proof.
-      intros A_univ Hit Hpernode T gs HT e gs' Hstep o (W & gsf & HW & HinpW & Hout).
-      apply output_in_trace_app in Hout as [Hout_W | Hout_t].
-      - destruct (core_replay A_univ Hit Hpernode T gs HT W gsf HW HinpW
-                    (T ++ [e]) gs'
-                    (star_app _ _ _ _ _ _ HT (star_step _ _ _ _ _ _ Hstep (star_refl _ _)))
-                    (dom_of_step gs e gs' Hstep) o Hout_W)
-          as (WB & gsfB & HWB & HinpWB & HoutWB).
-        exists WB, gsfB. split; [exact HWB|]. split; [exact HinpWB|].
-        (* output in WB ++ (T ++ [e]) -> output in WB ++ (e :: T) *)
-        apply output_in_trace_app in HoutWB as [Ho|Ho]; apply output_in_trace_app.
-        + left. exact Ho.
-        + right. apply output_in_trace_app in Ho as [Ho|Ho].
-          * change (e :: T) with ([e] ++ T). apply output_in_trace_app. right. exact Ho.
-          * change (e :: T) with ([e] ++ T). apply output_in_trace_app. left. exact Ho.
-      - exists [], gs'. split; [constructor|]. split; [reflexivity|].
-        cbn. destruct Hout_t as (outs & Hin & Hino).
-        exists outs. split; [right; exact Hin | exact Hino].
+      intros A_univ Hpernode n np Hp T gs ns t HT Hg o Hcan.
+      destruct (reachable_state_initial _ _ HT n _ Hg) as (ns0 & Hns0).
+      destruct (node_run _ _ HT n np ns0 ns t Hp Hns0 Hg) as (Hrun & _).
+      destruct (pernode_spec Hpernode n np ns0 Hp Hns0) as (Hciw & _).
+      apply (Hciw t ns o Hrun (allowed_trace_universal A A_univ t) Hcan).
     Qed.
 
     Lemma core_dom_refl : forall gs, core_dom gs gs.
@@ -1444,7 +827,7 @@ Section __.
 
     (* core_dom in the second argument is preserved by any further run of it. *)
     Lemma core_dom_run : forall a b T c,
-      core_dom a b -> star (graph_step p node_step) b T c -> core_dom a c.
+      core_dom a b -> star gstep b T c -> core_dom a c.
     Proof.
       intros a b T c Hab Hstar. revert a Hab.
       induction Hstar as [s | s e s' T0 s'' Hstep Hstar IH]; intros a Hab.
@@ -1452,35 +835,18 @@ Section __.
       - apply IH. eapply core_dom_trans; [exact Hab | apply (dom_of_step s e s' Hstep)].
     Qed.
 
-    (* Non-stuckness: if the graph can still output o (and o is not yet in the past
-       trace), then some output step is available right now. *)
-    Lemma graph_live :
-      forall gs T o,
-        can_output (graph_step p node_step) gs T o ->
-        ~ output_in_trace o T ->
-        exists outs gs', graph_step p node_step gs (O_event outs) gs'.
-    Proof.
-      intros gs T o (W & gsf & HW & HinpW & Hout) HnT.
-      apply output_in_trace_app in Hout as [HoW | HoT]; [|contradiction].
-      destruct W as [|e W'].
-      - destruct HoW as (? & [] & _).
-      - inversion HW as [|s0 e0 s1 t0 s2 Hstep0 Hstar0]; subst.
-        cbn in HinpW. destruct e as [m|outs]; [discriminate|].
-        exists outs, s1. exact Hstep0.
-    Qed.
-
-    (* Force a queued message to be delivered to its consumer.  With the new
-       can_step, if the demon already delivered it the angel is simply done (the
-       left disjunct); otherwise the angel delivers it (input_total gives the step). *)
+    (* Force a queued message to be delivered to its consumer: if the demon already
+       delivered it the angel is simply done (the left disjunct of can_step);
+       otherwise the angel delivers it (input_total supplies the receive step). *)
     Lemma force_deliver :
-      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
-      forall TX gsX, star (graph_step p node_step) initial_graph_state TX gsX ->
+      nodes_input_total ->
+      forall TX gsX, star gstep initial_graph_state TX gsX ->
       forall c m npc ns0c,
         map.get p c = Some npc ->
         map.get initial_ns c = Some ns0c ->
         (In (c, m) gsX.(g_messages) \/ node_received gsX c m) ->
       forall t,
-        eventually (can_step (graph_step p node_step) Ag)
+        eventually (can_step gstep Ag)
           (fun '(gs', _) => node_received gs' c m) (gsX, t).
     Proof.
       intros Hit TX gsX HTX c m npc ns0c Hpc Hns0c Hcm t.
@@ -1510,16 +876,15 @@ Section __.
        LIST [outs]; each element uses drive_node_emit (its own will-tree induction)
        — no nested induction. *)
     Lemma force_emit_list :
-      (forall t, A t) ->
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
-      forall (outs : list message) (f : node_id) npf ns0f,
+      A_total ->
+      nodes_ciw' ->
+      forall (outs : list message) (f : node_id) npf,
         map.get p f = Some npf ->
-        map.get initial_ns f = Some ns0f ->
-        forall TX gsX, star (graph_step p node_step) initial_graph_state TX gsX ->
+        forall TX gsX, star gstep initial_graph_state TX gsX ->
         forall nsf tf, map.get gsX.(g_nodes) f = Some (nsf, tf) ->
         (forall mu, In mu outs -> can_output (node_step npf) nsf tf mu) ->
         forall t,
-        eventually (can_step (graph_step p node_step) Ag)
+        eventually (can_step gstep Ag)
           (fun '(gs', _) =>
              core_dom gsX gs' /\
              (forall mu n', In mu outs -> In n' (forward f mu) ->
@@ -1528,22 +893,15 @@ Section __.
     Proof.
       intros A_univ Hpernode outs.
       induction outs as [|mu outs IH];
-        intros f npf ns0f Hpf Hns0f TX gsX HTX nsf tf HgX Hcan t.
+        intros f npf Hpf TX gsX HTX nsf tf HgX Hcan t.
       - apply eventually_done. split; [apply core_dom_refl|]. intros mu n' [] _.
-      - destruct (project_node_gen _ _ HTX f npf ns0f Hpf Hns0f)
-          as (tauX & nsXq & HsX & HgXq & _).
-        assert (nsXq = nsf) by congruence. assert (tauX = tf) by congruence. subst nsXq tauX.
-        pose proof (pernode_ciw Hpernode f npf ns0f Hpf Hns0f) as Hciwf.
-        assert (Hwillmu : eventually (can_step (node_step npf) A)
-                  (fun '(_, t') => output_in_trace mu t') (nsf, tf)).
-        { apply (Hciwf tf nsf mu HsX (allowed_trace_universal A A_univ tf)
-                   (Hcan mu (or_introl eq_refl))). }
+      - pose proof (node_will A_univ Hpernode f npf Hpf TX gsX nsf tf HTX HgX mu
+                      (Hcan mu (or_introl eq_refl))) as Hwillmu.
         pose proof (drive_node_emit A_univ npf f mu Hpf (nsf, tf) Hwillmu gsX t
                       (ex_intro _ tf (conj HgX (fun x H => H)))) as Hemit.
         eapply eventually_trans.
         { apply (eventually_carry_inv
-                   (fun gs => (exists T, star (graph_step p node_step) initial_graph_state T gs)
-                              /\ core_dom gsX gs)
+                   (fun gs => reachable gs /\ core_dom gsX gs)
                    ltac:(intros gs T gs' Hs [(T0 & HT0) Hdom]; split;
                          [exists (T0 ++ T); eapply star_app; eassumption
                          | eapply core_dom_run; eassumption])
@@ -1556,15 +914,12 @@ Section __.
         destruct HdomM as [HdomM_n HdomM_m].
         destruct (HdomM_n f nsf tf HgX) as (nsM' & tfM' & HgfM' & Hincl_f).
         assert (nsM' = nsM) by congruence. assert (tfM' = tfM) by congruence. subst nsM' tfM'.
-        pose proof (pernode_monotone' Hpernode f npf ns0f Hpf Hns0f) as Hmonof.
-        destruct (project_node_gen _ _ HTM f npf ns0f Hpf Hns0f)
-          as (tauM & nsMq & HsM & HgMq & _).
-        assert (nsMq = nsM) by congruence. assert (tauM = tfM) by congruence. subst nsMq tauM.
         assert (Hcan' : forall mu', In mu' outs -> can_output (node_step npf) nsM tfM mu').
-        { intros mu' Hin'. apply (Hmonof tf tfM nsf nsM mu' HsX HsM
-            (allowed_trace_universal A A_univ tf) (allowed_trace_universal A A_univ tfM)
-            Hincl_f (Hcan mu' (or_intror Hin'))). }
-        pose proof (IH f npf ns0f Hpf Hns0f TM gsM HTM nsM tfM HgfM Hcan' tM) as Hrec.
+        { intros mu' Hin'.
+          apply (node_cap_transfer A_univ Hpernode f npf Hpf
+                   TX gsX nsf tf HTX HgX TM gsM nsM tfM HTM HgfM Hincl_f
+                   mu' (Hcan mu' (or_intror Hin'))). }
+        pose proof (IH f npf Hpf TM gsM HTM nsM tfM HgfM Hcan' tM) as Hrec.
         eapply eventually_trans.
         { apply (eventually_carry_inv
                    (fun gs => forall n', In n' (forward f mu) ->
@@ -1587,16 +942,16 @@ Section __.
        Induction on the PATH (list of steps); each step uses force_emit_list /
        force_deliver. *)
     Lemma force_dominator :
-      (forall t, A t) ->
-      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
-      forall TC gsC gs_pre, star (graph_step p node_step) gsC TC gs_pre ->
+      A_total ->
+      nodes_input_total ->
+      nodes_ciw' ->
+      forall TC gsC gs_pre, star gstep gsC TC gs_pre ->
       inputs_of TC = [] ->
-      forall TC0, star (graph_step p node_step) initial_graph_state TC0 gsC ->
-      forall TX gsX, star (graph_step p node_step) initial_graph_state TX gsX ->
+      forall TC0, star gstep initial_graph_state TC0 gsC ->
+      forall TX gsX, star gstep initial_graph_state TX gsX ->
       core_dom gsC gsX ->
       forall t,
-      eventually (can_step (graph_step p node_step) Ag)
+      eventually (can_step gstep Ag)
         (fun '(gs', _) => core_dom gs_pre gs') (gsX, t).
     Proof.
       intros A_univ Hit Hpernode TC gsC gs_pre Hstar.
@@ -1604,33 +959,26 @@ Section __.
         intros HinpTC TC0 HC0 TX gsX HTX Hdom t.
       - apply eventually_done. exact Hdom.
       - cbn in HinpTC.
-        inversion Hstep as [ gs0 ni mi Hia
-                           | gs0 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
-                           | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst.
+        inv_gstep Hstep; subst.
         + cbn in HinpTC. discriminate.
         + (* gstep_run ni: emit outsi from gsX's ni, reach a dominator of gC1 *)
           destruct Hdom as [Hdom_n Hdom_m].
           destruct (Hdom_n ni nsi ti Hgi) as (nsXi & tXi & HgXi & Hincli).
-          destruct (reachable_state_initial _ _ HTX ni _ HgXi) as (ns0i & Hns0i).
-          pose proof (pernode_monotone' Hpernode ni npi ns0i Hpi Hns0i) as Hmonoi.
-          destruct (project_node_gen _ _ HC0 ni npi ns0i Hpi Hns0i)
-            as (tauC & nsCq & HsC & HgCq & _).
-          assert (nsCq = nsi) by congruence. assert (tauC = ti) by congruence. subst nsCq tauC.
-          destruct (project_node_gen _ _ HTX ni npi ns0i Hpi Hns0i)
-            as (tauXp & nsXq & HsXp & HgXq & _).
-          assert (nsXq = nsXi) by congruence. assert (tauXp = tXi) by congruence. subst nsXq tauXp.
+          (* node ni is armed for every message it emits at gC, hence (by monotone'
+             across the domination) also at gsX. *)
           assert (Hcan : forall mu, In mu outsi -> can_output (node_step npi) nsXi tXi mu).
-          { intros mu Hmu. apply (Hmonoi ti tXi nsi nsXi mu HsC HsXp
-              (allowed_trace_universal A A_univ ti) (allowed_trace_universal A A_univ tXi) Hincli).
+          { intros mu Hmu.
+            apply (node_cap_transfer A_univ Hpernode ni npi Hpi
+                     TC0 gC nsi ti HC0 Hgi TX gsX nsXi tXi HTX HgXi Hincli mu).
             exists [O_event outsi], nsi'. split; [econstructor; [exact Hsi|constructor]|].
             split; [reflexivity|]. exists outsi. split; [left; reflexivity | exact Hmu]. }
           eapply eventually_trans.
           { apply (eventually_carry_inv
-                     (fun gs => exists T, star (graph_step p node_step) initial_graph_state T gs)
+                     (fun gs => reachable gs)
                      ltac:(intros gs T gs' Hs (T0 & HT0); exists (T0 ++ T);
                            eapply star_app; eassumption)
                      _ gsX t (ex_intro _ TX HTX)
-                     (force_emit_list A_univ Hpernode outsi ni npi ns0i Hpi Hns0i
+                     (force_emit_list A_univ Hpernode outsi ni npi Hpi
                         TX gsX HTX nsXi tXi HgXi Hcan t)). }
           intros [gs' t'] ((HdomX' & Hfwds) & (TX' & HTX')).
           assert (HdomC1 : core_dom
@@ -1664,8 +1012,7 @@ Section __.
           { apply Hdom_m. rewrite Hmsg. apply in_or_app. right. left. reflexivity. }
           eapply eventually_trans.
           { apply (eventually_carry_inv
-                     (fun gs => (exists T, star (graph_step p node_step) initial_graph_state T gs)
-                                /\ core_dom gsX gs)
+                     (fun gs => reachable gs /\ core_dom gsX gs)
                      ltac:(intros gs T gs' Hs [(T0 & HT0) Hd]; split;
                            [exists (T0 ++ T); eapply star_app; eassumption
                            | eapply core_dom_run; eassumption])
@@ -1699,10 +1046,10 @@ Section __.
     Qed.
 
     Lemma graph_can_implies_will :
-      (forall t, A t) ->
-      (forall n np, map.get p n = Some np -> input_total (node_step np)) ->
-      Forall2_map (fun _ np x => can_implies_will' (node_step np) A (fst x)) p initial_ns ->
-      can_implies_will (graph_step p node_step) Ag initial_graph_state.
+      A_total ->
+      nodes_input_total ->
+      nodes_ciw' ->
+      can_implies_will gstep Ag initial_graph_state.
     Proof.
       intros A_univ Hit Hpernode t gs o Hstar Hall Hcan.
       destruct o as (omsg, on).
@@ -1721,29 +1068,23 @@ Section __.
       { exists [O_event outs_o], ns_o'. split; [econstructor; [exact Hns_o | constructor]|].
         split; [reflexivity|]. apply output_in_trace_app. left.
         exists outs_o. split; [left; reflexivity | exact Hino_o]. }
-      (* on's bare init + its projection at gs_pre, for the monotone' transfer. *)
+      (* on's bare initial state, needed for the forward projections in R below. *)
       destruct (reachable_state_initial _ _ Hstar_to_pre on _ Hg_o) as (ns0o & Hns0o).
-      pose proof (pernode_monotone' Hpernode on np_o ns0o Hp_o Hns0o) as Hmonoo.
-      destruct (project_node_gen _ _ Hstar_to_pre on np_o ns0o Hp_o Hns0o)
-        as (tauPre & nsPre & HsPre & HgPre & _).
-      assert (nsPre = ns_o) by congruence. assert (tauPre = t_o) by congruence.
-      subst nsPre tauPre.
       (* The carried relation R: reachability, plus "every emission of omsg in on's
          stored trace is reflected (tagged) in the eventually's trace component".
          The latter supplies drive_node_must's output-projection hypothesis at the
          mid state (the eventually trace is built by prepending, not a star trace). *)
       set (R := fun (g : graph_state) (tt : list gevent) =>
-                  (exists T, star (graph_step p node_step) initial_graph_state T g) /\
+                  reachable g /\
                   (forall ns tn, map.get g.(g_nodes) on = Some (ns, tn) ->
                      output_in_trace omsg tn -> output_in_trace (omsg, on) tt)).
       assert (HR_init : R gs t).
       { split; [exists t; exact Hstar|].
         intros ns tn Hg Hotn.
-        destruct (project_node_gen _ _ Hstar on np_o ns0o Hp_o Hns0o)
-          as (taug & nsg & _ & Hgg & Hpresg).
-        assert (tn = taug) by congruence. subst tn. apply (Hpresg omsg Hvis_o Hotn). }
+        destruct (node_run _ _ Hstar on np_o ns0o ns tn Hp_o Hns0o Hg) as (_ & Hpres).
+        apply (Hpres omsg Hvis_o Hotn). }
       assert (Hstarp : forall g tt t_d s_d, R g tt ->
-                star (graph_step p node_step) g t_d s_d -> R s_d (t_d ++ tt)).
+                star gstep g t_d s_d -> R s_d (t_d ++ tt)).
       { intros g tt t_d s_d [(Tg & HTg) Href] Hs. split.
         - exists (Tg ++ t_d). eapply star_app; eassumption.
         - intros ns tn Hgsd Hotn.
@@ -1756,14 +1097,12 @@ Section __.
           + apply output_in_trace_app. right. apply (Href nsg taug Hgg Ho).
           + apply output_in_trace_app. left. apply (Hpresd omsg Hvis_o Ho). }
       assert (Hostep : forall g tt outs g', R g tt ->
-                graph_step p node_step g (O_event outs) g' -> R g' (O_event outs :: tt)).
+                gstep g (O_event outs) g' -> R g' (O_event outs :: tt)).
       { intros g tt outs g' [(Tg & HTg) Href] Hstep'. split.
         - exists (Tg ++ [O_event outs]).
           eapply star_app; [exact HTg | econstructor; [exact Hstep' | constructor]].
         - intros ns tn Hg' Hotn.
-          inversion Hstep' as [ gs0 ni mi Hia
-                             | gs0 ni npi nsi ti nsi' outsi Hpi Hgi Hsi
-                             | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ]; subst.
+          inv_gstep Hstep'; subst.
           + (* gstep_run ni; the visible event equals O_event outs *)
             cbn in Hg'. destruct (Nat.eq_dec on ni) as [->|Hne].
             * rewrite map.get_put_same in Hg'. injection Hg' as <- <-.
@@ -1795,18 +1134,16 @@ Section __.
                  (force_dominator A_univ Hit Hpernode T_pre gs gs_pre Hstar_pre_a Hinp_pre
                     t Hstar t gs Hstar (core_dom_refl gs) t)). }
       intros [gsStar tStar] (Hdomstar & (TStar & HTStar) & HRStar).
-      (* on is armed for omsg at the dominating state, by monotone'. *)
+      (* on dominates its gs_pre state at gsStar, so it is still armed for omsg
+         there (capability transfer), hence will emit it. *)
       destruct Hdomstar as [Hds_n _].
       destruct (Hds_n on ns_o t_o Hg_o) as (nsS & tS & HgS & HinclS).
-      destruct (project_node_gen _ _ HTStar on np_o ns0o Hp_o Hns0o)
-        as (tauS & nsSq & HsS & HgSq & _).
-      assert (nsSq = nsS) by congruence. assert (tauS = tS) by congruence. subst nsSq tauS.
       assert (HcanS : can_output (node_step np_o) nsS tS omsg).
-      { apply (Hmonoo t_o tS ns_o nsS omsg HsPre HsS
-          (allowed_trace_universal A A_univ t_o) (allowed_trace_universal A A_univ tS)
-          HinclS Harmed). }
-      pose proof (pernode_ciw Hpernode on np_o ns0o Hp_o Hns0o) as Hciwo.
-      pose proof (Hciwo tS nsS omsg HsS (allowed_trace_universal A A_univ tS) HcanS) as Hwillo.
+      { apply (node_cap_transfer A_univ Hpernode on np_o Hp_o
+                 _ gs_pre ns_o t_o Hstar_to_pre Hg_o
+                 _ gsStar nsS tS HTStar HgS HinclS omsg Harmed). }
+      pose proof (node_will A_univ Hpernode on np_o Hp_o TStar gsStar nsS tS HTStar HgS
+                    omsg HcanS) as Hwillo.
       apply (drive_node_must A_univ np_o on omsg Hp_o Hvis_o (nsS, tS) Hwillo gsStar tStar
                (ex_intro _ tS HgS) (HRStar nsS tS HgS)).
     Qed.
