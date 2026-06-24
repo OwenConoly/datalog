@@ -1169,6 +1169,8 @@ Section __.
     Context (node_step2 : node_prog2 -> node_state2 -> IO_event -> node_state2 -> Prop).
 
     Lemma graphs_corresp_sound :
+      (* (forall n np, map.get p n = Some np -> input_total (node_step np)) -> *)
+      Forall2_map (fun _ np x => can_implies_will' (node_step1 np) A (fst x)) p1 initial_ns1 ->
       Forall4_map
         (fun _ np1 '(ns1, _) np2 '(ns2, _) =>
            steps_corresp_sound A (node_step1 np1) ns1 (node_step2 np2) ns2)
