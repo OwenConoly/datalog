@@ -811,22 +811,65 @@ Section __.
     star (spec_node_step sp) s td s' ->
     forall f, In f s'.(sent_facts) ->
       In f s.(sent_facts) \/
-      exists sd, new_facts sp sd f /\ incl sd.(known_facts) s'.(known_facts).
+      exists sd tdd, new_facts sp sd f /\ star (spec_node_step sp) sd tdd s'.
   Proof.
     induction 1 as [s0 | s0 e s1 t0 s2 Hstep Hstar IH]; intros f Hf.
     - left. exact Hf.
-    - destruct (IH f Hf) as [Hin1 | (sd & Hnf & Hincl)].
+    - destruct (IH f Hf) as [Hin1 | (sd & tdd & Hnf & Hstd)].
       + (* f in sent(s1): trace back across the first step *)
         inversion Hstep as [rs input rest Hq | rs out Hnf | rs inp]; subst;
           cbn [sent_facts known_facts] in Hin1.
         * left. exact Hin1.
         * destruct Hin1 as [Heq | Hin0].
-          -- right. subst out. exists s0. split; [exact Hnf|].
-             exact (spec_steps_known_incl _ _ _ _ Hstar).
+          -- right. subst out. exists s0, (O_event (sl_deduce f) [f] :: t0).
+             split; [exact Hnf|]. eapply star_step; [exact Hstep | exact Hstar].
           -- left. exact Hin0.
         * left. exact Hin1.
       + (* f deduced en route (at sd, after the first step) *)
-        right. exists sd. split; [exact Hnf | exact Hincl].
+        right. exists sd, tdd. split; [exact Hnf | exact Hstd].
+  Qed.
+
+  (* Push a matching fact from a later [known] (= [pre ++ known_sd]) back to the
+     deduction point's [known_sd]: the done-receiving count [cnt] is already met in
+     [known_sd] and capped in the inputs, so [pre] holds no matching facts. *)
+  Lemma push_to_sd sd sdem pre (tr : list IO_event) S smargs cnt h :
+    consistent_inputs (inputs_of tr) ->
+    Permutation (sdem.(known_facts) ++ sdem.(waiting_facts)) (inputs_of tr) ->
+    sdem.(known_facts) = pre ++ sd.(known_facts) ->
+    expect_num_R_facts S smargs sd.(known_facts) cnt ->
+    Existsn (dfact_matches S smargs) cnt sd.(known_facts) ->
+    dfact_matches S smargs h ->
+    In h sdem.(known_facts) ->
+    In h sd.(known_facts).
+  Proof.
+    intros (HconsN & _ & HconsS) Hperm Hsuf Hexp Hknown_cnt Hmatch Hin.
+    (* declaration is in known_sd <= known_sdem <= inputs *)
+    assert (Hsd_in : forall x, In x sd.(known_facts) -> In x (inputs_of tr)).
+    { intros x Hx. eapply Permutation_in; [exact Hperm | apply in_or_app; left].
+      rewrite Hsuf. apply in_or_app. right. exact Hx. }
+    assert (Hcap : forall N, Existsn (dfact_matches S smargs) N (inputs_of tr) -> N <= cnt).
+    { cbv [expect_num_R_facts] in Hexp. destruct (is_input S) eqn:His.
+      - destruct (HconsN S smargs cnt (Hsd_in _ Hexp)) as (_ & num' & Hle & Hex').
+        intros N HN. pose proof (Existsn_unique _ N num' _ HN Hex'). lia.
+      - destruct Hexp as (ems & Hf2 & Hsum).
+        assert (Hf2' : Forall2 (fun k e =>
+                  In (meta_dfact S smargs (Some k) e) (inputs_of tr)) (R_senders S) ems).
+        { eapply Forall2_impl; [|exact Hf2]. intros k e Hk. apply Hsd_in. exact Hk. }
+        destruct (HconsS S smargs ems Hf2') as (num' & Hle & Hex').
+        intros N HN. pose proof (Existsn_unique _ N num' _ HN Hex'). lia. }
+    (* matching count in known_sdem = matching(pre) + cnt, and <= cnt, so matching(pre)=0 *)
+    destruct (Existsn_total (dfact_matches S smargs) pre) as (mp & Hmp).
+    assert (Hsdem_cnt : Existsn (dfact_matches S smargs) (mp + cnt) sdem.(known_facts)).
+    { rewrite Hsuf. apply Existsn_app; [exact Hmp | exact Hknown_cnt]. }
+    assert (Hle_inp : mp + cnt <= cnt).
+    { destruct (Existsn_total (dfact_matches S smargs) sdem.(waiting_facts)) as (w & Hw).
+      assert (Hall_inp : Existsn (dfact_matches S smargs) (mp + cnt + w) (inputs_of tr)).
+      { eapply Existsn_perm;
+          [apply Existsn_app; [exact Hsdem_cnt | exact Hw] | exact Hperm]. }
+      pose proof (Hcap _ Hall_inp). lia. }
+    assert (mp = 0) by lia. subst mp. apply Existsn_0_Forall_not in Hmp.
+    rewrite Hsuf in Hin. apply in_app_or in Hin. destruct Hin as [Hpre | Hsd]; [|exact Hsd].
+    exfalso. rewrite Forall_forall in Hmp. exact (Hmp h Hpre Hmatch).
   Qed.
 
   (* ---- Per-node liveness: graph_can_implies_will's per-node obligation. ----
