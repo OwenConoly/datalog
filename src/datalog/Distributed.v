@@ -1114,6 +1114,62 @@ Section __.
       + exact IH.
   Qed.
 
+  Definition df_of (h : fact) : dfact :=
+    match h with
+    | normal_fact r a => normal_dfact r a
+    | meta_fact r a _ => meta_dfact r a None 0
+    end.
+
+  (* The force assembly for a normal output [normal_dfact R oargs] derivable by
+     [rule_of r] from all-normal hyps [ohyps] that are input-derived: drive the hyps
+     into [known] ([force_known_list]), then commit the deduce ([force_deduce]); the
+     deduce never gets disabled ([no_disabler]). *)
+  Lemma force_normal_output (r : non_meta_rule) (n : nat) s t R oargs ohyps :
+    In r p.(non_meta_rules) ->
+    node_inv (node_prog_of r n) s t ->
+    In R (concl_rels (rule_of r)) ->
+    non_meta_rule_impl (rule_of r) R oargs ohyps ->
+    Forall (fun h => exists hr ha, h = normal_fact hr ha) ohyps ->
+    Forall (fun h => In (df_of h) (inputs_of t)) ohyps ->
+    eventually (can_step (spec_node_step (node_prog_of r n)) (node_allowed r))
+      (fun '(_, t'') => output_in_trace (normal_dfact R oargs) t'') (s, t).
+  Proof.
+    intros Hin_r Hinv HR Himpl Hnorm Hin_inp.
+    eapply eventually_trans.
+    { apply (force_known_list (node_prog_of r n) (node_allowed r) (map df_of ohyps) s t Hinv).
+      rewrite Forall_forall. intros d Hd. apply in_map_iff in Hd as (h & <- & Hh).
+      rewrite Forall_forall in Hin_inp. exact (Hin_inp h Hh). }
+    intros [s_start t_start] (Hknown & Hinv_start).
+    apply force_deduce. intros sdem tdem Hstar_d Hallow_d.
+    pose proof (node_inv_star (node_prog_of r n) s_start t_start tdem sdem Hinv_start Hstar_d)
+      as Hinv_dem.
+    destruct Hinv_dem as (Hperm_dem & Tinit_dem & Hreach_dem).
+    destruct Hallow_d as (Hcons_dem & Hconcl_dem).
+    right.
+    assert (Hohyps_dem : Forall (knows_datalog_fact sdem.(known_facts)) ohyps).
+    { rewrite Forall_forall. intros h Hh.
+      rewrite Forall_forall in Hnorm. destruct (Hnorm h Hh) as (hr & ha & ->).
+      cbn [knows_datalog_fact].
+      rewrite Forall_forall in Hknown.
+      assert (Hin_start : In (df_of (normal_fact hr ha)) s_start.(known_facts)).
+      { apply Hknown. apply in_map. exact Hh. }
+      cbn [df_of] in Hin_start.
+      eapply known_In_mono; [exact Hstar_d | exact Hin_start]. }
+    split.
+    - apply Exists_exists. exists (rule_of r). split.
+      + cbn [node_prog_of spec_node_rules]. left. reflexivity.
+      + cbn [can_deduce_fact]. split.
+        * exists ohyps. split; [exact Himpl | exact Hohyps_dem].
+        * intros mf_args num Hin_done Hmatch_done.
+          eapply (no_disabler r n sdem (tdem ++ t_start) R mf_args num oargs ohyps
+                    {| known_facts := []; waiting_facts := []; sent_facts := [] |} Tinit_dem);
+            try eassumption.
+          -- reflexivity.
+          -- intros Hin_o. rewrite Forall_forall in Hconcl_dem.
+             exact (Hconcl_dem (normal_dfact R oargs) Hin_o HR).
+    - rewrite Forall_forall. intros r'' Hr''. cbn [ok_to_deduce_fact]. exact I.
+  Qed.
+
   (* ---- Per-node liveness: graph_can_implies_will's per-node obligation. ----
 
      A node fed consistent inputs ([consistent_inputs]) is live: whenever it
