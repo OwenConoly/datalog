@@ -32,6 +32,11 @@ Section __.
      conclude input relations.  Needed so a derivable fact is non-input, hence
      "known ⇒ already output". *)
   Context (Hp_input : Forall (good_non_meta_rule is_input) p.(non_meta_rules)).
+  (* Meta-protocol validity (as in Operational): the program's meta rules are
+     valid, so a done-sending meta's hyps "cover" the matching normal rule's hyps.
+     Needed for the disabling argument. *)
+  Context (Hmeta_rules : meta_rules_valid (rules_of p)).
+  Context (Hp_meta_input : Forall (good_meta_rule_inputs is_input) p.(meta_rules)).
 
   Local Notation can_deduce_fact := (can_deduce_fact is_input R_senders).
   Local Notation ok_to_deduce_fact := (ok_to_deduce_fact is_input R_senders).
@@ -681,6 +686,86 @@ Section __.
       + apply spec_node_deduce_step. exact Hnf.
       + apply eventually_done. cbn. exists (sl_deduce g), [g].
         split; apply in_eq.
+  Qed.
+
+  (* A node-level "meta facts correct": every done-sending meta in [sent] is
+     justified by a valid meta-rule derivation whose hyps are known.  (We drop
+     Operational's extra "no meta_fact of the same key in hyps" clause; the
+     disabling argument doesn't need it.) *)
+  Definition node_mfc (n : nat) (s : node_state) : Prop :=
+    forall R margs num,
+      In (meta_dfact R margs (Some n) num) s.(sent_facts) ->
+      exists mc mh hyps,
+        In (mc, mh) p.(meta_rules) /\
+        can_deduce_meta_fact mc mh n s.(sent_facts) (meta_dfact R margs (Some n) num) hyps /\
+        Forall (knows_datalog_fact s.(known_facts)) hyps.
+
+  (* [node_mfc] is preserved by a node step.  Dequeue: meta-hyps stay known by
+     [knows_datalog_fact_stable] (no [sane_state] needed, unlike Operational).
+     Deduce: a newly-deduced done-meta gets its justification from [new_facts]; an
+     existing one keeps its count because the negative condition in [can_deduce_fact]
+     forbids deducing a matching normal fact while the done-meta is in [sent]. *)
+  Lemma node_mfc_step (r : non_meta_rule) (n : nat) s e s' tr :
+    consistent_inputs (inputs_of (e :: tr)) ->
+    Permutation (s.(known_facts) ++ s.(waiting_facts)) (inputs_of tr) ->
+    node_mfc n s ->
+    spec_node_step (node_prog_of r n) s e s' ->
+    node_mfc n s'.
+  Proof.
+    intros Hcons Hperm Hmfc Hstep.
+    inversion Hstep as [rs input rest Hq | rs out Hnf | rs inp]; subst;
+      cbv [node_mfc] in Hmfc |- *; cbn [known_facts waiting_facts sent_facts];
+      intros R margs num HIn.
+    - (* dequeue *)
+      specialize (Hmfc R margs num HIn).
+      destruct Hmfc as (mc & mh & hyps & Hinmr & Hcdm & Hknown).
+      exists mc, mh, hyps. split; [exact Hinmr|]. split; [exact Hcdm|].
+      eapply Forall_impl; [|exact Hknown]. intros h Hh.
+      eapply (knows_datalog_fact_stable (node_prog_of r n) s
+                [O_event sl_dequeue []]
+                {| known_facts := input :: s.(known_facts);
+                   waiting_facts := rest; sent_facts := s.(sent_facts) |}
+                tr h Hcons Hperm); [|exact Hh].
+      eapply star_step; [apply spec_node_dequeue_step; exact Hq | apply star_refl].
+    - (* deduce: sent gains [out], known unchanged *)
+      destruct HIn as [Heq | HIn].
+      + (* the newly-deduced done-meta is [out] itself *)
+        subst out. destruct Hnf as (Hex & _).
+        apply Exists_exists in Hex. destruct Hex as (r' & Hr'in & Hcdf).
+        cbv [can_deduce_fact] in Hcdf.
+        destruct Hcdf as (Hsrc & mc & mh & hyps & Hr'eq & Hcdm & Hknown).
+        assert (Hin_mr : In (mc, mh) p.(meta_rules)).
+        { cbn [node_prog_of spec_node_rules] in Hr'in.
+          destruct Hr'in as [Hr'eq2 | Hr'in].
+          - exfalso. rewrite <- Hr'eq2 in Hr'eq. destruct r; cbn in Hr'eq; discriminate.
+          - apply in_map_iff in Hr'in. destruct Hr'in as ((c & h) & Hmeq & Hin).
+            rewrite Hr'eq in Hmeq. injection Hmeq as <- <-. exact Hin. }
+        exists mc, mh, hyps. split; [exact Hin_mr|]. split; [|exact Hknown].
+        cbv [can_deduce_meta_fact] in Hcdm |- *.
+        destruct Hcdm as (ctx & mfr & mfa & mfc & Heq' & Hexn & Hconcl & Hinterp).
+        exists ctx, mfr, mfa, mfc. split; [exact Heq'|].
+        split; [|split; [exact Hconcl | exact Hinterp]].
+        apply Existsn_no; [|exact Hexn].
+        intros (na & Hcontra & _). discriminate Hcontra.
+      + (* a pre-existing done-meta: out cannot be a matching normal fact *)
+        assert (Hnm : ~ dfact_matches R margs out).
+        { intros (oa & Hout & Hmatch). subst out.
+          destruct Hnf as (Hex & _). apply Exists_exists in Hex.
+          destruct Hex as (r' & _ & Hcdf). cbv [can_deduce_fact] in Hcdf.
+          destruct Hcdf as (_ & Hneg). exact (Hneg margs num HIn Hmatch). }
+        specialize (Hmfc R margs num HIn).
+        destruct Hmfc as (mc & mh & hyps & Hinmr & Hcdm & Hknown).
+        exists mc, mh, hyps. split; [exact Hinmr|]. split; [|exact Hknown].
+        cbv [can_deduce_meta_fact] in Hcdm |- *.
+        destruct Hcdm as (ctx & mfr & mfa & mfc & Heq' & Hexn & Hconcl & Hinterp).
+        injection Heq' as <- <- <-.
+        exists ctx, R, margs, num. split; [reflexivity|].
+        split; [|split; [exact Hconcl | exact Hinterp]].
+        apply Existsn_no; [exact Hnm | exact Hexn].
+    - (* input: known and sent unchanged *)
+      specialize (Hmfc R margs num HIn).
+      destruct Hmfc as (mc & mh & hyps & Hinmr & Hcdm & Hknown).
+      exists mc, mh, hyps. split; [exact Hinmr|]. split; [exact Hcdm | exact Hknown].
   Qed.
 
   (* ---- Per-node liveness: graph_can_implies_will's per-node obligation. ----
