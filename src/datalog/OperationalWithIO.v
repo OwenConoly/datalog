@@ -77,16 +77,20 @@ Section __.
     comp_step_with_label s1 lbl s2 ->
     step s1 (O_event lbl []) s2
   | step_input s f :
-    is_input_fact is_input f = true ->
     step s (I_event f) (map (add_waiting_fact f) s)
   | step_output s f :
     knows_dfact s f ->
     step s (O_event (L_output f) [f]) s.
 
+  Definition allowed : list dfact -> Prop := good_input_facts is_input.
+
   Definition empty_rule_state : rule_state :=
     {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
 
   Definition initial : state := repeat empty_rule_state (length p.(non_meta_rules)).
+
+  Lemma step_input_total : input_total step.
+  Proof. intros s m. eexists. apply step_input. Qed.
 
 
 End __.
