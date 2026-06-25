@@ -666,6 +666,97 @@ Section __.
         apply (Hostep _ _ _ _ _ (Hstarp _ _ _ _ HR Hstar_d) Hstep).
   Qed.
 
+  (* [inputs_of] is invariant (up to permutation) under reversing the trace; lets
+     us reconcile [kw_perm_star]'s [rev]-trace with [can_step]'s forward trace. *)
+  Lemma inputs_of_rev_perm (l : list IO_event) :
+    Permutation (inputs_of (rev l)) (inputs_of l).
+  Proof.
+    induction l as [|e l IH]; cbn [rev]; [apply Permutation_refl|].
+    rewrite inputs_of_app. destruct e as [m | lbl outs]; cbn [inputs_of flat_map app].
+    - eapply perm_trans; [apply Permutation_app_comm | cbn [app]].
+      apply perm_skip. exact IH.
+    - rewrite app_nil_r. exact IH.
+  Qed.
+
+  (* The carried invariant for the forcing: known∪waiting accounts exactly for the
+     inputs received so far, and the state is reachable from the empty init. *)
+  Definition node_inv (sp : spec_node_prog) (s' : node_state) (t' : list IO_event) : Prop :=
+    Permutation (s'.(known_facts) ++ s'.(waiting_facts)) (inputs_of t') /\
+    exists Tinit, star (spec_node_step sp)
+                       {| known_facts := []; waiting_facts := []; sent_facts := [] |} Tinit s'.
+
+  Lemma node_inv_star sp s tt t_d s_d :
+    node_inv sp s tt ->
+    star (spec_node_step sp) s t_d s_d ->
+    node_inv sp s_d (t_d ++ tt).
+  Proof.
+    intros (Hperm & Tinit & Hreach) Hstar. split.
+    - eapply perm_trans; [apply (kw_perm_star sp s t_d s_d tt Hperm Hstar)|].
+      rewrite !inputs_of_app. apply Permutation_app_tail. apply inputs_of_rev_perm.
+    - exists (Tinit ++ t_d). eapply star_app; eassumption.
+  Qed.
+
+  Lemma node_inv_step sp s tt glbl outs s' :
+    node_inv sp s tt ->
+    spec_node_step sp s (O_event glbl outs) s' ->
+    node_inv sp s' (O_event glbl outs :: tt).
+  Proof.
+    intros (Hperm & Tinit & Hreach) Hstep. split.
+    - apply (kw_perm_step sp s (O_event glbl outs) s' tt Hperm Hstep).
+    - exists (Tinit ++ [O_event glbl outs]).
+      eapply star_app; [exact Hreach | eapply star_step; [exact Hstep | apply star_refl]].
+  Qed.
+
+  (* Drive a whole list of input facts into [known] (each was received, so lives in
+     [known ∪ waiting]); dequeue them one at a time, carrying [node_inv] and the
+     already-known prefix.  After this the demon may have added more, but every [h]
+     in [hs] is now in [known]. *)
+  Lemma force_known_list sp (allowed : list dfact -> Prop) (hs : list dfact) :
+    forall s t,
+      node_inv sp s t ->
+      Forall (fun h => In h (inputs_of t)) hs ->
+      eventually (can_step (spec_node_step sp) allowed)
+        (fun '(s', t') => Forall (fun h => In h s'.(known_facts)) hs /\ node_inv sp s' t')
+        (s, t).
+  Proof.
+    induction hs as [|h hs IH]; intros s t Hinv Hall.
+    - apply eventually_done. split; [constructor | exact Hinv].
+    - pose proof (Forall_inv Hall) as Hh_in. pose proof (Forall_inv_tail Hall) as Hhs_in.
+      assert (Hraw : eventually (can_step (spec_node_step sp) allowed)
+                       (fun '(s_h, _) => In h s_h.(known_facts)) (s, t)).
+      { destruct Hinv as (Hperm & _).
+        assert (Hin_kw : In h (s.(known_facts) ++ s.(waiting_facts))).
+        { apply Permutation_in with (l := inputs_of t);
+            [apply Permutation_sym; exact Hperm | exact Hh_in]. }
+        apply in_app_or in Hin_kw. destruct Hin_kw as [Hk | Hw].
+        - apply eventually_done. exact Hk.
+        - apply in_split in Hw. destruct Hw as (pre & post & Hweq).
+          eapply (force_into_known sp allowed h (length pre) s pre post t (le_n _) Hweq). }
+      eapply eventually_trans.
+      { eapply (eventually_carry_inv2 sp allowed
+                  (fun s' t' => node_inv sp s' t' /\ incl (inputs_of t) (inputs_of t'))).
+        - intros s0 tt0 td0 sd0 (Hni & Hic) Hst. split.
+          + eapply node_inv_star; eassumption.
+          + intros x Hx. rewrite inputs_of_app. apply in_or_app. right. exact (Hic x Hx).
+        - intros s0 tt0 gl0 ou0 sd0 (Hni & Hic) Hst. split.
+          + eapply node_inv_step; eassumption.
+          + intros x Hx. cbn [inputs_of flat_map app]. exact (Hic x Hx).
+        - split; [exact Hinv | apply incl_refl].
+        - exact Hraw. }
+      intros [s_h t_h] (Hh & Hinv_h & Hic_h).
+      assert (Hhs_h : Forall (fun h0 => In h0 (inputs_of t_h)) hs).
+      { eapply Forall_impl; [|exact Hhs_in]. intros a Ha. exact (Hic_h a Ha). }
+      eapply eventually_weaken.
+      { eapply (eventually_carry_inv2 sp allowed (fun s' _ => In h s'.(known_facts))).
+        - intros s0 tt0 td0 sd0 Hk Hst. eapply known_In_mono; eassumption.
+        - intros s0 tt0 gl0 ou0 sd0 Hk Hst.
+          eapply known_In_mono; [eapply star_step; [exact Hst | apply star_refl] | exact Hk].
+        - exact Hh.
+        - exact (IH s_h t_h Hinv_h Hhs_h). }
+      intros [s_f t_f] ((Hhs_f & Hinv_f) & Hh_f).
+      split; [constructor; assumption | exact Hinv_f].
+  Qed.
+
   (* Force a deduce of [g]: commit [sl_deduce g].  The hypothesis [H] captures the
      only nontrivial obligation — at every state the demon can reach, either [g] is
      already output or it is still deducible ([new_facts]).  For normal facts that
