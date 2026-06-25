@@ -131,6 +131,18 @@ Section __.
         exists num', num' <= fold_left Nat.add expected_msgss 0 /\
                      Existsn (dfact_matches R mf_args) num' input_facts).
 
+  Definition dfact_rel (f : dfact) : rel :=
+    match f with normal_dfact R _ => R | meta_dfact R _ _ _ => R end.
+
+  (* The full per-node [allowed]: consistent inputs that, additionally, never carry
+     a fact of a relation this node itself concludes.  In the graph this is
+     automatic (one node per rule, so a node only receives its hyps' relations,
+     never its own concl relation).  Needed for soundness: a fact this node deduces
+     must reach [known] only by being deduced (hence output), not by being fed in. *)
+  Definition node_allowed (r : non_meta_rule) (inputs : list dfact) : Prop :=
+    consistent_inputs inputs /\
+    Forall (fun f => ~ In (dfact_rel f) (concl_rels (rule_of r))) inputs.
+
   (* ---- Obvious equivalence to comp_step (delivery-as-stutter collapse). ---- *)
 
   (* [ok_to_deduce_fact] is vacuously true for any meta rule: a meta rule never
@@ -473,11 +485,11 @@ Section __.
   (* If [g] is queued (split as [pre ++ g :: post]), the node can be forced to
      learn it: commit [sl_dequeue] each round; the demon can only shrink [g]'s
      prefix, so induction on [length pre] terminates. *)
-  Lemma force_into_known sp g :
+  Lemma force_into_known sp (allowed : list dfact -> Prop) g :
     forall n s pre post t,
       length pre <= n ->
       s.(waiting_facts) = pre ++ g :: post ->
-      eventually (can_step (spec_node_step sp) (consistent_inputs))
+      eventually (can_step (spec_node_step sp) allowed)
                  (fun '(s'', _) => In g s''.(known_facts)) (s, t).
   Proof.
     intros n. induction n as [|n IH]; intros s pre post t Hlen Hw.
@@ -620,15 +632,15 @@ Section __.
   (* Carry a state/trace invariant [R] (preserved by demon runs and by an output
      step) through an eventually.  Verbatim single-node analogue of Graph.v's
      eventually_carry_inv2. *)
-  Lemma eventually_carry_inv2 sp (R : node_state -> list IO_event -> Prop) :
+  Lemma eventually_carry_inv2 sp (allowed : list dfact -> Prop) (R : node_state -> list IO_event -> Prop) :
     (forall s tt t_d s_d, R s tt ->
        star (spec_node_step sp) s t_d s_d -> R s_d (t_d ++ tt)) ->
     (forall s tt glbl outs s', R s tt ->
        spec_node_step sp s (O_event glbl outs) s' -> R s' (O_event glbl outs :: tt)) ->
     forall (P : node_state * list IO_event -> Prop) s tt,
       R s tt ->
-      eventually (can_step (spec_node_step sp) (consistent_inputs)) P (s, tt) ->
-      eventually (can_step (spec_node_step sp) (consistent_inputs))
+      eventually (can_step (spec_node_step sp) allowed) P (s, tt) ->
+      eventually (can_step (spec_node_step sp) allowed)
         (fun '(s', t') => P (s', t') /\ R s' t') (s, tt).
   Proof.
     intros Hstarp Hostep P s tt HR Hev.
@@ -653,12 +665,12 @@ Section __.
      already output or it is still deducible ([new_facts]).  For normal facts that
      "still deducible" is where the meta-fact ("no premature done-sending")
      invariant is needed; this lemma isolates it. *)
-  Lemma force_deduce sp g s t :
+  Lemma force_deduce sp (allowed : list dfact -> Prop) g s t :
     (forall sdem tdem,
         star (spec_node_step sp) s tdem sdem ->
-        consistent_inputs (inputs_of (tdem ++ t)) ->
+        allowed (inputs_of (tdem ++ t)) ->
         output_in_trace g (tdem ++ t) \/ new_facts sp sdem g) ->
-    eventually (can_step (spec_node_step sp) (consistent_inputs))
+    eventually (can_step (spec_node_step sp) allowed)
                (fun '(_, t'') => output_in_trace g t'') (s, t).
   Proof.
     intros H. apply eventually_step_cps. exists (sl_deduce g).
@@ -678,7 +690,7 @@ Section __.
   Lemma spec_node_can_implies_will (r : non_meta_rule) (n : nat) :
     can_implies_will
       (spec_node_step (node_prog_of r n))
-      (consistent_inputs)
+      (node_allowed r)
       {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
   Proof.
     intros t s o Hreach Hallowed Hcan.
