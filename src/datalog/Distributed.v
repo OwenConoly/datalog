@@ -1196,7 +1196,21 @@ Section __.
       as (spre & tpre & Hst_pre & Hti_pre & Hnf).
     destruct Hnf as (Hex & Hall).
     destruct o as [R oargs | R margs source num].
-    2: { (* meta done-message output *) admit. }
+    2: { (* META DONE-MESSAGE OUTPUT.  *** Not live under the current model. ***
+            Deducing [meta_dfact R margs (Some n) num] needs
+            [ok_to_deduce_fact (rule_of r) known o], i.e. EVERY R-fact derivable from
+            [known] (matching [margs]) is already IN [known].  Under no-self-enqueue a
+            deduced R-fact goes to [sent], not [known], and the concl-restriction keeps
+            R-facts out of the inputs, so this holds only when NO R-fact is derivable
+            from [known].  An adversarial demon can dequeue an R-fact's hyps into
+            [known], making one derivable, and forcing its output puts it in [sent]
+            (not [known]) — so [ok_to_deduce] stays broken and the done-message can
+            never be re-deduced.  Hence [will_output] fails for done-messages.
+            FIX (Resolution 2): make [ok_to_deduce_fact] read [sent] (where deduced
+            R-facts live) instead of [known]; then "done sending R" = "all derivable
+            R-facts are sent", which IS maintainable.  Requires the user's sign-off on
+            the model change (or excluding done-messages from the liveness goal). *)
+         admit. }
     apply Exists_exists in Hex. destruct Hex as (r' & Hr'in & Hcdf).
     cbn [can_deduce_fact] in Hcdf. destruct Hcdf as (Hcdn & Hneg).
     destruct Hcdn as (ohyps & Himpl & Hknown_pre).
@@ -1226,7 +1240,16 @@ Section __.
           (eapply Permutation_in; [exact Hperm|]).
         * apply in_or_app; left; exact Hk_s.
         * apply in_or_app; right; exact Hw_s.
-    - (* agg_rule *) admit.
+    - (* AGG_RULE OUTPUT.  Doable (o is a normal fact, so [ok_to_deduce] is trivially
+         True and [no_disabler] applies unchanged).  The extra work vs the normal_rule
+         case: ohyps include the aggregation meta-hyp [meta_fact hyp_rel _ S], so
+         re-deriving o at the driven state needs the matching hyp_rel facts complete in
+         [known] (the done-receiving pins them via consistent_inputs, so the demon
+         can't add more and the aggregate value [interp_agg agg vals] is stable).
+         Force the [vals] normal facts + the declaration into [known], then rebuild the
+         agg_rule_impl with the driven [known]'s set.  ~100 lines of is_list_set /
+         interp_agg / completeness bookkeeping; deferred. *)
+      admit.
   Admitted.
 
 End __.
