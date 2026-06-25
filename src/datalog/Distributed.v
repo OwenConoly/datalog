@@ -69,12 +69,12 @@ Section __.
     {| bss_spec_node := empty_spec_state;
       bss_queue := [] |}.
 
-  (* A node's own labels: dequeue one queued message into [known], or deduce and
-     broadcast a new fact.  The fact lives in the event's message list, not the
-     label, so these two labels suffice. *)
+  (* A node's own labels: dequeue one queued message into [known] (always from the
+     front, so unambiguous), or deduce and broadcast a new fact (recorded in the
+     label). *)
   Variant spec_label :=
     | sl_dequeue
-    | sl_deduce.
+    | sl_deduce (f : dfact).
 
   Local Notation IO_event := (Smallstep.IO_event spec_label dfact).
 
@@ -86,7 +86,7 @@ Section __.
                      bss_queue := rest |}
   | spec_node_deduce_step bss output :
     new_facts sp bss.(bss_spec_node) output ->
-    spec_node_step sp bss (O_event sl_deduce [output])
+    spec_node_step sp bss (O_event (sl_deduce output) [output])
                    {| bss_spec_node := spec_output_fact bss.(bss_spec_node) output;
                      bss_queue := bss.(bss_queue) ++ [output] |}
   | spec_node_input_step bss input :
