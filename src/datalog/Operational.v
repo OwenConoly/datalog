@@ -217,13 +217,6 @@ Section __.
     | meta_dfact _ _ (Some _) _ => false
     end.
 
-  Definition inputs := list dfact.
-
-  Inductive inp_step : state -> inputs -> state -> inputs -> Prop :=
-  | Receive s1 inps1 new_fact :
-    is_input_fact new_fact = true ->
-    inp_step s1 inps1 (map (add_waiting_fact new_fact) s1) (new_fact :: inps1).
-
   Definition rules_of : list rule :=
     map (fun '(c, h) => meta_rule c h) p.(meta_rules) ++ map rule_of p.(non_meta_rules).
 
