@@ -16,7 +16,7 @@ Section __.
     | L_fire (n : nat) (f : dfact)    (* rule [n] derived and broadcast fact [f] *)
     | L_output (f : dfact).           (* emit the known fact [f] *)
 
-  Definition learn_fact_at_rule_f (f : dfact) (s1 s2 : rule_state) : Prop :=
+  Definition learn_fact_at_rule_f (f : dfact) (s1 s2 : node_state) : Prop :=
     exists l1 l2,
       s2.(known_facts) = f :: s1.(known_facts) /\
       s1.(waiting_facts) = l1 ++ f :: l2 /\
@@ -84,10 +84,10 @@ Section __.
 
   Definition allowed : list dfact -> Prop := good_input_facts is_input.
 
-  Definition empty_rule_state : rule_state :=
+  Definition empty_node_state : node_state :=
     {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
 
-  Definition initial : state := repeat empty_rule_state (length p.(non_meta_rules)).
+  Definition initial : state := repeat empty_node_state (length p.(non_meta_rules)).
 
   Lemma step_input_total : input_total step.
   Proof. intros s m. eexists. apply step_input. Qed.

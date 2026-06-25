@@ -1,16 +1,17 @@
 (* Distributed (graph) semantics for a datalog program.
 
    The per-node step relation [spec_node_step] is moved here from Local.v and
-   adapted to the labelled [IO_event] of Smallstep.v.  A datalog program [p] is
-   turned into a graph program: one node per non-meta rule, each node running
-   [spec_node_step] over the rule plus all of [p]'s meta rules, with a broadcast
-   [forward].  This graph is meant to replace [comp_step_with_label] as the IO
-   step relation; [can_implies_will] for it follows from [graph_can_implies_will]
-   in Graph.v.
+   adapted to the labelled [IO_event] of Smallstep.v.  A node's state is exactly
+   Operational's [node_state], with [waiting_facts] serving as the node's incoming
+   message queue.  A datalog program [p] is turned into a graph program: one node
+   per non-meta rule, each node running [spec_node_step] over that rule plus all of
+   [p]'s meta rules, with a broadcast [forward].  This graph is meant to replace
+   [comp_step_with_label] as the IO step relation; [can_implies_will] for it
+   follows from [graph_can_implies_will] in Graph.v.
 
-   The graph is "very obviously equivalent" to [comp_step]: a node's deduce step
-   is exactly [fire_at_rule] ([new_facts_iff_fire]) and a node's dequeue step is a
-   [learn_fact_at_rule] ([dequeue_learn]), under the collapse that reads a rule's
+   The graph is "very obviously equivalent" to [comp_step]: a node's deduce step is
+   exactly [fire_at_rule] ([new_facts_iff_fire]) and a node's dequeue step is a
+   [learn_fact_at_rule] ([dequeue_learn]), under the collapse that reads a node's
    [waiting_facts] as its queue together with the messages in flight to it
    (delivery being a stutter). *)
 
@@ -31,43 +32,20 @@ Section __.
   Local Notation ok_to_deduce_fact := (ok_to_deduce_fact is_input R_senders).
   Local Notation fire_at_rule := (fire_at_rule is_input R_senders p).
 
-  (* ---- Per-node spec state and step (moved from Local.v, now labelled). ---- *)
-
-  Record spec_node_state :=
-    { known_facts : list dfact;
-      sent_facts : list dfact }.
-
-  Definition empty_spec_state :=
-    {| known_facts := []; sent_facts := [] |}.
+  (* ---- Per-node spec step (moved from Local.v, now labelled and over
+     Operational's [node_state]). ---- *)
 
   Record spec_node_prog :=
     { spec_node_rules : list rule;
       spec_node_label : nat }.
 
-  Definition new_facts (sp : spec_node_prog) (ss : spec_node_state) f :=
+  Definition new_facts (sp : spec_node_prog) (rs : node_state) f :=
     Exists
-      (fun r => can_deduce_fact r sp.(spec_node_label) ss.(known_facts) ss.(sent_facts) f)
+      (fun r => can_deduce_fact r sp.(spec_node_label) rs.(known_facts) rs.(sent_facts) f)
       sp.(spec_node_rules) /\
       Forall
-        (fun r => ok_to_deduce_fact r ss.(known_facts) f)
+        (fun r => ok_to_deduce_fact r rs.(known_facts) f)
         sp.(spec_node_rules).
-
-  Definition spec_input_fact ss f :=
-    {| known_facts := f :: ss.(known_facts);
-      sent_facts := ss.(sent_facts) |}.
-
-  Definition spec_output_fact ss f :=
-    {| known_facts := ss.(known_facts);
-      sent_facts := f :: ss.(sent_facts) |}.
-
-  (* "big" because it contains the node, plus its message queue. *)
-  Record big_spec_state :=
-    { bss_spec_node : spec_node_state;
-      bss_queue : list dfact }.
-
-  Definition empty_big_spec_state :=
-    {| bss_spec_node := empty_spec_state;
-      bss_queue := [] |}.
 
   (* A node's own labels: dequeue one queued message into [known] (always from the
      front, so unambiguous), or deduce and broadcast a new fact (recorded in the
@@ -78,21 +56,24 @@ Section __.
 
   Local Notation IO_event := (Smallstep.IO_event spec_label dfact).
 
-  Inductive spec_node_step (sp : spec_node_prog) : big_spec_state -> IO_event -> big_spec_state -> Prop :=
-  | spec_node_dequeue_step bss input rest :
-    bss.(bss_queue) = input :: rest ->
-    spec_node_step sp bss (O_event sl_dequeue [])
-                   {| bss_spec_node := spec_input_fact bss.(bss_spec_node) input;
-                     bss_queue := rest |}
-  | spec_node_deduce_step bss output :
-    new_facts sp bss.(bss_spec_node) output ->
-    spec_node_step sp bss (O_event (sl_deduce output) [output])
-                   {| bss_spec_node := spec_output_fact bss.(bss_spec_node) output;
-                     bss_queue := bss.(bss_queue) ++ [output] |}
-  | spec_node_input_step bss input :
-    spec_node_step sp bss (I_event input)
-                   {| bss_spec_node := bss.(bss_spec_node);
-                     bss_queue := bss.(bss_queue) ++ [input] |}.
+  Inductive spec_node_step (sp : spec_node_prog) : node_state -> IO_event -> node_state -> Prop :=
+  | spec_node_dequeue_step rs input rest :
+    rs.(waiting_facts) = input :: rest ->
+    spec_node_step sp rs (O_event sl_dequeue [])
+                   {| known_facts := input :: rs.(known_facts);
+                     waiting_facts := rest;
+                     sent_facts := rs.(sent_facts) |}
+  | spec_node_deduce_step rs output :
+    new_facts sp rs output ->
+    spec_node_step sp rs (O_event (sl_deduce output) [output])
+                   {| known_facts := rs.(known_facts);
+                     waiting_facts := rs.(waiting_facts) ++ [output];
+                     sent_facts := output :: rs.(sent_facts) |}
+  | spec_node_input_step rs input :
+    spec_node_step sp rs (I_event input)
+                   {| known_facts := rs.(known_facts);
+                     waiting_facts := rs.(waiting_facts) ++ [input];
+                     sent_facts := rs.(sent_facts) |}.
 
   (* ---- The graph program built from [p]. ---- *)
 
@@ -118,12 +99,6 @@ Section __.
 
   (* ---- Obvious equivalence to comp_step (delivery-as-stutter collapse). ---- *)
 
-  (* The rule_state a node's (state, queue) collapses to. *)
-  Definition rs_of (ss : spec_node_state) (q : list dfact) : rule_state :=
-    {| Operational.known_facts := ss.(known_facts);
-      Operational.waiting_facts := q;
-      Operational.sent_facts := ss.(sent_facts) |}.
-
   (* [ok_to_deduce_fact] is vacuously true for any meta rule: a meta rule never
      deduces a normal fact ([non_meta_rule_impl] has no meta-rule constructor),
      so the only nontrivial side condition is the one on [rule_of r]. *)
@@ -136,16 +111,16 @@ Section __.
   Qed.
 
   (* A node's deduce step is exactly a [fire_at_rule] at that rule. *)
-  Lemma new_facts_iff_fire (r : non_meta_rule) (n : nat) (ss : spec_node_state) (q : list dfact) (f : dfact) :
-    new_facts (node_prog_of r n) ss f <->
-    fire_at_rule r n (rs_of ss q) (send_fact f (rs_of ss q)) f.
+  Lemma new_facts_iff_fire (r : non_meta_rule) (n : nat) (rs : node_state) (f : dfact) :
+    new_facts (node_prog_of r n) rs f <->
+    fire_at_rule r n rs (send_fact f rs) f.
   Proof.
     unfold new_facts, node_prog_of, fire_at_rule, Operational.fire_at_rule,
       can_fire_rule_at; cbn [spec_node_rules spec_node_label].
     split.
     - intros (Hex & Hall).
       apply Exists_cons in Hex.
-      assert (Hok_hd : ok_to_deduce_fact (rule_of r) (rs_of ss q).(Operational.known_facts) f)
+      assert (Hok_hd : ok_to_deduce_fact (rule_of r) rs.(known_facts) f)
         by (inversion Hall; subst; assumption).
       destruct Hex as [Hhd | Htl].
       + exists (rule_of r).
@@ -166,12 +141,16 @@ Section __.
   Qed.
 
   (* A node's dequeue step is a [learn_fact_at_rule] (moving the queue head into
-     [known]); under the collapse the queue is the rule's [waiting_facts]. *)
-  Lemma dequeue_learn (ss : spec_node_state) (input : dfact) (rest : list dfact) :
-    learn_fact_at_rule (rs_of ss (input :: rest)) (rs_of (spec_input_fact ss input) rest).
+     [known]); the queue is the node's [waiting_facts]. *)
+  Lemma dequeue_learn (rs : node_state) (input : dfact) (rest : list dfact) :
+    rs.(waiting_facts) = input :: rest ->
+    learn_fact_at_rule rs
+      {| known_facts := input :: rs.(known_facts);
+        waiting_facts := rest;
+        sent_facts := rs.(sent_facts) |}.
   Proof.
-    unfold learn_fact_at_rule, rs_of, spec_input_fact; cbn.
-    exists (@nil dfact), input, rest. cbn. repeat split; reflexivity.
+    intros Hwait. unfold learn_fact_at_rule. exists (@nil dfact), input, rest.
+    cbn. rewrite Hwait. repeat split; reflexivity.
   Qed.
 
 End __.

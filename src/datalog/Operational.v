@@ -56,13 +56,17 @@ Section __.
   Implicit Types p : prog.
   Implicit Types r : non_meta_rule.
 
-  Record rule_state :=
+  (* The state of one node in the distributed (graph) semantics: exactly one
+     normal rule and all of the program's meta rules live at each node.
+     [waiting_facts] is the node's incoming message queue (facts received but not
+     yet learned). *)
+  Record node_state :=
     { known_facts : list dfact;
       waiting_facts : list dfact;
       sent_facts : list dfact }.
 
   Definition state :=
-    list rule_state.
+    list node_state.
 
   Context (is_input : rel -> bool).
 
@@ -112,7 +116,7 @@ Section __.
     - exact Hds.
   Qed.
 
-  Definition learn_fact_at_rule (s1 s2 : rule_state) : Prop :=
+  Definition learn_fact_at_rule (s1 s2 : node_state) : Prop :=
     exists l1 x l2,
       s2.(known_facts) = x :: s1.(known_facts) /\
         s1.(waiting_facts) = l1 ++ x :: l2 /\
@@ -212,7 +216,7 @@ Section __.
     Forall3 (fun r rs n => meta_facts_ok_at_rule n rs r)
             p.(non_meta_rules) s (seq 0 (length s)).
 
-  Definition add_waiting_fact f (rs : rule_state) :=
+  Definition add_waiting_fact f (rs : node_state) :=
     {| known_facts := rs.(known_facts);
       waiting_facts := f :: rs.(waiting_facts);
       sent_facts := rs.(sent_facts); |}.
@@ -231,7 +235,7 @@ Section __.
   (* The effect of rule [r] (at index [n]) firing fact [f] in rule-state [rs],
      producing [rs']: [r] is allowed to fire some [fired_rule] that deduces [f]
      from [rs], and [rs'] records [f] as sent. *)
-  Definition fire_at_rule (r : non_meta_rule) (n : nat) (rs rs' : rule_state) (f : dfact) : Prop :=
+  Definition fire_at_rule (r : non_meta_rule) (n : nat) (rs rs' : node_state) (f : dfact) : Prop :=
     exists fired_rule,
       can_fire_rule_at r fired_rule /\
         can_deduce_fact fired_rule n rs.(known_facts) rs.(sent_facts) f /\
@@ -558,7 +562,7 @@ Section __.
      the recorded firing index [k], and [s] decomposes accordingly.  Every
      [comp_step] inversion that handles [fire_rule] needs this alignment, so it
      is factored out here. *)
-  Lemma fire_label_decomp (s : state) l1 (r : non_meta_rule) k (x : rule_state) l2 :
+  Lemma fire_label_decomp (s : state) l1 (r : non_meta_rule) k (x : node_state) l2 :
     length s = length p.(non_meta_rules) ->
     combine (combine p.(non_meta_rules) (seq 0 (length s))) s = l1 ++ (r, k, x) :: l2 ->
     s = map snd l1 ++ x :: map snd l2 /\
