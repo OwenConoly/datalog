@@ -80,6 +80,38 @@ Section __.
           finish = map snd l1 ++ y :: map snd l2 /\
           do_step n x y.
 
+  (* [stepWithLabel] over the index list [seq 0 (length s1)] is exactly a [stepOne]
+     that additionally exposes the position of the changed element as its label. *)
+  Lemma stepWithLabel_seq_intro {A} (do_step : nat -> A -> A -> Prop) l1 x y l2 :
+    do_step (length l1) x y ->
+    stepWithLabel do_step (seq 0 (length (l1 ++ x :: l2))) (l1 ++ x :: l2) (l1 ++ y :: l2).
+  Proof.
+    intro Hds. unfold stepWithLabel.
+    exists (combine (seq 0 (length l1)) l1), (length l1), x, y,
+           (combine (seq (S (length l1)) (length l2)) l2).
+    split; [| split].
+    - rewrite length_app. cbn [length].
+      rewrite seq_app, Nat.add_0_l.
+      rewrite combine_app by (rewrite length_seq; reflexivity).
+      cbn [seq combine]. reflexivity.
+    - rewrite !map_combine_snd by (rewrite length_seq; reflexivity). reflexivity.
+    - exact Hds.
+  Qed.
+
+  Lemma stepWithLabel_seq_elim {A} (do_step : nat -> A -> A -> Prop) s1 s2 :
+    stepWithLabel do_step (seq 0 (length s1)) s1 s2 ->
+    exists l1 x y l2 k, s1 = l1 ++ x :: l2 /\ s2 = l1 ++ y :: l2 /\ do_step k x y.
+  Proof.
+    intros (la & k & x & y & lb & Hc & Hs2 & Hds).
+    exists (map snd la), x, y, (map snd lb), k.
+    split; [| split].
+    - transitivity (map snd (combine (seq 0 (length s1)) s1)).
+      + symmetry. apply map_combine_snd. apply length_seq.
+      + rewrite Hc, map_app. cbn [map snd]. reflexivity.
+    - exact Hs2.
+    - exact Hds.
+  Qed.
+
   Definition learn_fact_at_rule (s1 s2 : rule_state) : Prop :=
     exists l1 x l2,
       s2.(known_facts) = x :: s1.(known_facts) /\
@@ -196,17 +228,22 @@ Section __.
         In (mr_concls, mr_hyps) p.(meta_rules) /\
           fired_rule = meta_rule mr_concls mr_hyps.
 
+  (* The effect of rule [r] (at index [n]) firing fact [f] in rule-state [rs],
+     producing [rs']: [r] is allowed to fire some [fired_rule] that deduces [f]
+     from [rs], and [rs'] records [f] as sent. *)
+  Definition fire_at_rule (r : non_meta_rule) (n : nat) (rs rs' : rule_state) (f : dfact) : Prop :=
+    exists fired_rule,
+      can_fire_rule_at r fired_rule /\
+        can_deduce_fact fired_rule n rs.(known_facts) rs.(sent_facts) f /\
+        ok_to_deduce_fact (rule_of r) rs.(known_facts) f /\
+        rs' = send_fact f rs.
+
   Inductive comp_step : state -> state -> Prop :=
   | learn_fact s1 s2 :
     stepOne learn_fact_at_rule s1 s2 ->
     comp_step s1 s2
   | fire_rule new_fact s1 s2 :
-    stepWithLabel (fun '(r, n) rs rs' =>
-                     exists fired_rule,
-                       can_fire_rule_at r fired_rule /\
-                         can_deduce_fact fired_rule n rs.(known_facts) rs.(sent_facts) new_fact /\
-                         ok_to_deduce_fact (rule_of r) rs.(known_facts) new_fact /\
-                         rs' = send_fact new_fact rs)
+    stepWithLabel (fun '(r, n) rs rs' => fire_at_rule r n rs rs' new_fact)
       (combine p.(non_meta_rules) (seq O (length s1))) s1 s2 ->
     comp_step s1 (map (add_waiting_fact new_fact) s2).
 
@@ -571,11 +608,7 @@ Section __.
   Lemma fire_rule_at new_fact l1 rn rs rs' l2 :
     length (l1 ++ rs :: l2) = length p.(non_meta_rules) ->
     nth_error p.(non_meta_rules) (length l1) = Some rn ->
-    (exists fired_rule,
-        can_fire_rule_at rn fired_rule /\
-          can_deduce_fact fired_rule (length l1) rs.(known_facts) rs.(sent_facts) new_fact /\
-          ok_to_deduce_fact (rule_of rn) rs.(known_facts) new_fact /\
-          rs' = send_fact new_fact rs) ->
+    fire_at_rule rn (length l1) rs rs' new_fact ->
     comp_step (l1 ++ rs :: l2) (map (add_waiting_fact new_fact) (l1 ++ rs' :: l2)).
   Proof.
     intros Hlen Hnth_rn Hstep.
@@ -658,6 +691,7 @@ Section __.
         cbv [knows_dfact] in *.
         eapply exists_swap; [|exact Hinp_propagated]. apply Hpres_rhd.
     - cbv [stepWithLabel] in H. fwd. destruct n as [r k].
+      cbv [fire_at_rule] in Hp2.
       destruct Hp2 as (fired_rule & Hcfr & Hcan_f & Hok_f & Hyq). subst y.
       pose proof (fire_label_decomp s1 l1 r k x l2 Hlen Hp0)
         as (Hs1_eq & Hlen_lt & Hk_eq & Hnth_r).
@@ -1206,6 +1240,7 @@ Section __.
       split; [exact Hmidp1|]. split; [exact Hknown_new|]. assumption.
     - (* fire_rule *)
       cbv [stepWithLabel] in H. fwd. destruct n as [r_fire k_fire].
+      cbv [fire_at_rule] in Hp2.
       destruct Hp2 as (fired_rule & Hcfr & Hcan_f & Hok_f & Hyq). subst y.
       pose proof (fire_label_decomp s l1 r_fire k_fire x l2 Hlen Hp0)
         as (Hs_eq & _ & Hk_eq & Hnth_r).
@@ -1866,6 +1901,7 @@ Section __.
       apply in_cons. exact Hmid.
     - (* fire_rule *)
       cbv [stepWithLabel] in H. fwd. destruct n as [r_fire k_fire].
+      cbv [fire_at_rule] in Hp2.
       destruct Hp2 as (fired_rule & Hcfr & Hcan_f & Hok_f & Hyq). subst y.
       pose proof (fire_label_decomp s l1 r_fire k_fire x l2 Hlen Hp0)
         as (Hs_eq & _ & _ & Hnth_r).
@@ -1935,6 +1971,7 @@ Section __.
       cbv [stepWithLabel] in HstepL.
       destruct HstepL as (l1 & label_fire & x & y & l2 & Hcomb & Hs2_eq & Hstepfire).
       destruct label_fire as (r_fire & k_fire).
+      cbv [fire_at_rule] in Hstepfire.
       destruct Hstepfire as (fired_rule & Hcfr & Hcan_f & Hok_f & Hy_eq). subst y.
       destruct new_fact as [nf_rel nf_args | new_mfr new_mfa new_source new_mfc].
       { (* fire_rule with normal_dfact: new fact F = normal_dfact nf_rel nf_args *)
@@ -2310,6 +2347,7 @@ Section __.
       + clear. induction l2; constructor; auto. apply incl_refl.
     - (* fire_rule *)
       cbv [stepWithLabel] in H. fwd. destruct n as [r k].
+      cbv [fire_at_rule] in Hp2.
       destruct Hp2 as (fired_rule & _ & _ & _ & Hys). subst y.
       pose proof (fire_label_decomp s l1 r k x l2 Hlen Hp0) as (Hs_eq & _ & _ & _).
       rewrite Hs_eq. rewrite map_app. simpl.
@@ -2361,6 +2399,7 @@ Section __.
     invert Hstep.
     - apply (proj1 (learn_fact_preserves_knows_dfact _ _ _ H)). exact Hk.
     - cbv [stepWithLabel] in H. fwd. destruct n as [r k].
+      cbv [fire_at_rule] in Hp2.
       destruct Hp2 as (fired_rule & _ & _ & _ & Hys). subst y.
       pose proof (fire_label_decomp s l1 r k x l2 Hlen Hp0) as (Hs_eq & _ & _ & _).
       rewrite Hs_eq in Hk.
