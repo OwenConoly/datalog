@@ -1070,6 +1070,50 @@ Section __.
     rewrite Hsuf. apply in_or_app. right. exact Hok.
   Qed.
 
+  (* If [o] is output somewhere in a run, then at the pre-state of that deduce
+     [new_facts] held.  We also record that the prefix is still input-free. *)
+  Lemma run_output_new_facts sp s t' s' o :
+    star (spec_node_step sp) s t' s' ->
+    inputs_of t' = [] ->
+    output_in_trace o t' ->
+    exists spre tpre, star (spec_node_step sp) s tpre spre /\
+                      inputs_of tpre = [] /\ new_facts sp spre o.
+  Proof.
+    induction 1 as [s0 | s0 e s1 t0 s2 Hstep Hstar IH]; intros Hinp Hout.
+    - destruct Hout as (lbl & outs & Hin & _). inversion Hin.
+    - destruct Hout as (lbl & outs & Hin & Hino). destruct Hin as [Heq | Hin].
+      + subst e. inversion Hstep as [rs input rest Hq Hl Ho | rs output Hnf Hl Ho | rs inp Hl Ho].
+        * subst. cbn in Hino. exact (match Hino with end).
+        * subst. cbn in Hino. destruct Hino as [Heqo | []]. subst output.
+          exists s0, []. split; [apply star_refl | split; [reflexivity | exact Hnf]].
+      + destruct e as [m | el eo]; cbn [inputs_of flat_map] in Hinp.
+        * discriminate.
+        * destruct (IH Hinp (ex_intro _ lbl (ex_intro _ outs (conj Hin Hino))))
+            as (spre & tpre & Hst & Hti & Hnf).
+          exists spre, (O_event el eo :: tpre). split;
+            [eapply star_step; eassumption | split; [cbn; exact Hti | exact Hnf]].
+  Qed.
+
+  (* Along an input-free run, [known] only gains facts that were already in
+     [known ∪ waiting] at the start (dequeues move waiting→known; deduces touch only
+     sent; there are no inputs). *)
+  Lemma input_free_known_sub sp s td s' :
+    star (spec_node_step sp) s td s' ->
+    inputs_of td = [] ->
+    forall x, In x s'.(known_facts) -> In x s.(known_facts) \/ In x s.(waiting_facts).
+  Proof.
+    induction 1 as [s0 | s0 e s1 t0 s2 Hstep Hstar IH]; intros Hinp x Hx.
+    - left. exact Hx.
+    - destruct e as [m | el eo]; cbn [inputs_of flat_map] in Hinp; [discriminate|].
+      specialize (IH Hinp x Hx).
+      inversion Hstep as [rs input rest Hq Hl Ho | rs output Hnf Hl Ho | rs inp Hl Ho];
+        subst; cbn [known_facts waiting_facts] in IH.
+      + destruct IH as [Hk | Hw].
+        * destruct Hk as [Heq | Hk]; [right; rewrite Hq; left; exact Heq | left; exact Hk].
+        * right. rewrite Hq. right. exact Hw.
+      + exact IH.
+  Qed.
+
   (* ---- Per-node liveness: graph_can_implies_will's per-node obligation. ----
 
      A node fed consistent inputs ([consistent_inputs]) is live: whenever it
