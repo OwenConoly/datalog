@@ -15,8 +15,8 @@
    [waiting_facts] as its queue together with the messages in flight to it
    (delivery being a stutter). *)
 
-From Stdlib Require Import List PeanoNat Lia.
-From Datalog Require Import Datalog Operational Smallstep Graph.
+From Stdlib Require Import List PeanoNat Lia Permutation.
+From Datalog Require Import Datalog Operational Smallstep Graph List.
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
@@ -72,7 +72,7 @@ Section __.
     new_facts sp rs output ->
     spec_node_step sp rs (O_event (sl_deduce output) [output])
                    {| known_facts := rs.(known_facts);
-                     waiting_facts := rs.(waiting_facts) ++ [output];
+                     waiting_facts := rs.(waiting_facts);
                      sent_facts := output :: rs.(sent_facts) |}
   | spec_node_input_step rs input :
     spec_node_step sp rs (I_event input)
@@ -101,6 +101,33 @@ Section __.
   Definition output_visible (n : node_id) (m : dfact) : bool := true.
 
   Definition A : list dfact -> Prop := fun _ => True.
+
+  (* The per-node [allowed].  A node also receives internal (non-input) messages,
+     so — unlike the graph as a whole — there is NO [is_input] restriction here;
+     the only requirement is that the declared "expect num" meta-facts among the
+     inputs are consistent (agree on their count, and never under-count the
+     matching facts present).  This is [good_input_facts] minus the [is_input]
+     conjunct. *)
+  Definition consistent_inputs (input_facts : list dfact) : Prop :=
+    (* [None]-declarations (expectations for input relations): unique count, and the
+       matching facts present never exceed it. *)
+    (forall R mf_args num,
+        In (meta_dfact R mf_args None num) input_facts ->
+        (forall num0, In (meta_dfact R mf_args None num0) input_facts -> num0 = num) /\
+          exists num', num' <= num /\ Existsn (dfact_matches R mf_args) num' input_facts)
+    /\
+    (* [Some k]-declarations (done-sending from node k): unique count per sender. *)
+    (forall R mf_args k num num0,
+        In (meta_dfact R mf_args (Some k) num) input_facts ->
+        In (meta_dfact R mf_args (Some k) num0) input_facts -> num0 = num)
+    /\
+    (* and the matching facts present never exceed the sum of the per-sender
+       done-sending counts (bounds non-input aggregates). *)
+    (forall R mf_args expected_msgss,
+        Forall2 (fun k e => In (meta_dfact R mf_args (Some k) e) input_facts)
+                (R_senders R) expected_msgss ->
+        exists num', num' <= fold_left Nat.add expected_msgss 0 /\
+                     Existsn (dfact_matches R mf_args) num' input_facts).
 
   (* ---- Obvious equivalence to comp_step (delivery-as-stutter collapse). ---- *)
 
@@ -208,8 +235,7 @@ Section __.
       + cbn [In] in Hir. destruct Hir as [Heq | Hr].
         * subst x. apply in_eq.
         * apply in_cons. apply in_or_app. right. exact Hr.
-    - intros x Hx. apply in_app_or in Hx. apply in_or_app.
-      destruct Hx as [Hk | Hw]; [left; exact Hk | right; apply in_or_app; left; exact Hw].
+    - apply incl_refl.
     - intros x Hx. apply in_app_or in Hx. apply in_or_app.
       destruct Hx as [Hk | Hw]; [left; exact Hk | right; apply in_or_app; left; exact Hw].
   Qed.
@@ -221,6 +247,57 @@ Section __.
     induction 1 as [|s0 e s1 t0 s2 Hstep Hstar IH].
     - apply incl_refl.
     - eapply incl_tran; [eapply spec_step_kw_incl; exact Hstep | exact IH].
+  Qed.
+
+  (* [known] only ever grows by prepending: a later [known] is a suffix-extension. *)
+  Lemma known_suffix sp s td s' :
+    star (spec_node_step sp) s td s' ->
+    exists pre, s'.(known_facts) = pre ++ s.(known_facts).
+  Proof.
+    induction 1 as [s0 | s0 e s1 t0 s2 Hstep Hstar IH].
+    - exists []. reflexivity.
+    - destruct IH as (pre & Hpre).
+      inversion Hstep as [rs input rest Hq | rs out Hnf | rs inp]; subst;
+        cbn [known_facts] in Hpre |- *.
+      + exists (pre ++ [input]). rewrite Hpre, <- app_assoc. reflexivity.
+      + exists pre. exact Hpre.
+      + exists pre. exact Hpre.
+  Qed.
+
+  (* Multiset invariant: a node's [known ∪ waiting] is exactly the multiset of
+     facts it has been sent (its trace's inputs).  This bounds the matching-fact
+     counts via the inputs. *)
+  Lemma kw_perm_step sp s e s' tr :
+    Permutation (s.(known_facts) ++ s.(waiting_facts)) (inputs_of tr) ->
+    spec_node_step sp s e s' ->
+    Permutation (s'.(known_facts) ++ s'.(waiting_facts)) (inputs_of (e :: tr)).
+  Proof.
+    intros Hperm Hstep.
+    inversion Hstep as [rs input rest Hq | rs out Hnf | rs inp]; subst;
+      cbn [known_facts waiting_facts]; cbn [inputs_of flat_map].
+    - (* dequeue: [input] moves from waiting to known; trace inputs unchanged *)
+      rewrite Hq in Hperm. cbn [app].
+      eapply perm_trans; [| exact Hperm].
+      apply Permutation_middle.
+    - (* deduce: nothing moves *)
+      exact Hperm.
+    - (* input: both [known∪waiting] and trace inputs gain [inp] *)
+      rewrite app_assoc.
+      eapply perm_trans;
+        [apply Permutation_sym; apply Permutation_cons_append
+        | apply perm_skip; exact Hperm].
+  Qed.
+
+  Lemma kw_perm_star sp s td s' tr :
+    Permutation (s.(known_facts) ++ s.(waiting_facts)) (inputs_of tr) ->
+    star (spec_node_step sp) s td s' ->
+    Permutation (s'.(known_facts) ++ s'.(waiting_facts)) (inputs_of (rev td ++ tr)).
+  Proof.
+    intros Hperm Hstar. revert tr Hperm.
+    induction Hstar as [s0 | s0 e s1 t0 s2 Hstep Hstar IH]; intros tr Hperm; cbn [rev].
+    - cbn [app]. exact Hperm.
+    - rewrite <- app_assoc. cbn [app].
+      apply IH. apply (kw_perm_step sp s0 e s1 tr Hperm Hstep).
   Qed.
 
   (* One step keeps a queued [g] either in [known] or still queued, with its
@@ -239,8 +316,7 @@ Section __.
       + injection Hq as Hg Hr. subst. left. apply in_eq.
       + injection Hq as Hy Hr. subst. right. exists pre', post.
         split; [reflexivity | cbn [length]; lia].
-    - right. exists pre, (post ++ [out]).
-      rewrite Hw, <- app_assoc. split; [reflexivity | apply le_n].
+    - right. exists pre, post. split; [exact Hw | apply le_n].
     - right. exists pre, (post ++ [inp]).
       rewrite Hw, <- app_assoc. split; [reflexivity | apply le_n].
   Qed.
@@ -270,7 +346,7 @@ Section __.
     forall n s pre post t,
       length pre <= n ->
       s.(waiting_facts) = pre ++ g :: post ->
-      eventually (can_step (spec_node_step sp) (good_input_facts is_input))
+      eventually (can_step (spec_node_step sp) (consistent_inputs))
                  (fun '(s'', _) => In g s''.(known_facts)) (s, t).
   Proof.
     intros n. induction n as [|n IH]; intros s pre post t Hlen Hw.
@@ -323,9 +399,7 @@ Section __.
       + right. rewrite Hq. apply in_cons. exact Hf.
     - destruct Hf as [Hf | Hf].
       + apply Hweak. apply Hacc. left. exact Hf.
-      + apply in_app_or in Hf. destruct Hf as [Hf | [Heq | []]].
-        * apply Hweak. apply Hacc. right. exact Hf.
-        * subst f. right. exists (sl_deduce out), [out]. split; apply in_eq.
+      + apply Hweak. apply Hacc. right. exact Hf.
     - destruct Hf as [Hf | Hf].
       + apply Hweak. apply Hacc. left. exact Hf.
       + apply in_app_or in Hf. destruct Hf as [Hf | [Heq | []]].
@@ -371,27 +445,24 @@ Section __.
         [left; apply output_in_trace_rev; exact Hout | right; exact Hout].
   Qed.
 
-  (* Dual accounting: every output is recorded in [sent] and in [known ∪ waiting].
-     Lets us recover state-level domination after forcing a deduce. *)
+  (* Accounting: every output is recorded in [sent].  (With no self-enqueue a
+     deduced fact is NOT placed in [known ∪ waiting], so we only track [sent];
+     this is what we need to recover [sent]-domination after forcing a deduce.) *)
   Definition output_in_state (s : node_state) (tr : list IO_event) : Prop :=
-    forall g, output_in_trace g tr ->
-              In g s.(sent_facts) /\ In g (s.(known_facts) ++ s.(waiting_facts)).
+    forall g, output_in_trace g tr -> In g s.(sent_facts).
 
   Lemma output_in_state_step sp s e s' tr :
     output_in_state s tr -> spec_node_step sp s e s' -> output_in_state s' (e :: tr).
   Proof.
     intros Hos Hstep g Hg.
     pose proof (spec_step_sent_incl sp s e s' Hstep) as Hsent.
-    pose proof (spec_step_kw_incl sp s e s' Hstep) as Hkw.
     change (e :: tr) with ([e] ++ tr) in Hg. apply output_in_trace_app in Hg.
     destruct Hg as [Hhead | Htail].
     - destruct Hhead as (lbl & outs & Hin & Hing). cbn [In] in Hin. destruct Hin as [Heq | []].
-      subst e. inversion Hstep; subst; cbn [sent_facts known_facts waiting_facts] in *.
+      subst e. inversion Hstep; subst; cbn [sent_facts] in *.
       + cbn in Hing. contradiction.
-      + cbn in Hing. destruct Hing as [-> | []].
-        split; [apply in_eq | apply in_or_app; right; apply in_or_app; right; apply in_eq].
-    - apply Hos in Htail. destruct Htail as [Hs Hk].
-      split; [apply Hsent; exact Hs | apply Hkw; exact Hk].
+      + cbn in Hing. destruct Hing as [-> | []]. apply in_eq.
+    - apply Hsent. apply Hos. exact Htail.
   Qed.
 
   Lemma output_in_state_star sp s td s' tr :
@@ -425,8 +496,8 @@ Section __.
        spec_node_step sp s (O_event glbl outs) s' -> R s' (O_event glbl outs :: tt)) ->
     forall (P : node_state * list IO_event -> Prop) s tt,
       R s tt ->
-      eventually (can_step (spec_node_step sp) (good_input_facts is_input)) P (s, tt) ->
-      eventually (can_step (spec_node_step sp) (good_input_facts is_input))
+      eventually (can_step (spec_node_step sp) (consistent_inputs)) P (s, tt) ->
+      eventually (can_step (spec_node_step sp) (consistent_inputs))
         (fun '(s', t') => P (s', t') /\ R s' t') (s, tt).
   Proof.
     intros Hstarp Hostep P s tt HR Hev.
@@ -454,9 +525,9 @@ Section __.
   Lemma force_deduce sp g s t :
     (forall sdem tdem,
         star (spec_node_step sp) s tdem sdem ->
-        good_input_facts is_input (inputs_of (tdem ++ t)) ->
+        consistent_inputs (inputs_of (tdem ++ t)) ->
         output_in_trace g (tdem ++ t) \/ new_facts sp sdem g) ->
-    eventually (can_step (spec_node_step sp) (good_input_facts is_input))
+    eventually (can_step (spec_node_step sp) (consistent_inputs))
                (fun '(_, t'') => output_in_trace g t'') (s, t).
   Proof.
     intros H. apply eventually_step_cps. exists (sl_deduce g).
@@ -471,12 +542,12 @@ Section __.
 
   (* ---- Per-node liveness: graph_can_implies_will's per-node obligation. ----
 
-     A node fed well-formed inputs ([good_input_facts]) is live: whenever it
+     A node fed consistent inputs ([consistent_inputs]) is live: whenever it
      [can_output] a fact, it [will_output] it (against an adversarial demon). *)
   Lemma spec_node_can_implies_will (r : non_meta_rule) (n : nat) :
     can_implies_will
       (spec_node_step (node_prog_of r n))
-      (good_input_facts is_input)
+      (consistent_inputs)
       {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
   Proof.
     intros t s o Hreach Hallowed Hcan.
