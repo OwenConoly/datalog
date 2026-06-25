@@ -804,6 +804,31 @@ Section __.
     exfalso. rewrite Forall_forall in Hw. exact (Hw h Hwait Hmatch).
   Qed.
 
+  (* Every fact in [sent] at a later state was either already there or deduced en
+     route (with its [new_facts] justification, at a state whose [known] is
+     included in the later [known]). *)
+  Lemma sent_justified sp s td s' :
+    star (spec_node_step sp) s td s' ->
+    forall f, In f s'.(sent_facts) ->
+      In f s.(sent_facts) \/
+      exists sd, new_facts sp sd f /\ incl sd.(known_facts) s'.(known_facts).
+  Proof.
+    induction 1 as [s0 | s0 e s1 t0 s2 Hstep Hstar IH]; intros f Hf.
+    - left. exact Hf.
+    - destruct (IH f Hf) as [Hin1 | (sd & Hnf & Hincl)].
+      + (* f in sent(s1): trace back across the first step *)
+        inversion Hstep as [rs input rest Hq | rs out Hnf | rs inp]; subst;
+          cbn [sent_facts known_facts] in Hin1.
+        * left. exact Hin1.
+        * destruct Hin1 as [Heq | Hin0].
+          -- right. subst out. exists s0. split; [exact Hnf|].
+             exact (spec_steps_known_incl _ _ _ _ Hstar).
+          -- left. exact Hin0.
+        * left. exact Hin1.
+      + (* f deduced en route (at sd, after the first step) *)
+        right. exists sd. split; [exact Hnf | exact Hincl].
+  Qed.
+
   (* ---- Per-node liveness: graph_can_implies_will's per-node obligation. ----
 
      A node fed consistent inputs ([consistent_inputs]) is live: whenever it
