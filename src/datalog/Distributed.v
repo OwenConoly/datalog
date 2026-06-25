@@ -39,6 +39,7 @@ Section __.
   Context (Hp_meta_input : Forall (good_meta_rule_inputs is_input) p.(meta_rules)).
 
   Local Notation can_deduce_fact := (can_deduce_fact is_input R_senders).
+  Local Notation can_deduce_normal_fact := (can_deduce_normal_fact is_input R_senders).
   Local Notation ok_to_deduce_fact := (ok_to_deduce_fact is_input R_senders).
   Local Notation fire_at_rule := (fire_at_rule is_input R_senders p).
   Local Notation knows_datalog_fact := (knows_datalog_fact is_input R_senders).
@@ -870,6 +871,112 @@ Section __.
     assert (mp = 0) by lia. subst mp. apply Existsn_0_Forall_not in Hmp.
     rewrite Hsuf in Hin. apply in_app_or in Hin. destruct Hin as [Hpre | Hsd]; [|exact Hsd].
     exfalso. rewrite Forall_forall in Hmp. exact (Hmp h Hpre Hmatch).
+  Qed.
+
+  (* A hyp [h] of [o] that is potentially-supported by the done-meta's (known)
+     hyps and known at the later [sdem] is already known at the deduction point
+     [sd] — the supporting done-receiving fact pins its matching facts complete in
+     [known sd], and [push_to_sd] moves [h] back. *)
+  Lemma ohyp_known_sd (sd sdem : node_state) pre (tr : list IO_event)
+      (hyps_mr : list fact) (h : fact) :
+    consistent_inputs (inputs_of tr) ->
+    Permutation (sdem.(known_facts) ++ sdem.(waiting_facts)) (inputs_of tr) ->
+    sdem.(known_facts) = pre ++ sd.(known_facts) ->
+    Forall (knows_datalog_fact sd.(known_facts)) hyps_mr ->
+    fact_potentially_supported hyps_mr h ->
+    knows_datalog_fact sdem.(known_facts) h ->
+    knows_datalog_fact sd.(known_facts) h.
+  Proof.
+    intros Hcons Hperm Hsuf Hknown_mr Hpot Hh_sdem.
+    destruct h as [Rh ah | Rh ah Sh]; cbv [fact_potentially_supported] in Hpot.
+    - destruct Hpot as (mfa & mfs & Hin_mh & Hmatch).
+      rewrite Forall_forall in Hknown_mr. specialize (Hknown_mr _ Hin_mh).
+      cbn [knows_datalog_fact] in Hknown_mr |- *.
+      destruct Hknown_mr as (cnt & Hexp & Hexn & _).
+      eapply (push_to_sd sd sdem pre tr Rh mfa cnt (normal_dfact Rh ah));
+        try eassumption.
+      exists ah. split; [reflexivity | exact Hmatch].
+    - destruct Hpot as (mfs & Hin_mh).
+      rewrite Forall_forall in Hknown_mr. specialize (Hknown_mr _ Hin_mh).
+      cbn [knows_datalog_fact] in Hknown_mr |- *.
+      destruct Hknown_mr as (cnt & Hexp & Hexn & _).
+      destruct Hh_sdem as (cnt_h & Hexp_h & Hexn_h & Hset_h).
+      exists cnt. split; [exact Hexp|]. split; [exact Hexn|].
+      intros args Hm. rewrite (Hset_h args Hm). split.
+      + intros Hin_sdem.
+        eapply (push_to_sd sd sdem pre tr Rh ah cnt (normal_dfact Rh args));
+          try eassumption.
+        exists args. split; [reflexivity | exact Hm].
+      + intros Hin_sd. rewrite Hsuf. apply in_or_app. right. exact Hin_sd.
+  Qed.
+
+  (* THE DISABLING LEMMA.  No done-sending meta for [o]'s relation can ever be in
+     [sent]: if it were, [meta_rules_valid] forces [o]'s hyps into [known] at the
+     deduction point, making [o] derivable-from-[known], so [ok_to_deduce] would
+     require [o ∈ known] — impossible, since [o] (a concl-relation fact) is never an
+     input (concl-restriction) and never enters [known] (no self-enqueue). *)
+  Lemma no_disabler (r : non_meta_rule) (n : nat) sdem (tr : list IO_event)
+      (R : rel) (margs : list (option T)) (num : nat)
+      (oargs : list T) (ohyps : list fact)
+      (sbase : node_state) (Tbase : list IO_event) :
+    In r p.(non_meta_rules) ->
+    consistent_inputs (inputs_of tr) ->
+    Permutation (sdem.(known_facts) ++ sdem.(waiting_facts)) (inputs_of tr) ->
+    sbase.(sent_facts) = [] ->
+    star (spec_node_step (node_prog_of r n)) sbase Tbase sdem ->
+    ~ In (normal_dfact R oargs) (inputs_of tr) ->
+    non_meta_rule_impl (rule_of r) R oargs ohyps ->
+    Forall2 matches margs oargs ->
+    Forall (knows_datalog_fact sdem.(known_facts)) ohyps ->
+    ~ In (meta_dfact R margs (Some n) num) sdem.(sent_facts).
+  Proof.
+    intros Hin_r Hcons Hperm Hbase Hstar Hnotin Himpl Hmatch Hohyps Hdone.
+    destruct (sent_justified _ _ _ _ Hstar _ Hdone) as [Habs | (sd & tdd & Hnf & Hstd)].
+    { rewrite Hbase in Habs. inversion Habs. }
+    destruct (known_suffix _ _ _ _ Hstd) as (pre & Hsuf).
+    destruct Hnf as (Hex & Hall).
+    apply Exists_exists in Hex. destruct Hex as (r' & Hr'in & Hcdf).
+    cbv [can_deduce_fact] in Hcdf.
+    destruct Hcdf as (Hsrc & mc' & mh' & hyps_mr & Hr'eq & Hcdm & Hknown_mr).
+    assert (Hin_meta : In (mc', mh') p.(meta_rules)).
+    { cbn [node_prog_of spec_node_rules] in Hr'in. destruct Hr'in as [Heq2 | Hin].
+      - exfalso. rewrite <- Heq2 in Hr'eq. destruct r; cbn in Hr'eq; discriminate.
+      - apply in_map_iff in Hin. destruct Hin as ((c & h) & Hmeq & Hin).
+        rewrite Hr'eq in Hmeq. injection Hmeq as <- <-. exact Hin. }
+    pose (S_constr := fun args'' => one_step_derives (rules_of p) hyps_mr R args'').
+    assert (Hri_meta : rule_impl (one_step_derives (rules_of p)) (meta_rule mc' mh')
+                         (meta_fact R margs S_constr) hyps_mr).
+    { cbv [can_deduce_meta_fact] in Hcdm.
+      destruct Hcdm as (ctx_m & mfr & mfa & mfc & Heq_m & _ & Hconcl_m & Hinterp_m).
+      injection Heq_m as <- <- <-.
+      eapply meta_rule_impl with (ctx := ctx_m).
+      - eapply Exists_impl; [|exact Hconcl_m].
+        intros c (mfa' & mfs' & Hf2 & Heqv). injection Heqv as Hrel Hargs _.
+        exists mfa', S_constr. split; [exact Hf2|]. rewrite Hargs, Hrel. reflexivity.
+      - exact Hinterp_m.
+      - intros args'' _. subst S_constr. simpl. reflexivity. }
+    assert (Hri_normal : rule_impl (one_step_derives (rules_of p)) (rule_of r)
+                           (normal_fact R oargs) ohyps).
+    { apply simple_rule_impl. exact Himpl. }
+    assert (Hin_mr_rules : In (meta_rule mc' mh') (rules_of p)).
+    { cbv [rules_of]. apply in_app_iff. left. apply in_map_iff.
+      exists (mc', mh'). split; [reflexivity | exact Hin_meta]. }
+    assert (Hin_nr_rules : In (rule_of r) (rules_of p)).
+    { cbv [rules_of]. apply in_app_iff. right. apply in_map. exact Hin_r. }
+    pose proof (Hmeta_rules _ _ _ _ _ Hin_mr_rules Hri_meta _ _ _ Hin_nr_rules
+                  Hri_normal Hmatch) as Hpot.
+    assert (Hohyps_sd : Forall (knows_datalog_fact sd.(known_facts)) ohyps).
+    { rewrite Forall_forall in Hpot, Hohyps |- *. intros h Hh.
+      eapply ohyp_known_sd; try eassumption.
+      - exact (Hpot _ Hh).
+      - exact (Hohyps _ Hh). }
+    assert (Hcdn : can_deduce_normal_fact (rule_of r) sd.(known_facts) R oargs).
+    { exists ohyps. split; assumption. }
+    cbv [ok_to_deduce_fact] in Hall.
+    pose proof (Forall_inv Hall) as Hok.
+    specialize (Hok oargs Hcdn Hmatch).
+    apply Hnotin. eapply Permutation_in; [exact Hperm | apply in_or_app; left].
+    rewrite Hsuf. apply in_or_app. right. exact Hok.
   Qed.
 
   (* ---- Per-node liveness: graph_can_implies_will's per-node obligation. ----
