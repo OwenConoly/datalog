@@ -15,7 +15,7 @@
    [waiting_facts] as its queue together with the messages in flight to it
    (delivery being a stutter). *)
 
-From Stdlib Require Import List PeanoNat Lia Permutation.
+From Stdlib Require Import List PeanoNat Lia Permutation Classical_Prop.
 From Datalog Require Import Datalog Operational Smallstep Graph List.
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
@@ -36,6 +36,8 @@ Section __.
   Local Notation can_deduce_fact := (can_deduce_fact is_input R_senders).
   Local Notation ok_to_deduce_fact := (ok_to_deduce_fact is_input R_senders).
   Local Notation fire_at_rule := (fire_at_rule is_input R_senders p).
+  Local Notation knows_datalog_fact := (knows_datalog_fact is_input R_senders).
+  Local Notation expect_num_R_facts := (expect_num_R_facts is_input R_senders).
 
   (* ---- Per-node spec step (moved from Local.v, now labelled and over
      Operational's [node_state]). ---- *)
@@ -298,6 +300,135 @@ Section __.
     - cbn [app]. exact Hperm.
     - rewrite <- app_assoc. cbn [app].
       apply IH. apply (kw_perm_step sp s0 e s1 tr Hperm Hstep).
+  Qed.
+
+  (* If [l1] is (multiset-)contained in [m], its matching count is no larger. *)
+  Lemma Existsn_app_le (P : dfact -> Prop) l1 l2 m n N :
+    Permutation (l1 ++ l2) m -> Existsn P n l1 -> Existsn P N m -> n <= N.
+  Proof.
+    intros Hperm Hn HN.
+    eapply (Existsn_perm P) in HN; [| apply Permutation_sym; exact Hperm].
+    apply Existsn_split in HN. destruct HN as (n1 & n2 & Heq & Hn1 & Hn2).
+    pose proof (Existsn_unique P n n1 l1 Hn Hn1). lia.
+  Qed.
+
+  (* Every list has a (classically unique) matching count. *)
+  Lemma Existsn_total (P : dfact -> Prop) l : exists n, Existsn P n l.
+  Proof.
+    induction l as [|x l IH].
+    - exists 0. constructor.
+    - destruct IH as (n & Hn). destruct (classic (P x)).
+      + exists (S n). apply Existsn_yes; assumption.
+      + exists n. apply Existsn_no; assumption.
+  Qed.
+
+  (* The key count-pinning: if [known(s)] already holds [expected] matching facts
+     and the inputs cap the matching count at [expected], then any later
+     [known(s')] still holds exactly [expected] — the count cannot grow (capped by
+     the inputs) nor shrink ([known] only extends). *)
+  Lemma matching_pinned sp s td s' tr mf_rel mf_args expected :
+    Permutation (s.(known_facts) ++ s.(waiting_facts)) (inputs_of tr) ->
+    star (spec_node_step sp) s td s' ->
+    Existsn (dfact_matches mf_rel mf_args) expected s.(known_facts) ->
+    (forall N, Existsn (dfact_matches mf_rel mf_args) N (inputs_of (rev td ++ tr)) ->
+               N <= expected) ->
+    Existsn (dfact_matches mf_rel mf_args) expected s'.(known_facts).
+  Proof.
+    intros Hperm Hstar Hexp Hcap.
+    destruct (Existsn_total (dfact_matches mf_rel mf_args) s'.(known_facts)) as (M & HM).
+    enough (M = expected) by (subst; exact HM).
+    destruct (Existsn_total (dfact_matches mf_rel mf_args) (inputs_of (rev td ++ tr)))
+      as (N & HN).
+    assert (Hupper : M <= N).
+    { eapply Existsn_app_le;
+        [apply (kw_perm_star sp s td s' tr Hperm Hstar) | exact HM | exact HN]. }
+    pose proof (Hcap N HN) as HNexp.
+    destruct (known_suffix sp s td s' Hstar) as (pre & Hpre).
+    assert (HMsuf : Existsn (dfact_matches mf_rel mf_args) M (pre ++ s.(known_facts))).
+    { rewrite <- Hpre; exact HM. }
+    apply Existsn_split in HMsuf. destruct HMsuf as (mp & ma & HMeq & Hmp & Hma).
+    pose proof (Existsn_unique _ expected ma s.(known_facts) Hexp Hma) as Hae.
+    lia.
+  Qed.
+
+  Lemma known_In_mono sp s td s' x :
+    star (spec_node_step sp) s td s' ->
+    In x s.(known_facts) -> In x s'.(known_facts).
+  Proof.
+    intros Hstar Hin. destruct (known_suffix sp s td s' Hstar) as (pre & Hpre).
+    rewrite Hpre. apply in_or_app. right. exact Hin.
+  Qed.
+
+  Lemma known_in_inputs s (tr : list IO_event) x :
+    Permutation (s.(known_facts) ++ s.(waiting_facts)) (inputs_of tr) ->
+    In x s.(known_facts) ->
+    In x (inputs_of tr).
+  Proof.
+    intros Hperm Hin. eapply Permutation_in; [exact Hperm | apply in_or_app; left; exact Hin].
+  Qed.
+
+  (* The crux: a [knows_datalog_fact] survives any later demon state.  For normal
+     facts this is plain monotonicity; for meta facts (aggregates) the matching
+     count is pinned ([matching_pinned]) so the meta-hyp's set and count are
+     unchanged. *)
+  Lemma knows_datalog_fact_stable sp s td s' tr (f : fact) :
+    consistent_inputs (inputs_of (rev td ++ tr)) ->
+    Permutation (s.(known_facts) ++ s.(waiting_facts)) (inputs_of tr) ->
+    star (spec_node_step sp) s td s' ->
+    knows_datalog_fact s.(known_facts) f ->
+    knows_datalog_fact s'.(known_facts) f.
+  Proof.
+    intros Hcons Hperm Hstar.
+    destruct Hcons as (HconsN & HconsSu & HconsS).
+    (* facts of known(s) are among the inputs at s' *)
+    assert (Hin_inp : forall x, In x s.(known_facts) -> In x (inputs_of (rev td ++ tr))).
+    { intros x Hin. rewrite inputs_of_app. apply in_or_app. right.
+      eapply known_in_inputs; eauto. }
+    destruct f as [R args | mf_rel mf_args mf_set]; cbn [knows_datalog_fact].
+    - (* normal fact: monotone *) apply (known_In_mono sp s td s' _ Hstar).
+    - (* meta fact *)
+      intros (num & Hexpect & Hcount & Hsetcons).
+      (* the cap: any matching count in the inputs is <= num *)
+      assert (Hcap : forall N,
+                 Existsn (dfact_matches mf_rel mf_args) N (inputs_of (rev td ++ tr)) ->
+                 N <= num).
+      { cbv [expect_num_R_facts] in Hexpect. destruct (is_input mf_rel) eqn:Hisinp.
+        - (* input R: None-declaration bounds it *)
+          specialize (Hin_inp _ Hexpect).
+          destruct (HconsN mf_rel mf_args num Hin_inp) as (_ & num' & Hle' & Hex').
+          intros N HN. pose proof (Existsn_unique _ N num' _ HN Hex'). lia.
+        - (* non-input R: sum of Some-declarations bounds it *)
+          destruct Hexpect as (ems & Hforall2 & Hnum).
+          assert (Hforall2' : Forall2 (fun k e =>
+                    In (meta_dfact mf_rel mf_args (Some k) e) (inputs_of (rev td ++ tr)))
+                    (R_senders mf_rel) ems).
+          { eapply Forall2_impl; [| exact Hforall2]. intros k e Hk. apply Hin_inp. exact Hk. }
+          destruct (HconsS mf_rel mf_args ems Hforall2') as (num' & Hle' & Hex').
+          intros N HN. pose proof (Existsn_unique _ N num' _ HN Hex'). lia. }
+      exists num. split; [| split].
+      + (* expect_num transports by In-monotonicity *)
+        cbv [expect_num_R_facts] in Hexpect |- *. destruct (is_input mf_rel) eqn:Hisinp.
+        * apply (known_In_mono sp s td s' _ Hstar). exact Hexpect.
+        * destruct Hexpect as (ems & Hforall2 & Hnum). exists ems. split; [| exact Hnum].
+          eapply Forall2_impl; [| exact Hforall2]. intros k e Hk.
+          apply (known_In_mono sp s td s' _ Hstar). exact Hk.
+      + (* count pinned *) eapply (matching_pinned sp s td s' tr); eauto.
+      + (* set-consistency: matching facts are the same set *)
+        destruct (known_suffix sp s td s' Hstar) as (pre & Hpre).
+        assert (Hpin : Existsn (dfact_matches mf_rel mf_args) num s'.(known_facts))
+          by (eapply (matching_pinned sp s td s' tr); eauto).
+        rewrite Hpre in Hpin. apply Existsn_split in Hpin.
+        destruct Hpin as (mp & ma & Hmpeq & Hmp & Hma).
+        pose proof (Existsn_unique _ num ma _ Hcount Hma) as Hae.
+        assert (mp = 0) by lia. subst mp.
+        apply Existsn_0_Forall_not in Hmp.
+        intros nf_args Hmatch. rewrite (Hsetcons nf_args Hmatch). rewrite Hpre.
+        rewrite in_app_iff. split.
+        * intros Hin_s. right. exact Hin_s.
+        * intros [Hin_pre | Hin_s].
+          -- exfalso. rewrite Forall_forall in Hmp. apply (Hmp _ Hin_pre).
+             cbv [dfact_matches]. exists nf_args. split; [reflexivity | exact Hmatch].
+          -- exact Hin_s.
   Qed.
 
   (* One step keeps a queued [g] either in [known] or still queued, with its
