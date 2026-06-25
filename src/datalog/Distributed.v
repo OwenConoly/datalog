@@ -1175,18 +1175,58 @@ Section __.
      A node fed consistent inputs ([consistent_inputs]) is live: whenever it
      [can_output] a fact, it [will_output] it (against an adversarial demon). *)
   Lemma spec_node_can_implies_will (r : non_meta_rule) (n : nat) :
+    In r p.(non_meta_rules) ->
     can_implies_will
       (spec_node_step (node_prog_of r n))
       (node_allowed r)
       {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
   Proof.
-    intros t s o Hreach Hallowed Hcan.
+    intros Hin_r t s o Hreach Hallowed Hcan.
     destruct Hcan as (t' & s' & Hrun & Hinp & Hout).
+    assert (Hinv : node_inv (node_prog_of r n) s t).
+    { split.
+      - assert (Hkp := kw_perm_star (node_prog_of r n)
+          {| known_facts := []; waiting_facts := []; sent_facts := [] |} t s []
+          (Permutation_refl _) Hreach).
+        eapply perm_trans; [exact Hkp|]. rewrite app_nil_r. apply inputs_of_rev_perm.
+      - exists t. exact Hreach. }
     apply output_in_trace_app in Hout as [Hout_t' | Hout_t].
-    - (* o is produced inside the input-free run t' — the forcing argument *)
-      admit.
-    - (* o already appears in t: commit nothing, we are already done *)
-      unfold will_output. apply eventually_done. exact Hout_t.
+    2: { unfold will_output. apply eventually_done. exact Hout_t. }
+    destruct (run_output_new_facts _ _ _ _ o Hrun Hinp Hout_t')
+      as (spre & tpre & Hst_pre & Hti_pre & Hnf).
+    destruct Hnf as (Hex & Hall).
+    destruct o as [R oargs | R margs source num].
+    2: { (* meta done-message output *) admit. }
+    apply Exists_exists in Hex. destruct Hex as (r' & Hr'in & Hcdf).
+    cbn [can_deduce_fact] in Hcdf. destruct Hcdf as (Hcdn & Hneg).
+    destruct Hcdn as (ohyps & Himpl & Hknown_pre).
+    cbn [node_prog_of spec_node_rules] in Hr'in. destruct Hr'in as [Heqr | Hmeta].
+    2: { exfalso. apply in_map_iff in Hmeta. destruct Hmeta as ((c0 & h0) & Hmeq & _).
+         rewrite <- Hmeq in Himpl. inversion Himpl. }
+    subst r'.
+    inversion Himpl as
+      [concls hyps_cl ctx R0 oargs0 ohyps0 HExists HForall2 Heqrule
+       | S vals concl_rel agg hyp_rel oargs0 Hset Heqrule Heqcc].
+    - (* normal_rule: all hyps normal *)
+      assert (Hnorm : Forall (fun h => exists hr ha, h = normal_fact hr ha) ohyps).
+      { clear -HForall2. induction HForall2 as [|cl h hyps_cl' ohyps' Hic _ IH];
+          constructor; [|exact IH].
+        destruct Hic as (nf & _ & ->). exists (clause_rel cl), nf. reflexivity. }
+      eapply force_normal_output; try eassumption.
+      + rewrite <- Heqrule. cbn [concl_rels].
+        apply Exists_exists in HExists. destruct HExists as (c & Hc_in & nf_args & _ & Heqf).
+        injection Heqf as HRrel _. apply in_map_iff. exists c.
+        split; [symmetry; exact HRrel | exact Hc_in].
+      + rewrite Forall_forall. intros h Hh.
+        rewrite Forall_forall in Hnorm. destruct (Hnorm h Hh) as (hr & ha & ->).
+        rewrite Forall_forall in Hknown_pre. pose proof (Hknown_pre _ Hh) as Hk.
+        cbn [knows_datalog_fact] in Hk. cbn [df_of].
+        destruct Hinv as (Hperm & _).
+        destruct (input_free_known_sub _ _ _ _ Hst_pre Hti_pre _ Hk) as [Hk_s | Hw_s];
+          (eapply Permutation_in; [exact Hperm|]).
+        * apply in_or_app; left; exact Hk_s.
+        * apply in_or_app; right; exact Hw_s.
+    - (* agg_rule *) admit.
   Admitted.
 
 End __.
