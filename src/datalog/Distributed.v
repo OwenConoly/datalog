@@ -768,6 +768,42 @@ Section __.
       exists mc, mh, hyps. split; [exact Hinmr|]. split; [exact Hcdm | exact Hknown].
   Qed.
 
+  (* If a done-receiving meta-fact (with matching count [cnt] = expected) is known,
+     then [known] holds ALL matching facts that have been delivered — the count is
+     capped at [cnt] by [consistent_inputs] and [known] already has [cnt] of them. *)
+  Lemma matching_complete s (tr : list IO_event) S smargs cnt h :
+    consistent_inputs (inputs_of tr) ->
+    Permutation (s.(known_facts) ++ s.(waiting_facts)) (inputs_of tr) ->
+    expect_num_R_facts S smargs s.(known_facts) cnt ->
+    Existsn (dfact_matches S smargs) cnt s.(known_facts) ->
+    dfact_matches S smargs h ->
+    In h (inputs_of tr) ->
+    In h s.(known_facts).
+  Proof.
+    intros (HconsN & _ & HconsS) Hperm Hexp Hknown_cnt Hmatch Hin.
+    assert (Hcap : forall N, Existsn (dfact_matches S smargs) N (inputs_of tr) -> N <= cnt).
+    { cbv [expect_num_R_facts] in Hexp. destruct (is_input S) eqn:His.
+      - assert (Hdecl : In (meta_dfact S smargs None cnt) (inputs_of tr)).
+        { eapply Permutation_in; [exact Hperm | apply in_or_app; left; exact Hexp]. }
+        destruct (HconsN S smargs cnt Hdecl) as (_ & num' & Hle & Hex').
+        intros N HN. pose proof (Existsn_unique _ N num' _ HN Hex'). lia.
+      - destruct Hexp as (ems & Hf2 & Hsum).
+        assert (Hf2' : Forall2 (fun k e =>
+                  In (meta_dfact S smargs (Some k) e) (inputs_of tr)) (R_senders S) ems).
+        { eapply Forall2_impl; [|exact Hf2]. intros k e Hk.
+          eapply Permutation_in; [exact Hperm | apply in_or_app; left; exact Hk]. }
+        destruct (HconsS S smargs ems Hf2') as (num' & Hle & Hex').
+        intros N HN. pose proof (Existsn_unique _ N num' _ HN Hex'). lia. }
+    destruct (Existsn_total (dfact_matches S smargs) s.(waiting_facts)) as (w & Hw).
+    assert (Hinp_cnt : Existsn (dfact_matches S smargs) (cnt + w) (inputs_of tr)).
+    { eapply Existsn_perm; [apply Existsn_app; [exact Hknown_cnt | exact Hw] | exact Hperm]. }
+    pose proof (Hcap _ Hinp_cnt). assert (w = 0) by lia. subst w.
+    apply Existsn_0_Forall_not in Hw.
+    apply (Permutation_in h (Permutation_sym Hperm)) in Hin.
+    apply in_app_or in Hin. destruct Hin as [Hk | Hwait]; [exact Hk|].
+    exfalso. rewrite Forall_forall in Hw. exact (Hw h Hwait Hmatch).
+  Qed.
+
   (* ---- Per-node liveness: graph_can_implies_will's per-node obligation. ----
 
      A node fed consistent inputs ([consistent_inputs]) is live: whenever it
