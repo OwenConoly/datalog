@@ -32,8 +32,8 @@ Section io.
   Definition inputs_of (t : list IO_event) :=
     flat_map (fun e => match e with I_event m => [m] | _ => [] end) t.
 
-  Definition output_in_trace (output : message) (t : list IO_event) :=
-    exists lbl outs, In (O_event lbl outs) t /\ In output outs.
+  Definition output_in_trace (P : message -> Prop) (t : list IO_event) :=
+    exists lbl outs, In (O_event lbl outs) t /\ Exists P outs.
 
   Lemma inputs_of_map_I_event (l : list message) :
     inputs_of (map I_event l) = l.
