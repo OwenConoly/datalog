@@ -1643,6 +1643,77 @@ Section __.
       simpl. apply Hbic. exact Hmatch_nf.
   Qed.
 
+  Lemma in_le_fold_add (x : nat) (l : list nat) :
+    In x l -> x <= fold_left Nat.add l O.
+  Proof.
+    intros Hin.
+    enough (Henough : forall acc, x <= acc \/ In x l -> x <= fold_left Nat.add l acc)
+      by (apply Henough; right; exact Hin).
+    clear Hin. revert x. induction l as [|a l IH]; intros x acc [Hle | Hin]; cbn.
+    - exact Hle.
+    - contradiction.
+    - apply IH. left. lia.
+    - apply IH. destruct Hin as [-> | Hin]; [left; lia | right; exact Hin].
+  Qed.
+
+  Lemma matches_map_Some (args ga : list T) :
+    Forall2 matches (map Some args) ga -> ga = args.
+  Proof.
+    revert ga. induction args as [|a args IH]; intros [|y ga] H; invert H; auto.
+    cbn [matches] in *. f_equal; [symmetry; assumption | apply IH; assumption].
+  Qed.
+
+  Lemma dfact_matches_exact (R : rel) (nf_args : list T) g :
+    dfact_matches R (map Some nf_args) g <-> g = normal_dfact R nf_args.
+  Proof.
+    cbv [dfact_matches]. split.
+    - intros (ga & -> & Hf2). apply matches_map_Some in Hf2. subst. reflexivity.
+    - intros ->. exists nf_args. split; [reflexivity|].
+      clear. induction nf_args as [|a l IH]; cbn [map]; constructor;
+        [cbn [matches]; reflexivity | exact IH].
+  Qed.
+
+  (* A normal fact that some node has SENT is known somewhere in the system: firing
+     it broadcast it to every node's waiting (and it stays in known∪waiting).  The
+     [sane_state] count invariant pins this: a matching fact in any [sent] forces
+     [num_known + num_wait >= 1] at every node. *)
+  Lemma sent_implies_knows inputs s rs (R : rel) (nf_args : list T) :
+    sane_state inputs s ->
+    In rs s ->
+    In (normal_dfact R nf_args) rs.(sent_facts) ->
+    knows_dfact s (normal_dfact R nf_args).
+  Proof.
+    intros Hsane Hin_rs Hin_sent.
+    destruct Hsane as (Hlen & _ & _ & _ & Hcount & _).
+    destruct (Hcount R (map Some nf_args))
+      as (msgs_sents & num_inp & Hf2_sent & _ & Hforall_kw).
+    apply In_nth_error in Hin_rs. destruct Hin_rs as (i & Hnth_rs).
+    pose proof (Forall2_length Hf2_sent) as Hlen_ms.
+    destruct (nth_error msgs_sents i) as [ms|] eqn:Hms.
+    2:{ apply nth_error_None in Hms.
+        apply nth_error_Some_bound_index in Hnth_rs. lia. }
+    pose proof (Forall2_nth_error_fwd _ _ _ Hf2_sent _ _ _ Hnth_rs Hms) as Hexn_rs.
+    cbv beta in Hexn_rs.
+    assert (Hms_pos : 1 <= ms).
+    { destruct ms; [|lia]. apply Existsn_0_Forall_not in Hexn_rs.
+      rewrite Forall_forall in Hexn_rs. exfalso.
+      apply (Hexn_rs (normal_dfact R nf_args) Hin_sent).
+      apply dfact_matches_exact. reflexivity. }
+    assert (Hsum : 1 <= num_inp + fold_left Nat.add msgs_sents O).
+    { pose proof (in_le_fold_add ms msgs_sents (nth_error_In _ _ Hms)). lia. }
+    destruct s as [|rs0 s']; [invert Hforall_kw; cbn in Hnth_rs;
+                              destruct i; discriminate|].
+    invert Hforall_kw.
+    match goal with H : exists _ _, _ |- _ => destruct H as (nk & nw & Hnk & Hnw & Hsum_eq) end.
+    cbv [knows_dfact]. apply Exists_cons. left. cbv [rule_has_dfact].
+    destruct nk.
+    - right. destruct nw; [lia|].
+      apply Existsn_S in Hnw. destruct Hnw as (l1 & x & l2 & -> & Hpx & _).
+      apply dfact_matches_exact in Hpx. subst x. apply in_or_app. right. left. reflexivity.
+    - left. apply Existsn_S in Hnk. destruct Hnk as (l1 & x & l2 & -> & Hpx & _).
+      apply dfact_matches_exact in Hpx. subst x. apply in_or_app. right. left. reflexivity.
+  Qed.
+
   Lemma use_meta_facts_correct (R : rel) (mf_args : list (option T))
     (inputs : list dfact) (s : state) :
     good_input_facts inputs ->
@@ -1795,11 +1866,10 @@ Section __.
             specialize (Hcon_m _ Hmatch_nf).
             specialize (Hcon_h _ Hmatch_nf).
             rewrite Hcon_h, <- Hcon_m. exact Hbic_m. }
-      (* Apply soundness clause *)
+      (* Apply soundness clause: the fact is SENT by rs_k, hence known somewhere. *)
       specialize (Hsound_can _ Hcan_nf Hmatch).
-      cbv [knows_dfact]. apply Exists_exists. exists rs_k. split.
-      + eapply nth_error_In; eassumption.
-      + left. exact Hsound_can.
+      eapply sent_implies_knows; [exact Hsane | eapply nth_error_In; eassumption
+                                  | exact Hsound_can].
   Qed.
 
   Lemma step_preserves_meta_facts_ok inputs s s' :
@@ -1902,7 +1972,7 @@ Section __.
       assert (Hcdn_old : can_deduce_normal_fact (rule_of r_x) x.(known_facts) mf_rel nf_args).
       { cbv [can_deduce_normal_fact]. exists local_hyps. split; assumption. }
       specialize (Hmid _ Hcdn_old Hmatch).
-      apply in_cons. exact Hmid.
+      rewrite Hysent. exact Hmid.
     - (* fire_rule *)
       cbv [stepWithLabel] in H. fwd. destruct n as [r_fire k_fire].
       cbv [fire_at_rule] in Hp2.
@@ -1926,7 +1996,8 @@ Section __.
         * (* Normal sub-case: new_fact is normal_dfact, doesn't go into sent.
              So HIn is from old sent. Use old Hmid. *)
           destruct HIn as [Heq | HIn_old]; [discriminate|].
-          specialize (Hmid _ _ _ HIn_old). exact Hmid.
+          specialize (Hmid _ _ _ HIn_old).
+          intros nf_args0 Hcdn0 Hmatch0. right. apply Hmid; assumption.
         * (* Meta sub-case: new_fact = meta_dfact. *)
           destruct HIn as [Heq | HIn_old].
           -- (* HIn is the newly added meta_dfact *)
@@ -1945,9 +2016,10 @@ Section __.
               rewrite nth_error_app2 in Hr_x by lia.
               rewrite Hlen_pre, Nat.sub_diag in Hr_x. simpl in Hr_x.
               rewrite Hnth_r in Hr_x. injection Hr_x as ->. reflexivity. }
-            subst r_x. exact Hok_f.
+            subst r_x. intros nf_args0 Hcdn0 Hmatch0. right. apply Hok_f; assumption.
           -- (* HIn from old sent *)
-             specialize (Hmid _ _ _ HIn_old). exact Hmid.
+             specialize (Hmid _ _ _ HIn_old).
+             intros nf_args0 Hcdn0 Hmatch0. right. apply Hmid; assumption.
       + rewrite ! length_map. apply Forall3_map2.
         eapply Forall3_impl; [|exact Hpost].
         intros r0 rs0 n0 H0. cbv [meta_facts_ok_at_rule add_waiting_fact] in H0 |- *. simpl. exact H0.
@@ -3368,29 +3440,50 @@ Section __.
     intros Hinp Hlen_pos Hsane Hmfc Hmf_ok Hn_lt Hnth_rn Hnth_rs Hcdn Hnot_in.
     pose proof Hsane as Hsane_save.
     destruct Hsane as (Hlen_s & _).
-    (* Step 1: discharge fire_rule's no-conflict precondition. *)
+    set (F := normal_dfact R_concl nf_args) in *.
+    destruct (classic (In F rs.(waiting_facts))) as [Hin_w | Hnin_w].
+    { (* [nf_args] already in waiting: dequeue it into known with one learn step. *)
+      apply in_split in Hin_w. destruct Hin_w as (w1 & w2 & Hw_eq).
+      pose proof Hnth_rs as Hnth_w. apply nth_error_split in Hnth_w.
+      destruct Hnth_w as (s_pre & s_post & Hs_eq & Hs_pre_len).
+      pose (rs_final := {| known_facts := F :: rs.(known_facts);
+                          waiting_facts := w1 ++ w2;
+                          sent_facts := rs.(sent_facts) |}).
+      exists (s_pre ++ rs_final :: s_post), rs_final. ssplit.
+      - eapply Relation_Operators.rt1n_trans; [|apply rt1n_refl].
+        apply learn_fact. cbv [stepOne].
+        exists s_pre, rs, rs_final, s_post. ssplit.
+        + exact Hs_eq.
+        + reflexivity.
+        + cbv [learn_fact_at_rule]. exists w1, F, w2. ssplit;
+            solve [exact Hw_eq | unfold rs_final; reflexivity].
+      - rewrite nth_error_app2 by lia. rewrite Hs_pre_len, Nat.sub_diag. reflexivity.
+      - unfold rs_final. reflexivity. }
+    (* [nf_args] not in known nor waiting: fire then learn.  The no-conflict
+       precondition holds because a blocking done-meta would (by ok_to_deduce, now
+       sent-based) put [nf_args] in [sent], hence broadcast into known∪waiting. *)
     assert (Hno_conflict :
               forall mf_args num,
                 In (meta_dfact R_concl mf_args (Some n) num) rs.(sent_facts) ->
                 Forall2 matches mf_args nf_args ->
                 False).
     { intros mf_args num Hin_meta Hmatch.
-      pose proof (meta_facts_correct_lookup _ _ _ _ Hmfc Hnth_rn Hnth_rs) as Hmfcr.
-      specialize (Hmfcr R_concl mf_args num Hin_meta).
-      destruct Hmfcr as (mfc & mfh & hyps_d & _ & Hcdmf & _ & _).
-      cbv [can_deduce_meta_fact] in Hcdmf.
-      destruct Hcdmf as (ctx_d & mfr_d & mfa_d & mfcnt_d & Hres & _ & _ & _).
-      inversion Hres. subst mfr_d mfa_d mfcnt_d. clear Hres.
       pose proof (meta_facts_ok_lookup _ _ _ _ Hmf_ok Hnth_rn Hnth_rs) as Hmfor.
       cbv [meta_facts_ok_at_rule] in Hmfor.
       specialize (Hmfor R_concl mf_args num Hin_meta).
       cbv [ok_to_deduce_fact] in Hmfor.
-      apply Hnot_in. exact (Hmfor nf_args Hcdn Hmatch). }
+      specialize (Hmfor nf_args Hcdn Hmatch).
+      pose proof (sent_implies_knows inputs s rs R_concl nf_args Hsane_save
+                    (nth_error_In _ _ Hnth_rs) Hmfor) as Hknows.
+      destruct Hsane_save as (_ & _ & _ & Hall_ev & _).
+      specialize (Hall_ev _ Hknows). rewrite Forall_forall in Hall_ev.
+      specialize (Hall_ev rs (nth_error_In _ _ Hnth_rs)).
+      cbv [rule_has_dfact] in Hall_ev.
+      destruct Hall_ev as [Hk | Hw]; [exact (Hnot_in Hk) | exact (Hnin_w Hw)]. }
     (* Step 2-3: fire fire_rule at position n (via fire_rule_at). *)
     pose proof Hnth_rs as Hnth_save.
     apply nth_error_split in Hnth_save.
     destruct Hnth_save as (s_pre & s_post & Hs_eq & Hs_pre_len).
-    set (F := normal_dfact R_concl nf_args).
     set (rs_post := send_fact F rs).
     set (s_fire := map (add_waiting_fact F) (s_pre ++ rs_post :: s_post)).
     assert (Hstep_fire : comp_step s s_fire).
@@ -3473,6 +3566,62 @@ Section __.
       rewrite Hknown_eq. left. reflexivity.
   Qed.
 
+  (* Fire a derivable normal fact into node n's SENT.  The no-conflict precondition
+     is immediate under the new (sent-based) [ok_to_deduce]: a blocking done-meta
+     would force [nf_args] into [sent], contradicting [~ In ... sent].  Firing
+     preserves [known] (the firer's known is untouched; the fact goes to sent and
+     every node's waiting). *)
+  Lemma force_one_into_sent inputs s n rn rs R_concl nf_args :
+    0 < length p.(non_meta_rules) ->
+    sane_state inputs s ->
+    meta_facts_ok s ->
+    n < length s ->
+    nth_error p.(non_meta_rules) n = Some rn ->
+    nth_error s n = Some rs ->
+    can_deduce_normal_fact (rule_of rn) rs.(known_facts) R_concl nf_args ->
+    ~ In (normal_dfact R_concl nf_args) rs.(sent_facts) ->
+    exists s' rs',
+      comp_step^* s s' /\
+      nth_error s' n = Some rs' /\
+      rs'.(known_facts) = rs.(known_facts) /\
+      rs'.(waiting_facts) = normal_dfact R_concl nf_args :: rs.(waiting_facts) /\
+      rs'.(sent_facts) = normal_dfact R_concl nf_args :: rs.(sent_facts).
+  Proof.
+    intros Hlen_pos Hsane Hmf_ok Hn_lt Hnth_rn Hnth_rs Hcdn Hnot_in.
+    destruct Hsane as (Hlen_s & _).
+    assert (Hno_conflict :
+              forall mf_args num,
+                In (meta_dfact R_concl mf_args (Some n) num) rs.(sent_facts) ->
+                Forall2 matches mf_args nf_args -> False).
+    { intros mf_args num Hin_meta Hmatch.
+      pose proof (meta_facts_ok_lookup _ _ _ _ Hmf_ok Hnth_rn Hnth_rs) as Hmfor.
+      cbv [meta_facts_ok_at_rule] in Hmfor.
+      specialize (Hmfor R_concl mf_args num Hin_meta).
+      cbv [ok_to_deduce_fact] in Hmfor.
+      exact (Hnot_in (Hmfor nf_args Hcdn Hmatch)). }
+    set (F := normal_dfact R_concl nf_args).
+    pose proof Hnth_rs as Hnth_save. apply nth_error_split in Hnth_save.
+    destruct Hnth_save as (s_pre & s_post & Hs_eq & Hs_pre_len).
+    set (rs_post := send_fact F rs).
+    exists (map (add_waiting_fact F) (s_pre ++ rs_post :: s_post)),
+           (add_waiting_fact F rs_post).
+    ssplit.
+    - eapply Relation_Operators.rt1n_trans; [|apply rt1n_refl].
+      rewrite Hs_eq. eapply fire_rule_at.
+      + rewrite <- Hs_eq. exact Hlen_s.
+      + rewrite Hs_pre_len. exact Hnth_rn.
+      + rewrite Hs_pre_len. exists (rule_of rn). ssplit.
+        * left. reflexivity.
+        * simpl. split; [exact Hcdn | exact Hno_conflict].
+        * exact I.
+        * reflexivity.
+    - rewrite nth_error_map, nth_error_app2 by lia.
+      rewrite Hs_pre_len, Nat.sub_diag. reflexivity.
+    - unfold rs_post, add_waiting_fact, send_fact. reflexivity.
+    - unfold rs_post, add_waiting_fact, send_fact. reflexivity.
+    - unfold rs_post, add_waiting_fact, send_fact. reflexivity.
+  Qed.
+
   Lemma rule_can_force_normal_dfacts
         inputs s n rn rs R_concl args_concl S_set rule_concls rule_hyps hyps :
     good_input_facts inputs ->
@@ -3491,7 +3640,7 @@ Section __.
     exists s' rs',
       comp_step^* s s' /\
       nth_error s' n = Some rs' /\
-      ok_to_deduce_fact (rule_of rn) rs'.(known_facts)
+      ok_to_deduce_fact (rule_of rn) rs'.(known_facts) rs'.(sent_facts)
         (meta_dfact R_concl args_concl (Some n) 0) /\
       Forall (knows_datalog_fact rs'.(known_facts)) hyps.
   Proof.
@@ -3551,83 +3700,36 @@ Section __.
       - cbv [has_derived_datalog_fact]. exact Hknows.
       - cbv [mf_consistent_state]. exact I. }
     clear Hl_bound Hhonest Hcons_meta Hgi Hpi_meta.
-    (* Step 4: strengthen Hl to allow "already in rs.known". *)
-    assert (Hl0 : forall nf_args s',
-                   comp_step^* s s' ->
-                   knows_dfact s' (normal_dfact R_concl nf_args) ->
-                   Forall2 matches args_concl nf_args ->
-                   In (normal_dfact R_concl nf_args) rs.(known_facts) \/
-                     In nf_args l).
-    { intros nf_args s' Hsteps Hkn Hmatch. right.
-      eapply Hl_reachable; eassumption. }
-    clear Hl_reachable.
-    (* Helper: for any args satisfying can_deduce+matches+~In rs.known,
-       and any meta-hyp h matching args (with R_h = R_concl), contradiction.
-       Chain: fire to get knows_dfact at post-fire -> prog_impl on normal_fact
-       (via state_correct preserved across the fire) -> S_h via valid_impl_honest
-       on h -> In rs.known via h's bicondition at rs -> contradicts ~In.
-
-       NOTE: we phrase this as a helper because the closure iteration produces
-       new (rs', Hknow_hyps') states; we'll re-derive a fresh Hno_match for each.
-       This particular Hno_match uses the CURRENT rs/Hknow_hyps. *)
-    pose proof (good_inputs_knows_datalog_fact_inputs inputs Hinp Hlen_pos) as Hgi.
-    pose proof (valid_impl_honest _ Hmeta_rules _ Hgi) as Hhonest.
-    cbv [doesnt_lie] in Hhonest.
-    assert (Hno_match_when_not_in :
-              forall args,
-                can_deduce_normal_fact (rule_of rn) rs.(known_facts) R_concl args ->
-                ~ In (normal_dfact R_concl args) rs.(known_facts) ->
-                forall R_h mf_args_h S_h,
-                  In (meta_fact R_h mf_args_h S_h) hyps ->
-                  R_h = R_concl ->
-                  Forall2 matches mf_args_h args -> False).
-    { intros args Hcdn Hnot_in R_h mf_args_h S_h Hin_h HR_eq Hmatch_h.
-      subst R_h.
-      (* Fire to derive knows_dfact at post-fire state *)
-      pose proof (force_one_missing_normal inputs s n rn rs R_concl args
-                   Hinp Hlen_pos Hsane Hmfc Hmf_ok Hn_lt Hnth_rn Hnth_rs Hcdn Hnot_in)
-        as (s_fire & rs_fire & Hsteps_fire & Hnth_fire & Hin_fire).
-      assert (Hsound_fire : state_correct inputs s_fire)
-        by eauto using comp_steps_sound.
-      assert (Hpi_normal : prog_impl rules_of (knows_datalog_fact inputs)
-                            (normal_fact R_concl args)).
-      { apply Hsound_fire. split.
-        - cbv [has_derived_datalog_fact]. cbv [knows_dfact]. apply Exists_exists.
-          exists rs_fire. split; [eapply nth_error_In; exact Hnth_fire|].
-          left. rewrite Hin_fire. left. reflexivity.
-        - cbv [mf_consistent_state]. exact I. }
-      rewrite Forall_forall in Hpi_hyps.
-      pose proof (Hpi_hyps _ Hin_h) as Hpi_h.
-      pose proof (Hhonest _ _ _ Hpi_h) as Hcons_h.
-      cbv [consistent] in Hcons_h.
-      apply (Hcons_h args Hmatch_h) in Hpi_normal.
-      rewrite Forall_forall in Hknow_hyps.
-      pose proof (Hknow_hyps _ Hin_h) as Hkn_h.
-      cbv [knows_datalog_fact] in Hkn_h.
-      destruct Hkn_h as (_ & _ & _ & Hbi).
-      apply Hbi in Hpi_normal; [|exact Hmatch_h].
-      apply Hnot_in. exact Hpi_normal. }
-    (* Step 5: induction on length l. *)
-    revert s rs Hsane Hmfc Hmf_ok Hsound Hn_lt Hnth_rs Hknow_hyps Hl0 Hno_match_when_not_in.
+    (* Step 4: combined candidate invariant — every reachable matching fact is
+       either already SENT by node n, or still pending in [l]. *)
+    assert (Hcand : forall nf_args s',
+                     comp_step^* s s' ->
+                     knows_dfact s' (normal_dfact R_concl nf_args) ->
+                     Forall2 matches args_concl nf_args ->
+                     In (normal_dfact R_concl nf_args) rs.(sent_facts) \/ In nf_args l).
+    { intros nf_args s' Hsteps Hkn Hmatch. right. eapply Hl_reachable; eassumption. }
+    clear Hl_reachable Hpi_hyps.
+    (* Step 5: induction on length l; fire each still-pending candidate into SENT.
+       Firing preserves [known], so [Hknow_hyps] carries trivially. *)
+    revert s rs Hsane Hmfc Hmf_ok Hsound Hn_lt Hnth_rs Hknow_hyps Hcand.
     remember (length l) as len eqn:E.
     assert (Hlen : length l < S len) by lia. clear E.
     revert l Hlen.
     induction (S len) as [|len0 IH]; intros l Hlen s rs Hsane Hmfc Hmf_ok Hsound Hn_lt
-                                           Hnth_rs Hknow_hyps Hl Hnomatch;
+                                           Hnth_rs Hknow_hyps Hcand;
       [lia|].
-    (* EM: is there a candidate in l violating closure at rs? *)
     destruct (classic (Exists (fun args =>
                                  can_deduce_normal_fact (rule_of rn) rs.(known_facts) R_concl args /\
                                  Forall2 matches args_concl args /\
-                                 ~ In (normal_dfact R_concl args) rs.(known_facts)) l))
+                                 ~ In (normal_dfact R_concl args) rs.(sent_facts)) l))
       as [Hex | Hno].
-    + (* Some candidate is missing: fire it, recurse on l \ args *)
+    + (* Some candidate not yet sent: fire it into sent, recurse on l \ args. *)
       rewrite Exists_exists in Hex.
       destruct Hex as (args & Hin_l & Hcdn & Hmatch & Hnot_in).
       apply in_split in Hin_l. destruct Hin_l as (l1 & l2 & Hl_split).
-      pose proof (force_one_missing_normal inputs s n rn rs R_concl args
-                   Hinp Hlen_pos Hsane Hmfc Hmf_ok Hn_lt Hnth_rn Hnth_rs Hcdn Hnot_in)
-        as (s_fire & rs_fire & Hsteps_fire & Hnth_fire & Hin_fire).
+      pose proof (force_one_into_sent inputs s n rn rs R_concl args
+                   Hlen_pos Hsane Hmf_ok Hn_lt Hnth_rn Hnth_rs Hcdn Hnot_in)
+        as (s_fire & rs_fire & Hsteps_fire & Hnth_fire & Hkn_eq & _ & Hsent_eq).
       assert (Hsane_fire : sane_state inputs s_fire)
         by eauto using steps_preserves_sane.
       assert (Hmfc_fire : meta_facts_correct s_fire)
@@ -3638,144 +3740,49 @@ Section __.
         by eauto using comp_steps_sound.
       assert (Hn_lt_fire : n < length s_fire)
         by (erewrite <- steps_preserves_length; eauto).
-      (* Lift rs.known ⊆ rs_fire.known *)
-      pose proof (steps_preserves_known_at _ _ _ _ _ Hinp Hsane Hsteps_fire Hnth_rs)
-        as (rs_fire_check & Hnth_check & Hincl_kn).
-      rewrite Hnth_check in Hnth_fire. injection Hnth_fire as Heq_rs_fire.
-      subst rs_fire_check.
-      (* Preservation of Hknow_hyps at rs_fire *)
-      assert (Hknow_hyps_fire : Forall (knows_datalog_fact rs_fire.(known_facts)) hyps).
-      { rewrite Forall_forall in Hknow_hyps |- *.
-        intros h Hh. specialize (Hknow_hyps _ Hh).
-        destruct h as [R'' args'' | R'' mf_args_h S_h];
-          [cbv [knows_datalog_fact] in Hknow_hyps |- *;
-           apply Hincl_kn; exact Hknow_hyps|].
-        cbv [knows_datalog_fact] in Hknow_hyps |- *.
-        destruct Hknow_hyps as (num_h & Hexp_h & Hex_h & Hbi_h).
-        exists num_h. ssplit.
-        - (* expect_num_R_facts: lifted via Hincl_kn *)
-          cbv [expect_num_R_facts] in *.
-          destruct (is_input R''); [apply Hincl_kn; exact Hexp_h|].
-          destruct Hexp_h as (msgss & Hf2 & Heq).
-          exists msgss. split; [|exact Heq].
-          eapply Forall2_impl_strong; [|exact Hf2].
-          intros j m Hinj _ _. apply Hincl_kn. exact Hinj.
-        - (* Existsn count: case-analyze whether args matches (R'', mf_args_h).
-             If yes, contradiction via Hnomatch.  If no, count unchanged. *)
-          rewrite Hin_fire.
-          destruct (classic (R'' = R_concl /\ Forall2 matches mf_args_h args))
-            as [(HR_eq & Hmatch_h) | Hno_match].
-          + (* Matches: contradiction *)
-            exfalso.
-            eapply (Hnomatch _ Hcdn Hnot_in R'' mf_args_h S_h Hh HR_eq Hmatch_h).
-          + (* Not matches: adding F doesn't affect h's count *)
-            (* Use Existsn_cons-style argument: prepending a non-matching item
-               preserves the count. *)
-            constructor.
-            * (* The new head F does NOT match dfact_matches mf_args_h *)
-              cbv [dfact_matches].
-              intros (nf_args' & Heq & Hmatch').
-              injection Heq as -> ->. apply Hno_match. split; auto.
-            * exact Hex_h.
-        - (* Bicondition: case-analyze whether nf_args matches mf_args_h.
-             For the new F: same case as count.  For others: unchanged. *)
-          intros nf_args' Hmatch'.
-          rewrite Hin_fire. simpl.
-          rewrite Hbi_h by exact Hmatch'.
-          split.
-          + intros HS. right. exact HS.
-          + intros [Heq|Hin]; [|exact Hin].
-            (* Heq : normal_dfact R_concl args = normal_dfact R'' nf_args'.
-               So R_concl = R'', nf_args' = args. *)
-            injection Heq as HR Hnf. subst R'' nf_args'.
-            (* Now matches mf_args_h args holds (from Hmatch'), and R_concl = R_concl.
-               Contradiction via Hnomatch. *)
-            exfalso.
-            eapply (Hnomatch _ Hcdn Hnot_in R_concl mf_args_h S_h Hh eq_refl Hmatch'). }
-      (* New Hl0 for s_fire *)
-      assert (Hl0_fire : forall nf_args s'',
-                          comp_step^* s_fire s'' ->
-                          knows_dfact s'' (normal_dfact R_concl nf_args) ->
-                          Forall2 matches args_concl nf_args ->
-                          In (normal_dfact R_concl nf_args) rs_fire.(known_facts) \/
-                            In nf_args (l1 ++ l2)).
+      assert (Hknow_hyps_fire : Forall (knows_datalog_fact rs_fire.(known_facts)) hyps)
+        by (rewrite Hkn_eq; exact Hknow_hyps).
+      assert (Hcand_fire : forall nf_args s'',
+                            comp_step^* s_fire s'' ->
+                            knows_dfact s'' (normal_dfact R_concl nf_args) ->
+                            Forall2 matches args_concl nf_args ->
+                            In (normal_dfact R_concl nf_args) rs_fire.(sent_facts) \/
+                              In nf_args (l1 ++ l2)).
       { intros nf_args s'' Hsteps_s'' Hkn Hmatch'.
         assert (Hsteps_total : comp_step^* s s'')
           by (eapply crt1n_trans_compose; eassumption).
-        specialize (Hl _ _ Hsteps_total Hkn Hmatch').
-        destruct Hl as [Hl|Hl].
-        - left. apply Hincl_kn. exact Hl.
-        - rewrite Hl_split in Hl. apply in_app_iff in Hl. rewrite in_app_iff.
-          destruct Hl as [Hl|[Hl|Hl]]; auto.
-          subst nf_args. left. rewrite Hin_fire. left. reflexivity. }
-      (* New Hnomatch for s_fire (the chain still holds, but rs is now rs_fire,
-         and Hknow_hyps becomes Hknow_hyps_fire). *)
-      assert (Hnomatch_fire :
-                forall args',
-                  can_deduce_normal_fact (rule_of rn) rs_fire.(known_facts) R_concl args' ->
-                  ~ In (normal_dfact R_concl args') rs_fire.(known_facts) ->
-                  forall R_h mf_args_h S_h,
-                    In (meta_fact R_h mf_args_h S_h) hyps ->
-                    R_h = R_concl ->
-                    Forall2 matches mf_args_h args' -> False).
-      { intros args' Hcdn' Hnot_in' R_h mf_args_h S_h Hin_h HR_eq Hmatch_h.
-        subst R_h.
-        (* Fire again to derive prog_impl *)
-        pose proof (force_one_missing_normal inputs s_fire n rn rs_fire R_concl args'
-                     Hinp Hlen_pos Hsane_fire Hmfc_fire Hmf_ok_fire Hn_lt_fire Hnth_rn
-                     Hnth_check Hcdn' Hnot_in')
-          as (s_fire2 & rs_fire2 & Hsteps_fire2 & Hnth_fire2 & Hin_fire2).
-        assert (Hsound_fire2 : state_correct inputs s_fire2)
-          by eauto using comp_steps_sound.
-        assert (Hpi_normal : prog_impl rules_of (knows_datalog_fact inputs)
-                              (normal_fact R_concl args')).
-        { apply Hsound_fire2. split.
-          - cbv [has_derived_datalog_fact]. cbv [knows_dfact]. apply Exists_exists.
-            exists rs_fire2. split; [eapply nth_error_In; exact Hnth_fire2|].
-            left. rewrite Hin_fire2. left. reflexivity.
-          - cbv [mf_consistent_state]. exact I. }
-        rewrite Forall_forall in Hpi_hyps.
-        pose proof (Hpi_hyps _ Hin_h) as Hpi_h.
-        pose proof (Hhonest _ _ _ Hpi_h) as Hcons_h.
-        cbv [consistent] in Hcons_h.
-        apply (Hcons_h args' Hmatch_h) in Hpi_normal.
-        rewrite Forall_forall in Hknow_hyps_fire.
-        pose proof (Hknow_hyps_fire _ Hin_h) as Hkn_h.
-        cbv [knows_datalog_fact] in Hkn_h.
-        destruct Hkn_h as (_ & _ & _ & Hbi).
-        apply Hbi in Hpi_normal; [|exact Hmatch_h].
-        apply Hnot_in'. exact Hpi_normal. }
-      (* Recurse *)
+        specialize (Hcand _ _ Hsteps_total Hkn Hmatch'). rewrite Hsent_eq.
+        destruct Hcand as [Hc | Hc].
+        - left. right. exact Hc.
+        - rewrite Hl_split in Hc. apply in_app_iff in Hc.
+          destruct Hc as [Hc | [Hc | Hc]].
+          + right. apply in_app_iff. left. exact Hc.
+          + subst args. left. left. reflexivity.
+          + right. apply in_app_iff. right. exact Hc. }
       specialize (IH (l1 ++ l2)). specialize' IH.
       { rewrite Hl_split in Hlen. rewrite length_app in *. simpl in *. lia. }
       specialize (IH s_fire rs_fire Hsane_fire Hmfc_fire Hmf_ok_fire Hsound_fire Hn_lt_fire
-                     Hnth_check Hknow_hyps_fire Hl0_fire Hnomatch_fire).
+                     Hnth_fire Hknow_hyps_fire Hcand_fire).
       destruct IH as (s' & rs' & Hsteps' & Hnth' & Hforcing' & Hknow').
       exists s', rs'. ssplit; try assumption.
       eapply crt1n_trans_compose; eassumption.
-    + (* No missing candidate: current state IS the answer *)
-      exists s, rs. ssplit.
-      { apply rt1n_refl. }
-      { exact Hnth_rs. }
-      2: { exact Hknow_hyps. }
-      cbv [ok_to_deduce_fact].
-      intros nf_args Hcdn Hmatch.
-      destruct (classic (In (normal_dfact R_concl nf_args) rs.(known_facts))) as [Hin|Hnin].
+    + (* No pending candidate: all derivable matching facts are already sent. *)
+      exists s, rs. ssplit; [apply rt1n_refl | exact Hnth_rs | | exact Hknow_hyps].
+      cbv [ok_to_deduce_fact]. intros nf_args Hcdn Hmatch.
+      destruct (classic (In (normal_dfact R_concl nf_args) rs.(sent_facts))) as [Hin|Hnin].
       * exact Hin.
       * exfalso.
-        (* Fire to get knows_dfact at post-fire state.  Then by Hl0, either
-           in rs.known (contradiction with Hnin) or in l (contradiction with Hno). *)
-        pose proof (force_one_missing_normal inputs s n rn rs R_concl nf_args
-                     Hinp Hlen_pos Hsane Hmfc Hmf_ok Hn_lt Hnth_rn Hnth_rs Hcdn Hnin)
-          as (s_fire & rs_fire & Hsteps_fire & Hnth_fire & Hin_fire).
+        pose proof (force_one_into_sent inputs s n rn rs R_concl nf_args
+                     Hlen_pos Hsane Hmf_ok Hn_lt Hnth_rn Hnth_rs Hcdn Hnin)
+          as (s_fire & rs_fire & Hsteps_fire & Hnth_fire & _ & Hwait_eq & _).
         assert (Hkn_fire : knows_dfact s_fire (normal_dfact R_concl nf_args)).
         { cbv [knows_dfact]. apply Exists_exists. exists rs_fire.
-          split; [eapply nth_error_In; exact Hnth_fire|]. left.
-          rewrite Hin_fire. left. reflexivity. }
-        specialize (Hl _ _ Hsteps_fire Hkn_fire Hmatch).
-        destruct Hl as [Hl|Hl]; [apply Hnin; exact Hl|].
-        apply Hno. apply Exists_exists.
-        exists nf_args. ssplit; auto.
+          split; [eapply nth_error_In; exact Hnth_fire|]. right.
+          rewrite Hwait_eq. left. reflexivity. }
+        specialize (Hcand _ _ Hsteps_fire Hkn_fire Hmatch).
+        destruct Hcand as [Hc|Hc]; [apply Hnin; exact Hc|].
+        apply Hno. apply Exists_exists. exists nf_args.
+        split; [exact Hc | split; [exact Hcdn | split; [exact Hmatch | exact Hnin]]].
   Qed.
 
   Lemma good_layout_complete_rule inputs s (ru : rule) f hyps :
