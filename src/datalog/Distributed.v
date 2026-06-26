@@ -444,6 +444,90 @@ Section __.
           -- exact Hin_s.
   Qed.
 
+  (* An input-free run preserves [known ∪ waiting] as a multiset (dequeue just moves
+     a fact; deduce touches only sent; there are no inputs). *)
+  Lemma input_free_kw_perm sp s td s' :
+    star (spec_node_step sp) s td s' ->
+    inputs_of td = [] ->
+    Permutation (s'.(known_facts) ++ s'.(waiting_facts))
+                (s.(known_facts) ++ s.(waiting_facts)).
+  Proof.
+    induction 1 as [s0 | s0 e s1 t0 s2 Hstep Hstar IH]; intros Hinp.
+    - apply Permutation_refl.
+    - destruct e as [m | el eo]; cbn [inputs_of flat_map] in Hinp; [discriminate|].
+      eapply perm_trans; [apply IH; exact Hinp|].
+      inversion Hstep as [rs input rest Hq | rs out Hnf | rs inp]; subst;
+        cbn [known_facts waiting_facts].
+      + rewrite Hq. cbn [app]. apply Permutation_middle.
+      + apply Permutation_refl.
+  Qed.
+
+  (* Multiset analogue of [knows_datalog_fact_stable]: a [knows_datalog_fact] of
+     [known spre] transfers to any [known sstart] that multiset-contains it, provided
+     [sstart]'s inputs are consistent (so the matching count is pinned and the extra
+     [q] holds no matching facts). *)
+  Lemma knows_datalog_fact_super (spre sstart : node_state) (tr : list IO_event)
+      (q : list dfact) (f : fact) :
+    consistent_inputs (inputs_of tr) ->
+    Permutation (sstart.(known_facts) ++ sstart.(waiting_facts)) (inputs_of tr) ->
+    Permutation sstart.(known_facts) (spre.(known_facts) ++ q) ->
+    knows_datalog_fact spre.(known_facts) f ->
+    knows_datalog_fact sstart.(known_facts) f.
+  Proof.
+    intros Hcons Hperm Hsuper.
+    destruct Hcons as (HconsN & HconsSu & HconsS).
+    assert (Hmono : forall x, In x spre.(known_facts) -> In x sstart.(known_facts)).
+    { intros x Hin. eapply Permutation_in;
+        [apply Permutation_sym; exact Hsuper | apply in_or_app; left; exact Hin]. }
+    assert (Hin_inp : forall x, In x spre.(known_facts) -> In x (inputs_of tr)).
+    { intros x Hin. eapply known_in_inputs; [exact Hperm | apply Hmono; exact Hin]. }
+    destruct f as [R args | mf_rel mf_args mf_set]; cbn [knows_datalog_fact].
+    - apply Hmono.
+    - intros (num & Hexpect & Hcount & Hsetcons).
+      assert (Hcap : forall N,
+                 Existsn (dfact_matches mf_rel mf_args) N (inputs_of tr) -> N <= num).
+      { cbv [expect_num_R_facts] in Hexpect. destruct (is_input mf_rel) eqn:Hisinp.
+        - specialize (Hin_inp _ Hexpect).
+          destruct (HconsN mf_rel mf_args num Hin_inp) as (_ & num' & Hle' & Hex').
+          intros N HN. pose proof (Existsn_unique _ N num' _ HN Hex'). lia.
+        - destruct Hexpect as (ems & Hforall2 & Hnum).
+          assert (Hforall2' : Forall2 (fun k e =>
+                    In (meta_dfact mf_rel mf_args (Some k) e) (inputs_of tr))
+                    (R_senders mf_rel) ems).
+          { eapply Forall2_impl; [|exact Hforall2]. intros k e Hk. apply Hin_inp. exact Hk. }
+          destruct (HconsS mf_rel mf_args ems Hforall2') as (num' & Hle' & Hex').
+          intros N HN. pose proof (Existsn_unique _ N num' _ HN Hex'). lia. }
+      (* count pinned: known(sstart) ~ known(spre) ++ q, q holds no matching facts *)
+      destruct (Existsn_total (dfact_matches mf_rel mf_args) q) as (jq & Hjq).
+      assert (Hexn_start : Existsn (dfact_matches mf_rel mf_args) (num + jq)
+                             sstart.(known_facts)).
+      { eapply Existsn_perm; [apply Existsn_app; [exact Hcount | exact Hjq]|].
+        apply Permutation_sym; exact Hsuper. }
+      assert (Hjq0 : jq = 0).
+      { destruct (Existsn_total (dfact_matches mf_rel mf_args) sstart.(waiting_facts)) as (w & Hw).
+        assert (Hall_inp : Existsn (dfact_matches mf_rel mf_args) (num + jq + w) (inputs_of tr)).
+        { eapply Existsn_perm;
+            [apply Existsn_app; [exact Hexn_start | exact Hw] | exact Hperm]. }
+        pose proof (Hcap _ Hall_inp). lia. }
+      subst jq. rewrite Nat.add_0_r in Hexn_start.
+      exists num. split; [| split].
+      + cbv [expect_num_R_facts] in Hexpect |- *. destruct (is_input mf_rel) eqn:Hi.
+        * apply Hmono. exact Hexpect.
+        * destruct Hexpect as (ems & Hforall2 & Hnum). exists ems. split; [|exact Hnum].
+          eapply Forall2_impl; [|exact Hforall2]. intros k e Hk. apply Hmono. exact Hk.
+      + exact Hexn_start.
+      + (* set-cons: matching facts of known(sstart) are exactly those of known(spre) *)
+        apply Existsn_0_Forall_not in Hjq.   (* q holds no matching facts (jq=0) *)
+        intros nf_args Hmatch. rewrite (Hsetcons nf_args Hmatch). split.
+        * intros Hin_pre. apply Hmono. exact Hin_pre.
+        * intros Hin_start.
+          eapply Permutation_in in Hin_start; [|exact Hsuper].
+          apply in_app_or in Hin_start. destruct Hin_start as [Hp | Hq'].
+          -- exact Hp.
+          -- exfalso. rewrite Forall_forall in Hjq. apply (Hjq _ Hq').
+             cbv [dfact_matches]. exists nf_args. split; [reflexivity | exact Hmatch].
+  Qed.
+
   (* One step keeps a queued [g] either in [known] or still queued, with its
      prefix never longer (the demon can only dequeue from the front / append to
      the back). *)
