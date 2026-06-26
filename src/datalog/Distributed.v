@@ -531,7 +531,8 @@ Section __.
       oc ++ osuf = oc' ++ osuf' /\
       s'.(waiting_facts) = osuf' ++ extra' /\
       Permutation s'.(known_facts) (oc' ++ kr') /\
-      length osuf' <= length osuf.
+      length osuf' <= length osuf /\
+      (exists d, kr' = d ++ kr).
   Proof.
     intros Hw Hkn Hstep.
     inversion Hstep as [rs input rest Hq | rs out Hnf | rs inp]; subst;
@@ -542,7 +543,7 @@ Section __.
         exists oc, (@nil dfact), rest, (input :: kr).
         split; [reflexivity|]. split; [reflexivity|]. split.
         * eapply perm_trans; [apply perm_skip; exact Hkn|]. apply Permutation_middle.
-        * cbn [length]; lia.
+        * split; [cbn [length]; lia | exists [input]; reflexivity].
       + (* osuf = y :: osuf'': front y goes to known *)
         cbn [app] in Hw. rewrite Hw in Hq. injection Hq as Hxy Hr.
         subst input. subst rest.
@@ -551,14 +552,15 @@ Section __.
         * split; [reflexivity|]. split.
           -- rewrite <- app_assoc. cbn [app].
              eapply perm_trans; [apply perm_skip; exact Hkn|]. apply Permutation_middle.
-          -- cbn [length]; lia.
+          -- split; [cbn [length]; lia | exists (@nil dfact); reflexivity].
     - (* deduce: known/waiting unchanged *)
       exists oc, osuf, extra, kr. rewrite Hw.
-      split; [reflexivity|]. split; [reflexivity|]. split; [exact Hkn | lia].
+      split; [reflexivity|]. split; [reflexivity|]. split; [exact Hkn|].
+      split; [lia | exists (@nil dfact); reflexivity].
     - (* input: appended to back of extra *)
       exists oc, osuf, (extra ++ [inp]), kr.
       rewrite Hw, <- app_assoc. split; [reflexivity|]. split; [reflexivity|].
-      split; [exact Hkn | lia].
+      split; [exact Hkn|]. split; [lia | exists (@nil dfact); reflexivity].
   Qed.
 
   Lemma drain_form_star sp s :
@@ -570,19 +572,23 @@ Section __.
         oc ++ osuf = oc' ++ osuf' /\
         sdem.(waiting_facts) = osuf' ++ extra' /\
         Permutation sdem.(known_facts) (oc' ++ kr') /\
-        length osuf' <= length osuf.
+        length osuf' <= length osuf /\
+        (exists d, kr' = d ++ kr).
   Proof.
     intros oc osuf extra kr td sdem Hw Hkn Hstar. revert oc osuf extra kr Hw Hkn.
     induction Hstar as [s0 | s0 e s1 t0 s2 Hstep Hstar IH];
       intros oc osuf extra kr Hw Hkn.
-    - exists oc, osuf, extra, kr. repeat (split; [try assumption; try reflexivity|]). lia.
+    - exists oc, osuf, extra, kr.
+      split; [reflexivity|]. split; [exact Hw|]. split; [exact Hkn|].
+      split; [lia | exists (@nil dfact); reflexivity].
     - destruct (drain_step_form sp s0 e s1 oc osuf extra kr Hw Hkn Hstep)
-        as (oc1 & osuf1 & extra1 & kr1 & Hsplit1 & Hw1 & Hkn1 & Hle1).
+        as (oc1 & osuf1 & extra1 & kr1 & Hsplit1 & Hw1 & Hkn1 & Hle1 & d1 & Hd1).
       destruct (IH oc1 osuf1 extra1 kr1 Hw1 Hkn1)
-        as (oc2 & osuf2 & extra2 & kr2 & Hsplit2 & Hw2 & Hkn2 & Hle2).
+        as (oc2 & osuf2 & extra2 & kr2 & Hsplit2 & Hw2 & Hkn2 & Hle2 & d2 & Hd2).
       exists oc2, osuf2, extra2, kr2.
       split; [rewrite <- Hsplit2, <- Hsplit1; reflexivity|].
-      split; [exact Hw2|]. split; [exact Hkn2 | lia].
+      split; [exact Hw2|]. split; [exact Hkn2|]. split; [lia|].
+      exists (d2 ++ d1). rewrite Hd2, Hd1, app_assoc. reflexivity.
   Qed.
 
   (* Force the whole queued multiset [orig = waiting(s)] into [known]: commit
@@ -594,20 +600,23 @@ Section __.
       s.(waiting_facts) = osuf ++ extra ->
       Permutation s.(known_facts) (oc ++ kr) ->
       eventually (can_step (spec_node_step sp) allowed)
-        (fun '(s', _) => exists rest, Permutation s'.(known_facts) ((oc ++ osuf) ++ rest))
+        (fun '(s', _) => exists rest, Permutation s'.(known_facts) ((oc ++ osuf) ++ rest)
+                                      /\ exists d, rest = d ++ kr)
         (s, t).
   Proof.
     induction n as [|n IH]; intros s t oc osuf extra kr Hlen Hw Hkn.
     - assert (osuf = []) by (destruct osuf; [reflexivity | cbn in Hlen; lia]). subst osuf.
-      apply eventually_done. rewrite app_nil_r. exists kr. exact Hkn.
+      apply eventually_done. rewrite app_nil_r. exists kr.
+      split; [exact Hkn | exists (@nil dfact); reflexivity].
     - destruct osuf as [|y osuf'].
-      + apply eventually_done. rewrite app_nil_r. exists kr. exact Hkn.
+      + apply eventually_done. rewrite app_nil_r. exists kr.
+        split; [exact Hkn | exists (@nil dfact); reflexivity].
       + apply eventually_step_cps. exists sl_dequeue. intros sdem tdem Hstar Hallow.
         destruct (drain_form_star sp s oc (y :: osuf') extra kr tdem sdem Hw Hkn Hstar)
-          as (ocd & osufd & extrad & krd & Hsplit & Hwd & Hknd & Hled).
+          as (ocd & osufd & extrad & krd & Hsplit & Hwd & Hknd & Hled & dd & Hdd).
         destruct osufd as [|z osufd'].
         * left. apply eventually_done. rewrite app_nil_r in Hsplit.
-          exists krd. rewrite Hsplit. exact Hknd.
+          exists krd. split; [rewrite Hsplit; exact Hknd | exists dd; exact Hdd].
         * right. eexists. exists (@nil dfact). split.
           -- eapply spec_node_dequeue_step. cbn [app] in Hwd. exact Hwd.
           -- assert (Heq : (ocd ++ [z]) ++ osufd' = oc ++ (y :: osuf')).
@@ -619,8 +628,9 @@ Section __.
                 ** cbn [known_facts].
                    eapply perm_trans; [apply perm_skip; exact Hknd|].
                    rewrite <- app_assoc. cbn [app]. apply Permutation_middle.
-             ++ intros [s'' t''] (rest & Hperm). exists rest.
-                rewrite <- Heq. exact Hperm.
+             ++ intros [s'' t''] (rest & Hperm & d' & Hd'). exists rest.
+                split; [rewrite <- Heq; exact Hperm|].
+                exists (d' ++ dd). rewrite Hd', Hdd, app_assoc. reflexivity.
   Qed.
 
   (* Every fact a node knows or has queued was either received as input or emitted
@@ -1398,9 +1408,9 @@ Section __.
          re-deriving o at the driven state needs the matching hyp_rel facts complete in
          [known] (the done-receiving pins them via consistent_inputs, so the demon
          can't add more and the aggregate value [interp_agg agg vals] is stable).
-         Force the [vals] normal facts + the declaration into [known], then rebuild the
-         agg_rule_impl with the driven [known]'s set.  ~100 lines of is_list_set /
-         interp_agg / completeness bookkeeping; deferred. *)
+         Force the [vals] normal facts + the declaration into [known] (force_drain,
+         multiplicity-aware), then rebuild the agg_rule_impl with the driven [known]'s
+         set; consistent_inputs pins the matching count to cnt. *)
       admit.
   Admitted.
 
