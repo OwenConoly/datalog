@@ -1271,22 +1271,23 @@ Section __.
      derivable-from-[known sd], so the sent-based [ok_to_deduce] puts [o] in
      [sent sd] ⊆ [sent sdem].  So the demon can never disable [o] without having
      output it first. *)
-  Lemma no_disabler (r : non_meta_rule) (n : nat) sdem (tr : list IO_event)
+  Lemma no_disabler (np : spec_node_prog) (ru : rule) sdem (tr : list IO_event)
       (R : rel) (margs : list (option T)) (num : nat)
       (oargs : list T) (ohyps : list fact)
       (sbase : node_state) (Tbase : list IO_event) :
-    In r p.(non_meta_rules) ->
+    meta_rules_valid np.(spec_node_rules) ->
+    In ru np.(spec_node_rules) ->
     consistent_inputs (inputs_of tr) ->
     Permutation (sdem.(known_facts) ++ sdem.(waiting_facts)) (inputs_of tr) ->
     sbase.(sent_facts) = [] ->
-    star (spec_node_step (node_prog_of r n)) sbase Tbase sdem ->
-    non_meta_rule_impl (rule_of r) R oargs ohyps ->
+    star (spec_node_step np) sbase Tbase sdem ->
+    non_meta_rule_impl ru R oargs ohyps ->
     Forall2 matches margs oargs ->
     Forall (knows_datalog_fact sdem.(known_facts)) ohyps ->
-    In (meta_dfact R margs (Some n) num) sdem.(sent_facts) ->
+    In (meta_dfact R margs (Some np.(spec_node_label)) num) sdem.(sent_facts) ->
     In (normal_dfact R oargs) sdem.(sent_facts).
   Proof.
-    intros Hin_r Hcons Hperm Hbase Hstar Himpl Hmatch Hohyps Hdone.
+    intros Hmrv Hin_ru Hcons Hperm Hbase Hstar Himpl Hmatch Hohyps Hdone.
     destruct (sent_justified _ _ _ _ Hstar _ Hdone) as [Habs | (sd & tdd & Hnf & Hstd)].
     { rewrite Hbase in Habs. inversion Habs. }
     destruct (known_suffix _ _ _ _ Hstd) as (pre & Hsuf).
@@ -1294,13 +1295,9 @@ Section __.
     apply Exists_exists in Hex. destruct Hex as (r' & Hr'in & Hcdf).
     cbv [can_deduce_fact] in Hcdf.
     destruct Hcdf as (Hsrc & mc' & mh' & hyps_mr & Hr'eq & Hcdm & Hknown_mr).
-    assert (Hin_meta : In (mc', mh') p.(meta_rules)).
-    { cbn [node_prog_of spec_node_rules] in Hr'in. destruct Hr'in as [Heq2 | Hin].
-      - exfalso. rewrite <- Heq2 in Hr'eq. destruct r; cbn in Hr'eq; discriminate.
-      - apply in_map_iff in Hin. destruct Hin as ((c & h) & Hmeq & Hin).
-        rewrite Hr'eq in Hmeq. injection Hmeq as <- <-. exact Hin. }
-    pose (S_constr := fun args'' => one_step_derives (rules_of p) hyps_mr R args'').
-    assert (Hri_meta : rule_impl (one_step_derives (rules_of p)) (meta_rule mc' mh')
+    rewrite Hr'eq in Hr'in.
+    pose (S_constr := fun args'' => one_step_derives np.(spec_node_rules) hyps_mr R args'').
+    assert (Hri_meta : rule_impl (one_step_derives np.(spec_node_rules)) (meta_rule mc' mh')
                          (meta_fact R margs S_constr) hyps_mr).
     { cbv [can_deduce_meta_fact] in Hcdm.
       destruct Hcdm as (ctx_m & mfr & mfa & mfc & Heq_m & _ & Hconcl_m & Hinterp_m).
@@ -1311,28 +1308,21 @@ Section __.
         exists mfa', S_constr. split; [exact Hf2|]. rewrite Hargs, Hrel. reflexivity.
       - exact Hinterp_m.
       - intros args'' _. subst S_constr. simpl. reflexivity. }
-    assert (Hri_normal : rule_impl (one_step_derives (rules_of p)) (rule_of r)
+    assert (Hri_normal : rule_impl (one_step_derives np.(spec_node_rules)) ru
                            (normal_fact R oargs) ohyps).
     { apply simple_rule_impl. exact Himpl. }
-    assert (Hin_mr_rules : In (meta_rule mc' mh') (rules_of p)).
-    { cbv [rules_of]. apply in_app_iff. left. apply in_map_iff.
-      exists (mc', mh'). split; [reflexivity | exact Hin_meta]. }
-    assert (Hin_nr_rules : In (rule_of r) (rules_of p)).
-    { cbv [rules_of]. apply in_app_iff. right. apply in_map. exact Hin_r. }
-    pose proof (Hmeta_rules _ _ _ _ _ Hin_mr_rules Hri_meta _ _ _ Hin_nr_rules
-                  Hri_normal Hmatch) as Hpot.
+    pose proof (Hmrv _ _ _ _ _ Hr'in Hri_meta _ _ _ Hin_ru Hri_normal Hmatch) as Hpot.
     assert (Hohyps_sd : Forall (knows_datalog_fact sd.(known_facts)) ohyps).
     { rewrite Forall_forall in Hpot, Hohyps |- *. intros h Hh.
       eapply ohyp_known_sd; try eassumption.
       - exact (Hpot _ Hh).
       - exact (Hohyps _ Hh). }
-    assert (Hcdn : can_deduce_normal_fact (rule_of r) sd.(known_facts) R oargs).
+    assert (Hcdn : can_deduce_normal_fact ru sd.(known_facts) R oargs).
     { exists ohyps. split; assumption. }
-    cbv [ok_to_deduce_fact] in Hall.
-    pose proof (Forall_inv Hall) as Hok.
-    specialize (Hok oargs Hcdn Hmatch).
-    (* [Hok : In o (sent sd)]; [sent] only grows along [sd ->* sdem]. *)
-    exact (spec_steps_sent_incl _ _ _ _ Hstd _ Hok).
+    rewrite Forall_forall in Hall. specialize (Hall ru Hin_ru).
+    cbv [ok_to_deduce_fact] in Hall. specialize (Hall oargs Hcdn Hmatch).
+    (* [Hall : In o (sent sd)]; [sent] only grows along [sd ->* sdem]. *)
+    exact (spec_steps_sent_incl _ _ _ _ Hstd _ Hall).
   Qed.
 
   (* If [o] is output somewhere in a run, then at the pre-state of that deduce
@@ -1389,23 +1379,24 @@ Section __.
      [rule_of r] from all-normal hyps [ohyps] that are input-derived: drive the hyps
      into [known] ([force_known_list]), then commit the deduce ([force_deduce]); the
      deduce never gets disabled ([no_disabler]). *)
-  Lemma force_normal_output (r : non_meta_rule) (n : nat) s t R oargs ohyps :
-    In r p.(non_meta_rules) ->
-    node_inv (node_prog_of r n) s t ->
-    non_meta_rule_impl (rule_of r) R oargs ohyps ->
+  Lemma force_normal_output (np : spec_node_prog) (ru : rule) s t R oargs ohyps :
+    meta_rules_valid np.(spec_node_rules) ->
+    In ru np.(spec_node_rules) ->
+    node_inv np s t ->
+    non_meta_rule_impl ru R oargs ohyps ->
     Forall (fun h => exists hr ha, h = normal_fact hr ha) ohyps ->
     Forall (fun h => In (df_of h) (inputs_of t)) ohyps ->
-    eventually (can_step (spec_node_step (node_prog_of r n)) node_allowed)
+    eventually (can_step (spec_node_step np) node_allowed)
       (fun '(_, t'') => output_in_trace (normal_dfact R oargs) t'') (s, t).
   Proof.
-    intros Hin_r Hinv Himpl Hnorm Hin_inp.
+    intros Hmrv Hin_ru Hinv Himpl Hnorm Hin_inp.
     eapply eventually_trans.
-    { apply (force_known_list (node_prog_of r n) node_allowed (map df_of ohyps) s t Hinv).
+    { apply (force_known_list np node_allowed (map df_of ohyps) s t Hinv).
       rewrite Forall_forall. intros d Hd. apply in_map_iff in Hd as (h & <- & Hh).
       rewrite Forall_forall in Hin_inp. exact (Hin_inp h Hh). }
     intros [s_start t_start] (Hknown & Hinv_start).
     apply force_deduce. intros sdem tdem Hstar_d Hallow_d.
-    pose proof (node_inv_star (node_prog_of r n) s_start t_start tdem sdem Hinv_start Hstar_d)
+    pose proof (node_inv_star np s_start t_start tdem sdem Hinv_start Hstar_d)
       as Hinv_dem.
     destruct Hinv_dem as (Hperm_dem & Hsa_dem & Tinit_dem & Hreach_dem).
     cbv [node_allowed] in Hallow_d. rename Hallow_d into Hcons_dem.
@@ -1424,12 +1415,12 @@ Section __.
       cbn [df_of] in Hin_start.
       eapply known_In_mono; [exact Hstar_d | exact Hin_start]. }
     split.
-    - apply Exists_exists. exists (rule_of r). split.
-      + cbn [node_prog_of spec_node_rules]. left. reflexivity.
+    - apply Exists_exists. exists ru. split.
+      + exact Hin_ru.
       + cbn [can_deduce_fact]. split.
         * exists ohyps. split; [exact Himpl | exact Hohyps_dem].
         * intros mf_args num Hin_done Hmatch_done. apply Hnin_o.
-          eapply (no_disabler r n sdem (tdem ++ t_start) R mf_args num oargs ohyps
+          eapply (no_disabler np ru sdem (tdem ++ t_start) R mf_args num oargs ohyps
                     {| known_facts := []; waiting_facts := []; sent_facts := [] |} Tinit_dem);
             try eassumption.
           reflexivity.
@@ -1447,18 +1438,18 @@ Section __.
       node_allowed
       {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
   Proof.
-    intros (r & n & Hin_r & ->) t s o Hreach Hallowed Hcan.
+    intros Hmrv t s o Hreach Hallowed Hcan.
     destruct Hcan as (t' & s' & Hrun & Hinp & Hout).
-    assert (Hinv : node_inv (node_prog_of r n) s t).
+    assert (Hinv : node_inv np s t).
     { split; [|split].
-      - assert (Hkp := kw_perm_star (node_prog_of r n)
+      - assert (Hkp := kw_perm_star np
           {| known_facts := []; waiting_facts := []; sent_facts := [] |} t s []
           (Permutation_refl _) Hreach).
         eapply perm_trans; [exact Hkp|]. rewrite app_nil_r. apply inputs_of_rev_perm.
       - assert (Hsa0 : sent_account
           {| known_facts := []; waiting_facts := []; sent_facts := [] |} (@nil IO_event))
           by (intros f Hf; inversion Hf).
-        pose proof (sent_account_run (node_prog_of r n) _ t s [] Hsa0 Hreach) as Hsa.
+        pose proof (sent_account_run np _ t s [] Hsa0 Hreach) as Hsa.
         rewrite app_nil_r in Hsa. exact Hsa.
       - exists t. exact Hreach. }
     apply output_in_trace_app in Hout as [Hout_t' | Hout_t].
@@ -1478,10 +1469,7 @@ Section __.
     apply Exists_exists in Hex. destruct Hex as (r' & Hr'in & Hcdf).
     cbn [can_deduce_fact] in Hcdf. destruct Hcdf as (Hcdn & Hneg).
     destruct Hcdn as (ohyps & Himpl & Hknown_pre).
-    cbn [node_prog_of spec_node_rules] in Hr'in. destruct Hr'in as [Heqr | Hmeta].
-    2: { exfalso. apply in_map_iff in Hmeta. destruct Hmeta as ((c0 & h0) & Hmeq & _).
-         rewrite <- Hmeq in Himpl. inversion Himpl. }
-    subst r'.
+    (* [r'] is whatever rule of [np] derives [o]; [Himpl] makes it non-meta. *)
     inversion Himpl as
       [concls hyps_cl ctx R0 oargs0 ohyps0 HExists HForall2 Heqrule
        | S vals concl_rel agg hyp_rel oargs0 Hset Heqrule Heqcc].
@@ -1507,24 +1495,24 @@ Section __.
       subst oargs. subst concl_rel.
       destruct Hinv as (Hperm_st & Hsa_st & Tinit_st & Hreach_st).
       eapply eventually_trans.
-      { eapply (eventually_carry_inv2 (node_prog_of r n) node_allowed
-                  (fun s' t' => node_inv (node_prog_of r n) s' t')).
+      { eapply (eventually_carry_inv2 np node_allowed
+                  (fun s' t' => node_inv np s' t')).
         - intros s0 tt0 td0 sd0 HR Hst. eapply node_inv_star; eassumption.
         - intros s0 tt0 g0 o0 sd0 HR Hst. eapply node_inv_step; eassumption.
         - split; [exact Hperm_st | split; [exact Hsa_st | exists Tinit_st; exact Hreach_st]].
-        - eapply (force_drain (node_prog_of r n) node_allowed (length (waiting_facts s))
+        - eapply (force_drain np node_allowed (length (waiting_facts s))
                     s t [] (waiting_facts s) [] (known_facts s)).
           + apply le_n.
           + rewrite app_nil_r. reflexivity.
           + rewrite app_nil_l. apply Permutation_refl. }
       intros [s_start t_start] ((rest & Hdrain & d & Hd) & Hinv_start).
       apply force_deduce. intros sdem tdem Hstar_d Hallow_d.
-      pose proof (node_inv_star (node_prog_of r n) s_start t_start tdem sdem Hinv_start Hstar_d)
+      pose proof (node_inv_star np s_start t_start tdem sdem Hinv_start Hstar_d)
         as Hinv_dem.
       destruct Hinv_dem as (Hperm_dem & Hsa_dem & Tinit_dem & Hreach_dem).
       cbv [node_allowed] in Hallow_d.
-      destruct (known_suffix (node_prog_of r n) s_start tdem sdem Hstar_d) as (pre' & Hpre').
-      pose proof (input_free_kw_perm (node_prog_of r n) s tpre spre Hst_pre Hti_pre) as Hifkw.
+      destruct (known_suffix np s_start tdem sdem Hstar_d) as (pre' & Hpre').
+      pose proof (input_free_kw_perm np s tpre spre Hst_pre Hti_pre) as Hifkw.
       rewrite Hd in Hdrain.
       assert (Hq : Permutation sdem.(known_facts)
                      (spre.(known_facts) ++ (pre' ++ d ++ spre.(waiting_facts)))).
@@ -1541,12 +1529,12 @@ Section __.
                             sdem.(sent_facts))) as [Hin_o | Hnin_o].
       { left. exact (Hsa_dem _ Hin_o). }
       right. split.
-      + apply Exists_exists. exists (rule_of r). split.
-        * cbn [node_prog_of spec_node_rules]. left. reflexivity.
+      + apply Exists_exists. exists r'. split.
+        * exact Hr'in.
         * cbn [can_deduce_fact]. split.
           -- exists ohyps. split; [exact Himpl | exact Hknown_dem].
           -- intros mf_args num0 Hin_done Hmatch_done. apply Hnin_o.
-             eapply (no_disabler r n sdem (tdem ++ t_start) R mf_args num0
+             eapply (no_disabler np r' sdem (tdem ++ t_start) R mf_args num0
                        (interp_agg agg vals :: oargs0) ohyps
                        {| known_facts := []; waiting_facts := []; sent_facts := [] |} Tinit_dem);
                try eassumption.
