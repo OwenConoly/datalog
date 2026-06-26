@@ -1440,14 +1440,14 @@ Section __.
 
      A node fed consistent inputs ([consistent_inputs]) is live: whenever it
      [can_output] a fact, it [will_output] it (against an adversarial demon). *)
-  Lemma spec_node_can_implies_will (r : non_meta_rule) (n : nat) :
-    In r p.(non_meta_rules) ->
+  Lemma spec_node_can_implies_will (np : spec_node_prog) :
+    (exists r n, In r p.(non_meta_rules) /\ np = node_prog_of r n) ->
     can_implies_will
-      (spec_node_step (node_prog_of r n))
+      (spec_node_step np)
       node_allowed
       {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
   Proof.
-    intros Hin_r t s o Hreach Hallowed Hcan.
+    intros (r & n & Hin_r & ->) t s o Hreach Hallowed Hcan.
     destruct Hcan as (t' & s' & Hrun & Hinp & Hout).
     assert (Hinv : node_inv (node_prog_of r n) s t).
     { split; [|split].
