@@ -163,14 +163,14 @@ Section __.
         Exists (fun c => interp_meta_clause ctx c (meta_fact mf_rel mf_args (fun _ => False))) mf_concls /\
         Forall2 (interp_meta_clause ctx) mf_hyps hyps.
 
-  Definition ok_to_deduce_fact (r : rule) known f :=
+  Definition ok_to_deduce_fact (r : rule) known sent f :=
     match f with
     | normal_dfact nf_rel nf_args => True
     | meta_dfact mf_rel mf_args source num_msgs =>
         forall nf_args,
           can_deduce_normal_fact r known mf_rel nf_args ->
           Forall2 matches mf_args nf_args ->
-          In (normal_dfact mf_rel nf_args) known
+          In (normal_dfact mf_rel nf_args) sent
     end.
 
   Definition can_deduce_fact (r : rule) node known sent f :=
@@ -209,7 +209,7 @@ Section __.
   Definition meta_facts_ok_at_rule n rs r :=
     forall mf_rel mf_args num,
       In (meta_dfact mf_rel mf_args (Some n) num) rs.(sent_facts) ->
-      ok_to_deduce_fact (rule_of r) rs.(known_facts)
+      ok_to_deduce_fact (rule_of r) rs.(known_facts) rs.(sent_facts)
         (meta_dfact mf_rel mf_args (Some n) num).
 
   Definition meta_facts_ok (s : state) :=
@@ -239,7 +239,7 @@ Section __.
     exists fired_rule,
       can_fire_rule_at r fired_rule /\
         can_deduce_fact fired_rule n rs.(known_facts) rs.(sent_facts) f /\
-        ok_to_deduce_fact (rule_of r) rs.(known_facts) f /\
+        ok_to_deduce_fact (rule_of r) rs.(known_facts) rs.(sent_facts) f /\
         rs' = send_fact f rs.
 
   Inductive comp_step : state -> state -> Prop :=
