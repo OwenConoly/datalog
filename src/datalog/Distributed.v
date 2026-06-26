@@ -717,6 +717,27 @@ Section __.
                 exists (d' ++ dd). rewrite Hd', Hdd, app_assoc. reflexivity.
   Qed.
 
+  (* A pure multiset rearrangement used by the agg case: relate the drained
+     [known sdem] to [known spre] using the input-free [known∪waiting] permutation. *)
+  Lemma agg_perm (a wsrc d ksrc ksp wsp : list dfact) :
+    Permutation (ksp ++ wsp) (ksrc ++ wsrc) ->
+    Permutation (a ++ (wsrc ++ d ++ ksrc)) (ksp ++ (a ++ d ++ wsp)).
+  Proof.
+    intros H.
+    transitivity (a ++ d ++ (ksrc ++ wsrc)).
+    { apply Permutation_app_head.
+      eapply perm_trans; [apply Permutation_app_comm|].
+      rewrite <- app_assoc. apply Permutation_refl. }
+    transitivity (a ++ d ++ (ksp ++ wsp)).
+    { apply Permutation_app_head. apply Permutation_app_head.
+      apply Permutation_sym; exact H. }
+    rewrite (app_assoc a d).
+    eapply perm_trans; [apply Permutation_app_comm|].
+    rewrite <- app_assoc. apply Permutation_app_head.
+    eapply perm_trans; [apply Permutation_app_comm|].
+    rewrite <- app_assoc. apply Permutation_refl.
+  Qed.
+
   (* Every fact a node knows or has queued was either received as input or emitted
      as an output: [known ∪ waiting ⊆ inputs(trace) ∪ outputs(trace)].  This lets
      us conclude that a known non-input fact has actually been output. *)
@@ -1486,16 +1507,58 @@ Section __.
         (eapply Permutation_in; [exact Hperm|]).
       * apply in_or_app; left; exact Hk_s.
       * apply in_or_app; right; exact Hw_s.
-    - (* AGG_RULE OUTPUT.  Doable (o is a normal fact, so [ok_to_deduce] is trivially
-         True and [no_disabler] applies unchanged).  The extra work vs the normal_rule
-         case: ohyps include the aggregation meta-hyp [meta_fact hyp_rel _ S], so
-         re-deriving o at the driven state needs the matching hyp_rel facts complete in
-         [known] (the done-receiving pins them via consistent_inputs, so the demon
-         can't add more and the aggregate value [interp_agg agg vals] is stable).
-         Force the [vals] normal facts + the declaration into [known] (force_drain,
-         multiplicity-aware), then rebuild the agg_rule_impl with the driven [known]'s
-         set; consistent_inputs pins the matching count to cnt. *)
-      admit.
+    - (* AGG_RULE OUTPUT.  o is a normal fact; the agg meta-hyp's knows_datalog_fact is
+         reconstructed at the driven state by draining the whole queue (force_drain,
+         multiplicity-aware) into known and transferring via knows_datalog_fact_super
+         (consistent_inputs pins the matching count). *)
+      subst oargs. subst concl_rel.
+      destruct Hinv as (Hperm_st & Hsa_st & Tinit_st & Hreach_st).
+      eapply eventually_trans.
+      { eapply (eventually_carry_inv2 (node_prog_of r n) node_allowed
+                  (fun s' t' => node_inv (node_prog_of r n) s' t')).
+        - intros s0 tt0 td0 sd0 HR Hst. eapply node_inv_star; eassumption.
+        - intros s0 tt0 g0 o0 sd0 HR Hst. eapply node_inv_step; eassumption.
+        - split; [exact Hperm_st | split; [exact Hsa_st | exists Tinit_st; exact Hreach_st]].
+        - eapply (force_drain (node_prog_of r n) node_allowed (length (waiting_facts s))
+                    s t [] (waiting_facts s) [] (known_facts s)).
+          + apply le_n.
+          + rewrite app_nil_r. reflexivity.
+          + rewrite app_nil_l. apply Permutation_refl. }
+      intros [s_start t_start] ((rest & Hdrain & d & Hd) & Hinv_start).
+      apply force_deduce. intros sdem tdem Hstar_d Hallow_d.
+      pose proof (node_inv_star (node_prog_of r n) s_start t_start tdem sdem Hinv_start Hstar_d)
+        as Hinv_dem.
+      destruct Hinv_dem as (Hperm_dem & Hsa_dem & Tinit_dem & Hreach_dem).
+      cbv [node_allowed] in Hallow_d.
+      destruct (known_suffix (node_prog_of r n) s_start tdem sdem Hstar_d) as (pre' & Hpre').
+      pose proof (input_free_kw_perm (node_prog_of r n) s tpre spre Hst_pre Hti_pre) as Hifkw.
+      rewrite Hd in Hdrain.
+      assert (Hq : Permutation sdem.(known_facts)
+                     (spre.(known_facts) ++ (pre' ++ d ++ spre.(waiting_facts)))).
+      { rewrite Hpre'.
+        eapply perm_trans; [apply Permutation_app_head; exact Hdrain|].
+        apply (agg_perm pre' (waiting_facts s) d (known_facts s)
+                 (known_facts spre) (waiting_facts spre) Hifkw). }
+      assert (Hknown_dem : Forall (knows_datalog_fact sdem.(known_facts)) ohyps).
+      { rewrite Forall_forall in Hknown_pre |- *. intros h Hh.
+        eapply (knows_datalog_fact_super spre sdem (tdem ++ t_start)
+                  (pre' ++ d ++ spre.(waiting_facts)) h);
+          [exact Hallow_d | exact Hperm_dem | exact Hq | exact (Hknown_pre h Hh)]. }
+      destruct (classic (In (normal_dfact R (interp_agg agg vals :: oargs0))
+                            sdem.(sent_facts))) as [Hin_o | Hnin_o].
+      { left. exact (Hsa_dem _ Hin_o). }
+      right. split.
+      + apply Exists_exists. exists (rule_of r). split.
+        * cbn [node_prog_of spec_node_rules]. left. reflexivity.
+        * cbn [can_deduce_fact]. split.
+          -- exists ohyps. split; [exact Himpl | exact Hknown_dem].
+          -- intros mf_args num0 Hin_done Hmatch_done. apply Hnin_o.
+             eapply (no_disabler r n sdem (tdem ++ t_start) R mf_args num0
+                       (interp_agg agg vals :: oargs0) ohyps
+                       {| known_facts := []; waiting_facts := []; sent_facts := [] |} Tinit_dem);
+               try eassumption.
+             reflexivity.
+      + rewrite Forall_forall. intros r'' Hr''. cbn [ok_to_deduce_fact]. exact I.
   Admitted.
 
 End __.
