@@ -518,6 +518,111 @@ Section __.
              ++ cbn [waiting_facts]. reflexivity.
   Qed.
 
+  (* MULTIPLICITY-AWARE forcing.  [force_into_known] only guarantees set-membership
+     (it dedups); to reconstruct an aggregate's [Existsn cnt] we must drive the whole
+     [waiting] MULTISET into [known].  We track [waiting = osuf ++ extra] where [osuf]
+     is the not-yet-drained suffix of the target prefix and [known ⊇ oc] (the drained
+     part) as a multiset; a front dequeue moves one [osuf] element into [known]. *)
+  Lemma drain_step_form sp s e s' oc osuf extra kr :
+    s.(waiting_facts) = osuf ++ extra ->
+    Permutation s.(known_facts) (oc ++ kr) ->
+    spec_node_step sp s e s' ->
+    exists oc' osuf' extra' kr',
+      oc ++ osuf = oc' ++ osuf' /\
+      s'.(waiting_facts) = osuf' ++ extra' /\
+      Permutation s'.(known_facts) (oc' ++ kr') /\
+      length osuf' <= length osuf.
+  Proof.
+    intros Hw Hkn Hstep.
+    inversion Hstep as [rs input rest Hq | rs out Hnf | rs inp]; subst;
+      cbn [known_facts waiting_facts].
+    - (* dequeue front *)
+      destruct osuf as [|y osuf''].
+      + (* osuf empty: dequeued front is a demon fact, recorded into [known]/[kr] *)
+        exists oc, (@nil dfact), rest, (input :: kr).
+        split; [reflexivity|]. split; [reflexivity|]. split.
+        * eapply perm_trans; [apply perm_skip; exact Hkn|]. apply Permutation_middle.
+        * cbn [length]; lia.
+      + (* osuf = y :: osuf'': front y goes to known *)
+        cbn [app] in Hw. rewrite Hw in Hq. injection Hq as Hxy Hr.
+        subst input. subst rest.
+        exists (oc ++ [y]), osuf'', extra, kr. split.
+        * rewrite <- app_assoc. reflexivity.
+        * split; [reflexivity|]. split.
+          -- rewrite <- app_assoc. cbn [app].
+             eapply perm_trans; [apply perm_skip; exact Hkn|]. apply Permutation_middle.
+          -- cbn [length]; lia.
+    - (* deduce: known/waiting unchanged *)
+      exists oc, osuf, extra, kr. rewrite Hw.
+      split; [reflexivity|]. split; [reflexivity|]. split; [exact Hkn | lia].
+    - (* input: appended to back of extra *)
+      exists oc, osuf, (extra ++ [inp]), kr.
+      rewrite Hw, <- app_assoc. split; [reflexivity|]. split; [reflexivity|].
+      split; [exact Hkn | lia].
+  Qed.
+
+  Lemma drain_form_star sp s :
+    forall oc osuf extra kr td sdem,
+      s.(waiting_facts) = osuf ++ extra ->
+      Permutation s.(known_facts) (oc ++ kr) ->
+      star (spec_node_step sp) s td sdem ->
+      exists oc' osuf' extra' kr',
+        oc ++ osuf = oc' ++ osuf' /\
+        sdem.(waiting_facts) = osuf' ++ extra' /\
+        Permutation sdem.(known_facts) (oc' ++ kr') /\
+        length osuf' <= length osuf.
+  Proof.
+    intros oc osuf extra kr td sdem Hw Hkn Hstar. revert oc osuf extra kr Hw Hkn.
+    induction Hstar as [s0 | s0 e s1 t0 s2 Hstep Hstar IH];
+      intros oc osuf extra kr Hw Hkn.
+    - exists oc, osuf, extra, kr. repeat (split; [try assumption; try reflexivity|]). lia.
+    - destruct (drain_step_form sp s0 e s1 oc osuf extra kr Hw Hkn Hstep)
+        as (oc1 & osuf1 & extra1 & kr1 & Hsplit1 & Hw1 & Hkn1 & Hle1).
+      destruct (IH oc1 osuf1 extra1 kr1 Hw1 Hkn1)
+        as (oc2 & osuf2 & extra2 & kr2 & Hsplit2 & Hw2 & Hkn2 & Hle2).
+      exists oc2, osuf2, extra2, kr2.
+      split; [rewrite <- Hsplit2, <- Hsplit1; reflexivity|].
+      split; [exact Hw2|]. split; [exact Hkn2 | lia].
+  Qed.
+
+  (* Force the whole queued multiset [orig = waiting(s)] into [known]: commit
+     [sl_dequeue] until the suffix is exhausted.  Conclusion is multiset (Permutation
+     to [orig ++ rest]), so an [Existsn] count over [orig] transfers to [known]. *)
+  Lemma force_drain sp (allowed : list dfact -> Prop) :
+    forall (n : nat) s t oc osuf extra kr,
+      length osuf <= n ->
+      s.(waiting_facts) = osuf ++ extra ->
+      Permutation s.(known_facts) (oc ++ kr) ->
+      eventually (can_step (spec_node_step sp) allowed)
+        (fun '(s', _) => exists rest, Permutation s'.(known_facts) ((oc ++ osuf) ++ rest))
+        (s, t).
+  Proof.
+    induction n as [|n IH]; intros s t oc osuf extra kr Hlen Hw Hkn.
+    - assert (osuf = []) by (destruct osuf; [reflexivity | cbn in Hlen; lia]). subst osuf.
+      apply eventually_done. rewrite app_nil_r. exists kr. exact Hkn.
+    - destruct osuf as [|y osuf'].
+      + apply eventually_done. rewrite app_nil_r. exists kr. exact Hkn.
+      + apply eventually_step_cps. exists sl_dequeue. intros sdem tdem Hstar Hallow.
+        destruct (drain_form_star sp s oc (y :: osuf') extra kr tdem sdem Hw Hkn Hstar)
+          as (ocd & osufd & extrad & krd & Hsplit & Hwd & Hknd & Hled).
+        destruct osufd as [|z osufd'].
+        * left. apply eventually_done. rewrite app_nil_r in Hsplit.
+          exists krd. rewrite Hsplit. exact Hknd.
+        * right. eexists. exists (@nil dfact). split.
+          -- eapply spec_node_dequeue_step. cbn [app] in Hwd. exact Hwd.
+          -- assert (Heq : (ocd ++ [z]) ++ osufd' = oc ++ (y :: osuf')).
+             { rewrite <- app_assoc. cbn [app]. symmetry. exact Hsplit. }
+             eapply eventually_weaken.
+             ++ eapply (IH _ _ (ocd ++ [z]) osufd' extrad krd).
+                ** cbn [length] in Hled, Hlen. lia.
+                ** cbn [waiting_facts]. reflexivity.
+                ** cbn [known_facts].
+                   eapply perm_trans; [apply perm_skip; exact Hknd|].
+                   rewrite <- app_assoc. cbn [app]. apply Permutation_middle.
+             ++ intros [s'' t''] (rest & Hperm). exists rest.
+                rewrite <- Heq. exact Hperm.
+  Qed.
+
   (* Every fact a node knows or has queued was either received as input or emitted
      as an output: [known ∪ waiting ⊆ inputs(trace) ∪ outputs(trace)].  This lets
      us conclude that a known non-input fact has actually been output. *)
