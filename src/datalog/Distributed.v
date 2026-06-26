@@ -1441,6 +1441,7 @@ Section __.
      A node fed consistent inputs ([consistent_inputs]) is live: whenever it
      [can_output] a fact, it [will_output] it (against an adversarial demon). *)
   Lemma spec_node_can_implies_will (np : spec_node_prog) :
+    meta_rules_valid np.(spec_node_rules) ->
     can_implies_will
       (spec_node_step np)
       node_allowed
