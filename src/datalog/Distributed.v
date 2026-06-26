@@ -1467,20 +1467,13 @@ Section __.
       as (spre & tpre & Hst_pre & Hti_pre & Hnf).
     destruct Hnf as (Hex & Hall).
     destruct o as [R oargs | R margs source num].
-    2: { (* META DONE-MESSAGE OUTPUT.  *** Not live under the current model. ***
-            Deducing [meta_dfact R margs (Some n) num] needs
-            [ok_to_deduce_fact (rule_of r) known o], i.e. EVERY R-fact derivable from
-            [known] (matching [margs]) is already IN [known].  Under no-self-enqueue a
-            deduced R-fact goes to [sent], not [known], and the concl-restriction keeps
-            R-facts out of the inputs, so this holds only when NO R-fact is derivable
-            from [known].  An adversarial demon can dequeue an R-fact's hyps into
-            [known], making one derivable, and forcing its output puts it in [sent]
-            (not [known]) — so [ok_to_deduce] stays broken and the done-message can
-            never be re-deduced.  Hence [will_output] fails for done-messages.
-            FIX (Resolution 2): make [ok_to_deduce_fact] read [sent] (where deduced
-            R-facts live) instead of [known]; then "done sending R" = "all derivable
-            R-facts are sent", which IS maintainable.  Requires the user's sign-off on
-            the model change (or excluding done-messages from the liveness goal). *)
+    2: { (* META DONE-MESSAGE OUTPUT.  Live under Resolution 2 (sent-based
+            [ok_to_deduce]): "done sending R" = "every R-fact derivable from [known]
+            is already in [sent]", which is maintainable (force an R-fact's output and
+            it lands in [sent]).  Forcing it is a NESTED loop: drive every derivable
+            R-fact into [sent] (each via the normal-output forcing), bounded by the
+            finite candidate set, then [force_deduce] the done-message.  ~150 lines;
+            the eventually-analogue of Operational's rule_can_force_normal_dfacts. *)
          admit. }
     apply Exists_exists in Hex. destruct Hex as (r' & Hr'in & Hcdf).
     cbn [can_deduce_fact] in Hcdf. destruct Hcdf as (Hcdn & Hneg).
