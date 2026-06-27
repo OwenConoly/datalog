@@ -1,5 +1,5 @@
 (*worth comparing to https://compcert.org/doc/html/compcert.common.Smallstep.html*)
-From Stdlib Require Import List.
+From Stdlib Require Import List Permutation.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
 
@@ -50,6 +50,14 @@ Section step.
   Context {state label message : Type}.
   Context (step : state -> IO_event label message -> state -> Prop).
   Context (allowed : list message -> Prop).
+  (* An equivalence on messages: the observation granularity.  Two messages a
+     node may treat interchangeably (here: done-messages equal modulo their count). *)
+  Context (equiv : message -> message -> Prop).
+  (* "Well-formedness" of a fact multiset: every meta-fact's claimed count is
+     matched by exactly that many normal facts of the form it describes (summing
+     over several meta-facts about the same form).  Abstract here; instantiated in
+     the datalog node by the count-consistency invariant. *)
+  Context (well_formed : list message -> Prop).
 
   Definition allowed_trace (t : list (IO_event label message)) := allowed (inputs_of t).
 
@@ -182,6 +190,9 @@ Section step.
         inputs_of t' = [] /\
         output_in_trace output (t' ++ t).
 
+  Definition can_output_equiv start t o :=
+    exists o', equiv o' o /\ can_output start t o'.
+
   Definition produces (init : state) (inputs : list message) (output : message) : Prop :=
     exists t ns,
       star step init t ns /\
@@ -191,6 +202,11 @@ Section step.
   Definition will_output start t (output : message) : Prop :=
     eventually can_step
       (fun '(_, t') => output_in_trace output t')
+      (start, t).
+
+  Definition will_output_equiv start t (output : message) : Prop :=
+    eventually can_step
+      (fun '(_, t') => exists o', equiv o' output /\ output_in_trace o' t')
       (start, t).
 
   Lemma will_implies_can :
@@ -361,6 +377,46 @@ Section step.
       incl (inputs_of t1) (inputs_of t2) ->
       can_output s1 t1 o ->
       can_output s2 t2 o.
+
+  (* [l1] is a sub-multiset of [l2]: [l2] is a permutation of [l1] plus some extra. *)
+  Definition submultiset (l1 l2 : list message) : Prop :=
+    exists rest, Permutation l2 (l1 ++ rest).
+
+  (* The [equiv]-classes occurring in [l1] also occur in [l2]: every element of
+     [l1] is [equiv] to some element of [l2].  ([incl] modulo [equiv].) *)
+  Definition incl_mod (l1 l2 : list message) : Prop :=
+    forall a, In a l1 -> exists b, In b l2 /\ equiv a b.
+
+  (* (1) Literal multiset monotonicity: a state reachable on inputs [t1] that can
+     output [o] can still do so on inputs that contain [t1]'s as a sub-multiset.
+     This is [monotone'] with multiset inclusion in place of set inclusion — the
+     version that survives the demon adding duplicate / extra messages. *)
+  Definition monotone_multiset :=
+    forall t1 t2 s1 s2 o,
+      star step initial t1 s1 ->
+      star step initial t2 s2 ->
+      allowed_trace t1 ->
+      allowed_trace t2 ->
+      submultiset (inputs_of t1) (inputs_of t2) ->
+      can_output s1 t1 o ->
+      can_output s2 t2 o.
+
+  (* (2) Well-formed monotonicity modulo [equiv]: among well-formed inputs,
+     [can_output] depends only on which [equiv]-classes are present, so enlarging
+     the set of classes preserves it.  This is the version that absorbs the
+     count-float ([done(M)] ~ [done(M')]): two well-formed inputs with the same
+     classes agree on what they can output. *)
+  Definition monotone_mod_equiv :=
+    forall t1 t2 s1 s2 o,
+      star step initial t1 s1 ->
+      star step initial t2 s2 ->
+      allowed_trace t1 ->
+      allowed_trace t2 ->
+      well_formed (inputs_of t1) ->
+      well_formed (inputs_of t2) ->
+      incl_mod (inputs_of t1) (inputs_of t2) ->
+      can_output s1 t1 o ->
+      can_output_equiv s2 t2 o.
 
   Lemma ciw'_iff_ciw_and_monotone' :
     can_implies_will' <-> can_implies_will /\ monotone'.
