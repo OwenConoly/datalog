@@ -25,6 +25,8 @@ Section __.
   Context {label : Type}.
   Context (input_allowed : node_id -> message -> bool).
   Context (forward : node_id -> message -> list node_id).
+  (* A message is forwarded to a given node at most once per emission. *)
+  Context (forward_nodup : forall n m, NoDup (forward n m)).
   Context (output_visible : node_id -> message -> bool).
 
   Context (A : list message -> Prop).
@@ -687,6 +689,95 @@ Section __.
       intros Hgood n np ns0 Hp Hns0.
       pose proof (Hgood n) as Hn. rewrite Hp, Hns0 in Hn.
       destruct ns0 as [ns tr]. exact Hn.
+    Qed.
+
+    (* ---- submultiset helpers (used by [node_inputs_allowed]) ---- *)
+    Lemma sub_nil (l : list message) : submultiset [] l.
+    Proof. exists l. reflexivity. Qed.
+
+    Lemma sub_cons (x : message) (a b : list message) :
+      submultiset a b -> submultiset (x :: a) (x :: b).
+    Proof. intros (rest & Hp). exists rest. cbn. apply perm_skip. exact Hp. Qed.
+
+    Lemma sub_app_r (a b c : list message) :
+      submultiset a b -> submultiset a (b ++ c).
+    Proof.
+      intros (rest & Hp). exists (rest ++ c).
+      rewrite app_assoc. apply Permutation_app_tail. exact Hp.
+    Qed.
+
+    Lemma sub_app_mono (a1 b1 a2 b2 : list message) :
+      submultiset a1 b1 -> submultiset a2 b2 -> submultiset (a1 ++ a2) (b1 ++ b2).
+    Proof.
+      intros (r1 & H1) (r2 & H2). exists (r1 ++ r2).
+      eapply perm_trans; [apply Permutation_app; eassumption|].
+      rewrite <- !app_assoc. apply Permutation_app_head.
+      rewrite !app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
+    Qed.
+
+    Lemma sub_trans (a b c : list message) :
+      submultiset a b -> submultiset b c -> submultiset a c.
+    Proof.
+      intros (r1 & H1) (r2 & H2). exists (r1 ++ r2).
+      eapply perm_trans; [exact H2|].
+      eapply perm_trans; [apply Permutation_app_tail; exact H1|].
+      rewrite <- app_assoc. reflexivity.
+    Qed.
+
+    Lemma sub_perm_r (a b b' : list message) :
+      Permutation b b' -> submultiset a b -> submultiset a b'.
+    Proof. intros Hp (rest & H). exists rest. eapply perm_trans; [symmetry; exact Hp | exact H]. Qed.
+
+    Lemma sub_perm_l (a a' b : list message) :
+      Permutation a a' -> submultiset a b -> submultiset a' b.
+    Proof. intros Hp (rest & H). exists rest. eapply perm_trans; [exact H | apply Permutation_app_tail; exact Hp]. Qed.
+
+    Lemma sub_map_fst {B} (a b : list (message * B)) :
+      submultiset a b -> submultiset (map fst a) (map fst b).
+    Proof.
+      intros (rest & H). exists (map fst rest).
+      rewrite <- map_app. apply Permutation_map. exact H.
+    Qed.
+
+    (* The total emitted-output multiset over all nodes (the [concat fss] of a
+       [well_formed_g] pool). *)
+    Definition node_outputs_total (m : node_states) : list message :=
+      concat (map (fun k => match map.get m k with
+                            | Some (_, t) => outputs_of t | None => [] end) all_nodes).
+
+    (* [node_outputs_total] decomposes, around node [ni], into [ni]'s contribution
+       plus a [rest] that is unaffected by updating [ni]'s entry. *)
+    Lemma node_outputs_total_put (m : node_states) (ni : node_id)
+        (v : node_state * list IO_event) :
+      In ni all_nodes -> NoDup all_nodes ->
+      exists rest,
+        Permutation (node_outputs_total m)
+          ((match map.get m ni with Some (_, t) => outputs_of t | None => [] end) ++ rest) /\
+        Permutation (node_outputs_total (map.put m ni v)) (outputs_of (snd v) ++ rest).
+    Proof.
+      intros Hin Hnd. destruct v as [xv tv]. apply in_split in Hin as (la & lb & Heq).
+      rewrite Heq in Hnd. apply NoDup_remove_2 in Hnd.
+      assert (Hla : ~ In ni la) by (intro; apply Hnd; apply in_or_app; left; assumption).
+      assert (Hlb : ~ In ni lb) by (intro; apply Hnd; apply in_or_app; right; assumption).
+      exists (concat (map (fun k => match map.get m k with Some (_, t) => outputs_of t | None => [] end) la)
+              ++ concat (map (fun k => match map.get m k with Some (_, t) => outputs_of t | None => [] end) lb)).
+      assert (Hla' : forall (M : node_states),
+                map (fun k => match map.get (map.put M ni (xv, tv)) k with Some (_,t)=>outputs_of t|None=>[] end) la
+                = map (fun k => match map.get M k with Some (_,t)=>outputs_of t|None=>[] end) la).
+      { intro M. apply map_ext_in. intros k Hk. rewrite map.get_put_diff; [reflexivity|].
+        intro; subst; contradiction. }
+      assert (Hlb' : forall (M : node_states),
+                map (fun k => match map.get (map.put M ni (xv, tv)) k with Some (_,t)=>outputs_of t|None=>[] end) lb
+                = map (fun k => match map.get M k with Some (_,t)=>outputs_of t|None=>[] end) lb).
+      { intro M. apply map_ext_in. intros k Hk. rewrite map.get_put_diff; [reflexivity|].
+        intro; subst; contradiction. }
+      split.
+      - unfold node_outputs_total. rewrite Heq, map_app. cbn [map].
+        rewrite concat_app. cbn [concat]. apply Permutation_app_swap_app.
+      - unfold node_outputs_total. rewrite Heq, map_app. cbn [map].
+        rewrite concat_app. cbn [concat].
+        rewrite map.get_put_same, Hla' with (M := m), Hlb' with (M := m).
+        apply Permutation_app_swap_app.
     Qed.
 
     (* The [A_total] replacement: at a reachable graph state, a node's received
