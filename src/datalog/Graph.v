@@ -36,6 +36,13 @@ Section __.
      is the global in-flight pool: every node's well-formed output bundle together
      with the (projected) external inputs. *)
   Context (equiv : message -> message -> Prop).
+  (* [equiv] is an equivalence (the modulo reasoning weakens [will_output_equiv]
+     across [equiv]-related outputs). *)
+  Context (equiv_refl : forall m, equiv m m).
+  Context (equiv_trans : forall a b c, equiv a b -> equiv b c -> equiv a c).
+  (* Visibility cannot distinguish [equiv]-related outputs. *)
+  Context (output_visible_equiv :
+             forall n a b, equiv a b -> output_visible n a = output_visible n b).
   Context (well_formed : node_id -> list message -> Prop).
   Context (well_formed_inputs : list (message * node_id) -> Prop).
   Context (all_nodes : list node_id).
@@ -114,6 +121,11 @@ Section __.
     Context (initial_ns_empty :
                forall n x, map.get initial_ns n = Some x -> snd x = []).
     Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
+    (* [all_nodes] enumerates exactly the program's nodes (needed so [well_formed_g]'s
+       per-node bundles cover every producer). *)
+    Context (all_nodes_keys :
+               NoDup all_nodes /\
+               (forall n, In n all_nodes <-> exists np, map.get p n = Some np)).
 
     Definition initial_graph_state : graph_state :=
       {| g_nodes := initial_ns; g_messages := [] |}.
@@ -660,6 +672,37 @@ Section __.
       apply (ciw'_iff_ciw_and_monotone' (node_step np) A (fst ns0)) in Hn. exact Hn.
     Qed.
 
+    (* The modulo-[equiv] analogue: read the four [node_good] obligations off the
+       per-node hypothesis at a node's bare initial state. *)
+    Lemma pernode_spec_good :
+      Forall2_map node_good p initial_ns ->
+      forall n np ns0,
+        map.get p n = Some np ->
+        map.get initial_ns n = Some ns0 ->
+        outputs_well_formed    (node_step np)       (well_formed n) (fst ns0) /\
+        monotone_multiset      (node_step np)       well_formed_g   (fst ns0) /\
+        monotone_mod_equiv     (node_step np) equiv well_formed_g   (fst ns0) /\
+        can_implies_will_equiv (node_step np) equiv well_formed_g   (fst ns0).
+    Proof.
+      intros Hgood n np ns0 Hp Hns0.
+      pose proof (Hgood n) as Hn. rewrite Hp, Hns0 in Hn.
+      destruct ns0 as [ns tr]. exact Hn.
+    Qed.
+
+    (* The [A_total] replacement: at a reachable graph state, a node's received
+       inputs are allowed w.r.t. the global pool [well_formed_g] -- they are a
+       submultiset of (every node's well-formed output bundle ++ external inputs). *)
+    Lemma node_inputs_allowed :
+      Forall2_map node_good p initial_ns ->
+      forall T gs, star gstep initial_graph_state T gs ->
+        allowed well_formed_inputs (inputs_of T) ->
+        forall n np ns tn,
+          map.get p n = Some np ->
+          map.get gs.(g_nodes) n = Some (ns, tn) ->
+          allowed well_formed_g (inputs_of tn).
+    Proof.
+    Admitted.
+
     (* Simulation used to replay an input-free witness from a dominating state.
        gsB dominates gsA: every node of gsB is reached with an input-set that
        includes gsA's (so it can do at least as much, via monotone'), and every
@@ -843,6 +886,36 @@ Section __.
           apply (Hostep _ _ _ _ _ (Hstarp _ _ _ _ HR Hstar_d) Hstep).
     Qed.
 
+    (* Same carry, against the modulo development's graph well-formedness. *)
+    Lemma eventually_carry_inv2_wf :
+      forall (R : graph_state -> list gevent -> Prop),
+        (forall gs tt t_d s_d, R gs tt ->
+           star gstep gs t_d s_d -> R s_d (t_d ++ tt)) ->
+        (forall gs tt glbl outs gs', R gs tt ->
+           gstep gs (O_event glbl outs) gs' -> R gs' (O_event glbl outs :: tt)) ->
+        forall (P : graph_state * list gevent -> Prop) gs tt,
+          R gs tt ->
+          eventually (will_step gstep well_formed_inputs) P (gs, tt) ->
+          eventually (will_step gstep well_formed_inputs)
+            (fun '(gs', t') => P (gs', t') /\ R gs' t') (gs, tt).
+    Proof.
+      intros R Hstarp Hostep P gs tt HR Hev.
+      remember (gs, tt) as st eqn:Est. revert gs tt HR Est.
+      induction Hev as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
+        intros gs tt HR [= -> ->].
+      - apply eventually_done. split; [exact HP | exact HR].
+      - destruct Hcan as [glbl Hcan].
+        apply eventually_step_cps. exists glbl.
+        intros gs_d t_d Hstar_d Hallow.
+        specialize (Hcan gs_d t_d Hstar_d Hallow).
+        destruct Hcan as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
+        + left. apply (IH (gs_d, t_d ++ tt) Hmid_left gs_d (t_d ++ tt)
+                          (Hstarp _ _ _ _ HR Hstar_d) eq_refl).
+        + right. exists s'', outs. split; [exact Hstep|].
+          apply (IH _ Hmidset s'' (O_event glbl outs :: t_d ++ tt)); [|reflexivity].
+          apply (Hostep _ _ _ _ _ (Hstarp _ _ _ _ HR Hstar_d) Hstep).
+    Qed.
+
     (* The node-state domain is invariant under runs: any node with a state in a
        later graph state already had one at the start. *)
     Lemma dom_preserved :
@@ -913,6 +986,26 @@ Section __.
       destruct (node_run _ _ HT n np ns0 ns t Hp Hns0 Hg) as (Hrun & _).
       destruct (pernode_spec Hpernode n np ns0 Hp Hns0) as (Hciw & _).
       apply (Hciw t ns o Hrun (allowed_trace_universal A A_univ t) Hcan).
+    Qed.
+
+    (* Modulo-[equiv] analogue of [node_will]: a node capability at a reachable
+       graph state is a node-level [will_output_equiv], via [can_implies_will_equiv]
+       and [node_inputs_allowed]. *)
+    Lemma node_will_equiv :
+      Forall2_map node_good p initial_ns ->
+      forall n np, map.get p n = Some np ->
+      forall T gs ns t, star gstep initial_graph_state T gs ->
+        allowed well_formed_inputs (inputs_of T) ->
+        map.get gs.(g_nodes) n = Some (ns, t) ->
+      forall o, might_output (node_step np) ns t o ->
+                will_output_equiv (node_step np) equiv well_formed_g ns t o.
+    Proof.
+      intros Hgood n np Hp T gs ns t HT Hall Hg o Hcan.
+      destruct (reachable_state_initial _ _ HT n _ Hg) as (ns0 & Hns0).
+      destruct (node_run _ _ HT n np ns0 ns t Hp Hns0 Hg) as (Hrun & _).
+      destruct (pernode_spec_good Hgood n np ns0 Hp Hns0) as (_ & _ & _ & Hciw).
+      apply (Hciw t ns o Hrun
+               (node_inputs_allowed Hgood T gs HT Hall n np ns t Hp Hg) Hcan).
     Qed.
 
     Lemma core_dom_refl : forall gs, core_dom gs gs.
@@ -1159,6 +1252,103 @@ Section __.
                     TX' gs' HTX' HdomC1 t').
     Qed.
 
+    (* Modulo-[equiv] domination: like [core_dom] but a dominated node need only
+       have received each message up to [equiv] ([incl_mod]), and a queued message
+       is matched up to [equiv]. *)
+    Definition node_received_mod (gs : @graph_state node_state node_states)
+        (n : node_id) (mu : message) : Prop :=
+      exists ns t mu', map.get gs.(g_nodes) n = Some (ns, t) /\
+                       In mu' (inputs_of t) /\ equiv mu mu'.
+
+    Definition core_dom_mod (gsA gsB : @graph_state node_state node_states) : Prop :=
+      (forall n nsA tA,
+         map.get gsA.(g_nodes) n = Some (nsA, tA) ->
+         exists nsB tB,
+           map.get gsB.(g_nodes) n = Some (nsB, tB) /\
+           incl_mod equiv (inputs_of tA) (inputs_of tB))
+      /\
+      (forall n m, In (n, m) gsA.(g_messages) ->
+         (exists m', In (n, m') gsB.(g_messages) /\ equiv m m') \/ node_received_mod gsB n m).
+
+    (* Modulo capability transfer: a node capability at [gs1] survives, up to
+       [equiv], to any [incl_mod]-dominating reachable [gs2].  Uses the node's
+       [monotone_multiset]/[monotone_mod_equiv] obligations (see plan question (A):
+       the [well_formed_g] preconditions are the open point). *)
+    Lemma node_cap_transfer_equiv :
+      Forall2_map node_good p initial_ns ->
+      forall n np, map.get p n = Some np ->
+      forall T1 gs1 ns1 t1, star gstep initial_graph_state T1 gs1 ->
+        allowed well_formed_inputs (inputs_of T1) ->
+        map.get gs1.(g_nodes) n = Some (ns1, t1) ->
+      forall T2 gs2 ns2 t2, star gstep initial_graph_state T2 gs2 ->
+        allowed well_formed_inputs (inputs_of T2) ->
+        map.get gs2.(g_nodes) n = Some (ns2, t2) ->
+        incl_mod equiv (inputs_of t1) (inputs_of t2) ->
+      forall o, might_output (node_step np) ns1 t1 o ->
+                might_output_equiv (node_step np) equiv ns2 t2 o.
+    Proof.
+    Admitted.
+
+    (* Modulo analogue of [force_dominator]: drive the graph to a state that
+       [core_dom_mod]-dominates [gs_pre], staying reachable-and-allowed.  Forces node
+       emissions via the modulo node liveness, so domination is up to [equiv].
+       (Open: allowedness must be threaded along [will_step] paths -- needs a
+       [will_step]-respecting carry combinator, unlike the [A_total] version.) *)
+    Lemma force_dominator_equiv :
+      nodes_input_total ->
+      Forall2_map node_good p initial_ns ->
+      forall TC gsC gs_pre, star gstep gsC TC gs_pre ->
+      inputs_of TC = [] ->
+      forall TC0, star gstep initial_graph_state TC0 gsC ->
+      forall TX gsX, star gstep initial_graph_state TX gsX ->
+      core_dom gsC gsX ->
+      forall t, allowed well_formed_inputs (inputs_of t) ->
+      eventually (will_step gstep well_formed_inputs)
+        (fun '(gs', t') =>
+           core_dom_mod gs_pre gs' /\
+           (exists T', star gstep initial_graph_state T' gs' /\
+                       allowed well_formed_inputs (inputs_of T')))
+        (gsX, t).
+    Proof.
+    Admitted.
+
+    (* Modulo analogue of [drive_node_must]: a node that will (modulo [equiv]) emit
+       [o] is driven, at the graph level, to emit some [equiv_g]-relative of [(o,n)].
+       (Open: node-allowedness discharge via [node_inputs_allowed] needs the driven
+       state's reachability+allowedness; visibility must respect [equiv].) *)
+    Lemma drive_node_must_equiv :
+      Forall2_map node_good p initial_ns ->
+      forall (np : node_prog) (n : node_id) (o : message),
+        map.get p n = Some np ->
+        output_visible n o = true ->
+        forall (s : node_state * list IO_event),
+          eventually (will_step (node_step np) well_formed_g)
+                     (fun '(_, t') => exists o', equiv o' o /\ In o' (outputs_of t')) s ->
+          forall T gs t,
+            star gstep initial_graph_state T gs ->
+            allowed well_formed_inputs (inputs_of T) ->
+            (exists tr, map.get gs.(g_nodes) n = Some (fst s, tr)) ->
+            ((exists o', equiv o' o /\ In o' (outputs_of (snd s))) ->
+             exists go, equiv_g go (o, n) /\ In go (outputs_of t)) ->
+            eventually (will_step gstep well_formed_inputs)
+                       (fun '(_, t') => exists go, equiv_g go (o, n) /\ In go (outputs_of t'))
+                       (gs, t).
+    Proof.
+    Admitted.
+
+    (* Weaken the target output of a [will_output_equiv] across [equiv]. *)
+    Lemma will_output_equiv_weaken (np : node_prog) (s : node_state)
+        (tr : list IO_event) (a b : message) :
+      equiv a b ->
+      will_output_equiv (node_step np) equiv well_formed_g s tr a ->
+      will_output_equiv (node_step np) equiv well_formed_g s tr b.
+    Proof.
+      intros Hab Hwill. unfold will_output_equiv in *.
+      eapply eventually_weaken; [exact Hwill|].
+      intros [s' t'] (o'' & Ho'' & Hin). exists o''.
+      split; [eapply equiv_trans; eassumption | exact Hin].
+    Qed.
+
     (* The modulo-[equiv] whole-graph liveness: from the per-node [node_good]
        bundle, the graph is live up to [equiv_g] for external inputs that are a
        submultiset of a [well_formed_inputs] set. *)
@@ -1167,7 +1357,77 @@ Section __.
       Forall2_map node_good p initial_ns ->
       can_implies_will_equiv gstep equiv_g well_formed_inputs initial_graph_state.
     Proof.
-    Admitted.
+      intros Hit Hgood t gs o Hstar Hall Hcan.
+      destruct o as (omsg, on).
+      destruct Hcan as (T_a & s_f & Hstar_a & Hinp_a & Hout).
+      apply outputs_of_in_app in Hout as [Hout_T | Hout_t].
+      2: { apply eventually_done. exists (omsg, on).
+           split; [split; [reflexivity | apply equiv_refl] | exact Hout_t]. }
+      destruct (find_producing_step _ _ _ Hstar_a Hinp_a omsg on Hout_T)
+        as (T_pre & T_post & np_o & ns_o & ns_o' & t_o & outs_o & lbl_o
+            & gs_pre & gs_post & Heq_T & Hstar_pre_a & Hstep_prod
+            & Hstar_post_a & Hinp_pre & Hp_o & Hg_o & Hns_o & Hino_o & Hvis_o).
+      pose proof (star_app _ _ _ _ _ _ Hstar Hstar_pre_a) as Hstar_to_pre.
+      assert (Harmed : might_output (node_step np_o) ns_o t_o omsg).
+      { exists [O_event lbl_o outs_o], ns_o'. split; [econstructor; [exact Hns_o | constructor]|].
+        split; [reflexivity|]. apply outputs_of_in_app. left.
+        rewrite outputs_of_O_cons. apply in_or_app. left. exact Hino_o. }
+      destruct (reachable_state_initial _ _ Hstar_to_pre on _ Hg_o) as (ns0o & Hns0o).
+      (* Carry the modulo output-reflection through the drive. *)
+      set (R := fun (g : graph_state) (tt : list gevent) =>
+                  reachable g /\
+                  (forall ns tn, map.get g.(g_nodes) on = Some (ns, tn) ->
+                     (exists o', equiv o' omsg /\ In o' (outputs_of tn)) ->
+                     exists go, equiv_g go (omsg, on) /\ In go (outputs_of tt))).
+      assert (HR_init : R gs t).
+      { split; [exists t; exact Hstar|].
+        intros ns tn Hg (o' & Heqo' & Hotn).
+        destruct (node_run _ _ Hstar on np_o ns0o ns tn Hp_o Hns0o Hg) as (_ & Hpres).
+        exists (o', on). split; [split; [reflexivity | exact Heqo']|].
+        apply (Hpres o' (eq_trans (output_visible_equiv on _ _ Heqo') Hvis_o) Hotn). }
+      assert (Hstarp : forall g tt t_d s_d, R g tt ->
+                star gstep g t_d s_d -> R s_d (t_d ++ tt)).
+      { intros g tt t_d s_d [(Tg & HTg) Href] Hs. split.
+        - exists (Tg ++ t_d). eapply star_app; eassumption.
+        - intros ns tn Hgsd (o' & Heqo' & Hotn).
+          destruct (project_node_gen _ _ HTg on np_o ns0o Hp_o Hns0o)
+            as (taug & nsg & _ & Hgg & _).
+          destruct (node_drive_delta _ _ _ Hs on np_o nsg taug Hp_o Hgg)
+            as (nsd & td & Hgd & _ & Hpresd).
+          assert (tn = taug ++ td) by congruence. subst tn.
+          apply outputs_of_in_app in Hotn as [Ho | Ho].
+          + destruct (Href nsg taug Hgg (ex_intro _ o' (conj Heqo' Ho)))
+              as (go & Hgo & Hingo).
+            exists go. split; [exact Hgo|]. apply outputs_of_in_app. right. exact Hingo.
+          + pose proof (Hpresd o' (eq_trans (output_visible_equiv on _ _ Heqo') Hvis_o) Ho)
+              as Hgtag.
+            exists (o', on). split; [split; [reflexivity | exact Heqo']|].
+            apply outputs_of_in_app. left. exact Hgtag. }
+      assert (Hostep : forall g tt glbl outs g', R g tt ->
+                gstep g (O_event glbl outs) g' -> R g' (O_event glbl outs :: tt)).
+      { intros g tt glbl outs g' HR Hstep'.
+        apply (Hstarp g tt [O_event glbl outs] g' HR).
+        econstructor; [exact Hstep' | constructor]. }
+      eapply eventually_trans.
+      { apply (eventually_carry_inv2_wf R Hstarp Hostep _ gs t HR_init
+                 (force_dominator_equiv Hit Hgood T_pre gs gs_pre Hstar_pre_a Hinp_pre
+                    t Hstar t gs Hstar (core_dom_refl gs) t Hall)). }
+      intros [gsStar tStar] ((Hdomstar & (TStar & HTStar & HallStar)) & HRStar).
+      destruct Hdomstar as [Hds_n _].
+      destruct (Hds_n on ns_o t_o Hg_o) as (nsS & tS & HgS & HinclS).
+      assert (HcanS : might_output_equiv (node_step np_o) equiv nsS tS omsg).
+      { apply (node_cap_transfer_equiv Hgood on np_o Hp_o
+                 _ gs_pre ns_o t_o Hstar_to_pre
+                 ltac:(rewrite inputs_of_app, Hinp_pre, app_nil_r; exact Hall) Hg_o
+                 _ gsStar nsS tS HTStar HallStar HgS HinclS omsg Harmed). }
+      destruct HcanS as (o' & Heqo' & HcanS').
+      pose proof (node_will_equiv Hgood on np_o Hp_o TStar gsStar nsS tS HTStar HallStar HgS
+                    o' HcanS') as Hwillo.
+      apply (drive_node_must_equiv Hgood np_o on omsg Hp_o Hvis_o (nsS, tS)
+               (will_output_equiv_weaken _ _ _ _ _ Heqo' Hwillo)
+               TStar gsStar tStar HTStar HallStar
+               (ex_intro _ tS HgS) (proj2 HRStar nsS tS HgS)).
+    Qed.
   End graph.
 
   Section graphs.
