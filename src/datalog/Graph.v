@@ -1622,12 +1622,18 @@ Section __.
       exists ns t mu', map.get gs.(g_nodes) n = Some (ns, t) /\
                        In mu' (inputs_of t) /\ equiv mu mu'.
 
+    (* Domination up to [equiv]: each node in [gsB] has received a complete
+       well-formed pool that covers (up to [equiv]) every well-formed pool of its
+       [gsA] inputs -- exactly the supermultiset-of-a-well_formed_g-set condition the
+       capability transfer needs. *)
     Definition core_dom_mod (gsA gsB : @graph_state node_state node_states) : Prop :=
       (forall n nsA tA,
          map.get gsA.(g_nodes) n = Some (nsA, tA) ->
          exists nsB tB,
            map.get gsB.(g_nodes) n = Some (nsB, tB) /\
-           incl_mod equiv (inputs_of tA) (inputs_of tB))
+           well_formed_g (inputs_of tB) /\
+           (forall W, well_formed_g W -> submultiset (inputs_of tA) W ->
+              incl_mod equiv W (inputs_of tB)))
       /\
       (forall n m, In (n, m) gsA.(g_messages) ->
          (exists m', In (n, m') gsB.(g_messages) /\ equiv m m') \/ node_received_mod gsB n m).
@@ -1638,18 +1644,40 @@ Section __.
        the [well_formed_g] preconditions are the open point). *)
     Lemma node_cap_transfer_equiv :
       Forall2_map node_good p initial_ns ->
+      nodes_input_total ->
       forall n np, map.get p n = Some np ->
       forall T1 gs1 ns1 t1, star gstep initial_graph_state T1 gs1 ->
         allowed well_formed_inputs (inputs_of T1) ->
         map.get gs1.(g_nodes) n = Some (ns1, t1) ->
       forall T2 gs2 ns2 t2, star gstep initial_graph_state T2 gs2 ->
-        allowed well_formed_inputs (inputs_of T2) ->
         map.get gs2.(g_nodes) n = Some (ns2, t2) ->
-        incl_mod equiv (inputs_of t1) (inputs_of t2) ->
+        well_formed_g (inputs_of t2) ->
+        (forall W, well_formed_g W -> submultiset (inputs_of t1) W ->
+           incl_mod equiv W (inputs_of t2)) ->
       forall o, might_output (node_step np) ns1 t1 o ->
                 might_output_equiv (node_step np) equiv ns2 t2 o.
     Proof.
-    Admitted.
+      intros Hgood Hit n np Hp T1 gs1 ns1 t1 HT1 Hall1 Hg1 T2 gs2 ns2 t2 HT2 Hg2 Hwf2 Hcover o Hmight.
+      pose proof (node_inputs_allowed Hgood T1 gs1 HT1 Hall1 n np ns1 t1 Hp Hg1) as Hallowed1.
+      destruct Hallowed1 as (W1 & Hwf1 & Hsub1).
+      pose proof (Hcover W1 Hwf1 Hsub1) as Hincl.
+      destruct (reachable_state_initial _ _ HT1 n _ Hg1) as (ns0 & Hns0).
+      destruct (node_run _ _ HT1 n np ns0 ns1 t1 Hp Hns0 Hg1) as (Hrun1 & _).
+      destruct (node_run _ _ HT2 n np ns0 ns2 t2 Hp Hns0 Hg2) as (Hrun2 & _).
+      destruct (pernode_spec_good Hgood n np ns0 Hp Hns0) as (_ & Hmono_mult & Hmono_eq & _).
+      destruct (star_recv (node_step np) (Hit n np Hp) W1 (fst ns0)) as (trW & sW & HstarW & HinpW).
+      assert (Hmight_W : might_output (node_step np) sW trW o).
+      { apply (Hmono_mult t1 trW ns1 sW o Hrun1 HstarW).
+        - exact (ex_intro _ W1 (conj Hwf1 Hsub1)).
+        - rewrite HinpW. apply allowed_intro. exact Hwf1.
+        - rewrite HinpW. exact Hsub1.
+        - exact Hmight. }
+      apply (Hmono_eq trW t2 sW ns2 o HstarW Hrun2).
+      - rewrite HinpW. exact Hwf1.
+      - exact Hwf2.
+      - rewrite HinpW. exact Hincl.
+      - exact Hmight_W.
+    Qed.
 
     (* Modulo analogue of [force_dominator]: drive the graph to a state that
        [core_dom_mod]-dominates [gs_pre], staying reachable-and-allowed.  Forces node
@@ -1867,12 +1895,12 @@ Section __.
                     t Hstar t gs Hstar (core_dom_refl gs) t Hall (Permutation_refl _))). }
       intros [gsStar tStar] ((Hdomstar & (TStar & HTStar & HallStar & HpermStar)) & HRStar).
       destruct Hdomstar as [Hds_n _].
-      destruct (Hds_n on ns_o t_o Hg_o) as (nsS & tS & HgS & HinclS).
+      destruct (Hds_n on ns_o t_o Hg_o) as (nsS & tS & HgS & Hwf_tS & Hcover_S).
       assert (HcanS : might_output_equiv (node_step np_o) equiv nsS tS omsg).
-      { apply (node_cap_transfer_equiv Hgood on np_o Hp_o
+      { apply (node_cap_transfer_equiv Hgood Hit on np_o Hp_o
                  _ gs_pre ns_o t_o Hstar_to_pre
                  ltac:(rewrite inputs_of_app, Hinp_pre, app_nil_r; exact Hall) Hg_o
-                 _ gsStar nsS tS HTStar HallStar HgS HinclS omsg Harmed). }
+                 _ gsStar nsS tS HTStar HgS Hwf_tS Hcover_S omsg Harmed). }
       destruct HcanS as (o' & Heqo' & HcanS').
       pose proof (node_will_equiv Hgood on np_o Hp_o TStar gsStar nsS tS HTStar HallStar HgS
                     o' HcanS') as Hwillo.
