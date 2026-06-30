@@ -1,6 +1,7 @@
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From Stdlib Require Import List PeanoNat Permutation.
+From Stdlib Require Import RelationClasses.
 From Datalog Require Import Smallstep Map.
 Import ListNotations.
 
@@ -54,10 +55,15 @@ Section __.
      is the global in-flight pool: every node's well-formed output bundle together
      with the (projected) external inputs. *)
   Context (equiv : message -> message -> Prop).
-  (* [equiv] is an equivalence (the modulo reasoning weakens [will_output_equiv]
-     across [equiv]-related outputs). *)
-  Context (equiv_refl : forall m, equiv m m).
-  Context (equiv_trans : forall a b c, equiv a b -> equiv b c -> equiv a c).
+  (* [equiv] is an equivalence relation (the standard [Stdlib] bundle of
+     reflexivity/symmetry/transitivity); the modulo reasoning weakens
+     [will_output_equiv] across [equiv]-related outputs, and the capability
+     transfer's delivery needs symmetry. *)
+  Context (equiv_equiv : Equivalence equiv).
+  Local Definition equiv_refl : forall m, equiv m m := Equivalence_Reflexive.
+  Local Definition equiv_sym : forall a b, equiv a b -> equiv b a := Equivalence_Symmetric.
+  Local Definition equiv_trans : forall a b c, equiv a b -> equiv b c -> equiv a c :=
+    Equivalence_Transitive.
   (* Visibility cannot distinguish [equiv]-related outputs. *)
   Context (output_visible_equiv :
              forall n a b, equiv a b -> output_visible n a = output_visible n b).
