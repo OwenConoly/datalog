@@ -164,7 +164,7 @@ Section step.
   Qed.
 
   (*some fairness condition: we can eventually take the step that we want.*)
-  Definition can_step '(s, t) (P : state * list (IO_event label message) -> Prop) : Prop :=
+  Definition will_step '(s, t) (P : state * list (IO_event label message) -> Prop) : Prop :=
     exists lbl,
     forall s' t',
       star step s t' s' ->
@@ -174,7 +174,7 @@ Section step.
           step s' (O_event lbl outs) s'' /\
             P (s'', O_event lbl outs :: t' ++ t).
 
-  (*this is not used anywhere, but without it can_step is a bit weird, since it allows
+  (*this is not used anywhere, but without it will_step is a bit weird, since it allows
     the good step to depend on the prior arbitrary sequence of steps.
     maybe we will want it later?*)
   Definition label_precise :=
@@ -183,10 +183,10 @@ Section step.
       step s (O_event lbl outs2) s2' ->
       outs1 = outs2 /\ s1' = s2'.
 
-  Lemma eventually_can_step_to_star :
+  Lemma eventually_will_step_to_star :
     forall (P : state * list (IO_event label message) -> Prop) s t,
       allowed (inputs_of t) ->
-      eventually can_step P (s, t) ->
+      eventually will_step P (s, t) ->
       exists s' tr,
         star step s tr s' /\
         inputs_of tr = [] /\
@@ -213,14 +213,14 @@ Section step.
         cbn. rewrite <- app_assoc. cbn. exact HP.
   Qed.
 
-  Definition can_output start t output :=
+  Definition might_output start t output :=
     exists t' s',
       star step start t' s' /\
         inputs_of t' = [] /\
         In output (outputs_of (t' ++ t)).
 
-  Definition can_output_equiv start t o :=
-    exists o', equiv o' o /\ can_output start t o'.
+  Definition might_output_equiv start t o :=
+    exists o', equiv o' o /\ might_output start t o'.
 
   Definition produces (init : state) (inputs : list message) (output : message) : Prop :=
     exists t ns,
@@ -229,12 +229,12 @@ Section step.
       In output (outputs_of t).
 
   Definition will_output start t (output : message) : Prop :=
-    eventually can_step
+    eventually will_step
       (fun '(_, t') => In output (outputs_of t'))
       (start, t).
 
   Definition will_output_equiv start t (output : message) : Prop :=
-    eventually can_step
+    eventually will_step
       (fun '(_, t') => exists o', equiv o' output /\ In o' (outputs_of t'))
       (start, t).
 
@@ -242,7 +242,7 @@ Section step.
     forall s t o,
       allowed (inputs_of t) ->
       will_output s t o ->
-      can_output s t o.
+      might_output s t o.
   Proof.
     intros s0 t0 o Hall Hwill.
     cbv [will_output] in Hwill.
@@ -252,7 +252,7 @@ Section step.
       intros s0 t0 Hall [= -> ->].
     - exists [], s0. split; [constructor|].
       split; [reflexivity|exact HP].
-    - cbv [can_step] in Hcan. destruct Hcan as [lbl Hcan].
+    - cbv [will_step] in Hcan. destruct Hcan as [lbl Hcan].
       specialize (Hcan s0 [] (star_refl _ _)).
       cbn in Hcan. specialize (Hcan Hall).
       destruct Hcan as [Hmid0 | (s'' & outs & Hstep & Hmidset)].
@@ -270,9 +270,9 @@ Section step.
   Lemma eventually_swap :
     forall (o : message) (s : state) (t1 t2 : list (IO_event label message)),
       Permutation t1 t2 ->
-      eventually can_step
+      eventually will_step
                  (fun '(_, t') => In o (outputs_of t')) (s, t1) ->
-      eventually can_step
+      eventually will_step
                  (fun '(_, t') => In o (outputs_of t')) (s, t2).
   Proof.
     intros o s t1 t2 Hperm Hev.
@@ -316,7 +316,7 @@ Section step.
       intros s_d t_d Hstar_d Hallow_d.
       pose proof (star_step _ _ _ _ _ _ Hstep Hstar_d) as Hstar_combined.
       (* The demon's trace [t_d ++ e_orig :: t_orig] is allowed; the one the inner
-         [can_step] wants, [(e_orig :: t_d) ++ t_orig], is a permutation of it. *)
+         [will_step] wants, [(e_orig :: t_d) ++ t_orig], is a permutation of it. *)
       assert (Hallow_o : allowed (inputs_of ((e_orig :: t_d) ++ t_orig))).
       { change ((e_orig :: t_d) ++ t_orig) with (e_orig :: t_d ++ t_orig).
         eapply allowed_perm; [|exact Hallow_d].
@@ -347,8 +347,19 @@ Section step.
     forall t s o,
       star step initial t s ->
       allowed (inputs_of t) ->
-      can_output s t o ->
+      might_output s t o ->
       will_output s t o.
+
+  (* Liveness modulo [equiv]: if some output [equiv]-related to [o] is achievable,
+     then one is guaranteed.  Both sides are taken up to [equiv] because the
+     achievable/forced output's run-dependent fields (e.g. a done-message's count)
+     are not pinned. *)
+  Definition can_implies_will_equiv :=
+    forall t s o,
+      star step initial t s ->
+      allowed (inputs_of t) ->
+      might_output_equiv s t o ->
+      will_output_equiv s t o.
 
   Definition can_implies_will' :=
     forall t s o,
@@ -361,14 +372,14 @@ Section step.
         allowed (inputs_of t') ->
         will_output s' t' o.
 
-  Lemma can_output_step_preserved :
+  Lemma might_output_step_preserved :
     can_implies_will ->
     forall ns tau e ns' o,
       allowed (inputs_of (e :: tau)) ->
       star step initial tau ns ->
       step ns e ns' ->
-      can_output ns tau o ->
-      can_output ns' (e :: tau) o.
+      might_output ns tau o ->
+      might_output ns' (e :: tau) o.
   Proof.
     intros Hciw ns tau e ns' o Halt Hstar Hstep Hcan.
     apply will_implies_can; [exact Halt|].
@@ -385,8 +396,8 @@ Section step.
       star step s1 t2 s2 ->
       allowed (inputs_of t1) ->
       allowed (inputs_of (t2 ++ t1)) ->
-      can_output s1 t1 o ->
-      can_output s2 (t2 ++ t1) o.
+      might_output s1 t1 o ->
+      might_output s2 (t2 ++ t1) o.
 
   Definition monotone' :=
     forall t1 t2 s1 s2 o,
@@ -395,8 +406,8 @@ Section step.
       allowed (inputs_of t1) ->
       allowed (inputs_of t2) ->
       incl (inputs_of t1) (inputs_of t2) ->
-      can_output s1 t1 o ->
-      can_output s2 t2 o.
+      might_output s1 t1 o ->
+      might_output s2 t2 o.
 
   Definition incl_mod (l1 l2 : list message) : Prop :=
     forall a, In a l1 -> exists b, In b l2 /\ equiv a b.
@@ -408,8 +419,8 @@ Section step.
       allowed (inputs_of t1) ->
       allowed (inputs_of t2) ->
       submultiset (inputs_of t1) (inputs_of t2) ->
-      can_output s1 t1 o ->
-      can_output s2 t2 o.
+      might_output s1 t1 o ->
+      might_output s2 t2 o.
 
   Definition monotone_mod_equiv :=
     forall t1 t2 s1 s2 o,
@@ -418,8 +429,8 @@ Section step.
       well_formed (inputs_of t1) ->
       well_formed (inputs_of t2) ->
       incl_mod (inputs_of t1) (inputs_of t2) ->
-      can_output s1 t1 o ->
-      can_output_equiv s2 t2 o.
+      might_output s1 t1 o ->
+      might_output_equiv s2 t2 o.
 
   Lemma ciw'_iff_ciw_and_monotone' :
     can_implies_will' <-> can_implies_will /\ monotone'.
@@ -473,13 +484,13 @@ Section step.
     intros Hciw t1 t2 s1 s2 o Hstar1 Hstar2 Hall1 Hallt Hcan.
     apply (Hciw _ _ _ Hstar1 Hall1) in Hcan.
     cbv [will_output] in Hcan.
-    inversion Hcan as [HP | midset Hcan_step Hmid]; clear Hcan; subst.
+    inversion Hcan as [HP | midset Hwill_step Hmid]; clear Hcan; subst.
     - exists [], s2. split; [constructor|].
       split; [reflexivity|].
       cbn. apply outputs_of_in_app. right. exact HP.
-    - cbv [can_step] in Hcan_step. destruct Hcan_step as [lbl Hcan_step].
-      specialize (Hcan_step _ _ Hstar2 Hallt).
-      destruct Hcan_step as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
+    - cbv [will_step] in Hwill_step. destruct Hwill_step as [lbl Hwill_step].
+      specialize (Hwill_step _ _ Hstar2 Hallt).
+      destruct Hwill_step as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
       + exact (will_implies_can _ _ _ Hallt (Hmid _ Hmid_left)).
       + specialize (Hmid _ Hmidset).
         assert (Hall' : allowed (inputs_of (O_event lbl outs :: t2 ++ t1))).
@@ -518,7 +529,7 @@ Section step.
       allowed (inputs_of t) ->
       forall output,
         D (inputs_of t) output ->
-        can_output s t output.
+        might_output s t output.
 
   Definition described_by_weak := sound /\ complete_weak.
 
@@ -565,7 +576,7 @@ Section steps_corresp.
         star step2 initial2 t2 ns2 ->
         allowed well_formed (inputs_of t2) ->
         produces step1 initial1 (inputs_of t2) output ->
-        can_output step2 ns2 t2 output.
+        might_output step2 ns2 t2 output.
 
     (* Primed completeness: restrict system 2's observed trace to be input-only
        (the dual restriction to steps_corresp_sound').  This is the form the
@@ -576,7 +587,7 @@ Section steps_corresp.
         star step2 initial2 (map I_event inps) ns2 ->
         allowed well_formed inps ->
         produces step1 initial1 inps o ->
-        can_output step2 ns2 (map I_event inps) o.
+        might_output step2 ns2 (map I_event inps) o.
 
     Lemma complete_sound D :
       input_total step1 ->
@@ -660,8 +671,8 @@ Section steps_corresp.
         allowed well_formed (inputs_of t2) ->
         inputs_of t1 = inputs_of t2 ->
         forall output,
-          can_output step1 ns1 t1 output <->
-          can_output step2 ns2 t2 output.
+          might_output step1 ns1 t1 output <->
+          might_output step2 ns2 t2 output.
 
     Lemma sound_complete_bicorresp :
       monotone' step1 well_formed initial1 ->
@@ -689,7 +700,7 @@ Section steps_corresp.
           destruct Hout as [Hout|Hout]; [right|left]; exact Hout. }
         pose proof (Hsound _ _ _ Hstar2' Hall2' Hout2') as Hpr. unfold produces in Hpr.
         destruct Hpr as (t1' & ns1' & Hstar1' & Heqinp & Hout1).
-        assert (Hcan1' : can_output step1 ns1' t1' o).
+        assert (Hcan1' : might_output step1 ns1' t1' o).
         { exists [], ns1'. split; [constructor|].
           split; [reflexivity|exact Hout1]. }
         apply (Hmono t1' t1 ns1' ns1 o Hstar1' Hstar1); auto.
