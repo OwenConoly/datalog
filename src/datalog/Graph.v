@@ -749,6 +749,13 @@ Section __.
       intros Ha Hb H. apply (sub_perm_r a' b b' Hb). apply (sub_perm_l a a' b Ha). exact H.
     Qed.
 
+    Lemma perm_mid_move (X Y Z : list message) (b : message) :
+      Permutation (X ++ (Y ++ b :: Z)) ((X ++ [b]) ++ (Y ++ Z)).
+    Proof.
+      rewrite <- (app_assoc X [b] (Y ++ Z)). apply Permutation_app_head.
+      symmetry. apply Permutation_cons_app. apply Permutation_refl.
+    Qed.
+
     Lemma sub_map_fst {B} (a b : list (message * B)) :
       submultiset a b -> submultiset (map fst a) (map fst b).
     Proof.
@@ -906,28 +913,113 @@ Section __.
           * rewrite app_assoc. apply Permutation_cons_append.
           * apply sub_cons. exact IH.
         + rewrite app_assoc. apply sub_app_r. exact IH.
-      - (* gstep_run ni: ni emits outsi; forwarded queued. Mechanical: same
-           sub_perm_both pattern as the input case, with node_outputs_total_grow
-           and forwarded_sub. *)
-        admit.
-      - (* gstep_receive ni mi: ni dequeues mi; node_outputs unchanged. *)
-        admit.
-    Admitted.
+      - (* gstep_run ni: ni emits outsi (node_outputs grow by outsi); forwarded queued *)
+        rewrite inputs_of_single_O; cbn [map]; rewrite app_nil_r.
+        assert (Hin_ni : In ni all_nodes) by (apply Hkeys; eauto).
+        pose proof (node_outputs_total_grow gs.(g_nodes) ni nsi ti
+                      (nsi', ti ++ [O_event lbli outsi]) outsi Hin_ni Hnd_all Hgi
+                      ltac:(cbn [snd]; rewrite outputs_of_app, outputs_of_O_cons, app_nil_r;
+                            reflexivity)) as Hgrow.
+        rewrite filter_app, map_app.
+        assert (Hbody : forall (tx : list IO_event) (Qx : list message),
+                  submultiset (inputs_of tx ++ Qx) (node_outputs_total (g_nodes gs) ++ ext) ->
+                  submultiset
+                    (inputs_of tx ++ (Qx ++ map snd (filter (fun de => Nat.eqb (fst de) nn)
+                       (flat_map (fun m0 => map (fun n' => (n', m0)) (forward ni m0)) outsi))))
+                    (node_outputs_total (map.put (g_nodes gs) ni
+                       (nsi', ti ++ [O_event lbli outsi])) ++ ext)).
+        { intros tx Qx Hsub.
+          apply (sub_perm_both
+                   ((inputs_of tx ++ Qx) ++ map snd (filter (fun de => Nat.eqb (fst de) nn)
+                       (flat_map (fun m0 => map (fun n' => (n', m0)) (forward ni m0)) outsi))) _
+                   ((node_outputs_total (g_nodes gs) ++ ext) ++ outsi) _).
+          - rewrite app_assoc. apply Permutation_refl.
+          - eapply perm_trans; [| apply Permutation_app_tail; symmetry; exact Hgrow].
+            rewrite <- !app_assoc. apply Permutation_app_head. apply Permutation_app_comm.
+          - apply sub_app_mono; [exact Hsub | apply forwarded_sub]. }
+        destruct (Nat.eq_dec nn ni) as [->|Hne].
+        + rewrite map.get_put_same in Hg'. injection Hg' as <- <-.
+          rewrite inputs_of_app, inputs_of_single_O, app_nil_r.
+          apply Hbody. apply (IH ni nsi ti Hgi).
+        + rewrite map.get_put_diff in Hg' by auto.
+          apply Hbody. apply (IH nn nsn tnn Hg').
+      - (* gstep_receive ni mi: ni dequeues mi; node_outputs unchanged *)
+        rewrite inputs_of_single_O; cbn [map]; rewrite app_nil_r.
+        assert (Hin_ni : In ni all_nodes) by (apply Hkeys; eauto).
+        pose proof (node_outputs_total_same gs.(g_nodes) ni nsi ti
+                      (nsi', ti ++ [I_event mi]) Hin_ni Hnd_all Hgi
+                      ltac:(cbn [snd]; rewrite outputs_of_app, outputs_of_I_cons, app_nil_r;
+                            reflexivity)) as Hsame.
+        eapply sub_perm_r; [apply Permutation_app_tail; symmetry; exact Hsame|].
+        rewrite filter_app, map_app.
+        destruct (Nat.eq_dec nn ni) as [->|Hne].
+        + rewrite map.get_put_same in Hg'. injection Hg' as <- <-.
+          rewrite inputs_of_app, inputs_of_single_I.
+          specialize (IH ni nsi ti Hgi). rewrite Hmsg, filter_app, map_app in IH.
+          cbn [filter fst] in IH. rewrite Nat.eqb_refl in IH. cbn [map snd] in IH.
+          eapply sub_perm_l; [apply perm_mid_move | exact IH].
+        + rewrite map.get_put_diff in Hg' by auto.
+          cbn [filter fst]. replace (Nat.eqb ni nn) with false
+            by (symmetry; apply Nat.eqb_neq; auto). cbn [map].
+          specialize (IH nn nsn tnn Hg'). rewrite Hmsg, filter_app in IH.
+          cbn [filter fst] in IH.
+          replace (Nat.eqb ni nn) with false in IH
+            by (symmetry; apply Nat.eqb_neq; auto). rewrite map_app in IH.
+          exact IH.
+    Qed.
+
+    Lemma conservation_gen (gs0 : graph_state) (T0 : list gevent) (gs1 : graph_state) :
+      star gstep gs0 T0 gs1 ->
+      forall ext0, conserved gs0 ext0 -> conserved gs1 (ext0 ++ map fst (inputs_of T0)).
+    Proof.
+      intro Hs. induction Hs as [s | s e s' T' s'' Hstep Hs IH]; intros ext0 Hconv.
+      - intros nn nsn tnn Hg. cbn [inputs_of]. rewrite app_nil_r. apply (Hconv nn nsn tnn Hg).
+      - pose proof (conservation_step _ _ _ Hstep ext0 Hconv) as Hconv'.
+        pose proof (IH _ Hconv') as Hfin.
+        intros nn nsn tnn Hg.
+        eapply sub_perm_r; [| apply (Hfin nn nsn tnn Hg)].
+        apply Permutation_app_head.
+        change (e :: T') with ([e] ++ T'). rewrite inputs_of_app, map_app, app_assoc.
+        apply Permutation_refl.
+    Qed.
 
     Lemma conservation_run (T : list gevent) (gs : graph_state) :
       star gstep initial_graph_state T gs ->
       conserved gs (map fst (inputs_of T)).
     Proof.
-      remember initial_graph_state as gs0 eqn:E0.
-      intro Hstar. revert E0.
-      induction Hstar as [s | s e s' T' s'' Hstep Hstar IH]; intro E0; subst.
-      - (* initial *)
-        cbn [g_nodes g_messages inputs_of]. cbn. intros nn nsn tnn Hg.
-        pose proof (initial_ns_empty nn (nsn, tnn) Hg) as Hemp. cbn in Hemp. subst tnn.
-        cbn. apply sub_nil.
-      - (* one step then the rest *)
-        admit.
-    Admitted.
+      intro Hstar.
+      pose proof (conservation_gen initial_graph_state T gs Hstar []) as H.
+      rewrite app_nil_l in H. apply H.
+      intros nn nsn tnn Hg.
+      pose proof (initial_ns_empty nn (nsn, tnn) Hg) as Hemp. cbn in Hemp. subst tnn.
+      cbn. apply sub_nil.
+    Qed.
+
+    (* A node, once it has a stored state, keeps one along any run. *)
+    Lemma node_state_persists (gs0 : graph_state) (T : list gevent) (gs : graph_state) :
+      star gstep gs0 T gs ->
+      forall k y, map.get gs0.(g_nodes) k = Some y ->
+      exists y', map.get gs.(g_nodes) k = Some y'.
+    Proof.
+      intro Hstar. induction Hstar as [s | s e s' T' s'' Hstep Hs IH]; intros k y Hget.
+      - eauto.
+      - inv_gstep Hstep; subst; cbn [g_nodes] in *.
+        + apply (IH k y Hget).
+        + destruct (Nat.eq_dec k ni) as [->|Hne].
+          * apply (IH ni (nsi', ti ++ [O_event lbli outsi])). apply map.get_put_same.
+          * apply (IH k y). rewrite map.get_put_diff by auto. exact Hget.
+        + destruct (Nat.eq_dec k ni) as [->|Hne].
+          * apply (IH ni (nsi', ti ++ [I_event mi])). apply map.get_put_same.
+          * apply (IH k y). rewrite map.get_put_diff by auto. exact Hget.
+    Qed.
+
+    Lemma Forall2_map_self {Bt} (R : node_id -> Bt -> Prop) (g : node_id -> Bt)
+        (l : list node_id) :
+      (forall k, In k l -> R k (g k)) -> Forall2 R l (map g l).
+    Proof.
+      induction l as [|a l IH]; cbn; intros H; constructor;
+        [apply H; left; reflexivity | apply IH; intros k Hk; apply H; right; exact Hk].
+    Qed.
 
     (* The [A_total] replacement: at a reachable graph state, a node's received
        inputs are allowed w.r.t. the global pool [well_formed_g] -- they are a
@@ -941,7 +1033,29 @@ Section __.
           map.get gs.(g_nodes) n = Some (ns, tn) ->
           allowed well_formed_g (inputs_of tn).
     Proof.
-    Admitted.
+      intros Hgood T gs Hstar Hall n np ns tn Hp Hg.
+      destruct all_nodes_keys as [Hnd_all Hkeys].
+      destruct Hall as (W_ext & Hwf_ext & Hsub_ext).
+      pose proof (conservation_run T gs Hstar n ns tn Hg) as Hcons.
+      assert (Hsub2 : submultiset (inputs_of tn)
+                        (node_outputs_total gs.(g_nodes) ++ map fst W_ext)).
+      { eapply sub_trans;
+          [| apply sub_app_mono; [apply submultiset_refl | apply sub_map_fst; exact Hsub_ext]].
+        eapply sub_trans; [| exact Hcons]. apply sub_app_r. apply submultiset_refl. }
+      exists (node_outputs_total gs.(g_nodes) ++ map fst W_ext). split; [| exact Hsub2].
+      exists (map (fun k => match map.get gs.(g_nodes) k with
+                            | Some (_, t) => outputs_of t | None => [] end) all_nodes), W_ext.
+      split; [| split; [exact Hwf_ext | unfold node_outputs_total; apply Permutation_refl]].
+      apply Forall2_map_self. intros k Hk.
+      apply Hkeys in Hk. destruct Hk as (npk & Hpk).
+      destruct (p_initial_dom k npk Hpk) as (xk & Hxk).
+      destruct (node_state_persists initial_graph_state T gs Hstar k xk
+                  ltac:(cbn [g_nodes initial_graph_state]; exact Hxk)) as (yk & Hgk).
+      destruct yk as [nsk tk]. rewrite Hgk.
+      destruct (pernode_spec_good Hgood k npk xk Hpk Hxk) as (Howf & _).
+      destruct (node_run T gs Hstar k npk xk nsk tk Hpk Hxk Hgk) as (Hrun & _).
+      exact (Howf tk nsk Hrun).
+    Qed.
 
     (* Simulation used to replay an input-free witness from a dominating state.
        gsB dominates gsA: every node of gsB is reached with an input-set that
