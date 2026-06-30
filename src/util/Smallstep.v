@@ -358,7 +358,7 @@ Section step.
     forall t s o,
       star step initial t s ->
       allowed (inputs_of t) ->
-      might_output_equiv s t o ->
+      might_output s t o ->
       will_output_equiv s t o.
 
   Definition can_implies_will' :=
