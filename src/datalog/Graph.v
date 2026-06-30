@@ -1701,36 +1701,6 @@ Section __.
       - exact Hmight_W'.
     Qed.
 
-    (* Modulo analogue of [force_dominator]: drive the graph to a state that
-       [core_dom_mod]-dominates [gs_pre], staying reachable-and-allowed.  Forces node
-       emissions via the modulo node liveness, so domination is up to [equiv].
-       (Open: allowedness must be threaded along [will_step] paths -- needs a
-       [will_step]-respecting carry combinator, unlike the [A_total] version.) *)
-    Lemma force_dominator_equiv :
-      nodes_input_total ->
-      Forall2_map node_good p initial_ns ->
-      forall on np_o, map.get p on = Some np_o ->
-      forall TC gsC gs_pre, star gstep gsC TC gs_pre ->
-      inputs_of TC = [] ->
-      forall ns_o t_o, map.get gs_pre.(g_nodes) on = Some (ns_o, t_o) ->
-      forall Wo, well_formed_g Wo -> submultiset (inputs_of t_o) Wo ->
-      forall TC0, star gstep initial_graph_state TC0 gsC ->
-      forall TX gsX, star gstep initial_graph_state TX gsX ->
-      core_dom gsC gsX ->
-      forall t, allowed well_formed_inputs (inputs_of t) ->
-      Permutation (inputs_of TX) (inputs_of t) ->
-      eventually (will_step gstep well_formed_inputs)
-        (fun '(gs', t') =>
-           (exists nsS tS, map.get gs'.(g_nodes) on = Some (nsS, tS) /\
-              (exists W, well_formed_g W /\ incl_mod equiv Wo W /\
-                         submultiset W (inputs_of tS))) /\
-           (exists T', star gstep initial_graph_state T' gs' /\
-                       allowed well_formed_inputs (inputs_of T') /\
-                       Permutation (inputs_of T') (inputs_of t')))
-        (gsX, t).
-    Proof.
-    Admitted.
-
     (* Modulo analogue of [drive_node_must]: a node that will (modulo [equiv]) emit
        [o] is driven, at the graph level, to emit some [equiv_g]-relative of [(o,n)].
        (Open: node-allowedness discharge via [node_inputs_allowed] needs the driven
@@ -1843,6 +1813,131 @@ Section __.
             exists go. split; [exact Hgo|]. rewrite outputs_of_O_cons.
             apply in_or_app. right. exact Hingo.
     Qed.
+
+    (* A node has emitted, up to [equiv], a relative of [mu]. *)
+    Definition node_emitted_mod (gs : @graph_state node_state node_states)
+        (n : node_id) (mu : message) : Prop :=
+      exists ns t mu', map.get gs.(g_nodes) n = Some (ns, t) /\
+                       In mu' (outputs_of t) /\ equiv mu mu'.
+
+    (* Modulo analogue of [drive_node_emit]: a node that will (modulo [equiv]) emit
+       [mu] is driven to emit some [equiv]-relative of [mu] into its own trace. Same
+       allowedness threading as [drive_node_must_equiv]; tracks the output-subset so
+       the node's accumulated emissions survive the demon's interleaving. *)
+    Lemma drive_node_emit_equiv :
+      Forall2_map node_good p initial_ns ->
+      forall (np : node_prog) (n : node_id) (mu : message),
+        map.get p n = Some np ->
+        forall (s : node_state * list IO_event),
+          eventually (will_step (node_step np) well_formed_g)
+                     (fun '(_, t') => exists mu', equiv mu' mu /\ In mu' (outputs_of t')) s ->
+          forall gs t,
+            reach_allow gs t ->
+            (exists tr, map.get gs.(g_nodes) n = Some (fst s, tr) /\
+                        Permutation (inputs_of (snd s)) (inputs_of tr) /\
+                        (forall x, In x (outputs_of (snd s)) -> In x (outputs_of tr))) ->
+            eventually (will_step gstep well_formed_inputs)
+                       (fun '(gs', _) => node_emitted_mod gs' n mu) (gs, t).
+    Proof.
+      intros Hgood np n mu Hp s Hwill.
+      induction Hwill as [[ns_curr trace_curr] HP|
+                          [ns_curr trace_curr] midset Hcan Hmid IH];
+        intros gs t Hreach (tr & Hg & Hpermtr & Hsub); cbn [fst snd] in Hg, Hpermtr, Hsub.
+      - apply eventually_done. destruct HP as (mu' & Heqmu' & Hin).
+        exists ns_curr, tr, mu'. split; [exact Hg|]. split; [apply Hsub; exact Hin|].
+        apply equiv_sym. exact Heqmu'.
+      - destruct Hreach as (T0 & HT0 & HallT0 & HpermT0).
+        destruct Hcan as [node_lbl Hcan].
+        apply eventually_step_cps. exists (run n node_lbl).
+        intros gs_demon t_demon Hstar_demon Hallow_g.
+        destruct (node_drive_delta _ _ _ Hstar_demon n np ns_curr tr Hp Hg)
+          as (ns_d & tau_d & Hg_d & Htau_d & Hpres_d).
+        pose proof (Hcan ns_d tau_d Htau_d) as Hcan'.
+        assert (HreachD : star gstep initial_graph_state (T0 ++ t_demon) gs_demon)
+          by (eapply star_app; eassumption).
+        assert (HallowD : allowed well_formed_inputs (inputs_of (T0 ++ t_demon))).
+        { eapply allowed_perm; [| exact Hallow_g].
+          rewrite !inputs_of_app. eapply perm_trans; [apply Permutation_app_comm|].
+          apply Permutation_app_tail. symmetry. exact HpermT0. }
+        assert (HpermD : Permutation (inputs_of (T0 ++ t_demon)) (inputs_of (t_demon ++ t))).
+        { rewrite !inputs_of_app. eapply perm_trans;
+            [apply Permutation_app_tail; exact HpermT0 | apply Permutation_app_comm]. }
+        assert (Hpermtr_d : Permutation (inputs_of (tau_d ++ trace_curr)) (inputs_of (tr ++ tau_d))).
+        { rewrite !inputs_of_app. eapply perm_trans; [apply Permutation_app_comm|].
+          apply Permutation_app_tail. exact Hpermtr. }
+        assert (Hallow_n : allowed well_formed_g (inputs_of (tau_d ++ trace_curr))).
+        { eapply allowed_perm;
+            [ symmetry; exact Hpermtr_d
+            | apply (node_inputs_allowed Hgood (T0 ++ t_demon) gs_demon HreachD HallowD
+                       n np ns_d (tr ++ tau_d) Hp Hg_d)]. }
+        specialize (Hcan' Hallow_n).
+        assert (Hsub_d : forall x, In x (outputs_of (tau_d ++ trace_curr)) ->
+                  In x (outputs_of (tr ++ tau_d))).
+        { intros x Hx. rewrite outputs_of_app in Hx. apply in_app_or in Hx as [Hx|Hx];
+            rewrite outputs_of_app; apply in_or_app; [right; exact Hx | left; apply Hsub; exact Hx]. }
+        destruct Hcan' as [Hmid_left | (s'' & outs & Hns_step & Hmidset_at)].
+        { left.
+          apply (IH (ns_d, tau_d ++ trace_curr) Hmid_left gs_demon (t_demon ++ t)).
+          - exists (T0 ++ t_demon). split; [exact HreachD|]. split; [exact HallowD | exact HpermD].
+          - exists (tr ++ tau_d). cbn [fst snd].
+            split; [exact Hg_d|]. split; [exact Hpermtr_d | exact Hsub_d]. }
+        right.
+        set (gs_next :=
+               {| g_nodes := map.put gs_demon.(g_nodes) n (s'', (tr ++ tau_d) ++ [O_event node_lbl outs]);
+                  g_messages :=
+                    gs_demon.(g_messages) ++
+                    flat_map (fun m0 => map (fun n' => (n', m0))
+                                            (forward n m0)) outs |}).
+        exists gs_next, (map (fun m => (m, n)) (filter (output_visible n) outs)).
+        split.
+        { eapply gstep_run; [exact Hp | exact Hg_d | exact Hns_step]. }
+        apply (IH (s'', O_event node_lbl outs :: tau_d ++ trace_curr) Hmidset_at gs_next
+                  (O_event (run n node_lbl) (map (fun m => (m, n)) (filter (output_visible n) outs))
+                     :: t_demon ++ t)).
+        + exists ((T0 ++ t_demon) ++
+                  [O_event (run n node_lbl) (map (fun m => (m, n)) (filter (output_visible n) outs))]).
+          split; [eapply star_app; [exact HreachD | econstructor;
+                   [eapply gstep_run; [exact Hp | exact Hg_d | exact Hns_step] | constructor]]|].
+          split.
+          * eapply allowed_perm; [| exact HallowD]. rewrite inputs_of_snoc_O. apply Permutation_refl.
+          * rewrite inputs_of_snoc_O, inputs_of_O_cons. exact HpermD.
+        + exists ((tr ++ tau_d) ++ [O_event node_lbl outs]). cbn [fst snd].
+          split; [apply map.get_put_same|]. split.
+          * rewrite inputs_of_O_cons, inputs_of_snoc_O. exact Hpermtr_d.
+          * intros x Hx. rewrite outputs_of_O_cons in Hx. apply in_app_or in Hx as [Hx | Hx].
+            -- rewrite outputs_of_app. apply in_or_app. right. rewrite outputs_of_O_cons.
+               apply in_or_app. left. exact Hx.
+            -- rewrite outputs_of_app. apply in_or_app. left. apply Hsub_d. exact Hx.
+    Qed.
+
+    (* Modulo analogue of [force_dominator]: drive the demon from a reachable state
+       [gsX] dominating a checkpoint [gsC] (which reaches [gs_pre] input-free) to a
+       state where the producing node [on] has received a complete well-formed pool
+       [W] that [equiv]-covers [gs_pre]'s source pool [Wo]. *)
+    Lemma force_dominator_equiv :
+      nodes_input_total ->
+      Forall2_map node_good p initial_ns ->
+      forall on np_o, map.get p on = Some np_o ->
+      forall TC gsC gs_pre, star gstep gsC TC gs_pre ->
+      inputs_of TC = [] ->
+      forall ns_o t_o, map.get gs_pre.(g_nodes) on = Some (ns_o, t_o) ->
+      forall Wo, well_formed_g Wo -> submultiset (inputs_of t_o) Wo ->
+      forall TC0, star gstep initial_graph_state TC0 gsC ->
+      forall TX gsX, star gstep initial_graph_state TX gsX ->
+      core_dom gsC gsX ->
+      forall t, allowed well_formed_inputs (inputs_of t) ->
+      Permutation (inputs_of TX) (inputs_of t) ->
+      eventually (will_step gstep well_formed_inputs)
+        (fun '(gs', t') =>
+           (exists nsS tS, map.get gs'.(g_nodes) on = Some (nsS, tS) /\
+              (exists W, well_formed_g W /\ incl_mod equiv Wo W /\
+                         submultiset W (inputs_of tS))) /\
+           (exists T', star gstep initial_graph_state T' gs' /\
+                       allowed well_formed_inputs (inputs_of T') /\
+                       Permutation (inputs_of T') (inputs_of t')))
+        (gsX, t).
+    Proof.
+    Admitted.
 
     (* Weaken the target output of a [will_output_equiv] across [equiv]. *)
     Lemma will_output_equiv_weaken (np : node_prog) (s : node_state)
