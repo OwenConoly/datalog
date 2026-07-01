@@ -1184,6 +1184,38 @@ Section __.
       - exact Hmight.
     Qed.
 
+    Lemma will_output_equiv_weaken (np : node_prog) (s : node_state)
+        (tr : list IO_event) (a b : message) :
+      equiv a b ->
+      will_output_equiv (node_step np) equiv well_formed s tr a ->
+      will_output_equiv (node_step np) equiv well_formed s tr b.
+    Proof.
+      intros Hab Hwill. unfold will_output_equiv in *.
+      eapply eventually_weaken; [exact Hwill|].
+      intros [s' t'] (o'' & Ho'' & Hin). exists o''.
+      split; [etransitivity; eassumption | exact Hin].
+    Qed.
+
+    (* "node [n'] has, up to [equiv], been forwarded [mu]": queued or received. *)
+    Definition forwarded_mod (gs : @graph_state node_state node_states)
+        (n' : node_id) (mu : message) : Prop :=
+      (exists m', In (n', m') gs.(g_messages) /\ equiv mu m') \/ node_received_mod gs n' mu.
+
+    (* [forwarded_mod] survives any run: queued stays queued or becomes received
+       ([queue_fate]); received persists as inputs only grow ([node_inputs_grow]). *)
+    Lemma forwarded_mod_run gs T gs' n' mu :
+      star gstep gs T gs' -> forwarded_mod gs n' mu -> forwarded_mod gs' n' mu.
+    Proof.
+      intros Hrun [(m' & Hin & Hmm') | (ns & t & mu' & Hg & Hin_mu & Hmmu)].
+      - destruct (queue_fate gs T gs' Hrun n' m' Hin) as [Hq | (ns & t & Hg & Hin_mu)].
+        + left. exists m'. split; [exact Hq | exact Hmm'].
+        + right. exists ns, t, m'. split; [exact Hg | split; [exact Hin_mu | exact Hmm']].
+      - right. destruct (node_inputs_grow gs T gs' Hrun n' ns t Hg) as (ns2 & t2 & Hg2 & Hsub).
+        exists ns2, t2, mu'. split; [exact Hg2 | split; [| exact Hmmu]].
+        destruct Hsub as (rest & Hperm). eapply Permutation_in;
+          [symmetry; exact Hperm | apply in_or_app; left; exact Hin_mu].
+    Qed.
+
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
