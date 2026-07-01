@@ -737,6 +737,102 @@ Section __.
                     ltac:(rewrite Hout, app_nil_r; reflexivity)) as H.
       rewrite app_nil_r in H. exact H.
     Qed.
+
+    (* [node_outputs_total] filtered per producer by [q] -- e.g. the FORWARDED slice to a
+       receiver [nn] takes [q k f := nn in forward k f].  Same decomposition lemmas. *)
+    Definition node_outputs_total_f (q : node_id -> message -> bool) (m : node_states) : list message :=
+      concat (map (fun k => match map.get m k with
+                            | Some (_, t) => filter (q k) (outputs_of t) | None => [] end) (map.keys p)).
+
+    Lemma node_outputs_total_f_put (q : node_id -> message -> bool) (m : node_states) (ni : node_id)
+        (v : node_state * list IO_event) :
+      In ni (map.keys p) -> NoDup (map.keys p) ->
+      exists rest,
+        Permutation (node_outputs_total_f q m)
+          ((match map.get m ni with Some (_, t) => filter (q ni) (outputs_of t) | None => [] end) ++ rest) /\
+        Permutation (node_outputs_total_f q (map.put m ni v)) (filter (q ni) (outputs_of (snd v)) ++ rest).
+    Proof.
+      intros Hin Hnd. destruct v as [xv tv]. apply in_split in Hin as (la & lb & Heq).
+      rewrite Heq in Hnd. apply NoDup_remove_2 in Hnd.
+      assert (Hla : ~ In ni la) by (intro; apply Hnd; apply in_or_app; left; assumption).
+      assert (Hlb : ~ In ni lb) by (intro; apply Hnd; apply in_or_app; right; assumption).
+      exists (concat (map (fun k => match map.get m k with Some (_, t) => filter (q k) (outputs_of t) | None => [] end) la)
+              ++ concat (map (fun k => match map.get m k with Some (_, t) => filter (q k) (outputs_of t) | None => [] end) lb)).
+      assert (Hla' : forall (M : node_states),
+                map (fun k => match map.get (map.put M ni (xv, tv)) k with Some (_,t)=>filter (q k) (outputs_of t)|None=>[] end) la
+                = map (fun k => match map.get M k with Some (_,t)=>filter (q k) (outputs_of t)|None=>[] end) la).
+      { intro M. apply map_ext_in. intros k Hk. rewrite map.get_put_diff; [reflexivity|].
+        intro; subst; contradiction. }
+      assert (Hlb' : forall (M : node_states),
+                map (fun k => match map.get (map.put M ni (xv, tv)) k with Some (_,t)=>filter (q k) (outputs_of t)|None=>[] end) lb
+                = map (fun k => match map.get M k with Some (_,t)=>filter (q k) (outputs_of t)|None=>[] end) lb).
+      { intro M. apply map_ext_in. intros k Hk. rewrite map.get_put_diff; [reflexivity|].
+        intro; subst; contradiction. }
+      split.
+      - unfold node_outputs_total_f. rewrite Heq, map_app. cbn [map].
+        rewrite concat_app. cbn [concat]. apply Permutation_app_swap_app.
+      - unfold node_outputs_total_f. rewrite Heq, map_app. cbn [map].
+        rewrite concat_app. cbn [concat].
+        rewrite map.get_put_same, Hla' with (M := m), Hlb' with (M := m).
+        apply Permutation_app_swap_app.
+    Qed.
+
+    Lemma node_outputs_total_f_grow (q : node_id -> message -> bool) (m : node_states) (ni : node_id)
+        (x : node_state) (ti : list IO_event) (v : node_state * list IO_event)
+        (delta : list message) :
+      In ni (map.keys p) -> NoDup (map.keys p) ->
+      map.get m ni = Some (x, ti) -> outputs_of (snd v) = outputs_of ti ++ delta ->
+      Permutation (node_outputs_total_f q (map.put m ni v)) (node_outputs_total_f q m ++ filter (q ni) delta).
+    Proof.
+      intros Hin Hnd Hget Hout.
+      destruct (node_outputs_total_f_put q m ni v Hin Hnd) as (rest & H1 & H2).
+      rewrite Hget in H1. cbn in H1. rewrite Hout, filter_app in H2.
+      eapply perm_trans; [exact H2|].
+      eapply perm_trans; [| apply Permutation_app_tail; symmetry; exact H1].
+      rewrite <- !app_assoc. apply Permutation_app_head. apply Permutation_app_comm.
+    Qed.
+
+    Lemma node_outputs_total_f_same (q : node_id -> message -> bool) (m : node_states) (ni : node_id)
+        (x : node_state) (ti : list IO_event) (v : node_state * list IO_event) :
+      In ni (map.keys p) -> NoDup (map.keys p) ->
+      map.get m ni = Some (x, ti) -> outputs_of (snd v) = outputs_of ti ->
+      Permutation (node_outputs_total_f q (map.put m ni v)) (node_outputs_total_f q m).
+    Proof.
+      intros Hin Hnd Hget Hout.
+      pose proof (node_outputs_total_f_grow q m ni x ti v [] Hin Hnd Hget
+                    ltac:(rewrite Hout, app_nil_r; reflexivity)) as H.
+      cbn [filter] in H. rewrite app_nil_r in H. exact H.
+    Qed.
+
+    (* The messages forwarded to [nn] by a single emit of [outsi] from producer [ni]
+       are exactly [outsi] filtered by "[nn] is a forward target". *)
+    Lemma forwarded_slice_eq (ni nn : node_id) (outsi : list message) :
+      map snd (filter (fun de => Nat.eqb (fst de) nn)
+                 (flat_map (fun m0 => map (fun n' => (n', m0)) (forward ni m0)) outsi))
+      = filter (fun f => existsb (Nat.eqb nn) (forward ni f)) outsi.
+    Proof.
+      rewrite filter_flat_map, map_flat_map.
+      assert (Hper : forall m0,
+                map snd (filter (fun de => Nat.eqb (fst de) nn) (map (fun n' => (n', m0)) (forward ni m0)))
+                = if existsb (Nat.eqb nn) (forward ni m0) then [m0] else []).
+      { intro m0. pose proof (forward_nodup ni m0) as Hnd0.
+        induction (forward ni m0) as [|a l IHl]; [reflexivity|].
+        apply NoDup_cons_iff in Hnd0. destruct Hnd0 as [Hnotin Hnd'].
+        cbn [map filter existsb fst].
+        destruct (Nat.eqb a nn) eqn:Ea.
+        - apply Nat.eqb_eq in Ea. subst a.
+          rewrite Nat.eqb_refl. cbn [orb map snd].
+          assert (map snd (filter (fun de => Nat.eqb (fst de) nn) (map (fun n' => (n', m0)) l)) = []) as Hnil.
+          { clear -Hnotin. induction l as [|b l0 IH0]; [reflexivity|].
+            cbn [map filter fst]. destruct (Nat.eqb b nn) eqn:Eb.
+            - apply Nat.eqb_eq in Eb. subst b. exfalso. apply Hnotin. left. reflexivity.
+            - cbn [map snd]. apply IH0. intro H. apply Hnotin. right. exact H. }
+          rewrite Hnil. reflexivity.
+        - assert (Nat.eqb nn a = false) as Ena by (rewrite Nat.eqb_sym; exact Ea).
+          rewrite Ena. cbn [orb map snd]. rewrite (IHl Hnd'). reflexivity. }
+      induction outsi as [|m0 outsi IH]; cbn [flat_map filter]; [reflexivity|].
+      rewrite IH, Hper. destruct (existsb (Nat.eqb nn) (forward ni m0)); reflexivity.
+    Qed.
     Local Notation queued nn gs :=
       (map snd (filter (fun de => Nat.eqb (fst de) nn) gs.(g_messages))).
 
