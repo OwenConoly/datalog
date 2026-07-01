@@ -5,37 +5,6 @@ From Stdlib Require Import RelationClasses.
 From Datalog Require Import Smallstep Map.
 Import ListNotations.
 
-(* [outputs_of] on a cons: an output event contributes its payload, an input
-   event nothing.  These replace the existential reasoning of the retired
-   [output_in_trace] in the legacy proofs. *)
-Lemma outputs_of_O_cons {L M} (lbl : L) (outs : list M) (t : list (Smallstep.IO_event L M)) :
-  outputs_of (O_event lbl outs :: t) = outs ++ outputs_of t.
-Proof. reflexivity. Qed.
-
-Lemma outputs_of_I_cons {L M} (m : M) (t : list (Smallstep.IO_event L M)) :
-  outputs_of (I_event m :: t) = outputs_of t.
-Proof. reflexivity. Qed.
-
-Lemma outputs_of_map_I_event {L M} (l : list M) :
-  outputs_of (map (I_event : M -> Smallstep.IO_event L M) l) = [].
-Proof. induction l as [|m l IH]; [reflexivity | exact IH]. Qed.
-
-Lemma inputs_of_single_O {L M} (lbl : L) (outs : list M) :
-  inputs_of [O_event lbl outs] = [].
-Proof. reflexivity. Qed.
-
-Lemma inputs_of_single_I {L M} (m : M) :
-  inputs_of [(I_event m : Smallstep.IO_event L M)] = [m].
-Proof. reflexivity. Qed.
-
-Lemma inputs_of_O_cons {L M} (lbl : L) (outs : list M) (l : list (Smallstep.IO_event L M)) :
-  inputs_of (O_event lbl outs :: l) = inputs_of l.
-Proof. reflexivity. Qed.
-
-Lemma inputs_of_snoc_O {L M} (l : list (Smallstep.IO_event L M)) (lbl : L) (outs : list M) :
-  inputs_of (l ++ [O_event lbl outs]) = inputs_of l.
-Proof. rewrite inputs_of_app, inputs_of_single_O, app_nil_r. reflexivity. Qed.
-
 Definition node_id := nat.
 Section __.
   Context {message : Type}.
