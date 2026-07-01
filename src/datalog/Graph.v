@@ -19,6 +19,10 @@ Section __.
   Context (equiv_equiv : Equivalence equiv).
   Context (output_visible_equiv :
              forall n a b, equiv a b -> output_visible n a = output_visible n b).
+  (* Forwarding cannot distinguish [equiv]-related messages: a forced re-emission
+     produces [mu' ~ mu] and must reach the same consumers as [mu]. *)
+  Context (forward_equiv :
+             forall n a b, equiv a b -> forward n a = forward n b).
   Context (well_formed_output : node_id -> list message -> Prop).
   Context {constraint} (well_formed : constraint -> list message -> Prop).
   Context (well_formed_inputs : constraint -> list message -> Prop).
