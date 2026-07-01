@@ -52,17 +52,27 @@ Section step.
   (* An equivalence on messages: the observation granularity.  Two messages a
      node may treat interchangeably (here: done-messages equal modulo their count). *)
   Context (equiv : message -> message -> Prop).
-  (* "Well-formedness" of a fact multiset: every meta-fact's claimed count is
-     matched by exactly that many normal facts of the form it describes (summing
-     over several meta-facts about the same form).  Abstract here; instantiated in
-     the datalog node by the count-consistency invariant. *)
-  Context (well_formed : list message -> Prop).
+  (* A family of well-formedness "constraints" on fact multisets, indexed by
+     [constraint]: [well_formed c fs] = "fs satisfies constraint c" (e.g. a
+     meta-fact's claimed count is matched by exactly that many normal facts).
+     Abstract here; in the datalog graph [constraint] is instantiated per-node.
+     The modulo transfer only needs t2 to PRESERVE the constraints t1 satisfies
+     (relative well-formedness), never absolute well-formedness. *)
+  Context {constraint : Type}.
+  Context (well_formed : constraint -> list message -> Prop).
 
   Definition submultiset (l1 l2 : list message) : Prop :=
     exists rest, Permutation l2 (l1 ++ rest).
 
   Definition allowed (inps : list message) : Prop :=
-    exists W, well_formed W /\ submultiset inps W.
+    exists W, (forall c, well_formed c W) /\ submultiset inps W.
+
+  (* [well_formed] is monotone under multiset growth on ALLOWED multisets: adding
+     facts to an allowed set never breaks a constraint it satisfied.  Separately
+     assumed; makes [monotone_multiset] a consequence of [monotone_mod_equiv]. *)
+  Context (well_formed_monotone :
+    forall c l1 l2, allowed l1 -> allowed l2 -> submultiset l1 l2 ->
+                    well_formed c l1 -> well_formed c l2).
 
   Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
     Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
@@ -113,7 +123,7 @@ Section step.
   Lemma submultiset_refl l : submultiset l l.
   Proof. exists []. rewrite app_nil_r. apply Permutation_refl. Qed.
 
-  Lemma allowed_intro inps : well_formed inps -> allowed inps.
+  Lemma allowed_intro inps : (forall c, well_formed c inps) -> allowed inps.
   Proof. intros H. exists inps. split; [exact H | apply submultiset_refl]. Qed.
 
   Lemma outputs_of_in_app o (l1 l2 : list (IO_event label message)) :
@@ -341,7 +351,7 @@ Section step.
   Context (initial : state).
 
   Definition outputs_well_formed :=
-    forall t s, star step initial t s -> well_formed (outputs_of t).
+    forall t s, star step initial t s -> forall c, well_formed c (outputs_of t).
 
   Definition can_implies_will :=
     forall t s o,
@@ -412,20 +422,12 @@ Section step.
   Definition incl_mod (l1 l2 : list message) : Prop :=
     forall a, In a l1 -> exists b, In b l2 /\ equiv a b.
 
-  Definition monotone_multiset :=
+  Definition monotone_mod_equiv :=
     forall t1 t2 s1 s2 o,
       star step initial t1 s1 ->
       star step initial t2 s2 ->
       allowed (inputs_of t1) ->
       allowed (inputs_of t2) ->
-      submultiset (inputs_of t1) (inputs_of t2) ->
-      might_output s1 t1 o ->
-      might_output s2 t2 o.
-
-  Definition monotone_mod_equiv :=
-    forall t1 t2 s1 s2 o,
-      star step initial t1 s1 ->
-      star step initial t2 s2 ->
       incl_mod (inputs_of t1) (inputs_of t2) ->
       (forall constraint, well_formed constraint (inputs_of t1) -> well_formed constraint (inputs_of t2)) ->
       might_output s1 t1 o ->
@@ -544,7 +546,8 @@ End step.
 
 Section steps_corresp.
   Context {label message : Type}.
-  Context (well_formed : list message -> Prop).
+  Context {constraint : Type}.
+  Context (well_formed : constraint -> list message -> Prop).
   Local Notation IO_event := (IO_event label message).
 
   Section steps.
