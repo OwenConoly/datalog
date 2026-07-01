@@ -74,13 +74,10 @@ Section __.
     forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
                     submultiset l1 l2 -> In c l1 -> well_formed_inputs c l1 -> well_formed_inputs c l2).
 
-  (* [well_formed] respects [equiv]: a present, well-formed fact stays well-formed when the
-     fact-set is replaced by one that [equiv]-covers it ([incl_mod]).  This is what lets a
-     node's capability transfer across the drive's re-emissions (which produce [equiv]-
-     relatives, not identical facts).  [In c l1]-restricted, like [well_formed_monotone]. *)
+  (* [well_formed] respects [equiv] in the fact argument: an [equiv]-relative of a
+     well-formed fact is well-formed (same context). *)
   Context (well_formed_equiv :
-    forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
-                    incl_mod equiv l1 l2 -> In c l1 -> well_formed c l1 -> well_formed c l2).
+    forall x y z, equiv x y -> well_formed x z -> well_formed y z).
 
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
@@ -1223,6 +1220,7 @@ Section __.
       - apply eventually_done. exact Hr.
     Qed.
 
+
     (* Carry [core_dom_mod gs_pre] plus a reachable-allowed bundle through a driven
        eventually.  [core_dom_mod_run] needs no allowedness now, but the bundle still
        carries [allowed ...] for the downstream capability transfer. *)
@@ -1312,12 +1310,11 @@ Section __.
       pose proof (node_inputs_allowed Hgood T1 gs1 HT1 Hall1 n np ns1 t1 Hp Hg1) as Hallt1.
       pose proof (node_inputs_allowed Hgood T2 gs2 HT2 Hall2 n np ns2 t2 Hp Hg2) as Hallt2.
       apply (Hmono_eq t1 t2 ns1 ns2 o Hrun1 Hrun2 Hallt1 Hallt2 Hincl).
-      - (* constraint-preservation across the equiv-domination: each fact present in t1
-           and well-formed there stays well-formed in t2, which [equiv]-covers t1. *)
-        intros c Hin_c Hwf1.
-        exact (well_formed_equiv c (inputs_of t1) (inputs_of t2) Hallt1 Hallt2 Hincl Hin_c Hwf1).
+      - (* constraint-preservation.  PLAN: strengthen domination to submultiset, then
+           this is [well_formed_monotone]. *)
+        intros c Hin_c Hwf1. admit.
       - exact Hmight.
-    Qed.
+    Admitted.
 
     Lemma will_output_equiv_weaken (np : node_prog) (s : node_state)
         (tr : list IO_event) (a b : message) :
@@ -1377,6 +1374,49 @@ Section __.
           apply (IH _ Hmidset s'' (O_event glbl outs :: t_d ++ t)); [|reflexivity].
           eapply Hinv; [|exact HInv].
           eapply star_app; [exact Hstar_d | econstructor; [exact Hstep | constructor]].
+    Qed.
+
+    (* Force node [c] to receive every message in [ms] (each currently queued to [c] or
+       already received), by chaining [force_deliver_equiv] and carrying the ones already
+       delivered.  This is the "force the node to receive all its forwarded messages" step. *)
+    Lemma force_deliver_node_all :
+      forall (c : node_id) npc ns0c,
+        map.get p c = Some npc -> map.get initial_ns c = Some ns0c ->
+      forall (ms : list message),
+      forall TX gsX, star gstep initial_graph_state TX gsX ->
+        (forall m, In m ms -> In (c, m) gsX.(g_messages) \/ node_received gsX c m) ->
+      forall t,
+        eventually (will_step gstep well_formed_graph_inputs)
+          (fun '(gs', _) => forall m, In m ms -> node_received gs' c m) (gsX, t).
+    Proof.
+      intros c npc ns0c Hpc Hns0c ms.
+      induction ms as [|m ms IH]; intros TX gsX HTX Hall t.
+      - apply eventually_done. intros m [].
+      - eapply eventually_trans.
+        { apply (eventually_carry_inv
+                   (fun gs => (exists T, star gstep initial_graph_state T gs) /\
+                              (forall m', In m' ms -> In (c, m') gs.(g_messages) \/ node_received gs c m'))
+                   ltac:(intros ga T0 gb Hs Hinv; destruct Hinv as (HT & Hq); split;
+                         [ destruct HT as (Tg & HTg); exists (Tg ++ T0); eapply star_app; eassumption
+                         | intros m' Hm'; destruct (Hq m' Hm') as [Hqm | Hrm];
+                           [ destruct (queue_fate _ _ _ Hs c m' Hqm) as [Hq2 | (ns2 & t2 & Hg2 & Hin2)];
+                             [ left; exact Hq2 | right; exists ns2, t2; split; [exact Hg2 | exact Hin2] ]
+                           | right; apply (node_received_mono _ _ _ Hs c m' Hrm) ] ])
+                   _ gsX t
+                   (conj (ex_intro _ TX HTX)
+                         (fun m' Hm' => Hall m' (or_intror Hm')))
+                   (force_deliver_equiv TX gsX HTX c m npc ns0c Hpc Hns0c
+                      (Hall m (or_introl eq_refl)) t)). }
+        intros [gs' t'] (Hrcv_m & (HTg' & Hall')).
+        destruct HTg' as (TX' & HTX').
+        eapply eventually_trans.
+        { apply (eventually_carry_inv (fun gs => node_received gs c m)
+                   ltac:(intros ga T0 gb Hs Hr; apply (node_received_mono _ _ _ Hs c m Hr))
+                   _ gs' t' Hrcv_m
+                   (IH TX' gs' HTX' Hall' t')). }
+        intros [gs'' t''] (Hallms & Hrcv_m').
+        apply eventually_done.
+        intros m0 [Hm0 | Hm0]; [subst m0; exact Hrcv_m' | apply Hallms; exact Hm0].
     Qed.
 
     (* The node-state domain is invariant under runs. *)
