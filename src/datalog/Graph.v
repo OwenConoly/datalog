@@ -865,6 +865,68 @@ Section __.
         [apply H; left; reflexivity | apply IH; intros k Hk; apply H; right; exact Hk].
     Qed.
 
+    Lemma perm_filter {A} (q : A -> bool) (l l' : list A) :
+      Permutation l l' -> Permutation (filter q l) (filter q l').
+    Proof.
+      induction 1; cbn.
+      - apply Permutation_refl.
+      - destruct (q x); [apply perm_skip|]; assumption.
+      - destruct (q x), (q y); try apply perm_swap; apply Permutation_refl.
+      - eapply perm_trans; eassumption.
+    Qed.
+
+    Lemma sub_slice (q : message * node_id -> bool) (l1 l2 : list (message * node_id)) :
+      submultiset l1 l2 -> submultiset (map fst (filter q l1)) (map fst (filter q l2)).
+    Proof.
+      intros (rest & Hp). exists (map fst (filter q rest)).
+      rewrite <- map_app, <- filter_app. apply Permutation_map. apply perm_filter. exact Hp.
+    Qed.
+
+    (* At a reachable graph state, a node's stored inputs are [allowed] (bounded by a
+       [well_formed] pool): conservation puts them inside all emitted outputs plus the
+       node's external slice, and [Hwfg] certifies that pool is well-formed. *)
+    Lemma node_inputs_allowed :
+      Forall2_map node_good p initial_ns ->
+      forall T gs, star gstep initial_graph_state T gs ->
+        allowed well_formed_graph_inputs (inputs_of T) ->
+        forall n np ns tn,
+          map.get p n = Some np ->
+          map.get gs.(g_nodes) n = Some (ns, tn) ->
+          allowed well_formed (inputs_of tn).
+    Proof.
+      intros Hgood T gs Hstar Hall n np ns tn Hp Hg.
+      destruct Hall as (Wg & Hwf_g & Hsub_g).
+      pose proof (conservation_run T gs Hstar n ns tn Hg) as Hcons.
+      set (fss := map (fun k => match map.get gs.(g_nodes) k with
+                                | Some (_, t) => outputs_of t | None => [] end) (map.keys p)).
+      assert (Hconcat : node_outputs_total gs.(g_nodes) = concat fss) by reflexivity.
+      assert (HF2 : Forall2 well_formed_output (map.keys p) fss).
+      { apply Forall2_map_self. intros k Hk.
+        apply map.in_keys_inv in Hk.
+        destruct (map.get p k) as [npk|] eqn:Hpk; [| exfalso; apply Hk; reflexivity].
+        destruct (p_initial_dom k npk Hpk) as (xk & Hxk).
+        destruct (node_state_persists initial_graph_state T gs Hstar k xk
+                    ltac:(cbn [g_nodes initial_graph_state]; exact Hxk)) as (yk & Hgk).
+        destruct yk as [nsk tk]. rewrite Hgk.
+        destruct (pernode_spec_good Hgood k npk xk Hpk Hxk) as (Howf & _).
+        destruct (node_run T gs Hstar k npk xk nsk tk Hpk Hxk Hgk) as (Hrun & _).
+        exact (Howf tk nsk Hrun tt). }
+      assert (Hfeq : map fst (filter (fun de => Nat.eqb (snd de) n) Wg)
+                   = map fst (filter (fun '(_, n') => Nat.eqb n n') Wg)).
+      { f_equal. apply filter_ext. intros [m n']. cbn. apply Nat.eqb_sym. }
+      exists (node_outputs_total gs.(g_nodes) ++ map fst (filter (fun de => Nat.eqb (snd de) n) Wg)).
+      split.
+      - intro c. rewrite Hconcat.
+        apply (proj2 (Hwfg (map.keys p) fss (map.keys_NoDup p) HF2 c _)).
+        rewrite Hfeq. apply (Hwf_g c n).
+      - eapply sub_trans;
+          [| apply sub_app_mono;
+               [apply submultiset_refl
+               | apply (sub_slice (fun de => Nat.eqb (snd de) n) (inputs_of T) Wg Hsub_g)]].
+        eapply sub_trans; [| exact Hcons].
+        apply sub_app_r. apply submultiset_refl.
+    Qed.
+
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
