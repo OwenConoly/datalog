@@ -1046,6 +1046,41 @@ Section __.
                (node_inputs_allowed Hgood T gs HT Hall n np ns t Hp Hg) Hcan).
     Qed.
 
+    (* Force a queued (or matched-received) message to be delivered to its consumer:
+       if the demon already delivered it the angel is done; otherwise the angel
+       delivers it ([nodes_input_total] supplies the receive step). *)
+    Lemma force_deliver_equiv :
+      forall TX gsX, star gstep initial_graph_state TX gsX ->
+      forall c m npc ns0c,
+        map.get p c = Some npc ->
+        map.get initial_ns c = Some ns0c ->
+        (In (c, m) gsX.(g_messages) \/ node_received gsX c m) ->
+      forall t,
+        eventually (will_step gstep well_formed_graph_inputs)
+          (fun '(gs', _) => node_received gs' c m) (gsX, t).
+    Proof.
+      intros TX gsX HTX c m npc ns0c Hpc Hns0c Hcm t.
+      destruct Hcm as [Hq | Hr].
+      - apply eventually_step_cps. exists (receive c m).
+        intros gs_d t_d Hstar_d Hallow.
+        pose proof (star_app _ _ _ _ _ _ HTX Hstar_d) as HTd.
+        destruct (queue_fate _ _ _ Hstar_d c m Hq) as [Hqd | Hrd].
+        + right.
+          destruct (project_node_gen _ _ HTd c npc ns0c Hpc Hns0c)
+            as (tauc & nsc & _ & Hgc & _).
+          apply in_split in Hqd as (ms1 & ms2 & Hsplit).
+          destruct (nodes_input_total c npc Hpc nsc m) as (nsc' & Hstepc).
+          exists {| g_nodes := map.put gs_d.(g_nodes) c (nsc', tauc ++ [I_event m]);
+                    g_messages := ms1 ++ ms2 |}, [].
+          split.
+          * eapply gstep_receive; [exact Hpc | exact Hgc | exact Hstepc | exact Hsplit].
+          * apply eventually_done. cbn. exists nsc', (tauc ++ [I_event m]).
+            split; [apply map.get_put_same|].
+            rewrite inputs_of_app. apply in_or_app. right. left. reflexivity.
+        + left. apply eventually_done. exact Hrd.
+      - apply eventually_done. exact Hr.
+    Qed.
+
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
