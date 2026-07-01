@@ -107,11 +107,144 @@ Section __.
     Definition initial_graph_state : graph_state :=
       {| g_nodes := initial_ns; g_messages := [] |}.
 
+    Local Notation gstep := (graph_step p node_step).
+
     Definition node_good (n : node_id) (np : node_prog) : node_state * list IO_event -> Prop :=
       fun '(ns, _) =>
         outputs_well_formed    (node_step np)       (fun (_ : unit) => well_formed_output n) ns /\
         monotone_mod_equiv     (node_step np) equiv well_formed ns /\
         can_implies_will_equiv (node_step np) equiv well_formed ns.
+    Ltac inv_gstep H :=
+      inversion H as [ gs0 ni mi Hia
+                     | gs0 ni npi nsi ti nsi' lbli outsi Hpi Hgi Hsi
+                     | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ].
+
+    (* Membership in a node's tagged output list: (o, n) is in node n's tagged
+       outputs iff o is among the (untagged) outputs. *)
+    Lemma In_tag (n : node_id) (l : list message) (o : message) :
+      In (o, n) (map (fun m => (m, n)) l) <-> In o l.
+    Proof.
+      rewrite in_map_iff. split.
+      - intros (x & Heq & Hin). injection Heq as ->. exact Hin.
+      - intros Hin. exists o. split; [reflexivity | exact Hin].
+    Qed.
+
+    Lemma In_tag_inv (n0 nq : node_id) (l : list message) (o : message) :
+      In (o, nq) (map (fun m => (m, n0)) l) -> nq = n0 /\ In o l.
+    Proof.
+      rewrite in_map_iff. intros (x & Heq & Hin).
+      injection Heq as Hx Hn. subst. split; [reflexivity | exact Hin].
+    Qed.
+
+    (* The state-stored projection: over any drive, node n's stored trace grows by
+       a delta [td] that is a valid node run from n's state, whose visible outputs
+       all appear in the graph trace. *)
+    Lemma node_drive_delta :
+      forall T gs0 gs,
+        star gstep gs0 T gs ->
+        forall n np ns t,
+          map.get p n = Some np ->
+          map.get gs0.(g_nodes) n = Some (ns, t) ->
+          exists ns' td,
+            map.get gs.(g_nodes) n = Some (ns', t ++ td) /\
+            star (node_step np) ns td ns' /\
+            (forall o, output_visible n o = true ->
+                       In o (outputs_of td) -> In (o, n) (outputs_of T)).
+    Proof.
+      intros T gs0 gs Hstar.
+      induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH];
+        intros n np ns t Hp Hg0.
+      - exists ns, []. rewrite app_nil_r. split; [exact Hg0|]. split; [constructor|].
+        intros o _ Hout. cbn in Hout. contradiction.
+      - inv_gstep Hstep; subst.
+        + destruct (IH n np ns t Hp Hg0) as (ns' & td & Hg & Hstd & Hpres).
+          exists ns', td. split; [exact Hg|]. split; [exact Hstd|].
+          intros o Hvis Hout. exact (Hpres o Hvis Hout).
+        + destruct (Nat.eq_dec n ni) as [Heq|Hne].
+          * subst ni. assert (npi = np) by congruence. subst npi.
+            assert (Heqp : (nsi, ti) = (ns, t)) by congruence.
+            injection Heqp as Hns Ht; subst nsi ti.
+            destruct (IH n np nsi' (t ++ [O_event lbli outsi]) Hp) as (ns' & td & Hg & Hstd & Hpres).
+            { cbn. apply map.get_put_same. }
+            exists ns', (O_event lbli outsi :: td).
+            replace (t ++ O_event lbli outsi :: td) with ((t ++ [O_event lbli outsi]) ++ td)
+              by (rewrite <- app_assoc; reflexivity).
+            split; [exact Hg|]. split; [econstructor; [exact Hsi | exact Hstd]|].
+            intros o Hvis Hout.
+            apply in_app_or in Hout as [Hhead | Hrest].
+            -- apply in_or_app. left.
+               apply In_tag. apply filter_In. split; [exact Hhead|exact Hvis].
+            -- apply in_or_app. right. exact (Hpres o Hvis Hrest).
+          * destruct (IH n np ns t Hp) as (ns' & td & Hg & Hstd & Hpres).
+            { cbn. rewrite map.get_put_diff by auto. exact Hg0. }
+            exists ns', td. split; [exact Hg|]. split; [exact Hstd|].
+            intros o Hvis Hout. specialize (Hpres o Hvis Hout).
+            apply in_or_app. right. exact Hpres.
+        + destruct (Nat.eq_dec n ni) as [Heq|Hne].
+          * subst ni. assert (npi = np) by congruence. subst npi.
+            assert (Heqp : (nsi, ti) = (ns, t)) by congruence.
+            injection Heqp as Hns Ht; subst nsi ti.
+            destruct (IH n np nsi' (t ++ [I_event mi]) Hp) as (ns' & td & Hg & Hstd & Hpres).
+            { cbn. apply map.get_put_same. }
+            exists ns', (I_event mi :: td).
+            replace (t ++ I_event mi :: td) with ((t ++ [I_event mi]) ++ td)
+              by (rewrite <- app_assoc; reflexivity).
+            split; [exact Hg|]. split; [econstructor; [exact Hsi | exact Hstd]|].
+            intros o Hvis Hout.
+            exact (Hpres o Hvis Hout).
+          * destruct (IH n np ns t Hp) as (ns' & td & Hg & Hstd & Hpres).
+            { cbn. rewrite map.get_put_diff by auto. exact Hg0. }
+            exists ns', td. split; [exact Hg|]. split; [exact Hstd|].
+            intros o Hvis Hout. exact (Hpres o Hvis Hout).
+    Qed.
+
+    (* Specialization to runs from the initial graph state: a node's stored trace
+       IS its projection — a valid node run from its bare initial state, whose
+       visible outputs all appear in the graph trace. *)
+    Lemma project_node_gen :
+      forall T gs,
+        star gstep initial_graph_state T gs ->
+        forall n np ns0,
+          map.get p n = Some np ->
+          map.get initial_ns n = Some ns0 ->
+          exists tau ns_at,
+            star (node_step np) (fst ns0) tau ns_at /\
+            map.get gs.(g_nodes) n = Some (ns_at, tau) /\
+            (forall o, output_visible n o = true ->
+                       In o (outputs_of tau) -> In (o, n) (outputs_of T)).
+    Proof.
+      intros T gs Hstar n np ns0 Hp Hns0.
+      pose proof (initial_ns_empty n ns0 Hns0) as Hempty.
+      destruct ns0 as [ns0b t0b]. cbn in Hempty. subst t0b. cbn [fst].
+      destruct (node_drive_delta _ _ _ Hstar n np ns0b [] Hp Hns0)
+        as (ns' & td & Hg & Hstd & Hpres).
+      rewrite app_nil_l in Hg.
+      exists td, ns'. split; [exact Hstd|]. split; [exact Hg|]. exact Hpres.
+    Qed.
+
+    (* The "backward" reading of project_node_gen: given a node's current stored
+       state (ns, t) at a reachable graph state, recover its run from the bare
+       initial state and the fact that its visible outputs reach the graph trace.
+       Saves the caller the project + congruence dance. *)
+    Lemma node_run :
+      forall T gs, star gstep initial_graph_state T gs ->
+      forall n np ns0 ns t,
+        map.get p n = Some np ->
+        map.get initial_ns n = Some ns0 ->
+        map.get gs.(g_nodes) n = Some (ns, t) ->
+        star (node_step np) (fst ns0) t ns /\
+        (forall o, output_visible n o = true ->
+                   In o (outputs_of t) -> In (o, n) (outputs_of T)).
+    Proof.
+      intros T gs Hstar n np ns0 ns t Hp Hns0 Hg.
+      destruct (project_node_gen _ _ Hstar n np ns0 Hp Hns0)
+        as (tau & ns_at & Hrun & Hgat & Hpres).
+      assert (ns_at = ns) by congruence. assert (tau = t) by congruence. subst ns_at tau.
+      split; [exact Hrun | exact Hpres].
+    Qed.
+
+    (* With traces stored in the state, "node n has received message mu" is simply:
+       mu appears in the inputs of n's stored trace. *)
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
