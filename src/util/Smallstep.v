@@ -65,6 +65,61 @@ Section step.
                        consistent c l1 ->
                        consistent c l2).
 
+  Context (allowed_perm :
+            forall l1 l2, Permutation l1 l2 -> allowed l1 -> allowed l2).
+
+  Context (allowed_submultiset :
+            forall l1 l2, submultiset l1 l2 -> allowed l2 -> allowed l1).
+
+  Lemma submultiset_refl l : submultiset l l.
+  Proof. exists []. rewrite app_nil_r. apply Permutation_refl. Qed.
+
+  Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
+    Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
+  Proof.
+    unfold outputs_of. induction 1; cbn [flat_map].
+    - apply Permutation_refl.
+    - apply Permutation_app_head; assumption.
+    - rewrite 2!app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
+    - eapply perm_trans; eassumption.
+  Qed.
+
+  Lemma outputs_of_app (t1 t2 : list (IO_event label message)) :
+    outputs_of (t1 ++ t2) = outputs_of t1 ++ outputs_of t2.
+  Proof. apply flat_map_app. Qed.
+
+  Lemma outputs_of_in_perm o (t1 t2 : list (IO_event label message)) :
+    Permutation t1 t2 -> In o (outputs_of t1) -> In o (outputs_of t2).
+  Proof.
+    intros Hperm Hin. eapply Permutation_in; [apply outputs_of_perm; exact Hperm | exact Hin].
+  Qed.
+
+  Lemma inputs_of_perm (t1 t2 : list (IO_event label message)) :
+    Permutation t1 t2 -> Permutation (inputs_of t1) (inputs_of t2).
+  Proof.
+    unfold inputs_of. induction 1; cbn [flat_map].
+    - apply Permutation_refl.
+    - apply Permutation_app_head; assumption.
+    - rewrite 2!app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
+    - eapply perm_trans; eassumption.
+  Qed.
+
+  Lemma inputs_of_app (t1 t2 : list (IO_event label message)) :
+    inputs_of (t1 ++ t2) = inputs_of t1 ++ inputs_of t2.
+  Proof. apply flat_map_app. Qed.
+
+  Lemma outputs_of_in_app o (l1 l2 : list (IO_event label message)) :
+    In o (outputs_of (l1 ++ l2)) <-> In o (outputs_of l1) \/ In o (outputs_of l2).
+  Proof. rewrite outputs_of_app. apply in_app_iff. Qed.
+
+  Lemma outputs_of_in_swap o l1 e (l2 : list (IO_event label message)) :
+    In o (outputs_of (l1 ++ e :: l2)) <-> In o (outputs_of (e :: l1 ++ l2)).
+  Proof.
+    split.
+    - apply outputs_of_in_perm. apply Permutation_sym. apply Permutation_middle.
+    - apply outputs_of_in_perm. apply Permutation_middle.
+  Qed.
+
   Definition input_total :=
     forall s m, exists s', step s (I_event m) s'.
 
@@ -176,14 +231,98 @@ Section step.
       allowed (inputs_of t) ->
       will_output s t o ->
       might_output s t o.
-  Proof. Admitted.
+  Proof.
+    intros s0 t0 o Hall Hwill.
+    cbv [will_output] in Hwill.
+    remember (s0, t0) as st eqn:Est.
+    revert s0 t0 Hall Est.
+    induction Hwill as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
+      intros s0 t0 Hall [= -> ->].
+    - exists [], s0. split; [constructor|].
+      split; [reflexivity|exact HP].
+    - cbv [will_step] in Hcan. destruct Hcan as [lbl Hcan].
+      specialize (Hcan s0 [] (star_refl _ _)).
+      cbn in Hcan. specialize (Hcan Hall).
+      destruct Hcan as [Hmid0 | (s'' & outs & Hstep & Hmidset)].
+      + apply (IH (s0, t0) Hmid0 s0 t0 Hall eq_refl).
+      + assert (Hall' : allowed (inputs_of (O_event lbl outs :: t0))).
+        { exact Hall. }
+        destruct (IH _ Hmidset s'' (O_event lbl outs :: t0) Hall' eq_refl)
+          as (t'' & s''' & Hstar'' & Hinp'' & Hout'').
+        exists (O_event lbl outs :: t''), s'''.
+        split; [econstructor; eassumption|].
+        split; [cbn; exact Hinp''|].
+        apply (outputs_of_in_swap o t'' (O_event lbl outs) t0). exact Hout''.
+  Qed.
+
+  Lemma eventually_swap :
+    forall (o : message) (s : state) (t1 t2 : list (IO_event label message)),
+      Permutation t1 t2 ->
+      eventually will_step
+                 (fun '(_, t') => In o (outputs_of t')) (s, t1) ->
+      eventually will_step
+                 (fun '(_, t') => In o (outputs_of t')) (s, t2).
+  Proof.
+    intros o s t1 t2 Hperm Hev.
+    remember (s, t1) as st eqn:Est.
+    revert s t1 t2 Hperm Est.
+    induction Hev as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
+      intros s_orig t1 t2 Hperm [= -> ->].
+    - apply eventually_done. cbn. eapply outputs_of_in_perm; eassumption.
+    - destruct Hcan as [lbl Hcan].
+      apply eventually_step_cps. exists lbl.
+      intros s'_d t_d Hstar_d Hallow_d.
+      assert (Hallow_d' : allowed (inputs_of (t_d ++ t1))).
+      { eapply allowed_perm; [|exact Hallow_d].
+        apply inputs_of_perm. apply Permutation_app_head. apply Permutation_sym. exact Hperm. }
+      specialize (Hcan s'_d t_d Hstar_d Hallow_d').
+      destruct Hcan as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
+      + left. apply (IH (s'_d, t_d ++ t1) Hmid_left s'_d (t_d ++ t1) (t_d ++ t2));
+          [apply Permutation_app_head; exact Hperm | reflexivity].
+      + right. exists s'', outs. split; [exact Hstep|].
+        apply (IH _ Hmidset s'' (O_event lbl outs :: t_d ++ t1)
+                  (O_event lbl outs :: t_d ++ t2));
+          [apply perm_skip; apply Permutation_app_head; exact Hperm | reflexivity].
+  Qed.
 
   Lemma will_output_step :
     forall s e s' t o,
       step s e s' ->
       will_output s t o ->
       will_output s' (e :: t) o.
-  Proof. Admitted.
+  Proof.
+    intros s e s' t o Hstep Hwill.
+    cbv [will_output] in *.
+    remember (s, t) as st eqn:Est.
+    revert s e s' t Hstep Est.
+    induction Hwill as [[s0 t0] HP | [s0 t0] midset Hcan Hmid IH];
+      intros s_orig e_orig s_new t_orig Hstep [= -> ->].
+    - apply eventually_done. cbn in HP |- *.
+      apply in_or_app. right. exact HP.
+    - destruct Hcan as [lbl Hcan].
+      apply eventually_step_cps. exists lbl.
+      intros s_d t_d Hstar_d Hallow_d.
+      pose proof (star_step _ _ _ _ _ _ Hstep Hstar_d) as Hstar_combined.
+      assert (Hallow_o : allowed (inputs_of ((e_orig :: t_d) ++ t_orig))).
+      { change ((e_orig :: t_d) ++ t_orig) with (e_orig :: t_d ++ t_orig).
+        eapply allowed_perm; [|exact Hallow_d].
+        apply inputs_of_perm. apply Permutation_sym. apply Permutation_middle. }
+      specialize (Hcan s_d (e_orig :: t_d) Hstar_combined Hallow_o).
+      destruct Hcan as [Hmid_left | (s'' & outs & Hstep_a & Hmidset)].
+      + left.
+        apply (eventually_swap o s_d
+                ((e_orig :: t_d) ++ t_orig)
+                (t_d ++ e_orig :: t_orig)); [|apply (Hmid _ Hmid_left)].
+        change ((e_orig :: t_d) ++ t_orig) with (e_orig :: t_d ++ t_orig).
+        apply Permutation_middle.
+      + right. exists s'', outs. split; [exact Hstep_a|].
+        specialize (Hmid _ Hmidset).
+        apply (eventually_swap o s''
+                (O_event lbl outs :: (e_orig :: t_d) ++ t_orig)
+                (O_event lbl outs :: t_d ++ e_orig :: t_orig)); [|exact Hmid].
+        change ((e_orig :: t_d) ++ t_orig) with (e_orig :: t_d ++ t_orig).
+        apply perm_skip. apply Permutation_middle.
+  Qed.
   Context (outputs_wf : list message -> Prop).
   Context (initial : state).
 
@@ -223,7 +362,15 @@ Section step.
       step ns e ns' ->
       might_output ns tau o ->
       might_output ns' (e :: tau) o.
-  Proof. Admitted.
+  Proof.
+    intros Hciw ns tau e ns' o Halt Hstar Hstep Hcan.
+    apply will_implies_might; [exact Halt|].
+    apply (will_output_step ns e ns' tau o Hstep).
+    apply Hciw; [exact Hstar | | exact Hcan].
+    eapply allowed_submultiset; [|exact Halt].
+    exists (inputs_of [e]). change (e :: tau) with ([e] ++ tau).
+    rewrite inputs_of_app. apply Permutation_app_comm.
+  Qed.
 
   Definition monotone :=
     forall t1 t2 s1 s2 o,
@@ -275,16 +422,17 @@ Section step.
   Proof.
     intros Hmono t1 t2 s1 s2 o Hs1 Hs2 Hal1 Hal2 Hsub Hmight.
     apply (Hmono t1 t2 s1 s2 o Hs1 Hs2 Hal1 Hal2).
-    - intros a Ha. exists a. split;
-        [ destruct Hsub as (rest & Hperm); eapply Permutation_in;
-            [symmetry; exact Hperm | apply in_or_app; left; exact Ha]
-        | reflexivity ].
-    - intros c Hwf. exact (well_formed_monotone c (inputs_of t1) (inputs_of t2) Hal1 Hal2 Hsub Hwf).
+    - intros a Hincl Hcons. exists a. split; [|split].
+      + destruct Hsub as (rest & Hperm). intros x Hx.
+        eapply Permutation_in; [symmetry; exact Hperm|].
+        apply in_or_app. left. apply Hincl. exact Hx.
+      + clear Hincl Hcons. induction a as [|x xs IHa]; constructor; [reflexivity | exact IHa].
+      + exact (consistent_monotone a (inputs_of t1) (inputs_of t2) Hal1 Hal2 Hsub Hcons).
     - exact Hmight.
   Qed.
 
   Lemma ciw'_iff_ciw_and_monotone' :
-    can_implies_will' <-> can_implies_will /\ monotone'.
+    might_implies_will' <-> might_implies_will /\ monotone'.
   Proof.
     split.
     - (* → *)
@@ -318,7 +466,7 @@ Section step.
         { subst T. rewrite inputs_of_app, Hinp_a, app_nil_r. exact Hincl. }
         pose proof (Hciw' T s_f o Hstar_T HallT HoutT s2 t2 HinclT Hstar2 Hall2)
           as Hwill.
-        apply will_implies_can; assumption.
+        apply will_implies_might; assumption.
     - (* ← *)
       intros [Hciw Hmono] t s o Hstar Hall Hout s' t' Hincl Hstar' Hall'.
       apply Hciw; auto.
@@ -328,10 +476,10 @@ Section step.
   Qed.
 
   Lemma ciw_monotone :
-    can_implies_will ->
+    might_implies_will ->
     monotone.
   Proof.
-    cbv [can_implies_will monotone].
+    cbv [might_implies_will monotone].
     intros Hciw t1 t2 s1 s2 o Hstar1 Hstar2 Hall1 Hallt Hcan.
     apply (Hciw _ _ _ Hstar1 Hall1) in Hcan.
     cbv [will_output] in Hcan.
@@ -342,11 +490,11 @@ Section step.
     - cbv [will_step] in Hwill_step. destruct Hwill_step as [lbl Hwill_step].
       specialize (Hwill_step _ _ Hstar2 Hallt).
       destruct Hwill_step as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
-      + exact (will_implies_can _ _ _ Hallt (Hmid _ Hmid_left)).
+      + exact (will_implies_might _ _ _ Hallt (Hmid _ Hmid_left)).
       + specialize (Hmid _ Hmidset).
         assert (Hall' : allowed (inputs_of (O_event lbl outs :: t2 ++ t1))).
         { exact Hallt. }
-        apply (will_implies_can _ _ _ Hall') in Hmid.
+        apply (will_implies_might _ _ _ Hall') in Hmid.
         destruct Hmid as (t' & s''' & Hstar' & Hinp' & Hout').
         exists (O_event lbl outs :: t'), s'''.
         split; [econstructor; eassumption|].
@@ -386,7 +534,7 @@ Section step.
 
   Lemma complete_weak_implies_strong :
     complete_weak ->
-    can_implies_will ->
+    might_implies_will ->
     complete.
   Proof.
     intros Hweak Hcan t s Hstar Hall o HD.
@@ -396,7 +544,7 @@ End step.
 
 Section steps_corresp.
   Context {label message : Type}.
-  Context (well_formed : message -> list message -> Prop).
+  Context (allowed : list message -> Prop).
   Local Notation IO_event := (IO_event label message).
 
   Section steps.
@@ -411,21 +559,21 @@ Section steps_corresp.
     Definition steps_corresp_sound :=
       forall t2 ns2 output,
         star step2 initial2 t2 ns2 ->
-        allowed well_formed (inputs_of t2) ->
+        allowed (inputs_of t2) ->
         In output (outputs_of t2) ->
         produces step1 initial1 (inputs_of t2) output.
 
     Definition steps_corresp_sound' :=
       forall ns2 inps o,
         star step2 initial2 (map I_event inps) ns2 ->
-        allowed well_formed inps ->
-        will_output step2 well_formed ns2 (map I_event inps) o ->
+        allowed inps ->
+        will_output step2 allowed ns2 (map I_event inps) o ->
         produces step1 initial1 inps o.
 
     Definition steps_corresp_complete :=
       forall t2 ns2 output,
         star step2 initial2 t2 ns2 ->
-        allowed well_formed (inputs_of t2) ->
+        allowed (inputs_of t2) ->
         produces step1 initial1 (inputs_of t2) output ->
         might_output step2 ns2 t2 output.
 
@@ -436,20 +584,20 @@ Section steps_corresp.
     Definition steps_corresp_complete' :=
       forall ns2 inps o,
         star step2 initial2 (map I_event inps) ns2 ->
-        allowed well_formed inps ->
+        allowed inps ->
         produces step1 initial1 inps o ->
         might_output step2 ns2 (map I_event inps) o.
 
     Lemma complete_sound D :
       input_total step1 ->
-      complete_weak step1 well_formed initial1 D ->
+      complete_weak step1 allowed initial1 D ->
       steps_corresp_complete ->
-      complete_weak step2 well_formed initial2 D.
+      complete_weak step2 allowed initial2 D.
     Proof.
       intros Hit1 Hcw1 Hcorresp t2 ns2 Hstar2 Hall2 o HD.
       destruct (star_recv step1 Hit1 (inputs_of t2) initial1)
         as (t1 & ns1 & Hstar1 & Hinp1).
-      assert (Hall1 : allowed well_formed (inputs_of t1)).
+      assert (Hall1 : allowed (inputs_of t1)).
       {  rewrite Hinp1. exact Hall2. }
       assert (HD1 : D (inputs_of t1) o) by (rewrite Hinp1; exact HD).
       apply (Hcw1 _ _ Hstar1 Hall1) in HD1.
@@ -464,14 +612,14 @@ Section steps_corresp.
     Qed.
 
     Lemma sound_sound D :
-      sound step1 well_formed initial1 D ->
+      sound step1 allowed initial1 D ->
       steps_corresp_sound ->
-      sound step2 well_formed initial2 D.
+      sound step2 allowed initial2 D.
      Proof.
       intros Hs1 Hcorresp t2 s2 Hstar2 Hall2 o Hout2.
       pose proof (Hcorresp _ _ _ Hstar2 Hall2 Hout2) as Hpr. unfold produces in Hpr.
       destruct Hpr as (t1 & s1 & Hstar1 & Hinp & Hout1).
-      assert (Hall1 : allowed well_formed (inputs_of t1)).
+      assert (Hall1 : allowed (inputs_of t1)).
       {  rewrite Hinp. exact Hall2. }
       pose proof (Hs1 _ _ Hstar1 Hall1 _ Hout1) as HD.
       rewrite Hinp in HD. exact HD.
@@ -479,13 +627,13 @@ Section steps_corresp.
 
     Lemma steps_corresp_sound'_implies_sound :
       input_total step2 ->
-      can_implies_will' step2 well_formed initial2 ->
+      might_implies_will' step2 allowed initial2 ->
       steps_corresp_sound' ->
       steps_corresp_sound.
     Proof.
       intros Hit2 Hciw2 Hscs' t2 ns2 o Hstar2 Hall2 Hout2.
       destruct (star_recv_map step2 Hit2 (inputs_of t2) initial2) as (ns2' & Hstar2').
-      assert (Hall' : allowed well_formed (inputs_of (map I_event (inputs_of t2) : list IO_event))).
+      assert (Hall' : allowed (inputs_of (map I_event (inputs_of t2) : list IO_event))).
       {  rewrite inputs_of_map_I_event. exact Hall2. }
       assert (Hincl : incl (inputs_of t2)
                            (inputs_of (map I_event (inputs_of t2) : list IO_event))).
@@ -500,7 +648,7 @@ Section steps_corresp.
        capability to the actually-observed run on the same inputs). *)
     Lemma steps_corresp_complete'_implies_complete :
       input_total step2 ->
-      monotone' step2 well_formed initial2 ->
+      monotone' step2 allowed initial2 ->
       steps_corresp_complete' ->
       steps_corresp_complete.
     Proof.
@@ -518,15 +666,15 @@ Section steps_corresp.
       forall t1 t2 ns1 ns2,
         star step1 initial1 t1 ns1 ->
         star step2 initial2 t2 ns2 ->
-        allowed well_formed (inputs_of t1) ->
-        allowed well_formed (inputs_of t2) ->
+        allowed (inputs_of t1) ->
+        allowed (inputs_of t2) ->
         inputs_of t1 = inputs_of t2 ->
         forall output,
           might_output step1 ns1 t1 output <->
           might_output step2 ns2 t2 output.
 
     Lemma sound_complete_bicorresp :
-      monotone' step1 well_formed initial1 ->
+      monotone' step1 allowed initial1 ->
       steps_corresp_complete ->
       steps_corresp_sound ->
       steps_bicorresp.
@@ -543,7 +691,7 @@ Section steps_corresp.
           destruct Hout as [Hout|Hout]; [right|left]; exact Hout.
       - intros (t' & ns' & Hstar' & Hinpt' & Hout).
         pose proof (star_app _ _ _ _ _ _ Hstar2 Hstar') as Hstar2'.
-        assert (Hall2' : allowed well_formed (inputs_of (t2 ++ t'))).
+        assert (Hall2' : allowed (inputs_of (t2 ++ t'))).
         {
           rewrite inputs_of_app, Hinpt', app_nil_r. exact Hall2. }
         assert (Hout2' : In o (outputs_of (t2 ++ t'))).
@@ -565,8 +713,8 @@ Section steps_corresp.
     Fail Fail Definition steps_equiv :=
       exists D,
         (*monotone D /\*)
-        described_by step1 well_formed initial1 D /\
-          described_by step2 well_formed initial2 D.
+        described_by step1 allowed initial1 D /\
+          described_by step2 allowed initial2 D.
   End steps.
 
   Section steps.
