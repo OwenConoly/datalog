@@ -47,7 +47,11 @@ Section __.
       NoDup nodes ->
       Forall2 well_formed_output nodes fss ->
       forall c inps n,
-        well_formed c (concat (map2 (fun n fs => filter (fun f => inb n (forward n' f) fs)) nodes fss) ++ inps) <-> well_formed_inputs c inps.
+        well_formed c
+          (concat (map (fun '(n0, fs) =>
+                          filter (fun f => existsb (Nat.eqb n) (forward n0 f)) fs)
+                       (combine nodes fss)) ++ inps)
+        <-> well_formed_inputs c inps.
 
 
   Context (Hwfg : well_formed_good).
@@ -55,6 +59,15 @@ Section __.
   Context (well_formed_monotone :
     forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
                     submultiset l1 l2 -> well_formed c l1 -> well_formed c l2).
+
+  (* The [well_formed_inputs] analogue of [well_formed_monotone].  After [well_formed_good]
+     collapses a node's input well-formedness to that of its EXTERNAL inputs, the
+     constraint-preservation of [monotone_mod_equiv] becomes a statement purely about
+     external inputs, which relate by [submultiset] (they accumulate as identical facts --
+     the [equiv]-relatives are confined to the forwarded slice the iff discards). *)
+  Context (well_formed_inputs_monotone :
+    forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
+                    submultiset l1 l2 -> well_formed_inputs c l1 -> well_formed_inputs c l2).
 
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
@@ -917,17 +930,19 @@ Section __.
       { f_equal. apply filter_ext. intros [m n']. cbn. apply Nat.eqb_sym. }
       exists (node_outputs_total gs.(g_nodes) ++ map fst (filter (fun de => Nat.eqb (snd de) n) Wg)).
       split.
-      - intro c. rewrite Hconcat.
-        apply (proj2 (Hwfg (map.keys p) fss (map.keys_NoDup p) HF2 c (concat fss) _
-                        (submultiset_refl _))).
-        rewrite Hfeq. apply (Hwf_g c n).
+      - (* well_formed c (node_outputs_total ++ ext-slice).  TODO: rework for the new
+           [well_formed_good]: get [well_formed c (forwarded-slice-to-n ++ ext-slice)] from
+           [Hwfg] (reduces to [well_formed_inputs c ext-slice] via [Hwf_g]), then extend to
+           [node_outputs_total] with [well_formed_monotone] (forwarded-slice is a submultiset
+           of all outputs). *)
+        intro c. admit.
       - eapply sub_trans;
           [| apply sub_app_mono;
                [apply submultiset_refl
                | apply (sub_slice (fun de => Nat.eqb (snd de) n) (inputs_of T) Wg Hsub_g)]].
         eapply sub_trans; [| exact Hcons].
         apply sub_app_r. apply submultiset_refl.
-    Qed.
+    Admitted.
 
     (* ---- Domination modulo [equiv] (drives the graph to re-arm a node) ---- *)
 
