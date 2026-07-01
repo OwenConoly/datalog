@@ -58,12 +58,15 @@ Section step.
 
   Context (allowed : list message -> Prop).
 
-  Context (consistent_monotone :
-            forall c l1 l2, allowed l1 ->
-                       allowed l2 ->
-                       submultiset l1 l2 ->
-                       consistent c l1 ->
-                       consistent c l2).
+  Definition consistent_monotone :=
+    forall c l1 l2,
+      allowed l1 ->
+      allowed l2 ->
+      submultiset l1 l2 ->
+      consistent c l1 ->
+      consistent c l2.
+
+  Context (Hcm : consistent_monotone).
 
   Context (allowed_perm :
             forall l1 l2, Permutation l1 l2 -> allowed l1 -> allowed l2).
@@ -427,7 +430,7 @@ Section step.
         eapply Permutation_in; [symmetry; exact Hperm|].
         apply in_or_app. left. apply Hincl. exact Hx.
       + clear Hincl Hcons. induction a as [|x xs IHa]; constructor; [reflexivity | exact IHa].
-      + exact (consistent_monotone a (inputs_of t1) (inputs_of t2) Hal1 Hal2 Hsub Hcons).
+      + exact (Hcm a (inputs_of t1) (inputs_of t2) Hal1 Hal2 Hsub Hcons).
     - exact Hmight.
   Qed.
 

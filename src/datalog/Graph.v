@@ -24,9 +24,9 @@ Section __.
      produces [mu' ~ mu] and must reach the same consumers as [mu]. *)
   Context (forward_equiv :
              forall n a b, equiv a b -> forward n a = forward n b).
-  Context (well_formed_output : node_id -> list message -> Prop).
-  Context (well_formed : message -> list message -> Prop).
-  Context (well_formed_inputs : message -> list message -> Prop).
+  Context (consistent_output : node_id -> list message -> Prop).
+  Context (consistent : list message -> list message -> Prop).
+  Context (consistent_inputs : list message -> list message -> Prop).
 
   Local Notation IO_event := (Smallstep.IO_event label message).
 
@@ -37,47 +37,31 @@ Section __.
   (* A graph input fact [(m, n0)] (fact [m] destined for node [n0]) is well-formed iff [m]
      is a well-formed input at [n0] -- i.e. w.r.t. the facts delivered to [n0].  (Constraint
      type is the graph message [message * node_id], matching [allowed] at the graph level.) *)
-  Definition well_formed_graph_inputs : message * node_id -> list (message * node_id) -> Prop :=
-    fun '(m, n0) inps => well_formed_inputs m (map fst (filter (fun '(_, n') => Nat.eqb n0 n') inps)).
+  Definition consistent_graph_inputs : list (message * node_id) -> list (message * node_id) -> Prop. Admitted. (* := *)
+    (* fun '(m, n0) inps => consistent_inputs m (map fst (filter (fun '(_, n') => Nat.eqb n0 n') inps)). *)
 
   Local Notation gevent := (Smallstep.IO_event graph_label (message * node_id)).
 
   Definition equiv_g : message * node_id -> message * node_id -> Prop :=
     fun '(m1, n1) '(m2, n2) => n1 = n2 /\ equiv m1 m2.
 
-  Definition well_formed_good :=
-    forall nodes fss,
+  Definition consistent_good :=
+    forall nodes partition inps n c,
       NoDup nodes ->
-      Forall2 well_formed_output nodes fss ->
-      forall c inps n,
-        well_formed c
-          (concat (map (fun '(n0, fs) =>
-                          filter (fun f => existsb (Nat.eqb n) (forward n0 f)) fs)
-                       (combine nodes fss)) ++ inps)
-        <-> well_formed_inputs c inps.
+      Forall2 consistent_output nodes partition ->
+      Forall2 (@In _) c partition ->
+      consistent c
+        (flat_map (fun '(n0, fs) =>
+                     filter (fun f => existsb (Nat.eqb n) (forward n0 f)) fs)
+           (combine nodes partition)
+           ++ inps)
+      <-> consistent_inputs c inps.
 
+  Context (allowed : list message -> Prop).
+  Context (Hcg : consistent_good).
+  Context (Hcm : consistent_monotone consistent allowed).
 
-  Context (Hwfg : well_formed_good).
-
-  Context (well_formed_monotone :
-            forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
-                       submultiset l1 l2 ->
-                       In c l1 ->
-                       well_formed c l1 -> well_formed c l2).
-
-  (* The [well_formed_inputs] analogue of [well_formed_monotone].  After [well_formed_good]
-     collapses a node's input well-formedness to that of its EXTERNAL inputs, the
-     constraint-preservation of [monotone_mod_equiv] becomes a statement purely about
-     external inputs, which relate by [submultiset] (they accumulate as identical facts --
-     the [equiv]-relatives are confined to the forwarded slice the iff discards). *)
-  Context (well_formed_inputs_monotone :
-    forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
-                    submultiset l1 l2 -> In c l1 -> well_formed_inputs c l1 -> well_formed_inputs c l2).
-
-  (* [well_formed] respects [equiv] in the fact argument: an [equiv]-relative of a
-     well-formed fact is well-formed (same context). *)
-  Context (well_formed_equiv :
-    forall x y z, equiv x y -> well_formed x z -> well_formed y z).
+  Context (Hcim : consistent_monotone consistent_inputs allowed).
 
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
@@ -134,32 +118,13 @@ Section __.
       {| g_nodes := initial_ns; g_messages := [] |}.
 
     Local Notation gstep := (graph_step p node_step).
+
     Definition node_good (n : node_id) (np : node_prog) : node_state * list IO_event -> Prop :=
       fun '(ns, _) =>
-        outputs_well_formed    (node_step np) (well_formed_output n) ns /\
-        monotone_mod_equiv     (node_step np) equiv well_formed ns /\
-        can_implies_will_equiv (node_step np) equiv well_formed ns.
-    Ltac inv_gstep H :=
-      inversion H as [ gs0 ni mi Hia
-                     | gs0 ni npi nsi ti nsi' lbli outsi Hpi Hgi Hsi
-                     | gs0 ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg ].
+        outputs_well_formed    (node_step np) (consistent_output n) ns /\
+        monotone_mod_equiv     (node_step np) equiv consistent allowed ns /\
+        might_implies_will_equiv (node_step np) equiv allowed ns.
 
-    (* Membership in a node's tagged output list: (o, n) is in node n's tagged
-       outputs iff o is among the (untagged) outputs. *)
-    Lemma In_tag (n : node_id) (l : list message) (o : message) :
-      In (o, n) (map (fun m => (m, n)) l) <-> In o l.
-    Proof.
-      rewrite in_map_iff. split.
-      - intros (x & Heq & Hin). injection Heq as ->. exact Hin.
-      - intros Hin. exists o. split; [reflexivity | exact Hin].
-    Qed.
-
-    Lemma In_tag_inv (n0 nq : node_id) (l : list message) (o : message) :
-      In (o, nq) (map (fun m => (m, n0)) l) -> nq = n0 /\ In o l.
-    Proof.
-      rewrite in_map_iff. intros (x & Heq & Hin).
-      injection Heq as Hx Hn. subst. split; [reflexivity | exact Hin].
-    Qed.
 
     (* The state-stored projection: over any drive, node n's stored trace grows by
        a delta [td] that is a valid node run from n's state, whose visible outputs
