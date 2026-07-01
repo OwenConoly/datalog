@@ -110,30 +110,25 @@ Section __.
     Definition initial_graph_state : graph_state :=
       {| g_nodes := initial_ns; g_messages := [] |}.
 
-    (* Abbreviations to keep statements readable. *)
-    Local Notation gstep := (graph_step p node_step).
     (* Every node accepts every input in every state. *)
-    Local Notation nodes_input_total :=
-      (forall n np, map.get p n = Some np -> input_total (node_step np)).
-    (* [gs] is reachable from the initial graph state. *)
-    Local Notation reachable gs := (exists T, star gstep initial_graph_state T gs).
+    Context (nodes_input_total :
+               forall n np, map.get p n = Some np -> input_total (node_step np)).
 
-
-    (* The per-node modulo-[equiv] liveness bundle (replaces [nodes_ciw']): a node's
-       own outputs are well-formed; its input-monotonicities (multiset growth and
-       equiv-class growth) hold; and it is live modulo [equiv]. *)
+    (* The per-node modulo-[equiv] liveness bundle: a node's own outputs are
+       well-formed; its inputs are monotone modulo [equiv]; and it is live modulo
+       [equiv]. *)
     Definition node_good (n : node_id) (np : node_prog) : node_state * list IO_event -> Prop :=
       fun '(ns, _) =>
         outputs_well_formed    (node_step np)       (fun (_ : unit) => well_formed_output n) ns /\
         monotone_mod_equiv     (node_step np) equiv well_formed ns /\
         can_implies_will_equiv (node_step np) equiv well_formed ns.
-    (* The modulo-[equiv] whole-graph liveness: from the per-node [node_good]
-       bundle, the graph is live up to [equiv_g] for external inputs that are a
-       submultiset of a [well_formed_inputs] set. *)
+
+    (* The modulo-[equiv] whole-graph liveness: from the per-node [node_good] bundle,
+       the graph is live up to [equiv_g] for well-formed external inputs. *)
     Lemma graph_can_implies_will_equiv :
-      nodes_input_total ->
       Forall2_map node_good p initial_ns ->
-      can_implies_will_equiv gstep equiv_g well_formed_graph_inputs initial_graph_state.
+      can_implies_will_equiv (graph_step p node_step) equiv_g well_formed_graph_inputs
+                             initial_graph_state.
     Admitted.
   End graph.
 
