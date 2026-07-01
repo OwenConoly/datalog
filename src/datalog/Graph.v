@@ -1382,6 +1382,77 @@ Section __.
                apply in_or_app. left. exact Hx.
             -- rewrite outputs_of_app. apply in_or_app. left. apply Hsub_d. exact Hx.
     Qed.
+    Lemma force_emit_list_equiv :
+      Forall2_map node_good p initial_ns ->
+      forall (outs : list message) (f : node_id) npf,
+        map.get p f = Some npf ->
+        forall T gsX, star gstep initial_graph_state T gsX -> allowed well_formed_graph_inputs (inputs_of T) ->
+        forall nsf tf, map.get gsX.(g_nodes) f = Some (nsf, tf) ->
+        (forall mu, In mu outs -> might_output_equiv (node_step npf) equiv nsf tf mu) ->
+        forall t, Permutation (inputs_of T) (inputs_of t) ->
+        eventually (will_step gstep well_formed_graph_inputs)
+          (fun '(gs', t') =>
+             (core_dom_mod gsX gs' /\
+              (exists T', star gstep initial_graph_state T' gs' /\ allowed well_formed_graph_inputs (inputs_of T') /\
+                          Permutation (inputs_of T') (inputs_of t'))) /\
+             (forall mu n', In mu outs -> In n' (forward f mu) -> forwarded_mod gs' n' mu))
+          (gsX, t).
+    Proof.
+      intros Hgood outs. induction outs as [|mu outs IH];
+        intros f npf Hpf T gsX HT Hall nsf tf HgX Hcan t Hperm.
+      - apply eventually_done. split.
+        + split; [apply core_dom_mod_refl|].
+          exists T. split; [exact HT | split; [exact Hall | exact Hperm]].
+        + intros mu n' [] _.
+      - (* drive f to emit a relative of mu *)
+        destruct (Hcan mu (or_introl eq_refl)) as (o' & Heqo' & Hmight_o').
+        pose proof (node_will_equiv Hgood f npf Hpf T gsX nsf tf HT Hall HgX o' Hmight_o') as Hwill_o'.
+        pose proof (will_output_equiv_weaken npf nsf tf o' mu Heqo' Hwill_o') as Hwill_mu.
+        pose proof (drive_node_emit_equiv Hgood npf f mu Hpf (nsf, tf) Hwill_mu gsX t
+                      (ex_intro _ T (conj HT (conj Hall Hperm)))
+                      (ex_intro _ tf (conj HgX (conj (Permutation_refl _) (fun x H => H)))))
+          as Hemit.
+        eapply eventually_trans.
+        { apply (eventually_carry_dom gsX Hgood _ gsX t T HT Hall Hperm
+                   (core_dom_mod_refl gsX) Hemit). }
+        intros [gsM tM] (Hemitted & (TM & HTM & HallM & HpermM & HdomM)).
+        (* f's state at gsM, and its input-domination from gsX *)
+        destruct Hemitted as (nsM & tfM & mu'' & HgfM & Hout_mu'' & Hmu_mu'').
+        destruct (proj1 HdomM f npf nsf tf Hpf HgX) as (nsM' & tfM' & HgfM' & Hincl_f).
+        assert (nsM' = nsM /\ tfM' = tfM) as [-> ->] by (split; congruence).
+        (* the forwarded relatives of mu are queued/received at gsM *)
+        assert (Hfwd_mu : forall n', In n' (forward f mu) -> forwarded_mod gsM n' mu).
+        { intros n' Hn'. rewrite (forward_equiv f mu mu'' Hmu_mu'') in Hn'.
+          destruct (graph_saturated _ _ HTM f npf nsM tfM Hpf HgfM mu'' n' Hout_mu'' Hn')
+            as [Hq | Hr].
+          - left. exists mu''. split; [exact Hq | exact Hmu_mu''].
+          - right. destruct Hr as (ns & t0 & Hg & Hin_mu). exists ns, t0, mu''.
+            split; [exact Hg | split; [exact Hin_mu | exact Hmu_mu'']]. }
+        (* re-arm f for the rest of outs at gsM *)
+        assert (Hcan_M : forall mu0, In mu0 outs ->
+                  might_output_equiv (node_step npf) equiv nsM tfM mu0).
+        { intros mu0 Hin0. destruct (Hcan mu0 (or_intror Hin0)) as (o0 & Heqo0 & Hmight_o0).
+          destruct (node_cap_transfer_equiv Hgood f npf Hpf T gsX nsf tf HT Hall HgX
+                      TM gsM nsM tfM HTM HallM HgfM Hincl_f o0 Hmight_o0) as (x & Hxo0 & Hmightx).
+          exists x. split; [etransitivity; eassumption | exact Hmightx]. }
+        pose proof (IH f npf Hpf TM gsM HTM HallM nsM tfM HgfM Hcan_M tM HpermM) as Hrec.
+        (* carry core_dom_mod gsX and forwarded-mu through the recursion *)
+        pose proof (eventually_carry_dom gsX Hgood _ gsM tM TM HTM HallM HpermM HdomM Hrec)
+          as Hrec1.
+        eapply eventually_trans.
+        { apply (eventually_carry_inv
+                   (fun gs => forall n', In n' (forward f mu) -> forwarded_mod gs n' mu)
+                   ltac:(intros gs T0 gs' Hs Hinv n' Hn'; exact (forwarded_mod_run gs T0 gs' n' mu Hs (Hinv n' Hn')))
+                   _ gsM tM Hfwd_mu Hrec1). }
+        intros [gsF tF] ((((_ & _) & Hfwd_outs) & (T2 & HT2 & Hall2 & Hperm2 & HdomX))
+                         & Hfwd_mu_F).
+        apply eventually_done. split.
+        + split; [exact HdomX|]. exists T2. split; [exact HT2 | split; [exact Hall2 | exact Hperm2]].
+        + intros mu0 n' Hin0 Hn'. cbn in Hin0. destruct Hin0 as [-> | Hin0'].
+          * apply Hfwd_mu_F. exact Hn'.
+          * apply Hfwd_outs; assumption.
+    Qed.
+
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
