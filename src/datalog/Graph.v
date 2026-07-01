@@ -46,17 +46,12 @@ Section __.
 
   Context (Hwfg : well_formed_good).
 
-  (* Same monotonicity hypothesis as in Smallstep: on [allowed] input multisets,
-     growth preserves each well-formedness constraint. *)
   Context (well_formed_monotone :
     forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
                     submultiset l1 l2 -> well_formed c l1 -> well_formed c l2).
 
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
-    (* Each node stores its state together with its own local IO trace (the events
-       it has gone through, in forward order).  This makes a node's "projection"
-       a pure function of the graph state: it is just [snd (g_nodes n)]. *)
     Context {node_state : Type}
             {node_states : map.map node_id (node_state * list IO_event)}.
     Context (p : graph_prog).
@@ -91,40 +86,29 @@ Section __.
                    g_messages := ms1 ++ ms2 |}.
   End graph.
 
-  (* The graph's allowed predicate: a tagged trace is allowed iff its underlying
-     (untagged) inputs are allowed by A. *)
-
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
     Context {node_state : Type}
             {node_states : map.map node_id (node_state * list IO_event)}.
     Context {node_states_ok : map.ok node_states}.
     Context (p : graph_prog) (initial_ns : node_states).
-    (* The initial node states carry empty local traces. *)
     Context (initial_ns_empty :
                forall n x, map.get initial_ns n = Some x -> snd x = []).
     Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
     Context (p_initial_dom :
                forall n np, map.get p n = Some np -> exists x, map.get initial_ns n = Some x).
+    Context (nodes_input_total :
+               forall n np, map.get p n = Some np -> input_total (node_step np)).
 
     Definition initial_graph_state : graph_state :=
       {| g_nodes := initial_ns; g_messages := [] |}.
 
-    (* Every node accepts every input in every state. *)
-    Context (nodes_input_total :
-               forall n np, map.get p n = Some np -> input_total (node_step np)).
-
-    (* The per-node modulo-[equiv] liveness bundle: a node's own outputs are
-       well-formed; its inputs are monotone modulo [equiv]; and it is live modulo
-       [equiv]. *)
     Definition node_good (n : node_id) (np : node_prog) : node_state * list IO_event -> Prop :=
       fun '(ns, _) =>
         outputs_well_formed    (node_step np)       (fun (_ : unit) => well_formed_output n) ns /\
         monotone_mod_equiv     (node_step np) equiv well_formed ns /\
         can_implies_will_equiv (node_step np) equiv well_formed ns.
 
-    (* The modulo-[equiv] whole-graph liveness: from the per-node [node_good] bundle,
-       the graph is live up to [equiv_g] for well-formed external inputs. *)
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
       can_implies_will_equiv (graph_step p node_step) equiv_g well_formed_graph_inputs
