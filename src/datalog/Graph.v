@@ -245,6 +245,206 @@ Section __.
 
     (* With traces stored in the state, "node n has received message mu" is simply:
        mu appears in the inputs of n's stored trace. *)
+    Definition node_received (gs : @graph_state node_state node_states)
+        (n : node_id) (mu : message) : Prop :=
+      exists ns t, map.get gs.(g_nodes) n = Some (ns, t) /\ In mu (inputs_of t).
+
+    (* Lift a node-level will_output for node n to a graph-level will_output,
+       provided o is visible from n and the graph's node n is at the right state. *)
+
+    (* Helper: find the producing step inside an angel's path. *)
+    Lemma find_producing_step :
+      forall (gs_start : graph_state) (T : list gevent) (s_f : graph_state),
+        star gstep gs_start T s_f ->
+        inputs_of T = [] ->
+        forall (o : message) (n_o : node_id),
+          In (o, n_o) (outputs_of T) ->
+          exists (T_pre T_post : list gevent)
+                 (np_o : node_prog)
+                 (ns_o ns_o' : node_state) (t_o : list IO_event)
+                 (outs_o : list message) (lbl_o : label)
+                 (gs_pre gs_post : graph_state),
+            T = T_pre ++ O_event (run n_o lbl_o) (map (fun m => (m, n_o)) (filter (output_visible n_o) outs_o)) :: T_post /\
+            star gstep gs_start T_pre gs_pre /\
+            gstep gs_pre
+                       (O_event (run n_o lbl_o) (map (fun m => (m, n_o)) (filter (output_visible n_o) outs_o))) gs_post /\
+            star gstep gs_post T_post s_f /\
+            inputs_of T_pre = [] /\
+            map.get p n_o = Some np_o /\
+            map.get gs_pre.(g_nodes) n_o = Some (ns_o, t_o) /\
+            node_step np_o ns_o (O_event lbl_o outs_o) ns_o' /\
+            In o outs_o /\
+            output_visible n_o o = true.
+    Proof.
+      intros gs_start T s_f Hstar Hinp o n_o.
+      induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH]; intros Hout.
+      - cbn in Hout. contradiction.
+      - cbn in Hinp. destruct e as [m|lbl_e outs_e]; [discriminate|]. cbn in Hinp.
+        
+        apply in_app_or in Hout as [Hino0|Hout_rest].
+        + (* o is in the head event *)
+          inversion Hstep as [
+            | gs0 n0 np0 ns0 t0n ns0' lbl0 outs_full Hp0 Hg0 Hns0
+            | gs0 n0 np0 ns0 t0n ns0' m0 ms1 ms2 Hp0 Hg0 Hns0 Hmsg ]; subst.
+          * (* gstep_run for n0 *)
+            apply In_tag_inv in Hino0 as [Hn0eq Hino_filt]. subst n0.
+            rewrite filter_In in Hino_filt. destruct Hino_filt as [Hino_full Hvis].
+            exists [], t0, np0, ns0, ns0', t0n, outs_full, lbl0, s,
+              {| g_nodes := map.put s.(g_nodes) n_o (ns0', t0n ++ [O_event lbl0 outs_full]);
+                 g_messages := s.(g_messages) ++
+                   flat_map (fun m => map (fun n' => (n', m)) (forward n_o m)) outs_full |}.
+            split; [reflexivity|]. split; [constructor|].
+            split; [eapply gstep_run; eassumption|].
+            split; [exact Hstar|]. split; [reflexivity|].
+            split; [exact Hp0|]. split; [exact Hg0|].
+            split; [exact Hns0|]. split; [exact Hino_full | exact Hvis].
+          * (* gstep_receive: outs = [] contradicts Hino0 *)
+            cbn in Hino0. contradiction.
+        + (* o is deeper *)
+          specialize (IH Hinp Hout_rest).
+          destruct IH as (T_pre & T_post & np_o & ns_o & ns_o' & t_o & outs_o & lbl_o
+                          & gs_pre & gs_post & Heq_T & Hstar_pre & Hstep_prod
+                          & Hstar_post & Hinp_pre & Hp_o & Hg_o & Hns_o
+                          & Hino_o & Hvis_o).
+          exists (O_event lbl_e outs_e :: T_pre), T_post, np_o, ns_o, ns_o', t_o, outs_o, lbl_o,
+                 gs_pre, gs_post.
+          split; [cbn; rewrite Heq_T; reflexivity|].
+          split; [econstructor; [exact Hstep|exact Hstar_pre]|].
+          split; [exact Hstep_prod|]. split; [exact Hstar_post|].
+          split; [cbn; exact Hinp_pre|].
+          split; [exact Hp_o|]. split; [exact Hg_o|].
+          split; [exact Hns_o|]. split; [exact Hino_o | exact Hvis_o].
+    Qed.
+
+    (* General version of find_producing_step that does NOT require the run to be
+       input-free: an input step in the path simply cannot carry the output, so we
+       skip past it.  Used to locate the emission inside a producer run (which has
+       its inputs interspersed).  The price is that T_pre may contain inputs. *)
+    Lemma find_producing_step' :
+      forall (gs_start : graph_state) (T : list gevent) (s_f : graph_state),
+        star gstep gs_start T s_f ->
+        forall (o : message) (n_o : node_id),
+          In (o, n_o) (outputs_of T) ->
+          exists (T_pre T_post : list gevent)
+                 (np_o : node_prog)
+                 (ns_o ns_o' : node_state) (t_o : list IO_event)
+                 (outs_o : list message) (lbl_o : label)
+                 (gs_pre gs_post : graph_state),
+            T = T_pre ++ O_event (run n_o lbl_o) (map (fun m => (m, n_o)) (filter (output_visible n_o) outs_o)) :: T_post /\
+            star gstep gs_start T_pre gs_pre /\
+            gstep gs_pre
+                       (O_event (run n_o lbl_o) (map (fun m => (m, n_o)) (filter (output_visible n_o) outs_o))) gs_post /\
+            star gstep gs_post T_post s_f /\
+            map.get p n_o = Some np_o /\
+            map.get gs_pre.(g_nodes) n_o = Some (ns_o, t_o) /\
+            node_step np_o ns_o (O_event lbl_o outs_o) ns_o' /\
+            In o outs_o /\
+            output_visible n_o o = true.
+    Proof.
+      intros gs_start T s_f Hstar o n_o.
+      induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH]; intros Hout.
+      - cbn in Hout. contradiction.
+      - destruct e as [m | lbl_e outs_e].
+        + (* I_event m: the output cannot live in an input event; recurse. *)
+          assert (Hout' : In (o, n_o) (outputs_of t0))
+            by (exact Hout).
+          specialize (IH Hout').
+          destruct IH as (T_pre & T_post & np_o & ns_o & ns_o' & t_o & outs_o & lbl_o
+                          & gs_pre & gs_post & Heq_T & Hstar_pre & Hstep_prod
+                          & Hstar_post & Hp_o & Hg_o & Hns_o & Hino_o & Hvis_o).
+          exists (I_event m :: T_pre), T_post, np_o, ns_o, ns_o', t_o, outs_o, lbl_o,
+                 gs_pre, gs_post.
+          split; [cbn; rewrite Heq_T; reflexivity|].
+          split; [econstructor; [exact Hstep|exact Hstar_pre]|].
+          split; [exact Hstep_prod|]. split; [exact Hstar_post|].
+          split; [exact Hp_o|]. split; [exact Hg_o|].
+          split; [exact Hns_o|]. split; [exact Hino_o | exact Hvis_o].
+        + 
+          apply in_app_or in Hout as [Hino0|Hout_rest].
+          * inversion Hstep as [
+              | gs0 n0 np0 ns0 t0n ns0' lbl0 outs_full Hp0 Hg0 Hns0
+              | gs0 n0 np0 ns0 t0n ns0' m0 ms1 ms2 Hp0 Hg0 Hns0 Hmsg ]; subst.
+            -- apply In_tag_inv in Hino0 as [Hn0eq Hino_filt]. subst n0.
+               rewrite filter_In in Hino_filt. destruct Hino_filt as [Hino_full Hvis].
+               exists [], t0, np0, ns0, ns0', t0n, outs_full, lbl0, s,
+                 {| g_nodes := map.put s.(g_nodes) n_o (ns0', t0n ++ [O_event lbl0 outs_full]);
+                    g_messages := s.(g_messages) ++
+                      flat_map (fun m => map (fun n' => (n', m)) (forward n_o m)) outs_full |}.
+               split; [reflexivity|]. split; [constructor|].
+               split; [eapply gstep_run; eassumption|].
+               split; [exact Hstar|].
+               split; [exact Hp0|]. split; [exact Hg0|].
+               split; [exact Hns0|]. split; [exact Hino_full | exact Hvis].
+            -- cbn in Hino0. contradiction.
+          * specialize (IH Hout_rest).
+            destruct IH as (T_pre & T_post & np_o & ns_o & ns_o' & t_o & outs_o & lbl_o
+                            & gs_pre & gs_post & Heq_T & Hstar_pre & Hstep_prod
+                            & Hstar_post & Hp_o & Hg_o & Hns_o & Hino_o & Hvis_o).
+            exists (O_event lbl_e outs_e :: T_pre), T_post, np_o, ns_o, ns_o', t_o, outs_o, lbl_o,
+                   gs_pre, gs_post.
+            split; [cbn; rewrite Heq_T; reflexivity|].
+            split; [econstructor; [exact Hstep|exact Hstar_pre]|].
+            split; [exact Hstep_prod|]. split; [exact Hstar_post|].
+            split; [exact Hp_o|]. split; [exact Hg_o|].
+            split; [exact Hns_o|]. split; [exact Hino_o | exact Hvis_o].
+    Qed.
+
+    (* node_received is monotone under graph evolution: a node's stored trace only
+       grows, so a delivered message stays recorded. *)
+    Lemma node_received_mono :
+      forall gs T gs', star gstep gs T gs' ->
+        forall n m, node_received gs n m -> node_received gs' n m.
+    Proof.
+      intros gs T gs' Hstar.
+      induction Hstar as [s | s e s' T' s'' Hstep Hstar IH]; intros n m Hr.
+      - exact Hr.
+      - apply (IH n m). destruct Hr as (ns & t & Hg & Hin).
+        inv_gstep Hstep; subst.
+        + exists ns, t. split; [exact Hg | exact Hin].
+        + destruct (Nat.eq_dec n ni) as [->|Hne].
+          * rewrite Hgi in Hg. injection Hg as Hns Ht; subst nsi ti.
+            exists nsi', (t ++ [O_event lbli outsi]).
+            split; [cbn; apply map.get_put_same|].
+            rewrite inputs_of_app. apply in_or_app. left. exact Hin.
+          * exists ns, t.
+            split; [cbn; rewrite map.get_put_diff by auto; exact Hg | exact Hin].
+        + destruct (Nat.eq_dec n ni) as [->|Hne].
+          * rewrite Hgi in Hg. injection Hg as Hns Ht; subst nsi ti.
+            exists nsi', (t ++ [I_event mi]).
+            split; [cbn; apply map.get_put_same|].
+            rewrite inputs_of_app. apply in_or_app. left. exact Hin.
+          * exists ns, t.
+            split; [cbn; rewrite map.get_put_diff by auto; exact Hg | exact Hin].
+    Qed.
+
+    (* Message provenance: a message queued at gs is, after any graph evolution,
+       either still queued, or has been delivered to its destination (recorded in
+       that node's stored trace). *)
+    Lemma queue_fate :
+      forall gs T gs', star gstep gs T gs' ->
+        forall n m, In (n, m) gs.(g_messages) ->
+          In (n, m) gs'.(g_messages) \/ node_received gs' n m.
+    Proof.
+      intros gs T gs' Hstar.
+      induction Hstar as [s | s e s' T' s'' Hstep Hstar IH]; intros n m Hin.
+      - left. exact Hin.
+      - inv_gstep Hstep; subst; cbn [g_nodes g_messages] in IH |- *.
+        + edestruct (IH n m) as [Hq | Hr];
+            [right; exact Hin | left; exact Hq | right; exact Hr].
+        + edestruct (IH n m) as [Hq | Hr];
+            [apply in_or_app; left; exact Hin | left; exact Hq | right; exact Hr].
+        + rewrite Hmsg in Hin. apply in_app_or in Hin.
+          destruct Hin as [Hin_a | Hin_mid].
+          * edestruct (IH n m) as [Hq | Hr];
+              [apply in_or_app; left; exact Hin_a | left; exact Hq | right; exact Hr].
+          * cbn in Hin_mid. destruct Hin_mid as [Heq2 | Hin_b].
+            -- injection Heq2 as Hnieq Hmieq; subst ni mi.
+               right. apply (node_received_mono _ _ _ Hstar).
+               exists nsi', (ti ++ [I_event m]). split; [cbn; apply map.get_put_same|].
+               rewrite inputs_of_app. apply in_or_app. right. left. reflexivity.
+            -- edestruct (IH n m) as [Hq | Hr];
+                 [apply in_or_app; right; exact Hin_b | left; exact Hq | right; exact Hr].
+    Qed.
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
