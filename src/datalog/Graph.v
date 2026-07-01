@@ -1026,6 +1026,26 @@ Section __.
             [symmetry; exact Hperm | apply in_or_app; left; exact Hin_mu].
     Qed.
 
+    (* A node capability at a reachable, allowed graph state lifts to the node's
+       modulo-[equiv] liveness, via the node's own [can_implies_will_equiv]
+       obligation (fed [node_inputs_allowed]). *)
+    Lemma node_will_equiv :
+      Forall2_map node_good p initial_ns ->
+      forall n np, map.get p n = Some np ->
+      forall T gs ns t, star gstep initial_graph_state T gs ->
+        allowed well_formed_graph_inputs (inputs_of T) ->
+        map.get gs.(g_nodes) n = Some (ns, t) ->
+      forall o, might_output (node_step np) ns t o ->
+                will_output_equiv (node_step np) equiv well_formed ns t o.
+    Proof.
+      intros Hgood n np Hp T gs ns t HT Hall Hg o Hcan.
+      destruct (p_initial_dom n np Hp) as (ns0 & Hns0).
+      destruct (node_run T gs HT n np ns0 ns t Hp Hns0 Hg) as (Hrun & _).
+      destruct (pernode_spec_good Hgood n np ns0 Hp Hns0) as (_ & _ & Hciw).
+      apply (Hciw t ns o Hrun
+               (node_inputs_allowed Hgood T gs HT Hall n np ns t Hp Hg) Hcan).
+    Qed.
+
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
