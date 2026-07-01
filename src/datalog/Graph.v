@@ -42,21 +42,13 @@ Section __.
   Definition equiv_g : message * node_id -> message * node_id -> Prop :=
     fun '(m1, n1) '(m2, n2) => n1 = n2 /\ equiv m1 m2.
 
-  (* A node's inputs are [well_formed] iff its external (graph-level) inputs are
-     [well_formed_inputs]: any sub-collection [os] of the well-formed outputs is
-     "transparent" -- it neither creates nor destroys well-formedness.  Generalized
-     from the previous [concat fss] form to an arbitrary [submultiset os (concat fss)]
-     so it applies to a node's ACTUAL inputs, which carry only the FORWARDED SLICE of
-     the outputs, not [concat fss].  (WIP: the antecedent of [monotone_mod_equiv]'s
-     constraint-preservation is meant to be discharged through this, transferring
-     well-formedness from the source node inputs across the [equiv]-domination.) *)
   Definition well_formed_good :=
     forall nodes fss,
       NoDup nodes ->
       Forall2 well_formed_output nodes fss ->
-      forall c os inps,
-        submultiset os (concat fss) ->
-        well_formed c (os ++ inps) <-> well_formed_inputs c inps.
+      forall c inps n,
+        well_formed c (concat (map2 (fun n fs => filter (fun f => inb n (forward n' f) fs)) nodes fss) ++ inps) <-> well_formed_inputs c inps.
+
 
   Context (Hwfg : well_formed_good).
 
@@ -291,7 +283,7 @@ Section __.
       induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH]; intros Hout.
       - cbn in Hout. contradiction.
       - cbn in Hinp. destruct e as [m|lbl_e outs_e]; [discriminate|]. cbn in Hinp.
-        
+
         apply in_app_or in Hout as [Hino0|Hout_rest].
         + (* o is in the head event *)
           inversion Hstep as [
@@ -370,7 +362,7 @@ Section __.
           split; [exact Hstep_prod|]. split; [exact Hstar_post|].
           split; [exact Hp_o|]. split; [exact Hg_o|].
           split; [exact Hns_o|]. split; [exact Hino_o | exact Hvis_o].
-        + 
+        +
           apply in_app_or in Hout as [Hino0|Hout_rest].
           * inversion Hstep as [
               | gs0 n0 np0 ns0 t0n ns0' lbl0 outs_full Hp0 Hg0 Hns0
@@ -486,7 +478,7 @@ Section __.
           * destruct (Hsat ni npi nsi ti Hpi Hgi mu n' Hout_old Hfwd) as [Hq | Hr].
             -- left. cbn. apply in_or_app. left. exact Hq.
             -- right. apply Hmono1. exact Hr.
-          * 
+          *
             apply in_app_or in Hout_new as [Hino0 | Hcontra];
               [|cbn in Hcontra; contradiction].
             left. cbn. apply in_or_app. right.
