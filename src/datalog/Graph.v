@@ -1560,6 +1560,128 @@ Section __.
             exists go. split; [exact Hgo|].
             apply in_or_app. right. exact Hingo.
     Qed.
+    Lemma force_dominator_equiv :
+      Forall2_map node_good p initial_ns ->
+      forall on np_o, map.get p on = Some np_o ->
+      forall gs_pre TC gsC, star gstep gsC TC gs_pre ->
+      inputs_of TC = [] ->
+      forall ns_o t_o, map.get gs_pre.(g_nodes) on = Some (ns_o, t_o) ->
+      forall TC0, star gstep initial_graph_state TC0 gsC -> allowed well_formed_graph_inputs (inputs_of TC0) ->
+      forall TX gsX, star gstep initial_graph_state TX gsX ->
+      core_dom_mod gsC gsX ->
+      forall t, allowed well_formed_graph_inputs (inputs_of t) ->
+      Permutation (inputs_of TX) (inputs_of t) ->
+      eventually (will_step gstep well_formed_graph_inputs)
+        (fun '(gs', t') =>
+           (exists nsS tS, map.get gs'.(g_nodes) on = Some (nsS, tS) /\
+              incl_mod equiv (inputs_of t_o) (inputs_of tS)) /\
+           (exists T', star gstep initial_graph_state T' gs' /\
+                       allowed well_formed_graph_inputs (inputs_of T') /\
+                       Permutation (inputs_of T') (inputs_of t')))
+        (gsX, t).
+    Proof.
+      intros Hgood on np_o Hp_o gs_pre TC gsC Hstar.
+      assert (Hio_snoc_g : forall (l : list gevent) glbl (o0 : list (message * node_id)),
+                inputs_of (l ++ [O_event glbl o0]) = inputs_of l)
+        by (intros ll gg oo; rewrite inputs_of_app; cbn [inputs_of flat_map app];
+            rewrite ?app_nil_r; reflexivity).
+      assert (Hio_snoc_n : forall (l : list IO_event) glbl (o0 : list message),
+                inputs_of (l ++ [O_event glbl o0]) = inputs_of l)
+        by (intros ll gg oo; rewrite inputs_of_app; cbn [inputs_of flat_map app];
+            rewrite ?app_nil_r; reflexivity).
+      induction Hstar as [gC | gC e gC1 TC' gpre Hstep Hstar' IH];
+        intros Hinp ns_o t_o Hg_o TC0 HC0 HallC0 TX gsX HTX Hdom t Hall_t Hperm.
+      - (* gsX already dominates gs_pre = gC *)
+        apply eventually_done.
+        destruct (proj1 Hdom on np_o ns_o t_o Hp_o Hg_o) as (nsS & tS & HgS & Hincl).
+        split.
+        + exists nsS, tS. split; [exact HgS | exact Hincl].
+        + exists TX. split; [exact HTX | split; [| exact Hperm]].
+          eapply allowed_perm; [symmetry; exact Hperm | exact Hall_t].
+      - cbn in Hinp. inv_gstep Hstep; subst.
+        + cbn in Hinp. discriminate.
+        + (* gstep_run ni : force ni to re-emit outsi, dominate gC1 *)
+          assert (HallX : allowed well_formed_graph_inputs (inputs_of TX)).
+          { eapply allowed_perm; [symmetry; exact Hperm | exact Hall_t]. }
+          destruct (proj1 Hdom ni npi nsi ti Hpi Hgi) as (nsXi & tXi & HgXi & Hincli).
+          assert (Hcan : forall mu, In mu outsi ->
+                    might_output_equiv (node_step npi) equiv nsXi tXi mu).
+          { intros mu Hmu.
+            apply (node_cap_transfer_equiv Hgood ni npi Hpi TC0 gC nsi ti HC0 HallC0 Hgi
+                     TX gsX nsXi tXi HTX HallX HgXi Hincli mu).
+            exists [O_event lbli outsi], nsi'. split; [econstructor; [exact Hsi | constructor]|].
+            split; [reflexivity|]. apply outputs_of_in_app. left. apply in_or_app. left. exact Hmu. }
+          eapply eventually_trans.
+          { apply (eventually_carry_dom gC Hgood _ gsX t TX HTX HallX Hperm Hdom
+                     (force_emit_list_equiv Hgood outsi ni npi Hpi TX gsX HTX HallX
+                        nsXi tXi HgXi Hcan t Hperm)). }
+          intros [gsM tM] (((_ & _) & Hfwds) & (TM & HTM & HallM & HpermM & HdomM)).
+          refine (IH Hinp ns_o t_o Hg_o
+                    (TC0 ++ [O_event (run ni lbli) (map (fun m => (m, ni)) (filter (output_visible ni) outsi))])
+                    (star_app _ _ _ _ _ _ HC0 (star_step _ _ _ _ _ _
+                       (gstep_run p node_step gC ni npi nsi ti nsi' lbli outsi Hpi Hgi Hsi)
+                       (star_refl _ _)))
+                    ltac:(rewrite Hio_snoc_g; exact HallC0)
+                    TM gsM HTM _ tM ltac:(eapply allowed_perm; [exact HpermM | exact HallM]) HpermM).
+          (* core_dom_mod gC1 gsM, where gC1 is the run-successor of gC *)
+          split.
+          * intros nn npn nsn tn Hpn Hgn. cbn [g_nodes] in Hgn.
+            destruct (Nat.eq_dec nn ni) as [->|Hne].
+            -- rewrite map.get_put_same in Hgn. injection Hgn as <- <-.
+               destruct (proj1 HdomM ni npi nsi ti Hpi Hgi) as (nsB & tB & HgB & HinclB).
+               exists nsB, tB. split; [exact HgB|].
+               rewrite Hio_snoc_n. exact HinclB.
+            -- rewrite map.get_put_diff in Hgn by auto. apply (proj1 HdomM nn npn nsn tn Hpn Hgn).
+          * intros nn mm Hin. cbn [g_messages] in Hin. apply in_app_or in Hin as [Hin | Hin].
+            -- apply (proj2 HdomM nn mm Hin).
+            -- apply in_flat_map in Hin as (mu & Hmu & Hin).
+               apply in_map_iff in Hin as (n'' & Heq & Hn''). injection Heq as <- <-.
+               destruct (Hfwds mu n'' Hmu Hn'') as [Hq | Hr]; [left | right; exact Hr].
+               destruct Hq as (m' & Hin' & Hmm'). exists m'. split; [exact Hin' | exact Hmm'].
+        + (* gstep_receive ni mi : deliver a relative of mi to ni, dominate gC1 *)
+          assert (HallX : allowed well_formed_graph_inputs (inputs_of TX)).
+          { eapply allowed_perm; [symmetry; exact Hperm | exact Hall_t]. }
+          destruct (proj1 Hdom ni npi nsi ti Hpi Hgi) as (nsXi & tXi & HgXi & _).
+          destruct (reachable_state_initial _ _ HTX ni _ HgXi) as (ns0i & Hns0i).
+          assert (Hcm : (exists m', In (ni, m') gsX.(g_messages) /\ equiv mi m') \/
+                        node_received_mod gsX ni mi).
+          { apply (proj2 Hdom). rewrite Hmsg. apply in_or_app. right. left. reflexivity. }
+          (* deliver: in either case ni ends up having received a relative of mi *)
+          assert (Hdeliv : eventually (will_step gstep well_formed_graph_inputs)
+                    (fun '(gs', _) => node_received_mod gs' ni mi) (gsX, t)).
+          { destruct Hcm as [(m' & Hq & Hmm') | Hr].
+            - eapply eventually_weaken;
+                [apply (force_deliver_equiv TX gsX HTX ni m' npi ns0i Hpi Hns0i
+                          (or_introl Hq) t)|].
+              intros [gs' t'] (ns & tt & Hg & Hin). exists ns, tt, m'.
+              split; [exact Hg | split; [exact Hin | exact Hmm']].
+            - apply eventually_done. exact Hr. }
+          eapply eventually_trans.
+          { apply (eventually_carry_dom gC Hgood _ gsX t TX HTX HallX Hperm Hdom Hdeliv). }
+          intros [gsM tM] (Hrcv & (TM & HTM & HallM & HpermM & HdomM)).
+          refine (IH Hinp ns_o t_o Hg_o (TC0 ++ [O_event (receive ni mi) []])
+                    (star_app _ _ _ _ _ _ HC0 (star_step _ _ _ _ _ _
+                       (gstep_receive p node_step gC ni npi nsi ti nsi' mi msa msb Hpi Hgi Hsi Hmsg)
+                       (star_refl _ _)))
+                    ltac:(rewrite Hio_snoc_g; exact HallC0)
+                    TM gsM HTM _ tM ltac:(eapply allowed_perm; [exact HpermM | exact HallM]) HpermM).
+          split.
+          * intros nn npn nsn tn Hpn Hgn. cbn [g_nodes] in Hgn.
+            destruct (Nat.eq_dec nn ni) as [->|Hne].
+            -- rewrite map.get_put_same in Hgn. injection Hgn as <- <-.
+               destruct (proj1 HdomM ni npi nsi ti Hpi Hgi) as (nsB & tB & HgB & HinclB).
+               exists nsB, tB. split; [exact HgB|].
+               destruct Hrcv as (nsR & tR & mu' & HgR & Hin_mu' & Hmi_mu').
+               assert (tR = tB) by congruence. subst tR.
+               intros a Ha. rewrite inputs_of_app in Ha. apply in_app_or in Ha as [Ha | Ha].
+               { apply HinclB. exact Ha. }
+               cbn in Ha. destruct Ha as [Heq | []]. subst a.
+               exists mu'. split; [exact Hin_mu' | exact Hmi_mu'].
+            -- rewrite map.get_put_diff in Hgn by auto. apply (proj1 HdomM nn npn nsn tn Hpn Hgn).
+          * intros nn mm Hin. cbn [g_messages] in Hin.
+            apply (proj2 HdomM nn mm). rewrite Hmsg.
+            apply in_app_iff. apply in_app_or in Hin as [H|H]; [left; exact H | right; right; exact H].
+    Qed.
 
 
     Lemma graph_can_implies_will_equiv :
