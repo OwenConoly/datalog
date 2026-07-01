@@ -69,7 +69,7 @@ Section __.
      the [equiv]-relatives are confined to the forwarded slice the iff discards). *)
   Context (well_formed_inputs_monotone :
     forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
-                    submultiset l1 l2 -> well_formed_inputs c l1 -> well_formed_inputs c l2).
+                    submultiset l1 l2 -> In c l1 -> well_formed_inputs c l1 -> well_formed_inputs c l2).
 
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
