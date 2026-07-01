@@ -53,10 +53,6 @@ Section step.
      node may treat interchangeably (here: done-messages equal modulo their count). *)
   Context (equiv : message -> message -> Prop).
   Context (equiv_equiv : Equivalence equiv).
-  Lemma equiv_refl a : equiv a a. Proof. reflexivity. Qed.
-  Lemma equiv_sym a b : equiv a b -> equiv b a. Proof. intros H; symmetry; exact H. Qed.
-  Lemma equiv_trans a b c : equiv a b -> equiv b c -> equiv a c.
-  Proof. intros H1 H2; transitivity b; [exact H1 | exact H2]. Qed.
   (* A family of well-formedness "constraints" on fact multisets, indexed by
      [constraint]: [well_formed c fs] = "fs satisfies constraint c" (e.g. a
      meta-fact's claimed count is matched by exactly that many normal facts).
@@ -440,7 +436,7 @@ Section step.
 
   (* Growth preserves might_output modulo [equiv].  Now a CONSEQUENCE of
      [monotone_mod_equiv] (not a separate obligation): a submultiset extension is an
-     [incl_mod] via [equiv_refl], and [well_formed_monotone] gives the constraint
+     [incl_mod] (reflexivity of [equiv]), and [well_formed_monotone] gives the constraint
      preservation.  (Only the modulo-[equiv] conclusion follows; the exact
      [might_output] would need [o] itself reproduced, which [might_output_equiv]
      does not promise.) *)
@@ -461,7 +457,7 @@ Section step.
     - intros a Ha. exists a. split;
         [ destruct Hsub as (rest & Hperm); eapply Permutation_in;
             [symmetry; exact Hperm | apply in_or_app; left; exact Ha]
-        | apply equiv_refl ].
+        | reflexivity ].
     - intros c Hwf. exact (well_formed_monotone c (inputs_of t1) (inputs_of t2) Hal1 Hal2 Hsub Hwf).
     - exact Hmight.
   Qed.
