@@ -927,6 +927,75 @@ Section __.
         apply sub_app_r. apply submultiset_refl.
     Qed.
 
+    (* ---- Domination modulo [equiv] (drives the graph to re-arm a node) ---- *)
+
+    Definition node_received_mod (gs : @graph_state node_state node_states)
+        (n : node_id) (mu : message) : Prop :=
+      exists ns t mu', map.get gs.(g_nodes) n = Some (ns, t) /\
+                       In mu' (inputs_of t) /\ equiv mu mu'.
+
+    Lemma incl_mod_refl l : incl_mod equiv l l.
+    Proof. intros a Hin. exists a. split; [exact Hin | reflexivity]. Qed.
+
+    Lemma incl_mod_trans l1 l2 l3 :
+      incl_mod equiv l1 l2 -> incl_mod equiv l2 l3 -> incl_mod equiv l1 l3.
+    Proof.
+      intros H12 H23 a Hin1.
+      destruct (H12 a Hin1) as (b & Hin2 & Hab).
+      destruct (H23 b Hin2) as (c & Hin3 & Hbc).
+      exists c. split; [exact Hin3 | etransitivity; eassumption].
+    Qed.
+
+    (* Domination up to [equiv]: each [gsA] node's inputs are [incl_mod]-covered by
+       the corresponding [gsB] node's, and each [gsA]-queued message is queued (up to
+       [equiv]) or already received (up to [equiv]) at [gsB]. *)
+    Definition core_dom_mod (gsA gsB : @graph_state node_state node_states) : Prop :=
+      (forall n np nsA tA,
+         map.get p n = Some np ->
+         map.get gsA.(g_nodes) n = Some (nsA, tA) ->
+         exists nsB tB,
+           map.get gsB.(g_nodes) n = Some (nsB, tB) /\
+           incl_mod equiv (inputs_of tA) (inputs_of tB))
+      /\
+      (forall n m, In (n, m) gsA.(g_messages) ->
+         (exists m', In (n, m') gsB.(g_messages) /\ equiv m m') \/ node_received_mod gsB n m).
+
+    Lemma core_dom_mod_refl gs : core_dom_mod gs gs.
+    Proof.
+      split.
+      - intros n np ns t Hp Hg. exists ns, t. split; [exact Hg | apply incl_mod_refl].
+      - intros n m Hin. left. exists m. split; [exact Hin | reflexivity].
+    Qed.
+
+    (* A node's inputs only grow (as a multiset) along a run. *)
+    Lemma node_inputs_grow (gs0 : graph_state) (T : list gevent) (gs : graph_state) :
+      star gstep gs0 T gs ->
+      forall n ns0 t0, map.get gs0.(g_nodes) n = Some (ns0, t0) ->
+      exists ns t, map.get gs.(g_nodes) n = Some (ns, t) /\
+                   submultiset (inputs_of t0) (inputs_of t).
+    Proof.
+      intro Hstar. induction Hstar as [s | s e s' T' s'' Hstep Hs IH]; intros n ns0 t0 Hget.
+      - exists ns0, t0. split; [exact Hget | apply submultiset_refl].
+      - assert (Hgrow1 : exists ns1 t1, map.get s'.(g_nodes) n = Some (ns1, t1) /\
+                           submultiset (inputs_of t0) (inputs_of t1)).
+        { inv_gstep Hstep; subst; cbn [g_nodes] in *.
+          - exists ns0, t0. split; [exact Hget | apply submultiset_refl].
+          - destruct (Nat.eq_dec n ni) as [->|Hne].
+            + assert (ti = t0) by congruence. subst ti.
+              exists nsi', (t0 ++ [O_event lbli outsi]).
+              split; [apply map.get_put_same|].
+              rewrite inputs_of_app; cbn [inputs_of flat_map]; rewrite app_nil_r. apply submultiset_refl.
+            + rewrite map.get_put_diff by auto. exists ns0, t0. split; [exact Hget | apply submultiset_refl].
+          - destruct (Nat.eq_dec n ni) as [->|Hne].
+            + assert (ti = t0) by congruence. subst ti.
+              exists nsi', (t0 ++ [I_event mi]).
+              split; [apply map.get_put_same|]. eexists. rewrite inputs_of_app. apply Permutation_refl.
+            + rewrite map.get_put_diff by auto. exists ns0, t0. split; [exact Hget | apply submultiset_refl]. }
+        destruct Hgrow1 as (ns1 & t1 & Hg1 & Hsub1).
+        destruct (IH n ns1 t1 Hg1) as (ns & t & Hg & Hsub).
+        exists ns, t. split; [exact Hg | eapply sub_trans; eassumption].
+    Qed.
+
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
