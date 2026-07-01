@@ -842,7 +842,7 @@ Section __.
     Local Notation conserved gs ext :=
       (forall nn nsn tnn, map.get gs.(g_nodes) nn = Some (nsn, tnn) ->
          submultiset (inputs_of tnn ++ queued nn gs)
-           (node_outputs_total gs.(g_nodes)
+           (node_outputs_total_f (fun k f => existsb (Nat.eqb nn) (forward k f)) gs.(g_nodes)
             ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext))).
 
     Lemma conservation_step (gs gs' : graph_state) (e : gevent) :
@@ -852,56 +852,57 @@ Section __.
       pose proof (map.keys_NoDup p) as Hnd_all.
       intros Hstep ext IH nn nsn tnn Hg'.
       inv_gstep Hstep; subst; cbn [g_nodes g_messages] in Hg' |- *.
-      - (* gstep_input (mi addressed to ni) *)
+      - (* gstep_input : g_nodes (hence forwarded total) unchanged *)
         specialize (IH nn nsn tnn Hg').
         cbn [inputs_of flat_map app]. rewrite filter_app, map_app.
         cbn [filter fst snd]. destruct (Nat.eqb ni nn) eqn:E; cbn [map fst snd].
         + apply (sub_perm_both
                    (mi :: (inputs_of tnn ++ map snd (filter (fun de => Nat.eqb (fst de) nn) (g_messages gs)))) _
-                   (mi :: (node_outputs_total (g_nodes gs)
+                   (mi :: (node_outputs_total_f (fun k f => existsb (Nat.eqb nn) (forward k f)) (g_nodes gs)
                            ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext))) _).
           * apply Permutation_cons_app. apply Permutation_refl.
           * rewrite app_assoc. apply Permutation_cons_append.
           * apply sub_cons. exact IH.
         + rewrite app_nil_r. exact IH.
-      - (* gstep_run ni : emits outsi (node_outputs grow); forwarded queued; ext unchanged *)
+      - (* gstep_run ni : forwarded total to nn grows by outsi filtered to nn; queue grows the same *)
         cbn [inputs_of flat_map]. rewrite app_nil_r.
         assert (Hin_ni : In ni (map.keys p)) by (eapply map.in_keys; eauto).
-        pose proof (node_outputs_total_grow gs.(g_nodes) ni nsi ti
-                      (nsi', ti ++ [O_event lbli outsi]) outsi Hin_ni Hnd_all Hgi
+        pose proof (node_outputs_total_f_grow (fun k f => existsb (Nat.eqb nn) (forward k f))
+                      gs.(g_nodes) ni nsi ti (nsi', ti ++ [O_event lbli outsi]) outsi Hin_ni Hnd_all Hgi
                       ltac:(cbn [snd]; rewrite outputs_of_app; cbn [outputs_of flat_map]; rewrite ?app_nil_r;
                             reflexivity)) as Hgrow.
         rewrite filter_app, map_app.
         assert (Hbody : forall (tx : list IO_event) (Qx : list message),
                   submultiset (inputs_of tx ++ Qx)
-                    (node_outputs_total (g_nodes gs) ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext)) ->
+                    (node_outputs_total_f (fun k f => existsb (Nat.eqb nn) (forward k f)) (g_nodes gs)
+                     ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext)) ->
                   submultiset
                     (inputs_of tx ++ (Qx ++ map snd (filter (fun de => Nat.eqb (fst de) nn)
                        (flat_map (fun m0 => map (fun n' => (n', m0)) (forward ni m0)) outsi))))
-                    (node_outputs_total (map.put (g_nodes gs) ni
-                       (nsi', ti ++ [O_event lbli outsi]))
+                    (node_outputs_total_f (fun k f => existsb (Nat.eqb nn) (forward k f))
+                       (map.put (g_nodes gs) ni (nsi', ti ++ [O_event lbli outsi]))
                      ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext))).
-        { intros tx Qx Hsub.
+        { intros tx Qx Hsub. rewrite forwarded_slice_eq.
           apply (sub_perm_both
-                   ((inputs_of tx ++ Qx) ++ map snd (filter (fun de => Nat.eqb (fst de) nn)
-                       (flat_map (fun m0 => map (fun n' => (n', m0)) (forward ni m0)) outsi))) _
-                   ((node_outputs_total (g_nodes gs)
-                     ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext)) ++ outsi) _).
+                   ((inputs_of tx ++ Qx) ++ filter (fun f => existsb (Nat.eqb nn) (forward ni f)) outsi) _
+                   ((node_outputs_total_f (fun k f => existsb (Nat.eqb nn) (forward k f)) (g_nodes gs)
+                     ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext))
+                    ++ filter (fun f => existsb (Nat.eqb nn) (forward ni f)) outsi) _).
           - rewrite app_assoc. apply Permutation_refl.
           - eapply perm_trans; [| apply Permutation_app_tail; symmetry; exact Hgrow].
             rewrite <- !app_assoc. apply Permutation_app_head. apply Permutation_app_comm.
-          - apply sub_app_mono; [exact Hsub | apply forwarded_sub]. }
+          - apply sub_app_mono; [exact Hsub | apply submultiset_refl]. }
         destruct (Nat.eq_dec nn ni) as [->|Hne].
         + rewrite map.get_put_same in Hg'. injection Hg' as <- <-.
           rewrite inputs_of_app; cbn [inputs_of flat_map]; rewrite ?app_nil_r.
           apply Hbody. apply (IH ni nsi ti Hgi).
         + rewrite map.get_put_diff in Hg' by auto.
           apply Hbody. apply (IH nn nsn tnn Hg').
-      - (* gstep_receive ni mi : dequeue mi; node_outputs and ext unchanged *)
+      - (* gstep_receive ni mi : outputs (hence forwarded total) unchanged; dequeue mi *)
         cbn [inputs_of flat_map]. rewrite app_nil_r.
         assert (Hin_ni : In ni (map.keys p)) by (eapply map.in_keys; eauto).
-        pose proof (node_outputs_total_same gs.(g_nodes) ni nsi ti
-                      (nsi', ti ++ [I_event mi]) Hin_ni Hnd_all Hgi
+        pose proof (node_outputs_total_f_same (fun k f => existsb (Nat.eqb nn) (forward k f))
+                      gs.(g_nodes) ni nsi ti (nsi', ti ++ [I_event mi]) Hin_ni Hnd_all Hgi
                       ltac:(cbn [snd]; rewrite outputs_of_app; cbn [outputs_of flat_map]; rewrite ?app_nil_r;
                             reflexivity)) as Hsame.
         eapply sub_perm_r; [apply Permutation_app_tail; symmetry; exact Hsame|].
@@ -992,9 +993,25 @@ Section __.
       rewrite <- map_app, <- filter_app. apply Permutation_map. apply perm_filter. exact Hp.
     Qed.
 
+    (* The forwarded-slice-to-[n] total equals [well_formed_good]'s [combine]-based slice
+       (over each node's current outputs) -- so [Hwfg] applies to the pool built from
+       conservation. *)
+    Lemma node_fwd_total_eq (n : node_id) (m : node_states) :
+      node_outputs_total_f (fun k f => existsb (Nat.eqb n) (forward k f)) m
+      = concat (map (fun '(n0, fs) => filter (fun f => existsb (Nat.eqb n) (forward n0 f)) fs)
+                  (combine (map.keys p)
+                     (map (fun k => match map.get m k with Some (_, t) => outputs_of t | None => [] end)
+                          (map.keys p)))).
+    Proof.
+      unfold node_outputs_total_f. f_equal.
+      induction (map.keys p) as [|k ks IHks]; cbn [map combine]; [reflexivity|].
+      rewrite IHks. f_equal.
+      destruct (map.get m k) as [[nsk tk]|]; reflexivity.
+    Qed.
+
     (* At a reachable graph state, a node's stored inputs are [allowed] (bounded by a
-       [well_formed] pool): conservation puts them inside all emitted outputs plus the
-       node's external slice, and [Hwfg] certifies that pool is well-formed. *)
+       [well_formed] pool): conservation puts them inside the messages FORWARDED to the
+       node plus its external slice, and [Hwfg] certifies that pool is well-formed. *)
     Lemma node_inputs_allowed :
       Forall2_map node_good p initial_ns ->
       forall T gs, star gstep initial_graph_state T gs ->
@@ -1024,21 +1041,21 @@ Section __.
       assert (Hfeq : map fst (filter (fun de => Nat.eqb (snd de) n) Wg)
                    = map fst (filter (fun '(_, n') => Nat.eqb n n') Wg)).
       { f_equal. apply filter_ext. intros [m n']. cbn. apply Nat.eqb_sym. }
-      exists (node_outputs_total gs.(g_nodes) ++ map fst (filter (fun de => Nat.eqb (snd de) n) Wg)).
+      exists (node_outputs_total_f (fun k f => existsb (Nat.eqb n) (forward k f)) gs.(g_nodes)
+              ++ map fst (filter (fun de => Nat.eqb (snd de) n) Wg)).
       split.
-      - (* well_formed c (node_outputs_total ++ ext-slice).  TODO: rework for the new
-           [well_formed_good]: get [well_formed c (forwarded-slice-to-n ++ ext-slice)] from
-           [Hwfg] (reduces to [well_formed_inputs c ext-slice] via [Hwf_g]), then extend to
-           [node_outputs_total] with [well_formed_monotone] (forwarded-slice is a submultiset
-           of all outputs). *)
-        intro c. admit.
+      - (* well_formed c (forwarded-slice-to-n ++ ext-slice): the forwarded slice is
+           [well_formed_good]'s slice, so [Hwfg] reduces it to [well_formed_inputs c ext-slice]. *)
+        intro c. rewrite node_fwd_total_eq.
+        apply (proj2 (Hwfg (map.keys p) fss (map.keys_NoDup p) HF2 c _ n)).
+        rewrite Hfeq. apply (Hwf_g c n).
       - eapply sub_trans;
           [| apply sub_app_mono;
                [apply submultiset_refl
                | apply (sub_slice (fun de => Nat.eqb (snd de) n) (inputs_of T) Wg Hsub_g)]].
         eapply sub_trans; [| exact Hcons].
         apply sub_app_r. apply submultiset_refl.
-    Admitted.
+    Qed.
 
     (* ---- Domination modulo [equiv] (drives the graph to re-arm a node) ---- *)
 
