@@ -1081,6 +1081,70 @@ Section __.
       - apply eventually_done. exact Hr.
     Qed.
 
+    (* Carry [core_dom_mod gs_pre] plus a reachable-allowed bundle through a driven
+       eventually.  [core_dom_mod_run] needs no allowedness now, but the bundle still
+       carries [allowed ...] for the downstream capability transfer. *)
+    Lemma eventually_carry_dom (gs_pre : graph_state) :
+      Forall2_map node_good p initial_ns ->
+      forall (P : graph_state * list gevent -> Prop) gs t T0,
+        star gstep initial_graph_state T0 gs ->
+        allowed well_formed_graph_inputs (inputs_of T0) ->
+        Permutation (inputs_of T0) (inputs_of t) ->
+        core_dom_mod gs_pre gs ->
+        eventually (will_step gstep well_formed_graph_inputs) P (gs, t) ->
+        eventually (will_step gstep well_formed_graph_inputs)
+          (fun '(gs', t') => P (gs', t') /\
+             (exists T', star gstep initial_graph_state T' gs' /\
+                         allowed well_formed_graph_inputs (inputs_of T') /\
+                         Permutation (inputs_of T') (inputs_of t') /\
+                         core_dom_mod gs_pre gs')) (gs, t).
+    Proof.
+      intros Hgood P gs t T0 HT0 Hall0 Hperm0 Hdom Hev.
+      remember (gs, t) as st eqn:Est. revert gs t T0 HT0 Hall0 Hperm0 Hdom Est.
+      induction Hev as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
+        intros gs t T0 HT0 Hall0 Hperm0 Hdom [= -> ->].
+      - apply eventually_done. split; [exact HP|].
+        exists T0. split; [exact HT0 | split; [exact Hall0 | split; [exact Hperm0 | exact Hdom]]].
+      - destruct Hcan as [glbl Hcan].
+        apply eventually_step_cps. exists glbl.
+        intros gs_d t_d Hstar_d Hallow.
+        assert (HT0d : star gstep initial_graph_state (T0 ++ t_d) gs_d)
+          by (eapply star_app; eassumption).
+        assert (Hall0d : allowed well_formed_graph_inputs (inputs_of (T0 ++ t_d))).
+        { eapply allowed_perm; [| exact Hallow].
+          rewrite !inputs_of_app. eapply perm_trans; [apply Permutation_app_comm|].
+          apply Permutation_app_tail. symmetry. exact Hperm0. }
+        assert (Hperm0d : Permutation (inputs_of (T0 ++ t_d)) (inputs_of (t_d ++ t))).
+        { rewrite !inputs_of_app. eapply perm_trans;
+            [apply Permutation_app_tail; exact Hperm0 | apply Permutation_app_comm]. }
+        pose proof (core_dom_mod_run gs_pre gs gs_d t_d Hstar_d Hdom) as Hdom_d.
+        specialize (Hcan gs_d t_d Hstar_d Hallow).
+        destruct Hcan as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
+        + left. apply (IH (gs_d, t_d ++ t) Hmid_left gs_d (t_d ++ t) (T0 ++ t_d)
+                          HT0d Hall0d Hperm0d Hdom_d eq_refl).
+        + right. exists s'', outs. split; [exact Hstep|].
+          assert (HT0d' : star gstep initial_graph_state ((T0 ++ t_d) ++ [O_event glbl outs]) s'')
+            by (eapply star_app; [exact HT0d | econstructor; [exact Hstep | constructor]]).
+          assert (Hall0d' : allowed well_formed_graph_inputs (inputs_of ((T0 ++ t_d) ++ [O_event glbl outs]))).
+          { eapply allowed_perm; [| exact Hall0d].
+            replace (inputs_of ((T0 ++ t_d) ++ [O_event glbl outs])) with (inputs_of (T0 ++ t_d))
+              by (rewrite (inputs_of_app (T0 ++ t_d) [O_event glbl outs]); cbn [inputs_of flat_map app]; rewrite ?app_nil_r; reflexivity).
+            apply Permutation_refl. }
+          assert (Hperm0d' : Permutation (inputs_of ((T0 ++ t_d) ++ [O_event glbl outs]))
+                                         (inputs_of (O_event glbl outs :: t_d ++ t))).
+          { replace (inputs_of ((T0 ++ t_d) ++ [O_event glbl outs])) with (inputs_of (T0 ++ t_d))
+              by (rewrite (inputs_of_app (T0 ++ t_d) [O_event glbl outs]); cbn [inputs_of flat_map app]; rewrite ?app_nil_r; reflexivity).
+            replace (inputs_of (O_event glbl outs :: t_d ++ t)) with (inputs_of (t_d ++ t))
+              by reflexivity.
+            exact Hperm0d. }
+          pose proof (core_dom_mod_run gs_pre gs_d s''
+                        [O_event glbl outs] (star_step _ _ _ _ _ _ Hstep (star_refl _ _))
+                        Hdom_d) as Hdom_d'.
+          apply (IH _ Hmidset s'' (O_event glbl outs :: t_d ++ t)
+                    ((T0 ++ t_d) ++ [O_event glbl outs]) HT0d' Hall0d' Hperm0d' Hdom_d');
+            reflexivity.
+    Qed.
+
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
