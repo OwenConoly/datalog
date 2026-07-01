@@ -34,8 +34,11 @@ Section __.
     | receive (_ : node_id) (_ : message)
     | run (_ : node_id) (_ : label).
 
-  Definition well_formed_graph_inputs (c : message) (inps : list (message * node_id)) :=
-    forall n, well_formed_inputs c (map fst (filter (fun '(_, n') => Nat.eqb n n') inps)).
+  (* A graph input fact [(m, n0)] (fact [m] destined for node [n0]) is well-formed iff [m]
+     is a well-formed input at [n0] -- i.e. w.r.t. the facts delivered to [n0].  (Constraint
+     type is the graph message [message * node_id], matching [allowed] at the graph level.) *)
+  Definition well_formed_graph_inputs : message * node_id -> list (message * node_id) -> Prop :=
+    fun '(m, n0) inps => well_formed_inputs m (map fst (filter (fun '(_, n') => Nat.eqb n0 n') inps)).
 
   Local Notation gevent := (Smallstep.IO_event graph_label (message * node_id)).
 
@@ -70,6 +73,14 @@ Section __.
   Context (well_formed_inputs_monotone :
     forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
                     submultiset l1 l2 -> In c l1 -> well_formed_inputs c l1 -> well_formed_inputs c l2).
+
+  (* [well_formed] respects [equiv]: a present, well-formed fact stays well-formed when the
+     fact-set is replaced by one that [equiv]-covers it ([incl_mod]).  This is what lets a
+     node's capability transfer across the drive's re-emissions (which produce [equiv]-
+     relatives, not identical facts).  [In c l1]-restricted, like [well_formed_monotone]. *)
+  Context (well_formed_equiv :
+    forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
+                    incl_mod equiv l1 l2 -> In c l1 -> well_formed c l1 -> well_formed c l2).
 
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
@@ -126,7 +137,6 @@ Section __.
       {| g_nodes := initial_ns; g_messages := [] |}.
 
     Local Notation gstep := (graph_step p node_step).
-    Check outputs_well_formed.
     Definition node_good (n : node_id) (np : node_prog) : node_state * list IO_event -> Prop :=
       fun '(ns, _) =>
         outputs_well_formed    (node_step np) (well_formed_output n) ns /\
@@ -1039,7 +1049,7 @@ Section __.
         destruct yk as [nsk tk]. rewrite Hgk.
         destruct (pernode_spec_good Hgood k npk xk Hpk Hxk) as (Howf & _).
         destruct (node_run T gs Hstar k npk xk nsk tk Hpk Hxk Hgk) as (Hrun & _).
-        exact (Howf tk nsk Hrun tt). }
+        exact (Howf tk nsk Hrun). }
       assert (Hfeq : map fst (filter (fun de => Nat.eqb (snd de) n) Wg)
                    = map fst (filter (fun '(_, n') => Nat.eqb n n') Wg)).
       { f_equal. apply filter_ext. intros [m n']. cbn. apply Nat.eqb_sym. }
@@ -1050,7 +1060,7 @@ Section __.
            [well_formed_good]'s slice, so [Hwfg] reduces it to [well_formed_inputs c ext-slice]. *)
         intro c. rewrite node_fwd_total_eq.
         apply (proj2 (Hwfg (map.keys p) fss (map.keys_NoDup p) HF2 c _ n)).
-        rewrite Hfeq. apply (Hwf_g c n).
+        rewrite Hfeq. apply (Hwf_g (c, n)).
       - eapply sub_trans;
           [| apply sub_app_mono;
                [apply submultiset_refl
@@ -1302,12 +1312,12 @@ Section __.
       pose proof (node_inputs_allowed Hgood T1 gs1 HT1 Hall1 n np ns1 t1 Hp Hg1) as Hallt1.
       pose proof (node_inputs_allowed Hgood T2 gs2 HT2 Hall2 n np ns2 t2 Hp Hg2) as Hallt2.
       apply (Hmono_eq t1 t2 ns1 ns2 o Hrun1 Hrun2 Hallt1 Hallt2 Hincl).
-      - (* constraint-preservation across the equiv-domination.  TODO: discharge via
-           [Hwfg] (well_formed_good) transferring input well-formedness from t1 to t2;
-           [well_formed_mono_mod] removed at the user's direction. *)
-        intros c Hwf1. admit.
+      - (* constraint-preservation across the equiv-domination: each fact present in t1
+           and well-formed there stays well-formed in t2, which [equiv]-covers t1. *)
+        intros c Hin_c Hwf1.
+        exact (well_formed_equiv c (inputs_of t1) (inputs_of t2) Hallt1 Hallt2 Hincl Hin_c Hwf1).
       - exact Hmight.
-    Admitted.
+    Qed.
 
     Lemma will_output_equiv_weaken (np : node_prog) (s : node_state)
         (tr : list IO_event) (a b : message) :
