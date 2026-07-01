@@ -1,5 +1,5 @@
 (*worth comparing to https://compcert.org/doc/html/compcert.common.Smallstep.html*)
-From Stdlib Require Import List Permutation.
+From Stdlib Require Import List Permutation RelationClasses.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
 
@@ -52,7 +52,11 @@ Section step.
   (* An equivalence on messages: the observation granularity.  Two messages a
      node may treat interchangeably (here: done-messages equal modulo their count). *)
   Context (equiv : message -> message -> Prop).
-  Context (equiv_refl : forall a, equiv a a).
+  Context (equiv_equiv : Equivalence equiv).
+  Lemma equiv_refl a : equiv a a. Proof. reflexivity. Qed.
+  Lemma equiv_sym a b : equiv a b -> equiv b a. Proof. intros H; symmetry; exact H. Qed.
+  Lemma equiv_trans a b c : equiv a b -> equiv b c -> equiv a c.
+  Proof. intros H1 H2; transitivity b; [exact H1 | exact H2]. Qed.
   (* A family of well-formedness "constraints" on fact multisets, indexed by
      [constraint]: [well_formed c fs] = "fs satisfies constraint c" (e.g. a
      meta-fact's claimed count is matched by exactly that many normal facts).
