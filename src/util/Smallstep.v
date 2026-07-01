@@ -53,14 +53,7 @@ Section step.
      node may treat interchangeably (here: done-messages equal modulo their count). *)
   Context (equiv : message -> message -> Prop).
   Context (equiv_equiv : Equivalence equiv).
-  (* A family of well-formedness "constraints" on fact multisets, indexed by
-     [constraint]: [well_formed c fs] = "fs satisfies constraint c" (e.g. a
-     meta-fact's claimed count is matched by exactly that many normal facts).
-     Abstract here; in the datalog graph [constraint] is instantiated per-node.
-     The modulo transfer only needs t2 to PRESERVE the constraints t1 satisfies
-     (relative well-formedness), never absolute well-formedness. *)
-  Context {constraint : Type}.
-  Context (well_formed : constraint -> list message -> Prop).
+  Context (well_formed : message -> list message -> Prop).
 
   Definition submultiset (l1 l2 : list message) : Prop :=
     exists rest, Permutation l2 (l1 ++ rest).
@@ -72,8 +65,12 @@ Section step.
      facts to an allowed set never breaks a constraint it satisfied.  Separately
      assumed; makes [monotone_multiset] a consequence of [monotone_mod_equiv]. *)
   Context (well_formed_monotone :
-    forall c l1 l2, allowed l1 -> allowed l2 -> submultiset l1 l2 ->
-                    well_formed c l1 -> well_formed c l2).
+            forall c l1 l2, allowed l1 ->
+                       allowed l2 ->
+                       submultiset l1 l2 ->
+                       In c l1 ->
+                       well_formed c l1 ->
+                       well_formed c l2).
 
   Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
     Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
@@ -349,10 +346,11 @@ Section step.
         apply perm_skip. apply Permutation_middle.
   Qed.
 
+  Context (outputs_wf : list message -> Prop).
   Context (initial : state).
 
   Definition outputs_well_formed :=
-    forall t s, star step initial t s -> forall c, well_formed c (outputs_of t).
+    forall t s, star step initial t s -> outputs_wf (outputs_of t).
 
   Definition can_implies_will :=
     forall t s o,
@@ -430,16 +428,13 @@ Section step.
       allowed (inputs_of t1) ->
       allowed (inputs_of t2) ->
       incl_mod (inputs_of t1) (inputs_of t2) ->
-      (forall constraint, well_formed constraint (inputs_of t1) -> well_formed constraint (inputs_of t2)) ->
+      (forall constraint,
+          In constraint (inputs_of t1) ->
+          well_formed constraint (inputs_of t1) ->
+          well_formed constraint (inputs_of t2)) ->
       might_output s1 t1 o ->
       might_output_equiv s2 t2 o.
 
-  (* Growth preserves might_output modulo [equiv].  Now a CONSEQUENCE of
-     [monotone_mod_equiv] (not a separate obligation): a submultiset extension is an
-     [incl_mod] (reflexivity of [equiv]), and [well_formed_monotone] gives the constraint
-     preservation.  (Only the modulo-[equiv] conclusion follows; the exact
-     [might_output] would need [o] itself reproduced, which [might_output_equiv]
-     does not promise.) *)
   Definition monotone_multiset :=
     forall t1 t2 s1 s2 o,
       star step initial t1 s1 ->
@@ -575,8 +570,7 @@ End step.
 
 Section steps_corresp.
   Context {label message : Type}.
-  Context {constraint : Type}.
-  Context (well_formed : constraint -> list message -> Prop).
+  Context (well_formed : message -> list message -> Prop).
   Local Notation IO_event := (IO_event label message).
 
   Section steps.

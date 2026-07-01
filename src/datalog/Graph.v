@@ -25,8 +25,8 @@ Section __.
   Context (forward_equiv :
              forall n a b, equiv a b -> forward n a = forward n b).
   Context (well_formed_output : node_id -> list message -> Prop).
-  Context {constraint} (well_formed : constraint -> list message -> Prop).
-  Context (well_formed_inputs : constraint -> list message -> Prop).
+  Context (well_formed : message -> list message -> Prop).
+  Context (well_formed_inputs : message -> list message -> Prop).
 
   Local Notation IO_event := (Smallstep.IO_event label message).
 
@@ -34,7 +34,7 @@ Section __.
     | receive (_ : node_id) (_ : message)
     | run (_ : node_id) (_ : label).
 
-  Definition well_formed_graph_inputs (c : constraint) (inps : list (message * node_id)) :=
+  Definition well_formed_graph_inputs (c : message) (inps : list (message * node_id)) :=
     forall n, well_formed_inputs c (map fst (filter (fun '(_, n') => Nat.eqb n n') inps)).
 
   Local Notation gevent := (Smallstep.IO_event graph_label (message * node_id)).
@@ -57,8 +57,10 @@ Section __.
   Context (Hwfg : well_formed_good).
 
   Context (well_formed_monotone :
-    forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
-                    submultiset l1 l2 -> well_formed c l1 -> well_formed c l2).
+            forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
+                       submultiset l1 l2 ->
+                       In c l1 ->
+                       well_formed c l1 -> well_formed c l2).
 
   (* The [well_formed_inputs] analogue of [well_formed_monotone].  After [well_formed_good]
      collapses a node's input well-formedness to that of its EXTERNAL inputs, the
@@ -124,10 +126,10 @@ Section __.
       {| g_nodes := initial_ns; g_messages := [] |}.
 
     Local Notation gstep := (graph_step p node_step).
-
+    Check outputs_well_formed.
     Definition node_good (n : node_id) (np : node_prog) : node_state * list IO_event -> Prop :=
       fun '(ns, _) =>
-        outputs_well_formed    (node_step np)       (fun (_ : unit) => well_formed_output n) ns /\
+        outputs_well_formed    (node_step np) (well_formed_output n) ns /\
         monotone_mod_equiv     (node_step np) equiv well_formed ns /\
         can_implies_will_equiv (node_step np) equiv well_formed ns.
     Ltac inv_gstep H :=
@@ -554,7 +556,7 @@ Section __.
       forall n np ns0,
         map.get p n = Some np ->
         map.get initial_ns n = Some ns0 ->
-        outputs_well_formed    (node_step np) (fun (_ : unit) => well_formed_output n) (fst ns0) /\
+        outputs_well_formed    (node_step np) (well_formed_output n) (fst ns0) /\
         monotone_mod_equiv     (node_step np) equiv well_formed (fst ns0) /\
         can_implies_will_equiv (node_step np) equiv well_formed (fst ns0).
     Proof.
