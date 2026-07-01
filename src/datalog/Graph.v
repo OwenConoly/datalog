@@ -726,36 +726,36 @@ Section __.
     Local Notation queued nn gs :=
       (map snd (filter (fun de => Nat.eqb (fst de) nn) gs.(g_messages))).
 
-    (* The per-node multiset conservation invariant: a node's received inputs plus
-       the messages still queued to it are a submultiset of all emitted outputs plus
-       all external inputs [ext]. *)
+    (* Per-node conservation: a node's received inputs plus what's still queued to it
+       are a submultiset of all emitted outputs plus the external inputs addressed to
+       it -- the [nn]-slice of the external trace [ext]. *)
     Local Notation conserved gs ext :=
       (forall nn nsn tnn, map.get gs.(g_nodes) nn = Some (nsn, tnn) ->
          submultiset (inputs_of tnn ++ queued nn gs)
-                     (node_outputs_total gs.(g_nodes) ++ ext)).
+           (node_outputs_total gs.(g_nodes)
+            ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext))).
 
     Lemma conservation_step (gs gs' : graph_state) (e : gevent) :
       gstep gs e gs' ->
-      forall ext, conserved gs ext ->
-        conserved gs' (ext ++ map fst (inputs_of [e])).
+      forall ext, conserved gs ext -> conserved gs' (ext ++ inputs_of [e]).
     Proof.
       pose proof (map.keys_NoDup p) as Hnd_all.
       intros Hstep ext IH nn nsn tnn Hg'.
       inv_gstep Hstep; subst; cbn [g_nodes g_messages] in Hg' |- *.
-      - (* gstep_input ni mi : g_nodes unchanged; (ni,mi) prepended; ext grows by mi *)
-        cbn [inputs_of flat_map map fst]. specialize (IH nn nsn tnn Hg').
-        cbn [filter fst]. destruct (Nat.eqb ni nn) eqn:E; cbn [snd map].
-        + (* mi added to nn's queue and to ext *)
-          apply (sub_perm_both
-                   (mi :: (inputs_of tnn ++ map snd (filter (fun de => Nat.eqb (fst de) nn) (g_messages gs))))
-                   _
-                   (mi :: (node_outputs_total (g_nodes gs) ++ ext)) _).
+      - (* gstep_input (mi addressed to ni) *)
+        specialize (IH nn nsn tnn Hg').
+        cbn [inputs_of flat_map app]. rewrite filter_app, map_app.
+        cbn [filter fst snd]. destruct (Nat.eqb ni nn) eqn:E; cbn [map fst snd].
+        + apply (sub_perm_both
+                   (mi :: (inputs_of tnn ++ map snd (filter (fun de => Nat.eqb (fst de) nn) (g_messages gs)))) _
+                   (mi :: (node_outputs_total (g_nodes gs)
+                           ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext))) _).
           * apply Permutation_cons_app. apply Permutation_refl.
           * rewrite app_assoc. apply Permutation_cons_append.
           * apply sub_cons. exact IH.
-        + rewrite app_assoc. apply sub_app_r. exact IH.
-      - (* gstep_run ni: ni emits outsi (node_outputs grow by outsi); forwarded queued *)
-        cbn [inputs_of flat_map map]; rewrite app_nil_r.
+        + rewrite app_nil_r. exact IH.
+      - (* gstep_run ni : emits outsi (node_outputs grow); forwarded queued; ext unchanged *)
+        cbn [inputs_of flat_map]. rewrite app_nil_r.
         assert (Hin_ni : In ni (map.keys p)) by (eapply map.in_keys; eauto).
         pose proof (node_outputs_total_grow gs.(g_nodes) ni nsi ti
                       (nsi', ti ++ [O_event lbli outsi]) outsi Hin_ni Hnd_all Hgi
@@ -763,17 +763,20 @@ Section __.
                             reflexivity)) as Hgrow.
         rewrite filter_app, map_app.
         assert (Hbody : forall (tx : list IO_event) (Qx : list message),
-                  submultiset (inputs_of tx ++ Qx) (node_outputs_total (g_nodes gs) ++ ext) ->
+                  submultiset (inputs_of tx ++ Qx)
+                    (node_outputs_total (g_nodes gs) ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext)) ->
                   submultiset
                     (inputs_of tx ++ (Qx ++ map snd (filter (fun de => Nat.eqb (fst de) nn)
                        (flat_map (fun m0 => map (fun n' => (n', m0)) (forward ni m0)) outsi))))
                     (node_outputs_total (map.put (g_nodes gs) ni
-                       (nsi', ti ++ [O_event lbli outsi])) ++ ext)).
+                       (nsi', ti ++ [O_event lbli outsi]))
+                     ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext))).
         { intros tx Qx Hsub.
           apply (sub_perm_both
                    ((inputs_of tx ++ Qx) ++ map snd (filter (fun de => Nat.eqb (fst de) nn)
                        (flat_map (fun m0 => map (fun n' => (n', m0)) (forward ni m0)) outsi))) _
-                   ((node_outputs_total (g_nodes gs) ++ ext) ++ outsi) _).
+                   ((node_outputs_total (g_nodes gs)
+                     ++ map fst (filter (fun de => Nat.eqb (snd de) nn) ext)) ++ outsi) _).
           - rewrite app_assoc. apply Permutation_refl.
           - eapply perm_trans; [| apply Permutation_app_tail; symmetry; exact Hgrow].
             rewrite <- !app_assoc. apply Permutation_app_head. apply Permutation_app_comm.
@@ -784,8 +787,8 @@ Section __.
           apply Hbody. apply (IH ni nsi ti Hgi).
         + rewrite map.get_put_diff in Hg' by auto.
           apply Hbody. apply (IH nn nsn tnn Hg').
-      - (* gstep_receive ni mi: ni dequeues mi; node_outputs unchanged *)
-        cbn [inputs_of flat_map map]; rewrite app_nil_r.
+      - (* gstep_receive ni mi : dequeue mi; node_outputs and ext unchanged *)
+        cbn [inputs_of flat_map]. rewrite app_nil_r.
         assert (Hin_ni : In ni (map.keys p)) by (eapply map.in_keys; eauto).
         pose proof (node_outputs_total_same gs.(g_nodes) ni nsi ti
                       (nsi', ti ++ [I_event mi]) Hin_ni Hnd_all Hgi
@@ -795,7 +798,7 @@ Section __.
         rewrite filter_app, map_app.
         destruct (Nat.eq_dec nn ni) as [->|Hne].
         + rewrite map.get_put_same in Hg'. injection Hg' as <- <-.
-          rewrite inputs_of_app; cbn [inputs_of flat_map].
+          rewrite inputs_of_app; cbn [inputs_of flat_map app].
           specialize (IH ni nsi ti Hgi). rewrite Hmsg, filter_app, map_app in IH.
           cbn [filter fst] in IH. rewrite Nat.eqb_refl in IH. cbn [map snd] in IH.
           eapply sub_perm_l; [apply perm_mid_move | exact IH].
@@ -811,7 +814,7 @@ Section __.
 
     Lemma conservation_gen (gs0 : graph_state) (T0 : list gevent) (gs1 : graph_state) :
       star gstep gs0 T0 gs1 ->
-      forall ext0, conserved gs0 ext0 -> conserved gs1 (ext0 ++ map fst (inputs_of T0)).
+      forall ext0, conserved gs0 ext0 -> conserved gs1 (ext0 ++ inputs_of T0).
     Proof.
       intro Hs. induction Hs as [s | s e s' T' s'' Hstep Hs IH]; intros ext0 Hconv.
       - intros nn nsn tnn Hg. cbn [inputs_of flat_map]. rewrite app_nil_r. apply (Hconv nn nsn tnn Hg).
@@ -820,13 +823,13 @@ Section __.
         intros nn nsn tnn Hg.
         eapply sub_perm_r; [| apply (Hfin nn nsn tnn Hg)].
         apply Permutation_app_head.
-        change (e :: T') with ([e] ++ T'). rewrite inputs_of_app, map_app, app_assoc.
+        change (e :: T') with ([e] ++ T'). rewrite inputs_of_app, app_assoc.
         apply Permutation_refl.
     Qed.
 
     Lemma conservation_run (T : list gevent) (gs : graph_state) :
       star gstep initial_graph_state T gs ->
-      conserved gs (map fst (inputs_of T)).
+      conserved gs (inputs_of T).
     Proof.
       intro Hstar.
       pose proof (conservation_gen initial_graph_state T gs Hstar []) as H.
