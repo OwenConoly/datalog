@@ -95,6 +95,7 @@ Section __.
     Context {node_state : Type}
             {node_states : map.map node_id (node_state * list IO_event)}.
     Context {node_states_ok : map.ok node_states}.
+    Context {graph_prog_ok : map.ok graph_prog}.
     Context (p : graph_prog) (initial_ns : node_states).
     Context (initial_ns_empty :
                forall n x, map.get initial_ns n = Some x -> snd x = []).
@@ -656,6 +657,72 @@ Section __.
       rewrite filter_flat_map, map_flat_map. apply flat_map_sub.
       intro a. apply forwarded_one_sub.
     Qed.
+    Definition node_outputs_total (m : node_states) : list message :=
+      concat (map (fun k => match map.get m k with
+                            | Some (_, t) => outputs_of t | None => [] end) (map.keys p)).
+
+    (* [node_outputs_total] decomposes, around node [ni], into [ni]'s contribution
+       plus a [rest] that is unaffected by updating [ni]'s entry. *)
+    Lemma node_outputs_total_put (m : node_states) (ni : node_id)
+        (v : node_state * list IO_event) :
+      In ni (map.keys p) -> NoDup (map.keys p) ->
+      exists rest,
+        Permutation (node_outputs_total m)
+          ((match map.get m ni with Some (_, t) => outputs_of t | None => [] end) ++ rest) /\
+        Permutation (node_outputs_total (map.put m ni v)) (outputs_of (snd v) ++ rest).
+    Proof.
+      intros Hin Hnd. destruct v as [xv tv]. apply in_split in Hin as (la & lb & Heq).
+      rewrite Heq in Hnd. apply NoDup_remove_2 in Hnd.
+      assert (Hla : ~ In ni la) by (intro; apply Hnd; apply in_or_app; left; assumption).
+      assert (Hlb : ~ In ni lb) by (intro; apply Hnd; apply in_or_app; right; assumption).
+      exists (concat (map (fun k => match map.get m k with Some (_, t) => outputs_of t | None => [] end) la)
+              ++ concat (map (fun k => match map.get m k with Some (_, t) => outputs_of t | None => [] end) lb)).
+      assert (Hla' : forall (M : node_states),
+                map (fun k => match map.get (map.put M ni (xv, tv)) k with Some (_,t)=>outputs_of t|None=>[] end) la
+                = map (fun k => match map.get M k with Some (_,t)=>outputs_of t|None=>[] end) la).
+      { intro M. apply map_ext_in. intros k Hk. rewrite map.get_put_diff; [reflexivity|].
+        intro; subst; contradiction. }
+      assert (Hlb' : forall (M : node_states),
+                map (fun k => match map.get (map.put M ni (xv, tv)) k with Some (_,t)=>outputs_of t|None=>[] end) lb
+                = map (fun k => match map.get M k with Some (_,t)=>outputs_of t|None=>[] end) lb).
+      { intro M. apply map_ext_in. intros k Hk. rewrite map.get_put_diff; [reflexivity|].
+        intro; subst; contradiction. }
+      split.
+      - unfold node_outputs_total. rewrite Heq, map_app. cbn [map].
+        rewrite concat_app. cbn [concat]. apply Permutation_app_swap_app.
+      - unfold node_outputs_total. rewrite Heq, map_app. cbn [map].
+        rewrite concat_app. cbn [concat].
+        rewrite map.get_put_same, Hla' with (M := m), Hlb' with (M := m).
+        apply Permutation_app_swap_app.
+    Qed.
+
+    Lemma node_outputs_total_grow (m : node_states) (ni : node_id)
+        (x : node_state) (ti : list IO_event) (v : node_state * list IO_event)
+        (delta : list message) :
+      In ni (map.keys p) -> NoDup (map.keys p) ->
+      map.get m ni = Some (x, ti) -> outputs_of (snd v) = outputs_of ti ++ delta ->
+      Permutation (node_outputs_total (map.put m ni v)) (node_outputs_total m ++ delta).
+    Proof.
+      intros Hin Hnd Hget Hout.
+      destruct (node_outputs_total_put m ni v Hin Hnd) as (rest & H1 & H2).
+      rewrite Hget in H1. cbn in H1. rewrite Hout in H2.
+      eapply perm_trans; [exact H2|].
+      eapply perm_trans; [| apply Permutation_app_tail; symmetry; exact H1].
+      rewrite <- !app_assoc. apply Permutation_app_head. apply Permutation_app_comm.
+    Qed.
+
+    Lemma node_outputs_total_same (m : node_states) (ni : node_id)
+        (x : node_state) (ti : list IO_event) (v : node_state * list IO_event) :
+      In ni (map.keys p) -> NoDup (map.keys p) ->
+      map.get m ni = Some (x, ti) -> outputs_of (snd v) = outputs_of ti ->
+      Permutation (node_outputs_total (map.put m ni v)) (node_outputs_total m).
+    Proof.
+      intros Hin Hnd Hget Hout.
+      pose proof (node_outputs_total_grow m ni x ti v [] Hin Hnd Hget
+                    ltac:(rewrite Hout, app_nil_r; reflexivity)) as H.
+      rewrite app_nil_r in H. exact H.
+    Qed.
+
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
