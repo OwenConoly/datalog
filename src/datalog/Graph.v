@@ -46,51 +46,36 @@ Section __.
   Context (forward_nodup : forall n m, NoDup (forward n m)).
   Context (output_visible : node_id -> message -> bool).
 
-  Context (A : list message -> Prop).
-  (*domain is multisets*)
-
-  (* The modulo-[equiv] development: a per-node output well-formedness predicate
-     [well_formed], external-input well-formedness [well_formed_inputs], and the
-     observation granularity [equiv] (used tagged as [equiv_g]).  [well_formed_g]
-     is the global in-flight pool: every node's well-formed output bundle together
-     with the (projected) external inputs. *)
   Context (equiv : message -> message -> Prop).
-  (* [equiv] is an equivalence relation (the standard [Stdlib] bundle of
-     reflexivity/symmetry/transitivity); the modulo reasoning weakens
-     [will_output_equiv] across [equiv]-related outputs, and the capability
-     transfer's delivery needs symmetry. *)
   Context (equiv_equiv : Equivalence equiv).
-  Local Definition equiv_refl : forall m, equiv m m := Equivalence_Reflexive.
-  Local Definition equiv_sym : forall a b, equiv a b -> equiv b a := Equivalence_Symmetric.
-  Local Definition equiv_trans : forall a b c, equiv a b -> equiv b c -> equiv a c :=
-    Equivalence_Transitive.
-  (* Visibility cannot distinguish [equiv]-related outputs. *)
   Context (output_visible_equiv :
              forall n a b, equiv a b -> output_visible n a = output_visible n b).
-  Context (well_formed : node_id -> list message -> Prop).
-  Context (well_formed_inputs : list (message * node_id) -> Prop).
-  Context (all_nodes : list node_id).
+  Context (well_formed_output : node_id -> list message -> Prop).
+  Context {constraint} (well_formed : constraint -> list message -> Prop).
+  Context (well_formed_inputs : constraint -> list message -> Prop).
 
   Local Notation IO_event := (Smallstep.IO_event label message).
 
-  (* The graph's output events are labelled by the node responsible: [receive n]
-     for a delivery to node n, [run n lbl] for node n firing its [lbl]-output. *)
   Variant graph_label :=
     | receive (_ : node_id) (_ : message)
     | run (_ : node_id) (_ : label).
 
-  (* The graph's external alphabet tags each message with the node it is
-     delivered to / produced by, so inputs to different nodes are distinguishable. *)
+  Definition well_formed_graph_inputs (c : constraint) (inps : list (message * node_id)) :=
+    forall n, well_formed_inputs c (map fst (filter (fun '(_, n') => Nat.eqb n n') inps)).
+
   Local Notation gevent := (Smallstep.IO_event graph_label (message * node_id)).
 
   Definition equiv_g : message * node_id -> message * node_id -> Prop :=
     fun '(m1, n1) '(m2, n2) => n1 = n2 /\ equiv m1 m2.
 
-  Definition well_formed_g (fs : list message) : Prop :=
-    exists fss inps,
-      Forall2 well_formed all_nodes fss /\
-      well_formed_inputs inps /\
-      Permutation fs (concat fss ++ map fst inps).
+  Definition well_formed_good :=
+    forall nodes fss,
+      NoDup nodes ->
+      Forall2 well_formed_output nodes fss ->
+      forall c inps,
+        well_formed c (concat fss ++ inps) <-> well_formed_inputs c inps.
+
+  Context (Hwfg : well_formed_good).
 
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
@@ -133,7 +118,6 @@ Section __.
 
   (* The graph's allowed predicate: a tagged trace is allowed iff its underlying
      (untagged) inputs are allowed by A. *)
-  Local Notation Ag := (fun (inps : list (message * node_id)) => A (map fst inps)).
 
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
@@ -145,12 +129,6 @@ Section __.
     Context (initial_ns_empty :
                forall n x, map.get initial_ns n = Some x -> snd x = []).
     Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
-    (* [all_nodes] enumerates exactly the program's nodes (needed so [well_formed_g]'s
-       per-node bundles cover every producer). *)
-    Context (all_nodes_keys :
-               NoDup all_nodes /\
-               (forall n, In n all_nodes <-> exists np, map.get p n = Some np)).
-    (* Every program node has an initial state. *)
     Context (p_initial_dom :
                forall n np, map.get p n = Some np -> exists x, map.get initial_ns n = Some x).
 
@@ -159,8 +137,6 @@ Section __.
 
     (* Abbreviations to keep statements readable. *)
     Local Notation gstep := (graph_step p node_step).
-    (* The graph's external inputs are all allowed. *)
-    Local Notation A_total := (forall t, A t).
     (* Every node accepts every input in every state. *)
     Local Notation nodes_input_total :=
       (forall n np, map.get p n = Some np -> input_total (node_step np)).
