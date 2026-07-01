@@ -42,28 +42,27 @@ Section __.
   Definition equiv_g : message * node_id -> message * node_id -> Prop :=
     fun '(m1, n1) '(m2, n2) => n1 = n2 /\ equiv m1 m2.
 
+  (* A node's inputs are [well_formed] iff its external (graph-level) inputs are
+     [well_formed_inputs]: any sub-collection [os] of the well-formed outputs is
+     "transparent" -- it neither creates nor destroys well-formedness.  Generalized
+     from the previous [concat fss] form to an arbitrary [submultiset os (concat fss)]
+     so it applies to a node's ACTUAL inputs, which carry only the FORWARDED SLICE of
+     the outputs, not [concat fss].  (WIP: the antecedent of [monotone_mod_equiv]'s
+     constraint-preservation is meant to be discharged through this, transferring
+     well-formedness from the source node inputs across the [equiv]-domination.) *)
   Definition well_formed_good :=
     forall nodes fss,
       NoDup nodes ->
       Forall2 well_formed_output nodes fss ->
-      forall c inps,
-        well_formed c (concat fss ++ inps) <-> well_formed_inputs c inps.
+      forall c os inps,
+        submultiset os (concat fss) ->
+        well_formed c (os ++ inps) <-> well_formed_inputs c inps.
 
   Context (Hwfg : well_formed_good).
 
   Context (well_formed_monotone :
     forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
                     submultiset l1 l2 -> well_formed c l1 -> well_formed c l2).
-
-  (* Modulo-[equiv] strengthening of [well_formed_monotone]: on allowed multisets,
-     [well_formed] is preserved when [l2] [equiv]-covers [l1] ([incl_mod]).  Needed to
-     discharge the constraint-preservation hypothesis of [monotone_mod_equiv] when the
-     graph is driven to a state that only [equiv]-dominates the source (re-emitted
-     facts are [equiv]-relatives, not identical).  Subsumes [well_formed_monotone]
-     since [submultiset] implies [incl_mod]. *)
-  Context (well_formed_mono_mod :
-    forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
-                    incl_mod equiv l1 l2 -> well_formed c l1 -> well_formed c l2).
 
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
@@ -927,7 +926,8 @@ Section __.
       exists (node_outputs_total gs.(g_nodes) ++ map fst (filter (fun de => Nat.eqb (snd de) n) Wg)).
       split.
       - intro c. rewrite Hconcat.
-        apply (proj2 (Hwfg (map.keys p) fss (map.keys_NoDup p) HF2 c _)).
+        apply (proj2 (Hwfg (map.keys p) fss (map.keys_NoDup p) HF2 c (concat fss) _
+                        (submultiset_refl _))).
         rewrite Hfeq. apply (Hwf_g c n).
       - eapply sub_trans;
           [| apply sub_app_mono;
@@ -1180,9 +1180,12 @@ Section __.
       pose proof (node_inputs_allowed Hgood T1 gs1 HT1 Hall1 n np ns1 t1 Hp Hg1) as Hallt1.
       pose proof (node_inputs_allowed Hgood T2 gs2 HT2 Hall2 n np ns2 t2 Hp Hg2) as Hallt2.
       apply (Hmono_eq t1 t2 ns1 ns2 o Hrun1 Hrun2 Hallt1 Hallt2 Hincl).
-      - intros c Hwf1. exact (well_formed_mono_mod c (inputs_of t1) (inputs_of t2) Hallt1 Hallt2 Hincl Hwf1).
+      - (* constraint-preservation across the equiv-domination.  TODO: discharge via
+           [Hwfg] (well_formed_good) transferring input well-formedness from t1 to t2;
+           [well_formed_mono_mod] removed at the user's direction. *)
+        intros c Hwf1. admit.
       - exact Hmight.
-    Qed.
+    Admitted.
 
     Lemma will_output_equiv_weaken (np : node_prog) (s : node_state)
         (tr : list IO_event) (a b : message) :
