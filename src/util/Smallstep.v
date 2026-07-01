@@ -426,9 +426,8 @@ Section step.
     forall t1 t2 s1 s2 o,
       star step initial t1 s1 ->
       star step initial t2 s2 ->
-      well_formed (inputs_of t1) ->
-      well_formed (inputs_of t2) ->
       incl_mod (inputs_of t1) (inputs_of t2) ->
+      (forall constraint, well_formed constraint (inputs_of t1) -> well_formed constraint (inputs_of t2)) ->
       might_output s1 t1 o ->
       might_output_equiv s2 t2 o.
 
