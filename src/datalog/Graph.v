@@ -546,6 +546,116 @@ Section __.
       pose proof (Hgood n) as Hn. rewrite Hp, Hns0 in Hn.
       destruct ns0 as [ns tr]. exact Hn.
     Qed.
+    Lemma sub_nil (l : list message) : submultiset [] l.
+    Proof. exists l. reflexivity. Qed.
+
+    Lemma sub_cons (x : message) (a b : list message) :
+      submultiset a b -> submultiset (x :: a) (x :: b).
+    Proof. intros (rest & Hp). exists rest. cbn. apply perm_skip. exact Hp. Qed.
+
+    Lemma sub_app_r (a b c : list message) :
+      submultiset a b -> submultiset a (b ++ c).
+    Proof.
+      intros (rest & Hp). exists (rest ++ c).
+      rewrite app_assoc. apply Permutation_app_tail. exact Hp.
+    Qed.
+
+    Lemma sub_app_mono (a1 b1 a2 b2 : list message) :
+      submultiset a1 b1 -> submultiset a2 b2 -> submultiset (a1 ++ a2) (b1 ++ b2).
+    Proof.
+      intros (r1 & H1) (r2 & H2). exists (r1 ++ r2).
+      eapply perm_trans; [apply Permutation_app; eassumption|].
+      rewrite <- !app_assoc. apply Permutation_app_head.
+      rewrite !app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
+    Qed.
+
+    Lemma sub_trans (a b c : list message) :
+      submultiset a b -> submultiset b c -> submultiset a c.
+    Proof.
+      intros (r1 & H1) (r2 & H2). exists (r1 ++ r2).
+      eapply perm_trans; [exact H2|].
+      eapply perm_trans; [apply Permutation_app_tail; exact H1|].
+      rewrite <- app_assoc. reflexivity.
+    Qed.
+
+    Lemma sub_perm_r (a b b' : list message) :
+      Permutation b b' -> submultiset a b -> submultiset a b'.
+    Proof. intros Hp (rest & H). exists rest. eapply perm_trans; [symmetry; exact Hp | exact H]. Qed.
+
+    Lemma sub_perm_l (a a' b : list message) :
+      Permutation a a' -> submultiset a b -> submultiset a' b.
+    Proof. intros Hp (rest & H). exists rest. eapply perm_trans; [exact H | apply Permutation_app_tail; exact Hp]. Qed.
+
+    Lemma sub_perm_both (a a' b b' : list message) :
+      Permutation a a' -> Permutation b b' -> submultiset a b -> submultiset a' b'.
+    Proof.
+      intros Ha Hb H. apply (sub_perm_r a' b b' Hb). apply (sub_perm_l a a' b Ha). exact H.
+    Qed.
+
+    Lemma perm_mid_move (X Y Z : list message) (b : message) :
+      Permutation (X ++ (Y ++ b :: Z)) ((X ++ [b]) ++ (Y ++ Z)).
+    Proof.
+      rewrite <- (app_assoc X [b] (Y ++ Z)). apply Permutation_app_head.
+      symmetry. apply Permutation_cons_app. apply Permutation_refl.
+    Qed.
+
+    Lemma sub_map_fst {B} (a b : list (message * B)) :
+      submultiset a b -> submultiset (map fst a) (map fst b).
+    Proof.
+      intros (rest & H). exists (map fst rest).
+      rewrite <- map_app. apply Permutation_map. exact H.
+    Qed.
+
+    Lemma flat_map_sub (g : message -> list message) (l : list message) :
+      (forall a, submultiset (g a) [a]) -> submultiset (flat_map g l) l.
+    Proof.
+      intro Hg. induction l as [|a l IH]; [apply sub_nil|].
+      cbn. change (a :: l) with ([a] ++ l). apply sub_app_mono; [apply Hg | exact IH].
+    Qed.
+
+    Lemma filter_flat_map {X Y} (q : Y -> bool) (ff : X -> list Y) (l : list X) :
+      filter q (flat_map ff l) = flat_map (fun x => filter q (ff x)) l.
+    Proof.
+      induction l as [|a l IH]; [reflexivity|]. cbn. rewrite filter_app, IH. reflexivity.
+    Qed.
+
+    Lemma map_flat_map {X Y Z} (g : Y -> Z) (ff : X -> list Y) (l : list X) :
+      map g (flat_map ff l) = flat_map (fun x => map g (ff x)) l.
+    Proof.
+      induction l as [|a l IH]; [reflexivity|]. cbn. rewrite map_app, IH. reflexivity.
+    Qed.
+
+    Lemma filter_tag_nil (nn : node_id) (m0 : message) (L : list node_id) :
+      ~ In nn L ->
+      filter (fun de => Nat.eqb (fst de) nn) (map (fun n' => (n', m0)) L) = [].
+    Proof.
+      induction L as [|a L IH]; [reflexivity|]. cbn. intro Hni.
+      destruct (Nat.eqb a nn) eqn:E.
+      - apply Nat.eqb_eq in E; subst a. exfalso. apply Hni. left. reflexivity.
+      - apply IH. intro; apply Hni; right; assumption.
+    Qed.
+
+    Lemma forwarded_one_sub (ni nn : node_id) (m0 : message) :
+      submultiset (map snd (filter (fun de => Nat.eqb (fst de) nn)
+                                   (map (fun n' => (n', m0)) (forward ni m0)))) [m0].
+    Proof.
+      pose proof (forward_nodup ni m0) as Hnd. induction (forward ni m0) as [|a L IH].
+      - apply sub_nil.
+      - cbn. destruct (Nat.eqb a nn) eqn:E.
+        + apply Nat.eqb_eq in E; subst a. inversion Hnd; subst.
+          rewrite filter_tag_nil by assumption. cbn. apply submultiset_refl.
+        + apply IH. inversion Hnd; subst; assumption.
+    Qed.
+
+    Lemma forwarded_sub (ni nn : node_id) (outsi : list message) :
+      submultiset
+        (map snd (filter (fun de => Nat.eqb (fst de) nn)
+           (flat_map (fun m0 => map (fun n' => (n', m0)) (forward ni m0)) outsi)))
+        outsi.
+    Proof.
+      rewrite filter_flat_map, map_flat_map. apply flat_map_sub.
+      intro a. apply forwarded_one_sub.
+    Qed.
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
