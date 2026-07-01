@@ -1216,6 +1216,68 @@ Section __.
           [symmetry; exact Hperm | apply in_or_app; left; exact Hin_mu].
     Qed.
 
+    (* Carry a run-closed state invariant [Inv] through a driven eventually. *)
+    Lemma eventually_carry_inv :
+      forall (Inv : graph_state -> Prop),
+        (forall gs T gs', star gstep gs T gs' -> Inv gs -> Inv gs') ->
+        forall (P : graph_state * list gevent -> Prop) gs t,
+          Inv gs ->
+          eventually (will_step gstep well_formed_graph_inputs) P (gs, t) ->
+          eventually (will_step gstep well_formed_graph_inputs)
+            (fun '(gs', t') => P (gs', t') /\ Inv gs') (gs, t).
+    Proof.
+      intros Inv Hinv P gs t HInv Hev.
+      remember (gs, t) as st eqn:Est. revert gs t HInv Est.
+      induction Hev as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
+        intros gs t HInv [= -> ->].
+      - apply eventually_done. split; [exact HP | exact HInv].
+      - destruct Hcan as [glbl Hcan].
+        apply eventually_step_cps. exists glbl.
+        intros gs_d t_d Hstar_d Hallow.
+        specialize (Hcan gs_d t_d Hstar_d Hallow).
+        destruct Hcan as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
+        + left. apply (IH (gs_d, t_d ++ t) Hmid_left gs_d (t_d ++ t)
+                          (Hinv _ _ _ Hstar_d HInv) eq_refl).
+        + right. exists s'', outs. split; [exact Hstep|].
+          apply (IH _ Hmidset s'' (O_event glbl outs :: t_d ++ t)); [|reflexivity].
+          eapply Hinv; [|exact HInv].
+          eapply star_app; [exact Hstar_d | econstructor; [exact Hstep | constructor]].
+    Qed.
+
+    (* The node-state domain is invariant under runs. *)
+    Lemma dom_preserved :
+      forall gs0 T gs, star gstep gs0 T gs ->
+      forall n x, map.get gs.(g_nodes) n = Some x ->
+      exists x0, map.get gs0.(g_nodes) n = Some x0.
+    Proof.
+      intros gs0 T gs Hstar.
+      induction Hstar as [s | s e s' t0 s'' Hstep Hstar IH]; intros n x Hg.
+      - eauto.
+      - destruct (IH n x Hg) as (x1 & Hx1).
+        inv_gstep Hstep; subst; cbn in Hx1.
+        + eauto.
+        + destruct (Nat.eq_dec n ni) as [->|Hne]; [eauto|].
+          rewrite map.get_put_diff in Hx1 by auto. eauto.
+        + destruct (Nat.eq_dec n ni) as [->|Hne]; [eauto|].
+          rewrite map.get_put_diff in Hx1 by auto. eauto.
+    Qed.
+
+    Lemma reachable_state_initial :
+      forall T gs, star gstep initial_graph_state T gs ->
+      forall n x, map.get gs.(g_nodes) n = Some x ->
+      exists ns0, map.get initial_ns n = Some ns0.
+    Proof.
+      intros T gs Hstar n x Hg.
+      destruct (dom_preserved _ _ _ Hstar n x Hg) as (x0 & Hx0).
+      cbn in Hx0. eauto.
+    Qed.
+
+    (* "node [n] has, up to [equiv], emitted [mu]". *)
+    Definition node_emitted_mod (gs : @graph_state node_state node_states)
+        (n : node_id) (mu : message) : Prop :=
+      exists ns t mu', map.get gs.(g_nodes) n = Some (ns, t) /\
+                       In mu' (outputs_of t) /\ equiv mu mu'.
+
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
