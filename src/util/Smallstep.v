@@ -52,6 +52,7 @@ Section step.
   (* An equivalence on messages: the observation granularity.  Two messages a
      node may treat interchangeably (here: done-messages equal modulo their count). *)
   Context (equiv : message -> message -> Prop).
+  Context (equiv_refl : forall a, equiv a a).
   (* A family of well-formedness "constraints" on fact multisets, indexed by
      [constraint]: [well_formed c fs] = "fs satisfies constraint c" (e.g. a
      meta-fact's claimed count is matched by exactly that many normal facts).
@@ -432,6 +433,34 @@ Section step.
       (forall constraint, well_formed constraint (inputs_of t1) -> well_formed constraint (inputs_of t2)) ->
       might_output s1 t1 o ->
       might_output_equiv s2 t2 o.
+
+  (* Growth preserves might_output modulo [equiv].  Now a CONSEQUENCE of
+     [monotone_mod_equiv] (not a separate obligation): a submultiset extension is an
+     [incl_mod] via [equiv_refl], and [well_formed_monotone] gives the constraint
+     preservation.  (Only the modulo-[equiv] conclusion follows; the exact
+     [might_output] would need [o] itself reproduced, which [might_output_equiv]
+     does not promise.) *)
+  Definition monotone_multiset :=
+    forall t1 t2 s1 s2 o,
+      star step initial t1 s1 ->
+      star step initial t2 s2 ->
+      allowed (inputs_of t1) ->
+      allowed (inputs_of t2) ->
+      submultiset (inputs_of t1) (inputs_of t2) ->
+      might_output s1 t1 o ->
+      might_output_equiv s2 t2 o.
+
+  Lemma monotone_multiset_of_mod_equiv : monotone_mod_equiv -> monotone_multiset.
+  Proof.
+    intros Hmono t1 t2 s1 s2 o Hs1 Hs2 Hal1 Hal2 Hsub Hmight.
+    apply (Hmono t1 t2 s1 s2 o Hs1 Hs2 Hal1 Hal2).
+    - intros a Ha. exists a. split;
+        [ destruct Hsub as (rest & Hperm); eapply Permutation_in;
+            [symmetry; exact Hperm | apply in_or_app; left; exact Ha]
+        | apply equiv_refl ].
+    - intros c Hwf. exact (well_formed_monotone c (inputs_of t1) (inputs_of t2) Hal1 Hal2 Hsub Hwf).
+    - exact Hmight.
+  Qed.
 
   Lemma ciw'_iff_ciw_and_monotone' :
     can_implies_will' <-> can_implies_will /\ monotone'.
