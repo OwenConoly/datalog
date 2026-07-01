@@ -55,6 +55,16 @@ Section __.
     forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
                     submultiset l1 l2 -> well_formed c l1 -> well_formed c l2).
 
+  (* Modulo-[equiv] strengthening of [well_formed_monotone]: on allowed multisets,
+     [well_formed] is preserved when [l2] [equiv]-covers [l1] ([incl_mod]).  Needed to
+     discharge the constraint-preservation hypothesis of [monotone_mod_equiv] when the
+     graph is driven to a state that only [equiv]-dominates the source (re-emitted
+     facts are [equiv]-relatives, not identical).  Subsumes [well_formed_monotone]
+     since [submultiset] implies [incl_mod]. *)
+  Context (well_formed_mono_mod :
+    forall c l1 l2, allowed well_formed l1 -> allowed well_formed l2 ->
+                    incl_mod equiv l1 l2 -> well_formed c l1 -> well_formed c l2).
+
   Section graph.
     Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
     Context {node_state : Type}
@@ -1143,6 +1153,35 @@ Section __.
           apply (IH _ Hmidset s'' (O_event glbl outs :: t_d ++ t)
                     ((T0 ++ t_d) ++ [O_event glbl outs]) HT0d' Hall0d' Hperm0d' Hdom_d');
             reflexivity.
+    Qed.
+
+    (* Capability transfer up to [equiv]: a single [monotone_mod_equiv] step.  Both
+       node states are reachable so their inputs are [allowed] ([node_inputs_allowed]);
+       [gs2]'s inputs [equiv]-cover [gs1]'s ([incl_mod]); constraint-preservation is
+       [well_formed_mono_mod]. *)
+    Lemma node_cap_transfer_equiv :
+      Forall2_map node_good p initial_ns ->
+      forall n np, map.get p n = Some np ->
+      forall T1 gs1 ns1 t1, star gstep initial_graph_state T1 gs1 ->
+        allowed well_formed_graph_inputs (inputs_of T1) ->
+        map.get gs1.(g_nodes) n = Some (ns1, t1) ->
+      forall T2 gs2 ns2 t2, star gstep initial_graph_state T2 gs2 ->
+        allowed well_formed_graph_inputs (inputs_of T2) ->
+        map.get gs2.(g_nodes) n = Some (ns2, t2) ->
+        incl_mod equiv (inputs_of t1) (inputs_of t2) ->
+      forall o, might_output (node_step np) ns1 t1 o ->
+                might_output_equiv (node_step np) equiv ns2 t2 o.
+    Proof.
+      intros Hgood n np Hp T1 gs1 ns1 t1 HT1 Hall1 Hg1 T2 gs2 ns2 t2 HT2 Hall2 Hg2 Hincl o Hmight.
+      destruct (p_initial_dom n np Hp) as (ns0 & Hns0).
+      destruct (node_run T1 gs1 HT1 n np ns0 ns1 t1 Hp Hns0 Hg1) as (Hrun1 & _).
+      destruct (node_run T2 gs2 HT2 n np ns0 ns2 t2 Hp Hns0 Hg2) as (Hrun2 & _).
+      destruct (pernode_spec_good Hgood n np ns0 Hp Hns0) as (_ & Hmono_eq & _).
+      pose proof (node_inputs_allowed Hgood T1 gs1 HT1 Hall1 n np ns1 t1 Hp Hg1) as Hallt1.
+      pose proof (node_inputs_allowed Hgood T2 gs2 HT2 Hall2 n np ns2 t2 Hp Hg2) as Hallt2.
+      apply (Hmono_eq t1 t2 ns1 ns2 o Hrun1 Hrun2 Hallt1 Hallt2 Hincl).
+      - intros c Hwf1. exact (well_formed_mono_mod c (inputs_of t1) (inputs_of t2) Hallt1 Hallt2 Hincl Hwf1).
+      - exact Hmight.
     Qed.
 
 
