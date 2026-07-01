@@ -1279,6 +1279,110 @@ Section __.
                        In mu' (outputs_of t) /\ equiv mu mu'.
 
 
+    (* A reachable, allowed from-initial trace matching (up to permutation) the
+       eventually's trace component -- carried through the graph-level drive. *)
+    Definition reach_allow (gs : graph_state) (t : list gevent) : Prop :=
+      exists T0, star gstep initial_graph_state T0 gs /\
+                 allowed well_formed_graph_inputs (inputs_of T0) /\
+                 Permutation (inputs_of T0) (inputs_of t).
+
+    (* Drive a single node [n] -- whose own run [will_output_equiv]-emits a relative
+       of [mu] -- at the graph level, until [n] has emitted some [equiv]-relative of
+       [mu] ([node_emitted_mod]). *)
+    Lemma drive_node_emit_equiv :
+      Forall2_map node_good p initial_ns ->
+      forall (np : node_prog) (n : node_id) (mu : message),
+        map.get p n = Some np ->
+        forall (s : node_state * list IO_event),
+          eventually (will_step (node_step np) well_formed)
+                     (fun '(_, t') => exists mu', equiv mu' mu /\ In mu' (outputs_of t')) s ->
+          forall gs t,
+            reach_allow gs t ->
+            (exists tr, map.get gs.(g_nodes) n = Some (fst s, tr) /\
+                        Permutation (inputs_of (snd s)) (inputs_of tr) /\
+                        (forall x, In x (outputs_of (snd s)) -> In x (outputs_of tr))) ->
+            eventually (will_step gstep well_formed_graph_inputs)
+                       (fun '(gs', _) => node_emitted_mod gs' n mu) (gs, t).
+    Proof.
+      intros Hgood np n mu Hp s Hwill.
+      assert (Hio_snoc_g : forall (l : list gevent) glbl (o : list (message * node_id)),
+                inputs_of (l ++ [O_event glbl o]) = inputs_of l)
+        by (intros ll gg oo; rewrite inputs_of_app; cbn [inputs_of flat_map app];
+            rewrite ?app_nil_r; reflexivity).
+      assert (Hio_snoc_n : forall (l : list IO_event) glbl (o : list message),
+                inputs_of (l ++ [O_event glbl o]) = inputs_of l)
+        by (intros ll gg oo; rewrite inputs_of_app; cbn [inputs_of flat_map app];
+            rewrite ?app_nil_r; reflexivity).
+      induction Hwill as [[ns_curr trace_curr] HP|
+                          [ns_curr trace_curr] midset Hcan Hmid IH];
+        intros gs t Hreach (tr & Hg & Hpermtr & Hsub); cbn [fst snd] in Hg, Hpermtr, Hsub.
+      - apply eventually_done. destruct HP as (mu' & Heqmu' & Hin).
+        exists ns_curr, tr, mu'. split; [exact Hg|]. split; [apply Hsub; exact Hin|].
+        symmetry. exact Heqmu'.
+      - destruct Hreach as (T0 & HT0 & HallT0 & HpermT0).
+        destruct Hcan as [node_lbl Hcan].
+        apply eventually_step_cps. exists (run n node_lbl).
+        intros gs_demon t_demon Hstar_demon Hallow_g.
+        destruct (node_drive_delta _ _ _ Hstar_demon n np ns_curr tr Hp Hg)
+          as (ns_d & tau_d & Hg_d & Htau_d & Hpres_d).
+        pose proof (Hcan ns_d tau_d Htau_d) as Hcan'.
+        assert (HreachD : star gstep initial_graph_state (T0 ++ t_demon) gs_demon)
+          by (eapply star_app; eassumption).
+        assert (HallowD : allowed well_formed_graph_inputs (inputs_of (T0 ++ t_demon))).
+        { eapply allowed_perm; [| exact Hallow_g].
+          rewrite !inputs_of_app. eapply perm_trans; [apply Permutation_app_comm|].
+          apply Permutation_app_tail. symmetry. exact HpermT0. }
+        assert (HpermD : Permutation (inputs_of (T0 ++ t_demon)) (inputs_of (t_demon ++ t))).
+        { rewrite !inputs_of_app. eapply perm_trans;
+            [apply Permutation_app_tail; exact HpermT0 | apply Permutation_app_comm]. }
+        assert (Hpermtr_d : Permutation (inputs_of (tau_d ++ trace_curr)) (inputs_of (tr ++ tau_d))).
+        { rewrite !inputs_of_app. eapply perm_trans; [apply Permutation_app_comm|].
+          apply Permutation_app_tail. exact Hpermtr. }
+        assert (Hallow_n : allowed well_formed (inputs_of (tau_d ++ trace_curr))).
+        { eapply allowed_perm;
+            [ symmetry; exact Hpermtr_d
+            | apply (node_inputs_allowed Hgood (T0 ++ t_demon) gs_demon HreachD HallowD
+                       n np ns_d (tr ++ tau_d) Hp Hg_d)]. }
+        specialize (Hcan' Hallow_n).
+        assert (Hsub_d : forall x, In x (outputs_of (tau_d ++ trace_curr)) ->
+                  In x (outputs_of (tr ++ tau_d))).
+        { intros x Hx. rewrite outputs_of_app in Hx. apply in_app_or in Hx as [Hx|Hx];
+            rewrite outputs_of_app; apply in_or_app; [right; exact Hx | left; apply Hsub; exact Hx]. }
+        destruct Hcan' as [Hmid_left | (s'' & outs & Hns_step & Hmidset_at)].
+        { left.
+          apply (IH (ns_d, tau_d ++ trace_curr) Hmid_left gs_demon (t_demon ++ t)).
+          - exists (T0 ++ t_demon). split; [exact HreachD|]. split; [exact HallowD | exact HpermD].
+          - exists (tr ++ tau_d). cbn [fst snd].
+            split; [exact Hg_d|]. split; [exact Hpermtr_d | exact Hsub_d]. }
+        right.
+        set (gs_next :=
+               {| g_nodes := map.put gs_demon.(g_nodes) n (s'', (tr ++ tau_d) ++ [O_event node_lbl outs]);
+                  g_messages :=
+                    gs_demon.(g_messages) ++
+                    flat_map (fun m0 => map (fun n' => (n', m0))
+                                            (forward n m0)) outs |}).
+        exists gs_next, (map (fun m => (m, n)) (filter (output_visible n) outs)).
+        split.
+        { eapply gstep_run; [exact Hp | exact Hg_d | exact Hns_step]. }
+        apply (IH (s'', O_event node_lbl outs :: tau_d ++ trace_curr) Hmidset_at gs_next
+                  (O_event (run n node_lbl) (map (fun m => (m, n)) (filter (output_visible n) outs))
+                     :: t_demon ++ t)).
+        + exists ((T0 ++ t_demon) ++
+                  [O_event (run n node_lbl) (map (fun m => (m, n)) (filter (output_visible n) outs))]).
+          split; [eapply star_app; [exact HreachD | econstructor;
+                   [eapply gstep_run; [exact Hp | exact Hg_d | exact Hns_step] | constructor]]|].
+          split.
+          * eapply allowed_perm; [| exact HallowD]. rewrite Hio_snoc_g. apply Permutation_refl.
+          * rewrite Hio_snoc_g. exact HpermD.
+        + exists ((tr ++ tau_d) ++ [O_event node_lbl outs]). cbn [fst snd].
+          split; [apply map.get_put_same|]. split.
+          * rewrite Hio_snoc_n. exact Hpermtr_d.
+          * intros x Hx. cbn [outputs_of flat_map] in Hx. apply in_app_or in Hx as [Hx | Hx].
+            -- rewrite outputs_of_app. apply in_or_app. right. cbn [outputs_of flat_map].
+               apply in_or_app. left. exact Hx.
+            -- rewrite outputs_of_app. apply in_or_app. left. apply Hsub_d. exact Hx.
+    Qed.
+
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
       can_implies_will_equiv (graph_step p node_step) equiv_g well_formed_graph_inputs
