@@ -1683,12 +1683,119 @@ Section __.
             apply in_app_iff. apply in_app_or in Hin as [H|H]; [left; exact H | right; right; exact H].
     Qed.
 
+    (* A graph state reachable from the initial one. *)
+    Definition reachable (g : graph_state) : Prop :=
+      exists Tg, star gstep initial_graph_state Tg g.
+
+    Lemma eventually_carry_inv2_wf :
+      forall (R : graph_state -> list gevent -> Prop),
+        (forall gs tt t_d s_d, R gs tt ->
+           star gstep gs t_d s_d -> R s_d (t_d ++ tt)) ->
+        (forall gs tt glbl outs gs', R gs tt ->
+           gstep gs (O_event glbl outs) gs' -> R gs' (O_event glbl outs :: tt)) ->
+        forall (P : graph_state * list gevent -> Prop) gs tt,
+          R gs tt ->
+          eventually (will_step gstep well_formed_graph_inputs) P (gs, tt) ->
+          eventually (will_step gstep well_formed_graph_inputs)
+            (fun '(gs', t') => P (gs', t') /\ R gs' t') (gs, tt).
+    Proof.
+      intros R Hstarp Hostep P gs tt HR Hev.
+      remember (gs, tt) as st eqn:Est. revert gs tt HR Est.
+      induction Hev as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
+        intros gs tt HR [= -> ->].
+      - apply eventually_done. split; [exact HP | exact HR].
+      - destruct Hcan as [glbl Hcan].
+        apply eventually_step_cps. exists glbl.
+        intros gs_d t_d Hstar_d Hallow.
+        specialize (Hcan gs_d t_d Hstar_d Hallow).
+        destruct Hcan as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
+        + left. apply (IH (gs_d, t_d ++ tt) Hmid_left gs_d (t_d ++ tt)
+                          (Hstarp _ _ _ _ HR Hstar_d) eq_refl).
+        + right. exists s'', outs. split; [exact Hstep|].
+          apply (IH _ Hmidset s'' (O_event glbl outs :: t_d ++ tt)); [|reflexivity].
+          apply (Hostep _ _ _ _ _ (Hstarp _ _ _ _ HR Hstar_d) Hstep).
+    Qed.
+
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
       can_implies_will_equiv (graph_step p node_step) equiv_g well_formed_graph_inputs
                              initial_graph_state.
-    Admitted.
+    Proof.
+      intros Hgood t gs o Hstar Hall Hcan.
+      destruct o as (omsg, on).
+      destruct Hcan as (T_a & s_f & Hstar_a & Hinp_a & Hout).
+      apply outputs_of_in_app in Hout as [Hout_T | Hout_t].
+      2: { apply eventually_done. exists (omsg, on).
+           split; [split; [reflexivity | reflexivity] | exact Hout_t]. }
+      destruct (find_producing_step _ _ _ Hstar_a Hinp_a omsg on Hout_T)
+        as (T_pre & T_post & np_o & ns_o & ns_o' & t_o & outs_o & lbl_o
+            & gs_pre & gs_post & Heq_T & Hstar_pre_a & Hstep_prod
+            & Hstar_post_a & Hinp_pre & Hp_o & Hg_o & Hns_o & Hino_o & Hvis_o).
+      pose proof (star_app _ _ _ _ _ _ Hstar Hstar_pre_a) as Hstar_to_pre.
+      assert (Harmed : might_output (node_step np_o) ns_o t_o omsg).
+      { exists [O_event lbl_o outs_o], ns_o'. split; [econstructor; [exact Hns_o | constructor]|].
+        split; [reflexivity|]. apply outputs_of_in_app. left.
+        apply in_or_app. left. exact Hino_o. }
+      destruct (reachable_state_initial _ _ Hstar_to_pre on _ Hg_o) as (ns0o & Hns0o).
+      (* Carry the modulo output-reflection through the drive. *)
+      set (R := fun (g : graph_state) (tt : list gevent) =>
+                  reachable g /\
+                  (forall ns tn, map.get g.(g_nodes) on = Some (ns, tn) ->
+                     (exists o', equiv o' omsg /\ In o' (outputs_of tn)) ->
+                     exists go, equiv_g go (omsg, on) /\ In go (outputs_of tt))).
+      assert (HR_init : R gs t).
+      { split; [exists t; exact Hstar|].
+        intros ns tn Hg (o' & Heqo' & Hotn).
+        destruct (node_run _ _ Hstar on np_o ns0o ns tn Hp_o Hns0o Hg) as (_ & Hpres).
+        exists (o', on). split; [split; [reflexivity | exact Heqo']|].
+        apply (Hpres o' (eq_trans (output_visible_equiv on _ _ Heqo') Hvis_o) Hotn). }
+      assert (Hstarp : forall g tt t_d s_d, R g tt ->
+                star gstep g t_d s_d -> R s_d (t_d ++ tt)).
+      { intros g tt t_d s_d [(Tg & HTg) Href] Hs. split.
+        - exists (Tg ++ t_d). eapply star_app; eassumption.
+        - intros ns tn Hgsd (o' & Heqo' & Hotn).
+          destruct (project_node_gen _ _ HTg on np_o ns0o Hp_o Hns0o)
+            as (taug & nsg & _ & Hgg & _).
+          destruct (node_drive_delta _ _ _ Hs on np_o nsg taug Hp_o Hgg)
+            as (nsd & td & Hgd & _ & Hpresd).
+          assert (tn = taug ++ td) by congruence. subst tn.
+          apply outputs_of_in_app in Hotn as [Ho | Ho].
+          + destruct (Href nsg taug Hgg (ex_intro _ o' (conj Heqo' Ho)))
+              as (go & Hgo & Hingo).
+            exists go. split; [exact Hgo|]. apply outputs_of_in_app. right. exact Hingo.
+          + pose proof (Hpresd o' (eq_trans (output_visible_equiv on _ _ Heqo') Hvis_o) Ho)
+              as Hgtag.
+            exists (o', on). split; [split; [reflexivity | exact Heqo']|].
+            apply outputs_of_in_app. left. exact Hgtag. }
+      assert (Hostep : forall g tt glbl outs g', R g tt ->
+                gstep g (O_event glbl outs) g' -> R g' (O_event glbl outs :: tt)).
+      { intros g tt glbl outs g' HR Hstep'.
+        apply (Hstarp g tt [O_event glbl outs] g' HR).
+        econstructor; [exact Hstep' | constructor]. }
+      eapply eventually_trans.
+      { apply (eventually_carry_inv2_wf R Hstarp Hostep _ gs t HR_init
+                 (force_dominator_equiv Hgood on np_o Hp_o gs_pre T_pre gs Hstar_pre_a Hinp_pre
+                    ns_o t_o Hg_o
+                    t Hstar Hall t gs Hstar (core_dom_mod_refl gs) t Hall (Permutation_refl _))). }
+      intros [gsStar tStar] ((Hprod & (TStar & HTStar & HallStar & HpermStar)) & HRStar).
+      destruct Hprod as (nsS & tS & HgS & Hincl).
+      assert (HcanS : might_output_equiv (node_step np_o) equiv nsS tS omsg).
+      { apply (node_cap_transfer_equiv Hgood on np_o Hp_o
+                 _ gs_pre ns_o t_o Hstar_to_pre
+                 ltac:(rewrite inputs_of_app, Hinp_pre, app_nil_r; exact Hall) Hg_o
+                 _ gsStar nsS tS HTStar HallStar HgS
+                 Hincl omsg Harmed). }
+      destruct HcanS as (o' & Heqo' & HcanS').
+      pose proof (node_will_equiv Hgood on np_o Hp_o TStar gsStar nsS tS HTStar HallStar HgS
+                    o' HcanS') as Hwillo.
+      apply (drive_node_must_equiv Hgood np_o on omsg Hp_o Hvis_o (nsS, tS)
+               (will_output_equiv_weaken _ _ _ _ _ Heqo' Hwillo)
+               gsStar tStar
+               (ex_intro _ TStar (conj HTStar (conj HallStar HpermStar)))
+               (ex_intro _ tS (conj HgS (Permutation_refl _)))
+               (proj2 HRStar nsS tS HgS)).
+    Qed.
   End graph.
 
 End __.
