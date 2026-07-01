@@ -996,6 +996,36 @@ Section __.
         exists ns, t. split; [exact Hg | eapply sub_trans; eassumption].
     Qed.
 
+    (* Modulo-domination survives any run of the dominating state: node inputs only
+       grow (so [incl_mod] witnesses persist) and queued messages stay queued or
+       become received ([queue_fate]).  No [active] guard, so unlike the old proof
+       this needs neither allowedness nor [node_inputs_allowed]. *)
+    Lemma core_dom_mod_run gs_pre gs' gs'' :
+      forall T, star gstep gs' T gs'' ->
+      core_dom_mod gs_pre gs' -> core_dom_mod gs_pre gs''.
+    Proof.
+      intros T Hrun [Hdom_n Hdom_q]. split.
+      - intros n np nsA tA Hp Hg.
+        destruct (Hdom_n n np nsA tA Hp Hg) as (ns' & t' & Hg' & Hincl').
+        destruct (node_inputs_grow gs' T gs'' Hrun n ns' t' Hg') as (ns'' & t'' & Hg'' & Hsub).
+        exists ns'', t''. split; [exact Hg''|].
+        intros a Hin_a.
+        destruct (Hincl' a Hin_a) as (b & Hin_b & Hab).
+        exists b. split; [| exact Hab].
+        destruct Hsub as (rest & Hperm). eapply Permutation_in;
+          [symmetry; exact Hperm | apply in_or_app; left; exact Hin_b].
+      - intros n m Hin.
+        destruct (Hdom_q n m Hin) as [(m' & Hin' & Hmm') | Hrcv].
+        + destruct (queue_fate gs' T gs'' Hrun n m' Hin') as [Hq'' | (ns & t & Hg'' & Hin_mu)].
+          * left. exists m'. split; [exact Hq'' | exact Hmm'].
+          * right. exists ns, t, m'. split; [exact Hg'' | split; [exact Hin_mu | exact Hmm']].
+        + right. destruct Hrcv as (ns & t & mu' & Hg' & Hin_mu & Hmmu).
+          destruct (node_inputs_grow gs' T gs'' Hrun n ns t Hg') as (ns2 & t2 & Hg2 & Hsub2).
+          exists ns2, t2, mu'. split; [exact Hg2 | split; [| exact Hmmu]].
+          destruct Hsub2 as (rest & Hperm). eapply Permutation_in;
+            [symmetry; exact Hperm | apply in_or_app; left; exact Hin_mu].
+    Qed.
+
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
