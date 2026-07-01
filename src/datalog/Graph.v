@@ -445,6 +445,107 @@ Section __.
             -- edestruct (IH n m) as [Hq | Hr];
                  [apply in_or_app; right; exact Hin_b | left; exact Hq | right; exact Hr].
     Qed.
+    (* A graph state is "saturated" if every message any node has emitted (recorded
+       in its stored trace) is still queued or already delivered to its target. *)
+    Definition saturated (gs : @graph_state node_state node_states) : Prop :=
+      forall n np ns t,
+        map.get p n = Some np ->
+        map.get gs.(g_nodes) n = Some (ns, t) ->
+        forall mu n', In mu (outputs_of t) -> In n' (forward n mu) ->
+          In (n', mu) gs.(g_messages) \/ node_received gs n' mu.
+
+    Lemma sat_step :
+      forall gs e gs', gstep gs e gs' -> saturated gs -> saturated gs'.
+    Proof.
+      intros gs e gs' Hstep Hsat n np ns t Hp Hg mu n' Hout Hfwd.
+      assert (Hmono1 : forall n0 m0, node_received gs n0 m0 -> node_received gs' n0 m0).
+      { intros n0 m0 Hr.
+        apply (node_received_mono _ _ _ (star_step _ _ _ _ _ _ Hstep (star_refl _ _))).
+        exact Hr. }
+      inv_gstep Hstep; subst.
+      - (* gstep_input *)
+        cbn in Hg.
+        destruct (Hsat n np ns t Hp Hg mu n' Hout Hfwd) as [Hq | Hr].
+        + left. cbn. right. exact Hq.
+        + right. apply Hmono1. exact Hr.
+      - (* gstep_run ni *)
+        destruct (Nat.eq_dec n ni) as [->|Hne].
+        + cbn in Hg. rewrite map.get_put_same in Hg. inversion Hg; subst.
+          apply outputs_of_in_app in Hout as [Hout_old | Hout_new].
+          * destruct (Hsat ni npi nsi ti Hpi Hgi mu n' Hout_old Hfwd) as [Hq | Hr].
+            -- left. cbn. apply in_or_app. left. exact Hq.
+            -- right. apply Hmono1. exact Hr.
+          * 
+            apply in_app_or in Hout_new as [Hino0 | Hcontra];
+              [|cbn in Hcontra; contradiction].
+            left. cbn. apply in_or_app. right.
+            apply in_flat_map. exists mu. split; [exact Hino0|].
+            apply in_map_iff. exists n'. split; [reflexivity | exact Hfwd].
+        + cbn in Hg. rewrite map.get_put_diff in Hg by auto.
+          destruct (Hsat n np ns t Hp Hg mu n' Hout Hfwd) as [Hq | Hr].
+          * left. cbn. apply in_or_app. left. exact Hq.
+          * right. apply Hmono1. exact Hr.
+      - (* gstep_receive ni mi *)
+        destruct (Nat.eq_dec n ni) as [->|Hne].
+        + cbn in Hg. rewrite map.get_put_same in Hg. inversion Hg; subst.
+          assert (Hout_ti : In mu (outputs_of ti)).
+          { apply outputs_of_in_app in Hout as [H|H]; [exact H|].
+            cbn in H. contradiction. }
+          destruct (Hsat ni npi nsi ti Hpi Hgi mu n' Hout_ti Hfwd) as [Hq | Hr].
+          * rewrite Hmsg in Hq. apply in_app_or in Hq. destruct Hq as [Hqa | Hqm].
+            -- left. cbn. apply in_or_app. left. exact Hqa.
+            -- cbn in Hqm. destruct Hqm as [Heqm | Hqb].
+               ++ injection Heqm as Hn'eq Hmueq; subst n' mu.
+                  right. exists ns, (ti ++ [I_event mi]).
+                  split; [cbn; apply map.get_put_same|].
+                  rewrite inputs_of_app. apply in_or_app. right. left. reflexivity.
+               ++ left. cbn. apply in_or_app. right. exact Hqb.
+          * right. apply Hmono1. exact Hr.
+        + cbn in Hg. rewrite map.get_put_diff in Hg by auto.
+          destruct (Hsat n np ns t Hp Hg mu n' Hout Hfwd) as [Hq | Hr].
+          * rewrite Hmsg in Hq. apply in_app_or in Hq. destruct Hq as [Hqa | Hqm].
+            -- left. cbn. apply in_or_app. left. exact Hqa.
+            -- cbn in Hqm. destruct Hqm as [Heqm | Hqb].
+               ++ injection Heqm as Hn'eq Hmueq; subst n' mu.
+                  right. exists nsi', (ti ++ [I_event mi]).
+                  split; [cbn; apply map.get_put_same|].
+                  rewrite inputs_of_app. apply in_or_app. right. left. reflexivity.
+               ++ left. cbn. apply in_or_app. right. exact Hqb.
+          * right. apply Hmono1. exact Hr.
+    Qed.
+
+    Lemma saturated_star :
+      forall gs0 T gs, star gstep gs0 T gs ->
+        saturated gs0 -> saturated gs.
+    Proof.
+      intros gs0 T gs Hstar. induction Hstar as [s | s e s' T' s'' Hstep Hstar IH];
+        intro Hsat; [exact Hsat | apply IH; eapply sat_step; eauto].
+    Qed.
+
+    Lemma graph_saturated :
+      forall T gs, star gstep initial_graph_state T gs -> saturated gs.
+    Proof.
+      intros T gs Hstar. eapply saturated_star; [exact Hstar|].
+      intros n np ns t Hp Hg mu n' Hout Hfwd.
+      cbn in Hg. apply initial_ns_empty in Hg as Ht. cbn in Ht. subst t.
+      cbn in Hout. contradiction.
+    Qed.
+
+    (* Read the three [node_good] obligations off the per-node hypothesis at a
+       node's bare initial state. *)
+    Lemma pernode_spec_good :
+      Forall2_map node_good p initial_ns ->
+      forall n np ns0,
+        map.get p n = Some np ->
+        map.get initial_ns n = Some ns0 ->
+        outputs_well_formed    (node_step np) (fun (_ : unit) => well_formed_output n) (fst ns0) /\
+        monotone_mod_equiv     (node_step np) equiv well_formed (fst ns0) /\
+        can_implies_will_equiv (node_step np) equiv well_formed (fst ns0).
+    Proof.
+      intros Hgood n np ns0 Hp Hns0.
+      pose proof (Hgood n) as Hn. rewrite Hp, Hns0 in Hn.
+      destruct ns0 as [ns tr]. exact Hn.
+    Qed.
 
     Lemma graph_can_implies_will_equiv :
       Forall2_map node_good p initial_ns ->
