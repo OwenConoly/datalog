@@ -49,7 +49,6 @@ Section __.
     forall nodes partition inps n c,
       NoDup nodes ->
       Forall2 consistent_output nodes partition ->
-      Forall2 (@In _) c partition ->
       consistent c
         (flat_map (fun '(n0, fs) =>
                      filter (fun f => existsb (Nat.eqb n) (forward n0 f)) fs)
@@ -58,6 +57,7 @@ Section __.
       <-> consistent_inputs c inps.
 
   Context (allowed : list message -> Prop).
+  Context (graph_inputs_allowed : list (message * node_id) -> Prop).
   Context (Hcg : consistent_good).
   Context (Hcm : consistent_monotone consistent allowed).
 
@@ -85,7 +85,7 @@ Section __.
       map.get gs.(g_nodes) n = Some (ns, t) ->
       node_step np ns (O_event lbl outs) ns' ->
       graph_step gs (O_event (run n lbl) (map (fun m => (m, n)) (filter (output_visible n) outs)))
-                 {| g_nodes := map.put gs.(g_nodes) n (ns', t ++ [O_event lbl outs]);
+                 {| g_nodes := map.put gs.(g_nodes) n (ns', O_event lbl outs :: t);
                    g_messages := gs.(g_messages) ++
                                       flat_map (fun m => map (fun n' => (n', m)) (forward n m))
                                       outs |}
@@ -95,7 +95,7 @@ Section __.
       node_step np ns (I_event m) ns' ->
       gs.(g_messages) = ms1 ++ (n, m) :: ms2 ->
       graph_step gs (O_event (receive n m) [])
-                 {| g_nodes := map.put gs.(g_nodes) n (ns', t ++ [I_event m]);
+                 {| g_nodes := map.put gs.(g_nodes) n (ns', I_event m :: t);
                    g_messages := ms1 ++ ms2 |}.
   End graph.
 
@@ -125,21 +125,111 @@ Section __.
         monotone_mod_equiv     (node_step np) equiv consistent allowed ns /\
         might_implies_will_equiv (node_step np) equiv allowed ns.
 
+    Print graph_state.
+    Definition le (g1 g2 : @graph_state node_state _) :=
+      Forall2_map (fun n '(s1, t1) '(s2, t2) =>
+                     incl_mod equiv consistent (inputs_of t1) (inputs_of t2)
+        )
+        g1.(g_nodes) g2.(g_nodes) /\
+        Forall (fun '(n, m) =>
+                  In (n, m) g2.(g_messages) \/
+                    match map.get g2.(g_nodes) n with
+                    | None => False
+                    | Some (_, t) => In m (inputs_of t)
+                    end
+          )
+          g1.(g_messages).
 
-    (* The state-stored projection: over any drive, node n's stored trace grows by
-       a delta [td] that is a valid node run from n's state, whose visible outputs
-       all appear in the graph trace. *)
-    Lemma node_drive_delta :
-      forall T gs0 gs,
-        star gstep gs0 T gs ->
-        forall n np ns t,
-          map.get p n = Some np ->
-          map.get gs0.(g_nodes) n = Some (ns, t) ->
-          exists ns' td,
-            map.get gs.(g_nodes) n = Some (ns', t ++ td) /\
-            star (node_step np) ns td ns' /\
-            (forall o, output_visible n o = true ->
-                       In o (outputs_of td) -> In (o, n) (outputs_of T)).
+    Let graph_will_step := (will_step (graph_step p node_step) graph_inputs_allowed).
+
+    From Datalog Require Import Tactics.
+    From coqutil Require Import Tactics Tactics.fwd.
+
+    Context (nodes_good : Forall2_map node_good p initial_ns).
+
+    Ltac map_func :=
+      repeat match goal with
+        | H1: map.get ?x ?y = _, H2: map.get ?x ?y = _ |- _ => rewrite H1 in H2; invert H2
+        end.
+
+    Lemma impl_in_map [A B] (f : A -> B) x l y :
+      In x l ->
+      f x = y ->
+      In y (map f l).
+    Proof. intros. apply in_map_iff. eauto. Qed.
+
+    Lemma impl_in_filter [A] (f : A -> bool) x l :
+      In x l ->
+      f x = true ->
+      In x (filter f l).
+    Proof. intros. apply filter_In. auto. Qed.
+
+    Hint Constructors star : core.
+    Hint Resolve in_or_app impl_in_map impl_in_filter : core.
+    Lemma graph_step_to_node_step gs gt gs' :
+      star gstep gs gt gs' ->
+      Forall3_map (fun n np '(ns, t) '(ns', t') =>
+                     exists t'',
+                       t' = t'' ++ t /\
+                         star (node_step np) ns t'' ns' /\
+                         (forall o, output_visible n o = true ->
+                               In o (outputs_of t'') ->
+                               In (o, n) (outputs_of gt)))
+        p gs.(g_nodes) gs'.(g_nodes).
+    Proof.
+      induction 1.
+      - admit.
+      - invert H0.
+        + simpl. assumption.
+        + simpl. epose proof Forall3_map_get_l as H'.
+          especialize H'; eauto. fwd. map_func. destruct v2. fwd.
+          eapply Forall3_map_put_r; try eassumption.
+          -- eapply Forall3_map_impl; [eassumption|]. simpl.
+             intros ? ? [? ?] [? ?] ?. fwd. eauto 7.
+          -- simpl. eexists (_ :: _). ssplit; eauto.
+             ++ reflexivity.
+             ++ simpl. intros o Ho1 Ho2. apply in_app_iff in Ho2. destruct Ho2; eauto.
+        + simpl. epose proof Forall3_map_get_l as H'.
+          especialize H'; eauto. fwd. map_func. destruct v2. fwd.
+          eapply Forall3_map_put_r; try eassumption.
+          -- eapply Forall3_map_impl; [eassumption|]. simpl.
+             intros ? ? [? ?] [? ?] ?. fwd. eauto 7.
+          -- simpl. eexists (_ :: _). ssplit; eauto. reflexivity.
+    Admitted.
+
+
+    Lemma project_node_gen :
+      star gstep initial_graph_state gt gs ->
+      Forall3_map (fun _ np '(ns0, _) '(ns, t) =>
+                     star (node_step np) ns0 t ns /\
+                       (forall o, output_visible n o = true ->
+                             In o (outputs_of tau) -> In (o, n) (outputs_of gt)))
+                  p initial_graph_state gs.
+
+      Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
+      star gstep initial_graph_state t1 gs1 ->
+      star gstep initial_graph_state t2 gs2 ->
+      graph_inputs_allowed (inputs_of t1) ->
+      graph_inputs_allowed (inputs_of t2) ->
+      gstep gs1 (O_event lbl outs) gs1' ->
+      le gs1 gs2 ->
+      eventually graph_will_step (fun '(gs2', t2') => le gs1' gs2') (gs2, t2).
+    Proof.
+      intros H1 H2 H3 H4 Hstep [Hle1 Hle2]. Print node_good. invert Hstep.
+      - pose proof (Forall2_map_get_l _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)) as [[ns2 tn2] [Hns2 Hincl]].
+
+        Search incl_mod.
+        destruct H
+        pose proof apply eventually_done. cbv [le]. simpl. split. Search Forall2_map.
+        +
+        admit.
+      -
+        assert (Forall (fun o => might_output (node_step np) ns t o) outs0).
+        { apply Forall_forall. intros m Hm. cbv [might_output].
+          eexists. exists ns'. ssplit; eauto. simpl. apply in_app_iff; auto. }
+
+      cbv [graph_will_step].
+
     Proof.
       intros T gs0 gs Hstar.
       induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH];
@@ -191,17 +281,6 @@ Section __.
     (* Specialization to runs from the initial graph state: a node's stored trace
        IS its projection — a valid node run from its bare initial state, whose
        visible outputs all appear in the graph trace. *)
-    Lemma project_node_gen :
-      forall T gs,
-        star gstep initial_graph_state T gs ->
-        forall n np ns0,
-          map.get p n = Some np ->
-          map.get initial_ns n = Some ns0 ->
-          exists tau ns_at,
-            star (node_step np) (fst ns0) tau ns_at /\
-            map.get gs.(g_nodes) n = Some (ns_at, tau) /\
-            (forall o, output_visible n o = true ->
-                       In o (outputs_of tau) -> In (o, n) (outputs_of T)).
     Proof.
       intros T gs Hstar n np ns0 Hp Hns0.
       pose proof (initial_ns_empty n ns0 Hns0) as Hempty.
