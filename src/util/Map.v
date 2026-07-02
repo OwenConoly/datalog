@@ -6,7 +6,7 @@ From Datalog Require Import Tactics List.
 
 Section Map.
   Context {key value : Type} {mp : map.map key value} {mp_ok : map.ok mp}.
-  Context {value' : Type} {mp' : map.map key value'}.
+  Context {value' : Type} {mp' : map.map key value'} {mp'_ok : map.ok mp'}.
   Context {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb}.
   Implicit Type m : mp.
 
@@ -23,6 +23,50 @@ Section Map.
       | Some v, Some v' => R k v v'
       | _, _ => False
       end.
+
+  Lemma Forall2_map_put_l R (m1 : mp) (m2 : mp') k v v' :
+    Forall2_map R m1 m2 ->
+    map.get m2 k = Some v' ->
+    R k v v' ->
+    Forall2_map R (map.put m1 k v) m2.
+  Proof.
+    intros H Hget HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    - subst. rewrite Hget. exact HR.
+    - apply H.
+  Qed.
+
+  Lemma Forall2_map_put_r R (m1 : mp) (m2 : mp') k v v' :
+    Forall2_map R m1 m2 ->
+    map.get m1 k = Some v ->
+    R k v v' ->
+    Forall2_map R m1 (map.put m2 k v').
+  Proof.
+    intros H Hget HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    - subst. rewrite Hget. exact HR.
+    - apply H.
+  Qed.
+
+  Lemma Forall2_map_get_l R (m1 : mp) (m2 : mp') k v1 :
+    Forall2_map R m1 m2 ->
+    map.get m1 k = Some v1 ->
+    exists v2, map.get m2 k = Some v2 /\ R k v1 v2.
+  Proof.
+    intros H Hget. specialize (H k). rewrite Hget in H.
+    destruct (map.get m2 k) as [v2|].
+    - exists v2. split; [reflexivity | exact H].
+    - contradiction.
+  Qed.
+
+  Lemma Forall2_map_get_r R (m1 : mp) (m2 : mp') k v2 :
+    Forall2_map R m1 m2 ->
+    map.get m2 k = Some v2 ->
+    exists v1, map.get m1 k = Some v1 /\ R k v1 v2.
+  Proof.
+    intros H Hget. specialize (H k). rewrite Hget in H.
+    destruct (map.get m1 k) as [v1|].
+    - exists v1. split; [reflexivity | exact H].
+    - contradiction.
+  Qed.
 
   Definition Forall4_map
     {value2 value3 : Type}
@@ -54,7 +98,7 @@ Lemma extends_putmany_putmany (m1 m2 m : mp) :
   map.extends (map.putmany m1 m) (map.putmany m2 m).
 Proof.
   intros H. cbv [map.extends]. intros x y Hx.
-  edestruct map.putmany_spec as [H'|H'].
+  edestruct (map.putmany_spec m2 m x) as [H'|H'].
   - destruct H' as [v (H1&H2)]. rewrite Hx in H2. invert H2.
     apply map.get_putmany_right. assumption.
   - destruct H' as (H1&H2). rewrite map.get_putmany_left.
@@ -65,7 +109,7 @@ Qed.
 Lemma extends_putmany_right (m1 m2 : mp) :
   map.extends (map.putmany m1 m2) m2.
 Proof.
-  intros k v H. edestruct map.putmany_spec as [H'|H'].
+  intros k v H. edestruct (map.putmany_spec m1 m2 k) as [H'|H'].
   - destruct H' as (v0&H1&H2). rewrite H in H1. invert H1. exact H2.
   - rewrite H in H'. destruct H' as [H' _]. discriminate H'.
 Qed.
@@ -74,7 +118,7 @@ Lemma extends_putmany_left (m1 m2 : mp) :
   map.disjoint m1 m2 ->
   map.extends (map.putmany m1 m2) m1.
 Proof.
-  intros H1 k v H2. edestruct map.putmany_spec as [H'|H'].
+  intros H1 k v H2. edestruct (map.putmany_spec m1 m2 k) as [H'|H'].
   - destruct H' as (v0&H3&H4). exfalso. eauto.
   - destruct H' as (?&?). rewrite H0. assumption.
 Qed.
@@ -196,8 +240,8 @@ Proof.
   revert m m1' m2' vs vs'.
   induction ks; intros m m1' m2' vs vs'; destruct vs, vs'; simpl; try congruence.
   intros. invert_list_stuff.
-  epose proof map.only_differ_putmany as H'. specialize (H' _ _ _ _ H).
-  epose proof map.only_differ_putmany as H0'. specialize (H0' _ _ _ _ H0).
+  epose proof (map.only_differ_putmany _ _ _ _ H) as H'.
+  epose proof (map.only_differ_putmany _ _ _ _ H0) as H0'.
   apply map.map_ext. intros k.
   specialize (H' k). specialize (H0' k). eassert (H1: _ \/ _).
   { destruct H' as [H'|H']. 1: left; exact H'. destruct H0' as [H0'|H0'].
@@ -225,7 +269,7 @@ Lemma of_list_zip_ext' (m1 m2 : mp) ks vs vs' k :
 Proof.
   intros H1 H2 H3. do 2 erewrite map.get_of_list_zip in * by eassumption.
   destruct (map.zipped_lookup _ vs _) eqn:E1, (map.zipped_lookup _ vs' _) eqn:E2; auto.
-  - apply H3. eapply map.zipped_lookup_Some_in. eassumption.
+  - apply H3. exact (map.zipped_lookup_Some_in _ _ _ _ E1).
   - apply map.zipped_lookup_Some_in in E1.
     apply map.zipped_lookup_None_notin in E2; auto. Search map.putmany_of_list Datatypes.length.
     eapply map.putmany_of_list_zip_sameLength. eassumption.
