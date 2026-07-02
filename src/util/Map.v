@@ -20,6 +20,10 @@ Section Maps.
       | _, _ => False
       end.
 
+  (* can't use coqutil's map.same_domain because it requires mp1 = mp2. *)
+  Definition same_domain (m1 : mp1) (m2 : mp2) : Prop :=
+    Forall2_map (fun _ _ _ => True) m1 m2.
+
   Lemma Forall2_map_impl (R R' : key -> value1 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) :
     Forall2_map R m1 m2 ->
     (forall k v1 v2, R k v1 v2 -> R' k v1 v2) ->
@@ -178,6 +182,16 @@ Section Maps.
       | _, _, _, _ => False
       end.
 End Maps.
+
+Lemma Forall3_map_dup_23 {key value1 value2}
+  {mp1 : map.map key value1} {mp2 : map.map key value2}
+  (R : key -> value1 -> value2 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) :
+  Forall2_map (fun k v1 v2 => R k v1 v2 v2) m1 m2 ->
+  Forall3_map R m1 m2 m2.
+Proof.
+  intros H k. specialize (H k).
+  destruct (map.get m1 k) as [v1|]; destruct (map.get m2 k) as [v2|]; exact H.
+Qed.
 
 Section Map.
   Context {key value : Type} {mp : map.map key value} {mp_ok : map.ok mp}.
