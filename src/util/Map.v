@@ -4,6 +4,151 @@ From Datalog Require Import Eqb.
 From Datalog Require Import Tactics List.
 
 
+Section Maps.
+  Context {key : Type}.
+  Context {value1 : Type} {mp1 : map.map key value1} {mp1_ok : map.ok mp1}.
+  Context {value2 : Type} {mp2 : map.map key value2} {mp2_ok : map.ok mp2}.
+  Context {value3 : Type} {mp3 : map.map key value3} {mp3_ok : map.ok mp3}.
+  Context {value4 : Type} {mp4 : map.map key value4} {mp4_ok : map.ok mp4}.
+  Context {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb}.
+
+  Definition Forall2_map (R : key -> value1 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) : Prop :=
+    forall k,
+      match map.get m1 k, map.get m2 k with
+      | None, None => True
+      | Some v1, Some v2 => R k v1 v2
+      | _, _ => False
+      end.
+
+  Lemma Forall2_map_put_l R (m1 : mp1) (m2 : mp2) k v1 v2 :
+    Forall2_map R m1 m2 ->
+    map.get m2 k = Some v2 ->
+    R k v1 v2 ->
+    Forall2_map R (map.put m1 k v1) m2.
+  Proof.
+    intros H Hget HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    - subst. rewrite Hget. exact HR.
+    - apply H.
+  Qed.
+
+  Lemma Forall2_map_put_r R (m1 : mp1) (m2 : mp2) k v1 v2 :
+    Forall2_map R m1 m2 ->
+    map.get m1 k = Some v1 ->
+    R k v1 v2 ->
+    Forall2_map R m1 (map.put m2 k v2).
+  Proof.
+    intros H Hget HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    - subst. rewrite Hget. exact HR.
+    - apply H.
+  Qed.
+
+  Lemma Forall2_map_get_l R (m1 : mp1) (m2 : mp2) k v1 :
+    Forall2_map R m1 m2 ->
+    map.get m1 k = Some v1 ->
+    exists v2, map.get m2 k = Some v2 /\ R k v1 v2.
+  Proof.
+    intros H Hget. specialize (H k). rewrite Hget in H.
+    destruct (map.get m2 k) as [v2|].
+    - exists v2. split; [reflexivity | exact H].
+    - contradiction.
+  Qed.
+
+  Lemma Forall2_map_get_r R (m1 : mp1) (m2 : mp2) k v2 :
+    Forall2_map R m1 m2 ->
+    map.get m2 k = Some v2 ->
+    exists v1, map.get m1 k = Some v1 /\ R k v1 v2.
+  Proof.
+    intros H Hget. specialize (H k). rewrite Hget in H.
+    destruct (map.get m1 k) as [v1|].
+    - exists v1. split; [reflexivity | exact H].
+    - contradiction.
+  Qed.
+
+  Definition Forall3_map (R : key -> value1 -> value2 -> value3 -> Prop)
+    (m1 : mp1) (m2 : mp2) (m3 : mp3) : Prop :=
+    forall k,
+      match map.get m1 k, map.get m2 k, map.get m3 k with
+      | None, None, None => True
+      | Some v1, Some v2, Some v3 => R k v1 v2 v3
+      | _, _, _ => False
+      end.
+
+  Lemma Forall3_map_put_l R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v1 v2 v3 :
+    Forall3_map R m1 m2 m3 ->
+    map.get m2 k = Some v2 ->
+    map.get m3 k = Some v3 ->
+    R k v1 v2 v3 ->
+    Forall3_map R (map.put m1 k v1) m2 m3.
+  Proof.
+    intros H Hg2 Hg3 HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    - subst. rewrite Hg2, Hg3. exact HR.
+    - apply H.
+  Qed.
+
+  Lemma Forall3_map_put_m R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v1 v2 v3 :
+    Forall3_map R m1 m2 m3 ->
+    map.get m1 k = Some v1 ->
+    map.get m3 k = Some v3 ->
+    R k v1 v2 v3 ->
+    Forall3_map R m1 (map.put m2 k v2) m3.
+  Proof.
+    intros H Hg1 Hg3 HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    - subst. rewrite Hg1, Hg3. exact HR.
+    - apply H.
+  Qed.
+
+  Lemma Forall3_map_put_r R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v1 v2 v3 :
+    Forall3_map R m1 m2 m3 ->
+    map.get m1 k = Some v1 ->
+    map.get m2 k = Some v2 ->
+    R k v1 v2 v3 ->
+    Forall3_map R m1 m2 (map.put m3 k v3).
+  Proof.
+    intros H Hg1 Hg2 HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    - subst. rewrite Hg1, Hg2. exact HR.
+    - apply H.
+  Qed.
+
+  Lemma Forall3_map_get_l R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v1 :
+    Forall3_map R m1 m2 m3 ->
+    map.get m1 k = Some v1 ->
+    exists v2 v3, map.get m2 k = Some v2 /\ map.get m3 k = Some v3 /\ R k v1 v2 v3.
+  Proof.
+    intros H Hget. specialize (H k). rewrite Hget in H.
+    destruct (map.get m2 k) as [v2|]; destruct (map.get m3 k) as [v3|]; try contradiction.
+    exists v2, v3. split; [reflexivity | split; [reflexivity | exact H]].
+  Qed.
+
+  Lemma Forall3_map_get_m R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v2 :
+    Forall3_map R m1 m2 m3 ->
+    map.get m2 k = Some v2 ->
+    exists v1 v3, map.get m1 k = Some v1 /\ map.get m3 k = Some v3 /\ R k v1 v2 v3.
+  Proof.
+    intros H Hget. specialize (H k). rewrite Hget in H.
+    destruct (map.get m1 k) as [v1|]; destruct (map.get m3 k) as [v3|]; try contradiction.
+    exists v1, v3. split; [reflexivity | split; [reflexivity | exact H]].
+  Qed.
+
+  Lemma Forall3_map_get_r R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v3 :
+    Forall3_map R m1 m2 m3 ->
+    map.get m3 k = Some v3 ->
+    exists v1 v2, map.get m1 k = Some v1 /\ map.get m2 k = Some v2 /\ R k v1 v2 v3.
+  Proof.
+    intros H Hget. specialize (H k). rewrite Hget in H.
+    destruct (map.get m1 k) as [v1|]; destruct (map.get m2 k) as [v2|]; try contradiction.
+    exists v1, v2. split; [reflexivity | split; [reflexivity | exact H]].
+  Qed.
+
+  Definition Forall4_map (R : key -> value1 -> value2 -> value3 -> value4 -> Prop)
+    (m1 : mp1) (m2 : mp2) (m3 : mp3) (m4 : mp4) : Prop :=
+    forall k,
+      match map.get m1 k, map.get m2 k, map.get m3 k, map.get m4 k with
+      | None, None, None, None => True
+      | Some v1, Some v2, Some v3, Some v4 => R k v1 v2 v3 v4
+      | _, _, _, _ => False
+      end.
+End Maps.
+
 Section Map.
   Context {key value : Type} {mp : map.map key value} {mp_ok : map.ok mp}.
   Context {value' : Type} {mp' : map.map key value'} {mp'_ok : map.ok mp'}.
@@ -15,70 +160,6 @@ Section Map.
 
   Definition map_values' f m : mp' :=
     map.of_list (map (fun '(k, v) => (k, f k v)) (map.tuples m)).
-
-  Definition Forall2_map (R : key -> value -> value' -> Prop) (m : mp) (m' : mp') : Prop :=
-    forall k,
-      match map.get m k, map.get m' k with
-      | None, None => True
-      | Some v, Some v' => R k v v'
-      | _, _ => False
-      end.
-
-  Lemma Forall2_map_put_l R (m1 : mp) (m2 : mp') k v v' :
-    Forall2_map R m1 m2 ->
-    map.get m2 k = Some v' ->
-    R k v v' ->
-    Forall2_map R (map.put m1 k v) m2.
-  Proof.
-    intros H Hget HR k0. rewrite map.get_put_dec. destr (eqb k k0).
-    - subst. rewrite Hget. exact HR.
-    - apply H.
-  Qed.
-
-  Lemma Forall2_map_put_r R (m1 : mp) (m2 : mp') k v v' :
-    Forall2_map R m1 m2 ->
-    map.get m1 k = Some v ->
-    R k v v' ->
-    Forall2_map R m1 (map.put m2 k v').
-  Proof.
-    intros H Hget HR k0. rewrite map.get_put_dec. destr (eqb k k0).
-    - subst. rewrite Hget. exact HR.
-    - apply H.
-  Qed.
-
-  Lemma Forall2_map_get_l R (m1 : mp) (m2 : mp') k v1 :
-    Forall2_map R m1 m2 ->
-    map.get m1 k = Some v1 ->
-    exists v2, map.get m2 k = Some v2 /\ R k v1 v2.
-  Proof.
-    intros H Hget. specialize (H k). rewrite Hget in H.
-    destruct (map.get m2 k) as [v2|].
-    - exists v2. split; [reflexivity | exact H].
-    - contradiction.
-  Qed.
-
-  Lemma Forall2_map_get_r R (m1 : mp) (m2 : mp') k v2 :
-    Forall2_map R m1 m2 ->
-    map.get m2 k = Some v2 ->
-    exists v1, map.get m1 k = Some v1 /\ R k v1 v2.
-  Proof.
-    intros H Hget. specialize (H k). rewrite Hget in H.
-    destruct (map.get m1 k) as [v1|].
-    - exists v1. split; [reflexivity | exact H].
-    - contradiction.
-  Qed.
-
-  Definition Forall4_map
-    {value2 value3 : Type}
-    {mp2 : map.map key value2} {mp3 : map.map key value3}
-    (R : key -> value -> value' -> value2 -> value3 -> Prop)
-    (m : mp) (m' : mp') (m2 : mp2) (m3 : mp3) : Prop :=
-    forall k,
-      match map.get m k, map.get m' k, map.get m2 k, map.get m3 k with
-      | None, None, None, None => True
-      | Some v, Some v', Some v2, Some v3 => R k v v' v2 v3
-      | _, _, _, _ => False
-      end.
 
   (*d is a default value... basically, we consider the map to be total, with not-included values mapping to d*)
 Definition mupd d m k f :=
