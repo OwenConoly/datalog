@@ -224,9 +224,36 @@ Section __.
       eventually graph_will_step (fun '(gs2', t2') => le gs1' gs2') (gs2, t2).
     Proof.
       intros H1 H2 H3 H4 Hstep [Hle1 Hle2]. Print node_good. invert Hstep.
-      - pose proof (Forall2_map_get_l _ _ _ _ _ ltac:(eassumption) ltac:(eassumption)) as [[ns2 tn2] [Hns2 Hincl]].
+      - epose proof Forall2_map_get_l as H. especialize H; eauto.
+        destruct H as [[ns2 tn2] [Hns2 Hincl]].
 
-        Search incl_mod.
+        epose proof (graph_step_to_node_step_from_beginning gs1) as Hns1'.
+        especialize Hns1'; eauto. eapply Forall3_map_get_l in Hns1'; eauto.
+        fwd. destruct v2, v3. fwd. map_func.
+
+        epose proof (graph_step_to_node_step_from_beginning gs2) as Hns2'.
+        especialize Hns2'; eauto. eapply Forall3_map_get_l in Hns2'; eauto.
+        fwd. destruct v2, v3. fwd. map_func.
+
+        pose proof nodes_good as H'. eapply Forall2_map_get_l in H'; eauto.
+        fwd. simpl in *. map_func. cbv [node_good] in H'p1. fwd.
+
+        eassert (Hmo: Forall (might_output_equiv _ _ n3 l2) outs0).
+        { apply Forall_forall. intros m Hm. eapply H'p1p1.
+          5: eassumption. all: try eassumption. 1,2: admit.
+          cbv [might_output]. do 2 eexists. ssplit.
+          - apply star_one. eassumption.
+          - reflexivity.
+          - simpl. auto. }
+
+
+        might_implies_will_equiv (node_step np) equiv allowed n2
+        cbv [monotone_mod_equiv] in H'p1p1.
+        epose_dep H'p1p1. specialize (H'p1p1 Hns1'p2p0 Hns2'p2p0).
+        specialize' H'p1p1. 1: admit.
+        specialize' H'p1p1. 1: admit.
+        specialize (H'p1p1 Hincl).
+        simpl in Hnsp0.
         destruct H
         pose proof apply eventually_done. cbv [le]. simpl. split. Search Forall2_map.
         +
