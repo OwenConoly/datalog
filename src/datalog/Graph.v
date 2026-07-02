@@ -7,6 +7,8 @@ From Datalog Require Import Smallstep Map.
 Import ListNotations.
 
 Definition node_id := nat.
+#[export] Instance node_id_eqb : Eqb.Eqb node_id := Eqb.nat_eqb.
+#[export] Instance node_id_eqb_ok : Eqb.Eqb_ok node_id_eqb := Eqb.nat_eqb_ok.
 Section __.
   Context {message : Type}.
   Context {label : Type}.
@@ -109,8 +111,6 @@ Section __.
     Context (initial_ns_empty :
                forall n x, map.get initial_ns n = Some x -> snd x = []).
     Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
-    Context (p_initial_dom :
-               forall n np, map.get p n = Some np -> exists x, map.get initial_ns n = Some x).
     Context (nodes_input_total :
                forall n np, map.get p n = Some np -> input_total (node_step np)).
 
@@ -197,18 +197,24 @@ Section __.
           -- eapply Forall3_map_impl; [eassumption|]. simpl.
              intros ? ? [? ?] [? ?] ?. fwd. eauto 7.
           -- simpl. eexists (_ :: _). ssplit; eauto. reflexivity.
-    Admitted.
+    Qed.
 
-
-    Lemma project_node_gen :
+    Lemma graph_step_to_node_step_from_beginning gs gt :
       star gstep initial_graph_state gt gs ->
-      Forall3_map (fun _ np '(ns0, _) '(ns, t) =>
+      Forall3_map (fun n np '(ns0, _) '(ns, t) =>
                      star (node_step np) ns0 t ns /\
                        (forall o, output_visible n o = true ->
-                             In o (outputs_of tau) -> In (o, n) (outputs_of gt)))
-                  p initial_graph_state gs.
+                             In o (outputs_of t) -> In (o, n) (outputs_of gt)))
+        p initial_graph_state.(g_nodes) gs.(g_nodes).
+    Proof.
+      intros. eapply Forall3_map_impl_strong.
+      { apply graph_step_to_node_step; eauto. simpl. eapply Forall2_map_impl; eauto. }
+      simpl. intros ? ? [? ?] [? ?] H1 H2 H3 ?. fwd. rewrite outputs_of_app.
+      apply initial_ns_empty in H2. simpl in H2. subst.
+      simpl. do 2 rewrite app_nil_r. eauto.
+    Qed.
 
-      Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
+    Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
       star gstep initial_graph_state t1 gs1 ->
       star gstep initial_graph_state t2 gs2 ->
       graph_inputs_allowed (inputs_of t1) ->
