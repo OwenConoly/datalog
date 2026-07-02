@@ -8,10 +8,10 @@ Import ListNotations.
 Section star.
   Context {state event : Type} (trace := list event)
           (step : state -> event -> state -> Prop).
-  Inductive star : state -> trace -> state -> Prop :=
-  | star_refl s :
+  Inductive star (s : state) : trace -> state -> Prop :=
+  | star_refl :
     star s [] s
-  | star_step s t0 s' e s'' :
+  | star_step t0 s' e s'' :
     star s t0 s' ->
     step s' e s'' ->
     star s (e :: t0) s''.
@@ -22,9 +22,9 @@ Section star.
   Lemma star_app s1 t1 s2 t2 s3 :
     star s1 t1 s2 -> star s2 t2 s3 -> star s1 (t2 ++ t1) s3.
   Proof.
-    intros H1 H2. induction H2 as [ | s t0 s' e s'' Hstar IH Hstep]; cbn.
+    intros H1 H2. induction H2 as [ | t0 s' e s'' Hstar IH Hstep]; cbn.
     - exact H1.
-    - eapply star_step; [exact (IH H1) | exact Hstep].
+    - eapply star_step; [exact IH | exact Hstep].
   Qed.
 End star.
 
