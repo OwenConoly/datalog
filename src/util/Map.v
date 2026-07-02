@@ -24,15 +24,25 @@ Section Maps.
   Definition same_domain (m1 : mp1) (m2 : mp2) : Prop :=
     Forall2_map (fun _ _ _ => True) m1 m2.
 
+  Lemma Forall2_map_impl_strong (R R' : key -> value1 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) :
+    Forall2_map R m1 m2 ->
+    (forall k v1 v2,
+        map.get m1 k = Some v1 ->
+        map.get m2 k = Some v2 ->
+        R k v1 v2 -> R' k v1 v2) ->
+    Forall2_map R' m1 m2.
+  Proof.
+    intros H HRR k. specialize (H k).
+    destruct (map.get m1 k) as [v1|] eqn:E1; destruct (map.get m2 k) as [v2|] eqn:E2;
+      try exact H.
+    apply HRR; assumption.
+  Qed.
+
   Lemma Forall2_map_impl (R R' : key -> value1 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) :
     Forall2_map R m1 m2 ->
     (forall k v1 v2, R k v1 v2 -> R' k v1 v2) ->
     Forall2_map R' m1 m2.
-  Proof.
-    intros H HRR k. specialize (H k).
-    destruct (map.get m1 k) as [v1|]; destruct (map.get m2 k) as [v2|]; try exact H.
-    apply HRR. exact H.
-  Qed.
+  Proof. eauto using Forall2_map_impl_strong. Qed.
 
   Lemma Forall2_map_put_l R (m1 : mp1) (m2 : mp2) k v1 v2 :
     Forall2_map (fun k' w1 w2 => k <> k' -> R k' w1 w2) m1 m2 ->
@@ -89,17 +99,28 @@ Section Maps.
       | _, _, _ => False
       end.
 
+  Lemma Forall3_map_impl_strong (R R' : key -> value1 -> value2 -> value3 -> Prop)
+    (m1 : mp1) (m2 : mp2) (m3 : mp3) :
+    Forall3_map R m1 m2 m3 ->
+    (forall k v1 v2 v3,
+        map.get m1 k = Some v1 ->
+        map.get m2 k = Some v2 ->
+        map.get m3 k = Some v3 ->
+        R k v1 v2 v3 -> R' k v1 v2 v3) ->
+    Forall3_map R' m1 m2 m3.
+  Proof.
+    intros H HRR k. specialize (H k).
+    destruct (map.get m1 k) as [v1|] eqn:E1; destruct (map.get m2 k) as [v2|] eqn:E2;
+      destruct (map.get m3 k) as [v3|] eqn:E3; try exact H.
+    apply HRR; assumption.
+  Qed.
+
   Lemma Forall3_map_impl (R R' : key -> value1 -> value2 -> value3 -> Prop)
     (m1 : mp1) (m2 : mp2) (m3 : mp3) :
     Forall3_map R m1 m2 m3 ->
     (forall k v1 v2 v3, R k v1 v2 v3 -> R' k v1 v2 v3) ->
     Forall3_map R' m1 m2 m3.
-  Proof.
-    intros H HRR k. specialize (H k).
-    destruct (map.get m1 k) as [v1|]; destruct (map.get m2 k) as [v2|];
-      destruct (map.get m3 k) as [v3|]; try exact H.
-    apply HRR. exact H.
-  Qed.
+  Proof. eauto using Forall3_map_impl_strong. Qed.
 
   Lemma Forall3_map_put_l R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v1 v2 v3 :
     Forall3_map (fun k' w1 w2 w3 => k <> k' -> R k' w1 w2 w3) m1 m2 m3 ->
