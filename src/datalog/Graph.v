@@ -167,6 +167,7 @@ Section __.
     Hint Constructors star : core.
     Hint Resolve in_or_app impl_in_map impl_in_filter : core.
     Lemma graph_step_to_node_step gs gt gs' :
+      same_domain p gs.(g_nodes) ->
       star gstep gs gt gs' ->
       Forall3_map (fun n np '(ns, t) '(ns', t') =>
                      exists t'',
@@ -177,8 +178,9 @@ Section __.
                                In (o, n) (outputs_of gt)))
         p gs.(g_nodes) gs'.(g_nodes).
     Proof.
-      induction 1.
-      - admit.
+      intros Hd. induction 1.
+      - apply Forall3_map_dup_23. eapply Forall2_map_impl; [eassumption|].
+        simpl. intros ? ? [? ?] ?. exists []. eauto.
       - invert H0.
         + simpl. assumption.
         + simpl. epose proof Forall3_map_get_l as H'.
