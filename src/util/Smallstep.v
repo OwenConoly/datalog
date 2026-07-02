@@ -6,9 +6,6 @@ Import ListNotations.
 Section star.
   Context {state event : Type} (trace := list event)
           (step : state -> event -> state -> Prop).
-  (* Traces are newest-first: the head is the most recent step.  This matches
-     the IO layer, which writes a run [t'] in front of the history [t] as
-     [t' ++ t]. *)
   Inductive star : state -> trace -> state -> Prop :=
   | star_refl s :
     star s [] s
@@ -265,36 +262,6 @@ Section step.
         * split.
           -- rewrite inputs_of_app, Hinp''. reflexivity.
           -- rewrite <- app_assoc. exact Hout''.
-  Qed.
-
-  Lemma eventually_swap :
-    forall (o : message) (s : state) (t1 t2 : list (IO_event label message)),
-      Permutation t1 t2 ->
-      eventually will_step
-                 (fun '(_, t') => In o (outputs_of t')) (s, t1) ->
-      eventually will_step
-                 (fun '(_, t') => In o (outputs_of t')) (s, t2).
-  Proof.
-    intros o s t1 t2 Hperm Hev.
-    remember (s, t1) as st eqn:Est.
-    revert s t1 t2 Hperm Est.
-    induction Hev as [[s' t'] HP | [s' t'] midset Hcan Hmid IH];
-      intros s_orig t1 t2 Hperm [= -> ->].
-    - apply eventually_done. cbn. eapply outputs_of_in_perm; eassumption.
-    - destruct Hcan as [lbl Hcan].
-      apply eventually_step_cps. exists lbl.
-      intros s'_d t_d Hstar_d Hallow_d.
-      assert (Hallow_d' : allowed (inputs_of (t_d ++ t1))).
-      { eapply allowed_perm; [|exact Hallow_d].
-        apply inputs_of_perm. apply Permutation_app_head. apply Permutation_sym. exact Hperm. }
-      specialize (Hcan s'_d t_d Hstar_d Hallow_d').
-      destruct Hcan as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
-      + left. apply (IH (s'_d, t_d ++ t1) Hmid_left s'_d (t_d ++ t1) (t_d ++ t2));
-          [apply Permutation_app_head; exact Hperm | reflexivity].
-      + right. exists s'', outs. split; [exact Hstep|].
-        apply (IH _ Hmidset s'' (O_event lbl outs :: t_d ++ t1)
-                  (O_event lbl outs :: t_d ++ t2));
-          [apply perm_skip; apply Permutation_app_head; exact Hperm | reflexivity].
   Qed.
 
   Lemma will_output_step :
