@@ -20,26 +20,38 @@ Section Maps.
       | _, _ => False
       end.
 
-  Lemma Forall2_map_put_l R (m1 : mp1) (m2 : mp2) k v1 v2 :
+  Lemma Forall2_map_impl (R R' : key -> value1 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) :
     Forall2_map R m1 m2 ->
+    (forall k v1 v2, R k v1 v2 -> R' k v1 v2) ->
+    Forall2_map R' m1 m2.
+  Proof.
+    intros H HRR k. specialize (H k).
+    destruct (map.get m1 k) as [v1|]; destruct (map.get m2 k) as [v2|]; try exact H.
+    apply HRR. exact H.
+  Qed.
+
+  Lemma Forall2_map_put_l R (m1 : mp1) (m2 : mp2) k v1 v2 :
+    Forall2_map (fun k' w1 w2 => k <> k' -> R k' w1 w2) m1 m2 ->
     map.get m2 k = Some v2 ->
     R k v1 v2 ->
     Forall2_map R (map.put m1 k v1) m2.
   Proof.
-    intros H Hget HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    intros H Hget HR k0. specialize (H k0). rewrite map.get_put_dec. destr (eqb k k0).
     - subst. rewrite Hget. exact HR.
-    - apply H.
+    - destruct (map.get m1 k0) as [w1|]; destruct (map.get m2 k0) as [w2|]; try exact H.
+      apply H. assumption.
   Qed.
 
   Lemma Forall2_map_put_r R (m1 : mp1) (m2 : mp2) k v1 v2 :
-    Forall2_map R m1 m2 ->
+    Forall2_map (fun k' w1 w2 => k <> k' -> R k' w1 w2) m1 m2 ->
     map.get m1 k = Some v1 ->
     R k v1 v2 ->
     Forall2_map R m1 (map.put m2 k v2).
   Proof.
-    intros H Hget HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    intros H Hget HR k0. specialize (H k0). rewrite map.get_put_dec. destr (eqb k k0).
     - subst. rewrite Hget. exact HR.
-    - apply H.
+    - destruct (map.get m1 k0) as [w1|]; destruct (map.get m2 k0) as [w2|]; try exact H.
+      apply H. assumption.
   Qed.
 
   Lemma Forall2_map_get_l R (m1 : mp1) (m2 : mp2) k v1 :
@@ -73,40 +85,58 @@ Section Maps.
       | _, _, _ => False
       end.
 
-  Lemma Forall3_map_put_l R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v1 v2 v3 :
+  Lemma Forall3_map_impl (R R' : key -> value1 -> value2 -> value3 -> Prop)
+    (m1 : mp1) (m2 : mp2) (m3 : mp3) :
     Forall3_map R m1 m2 m3 ->
+    (forall k v1 v2 v3, R k v1 v2 v3 -> R' k v1 v2 v3) ->
+    Forall3_map R' m1 m2 m3.
+  Proof.
+    intros H HRR k. specialize (H k).
+    destruct (map.get m1 k) as [v1|]; destruct (map.get m2 k) as [v2|];
+      destruct (map.get m3 k) as [v3|]; try exact H.
+    apply HRR. exact H.
+  Qed.
+
+  Lemma Forall3_map_put_l R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v1 v2 v3 :
+    Forall3_map (fun k' w1 w2 w3 => k <> k' -> R k' w1 w2 w3) m1 m2 m3 ->
     map.get m2 k = Some v2 ->
     map.get m3 k = Some v3 ->
     R k v1 v2 v3 ->
     Forall3_map R (map.put m1 k v1) m2 m3.
   Proof.
-    intros H Hg2 Hg3 HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    intros H Hg2 Hg3 HR k0. specialize (H k0). rewrite map.get_put_dec. destr (eqb k k0).
     - subst. rewrite Hg2, Hg3. exact HR.
-    - apply H.
+    - destruct (map.get m1 k0) as [w1|]; destruct (map.get m2 k0) as [w2|];
+        destruct (map.get m3 k0) as [w3|]; try exact H.
+      apply H. assumption.
   Qed.
 
   Lemma Forall3_map_put_m R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v1 v2 v3 :
-    Forall3_map R m1 m2 m3 ->
+    Forall3_map (fun k' w1 w2 w3 => k <> k' -> R k' w1 w2 w3) m1 m2 m3 ->
     map.get m1 k = Some v1 ->
     map.get m3 k = Some v3 ->
     R k v1 v2 v3 ->
     Forall3_map R m1 (map.put m2 k v2) m3.
   Proof.
-    intros H Hg1 Hg3 HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    intros H Hg1 Hg3 HR k0. specialize (H k0). rewrite map.get_put_dec. destr (eqb k k0).
     - subst. rewrite Hg1, Hg3. exact HR.
-    - apply H.
+    - destruct (map.get m1 k0) as [w1|]; destruct (map.get m2 k0) as [w2|];
+        destruct (map.get m3 k0) as [w3|]; try exact H.
+      apply H. assumption.
   Qed.
 
   Lemma Forall3_map_put_r R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v1 v2 v3 :
-    Forall3_map R m1 m2 m3 ->
+    Forall3_map (fun k' w1 w2 w3 => k <> k' -> R k' w1 w2 w3) m1 m2 m3 ->
     map.get m1 k = Some v1 ->
     map.get m2 k = Some v2 ->
     R k v1 v2 v3 ->
     Forall3_map R m1 m2 (map.put m3 k v3).
   Proof.
-    intros H Hg1 Hg2 HR k0. rewrite map.get_put_dec. destr (eqb k k0).
+    intros H Hg1 Hg2 HR k0. specialize (H k0). rewrite map.get_put_dec. destr (eqb k k0).
     - subst. rewrite Hg1, Hg2. exact HR.
-    - apply H.
+    - destruct (map.get m1 k0) as [w1|]; destruct (map.get m2 k0) as [w2|];
+        destruct (map.get m3 k0) as [w3|]; try exact H.
+      apply H. assumption.
   Qed.
 
   Lemma Forall3_map_get_l R (m1 : mp1) (m2 : mp2) (m3 : mp3) k v1 :
