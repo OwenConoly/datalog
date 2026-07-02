@@ -1,6 +1,8 @@
 (*worth comparing to https://compcert.org/doc/html/compcert.common.Smallstep.html*)
 From Stdlib Require Import List Permutation RelationClasses.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
+From coqutil Require Import Tactics.fwd.
+From Datalog Require Import Tactics.
 Import ListNotations.
 
 Section star.
@@ -471,40 +473,29 @@ Section step.
       step s e s' ->
       P (s', e :: t).
 
-  (* Lifting single-step stability over a whole run.  With newest-first traces
-     the run [tau] lands directly in front of the history [t] as [tau ++ t] --
-     no reversal, and hence no permutation needed. *)
-  Lemma ev_stable_star :
-    forall (P : state * list (IO_event label message) -> Prop),
-      ev_stable P ->
-      forall s tau s', star step s tau s' ->
-        forall t, P (s, t) -> P (s', tau ++ t).
+  Lemma ev_stable_star P s t s' t' :
+    ev_stable P ->
+    star step s t' s' ->
+    P (s, t) ->
+    P (s', t' ++ t).
   Proof.
-    intros P Hstable s tau s' Hstar. unfold ev_stable in Hstable.
-    induction Hstar as [ | s0 t0 s1 e s2 Hstar' IH Hstep]; intros t HP.
-    - exact HP.
-    - cbn [app]. eapply Hstable; [apply IH; exact HP | exact Hstep].
+    intros Hst Hstar Hinit. induction Hstar; auto.
+    simpl. eapply Hst; eauto.
   Qed.
 
-  (* If [P] holds now and is stable, we may carry it through any [will_step]
-     driving that establishes [Q]. *)
-  Lemma eventually_carry_stable_gen :
-    forall (P Q : state * list (IO_event label message) -> Prop),
-      ev_stable P ->
-      forall st,
-        P st ->
-        eventually will_step Q st ->
-        eventually will_step (fun x => P x /\ Q x) st.
+  Lemma eventually_carry_stable_gen P Q st :
+    ev_stable P ->
+    P st ->
+    eventually will_step Q st ->
+    eventually will_step (fun x => P x /\ Q x) st.
   Proof.
-    intros P Q Hstable.
-    intros st HP Hev. revert HP.
+    intros Hstable.
+    intros HP Hev. revert HP.
     induction Hev as [[s0 t0] HQ | [s0 t0] midset Hstep Hnext IH]; intros HP.
     - apply eventually_done. split; [exact HP | exact HQ].
     - destruct Hstep as [lbl Hstep].
       apply eventually_step_cps. exists lbl.
       intros s' td Hstar_d Hallow_d.
-      (* P at the driven state [(s', td ++ t0)]: the demon run [td] lands directly
-         in front of [t0], so single-step stability lifts over it with no perm. *)
       assert (HP' : P (s', td ++ t0)).
       { eapply ev_stable_star; [exact Hstable | exact Hstar_d | exact HP]. }
       specialize (Hstep s' td Hstar_d Hallow_d).
@@ -512,36 +503,28 @@ Section step.
       + left. apply (IH (s', td ++ t0) Hleft). exact HP'.
       + right. exists s'', outs. split; [exact Hst|].
         apply (IH (s'', O_event lbl outs :: td ++ t0) Hright).
-        (* one more (single) step across the emitted output event *)
         eapply Hstable; [exact HP' | exact Hst].
   Qed.
 
-  (* A [Q]-driving strategy from [(s,t)] can be advanced along any allowed run
-     [star step s tau s'] to a strategy from [(s', tau ++ t)]. *)
-  Lemma eventually_will_step_advance :
-    forall (Q : state * list (IO_event label message) -> Prop),
-      ev_stable Q ->
-      forall s t s' tau,
-        star step s tau s' ->
-        allowed (inputs_of (tau ++ t)) ->
-        eventually will_step Q (s, t) ->
-        eventually will_step Q (s', tau ++ t).
+  Lemma eventually_will_step_advance Q s t s' t' :
+    ev_stable Q ->
+    star step s t' s' ->
+    allowed (inputs_of (t' ++ t)) ->
+    eventually will_step Q (s, t) ->
+    eventually will_step Q (s', t' ++ t).
   Proof.
-    intros Q Hstable s t s' tau Hstar Hallow Hev.
+    intros Hstable Hstar Hallow Hev.
     destruct Hev as [HQ | midset Hstep Hnext].
     - apply eventually_done.
       eapply ev_stable_star; [exact Hstable | exact Hstar | exact HQ].
     - destruct Hstep as [lblQ HQstep].
       apply eventually_step_cps. exists lblQ.
       intros s'' sigma Hstar_sigma Hallow_sigma.
-      (* Fold [tau] into the demon's prefix: the combined run is [sigma ++ tau]
-         (newest-first) and lands at [(sigma ++ tau) ++ t = sigma ++ (tau ++ t)],
-         exactly the outer node -- so no permutation is needed. *)
-      assert (Hcomb : star step s (sigma ++ tau) s'').
+      assert (Hcomb : star step s (sigma ++ t') s'').
       { eapply star_app; [exact Hstar | exact Hstar_sigma]. }
-      assert (Hallow_comb : allowed (inputs_of ((sigma ++ tau) ++ t))).
+      assert (Hallow_comb : allowed (inputs_of ((sigma ++ t') ++ t))).
       { rewrite <- app_assoc. exact Hallow_sigma. }
-      specialize (HQstep s'' (sigma ++ tau) Hcomb Hallow_comb).
+      specialize (HQstep s'' (sigma ++ t') Hcomb Hallow_comb).
       destruct HQstep as [Hleft | (s3 & outs & Hst & Hright)].
       + left. pose proof (Hnext _ Hleft) as Hev.
         rewrite <- app_assoc in Hev. exact Hev.
@@ -550,18 +533,14 @@ Section step.
         rewrite <- app_assoc in Hev. exact Hev.
   Qed.
 
-  (* Binary intersection: [eventually will_step] is closed under conjunction of
-     stable predicates.  No permutation-invariance needed: the steps producing
-     [P] are folded into the demonic prefix of the [Q]-strategy. *)
-  Lemma eventually_will_step_and :
-    forall (P Q : state * list (IO_event label message) -> Prop),
-      ev_stable P -> ev_stable Q ->
-      forall st,
-        eventually will_step P st ->
-        eventually will_step Q st ->
-        eventually will_step (fun x => P x /\ Q x) st.
+  Lemma eventually_will_step_and P Q st :
+    ev_stable P ->
+    ev_stable Q ->
+    eventually will_step P st ->
+    eventually will_step Q st ->
+    eventually will_step (fun x => P x /\ Q x) st.
   Proof.
-    intros P Q HsP HsQ st HevP HevQ. revert HevQ.
+    intros HsP HsQ HevP HevQ. revert HevQ.
     induction HevP as [[s0 t0] HP | [s0 t0] midset HstepP HnextP IHP]; intros HevQ.
     - apply eventually_carry_stable_gen; [exact HsP | exact HP | exact HevQ].
     - destruct HstepP as [lblP HstepP].
@@ -570,74 +549,58 @@ Section step.
       specialize (HstepP s' td Hstar_d Hallow_d).
       destruct HstepP as [Hleft | (s'' & outs & Hst & Hright)].
       + left. apply (IHP (s', td ++ t0) Hleft).
-        eapply (eventually_will_step_advance Q HsQ s0 t0 s' td);
-          [exact Hstar_d | exact Hallow_d | exact HevQ].
+        eapply eventually_will_step_advance; eauto.
       + right. exists s'', outs. split; [exact Hst|].
         apply (IHP (s'', O_event lblP outs :: td ++ t0) Hright).
-        eapply (eventually_will_step_advance Q HsQ s' (td ++ t0) s'' [O_event lblP outs]).
-        * apply star_one; exact Hst.
-        * exact Hallow_d.
-        * eapply (eventually_will_step_advance Q HsQ s0 t0 s' td);
-            [exact Hstar_d | exact Hallow_d | exact HevQ].
+        eapply eventually_will_step_advance with (t' := _ :: _); eauto.
+        econstructor; eauto.
   Qed.
 
-  Lemma ev_stable_Forall :
-    forall {A} (F : A -> state * list (IO_event label message) -> Prop) (l : list A),
-      (forall a, ev_stable (F a)) ->
-      ev_stable (fun x => Forall (fun a => F a x) l).
+  Lemma ev_stable_Forall Ps :
+    Forall ev_stable Ps ->
+    ev_stable (fun x => Forall (fun P => P x) Ps).
   Proof.
-    intros A F l HF. unfold ev_stable in *. intros s s' e t Hall Hstep.
-    eapply Forall_impl; [| exact Hall]. intros x Hx. eapply HF; [exact Hx | exact Hstep].
+    intros H. cbv [ev_stable]. intros ? ? ? ? H' ?.
+    eapply Forall_impl.
+    2: { apply Forall_and; [exact H|exact H']. }
+    simpl. intros. fwd. eauto.
   Qed.
 
-  (* Finite intersection: closure under conjunction over a whole list. *)
-  Lemma eventually_will_step_Forall :
-    forall {A} (F : A -> state * list (IO_event label message) -> Prop) (l : list A) st,
-      (forall a, ev_stable (F a)) ->
-      Forall (fun a => eventually will_step (F a) st) l ->
-      eventually will_step (fun x => Forall (fun a => F a x) l) st.
+  Hint Constructors eventually : core.
+  Lemma eventually_will_step_Forall Ps st :
+    Forall ev_stable Ps ->
+    Forall (fun P => eventually will_step P st) Ps ->
+    eventually will_step (fun x => Forall (fun P => P x) Ps) st.
   Proof.
-    intros A F l st HsF Hforall.
-    induction l as [|a l IHl].
-    - apply eventually_done. constructor.
-    - pose proof (Forall_inv Hforall) as Hhead.
-      pose proof (Forall_inv_tail Hforall) as Htail.
-      specialize (IHl Htail).
-      eapply eventually_weaken.
-      + eapply (eventually_will_step_and
-                  (F a) (fun x => Forall (fun a0 => F a0 x) l)).
-        * exact (HsF a).
-        * apply ev_stable_Forall. exact HsF.
-        * exact Hhead.
-        * exact IHl.
-      + intros [s' t'] [H1 H2]. constructor; [exact H1 | exact H2].
+    intros H1 H2. induction H1; invert H2.
+    - auto.
+    - eapply eventually_weaken.
+      + eapply eventually_will_step_and; [| |eassumption|apply IHForall]; auto.
+        apply ev_stable_Forall; auto.
+      + simpl. intros. fwd. auto.
   Qed.
 
-  (* The originally-requested lemma is now a trivial corollary: each
-     [might_output] gives, via [might_implies_will], an [eventually will_step]
-     for that single output, all rooted at the same real start; intersect them. *)
-  Lemma will_output_all :
+  Lemma will_output_all outs ns t :
     might_implies_will ->
-    forall outs ns t,
-      star step initial t ns ->
-      allowed (inputs_of t) ->
-      Forall (might_output ns t) outs ->
-      eventually will_step
-        (fun '(_, t') => Forall (fun o => In o (outputs_of t')) outs) (ns, t).
+    star step initial t ns ->
+    allowed (inputs_of t) ->
+    Forall (might_output ns t) outs ->
+    eventually will_step
+      (fun '(_, t') => Forall (fun o => In o (outputs_of t')) outs) (ns, t).
   Proof.
-    intros Hmiw outs ns t Hstar Hallow HF.
+    intros Hmiw Hstar Hallow HF.
     cbv [might_implies_will] in Hmiw.
     eapply eventually_weaken.
     - eapply (eventually_will_step_Forall
-                (fun o => fun '(_, t') => In o (outputs_of t')) outs (ns, t)).
-      + intros o s s' e t0 Hin Hstep.
+                (map (fun o => (fun '(_, t') => In o (outputs_of t'))) outs) (ns, t)).
+      + rewrite Forall_map, Forall_forall. intros o _ s s' e t0 Hin Hstep.
         change (In o (outputs_of (e :: t0))).
         change (e :: t0) with ([e] ++ t0). rewrite outputs_of_app.
         apply in_or_app. right. exact Hin.
-      + eapply Forall_impl; [| exact HF]. intros o Hmo.
+      + rewrite Forall_map. eapply Forall_impl; [| exact HF]. intros o Hmo.
         pose proof (Hmiw t ns o Hstar Hallow Hmo) as HW.
         cbv [will_output] in HW. exact HW.
-    - intros [s' t'] H. exact H.
+    - intros [s' t'] H. rewrite Forall_map in H. exact H.
   Qed.
 
   Context (D : list message -> message -> Prop).
