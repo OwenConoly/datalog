@@ -295,6 +295,76 @@ Section step.
         pose proof (Hmid _ Hmidset) as Hev.
         rewrite <- app_assoc in Hev. exact Hev.
   Qed.
+
+  Definition incl_mod (l1 l2 : list message) : Prop :=
+    forall a,
+      incl a l1 ->
+      consistent a l1 ->
+      exists b,
+        incl b l2 /\ Forall2 equiv a b /\ consistent b l2.
+
+  Lemma incl_mod_refl l : incl_mod l l.
+  Proof.
+    destruct equiv_equiv as [Href _ _].
+    intros a Ha Hc. exists a. split; [exact Ha | split; [| exact Hc]].
+    clear Ha Hc. induction a as [|x xs IH].
+    - constructor.
+    - constructor; [apply Href | exact IH].
+  Qed.
+
+  (* [will_output_equiv]-analogues of [will_implies_might]/[will_output_step]:
+     the target output is only pinned down up to [equiv]. *)
+  Lemma will_equiv_implies_might_equiv s t o :
+    allowed (inputs_of t) ->
+    will_output_equiv s t o ->
+    might_output_equiv s t o.
+  Proof.
+    intros Hall Hwill. unfold will_output_equiv in Hwill.
+    destruct (eventually_will_step_to_star _ s t Hall Hwill)
+      as (s' & tr & Hstar & Hinp & (o' & Hequiv & Hin)).
+    exists o'. split; [exact Hequiv|].
+    exists tr, s'. split; [exact Hstar | split; [exact Hinp | exact Hin]].
+  Qed.
+
+  Lemma will_output_equiv_step s e s' t o :
+    step s e s' ->
+    will_output_equiv s t o ->
+    will_output_equiv s' (e :: t) o.
+  Proof.
+    intros Hstep Hwill.
+    cbv [will_output_equiv] in *.
+    remember (s, t) as st eqn:Est.
+    revert s e s' t Hstep Est.
+    induction Hwill as [[s0 t0] HP | [s0 t0] midset Hcan Hmid IH];
+      intros s_orig e_orig s_new t_orig Hstep [= -> ->].
+    - apply eventually_done. destruct HP as (o' & Heq & Hin).
+      exists o'. split; [exact Heq|]. cbn. apply in_or_app. right. exact Hin.
+    - destruct Hcan as [lbl Hcan].
+      apply eventually_step_cps. exists lbl.
+      intros s_d t_d Hstar_d Hallow_d.
+      assert (Hstar_combined : star step s_orig (t_d ++ [e_orig]) s_d).
+      { eapply star_app; [apply star_one; exact Hstep | exact Hstar_d]. }
+      assert (Hallow_o : allowed (inputs_of ((t_d ++ [e_orig]) ++ t_orig))).
+      { rewrite <- app_assoc. exact Hallow_d. }
+      specialize (Hcan s_d (t_d ++ [e_orig]) Hstar_combined Hallow_o).
+      destruct Hcan as [Hmid_left | (s'' & outs & Hstep_a & Hmidset)].
+      + left. pose proof (Hmid _ Hmid_left) as Hev.
+        rewrite <- app_assoc in Hev. exact Hev.
+      + right. exists s'', outs. split; [exact Hstep_a|].
+        pose proof (Hmid _ Hmidset) as Hev.
+        rewrite <- app_assoc in Hev. exact Hev.
+  Qed.
+
+  Lemma will_output_equiv_star s t' s' t o :
+    star step s t' s' ->
+    will_output_equiv s t o ->
+    will_output_equiv s' (t' ++ t) o.
+  Proof.
+    intros Hstar Hwill. induction Hstar as [ | t0 sa e sb Hstar' IH Hstep].
+    - exact Hwill.
+    - exact (will_output_equiv_step sa e sb (t0 ++ t) o Hstep IH).
+  Qed.
+
   Context (outputs_wf : list message -> Prop).
   Context (initial : state).
 
@@ -314,7 +384,7 @@ Section step.
       allowed (inputs_of t) ->
       In o (outputs_of t) ->
       forall s' t',
-        incl (inputs_of t) (inputs_of t') ->
+        incl_mod (inputs_of t) (inputs_of t') ->
         star step initial t' s' ->
         allowed (inputs_of t') ->
         will_output_equiv s' t' o.
@@ -327,7 +397,20 @@ Section step.
       step ns e ns' ->
       might_output_equiv ns tau o ->
       might_output_equiv ns' (e :: tau) o.
-  Proof. Admitted.
+  Proof.
+    intros Hciw ns tau e ns' o Halt Hstar Hstep Hcan.
+    destruct Hcan as (o' & Hequiv & Hmo).
+    assert (Halt_tau : allowed (inputs_of tau)).
+    { eapply allowed_submultiset; [|exact Halt].
+      exists (inputs_of [e]). change (e :: tau) with ([e] ++ tau).
+      rewrite inputs_of_app. apply Permutation_app_comm. }
+    pose proof (Hciw tau ns o' Hstar Halt_tau Hmo) as Hwill.
+    pose proof (will_output_equiv_step ns e ns' tau o' Hstep Hwill) as Hwill'.
+    pose proof (will_equiv_implies_might_equiv ns' (e :: tau) o' Halt Hwill') as Hmoe.
+    destruct Hmoe as (o'' & Hequiv2 & Hmo'').
+    exists o''. split; [| exact Hmo''].
+    destruct equiv_equiv as [_ _ Htrans]. eapply Htrans; [exact Hequiv2 | exact Hequiv].
+  Qed.
 
   Definition monotone :=
     forall t1 t2 s1 s2 o,
@@ -337,22 +420,6 @@ Section step.
       allowed (inputs_of (t2 ++ t1)) ->
       might_output s1 t1 o ->
       might_output_equiv s2 (t2 ++ t1) o.
-
-  Definition incl_mod (l1 l2 : list message) : Prop :=
-    forall a,
-      incl a l1 ->
-      consistent a l1 ->
-      exists b,
-        incl b l2 /\ Forall2 equiv a b /\ consistent b l2.
-
-  Lemma incl_mod_refl l : incl_mod l l.
-  Proof.
-    destruct equiv_equiv as [Href _ _].
-    intros a Ha Hc. exists a. split; [exact Ha | split; [| exact Hc]].
-    clear Ha Hc. induction a as [|x xs IH].
-    - constructor.
-    - constructor; [apply Href | exact IH].
-  Qed.
 
   Definition monotone_mod_equiv :=
     forall t1 t2 s1 s2 o,
@@ -389,12 +456,53 @@ Section step.
 
   Lemma ciw'_iff_ciw_and_monotone' :
     might_implies_will_equiv' <-> might_implies_will_equiv /\ monotone_mod_equiv.
-  Proof. Admitted.
+  Proof.
+    split.
+    - (* -> *)
+      intros Hciw'. split.
+      + (* might_implies_will_equiv *)
+        intros t s o Hstar Hall Hcan.
+        destruct Hcan as (T_a & s_f & Hstar_a & Hinp_a & Hout).
+        pose proof (star_app _ _ _ _ _ _ Hstar Hstar_a) as Hstar_T.
+        assert (HallT : allowed (inputs_of (T_a ++ t))).
+        { rewrite inputs_of_app, Hinp_a. exact Hall. }
+        apply (Hciw' (T_a ++ t) s_f o Hstar_T HallT Hout s t).
+        * rewrite inputs_of_app, Hinp_a. apply incl_mod_refl.
+        * exact Hstar.
+        * exact Hall.
+      + (* monotone_mod_equiv *)
+        intros t1 t2 s1 s2 o Hstar1 Hstar2 Hall1 Hall2 Hincl Hcan1.
+        destruct Hcan1 as (T_a & s_f & Hstar_a & Hinp_a & Hout).
+        pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar_a) as Hstar_T.
+        assert (HallT : allowed (inputs_of (T_a ++ t1))).
+        { rewrite inputs_of_app, Hinp_a. exact Hall1. }
+        assert (HinclT : incl_mod (inputs_of (T_a ++ t1)) (inputs_of t2)).
+        { rewrite inputs_of_app, Hinp_a. exact Hincl. }
+        pose proof (Hciw' (T_a ++ t1) s_f o Hstar_T HallT Hout s2 t2 HinclT Hstar2 Hall2)
+          as Hwill.
+        exact (will_equiv_implies_might_equiv s2 t2 o Hall2 Hwill).
+    - (* <- *)
+      intros [Hciw Hmono] t s o Hstar Hall Hout s' t' Hincl Hstar' Hall'.
+      assert (Hmst : might_output s t o).
+      { exists [], s. split; [constructor|]. split; [reflexivity|]. cbn. exact Hout. }
+      pose proof (Hmono t t' s s' o Hstar Hstar' Hall Hall' Hincl Hmst) as Hmoe.
+      destruct Hmoe as (o'' & Hequiv & Hmo).
+      pose proof (Hciw t' s' o'' Hstar' Hall' Hmo) as Hwill.
+      unfold will_output_equiv in *.
+      eapply eventually_weaken; [exact Hwill|].
+      intros [sf tf] (w & Heqw & Hinw). exists w. split; [| exact Hinw].
+      destruct equiv_equiv as [_ _ Htrans]. eapply Htrans; [exact Heqw | exact Hequiv].
+  Qed.
 
   Lemma ciw_monotone :
     might_implies_will_equiv ->
     monotone.
-  Proof. Admitted.
+  Proof.
+    intros Hciw t1 t2 s1 s2 o Hstar1 Hstar2 Hall1 Hallt Hcan.
+    pose proof (Hciw t1 s1 o Hstar1 Hall1 Hcan) as Hwill.
+    apply (will_equiv_implies_might_equiv s2 (t2 ++ t1) o Hallt).
+    exact (will_output_equiv_star s1 t2 s2 t1 o Hstar2 Hwill).
+  Qed.
 
   Definition ev_stable (P : state * list (IO_event label message) -> Prop) : Prop :=
     forall s s' e t,
@@ -410,6 +518,14 @@ Section step.
   Proof.
     intros Hst Hstar Hinit. induction Hstar; auto.
     simpl. eapply Hst; eauto.
+  Qed.
+
+  Lemma ev_stable_ex_out (R : message -> Prop) :
+    ev_stable (fun '(_, t') => exists o', R o' /\ In o' (outputs_of t')).
+  Proof.
+    intros s s' e t (o' & HR & Hin) Hstep. exists o'. split; [exact HR|].
+    change (e :: t) with ([e] ++ t). rewrite outputs_of_app.
+    apply in_or_app. right. exact Hin.
   Qed.
 
   Lemma eventually_carry_stable_gen P Q st :
@@ -516,7 +632,24 @@ Section step.
     Forall (might_output_equiv ns t) outs ->
     eventually will_step
       (fun '(_, t') => Forall (fun o => exists o', equiv o o' /\ In o' (outputs_of t')) outs) (ns, t).
-  Proof. Admitted.
+  Proof.
+    intros Hmiw Hstar Hallow HF.
+    eapply eventually_weaken.
+    - eapply (eventually_will_step_Forall
+                (map (fun o => (fun '(_, t') => exists o', equiv o o' /\ In o' (outputs_of t'))) outs)
+                (ns, t)).
+      + rewrite Forall_map, Forall_forall. intros o _.
+        apply (ev_stable_ex_out (fun o' => equiv o o')).
+      + rewrite Forall_map. eapply Forall_impl; [| exact HF]. intros o Hmoe.
+        destruct Hmoe as (o' & Hequiv & Hmo).
+        pose proof (Hmiw t ns o' Hstar Hallow Hmo) as HW.
+        unfold will_output_equiv in HW.
+        eapply eventually_weaken; [exact HW|].
+        intros [sf tf] (w & Heqw & Hinw). exists w. split; [| exact Hinw].
+        destruct equiv_equiv as [_ Hsym Htrans].
+        eapply Htrans; [apply Hsym; exact Hequiv | apply Hsym; exact Heqw].
+    - intros [s' t'] H. rewrite Forall_map in H. exact H.
+  Qed.
 
   Context (D : list message -> message -> Prop).
 
@@ -646,7 +779,7 @@ Section steps_corresp.
 
     Lemma steps_corresp_sound'_implies_sound :
       input_total step2 ->
-      might_implies_will_equiv' step2 equiv allowed initial2 ->
+      might_implies_will_equiv' step2 equiv consistent allowed initial2 ->
       steps_corresp_sound' ->
       steps_corresp_sound.
     Proof.
@@ -654,9 +787,9 @@ Section steps_corresp.
       destruct (star_recv_map step2 Hit2 (inputs_of t2) initial2) as (ns2' & Hstar2').
       assert (Hall' : allowed (inputs_of (map I_event (inputs_of t2) : list IO_event))).
       {  rewrite inputs_of_map_I_event. exact Hall2. }
-      assert (Hincl : incl (inputs_of t2)
+      assert (Hincl : incl_mod equiv consistent (inputs_of t2)
                            (inputs_of (map I_event (inputs_of t2) : list IO_event))).
-      { rewrite inputs_of_map_I_event. apply incl_refl. }
+      { rewrite inputs_of_map_I_event. apply (incl_mod_refl equiv equiv_equiv consistent). }
       pose proof (Hciw2 t2 ns2 o Hstar2 Hall2 Hout2
                        ns2' (map I_event (inputs_of t2)) Hincl Hstar2' Hall') as Hwill.
       exact (Hscs' ns2' (inputs_of t2) o Hstar2' Hall2 Hwill).
