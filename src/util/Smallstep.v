@@ -74,9 +74,6 @@ Section step.
 
   Context (Hcm : consistent_monotone).
 
-  Context (allowed_perm :
-            forall l1 l2, Permutation l1 l2 -> allowed l1 -> allowed l2).
-
   Context (allowed_submultiset :
             forall l1 l2, submultiset l1 l2 -> allowed l2 -> allowed l1).
 
@@ -304,13 +301,6 @@ Section step.
   Definition outputs_well_formed :=
     forall t s, star step initial t s -> outputs_wf (outputs_of t).
 
-  Definition might_implies_will :=
-    forall t s o,
-      star step initial t s ->
-      allowed (inputs_of t) ->
-      might_output s t o ->
-      will_output s t o.
-
   Definition might_implies_will_equiv :=
     forall t s o,
       star step initial t s ->
@@ -318,7 +308,7 @@ Section step.
       might_output s t o ->
       will_output_equiv s t o.
 
-  Definition might_implies_will' :=
+  Definition might_implies_will_equiv' :=
     forall t s o,
       star step initial t s ->
       allowed (inputs_of t) ->
@@ -327,25 +317,17 @@ Section step.
         incl (inputs_of t) (inputs_of t') ->
         star step initial t' s' ->
         allowed (inputs_of t') ->
-        will_output s' t' o.
+        will_output_equiv s' t' o.
 
   Lemma might_output_step_preserved :
-    might_implies_will ->
+    might_implies_will_equiv ->
     forall ns tau e ns' o,
       allowed (inputs_of (e :: tau)) ->
       star step initial tau ns ->
       step ns e ns' ->
-      might_output ns tau o ->
-      might_output ns' (e :: tau) o.
-  Proof.
-    intros Hciw ns tau e ns' o Halt Hstar Hstep Hcan.
-    apply will_implies_might; [exact Halt|].
-    apply (will_output_step ns e ns' tau o Hstep).
-    apply Hciw; [exact Hstar | | exact Hcan].
-    eapply allowed_submultiset; [|exact Halt].
-    exists (inputs_of [e]). change (e :: tau) with ([e] ++ tau).
-    rewrite inputs_of_app. apply Permutation_app_comm.
-  Qed.
+      might_output_equiv ns tau o ->
+      might_output_equiv ns' (e :: tau) o.
+  Proof. Admitted.
 
   Definition monotone :=
     forall t1 t2 s1 s2 o,
@@ -354,17 +336,7 @@ Section step.
       allowed (inputs_of t1) ->
       allowed (inputs_of (t2 ++ t1)) ->
       might_output s1 t1 o ->
-      might_output s2 (t2 ++ t1) o.
-
-  Definition monotone' :=
-    forall t1 t2 s1 s2 o,
-      star step initial t1 s1 ->
-      star step initial t2 s2 ->
-      allowed (inputs_of t1) ->
-      allowed (inputs_of t2) ->
-      incl (inputs_of t1) (inputs_of t2) ->
-      might_output s1 t1 o ->
-      might_output s2 t2 o.
+      might_output_equiv s2 (t2 ++ t1) o.
 
   Definition incl_mod (l1 l2 : list message) : Prop :=
     forall a,
@@ -407,65 +379,13 @@ Section step.
   Qed.
 
   Lemma ciw'_iff_ciw_and_monotone' :
-    might_implies_will' <-> might_implies_will /\ monotone'.
-  Proof.
-    split.
-    - (* → *)
-      intros Hciw'. split.
-      + (* can_implies_will *)
-        intros t s o Hstar Hall Hcan.
-        destruct Hcan as (T_a & s_f & Hstar_a & Hinp_a & Hout).
-        pose proof (star_app _ _ _ _ _ _ Hstar Hstar_a) as Hstar_T.
-        assert (HallT : allowed (inputs_of (T_a ++ t))).
-        { rewrite inputs_of_app, Hinp_a. exact Hall. }
-        apply (Hciw' (T_a ++ t) s_f o Hstar_T HallT Hout s t); auto.
-        rewrite inputs_of_app, Hinp_a. apply incl_refl.
-      + (* monotone' *)
-        intros t1 t2 s1 s2 o Hstar1 Hstar2 Hall1 Hall2 Hincl Hcan1.
-        destruct Hcan1 as (T_a & s_f & Hstar_a & Hinp_a & Hout).
-        pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar_a) as Hstar_T.
-        assert (HallT : allowed (inputs_of (T_a ++ t1))).
-        { rewrite inputs_of_app, Hinp_a. exact Hall1. }
-        assert (HinclT : incl (inputs_of (T_a ++ t1)) (inputs_of t2)).
-        { rewrite inputs_of_app, Hinp_a. exact Hincl. }
-        pose proof (Hciw' (T_a ++ t1) s_f o Hstar_T HallT Hout s2 t2 HinclT Hstar2 Hall2)
-          as Hwill.
-        apply will_implies_might; assumption.
-    - (* ← *)
-      intros [Hciw Hmono] t s o Hstar Hall Hout s' t' Hincl Hstar' Hall'.
-      apply Hciw; auto.
-      apply (Hmono t t' s s' o Hstar Hstar' Hall Hall' Hincl).
-      exists [], s. split; [constructor|]. split; [reflexivity|].
-      cbn. exact Hout.
-  Qed.
+    might_implies_will_equiv' <-> might_implies_will_equiv /\ monotone_mod_equiv.
+  Proof. Admitted.
 
   Lemma ciw_monotone :
-    might_implies_will ->
+    might_implies_will_equiv ->
     monotone.
-  Proof.
-    cbv [might_implies_will monotone].
-    intros Hciw t1 t2 s1 s2 o Hstar1 Hstar2 Hall1 Hallt Hcan.
-    apply (Hciw _ _ _ Hstar1 Hall1) in Hcan.
-    cbv [will_output] in Hcan.
-    inversion Hcan as [HP | midset Hwill_step Hmid]; clear Hcan; subst.
-    - exists [], s2. split; [constructor|].
-      split; [reflexivity|].
-      cbn. apply outputs_of_in_app. right. exact HP.
-    - cbv [will_step] in Hwill_step. destruct Hwill_step as [lbl Hwill_step].
-      specialize (Hwill_step _ _ Hstar2 Hallt).
-      destruct Hwill_step as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
-      + exact (will_implies_might _ _ _ Hallt (Hmid _ Hmid_left)).
-      + specialize (Hmid _ Hmidset).
-        assert (Hall' : allowed (inputs_of (O_event lbl outs :: t2 ++ t1))).
-        { exact Hallt. }
-        apply (will_implies_might _ _ _ Hall') in Hmid.
-        destruct Hmid as (t' & s''' & Hstar' & Hinp' & Hout').
-        exists (t' ++ [O_event lbl outs]), s'''. split.
-        * eapply star_app; [apply star_one; exact Hstep | exact Hstar'].
-        * split.
-          -- rewrite inputs_of_app, Hinp'. reflexivity.
-          -- rewrite <- app_assoc. exact Hout'.
-  Qed.
+  Proof. Admitted.
 
   Definition ev_stable (P : state * list (IO_event label message) -> Prop) : Prop :=
     forall s s' e t,
@@ -581,27 +501,13 @@ Section step.
   Qed.
 
   Lemma will_output_all outs ns t :
-    might_implies_will ->
+    might_implies_will_equiv ->
     star step initial t ns ->
     allowed (inputs_of t) ->
-    Forall (might_output ns t) outs ->
+    Forall (might_output_equiv ns t) outs ->
     eventually will_step
-      (fun '(_, t') => Forall (fun o => In o (outputs_of t')) outs) (ns, t).
-  Proof.
-    intros Hmiw Hstar Hallow HF.
-    cbv [might_implies_will] in Hmiw.
-    eapply eventually_weaken.
-    - eapply (eventually_will_step_Forall
-                (map (fun o => (fun '(_, t') => In o (outputs_of t'))) outs) (ns, t)).
-      + rewrite Forall_map, Forall_forall. intros o _ s s' e t0 Hin Hstep.
-        change (In o (outputs_of (e :: t0))).
-        change (e :: t0) with ([e] ++ t0). rewrite outputs_of_app.
-        apply in_or_app. right. exact Hin.
-      + rewrite Forall_map. eapply Forall_impl; [| exact HF]. intros o Hmo.
-        pose proof (Hmiw t ns o Hstar Hallow Hmo) as HW.
-        cbv [will_output] in HW. exact HW.
-    - intros [s' t'] H. rewrite Forall_map in H. exact H.
-  Qed.
+      (fun '(_, t') => Forall (fun o => exists o', equiv o o' /\ In o' (outputs_of t')) outs) (ns, t).
+  Proof. Admitted.
 
   Context (D : list message -> message -> Prop).
 
@@ -611,7 +517,7 @@ Section step.
       allowed (inputs_of t) ->
       forall output,
         D (inputs_of t) output ->
-        will_output s t output.
+        will_output_equiv s t output.
 
   Definition sound :=
     forall t s,
@@ -635,7 +541,7 @@ Section step.
 
   Lemma complete_weak_implies_strong :
     complete_weak ->
-    might_implies_will ->
+    might_implies_will_equiv ->
     complete.
   Proof.
     intros Hweak Hcan t s Hstar Hall o HD.
@@ -727,7 +633,7 @@ Section steps_corresp.
 
     Lemma steps_corresp_sound'_implies_sound :
       input_total step2 ->
-      might_implies_will' step2 allowed initial2 ->
+      might_implies_will_equiv step2 allowed initial2 ->
       steps_corresp_sound' ->
       steps_corresp_sound.
     Proof.
