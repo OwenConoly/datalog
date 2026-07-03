@@ -255,16 +255,11 @@ Section __.
         (gs, gt).
     Proof.
       intros Hinit Hinp Hnp Hns Heven.
-      remember (ns, t) as bns eqn:E. clear ns t E.
-      induction Heven.
-      { eauto. }
+      revert gs gt Hinit Hinp Hns.
+      induction Heven; intros gs gt Hinit Hinp Hns; eauto.
       eapply eventually_step.
-      { cbv [graph_will_step will_step].
-        cbv [will_step] in H. destruct initial as [s t].
-      Search eventually.
-      Print eventually.
-      destruct initial. eauto.
-
+      { destruct initial. eapply graph_will_step_of_node_will_step; eauto. }
+      simpl. intros [? ?] ?. fwd. eapply H1; eauto. 2: admit.
     Admitted.
 
     Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
@@ -276,7 +271,7 @@ Section __.
       le gs1 gs2 ->
       eventually graph_will_step (fun '(gs2', t2') => le gs1' gs2') (gs2, t2).
     Proof.
-      intros H1 H2 H3 H4 Hstep [Hle1 Hle2]. Print node_good. invert Hstep.
+      intros H1 H2 H3 H4 Hstep [Hle1 Hle2]. invert Hstep.
       - epose proof Forall2_map_get_l as H. especialize H; eauto.
         destruct H as [[ns2 tn2] [Hns2 Hincl]].
 
@@ -299,10 +294,17 @@ Section __.
           - reflexivity.
           - simpl. auto. }
 
-        Search  Forall might_output_equiv.
         eapply will_output_all in Hmo; try eassumption. 2: admit.
+        eapply graph_eventually_of_node_eventually in Hmo; eauto.
 
+        eapply eventually_weaken; [eassumption|].
+        intros [? ?] ?. fwd. admit.
+      - rewrite H10 in Hle2. apply Forall_app in Hle2. fwd.
+        destruct Hle2p1p0 as [Hle_case1|Hle_case2].
+        +
 
+        admit.
+        map_func. csimpl.
         Print eventually.
         Search will_step.
 
