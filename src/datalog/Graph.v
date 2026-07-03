@@ -214,6 +214,59 @@ Section __.
       simpl. do 2 rewrite app_nil_r. eauto.
     Qed.
 
+    Hint Constructors eventually : core.
+    Hint Constructors graph_step : core.
+
+    Lemma graph_will_step_of_node_will_step n np P gs gt ns t :
+      star gstep initial_graph_state gt gs ->
+      graph_inputs_allowed (inputs_of gt) ->
+      map.get p n = Some np ->
+      map.get gs.(g_nodes) n = Some (ns, t) ->
+      will_step (node_step np) allowed (ns, t) P ->
+      graph_will_step
+        (gs, gt)
+        (fun '(gs', _) =>
+           exists bns',
+             map.get gs'.(g_nodes) n = Some bns' /\ P bns').
+    Proof.
+      intros Hinit Hinp Hnp Hns Hstep.
+      cbv [graph_will_step will_step].
+      cbv [will_step] in Hstep. fwd.
+      eexists. intros s' t' Hsteps Hinps.
+      eapply graph_step_to_node_step in Hsteps. 2: admit.
+      eapply Forall3_map_get_l in Hsteps; eauto. fwd. map_func.
+      destruct v3 as [? ?]. fwd.
+      especialize Hstep; eauto. 1: admit.
+      destruct Hstep as [Hstep|Hstep]; fwd; eauto.
+      right. do 2 eexists. split; eauto. simpl. eexists (_, _).
+      rewrite map.get_put_same. eauto.
+    Admitted.
+
+    Lemma graph_eventually_of_node_eventually n np P gs gt ns t :
+      star gstep initial_graph_state gt gs ->
+      graph_inputs_allowed (inputs_of gt) ->
+      map.get p n = Some np ->
+      map.get gs.(g_nodes) n = Some (ns, t) ->
+      eventually (will_step (node_step np) allowed) P (ns, t) ->
+      eventually graph_will_step
+        (fun '(gs', _) =>
+           exists bns',
+             map.get gs'.(g_nodes) n = Some bns' /\ P bns')
+        (gs, gt).
+    Proof.
+      intros Hinit Hinp Hnp Hns Heven.
+      remember (ns, t) as bns eqn:E. clear ns t E.
+      induction Heven.
+      { eauto. }
+      eapply eventually_step.
+      { cbv [graph_will_step will_step].
+        cbv [will_step] in H. destruct initial as [s t].
+      Search eventually.
+      Print eventually.
+      destruct initial. eauto.
+
+    Admitted.
+
     Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
       star gstep initial_graph_state t1 gs1 ->
       star gstep initial_graph_state t2 gs2 ->
@@ -246,6 +299,12 @@ Section __.
           - reflexivity.
           - simpl. auto. }
 
+        Search  Forall might_output_equiv.
+        eapply will_output_all in Hmo; try eassumption. 2: admit.
+
+
+        Print eventually.
+        Search will_step.
 
         might_implies_will_equiv (node_step np) equiv allowed n2
         cbv [monotone_mod_equiv] in H'p1p1.
