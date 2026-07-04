@@ -12,6 +12,19 @@ Section Maps.
   Context {value4 : Type} {mp4 : map.map key value4} {mp4_ok : map.ok mp4}.
   Context {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb}.
 
+  Definition Forall_map (R : key -> value1 -> Prop) (m : mp1) : Prop :=
+    forall k v, map.get m k = Some v -> R k v.
+
+  Lemma Forall_map_put R (m : mp1) k v :
+    Forall_map (fun k' w => k <> k' -> R k' w) m ->
+    R k v ->
+    Forall_map R (map.put m k v).
+  Proof.
+    intros H HR k0 v0 Hget. rewrite map.get_put_dec in Hget. destr (eqb k k0).
+    - injection Hget as Hv. subst. exact HR.
+    - apply H; assumption.
+  Qed.
+
   Definition Forall2_map (R : key -> value1 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) : Prop :=
     forall k,
       match map.get m1 k, map.get m2 k with
@@ -203,6 +216,16 @@ Section Maps.
       | _, _, _, _ => False
       end.
 End Maps.
+
+Lemma Forall2_map_dup {key value} {mp : map.map key value}
+  (R : key -> value -> value -> Prop) (m : mp) :
+  Forall_map (fun k v => R k v v) m ->
+  Forall2_map R m m.
+Proof.
+  intros H k. destruct (map.get m k) as [v|] eqn:E.
+  - exact (H k v E).
+  - exact I.
+Qed.
 
 Lemma Forall3_map_dup_23 {key value1 value2}
   {mp1 : map.map key value1} {mp2 : map.map key value2}
