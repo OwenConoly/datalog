@@ -181,26 +181,26 @@ Section __.
           -- simpl. eexists (_ :: _). ssplit; eauto.
              ++ reflexivity.
              ++ simpl. intros o Ho1 Ho2. apply in_app_iff in Ho2. destruct Ho2; eauto.
-        + simpl. epose proof Forall2_map_get_l as H'.
-          especialize H'; eauto. fwd. map_func. destruct v2. fwd.
-          eapply Forall3_map_put_r; try eassumption.
-          -- eapply Forall3_map_impl; [eassumption|]. simpl.
-             intros ? ? [? ?] [? ?] ?. fwd. eauto 7.
+        + simpl. epose proof Forall2_map_get_r as H'.
+          especialize H'; eauto. fwd. destruct v1. fwd.
+          eapply Forall2_map_put_r; try eassumption.
+          -- eapply Forall2_map_impl; [eassumption|]. simpl.
+             intros ? [? ?] [? ?] ?. fwd. eauto 7.
           -- simpl. eexists (_ :: _). ssplit; eauto. reflexivity.
     Qed.
 
     Lemma graph_step_to_node_step_from_beginning gs gt :
       star gstep initial_graph_state gt gs ->
-      Forall3_map (fun n np '(ns0, _) '(ns, t) =>
-                     star (node_step np) ns0 t ns /\
+      Forall2_map (fun n '(ns0, _) '(ns, t) =>
+                     star node_step ns0 t ns /\
                        (forall o, output_visible n o = true ->
                              In o (outputs_of t) -> In (o, n) (outputs_of gt)))
-        p initial_graph_state.(g_nodes) gs.(g_nodes).
+        initial_graph_state.(g_nodes) gs.(g_nodes).
     Proof.
-      intros. eapply Forall3_map_impl_strong.
-      { apply graph_step_to_node_step; eauto. simpl. eapply Forall2_map_impl; eauto. }
-      simpl. intros ? ? [? ?] [? ?] H1 H2 H3 ?. fwd. rewrite outputs_of_app.
-      apply initial_ns_empty in H2. simpl in H2. subst.
+      intros. eapply Forall2_map_impl_strong.
+      { apply graph_step_to_node_step; eauto. }
+      simpl. intros ? [? ?] [? ?] H1 H2 ?. fwd. rewrite outputs_of_app.
+      apply initial_ns_empty in H1. simpl in H1. subst.
       simpl. do 2 rewrite app_nil_r. eauto.
     Qed.
 
@@ -209,25 +209,24 @@ Section __.
 
     Print might_implies_will_equiv.
 
-    Lemma graph_will_step_of_node_will_step n np P gs gt ns t :
+    Lemma graph_will_step_of_node_will_step n P gs gt ns t :
       star gstep initial_graph_state gt gs ->
       graph_inputs_allowed (inputs_of gt) ->
-      map.get p n = Some np ->
       map.get gs.(g_nodes) n = Some (ns, t) ->
-      will_step (node_step np) allowed (ns, t) P ->
+      will_step node_step allowed (ns, t) P ->
       graph_will_step
         (gs, gt)
         (fun '(gs', _) =>
            exists bns',
              map.get gs'.(g_nodes) n = Some bns' /\ P bns').
     Proof.
-      intros Hinit Hinp Hnp Hns Hstep.
+      intros Hinit Hinp Hns Hstep.
       cbv [graph_will_step will_step].
       cbv [will_step] in Hstep. fwd.
       eexists. intros s' t' Hsteps Hinps.
-      eapply graph_step_to_node_step in Hsteps. 2: admit.
-      eapply Forall3_map_get_l in Hsteps; eauto. fwd. map_func.
-      destruct v3 as [? ?]. fwd.
+      eapply graph_step_to_node_step in Hsteps.
+      eapply Forall2_map_get_l in Hsteps; eauto.
+      destruct Hsteps as ([? ?] & ? & ?). fwd.
       especialize Hstep; eauto. 1: admit.
       destruct Hstep as [Hstep|Hstep]; fwd; eauto.
       right. do 2 eexists. split; eauto. simpl. eexists (_, _).
@@ -235,19 +234,18 @@ Section __.
     Admitted.
 
     (*TODO replace stuff about initial_graph_state with hypotheses just about gs*)
-    Lemma graph_eventually_of_node_eventually n np P gs gt ns t :
+    Lemma graph_eventually_of_node_eventually n P gs gt ns t :
       star gstep initial_graph_state gt gs ->
       graph_inputs_allowed (inputs_of gt) ->
-      map.get p n = Some np ->
       map.get gs.(g_nodes) n = Some (ns, t) ->
-      eventually (will_step (node_step np) allowed) P (ns, t) ->
+      eventually (will_step node_step allowed) P (ns, t) ->
       eventually graph_will_step
         (fun '(gs', _) =>
            exists bns',
              map.get gs'.(g_nodes) n = Some bns' /\ P bns')
         (gs, gt).
     Proof.
-      intros Hinit Hinp Hnp Hns Heven.
+      intros Hinit Hinp Hns Heven.
       revert gs gt Hinit Hinp Hns.
       induction Heven; intros gs gt Hinit Hinp Hns; eauto.
       eapply eventually_step.
@@ -284,7 +282,7 @@ Section __.
       In (n, m) gs'.(g_messages) \/ node_received gs' n m.
     Proof.
       intros H. invert 1; simpl in *; eauto.
-      rewrite H4 in H. rewrite in_app_iff in H. simpl in H.
+      rewrite H3 in H. rewrite in_app_iff in H. simpl in H.
       rewrite in_app_iff. destruct H as [H|[H|H]]; auto. fwd.
       cbv [node_received]. simpl.
       right. rewrite map.get_put_dec. destr_sth Nat.eqb; try congruence.
@@ -301,8 +299,8 @@ Section __.
     Qed.
 
     Definition good_state (gs : @graph_state node_state _) :=
-      same_domain p gs.(g_nodes) /\
-      Forall (fun '(n, _) => map.get p n <> None) gs.(g_messages).
+      same_domain initial_ns gs.(g_nodes) /\
+      Forall (fun '(n, _) => map.get initial_ns n <> None) gs.(g_messages).
 
     Lemma node_will_receive n m gs gt :
       good_state gs ->
