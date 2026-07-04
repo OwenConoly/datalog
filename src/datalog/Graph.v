@@ -3,7 +3,7 @@ From coqutil Require Import Map.Properties.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From Stdlib Require Import List PeanoNat Permutation.
 From Stdlib Require Import RelationClasses.
-From Datalog Require Import Smallstep Map.
+From Datalog Require Import OmniSmallstep Smallstep Map.
 Import ListNotations.
 
 Definition node_id := nat.
@@ -217,6 +217,8 @@ Section __.
     Hint Constructors eventually : core.
     Hint Constructors graph_step : core.
 
+    Print might_implies_will_equiv.
+
     Lemma graph_will_step_of_node_will_step n np P gs gt ns t :
       star gstep initial_graph_state gt gs ->
       graph_inputs_allowed (inputs_of gt) ->
@@ -266,13 +268,65 @@ Section __.
     Definition node_received (gs : @graph_state node_state _) n m :=
       exists ns t, map.get gs.(g_nodes) n = Some (ns, t) /\ In m (inputs_of t).
 
-    Lemma node_will_receive n m gs gt :
-      star gstep initial_graph_state gt gs ->
-      graph_inputs_allowed (inputs_of gt) ->
-      In (n, m) gs.(g_messages) ->
-      eventually graph_will_step (fun '(gs', _) => node_received gs' n m) (gs, gt).
+    Ltac inv_gstep :=
+      match goal with
+      | H: gstep _ _ _ |- _ => invert H; simpl in *
+      end.
+
+    Hint Extern 5 (In _ _) => simpl : core.
+    Lemma node_received_stable_step gs e gs' n m :
+      node_received gs n m ->
+      gstep gs e gs' ->
+      node_received gs' n m.
     Proof.
-      intros Hgs
+      invert 2; simpl in *; eauto.
+      - cbv [node_received]. simpl. rewrite map.get_put_dec.
+        destr_sth Nat.eqb; eauto.
+        cbv [node_received] in *. fwd. map_func. eauto.
+      - cbv [node_received]. simpl. rewrite map.get_put_dec.
+        destr_sth Nat.eqb; eauto.
+        cbv [node_received] in *. fwd. map_func. eauto 6.
+    Qed.
+
+    Lemma message_stable_step gs e gs' n m :
+      In (n, m) gs.(g_messages) ->
+      gstep gs e gs' ->
+      In (n, m) gs'.(g_messages) \/ node_received gs' n m.
+    Proof.
+      intros H. invert 1; simpl in *; eauto.
+      rewrite H4 in H. rewrite in_app_iff in H. simpl in H.
+      rewrite in_app_iff. destruct H as [H|[H|H]]; auto. fwd.
+      cbv [node_received]. simpl.
+      right. rewrite map.get_put_dec. destr_sth Nat.eqb; try congruence.
+      eauto 6.
+    Qed.
+
+    Lemma message_stable_steps gs gt gs' n m :
+      In (n, m) gs.(g_messages) ->
+      star gstep gs gt gs' ->
+      In (n, m) gs'.(g_messages) \/ node_received gs' n m.
+    Proof.
+      induction 2; eauto.
+      destruct IHstar; eauto using message_stable_step, node_received_stable_step.
+    Qed.
+
+    Definition good_state (gs : @graph_state node_state _) :=
+      same_domain p gs.(g_nodes) /\
+      Forall (fun '(n, _) => map.get p n <> None) gs.(g_messages).
+
+    Lemma node_will_receive n m gs gt :
+      good_state gs ->
+      In (n, m) gs.(g_messages) ->
+      graph_will_step (gs, gt) (fun '(gs', _) => node_received gs' n m).
+    Proof.
+      intros Hd H.
+      cbv [graph_will_step will_step].
+      eexists. intros s' t' Hs' Ht'.
+      eapply message_stable_steps in Hs'; eauto.
+      destruct Hs' as [Hs'|Hs']; auto.
+      apply in_split in Hs'. fwd.
+      right. do 2 eexists. split.
+      { admit.
 
     Admitted.
 

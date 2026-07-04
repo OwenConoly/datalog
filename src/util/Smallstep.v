@@ -371,6 +371,11 @@ Section step.
   Definition outputs_well_formed :=
     forall t s, star step initial t s -> outputs_wf (outputs_of t).
 
+  Definition might_implies_will_equiv_at s t :=
+    forall o,
+      might_output s t o ->
+      will_output_equiv s t o.
+
   Definition might_implies_will_equiv :=
     forall t s o,
       star step initial t s ->
