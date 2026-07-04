@@ -242,6 +242,7 @@ Section __.
       rewrite map.get_put_same. eauto.
     Admitted.
 
+    (*TODO replace stuff about initial_graph_state with hypotheses just about gs*)
     Lemma graph_eventually_of_node_eventually n np P gs gt ns t :
       star gstep initial_graph_state gt gs ->
       graph_inputs_allowed (inputs_of gt) ->
@@ -260,6 +261,19 @@ Section __.
       eapply eventually_step.
       { destruct initial. eapply graph_will_step_of_node_will_step; eauto. }
       simpl. intros [? ?] ?. fwd. eapply H1; eauto. 2: admit.
+    Admitted.
+
+    Definition node_received (gs : @graph_state node_state _) n m :=
+      exists ns t, map.get gs.(g_nodes) n = Some (ns, t) /\ In m (inputs_of t).
+
+    Lemma node_will_receive n m gs gt :
+      star gstep initial_graph_state gt gs ->
+      graph_inputs_allowed (inputs_of gt) ->
+      In (n, m) gs.(g_messages) ->
+      eventually graph_will_step (fun '(gs', _) => node_received gs' n m) (gs, gt).
+    Proof.
+      intros Hgs
+
     Admitted.
 
     Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
@@ -410,10 +424,6 @@ Section __.
 
     (* With traces stored in the state, "node n has received message mu" is simply:
        mu appears in the inputs of n's stored trace. *)
-    Definition node_received (gs : @graph_state node_state node_states)
-        (n : node_id) (mu : message) : Prop :=
-      exists ns t, map.get gs.(g_nodes) n = Some (ns, t) /\ In mu (inputs_of t).
-
     (* Lift a node-level will_output for node n to a graph-level will_output,
        provided o is visible from n and the graph's node n is at the right state. *)
 
