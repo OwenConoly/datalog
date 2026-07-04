@@ -66,11 +66,9 @@ Section __.
   Context (Hcim : consistent_monotone consistent_inputs allowed).
 
   Section graph.
-    Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
     Context {node_state : Type}
             {node_states : map.map node_id (node_state * list IO_event)}.
-    Context (p : graph_prog).
-    Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
+    Context (node_step : node_state -> IO_event -> node_state -> Prop).
 
     Record graph_state :=
       { g_nodes : node_states;
@@ -82,19 +80,17 @@ Section __.
       graph_step gs (I_event (m, n))
                  {| g_nodes := gs.(g_nodes);
                    g_messages := (n, m) :: gs.(g_messages) |}
-    | gstep_run gs n np ns t ns' lbl outs :
-      map.get p n = Some np ->
+    | gstep_run gs n ns t ns' lbl outs :
       map.get gs.(g_nodes) n = Some (ns, t) ->
-      node_step np ns (O_event lbl outs) ns' ->
+      node_step ns (O_event lbl outs) ns' ->
       graph_step gs (O_event (run n lbl) (map (fun m => (m, n)) (filter (output_visible n) outs)))
                  {| g_nodes := map.put gs.(g_nodes) n (ns', O_event lbl outs :: t);
                    g_messages := gs.(g_messages) ++
                                       flat_map (fun m => map (fun n' => (n', m)) (forward n m))
                                       outs |}
-    | gstep_receive gs n np ns t ns' m ms1 ms2 :
-      map.get p n = Some np ->
+    | gstep_receive gs n ns t ns' m ms1 ms2 :
       map.get gs.(g_nodes) n = Some (ns, t) ->
-      node_step np ns (I_event m) ns' ->
+      node_step ns (I_event m) ns' ->
       gs.(g_messages) = ms1 ++ (n, m) :: ms2 ->
       graph_step gs (O_event (receive n m) [])
                  {| g_nodes := map.put gs.(g_nodes) n (ns', I_event m :: t);
@@ -102,30 +98,26 @@ Section __.
   End graph.
 
   Section graph.
-    Context {node_prog : Type} {graph_prog : map.map node_id node_prog}.
     Context {node_state : Type}
             {node_states : map.map node_id (node_state * list IO_event)}.
     Context {node_states_ok : map.ok node_states}.
-    Context {graph_prog_ok : map.ok graph_prog}.
-    Context (p : graph_prog) (initial_ns : node_states).
+    Context (initial_ns : node_states).
     Context (initial_ns_empty :
                forall n x, map.get initial_ns n = Some x -> snd x = []).
-    Context (node_step : node_prog -> node_state -> IO_event -> node_state -> Prop).
-    Context (nodes_input_total :
-               forall n np, map.get p n = Some np -> input_total (node_step np)).
+    Context (node_step : node_state -> IO_event -> node_state -> Prop).
+    Context (nodes_input_total : input_total node_step).
 
     Definition initial_graph_state : graph_state :=
       {| g_nodes := initial_ns; g_messages := [] |}.
 
-    Local Notation gstep := (graph_step p node_step).
+    Local Notation gstep := (graph_step node_step).
 
-    Definition node_good (n : node_id) (np : node_prog) : node_state * list IO_event -> Prop :=
+    Definition node_good (n : node_id) : node_state * list IO_event -> Prop :=
       fun '(ns, _) =>
-        outputs_well_formed    (node_step np) (consistent_output n) ns /\
-        monotone_mod_equiv     (node_step np) equiv consistent allowed ns /\
-        might_implies_will_equiv (node_step np) equiv allowed ns.
+        outputs_well_formed    node_step (consistent_output n) ns /\
+        monotone_mod_equiv     node_step equiv consistent allowed ns /\
+        might_implies_will_equiv node_step equiv allowed ns.
 
-    Print graph_state.
     Definition le (g1 g2 : @graph_state node_state _) :=
       Forall2_map (fun n '(s1, t1) '(s2, t2) =>
                      incl_mod equiv consistent (inputs_of t1) (inputs_of t2)
@@ -140,12 +132,12 @@ Section __.
           )
           g1.(g_messages).
 
-    Let graph_will_step := (will_step (graph_step p node_step) graph_inputs_allowed).
+    Let graph_will_step := (will_step (graph_step node_step) graph_inputs_allowed).
 
     From Datalog Require Import Tactics.
     From coqutil Require Import Tactics Tactics.fwd.
 
-    Context (nodes_good : Forall2_map node_good p initial_ns).
+    Context (nodes_good : Forall_map node_good initial_ns).
 
     Ltac map_func :=
       repeat match goal with
@@ -167,31 +159,29 @@ Section __.
     Hint Constructors star : core.
     Hint Resolve in_or_app impl_in_map impl_in_filter : core.
     Lemma graph_step_to_node_step gs gt gs' :
-      same_domain p gs.(g_nodes) ->
       star gstep gs gt gs' ->
-      Forall3_map (fun n np '(ns, t) '(ns', t') =>
+      Forall2_map (fun n '(ns, t) '(ns', t') =>
                      exists t'',
                        t' = t'' ++ t /\
-                         star (node_step np) ns t'' ns' /\
+                         star node_step ns t'' ns' /\
                          (forall o, output_visible n o = true ->
                                In o (outputs_of t'') ->
                                In (o, n) (outputs_of gt)))
-        p gs.(g_nodes) gs'.(g_nodes).
+        gs.(g_nodes) gs'.(g_nodes).
     Proof.
-      intros Hd. induction 1.
-      - apply Forall3_map_dup_23. eapply Forall2_map_impl; [eassumption|].
-        simpl. intros ? ? [? ?] ?. exists []. eauto.
+      induction 1.
+      - apply Forall2_map_dup. intros ? [? ?] _. exists []. eauto.
       - invert H0.
         + simpl. assumption.
-        + simpl. epose proof Forall3_map_get_l as H'.
-          especialize H'; eauto. fwd. map_func. destruct v2. fwd.
-          eapply Forall3_map_put_r; try eassumption.
-          -- eapply Forall3_map_impl; [eassumption|]. simpl.
-             intros ? ? [? ?] [? ?] ?. fwd. eauto 7.
+        + simpl. epose proof Forall2_map_get_r as H'.
+          especialize H'; eauto. fwd. destruct v1. fwd.
+          eapply Forall2_map_put_r; try eassumption.
+          -- eapply Forall2_map_impl; [eassumption|]. simpl.
+             intros ? [? ?] [? ?] ?. fwd. eauto 7.
           -- simpl. eexists (_ :: _). ssplit; eauto.
              ++ reflexivity.
              ++ simpl. intros o Ho1 Ho2. apply in_app_iff in Ho2. destruct Ho2; eauto.
-        + simpl. epose proof Forall3_map_get_l as H'.
+        + simpl. epose proof Forall2_map_get_l as H'.
           especialize H'; eauto. fwd. map_func. destruct v2. fwd.
           eapply Forall3_map_put_r; try eassumption.
           -- eapply Forall3_map_impl; [eassumption|]. simpl.
