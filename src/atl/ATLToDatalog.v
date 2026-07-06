@@ -37,13 +37,11 @@ Check IZR. (*the inclusion Z -> R*)
 Definition example_pATLexpr {var} : pATLexpr var 1 :=
   Gen (ZZ_of_nat 0) (ZZ_of_nat 10)
     (fun i => SIZR (ZVar i)).
-
 (*TODO fill these in*)
-Axiom (lvar : Type).
-Axiom (exprvar : Type).
-Axiom (fn : Type).
+Definition lvar := string.
+Definition exprvar := string.
+Definition fn := string.
 Axiom (aggregator : Type).
-Local Notation blocks_prog := (blocks_prog lvar exprvar fn aggregator).
 
 Definition var_of (var : Type) (t : type) : Type :=
   match t with
@@ -52,19 +50,99 @@ Definition var_of (var : Type) (t : type) : Type :=
   | tensor_n _ => var
   end.
 
-Definition lower_pATLexpr {var n} (e : pATLexpr (var_of var) n) : blocks_prog var.
-  (*TODO: write compiler *)
-Admitted.
 
+Local Notation blocks_prog := (blocks_prog lvar exprvar fn aggregator).
 
+Definition str_nat := map.map string nat.
+Section __.
+Context {str_nat : map.map string nat} {str_nat_ok : map.ok str_nat}.
 
+Local Notation block_rule := (@Datalog.Blocks.block_rule lvar exprvar fn aggregator).
+Local Notation block_rel := (@Blocks.block_rel lvar).
 
+Fixpoint lower_pZexpr (e : pZexpr nat) : expr string string :=
+  match e with
+  | ZBop op x y =>
+    match op with
+    | ZTimes => fun_expr "ZTimes" [lower_pZexpr x; lower_pZexpr y]
+    | ZPlus => fun_expr "ZPlus" [lower_pZexpr x; lower_pZexpr y]
+    | ZDivf => fun_expr "ZDivf" [lower_pZexpr x; lower_pZexpr y]
+    | ZDivc => fun_expr "ZDivc" [lower_pZexpr x; lower_pZexpr y]
+    | ZMinus => fun_expr "ZMinus" [lower_pZexpr x; lower_pZexpr y]
+    | ZMod => fun_expr "ZMod" [lower_pZexpr x; lower_pZexpr y]
+    end
+  | ZVar x => var_expr (NatToString.nat_to_string x)
+  | ZZ0 => fun_expr "ZZ0" []
+  | ZZpos p => fun_expr "ZZpos" [var_expr (NatToString.nat_to_string (Pos.to_nat p))]
+  | ZZneg p => fun_expr "ZZneg" [var_expr (("-" ++ NatToString.nat_to_string (Pos.to_nat p))%string)]
+  | ZZ_of_nat n => fun_expr "ZZnat" [var_expr (NatToString.nat_to_string n)]
+  | ZZopp x => fun_expr "ZZopp" [lower_pZexpr x]
+end.
 
+Fixpoint lower_pSexpr {var} (idxs0 : list string) (def_depth : str_nat) (next_varname : string) (e : pATLexpr (var_of var) 0) :
+    expr exprvar fn (*value of expr*) * 
+    list (clause block_rel exprvar fn) (*hypotheses*) * 
+    string (*next varname*) :=
+  match e as e' in pATLexpr _ _
+        return expr exprvar fn * list (clause block_rel exprvar fn) * string with
+  | Get x idxs => (fun_expr "garbage" [], nil, next_varname)
+    (* not actually possible because x is of type pATLexpr (var_of var) n, so it's not a scalar, and then has to be compiled
+    let '(x_prog) := lower_pATLexpr x in *)
+  | SBop o x y => 
+    let '(e1, hyps1, next_varname) := lower_pSexpr idxs0 def_depth next_varname x in
+    let '(e2, hyps2, next_varname) := lower_pSexpr idxs0 def_depth next_varname y in
+    match o with
+    | Mul => (fun_expr "fn_SMul" [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
+    | Add => (fun_expr "fn_SAdd" [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
+    | Div => (fun_expr "fn_SDiv" [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
+    | Sub => (fun_expr "fn_SSub" [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
+    end
+  | SIZR x => (fun_expr "fn_SLit" [lower_pZexpr x], [], next_varname)
+  | _ => (fun_expr "garbage" [], nil, next_varname)
+end.
 
-
-
-
-
+Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var_of var) n) : blocks_prog var :=
+  match e with
+  | Gen lo hi body => Block "out" [] []
+  | Sum lo hi body => Block "tbd" [] []
+  | Guard b e1 => Block "out" [] []
+  | Lbind x f =>
+    LetIn (lower_pATLexpr x) (fun val =>
+      lower_pATLexpr (f val))
+  | Concat x y => Block "out" [] []
+  | Flatten x => Block "out" [] []
+  | Split k x => Block "out" [] []
+  | Transpose x => Block "out" [] []
+  | Truncr k x => Block "out" [] []
+  | Truncl k x => Block "out" [] []
+  | Padr k x => Block "out" [] []
+  | Padl k x => Block "out" [] []
+  | Var x => Block "out" [] []
+  | Get var idxs => 
+  (*probably very wrong.... didn't work in lower_pSexpr since x can have an dimension; also, couldn't figure out how to get value of n from def_depth cause x is a var, not a string*)
+    LetIn (lower_pATLexpr var) (fun val => 
+    Block "Get" [("x_input", val)] 
+    [normal_rule [{| clause_rel := local "idxs rules"; clause_args := (map lower_pZexpr idxs) |}] []])
+  | SBop o x y => 
+    let '(x', hypsX, next_x) := lower_pSexpr [] map.empty "x" (x) in
+      let '(y', hypsY, next_y) := lower_pSexpr [] map.empty "y" (y) in  
+        match o with
+        | Mul => Block "sbop_out" [] 
+          [normal_rule [{| clause_rel := local "sbop_out"; 
+          clause_args := [fun_expr "fn_SMul" [x'; y']] |}] (hypsX ++ hypsY)]
+        | Div =>  Block "sbop_out" [] 
+          [normal_rule [{| clause_rel := local "sbop_out"; 
+          clause_args := [fun_expr "fn_SDiv" [x'; y']] |}] (hypsX ++ hypsY)]
+        | Add => Block "sbop_out" [] 
+          [normal_rule [{| clause_rel := local "sbop_out"; 
+          clause_args := [fun_expr "fn_SAdd" [x'; y']] |}] (hypsX ++ hypsY)]
+        | Sub => Block "sbop_out" [] 
+          [normal_rule [{| clause_rel := local "sbop_out"; 
+          clause_args := [fun_expr "fn_SSub" [x'; y']] |}] (hypsX ++ hypsY)]
+        end
+  | SIZR x => 
+    Block "sizr_out" [] [normal_rule [{| clause_rel := local "value"; clause_args := [lower_pZexpr x] |}] []]
+end.
 
 
 
