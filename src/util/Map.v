@@ -246,8 +246,8 @@ Section Map.
   Definition preimage m (test : _ -> bool) :=
     map.fold (fun (l : list key) k v => if test v then k :: l else l) [] m.
 
-  Definition map_values' f m : mp' :=
-    map.of_list (map (fun '(k, v) => (k, f k v)) (map.tuples m)).
+  Definition map_values' (f : key -> value -> value') (m : mp) : mp' :=
+    map.fold (fun (m' : mp') k v => map.put m' k (f k v)) map.empty m.
 
   (*d is a default value... basically, we consider the map to be total, with not-included values mapping to d*)
   Definition mupd_total d m k f :=
@@ -261,6 +261,54 @@ Section Map.
     | Some v => map.put m k (f v)
     | None => m
     end.
+
+  Definition val_sat (m : mp) (k : key) (P : value -> Prop) : Prop :=
+    exists v, map.get m k = Some v /\ P v.
+
+  Lemma get_mupd (m : mp) (k : key) (f : value -> value) (k' : key) :
+    map.get (mupd m k f) k' =
+      if eqb k k' then option_map f (map.get m k) else map.get m k'.
+  Proof.
+    cbv [mupd]. destruct (map.get m k) as [v|] eqn:E; cbn [option_map].
+    - rewrite map.get_put_dec. reflexivity.
+    - destr (eqb k k'); [subst; exact E | reflexivity].
+  Qed.
+
+  Lemma get_map_values' (f : key -> value -> value') (m : mp) (k : key) :
+    map.get (map_values' f m) k = option_map (f k) (map.get m k).
+  Proof.
+    cbv [map_values']. revert k.
+    eapply map.fold_spec with
+      (P := fun m acc =>
+              forall k, map.get acc k = option_map (f k) (map.get m k)).
+    - intros k0. rewrite ?map.get_empty. reflexivity.
+    - intros k0 v m0 acc Hnone IH k1.
+      rewrite ?map.get_put_dec. destr (eqb k0 k1).
+      + reflexivity.
+      + apply IH.
+  Qed.
+
+  Lemma Forall2_map_map_values'_r {value1} {mp1 : map.map key value1}
+      (R : key -> value1 -> value -> Prop) (R' : key -> value1 -> value' -> Prop)
+      (g : key -> value -> value') (m1 : mp1) (m2 : mp) :
+    (forall k v1 v2, R k v1 v2 -> R' k v1 (g k v2)) ->
+    Forall2_map R m1 m2 ->
+    Forall2_map R' m1 (map_values' g m2).
+  Proof.
+    intros Hg H k. specialize (H k). rewrite get_map_values'. revert H.
+    destruct (map.get m1 k); destruct (map.get m2 k); cbn [option_map]; auto using Hg.
+  Qed.
+
+  Lemma Forall2_map_mupd_r {value1} {mp1 : map.map key value1}
+      (R : key -> value1 -> value -> Prop) (k0 : key) (g : value -> value)
+      (m1 : mp1) (m2 : mp) :
+    (forall v1 v2, R k0 v1 v2 -> R k0 v1 (g v2)) ->
+    Forall2_map R m1 m2 ->
+    Forall2_map R m1 (mupd m2 k0 g).
+  Proof.
+    intros Hg H k. specialize (H k). rewrite get_mupd. destr (eqb k0 k); [| exact H].
+    revert H. destruct (map.get m1 k); destruct (map.get m2 k); cbn [option_map]; auto using Hg.
+  Qed.
 
 Definition set_contains m k :=
   match map.get m k with
