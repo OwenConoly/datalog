@@ -13,9 +13,8 @@ Section __.
   Context {message : Type}.
   Context {label : Type}.
   Context (input_allowed : node_id -> message -> bool).
-  Context (forward : node_id -> message -> list node_id).
-  (* A message is forwarded to a given node at most once per emission. *)
-  Context (forward_nodup : forall n m, NoDup (forward n m)).
+  (* Context (forward : node_id -> message -> list node_id). *)
+  Context (forward : node_id (*sender*) -> node_id (*receiver*) -> message -> bool (*send?*)).
   Context (output_visible : node_id -> message -> bool).
 
   Context (equiv : message -> message -> Prop).
@@ -25,7 +24,7 @@ Section __.
   (* Forwarding cannot distinguish [equiv]-related messages: a forced re-emission
      produces [mu' ~ mu] and must reach the same consumers as [mu]. *)
   Context (forward_equiv :
-             forall n a b, equiv a b -> forward n a = forward n b).
+             forall n1 n2 a b, equiv a b -> forward n1 n2 a = forward n1 n2 b).
   Context (consistent_output : node_id -> list message -> Prop).
   Context (consistent : list message -> list message -> Prop).
   Context (consistent_inputs : list message -> list message -> Prop).
@@ -52,8 +51,7 @@ Section __.
       NoDup nodes ->
       Forall2 consistent_output nodes partition ->
       consistent c
-        (flat_map (fun '(n0, fs) =>
-                     filter (fun f => existsb (Nat.eqb n) (forward n0 f)) fs)
+        (flat_map (fun '(n0, fs) => filter (forward n0 n) fs)
            (combine nodes partition)
            ++ inps)
       <-> consistent_inputs c inps.
@@ -66,35 +64,42 @@ Section __.
   Context (Hcim : consistent_monotone consistent_inputs allowed).
 
   Section graph.
-    Context {node_state : Type}
-            {node_states : map.map node_id (node_state * list IO_event)}.
-    Context (node_step : node_state -> IO_event -> node_state -> Prop).
+    Context {node_state : Type} (node_step : node_state -> IO_event -> node_state -> Prop).
 
-    Record graph_state :=
-      { g_nodes : node_states;
-        g_messages : list (node_id (*destination*) * message) }.
+    Record graph_node_state :=
+      { gns_node_state : node_state;
+        gns_trace : list IO_event;
+        gns_queue : list message }.
+
+    Context {graph_state : map.map node_id graph_node_state}.
+
+    Definition enqueue inps gns :=
+      {| gns_node_state := gns.(gns_node_state);
+        gns_trace := gns.(gns_trace);
+        gns_queue := inps ++ gns.(gns_queue) |}.
 
     Inductive graph_step : graph_state -> gevent -> graph_state -> Prop :=
     | gstep_input gs n m :
       input_allowed n m = true ->
-      graph_step gs (I_event (m, n))
-                 {| g_nodes := gs.(g_nodes);
-                   g_messages := (n, m) :: gs.(g_messages) |}
-    | gstep_run gs n ns t ns' lbl outs :
-      map.get gs.(g_nodes) n = Some (ns, t) ->
-      node_step ns (O_event lbl outs) ns' ->
+      graph_step gs (I_event (m, n)) (mupd gs n (enqueue [m]))
+    | gstep_run gs n ns ns' lbl outs :
+      map.get gs n = Some ns ->
+      node_step ns.(gns_node_state) (O_event lbl outs) ns' ->
       graph_step gs (O_event (run n lbl) (map (fun m => (m, n)) (filter (output_visible n) outs)))
-                 {| g_nodes := map.put gs.(g_nodes) n (ns', O_event lbl outs :: t);
-                   g_messages := gs.(g_messages) ++
-                                      flat_map (fun m => map (fun n' => (n', m)) (forward n m))
-                                      outs |}
-    | gstep_receive gs n ns t ns' m ms1 ms2 :
-      map.get gs.(g_nodes) n = Some (ns, t) ->
-      node_step ns (I_event m) ns' ->
-      gs.(g_messages) = ms1 ++ (n, m) :: ms2 ->
+        (map_values' (fun m => enqueue (filter (forward n m) outs))
+           (map.put gs n
+                    {| gns_node_state := ns';
+                      gns_trace := O_event lbl outs :: ns.(gns_trace);
+                      gns_queue := ns.(gns_queue) |}))
+    | gstep_receive gs n ns ns' m ms1 ms2 :
+      map.get gs n = Some ns ->
+      node_step ns.(gns_node_state) (I_event m) ns' ->
+      ns.(gns_queue) = ms1 ++ m :: ms2 ->
       graph_step gs (O_event (receive n m) [])
-                 {| g_nodes := map.put gs.(g_nodes) n (ns', I_event m :: t);
-                   g_messages := ms1 ++ ms2 |}.
+        (map.put gs n
+                 {| gns_node_state := ns';
+                   gns_trace := I_event m :: ns.(gns_trace);
+                   gns_queue := ms1 ++ ms2 |}).
   End graph.
 
   Section graph.
@@ -299,22 +304,32 @@ Section __.
     Qed.
 
     Definition good_state (gs : @graph_state node_state _) :=
-      same_domain initial_ns gs.(g_nodes) /\
-      Forall (fun '(n, _) => map.get initial_ns n <> None) gs.(g_messages).
+      Forall (fun '(n, _) => exists ns, map.get gs.(g_nodes) n = Some ns) gs.(g_messages).
+
+    Lemma good_state_stable gs gt gs' :
+      good_state gs ->
+      star gstep gs gt gs' ->
+      good_state gs'.
+    Proof.
+      induction 2; eauto. invert H1; simpl; eauto.
+      destruct IHstar; eauto.
 
     Lemma node_will_receive n m gs gt :
       good_state gs ->
       In (n, m) gs.(g_messages) ->
       graph_will_step (gs, gt) (fun '(gs', _) => node_received gs' n m).
     Proof.
-      intros Hd H.
+      intros Hg H.
       cbv [graph_will_step will_step].
       eexists. intros s' t' Hs' Ht'.
       eapply message_stable_steps in Hs'; eauto.
       destruct Hs' as [Hs'|Hs']; auto.
+      cbv [good_state] in Hg. rewrite Forall_forall in Hg.
+      specialize (Hg _ Hs').
       apply in_split in Hs'. fwd.
+      apply Forall_forall
       right. do 2 eexists. split.
-      { admit.
+      { aPrint graph_step. eapply gstep_receive.
 
     Admitted.
 
