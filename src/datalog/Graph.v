@@ -143,9 +143,7 @@ Section __.
 
     Definition le (g1 g2 : graph_state) :=
       Forall2_map (fun n gns1 gns2 =>
-                     incl_mod equiv consistent
-                       (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace)) /\
-                       incl gns1.(gns_queue) (gns2.(gns_queue) ++ (inputs_of gns2.(gns_trace))))
+                     incl_mod_weak equiv (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue)) (inputs_of gns2.(gns_trace) ++ gns2.(gns_queue)))
         g1 g2.
 
     Let graph_will_step := (will_step (graph_step node_step) graph_inputs_allowed).
@@ -605,9 +603,8 @@ Section __.
 
         pose proof nodes_good as H'. cbv [Forall_map] in H'. especialize H'; eauto.
         cbv [node_good] in H'. fwd.
-
-        eassert (Hmo: Forall (might_output_equiv _ _ n3 l2) outs0).
-        { apply Forall_forall. intros m Hm. eapply H'p1p1.
+        eassert (Hmo: Forall (might_output_equiv _ _ ns2 tn2) outs0).
+        { apply Forall_forall. intros m Hm. eapply H'p1.
           5: eassumption. all: try eassumption. 1,2: admit.
           cbv [might_output]. do 2 eexists. ssplit.
           - apply star_one. eassumption.
@@ -615,11 +612,11 @@ Section __.
           - simpl. auto. }
 
         eapply will_output_all in Hmo; try eassumption. 2: admit.
-        eapply graph_eventually_of_node_eventually in Hmo; eauto.
+        eapply (graph_eventually_of_node_eventually n _ gs2 t2 _ H2 H4 Hns2) in Hmo.
 
         eapply eventually_weaken; [eassumption|].
-        intros [? ?] ?. fwd. admit.
-      - rewrite H10 in Hle2. apply Forall_app in Hle2. fwd.
+        cbv [val_sat]. intros [? ?] ?. fwd. admit.
+      - cbv [le] in Hle. rewrite H10 in Hle2. apply Forall_app in Hle2. fwd.
         destruct Hle2p1p0 as [Hle_case1|Hle_case2].
         +
 

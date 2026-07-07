@@ -327,6 +327,12 @@ Section step.
         rewrite <- app_assoc in Hev. exact Hev.
   Qed.
 
+  Definition incl_mod_weak l1 l2 :=
+    forall a,
+      In a l1 ->
+      exists b,
+        In b l2 /\ equiv a b.
+
   Definition incl_mod (l1 l2 : list message) : Prop :=
     forall a,
       incl a l1 ->
