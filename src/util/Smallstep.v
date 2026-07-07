@@ -438,26 +438,6 @@ Section step.
       might_output s1 t1 o ->
       might_output_equiv s2 t2 o.
 
-  Definition outputs_well_formed_from s0 t0 :=
-    forall t s, star step s0 t s -> outputs_wf (outputs_of (t ++ t0)).
-
-  Definition might_implies_will_equiv_from s0 t0 :=
-    forall t s o,
-      star step s0 t s ->
-      allowed (inputs_of (t ++ t0)) ->
-      might_output s (t ++ t0) o ->
-      will_output_equiv s (t ++ t0) o.
-
-  Definition monotone_mod_equiv_from s0 t0 :=
-    forall t1 t2 s1 s2 o,
-      star step s0 t1 s1 ->
-      star step s0 t2 s2 ->
-      allowed (inputs_of (t1 ++ t0)) ->
-      allowed (inputs_of (t2 ++ t0)) ->
-      incl_mod (inputs_of (t1 ++ t0)) (inputs_of (t2 ++ t0)) ->
-      might_output s1 (t1 ++ t0) o ->
-      might_output_equiv s2 (t2 ++ t0) o.
-
   Definition monotone_multiset :=
     forall t1 t2 s1 s2 o,
       star step initial t1 s1 ->

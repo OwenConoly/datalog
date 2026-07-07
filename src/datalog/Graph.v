@@ -128,9 +128,9 @@ Section __.
 
     Definition node_good (n : node_id) : graph_node_state node_state -> Prop :=
       fun gns =>
-        outputs_well_formed_from      node_step (consistent_output n) gns.(gns_node_state) gns.(gns_trace) /\
-        monotone_mod_equiv_from       node_step equiv consistent allowed gns.(gns_node_state) gns.(gns_trace) /\
-        might_implies_will_equiv_from node_step equiv allowed gns.(gns_node_state) gns.(gns_trace).
+        outputs_well_formed    node_step (consistent_output n) gns.(gns_node_state) /\
+        monotone_mod_equiv     node_step equiv consistent allowed gns.(gns_node_state) /\
+        might_implies_will_equiv node_step equiv allowed gns.(gns_node_state).
 
     Definition le (g1 g2 : graph_state) :=
       Forall2_map (fun n gns1 gns2 =>
@@ -215,8 +215,10 @@ Section __.
     Hint Constructors eventually : core.
     Hint Constructors graph_step : core.
 
+    Print might_implies_will_equiv_at.
     Lemma graph_will_step_of_node_will_step n P gs gt gns :
-      Forall_map node_good gs ->
+      Forall_map (fun _ gns =>
+                    might_implies_will_equiv_at node_step equiv allowed gns.(gns_node_state) gns.(gns_trace)) gs ->
       map.get gs n = Some gns ->
       will_step node_step allowed (gns.(gns_node_state), gns.(gns_trace)) P ->
       graph_will_step
