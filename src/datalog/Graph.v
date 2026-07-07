@@ -47,18 +47,26 @@ Section __.
   Definition equiv_g : message * node_id -> message * node_id -> Prop :=
     fun '(m1, n1) '(m2, n2) => n1 = n2 /\ equiv m1 m2.
 
+  Definition consistent_internal_inputs_to n inps :=
+    exists nodes partition,
+      NoDup nodes /\
+        Forall2 consistent_output nodes partition /\
+        inps = flat_map
+                 (fun '(n0, fs) => filter (forward n0 n) fs)
+                 (combine nodes partition).
+
   Definition consistent_good :=
-    forall nodes partition inps n c,
-      NoDup nodes ->
-      Forall2 consistent_output nodes partition ->
-      consistent c
-        (flat_map (fun '(n0, fs) => filter (forward n0 n) fs)
-           (combine nodes partition)
-           ++ inps)
-      <-> consistent_inputs c inps.
+    forall internal_inps inps n c,
+      consistent_internal_inputs_to n internal_inps ->
+      consistent c (internal_inps ++ inps) <-> consistent_inputs c inps.
 
   Context (allowed : list message -> Prop).
-  Context (graph_inputs_allowed : list (message * node_id) -> Prop).
+
+  Definition graph_inputs_allowed (inps : list (message * node_id)) :=
+    forall n internal_inps,
+      consistent_internal_inputs_to n internal_inps ->
+      allowed (map fst (filter (fun '(_, n0) => eqb n n0) inps)).
+
   Context (Hcg : consistent_good).
   Context (Hcm : consistent_monotone consistent allowed).
 

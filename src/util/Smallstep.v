@@ -63,6 +63,17 @@ Section step.
     exists rest, Permutation l2 (l1 ++ rest).
 
   Context (allowed : list message -> Prop).
+  Context (allowed_submultiset :
+            forall l1 l2, submultiset l1 l2 -> allowed l2 -> allowed l1).
+  (* "allowed" should satisfy the allowed_submultiset definition.
+     if we have some consistent sets which are not allowed, then they are not good
+     for anything, so we can just set consistent := consistent /\ allowed.
+     so, wlog, allowed is closed under submultiset, and it is a superset of consistent.
+     this yields the following:
+   *)
+  (* Definition allowed ms := exists ms', consistent ms' /\ submultiset ms' ms. *)
+  (*but oops that doesn't typecheck; that's not how consistent works.
+    hmm.*)
 
   Definition consistent_monotone :=
     forall c l1 l2,
@@ -73,9 +84,6 @@ Section step.
       consistent c l2.
 
   Context (Hcm : consistent_monotone).
-
-  Context (allowed_submultiset :
-            forall l1 l2, submultiset l1 l2 -> allowed l2 -> allowed l1).
 
   Lemma submultiset_refl l : submultiset l l.
   Proof. exists []. rewrite app_nil_r. apply Permutation_refl. Qed.
