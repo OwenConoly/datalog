@@ -206,11 +206,10 @@ Section __.
     Hint Constructors eventually : core.
     Hint Constructors graph_step : core.
 
-    Print might_implies_will_equiv.
-
+    Print might_implies_will_equiv_at.
     Lemma graph_will_step_of_node_will_step n P gs gt gns :
-      star gstep initial_gs gt gs ->
-      graph_inputs_allowed (inputs_of gt) ->
+      Forall_map (fun _ gns =>
+                    might_implies_will_equiv_at node_step equiv allowed gns.(gns_node_state) gns.(gns_trace)) gs ->
       map.get gs n = Some gns ->
       will_step node_step allowed (gns.(gns_node_state), gns.(gns_trace)) P ->
       graph_will_step
@@ -218,6 +217,12 @@ Section __.
         (fun '(gs', _) =>
            val_sat gs' n (fun gns' => P (gns'.(gns_node_state), gns'.(gns_trace)))).
     Proof.
+      intros H Hn Hns. induction Hns.
+      - cbv [graph_will_step will_step]. eexists. intros.
+        apply graph_step_to_node_step in H1.
+        eapply Forall2_map_get_l in H1; eauto. fwd.
+        specialize (H0 _ _ ltac:(eassumption)).
+
     Admitted.
 
     (*TODO replace stuff about initial_graph_state with hypotheses just about gs*)
@@ -270,13 +275,10 @@ Section __.
           [ map_func | rewrite Hget ];
           (cbn [option_map]; eexists;
            split; [reflexivity | cbn [enqueue gns_queue]; eauto using in_or_app]).
-      - destr (eqb n0 n).
-        + map_func. rewrite H1 in Hin. apply in_app_or in Hin.
-          destruct Hin as [Hin | [Hm | Hin]]; [left | right | left];
-            (eexists; rewrite map.get_put_same; split; try reflexivity; simpl;
-             eauto using in_or_app).
-        + left. rewrite map.get_put_diff by congruence; rewrite Hget.
-          eexists. split; [reflexivity | exact Hin].
+      - rewrite map.get_put_dec. destr_sth Nat.eqb; eauto.
+        map_func. rewrite H1 in Hin. apply in_app_or in Hin.
+        destruct Hin as [Hin | [Hm | Hin]]; [left | right | left];
+          (eexists; split; try reflexivity; simpl; eauto).
     Qed.
 
     Lemma message_stable_steps gs gt gs' n m :
