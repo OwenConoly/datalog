@@ -426,19 +426,36 @@ Section __.
       rewrite app_nil_l in Hcons. exact (Hcons nn nsn Hget).
     Qed.
 
-          Lemma everything_allowed gt gs :
+    Lemma fwd_total_consistent_internal gt gs nn :
+      star gstep initial_gs gt gs ->
+      consistent_internal_inputs_to nn (fwd_total nn gs).
+    Proof.
+      intros Hstar. unfold consistent_internal_inputs_to.
+      exists (map fst (map.tuples gs)),
+             (map (fun kv => outputs_of (snd kv).(gns_trace)) (map.tuples gs)).
+      ssplit.
+      - rewrite <- keys_eq_tuples. apply map.keys_NoDup.
+      - apply Forall2_map_map. apply Forall_forall. intros [k v] Hin. cbn [fst snd].
+        apply map.tuples_spec in Hin.
+        pose proof (graph_step_to_node_step_from_beginning gs gt Hstar) as Hnodes.
+        destruct (Forall2_map_get_r _ _ _ _ _ Hnodes Hin) as (gns0 & Hget0 & Hrun & _).
+        pose proof (nodes_good k gns0 Hget0) as (Howf & _ & _).
+        exact (Howf _ _ Hrun).
+      - unfold fwd_total. rewrite combine_map, flat_map_map.
+        apply flat_map_ext. intros [k v]. reflexivity.
+    Qed.
+
+    Lemma everything_allowed gt gs :
       star gstep initial_gs gt gs ->
       graph_inputs_allowed (inputs_of gt) ->
       Forall_map (fun _ ns => allowed (inputs_of ns.(gns_trace) ++ ns.(gns_queue))) gs.
     Proof.
-      intros H H'. induction H.
-      { Print graph_inputs_allowed.
-        Print consistent_internal_inputs_to.
-      apply graph_step_to_node_step_from_beginning in H.
-      intros n ns Hns. eapply Forall2_map_get_r in H; eauto. fwd.
-      apply nodes_good in Hp0.
-      Print node_good
-
+      intros Hstar Hallow. cbv [Forall_map]. intros nn nsn Hget.
+      eapply allowed_submultiset.
+      - exists []. rewrite app_nil_r. symmetry.
+        apply (inputs_are_outputs gt gs Hstar nn nsn Hget).
+      - apply Hallow. apply (fwd_total_consistent_internal gt gs nn Hstar).
+    Qed.
 
     Lemma graph_will_step_of_node_will_step n P gs gt gns :
       star gstep initial_gs gt gs ->

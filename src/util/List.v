@@ -85,6 +85,18 @@ Proof.
   apply IHl. intros x Hin. apply Hall. right. exact Hin.
 Qed.
 
+Lemma combine_map {A B C} (f : A -> B) (g : A -> C) (l : list A) :
+  combine (map f l) (map g l) = map (fun x => (f x, g x)) l.
+Proof. induction l as [|a l IH]; cbn [map combine]; [reflexivity | rewrite IH; reflexivity]. Qed.
+
+Lemma Forall2_map_map {A B D} (R : B -> D -> Prop) (f : A -> B) (g : A -> D) (l : list A) :
+  Forall (fun x => R (f x) (g x)) l -> Forall2 R (map f l) (map g l).
+Proof.
+  induction l as [|a l IH]; cbn [map]; intros HF; [constructor|].
+  pose proof (Forall_inv HF) as Hhd. pose proof (Forall_inv_tail HF) as Htl.
+  constructor; [ exact Hhd | exact (IH Htl) ].
+Qed.
+
 Section subset.
   Context {A : Type}.
   Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.

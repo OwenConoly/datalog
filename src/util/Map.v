@@ -296,6 +296,14 @@ Section Map.
     destr (eqb k j); cbn [option_map]; congruence.
   Qed.
 
+  Lemma keys_eq_tuples (m : mp) : map.keys m = List.map fst (map.tuples m).
+  Proof.
+    unfold map.keys, map.tuples.
+    eapply map.fold_two_spec with (P := fun _ l1 l2 => l1 = List.map fst l2).
+    - reflexivity.
+    - intros k v m0 r1 r2 _ IH. cbn [List.map fst]. rewrite IH. reflexivity.
+  Qed.
+
   Lemma Forall2_map_map_values'_r {value1} {mp1 : map.map key value1}
       (R : key -> value1 -> value -> Prop) (R' : key -> value1 -> value' -> Prop)
       (g : key -> value -> value') (m1 : mp1) (m2 : mp) :
