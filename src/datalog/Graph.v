@@ -3,8 +3,8 @@ From coqutil Require Import Map.Properties.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From coqutil Require Import Eqb.
 From Stdlib Require Import List PeanoNat Permutation.
-From Stdlib Require Import RelationClasses.
-From Datalog Require Import OmniSmallstep Smallstep Map List.
+From Stdlib Require Import RelationClasses Morphisms.
+From Datalog Require Import OmniSmallstep Smallstep Map List Eqb.
 Import ListNotations.
 
 Definition node_id := nat.
@@ -256,10 +256,8 @@ Section __.
       Permutation (fwd_total nn (map.put gs k v)) (fwd_total nn gs).
     Proof.
       intros Hk Ho.
-      assert (Eg : map.put gs k v0 = gs).
-      { apply map.map_ext. intro j. rewrite map.get_put_dec.
-        destr_sth Nat.eqb; [subst; symmetry; exact Hk | reflexivity]. }
-      assert (Efwd : fwd_total nn gs = fwd_total nn (map.put gs k v0)) by (rewrite Eg; reflexivity).
+      assert (Efwd : fwd_total nn gs = fwd_total nn (map.put gs k v0))
+        by (rewrite (map.put_noop k v0 gs Hk); reflexivity).
       rewrite Efwd.
       eapply perm_trans; [ apply (fwd_total_put_cons nn gs k v0 v Hk) | ].
       rewrite Ho. apply Permutation_sym. apply (fwd_total_put_cons nn gs k v0 v0 Hk).
@@ -330,11 +328,8 @@ Section __.
       replace (outputs_of (O_event lbl outs :: ns.(gns_trace)))
         with (outs ++ outputs_of ns.(gns_trace)) by reflexivity.
       rewrite filter_app, <- app_assoc. apply Permutation_app_head.
-      assert (Eg : map.put gs n ns = gs).
-      { apply map.map_ext. intro j. rewrite map.get_put_dec.
-        destr_sth Nat.eqb; [subst; symmetry; exact Hget | reflexivity]. }
-      pose proof (fwd_total_put_cons nn gs n ns ns Hget) as Hc. rewrite Eg in Hc.
-      symmetry. exact Hc.
+      pose proof (fwd_total_put_cons nn gs n ns ns Hget) as Hc.
+      rewrite (map.put_noop n ns gs Hget) in Hc. symmetry. exact Hc.
     Qed.
 
     Lemma perm_ins {X : Type} (a b d s : list X) :
@@ -349,30 +344,24 @@ Section __.
       forall ext, conserved gs ext -> conserved gs' (ext ++ inputs_of [e]).
     Proof.
       intros Hstep ext IH. cbv [conserved] in IH |- *. intros nn nsn Hg'. invert Hstep.
-      - rewrite get_mupd in Hg'. rewrite matching_inps_app.
-        replace (matching_inps nn (inputs_of [I_event (m, n)])) with (if eqb nn n then [m] else [])
-          by (cbn [inputs_of flat_map app]; rewrite matching_inps_single; reflexivity).
+      - rewrite get_mupd in Hg'.
+        change (inputs_of [I_event (m, n)]) with [(m, n)].
+        rewrite matching_inps_app, (matching_inps_single nn n m), (eqb_sym nn n).
         eapply perm_trans;
           [ | symmetry; apply Permutation_app_tail; apply (fwd_total_mupd_enqueue nn gs n [m]) ].
-        destr (eqb nn n).
-        + replace (eqb n n) with true in Hg' by (symmetry; apply eqb_refl_true; typeclasses eauto).
-          cbv iota in Hg'.
-          destruct (map.get gs n) as [vn|] eqn:Hgn.
+        destr (eqb n nn).
+        + destruct (map.get gs nn) as [vn|] eqn:Hgn.
           2:{ cbn [option_map] in Hg'. discriminate. }
-          cbn [option_map] in Hg'.
-          injection Hg' as Hnsn. subst nsn. cbn [enqueue gns_trace gns_queue].
-          change ([m] ++ gns_queue vn) with (m :: gns_queue vn).
+          cbn [option_map] in Hg'. injection Hg' as Hnsn. subst nsn.
+          cbn [enqueue gns_trace gns_queue]. change ([m] ++ gns_queue vn) with (m :: gns_queue vn).
           transitivity (m :: (inputs_of (gns_trace vn) ++ gns_queue vn));
             [ symmetry; apply Permutation_middle | ].
-          transitivity (m :: (fwd_total n gs ++ matching_inps n ext));
-            [ apply perm_skip; apply (IH n vn Hgn) | ].
-          transitivity ((fwd_total n gs ++ matching_inps n ext) ++ [m]);
+          transitivity (m :: (fwd_total nn gs ++ matching_inps nn ext));
+            [ apply perm_skip; apply (IH nn vn Hgn) | ].
+          transitivity ((fwd_total nn gs ++ matching_inps nn ext) ++ [m]);
             [ apply Permutation_cons_append | ].
           rewrite app_assoc. apply Permutation_refl.
-        + replace (eqb n nn) with false in Hg'
-            by (symmetry; apply eqb_ineq_false;
-                first [ typeclasses eauto | (right; assumption) | (left; assumption) ]).
-          cbv iota in Hg'. rewrite app_nil_r. apply IH. exact Hg'.
+        + rewrite app_nil_r. apply IH. exact Hg'.
       - rewrite get_map_values', map.get_put_dec in Hg'.
         match goal with |- context[matching_inps nn (ext ++ ?x)] =>
           replace x with (@nil (message * node_id)) by reflexivity end.
@@ -409,19 +398,9 @@ Section __.
         + apply IH. exact Hg'.
     Qed.
 
-    Lemma filter_perm {X} (q : X -> bool) l1 l2 :
-      Permutation l1 l2 -> Permutation (filter q l1) (filter q l2).
-    Proof.
-      induction 1; cbn [filter].
-      - apply Permutation_refl.
-      - destruct (q x); [ apply perm_skip | ]; assumption.
-      - destruct (q x), (q y); solve [ apply perm_swap | apply Permutation_refl ].
-      - eapply perm_trans; eassumption.
-    Qed.
-
     Lemma matching_inps_perm nn e1 e2 :
       Permutation e1 e2 -> Permutation (matching_inps nn e1) (matching_inps nn e2).
-    Proof. intros HP. unfold matching_inps. apply Permutation_map. apply filter_perm. exact HP. Qed.
+    Proof. intros HP. unfold matching_inps. rewrite HP. reflexivity. Qed.
 
     Lemma conserved_perm_ext gs e1 e2 :
       Permutation e1 e2 -> conserved gs e1 -> conserved gs e2.

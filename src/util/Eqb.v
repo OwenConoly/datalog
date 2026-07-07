@@ -22,3 +22,9 @@ Section eqb_prod.
     destruct (eqbA a1 a2), (eqbB b1 b2); subst; simpl; try congruence.
   Qed.
 End eqb_prod.
+
+Lemma eqb_sym {A} {f : Eqb A} {Hok : Eqb_ok f} (a b : A) : eqb a b = eqb b a.
+Proof.
+  pose proof (eqb_spec a b) as Hab. pose proof (eqb_spec b a) as Hba.
+  destruct (eqb a b), (eqb b a); congruence.
+Qed.
