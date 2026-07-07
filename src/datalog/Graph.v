@@ -63,10 +63,13 @@ Section __.
   Context (allowed : list message -> Prop).
   Context (allowed_submultiset : multiset_monotone allowed).
 
+  Definition matching_inps n (inps : list (message * node_id)) :=
+    map fst (filter (fun '(_, n0) => eqb n n0) inps).
+
   Definition graph_inputs_allowed (inps : list (message * node_id)) :=
     forall n internal_inps,
       consistent_internal_inputs_to n internal_inps ->
-      allowed (internal_inps ++ map fst (filter (fun '(_, n0) => eqb n n0) inps)).
+      allowed (internal_inps ++ matching_inps n inps).
 
   Context (Hcg : consistent_good).
   Context (Hcm : consistent_monotone consistent allowed).
@@ -215,10 +218,276 @@ Section __.
     Hint Constructors eventually : core.
     Hint Constructors graph_step : core.
 
-    Print might_implies_will_equiv_at.
+    Definition fwd_total (nn : node_id) (gs : graph_state) : list message :=
+      flat_map (fun '(k, v) => filter (forward k nn) (outputs_of v.(gns_trace))) (map.tuples gs).
+
+    Lemma fwd_total_put_None nn gs k v :
+      map.get gs k = None ->
+      Permutation (fwd_total nn (map.put gs k v))
+                  (filter (forward k nn) (outputs_of v.(gns_trace)) ++ fwd_total nn gs).
+    Proof.
+      intros Hk. unfold fwd_total.
+      assert (Hperm : Permutation (map.tuples (map.put gs k v)) ((k, v) :: map.tuples gs)).
+      { apply NoDup_Permutation.
+        - apply map.tuples_NoDup.
+        - constructor.
+          + intro Hin. apply map.tuples_spec in Hin. congruence.
+          + apply map.tuples_NoDup.
+        - intros [k0 v0]. exact (map.tuples_put gs k v Hk k0 v0). }
+      eapply perm_trans; [ apply (Permutation_flat_map _ Hperm) | ].
+      cbn [flat_map]. apply Permutation_refl.
+    Qed.
+
+    Lemma fwd_total_put_cons nn gs k v0 v :
+      map.get gs k = Some v0 ->
+      Permutation (fwd_total nn (map.put gs k v))
+                  (filter (forward k nn) (outputs_of v.(gns_trace)) ++ fwd_total nn (map.remove gs k)).
+    Proof.
+      intros Hk.
+      replace (map.put gs k v) with (map.put (map.remove gs k) k v).
+      2:{ apply map.map_ext. intro j. rewrite !map.get_put_dec, map.get_remove_dec.
+          destr_sth Nat.eqb; reflexivity. }
+      apply fwd_total_put_None. apply map.get_remove_same.
+    Qed.
+
+    Lemma fwd_total_put_same nn gs k v0 v :
+      map.get gs k = Some v0 ->
+      outputs_of v.(gns_trace) = outputs_of v0.(gns_trace) ->
+      Permutation (fwd_total nn (map.put gs k v)) (fwd_total nn gs).
+    Proof.
+      intros Hk Ho.
+      assert (Eg : map.put gs k v0 = gs).
+      { apply map.map_ext. intro j. rewrite map.get_put_dec.
+        destr_sth Nat.eqb; [subst; symmetry; exact Hk | reflexivity]. }
+      assert (Efwd : fwd_total nn gs = fwd_total nn (map.put gs k v0)) by (rewrite Eg; reflexivity).
+      rewrite Efwd.
+      eapply perm_trans; [ apply (fwd_total_put_cons nn gs k v0 v Hk) | ].
+      rewrite Ho. apply Permutation_sym. apply (fwd_total_put_cons nn gs k v0 v0 Hk).
+    Qed.
+
+    Lemma map_values'_put (H : node_id -> graph_node_state node_state -> graph_node_state node_state)
+        (m : graph_state) k v :
+      map.get m k = None ->
+      map_values' H (map.put m k v) = map.put (map_values' H m) k (H k v).
+    Proof.
+      intros Hk. apply map.map_ext. intro j.
+      rewrite get_map_values', map.get_put_dec, map.get_put_dec, get_map_values'.
+      destr_sth Nat.eqb; cbn [option_map]; [ subst; reflexivity | reflexivity ].
+    Qed.
+
+    Lemma fwd_total_map_values' nn
+        (H : node_id -> graph_node_state node_state -> graph_node_state node_state) (M : graph_state) :
+      (forall k v, (H k v).(gns_trace) = v.(gns_trace)) ->
+      Permutation (fwd_total nn (map_values' H M)) (fwd_total nn M).
+    Proof.
+      intros Htr. induction M as [| m IH k v Hk] using map.map_ind.
+      - assert (E : map_values' H map.empty = (map.empty : graph_state)).
+        { apply map.map_ext. intro j. rewrite get_map_values', !map.get_empty. reflexivity. }
+        rewrite E. apply Permutation_refl.
+      - rewrite map_values'_put by exact Hk.
+        eapply perm_trans.
+        { apply (fwd_total_put_None nn (map_values' H m) k (H k v)).
+          rewrite get_map_values', Hk. reflexivity. }
+        rewrite (Htr k v).
+        eapply perm_trans; [ apply Permutation_app_head; exact IH | ].
+        apply Permutation_sym. apply (fwd_total_put_None nn m k v Hk).
+    Qed.
+
+    Lemma matching_inps_app nn (e1 e2 : list (message * node_id)) :
+      matching_inps nn (e1 ++ e2) = matching_inps nn e1 ++ matching_inps nn e2.
+    Proof. unfold matching_inps. rewrite filter_app, map_app. reflexivity. Qed.
+
+    Lemma matching_inps_single nn n0 m :
+      matching_inps nn [(m, n0)] = if eqb nn n0 then [m] else [].
+    Proof. unfold matching_inps. cbn [filter]. destr (eqb nn n0); reflexivity. Qed.
+
+    Definition conserved (gs : graph_state) (ext : list (message * node_id)) : Prop :=
+      forall nn nsn, map.get gs nn = Some nsn ->
+        Permutation (inputs_of nsn.(gns_trace) ++ nsn.(gns_queue))
+                    (fwd_total nn gs ++ matching_inps nn ext).
+
+    Lemma fwd_total_mupd_enqueue nn gs n inps :
+      Permutation (fwd_total nn (mupd gs n (enqueue inps))) (fwd_total nn gs).
+    Proof.
+      unfold mupd. destruct (map.get gs n) as [vn|] eqn:Hgn; [| apply Permutation_refl].
+      apply (fwd_total_put_same nn gs n vn (enqueue inps vn) Hgn). reflexivity.
+    Qed.
+
+    Lemma fwd_total_run nn gs n ns lbl outs ns' :
+      map.get gs n = Some ns ->
+      Permutation
+        (fwd_total nn (map_values' (fun k => enqueue (filter (forward n k) outs))
+             (map.put gs n {| gns_node_state := ns';
+                              gns_trace := O_event lbl outs :: ns.(gns_trace);
+                              gns_queue := ns.(gns_queue) |})))
+        (filter (forward n nn) outs ++ fwd_total nn gs).
+    Proof.
+      intros Hget.
+      eapply perm_trans.
+      { apply fwd_total_map_values'. intros k0 v0. reflexivity. }
+      eapply perm_trans; [ apply (fwd_total_put_cons nn gs n ns _ Hget) | ].
+      cbn [gns_trace].
+      replace (outputs_of (O_event lbl outs :: ns.(gns_trace)))
+        with (outs ++ outputs_of ns.(gns_trace)) by reflexivity.
+      rewrite filter_app, <- app_assoc. apply Permutation_app_head.
+      assert (Eg : map.put gs n ns = gs).
+      { apply map.map_ext. intro j. rewrite map.get_put_dec.
+        destr_sth Nat.eqb; [subst; symmetry; exact Hget | reflexivity]. }
+      pose proof (fwd_total_put_cons nn gs n ns ns Hget) as Hc. rewrite Eg in Hc.
+      symmetry. exact Hc.
+    Qed.
+
+    Lemma perm_ins {X : Type} (a b d s : list X) :
+      Permutation (a ++ b) s -> Permutation (a ++ d ++ b) (d ++ s).
+    Proof.
+      intros HP. transitivity (d ++ a ++ b); [ | apply Permutation_app_head; exact HP ].
+      rewrite !app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
+    Qed.
+
+    Lemma conservation_step gs e gs' :
+      gstep gs e gs' ->
+      forall ext, conserved gs ext -> conserved gs' (ext ++ inputs_of [e]).
+    Proof.
+      intros Hstep ext IH. cbv [conserved] in IH |- *. intros nn nsn Hg'. invert Hstep.
+      - rewrite get_mupd in Hg'. rewrite matching_inps_app.
+        replace (matching_inps nn (inputs_of [I_event (m, n)])) with (if eqb nn n then [m] else [])
+          by (cbn [inputs_of flat_map app]; rewrite matching_inps_single; reflexivity).
+        eapply perm_trans;
+          [ | symmetry; apply Permutation_app_tail; apply (fwd_total_mupd_enqueue nn gs n [m]) ].
+        destr (eqb nn n).
+        + replace (eqb n n) with true in Hg' by (symmetry; apply eqb_refl_true; typeclasses eauto).
+          cbv iota in Hg'.
+          destruct (map.get gs n) as [vn|] eqn:Hgn.
+          2:{ cbn [option_map] in Hg'. discriminate. }
+          cbn [option_map] in Hg'.
+          injection Hg' as Hnsn. subst nsn. cbn [enqueue gns_trace gns_queue].
+          change ([m] ++ gns_queue vn) with (m :: gns_queue vn).
+          transitivity (m :: (inputs_of (gns_trace vn) ++ gns_queue vn));
+            [ symmetry; apply Permutation_middle | ].
+          transitivity (m :: (fwd_total n gs ++ matching_inps n ext));
+            [ apply perm_skip; apply (IH n vn Hgn) | ].
+          transitivity ((fwd_total n gs ++ matching_inps n ext) ++ [m]);
+            [ apply Permutation_cons_append | ].
+          rewrite app_assoc. apply Permutation_refl.
+        + replace (eqb n nn) with false in Hg'
+            by (symmetry; apply eqb_ineq_false;
+                first [ typeclasses eauto | (right; assumption) | (left; assumption) ]).
+          cbv iota in Hg'. rewrite app_nil_r. apply IH. exact Hg'.
+      - rewrite get_map_values', map.get_put_dec in Hg'.
+        match goal with |- context[matching_inps nn (ext ++ ?x)] =>
+          replace x with (@nil (message * node_id)) by reflexivity end.
+        rewrite app_nil_r.
+        eapply perm_trans;
+          [ | symmetry; apply Permutation_app_tail;
+              apply (fwd_total_run nn gs n ns lbl outs ns' H) ].
+        destr_sth Nat.eqb.
+        + cbn [option_map] in Hg'. injection Hg' as Hnsn. subst nsn.
+          cbn [enqueue gns_trace gns_queue].
+          change (inputs_of (O_event lbl outs :: gns_trace ns)) with (inputs_of (gns_trace ns)).
+          rewrite <- app_assoc. apply perm_ins. apply (IH nn ns H).
+        + destruct (map.get gs nn) as [vn|] eqn:Hgn.
+          2:{ cbn [option_map] in Hg'. discriminate. }
+          cbn [option_map] in Hg'. injection Hg' as Hnsn. subst nsn.
+          cbn [enqueue gns_trace gns_queue].
+          rewrite <- app_assoc. apply perm_ins. apply (IH nn vn Hgn).
+      - rewrite map.get_put_dec in Hg'.
+        match goal with |- context[matching_inps nn (ext ++ ?x)] =>
+          replace x with (@nil (message * node_id)) by reflexivity end.
+        rewrite app_nil_r.
+        pose proof (fwd_total_put_same nn gs n ns
+                      {| gns_node_state := ns'; gns_trace := I_event m :: ns.(gns_trace);
+                         gns_queue := ms1 ++ ms2 |} H eq_refl) as Hfwd.
+        eapply perm_trans; [ | symmetry; apply Permutation_app_tail; exact Hfwd ].
+        destr_sth Nat.eqb.
+        + injection Hg' as Hnsn. subst nsn. cbn [gns_trace gns_queue].
+          change (inputs_of (I_event m :: gns_trace ns)) with (m :: inputs_of (gns_trace ns)).
+          transitivity (inputs_of (gns_trace ns) ++ gns_queue ns); [ | apply (IH nn ns H) ].
+          rewrite H1, <- app_comm_cons.
+          rewrite (app_assoc (inputs_of (gns_trace ns)) ms1 ms2),
+                  (app_assoc (inputs_of (gns_trace ns)) ms1 (m :: ms2)).
+          apply Permutation_middle.
+        + apply IH. exact Hg'.
+    Qed.
+
+    Lemma filter_perm {X} (q : X -> bool) l1 l2 :
+      Permutation l1 l2 -> Permutation (filter q l1) (filter q l2).
+    Proof.
+      induction 1; cbn [filter].
+      - apply Permutation_refl.
+      - destruct (q x); [ apply perm_skip | ]; assumption.
+      - destruct (q x), (q y); solve [ apply perm_swap | apply Permutation_refl ].
+      - eapply perm_trans; eassumption.
+    Qed.
+
+    Lemma matching_inps_perm nn e1 e2 :
+      Permutation e1 e2 -> Permutation (matching_inps nn e1) (matching_inps nn e2).
+    Proof. intros HP. unfold matching_inps. apply Permutation_map. apply filter_perm. exact HP. Qed.
+
+    Lemma conserved_perm_ext gs e1 e2 :
+      Permutation e1 e2 -> conserved gs e1 -> conserved gs e2.
+    Proof.
+      intros HP Hc nn nsn Hget. eapply perm_trans; [ apply (Hc nn nsn Hget) | ].
+      apply Permutation_app_head. apply matching_inps_perm. exact HP.
+    Qed.
+
+    Lemma conservation_gen gs0 T gs1 :
+      star gstep gs0 T gs1 ->
+      forall ext, conserved gs0 ext -> conserved gs1 (ext ++ inputs_of T).
+    Proof.
+      induction 1 as [ | T0 smid e sfin Hstar IH Hstep ]; intros ext Hconv.
+      - cbn [inputs_of flat_map]. rewrite app_nil_r. exact Hconv.
+      - eapply conserved_perm_ext;
+          [ | apply (conservation_step _ _ _ Hstep _ (IH ext Hconv)) ].
+        change (e :: T0) with ([e] ++ T0). rewrite inputs_of_app, <- !app_assoc.
+        apply Permutation_app_head. apply Permutation_app_comm.
+    Qed.
+
+    Lemma flat_map_all_nil {A B} (g : A -> list B) (l : list A) :
+      (forall x, In x l -> g x = []) -> flat_map g l = [].
+    Proof.
+      induction l as [|a l IHl]; cbn [flat_map]; intros Hall; [reflexivity|].
+      rewrite (Hall a) by (left; reflexivity). cbn [app].
+      apply IHl. intros x Hin. apply Hall. right. exact Hin.
+    Qed.
+
+    Lemma fwd_total_initial nn : fwd_total nn initial_gs = [].
+    Proof.
+      unfold fwd_total. apply flat_map_all_nil. intros [k v] Hin.
+      apply map.tuples_spec in Hin.
+      rewrite (proj1 (initial_gs_empty k v Hin)). reflexivity.
+    Qed.
+
+    Lemma inputs_are_outputs gt gs :
+      star gstep initial_gs gt gs ->
+      Forall_map (fun nn ns =>
+                    Permutation (inputs_of ns.(gns_trace) ++ ns.(gns_queue))
+                                (fwd_total nn gs ++ matching_inps nn (inputs_of gt)))
+        gs.
+    Proof.
+      intros Hstar. cbv [Forall_map]. intros nn nsn Hget.
+      assert (Hbase : conserved initial_gs []).
+      { intros k v Hget0. pose proof (initial_gs_empty k v Hget0) as [Ht Hq].
+        rewrite Ht, Hq, fwd_total_initial. reflexivity. }
+      pose proof (conservation_gen initial_gs gt gs Hstar [] Hbase) as Hcons.
+      rewrite app_nil_l in Hcons. exact (Hcons nn nsn Hget).
+    Qed.
+
+          Lemma everything_allowed gt gs :
+      star gstep initial_gs gt gs ->
+      graph_inputs_allowed (inputs_of gt) ->
+      Forall_map (fun _ ns => allowed (inputs_of ns.(gns_trace) ++ ns.(gns_queue))) gs.
+    Proof.
+      intros H H'. induction H.
+      { Print graph_inputs_allowed.
+        Print consistent_internal_inputs_to.
+      apply graph_step_to_node_step_from_beginning in H.
+      intros n ns Hns. eapply Forall2_map_get_r in H; eauto. fwd.
+      apply nodes_good in Hp0.
+      Print node_good
+
+
     Lemma graph_will_step_of_node_will_step n P gs gt gns :
-      Forall_map (fun _ gns =>
-                    might_implies_will_equiv_at node_step equiv allowed gns.(gns_node_state) gns.(gns_trace)) gs ->
+      star gstep initial_gs gt gs ->
       map.get gs n = Some gns ->
       will_step node_step allowed (gns.(gns_node_state), gns.(gns_trace)) P ->
       graph_will_step
