@@ -63,6 +63,12 @@ Section __.
   Context (allowed : list message -> Prop).
   Context (allowed_submultiset : multiset_monotone allowed).
 
+  Lemma Permutation_allowed l1 l2 : Permutation l1 l2 -> allowed l2 -> allowed l1.
+  Proof.
+    intros HP Ha. eapply allowed_submultiset; [ | exact Ha ].
+    exists []. rewrite app_nil_r. symmetry. exact HP.
+  Qed.
+
   Definition matching_inps n (inps : list (message * node_id)) :=
     map fst (filter (fun '(_, n0) => eqb n n0) inps).
 
@@ -451,9 +457,8 @@ Section __.
       Forall_map (fun _ ns => allowed (inputs_of ns.(gns_trace) ++ ns.(gns_queue))) gs.
     Proof.
       intros Hstar Hallow. cbv [Forall_map]. intros nn nsn Hget.
-      eapply allowed_submultiset.
-      - exists []. rewrite app_nil_r. symmetry.
-        apply (inputs_are_outputs gt gs Hstar nn nsn Hget).
+      eapply Permutation_allowed.
+      - apply (inputs_are_outputs gt gs Hstar nn nsn Hget).
       - apply Hallow. apply (fwd_total_consistent_internal gt gs nn Hstar).
     Qed.
 
