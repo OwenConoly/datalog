@@ -4,7 +4,7 @@ From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From coqutil Require Import Eqb.
 From Stdlib Require Import List PeanoNat Permutation.
 From Stdlib Require Import RelationClasses.
-From Datalog Require Import OmniSmallstep Smallstep Map.
+From Datalog Require Import OmniSmallstep Smallstep Map List.
 Import ListNotations.
 
 Definition node_id := nat.
@@ -61,11 +61,12 @@ Section __.
       consistent c (internal_inps ++ inps) <-> consistent_inputs c inps.
 
   Context (allowed : list message -> Prop).
+  Context (allowed_submultiset : multiset_monotone allowed).
 
   Definition graph_inputs_allowed (inps : list (message * node_id)) :=
     forall n internal_inps,
       consistent_internal_inputs_to n internal_inps ->
-      allowed (map fst (filter (fun '(_, n0) => eqb n n0) inps)).
+      allowed (internal_inps ++ map fst (filter (fun '(_, n0) => eqb n n0) inps)).
 
   Context (Hcg : consistent_good).
   Context (Hcm : consistent_monotone consistent allowed).

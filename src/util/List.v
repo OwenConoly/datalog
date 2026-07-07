@@ -1043,6 +1043,15 @@ Section misc.
   Implicit Type ys : list B.
   Implicit Type zs : list C.
 
+  Definition submultiset (l1 l2 : list A) : Prop :=
+    exists rest, Permutation l2 (l1 ++ rest).
+
+  Lemma submultiset_refl l : submultiset l l.
+  Proof. exists []. rewrite app_nil_r. apply Permutation_refl. Qed.
+
+  Definition multiset_monotone (P : list A -> Prop) :=
+    forall l1 l2, submultiset l1 l2 -> P l2 -> P l1.
+
   Lemma Forall2_same_r (R1 : A -> C -> Prop) (R2 : B -> C -> Prop) (l1 : list A) (l2 : list B) (l : list C) :
     Forall2 R1 l1 l ->
     Forall2 R2 l2 l ->

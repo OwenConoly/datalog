@@ -2,7 +2,7 @@
 From Stdlib Require Import List Permutation RelationClasses.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From coqutil Require Import Tactics.fwd.
-From Datalog Require Import Tactics.
+From Datalog Require Import Tactics List.
 Import ListNotations.
 
 Section star.
@@ -59,12 +59,9 @@ Section step.
   Context (equiv_equiv : Equivalence equiv).
   Context (consistent : list message (*a set*) -> list message (*a multiset*) -> Prop).
 
-  Definition submultiset (l1 l2 : list message) : Prop :=
-    exists rest, Permutation l2 (l1 ++ rest).
-
   Context (allowed : list message -> Prop).
-  Context (allowed_submultiset :
-            forall l1 l2, submultiset l1 l2 -> allowed l2 -> allowed l1).
+
+  Context (allowed_submultiset : multiset_monotone allowed).
   (* "allowed" should satisfy the allowed_submultiset definition.
      if we have some consistent sets which are not allowed, then they are not good
      for anything, so we can just set consistent := consistent /\ allowed.
@@ -84,9 +81,6 @@ Section step.
       consistent c l2.
 
   Context (Hcm : consistent_monotone).
-
-  Lemma submultiset_refl l : submultiset l l.
-  Proof. exists []. rewrite app_nil_r. apply Permutation_refl. Qed.
 
   Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
     Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
