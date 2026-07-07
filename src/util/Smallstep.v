@@ -170,6 +170,35 @@ Section step.
           step s' (O_event lbl outs) s'' /\
             P (s'', O_event lbl outs :: t' ++ t).
 
+  Lemma will_step_impl (P Q : state * list (IO_event label message) -> Prop) st :
+    will_step st P ->
+    (forall x, P x -> Q x) ->
+    will_step st Q.
+  Proof.
+    destruct st as [s t]. intros [lbl H] HPQ. exists lbl.
+    intros s' t' Hstar Hallow.
+    destruct (H s' t' Hstar Hallow) as [HP | (s'' & outs & Hstep & HP)].
+    - left. apply HPQ, HP.
+    - right. exists s'', outs. split; [exact Hstep | apply HPQ, HP].
+  Qed.
+
+  Lemma will_step_reach (s0 : state) (t0 : list (IO_event label message))
+      (P : state * list (IO_event label message) -> Prop) :
+    will_step (s0, t0)
+      (fun '(s, t) =>
+         (exists tr, star step s0 tr s /\ t = tr ++ t0) ->
+         allowed (inputs_of t) ->
+         P (s, t)) ->
+    will_step (s0, t0) P.
+  Proof.
+    intros [lbl H]. exists lbl. intros s' t' Hstar Hallow.
+    destruct (H s' t' Hstar Hallow) as [HP | (s'' & outs & Hstep & HP)].
+    - left. apply HP; [ exists t'; split; [exact Hstar | reflexivity] | exact Hallow ].
+    - right. exists s'', outs. split; [exact Hstep|]. apply HP; [ | exact Hallow ].
+      exists (O_event lbl outs :: t').
+      split; [ eapply star_step; [exact Hstar | exact Hstep] | reflexivity ].
+  Qed.
+
   (*this is not used anywhere, but without it will_step is a bit weird, since it allows
     the good step to depend on the prior arbitrary sequence of steps.
     maybe we will want it later?*)

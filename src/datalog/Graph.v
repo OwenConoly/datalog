@@ -490,6 +490,7 @@ Section __.
             -- simpl. rewrite H1p1p0. assumption.
     Qed.
 
+    Hint Unfold val_sat : core.
     (*TODO replace stuff about initial_graph_state with hypotheses just about gs*)
     Lemma graph_eventually_of_node_eventually n P gs gt gns :
       star gstep initial_gs gt gs ->
@@ -502,26 +503,13 @@ Section __.
         (gs, gt).
     Proof.
       intros Hstar Hallow Hget Hev.
-      remember (gns.(gns_node_state), gns.(gns_trace)) as nodeSt eqn:HnodeSt.
-      revert gs gt gns Hstar Hallow Hget HnodeSt.
-      induction Hev as [nodeSt HP | nodeSt midset Hstep Hrec IH];
-        intros gs gt gns Hstar Hallow Hget HnodeSt.
-      - apply eventually_done. cbn [val_sat]. exists gns. split; [exact Hget|].
-        rewrite <- HnodeSt. exact HP.
-      - pose proof (graph_will_step_of_node_will_step n midset gs gt gns Hstar Hget
-                      ltac:(rewrite <- HnodeSt; exact Hstep)) as Hgws.
-        apply eventually_step_cps. cbv [graph_will_step will_step] in Hgws |- *.
-        destruct Hgws as [glbl Hgws]. exists glbl.
-        intros gs_d gt_d Hstar_d Hallow_d. specialize (Hgws gs_d gt_d Hstar_d Hallow_d).
-        cbn [val_sat] in Hgws.
-        destruct Hgws as [(gns_d & Hget_d & Hmid_d) | (gs'' & outs & Hstep_g & gns'' & Hget'' & Hmid'')].
-        + left. eapply (IH _ Hmid_d gs_d (gt_d ++ gt) gns_d);
-            [ eapply star_app; [exact Hstar | exact Hstar_d]
-            | exact Hallow_d | exact Hget_d | reflexivity ].
-        + right. exists gs'', outs. split; [exact Hstep_g|].
-          eapply (IH _ Hmid'' gs'' (O_event glbl outs :: gt_d ++ gt) gns'');
-            [ eapply star_step; [ eapply star_app; [exact Hstar | exact Hstar_d] | exact Hstep_g ]
-            | exact Hallow_d | exact Hget'' | reflexivity ].
+      remember (gns.(gns_node_state), gns.(gns_trace)) as nodeSt eqn:E.
+      revert gs gt gns Hstar Hallow Hget E.
+      induction Hev; intros gs gt gns Hstar Hallow Hget E; subst.
+      { eauto. }
+      eapply eventually_step_cps. apply will_step_reach. eapply will_step_impl.
+      { eapply graph_will_step_of_node_will_step; eauto. }
+      simpl. cbv [val_sat]. intros. fwd. intros. fwd. eauto.
     Qed.
 
     Definition node_received (gs : graph_state) n m :=
@@ -581,41 +569,42 @@ Section __.
       graph_will_step (gs, gt) (fun '(gs', _) => node_received gs' n m).
     Proof.
       intros Hq. cbv [graph_will_step will_step].
-      exists (receive n m). intros s' t' Hs' Ht'.
+      eexists. intros s' t' Hs' Ht'.
       eapply message_stable_steps in Hs'; [| exact Hq].
       destruct Hs' as [Hs' | Hs']; [| left; exact Hs'].
       right. destruct Hs' as (gns' & Hget & Hin).
       apply in_split in Hin. destruct Hin as (ms1 & ms2 & Hqeq).
       destruct (nodes_input_total gns'.(gns_node_state) m) as (ns'' & Hstep).
       do 2 eexists. split.
-      { eapply gstep_receive; [exact Hget | exact Hstep | exact Hqeq]. }
-      cbv [node_received val_sat]. eexists. rewrite map.get_put_same.
-      split; [reflexivity |]. cbn [gns_trace inputs_of]. left. reflexivity.
+      { apply gstep_receive; eassumption. }
+      cbv [node_received val_sat]. rewrite map.get_put_same. eauto.
     Qed.
 
     Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
-      star gstep initial_graph_state t1 gs1 ->
-      star gstep initial_graph_state t2 gs2 ->
+      star gstep initial_gs t1 gs1 ->
+      star gstep initial_gs t2 gs2 ->
       graph_inputs_allowed (inputs_of t1) ->
       graph_inputs_allowed (inputs_of t2) ->
       gstep gs1 (O_event lbl outs) gs1' ->
       le gs1 gs2 ->
       eventually graph_will_step (fun '(gs2', t2') => le gs1' gs2') (gs2, t2).
     Proof.
-      intros H1 H2 H3 H4 Hstep [Hle1 Hle2]. invert Hstep.
+      intros H1 H2 H3 H4 Hstep Hle. invert Hstep.
       - epose proof Forall2_map_get_l as H. especialize H; eauto.
         destruct H as [[ns2 tn2] [Hns2 Hincl]].
 
         epose proof (graph_step_to_node_step_from_beginning gs1) as Hns1'.
-        especialize Hns1'; eauto. eapply Forall3_map_get_l in Hns1'; eauto.
-        fwd. destruct v2, v3. fwd. map_func.
+        especialize Hns1'; eauto. eapply Forall2_map_get_r in Hns1'; eauto.
+        fwd.
 
         epose proof (graph_step_to_node_step_from_beginning gs2) as Hns2'.
-        especialize Hns2'; eauto. eapply Forall3_map_get_l in Hns2'; eauto.
-        fwd. destruct v2, v3. fwd. map_func.
+        especialize Hns2'; eauto. eapply Forall2_map_get_l in Hns2'; eauto.
+        fwd.
 
-        pose proof nodes_good as H'. eapply Forall2_map_get_l in H'; eauto.
-        fwd. simpl in *. map_func. cbv [node_good] in H'p1. fwd.
+        map_func. simpl in *.
+
+        pose proof nodes_good as H'. cbv [Forall_map] in H'. especialize H'; eauto.
+        cbv [node_good] in H'. fwd.
 
         eassert (Hmo: Forall (might_output_equiv _ _ n3 l2) outs0).
         { apply Forall_forall. intros m Hm. eapply H'p1p1.
