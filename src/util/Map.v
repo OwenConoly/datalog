@@ -288,6 +288,14 @@ Section Map.
       + apply IH.
   Qed.
 
+  Lemma map_values'_put (f : key -> value -> value') (m : mp) k v :
+    map_values' f (map.put m k v) = map.put (map_values' f m) k (f k v).
+  Proof.
+    apply map.map_ext. intro j.
+    rewrite get_map_values', !map.get_put_dec, get_map_values'.
+    destr (eqb k j); cbn [option_map]; congruence.
+  Qed.
+
   Lemma Forall2_map_map_values'_r {value1} {mp1 : map.map key value1}
       (R : key -> value1 -> value -> Prop) (R' : key -> value1 -> value' -> Prop)
       (g : key -> value -> value') (m1 : mp1) (m2 : mp) :

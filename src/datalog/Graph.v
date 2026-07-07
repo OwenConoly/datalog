@@ -263,16 +263,6 @@ Section __.
       rewrite Ho. apply Permutation_sym. apply (fwd_total_put_cons nn gs k v0 v0 Hk).
     Qed.
 
-    Lemma map_values'_put (H : node_id -> graph_node_state node_state -> graph_node_state node_state)
-        (m : graph_state) k v :
-      map.get m k = None ->
-      map_values' H (map.put m k v) = map.put (map_values' H m) k (H k v).
-    Proof.
-      intros Hk. apply map.map_ext. intro j.
-      rewrite get_map_values', map.get_put_dec, map.get_put_dec, get_map_values'.
-      destr_sth Nat.eqb; cbn [option_map]; [ subst; reflexivity | reflexivity ].
-    Qed.
-
     Lemma fwd_total_map_values' nn
         (H : node_id -> graph_node_state node_state -> graph_node_state node_state) (M : graph_state) :
       (forall k v, (H k v).(gns_trace) = v.(gns_trace)) ->
@@ -282,7 +272,7 @@ Section __.
       - assert (E : map_values' H map.empty = (map.empty : graph_state)).
         { apply map.map_ext. intro j. rewrite get_map_values', !map.get_empty. reflexivity. }
         rewrite E. apply Permutation_refl.
-      - rewrite map_values'_put by exact Hk.
+      - rewrite map_values'_put.
         eapply perm_trans.
         { apply (fwd_total_put_None nn (map_values' H m) k (H k v)).
           rewrite get_map_values', Hk. reflexivity. }
@@ -330,13 +320,6 @@ Section __.
       rewrite filter_app, <- app_assoc. apply Permutation_app_head.
       pose proof (fwd_total_put_cons nn gs n ns ns Hget) as Hc.
       rewrite (map.put_noop n ns gs Hget) in Hc. symmetry. exact Hc.
-    Qed.
-
-    Lemma perm_ins {X : Type} (a b d s : list X) :
-      Permutation (a ++ b) s -> Permutation (a ++ d ++ b) (d ++ s).
-    Proof.
-      intros HP. transitivity (d ++ a ++ b); [ | apply Permutation_app_head; exact HP ].
-      rewrite !app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
     Qed.
 
     Lemma conservation_step gs e gs' :
@@ -419,14 +402,6 @@ Section __.
           [ | apply (conservation_step _ _ _ Hstep _ (IH ext Hconv)) ].
         change (e :: T0) with ([e] ++ T0). rewrite inputs_of_app, <- !app_assoc.
         apply Permutation_app_head. apply Permutation_app_comm.
-    Qed.
-
-    Lemma flat_map_all_nil {A B} (g : A -> list B) (l : list A) :
-      (forall x, In x l -> g x = []) -> flat_map g l = [].
-    Proof.
-      induction l as [|a l IHl]; cbn [flat_map]; intros Hall; [reflexivity|].
-      rewrite (Hall a) by (left; reflexivity). cbn [app].
-      apply IHl. intros x Hin. apply Hall. right. exact Hin.
     Qed.
 
     Lemma fwd_total_initial nn : fwd_total nn initial_gs = [].

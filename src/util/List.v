@@ -70,6 +70,21 @@ Proof.
   - eapply perm_trans; eassumption.
 Qed.
 
+Lemma perm_ins {X : Type} (a b d s : list X) :
+  Permutation (a ++ b) s -> Permutation (a ++ d ++ b) (d ++ s).
+Proof.
+  intros HP. transitivity (d ++ a ++ b); [ | apply Permutation_app_head; exact HP ].
+  rewrite !app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
+Qed.
+
+Lemma flat_map_all_nil {A B} (g : A -> list B) (l : list A) :
+  (forall x, In x l -> g x = []) -> flat_map g l = [].
+Proof.
+  induction l as [|a l IHl]; cbn [flat_map]; intros Hall; [reflexivity|].
+  rewrite (Hall a) by (left; reflexivity). cbn [app].
+  apply IHl. intros x Hin. apply Hall. right. exact Hin.
+Qed.
+
 Section subset.
   Context {A : Type}.
   Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.
