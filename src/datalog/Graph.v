@@ -481,15 +481,13 @@ Section __.
         { eapply allowed_submultiset.
           - eapply everything_allowed. 2: eassumption. all: eauto.
           - rewrite H1p1p0. eexists. apply Permutation_refl. }
-        destruct H0 as [HP | (s'' & outs & Hstep & HP)].
-        + left. cbv [val_sat]. exists v2. split; [exact H1p0|].
-          cbv beta. rewrite H1p1p0. exact HP.
+        destruct H0; fwd.
+        + left. cbv [val_sat]. eexists. rewrite H1p1p0. eauto.
         + right. do 2 eexists. split.
-          * eapply gstep_run; [exact H1p0 | exact Hstep].
+          * eapply gstep_run; eassumption.
           * cbv [val_sat]. eexists. split.
-            -- rewrite get_map_values', map.get_put_same. reflexivity.
-            -- cbv beta. cbn [enqueue gns_node_state gns_trace].
-               rewrite H1p1p0. exact HP.
+            -- rewrite get_map_values', map.get_put_same. simpl. reflexivity.
+            -- simpl. rewrite H1p1p0. assumption.
     Qed.
 
     (*TODO replace stuff about initial_graph_state with hypotheses just about gs*)
@@ -503,7 +501,28 @@ Section __.
            val_sat gs' n (fun gns' => P (gns'.(gns_node_state), gns'.(gns_trace))))
         (gs, gt).
     Proof.
-    Admitted.
+      intros Hstar Hallow Hget Hev.
+      remember (gns.(gns_node_state), gns.(gns_trace)) as nodeSt eqn:HnodeSt.
+      revert gs gt gns Hstar Hallow Hget HnodeSt.
+      induction Hev as [nodeSt HP | nodeSt midset Hstep Hrec IH];
+        intros gs gt gns Hstar Hallow Hget HnodeSt.
+      - apply eventually_done. cbn [val_sat]. exists gns. split; [exact Hget|].
+        rewrite <- HnodeSt. exact HP.
+      - pose proof (graph_will_step_of_node_will_step n midset gs gt gns Hstar Hget
+                      ltac:(rewrite <- HnodeSt; exact Hstep)) as Hgws.
+        apply eventually_step_cps. cbv [graph_will_step will_step] in Hgws |- *.
+        destruct Hgws as [glbl Hgws]. exists glbl.
+        intros gs_d gt_d Hstar_d Hallow_d. specialize (Hgws gs_d gt_d Hstar_d Hallow_d).
+        cbn [val_sat] in Hgws.
+        destruct Hgws as [(gns_d & Hget_d & Hmid_d) | (gs'' & outs & Hstep_g & gns'' & Hget'' & Hmid'')].
+        + left. eapply (IH _ Hmid_d gs_d (gt_d ++ gt) gns_d);
+            [ eapply star_app; [exact Hstar | exact Hstar_d]
+            | exact Hallow_d | exact Hget_d | reflexivity ].
+        + right. exists gs'', outs. split; [exact Hstep_g|].
+          eapply (IH _ Hmid'' gs'' (O_event glbl outs :: gt_d ++ gt) gns'');
+            [ eapply star_step; [ eapply star_app; [exact Hstar | exact Hstar_d] | exact Hstep_g ]
+            | exact Hallow_d | exact Hget'' | reflexivity ].
+    Qed.
 
     Definition node_received (gs : graph_state) n m :=
       val_sat gs n (fun gns => In m (inputs_of gns.(gns_trace))).
