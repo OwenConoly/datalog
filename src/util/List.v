@@ -1088,7 +1088,7 @@ Section misc.
   Proof. exists []. rewrite app_nil_r. apply Permutation_refl. Qed.
 
   Definition multiset_monotone (P : list A -> Prop) :=
-    forall l1 l2, submultiset l1 l2 -> P l2 -> P l1.
+    forall l1 l2, P l2 -> submultiset l1 l2 -> P l1.
 
   Lemma Forall2_same_r (R1 : A -> C -> Prop) (R2 : B -> C -> Prop) (l1 : list A) (l2 : list B) (l : list C) :
     Forall2 R1 l1 l ->

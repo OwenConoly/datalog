@@ -408,7 +408,7 @@ Section step.
     intros Hciw ns tau e ns' o Halt Hstar Hstep Hcan.
     destruct Hcan as (o' & Hequiv & Hmo).
     assert (Halt_tau : allowed (inputs_of tau)).
-    { eapply allowed_submultiset; [|exact Halt].
+    { eapply allowed_submultiset; [exact Halt|].
       exists (inputs_of [e]). change (e :: tau) with ([e] ++ tau).
       rewrite inputs_of_app. apply Permutation_app_comm. }
     pose proof (Hciw tau ns o' Hstar Halt_tau Hmo) as Hwill.

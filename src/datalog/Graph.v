@@ -65,7 +65,7 @@ Section __.
 
   Lemma Permutation_allowed l1 l2 : Permutation l1 l2 -> allowed l2 -> allowed l1.
   Proof.
-    intros HP Ha. eapply allowed_submultiset; [ | exact Ha ].
+    intros HP Ha. eapply allowed_submultiset; [ exact Ha | ].
     exists []. rewrite app_nil_r. symmetry. exact HP.
   Qed.
 
@@ -481,7 +481,7 @@ Section __.
             by (eapply star_app; [exact H | exact HD]).
           pose proof (everything_allowed (t' ++ gt) s' Hs H2) as Hea.
           cbv [Forall_map] in Hea. specialize (Hea n v2 H1p0).
-          rewrite <- H1p1p0. eapply allowed_submultiset; [ | exact Hea ].
+          rewrite <- H1p1p0. eapply allowed_submultiset; [ exact Hea | ].
           exists (gns_queue v2). apply Permutation_refl. }
 
     Admitted.
