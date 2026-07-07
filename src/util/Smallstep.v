@@ -199,6 +199,31 @@ Section step.
       split; [ eapply star_step; [exact Hstar | exact Hstep] | reflexivity ].
   Qed.
 
+  (* Carry a run-closed state invariant [Inv] through an [eventually will_step]. *)
+  Lemma eventually_carry_inv (Inv : state -> Prop)
+      (Hinv : forall s T s', star step s T s' -> Inv s -> Inv s') :
+    forall (P : state * list (IO_event label message) -> Prop) s t,
+      Inv s ->
+      eventually will_step P (s, t) ->
+      eventually will_step (fun '(s', t') => P (s', t') /\ Inv s') (s, t).
+  Proof.
+    intros P s t HInv Hev.
+    remember (s, t) as st eqn:Est. revert s t HInv Est.
+    induction Hev as [[s0 t0] HP | [s0 t0] midset Hcan Hmid IH];
+      intros s t HInv [= -> ->].
+    - apply eventually_done. split; [exact HP | exact HInv].
+    - destruct Hcan as [lbl Hcan].
+      apply eventually_step_cps. exists lbl.
+      intros s_d t_d Hstar_d Hallow.
+      specialize (Hcan s_d t_d Hstar_d Hallow).
+      destruct Hcan as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
+      + left. apply (IH (s_d, t_d ++ t) Hmid_left s_d (t_d ++ t)
+                        (Hinv _ _ _ Hstar_d HInv) eq_refl).
+      + right. exists s'', outs. split; [exact Hstep|].
+        apply (IH _ Hmidset s'' (O_event lbl outs :: t_d ++ t)); [|reflexivity].
+        eapply Hinv; [ eapply star_step; [exact Hstar_d | exact Hstep] | exact HInv ].
+  Qed.
+
   (*this is not used anywhere, but without it will_step is a bit weird, since it allows
     the good step to depend on the prior arbitrary sequence of steps.
     maybe we will want it later?*)
@@ -332,6 +357,28 @@ Section step.
       In a l1 ->
       exists b,
         In b l2 /\ equiv a b.
+
+  Lemma incl_mod_weak_refl l : incl_mod_weak l l.
+  Proof.
+    destruct equiv_equiv as [Href _ _].
+    intros a Ha. exists a. split; [exact Ha | apply Href].
+  Qed.
+
+  Lemma incl_mod_weak_of_incl l1 l2 : incl l1 l2 -> incl_mod_weak l1 l2.
+  Proof.
+    destruct equiv_equiv as [Href _ _].
+    intros Hincl a Ha. exists a. split; [apply Hincl, Ha | apply Href].
+  Qed.
+
+  Lemma incl_mod_weak_trans l1 l2 l3 :
+    incl_mod_weak l1 l2 -> incl_mod_weak l2 l3 -> incl_mod_weak l1 l3.
+  Proof.
+    destruct equiv_equiv as [_ _ Htrans].
+    intros H12 H23 a Ha.
+    destruct (H12 a Ha) as (b & Hb & Hab).
+    destruct (H23 b Hb) as (c & Hc & Hbc).
+    exists c. split; [exact Hc | eapply Htrans; eassumption].
+  Qed.
 
   Definition incl_mod (l1 l2 : list message) : Prop :=
     forall a,

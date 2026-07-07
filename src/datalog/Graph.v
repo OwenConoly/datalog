@@ -141,9 +141,14 @@ Section __.
         monotone_mod_equiv     node_step equiv consistent allowed gns.(gns_node_state) /\
         might_implies_will_equiv node_step equiv allowed gns.(gns_node_state).
 
-    Definition le (g1 g2 : graph_state) :=
+    Definition le_weak (g1 g2 : graph_state) :=
       Forall2_map (fun n gns1 gns2 =>
                      incl_mod_weak equiv (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue)) (inputs_of gns2.(gns_trace) ++ gns2.(gns_queue)))
+        g1 g2.
+
+    Definition le (g1 g2 : graph_state) :=
+      Forall2_map (fun n gns1 gns2 =>
+                     incl_mod equiv consistent (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue)) (inputs_of gns2.(gns_trace)))
         g1 g2.
 
     Let graph_will_step := (will_step (graph_step node_step) graph_inputs_allowed).
@@ -578,6 +583,15 @@ Section __.
       cbv [node_received val_sat]. rewrite map.get_put_same. eauto.
     Qed.
 
+    Lemma le_weak_to_le gs1 t1 gs2 t2 :
+      star gstep initial_gs t1 gs1 ->
+      star gstep initial_gs t2 gs2 ->
+      graph_inputs_allowed (inputs_of t1) ->
+      graph_inputs_allowed (inputs_of t2) ->
+      le_weak gs1 gs2 ->
+      eventually graph_will_step (fun '(gs2', t2') => le gs1 gs2') (gs2, t2).
+    Proof. Admitted.
+
     Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
@@ -585,7 +599,7 @@ Section __.
       graph_inputs_allowed (inputs_of t2) ->
       gstep gs1 (O_event lbl outs) gs1' ->
       le gs1 gs2 ->
-      eventually graph_will_step (fun '(gs2', t2') => le gs1' gs2') (gs2, t2).
+      eventually graph_will_step (fun '(gs2', t2') => le_weak gs1' gs2') (gs2, t2).
     Proof.
       intros H1 H2 H3 H4 Hstep Hle. invert Hstep.
       - epose proof Forall2_map_get_l as H. especialize H; eauto.
