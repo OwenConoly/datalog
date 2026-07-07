@@ -462,6 +462,7 @@ Section __.
       - apply Hallow. apply (fwd_total_consistent_internal gt gs nn Hstar).
     Qed.
 
+    Hint Resolve star_app : core.
     Lemma graph_will_step_of_node_will_step n P gs gt gns :
       star gstep initial_gs gt gs ->
       map.get gs n = Some gns ->
@@ -477,12 +478,10 @@ Section __.
         apply graph_step_to_node_step in H1.
         eapply Forall2_map_get_l in H1; eauto. fwd.
         specialize (H0 _ _ ltac:(eassumption)). specialize' H0.
-        { assert (Hs : star gstep initial_gs (t' ++ gt) s')
-            by (eapply star_app; [exact H | exact HD]).
-          pose proof (everything_allowed (t' ++ gt) s' Hs H2) as Hea.
-          cbv [Forall_map] in Hea. specialize (Hea n v2 H1p0).
-          rewrite <- H1p1p0. eapply allowed_submultiset; [ exact Hea | ].
-          exists (gns_queue v2). apply Permutation_refl. }
+        { eapply allowed_submultiset.
+          - eapply everything_allowed. 2: eassumption. all: eauto.
+          - rewrite H1p1p0. eexists. apply Permutation_refl. }
+
 
     Admitted.
 
