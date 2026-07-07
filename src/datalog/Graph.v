@@ -481,9 +481,16 @@ Section __.
         { eapply allowed_submultiset.
           - eapply everything_allowed. 2: eassumption. all: eauto.
           - rewrite H1p1p0. eexists. apply Permutation_refl. }
-
-
-    Admitted.
+        destruct H0 as [HP | (s'' & outs & Hstep & HP)].
+        + left. cbv [val_sat]. exists v2. split; [exact H1p0|].
+          cbv beta. rewrite H1p1p0. exact HP.
+        + right. do 2 eexists. split.
+          * eapply gstep_run; [exact H1p0 | exact Hstep].
+          * cbv [val_sat]. eexists. split.
+            -- rewrite get_map_values', map.get_put_same. reflexivity.
+            -- cbv beta. cbn [enqueue gns_node_state gns_trace].
+               rewrite H1p1p0. exact HP.
+    Qed.
 
     (*TODO replace stuff about initial_graph_state with hypotheses just about gs*)
     Lemma graph_eventually_of_node_eventually n P gs gt gns :
