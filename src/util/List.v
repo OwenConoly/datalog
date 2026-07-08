@@ -1122,6 +1122,93 @@ Section misc.
     intros x Hx. apply H, in_or_app. left. exact Hx.
   Qed.
 
+  Lemma submultiset_nil_l l : submultiset [] l.
+  Proof. exists l. reflexivity. Qed.
+
+  Lemma submultiset_perm_r l m m' : Permutation m m' -> submultiset l m -> submultiset l m'.
+  Proof. intros HP (rest & H). exists rest. rewrite <- HP. exact H. Qed.
+
+  Lemma submultiset_app_head m l l' : submultiset l l' -> submultiset (m ++ l) (m ++ l').
+  Proof. intros (rest & Hp). exists rest. rewrite <- app_assoc. apply Permutation_app_head. exact Hp. Qed.
+
+  Lemma submultiset_app_inv_l m l l' : submultiset (m ++ l) (m ++ l') -> submultiset l l'.
+  Proof.
+    intros (rest & Hp). exists rest. rewrite <- app_assoc in Hp.
+    apply Permutation_app_inv_l in Hp. exact Hp.
+  Qed.
+
+  Lemma submultiset_cons_mono a l l' : submultiset l l' -> submultiset (a :: l) (a :: l').
+  Proof. intros (rest & Hp). exists rest. apply perm_skip. exact Hp. Qed.
+
+  Lemma submultiset_cons_inv a l l' : submultiset (a :: l) (a :: l') -> submultiset l l'.
+  Proof.
+    intros (rest & Hp). exists rest. cbn [app] in Hp. apply Permutation_cons_inv in Hp. exact Hp.
+  Qed.
+
+  Local Ltac pmid :=
+    solve [ apply Permutation_middle
+          | symmetry; apply Permutation_middle
+          | rewrite <- !app_assoc; apply Permutation_middle
+          | rewrite <- !app_assoc; symmetry; apply Permutation_middle
+          | rewrite !app_assoc; apply Permutation_middle
+          | rewrite !app_assoc; symmetry; apply Permutation_middle ].
+
+  Lemma submultiset_diff owed s Q :
+    submultiset owed (s ++ Q) ->
+    exists owed', submultiset owed' Q /\ submultiset owed (s ++ owed') /\ length owed' <= length owed.
+  Proof.
+    revert s Q. induction owed as [| x owed IH]; intros s Q Hsub.
+    - exists []. split;
+        [ apply submultiset_nil_l | split; [ apply submultiset_nil_l | reflexivity ] ].
+    - assert (Hin : In x (s ++ Q))
+        by (eapply submultiset_incl; [ exact Hsub | left; reflexivity ]).
+      apply in_app_or in Hin. destruct Hin as [Hxs | HxQ].
+      + apply in_split in Hxs. destruct Hxs as (s1 & s2 & ->).
+        assert (Hsub' : submultiset owed ((s1 ++ s2) ++ Q)).
+        { apply submultiset_cons_inv with (a := x).
+          eapply submultiset_perm_r; [ | exact Hsub ]. pmid. }
+        destruct (IH (s1 ++ s2) Q Hsub') as (owed' & HQ & Hos & Hlen).
+        exists owed'. split; [ exact HQ | split ].
+        * eapply submultiset_perm_r; [ | apply submultiset_cons_mono; exact Hos ]. pmid.
+        * simpl. apply le_S. exact Hlen.
+      + apply in_split in HxQ. destruct HxQ as (Q1 & Q2 & ->).
+        assert (Hsub' : submultiset owed (s ++ (Q1 ++ Q2))).
+        { apply submultiset_cons_inv with (a := x).
+          eapply submultiset_perm_r; [ | exact Hsub ]. pmid. }
+        destruct (IH s (Q1 ++ Q2) Hsub') as (owed' & HQ & Hos & Hlen).
+        exists (x :: owed'). split; [ | split ].
+        * eapply submultiset_perm_r; [ | apply submultiset_cons_mono; exact HQ ]. pmid.
+        * eapply submultiset_perm_r; [ | apply submultiset_cons_mono; exact Hos ]. pmid.
+        * simpl. apply le_n_S. exact Hlen.
+  Qed.
+
+  Lemma submultiset_perm_l l l' m : Permutation l l' -> submultiset l m -> submultiset l' m.
+  Proof.
+    intros HP (rest & H). exists rest.
+    eapply perm_trans; [ exact H | apply Permutation_app_tail; exact HP ].
+  Qed.
+
+  Lemma submultiset_absorb base owed T Q a :
+    submultiset (base ++ a :: owed) (T ++ Q) ->
+    submultiset (base ++ [a]) T ->
+    exists owed', submultiset owed' Q /\
+                  submultiset (base ++ a :: owed) (T ++ owed') /\ length owed' <= length owed.
+  Proof.
+    intros H1 (s & HT).
+    replace (base ++ a :: owed) with ((base ++ [a]) ++ owed) in *
+      by (rewrite <- app_assoc; reflexivity).
+    assert (Hos : submultiset owed (s ++ Q)).
+    { apply (submultiset_app_inv_l (base ++ [a])).
+      eapply submultiset_perm_r; [ | exact H1 ].
+      eapply perm_trans; [ apply Permutation_app_tail; exact HT | ].
+      rewrite <- !app_assoc. apply Permutation_refl. }
+    destruct (submultiset_diff owed s Q Hos) as (owed' & HQ & Hos' & Hlen).
+    exists owed'. split; [ exact HQ | split; [ | exact Hlen ] ].
+    eapply submultiset_perm_r; [ | apply (submultiset_app_head (base ++ [a])); exact Hos' ].
+    eapply perm_trans; [ | apply Permutation_app_tail; apply Permutation_sym; exact HT ].
+    rewrite <- !app_assoc. apply Permutation_refl.
+  Qed.
+
   Definition multiset_monotone (P : list A -> Prop) :=
     forall l1 l2, P l2 -> submultiset l1 l2 -> P l1.
 

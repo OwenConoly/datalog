@@ -788,6 +788,23 @@ Section __.
       - apply submultiset_matching_inps. exact Hsub.
     Qed.
 
+    Lemma eventually_deliver n :
+      forall N owed gc tc nc,
+        length owed <= N ->
+        star gstep initial_gs tc gc ->
+        graph_inputs_allowed (inputs_of tc) ->
+        map.get gc n = Some nc ->
+        submultiset owed (gns_queue nc) ->
+        eventually graph_will_step
+          (fun '(gc', _) => exists nc', map.get gc' n = Some nc' /\
+             submultiset (inputs_of (gns_trace nc) ++ owed) (inputs_of (gns_trace nc')))
+          (gc, tc).
+    Proof.
+      induction N as [| N IHN]; intros owed gc tc nc HN Hstar Hga Hget Hsub.
+      - admit.
+      - admit.
+    Admitted.
+
     Lemma eventually_received t2 gs2 :
       star gstep initial_gs t2 gs2 ->
       graph_inputs_allowed (inputs_of t2) ->
