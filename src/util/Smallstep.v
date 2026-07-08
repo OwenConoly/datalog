@@ -406,6 +406,24 @@ Section step.
     - constructor; [apply Href | exact IH].
   Qed.
 
+  Lemma Forall2_equiv_trans (a b c : list message) :
+    Forall2 equiv a b -> Forall2 equiv b c -> Forall2 equiv a c.
+  Proof.
+    destruct equiv_equiv as [_ _ Htrans]. intros Hab. revert c.
+    induction Hab as [| x y la lb Hxy Hlab IH]; intros c Hbc.
+    - exact Hbc.
+    - inversion Hbc; subst.
+      constructor; [eapply Htrans; eassumption | apply IH; assumption].
+  Qed.
+
+  Lemma incl_mod_trans l1 l2 l3 : incl_mod l1 l2 -> incl_mod l2 l3 -> incl_mod l1 l3.
+  Proof.
+    intros H12 H23 a Ha Hca.
+    destruct (H12 a Ha Hca) as (b & Hb & Hab & Hcb).
+    destruct (H23 b Hb Hcb) as (c & Hc & Hbc & Hcc).
+    exists c. split; [exact Hc | split; [eapply Forall2_equiv_trans; eassumption | exact Hcc]].
+  Qed.
+
   (* [will_output_equiv]-analogues of [will_implies_might]/[will_output_step]:
      the target output is only pinned down up to [equiv]. *)
   Lemma will_equiv_implies_might_equiv s t o :

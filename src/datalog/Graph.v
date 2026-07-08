@@ -5,6 +5,8 @@ From coqutil Require Import Eqb.
 From Stdlib Require Import List PeanoNat Permutation.
 From Stdlib Require Import RelationClasses Morphisms.
 From Datalog Require Import OmniSmallstep Smallstep Map List Eqb.
+From Datalog Require Import Tactics.
+From coqutil Require Import Tactics Tactics.fwd.
 Import ListNotations.
 
 Definition node_id := nat.
@@ -148,6 +150,7 @@ Section __.
 
     Definition le_strong (g1 g2 : graph_state) :=
       Forall2_map (fun n gns1 gns2 =>
+                     submultiset (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace)) /\
                      submultiset (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue)) (inputs_of gns2.(gns_trace) ++ gns2.(gns_queue)))
         g1 g2.
 
@@ -157,9 +160,6 @@ Section __.
         g1 g2.
 
     Let graph_will_step := (will_step (graph_step node_step) graph_inputs_allowed).
-
-    From Datalog Require Import Tactics.
-    From coqutil Require Import Tactics Tactics.fwd.
 
     Context (nodes_good : Forall_map node_good initial_gs).
 
@@ -185,31 +185,65 @@ Section __.
         try contradiction; eauto.
     Qed.
 
+    Lemma le_strong_trans g1 g2 g3 : le_strong g1 g2 -> le_strong g2 g3 -> le_strong g1 g3.
+    Proof.
+      intros H12 H23. cbv [le_strong Forall2_map] in *. intros k.
+      specialize (H12 k); specialize (H23 k).
+      destruct (map.get g1 k), (map.get g2 k), (map.get g3 k);
+        try contradiction; try exact I.
+      destruct H12 as [H12a H12b], H23 as [H23a H23b].
+      split; eapply submultiset_trans; eassumption.
+    Qed.
+
+    Lemma le_le_strong a b c :
+      Forall_map (fun _ ns => allowed (inputs_of ns.(gns_trace) ++ ns.(gns_queue))) b ->
+      Forall_map (fun _ ns => allowed (inputs_of ns.(gns_trace) ++ ns.(gns_queue))) c ->
+      le a b -> le_strong b c -> le a c.
+    Proof.
+      intros Hb Hc Hab Hbc.
+      cbv [le le_strong Forall_map Forall2_map] in *. intros k.
+      specialize (Hab k); specialize (Hbc k).
+      destruct (map.get a k) as [va|] eqn:Ha, (map.get b k) as [vb|] eqn:Hgb,
+               (map.get c k) as [vc|] eqn:Hgc;
+        try contradiction; try exact I.
+      destruct Hbc as [Hbc_t Hbc_q].
+      pose proof (Hb k vb Hgb) as Halb. pose proof (Hc k vc Hgc) as Halc.
+      intros x Hx_incl Hx_cons.
+      destruct (Hab x Hx_incl Hx_cons) as (y & Hy_incl & Hy_equiv & Hy_cons).
+      exists y. split; [| split; [exact Hy_equiv|]].
+      - eapply incl_tran; [exact Hy_incl | apply submultiset_incl, Hbc_t].
+      - eapply Hcm.
+        + eapply allowed_submultiset; [exact Halb | apply submultiset_app_r].
+        + eapply allowed_submultiset; [exact Halc | apply submultiset_app_r].
+        + exact Hbc_t.
+        + exact Hy_cons.
+    Qed.
+
     Lemma gstep_le_strong g e g' : gstep g e g' -> le_strong g g'.
     Proof.
       intros Hstep. cbv [le_strong Forall2_map]. intros k. invert Hstep.
       - rewrite get_mupd. destr (eqb n k).
         + destruct (map.get g k) as [v|]; [|exact I].
           cbn [option_map enqueue gns_node_state gns_trace gns_queue].
-          apply submultiset_app_mid.
-        + destruct (map.get g k); auto.
+          split; [apply submultiset_refl | apply submultiset_app_mid].
+        + destruct (map.get g k) as [v|]; [|exact I]. split; apply submultiset_refl.
       - rewrite get_map_values'. destr (eqb n k).
         + rewrite map.get_put_same, H.
           cbn [option_map enqueue gns_node_state gns_trace gns_queue].
           replace (inputs_of (O_event lbl outs :: gns_trace ns))
             with (inputs_of (gns_trace ns)) by reflexivity.
-          apply submultiset_app_mid.
+          split; [apply submultiset_refl | apply submultiset_app_mid].
         + rewrite map.get_put_diff by congruence.
           destruct (map.get g k) as [v|]; [|exact I].
           cbn [option_map enqueue gns_node_state gns_trace gns_queue].
-          apply submultiset_app_mid.
+          split; [apply submultiset_refl | apply submultiset_app_mid].
       - destr (eqb n k).
         + rewrite map.get_put_same, H. cbn [gns_trace gns_queue].
           replace (inputs_of (I_event m :: gns_trace ns))
             with (m :: inputs_of (gns_trace ns)) by reflexivity.
-          rewrite H1. apply submultiset_perm, perm_recv.
+          rewrite H1. split; [apply submultiset_cons | apply submultiset_perm, perm_recv].
         + rewrite map.get_put_diff by congruence.
-          destruct (map.get g k); auto.
+          destruct (map.get g k) as [v|]; [|exact I]. split; apply submultiset_refl.
     Qed.
 
     Lemma impl_in_map [A B] (f : A -> B) x l y :

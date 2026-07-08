@@ -1103,6 +1103,25 @@ Section misc.
   Lemma submultiset_perm l1 l2 : Permutation l1 l2 -> submultiset l1 l2.
   Proof. intros H. exists []. rewrite app_nil_r. symmetry. exact H. Qed.
 
+  Lemma submultiset_trans l1 l2 l3 :
+    submultiset l1 l2 -> submultiset l2 l3 -> submultiset l1 l3.
+  Proof.
+    intros (r1 & H1) (r2 & H2). exists (r1 ++ r2). rewrite app_assoc.
+    transitivity (l2 ++ r2); [exact H2 | apply Permutation_app_tail; exact H1].
+  Qed.
+
+  Lemma submultiset_app_r l1 l2 : submultiset l1 (l1 ++ l2).
+  Proof. exists l2. apply Permutation_refl. Qed.
+
+  Lemma submultiset_cons a l : submultiset l (a :: l).
+  Proof. exists [a]. apply Permutation_cons_append. Qed.
+
+  Lemma submultiset_incl l1 l2 : submultiset l1 l2 -> incl l1 l2.
+  Proof.
+    intros (rest & H). apply Permutation_sym, Permutation_incl in H.
+    intros x Hx. apply H, in_or_app. left. exact Hx.
+  Qed.
+
   Definition multiset_monotone (P : list A -> Prop) :=
     forall l1 l2, P l2 -> submultiset l1 l2 -> P l1.
 
