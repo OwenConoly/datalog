@@ -174,59 +174,55 @@ Section step.
     - right. exists s'', outs. split; [exact Hstep | apply HPQ, HP].
   Qed.
 
+  Definition reachable (s : state) (t : list (IO_event label message))
+                       (s' : state) (t' : list (IO_event label message)) : Prop :=
+    exists tr, star step s tr s' /\ t' = tr ++ t /\
+               (allowed (inputs_of t) -> allowed (inputs_of t')).
+
+  Lemma reachable_refl s t : reachable s t s t.
+  Proof. exists []. split; [apply star_refl | split; [reflexivity | exact (fun H => H)]]. Qed.
+
+  Lemma reachable_trans s1 t1 s2 t2 s3 t3 :
+    reachable s1 t1 s2 t2 -> reachable s2 t2 s3 t3 -> reachable s1 t1 s3 t3.
+  Proof.
+    intros (tr1 & Hst1 & -> & Hal1) (tr2 & Hst2 & -> & Hal2).
+    exists (tr2 ++ tr1). split; [eapply star_app; eassumption | ].
+    split; [ apply app_assoc | intros H; apply Hal2, Hal1, H ].
+  Qed.
+
   Lemma will_step_reach (s0 : state) (t0 : list (IO_event label message))
       (P : state * list (IO_event label message) -> Prop) :
-    will_step (s0, t0)
-      (fun '(s, t) =>
-         (exists tr, star step s0 tr s /\ t = tr ++ t0) ->
-         allowed (inputs_of t) ->
-         P (s, t)) ->
+    will_step (s0, t0) (fun '(s, t) => reachable s0 t0 s t -> P (s, t)) ->
     will_step (s0, t0) P.
   Proof.
     intros [lbl H]. exists lbl. intros s' t' Hstar Hallow.
     destruct (H s' t' Hstar Hallow) as [HP | (s'' & outs & Hstep & HP)].
-    - left. apply HP; [ exists t'; split; [exact Hstar | reflexivity] | exact Hallow ].
-    - right. exists s'', outs. split; [exact Hstep|]. apply HP; [ | exact Hallow ].
+    - left. apply HP. exists t'. split; [exact Hstar | split; [reflexivity | intros _; exact Hallow]].
+    - right. exists s'', outs. split; [exact Hstep|]. apply HP.
       exists (O_event lbl outs :: t').
-      split; [ eapply star_step; [exact Hstar | exact Hstep] | reflexivity ].
+      split; [ eapply star_step; [exact Hstar | exact Hstep]
+             | split; [reflexivity | intros _; exact Hallow] ].
   Qed.
 
   (* [eventually]-analogue of [will_step_reach]: at every reached state the target
-     may assume it is reachable from [(s0, t0)]. *)
+     may assume it is [reachable] from [(s0, t0)]. *)
   Lemma eventually_will_step_reach (s0 : state) (t0 : list (IO_event label message))
       (P : state * list (IO_event label message) -> Prop) :
-    eventually will_step
-      (fun '(s, t) => (exists tr, star step s0 tr s /\ t = tr ++ t0) -> P (s, t))
-      (s0, t0) ->
+    eventually will_step (fun '(s, t) => reachable s0 t0 s t -> P (s, t)) (s0, t0) ->
     eventually will_step P (s0, t0).
   Proof.
     intros Hev.
-    cut (forall s t, (exists tr, star step s0 tr s /\ t = tr ++ t0) ->
-           eventually will_step
-             (fun '(s', t') => (exists tr, star step s0 tr s' /\ t' = tr ++ t0) -> P (s', t'))
-             (s, t) ->
-           eventually will_step P (s, t)).
-    { intros H. apply (H s0 t0);
-        [ exists []; split; [ apply star_refl | reflexivity ] | exact Hev ]. }
-    clear Hev. intros s t Hreach Hev.
-    remember (s, t) as st eqn:Est. revert s t Hreach Est.
-    induction Hev as [[s' t'] HQ | [s' t'] midset Hcan Hmid IH];
-      intros s t Hreach [= -> ->].
-    - apply eventually_done. apply HQ, Hreach.
-    - destruct Hreach as (tr & Hstar_tr & ->).
-      destruct Hcan as [lbl Hcan].
-      apply eventually_step_cps. exists lbl.
-      intros s_d t_d Hstar_d Hallow.
-      specialize (Hcan s_d t_d Hstar_d Hallow).
-      destruct Hcan as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
-      + left. eapply (IH (s_d, t_d ++ tr ++ t0) Hmid_left s_d (t_d ++ tr ++ t0)); [|reflexivity].
-        exists (t_d ++ tr).
-        split; [ eapply star_app; [exact Hstar_tr | exact Hstar_d] | apply app_assoc ].
-      + right. exists s'', outs. split; [exact Hstep|].
-        eapply (IH _ Hmidset s'' (O_event lbl outs :: t_d ++ tr ++ t0)); [|reflexivity].
-        exists (O_event lbl outs :: t_d ++ tr).
-        split; [ eapply star_step; [ eapply star_app; [exact Hstar_tr | exact Hstar_d] | exact Hstep ]
-               | rewrite app_assoc; apply app_comm_cons ].
+    cut (forall st, reachable s0 t0 (fst st) (snd st) ->
+           eventually will_step (fun '(s, t) => reachable s0 t0 s t -> P (s, t)) st ->
+           eventually will_step P st).
+    { intros H. apply (H (s0, t0)); [ apply reachable_refl | exact Hev ]. }
+    clear Hev. intros st Hr Hev. revert Hr.
+    induction Hev as [ [s' t'] HQ | [s' t'] ms Hcan Hmid IH ]; intros Hr; cbn [fst snd] in Hr.
+    - apply eventually_done. apply HQ, Hr.
+    - eapply eventually_step with (midset := fun mid => ms mid /\ reachable s0 t0 (fst mid) (snd mid)).
+      + apply will_step_reach. eapply will_step_impl; [ exact Hcan | ].
+        intros [s'' t''] Hm Hr2. cbn [fst snd]. split; [ exact Hm | eapply reachable_trans; eassumption ].
+      + intros [s'' t''] [Hm Hr2]. apply IH; [ exact Hm | exact Hr2 ].
   Qed.
 
   (*this is not used anywhere, but without it will_step is a bit weird, since it allows

@@ -617,7 +617,7 @@ Section __.
       { eauto. }
       eapply eventually_step_cps. apply will_step_reach. eapply will_step_impl.
       { eapply graph_will_step_of_node_will_step; eauto. }
-      simpl. cbv [val_sat]. intros. fwd. intros. fwd. eauto.
+      simpl. cbv [val_sat reachable]. intros. fwd. intros. fwd. eauto.
     Qed.
 
     Definition node_received (gs : graph_state) n m :=
@@ -793,11 +793,9 @@ Section __.
       graph_inputs_allowed (inputs_of t2) ->
       eventually graph_will_step
         (fun '(gs2', t2') =>
-           star gstep initial_gs t2' gs2' /\
-           graph_inputs_allowed (inputs_of t2') /\
            Forall2_map (fun _ ns2 ns2' =>
-             submultiset (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue))
-                         (inputs_of ns2'.(gns_trace))) gs2 gs2')
+                          submultiset (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue))
+                            (inputs_of ns2'.(gns_trace))) gs2 gs2')
         (gs2, t2).
     Proof. Admitted.
 
@@ -814,10 +812,14 @@ Section __.
         by (eapply graph_inputs_allowed_submultiset; eassumption).
       pose proof (everything_allowed _ _ Hstar1 Hga1) as Hall1. cbv [Forall_map] in Hall1.
       pose proof (everything_allowed _ _ Hstar2 Hga2) as Hall2. cbv [Forall_map] in Hall2.
+      apply eventually_will_step_reach.
       eapply eventually_weaken.
       { exact (eventually_received _ _ Hstar2 Hga2). }
-      intros [gs2' t2'] (Hreach2' & Hga2' & Hrecv).
-      pose proof (everything_allowed _ _ Hreach2' Hga2') as Hall2'. cbv [Forall_map] in Hall2'.
+      intros [gs2' t2'] Hrecv (tr & Htr & -> & Hga2imp).
+      assert (Hreach2' : star gstep initial_gs (tr ++ t2) gs2')
+        by (eapply star_app; [ exact Hstar2 | exact Htr ]).
+      specialize (Hga2imp Hga2).
+      pose proof (everything_allowed _ _ Hreach2' Hga2imp) as Hall2'. cbv [Forall_map] in Hall2'.
       cbv [le]. apply Forall2_map_intro.
       { intros k. split; intros HN.
         - apply (proj1 (reachable_domain _ _ k Hreach2')).
@@ -930,7 +932,7 @@ Section __.
 
         apply eventually_will_step_reach.
         eapply eventually_weaken; [eassumption|].
-        cbv [val_sat]. intros [r l] Hval Hreach. fwd.
+        cbv [val_sat reachable]. intros [r l] Hval Hreach. fwd.
         pose proof (star_gstep_le_strong _ _ _ Hreachp0) as Hlsr.
         pose proof (le_weak_trans _ _ _ Hlew (le_strong_le_weak _ _ Hlsr)) as Hlwr.
         assert (Hrinit : star gstep initial_gs (tr ++ t2) r) by (eapply star_app; eauto).
