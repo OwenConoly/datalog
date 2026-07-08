@@ -3,7 +3,7 @@ From coqutil Require Import Map.Properties.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From coqutil Require Import Eqb.
 From Stdlib Require Import List PeanoNat Permutation.
-From Stdlib Require Import RelationClasses Morphisms.
+From Stdlib Require Import RelationClasses Morphisms Classical_Prop.
 From Datalog Require Import OmniSmallstep Smallstep Map List Eqb.
 From Datalog Require Import Tactics.
 From coqutil Require Import Tactics Tactics.fwd.
@@ -800,10 +800,72 @@ Section __.
              submultiset (inputs_of (gns_trace nc) ++ owed) (inputs_of (gns_trace nc')))
           (gc, tc).
     Proof.
-      induction N as [| N IHN]; intros owed gc tc nc HN Hstar Hga Hget Hsub.
-      - admit.
-      - admit.
-    Admitted.
+      induction N as [| N IHN]; intros owed gc tc nc HN Hstar Hga Hget Hsub;
+        (destruct owed as [| a owed'];
+         [ apply eventually_done; exists nc; split;
+           [ exact Hget | rewrite app_nil_r; apply submultiset_refl ] | ]).
+      - simpl in HN. inversion HN.
+      - assert (Hlen' : length owed' <= N) by (simpl in HN; apply le_S_n; exact HN).
+        assert (Ha_q : submultiset [a] (gns_queue nc)).
+        { eapply submultiset_trans; [ | exact Hsub ]. exists owed'. reflexivity. }
+        eapply eventually_step_cps. exists (receive n a).
+        intros gs_d td Hstar_d Hga_d.
+        pose proof (star_gstep_le_strong _ _ _ Hstar_d) as Hls. cbv [le_strong] in Hls.
+        destruct (Forall2_map_get_l _ _ _ _ _ Hls Hget) as (nd & Hget_d & Htr & Htot).
+        assert (Hstar_di : star gstep initial_gs (td ++ tc) gs_d)
+          by (eapply star_app; [ exact Hstar | exact Hstar_d ]).
+        assert (Htot_owed : submultiset (inputs_of (gns_trace nc) ++ a :: owed')
+                              (inputs_of (gns_trace nd) ++ gns_queue nd))
+          by (eapply submultiset_trans; [ apply submultiset_app_head; exact Hsub | exact Htot ]).
+        destruct (classic (In a (gns_queue nd))) as [Hin_d | Hnin_d].
+        + apply in_split in Hin_d. destruct Hin_d as (ms1 & ms2 & Hq).
+          destruct (nodes_input_total (gns_node_state nd) a) as (nd' & Hns).
+          right. eexists _, []. split.
+          { eapply gstep_receive; [ exact Hget_d | exact Hns | exact Hq ]. }
+          set (ndr := {| gns_node_state := nd'; gns_trace := I_event a :: gns_trace nd;
+                         gns_queue := ms1 ++ ms2 |}).
+          assert (Hget_r : map.get (map.put gs_d n ndr) n = Some ndr)
+            by (apply map.get_put_same).
+          assert (Hitr : inputs_of (gns_trace ndr) = a :: inputs_of (gns_trace nd))
+            by reflexivity.
+          assert (Ha_del : submultiset (inputs_of (gns_trace nc) ++ [a]) (inputs_of (gns_trace ndr))).
+          { rewrite Hitr. eapply submultiset_perm_l; [ apply Permutation_cons_append | ].
+            apply submultiset_cons_mono. exact Htr. }
+          assert (Htot_r : submultiset (inputs_of (gns_trace nc) ++ a :: owed')
+                             (inputs_of (gns_trace ndr) ++ gns_queue ndr)).
+          { eapply submultiset_perm_r; [ | exact Htot_owed ].
+            rewrite Hitr. subst ndr. cbn [gns_queue]. rewrite Hq.
+            rewrite !app_assoc. symmetry. apply Permutation_middle. }
+          destruct (submultiset_absorb (inputs_of (gns_trace nc)) owed'
+                      (inputs_of (gns_trace ndr)) (gns_queue ndr) a Htot_r Ha_del)
+            as (owed'' & HQ'' & Habs & Hlen'').
+          eapply eventually_weaken.
+          { eapply (IHN owed'' (map.put gs_d n ndr) (O_event (receive n a) [] :: td ++ tc) ndr).
+            - eapply Nat.le_trans; [ exact Hlen'' | exact Hlen' ].
+            - eapply star_step;
+                [ exact Hstar_di | eapply gstep_receive; [ exact Hget_d | exact Hns | exact Hq ] ].
+            - exact Hga_d.
+            - exact Hget_r.
+            - exact HQ''. }
+          intros [gc'' t''] (nc'' & Hgc'' & Hcov). exists nc''. split; [ exact Hgc'' | ].
+          eapply submultiset_trans; [ exact Habs | exact Hcov ].
+        + left.
+          assert (Ha_del : submultiset (inputs_of (gns_trace nc) ++ [a]) (inputs_of (gns_trace nd))).
+          { eapply submultiset_cons_of_not_in; [ exact Htr | | exact Hnin_d ].
+            eapply submultiset_trans; [ apply submultiset_app_head; exact Ha_q | exact Htot ]. }
+          destruct (submultiset_absorb (inputs_of (gns_trace nc)) owed'
+                      (inputs_of (gns_trace nd)) (gns_queue nd) a Htot_owed Ha_del)
+            as (owed'' & HQ'' & Habs & Hlen'').
+          eapply eventually_weaken.
+          { eapply (IHN owed'' gs_d (td ++ tc) nd).
+            - eapply Nat.le_trans; [ exact Hlen'' | exact Hlen' ].
+            - exact Hstar_di.
+            - exact Hga_d.
+            - exact Hget_d.
+            - exact HQ''. }
+          intros [gc'' t''] (nc'' & Hgc'' & Hcov). exists nc''. split; [ exact Hgc'' | ].
+          eapply submultiset_trans; [ exact Habs | exact Hcov ].
+    Qed.
 
     Lemma eventually_received t2 gs2 :
       star gstep initial_gs t2 gs2 ->

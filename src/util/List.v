@@ -1209,6 +1209,26 @@ Section misc.
     rewrite <- !app_assoc. apply Permutation_refl.
   Qed.
 
+  Lemma submultiset_cons_of_not_in a X T Q :
+    submultiset X T ->
+    submultiset (X ++ [a]) (T ++ Q) ->
+    ~ In a Q ->
+    submultiset (X ++ [a]) T.
+  Proof.
+    intros (s & HT) H1 HnQ.
+    assert (Hsub_a : submultiset [a] (s ++ Q)).
+    { apply (submultiset_app_inv_l X). eapply submultiset_perm_r; [ | exact H1 ].
+      eapply perm_trans; [ apply Permutation_app_tail; exact HT | ].
+      rewrite <- app_assoc. apply Permutation_refl. }
+    assert (Ha : In a (s ++ Q))
+      by (eapply submultiset_incl; [ exact Hsub_a | left; reflexivity ]).
+    apply in_app_or in Ha. destruct Ha as [Has | HaQ]; [ | contradiction ].
+    apply in_split in Has. destruct Has as (s1 & s2 & ->).
+    eapply submultiset_perm_r; [ apply Permutation_sym; exact HT | ].
+    apply submultiset_app_head.
+    exists (s1 ++ s2). cbn [app]. symmetry. apply Permutation_middle.
+  Qed.
+
   Definition multiset_monotone (P : list A -> Prop) :=
     forall l1 l2, P l2 -> submultiset l1 l2 -> P l1.
 
