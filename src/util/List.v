@@ -1371,6 +1371,21 @@ Section incl_mod.
     - eapply incl_tran; [exact Ha | apply submultiset_incl, Hsub].
     - eapply Hcm; [exact Hal1 | exact Hal1' | exact Hsub | exact Hca].
   Qed.
+
+  Lemma incl_mod_weak_Forall2 l1 l2 a :
+    incl_mod_weak l1 l2 -> incl a l1 ->
+    exists b, incl b l2 /\ Forall2 equiv a b.
+  Proof.
+    intros Hw. induction a as [|x xs IH]; intros Hincl.
+    - exists []. split; [ intros z Hz; inversion Hz | constructor ].
+    - assert (In x l1) as Hx by (apply Hincl; left; reflexivity).
+      destruct (Hw x Hx) as (y & Hy & Hxy).
+      assert (incl xs l1) as Hxs by (intros z Hz; apply Hincl; right; exact Hz).
+      destruct (IH Hxs) as (b & Hb & Hab).
+      exists (y :: b). split.
+      + intros z Hz. destruct Hz as [<- | Hz]; [ exact Hy | apply Hb; exact Hz ].
+      + constructor; assumption.
+  Qed.
 End incl_mod.
 
 Lemma option_all_map2_Forall3 {A B C} (f : A -> B -> option C) xs ys zs :

@@ -84,6 +84,10 @@ Section __.
 
   Context (Hcim : consistent_monotone consistent_inputs allowed).
 
+  Context (consistent_inputs_equiv :
+             forall c c' inps, Forall2 equiv c c' ->
+               consistent_inputs c inps -> consistent_inputs c' inps).
+
   Section graph.
     Context {node_state : Type} (node_step : node_state -> IO_event -> node_state -> Prop).
 
@@ -701,33 +705,46 @@ Section __.
           submultiset exts1 exts2.
 
     Lemma incl_mod_weak_consistency_le_le ms1 ms2 n :
+      allowed ms1 ->
+      allowed ms2 ->
       incl_mod_weak equiv ms1 ms2 ->
       consistency_le n ms1 ms2 ->
       incl_mod equiv consistent ms1 ms2.
     Proof.
-      intros Hweak Hc. cbv [incl_mod]. intros a Ha Hca.
-      cbv [incl_mod_weak] in Hweak.
+      intros Hal1 Hal2 Hweak Hc. cbv [incl_mod]. intros a Ha Hca.
       assert (Hbs: exists bs, incl bs ms2 /\ Forall2 equiv a bs).
-      { admit. }
+      { eauto using incl_mod_weak_Forall2. }
       fwd. exists bs. ssplit; auto.
       cbv [consistent_good] in Hcg. cbv [consistency_le] in Hc. fwd.
+      assert (allowed (internal_inps1 ++ exts1)) as Hal1'.
+      { eauto using Permutation_allowed, Permutation_sym. }
+      assert (allowed (internal_inps2 ++ exts2)) as Hal2'.
+      { eauto using Permutation_allowed, Permutation_sym. }
+      assert (allowed exts1) as Hae1.
+      { eapply allowed_submultiset; [ exact Hal1' | exists internal_inps1; apply Permutation_app_comm ]. }
+      assert (allowed exts2) as Hae2.
+      { eapply allowed_submultiset; [ exact Hal2' | exists internal_inps2; apply Permutation_app_comm ]. }
       enough (consistent bs (internal_inps2 ++ exts2)).
-      { admit. }
+      { eapply consistent_perm;
+          [ exact Hcm | exact Hal2' | exact Hal2 | apply Permutation_sym; exact Hcp2 | eassumption ]. }
       rewrite Hcg. 2: exact Hcp3.
-      eapply Hcim. 3: eassumption. 1,2: admit.
+      eapply Hcim; [ exact Hae1 | exact Hae2 | exact Hcp4 | ].
       enough (consistent_inputs a exts1).
-      { admit. }
+      { eapply consistent_inputs_equiv; eassumption. }
       rewrite <- Hcg. 2: exact Hcp1.
       enough (consistent a ms1).
-      { admit. }
+      { eapply consistent_perm;
+          [ exact Hcm | exact Hal1 | exact Hal1' | exact Hcp0 | eassumption ]. }
       assumption.
-    Admitted.
+    Qed.
 
     Lemma queue_empty_consistency_le t1 t2 gs1 gs2 n :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
+      submultiset (inputs_of t1) (inputs_of t2) ->
       val_sat gs2 n queue_empty ->
-      vals_sat gs1 gs2 n (fun ns1 ns2 => consistency_le n (inputs_of ns1.(gns_trace)) (inputs_of ns2.(gns_trace))).
+      vals_sat gs1 gs2 n (fun ns1 ns2 =>
+        consistency_le n (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue)) (inputs_of ns2.(gns_trace))).
     Proof. Abort.
 
     Lemma le_weak_to_le gs1 t1 gs2 t2 :
