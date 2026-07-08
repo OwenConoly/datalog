@@ -693,6 +693,51 @@ Section __.
       eventually graph_will_step (fun '(gs2', t2') => le gs1 gs2') (gs2, t2).
     Proof. Admitted.
 
+    Lemma fwd_total_get gs n k vn :
+      map.get gs n = Some vn ->
+      incl (filter (forward n k) (outputs_of (gns_trace vn))) (fwd_total k gs).
+    Proof.
+      intros Hn x Hx. unfold fwd_total. apply in_flat_map.
+      exists (n, vn). split; [ apply map.tuples_spec; exact Hn | exact Hx ].
+    Qed.
+
+    Lemma fwd_total_sub_combined T r k vk :
+      star gstep initial_gs T r ->
+      map.get r k = Some vk ->
+      submultiset (fwd_total k r) (inputs_of (gns_trace vk) ++ gns_queue vk).
+    Proof.
+      intros HT Hk. pose proof (inputs_are_outputs _ _ HT) as Hio.
+      cbv [Forall_map] in Hio. specialize (Hio _ _ Hk).
+      eapply submultiset_trans;
+        [ apply submultiset_app_r | apply submultiset_perm, Permutation_sym, Hio ].
+    Qed.
+
+    Lemma forwarded_in_state T r n k vn vk os :
+      star gstep initial_gs T r ->
+      map.get r n = Some vn ->
+      map.get r k = Some vk ->
+      Forall (fun o => exists o', equiv o o' /\ In o' (outputs_of (gns_trace vn))) os ->
+      incl_mod_weak equiv (filter (forward n k) os)
+                          (inputs_of (gns_trace vk) ++ gns_queue vk).
+    Proof.
+      intros HT Hn Hk Hos.
+      assert (Hl1 : incl_mod_weak equiv (filter (forward n k) os)
+                      (filter (forward n k) (outputs_of (gns_trace vn)))).
+      { intros x Hx. apply filter_In in Hx. destruct Hx as [Hxos Hxf].
+        rewrite Forall_forall in Hos. destruct (Hos x Hxos) as (x' & Hequiv & Hx'out).
+        exists x'. split.
+        - apply filter_In. split;
+            [ exact Hx'out | rewrite <- (forward_equiv n k x x' Hequiv); exact Hxf ].
+        - exact Hequiv. }
+      assert (Hl2 : incl_mod_weak equiv (filter (forward n k) (outputs_of (gns_trace vn)))
+                      (fwd_total k r)) by eauto using fwd_total_get.
+      assert (Hl3 : incl_mod_weak equiv (fwd_total k r)
+                      (inputs_of (gns_trace vk) ++ gns_queue vk))
+        by eauto using incl_mod_weak_of_submultiset, fwd_total_sub_combined.
+      exact (incl_mod_weak_trans _ _ _ _ Hl1
+               (incl_mod_weak_trans _ _ _ _ Hl2 Hl3)).
+    Qed.
+
     Hint Unfold might_output : core.
     Hint Resolve incl_mod_weaken_l allowed_submultiset submultiset_app_r : core.
     Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
@@ -731,9 +776,9 @@ Section __.
         pose proof (everything_allowed _ gs1 ltac:(eauto) ltac:(eauto)) as Hall1.
         pose proof (everything_allowed _ gs2 ltac:(eauto) ltac:(eauto)) as Hall2.
         assert (allowed (inputs_of (gns_trace ns) ++ gns_queue ns)) by eauto.
-        assert (allowed (inputs_of tn2 ++ gns_queue0)) by eauto.
+        assert (allowed (inputs_of tn20 ++ gns_queue1)) by eauto.
 
-        eassert (Hmo: Forall (might_output_equiv _ _ ns2 tn2) outs0).
+        eassert (Hmo: Forall (might_output_equiv _ _ ns20 tn20) outs0).
         { apply Forall_forall. intros m Hm.
           eapply (H'p1 (gns_trace ns)). all: eauto. eauto 10. }
 
@@ -745,7 +790,31 @@ Section __.
         cbv [val_sat]. intros [r l] Hval Hreach. fwd.
         pose proof (star_gstep_le_strong _ _ _ Hreachp0) as Hlsr.
         pose proof (le_weak_trans _ _ _ Hlew (le_strong_le_weak _ _ Hlsr)) as Hlwr.
-        admit.
+        assert (Hrinit : star gstep initial_gs (tr ++ t2) r) by (eapply star_app; eauto).
+        cbv [le_weak] in Hlwr |- *. Fail eapply Forall2_map_map_values'_l.
+        Check Forall2_map_map_values'_r. intros k. specialize (Hlwr k).
+        rewrite get_map_values'.
+        destruct (map.get r k) as [rk|] eqn:Hgetr, (map.get gs1 k) as [gk|] eqn:Hgk;
+          try solve [destruct Hlwr].
+        { pose proof (forwarded_in_state _ _ n k v rk outs0 Hrinit Hvalp0 Hgetr Hvalp1) as Hforward.
+          destr (eqb n k).
+          { rewrite map.get_put_same. rewrite H6 in Hgk. injection Hgk as <-.
+            cbn [option_map gns_trace gns_queue enqueue]. cbv [incl_mod_weak].
+            intros x Hx. apply in_app_or in Hx. destruct Hx as [Hx | Hx].
+            { apply Hlwr, in_or_app; left; exact Hx. }
+            apply in_app_or in Hx. destruct Hx as [Hx | Hx].
+            { apply Hforward; exact Hx. }
+            apply Hlwr, in_or_app; right; exact Hx. }
+          rewrite map.get_put_diff by congruence. rewrite Hgk.
+          cbn [option_map gns_trace gns_queue enqueue]. cbv [incl_mod_weak].
+          intros x Hx. apply in_app_or in Hx. destruct Hx as [Hx | Hx].
+          { apply Hlwr, in_or_app; left; exact Hx. }
+          apply in_app_or in Hx. destruct Hx as [Hx | Hx].
+          { apply Hforward; exact Hx. }
+          apply Hlwr, in_or_app; right; exact Hx. }
+        destr (eqb n k).
+        { rewrite H6 in Hgk. discriminate. }
+        rewrite map.get_put_diff by congruence. rewrite Hgk. cbn [option_map]. exact I.
       - cbv [le] in Hle. rewrite H10 in Hle2. apply Forall_app in Hle2. fwd.
         destruct Hle2p1p0 as [Hle_case1|Hle_case2].
         +
