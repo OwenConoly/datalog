@@ -999,7 +999,7 @@ Section __.
 
     Hint Unfold might_output : core.
     Hint Resolve incl_mod_weaken_l allowed_submultiset submultiset_app_r : core.
-    Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
+    Lemma node_will_match' gs1 t1 lbl outs gs1' gs2 t2 :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
       graph_inputs_allowed (inputs_of t1) ->
@@ -1062,6 +1062,43 @@ Section __.
         + cbn [gns_trace gns_queue].
           rewrite H9 in Hlew'p1.
           eapply incl_mod_weak_perm_l; [ apply perm_recv | exact Hlew'p1 ].
+    Qed.
+
+    Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
+      star gstep initial_gs t1 gs1 ->
+      star gstep initial_gs t2 gs2 ->
+      submultiset (inputs_of t1) (inputs_of t2) ->
+      graph_inputs_allowed (inputs_of t1) ->
+      graph_inputs_allowed (inputs_of t2) ->
+      gstep gs1 (O_event lbl outs) gs1' ->
+      le gs1 gs2 ->
+      le_weak gs1 gs2 ->
+      eventually graph_will_step
+        (fun '(gs2', t2') => le gs1' gs2' /\ le_weak gs1' gs2') (gs2, t2).
+    Proof.
+      intros Hstar1 Hstar2 Hsub Hga1 Hga2 Hstep Hle Hlew.
+      assert (Hstar1' : star gstep initial_gs (O_event lbl outs :: t1) gs1')
+        by (eapply star_step; [ exact Hstar1 | exact Hstep ]).
+      pose proof (node_will_match' _ _ _ _ _ _ _ Hstar1 Hstar2 Hga1 Hga2 Hstep Hle Hlew) as Hev.
+      apply eventually_will_step_annotate in Hev.
+      eapply eventually_trans; [ exact Hev | ].
+      intros [gs2' t2'] (Hreach' & Hlw).
+      destruct Hreach' as (tr & Hstar_gg & -> & Hga_imp).
+      assert (Hstar2' : star gstep initial_gs (tr ++ t2) gs2')
+        by (eapply star_app; [ exact Hstar2 | exact Hstar_gg ]).
+      specialize (Hga_imp Hga2).
+      assert (Hsub' : submultiset (inputs_of (O_event lbl outs :: t1)) (inputs_of (tr ++ t2))).
+      { rewrite inputs_of_app. change (inputs_of (O_event lbl outs :: t1)) with (inputs_of t1).
+        eapply submultiset_trans;
+          [ exact Hsub | exists (inputs_of tr); apply Permutation_app_comm ]. }
+      pose proof (le_weak_to_le _ _ _ _ Hstar1' Hstar2' Hsub' Hga_imp Hlw) as Hle2.
+      eapply eventually_weaken.
+      { eapply eventually_carry_stable_gen with (P := (fun '(s, _) => le_weak gs1' s));
+          [ | exact Hlw | exact Hle2 ].
+        intros s s' e t Hlws Hst.
+        eapply le_weak_trans;
+          [ exact Hlws | apply le_strong_le_weak; eapply gstep_le_strong; exact Hst ]. }
+      intros [s t] (Hlw_s & Hle_s). split; [ exact Hle_s | exact Hlw_s ].
     Qed.
 
     Proof.

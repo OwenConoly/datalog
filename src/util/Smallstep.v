@@ -225,6 +225,15 @@ Section step.
       + intros [s'' t''] [Hm Hr2]. apply IH; [ exact Hm | exact Hr2 ].
   Qed.
 
+  Lemma eventually_will_step_annotate (P : state * list (IO_event label message) -> Prop) s0 t0 :
+    eventually will_step P (s0, t0) ->
+    eventually will_step (fun '(s, t) => reachable s0 t0 s t /\ P (s, t)) (s0, t0).
+  Proof.
+    intros Hev. apply eventually_will_step_reach.
+    eapply eventually_weaken; [ exact Hev | ].
+    intros [s t] HP Hr. split; [ exact Hr | exact HP ].
+  Qed.
+
   (*this is not used anywhere, but without it will_step is a bit weird, since it allows
     the good step to depend on the prior arbitrary sequence of steps.
     maybe we will want it later?*)
