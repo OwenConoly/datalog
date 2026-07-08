@@ -335,15 +335,15 @@ Section __.
     Hint Constructors eventually : core.
     Hint Constructors graph_step : core.
 
-    Definition fwd_total (nn : node_id) (gs : graph_state) : list message :=
-      flat_map (fun '(k, v) => filter (forward k nn) (outputs_of v.(gns_trace))) (map.tuples gs).
+    Definition all_outputs (gs : graph_state) : list (node_id * message) :=
+      flat_map (fun '(k, v) => map (pair k) (outputs_of v.(gns_trace))) (map.tuples gs).
 
-    Lemma fwd_total_put_None nn gs k v :
+    Lemma all_outputs_put_None gs k v :
       map.get gs k = None ->
-      Permutation (fwd_total nn (map.put gs k v))
-                  (filter (forward k nn) (outputs_of v.(gns_trace)) ++ fwd_total nn gs).
+      Permutation (all_outputs (map.put gs k v))
+                  (map (pair k) (outputs_of v.(gns_trace)) ++ all_outputs gs).
     Proof.
-      intros Hk. unfold fwd_total.
+      intros Hk. unfold all_outputs.
       assert (Hperm : Permutation (map.tuples (map.put gs k v)) ((k, v) :: map.tuples gs)).
       { apply NoDup_Permutation.
         - apply map.tuples_NoDup.
@@ -355,35 +355,35 @@ Section __.
       cbn [flat_map]. apply Permutation_refl.
     Qed.
 
-    Lemma fwd_total_put_cons nn gs k v0 v :
+    Lemma all_outputs_put_cons gs k v0 v :
       map.get gs k = Some v0 ->
-      Permutation (fwd_total nn (map.put gs k v))
-                  (filter (forward k nn) (outputs_of v.(gns_trace)) ++ fwd_total nn (map.remove gs k)).
+      Permutation (all_outputs (map.put gs k v))
+                  (map (pair k) (outputs_of v.(gns_trace)) ++ all_outputs (map.remove gs k)).
     Proof.
       intros Hk.
       replace (map.put gs k v) with (map.put (map.remove gs k) k v).
       2:{ apply map.map_ext. intro j. rewrite !map.get_put_dec, map.get_remove_dec.
           destr_sth Nat.eqb; reflexivity. }
-      apply fwd_total_put_None. apply map.get_remove_same.
+      apply all_outputs_put_None. apply map.get_remove_same.
     Qed.
 
-    Lemma fwd_total_put_same nn gs k v0 v :
+    Lemma all_outputs_put_same gs k v0 v :
       map.get gs k = Some v0 ->
       outputs_of v.(gns_trace) = outputs_of v0.(gns_trace) ->
-      Permutation (fwd_total nn (map.put gs k v)) (fwd_total nn gs).
+      Permutation (all_outputs (map.put gs k v)) (all_outputs gs).
     Proof.
       intros Hk Ho.
-      assert (Efwd : fwd_total nn gs = fwd_total nn (map.put gs k v0))
+      assert (Efwd : all_outputs gs = all_outputs (map.put gs k v0))
         by (rewrite (map.put_noop k v0 gs Hk); reflexivity).
       rewrite Efwd.
-      eapply perm_trans; [ apply (fwd_total_put_cons nn gs k v0 v Hk) | ].
-      rewrite Ho. apply Permutation_sym. apply (fwd_total_put_cons nn gs k v0 v0 Hk).
+      eapply perm_trans; [ apply (all_outputs_put_cons gs k v0 v Hk) | ].
+      rewrite Ho. apply Permutation_sym. apply (all_outputs_put_cons gs k v0 v0 Hk).
     Qed.
 
-    Lemma fwd_total_map_values' nn
+    Lemma all_outputs_map_values'
         (H : node_id -> graph_node_state node_state -> graph_node_state node_state) (M : graph_state) :
       (forall k v, (H k v).(gns_trace) = v.(gns_trace)) ->
-      Permutation (fwd_total nn (map_values' H M)) (fwd_total nn M).
+      Permutation (all_outputs (map_values' H M)) (all_outputs M).
     Proof.
       intros Htr. induction M as [| m IH k v Hk] using map.map_ind.
       - assert (E : map_values' H map.empty = (map.empty : graph_state)).
@@ -391,11 +391,85 @@ Section __.
         rewrite E. apply Permutation_refl.
       - rewrite map_values'_put.
         eapply perm_trans.
-        { apply (fwd_total_put_None nn (map_values' H m) k (H k v)).
+        { apply (all_outputs_put_None (map_values' H m) k (H k v)).
           rewrite get_map_values', Hk. reflexivity. }
         rewrite (Htr k v).
         eapply perm_trans; [ apply Permutation_app_head; exact IH | ].
-        apply Permutation_sym. apply (fwd_total_put_None nn m k v Hk).
+        apply Permutation_sym. apply (all_outputs_put_None m k v Hk).
+    Qed.
+
+    Lemma all_outputs_run gs n ns lbl outs ns' :
+      map.get gs n = Some ns ->
+      Permutation
+        (all_outputs (map_values' (fun k => enqueue (filter (forward n k) outs))
+             (map.put gs n {| gns_node_state := ns';
+                              gns_trace := O_event lbl outs :: ns.(gns_trace);
+                              gns_queue := ns.(gns_queue) |})))
+        (map (pair n) outs ++ all_outputs gs).
+    Proof.
+      intros Hget.
+      eapply perm_trans.
+      { apply all_outputs_map_values'. intros k0 v0. reflexivity. }
+      eapply perm_trans; [ apply (all_outputs_put_cons gs n ns _ Hget) | ].
+      cbn [gns_trace].
+      replace (outputs_of (O_event lbl outs :: ns.(gns_trace)))
+        with (outs ++ outputs_of ns.(gns_trace)) by reflexivity.
+      rewrite map_app, <- app_assoc. apply Permutation_app_head.
+      pose proof (all_outputs_put_cons gs n ns ns Hget) as Hc.
+      rewrite (map.put_noop n ns gs Hget) in Hc. symmetry. exact Hc.
+    Qed.
+
+    Lemma all_outputs_initial : all_outputs initial_gs = [].
+    Proof.
+      unfold all_outputs. apply flat_map_all_nil. intros [k v] Hin.
+      apply map.tuples_spec in Hin.
+      rewrite (proj1 (initial_gs_empty k v Hin)). reflexivity.
+    Qed.
+
+    Definition fwd_project (nn : node_id) (l : list (node_id * message)) : list message :=
+      map snd (filter (fun '(k, m) => forward k nn m) l).
+
+    Lemma fwd_project_app nn l1 l2 :
+      fwd_project nn (l1 ++ l2) = fwd_project nn l1 ++ fwd_project nn l2.
+    Proof. unfold fwd_project. rewrite filter_app, map_app. reflexivity. Qed.
+
+    Lemma fwd_project_perm nn l1 l2 :
+      Permutation l1 l2 -> Permutation (fwd_project nn l1) (fwd_project nn l2).
+    Proof. intros HP. unfold fwd_project. rewrite HP. reflexivity. Qed.
+
+    Lemma fwd_project_single nn k outs :
+      fwd_project nn (map (pair k) outs) = filter (forward k nn) outs.
+    Proof.
+      induction outs as [| m outs IH]; [ reflexivity | ].
+      unfold fwd_project in *. cbn [map filter].
+      destruct (forward k nn m); cbn [map]; rewrite IH; reflexivity.
+    Qed.
+
+    Lemma fwd_project_flat_map {A} nn (f : A -> list (node_id * message)) l :
+      fwd_project nn (flat_map f l) = flat_map (fun x => fwd_project nn (f x)) l.
+    Proof.
+      induction l as [| x l IH]; [ reflexivity | ].
+      cbn [flat_map]. rewrite fwd_project_app, IH. reflexivity.
+    Qed.
+
+    Definition fwd_total (nn : node_id) (gs : graph_state) : list message :=
+      fwd_project nn (all_outputs gs).
+
+    Lemma fwd_total_unfold nn gs :
+      fwd_total nn gs =
+      flat_map (fun '(k, v) => filter (forward k nn) (outputs_of v.(gns_trace))) (map.tuples gs).
+    Proof.
+      unfold fwd_total, all_outputs. rewrite fwd_project_flat_map.
+      apply flat_map_ext. intros [k v]. apply fwd_project_single.
+    Qed.
+
+    Lemma fwd_total_put_same nn gs k v0 v :
+      map.get gs k = Some v0 ->
+      outputs_of v.(gns_trace) = outputs_of v0.(gns_trace) ->
+      Permutation (fwd_total nn (map.put gs k v)) (fwd_total nn gs).
+    Proof.
+      intros Hk Ho. unfold fwd_total. apply fwd_project_perm.
+      exact (all_outputs_put_same gs k v0 v Hk Ho).
     Qed.
 
     Lemma matching_inps_app nn (e1 e2 : list (message * node_id)) :
@@ -427,16 +501,9 @@ Section __.
                               gns_queue := ns.(gns_queue) |})))
         (filter (forward n nn) outs ++ fwd_total nn gs).
     Proof.
-      intros Hget.
-      eapply perm_trans.
-      { apply fwd_total_map_values'. intros k0 v0. reflexivity. }
-      eapply perm_trans; [ apply (fwd_total_put_cons nn gs n ns _ Hget) | ].
-      cbn [gns_trace].
-      replace (outputs_of (O_event lbl outs :: ns.(gns_trace)))
-        with (outs ++ outputs_of ns.(gns_trace)) by reflexivity.
-      rewrite filter_app, <- app_assoc. apply Permutation_app_head.
-      pose proof (fwd_total_put_cons nn gs n ns ns Hget) as Hc.
-      rewrite (map.put_noop n ns gs Hget) in Hc. symmetry. exact Hc.
+      intros Hget. unfold fwd_total.
+      rewrite <- (fwd_project_single nn n outs), <- fwd_project_app.
+      apply fwd_project_perm. exact (all_outputs_run gs n ns lbl outs ns' Hget).
     Qed.
 
     Lemma conservation_step gs e gs' :
@@ -522,11 +589,7 @@ Section __.
     Qed.
 
     Lemma fwd_total_initial nn : fwd_total nn initial_gs = [].
-    Proof.
-      unfold fwd_total. apply flat_map_all_nil. intros [k v] Hin.
-      apply map.tuples_spec in Hin.
-      rewrite (proj1 (initial_gs_empty k v Hin)). reflexivity.
-    Qed.
+    Proof. unfold fwd_total. rewrite all_outputs_initial. reflexivity. Qed.
 
     Lemma inputs_are_outputs gt gs :
       star gstep initial_gs gt gs ->
@@ -558,7 +621,7 @@ Section __.
         destruct (Forall2_map_get_r _ _ _ _ _ Hnodes Hin) as (gns0 & Hget0 & Hrun & _).
         pose proof (nodes_good k gns0 Hget0) as (Howf & _ & _).
         exact (Howf _ _ Hrun).
-      - unfold fwd_total. rewrite combine_map, flat_map_map.
+      - rewrite fwd_total_unfold, combine_map, flat_map_map.
         apply flat_map_ext. intros [k v]. reflexivity.
     Qed.
 
@@ -975,7 +1038,7 @@ Section __.
       map.get gs n = Some vn ->
       incl (filter (forward n k) (outputs_of (gns_trace vn))) (fwd_total k gs).
     Proof.
-      intros Hn x Hx. unfold fwd_total. apply in_flat_map.
+      intros Hn x Hx. rewrite fwd_total_unfold. apply in_flat_map.
       exists (n, vn). split; [ apply map.tuples_spec; exact Hn | exact Hx ].
     Qed.
 
