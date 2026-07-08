@@ -742,7 +742,7 @@ Section __.
         * cbv [add_waiting_fact]; simpl. exact Hmf_sent.
         * cbv [add_waiting_fact]; simpl. exact Hmf_sent.
       + intros f Hk.
-        apply Forall_map.
+        apply List.Forall_map.
         pose proof Hk as Hk0.
         apply knows_dfact_after_step in Hk0.
         destruct Hk0 as [Hk0 | Hk0].
@@ -778,7 +778,7 @@ Section __.
              ++ eapply Forall2_impl; [|exact Hms_post]. intros y m Hy.
                 cbv [add_waiting_fact]; simpl. exact Hy.
           -- assumption.
-          -- apply Forall_map.
+          -- apply List.Forall_map.
              apply Forall_app; split.
              ++ eapply Forall_impl; [|exact Hcountp2_pre].
                 intros y (num_k & num_w & Hk_y & Hw_y & Hsum).
@@ -816,7 +816,7 @@ Section __.
              ++ eapply Forall2_impl; [|exact Hms_post]. intros y m Hy.
                 cbv [add_waiting_fact]; simpl. exact Hy.
           -- assumption.
-          -- apply Forall_map.
+          -- apply List.Forall_map.
              apply Forall_app; split.
              ++ eapply Forall_impl; [|exact Hcountp2_pre].
                 intros y (num_k & num_w & Hk_y & Hw_y & Hsum).
@@ -840,7 +840,7 @@ Section __.
         specialize (Hinp_sane R HR). fwd.
         split.
         * intros mf_args. specialize (Hinp_sanep0 mf_args).
-          apply Forall_map.
+          apply List.Forall_map.
           eapply forall_swap with (x := x); cycle 1.
           -- eapply Forall_impl; [|exact Hinp_sanep0]. intros y Hy.
              cbv [add_waiting_fact]; simpl. exact Hy.
@@ -911,7 +911,7 @@ Section __.
           -- cbv [add_waiting_fact]; simpl. exact Hmf_sent.
           -- cbv [add_waiting_fact]; simpl. exact Hmf_sent.
       + intros f Hk.
-        apply Forall_map.
+        apply List.Forall_map.
         pose proof Hk as Hk0.
         apply knows_dfact_after_step in Hk0.
         destruct Hk0 as [Hk0 | Hk0].
@@ -947,7 +947,7 @@ Section __.
           -- eapply Forall2_impl; [|exact Hms_post]. intros y m Hy.
              cbv [add_waiting_fact]; simpl. exact Hy.
         * assumption.
-        * apply Forall_map.
+        * apply List.Forall_map.
           apply Forall_app; split.
           -- eapply Forall_impl; [|eassumption].
              intros y (num_k & num_w & Hk_y & Hw_y & Hsum).
@@ -974,7 +974,7 @@ Section __.
         specialize (Hinp_sane R HR). fwd.
         split.
         * intros mf_args. specialize (Hinp_sanep0 mf_args).
-          apply Forall_map.
+          apply List.Forall_map.
           eapply forall_swap with (x := x); cycle 1.
           -- eapply Forall_impl; [|exact Hinp_sanep0]. intros y Hy.
              cbv [add_waiting_fact]; simpl. exact Hy.

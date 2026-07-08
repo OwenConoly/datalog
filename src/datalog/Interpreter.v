@@ -1151,7 +1151,7 @@ Section __.
     subst.
     constructor.
     { simpl. eauto. }
-    apply Forall_map. apply Forall_forall. intros (?, ?) _. simpl.
+    apply List.Forall_map. apply Forall_forall. intros (?, ?) _. simpl.
     do 2 eexists. split; [eassumption|]. constructor; auto. constructor; auto.
     rewrite <- Forall2_map_l. apply Forall2_same. apply Forall_forall. auto.
   Qed.

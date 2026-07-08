@@ -1028,14 +1028,14 @@ Section Blocks.
       + lia.
       + lia.
       + simpl. lia.
-      + apply Forall_flat_map. apply Forall_map. apply Forall_forall.
-        intros r Hr. rewrite concl_rels_map_rule_rels. apply Forall_map.
+      + apply Forall_flat_map. apply List.Forall_map. apply Forall_forall.
+        intros r Hr. rewrite concl_rels_map_rule_rels. apply List.Forall_map.
         fwd. apply Forall_forall. intros R HR. destruct R.
         2: { exfalso. rewrite Forall_forall in Hvalidp2.
              eapply (Hvalidp2 (input _)). apply in_flat_map. eauto. }
         simpl. lia.
-      + apply Forall_flat_map. apply Forall_map. apply Forall_forall.
-        intros r Hr. rewrite all_rels_map_rule_rels. apply Forall_map.
+      + apply Forall_flat_map. apply List.Forall_map. apply Forall_forall.
+        intros r Hr. rewrite all_rels_map_rule_rels. apply List.Forall_map.
         apply Forall_forall. intros R HR.
         destruct R; try solve [simpl; auto]. simpl.
         destruct (map.get _ _) eqn:E; simpl.

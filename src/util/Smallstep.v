@@ -72,15 +72,7 @@ Section step.
   (*but oops that doesn't typecheck; that's not how consistent works.
     hmm.*)
 
-  Definition consistent_monotone :=
-    forall c l1 l2,
-      allowed l1 ->
-      allowed l2 ->
-      submultiset l1 l2 ->
-      consistent c l1 ->
-      consistent c l2.
-
-  Context (Hcm : consistent_monotone).
+  Context (Hcm : consistent_monotone consistent allowed).
 
   Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
     Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
@@ -365,106 +357,6 @@ Section step.
         rewrite <- app_assoc in Hev. exact Hev.
   Qed.
 
-  Definition incl_mod_weak l1 l2 :=
-    forall a,
-      In a l1 ->
-      exists b,
-        In b l2 /\ equiv a b.
-
-  Lemma incl_mod_weak_refl l : incl_mod_weak l l.
-  Proof. intros a Ha. eexists. split; [|reflexivity]. assumption. Qed.
-
-  Lemma incl_mod_weak_of_incl l1 l2 : incl l1 l2 -> incl_mod_weak l1 l2.
-  Proof.
-    destruct equiv_equiv as [Href _ _].
-    intros Hincl a Ha. exists a. split; [apply Hincl, Ha | apply Href].
-  Qed.
-
-  Lemma incl_mod_weak_trans l1 l2 l3 :
-    incl_mod_weak l1 l2 -> incl_mod_weak l2 l3 -> incl_mod_weak l1 l3.
-  Proof.
-    destruct equiv_equiv as [_ _ Htrans].
-    intros H12 H23 a Ha.
-    destruct (H12 a Ha) as (b & Hb & Hab).
-    destruct (H23 b Hb) as (c & Hc & Hbc).
-    exists c. split; [exact Hc | eapply Htrans; eassumption].
-  Qed.
-
-  Lemma incl_mod_weak_of_submultiset l1 l2 : submultiset l1 l2 -> incl_mod_weak l1 l2.
-  Proof. intros H. apply incl_mod_weak_of_incl, submultiset_incl, H. Qed.
-
-  Lemma incl_mod_weak_app l1 l2 l3 :
-    incl_mod_weak l1 l3 -> incl_mod_weak l2 l3 -> incl_mod_weak (l1 ++ l2) l3.
-  Proof.
-    intros H1 H2 a Ha. apply in_app_iff in Ha. destruct Ha; [apply H1 | apply H2]; assumption.
-  Qed.
-
-  Lemma incl_mod_weak_insert a b c d :
-    incl_mod_weak (a ++ b) d -> incl_mod_weak c d -> incl_mod_weak (a ++ c ++ b) d.
-  Proof.
-    intros Hab Hc x Hx.
-    apply in_app_or in Hx. destruct Hx as [Hx | Hx];
-      [ apply Hab, in_or_app; left; exact Hx | ].
-    apply in_app_or in Hx. destruct Hx as [Hx | Hx];
-      [ apply Hc; exact Hx | apply Hab, in_or_app; right; exact Hx ].
-  Qed.
-
-  Lemma incl_mod_weak_perm_l l1 l1' l2 :
-    Permutation l1 l1' -> incl_mod_weak l1 l2 -> incl_mod_weak l1' l2.
-  Proof.
-    intros Hp H x Hx. apply H. eapply Permutation_in; [ apply Permutation_sym; exact Hp | exact Hx ].
-  Qed.
-
-  Lemma incl_mod_weak_app_r l1 l2 l3 :
-    incl_mod_weak l1 l2 -> incl_mod_weak l1 (l2 ++ l3).
-  Proof.
-    intros H a Ha. destruct (H a Ha) as (b & Hb & Hab).
-    exists b. split; [apply in_or_app; left; exact Hb | exact Hab].
-  Qed.
-
-  Definition incl_mod (l1 l2 : list message) : Prop :=
-    forall a,
-      incl a l1 ->
-      consistent a l1 ->
-      exists b,
-        incl b l2 /\ Forall2 equiv a b /\ consistent b l2.
-
-  Lemma incl_mod_refl l : incl_mod l l.
-  Proof.
-    destruct equiv_equiv as [Href _ _].
-    intros a Ha Hc. exists a. split; [exact Ha | split; [| exact Hc]].
-    clear Ha Hc. induction a as [|x xs IH].
-    - constructor.
-    - constructor; [apply Href | exact IH].
-  Qed.
-
-  Lemma Forall2_equiv_trans (a b c : list message) :
-    Forall2 equiv a b -> Forall2 equiv b c -> Forall2 equiv a c.
-  Proof.
-    destruct equiv_equiv as [_ _ Htrans]. intros Hab. revert c.
-    induction Hab as [| x y la lb Hxy Hlab IH]; intros c Hbc.
-    - exact Hbc.
-    - inversion Hbc; subst.
-      constructor; [eapply Htrans; eassumption | apply IH; assumption].
-  Qed.
-
-  Lemma incl_mod_trans l1 l2 l3 : incl_mod l1 l2 -> incl_mod l2 l3 -> incl_mod l1 l3.
-  Proof.
-    intros H12 H23 a Ha Hca.
-    destruct (H12 a Ha Hca) as (b & Hb & Hab & Hcb).
-    destruct (H23 b Hb Hcb) as (c & Hc & Hbc & Hcc).
-    exists c. split; [exact Hc | split; [eapply Forall2_equiv_trans; eassumption | exact Hcc]].
-  Qed.
-
-  (* shrink the left side of an [incl_mod] (needs allowedness for the [consistent] side) *)
-  Lemma incl_mod_weaken_l l1 l1' l2 :
-    submultiset l1 l1' -> allowed l1 -> allowed l1' -> incl_mod l1' l2 -> incl_mod l1 l2.
-  Proof.
-    intros Hsub Hal1 Hal1' H a Ha Hca. apply (H a).
-    - eapply incl_tran; [exact Ha | apply submultiset_incl, Hsub].
-    - eapply Hcm; [exact Hal1 | exact Hal1' | exact Hsub | exact Hca].
-  Qed.
-
   (* [will_output_equiv]-analogues of [will_implies_might]/[will_output_step]:
      the target output is only pinned down up to [equiv]. *)
   Lemma will_equiv_implies_might_equiv s t o :
@@ -542,7 +434,7 @@ Section step.
       allowed (inputs_of t) ->
       In o (outputs_of t) ->
       forall s' t',
-        incl_mod (inputs_of t) (inputs_of t') ->
+        incl_mod equiv consistent (inputs_of t) (inputs_of t') ->
         star step initial t' s' ->
         allowed (inputs_of t') ->
         will_output_equiv s' t' o.
@@ -585,7 +477,7 @@ Section step.
       star step initial t2 s2 ->
       allowed (inputs_of t1) ->
       allowed (inputs_of t2) ->
-      incl_mod (inputs_of t1) (inputs_of t2) ->
+      incl_mod equiv consistent (inputs_of t1) (inputs_of t2) ->
       might_output s1 t1 o ->
       might_output_equiv s2 t2 o.
 
@@ -625,7 +517,7 @@ Section step.
         assert (HallT : allowed (inputs_of (T_a ++ t))).
         { rewrite inputs_of_app, Hinp_a. exact Hall. }
         apply (Hciw' (T_a ++ t) s_f o Hstar_T HallT Hout s t).
-        * rewrite inputs_of_app, Hinp_a. apply incl_mod_refl.
+        * rewrite inputs_of_app, Hinp_a. apply (incl_mod_refl equiv consistent).
         * exact Hstar.
         * exact Hall.
       + (* monotone_mod_equiv *)
@@ -634,7 +526,7 @@ Section step.
         pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar_a) as Hstar_T.
         assert (HallT : allowed (inputs_of (T_a ++ t1))).
         { rewrite inputs_of_app, Hinp_a. exact Hall1. }
-        assert (HinclT : incl_mod (inputs_of (T_a ++ t1)) (inputs_of t2)).
+        assert (HinclT : incl_mod equiv consistent (inputs_of (T_a ++ t1)) (inputs_of t2)).
         { rewrite inputs_of_app, Hinp_a. exact Hincl. }
         pose proof (Hciw' (T_a ++ t1) s_f o Hstar_T HallT Hout s2 t2 HinclT Hstar2 Hall2)
           as Hwill.

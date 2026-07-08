@@ -483,7 +483,7 @@ Proof.
                      (*TODO maybe this should work?*) Fail solve [interp_exprs].
                      cbv [fact_matches]. do 4 eexists. ssplit; eauto. interp_exprs.
             +++ simpl. intros H. repeat invert_stuff.
-            --- rewrite map_map. apply Forall_map.
+            --- rewrite map_map. apply List.Forall_map.
                 cbv [is_list_set] in Hset. fwd. apply Forall_forall.
                 intros x Hx. apply Hsetp0 in Hx. apply IHHwfp0 in Hx.
                 eapply prog_impl_step.

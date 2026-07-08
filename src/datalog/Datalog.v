@@ -801,7 +801,7 @@ Section __.
       intros. repeat invert_stuff.
       eauto using in_map.
     - simpl. constructor; eauto.
-      apply Forall_map. apply Forall_forall.
+      apply List.Forall_map. apply Forall_forall.
       intros [? ?]. simpl. auto.
   Qed.
 
