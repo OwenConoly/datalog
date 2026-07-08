@@ -1254,6 +1254,16 @@ Definition consistent_monotone {message} (consistent : list message -> list mess
     consistent c l1 ->
     consistent c l2.
 
+Lemma consistent_perm {A} (consistent : list A -> list A -> Prop) (allowed : list A -> Prop) :
+  consistent_monotone consistent allowed ->
+  forall c l1 l2,
+    allowed l1 -> allowed l2 -> Permutation l1 l2 ->
+    consistent c l1 -> consistent c l2.
+Proof.
+  intros Hcm c l1 l2 Hal1 Hal2 Hperm Hc.
+  exact (Hcm c l1 l2 Hal1 Hal2 (submultiset_perm _ _ Hperm) Hc).
+Qed.
+
 Section incl_mod.
   Context {message : Type}.
   Context (equiv : message -> message -> Prop).

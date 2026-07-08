@@ -690,6 +690,8 @@ Section __.
     Definition queue_empty (ns : graph_node_state node_state) :=
       ns.(gns_queue) = [].
 
+    (*TODO also specify that internal_inps are the same as internal_outs, which could
+      be ensured using node traces?*)
     Definition consistency_le n ms1 ms2 :=
       exists internal_inps1 exts1 internal_inps2 exts2,
         Permutation ms1 (internal_inps1 ++ exts1) /\
@@ -702,9 +704,31 @@ Section __.
       incl_mod_weak equiv ms1 ms2 ->
       consistency_le n ms1 ms2 ->
       incl_mod equiv consistent ms1 ms2.
-    Proof. Admitted.
+    Proof.
+      intros Hweak Hc. cbv [incl_mod]. intros a Ha Hca.
+      cbv [incl_mod_weak] in Hweak.
+      assert (Hbs: exists bs, incl bs ms2 /\ Forall2 equiv a bs).
+      { admit. }
+      fwd. exists bs. ssplit; auto.
+      cbv [consistent_good] in Hcg. cbv [consistency_le] in Hc. fwd.
+      enough (consistent bs (internal_inps2 ++ exts2)).
+      { admit. }
+      rewrite Hcg. 2: exact Hcp3.
+      eapply Hcim. 3: eassumption. 1,2: admit.
+      enough (consistent_inputs a exts1).
+      { admit. }
+      rewrite <- Hcg. 2: exact Hcp1.
+      enough (consistent a ms1).
+      { admit. }
+      assumption.
+    Admitted.
 
-
+    Lemma queue_empty_consistency_le t1 t2 gs1 gs2 n :
+      star gstep initial_gs t1 gs1 ->
+      star gstep initial_gs t2 gs2 ->
+      val_sat gs2 n (fun ns1 => queue_empty ns1) ->
+      True.
+    Proof. Abort.
 
     Lemma le_weak_to_le gs1 t1 gs2 t2 :
       star gstep initial_gs t1 gs1 ->

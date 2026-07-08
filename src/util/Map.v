@@ -265,6 +265,9 @@ Section Map.
   Definition val_sat (m : mp) (k : key) (P : value -> Prop) : Prop :=
     exists v, map.get m k = Some v /\ P v.
 
+  Definition vals_sat (m1 : mp) (m2 : mp') (k : key) (P : value -> value' -> Prop) : Prop :=
+    exists v1 v2, map.get m1 k = Some v1 /\ map.get m2 k = Some v2 /\ P v1 v2.
+
   Lemma get_mupd (m : mp) (k : key) (f : value -> value) (k' : key) :
     map.get (mupd m k f) k' =
       if eqb k k' then option_map f (map.get m k) else map.get m k'.
