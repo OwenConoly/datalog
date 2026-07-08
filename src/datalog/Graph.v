@@ -690,22 +690,18 @@ Section __.
     Definition queue_empty (ns : graph_node_state node_state) :=
       ns.(gns_queue) = [].
 
-    Definition consistency_le n (ns1 ns2 : graph_node_state node_state) :=
+    Definition consistency_le n ms1 ms2 :=
       exists internal_inps1 exts1 internal_inps2 exts2,
-        Permutation (inputs_of ns1.(gns_trace)) (internal_inps1 ++ exts1) /\
+        Permutation ms1 (internal_inps1 ++ exts1) /\
           consistent_internal_inputs_to n internal_inps1 /\
-          Permutation (inputs_of ns2.(gns_trace)) (internal_inps2 ++ exts2) /\
+          Permutation ms2 (internal_inps2 ++ exts2) /\
           consistent_internal_inputs_to n internal_inps2 /\
           submultiset exts1 exts2.
 
-    Lemma incl_mod_weak_consistency_le_le (gns1 gns2 : graph_node_state node_state) n :
-      incl_mod_weak equiv
-        (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue))
-        (inputs_of gns2.(gns_trace) ++ gns2.(gns_queue)) ->
-      consistency_le n gns1 gns2 ->
-      incl_mod equiv consistent
-        (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue))
-        (inputs_of gns2.(gns_trace)).
+    Lemma incl_mod_weak_consistency_le_le ms1 ms2 n :
+      incl_mod_weak equiv ms1 ms2 ->
+      consistency_le n ms1 ms2 ->
+      incl_mod equiv consistent ms1 ms2.
     Proof. Admitted.
 
 
