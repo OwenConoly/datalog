@@ -754,28 +754,30 @@ Section __.
       rewrite <- matching_inps_app. apply matching_inps_perm. exact Hperm.
     Qed.
 
-    Lemma queue_empty_consistency_le t1 t2 gs1 gs2 n :
+    Lemma graph_inputs_allowed_submultiset i1 i2 :
+      submultiset i1 i2 -> graph_inputs_allowed i2 -> graph_inputs_allowed i1.
+    Proof.
+      intros Hsub Hga n ii Hii.
+      eapply allowed_submultiset; [ apply (Hga n ii Hii) | ].
+      destruct (submultiset_matching_inps n _ _ Hsub) as (rest & Hp).
+      exists rest. rewrite <- app_assoc. apply Permutation_app_head. exact Hp.
+    Qed.
+
+    Lemma consistency_le_reachable t1 t2 gs1 gs2 n ns1 ns2 :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
       submultiset (inputs_of t1) (inputs_of t2) ->
-      val_sat gs2 n queue_empty ->
-      vals_sat gs1 gs2 n (fun ns1 ns2 =>
-        consistency_le n (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue)) (inputs_of ns2.(gns_trace))).
+      map.get gs1 n = Some ns1 ->
+      map.get gs2 n = Some ns2 ->
+      consistency_le n (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
+                       (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue)).
     Proof.
-      intros Hstar1 Hstar2 Hsub Hqe.
-      destruct Hqe as (ns2 & Hget2 & Hqe2).
-      assert (exists ns1, map.get gs1 n = Some ns1) as (ns1 & Hget1).
-      { destruct (map.get gs1 n) as [ns1|] eqn:E; [ eauto | exfalso ].
-        apply (proj2 (reachable_domain _ _ _ Hstar1)) in E.
-        apply (proj1 (reachable_domain _ _ _ Hstar2)) in E.
-        congruence. }
-      cbv [vals_sat]. exists ns1, ns2. ssplit; [ exact Hget1 | exact Hget2 | ].
+      intros Hstar1 Hstar2 Hsub Hget1 Hget2.
       cbv [consistency_le].
       pose proof (inputs_are_outputs _ _ Hstar1) as Hio1. cbv [Forall_map] in Hio1.
       specialize (Hio1 _ _ Hget1).
       pose proof (inputs_are_outputs _ _ Hstar2) as Hio2. cbv [Forall_map] in Hio2.
       specialize (Hio2 _ _ Hget2).
-      cbv [queue_empty] in Hqe2. rewrite Hqe2, app_nil_r in Hio2.
       exists (fwd_total n gs1), (matching_inps n (inputs_of t1)),
              (fwd_total n gs2), (matching_inps n (inputs_of t2)).
       ssplit.
@@ -786,6 +788,19 @@ Section __.
       - apply submultiset_matching_inps. exact Hsub.
     Qed.
 
+    Lemma eventually_received t2 gs2 :
+      star gstep initial_gs t2 gs2 ->
+      graph_inputs_allowed (inputs_of t2) ->
+      eventually graph_will_step
+        (fun '(gs2', t2') =>
+           star gstep initial_gs t2' gs2' /\
+           graph_inputs_allowed (inputs_of t2') /\
+           Forall2_map (fun _ ns2 ns2' =>
+             submultiset (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue))
+                         (inputs_of ns2'.(gns_trace))) gs2 gs2')
+        (gs2, t2).
+    Proof. Admitted.
+
     Lemma le_weak_to_le gs1 t1 gs2 t2 :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
@@ -793,7 +808,39 @@ Section __.
       graph_inputs_allowed (inputs_of t2) ->
       le_weak gs1 gs2 ->
       eventually graph_will_step (fun '(gs2', t2') => le gs1 gs2') (gs2, t2).
-    Proof. Admitted.
+    Proof.
+      intros Hstar1 Hstar2 Hsub Hga2 Hlew.
+      assert (Hga1 : graph_inputs_allowed (inputs_of t1))
+        by (eapply graph_inputs_allowed_submultiset; eassumption).
+      pose proof (everything_allowed _ _ Hstar1 Hga1) as Hall1. cbv [Forall_map] in Hall1.
+      pose proof (everything_allowed _ _ Hstar2 Hga2) as Hall2. cbv [Forall_map] in Hall2.
+      eapply eventually_weaken.
+      { exact (eventually_received _ _ Hstar2 Hga2). }
+      intros [gs2' t2'] (Hreach2' & Hga2' & Hrecv).
+      pose proof (everything_allowed _ _ Hreach2' Hga2') as Hall2'. cbv [Forall_map] in Hall2'.
+      cbv [le]. apply Forall2_map_intro.
+      { intros k. split; intros HN.
+        - apply (proj1 (reachable_domain _ _ k Hreach2')).
+          apply (proj2 (reachable_domain _ _ k Hstar1)). exact HN.
+        - apply (proj1 (reachable_domain _ _ k Hstar1)).
+          apply (proj2 (reachable_domain _ _ k Hreach2')). exact HN. }
+      intros k ns1 ns2' Hg1 Hg2'.
+      destruct (Forall2_map_get_r _ _ _ _ _ Hrecv Hg2') as (ns2 & Hg2 & Hrec).
+      destruct (Forall2_map_get_l _ _ _ _ _ Hlew Hg1) as (ns2b & Hg2b & Hlewk).
+      assert (ns2b = ns2) by congruence. subst ns2b.
+      pose proof (consistency_le_reachable _ _ _ _ _ _ _ Hstar1 Hstar2 Hsub Hg1 Hg2) as Hcle.
+      specialize (Hall1 _ _ Hg1).
+      specialize (Hall2 _ _ Hg2).
+      specialize (Hall2' _ _ Hg2').
+      assert (Hall1tr : allowed (inputs_of (gns_trace ns1)))
+        by (eapply allowed_submultiset; [ exact Hall1 | apply submultiset_app_r ]).
+      assert (Hall2'tr : allowed (inputs_of (gns_trace ns2')))
+        by (eapply allowed_submultiset; [ exact Hall2' | apply submultiset_app_r ]).
+      apply (incl_mod_weaken_r equiv consistent allowed Hcm _ _ _ Hrec Hall2 Hall2'tr).
+      apply (incl_mod_weaken_l equiv consistent allowed Hcm _ _ _
+               (submultiset_app_r _ _) Hall1tr Hall1).
+      apply (incl_mod_weak_consistency_le_le _ _ _ Hall1 Hall2 Hlewk Hcle).
+    Qed.
 
     Lemma fwd_total_get gs n k vn :
       map.get gs n = Some vn ->

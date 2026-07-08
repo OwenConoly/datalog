@@ -112,6 +112,19 @@ Section Maps.
       try contradiction; split; intros; congruence.
   Qed.
 
+  Lemma Forall2_map_intro R (m1 : mp1) (m2 : mp2) :
+    (forall k, map.get m1 k = None <-> map.get m2 k = None) ->
+    (forall k v1 v2, map.get m1 k = Some v1 -> map.get m2 k = Some v2 -> R k v1 v2) ->
+    Forall2_map R m1 m2.
+  Proof.
+    intros Hdom HR k. specialize (Hdom k).
+    destruct (map.get m1 k) as [v1|] eqn:E1; destruct (map.get m2 k) as [v2|] eqn:E2.
+    - exact (HR _ _ _ E1 E2).
+    - discriminate (proj2 Hdom eq_refl).
+    - discriminate (proj1 Hdom eq_refl).
+    - exact I.
+  Qed.
+
   Definition Forall3_map (R : key -> value1 -> value2 -> value3 -> Prop)
     (m1 : mp1) (m2 : mp2) (m3 : mp3) : Prop :=
     forall k,

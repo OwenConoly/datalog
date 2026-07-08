@@ -1372,6 +1372,15 @@ Section incl_mod.
     - eapply Hcm; [exact Hal1 | exact Hal1' | exact Hsub | exact Hca].
   Qed.
 
+  Lemma incl_mod_weaken_r l1 l2 l2' :
+    submultiset l2 l2' -> allowed l2 -> allowed l2' -> incl_mod l1 l2 -> incl_mod l1 l2'.
+  Proof.
+    intros Hsub Hal2 Hal2' H a Ha Hca.
+    destruct (H a Ha Hca) as (b & Hb & Hab & Hcb).
+    exists b. split; [ eapply incl_tran; [exact Hb | apply submultiset_incl, Hsub] | ].
+    split; [ exact Hab | eapply Hcm; [exact Hal2 | exact Hal2' | exact Hsub | exact Hcb] ].
+  Qed.
+
   Lemma incl_mod_weak_Forall2 l1 l2 a :
     incl_mod_weak l1 l2 -> incl a l1 ->
     exists b, incl b l2 /\ Forall2 equiv a b.
