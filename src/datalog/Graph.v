@@ -156,7 +156,7 @@ Section __.
 
     Definition le (g1 g2 : graph_state) :=
       Forall2_map (fun n gns1 gns2 =>
-                     incl_mod equiv consistent (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue)) (inputs_of gns2.(gns_trace)))
+                     incl_mod equiv consistent (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace)))
         g1 g2.
 
     Let graph_will_step := (will_step (graph_step node_step) graph_inputs_allowed).
@@ -690,23 +690,25 @@ Section __.
     Definition queue_empty (ns : graph_node_state node_state) :=
       ns.(gns_queue) = [].
 
-    Definition maximally_consistent_at n (ns : graph_node_state node_state) :=
-      ns.(gns_queue) = [] (*this is just supposed to express that all external inputs have been received; as it happens, it also implies that internal inputs have been received.*)/\
-        exists internal_inps,
-          incl internal_inps (inputs_of ns.(gns_trace)) /\
-            consistent_internal_inputs_to n internal_inps.
+    Definition consistency_le n (ns1 ns2 : graph_node_state node_state) :=
+      exists internal_inps1 exts1 internal_inps2 exts2,
+        Permutation (inputs_of ns1.(gns_trace)) (internal_inps1 ++ exts1) /\
+          consistent_internal_inputs_to n internal_inps1 /\
+          Permutation (inputs_of ns2.(gns_trace)) (internal_inps2 ++ exts2) /\
+          consistent_internal_inputs_to n internal_inps2 /\
+          submultiset exts1 exts2.
 
-    Print le.
-
-    Lemma incl_mod_weak_maximally_consistent_at_le (gns1 gns2 : graph_node_state node_state) n :
+    Lemma incl_mod_weak_consistency_le_le (gns1 gns2 : graph_node_state node_state) n :
       incl_mod_weak equiv
         (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue))
         (inputs_of gns2.(gns_trace) ++ gns2.(gns_queue)) ->
-      maximally_consistent_at n gns2 ->
+      consistency_le n gns1 gns2 ->
       incl_mod equiv consistent
         (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue))
         (inputs_of gns2.(gns_trace)).
     Proof. Admitted.
+
+
 
     Lemma le_weak_to_le gs1 t1 gs2 t2 :
       star gstep initial_gs t1 gs1 ->
