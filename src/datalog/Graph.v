@@ -163,6 +163,9 @@ Section __.
                      incl_mod equiv consistent (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace)))
         g1 g2.
 
+    Definition node_has_output (gs : graph_state) (n : node_id) (o : message) : Prop :=
+      exists ns, map.get gs n = Some ns /\ In o (outputs_of (gns_trace ns)).
+
     Let graph_will_step := (will_step (graph_step node_step) graph_inputs_allowed).
 
     Context (nodes_good : Forall_map node_good initial_gs).
@@ -568,6 +571,22 @@ Section __.
       eapply Permutation_allowed.
       - apply (inputs_are_outputs gt gs Hstar nn nsn Hget).
       - apply Hallow. apply (fwd_total_consistent_internal gt gs nn Hstar).
+    Qed.
+
+    Lemma node_run_allowed t gs :
+      star gstep initial_gs t gs ->
+      graph_inputs_allowed (inputs_of t) ->
+      Forall2_map (fun n gns0 gns =>
+                     star node_step (gns_node_state gns0) (gns_trace gns) (gns_node_state gns) /\
+                     allowed (inputs_of (gns_trace gns)))
+        initial_gs gs.
+    Proof.
+      intros Hstar Hallow.
+      pose proof (everything_allowed t gs Hstar Hallow) as Hall.
+      eapply Forall2_map_impl_strong;
+        [ apply graph_step_to_node_step_from_beginning; exact Hstar | ].
+      intros n gns0 gns Hget0 Hget (Hrun & _). split; [ exact Hrun | ].
+      eapply allowed_submultiset; [ apply (Hall n gns Hget) | apply submultiset_app_r ].
     Qed.
 
     Hint Resolve star_app : core.
@@ -1099,6 +1118,36 @@ Section __.
         eapply le_weak_trans;
           [ exact Hlws | apply le_strong_le_weak; eapply gstep_le_strong; exact Hst ]. }
       intros [s t] (Hlw_s & Hle_s). split; [ exact Hle_s | exact Hlw_s ].
+    Qed.
+
+    Lemma le_node_output t1 gs1 gs2 t2 n o :
+      star gstep initial_gs t1 gs1 ->
+      star gstep initial_gs t2 gs2 ->
+      graph_inputs_allowed (inputs_of t1) ->
+      graph_inputs_allowed (inputs_of t2) ->
+      le gs1 gs2 ->
+      node_has_output gs1 n o ->
+      eventually graph_will_step
+        (fun '(gs2', _) => exists o', node_has_output gs2' n o' /\ equiv o' o) (gs2, t2).
+    Proof.
+      intros Hstar1 Hstar2 Hga1 Hga2 Hle (ns1 & Hget1 & Hout1).
+      destruct (Forall2_map_get_l _ _ _ _ _ Hle Hget1) as (ns2 & Hget2 & Hincl).
+      destruct (Forall2_map_get_r _ _ _ _ _ (node_run_allowed t1 gs1 Hstar1 Hga1) Hget1)
+        as (ns0 & Hget0 & Hrun1 & Hall1).
+      destruct (Forall2_map_get_r _ _ _ _ _ (node_run_allowed t2 gs2 Hstar2 Hga2) Hget2)
+        as (ns0' & Hget0' & Hrun2 & Hall2).
+      assert (ns0' = ns0) by (rewrite Hget0 in Hget0'; congruence). subst ns0'.
+      pose proof (nodes_good n ns0 Hget0) as (_ & Hmono & Hmiw).
+      assert (Hmiw' : might_implies_will_equiv' node_step equiv consistent allowed
+                        (gns_node_state ns0)).
+      { apply ciw'_iff_ciw_and_monotone'; try assumption;
+          try (split; [ exact Hmiw | exact Hmono ]). }
+      pose proof (Hmiw' _ _ _ Hrun1 Hall1 Hout1 _ _ Hincl Hrun2 Hall2) as Hwoe.
+      eapply eventually_weaken.
+      { eapply (graph_eventually_of_node_eventually n _ gs2 t2 ns2);
+          [ exact Hstar2 | exact Hga2 | exact Hget2 | exact Hwoe ]. }
+      intros [gs2' t2'] (gns' & Hgetf & o' & Hequiv & Hino').
+      exists o'. split; [ exists gns'; split; [ exact Hgetf | exact Hino' ] | exact Hequiv ].
     Qed.
 
     Proof.
