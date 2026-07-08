@@ -40,7 +40,14 @@ Definition example_pATLexpr {var} : pATLexpr var 1 :=
 (*TODO fill these in*)
 Definition lvar := string.
 Definition exprvar := string.
-Definition fn := string.
+
+(* should i be seperating these definitions into more variants like in the previous compiler? 
+cause everything in the language is purely defined as fn, so maybe it wouldn't work, but 
+having every fn term be uner the fn variant might be messy when it comes to interpreting them with return variables?? *)
+Variant fn : Set :=
+  fn_Add | fn_Sub | fn_Divf | fn_Divc | fn_Mul | fn_Mod | fn_Z0 | fn_Pos | fn_Neg | fn_Nat | fn_Opp
+  | fn_Lit | fn_Lt | fn_Le | fn_And | fn_Not | fn_Div | fn_Get.
+
 Axiom (aggregator : Type).
 
 Definition var_of (var : Type) (t : type) : Type :=
@@ -53,32 +60,135 @@ Definition var_of (var : Type) (t : type) : Type :=
 
 Local Notation blocks_prog := (blocks_prog lvar exprvar fn aggregator).
 
-Definition str_nat := map.map string nat.
 Section __.
 Context {str_nat : map.map string nat} {str_nat_ok : map.ok str_nat}.
 
 Local Notation block_rule := (@Datalog.Blocks.block_rule lvar exprvar fn aggregator).
 Local Notation block_rel := (@Blocks.block_rel lvar).
 
-Fixpoint lower_pZexpr (e : pZexpr nat) : expr string string :=
-  match e with
-  | ZBop op x y =>
-    match op with
-    | ZTimes => fun_expr "ZTimes" [lower_pZexpr x; lower_pZexpr y]
-    | ZPlus => fun_expr "ZPlus" [lower_pZexpr x; lower_pZexpr y]
-    | ZDivf => fun_expr "ZDivf" [lower_pZexpr x; lower_pZexpr y]
-    | ZDivc => fun_expr "ZDivc" [lower_pZexpr x; lower_pZexpr y]
-    | ZMinus => fun_expr "ZMinus" [lower_pZexpr x; lower_pZexpr y]
-    | ZMod => fun_expr "ZMod" [lower_pZexpr x; lower_pZexpr y]
-    end
-  | ZVar x => var_expr (NatToString.nat_to_string x)
-  | ZZ0 => fun_expr "ZZ0" []
-  | ZZpos p => fun_expr "ZZpos" [var_expr (NatToString.nat_to_string (Pos.to_nat p))]
-  | ZZneg p => fun_expr "ZZneg" [var_expr (("-" ++ NatToString.nat_to_string (Pos.to_nat p))%string)]
-  | ZZ_of_nat n => fun_expr "ZZnat" [var_expr (NatToString.nat_to_string n)]
-  | ZZopp x => fun_expr "ZZopp" [lower_pZexpr x]
+Definition ZBop_to_fn (op : Zbop) : fn :=
+  match op with
+  | ZTimes => fn_Mul
+  | ZPlus => fn_Add
+  | ZDivf => fn_Divf
+  | ZDivc => fn_Divc
+  | ZMinus => fn_Sub
+  | ZMod => fn_Mod
 end.
 
+(* this is now useless cause I redefined pZexpr to pZexpr' to just have ZLit and reduce variables, not deleting yet though just in case *)
+Fixpoint lower_pZexpr (e : pZexpr nat) : expr string fn :=
+  match e with
+  | ZBop op x y => fun_expr (ZBop_to_fn op) [lower_pZexpr x; lower_pZexpr y]
+  | ZVar x => var_expr (NatToString.nat_to_string x)
+  | ZZ0 => fun_expr fn_Z0 []
+  (* i know that these are for defining literals, but am i meant to change with Zexpr is?? or should i just be returning fn_Lit? *)
+  | ZZpos p => fun_expr fn_Pos [var_expr (NatToString.nat_to_string (Pos.to_nat p))]
+  | ZZneg p => fun_expr fn_Neg [var_expr (("-" ++ NatToString.nat_to_string (Pos.to_nat p))%string)]
+  | ZZ_of_nat n => fun_expr fn_Nat [var_expr (NatToString.nat_to_string n)]
+  | ZZopp x => fun_expr fn_Opp [lower_pZexpr x]
+end.
+
+Print pZexpr.
+
+Inductive pZexpr' (var : Type) : Type :=
+  | ZBop : Zbop -> pZexpr' var -> pZexpr' var -> pZexpr' var
+  | ZVar : var -> pZexpr' var
+  | ZLit : Z -> pZexpr' var
+  | Zopp : pZexpr' var -> pZexpr' var.
+
+Arguments pZexpr' var%_type_scope.
+Arguments ZBop {var}%_type_scope _ _ _.
+Arguments ZVar {var}%_type_scope _.
+Arguments ZLit {var}%_type_scope _%_positive_scope.
+Arguments Zopp {var}%_type_scope _.
+
+
+Fixpoint lower_pZexpr' (e : pZexpr' nat) : expr string fn :=
+  match e with
+  | ZBop op x y => fun_expr (ZBop_to_fn op) [lower_pZexpr' x; lower_pZexpr' y]
+  | ZVar x => var_expr (NatToString.nat_to_string x)
+  | ZLit p => 
+    match p with
+    | Z0 => fun_expr fn_Z0 []
+    | Zpos p => fun_expr fn_Lit [var_expr (NatToString.nat_to_string (Pos.to_nat p))]
+    | Zneg p => fun_expr fn_Lit [var_expr (("-" ++ NatToString.nat_to_string (Pos.to_nat p))%string)]
+  end
+  | Zopp x => fun_expr fn_Opp [lower_pZexpr' x]
+end.
+
+Print pATLexpr.
+
+Inductive pATLexpr' ( var : type -> Type ) : nat -> Type :=
+  | Gen : forall n : nat,
+          pZexpr' (var tZ) ->
+          pZexpr' (var tZ) ->
+          (var tZ -> pATLexpr' var n) -> pATLexpr' var (ATLPhoas.S n)
+  | Sum : forall n : nat,
+          pZexpr' (var tZ) ->
+          pZexpr' (var tZ) -> (var tZ -> pATLexpr' var n) -> pATLexpr' var n
+  | Guard : forall n : nat,
+            pBexpr (var tZ) -> pATLexpr' var n -> pATLexpr' var n
+  | Lbind : forall n m : nat,
+            pATLexpr' var n ->
+            (var (tensor_n n) -> pATLexpr' var m) -> pATLexpr' var m
+  | Concat : forall n : nat,
+             pATLexpr' var (ATLPhoas.S n) ->
+             pATLexpr' var (ATLPhoas.S n) -> pATLexpr' var (ATLPhoas.S n)
+  | Flatten : forall n : nat,
+              pATLexpr' var (ATLPhoas.S (ATLPhoas.S n)) ->
+              pATLexpr' var (ATLPhoas.S n)
+  | Split : forall n : nat,
+            pZexpr' (var tZ) ->
+            pATLexpr' var (ATLPhoas.S n) ->
+            pATLexpr' var (ATLPhoas.S (ATLPhoas.S n))
+  | Transpose : forall n : nat,
+                pATLexpr' var (ATLPhoas.S (ATLPhoas.S n)) ->
+                pATLexpr' var (ATLPhoas.S (ATLPhoas.S n))
+  | Truncr : forall n : nat,
+             pZexpr' (var tZ) ->
+             pATLexpr' var (ATLPhoas.S n) -> pATLexpr' var (ATLPhoas.S n)
+  | Truncl : forall n : nat,
+             pZexpr' (var tZ) ->
+             pATLexpr' var (ATLPhoas.S n) -> pATLexpr' var (ATLPhoas.S n)
+  | Padr : forall n : nat,
+           pZexpr' (var tZ) ->
+           pATLexpr' var (ATLPhoas.S n) -> pATLexpr' var (ATLPhoas.S n)
+  | Padl : forall n : nat,
+           pZexpr' (var tZ) ->
+           pATLexpr' var (ATLPhoas.S n) -> pATLexpr' var (ATLPhoas.S n)
+  | Var : forall n : nat, var (tensor_n n) -> pATLexpr' var n
+  | Get : pATLexpr' var 0 -> list (pZexpr' (var tZ)) -> pATLexpr' var 0 (* i made it so that var in get is garunteed to be scalar, but thats the only real cahnge i made from pATLexpr *)
+  | SBop : Sbop -> pATLexpr' var 0 -> pATLexpr' var 0 -> pATLexpr' var 0
+  | SIZR : pZexpr' (var tZ) -> pATLexpr' var 0
+  . 
+Arguments pATLexpr' var%_function_scope _%_nat_scope.
+Arguments Gen {var}%_function_scope {n}%_nat_scope _ _ _%_function_scope.
+Arguments Sum {var}%_function_scope {n}%_nat_scope _ _ _%_function_scope.
+Arguments Guard {var}%_function_scope {n}%_nat_scope _ _.
+Arguments Lbind {var}%_function_scope {n m}%_nat_scope _ _%_function_scope.
+Arguments Concat {var}%_function_scope {n}%_nat_scope _ _.
+Arguments Flatten {var}%_function_scope {n}%_nat_scope _.
+Arguments Split {var}%_function_scope {n}%_nat_scope _ _.
+Arguments Transpose {var}%_function_scope {n}%_nat_scope _.
+Arguments Truncr {var}%_function_scope {n}%_nat_scope _ _.
+Arguments Truncl {var}%_function_scope {n}%_nat_scope _ _.
+Arguments Padr {var}%_function_scope {n}%_nat_scope _ _.
+Arguments Padl {var}%_function_scope {n}%_nat_scope _ _.
+Arguments Var {var}%_function_scope {n}%_nat_scope _.
+Arguments Get {var}%_function_scope _ _%_list_scope.
+Arguments SBop {var}%_function_scope _ _ _.
+Arguments SIZR {var}%_function_scope _.
+
+Definition sbop_to_fn (o : Sbop) : fn :=
+  match o with
+  | Mul => fn_Mul
+  | Add => fn_Add
+  | Div => fn_Div
+  | Sub => fn_Sub
+end.
+
+(* This is the older lower_pSexpr -> keeping it here just in case
 Fixpoint lower_pSexpr {var} (idxs0 : list string) (def_depth : str_nat) (next_varname : string) (e : pATLexpr (var_of var) 0) :
     expr exprvar fn (*value of expr*) * 
     list (clause block_rel exprvar fn) (*hypotheses*) * 
@@ -91,14 +201,28 @@ Fixpoint lower_pSexpr {var} (idxs0 : list string) (def_depth : str_nat) (next_va
   | SBop o x y => 
     let '(e1, hyps1, next_varname) := lower_pSexpr idxs0 def_depth next_varname x in
     let '(e2, hyps2, next_varname) := lower_pSexpr idxs0 def_depth next_varname y in
-    match o with
-    | Mul => (fun_expr "fn_SMul" [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
-    | Add => (fun_expr "fn_SAdd" [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
-    | Div => (fun_expr "fn_SDiv" [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
-    | Sub => (fun_expr "fn_SSub" [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
-    end
+    (fun_expr (sbop_to_fn o) [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
   | SIZR x => (fun_expr "fn_SLit" [lower_pZexpr x], [], next_varname)
   | _ => (fun_expr "garbage" [], nil, next_varname)
+end. *)
+
+(* new version of lower_pSexpr with the new pATLexpr' type, Get is still probably very wrong but it does compile *)
+Fixpoint lower_pSexpr {var} (idxs0 : list string) (def_depth : str_nat) (next_varname : string) (e : pATLexpr' (var_of var) 0) :
+    expr exprvar fn (*value of expr*) * 
+    list (clause block_rel exprvar fn) (*hypotheses*) * 
+    string (*next varname*) :=
+  match e as e' in pATLexpr' _ _
+        return expr exprvar fn * list (clause block_rel exprvar fn) * string with
+  | Get x idxs => 
+    let '(x', hyps, next_varname) := lower_pSexpr [] map.empty "x" (x) in
+    (fun_expr fn_Get [x'], [{| clause_rel := local "idxs rules"; clause_args := (map lower_pZexpr' idxs) |}], next_varname)
+  | SBop o x y => 
+    let '(e1, hyps1, next_varname) := lower_pSexpr idxs0 def_depth next_varname x in
+    let '(e2, hyps2, next_varname) := lower_pSexpr idxs0 def_depth next_varname y in
+    (fun_expr (sbop_to_fn o) [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
+  | SIZR x => (fun_expr fn_Lit [lower_pZexpr' x], [], next_varname)
+  | Var n => (fun_expr fn_Add [], nil, next_varname) (* not sure what to do with Var here *)
+  | _ => (fun_expr fn_Add [], nil, next_varname) (*garbage*)
 end.
 
 Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var_of var) n) : blocks_prog var :=
