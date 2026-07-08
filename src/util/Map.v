@@ -103,6 +103,15 @@ Section Maps.
     - contradiction.
   Qed.
 
+  Lemma Forall2_map_get_None R (m1 : mp1) (m2 : mp2) k :
+    Forall2_map R m1 m2 ->
+    (map.get m1 k = None <-> map.get m2 k = None).
+  Proof.
+    intros H. specialize (H k).
+    destruct (map.get m1 k); destruct (map.get m2 k);
+      try contradiction; split; intros; congruence.
+  Qed.
+
   Definition Forall3_map (R : key -> value1 -> value2 -> value3 -> Prop)
     (m1 : mp1) (m2 : mp2) (m3 : mp3) : Prop :=
     forall k,

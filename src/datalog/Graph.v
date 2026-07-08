@@ -738,6 +738,22 @@ Section __.
       assumption.
     Qed.
 
+    Lemma reachable_domain t gs nn :
+      star gstep initial_gs t gs ->
+      (map.get initial_gs nn = None <-> map.get gs nn = None).
+    Proof.
+      intros Hstar.
+      eapply Forall2_map_get_None.
+      eapply graph_step_to_node_step_from_beginning. exact Hstar.
+    Qed.
+
+    Lemma submultiset_matching_inps nn l1 l2 :
+      submultiset l1 l2 -> submultiset (matching_inps nn l1) (matching_inps nn l2).
+    Proof.
+      intros (rest & Hperm). exists (matching_inps nn rest).
+      rewrite <- matching_inps_app. apply matching_inps_perm. exact Hperm.
+    Qed.
+
     Lemma queue_empty_consistency_le t1 t2 gs1 gs2 n :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
@@ -745,7 +761,30 @@ Section __.
       val_sat gs2 n queue_empty ->
       vals_sat gs1 gs2 n (fun ns1 ns2 =>
         consistency_le n (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue)) (inputs_of ns2.(gns_trace))).
-    Proof. Abort.
+    Proof.
+      intros Hstar1 Hstar2 Hsub Hqe.
+      destruct Hqe as (ns2 & Hget2 & Hqe2).
+      assert (exists ns1, map.get gs1 n = Some ns1) as (ns1 & Hget1).
+      { destruct (map.get gs1 n) as [ns1|] eqn:E; [ eauto | exfalso ].
+        apply (proj2 (reachable_domain _ _ _ Hstar1)) in E.
+        apply (proj1 (reachable_domain _ _ _ Hstar2)) in E.
+        congruence. }
+      cbv [vals_sat]. exists ns1, ns2. ssplit; [ exact Hget1 | exact Hget2 | ].
+      cbv [consistency_le].
+      pose proof (inputs_are_outputs _ _ Hstar1) as Hio1. cbv [Forall_map] in Hio1.
+      specialize (Hio1 _ _ Hget1).
+      pose proof (inputs_are_outputs _ _ Hstar2) as Hio2. cbv [Forall_map] in Hio2.
+      specialize (Hio2 _ _ Hget2).
+      cbv [queue_empty] in Hqe2. rewrite Hqe2, app_nil_r in Hio2.
+      exists (fwd_total n gs1), (matching_inps n (inputs_of t1)),
+             (fwd_total n gs2), (matching_inps n (inputs_of t2)).
+      ssplit.
+      - exact Hio1.
+      - eapply fwd_total_consistent_internal. exact Hstar1.
+      - exact Hio2.
+      - eapply fwd_total_consistent_internal. exact Hstar2.
+      - apply submultiset_matching_inps. exact Hsub.
+    Qed.
 
     Lemma le_weak_to_le gs1 t1 gs2 t2 :
       star gstep initial_gs t1 gs1 ->
