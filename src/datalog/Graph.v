@@ -246,6 +246,24 @@ Section __.
           destruct (map.get g k) as [v|]; [|exact I]. split; apply submultiset_refl.
     Qed.
 
+    Lemma le_strong_refl g : le_strong g g.
+    Proof.
+      cbv [le_strong Forall2_map]. intros k.
+      destruct (map.get g k); [split; apply submultiset_refl | exact I].
+    Qed.
+
+    Lemma star_gstep_le_strong g T g' : star gstep g T g' -> le_strong g g'.
+    Proof.
+      induction 1; [apply le_strong_refl|].
+      eapply le_strong_trans; [eassumption | eapply gstep_le_strong; eassumption].
+    Qed.
+
+    Lemma le_strong_le_weak a b : le_strong a b -> le_weak a b.
+    Proof.
+      intros. eapply Forall2_map_impl; eauto. simpl.
+      intros. fwd. auto using incl_mod_weak_of_submultiset.
+    Qed.
+
     Lemma impl_in_map [A B] (f : A -> B) x l y :
       In x l ->
       f x = y ->
@@ -684,11 +702,18 @@ Section __.
       graph_inputs_allowed (inputs_of t2) ->
       gstep gs1 (O_event lbl outs) gs1' ->
       le gs1 gs2 ->
+      le_weak gs1 gs2 ->
       eventually graph_will_step (fun '(gs2', t2') => le_weak gs1' gs2') (gs2, t2).
     Proof.
-      intros H1 H2 H3 H4 Hstep Hle. invert Hstep.
-      - epose proof Forall2_map_get_l as H. especialize H; eauto.
-        destruct H as [[ns2 tn2] [Hns2 Hincl]].
+      intros H1 H2 H3 H4 Hstep Hle Hlew. invert Hstep.
+      - epose proof Forall2_map_get_l as H. epose_dep H.
+        specialize (H Hle ltac:(eassumption)).
+        destruct H as [[ns2 tn2] [Hns2 Hincl]]. simpl in Hincl.
+
+        epose proof Forall2_map_get_l as H. epose_dep H.
+        specialize (H Hlew ltac:(eassumption)).
+        destruct H as [[ns20 tn20] [Hns20 Hincl_weak]]. simpl in Hincl_weak.
+        map_func.
 
         epose proof (graph_step_to_node_step_from_beginning gs1) as Hns1'.
         especialize Hns1'; eauto. eapply Forall2_map_get_r in Hns1'; eauto.
@@ -702,19 +727,25 @@ Section __.
 
         pose proof nodes_good as H'. cbv [Forall_map] in H'. especialize H'; eauto.
         cbv [node_good] in H'. fwd.
-        pose proof (everything_allowed _ _ H1 H3) as Hall1. cbv [Forall_map] in Hall1.
-        pose proof (everything_allowed _ _ H2 H4) as Hall2. cbv [Forall_map] in Hall2.
-        pose proof (Hall1 _ _ H6) as Halns.
-        pose proof (Hall2 _ _ Hns2) as Halns2. cbn [gns_trace gns_queue] in Halns2.
+
+        pose proof (everything_allowed _ gs1 ltac:(eauto) ltac:(eauto)) as Hall1.
+        pose proof (everything_allowed _ gs2 ltac:(eauto) ltac:(eauto)) as Hall2.
+        assert (allowed (inputs_of (gns_trace ns) ++ gns_queue ns)) by eauto.
+        assert (allowed (inputs_of tn2 ++ gns_queue0)) by eauto.
+
         eassert (Hmo: Forall (might_output_equiv _ _ ns2 tn2) outs0).
         { apply Forall_forall. intros m Hm.
-          eapply H'p1. 5: solve[eauto]. all: eauto. eauto 10. }
+          eapply (H'p1 (gns_trace ns)). all: eauto. eauto 10. }
 
         eapply will_output_all in Hmo; eauto.
         eapply (graph_eventually_of_node_eventually _ _ _ _ _ _ _ Hns2) in Hmo.
 
+        apply eventually_will_step_reach.
         eapply eventually_weaken; [eassumption|].
-        cbv [val_sat]. intros [? ?] ?. fwd. admit.
+        cbv [val_sat]. intros [r l] Hval Hreach. fwd.
+        pose proof (star_gstep_le_strong _ _ _ Hreachp0) as Hlsr.
+        pose proof (le_weak_trans _ _ _ Hlew (le_strong_le_weak _ _ Hlsr)) as Hlwr.
+        admit.
       - cbv [le] in Hle. rewrite H10 in Hle2. apply Forall_app in Hle2. fwd.
         destruct Hle2p1p0 as [Hle_case1|Hle_case2].
         +

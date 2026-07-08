@@ -390,6 +390,22 @@ Section step.
     exists c. split; [exact Hc | eapply Htrans; eassumption].
   Qed.
 
+  Lemma incl_mod_weak_of_submultiset l1 l2 : submultiset l1 l2 -> incl_mod_weak l1 l2.
+  Proof. intros H. apply incl_mod_weak_of_incl, submultiset_incl, H. Qed.
+
+  Lemma incl_mod_weak_app l1 l2 l3 :
+    incl_mod_weak l1 l3 -> incl_mod_weak l2 l3 -> incl_mod_weak (l1 ++ l2) l3.
+  Proof.
+    intros H1 H2 a Ha. apply in_app_iff in Ha. destruct Ha; [apply H1 | apply H2]; assumption.
+  Qed.
+
+  Lemma incl_mod_weak_app_r l1 l2 l3 :
+    incl_mod_weak l1 l2 -> incl_mod_weak l1 (l2 ++ l3).
+  Proof.
+    intros H a Ha. destruct (H a Ha) as (b & Hb & Hab).
+    exists b. split; [apply in_or_app; left; exact Hb | exact Hab].
+  Qed.
+
   Definition incl_mod (l1 l2 : list message) : Prop :=
     forall a,
       incl a l1 ->
