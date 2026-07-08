@@ -409,6 +409,12 @@ Section step.
       [ apply Hc; exact Hx | apply Hab, in_or_app; right; exact Hx ].
   Qed.
 
+  Lemma incl_mod_weak_perm_l l1 l1' l2 :
+    Permutation l1 l1' -> incl_mod_weak l1 l2 -> incl_mod_weak l1' l2.
+  Proof.
+    intros Hp H x Hx. apply H. eapply Permutation_in; [ apply Permutation_sym; exact Hp | exact Hx ].
+  Qed.
+
   Lemma incl_mod_weak_app_r l1 l2 l3 :
     incl_mod_weak l1 l2 -> incl_mod_weak l1 (l2 ++ l3).
   Proof.

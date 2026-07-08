@@ -795,32 +795,15 @@ Section __.
         + apply incl_mod_weak_insert.
           -- eapply Forall2_map_get_l in Hlwr; eauto. fwd. map_func. assumption.
           -- eapply forwarded_in_state; eauto.
-      - cbv [le] in Hle. rewrite H10 in Hle2. apply Forall_app in Hle2. fwd.
-        destruct Hle2p1p0 as [Hle_case1|Hle_case2].
-        +
-
-        admit.
-        map_func. csimpl.
-        Print eventually.
-        Search will_step.
-
-        might_implies_will_equiv (node_step np) equiv allowed n2
-        cbv [monotone_mod_equiv] in H'p1p1.
-        epose_dep H'p1p1. specialize (H'p1p1 Hns1'p2p0 Hns2'p2p0).
-        specialize' H'p1p1. 1: admit.
-        specialize' H'p1p1. 1: admit.
-        specialize (H'p1p1 Hincl).
-        simpl in Hnsp0.
-        destruct H
-        pose proof apply eventually_done. cbv [le]. simpl. split. Search Forall2_map.
-        +
-        admit.
-      -
-        assert (Forall (fun o => might_output (node_step np) ns t o) outs0).
-        { apply Forall_forall. intros m Hm. cbv [might_output].
-          eexists. exists ns'. ssplit; eauto. simpl. apply in_app_iff; auto. }
-
-      cbv [graph_will_step].
+      - especialize Hle'; eauto. especialize Hlew'; eauto. fwd.
+        apply eventually_done.
+        cbv [le_weak] in Hlew |- *.
+        eapply Forall2_map_put_l; [ | exact Hlew'p0 | ].
+        + eapply Forall2_map_impl; [ exact Hlew | ]. intros k w1 w2 HH _. exact HH.
+        + cbn [gns_trace gns_queue].
+          rewrite H9 in Hlew'p1.
+          eapply incl_mod_weak_perm_l; [ apply perm_recv | exact Hlew'p1 ].
+    Qed.
 
     Proof.
       intros T gs0 gs Hstar.
