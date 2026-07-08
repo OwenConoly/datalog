@@ -876,7 +876,36 @@ Section __.
                           submultiset (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue))
                             (inputs_of ns2'.(gns_trace))) gs2 gs2')
         (gs2, t2).
-    Proof. Admitted.
+    Proof.
+      intros Hstar Hga.
+      apply eventually_will_step_reach.
+      eapply eventually_weaken.
+      { eapply eventually_will_step_Forall with
+          (Ps := map (fun '(k, v) =>
+                    (fun '(gc', _) => exists nc', map.get gc' k = Some nc' /\
+                       submultiset (inputs_of (gns_trace v) ++ gns_queue v)
+                                   (inputs_of (gns_trace nc'))))
+                    (map.tuples gs2)).
+        - apply List.Forall_map. apply Forall_forall. intros [k v] _.
+          cbv [ev_stable]. intros s s' e t (nc' & Hgk & Hsm) Hstep.
+          pose proof (gstep_le_strong _ _ _ Hstep) as Hls. cbv [le_strong] in Hls.
+          destruct (Forall2_map_get_l _ _ _ _ _ Hls Hgk) as (nc'' & Hgk' & Htr & _).
+          exists nc''. split; [ exact Hgk' | eapply submultiset_trans; [ exact Hsm | exact Htr ] ].
+        - apply List.Forall_map. apply Forall_forall. intros [k v] Hin.
+          apply map.tuples_spec in Hin.
+          eapply (eventually_deliver k (length (gns_queue v)) (gns_queue v) gs2 t2 v);
+            [ apply le_n | exact Hstar | exact Hga | exact Hin | apply submultiset_refl ]. }
+      intros [gs2' t2'] Hall Hreach.
+      destruct Hreach as (tr & Hstar_gg & _ & _).
+      pose proof (star_gstep_le_strong _ _ _ Hstar_gg) as Hls. cbv [le_strong] in Hls.
+      apply Forall2_map_intro.
+      - intros k. eapply Forall2_map_get_None. exact Hls.
+      - intros k v v' Hgk Hgk'. rewrite Forall_forall in Hall.
+        destruct (Hall _ ltac:(apply in_map_iff; exists (k, v);
+                    split; [ reflexivity | apply map.tuples_spec; exact Hgk ]))
+          as (nc' & Hgk'' & Hsm).
+        rewrite Hgk' in Hgk''. injection Hgk'' as <-. exact Hsm.
+    Qed.
 
     Lemma le_weak_to_le gs1 t1 gs2 t2 :
       star gstep initial_gs t1 gs1 ->
