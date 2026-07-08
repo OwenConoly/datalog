@@ -726,8 +726,8 @@ Section __.
     Lemma queue_empty_consistency_le t1 t2 gs1 gs2 n :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
-      val_sat gs2 n (fun ns1 => queue_empty ns1) ->
-      True.
+      val_sat gs2 n queue_empty ->
+      vals_sat gs1 gs2 n (fun ns1 ns2 => consistency_le n (inputs_of ns1.(gns_trace)) (inputs_of ns2.(gns_trace))).
     Proof. Abort.
 
     Lemma le_weak_to_le gs1 t1 gs2 t2 :
