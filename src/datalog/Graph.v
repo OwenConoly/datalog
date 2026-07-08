@@ -606,6 +606,63 @@ Section __.
       rewrite app_nil_l in Hcons. exact (Hcons nn nsn Hget).
     Qed.
 
+    Definition out_project (l : list (node_id * message)) : list (message * node_id) :=
+      map (fun '(k, m) => (m, k)) (filter (fun '(k, m) => output_visible k m) l).
+
+    Lemma out_project_app l1 l2 : out_project (l1 ++ l2) = out_project l1 ++ out_project l2.
+    Proof. unfold out_project. rewrite filter_app, map_app. reflexivity. Qed.
+
+    Lemma out_project_perm l1 l2 : Permutation l1 l2 -> Permutation (out_project l1) (out_project l2).
+    Proof. intros HP. unfold out_project. rewrite HP. reflexivity. Qed.
+
+    Lemma out_project_single n outs :
+      out_project (map (pair n) outs) = map (fun m => (m, n)) (filter (output_visible n) outs).
+    Proof.
+      induction outs as [| m outs IH]; [ reflexivity | ].
+      unfold out_project in *. cbn [map filter].
+      destruct (output_visible n m); cbn [map]; rewrite IH; reflexivity.
+    Qed.
+
+    Lemma all_outputs_mupd_enqueue gs n inps :
+      Permutation (all_outputs (mupd gs n (enqueue inps))) (all_outputs gs).
+    Proof.
+      unfold mupd. destruct (map.get gs n) as [vn|] eqn:Hgn; [| apply Permutation_refl].
+      apply (all_outputs_put_same gs n vn (enqueue inps vn) Hgn). reflexivity.
+    Qed.
+
+    Definition output_total (gs : graph_state) : list (message * node_id) :=
+      out_project (all_outputs gs).
+
+    Lemma outputs_of_cons_I (m : message * node_id) (t : list gevent) :
+      outputs_of (I_event m :: t) = outputs_of t.
+    Proof. reflexivity. Qed.
+
+    Lemma outputs_of_cons_O (lbl : graph_label) (outs : list (message * node_id)) (t : list gevent) :
+      outputs_of (O_event lbl outs :: t) = outs ++ outputs_of t.
+    Proof. reflexivity. Qed.
+
+    Lemma outputs_are_node_outputs gt gs :
+      star gstep initial_gs gt gs ->
+      Permutation (outputs_of gt) (output_total gs).
+    Proof.
+      induction 1 as [ | gt0 gmid e gs Hstar IH Hstep ].
+      - unfold output_total. rewrite all_outputs_initial. reflexivity.
+      - invert Hstep.
+        + rewrite outputs_of_cons_I.
+          eapply perm_trans; [ exact IH | ].
+          unfold output_total. apply out_project_perm. symmetry. apply all_outputs_mupd_enqueue.
+        + rewrite outputs_of_cons_O. unfold output_total.
+          eapply perm_trans;
+            [ | apply out_project_perm; symmetry;
+                apply (all_outputs_run gmid _ _ _ _ _ ltac:(eassumption)) ].
+          rewrite out_project_app, out_project_single.
+          apply Permutation_app_head. exact IH.
+        + rewrite outputs_of_cons_O. cbn [app].
+          eapply perm_trans; [ exact IH | ].
+          unfold output_total. apply out_project_perm. symmetry.
+          eapply all_outputs_put_same; [ eassumption | reflexivity ].
+    Qed.
+
     Lemma fwd_total_consistent_internal gt gs nn :
       star gstep initial_gs gt gs ->
       consistent_internal_inputs_to nn (fwd_total nn gs).
