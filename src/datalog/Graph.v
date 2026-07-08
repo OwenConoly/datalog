@@ -684,6 +684,30 @@ Section __.
       cbv [node_received val_sat]. rewrite map.get_put_same. eauto.
     Qed.
 
+    Print consistent_graph_inputs.
+    Print consistent_good.
+
+    Definition queue_empty (ns : graph_node_state node_state) :=
+      ns.(gns_queue) = [].
+
+    Definition maximally_consistent_at n (ns : graph_node_state node_state) :=
+      ns.(gns_queue) = [] (*this is just supposed to express that all external inputs have been received; as it happens, it also implies that internal inputs have been received.*)/\
+        exists internal_inps,
+          incl internal_inps (inputs_of ns.(gns_trace)) /\
+            consistent_internal_inputs_to n internal_inps.
+
+    Print le.
+
+    Lemma incl_mod_weak_maximally_consistent_at_le (gns1 gns2 : graph_node_state node_state) n :
+      incl_mod_weak equiv
+        (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue))
+        (inputs_of gns2.(gns_trace) ++ gns2.(gns_queue)) ->
+      maximally_consistent_at n gns2 ->
+      incl_mod equiv consistent
+        (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue))
+        (inputs_of gns2.(gns_trace)).
+    Proof. Admitted.
+
     Lemma le_weak_to_le gs1 t1 gs2 t2 :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
