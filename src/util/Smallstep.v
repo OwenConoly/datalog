@@ -56,7 +56,7 @@ Section step.
   Context {state label message : Type}.
   Context (step : state -> IO_event label message -> state -> Prop).
   Context (equiv : message -> message -> Prop).
-  Context (equiv_equiv : Equivalence equiv).
+  Context {equiv_equiv : Equivalence equiv}.
   Context (consistent : list message (*a set*) -> list message (*a multiset*) -> Prop).
 
   Context (allowed : list message -> Prop).
@@ -199,29 +199,42 @@ Section step.
       split; [ eapply star_step; [exact Hstar | exact Hstep] | reflexivity ].
   Qed.
 
-  (* Carry a run-closed state invariant [Inv] through an [eventually will_step]. *)
-  Lemma eventually_carry_inv (Inv : state -> Prop)
-      (Hinv : forall s T s', star step s T s' -> Inv s -> Inv s') :
-    forall (P : state * list (IO_event label message) -> Prop) s t,
-      Inv s ->
-      eventually will_step P (s, t) ->
-      eventually will_step (fun '(s', t') => P (s', t') /\ Inv s') (s, t).
+  (* [eventually]-analogue of [will_step_reach]: at every reached state the target
+     may assume it is reachable from [(s0, t0)]. *)
+  Lemma eventually_will_step_reach (s0 : state) (t0 : list (IO_event label message))
+      (P : state * list (IO_event label message) -> Prop) :
+    eventually will_step
+      (fun '(s, t) => (exists tr, star step s0 tr s /\ t = tr ++ t0) -> P (s, t))
+      (s0, t0) ->
+    eventually will_step P (s0, t0).
   Proof.
-    intros P s t HInv Hev.
-    remember (s, t) as st eqn:Est. revert s t HInv Est.
-    induction Hev as [[s0 t0] HP | [s0 t0] midset Hcan Hmid IH];
-      intros s t HInv [= -> ->].
-    - apply eventually_done. split; [exact HP | exact HInv].
-    - destruct Hcan as [lbl Hcan].
+    intros Hev.
+    cut (forall s t, (exists tr, star step s0 tr s /\ t = tr ++ t0) ->
+           eventually will_step
+             (fun '(s', t') => (exists tr, star step s0 tr s' /\ t' = tr ++ t0) -> P (s', t'))
+             (s, t) ->
+           eventually will_step P (s, t)).
+    { intros H. apply (H s0 t0);
+        [ exists []; split; [ apply star_refl | reflexivity ] | exact Hev ]. }
+    clear Hev. intros s t Hreach Hev.
+    remember (s, t) as st eqn:Est. revert s t Hreach Est.
+    induction Hev as [[s' t'] HQ | [s' t'] midset Hcan Hmid IH];
+      intros s t Hreach [= -> ->].
+    - apply eventually_done. apply HQ, Hreach.
+    - destruct Hreach as (tr & Hstar_tr & ->).
+      destruct Hcan as [lbl Hcan].
       apply eventually_step_cps. exists lbl.
       intros s_d t_d Hstar_d Hallow.
       specialize (Hcan s_d t_d Hstar_d Hallow).
       destruct Hcan as [Hmid_left | (s'' & outs & Hstep & Hmidset)].
-      + left. apply (IH (s_d, t_d ++ t) Hmid_left s_d (t_d ++ t)
-                        (Hinv _ _ _ Hstar_d HInv) eq_refl).
+      + left. eapply (IH (s_d, t_d ++ tr ++ t0) Hmid_left s_d (t_d ++ tr ++ t0)); [|reflexivity].
+        exists (t_d ++ tr).
+        split; [ eapply star_app; [exact Hstar_tr | exact Hstar_d] | apply app_assoc ].
       + right. exists s'', outs. split; [exact Hstep|].
-        apply (IH _ Hmidset s'' (O_event lbl outs :: t_d ++ t)); [|reflexivity].
-        eapply Hinv; [ eapply star_step; [exact Hstar_d | exact Hstep] | exact HInv ].
+        eapply (IH _ Hmidset s'' (O_event lbl outs :: t_d ++ tr ++ t0)); [|reflexivity].
+        exists (O_event lbl outs :: t_d ++ tr).
+        split; [ eapply star_step; [ eapply star_app; [exact Hstar_tr | exact Hstar_d] | exact Hstep ]
+               | rewrite app_assoc; apply app_comm_cons ].
   Qed.
 
   (*this is not used anywhere, but without it will_step is a bit weird, since it allows
@@ -359,10 +372,7 @@ Section step.
         In b l2 /\ equiv a b.
 
   Lemma incl_mod_weak_refl l : incl_mod_weak l l.
-  Proof.
-    destruct equiv_equiv as [Href _ _].
-    intros a Ha. exists a. split; [exact Ha | apply Href].
-  Qed.
+  Proof. intros a Ha. eexists. split; [|reflexivity]. assumption. Qed.
 
   Lemma incl_mod_weak_of_incl l1 l2 : incl l1 l2 -> incl_mod_weak l1 l2.
   Proof.
@@ -784,7 +794,7 @@ Section steps_corresp.
   Context {label message : Type}.
   Context (allowed : list message -> Prop).
   Context (equiv : message -> message -> Prop).
-  Context (equiv_equiv : Equivalence equiv).
+  Context {equiv_equiv : Equivalence equiv}.
   Context (consistent : list message -> list message -> Prop).
   Local Notation IO_event := (IO_event label message).
 
@@ -878,7 +888,7 @@ Section steps_corresp.
       {  rewrite inputs_of_map_I_event. exact Hall2. }
       assert (Hincl : incl_mod equiv consistent (inputs_of t2)
                            (inputs_of (map I_event (inputs_of t2) : list IO_event))).
-      { rewrite inputs_of_map_I_event. apply (incl_mod_refl equiv equiv_equiv consistent). }
+      { rewrite inputs_of_map_I_event. apply (incl_mod_refl equiv consistent). }
       pose proof (Hciw2 t2 ns2 o Hstar2 Hall2 Hout2
                        ns2' (map I_event (inputs_of t2)) Hincl Hstar2' Hall') as Hwill.
       exact (Hscs' ns2' (inputs_of t2) o Hstar2' Hall2 Hwill).
@@ -905,7 +915,7 @@ Section steps_corresp.
       apply (Hmono2 (map I_event (inputs_of t2)) t2 ns2' ns2 o Hstar2' Hstar2).
       -  rewrite inputs_of_map_I_event. exact Hall2.
       - exact Hall2.
-      - rewrite inputs_of_map_I_event. apply (incl_mod_refl equiv equiv_equiv consistent).
+      - rewrite inputs_of_map_I_event. apply (incl_mod_refl equiv consistent).
       - exact Hcan'.
     Qed.
 
@@ -954,7 +964,7 @@ Section steps_corresp.
           - rewrite Heqinp. exact Hall2'.
           - exact Hall1.
           - rewrite Heqinp, inputs_of_app, Hinpt', <- Heq.
-            apply (incl_mod_refl equiv equiv_equiv consistent).
+            apply (incl_mod_refl equiv consistent).
           - exact Hcan1'. }
         destruct Hmoe as (o'' & Hequiv2 & Hmo1'').
         exists o''. split; [| exact Hmo1''].

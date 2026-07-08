@@ -77,6 +77,13 @@ Proof.
   rewrite !app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
 Qed.
 
+Lemma perm_recv {X : Type} (A ms1 : list X) (m : X) (ms2 : list X) :
+  Permutation (A ++ ms1 ++ m :: ms2) (m :: A ++ ms1 ++ ms2).
+Proof.
+  rewrite (app_assoc A ms1 (m :: ms2)), (app_assoc A ms1 ms2).
+  symmetry. apply Permutation_middle.
+Qed.
+
 Lemma flat_map_all_nil {A B} (g : A -> list B) (l : list A) :
   (forall x, In x l -> g x = []) -> flat_map g l = [].
 Proof.
@@ -1086,6 +1093,15 @@ Section misc.
 
   Lemma submultiset_refl l : submultiset l l.
   Proof. exists []. rewrite app_nil_r. apply Permutation_refl. Qed.
+
+  Lemma submultiset_app_mid l1 l2 l3 : submultiset (l1 ++ l3) (l1 ++ l2 ++ l3).
+  Proof.
+    exists l2. rewrite <- (app_assoc l1 l3 l2).
+    apply Permutation_app_head, Permutation_app_comm.
+  Qed.
+
+  Lemma submultiset_perm l1 l2 : Permutation l1 l2 -> submultiset l1 l2.
+  Proof. intros H. exists []. rewrite app_nil_r. symmetry. exact H. Qed.
 
   Definition multiset_monotone (P : list A -> Prop) :=
     forall l1 l2, P l2 -> submultiset l1 l2 -> P l1.

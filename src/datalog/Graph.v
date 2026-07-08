@@ -19,7 +19,7 @@ Section __.
   Context (output_visible : node_id -> message -> bool).
 
   Context (equiv : message -> message -> Prop).
-  Context (equiv_equiv : Equivalence equiv).
+  Context {equiv_equiv : Equivalence equiv}.
   Context (output_visible_equiv :
              forall n a b, equiv a b -> output_visible n a = output_visible n b).
   (* Forwarding cannot distinguish [equiv]-related messages: a forced re-emission
@@ -146,6 +146,11 @@ Section __.
                      incl_mod_weak equiv (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue)) (inputs_of gns2.(gns_trace) ++ gns2.(gns_queue)))
         g1 g2.
 
+    Definition le_strong (g1 g2 : graph_state) :=
+      Forall2_map (fun n gns1 gns2 =>
+                     submultiset (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue)) (inputs_of gns2.(gns_trace) ++ gns2.(gns_queue)))
+        g1 g2.
+
     Definition le (g1 g2 : graph_state) :=
       Forall2_map (fun n gns1 gns2 =>
                      incl_mod equiv consistent (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue)) (inputs_of gns2.(gns_trace)))
@@ -162,6 +167,50 @@ Section __.
       repeat match goal with
         | H1: map.get ?x ?y = _, H2: map.get ?x ?y = _ |- _ => rewrite H1 in H2; invert H2
         end.
+
+    #[local] Hint Resolve incl_mod_weak_refl incl_mod_weak_of_incl incl_mod_weak_trans : core.
+
+    #[local] Hint Resolve submultiset_refl : core.
+
+    Lemma le_weak_refl g : le_weak g g.
+    Proof.
+      cbv [le_weak Forall2_map]. intros k. destruct (map.get g k); auto.
+    Qed.
+
+    Lemma le_weak_trans g1 g2 g3 : le_weak g1 g2 -> le_weak g2 g3 -> le_weak g1 g3.
+    Proof.
+      intros H12 H23. cbv [le_weak Forall2_map] in *. intros k.
+      specialize (H12 k); specialize (H23 k).
+      destruct (map.get g1 k), (map.get g2 k), (map.get g3 k);
+        try contradiction; eauto.
+    Qed.
+
+    Lemma gstep_le_strong g e g' : gstep g e g' -> le_strong g g'.
+    Proof.
+      intros Hstep. cbv [le_strong Forall2_map]. intros k. invert Hstep.
+      - rewrite get_mupd. destr (eqb n k).
+        + destruct (map.get g k) as [v|]; [|exact I].
+          cbn [option_map enqueue gns_node_state gns_trace gns_queue].
+          apply submultiset_app_mid.
+        + destruct (map.get g k); auto.
+      - rewrite get_map_values'. destr (eqb n k).
+        + rewrite map.get_put_same, H.
+          cbn [option_map enqueue gns_node_state gns_trace gns_queue].
+          replace (inputs_of (O_event lbl outs :: gns_trace ns))
+            with (inputs_of (gns_trace ns)) by reflexivity.
+          apply submultiset_app_mid.
+        + rewrite map.get_put_diff by congruence.
+          destruct (map.get g k) as [v|]; [|exact I].
+          cbn [option_map enqueue gns_node_state gns_trace gns_queue].
+          apply submultiset_app_mid.
+      - destr (eqb n k).
+        + rewrite map.get_put_same, H. cbn [gns_trace gns_queue].
+          replace (inputs_of (I_event m :: gns_trace ns))
+            with (m :: inputs_of (gns_trace ns)) by reflexivity.
+          rewrite H1. apply submultiset_perm, perm_recv.
+        + rewrite map.get_put_diff by congruence.
+          destruct (map.get g k); auto.
+    Qed.
 
     Lemma impl_in_map [A B] (f : A -> B) x l y :
       In x l ->
@@ -586,7 +635,7 @@ Section __.
     Lemma le_weak_to_le gs1 t1 gs2 t2 :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
-      graph_inputs_allowed (inputs_of t1) ->
+      submultiset (inputs_of t1) (inputs_of t2) ->
       graph_inputs_allowed (inputs_of t2) ->
       le_weak gs1 gs2 ->
       eventually graph_will_step (fun '(gs2', t2') => le gs1 gs2') (gs2, t2).
