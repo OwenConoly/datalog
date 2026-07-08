@@ -675,6 +675,8 @@ Section __.
       eventually graph_will_step (fun '(gs2', t2') => le gs1 gs2') (gs2, t2).
     Proof. Admitted.
 
+    Hint Unfold might_output : core.
+    Hint Resolve incl_mod_weaken_l allowed_submultiset submultiset_app_r : core.
     Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
@@ -700,16 +702,16 @@ Section __.
 
         pose proof nodes_good as H'. cbv [Forall_map] in H'. especialize H'; eauto.
         cbv [node_good] in H'. fwd.
+        pose proof (everything_allowed _ _ H1 H3) as Hall1. cbv [Forall_map] in Hall1.
+        pose proof (everything_allowed _ _ H2 H4) as Hall2. cbv [Forall_map] in Hall2.
+        pose proof (Hall1 _ _ H6) as Halns.
+        pose proof (Hall2 _ _ Hns2) as Halns2. cbn [gns_trace gns_queue] in Halns2.
         eassert (Hmo: Forall (might_output_equiv _ _ ns2 tn2) outs0).
-        { apply Forall_forall. intros m Hm. eapply H'p1.
-          5: eassumption. all: try eassumption. 1,2: admit.
-          cbv [might_output]. do 2 eexists. ssplit.
-          - apply star_one. eassumption.
-          - reflexivity.
-          - simpl. auto. }
+        { apply Forall_forall. intros m Hm.
+          eapply H'p1. 5: solve[eauto]. all: eauto. eauto 10. }
 
-        eapply will_output_all in Hmo; try eassumption. 2: admit.
-        eapply (graph_eventually_of_node_eventually n _ gs2 t2 _ H2 H4 Hns2) in Hmo.
+        eapply will_output_all in Hmo; eauto.
+        eapply (graph_eventually_of_node_eventually _ _ _ _ _ _ _ Hns2) in Hmo.
 
         eapply eventually_weaken; [eassumption|].
         cbv [val_sat]. intros [? ?] ?. fwd. admit.

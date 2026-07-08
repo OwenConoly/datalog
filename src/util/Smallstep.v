@@ -424,6 +424,15 @@ Section step.
     exists c. split; [exact Hc | split; [eapply Forall2_equiv_trans; eassumption | exact Hcc]].
   Qed.
 
+  (* shrink the left side of an [incl_mod] (needs allowedness for the [consistent] side) *)
+  Lemma incl_mod_weaken_l l1 l1' l2 :
+    submultiset l1 l1' -> allowed l1 -> allowed l1' -> incl_mod l1' l2 -> incl_mod l1 l2.
+  Proof.
+    intros Hsub Hal1 Hal1' H a Ha Hca. apply (H a).
+    - eapply incl_tran; [exact Ha | apply submultiset_incl, Hsub].
+    - eapply Hcm; [exact Hal1 | exact Hal1' | exact Hsub | exact Hca].
+  Qed.
+
   (* [will_output_equiv]-analogues of [will_implies_might]/[will_output_step]:
      the target output is only pinned down up to [equiv]. *)
   Lemma will_equiv_implies_might_equiv s t o :
