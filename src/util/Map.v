@@ -305,14 +305,23 @@ Section Map.
   Qed.
 
   Lemma Forall2_map_map_values'_r {value1} {mp1 : map.map key value1}
-      (R : key -> value1 -> value -> Prop) (R' : key -> value1 -> value' -> Prop)
+      (R' : key -> value1 -> value' -> Prop)
       (g : key -> value -> value') (m1 : mp1) (m2 : mp) :
-    (forall k v1 v2, R k v1 v2 -> R' k v1 (g k v2)) ->
-    Forall2_map R m1 m2 ->
+    Forall2_map (fun k v1 v2 => R' k v1 (g k v2)) m1 m2 ->
     Forall2_map R' m1 (map_values' g m2).
   Proof.
-    intros Hg H k. specialize (H k). rewrite get_map_values'. revert H.
-    destruct (map.get m1 k); destruct (map.get m2 k); cbn [option_map]; auto using Hg.
+    intros H k. specialize (H k). rewrite get_map_values'. revert H.
+    destruct (map.get m1 k); destruct (map.get m2 k); cbn [option_map]; auto.
+  Qed.
+
+  Lemma Forall2_map_map_values'_l {value1} {mp1 : map.map key value1}
+      (R' : key -> value' -> value1 -> Prop)
+      (g : key -> value -> value') (m1 : mp) (m2 : mp1) :
+    Forall2_map (fun k v1 v2 => R' k (g k v1) v2) m1 m2 ->
+    Forall2_map R' (map_values' g m1) m2.
+  Proof.
+    intros H k. specialize (H k). rewrite get_map_values'. revert H.
+    destruct (map.get m1 k); destruct (map.get m2 k); cbn [option_map]; auto.
   Qed.
 
   Lemma Forall2_map_mupd_r {value1} {mp1 : map.map key value1}

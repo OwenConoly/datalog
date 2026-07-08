@@ -399,6 +399,16 @@ Section step.
     intros H1 H2 a Ha. apply in_app_iff in Ha. destruct Ha; [apply H1 | apply H2]; assumption.
   Qed.
 
+  Lemma incl_mod_weak_insert a b c d :
+    incl_mod_weak (a ++ b) d -> incl_mod_weak c d -> incl_mod_weak (a ++ c ++ b) d.
+  Proof.
+    intros Hab Hc x Hx.
+    apply in_app_or in Hx. destruct Hx as [Hx | Hx];
+      [ apply Hab, in_or_app; left; exact Hx | ].
+    apply in_app_or in Hx. destruct Hx as [Hx | Hx];
+      [ apply Hc; exact Hx | apply Hab, in_or_app; right; exact Hx ].
+  Qed.
+
   Lemma incl_mod_weak_app_r l1 l2 l3 :
     incl_mod_weak l1 l2 -> incl_mod_weak l1 (l2 ++ l3).
   Proof.

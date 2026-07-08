@@ -294,7 +294,7 @@ Section __.
       - apply Forall2_map_dup. intros n gns _. exists []. ssplit; eauto.
       - invert Hstep.
         + apply Forall2_map_mupd_r; [intros ? ? HR; exact HR | exact IH].
-        + eapply Forall2_map_map_values'_r; [intros ? ? ? HR; exact HR |]. simpl.
+        + apply Forall2_map_map_values'_r. simpl.
           epose proof (Forall2_map_get_r _ _ _ _ _ IH H) as (v1 & Hv1 & Hrel).
           eapply Forall2_map_put_r; try eassumption.
           -- eapply Forall2_map_impl; [exact IH|]. intros k' w1 w2 (t'' & ? & ? & ?) ?.
@@ -750,24 +750,18 @@ Section __.
       le_weak gs1 gs2 ->
       eventually graph_will_step (fun '(gs2', t2') => le_weak gs1' gs2') (gs2, t2).
     Proof.
-      intros H1 H2 H3 H4 Hstep Hle Hlew. invert Hstep.
-      - epose proof Forall2_map_get_l as H. epose_dep H.
-        specialize (H Hle ltac:(eassumption)).
-        destruct H as [[ns2 tn2] [Hns2 Hincl]]. simpl in Hincl.
+      intros H1 H2 H3 H4 Hstep Hle Hlew.
+      epose proof Forall2_map_get_l as Hle'. specialize Hle' with (1 := Hle).
+      epose proof Forall2_map_get_l as Hlew'. specialize Hlew' with (1 := Hlew).
 
-        epose proof Forall2_map_get_l as H. epose_dep H.
-        specialize (H Hlew ltac:(eassumption)).
-        destruct H as [[ns20 tn20] [Hns20 Hincl_weak]]. simpl in Hincl_weak.
-        map_func.
+      epose proof (graph_step_to_node_step_from_beginning gs1) as Hns1'.
+      epose proof (graph_step_to_node_step_from_beginning gs2) as Hns2'.
+      especialize Hns1'; eauto. especialize Hns2'; eauto.
 
-        epose proof (graph_step_to_node_step_from_beginning gs1) as Hns1'.
-        especialize Hns1'; eauto. eapply Forall2_map_get_r in Hns1'; eauto.
-        fwd.
-
-        epose proof (graph_step_to_node_step_from_beginning gs2) as Hns2'.
-        especialize Hns2'; eauto. eapply Forall2_map_get_l in Hns2'; eauto.
-        fwd.
-
+      invert Hstep.
+      - especialize Hle'; eauto. especialize Hlew'; eauto. fwd. map_func.
+        eapply Forall2_map_get_r in Hns1'; eauto. fwd.
+        eapply Forall2_map_get_l in Hns2'; eauto. fwd.
         map_func. simpl in *.
 
         pose proof nodes_good as H'. cbv [Forall_map] in H'. especialize H'; eauto.
@@ -776,14 +770,14 @@ Section __.
         pose proof (everything_allowed _ gs1 ltac:(eauto) ltac:(eauto)) as Hall1.
         pose proof (everything_allowed _ gs2 ltac:(eauto) ltac:(eauto)) as Hall2.
         assert (allowed (inputs_of (gns_trace ns) ++ gns_queue ns)) by eauto.
-        assert (allowed (inputs_of tn20 ++ gns_queue1)) by eauto.
+        assert (allowed (inputs_of (gns_trace v0) ++ gns_queue v0)) by eauto.
 
-        eassert (Hmo: Forall (might_output_equiv _ _ ns20 tn20) outs0).
+        eassert (Hmo: Forall (might_output_equiv _ _ (gns_node_state v0) (gns_trace v0)) outs0).
         { apply Forall_forall. intros m Hm.
           eapply (H'p1 (gns_trace ns)). all: eauto. eauto 10. }
 
         eapply will_output_all in Hmo; eauto.
-        eapply (graph_eventually_of_node_eventually _ _ _ _ _ _ _ Hns2) in Hmo.
+        eapply graph_eventually_of_node_eventually in Hmo; eauto.
 
         apply eventually_will_step_reach.
         eapply eventually_weaken; [eassumption|].
@@ -791,30 +785,16 @@ Section __.
         pose proof (star_gstep_le_strong _ _ _ Hreachp0) as Hlsr.
         pose proof (le_weak_trans _ _ _ Hlew (le_strong_le_weak _ _ Hlsr)) as Hlwr.
         assert (Hrinit : star gstep initial_gs (tr ++ t2) r) by (eapply star_app; eauto).
-        cbv [le_weak] in Hlwr |- *. Fail eapply Forall2_map_map_values'_l.
-        Check Forall2_map_map_values'_r. intros k. specialize (Hlwr k).
-        rewrite get_map_values'.
-        destruct (map.get r k) as [rk|] eqn:Hgetr, (map.get gs1 k) as [gk|] eqn:Hgk;
-          try solve [destruct Hlwr].
-        { pose proof (forwarded_in_state _ _ n k v rk outs0 Hrinit Hvalp0 Hgetr Hvalp1) as Hforward.
-          destr (eqb n k).
-          { rewrite map.get_put_same. rewrite H6 in Hgk. injection Hgk as <-.
-            cbn [option_map gns_trace gns_queue enqueue]. cbv [incl_mod_weak].
-            intros x Hx. apply in_app_or in Hx. destruct Hx as [Hx | Hx].
-            { apply Hlwr, in_or_app; left; exact Hx. }
-            apply in_app_or in Hx. destruct Hx as [Hx | Hx].
-            { apply Hforward; exact Hx. }
-            apply Hlwr, in_or_app; right; exact Hx. }
-          rewrite map.get_put_diff by congruence. rewrite Hgk.
-          cbn [option_map gns_trace gns_queue enqueue]. cbv [incl_mod_weak].
-          intros x Hx. apply in_app_or in Hx. destruct Hx as [Hx | Hx].
-          { apply Hlwr, in_or_app; left; exact Hx. }
-          apply in_app_or in Hx. destruct Hx as [Hx | Hx].
-          { apply Hforward; exact Hx. }
-          apply Hlwr, in_or_app; right; exact Hx. }
-        destr (eqb n k).
-        { rewrite H6 in Hgk. discriminate. }
-        rewrite map.get_put_diff by congruence. rewrite Hgk. cbn [option_map]. exact I.
+
+        cbv [le_weak] in Hlwr |- *.
+        apply Forall2_map_map_values'_l.
+        eapply Forall2_map_put_l; [ | exact Hvalp0 | ].
+        + eapply Forall2_map_impl_strong; [ exact Hlwr | ].
+          intros k w1 w2 _ Hgr Hbase _. cbn [gns_trace gns_queue enqueue].
+          apply incl_mod_weak_insert; eauto. eapply forwarded_in_state; eauto.
+        + apply incl_mod_weak_insert.
+          -- eapply Forall2_map_get_l in Hlwr; eauto. fwd. map_func. assumption.
+          -- eapply forwarded_in_state; eauto.
       - cbv [le] in Hle. rewrite H10 in Hle2. apply Forall_app in Hle2. fwd.
         destruct Hle2p1p0 as [Hle_case1|Hle_case2].
         +
