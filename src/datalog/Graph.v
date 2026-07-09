@@ -1270,6 +1270,16 @@ Section __.
       exists o'. split; [ exists gns'; split; [ exact Hgetf | exact Hino' ] | exact Hequiv ].
     Qed.
 
+    Definition graph_equiv (p1 p2 : message * node_id) : Prop :=
+      equiv (fst p1) (fst p2) /\ snd p1 = snd p2.
+
+    Lemma graph_might_implies_will t gs o :
+      star gstep initial_gs t gs ->
+      graph_inputs_allowed (inputs_of t) ->
+      might_output gstep gs t o ->
+      will_output_equiv gstep graph_equiv graph_inputs_allowed gs t o.
+    Proof. Admitted.
+
     Proof.
       intros T gs0 gs Hstar.
       induction Hstar as [s|s e s' t0 s'' Hstep Hstar IH];
