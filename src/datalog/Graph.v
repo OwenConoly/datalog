@@ -184,6 +184,11 @@ Section __.
       cbv [le_weak Forall2_map]. intros k. destruct (map.get g k); auto.
     Qed.
 
+    Lemma le_refl g : le g g.
+    Proof.
+      cbv [le Forall2_map]. intros k. destruct (map.get g k); auto using incl_mod_refl.
+    Qed.
+
     Lemma le_weak_trans g1 g2 g3 : le_weak g1 g2 -> le_weak g2 g3 -> le_weak g1 g3.
     Proof.
       intros H12 H23. cbv [le_weak Forall2_map] in *. intros k.
@@ -1273,12 +1278,113 @@ Section __.
     Definition graph_equiv (p1 p2 : message * node_id) : Prop :=
       equiv (fst p1) (fst p2) /\ snd p1 = snd p2.
 
+    Global Instance graph_equiv_equiv : Equivalence graph_equiv.
+    Proof.
+      destruct equiv_equiv as [Href Hsym Htrans]. constructor.
+      - intros [m n]. split; [ apply Href | reflexivity ].
+      - intros [m1 n1] [m2 n2] (He & Hn). split; [ apply Hsym; exact He | symmetry; exact Hn ].
+      - intros [m1 n1] [m2 n2] [m3 n3] (He1 & Hn1) (He2 & Hn2).
+        split; [ eapply Htrans; eassumption | congruence ].
+    Qed.
+
+    Lemma in_output_total gs o :
+      In o (output_total gs) ->
+      exists m n, o = (m, n) /\ node_has_output gs n m /\ output_visible n m = true.
+    Proof.
+      unfold output_total, out_project. intros Hin.
+      apply in_map_iff in Hin. destruct Hin as ([k m0] & Heq & Hin).
+      apply filter_In in Hin. destruct Hin as (Hin & Hvis).
+      unfold all_outputs in Hin. apply in_flat_map in Hin.
+      destruct Hin as ([k' v] & Htup & Hinm).
+      apply in_map_iff in Hinm. destruct Hinm as (m1 & Hpair & Hinout).
+      injection Hpair as Hk Hm. rewrite Hk in Htup. rewrite Hm in Hinout.
+      exists m0, k. split; [ symmetry; exact Heq | ].
+      split; [ exists v; split; [ apply map.tuples_spec; exact Htup | exact Hinout ] | exact Hvis ].
+    Qed.
+
+    Lemma output_total_in gs n m :
+      node_has_output gs n m -> output_visible n m = true -> In (m, n) (output_total gs).
+    Proof.
+      intros (v & Hget & Hinout) Hvis.
+      unfold output_total, out_project. apply in_map_iff. exists (n, m). split; [ reflexivity | ].
+      apply filter_In. split; [ | exact Hvis ].
+      unfold all_outputs. apply in_flat_map. exists (n, v). split.
+      - apply map.tuples_spec; exact Hget.
+      - apply in_map_iff. exists m. split; [ reflexivity | exact Hinout ].
+    Qed.
+
+    Lemma drive_to_dominate t0 gs0 t' gs_f :
+      star gstep initial_gs t0 gs0 ->
+      graph_inputs_allowed (inputs_of t0) ->
+      star gstep gs0 t' gs_f ->
+      inputs_of t' = [] ->
+      eventually graph_will_step
+        (fun '(gs2, _) => le gs_f gs2 /\ le_weak gs_f gs2) (gs0, t0).
+    Proof.
+      intros Hstar0 Hga0 Hrun Hinp. revert Hinp.
+      induction Hrun as [ | T0 gmid e gsf Hrun' IH Hstep ]; intros Hinp.
+      - apply eventually_done. split; [ apply le_refl | apply le_weak_refl ].
+      - destruct e as [m | lbl outs].
+        + cbn in Hinp. discriminate Hinp.
+        + change (inputs_of (O_event lbl outs :: T0)) with (inputs_of T0) in Hinp.
+          specialize (IH Hinp).
+          apply eventually_will_step_annotate in IH.
+          eapply eventually_trans; [ exact IH | ].
+          intros [gs2 t2] (Hreach & Hle_mid & Hlw_mid).
+          destruct Hreach as (tr & Hstar_gg & -> & Hga_imp).
+          specialize (Hga_imp Hga0).
+          assert (Hstar2 : star gstep initial_gs (tr ++ t0) gs2)
+            by (eapply star_app; [ exact Hstar0 | exact Hstar_gg ]).
+          assert (Hstarmid : star gstep initial_gs (T0 ++ t0) gmid)
+            by (eapply star_app; [ exact Hstar0 | exact Hrun' ]).
+          assert (Hgamid : graph_inputs_allowed (inputs_of (T0 ++ t0))).
+          { rewrite inputs_of_app, Hinp. cbn [app]. exact Hga0. }
+          assert (Hsub : submultiset (inputs_of (T0 ++ t0)) (inputs_of (tr ++ t0))).
+          { rewrite !inputs_of_app, Hinp. cbn [app].
+            exists (inputs_of tr). apply Permutation_app_comm. }
+          apply (node_will_match gmid (T0 ++ t0) lbl outs gsf gs2 (tr ++ t0)
+                   Hstarmid Hstar2 Hsub Hgamid Hga_imp Hstep Hle_mid Hlw_mid).
+    Qed.
+
     Lemma graph_might_implies_will t gs o :
       star gstep initial_gs t gs ->
       graph_inputs_allowed (inputs_of t) ->
       might_output gstep gs t o ->
       will_output_equiv gstep graph_equiv graph_inputs_allowed gs t o.
-    Proof. Admitted.
+    Proof.
+      intros Hstar Hga (t' & gs_f & Hrun & Hinp & Hino).
+      assert (Hstarf : star gstep initial_gs (t' ++ t) gs_f)
+        by (eapply star_app; [ exact Hstar | exact Hrun ]).
+      assert (Hgaf : graph_inputs_allowed (inputs_of (t' ++ t))).
+      { rewrite inputs_of_app, Hinp. cbn [app]. exact Hga. }
+      assert (Hint : In o (output_total gs_f)).
+      { eapply Permutation_in;
+          [ apply (outputs_are_node_outputs (t' ++ t) gs_f Hstarf) | exact Hino ]. }
+      apply in_output_total in Hint. destruct Hint as (m & n & -> & Hnho & Hvis).
+      pose proof (drive_to_dominate t gs t' gs_f Hstar Hga Hrun Hinp) as Hdrive.
+      apply eventually_will_step_annotate in Hdrive.
+      unfold will_output_equiv.
+      eapply eventually_trans; [ exact Hdrive | ].
+      intros [gs2 t2] (Hreach & Hle2 & _).
+      destruct Hreach as (tr & Hstar_gg & -> & Hga_imp). specialize (Hga_imp Hga).
+      assert (Hstar2 : star gstep initial_gs (tr ++ t) gs2)
+        by (eapply star_app; [ exact Hstar | exact Hstar_gg ]).
+      pose proof (le_node_output (t' ++ t) gs_f gs2 (tr ++ t) n m
+                    Hstarf Hstar2 Hgaf Hga_imp Hle2 Hnho) as Hemit.
+      apply eventually_will_step_annotate in Hemit.
+      eapply eventually_weaken; [ exact Hemit | ].
+      intros [gs2' t2'] (Hreach' & m' & Hnho' & Heqm).
+      destruct Hreach' as (tr' & Hstar_gg' & -> & _).
+      assert (Hstar2' : star gstep initial_gs (tr' ++ (tr ++ t)) gs2')
+        by (eapply star_app; [ exact Hstar2 | exact Hstar_gg' ]).
+      exists (m', n). split.
+      - split; [ exact Heqm | reflexivity ].
+      - eapply Permutation_in;
+          [ apply Permutation_sym;
+            apply (outputs_are_node_outputs (tr' ++ (tr ++ t)) gs2' Hstar2') | ].
+        apply output_total_in; [ exact Hnho' | ].
+        rewrite (output_visible_equiv n m' m Heqm). exact Hvis.
+    Qed.
 
     Proof.
       intros T gs0 gs Hstar.
