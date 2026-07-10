@@ -174,30 +174,19 @@ Section __.
     #[local] Hint Extern 5 (In _ _) => simpl : core.
 
     Lemma le_weak_refl g : le_weak g g.
-    Proof.
-      cbv [le_weak Forall2_map]. intros k. destruct (map.get g k); auto.
-    Qed.
+    Proof. apply Forall2_map_refl. intros. apply incl_mod_weak_refl; assumption. Qed.
 
     Lemma le_refl g : le g g.
-    Proof.
-      cbv [le Forall2_map]. intros k. destruct (map.get g k); auto using incl_mod_refl.
-    Qed.
+    Proof. apply Forall2_map_refl. intros. apply incl_mod_refl; assumption. Qed.
 
     Lemma le_weak_trans g1 g2 g3 : le_weak g1 g2 -> le_weak g2 g3 -> le_weak g1 g3.
     Proof.
-      intros H12 H23. cbv [le_weak Forall2_map] in *. intros k.
-      specialize (H12 k); specialize (H23 k).
-      destruct (map.get g1 k), (map.get g2 k), (map.get g3 k);
-        try contradiction; eauto.
+      apply Forall2_map_trans. intros k a b c. apply incl_mod_weak_trans; assumption.
     Qed.
 
     Lemma le_strong_trans g1 g2 g3 : le_strong g1 g2 -> le_strong g2 g3 -> le_strong g1 g3.
     Proof.
-      intros H12 H23. cbv [le_strong Forall2_map] in *. intros k.
-      specialize (H12 k); specialize (H23 k).
-      destruct (map.get g1 k), (map.get g2 k), (map.get g3 k);
-        try contradiction; try exact I.
-      destruct H12 as [H12a H12b], H23 as [H23a H23b].
+      apply Forall2_map_trans. intros k a b c [Ht1 Hq1] [Ht2 Hq2].
       split; eapply submultiset_trans; eassumption.
     Qed.
 
@@ -253,10 +242,7 @@ Section __.
     Qed.
 
     Lemma le_strong_refl g : le_strong g g.
-    Proof.
-      cbv [le_strong Forall2_map]. intros k.
-      destruct (map.get g k); [split; apply submultiset_refl | exact I].
-    Qed.
+    Proof. apply Forall2_map_refl. intros. split; apply submultiset_refl. Qed.
 
     Lemma star_gstep_le_strong g T g' : star gstep g T g' -> le_strong g g'.
     Proof.
@@ -272,13 +258,10 @@ Section __.
 
     Lemma graph_step_to_node_step gs gt gs' :
       star gstep gs gt gs' ->
-      Forall2_map (fun n gns1 gns2 =>
+      Forall2_map (fun _ gns1 gns2 =>
                      exists t'',
                        gns2.(gns_trace) = t'' ++ gns1.(gns_trace) /\
-                         star node_step gns1.(gns_node_state) t'' gns2.(gns_node_state) /\
-                         (forall o, output_visible n o = true ->
-                               In o (outputs_of t'') ->
-                               In (o, n) (outputs_of gt)))
+                         star node_step gns1.(gns_node_state) t'' gns2.(gns_node_state))
         gs gs'.
     Proof.
       induction 1 as [ | gt2 smid e gs' Hstar IH Hstep].
@@ -288,30 +271,27 @@ Section __.
         + apply Forall2_map_map_values'_r. simpl.
           epose proof (Forall2_map_get_r _ _ _ _ _ IH H) as (v1 & Hv1 & Hrel).
           eapply Forall2_map_put_r; try eassumption.
-          -- eapply Forall2_map_impl; [exact IH|]. intros k' w1 w2 (t'' & ? & ? & ?) ?.
+          -- eapply Forall2_map_impl; [exact IH|]. intros k' w1 w2 (t'' & ? & ?) ?.
              exists t''. ssplit; eauto.
-          -- destruct Hrel as (t'' & Htr & Hst & Hout). exists (O_event lbl outs :: t''). ssplit; eauto.
-             ++ simpl. rewrite Htr. reflexivity.
-             ++ simpl. intros o Ho1 Ho2. apply in_app_iff in Ho2. destruct Ho2; eauto.
+          -- destruct Hrel as (t'' & Htr & Hst). exists (O_event lbl outs :: t''). ssplit; eauto.
+             simpl. rewrite Htr. reflexivity.
         + simpl. epose proof (Forall2_map_get_r _ _ _ _ _ IH H) as (v1 & Hv1 & Hrel).
           eapply Forall2_map_put_r; try eassumption.
-          -- eapply Forall2_map_impl; [exact IH|]. intros k' w1 w2 (t'' & ? & ? & ?) ?.
+          -- eapply Forall2_map_impl; [exact IH|]. intros k' w1 w2 (t'' & ? & ?) ?.
              exists t''. ssplit; eauto.
-          -- destruct Hrel as (t'' & Htr & Hst & Hout). exists (I_event m :: t''). ssplit; eauto.
-             ++ simpl. rewrite Htr. reflexivity.
+          -- destruct Hrel as (t'' & Htr & Hst). exists (I_event m :: t''). ssplit; eauto.
+             simpl. rewrite Htr. reflexivity.
     Qed.
 
     Lemma graph_step_to_node_step_from_beginning gs gt :
       star gstep initial_gs gt gs ->
-      Forall2_map (fun n gns0 gns =>
-                     star node_step gns0.(gns_node_state) gns.(gns_trace) gns.(gns_node_state) /\
-                       (forall o, output_visible n o = true ->
-                             In o (outputs_of gns.(gns_trace)) -> In (o, n) (outputs_of gt)))
+      Forall2_map (fun _ gns0 gns =>
+                     star node_step gns0.(gns_node_state) gns.(gns_trace) gns.(gns_node_state))
         initial_gs gs.
     Proof.
       intros. eapply Forall2_map_impl_strong.
-      { apply graph_step_to_node_step; eauto. }
-      intros n gns0 gns H1 H2 (t'' & Htr & Hst & Hout).
+      { eapply graph_step_to_node_step; eauto. }
+      intros n gns0 gns H1 _ (t'' & Htr & Hst).
       apply initial_gs_empty in H1. destruct H1 as [Htr0 _].
       rewrite Htr0, app_nil_r in Htr. subst t''. eauto.
     Qed.
@@ -580,7 +560,7 @@ Section __.
       - apply Forall2_map_map. apply Forall_forall. intros [k v] Hin. cbn [fst snd].
         apply map.tuples_spec in Hin.
         pose proof (graph_step_to_node_step_from_beginning gs gt Hstar) as Hnodes.
-        destruct (Forall2_map_get_r _ _ _ _ _ Hnodes Hin) as (gns0 & Hget0 & Hrun & _).
+        destruct (Forall2_map_get_r _ _ _ _ _ Hnodes Hin) as (gns0 & Hget0 & Hrun).
         pose proof (nodes_good k gns0 Hget0) as (Howf & _ & _).
         exact (Howf _ _ Hrun).
       - unfold fwd_total, node_fold. rewrite combine_map, flat_map_map.
@@ -609,8 +589,8 @@ Section __.
       intros Hstar Hallow.
       pose proof (everything_allowed t gs Hstar Hallow) as Hall.
       eapply Forall2_map_impl_strong;
-        [ apply graph_step_to_node_step_from_beginning; exact Hstar | ].
-      intros n gns0 gns Hget0 Hget (Hrun & _). split; [ exact Hrun | ].
+        [ eapply graph_step_to_node_step_from_beginning; exact Hstar | ].
+      intros n gns0 gns Hget0 Hget Hrun. split; [ exact Hrun | ].
       eapply allowed_submultiset; [ apply (Hall n gns Hget) | apply submultiset_app_r ].
     Qed.
 
@@ -865,14 +845,13 @@ Section __.
             [ apply le_n | exact Hstar | exact Hga | exact Hin | apply submultiset_refl ]. }
       intros [gs2' t2'] Hall Hreach.
       destruct Hreach as (tr & Hstar_gg & _ & _).
-      pose proof (star_gstep_le_strong _ _ _ Hstar_gg) as Hls. cbv [le_strong] in Hls.
-      apply Forall2_map_intro.
-      - intros k. eapply Forall2_map_get_None. exact Hls.
-      - intros k v v' Hgk Hgk'. rewrite Forall_forall in Hall.
-        destruct (Hall _ ltac:(apply in_map_iff; exists (k, v);
-                    split; [ reflexivity | apply map.tuples_spec; exact Hgk ]))
-          as (nc' & Hgk'' & Hsm).
-        rewrite Hgk' in Hgk''. injection Hgk'' as <-. exact Hsm.
+      pose proof (star_gstep_le_strong _ _ _ Hstar_gg) as Hls.
+      eapply Forall2_map_impl_strong; [ exact Hls | ].
+      intros k v v' Hgk Hgk' _. rewrite Forall_forall in Hall.
+      destruct (Hall _ ltac:(apply in_map_iff; exists (k, v);
+                  split; [ reflexivity | apply map.tuples_spec; exact Hgk ]))
+        as (nc' & Hgk'' & Hsm).
+      rewrite Hgk' in Hgk''. injection Hgk'' as <-. exact Hsm.
     Qed.
 
     Lemma le_weak_to_le gs1 t1 gs2 t2 :
@@ -971,8 +950,8 @@ Section __.
       epose proof Forall2_map_get_l as Hle'. specialize Hle' with (1 := Hle).
       epose proof Forall2_map_get_l as Hlew'. specialize Hlew' with (1 := Hlew).
 
-      epose proof (graph_step_to_node_step_from_beginning gs1) as Hns1'.
-      epose proof (graph_step_to_node_step_from_beginning gs2) as Hns2'.
+      epose proof (graph_step_to_node_step_from_beginning gs1 t1) as Hns1'.
+      epose proof (graph_step_to_node_step_from_beginning gs2 t2) as Hns2'.
       especialize Hns1'; eauto. especialize Hns2'; eauto.
 
       invert Hstep.
