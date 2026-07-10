@@ -1388,14 +1388,3 @@ Section __.
   End graph.
 
 End __.
-
-Definition translate_event {L M M'} (t : M' -> M) (ev : IO_event L M') : IO_event L M :=
-  match ev with
-  | I_event m' => I_event (t m')
-  | O_event l ms' => O_event l (map t ms')
-  end.
-
-Definition translate_step {NS L M M'} (t : M' -> M)
-  (step : NS -> IO_event L M -> NS -> Prop)
-  : NS -> IO_event L M' -> NS -> Prop :=
-  fun ns ev ns' => step ns (translate_event t ev) ns'.
