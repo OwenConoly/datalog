@@ -38,16 +38,7 @@ Section __.
     | receive (_ : node_id) (_ : message)
     | run (_ : node_id) (_ : label).
 
-  (* A graph input fact [(m, n0)] (fact [m] destined for node [n0]) is well-formed iff [m]
-     is a well-formed input at [n0] -- i.e. w.r.t. the facts delivered to [n0].  (Constraint
-     type is the graph message [message * node_id], matching [allowed] at the graph level.) *)
-  Definition consistent_graph_inputs : list (message * node_id) -> list (message * node_id) -> Prop. Admitted. (* := *)
-    (* fun '(m, n0) inps => consistent_inputs m (map fst (filter (fun '(_, n') => Nat.eqb n0 n') inps)). *)
-
   Local Notation gevent := (Smallstep.IO_event graph_label (message * node_id)).
-
-  Definition equiv_g : message * node_id -> message * node_id -> Prop :=
-    fun '(m1, n1) '(m2, n2) => n1 = n2 /\ equiv m1 m2.
 
   Definition consistent_internal_inputs_to n inps :=
     exists nodes partition,
@@ -175,9 +166,12 @@ Section __.
         | H1: map.get ?x ?y = _, H2: map.get ?x ?y = _ |- _ => rewrite H1 in H2; invert H2
         end.
 
-    #[local] Hint Resolve incl_mod_weak_refl incl_mod_weak_of_incl incl_mod_weak_trans : core.
-
-    #[local] Hint Resolve submultiset_refl : core.
+    #[local] Hint Constructors star eventually : core.
+    #[local] Hint Resolve
+      incl_mod_weak_refl incl_mod_weak_of_incl incl_mod_weak_trans
+      in_or_app impl_in_map impl_in_filter star_app submultiset_app_r : core.
+    #[local] Hint Unfold val_sat might_output : core.
+    #[local] Hint Extern 5 (In _ _) => simpl : core.
 
     Lemma le_weak_refl g : le_weak g g.
     Proof.
@@ -276,21 +270,6 @@ Section __.
       intros. fwd. auto using incl_mod_weak_of_submultiset.
     Qed.
 
-    Lemma impl_in_map [A B] (f : A -> B) x l y :
-      In x l ->
-      f x = y ->
-      In y (map f l).
-    Proof. intros. apply in_map_iff. eauto. Qed.
-
-    Lemma impl_in_filter [A] (f : A -> bool) x l :
-      In x l ->
-      f x = true ->
-      In x (filter f l).
-    Proof. intros. apply filter_In. auto. Qed.
-
-    Hint Constructors star : core.
-    Hint Resolve in_or_app impl_in_map impl_in_filter : core.
-
     Lemma graph_step_to_node_step gs gt gs' :
       star gstep gs gt gs' ->
       Forall2_map (fun n gns1 gns2 =>
@@ -336,9 +315,6 @@ Section __.
       apply initial_gs_empty in H1. destruct H1 as [Htr0 _].
       rewrite Htr0, app_nil_r in Htr. subst t''. eauto.
     Qed.
-
-    Hint Constructors eventually : core.
-    Hint Constructors graph_step : core.
 
     Definition all_outputs (gs : graph_state) : list (node_id * message) :=
       flat_map (fun '(k, v) => map (pair k) (outputs_of v.(gns_trace))) (map.tuples gs).
@@ -431,6 +407,13 @@ Section __.
       rewrite (proj1 (initial_gs_empty k v Hin)). reflexivity.
     Qed.
 
+    Lemma all_outputs_mupd_enqueue gs n inps :
+      Permutation (all_outputs (mupd gs n (enqueue inps))) (all_outputs gs).
+    Proof.
+      unfold mupd. destruct (map.get gs n) as [vn|] eqn:Hgn; [| apply Permutation_refl].
+      apply (all_outputs_put_same gs n vn (enqueue inps vn) Hgn). reflexivity.
+    Qed.
+
     Definition fwd_project (nn : node_id) (l : list (node_id * message)) : list message :=
       map snd (filter (fun '(k, m) => forward k nn m) l).
 
@@ -477,19 +460,6 @@ Section __.
       exact (all_outputs_put_same gs k v0 v Hk Ho).
     Qed.
 
-    Lemma matching_inps_app nn (e1 e2 : list (message * node_id)) :
-      matching_inps nn (e1 ++ e2) = matching_inps nn e1 ++ matching_inps nn e2.
-    Proof. unfold matching_inps. rewrite filter_app, map_app. reflexivity. Qed.
-
-    Lemma matching_inps_single nn n0 m :
-      matching_inps nn [(m, n0)] = if eqb nn n0 then [m] else [].
-    Proof. unfold matching_inps. cbn [filter]. destr (eqb nn n0); reflexivity. Qed.
-
-    Definition conserved (gs : graph_state) (ext : list (message * node_id)) : Prop :=
-      forall nn nsn, map.get gs nn = Some nsn ->
-        Permutation (inputs_of nsn.(gns_trace) ++ nsn.(gns_queue))
-                    (fwd_total nn gs ++ matching_inps nn ext).
-
     Lemma fwd_total_mupd_enqueue nn gs n inps :
       Permutation (fwd_total nn (mupd gs n (enqueue inps))) (fwd_total nn gs).
     Proof.
@@ -510,6 +480,84 @@ Section __.
       rewrite <- (fwd_project_single nn n outs), <- fwd_project_app.
       apply fwd_project_perm. exact (all_outputs_run gs n ns lbl outs ns' Hget).
     Qed.
+
+    Lemma fwd_total_initial nn : fwd_total nn initial_gs = [].
+    Proof. unfold fwd_total. rewrite all_outputs_initial. reflexivity. Qed.
+
+    Lemma fwd_total_get gs n k vn :
+      map.get gs n = Some vn ->
+      incl (filter (forward n k) (outputs_of (gns_trace vn))) (fwd_total k gs).
+    Proof.
+      intros Hn x Hx. rewrite fwd_total_unfold. apply in_flat_map.
+      exists (n, vn). split; [ apply map.tuples_spec; exact Hn | exact Hx ].
+    Qed.
+
+    Definition out_project (l : list (node_id * message)) : list (message * node_id) :=
+      map (fun '(k, m) => (m, k)) (filter (fun '(k, m) => output_visible k m) l).
+
+    Lemma out_project_app l1 l2 : out_project (l1 ++ l2) = out_project l1 ++ out_project l2.
+    Proof. unfold out_project. rewrite filter_app, map_app. reflexivity. Qed.
+
+    Lemma out_project_perm l1 l2 : Permutation l1 l2 -> Permutation (out_project l1) (out_project l2).
+    Proof. intros HP. unfold out_project. rewrite HP. reflexivity. Qed.
+
+    Lemma out_project_single n outs :
+      out_project (map (pair n) outs) = map (fun m => (m, n)) (filter (output_visible n) outs).
+    Proof.
+      induction outs as [| m outs IH]; [ reflexivity | ].
+      unfold out_project in *. cbn [map filter].
+      destruct (output_visible n m); cbn [map]; rewrite IH; reflexivity.
+    Qed.
+
+    Definition output_total (gs : graph_state) : list (message * node_id) :=
+      out_project (all_outputs gs).
+
+    Lemma outputs_of_cons_I (m : message * node_id) (t : list gevent) :
+      outputs_of (I_event m :: t) = outputs_of t.
+    Proof. reflexivity. Qed.
+
+    Lemma outputs_of_cons_O (lbl : graph_label) (outs : list (message * node_id)) (t : list gevent) :
+      outputs_of (O_event lbl outs :: t) = outs ++ outputs_of t.
+    Proof. reflexivity. Qed.
+
+    Lemma outputs_are_node_outputs gt gs :
+      star gstep initial_gs gt gs ->
+      Permutation (outputs_of gt) (output_total gs).
+    Proof.
+      induction 1 as [ | gt0 gmid e gs Hstar IH Hstep ].
+      - unfold output_total. rewrite all_outputs_initial. reflexivity.
+      - invert Hstep.
+        + rewrite outputs_of_cons_I.
+          eapply perm_trans; [ exact IH | ].
+          unfold output_total. apply out_project_perm. symmetry. apply all_outputs_mupd_enqueue.
+        + rewrite outputs_of_cons_O. unfold output_total.
+          eapply perm_trans;
+            [ | apply out_project_perm; symmetry;
+                apply (all_outputs_run gmid _ _ _ _ _ ltac:(eassumption)) ].
+          rewrite out_project_app, out_project_single.
+          apply Permutation_app_head. exact IH.
+        + rewrite outputs_of_cons_O. cbn [app].
+          eapply perm_trans; [ exact IH | ].
+          unfold output_total. apply out_project_perm. symmetry.
+          eapply all_outputs_put_same; [ eassumption | reflexivity ].
+    Qed.
+
+    Lemma matching_inps_app nn (e1 e2 : list (message * node_id)) :
+      matching_inps nn (e1 ++ e2) = matching_inps nn e1 ++ matching_inps nn e2.
+    Proof. unfold matching_inps. rewrite filter_app, map_app. reflexivity. Qed.
+
+    Lemma matching_inps_single nn n0 m :
+      matching_inps nn [(m, n0)] = if eqb nn n0 then [m] else [].
+    Proof. unfold matching_inps. cbn [filter]. destr (eqb nn n0); reflexivity. Qed.
+
+    Lemma matching_inps_perm nn e1 e2 :
+      Permutation e1 e2 -> Permutation (matching_inps nn e1) (matching_inps nn e2).
+    Proof. intros HP. unfold matching_inps. rewrite HP. reflexivity. Qed.
+
+    Definition conserved (gs : graph_state) (ext : list (message * node_id)) : Prop :=
+      forall nn nsn, map.get gs nn = Some nsn ->
+        Permutation (inputs_of nsn.(gns_trace) ++ nsn.(gns_queue))
+                    (fwd_total nn gs ++ matching_inps nn ext).
 
     Lemma conservation_step gs e gs' :
       gstep gs e gs' ->
@@ -570,10 +618,6 @@ Section __.
         + apply IH. exact Hg'.
     Qed.
 
-    Lemma matching_inps_perm nn e1 e2 :
-      Permutation e1 e2 -> Permutation (matching_inps nn e1) (matching_inps nn e2).
-    Proof. intros HP. unfold matching_inps. rewrite HP. reflexivity. Qed.
-
     Lemma conserved_perm_ext gs e1 e2 :
       Permutation e1 e2 -> conserved gs e1 -> conserved gs e2.
     Proof.
@@ -593,9 +637,6 @@ Section __.
         apply Permutation_app_head. apply Permutation_app_comm.
     Qed.
 
-    Lemma fwd_total_initial nn : fwd_total nn initial_gs = [].
-    Proof. unfold fwd_total. rewrite all_outputs_initial. reflexivity. Qed.
-
     Lemma inputs_are_outputs gt gs :
       star gstep initial_gs gt gs ->
       Forall_map (fun nn ns =>
@@ -609,63 +650,6 @@ Section __.
         rewrite Ht, Hq, fwd_total_initial. reflexivity. }
       pose proof (conservation_gen initial_gs gt gs Hstar [] Hbase) as Hcons.
       rewrite app_nil_l in Hcons. exact (Hcons nn nsn Hget).
-    Qed.
-
-    Definition out_project (l : list (node_id * message)) : list (message * node_id) :=
-      map (fun '(k, m) => (m, k)) (filter (fun '(k, m) => output_visible k m) l).
-
-    Lemma out_project_app l1 l2 : out_project (l1 ++ l2) = out_project l1 ++ out_project l2.
-    Proof. unfold out_project. rewrite filter_app, map_app. reflexivity. Qed.
-
-    Lemma out_project_perm l1 l2 : Permutation l1 l2 -> Permutation (out_project l1) (out_project l2).
-    Proof. intros HP. unfold out_project. rewrite HP. reflexivity. Qed.
-
-    Lemma out_project_single n outs :
-      out_project (map (pair n) outs) = map (fun m => (m, n)) (filter (output_visible n) outs).
-    Proof.
-      induction outs as [| m outs IH]; [ reflexivity | ].
-      unfold out_project in *. cbn [map filter].
-      destruct (output_visible n m); cbn [map]; rewrite IH; reflexivity.
-    Qed.
-
-    Lemma all_outputs_mupd_enqueue gs n inps :
-      Permutation (all_outputs (mupd gs n (enqueue inps))) (all_outputs gs).
-    Proof.
-      unfold mupd. destruct (map.get gs n) as [vn|] eqn:Hgn; [| apply Permutation_refl].
-      apply (all_outputs_put_same gs n vn (enqueue inps vn) Hgn). reflexivity.
-    Qed.
-
-    Definition output_total (gs : graph_state) : list (message * node_id) :=
-      out_project (all_outputs gs).
-
-    Lemma outputs_of_cons_I (m : message * node_id) (t : list gevent) :
-      outputs_of (I_event m :: t) = outputs_of t.
-    Proof. reflexivity. Qed.
-
-    Lemma outputs_of_cons_O (lbl : graph_label) (outs : list (message * node_id)) (t : list gevent) :
-      outputs_of (O_event lbl outs :: t) = outs ++ outputs_of t.
-    Proof. reflexivity. Qed.
-
-    Lemma outputs_are_node_outputs gt gs :
-      star gstep initial_gs gt gs ->
-      Permutation (outputs_of gt) (output_total gs).
-    Proof.
-      induction 1 as [ | gt0 gmid e gs Hstar IH Hstep ].
-      - unfold output_total. rewrite all_outputs_initial. reflexivity.
-      - invert Hstep.
-        + rewrite outputs_of_cons_I.
-          eapply perm_trans; [ exact IH | ].
-          unfold output_total. apply out_project_perm. symmetry. apply all_outputs_mupd_enqueue.
-        + rewrite outputs_of_cons_O. unfold output_total.
-          eapply perm_trans;
-            [ | apply out_project_perm; symmetry;
-                apply (all_outputs_run gmid _ _ _ _ _ ltac:(eassumption)) ].
-          rewrite out_project_app, out_project_single.
-          apply Permutation_app_head. exact IH.
-        + rewrite outputs_of_cons_O. cbn [app].
-          eapply perm_trans; [ exact IH | ].
-          unfold output_total. apply out_project_perm. symmetry.
-          eapply all_outputs_put_same; [ eassumption | reflexivity ].
     Qed.
 
     Lemma fwd_total_consistent_internal gt gs nn :
@@ -714,7 +698,6 @@ Section __.
       eapply allowed_submultiset; [ apply (Hall n gns Hget) | apply submultiset_app_r ].
     Qed.
 
-    Hint Resolve star_app : core.
     Lemma graph_will_step_of_node_will_step n P gs gt gns :
       star gstep initial_gs gt gs ->
       map.get gs n = Some gns ->
@@ -742,7 +725,6 @@ Section __.
             -- simpl. rewrite H1p1p0. assumption.
     Qed.
 
-    Hint Unfold val_sat : core.
     (*TODO replace stuff about initial_graph_state with hypotheses just about gs*)
     Lemma graph_eventually_of_node_eventually n P gs gt gns :
       star gstep initial_gs gt gs ->
@@ -763,80 +745,6 @@ Section __.
       { eapply graph_will_step_of_node_will_step; eauto. }
       simpl. cbv [val_sat reachable]. intros. fwd. intros. fwd. eauto.
     Qed.
-
-    Definition node_received (gs : graph_state) n m :=
-      val_sat gs n (fun gns => In m (inputs_of gns.(gns_trace))).
-
-    Ltac inv_gstep :=
-      match goal with
-      | H: gstep _ _ _ |- _ => invert H; simpl in *
-      end.
-
-    Hint Extern 5 (In _ _) => simpl : core.
-    Lemma node_received_stable_step gs e gs' n m :
-      node_received gs n m ->
-      gstep gs e gs' ->
-      node_received gs' n m.
-    Proof.
-      intros (gns & Hget & Hin) Hstep. cbv [node_received val_sat]. invert Hstep.
-      - rewrite get_mupd. destr (eqb n0 n);
-          (rewrite Hget; cbn [option_map]; eexists; split; [reflexivity | exact Hin]).
-      - rewrite get_map_values', map.get_put_dec. destr_sth Nat.eqb;
-          [ map_func | rewrite Hget ];
-          (cbn [option_map]; eexists; split; [reflexivity | exact Hin]).
-      - rewrite map.get_put_dec. destr_sth Nat.eqb;
-          [ map_func | rewrite Hget ]; (eexists; split; [reflexivity | simpl; eauto]).
-    Qed.
-
-    Lemma message_stable_step gs e gs' n m :
-      val_sat gs n (fun gns => In m gns.(gns_queue)) ->
-      gstep gs e gs' ->
-      val_sat gs' n (fun gns => In m gns.(gns_queue)) \/ node_received gs' n m.
-    Proof.
-      intros (gns & Hget & Hin) Hstep. cbv [val_sat node_received]. invert Hstep.
-      - left. rewrite get_mupd. destr (eqb n0 n);
-          (rewrite Hget; cbn [option_map]; eexists;
-           split; [reflexivity | cbn [enqueue gns_queue]; eauto using in_or_app]).
-      - left. rewrite get_map_values', map.get_put_dec. destr_sth Nat.eqb;
-          [ map_func | rewrite Hget ];
-          (cbn [option_map]; eexists;
-           split; [reflexivity | cbn [enqueue gns_queue]; eauto using in_or_app]).
-      - rewrite map.get_put_dec. destr_sth Nat.eqb; eauto.
-        map_func. rewrite H1 in Hin. apply in_app_or in Hin.
-        destruct Hin as [Hin | [Hm | Hin]]; [left | right | left];
-          (eexists; split; try reflexivity; simpl; eauto).
-    Qed.
-
-    Lemma message_stable_steps gs gt gs' n m :
-      val_sat gs n (fun gns => In m gns.(gns_queue)) ->
-      star gstep gs gt gs' ->
-      val_sat gs' n (fun gns => In m gns.(gns_queue)) \/ node_received gs' n m.
-    Proof.
-      induction 2; eauto.
-      destruct IHstar; eauto using message_stable_step, node_received_stable_step.
-    Qed.
-
-    Lemma node_will_receive n m gs gt :
-      val_sat gs n (fun gns => In m gns.(gns_queue)) ->
-      graph_will_step (gs, gt) (fun '(gs', _) => node_received gs' n m).
-    Proof.
-      intros Hq. cbv [graph_will_step will_step].
-      eexists. intros s' t' Hs' Ht'.
-      eapply message_stable_steps in Hs'; [| exact Hq].
-      destruct Hs' as [Hs' | Hs']; [| left; exact Hs'].
-      right. destruct Hs' as (gns' & Hget & Hin).
-      apply in_split in Hin. destruct Hin as (ms1 & ms2 & Hqeq).
-      destruct (nodes_input_total gns'.(gns_node_state) m) as (ns'' & Hstep).
-      do 2 eexists. split.
-      { apply gstep_receive; eassumption. }
-      cbv [node_received val_sat]. rewrite map.get_put_same. eauto.
-    Qed.
-
-    Print consistent_graph_inputs.
-    Print consistent_good.
-
-    Definition queue_empty (ns : graph_node_state node_state) :=
-      ns.(gns_queue) = [].
 
     (*TODO also specify that internal_inps are the same as internal_outs, which could
       be ensured using node traces?*)
@@ -1015,7 +923,7 @@ Section __.
       star gstep initial_gs t2 gs2 ->
       graph_inputs_allowed (inputs_of t2) ->
       eventually graph_will_step
-        (fun '(gs2', t2') =>
+        (fun '(gs2', _) =>
            Forall2_map (fun _ ns2 ns2' =>
                           submultiset (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue))
                             (inputs_of ns2'.(gns_trace))) gs2 gs2')
@@ -1057,7 +965,7 @@ Section __.
       submultiset (inputs_of t1) (inputs_of t2) ->
       graph_inputs_allowed (inputs_of t2) ->
       le_weak gs1 gs2 ->
-      eventually graph_will_step (fun '(gs2', t2') => le gs1 gs2') (gs2, t2).
+      eventually graph_will_step (fun '(gs2', _) => le gs1 gs2') (gs2, t2).
     Proof.
       intros Hstar1 Hstar2 Hsub Hga2 Hlew.
       assert (Hga1 : graph_inputs_allowed (inputs_of t1))
@@ -1094,14 +1002,6 @@ Section __.
       apply (incl_mod_weaken_l equiv consistent allowed Hcm _ _ _
                (submultiset_app_r _ _) Hall1tr Hall1).
       apply (incl_mod_weak_consistency_le_le _ _ _ Hall1 Hall2 Hlewk Hcle).
-    Qed.
-
-    Lemma fwd_total_get gs n k vn :
-      map.get gs n = Some vn ->
-      incl (filter (forward n k) (outputs_of (gns_trace vn))) (fwd_total k gs).
-    Proof.
-      intros Hn x Hx. rewrite fwd_total_unfold. apply in_flat_map.
-      exists (n, vn). split; [ apply map.tuples_spec; exact Hn | exact Hx ].
     Qed.
 
     Lemma fwd_total_sub_combined T r k vk :
@@ -1141,8 +1041,6 @@ Section __.
                (incl_mod_weak_trans _ _ _ _ Hl2 Hl3)).
     Qed.
 
-    Hint Unfold might_output : core.
-    Hint Resolve incl_mod_weaken_l allowed_submultiset submultiset_app_r : core.
     Lemma node_will_match' gs1 t1 lbl outs gs1' gs2 t2 :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
@@ -1151,7 +1049,7 @@ Section __.
       gstep gs1 (O_event lbl outs) gs1' ->
       le gs1 gs2 ->
       le_weak gs1 gs2 ->
-      eventually graph_will_step (fun '(gs2', t2') => le_weak gs1' gs2') (gs2, t2).
+      eventually graph_will_step (fun '(gs2', _) => le_weak gs1' gs2') (gs2, t2).
     Proof.
       intros H1 H2 H3 H4 Hstep Hle Hlew.
       epose proof Forall2_map_get_l as Hle'. specialize Hle' with (1 := Hle).
@@ -1218,7 +1116,7 @@ Section __.
       le gs1 gs2 ->
       le_weak gs1 gs2 ->
       eventually graph_will_step
-        (fun '(gs2', t2') => le gs1' gs2' /\ le_weak gs1' gs2') (gs2, t2).
+        (fun '(gs2', _) => le gs1' gs2' /\ le_weak gs1' gs2') (gs2, t2).
     Proof.
       intros Hstar1 Hstar2 Hsub Hga1 Hga2 Hstep Hle Hlew.
       assert (Hstar1' : star gstep initial_gs (O_event lbl outs :: t1) gs1')

@@ -96,6 +96,14 @@ Lemma combine_map {A B C} (f : A -> B) (g : A -> C) (l : list A) :
   combine (map f l) (map g l) = map (fun x => (f x, g x)) l.
 Proof. induction l as [|a l IH]; cbn [map combine]; [reflexivity | rewrite IH; reflexivity]. Qed.
 
+Lemma impl_in_map {A B} (f : A -> B) x l y :
+  In x l -> f x = y -> In y (map f l).
+Proof. intros. apply in_map_iff. eauto. Qed.
+
+Lemma impl_in_filter {A} (f : A -> bool) x l :
+  In x l -> f x = true -> In x (filter f l).
+Proof. intros. apply filter_In. auto. Qed.
+
 Lemma Forall2_map_map {A B D} (R : B -> D -> Prop) (f : A -> B) (g : A -> D) (l : list A) :
   Forall (fun x => R (f x) (g x)) l -> Forall2 R (map f l) (map g l).
 Proof.
