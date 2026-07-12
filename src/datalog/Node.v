@@ -149,13 +149,17 @@ Section __.
     | _, _ => f1 = f2
     end.
 
-  (*TODO completely wrong; will fix later.*)
-  Definition dfact_consistent (a l : list dfact) : Prop :=
-    forall R margs source num,
-      In (meta_dfact R margs source num) a ->
-      Existsn (dfact_matches R margs) num l.
+  Definition dfact_consistent (c l : list dfact) : Prop :=
+    forall R mf_args num,
+      expect_num_R_facts R mf_args c num ->
+      Existsn (dfact_matches R mf_args) num l.
 
   Definition node_init : node_state :=
     {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
+
+  Lemma node_might_implies_will (np : node_prog) :
+    meta_rules_valid np.(np_rules) ->
+    might_implies_will_equiv (node_step np) dfact_equiv allowed_inputs node_init.
+  Admitted.
 
 End __.
