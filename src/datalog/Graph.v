@@ -267,20 +267,16 @@ Section __.
       induction 1 as [ | gt2 smid e gs' Hstar IH Hstep].
       - apply Forall2_map_dup. intros n gns _. exists []. ssplit; eauto.
       - invert Hstep.
-        + apply Forall2_map_mupd_r; [intros ? ? HR; exact HR | exact IH].
+        + apply Forall2_map_mupd_r; eauto.
         + apply Forall2_map_map_values'_r. simpl.
-          epose proof (Forall2_map_get_r _ _ _ _ _ IH H) as (v1 & Hv1 & Hrel).
+          epose proof (Forall2_map_get_r _ _ _ _ _ IH H) as (v1 & Hv1 & Hrel). fwd.
           eapply Forall2_map_put_r; try eassumption.
-          -- eapply Forall2_map_impl; [exact IH|]. intros k' w1 w2 (t'' & ? & ?) ?.
-             exists t''. ssplit; eauto.
-          -- destruct Hrel as (t'' & Htr & Hst). exists (O_event lbl outs :: t''). ssplit; eauto.
-             simpl. rewrite Htr. reflexivity.
+          -- eapply Forall2_map_impl; [eassumption|]. simpl. intros. fwd. eauto.
+          -- simpl. rewrite Hrelp0. eexists (_ :: _). simpl. eauto.
         + simpl. epose proof (Forall2_map_get_r _ _ _ _ _ IH H) as (v1 & Hv1 & Hrel).
           eapply Forall2_map_put_r; try eassumption.
-          -- eapply Forall2_map_impl; [exact IH|]. intros k' w1 w2 (t'' & ? & ?) ?.
-             exists t''. ssplit; eauto.
-          -- destruct Hrel as (t'' & Htr & Hst). exists (I_event m :: t''). ssplit; eauto.
-             simpl. rewrite Htr. reflexivity.
+          -- eapply Forall2_map_impl; [eassumption|]. simpl. intros. fwd. eauto.
+          -- simpl. fwd. rewrite Hrelp0. eexists (_ :: _). simpl. eauto.
     Qed.
 
     Lemma graph_step_to_node_step_from_beginning gs gt :
@@ -1013,8 +1009,7 @@ Section __.
         (fun '(gs2', _) => le gs1' gs2' /\ le_weak gs1' gs2') (gs2, t2).
     Proof.
       intros Hstar1 Hstar2 Hsub Hga1 Hga2 Hstep Hle Hlew.
-      assert (Hstar1' : star gstep initial_gs (O_event lbl outs :: t1) gs1')
-        by (eapply star_step; [ exact Hstar1 | exact Hstep ]).
+      assert (Hstar1' : star gstep initial_gs (O_event lbl outs :: t1) gs1') by eauto.
       pose proof (node_will_match' _ _ _ _ _ _ _ Hstar1 Hstar2 Hga1 Hga2 Hstep Hle Hlew) as Hev.
       apply eventually_will_step_annotate in Hev.
       eapply eventually_trans; [ exact Hev | ].
@@ -1024,7 +1019,7 @@ Section __.
         by (eapply star_app; [ exact Hstar2 | exact Hstar_gg ]).
       specialize (Hga_imp Hga2).
       assert (Hsub' : submultiset (inputs_of (O_event lbl outs :: t1)) (inputs_of (tr ++ t2))).
-      { rewrite inputs_of_app. change (inputs_of (O_event lbl outs :: t1)) with (inputs_of t1).
+      { rewrite inputs_of_app. simpl.
         eapply submultiset_trans;
           [ exact Hsub | exists (inputs_of tr); apply Permutation_app_comm ]. }
       pose proof (le_weak_to_le _ _ _ _ Hstar1' Hstar2' Hsub' Hga_imp Hlw) as Hle2.
