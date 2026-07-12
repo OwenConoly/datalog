@@ -8,7 +8,7 @@ Section __.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
-  Context {node_name : Type}.
+  Definition node_name := option nat.
 
   Implicit Types mf_rel : rel.
   Implicit Types mf_args : list (option T).

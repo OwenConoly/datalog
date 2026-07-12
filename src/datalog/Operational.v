@@ -29,8 +29,6 @@ Section __.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
 
-  Local Notation dfact := (dfact (node_name := option nat)).
-
   (* Operational keeps the three-field node state (with a receive queue
      [waiting_facts]) that its monolithic [comp_step] is written against.  This is
      its own record, independent of Node.v's [node_state], which dropped
