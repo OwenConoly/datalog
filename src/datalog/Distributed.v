@@ -123,9 +123,9 @@ Section __.
   Lemma spec_steps_known_incl sp s td s' :
     star (spec_node_step sp) s td s' -> incl s.(known_facts) s'.(known_facts).
   Proof.
-    induction 1 as [|s0 e s1 t0 s2 Hstep Hstar IH].
+    induction 1 as [|t0 s' e s'' Hstar IH Hstep].
     - apply incl_refl.
-    - eapply incl_tran; [eapply spec_step_known_incl; exact Hstep | exact IH].
+    - eapply incl_tran; [exact IH | eapply spec_step_known_incl; exact Hstep].
   Qed.
 
   (* [sent_facts] only grows. *)
@@ -141,9 +141,9 @@ Section __.
   Lemma spec_steps_sent_incl sp s td s' :
     star (spec_node_step sp) s td s' -> incl s.(sent_facts) s'.(sent_facts).
   Proof.
-    induction 1 as [|s0 e s1 t0 s2 Hstep Hstar IH].
+    induction 1 as [|t0 s' e s'' Hstar IH Hstep].
     - apply incl_refl.
-    - eapply incl_tran; [eapply spec_step_sent_incl; exact Hstep | exact IH].
+    - eapply incl_tran; [exact IH | eapply spec_step_sent_incl; exact Hstep].
   Qed.
 
   (* [known ∪ waiting] only grows (a dequeue moves a fact between the two). *)
@@ -167,9 +167,9 @@ Section __.
     star (spec_node_step sp) s td s' ->
     incl (s.(known_facts) ++ s.(waiting_facts)) (s'.(known_facts) ++ s'.(waiting_facts)).
   Proof.
-    induction 1 as [|s0 e s1 t0 s2 Hstep Hstar IH].
+    induction 1 as [|t0 s' e s'' Hstar IH Hstep].
     - apply incl_refl.
-    - eapply incl_tran; [eapply spec_step_kw_incl; exact Hstep | exact IH].
+    - eapply incl_tran; [exact IH | eapply spec_step_kw_incl; exact Hstep].
   Qed.
 
   (* [known] only ever grows by prepending: a later [known] is a suffix-extension. *)
@@ -177,12 +177,12 @@ Section __.
     star (spec_node_step sp) s td s' ->
     exists pre, s'.(known_facts) = pre ++ s.(known_facts).
   Proof.
-    induction 1 as [s0 | s0 e s1 t0 s2 Hstep Hstar IH].
+    induction 1 as [|t0 s' e s'' Hstar IH Hstep].
     - exists []. reflexivity.
     - destruct IH as (pre & Hpre).
       inversion Hstep as [rs input rest Hq | rs out Hnf | rs inp]; subst;
         cbn [known_facts] in Hpre |- *.
-      + exists (pre ++ [input]). rewrite Hpre, <- app_assoc. reflexivity.
+      + exists (input :: pre). rewrite Hpre. reflexivity.
       + exists pre. exact Hpre.
       + exists pre. exact Hpre.
   Qed.
@@ -217,10 +217,13 @@ Section __.
     Permutation (s'.(known_facts) ++ s'.(waiting_facts)) (inputs_of (rev td ++ tr)).
   Proof.
     intros Hperm Hstar. revert tr Hperm.
-    induction Hstar as [s0 | s0 e s1 t0 s2 Hstep Hstar IH]; intros tr Hperm; cbn [rev].
+    induction Hstar as [|t0 s' e s'' Hstar IH Hstep]; intros tr Hperm; cbn [rev].
     - cbn [app]. exact Hperm.
     - rewrite <- app_assoc. cbn [app].
-      apply IH. apply (kw_perm_step sp s0 e s1 tr Hperm Hstep).
+      eapply perm_trans;
+        [ apply (kw_perm_step sp s' e s'' (rev t0 ++ tr));
+          [ apply (IH tr Hperm) | exact Hstep ]
+        | apply inputs_of_perm; apply Permutation_middle ].
   Qed.
 
   (* If [l1] is (multiset-)contained in [m], its matching count is no larger. *)
@@ -360,10 +363,10 @@ Section __.
     Permutation (s'.(known_facts) ++ s'.(waiting_facts))
                 (s.(known_facts) ++ s.(waiting_facts)).
   Proof.
-    induction 1 as [s0 | s0 e s1 t0 s2 Hstep Hstar IH]; intros Hinp.
+    induction 1 as [|t0 s' e s'' Hstar IH Hstep]; intros Hinp.
     - apply Permutation_refl.
     - destruct e as [m | el eo]; cbn [inputs_of flat_map] in Hinp; [discriminate|].
-      eapply perm_trans; [apply IH; exact Hinp|].
+      eapply perm_trans; [|apply IH; exact Hinp].
       inversion Hstep as [rs input rest Hq | rs out Hnf | rs inp]; subst;
         cbn [known_facts waiting_facts].
       + rewrite Hq. cbn [app]. apply Permutation_middle.
