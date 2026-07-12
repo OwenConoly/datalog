@@ -388,6 +388,52 @@ Section __.
     - eapply step_preserves_meta_facts_ok; eassumption.
   Qed.
 
+  Lemma node_good_init : node_good node_init [].
+  Proof.
+    split; [reflexivity | split; [| split]].
+    - split.
+      + intros R mf_args k num num0 H. destruct H.
+      + intros R mf_args ems _. exists 0. split; [lia | constructor].
+    - intros R mf_args num H. destruct H.
+    - intros r R mf_args num Hr H. destruct H.
+  Qed.
+
+  (* [allowed_inputs] is downward-closed under dropping a front element (the count
+     bound only weakens); this is what lets [node_good] survive along a whole run
+     given only the full run's [allowed_inputs]. *)
+  Lemma allowed_inputs_tail x l :
+    allowed_inputs (x :: l) -> allowed_inputs l.
+  Proof.
+    intros (Huniq & Hbound). split.
+    - intros R mf_args k num num0 H1 H2.
+      apply (Huniq R mf_args k num num0); apply in_cons; assumption.
+    - intros R mf_args ems Hf2.
+      assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (x :: l))
+                             (R_senders R) ems)
+        by (clear -Hf2; induction Hf2; constructor; auto using in_cons).
+      destruct (Hbound R mf_args ems Hf2') as (num' & Hle & Hexn).
+      inversion Hexn; subst.
+      + exists num'. split; assumption.
+      + eexists. split; [| eassumption]. lia.
+  Qed.
+
+  Lemma node_good_star s t t' s' :
+    meta_rules_valid np.(np_rules) ->
+    allowed_inputs (inputs_of (t' ++ t)) ->
+    node_good s t ->
+    star (node_step np) s t' s' ->
+    node_good s' (t' ++ t).
+  Proof.
+    intros Hmrv Hallow Hgood Hstar. revert Hallow.
+    induction Hstar as [| t0 s'0 e s'' Hstar' IH Hstep]; intros Hallow.
+    - exact Hgood.
+    - assert (Hallow0 : allowed_inputs (inputs_of (t0 ++ t))).
+      { destruct e as [m | lbl outs].
+        - eapply allowed_inputs_tail. exact Hallow.
+        - exact Hallow. }
+      exact (node_good_step s'0 e s'' (t0 ++ t) Hmrv (IH Hallow0) Hallow Hstep).
+  Qed.
+
   Lemma node_will_match' s1 lbl outs s1' s2 t2 :
     meta_rules_valid np.(np_rules) ->
     node_good s2 t2 ->
