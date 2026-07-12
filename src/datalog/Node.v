@@ -156,8 +156,14 @@ Section __.
         In (meta_rule mc mh) np.(np_rules) /\
           can_deduce_meta_fact mc mh np.(np_name) s.(sent_facts)
             (meta_dfact R mf_args np.(np_name) num) hyps /\
-          Forall (knows_datalog_fact s.(known_facts)) hyps /\
-          (forall mf_set, ~ In (meta_fact R mf_args mf_set) hyps).
+          Forall (knows_datalog_fact s.(known_facts)) hyps
+  (*not clear whether we need this next conjunct.  we could get it,
+    by saying something like "inputs are consistent outputs from other nodes,
+    plus the outputs of this node."
+    not sure if that will later become necessary.
+   *)
+  (*/\
+          (forall mf_set, ~ In (meta_fact R mf_args mf_set) hyps)*).
 
   Definition meta_facts_ok (s : node_state) : Prop :=
     forall r R mf_args num,
