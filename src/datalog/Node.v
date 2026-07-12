@@ -251,6 +251,63 @@ Section __.
       intros h Hh. apply knows_datalog_fact_add_allowed; [exact Hallow | exact Hh].
   Qed.
 
+  (* An [allowed_inputs]-consistent input cannot be a fresh match for a
+     complete aggregate (one whose declared total is already realised in
+     [known]).  Node analogue of Operational's [expect_num_R_facts_no_waiting]. *)
+  Lemma not_match_of_complete R mf_args x known num :
+    allowed_inputs (x :: known) ->
+    expect_num_R_facts R mf_args known num ->
+    Existsn (dfact_matches R mf_args) num known ->
+    ~ dfact_matches R mf_args x.
+  Proof.
+    intros Hallow Hexp Hexn Hmatch.
+    destruct Hexp as (ems & Hf2 & Hsum).
+    assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (x :: known))
+                           (R_senders R) ems).
+    { clear -Hf2. induction Hf2; constructor; auto using in_cons. }
+    destruct Hallow as (_ & Hbound).
+    destruct (Hbound R mf_args ems Hf2') as (num' & Hle & Hexn').
+    assert (HexnS : Existsn (dfact_matches R mf_args) (S num) (x :: known))
+      by (apply Existsn_yes; assumption).
+    pose proof (Existsn_unique _ _ _ _ Hexn' HexnS) as Heq. lia.
+  Qed.
+
+  (* If a hypothesis [h] is potentially supported by [hyps_d] (all of which are
+     known at the old [known]), then [knows_datalog_fact] transfers back from the
+     grown [inp :: known] to [known]: the added input cannot be the fresh piece
+     that made [h] known, because it would be a fresh match for a complete
+     aggregate in [hyps_d], contradicting [allowed_inputs]. *)
+  Lemma knows_datalog_fact_transfer_down inp known hyps_d h :
+    allowed_inputs (inp :: known) ->
+    Forall (knows_datalog_fact known) hyps_d ->
+    fact_potentially_supported hyps_d h ->
+    knows_datalog_fact (inp :: known) h ->
+    knows_datalog_fact known h.
+  Proof.
+    intros Hallow Hhyps_d Hsupp Hknow_new.
+    destruct h as [Rh nfh | Rh mah msh].
+    - cbn [fact_potentially_supported] in Hsupp.
+      destruct Hsupp as (mah' & msh' & Hin_supp & Hmatch_supp).
+      rewrite Forall_forall in Hhyps_d. specialize (Hhyps_d _ Hin_supp).
+      cbn [knows_datalog_fact] in Hknow_new, Hhyps_d |- *.
+      destruct Hknow_new as [Hinp | Hin]; [| exact Hin].
+      exfalso. destruct Hhyps_d as (num_h & Hexp_h & Hex_h & _).
+      apply (not_match_of_complete Rh mah' inp known num_h Hallow Hexp_h Hex_h).
+      exists nfh. split; [exact Hinp | exact Hmatch_supp].
+    - cbn [fact_potentially_supported] in Hsupp.
+      destruct Hsupp as (msh' & Hin_supp).
+      rewrite Forall_forall in Hhyps_d. specialize (Hhyps_d _ Hin_supp).
+      cbn [knows_datalog_fact] in Hknow_new, Hhyps_d |- *.
+      destruct Hhyps_d as (num_old & Hexp_old & Hex_old & _).
+      destruct Hknow_new as (num_new & Hexp_new & Hex_new & Hiff_new).
+      exists num_old. split; [exact Hexp_old | split; [exact Hex_old |]].
+      intros nf Hm. specialize (Hiff_new nf Hm). split.
+      + intro Hset. apply Hiff_new in Hset. destruct Hset as [Hinp | Hin]; [| exact Hin].
+        exfalso. apply (not_match_of_complete Rh mah inp known num_old Hallow Hexp_old Hex_old).
+        exists nf. split; [exact Hinp | exact Hm].
+      + intro Hin. apply (proj2 Hiff_new). apply in_cons. exact Hin.
+  Qed.
+
   Lemma step_preserves_meta_facts_ok s e s' :
     meta_rules_valid np.(np_rules) ->
     allowed_inputs s'.(known_facts) ->
@@ -258,7 +315,51 @@ Section __.
     meta_facts_ok s ->
     node_step np s e s' ->
     meta_facts_ok s'.
-  Proof. Admitted.
+  Proof.
+    intros Hmrv Hallow Hmfc Hmfok Hstep.
+    inversion Hstep as [s0 out Hnew | s0 inp]; subst; clear Hstep;
+      intros r R mf_args num Hr_in HIn;
+      cbn [known_facts sent_facts] in Hallow, HIn |- *.
+    - (* deduce: sent grows, known fixed *)
+      cbn [ok_to_deduce_fact]. intros nfargs Hcdn Hmatch. apply in_cons.
+      destruct HIn as [Hhead | HIn_old].
+      + subst out. destruct Hnew as (_ & Hok). rewrite Forall_forall in Hok.
+        specialize (Hok r Hr_in). cbn [ok_to_deduce_fact] in Hok.
+        exact (Hok nfargs Hcdn Hmatch).
+      + pose proof (Hmfok r R mf_args num Hr_in HIn_old) as Hok0.
+        cbn [ok_to_deduce_fact] in Hok0. exact (Hok0 nfargs Hcdn Hmatch).
+    - (* input: known grows *)
+      cbn [ok_to_deduce_fact]. intros nfargs Hcdn Hmatch.
+      destruct (Hmfc R mf_args num HIn) as (mc & mh & hyps_d & Hin_mr & Hcdmf & Hknown_mr).
+      destruct Hcdn as (local_hyps & Hnmri & Hknown_local_new).
+      destruct Hcdmf as (ctx & mfr & mfa & mfc & Hres & _ & Hconcl & Hinterp).
+      assert (mfr = R) as -> by congruence.
+      assert (mfa = mf_args) as -> by congruence.
+      assert (Hri_meta : rule_impl (one_step_derives np.(np_rules)) (meta_rule mc mh)
+                (meta_fact R mf_args (one_step_derives np.(np_rules) hyps_d R)) hyps_d).
+      { eapply meta_rule_impl with (ctx := ctx).
+        - eapply Exists_impl; [| exact Hconcl].
+          intros c Hc. destruct Hc as (mfa0 & mfs0 & Hf2c & Heqc).
+          injection Heqc as Hrel Hargs _.
+          exists mfa0, (one_step_derives np.(np_rules) hyps_d R).
+          split; [exact Hf2c |]. rewrite Hargs, Hrel. reflexivity.
+        - exact Hinterp.
+        - intros args'' _. reflexivity. }
+      assert (Hri_normal : rule_impl (one_step_derives np.(np_rules)) r
+                             (normal_fact R nfargs) local_hyps)
+        by (apply simple_rule_impl; exact Hnmri).
+      pose proof (Hmrv R mf_args (one_step_derives np.(np_rules) hyps_d R) hyps_d
+                    (meta_rule mc mh) Hin_mr Hri_meta r nfargs local_hyps Hr_in
+                    Hri_normal Hmatch) as Hpot.
+      assert (Hknown_local_old : Forall (knows_datalog_fact s.(known_facts)) local_hyps).
+      { rewrite Forall_forall in Hknown_local_new, Hpot |- *.
+        intros h Hh. eapply knows_datalog_fact_transfer_down;
+          [exact Hallow | exact Hknown_mr | exact (Hpot h Hh) | exact (Hknown_local_new h Hh)]. }
+      pose proof (Hmfok r R mf_args num Hr_in HIn) as Hok0.
+      cbn [ok_to_deduce_fact] in Hok0.
+      apply Hok0; [| exact Hmatch].
+      exists local_hyps. split; [exact Hnmri | exact Hknown_local_old].
+  Qed.
 
 
   Lemma node_will_match' s1 lbl outs s1' s2 t2 :
