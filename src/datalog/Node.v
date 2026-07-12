@@ -179,23 +179,12 @@ Section __.
       ok_to_deduce_fact r s.(known_facts) s.(sent_facts)
         (meta_dfact R mf_args np.(np_name) num).
 
-  (* The good-state bundle carried through the demon's run: [known] is exactly
-     the received inputs [inputs_of t] (queue-free, so equality, not just a
-     permutation), those inputs are [allowed_inputs], and the two meta-fact
-     invariants hold.  All four are preserved by [node_step] ([node_good_step]),
-     so this is a genuine inductive invariant. *)
   Definition node_good (s : node_state) (t : list IO_event) : Prop :=
     s.(known_facts) = inputs_of t /\
     allowed_inputs (inputs_of t) /\
     meta_facts_correct s /\
     meta_facts_ok s.
 
-  (* Monotonicity under submultiset, with [allowed_inputs] pinning the counts.
-     [allowed_inputs] is downward-closed (a submultiset of allowed inputs is
-     allowed).  [knows_datalog_fact] lifts upward into an allowed superset: the
-     bound forces the extra part [rest] to contain no matches ([Existsn_split]
-     decomposes the count of [l2 ~ l1 ++ rest]), so the exact-count [Existsn] and
-     the set-characterising iff both carry over. *)
   Lemma allowed_inputs_submultiset l1 l2 :
     submultiset l1 l2 -> allowed_inputs l2 -> allowed_inputs l1.
   Proof.
@@ -380,44 +369,56 @@ Section __.
       + intro Hin. apply (proj2 Hiff_new). apply Hincl. exact Hin.
   Qed.
 
-  (* Transfer a deducible normal fact down a submultiset.  If [r] can deduce a
-     [R/nfargs] normal from the bigger multiset, and [R/nfargs] matches an
-     aggregate that a valid meta-rule ([mc/mh], concluding [R/mf_args]) derives,
-     then [r]'s local hypotheses are potentially supported, so they transfer down
-     ([knows_datalog_fact_transfer_down_sub]) and [r] can deduce the same normal
-     from the small multiset.  Extracted from [step_preserves_meta_facts_ok]'s
-     input case; reused for the meta flush in [node_will_match]. *)
-  Lemma can_deduce_normal_transfer_down r R mf_args nfargs mc mh hyps_d ctx small big :
+  (* [interp_meta_clause] only fixes the rel and args of the produced meta-fact;
+     its derivability set is unconstrained, so it can be swapped freely. *)
+  Lemma interp_meta_clause_set_irrel ctx c (R : rel) (args : list (option T))
+        (S1 S2 : list T -> Prop) :
+    interp_meta_clause ctx c (meta_fact R args S1) ->
+    interp_meta_clause ctx c (meta_fact R args S2).
+  Proof.
+    cbv [interp_meta_clause]. intros (mf_args & mf_set & Hf2 & Heq).
+    injection Heq as -> -> _. exists mf_args, S2. split; [exact Hf2 | reflexivity].
+  Qed.
+
+  (* A [can_deduce_meta_fact]'s clauses really do witness that the meta-rule
+     [meta_rule mc mh] derives the aggregate [R/mf_args] (with its derivability
+     set), as a [rule_impl]. *)
+  Lemma meta_concl_rule_impl mc mh ctx R mf_args hyps_d :
+    Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args (fun _ => False))) mc ->
+    Forall2 (interp_meta_clause ctx) mh hyps_d ->
+    rule_impl (one_step_derives np.(np_rules)) (meta_rule mc mh)
+      (meta_fact R mf_args (one_step_derives np.(np_rules) hyps_d R)) hyps_d.
+  Proof.
+    intros Hconcl Hinterp. eapply meta_rule_impl with (ctx := ctx).
+    - eapply Exists_impl; [| exact Hconcl].
+      intros c Hc. eapply interp_meta_clause_set_irrel. exact Hc.
+    - exact Hinterp.
+    - intros args'' _. reflexivity.
+  Qed.
+
+  (* Transfer a deducible normal fact down a submultiset: if some valid meta-rule
+     derives the aggregate [R/mf_args] that [R/nfargs] matches, then [r]'s local
+     hypotheses are [fact_potentially_supported] by that meta-rule's hyps
+     ([meta_rules_valid]), so they transfer down along the submultiset
+     ([knows_datalog_fact_transfer_down_sub]) and [r] deduces the same normal from
+     the small multiset.  Reused by [step_preserves_meta_facts_ok] and the meta
+     flush in [node_will_match]. *)
+  Lemma can_deduce_normal_transfer_down r R mf_args nfargs mr S hyps_d small big :
     meta_rules_valid np.(np_rules) ->
     submultiset small big ->
     allowed_inputs big ->
-    In (meta_rule mc mh) np.(np_rules) ->
-    Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args (fun _ => False))) mc ->
-    Forall2 (interp_meta_clause ctx) mh hyps_d ->
+    In mr np.(np_rules) ->
+    rule_impl (one_step_derives np.(np_rules)) mr (meta_fact R mf_args S) hyps_d ->
     Forall (knows_datalog_fact small) hyps_d ->
     In r np.(np_rules) ->
     Forall2 matches mf_args nfargs ->
     can_deduce_normal_fact r big R nfargs ->
     can_deduce_normal_fact r small R nfargs.
   Proof.
-    intros Hmrv Hsub Hallow Hin_mr Hconcl Hinterp Hknown_mr Hr_in Hmatch Hcdn.
-    destruct Hcdn as (local_hyps & Hnmri & Hknown_local_new).
-    assert (Hri_meta : rule_impl (one_step_derives np.(np_rules)) (meta_rule mc mh)
-              (meta_fact R mf_args (one_step_derives np.(np_rules) hyps_d R)) hyps_d).
-    { eapply meta_rule_impl with (ctx := ctx).
-      - eapply Exists_impl; [| exact Hconcl].
-        intros c Hc. destruct Hc as (mfa0 & mfs0 & Hf2c & Heqc).
-        injection Heqc as Hrel Hargs _.
-        exists mfa0, (one_step_derives np.(np_rules) hyps_d R).
-        split; [exact Hf2c |]. rewrite Hargs, Hrel. reflexivity.
-      - exact Hinterp.
-      - intros args'' _. reflexivity. }
-    assert (Hri_normal : rule_impl (one_step_derives np.(np_rules)) r
-                           (normal_fact R nfargs) local_hyps)
-      by (apply simple_rule_impl; exact Hnmri).
-    pose proof (Hmrv R mf_args (one_step_derives np.(np_rules) hyps_d R) hyps_d
-                  (meta_rule mc mh) Hin_mr Hri_meta r nfargs local_hyps Hr_in
-                  Hri_normal Hmatch) as Hpot.
+    intros Hmrv Hsub Hallow Hin_mr Hri_meta Hknown_mr Hr_in Hmatch
+           (local_hyps & Hnmri & Hknown_local_new).
+    pose proof (Hmrv _ _ _ _ _ Hin_mr Hri_meta _ _ _ Hr_in
+                  (simple_rule_impl _ _ _ _ _ Hnmri) Hmatch) as Hpot.
     exists local_hyps. split; [exact Hnmri |].
     rewrite Forall_forall in Hknown_local_new, Hpot |- *.
     intros h Hh. eapply knows_datalog_fact_transfer_down_sub;
@@ -456,8 +457,8 @@ Section __.
       apply Hok0; [| exact Hmatch].
       eapply can_deduce_normal_transfer_down;
         [ exact Hmrv | apply submultiset_cons | exact Hallow | exact Hin_mr
-        | exact Hconcl | exact Hinterp | exact Hknown_mr | exact Hr_in
-        | exact Hmatch | exact Hcdn ].
+        | eapply meta_concl_rule_impl; [exact Hconcl | exact Hinterp]
+        | exact Hknown_mr | exact Hr_in | exact Hmatch | exact Hcdn ].
   Qed.
 
   Lemma node_good_step s e s' t :
@@ -608,7 +609,10 @@ Section __.
         * apply Forall_forall. intros r'' Hr''_in. cbn [ok_to_deduce_fact].
           intros nfargs Hcdn_dem Hmatch'.
           assert (Hcdn_s1 : can_deduce_normal_fact r'' s1.(known_facts) mfr nfargs).
-          { eapply can_deduce_normal_transfer_down; eassumption. }
+          { eapply can_deduce_normal_transfer_down;
+              [ exact Hmrv | exact HsubK | exact Halk | exact Hin_mr
+              | eapply meta_concl_rule_impl; [exact Hconcl | exact Hinterp]
+              | exact Hknows1 | exact Hr''_in | exact Hmatch' | exact Hcdn_dem ]. }
           rewrite Forall_forall in Hokall.
           pose proof (Hokall r'' Hr''_in) as Hok1. cbn [ok_to_deduce_fact] in Hok1.
           pose proof (Hok1 nfargs Hcdn_s1 Hmatch') as Hin_s1.
