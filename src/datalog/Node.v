@@ -1,4 +1,4 @@
-From Stdlib Require Import List.
+From Stdlib Require Import List Lia.
 From Datalog Require Import List Datalog Smallstep.
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
@@ -172,13 +172,84 @@ Section __.
       ok_to_deduce_fact r s.(known_facts) s.(sent_facts)
         (meta_dfact R mf_args np.(np_name) num).
 
+  (* Adding an [allowed_inputs]-consistent fact to [known] preserves
+     [knows_datalog_fact].  Normal facts are monotone by [in_cons]; for a meta
+     fact the exact-count conditions could break if the new fact were a match,
+     but [allowed_inputs] bounds matches by the declared total, so [x] cannot be
+     a new match and the counts (and the iff) carry over. *)
+  Lemma knows_datalog_fact_add_allowed x known h :
+    allowed_inputs (x :: known) ->
+    knows_datalog_fact known h ->
+    knows_datalog_fact (x :: known) h.
+  Proof.
+    intros Hallow Hknows.
+    destruct h as [R args | R margs mf_set].
+    - apply in_cons. exact Hknows.
+    - destruct Hknows as (num & Hexp & Hexn & Hiff).
+      destruct Hexp as (ems & Hf2 & Hsum).
+      assert (Hf2' : Forall2 (fun k e => In (meta_dfact R margs k e) (x :: known))
+                             (R_senders R) ems).
+      { clear -Hf2. induction Hf2; constructor; auto using in_cons. }
+      assert (Hnm : ~ dfact_matches R margs x).
+      { intro Hmatch. destruct Hallow as (_ & Hbound).
+        destruct (Hbound R margs ems Hf2') as (num' & Hle & Hexn').
+        assert (HexnS : Existsn (dfact_matches R margs) (S num) (x :: known))
+          by (apply Existsn_yes; assumption).
+        pose proof (Existsn_unique _ _ _ _ Hexn' HexnS) as Heq. lia. }
+      exists num. split; [| split].
+      + exists ems. split; [exact Hf2' | exact Hsum].
+      + apply Existsn_no; assumption.
+      + intros nfargs Hm. specialize (Hiff nfargs Hm). split; intros H.
+        * apply in_cons. apply (proj1 Hiff). exact H.
+        * cbn in H. destruct H as [Hx | Hin].
+          -- exfalso. apply Hnm. exists nfargs. split; [exact Hx | exact Hm].
+          -- apply (proj2 Hiff). exact Hin.
+  Qed.
+
   Lemma step_preserves_meta_facts_correct s e s' :
-    meta_rules_valid np.(np_rules) ->
     allowed_inputs s'.(known_facts) ->
     meta_facts_correct s ->
     node_step np s e s' ->
     meta_facts_correct s'.
-  Admitted.
+  Proof.
+    intros Hallow Hmfc Hstep.
+    inversion Hstep as [s0 out Hnew | s0 inp]; subst; clear Hstep;
+      intros R mf_args num Hin; cbn [known_facts sent_facts] in Hallow, Hin |- *.
+    - (* deduce *)
+      destruct Hnew as (Hex & Hok).
+      destruct Hin as [Hhead | Hin_old].
+      + (* out is the newly-deduced meta *)
+        subst out.
+        apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
+        cbn in Hcdf. destruct Hcdf as (_ & mc & mh & hyps & Hr_eq & Hcdm & Hhyps).
+        destruct Hcdm as (ctx & mfr & mfa & mfc & Hres & HEx & Hconcl & Hinterp).
+        exists mc, mh, hyps. subst r.
+        split; [exact Hr_in | split; [| exact Hhyps]].
+        exists ctx, mfr, mfa, mfc.
+        split; [exact Hres | split; [| split; [exact Hconcl | exact Hinterp]]].
+        apply Existsn_no; [intros (nfa & Hc & _); discriminate Hc | exact HEx].
+      + (* existing meta in sent *)
+        destruct (Hmfc R mf_args num Hin_old) as (mc & mh & hyps & Hrule & Hcdm & Hhyps).
+        assert (Hnm : ~ dfact_matches R mf_args out).
+        { intros (oargs & Hout & Hmatch). subst out.
+          apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
+          cbn in Hcdf. destruct Hcdf as (_ & Hguard).
+          exact (Hguard mf_args num Hin_old Hmatch). }
+        destruct Hcdm as (ctx & mfr & mfa & mfc & Hres & HEx & Hconcl & Hinterp).
+        exists mc, mh, hyps.
+        split; [exact Hrule | split; [| exact Hhyps]].
+        exists ctx, mfr, mfa, mfc.
+        split; [exact Hres | split; [| split; [exact Hconcl | exact Hinterp]]].
+        apply Existsn_no; [| exact HEx].
+        assert (mfr = R) as -> by congruence.
+        assert (mfa = mf_args) as -> by congruence.
+        exact Hnm.
+    - (* input *)
+      destruct (Hmfc R mf_args num Hin) as (mc & mh & hyps & Hrule & Hcdm & Hhyps).
+      exists mc, mh, hyps. split; [exact Hrule | split; [exact Hcdm |]].
+      eapply Forall_impl; [| exact Hhyps].
+      intros h Hh. apply knows_datalog_fact_add_allowed; [exact Hallow | exact Hh].
+  Qed.
 
   Lemma step_preserves_meta_facts_ok s e s' :
     meta_rules_valid np.(np_rules) ->
