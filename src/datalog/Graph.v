@@ -932,8 +932,7 @@ Section __.
       assert (Hl3 : incl_mod_weak equiv (fwd_total k r)
                       (inputs_of (gns_trace vk) ++ gns_queue vk))
         by eauto using incl_mod_weak_of_submultiset, fwd_total_sub_combined.
-      exact (incl_mod_weak_trans _ _ _ _ Hl1
-               (incl_mod_weak_trans _ _ _ _ Hl2 Hl3)).
+      eauto using incl_mod_weak_trans.
     Qed.
 
     Lemma node_will_match' gs1 t1 lbl outs gs1' gs2 t2 :
@@ -1114,25 +1113,22 @@ Section __.
       induction Hrun as [ | T0 gmid e gsf Hrun' IH Hstep ]; intros Hinp.
       - apply eventually_done. split; [ apply le_refl | apply le_weak_refl ].
       - destruct e as [m | lbl outs].
-        + cbn in Hinp. discriminate Hinp.
-        + change (inputs_of (O_event lbl outs :: T0)) with (inputs_of T0) in Hinp.
-          specialize (IH Hinp).
-          apply eventually_will_step_annotate in IH.
-          eapply eventually_trans; [ exact IH | ].
-          intros [gs2 t2] (Hreach & Hle_mid & Hlw_mid).
-          destruct Hreach as (tr & Hstar_gg & -> & Hga_imp).
-          specialize (Hga_imp Hga0).
-          assert (Hstar2 : star gstep initial_gs (tr ++ t0) gs2)
-            by (eapply star_app; [ exact Hstar0 | exact Hstar_gg ]).
-          assert (Hstarmid : star gstep initial_gs (T0 ++ t0) gmid)
-            by (eapply star_app; [ exact Hstar0 | exact Hrun' ]).
-          assert (Hgamid : graph_inputs_allowed (inputs_of (T0 ++ t0))).
-          { rewrite inputs_of_app, Hinp. cbn [app]. exact Hga0. }
-          assert (Hsub : submultiset (inputs_of (T0 ++ t0)) (inputs_of (tr ++ t0))).
-          { rewrite !inputs_of_app, Hinp. cbn [app].
-            exists (inputs_of tr). apply Permutation_app_comm. }
-          apply (node_will_match gmid (T0 ++ t0) lbl outs gsf gs2 (tr ++ t0)
-                   Hstarmid Hstar2 Hsub Hgamid Hga_imp Hstep Hle_mid Hlw_mid).
+        { discriminate Hinp. }
+        simpl in Hinp.
+        specialize (IH Hinp).
+        apply eventually_will_step_annotate in IH.
+        eapply eventually_trans; [ exact IH | ].
+        intros [gs2 t2] (Hreach & Hle_mid & Hlw_mid).
+        destruct Hreach as (tr & Hstar_gg & -> & Hga_imp).
+        specialize (Hga_imp Hga0).
+        assert (Hstar2 : star gstep initial_gs (tr ++ t0) gs2) by eauto using star_app.
+        assert (Hstarmid : star gstep initial_gs (T0 ++ t0) gmid) by eauto using star_app.
+        assert (Hgamid : graph_inputs_allowed (inputs_of (T0 ++ t0))).
+        { rewrite inputs_of_app, Hinp. cbn [app]. exact Hga0. }
+        assert (Hsub : submultiset (inputs_of (T0 ++ t0)) (inputs_of (tr ++ t0))).
+        { rewrite !inputs_of_app, Hinp. cbn [app].
+          eexists. apply Permutation_app_comm. }
+        eauto using node_will_match.
     Qed.
 
     Lemma graph_might_implies_will t gs o :
@@ -1142,8 +1138,7 @@ Section __.
       will_output_equiv gstep graph_equiv graph_inputs_allowed gs t o.
     Proof.
       intros Hstar Hga (t' & gs_f & Hrun & Hinp & Hino).
-      assert (Hstarf : star gstep initial_gs (t' ++ t) gs_f)
-        by (eapply star_app; [ exact Hstar | exact Hrun ]).
+      assert (Hstarf : star gstep initial_gs (t' ++ t) gs_f) by eauto using star_app.
       assert (Hgaf : graph_inputs_allowed (inputs_of (t' ++ t))).
       { rewrite inputs_of_app, Hinp. cbn [app]. exact Hga. }
       assert (Hint : In o (output_total gs_f)).
@@ -1156,16 +1151,14 @@ Section __.
       eapply eventually_trans; [ exact Hdrive | ].
       intros [gs2 t2] (Hreach & Hle2 & _).
       destruct Hreach as (tr & Hstar_gg & -> & Hga_imp). specialize (Hga_imp Hga).
-      assert (Hstar2 : star gstep initial_gs (tr ++ t) gs2)
-        by (eapply star_app; [ exact Hstar | exact Hstar_gg ]).
+      assert (Hstar2 : star gstep initial_gs (tr ++ t) gs2) by eauto using star_app.
       pose proof (le_node_output (t' ++ t) gs_f gs2 (tr ++ t) n m
                     Hstarf Hstar2 Hgaf Hga_imp Hle2 Hnho) as Hemit.
       apply eventually_will_step_annotate in Hemit.
       eapply eventually_weaken; [ exact Hemit | ].
       intros [gs2' t2'] (Hreach' & m' & Hnho' & Heqm).
       destruct Hreach' as (tr' & Hstar_gg' & -> & _).
-      assert (Hstar2' : star gstep initial_gs (tr' ++ (tr ++ t)) gs2')
-        by (eapply star_app; [ exact Hstar2 | exact Hstar_gg' ]).
+      assert (Hstar2' : star gstep initial_gs (tr' ++ tr ++ t) gs2') by eauto using star_app.
       exists (m', n). split.
       - split; [ exact Heqm | reflexivity ].
       - eapply Permutation_in;
