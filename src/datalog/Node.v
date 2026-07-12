@@ -190,38 +190,62 @@ Section __.
     meta_facts_correct s /\
     meta_facts_ok s.
 
-  (* Adding an [allowed_inputs]-consistent fact to [known] preserves
-     [knows_datalog_fact].  Normal facts are monotone by [in_cons]; for a meta
-     fact the exact-count conditions could break if the new fact were a match,
-     but [allowed_inputs] bounds matches by the declared total, so [x] cannot be
-     a new match and the counts (and the iff) carry over. *)
-  Lemma knows_datalog_fact_add_allowed x known h :
-    allowed_inputs (x :: known) ->
-    knows_datalog_fact known h ->
-    knows_datalog_fact (x :: known) h.
+  (* Monotonicity under submultiset, with [allowed_inputs] pinning the counts.
+     [allowed_inputs] is downward-closed (a submultiset of allowed inputs is
+     allowed).  [knows_datalog_fact] lifts upward into an allowed superset: the
+     bound forces the extra part [rest] to contain no matches ([Existsn_split]
+     decomposes the count of [l2 ~ l1 ++ rest]), so the exact-count [Existsn] and
+     the set-characterising iff both carry over. *)
+  Lemma allowed_inputs_submultiset l1 l2 :
+    submultiset l1 l2 -> allowed_inputs l2 -> allowed_inputs l1.
   Proof.
-    intros Hallow Hknows.
+    intros Hsub Hallow. pose proof (submultiset_incl _ _ Hsub) as Hincl.
+    destruct Hsub as (rest & Hperm). destruct Hallow as (Huniq & Hbound). split.
+    - intros R mf_args k num num0 H1 H2.
+      apply (Huniq R mf_args k num num0); apply Hincl; assumption.
+    - intros R mf_args ems Hf2.
+      assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) l2)
+                             (R_senders R) ems)
+        by (clear -Hf2 Hincl; induction Hf2; constructor;
+              [apply Hincl; assumption | assumption]).
+      destruct (Hbound R mf_args ems Hf2') as (num2 & Hle2 & Hexn2).
+      pose proof (Existsn_perm _ _ _ _ Hexn2 Hperm) as Hexn2'.
+      apply Existsn_split in Hexn2'. destruct Hexn2' as (n1 & n_rest & Hsum2 & Hex1 & _).
+      exists n1. split; [lia | exact Hex1].
+  Qed.
+
+  Lemma knows_datalog_fact_submultiset l1 l2 h :
+    submultiset l1 l2 -> allowed_inputs l2 ->
+    knows_datalog_fact l1 h -> knows_datalog_fact l2 h.
+  Proof.
+    intros Hsub Hallow Hk. pose proof (submultiset_incl _ _ Hsub) as Hincl.
+    destruct Hsub as (rest & Hperm).
     destruct h as [R args | R margs mf_set].
-    - apply in_cons. exact Hknows.
-    - destruct Hknows as (num & Hexp & Hexn & Hiff).
-      destruct Hexp as (ems & Hf2 & Hsum).
-      assert (Hf2' : Forall2 (fun k e => In (meta_dfact R margs k e) (x :: known))
-                             (R_senders R) ems).
-      { clear -Hf2. induction Hf2; constructor; auto using in_cons. }
-      assert (Hnm : ~ dfact_matches R margs x).
-      { intro Hmatch. destruct Hallow as (_ & Hbound).
-        destruct (Hbound R margs ems Hf2') as (num' & Hle & Hexn').
-        assert (HexnS : Existsn (dfact_matches R margs) (S num) (x :: known))
-          by (apply Existsn_yes; assumption).
-        pose proof (Existsn_unique _ _ _ _ Hexn' HexnS) as Heq. lia. }
+    - apply Hincl. exact Hk.
+    - destruct Hk as (num & (ems & Hf2 & Hsum) & Hexn & Hiff).
+      assert (Hf2' : Forall2 (fun k e => In (meta_dfact R margs k e) l2)
+                             (R_senders R) ems)
+        by (clear -Hf2 Hincl; induction Hf2; constructor;
+              [apply Hincl; assumption | assumption]).
+      destruct Hallow as (_ & Hbound).
+      destruct (Hbound R margs ems Hf2') as (num2 & Hle2 & Hexn2).
+      rewrite <- Hsum in Hle2.
+      pose proof (Existsn_perm _ _ _ _ Hexn2 Hperm) as Hexn2'.
+      apply Existsn_split in Hexn2'. destruct Hexn2' as (n1 & n_rest & Hsum2 & Hex1 & Hexr).
+      pose proof (Existsn_unique _ _ _ _ Hex1 Hexn) as Hn1.
+      assert (n_rest = 0) by lia. subst n_rest.
+      assert (Hnum2 : num2 = num) by lia.
+      pose proof (Existsn_0_Forall_not _ _ Hexr) as Hrest_no.
       exists num. split; [| split].
       + exists ems. split; [exact Hf2' | exact Hsum].
-      + apply Existsn_no; assumption.
-      + intros nfargs Hm. specialize (Hiff nfargs Hm). split; intros H.
-        * apply in_cons. apply (proj1 Hiff). exact H.
-        * cbn in H. destruct H as [Hx | Hin].
-          -- exfalso. apply Hnm. exists nfargs. split; [exact Hx | exact Hm].
-          -- apply (proj2 Hiff). exact Hin.
+      + rewrite <- Hnum2. exact Hexn2.
+      + intros nfa Hm. specialize (Hiff nfa Hm). split; intro H.
+        * apply Hincl. apply (proj1 Hiff). exact H.
+        * apply (proj2 Hiff).
+          pose proof (Permutation_in _ Hperm H) as H'.
+          apply in_app_or in H'. destruct H' as [Hin1 | Hinr]; [exact Hin1 |].
+          exfalso. rewrite Forall_forall in Hrest_no.
+          apply (Hrest_no _ Hinr). exists nfa. split; [reflexivity | exact Hm].
   Qed.
 
   Lemma step_preserves_meta_facts_correct s e s' :
@@ -266,7 +290,8 @@ Section __.
       destruct (Hmfc R mf_args num Hin) as (mc & mh & hyps & Hrule & Hcdm & Hhyps).
       exists mc, mh, hyps. split; [exact Hrule | split; [exact Hcdm |]].
       eapply Forall_impl; [| exact Hhyps].
-      intros h Hh. apply knows_datalog_fact_add_allowed; [exact Hallow | exact Hh].
+      intros h Hh. eapply knows_datalog_fact_submultiset;
+        [apply submultiset_cons | exact Hallow | exact Hh].
   Qed.
 
   (* An [allowed_inputs]-consistent input cannot be a fresh match for a
@@ -405,25 +430,6 @@ Section __.
     - intros r R mf_args num Hr H. destruct H.
   Qed.
 
-  (* [allowed_inputs] is downward-closed under dropping a front element (the count
-     bound only weakens); this is what lets [node_good] survive along a whole run
-     given only the full run's [allowed_inputs]. *)
-  Lemma allowed_inputs_tail x l :
-    allowed_inputs (x :: l) -> allowed_inputs l.
-  Proof.
-    intros (Huniq & Hbound). split.
-    - intros R mf_args k num num0 H1 H2.
-      apply (Huniq R mf_args k num num0); apply in_cons; assumption.
-    - intros R mf_args ems Hf2.
-      assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (x :: l))
-                             (R_senders R) ems)
-        by (clear -Hf2; induction Hf2; constructor; auto using in_cons).
-      destruct (Hbound R mf_args ems Hf2') as (num' & Hle & Hexn).
-      inversion Hexn; subst.
-      + exists num'. split; assumption.
-      + eexists. split; [| eassumption]. lia.
-  Qed.
-
   Lemma node_good_star s t t' s' :
     meta_rules_valid np.(np_rules) ->
     allowed_inputs (inputs_of (t' ++ t)) ->
@@ -436,69 +442,9 @@ Section __.
     - exact Hgood.
     - assert (Hallow0 : allowed_inputs (inputs_of (t0 ++ t))).
       { destruct e as [m | lbl outs].
-        - eapply allowed_inputs_tail. exact Hallow.
+        - eapply allowed_inputs_submultiset; [apply submultiset_cons | exact Hallow].
         - exact Hallow. }
       exact (node_good_step s'0 e s'' (t0 ++ t) Hmrv (IH Hallow0) Hallow Hstep).
-  Qed.
-
-  Lemma allowed_inputs_perm l1 l2 :
-    Permutation l1 l2 -> allowed_inputs l1 -> allowed_inputs l2.
-  Proof.
-    intros Hperm (Huniq & Hbound). split.
-    - intros R mf_args k num num0 H1 H2.
-      apply (Huniq R mf_args k num num0);
-        (eapply Permutation_in; [apply Permutation_sym; exact Hperm | eassumption]).
-    - intros R mf_args ems Hf2.
-      assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) l1)
-                             (R_senders R) ems).
-      { clear -Hf2 Hperm. induction Hf2; constructor;
-          [ eapply Permutation_in; [apply Permutation_sym; exact Hperm | assumption]
-          | assumption ]. }
-      destruct (Hbound R mf_args ems Hf2') as (num' & Hle & Hexn).
-      exists num'. split; [exact Hle | eapply Existsn_perm; [exact Hexn | exact Hperm]].
-  Qed.
-
-  Lemma knows_datalog_fact_perm l1 l2 h :
-    Permutation l1 l2 -> knows_datalog_fact l1 h -> knows_datalog_fact l2 h.
-  Proof.
-    intros Hperm Hk. destruct h as [R args | R margs mf_set].
-    - eapply Permutation_in; [exact Hperm | exact Hk].
-    - destruct Hk as (num & (ems & Hf2 & Hsum) & Hexn & Hiff).
-      exists num. split; [| split].
-      + exists ems. split; [| exact Hsum].
-        clear -Hf2 Hperm. induction Hf2; constructor;
-          [ eapply Permutation_in; [exact Hperm | assumption] | assumption ].
-      + eapply Existsn_perm; [exact Hexn | exact Hperm].
-      + intros nfa Hm. specialize (Hiff nfa Hm). split; intro H.
-        * eapply Permutation_in; [exact Hperm |]. apply (proj1 Hiff). exact H.
-        * apply (proj2 Hiff).
-          eapply Permutation_in; [apply Permutation_sym; exact Hperm | exact H].
-  Qed.
-
-  Lemma knows_datalog_fact_app_allowed extra known h :
-    allowed_inputs (extra ++ known) ->
-    knows_datalog_fact known h ->
-    knows_datalog_fact (extra ++ known) h.
-  Proof.
-    intros Hallow Hk. revert Hallow.
-    induction extra as [| x extra IH]; intros Hallow.
-    - exact Hk.
-    - apply knows_datalog_fact_add_allowed;
-        [ exact Hallow | apply IH; eapply allowed_inputs_tail; exact Hallow ].
-  Qed.
-
-  Lemma knows_datalog_fact_submultiset l1 l2 h :
-    submultiset l1 l2 ->
-    allowed_inputs l2 ->
-    knows_datalog_fact l1 h ->
-    knows_datalog_fact l2 h.
-  Proof.
-    intros (rest & Hperm) Hallow Hk.
-    eapply knows_datalog_fact_perm; [apply Permutation_sym; exact Hperm |].
-    eapply knows_datalog_fact_perm; [apply Permutation_app_comm |].
-    apply knows_datalog_fact_app_allowed; [| exact Hk].
-    eapply allowed_inputs_perm; [| exact Hallow].
-    etransitivity; [exact Hperm | apply Permutation_app_comm].
   Qed.
 
   Lemma node_will_match' s1 lbl outs s1' s2 t2 :
