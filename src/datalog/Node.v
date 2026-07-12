@@ -7,6 +7,7 @@ Section __.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
+  Context {node_name : Type}.
 
   Implicit Types mf_rel : rel.
   Implicit Types mf_args : list (option T).
@@ -14,7 +15,7 @@ Section __.
 
   Inductive dfact :=
   | normal_dfact (nf_rel : rel) (nf_args : list T)
-  | meta_dfact (mf_rel : rel) (mf_args : list (option T)) (source : option nat) (expected_msgs : nat).
+  | meta_dfact (mf_rel : rel) (mf_args : list (option T)) (source : node_name) (expected_msgs : nat).
 
   Implicit Types known_facts sent_facts waiting_facts input_facts inputs : list dfact.
   Implicit Types nf result : dfact.
@@ -31,16 +32,12 @@ Section __.
         s2.(waiting_facts) = l1 ++ l2 /\
         s2.(sent_facts) = s1.(sent_facts).
 
-  Context (is_input : rel -> bool).
-  Context (R_senders : rel -> list nat).
+  Context (R_senders : rel -> list node_name).
 
   Definition expect_num_R_facts R mf_args known_facts num :=
-    if is_input R then
-      In (meta_dfact R mf_args None num) known_facts
-    else
-      exists expected_msgss,
-        Forall2 (fun n expected_msgs => In (meta_dfact R mf_args (Some n) expected_msgs) known_facts) (R_senders R) expected_msgss /\
-          num = fold_left Nat.add expected_msgss O.
+    exists expected_msgss,
+      Forall2 (fun n expected_msgs => In (meta_dfact R mf_args n expected_msgs) known_facts) (R_senders R) expected_msgss /\
+        num = fold_left Nat.add expected_msgss O.
 
   Definition dfact_matches mf_rel mf_args nf :=
     exists nf_args,
@@ -65,9 +62,9 @@ Section __.
       non_meta_rule_impl r nf_rel nf_args hyps /\
         Forall (knows_datalog_fact known_facts) hyps.
 
-  Definition can_deduce_meta_fact (mf_concls mf_hyps : list meta_clause) (node: nat) (sent_facts : list dfact) (result : dfact) (hyps : list fact) :=
+  Definition can_deduce_meta_fact (mf_concls mf_hyps : list meta_clause) (node : node_name) (sent_facts : list dfact) (result : dfact) (hyps : list fact) :=
     exists ctx mf_rel mf_args mf_cnt,
-      result = meta_dfact mf_rel mf_args (Some node) mf_cnt /\
+      result = meta_dfact mf_rel mf_args node mf_cnt /\
         Existsn (dfact_matches mf_rel mf_args) mf_cnt sent_facts /\
         Exists (fun c => interp_meta_clause ctx c (meta_fact mf_rel mf_args (fun _ => False))) mf_concls /\
         Forall2 (interp_meta_clause ctx) mf_hyps hyps.
@@ -87,72 +84,64 @@ Section __.
     | normal_dfact nf_rel nf_args =>
         can_deduce_normal_fact r known nf_rel nf_args /\
           forall mf_args num,
-            In (meta_dfact nf_rel mf_args (Some node) num) sent ->
+            In (meta_dfact nf_rel mf_args node num) sent ->
             Forall2 matches mf_args nf_args ->
             False
     | meta_dfact mf_rel mf_args source num_msgs =>
-        source = Some node /\
+        source = node /\
           exists mr_concls mr_hyps hyps,
             r = meta_rule mr_concls mr_hyps /\
               can_deduce_meta_fact mr_concls mr_hyps node sent f hyps /\
               Forall (knows_datalog_fact known) hyps
     end.
 
-  Record spec_node_prog :=
-    { spec_node_rules : list rule;
-      spec_node_label : nat }.
+  Record node_prog :=
+    { np_rules : list rule;
+      np_name : node_name }.
 
-  Definition new_facts (sp : spec_node_prog) (rs : node_state) f :=
+  Definition new_facts (sp : node_prog) (rs : node_state) f :=
     Exists
-      (fun r => can_deduce_fact r sp.(spec_node_label) rs.(known_facts) rs.(sent_facts) f)
-      sp.(spec_node_rules) /\
+      (fun r => can_deduce_fact r sp.(np_name) rs.(known_facts) rs.(sent_facts) f)
+      sp.(np_rules) /\
       Forall
         (fun r => ok_to_deduce_fact r rs.(known_facts) rs.(sent_facts) f)
-        sp.(spec_node_rules).
+        sp.(np_rules).
 
-  Variant spec_label :=
+  Variant node_label :=
     | sl_dequeue
     | sl_deduce (f : dfact).
 
-  Local Notation IO_event := (Smallstep.IO_event spec_label dfact).
+  Local Notation IO_event := (Smallstep.IO_event node_label dfact).
 
-  Inductive spec_node_step (sp : spec_node_prog) : node_state -> IO_event -> node_state -> Prop :=
-  | spec_node_dequeue_step rs input rest :
+  Inductive node_step (sp : node_prog) : node_state -> IO_event -> node_state -> Prop :=
+  | node_dequeue_step rs input rest :
     rs.(waiting_facts) = input :: rest ->
-    spec_node_step sp rs (O_event sl_dequeue [])
+    node_step sp rs (O_event sl_dequeue [])
                    {| known_facts := input :: rs.(known_facts);
                      waiting_facts := rest;
                      sent_facts := rs.(sent_facts) |}
-  | spec_node_deduce_step rs output :
+  | node_deduce_step rs output :
     new_facts sp rs output ->
-    spec_node_step sp rs (O_event (sl_deduce output) [output])
+    node_step sp rs (O_event (sl_deduce output) [output])
                    {| known_facts := rs.(known_facts);
                      waiting_facts := rs.(waiting_facts);
                      sent_facts := output :: rs.(sent_facts) |}
-  | spec_node_input_step rs input :
-    spec_node_step sp rs (I_event input)
+  | node_input_step rs input :
+    node_step sp rs (I_event input)
                    {| known_facts := rs.(known_facts);
                      waiting_facts := rs.(waiting_facts) ++ [input];
                      sent_facts := rs.(sent_facts) |}.
 
-  Definition consistent_inputs (input_facts : list dfact) : Prop :=
-    (forall R mf_args num,
-        In (meta_dfact R mf_args None num) input_facts ->
-        (forall num0, In (meta_dfact R mf_args None num0) input_facts -> num0 = num) /\
-          exists num', num' <= num /\ Existsn (dfact_matches R mf_args) num' input_facts)
-    /\
+  Definition allowed_inputs (input_facts : list dfact) :=
     (forall R mf_args k num num0,
-        In (meta_dfact R mf_args (Some k) num) input_facts ->
-        In (meta_dfact R mf_args (Some k) num0) input_facts -> num0 = num)
+        In (meta_dfact R mf_args k num) input_facts ->
+        In (meta_dfact R mf_args k num0) input_facts -> num0 = num)
     /\
     (forall R mf_args expected_msgss,
-        Forall2 (fun k e => In (meta_dfact R mf_args (Some k) e) input_facts)
+        Forall2 (fun k e => In (meta_dfact R mf_args k e) input_facts)
                 (R_senders R) expected_msgss ->
         exists num', num' <= fold_left Nat.add expected_msgss 0 /\
                      Existsn (dfact_matches R mf_args) num' input_facts).
-
-  Definition node_allowed (inputs : list dfact) : Prop :=
-    consistent_inputs inputs.
 
   Definition dfact_equiv (f1 f2 : dfact) : Prop :=
     match f1, f2 with
@@ -160,6 +149,7 @@ Section __.
     | _, _ => f1 = f2
     end.
 
+  (*TODO completely wrong; will fix later.*)
   Definition dfact_consistent (a l : list dfact) : Prop :=
     forall R margs source num,
       In (meta_dfact R margs source num) a ->
