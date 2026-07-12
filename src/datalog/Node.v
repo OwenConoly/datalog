@@ -300,6 +300,16 @@ Section __.
      small ++ rest]) contains no further matches: [allowed_inputs] caps [big]'s
      matches at the declared total, which [small] alone already meets, so
      [Existsn_split] forces [rest]'s share to zero. *)
+  (* Every list has some exact match-count (classically). *)
+  Lemma Existsn_total (P : dfact -> Prop) l : exists n, Existsn P n l.
+  Proof.
+    induction l as [| x l IH].
+    - exists 0. constructor.
+    - destruct IH as (n & Hn). destruct (classic (P x)).
+      + exists (S n). apply Existsn_yes; assumption.
+      + exists n. apply Existsn_no; assumption.
+  Qed.
+
   Lemma submultiset_rest_no_matches R mf_args small rest big num :
     Permutation big (small ++ rest) ->
     allowed_inputs big ->
@@ -370,6 +380,51 @@ Section __.
       + intro Hin. apply (proj2 Hiff_new). apply Hincl. exact Hin.
   Qed.
 
+  (* Transfer a deducible normal fact down a submultiset.  If [r] can deduce a
+     [R/nfargs] normal from the bigger multiset, and [R/nfargs] matches an
+     aggregate that a valid meta-rule ([mc/mh], concluding [R/mf_args]) derives,
+     then [r]'s local hypotheses are potentially supported, so they transfer down
+     ([knows_datalog_fact_transfer_down_sub]) and [r] can deduce the same normal
+     from the small multiset.  Extracted from [step_preserves_meta_facts_ok]'s
+     input case; reused for the meta flush in [node_will_match']. *)
+  Lemma can_deduce_normal_transfer_down r R mf_args nfargs mc mh hyps_d ctx small big :
+    meta_rules_valid np.(np_rules) ->
+    submultiset small big ->
+    allowed_inputs big ->
+    In (meta_rule mc mh) np.(np_rules) ->
+    Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args (fun _ => False))) mc ->
+    Forall2 (interp_meta_clause ctx) mh hyps_d ->
+    Forall (knows_datalog_fact small) hyps_d ->
+    In r np.(np_rules) ->
+    Forall2 matches mf_args nfargs ->
+    can_deduce_normal_fact r big R nfargs ->
+    can_deduce_normal_fact r small R nfargs.
+  Proof.
+    intros Hmrv Hsub Hallow Hin_mr Hconcl Hinterp Hknown_mr Hr_in Hmatch Hcdn.
+    destruct Hcdn as (local_hyps & Hnmri & Hknown_local_new).
+    assert (Hri_meta : rule_impl (one_step_derives np.(np_rules)) (meta_rule mc mh)
+              (meta_fact R mf_args (one_step_derives np.(np_rules) hyps_d R)) hyps_d).
+    { eapply meta_rule_impl with (ctx := ctx).
+      - eapply Exists_impl; [| exact Hconcl].
+        intros c Hc. destruct Hc as (mfa0 & mfs0 & Hf2c & Heqc).
+        injection Heqc as Hrel Hargs _.
+        exists mfa0, (one_step_derives np.(np_rules) hyps_d R).
+        split; [exact Hf2c |]. rewrite Hargs, Hrel. reflexivity.
+      - exact Hinterp.
+      - intros args'' _. reflexivity. }
+    assert (Hri_normal : rule_impl (one_step_derives np.(np_rules)) r
+                           (normal_fact R nfargs) local_hyps)
+      by (apply simple_rule_impl; exact Hnmri).
+    pose proof (Hmrv R mf_args (one_step_derives np.(np_rules) hyps_d R) hyps_d
+                  (meta_rule mc mh) Hin_mr Hri_meta r nfargs local_hyps Hr_in
+                  Hri_normal Hmatch) as Hpot.
+    exists local_hyps. split; [exact Hnmri |].
+    rewrite Forall_forall in Hknown_local_new, Hpot |- *.
+    intros h Hh. eapply knows_datalog_fact_transfer_down_sub;
+      [exact Hsub | exact Hallow | exact Hknown_mr
+      | exact (Hpot h Hh) | exact (Hknown_local_new h Hh)].
+  Qed.
+
   Lemma step_preserves_meta_facts_ok s e s' :
     meta_rules_valid np.(np_rules) ->
     allowed_inputs s'.(known_facts) ->
@@ -393,35 +448,16 @@ Section __.
     - (* input: known grows *)
       cbn [ok_to_deduce_fact]. intros nfargs Hcdn Hmatch.
       destruct (Hmfc R mf_args num HIn) as (mc & mh & hyps_d & Hin_mr & Hcdmf & Hknown_mr).
-      destruct Hcdn as (local_hyps & Hnmri & Hknown_local_new).
       destruct Hcdmf as (ctx & mfr & mfa & mfc & Hres & _ & Hconcl & Hinterp).
       assert (mfr = R) as -> by congruence.
       assert (mfa = mf_args) as -> by congruence.
-      assert (Hri_meta : rule_impl (one_step_derives np.(np_rules)) (meta_rule mc mh)
-                (meta_fact R mf_args (one_step_derives np.(np_rules) hyps_d R)) hyps_d).
-      { eapply meta_rule_impl with (ctx := ctx).
-        - eapply Exists_impl; [| exact Hconcl].
-          intros c Hc. destruct Hc as (mfa0 & mfs0 & Hf2c & Heqc).
-          injection Heqc as Hrel Hargs _.
-          exists mfa0, (one_step_derives np.(np_rules) hyps_d R).
-          split; [exact Hf2c |]. rewrite Hargs, Hrel. reflexivity.
-        - exact Hinterp.
-        - intros args'' _. reflexivity. }
-      assert (Hri_normal : rule_impl (one_step_derives np.(np_rules)) r
-                             (normal_fact R nfargs) local_hyps)
-        by (apply simple_rule_impl; exact Hnmri).
-      pose proof (Hmrv R mf_args (one_step_derives np.(np_rules) hyps_d R) hyps_d
-                    (meta_rule mc mh) Hin_mr Hri_meta r nfargs local_hyps Hr_in
-                    Hri_normal Hmatch) as Hpot.
-      assert (Hknown_local_old : Forall (knows_datalog_fact s.(known_facts)) local_hyps).
-      { rewrite Forall_forall in Hknown_local_new, Hpot |- *.
-        intros h Hh. eapply knows_datalog_fact_transfer_down_sub;
-          [apply submultiset_cons | exact Hallow | exact Hknown_mr
-          | exact (Hpot h Hh) | exact (Hknown_local_new h Hh)]. }
       pose proof (Hmfok r R mf_args num Hr_in HIn) as Hok0.
       cbn [ok_to_deduce_fact] in Hok0.
       apply Hok0; [| exact Hmatch].
-      exists local_hyps. split; [exact Hnmri | exact Hknown_local_old].
+      eapply can_deduce_normal_transfer_down;
+        [ exact Hmrv | apply submultiset_cons | exact Hallow | exact Hin_mr
+        | exact Hconcl | exact Hinterp | exact Hknown_mr | exact Hr_in
+        | exact Hmatch | exact Hcdn ].
   Qed.
 
   Lemma node_good_step s e s' t :
@@ -465,6 +501,22 @@ Section __.
         - eapply allowed_inputs_submultiset; [apply submultiset_cons | exact Hallow].
         - exact Hallow. }
       exact (node_good_step s'0 e s'' (t0 ++ t) Hmrv (IH Hallow0) Hallow Hstep).
+  Qed.
+
+  (* [known] and [sent] only grow along a run. *)
+  Lemma node_step_star_mono s t' s' :
+    star (node_step np) s t' s' ->
+    submultiset s.(known_facts) s'.(known_facts) /\
+    submultiset s.(sent_facts) s'.(sent_facts).
+  Proof.
+    intros Hstar. induction Hstar as [| t0 sa e sb Hstar' IH Hstep].
+    - split; apply submultiset_refl.
+    - destruct IH as (IHk & IHs).
+      assert (submultiset sa.(known_facts) sb.(known_facts) /\
+              submultiset sa.(sent_facts) sb.(sent_facts)) as (Hk & Hs).
+      { inversion Hstep; subst; cbn [known_facts sent_facts];
+          split; try apply submultiset_refl; apply submultiset_cons. }
+      split; eapply submultiset_trans; eassumption.
   Qed.
 
   Lemma node_will_match' s1 lbl outs s1' s2 t2 :
