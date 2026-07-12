@@ -30,7 +30,23 @@ Section __.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
 
   Local Notation dfact := (dfact (node_name := option nat)).
-  Local Notation node_state := (node_state (node_name := option nat)).
+
+  (* Operational keeps the three-field node state (with a receive queue
+     [waiting_facts]) that its monolithic [comp_step] is written against.  This is
+     its own record, independent of Node.v's [node_state], which dropped
+     [waiting_facts]; the node_state-independent deduction predicates
+     ([knows_datalog_fact], [can_deduce_fact], ...) still come from Node.v. *)
+  Record node_state :=
+    { known_facts : list dfact;
+      waiting_facts : list dfact;
+      sent_facts : list dfact }.
+
+  Definition learn_fact_at_rule (s1 s2 : node_state) : Prop :=
+    exists l1 x l2,
+      s2.(known_facts) = x :: s1.(known_facts) /\
+        s1.(waiting_facts) = l1 ++ x :: l2 /\
+        s2.(waiting_facts) = l1 ++ l2 /\
+        s2.(sent_facts) = s1.(sent_facts).
 
   Implicit Types mf_rel : rel.
   Implicit Types mf_args : list (option T).
