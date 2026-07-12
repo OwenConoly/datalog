@@ -1,4 +1,4 @@
-From Stdlib Require Import List Lia.
+From Stdlib Require Import List Lia Permutation.
 From Datalog Require Import List Datalog Smallstep.
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
@@ -439,6 +439,66 @@ Section __.
         - eapply allowed_inputs_tail. exact Hallow.
         - exact Hallow. }
       exact (node_good_step s'0 e s'' (t0 ++ t) Hmrv (IH Hallow0) Hallow Hstep).
+  Qed.
+
+  Lemma allowed_inputs_perm l1 l2 :
+    Permutation l1 l2 -> allowed_inputs l1 -> allowed_inputs l2.
+  Proof.
+    intros Hperm (Huniq & Hbound). split.
+    - intros R mf_args k num num0 H1 H2.
+      apply (Huniq R mf_args k num num0);
+        (eapply Permutation_in; [apply Permutation_sym; exact Hperm | eassumption]).
+    - intros R mf_args ems Hf2.
+      assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) l1)
+                             (R_senders R) ems).
+      { clear -Hf2 Hperm. induction Hf2; constructor;
+          [ eapply Permutation_in; [apply Permutation_sym; exact Hperm | assumption]
+          | assumption ]. }
+      destruct (Hbound R mf_args ems Hf2') as (num' & Hle & Hexn).
+      exists num'. split; [exact Hle | eapply Existsn_perm; [exact Hexn | exact Hperm]].
+  Qed.
+
+  Lemma knows_datalog_fact_perm l1 l2 h :
+    Permutation l1 l2 -> knows_datalog_fact l1 h -> knows_datalog_fact l2 h.
+  Proof.
+    intros Hperm Hk. destruct h as [R args | R margs mf_set].
+    - eapply Permutation_in; [exact Hperm | exact Hk].
+    - destruct Hk as (num & (ems & Hf2 & Hsum) & Hexn & Hiff).
+      exists num. split; [| split].
+      + exists ems. split; [| exact Hsum].
+        clear -Hf2 Hperm. induction Hf2; constructor;
+          [ eapply Permutation_in; [exact Hperm | assumption] | assumption ].
+      + eapply Existsn_perm; [exact Hexn | exact Hperm].
+      + intros nfa Hm. specialize (Hiff nfa Hm). split; intro H.
+        * eapply Permutation_in; [exact Hperm |]. apply (proj1 Hiff). exact H.
+        * apply (proj2 Hiff).
+          eapply Permutation_in; [apply Permutation_sym; exact Hperm | exact H].
+  Qed.
+
+  Lemma knows_datalog_fact_app_allowed extra known h :
+    allowed_inputs (extra ++ known) ->
+    knows_datalog_fact known h ->
+    knows_datalog_fact (extra ++ known) h.
+  Proof.
+    intros Hallow Hk. revert Hallow.
+    induction extra as [| x extra IH]; intros Hallow.
+    - exact Hk.
+    - apply knows_datalog_fact_add_allowed;
+        [ exact Hallow | apply IH; eapply allowed_inputs_tail; exact Hallow ].
+  Qed.
+
+  Lemma knows_datalog_fact_submultiset l1 l2 h :
+    submultiset l1 l2 ->
+    allowed_inputs l2 ->
+    knows_datalog_fact l1 h ->
+    knows_datalog_fact l2 h.
+  Proof.
+    intros (rest & Hperm) Hallow Hk.
+    eapply knows_datalog_fact_perm; [apply Permutation_sym; exact Hperm |].
+    eapply knows_datalog_fact_perm; [apply Permutation_app_comm |].
+    apply knows_datalog_fact_app_allowed; [| exact Hk].
+    eapply allowed_inputs_perm; [| exact Hallow].
+    etransitivity; [exact Hperm | apply Permutation_app_comm].
   Qed.
 
   Lemma node_will_match' s1 lbl outs s1' s2 t2 :
