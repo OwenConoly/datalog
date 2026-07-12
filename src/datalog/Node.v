@@ -155,23 +155,11 @@ Section __.
 
   Local Notation node_will_step := (will_step (node_step np) allowed_inputs).
 
-  Lemma le_node_output s1 s2 o t2 :
-    nle s1 s2 ->
-    In o s1.(sent_facts) ->
-    eventually node_will_step
-      (fun '(gs2', _) => exists o', In o' s2.(sent_facts) /\ dfact_equiv o' o) (s2, t2).
-  Proof. Abort.
-
-
-  Lemma node_will_match' (np : node_prog) s1 t1 lbl outs s1' s2 t2 :
-    star (node_step np) node_init t1 s1 ->
-    star (node_step np) node_init t2 s2 ->
-    allowed_inputs (inputs_of t1) ->
-    allowed_inputs (inputs_of t2) ->
+  Lemma node_will_match' s1 lbl outs s1' s2 t2 :
     node_step np s1 (O_event lbl outs) s1' ->
-    nle_strong s1 s2 ->
+    nle s1 s2 ->
     eventually (will_step (node_step np) allowed_inputs)
-      (fun '(s2', _) =>  s1' s2') (s2, t2).
+      (fun '(s2', _) => nle s1' s2') (s2, t2).
   Admitted.
 
   Lemma node_might_implies_will (np : node_prog) :
