@@ -396,36 +396,6 @@ Section __.
     - intros args'' _. reflexivity.
   Qed.
 
-  (* Transfer a deducible normal fact down a submultiset: if some valid meta-rule
-     derives the aggregate [R/mf_args] that [R/nfargs] matches, then [r]'s local
-     hypotheses are [fact_potentially_supported] by that meta-rule's hyps
-     ([meta_rules_valid]), so they transfer down along the submultiset
-     ([knows_datalog_fact_transfer_down_sub]) and [r] deduces the same normal from
-     the small multiset.  Reused by [step_preserves_meta_facts_ok] and the meta
-     flush in [node_will_match]. *)
-  Lemma can_deduce_normal_transfer_down r R mf_args nfargs mr S hyps_d small big :
-    meta_rules_valid np.(np_rules) ->
-    submultiset small big ->
-    allowed_inputs big ->
-    In mr np.(np_rules) ->
-    rule_impl (one_step_derives np.(np_rules)) mr (meta_fact R mf_args S) hyps_d ->
-    Forall (knows_datalog_fact small) hyps_d ->
-    In r np.(np_rules) ->
-    Forall2 matches mf_args nfargs ->
-    can_deduce_normal_fact r big R nfargs ->
-    can_deduce_normal_fact r small R nfargs.
-  Proof.
-    intros Hmrv Hsub Hallow Hin_mr Hri_meta Hknown_mr Hr_in Hmatch
-           (local_hyps & Hnmri & Hknown_local_new).
-    pose proof (Hmrv _ _ _ _ _ Hin_mr Hri_meta _ _ _ Hr_in
-                  (simple_rule_impl _ _ _ _ _ Hnmri) Hmatch) as Hpot.
-    exists local_hyps. split; [exact Hnmri |].
-    rewrite Forall_forall in Hknown_local_new, Hpot |- *.
-    intros h Hh. eapply knows_datalog_fact_transfer_down_sub;
-      [exact Hsub | exact Hallow | exact Hknown_mr
-      | exact (Hpot h Hh) | exact (Hknown_local_new h Hh)].
-  Qed.
-
   Lemma step_preserves_meta_facts_ok s e s' :
     meta_rules_valid np.(np_rules) ->
     allowed_inputs s'.(known_facts) ->
@@ -455,10 +425,19 @@ Section __.
       pose proof (Hmfok r R mf_args num Hr_in HIn) as Hok0.
       cbn [ok_to_deduce_fact] in Hok0.
       apply Hok0; [| exact Hmatch].
-      eapply can_deduce_normal_transfer_down;
-        [ exact Hmrv | apply submultiset_cons | exact Hallow | exact Hin_mr
-        | eapply meta_concl_rule_impl; [exact Hconcl | exact Hinterp]
-        | exact Hknown_mr | exact Hr_in | exact Hmatch | exact Hcdn ].
+      (* [nfargs] is deducible from the grown [inp :: known]; since it matches the
+         aggregate [R/mf_args] that meta-rule [mc/mh] derives, [meta_rules_valid]
+         makes its hypotheses [fact_potentially_supported], so they transfer back
+         down to [known], and [nfargs] is deducible there too. *)
+      destruct Hcdn as (local_hyps & Hnmri & Hknown_local_new).
+      exists local_hyps. split; [exact Hnmri |].
+      pose proof (Hmrv _ _ _ _ _ Hin_mr
+                    (meta_concl_rule_impl _ _ _ _ _ _ Hconcl Hinterp)
+                    _ _ _ Hr_in (simple_rule_impl _ _ _ _ _ Hnmri) Hmatch) as Hpot.
+      rewrite Forall_forall in Hknown_local_new, Hpot |- *.
+      intros h Hh. eapply knows_datalog_fact_transfer_down_sub;
+        [ apply submultiset_cons | exact Hallow | exact Hknown_mr
+        | exact (Hpot h Hh) | exact (Hknown_local_new h Hh) ].
   Qed.
 
   Lemma node_good_step s e s' t :
@@ -608,11 +587,20 @@ Section __.
              eauto using knows_datalog_fact_submultiset.
         * apply Forall_forall. intros r'' Hr''_in. cbn [ok_to_deduce_fact].
           intros nfargs Hcdn_dem Hmatch'.
+          (* [nfargs] is deducible from the demon's grown [known]; matching the
+             aggregate [mfr/mfa] that [mc/mh] derives, its hypotheses are
+             [fact_potentially_supported] ([meta_rules_valid]) and hence transfer
+             down to [s1]'s [known]. *)
           assert (Hcdn_s1 : can_deduce_normal_fact r'' s1.(known_facts) mfr nfargs).
-          { eapply can_deduce_normal_transfer_down;
-              [ exact Hmrv | exact HsubK | exact Halk | exact Hin_mr
-              | eapply meta_concl_rule_impl; [exact Hconcl | exact Hinterp]
-              | exact Hknows1 | exact Hr''_in | exact Hmatch' | exact Hcdn_dem ]. }
+          { destruct Hcdn_dem as (local_hyps & Hnmri & Hknown_local_new).
+            exists local_hyps. split; [exact Hnmri |].
+            pose proof (Hmrv _ _ _ _ _ Hin_mr
+                          (meta_concl_rule_impl _ _ _ _ _ _ Hconcl Hinterp)
+                          _ _ _ Hr''_in (simple_rule_impl _ _ _ _ _ Hnmri) Hmatch') as Hpot.
+            rewrite Forall_forall in Hknown_local_new, Hpot |- *.
+            intros h Hh. eapply knows_datalog_fact_transfer_down_sub;
+              [ exact HsubK | exact Halk | exact Hknows1
+              | exact (Hpot h Hh) | exact (Hknown_local_new h Hh) ]. }
           rewrite Forall_forall in Hokall.
           pose proof (Hokall r'' Hr''_in) as Hok1. cbn [ok_to_deduce_fact] in Hok1.
           pose proof (Hok1 nfargs Hcdn_s1 Hmatch') as Hin_s1.
