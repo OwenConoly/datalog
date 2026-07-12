@@ -1,4 +1,4 @@
-From Stdlib Require Import List Lia Permutation.
+From Stdlib Require Import List Lia Permutation Classical_Prop.
 From Datalog Require Import List Datalog Smallstep.
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
@@ -294,61 +294,80 @@ Section __.
         [apply submultiset_cons | exact Hallow | exact Hh].
   Qed.
 
-  (* An [allowed_inputs]-consistent input cannot be a fresh match for a
-     complete aggregate (one whose declared total is already realised in
-     [known]).  Node analogue of Operational's [expect_num_R_facts_no_waiting]. *)
-  Lemma not_match_of_complete R mf_args x known num :
-    allowed_inputs (x :: known) ->
-    expect_num_R_facts R mf_args known num ->
-    Existsn (dfact_matches R mf_args) num known ->
-    ~ dfact_matches R mf_args x.
+  (* When [small] is a submultiset of an [allowed_inputs] multiset [big] and
+     [small] already realises the full declared count of an aggregate [R/mf_args]
+     ([expect_num] matched by [Existsn]), the extra part [rest] (with [big ~
+     small ++ rest]) contains no further matches: [allowed_inputs] caps [big]'s
+     matches at the declared total, which [small] alone already meets, so
+     [Existsn_split] forces [rest]'s share to zero. *)
+  Lemma submultiset_rest_no_matches R mf_args small rest big num :
+    Permutation big (small ++ rest) ->
+    allowed_inputs big ->
+    expect_num_R_facts R mf_args small num ->
+    Existsn (dfact_matches R mf_args) num small ->
+    Forall (fun x => ~ dfact_matches R mf_args x) rest.
   Proof.
-    intros Hallow Hexp Hexn Hmatch.
+    intros Hperm Hallow Hexp Hex.
+    pose proof (submultiset_incl _ _ (ex_intro _ rest Hperm)) as Hincl.
     destruct Hexp as (ems & Hf2 & Hsum).
-    assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (x :: known))
-                           (R_senders R) ems).
-    { clear -Hf2. induction Hf2; constructor; auto using in_cons. }
+    assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) big)
+                           (R_senders R) ems)
+      by (clear -Hf2 Hincl; induction Hf2; constructor;
+            [apply Hincl; assumption | assumption]).
     destruct Hallow as (_ & Hbound).
     destruct (Hbound R mf_args ems Hf2') as (num' & Hle & Hexn').
-    assert (HexnS : Existsn (dfact_matches R mf_args) (S num) (x :: known))
-      by (apply Existsn_yes; assumption).
-    pose proof (Existsn_unique _ _ _ _ Hexn' HexnS) as Heq. lia.
+    pose proof (Existsn_perm _ _ _ _ Hexn' Hperm) as Hexn''.
+    apply Existsn_split in Hexn''.
+    destruct Hexn'' as (n1 & n2 & Hsum' & Hex1 & Hex2).
+    pose proof (Existsn_unique _ _ _ _ Hex1 Hex) as Hn1.
+    assert (n2 = 0) by lia. subst n2.
+    exact (Existsn_0_Forall_not _ _ Hex2).
   Qed.
 
-  (* If a hypothesis [h] is potentially supported by [hyps_d] (all of which are
-     known at the old [known]), then [knows_datalog_fact] transfers back from the
-     grown [inp :: known] to [known]: the added input cannot be the fresh piece
-     that made [h] known, because it would be a fresh match for a complete
-     aggregate in [hyps_d], contradicting [allowed_inputs]. *)
-  Lemma knows_datalog_fact_transfer_down inp known hyps_d h :
-    allowed_inputs (inp :: known) ->
-    Forall (knows_datalog_fact known) hyps_d ->
+  (* If [h] is potentially supported by [hyps_d] (all known at the small multiset)
+     then [knows_datalog_fact] transfers down along a submultiset: the extra facts
+     in the bigger multiset cannot be the fresh piece that made [h] known, since
+     they would be fresh matches for a complete aggregate ([submultiset_rest_no_
+     matches]).  The single-input step is the [submultiset_cons] instance. *)
+  Lemma knows_datalog_fact_transfer_down_sub small big hyps_d h :
+    submultiset small big ->
+    allowed_inputs big ->
+    Forall (knows_datalog_fact small) hyps_d ->
     fact_potentially_supported hyps_d h ->
-    knows_datalog_fact (inp :: known) h ->
-    knows_datalog_fact known h.
+    knows_datalog_fact big h ->
+    knows_datalog_fact small h.
   Proof.
-    intros Hallow Hhyps_d Hsupp Hknow_new.
+    intros Hsub Hallow Hhyps_d Hsupp Hknow_big.
+    pose proof (submultiset_incl _ _ Hsub) as Hincl.
+    destruct Hsub as (rest & Hperm).
     destruct h as [Rh nfh | Rh mah msh].
     - cbn [fact_potentially_supported] in Hsupp.
       destruct Hsupp as (mah' & msh' & Hin_supp & Hmatch_supp).
       rewrite Forall_forall in Hhyps_d. specialize (Hhyps_d _ Hin_supp).
-      cbn [knows_datalog_fact] in Hknow_new, Hhyps_d |- *.
-      destruct Hknow_new as [Hinp | Hin]; [| exact Hin].
+      cbn [knows_datalog_fact] in Hknow_big, Hhyps_d |- *.
+      pose proof (Permutation_in _ Hperm Hknow_big) as Hin_app.
+      apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
       exfalso. destruct Hhyps_d as (num_h & Hexp_h & Hex_h & _).
-      apply (not_match_of_complete Rh mah' inp known num_h Hallow Hexp_h Hex_h).
-      exists nfh. split; [exact Hinp | exact Hmatch_supp].
+      pose proof (submultiset_rest_no_matches Rh mah' small rest big num_h
+                    Hperm Hallow Hexp_h Hex_h) as Hrest_no.
+      rewrite Forall_forall in Hrest_no.
+      apply (Hrest_no _ Hinr). exists nfh. split; [reflexivity | exact Hmatch_supp].
     - cbn [fact_potentially_supported] in Hsupp.
       destruct Hsupp as (msh' & Hin_supp).
       rewrite Forall_forall in Hhyps_d. specialize (Hhyps_d _ Hin_supp).
-      cbn [knows_datalog_fact] in Hknow_new, Hhyps_d |- *.
+      cbn [knows_datalog_fact] in Hknow_big, Hhyps_d |- *.
       destruct Hhyps_d as (num_old & Hexp_old & Hex_old & _).
-      destruct Hknow_new as (num_new & Hexp_new & Hex_new & Hiff_new).
+      destruct Hknow_big as (num_new & Hexp_new & Hex_new & Hiff_new).
+      pose proof (submultiset_rest_no_matches Rh mah small rest big num_old
+                    Hperm Hallow Hexp_old Hex_old) as Hrest_no.
       exists num_old. split; [exact Hexp_old | split; [exact Hex_old |]].
       intros nf Hm. specialize (Hiff_new nf Hm). split.
-      + intro Hset. apply Hiff_new in Hset. destruct Hset as [Hinp | Hin]; [| exact Hin].
-        exfalso. apply (not_match_of_complete Rh mah inp known num_old Hallow Hexp_old Hex_old).
-        exists nf. split; [exact Hinp | exact Hm].
-      + intro Hin. apply (proj2 Hiff_new). apply in_cons. exact Hin.
+      + intro Hset. apply Hiff_new in Hset.
+        pose proof (Permutation_in _ Hperm Hset) as Hin_app.
+        apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
+        exfalso. rewrite Forall_forall in Hrest_no.
+        apply (Hrest_no _ Hinr). exists nf. split; [reflexivity | exact Hm].
+      + intro Hin. apply (proj2 Hiff_new). apply Hincl. exact Hin.
   Qed.
 
   Lemma step_preserves_meta_facts_ok s e s' :
@@ -396,8 +415,9 @@ Section __.
                     Hri_normal Hmatch) as Hpot.
       assert (Hknown_local_old : Forall (knows_datalog_fact s.(known_facts)) local_hyps).
       { rewrite Forall_forall in Hknown_local_new, Hpot |- *.
-        intros h Hh. eapply knows_datalog_fact_transfer_down;
-          [exact Hallow | exact Hknown_mr | exact (Hpot h Hh) | exact (Hknown_local_new h Hh)]. }
+        intros h Hh. eapply knows_datalog_fact_transfer_down_sub;
+          [apply submultiset_cons | exact Hallow | exact Hknown_mr
+          | exact (Hpot h Hh) | exact (Hknown_local_new h Hh)]. }
       pose proof (Hmfok r R mf_args num Hr_in HIn) as Hok0.
       cbn [ok_to_deduce_fact] in Hok0.
       apply Hok0; [| exact Hmatch].
