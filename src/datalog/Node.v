@@ -100,15 +100,22 @@ Section __.
         (fun r => ok_to_deduce_fact r rs.(known_facts) rs.(sent_facts) f)
         sp.(np_rules).
 
-  Variant node_label :=
-    | nl_deduce (f : dfact).
+  Variant dfact_mod_count :=
+    | normal_dfact_mc (nf_rel : rel) (nf_args : list T)
+    | meta_dfact_mc (mf_rel : rel) (mf_args : list (option T)) (source : node_name).
 
-  Local Notation IO_event := (Smallstep.IO_event node_label dfact).
+  Definition mod_count (f : dfact) :=
+    match f with
+    | normal_dfact R args => normal_dfact_mc R args
+    | meta_dfact R margs src _ => meta_dfact_mc R margs src
+    end.
+
+  Local Notation IO_event := (Smallstep.IO_event dfact_mod_count dfact).
 
   Inductive node_step (sp : node_prog) : node_state -> IO_event -> node_state -> Prop :=
   | node_deduce_step rs output :
     new_facts sp rs output ->
-    node_step sp rs (O_event (nl_deduce output) [output])
+    node_step sp rs (O_event (mod_count output) [output])
                    {| known_facts := rs.(known_facts);
                      sent_facts := output :: rs.(sent_facts) |}
   | node_input_step rs input :
