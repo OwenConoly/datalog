@@ -155,6 +155,32 @@ Section __.
 
   Local Notation node_will_step := (will_step (node_step np) allowed_inputs).
 
+  (* Node-local versions of Operational's [meta_facts_correct] / [meta_facts_ok],
+     for the single node [np] (its identity is [np.(np_name)], its rules
+     [np.(np_rules)]).  [meta_facts_correct]: every done-message the node has sent
+     is backed by a real meta-rule firing (right count in [sent], interp holds,
+     hyps known, no same-key meta hyp).  [meta_facts_ok]: every done-message is
+     complete -- every normal fact deducible from [known] matching its pattern is
+     already in [sent].  The former is the scaffolding that keeps the latter
+     inductive (see Operational's [step_preserves_meta_facts_ok]). *)
+
+  Definition meta_facts_correct (s : node_state) : Prop :=
+    forall R mf_args num,
+      In (meta_dfact R mf_args np.(np_name) num) s.(sent_facts) ->
+      exists mc mh hyps,
+        In (meta_rule mc mh) np.(np_rules) /\
+          can_deduce_meta_fact mc mh np.(np_name) s.(sent_facts)
+            (meta_dfact R mf_args np.(np_name) num) hyps /\
+          Forall (knows_datalog_fact s.(known_facts)) hyps /\
+          (forall mf_set, ~ In (meta_fact R mf_args mf_set) hyps).
+
+  Definition meta_facts_ok (s : node_state) : Prop :=
+    forall r R mf_args num,
+      In r np.(np_rules) ->
+      In (meta_dfact R mf_args np.(np_name) num) s.(sent_facts) ->
+      ok_to_deduce_fact r s.(known_facts) s.(sent_facts)
+        (meta_dfact R mf_args np.(np_name) num).
+
   Lemma node_will_match' s1 lbl outs s1' s2 t2 :
     node_step np s1 (O_event lbl outs) s1' ->
     nle s1 s2 ->
@@ -162,7 +188,7 @@ Section __.
       (fun '(s2', _) => nle s1' s2') (s2, t2).
   Admitted.
 
-  Lemma node_might_implies_will (np : node_prog) :
+  Lemma node_might_implies_will :
     meta_rules_valid np.(np_rules) ->
     might_implies_will_equiv (node_step np) dfact_equiv allowed_inputs node_init.
   Admitted.
