@@ -14,6 +14,7 @@ Section Distributed.
 
   Local Notation nstep := (node_step R_senders np).
   Local Notation nallowed := (allowed_inputs R_senders).
+  Local Notation nconsistent := (dfact_consistent R_senders).
 
   Context (input_allowed : node_id -> dfact -> bool).
   Context (forward : node_id -> node_id -> dfact -> bool).
@@ -23,9 +24,8 @@ Section Distributed.
   Context (forward_equiv :
              forall n1 n2 a b, dfact_equiv a b -> forward n1 n2 a = forward n1 n2 b).
   Context (consistent_output : node_id -> list dfact -> Prop).
-  Context (consistent consistent_inputs : list dfact -> list dfact -> Prop).
-  Context (Hcg : consistent_good forward consistent_output consistent consistent_inputs).
-  Context (Hcm : consistent_monotone consistent nallowed).
+  Context (consistent_inputs : list dfact -> list dfact -> Prop).
+  Context (Hcg : consistent_good forward consistent_output nconsistent consistent_inputs).
   Context (Hcim : consistent_monotone consistent_inputs nallowed).
   Context (consistent_inputs_equiv :
              forall c c' inps, Forall2 dfact_equiv c c' ->
@@ -42,7 +42,6 @@ Section Distributed.
                            gns.(gns_node_state) = node_init).
 
   Context (Howf : forall n, outputs_well_formed nstep (consistent_output n) node_init).
-  Context (Hmono : monotone_mod_equiv nstep dfact_equiv consistent nallowed node_init).
 
   #[local] Instance nequiv_equiv : Equivalence dfact_equiv.
   Proof.
@@ -60,8 +59,17 @@ Section Distributed.
   Lemma nstep_input_total : input_total nstep.
   Proof. intros s m. eexists. apply node_input_step. Qed.
 
+  (* The two per-node obligations Node.v does not yet prove.  Now that
+     [consistent := dfact_consistent], these are concrete Node-level statements
+     rather than assumptions; admitted for now. *)
+  Lemma Hmono : monotone_mod_equiv nstep dfact_equiv nconsistent nallowed node_init.
+  Admitted.
+
+  Lemma Hcm : consistent_monotone nconsistent nallowed.
+  Admitted.
+
   Lemma nodes_good_holds :
-    Forall_map (node_good dfact_equiv consistent_output consistent nallowed nstep) initial_gs.
+    Forall_map (node_good dfact_equiv consistent_output nconsistent nallowed nstep) initial_gs.
   Proof.
     intros n gns Hget. unfold node_good.
     rewrite (initial_gs_node_init n gns Hget).
@@ -81,10 +89,11 @@ Section Distributed.
   Proof.
     intros Hstar Hga Hmight.
     apply graph_might_implies_will with
-      (consistent := consistent) (consistent_inputs := consistent_inputs)
+      (consistent := nconsistent) (consistent_inputs := consistent_inputs)
       (initial_gs := initial_gs); try assumption.
     - exact nequiv_equiv.
     - exact nallowed_multiset_monotone.
+    - exact Hcm.
     - exact nstep_input_total.
     - exact nodes_good_holds.
   Qed.
