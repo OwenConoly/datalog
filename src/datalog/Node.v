@@ -172,6 +172,17 @@ Section __.
       ok_to_deduce_fact r s.(known_facts) s.(sent_facts)
         (meta_dfact R mf_args np.(np_name) num).
 
+  (* The good-state bundle carried through the demon's run: [known] is exactly
+     the received inputs [inputs_of t] (queue-free, so equality, not just a
+     permutation), those inputs are [allowed_inputs], and the two meta-fact
+     invariants hold.  All four are preserved by [node_step] ([node_good_step]),
+     so this is a genuine inductive invariant. *)
+  Definition node_good (s : node_state) (t : list IO_event) : Prop :=
+    s.(known_facts) = inputs_of t /\
+    allowed_inputs (inputs_of t) /\
+    meta_facts_correct s /\
+    meta_facts_ok s.
+
   (* Adding an [allowed_inputs]-consistent fact to [known] preserves
      [knows_datalog_fact].  Normal facts are monotone by [in_cons]; for a meta
      fact the exact-count conditions could break if the new fact were a match,
@@ -361,8 +372,25 @@ Section __.
       exists local_hyps. split; [exact Hnmri | exact Hknown_local_old].
   Qed.
 
+  Lemma node_good_step s e s' t :
+    meta_rules_valid np.(np_rules) ->
+    node_good s t ->
+    allowed_inputs (inputs_of (e :: t)) ->
+    node_step np s e s' ->
+    node_good s' (e :: t).
+  Proof.
+    intros Hmrv (Hkeq & _ & Hmfc & Hmfok) Hallow' Hstep.
+    assert (Hkeq' : s'.(known_facts) = inputs_of (e :: t)).
+    { inversion Hstep; subst; cbn [known_facts]; rewrite Hkeq; reflexivity. }
+    assert (Hak : allowed_inputs s'.(known_facts)) by (rewrite Hkeq'; exact Hallow').
+    split; [exact Hkeq' | split; [exact Hallow' | split]].
+    - eapply step_preserves_meta_facts_correct; eassumption.
+    - eapply step_preserves_meta_facts_ok; eassumption.
+  Qed.
 
   Lemma node_will_match' s1 lbl outs s1' s2 t2 :
+    meta_rules_valid np.(np_rules) ->
+    node_good s2 t2 ->
     node_step np s1 (O_event lbl outs) s1' ->
     nle s1 s2 ->
     eventually (will_step (node_step np) allowed_inputs)
