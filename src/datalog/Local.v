@@ -5,7 +5,7 @@ From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties.
 
-From Datalog Require Import Permutation Map Tactics Fp List Dag Datalog Interpreter Operational Smallstep Graph.
+From Datalog Require Import Permutation Map Tactics Fp List Dag Datalog Node Interpreter Smallstep Graph.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Sorting.OrderToPermutation.
 

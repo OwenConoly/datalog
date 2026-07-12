@@ -14,7 +14,7 @@
    in OperationalToDistributed.v, where [p] belongs. *)
 
 From Stdlib Require Import List PeanoNat Lia Permutation Classical_Prop.
-From Datalog Require Import Datalog Operational Smallstep Graph List.
+From Datalog Require Import Datalog Node Smallstep Graph List.
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
@@ -24,109 +24,19 @@ Section __.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
   Context (is_input : rel -> bool).
-  Context (node_label : Type).
-  Context (R_senders : rel -> list node_label). About can_deduce_fact.
-  Print can_deduce_fact.
+  Context (R_senders : rel -> list nat).
+
   Local Notation can_deduce_fact := (can_deduce_fact is_input R_senders).
   Local Notation can_deduce_normal_fact := (can_deduce_normal_fact is_input R_senders).
   Local Notation ok_to_deduce_fact := (ok_to_deduce_fact is_input R_senders).
   Local Notation knows_datalog_fact := (knows_datalog_fact is_input R_senders).
   Local Notation expect_num_R_facts := (expect_num_R_facts is_input R_senders).
-
-  Record spec_node_prog :=
-    { spec_node_rules : list rule;
-      spec_node_label : node_label }.
-  About can_deduce_fact.
-  Definition new_facts (sp : spec_node_prog) (rs : node_state) f :=
-    Exists
-      (fun r => can_deduce_fact r sp.(spec_node_label) rs.(known_facts) rs.(sent_facts) f)
-      sp.(spec_node_rules) /\
-      Forall
-        (fun r => ok_to_deduce_fact r rs.(known_facts) rs.(sent_facts) f)
-        sp.(spec_node_rules).
-
-  (* A node's own labels: dequeue one queued message into [known] (always from the
-     front, so unambiguous), or deduce and broadcast a new fact (recorded in the
-     label). *)
-  Variant spec_label :=
-    | sl_dequeue
-    | sl_deduce (f : dfact).
-
+  Local Notation new_facts := (new_facts is_input R_senders).
+  Local Notation consistent_inputs := (consistent_inputs R_senders).
+  Local Notation node_allowed := (node_allowed R_senders).
+  Local Notation spec_node_step := (spec_node_step is_input R_senders).
   Local Notation IO_event := (Smallstep.IO_event spec_label dfact).
 
-  Inductive spec_node_step (sp : spec_node_prog) : node_state -> IO_event -> node_state -> Prop :=
-  | spec_node_dequeue_step rs input rest :
-    rs.(waiting_facts) = input :: rest ->
-    spec_node_step sp rs (O_event sl_dequeue [])
-                   {| known_facts := input :: rs.(known_facts);
-                     waiting_facts := rest;
-                     sent_facts := rs.(sent_facts) |}
-  | spec_node_deduce_step rs output :
-    new_facts sp rs output ->
-    spec_node_step sp rs (O_event (sl_deduce output) [output])
-                   {| known_facts := rs.(known_facts);
-                     waiting_facts := rs.(waiting_facts);
-                     sent_facts := output :: rs.(sent_facts) |}
-  | spec_node_input_step rs input :
-    spec_node_step sp rs (I_event input)
-                   {| known_facts := rs.(known_facts);
-                     waiting_facts := rs.(waiting_facts) ++ [input];
-                     sent_facts := rs.(sent_facts) |}.
-
-  Definition node_inputs_allowed (inps : list dfact) : Prop :=
-    (* [None]-declarations (expectations for input relations): unique count, and the
-       matching facts present never exceed it. *)
-    (forall R mf_args num,
-        In (meta_dfact R mf_args None num) input_facts ->
-        (forall num0, In (meta_dfact R mf_args None num0) input_facts -> num0 = num) /\
-          exists num', num' <= num /\ Existsn (dfact_matches R mf_args) num' input_facts)
-    /\
-    (* [Some k]-declarations (done-sending from node k): unique count per sender. *)
-    (forall R mf_args k num num0,
-        In (meta_dfact R mf_args (Some k) num) input_facts ->
-        In (meta_dfact R mf_args (Some k) num0) input_facts -> num0 = num)
-    /\
-    (* and the matching facts present never exceed the sum of the per-sender
-       done-sending counts (bounds non-input aggregates). *)
-    (forall R mf_args expected_msgss,
-        Forall2 (fun k e => In (meta_dfact R mf_args (Some k) e) input_facts)
-                (R_senders R) expected_msgss ->
-        exists num', num' <= fold_left Nat.add expected_msgss 0 /\
-                     Existsn (dfact_matches R mf_args) num' input_facts).
-
-  (* The per-node [allowed]: just consistent inputs.  (Under the sent-based
-     [ok_to_deduce] there is no need to forbid a node from receiving its own
-     conclusion relation — a done-meta in [sent] simply witnesses that the fact was
-     already output, rather than disabling it.) *)
-  Definition node_allowed (inputs : list dfact) : Prop :=
-    consistent_inputs inputs.
-
-  (* Output-indistinguishability: two facts are equivalent iff they agree on
-     everything except a meta-fact's [expected_msgs] count.  This is the [equiv]
-     the graph uses for a node's outputs. *)
-  Definition dfact_equiv (f1 f2 : dfact) : Prop :=
-    match f1, f2 with
-    | meta_dfact R1 a1 s1 _, meta_dfact R2 a2 s2 _ => R1 = R2 /\ a1 = a2 /\ s1 = s2
-    | _, _ => f1 = f2
-    end.
-
-  (* [consistent a l]: every meta-fact count declared in the first list [a] equals
-     the number of matching facts present in the second list [l].  (Used by the
-     companion [monotone_mod_equiv] obligation, not by [might_implies_will_equiv]
-     itself.) *)
-  Definition dfact_consistent (a l : list dfact) : Prop :=
-    forall R margs source num,
-      In (meta_dfact R margs source num) a ->
-      Existsn (dfact_matches R margs) num l.
-
-  Definition node_init : node_state :=
-    {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
-
-  (* Per-node liveness in the new (equiv) Smallstep world: the graph's per-node
-     [might_implies_will_equiv] obligation for [spec_node_step].  Successor to the
-     old [can]-world [spec_node_can_implies_will] below.  (Stated early so it can be
-     typechecked while the rest of the file is still being ported; belongs at the
-     end alongside its eventual proof.) *)
   Lemma node_might_implies_will (np : spec_node_prog) :
     meta_rules_valid np.(spec_node_rules) ->
     might_implies_will_equiv (spec_node_step np) dfact_equiv node_allowed node_init.

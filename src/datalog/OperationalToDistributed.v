@@ -12,7 +12,7 @@
    Distributed.v. *)
 
 From Stdlib Require Import List PeanoNat Lia Permutation Classical_Prop.
-From Datalog Require Import Datalog Operational Smallstep Graph List Distributed.
+From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed.
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
@@ -34,7 +34,7 @@ Section __.
   Local Notation can_deduce_normal_fact := (can_deduce_normal_fact is_input R_senders).
   Local Notation ok_to_deduce_fact := (ok_to_deduce_fact is_input R_senders).
   Local Notation fire_at_rule := (fire_at_rule is_input R_senders p).
-  Local Notation new_facts := (Distributed.new_facts is_input R_senders).
+  Local Notation new_facts := (Node.new_facts is_input R_senders).
 
   (* ---- The graph program built from [p]. ---- *)
 
@@ -77,7 +77,7 @@ Section __.
     new_facts (node_prog_of r n) rs f <->
     fire_at_rule r n rs (send_fact f rs) f.
   Proof.
-    unfold Distributed.new_facts, node_prog_of, fire_at_rule, Operational.fire_at_rule,
+    unfold Node.new_facts, node_prog_of, fire_at_rule, Operational.fire_at_rule,
       can_fire_rule_at; cbn [spec_node_rules spec_node_label].
     split.
     - intros (Hex & Hall).
