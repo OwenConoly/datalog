@@ -526,7 +526,124 @@ Section __.
     nle s1 s2 ->
     eventually (will_step (node_step np) allowed_inputs)
       (fun '(s2', _) => nle s1' s2') (s2, t2).
-  Admitted.
+  Proof.
+    intros Hmrv Hgood2 Hstep (Hknle & Hsnle).
+    inversion Hstep as [rs o Hnf | rs inp]; subst.
+    (* [s1'] is the deduce of [o]; committing the label [mod_count o] lets a
+       meta be reproduced at whatever count the demon leaves in [sent]. *)
+    assert (Hmk : forall (X : node_state) o',
+      submultiset s1.(known_facts) X.(known_facts) ->
+      submultiset s2.(sent_facts) X.(sent_facts) ->
+      In o' X.(sent_facts) -> dfact_equiv o o' ->
+      nle {| known_facts := s1.(known_facts);
+             sent_facts := o :: s1.(sent_facts) |} X).
+    { intros X o' Hk Hs Ho'in Ho'eq. split.
+      - cbn [known_facts]. exact Hk.
+      - cbn [sent_facts]. intros a Ha. cbn [In] in Ha. destruct Ha as [Hao | Ha].
+        + subst a. exists o'. split; [exact Ho'in | exact Ho'eq].
+        + destruct (Hsnle a Ha) as (b & Hb & Hab). exists b. split; [| exact Hab].
+          eapply submultiset_incl; [exact Hs | exact Hb]. }
+    apply eventually_step_cps. cbn [will_step].
+    exists (mod_count o). intros sdem tdem Hstar Hallowdem.
+    pose proof (node_good_star s2 t2 tdem sdem Hmrv Hallowdem Hgood2 Hstar)
+      as (Hkdem & Haldem & Hmfcdem & Hmfokdem).
+    pose proof (node_step_star_mono s2 tdem sdem Hstar) as (Hkmono & Hsmono).
+    assert (HsubK : submultiset s1.(known_facts) sdem.(known_facts))
+      by (eapply submultiset_trans; [exact Hknle | exact Hkmono]).
+    assert (Halk : allowed_inputs sdem.(known_facts))
+      by (rewrite Hkdem; exact Haldem).
+    destruct o as [Ro oargs | Ro margs osrc ocnt].
+    - (* normal output: reproduce [o] itself; the guard survives because a
+         disabling done-meta would (by [meta_facts_ok]) force [o] already sent,
+         which is the left disjunct. *)
+      destruct Hnf as (Hex & _).
+      apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
+      cbn [can_deduce_fact] in Hcdf. destruct Hcdf as (Hcdn1 & _).
+      destruct Hcdn1 as (hyps & Hnmri & Hknows1).
+      assert (Hcdn_dem : can_deduce_normal_fact r sdem.(known_facts) Ro oargs).
+      { exists hyps. split; [exact Hnmri |].
+        rewrite Forall_forall in Hknows1 |- *. intros h Hh.
+        eapply knows_datalog_fact_submultiset;
+          [exact HsubK | exact Halk | apply Hknows1; exact Hh]. }
+      destruct (classic (In (normal_dfact Ro oargs) sdem.(sent_facts))) as [Hin | Hnin].
+      + left. apply eventually_done.
+        apply (Hmk _ (normal_dfact Ro oargs)).
+        * exact HsubK.
+        * exact Hsmono.
+        * exact Hin.
+        * cbn [dfact_equiv]. reflexivity.
+      + right.
+        exists {| known_facts := sdem.(known_facts);
+                  sent_facts := normal_dfact Ro oargs :: sdem.(sent_facts) |},
+               [normal_dfact Ro oargs].
+        split.
+        * apply node_deduce_step. split.
+          -- apply Exists_exists. exists r. split; [exact Hr_in |].
+             cbn [can_deduce_fact]. split; [exact Hcdn_dem |].
+             intros margs' num' Hinmeta Hmatch'.
+             pose proof (Hmfokdem r Ro margs' num' Hr_in Hinmeta) as Hok.
+             cbn [ok_to_deduce_fact] in Hok.
+             exact (Hnin (Hok oargs Hcdn_dem Hmatch')).
+          -- apply Forall_forall. intros r'' _. cbn [ok_to_deduce_fact]. exact I.
+        * apply eventually_done.
+          apply (Hmk _ (normal_dfact Ro oargs)).
+          -- cbn [known_facts]. exact HsubK.
+          -- cbn [sent_facts]. eapply submultiset_trans; [exact Hsmono | apply submultiset_cons].
+          -- cbn [sent_facts]. left. reflexivity.
+          -- cbn [dfact_equiv]. reflexivity.
+    - (* meta output: always reproducible at the demon's current count [num_d];
+         the flush obligation transfers down to [s1] and is discharged by [s1]'s
+         own [ok_to_deduce], whose sent facts are all dominated in the demon. *)
+      destruct Hnf as (Hex & Hokall).
+      apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
+      cbn [can_deduce_fact] in Hcdf.
+      destruct Hcdf as (Hsrc & mc & mh & hyps & Hrmr & Hcdmf & Hknows1).
+      subst osrc.
+      destruct Hcdmf as (ctx & mfr & mfa & mfc & Hres & _ & Hconcl & Hinterp).
+      assert (mfr = Ro) as -> by congruence.
+      assert (mfa = margs) as -> by congruence.
+      assert (Hin_mr : In (meta_rule mc mh) np.(np_rules))
+        by (rewrite <- Hrmr; exact Hr_in).
+      destruct (Existsn_total (dfact_matches Ro margs) sdem.(sent_facts))
+        as (num_d & Hexn_d).
+      right.
+      replace (mod_count (meta_dfact Ro margs np.(np_name) ocnt))
+        with (mod_count (meta_dfact Ro margs np.(np_name) num_d)) by reflexivity.
+      exists {| known_facts := sdem.(known_facts);
+                sent_facts := meta_dfact Ro margs np.(np_name) num_d :: sdem.(sent_facts) |},
+             [meta_dfact Ro margs np.(np_name) num_d].
+      split.
+      + apply node_deduce_step. split.
+        * apply Exists_exists. exists r. split; [exact Hr_in |].
+          cbn [can_deduce_fact]. split; [reflexivity |].
+          exists mc, mh, hyps. split; [exact Hrmr |]. split.
+          -- exists ctx, Ro, margs, num_d.
+             split; [reflexivity |]. split; [exact Hexn_d |].
+             split; [exact Hconcl | exact Hinterp].
+          -- rewrite Forall_forall in Hknows1 |- *. intros h Hh.
+             eapply knows_datalog_fact_submultiset;
+               [exact HsubK | exact Halk | apply Hknows1; exact Hh].
+        * apply Forall_forall. intros r'' Hr''_in. cbn [ok_to_deduce_fact].
+          intros nfargs Hcdn_dem Hmatch'.
+          assert (Hcdn_s1 : can_deduce_normal_fact r'' s1.(known_facts) Ro nfargs).
+          { eapply can_deduce_normal_transfer_down;
+              [ exact Hmrv | exact HsubK | exact Halk | exact Hin_mr
+              | exact Hconcl | exact Hinterp | exact Hknows1 | exact Hr''_in
+              | exact Hmatch' | exact Hcdn_dem ]. }
+          rewrite Forall_forall in Hokall.
+          pose proof (Hokall r'' Hr''_in) as Hok1. cbn [ok_to_deduce_fact] in Hok1.
+          pose proof (Hok1 nfargs Hcdn_s1 Hmatch') as Hin_s1.
+          destruct (Hsnle _ Hin_s1) as (b & Hb & Hab).
+          destruct b as [Rb ab | Rb mb sb cb]; cbn [dfact_equiv] in Hab; [| congruence].
+          injection Hab as HRb Hab. subst Rb ab.
+          exact (submultiset_incl _ _ Hsmono _ Hb).
+      + apply eventually_done.
+        apply (Hmk _ (meta_dfact Ro margs np.(np_name) num_d)).
+        * cbn [known_facts]. exact HsubK.
+        * cbn [sent_facts]. eapply submultiset_trans; [exact Hsmono | apply submultiset_cons].
+        * cbn [sent_facts]. left. reflexivity.
+        * cbn [dfact_equiv]. repeat split; reflexivity.
+  Qed.
 
   Lemma node_might_implies_will :
     meta_rules_valid np.(np_rules) ->
