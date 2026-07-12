@@ -24,20 +24,19 @@ Section __.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
   Context (is_input : rel -> bool).
-  Context (R_senders : rel -> list nat).
+  Context (node_label : Type).
+  Context (R_senders : rel -> list node_label). About can_deduce_fact.
+  Print can_deduce_fact.
   Local Notation can_deduce_fact := (can_deduce_fact is_input R_senders).
   Local Notation can_deduce_normal_fact := (can_deduce_normal_fact is_input R_senders).
   Local Notation ok_to_deduce_fact := (ok_to_deduce_fact is_input R_senders).
   Local Notation knows_datalog_fact := (knows_datalog_fact is_input R_senders).
   Local Notation expect_num_R_facts := (expect_num_R_facts is_input R_senders).
 
-  (* ---- Per-node spec step (moved from Local.v, now labelled and over
-     Operational's [node_state]). ---- *)
-
   Record spec_node_prog :=
     { spec_node_rules : list rule;
-      spec_node_label : nat }.
-
+      spec_node_label : node_label }.
+  About can_deduce_fact.
   Definition new_facts (sp : spec_node_prog) (rs : node_state) f :=
     Exists
       (fun r => can_deduce_fact r sp.(spec_node_label) rs.(known_facts) rs.(sent_facts) f)
@@ -74,13 +73,7 @@ Section __.
                      waiting_facts := rs.(waiting_facts) ++ [input];
                      sent_facts := rs.(sent_facts) |}.
 
-  (* The per-node [allowed].  A node also receives internal (non-input) messages,
-     so — unlike the graph as a whole — there is NO [is_input] restriction here;
-     the only requirement is that the declared "expect num" meta-facts among the
-     inputs are consistent (agree on their count, and never under-count the
-     matching facts present).  This is [good_input_facts] minus the [is_input]
-     conjunct. *)
-  Definition consistent_inputs (input_facts : list dfact) : Prop :=
+  Definition node_inputs_allowed (inps : list dfact) : Prop :=
     (* [None]-declarations (expectations for input relations): unique count, and the
        matching facts present never exceed it. *)
     (forall R mf_args num,
@@ -107,6 +100,37 @@ Section __.
      already output, rather than disabling it.) *)
   Definition node_allowed (inputs : list dfact) : Prop :=
     consistent_inputs inputs.
+
+  (* Output-indistinguishability: two facts are equivalent iff they agree on
+     everything except a meta-fact's [expected_msgs] count.  This is the [equiv]
+     the graph uses for a node's outputs. *)
+  Definition dfact_equiv (f1 f2 : dfact) : Prop :=
+    match f1, f2 with
+    | meta_dfact R1 a1 s1 _, meta_dfact R2 a2 s2 _ => R1 = R2 /\ a1 = a2 /\ s1 = s2
+    | _, _ => f1 = f2
+    end.
+
+  (* [consistent a l]: every meta-fact count declared in the first list [a] equals
+     the number of matching facts present in the second list [l].  (Used by the
+     companion [monotone_mod_equiv] obligation, not by [might_implies_will_equiv]
+     itself.) *)
+  Definition dfact_consistent (a l : list dfact) : Prop :=
+    forall R margs source num,
+      In (meta_dfact R margs source num) a ->
+      Existsn (dfact_matches R margs) num l.
+
+  Definition node_init : node_state :=
+    {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
+
+  (* Per-node liveness in the new (equiv) Smallstep world: the graph's per-node
+     [might_implies_will_equiv] obligation for [spec_node_step].  Successor to the
+     old [can]-world [spec_node_can_implies_will] below.  (Stated early so it can be
+     typechecked while the rest of the file is still being ported; belongs at the
+     end alongside its eventual proof.) *)
+  Lemma node_might_implies_will (np : spec_node_prog) :
+    meta_rules_valid np.(spec_node_rules) ->
+    might_implies_will_equiv (spec_node_step np) dfact_equiv node_allowed node_init.
+  Admitted.
 
   (* ---- Forcing toolkit: drive a queued fact into [known] against the demon. ---- *)
 
