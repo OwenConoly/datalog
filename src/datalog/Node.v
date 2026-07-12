@@ -180,6 +180,16 @@ Section __.
     meta_facts_correct s'.
   Admitted.
 
+  Lemma step_preserves_meta_facts_ok s e s' :
+    meta_rules_valid np.(np_rules) ->
+    allowed_inputs s'.(known_facts) ->
+    meta_facts_correct s ->
+    meta_facts_ok s ->
+    node_step np s e s' ->
+    meta_facts_ok s'.
+  Proof. Admitted.
+
+
   Lemma node_will_match' s1 lbl outs s1' s2 t2 :
     node_step np s1 (O_event lbl outs) s1' ->
     nle s1 s2 ->
