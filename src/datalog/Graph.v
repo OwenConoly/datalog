@@ -411,52 +411,36 @@ Section __.
     Lemma gstep_le_strong g e g' t : gstep g e g' -> le_strong g t g' (e :: t).
     Proof.
       intros Hstep. cbv [le_strong]. invert Hstep.
-      - (* input: enqueue [m] at n *)
-        apply Forall2_map_mupd_r; [ intros v1 v2 HR; cbn [enqueue gns_trace]; exact HR | ].
+      - apply Forall2_map_mupd_r; [solve[auto]|].
         apply Forall2_map_dup. intros k v Hv. ssplit.
         + apply submultiset_refl.
-        + apply submultiset_perm, Permutation_sym,
-                (node_fold_mupd_enqueue (fun j => filter (forward j k)) g n [m]).
+        + apply submultiset_perm, Permutation_sym, node_fold_mupd_enqueue.
         + change (inputs_of (I_event (m, n) :: t)) with ([(m, n)] ++ inputs_of t).
           rewrite matching_inps_app. exists (matching_inps k [(m, n)]). apply Permutation_app_comm.
-      - (* run: node n emits [outs] and forwards *)
-        apply Forall2_map_map_values'_r. eapply Forall2_map_put_r; [ | exact H | ].
+      - apply Forall2_map_map_values'_r. eapply Forall2_map_put_r; [ | exact H | ].
         + apply Forall2_map_dup. intros k v Hv Hne. cbn [enqueue gns_trace]. ssplit.
           * apply submultiset_refl.
-          * exists (filter (forward n k) outs). eapply perm_trans;
-              [ apply (node_fold_run (fun j => filter (forward j k)) ltac:(intros; apply filter_app)
-                         g n ns lbl outs ns' H) | apply Permutation_app_comm ].
-          * change (inputs_of (O_event (run n lbl)
-                      (map (fun m0 => (m0, n)) (filter (output_visible n) outs)) :: t))
-              with (inputs_of t). apply submultiset_refl.
+          * exists (filter (forward n k) outs). eapply perm_trans.
+            { apply node_fold_run; auto using filter_app. }
+            apply Permutation_app_comm.
+          * simpl. apply submultiset_refl.
         + cbn [enqueue gns_trace]. ssplit.
-          * change (inputs_of (O_event lbl outs :: gns_trace ns)) with (inputs_of (gns_trace ns)).
-            apply submultiset_refl.
-          * exists (filter (forward n n) outs). eapply perm_trans;
-              [ apply (node_fold_run (fun j => filter (forward j n)) ltac:(intros; apply filter_app)
-                         g n ns lbl outs ns' H) | apply Permutation_app_comm ].
-          * change (inputs_of (O_event (run n lbl)
-                      (map (fun m0 => (m0, n)) (filter (output_visible n) outs)) :: t))
-              with (inputs_of t). apply submultiset_refl.
-      - (* receive: node n dequeues m into its trace *)
-        eapply Forall2_map_put_r; [ | exact H | ].
+          * simpl. apply submultiset_refl.
+          * exists (filter (forward n n) outs). eapply perm_trans.
+            { apply node_fold_run; auto using filter_app. }
+            apply Permutation_app_comm.
+          * simpl. apply submultiset_refl.
+      - eapply Forall2_map_put_r; [ | exact H | ].
         + apply Forall2_map_dup. intros k v Hv Hne. ssplit.
           * apply submultiset_refl.
           * apply submultiset_perm, Permutation_sym.
-            apply (node_fold_put_same (fun j => filter (forward j k)) g n ns
-                     {| gns_node_state := ns'; gns_trace := I_event m :: ns.(gns_trace);
-                        gns_queue := ms1 ++ ms2 |} H eq_refl).
-          * change (inputs_of (O_event (receive n m) [] :: t)) with (inputs_of t).
-            apply submultiset_refl.
+            eapply node_fold_put_same; eauto.
+          * simpl. apply submultiset_refl.
         + cbn [gns_trace]. ssplit.
-          * change (inputs_of (I_event m :: gns_trace ns)) with (m :: inputs_of (gns_trace ns)).
-            apply submultiset_cons.
+          * simpl. apply submultiset_cons.
           * apply submultiset_perm, Permutation_sym.
-            apply (node_fold_put_same (fun j => filter (forward j n)) g n ns
-                     {| gns_node_state := ns'; gns_trace := I_event m :: ns.(gns_trace);
-                        gns_queue := ms1 ++ ms2 |} H eq_refl).
-          * change (inputs_of (O_event (receive n m) [] :: t)) with (inputs_of t).
-            apply submultiset_refl.
+            eapply node_fold_put_same; eauto.
+          * simpl. apply submultiset_refl.
     Qed.
 
     Lemma le_strong_refl g t : le_strong g t g t.
