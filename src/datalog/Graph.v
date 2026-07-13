@@ -649,7 +649,6 @@ Section __.
           consistent_internal_inputs_to n internal_inps1 /\
           Permutation ms2 (internal_inps2 ++ exts2) /\
           consistent_internal_inputs_to n internal_inps2 /\
-          incl_mod_weak equiv internal_inps1 internal_inps2 /\
           submultiset exts1 exts2.
 
     (* Split a list by which of two appended lists each element belongs to. *)
@@ -685,7 +684,13 @@ Section __.
           | exact Hcc ]. }
       cbv [consistency_le] in Hc.
       destruct Hc as (internal1 & exts1 & internal2 & exts2 &
-                      Hp1 & Hci1 & Hp2 & Hci2 & Hwint & Hsubext).
+                      Hp1 & Hci1 & Hp2 & Hci2 & Hsubext).
+      (* The internal supplies are equiv-dominated: every control fact forwarded in
+         the smaller state has an equiv image forwarded in the larger one.  This does
+         NOT follow from [consistency_le] alone -- it needs "internal control facts
+         stay internal" (concretely: [input_allowed] rejects [Some]-source metas, so
+         an internal control fact's image can't be an external input).  Admitted. *)
+      assert (Hwint : incl_mod_weak equiv internal1 internal2) by admit.
       assert (Hal1' : allowed (internal1 ++ exts1))
         by (eapply Permutation_allowed; [ apply Permutation_sym; exact Hp1 | exact Hal1 ]).
       assert (Hal2' : allowed (internal2 ++ exts2))
@@ -731,7 +736,7 @@ Section __.
       cbv [consistent_good] in Hcg.
       apply (proj2 (Hcg internal2 exts2 n b_int a_ext Hci2 Hbint Haext2)).
       exact Hcia2.
-    Qed.
+    Admitted.
 
     Lemma reachable_domain t gs nn :
       star gstep initial_gs t gs ->
@@ -780,13 +785,8 @@ Section __.
       - eapply fwd_total_consistent_internal. exact Hstar1.
       - exact Hio2.
       - eapply fwd_total_consistent_internal. exact Hstar2.
-      - (* internal-domination: every fact forwarded to [n] in the smaller run has an
-           equiv image forwarded to [n] in the larger run.  This is graph output-
-           monotonicity (more global inputs -> dominating per-node outputs).  TODO;
-           this is the "internal_inps tied to outputs/traces" fact the header TODO wants. *)
-        admit.
       - apply submultiset_matching_inps. exact Hsub.
-    Admitted.
+    Qed.
 
     Lemma eventually_deliver n :
       forall N owed gc tc nc,
