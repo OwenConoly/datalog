@@ -52,6 +52,16 @@ Section __.
       incl ext_c inps ->
       consistent (int_c ++ ext_c) (internal_inps ++ inps) <-> consistent ext_c inps.
 
+  (* The external interface: adding a single node's forwarded consistent output to
+     the inputs (and any subset of it to the outputs) does not affect consistency.
+     [consistent_good] is derived from this by stripping the forwarded blocks one at
+     a time (see [consistent_good_holds]). *)
+  Definition consistent_block_transparent :=
+    forall n n0 fs int_c ext_c rest,
+      consistent_output n0 fs ->
+      incl int_c (filter (forward n0 n) fs) ->
+      consistent (int_c ++ ext_c) (filter (forward n0 n) fs ++ rest) <-> consistent ext_c rest.
+
   Context (allowed : list message -> Prop).
   Context (allowed_submultiset : multiset_monotone allowed).
 
@@ -69,10 +79,44 @@ Section __.
       consistent_internal_inputs_to n internal_inps ->
       allowed (internal_inps ++ matching_inps n inps).
 
-  Context (Hcg : consistent_good).
+  Context (Hcbt : consistent_block_transparent).
   Context (Hcm : consistent_monotone consistent allowed).
   Context (consistent_set_l :
              forall c c' l, incl c c' -> incl c' c -> consistent c l -> consistent c' l).
+
+  Lemma consistent_strip_blocks n ext_c inps nodes partition :
+    Forall2 consistent_output nodes partition ->
+    forall int_c,
+      incl int_c (flat_map (fun '(n0, fs) => filter (forward n0 n) fs) (combine nodes partition)) ->
+      consistent (int_c ++ ext_c)
+        (flat_map (fun '(n0, fs) => filter (forward n0 n) fs) (combine nodes partition) ++ inps)
+      <-> consistent ext_c inps.
+  Proof.
+    assert (cpl : forall x y l, Permutation x y -> consistent x l -> consistent y l).
+    { intros x y l Hp Hc. eapply consistent_set_l with (c := x);
+        [ intros z Hz; eapply Permutation_in; [ exact Hp | exact Hz ]
+        | intros z Hz; eapply Permutation_in; [ apply Permutation_sym; exact Hp | exact Hz ]
+        | exact Hc ]. }
+    assert (cpli : forall x y l, Permutation x y -> (consistent x l <-> consistent y l))
+      by (intros x y l Hp; split; [ apply cpl; exact Hp | apply cpl; apply Permutation_sym; exact Hp ]).
+    induction 1 as [ | n0 fs nodes' partition' Hco Hfa IH ]; intros int_c Hincl.
+    - simpl in Hincl |- *. destruct int_c as [ | x xs ];
+        [ reflexivity | destruct (Hincl x ltac:(left; reflexivity)) ].
+    - simpl in Hincl |- *.
+      destruct (incl_app_split _ _ _ Hincl) as (iB & iR & Hperm & HiB & HiR).
+      rewrite <- app_assoc.
+      eapply iff_trans;
+        [ apply cpli with (y := iB ++ (iR ++ ext_c));
+          rewrite app_assoc; apply Permutation_app_tail; exact Hperm | ].
+      eapply iff_trans; [ apply (Hcbt n n0 fs iB (iR ++ ext_c) _ Hco HiB) | ].
+      apply IH; exact HiR.
+  Qed.
+
+  Lemma consistent_good_holds : consistent_good.
+  Proof.
+    intros internal_inps inps n int_c ext_c (nodes & partition & _ & HF2 & ->) Hint Hext.
+    apply consistent_strip_blocks; assumption.
+  Qed.
 
   Section graph.
     Context {node_state : Type} (node_step : node_state -> IO_event -> node_state -> Prop).
@@ -645,6 +689,7 @@ Section __.
                  consistent c' (internal_inps2 ++ exts2).
     Proof.
       intros Hci1 Hci2 Hwint Hae1 Hae2 Hsubext Hcincl Hc.
+      pose proof consistent_good_holds as Hcg.
       assert (consistent_perm_l : forall x y l, Permutation x y -> consistent x l -> consistent y l).
       { intros x y l Hperm Hcc.
         eapply consistent_set_l with (c := x);
