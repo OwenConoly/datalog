@@ -21,6 +21,12 @@ Section __.
   Implicit Types known_facts sent_facts input_facts inputs : list dfact.
   Implicit Types nf result : dfact.
 
+  Definition dfact_rel (f : dfact) : rel :=
+    match f with
+    | normal_dfact R _ => R
+    | meta_dfact R _ _ _ => R
+    end.
+
   Record node_state :=
     { known_facts : list dfact;
       sent_facts : list dfact }.

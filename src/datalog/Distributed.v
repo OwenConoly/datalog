@@ -1,6 +1,6 @@
 From Stdlib Require Import List Permutation RelationClasses.
-From Datalog Require Import Datalog Node Graph Smallstep List Map.
-From coqutil Require Import Map.Interface.
+From Datalog Require Import Datalog Node Graph Smallstep List Map Tactics.
+From coqutil Require Import Map.Interface Tactics Tactics.fwd.
 Import ListNotations.
 
 Section Distributed.
@@ -9,27 +9,41 @@ Section Distributed.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
 
   Context (R_senders : rel -> list node_name).
-  Context (np : @node_prog rel exprvar fn aggregator).
-  Context (Hmrv : meta_rules_valid np.(np_rules)).
 
-  Local Notation nstep := (node_step R_senders np).
+  Local Notation nstep := (node_step R_senders).
   Local Notation nallowed := (allowed_inputs R_senders).
   Local Notation nconsistent := (dfact_consistent R_senders).
 
-  Context (input_allowed : node_id -> dfact -> bool).
-  Context (forward : node_id -> node_id -> dfact -> bool).
-  Context (output_visible : node_id -> dfact -> bool).
-  Context (output_visible_equiv :
-             forall n a b, dfact_equiv a b -> output_visible n a = output_visible n b).
-  Context (forward_equiv :
-             forall n1 n2 a b, dfact_equiv a b -> forward n1 n2 a = forward n1 n2 b).
+  Context (rel_input_allowed : node_id -> rel -> bool).
+  Context (rel_forward : node_id -> node_id -> rel -> bool).
+  Context (rel_visible : node_id -> rel -> bool).
+
+  Definition input_allowed n (f : dfact) := rel_input_allowed n (dfact_rel f).
+  Definition forward n1 n2 (f : dfact) := rel_forward n1 n2 (dfact_rel f).
+  Definition output_visible n (f : dfact) := rel_visible n (dfact_rel f).
+
+  Lemma output_visible_equiv n a b :
+    dfact_equiv a b ->
+    output_visible n a = output_visible n b.
+  Proof.
+    intros Heq. unfold output_visible. f_equal.
+    destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
+  Qed.
+
+  Lemma forward_equiv n1 n2 a b :
+    dfact_equiv a b ->
+    forward n1 n2 a = forward n1 n2 b.
+  Proof.
+    intros Heq. unfold forward. f_equal.
+    destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
+  Qed.
   Context (consistent_output : node_id -> list dfact -> Prop).
   Context (consistent_inputs : list dfact -> list dfact -> Prop).
   Context (Hcg : consistent_good forward consistent_output nconsistent consistent_inputs).
   Context (Hcim : consistent_monotone consistent_inputs nallowed).
   Context (consistent_inputs_equiv :
              forall c c' inps, Forall2 dfact_equiv c c' ->
-               consistent_inputs c inps -> consistent_inputs c' inps).
+                          consistent_inputs c inps -> consistent_inputs c' inps).
 
   Context {graph_state : map.map node_id (@graph_node_state dfact dfact_mod_count node_state)}.
   Context {graph_state_ok : map.ok graph_state}.
@@ -59,9 +73,6 @@ Section Distributed.
   Lemma nstep_input_total : input_total nstep.
   Proof. intros s m. eexists. apply node_input_step. Qed.
 
-  (* The two per-node obligations Node.v does not yet prove.  Now that
-     [consistent := dfact_consistent], these are concrete Node-level statements
-     rather than assumptions; admitted for now. *)
   Lemma Hmono : monotone_mod_equiv nstep dfact_equiv nconsistent nallowed node_init.
   Admitted.
 
@@ -92,6 +103,8 @@ Section Distributed.
       (consistent := nconsistent) (consistent_inputs := consistent_inputs)
       (initial_gs := initial_gs); try assumption.
     - exact nequiv_equiv.
+    - exact output_visible_equiv.
+    - exact forward_equiv.
     - exact nallowed_multiset_monotone.
     - exact Hcm.
     - exact nstep_input_total.
