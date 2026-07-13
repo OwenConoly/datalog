@@ -28,7 +28,6 @@ Section __.
              forall n1 n2 a b, equiv a b -> forward n1 n2 a = forward n1 n2 b).
   Context (consistent_output : node_id -> list message -> Prop).
   Context (consistent : list message -> list message -> Prop).
-  Context (consistent_inputs : list message -> list message -> Prop).
 
   Local Notation IO_event := (Smallstep.IO_event label message).
 
@@ -51,7 +50,7 @@ Section __.
       consistent_internal_inputs_to n internal_inps ->
       incl int_c internal_inps ->
       incl ext_c inps ->
-      consistent (int_c ++ ext_c) (internal_inps ++ inps) <-> consistent_inputs ext_c inps.
+      consistent (int_c ++ ext_c) (internal_inps ++ inps) <-> consistent ext_c inps.
 
   Context (allowed : list message -> Prop).
   Context (allowed_submultiset : multiset_monotone allowed).
@@ -74,8 +73,6 @@ Section __.
   Context (Hcm : consistent_monotone consistent allowed).
   Context (consistent_set_l :
              forall c c' l, incl c c' -> incl c' c -> consistent c l -> consistent c' l).
-
-  Context (Hcim : consistent_monotone consistent_inputs allowed).
 
   Section graph.
     Context {node_state : Type} (node_step : node_state -> IO_event -> node_state -> Prop).
@@ -659,8 +656,8 @@ Section __.
         by (eapply incl_tran; [ exact Hcext | apply submultiset_incl; exact Hsubext ]).
       destruct (incl_mod_weak_Forall2 equiv internal_inps1 internal_inps2 c_int Hwint Hcint)
         as (d_int & Hdint & Hddint).
-      assert (Hcie2 : consistent_inputs c_ext exts2).
-      { eapply Hcim; [ exact Hae1 | exact Hae2 | exact Hsubext | ].
+      assert (Hcie2 : consistent c_ext exts2).
+      { eapply Hcm; [ exact Hae1 | exact Hae2 | exact Hsubext | ].
         cbv [consistent_good] in Hcg.
         apply (proj1 (Hcg internal_inps1 exts1 n c_int c_ext Hci1 Hcint Hcext)).
         eapply consistent_perm_l; [ exact Hpc | exact Hc ]. }
