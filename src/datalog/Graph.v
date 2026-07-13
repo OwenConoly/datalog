@@ -1093,9 +1093,9 @@ Section __.
       graph_inputs_allowed (inputs_of t2) ->
       gstep gs1 (O_event lbl outs) gs1' ->
       le gs1 gs2 ->
-      le_weak gs1 gs2 ->
+      le_weak gs1 t1 gs2 t2 ->
       eventually graph_will_step
-        (fun '(gs2', _) => le gs1' gs2' /\ le_weak gs1' gs2') (gs2, t2).
+        (fun '(gs2', t2') => le gs1' gs2' /\ le_weak gs1' (O_event lbl outs :: t1) gs2' t2') (gs2, t2).
     Proof.
       intros Hstar1 Hstar2 Hsub Hga1 Hga2 Hstep Hle Hlew.
       assert (Hstar1' : star gstep initial_gs (O_event lbl outs :: t1) gs1') by eauto.
@@ -1113,7 +1113,7 @@ Section __.
           [ exact Hsub | exists (inputs_of tr); apply Permutation_app_comm ]. }
       pose proof (le_weak_to_le _ _ _ _ Hstar1' Hstar2' Hsub' Hga_imp Hlw) as Hle2.
       eapply eventually_weaken.
-      { eapply eventually_carry_stable_gen with (P := (fun '(s, _) => le_weak gs1' s));
+      { eapply eventually_carry_stable_gen with (P := (fun '(s, t) => le_weak gs1' (O_event lbl outs :: t1) s t));
           [ | exact Hlw | exact Hle2 ].
         intros s s' e t Hlws Hst.
         eapply le_weak_trans;
@@ -1191,7 +1191,7 @@ Section __.
       star gstep gs0 t' gs_f ->
       inputs_of t' = [] ->
       eventually graph_will_step
-        (fun '(gs2, _) => le gs_f gs2 /\ le_weak gs_f gs2) (gs0, t0).
+        (fun '(gs2, t2) => le gs_f gs2 /\ le_weak gs_f (t' ++ t0) gs2 t2) (gs0, t0).
     Proof.
       intros Hstar0 Hga0 Hrun Hinp. revert Hinp.
       induction Hrun as [ | T0 gmid e gsf Hrun' IH Hstep ]; intros Hinp.
