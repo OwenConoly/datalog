@@ -141,10 +141,20 @@ Section __.
         monotone_mod_equiv     node_step equiv consistent allowed gns.(gns_node_state) /\
         might_implies_will_equiv node_step equiv allowed gns.(gns_node_state).
 
-    Definition le_weak (g1 g2 : graph_state) :=
-      Forall2_map (fun n gns1 gns2 =>
-                     incl_mod_weak equiv (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue)) (inputs_of gns2.(gns_trace) ++ gns2.(gns_queue)))
-        g1 g2.
+    (* [node_fold proj gs] collects, over every node [k] of [gs], the projection
+       [proj k] of node [k]'s outputs.  all_outputs / fwd_total / output_total are
+       instances, so the structural lemmas are proved once (below). *)
+    Definition node_fold {X} (proj : node_id -> list message -> list X) (gs : graph_state) : list X :=
+      flat_map (fun '(k, v) => proj k (outputs_of v.(gns_trace))) (map.tuples gs).
+    Definition fwd_total (nn : node_id) := node_fold (fun k => filter (forward k nn)).
+
+    (* [g2]/[t2] dominates [g1]/[t1] at every node: its forwarded (internal) inputs
+       dominate up-to-[equiv], and its external inputs dominate as an exact multiset. *)
+    Definition le_weak (g1 : graph_state) (t1 : list gevent)
+                       (g2 : graph_state) (t2 : list gevent) :=
+      forall n,
+        incl_mod_weak equiv (fwd_total n g1) (fwd_total n g2) /\
+        submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)).
 
     Definition le_strong (g1 g2 : graph_state) :=
       Forall2_map (fun n gns1 gns2 =>
@@ -176,16 +186,19 @@ Section __.
     #[local] Hint Unfold val_sat might_output : core.
     #[local] Hint Extern 5 (In _ _) => simpl : core.
 
-    Lemma le_weak_refl g : le_weak g g.
-    Proof. apply Forall2_map_refl. intros. apply incl_mod_weak_refl; assumption. Qed.
+    Lemma le_weak_refl g t : le_weak g t g t.
+    Proof. intros n. split; auto using submultiset_refl. Qed.
 
     Lemma le_refl g : le g g.
     Proof. apply Forall2_map_refl. intros. apply incl_mod_refl; assumption. Qed.
 
-    Lemma le_weak_trans g1 g2 g3 : le_weak g1 g2 -> le_weak g2 g3 -> le_weak g1 g3.
+    Lemma le_weak_trans g1 t1 g2 t2 g3 t3 :
+      le_weak g1 t1 g2 t2 -> le_weak g2 t2 g3 t3 -> le_weak g1 t1 g3 t3.
     Proof.
-      apply Forall2_map_trans. intros k a b c. apply incl_mod_weak_trans; assumption.
+      intros H12 H23 n. destruct (H12 n) as [Hi12 He12]. destruct (H23 n) as [Hi23 He23].
+      split; [ eapply incl_mod_weak_trans; eassumption | eapply submultiset_trans; eassumption ].
     Qed.
+
 
     Lemma le_strong_trans g1 g2 g3 : le_strong g1 g2 -> le_strong g2 g3 -> le_strong g1 g3.
     Proof.
@@ -295,12 +308,6 @@ Section __.
       rewrite Htr0, app_nil_r in Htr. subst t''. eauto.
     Qed.
 
-    (* [node_fold proj gs] collects, over every node [k] of [gs], the projection
-       [proj k] of node [k]'s outputs.  all_outputs / fwd_total / output_total are
-       instances, so the structural lemmas are proved once here. *)
-    Definition node_fold {X} (proj : node_id -> list message -> list X) (gs : graph_state) : list X :=
-      flat_map (fun '(k, v) => proj k (outputs_of v.(gns_trace))) (map.tuples gs).
-
     Lemma node_fold_put_None {X} (proj : node_id -> list message -> list X) gs k v :
       map.get gs k = None ->
       Permutation (node_fold proj (map.put gs k v))
@@ -408,7 +415,6 @@ Section __.
     Qed.
 
     Definition all_outputs := node_fold (fun k => map (pair k)).
-    Definition fwd_total (nn : node_id) := node_fold (fun k => filter (forward k nn)).
     Definition output_total :=
       node_fold (fun k outs => map (fun m => (m, k)) (filter (output_visible k) outs)).
 
