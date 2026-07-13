@@ -649,14 +649,6 @@ Section __.
 
     (*TODO also specify that internal_inps are the same as internal_outs, which could
       be ensured using node traces?*)
-    Definition consistency_le n ms1 ms2 :=
-      exists internal_inps1 exts1 internal_inps2 exts2,
-        Permutation ms1 (internal_inps1 ++ exts1) /\
-          consistent_internal_inputs_to n internal_inps1 /\
-          Permutation ms2 (internal_inps2 ++ exts2) /\
-          consistent_internal_inputs_to n internal_inps2 /\
-          submultiset exts1 exts2.
-
     (* Split a list by which of two appended lists each element belongs to. *)
     Lemma incl_app_split (l k1 k2 : list message) :
       incl l (k1 ++ k2) ->
@@ -727,75 +719,55 @@ Section __.
         exact Hcie2.
     Qed.
 
-    Lemma incl_mod_weak_consistency_le_le ms1 ms2 n :
-      allowed ms1 ->
-      allowed ms2 ->
-      incl_mod_weak equiv ms1 ms2 ->
-      consistency_le n ms1 ms2 ->
-      incl_mod equiv consistent ms1 ms2.
+    Lemma incl_mod_of_le_weak t1 gs1 t2 gs2 n ns1 ns2 :
+      star gstep initial_gs t1 gs1 ->
+      star gstep initial_gs t2 gs2 ->
+      graph_inputs_allowed (inputs_of t1) ->
+      graph_inputs_allowed (inputs_of t2) ->
+      map.get gs1 n = Some ns1 ->
+      map.get gs2 n = Some ns2 ->
+      incl_mod_weak equiv (fwd_total n gs1) (fwd_total n gs2) ->
+      submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)) ->
+      incl_mod equiv consistent (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
+                                (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue)).
     Proof.
-      intros Hal1 Hal2 Hweak Hc. cbv [incl_mod]. intros a Ha Hca.
-      assert (consistent_perm_l : forall c c' l, Permutation c c' -> consistent c l -> consistent c' l).
-      { intros c c' l Hperm Hcc.
-        eapply consistent_set_l with (c := c);
-          [ intros z Hz; eapply Permutation_in; [ exact Hperm | exact Hz ]
-          | intros z Hz; eapply Permutation_in; [ apply Permutation_sym; exact Hperm | exact Hz ]
-          | exact Hcc ]. }
-      cbv [consistency_le] in Hc.
-      destruct Hc as (internal1 & exts1 & internal2 & exts2 &
-                      Hp1 & Hci1 & Hp2 & Hci2 & Hsubext).
-      (* The internal supplies are equiv-dominated: every control fact forwarded in
-         the smaller state has an equiv image forwarded in the larger one.  This does
-         NOT follow from [consistency_le] alone -- it needs "internal control facts
-         stay internal" (concretely: [input_allowed] rejects [Some]-source metas, so
-         an internal control fact's image can't be an external input).  Admitted. *)
-      assert (Hwint : incl_mod_weak equiv internal1 internal2) by admit.
-      assert (Hal1' : allowed (internal1 ++ exts1))
-        by (eapply Permutation_allowed; [ apply Permutation_sym; exact Hp1 | exact Hal1 ]).
-      assert (Hal2' : allowed (internal2 ++ exts2))
-        by (eapply Permutation_allowed; [ apply Permutation_sym; exact Hp2 | exact Hal2 ]).
-      assert (Hae1 : allowed exts1)
-        by (eapply allowed_submultiset; [ exact Hal1' | exists internal1; apply Permutation_app_comm ]).
-      assert (Hae2 : allowed exts2)
-        by (eapply allowed_submultiset; [ exact Hal2' | exists internal2; apply Permutation_app_comm ]).
-      (* split [a] into an internal part [a_int ⊆ internal1] and external part [a_ext ⊆ exts1] *)
-      assert (Ha' : incl a (internal1 ++ exts1))
-        by (intros z Hz; eapply Permutation_in; [ exact Hp1 | apply Ha; exact Hz ]).
-      destruct (incl_app_split a internal1 exts1 Ha') as (a_int & a_ext & Hpa & Haint & Haext).
-      assert (Haext2 : incl a_ext exts2)
-        by (eapply incl_tran; [ exact Haext | apply submultiset_incl; exact Hsubext ]).
-      (* re-source the internal control into [internal2]; keep the external control verbatim *)
-      destruct (incl_mod_weak_Forall2 equiv internal1 internal2 a_int Hwint Haint)
-        as (b_int & Hbint & Habint).
-      (* external residual is transported across the exact [submultiset exts1 exts2] *)
-      assert (Hcia2 : consistent_inputs a_ext exts2).
-      { eapply Hcim; [ exact Hae1 | exact Hae2 | exact Hsubext | ].
-        cbv [consistent_good] in Hcg.
-        apply (proj1 (Hcg internal1 exts1 n a_int a_ext Hci1 Haint Haext)).
-        eapply consistent_perm_l; [ exact Hpa | ].
-        eapply consistent_perm; [ exact Hcm | exact Hal1 | exact Hal1' | exact Hp1 | exact Hca ]. }
-      (* assemble [b], permuting to line up with [a] *)
-      assert (Href2 : forall l : list message, Forall2 equiv l l).
-      { intros l. induction l as [| y ys IHy]; constructor; [ reflexivity | exact IHy ]. }
-      assert (Hf2 : Forall2 equiv (a_int ++ a_ext) (b_int ++ a_ext)).
-      { apply Forall2_app; [ exact Habint | apply Href2 ]. }
-      destruct (Permutation_Forall2 (Permutation_sym Hpa) Hf2) as (b & Hpb & Hf2b).
-      assert (Hbms2 : incl b ms2).
-      { intros z Hz.
-        assert (Hz' : In z (b_int ++ a_ext))
-          by (eapply Permutation_in; [ apply Permutation_sym; exact Hpb | exact Hz ]).
-        eapply Permutation_in; [ apply Permutation_sym; exact Hp2 | ].
-        apply in_or_app. apply in_app_or in Hz'.
-        destruct Hz' as [ Hz' | Hz' ];
-          [ left; apply Hbint; exact Hz' | right; apply Haext2; exact Hz' ]. }
-      exists b. split; [ exact Hbms2 | split; [ exact Hf2b | ] ].
-      (* [consistent b ms2] : re-fold the internal supply via [consistent_good] *)
-      eapply consistent_perm; [ exact Hcm | exact Hal2' | exact Hal2 | apply Permutation_sym; exact Hp2 | ].
-      eapply consistent_perm_l; [ exact Hpb | ].
-      cbv [consistent_good] in Hcg.
-      apply (proj2 (Hcg internal2 exts2 n b_int a_ext Hci2 Hbint Haext2)).
-      exact Hcia2.
-    Admitted.
+      intros Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2 Hwint Hmatch.
+      pose proof (inputs_are_outputs _ _ Hstar1) as Hio1. cbv [Forall_map] in Hio1.
+      specialize (Hio1 _ _ Hg1).
+      pose proof (inputs_are_outputs _ _ Hstar2) as Hio2. cbv [Forall_map] in Hio2.
+      specialize (Hio2 _ _ Hg2).
+      pose proof (fwd_total_consistent_internal _ _ n Hstar1) as Hci1.
+      pose proof (fwd_total_consistent_internal _ _ n Hstar2) as Hci2.
+      assert (Halc1 : allowed (fwd_total n gs1 ++ matching_inps n (inputs_of t1)))
+        by (apply (Hga1 n _ Hci1)).
+      assert (Halc2 : allowed (fwd_total n gs2 ++ matching_inps n (inputs_of t2)))
+        by (apply (Hga2 n _ Hci2)).
+      assert (Hae1 : allowed (matching_inps n (inputs_of t1)))
+        by (eapply allowed_submultiset;
+              [ exact Halc1 | exists (fwd_total n gs1); apply Permutation_app_comm ]).
+      assert (Hae2 : allowed (matching_inps n (inputs_of t2)))
+        by (eapply allowed_submultiset;
+              [ exact Halc2 | exists (fwd_total n gs2); apply Permutation_app_comm ]).
+      assert (Halcomb1 : allowed (inputs_of (gns_trace ns1) ++ gns_queue ns1))
+        by (eapply Permutation_allowed; [ exact Hio1 | exact Halc1 ]).
+      assert (Halcomb2 : allowed (inputs_of (gns_trace ns2) ++ gns_queue ns2))
+        by (eapply Permutation_allowed; [ exact Hio2 | exact Halc2 ]).
+      cbv [incl_mod]. intros a Ha Hca.
+      assert (Ha' : incl a (fwd_total n gs1 ++ matching_inps n (inputs_of t1)))
+        by (intros z Hz; eapply Permutation_in; [ exact Hio1 | apply Ha; exact Hz ]).
+      assert (Hca' : consistent a (fwd_total n gs1 ++ matching_inps n (inputs_of t1)))
+        by (eapply consistent_perm;
+              [ exact Hcm | exact Halcomb1 | exact Halc1 | exact Hio1 | exact Hca ]).
+      destruct (something n a (fwd_total n gs1) (fwd_total n gs2)
+                  (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2))
+                  Hci1 Hci2 Hwint Hae1 Hae2 Hmatch Ha' Hca')
+        as (b & Hf2 & Hincl & Hcons').
+      exists b. split; [ | split; [ exact Hf2 | ] ].
+      - intros z Hz; eapply Permutation_in;
+          [ apply Permutation_sym; exact Hio2 | apply Hincl; exact Hz ].
+      - eapply consistent_perm;
+          [ exact Hcm | exact Halc2 | exact Halcomb2 | apply Permutation_sym; exact Hio2 | exact Hcons' ].
+    Qed.
 
     Lemma reachable_domain t gs nn :
       star gstep initial_gs t gs ->
@@ -820,31 +792,6 @@ Section __.
       eapply allowed_submultiset; [ apply (Hga n ii Hii) | ].
       destruct (submultiset_matching_inps n _ _ Hsub) as (rest & Hp).
       exists rest. rewrite <- app_assoc. apply Permutation_app_head. exact Hp.
-    Qed.
-
-    Lemma consistency_le_reachable t1 t2 gs1 gs2 n ns1 ns2 :
-      star gstep initial_gs t1 gs1 ->
-      star gstep initial_gs t2 gs2 ->
-      submultiset (inputs_of t1) (inputs_of t2) ->
-      map.get gs1 n = Some ns1 ->
-      map.get gs2 n = Some ns2 ->
-      consistency_le n (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
-                       (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue)).
-    Proof.
-      intros Hstar1 Hstar2 Hsub Hget1 Hget2.
-      cbv [consistency_le].
-      pose proof (inputs_are_outputs _ _ Hstar1) as Hio1. cbv [Forall_map] in Hio1.
-      specialize (Hio1 _ _ Hget1).
-      pose proof (inputs_are_outputs _ _ Hstar2) as Hio2. cbv [Forall_map] in Hio2.
-      specialize (Hio2 _ _ Hget2).
-      exists (fwd_total n gs1), (matching_inps n (inputs_of t1)),
-             (fwd_total n gs2), (matching_inps n (inputs_of t2)).
-      ssplit.
-      - exact Hio1.
-      - eapply fwd_total_consistent_internal. exact Hstar1.
-      - exact Hio2.
-      - eapply fwd_total_consistent_internal. exact Hstar2.
-      - apply submultiset_matching_inps. exact Hsub.
     Qed.
 
     (* The drive works with the *combined* [inputs_of trace ++ queue]; le_strong only
@@ -1023,9 +970,8 @@ Section __.
           apply (proj2 (reachable_domain _ _ k Hreach2')). exact HN. }
       intros k ns1 ns2' Hg1 Hg2'.
       destruct (Forall2_map_get_r _ _ _ _ _ Hrecv Hg2') as (ns2 & Hg2 & Hrec).
-      destruct (Forall2_map_get_l _ _ _ _ _ Hlew Hg1) as (ns2b & Hg2b & Hlewk).
+      destruct (Forall2_map_get_l _ _ _ _ _ Hlew Hg1) as (ns2b & Hg2b & Hlfwd & Hlmatch).
       assert (ns2b = ns2) by congruence. subst ns2b.
-      pose proof (consistency_le_reachable _ _ _ _ _ _ _ Hstar1 Hstar2 Hsub Hg1 Hg2) as Hcle.
       specialize (Hall1 _ _ Hg1).
       specialize (Hall2 _ _ Hg2).
       specialize (Hall2' _ _ Hg2').
@@ -1036,7 +982,8 @@ Section __.
       apply (incl_mod_weaken_r equiv consistent allowed Hcm _ _ _ Hrec Hall2 Hall2'tr).
       apply (incl_mod_weaken_l equiv consistent allowed Hcm _ _ _
                (submultiset_app_r _ _) Hall1tr Hall1).
-      apply (incl_mod_weak_consistency_le_le _ _ _ Hall1 Hall2 Hlewk Hcle).
+      apply (incl_mod_of_le_weak t1 gs1 t2 gs2 k ns1 ns2
+               Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2 Hlfwd Hlmatch).
     Qed.
 
     Lemma fwd_total_sub_combined T r k vk :
