@@ -49,8 +49,10 @@ Section __.
                  (combine nodes partition).
 
   Definition consistent_good :=
-    forall internal_inps inps n c,
+    forall internal_inps inps n c int_c ext_c,
       consistent_internal_inputs_to n internal_inps ->
+      incl int_c internal_inps ->
+      incl ext_c inps ->
       consistent c (internal_inps ++ inps) <-> consistent_inputs c inps.
 
   Context (allowed : list message -> Prop).

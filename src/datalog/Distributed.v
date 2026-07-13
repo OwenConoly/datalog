@@ -37,6 +37,10 @@ Section Distributed.
     intros Heq. unfold forward. f_equal.
     destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
   Qed.
+
+  Definition consistent_facts_from_source (src : node_id) (fs : list dfact) :=
+    (*every meta-fact source is src, and meta-fact counts are consistent with numbers of normal facts*)
+
   Context (consistent_output : node_id -> list dfact -> Prop).
   Context (consistent_inputs : list dfact -> list dfact -> Prop).
   Context (Hcg : consistent_good forward consistent_output nconsistent consistent_inputs).
