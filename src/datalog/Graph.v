@@ -207,34 +207,11 @@ Section __.
     Qed.
 
 
-    Lemma le_strong_trans g1 g2 g3 : le_strong g1 g2 -> le_strong g2 g3 -> le_strong g1 g3.
+    Lemma le_strong_trans g1 t1 g2 t2 g3 t3 :
+      le_strong g1 t1 g2 t2 -> le_strong g2 t2 g3 t3 -> le_strong g1 t1 g3 t3.
     Proof.
-      apply Forall2_map_trans. intros k a b c [Ht1 Hq1] [Ht2 Hq2].
+      intros H12 H23 n. destruct (H12 n) as [Hi12 He12]. destruct (H23 n) as [Hi23 He23].
       split; eapply submultiset_trans; eassumption.
-    Qed.
-
-    Lemma le_le_strong a b c :
-      Forall_map (fun _ ns => allowed (inputs_of ns.(gns_trace) ++ ns.(gns_queue))) b ->
-      Forall_map (fun _ ns => allowed (inputs_of ns.(gns_trace) ++ ns.(gns_queue))) c ->
-      le a b -> le_strong b c -> le a c.
-    Proof.
-      intros Hb Hc Hab Hbc.
-      cbv [le le_strong Forall_map Forall2_map] in *. intros k.
-      specialize (Hab k); specialize (Hbc k).
-      destruct (map.get a k) as [va|] eqn:Ha, (map.get b k) as [vb|] eqn:Hgb,
-               (map.get c k) as [vc|] eqn:Hgc;
-        try contradiction; try exact I.
-      destruct Hbc as [Hbc_t Hbc_q].
-      pose proof (Hb k vb Hgb) as Halb. pose proof (Hc k vc Hgc) as Halc.
-      intros x Hx_incl Hx_cons.
-      destruct (Hab x Hx_incl Hx_cons) as (y & Hy_incl & Hy_equiv & Hy_cons).
-      exists y. split; [| split; [exact Hy_equiv|]].
-      - eapply incl_tran; [exact Hy_incl | apply submultiset_incl, Hbc_t].
-      - eapply Hcm.
-        + eapply allowed_submultiset; [exact Halb | apply submultiset_app_r].
-        + eapply allowed_submultiset; [exact Halc | apply submultiset_app_r].
-        + exact Hbc_t.
-        + exact Hy_cons.
     Qed.
 
     Lemma gstep_le_strong g e g' : gstep g e g' -> le_strong g g'.
