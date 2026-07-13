@@ -24,8 +24,6 @@ Section __.
   Context {equiv_equiv : Equivalence equiv}.
   Context (output_visible_equiv :
              forall n a b, equiv a b -> output_visible n a = output_visible n b).
-  (* Forwarding cannot distinguish [equiv]-related messages: a forced re-emission
-     produces [mu' ~ mu] and must reach the same consumers as [mu]. *)
   Context (forward_equiv :
              forall n1 n2 a b, equiv a b -> forward n1 n2 a = forward n1 n2 b).
   Context (consistent_output : node_id -> list message -> Prop).
@@ -74,9 +72,6 @@ Section __.
 
   Context (Hcg : consistent_good).
   Context (Hcm : consistent_monotone consistent allowed).
-  (* [consistent] reads its control [c] only through membership: the first argument is
-     a set (this is stronger than mere permutation-invariance, which would treat it as a
-     multiset).  Discharged in Distributed: [dfact_consistent] reads [c] via [In]. *)
   Context (consistent_set_l :
              forall c c' l, incl c c' -> incl c' c -> consistent c l -> consistent c' l).
 
@@ -148,21 +143,13 @@ Section __.
       flat_map (fun '(k, v) => proj k (outputs_of v.(gns_trace))) (map.tuples gs).
     Definition fwd_total (nn : node_id) := node_fold (fun k => filter (forward k nn)).
 
-    (* [g2]/[t2] dominates [g1]/[t1] at every node: its forwarded (internal) inputs
-       dominate up-to-[equiv], and its external inputs dominate as an exact multiset. *)
-    Definition le_weak (g1 : graph_state) (t1 : list gevent)
-                       (g2 : graph_state) (t2 : list gevent) :=
+    Definition le_weak g1 (t1 : list gevent) g2 (t2 : list gevent) :=
       Forall2_map (fun n _ _ =>
         incl_mod_weak equiv (fwd_total n g1) (fwd_total n g2) /\
         submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)))
         g1 g2.
 
-    (* Like [le_weak] but with the internal (forwarded) half dominated *exactly*
-       (submultiset) rather than up-to-[equiv], plus the received-inputs multiset
-       [inputs_of (gns_trace .)] grows -- the delivery drive needs that.  A single
-       [gstep] gives [le_strong]. *)
-    Definition le_strong (g1 : graph_state) (t1 : list gevent)
-                         (g2 : graph_state) (t2 : list gevent) :=
+    Definition le_strong g1 (t1 : list gevent) g2 (t2 : list gevent) :=
       Forall2_map (fun n gns1 gns2 =>
         submultiset (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace)) /\
         submultiset (fwd_total n g1) (fwd_total n g2) /\
@@ -647,8 +634,6 @@ Section __.
       simpl. cbv [val_sat reachable]. intros. fwd. intros. fwd. eauto.
     Qed.
 
-    (*TODO also specify that internal_inps are the same as internal_outs, which could
-      be ensured using node traces?*)
     (* Split a list by which of two appended lists each element belongs to. *)
     Lemma incl_app_split (l k1 k2 : list message) :
       incl l (k1 ++ k2) ->
@@ -666,11 +651,6 @@ Section __.
           split; [ exact Hla | apply incl_cons; [ exact Hx | exact Hlb ] ].
     Qed.
 
-    (* Consistency transfer (to replace consistency_le): a consistent control [c] over
-       [internal1 ++ exts1] re-sources to a consistent control [c'] (equiv to [c]) over
-       [internal2 ++ exts2].  The internal control part swaps into [internal2] via
-       [incl_mod_weak internal1 internal2]; the external residual grows across
-       [submultiset exts1 exts2] (Hcim); [consistent_good] strips/re-adds the internal. *)
     Lemma something n c internal_inps1 internal_inps2 exts1 exts2 :
       consistent_internal_inputs_to n internal_inps1 ->
       consistent_internal_inputs_to n internal_inps2 ->
@@ -792,9 +772,6 @@ Section __.
       exists rest. rewrite <- app_assoc. apply Permutation_app_head. exact Hp.
     Qed.
 
-    (* The drive works with the *combined* [inputs_of trace ++ queue]; le_strong only
-       carries [fwd_total] + [matching_inps], so re-assemble combined via the
-       [inputs_are_outputs] conservation.  received comes along for free. *)
     Lemma le_strong_combined g1 t1 g2 t2 :
       star gstep initial_gs t1 g1 ->
       star gstep initial_gs t2 g2 ->
