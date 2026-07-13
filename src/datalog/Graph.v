@@ -738,10 +738,8 @@ Section __.
       specialize (Hio2 _ _ Hg2).
       pose proof (fwd_total_consistent_internal _ _ n Hstar1) as Hci1.
       pose proof (fwd_total_consistent_internal _ _ n Hstar2) as Hci2.
-      assert (Halc1 : allowed (fwd_total n gs1 ++ matching_inps n (inputs_of t1)))
-        by (apply (Hga1 n _ Hci1)).
-      assert (Halc2 : allowed (fwd_total n gs2 ++ matching_inps n (inputs_of t2)))
-        by (apply (Hga2 n _ Hci2)).
+      assert (Halc1 : allowed (fwd_total n gs1 ++ matching_inps n (inputs_of t1))) by auto.
+      assert (Halc2 : allowed (fwd_total n gs2 ++ matching_inps n (inputs_of t2))) by auto.
       assert (Hae1 : allowed (matching_inps n (inputs_of t1)))
         by (eapply allowed_submultiset;
               [ exact Halc1 | exists (fwd_total n gs1); apply Permutation_app_comm ]).
@@ -997,15 +995,13 @@ Section __.
         [ apply submultiset_app_r | apply submultiset_perm, Permutation_sym, Hio ].
     Qed.
 
-    Lemma forwarded_in_state T r n k vn vk os :
+    Lemma forwarded_in_state T r n k vn os :
       star gstep initial_gs T r ->
       map.get r n = Some vn ->
-      map.get r k = Some vk ->
       Forall (fun o => exists o', equiv o o' /\ In o' (outputs_of (gns_trace vn))) os ->
-      incl_mod_weak equiv (filter (forward n k) os)
-                          (inputs_of (gns_trace vk) ++ gns_queue vk).
+      incl_mod_weak equiv (filter (forward n k) os) (fwd_total k r).
     Proof.
-      intros HT Hn Hk Hos.
+      intros HT Hn Hos.
       assert (Hl1 : incl_mod_weak equiv (filter (forward n k) os)
                       (filter (forward n k) (outputs_of (gns_trace vn)))).
       { intros x Hx. apply filter_In in Hx. destruct Hx as [Hxos Hxf].
@@ -1014,12 +1010,7 @@ Section __.
         - apply filter_In. split;
             [ exact Hx'out | rewrite <- (forward_equiv n k x x' Hequiv); exact Hxf ].
         - exact Hequiv. }
-      assert (Hl2 : incl_mod_weak equiv (filter (forward n k) (outputs_of (gns_trace vn)))
-                      (fwd_total k r)) by eauto using fwd_total_get.
-      assert (Hl3 : incl_mod_weak equiv (fwd_total k r)
-                      (inputs_of (gns_trace vk) ++ gns_queue vk))
-        by eauto using incl_mod_weak_of_submultiset, fwd_total_sub_combined.
-      eauto using incl_mod_weak_trans.
+      eauto using fwd_total_get, incl_mod_weak_trans.
     Qed.
 
     Lemma node_will_match' gs1 t1 lbl outs gs1' gs2 t2 :
@@ -1029,8 +1020,9 @@ Section __.
       graph_inputs_allowed (inputs_of t2) ->
       gstep gs1 (O_event lbl outs) gs1' ->
       le gs1 gs2 ->
-      le_weak gs1 gs2 ->
-      eventually graph_will_step (fun '(gs2', _) => le_weak gs1' gs2') (gs2, t2).
+      le_weak gs1 t1 gs2 t2 ->
+      eventually graph_will_step
+        (fun '(gs2', t2') => le_weak gs1' (O_event lbl outs :: t1) gs2' t2') (gs2, t2).
     Proof.
       intros H1 H2 H3 H4 Hstep Hle Hlew.
       epose proof Forall2_map_get_l as Hle'. specialize Hle' with (1 := Hle).
@@ -1064,27 +1056,33 @@ Section __.
         apply eventually_will_step_reach.
         eapply eventually_weaken; [eassumption|].
         cbv [val_sat reachable]. intros [r l] Hval Hreach. fwd.
-        pose proof (star_gstep_le_strong _ _ _ Hreachp0) as Hlsr.
-        pose proof (le_weak_trans _ _ _ Hlew (le_strong_le_weak _ _ Hlsr)) as Hlwr.
+        pose proof (star_gstep_le_strong _ t2 _ _ Hreachp0) as Hlsr.
+        pose proof (le_weak_trans _ _ _ _ _ _ Hlew (le_strong_le_weak _ _ _ _ Hlsr)) as Hlwr.
         assert (Hrinit : star gstep initial_gs (tr ++ t2) r) by (eapply star_app; eauto).
 
         cbv [le_weak] in Hlwr |- *.
         apply Forall2_map_map_values'_l.
         eapply Forall2_map_put_l; [ | exact Hvalp0 | ].
-        + eapply Forall2_map_impl_strong; [ exact Hlwr | ].
-          intros k w1 w2 _ Hgr Hbase _. cbn [gns_trace gns_queue enqueue].
-          apply incl_mod_weak_insert; eauto. eapply forwarded_in_state; eauto.
-        + apply incl_mod_weak_insert.
-          -- eapply Forall2_map_get_l in Hlwr; eauto. fwd. map_func. assumption.
-          -- eapply forwarded_in_state; eauto.
+        + eapply Forall2_map_impl; [ exact Hlwr | ].
+          intros k w1 w2 (Hkf & Hkm) _. split; [ | exact Hkm ].
+          eapply incl_mod_weak_perm_l;
+            [ apply Permutation_sym; apply node_fold_run; eauto using filter_app | ].
+          apply incl_mod_weak_app; [ eapply forwarded_in_state; eauto | exact Hkf ].
+        + eapply Forall2_map_get_l in Hlwr; eauto. fwd. map_func. split; [ | assumption ].
+          eapply incl_mod_weak_perm_l;
+            [ apply Permutation_sym; apply node_fold_run; eauto using filter_app | ].
+          apply incl_mod_weak_app; [ eapply forwarded_in_state; eauto | eassumption ].
       - especialize Hle'; eauto. especialize Hlew'; eauto. fwd.
         apply eventually_done.
         cbv [le_weak] in Hlew |- *.
         eapply Forall2_map_put_l; [ | exact Hlew'p0 | ].
-        + eapply Forall2_map_impl; [ exact Hlew | ]. intros k w1 w2 HH _. exact HH.
-        + cbn [gns_trace gns_queue].
-          rewrite H9 in Hlew'p1.
-          eapply incl_mod_weak_perm_l; [ apply perm_recv | exact Hlew'p1 ].
+        + eapply Forall2_map_impl; [ exact Hlew | ].
+          intros k w1 w2 (Hkf & Hkm) _. split; [ | exact Hkm ].
+          eapply incl_mod_weak_perm_l;
+            [ apply Permutation_sym; apply node_fold_put_same with (v0 := ns); [ eassumption | reflexivity ] | exact Hkf ].
+        + eapply Forall2_map_get_l in Hlew; eauto. fwd. split; [ | assumption ].
+          eapply incl_mod_weak_perm_l;
+            [ apply Permutation_sym; apply node_fold_put_same with (v0 := ns); [ eassumption | reflexivity ] | eassumption ].
     Qed.
 
     Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
