@@ -54,7 +54,7 @@ Definition var_of (var : Type) (t : type) : Type :=
   match t with
   | tZ => nat (*or exprvar, or something countably infinite...*)
   | tB => unit (*shouldn't matter what is here?*)
-  | tensor_n _ => var
+  | tensor_n n => var * nat (* this is what you meant by redefining var_of to tag with the depth right? *)
   end.
 
 
@@ -91,17 +91,12 @@ end.
 
 Print pZexpr.
 
-Inductive pZexpr' (var : Type) : Type :=
-  | ZBop : Zbop -> pZexpr' var -> pZexpr' var -> pZexpr' var
-  | ZVar : var -> pZexpr' var
-  | ZLit : Z -> pZexpr' var
-  | Zopp : pZexpr' var -> pZexpr' var.
-
-Arguments pZexpr' var%_type_scope.
-Arguments ZBop {var}%_type_scope _ _ _.
-Arguments ZVar {var}%_type_scope _.
-Arguments ZLit {var}%_type_scope _%_positive_scope.
-Arguments Zopp {var}%_type_scope _.
+Inductive pZexpr' {var : Type} : Type :=
+  | ZBop : Zbop -> pZexpr' -> pZexpr' -> pZexpr'
+  | ZVar : var -> pZexpr'
+  | ZLit : Z -> pZexpr'
+  | Zopp : pZexpr' -> pZexpr'.
+Arguments pZexpr' : clear implicits.
 
 
 Fixpoint lower_pZexpr' (e : pZexpr' nat) : expr string fn :=
@@ -118,6 +113,13 @@ Fixpoint lower_pZexpr' (e : pZexpr' nat) : expr string fn :=
 end.
 
 Print pATLexpr.
+
+
+Inductive pATL_Sexpr' {var : type -> Type} : Type :=
+| Get : forall n : nat, var (tensor_n n) -> list (pZexpr' (var tZ)) -> pATL_Sexpr'
+| SBop : Sbop -> pATL_Sexpr' -> pATL_Sexpr' -> pATL_Sexpr'
+| SIZR : pZexpr' (var tZ) -> pATL_Sexpr'.
+Arguments pATL_Sexpr' : clear implicits.
 
 Inductive pATLexpr' ( var : type -> Type ) : nat -> Type :=
   | Gen : forall n : nat,
@@ -158,9 +160,7 @@ Inductive pATLexpr' ( var : type -> Type ) : nat -> Type :=
            pZexpr' (var tZ) ->
            pATLexpr' var (ATLPhoas.S n) -> pATLexpr' var (ATLPhoas.S n)
   | Var : forall n : nat, var (tensor_n n) -> pATLexpr' var n
-  | Get : pATLexpr' var 0 -> list (pZexpr' (var tZ)) -> pATLexpr' var 0 (* i made it so that var in get is garunteed to be scalar, but thats the only real cahnge i made from pATLexpr *)
-  | SBop : Sbop -> pATLexpr' var 0 -> pATLexpr' var 0 -> pATLexpr' var 0
-  | SIZR : pZexpr' (var tZ) -> pATLexpr' var 0
+  | Scalar : pATL_Sexpr' var -> pATLexpr' var 0
   . 
 Arguments pATLexpr' var%_function_scope _%_nat_scope.
 Arguments Gen {var}%_function_scope {n}%_nat_scope _ _ _%_function_scope.
@@ -176,9 +176,9 @@ Arguments Truncl {var}%_function_scope {n}%_nat_scope _ _.
 Arguments Padr {var}%_function_scope {n}%_nat_scope _ _.
 Arguments Padl {var}%_function_scope {n}%_nat_scope _ _.
 Arguments Var {var}%_function_scope {n}%_nat_scope _.
-Arguments Get {var}%_function_scope _ _%_list_scope.
-Arguments SBop {var}%_function_scope _ _ _.
-Arguments SIZR {var}%_function_scope _.
+Arguments Scalar {var}%_function_scope  _. 
+
+
 
 Definition sbop_to_fn (o : Sbop) : fn :=
   match o with
@@ -188,41 +188,45 @@ Definition sbop_to_fn (o : Sbop) : fn :=
   | Sub => fn_Sub
 end.
 
-(* This is the older lower_pSexpr -> keeping it here just in case
-Fixpoint lower_pSexpr {var} (idxs0 : list string) (def_depth : str_nat) (next_varname : string) (e : pATLexpr (var_of var) 0) :
+Fixpoint lower_pSexpr' {var} (idxs0 : list string) (next_varname : string) (e : pATL_Sexpr' (var_of var)) :
     expr exprvar fn (*value of expr*) * 
     list (clause block_rel exprvar fn) (*hypotheses*) * 
     string (*next varname*) :=
-  match e as e' in pATLexpr _ _
-        return expr exprvar fn * list (clause block_rel exprvar fn) * string with
-  | Get x idxs => (fun_expr "garbage" [], nil, next_varname)
-    (* not actually possible because x is of type pATLexpr (var_of var) n, so it's not a scalar, and then has to be compiled
-    let '(x_prog) := lower_pATLexpr x in *)
+  match e with
+  (* when i tried to update Get with your suggestion to vr, it wouldn't take jus var, so then i made it a var of tensor_n, and then
+  that required a for all n : nat, and so now get has an extra variable (??) of n?? *)
+  | Get n (var, depth) idxs => 
+  (* i feel like this actually should work?? the value part might be wrong, but i basically just copied the defintion from your compiler, and then updated
+  it to fit the new types, so i think that the hypotheses part is right?? *)
+    (fun_expr fn_Get [],
+            [{| clause_rel := local "idxs rules"; clause_args := var_expr ( next_varname) :: map var_expr (firstn depth idxs0) ++ map lower_pZexpr' idxs |}],
+            next_varname)
   | SBop o x y => 
-    let '(e1, hyps1, next_varname) := lower_pSexpr idxs0 def_depth next_varname x in
-    let '(e2, hyps2, next_varname) := lower_pSexpr idxs0 def_depth next_varname y in
-    (fun_expr (sbop_to_fn o) [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
-  | SIZR x => (fun_expr "fn_SLit" [lower_pZexpr x], [], next_varname)
-  | _ => (fun_expr "garbage" [], nil, next_varname)
-end. *)
-
-(* new version of lower_pSexpr with the new pATLexpr' type, Get is still probably very wrong but it does compile *)
-Fixpoint lower_pSexpr {var} (idxs0 : list string) (def_depth : str_nat) (next_varname : string) (e : pATLexpr' (var_of var) 0) :
-    expr exprvar fn (*value of expr*) * 
-    list (clause block_rel exprvar fn) (*hypotheses*) * 
-    string (*next varname*) :=
-  match e as e' in pATLexpr' _ _
-        return expr exprvar fn * list (clause block_rel exprvar fn) * string with
-  | Get x idxs => 
-    let '(x', hyps, next_varname) := lower_pSexpr [] map.empty "x" (x) in
-    (fun_expr fn_Get [x'], [{| clause_rel := local "idxs rules"; clause_args := (map lower_pZexpr' idxs) |}], next_varname)
-  | SBop o x y => 
-    let '(e1, hyps1, next_varname) := lower_pSexpr idxs0 def_depth next_varname x in
-    let '(e2, hyps2, next_varname) := lower_pSexpr idxs0 def_depth next_varname y in
+    let '(e1, hyps1, next_varname) := lower_pSexpr' idxs0 next_varname x in
+    let '(e2, hyps2, next_varname) := lower_pSexpr' idxs0 next_varname y in
     (fun_expr (sbop_to_fn o) [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
   | SIZR x => (fun_expr fn_Lit [lower_pZexpr' x], [], next_varname)
-  | Var n => (fun_expr fn_Add [], nil, next_varname) (* not sure what to do with Var here *)
-  | _ => (fun_expr fn_Add [], nil, next_varname) (*garbage*)
+end.
+
+(* i tried fixing this, but like i don't know, its just messy and maybe something is wrong?? *)
+Fixpoint lower_pATLexpr' {var n} (e : pATLexpr (var_of var) n) : pATLexpr' (var_of var) n :=
+  match e with
+  | ATLPhoas.Gen lo hi body => Gen lo hi body
+  | ATLPhoas.Sum lo hi body => Sum lo hi body
+  | ATLPhoas.Guard b e1 => Guard b e1
+  | ATLPhoas.Lbind x f => Lbind x f
+  | ATLPhoas.Concat x y => Concat x y
+  | ATLPhoas.Flatten x => Flatten x
+  | ATLPhoas.Split k x => Split k x
+  | ATLPhoas.Transpose x => Transpose x
+  | ATLPhoas.Truncr k x => Truncr k x
+  | ATLPhoas.Truncl k x => Truncl k x
+  | ATLPhoas.Padr k x => Padr k x
+  | ATLPhoas.Padl k x => Padl k x
+  | ATLPhoas.Var x => Var x
+  | ATLPhoas.Get var idxs => Scalar (Get n var idxs)
+  | ATLPhoas.SBop o x y => Scalar (SBop o x y)
+  | ATLPhoas.SIZR x => Scalar (SIZR x)
 end.
 
 Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var_of var) n) : blocks_prog var :=
