@@ -634,7 +634,7 @@ Section __.
       simpl. cbv [val_sat reachable]. intros. fwd. intros. fwd. eauto.
     Qed.
 
-    Lemma something n c internal_inps1 internal_inps2 exts1 exts2 :
+    Lemma consistent_transfer n c internal_inps1 internal_inps2 exts1 exts2 :
       consistent_internal_inputs_to n internal_inps1 ->
       consistent_internal_inputs_to n internal_inps2 ->
       incl_mod_weak equiv internal_inps1 internal_inps2 ->
@@ -719,7 +719,7 @@ Section __.
       assert (Hca' : consistent a (fwd_total n gs1 ++ matching_inps n (inputs_of t1)))
         by (eapply consistent_perm;
               [ exact Hcm | exact Halcomb1 | exact Halc1 | exact Hio1 | exact Hca ]).
-      destruct (something n a (fwd_total n gs1) (fwd_total n gs2)
+      destruct (consistent_transfer n a (fwd_total n gs1) (fwd_total n gs2)
                   (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2))
                   Hci1 Hci2 Hwint Hae1 Hae2 Hmatch Ha' Hca')
         as (b & Hf2 & Hincl & Hcons').
