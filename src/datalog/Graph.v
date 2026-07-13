@@ -228,42 +228,6 @@ Section __.
              | split; eapply submultiset_trans; eassumption ].
     Qed.
 
-    Lemma gstep_le_strong g e g' : gstep g e g' -> le_strong g g'.
-    Proof.
-      intros Hstep. cbv [le_strong Forall2_map]. intros k. invert Hstep.
-      - rewrite get_mupd. destr (eqb n k).
-        + destruct (map.get g k) as [v|]; [|exact I].
-          cbn [option_map enqueue gns_node_state gns_trace gns_queue].
-          split; [apply submultiset_refl | apply submultiset_app_mid].
-        + destruct (map.get g k) as [v|]; [|exact I]. split; apply submultiset_refl.
-      - rewrite get_map_values'. destr (eqb n k).
-        + rewrite map.get_put_same, H.
-          cbn [option_map enqueue gns_node_state gns_trace gns_queue].
-          replace (inputs_of (O_event lbl outs :: gns_trace ns))
-            with (inputs_of (gns_trace ns)) by reflexivity.
-          split; [apply submultiset_refl | apply submultiset_app_mid].
-        + rewrite map.get_put_diff by congruence.
-          destruct (map.get g k) as [v|]; [|exact I].
-          cbn [option_map enqueue gns_node_state gns_trace gns_queue].
-          split; [apply submultiset_refl | apply submultiset_app_mid].
-      - destr (eqb n k).
-        + rewrite map.get_put_same, H. cbn [gns_trace gns_queue].
-          replace (inputs_of (I_event m :: gns_trace ns))
-            with (m :: inputs_of (gns_trace ns)) by reflexivity.
-          rewrite H1. split; [apply submultiset_cons | apply submultiset_perm, perm_recv].
-        + rewrite map.get_put_diff by congruence.
-          destruct (map.get g k) as [v|]; [|exact I]. split; apply submultiset_refl.
-    Qed.
-
-    Lemma le_strong_refl g : le_strong g g.
-    Proof. apply Forall2_map_refl. intros. split; apply submultiset_refl. Qed.
-
-    Lemma star_gstep_le_strong g T g' : star gstep g T g' -> le_strong g g'.
-    Proof.
-      induction 1; [apply le_strong_refl|].
-      eapply le_strong_trans; [eassumption | eapply gstep_le_strong; eassumption].
-    Qed.
-
     Lemma graph_step_to_node_step gs gt gs' :
       star gstep gs gt gs' ->
       Forall2_map (fun _ gns1 gns2 =>
@@ -443,6 +407,81 @@ Section __.
     Lemma matching_inps_perm nn e1 e2 :
       Permutation e1 e2 -> Permutation (matching_inps nn e1) (matching_inps nn e2).
     Proof. intros HP. unfold matching_inps. rewrite HP. reflexivity. Qed.
+
+    Lemma gstep_le_strong g e g' t : gstep g e g' -> le_strong g t g' (e :: t).
+    Proof.
+      intros Hstep. cbv [le_strong Forall2_map]. intros k. invert Hstep.
+      - (* input *)
+        assert (Hfwd : submultiset (fwd_total k g) (fwd_total k (mupd g n (enqueue [m])))).
+        { apply submultiset_perm, Permutation_sym,
+                (node_fold_mupd_enqueue (fun j => filter (forward j k)) g n [m]). }
+        assert (Hmatch : submultiset (matching_inps k (inputs_of t))
+                           (matching_inps k (inputs_of (I_event (m, n) :: t)))).
+        { change (inputs_of (I_event (m, n) :: t)) with ([(m, n)] ++ inputs_of t).
+          rewrite matching_inps_app. exists (matching_inps k [(m, n)]).
+          apply Permutation_app_comm. }
+        rewrite get_mupd. destr (eqb n k).
+        + destruct (map.get g k) as [v|]; [| exact I].
+          cbn [option_map enqueue gns_node_state gns_trace gns_queue].
+          split; [ apply submultiset_refl | split; [ exact Hfwd | exact Hmatch ] ].
+        + destruct (map.get g k) as [v|]; [| exact I].
+          split; [ apply submultiset_refl | split; [ exact Hfwd | exact Hmatch ] ].
+      - (* run *)
+        assert (Hfwd : submultiset (fwd_total k g)
+                         (fwd_total k (map_values' (fun j => enqueue (filter (forward n j) outs))
+                            (map.put g n {| gns_node_state := ns';
+                                            gns_trace := O_event lbl outs :: ns.(gns_trace);
+                                            gns_queue := ns.(gns_queue) |})))).
+        { exists (filter (forward n k) outs). eapply perm_trans;
+            [ apply (node_fold_run (fun j => filter (forward j k))
+                       ltac:(intros; apply filter_app) g n ns lbl outs ns' H)
+            | apply Permutation_app_comm ]. }
+        assert (Hmatch : submultiset (matching_inps k (inputs_of t))
+                           (matching_inps k (inputs_of
+                              (O_event (run n lbl)
+                                 (map (fun m0 => (m0, n)) (filter (output_visible n) outs)) :: t)))).
+        { change (inputs_of (O_event (run n lbl)
+                    (map (fun m0 => (m0, n)) (filter (output_visible n) outs)) :: t))
+            with (inputs_of t). apply submultiset_refl. }
+        rewrite get_map_values'. destr (eqb n k).
+        + rewrite map.get_put_same, H.
+          cbn [option_map enqueue gns_node_state gns_trace gns_queue].
+          change (inputs_of (O_event lbl outs :: gns_trace ns)) with (inputs_of (gns_trace ns)).
+          split; [ apply submultiset_refl | split; [ exact Hfwd | exact Hmatch ] ].
+        + rewrite map.get_put_diff by congruence.
+          destruct (map.get g k) as [v|]; [| exact I].
+          cbn [option_map enqueue gns_node_state gns_trace gns_queue].
+          split; [ apply submultiset_refl | split; [ exact Hfwd | exact Hmatch ] ].
+      - (* receive *)
+        assert (Hfwd : submultiset (fwd_total k g)
+                         (fwd_total k (map.put g n {| gns_node_state := ns';
+                                                      gns_trace := I_event m :: ns.(gns_trace);
+                                                      gns_queue := ms1 ++ ms2 |}))).
+        { apply submultiset_perm, Permutation_sym.
+          apply (node_fold_put_same (fun j => filter (forward j k)) g n ns
+                   {| gns_node_state := ns'; gns_trace := I_event m :: ns.(gns_trace);
+                      gns_queue := ms1 ++ ms2 |} H eq_refl). }
+        assert (Hmatch : submultiset (matching_inps k (inputs_of t))
+                           (matching_inps k (inputs_of (O_event (receive n m) [] :: t)))).
+        { change (inputs_of (O_event (receive n m) [] :: t)) with (inputs_of t).
+          apply submultiset_refl. }
+        destr (eqb n k).
+        + rewrite map.get_put_same, H. cbn [gns_trace gns_queue].
+          change (inputs_of (I_event m :: gns_trace ns)) with (m :: inputs_of (gns_trace ns)).
+          split; [ apply submultiset_cons | split; [ exact Hfwd | exact Hmatch ] ].
+        + rewrite map.get_put_diff by congruence.
+          destruct (map.get g k) as [v|]; [| exact I].
+          split; [ apply submultiset_refl | split; [ exact Hfwd | exact Hmatch ] ].
+    Qed.
+
+    Lemma le_strong_refl g t : le_strong g t g t.
+    Proof. apply Forall2_map_refl. intros. split; [ | split ]; apply submultiset_refl. Qed.
+
+    Lemma star_gstep_le_strong g t T g' : star gstep g T g' -> le_strong g t g' (T ++ t).
+    Proof.
+      induction 1 as [ | t0 s' e s'' Hstar IH Hstep ]; [ apply le_strong_refl | ].
+      eapply le_strong_trans; [ exact IH | apply gstep_le_strong; exact Hstep ].
+    Qed.
 
     Definition conserved (gs : graph_state) (ext : list (message * node_id)) : Prop :=
       forall nn nsn, map.get gs nn = Some nsn ->
