@@ -794,6 +794,34 @@ Section __.
       - apply submultiset_matching_inps. exact Hsub.
     Qed.
 
+    (* The drive works with the *combined* [inputs_of trace ++ queue]; le_strong only
+       carries [fwd_total] + [matching_inps], so re-assemble combined via the
+       [inputs_are_outputs] conservation.  received comes along for free. *)
+    Lemma le_strong_combined g1 t1 g2 t2 :
+      star gstep initial_gs t1 g1 ->
+      star gstep initial_gs t2 g2 ->
+      le_strong g1 t1 g2 t2 ->
+      Forall2_map (fun _ ns1 ns2 =>
+        submultiset (inputs_of ns1.(gns_trace)) (inputs_of ns2.(gns_trace)) /\
+        submultiset (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
+                    (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue))) g1 g2.
+    Proof.
+      intros Hstar1 Hstar2 Hls.
+      pose proof (inputs_are_outputs _ _ Hstar1) as Hio1. cbv [Forall_map] in Hio1.
+      pose proof (inputs_are_outputs _ _ Hstar2) as Hio2. cbv [Forall_map] in Hio2.
+      cbv [le_strong Forall2_map] in Hls |- *. intros k. specialize (Hls k).
+      destruct (map.get g1 k) as [ns1|] eqn:Hg1, (map.get g2 k) as [ns2|] eqn:Hg2;
+        cbn in Hls |- *; try contradiction; try exact I.
+      destruct Hls as (Htr & Hfwd & Hmatch). split; [ exact Htr | ].
+      specialize (Hio1 _ _ Hg1). specialize (Hio2 _ _ Hg2).
+      eapply submultiset_perm_l; [ apply Permutation_sym; exact Hio1 | ].
+      eapply submultiset_perm_r; [ apply Permutation_sym; exact Hio2 | ].
+      eapply submultiset_trans; [ | apply submultiset_app_head; exact Hmatch ].
+      eapply submultiset_perm_l; [ apply Permutation_app_comm | ].
+      eapply submultiset_perm_r; [ apply Permutation_app_comm | ].
+      apply submultiset_app_head. exact Hfwd.
+    Qed.
+
     Lemma eventually_deliver n :
       forall N owed gc tc nc,
         length owed <= N ->
@@ -816,10 +844,11 @@ Section __.
         { eapply submultiset_trans; [ | exact Hsub ]. exists owed'. reflexivity. }
         eapply eventually_step_cps. exists (receive n a).
         intros gs_d td Hstar_d Hga_d.
-        pose proof (star_gstep_le_strong _ _ _ Hstar_d) as Hls. cbv [le_strong] in Hls.
-        destruct (Forall2_map_get_l _ _ _ _ _ Hls Hget) as (nd & Hget_d & Htr & Htot).
         assert (Hstar_di : star gstep initial_gs (td ++ tc) gs_d)
           by (eapply star_app; [ exact Hstar | exact Hstar_d ]).
+        pose proof (le_strong_combined gc tc gs_d (td ++ tc) Hstar Hstar_di
+                      (star_gstep_le_strong gc tc td gs_d Hstar_d)) as Hls.
+        destruct (Forall2_map_get_l _ _ _ _ _ Hls Hget) as (nd & Hget_d & Htr & Htot).
         assert (Htot_owed : submultiset (inputs_of (gns_trace nc) ++ a :: owed')
                               (inputs_of (gns_trace nd) ++ gns_queue nd))
           by (eapply submultiset_trans; [ apply submultiset_app_head; exact Hsub | exact Htot ]).
@@ -894,7 +923,7 @@ Section __.
                     (map.tuples gs2)).
         - apply List.Forall_map. apply Forall_forall. intros [k v] _.
           cbv [ev_stable]. intros s s' e t (nc' & Hgk & Hsm) Hstep.
-          pose proof (gstep_le_strong _ _ _ Hstep) as Hls. cbv [le_strong] in Hls.
+          pose proof (gstep_le_strong _ _ _ t Hstep) as Hls. cbv [le_strong] in Hls.
           destruct (Forall2_map_get_l _ _ _ _ _ Hls Hgk) as (nc'' & Hgk' & Htr & _).
           exists nc''. split; [ exact Hgk' | eapply submultiset_trans; [ exact Hsm | exact Htr ] ].
         - apply List.Forall_map. apply Forall_forall. intros [k v] Hin.
@@ -903,7 +932,7 @@ Section __.
             [ apply le_n | exact Hstar | exact Hga | exact Hin | apply submultiset_refl ]. }
       intros [gs2' t2'] Hall Hreach.
       destruct Hreach as (tr & Hstar_gg & _ & _).
-      pose proof (star_gstep_le_strong _ _ _ Hstar_gg) as Hls.
+      pose proof (star_gstep_le_strong _ [] _ _ Hstar_gg) as Hls.
       eapply Forall2_map_impl_strong; [ exact Hls | ].
       intros k v v' Hgk Hgk' _. rewrite Forall_forall in Hall.
       destruct (Hall _ ltac:(apply in_map_iff; exists (k, v);
@@ -917,7 +946,7 @@ Section __.
       star gstep initial_gs t2 gs2 ->
       submultiset (inputs_of t1) (inputs_of t2) ->
       graph_inputs_allowed (inputs_of t2) ->
-      le_weak gs1 gs2 ->
+      le_weak gs1 t1 gs2 t2 ->
       eventually graph_will_step (fun '(gs2', _) => le gs1 gs2') (gs2, t2).
     Proof.
       intros Hstar1 Hstar2 Hsub Hga2 Hlew.
