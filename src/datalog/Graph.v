@@ -55,15 +55,6 @@ Section __.
       incl ext_c inps ->
       consistent (int_c ++ ext_c) (internal_inps ++ inps) <-> consistent_inputs ext_c inps.
 
-  Lemma something n c internal_inps1 internal_inps2 exts1 exts2 :
-    consistent_good ->
-    consistent_internal_inputs_to n internal_inps1 ->
-    consistent_internal_inputs_to n internal_inps2 ->
-    incl_mod_weak equiv internal_inps1 internal_inps2 ->
-    consistent c (internal_inps1 ++ exts1) ->
-    consistent c (internal_inps2 ++ exts2).
-
-
   Context (allowed : list message -> Prop).
   Context (allowed_submultiset : multiset_monotone allowed).
 
@@ -682,6 +673,26 @@ Section __.
         + exists la, (x :: lb). split; [ apply Permutation_cons_app; exact Hperm | ].
           split; [ exact Hla | apply incl_cons; [ exact Hx | exact Hlb ] ].
     Qed.
+
+    (* Consistency transfer (to replace consistency_le): a consistent control [c] over
+       [internal1 ++ exts1] re-sources to a consistent control [c'] (equiv to [c]) over
+       [internal2 ++ exts2].  The internal control part swaps into [internal2] via
+       [incl_mod_weak internal1 internal2]; the external residual grows across
+       [submultiset exts1 exts2] (Hcim); [consistent_good] strips/re-adds the internal. *)
+    Lemma something n c internal_inps1 internal_inps2 exts1 exts2 :
+      consistent_internal_inputs_to n internal_inps1 ->
+      consistent_internal_inputs_to n internal_inps2 ->
+      incl_mod_weak equiv internal_inps1 internal_inps2 ->
+      allowed exts1 ->
+      allowed exts2 ->
+      submultiset exts1 exts2 ->
+      incl c (internal_inps1 ++ exts1) ->
+      consistent c (internal_inps1 ++ exts1) ->
+      exists c', Forall2 equiv c c' /\
+                 incl c' (internal_inps2 ++ exts2) /\
+                 consistent c' (internal_inps2 ++ exts2).
+    Proof.
+    Admitted.
 
     Lemma incl_mod_weak_consistency_le_le ms1 ms2 n :
       allowed ms1 ->
