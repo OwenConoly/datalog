@@ -55,6 +55,15 @@ Section __.
       incl ext_c inps ->
       consistent (int_c ++ ext_c) (internal_inps ++ inps) <-> consistent_inputs ext_c inps.
 
+  Lemma something n c internal_inps1 internal_inps2 exts1 exts2 :
+    consistent_good ->
+    consistent_internal_inputs_to n internal_inps1 ->
+    consistent_internal_inputs_to n internal_inps2 ->
+    incl_mod_weak equiv internal_inps1 internal_inps2 ->
+    consistent c (internal_inps1 ++ exts1) ->
+    consistent c (internal_inps2 ++ exts2).
+
+
   Context (allowed : list message -> Prop).
   Context (allowed_submultiset : multiset_monotone allowed).
 
