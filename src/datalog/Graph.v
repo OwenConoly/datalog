@@ -692,7 +692,40 @@ Section __.
                  incl c' (internal_inps2 ++ exts2) /\
                  consistent c' (internal_inps2 ++ exts2).
     Proof.
-    Admitted.
+      intros Hci1 Hci2 Hwint Hae1 Hae2 Hsubext Hcincl Hc.
+      assert (consistent_perm_l : forall x y l, Permutation x y -> consistent x l -> consistent y l).
+      { intros x y l Hperm Hcc.
+        eapply consistent_set_l with (c := x);
+          [ intros z Hz; eapply Permutation_in; [ exact Hperm | exact Hz ]
+          | intros z Hz; eapply Permutation_in; [ apply Permutation_sym; exact Hperm | exact Hz ]
+          | exact Hcc ]. }
+      destruct (incl_app_split c internal_inps1 exts1 Hcincl) as (c_int & c_ext & Hpc & Hcint & Hcext).
+      assert (Hcext2 : incl c_ext exts2)
+        by (eapply incl_tran; [ exact Hcext | apply submultiset_incl; exact Hsubext ]).
+      destruct (incl_mod_weak_Forall2 equiv internal_inps1 internal_inps2 c_int Hwint Hcint)
+        as (d_int & Hdint & Hddint).
+      assert (Hcie2 : consistent_inputs c_ext exts2).
+      { eapply Hcim; [ exact Hae1 | exact Hae2 | exact Hsubext | ].
+        cbv [consistent_good] in Hcg.
+        apply (proj1 (Hcg internal_inps1 exts1 n c_int c_ext Hci1 Hcint Hcext)).
+        eapply consistent_perm_l; [ exact Hpc | exact Hc ]. }
+      assert (Href2 : forall l : list message, Forall2 equiv l l).
+      { intros l. induction l as [| y ys IHy]; constructor; [ reflexivity | exact IHy ]. }
+      assert (Hf2 : Forall2 equiv (c_int ++ c_ext) (d_int ++ c_ext))
+        by (apply Forall2_app; [ exact Hddint | apply Href2 ]).
+      destruct (Permutation_Forall2 (Permutation_sym Hpc) Hf2) as (c' & Hpc' & Hf2c).
+      exists c'. split; [ exact Hf2c | split ].
+      - intros z Hz.
+        assert (Hz' : In z (d_int ++ c_ext))
+          by (eapply Permutation_in; [ apply Permutation_sym; exact Hpc' | exact Hz ]).
+        apply in_or_app. apply in_app_or in Hz'.
+        destruct Hz' as [ Hz' | Hz' ];
+          [ left; apply Hdint; exact Hz' | right; apply Hcext2; exact Hz' ].
+      - eapply consistent_perm_l; [ exact Hpc' | ].
+        cbv [consistent_good] in Hcg.
+        apply (proj2 (Hcg internal_inps2 exts2 n d_int c_ext Hci2 Hdint Hcext2)).
+        exact Hcie2.
+    Qed.
 
     Lemma incl_mod_weak_consistency_le_le ms1 ms2 n :
       allowed ms1 ->
