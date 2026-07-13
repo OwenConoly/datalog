@@ -156,11 +156,18 @@ Section __.
         incl_mod_weak equiv (fwd_total n g1) (fwd_total n g2) /\
         submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)).
 
-    Definition le_strong (g1 g2 : graph_state) :=
-      Forall2_map (fun n gns1 gns2 =>
-                     submultiset (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace)) /\
-                     submultiset (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue)) (inputs_of gns2.(gns_trace) ++ gns2.(gns_queue)))
-        g1 g2.
+    (* Like [le_weak], but the internal (forwarded) half is dominated *exactly*
+       (submultiset) rather than up-to-[equiv].  A single [gstep] gives [le_strong]. *)
+    Definition le_strong (g1 : graph_state) (t1 : list gevent)
+                         (g2 : graph_state) (t2 : list gevent) :=
+      forall n,
+        submultiset (fwd_total n g1) (fwd_total n g2) /\
+        submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)).
+
+    Lemma le_strong_le_weak g1 t1 g2 t2 : le_strong g1 t1 g2 t2 -> le_weak g1 t1 g2 t2.
+    Proof.
+      intros H n. destruct (H n). split; auto using incl_mod_weak_of_submultiset.
+    Qed.
 
     Definition le (g1 g2 : graph_state) :=
       Forall2_map (fun n gns1 gns2 =>
@@ -264,12 +271,6 @@ Section __.
     Proof.
       induction 1; [apply le_strong_refl|].
       eapply le_strong_trans; [eassumption | eapply gstep_le_strong; eassumption].
-    Qed.
-
-    Lemma le_strong_le_weak a b : le_strong a b -> le_weak a b.
-    Proof.
-      intros. eapply Forall2_map_impl; eauto. simpl.
-      intros. fwd. auto using incl_mod_weak_of_submultiset.
     Qed.
 
     Lemma graph_step_to_node_step gs gt gs' :
