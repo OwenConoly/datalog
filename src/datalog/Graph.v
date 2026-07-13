@@ -634,23 +634,6 @@ Section __.
       simpl. cbv [val_sat reachable]. intros. fwd. intros. fwd. eauto.
     Qed.
 
-    (* Split a list by which of two appended lists each element belongs to. *)
-    Lemma incl_app_split (l k1 k2 : list message) :
-      incl l (k1 ++ k2) ->
-      exists la lb, Permutation l (la ++ lb) /\ incl la k1 /\ incl lb k2.
-    Proof.
-      induction l as [| x xs IH]; intros Hincl.
-      - exists [], []. split; [ reflexivity | split; intros z Hz; destruct Hz ].
-      - assert (Hx : In x (k1 ++ k2)) by (apply Hincl; left; reflexivity).
-        assert (Hxs : incl xs (k1 ++ k2)) by (intros z Hz; apply Hincl; right; exact Hz).
-        destruct (IH Hxs) as (la & lb & Hperm & Hla & Hlb).
-        apply in_app_or in Hx. destruct Hx as [Hx | Hx].
-        + exists (x :: la), lb. split; [ apply perm_skip; exact Hperm | ].
-          split; [ apply incl_cons; [ exact Hx | exact Hla ] | exact Hlb ].
-        + exists la, (x :: lb). split; [ apply Permutation_cons_app; exact Hperm | ].
-          split; [ exact Hla | apply incl_cons; [ exact Hx | exact Hlb ] ].
-    Qed.
-
     Lemma something n c internal_inps1 internal_inps2 exts1 exts2 :
       consistent_internal_inputs_to n internal_inps1 ->
       consistent_internal_inputs_to n internal_inps2 ->

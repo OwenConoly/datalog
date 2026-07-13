@@ -940,6 +940,22 @@ Section misc.
     incl (skipn n l) l.
   Proof. eauto using In_skipn. Qed.
 
+  Lemma incl_app_split (l k1 k2 : list A) :
+    incl l (k1 ++ k2) ->
+    exists la lb, Permutation l (la ++ lb) /\ incl la k1 /\ incl lb k2.
+  Proof.
+    induction l as [| x xs IH]; intros Hincl.
+    - exists [], []. split; [ reflexivity | split; intros z Hz; destruct Hz ].
+    - assert (Hx : In x (k1 ++ k2)) by (apply Hincl; left; reflexivity).
+      assert (Hxs : incl xs (k1 ++ k2)) by (intros z Hz; apply Hincl; right; exact Hz).
+      destruct (IH Hxs) as (la & lb & Hperm & Hla & Hlb).
+      apply in_app_or in Hx. destruct Hx as [Hx | Hx].
+      + exists (x :: la), lb. split; [ apply perm_skip; exact Hperm | ].
+        split; [ apply incl_cons; [ exact Hx | exact Hla ] | exact Hlb ].
+      + exists la, (x :: lb). split; [ apply Permutation_cons_app; exact Hperm | ].
+        split; [ exact Hla | apply incl_cons; [ exact Hx | exact Hlb ] ].
+  Qed.
+
   Lemma seq_incl start len1 len2 :
     len1 <= len2 ->
     incl (seq start len1) (seq start len2).
