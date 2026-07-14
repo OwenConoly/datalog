@@ -42,7 +42,7 @@ Section Distributed.
     match f with
     | normal_dfact _ _ => True
     | meta_dfact R mf_args src cnt =>
-        n = src /\ exists cnt', cnt' <= cnt /\ Existsn (dfact_matches R mf_args) cnt fs
+        n = src /\ exists cnt', cnt' <= cnt /\ Existsn (dfact_matches R mf_args) cnt' fs
     end.
 
   Definition allowed_outputs (n : option node_id) fs :=
