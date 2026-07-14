@@ -142,7 +142,8 @@ Section __.
   Definition dfact_consistent (c l : list dfact) : Prop :=
     forall R mf_args num,
       expect_num_R_facts R mf_args c num ->
-      Existsn (dfact_matches R mf_args) num l.
+      exists num',
+        num <= num' /\ Existsn (dfact_matches R mf_args) num l.
 
   Definition node_init : node_state :=
     {| known_facts := []; sent_facts := [] |}.

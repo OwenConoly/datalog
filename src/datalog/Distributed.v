@@ -46,19 +46,24 @@ Section Distributed.
     end.
 
   Definition allowed_outputs (n : option node_id) fs :=
-    Forall (allowed_output n fs) fs.
+    Forall (allowed_output n fs) fs /\
+      forall R,
+        In R (map dfact_rel fs) ->
+        In n (R_senders R).
 
   (*TODO what is going wrong with typeclass inference here*)
   Definition is_sum R mf_args mfs total_cnt :=
     exists ls,
       NoDup (map fst ls) /\
         (forall src cnt, In (@meta_dfact rel _ R mf_args src cnt) mfs <-> In (src, cnt) ls) /\
-      total_cnt = fold_right Nat.add O (map snd ls).
+        total_cnt = fold_right Nat.add O (map snd ls).
 
-  Definition consistent mfs fs :=
-    forall R mf_args cnt,
-      is_sum R mf_args mfs cnt ->
-      exists cnt', cnt <= cnt' /\ Existsn (dfact_matches R mf_args) cnt' fs.
+  Definition consistent_outputs mfs fs :=
+    match mfs with
+    | [meta_dfact R mf_args src cnt] =>
+        Existsn (dfact_matches R mf_args) cnt fs
+    | _ => True
+    end.
 
   Definition allowed_complement n fs :=
     exists fss ns,
@@ -67,15 +72,15 @@ Section Distributed.
         ~In n ns /\
         Forall2 allowed_outputs ns fss.
 
-  Definition consistent_splits ms fs :=
-    disj_union ms1 ms2 ms ->
-    multiset_union fs1 fs2 fs ->
-    incl ms1 fs1 ->
-    incl ms2 fs2 ->
-    allowed_outputs n fs1 ->
-    allowed_complement n fs2 ->
-    consistent ms fs <->
-      consistent ms1 fs1 /\ consistent ms2 fs2.
+  Check consistent_outputs.
+
+  Definition consistent_splits :=
+    forall nodes mfss fss,
+      NoDup nodes ->
+      Forall2 allowed_outputs nodes fss ->
+      Forall2 (@incl _) mfss fss ->
+      dfact_consistent R_senders (concat mfss) (concat fss) <->
+        Forall2 consistent_outputs mfss fss.
 
   Definition consistent_facts_from_source (src : node_id) (fs : list dfact) :=
     (*every meta-fact source is src, and meta-fact counts are consistent with numbers of normal facts*)
