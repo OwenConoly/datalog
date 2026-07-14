@@ -10,16 +10,9 @@ Section __.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
   Definition node_name := option nat.
 
-  Implicit Types mf_rel : rel.
-  Implicit Types mf_args : list (option T).
-  Implicit Types nf_args : list T.
-
   Inductive dfact :=
   | normal_dfact (nf_rel : rel) (nf_args : list T)
   | meta_dfact (mf_rel : rel) (mf_args : list (option T)) (source : node_name) (expected_msgs : nat).
-
-  Implicit Types known_facts sent_facts input_facts inputs : list dfact.
-  Implicit Types nf result : dfact.
 
   Definition dfact_rel (f : dfact) : rel :=
     match f with
