@@ -1115,6 +1115,12 @@ Section misc.
   Definition submultiset (l1 l2 : list A) : Prop :=
     exists rest, Permutation l2 (l1 ++ rest).
 
+  Definition multiset_union (l1 l2 l : list A) : Prop :=
+    Permutation l (l1 ++ l2).
+
+  Definition disj_union (l1 l2 l : list A) : Prop :=
+    multiset_union l1 l2 l /\ (forall x, In x l1 -> ~ In x l2).
+
   Lemma submultiset_refl l : submultiset l l.
   Proof. exists []. rewrite app_nil_r. apply Permutation_refl. Qed.
 
