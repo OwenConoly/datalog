@@ -12,7 +12,6 @@ Section Distributed.
 
   Local Notation nstep := (node_step R_senders).
   Local Notation nallowed := (allowed_inputs R_senders).
-  Local Notation nconsistent := (dfact_consistent R_senders).
 
   Context (rel_input_allowed : node_id -> rel -> bool).
   Context (rel_forward : node_id -> node_id -> rel -> bool).
@@ -61,8 +60,8 @@ Section Distributed.
   Definition consistent_outputs mfs fs :=
     match mfs with
     | [meta_dfact R mf_args src cnt] =>
-        Existsn (dfact_matches R mf_args) cnt fs
-    | _ => True
+        exists cnt', cnt' >= cnt /\ Existsn (dfact_matches R mf_args) cnt' fs
+    | _ => False
     end.
 
   Definition allowed_complement n fs :=
@@ -72,14 +71,19 @@ Section Distributed.
         ~In n ns /\
         Forall2 allowed_outputs ns fss.
 
-  Check consistent_outputs.
+  Definition consistent (c l : list dfact) : Prop :=
+    exists R mf_args nums,
+      Forall3 (fun src num f => f = meta_dfact R mf_args src num) (R_senders R) nums c /\
+        exists num,
+          fold_right Nat.add O nums <= num /\
+            Existsn (dfact_matches R mf_args) num l.
 
   Definition consistent_splits :=
     forall nodes mfss fss,
       NoDup nodes ->
       Forall2 allowed_outputs nodes fss ->
       Forall2 (@incl _) mfss fss ->
-      dfact_consistent R_senders (concat mfss) (concat fss) <->
+      consistent (concat mfss) (concat fss) <->
         Forall2 consistent_outputs mfss fss.
 
   Definition consistent_facts_from_source (src : node_id) (fs : list dfact) :=
