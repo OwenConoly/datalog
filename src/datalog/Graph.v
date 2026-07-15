@@ -144,7 +144,7 @@ Section __.
 
     Definition node_good (n : node_id) : graph_node_state node_state -> Prop :=
       fun gns =>
-        outputs_well_formed    node_step (very_consistent_output n) gns.(gns_node_state) /\
+        outputs_well_formed    node_step (good_node_output n) gns.(gns_node_state) /\
         monotone_mod_equiv     node_step equiv claim consistent allowed gns.(gns_node_state) /\
         might_implies_will_equiv node_step equiv allowed gns.(gns_node_state).
 
@@ -554,11 +554,11 @@ Section __.
 
     Lemma fwd_total_consistent_internal gt gs nn :
       star gstep initial_gs gt gs ->
-      consistent_internal_inputs_to nn (fwd_total nn gs).
+      consistent_internal_inputs (fwd_total nn gs).
     Proof.
-      intros Hstar. unfold consistent_internal_inputs_to.
+      intros Hstar. unfold consistent_internal_inputs.
       exists (map fst (map.tuples gs)),
-             (map (fun kv => outputs_of (snd kv).(gns_trace)) (map.tuples gs)).
+             (map (fun kv => filter (forward (fst kv) nn) (outputs_of (snd kv).(gns_trace))) (map.tuples gs)).
       ssplit.
       - rewrite <- keys_eq_tuples. apply map.keys_NoDup.
       - apply Forall2_map_map. apply Forall_forall. intros [k v] Hin. cbn [fst snd].
@@ -566,8 +566,8 @@ Section __.
         pose proof (graph_step_to_node_step_from_beginning gs gt Hstar) as Hnodes.
         destruct (Forall2_map_get_r _ _ _ _ _ Hnodes Hin) as (gns0 & Hget0 & Hrun).
         pose proof (nodes_good k gns0 Hget0) as (Howf & _ & _).
-        exact (Howf _ _ Hrun).
-      - unfold fwd_total, node_fold. rewrite combine_map, flat_map_map.
+        exact (Howf _ _ Hrun nn).
+      - unfold fwd_total, node_fold. rewrite <- flat_map_concat_map.
         apply flat_map_ext. intros [k v]. reflexivity.
     Qed.
 
@@ -579,7 +579,18 @@ Section __.
       intros Hstar Hallow. cbv [Forall_map]. intros nn nsn Hget.
       eapply Permutation_allowed.
       - apply (inputs_are_outputs gt gs Hstar nn nsn Hget).
-      - apply Hallow. apply (fwd_total_consistent_internal gt gs nn Hstar).
+      - destruct (fwd_total_consistent_internal gt gs nn Hstar)
+          as (nodes & partition & Hnd & Hgif & Hconcat).
+        rewrite Hconcat.
+        assert (Heq : concat (partition ++ [matching_inps nn (inputs_of gt)])
+                      = concat partition ++ matching_inps nn (inputs_of gt))
+          by (rewrite concat_app; cbn [concat]; rewrite app_nil_r; reflexivity).
+        rewrite <- Heq.
+        apply (allowed_of_outputs (map Some nodes ++ [None])).
+        apply Forall2_app.
+        + rewrite <- Forall2_map_l. eapply Forall2_impl; [ | exact Hgif ].
+          intros k b Hgb. exact (proj1 Hgb).
+        + constructor; [ apply Hallow | constructor ].
     Qed.
 
     Lemma node_run_allowed t gs :
