@@ -118,7 +118,8 @@ Section Distributed.
     exists n1. split; [ lia | exact Hex1 ].
   Qed.
   Context (allowed_of_outputs :
-             forall nodes mss, Forall2 allowed_output nodes mss -> nallowed (concat mss)).
+             forall nodes mss,
+               NoDup nodes -> Forall2 allowed_output nodes mss -> nallowed (concat mss)).
 
   Context {graph_state : map.map node_id (@graph_node_state dfact dfact_mod_count node_state)}.
   Context {graph_state_ok : map.ok graph_state}.

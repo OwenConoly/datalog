@@ -70,7 +70,8 @@ Section __.
   Context (allowed_submultiset : multiset_monotone_dec allowed).
   Context (allowed_output_submultiset : forall n, multiset_monotone_dec (allowed_output n)).
   Context (allowed_of_outputs :
-             forall nodes mss, Forall2 allowed_output nodes mss -> allowed (concat mss)).
+             forall nodes mss,
+               NoDup nodes -> Forall2 allowed_output nodes mss -> allowed (concat mss)).
 
   Lemma Permutation_allowed l1 l2 : Permutation l1 l2 -> allowed l2 -> allowed l1.
   Proof.
@@ -595,10 +596,15 @@ Section __.
           by (rewrite concat_app; cbn [concat]; rewrite app_nil_r; reflexivity).
         rewrite <- Heq.
         apply (allowed_of_outputs (map Some nodes ++ [None])).
-        apply Forall2_app.
-        + rewrite <- Forall2_map_l. eapply Forall2_impl; [ | exact Hgif ].
-          intros k b Hgb. exact (proj1 Hgb).
-        + constructor; [ apply Hallow | constructor ].
+        + apply Permutation_NoDup with (l := None :: map Some nodes).
+          * apply Permutation_cons_append.
+          * constructor.
+            -- intros Hin. apply in_map_iff in Hin. destruct Hin as (x & Hx & _). discriminate.
+            -- apply FinFun.Injective_map_NoDup; [ intros a b; congruence | exact Hnd ].
+        + apply Forall2_app.
+          * rewrite <- Forall2_map_l. eapply Forall2_impl; [ | exact Hgif ].
+            intros k b Hgb. exact (proj1 Hgb).
+          * constructor; [ apply Hallow | constructor ].
     Qed.
 
     Lemma node_run_allowed t gs :
