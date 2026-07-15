@@ -23,11 +23,26 @@ Section __.
   Context (equiv : message -> message -> Prop).
   Context {equiv_equiv : Equivalence equiv}.
   Context (output_visible_equiv :
-             forall n a b, equiv a b -> output_visible n a = output_visible n b).
+            forall n a b, equiv a b -> output_visible n a = output_visible n b).
   Context (forward_equiv :
-             forall n1 n2 a b, equiv a b -> forward n1 n2 a = forward n1 n2 b).
-  Context (consistent_output : node_id -> list message -> Prop).
-  Context (consistent : list message -> list message -> Prop).
+            forall n1 n2 a b, equiv a b -> forward n1 n2 a = forward n1 n2 b).
+  Axiom stmt : Type.
+  Context (claim : stmt -> list message -> Prop).
+  Context (claim_mono :
+            forall s ms1 ms2, claim s ms1 ->
+                         incl_mod_weak equiv ms1 ms2 ->
+                         claim s ms2).
+
+  Context (consistent_output : stmt -> node_id -> list message -> Prop).
+  Context (allowed_output : node_id -> list message -> Prop).
+  Context (consistent : stmt -> list message -> Prop).
+
+  Context (consistent_mono :
+            forall s ms1 ms2,
+            claim s ms1 ->
+            consistent s ms1 ->
+            submultiset ms1 ms2 ->
+            consistent s ms2).
 
   Local Notation IO_event := (Smallstep.IO_event label message).
 
@@ -37,30 +52,13 @@ Section __.
 
   Local Notation gevent := (Smallstep.IO_event graph_label (message * node_id)).
 
-  Definition consistent_internal_inputs_to n inps :=
-    exists nodes partition,
-      NoDup nodes /\
-        Forall2 consistent_output nodes partition /\
-        inps = flat_map
-                 (fun '(n0, fs) => filter (forward n0 n) fs)
-                 (combine nodes partition).
-
   Definition consistent_good :=
-    forall internal_inps inps n int_c ext_c,
-      consistent_internal_inputs_to n internal_inps ->
-      incl int_c internal_inps ->
-      incl ext_c inps ->
-      consistent (int_c ++ ext_c) (internal_inps ++ inps) <-> consistent ext_c inps.
-
-  (* The external interface: adding a single node's forwarded consistent output to
-     the inputs (and any subset of it to the outputs) does not affect consistency.
-     [consistent_good] is derived from this by stripping the forwarded blocks one at
-     a time (see [consistent_good_holds]). *)
-  Definition consistent_block_transparent :=
-    forall n n0 fs int_c ext_c rest,
-      consistent_output n0 fs ->
-      incl int_c (filter (forward n0 n) fs) ->
-      consistent (int_c ++ ext_c) (filter (forward n0 n) fs ++ rest) <-> consistent ext_c rest.
+    forall s nodes mss,
+      NoDup nodes ->
+      Forall2 allowed_output nodes mss ->
+      claim s (concat mss) ->
+      consistent s (concat mss) <->
+        Forall2 (consistent_output s) nodes mss.
 
   Context (allowed : list message -> Prop).
   Context (allowed_submultiset : multiset_monotone allowed).
