@@ -106,8 +106,17 @@ Section Distributed.
   Qed.
   Context (consistent_good_holds :
              consistent_good claim consistent_output allowed_output consistent).
-  Context (allowed_output_submultiset :
-             forall n, multiset_monotone_dec (allowed_output n)).
+  Lemma allowed_output_submultiset n : multiset_monotone_dec (allowed_output n).
+  Proof.
+    intros l1 l2 Hal2 Hsub R mf_args src cnt Hin.
+    pose proof (submultiset_incl _ _ Hsub) as Hincl.
+    destruct (Hal2 R mf_args src cnt (Hincl _ Hin)) as (Hsrc & actual2 & Hle2 & Hexn2).
+    split; [ exact Hsrc | ].
+    destruct Hsub as (rest & Hperm).
+    pose proof (Existsn_perm _ _ _ _ Hexn2 Hperm) as Hexn2'.
+    apply Existsn_split in Hexn2'. destruct Hexn2' as (n1 & n_rest & Hsum & Hex1 & _).
+    exists n1. split; [ lia | exact Hex1 ].
+  Qed.
   Context (allowed_of_outputs :
              forall nodes mss, Forall2 allowed_output nodes mss -> nallowed (concat mss)).
 
@@ -151,6 +160,7 @@ Section Distributed.
     - exact claim_mono.
     - exact consistent_output_mono.
     - exact nallowed_multiset_monotone.
+    - exact allowed_output_submultiset.
     - exact nstep_input_total.
     - exact nodes_good_holds.
   Qed.
