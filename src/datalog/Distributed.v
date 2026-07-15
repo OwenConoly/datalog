@@ -1,4 +1,4 @@
-From Stdlib Require Import List Permutation RelationClasses.
+From Stdlib Require Import List Permutation RelationClasses Classical_Prop Lia.
 From Datalog Require Import Datalog Node Graph Smallstep List Map Tactics.
 From coqutil Require Import Map.Interface Tactics Tactics.fwd.
 Import ListNotations.
@@ -80,9 +80,27 @@ Section Distributed.
   Context (consistent : stmt -> list dfact -> Prop).
   Context (consistent_mono :
              forall s ms1 ms2, consistent s ms1 -> submultiset ms1 ms2 -> consistent s ms2).
-  Context (consistent_output_mono :
-             forall s n ms1 ms2,
-               consistent_output s n ms1 -> submultiset ms1 ms2 -> consistent_output s n ms2).
+  Lemma Existsn_total {X} (P : X -> Prop) (l : list X) : exists n, Existsn P n l.
+  Proof.
+    induction l as [|x xs (n & Hn)].
+    - exists 0. apply Existsn_nil.
+    - destruct (classic (P x)); [ exists (S n); apply Existsn_yes | exists n; apply Existsn_no ];
+        assumption.
+  Qed.
+
+  Lemma consistent_output_mono s n ms1 ms2 :
+    consistent_output s n ms1 -> submultiset ms1 ms2 -> consistent_output s n ms2.
+  Proof.
+    destruct s as [R mf_args].
+    intros (cnt & Hin & actual & Hge & Hexn) Hsub.
+    pose proof (submultiset_incl _ _ Hsub) as Hincl.
+    destruct Hsub as (rest & Hperm).
+    destruct (Existsn_total (dfact_matches R mf_args) rest) as (k & Hk).
+    exists cnt. split; [ apply Hincl; exact Hin | ].
+    exists (actual + k). split; [ lia | ].
+    eapply Existsn_perm with (l1 := ms1 ++ rest);
+      [ apply Existsn_app; assumption | apply Permutation_sym; exact Hperm ].
+  Qed.
   Context (consistent_good_holds :
              consistent_good claim consistent_output allowed_output consistent).
   Context (allowed_output_submultiset :
@@ -128,6 +146,7 @@ Section Distributed.
     - exact output_visible_equiv.
     - exact forward_equiv.
     - exact claim_mono.
+    - exact consistent_output_mono.
     - exact nallowed_multiset_monotone.
     - exact nstep_input_total.
     - exact nodes_good_holds.
