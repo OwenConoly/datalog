@@ -123,15 +123,11 @@ Section __.
                      sent_facts := rs.(sent_facts) |}.
 
   Definition allowed_inputs (input_facts : list dfact) :=
-    (forall R mf_args k num num0,
-        In (meta_dfact R mf_args k num) input_facts ->
-        In (meta_dfact R mf_args k num0) input_facts -> num0 = num)
-    /\
-    (forall R mf_args expected_msgss,
-        Forall2 (fun k e => In (meta_dfact R mf_args k e) input_facts)
-                (R_senders R) expected_msgss ->
-        exists num', num' <= fold_left Nat.add expected_msgss 0 /\
-                     Existsn (dfact_matches R mf_args) num' input_facts).
+    forall R mf_args expected_msgss,
+      Forall2 (fun k e => In (meta_dfact R mf_args k e) input_facts)
+              (R_senders R) expected_msgss ->
+      exists num', num' <= fold_left Nat.add expected_msgss 0 /\
+                   Existsn (dfact_matches R mf_args) num' input_facts.
 
   Definition dfact_equiv (f1 f2 : dfact) : Prop :=
     match f1, f2 with
@@ -182,19 +178,17 @@ Section __.
   Lemma allowed_inputs_submultiset l1 l2 :
     submultiset l1 l2 -> allowed_inputs l2 -> allowed_inputs l1.
   Proof.
-    intros Hsub Hallow. pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    destruct Hsub as (rest & Hperm). destruct Hallow as (Huniq & Hbound). split.
-    - intros R mf_args k num num0 H1 H2.
-      apply (Huniq R mf_args k num num0); apply Hincl; assumption.
-    - intros R mf_args ems Hf2.
-      assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) l2)
-                             (R_senders R) ems)
-        by (clear -Hf2 Hincl; induction Hf2; constructor;
-              [apply Hincl; assumption | assumption]).
-      destruct (Hbound R mf_args ems Hf2') as (num2 & Hle2 & Hexn2).
-      pose proof (Existsn_perm _ _ _ _ Hexn2 Hperm) as Hexn2'.
-      apply Existsn_split in Hexn2'. destruct Hexn2' as (n1 & n_rest & Hsum2 & Hex1 & _).
-      exists n1. split; [lia | exact Hex1].
+    intros Hsub Hbound. pose proof (submultiset_incl _ _ Hsub) as Hincl.
+    destruct Hsub as (rest & Hperm).
+    intros R mf_args ems Hf2.
+    assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) l2)
+                           (R_senders R) ems)
+      by (clear -Hf2 Hincl; induction Hf2; constructor;
+            [apply Hincl; assumption | assumption]).
+    destruct (Hbound R mf_args ems Hf2') as (num2 & Hle2 & Hexn2).
+    pose proof (Existsn_perm _ _ _ _ Hexn2 Hperm) as Hexn2'.
+    apply Existsn_split in Hexn2'. destruct Hexn2' as (n1 & n_rest & Hsum2 & Hex1 & _).
+    exists n1. split; [lia | exact Hex1].
   Qed.
 
   Lemma knows_datalog_fact_submultiset l1 l2 h :
@@ -210,8 +204,7 @@ Section __.
                              (R_senders R) ems)
         by (clear -Hf2 Hincl; induction Hf2; constructor;
               [apply Hincl; assumption | assumption]).
-      destruct Hallow as (_ & Hbound).
-      destruct (Hbound R margs ems Hf2') as (num2 & Hle2 & Hexn2).
+      destruct (Hallow R margs ems Hf2') as (num2 & Hle2 & Hexn2).
       rewrite <- Hsum in Hle2.
       pose proof (Existsn_perm _ _ _ _ Hexn2 Hperm) as Hexn2'.
       apply Existsn_split in Hexn2'. destruct Hexn2' as (n1 & n_rest & Hsum2 & Hex1 & Hexr).
@@ -307,8 +300,7 @@ Section __.
                            (R_senders R) ems)
       by (clear -Hf2 Hincl; induction Hf2; constructor;
             [apply Hincl; assumption | assumption]).
-    destruct Hallow as (_ & Hbound).
-    destruct (Hbound R mf_args ems Hf2') as (num' & Hle & Hexn').
+    destruct (Hallow R mf_args ems Hf2') as (num' & Hle & Hexn').
     pose proof (Existsn_perm _ _ _ _ Hexn' Hperm) as Hexn''.
     apply Existsn_split in Hexn''.
     destruct Hexn'' as (n1 & n2 & Hsum' & Hex1 & Hex2).
@@ -453,9 +445,7 @@ Section __.
   Lemma node_good_init : node_good node_init [].
   Proof.
     split; [reflexivity | split; [| split]].
-    - split.
-      + intros R mf_args k num num0 H. destruct H.
-      + intros R mf_args ems _. exists 0. split; [lia | constructor].
+    - intros R mf_args ems _. exists 0. split; [lia | constructor].
     - intros R mf_args num H. destruct H.
     - intros r R mf_args num Hr H. destruct H.
   Qed.
