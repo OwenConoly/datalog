@@ -144,7 +144,7 @@ Section __.
 
   Definition nle (s1 s2 : node_state) :=
     submultiset s1.(known_facts) s2.(known_facts) /\
-      incl_mod_weak dfact_equiv s1.(sent_facts) s2.(sent_facts).
+      incl_mod dfact_equiv s1.(sent_facts) s2.(sent_facts).
 
   Context (np : node_prog).
 

@@ -452,11 +452,11 @@ Section step.
       consistent s l2.
 
   Definition consistently_incl l1 l2 :=
-    incl_mod_weak equiv l1 l2 /\ consistent_le l1 l2.
+    incl_mod equiv l1 l2 /\ consistent_le l1 l2.
 
   Lemma consistently_incl_refl l : consistently_incl l l.
   Proof.
-    split; [ exact (incl_mod_weak_refl equiv l) | intros s _ Hc; exact Hc ].
+    split; [ exact (incl_mod_refl equiv l) | intros s _ Hc; exact Hc ].
   Qed.
 
   Definition might_implies_will_equiv' :=
@@ -527,7 +527,7 @@ Section step.
     intros Hmono t1 t2 s1 s2 o Hs1 Hs2 Hal1 Hal2 Hsub Hmight.
     apply (Hmono t1 t2 s1 s2 o Hs1 Hs2 Hal1 Hal2); [| exact Hmight].
     split.
-    - exact (incl_mod_weak_of_submultiset equiv _ _ Hsub).
+    - exact (incl_mod_of_submultiset equiv _ _ Hsub).
     - intros s _ Hcons. exact (Hcm s (inputs_of t1) (inputs_of t2) Hcons Hsub).
   Qed.
 

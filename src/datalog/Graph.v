@@ -30,7 +30,7 @@ Section __.
   Context (claim : stmt -> list message -> Prop).
   Context (claim_mono :
             forall s ms1 ms2, claim s ms1 ->
-                         incl_mod_weak equiv ms1 ms2 ->
+                         incl_mod equiv ms1 ms2 ->
                          claim s ms2).
 
   Context (consistent_output : stmt -> option node_id -> list message -> Prop).
@@ -165,7 +165,7 @@ Section __.
 
     Definition le_weak g1 (t1 : list gevent) g2 (t2 : list gevent) :=
       Forall2_map (fun n _ _ =>
-        incl_mod_weak equiv (fwd_total n g1) (fwd_total n g2) /\
+        incl_mod equiv (fwd_total n g1) (fwd_total n g2) /\
         submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)))
         g1 g2.
 
@@ -179,7 +179,7 @@ Section __.
     Lemma le_strong_le_weak g1 t1 g2 t2 : le_strong g1 t1 g2 t2 -> le_weak g1 t1 g2 t2.
     Proof.
       intros H. eapply Forall2_map_impl; [ exact H | ].
-      intros k gns1 gns2 (_ & Hfwd & Hext). split; auto using incl_mod_weak_of_submultiset.
+      intros k gns1 gns2 (_ & Hfwd & Hext). split; auto using incl_mod_of_submultiset.
     Qed.
 
     Definition le (g1 g2 : graph_state) :=
@@ -201,7 +201,7 @@ Section __.
 
     #[local] Hint Constructors star eventually : core.
     #[local] Hint Resolve
-      incl_mod_weak_refl incl_mod_weak_of_incl incl_mod_weak_trans
+      incl_mod_refl incl_mod_of_incl incl_mod_trans
       in_or_app impl_in_map impl_in_filter star_app submultiset_app_r : core.
     #[local] Hint Unfold val_sat might_output : core.
     #[local] Hint Extern 5 (In _ _) => simpl : core.
@@ -220,7 +220,7 @@ Section __.
       destruct (map.get g1 k), (map.get g2 k), (map.get g3 k);
         cbn in *; try contradiction; try exact I.
       destruct H12 as [Hi1 He1], H23 as [Hi2 He2].
-      split; [ eapply incl_mod_weak_trans; eassumption | eapply submultiset_trans; eassumption ].
+      split; [ eapply incl_mod_trans; eassumption | eapply submultiset_trans; eassumption ].
     Qed.
 
     Lemma le_strong_trans g1 t1 g2 t2 g3 t3 :
@@ -671,7 +671,7 @@ Section __.
     Lemma claim_perm s l1 l2 : Permutation l1 l2 -> claim s l1 -> claim s l2.
     Proof.
       intros Hp Hc. eapply claim_mono; [ exact Hc | ].
-      apply (incl_mod_weak_of_submultiset equiv). apply submultiset_perm. exact Hp.
+      apply (incl_mod_of_submultiset equiv). apply submultiset_perm. exact Hp.
     Qed.
 
     Lemma consistent_good_ext s nodes partition ext :
@@ -704,7 +704,7 @@ Section __.
     Lemma consistent_transfer internal_inps1 internal_inps2 exts1 exts2 :
       consistent_internal_inputs internal_inps1 ->
       consistent_internal_inputs internal_inps2 ->
-      incl_mod_weak equiv internal_inps1 internal_inps2 ->
+      incl_mod equiv internal_inps1 internal_inps2 ->
       allowed_output None exts1 ->
       allowed_output None exts2 ->
       submultiset exts1 exts2 ->
@@ -715,12 +715,12 @@ Section __.
       destruct Hci1 as (nodes1 & part1 & Hnd1 & Hgif1 & Heq1).
       destruct Hci2 as (nodes2 & part2 & Hnd2 & Hgif2 & Heq2).
       subst internal_inps1 internal_inps2.
-      assert (Hincl_pool : incl_mod_weak equiv (concat part1 ++ exts1) (concat part2 ++ exts2)).
-      { apply incl_mod_weak_app.
-        - apply incl_mod_weak_app_r. exact Hwint.
-        - eapply (incl_mod_weak_trans equiv);
-            [ apply (incl_mod_weak_of_submultiset equiv _ _ Hsubext)
-            | apply (incl_mod_weak_of_incl equiv); intros x Hx; apply in_or_app; right; exact Hx ]. }
+      assert (Hincl_pool : incl_mod equiv (concat part1 ++ exts1) (concat part2 ++ exts2)).
+      { apply incl_mod_app.
+        - apply incl_mod_app_r. exact Hwint.
+        - eapply (incl_mod_trans equiv);
+            [ apply (incl_mod_of_submultiset equiv _ _ Hsubext)
+            | apply (incl_mod_of_incl equiv); intros x Hx; apply in_or_app; right; exact Hx ]. }
       split; [ exact Hincl_pool | ].
       intros s Hclaim Hcons.
       assert (Hext1 : consistent_output s None exts1).
@@ -746,9 +746,9 @@ Section __.
       consistently_incl equiv claim consistent l1' l2'.
     Proof.
       intros Hp1 Hp2 [Hincl Hle]. split.
-      - eapply (incl_mod_weak_trans equiv).
-        + eapply incl_mod_weak_perm_l; [ exact Hp1 | exact Hincl ].
-        + apply (incl_mod_weak_of_submultiset equiv). apply submultiset_perm. exact Hp2.
+      - eapply (incl_mod_trans equiv).
+        + eapply incl_mod_perm_l; [ exact Hp1 | exact Hincl ].
+        + apply (incl_mod_of_submultiset equiv). apply submultiset_perm. exact Hp2.
       - intros s Hclaim' Hcons'.
         eapply consistent_perm; [ exact Hp2 | ].
         apply Hle.
@@ -762,10 +762,10 @@ Section __.
       consistently_incl equiv claim consistent l1' l2.
     Proof.
       intros Hsub [Hincl Hle]. split.
-      - eapply (incl_mod_weak_trans equiv);
-          [ apply (incl_mod_weak_of_submultiset equiv _ _ Hsub) | exact Hincl ].
+      - eapply (incl_mod_trans equiv);
+          [ apply (incl_mod_of_submultiset equiv _ _ Hsub) | exact Hincl ].
       - intros s Hclaim' Hcons'. apply Hle.
-        + eapply claim_mono; [ exact Hclaim' | apply (incl_mod_weak_of_submultiset equiv _ _ Hsub) ].
+        + eapply claim_mono; [ exact Hclaim' | apply (incl_mod_of_submultiset equiv _ _ Hsub) ].
         + eapply consistent_mono; [ exact Hcons' | exact Hsub ].
     Qed.
 
@@ -775,8 +775,8 @@ Section __.
       consistently_incl equiv claim consistent l1 l2'.
     Proof.
       intros Hsub [Hincl Hle]. split.
-      - eapply (incl_mod_weak_trans equiv);
-          [ exact Hincl | apply (incl_mod_weak_of_submultiset equiv _ _ Hsub) ].
+      - eapply (incl_mod_trans equiv);
+          [ exact Hincl | apply (incl_mod_of_submultiset equiv _ _ Hsub) ].
       - intros s Hclaim' Hcons'.
         eapply consistent_mono; [ apply Hle; [ exact Hclaim' | exact Hcons' ] | exact Hsub ].
     Qed.
@@ -788,7 +788,7 @@ Section __.
       graph_inputs_allowed (inputs_of t2) ->
       map.get gs1 n = Some ns1 ->
       map.get gs2 n = Some ns2 ->
-      incl_mod_weak equiv (fwd_total n gs1) (fwd_total n gs2) ->
+      incl_mod equiv (fwd_total n gs1) (fwd_total n gs2) ->
       submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)) ->
       consistently_incl equiv claim consistent
         (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
@@ -1039,10 +1039,10 @@ Section __.
       star gstep initial_gs T r ->
       map.get r n = Some vn ->
       Forall (fun o => exists o', equiv o o' /\ In o' (outputs_of (gns_trace vn))) os ->
-      incl_mod_weak equiv (filter (forward n k) os) (fwd_total k r).
+      incl_mod equiv (filter (forward n k) os) (fwd_total k r).
     Proof.
       intros HT Hn Hos.
-      assert (Hl1 : incl_mod_weak equiv (filter (forward n k) os)
+      assert (Hl1 : incl_mod equiv (filter (forward n k) os)
                       (filter (forward n k) (outputs_of (gns_trace vn)))).
       { intros x Hx. apply filter_In in Hx. destruct Hx as [Hxos Hxf].
         rewrite Forall_forall in Hos. destruct (Hos x Hxos) as (x' & Hequiv & Hx'out).
@@ -1050,7 +1050,7 @@ Section __.
         - apply filter_In. split;
             [ exact Hx'out | rewrite <- (forward_equiv n k x x' Hequiv); exact Hxf ].
         - exact Hequiv. }
-      eauto using fwd_total_get, incl_mod_weak_trans.
+      eauto using fwd_total_get, incl_mod_trans.
     Qed.
 
     Lemma node_will_match' gs1 t1 lbl outs gs1' gs2 t2 :
@@ -1105,23 +1105,23 @@ Section __.
         eapply Forall2_map_put_l; [ | exact Hvalp0 | ].
         + eapply Forall2_map_impl; [ exact Hlwr | ].
           intros k w1 w2 (Hkf & Hkm) _. split; [ | exact Hkm ].
-          eapply incl_mod_weak_perm_l;
+          eapply incl_mod_perm_l;
             [ apply Permutation_sym; apply node_fold_run; eauto using filter_app | ].
-          apply incl_mod_weak_app; [ eapply forwarded_in_state; eauto | exact Hkf ].
+          apply incl_mod_app; [ eapply forwarded_in_state; eauto | exact Hkf ].
         + eapply Forall2_map_get_l in Hlwr; eauto. fwd. map_func. split; [ | assumption ].
-          eapply incl_mod_weak_perm_l;
+          eapply incl_mod_perm_l;
             [ apply Permutation_sym; apply node_fold_run; eauto using filter_app | ].
-          apply incl_mod_weak_app; [ eapply forwarded_in_state; eauto | eassumption ].
+          apply incl_mod_app; [ eapply forwarded_in_state; eauto | eassumption ].
       - especialize Hle'; eauto. especialize Hlew'; eauto. fwd.
         apply eventually_done.
         cbv [le_weak] in Hlew |- *.
         eapply Forall2_map_put_l; [ | exact Hlew'p0 | ].
         + eapply Forall2_map_impl; [ exact Hlew | ].
           intros k w1 w2 (Hkf & Hkm) _. split; [ | exact Hkm ].
-          eapply incl_mod_weak_perm_l;
+          eapply incl_mod_perm_l;
             [ apply Permutation_sym; apply node_fold_put_same with (v0 := ns); [ eassumption | reflexivity ] | exact Hkf ].
         + eapply Forall2_map_get_l in Hlew; eauto. fwd. split; [ | assumption ].
-          eapply incl_mod_weak_perm_l;
+          eapply incl_mod_perm_l;
             [ apply Permutation_sym; apply node_fold_put_same with (v0 := ns); [ eassumption | reflexivity ] | eassumption ].
     Qed.
 
