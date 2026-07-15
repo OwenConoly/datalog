@@ -82,7 +82,10 @@ Section Distributed.
        In (meta_dfact R mf_args src cnt) fs ->
        n = src /\ exists actual, actual <= cnt /\ Existsn (dfact_matches R mf_args) actual fs) /\
     (forall f, In f fs -> In n (R_senders (dfact_rel f))).
-  Context (consistent : stmt -> list dfact -> Prop).
+  Definition consistent (s : stmt) (l : list dfact) : Prop :=
+    let '(R, mf_args) := s in
+    exists num, expect_num_R_facts R_senders R mf_args l num /\
+      exists actual, actual >= num /\ Existsn (dfact_matches R mf_args) actual l.
   Context (consistent_mono :
              forall s ms1 ms2, consistent s ms1 -> submultiset ms1 ms2 -> consistent s ms2).
   Lemma Existsn_total {X} (P : X -> Prop) (l : list X) : exists n, Existsn P n l.
