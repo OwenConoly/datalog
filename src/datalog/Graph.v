@@ -33,12 +33,12 @@ Section __.
                          incl_mod_weak equiv ms1 ms2 ->
                          claim s ms2).
 
+  Context (consistent_output : stmt -> option node_id -> list message -> Prop).
   Context (allowed_output : option node_id -> list message -> Prop).
   Context (consistent : stmt -> list message -> Prop).
 
   Context (consistent_mono :
             forall s ms1 ms2,
-            claim s ms1 ->
             consistent s ms1 ->
             submultiset ms1 ms2 ->
             consistent s ms2).
@@ -56,7 +56,7 @@ Section __.
       NoDup nodes ->
       Forall2 allowed_output nodes mss ->
       claim s (concat mss) ->
-      consistent s (concat mss) <-> Forall (consistent s) mss.
+      consistent s (concat mss) <-> Forall2 (consistent_output s) nodes mss.
 
   Context (allowed : list message -> Prop).
   Context (allowed_submultiset : multiset_monotone_dec allowed).
@@ -131,7 +131,7 @@ Section __.
 
     Definition good_inputs_from (n : node_id) inps :=
         allowed_output (Some n) inps /\
-          forall c, consistent c inps.
+          forall c, consistent_output c (Some n) inps.
 
     Definition good_node_output n outs :=
       forall dest, good_inputs_from n (filter (forward n dest) outs).
@@ -657,54 +657,17 @@ Section __.
       simpl. cbv [val_sat reachable]. intros. fwd. intros. fwd. eauto.
     Qed.
 
-    Lemma consistent_transfer n c internal_inps1 internal_inps2 exts1 exts2 :
-      consistent_internal_inputs_to n internal_inps1 ->
-      consistent_internal_inputs_to n internal_inps2 ->
+    Lemma consistent_transfer internal_inps1 internal_inps2 exts1 exts2 :
+      consistent_internal_inputs internal_inps1 ->
+      consistent_internal_inputs internal_inps2 ->
       incl_mod_weak equiv internal_inps1 internal_inps2 ->
-      allowed exts1 ->
-      allowed exts2 ->
+      allowed_output None exts1 ->
+      allowed_output None exts2 ->
       submultiset exts1 exts2 ->
-      incl c (internal_inps1 ++ exts1) ->
-      consistent c (internal_inps1 ++ exts1) ->
-      exists c', Forall2 equiv c c' /\
-                 incl c' (internal_inps2 ++ exts2) /\
-                 consistent c' (internal_inps2 ++ exts2).
+      consistently_incl equiv claim consistent
+        (internal_inps1 ++ exts1) (internal_inps2 ++ exts2).
     Proof.
-      intros Hci1 Hci2 Hwint Hae1 Hae2 Hsubext Hcincl Hc.
-      pose proof consistent_good_holds as Hcg.
-      assert (consistent_perm_l : forall x y l, Permutation x y -> consistent x l -> consistent y l).
-      { intros x y l Hperm Hcc.
-        eapply consistent_set_l with (c := x);
-          [ intros z Hz; eapply Permutation_in; [ exact Hperm | exact Hz ]
-          | intros z Hz; eapply Permutation_in; [ apply Permutation_sym; exact Hperm | exact Hz ]
-          | exact Hcc ]. }
-      destruct (incl_app_split c internal_inps1 exts1 Hcincl) as (c_int & c_ext & Hpc & Hcint & Hcext).
-      assert (Hcext2 : incl c_ext exts2)
-        by (eapply incl_tran; [ exact Hcext | apply submultiset_incl; exact Hsubext ]).
-      destruct (incl_mod_weak_Forall2 equiv internal_inps1 internal_inps2 c_int Hwint Hcint)
-        as (d_int & Hdint & Hddint).
-      assert (Hcie2 : consistent c_ext exts2).
-      { eapply Hcm; [ exact Hae1 | exact Hae2 | exact Hsubext | ].
-        cbv [consistent_good] in Hcg.
-        apply (proj1 (Hcg internal_inps1 exts1 n c_int c_ext Hci1 Hcint Hcext)).
-        eapply consistent_perm_l; [ exact Hpc | exact Hc ]. }
-      assert (Href2 : forall l : list message, Forall2 equiv l l).
-      { intros l. induction l as [| y ys IHy]; constructor; [ reflexivity | exact IHy ]. }
-      assert (Hf2 : Forall2 equiv (c_int ++ c_ext) (d_int ++ c_ext))
-        by (apply Forall2_app; [ exact Hddint | apply Href2 ]).
-      destruct (Permutation_Forall2 (Permutation_sym Hpc) Hf2) as (c' & Hpc' & Hf2c).
-      exists c'. split; [ exact Hf2c | split ].
-      - intros z Hz.
-        assert (Hz' : In z (d_int ++ c_ext))
-          by (eapply Permutation_in; [ apply Permutation_sym; exact Hpc' | exact Hz ]).
-        apply in_or_app. apply in_app_or in Hz'.
-        destruct Hz' as [ Hz' | Hz' ];
-          [ left; apply Hdint; exact Hz' | right; apply Hcext2; exact Hz' ].
-      - eapply consistent_perm_l; [ exact Hpc' | ].
-        cbv [consistent_good] in Hcg.
-        apply (proj2 (Hcg internal_inps2 exts2 n d_int c_ext Hci2 Hdint Hcext2)).
-        exact Hcie2.
-    Qed.
+    Admitted.
 
     Lemma incl_mod_of_le_weak t1 gs1 t2 gs2 n ns1 ns2 :
       star gstep initial_gs t1 gs1 ->
