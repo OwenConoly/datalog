@@ -61,7 +61,9 @@ Section __.
         Forall2 (consistent_output s) nodes mss.
 
   Context (allowed : list message -> Prop).
-  Context (allowed_submultiset : multiset_monotone allowed).
+  Context (allowed_monotone : multiset_monotone allowed).
+
+  Context (allowed_output_monotone : forall n, multiset_monotone (allowed_output n)).
 
   Lemma Permutation_allowed l1 l2 : Permutation l1 l2 -> allowed l2 -> allowed l1.
   Proof.
@@ -77,8 +79,6 @@ Section __.
       consistent_internal_inputs_to n internal_inps ->
       allowed (internal_inps ++ matching_inps n inps).
 
-  Context (Hcbt : consistent_block_transparent).
-  Context (Hcm : consistent_monotone consistent allowed).
   Context (consistent_set_l :
              forall c c' l, incl c c' -> incl c' c -> consistent c l -> consistent c' l).
 
