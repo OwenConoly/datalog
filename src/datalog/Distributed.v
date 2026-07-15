@@ -72,7 +72,10 @@ Section Distributed.
     - destruct Heq as (-> & -> & ->). eauto.
   Qed.
 
-  Context (consistent_output : stmt -> option node_id -> list dfact -> Prop).
+  Definition consistent_output (s : stmt) (n : option node_id) (fs : list dfact) : Prop :=
+    let '(R, mf_args) := s in
+    exists cnt, In (meta_dfact R mf_args n cnt) fs /\
+      exists actual, actual >= cnt /\ Existsn (dfact_matches R mf_args) actual fs.
   Context (allowed_output : option node_id -> list dfact -> Prop).
   Context (consistent : stmt -> list dfact -> Prop).
   Context (consistent_mono :
