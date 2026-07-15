@@ -61,9 +61,8 @@ Section __.
         Forall2 (consistent_output s) nodes mss.
 
   Context (allowed : list message -> Prop).
-  Context (allowed_monotone : multiset_monotone allowed).
-
-  Context (allowed_output_monotone : forall n, multiset_monotone (allowed_output n)).
+  Context (allowed_submultiset : multiset_monotone allowed).
+  Context (allowed_output_submultiset : forall n, multiset_monotone (allowed_output n)).
 
   Lemma Permutation_allowed l1 l2 : Permutation l1 l2 -> allowed l2 -> allowed l1.
   Proof.
@@ -75,43 +74,9 @@ Section __.
     map fst (filter (fun '(_, n0) => eqb n n0) inps).
 
   Definition graph_inputs_allowed (inps : list (message * node_id)) :=
-    forall n internal_inps,
-      consistent_internal_inputs_to n internal_inps ->
-      allowed (internal_inps ++ matching_inps n inps).
-
-  Lemma consistent_strip_blocks n ext_c inps nodes partition :
-    Forall2 consistent_output nodes partition ->
-    forall int_c,
-      incl int_c (flat_map (fun '(n0, fs) => filter (forward n0 n) fs) (combine nodes partition)) ->
-      consistent (int_c ++ ext_c)
-        (flat_map (fun '(n0, fs) => filter (forward n0 n) fs) (combine nodes partition) ++ inps)
-      <-> consistent ext_c inps.
-  Proof.
-    assert (cpl : forall x y l, Permutation x y -> consistent x l -> consistent y l).
-    { intros x y l Hp Hc. eapply consistent_set_l with (c := x);
-        [ intros z Hz; eapply Permutation_in; [ exact Hp | exact Hz ]
-        | intros z Hz; eapply Permutation_in; [ apply Permutation_sym; exact Hp | exact Hz ]
-        | exact Hc ]. }
-    assert (cpli : forall x y l, Permutation x y -> (consistent x l <-> consistent y l))
-      by (intros x y l Hp; split; [ apply cpl; exact Hp | apply cpl; apply Permutation_sym; exact Hp ]).
-    induction 1 as [ | n0 fs nodes' partition' Hco Hfa IH ]; intros int_c Hincl.
-    - simpl in Hincl |- *. destruct int_c as [ | x xs ];
-        [ reflexivity | destruct (Hincl x ltac:(left; reflexivity)) ].
-    - simpl in Hincl |- *.
-      destruct (incl_app_split _ _ _ Hincl) as (iB & iR & Hperm & HiB & HiR).
-      rewrite <- app_assoc.
-      eapply iff_trans;
-        [ apply cpli with (y := iB ++ (iR ++ ext_c));
-          rewrite app_assoc; apply Permutation_app_tail; exact Hperm | ].
-      eapply iff_trans; [ apply (Hcbt n n0 fs iB (iR ++ ext_c) _ Hco HiB) | ].
-      apply IH; exact HiR.
-  Qed.
-
-  Lemma consistent_good_holds : consistent_good.
-  Proof.
-    intros internal_inps inps n int_c ext_c (nodes & partition & _ & HF2 & ->) Hint Hext.
-    apply consistent_strip_blocks; assumption.
-  Qed.
+    forall nodes n intss,
+      Forall2 allowed_output nodes intss ->
+      allowed (concat intss ++ matching_inps n inps).
 
   Section graph.
     Context {node_state : Type} (node_step : node_state -> IO_event -> node_state -> Prop).
