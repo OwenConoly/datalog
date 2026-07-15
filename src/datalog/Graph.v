@@ -33,8 +33,7 @@ Section __.
                          incl_mod_weak equiv ms1 ms2 ->
                          claim s ms2).
 
-  Context (consistent_output : stmt -> node_id -> list message -> Prop).
-  Context (allowed_output : node_id -> list message -> Prop).
+  Context (allowed_output : option node_id -> list message -> Prop).
   Context (consistent : stmt -> list message -> Prop).
 
   Context (consistent_mono :
@@ -57,8 +56,7 @@ Section __.
       NoDup nodes ->
       Forall2 allowed_output nodes mss ->
       claim s (concat mss) ->
-      consistent s (concat mss) <->
-        Forall2 (consistent_output s) nodes mss.
+      consistent s (concat mss) <-> Forall (consistent s) mss.
 
   Context (allowed : list message -> Prop).
   Context (allowed_submultiset : multiset_monotone_dec allowed).
@@ -74,9 +72,7 @@ Section __.
     map fst (filter (fun '(_, n0) => eqb n n0) inps).
 
   Definition graph_inputs_allowed (inps : list (message * node_id)) :=
-    forall nodes n intss,
-      Forall2 allowed_output nodes intss ->
-      allowed (concat intss ++ matching_inps n inps).
+    forall n, allowed_output None (matching_inps n inps).
 
   Section graph.
     Context {node_state : Type} (node_step : node_state -> IO_event -> node_state -> Prop).
