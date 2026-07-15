@@ -106,16 +106,14 @@ Section Distributed.
     might_output gstep gs t o ->
     will_output_equiv gstep (graph_equiv dfact_equiv) gia gs t o.
   Proof.
-    intros Hstar Hga Hmight.
-    eapply (graph_might_implies_will
-              input_allowed forward output_visible dfact_equiv
-              output_visible_equiv forward_equiv
-              claim claim_mono consistent_output allowed_output consistent
-              consistent_mono consistent_output_mono consistent_good_holds
-              nallowed nallowed_multiset_monotone allowed_output_submultiset allowed_of_outputs
-              initial_gs initial_gs_empty (node_step R_senders np)
-              nstep_input_total nodes_good_holds);
-      eassumption.
+    intros.
+    eapply graph_might_implies_will; try eassumption.
+    - exact nequiv_equiv.
+    - exact output_visible_equiv.
+    - exact forward_equiv.
+    - exact nallowed_multiset_monotone.
+    - exact nstep_input_total.
+    - exact nodes_good_holds.
   Qed.
 
 End Distributed.
