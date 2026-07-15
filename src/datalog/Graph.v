@@ -26,7 +26,7 @@ Section __.
             forall n a b, equiv a b -> output_visible n a = output_visible n b).
   Context (forward_equiv :
             forall n1 n2 a b, equiv a b -> forward n1 n2 a = forward n1 n2 b).
-  Axiom stmt : Type.
+  Context {stmt : Type}.
   Context (claim : stmt -> list message -> Prop).
   Context (claim_mono :
             forall s ms1 ms2, claim s ms1 ->
