@@ -43,6 +43,12 @@ Section __.
             submultiset ms1 ms2 ->
             consistent s ms2).
 
+  Context (consistent_output_mono :
+            forall s n ms1 ms2,
+            consistent_output s n ms1 ->
+            submultiset ms1 ms2 ->
+            consistent_output s n ms2).
+
   Local Notation IO_event := (Smallstep.IO_event label message).
 
   Variant graph_label :=
@@ -57,6 +63,8 @@ Section __.
       Forall2 allowed_output nodes mss ->
       claim s (concat mss) ->
       consistent s (concat mss) <-> Forall2 (consistent_output s) nodes mss.
+
+  Context (consistent_good_holds : consistent_good).
 
   Context (allowed : list message -> Prop).
   Context (allowed_submultiset : multiset_monotone_dec allowed).
@@ -657,6 +665,42 @@ Section __.
       simpl. cbv [val_sat reachable]. intros. fwd. intros. fwd. eauto.
     Qed.
 
+    Lemma consistent_perm s l1 l2 : Permutation l1 l2 -> consistent s l1 -> consistent s l2.
+    Proof. intros Hp Hc. eapply consistent_mono; [ exact Hc | apply submultiset_perm; exact Hp ]. Qed.
+
+    Lemma claim_perm s l1 l2 : Permutation l1 l2 -> claim s l1 -> claim s l2.
+    Proof.
+      intros Hp Hc. eapply claim_mono; [ exact Hc | ].
+      apply (incl_mod_weak_of_submultiset equiv). apply submultiset_perm. exact Hp.
+    Qed.
+
+    Lemma consistent_good_ext s nodes partition ext :
+      NoDup nodes ->
+      Forall2 good_inputs_from nodes partition ->
+      allowed_output None ext ->
+      claim s (ext ++ concat partition) ->
+      consistent s (ext ++ concat partition) <->
+        (consistent_output s None ext /\
+         Forall2 (fun n => consistent_output s (Some n)) nodes partition).
+    Proof.
+      intros Hnd Hgif Hae Hclaim.
+      assert (Hnd' : NoDup (None :: map Some nodes)).
+      { constructor.
+        - intros Hin. apply in_map_iff in Hin. destruct Hin as (x & Hx & _). discriminate.
+        - apply FinFun.Injective_map_NoDup; [ intros a b; congruence | exact Hnd ]. }
+      assert (Hall' : Forall2 allowed_output (None :: map Some nodes) (ext :: partition)).
+      { constructor; [ exact Hae | ].
+        rewrite <- Forall2_map_l. eapply Forall2_impl; [ | exact Hgif ].
+        intros k b Hb. exact (proj1 Hb). }
+      pose proof (consistent_good_holds s (None :: map Some nodes) (ext :: partition) Hnd' Hall') as Hcg.
+      cbn [concat] in Hcg. specialize (Hcg Hclaim).
+      rewrite Hcg. split.
+      - inversion 1; subst. split; [ assumption | ].
+        rewrite Forall2_map_l. assumption.
+      - intros [Hhead Htail]. constructor; [ exact Hhead | ].
+        rewrite <- Forall2_map_l. exact Htail.
+    Qed.
+
     Lemma consistent_transfer internal_inps1 internal_inps2 exts1 exts2 :
       consistent_internal_inputs internal_inps1 ->
       consistent_internal_inputs internal_inps2 ->
@@ -667,7 +711,34 @@ Section __.
       consistently_incl equiv claim consistent
         (internal_inps1 ++ exts1) (internal_inps2 ++ exts2).
     Proof.
-    Admitted.
+      intros Hci1 Hci2 Hwint Hae1 Hae2 Hsubext.
+      destruct Hci1 as (nodes1 & part1 & Hnd1 & Hgif1 & Heq1).
+      destruct Hci2 as (nodes2 & part2 & Hnd2 & Hgif2 & Heq2).
+      subst internal_inps1 internal_inps2.
+      assert (Hincl_pool : incl_mod_weak equiv (concat part1 ++ exts1) (concat part2 ++ exts2)).
+      { apply incl_mod_weak_app.
+        - apply incl_mod_weak_app_r. exact Hwint.
+        - eapply (incl_mod_weak_trans equiv);
+            [ apply (incl_mod_weak_of_submultiset equiv _ _ Hsubext)
+            | apply (incl_mod_weak_of_incl equiv); intros x Hx; apply in_or_app; right; exact Hx ]. }
+      split; [ exact Hincl_pool | ].
+      intros s Hclaim Hcons.
+      assert (Hext1 : consistent_output s None exts1).
+      { pose proof (consistent_good_ext s nodes1 part1 exts1 Hnd1 Hgif1 Hae1
+                      (claim_perm s _ _ (Permutation_app_comm (concat part1) exts1) Hclaim)) as Hce.
+        refine (proj1 (proj1 Hce _)).
+        eapply consistent_perm; [ apply Permutation_app_comm | exact Hcons ]. }
+      assert (Hext2 : consistent_output s None exts2)
+        by (eapply consistent_output_mono; [ exact Hext1 | exact Hsubext ]).
+      assert (Hint2 : Forall2 (fun n => consistent_output s (Some n)) nodes2 part2).
+      { eapply Forall2_impl; [ | exact Hgif2 ]. intros k b Hb. exact (proj2 Hb s). }
+      assert (Hclaim2 : claim s (exts2 ++ concat part2)).
+      { eapply claim_perm; [ apply Permutation_app_comm | ].
+        eapply claim_mono; [ exact Hclaim | exact Hincl_pool ]. }
+      eapply consistent_perm; [ apply Permutation_app_comm | ].
+      apply (proj2 (consistent_good_ext s nodes2 part2 exts2 Hnd2 Hgif2 Hae2 Hclaim2)).
+      split; [ exact Hext2 | exact Hint2 ].
+    Qed.
 
     Lemma incl_mod_of_le_weak t1 gs1 t2 gs2 n ns1 ns2 :
       star gstep initial_gs t1 gs1 ->
