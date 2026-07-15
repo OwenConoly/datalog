@@ -56,9 +56,22 @@ Section Distributed.
      proofs; for now they are assumed so the graph->node wiring typechecks. ---- *)
   Definition stmt : Type := (rel * list (option T))%type.
 
-  Context (claim : stmt -> list dfact -> Prop).
-  Context (claim_mono :
-             forall s ms1 ms2, claim s ms1 -> incl_mod dfact_equiv ms1 ms2 -> claim s ms2).
+  Definition claim (s : stmt) (l : list dfact) : Prop :=
+    let '(R, mf_args) := s in
+    forall src, In src (R_senders R) ->
+      exists cnt, In (meta_dfact R mf_args src cnt) l.
+
+  Lemma claim_mono s ms1 ms2 :
+    claim s ms1 -> incl_mod dfact_equiv ms1 ms2 -> claim s ms2.
+  Proof.
+    destruct s as [R mf_args]. intros Hcl Hincl src Hsrc.
+    destruct (Hcl src Hsrc) as (cnt & Hin).
+    destruct (Hincl _ Hin) as (f' & Hin' & Heq).
+    destruct f' as [Rn an | Rm am sm cm]; cbn [dfact_equiv] in Heq.
+    - discriminate Heq.
+    - destruct Heq as (-> & -> & ->). eauto.
+  Qed.
+
   Context (consistent_output : stmt -> option node_id -> list dfact -> Prop).
   Context (allowed_output : option node_id -> list dfact -> Prop).
   Context (consistent : stmt -> list dfact -> Prop).
@@ -111,6 +124,7 @@ Section Distributed.
     - exact nequiv_equiv.
     - exact output_visible_equiv.
     - exact forward_equiv.
+    - exact claim_mono.
     - exact nallowed_multiset_monotone.
     - exact nstep_input_total.
     - exact nodes_good_holds.
