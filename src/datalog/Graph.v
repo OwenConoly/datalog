@@ -740,6 +740,47 @@ Section __.
       split; [ exact Hext2 | exact Hint2 ].
     Qed.
 
+    Lemma consistently_incl_perm l1 l1' l2 l2' :
+      Permutation l1 l1' -> Permutation l2 l2' ->
+      consistently_incl equiv claim consistent l1 l2 ->
+      consistently_incl equiv claim consistent l1' l2'.
+    Proof.
+      intros Hp1 Hp2 [Hincl Hle]. split.
+      - eapply (incl_mod_weak_trans equiv).
+        + eapply incl_mod_weak_perm_l; [ exact Hp1 | exact Hincl ].
+        + apply (incl_mod_weak_of_submultiset equiv). apply submultiset_perm. exact Hp2.
+      - intros s Hclaim' Hcons'.
+        eapply consistent_perm; [ exact Hp2 | ].
+        apply Hle.
+        + eapply claim_perm; [ apply Permutation_sym; exact Hp1 | exact Hclaim' ].
+        + eapply consistent_perm; [ apply Permutation_sym; exact Hp1 | exact Hcons' ].
+    Qed.
+
+    Lemma consistently_incl_shrink_l l1 l1' l2 :
+      submultiset l1' l1 ->
+      consistently_incl equiv claim consistent l1 l2 ->
+      consistently_incl equiv claim consistent l1' l2.
+    Proof.
+      intros Hsub [Hincl Hle]. split.
+      - eapply (incl_mod_weak_trans equiv);
+          [ apply (incl_mod_weak_of_submultiset equiv _ _ Hsub) | exact Hincl ].
+      - intros s Hclaim' Hcons'. apply Hle.
+        + eapply claim_mono; [ exact Hclaim' | apply (incl_mod_weak_of_submultiset equiv _ _ Hsub) ].
+        + eapply consistent_mono; [ exact Hcons' | exact Hsub ].
+    Qed.
+
+    Lemma consistently_incl_grow_r l1 l2 l2' :
+      submultiset l2 l2' ->
+      consistently_incl equiv claim consistent l1 l2 ->
+      consistently_incl equiv claim consistent l1 l2'.
+    Proof.
+      intros Hsub [Hincl Hle]. split.
+      - eapply (incl_mod_weak_trans equiv);
+          [ exact Hincl | apply (incl_mod_weak_of_submultiset equiv _ _ Hsub) ].
+      - intros s Hclaim' Hcons'.
+        eapply consistent_mono; [ apply Hle; [ exact Hclaim' | exact Hcons' ] | exact Hsub ].
+    Qed.
+
     Lemma incl_mod_of_le_weak t1 gs1 t2 gs2 n ns1 ns2 :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
@@ -749,8 +790,9 @@ Section __.
       map.get gs2 n = Some ns2 ->
       incl_mod_weak equiv (fwd_total n gs1) (fwd_total n gs2) ->
       submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)) ->
-      incl_mod equiv consistent (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
-                                (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue)).
+      consistently_incl equiv claim consistent
+        (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
+        (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue)).
     Proof.
       intros Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2 Hwint Hmatch.
       pose proof (inputs_are_outputs _ _ Hstar1) as Hio1. cbv [Forall_map] in Hio1.
@@ -759,33 +801,13 @@ Section __.
       specialize (Hio2 _ _ Hg2).
       pose proof (fwd_total_consistent_internal _ _ n Hstar1) as Hci1.
       pose proof (fwd_total_consistent_internal _ _ n Hstar2) as Hci2.
-      assert (Halc1 : allowed (fwd_total n gs1 ++ matching_inps n (inputs_of t1))) by auto.
-      assert (Halc2 : allowed (fwd_total n gs2 ++ matching_inps n (inputs_of t2))) by auto.
-      assert (Hae1 : allowed (matching_inps n (inputs_of t1)))
-        by (eapply allowed_submultiset;
-              [ exact Halc1 | exists (fwd_total n gs1); apply Permutation_app_comm ]).
-      assert (Hae2 : allowed (matching_inps n (inputs_of t2)))
-        by (eapply allowed_submultiset;
-              [ exact Halc2 | exists (fwd_total n gs2); apply Permutation_app_comm ]).
-      assert (Halcomb1 : allowed (inputs_of (gns_trace ns1) ++ gns_queue ns1))
-        by (eapply Permutation_allowed; [ exact Hio1 | exact Halc1 ]).
-      assert (Halcomb2 : allowed (inputs_of (gns_trace ns2) ++ gns_queue ns2))
-        by (eapply Permutation_allowed; [ exact Hio2 | exact Halc2 ]).
-      cbv [incl_mod]. intros a Ha Hca.
-      assert (Ha' : incl a (fwd_total n gs1 ++ matching_inps n (inputs_of t1)))
-        by (intros z Hz; eapply Permutation_in; [ exact Hio1 | apply Ha; exact Hz ]).
-      assert (Hca' : consistent a (fwd_total n gs1 ++ matching_inps n (inputs_of t1)))
-        by (eapply consistent_perm;
-              [ exact Hcm | exact Halcomb1 | exact Halc1 | exact Hio1 | exact Hca ]).
-      destruct (consistent_transfer n a (fwd_total n gs1) (fwd_total n gs2)
-                  (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2))
-                  Hci1 Hci2 Hwint Hae1 Hae2 Hmatch Ha' Hca')
-        as (b & Hf2 & Hincl & Hcons').
-      exists b. split; [ | split; [ exact Hf2 | ] ].
-      - intros z Hz; eapply Permutation_in;
-          [ apply Permutation_sym; exact Hio2 | apply Hincl; exact Hz ].
-      - eapply consistent_perm;
-          [ exact Hcm | exact Halc2 | exact Halcomb2 | apply Permutation_sym; exact Hio2 | exact Hcons' ].
+      eapply consistently_incl_perm;
+        [ apply Permutation_sym; exact Hio1
+        | apply Permutation_sym; exact Hio2
+        | ].
+      apply consistent_transfer; try assumption.
+      - apply Hga1.
+      - apply Hga2.
     Qed.
 
     Lemma reachable_domain t gs nn :
@@ -807,10 +829,9 @@ Section __.
     Lemma graph_inputs_allowed_submultiset i1 i2 :
       submultiset i1 i2 -> graph_inputs_allowed i2 -> graph_inputs_allowed i1.
     Proof.
-      intros Hsub Hga n ii Hii.
-      eapply allowed_submultiset; [ apply (Hga n ii Hii) | ].
-      destruct (submultiset_matching_inps n _ _ Hsub) as (rest & Hp).
-      exists rest. rewrite <- app_assoc. apply Permutation_app_head. exact Hp.
+      intros Hsub Hga n.
+      eapply allowed_output_submultiset; [ apply (Hga n) | ].
+      apply submultiset_matching_inps. exact Hsub.
     Qed.
 
     Lemma le_strong_combined g1 t1 g2 t2 :
@@ -995,9 +1016,10 @@ Section __.
         by (eapply allowed_submultiset; [ exact Hall1 | apply submultiset_app_r ]).
       assert (Hall2'tr : allowed (inputs_of (gns_trace ns2')))
         by (eapply allowed_submultiset; [ exact Hall2' | apply submultiset_app_r ]).
-      apply (incl_mod_weaken_r equiv consistent allowed Hcm _ _ _ Hrec Hall2 Hall2'tr).
-      apply (incl_mod_weaken_l equiv consistent allowed Hcm _ _ _
-               (submultiset_app_r _ _) Hall1tr Hall1).
+      apply (consistently_incl_shrink_l (inputs_of (gns_trace ns1) ++ gns_queue ns1));
+        [ apply submultiset_app_r | ].
+      apply (consistently_incl_grow_r _ (inputs_of (gns_trace ns2) ++ gns_queue ns2));
+        [ exact Hrec | ].
       apply (incl_mod_of_le_weak t1 gs1 t2 gs2 k ns1 ns2
                Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2 Hlfwd Hlmatch).
     Qed.
@@ -1157,7 +1179,7 @@ Section __.
         as (ns0' & Hget0' & Hrun2 & Hall2).
       assert (ns0' = ns0) by (rewrite Hget0 in Hget0'; congruence). subst ns0'.
       pose proof (nodes_good n ns0 Hget0) as (_ & Hmono & Hmiw).
-      assert (Hmiw' : might_implies_will_equiv' node_step equiv consistent allowed
+      assert (Hmiw' : might_implies_will_equiv' node_step equiv claim consistent allowed
                         (gns_node_state ns0)).
       { apply ciw'_iff_ciw_and_monotone'; try assumption;
           try (split; [ exact Hmiw | exact Hmono ]). }
