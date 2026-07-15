@@ -10,9 +10,6 @@ Section Distributed.
 
   Context (R_senders : rel -> list node_name).
 
-  Local Notation nstep := (node_step R_senders).
-  Local Notation nallowed := (allowed_inputs R_senders).
-
   Context (rel_input_allowed : node_id -> rel -> bool).
   Context (rel_forward : node_id -> node_id -> rel -> bool).
   Context (rel_visible : node_id -> rel -> bool).
@@ -37,81 +34,12 @@ Section Distributed.
     destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
   Qed.
 
-  Definition allowed_output n fs f :=
-    match f with
-    | normal_dfact _ _ => True
-    | meta_dfact R mf_args src cnt =>
-        n = src /\ exists cnt', cnt' <= cnt /\ Existsn (dfact_matches R mf_args) cnt' fs
-    end.
+  (* The graph runs one node program [np] replicated across nodes. *)
+  Context (np : node_prog).
+  Context (Hmrv : meta_rules_valid np.(np_rules)).
 
-  Definition allowed_outputs (n : option node_id) fs :=
-    Forall (allowed_output n fs) fs /\
-      forall R,
-        In R (map dfact_rel fs) ->
-        In n (R_senders R).
-
-  (*TODO what is going wrong with typeclass inference here*)
-  Definition is_sum R mf_args mfs total_cnt :=
-    exists ls,
-      NoDup (map fst ls) /\
-        (forall src cnt, In (@meta_dfact rel _ R mf_args src cnt) mfs <-> In (src, cnt) ls) /\
-        total_cnt = fold_right Nat.add O (map snd ls).
-
-  Definition consistent_outputs mfs fs :=
-    forall (R : rel) mf_args src cnt,
-      In (meta_dfact R mf_args src cnt) mfs ->
-        exists cnt', cnt' >= cnt /\ Existsn (dfact_matches R mf_args) cnt' fs.
-
-  Definition allowed_complement n fs :=
-    exists fss ns,
-      Permutation fs (concat fss) /\
-        NoDup ns /\
-        ~In n ns /\
-        Forall2 allowed_outputs ns fss.
-
-  Definition dfact_consistent (c l : list dfact) : Prop :=
-    forall R mf_args num,
-      expect_num_R_facts R_senders R mf_args c num ->
-      exists num',
-        num <= num' /\ Existsn (dfact_matches R mf_args) num l.
-
-  Definition consistent (c l : list dfact) : Prop :=
-    exists R mf_args nums,
-      Forall3 (fun src num f => f = meta_dfact R mf_args src num) (R_senders R) nums c /\
-        exists num,
-          fold_right Nat.add O nums <= num /\
-            Existsn (dfact_matches R mf_args) num l.
-
-  Definition consistent_splits :=
-    forall nodes mfss fss,
-      NoDup nodes ->
-      Forall2 allowed_outputs nodes fss ->
-      Forall2 (@incl _) mfss fss ->
-      dfact_consistent (concat mfss) (concat fss) <->
-        Forall2 consistent_outputs mfss fss.
-
-  Definition consistent_facts_from_source (src : node_id) (fs : list dfact) :=
-    (*every meta-fact source is src, and meta-fact counts are consistent with numbers of normal facts*)
-
-  Context (consistent_output : node_id -> list dfact -> Prop).
-  Context (consistent_inputs : list dfact -> list dfact -> Prop).
-  Context (Hcg : consistent_good forward consistent_output nconsistent consistent_inputs).
-  Context (Hcim : consistent_monotone consistent_inputs nallowed).
-  Context (consistent_inputs_equiv :
-             forall c c' inps, Forall2 dfact_equiv c c' ->
-                          consistent_inputs c inps -> consistent_inputs c' inps).
-
-  Context {graph_state : map.map node_id (@graph_node_state dfact dfact_mod_count node_state)}.
-  Context {graph_state_ok : map.ok graph_state}.
-  Context (initial_gs : graph_state).
-  Context (initial_gs_empty :
-             forall n gns, map.get initial_gs n = Some gns ->
-                           gns.(gns_trace) = [] /\ gns.(gns_queue) = []).
-  Context (initial_gs_node_init :
-             forall n gns, map.get initial_gs n = Some gns ->
-                           gns.(gns_node_state) = node_init).
-
-  Context (Howf : forall n, outputs_well_formed nstep (consistent_output n) node_init).
+  Local Notation nstep := (node_step R_senders np).
+  Local Notation nallowed := (allowed_inputs R_senders).
 
   #[local] Instance nequiv_equiv : Equivalence dfact_equiv.
   Proof.
@@ -123,28 +51,52 @@ Section Distributed.
       destruct H12 as (-> & -> & ->), H23 as (-> & -> & ->). repeat split.
   Qed.
 
+  (* ---- The abstract consistency interface Graph.v needs, at [stmt := (R, mf_args)].
+     These, and the obligations below, are what still needs concrete definitions and
+     proofs; for now they are assumed so the graph->node wiring typechecks. ---- *)
+  Definition stmt : Type := (rel * list (option T))%type.
+
+  Context (claim : stmt -> list dfact -> Prop).
+  Context (claim_mono :
+             forall s ms1 ms2, claim s ms1 -> incl_mod dfact_equiv ms1 ms2 -> claim s ms2).
+  Context (consistent_output : stmt -> option node_id -> list dfact -> Prop).
+  Context (allowed_output : option node_id -> list dfact -> Prop).
+  Context (consistent : stmt -> list dfact -> Prop).
+  Context (consistent_mono :
+             forall s ms1 ms2, consistent s ms1 -> submultiset ms1 ms2 -> consistent s ms2).
+  Context (consistent_output_mono :
+             forall s n ms1 ms2,
+               consistent_output s n ms1 -> submultiset ms1 ms2 -> consistent_output s n ms2).
+  Context (consistent_good_holds :
+             consistent_good claim consistent_output allowed_output consistent).
+  Context (allowed_output_submultiset :
+             forall n, multiset_monotone_dec (allowed_output n)).
+  Context (allowed_of_outputs :
+             forall nodes mss, Forall2 allowed_output nodes mss -> nallowed (concat mss)).
+
+  Context {graph_state : map.map node_id (@graph_node_state dfact dfact_mod_count node_state)}.
+  Context {graph_state_ok : map.ok graph_state}.
+  Context (initial_gs : graph_state).
+  Context (initial_gs_empty :
+             forall n gns, map.get initial_gs n = Some gns ->
+                           gns.(gns_trace) = [] /\ gns.(gns_queue) = []).
+  Context (initial_gs_node_init :
+             forall n gns, map.get initial_gs n = Some gns ->
+                           gns.(gns_node_state) = node_init).
+
   Lemma nallowed_multiset_monotone : multiset_monotone_dec nallowed.
   Proof. intros l1 l2 Hl2 Hsub. eapply allowed_inputs_submultiset; eauto. Qed.
 
   Lemma nstep_input_total : input_total nstep.
   Proof. intros s m. eexists. apply node_input_step. Qed.
 
-  Lemma Hmono : monotone_mod_equiv nstep dfact_equiv nconsistent nallowed node_init.
-  Admitted.
-
-  Lemma Hcm : consistent_monotone nconsistent nallowed.
-  Admitted.
-
   Lemma nodes_good_holds :
-    Forall_map (node_good dfact_equiv consistent_output nconsistent nallowed nstep) initial_gs.
-  Proof.
-    intros n gns Hget. unfold node_good.
-    rewrite (initial_gs_node_init n gns Hget).
-    split; [apply Howf | split; [apply Hmono | apply node_might_implies_will; exact Hmrv]].
-  Qed.
+    Forall_map (node_good forward dfact_equiv claim consistent_output allowed_output
+                          consistent nallowed nstep) initial_gs.
+  Admitted.
 
   Local Notation gstep := (graph_step input_allowed forward output_visible nstep).
-  Local Notation gia := (graph_inputs_allowed forward consistent_output nallowed).
+  Local Notation gia := (graph_inputs_allowed allowed_output).
 
   Theorem distributed_might_implies_will
           (t : list (IO_event (@graph_label dfact dfact_mod_count) (dfact * node_id)))
@@ -155,16 +107,15 @@ Section Distributed.
     will_output_equiv gstep (graph_equiv dfact_equiv) gia gs t o.
   Proof.
     intros Hstar Hga Hmight.
-    apply graph_might_implies_will with
-      (consistent := nconsistent) (consistent_inputs := consistent_inputs)
-      (initial_gs := initial_gs); try assumption.
-    - exact nequiv_equiv.
-    - exact output_visible_equiv.
-    - exact forward_equiv.
-    - exact nallowed_multiset_monotone.
-    - exact Hcm.
-    - exact nstep_input_total.
-    - exact nodes_good_holds.
+    eapply (graph_might_implies_will
+              input_allowed forward output_visible dfact_equiv
+              output_visible_equiv forward_equiv
+              claim claim_mono consistent_output allowed_output consistent
+              consistent_mono consistent_output_mono consistent_good_holds
+              nallowed nallowed_multiset_monotone allowed_output_submultiset allowed_of_outputs
+              initial_gs initial_gs_empty (node_step R_senders np)
+              nstep_input_total nodes_good_holds);
+      eassumption.
   Qed.
 
 End Distributed.
