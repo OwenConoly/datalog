@@ -61,6 +61,8 @@ Section __.
   Context (allowed : list message -> Prop).
   Context (allowed_submultiset : multiset_monotone_dec allowed).
   Context (allowed_output_submultiset : forall n, multiset_monotone_dec (allowed_output n)).
+  Context (allowed_of_outputs :
+             forall nodes mss, Forall2 allowed_output nodes mss -> allowed (concat mss)).
 
   Lemma Permutation_allowed l1 l2 : Permutation l1 l2 -> allowed l2 -> allowed l1.
   Proof.
@@ -127,7 +129,16 @@ Section __.
 
     Local Notation gstep := (graph_step node_step).
 
-    Definition very_consistent_output n outs := forall c, consistent_output c n outs.
+    Definition good_node_output (n : node_id) outs :=
+      forall dest,
+        allowed_output (Some n) (filter (forward n dest) outs) /\
+          forall c, consistent c (filter (forward n dest) outs).
+
+    Definition consistent_internal_inputs_to n inps :=
+      exists nodes partition,
+        NoDup nodes /\
+          Forall2 very_consistent_output nodes partition /\
+          inps = flat_map (fun '(n0, fs) => filter (forward n0 n) fs) (combine nodes partition).
 
     Definition node_good (n : node_id) : graph_node_state node_state -> Prop :=
       fun gns =>
@@ -189,7 +200,7 @@ Section __.
     Proof. apply Forall2_map_refl. intros. split; auto using submultiset_refl. Qed.
 
     Lemma le_refl g : le g g.
-    Proof. apply Forall2_map_refl. intros. apply incl_mod_refl; assumption. Qed.
+    Proof. apply Forall2_map_refl. intros. apply (consistently_incl_refl equiv claim consistent). Qed.
 
     Lemma le_weak_trans g1 t1 g2 t2 g3 t3 :
       le_weak g1 t1 g2 t2 -> le_weak g2 t2 g3 t3 -> le_weak g1 t1 g3 t3.
