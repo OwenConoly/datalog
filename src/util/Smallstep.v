@@ -73,9 +73,6 @@ Section step.
 
   Context (allowed : list message -> Prop).
 
-  Axiom multiset_monotone_dec : forall {A}, (list A -> Prop) -> Prop.
-  Axiom multiset_monotone_inc : forall {A}, (list A -> Prop) -> Prop.
-
   Context (allowed_submultiset : multiset_monotone_dec allowed).
   (* "allowed" should satisfy the allowed_submultiset definition.
      if we have some consistent sets which are not allowed, then they are not good
@@ -448,8 +445,6 @@ Section step.
       might_output s t o ->
       will_output_equiv s t o.
 
-  Print incl_mod.
-
   Definition consistent_le l1 l2 :=
     forall s,
       claim s l1 ->
@@ -458,6 +453,11 @@ Section step.
 
   Definition consistently_incl l1 l2 :=
     incl_mod_weak equiv l1 l2 /\ consistent_le l1 l2.
+
+  Lemma consistently_incl_refl l : consistently_incl l l.
+  Proof.
+    split; [ exact (incl_mod_weak_refl equiv l) | intros s _ Hc; exact Hc ].
+  Qed.
 
   Definition might_implies_will_equiv' :=
     forall t s o,
@@ -508,7 +508,7 @@ Section step.
       star step initial t2 s2 ->
       allowed (inputs_of t1) ->
       allowed (inputs_of t2) ->
-      incl_mod equiv consistent (inputs_of t1) (inputs_of t2) ->
+      consistently_incl (inputs_of t1) (inputs_of t2) ->
       might_output s1 t1 o ->
       might_output_equiv s2 t2 o.
 
@@ -525,14 +525,10 @@ Section step.
   Lemma monotone_multiset_of_mod_equiv : monotone_mod_equiv -> monotone_multiset.
   Proof.
     intros Hmono t1 t2 s1 s2 o Hs1 Hs2 Hal1 Hal2 Hsub Hmight.
-    apply (Hmono t1 t2 s1 s2 o Hs1 Hs2 Hal1 Hal2).
-    - intros a Hincl Hcons. exists a. split; [|split].
-      + destruct Hsub as (rest & Hperm). intros x Hx.
-        eapply Permutation_in; [symmetry; exact Hperm|].
-        apply in_or_app. left. apply Hincl. exact Hx.
-      + clear Hincl Hcons. induction a as [|x xs IHa]; constructor; [reflexivity | exact IHa].
-      + exact (Hcm a (inputs_of t1) (inputs_of t2) Hal1 Hal2 Hsub Hcons).
-    - exact Hmight.
+    apply (Hmono t1 t2 s1 s2 o Hs1 Hs2 Hal1 Hal2); [| exact Hmight].
+    split.
+    - exact (incl_mod_weak_of_submultiset equiv _ _ Hsub).
+    - intros s _ Hcons. exact (Hcm s (inputs_of t1) (inputs_of t2) Hcons Hsub).
   Qed.
 
   Lemma ciw'_iff_ciw_and_monotone' :
@@ -548,7 +544,7 @@ Section step.
         assert (HallT : allowed (inputs_of (T_a ++ t))).
         { rewrite inputs_of_app, Hinp_a. exact Hall. }
         apply (Hciw' (T_a ++ t) s_f o Hstar_T HallT Hout s t).
-        * rewrite inputs_of_app, Hinp_a. apply (incl_mod_refl equiv consistent).
+        * rewrite inputs_of_app, Hinp_a. apply consistently_incl_refl.
         * exact Hstar.
         * exact Hall.
       + (* monotone_mod_equiv *)
@@ -557,7 +553,7 @@ Section step.
         pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar_a) as Hstar_T.
         assert (HallT : allowed (inputs_of (T_a ++ t1))).
         { rewrite inputs_of_app, Hinp_a. exact Hall1. }
-        assert (HinclT : incl_mod equiv consistent (inputs_of (T_a ++ t1)) (inputs_of t2)).
+        assert (HinclT : consistently_incl (inputs_of (T_a ++ t1)) (inputs_of t2)).
         { rewrite inputs_of_app, Hinp_a. exact Hincl. }
         pose proof (Hciw' (T_a ++ t1) s_f o Hstar_T HallT Hout s2 t2 HinclT Hstar2 Hall2)
           as Hwill.
@@ -777,7 +773,8 @@ Section steps_corresp.
   Context (allowed : list message -> Prop).
   Context (equiv : message -> message -> Prop).
   Context {equiv_equiv : Equivalence equiv}.
-  Context (consistent : list message -> list message -> Prop).
+  Context {stmt} (claim : stmt -> list message -> Prop).
+  Context (consistent : stmt -> list message -> Prop).
   Local Notation IO_event := (IO_event label message).
 
   Section steps.
@@ -860,7 +857,7 @@ Section steps_corresp.
 
     Lemma steps_corresp_sound'_implies_sound :
       input_total step2 ->
-      might_implies_will_equiv' step2 equiv consistent allowed initial2 ->
+      might_implies_will_equiv' step2 equiv claim consistent allowed initial2 ->
       steps_corresp_sound' ->
       steps_corresp_sound.
     Proof.
@@ -868,9 +865,9 @@ Section steps_corresp.
       destruct (star_recv_map step2 Hit2 (inputs_of t2) initial2) as (ns2' & Hstar2').
       assert (Hall' : allowed (inputs_of (map I_event (inputs_of t2) : list IO_event))).
       {  rewrite inputs_of_map_I_event. exact Hall2. }
-      assert (Hincl : incl_mod equiv consistent (inputs_of t2)
+      assert (Hincl : consistently_incl equiv claim consistent (inputs_of t2)
                            (inputs_of (map I_event (inputs_of t2) : list IO_event))).
-      { rewrite inputs_of_map_I_event. apply (incl_mod_refl equiv consistent). }
+      { rewrite inputs_of_map_I_event. apply (consistently_incl_refl equiv claim consistent). }
       pose proof (Hciw2 t2 ns2 o Hstar2 Hall2 Hout2
                        ns2' (map I_event (inputs_of t2)) Hincl Hstar2' Hall') as Hwill.
       exact (Hscs' ns2' (inputs_of t2) o Hstar2' Hall2 Hwill).
@@ -883,7 +880,7 @@ Section steps_corresp.
        conclusion is the equiv-relaxed form of steps_corresp_complete. *)
     Lemma steps_corresp_complete'_implies_complete :
       input_total step2 ->
-      monotone_mod_equiv step2 equiv consistent allowed initial2 ->
+      monotone_mod_equiv step2 equiv claim consistent allowed initial2 ->
       steps_corresp_complete' ->
       forall t2 ns2 output,
         star step2 initial2 t2 ns2 ->
@@ -897,7 +894,7 @@ Section steps_corresp.
       apply (Hmono2 (map I_event (inputs_of t2)) t2 ns2' ns2 o Hstar2' Hstar2).
       -  rewrite inputs_of_map_I_event. exact Hall2.
       - exact Hall2.
-      - rewrite inputs_of_map_I_event. apply (incl_mod_refl equiv consistent).
+      - rewrite inputs_of_map_I_event. apply (consistently_incl_refl equiv claim consistent).
       - exact Hcan'.
     Qed.
 
@@ -913,7 +910,7 @@ Section steps_corresp.
           might_output_equiv step2 equiv ns2 t2 output.
 
     Lemma sound_complete_bicorresp :
-      monotone_mod_equiv step1 equiv consistent allowed initial1 ->
+      monotone_mod_equiv step1 equiv claim consistent allowed initial1 ->
       steps_corresp_complete ->
       steps_corresp_sound ->
       steps_bicorresp.
@@ -946,7 +943,7 @@ Section steps_corresp.
           - rewrite Heqinp. exact Hall2'.
           - exact Hall1.
           - rewrite Heqinp, inputs_of_app, Hinpt', <- Heq.
-            apply (incl_mod_refl equiv consistent).
+            apply (consistently_incl_refl equiv claim consistent).
           - exact Hcan1'. }
         destruct Hmoe as (o'' & Hequiv2 & Hmo1'').
         exists o''. split; [| exact Hmo1''].

@@ -123,7 +123,7 @@ Section Distributed.
       destruct H12 as (-> & -> & ->), H23 as (-> & -> & ->). repeat split.
   Qed.
 
-  Lemma nallowed_multiset_monotone : multiset_monotone nallowed.
+  Lemma nallowed_multiset_monotone : multiset_monotone_dec nallowed.
   Proof. intros l1 l2 Hl2 Hsub. eapply allowed_inputs_submultiset; eauto. Qed.
 
   Lemma nstep_input_total : input_total nstep.

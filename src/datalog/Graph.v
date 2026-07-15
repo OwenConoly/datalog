@@ -61,8 +61,8 @@ Section __.
         Forall2 (consistent_output s) nodes mss.
 
   Context (allowed : list message -> Prop).
-  Context (allowed_submultiset : multiset_monotone allowed).
-  Context (allowed_output_submultiset : forall n, multiset_monotone (allowed_output n)).
+  Context (allowed_submultiset : multiset_monotone_dec allowed).
+  Context (allowed_output_submultiset : forall n, multiset_monotone_dec (allowed_output n)).
 
   Lemma Permutation_allowed l1 l2 : Permutation l1 l2 -> allowed l2 -> allowed l1.
   Proof.

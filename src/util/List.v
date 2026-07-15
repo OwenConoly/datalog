@@ -1259,8 +1259,11 @@ Section misc.
     exists (s1 ++ s2). cbn [app]. symmetry. apply Permutation_middle.
   Qed.
 
-  Definition multiset_monotone (P : list A -> Prop) :=
+  Definition multiset_monotone_dec (P : list A -> Prop) :=
     forall l1 l2, P l2 -> submultiset l1 l2 -> P l1.
+
+  Definition multiset_monotone_inc (P : list A -> Prop) :=
+    forall l1 l2, P l1 -> submultiset l1 l2 -> P l2.
 
   Lemma Forall2_same_r (R1 : A -> C -> Prop) (R2 : B -> C -> Prop) (l1 : list A) (l2 : list B) (l : list C) :
     Forall2 R1 l1 l ->
@@ -1405,9 +1408,6 @@ Section incl_mod.
   Context {message : Type}.
   Context (equiv : message -> message -> Prop).
   Context {equiv_equiv : Equivalence equiv}.
-  Context (consistent : list message -> list message -> Prop).
-  Context (allowed : list message -> Prop).
-  Context (Hcm : consistent_monotone consistent allowed).
 
   Definition incl_mod_weak l1 l2 :=
     forall a,
@@ -1464,58 +1464,6 @@ Section incl_mod.
   Proof.
     intros H a Ha. destruct (H a Ha) as (b & Hb & Hab).
     exists b. split; [apply in_or_app; left; exact Hb | exact Hab].
-  Qed.
-
-  Definition incl_mod (l1 l2 : list message) : Prop :=
-    forall a,
-      incl a l1 ->
-      consistent a l1 ->
-      exists b,
-        incl b l2 /\ Forall2 equiv a b /\ consistent b l2.
-
-  Lemma incl_mod_refl l : incl_mod l l.
-  Proof.
-    destruct equiv_equiv as [Href _ _].
-    intros a Ha Hc. exists a. split; [exact Ha | split; [| exact Hc]].
-    clear Ha Hc. induction a as [|x xs IH].
-    - constructor.
-    - constructor; [apply Href | exact IH].
-  Qed.
-
-  Lemma Forall2_equiv_trans (a b c : list message) :
-    Forall2 equiv a b -> Forall2 equiv b c -> Forall2 equiv a c.
-  Proof.
-    destruct equiv_equiv as [_ _ Htrans]. intros Hab. revert c.
-    induction Hab as [| x y la lb Hxy Hlab IH]; intros c Hbc.
-    - exact Hbc.
-    - inversion Hbc; subst.
-      constructor; [eapply Htrans; eassumption | apply IH; assumption].
-  Qed.
-
-  Lemma incl_mod_trans l1 l2 l3 : incl_mod l1 l2 -> incl_mod l2 l3 -> incl_mod l1 l3.
-  Proof.
-    intros H12 H23 a Ha Hca.
-    destruct (H12 a Ha Hca) as (b & Hb & Hab & Hcb).
-    destruct (H23 b Hb Hcb) as (c & Hc & Hbc & Hcc).
-    exists c. split; [exact Hc | split; [eapply Forall2_equiv_trans; eassumption | exact Hcc]].
-  Qed.
-
-  (* shrink the left side of an [incl_mod] (needs allowedness for the [consistent] side) *)
-  Lemma incl_mod_weaken_l l1 l1' l2 :
-    submultiset l1 l1' -> allowed l1 -> allowed l1' -> incl_mod l1' l2 -> incl_mod l1 l2.
-  Proof.
-    intros Hsub Hal1 Hal1' H a Ha Hca. apply (H a).
-    - eapply incl_tran; [exact Ha | apply submultiset_incl, Hsub].
-    - eapply Hcm; [exact Hal1 | exact Hal1' | exact Hsub | exact Hca].
-  Qed.
-
-  Lemma incl_mod_weaken_r l1 l2 l2' :
-    submultiset l2 l2' -> allowed l2 -> allowed l2' -> incl_mod l1 l2 -> incl_mod l1 l2'.
-  Proof.
-    intros Hsub Hal2 Hal2' H a Ha Hca.
-    destruct (H a Ha Hca) as (b & Hb & Hab & Hcb).
-    exists b. split; [ eapply incl_tran; [exact Hb | apply submultiset_incl, Hsub] | ].
-    split; [ exact Hab | eapply Hcm; [exact Hal2 | exact Hal2' | exact Hsub | exact Hcb] ].
   Qed.
 
   Lemma incl_mod_weak_Forall2 l1 l2 a :
