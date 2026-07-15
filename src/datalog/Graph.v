@@ -129,16 +129,18 @@ Section __.
 
     Local Notation gstep := (graph_step node_step).
 
-    Definition good_node_output (n : node_id) outs :=
-      forall dest,
-        allowed_output (Some n) (filter (forward n dest) outs) /\
-          forall c, consistent c (filter (forward n dest) outs).
+    Definition good_inputs_from (n : node_id) inps :=
+        allowed_output (Some n) inps /\
+          forall c, consistent c inps.
 
-    Definition consistent_internal_inputs_to n inps :=
+    Definition good_node_output n outs :=
+      forall dest, good_inputs_from n (filter (forward n dest) outs).
+
+    Definition consistent_internal_inputs inps :=
       exists nodes partition,
         NoDup nodes /\
-          Forall2 very_consistent_output nodes partition /\
-          inps = flat_map (fun '(n0, fs) => filter (forward n0 n) fs) (combine nodes partition).
+          Forall2 good_inputs_from nodes partition /\
+          inps = concat partition.
 
     Definition node_good (n : node_id) : graph_node_state node_state -> Prop :=
       fun gns =>
