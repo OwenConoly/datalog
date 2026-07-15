@@ -58,11 +58,9 @@ Section Distributed.
         total_cnt = fold_right Nat.add O (map snd ls).
 
   Definition consistent_outputs mfs fs :=
-    match mfs with
-    | [meta_dfact R mf_args src cnt] =>
-        exists cnt', cnt' >= cnt /\ Existsn (dfact_matches R mf_args) cnt' fs
-    | _ => False
-    end.
+    forall (R : rel) mf_args src cnt,
+      In (meta_dfact R mf_args src cnt) mfs ->
+        exists cnt', cnt' >= cnt /\ Existsn (dfact_matches R mf_args) cnt' fs.
 
   Definition allowed_complement n fs :=
     exists fss ns,
@@ -70,6 +68,12 @@ Section Distributed.
         NoDup ns /\
         ~In n ns /\
         Forall2 allowed_outputs ns fss.
+
+  Definition dfact_consistent (c l : list dfact) : Prop :=
+    forall R mf_args num,
+      expect_num_R_facts R_senders R mf_args c num ->
+      exists num',
+        num <= num' /\ Existsn (dfact_matches R mf_args) num l.
 
   Definition consistent (c l : list dfact) : Prop :=
     exists R mf_args nums,
@@ -83,7 +87,7 @@ Section Distributed.
       NoDup nodes ->
       Forall2 allowed_outputs nodes fss ->
       Forall2 (@incl _) mfss fss ->
-      consistent (concat mfss) (concat fss) <->
+      dfact_consistent (concat mfss) (concat fss) <->
         Forall2 consistent_outputs mfss fss.
 
   Definition consistent_facts_from_source (src : node_id) (fs : list dfact) :=
