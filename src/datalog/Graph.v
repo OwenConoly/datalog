@@ -79,9 +79,6 @@ Section __.
       consistent_internal_inputs_to n internal_inps ->
       allowed (internal_inps ++ matching_inps n inps).
 
-  Context (consistent_set_l :
-             forall c c' l, incl c c' -> incl c' c -> consistent c l -> consistent c' l).
-
   Lemma consistent_strip_blocks n ext_c inps nodes partition :
     Forall2 consistent_output nodes partition ->
     forall int_c,
