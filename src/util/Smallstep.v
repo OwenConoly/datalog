@@ -68,11 +68,15 @@ Section step.
   Context (step : state -> IO_event label message -> state -> Prop).
   Context (equiv : message -> message -> Prop).
   Context {equiv_equiv : Equivalence equiv}.
-  Context (consistent : list message (*a set*) -> list message (*a multiset*) -> Prop).
+  Context {stmt} (claim : stmt -> list message -> Prop).
+  Context (consistent : stmt -> list message (*a multiset*) -> Prop).
 
   Context (allowed : list message -> Prop).
 
-  Context (allowed_submultiset : multiset_monotone allowed).
+  Axiom multiset_monotone_dec : forall {A}, (list A -> Prop) -> Prop.
+  Axiom multiset_monotone_inc : forall {A}, (list A -> Prop) -> Prop.
+
+  Context (allowed_submultiset : multiset_monotone_dec allowed).
   (* "allowed" should satisfy the allowed_submultiset definition.
      if we have some consistent sets which are not allowed, then they are not good
      for anything, so we can just set consistent := consistent /\ allowed.
@@ -83,7 +87,7 @@ Section step.
   (*but oops that doesn't typecheck; that's not how consistent works.
     hmm.*)
 
-  Context (Hcm : consistent_monotone consistent allowed).
+  Context (Hcm : forall s, multiset_monotone_inc (consistent s)).
 
   Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
     Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
@@ -444,13 +448,24 @@ Section step.
       might_output s t o ->
       will_output_equiv s t o.
 
+  Print incl_mod.
+
+  Definition consistent_le l1 l2 :=
+    forall s,
+      claim s l1 ->
+      consistent s l1 ->
+      consistent s l2.
+
+  Definition consistently_incl l1 l2 :=
+    incl_mod_weak equiv l1 l2 /\ consistent_le l1 l2.
+
   Definition might_implies_will_equiv' :=
     forall t s o,
       star step initial t s ->
       allowed (inputs_of t) ->
       In o (outputs_of t) ->
       forall s' t',
-        incl_mod equiv consistent (inputs_of t) (inputs_of t') ->
+        consistently_incl (inputs_of t) (inputs_of t') ->
         star step initial t' s' ->
         allowed (inputs_of t') ->
         will_output_equiv s' t' o.

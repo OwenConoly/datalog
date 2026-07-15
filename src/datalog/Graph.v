@@ -131,9 +131,11 @@ Section __.
 
     Local Notation gstep := (graph_step node_step).
 
+    Definition very_consistent_output n outs := forall c, consistent_output c n outs.
+
     Definition node_good (n : node_id) : graph_node_state node_state -> Prop :=
       fun gns =>
-        outputs_well_formed    node_step (consistent_output n) gns.(gns_node_state) /\
+        outputs_well_formed    node_step (very_consistent_output n) gns.(gns_node_state) /\
         monotone_mod_equiv     node_step equiv consistent allowed gns.(gns_node_state) /\
         might_implies_will_equiv node_step equiv allowed gns.(gns_node_state).
 
