@@ -77,9 +77,10 @@ Section Distributed.
     exists cnt, In (meta_dfact R mf_args n cnt) fs /\
       exists actual, actual >= cnt /\ Existsn (dfact_matches R mf_args) actual fs.
   Definition allowed_output (n : option node_id) (fs : list dfact) : Prop :=
-    forall R mf_args src cnt,
-      In (meta_dfact R mf_args src cnt) fs ->
-      n = src /\ exists actual, actual <= cnt /\ Existsn (dfact_matches R mf_args) actual fs.
+    (forall R mf_args src cnt,
+       In (meta_dfact R mf_args src cnt) fs ->
+       n = src /\ exists actual, actual <= cnt /\ Existsn (dfact_matches R mf_args) actual fs) /\
+    (forall f, In f fs -> In n (R_senders (dfact_rel f))).
   Context (consistent : stmt -> list dfact -> Prop).
   Context (consistent_mono :
              forall s ms1 ms2, consistent s ms1 -> submultiset ms1 ms2 -> consistent s ms2).
@@ -108,9 +109,11 @@ Section Distributed.
              consistent_good claim consistent_output allowed_output consistent).
   Lemma allowed_output_submultiset n : multiset_monotone_dec (allowed_output n).
   Proof.
-    intros l1 l2 Hal2 Hsub R mf_args src cnt Hin.
+    intros l1 l2 (Hmeta2 & Hsender2) Hsub.
     pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    destruct (Hal2 R mf_args src cnt (Hincl _ Hin)) as (Hsrc & actual2 & Hle2 & Hexn2).
+    split; [ | intros f Hin; apply Hsender2, Hincl, Hin ].
+    intros R mf_args src cnt Hin.
+    destruct (Hmeta2 R mf_args src cnt (Hincl _ Hin)) as (Hsrc & actual2 & Hle2 & Hexn2).
     split; [ exact Hsrc | ].
     destruct Hsub as (rest & Hperm).
     pose proof (Existsn_perm _ _ _ _ Hexn2 Hperm) as Hexn2'.
