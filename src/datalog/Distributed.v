@@ -86,8 +86,21 @@ Section Distributed.
     let '(R, mf_args) := s in
     exists num, expect_num_R_facts R_senders R mf_args l num /\
       exists actual, actual >= num /\ Existsn (dfact_matches R mf_args) actual l.
-  Context (consistent_mono :
-             forall s ms1 ms2, consistent s ms1 -> submultiset ms1 ms2 -> consistent s ms2).
+  Lemma consistent_mono s ms1 ms2 :
+    consistent s ms1 -> submultiset ms1 ms2 -> consistent s ms2.
+  Proof.
+    destruct s as [R mf_args].
+    intros (num & (ems & Hf2 & Hnum) & actual & Hge & Hexn) Hsub.
+    pose proof (submultiset_incl _ _ Hsub) as Hincl.
+    destruct Hsub as (rest & Hperm).
+    exists num. split.
+    - exists ems. split; [ | exact Hnum ].
+      eapply Forall2_impl; [ | exact Hf2 ]. intros k e Hin. exact (Hincl _ Hin).
+    - destruct (Existsn_total (dfact_matches R mf_args) rest) as (k & Hk).
+      exists (actual + k). split; [ lia | ].
+      eapply Existsn_perm with (l1 := ms1 ++ rest);
+        [ apply Existsn_app; assumption | apply Permutation_sym; exact Hperm ].
+  Qed.
   Lemma Existsn_total {X} (P : X -> Prop) (l : list X) : exists n, Existsn P n l.
   Proof.
     induction l as [|x xs (n & Hn)].
@@ -291,6 +304,7 @@ Section Distributed.
     - exact output_visible_equiv.
     - exact forward_equiv.
     - exact claim_mono.
+    - exact consistent_mono.
     - exact consistent_output_mono.
     - exact nallowed_multiset_monotone.
     - exact allowed_output_submultiset.
