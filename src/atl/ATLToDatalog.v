@@ -271,26 +271,35 @@ Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var) n) : pATLexpr' (var) n :=
   | ATLPhoas.Get _ _ | ATLPhoas.SBop _ _ _ | ATLPhoas.SIZR _ => Scalar (stringvar_S e)
 end.
 
-Fixpoint lower_main {var n} (e : pATLexpr (var_of var) n) : blocks_prog var :=
-  let '(e') := lower_pATLexpr e in
-  match e' with
-  | Gen n lo hi body => Block "out" [] []
-  | Sum n lo hi body => Block "tbd" [] []
-  | Guard b e1 => Block "out" [] []
-  | Lbind x f =>
-    LetIn (lower_pATLexpr x) (fun val =>
-      lower_pATLexpr (f val))
-  | Concat x y => Block "out" [] []
-  | Flatten x => Block "out" [] []
-  | Split k x => Block "out" [] []
-  | Transpose x => Block "out" [] []
-  | Truncr k x => Block "out" [] []
-  | Truncl k x => Block "out" [] []
-  | Padr k x => Block "out" [] []
-  | Padl k x => Block "out" [] []
-  | Var x => Block "out" [] []
+Print pATLexpr'.
+Print Blocks.blocks_prog.
+Print Datalog.Blocks.block_rule.
+
+Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) : blocks_prog var := 
+  match e with
+  | Gen n lo hi body => Block 0 [] []
+  | Sum n lo hi body => Block 0 [] []
+  | Guard n b e1 => Block 0 [] []
+  | Lbind n m x f => Block 0 [] []
+    (*LetIn (lower_pATLexpr' x) (fun val =>
+      lower_pATLexpr' (f val))*)
+  | Concat n x y => Block 0 [] []
+  | Flatten n x => Block 0 [] []
+  | Split n k x => Block 0 [] []
+  | Transpose n x => Block 0 [] []
+  | Truncr n k x => Block 0 [] []
+  | Truncl m k x => Block 0 [] []
+  | Padr k x => Block 0 [] []
+  | Padl k x => Block 0 [] []
   | Scalar x => 
+    let '(value, hyps, next_varname, correspondences) := (lower_pSexpr' [] 0 x) in
+      Block next_varname correspondences 
+          [normal_rule [{| clause_rel := local next_varname; clause_args := [value] |}] hyps]
   end.
+
+Definition lower_main {var n} (e : pATLexpr (var_of var) n) : blocks_prog var :=
+  let '(e') := lower_pATLexpr e in
+  lower_pATLexpr' e'.
 
 
 
