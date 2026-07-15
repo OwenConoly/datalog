@@ -136,7 +136,7 @@ Section __.
     Definition node_good (n : node_id) : graph_node_state node_state -> Prop :=
       fun gns =>
         outputs_well_formed    node_step (very_consistent_output n) gns.(gns_node_state) /\
-        monotone_mod_equiv     node_step equiv consistent allowed gns.(gns_node_state) /\
+        monotone_mod_equiv     node_step equiv claim consistent allowed gns.(gns_node_state) /\
         might_implies_will_equiv node_step equiv allowed gns.(gns_node_state).
 
     (* [node_fold proj gs] collects, over every node [k] of [gs], the projection
@@ -167,7 +167,7 @@ Section __.
 
     Definition le (g1 g2 : graph_state) :=
       Forall2_map (fun n gns1 gns2 =>
-                     incl_mod equiv consistent (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace)))
+                     consistently_incl equiv claim consistent (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace)))
         g1 g2.
 
     Definition node_has_output (gs : graph_state) (n : node_id) (o : message) : Prop :=
