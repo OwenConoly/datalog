@@ -1,4 +1,4 @@
-From Stdlib Require Import List Permutation RelationClasses Lia.
+From Stdlib Require Import List Permutation RelationClasses Classical_Prop Lia.
 From coqutil Require Import Datatypes.List.
 From Datalog Require Import Datalog Node Graph Smallstep List Map Tactics.
 From coqutil Require Import Map.Interface Tactics Tactics.fwd.
@@ -53,9 +53,6 @@ Section Distributed.
       destruct H12 as (-> & -> & ->), H23 as (-> & -> & ->). repeat split.
   Qed.
 
-  Definition node_name_eq_dec (x y : node_name) : {x = y} + {x <> y}.
-  Proof. repeat decide equality. Defined.
-
   Definition stmt : Type := (rel * list (option T))%type.
 
   Definition claim (s : stmt) (l : list dfact) :=
@@ -85,7 +82,7 @@ Section Distributed.
   Definition allowed_output (n : option node_id) (fs : list dfact) : Prop :=
     (forall R mf_args src cnt,
        In (meta_dfact R mf_args src cnt) fs ->
-       n = src /\ exists actual, actual <= cnt /\ Existsn (dfact_matches R mf_args) actual fs) /\
+       n = src /\ Existsn_le (dfact_matches R mf_args) cnt fs) /\
     (forall f, In f fs -> In n (R_senders (dfact_rel f))).
 
   Definition consistent (s : stmt) (l : list dfact) : Prop :=
@@ -122,12 +119,9 @@ Section Distributed.
     pose proof (submultiset_incl _ _ Hsub) as Hincl.
     split; [ | intros f Hin; apply Hsender2, Hincl, Hin ].
     intros R mf_args src cnt Hin.
-    destruct (Hmeta2 R mf_args src cnt (Hincl _ Hin)) as (Hsrc & actual2 & Hle2 & Hexn2).
+    destruct (Hmeta2 R mf_args src cnt (Hincl _ Hin)) as (Hsrc & Hle2).
     split; [ exact Hsrc | ].
-    destruct Hsub as (rest & Hperm).
-    pose proof (Existsn_perm _ _ _ _ Hexn2 Hperm) as Hexn2'.
-    apply Existsn_split in Hexn2'. destruct Hexn2' as (n1 & n_rest & Hsum & Hex1 & _).
-    exists n1. split; [ lia | exact Hex1 ].
+    eapply Existsn_le_submultiset; [ exact Hle2 | exact Hsub ].
   Qed.
 
   Lemma Forall2_In_combine {A B} (R : A -> B -> Prop) xs ys x y :
@@ -222,14 +216,14 @@ Section Distributed.
       Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss)) senders ems ->
       (forall n ms f, In (n, ms) (combine nodes mss) ->
                       In f ms -> dfact_matches R mf_args f -> In n senders) ->
-      exists num', num' <= list_sum ems /\ Existsn (dfact_matches R mf_args) num' (concat mss).
+      Existsn_le (dfact_matches R mf_args) (list_sum ems) (concat mss).
   Proof.
     intros nodes mss HF2. induction HF2 as [| n0 ms0 nodes' mss' Hao HF IH];
       intros Hnd senders ems Hnds Hems Hcover.
-    - exists 0. split; [ lia | constructor ].
+    - apply El_nil.
     - inversion Hnd as [| n0' nodes0 Hn0notin Hnd_tail]; subst.
       cbn [concat] in Hems |- *.
-      destruct (in_dec node_name_eq_dec n0 senders) as [Hin0 | Hnin0].
+      destruct (classic (In n0 senders)) as [Hin0 | Hnin0].
       + apply in_split in Hin0. destruct Hin0 as (s1 & s2 & ->).
         apply Forall2_app_inv_l in Hems.
         destruct Hems as (e1 & ems2 & He1 & Hems2 & ->).
@@ -240,7 +234,7 @@ Section Distributed.
           by (inversion Hems2; assumption).
         assert (Hin_ms0 : In (meta_dfact R mf_args n0 e0) ms0)
           by (eapply meta_in_head_block; [ exact HF | exact Hn0notin | exact Hmeta0 ]).
-        destruct (proj1 Hao _ _ _ _ Hin_ms0) as (_ & actual & Hle & Hexn0).
+        destruct (proj1 Hao _ _ _ _ Hin_ms0) as (_ & Hle0).
         pose proof (NoDup_remove_2 _ _ _ Hnds) as Hnin0'.
         assert (Hems' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss'))
                                 (s1 ++ s2) (e1 ++ e2)).
@@ -248,34 +242,33 @@ Section Distributed.
         assert (Hcover' : forall n ms f, In (n, ms) (combine nodes' mss') ->
                             In f ms -> dfact_matches R mf_args f -> In n (s1 ++ s2))
           by (eapply cover_shift; [ exact Hn0notin | exact Hcover ]).
-        destruct (IH Hnd_tail (s1 ++ s2) (e1 ++ e2) (NoDup_remove_1 _ _ _ Hnds) Hems' Hcover')
-          as (num'' & Hle'' & Hexn'').
-        exists (actual + num''). split.
-        * rewrite list_sum_app, list_sum_cons. rewrite list_sum_app in Hle''. lia.
-        * apply Existsn_app; assumption.
-      + assert (Hno : Existsn (dfact_matches R mf_args) 0 ms0).
-        { apply Forall_not_Existsn_0. apply Forall_forall. intros f Hf Hmatch.
+        pose proof (IH Hnd_tail (s1 ++ s2) (e1 ++ e2) (NoDup_remove_1 _ _ _ Hnds) Hems' Hcover')
+          as HleTail.
+        replace (list_sum (e1 ++ e0 :: e2)) with (e0 + list_sum (e1 ++ e2))
+          by (rewrite !list_sum_app, list_sum_cons; lia).
+        apply Existsn_le_app; [ exact Hle0 | exact HleTail ].
+      + assert (Hno : Existsn_le (dfact_matches R mf_args) 0 ms0).
+        { apply Existsn_le_0_Forall_not. apply Forall_forall. intros f Hf Hmatch.
           apply Hnin0. eapply (Hcover n0 ms0 f); [ left; reflexivity | exact Hf | exact Hmatch ]. }
         assert (Hems' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss')) senders ems)
           by (eapply Forall2_meta_shift; [ exact Hao | exact Hnin0 | exact Hems ]).
         assert (Hcover' : forall n ms f, In (n, ms) (combine nodes' mss') ->
                             In f ms -> dfact_matches R mf_args f -> In n senders)
           by (intros n ms f Hcomb Hf Hmatch; exact (Hcover n ms f (or_intror Hcomb) Hf Hmatch)).
-        destruct (IH Hnd_tail senders ems Hnds Hems' Hcover') as (num'' & Hle'' & Hexn'').
-        exists num''. split; [ lia | ].
-        replace num'' with (0 + num'') by lia. apply Existsn_app; assumption.
+        pose proof (IH Hnd_tail senders ems Hnds Hems' Hcover') as HleTail.
+        replace (list_sum ems) with (0 + list_sum ems) by lia.
+        apply Existsn_le_app; [ exact Hno | exact HleTail ].
   Qed.
 
   Lemma allowed_of_outputs nodes mss :
     NoDup nodes -> Forall2 allowed_output nodes mss -> nallowed (concat mss).
   Proof.
     intros Hnd HF2 R mf_args ems Hems.
-    edestruct (allowed_of_outputs_bound R mf_args nodes mss HF2 Hnd (R_senders R) ems
-                 (R_senders_NoDup R) Hems) as (num' & Hle & Hexn).
-    - intros n ms f Hcomb Hf Hmatch.
-      pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb) as (_ & Hsend).
-      destruct Hmatch as (nf_args & -> & _). exact (Hsend _ Hf).
-    - exists num'. split; [ exact Hle | exact Hexn ].
+    apply (allowed_of_outputs_bound R mf_args nodes mss HF2 Hnd (R_senders R) ems
+             (R_senders_NoDup R) Hems).
+    intros n ms f Hcomb Hf Hmatch.
+    pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb) as (_ & Hsend).
+    destruct Hmatch as (nf_args & -> & _). exact (Hsend _ Hf).
   Qed.
 
   Lemma combine_l_unique {X Y} (xs : list X) (ys : list Y) x y1 y2 :
@@ -324,7 +317,7 @@ Section Distributed.
       cbn [length] in Hlen. injection Hlen as Hlen.
       apply NoDup_cons_iff in Hnd. destruct Hnd as (Hn0notin & Hnd').
       cbn [concat] in *.
-      destruct (in_dec node_name_eq_dec n0 senders) as [Hin0 | Hnin0].
+      destruct (classic (In n0 senders)) as [Hin0 | Hnin0].
       + apply in_split in Hin0. destruct Hin0 as (s1 & s2 & ->).
         apply Forall2_app_inv_l in HF. destruct HF as (e1 & ems2 & He1 & Hems2 & ->).
         destruct ems2 as [| e0 e2]; [ solve [ inversion Hems2 ] | ].
@@ -390,7 +383,7 @@ Section Distributed.
     - apply NoDup_cons_iff in Hnd. destruct Hnd as (Hn0notin & Hnd').
       cbn [concat] in Hge, Hems |- *.
       apply Existsn_ge_app_inv in Hge. destruct Hge as (a0 & A' & Hsum & Hge0 & HgeA').
-      destruct (in_dec node_name_eq_dec n0 senders) as [Hin0 | Hnin0].
+      destruct (classic (In n0 senders)) as [Hin0 | Hnin0].
       + apply in_split in Hin0. destruct Hin0 as (s1 & s2 & ->).
         apply Forall2_app_inv_l in Hems. destruct Hems as (e1 & ems2 & He1 & Hems2 & ->).
         destruct ems2 as [| e0 e2]; [ solve [ inversion Hems2 ] | ].
@@ -400,8 +393,8 @@ Section Distributed.
           by (inversion Hems2; assumption).
         assert (Hmeta0 : In (meta_dfact R mf_args n0 e0) ms0)
           by (eapply meta_in_head_block; [ exact HF | exact Hn0notin | exact Hmeta0full ]).
-        destruct (proj1 Hao _ _ _ _ Hmeta0) as (_ & aub & Hle0 & Hexn_ub).
-        pose proof (Existsn_ge_exact_bound _ _ _ _ Hge0 Hexn_ub) as Ha0aub.
+        destruct (proj1 Hao _ _ _ _ Hmeta0) as (_ & Hle0).
+        pose proof (Existsn_ge_le_bound _ _ _ _ Hge0 Hle0) as Ha0e0.
         pose proof (NoDup_remove_1 _ _ _ Hnds) as Hnds'.
         pose proof (NoDup_remove_2 _ _ _ Hnds) as Hn0notin_s.
         assert (Hems' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss'))
@@ -410,11 +403,11 @@ Section Distributed.
         assert (Hcover' : forall n ms f, In (n, ms) (combine nodes' mss') ->
                             In f ms -> dfact_matches R mf_args f -> In n (s1 ++ s2))
           by (eapply cover_shift; [ exact Hn0notin | exact Hcover ]).
-        edestruct (allowed_of_outputs_bound R mf_args nodes' mss' HF Hnd' (s1 ++ s2) (e1 ++ e2)
-                     Hnds' Hems' Hcover') as (num' & Hle' & Hexn_num').
-        pose proof (Existsn_ge_exact_bound _ _ _ _ HgeA' Hexn_num') as HA'num'.
+        pose proof (allowed_of_outputs_bound R mf_args nodes' mss' HF Hnd' (s1 ++ s2) (e1 ++ e2)
+                     Hnds' Hems' Hcover') as HleTail.
+        pose proof (Existsn_ge_le_bound _ _ _ _ HgeA' HleTail) as HA'le.
         assert (Hsplit : a0 = e0 /\ A' = list_sum (e1 ++ e2)).
-        { rewrite list_sum_app, list_sum_cons in Hsum. rewrite list_sum_app in Hle'.
+        { rewrite list_sum_app, list_sum_cons in Hsum. rewrite list_sum_app in HA'le.
           rewrite list_sum_app. lia. }
         destruct Hsplit as (Ha0eq & HA'eq).
         constructor.

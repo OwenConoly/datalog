@@ -126,8 +126,7 @@ Section __.
     forall R mf_args expected_msgss,
       Forall2 (fun k e => In (meta_dfact R mf_args k e) input_facts)
               (R_senders R) expected_msgss ->
-      exists num', num' <= list_sum expected_msgss /\
-                   Existsn (dfact_matches R mf_args) num' input_facts.
+      Existsn_le (dfact_matches R mf_args) (list_sum expected_msgss) input_facts.
 
   Definition dfact_equiv (f1 f2 : dfact) : Prop :=
     match f1, f2 with
@@ -178,17 +177,40 @@ Section __.
   Lemma allowed_inputs_submultiset l1 l2 :
     submultiset l1 l2 -> allowed_inputs l2 -> allowed_inputs l1.
   Proof.
-    intros Hsub Hbound. pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    destruct Hsub as (rest & Hperm).
-    intros R mf_args ems Hf2.
+    intros Hsub Hbound R mf_args ems Hf2.
+    pose proof (submultiset_incl _ _ Hsub) as Hincl.
     assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) l2)
                            (R_senders R) ems)
       by (clear -Hf2 Hincl; induction Hf2; constructor;
             [apply Hincl; assumption | assumption]).
-    destruct (Hbound R mf_args ems Hf2') as (num2 & Hle2 & Hexn2).
-    pose proof (Existsn_perm _ _ _ _ Hexn2 Hperm) as Hexn2'.
-    apply Existsn_split in Hexn2'. destruct Hexn2' as (n1 & n_rest & Hsum2 & Hex1 & _).
-    exists n1. split; [lia | exact Hex1].
+    eapply Existsn_le_submultiset; [ apply Hbound; exact Hf2' | exact Hsub ].
+  Qed.
+
+  (* When [small] is a submultiset of an [allowed_inputs] multiset [big] and
+     [small] already realises the full declared count of an aggregate [R/mf_args]
+     ([expect_num] matched by [Existsn]), the extra part [rest] (with [big ~
+     small ++ rest]) contains no further matches: [allowed_inputs] caps [big]'s
+     matches at the declared total, which [small] alone already meets, so an
+     extra match in [rest] would exceed the cap. *)
+  Lemma submultiset_rest_no_matches R mf_args small rest big num :
+    Permutation big (small ++ rest) ->
+    allowed_inputs big ->
+    expect_num_R_facts R mf_args small num ->
+    Existsn (dfact_matches R mf_args) num small ->
+    Forall (fun x => ~ dfact_matches R mf_args x) rest.
+  Proof.
+    intros Hperm Hallow Hexp Hex.
+    pose proof (submultiset_incl _ _ (ex_intro _ rest Hperm)) as Hincl.
+    destruct Hexp as (ems & Hf2 & Hsum).
+    assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) big)
+                           (R_senders R) ems)
+      by (clear -Hf2 Hincl; induction Hf2; constructor;
+            [apply Hincl; assumption | assumption]).
+    pose proof (Existsn_le_perm _ _ _ _ Hperm (Hallow R mf_args ems Hf2')) as Hle.
+    apply Forall_forall. intros x Hx Hmatch.
+    pose proof (Existsn_ge_of_Existsn _ _ _ Hex num (le_n num)) as Hge_small.
+    pose proof (Existsn_ge_app _ _ _ _ _ Hge_small (Existsn_ge_1 _ _ _ Hx Hmatch)) as Hge_app.
+    pose proof (Existsn_ge_le_bound _ _ _ _ Hge_app Hle). lia.
   Qed.
 
   Lemma knows_datalog_fact_submultiset l1 l2 h :
@@ -199,22 +221,15 @@ Section __.
     destruct Hsub as (rest & Hperm).
     destruct h as [R args | R margs mf_set].
     - apply Hincl. exact Hk.
-    - destruct Hk as (num & (ems & Hf2 & Hsum) & Hexn & Hiff).
-      assert (Hf2' : Forall2 (fun k e => In (meta_dfact R margs k e) l2)
-                             (R_senders R) ems)
-        by (clear -Hf2 Hincl; induction Hf2; constructor;
-              [apply Hincl; assumption | assumption]).
-      destruct (Hallow R margs ems Hf2') as (num2 & Hle2 & Hexn2).
-      rewrite <- Hsum in Hle2.
-      pose proof (Existsn_perm _ _ _ _ Hexn2 Hperm) as Hexn2'.
-      apply Existsn_split in Hexn2'. destruct Hexn2' as (n1 & n_rest & Hsum2 & Hex1 & Hexr).
-      pose proof (Existsn_unique _ _ _ _ Hex1 Hexn) as Hn1.
-      assert (n_rest = 0) by lia. subst n_rest.
-      assert (Hnum2 : num2 = num) by lia.
-      pose proof (Existsn_0_Forall_not _ _ Hexr) as Hrest_no.
+    - destruct Hk as (num & Hexp & Hexn & Hiff).
+      pose proof (submultiset_rest_no_matches R margs l1 rest l2 num Hperm Hallow Hexp Hexn)
+        as Hrest_no.
       exists num. split; [| split].
-      + exists ems. split; [exact Hf2' | exact Hsum].
-      + rewrite <- Hnum2. exact Hexn2.
+      + destruct Hexp as (ems & Hf2 & Hsum). exists ems. split; [| exact Hsum].
+        clear -Hf2 Hincl. induction Hf2; constructor; [apply Hincl; assumption | assumption].
+      + eapply Existsn_perm; [ | apply Permutation_sym; exact Hperm ].
+        replace num with (num + 0) by lia.
+        apply Existsn_app; [ exact Hexn | apply Forall_not_Existsn_0; exact Hrest_no ].
       + intros nfa Hm. specialize (Hiff nfa Hm). split; intro H.
         * apply Hincl. apply (proj1 Hiff). exact H.
         * apply (proj2 Hiff).
@@ -268,35 +283,6 @@ Section __.
       eapply Forall_impl; [| exact Hhyps].
       intros h Hh. eapply knows_datalog_fact_submultiset;
         [apply submultiset_cons | exact Hallow | exact Hh].
-  Qed.
-
-  (* When [small] is a submultiset of an [allowed_inputs] multiset [big] and
-     [small] already realises the full declared count of an aggregate [R/mf_args]
-     ([expect_num] matched by [Existsn]), the extra part [rest] (with [big ~
-     small ++ rest]) contains no further matches: [allowed_inputs] caps [big]'s
-     matches at the declared total, which [small] alone already meets, so
-     [Existsn_split] forces [rest]'s share to zero. *)
-  Lemma submultiset_rest_no_matches R mf_args small rest big num :
-    Permutation big (small ++ rest) ->
-    allowed_inputs big ->
-    expect_num_R_facts R mf_args small num ->
-    Existsn (dfact_matches R mf_args) num small ->
-    Forall (fun x => ~ dfact_matches R mf_args x) rest.
-  Proof.
-    intros Hperm Hallow Hexp Hex.
-    pose proof (submultiset_incl _ _ (ex_intro _ rest Hperm)) as Hincl.
-    destruct Hexp as (ems & Hf2 & Hsum).
-    assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) big)
-                           (R_senders R) ems)
-      by (clear -Hf2 Hincl; induction Hf2; constructor;
-            [apply Hincl; assumption | assumption]).
-    destruct (Hallow R mf_args ems Hf2') as (num' & Hle & Hexn').
-    pose proof (Existsn_perm _ _ _ _ Hexn' Hperm) as Hexn''.
-    apply Existsn_split in Hexn''.
-    destruct Hexn'' as (n1 & n2 & Hsum' & Hex1 & Hex2).
-    pose proof (Existsn_unique _ _ _ _ Hex1 Hex) as Hn1.
-    assert (n2 = 0) by lia. subst n2.
-    exact (Existsn_0_Forall_not _ _ Hex2).
   Qed.
 
   (* If [h] is potentially supported by [hyps_d] (all known at the small multiset)
@@ -435,7 +421,7 @@ Section __.
   Lemma node_good_init : node_good node_init [].
   Proof.
     split; [reflexivity | split; [| split]].
-    - intros R mf_args ems _. exists 0. split; [lia | constructor].
+    - intros R mf_args ems _. apply El_nil.
     - intros R mf_args num H. destruct H.
     - intros r R mf_args num Hr H. destruct H.
   Qed.
