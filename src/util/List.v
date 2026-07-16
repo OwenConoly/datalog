@@ -813,6 +813,63 @@ Section Existsn.
       + exists (S n). apply Existsn_yes; assumption.
       + exists n. apply Existsn_no; assumption.
   Qed.
+
+  Inductive Existsn_ge : nat -> list T -> Prop :=
+  | Eg_zero l : Existsn_ge 0 l
+  | Eg_skip x k l : Existsn_ge k l -> Existsn_ge k (x :: l)
+  | Eg_take x k l : P x -> Existsn_ge k l -> Existsn_ge (S k) (x :: l).
+
+  Inductive Existsn_le : nat -> list T -> Prop :=
+  | El_nil k : Existsn_le k []
+  | El_skip x k l : ~ P x -> Existsn_le k l -> Existsn_le k (x :: l)
+  | El_take x k l : Existsn_le k l -> Existsn_le (S k) (x :: l).
+
+  Hint Constructors Existsn_ge Existsn_le : core.
+
+  Lemma Existsn_ge_mono_count j l : Existsn_ge j l -> forall i, i <= j -> Existsn_ge i l.
+  Proof.
+    induction 1 as [l | x k l Hk IH | x k l Hpx Hk IH]; intros i Hi.
+    - assert (i = 0) as -> by lia. apply Eg_zero.
+    - apply Eg_skip. apply IH. exact Hi.
+    - destruct i as [|i']; [apply Eg_zero | apply Eg_take; [exact Hpx | apply IH; lia]].
+  Qed.
+
+  Lemma Existsn_le_mono_count i l : Existsn_le i l -> forall j, i <= j -> Existsn_le j l.
+  Proof.
+    induction 1 as [i | x i l Hnpx Hle IH | x i l Hle IH]; intros j Hj.
+    - apply El_nil.
+    - apply El_skip; [exact Hnpx | apply IH; exact Hj].
+    - destruct j as [|j']; [lia | apply El_take; apply IH; lia].
+  Qed.
+
+  Lemma Existsn_ge_le_bound a b l : Existsn_ge a l -> Existsn_le b l -> a <= b.
+  Proof.
+    intros Hge. revert b.
+    induction Hge as [l | x a l Hk IH | x a l Hpx Hk IH]; intros b Hle.
+    - lia.
+    - inversion Hle as [| x' b' l' Hnpx Hle' | x' b' l' Hle']; subst.
+      + apply IH; exact Hle'.
+      + specialize (IH b' Hle'). lia.
+    - inversion Hle as [| x' b' l' Hnpx Hle' | x' b' l' Hle']; subst.
+      + exfalso. apply Hnpx. exact Hpx.
+      + specialize (IH b' Hle'). lia.
+  Qed.
+
+  Lemma Existsn_ge_of_Existsn n l : Existsn n l -> forall k, k <= n -> Existsn_ge k l.
+  Proof.
+    induction 1 as [| x n l Hnpx Hn IH | x n l Hpx Hn IH]; intros k Hk.
+    - assert (k = 0) as -> by lia. apply Eg_zero.
+    - apply Eg_skip. apply IH. exact Hk.
+    - destruct k as [|k']; [apply Eg_zero | apply Eg_take; [exact Hpx | apply IH; lia]].
+  Qed.
+
+  Lemma Existsn_le_of_Existsn n l : Existsn n l -> forall k, n <= k -> Existsn_le k l.
+  Proof.
+    induction 1 as [| x n l Hnpx Hn IH | x n l Hpx Hn IH]; intros k Hk.
+    - apply El_nil.
+    - apply El_skip; [exact Hnpx | apply IH; exact Hk].
+    - destruct k as [|k']; [lia | apply El_take; apply IH; lia].
+  Qed.
 End Existsn.
 Hint Constructors Existsn : core.
 
