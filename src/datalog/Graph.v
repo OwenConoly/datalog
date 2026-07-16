@@ -168,7 +168,7 @@ Definition consistent_good :=
     Definition consistent_internal_inputs inps :=
       exists nodes partition,
         NoDup nodes /\
-          Forall2 good_inputs_from nodes partition /\
+          Forall2 (fun n => good_inputs_from (Some n)) nodes partition /\
           inps = concat partition.
 
     Definition node_good (n : node_id) : graph_node_state node_state -> Prop :=
@@ -702,12 +702,10 @@ Definition consistent_good :=
 
     Lemma consistent_good_ext s nodes partition ext :
       NoDup nodes ->
-      Forall2 good_inputs_from nodes partition ->
+      Forall2 (fun n => good_inputs_from (Some n)) nodes partition ->
       allowed_output None ext ->
       claim s (ext ++ concat partition) ->
-      consistent s (ext ++ concat partition) <->
-        (consistent_output s None ext /\
-         Forall2 (fun n => consistent_output s (Some n)) nodes partition).
+      consistent s (ext ++ concat partition) <-> consistent_output s None ext.
     Proof.
       intros Hnd Hgif Hae Hclaim.
       assert (Hnd' : NoDup (None :: map Some nodes)).
@@ -720,11 +718,20 @@ Definition consistent_good :=
         intros k b Hb. exact (proj1 Hb). }
       pose proof (consistent_good_holds s (None :: map Some nodes) (ext :: partition) Hnd' Hall') as Hcg.
       cbn [concat] in Hcg. specialize (Hcg Hclaim).
-      rewrite Hcg. split.
-      - inversion 1; subst. split; [ assumption | ].
-        rewrite Forall2_map_l. assumption.
-      - intros [Hhead Htail]. constructor; [ exact Hhead | ].
-        rewrite <- Forall2_map_l. exact Htail.
+      destruct Hcg as (Hclaim_out & Hbicond).
+      (* the internal blocks are consistent_output by construction: their claim_output
+         (from Hclaim_out) feeds good_inputs_from's guarded implication *)
+      assert (Hint : Forall2 (fun n => consistent_output s (Some n)) nodes partition).
+      { assert (Hcl_tail : Forall2 (claim_output s) (map Some nodes) partition)
+          by (inversion Hclaim_out; assumption).
+        rewrite <- Forall2_map_l in Hcl_tail.
+        pose proof (Forall2_and _ _ _ _ Hgif Hcl_tail) as Hcomb.
+        eapply Forall2_impl; [ | exact Hcomb ].
+        intros k b (Hgood & Hcl). exact (proj2 Hgood s Hcl). }
+      split.
+      - intros Hc. apply Hbicond in Hc. inversion Hc; assumption.
+      - intros Hext. apply Hbicond. constructor; [ exact Hext | ].
+        rewrite <- Forall2_map_l. exact Hint.
     Qed.
 
     Lemma consistent_transfer internal_inps1 internal_inps2 exts1 exts2 :
@@ -752,18 +759,16 @@ Definition consistent_good :=
       assert (Hext1 : consistent_output s None exts1).
       { pose proof (consistent_good_ext s nodes1 part1 exts1 Hnd1 Hgif1 Hae1
                       (claim_perm s _ _ (Permutation_app_comm (concat part1) exts1) Hclaim)) as Hce.
-        refine (proj1 (proj1 Hce _)).
+        apply (proj1 Hce).
         eapply consistent_perm; [ apply Permutation_app_comm | exact Hcons ]. }
       assert (Hext2 : consistent_output s None exts2)
         by (eapply consistent_output_mono; [ exact Hext1 | exact Hsubext ]).
-      assert (Hint2 : Forall2 (fun n => consistent_output s (Some n)) nodes2 part2).
-      { eapply Forall2_impl; [ | exact Hgif2 ]. intros k b Hb. exact (proj2 Hb s). }
       assert (Hclaim2 : claim s (exts2 ++ concat part2)).
       { eapply claim_perm; [ apply Permutation_app_comm | ].
         eapply claim_mono; [ exact Hclaim | exact Hincl_pool ]. }
       eapply consistent_perm; [ apply Permutation_app_comm | ].
       apply (proj2 (consistent_good_ext s nodes2 part2 exts2 Hnd2 Hgif2 Hae2 Hclaim2)).
-      split; [ exact Hext2 | exact Hint2 ].
+      exact Hext2.
     Qed.
 
     Lemma consistently_incl_perm l1 l1' l2 l2' :
