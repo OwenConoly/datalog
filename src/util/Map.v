@@ -56,6 +56,16 @@ Section Maps.
   Lemma values_empty : values (map.empty : mp1) = [].
   Proof. unfold values. apply map.fold_empty. Qed.
 
+  Lemma In_values (m : mp1) v :
+    In v (values m) <-> exists k, map.get m k = Some v.
+  Proof.
+    rewrite values_eq_tuples, in_map_iff. split.
+    - intros ([k v'] & Hsnd & Hin). cbn in Hsnd. subst v'.
+      exists k. apply map.tuples_spec. exact Hin.
+    - intros (k & Hget). exists (k, v).
+      split; [ reflexivity | apply map.tuples_spec; exact Hget ].
+  Qed.
+
   Lemma tuples_put_perm (m : mp1) k v :
     map.get m k = None ->
     Permutation (map.tuples (map.put m k v)) ((k, v) :: map.tuples m).
@@ -353,6 +363,14 @@ Section ListValuedMap.
     - apply Permutation_sym, (concat_values_get _ _ _ H).
     - apply in_or_app. left. exact Hx.
   Qed.
+
+  Lemma In_concat_values (m : mp) x :
+    In x (concat (values m)) <-> exists k v, map.get m k = Some v /\ In x v.
+  Proof.
+    rewrite in_concat. split.
+    - intros (vs & Hvs & Hx). apply In_values in Hvs. destruct Hvs as (k & Hget). eauto.
+    - intros (k & v & Hget & Hx). exists v. split; [ apply In_values; eauto | exact Hx ].
+  Qed.
 End ListValuedMap.
 
 Section MapKeysInj.
@@ -477,6 +495,14 @@ Section Map.
   Proof.
     apply map.map_ext. intro j.
     rewrite get_map_values', !map.get_put_dec, get_map_values'.
+    destr (eqb k j); cbn [option_map]; congruence.
+  Qed.
+
+  Lemma map_values'_remove (f : key -> value -> value') (m : mp) k :
+    map_values' f (map.remove m k) = map.remove (map_values' f m) k.
+  Proof.
+    apply map.map_ext. intro j.
+    rewrite get_map_values', !map.get_remove_dec, get_map_values'.
     destr (eqb k j); cbn [option_map]; congruence.
   Qed.
 
@@ -860,3 +886,28 @@ Proof.
       * apply E. right. apply IH; eauto.
 Qed.
 End Map.
+
+(* How [concat (values (map_values' F ·))] transforms under [put]/[get] — the
+   general fact behind every fwd_total / output_total step lemma. *)
+Section ConcatValuesMapValues.
+  Context {key value A : Type}.
+  Context {mp : map.map key value} {mp_ok : map.ok mp}.
+  Context {mp' : map.map key (list A)} {mp'_ok : map.ok mp'}.
+  Context {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb}.
+
+  Lemma concat_values_map_values'_put (F : key -> value -> list A) (m : mp) k w :
+    Permutation (concat (values (map_values' (mp' := mp') F (map.put m k w))))
+                (F k w ++ concat (values (map_values' (mp' := mp') F (map.remove m k)))).
+  Proof.
+    rewrite map_values'_put, map_values'_remove. apply concat_values_put.
+  Qed.
+
+  Lemma concat_values_map_values'_get (F : key -> value -> list A) (m : mp) k v :
+    map.get m k = Some v ->
+    Permutation (concat (values (map_values' (mp' := mp') F m)))
+                (F k v ++ concat (values (map_values' (mp' := mp') F (map.remove m k)))).
+  Proof.
+    intros H. rewrite map_values'_remove.
+    apply concat_values_get. rewrite get_map_values', H. reflexivity.
+  Qed.
+End ConcatValuesMapValues.
