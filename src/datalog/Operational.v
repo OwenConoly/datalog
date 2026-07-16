@@ -142,15 +142,15 @@ Section __.
      else exists expected_msgss,
        Forall2 (fun n expected_msgs => In (meta_dfact R mf_args (Some n) expected_msgs) known_facts)
                (seq 0 (length p.(non_meta_rules))) expected_msgss /\
-       num = fold_left Nat.add expected_msgss O).
+       num = list_sum expected_msgss).
   Proof.
     unfold Node.expect_num_R_facts, R_senders.
     destruct (is_input R); cbn.
     - split.
       + intros (ems & HF2 & Hsum).
         inversion HF2 as [| a e la lb Ha Hlb]; subst.
-        inversion Hlb; subst. cbn. exact Ha.
-      + intros HIn. exists [num]. split; [| reflexivity].
+        inversion Hlb; subst. cbn. rewrite Nat.add_0_r. exact Ha.
+      + intros HIn. exists [num]. split; [| cbn; lia].
         constructor; [exact HIn | constructor].
     - split; intros (ems & HF2 & Hsum); exists ems; split; try assumption.
       + rewrite <- Forall2_map_l in HF2. exact HF2.
@@ -302,7 +302,7 @@ Section __.
                       exists num_known num_wait,
                         Existsn (dfact_matches R mf_args) num_known rs_n.(known_facts) /\
                           Existsn (dfact_matches R mf_args) num_wait rs_n.(waiting_facts) /\
-                          num_known + num_wait = num_inp + fold_left Nat.add msgs_sents O) s) /\
+                          num_known + num_wait = num_inp + list_sum msgs_sents) s) /\
       (forall R,
           is_input R = true ->
           (forall mf_args, Forall (fun rs => Existsn (dfact_matches R mf_args) O rs.(sent_facts)) s) /\
@@ -461,12 +461,6 @@ Section __.
     rule_has_dfact (add_waiting_fact F rs) F.
   Proof. cbv [rule_has_dfact add_waiting_fact]; simpl; auto. Qed.
 
-  Lemma fold_left_add_from_0 (l : list nat) (n : nat) :
-    fold_left Nat.add l n = fold_left Nat.add l 0 + n.
-  Proof.
-    revert n. induction l as [|a l IH]; intros n; simpl; [reflexivity|].
-    rewrite IH, (IH a). lia.
-  Qed.
 
   Lemma can_deduce_implies_not_input r kf nf_rel nf_args :
     good_non_meta_rule r ->
@@ -750,28 +744,19 @@ Section __.
                 exists num_k, (S num_w). cbv [add_waiting_fact]; simpl. ssplit.
                 ** exact Hk_y.
                 ** apply Existsn_yes; assumption.
-                ** rewrite ! fold_left_app in *. simpl in *.
-                   rewrite (fold_left_add_from_0 ms_post _) in Hsum.
-                   rewrite (fold_left_add_from_0 ms_post _).
-                   lia.
+                ** rewrite ?list_sum_app in *. simpl in *. lia.
              ++ constructor.
                 ** destruct Hcountp2_x as (num_k & num_w & Hk_x & Hw_x & Hsum).
                    exists num_k, (S num_w). cbv [add_waiting_fact send_fact]; simpl. ssplit.
                    --- exact Hk_x.
                    --- apply Existsn_yes; assumption.
-                   --- rewrite ! fold_left_app in *. simpl in *.
-                       rewrite (fold_left_add_from_0 ms_post _) in Hsum.
-                       rewrite (fold_left_add_from_0 ms_post _).
-                       lia.
+                   --- rewrite ?list_sum_app in *. simpl in *. lia.
                 ** eapply Forall_impl; [|exact Hcountp2_post].
                    intros y (num_k & num_w & Hk_y & Hw_y & Hsum).
                    exists num_k, (S num_w). cbv [add_waiting_fact]; simpl. ssplit.
                    --- exact Hk_y.
                    --- apply Existsn_yes; assumption.
-                   --- rewrite ! fold_left_app in *. simpl in *.
-                       rewrite (fold_left_add_from_0 ms_post _) in Hsum.
-                       rewrite (fold_left_add_from_0 ms_post _).
-                       lia.
+                   --- rewrite ?list_sum_app in *. simpl in *. lia.
         * exists (ms_pre ++ ms_x :: ms_post), num_inp. ssplit.
           -- rewrite <- Forall2_map_l.
              apply Forall2_app; [|constructor].
@@ -956,12 +941,6 @@ Section __.
       }
   Qed.
 
-  Lemma fold_left_add_zero (l : list nat) :
-    Forall (eq 0) l ->
-    fold_left Nat.add l 0 = 0.
-  Proof.
-    induction 1; simpl; auto. subst. simpl. assumption.
-  Qed.
 
   Lemma Forall2_nth_error_fwd {A B} (R : A -> B -> Prop) xs ys :
     Forall2 R xs ys ->
@@ -1039,7 +1018,7 @@ Section __.
           symmetry. eapply Existsn_unique; eassumption.
         - apply IHHcountp0.
           apply Forall_cons_iff in Hinp_sane_zero. apply (proj2 Hinp_sane_zero). }
-      rewrite (fold_left_add_zero _ Hms_zero) in Hsum.
+      rewrite (list_sum_zero _ Hms_zero) in Hsum.
       assert (num_wait = 0) by lia.
       subst num_wait.
       apply Existsn_0_Forall_not in Hex_wait.
@@ -1604,18 +1583,6 @@ Section __.
       simpl. apply Hbic. exact Hmatch_nf.
   Qed.
 
-  Lemma in_le_fold_add (x : nat) (l : list nat) :
-    In x l -> x <= fold_left Nat.add l O.
-  Proof.
-    intros Hin.
-    enough (Henough : forall acc, x <= acc \/ In x l -> x <= fold_left Nat.add l acc)
-      by (apply Henough; right; exact Hin).
-    clear Hin. revert x. induction l as [|a l IH]; intros x acc [Hle | Hin]; cbn.
-    - exact Hle.
-    - contradiction.
-    - apply IH. left. lia.
-    - apply IH. destruct Hin as [-> | Hin]; [left; lia | right; exact Hin].
-  Qed.
 
   Lemma matches_map_Some (args ga : list T) :
     Forall2 matches (map Some args) ga -> ga = args.
@@ -1660,8 +1627,8 @@ Section __.
       rewrite Forall_forall in Hexn_rs. exfalso.
       apply (Hexn_rs (normal_dfact R nf_args) Hin_sent).
       apply dfact_matches_exact. reflexivity. }
-    assert (Hsum : 1 <= num_inp + fold_left Nat.add msgs_sents O).
-    { pose proof (in_le_fold_add ms msgs_sents (nth_error_In _ _ Hms)). lia. }
+    assert (Hsum : 1 <= num_inp + list_sum msgs_sents).
+    { pose proof (in_le_list_sum ms msgs_sents (nth_error_In _ _ Hms)). lia. }
     destruct s as [|rs0 s']; [invert Hforall_kw; cbn in Hnth_rs;
                               destruct i; discriminate|].
     invert Hforall_kw.
@@ -2785,7 +2752,7 @@ Section __.
           as Hknows. exact Hknows. }
       pose proof (flush_waiting_to_known inputs s k meta_dfs Hinp Hsane Hkn_meta_dfs Hk)
         as (s' & rs_k & Hsteps & Hnth & Hin_dfs & Hiff & Hlo).
-      exists s', rs_k, (fold_left Nat.add nums 0). ssplit; auto.
+      exists s', rs_k, (list_sum nums). ssplit; auto.
       rewrite expect_num_R_facts_eq. rewrite Hinp_rel.
       exists nums. split; [|reflexivity].
       apply Forall2_nth_error_bwd; [rewrite length_seq; lia|].
@@ -3040,7 +3007,7 @@ Section __.
       + (* input case: sent count = 0, so num_known = num_inp_actual = num (via Q-leaf). *)
         pose proof (Hinp_sane mf_rel Hinp_rel) as (Hinp_zero & _).
         specialize (Hinp_zero mf_args).
-        assert (Hsum_msgs_zero : fold_left Nat.add msgs_sents 0 = 0).
+        assert (Hsum_msgs_zero : list_sum msgs_sents = 0).
         { clear -Hinp_zero Hf2_msgs.
           revert msgs_sents Hf2_msgs Hinp_zero.
           induction s as [|rs0 s'' IH]; intros [|m ms] Hf2 Hi.
@@ -3111,7 +3078,7 @@ Section __.
           pose proof (Forall2_nth_error_fwd _ _ _ Hf2_msgs i rs_i ms_i Hnth_s_i Hi_ms)
             as Hex_ms_i.
           pose proof (Existsn_unique _ _ _ _ Hex_ms_i Hex_num_i) as Heq. exact Heq. }
-        assert (Hsents_eq : fold_left Nat.add msgs_sents 0 = fold_left Nat.add nums_int 0).
+        assert (Hsents_eq : list_sum msgs_sents = list_sum nums_int).
         { assert (Heq : msgs_sents = nums_int)
             by (clear -Hmsgs_eq; induction Hmsgs_eq; subst; reflexivity).
           subst. reflexivity. }
@@ -4013,7 +3980,7 @@ Section __.
             - constructor.
               + (* meta_fact case (non-input hr) *)
                 apply (knows_datalog_fact_drained inputs s1 k rs_k hr mf_args S_set
-                         (fold_left Nat.add nums 0) Hinp Hsane1).
+                         (list_sum nums) Hinp Hsane1).
                 * (* prog_impl *)
                   apply Hsound. split.
                   -- cbv [has_derived_datalog_fact]. rewrite Hhr_inp. exact Hd_meta.

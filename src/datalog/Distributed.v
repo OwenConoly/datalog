@@ -129,19 +129,6 @@ Section Distributed.
     apply Existsn_split in Hexn2'. destruct Hexn2' as (n1 & n_rest & Hsum & Hex1 & _).
     exists n1. split; [ lia | exact Hex1 ].
   Qed.
-  Definition natsum (l : list nat) := fold_left Nat.add l 0.
-
-  Lemma fold_left_add_init l a : fold_left Nat.add l a = a + fold_left Nat.add l 0.
-  Proof.
-    revert a. induction l as [|x xs IH]; intros a; simpl; [ lia | ].
-    rewrite (IH (a + x)), (IH x). lia.
-  Qed.
-
-  Lemma natsum_cons x l : natsum (x :: l) = x + natsum l.
-  Proof. unfold natsum. simpl. rewrite fold_left_add_init. lia. Qed.
-
-  Lemma natsum_app l1 l2 : natsum (l1 ++ l2) = natsum l1 + natsum l2.
-  Proof. unfold natsum. rewrite fold_left_app, fold_left_add_init. lia. Qed.
 
   Lemma Forall2_In_combine {A B} (R : A -> B -> Prop) xs ys x y :
     Forall2 R xs ys -> In (x, y) (combine xs ys) -> R x y.
@@ -193,7 +180,7 @@ Section Distributed.
       Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss)) senders ems ->
       (forall n ms f, In (n, ms) (combine nodes mss) ->
                       In f ms -> dfact_matches R mf_args f -> In n senders) ->
-      exists num', num' <= natsum ems /\ Existsn (dfact_matches R mf_args) num' (concat mss).
+      exists num', num' <= list_sum ems /\ Existsn (dfact_matches R mf_args) num' (concat mss).
   Proof.
     intros nodes mss HF2. induction HF2 as [| n0 ms0 nodes' mss' Hao HF IH];
       intros Hnd senders ems Hnds Hems Hcover.
@@ -231,7 +218,7 @@ Section Distributed.
         destruct (IH Hnd_tail (s1 ++ s2) (e1 ++ e2) (NoDup_remove_1 _ _ _ Hnds) Hems' Hcover')
           as (num'' & Hle'' & Hexn'').
         exists (actual + num''). split.
-        * rewrite natsum_app, natsum_cons. rewrite natsum_app in Hle''. lia.
+        * rewrite list_sum_app, list_sum_cons. rewrite list_sum_app in Hle''. lia.
         * apply Existsn_app; assumption.
       + assert (Hno : Existsn (dfact_matches R mf_args) 0 ms0).
         { apply Forall_not_Existsn_0. apply Forall_forall. intros f Hf Hmatch.
@@ -310,7 +297,7 @@ Section Distributed.
     forall (senders : list node_name) (ems : list nat), NoDup senders ->
       Forall2 (fun k e => exists ms, In (k, ms) (combine nodes mss) /\
                 exists a, a >= e /\ Existsn (dfact_matches R mf_args) a ms) senders ems ->
-      exists A, A >= natsum ems /\ Existsn (dfact_matches R mf_args) A (concat mss).
+      exists A, A >= list_sum ems /\ Existsn (dfact_matches R mf_args) A (concat mss).
   Proof.
     induction nodes as [| n0 nodes' IH]; intros mss Hlen Hnd senders ems Hnds HF.
     - destruct mss as [| ms0 mss0]; [ | discriminate Hlen ].
@@ -358,7 +345,7 @@ Section Distributed.
             apply Hshift; [ exact Hp | apply in_or_app; right; exact Hk ]. }
         destruct (IH mss' Hlen Hnd' (s1 ++ s2) (e1 ++ e2) Hnds' HFtail) as (A' & HA'ge & HexnA').
         exists (a0 + A'). split.
-        * rewrite natsum_app, natsum_cons. rewrite natsum_app in HA'ge. lia.
+        * rewrite list_sum_app, list_sum_cons. rewrite list_sum_app in HA'ge. lia.
         * apply Existsn_app; assumption.
       + assert (HFtail : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes' mss') /\
                            exists a, a >= e /\ Existsn (dfact_matches R mf_args) a ms) senders ems).
@@ -378,7 +365,7 @@ Section Distributed.
       Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss)) senders ems ->
       (forall n ms f, In (n, ms) (combine nodes mss) ->
                       In f ms -> dfact_matches R mf_args f -> In n senders) ->
-      forall A, Existsn (dfact_matches R mf_args) A (concat mss) -> A >= natsum ems ->
+      forall A, Existsn (dfact_matches R mf_args) A (concat mss) -> A >= list_sum ems ->
       Forall2 (fun n ms => In n senders ->
                 exists cnt, In (meta_dfact R mf_args n cnt) ms /\
                   exists a, a >= cnt /\ Existsn (dfact_matches R mf_args) a ms) nodes mss.
@@ -417,12 +404,12 @@ Section Distributed.
                      Hnds' Hems' Hcover') as (num' & Hle' & Hexn_num').
         pose proof (Existsn_unique _ _ _ _ Hexn_num' HexnA') as HA'eq.
         assert (Hge : a0 >= e0).
-        { rewrite natsum_app, natsum_cons in HAge. rewrite natsum_app in Hle'. lia. }
+        { rewrite list_sum_app, list_sum_cons in HAge. rewrite list_sum_app in Hle'. lia. }
         constructor.
         * intros _. exists e0. split; [ exact Hmeta0 | ].
           exists a0. split; [ exact Hge | exact Hexn0 ].
-        * assert (HA'ge : A' >= natsum (e1 ++ e2)).
-          { rewrite natsum_app in HAge |- *. rewrite natsum_cons in HAge. lia. }
+        * assert (HA'ge : A' >= list_sum (e1 ++ e2)).
+          { rewrite list_sum_app in HAge |- *. rewrite list_sum_cons in HAge. lia. }
           pose proof (IH Hnd' (s1 ++ s2) (e1 ++ e2) Hnds' Hems' Hcover' A' HexnA' HA'ge) as IHtail.
           eapply Forall2_impl_strong; [ | exact IHtail ].
           intros n ms Hp Hn_nodes _ Hn_full.
@@ -438,7 +425,7 @@ Section Distributed.
         assert (Hcover' : forall n ms f, In (n, ms) (combine nodes' mss') ->
                             In f ms -> dfact_matches R mf_args f -> In n senders)
           by (intros n ms f Hcomb Hf Hmatch; exact (Hcover n ms f (or_intror Hcomb) Hf Hmatch)).
-        assert (HA'ge : A' >= natsum ems) by lia.
+        assert (HA'ge : A' >= list_sum ems) by lia.
         constructor.
         * intros Hn0. exfalso. exact (Hnin0 Hn0).
         * exact (IH Hnd' senders ems Hnds Hems' Hcover' A' HexnA' HA'ge).
@@ -462,7 +449,7 @@ Section Distributed.
         * intros n ms f Hcomb Hf Hmatch.
           pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb) as (_ & Hsend).
           destruct Hmatch as (nf_args & -> & _). exact (Hsend _ Hf).
-        * unfold natsum. exact HAge.
+        * exact HAge.
       + intros HcoF.
         assert (Hbuild : Forall (fun k => exists e, exists ms,
                     In (k, ms) (combine nodes mss) /\
@@ -479,7 +466,7 @@ Section Distributed.
           exists cnt2, ms.
           split; [ exact Hcomb | split; [ exact Hin2 | exists a; split; [ exact Hage | exact Hexn ] ] ]. }
         apply Forall_exists_r_Forall2 in Hbuild. destruct Hbuild as (ems & Hbuild2).
-        exists (natsum ems). split.
+        exists (list_sum ems). split.
         * exists ems. split; [ | reflexivity ].
           eapply Forall2_impl; [ | exact Hbuild2 ].
           intros k e (ms & Hcomb & Hinms & _).

@@ -371,6 +371,17 @@ Lemma list_sum_repeat n m :
   list_sum (repeat n m) = n * m.
 Proof. induction m; simpl; lia. Qed.
 
+Lemma list_sum_cons x l : list_sum (x :: l) = x + list_sum l.
+Proof. reflexivity. Qed.
+
+Lemma in_le_list_sum x l :
+  In x l -> x <= list_sum l.
+Proof. induction l as [|a l IH]; simpl; [contradiction | intros [->|Hin]; [lia | specialize (IH Hin); lia]]. Qed.
+
+Lemma list_sum_zero l :
+  Forall (eq 0) l -> list_sum l = 0.
+Proof. induction 1; simpl; [reflexivity | subst; assumption]. Qed.
+
 Lemma Forall2_map_r {A B C} R (f : B -> C) (l1 : list A) (l2 : list B) :
   Forall2 (fun x y => R x (f y)) l1 l2 <->
     Forall2 R l1 (map f l2).

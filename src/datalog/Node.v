@@ -29,7 +29,7 @@ Section __.
   Definition expect_num_R_facts R mf_args known_facts num :=
     exists expected_msgss,
       Forall2 (fun n expected_msgs => In (meta_dfact R mf_args n expected_msgs) known_facts) (R_senders R) expected_msgss /\
-        num = fold_left Nat.add expected_msgss O.
+        num = list_sum expected_msgss.
 
   Definition dfact_matches mf_rel mf_args nf :=
     exists nf_args,
@@ -126,7 +126,7 @@ Section __.
     forall R mf_args expected_msgss,
       Forall2 (fun k e => In (meta_dfact R mf_args k e) input_facts)
               (R_senders R) expected_msgss ->
-      exists num', num' <= fold_left Nat.add expected_msgss 0 /\
+      exists num', num' <= list_sum expected_msgss /\
                    Existsn (dfact_matches R mf_args) num' input_facts.
 
   Definition dfact_equiv (f1 f2 : dfact) : Prop :=
