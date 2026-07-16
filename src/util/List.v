@@ -500,6 +500,12 @@ Section Forall3.
       Forall (fun y => exists x z, R x y z) ys.
   Proof. induction 1; eauto. Qed.
 
+  Lemma Forall3_ignore1:
+    forall xs ys zs,
+      Forall3 xs ys zs ->
+      Forall2 (fun y z => exists x, R x y z) ys zs.
+  Proof. induction 1; eauto. Qed.
+
   Lemma Forall3_ignore12_strong:
     forall xs ys zs,
       Forall3 xs ys zs ->
@@ -623,6 +629,15 @@ Section Forall3.
     invert Hp3. do 6 eexists. ssplit; eauto.
   Qed.
 End Forall3.
+
+Lemma Forall3_Forall2_conj {A B C} (R1 : A -> B -> C -> Prop) (R2 : B -> C -> Prop) xs ys zs :
+  Forall3 R1 xs ys zs -> Forall2 R2 ys zs ->
+  Forall3 (fun x y z => R1 x y z /\ R2 y z) xs ys zs.
+Proof.
+  induction 1 as [| x y z xs' ys' zs' HR HF IH]; intros H2; [ constructor | ].
+  inversion H2 as [| ? ? ? ? HR2 HF2]; subst.
+  constructor; [ split; assumption | apply IH; assumption ].
+Qed.
 
 Lemma app_split_at_length {A} (l1 l2 l3 l4 : list A) :
   l1 ++ l2 = l3 ++ l4 ->
@@ -951,6 +966,36 @@ Section Existsn.
     - invert H; eauto.
     - invert H; try (match goal with Hi : Existsn_le _ (_ :: _) |- _ => invert Hi end); eauto.
     - eauto.
+  Qed.
+
+  Lemma Existsn_ge_concat mss es :
+    Forall2 (fun ms e => Existsn_ge e ms) mss es -> Existsn_ge (list_sum es) (concat mss).
+  Proof.
+    induction 1 as [| ms e mss' es' Hge HF IH]; [ apply Eg_zero | ].
+    cbn [concat]. rewrite list_sum_cons. apply Existsn_ge_app; assumption.
+  Qed.
+
+  Lemma Existsn_le_concat mss es :
+    Forall2 (fun ms e => Existsn_le e ms) mss es -> Existsn_le (list_sum es) (concat mss).
+  Proof.
+    induction 1 as [| ms e mss' es' Hle HF IH]; [ apply El_nil | ].
+    cbn [concat]. rewrite list_sum_cons. apply Existsn_le_app; assumption.
+  Qed.
+
+  Lemma Existsn_squeeze mss es :
+    Existsn_ge (list_sum es) (concat mss) ->
+    Forall2 (fun ms e => Existsn_le e ms) mss es ->
+    Forall2 (fun ms e => Existsn_ge e ms) mss es.
+  Proof.
+    intros Hge Hle. revert Hge.
+    induction Hle as [| ms e mss' es' Hle_head HF IH]; intros Hge; [ constructor | ].
+    cbn [concat] in Hge. rewrite list_sum_cons in Hge.
+    apply Existsn_ge_app_inv in Hge. destruct Hge as (a & b & Hsum & Hge_a & Hge_b).
+    pose proof (Existsn_ge_le_bound _ _ _ Hge_a Hle_head) as Ha.
+    pose proof (Existsn_ge_le_bound _ _ _ Hge_b (Existsn_le_concat _ _ HF)) as Hb.
+    constructor.
+    - eapply Existsn_ge_mono_count; [ exact Hge_a | lia ].
+    - apply IH. eapply Existsn_ge_mono_count; [ exact Hge_b | lia ].
   Qed.
 End Existsn.
 Hint Constructors Existsn : core.
