@@ -62,15 +62,10 @@ Section __.
     forall s nodes mss,
       NoDup nodes ->
       Forall2 allowed_output nodes mss ->
+      claim s (concat mss) ->
+      Forall2 (claim_output s) nodes mss /\
         (consistent s (concat mss) <->
            Forall2 (consistent_output s) nodes mss).
-
-  Definition claim_good :=
-    forall s nodes mss,
-      NoDup nodes ->
-      Forall2 allowed_output nodes mss ->
-      (claim s (concat mss) <->
-         Forall2 (claim_output s) nodes mss).
 
   Context (consistent_good_holds : consistent_good).
 
