@@ -1,5 +1,6 @@
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Map.Properties.
+From coqutil Require Import Map.MapKeys.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From coqutil Require Import Eqb.
 From Stdlib Require Import List PeanoNat Permutation.
@@ -12,6 +13,7 @@ Import ListNotations.
 Definition node_id := nat.
 #[export] Instance node_id_eqb : Eqb.Eqb node_id := Eqb.nat_eqb.
 #[export] Instance node_id_eqb_ok : Eqb.Eqb_ok node_id_eqb := Eqb.nat_eqb_ok.
+
 Section __.
   Context {message : Type}.
   Context {label : Type}.
@@ -37,6 +39,8 @@ Section __.
   Context (consistent_output : stmt -> option node_id -> list message -> Prop).
   Context (allowed_output : option node_id -> list message -> Prop).
   Context (consistent : stmt -> list message -> Prop).
+  Context {node_map : map.map (option node_id) (list message)}.
+  Context {node_map_ok : map.ok node_map}.
 
   Context (consistent_mono :
             forall s ms1 ms2,
@@ -76,13 +80,12 @@ Definition consistent_good :=
    *)
 
   Definition consistent_good :=
-    forall s nodes mss,
-      NoDup nodes ->
-      Forall2 allowed_output nodes mss ->
-      claim s (concat mss) ->
-      Forall2 (claim_output s) nodes mss /\
-        (consistent s (concat mss) <->
-           Forall2 (consistent_output s) nodes mss).
+    forall s (partition : node_map),
+      Forall_map allowed_output partition ->
+      claim s (concat (values partition)) ->
+      Forall_map (claim_output s) partition /\
+        (consistent s (concat (values partition)) <->
+           Forall_map (consistent_output s) partition).
 
   Context (consistent_good_holds : consistent_good).
 
@@ -90,8 +93,8 @@ Definition consistent_good :=
   Context (allowed_submultiset : multiset_monotone_dec allowed).
   Context (allowed_output_submultiset : forall n, multiset_monotone_dec (allowed_output n)).
   Context (allowed_of_outputs :
-             forall nodes mss,
-               NoDup nodes -> Forall2 allowed_output nodes mss -> allowed (concat mss)).
+             forall (partition : node_map),
+               Forall_map allowed_output partition -> allowed (concat (values partition))).
 
   Lemma Permutation_allowed l1 l2 : Permutation l1 l2 -> allowed l2 -> allowed l1.
   Proof.
@@ -149,6 +152,8 @@ Definition consistent_good :=
     Context {node_state : Type}.
     Context {graph_state : map.map node_id (graph_node_state node_state)}.
     Context {graph_state_ok : map.ok graph_state}.
+    Context {mmmm : map.map node_id (list message)}.
+    Context {mmmm_ok : map.ok mmmm}.
     Context (initial_gs : graph_state).
     Context (initial_gs_empty :
                forall n gns, map.get initial_gs n = Some gns ->
@@ -166,10 +171,9 @@ Definition consistent_good :=
       forall dest, good_inputs_from (Some n) (filter (forward n dest) outs).
 
     Definition consistent_internal_inputs inps :=
-      exists nodes partition,
-        NoDup nodes /\
-          Forall2 (fun n => good_inputs_from (Some n)) nodes partition /\
-          inps = concat partition.
+      exists partition : mmmm,
+        Forall_map (fun sender => good_inputs_from (Some sender)) partition /\
+          inps = concat (values partition).
 
     Definition node_good (n : node_id) : graph_node_state node_state -> Prop :=
       fun gns =>
@@ -177,12 +181,22 @@ Definition consistent_good :=
         monotone_mod_equiv     node_step equiv claim consistent allowed gns.(gns_node_state) /\
         might_implies_will_equiv node_step equiv allowed gns.(gns_node_state).
 
+    (* [outputs_partition gs] : each node's output block, keyed by node. *)
+    Definition outputs_partition (gs : graph_state) : mmmm :=
+      map_values' (fun _ ns => outputs_of ns.(gns_trace)) gs.
+
+    (* [fwd_partition nn gs] : the inputs [nn] receives, keyed by sender. *)
+    Definition fwd_partition (nn : node_id) (gs : graph_state) : mmmm :=
+      map_values' (fun sender outs => filter (forward sender nn) outs) (outputs_partition gs).
+
     (* [node_fold proj gs] collects, over every node [k] of [gs], the projection
-       [proj k] of node [k]'s outputs.  all_outputs / fwd_total / output_total are
-       instances, so the structural lemmas are proved once (below). *)
+       [proj k] of node [k]'s outputs.  all_outputs / output_total are instances,
+       so the structural lemmas are proved once (below). *)
     Definition node_fold {X} (proj : node_id -> list message -> list X) (gs : graph_state) : list X :=
       flat_map (fun '(k, v) => proj k (outputs_of v.(gns_trace))) (map.tuples gs).
-    Definition fwd_total (nn : node_id) := node_fold (fun k => filter (forward k nn)).
+
+    Definition fwd_total (nn : node_id) (gs : graph_state) : list message :=
+      concat (values (fwd_partition nn gs)).
 
     Definition le_weak g1 (t1 : list gevent) g2 (t2 : list gevent) :=
       Forall2_map (fun n _ _ =>
@@ -402,10 +416,138 @@ Definition consistent_good :=
     Definition output_total :=
       node_fold (fun k outs => map (fun m => (m, k)) (filter (output_visible k) outs)).
 
+    Lemma outputs_partition_get gs n :
+      map.get (outputs_partition gs) n =
+        option_map (fun ns => outputs_of ns.(gns_trace)) (map.get gs n).
+    Proof. apply get_map_values'. Qed.
+
+    Lemma fwd_partition_get nn gs sender :
+      map.get (fwd_partition nn gs) sender =
+        option_map (fun ns => filter (forward sender nn) (outputs_of ns.(gns_trace))) (map.get gs sender).
+    Proof.
+      unfold fwd_partition. rewrite get_map_values', outputs_partition_get.
+      destruct (map.get gs sender); reflexivity.
+    Qed.
+
+    Lemma outputs_partition_put gs n v :
+      outputs_partition (map.put gs n v) = map.put (outputs_partition gs) n (outputs_of v.(gns_trace)).
+    Proof.
+      apply map.map_ext. intro j.
+      rewrite outputs_partition_get, !map.get_put_dec, outputs_partition_get.
+      destruct (Nat.eqb n j); reflexivity.
+    Qed.
+
+    Lemma outputs_partition_map_values' (g : node_id -> graph_node_state node_state -> graph_node_state node_state) M :
+      (forall k v, (g k v).(gns_trace) = v.(gns_trace)) ->
+      outputs_partition (map_values' g M) = outputs_partition M.
+    Proof.
+      intros Hg. apply map.map_ext. intro j.
+      rewrite !outputs_partition_get, get_map_values'.
+      destruct (map.get M j) as [w|]; cbn [option_map]; [ rewrite Hg | ]; reflexivity.
+    Qed.
+
+    Lemma outputs_partition_mupd_enqueue gs n inps :
+      outputs_partition (mupd gs n (enqueue inps)) = outputs_partition gs.
+    Proof.
+      unfold mupd. destruct (map.get gs n) as [v|] eqn:Hn; [ | reflexivity ].
+      assert (Hg : map.get (outputs_partition gs) n = Some (outputs_of v.(gns_trace)))
+        by (rewrite outputs_partition_get, Hn; reflexivity).
+      rewrite outputs_partition_put. cbn [enqueue gns_trace].
+      rewrite (map.put_noop n (outputs_of v.(gns_trace)) (outputs_partition gs) Hg). reflexivity.
+    Qed.
+
+    Lemma outputs_partition_put_output_eq gs n v0 v :
+      map.get gs n = Some v0 ->
+      outputs_of v.(gns_trace) = outputs_of v0.(gns_trace) ->
+      outputs_partition (map.put gs n v) = outputs_partition gs.
+    Proof.
+      intros Hn Ho.
+      assert (Hg : map.get (outputs_partition gs) n = Some (outputs_of v0.(gns_trace)))
+        by (rewrite outputs_partition_get, Hn; reflexivity).
+      rewrite outputs_partition_put, Ho.
+      rewrite (map.put_noop n (outputs_of v0.(gns_trace)) (outputs_partition gs) Hg). reflexivity.
+    Qed.
+
+    Lemma outputs_partition_run gs n ns lbl outs ns' :
+      map.get gs n = Some ns ->
+      outputs_partition
+        (map_values' (fun k => enqueue (filter (forward n k) outs))
+           (map.put gs n {| gns_node_state := ns';
+                            gns_trace := O_event lbl outs :: ns.(gns_trace);
+                            gns_queue := ns.(gns_queue) |}))
+      = map.put (outputs_partition gs) n (outs ++ outputs_of ns.(gns_trace)).
+    Proof.
+      intros Hn.
+      rewrite (outputs_partition_map_values'
+                 (fun k => enqueue (filter (forward n k) outs)) _ ltac:(intros; reflexivity)).
+      rewrite outputs_partition_put. reflexivity.
+    Qed.
+
+    Lemma fwd_partition_run nn gs n ns lbl outs ns' :
+      map.get gs n = Some ns ->
+      fwd_partition nn
+        (map_values' (fun k => enqueue (filter (forward n k) outs))
+           (map.put gs n {| gns_node_state := ns';
+                            gns_trace := O_event lbl outs :: ns.(gns_trace);
+                            gns_queue := ns.(gns_queue) |}))
+      = map.put (fwd_partition nn gs) n (filter (forward n nn) (outs ++ outputs_of ns.(gns_trace))).
+    Proof.
+      intros Hn. unfold fwd_partition.
+      rewrite (outputs_partition_run gs n ns lbl outs ns' Hn), map_values'_put. reflexivity.
+    Qed.
+
     Lemma fwd_total_get gs n k vn :
       map.get gs n = Some vn ->
       incl (filter (forward n k) (outputs_of (gns_trace vn))) (fwd_total k gs).
-    Proof. exact (node_fold_get (fun k' => filter (forward k' k)) gs n vn). Qed.
+    Proof.
+      intros Hn. apply (incl_concat_values (fwd_partition k gs) n).
+      rewrite fwd_partition_get, Hn. reflexivity.
+    Qed.
+
+    Lemma fwd_total_mupd_enqueue nn gs n inps :
+      Permutation (fwd_total nn (mupd gs n (enqueue inps))) (fwd_total nn gs).
+    Proof.
+      unfold fwd_total, fwd_partition. rewrite outputs_partition_mupd_enqueue. apply Permutation_refl.
+    Qed.
+
+    Lemma fwd_total_put_same nn gs n v0 v :
+      map.get gs n = Some v0 ->
+      outputs_of v.(gns_trace) = outputs_of v0.(gns_trace) ->
+      Permutation (fwd_total nn (map.put gs n v)) (fwd_total nn gs).
+    Proof.
+      intros Hn Ho. unfold fwd_total, fwd_partition.
+      rewrite (outputs_partition_put_output_eq gs n v0 v Hn Ho). apply Permutation_refl.
+    Qed.
+
+    Lemma fwd_total_run nn gs n ns lbl outs ns' :
+      map.get gs n = Some ns ->
+      Permutation
+        (fwd_total nn
+           (map_values' (fun k => enqueue (filter (forward n k) outs))
+              (map.put gs n {| gns_node_state := ns';
+                               gns_trace := O_event lbl outs :: ns.(gns_trace);
+                               gns_queue := ns.(gns_queue) |})))
+        (filter (forward n nn) outs ++ fwd_total nn gs).
+    Proof.
+      intros Hn. unfold fwd_total.
+      rewrite (fwd_partition_run nn gs n ns lbl outs ns' Hn), filter_app.
+      set (P := fwd_partition nn gs).
+      assert (Hp : map.get P n = Some (filter (forward n nn) (outputs_of ns.(gns_trace))))
+        by (subst P; rewrite fwd_partition_get, Hn; reflexivity).
+      eapply Permutation_trans; [ apply concat_values_put | ].
+      rewrite <- app_assoc. apply Permutation_app_head.
+      apply Permutation_sym, (concat_values_get P n _ Hp).
+    Qed.
+
+    Lemma fwd_total_initial nn : fwd_total nn initial_gs = [].
+    Proof.
+      unfold fwd_total. apply concat_nil_Forall, values_Forall.
+      intros sender v Hv. rewrite fwd_partition_get in Hv.
+      destruct (map.get initial_gs sender) as [gns|] eqn:Hg;
+        cbn [option_map] in Hv; [ | discriminate ].
+      injection Hv as Hv. subst v.
+      rewrite (proj1 (initial_gs_empty sender gns Hg)). reflexivity.
+    Qed.
 
     Lemma outputs_are_node_outputs gt gs :
       star gstep initial_gs gt gs ->
@@ -442,32 +584,32 @@ Definition consistent_good :=
       - apply Forall2_map_mupd_r; [solve[auto]|].
         apply Forall2_map_dup. intros k v Hv. ssplit.
         + apply submultiset_refl.
-        + apply submultiset_perm, Permutation_sym, node_fold_mupd_enqueue.
+        + apply submultiset_perm, Permutation_sym, fwd_total_mupd_enqueue.
         + change (inputs_of (I_event (m, n) :: t)) with ([(m, n)] ++ inputs_of t).
           rewrite matching_inps_app. exists (matching_inps k [(m, n)]). apply Permutation_app_comm.
       - apply Forall2_map_map_values'_r. eapply Forall2_map_put_r; [ | exact H | ].
         + apply Forall2_map_dup. intros k v Hv Hne. cbn [enqueue gns_trace]. ssplit.
           * apply submultiset_refl.
           * exists (filter (forward n k) outs). eapply perm_trans.
-            { apply node_fold_run; auto using filter_app. }
+            { apply fwd_total_run; eassumption. }
             apply Permutation_app_comm.
           * simpl. apply submultiset_refl.
         + cbn [enqueue gns_trace]. ssplit.
           * simpl. apply submultiset_refl.
           * exists (filter (forward n n) outs). eapply perm_trans.
-            { apply node_fold_run; auto using filter_app. }
+            { apply fwd_total_run; eassumption. }
             apply Permutation_app_comm.
           * simpl. apply submultiset_refl.
       - eapply Forall2_map_put_r; [ | exact H | ].
         + apply Forall2_map_dup. intros k v Hv Hne. ssplit.
           * apply submultiset_refl.
           * apply submultiset_perm, Permutation_sym.
-            eapply node_fold_put_same; eauto.
+            eapply fwd_total_put_same; eauto.
           * simpl. apply submultiset_refl.
         + cbn [gns_trace]. ssplit.
           * simpl. apply submultiset_cons.
           * apply submultiset_perm, Permutation_sym.
-            eapply node_fold_put_same; eauto.
+            eapply fwd_total_put_same; eauto.
           * simpl. apply submultiset_refl.
     Qed.
 
@@ -495,7 +637,7 @@ Definition consistent_good :=
         rewrite matching_inps_app, (matching_inps_single nn n m), (eqb_sym nn n).
         eapply perm_trans;
           [ | symmetry; apply Permutation_app_tail;
-              apply (node_fold_mupd_enqueue (fun k => filter (forward k nn)) gs n [m]) ].
+              apply (fwd_total_mupd_enqueue nn gs n [m]) ].
         destr (eqb n nn).
         + destruct (map.get gs nn) as [vn|] eqn:Hgn.
           2:{ cbn [option_map] in Hg'. discriminate. }
@@ -515,8 +657,7 @@ Definition consistent_good :=
         rewrite app_nil_r.
         eapply perm_trans;
           [ | symmetry; apply Permutation_app_tail;
-              apply (node_fold_run (fun k => filter (forward k nn))
-                       ltac:(intros; apply filter_app) gs n ns lbl outs ns' H) ].
+              apply (fwd_total_run nn gs n ns lbl outs ns' H) ].
         destr_sth Nat.eqb.
         + cbn [option_map] in Hg'. injection Hg' as Hnsn. subst nsn.
           cbn [enqueue gns_trace gns_queue].
@@ -531,7 +672,7 @@ Definition consistent_good :=
         match goal with |- context[matching_inps nn (ext ++ ?x)] =>
           replace x with (@nil (message * node_id)) by reflexivity end.
         rewrite app_nil_r.
-        pose proof (node_fold_put_same (fun k => filter (forward k nn)) gs n ns
+        pose proof (fwd_total_put_same nn gs n ns
                       {| gns_node_state := ns'; gns_trace := I_event m :: ns.(gns_trace);
                          gns_queue := ms1 ++ ms2 |} H eq_refl) as Hfwd.
         eapply perm_trans; [ | symmetry; apply Permutation_app_tail; exact Hfwd ].
@@ -575,8 +716,7 @@ Definition consistent_good :=
       intros Hstar. cbv [Forall_map]. intros nn nsn Hget.
       assert (Hbase : conserved initial_gs []).
       { intros k v Hget0. pose proof (initial_gs_empty k v Hget0) as [Ht Hq].
-        rewrite Ht, Hq. unfold fwd_total. rewrite node_fold_initial by (intros; reflexivity).
-        reflexivity. }
+        rewrite Ht, Hq, fwd_total_initial. reflexivity. }
       pose proof (conservation_gen initial_gs gt gs Hstar [] Hbase) as Hcons.
       rewrite app_nil_l in Hcons. exact (Hcons nn nsn Hget).
     Qed.
@@ -585,20 +725,58 @@ Definition consistent_good :=
       star gstep initial_gs gt gs ->
       consistent_internal_inputs (fwd_total nn gs).
     Proof.
-      intros Hstar. unfold consistent_internal_inputs.
-      exists (map fst (map.tuples gs)),
-             (map (fun kv => filter (forward (fst kv) nn) (outputs_of (snd kv).(gns_trace))) (map.tuples gs)).
-      ssplit.
-      - rewrite <- keys_eq_tuples. apply map.keys_NoDup.
-      - apply Forall2_map_map. apply Forall_forall. intros [k v] Hin. cbn [fst snd].
-        apply map.tuples_spec in Hin.
-        pose proof (graph_step_to_node_step_from_beginning gs gt Hstar) as Hnodes.
-        destruct (Forall2_map_get_r _ _ _ _ _ Hnodes Hin) as (gns0 & Hget0 & Hrun).
-        pose proof (nodes_good k gns0 Hget0) as (Howf & _ & _).
-        exact (Howf _ _ Hrun nn).
-      - unfold fwd_total, node_fold. rewrite <- flat_map_concat_map.
-        apply flat_map_ext. intros [k v]. reflexivity.
+      intros Hstar. exists (fwd_partition nn gs). split; [ | reflexivity ].
+      intros sender v Hv. rewrite fwd_partition_get in Hv.
+      destruct (map.get gs sender) as [gns|] eqn:Hgs; cbn [option_map] in Hv; [ | discriminate ].
+      injection Hv as Hv. subst v.
+      pose proof (graph_step_to_node_step_from_beginning gs gt Hstar) as Hnodes.
+      destruct (Forall2_map_get_r _ _ _ _ _ Hnodes Hgs) as (gns0 & Hget0 & Hrun).
+      pose proof (nodes_good sender gns0 Hget0) as (Howf & _ & _).
+      exact (Howf _ _ Hrun nn).
     Qed.
+
+    (* [with_external partition ext] : the [option node_id]-keyed partition feeding
+       [consistent_good] — the internal blocks at [Some k], the external at [None].
+       This is the sole crossing point into the [option node_id] world. *)
+    Definition with_external (partition : mmmm) (ext : list message) : node_map :=
+      map.put (map.map_keys Some partition) None ext.
+
+    Lemma with_external_get_None partition ext :
+      map.get (with_external partition ext) None = Some ext.
+    Proof. unfold with_external. apply map.get_put_same. Qed.
+
+    Lemma with_external_get_Some partition ext k :
+      map.get (with_external partition ext) (Some k) = map.get partition k.
+    Proof.
+      unfold with_external. rewrite map.get_put_diff by discriminate.
+      apply (map.get_map_keys_always_invertible Some ltac:(congruence)).
+    Qed.
+
+    Lemma values_with_external partition ext :
+      Permutation (concat (values (with_external partition ext)))
+                  (ext ++ concat (values partition)).
+    Proof.
+      unfold with_external.
+      eapply Permutation_trans.
+      { apply Permutation_concat, values_put_None.
+        apply get_map_keys_None. intros ?; discriminate. }
+      cbn [concat]. apply Permutation_app_head, Permutation_concat.
+      apply values_map_keys. intros a b H; congruence.
+    Qed.
+
+    Lemma Forall_map_with_external (P : option node_id -> list message -> Prop) partition ext :
+      P None ext ->
+      Forall_map (fun n => P (Some n)) partition ->
+      Forall_map P (with_external partition ext).
+    Proof.
+      intros HN HS q v Hq. destruct q as [k|].
+      - rewrite with_external_get_Some in Hq. exact (HS k v Hq).
+      - rewrite with_external_get_None in Hq. injection Hq as Hq. subst v. exact HN.
+    Qed.
+
+    Lemma with_external_None (P : option node_id -> list message -> Prop) partition ext :
+      Forall_map P (with_external partition ext) -> P None ext.
+    Proof. intros H. apply (H None ext (with_external_get_None partition ext)). Qed.
 
     Lemma everything_allowed gt gs :
       star gstep initial_gs gt gs ->
@@ -609,22 +787,14 @@ Definition consistent_good :=
       eapply Permutation_allowed.
       - apply (inputs_are_outputs gt gs Hstar nn nsn Hget).
       - destruct (fwd_total_consistent_internal gt gs nn Hstar)
-          as (nodes & partition & Hnd & Hgif & Hconcat).
+          as (partition & Hgif & Hconcat).
         rewrite Hconcat.
-        assert (Heq : concat (partition ++ [matching_inps nn (inputs_of gt)])
-                      = concat partition ++ matching_inps nn (inputs_of gt))
-          by (rewrite concat_app; cbn [concat]; rewrite app_nil_r; reflexivity).
-        rewrite <- Heq.
-        apply (allowed_of_outputs (map Some nodes ++ [None])).
-        + apply Permutation_NoDup with (l := None :: map Some nodes).
-          * apply Permutation_cons_append.
-          * constructor.
-            -- intros Hin. apply in_map_iff in Hin. destruct Hin as (x & Hx & _). discriminate.
-            -- apply FinFun.Injective_map_NoDup; [ intros a b; congruence | exact Hnd ].
-        + apply Forall2_app.
-          * rewrite <- Forall2_map_l. eapply Forall2_impl; [ | exact Hgif ].
-            intros k b Hgb. exact (proj1 Hgb).
-          * constructor; [ apply Hallow | constructor ].
+        eapply Permutation_allowed with
+          (l2 := concat (values (with_external partition (matching_inps nn (inputs_of gt))))).
+        + eapply Permutation_trans; [ apply Permutation_app_comm | ].
+          apply Permutation_sym, values_with_external.
+        + apply allowed_of_outputs. apply Forall_map_with_external; [ apply Hallow | ].
+          intros k v Hk. exact (proj1 (Hgif k v Hk)).
     Qed.
 
     Lemma node_run_allowed t gs :
@@ -700,38 +870,30 @@ Definition consistent_good :=
       apply (incl_mod_of_submultiset equiv). apply submultiset_perm. exact Hp.
     Qed.
 
-    Lemma consistent_good_ext s nodes partition ext :
-      NoDup nodes ->
-      Forall2 (fun n => good_inputs_from (Some n)) nodes partition ->
+    Lemma consistent_good_ext s (partition : mmmm) ext :
+      Forall_map (fun n => good_inputs_from (Some n)) partition ->
       allowed_output None ext ->
-      claim s (ext ++ concat partition) ->
-      consistent s (ext ++ concat partition) <-> consistent_output s None ext.
+      claim s (ext ++ concat (values partition)) ->
+      consistent s (ext ++ concat (values partition)) <-> consistent_output s None ext.
     Proof.
-      intros Hnd Hgif Hae Hclaim.
-      assert (Hnd' : NoDup (None :: map Some nodes)).
-      { constructor.
-        - intros Hin. apply in_map_iff in Hin. destruct Hin as (x & Hx & _). discriminate.
-        - apply FinFun.Injective_map_NoDup; [ intros a b; congruence | exact Hnd ]. }
-      assert (Hall' : Forall2 allowed_output (None :: map Some nodes) (ext :: partition)).
-      { constructor; [ exact Hae | ].
-        rewrite <- Forall2_map_l. eapply Forall2_impl; [ | exact Hgif ].
-        intros k b Hb. exact (proj1 Hb). }
-      pose proof (consistent_good_holds s (None :: map Some nodes) (ext :: partition) Hnd' Hall') as Hcg.
-      cbn [concat] in Hcg. specialize (Hcg Hclaim).
-      destruct Hcg as (Hclaim_out & Hbicond).
-      (* the internal blocks are consistent_output by construction: their claim_output
-         (from Hclaim_out) feeds good_inputs_from's guarded implication *)
-      assert (Hint : Forall2 (fun n => consistent_output s (Some n)) nodes partition).
-      { assert (Hcl_tail : Forall2 (claim_output s) (map Some nodes) partition)
-          by (inversion Hclaim_out; assumption).
-        rewrite <- Forall2_map_l in Hcl_tail.
-        pose proof (Forall2_and _ _ _ _ Hgif Hcl_tail) as Hcomb.
-        eapply Forall2_impl; [ | exact Hcomb ].
-        intros k b (Hgood & Hcl). exact (proj2 Hgood s Hcl). }
+      intros Hgif Hae Hclaim.
+      assert (Hall : Forall_map allowed_output (with_external partition ext)).
+      { apply Forall_map_with_external; [ exact Hae | ].
+        intros k v Hk. exact (proj1 (Hgif k v Hk)). }
+      assert (Hcl : claim s (concat (values (with_external partition ext)))).
+      { eapply claim_perm; [ apply Permutation_sym, values_with_external | exact Hclaim ]. }
+      pose proof (consistent_good_holds s (with_external partition ext) Hall Hcl)
+        as (Hclaim_out & Hbicond).
+      assert (Hint : Forall_map (fun n => consistent_output s (Some n)) partition).
+      { intros k v Hk. apply (proj2 (Hgif k v Hk)).
+        apply (Hclaim_out (Some k) v). rewrite with_external_get_Some. exact Hk. }
       split.
-      - intros Hc. apply Hbicond in Hc. inversion Hc; assumption.
-      - intros Hext. apply Hbicond. constructor; [ exact Hext | ].
-        rewrite <- Forall2_map_l. exact Hint.
+      - intros Hc.
+        apply (consistent_perm s _ _ (Permutation_sym (values_with_external partition ext))) in Hc.
+        apply Hbicond in Hc. exact (with_external_None _ _ _ Hc).
+      - intros Hext.
+        apply (consistent_perm s _ _ (values_with_external partition ext)).
+        apply Hbicond. apply Forall_map_with_external; [ exact Hext | exact Hint ].
     Qed.
 
     Lemma consistent_transfer internal_inps1 internal_inps2 exts1 exts2 :
@@ -745,10 +907,11 @@ Definition consistent_good :=
         (internal_inps1 ++ exts1) (internal_inps2 ++ exts2).
     Proof.
       intros Hci1 Hci2 Hwint Hae1 Hae2 Hsubext.
-      destruct Hci1 as (nodes1 & part1 & Hnd1 & Hgif1 & Heq1).
-      destruct Hci2 as (nodes2 & part2 & Hnd2 & Hgif2 & Heq2).
+      destruct Hci1 as (part1 & Hgif1 & Heq1).
+      destruct Hci2 as (part2 & Hgif2 & Heq2).
       subst internal_inps1 internal_inps2.
-      assert (Hincl_pool : incl_mod equiv (concat part1 ++ exts1) (concat part2 ++ exts2)).
+      assert (Hincl_pool : incl_mod equiv (concat (values part1) ++ exts1)
+                                          (concat (values part2) ++ exts2)).
       { apply incl_mod_app.
         - apply incl_mod_app_r. exact Hwint.
         - eapply (incl_mod_trans equiv);
@@ -757,17 +920,17 @@ Definition consistent_good :=
       split; [ exact Hincl_pool | ].
       intros s Hclaim Hcons.
       assert (Hext1 : consistent_output s None exts1).
-      { pose proof (consistent_good_ext s nodes1 part1 exts1 Hnd1 Hgif1 Hae1
-                      (claim_perm s _ _ (Permutation_app_comm (concat part1) exts1) Hclaim)) as Hce.
+      { pose proof (consistent_good_ext s part1 exts1 Hgif1 Hae1
+                      (claim_perm s _ _ (Permutation_app_comm (concat (values part1)) exts1) Hclaim)) as Hce.
         apply (proj1 Hce).
         eapply consistent_perm; [ apply Permutation_app_comm | exact Hcons ]. }
       assert (Hext2 : consistent_output s None exts2)
         by (eapply consistent_output_mono; [ exact Hext1 | exact Hsubext ]).
-      assert (Hclaim2 : claim s (exts2 ++ concat part2)).
+      assert (Hclaim2 : claim s (exts2 ++ concat (values part2))).
       { eapply claim_perm; [ apply Permutation_app_comm | ].
         eapply claim_mono; [ exact Hclaim | exact Hincl_pool ]. }
       eapply consistent_perm; [ apply Permutation_app_comm | ].
-      apply (proj2 (consistent_good_ext s nodes2 part2 exts2 Hnd2 Hgif2 Hae2 Hclaim2)).
+      apply (proj2 (consistent_good_ext s part2 exts2 Hgif2 Hae2 Hclaim2)).
       exact Hext2.
     Qed.
 
@@ -1137,11 +1300,11 @@ Definition consistent_good :=
         + eapply Forall2_map_impl; [ exact Hlwr | ].
           intros k w1 w2 (Hkf & Hkm) _. split; [ | exact Hkm ].
           eapply incl_mod_perm_l;
-            [ apply Permutation_sym; apply node_fold_run; eauto using filter_app | ].
+            [ apply Permutation_sym, fwd_total_run; eauto | ].
           apply incl_mod_app; [ eapply forwarded_in_state; eauto | exact Hkf ].
         + eapply Forall2_map_get_l in Hlwr; eauto. fwd. map_func. split; [ | assumption ].
           eapply incl_mod_perm_l;
-            [ apply Permutation_sym; apply node_fold_run; eauto using filter_app | ].
+            [ apply Permutation_sym, fwd_total_run; eauto | ].
           apply incl_mod_app; [ eapply forwarded_in_state; eauto | eassumption ].
       - especialize Hle'; eauto. especialize Hlew'; eauto. fwd.
         apply eventually_done.
@@ -1150,10 +1313,10 @@ Definition consistent_good :=
         + eapply Forall2_map_impl; [ exact Hlew | ].
           intros k w1 w2 (Hkf & Hkm) _. split; [ | exact Hkm ].
           eapply incl_mod_perm_l;
-            [ apply Permutation_sym; apply node_fold_put_same with (v0 := ns); [ eassumption | reflexivity ] | exact Hkf ].
+            [ apply Permutation_sym; apply fwd_total_put_same with (v0 := ns); [ eassumption | reflexivity ] | exact Hkf ].
         + eapply Forall2_map_get_l in Hlew; eauto. fwd. split; [ | assumption ].
           eapply incl_mod_perm_l;
-            [ apply Permutation_sym; apply node_fold_put_same with (v0 := ns); [ eassumption | reflexivity ] | eassumption ].
+            [ apply Permutation_sym; apply fwd_total_put_same with (v0 := ns); [ eassumption | reflexivity ] | eassumption ].
     Qed.
 
     Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
