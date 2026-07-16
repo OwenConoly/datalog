@@ -870,6 +870,64 @@ Section Existsn.
     - apply El_skip; [exact Hnpx | apply IH; exact Hk].
     - destruct k as [|k']; [lia | apply El_take; apply IH; lia].
   Qed.
+
+  Lemma Existsn_ge_exact_bound k n l : Existsn_ge k l -> Existsn n l -> k <= n.
+  Proof.
+    intros Hge Hn.
+    exact (Existsn_ge_le_bound k n l Hge (Existsn_le_of_Existsn n l Hn n (le_n n))).
+  Qed.
+
+  Lemma Existsn_ge_app_l k l1 l2 : Existsn_ge k l1 -> Existsn_ge k (l1 ++ l2).
+  Proof. induction 1; simpl; auto. Qed.
+
+  Lemma Existsn_ge_app_r k l1 l2 : Existsn_ge k l2 -> Existsn_ge k (l1 ++ l2).
+  Proof. intros H. induction l1 as [|x l1 IH]; simpl; [ exact H | apply Eg_skip; exact IH ]. Qed.
+
+  Lemma Existsn_ge_app a b l1 l2 :
+    Existsn_ge a l1 -> Existsn_ge b l2 -> Existsn_ge (a + b) (l1 ++ l2).
+  Proof. intros H1 H2. induction H1; simpl; auto using Existsn_ge_app_r. Qed.
+
+  Lemma Existsn_ge_app_inv k l1 l2 :
+    Existsn_ge k (l1 ++ l2) ->
+    exists k1 k2, k = k1 + k2 /\ Existsn_ge k1 l1 /\ Existsn_ge k2 l2.
+  Proof.
+    revert k. induction l1 as [|x l1 IH]; intros k H; simpl in H.
+    - exists 0, k. split; [ reflexivity | split; [ apply Eg_zero | exact H ] ].
+    - invert H.
+      + exists 0, 0. split; [ reflexivity | split; apply Eg_zero ].
+      + match goal with Hh : Existsn_ge _ (l1 ++ l2) |- _ =>
+          apply IH in Hh; destruct Hh as (k1 & k2 & -> & H1 & H2) end.
+        exists k1, k2. split; [ reflexivity | split; [ apply Eg_skip; exact H1 | exact H2 ] ].
+      + match goal with Hh : Existsn_ge _ (l1 ++ l2) |- _ =>
+          apply IH in Hh; destruct Hh as (k1 & k2 & -> & H1 & H2) end.
+        exists (S k1), k2. split; [ reflexivity | split; [ apply Eg_take; [ assumption | exact H1 ] | exact H2 ] ].
+  Qed.
+
+  Lemma Existsn_ge_perm k l1 l2 : Permutation l1 l2 -> Existsn_ge k l1 -> Existsn_ge k l2.
+  Proof.
+    intros Hperm. revert k. induction Hperm; intros k H.
+    - exact H.
+    - invert H; eauto.
+    - invert H; try (match goal with Hi : Existsn_ge _ (_ :: _) |- _ => invert Hi end); eauto.
+    - eauto.
+  Qed.
+
+  Lemma Existsn_le_app_l k l1 l2 : Existsn_le k (l1 ++ l2) -> Existsn_le k l1.
+  Proof.
+    revert k. induction l1 as [|x l1 IH]; intros k H; [ apply El_nil | ].
+    simpl in H. invert H.
+    - apply El_skip; [ assumption | apply IH; assumption ].
+    - apply El_take; apply IH; assumption.
+  Qed.
+
+  Lemma Existsn_le_perm k l1 l2 : Permutation l1 l2 -> Existsn_le k l1 -> Existsn_le k l2.
+  Proof.
+    intros Hperm. revert k. induction Hperm; intros k H.
+    - exact H.
+    - invert H; eauto.
+    - invert H; try (match goal with Hi : Existsn_le _ (_ :: _) |- _ => invert Hi end); eauto.
+    - eauto.
+  Qed.
 End Existsn.
 Hint Constructors Existsn : core.
 
@@ -1227,6 +1285,22 @@ Section misc.
   Proof.
     intros (rest & H). apply Permutation_sym, Permutation_incl in H.
     intros x Hx. apply H, in_or_app. left. exact Hx.
+  Qed.
+
+  Lemma Existsn_ge_submultiset (P : A -> Prop) k l1 l2 :
+    Existsn_ge P k l1 -> submultiset l1 l2 -> Existsn_ge P k l2.
+  Proof.
+    intros H (rest & Hperm).
+    eapply Existsn_ge_perm; [ apply Permutation_sym; exact Hperm | ].
+    apply Existsn_ge_app_l. exact H.
+  Qed.
+
+  Lemma Existsn_le_submultiset (P : A -> Prop) k l1 l2 :
+    Existsn_le P k l2 -> submultiset l1 l2 -> Existsn_le P k l1.
+  Proof.
+    intros H (rest & Hperm).
+    apply Existsn_le_app_l with (l2 := rest).
+    eapply Existsn_le_perm; [ exact Hperm | exact H ].
   Qed.
 
   Lemma submultiset_nil_l l : submultiset [] l.
