@@ -73,8 +73,13 @@ Section Distributed.
     - destruct Heq as (-> & -> & ->). eauto.
   Qed.
 
+  Definition claim_output (s : stmt) (n : option node_id) (fs : list dfact) : Prop :=
+    let '(R, mf_args) := s in
+    In n (R_senders R) -> exists cnt, In (meta_dfact R mf_args n cnt) fs.
+
   Definition consistent_output (s : stmt) (n : option node_id) (fs : list dfact) : Prop :=
     let '(R, mf_args) := s in
+    In n (R_senders R) ->
     exists cnt, In (meta_dfact R mf_args n cnt) fs /\
       exists actual, actual >= cnt /\ Existsn (dfact_matches R mf_args) actual fs.
   Definition allowed_output (n : option node_id) (fs : list dfact) : Prop :=
@@ -113,7 +118,8 @@ Section Distributed.
     consistent_output s n ms1 -> submultiset ms1 ms2 -> consistent_output s n ms2.
   Proof.
     destruct s as [R mf_args].
-    intros (cnt & Hin & actual & Hge & Hexn) Hsub.
+    intros Hco Hsub Hn.
+    destruct (Hco Hn) as (cnt & Hin & actual & Hge & Hexn).
     pose proof (submultiset_incl _ _ Hsub) as Hincl.
     destruct Hsub as (rest & Hperm).
     destruct (Existsn_total (dfact_matches R mf_args) rest) as (k & Hk).
@@ -123,7 +129,7 @@ Section Distributed.
       [ apply Existsn_app; assumption | apply Permutation_sym; exact Hperm ].
   Qed.
   Context (consistent_good_holds :
-             consistent_good claim consistent_output allowed_output consistent).
+             consistent_good claim claim_output consistent_output allowed_output consistent).
   Lemma allowed_output_submultiset n : multiset_monotone_dec (allowed_output n).
   Proof.
     intros l1 l2 (Hmeta2 & Hsender2) Hsub.
@@ -283,7 +289,7 @@ Section Distributed.
   Proof. intros s m. eexists. apply node_input_step. Qed.
 
   Lemma nodes_good_holds :
-    Forall_map (node_good forward dfact_equiv claim consistent_output allowed_output
+    Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
                           consistent nallowed nstep) initial_gs.
   Admitted.
 
