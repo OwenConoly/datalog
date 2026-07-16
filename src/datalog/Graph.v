@@ -58,6 +58,23 @@ Section __.
 
   Local Notation gevent := (Smallstep.IO_event graph_label (message * node_id)).
 
+  (*we could alo consider something like this?*)
+  (*
+    Definition claim_good :=
+    forall s nodes mss,
+      is_all_nodes nodes ->
+      Forall2 allowed_output nodes mss ->
+      (claim s (concat mss) <->
+         Forall2 (claim_output s) nodes mss).
+
+Definition consistent_good :=
+    forall s nodes mss,
+      is_all_nodes nodes ->
+      Forall2 allowed_output nodes mss ->
+      (consistent s (concat mss) <->
+         Forall2 (consistent_output s) nodes mss).
+   *)
+
   Definition consistent_good :=
     forall s nodes mss,
       NoDup nodes ->
