@@ -128,8 +128,6 @@ Section Distributed.
     eapply Existsn_perm with (l1 := ms1 ++ rest);
       [ apply Existsn_app; assumption | apply Permutation_sym; exact Hperm ].
   Qed.
-  Context (consistent_good_holds :
-             consistent_good claim claim_output consistent_output allowed_output consistent).
   Lemma allowed_output_submultiset n : multiset_monotone_dec (allowed_output n).
   Proof.
     intros l1 l2 (Hmeta2 & Hsender2) Hsub.
@@ -272,6 +270,263 @@ Section Distributed.
     - exists num'. split; [ exact Hle | exact Hexn ].
   Qed.
 
+  Lemma combine_l_unique {X Y} (xs : list X) (ys : list Y) x y1 y2 :
+    NoDup xs -> In (x, y1) (combine xs ys) -> In (x, y2) (combine xs ys) -> y1 = y2.
+  Proof.
+    revert ys. induction xs as [| x0 xs' IH]; intros ys Hnd H1 H2; [ destruct H1 | ].
+    destruct ys as [| y0 ys']; [ destruct H1 | ].
+    cbn [combine] in H1, H2. apply NoDup_cons_iff in Hnd. destruct Hnd as (Hnotin & Hnd').
+    destruct H1 as [E1 | H1].
+    - inversion E1; subst.
+      destruct H2 as [E2 | H2]; [ inversion E2; subst; reflexivity | ].
+      exfalso. apply Hnotin. eapply in_combine_l; exact H2.
+    - destruct H2 as [E2 | H2].
+      + inversion E2; subst. exfalso. apply Hnotin. eapply in_combine_l; exact H1.
+      + exact (IH ys' Hnd' H1 H2).
+  Qed.
+
+  Lemma Forall2_of_combine {X Y} (R : X -> Y -> Prop) xs ys :
+    length xs = length ys ->
+    (forall x y, In (x, y) (combine xs ys) -> R x y) ->
+    Forall2 R xs ys.
+  Proof.
+    revert ys. induction xs as [| x xs' IH]; intros [| y ys'] Hlen Hall; try discriminate.
+    - constructor.
+    - constructor.
+      + apply Hall. simpl. left. reflexivity.
+      + apply IH; [ cbn in Hlen; congruence | ].
+        intros a b Hin. apply Hall. simpl. right. exact Hin.
+  Qed.
+
+  Lemma meta_in_head_block R mf_args n0 ms0 nodes' mss' cnt :
+    Forall2 allowed_output nodes' mss' ->
+    ~ In n0 nodes' ->
+    In (meta_dfact R mf_args n0 cnt) (ms0 ++ concat mss') ->
+    In (meta_dfact R mf_args n0 cnt) ms0.
+  Proof.
+    intros HF Hn0notin Hmeta0.
+    apply in_app_or in Hmeta0. destruct Hmeta0 as [H | H]; [ exact H | exfalso ].
+    edestruct (In_concat_pair nodes' mss') as (n' & ms' & Hcomb & Hin');
+      [ eapply Forall2_length; exact HF | exact H | ].
+    pose proof (Forall2_In_combine _ _ _ _ _ HF Hcomb) as (Hm' & _).
+    destruct (Hm' _ _ _ _ Hin') as (Hsrc & _). subst n'.
+    apply Hn0notin. eapply in_combine_l; exact Hcomb.
+  Qed.
+
+  Lemma meta_in_own_block R mf_args nodes mss n ms cnt :
+    Forall2 allowed_output nodes mss ->
+    NoDup nodes ->
+    In (n, ms) (combine nodes mss) ->
+    In (meta_dfact R mf_args n cnt) (concat mss) ->
+    In (meta_dfact R mf_args n cnt) ms.
+  Proof.
+    intros HF2 Hnd Hcomb Hin.
+    edestruct (In_concat_pair nodes mss) as (n' & ms' & Hcomb' & Hin');
+      [ eapply Forall2_length; exact HF2 | exact Hin | ].
+    pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb') as (Hm' & _).
+    destruct (Hm' _ _ _ _ Hin') as (Hsrc & _). subst n'.
+    assert (ms = ms') by (eapply combine_l_unique; [ exact Hnd | exact Hcomb | exact Hcomb' ]).
+    subst ms'. exact Hin'.
+  Qed.
+
+  Lemma Forall2_impl_strong {X Y} (R R' : X -> Y -> Prop) xs ys :
+    (forall x y, R x y -> In x xs -> In y ys -> R' x y) ->
+    Forall2 R xs ys -> Forall2 R' xs ys.
+  Proof.
+    intros Himpl HF. induction HF as [| x y xs' ys' Hxy HF IH]; constructor.
+    - apply Himpl; [ exact Hxy | left; reflexivity | left; reflexivity ].
+    - apply IH. intros a b Hab Ha Hb. apply Himpl; [ exact Hab | right; exact Ha | right; exact Hb ].
+  Qed.
+
+  Lemma matching_sum_lower (R : rel) (mf_args : list (option T)) :
+    forall (nodes : list node_name) (mss : list (list dfact)),
+      length nodes = length mss -> NoDup nodes ->
+    forall (senders : list node_name) (ems : list nat), NoDup senders ->
+      Forall2 (fun k e => exists ms, In (k, ms) (combine nodes mss) /\
+                exists a, a >= e /\ Existsn (dfact_matches R mf_args) a ms) senders ems ->
+      exists A, A >= natsum ems /\ Existsn (dfact_matches R mf_args) A (concat mss).
+  Proof.
+    induction nodes as [| n0 nodes' IH]; intros mss Hlen Hnd senders ems Hnds HF.
+    - destruct mss as [| ms0 mss0]; [ | discriminate Hlen ].
+      destruct ems as [| e0 ems'].
+      + exists 0. split; [ cbn; lia | constructor ].
+      + exfalso. inversion HF as [| k0 e0' sn' em' Hrel]; subst.
+        destruct Hrel as (ms & Hin & _). destruct Hin.
+    - destruct mss as [| ms0 mss']; [ discriminate Hlen | ].
+      cbn [length] in Hlen. injection Hlen as Hlen.
+      apply NoDup_cons_iff in Hnd. destruct Hnd as (Hn0notin & Hnd').
+      cbn [concat] in *.
+      destruct (classic (In n0 senders)) as [Hin0 | Hnin0].
+      + apply in_split in Hin0. destruct Hin0 as (s1 & s2 & ->).
+        apply Forall2_app_inv_l in HF. destruct HF as (e1 & ems2 & He1 & Hems2 & ->).
+        destruct ems2 as [| e0 e2]; [ solve [ inversion Hems2 ] | ].
+        assert (Hn0rel : exists ms, In (n0, ms) ((n0, ms0) :: combine nodes' mss') /\
+                           exists a, a >= e0 /\ Existsn (dfact_matches R mf_args) a ms)
+          by (inversion Hems2; assumption).
+        assert (He2 : Forall2 (fun k e => exists ms, In (k, ms) ((n0, ms0) :: combine nodes' mss') /\
+                        exists a, a >= e /\ Existsn (dfact_matches R mf_args) a ms) s2 e2)
+          by (inversion Hems2; assumption).
+        destruct Hn0rel as (ms & Hinms & a0 & Ha0 & Hexn0).
+        assert (ms = ms0).
+        { destruct Hinms as [E | Htail]; [ inversion E; reflexivity | ].
+          exfalso. apply Hn0notin. eapply in_combine_l; exact Htail. }
+        subst ms.
+        pose proof (NoDup_remove_1 _ _ _ Hnds) as Hnds'.
+        pose proof (NoDup_remove_2 _ _ _ Hnds) as Hn0notin_s.
+        assert (Hshift : forall k e,
+                   (exists ms, In (k, ms) ((n0, ms0) :: combine nodes' mss') /\
+                      exists a, a >= e /\ Existsn (dfact_matches R mf_args) a ms) ->
+                   In k (s1 ++ s2) ->
+                   exists ms, In (k, ms) (combine nodes' mss') /\
+                      exists a, a >= e /\ Existsn (dfact_matches R mf_args) a ms).
+        { intros k e (ms & Hin & Hrest) Hks.
+          exists ms. split; [ | exact Hrest ].
+          destruct Hin as [E | Htail]; [ | exact Htail ].
+          inversion E; subst. exfalso. exact (Hn0notin_s Hks). }
+        assert (HFtail : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes' mss') /\
+                           exists a, a >= e /\ Existsn (dfact_matches R mf_args) a ms) (s1 ++ s2) (e1 ++ e2)).
+        { apply Forall2_app.
+          - eapply Forall2_impl_strong; [ | exact He1 ]. intros k e Hp Hk _.
+            apply Hshift; [ exact Hp | apply in_or_app; left; exact Hk ].
+          - eapply Forall2_impl_strong; [ | exact He2 ]. intros k e Hp Hk _.
+            apply Hshift; [ exact Hp | apply in_or_app; right; exact Hk ]. }
+        destruct (IH mss' Hlen Hnd' (s1 ++ s2) (e1 ++ e2) Hnds' HFtail) as (A' & HA'ge & HexnA').
+        exists (a0 + A'). split.
+        * rewrite natsum_app, natsum_cons. rewrite natsum_app in HA'ge. lia.
+        * apply Existsn_app; assumption.
+      + assert (HFtail : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes' mss') /\
+                           exists a, a >= e /\ Existsn (dfact_matches R mf_args) a ms) senders ems).
+        { eapply Forall2_impl_strong; [ | exact HF ]. intros k e (ms & Hin & Hrest) Hk _.
+          exists ms. split; [ | exact Hrest ].
+          destruct Hin as [E | Htail]; [ | exact Htail ].
+          inversion E; subst. exfalso. exact (Hnin0 Hk). }
+        destruct (IH mss' Hlen Hnd' senders ems Hnds HFtail) as (A' & HA'ge & HexnA').
+        destruct (Existsn_total (dfact_matches R mf_args) ms0) as (b0 & Hb0).
+        exists (b0 + A'). split; [ lia | apply Existsn_app; assumption ].
+  Qed.
+
+  Lemma consistent_output_squeeze (R : rel) (mf_args : list (option T)) :
+    forall (nodes : list node_name) (mss : list (list dfact)),
+      Forall2 allowed_output nodes mss -> NoDup nodes ->
+    forall (senders : list node_name) (ems : list nat), NoDup senders ->
+      Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss)) senders ems ->
+      (forall n ms f, In (n, ms) (combine nodes mss) ->
+                      In f ms -> dfact_matches R mf_args f -> In n senders) ->
+      forall A, Existsn (dfact_matches R mf_args) A (concat mss) -> A >= natsum ems ->
+      Forall2 (fun n ms => In n senders ->
+                exists cnt, In (meta_dfact R mf_args n cnt) ms /\
+                  exists a, a >= cnt /\ Existsn (dfact_matches R mf_args) a ms) nodes mss.
+  Proof.
+    intros nodes mss HF2. induction HF2 as [| n0 ms0 nodes' mss' Hao HF IH];
+      intros Hnd senders ems Hnds Hems Hcover A HexnA HAge.
+    - constructor.
+    - apply NoDup_cons_iff in Hnd. destruct Hnd as (Hn0notin & Hnd').
+      cbn [concat] in HexnA, Hems |- *.
+      apply Existsn_split in HexnA. destruct HexnA as (a0 & A' & -> & Hexn0 & HexnA').
+      destruct (classic (In n0 senders)) as [Hin0 | Hnin0].
+      + apply in_split in Hin0. destruct Hin0 as (s1 & s2 & ->).
+        apply Forall2_app_inv_l in Hems. destruct Hems as (e1 & ems2 & He1 & Hems2 & ->).
+        destruct ems2 as [| e0 e2]; [ solve [ inversion Hems2 ] | ].
+        assert (Hmeta0full : In (meta_dfact R mf_args n0 e0) (ms0 ++ concat mss'))
+          by (inversion Hems2; assumption).
+        assert (He2 : Forall2 (fun k e => In (meta_dfact R mf_args k e) (ms0 ++ concat mss')) s2 e2)
+          by (inversion Hems2; assumption).
+        assert (Hmeta0 : In (meta_dfact R mf_args n0 e0) ms0)
+          by (eapply meta_in_head_block; [ exact HF | exact Hn0notin | exact Hmeta0full ]).
+        destruct (proj1 Hao _ _ _ _ Hmeta0) as (_ & a0' & Hle0 & Hexn0').
+        pose proof (Existsn_unique _ _ _ _ Hexn0' Hexn0) as ->.
+        pose proof (NoDup_remove_1 _ _ _ Hnds) as Hnds'.
+        pose proof (NoDup_remove_2 _ _ _ Hnds) as Hn0notin_s.
+        assert (Hems' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss'))
+                                (s1 ++ s2) (e1 ++ e2)).
+        { eapply Forall2_meta_shift; [ exact Hao | exact Hn0notin_s | apply Forall2_app; assumption ]. }
+        assert (Hcover' : forall n ms f, In (n, ms) (combine nodes' mss') ->
+                            In f ms -> dfact_matches R mf_args f -> In n (s1 ++ s2)).
+        { intros n ms f Hcomb Hf Hmatch.
+          assert (Hne : n <> n0) by (intros ->; apply Hn0notin; eapply in_combine_l; exact Hcomb).
+          pose proof (Hcover n ms f (or_intror Hcomb) Hf Hmatch) as Hin_s.
+          apply in_app_or in Hin_s. apply in_or_app.
+          destruct Hin_s as [H | [H | H]]; [ left; exact H | congruence | right; exact H ]. }
+        edestruct (allowed_of_outputs_bound R mf_args nodes' mss' HF Hnd' (s1 ++ s2) (e1 ++ e2)
+                     Hnds' Hems' Hcover') as (num' & Hle' & Hexn_num').
+        pose proof (Existsn_unique _ _ _ _ Hexn_num' HexnA') as HA'eq.
+        assert (Hge : a0 >= e0).
+        { rewrite natsum_app, natsum_cons in HAge. rewrite natsum_app in Hle'. lia. }
+        constructor.
+        * intros _. exists e0. split; [ exact Hmeta0 | ].
+          exists a0. split; [ exact Hge | exact Hexn0 ].
+        * assert (HA'ge : A' >= natsum (e1 ++ e2)).
+          { rewrite natsum_app in HAge |- *. rewrite natsum_cons in HAge. lia. }
+          pose proof (IH Hnd' (s1 ++ s2) (e1 ++ e2) Hnds' Hems' Hcover' A' HexnA' HA'ge) as IHtail.
+          eapply Forall2_impl_strong; [ | exact IHtail ].
+          intros n ms Hp Hn_nodes _ Hn_full.
+          assert (Hne : n <> n0) by (intros ->; exact (Hn0notin Hn_nodes)).
+          apply Hp. apply in_app_or in Hn_full. apply in_or_app.
+          destruct Hn_full as [H | [H | H]]; [ left; exact H | congruence | right; exact H ].
+      + assert (Hno0 : Existsn (dfact_matches R mf_args) 0 ms0).
+        { apply Forall_not_Existsn_0. apply Forall_forall. intros f Hf Hmatch.
+          apply Hnin0. eapply (Hcover n0 ms0 f); [ left; reflexivity | exact Hf | exact Hmatch ]. }
+        pose proof (Existsn_unique _ _ _ _ Hno0 Hexn0) as Ha0.
+        assert (Hems' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss')) senders ems)
+          by (eapply Forall2_meta_shift; [ exact Hao | exact Hnin0 | exact Hems ]).
+        assert (Hcover' : forall n ms f, In (n, ms) (combine nodes' mss') ->
+                            In f ms -> dfact_matches R mf_args f -> In n senders)
+          by (intros n ms f Hcomb Hf Hmatch; exact (Hcover n ms f (or_intror Hcomb) Hf Hmatch)).
+        assert (HA'ge : A' >= natsum ems) by lia.
+        constructor.
+        * intros Hn0. exfalso. exact (Hnin0 Hn0).
+        * exact (IH Hnd' senders ems Hnds Hems' Hcover' A' HexnA' HA'ge).
+  Qed.
+
+  Lemma consistent_good_holds :
+    consistent_good claim claim_output consistent_output allowed_output consistent.
+  Proof.
+    intros [R mf_args] nodes mss Hnd HF2 Hclaim. cbn [claim] in Hclaim.
+    split.
+    - apply Forall2_of_combine; [ eapply Forall2_length; exact HF2 | ].
+      intros n ms Hcomb. cbn [claim_output]. intros Hn.
+      destruct (Hclaim n Hn) as (cnt & Hin).
+      exists cnt. eapply meta_in_own_block; [ exact HF2 | exact Hnd | exact Hcomb | exact Hin ].
+    - split.
+      + intros (num & (ems & Hexpect & Hnum) & A & HAge & HexnA). subst num.
+        eapply Forall2_impl; [ intros n ms Hp; cbn [consistent_output]; exact Hp | ].
+        eapply consistent_output_squeeze with (senders := R_senders R) (ems := ems);
+          [ exact HF2 | exact Hnd | exact (R_senders_NoDup R) | exact Hexpect | | exact HexnA | ].
+        * intros n ms f Hcomb Hf Hmatch.
+          pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb) as (_ & Hsend).
+          destruct Hmatch as (nf_args & -> & _). exact (Hsend _ Hf).
+        * unfold natsum. exact HAge.
+      + intros HcoF.
+        assert (Hbuild : Forall (fun k => exists e, exists ms,
+                    In (k, ms) (combine nodes mss) /\
+                    In (meta_dfact R mf_args k e) ms /\
+                    exists a, a >= e /\ Existsn (dfact_matches R mf_args) a ms) (R_senders R)).
+        { apply Forall_forall. intros k Hk.
+          destruct (Hclaim k Hk) as (cnt & Hin).
+          edestruct (In_concat_pair nodes mss) as (k' & ms & Hcomb & Hinms);
+            [ eapply Forall2_length; exact HF2 | exact Hin | ].
+          pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb) as (Hm' & _).
+          destruct (Hm' _ _ _ _ Hinms) as (Hsrc & _). subst k'.
+          pose proof (Forall2_In_combine _ _ _ _ _ HcoF Hcomb) as Hco.
+          cbn [consistent_output] in Hco. destruct (Hco Hk) as (cnt2 & Hin2 & a & Hage & Hexn).
+          exists cnt2, ms.
+          split; [ exact Hcomb | split; [ exact Hin2 | exists a; split; [ exact Hage | exact Hexn ] ] ]. }
+        apply Forall_exists_r_Forall2 in Hbuild. destruct Hbuild as (ems & Hbuild2).
+        exists (natsum ems). split.
+        * exists ems. split; [ | reflexivity ].
+          eapply Forall2_impl; [ | exact Hbuild2 ].
+          intros k e (ms & Hcomb & Hinms & _).
+          apply in_concat. exists ms. split; [ eapply in_combine_r; exact Hcomb | exact Hinms ].
+        * assert (HFsum : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes mss) /\
+                       exists a, a >= e /\ Existsn (dfact_matches R mf_args) a ms) (R_senders R) ems).
+          { eapply Forall2_impl; [ | exact Hbuild2 ].
+            intros k e (ms & Hcomb & _ & Hrest). exists ms. split; [ exact Hcomb | exact Hrest ]. }
+          destruct (matching_sum_lower R mf_args nodes mss
+                      ltac:(eapply Forall2_length; exact HF2) Hnd
+                      (R_senders R) ems (R_senders_NoDup R) HFsum) as (A & HAge & HexnA).
+          exists A. split; [ exact HAge | exact HexnA ].
+  Qed.
+
   Context {graph_state : map.map node_id (@graph_node_state dfact dfact_mod_count node_state)}.
   Context {graph_state_ok : map.ok graph_state}.
   Context (initial_gs : graph_state).
@@ -312,6 +567,7 @@ Section Distributed.
     - exact claim_mono.
     - exact consistent_mono.
     - exact consistent_output_mono.
+    - exact consistent_good_holds.
     - exact nallowed_multiset_monotone.
     - exact allowed_output_submultiset.
     - exact allowed_of_outputs.
