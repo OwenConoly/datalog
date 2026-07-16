@@ -196,18 +196,14 @@ Definition consistent_good :=
     Definition fwd_total (nn : node_id) (gs : graph_state) : list message :=
       output_map (fun sender outs => filter (forward sender nn) outs) gs.
 
-    Definition le_weak g1 (t1 : list gevent) g2 (t2 : list gevent) :=
-      Forall2_map (fun n _ _ =>
-        incl_mod equiv (fwd_total n g1) (fwd_total n g2) /\
-        submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)))
-        g1 g2.
+    (*le_weak an le_strong no longer say things about traces; instead, wherever necessary , they should be accompanied by submultiset (inputs_of t1) (inputs_of t2)*)
+    Definition le_weak g1 g2 :=
+      Forall2_map (fun _ => incl_mod equiv) (outputs_partition g1) (outputs_partition g2).
 
-    Definition le_strong g1 (t1 : list gevent) g2 (t2 : list gevent) :=
-      Forall2_map (fun n gns1 gns2 =>
-        submultiset (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace)) /\
-        submultiset (fwd_total n g1) (fwd_total n g2) /\
-        submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)))
-        g1 g2.
+    Definition le_strong g1 g2 :=
+      Forall2_map (fun _ => submultiset) (outputs_partition g1) (outputs_partition g2) /\
+        Forall2_map (fun _ gns1 gns2 =>
+                       submultiset (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace))) g1 g2.
 
     Lemma le_strong_le_weak g1 t1 g2 t2 : le_strong g1 t1 g2 t2 -> le_weak g1 t1 g2 t2.
     Proof.
