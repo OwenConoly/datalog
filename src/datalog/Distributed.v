@@ -210,65 +210,96 @@ Section Distributed.
     destruct Hin_s as [H | [H | H]]; [ left; exact H | congruence | right; exact H ].
   Qed.
 
-  Lemma allowed_of_outputs_bound R mf_args :
-    forall nodes mss, Forall2 allowed_output nodes mss -> NoDup nodes ->
-    forall senders ems, NoDup senders ->
-      Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss)) senders ems ->
-      (forall n ms f, In (n, ms) (combine nodes mss) ->
-                      In f ms -> dfact_matches R mf_args f -> In n senders) ->
-      Existsn_le (dfact_matches R mf_args) (list_sum ems) (concat mss).
+  Lemma scatter (Q : node_name -> list dfact -> nat -> Prop) :
+    forall (nodes : list node_name) (mss : list (list dfact)),
+      length nodes = length mss -> NoDup nodes ->
+    forall (senders : list node_name) (ems : list nat), NoDup senders ->
+      (forall n ms, In (n, ms) (combine nodes mss) -> ~ In n senders -> Q n ms 0) ->
+      Forall2 (fun k e => exists ms, In (k, ms) (combine nodes mss) /\ Q k ms e) senders ems ->
+      exists bes, list_sum bes = list_sum ems /\ Forall3 Q nodes mss bes.
   Proof.
-    intros nodes mss HF2. induction HF2 as [| n0 ms0 nodes' mss' Hao HF IH];
-      intros Hnd senders ems Hnds Hems Hcover.
-    - apply El_nil.
-    - inversion Hnd as [| n0' nodes0 Hn0notin Hnd_tail]; subst.
-      cbn [concat] in Hems |- *.
+    induction nodes as [| n0 nodes' IH]; intros mss Hlen Hnd senders ems Hnds Hdef HF.
+    - destruct mss as [| ms0 mss0]; [ | discriminate Hlen ].
+      inversion HF as [| k e sl el Hhead Htl]; subst.
+      + exists []. split; [ reflexivity | constructor ].
+      + destruct Hhead as (ms & [] & _).
+    - destruct mss as [| ms0 mss']; [ discriminate Hlen | ].
+      cbn [length] in Hlen. injection Hlen as Hlen.
+      apply NoDup_cons_iff in Hnd. destruct Hnd as (Hn0notin & Hnd').
+      assert (Hshift : forall k e, k <> n0 ->
+                (exists ms, In (k, ms) ((n0, ms0) :: combine nodes' mss') /\ Q k ms e) ->
+                exists ms, In (k, ms) (combine nodes' mss') /\ Q k ms e).
+      { intros k e Hne (ms & Hin & Hq). exists ms. split; [ | exact Hq ].
+        destruct Hin as [E | Htail]; [ inversion E; congruence | exact Htail ]. }
+      assert (Hne_nodes : forall n ms, In (n, ms) (combine nodes' mss') -> n <> n0)
+        by (intros n ms Hcomb ->; apply Hn0notin; eapply in_combine_l; exact Hcomb).
       destruct (classic (In n0 senders)) as [Hin0 | Hnin0].
       + apply in_split in Hin0. destruct Hin0 as (s1 & s2 & ->).
-        apply Forall2_app_inv_l in Hems.
-        destruct Hems as (e1 & ems2 & He1 & Hems2 & ->).
+        apply Forall2_app_inv_l in HF. destruct HF as (e1 & ems2 & He1 & Hems2 & ->).
         destruct ems2 as [| e0 e2]; [ solve [ inversion Hems2 ] | ].
-        assert (Hmeta0 : In (meta_dfact R mf_args n0 e0) (ms0 ++ concat mss'))
-          by (inversion Hems2; assumption).
-        assert (He2 : Forall2 (fun k e => In (meta_dfact R mf_args k e) (ms0 ++ concat mss')) s2 e2)
-          by (inversion Hems2; assumption).
-        assert (Hin_ms0 : In (meta_dfact R mf_args n0 e0) ms0)
-          by (eapply meta_in_head_block; [ exact HF | exact Hn0notin | exact Hmeta0 ]).
-        destruct (proj1 Hao _ _ _ _ Hin_ms0) as (_ & Hle0).
-        pose proof (NoDup_remove_2 _ _ _ Hnds) as Hnin0'.
-        assert (Hems' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss'))
-                                (s1 ++ s2) (e1 ++ e2)).
-        { eapply Forall2_meta_shift; [ exact Hao | exact Hnin0' | apply Forall2_app; assumption ]. }
-        assert (Hcover' : forall n ms f, In (n, ms) (combine nodes' mss') ->
-                            In f ms -> dfact_matches R mf_args f -> In n (s1 ++ s2))
-          by (eapply cover_shift; [ exact Hn0notin | exact Hcover ]).
-        pose proof (IH Hnd_tail (s1 ++ s2) (e1 ++ e2) (NoDup_remove_1 _ _ _ Hnds) Hems' Hcover')
-          as HleTail.
-        replace (list_sum (e1 ++ e0 :: e2)) with (e0 + list_sum (e1 ++ e2))
-          by (rewrite !list_sum_app, list_sum_cons; lia).
-        apply Existsn_le_app; [ exact Hle0 | exact HleTail ].
-      + assert (Hno : Existsn_le (dfact_matches R mf_args) 0 ms0).
-        { apply Existsn_le_0_Forall_not. apply Forall_forall. intros f Hf Hmatch.
-          apply Hnin0. eapply (Hcover n0 ms0 f); [ left; reflexivity | exact Hf | exact Hmatch ]. }
-        assert (Hems' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss')) senders ems)
-          by (eapply Forall2_meta_shift; [ exact Hao | exact Hnin0 | exact Hems ]).
-        assert (Hcover' : forall n ms f, In (n, ms) (combine nodes' mss') ->
-                            In f ms -> dfact_matches R mf_args f -> In n senders)
-          by (intros n ms f Hcomb Hf Hmatch; exact (Hcover n ms f (or_intror Hcomb) Hf Hmatch)).
-        pose proof (IH Hnd_tail senders ems Hnds Hems' Hcover') as HleTail.
-        replace (list_sum ems) with (0 + list_sum ems) by lia.
-        apply Existsn_le_app; [ exact Hno | exact HleTail ].
+        inversion Hems2 as [| ? ? ? ? Hhead He2]; subst.
+        destruct Hhead as (ms & Hinms & Hq0).
+        assert (ms = ms0)
+          by (destruct Hinms as [E | Htail];
+              [ inversion E; reflexivity
+              | exfalso; apply Hn0notin; eapply in_combine_l; exact Htail ]).
+        subst ms.
+        pose proof (NoDup_remove_1 _ _ _ Hnds) as Hnds'.
+        pose proof (NoDup_remove_2 _ _ _ Hnds) as Hn0notin_s.
+        assert (HFtail : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes' mss') /\ Q k ms e)
+                                 (s1 ++ s2) (e1 ++ e2)).
+        { apply Forall2_app.
+          - eapply Forall2_impl_strong; [ | exact He1 ]. intros k e Hp Hk _.
+            eapply Hshift; [ intros ->; apply Hn0notin_s; apply in_or_app; left; exact Hk | exact Hp ].
+          - eapply Forall2_impl_strong; [ | exact He2 ]. intros k e Hp Hk _.
+            eapply Hshift; [ intros ->; apply Hn0notin_s; apply in_or_app; right; exact Hk | exact Hp ]. }
+        assert (Hdef' : forall n ms, In (n, ms) (combine nodes' mss') -> ~ In n (s1 ++ s2) -> Q n ms 0).
+        { intros n ms Hcomb Hnin. apply Hdef; [ right; exact Hcomb | ].
+          intros Hin. apply in_app_or in Hin. apply Hnin.
+          destruct Hin as [H | [H | H]];
+            [ apply in_or_app; left; exact H
+            | exfalso; exact (Hne_nodes _ _ Hcomb (eq_sym H))
+            | apply in_or_app; right; exact H ]. }
+        destruct (IH mss' Hlen Hnd' (s1 ++ s2) (e1 ++ e2) Hnds' Hdef' HFtail)
+          as (bes & Hbes & HF3).
+        exists (e0 :: bes). split.
+        * rewrite list_sum_app in Hbes.
+          rewrite (list_sum_cons e0 bes), (list_sum_app e1 (e0 :: e2)), (list_sum_cons e0 e2). lia.
+        * constructor; assumption.
+      + assert (HFtail : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes' mss') /\ Q k ms e)
+                                 senders ems).
+        { eapply Forall2_impl_strong; [ | exact HF ]. intros k e Hp Hk _.
+          eapply Hshift; [ intros ->; exact (Hnin0 Hk) | exact Hp ]. }
+        assert (Hdef' : forall n ms, In (n, ms) (combine nodes' mss') -> ~ In n senders -> Q n ms 0)
+          by (intros n ms Hcomb Hnin; apply Hdef; [ right; exact Hcomb | exact Hnin ]).
+        destruct (IH mss' Hlen Hnd' senders ems Hnds Hdef' HFtail) as (bes & Hbes & HF3).
+        exists (0 :: bes). split.
+        * rewrite list_sum_cons. lia.
+        * constructor; [ apply Hdef; [ left; reflexivity | exact Hnin0 ] | exact HF3 ].
   Qed.
 
   Lemma allowed_of_outputs nodes mss :
     NoDup nodes -> Forall2 allowed_output nodes mss -> nallowed (concat mss).
   Proof.
     intros Hnd HF2 R mf_args ems Hems.
-    apply (allowed_of_outputs_bound R mf_args nodes mss HF2 Hnd (R_senders R) ems
-             (R_senders_NoDup R) Hems).
-    intros n ms f Hcomb Hf Hmatch.
-    pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb) as (_ & Hsend).
-    destruct Hmatch as (nf_args & -> & _). exact (Hsend _ Hf).
+    assert (Hdef : forall n ms, In (n, ms) (combine nodes mss) -> ~ In n (R_senders R) ->
+                     Existsn_le (dfact_matches R mf_args) 0 ms).
+    { intros n ms Hcomb Hnin. apply Existsn_le_0_Forall_not. apply Forall_forall.
+      intros f Hf Hmatch. apply Hnin.
+      pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb) as (_ & Hsend).
+      destruct Hmatch as (nf_args & -> & _). exact (Hsend _ Hf). }
+    assert (Hin : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes mss) /\
+                    Existsn_le (dfact_matches R mf_args) e ms) (R_senders R) ems).
+    { eapply Forall2_impl; [ | exact Hems ]. intros k e Hmeta.
+      destruct (meta_locate _ _ _ _ _ _ HF2 Hmeta) as (ms & Hcomb & Hin_ms).
+      exists ms. split; [ exact Hcomb | ].
+      pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb) as (Hall & _).
+      destruct (Hall _ _ _ _ Hin_ms) as (_ & Hle). exact Hle. }
+    destruct (scatter _ nodes mss ltac:(eapply Forall2_length; exact HF2) Hnd
+                (R_senders R) ems (R_senders_NoDup R) Hdef Hin) as (bes & Hbes & HF3).
+    rewrite <- Hbes. apply Existsn_le_concat.
+    apply Forall3_ignore1 in HF3.
+    eapply Forall2_impl; [ | exact HF3 ]. intros ms e (n & Hle). exact Hle.
   Qed.
 
   Lemma combine_l_unique {X Y} (xs : list X) (ys : list Y) x y1 y2 :
@@ -299,160 +330,48 @@ Section Distributed.
     subst ms'. exact Hin'.
   Qed.
 
-  Lemma matching_sum_lower (R : rel) (mf_args : list (option T)) :
-    forall (nodes : list node_name) (mss : list (list dfact)),
-      length nodes = length mss -> NoDup nodes ->
-    forall (senders : list node_name) (ems : list nat), NoDup senders ->
-      Forall2 (fun k e => exists ms, In (k, ms) (combine nodes mss) /\
-                Existsn_ge (dfact_matches R mf_args) e ms) senders ems ->
-      Existsn_ge (dfact_matches R mf_args) (list_sum ems) (concat mss).
-  Proof.
-    induction nodes as [| n0 nodes' IH]; intros mss Hlen Hnd senders ems Hnds HF.
-    - destruct mss as [| ms0 mss0]; [ | discriminate Hlen ].
-      destruct ems as [| e0 ems'].
-      + apply Eg_zero.
-      + exfalso. inversion HF as [| k0 e0' sn' em' Hrel]; subst.
-        destruct Hrel as (ms & Hin & _). destruct Hin.
-    - destruct mss as [| ms0 mss']; [ discriminate Hlen | ].
-      cbn [length] in Hlen. injection Hlen as Hlen.
-      apply NoDup_cons_iff in Hnd. destruct Hnd as (Hn0notin & Hnd').
-      cbn [concat] in *.
-      destruct (classic (In n0 senders)) as [Hin0 | Hnin0].
-      + apply in_split in Hin0. destruct Hin0 as (s1 & s2 & ->).
-        apply Forall2_app_inv_l in HF. destruct HF as (e1 & ems2 & He1 & Hems2 & ->).
-        destruct ems2 as [| e0 e2]; [ solve [ inversion Hems2 ] | ].
-        assert (Hn0rel : exists ms, In (n0, ms) ((n0, ms0) :: combine nodes' mss') /\
-                           Existsn_ge (dfact_matches R mf_args) e0 ms)
-          by (inversion Hems2; assumption).
-        assert (He2 : Forall2 (fun k e => exists ms, In (k, ms) ((n0, ms0) :: combine nodes' mss') /\
-                        Existsn_ge (dfact_matches R mf_args) e ms) s2 e2)
-          by (inversion Hems2; assumption).
-        destruct Hn0rel as (ms & Hinms & Hge0).
-        assert (ms = ms0).
-        { destruct Hinms as [E | Htail]; [ inversion E; reflexivity | ].
-          exfalso. apply Hn0notin. eapply in_combine_l; exact Htail. }
-        subst ms.
-        pose proof (NoDup_remove_1 _ _ _ Hnds) as Hnds'.
-        pose proof (NoDup_remove_2 _ _ _ Hnds) as Hn0notin_s.
-        assert (Hshift : forall k e,
-                   (exists ms, In (k, ms) ((n0, ms0) :: combine nodes' mss') /\
-                      Existsn_ge (dfact_matches R mf_args) e ms) ->
-                   In k (s1 ++ s2) ->
-                   exists ms, In (k, ms) (combine nodes' mss') /\
-                      Existsn_ge (dfact_matches R mf_args) e ms).
-        { intros k e (ms & Hin & Hrest) Hks.
-          exists ms. split; [ | exact Hrest ].
-          destruct Hin as [E | Htail]; [ | exact Htail ].
-          inversion E; subst. exfalso. exact (Hn0notin_s Hks). }
-        assert (HFtail : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes' mss') /\
-                           Existsn_ge (dfact_matches R mf_args) e ms) (s1 ++ s2) (e1 ++ e2)).
-        { apply Forall2_app.
-          - eapply Forall2_impl_strong; [ | exact He1 ]. intros k e Hp Hk _.
-            apply Hshift; [ exact Hp | apply in_or_app; left; exact Hk ].
-          - eapply Forall2_impl_strong; [ | exact He2 ]. intros k e Hp Hk _.
-            apply Hshift; [ exact Hp | apply in_or_app; right; exact Hk ]. }
-        pose proof (IH mss' Hlen Hnd' (s1 ++ s2) (e1 ++ e2) Hnds' HFtail) as HgeTail.
-        replace (list_sum (e1 ++ e0 :: e2)) with (e0 + list_sum (e1 ++ e2))
-          by (rewrite !list_sum_app, list_sum_cons; lia).
-        apply Existsn_ge_app; [ exact Hge0 | exact HgeTail ].
-      + assert (HFtail : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes' mss') /\
-                           Existsn_ge (dfact_matches R mf_args) e ms) senders ems).
-        { eapply Forall2_impl_strong; [ | exact HF ]. intros k e (ms & Hin & Hrest) Hk _.
-          exists ms. split; [ | exact Hrest ].
-          destruct Hin as [E | Htail]; [ | exact Htail ].
-          inversion E; subst. exfalso. exact (Hnin0 Hk). }
-        pose proof (IH mss' Hlen Hnd' senders ems Hnds HFtail) as HgeTail.
-        apply Existsn_ge_app_r. exact HgeTail.
-  Qed.
-
-  Lemma consistent_output_squeeze (R : rel) (mf_args : list (option T)) :
-    forall (nodes : list node_name) (mss : list (list dfact)),
-      Forall2 allowed_output nodes mss -> NoDup nodes ->
-    forall (senders : list node_name) (ems : list nat), NoDup senders ->
-      Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss)) senders ems ->
-      (forall n ms f, In (n, ms) (combine nodes mss) ->
-                      In f ms -> dfact_matches R mf_args f -> In n senders) ->
-      Existsn_ge (dfact_matches R mf_args) (list_sum ems) (concat mss) ->
-      Forall2 (fun n ms => In n senders ->
-                exists cnt, In (meta_dfact R mf_args n cnt) ms /\
-                  Existsn_ge (dfact_matches R mf_args) cnt ms) nodes mss.
-  Proof.
-    intros nodes mss HF2. induction HF2 as [| n0 ms0 nodes' mss' Hao HF IH];
-      intros Hnd senders ems Hnds Hems Hcover Hge.
-    - constructor.
-    - apply NoDup_cons_iff in Hnd. destruct Hnd as (Hn0notin & Hnd').
-      cbn [concat] in Hge, Hems |- *.
-      apply Existsn_ge_app_inv in Hge. destruct Hge as (a0 & A' & Hsum & Hge0 & HgeA').
-      destruct (classic (In n0 senders)) as [Hin0 | Hnin0].
-      + apply in_split in Hin0. destruct Hin0 as (s1 & s2 & ->).
-        apply Forall2_app_inv_l in Hems. destruct Hems as (e1 & ems2 & He1 & Hems2 & ->).
-        destruct ems2 as [| e0 e2]; [ solve [ inversion Hems2 ] | ].
-        assert (Hmeta0full : In (meta_dfact R mf_args n0 e0) (ms0 ++ concat mss'))
-          by (inversion Hems2; assumption).
-        assert (He2 : Forall2 (fun k e => In (meta_dfact R mf_args k e) (ms0 ++ concat mss')) s2 e2)
-          by (inversion Hems2; assumption).
-        assert (Hmeta0 : In (meta_dfact R mf_args n0 e0) ms0)
-          by (eapply meta_in_head_block; [ exact HF | exact Hn0notin | exact Hmeta0full ]).
-        destruct (proj1 Hao _ _ _ _ Hmeta0) as (_ & Hle0).
-        pose proof (Existsn_ge_le_bound _ _ _ _ Hge0 Hle0) as Ha0e0.
-        pose proof (NoDup_remove_1 _ _ _ Hnds) as Hnds'.
-        pose proof (NoDup_remove_2 _ _ _ Hnds) as Hn0notin_s.
-        assert (Hems' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss'))
-                                (s1 ++ s2) (e1 ++ e2)).
-        { eapply Forall2_meta_shift; [ exact Hao | exact Hn0notin_s | apply Forall2_app; assumption ]. }
-        assert (Hcover' : forall n ms f, In (n, ms) (combine nodes' mss') ->
-                            In f ms -> dfact_matches R mf_args f -> In n (s1 ++ s2))
-          by (eapply cover_shift; [ exact Hn0notin | exact Hcover ]).
-        pose proof (allowed_of_outputs_bound R mf_args nodes' mss' HF Hnd' (s1 ++ s2) (e1 ++ e2)
-                     Hnds' Hems' Hcover') as HleTail.
-        pose proof (Existsn_ge_le_bound _ _ _ _ HgeA' HleTail) as HA'le.
-        assert (Hsplit : a0 = e0 /\ A' = list_sum (e1 ++ e2)).
-        { rewrite list_sum_app, list_sum_cons in Hsum. rewrite list_sum_app in HA'le.
-          rewrite list_sum_app. lia. }
-        destruct Hsplit as (Ha0eq & HA'eq).
-        constructor.
-        * intros _. exists e0. split; [ exact Hmeta0 | rewrite <- Ha0eq; exact Hge0 ].
-        * rewrite HA'eq in HgeA'.
-          pose proof (IH Hnd' (s1 ++ s2) (e1 ++ e2) Hnds' Hems' Hcover' HgeA') as IHtail.
-          eapply Forall2_impl_strong; [ | exact IHtail ].
-          intros n ms Hp Hn_nodes _ Hn_full.
-          assert (Hne : n <> n0) by (intros ->; exact (Hn0notin Hn_nodes)).
-          apply Hp. apply in_app_or in Hn_full. apply in_or_app.
-          destruct Hn_full as [H | [H | H]]; [ left; exact H | congruence | right; exact H ].
-      + assert (Hno0 : Existsn (dfact_matches R mf_args) 0 ms0).
-        { apply Forall_not_Existsn_0. apply Forall_forall. intros f Hf Hmatch.
-          apply Hnin0. eapply (Hcover n0 ms0 f); [ left; reflexivity | exact Hf | exact Hmatch ]. }
-        pose proof (Existsn_ge_exact_bound _ _ _ _ Hge0 Hno0) as Ha00.
-        assert (Hems' : Forall2 (fun k e => In (meta_dfact R mf_args k e) (concat mss')) senders ems)
-          by (eapply Forall2_meta_shift; [ exact Hao | exact Hnin0 | exact Hems ]).
-        assert (Hcover' : forall n ms f, In (n, ms) (combine nodes' mss') ->
-                            In f ms -> dfact_matches R mf_args f -> In n senders)
-          by (intros n ms f Hcomb Hf Hmatch; exact (Hcover n ms f (or_intror Hcomb) Hf Hmatch)).
-        constructor.
-        * intros Hn0. exfalso. exact (Hnin0 Hn0).
-        * assert (HgeTail : Existsn_ge (dfact_matches R mf_args) (list_sum ems) (concat mss')).
-          { eapply Existsn_ge_mono_count; [ exact HgeA' | lia ]. }
-          exact (IH Hnd' senders ems Hnds Hems' Hcover' HgeTail).
-  Qed.
-
   Lemma consistent_good_holds :
     consistent_good claim claim_output consistent_output allowed_output consistent.
   Proof.
     intros [R mf_args] nodes mss Hnd HF2 Hclaim. cbn [claim] in Hclaim.
+    assert (Hlen : length nodes = length mss) by (eapply Forall2_length; exact HF2).
     split.
     - apply (Forall_combine_Forall2 (fun p => claim_output (R, mf_args) (fst p) (snd p)));
-        [ | eapply Forall2_length; exact HF2 ].
+        [ | exact Hlen ].
       apply Forall_forall. intros [n ms] Hcomb. cbn [fst snd claim_output]. intros Hn.
       destruct (Hclaim n Hn) as (cnt & Hin).
       exists cnt. eapply meta_in_own_block; [ exact HF2 | exact Hnd | exact Hcomb | exact Hin ].
     - split.
       + intros (num & (ems & Hexpect & Hnum) & Hge). subst num.
-        eapply Forall2_impl; [ intros n ms Hp; cbn [consistent_output]; exact Hp | ].
-        eapply consistent_output_squeeze with (senders := R_senders R) (ems := ems);
-          [ exact HF2 | exact Hnd | exact (R_senders_NoDup R) | exact Hexpect | | exact Hge ].
-        intros n ms f Hcomb Hf Hmatch.
-        pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb) as (_ & Hsend).
-        destruct Hmatch as (nf_args & -> & _). exact (Hsend _ Hf).
+        assert (Hdef : forall n ms, In (n, ms) (combine nodes mss) -> ~ In n (R_senders R) ->
+                  Existsn_le (dfact_matches R mf_args) 0 ms /\
+                  (In n (R_senders R) -> In (meta_dfact R mf_args n 0) ms)).
+        { intros n ms Hcomb Hnin. split; [ | intros HH; contradiction ].
+          apply Existsn_le_0_Forall_not. apply Forall_forall. intros f Hf Hmatch. apply Hnin.
+          pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb) as (_ & Hsend).
+          destruct Hmatch as (nf_args & -> & _). exact (Hsend _ Hf). }
+        assert (Hin : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes mss) /\
+                  (Existsn_le (dfact_matches R mf_args) e ms /\
+                   (In k (R_senders R) -> In (meta_dfact R mf_args k e) ms))) (R_senders R) ems).
+        { eapply Forall2_impl; [ | exact Hexpect ]. intros k e Hmeta.
+          destruct (meta_locate _ _ _ _ _ _ HF2 Hmeta) as (ms & Hcomb & Hin_ms).
+          exists ms. split; [ exact Hcomb | ].
+          pose proof (Forall2_In_combine _ _ _ _ _ HF2 Hcomb) as (Hall & _).
+          destruct (Hall _ _ _ _ Hin_ms) as (_ & Hle).
+          split; [ exact Hle | intros _; exact Hin_ms ]. }
+        destruct (scatter _ nodes mss Hlen Hnd (R_senders R) ems (R_senders_NoDup R) Hdef Hin)
+          as (bes & Hbes & HF3).
+        assert (Hle_all : Forall2 (fun ms e => Existsn_le (dfact_matches R mf_args) e ms) mss bes).
+        { pose proof HF3 as Hp. apply Forall3_ignore1 in Hp.
+          eapply Forall2_impl; [ | exact Hp ]. intros ms e (n & Hle & _). exact Hle. }
+        assert (Hge' : Existsn_ge (dfact_matches R mf_args) (list_sum bes) (concat mss))
+          by (rewrite Hbes; exact Hge).
+        pose proof (Existsn_squeeze _ _ _ Hge' Hle_all) as Hge_all.
+        pose proof (Forall3_Forall2_conj _ _ _ _ _ HF3 Hge_all) as HF3'.
+        apply Forall3_ignore3 in HF3'.
+        eapply Forall2_impl; [ | exact HF3' ].
+        intros n ms (e & (Hle & Hmeta) & Hge_e). cbn [consistent_output]. intros Hn.
+        exists e. split; [ exact (Hmeta Hn) | exact Hge_e ].
       + intros HcoF.
         assert (Hbuild : Forall (fun k => exists e, exists ms,
                     In (k, ms) (combine nodes mss) /\
@@ -471,13 +390,17 @@ Section Distributed.
           eapply Forall2_impl; [ | exact Hbuild2 ].
           intros k e (ms & Hcomb & Hinms & _).
           apply in_concat. exists ms. split; [ eapply in_combine_r; exact Hcomb | exact Hinms ].
-        * assert (HFsum : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes mss) /\
-                       Existsn_ge (dfact_matches R mf_args) e ms) (R_senders R) ems).
+        * assert (Hdef : forall n ms, In (n, ms) (combine nodes mss) -> ~ In n (R_senders R) ->
+                    Existsn_ge (dfact_matches R mf_args) 0 ms) by (intros; apply Eg_zero).
+          assert (Hin : Forall2 (fun k e => exists ms, In (k, ms) (combine nodes mss) /\
+                    Existsn_ge (dfact_matches R mf_args) e ms) (R_senders R) ems).
           { eapply Forall2_impl; [ | exact Hbuild2 ].
-            intros k e (ms & Hcomb & _ & Hrest). exists ms. split; [ exact Hcomb | exact Hrest ]. }
-          exact (matching_sum_lower R mf_args nodes mss
-                   ltac:(eapply Forall2_length; exact HF2) Hnd
-                   (R_senders R) ems (R_senders_NoDup R) HFsum).
+            intros k e (ms & Hcomb & _ & Hge). exists ms. split; [ exact Hcomb | exact Hge ]. }
+          destruct (scatter _ nodes mss Hlen Hnd (R_senders R) ems (R_senders_NoDup R) Hdef Hin)
+            as (bes & Hbes & HF3).
+          rewrite <- Hbes. apply Existsn_ge_concat.
+          apply Forall3_ignore1 in HF3.
+          eapply Forall2_impl; [ | exact HF3 ]. intros ms e (n & Hge). exact Hge.
   Qed.
 
   Context {graph_state : map.map node_id (@graph_node_state dfact dfact_mod_count node_state)}.
