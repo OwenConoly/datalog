@@ -28,6 +28,7 @@ Section __.
             forall n1 n2 a b, equiv a b -> forward n1 n2 a = forward n1 n2 b).
   Context {stmt : Type}.
   Context (claim : stmt -> list message -> Prop).
+  Context (claim_output : stmt -> option node_id -> list message -> Prop).
   Context (claim_mono :
             forall s ms1 ms2, claim s ms1 ->
                          incl_mod equiv ms1 ms2 ->
@@ -62,7 +63,8 @@ Section __.
       NoDup nodes ->
       Forall2 allowed_output nodes mss ->
       claim s (concat mss) ->
-      consistent s (concat mss) <-> Forall2 (consistent_output s) nodes mss.
+      consistent s (concat mss) <->
+        Forall2 (fun n ms => claim_output s n ms /\ consistent_output s n ms) nodes mss.
 
   Context (consistent_good_holds : consistent_good).
 
@@ -138,12 +140,12 @@ Section __.
 
     Local Notation gstep := (graph_step node_step).
 
-    Definition good_inputs_from (n : node_id) inps :=
-        allowed_output (Some n) inps /\
-          forall c, consistent_output c (Some n) inps.
+    Definition good_inputs_from n inps :=
+        allowed_output n inps /\
+          forall c, claim_output c n inps -> consistent_output c n inps.
 
     Definition good_node_output n outs :=
-      forall dest, good_inputs_from n (filter (forward n dest) outs).
+      forall dest, good_inputs_from (Some n) (filter (forward n dest) outs).
 
     Definition consistent_internal_inputs inps :=
       exists nodes partition,
