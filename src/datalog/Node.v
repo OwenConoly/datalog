@@ -276,16 +276,6 @@ Section __.
      small ++ rest]) contains no further matches: [allowed_inputs] caps [big]'s
      matches at the declared total, which [small] alone already meets, so
      [Existsn_split] forces [rest]'s share to zero. *)
-  (* Every list has some exact match-count (classically). *)
-  Lemma Existsn_total (P : dfact -> Prop) l : exists n, Existsn P n l.
-  Proof.
-    induction l as [| x l IH].
-    - exists 0. constructor.
-    - destruct IH as (n & Hn). destruct (classic (P x)).
-      + exists (S n). apply Existsn_yes; assumption.
-      + exists n. apply Existsn_no; assumption.
-  Qed.
-
   Lemma submultiset_rest_no_matches R mf_args small rest big num :
     Permutation big (small ++ rest) ->
     allowed_inputs big ->

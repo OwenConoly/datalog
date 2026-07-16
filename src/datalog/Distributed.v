@@ -1,4 +1,5 @@
 From Stdlib Require Import List Permutation RelationClasses Classical_Prop Lia.
+From coqutil Require Import Datatypes.List.
 From Datalog Require Import Datalog Node Graph Smallstep List Map Tactics.
 From coqutil Require Import Map.Interface Tactics Tactics.fwd.
 Import ListNotations.
@@ -52,12 +53,9 @@ Section Distributed.
       destruct H12 as (-> & -> & ->), H23 as (-> & -> & ->). repeat split.
   Qed.
 
-  (* ---- The abstract consistency interface Graph.v needs, at [stmt := (R, mf_args)].
-     These, and the obligations below, are what still needs concrete definitions and
-     proofs; for now they are assumed so the graph->node wiring typechecks. ---- *)
   Definition stmt : Type := (rel * list (option T))%type.
 
-  Definition claim (s : stmt) (l : list dfact) : Prop :=
+  Definition claim (s : stmt) (l : list dfact) :=
     let '(R, mf_args) := s in
     forall src, In src (R_senders R) ->
       exists cnt, In (meta_dfact R mf_args src cnt) l.
@@ -65,12 +63,10 @@ Section Distributed.
   Lemma claim_mono s ms1 ms2 :
     claim s ms1 -> incl_mod dfact_equiv ms1 ms2 -> claim s ms2.
   Proof.
-    destruct s as [R mf_args]. intros Hcl Hincl src Hsrc.
-    destruct (Hcl src Hsrc) as (cnt & Hin).
-    destruct (Hincl _ Hin) as (f' & Hin' & Heq).
-    destruct f' as [Rn an | Rm am sm cm]; cbn [dfact_equiv] in Heq.
-    - discriminate Heq.
-    - destruct Heq as (-> & -> & ->). eauto.
+    cbv [claim]. intros H Hincl. fwd.
+    intros. especialize H; eauto. fwd.
+    cbv [incl_mod] in Hincl. especialize Hincl; eauto. fwd.
+    cbv [dfact_equiv] in Hinclp1. fwd. eauto.
   Qed.
 
   Definition claim_output (s : stmt) (n : option node_id) (fs : list dfact) : Prop :=
@@ -106,14 +102,6 @@ Section Distributed.
       eapply Existsn_perm with (l1 := ms1 ++ rest);
         [ apply Existsn_app; assumption | apply Permutation_sym; exact Hperm ].
   Qed.
-  Lemma Existsn_total {X} (P : X -> Prop) (l : list X) : exists n, Existsn P n l.
-  Proof.
-    induction l as [|x xs (n & Hn)].
-    - exists 0. apply Existsn_nil.
-    - destruct (classic (P x)); [ exists (S n); apply Existsn_yes | exists n; apply Existsn_no ];
-        assumption.
-  Qed.
-
   Lemma consistent_output_mono s n ms1 ms2 :
     consistent_output s n ms1 -> submultiset ms1 ms2 -> consistent_output s n ms2.
   Proof.
@@ -285,19 +273,6 @@ Section Distributed.
       + exact (IH ys' Hnd' H1 H2).
   Qed.
 
-  Lemma Forall2_of_combine {X Y} (R : X -> Y -> Prop) xs ys :
-    length xs = length ys ->
-    (forall x y, In (x, y) (combine xs ys) -> R x y) ->
-    Forall2 R xs ys.
-  Proof.
-    revert ys. induction xs as [| x xs' IH]; intros [| y ys'] Hlen Hall; try discriminate.
-    - constructor.
-    - constructor.
-      + apply Hall. simpl. left. reflexivity.
-      + apply IH; [ cbn in Hlen; congruence | ].
-        intros a b Hin. apply Hall. simpl. right. exact Hin.
-  Qed.
-
   Lemma meta_in_head_block R mf_args n0 ms0 nodes' mss' cnt :
     Forall2 allowed_output nodes' mss' ->
     ~ In n0 nodes' ->
@@ -327,15 +302,6 @@ Section Distributed.
     destruct (Hm' _ _ _ _ Hin') as (Hsrc & _). subst n'.
     assert (ms = ms') by (eapply combine_l_unique; [ exact Hnd | exact Hcomb | exact Hcomb' ]).
     subst ms'. exact Hin'.
-  Qed.
-
-  Lemma Forall2_impl_strong {X Y} (R R' : X -> Y -> Prop) xs ys :
-    (forall x y, R x y -> In x xs -> In y ys -> R' x y) ->
-    Forall2 R xs ys -> Forall2 R' xs ys.
-  Proof.
-    intros Himpl HF. induction HF as [| x y xs' ys' Hxy HF IH]; constructor.
-    - apply Himpl; [ exact Hxy | left; reflexivity | left; reflexivity ].
-    - apply IH. intros a b Hab Ha Hb. apply Himpl; [ exact Hab | right; exact Ha | right; exact Hb ].
   Qed.
 
   Lemma matching_sum_lower (R : rel) (mf_args : list (option T)) :
@@ -483,8 +449,9 @@ Section Distributed.
   Proof.
     intros [R mf_args] nodes mss Hnd HF2 Hclaim. cbn [claim] in Hclaim.
     split.
-    - apply Forall2_of_combine; [ eapply Forall2_length; exact HF2 | ].
-      intros n ms Hcomb. cbn [claim_output]. intros Hn.
+    - apply (Forall_combine_Forall2 (fun p => claim_output (R, mf_args) (fst p) (snd p)));
+        [ | eapply Forall2_length; exact HF2 ].
+      apply Forall_forall. intros [n ms] Hcomb. cbn [fst snd claim_output]. intros Hn.
       destruct (Hclaim n Hn) as (cnt & Hin).
       exists cnt. eapply meta_in_own_block; [ exact HF2 | exact Hnd | exact Hcomb | exact Hin ].
     - split.

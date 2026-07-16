@@ -1,4 +1,4 @@
-From Stdlib Require Import Lists.List Permutation Bool Arith.PeanoNat Morphisms RelationClasses.
+From Stdlib Require Import Lists.List Permutation Bool Arith.PeanoNat Morphisms RelationClasses Classical_Prop.
 From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics Eqb.
 Require Import Datalog.Tactics Datalog.Eqb.
 Import ListNotations.
@@ -792,6 +792,15 @@ Section Existsn.
   Proof.
     intros H. revert m. induction H; invert 1; auto.
     all: exfalso; auto.
+  Qed.
+
+  Lemma Existsn_total l : exists n, Existsn n l.
+  Proof.
+    induction l as [| x l IH].
+    - exists 0. constructor.
+    - destruct IH as (n & Hn). destruct (classic (P x)).
+      + exists (S n). apply Existsn_yes; assumption.
+      + exists n. apply Existsn_no; assumption.
   Qed.
 End Existsn.
 Hint Constructors Existsn : core.
