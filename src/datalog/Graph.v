@@ -63,8 +63,9 @@ Section __.
       NoDup nodes ->
       Forall2 allowed_output nodes mss ->
       claim s (concat mss) ->
-      consistent s (concat mss) <->
-        Forall2 (fun n ms => claim_output s n ms /\ consistent_output s n ms) nodes mss.
+      Forall2 (claim_output s) nodes mss /\
+        (consistent s (concat mss) <->
+           Forall2 (consistent_output s) nodes mss).
 
   Context (consistent_good_holds : consistent_good).
 
