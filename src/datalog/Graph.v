@@ -187,12 +187,18 @@ Definition consistent_good :=
     Definition outputs_partition (gs : graph_state) : mmmm :=
       map_values' (fun _ ns => outputs_of ns.(gns_trace)) gs.
 
+    (* [output_map F gs] : [concat] over every node of [F node outputs].  fwd_total
+       and output_total are instances; the step lemmas are proved once, below. *)
+    Definition output_map {A} {mp' : map.map node_id (list A)} {mp'_ok : map.ok mp'}
+        (F : node_id -> list message -> list A) (gs : graph_state) : list A :=
+      concat (values (map_values' (mp' := mp') F (outputs_partition gs))).
+
     (* [fwd_partition nn gs] : the inputs [nn] receives, keyed by sender. *)
     Definition fwd_partition (nn : node_id) (gs : graph_state) : mmmm :=
       map_values' (fun sender outs => filter (forward sender nn) outs) (outputs_partition gs).
 
     Definition fwd_total (nn : node_id) (gs : graph_state) : list message :=
-      concat (values (fwd_partition nn gs)).
+      output_map (fun sender outs => filter (forward sender nn) outs) gs.
 
     Definition le_weak g1 (t1 : list gevent) g2 (t2 : list gevent) :=
       Forall2_map (fun n _ _ =>
@@ -302,12 +308,6 @@ Definition consistent_good :=
       rewrite Htr0, app_nil_r in Htr. subst t''. eauto.
     Qed.
 
-    (* [output_map F gs] : [concat] over every node of [F node outputs].  fwd_total
-       and output_total are instances; the step lemmas are proved once, below. *)
-    Definition output_map {A} {mp' : map.map node_id (list A)} {mp'_ok : map.ok mp'}
-        (F : node_id -> list message -> list A) (gs : graph_state) : list A :=
-      concat (values (map_values' (mp' := mp') F (outputs_partition gs))).
-
     (* the visible outputs of every node, each tagged with its node. *)
     Definition output_total (gs : graph_state) : list (message * node_id) :=
       output_map (mp' := omap)
@@ -380,72 +380,6 @@ Definition consistent_good :=
       rewrite outputs_partition_put. reflexivity.
     Qed.
 
-    Lemma fwd_partition_run nn gs n ns lbl outs ns' :
-      map.get gs n = Some ns ->
-      fwd_partition nn
-        (map_values' (fun k => enqueue (filter (forward n k) outs))
-           (map.put gs n {| gns_node_state := ns';
-                            gns_trace := O_event lbl outs :: ns.(gns_trace);
-                            gns_queue := ns.(gns_queue) |}))
-      = map.put (fwd_partition nn gs) n (filter (forward n nn) (outs ++ outputs_of ns.(gns_trace))).
-    Proof.
-      intros Hn. unfold fwd_partition.
-      rewrite (outputs_partition_run gs n ns lbl outs ns' Hn), map_values'_put. reflexivity.
-    Qed.
-
-    Lemma fwd_total_get gs n k vn :
-      map.get gs n = Some vn ->
-      incl (filter (forward n k) (outputs_of (gns_trace vn))) (fwd_total k gs).
-    Proof.
-      intros Hn. apply (incl_concat_values (fwd_partition k gs) n).
-      rewrite fwd_partition_get, Hn. reflexivity.
-    Qed.
-
-    Lemma fwd_total_mupd_enqueue nn gs n inps :
-      Permutation (fwd_total nn (mupd gs n (enqueue inps))) (fwd_total nn gs).
-    Proof.
-      unfold fwd_total, fwd_partition. rewrite outputs_partition_mupd_enqueue. apply Permutation_refl.
-    Qed.
-
-    Lemma fwd_total_put_same nn gs n v0 v :
-      map.get gs n = Some v0 ->
-      outputs_of v.(gns_trace) = outputs_of v0.(gns_trace) ->
-      Permutation (fwd_total nn (map.put gs n v)) (fwd_total nn gs).
-    Proof.
-      intros Hn Ho. unfold fwd_total, fwd_partition.
-      rewrite (outputs_partition_put_output_eq gs n v0 v Hn Ho). apply Permutation_refl.
-    Qed.
-
-    Lemma fwd_total_run nn gs n ns lbl outs ns' :
-      map.get gs n = Some ns ->
-      Permutation
-        (fwd_total nn
-           (map_values' (fun k => enqueue (filter (forward n k) outs))
-              (map.put gs n {| gns_node_state := ns';
-                               gns_trace := O_event lbl outs :: ns.(gns_trace);
-                               gns_queue := ns.(gns_queue) |})))
-        (filter (forward n nn) outs ++ fwd_total nn gs).
-    Proof.
-      intros Hn. unfold fwd_total.
-      rewrite (fwd_partition_run nn gs n ns lbl outs ns' Hn), filter_app.
-      set (P := fwd_partition nn gs).
-      assert (Hp : map.get P n = Some (filter (forward n nn) (outputs_of ns.(gns_trace))))
-        by (subst P; rewrite fwd_partition_get, Hn; reflexivity).
-      eapply Permutation_trans; [ apply concat_values_put | ].
-      rewrite <- app_assoc. apply Permutation_app_head.
-      apply Permutation_sym, (concat_values_get P n _ Hp).
-    Qed.
-
-    Lemma fwd_total_initial nn : fwd_total nn initial_gs = [].
-    Proof.
-      unfold fwd_total. apply concat_nil_Forall, values_Forall.
-      intros sender v Hv. rewrite fwd_partition_get in Hv.
-      destruct (map.get initial_gs sender) as [gns|] eqn:Hg;
-        cbn [option_map] in Hv; [ | discriminate ].
-      injection Hv as Hv. subst v.
-      rewrite (proj1 (initial_gs_empty sender gns Hg)). reflexivity.
-    Qed.
-
     Lemma output_map_run {A} {mp' : map.map node_id (list A)} {mp'_ok : map.ok mp'}
         (F : node_id -> list message -> list A)
         (Hdist : forall k a b, F k (a ++ b) = F k a ++ F k b)
@@ -493,6 +427,47 @@ Definition consistent_good :=
       injection Hv as Hv. subst v.
       rewrite (proj1 (initial_gs_empty k gns Hg)). apply Hnil.
     Qed.
+
+    (* fwd_total = output_map (filter by sender); its step facts are output_map's. *)
+
+    Lemma fwd_total_get gs n k vn :
+      map.get gs n = Some vn ->
+      incl (filter (forward n k) (outputs_of (gns_trace vn))) (fwd_total k gs).
+    Proof.
+      intros Hn. apply (incl_concat_values (fwd_partition k gs) n).
+      rewrite fwd_partition_get, Hn. reflexivity.
+    Qed.
+
+    Lemma fwd_total_mupd_enqueue nn gs n inps :
+      Permutation (fwd_total nn (mupd gs n (enqueue inps))) (fwd_total nn gs).
+    Proof. unfold fwd_total. rewrite output_map_mupd_enqueue. apply Permutation_refl. Qed.
+
+    Lemma fwd_total_put_same nn gs n v0 v :
+      map.get gs n = Some v0 ->
+      outputs_of v.(gns_trace) = outputs_of v0.(gns_trace) ->
+      Permutation (fwd_total nn (map.put gs n v)) (fwd_total nn gs).
+    Proof.
+      intros Hn Ho. unfold fwd_total.
+      rewrite (output_map_put_output_eq _ gs n v0 v Hn Ho). apply Permutation_refl.
+    Qed.
+
+    Lemma fwd_total_run nn gs n ns lbl outs ns' :
+      map.get gs n = Some ns ->
+      Permutation
+        (fwd_total nn
+           (map_values' (fun k => enqueue (filter (forward n k) outs))
+              (map.put gs n {| gns_node_state := ns';
+                               gns_trace := O_event lbl outs :: ns.(gns_trace);
+                               gns_queue := ns.(gns_queue) |})))
+        (filter (forward n nn) outs ++ fwd_total nn gs).
+    Proof.
+      intros Hn. unfold fwd_total.
+      apply (output_map_run (fun sender outs => filter (forward sender nn) outs));
+        [ intros; apply filter_app | exact Hn ].
+    Qed.
+
+    Lemma fwd_total_initial nn : fwd_total nn initial_gs = [].
+    Proof. unfold fwd_total. apply output_map_initial. intros; reflexivity. Qed.
 
     Lemma outputs_are_node_outputs gt gs :
       star gstep initial_gs gt gs ->
