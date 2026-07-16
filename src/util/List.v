@@ -877,6 +877,24 @@ Section Existsn.
     exact (Existsn_ge_le_bound k n l Hge (Existsn_le_of_Existsn n l Hn n (le_n n))).
   Qed.
 
+  Lemma Existsn_le_exact_bound n k l : Existsn_le k l -> Existsn n l -> n <= k.
+  Proof.
+    intros Hle Hn.
+    exact (Existsn_ge_le_bound n k l (Existsn_ge_of_Existsn n l Hn n (le_n n)) Hle).
+  Qed.
+
+  Lemma Existsn_le_0_Forall_not l : Forall (fun x => ~ P x) l -> Existsn_le 0 l.
+  Proof. induction 1; [ apply El_nil | apply El_skip; assumption ]. Qed.
+
+  Lemma Existsn_le_app a b l1 l2 :
+    Existsn_le a l1 -> Existsn_le b l2 -> Existsn_le (a + b) (l1 ++ l2).
+  Proof.
+    intros H1 H2. induction H1; simpl.
+    - eapply Existsn_le_mono_count; [ exact H2 | lia ].
+    - apply El_skip; assumption.
+    - apply El_take; assumption.
+  Qed.
+
   Lemma Existsn_ge_app_l k l1 l2 : Existsn_ge k l1 -> Existsn_ge k (l1 ++ l2).
   Proof. induction 1; simpl; auto. Qed.
 
@@ -886,6 +904,12 @@ Section Existsn.
   Lemma Existsn_ge_app a b l1 l2 :
     Existsn_ge a l1 -> Existsn_ge b l2 -> Existsn_ge (a + b) (l1 ++ l2).
   Proof. intros H1 H2. induction H1; simpl; auto using Existsn_ge_app_r. Qed.
+
+  Lemma Existsn_ge_1 x l : In x l -> P x -> Existsn_ge 1 l.
+  Proof.
+    intros Hin Hpx. apply in_split in Hin. destruct Hin as (l1 & l2 & ->).
+    apply Existsn_ge_app_r. apply Eg_take; [ exact Hpx | apply Eg_zero ].
+  Qed.
 
   Lemma Existsn_ge_app_inv k l1 l2 :
     Existsn_ge k (l1 ++ l2) ->
