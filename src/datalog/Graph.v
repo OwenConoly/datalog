@@ -196,20 +196,10 @@ Definition consistent_good :=
     Definition fwd_total (nn : node_id) (gs : graph_state) : list message :=
       output_map (fun sender outs => filter (forward sender nn) outs) gs.
 
-    (*le_weak an le_strong no longer say things about traces; instead, wherever necessary , they should be accompanied by submultiset (inputs_of t1) (inputs_of t2)*)
+    (* le_weak says nothing about traces; where the external inputs matter, a
+       [submultiset (inputs_of t1) (inputs_of t2)] is supplied alongside it. *)
     Definition le_weak g1 g2 :=
       Forall2_map (fun _ => incl_mod equiv) (outputs_partition g1) (outputs_partition g2).
-
-    Definition le_strong g1 g2 :=
-      Forall2_map (fun _ => submultiset) (outputs_partition g1) (outputs_partition g2) /\
-        Forall2_map (fun _ gns1 gns2 =>
-                       submultiset (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace))) g1 g2.
-
-    Lemma le_strong_le_weak g1 t1 g2 t2 : le_strong g1 t1 g2 t2 -> le_weak g1 t1 g2 t2.
-    Proof.
-      intros H. eapply Forall2_map_impl; [ exact H | ].
-      intros k gns1 gns2 (_ & Hfwd & Hext). split; auto using incl_mod_of_submultiset.
-    Qed.
 
     Definition le (g1 g2 : graph_state) :=
       Forall2_map (fun n gns1 gns2 =>
@@ -235,33 +225,20 @@ Definition consistent_good :=
     #[local] Hint Unfold val_sat might_output : core.
     #[local] Hint Extern 5 (In _ _) => simpl : core.
 
-    Lemma le_weak_refl g t : le_weak g t g t.
-    Proof. apply Forall2_map_refl. intros. split; auto using submultiset_refl. Qed.
+    Lemma le_weak_refl g : le_weak g g.
+    Proof. apply Forall2_map_refl. intros. apply (incl_mod_refl equiv). Qed.
 
     Lemma le_refl g : le g g.
     Proof. apply Forall2_map_refl. intros. apply (consistently_incl_refl equiv claim consistent). Qed.
 
-    Lemma le_weak_trans g1 t1 g2 t2 g3 t3 :
-      le_weak g1 t1 g2 t2 -> le_weak g2 t2 g3 t3 -> le_weak g1 t1 g3 t3.
+    Lemma le_weak_trans g1 g2 g3 :
+      le_weak g1 g2 -> le_weak g2 g3 -> le_weak g1 g3.
     Proof.
       intros H12 H23. cbv [le_weak Forall2_map] in *. intros k.
       specialize (H12 k); specialize (H23 k).
-      destruct (map.get g1 k), (map.get g2 k), (map.get g3 k);
-        cbn in *; try contradiction; try exact I.
-      destruct H12 as [Hi1 He1], H23 as [Hi2 He2].
-      split; [ eapply incl_mod_trans; eassumption | eapply submultiset_trans; eassumption ].
-    Qed.
-
-    Lemma le_strong_trans g1 t1 g2 t2 g3 t3 :
-      le_strong g1 t1 g2 t2 -> le_strong g2 t2 g3 t3 -> le_strong g1 t1 g3 t3.
-    Proof.
-      intros H12 H23. cbv [le_strong Forall2_map] in *. intros k.
-      specialize (H12 k); specialize (H23 k).
-      destruct (map.get g1 k), (map.get g2 k), (map.get g3 k);
-        cbn in *; try contradiction; try exact I.
-      destruct H12 as (Hr1 & Hi1 & He1), H23 as (Hr2 & Hi2 & He2).
-      split; [ eapply submultiset_trans; eassumption
-             | split; eapply submultiset_trans; eassumption ].
+      destruct (map.get (outputs_partition g1) k), (map.get (outputs_partition g2) k),
+        (map.get (outputs_partition g3) k); cbn in *; try contradiction; try exact I.
+      eapply incl_mod_trans; eassumption.
     Qed.
 
     Lemma graph_step_to_node_step gs gt gs' :
@@ -457,50 +434,34 @@ Definition consistent_good :=
       Permutation e1 e2 -> Permutation (matching_inps nn e1) (matching_inps nn e2).
     Proof. intros HP. unfold matching_inps. rewrite HP. reflexivity. Qed.
 
-    Lemma gstep_le_strong g e g' t : gstep g e g' -> le_strong g t g' (e :: t).
+    Lemma star_gstep_le_weak g T g' : star gstep g T g' -> le_weak g g'.
     Proof.
-      intros Hstep. cbv [le_strong]. invert Hstep.
-      - apply Forall2_map_mupd_r; [solve[auto]|].
-        apply Forall2_map_dup. intros k v Hv. ssplit.
-        + apply submultiset_refl.
-        + unfold fwd_total. rewrite output_map_mupd_enqueue. apply submultiset_refl.
-        + change (inputs_of (I_event (m, n) :: t)) with ([(m, n)] ++ inputs_of t).
-          rewrite matching_inps_app. exists (matching_inps k [(m, n)]). apply Permutation_app_comm.
-      - apply Forall2_map_map_values'_r. eapply Forall2_map_put_r; [ | exact H | ].
-        + apply Forall2_map_dup. intros k v Hv Hne. cbn [enqueue gns_trace]. ssplit.
-          * apply submultiset_refl.
-          * exists (filter (forward n k) outs). eapply perm_trans.
-            { apply (output_map_run (fun sender outs => filter (forward sender k) outs));
-                [ intros; apply filter_app | eassumption ]. }
-            apply Permutation_app_comm.
-          * simpl. apply submultiset_refl.
-        + cbn [enqueue gns_trace]. ssplit.
-          * simpl. apply submultiset_refl.
-          * exists (filter (forward n n) outs). eapply perm_trans.
-            { apply (output_map_run (fun sender outs => filter (forward sender n) outs));
-                [ intros; apply filter_app | eassumption ]. }
-            apply Permutation_app_comm.
-          * simpl. apply submultiset_refl.
-      - eapply Forall2_map_put_r; [ | exact H | ].
-        + apply Forall2_map_dup. intros k v Hv Hne. ssplit.
-          * apply submultiset_refl.
-          * unfold fwd_total. erewrite output_map_put_output_eq by (eassumption || reflexivity).
-            apply submultiset_refl.
-          * simpl. apply submultiset_refl.
-        + cbn [gns_trace]. ssplit.
-          * simpl. apply submultiset_cons.
-          * unfold fwd_total. erewrite output_map_put_output_eq by (eassumption || reflexivity).
-            apply submultiset_refl.
-          * simpl. apply submultiset_refl.
+      intros Hstar. cbv [le_weak outputs_partition].
+      apply Forall2_map_map_values'_l. apply Forall2_map_map_values'_r.
+      eapply Forall2_map_impl; [ apply (graph_step_to_node_step g T g' Hstar) | ].
+      intros k gns1 gns2 (t'' & Htr & _). rewrite Htr, outputs_of_app.
+      apply (incl_mod_of_incl equiv). intros x Hx. apply in_or_app. right. exact Hx.
     Qed.
 
-    Lemma le_strong_refl g t : le_strong g t g t.
-    Proof. apply Forall2_map_refl. intros. split; [ | split ]; apply submultiset_refl. Qed.
-
-    Lemma star_gstep_le_strong g t T g' : star gstep g T g' -> le_strong g t g' (T ++ t).
+    (* le_weak is monotonicity of every node's outputs, hence of the derived fwd_total. *)
+    Lemma le_weak_fwd_total g1 g2 n :
+      le_weak g1 g2 -> incl_mod equiv (fwd_total n g1) (fwd_total n g2).
     Proof.
-      induction 1 as [ | t0 s' e s'' Hstar IH Hstep ]; [ apply le_strong_refl | ].
-      eapply le_strong_trans; [ exact IH | apply gstep_le_strong; exact Hstep ].
+      intros Hle x Hx. unfold fwd_total, output_map in Hx.
+      apply In_concat_values in Hx. destruct Hx as (k & vs & Hget & Hin).
+      rewrite get_map_values', outputs_partition_get in Hget.
+      destruct (map.get g1 k) as [gns1|] eqn:Hg1; cbn [option_map] in Hget; [ | discriminate ].
+      injection Hget as Hget. subst vs. apply filter_In in Hin. destruct Hin as (Hxout & Hfwd).
+      cbv [le_weak Forall2_map] in Hle. specialize (Hle k).
+      rewrite !outputs_partition_get, Hg1 in Hle.
+      destruct (map.get g2 k) as [gns2|] eqn:Hg2; cbn [option_map] in Hle; [ | contradiction ].
+      destruct (Hle x Hxout) as (x' & Hx'out & Hequiv).
+      exists x'. split; [ | exact Hequiv ].
+      unfold fwd_total, output_map. apply In_concat_values.
+      exists k, (filter (forward k n) (outputs_of gns2.(gns_trace))). split.
+      - rewrite get_map_values', outputs_partition_get, Hg2. reflexivity.
+      - apply filter_In. split; [ exact Hx'out | ].
+        rewrite <- (forward_equiv k n x x' Hequiv). exact Hfwd.
     Qed.
 
     Definition conserved (gs : graph_state) (ext : list (message * node_id)) : Prop :=
@@ -911,35 +872,64 @@ Definition consistent_good :=
       apply submultiset_matching_inps. exact Hsub.
     Qed.
 
-    Lemma le_strong_combined g1 t1 g2 t2 :
-      star gstep initial_gs t1 g1 ->
-      star gstep initial_gs t2 g2 ->
-      le_strong g1 t1 g2 t2 ->
+    (* A node's received pool (trace-inputs ++ queue) only grows under a step:
+       input adds to the queue, receive relocates queue -> trace, run forwards. *)
+    Lemma gstep_pool_step g e g' :
+      gstep g e g' ->
+      Forall2_map (fun _ ns1 ns2 =>
+        submultiset (inputs_of ns1.(gns_trace)) (inputs_of ns2.(gns_trace)) /\
+        submultiset (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
+                    (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue))) g g'.
+    Proof.
+      intros Hstep. invert Hstep.
+      - apply Forall2_map_mupd_r.
+        + intros v1 v2 (Ht & Hp). cbn [enqueue gns_trace gns_queue]. split; [ exact Ht | ].
+          eapply submultiset_trans; [ exact Hp | ].
+          change ([m] ++ gns_queue v2) with (m :: gns_queue v2).
+          eapply submultiset_perm_r; [ apply Permutation_middle | apply submultiset_cons ].
+        + apply Forall2_map_dup. intros k v Hv. split; apply submultiset_refl.
+      - apply Forall2_map_map_values'_r. eapply Forall2_map_put_r; [ | exact H | ].
+        + apply Forall2_map_dup. intros k v Hv Hne. cbn [enqueue gns_trace gns_queue]. split.
+          * apply submultiset_refl.
+          * exists (filter (forward n k) outs). rewrite <- app_assoc.
+            apply Permutation_app_head, Permutation_app_comm.
+        + cbn [enqueue gns_trace gns_queue].
+          change (inputs_of (O_event lbl outs :: gns_trace ns)) with (inputs_of (gns_trace ns)).
+          split.
+          * apply submultiset_refl.
+          * exists (filter (forward n n) outs). rewrite <- app_assoc.
+            apply Permutation_app_head, Permutation_app_comm.
+      - eapply Forall2_map_put_r; [ | exact H | ].
+        + apply Forall2_map_dup. intros k v Hv Hne. split; apply submultiset_refl.
+        + cbn [gns_trace gns_queue].
+          change (inputs_of (I_event m :: gns_trace ns)) with (m :: inputs_of (gns_trace ns)).
+          split.
+          * apply submultiset_cons.
+          * rewrite H1. exists []. rewrite app_nil_r.
+            rewrite <- app_comm_cons, !app_assoc. apply Permutation_middle.
+    Qed.
+
+    Lemma pool_submultiset g1 T g2 :
+      star gstep g1 T g2 ->
       Forall2_map (fun _ ns1 ns2 =>
         submultiset (inputs_of ns1.(gns_trace)) (inputs_of ns2.(gns_trace)) /\
         submultiset (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
                     (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue))) g1 g2.
     Proof.
-      intros Hstar1 Hstar2 Hls.
-      pose proof (inputs_are_outputs _ _ Hstar1) as Hio1. cbv [Forall_map] in Hio1.
-      pose proof (inputs_are_outputs _ _ Hstar2) as Hio2. cbv [Forall_map] in Hio2.
-      cbv [le_strong Forall2_map] in Hls |- *. intros k. specialize (Hls k).
-      destruct (map.get g1 k) as [ns1|] eqn:Hg1, (map.get g2 k) as [ns2|] eqn:Hg2;
-        cbn in Hls |- *; try contradiction; try exact I.
-      destruct Hls as (Htr & Hfwd & Hmatch). split; [ exact Htr | ].
-      specialize (Hio1 _ _ Hg1). specialize (Hio2 _ _ Hg2).
-      eapply submultiset_perm_l; [ apply Permutation_sym; exact Hio1 | ].
-      eapply submultiset_perm_r; [ apply Permutation_sym; exact Hio2 | ].
-      eapply submultiset_trans; [ | apply submultiset_app_head; exact Hmatch ].
-      eapply submultiset_perm_l; [ apply Permutation_app_comm | ].
-      eapply submultiset_perm_r; [ apply Permutation_app_comm | ].
-      apply submultiset_app_head. exact Hfwd.
+      induction 1 as [ | t0 s' e s'' Hstar IH Hstep ].
+      - apply Forall2_map_refl. intros. split; apply submultiset_refl.
+      - pose proof (gstep_pool_step _ _ _ Hstep) as Hstep'.
+        cbv [Forall2_map] in IH, Hstep' |- *. intros k.
+        specialize (IH k); specialize (Hstep' k).
+        destruct (map.get g1 k), (map.get s' k), (map.get s'' k);
+          cbn in *; try contradiction; try exact I.
+        destruct IH as (Ht1 & Hp1), Hstep' as (Ht2 & Hp2).
+        split; eapply submultiset_trans; eassumption.
     Qed.
 
     Lemma eventually_deliver n :
       forall N owed gc tc nc,
         length owed <= N ->
-        star gstep initial_gs tc gc ->
         graph_inputs_allowed (inputs_of tc) ->
         map.get gc n = Some nc ->
         submultiset owed (gns_queue nc) ->
@@ -948,7 +938,7 @@ Definition consistent_good :=
              submultiset (inputs_of (gns_trace nc) ++ owed) (inputs_of (gns_trace nc')))
           (gc, tc).
     Proof.
-      induction N as [| N IHN]; intros owed gc tc nc HN Hstar Hga Hget Hsub;
+      induction N as [| N IHN]; intros owed gc tc nc HN Hga Hget Hsub;
         (destruct owed as [| a owed'];
          [ apply eventually_done; exists nc; split;
            [ exact Hget | rewrite app_nil_r; apply submultiset_refl ] | ]).
@@ -958,10 +948,7 @@ Definition consistent_good :=
         { eapply submultiset_trans; [ | exact Hsub ]. exists owed'. reflexivity. }
         eapply eventually_step_cps. exists (receive n a).
         intros gs_d td Hstar_d Hga_d.
-        assert (Hstar_di : star gstep initial_gs (td ++ tc) gs_d)
-          by (eapply star_app; [ exact Hstar | exact Hstar_d ]).
-        pose proof (le_strong_combined gc tc gs_d (td ++ tc) Hstar Hstar_di
-                      (star_gstep_le_strong gc tc td gs_d Hstar_d)) as Hls.
+        pose proof (pool_submultiset gc td gs_d Hstar_d) as Hls.
         destruct (Forall2_map_get_l _ _ _ _ _ Hls Hget) as (nd & Hget_d & Htr & Htot).
         assert (Htot_owed : submultiset (inputs_of (gns_trace nc) ++ a :: owed')
                               (inputs_of (gns_trace nd) ++ gns_queue nd))
@@ -991,8 +978,6 @@ Definition consistent_good :=
           eapply eventually_weaken.
           { eapply (IHN owed'' (map.put gs_d n ndr) (O_event (receive n a) [] :: td ++ tc) ndr).
             - eapply Nat.le_trans; [ exact Hlen'' | exact Hlen' ].
-            - eapply star_step;
-                [ exact Hstar_di | eapply gstep_receive; [ exact Hget_d | exact Hns | exact Hq ] ].
             - exact Hga_d.
             - exact Hget_r.
             - exact HQ''. }
@@ -1008,7 +993,6 @@ Definition consistent_good :=
           eapply eventually_weaken.
           { eapply (IHN owed'' gs_d (td ++ tc) nd).
             - eapply Nat.le_trans; [ exact Hlen'' | exact Hlen' ].
-            - exact Hstar_di.
             - exact Hga_d.
             - exact Hget_d.
             - exact HQ''. }
@@ -1037,16 +1021,16 @@ Definition consistent_good :=
                     (map.tuples gs2)).
         - apply List.Forall_map. apply Forall_forall. intros [k v] _.
           cbv [ev_stable]. intros s s' e t (nc' & Hgk & Hsm) Hstep.
-          pose proof (gstep_le_strong _ _ _ t Hstep) as Hls. cbv [le_strong] in Hls.
+          pose proof (gstep_pool_step _ _ _ Hstep) as Hls.
           destruct (Forall2_map_get_l _ _ _ _ _ Hls Hgk) as (nc'' & Hgk' & Htr & _).
           exists nc''. split; [ exact Hgk' | eapply submultiset_trans; [ exact Hsm | exact Htr ] ].
         - apply List.Forall_map. apply Forall_forall. intros [k v] Hin.
           apply map.tuples_spec in Hin.
           eapply (eventually_deliver k (length (gns_queue v)) (gns_queue v) gs2 t2 v);
-            [ apply le_n | exact Hstar | exact Hga | exact Hin | apply submultiset_refl ]. }
+            [ apply le_n | exact Hga | exact Hin | apply submultiset_refl ]. }
       intros [gs2' t2'] Hall Hreach.
       destruct Hreach as (tr & Hstar_gg & _ & _).
-      pose proof (star_gstep_le_strong _ [] _ _ Hstar_gg) as Hls.
+      pose proof (pool_submultiset _ _ _ Hstar_gg) as Hls.
       eapply Forall2_map_impl_strong; [ exact Hls | ].
       intros k v v' Hgk Hgk' _. rewrite Forall_forall in Hall.
       destruct (Hall _ ltac:(apply in_map_iff; exists (k, v);
@@ -1060,7 +1044,7 @@ Definition consistent_good :=
       star gstep initial_gs t2 gs2 ->
       submultiset (inputs_of t1) (inputs_of t2) ->
       graph_inputs_allowed (inputs_of t2) ->
-      le_weak gs1 t1 gs2 t2 ->
+      le_weak gs1 gs2 ->
       eventually graph_will_step (fun '(gs2', _) => le gs1 gs2') (gs2, t2).
     Proof.
       intros Hstar1 Hstar2 Hsub Hga2 Hlew.
@@ -1084,8 +1068,8 @@ Definition consistent_good :=
           apply (proj2 (reachable_domain _ _ k Hreach2')). exact HN. }
       intros k ns1 ns2' Hg1 Hg2'.
       destruct (Forall2_map_get_r _ _ _ _ _ Hrecv Hg2') as (ns2 & Hg2 & Hrec).
-      destruct (Forall2_map_get_l _ _ _ _ _ Hlew Hg1) as (ns2b & Hg2b & Hlfwd & Hlmatch).
-      assert (ns2b = ns2) by congruence. subst ns2b.
+      pose proof (le_weak_fwd_total _ _ k Hlew) as Hlfwd.
+      pose proof (submultiset_matching_inps k _ _ Hsub) as Hlmatch.
       specialize (Hall1 _ _ Hg1).
       specialize (Hall2 _ _ Hg2).
       specialize (Hall2' _ _ Hg2').
@@ -1138,75 +1122,50 @@ Definition consistent_good :=
       graph_inputs_allowed (inputs_of t2) ->
       gstep gs1 (O_event lbl outs) gs1' ->
       le gs1 gs2 ->
-      le_weak gs1 t1 gs2 t2 ->
+      le_weak gs1 gs2 ->
       eventually graph_will_step
-        (fun '(gs2', t2') => le_weak gs1' (O_event lbl outs :: t1) gs2' t2') (gs2, t2).
+        (fun '(gs2', _) => le_weak gs1' gs2') (gs2, t2).
     Proof.
       intros H1 H2 H3 H4 Hstep Hle Hlew.
       epose proof Forall2_map_get_l as Hle'. specialize Hle' with (1 := Hle).
-      epose proof Forall2_map_get_l as Hlew'. specialize Hlew' with (1 := Hlew).
-
       epose proof (graph_step_to_node_step_from_beginning gs1 t1) as Hns1'.
       epose proof (graph_step_to_node_step_from_beginning gs2 t2) as Hns2'.
       especialize Hns1'; eauto. especialize Hns2'; eauto.
-
       invert Hstep.
-      - especialize Hle'; eauto. especialize Hlew'; eauto. fwd. map_func.
+      - especialize Hle'; eauto. fwd. map_func.
         eapply Forall2_map_get_r in Hns1'; eauto. fwd.
         eapply Forall2_map_get_l in Hns2'; eauto. fwd.
         map_func. simpl in *.
-
         pose proof nodes_good as H'. cbv [Forall_map] in H'. especialize H'; eauto.
         cbv [node_good] in H'. fwd.
-
         pose proof (everything_allowed _ gs1 ltac:(eauto) ltac:(eauto)) as Hall1.
         pose proof (everything_allowed _ gs2 ltac:(eauto) ltac:(eauto)) as Hall2.
         assert (allowed (inputs_of (gns_trace ns) ++ gns_queue ns)) by eauto.
         assert (allowed (inputs_of (gns_trace v0) ++ gns_queue v0)) by eauto.
-
         eassert (Hmo: Forall (might_output_equiv _ _ (gns_node_state v0) (gns_trace v0)) outs0).
         { apply Forall_forall. intros m Hm.
           eapply (H'p1 (gns_trace ns)). all: eauto. eauto 10. }
-
         eapply will_output_all in Hmo; eauto.
         eapply graph_eventually_of_node_eventually in Hmo; eauto.
-
         apply eventually_will_step_reach.
         eapply eventually_weaken; [eassumption|].
         cbv [val_sat reachable]. intros [r l] Hval Hreach. fwd.
-        pose proof (star_gstep_le_strong _ t2 _ _ Hreachp0) as Hlsr.
-        pose proof (le_weak_trans _ _ _ _ _ _ Hlew (le_strong_le_weak _ _ _ _ Hlsr)) as Hlwr.
-        assert (Hrinit : star gstep initial_gs (tr ++ t2) r) by (eapply star_app; eauto).
-
+        pose proof (le_weak_trans _ _ _ Hlew (star_gstep_le_weak _ _ _ Hreachp0)) as Hlwr.
         cbv [le_weak] in Hlwr |- *.
-        apply Forall2_map_map_values'_l.
-        eapply Forall2_map_put_l; [ | exact Hvalp0 | ].
-        + eapply Forall2_map_impl; [ exact Hlwr | ].
-          intros k w1 w2 (Hkf & Hkm) _. split; [ | exact Hkm ].
-          eapply incl_mod_perm_l;
-            [ apply Permutation_sym;
-              apply (output_map_run (fun sender outs => filter (forward sender k) outs));
-                [ intros; apply filter_app | eauto ] | ].
-          apply incl_mod_app; [ eapply forwarded_in_state; eauto | exact Hkf ].
-        + eapply Forall2_map_get_l in Hlwr; eauto. fwd. map_func. split; [ | assumption ].
-          eapply incl_mod_perm_l;
-            [ apply Permutation_sym;
-              apply (output_map_run (fun sender outs => filter (forward sender n) outs));
-                [ intros; apply filter_app | eauto ] | ].
-          apply incl_mod_app; [ eapply forwarded_in_state; eauto | eassumption ].
-      - especialize Hle'; eauto. especialize Hlew'; eauto. fwd.
-        apply eventually_done.
-        cbv [le_weak] in Hlew |- *.
-        eapply Forall2_map_put_l; [ | exact Hlew'p0 | ].
-        + eapply Forall2_map_impl; [ exact Hlew | ].
-          intros k w1 w2 (Hkf & Hkm) _. split; [ | exact Hkm ].
-          eapply incl_mod_perm_l;
-            [ apply Permutation_sym; unfold fwd_total;
-              erewrite output_map_put_output_eq by (eassumption || reflexivity); reflexivity |exact Hkf ].
-        + eapply Forall2_map_get_l in Hlew; eauto. fwd. split; [ | assumption ].
-          eapply incl_mod_perm_l;
-            [ apply Permutation_sym; unfold fwd_total;
-              erewrite output_map_put_output_eq by (eassumption || reflexivity); reflexivity |eassumption ].
+        rewrite (outputs_partition_run gs1 n ns lbl0 outs0 ns' H6).
+        eapply Forall2_map_put_l;
+          [ eapply Forall2_map_impl; [ exact Hlwr | ]; intros ? ? ? Hkf ?; exact Hkf
+          | rewrite outputs_partition_get, Hvalp0; reflexivity
+          | ].
+        apply incl_mod_app.
+        + intros x Hx. rewrite Forall_forall in Hvalp1.
+          destruct (Hvalp1 x Hx) as (x' & Hequiv & Hin). exists x'. split; [ exact Hin | exact Hequiv ].
+        + specialize (Hlwr n). rewrite !outputs_partition_get, H6, Hvalp0 in Hlwr.
+          cbn [option_map] in Hlwr. exact Hlwr.
+      - especialize Hle'; eauto. fwd.
+        apply eventually_done. cbv [le_weak].
+        erewrite (outputs_partition_put_output_eq gs1 n ns) by (eassumption || reflexivity).
+        exact Hlew.
     Qed.
 
     Lemma node_will_match gs1 t1 lbl outs gs1' gs2 t2 :
@@ -1217,9 +1176,9 @@ Definition consistent_good :=
       graph_inputs_allowed (inputs_of t2) ->
       gstep gs1 (O_event lbl outs) gs1' ->
       le gs1 gs2 ->
-      le_weak gs1 t1 gs2 t2 ->
+      le_weak gs1 gs2 ->
       eventually graph_will_step
-        (fun '(gs2', t2') => le gs1' gs2' /\ le_weak gs1' (O_event lbl outs :: t1) gs2' t2') (gs2, t2).
+        (fun '(gs2', _) => le gs1' gs2' /\ le_weak gs1' gs2') (gs2, t2).
     Proof.
       intros Hstar1 Hstar2 Hsub Hga1 Hga2 Hstep Hle Hlew.
       assert (Hstar1' : star gstep initial_gs (O_event lbl outs :: t1) gs1') by eauto.
@@ -1237,11 +1196,11 @@ Definition consistent_good :=
           [ exact Hsub | exists (inputs_of tr); apply Permutation_app_comm ]. }
       pose proof (le_weak_to_le _ _ _ _ Hstar1' Hstar2' Hsub' Hga_imp Hlw) as Hle2.
       eapply eventually_weaken.
-      { eapply eventually_carry_stable_gen with (P := (fun '(s, t) => le_weak gs1' (O_event lbl outs :: t1) s t));
+      { eapply eventually_carry_stable_gen with (P := (fun '(s, _) => le_weak gs1' s));
           [ | exact Hlw | exact Hle2 ].
         intros s s' e t Hlws Hst.
         eapply le_weak_trans;
-          [ exact Hlws | apply le_strong_le_weak; eapply gstep_le_strong; exact Hst ]. }
+          [ exact Hlws | exact (star_gstep_le_weak _ _ _ (star_one _ _ _ _ Hst)) ]. }
       intros [s t] (Hlw_s & Hle_s). split; [ exact Hle_s | exact Hlw_s ].
     Qed.
 
@@ -1320,7 +1279,7 @@ Definition consistent_good :=
       star gstep gs0 t' gs_f ->
       inputs_of t' = [] ->
       eventually graph_will_step
-        (fun '(gs2, t2) => le gs_f gs2 /\ le_weak gs_f (t' ++ t0) gs2 t2) (gs0, t0).
+        (fun '(gs2, _) => le gs_f gs2 /\ le_weak gs_f gs2) (gs0, t0).
     Proof.
       intros Hstar0 Hga0 Hrun Hinp. revert Hinp.
       induction Hrun as [ | T0 gmid e gsf Hrun' IH Hstep ]; intros Hinp.
