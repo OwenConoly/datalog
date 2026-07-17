@@ -632,11 +632,8 @@ Section __.
         destruct Hreach as (tr & Hstar_s0s2 & -> & Hga_imp).
         specialize (Hga_imp Hga0).
         assert (Hstar2 : star (node_step np) node_init (tr ++ t0) s2) by eauto using star_app.
-        eapply node_will_match;
-          [ exact Hmrv
-          | eapply reachable_node_good; [exact Hmrv | exact Hga_imp | exact Hstar2]
-          | exact Hstep
-          | exact Hle_mid ].
+        eapply node_will_match; try eassumption.
+        eapply reachable_node_good; eassumption.
   Qed.
 
   Lemma node_might_implies_will :
@@ -662,5 +659,11 @@ Section __.
     - apply dfact_equiv_sym. exact Ho'_eq.
     - erewrite <- sent_eq_outputs by eassumption. eassumption.
   Qed.
+
+  Lemma node_might_implies_will' {stmt} (claim consistent : stmt -> list dfact -> Prop) :
+    meta_rules_valid np.(np_rules) ->
+    might_implies_will_equiv' (node_step np) dfact_equiv claim consistent allowed_inputs node_init.
+  Proof.
+  Admitted.
 
 End __.

@@ -338,10 +338,13 @@ Section Distributed.
                   consistent nallowed nstep) initial_graph_state.
   Proof.
     intros k v Hkv. apply initial_graph_state_get in Hkv. destruct Hkv as (np & Hget & ->).
+    pose proof (node_might_implies_will' R_senders np claim consistent (Hmrv _ _ Hget)) as Hmiw'.
+    apply (proj1 (@ciw'_iff_ciw_and_monotone' _ _ _ (node_step R_senders np) dfact_equiv
+                    nequiv_equiv _ claim consistent (allowed_inputs R_senders) node_init)) in Hmiw'.
     cbv [node_good graph_node_init gns_node_state]. rewrite (prog_at_get k np Hget). ssplit.
     - admit.
-    - admit.
-    - apply node_might_implies_will. exact (Hmrv _ _ Hget).
+    - exact (proj2 Hmiw').
+    - exact (proj1 Hmiw').
   Admitted.
 
   Local Notation gstep := (graph_step input_allowed forward output_visible nstep).
