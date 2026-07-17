@@ -473,6 +473,17 @@ Section Map.
     | None => m
     end.
 
+  (*treat the map as total, reading [d] at keys that are absent*)
+  Definition get_default d m k :=
+    match map.get m k with
+    | Some v => v
+    | None => d
+    end.
+
+  Lemma get_default_Some d m k v :
+    map.get m k = Some v -> get_default d m k = v.
+  Proof. intros H. cbv [get_default]. rewrite H. reflexivity. Qed.
+
   Definition val_sat (m : mp) (k : key) (P : value -> Prop) : Prop :=
     exists v, map.get m k = Some v /\ P v.
 
