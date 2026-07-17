@@ -274,25 +274,39 @@ end.
 Print pATLexpr'.
 Print Blocks.blocks_prog.
 Print Datalog.Blocks.block_rule.
+Print pATLexpr.
 
-Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) : blocks_prog var := 
+Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exprvar) : blocks_prog var := 
   match e with
-  | Gen n lo hi body => Block 0 [] []
+  | Gen n lo hi body => 
+    (* i'm not sure where to use hi and lo here - the old compiler didn't appear to use them at all?
+    is it that i basically want to case lower_pATLexpr' hi times??? *)
+    lower_pATLexpr' (body (length idxs)) (idxs ++ [length idxs])
   | Sum n lo hi body => Block 0 [] []
   | Guard n b e1 => Block 0 [] []
-  | Lbind n m x f => Block 0 [] []
-    (*LetIn (lower_pATLexpr' x) (fun val =>
-      lower_pATLexpr' (f val))*)
+  | Lbind n m x f =>
+  (* i tried casting val to a var_of var (tensor_n n), but for reason it's still nto working, and i have no clue how to fix it *)
+    LetIn (lower_pATLexpr' x idxs) (fun val =>
+      lower_pATLexpr' (f (val : var_of var (tensor_n n))) idxs)
   | Concat n x y => Block 0 [] []
   | Flatten n x => Block 0 [] []
   | Split n k x => Block 0 [] []
-  | Transpose n x => Block 0 [] []
+  | Transpose n x =>
+  (* i feel like this is wrong, but basically what its meant to do is use a letin statement, to compile x, and then
+  it has the fun block part be a normal block, but then i feel like the numbers got messy ... i wasn't sure what to use so i kept using
+  length idxs, but honeslty that doesn't really make any sense but i also have no clue with what other numbers i can use for this,
+  because in the original compiler, you used dimvar and the size of e, but i can't get size of e with x ... should i be using n??? *)
+    LetIn (lower_pATLexpr' x idxs) 
+    (fun val => Block (length idxs) [(n, val)]
+      [normal_rule
+       [{| clause_rel := local (length idxs); clause_args := map var_expr idxs ++ [var_expr (length idxs); var_expr (S  (length idxs))] |}]
+       [{| clause_rel := input (length idxs); clause_args := map var_expr idxs ++ [var_expr (S  (length idxs)); var_expr  (length idxs)] |}]])
   | Truncr n k x => Block 0 [] []
   | Truncl m k x => Block 0 [] []
   | Padr k x => Block 0 [] []
   | Padl k x => Block 0 [] []
   | Scalar x => 
-    let '(value, hyps, next_varname, correspondences) := (lower_pSexpr' [] 0 x) in
+    let '(value, hyps, next_varname, correspondences) := (lower_pSexpr' idxs 0 x) in
       Block next_varname correspondences 
           [normal_rule [{| clause_rel := local next_varname; clause_args := [value] |}] hyps]
   end.
