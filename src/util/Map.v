@@ -416,15 +416,23 @@ Lemma Forall2_map_refl {key value} {mp : map.map key value}
   Forall2_map R m m.
 Proof. intros H k. destruct (map.get m k); [ apply H | exact I ]. Qed.
 
+Lemma Forall2_map_compose {key value1 value2 value3}
+  {mp1 : map.map key value1} {mp2 : map.map key value2} {mp3 : map.map key value3}
+  (R1 : key -> value1 -> value2 -> Prop) (R2 : key -> value2 -> value3 -> Prop)
+  (R3 : key -> value1 -> value3 -> Prop) (m1 : mp1) (m2 : mp2) (m3 : mp3) :
+  (forall k a b c, R1 k a b -> R2 k b c -> R3 k a c) ->
+  Forall2_map R1 m1 m2 -> Forall2_map R2 m2 m3 -> Forall2_map R3 m1 m3.
+Proof.
+  intros Hcomp H12 H23 k. specialize (H12 k); specialize (H23 k).
+  destruct (map.get m1 k), (map.get m2 k), (map.get m3 k);
+    try contradiction; try exact I. eapply Hcomp; eassumption.
+Qed.
+
 Lemma Forall2_map_trans {key value} {mp : map.map key value}
   (R : key -> value -> value -> Prop) (m1 m2 m3 : mp) :
   (forall k a b c, R k a b -> R k b c -> R k a c) ->
   Forall2_map R m1 m2 -> Forall2_map R m2 m3 -> Forall2_map R m1 m3.
-Proof.
-  intros Htrans H12 H23 k. specialize (H12 k); specialize (H23 k).
-  destruct (map.get m1 k), (map.get m2 k), (map.get m3 k);
-    try contradiction; try exact I. eapply Htrans; eassumption.
-Qed.
+Proof. exact (Forall2_map_compose R R R m1 m2 m3). Qed.
 
 Lemma Forall3_map_dup_23 {key value1 value2}
   {mp1 : map.map key value1} {mp2 : map.map key value2}
@@ -531,6 +539,15 @@ Section Map.
     Forall2_map R' (map_values' g m1) m2.
   Proof.
     intros H k. specialize (H k). rewrite get_map_values'. revert H.
+    destruct (map.get m1 k); destruct (map.get m2 k); cbn [option_map]; auto.
+  Qed.
+
+  Lemma Forall2_map_map_values'_inv (R : key -> value' -> value' -> Prop)
+      (f g : key -> value -> value') (m1 m2 : mp) :
+    Forall2_map R (map_values' f m1) (map_values' g m2) ->
+    Forall2_map (fun k a b => R k (f k a) (g k b)) m1 m2.
+  Proof.
+    intros H k. specialize (H k). rewrite !get_map_values' in H. revert H.
     destruct (map.get m1 k); destruct (map.get m2 k); cbn [option_map]; auto.
   Qed.
 

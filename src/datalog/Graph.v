@@ -304,16 +304,6 @@ Definition consistent_good :=
       destruct (map.get M j) as [w|]; cbn [option_map]; [ rewrite Hg | ]; reflexivity.
     Qed.
 
-    Lemma outputs_partition_mupd_enqueue gs n inps :
-      outputs_partition (mupd gs n (enqueue inps)) = outputs_partition gs.
-    Proof.
-      unfold mupd. destruct (map.get gs n) as [v|] eqn:Hn; [ | reflexivity ].
-      assert (Hg : map.get (outputs_partition gs) n = Some (outputs_of v.(gns_trace)))
-        by (rewrite outputs_partition_get, Hn; reflexivity).
-      rewrite outputs_partition_put. cbn [enqueue gns_trace].
-      rewrite (map.put_noop n (outputs_of v.(gns_trace)) (outputs_partition gs) Hg). reflexivity.
-    Qed.
-
     Lemma outputs_partition_put_output_eq gs n v0 v :
       map.get gs n = Some v0 ->
       outputs_of v.(gns_trace) = outputs_of v0.(gns_trace) ->
@@ -324,6 +314,13 @@ Definition consistent_good :=
         by (rewrite outputs_partition_get, Hn; reflexivity).
       rewrite outputs_partition_put, Ho.
       rewrite (map.put_noop n (outputs_of v0.(gns_trace)) (outputs_partition gs) Hg). reflexivity.
+    Qed.
+
+    Lemma outputs_partition_mupd_enqueue gs n inps :
+      outputs_partition (mupd gs n (enqueue inps)) = outputs_partition gs.
+    Proof.
+      unfold mupd. destruct (map.get gs n) as [v|] eqn:Hn; [ | reflexivity ].
+      apply (outputs_partition_put_output_eq gs n v _ Hn). reflexivity.
     Qed.
 
     Lemma outputs_partition_run gs n ns lbl outs ns' :
@@ -464,53 +461,36 @@ Definition consistent_good :=
           [ | symmetry; apply Permutation_app_tail;
               unfold fwd_total; rewrite output_map_mupd_enqueue; reflexivity ].
         destr (eqb n nn).
-        + destruct (map.get gs nn) as [vn|] eqn:Hgn.
-          2:{ cbn [option_map] in Hg'. discriminate. }
-          cbn [option_map] in Hg'. injection Hg' as Hnsn. subst nsn.
-          cbn [enqueue gns_trace gns_queue]. change ([m] ++ gns_queue vn) with (m :: gns_queue vn).
-          transitivity (m :: (inputs_of (gns_trace vn) ++ gns_queue vn));
-            [ symmetry; apply Permutation_middle | ].
-          transitivity (m :: (fwd_total nn gs ++ matching_inps nn ext));
-            [ apply perm_skip; apply (IH nn vn Hgn) | ].
-          transitivity ((fwd_total nn gs ++ matching_inps nn ext) ++ [m]);
-            [ apply Permutation_cons_append | ].
+        + apply option_map_Some in Hg'. fwd.
+          cbn [enqueue gns_trace gns_queue]. simpl.
+          etransitivity.
+          { symmetry. apply Permutation_middle. }
+          etransitivity.
+          { apply perm_skip. apply IH. eassumption. }
+          etransitivity.
+          { apply Permutation_cons_append. }
           rewrite app_assoc. apply Permutation_refl.
         + rewrite app_nil_r. apply IH. exact Hg'.
       - rewrite get_map_values', map.get_put_dec in Hg'.
-        match goal with |- context[matching_inps nn (ext ++ ?x)] =>
-          replace x with (@nil (message * node_id)) by reflexivity end.
-        rewrite app_nil_r.
-        eapply perm_trans;
+        apply option_map_Some in Hg'. fwd.
+        simpl. rewrite app_nil_r.
+        etransitivity;
           [ | symmetry; apply Permutation_app_tail;
               apply (output_map_run (fun sender outs => filter (forward sender nn) outs)
                        ltac:(intros; apply filter_app) gs n ns lbl outs ns' H) ].
         destr_sth Nat.eqb.
-        + cbn [option_map] in Hg'. injection Hg' as Hnsn. subst nsn.
-          cbn [enqueue gns_trace gns_queue].
-          change (inputs_of (O_event lbl outs :: gns_trace ns)) with (inputs_of (gns_trace ns)).
-          rewrite <- app_assoc. apply perm_ins. apply (IH nn ns H).
-        + destruct (map.get gs nn) as [vn|] eqn:Hgn.
-          2:{ cbn [option_map] in Hg'. discriminate. }
-          cbn [option_map] in Hg'. injection Hg' as Hnsn. subst nsn.
-          cbn [enqueue gns_trace gns_queue].
-          rewrite <- app_assoc. apply perm_ins. apply (IH nn vn Hgn).
-      - rewrite map.get_put_dec in Hg'.
-        match goal with |- context[matching_inps nn (ext ++ ?x)] =>
-          replace x with (@nil (message * node_id)) by reflexivity end.
-        rewrite app_nil_r.
-        eapply perm_trans;
+        + fwd. cbn [enqueue gns_trace gns_queue]. simpl.
+          rewrite <- app_assoc. apply perm_ins. eauto.
+        + cbn [enqueue gns_trace gns_queue].
+          rewrite <- app_assoc. apply perm_ins. eauto.
+      - rewrite map.get_put_dec in Hg'. simpl. rewrite app_nil_r.
+        etransitivity;
           [ | symmetry; apply Permutation_app_tail;
               unfold fwd_total;
               erewrite output_map_put_output_eq by (eassumption || reflexivity); reflexivity ].
-        destr_sth Nat.eqb.
-        + injection Hg' as Hnsn. subst nsn. cbn [gns_trace gns_queue].
-          change (inputs_of (I_event m :: gns_trace ns)) with (m :: inputs_of (gns_trace ns)).
-          transitivity (inputs_of (gns_trace ns) ++ gns_queue ns); [ | apply (IH nn ns H) ].
-          rewrite H1, <- app_comm_cons.
-          rewrite (app_assoc (inputs_of (gns_trace ns)) ms1 ms2),
-                  (app_assoc (inputs_of (gns_trace ns)) ms1 (m :: ms2)).
-          apply Permutation_middle.
-        + apply IH. exact Hg'.
+        destr_sth Nat.eqb; eauto.
+        fwd. simpl. specialize (IH _ _ ltac:(eassumption)). rewrite H1 in IH.
+        Show. (*TODO create hint database that such that eauto solves this.*)
     Qed.
 
     Lemma conserved_perm_ext gs e1 e2 :
@@ -562,9 +542,6 @@ Definition consistent_good :=
       exact (Howf _ _ Hrun nn).
     Qed.
 
-    (* [with_external partition ext] : the [option node_id]-keyed partition feeding
-       [consistent_good] — the internal blocks at [Some k], the external at [None].
-       This is the sole crossing point into the [option node_id] world. *)
     Definition with_external (partition : msg_map) (ext : list message) : node_map :=
       map.put (map.map_keys Some partition) None ext.
 
@@ -576,7 +553,7 @@ Definition consistent_good :=
       map.get (with_external partition ext) (Some k) = map.get partition k.
     Proof.
       unfold with_external. rewrite map.get_put_diff by discriminate.
-      apply (map.get_map_keys_always_invertible Some ltac:(congruence)).
+      apply map.get_map_keys_always_invertible. congruence.
     Qed.
 
     Lemma values_with_external partition ext :
@@ -760,22 +737,6 @@ Definition consistent_good :=
       exact Hext2.
     Qed.
 
-    Lemma consistently_incl_perm l1 l1' l2 l2' :
-      Permutation l1 l1' -> Permutation l2 l2' ->
-      consistently_incl equiv claim consistent l1 l2 ->
-      consistently_incl equiv claim consistent l1' l2'.
-    Proof.
-      intros Hp1 Hp2 [Hincl Hle]. split.
-      - eapply (incl_mod_trans equiv).
-        + eapply incl_mod_perm_l; [ exact Hp1 | exact Hincl ].
-        + apply (incl_mod_of_submultiset equiv). apply submultiset_perm. exact Hp2.
-      - intros s Hclaim' Hcons'.
-        eapply consistent_perm; [ exact Hp2 | ].
-        apply Hle.
-        + eapply claim_perm; [ apply Permutation_sym; exact Hp1 | exact Hclaim' ].
-        + eapply consistent_perm; [ apply Permutation_sym; exact Hp1 | exact Hcons' ].
-    Qed.
-
     Lemma consistently_incl_shrink_l l1 l1' l2 :
       submultiset l1' l1 ->
       consistently_incl equiv claim consistent l1 l2 ->
@@ -799,6 +760,16 @@ Definition consistent_good :=
           [ exact Hincl | apply (incl_mod_of_submultiset equiv _ _ Hsub) ].
       - intros s Hclaim' Hcons'.
         eapply consistent_mono; [ apply Hle; [ exact Hclaim' | exact Hcons' ] | exact Hsub ].
+    Qed.
+
+    Lemma consistently_incl_perm l1 l1' l2 l2' :
+      Permutation l1 l1' -> Permutation l2 l2' ->
+      consistently_incl equiv claim consistent l1 l2 ->
+      consistently_incl equiv claim consistent l1' l2'.
+    Proof.
+      intros Hp1 Hp2 H.
+      eapply consistently_incl_shrink_l; [ apply submultiset_perm, Permutation_sym; exact Hp1 | ].
+      eapply consistently_incl_grow_r; [ apply submultiset_perm; exact Hp2 | exact H ].
     Qed.
 
     Lemma incl_mod_of_le_weak t1 gs1 t2 gs2 n ns1 ns2 :
@@ -854,8 +825,6 @@ Definition consistent_good :=
       apply submultiset_matching_inps. exact Hsub.
     Qed.
 
-    (* A node's received pool (trace-inputs ++ queue) only grows under a step:
-       input adds to the queue, receive relocates queue -> trace, run forwards. *)
     Lemma gstep_pool_step g e g' :
       gstep g e g' ->
       Forall2_map (fun _ ns1 ns2 =>
@@ -900,13 +869,8 @@ Definition consistent_good :=
     Proof.
       induction 1 as [ | t0 s' e s'' Hstar IH Hstep ].
       - apply Forall2_map_refl. intros. split; apply submultiset_refl.
-      - pose proof (gstep_pool_step _ _ _ Hstep) as Hstep'.
-        cbv [Forall2_map] in IH, Hstep' |- *. intros k.
-        specialize (IH k); specialize (Hstep' k).
-        destruct (map.get g1 k), (map.get s' k), (map.get s'' k);
-          cbn in *; try contradiction; try exact I.
-        destruct IH as (Ht1 & Hp1), Hstep' as (Ht2 & Hp2).
-        split; eapply submultiset_trans; eassumption.
+      - eapply Forall2_map_trans; [ | exact IH | apply (gstep_pool_step _ _ _ Hstep) ].
+        intros k a b c (Ht1 & Hp1) (Ht2 & Hp2). split; eapply submultiset_trans; eassumption.
     Qed.
 
     Lemma eventually_deliver n :
@@ -1029,25 +993,17 @@ Definition consistent_good :=
       apply eventually_will_step_reach.
       eapply eventually_weaken.
       { exact (eventually_received _ _). }
-      intros [gs2' t2'] Hrecv (tr & Htr & -> & _).
-      assert (Hreach2' : star gstep initial_gs (tr ++ t2) gs2')
-        by (eapply star_app; [ exact Hstar2 | exact Htr ]).
-      cbv [le]. apply Forall2_map_intro.
-      { intros k. split; intros HN.
-        - apply (proj1 (reachable_domain _ _ k Hreach2')).
-          apply (proj2 (reachable_domain _ _ k Hstar1)). exact HN.
-        - apply (proj1 (reachable_domain _ _ k Hstar1)).
-          apply (proj2 (reachable_domain _ _ k Hreach2')). exact HN. }
-      intros k ns1 ns2' Hg1 Hg2'.
-      destruct (Forall2_map_get_r _ _ _ _ _ Hrecv Hg2') as (ns2 & Hg2 & Hrec).
-      pose proof (le_weak_fwd_total _ _ k Hlew) as Hlfwd.
-      pose proof (submultiset_matching_inps k _ _ Hsub) as Hlmatch.
-      apply (consistently_incl_shrink_l (inputs_of (gns_trace ns1) ++ gns_queue ns1));
-        [ apply submultiset_app_r | ].
-      apply (consistently_incl_grow_r _ (inputs_of (gns_trace ns2) ++ gns_queue ns2));
-        [ exact Hrec | ].
-      apply (incl_mod_of_le_weak t1 gs1 t2 gs2 k ns1 ns2
-               Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2 Hlfwd Hlmatch).
+      intros [gs2' t2'] Hrecv _.
+      cbv [le]. unfold le_weak, outputs_partition in Hlew.
+      eapply Forall2_map_compose; [ | | exact Hrecv ].
+      2:{ pose proof (Forall2_map_map_values'_inv _ _ _ _ _ Hlew) as Hout.
+          eapply Forall2_map_impl_strong; [ exact Hout | ].
+          intros k ns1 ns2 Hg1 Hg2 _.
+          apply (incl_mod_of_le_weak t1 gs1 t2 gs2 k ns1 ns2 Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2
+                   (le_weak_fwd_total _ _ k Hlew) (submultiset_matching_inps k _ _ Hsub)). }
+      intros k ns1 ns2 ns2' Ha Hrec.
+      eapply consistently_incl_shrink_l; [ apply submultiset_app_r | ].
+      eapply consistently_incl_grow_r; [ exact Hrec | exact Ha ].
     Qed.
 
     Lemma node_will_match' gs1 t1 lbl outs gs1' gs2 t2 :
