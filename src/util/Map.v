@@ -932,3 +932,98 @@ Section ConcatValuesMapValues.
     apply concat_values_get. rewrite get_map_values', H. reflexivity.
   Qed.
 End ConcatValuesMapValues.
+
+Section CountingMap.
+  Context {key : Type} {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb}.
+  Context {T : Type} {mp : map.map key (list T)} {mp_ok : map.ok mp}.
+  Context (P : T -> Prop).
+
+  Lemma Forall_map_tuples (R : key -> list T -> Prop) (m : mp) :
+    Forall_map R m -> Forall (fun p => R (fst p) (snd p)) (map.tuples m).
+  Proof.
+    intros H. apply Forall_forall. intros [k v] Hin.
+    exact (H k v (proj1 (map.tuples_spec m k v) Hin)).
+  Qed.
+
+  Lemma Forall_map_of_tuples (R : key -> list T -> Prop) (m : mp) :
+    Forall (fun p => R (fst p) (snd p)) (map.tuples m) -> Forall_map R m.
+  Proof.
+    intros H k v Hget. rewrite Forall_forall in H.
+    exact (H (k, v) (proj2 (map.tuples_spec m k v) Hget)).
+  Qed.
+
+  Lemma Forall_map_values_keys (Q : nat -> list T -> Prop) (e : key -> nat) (m : mp) :
+    Forall_map (fun k ms => Q (e k) ms) m <->
+    Forall2 (fun ms c => Q c ms) (values m) (List.map e (map.keys m)).
+  Proof.
+    rewrite values_eq_tuples, keys_eq_tuples, map_map. split.
+    - intros H. apply Forall2_map_map. exact (Forall_map_tuples _ m H).
+    - intros H. apply Forall_map_of_tuples. exact (Forall2_map_map_inv _ _ _ _ H).
+  Qed.
+
+  Lemma Existsn_ge_concat_map (e : key -> nat) (m : mp) :
+    Forall_map (fun k ms => Existsn_ge P (e k) ms) m ->
+    Existsn_ge P (list_sum (List.map e (map.keys m))) (concat (values m)).
+  Proof.
+    intros H. apply (Forall_map_values_keys (Existsn_ge P) e m) in H.
+    apply Existsn_ge_concat. exact H.
+  Qed.
+
+  Lemma Existsn_le_concat_map (e : key -> nat) (m : mp) :
+    Forall_map (fun k ms => Existsn_le P (e k) ms) m ->
+    Existsn_le P (list_sum (List.map e (map.keys m))) (concat (values m)).
+  Proof.
+    intros H. apply (Forall_map_values_keys (Existsn_le P) e m) in H.
+    apply Existsn_le_concat. exact H.
+  Qed.
+
+  Lemma Existsn_squeeze_map (e : key -> nat) (m : mp) :
+    Existsn_ge P (list_sum (List.map e (map.keys m))) (concat (values m)) ->
+    Forall_map (fun k ms => Existsn_le P (e k) ms) m ->
+    Forall_map (fun k ms => Existsn_ge P (e k) ms) m.
+  Proof.
+    intros Hge Hle. apply (Forall_map_values_keys (Existsn_le P) e m) in Hle.
+    apply (Forall_map_values_keys (Existsn_ge P) e m).
+    apply Existsn_squeeze; assumption.
+  Qed.
+End CountingMap.
+
+Lemma get_of_list_not_In {key value} {mp : map.map key value} {mp_ok : map.ok mp}
+  (l : list (key * value)) (k : key) :
+  ~ In k (List.map fst l) -> map.get (map.of_list l) k = None.
+Proof.
+  induction l as [| [k' v'] l' IH]; cbn [map.of_list].
+  - intros _. apply map.get_empty.
+  - cbn [List.map fst]. intros Hnin.
+    rewrite map.get_put_diff by (intros ->; apply Hnin; left; reflexivity).
+    apply IH. intros Hin. apply Hnin. right. exact Hin.
+Qed.
+
+Lemma get_of_list_In {key value} {mp : map.map key value} {mp_ok : map.ok mp}
+  {keqb : Eqb key} {keqb_ok : Eqb_ok keqb} (l : list (key * value)) k v :
+  map.get (map.of_list l) k = Some v -> In (k, v) l.
+Proof.
+  induction l as [| [k' v'] l' IH]; cbn [map.of_list].
+  - rewrite map.get_empty. discriminate.
+  - intros Hget. destr (eqb k k').
+    + rewrite map.get_put_same in Hget. left. congruence.
+    + rewrite map.get_put_diff in Hget by congruence.
+      right. apply IH. exact Hget.
+Qed.
+
+Lemma map_get_of_list_zip {key value} {mp : map.map key value} {mp_ok : map.ok mp}
+  (ks : list key) (vs : list value) (d : value) :
+  NoDup ks -> length ks = length vs ->
+  List.map (fun k => match map.get (map.of_list (combine ks vs)) k with
+                     | Some v => v | None => d end) ks = vs.
+Proof.
+  revert vs. induction ks as [| k ks' IH]; intros [| v vs'] Hnd Hlen;
+    try (cbn in Hlen; discriminate); [ reflexivity | ].
+  apply NoDup_cons_iff in Hnd. destruct Hnd as [Hknin Hnd'].
+  cbn [combine map.of_list List.map]. rewrite map.get_put_same. f_equal.
+  transitivity (List.map (fun k0 => match map.get (map.of_list (combine ks' vs')) k0 with
+                                    | Some v0 => v0 | None => d end) ks').
+  - apply map_ext_in. intros k0 Hk0.
+    rewrite map.get_put_diff; [ reflexivity | intros ->; contradiction ].
+  - apply (IH vs' Hnd' ltac:(cbn in Hlen; congruence)).
+Qed.

@@ -142,6 +142,14 @@ Proof.
   constructor; [ exact Hhd | exact (IH Htl) ].
 Qed.
 
+Lemma Forall2_map_map_inv {A B D} (R : B -> D -> Prop) (f : A -> B) (g : A -> D) (l : list A) :
+  Forall2 R (map f l) (map g l) -> Forall (fun x => R (f x) (g x)) l.
+Proof.
+  induction l as [|a l IH]; cbn [map]; intros HF; [constructor|].
+  inversion HF as [| ? ? ? ? Hhd Htl]; subst.
+  constructor; [ exact Hhd | exact (IH Htl) ].
+Qed.
+
 Section subset.
   Context {A : Type}.
   Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.
@@ -411,6 +419,67 @@ Proof. induction l as [|a l IH]; simpl; [contradiction | intros [->|Hin]; [lia |
 Lemma list_sum_zero l :
   Forall (eq 0) l -> list_sum l = 0.
 Proof. induction 1; simpl; [reflexivity | subst; assumption]. Qed.
+
+Lemma Permutation_list_sum l1 l2 : Permutation l1 l2 -> list_sum l1 = list_sum l2.
+Proof. induction 1; rewrite ?list_sum_cons; lia. Qed.
+
+Lemma Forall2_In_l {A B} (R : A -> B -> Prop) xs ys x :
+  Forall2 R xs ys -> In x xs -> exists y, In (x, y) (combine xs ys) /\ R x y.
+Proof.
+  induction 1 as [| a b xs' ys' Hab HF IH]; [ contradiction | ].
+  intros [-> | Hin].
+  - exists b. split; [ left; reflexivity | exact Hab ].
+  - destruct (IH Hin) as (y & Hcomb & Hy). exists y. split; [ right; exact Hcomb | exact Hy ].
+Qed.
+
+Lemma map_fst_combine {A B} (a : list A) (b : list B) :
+  length a = length b -> map fst (combine a b) = a.
+Proof.
+  revert b. induction a as [| x a' IH]; intros [| y b'] Hlen; try discriminate; [ reflexivity | ].
+  cbn [combine map fst]. f_equal. apply IH. cbn in Hlen. congruence.
+Qed.
+
+Section SenderCount.
+  Context {K : Type} {eqbK : Eqb K} {eqbK_ok : Eqb_ok eqbK}.
+
+  Lemma list_sum_map_filter_zero (f : K -> nat) (g : K -> bool) (l : list K) :
+    (forall x, In x l -> g x = false -> f x = 0) ->
+    list_sum (map f l) = list_sum (map f (filter g l)).
+  Proof.
+    induction l as [| a l' IH]; [ reflexivity | ]. intros Hz. cbn [filter].
+    destruct (g a) eqn:Ega.
+    - cbn [map]. rewrite !list_sum_cons. f_equal. apply IH. intros x Hx. apply Hz. right. exact Hx.
+    - cbn [map]. rewrite list_sum_cons, (Hz a (or_introl eq_refl) Ega). cbn [Nat.add].
+      apply IH. intros x Hx. apply Hz. right. exact Hx.
+  Qed.
+
+  Lemma Permutation_filter_mem (sub sup : list K) :
+    NoDup sub -> NoDup sup -> incl sub sup ->
+    Permutation (filter (fun k => existsb (eqb k) sub) sup) sub.
+  Proof.
+    intros Hsub Hsup Hincl. apply NoDup_Permutation.
+    - apply NoDup_filter. exact Hsup.
+    - exact Hsub.
+    - intros x. rewrite filter_In. split.
+      + intros [_ Hex]. apply existsb_exists in Hex. destruct Hex as (y & Hy & Heq).
+        assert (x = y) by (destr (eqb x y); congruence). subst x. exact Hy.
+      + intros Hx. split; [ apply Hincl; exact Hx | ].
+        apply existsb_exists. exists x. split; [ exact Hx | ]. destr (eqb x x); congruence.
+  Qed.
+
+  Lemma list_sum_map_over_subset (f : K -> nat) (sub sup : list K) :
+    NoDup sub -> NoDup sup -> incl sub sup -> (forall k, ~ In k sub -> f k = 0) ->
+    list_sum (map f sup) = list_sum (map f sub).
+  Proof.
+    intros Hsub Hsup Hincl Hz.
+    rewrite (list_sum_map_filter_zero f (fun k => existsb (eqb k) sub) sup).
+    - apply Permutation_list_sum, Permutation_map, Permutation_filter_mem; assumption.
+    - intros x _ Hg. apply Hz. intros Hin.
+      assert (existsb (eqb x) sub = true)
+        by (apply existsb_exists; exists x; split; [ exact Hin | destr (eqb x x); congruence ]).
+      congruence.
+  Qed.
+End SenderCount.
 
 Lemma Forall2_map_r {A B C} R (f : B -> C) (l1 : list A) (l2 : list B) :
   Forall2 (fun x y => R x (f y)) l1 l2 <->
