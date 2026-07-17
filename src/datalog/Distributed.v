@@ -36,11 +36,12 @@ Section Distributed.
     destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
   Qed.
 
-  (* The graph runs one node program [np] replicated across nodes. *)
-  Context (np : node_prog).
-  Context (Hmrv : meta_rules_valid np.(np_rules)).
+  (* Each graph node [n] runs its own program [graph_prog n], whose name is [Some n]. *)
+  Context (graph_prog : node_id -> node_prog).
+  Context (Hmrv : forall n, meta_rules_valid (graph_prog n).(np_rules)).
+  Context (Hname : forall n, (graph_prog n).(np_name) = Some n).
 
-  Local Notation nstep := (node_step R_senders np).
+  Local Notation nstep := (fun n => node_step R_senders (graph_prog n)).
   Local Notation nallowed := (allowed_inputs R_senders).
 
   #[local] Instance nequiv_equiv : Equivalence dfact_equiv.
@@ -299,29 +300,42 @@ Section Distributed.
   Context {graph_state_ok : map.ok graph_state}.
   Context {msg_map : map.map node_id (list dfact)} {msg_map_ok : map.ok msg_map}.
   Context {omap : map.map node_id (list (dfact * node_id))} {omap_ok : map.ok omap}.
-  Context (initial_gs : graph_state).
-  Context (initial_gs_empty :
-             forall n gns, map.get initial_gs n = Some gns ->
-                           gns.(gns_trace) = [] /\ gns.(gns_queue) = []).
-  Context (initial_gs_node_init :
-             forall n gns, map.get initial_gs n = Some gns ->
-                           gns.(gns_node_state) = node_init).
+
+  Context (node_ids : list node_id).
+
+  Definition graph_node_init : @graph_node_state dfact dfact_mod_count node_state :=
+    {| gns_node_state := node_init; gns_trace := []; gns_queue := [] |}.
+
+  Definition initial_graph_state : graph_state :=
+    map.of_list (List.map (fun n => (n, graph_node_init)) node_ids).
+
+  Lemma initial_graph_state_get n gns :
+    map.get initial_graph_state n = Some gns -> gns = graph_node_init.
+  Proof.
+    intros H. apply get_of_list_In in H. apply in_map_iff in H.
+    destruct H as (n' & Heq & _). injection Heq as _ ->. reflexivity.
+  Qed.
+
+  Lemma initial_graph_state_empty n gns :
+    map.get initial_graph_state n = Some gns ->
+    gns.(gns_trace) = [] /\ gns.(gns_queue) = [].
+  Proof. intros H. apply initial_graph_state_get in H. subst gns. split; reflexivity. Qed.
 
   Lemma nallowed_multiset_monotone : multiset_monotone_dec nallowed.
   Proof. intros l1 l2 Hl2 Hsub. eapply allowed_inputs_submultiset; eauto. Qed.
 
-  Lemma nstep_input_total : input_total nstep.
+  Lemma nstep_input_total n : input_total (nstep n).
   Proof. intros s m. eexists. apply node_input_step. Qed.
 
   Lemma nodes_good_holds :
     Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
-                  consistent nallowed nstep) initial_gs.
+                  consistent nallowed nstep) initial_graph_state.
   Proof.
-    intros k v Hkv. cbv [node_good]. ssplit.
+    intros k v Hkv. apply initial_graph_state_get in Hkv. subst v.
+    cbv [node_good graph_node_init gns_node_state]. ssplit.
     - admit.
     - admit.
-    - erewrite initial_gs_node_init by eassumption.
-      apply node_might_implies_will. assumption.
+    - apply node_might_implies_will. apply Hmrv.
   Admitted.
 
   Local Notation gstep := (graph_step input_allowed forward output_visible nstep).
@@ -330,12 +344,13 @@ Section Distributed.
   Theorem distributed_might_implies_will
           (t : list (IO_event (@graph_label dfact dfact_mod_count) (dfact * node_id)))
           (gs : graph_state) (o : dfact * node_id) :
-    star gstep initial_gs t gs ->
+    star gstep initial_graph_state t gs ->
     gia (inputs_of t) ->
     might_output gstep gs t o ->
     will_output_equiv gstep (graph_equiv dfact_equiv) gia gs t o.
   Proof.
     intros.
+    pose proof initial_graph_state_empty as Hemp.
     eapply graph_might_implies_will; try eassumption.
     - exact nequiv_equiv.
     - exact output_visible_equiv.

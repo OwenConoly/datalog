@@ -109,7 +109,7 @@ Definition consistent_good :=
     forall n, allowed_output None (matching_inps n inps).
 
   Section graph.
-    Context {node_state : Type} (node_step : node_state -> IO_event -> node_state -> Prop).
+    Context {node_state : Type} (node_step : node_id -> node_state -> IO_event -> node_state -> Prop).
 
     Record graph_node_state :=
       { gns_node_state : node_state;
@@ -129,7 +129,7 @@ Definition consistent_good :=
       graph_step gs (I_event (m, n)) (mupd gs n (enqueue [m]))
     | gstep_run gs n ns ns' lbl outs :
       map.get gs n = Some ns ->
-      node_step ns.(gns_node_state) (O_event lbl outs) ns' ->
+      node_step n ns.(gns_node_state) (O_event lbl outs) ns' ->
       graph_step gs (O_event (run n lbl) (map (fun m => (m, n)) (filter (output_visible n) outs)))
         (map_values' (fun m => enqueue (filter (forward n m) outs))
            (map.put gs n
@@ -138,7 +138,7 @@ Definition consistent_good :=
                       gns_queue := ns.(gns_queue) |}))
     | gstep_receive gs n ns ns' m ms1 ms2 :
       map.get gs n = Some ns ->
-      node_step ns.(gns_node_state) (I_event m) ns' ->
+      node_step n ns.(gns_node_state) (I_event m) ns' ->
       ns.(gns_queue) = ms1 ++ m :: ms2 ->
       graph_step gs (O_event (receive n m) [])
         (map.put gs n
@@ -160,8 +160,8 @@ Definition consistent_good :=
     Context (initial_gs_empty :
                forall n gns, map.get initial_gs n = Some gns ->
                              gns.(gns_trace) = [] /\ gns.(gns_queue) = []).
-    Context (node_step : node_state -> IO_event -> node_state -> Prop).
-    Context (nodes_input_total : input_total node_step).
+    Context (node_step : node_id -> node_state -> IO_event -> node_state -> Prop).
+    Context (nodes_input_total : forall n, input_total (node_step n)).
 
     Local Notation gstep := (graph_step node_step).
 
@@ -179,9 +179,9 @@ Definition consistent_good :=
 
     Definition node_good (n : node_id) : graph_node_state node_state -> Prop :=
       fun gns =>
-        outputs_well_formed    node_step (good_node_output n) gns.(gns_node_state) /\
-        monotone_mod_equiv     node_step equiv claim consistent allowed gns.(gns_node_state) /\
-        might_implies_will_equiv node_step equiv allowed gns.(gns_node_state).
+        outputs_well_formed    (node_step n) (good_node_output n) gns.(gns_node_state) /\
+        monotone_mod_equiv     (node_step n) equiv claim consistent allowed gns.(gns_node_state) /\
+        might_implies_will_equiv (node_step n) equiv allowed gns.(gns_node_state).
 
     Definition outputs_partition (gs : graph_state) : msg_map :=
       map_values' (fun _ ns => outputs_of ns.(gns_trace)) gs.
@@ -235,10 +235,10 @@ Definition consistent_good :=
 
     Lemma graph_step_to_node_step gs gt gs' :
       star gstep gs gt gs' ->
-      Forall2_map (fun _ gns1 gns2 =>
+      Forall2_map (fun n gns1 gns2 =>
                      exists t'',
                        gns2.(gns_trace) = t'' ++ gns1.(gns_trace) /\
-                         star node_step gns1.(gns_node_state) t'' gns2.(gns_node_state))
+                         star (node_step n) gns1.(gns_node_state) t'' gns2.(gns_node_state))
         gs gs'.
     Proof.
       induction 1 as [ | gt2 smid e gs' Hstar IH Hstep].
@@ -258,8 +258,8 @@ Definition consistent_good :=
 
     Lemma graph_step_to_node_step_from_beginning gs gt :
       star gstep initial_gs gt gs ->
-      Forall2_map (fun _ gns0 gns =>
-                     star node_step gns0.(gns_node_state) gns.(gns_trace) gns.(gns_node_state))
+      Forall2_map (fun n gns0 gns =>
+                     star (node_step n) gns0.(gns_node_state) gns.(gns_trace) gns.(gns_node_state))
         initial_gs gs.
     Proof.
       intros. eapply Forall2_map_impl_strong.
@@ -585,7 +585,7 @@ Definition consistent_good :=
       star gstep initial_gs t gs ->
       graph_inputs_allowed (inputs_of t) ->
       Forall2_map (fun n gns0 gns =>
-                     star node_step (gns_node_state gns0) (gns_trace gns) (gns_node_state gns) /\
+                     star (node_step n) (gns_node_state gns0) (gns_trace gns) (gns_node_state gns) /\
                      allowed (inputs_of (gns_trace gns)))
         initial_gs gs.
     Proof.
@@ -600,7 +600,7 @@ Definition consistent_good :=
     Lemma graph_will_step_of_node_will_step n P gs gt gns :
       star gstep initial_gs gt gs ->
       map.get gs n = Some gns ->
-      will_step node_step allowed (gns.(gns_node_state), gns.(gns_trace)) P ->
+      will_step (node_step n) allowed (gns.(gns_node_state), gns.(gns_trace)) P ->
       graph_will_step
         (gs, gt)
         (fun '(gs', _) =>
@@ -628,7 +628,7 @@ Definition consistent_good :=
     Lemma graph_eventually_of_node_eventually n P gs gt gns :
       star gstep initial_gs gt gs ->
       map.get gs n = Some gns ->
-      eventually (will_step node_step allowed) P (gns.(gns_node_state), gns.(gns_trace)) ->
+      eventually (will_step (node_step n) allowed) P (gns.(gns_node_state), gns.(gns_trace)) ->
       eventually graph_will_step
         (fun '(gs', _) =>
            val_sat gs' n (fun gns' => P (gns'.(gns_node_state), gns'.(gns_trace))))
@@ -875,7 +875,7 @@ Definition consistent_good :=
           by (eapply submultiset_trans; [ apply submultiset_app_head; exact Hsub | exact Htot ]).
         destruct (classic (In a (gns_queue nd))) as [Hin_d | Hnin_d].
         + apply in_split in Hin_d. destruct Hin_d as (ms1 & ms2 & Hq).
-          destruct (nodes_input_total (gns_node_state nd) a) as (nd' & Hns).
+          destruct (nodes_input_total n (gns_node_state nd) a) as (nd' & Hns).
           right. eexists _, []. split.
           { eapply gstep_receive; [ exact Hget_d | exact Hns | exact Hq ]. }
           set (ndr := {| gns_node_state := nd'; gns_trace := I_event a :: gns_trace nd;
@@ -1089,7 +1089,7 @@ Definition consistent_good :=
         as (ns0' & Hget0' & Hrun2 & Hall2).
       assert (ns0' = ns0) by (rewrite Hget0 in Hget0'; congruence). subst ns0'.
       pose proof (nodes_good n ns0 Hget0) as (_ & Hmono & Hmiw).
-      assert (Hmiw' : might_implies_will_equiv' node_step equiv claim consistent allowed
+      assert (Hmiw' : might_implies_will_equiv' (node_step n) equiv claim consistent allowed
                         (gns_node_state ns0)).
       { apply ciw'_iff_ciw_and_monotone'; try assumption;
           try (split; [ exact Hmiw | exact Hmono ]). }
