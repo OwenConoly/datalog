@@ -476,6 +476,25 @@ Section __.
       split; eapply submultiset_trans; eassumption.
   Qed.
 
+  Lemma known_facts_eq_inputs t s :
+    star (node_step np) node_init t s -> s.(known_facts) = inputs_of t.
+  Proof.
+    intros Hstar. induction Hstar as [| T0 sm e s Hstar_T IH Hstep].
+    - reflexivity.
+    - inversion Hstep; subst; cbn [known_facts inputs_of flat_map app];
+        rewrite IH; reflexivity.
+  Qed.
+
+  Lemma driven_inputs_submultiset t0 s0 tr s2 :
+    star (node_step np) node_init t0 s0 ->
+    star (node_step np) s0 tr s2 ->
+    submultiset (inputs_of t0) s2.(known_facts).
+  Proof.
+    intros Hstar Hstar2.
+    rewrite <- (known_facts_eq_inputs t0 s0 Hstar).
+    exact (proj1 (node_step_star_mono s0 tr s2 Hstar2)).
+  Qed.
+
   Lemma expect_num_R_facts_incl R mf_args l1 l2 num :
     expect_num_R_facts R mf_args l1 num -> incl l1 l2 ->
     expect_num_R_facts R mf_args l2 num.
@@ -733,43 +752,37 @@ Section __.
   Lemma node_drive_to_dominate' t s s' t' :
     meta_rules_valid np.(np_rules) ->
     star (node_step np) node_init t s ->
-    allowed_inputs (inputs_of t) ->
     allowed_inputs (inputs_of t') ->
     star (node_step np) node_init t' s' ->
     consistently_incl dfact_equiv claim consistent (inputs_of t) (inputs_of t') ->
     eventually (will_step (node_step np) allowed_inputs)
       (fun '(s2, _) => nle s s2) (s', t').
   Proof.
-    intros Hmrv Hstar Hga Hga' Hstar' Hincl. revert Hga Hincl.
-    induction Hstar as [| Tp sm e s Hstar_T IH Hstep]; intros Hga Hincl.
+    intros Hmrv Hstar Hga' Hstar' Hincl. revert Hincl.
+    induction Hstar as [| Tp sm e s Hstar_T IH Hstep]; intros Hincl.
     - apply eventually_done. split.
       + apply consistently_incl_of_submultiset, submultiset_nil_l.
       + intros a Ha. destruct Ha.
-    - destruct e as [m | lbl outs].
-      + (* input step *)
-        cbn [inputs_of flat_map app] in Hga, Hincl.
-        assert (HgaT : allowed_inputs (inputs_of Tp))
-          by (eapply allowed_inputs_submultiset; [ apply submultiset_cons | exact Hga ]).
+    - cbn [inputs_of flat_map app] in Hincl.
+      destruct e as [m | lbl outs].
+      + (* input step: the target gains an input; re-derive the domination *)
         assert (HinclT : consistently_incl dfact_equiv claim consistent (inputs_of Tp) (inputs_of t'))
           by (eapply consistently_incl_trans;
                 [ apply consistently_incl_of_submultiset, submultiset_cons | exact Hincl ]).
-        specialize (IH HgaT HinclT).
+        specialize (IH HinclT).
         apply eventually_will_step_annotate in IH.
         eapply eventually_weaken; [ exact IH | ].
         intros [s2 t2] (Hreach & Hle_sm).
-        destruct Hreach as (tr & Hstar_s's2 & -> & Hga_imp).
-        pose proof (reachable_node_good Tp sm Hmrv HgaT Hstar_T) as (Hknown_sm & _).
-        pose proof (reachable_node_good t' s' Hmrv Hga' Hstar') as (Hknown_s' & _).
-        pose proof (node_step_star_mono s' tr s2 Hstar_s's2) as (Hkmono & _).
+        destruct Hreach as (tr & Hstar_s's2 & -> & _).
         inversion Hstep; subst.
         split.
-        * cbn [known_facts]. rewrite Hknown_sm.
+        * cbn [known_facts]. rewrite (known_facts_eq_inputs Tp sm Hstar_T).
           eapply consistently_incl_trans; [ exact Hincl | ].
-          apply consistently_incl_of_submultiset. rewrite <- Hknown_s'. exact Hkmono.
+          apply consistently_incl_of_submultiset.
+          eapply driven_inputs_submultiset; eassumption.
         * cbn [sent_facts]. exact (proj2 Hle_sm).
-      + (* output step *)
-        cbn [inputs_of flat_map app] in Hga, Hincl.
-        specialize (IH Hga Hincl).
+      + (* output step: reproduce the deduce with node_will_match *)
+        specialize (IH Hincl).
         apply eventually_will_step_annotate in IH.
         eapply eventually_trans; [ exact IH | ].
         intros [s2 t2] (Hreach & Hle_sm).
@@ -787,7 +800,7 @@ Section __.
     intros Hmrv t s o Hstar Hallow Hino s' t' Hincl Hstar' Hallow'.
     assert (Ho_sent : In o s.(sent_facts))
       by (rewrite (sent_eq_outputs t s Hstar); exact Hino).
-    pose proof (node_drive_to_dominate' t s s' t' Hmrv Hstar Hallow Hallow' Hstar' Hincl) as Hdrive.
+    pose proof (node_drive_to_dominate' t s s' t' Hmrv Hstar Hallow' Hstar' Hincl) as Hdrive.
     apply eventually_will_step_annotate in Hdrive.
     unfold will_output_equiv.
     eapply eventually_trans; [exact Hdrive |].
