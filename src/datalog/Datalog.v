@@ -572,7 +572,7 @@ Section __.
     intros Hext H. revert s s' Hext v H. induction e; intros s s' Hext v0 Hv0.
     - invert Hv0. constructor. auto. (*idk how it knows to unfold map.extends*)
     - invert Hv0. econstructor; eauto.
-      eapply Forall2_impl_strong; [|eassumption]. intros. rewrite Forall_forall in H.
+      eapply Forall2_impl_strong; [eassumption|]. intros. rewrite Forall_forall in H.
       eauto.
   Qed.
 
@@ -618,7 +618,7 @@ Section __.
   Proof.
     cbv [interp_clause]. intros Hinterp Hagree. fwd.
     eexists. split; [|auto].
-    eapply Forall2_impl_strong; [|eassumption].
+    eapply Forall2_impl_strong; [eassumption|].
     intros. cbv [vars_of_clause] in Hagree.
     rewrite Forall_flat_map, Forall_forall in Hagree.
     eauto using interp_expr_agree_on.
@@ -1737,7 +1737,7 @@ Section __.
     induction e using expr_ind; intros tctx tctx' t' Hwt Hext.
     - inversion Hwt; subst. constructor. apply Hext. assumption.
     - inversion Hwt; subst. econstructor; [eassumption|].
-      eapply Forall2_impl_strong; [|eassumption].
+      eapply Forall2_impl_strong; [eassumption|].
       intros a t_a Hwa Hin _. rewrite Forall_forall in H. eauto.
   Qed.
 
@@ -1747,7 +1747,7 @@ Section __.
     well_typed_clause tctx' c.
   Proof.
     cbv [well_typed_clause]. intros H Hext.
-    eapply Forall2_impl_strong; [|eassumption].
+    eapply Forall2_impl_strong; [eassumption|].
     intros; eauto using well_typed_expr_extends.
   Qed.
 
@@ -1757,7 +1757,7 @@ Section __.
     well_typed_meta_clause tctx' c.
   Proof.
     cbv [well_typed_meta_clause]. intros H Hext.
-    eapply Forall2_impl_strong; [|eassumption].
+    eapply Forall2_impl_strong; [eassumption|].
     intros [e|] t Hopt _ _; cbv [well_typed_opt_expr] in *;
       eauto using well_typed_expr_extends.
   Qed.
@@ -1796,7 +1796,7 @@ Section __.
       econstructor; [eassumption|].
       pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
       apply Forall3_ignore3_strong in Eall.
-      eapply Forall2_impl_strong; [|eassumption].
+      eapply Forall2_impl_strong; [eassumption|].
       intros a t_a [c [Hin Hck_a]] Hin_a _.
       rewrite Forall_forall in H.
       eapply well_typed_expr_extends; eauto.
@@ -1821,7 +1821,7 @@ Section __.
     apply option_all_map2_Forall3 in Eall; [|assumption].
     pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
     apply Forall3_ignore3_strong in Eall.
-    eapply Forall2_impl_strong; [|eassumption].
+    eapply Forall2_impl_strong; [eassumption|].
     intros a t_a [c0 [Hin Hck_a]] _ _.
     eapply well_typed_expr_extends; eauto using check_expr_type_sound.
   Qed.
@@ -1846,7 +1846,7 @@ Section __.
     apply option_all_map2_Forall3 in Eall; [|assumption].
     pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
     apply Forall3_ignore3_strong in Eall.
-    eapply Forall2_impl_strong; [|eassumption].
+    eapply Forall2_impl_strong; [eassumption|].
     intros [e|] t_a [c0 [Hin Hck_a]] _ _;
       cbv [check_opt_expr_type well_typed_opt_expr] in *.
     - eapply well_typed_expr_extends; eauto using check_expr_type_sound.

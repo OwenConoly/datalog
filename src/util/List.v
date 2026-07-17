@@ -170,6 +170,21 @@ Goal forall {A} (x y : list A) P1 P2,
     (P1 -> P2) -> Forall2 (fun _ _ => P1) x y -> Forall2 (fun a _ => P2) x y.
 Proof. intros. Fail solve [eauto using Lists.List.Forall2_impl]. eauto using Forall2_impl. Qed.
 
+(* Same story for the [In]-aware [Forall2_impl_strong] from coqutil: the
+   [Forall2] premise goes first so [eauto] can pin the source relation. *)
+Lemma Forall2_impl_strong {A B} (R1 R2 : A -> B -> Prop) xs ys :
+  Forall2 R1 xs ys ->
+  (forall x y, R1 x y -> In x xs -> In y ys -> R2 x y) ->
+  Forall2 R2 xs ys.
+Proof. intros. eapply Forall2_impl_strong; eauto. Qed.
+
+Goal forall {A} (xs ys : list A) P1 P2,
+    (P1 -> P2) -> Forall2 (fun _ _ => P1) xs ys -> Forall2 (fun a _ => P2) xs ys.
+Proof.
+  intros. Fail solve [eauto using coqutil.Datatypes.List.Forall2_impl_strong].
+  eauto using Forall2_impl_strong.
+Qed.
+
 Section subset.
   Context {A : Type}.
   Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.
@@ -1223,7 +1238,7 @@ Section misc.
     xss = xss'.
   Proof.
     intros H H0 H1 H2. apply invert_concat_same; auto.
-    eapply Forall2_impl_strong; [|apply Forall2_true; auto].
+    eapply Forall2_impl_strong; [apply Forall2_true; auto|].
     intros x y _ Hx Hy. rewrite Forall_forall in *. rewrite H1, H2; auto.
   Qed.
 

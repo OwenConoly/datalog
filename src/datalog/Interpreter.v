@@ -90,7 +90,7 @@ Section __.
     revert v. induction e; simpl; intros; eauto.
     apply option_coalesce_Some, option_map_Some in H0. fwd.
     apply option_all_Forall2 in H0p0. econstructor; eauto.
-    rewrite <- Forall2_map_l in H0p0. eapply Forall2_impl_strong; [|eassumption].
+    rewrite <- Forall2_map_l in H0p0. eapply Forall2_impl_strong; [eassumption|].
     simpl. intros. rewrite Forall_forall in H. eauto.
   Qed.
 
@@ -100,7 +100,7 @@ Section __.
   Proof.
     revert v. induction e; invert 1; simpl; eauto.
     erewrite Forall2_option_all.
-    2: { rewrite <- Forall2_map_l. eapply Forall2_impl_strong; [|eassumption].
+    2: { rewrite <- Forall2_map_l. eapply Forall2_impl_strong; [eassumption|].
          rewrite Forall_forall in H. eauto. }
     simpl. rewrite H5. reflexivity.
   Qed.
@@ -178,7 +178,7 @@ Section __.
     intros H. revert v. induction e; simpl; intros; eauto. rewrite Forall_forall in H0.
     apply option_coalesce_Some, option_map_Some in H1. fwd.
     apply option_all_Forall2 in H1p0. erewrite Forall2_option_all.
-    2: { rewrite <- Forall2_map_l in *. eapply Forall2_impl_strong; [|eassumption].
+    2: { rewrite <- Forall2_map_l in *. eapply Forall2_impl_strong; [eassumption|].
          simpl. eauto. }
     simpl. rewrite H1p1. reflexivity.
   Qed.
