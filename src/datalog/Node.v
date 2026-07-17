@@ -740,7 +740,45 @@ Section __.
     eventually (will_step (node_step np) allowed_inputs)
       (fun '(s2, _) => nle s s2) (s', t').
   Proof.
-  Admitted.
+    intros Hmrv Hstar Hga Hga' Hstar' Hincl. revert Hga Hincl.
+    induction Hstar as [| Tp sm e s Hstar_T IH Hstep]; intros Hga Hincl.
+    - apply eventually_done. split.
+      + apply consistently_incl_of_submultiset, submultiset_nil_l.
+      + intros a Ha. destruct Ha.
+    - destruct e as [m | lbl outs].
+      + (* input step *)
+        cbn [inputs_of flat_map app] in Hga, Hincl.
+        assert (HgaT : allowed_inputs (inputs_of Tp))
+          by (eapply allowed_inputs_submultiset; [ apply submultiset_cons | exact Hga ]).
+        assert (HinclT : consistently_incl dfact_equiv claim consistent (inputs_of Tp) (inputs_of t'))
+          by (eapply consistently_incl_trans;
+                [ apply consistently_incl_of_submultiset, submultiset_cons | exact Hincl ]).
+        specialize (IH HgaT HinclT).
+        apply eventually_will_step_annotate in IH.
+        eapply eventually_weaken; [ exact IH | ].
+        intros [s2 t2] (Hreach & Hle_sm).
+        destruct Hreach as (tr & Hstar_s's2 & -> & Hga_imp).
+        pose proof (reachable_node_good Tp sm Hmrv HgaT Hstar_T) as (Hknown_sm & _).
+        pose proof (reachable_node_good t' s' Hmrv Hga' Hstar') as (Hknown_s' & _).
+        pose proof (node_step_star_mono s' tr s2 Hstar_s's2) as (Hkmono & _).
+        inversion Hstep; subst.
+        split.
+        * cbn [known_facts]. rewrite Hknown_sm.
+          eapply consistently_incl_trans; [ exact Hincl | ].
+          apply consistently_incl_of_submultiset. rewrite <- Hknown_s'. exact Hkmono.
+        * cbn [sent_facts]. exact (proj2 Hle_sm).
+      + (* output step *)
+        cbn [inputs_of flat_map app] in Hga, Hincl.
+        specialize (IH Hga Hincl).
+        apply eventually_will_step_annotate in IH.
+        eapply eventually_trans; [ exact IH | ].
+        intros [s2 t2] (Hreach & Hle_sm).
+        destruct Hreach as (tr & Hstar_s's2 & -> & Hga_imp).
+        specialize (Hga_imp Hga').
+        assert (Hstar2 : star (node_step np) node_init (tr ++ t') s2) by eauto using star_app.
+        eapply node_will_match; try eassumption.
+        eapply reachable_node_good; eassumption.
+  Qed.
 
   Lemma node_might_implies_will' :
     meta_rules_valid np.(np_rules) ->
