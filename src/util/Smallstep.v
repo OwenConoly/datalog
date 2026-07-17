@@ -75,6 +75,12 @@ Section step.
   Context (allowed_submultiset : multiset_monotone_dec allowed).
   Context (Hcm : forall s, multiset_monotone_inc (consistent s)).
 
+  Definition noncontradictory l1 l2 :=
+    exists l2',
+      submultiset l2 l2' /\
+        allowed l2' /\
+        incl_mod equiv l2' l1.
+
   Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
     Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
   Proof. apply Permutation_flat_map. Qed.
@@ -411,7 +417,7 @@ Section step.
       consistent s l2.
 
   Definition consistently_incl l1 l2 :=
-    incl_mod equiv l1 l2 /\ consistent_le l1 l2.
+    incl_mod equiv l1 l2 /\ consistent_le l1 l2 /\ noncontradictory l1 l2.
 
   Lemma consistently_incl_refl l : consistently_incl l l.
   Proof.
