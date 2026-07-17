@@ -323,21 +323,6 @@ Definition consistent_good :=
       apply (outputs_partition_put_output_eq gs n v _ Hn). reflexivity.
     Qed.
 
-    Lemma outputs_partition_run gs n ns lbl outs ns' :
-      map.get gs n = Some ns ->
-      outputs_partition
-        (map_values' (fun k => enqueue (filter (forward n k) outs))
-           (map.put gs n {| gns_node_state := ns';
-                            gns_trace := O_event lbl outs :: ns.(gns_trace);
-                            gns_queue := ns.(gns_queue) |}))
-      = map.put (outputs_partition gs) n (outs ++ outputs_of ns.(gns_trace)).
-    Proof.
-      intros Hn.
-      rewrite (outputs_partition_map_values'
-                 (fun k => enqueue (filter (forward n k) outs)) _ ltac:(intros; reflexivity)).
-      rewrite outputs_partition_put. reflexivity.
-    Qed.
-
     Lemma output_map_run {A} {mp' : map.map node_id (list A)} {mp'_ok : map.ok mp'}
         (F : node_id -> list message -> list A)
         (Hdist : forall k a b, F k (a ++ b) = F k a ++ F k b)
@@ -352,11 +337,12 @@ Definition consistent_good :=
         (F n outs ++ output_map F gs).
     Proof.
       intros Hn. unfold output_map.
-      rewrite (outputs_partition_run gs n ns lbl outs ns' Hn).
+      erewrite outputs_partition_map_values'; [|reflexivity].
+      rewrite outputs_partition_put.
       eapply Permutation_trans; [ apply concat_values_map_values'_put | ].
-      rewrite Hdist, <- app_assoc. apply Permutation_app_head.
+      simpl. rewrite Hdist, <- app_assoc. apply Permutation_app_head.
       apply Permutation_sym.
-      apply (concat_values_map_values'_get F (outputs_partition gs) n (outputs_of ns.(gns_trace))).
+      apply concat_values_map_values'_get.
       rewrite outputs_partition_get, Hn. reflexivity.
     Qed.
 
@@ -372,7 +358,7 @@ Definition consistent_good :=
       output_map (mp' := mp') F (map.put gs n v) = output_map F gs.
     Proof.
       intros Hn Ho. unfold output_map.
-      rewrite (outputs_partition_put_output_eq gs n v0 v Hn Ho). reflexivity.
+      erewrite outputs_partition_put_output_eq; eauto.
     Qed.
 
     Lemma output_map_initial {A} {mp' : map.map node_id (list A)} {mp'_ok : map.ok mp'}
@@ -381,9 +367,9 @@ Definition consistent_good :=
     Proof.
       intros Hnil. unfold output_map. apply concat_nil_Forall, values_Forall.
       intros k v Hv. rewrite get_map_values', outputs_partition_get in Hv.
-      destruct (map.get initial_gs k) as [gns|] eqn:Hg; cbn [option_map] in Hv; [ | discriminate ].
-      injection Hv as Hv. subst v.
-      rewrite (proj1 (initial_gs_empty k gns Hg)). apply Hnil.
+      apply option_map_Some in Hv. fwd. apply option_map_Some in Hvp0. fwd.
+      pose proof initial_gs_empty as He. especialize He; eauto.
+      fwd. erewrite Hep0. auto.
     Qed.
 
     Lemma outputs_are_node_outputs gt gs :
@@ -431,9 +417,9 @@ Definition consistent_good :=
       apply In_concat_values in Hx. destruct Hx as (k & vs & Hget & Hin).
       rewrite get_map_values', outputs_partition_get in Hget.
       destruct (map.get g1 k) as [gns1|] eqn:Hg1; cbn [option_map] in Hget; [ | discriminate ].
-      injection Hget as Hget. subst vs. apply filter_In in Hin. destruct Hin as (Hxout & Hfwd).
+      fwd. apply filter_In in Hin. destruct Hin as (Hxout & Hfwd).
       cbv [le_weak Forall2_map] in Hle. specialize (Hle k).
-      rewrite !outputs_partition_get, Hg1 in Hle.
+      rewrite !outputs_partition_get, Hg1 in Hle. simpl in Hle.
       destruct (map.get g2 k) as [gns2|] eqn:Hg2; cbn [option_map] in Hle; [ | contradiction ].
       destruct (Hle x Hxout) as (x' & Hx'out & Hequiv).
       exists x'. split; [ | exact Hequiv ].
@@ -463,13 +449,7 @@ Definition consistent_good :=
         destr (eqb n nn).
         + apply option_map_Some in Hg'. fwd.
           cbn [enqueue gns_trace gns_queue]. simpl.
-          etransitivity.
-          { symmetry. apply Permutation_middle. }
-          etransitivity.
-          { apply perm_skip. apply IH. eassumption. }
-          etransitivity.
-          { apply Permutation_cons_append. }
-          rewrite app_assoc. apply Permutation_refl.
+          eauto with perm.
         + rewrite app_nil_r. apply IH. exact Hg'.
       - rewrite get_map_values', map.get_put_dec in Hg'.
         apply option_map_Some in Hg'. fwd.
@@ -480,9 +460,9 @@ Definition consistent_good :=
                        ltac:(intros; apply filter_app) gs n ns lbl outs ns' H) ].
         destr_sth Nat.eqb.
         + fwd. cbn [enqueue gns_trace gns_queue]. simpl.
-          rewrite <- app_assoc. apply perm_ins. eauto.
+          rewrite <- app_assoc. eauto with perm.
         + cbn [enqueue gns_trace gns_queue].
-          rewrite <- app_assoc. apply perm_ins. eauto.
+          rewrite <- app_assoc. eauto with perm.
       - rewrite map.get_put_dec in Hg'. simpl. rewrite app_nil_r.
         etransitivity;
           [ | symmetry; apply Permutation_app_tail;
@@ -490,7 +470,7 @@ Definition consistent_good :=
               erewrite output_map_put_output_eq by (eassumption || reflexivity); reflexivity ].
         destr_sth Nat.eqb; eauto.
         fwd. simpl. specialize (IH _ _ ltac:(eassumption)). rewrite H1 in IH.
-        Show. (*TODO create hint database that such that eauto solves this.*)
+        eauto with perm.
     Qed.
 
     Lemma conserved_perm_ext gs e1 e2 :
@@ -508,8 +488,7 @@ Definition consistent_good :=
       - cbn [inputs_of flat_map]. rewrite app_nil_r. exact Hconv.
       - eapply conserved_perm_ext;
           [ | apply (conservation_step _ _ _ Hstep _ (IH ext Hconv)) ].
-        change (e :: T0) with ([e] ++ T0). rewrite inputs_of_app, <- !app_assoc.
-        apply Permutation_app_head. apply Permutation_app_comm.
+        simpl. repeat rewrite <- app_assoc. eauto with perm.
     Qed.
 
     Lemma inputs_are_outputs gt gs :
@@ -1043,12 +1022,14 @@ Definition consistent_good :=
         cbv [val_sat reachable]. intros [r l] Hval Hreach. fwd.
         pose proof (le_weak_trans _ _ _ Hlew (star_gstep_le_weak _ _ _ Hreachp0)) as Hlwr.
         cbv [le_weak] in Hlwr |- *.
-        rewrite (outputs_partition_run gs1 n ns lbl0 outs0 ns' H6).
+        rewrite (outputs_partition_map_values'
+                   (fun k => enqueue (filter (forward n k) outs0)) _ ltac:(intros; reflexivity)),
+                outputs_partition_put.
         eapply Forall2_map_put_l;
           [ eapply Forall2_map_impl; [ exact Hlwr | ]; intros ? ? ? Hkf ?; exact Hkf
           | rewrite outputs_partition_get, Hvalp0; reflexivity
           | ].
-        apply incl_mod_app.
+        simpl. apply incl_mod_app.
         + intros x Hx. rewrite Forall_forall in Hvalp1.
           destruct (Hvalp1 x Hx) as (x' & Hequiv & Hin). exists x'. split; [ exact Hin | exact Hequiv ].
         + specialize (Hlwr n). rewrite !outputs_partition_get, H6, Hvalp0 in Hlwr.
@@ -1144,12 +1125,10 @@ Definition consistent_good :=
       unfold output_total, output_map. intros Hin.
       apply In_concat_values in Hin. destruct Hin as (k & vs & Hget & Hin).
       rewrite get_map_values', outputs_partition_get in Hget.
-      destruct (map.get gs k) as [gns|] eqn:Hg; cbn [option_map] in Hget; [ | discriminate ].
-      injection Hget as Hget. subst vs.
+      rewrite option_map_option_map in Hget. apply option_map_Some in Hget. fwd.
       apply in_map_iff in Hin. destruct Hin as (m0 & Heq & Hinf).
-      apply filter_In in Hinf. destruct Hinf as (Hinout & Hvis).
-      exists m0, k. split; [ symmetry; exact Heq | ].
-      split; [ exists gns; split; [ exact Hg | exact Hinout ] | exact Hvis ].
+      apply filter_In in Hinf. fwd. subst. do 2 eexists. ssplit; eauto.
+      cbv [node_has_output]. eauto.
     Qed.
 
     Lemma output_total_in gs n m :
@@ -1157,11 +1136,10 @@ Definition consistent_good :=
     Proof.
       intros (v & Hget & Hinout) Hvis.
       unfold output_total, output_map. apply In_concat_values.
-      exists n, (map (fun m0 => (m0, n)) (filter (output_visible n) (outputs_of v.(gns_trace)))).
+      do 2 eexists.
       split.
       - rewrite get_map_values', outputs_partition_get, Hget. reflexivity.
-      - apply in_map_iff. exists m. split;
-          [ reflexivity | apply filter_In; split; [ exact Hinout | exact Hvis ] ].
+      - apply in_map_iff. eauto using filter_In.
     Qed.
 
     Lemma drive_to_dominate t0 gs0 t' gs_f :

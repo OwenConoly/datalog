@@ -84,6 +84,26 @@ Proof.
   symmetry. apply Permutation_middle.
 Qed.
 
+Lemma perm_recv_l {X : Type} (A ms1 ms2 s : list X) (m : X) :
+  Permutation (A ++ ms1 ++ m :: ms2) s -> Permutation (m :: A ++ ms1 ++ ms2) s.
+Proof. intros H. transitivity (A ++ ms1 ++ m :: ms2); [ symmetry; apply perm_recv | exact H ]. Qed.
+
+Lemma perm_send {X : Type} (a b s t : list X) (d : X) :
+  Permutation (a ++ b) (s ++ t) -> Permutation (a ++ d :: b) (s ++ t ++ [d]).
+Proof.
+  intros H. transitivity (d :: a ++ b); [ symmetry; apply Permutation_middle | ].
+  transitivity ((a ++ b) ++ [d]); [ apply Permutation_cons_append | ].
+  transitivity ((s ++ t) ++ [d]); [ apply Permutation_app_tail; exact H | ].
+  rewrite <- app_assoc. apply Permutation_refl.
+Qed.
+
+Lemma perm_nil_r {X : Type} (l : list X) : Permutation (l ++ []) l.
+Proof. rewrite app_nil_r. apply Permutation_refl. Qed.
+
+Create HintDb perm.
+Hint Resolve perm_ins perm_recv_l perm_send perm_nil_r
+     Permutation_app_head Permutation_app_comm Permutation_refl : perm.
+
 Lemma flat_map_all_nil {A B} (g : A -> list B) (l : list A) :
   (forall x, In x l -> g x = []) -> flat_map g l = [].
 Proof.
@@ -431,6 +451,10 @@ Proof.
   cbv [option_map]. destruct_one_match; try congruence.
   invert 1. eauto.
 Qed.
+
+Lemma option_map_option_map X Y Z (f : X -> Y) (g : Y -> Z) x :
+  option_map g (option_map f x) = option_map (fun x => g (f x)) x.
+Proof. destruct x; reflexivity. Qed.
 
 Lemma option_map_None X Y (f : X -> Y) x :
   option_map f x = None ->
