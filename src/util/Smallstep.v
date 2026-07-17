@@ -417,7 +417,7 @@ Section step.
       consistent s l2.
 
   Definition consistently_incl l1 l2 :=
-    incl_mod equiv l1 l2 /\ consistent_le l1 l2 /\ noncontradictory l1 l2.
+    incl_mod equiv l1 l2 /\ consistent_le l1 l2.
 
   Lemma consistently_incl_refl l : consistently_incl l l.
   Proof.
@@ -430,6 +430,7 @@ Section step.
       allowed (inputs_of t) ->
       In o (outputs_of t) ->
       forall s' t',
+        noncontradictory (inputs_of t) (inputs_of t') ->
         consistently_incl (inputs_of t) (inputs_of t') ->
         star step initial t' s' ->
         allowed (inputs_of t') ->
@@ -473,6 +474,7 @@ Section step.
       star step initial t2 s2 ->
       allowed (inputs_of t1) ->
       allowed (inputs_of t2) ->
+      noncontradictory (inputs_of t1) (inputs_of t2) ->
       consistently_incl (inputs_of t1) (inputs_of t2) ->
       might_output s1 t1 o ->
       might_output_equiv s2 t2 o.
