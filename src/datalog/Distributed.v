@@ -12,6 +12,9 @@ Section Distributed.
   Context (R_senders : rel -> list (option node_id)).
   Context (R_senders_NoDup : forall R, NoDup (R_senders R)).
 
+  Notation claim := (Node.claim R_senders).
+  Notation consistent := (Node.consistent R_senders).
+
   Context (rel_input_allowed : node_id -> rel -> bool).
   Context (rel_forward : node_id -> node_id -> rel -> bool).
   Context (rel_visible : node_id -> rel -> bool).
@@ -61,22 +64,6 @@ Section Distributed.
   Qed.
   Hint Immediate nequiv_equiv : core.
 
-  Definition stmt : Type := (rel * list (option T))%type.
-
-  Definition claim (s : stmt) (l : list dfact) :=
-    let '(R, mf_args) := s in
-    forall src, In src (R_senders R) ->
-      exists cnt, In (meta_dfact R mf_args src cnt) l.
-
-  Lemma claim_mono s ms1 ms2 :
-    claim s ms1 -> incl_mod dfact_equiv ms1 ms2 -> claim s ms2.
-  Proof.
-    cbv [claim]. intros H Hincl. fwd.
-    intros. especialize H; eauto. fwd.
-    cbv [incl_mod] in Hincl. especialize Hincl; eauto. fwd.
-    cbv [dfact_equiv] in Hinclp1. fwd. eauto.
-  Qed.
-
   Definition claim_output (s : stmt) (n : option node_id) (fs : list dfact) : Prop :=
     let '(R, mf_args) := s in
     In n (R_senders R) -> exists cnt, In (meta_dfact R mf_args n cnt) fs.
@@ -93,22 +80,7 @@ Section Distributed.
        n = src /\ Existsn_le (dfact_matches R mf_args) cnt fs) /\
     (forall f, In f fs -> In n (R_senders (dfact_rel f))).
 
-  Definition consistent (s : stmt) (l : list dfact) : Prop :=
-    let '(R, mf_args) := s in
-    exists num, expect_num_R_facts R_senders R mf_args l num /\
-             Existsn_ge (dfact_matches R mf_args) num l.
-
-  Lemma expect_num_R_facts_incl R mf_args l1 l2 num :
-    expect_num_R_facts R_senders R mf_args l1 num -> incl l1 l2 ->
-    expect_num_R_facts R_senders R mf_args l2 num.
-  Proof.
-    cbv [expect_num_R_facts]. intros. fwd. eauto using Forall2_impl.
-  Qed.
-
   Hint Resolve expect_num_R_facts_incl Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
-  Lemma consistent_mono s ms1 ms2 :
-    consistent s ms1 -> submultiset ms1 ms2 -> consistent s ms2.
-  Proof. cbv [consistent]. intros. fwd. eauto 6. Qed.
 
   Lemma consistent_output_mono s n ms1 ms2 :
     consistent_output s n ms1 -> submultiset ms1 ms2 -> consistent_output s n ms2.
@@ -364,8 +336,8 @@ Section Distributed.
     - exact nequiv_equiv.
     - exact output_visible_equiv.
     - exact forward_equiv.
-    - exact claim_mono.
-    - exact consistent_mono.
+    - exact (claim_mono R_senders).
+    - exact (consistent_mono R_senders).
     - exact consistent_output_mono.
     - exact consistent_good_holds.
     - exact nallowed_multiset_monotone.
