@@ -730,11 +730,11 @@ Section __.
         * exists (ms_pre ++ S ms_x :: ms_post), num_inp. ssplit.
           -- rewrite <- Forall2_map_l.
              apply Forall2_app; [|constructor].
-             ++ eapply Forall2_impl; [|exact Hms_pre]. intros y m Hy.
+             ++ eapply Forall2_impl; [exact Hms_pre|]. intros y m Hy.
                 cbv [add_waiting_fact]; simpl. exact Hy.
              ++ cbv [add_waiting_fact send_fact]; simpl.
                 apply Existsn_yes; assumption.
-             ++ eapply Forall2_impl; [|exact Hms_post]. intros y m Hy.
+             ++ eapply Forall2_impl; [exact Hms_post|]. intros y m Hy.
                 cbv [add_waiting_fact]; simpl. exact Hy.
           -- assumption.
           -- apply List.Forall_map.
@@ -760,10 +760,10 @@ Section __.
         * exists (ms_pre ++ ms_x :: ms_post), num_inp. ssplit.
           -- rewrite <- Forall2_map_l.
              apply Forall2_app; [|constructor].
-             ++ eapply Forall2_impl; [|exact Hms_pre]. intros y m Hy.
+             ++ eapply Forall2_impl; [exact Hms_pre|]. intros y m Hy.
                 cbv [add_waiting_fact]; simpl. exact Hy.
              ++ cbv [add_waiting_fact send_fact]; simpl. apply Existsn_no; assumption.
-             ++ eapply Forall2_impl; [|exact Hms_post]. intros y m Hy.
+             ++ eapply Forall2_impl; [exact Hms_post|]. intros y m Hy.
                 cbv [add_waiting_fact]; simpl. exact Hy.
           -- assumption.
           -- apply List.Forall_map.
@@ -889,12 +889,12 @@ Section __.
         exists (ms_pre ++ ms_x :: ms_post), num_inp. ssplit.
         * rewrite <- Forall2_map_l.
           apply Forall2_app; [|constructor].
-          -- eapply Forall2_impl; [|exact Hms_pre]. intros y m Hy.
+          -- eapply Forall2_impl; [exact Hms_pre|]. intros y m Hy.
              cbv [add_waiting_fact]; simpl. exact Hy.
           -- cbv [add_waiting_fact send_fact]; simpl.
              apply Existsn_no; [|exact Hms_x].
              intros (? & Heq & _). discriminate.
-          -- eapply Forall2_impl; [|exact Hms_post]. intros y m Hy.
+          -- eapply Forall2_impl; [exact Hms_post|]. intros y m Hy.
              cbv [add_waiting_fact]; simpl. exact Hy.
         * assumption.
         * apply List.Forall_map.

@@ -288,7 +288,7 @@ Section __.
   Proof.
     intros H1 H2. invert H1.
     - econstructor; eauto. eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
-      apply Forall3_ignore2 in H2. eapply Forall2_impl; [|eassumption].
+      apply Forall3_ignore2 in H2. eapply Forall2_impl; [eassumption|].
       simpl. intros. fwd. cbv [interp_clause extensionally_equal] in *. fwd. eauto.
     - invert H2. cbv [extensionally_equal] in H3. fwd.
       eassert (l' = _) as ->.
@@ -299,7 +299,7 @@ Section __.
            rewrite <-  Forall2_map_l. apply Forall2_same.
            apply Forall_forall. simpl. auto. }
       apply Forall2_eq_eq. apply Forall2_flip.
-      rewrite <- Forall2_map_l in *. eapply Forall2_impl; [|eassumption].
+      rewrite <- Forall2_map_l in *. eapply Forall2_impl; [eassumption|].
       simpl. intros (?, ?) ? ?. cbv [extensionally_equal] in *. fwd. reflexivity.
   Qed.
 
@@ -353,12 +353,12 @@ Section __.
     - econstructor.
       + eassumption.
       + eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
-        apply Forall3_ignore2 in H2. eapply Forall2_impl; [|eassumption].
+        apply Forall3_ignore2 in H2. eapply Forall2_impl; [eassumption|].
         simpl. intros. fwd. cbv [interp_meta_clause extensionally_equal] in *.
         fwd. eauto.
       + intros. rewrite H3 by assumption.
         split; intros; eapply one_step_derives_ext; eauto.
-        apply Forall2_flip. eapply Forall2_impl; [|eassumption].
+        apply Forall2_flip. eapply Forall2_impl; [eassumption|].
         auto using extensionally_equal_sym.
   Qed.
 
@@ -372,7 +372,7 @@ Section __.
     eapply prog_impl_step.
     - eapply Exists_impl; [|eassumption]. simpl. intros.
       eapply rule_impl_ext; try eassumption.
-      eapply Forall2_impl; [|eassumption].
+      eapply Forall2_impl; [eassumption|].
       simpl. intros. fwd. auto using extensionally_equal_sym.
     - eapply Forall2_forget_l in H2. eapply Forall_impl; [|eassumption].
       simpl. intros. fwd. assumption.
@@ -503,7 +503,7 @@ Section __.
   Hint Unfold prog_impl : core.
 
   Hint Extern 2 => eapply Forall_impl; [|eassumption]; cbv beta : core.
-  Hint Extern 2 => eapply Forall2_impl; [|eassumption]; cbv beta : core.
+  Hint Extern 2 => eapply Forall2_impl; [eassumption|]; cbv beta : core.
 
   Lemma pftree_weaken {U : Type} P1 P2 Q (x : U) :
     pftree P1 Q x ->
@@ -1941,7 +1941,7 @@ Ltac interp_exprs :=
     | |- Forall2 _ (_ :: _) _ => constructor
     | |- Forall2 _ nil _ => constructor
     | |- Forall2 _ _ _ =>
-        (eapply Forall2_impl; [|eassumption]; simpl; intros) ||
+        (eapply Forall2_impl; [eassumption|]; simpl; intros) ||
           idtac
 
     | |- Forall _ (_ :: _) => constructor; [interp_exprs|]

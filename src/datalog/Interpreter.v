@@ -115,9 +115,8 @@ Section __.
   Proof.
     cbv [subst_in_clause]. intros H. apply option_map_Some in H.
     fwd. apply option_all_Forall2 in Hp0. cbv [interp_clause].
-    rewrite <- Forall2_map_l in Hp0. eexists. split; [|reflexivity].
-    eapply Forall2_impl; [|eassumption].
-    simpl. auto using subst_in_expr_sound.
+    rewrite <- Forall2_map_l in Hp0.
+    eauto using Forall2_impl, subst_in_expr_sound.
   Qed.
 
   Lemma subst_in_clause_complete ctx c f :
@@ -126,8 +125,8 @@ Section __.
   Proof.
     intros. repeat invert_stuff. cbv [subst_in_clause].
     erewrite Forall2_option_all; [reflexivity|].
-    rewrite <- Forall2_map_l. eapply Forall2_impl; [|eassumption].
-    auto using subst_in_expr_complete.
+    rewrite <- Forall2_map_l.
+    eauto using Forall2_impl, subst_in_expr_complete.
   Qed.
 
   Definition subst_in_meta_clause ctx (c : meta_clause) (S : list T -> Prop) :=
@@ -146,7 +145,7 @@ Section __.
     apply option_all_Forall2 in Hp0.
     do 2 eexists. split; [|reflexivity].
     rewrite <- Forall2_map_l in Hp0.
-    eapply Forall2_impl; [|eassumption].
+    eapply Forall2_impl; [eassumption|].
     simpl. intros o o' H. destruct o; simpl in H; fwd; try constructor.
     apply option_map_Some in H. fwd.
     simpl. apply subst_in_expr_sound. auto.
@@ -166,7 +165,7 @@ Section __.
     intros Hinterp. repeat invert_stuff.
     cbv [subst_in_meta_clause].
     erewrite Forall2_option_all.
-    2: { rewrite <- Forall2_map_l. eapply Forall2_impl; [|eassumption].
+    2: { rewrite <- Forall2_map_l. eapply Forall2_impl; [eassumption|].
          intros a b Hab. destruct a, b; simpl in Hab; try congruence; try contradiction.          erewrite subst_in_expr_complete by eassumption. reflexivity. }
     simpl. eauto.
   Qed.
@@ -811,7 +810,7 @@ Section __.
         * left. apply Forall_exists_r_Forall2 in H0. fwd.
           eapply Exists_impl in H.
           2: { intros r Hr. eapply rule_impl_ext in Hr. 1: exact Hr.
-               eapply Forall2_impl; [|eassumption]. simpl. intros. fwd. auto. }
+               eapply Forall2_impl; [eassumption|]. simpl. intros. fwd. auto. }
           simpl. eapply step_everybody_complete in H; try assumption.
           { fwd. eexists. rewrite in_app_iff. eauto. }
           apply Forall2_forget_l in H0. intros y Hy. rewrite Forall_forall in H0.
@@ -1001,7 +1000,7 @@ Section __.
       2: { assumption. }
       econstructor; [|eassumption].
       eapply Forall2_impl.
-      2: { eapply Forall2_same_r; apply Forall2_flip; eassumption. }
+      1: { eapply Forall2_same_r; apply Forall2_flip; eassumption. }
       simpl.
       intros e e' He. fwd.
       rewrite Forall_forall in H. eapply H; eauto.
@@ -1039,7 +1038,7 @@ Section __.
     apply Forall2_flip in Hncp0, Hmcp0.
     eapply Forall2_same_r in Hmcp0; [|exact Hncp0].
     apply Forall2_flip in Hmcp0.
-    eapply Forall2_impl; [|eassumption].
+    eapply Forall2_impl; [eassumption|].
     simpl. intros argM argN H. fwd.
     cbv [option_relation] in Hp2p2.
     destruct_one_match_hyp; fwd; subst; simpl; auto.
@@ -1145,7 +1144,7 @@ Section __.
     eapply Forall2_same_r in H6; [|exact H11].
     assert (l'0 = map Some args0).
     { apply Forall2_eq_eq. rewrite <- Forall2_map_r.
-      eapply Forall2_impl; [|eassumption]. simpl.
+      eapply Forall2_impl; [eassumption|]. simpl.
       intros. fwd. cbn [matches] in *. subst. f_equal.
       eapply interp_expr_det; eassumption. }
     subst.

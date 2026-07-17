@@ -150,6 +150,26 @@ Proof.
   constructor; [ exact Hhd | exact (IH Htl) ].
 Qed.
 
+Lemma incl_def {A} (x : A) (xs ys : list A) :
+  incl xs ys -> In x xs -> In x ys.
+Proof. auto. Qed.
+
+(* The stdlib [Forall2_impl] takes the implication before the [Forall2]
+   premise, so [eauto] tries to discharge the implication with the source
+   relation still an unconstrained evar and gives up.  Putting the [Forall2]
+   first lets [eauto] pin the relation from that hypothesis. *)
+Lemma Forall2_impl {A B} (R1 R2 : A -> B -> Prop) x y :
+  Forall2 R1 x y -> (forall a b, R1 a b -> R2 a b) -> Forall2 R2 x y.
+Proof. intros. eapply Forall2_impl; eauto. Qed.
+
+(* [eauto using Forall2_impl] cannot lift the [Forall2] here: the per-element
+   step [In a l1 -> In a l2] needs [incl l1 l2], so the source relation stays an
+   evar while the implication is attempted first.  The [_impl] with the [Forall2]
+   premise first works. *)
+Goal forall {A} (x y : list A) P1 P2,
+    (P1 -> P2) -> Forall2 (fun _ _ => P1) x y -> Forall2 (fun a _ => P2) x y.
+Proof. intros. Fail solve [eauto using Lists.List.Forall2_impl]. eauto using Forall2_impl. Qed.
+
 Section subset.
   Context {A : Type}.
   Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.
@@ -632,8 +652,7 @@ Section Forall3.
       Forall2 (fun x z => exists y, In y ys /\ R x y z) xs zs.
   Proof.
     induction 1; econstructor; simpl; eauto.
-    eapply Forall2_impl; [|eassumption].
-    simpl. intros. fwd. eauto.
+    eapply Forall2_impl; [ eassumption | ]. simpl. intros. fwd. eauto.
   Qed.
 
   Lemma Forall3_ignore3:
@@ -648,8 +667,7 @@ Section Forall3.
       Forall2 (fun x y => exists z, In z zs /\ R x y z) xs ys.
   Proof.
     induction 1; econstructor; simpl; eauto.
-    eapply Forall2_impl; [|eassumption].
-    simpl. intros. fwd. eauto.
+    eapply Forall2_impl; [ eassumption | ]. simpl. intros. fwd. eauto.
   Qed.
 
   Lemma Forall3_zip3 xs ys f :

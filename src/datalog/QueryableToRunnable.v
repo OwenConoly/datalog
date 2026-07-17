@@ -79,7 +79,7 @@ Section relmap.
     erewrite <- Forall3_map3. eapply Forall3_impl; [|eassumption].
     simpl. intros. fwd. do 2 eexists. intuition eauto.
     rewrite <- Forall2_map_l. erewrite <- Forall2_map_r.
-    eapply Forall2_impl; [|eassumption]. intros. apply interp_fact_relmap.
+    eapply Forall2_impl; [eassumption|]. intros. apply interp_fact_relmap.
     eassumption.
   Qed.
 
@@ -189,11 +189,11 @@ Section Transform.
     intros Hgood H1 H2 Hsame. eapply hyp_ins_det' in H1, H2; try assumption.
     fwd. rewrite H1p0 in *. invert H2p0. simpl in *.
     apply Forall2_flip in H1p1. eapply Forall2_Forall2_Forall3 in H2p1; [|exact H1p1].
-    apply Forall3_ignore2 in H2p1. eapply Forall2_impl; [|eassumption].
+    apply Forall3_ignore2 in H2p1. eapply Forall2_impl; [eassumption|].
     simpl. intros [Ra argsa] [Rb argsb] H. fwd. split; [reflexivity|].
     apply Forall2_flip in Hp1p1. eapply Forall2_Forall2_Forall3 in Hp3; [|exact Hp1p1].
     apply Forall3_ignore2 in Hp3. apply Forall2_eq_eq.
-    eapply Forall2_impl; [|eassumption]. simpl. intros a b Hab. fwd.
+    eapply Forall2_impl; [eassumption|]. simpl. intros a b Hab. fwd.
     rewrite Hsame in *. eapply interp_expr_det; eassumption.
   Qed.
 
@@ -278,7 +278,7 @@ Section Transform.
       intros H'. subst. apply Hgoodp1. eexists. eexists. intuition eauto.
       apply in_flat_map. eauto. }
     apply Forall3_ignore2 in H5. rewrite H1. simpl.
-    eapply Forall2_impl; [|eassumption].
+    eapply Forall2_impl; [eassumption|].
     simpl. intros i' ahyps' Hh. fwd.
     eapply Forall2_impl_strong; [|eassumption].
     intros f (R'&args'). invert 1. intros Hin1 Hin2. split; [reflexivity|].
@@ -319,15 +319,15 @@ Section Transform.
     apply Forall2_flip in H1p1p1.
     eapply Forall2_Forall2_Forall3 in H2p1p1; [|exact H1p1p1].
     clear H1p1p1. apply Forall3_ignore2 in H2p1p1.
-    eapply Forall2_impl; [|eassumption]. simpl. intros l1 l2 H. fwd.
+    eapply Forall2_impl; [eassumption|]. simpl. intros l1 l2 H. fwd.
     apply Forall2_flip in Hp1. eapply Forall2_Forall2_Forall3 in Hp2; [|exact Hp1].
     clear Hp1. clear H2p1p1. apply Forall3_ignore2 in Hp2.
-    eapply Forall2_impl; [|eassumption]. simpl. intros [? ?] [? ?] H'. fwd.
+    eapply Forall2_impl; [eassumption|]. simpl. intros [? ?] [? ?] H'. fwd.
     split; [reflexivity|].
     apply Forall2_flip in H'p1p1.
     eapply Forall2_Forall2_Forall3 in H'p3; [|exact H'p1p1].
     clear H'p1p1. clear Hp2. apply Forall3_ignore2 in H'p3. apply Forall2_eq_eq.
-    eapply Forall2_impl; [|eassumption].
+    eapply Forall2_impl; [eassumption|].
     simpl. intros. fwd. eapply interp_expr_det; eassumption.
   Qed.
 
@@ -860,7 +860,7 @@ Section Transform.
         -- rewrite H5. constructor.
         -- rewrite Hgoodp0. constructor. constructor. assumption.
         -- rewrite map_map in H7p1. rewrite <- Forall2_map_l, <- Forall2_map_r in H7p1.
-           erewrite <- Forall2_map_r. eapply Forall2_impl; [|eassumption]. simpl.
+           erewrite <- Forall2_map_r. eapply Forall2_impl; [eassumption|]. simpl.
            intros. cbv [fact'_relmap fact_relmap] in H. simpl in H.
            instantiate (1 := fun _ => _). destruct a; simpl in *. exact H.
       + simpl. rewrite app_nil_r. cbv [fact'_relmap]. apply map_ext.
@@ -881,7 +881,7 @@ Section Transform.
            apply H6.
         -- rewrite Hgoodp0. constructor. constructor. assumption.
         -- rewrite map_map in H7p1. rewrite <- Forall2_map_l, <- Forall2_map_r in H7p1.
-           erewrite <- Forall2_map_r. eapply Forall2_impl; [|eassumption]. simpl.
+           erewrite <- Forall2_map_r. eapply Forall2_impl; [eassumption|]. simpl.
            intros. cbv [fact'_relmap fact_relmap] in H. simpl in H.
            destruct b as [[? ?] ?]; simpl in *. destruct a0. exact H.
   Qed.      

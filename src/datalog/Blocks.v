@@ -131,7 +131,7 @@ Section Blocks.
     Proof.
       intros.
       rewrite <- Forall2_map_l, <- Forall2_map_r.
-      eapply Forall2_impl; [|eassumption].
+      eapply Forall2_impl; [eassumption|].
       eauto using interp_clause_map_fw.
     Qed.
 
@@ -154,7 +154,7 @@ Section Blocks.
       Forall2 (fun c h => exists h', fact_equiv h h' /\ interp_clause ctx c h') hyps1 hyps2.
     Proof.
       intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
-      eapply Forall2_impl; [|eassumption].
+      eapply Forall2_impl; [eassumption|].
       eauto using interp_clause_map_bw.
     Qed.
 
@@ -198,7 +198,7 @@ Section Blocks.
       Forall2 (interp_meta_clause ctx) (map map_meta_clause_rel hyps1) (map map_fact hyps2).
     Proof.
       intros. rewrite <- Forall2_map_l, <- Forall2_map_r.
-      eapply Forall2_impl; [|eassumption].
+      eapply Forall2_impl; [eassumption|].
       eauto using interp_meta_clause_map_fw.
     Qed.
 
@@ -242,7 +242,7 @@ Section Blocks.
       Forall2 (fun c h => exists h', fact_equiv h h' /\ interp_meta_clause ctx c h') hyps1 hyps2.
     Proof.
       intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
-      eapply Forall2_impl; [|eassumption].
+      eapply Forall2_impl; [eassumption|].
       eauto using interp_meta_clause_map_bw.
     Qed.
 
@@ -286,7 +286,7 @@ Section Blocks.
         { cbv [fact_equiv]. simpl. f_equal. auto. }
         rewrite <- Forall2_map_r.
         eapply Forall2_impl.
-        2: { eapply map_eq_Forall2. symmetry. eassumption. }
+        1: { eapply map_eq_Forall2. symmetry. eassumption. }
         simpl. intros f' (?, ?) Hf'. destruct f'; simpl in Hf'; discriminate || fwd.
         cbv [fact_equiv]. simpl. f_equal. auto.
     Qed.
@@ -527,7 +527,7 @@ Section Blocks.
           apply Hinj in H1. subst.
           replace (map map_fact hyps) with (map map_fact hyps2').
           2: { apply Forall2_eq_map. rewrite <- Forall2_map_r.
-               eapply Forall2_impl; [|eassumption].
+               eapply Forall2_impl; [eassumption|].
                auto. }
           eapply meta_cond_map_iff; try eassumption.
           2: { eauto using meta_facts_consistent_with_map_equiv. }
@@ -1023,7 +1023,7 @@ Section Blocks.
     - simpl in Hvalid.
       eassert (inps_eq : map fst _ = map fst _).
       { apply Forall2_eq_eq. rewrite <- Forall2_map_l, <- Forall2_map_r.
-        eapply Forall2_impl; [|eassumption]. intros (?, ?) (?, ?) ?. fwd. reflexivity. }
+        eapply Forall2_impl; [eassumption|]. intros (?, ?) (?, ?) ?. fwd. reflexivity. }
       ssplit.
       + lia.
       + lia.

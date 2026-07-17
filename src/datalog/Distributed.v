@@ -90,26 +90,12 @@ Section Distributed.
     exists num, expect_num_R_facts R_senders R mf_args l num /\
              Existsn_ge (dfact_matches R mf_args) num l.
 
-  Lemma unstupid_Forall2_impl {A B} (R1 R2 : A -> B -> _) x y :
-    Forall2 R1 x y ->
-    (forall x y, R1 x y -> R2 x y) ->
-    Forall2 R2 x y.
-  Proof. intros. eapply Forall2_impl; eauto. Qed.
-
   Lemma expect_num_R_facts_incl R mf_args l1 l2 num :
     expect_num_R_facts R_senders R mf_args l1 num -> incl l1 l2 ->
     expect_num_R_facts R_senders R mf_args l2 num.
   Proof.
-    cbv [expect_num_R_facts]. intros. fwd.
-    Fail solve [eauto using Forall2_impl].
-    eauto using unstupid_Forall2_impl.
+    cbv [expect_num_R_facts]. intros. fwd. eauto using Forall2_impl.
   Qed.
-
-  Lemma incl_def {A} x (xs ys : list A) :
-    incl xs ys ->
-    In x xs ->
-    In x ys.
-  Proof. auto. Qed.
 
   Hint Resolve expect_num_R_facts_incl Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
   Lemma consistent_mono s ms1 ms2 :
@@ -292,7 +278,7 @@ Section Distributed.
         apply Forall_exists_r_Forall2 in Hbuild. destruct Hbuild as (ems & Hbuild2).
         exists (list_sum ems). split.
         * exists ems. split; [ | reflexivity ].
-          eapply Forall2_impl; [ | exact Hbuild2 ]. intros k cnt (ms & Hget & Hin & _).
+          eapply Forall2_impl; [ exact Hbuild2 | ]. intros k cnt (ms & Hget & Hin & _).
           apply In_concat_values. exists k, ms. split; [ exact Hget | exact Hin ].
         * assert (Hlen : length (R_senders R) = length ems) by (eapply Forall2_length; exact Hbuild2).
           assert (Hsub : incl (R_senders R) (map.keys partition)).
