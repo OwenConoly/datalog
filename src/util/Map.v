@@ -23,17 +23,6 @@ Section MapKeysExtra.
   Qed.
 End MapKeysExtra.
 
-Lemma Permutation_concat {A} (l l' : list (list A)) :
-  Permutation l l' -> Permutation (concat l) (concat l').
-Proof.
-  induction 1; cbn [concat].
-  - reflexivity.
-  - apply Permutation_app_head; assumption.
-  - rewrite !app_assoc. apply Permutation_app_tail, Permutation_app_comm.
-  - eapply Permutation_trans; eassumption.
-Qed.
-
-
 Section Maps.
   Context {key : Type}.
   Context {value1 : Type} {mp1 : map.map key value1} {mp1_ok : map.ok mp1}.
@@ -425,6 +414,21 @@ Lemma Forall2_map_compose {key value1 value2 value3}
 Proof.
   intros Hcomp H12 H23 k. specialize (H12 k); specialize (H23 k).
   destruct (map.get m1 k), (map.get m2 k), (map.get m3 k);
+    try contradiction; try exact I. eapply Hcomp; eassumption.
+Qed.
+
+Lemma Forall2_map_compose_strong {key value1 value2 value3}
+  {mp1 : map.map key value1} {mp2 : map.map key value2} {mp3 : map.map key value3}
+  (R1 : key -> value1 -> value2 -> Prop) (R2 : key -> value2 -> value3 -> Prop)
+  (R3 : key -> value1 -> value3 -> Prop) (m1 : mp1) (m2 : mp2) (m3 : mp3) :
+  (forall k a b c,
+      map.get m1 k = Some a -> map.get m2 k = Some b -> map.get m3 k = Some c ->
+      R1 k a b -> R2 k b c -> R3 k a c) ->
+  Forall2_map R1 m1 m2 -> Forall2_map R2 m2 m3 -> Forall2_map R3 m1 m3.
+Proof.
+  intros Hcomp H12 H23 k. specialize (H12 k); specialize (H23 k).
+  destruct (map.get m1 k) as [a|] eqn:E1, (map.get m2 k) as [b|] eqn:E2,
+           (map.get m3 k) as [c|] eqn:E3;
     try contradiction; try exact I. eapply Hcomp; eassumption.
 Qed.
 

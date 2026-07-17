@@ -400,6 +400,8 @@ Definition consistent_good :=
       Permutation e1 e2 -> Permutation (matching_inps nn e1) (matching_inps nn e2).
     Proof. intros HP. unfold matching_inps. rewrite HP. reflexivity. Qed.
 
+    Hint Resolve matching_inps_perm : core.
+
     Lemma star_gstep_le_weak g T g' : star gstep g T g' -> le_weak g g'.
     Proof.
       intros Hstar. cbv [le_weak outputs_partition].
@@ -409,7 +411,6 @@ Definition consistent_good :=
       apply (incl_mod_of_incl equiv). intros x Hx. apply in_or_app. right. exact Hx.
     Qed.
 
-    (* le_weak is monotonicity of every node's outputs, hence of the derived fwd_total. *)
     Lemma le_weak_fwd_total g1 g2 n :
       le_weak g1 g2 -> incl_mod equiv (fwd_total n g1) (fwd_total n g2).
     Proof.
@@ -476,8 +477,8 @@ Definition consistent_good :=
     Lemma conserved_perm_ext gs e1 e2 :
       Permutation e1 e2 -> conserved gs e1 -> conserved gs e2.
     Proof.
-      intros HP Hc nn nsn Hget. eapply perm_trans; [ apply (Hc nn nsn Hget) | ].
-      apply Permutation_app_head. apply matching_inps_perm. exact HP.
+      intros HP Hc nn nsn Hget.
+      eapply perm_trans; [ apply (Hc nn nsn Hget) | eauto with perm ].
     Qed.
 
     Lemma conservation_gen gs0 T gs1 :
@@ -814,29 +815,24 @@ Definition consistent_good :=
       intros Hstep. invert Hstep.
       - apply Forall2_map_mupd_r.
         + intros v1 v2 (Ht & Hp). cbn [enqueue gns_trace gns_queue]. split; [ exact Ht | ].
-          eapply submultiset_trans; [ exact Hp | ].
-          change ([m] ++ gns_queue v2) with (m :: gns_queue v2).
-          eapply submultiset_perm_r; [ apply Permutation_middle | apply submultiset_cons ].
+          eapply submultiset_trans; [ exact Hp | eauto with submultiset perm ].
         + apply Forall2_map_dup. intros k v Hv. split; apply submultiset_refl.
       - apply Forall2_map_map_values'_r. eapply Forall2_map_put_r; [ | exact H | ].
         + apply Forall2_map_dup. intros k v Hv Hne. cbn [enqueue gns_trace gns_queue]. split.
           * apply submultiset_refl.
-          * exists (filter (forward n k) outs). rewrite <- app_assoc.
-            apply Permutation_app_head, Permutation_app_comm.
+          * eauto with submultiset perm.
         + cbn [enqueue gns_trace gns_queue].
           change (inputs_of (O_event lbl outs :: gns_trace ns)) with (inputs_of (gns_trace ns)).
           split.
           * apply submultiset_refl.
-          * exists (filter (forward n n) outs). rewrite <- app_assoc.
-            apply Permutation_app_head, Permutation_app_comm.
+          * eauto with submultiset perm.
       - eapply Forall2_map_put_r; [ | exact H | ].
         + apply Forall2_map_dup. intros k v Hv Hne. split; apply submultiset_refl.
         + cbn [gns_trace gns_queue].
           change (inputs_of (I_event m :: gns_trace ns)) with (m :: inputs_of (gns_trace ns)).
           split.
           * apply submultiset_cons.
-          * rewrite H1. exists []. rewrite app_nil_r.
-            rewrite <- app_comm_cons, !app_assoc. apply Permutation_middle.
+          * rewrite H1. eauto with submultiset perm.
     Qed.
 
     Lemma pool_submultiset g1 T g2 :
@@ -974,15 +970,15 @@ Definition consistent_good :=
       { exact (eventually_received _ _). }
       intros [gs2' t2'] Hrecv _.
       cbv [le]. unfold le_weak, outputs_partition in Hlew.
-      eapply Forall2_map_compose; [ | | exact Hrecv ].
-      2:{ pose proof (Forall2_map_map_values'_inv _ _ _ _ _ Hlew) as Hout.
-          eapply Forall2_map_impl_strong; [ exact Hout | ].
-          intros k ns1 ns2 Hg1 Hg2 _.
-          apply (incl_mod_of_le_weak t1 gs1 t2 gs2 k ns1 ns2 Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2
-                   (le_weak_fwd_total _ _ k Hlew) (submultiset_matching_inps k _ _ Hsub)). }
-      intros k ns1 ns2 ns2' Ha Hrec.
+      pose proof (Forall2_map_map_values'_inv _ _ _ _ _ Hlew) as Hout.
+      eapply Forall2_map_compose_strong; [ | eassumption | eassumption ].
+      intros k ns1 ns2 ns2' Hg1 Hg2 Hg3 _ Hrec.
       eapply consistently_incl_shrink_l; [ apply submultiset_app_r | ].
-      eapply consistently_incl_grow_r; [ exact Hrec | exact Ha ].
+      eapply consistently_incl_grow_r; [ exact Hrec | ].
+      apply (incl_mod_of_le_weak t1 gs1 t2 gs2 k ns1 ns2
+               Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2
+               (le_weak_fwd_total _ _ k Hlew)
+               (submultiset_matching_inps k _ _ Hsub)).
     Qed.
 
     Lemma node_will_match' gs1 t1 lbl outs gs1' gs2 t2 :
@@ -1059,8 +1055,7 @@ Definition consistent_good :=
       eapply eventually_trans; [ exact Hev | ].
       intros [gs2' t2'] (Hreach' & Hlw).
       destruct Hreach' as (tr & Hstar_gg & -> & Hga_imp).
-      assert (Hstar2' : star gstep initial_gs (tr ++ t2) gs2')
-        by (eapply star_app; [ exact Hstar2 | exact Hstar_gg ]).
+      assert (Hstar2' : star gstep initial_gs (tr ++ t2) gs2') by eauto using star_app.
       specialize (Hga_imp Hga2).
       assert (Hsub' : submultiset (inputs_of (O_event lbl outs :: t1)) (inputs_of (tr ++ t2))).
       { rewrite inputs_of_app. simpl.

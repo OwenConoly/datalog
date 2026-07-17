@@ -100,8 +100,18 @@ Qed.
 Lemma perm_nil_r {X : Type} (l : list X) : Permutation (l ++ []) l.
 Proof. rewrite app_nil_r. apply Permutation_refl. Qed.
 
+Lemma Permutation_concat {A} (l l' : list (list A)) :
+  Permutation l l' -> Permutation (concat l) (concat l').
+Proof.
+  induction 1; cbn [concat].
+  - reflexivity.
+  - apply Permutation_app_head; assumption.
+  - rewrite !app_assoc. apply Permutation_app_tail, Permutation_app_comm.
+  - eapply Permutation_trans; eassumption.
+Qed.
+
 Create HintDb perm.
-Hint Resolve perm_ins perm_recv_l perm_send perm_nil_r
+Hint Resolve perm_ins perm_recv perm_recv_l perm_send perm_nil_r Permutation_concat
      Permutation_app_head Permutation_app_comm Permutation_refl : perm.
 
 Lemma flat_map_all_nil {A B} (g : A -> list B) (l : list A) :
@@ -1628,6 +1638,10 @@ Section misc.
   (*   exists x. destr (eqbA x x); try congruence; auto. *)
   (* Qed. *)
 End misc.
+
+Create HintDb submultiset.
+Hint Resolve submultiset_perm submultiset_refl submultiset_app_mid submultiset_app_r
+     submultiset_cons submultiset_cons_mono submultiset_app_head submultiset_nil_l : submultiset.
 
 Definition consistent_monotone {message} (consistent : list message -> list message -> Prop)
     (allowed : list message -> Prop) :=
