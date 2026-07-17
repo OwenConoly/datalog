@@ -76,10 +76,10 @@ Section step.
   Context (Hcm : forall s, multiset_monotone_inc (consistent s)).
 
   Definition noncontradictory l1 l2 :=
-    exists l2',
-      submultiset l2 l2' /\
-        allowed l2' /\
-        incl_mod equiv l1 l2'.
+    exists l1',
+      submultiset l1 l1' /\
+        allowed l1' /\
+        incl_mod equiv l2 l1'.
 
   Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
     Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
