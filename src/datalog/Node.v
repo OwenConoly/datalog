@@ -1,5 +1,5 @@
 From Stdlib Require Import List Lia Permutation Classical_Prop.
-From Datalog Require Import List Datalog Smallstep Tactics.
+From Datalog Require Import List Datalog Smallstep Tactics Graph.
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
 Import ListNotations.
@@ -8,11 +8,10 @@ Section __.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
-  Definition node_name := option nat.
 
   Inductive dfact :=
   | normal_dfact (nf_rel : rel) (nf_args : list T)
-  | meta_dfact (mf_rel : rel) (mf_args : list (option T)) (source : node_name) (expected_msgs : nat).
+  | meta_dfact (mf_rel : rel) (mf_args : list (option T)) (source : option node_id) (expected_msgs : nat).
 
   Definition dfact_rel (f : dfact) : rel :=
     match f with
@@ -24,7 +23,7 @@ Section __.
     { known_facts : list dfact;
       sent_facts : list dfact }.
 
-  Context (R_senders : rel -> list node_name).
+  Context (R_senders : rel -> list (option node_id)).
 
   Definition expect_num_R_facts R mf_args known_facts num :=
     exists expected_msgss,
@@ -54,7 +53,7 @@ Section __.
       non_meta_rule_impl r nf_rel nf_args hyps /\
         Forall (knows_datalog_fact known_facts) hyps.
 
-  Definition can_deduce_meta_fact (mf_concls mf_hyps : list meta_clause) (node : node_name) (sent_facts : list dfact) (result : dfact) (hyps : list fact) :=
+  Definition can_deduce_meta_fact (mf_concls mf_hyps : list meta_clause) (node : option node_id) (sent_facts : list dfact) (result : dfact) (hyps : list fact) :=
     exists ctx mf_rel mf_args mf_cnt,
       result = meta_dfact mf_rel mf_args node mf_cnt /\
         Existsn (dfact_matches mf_rel mf_args) mf_cnt sent_facts /\
@@ -89,7 +88,7 @@ Section __.
 
   Record node_prog :=
     { np_rules : list rule;
-      np_name : node_name }.
+      np_name : option node_id }.
 
   Definition new_facts (sp : node_prog) (rs : node_state) f :=
     Exists
@@ -101,7 +100,7 @@ Section __.
 
   Variant dfact_mod_count :=
     | normal_dfact_mc (nf_rel : rel) (nf_args : list T)
-    | meta_dfact_mc (mf_rel : rel) (mf_args : list (option T)) (source : node_name).
+    | meta_dfact_mc (mf_rel : rel) (mf_args : list (option T)) (source : option node_id).
 
   Definition mod_count (f : dfact) :=
     match f with

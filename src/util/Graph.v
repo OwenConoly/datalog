@@ -10,7 +10,7 @@ From Datalog Require Import Tactics.
 From coqutil Require Import Tactics Tactics.fwd.
 Import ListNotations.
 
-Definition node_id := nat.
+Notation node_id := nat (only parsing).
 #[export] Instance node_id_eqb : Eqb.Eqb node_id := Eqb.nat_eqb.
 #[export] Instance node_id_eqb_ok : Eqb.Eqb_ok node_id_eqb := Eqb.nat_eqb_ok.
 
