@@ -1,5 +1,6 @@
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import Eqdep.
+From coqutil Require Import Map.Interface.
 
 Ltac specialize' H :=
   let hyp := fresh "hyp" in
@@ -94,3 +95,8 @@ Ltac invert1_Exists solver H :=
 (*   invert0_In H || *)
 (*     destruct H as [H|H]; [solve[repeat invert_stuff] | invert1_In H] || *)
 (*     destruct H as [H|H]; [| invert0_In H]. *)
+
+Ltac map_func :=
+  repeat match goal with
+    | H1: map.get ?x ?y = _, H2: map.get ?x ?y = _ |- _ => rewrite H1 in H2; invert H2
+    end.

@@ -36,12 +36,10 @@ Section Distributed.
     destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
   Qed.
 
-  (* The graph maps each node [n] to its own program; node [n] runs [prog_at n]
-     (an absent node runs the vacuous [default_prog]). *)
   Context {prog_map : map.map node_id node_prog} {prog_map_ok : map.ok prog_map}.
   Context (graph_prog : prog_map).
-  Context (Hmrv : forall n np, map.get graph_prog n = Some np -> meta_rules_valid np.(np_rules)).
-  Context (Hname : forall n np, map.get graph_prog n = Some np -> np.(np_name) = Some n).
+  Context (Hmrv : Forall_map (fun _ np => meta_rules_valid np.(np_rules)) graph_prog).
+  Context (Hname : Forall_map (fun n np => np.(np_name) = Some n) graph_prog).
 
   Definition default_prog : node_prog := {| np_rules := []; np_name := None |}.
   Definition prog_at (n : node_id) : node_prog := get_default default_prog graph_prog n.
@@ -124,17 +122,10 @@ Section Distributed.
     split; eauto. intros. especialize H1p0; eauto. fwd. eauto.
   Qed.
 
-  Lemma Forall2_In_combine {A B} (R : A -> B -> Prop) xs ys x y :
-    Forall2 R xs ys -> In (x, y) (combine xs ys) -> R x y.
-  Proof.
-    induction 1 as [| a b xs' ys' Hab HF IH]; simpl; [ contradiction | ].
-    intros [Heq | Hin]; [ injection Heq as -> ->; exact Hab | exact (IH Hin) ].
-  Qed.
-
   #[local] Instance node_name_eqdec : EqDecider (@eqb node_name _).
   Proof. intros x y. apply Eqb_ok_BoolSpec. Qed.
 
-  Context {node_map : map.map (option node_id) (list dfact)} {node_map_ok : map.ok node_map}.
+  Context {node_map : map.map node_name (list dfact)} {node_map_ok : map.ok node_map}.
   Context {count_map : map.map node_name nat} {count_map_ok : map.ok count_map}.
 
   Lemma meta_locate R mf_args (partition : node_map) n cnt :
@@ -170,20 +161,30 @@ Section Distributed.
     exists ms. split; [ exact Hget | split; [ exact Hin_ms | exact Hle ] ].
   Qed.
 
-  (* the claim's per-sender expected counts, as a real map *)
+  (* the claim's per-sender expected counts, as a real map (absent senders count 0) *)
   Definition count_at R (ems : list nat) (k : node_name) : nat :=
-    match map.get (map.of_list (combine (R_senders R) ems) : count_map) k with
-    | Some c => c | None => 0 end.
+    get_default 0 (map.of_list (combine (R_senders R) ems) : count_map) k.
+
+  Lemma count_at_Some R ems k c :
+    map.get (map.of_list (combine (R_senders R) ems) : count_map) k = Some c ->
+    count_at R ems k = c.
+  Proof. apply get_default_Some. Qed.
+
+  Lemma count_at_None R ems k :
+    map.get (map.of_list (combine (R_senders R) ems) : count_map) k = None ->
+    count_at R ems k = 0.
+  Proof. apply get_default_None. Qed.
 
   Lemma map_count_at R ems :
     length (R_senders R) = length ems -> map (count_at R ems) (R_senders R) = ems.
   Proof.
-    intros Hlen. unfold count_at. apply map_get_of_list_zip; [ apply R_senders_NoDup | exact Hlen ].
+    intros Hlen. unfold count_at, get_default.
+    apply map_get_of_list_zip; [ apply R_senders_NoDup | exact Hlen ].
   Qed.
 
   Lemma count_at_off R ems k : ~ In k (R_senders R) -> count_at R ems k = 0.
   Proof.
-    intros Hnin. unfold count_at. rewrite get_of_list_not_In; [ reflexivity | ].
+    intros Hnin. apply count_at_None, get_of_list_not_In.
     intros Hin. apply in_map_iff in Hin. destruct Hin as ((k' & c) & Heq & Hin).
     cbn in Heq. subst k'. apply Hnin. eapply in_combine_l; exact Hin.
   Qed.
@@ -197,9 +198,8 @@ Section Distributed.
       by (rewrite map_fst_combine by exact Hlen; apply R_senders_NoDup).
     rewrite <- (map_fst_combine (R_senders R) ems Hlen) in Hin.
     apply in_map_iff in Hin. destruct Hin as ((k' & c) & Heq & Hcomb). cbn in Heq. subst k'.
-    rewrite (map.get_of_list_In_NoDup (combine (R_senders R) ems) Hnd k c Hcomb).
-    unfold count_at. rewrite (map.get_of_list_In_NoDup (combine (R_senders R) ems) Hnd k c Hcomb).
-    reflexivity.
+    pose proof (map.get_of_list_In_NoDup (combine (R_senders R) ems) Hnd k c Hcomb) as Hget.
+    rewrite (count_at_Some _ _ _ _ Hget). exact Hget.
   Qed.
 
   Lemma sum_count_at R ems (partition : node_map) :
@@ -224,14 +224,13 @@ Section Distributed.
     rewrite <- (sum_count_at R ems partition Hlen Hsub).
     apply Existsn_le_concat_map. intros k ms Hget.
     destruct (map.get (map.of_list (combine (R_senders R) ems) : count_map) k) as [c|] eqn:Ec.
-    - assert (count_at R ems k = c) by (unfold count_at; rewrite Ec; reflexivity).
-      rewrite H. pose proof (Forall2_In_combine _ _ _ _ _ Hems (get_of_list_In _ _ _ Ec)) as Hmeta.
+    - rewrite (count_at_Some _ _ _ _ Ec).
+      pose proof (proj1 (Forall_forall _ _) (Forall2_combine _ _ _ Hems) _ (get_of_list_In _ _ _ Ec)) as Hmeta.
       destruct (sender_block _ _ _ _ _ HF Hmeta) as (ms' & Hget' & _ & Hle).
-      pose proof (eq_trans (eq_sym Hget') Hget) as Heq. injection Heq as ->. exact Hle.
-    - assert (count_at R ems k = 0) by (unfold count_at; rewrite Ec; reflexivity).
-      rewrite H. apply Existsn_le_0_Forall_not.
+      simpl in *. map_func. assumption.
+    - rewrite (count_at_None _ _ _ Ec). apply Existsn_le_0_Forall_not.
       eapply no_R_matches_off_senders; [ exact HF | exact Hget | ].
-      intros Hin. rewrite (count_at_In R ems k Hlen Hin) in Ec. discriminate.
+      intros Hin. rewrite count_at_In in Ec by assumption. discriminate.
   Qed.
 
   Lemma consistent_good_holds :
@@ -254,12 +253,11 @@ Section Distributed.
                                  partition).
         { intros k ms Hget.
           destruct (map.get (map.of_list (combine (R_senders R) ems) : count_map) k) as [c|] eqn:Ec.
-          - assert (Hc : count_at R ems k = c) by (unfold count_at; rewrite Ec; reflexivity). rewrite Hc.
-            pose proof (Forall2_In_combine _ _ _ _ _ Hexpect (get_of_list_In _ _ _ Ec)) as Hmeta.
+          - rewrite (count_at_Some _ _ _ _ Ec).
+            pose proof (proj1 (Forall_forall _ _) (Forall2_combine _ _ _ Hexpect) _ (get_of_list_In _ _ _ Ec)) as Hmeta.
             destruct (sender_block _ _ _ _ _ Hallow Hmeta) as (ms' & Hget' & _ & Hle_ms).
             pose proof (eq_trans (eq_sym Hget') Hget) as Heq; injection Heq as ->. exact Hle_ms.
-          - assert (Hc : count_at R ems k = 0) by (unfold count_at; rewrite Ec; reflexivity). rewrite Hc.
-            apply Existsn_le_0_Forall_not.
+          - rewrite (count_at_None _ _ _ Ec). apply Existsn_le_0_Forall_not.
             eapply no_R_matches_off_senders; [ exact Hallow | exact Hget | ].
             intros Hin. rewrite (count_at_In R ems k Hlen Hin) in Ec. discriminate. }
         rewrite <- (sum_count_at R ems partition Hlen Hsub) in Hge.
@@ -269,11 +267,9 @@ Section Distributed.
         exists em. split.
         * destruct (meta_locate _ _ _ _ _ Hallow Hmeta) as (ms' & Hget' & Hin_ms).
           pose proof (eq_trans (eq_sym Hget') Hget) as Heq; injection Heq as ->. exact Hin_ms.
-        * assert (Hen : count_at R ems n = em).
-          { unfold count_at.
-            rewrite (map.get_of_list_In_NoDup (combine (R_senders R) ems)
-                       ltac:(rewrite map_fst_combine by exact Hlen; apply R_senders_NoDup) n em Hcomb).
-            reflexivity. }
+        * pose proof (count_at_Some R ems n em
+                        (map.get_of_list_In_NoDup (combine (R_senders R) ems)
+                           ltac:(rewrite map_fst_combine by exact Hlen; apply R_senders_NoDup) n em Hcomb)) as Hen.
           rewrite <- Hen. exact (Hsq n ms Hget).
       + intros HcoF. cbn [consistent].
         assert (Hbuild : Forall (fun k => exists cnt ms, map.get partition k = Some ms /\
@@ -296,12 +292,11 @@ Section Distributed.
           rewrite <- (sum_count_at R ems partition Hlen Hsub).
           apply Existsn_ge_concat_map. intros k ms Hget.
           destruct (map.get (map.of_list (combine (R_senders R) ems) : count_map) k) as [c|] eqn:Ec.
-          -- assert (Hc : count_at R ems k = c) by (unfold count_at; rewrite Ec; reflexivity). rewrite Hc.
-             pose proof (Forall2_In_combine _ _ _ _ _ Hbuild2 (get_of_list_In _ _ _ Ec))
+          -- rewrite (count_at_Some _ _ _ _ Ec).
+             pose proof (proj1 (Forall_forall _ _) (Forall2_combine _ _ _ Hbuild2) _ (get_of_list_In _ _ _ Ec))
                as (ms' & Hget' & _ & Hge_ms).
              pose proof (eq_trans (eq_sym Hget') Hget) as Heq; injection Heq as ->. exact Hge_ms.
-          -- assert (Hc : count_at R ems k = 0) by (unfold count_at; rewrite Ec; reflexivity). rewrite Hc.
-             apply Eg_zero.
+          -- rewrite (count_at_None _ _ _ Ec). apply Eg_zero.
   Qed.
 
   Context {graph_state : map.map node_id (@graph_node_state dfact dfact_mod_count node_state)}.
@@ -346,7 +341,7 @@ Section Distributed.
     cbv [node_good graph_node_init gns_node_state]. rewrite (prog_at_get k np Hget). ssplit.
     - admit.
     - admit.
-    - apply node_might_implies_will. eapply Hmrv. exact Hget.
+    - apply node_might_implies_will. exact (Hmrv _ _ Hget).
   Admitted.
 
   Local Notation gstep := (graph_step input_allowed forward output_visible nstep).

@@ -211,11 +211,6 @@ Definition consistent_good :=
 
     Context (nodes_good : Forall_map node_good initial_gs).
 
-    Ltac map_func :=
-      repeat match goal with
-        | H1: map.get ?x ?y = _, H2: map.get ?x ?y = _ |- _ => rewrite H1 in H2; invert H2
-        end.
-
     #[local] Hint Constructors star eventually : core.
     #[local] Hint Resolve
       incl_mod_refl incl_mod_of_incl incl_mod_trans

@@ -484,6 +484,10 @@ Section Map.
     map.get m k = Some v -> get_default d m k = v.
   Proof. intros H. cbv [get_default]. rewrite H. reflexivity. Qed.
 
+  Lemma get_default_None d m k :
+    map.get m k = None -> get_default d m k = d.
+  Proof. intros H. cbv [get_default]. rewrite H. reflexivity. Qed.
+
   Definition val_sat (m : mp) (k : key) (P : value -> Prop) : Prop :=
     exists v, map.get m k = Some v /\ P v.
 
