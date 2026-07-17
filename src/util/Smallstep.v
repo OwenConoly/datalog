@@ -79,7 +79,7 @@ Section step.
     exists l2',
       submultiset l2 l2' /\
         allowed l2' /\
-        incl_mod equiv l2' l1.
+        incl_mod equiv l1 l2'.
 
   Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
     Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
