@@ -70,67 +70,26 @@ Section step.
   Context {equiv_equiv : Equivalence equiv}.
   Context {stmt} (claim : stmt -> list message -> Prop).
   Context (consistent : stmt -> list message (*a multiset*) -> Prop).
-
-  Context (allowed : list message -> Prop).
+  Context (allowed : list message (*multiset*) -> Prop).
 
   Context (allowed_submultiset : multiset_monotone_dec allowed).
-  (* "allowed" should satisfy the allowed_submultiset definition.
-     if we have some consistent sets which are not allowed, then they are not good
-     for anything, so we can just set consistent := consistent /\ allowed.
-     so, wlog, allowed is closed under submultiset, and it is a superset of consistent.
-     this yields the following:
-   *)
-  (* Definition allowed ms := exists ms', consistent ms' /\ submultiset ms' ms. *)
-  (*but oops that doesn't typecheck; that's not how consistent works.
-    hmm.*)
-
   Context (Hcm : forall s, multiset_monotone_inc (consistent s)).
 
   Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
     Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
-  Proof.
-    unfold outputs_of. induction 1; cbn [flat_map].
-    - apply Permutation_refl.
-    - apply Permutation_app_head; assumption.
-    - rewrite 2!app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
-    - eapply perm_trans; eassumption.
-  Qed.
+  Proof. apply Permutation_flat_map. Qed.
 
   Lemma outputs_of_app (t1 t2 : list (IO_event label message)) :
     outputs_of (t1 ++ t2) = outputs_of t1 ++ outputs_of t2.
   Proof. apply flat_map_app. Qed.
 
-  Lemma outputs_of_in_perm o (t1 t2 : list (IO_event label message)) :
-    Permutation t1 t2 -> In o (outputs_of t1) -> In o (outputs_of t2).
-  Proof.
-    intros Hperm Hin. eapply Permutation_in; [apply outputs_of_perm; exact Hperm | exact Hin].
-  Qed.
-
   Lemma inputs_of_perm (t1 t2 : list (IO_event label message)) :
     Permutation t1 t2 -> Permutation (inputs_of t1) (inputs_of t2).
-  Proof.
-    unfold inputs_of. induction 1; cbn [flat_map].
-    - apply Permutation_refl.
-    - apply Permutation_app_head; assumption.
-    - rewrite 2!app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
-    - eapply perm_trans; eassumption.
-  Qed.
+  Proof. apply Permutation_flat_map. Qed.
 
   Lemma inputs_of_app (t1 t2 : list (IO_event label message)) :
     inputs_of (t1 ++ t2) = inputs_of t1 ++ inputs_of t2.
   Proof. apply flat_map_app. Qed.
-
-  Lemma outputs_of_in_app o (l1 l2 : list (IO_event label message)) :
-    In o (outputs_of (l1 ++ l2)) <-> In o (outputs_of l1) \/ In o (outputs_of l2).
-  Proof. rewrite outputs_of_app. apply in_app_iff. Qed.
-
-  Lemma outputs_of_in_swap o l1 e (l2 : list (IO_event label message)) :
-    In o (outputs_of (l1 ++ e :: l2)) <-> In o (outputs_of (e :: l1 ++ l2)).
-  Proof.
-    split.
-    - apply outputs_of_in_perm. apply Permutation_sym. apply Permutation_middle.
-    - apply outputs_of_in_perm. apply Permutation_middle.
-  Qed.
 
   Definition input_total :=
     forall s m, exists s', step s (I_event m) s'.
@@ -479,13 +438,13 @@ Section step.
       might_output_equiv ns tau o ->
       might_output_equiv ns' (e :: tau) o.
   Proof.
-    intros Hciw ns tau e ns' o Halt Hstar Hstep Hcan.
+    intros Hmiw ns tau e ns' o Halt Hstar Hstep Hcan.
     destruct Hcan as (o' & Hequiv & Hmo).
     assert (Halt_tau : allowed (inputs_of tau)).
     { eapply allowed_submultiset; [exact Halt|].
       exists (inputs_of [e]). change (e :: tau) with ([e] ++ tau).
       rewrite inputs_of_app. apply Permutation_app_comm. }
-    pose proof (Hciw tau ns o' Hstar Halt_tau Hmo) as Hwill.
+    pose proof (Hmiw tau ns o' Hstar Halt_tau Hmo) as Hwill.
     pose proof (will_output_equiv_step ns e ns' tau o' Hstep Hwill) as Hwill'.
     pose proof (will_equiv_implies_might_equiv ns' (e :: tau) o' Halt Hwill') as Hmoe.
     destruct Hmoe as (o'' & Hequiv2 & Hmo'').
@@ -531,19 +490,19 @@ Section step.
     - intros s _ Hcons. exact (Hcm s (inputs_of t1) (inputs_of t2) Hcons Hsub).
   Qed.
 
-  Lemma ciw'_iff_ciw_and_monotone' :
+  Lemma miw'_iff_miw_and_monotone' :
     might_implies_will_equiv' <-> might_implies_will_equiv /\ monotone_mod_equiv.
   Proof.
     split.
     - (* -> *)
-      intros Hciw'. split.
+      intros Hmiw'. split.
       + (* might_implies_will_equiv *)
         intros t s o Hstar Hall Hcan.
         destruct Hcan as (T_a & s_f & Hstar_a & Hinp_a & Hout).
         pose proof (star_app _ _ _ _ _ _ Hstar Hstar_a) as Hstar_T.
         assert (HallT : allowed (inputs_of (T_a ++ t))).
         { rewrite inputs_of_app, Hinp_a. exact Hall. }
-        apply (Hciw' (T_a ++ t) s_f o Hstar_T HallT Hout s t).
+        apply (Hmiw' (T_a ++ t) s_f o Hstar_T HallT Hout s t).
         * rewrite inputs_of_app, Hinp_a. apply consistently_incl_refl.
         * exact Hstar.
         * exact Hall.
@@ -555,28 +514,28 @@ Section step.
         { rewrite inputs_of_app, Hinp_a. exact Hall1. }
         assert (HinclT : consistently_incl (inputs_of (T_a ++ t1)) (inputs_of t2)).
         { rewrite inputs_of_app, Hinp_a. exact Hincl. }
-        pose proof (Hciw' (T_a ++ t1) s_f o Hstar_T HallT Hout s2 t2 HinclT Hstar2 Hall2)
+        pose proof (Hmiw' (T_a ++ t1) s_f o Hstar_T HallT Hout s2 t2 HinclT Hstar2 Hall2)
           as Hwill.
         exact (will_equiv_implies_might_equiv s2 t2 o Hall2 Hwill).
     - (* <- *)
-      intros [Hciw Hmono] t s o Hstar Hall Hout s' t' Hincl Hstar' Hall'.
+      intros [Hmiw Hmono] t s o Hstar Hall Hout s' t' Hincl Hstar' Hall'.
       assert (Hmst : might_output s t o).
       { exists [], s. split; [constructor|]. split; [reflexivity|]. cbn. exact Hout. }
       pose proof (Hmono t t' s s' o Hstar Hstar' Hall Hall' Hincl Hmst) as Hmoe.
       destruct Hmoe as (o'' & Hequiv & Hmo).
-      pose proof (Hciw t' s' o'' Hstar' Hall' Hmo) as Hwill.
+      pose proof (Hmiw t' s' o'' Hstar' Hall' Hmo) as Hwill.
       unfold will_output_equiv in *.
       eapply eventually_weaken; [exact Hwill|].
       intros [sf tf] (w & Heqw & Hinw). exists w. split; [| exact Hinw].
       destruct equiv_equiv as [_ _ Htrans]. eapply Htrans; [exact Heqw | exact Hequiv].
   Qed.
 
-  Lemma ciw_monotone :
+  Lemma miw_monotone :
     might_implies_will_equiv ->
     monotone.
   Proof.
-    intros Hciw t1 t2 s1 s2 o Hstar1 Hstar2 Hall1 Hallt Hcan.
-    pose proof (Hciw t1 s1 o Hstar1 Hall1 Hcan) as Hwill.
+    intros Hmiw t1 t2 s1 s2 o Hstar1 Hstar2 Hall1 Hallt Hcan.
+    pose proof (Hmiw t1 s1 o Hstar1 Hall1 Hcan) as Hwill.
     apply (will_equiv_implies_might_equiv s2 (t2 ++ t1) o Hallt).
     exact (will_output_equiv_star s1 t2 s2 t1 o Hstar2 Hwill).
   Qed.
@@ -861,14 +820,14 @@ Section steps_corresp.
       steps_corresp_sound' ->
       steps_corresp_sound.
     Proof.
-      intros Hit2 Hciw2 Hscs' t2 ns2 o Hstar2 Hall2 Hout2.
+      intros Hit2 Hmiw2 Hscs' t2 ns2 o Hstar2 Hall2 Hout2.
       destruct (star_recv_map step2 Hit2 (inputs_of t2) initial2) as (ns2' & Hstar2').
       assert (Hall' : allowed (inputs_of (map I_event (inputs_of t2) : list IO_event))).
       {  rewrite inputs_of_map_I_event. exact Hall2. }
       assert (Hincl : consistently_incl equiv claim consistent (inputs_of t2)
                            (inputs_of (map I_event (inputs_of t2) : list IO_event))).
       { rewrite inputs_of_map_I_event. apply (consistently_incl_refl equiv claim consistent). }
-      pose proof (Hciw2 t2 ns2 o Hstar2 Hall2 Hout2
+      pose proof (Hmiw2 t2 ns2 o Hstar2 Hall2 Hout2
                        ns2' (map I_event (inputs_of t2)) Hincl Hstar2' Hall') as Hwill.
       exact (Hscs' ns2' (inputs_of t2) o Hstar2' Hall2 Hwill).
     Qed.

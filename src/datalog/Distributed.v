@@ -59,6 +59,7 @@ Section Distributed.
         cbn [dfact_equiv] in *; try congruence.
       destruct H12 as (-> & -> & ->), H23 as (-> & -> & ->). repeat split.
   Qed.
+  Hint Immediate nequiv_equiv : core.
 
   Definition stmt : Type := (rel * list (option T))%type.
 
@@ -337,14 +338,13 @@ Section Distributed.
     Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
                   consistent nallowed nstep) initial_graph_state.
   Proof.
-    intros k v Hkv. apply initial_graph_state_get in Hkv. destruct Hkv as (np & Hget & ->).
-    pose proof (node_might_implies_will' R_senders np claim consistent (Hmrv _ _ Hget)) as Hmiw'.
-    apply (proj1 (@ciw'_iff_ciw_and_monotone' _ _ _ (node_step R_senders np) dfact_equiv
-                    nequiv_equiv _ claim consistent (allowed_inputs R_senders) node_init)) in Hmiw'.
-    cbv [node_good graph_node_init gns_node_state]. rewrite (prog_at_get k np Hget). ssplit.
-    - admit.
-    - exact (proj2 Hmiw').
-    - exact (proj1 Hmiw').
+    intros k v Hkv. apply initial_graph_state_get in Hkv. fwd.
+    pose proof node_might_implies_will' as H.
+    especialize H; eauto. apply miw'_iff_miw_and_monotone' in H; auto. fwd.
+    cbv [node_good graph_node_init gns_node_state].
+    erewrite prog_at_get by eassumption.
+    ssplit; try eassumption.
+    idtac.
   Admitted.
 
   Local Notation gstep := (graph_step input_allowed forward output_visible nstep).

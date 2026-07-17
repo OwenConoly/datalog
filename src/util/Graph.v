@@ -1086,7 +1086,7 @@ Definition consistent_good :=
       pose proof (nodes_good n ns0 Hget0) as (_ & Hmono & Hmiw).
       assert (Hmiw' : might_implies_will_equiv' (node_step n) equiv claim consistent allowed
                         (gns_node_state ns0)).
-      { apply ciw'_iff_ciw_and_monotone'; try assumption;
+      { apply miw'_iff_miw_and_monotone'; try assumption;
           try (split; [ exact Hmiw | exact Hmono ]). }
       pose proof (Hmiw' _ _ _ Hrun1 Hall1 Hout1 _ _ Hincl Hrun2 Hall2) as Hwoe.
       eapply eventually_weaken.
