@@ -315,7 +315,13 @@ Section Distributed.
 
   Lemma nodes_good_holds :
     Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
-                          consistent nallowed nstep) initial_gs.
+                  consistent nallowed nstep) initial_gs.
+  Proof.
+    intros k v Hkv. cbv [node_good]. ssplit.
+    - admit.
+    - admit.
+    - erewrite initial_gs_node_init by eassumption.
+      apply node_might_implies_will. assumption.
   Admitted.
 
   Local Notation gstep := (graph_step input_allowed forward output_visible nstep).
