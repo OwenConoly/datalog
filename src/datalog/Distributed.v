@@ -88,40 +88,45 @@ Section Distributed.
   Definition consistent (s : stmt) (l : list dfact) : Prop :=
     let '(R, mf_args) := s in
     exists num, expect_num_R_facts R_senders R mf_args l num /\
-      Existsn_ge (dfact_matches R mf_args) num l.
+             Existsn_ge (dfact_matches R mf_args) num l.
 
+  Lemma unstupid_Forall2_impl {A B} (R1 R2 : A -> B -> _) x y :
+    Forall2 R1 x y ->
+    (forall x y, R1 x y -> R2 x y) ->
+    Forall2 R2 x y.
+  Proof. intros. eapply Forall2_impl; eauto. Qed.
+
+  Lemma expect_num_R_facts_incl R mf_args l1 l2 num :
+    expect_num_R_facts R_senders R mf_args l1 num -> incl l1 l2 ->
+    expect_num_R_facts R_senders R mf_args l2 num.
+  Proof.
+    cbv [expect_num_R_facts]. intros. fwd.
+    Fail solve [eauto using Forall2_impl].
+    eauto using unstupid_Forall2_impl.
+  Qed.
+
+  Lemma incl_def {A} x (xs ys : list A) :
+    incl xs ys ->
+    In x xs ->
+    In x ys.
+  Proof. auto. Qed.
+
+  Hint Resolve expect_num_R_facts_incl Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
   Lemma consistent_mono s ms1 ms2 :
     consistent s ms1 -> submultiset ms1 ms2 -> consistent s ms2.
-  Proof.
-    destruct s as [R mf_args].
-    intros (num & (ems & Hf2 & Hnum) & Hge) Hsub.
-    pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    exists num. split.
-    - exists ems. split; [ | exact Hnum ].
-      eapply Forall2_impl; [ | exact Hf2 ]. intros k e Hin. exact (Hincl _ Hin).
-    - eapply Existsn_ge_submultiset; [ exact Hge | exact Hsub ].
-  Qed.
+  Proof. cbv [consistent]. intros. fwd. eauto 6. Qed.
 
   Lemma consistent_output_mono s n ms1 ms2 :
     consistent_output s n ms1 -> submultiset ms1 ms2 -> consistent_output s n ms2.
   Proof.
-    destruct s as [R mf_args].
-    intros Hco Hsub Hn.
-    destruct (Hco Hn) as (cnt & Hin & Hge).
-    pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    exists cnt. split; [ apply Hincl; exact Hin | ].
-    eapply Existsn_ge_submultiset; [ exact Hge | exact Hsub ].
+    cbv [consistent_output]. intros H1 H2. fwd.
+    intros. especialize H1; eauto. fwd. eauto 6.
   Qed.
 
   Lemma allowed_output_submultiset n : multiset_monotone_dec (allowed_output n).
   Proof.
-    intros l1 l2 (Hmeta2 & Hsender2) Hsub.
-    pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    split; [ | intros f Hin; apply Hsender2, Hincl, Hin ].
-    intros R mf_args src cnt Hin.
-    destruct (Hmeta2 R mf_args src cnt (Hincl _ Hin)) as (Hsrc & Hle2).
-    split; [ exact Hsrc | ].
-    eapply Existsn_le_submultiset; [ exact Hle2 | exact Hsub ].
+    cbv [multiset_monotone_dec allowed_output]. intros ? ? H1 H2. fwd.
+    split; eauto. intros. especialize H1p0; eauto. fwd. eauto.
   Qed.
 
   Lemma Forall2_In_combine {A B} (R : A -> B -> Prop) xs ys x y :
