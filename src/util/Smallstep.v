@@ -89,6 +89,15 @@ Section step.
     split; [ exact (incl_mod_refl equiv l) | intros s _ Hc; exact Hc ].
   Qed.
 
+  Lemma consistently_incl_grow_r l1 l2 l2' :
+    consistently_incl l1 l2 -> submultiset l2 l2' -> consistently_incl l1 l2'.
+  Proof.
+    intros (Hincl & Hle) Hsub. split.
+    - eapply (incl_mod_trans equiv);
+        [ exact Hincl | exact (incl_mod_of_submultiset equiv _ _ Hsub) ].
+    - intros s Hcl Hco. exact (Hcm s l2 l2' (Hle s Hcl Hco) Hsub).
+  Qed.
+
   (* [l1] is pinned only as a submultiset of the common witness [l'], but [l2] is
      [consistently_incl]-covered: enough to preserve every aggregate of [l2] into
      [l'] (which, with [submultiset l1 l'] and [wf l'], rules out contradictory
@@ -797,81 +806,37 @@ Section step.
       intros s0 Hcl _. apply Hwfc; [ exact Hwf_out | eapply claim_mono; [ exact Hcl | exact Hincl_out ] ].
   Qed.
 
-  (* Input-drive half (consistently_incl as a conclusion): feed [t'] inputs until
-     it has received an allowed supermultiset of [t]'s inputs; the resulting run
-     extends [t'] (so leaves its outputs untouched) and [consistently_incl]-covers
-     [t].  The datalog-specific fact that such an allowed supermultiset exists
-     (which relies on [noncontradictory] excluding contradictory multiplicities)
-     is the hypothesis [Hsup]; everything else is generic driving. *)
+  (* Drive one side to [consistently_incl] the other, with no supermultiset:
+     [noncontradictory (inputs t)(inputs t')] hands us an allowed witness [l'] with
+     [inputs t ⊆submult l'] and [consistently_incl (inputs t') l'].  Because [inputs t]
+     is a submultiset of [l'], we can drive [t] (the submultiset side) by feeding
+     inputs to reach exactly [l'] -- extending [t] (so its outputs are untouched) --
+     and the resulting run [consistently_incl]-covers [inputs t']. *)
   Lemma noncontradictory_drive :
     input_total ->
-    (forall l1 l2, allowed l1 -> allowed l2 -> noncontradictory l1 l2 ->
-       exists L, submultiset l1 L /\ submultiset l2 L /\ allowed L) ->
-    forall (t t' : list (IO_event label message)) s',
-      star step initial t' s' ->
-      allowed (inputs_of t) ->
-      allowed (inputs_of t') ->
+    forall (t t' : list (IO_event label message)) s,
+      star step initial t s ->
       noncontradictory (inputs_of t) (inputs_of t') ->
       exists tr sf,
-        star step s' tr sf /\
+        star step s tr sf /\
         outputs_of tr = [] /\
-        allowed (inputs_of (tr ++ t')) /\
-        consistently_incl (inputs_of t) (inputs_of (tr ++ t')) /\
-        noncontradictory (inputs_of t) (inputs_of (tr ++ t')).
+        allowed (inputs_of (tr ++ t)) /\
+        consistently_incl (inputs_of t') (inputs_of (tr ++ t)).
   Proof.
-    intros Hit Hsup t t' s' Hstar' Hallt Hallt' Hnc.
-    destruct (Hsup (inputs_of t) (inputs_of t') Hallt Hallt' Hnc)
-      as (L & HsubL_t & (rest & Hperm) & HallL).
-    destruct (star_recv_map Hit rest s') as (sf & Hstartr).
-    assert (Hinp : Permutation (inputs_of (map I_event rest ++ t')) L).
+    intros Hit t t' s _ (l' & (rest & Hperm) & HallL & Hci).
+    destruct (star_recv_map Hit rest s) as (sf & Hstartr).
+    assert (Hinp : Permutation (inputs_of (map I_event rest ++ t)) l').
     { rewrite inputs_of_app, inputs_of_map_I_event.
       eapply Permutation_trans; [ apply Permutation_app_comm | apply Permutation_sym; exact Hperm ]. }
-    assert (Hsub_TL : submultiset (inputs_of (map I_event rest ++ t')) L)
+    assert (Hsub_TL : submultiset (inputs_of (map I_event rest ++ t)) l')
       by (exists []; rewrite app_nil_r; apply Permutation_sym; exact Hinp).
-    assert (HallT : allowed (inputs_of (map I_event rest ++ t')))
-      by (eapply allowed_submultiset; [ exact HallL | exact Hsub_TL ]).
-    assert (Hsub_tT : submultiset (inputs_of t) (inputs_of (map I_event rest ++ t'))).
-    { destruct HsubL_t as (r0 & Hpr0). exists r0.
-      eapply Permutation_trans; [ exact Hinp | exact Hpr0 ]. }
     exists (map I_event rest), sf.
     split; [ exact Hstartr | ].
     split; [ apply outputs_of_map_I_event | ].
-    split; [ exact HallT | ].
     split.
-    - split.
-      + exact (incl_mod_of_submultiset equiv _ _ Hsub_tT).
-      + intros s _ Hc. exact (Hcm s _ _ Hc Hsub_tT).
-    - exists (inputs_of (map I_event rest ++ t')).
-      split; [ exact Hsub_tT | split; [ exact HallT | apply consistently_incl_refl ] ].
-  Qed.
-
-  (* Per-node propagation of [noncontradictory]: noncontradictory inputs give
-     noncontradictory outputs.  [noncontradictory_drive] converts the
-     noncontradictory inputs into a [consistently_incl] (by driving [t'] with
-     inputs), and [noncontradictory_outputs_ci] then reproduces [t]'s outputs. *)
-  Lemma noncontradictory_outputs t s t' s' :
-    might_implies_will_equiv' ->
-    input_total ->
-    outputs_well_formed ->
-    (forall l1 l2, allowed l1 -> allowed l2 -> noncontradictory l1 l2 ->
-       exists L, submultiset l1 L /\ submultiset l2 L /\ allowed L) ->
-    (forall s l1 l2, claim s l1 -> incl_mod equiv l1 l2 -> claim s l2) ->
-    (forall s l, outputs_wf l -> claim s l -> consistent s l) ->
-    star step initial t s ->
-    star step initial t' s' ->
-    allowed (inputs_of t) ->
-    allowed (inputs_of t') ->
-    noncontradictory (inputs_of t) (inputs_of t') ->
-    noncontradictory_wf outputs_wf (outputs_of t') (outputs_of t).
-  Proof.
-    intros Hmiw' Hit Howf Hsup claim_mono Hwfc Hstar Hstar' Hallt Hallt' Hnc.
-    destruct (noncontradictory_drive Hit Hsup t t' s' Hstar' Hallt Hallt' Hnc)
-      as (tr & sf & Hstarf & Houttr & HallT & HciT & HncT).
-    assert (HstarT : star step initial (tr ++ t') sf)
-      by (eapply star_app; [exact Hstar' | exact Hstarf]).
-    pose proof (noncontradictory_outputs_ci Hmiw' Howf claim_mono Hwfc t s (tr ++ t') sf
-                  Hstar HstarT Hallt HallT HncT HciT) as Hout.
-    rewrite outputs_of_app, Houttr in Hout. cbn [app] in Hout. exact Hout.
+    - eapply allowed_submultiset; [ exact HallL | exact Hsub_TL ].
+    - eapply consistently_incl_grow_r; [ exact Hci | ].
+      exists []. rewrite app_nil_r. exact Hinp.
   Qed.
 
   Context (D : list message -> message -> Prop).
