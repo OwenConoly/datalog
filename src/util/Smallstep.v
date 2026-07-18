@@ -103,10 +103,9 @@ Section step.
      [l'] (which, with [submultiset l1 l'] and [wf l'], rules out contradictory
      multiplicities) without demanding [l2 ⊆submult l']. *)
   Definition noncontradictory_wf (wf : list message -> Prop) l1 l2 :=
-    exists l1',
-      submultiset l1 l1' /\
-        wf l1' /\
-        consistently_incl l2 l1'.
+    exists l1' l2', submultiset l1 l1' /\ submultiset l2 l2' /\
+                 wf l1' /\ wf l2' /\
+                 consistently_incl l2' l1' /\ consistently_incl l1' l2'.
 
   (* [noncontradictory] on inputs uses [allowed]; the output side (below) reuses
      [noncontradictory_wf] with [outputs_wf] in place of [allowed]. *)
@@ -208,9 +207,8 @@ Section step.
   Lemma reachable_trans s1 t1 s2 t2 s3 t3 :
     reachable s1 t1 s2 t2 -> reachable s2 t2 s3 t3 -> reachable s1 t1 s3 t3.
   Proof.
-    intros (tr1 & Hst1 & -> & Hal1) (tr2 & Hst2 & -> & Hal2).
-    exists (tr2 ++ tr1). split; [eapply star_app; eassumption | ].
-    split; [ apply app_assoc | intros H; apply Hal2, Hal1, H ].
+    cbv [reachable]. intros. fwd. eexists (_ ++ _).
+    split; eauto using star_app. rewrite <- app_assoc. eauto.
   Qed.
 
   Lemma will_step_reach (s0 : state) (t0 : list (IO_event label message))
@@ -866,11 +864,9 @@ Section step.
       as (tr & sf & Hstarf & Houttr & HallT & HciT).
     assert (HstarT : star step initial (tr ++ t) sf)
       by (eapply star_app; [exact Hstar | exact Hstarf]).
-    assert (HncT : noncontradictory (inputs_of t') (inputs_of (tr ++ t))).
-    { admit. }
-    pose proof (noncontradictory_outputs_ci Hmiw' Howf claim_mono Hwfc
-                  t' s' (tr ++ t) sf Hstar' HstarT Hallt' HallT HncT HciT) as Hout.
-    rewrite outputs_of_app, Houttr in Hout. cbn [app] in Hout. exact Hout.
+    pose proof noncontradictory_outputs_ci as Hout.
+    eapply Hout; eauto.
+    2: { rewrite outputs_of_app, Houttr in Hout. cbn [app] in Hout. exact Hout.
   Admitted.
 
   Context (D : list message -> message -> Prop).
