@@ -839,6 +839,40 @@ Section step.
       exists []. rewrite app_nil_r. exact Hinp.
   Qed.
 
+  (* Per-node propagation of [noncontradictory]: noncontradictory inputs give
+     noncontradictory outputs.  [noncontradictory_drive] drives [t] (the submultiset
+     side) to a run that [consistently_incl]-covers [inputs t'] and still has [t]'s
+     outputs; [noncontradictory_outputs_ci] then reproduces [t']'s outputs there.
+     The single remaining obligation is [noncontradictory (inputs t')(driven)]:
+     reproduction (via [might_implies_will_equiv']) needs it in addition to the
+     [consistently_incl] the drive supplies, and it is NOT derivable -- [consistently_
+     incl] + [allowed] does not imply [noncontradictory] (that is exactly the gap
+     [noncontradictory] closes in the transfer lemma).  Left [admit]. *)
+  Lemma noncontradictory_outputs t s t' s' :
+    might_implies_will_equiv' ->
+    input_total ->
+    outputs_well_formed ->
+    (forall s l1 l2, claim s l1 -> incl_mod equiv l1 l2 -> claim s l2) ->
+    (forall s l, outputs_wf l -> claim s l -> consistent s l) ->
+    star step initial t s ->
+    star step initial t' s' ->
+    allowed (inputs_of t) ->
+    allowed (inputs_of t') ->
+    noncontradictory (inputs_of t) (inputs_of t') ->
+    noncontradictory_wf outputs_wf (outputs_of t) (outputs_of t').
+  Proof.
+    intros Hmiw' Hit Howf claim_mono Hwfc Hstar Hstar' Hallt Hallt' Hnc.
+    destruct (noncontradictory_drive Hit t t' s Hstar Hnc)
+      as (tr & sf & Hstarf & Houttr & HallT & HciT).
+    assert (HstarT : star step initial (tr ++ t) sf)
+      by (eapply star_app; [exact Hstar | exact Hstarf]).
+    assert (HncT : noncontradictory (inputs_of t') (inputs_of (tr ++ t))).
+    { admit. }
+    pose proof (noncontradictory_outputs_ci Hmiw' Howf claim_mono Hwfc
+                  t' s' (tr ++ t) sf Hstar' HstarT Hallt' HallT HncT HciT) as Hout.
+    rewrite outputs_of_app, Houttr in Hout. cbn [app] in Hout. exact Hout.
+  Admitted.
+
   Context (D : list message -> message -> Prop).
 
   Definition complete :=
