@@ -247,7 +247,7 @@ Definition consistent_good :=
 
   Lemma consistently_incl_concat_values (p2 pM : node_map) :
     Forall_map allowed_output pM ->
-    Forall2_map (fun _ v m => consistently_incl equiv claim consistent v m) p2 pM ->
+    Forall2_map (fun k v m => consistently_incl equiv (fun s => claim_output s k) (fun s => consistent_output s k) v m) p2 pM ->
     consistently_incl equiv claim consistent (concat (values p2)) (concat (values pM)).
   Proof.
     intros Hallow H. unfold consistently_incl. split.
@@ -255,7 +255,16 @@ Definition consistent_good :=
       eapply Forall2_map_impl.
       + exact H.
       + intros k v m Hci. destruct Hci as (Hincl & _). exact Hincl.
-    - admit.
+    - cbv [consistent_le].
+      intros s Hcl Hcon.
+      apply consistent_good_holds; auto.
+      { eapply claim_mono; [eassumption|]. admit. }
+      pose proof consistent_good_holds as Hcon'.
+      cbv [consistent_good] in Hcon'.
+      specialize Hcon' with (2 := Hcl). specialize' Hcon'. 1: admit.
+      fwd. apply Hcon'p1 in Hcon. clear Hcon'p1.
+      intros k v Hkv. eapply Forall2_map_get_r in H; eauto. fwd.
+      cbv [consistently_incl] in Hp1. fwd. eapply Hp1p1; eauto.
   Admitted.
 
   Lemma noncontradictory_of_outputs (partition1 partition2 : node_map) :
@@ -503,8 +512,7 @@ Definition consistent_good :=
     Proof.
       intros Hn. unfold output_map.
       erewrite outputs_partition_map_values'; [|reflexivity].
-      rewrite outputs_partition_put.
-      eapply Permutation_trans; [ apply concat_values_map_values'_put | ].
+      rewrite outputs_partition_eapply Permutation_trans; [ apply concat_values_map_values'_put | ].
       simpl. rewrite Hdist, <- app_assoc. apply Permutation_app_head.
       apply Permutation_sym.
       apply concat_values_map_values'_get.
