@@ -60,30 +60,29 @@ Section __.
 
   Local Notation gevent := (Smallstep.IO_event graph_label (message * node_id)).
 
-  (*we could alo consider something like this?*)
-  (*
-    Definition claim_good :=
-    forall s nodes mss,
-      is_all_nodes nodes ->
-      Forall2 allowed_output nodes mss ->
-      (claim s (concat mss) <->
-         Forall2 (claim_output s) nodes mss).
+  Context (all_nodes : list (option node_id)).
 
-Definition consistent_good :=
-    forall s nodes mss,
-      is_all_nodes nodes ->
-      Forall2 allowed_output nodes mss ->
-      (consistent s (concat mss) <->
-         Forall2 (consistent_output s) nodes mss).
-   *)
-
-  Definition consistent_good :=
+  Definition claim_good all_nodes :=
     forall s (partition : node_map),
       Forall_map allowed_output partition ->
-      claim s (concat (values partition)) ->
-      Forall_map (claim_output s) partition /\
-        (consistent s (concat (values partition)) <->
-           Forall_map (consistent_output s) partition).
+      is_list_set all_nodes (map.keys partition) ->
+      (claim s (concat (values partition)) <->
+         Forall_map (claim_output s) partition).
+
+  Definition consistent_good all_nodes :=
+    forall s (partition : node_map),
+      Forall_map allowed_output partition ->
+      is_list_set all_nodes (map.keys partition) ->
+      (consistent s (concat (values partition)) <->
+         Forall_map (consistent_output s) partition).
+
+  (* Definition consistent_good := *)
+  (*   forall s (partition : node_map), *)
+  (*     Forall_map allowed_output partition -> *)
+  (*     claim s (concat (values partition)) -> *)
+  (*     Forall_map (claim_output s) partition /\ *)
+  (*       (consistent s (concat (values partition)) <-> *)
+  (*          Forall_map (consistent_output s) partition). *)
 
   Context (consistent_good_holds : consistent_good).
 
