@@ -186,6 +186,9 @@ Definition consistent_good :=
   Definition graph_inputs_allowed (inps : list (message * node_id)) :=
     forall n, allowed_output None (matching_inps n inps).
 
+  Definition noncontradictory_graph_inputs (inps1 inps2 : list (message * node_id)) :=
+    forall n, noncontradictory_output None (matching_inps n inps1) (matching_inps n inps2).
+
   Section graph.
     Context {node_state : Type} (node_step : node_id -> node_state -> IO_event -> node_state -> Prop).
 
@@ -660,8 +663,7 @@ Definition consistent_good :=
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
       graph_inputs_allowed (inputs_of t2) ->
-      (forall n, noncontradictory_output None
-                   (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2))) ->
+      noncontradictory_graph_inputs (inputs_of t1) (inputs_of t2) ->
       Forall2_map (fun n => noncontradictory_output (Some n)) (outputs_partition gs1) (outputs_partition gs2).
     Proof.
     Admitted.
