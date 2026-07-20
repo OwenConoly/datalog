@@ -99,6 +99,17 @@ Section step.
     - intros s Hcl Hco. exact (consistent_mono s l2 l2' (Hle s Hcl Hco) Hsub).
   Qed.
 
+  Lemma consistently_incl_shrink_l l1 l1' l2 :
+    submultiset l1' l1 -> consistently_incl l1 l2 -> consistently_incl l1' l2.
+  Proof.
+    intros Hsub (Hincl & Hle). split.
+    - eapply (incl_mod_trans equiv);
+        [ exact (incl_mod_of_submultiset equiv _ _ Hsub) | exact Hincl ].
+    - intros s Hcl Hco. apply (Hle s).
+      + eapply claim_mono; [ exact Hcl | exact (incl_mod_of_submultiset equiv _ _ Hsub) ].
+      + exact (consistent_mono s l1' l1 Hco Hsub).
+  Qed.
+
   CoInductive noncontradictory_wf (wf : list message -> Prop) (l1 l2 : list message) : Prop :=
   | nc_intro l1' :
     submultiset l1 l1' ->
@@ -135,36 +146,24 @@ Section step.
     - apply noncontradictory_wf_refl. exact Hwf.
   Qed.
 
-  Lemma consistently_incl_perm_l l1 l1' l2 :
-    Permutation l1 l1' ->
-    consistently_incl l1 l2 ->
-    consistently_incl l1' l2.
+  Lemma noncontradictory_wf_shrink_l (wf : list message -> Prop) l1 l1' l2 :
+    submultiset l1' l1 -> noncontradictory_wf wf l1 l2 -> noncontradictory_wf wf l1' l2.
   Proof.
-    intros Hp (Hincl & Hle). split.
-    - eapply (incl_mod_trans equiv);
-        [ apply (incl_mod_of_submultiset equiv), submultiset_perm, Permutation_sym; exact Hp
-        | exact Hincl ].
-    - intros s Hcl Hco. apply (Hle s).
-      + eapply claim_mono;
-          [ exact Hcl
-          | apply (incl_mod_of_submultiset equiv), submultiset_perm, Permutation_sym; exact Hp ].
-      + apply (consistent_mono s l1' l1); [ exact Hco | apply submultiset_perm, Permutation_sym; exact Hp ].
+    intros Hsub [m Hsubm Hwf Hci Htail]. econstructor.
+    - eapply submultiset_trans; [ exact Hsub | exact Hsubm ].
+    - exact Hwf.
+    - exact Hci.
+    - exact Htail.
   Qed.
 
-  Lemma noncontradictory_wf_perm (wf : list message -> Prop) l1 l1' l2 l2' :
-    Permutation l1 l1' ->
-    Permutation l2 l2' ->
-    noncontradictory_wf wf l1 l2 ->
-    noncontradictory_wf wf l1' l2'.
+  Lemma noncontradictory_wf_shrink_r (wf : list message -> Prop) l1 l2 l2' :
+    submultiset l2' l2 -> noncontradictory_wf wf l1 l2 -> noncontradictory_wf wf l1 l2'.
   Proof.
-    revert l1 l1' l2 l2'.
-    cofix CIH. intros l1 l1' l2 l2' Hp1 Hp2 H.
-    destruct H as [m Hsub Hwf Hci Htail].
-    econstructor.
-    - eapply submultiset_perm_l; [ exact Hp1 | exact Hsub ].
+    intros Hsub [m Hsubm Hwf Hci Htail]. econstructor.
+    - exact Hsubm.
     - exact Hwf.
-    - eapply consistently_incl_perm_l; [ exact Hp2 | exact Hci ].
-    - eapply CIH; [ exact Hp2 | apply Permutation_refl | exact Htail ].
+    - eapply consistently_incl_shrink_l; [ exact Hsub | exact Hci ].
+    - eapply noncontradictory_wf_shrink_l; [ exact Hsub | exact Htail ].
   Qed.
 
   Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
@@ -804,11 +803,6 @@ Section step.
           -- rewrite <- app_assoc. exact HQf.
   Qed.
 
-  (* Reproduction (input-free): drive [t']'s run forward -- feeding NO further
-     inputs -- until it has reproduced every one of [t]'s outputs.  Needs
-     [noncontradictory]+[consistently_incl] from [t] to [t'] (exactly what
-     [might_implies_will_equiv'] consumes).  Returns the input-free continuation
-     [tf] and the [incl_mod] coverage of [t]'s outputs. *)
   Lemma reproduce_outputs :
     might_implies_will_equiv' ->
     forall t s t' s',
@@ -837,16 +831,9 @@ Section step.
     exists o'. split; [ exact Hin | exact Hequiv ].
   Qed.
 
-  (* Drive one side to [consistently_incl] the other.  [noncontradictory (inputs t)
-     (inputs t')] hands us an [allowed] witness [l'] with [inputs t ⊆submult l'],
-     [consistently_incl (inputs t') l'] and -- crucially -- the coinductive tail
-     [noncontradictory (inputs t') l'].  Feeding inputs drives [t] to reach exactly
-     [l'] (extending [t], so its outputs are untouched); the resulting run then both
-     [consistently_incl]-covers AND stays [noncontradictory] with [inputs t']. *)
   Lemma noncontradictory_drive :
     input_total ->
     forall (t t' : list (IO_event label message)) s,
-      star step initial t s ->
       noncontradictory_inputs (inputs_of t) (inputs_of t') ->
       exists tr sf,
         star step s tr sf /\
@@ -855,7 +842,7 @@ Section step.
         consistently_incl (inputs_of t') (inputs_of (tr ++ t)) /\
         noncontradictory_inputs (inputs_of t') (inputs_of (tr ++ t)).
   Proof.
-    intros Hit t t' s _ Hnc.
+    intros Hit t t' s Hnc.
     destruct Hnc as [l' [rest Hperm] HallL Hci Htail].
     destruct (star_recv_map Hit rest s) as (sf & Hstartr).
     assert (Hinp : Permutation (inputs_of (map I_event rest ++ t)) l').
@@ -870,36 +857,23 @@ Section step.
     split.
     - eapply consistently_incl_grow_r; [ exact Hci | ].
       exists []. rewrite app_nil_r. exact Hinp.
-    - eapply noncontradictory_wf_perm;
-        [ apply Permutation_refl
-        | apply Permutation_sym; exact Hinp | exact Htail ].
+    - eapply noncontradictory_wf_shrink_r; [ exact Hsub_TL | exact Htail ].
   Qed.
 
-  (* Per-node propagation: noncontradictory inputs give noncontradictory outputs.
-     A [cofix]: [noncontradictory_drive] drives [t] up to the input witness [l']
-     (keeping [t]'s outputs) and hands back [noncontradictory (inputs t')(driven)]
-     -- exactly the obligation the old asymmetric definition could not supply --
-     from its coinductive tail.  [reproduce_outputs] then replays [t']'s outputs
-     into the driven run; being input-free, that run keeps inputs [~ l'], so its
-     outputs [Lo] both submultiset-dominate [outputs t] and [consistently_incl]-cover
-     [outputs t'].  The tail [noncontradictory_outputs (outputs t') Lo] is the
-     corecursive call on [(t', driven)], whose input hypothesis is again the drive's
-     tail.  No termination is assumed anywhere. *)
   Lemma noncontradictory_outputs_of_inputs t s t' s' :
     might_implies_will_equiv' ->
     input_total ->
     outputs_well_formed ->
     star step initial t s ->
     star step initial t' s' ->
-    allowed (inputs_of t) ->
     allowed (inputs_of t') ->
     noncontradictory_inputs (inputs_of t) (inputs_of t') ->
     noncontradictory_outputs (outputs_of t) (outputs_of t').
   Proof.
     intros Hmiw' Hit Howf.
     revert t s t' s'.
-    cofix CIH. intros t s t' s' Hstar Hstar' Hallt Hallt' Hnc.
-    destruct (noncontradictory_drive Hit t t' s Hstar Hnc)
+    cofix CIH. intros t s t' s' Hstar Hstar' Hallt' Hnc.
+    destruct (noncontradictory_drive Hit t t' s Hnc)
       as (tr & sT & Hstarr & Houttr & HallT & HciT & HncT).
     assert (HstarT : star step initial (tr ++ t) sT)
       by (eapply star_app; [ exact Hstar | exact Hstarr ]).
@@ -925,7 +899,7 @@ Section step.
     - exact Hsub_out.
     - exact Hwf_out.
     - exact Hci_out.
-    - exact (CIH t' s' (tf ++ tr ++ t) sTf Hstar' HstarTf Hallt' Halltf Hnctf).
+    - exact (CIH t' s' (tf ++ tr ++ t) sTf Hstar' HstarTf Halltf Hnctf).
   Qed.
 
   Context (D : list message -> message -> Prop).
