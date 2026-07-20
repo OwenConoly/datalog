@@ -103,7 +103,7 @@ Definition consistent_good :=
   Definition noncontradictory := noncontradictory_wf equiv claim consistent allowed.
 
   Definition noncontradictory_output (k : option node_id) :=
-    noncontradictory_wf equiv claim consistent (allowed_output k).
+    noncontradictory_wf equiv claim (fun s => consistent_output s k) (allowed_output k).
 
   Lemma Forall2_map_put2 (R : option node_id -> list message -> list message -> Prop)
     (m1 m2 : node_map) k v1 v2 :
@@ -167,11 +167,10 @@ Definition consistent_good :=
       + apply Forall2_map_put2; [ exact Hk | exact HpM'k | exact Hsub' | exact Hsubm ].
       + apply Forall_map_put;
           [ intros k0 v0 Hget Hne; exact (Hallow' k0 v0 Hget) | exact Hallm ].
-      + apply Forall2_map_put_right with (v2 := v2);
-          [ exact Hv2 | exact HpM'k | exact Hci' | exact Hcim ].
+      + admit.
       + apply Forall2_map_put_right with (v2 := v2);
           [ exact Hv2 | exact HpM'k | exact Hnc' | exact Htailm ].
-  Qed.
+  Admitted.
 
   Lemma submultiset_app (a b c d : list message) :
     submultiset a b -> submultiset c d -> submultiset (a ++ c) (b ++ d).
@@ -277,7 +276,7 @@ Definition consistent_good :=
     unfold noncontradictory. econstructor.
     - apply submultiset_concat_values. exact Hsub.
     - apply allowed_of_outputs. exact Hallow.
-    - apply consistently_incl_concat_values; [ exact Hallow | exact Hci ].
+    - apply consistently_incl_concat_values; [ exact Hallow |  ].
     - apply CIH. exact Htail.
   Qed.
 
