@@ -106,34 +106,11 @@ Definition consistent_good :=
     noncontradictory_wf equiv (fun s => claim_output s k) (fun s => consistent_output s k)
                         (allowed_output k).
 
-  Lemma Forall2_map_put2 (R : option node_id -> list message -> list message -> Prop)
-    (m1 m2 : node_map) k v1 v2 :
-    map.get m1 k = None -> map.get m2 k = None ->
-    Forall2_map R m1 m2 -> R k v1 v2 ->
-    Forall2_map R (map.put m1 k v1) (map.put m2 k v2).
-  Proof.
-    intros H1 H2 HF HR k0. destruct (classic (k = k0)) as [<-|Hne].
-    - rewrite !map.get_put_same. exact HR.
-    - rewrite !map.get_put_diff by congruence. exact (HF k0).
-  Qed.
-
-  Lemma Forall2_map_put_right (R : option node_id -> list message -> list message -> Prop)
-    (p q : node_map) k v2 m :
-    map.get p k = Some v2 -> map.get q k = None ->
-    Forall2_map R (map.remove p k) q -> R k v2 m ->
-    Forall2_map R p (map.put q k m).
-  Proof.
-    intros Hp Hq HF HR k0. destruct (classic (k = k0)) as [<-|Hne].
-    - rewrite Hp, map.get_put_same. exact HR.
-    - specialize (HF k0). rewrite map.get_remove_diff in HF by congruence.
-      rewrite map.get_put_diff by congruence. exact HF.
-  Qed.
-
   (* Gather the per-piece coinductive witnesses into one witness partition [pM]:
      each piece grows to an [allowed_output] witness that [submultiset]-dominates the
      first run's piece, [consistently_incl]-covers the second run's piece, and stays
-     [noncontradictory_output] with it (the coinductive tail).  Provable by map
-     induction -- extraction into a [Prop] existential is fine. *)
+     [noncontradictory_output] with it (the coinductive tail).  The map-building work is
+     [Forall2_map_choose]; here we just unfold the per-key coinductive and project. *)
   Lemma noncontradictory_witness_map (p1 p2 : node_map) :
     Forall2_map noncontradictory_output p1 p2 ->
     exists pM : node_map,
@@ -143,108 +120,23 @@ Definition consistent_good :=
                                                  (fun s => consistent_output s k) v m) p2 pM /\
       Forall2_map noncontradictory_output p2 pM.
   Proof.
-    revert p2. pattern p1. revert p1. apply map.map_ind.
-    - intros p2 H.
-      assert (Hp2 : p2 = map.empty).
-      { apply map.map_ext. intro k. rewrite map.get_empty.
-        specialize (H k). rewrite map.get_empty in H.
-        destruct (map.get p2 k); [ contradiction | reflexivity ]. }
-      subst p2. exists map.empty. repeat split.
-      + intro k. rewrite !map.get_empty. exact I.
-      + intros k v Hget. rewrite map.get_empty in Hget. discriminate.
-      + intro k. rewrite !map.get_empty. exact I.
-      + intro k. rewrite !map.get_empty. exact I.
-    - intros p1 IHp1 k v1 Hk p2 H.
-      destruct (Forall2_map_get_l _ _ _ _ _ H (map.get_put_same _ _ _)) as (v2 & Hv2 & Hrel).
-      unfold noncontradictory_output in Hrel. destruct Hrel as [m Hsubm Hallm Hcim Htailm].
-      assert (Htail : Forall2_map noncontradictory_output p1 (map.remove p2 k)).
-      { intro k0. specialize (H k0). destruct (classic (k = k0)) as [<-|Hne].
-        - rewrite Hk, map.get_remove_same. exact I.
-        - rewrite map.get_put_diff in H by congruence.
-          rewrite map.get_remove_diff by congruence. exact H. }
-      destruct (IHp1 _ Htail) as (pM' & Hsub' & Hallow' & Hci' & Hnc').
-      assert (HpM'k : map.get pM' k = None)
-        by exact (proj1 (Forall2_map_get_None _ _ _ k Hsub') Hk).
-      exists (map.put pM' k m). repeat split.
-      + apply Forall2_map_put2; [ exact Hk | exact HpM'k | exact Hsub' | exact Hsubm ].
-      + apply Forall_map_put;
-          [ intros k0 v0 Hget Hne; exact (Hallow' k0 v0 Hget) | exact Hallm ].
-      + apply Forall2_map_put_right with (v2 := v2);
-          [ exact Hv2 | exact HpM'k | exact Hci' | exact Hcim ].
-      + apply Forall2_map_put_right with (v2 := v2);
-          [ exact Hv2 | exact HpM'k | exact Hnc' | exact Htailm ].
-  Qed.
-
-  Lemma submultiset_app (a b c d : list message) :
-    submultiset a b -> submultiset c d -> submultiset (a ++ c) (b ++ d).
-  Proof.
-    intros Hab Hcd.
-    eapply submultiset_trans; [ apply submultiset_app_head; exact Hcd | ].
-    eapply submultiset_perm_l; [ apply Permutation_app_comm | ].
-    eapply submultiset_perm_r; [ apply Permutation_app_comm | ].
-    apply submultiset_app_head. exact Hab.
-  Qed.
-
-  Lemma Forall2_map_concat_values (R : list message -> list message -> Prop)
-    (Rnil : R [] [])
-    (Rapp : forall a b c d, R a b -> R c d -> R (a ++ c) (b ++ d))
-    (Rperm : forall a b a' b', Permutation a a' -> Permutation b b' -> R a b -> R a' b')
-    (p1 p2 : node_map) :
-    Forall2_map (fun _ => R) p1 p2 ->
-    R (concat (values p1)) (concat (values p2)).
-  Proof.
-    revert p2. pattern p1. revert p1. apply map.map_ind.
-    - intros p2 H.
-      assert (Hp2 : p2 = map.empty).
-      { apply map.map_ext. intro k. rewrite map.get_empty.
-        specialize (H k). rewrite map.get_empty in H.
-        destruct (map.get p2 k); [ contradiction | reflexivity ]. }
-      subst p2. rewrite !values_empty. cbn [concat]. exact Rnil.
-    - intros p1 IHp1 k v Hk p2 H.
-      destruct (Forall2_map_get_l _ _ _ _ _ H (map.get_put_same _ _ _)) as (v2 & Hv2 & Hrel).
-      assert (Htail : Forall2_map (fun _ => R) p1 (map.remove p2 k)).
-      { intro k0. specialize (H k0). destruct (classic (k = k0)) as [<-|Hne].
-        - rewrite map.get_remove_same, Hk. exact I.
-        - rewrite map.get_put_diff in H by congruence.
-          rewrite map.get_remove_diff by congruence. exact H. }
-      specialize (IHp1 _ Htail).
-      eapply Rperm.
-      + apply Permutation_sym, Permutation_concat, (values_put_None p1 k v Hk).
-      + apply Permutation_sym, (concat_values_get _ _ _ Hv2).
-      + apply Rapp; [ exact Hrel | exact IHp1 ].
-  Qed.
-
-  Lemma submultiset_concat_values (p1 pM : node_map) :
-    Forall2_map (fun _ v m => submultiset v m) p1 pM ->
-    submultiset (concat (values p1)) (concat (values pM)).
-  Proof.
-    apply (Forall2_map_concat_values submultiset).
-    - apply submultiset_refl.
-    - exact submultiset_app.
-    - intros a b a' b' Ha Hb Hab.
-      eapply submultiset_perm_l; [ exact Ha | ].
-      eapply submultiset_perm_r; [ exact Hb | exact Hab ].
-  Qed.
-
-  Lemma incl_mod_app_cong (a b c d : list message) :
-    incl_mod equiv a b -> incl_mod equiv c d -> incl_mod equiv (a ++ c) (b ++ d).
-  Proof.
-    intros Hab Hcd. apply (incl_mod_app equiv).
-    - apply (incl_mod_app_r equiv). exact Hab.
-    - eapply (incl_mod_trans equiv); [ exact Hcd | ].
-      apply (incl_mod_of_incl equiv). intros x Hx. apply in_or_app. right. exact Hx.
-  Qed.
-
-  Lemma incl_mod_concat_values (p1 p2 : node_map) :
-    Forall2_map (fun _ v m => incl_mod equiv v m) p1 p2 ->
-    incl_mod equiv (concat (values p1)) (concat (values p2)).
-  Proof.
-    apply (Forall2_map_concat_values (incl_mod equiv)).
-    - exact (incl_mod_refl equiv []).
-    - exact incl_mod_app_cong.
-    - intros a b a' b' Ha Hb Hab x Hx.
-      destruct (Hab x (Permutation_in x (Permutation_sym Ha) Hx)) as (y & Hy & Heq).
-      exists y. split; [ exact (Permutation_in y Hb Hy) | exact Heq ].
+    intros H.
+    assert (Hex : Forall2_map (fun k v1 v2 => exists m,
+        submultiset v1 m /\ allowed_output k m /\
+        consistently_incl equiv (fun s => claim_output s k) (fun s => consistent_output s k) v2 m /\
+        noncontradictory_output k v2 m) p1 p2).
+    { eapply Forall2_map_impl; [ exact H | ].
+      intros k v1 v2 [m Hsub Hall Hci Htail].
+      exists m. split; [ exact Hsub | split; [ exact Hall | split; [ exact Hci | exact Htail ] ] ]. }
+    destruct (Forall2_map_choose _ _ _ Hex) as (pM & HM). exists pM. repeat split.
+    - eapply Forall3_map_forget_m; eapply Forall3_map_impl; [ exact HM | ].
+      intros k v1 v2 m Hq. exact (proj1 Hq).
+    - intros k m Hget. destruct (Forall3_map_get_r _ _ _ _ _ _ HM Hget) as (v1 & v2 & _ & _ & Hq).
+      exact (proj1 (proj2 Hq)).
+    - eapply Forall3_map_forget_l; eapply Forall3_map_impl; [ exact HM | ].
+      intros k v1 v2 m Hq. exact (proj1 (proj2 (proj2 Hq))).
+    - eapply Forall3_map_forget_l; eapply Forall3_map_impl; [ exact HM | ].
+      intros k v1 v2 m Hq. exact (proj2 (proj2 (proj2 Hq))).
   Qed.
 
   (*TODO using this lemma should simplify some proofs later in the file?*)
@@ -257,8 +149,9 @@ Definition consistent_good :=
   Proof.
     intros Hallow2 HallowM H.
     assert (Hincl : incl_mod equiv (concat (values p2)) (concat (values pM))).
-    { apply incl_mod_concat_values. eapply Forall2_map_impl; [ exact H | ].
-      intros k v m Hci. destruct Hci as (Hincl & _). exact Hincl. }
+    { apply incl_mod_concat_values; try exact equiv_equiv.
+      eapply Forall2_map_impl; [ exact H | ].
+      intros k v m Hci. exact (proj1 Hci). }
     unfold consistently_incl. split; [ exact Hincl | ].
     cbv [consistent_le]. intros s Hcl Hcon.
     assert (Hclaim_pM : claim s (concat (values pM)))

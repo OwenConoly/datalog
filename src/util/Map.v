@@ -2,7 +2,7 @@ From ATL Require Import FrapWithoutSets.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.MapKeys Tactics Tactics.fwd Datatypes.Option Datatypes.List Eqb.
 From Datalog Require Import Eqb.
 From Datalog Require Import Tactics List.
-From Stdlib Require Import Permutation.
+From Stdlib Require Import Permutation RelationClasses.
 
 Section MapKeysExtra.
   Context {key key' value : Type}.
@@ -323,7 +323,80 @@ Section Maps.
       | Some v1, Some v2, Some v3, Some v4 => R k v1 v2 v3 v4
       | _, _, _, _ => False
       end.
+
 End Maps.
+
+(* Utilities relating maps of *different* value types via [Forall2_map]/[Forall3_map];
+   these can't live in [Section Maps] because [Forall2_map] there is fixed to [mp1]/[mp2]. *)
+Section MapAcross.
+  Context {key : Type} {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb}.
+  Context {value1 : Type} {mp1 : map.map key value1} {mp1_ok : map.ok mp1}.
+  Context {value2 : Type} {mp2 : map.map key value2} {mp2_ok : map.ok mp2}.
+  Context {value3 : Type} {mp3 : map.map key value3} {mp3_ok : map.ok mp3}.
+
+  (* The values of two maps related pointwise line up as [Forall2]-related lists,
+     each a permutation of that map's [values]. *)
+  Lemma Forall2_map_values (R : value1 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) :
+    Forall2_map (fun _ => R) m1 m2 ->
+    exists l1 l2, Permutation (values m1) l1 /\ Permutation (values m2) l2 /\ Forall2 R l1 l2.
+  Proof.
+    revert m2. pattern m1. revert m1. apply map.map_ind.
+    - intros m2 H.
+      assert (m2 = map.empty) as ->.
+      { apply map.map_ext. intro k. specialize (H k). rewrite map.get_empty in H.
+        rewrite map.get_empty. destruct (map.get m2 k); [ contradiction | reflexivity ]. }
+      exists [], []. rewrite !values_empty.
+      split; [ reflexivity | split; [ reflexivity | constructor ] ].
+    - intros m1 IH k v1 Hk m2 H.
+      destruct (Forall2_map_get_l _ _ _ _ _ H (map.get_put_same _ _ _)) as (v2 & Hv2 & HR).
+      assert (Htail : Forall2_map (fun _ => R) m1 (map.remove m2 k)).
+      { intro k0. specialize (H k0). rewrite map.get_put_dec in H. destr (eqb k k0).
+        - rewrite Hk, map.get_remove_same. exact I.
+        - rewrite map.get_remove_diff by congruence. exact H. }
+      destruct (IH _ Htail) as (l1 & l2 & H1 & H2 & HF).
+      exists (v1 :: l1), (v2 :: l2). split; [ | split ].
+      + eapply Permutation_trans; [ apply values_put_None; exact Hk | ]. apply perm_skip, H1.
+      + eapply Permutation_trans; [ apply (values_remove _ _ _ Hv2) | ]. apply perm_skip, H2.
+      + constructor; [ exact HR | exact HF ].
+  Qed.
+
+  (* Finite choice: a per-key existential witness can be gathered into one map. *)
+  Lemma Forall2_map_choose (P : key -> value1 -> value2 -> value3 -> Prop) (m1 : mp1) (m2 : mp2) :
+    Forall2_map (fun k v1 v2 => exists v3, P k v1 v2 v3) m1 m2 ->
+    exists m3 : mp3, Forall3_map P m1 m2 m3.
+  Proof.
+    revert m2. pattern m1. revert m1. apply map.map_ind.
+    - intros m2 H. exists map.empty. intro k. specialize (H k).
+      rewrite map.get_empty in H. rewrite !map.get_empty.
+      destruct (map.get m2 k); [ contradiction | exact I ].
+    - intros m1 IH k v1 Hk m2 H.
+      destruct (Forall2_map_get_l _ _ _ _ _ H (map.get_put_same _ _ _)) as (v2 & Hv2 & v3 & HP).
+      assert (Htail : Forall2_map (fun k v1 v2 => exists v3, P k v1 v2 v3) m1 (map.remove m2 k)).
+      { intro k0. specialize (H k0). rewrite map.get_put_dec in H. destr (eqb k k0).
+        - rewrite Hk, map.get_remove_same. exact I.
+        - rewrite map.get_remove_diff by congruence. exact H. }
+      destruct (IH _ Htail) as (m3 & Hm3). exists (map.put m3 k v3).
+      intro k0. rewrite !map.get_put_dec. destr (eqb k k0).
+      + rewrite Hv2. exact HP.
+      + specialize (Hm3 k0). rewrite map.get_remove_diff in Hm3 by congruence. exact Hm3.
+  Qed.
+
+  Lemma Forall3_map_forget_m (R : key -> value1 -> value3 -> Prop) (m1 : mp1) (m2 : mp2) (m3 : mp3) :
+    Forall3_map (fun k v1 _ v3 => R k v1 v3) m1 m2 m3 -> Forall2_map R m1 m3.
+  Proof.
+    intros H k. specialize (H k).
+    destruct (map.get m1 k) as [?|], (map.get m2 k) as [?|], (map.get m3 k) as [?|];
+      (exact H || exact I || contradiction).
+  Qed.
+
+  Lemma Forall3_map_forget_l (R : key -> value2 -> value3 -> Prop) (m1 : mp1) (m2 : mp2) (m3 : mp3) :
+    Forall3_map (fun k _ v2 v3 => R k v2 v3) m1 m2 m3 -> Forall2_map R m2 m3.
+  Proof.
+    intros H k. specialize (H k).
+    destruct (map.get m1 k) as [?|], (map.get m2 k) as [?|], (map.get m3 k) as [?|];
+      (exact H || exact I || contradiction).
+  Qed.
+End MapAcross.
 
 Section ListValuedMap.
   Context {key A : Type}.
@@ -359,6 +432,28 @@ Section ListValuedMap.
     rewrite in_concat. split.
     - intros (vs & Hvs & Hx). apply In_values in Hvs. destruct Hvs as (k & Hget). eauto.
     - intros (k & v & Hget & Hx). exists v. split; [ apply In_values; eauto | exact Hx ].
+  Qed.
+
+  Lemma submultiset_concat_values (m1 m2 : mp) :
+    Forall2_map (fun _ v1 v2 => submultiset v1 v2) m1 m2 ->
+    submultiset (concat (values m1)) (concat (values m2)).
+  Proof.
+    intros H. destruct (Forall2_map_values _ _ _ H) as (l1 & l2 & H1 & H2 & HF).
+    eapply submultiset_perm_l; [ exact (Permutation_concat _ _ (Permutation_sym H1)) | ].
+    eapply submultiset_perm_r; [ exact (Permutation_concat _ _ (Permutation_sym H2)) | ].
+    apply Forall2_submultiset_concat, HF.
+  Qed.
+
+  Lemma incl_mod_concat_values (equiv : A -> A -> Prop) {equiv_equiv : Equivalence equiv}
+    (m1 m2 : mp) :
+    Forall2_map (fun _ v1 v2 => incl_mod equiv v1 v2) m1 m2 ->
+    incl_mod equiv (concat (values m1)) (concat (values m2)).
+  Proof.
+    intros H. destruct (Forall2_map_values _ _ _ H) as (l1 & l2 & H1 & H2 & HF).
+    eapply incl_mod_perm_l; [ exact (Permutation_concat _ _ (Permutation_sym H1)) | ].
+    eapply incl_mod_perm_r; [ exact (Permutation_concat _ _ (Permutation_sym H2)) | ].
+    apply Forall2_incl_mod_concat, HF.
+    assumption.
   Qed.
 End ListValuedMap.
 
@@ -921,6 +1016,28 @@ Proof.
       * subst. apply E. auto.
       * apply E. right. apply IH; eauto.
 Qed.
+
+Lemma Forall_map_tuples (R : key -> value -> Prop) (m : mp) :
+  Forall_map R m -> Forall (fun p => R (fst p) (snd p)) (map.tuples m).
+Proof.
+  intros H. apply Forall_forall. intros [k v] Hin.
+  exact (H k v (proj1 (map.tuples_spec m k v) Hin)).
+Qed.
+
+Lemma Forall_map_of_tuples (R : key -> value -> Prop) (m : mp) :
+  Forall (fun p => R (fst p) (snd p)) (map.tuples m) -> Forall_map R m.
+Proof.
+  intros H k v Hget. rewrite Forall_forall in H.
+  exact (H (k, v) (proj2 (map.tuples_spec m k v) Hget)).
+Qed.
+
+Lemma Forall_map_values_keys (R : key -> value -> Prop) (m : mp) :
+  Forall_map R m <-> Forall2 R (map.keys m) (values m).
+Proof.
+  rewrite keys_eq_tuples, values_eq_tuples. split.
+  - intros H. apply Forall2_map_map. exact (Forall_map_tuples _ m H).
+  - intros H. apply Forall_map_of_tuples. exact (Forall2_map_map_inv _ _ _ _ H).
+Qed.
 End Map.
 
 (* How [concat (values (map_values' F ·))] transforms under [put]/[get] — the
@@ -953,43 +1070,22 @@ Section CountingMap.
   Context {T : Type} {mp : map.map key (list T)} {mp_ok : map.ok mp}.
   Context (P : T -> Prop).
 
-  Lemma Forall_map_tuples (R : key -> list T -> Prop) (m : mp) :
-    Forall_map R m -> Forall (fun p => R (fst p) (snd p)) (map.tuples m).
-  Proof.
-    intros H. apply Forall_forall. intros [k v] Hin.
-    exact (H k v (proj1 (map.tuples_spec m k v) Hin)).
-  Qed.
-
-  Lemma Forall_map_of_tuples (R : key -> list T -> Prop) (m : mp) :
-    Forall (fun p => R (fst p) (snd p)) (map.tuples m) -> Forall_map R m.
-  Proof.
-    intros H k v Hget. rewrite Forall_forall in H.
-    exact (H (k, v) (proj2 (map.tuples_spec m k v) Hget)).
-  Qed.
-
-  Lemma Forall_map_values_keys (Q : nat -> list T -> Prop) (e : key -> nat) (m : mp) :
-    Forall_map (fun k ms => Q (e k) ms) m <->
-    Forall2 (fun ms c => Q c ms) (values m) (List.map e (map.keys m)).
-  Proof.
-    rewrite values_eq_tuples, keys_eq_tuples, map_map. split.
-    - intros H. apply Forall2_map_map. exact (Forall_map_tuples _ m H).
-    - intros H. apply Forall_map_of_tuples. exact (Forall2_map_map_inv _ _ _ _ H).
-  Qed.
-
   Lemma Existsn_ge_concat_map (e : key -> nat) (m : mp) :
     Forall_map (fun k ms => Existsn_ge P (e k) ms) m ->
     Existsn_ge P (list_sum (List.map e (map.keys m))) (concat (values m)).
   Proof.
-    intros H. apply (Forall_map_values_keys (Existsn_ge P) e m) in H.
-    apply Existsn_ge_concat. exact H.
+    intros. apply Existsn_ge_concat.
+    rewrite <- Forall2_map_l. apply Forall_map_values_keys.
+    assumption.
   Qed.
 
   Lemma Existsn_le_concat_map (e : key -> nat) (m : mp) :
     Forall_map (fun k ms => Existsn_le P (e k) ms) m ->
     Existsn_le P (list_sum (List.map e (map.keys m))) (concat (values m)).
   Proof.
-    intros H. apply (Forall_map_values_keys (Existsn_le P) e m) in H.
-    apply Existsn_le_concat. exact H.
+    intros. apply Existsn_le_concat.
+    rewrite <- Forall2_map_l. apply Forall_map_values_keys.
+    assumption.
   Qed.
 
   Lemma Existsn_squeeze_map (e : key -> nat) (m : mp) :
@@ -997,9 +1093,11 @@ Section CountingMap.
     Forall_map (fun k ms => Existsn_le P (e k) ms) m ->
     Forall_map (fun k ms => Existsn_ge P (e k) ms) m.
   Proof.
-    intros Hge Hle. apply (Forall_map_values_keys (Existsn_le P) e m) in Hle.
-    apply (Forall_map_values_keys (Existsn_ge P) e m).
-    apply Existsn_squeeze; assumption.
+    intros.
+    apply Forall_map_values_keys. apply (Forall2_map_l _ e).
+    apply Existsn_squeeze; [assumption|].
+    rewrite <- Forall2_map_l. apply Forall_map_values_keys.
+    assumption.
   Qed.
 End CountingMap.
 

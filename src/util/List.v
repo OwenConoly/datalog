@@ -1105,26 +1105,26 @@ Section Existsn.
   Qed.
 
   Lemma Existsn_ge_concat mss es :
-    Forall2 (fun ms e => Existsn_ge e ms) mss es -> Existsn_ge (list_sum es) (concat mss).
+    Forall2 Existsn_ge es mss -> Existsn_ge (list_sum es) (concat mss).
   Proof.
-    induction 1 as [| ms e mss' es' Hge HF IH]; [ apply Eg_zero | ].
+    induction 1 as [| e ms es' mss' Hge HF IH]; [ apply Eg_zero | ].
     cbn [concat]. rewrite list_sum_cons. apply Existsn_ge_app; assumption.
   Qed.
 
   Lemma Existsn_le_concat mss es :
-    Forall2 (fun ms e => Existsn_le e ms) mss es -> Existsn_le (list_sum es) (concat mss).
+    Forall2 Existsn_le es mss -> Existsn_le (list_sum es) (concat mss).
   Proof.
-    induction 1 as [| ms e mss' es' Hle HF IH]; [ apply El_nil | ].
+    induction 1 as [| e ms es' mss' Hle HF IH]; [ apply El_nil | ].
     cbn [concat]. rewrite list_sum_cons. apply Existsn_le_app; assumption.
   Qed.
 
   Lemma Existsn_squeeze mss es :
     Existsn_ge (list_sum es) (concat mss) ->
-    Forall2 (fun ms e => Existsn_le e ms) mss es ->
-    Forall2 (fun ms e => Existsn_ge e ms) mss es.
+    Forall2 Existsn_le es mss ->
+    Forall2 Existsn_ge es mss.
   Proof.
     intros Hge Hle. revert Hge.
-    induction Hle as [| ms e mss' es' Hle_head HF IH]; intros Hge; [ constructor | ].
+    induction Hle as [| e ms es' mss' Hle_head HF IH]; intros Hge; [ constructor | ].
     cbn [concat] in Hge. rewrite list_sum_cons in Hge.
     apply Existsn_ge_app_inv in Hge. destruct Hge as (a & b & Hsum & Hge_a & Hge_b).
     pose proof (Existsn_ge_le_bound _ _ _ Hge_a Hle_head) as Ha.
@@ -1517,6 +1517,23 @@ Section misc.
   Lemma submultiset_app_head m l l' : submultiset l l' -> submultiset (m ++ l) (m ++ l').
   Proof. intros (rest & Hp). exists rest. rewrite <- app_assoc. apply Permutation_app_head. exact Hp. Qed.
 
+  Lemma submultiset_app l1 l2 l1' l2' :
+    submultiset l1 l1' -> submultiset l2 l2' -> submultiset (l1 ++ l2) (l1' ++ l2').
+  Proof.
+    intros (r1 & H1) (r2 & H2). exists (r1 ++ r2).
+    eapply Permutation_trans; [ apply Permutation_app; [ exact H1 | exact H2 ] | ].
+    rewrite <- !app_assoc. apply Permutation_app_head.
+    rewrite !app_assoc. apply Permutation_app_tail, Permutation_app_comm.
+  Qed.
+
+  Lemma Forall2_submultiset_concat (xs ys : list (list A)) :
+    Forall2 submultiset xs ys -> submultiset (concat xs) (concat ys).
+  Proof.
+    induction 1 as [| x y xs' ys' Hxy _ IH]; cbn [concat].
+    - apply submultiset_refl.
+    - apply submultiset_app; assumption.
+  Qed.
+
   Lemma submultiset_app_inv_l m l l' : submultiset (m ++ l) (m ++ l') -> submultiset l l'.
   Proof.
     intros (rest & Hp). exists rest. rewrite <- app_assoc in Hp.
@@ -1827,6 +1844,30 @@ Section incl_mod.
   Proof.
     intros H a Ha. destruct (H a Ha) as (b & Hb & Hab).
     exists b. split; [apply in_or_app; left; exact Hb | exact Hab].
+  Qed.
+
+  Lemma incl_mod_perm_r l1 l2 l2' :
+    Permutation l2 l2' -> incl_mod l1 l2 -> incl_mod l1 l2'.
+  Proof.
+    intros Hp H a Ha. destruct (H a Ha) as (b & Hb & Hab).
+    exists b. split; [ eapply Permutation_in; [ exact Hp | exact Hb ] | exact Hab ].
+  Qed.
+
+  Lemma incl_mod_app_cong l1 l2 l1' l2' :
+    incl_mod l1 l1' -> incl_mod l2 l2' -> incl_mod (l1 ++ l2) (l1' ++ l2').
+  Proof.
+    intros H1 H2. apply incl_mod_app.
+    - apply incl_mod_app_r. exact H1.
+    - eapply incl_mod_trans; [ exact H2 | ].
+      apply incl_mod_of_incl. intros x Hx. apply in_or_app. right. exact Hx.
+  Qed.
+
+  Lemma Forall2_incl_mod_concat (xs ys : list (list message)) :
+    Forall2 incl_mod xs ys -> incl_mod (concat xs) (concat ys).
+  Proof.
+    induction 1 as [| x y xs' ys' Hxy _ IH]; cbn [concat].
+    - apply incl_mod_refl.
+    - apply incl_mod_app_cong; assumption.
   Qed.
 
   Lemma incl_mod_Forall2 l1 l2 a :
