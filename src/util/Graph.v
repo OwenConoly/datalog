@@ -656,6 +656,16 @@ Definition consistent_good :=
           intros k v Hk. exact (proj1 (fwd_partition_good gt gs nn Hstar k v Hk)).
     Qed.
 
+    Lemma everything_noncontradictory t1 gs1 t2 gs2 :
+      star gstep initial_gs t1 gs1 ->
+      star gstep initial_gs t2 gs2 ->
+      graph_inputs_allowed (inputs_of t2) ->
+      (forall n, noncontradictory_output None
+                   (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2))) ->
+      Forall2_map (fun n => noncontradictory_output (Some n)) (outputs_partition gs1) (outputs_partition gs2).
+    Proof.
+    Admitted.
+
     Lemma node_run_allowed t gs :
       star gstep initial_gs t gs ->
       graph_inputs_allowed (inputs_of t) ->
