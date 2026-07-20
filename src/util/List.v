@@ -1775,6 +1775,9 @@ Section incl_mod.
       exists b,
         In b l2 /\ equiv a b.
 
+  Definition incl_mod_mono_inc (P : list message -> Prop) :=
+    forall l1 l2, P l1 -> incl_mod l1 l2 -> P l2.
+
   Lemma incl_mod_refl l : incl_mod l l.
   Proof. intros a Ha. eexists. split; [|reflexivity]. assumption. Qed.
 
