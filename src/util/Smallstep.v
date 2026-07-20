@@ -71,27 +71,31 @@ Section step.
   Context {stmt} (claim : stmt -> list message -> Prop).
   Context (consistent : stmt -> list message (*a multiset*) -> Prop).
   Context (allowed : list message (*multiset*) -> Prop).
+  Context (claim_output : stmt -> list message -> Prop).
+  Context (consistent_output : stmt -> list message -> Prop).
 
   Context (allowed_submultiset : multiset_monotone_dec allowed).
   Context (consistent_mono : forall s, multiset_monotone_inc (consistent s)).
   Context (claim_mono : forall s, incl_mod_mono_inc equiv (claim s)).
+  Context (claim_output_mono : forall s, incl_mod_mono_inc equiv (claim_output s)).
 
-  Definition consistent_le l1 l2 :=
+  Definition consistent_le (claim consistent : stmt -> list message -> Prop) l1 l2 :=
     forall s,
       claim s l1 ->
       consistent s l1 ->
       consistent s l2.
 
-  Definition consistently_incl l1 l2 :=
-    incl_mod equiv l1 l2 /\ consistent_le l1 l2.
+  Definition consistently_incl (claim consistent : stmt -> list message -> Prop) l1 l2 :=
+    incl_mod equiv l1 l2 /\ consistent_le claim consistent l1 l2.
 
-  Lemma consistently_incl_refl l : consistently_incl l l.
+  Lemma consistently_incl_refl l : consistently_incl claim consistent l l.
   Proof.
     split; [ exact (incl_mod_refl equiv l) | intros s _ Hc; exact Hc ].
   Qed.
 
   Lemma consistently_incl_grow_r l1 l2 l2' :
-    consistently_incl l1 l2 -> submultiset l2 l2' -> consistently_incl l1 l2'.
+    consistently_incl claim consistent l1 l2 -> submultiset l2 l2' ->
+    consistently_incl claim consistent l1 l2'.
   Proof.
     intros (Hincl & Hle) Hsub. split.
     - eapply (incl_mod_trans equiv);
@@ -100,7 +104,8 @@ Section step.
   Qed.
 
   Lemma consistently_incl_shrink_l l1 l1' l2 :
-    submultiset l1' l1 -> consistently_incl l1 l2 -> consistently_incl l1' l2.
+    submultiset l1' l1 -> consistently_incl claim consistent l1 l2 ->
+    consistently_incl claim consistent l1' l2.
   Proof.
     intros Hsub (Hincl & Hle). split.
     - eapply (incl_mod_trans equiv);
@@ -110,21 +115,23 @@ Section step.
       + exact (consistent_mono s l1' l1 Hco Hsub).
   Qed.
 
-  CoInductive noncontradictory_wf (wf : list message -> Prop) (l1 l2 : list message) : Prop :=
+  CoInductive noncontradictory_wf (claim consistent : stmt -> list message -> Prop)
+    (wf : list message -> Prop) (l1 l2 : list message) : Prop :=
   | nc_intro l1' :
     submultiset l1 l1' ->
     wf l1' ->
-    consistently_incl l2 l1' ->
-    noncontradictory_wf _ l2 l1' ->
-    noncontradictory_wf _ l1 l2.
+    consistently_incl claim consistent l2 l1' ->
+    noncontradictory_wf _ _ _ l2 l1' ->
+    noncontradictory_wf _ _ _ l1 l2.
 
-  Definition noncontradictory_inputs := noncontradictory_wf allowed.
+  Definition noncontradictory_inputs := noncontradictory_wf claim consistent allowed.
   Context (outputs_wf : list message -> Prop).
-  Context (outputs_wf_consistent : forall s l, outputs_wf l -> claim s l -> consistent s l).
-  Definition noncontradictory_outputs := noncontradictory_wf outputs_wf.
+  Context (outputs_wf_consistent :
+             forall s l, outputs_wf l -> claim_output s l -> consistent_output s l).
+  Definition noncontradictory_outputs := noncontradictory_wf claim_output consistent_output outputs_wf.
 
   Lemma noncontradictory_wf_refl (wf : list message -> Prop) l :
-    wf l -> noncontradictory_wf wf l l.
+    wf l -> noncontradictory_wf claim consistent wf l l.
   Proof.
     cofix CIH. intros Hwf. econstructor.
     - apply submultiset_refl.
@@ -137,7 +144,7 @@ Section step.
   Proof. exact (noncontradictory_wf_refl allowed l). Qed.
 
   Lemma noncontradictory_wf_of_submultiset (wf : list message -> Prop) l1 l2 :
-    submultiset l1 l2 -> wf l2 -> noncontradictory_wf wf l1 l2.
+    submultiset l1 l2 -> wf l2 -> noncontradictory_wf claim consistent wf l1 l2.
   Proof.
     intros Hsub Hwf. econstructor.
     - exact Hsub.
@@ -147,7 +154,8 @@ Section step.
   Qed.
 
   Lemma noncontradictory_wf_shrink_l (wf : list message -> Prop) l1 l1' l2 :
-    submultiset l1' l1 -> noncontradictory_wf wf l1 l2 -> noncontradictory_wf wf l1' l2.
+    submultiset l1' l1 -> noncontradictory_wf claim consistent wf l1 l2 ->
+    noncontradictory_wf claim consistent wf l1' l2.
   Proof.
     intros Hsub [m Hsubm Hwf Hci Htail]. econstructor.
     - eapply submultiset_trans; [ exact Hsub | exact Hsubm ].
@@ -157,7 +165,8 @@ Section step.
   Qed.
 
   Lemma noncontradictory_wf_shrink_r (wf : list message -> Prop) l1 l2 l2' :
-    submultiset l2' l2 -> noncontradictory_wf wf l1 l2 -> noncontradictory_wf wf l1 l2'.
+    submultiset l2' l2 -> noncontradictory_wf claim consistent wf l1 l2 ->
+    noncontradictory_wf claim consistent wf l1 l2'.
   Proof.
     intros Hsub [m Hsubm Hwf Hci Htail]. econstructor.
     - exact Hsubm.
@@ -504,7 +513,7 @@ Section step.
       In o (outputs_of t) ->
       forall s' t',
         noncontradictory_inputs (inputs_of t) (inputs_of t') ->
-        consistently_incl (inputs_of t) (inputs_of t') ->
+        consistently_incl claim consistent (inputs_of t) (inputs_of t') ->
         star step initial t' s' ->
         allowed (inputs_of t') ->
         will_output_equiv s' t' o.
@@ -548,7 +557,7 @@ Section step.
       allowed (inputs_of t1) ->
       allowed (inputs_of t2) ->
       noncontradictory_inputs (inputs_of t1) (inputs_of t2) ->
-      consistently_incl (inputs_of t1) (inputs_of t2) ->
+      consistently_incl claim consistent (inputs_of t1) (inputs_of t2) ->
       might_output s1 t1 o ->
       might_output_equiv s2 t2 o.
 
@@ -598,7 +607,7 @@ Section step.
         { rewrite inputs_of_app, Hinp_a. exact Hall1. }
         assert (HncT : noncontradictory_inputs (inputs_of (T_a ++ t1)) (inputs_of t2)).
         { rewrite inputs_of_app, Hinp_a. exact Hnc. }
-        assert (HinclT : consistently_incl (inputs_of (T_a ++ t1)) (inputs_of t2)).
+        assert (HinclT : consistently_incl claim consistent (inputs_of (T_a ++ t1)) (inputs_of t2)).
         { rewrite inputs_of_app, Hinp_a. exact Hincl. }
         pose proof (Hmiw' (T_a ++ t1) s_f o Hstar_T HallT Hout s2 t2 HncT HinclT Hstar2 Hall2)
           as Hwill.
@@ -811,7 +820,7 @@ Section step.
       allowed (inputs_of t) ->
       allowed (inputs_of t') ->
       noncontradictory_inputs (inputs_of t) (inputs_of t') ->
-      consistently_incl (inputs_of t) (inputs_of t') ->
+      consistently_incl claim consistent (inputs_of t) (inputs_of t') ->
       exists tf sf,
         star step s' tf sf /\
         inputs_of tf = [] /\
@@ -839,7 +848,7 @@ Section step.
         star step s tr sf /\
         outputs_of tr = [] /\
         allowed (inputs_of (tr ++ t)) /\
-        consistently_incl (inputs_of t') (inputs_of (tr ++ t)) /\
+        consistently_incl claim consistent (inputs_of t') (inputs_of (tr ++ t)) /\
         noncontradictory_inputs (inputs_of t') (inputs_of (tr ++ t)).
   Proof.
     intros Hit t t' s Hnc.
@@ -887,10 +896,10 @@ Section step.
       exists (outputs_of tf). apply Permutation_app_comm. }
     assert (Hwf_out : outputs_wf (outputs_of (tf ++ tr ++ t)))
       by (eapply Howf; exact HstarTf).
-    assert (Hci_out : consistently_incl (outputs_of t') (outputs_of (tf ++ tr ++ t))).
+    assert (Hci_out : consistently_incl claim_output consistent_output (outputs_of t') (outputs_of (tf ++ tr ++ t))).
     { split; [ exact Hcov | ].
       intros s0 Hcl _.
-      apply outputs_wf_consistent; [ exact Hwf_out | eapply claim_mono; [ exact Hcl | exact Hcov ] ]. }
+      apply outputs_wf_consistent; [ exact Hwf_out | eapply claim_output_mono; [ exact Hcl | exact Hcov ] ]. }
     assert (Halltf : allowed (inputs_of (tf ++ tr ++ t))).
     { rewrite inputs_of_app, Hinpf. cbn [app]. exact HallT. }
     assert (Hnctf : noncontradictory_inputs (inputs_of t') (inputs_of (tf ++ tr ++ t))).
