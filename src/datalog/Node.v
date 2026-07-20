@@ -534,6 +534,7 @@ Section __.
     - intros s Hcl Hco. apply Hc2; [ eapply claim_mono; [ exact Hcl | exact Hi1 ] | apply Hc1; assumption ].
   Qed.
 
+  Print knows_datalog_fact.
   (* Aggregate-hyp transfer under [consistently_incl]: the [consistent_le] half
      preserves the aggregate value when the inputs grow only [incl_mod]. *)
   Lemma knows_datalog_fact_consistently_incl l1 l2 h :
@@ -561,13 +562,13 @@ Section __.
       (fun '(s2', _) => nle s1' s2') (s2, t2).
   Proof.
     intros Hmrv Hgood2 Hstep (Hknle & Hsnle).
-    inversion Hstep as [rs o Hnf | rs inp]; subst.
+    invert Hstep. rename H3 into Hnf.
     assert (Hmk : forall (X : node_state) o',
       consistently_incl dfact_equiv claim consistent s1.(known_facts) X.(known_facts) ->
       submultiset s2.(sent_facts) X.(sent_facts) ->
-      In o' X.(sent_facts) -> dfact_equiv o o' ->
+      In o' X.(sent_facts) -> dfact_equiv output o' ->
       nle {| known_facts := s1.(known_facts);
-             sent_facts := o :: s1.(sent_facts) |} X).
+             sent_facts := output :: s1.(sent_facts) |} X).
     { intros X o' Hk Hs Ho'in Ho'eq. split.
       - cbn [known_facts]. exact Hk.
       - cbn [sent_facts]. intros a Ha. cbn [In] in Ha. destruct Ha as [Hao | Ha].
@@ -575,7 +576,7 @@ Section __.
         + destruct (Hsnle a Ha) as (b & Hb & Hab). exists b. split; [| exact Hab].
           eapply submultiset_incl; [exact Hs | exact Hb]. }
     apply eventually_step_cps. cbn [will_step].
-    exists (mod_count o). intros sdem tdem Hstar Hallowdem.
+    exists (mod_count output). intros sdem tdem Hstar Hallowdem.
     pose proof (node_good_star s2 t2 tdem sdem Hmrv Hallowdem Hgood2 Hstar)
       as (Hkdem & Haldem & Hmfcdem & Hmfokdem).
     pose proof (node_step_star_mono s2 tdem sdem Hstar) as (Hkmono & Hsmono).
@@ -585,7 +586,7 @@ Section __.
             [exact Hknle | apply consistently_incl_of_submultiset; exact Hkmono]).
     assert (Halk : allowed_inputs sdem.(known_facts))
       by (rewrite Hkdem; exact Haldem).
-    destruct o as [Ro oargs | Ro margs osrc ocnt].
+    destruct output as [Ro oargs | Ro margs osrc ocnt].
     - destruct Hnf as (Hex & _).
       apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
       cbn [can_deduce_fact] in Hcdf. destruct Hcdf as (Hcdn1 & _).
@@ -815,5 +816,4 @@ Section __.
     - apply dfact_equiv_sym. exact Ho'_eq.
     - erewrite <- sent_eq_outputs by eassumption. eassumption.
   Qed.
-
 End __.

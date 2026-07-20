@@ -98,18 +98,13 @@ Section step.
     - intros s Hcl Hco. exact (Hcm s l2 l2' (Hle s Hcl Hco) Hsub).
   Qed.
 
-  (* [l1] is pinned only as a submultiset of the common witness [l'], but [l2] is
-     [consistently_incl]-covered: enough to preserve every aggregate of [l2] into
-     [l'] (which, with [submultiset l1 l'] and [wf l'], rules out contradictory
-     multiplicities) without demanding [l2 ⊆submult l']. *)
-  Definition noncontradictory_wf (wf : list message -> Prop) l1 l2 :=
-    exists l1' l2', submultiset l1 l1' /\ submultiset l2 l2' /\
-                 wf l1' /\ wf l2' /\
-                 consistently_incl l2' l1' /\ consistently_incl l1' l2'.
-
-  (* [noncontradictory] on inputs uses [allowed]; the output side (below) reuses
-     [noncontradictory_wf] with [outputs_wf] in place of [allowed]. *)
-  Definition noncontradictory := noncontradictory_wf allowed.
+  CoInductive noncontradictory l1 l2 :=
+  | nc_intro l1' :
+    submultiset l1 l1' ->
+    allowed l1' ->
+    consistently_incl l2 l1' ->
+    noncontradictory l2 l1' ->
+    noncontradictory l1 l2.
 
   Lemma noncontradictory_wf_refl (wf : list message -> Prop) l :
     wf l -> noncontradictory_wf wf l l.
