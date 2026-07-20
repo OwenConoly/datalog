@@ -1520,13 +1520,10 @@ Definition consistent_good :=
         eauto using node_will_match.
     Qed.
 
-    Lemma graph_might_implies_will t gs o :
-      star gstep initial_gs t gs ->
-      graph_inputs_allowed (inputs_of t) ->
-      might_output gstep gs t o ->
-      will_output_equiv gstep graph_equiv graph_inputs_allowed gs t o.
+    Lemma graph_might_implies_will :
+      might_implies_will_equiv gstep graph_equiv graph_inputs_allowed initial_gs.
     Proof.
-      intros Hstar Hga (t' & gs_f & Hrun & Hinp & Hino).
+      intros t gs o Hstar Hga (t' & gs_f & Hrun & Hinp & Hino).
       assert (Hstarf : star gstep initial_gs (t' ++ t) gs_f) by eauto using star_app.
       assert (Hgaf : graph_inputs_allowed (inputs_of (t' ++ t))).
       { rewrite inputs_of_app, Hinp. cbn [app]. exact Hga. }
