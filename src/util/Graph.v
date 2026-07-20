@@ -899,6 +899,14 @@ Definition consistent_good :=
         [ apply submultiset_matching_inps; exact Hsub | exact (H n) ].
     Qed.
 
+    Lemma noncontradictory_graph_inputs_of_submultiset i1 i2 :
+      submultiset i1 i2 -> graph_inputs_allowed i2 -> noncontradictory_graph_inputs i1 i2.
+    Proof.
+      intros Hsub Hga n. eapply noncontradictory_wf_of_submultiset; try exact equiv_equiv.
+      - apply submultiset_matching_inps. exact Hsub.
+      - exact (Hga n).
+    Qed.
+
     Lemma submultiset_inputs_tl {L M} (e : Smallstep.IO_event L M) (t : list (Smallstep.IO_event L M)) :
       submultiset (inputs_of t) (inputs_of (e :: t)).
     Proof. change (e :: t) with ([e] ++ t). rewrite inputs_of_app. apply submultiset_app_l. Qed.
@@ -1320,13 +1328,14 @@ Definition consistent_good :=
       star gstep initial_gs t2 gs2 ->
       graph_inputs_allowed (inputs_of t1) ->
       graph_inputs_allowed (inputs_of t2) ->
+      noncontradictory_graph_inputs (inputs_of t1) (inputs_of t2) ->
       gstep gs1 (O_event lbl outs) gs1' ->
       le gs1 gs2 ->
       le_weak gs1 gs2 ->
       eventually graph_will_step
         (fun '(gs2', _) => le_weak gs1' gs2') (gs2, t2).
     Proof.
-      intros H1 H2 H3 H4 Hstep Hle Hlew.
+      intros H1 H2 H3 H4 Hncgi Hstep Hle Hlew.
       epose proof Forall2_map_get_l as Hle'. specialize Hle' with (1 := Hle).
       epose proof (graph_step_to_node_step_from_beginning gs1 t1) as Hns1'.
       epose proof (graph_step_to_node_step_from_beginning gs2 t2) as Hns2'.
@@ -1342,6 +1351,9 @@ Definition consistent_good :=
         pose proof (everything_allowed _ gs2 ltac:(eauto) ltac:(eauto)) as Hall2.
         assert (allowed (inputs_of (gns_trace ns) ++ gns_queue ns)) by eauto.
         assert (allowed (inputs_of (gns_trace v0) ++ gns_queue v0)) by eauto.
+        assert (Hnc_n : noncontradictory (inputs_of (gns_trace ns)) (inputs_of (gns_trace v0))).
+        { eapply (node_inputs_noncontradictory n t1 gs1 t2 gs2 ns v0); try eassumption.
+          eapply everything_noncontradictory; eassumption. }
         eassert (Hmo: Forall (might_output_equiv _ _ (gns_node_state v0) (gns_trace v0)) outs0).
         { apply Forall_forall. intros m Hm.
           eapply (H'p1 (gns_trace ns)). all: eauto. eauto 10. }
@@ -1376,15 +1388,16 @@ Definition consistent_good :=
       submultiset (inputs_of t1) (inputs_of t2) ->
       graph_inputs_allowed (inputs_of t1) ->
       graph_inputs_allowed (inputs_of t2) ->
+      noncontradictory_graph_inputs (inputs_of t1) (inputs_of t2) ->
       gstep gs1 (O_event lbl outs) gs1' ->
       le gs1 gs2 ->
       le_weak gs1 gs2 ->
       eventually graph_will_step
         (fun '(gs2', _) => le gs1' gs2' /\ le_weak gs1' gs2') (gs2, t2).
     Proof.
-      intros Hstar1 Hstar2 Hsub Hga1 Hga2 Hstep Hle Hlew.
+      intros Hstar1 Hstar2 Hsub Hga1 Hga2 Hncgi Hstep Hle Hlew.
       assert (Hstar1' : star gstep initial_gs (O_event lbl outs :: t1) gs1') by eauto.
-      pose proof (node_will_match' _ _ _ _ _ _ _ Hstar1 Hstar2 Hga1 Hga2 Hstep Hle Hlew) as Hev.
+      pose proof (node_will_match' _ _ _ _ _ _ _ Hstar1 Hstar2 Hga1 Hga2 Hncgi Hstep Hle Hlew) as Hev.
       apply eventually_will_step_annotate in Hev.
       eapply eventually_trans; [ exact Hev | ].
       intros [gs2' t2'] (Hreach' & Hlw).
@@ -1410,12 +1423,13 @@ Definition consistent_good :=
       star gstep initial_gs t2 gs2 ->
       graph_inputs_allowed (inputs_of t1) ->
       graph_inputs_allowed (inputs_of t2) ->
+      noncontradictory_graph_inputs (inputs_of t1) (inputs_of t2) ->
       le gs1 gs2 ->
       node_has_output gs1 n o ->
       eventually graph_will_step
         (fun '(gs2', _) => exists o', node_has_output gs2' n o' /\ equiv o' o) (gs2, t2).
     Proof.
-      intros Hstar1 Hstar2 Hga1 Hga2 Hle (ns1 & Hget1 & Hout1).
+      intros Hstar1 Hstar2 Hga1 Hga2 Hncgi Hle (ns1 & Hget1 & Hout1).
       destruct (Forall2_map_get_l _ _ _ _ _ Hle Hget1) as (ns2 & Hget2 & Hincl).
       destruct (Forall2_map_get_r _ _ _ _ _ (node_run_allowed t1 gs1 Hstar1 Hga1) Hget1)
         as (ns0 & Hget0 & Hrun1 & Hall1).
@@ -1427,7 +1441,10 @@ Definition consistent_good :=
                         (gns_node_state ns0)).
       { apply miw'_iff_miw_and_monotone'; try assumption;
           try (split; [ exact Hmiw | exact Hmono ]). }
-      pose proof (Hmiw' _ _ _ Hrun1 Hall1 Hout1 _ _ Hincl Hrun2 Hall2) as Hwoe.
+      assert (Hnc_n : noncontradictory (inputs_of (gns_trace ns1)) (inputs_of (gns_trace ns2))).
+      { eapply (node_inputs_noncontradictory n t1 gs1 t2 gs2 ns1 ns2); try eassumption.
+        eapply everything_noncontradictory; eassumption. }
+      pose proof (Hmiw' _ _ _ Hrun1 Hall1 Hout1 _ _ Hnc_n Hincl Hrun2 Hall2) as Hwoe.
       eapply eventually_weaken.
       { eapply (graph_eventually_of_node_eventually n _ gs2 t2 ns2);
           [ exact Hstar2 | exact Hget2 | exact Hwoe ]. }
@@ -1498,6 +1515,8 @@ Definition consistent_good :=
         assert (Hsub : submultiset (inputs_of (T0 ++ t0)) (inputs_of (tr ++ t0))).
         { rewrite !inputs_of_app, Hinp. cbn [app].
           eexists. apply Permutation_app_comm. }
+        assert (Hncgi : noncontradictory_graph_inputs (inputs_of (T0 ++ t0)) (inputs_of (tr ++ t0)))
+          by (apply noncontradictory_graph_inputs_of_submultiset; assumption).
         eauto using node_will_match.
     Qed.
 
@@ -1522,8 +1541,11 @@ Definition consistent_good :=
       intros [gs2 t2] (Hreach & Hle2 & _).
       destruct Hreach as (tr & Hstar_gg & -> & Hga_imp). specialize (Hga_imp Hga).
       assert (Hstar2 : star gstep initial_gs (tr ++ t) gs2) by eauto using star_app.
+      assert (Hncgi : noncontradictory_graph_inputs (inputs_of (t' ++ t)) (inputs_of (tr ++ t))).
+      { apply noncontradictory_graph_inputs_of_submultiset; [ | exact Hga_imp ].
+        rewrite !inputs_of_app, Hinp. cbn [app]. apply submultiset_app_l. }
       pose proof (le_node_output (t' ++ t) gs_f gs2 (tr ++ t) n m
-                    Hstarf Hstar2 Hgaf Hga_imp Hle2 Hnho) as Hemit.
+                    Hstarf Hstar2 Hgaf Hga_imp Hncgi Hle2 Hnho) as Hemit.
       apply eventually_will_step_annotate in Hemit.
       eapply eventually_weaken; [ exact Hemit | ].
       intros [gs2' t2'] (Hreach' & m' & Hnho' & Heqm).
