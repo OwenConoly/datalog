@@ -886,21 +886,21 @@ Section step.
      [outputs t'].  The tail [noncontradictory_outputs (outputs t') Lo] is the
      corecursive call on [(t', driven)], whose input hypothesis is again the drive's
      tail.  No termination is assumed anywhere. *)
-  Lemma noncontradictory_outputs_of_inputs :
+  Lemma noncontradictory_outputs_of_inputs t s t' s' :
     might_implies_will_equiv' ->
     input_total ->
     outputs_well_formed ->
     (forall s l1 l2, claim s l1 -> incl_mod equiv l1 l2 -> claim s l2) ->
     (forall s l, outputs_wf l -> claim s l -> consistent s l) ->
-    forall t s t' s',
-      star step initial t s ->
-      star step initial t' s' ->
-      allowed (inputs_of t) ->
-      allowed (inputs_of t') ->
-      noncontradictory_inputs (inputs_of t) (inputs_of t') ->
-      noncontradictory_outputs (outputs_of t) (outputs_of t').
+    star step initial t s ->
+    star step initial t' s' ->
+    allowed (inputs_of t) ->
+    allowed (inputs_of t') ->
+    noncontradictory_inputs (inputs_of t) (inputs_of t') ->
+    noncontradictory_outputs (outputs_of t) (outputs_of t').
   Proof.
     intros Hmiw' Hit Howf claim_mono Hwfc.
+    revert t s t' s'.
     cofix CIH. intros t s t' s' Hstar Hstar' Hallt Hallt' Hnc.
     destruct (noncontradictory_drive Hit claim_mono t t' s Hstar Hnc)
       as (tr & sT & Hstarr & Houttr & HallT & HciT & HncT).
