@@ -3,7 +3,7 @@ From coqutil Require Import Map.Properties.
 From coqutil Require Import Map.MapKeys.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From coqutil Require Import Eqb.
-From Stdlib Require Import List PeanoNat Permutation.
+From Stdlib Require Import List PeanoNat Permutation Lia.
 From Stdlib Require Import RelationClasses Morphisms Classical_Prop.
 From Datalog Require Import OmniSmallstep Smallstep Map List Eqb.
 From Datalog Require Import Tactics.
@@ -659,15 +659,324 @@ Definition consistent_good :=
           intros k v Hk. exact (proj1 (fwd_partition_good gt gs nn Hstar k v Hk)).
     Qed.
 
+    Lemma noncontradictory_output_filter n dest l1 l2 :
+      noncontradictory_wf equiv
+        (fun s l => claim_output s (Some n) (filter (forward n dest) l))
+        (fun s l => consistent_output s (Some n) (filter (forward n dest) l))
+        (fun l => good_inputs_from (Some n) (filter (forward n dest) l))
+        l1 l2 ->
+      noncontradictory_output (Some n)
+        (filter (forward n dest) l1) (filter (forward n dest) l2).
+    Proof.
+      revert l1 l2. cofix CIH. intros l1 l2 Hnc.
+      destruct Hnc as [l1' Hsub Hwf [Hincl Hle] Htail].
+      unfold noncontradictory_output. econstructor.
+      - apply submultiset_filter. exact Hsub.
+      - exact (proj1 Hwf).
+      - split.
+        + apply incl_mod_filter_forward. exact Hincl.
+        + intros s Hcl Hcon. exact (Hle s Hcl Hcon).
+      - apply CIH. exact Htail.
+    Qed.
+
+    Lemma node_output_noncontradictory n dest init tr1 s1 tr2 s2 :
+      outputs_well_formed (node_step n) (good_node_output n) init ->
+      monotone_mod_equiv (node_step n) equiv claim consistent allowed init ->
+      might_implies_will_equiv (node_step n) equiv allowed init ->
+      star (node_step n) init tr1 s1 ->
+      star (node_step n) init tr2 s2 ->
+      allowed (inputs_of tr2) ->
+      noncontradictory (inputs_of tr1) (inputs_of tr2) ->
+      noncontradictory_output (Some n)
+        (filter (forward n dest) (outputs_of tr1))
+        (filter (forward n dest) (outputs_of tr2)).
+    Proof.
+      intros Howf Hmono Hmiw Hstar1 Hstar2 Hallow2 Hnc.
+      apply noncontradictory_output_filter.
+      eapply noncontradictory_outputs_of_inputs with
+        (claim := claim) (consistent := consistent) (allowed := allowed)
+        (claim_output := fun s l => claim_output s (Some n) (filter (forward n dest) l))
+        (consistent_output := fun s l => consistent_output s (Some n) (filter (forward n dest) l))
+        (outputs_wf := fun l => good_inputs_from (Some n) (filter (forward n dest) l))
+        (initial := init).
+      - exact equiv_equiv.
+      - exact allowed_submultiset.
+      - exact consistent_mono.
+      - exact claim_mono.
+      - intros s l1 l2 Hcl Hincl. eapply claim_output_mono;
+          [ exact Hcl | apply incl_mod_filter_forward; exact Hincl ].
+      - intros s l Hgi Hcl. exact (proj2 Hgi s Hcl).
+      - apply miw'_iff_miw_and_monotone'; try assumption;
+          split; [ exact Hmiw | exact Hmono ].
+      - exact (nodes_input_total n).
+      - intros t s Hstar. exact (Howf t s Hstar dest).
+      - exact Hstar1.
+      - exact Hstar2.
+      - exact Hallow2.
+      - exact Hnc.
+    Qed.
+
+    Lemma noncontradictory_output_refl k v :
+      allowed_output k v -> noncontradictory_output k v v.
+    Proof.
+      revert v. cofix CIH. intros v Hallow. unfold noncontradictory_output. econstructor.
+      - apply submultiset_refl.
+      - exact Hallow.
+      - split; [ exact (incl_mod_refl equiv v) | intros s _ Hc; exact Hc ].
+      - apply CIH. exact Hallow.
+    Qed.
+
+    Lemma everything_noncontradictory_refl gt gs dest :
+      star gstep initial_gs gt gs ->
+      Forall2_map (fun n => noncontradictory_output (Some n))
+        (fwd_partition dest gs) (fwd_partition dest gs).
+    Proof.
+      intros Hstar k. destruct (map.get (fwd_partition dest gs) k) as [v|] eqn:Hk; [ | exact I ].
+      apply noncontradictory_output_refl.
+      exact (proj1 (fwd_partition_good gt gs dest Hstar k v Hk)).
+    Qed.
+
+    Lemma noncontradictory_shrink l1 l1' l2 l2' :
+      submultiset l1' l1 -> submultiset l2' l2 ->
+      noncontradictory l1 l2 -> noncontradictory l1' l2'.
+    Proof.
+      intros Hs1 Hs2 H.
+      eapply noncontradictory_wf_shrink_l with (l1 := l1); try assumption.
+      eapply noncontradictory_wf_shrink_r with (l2 := l2); try assumption.
+    Qed.
+
+    Lemma claim_output_mono_k k : forall s, incl_mod_mono_inc equiv (claim_output s k).
+    Proof. intros s l1 l2 Hc Hincl. eapply claim_output_mono; eauto. Qed.
+
+    Lemma consistent_output_mono_k k : forall s, multiset_monotone_inc (consistent_output s k).
+    Proof. intros s l1 l2 Hc Hsub. eapply consistent_output_mono; eauto. Qed.
+
+    Lemma noncontradictory_output_sym k a b :
+      noncontradictory_output k a b -> noncontradictory_output k b a.
+    Proof.
+      pose proof (claim_output_mono_k k) as Hcm.
+      pose proof (consistent_output_mono_k k) as Hsm.
+      intros [a' Hsa Hwfa Hcia [b' Hsb Hwfb Hcib Htail]].
+      unfold noncontradictory_output. econstructor.
+      - exact Hsb.
+      - exact Hwfb.
+      - eapply consistently_incl_shrink_l with (l1 := a'); try assumption.
+      - eapply noncontradictory_wf_shrink_l with (l1 := a'); try assumption.
+    Qed.
+
+    Lemma node_inputs_noncontradictory n t1 gs1 t2 gs2 gns1 gns2 :
+      star gstep initial_gs t1 gs1 ->
+      star gstep initial_gs t2 gs2 ->
+      map.get gs1 n = Some gns1 ->
+      map.get gs2 n = Some gns2 ->
+      graph_inputs_allowed (inputs_of t2) ->
+      noncontradictory_graph_inputs (inputs_of t1) (inputs_of t2) ->
+      Forall2_map (fun sender => noncontradictory_output (Some sender))
+        (fwd_partition n gs1) (fwd_partition n gs2) ->
+      noncontradictory (inputs_of gns1.(gns_trace)) (inputs_of gns2.(gns_trace)).
+    Proof.
+      intros Hstar1 Hstar2 Hg1 Hg2 Hga2 Hnci Hfwd.
+      assert (Hallow2 : Forall_map allowed_output
+        (with_external (fwd_partition n gs2) (matching_inps n (inputs_of t2)))).
+      { apply Forall_map_with_external;
+          [ exact (Hga2 n)
+          | intros k v Hk; exact (proj1 (fwd_partition_good t2 gs2 n Hstar2 k v Hk)) ]. }
+      assert (Hnc12 : Forall2_map noncontradictory_output
+        (with_external (fwd_partition n gs1) (matching_inps n (inputs_of t1)))
+        (with_external (fwd_partition n gs2) (matching_inps n (inputs_of t2)))).
+      { apply Forall2_map_with_external; [ exact (Hnci n) | exact Hfwd ]. }
+      pose proof (noncontradictory_of_outputs _ _ Hallow2 Hnc12) as Hnco.
+      assert (Hsub1 : submultiset (inputs_of gns1.(gns_trace))
+        (concat (values (with_external (fwd_partition n gs1) (matching_inps n (inputs_of t1)))))).
+      { exists (gns1.(gns_queue)).
+        eapply Permutation_trans; [ apply values_with_external | ].
+        rewrite <- fwd_total_eq.
+        eapply Permutation_trans; [ apply Permutation_app_comm | ].
+        symmetry. exact (inputs_are_outputs t1 gs1 Hstar1 n gns1 Hg1). }
+      assert (Hsub2 : submultiset (inputs_of gns2.(gns_trace))
+        (concat (values (with_external (fwd_partition n gs2) (matching_inps n (inputs_of t2)))))).
+      { exists (gns2.(gns_queue)).
+        eapply Permutation_trans; [ apply values_with_external | ].
+        rewrite <- fwd_total_eq.
+        eapply Permutation_trans; [ apply Permutation_app_comm | ].
+        symmetry. exact (inputs_are_outputs t2 gs2 Hstar2 n gns2 Hg2). }
+      apply (noncontradictory_shrink _ _ _ _ Hsub1 Hsub2 Hnco).
+    Qed.
+
+    Lemma everything_nc_preserve_r t1 gs1 t2 gs2 e gs2' dest :
+      star gstep initial_gs t1 gs1 ->
+      star gstep initial_gs t2 gs2 ->
+      gstep gs2 e gs2' ->
+      graph_inputs_allowed (inputs_of (e :: t2)) ->
+      noncontradictory_graph_inputs (inputs_of t1) (inputs_of (e :: t2)) ->
+      (forall d, Forall2_map (fun n => noncontradictory_output (Some n))
+         (fwd_partition d gs1) (fwd_partition d gs2)) ->
+      Forall2_map (fun n => noncontradictory_output (Some n))
+        (fwd_partition dest gs1) (fwd_partition dest gs2').
+    Proof.
+      intros Hstar1 Hstar2 Hstep Hga Hnci Hfwd.
+      invert Hstep.
+      - match goal with |- Forall2_map _ _ (fwd_partition _ ?g) =>
+          assert (Heq : fwd_partition dest g = fwd_partition dest gs2) end.
+        { unfold fwd_partition. rewrite outputs_partition_mupd_enqueue. reflexivity. }
+        rewrite Heq. exact (Hfwd dest).
+      - assert (Heq : fwd_partition dest
+          (map_values' (fun m => enqueue (filter (forward n m) outs))
+             (map.put gs2 n {| gns_node_state := ns'; gns_trace := O_event lbl outs :: gns_trace ns;
+                               gns_queue := gns_queue ns |}))
+          = map.put (fwd_partition dest gs2) n
+              (filter (forward n dest) (outputs_of (O_event lbl outs :: gns_trace ns)))).
+        { unfold fwd_partition.
+          rewrite (outputs_partition_map_values'
+                     (fun m => enqueue (filter (forward n m) outs)) _ ltac:(intros; reflexivity)).
+          rewrite outputs_partition_put, map_values'_put. reflexivity. }
+        rewrite Heq. clear Heq.
+        pose proof (Hfwd dest n) as Hfn.
+        rewrite !fwd_partition_get, H in Hfn. cbn [option_map] in Hfn.
+        destruct (map.get gs1 n) as [gns1|] eqn:Hg1; [ | contradiction ].
+        pose proof (graph_step_to_node_step_from_beginning gs1 t1 Hstar1) as Hns1.
+        pose proof (graph_step_to_node_step_from_beginning gs2 t2 Hstar2) as Hns2.
+        destruct (Forall2_map_get_r _ _ _ _ _ Hns1 Hg1) as (gns0 & Hget0 & Hrun1).
+        destruct (Forall2_map_get_r _ _ _ _ _ Hns2 H) as (gns0' & Hget0' & Hrun2).
+        rewrite Hget0 in Hget0'. injection Hget0' as Hget0'. subst gns0'.
+        pose proof (nodes_good n gns0 Hget0) as (Howf & Hmono & Hmiw).
+        eapply Forall2_map_put_r.
+        + eapply Forall2_map_impl; [ exact (Hfwd dest) | intros k w1 w2 Hw _; exact Hw ].
+        + rewrite fwd_partition_get, Hg1. reflexivity.
+        + eapply node_output_noncontradictory.
+          * exact Howf.
+          * exact Hmono.
+          * exact Hmiw.
+          * exact Hrun1.
+          * eapply star_step; [ exact Hrun2 | exact H0 ].
+          * change (inputs_of (O_event lbl outs :: gns_trace ns)) with (inputs_of (gns_trace ns)).
+            eapply allowed_submultiset;
+              [ exact (everything_allowed t2 gs2 Hstar2 Hga n ns H) | apply submultiset_app_r ].
+          * change (inputs_of (O_event lbl outs :: gns_trace ns)) with (inputs_of (gns_trace ns)).
+            eapply node_inputs_noncontradictory;
+              [ exact Hstar1 | exact Hstar2 | exact Hg1 | exact H
+              | exact Hga | exact Hnci | exact (Hfwd n) ].
+      - match goal with |- Forall2_map _ _ (fwd_partition _ ?g) =>
+          assert (Heq : fwd_partition dest g = fwd_partition dest gs2) end.
+        { unfold fwd_partition.
+          erewrite outputs_partition_put_output_eq; [ reflexivity | eassumption | reflexivity ]. }
+        rewrite Heq. exact (Hfwd dest).
+    Qed.
+
+    Lemma submultiset_matching_inps nn l1 l2 :
+      submultiset l1 l2 -> submultiset (matching_inps nn l1) (matching_inps nn l2).
+    Proof.
+      intros (rest & Hperm). exists (matching_inps nn rest).
+      rewrite <- matching_inps_app. apply matching_inps_perm. exact Hperm.
+    Qed.
+
+    Lemma graph_inputs_allowed_submultiset i1 i2 :
+      submultiset i1 i2 -> graph_inputs_allowed i2 -> graph_inputs_allowed i1.
+    Proof.
+      intros Hsub Hga n.
+      eapply allowed_output_submultiset; [ apply (Hga n) | ].
+      apply submultiset_matching_inps. exact Hsub.
+    Qed.
+
+    Lemma noncontradictory_output_shrink_r k a b b' :
+      submultiset b' b -> noncontradictory_output k a b -> noncontradictory_output k a b'.
+    Proof.
+      intros Hsub H.
+      pose proof (claim_output_mono_k k) as Hcm.
+      pose proof (consistent_output_mono_k k) as Hsm.
+      eapply noncontradictory_wf_shrink_r with (l2 := b); try assumption.
+    Qed.
+
+    Lemma noncontradictory_graph_inputs_sym i1 i2 :
+      noncontradictory_graph_inputs i1 i2 -> noncontradictory_graph_inputs i2 i1.
+    Proof. intros H n. apply noncontradictory_output_sym. exact (H n). Qed.
+
+    Lemma noncontradictory_graph_inputs_submultiset i1 i2 i2' :
+      submultiset i2' i2 ->
+      noncontradictory_graph_inputs i1 i2 -> noncontradictory_graph_inputs i1 i2'.
+    Proof.
+      intros Hsub H n. eapply noncontradictory_output_shrink_r;
+        [ apply submultiset_matching_inps; exact Hsub | exact (H n) ].
+    Qed.
+
+    Lemma submultiset_inputs_tl {L M} (e : Smallstep.IO_event L M) (t : list (Smallstep.IO_event L M)) :
+      submultiset (inputs_of t) (inputs_of (e :: t)).
+    Proof. change (e :: t) with ([e] ++ t). rewrite inputs_of_app. apply submultiset_app_l. Qed.
+
+    Lemma everything_noncontradictory_sym gs1 gs2 dest :
+      Forall2_map (fun n => noncontradictory_output (Some n)) (fwd_partition dest gs1) (fwd_partition dest gs2) ->
+      Forall2_map (fun n => noncontradictory_output (Some n)) (fwd_partition dest gs2) (fwd_partition dest gs1).
+    Proof.
+      intros H k. specialize (H k).
+      destruct (map.get (fwd_partition dest gs1) k) as [a|];
+        destruct (map.get (fwd_partition dest gs2) k) as [b|]; try exact H.
+      apply noncontradictory_output_sym. exact H.
+    Qed.
+
     Lemma everything_noncontradictory t1 gs1 t2 gs2 dest :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
+      graph_inputs_allowed (inputs_of t1) ->
       graph_inputs_allowed (inputs_of t2) ->
       noncontradictory_graph_inputs (inputs_of t1) (inputs_of t2) ->
       Forall2_map (fun n => noncontradictory_output (Some n))
         (fwd_partition dest gs1) (fwd_partition dest gs2).
     Proof.
-    Admitted.
+      revert t1 gs1 t2 gs2 dest.
+      enough (H : forall N t1 gs1 t2 gs2 dest,
+        length t1 + length t2 <= N ->
+        star gstep initial_gs t1 gs1 -> star gstep initial_gs t2 gs2 ->
+        graph_inputs_allowed (inputs_of t1) -> graph_inputs_allowed (inputs_of t2) ->
+        noncontradictory_graph_inputs (inputs_of t1) (inputs_of t2) ->
+        Forall2_map (fun n => noncontradictory_output (Some n))
+          (fwd_partition dest gs1) (fwd_partition dest gs2)).
+      { intros t1 gs1 t2 gs2 dest.
+        apply (H (length t1 + length t2)). apply Nat.le_refl. }
+      induction N as [ | N IHN ];
+        intros t1 gs1 t2 gs2 dest Hlen Hstar1 Hstar2 Hga1 Hga2 Hnci.
+      - assert (t1 = [] /\ t2 = []) as [Ht1 Ht2]
+          by (destruct t1, t2; simpl in Hlen; (lia || auto)).
+        subst t1 t2. apply star_nil in Hstar1. apply star_nil in Hstar2. subst gs1 gs2.
+        eapply everything_noncontradictory_refl. constructor.
+      - destruct t2 as [ | e2 t2' ].
+        + apply star_nil in Hstar2. subst gs2. destruct t1 as [ | e1 t1' ].
+          * apply star_nil in Hstar1. subst gs1.
+            eapply everything_noncontradictory_refl. constructor.
+          * invert Hstar1.
+            apply everything_noncontradictory_sym.
+            eapply everything_nc_preserve_r.
+            -- constructor.
+            -- eassumption.
+            -- eassumption.
+            -- exact Hga1.
+            -- apply noncontradictory_graph_inputs_sym. exact Hnci.
+            -- intro d. eapply IHN with (t1 := []) (t2 := t1').
+               ++ simpl in Hlen |- *. lia.
+               ++ constructor.
+               ++ eassumption.
+               ++ exact Hga2.
+               ++ eapply graph_inputs_allowed_submultiset;
+                    [ apply submultiset_inputs_tl | exact Hga1 ].
+               ++ eapply noncontradictory_graph_inputs_submultiset;
+                    [ apply submultiset_inputs_tl
+                    | apply noncontradictory_graph_inputs_sym; exact Hnci ].
+        + invert Hstar2.
+          eapply everything_nc_preserve_r.
+          -- exact Hstar1.
+          -- eassumption.
+          -- eassumption.
+          -- exact Hga2.
+          -- exact Hnci.
+          -- intro d. eapply IHN with (t1 := t1) (t2 := t2').
+             ++ simpl in Hlen |- *. lia.
+             ++ exact Hstar1.
+             ++ eassumption.
+             ++ exact Hga1.
+             ++ eapply graph_inputs_allowed_submultiset;
+                  [ apply submultiset_inputs_tl | exact Hga2 ].
+             ++ eapply noncontradictory_graph_inputs_submultiset;
+                  [ apply submultiset_inputs_tl | exact Hnci ].
+    Qed.
 
     Lemma node_run_allowed t gs :
       star gstep initial_gs t gs ->
@@ -777,12 +1086,6 @@ Definition consistent_good :=
       apply Hgood2. eapply claim_output_mono; [ exact Hcl | exact Hincl ].
     Qed.
 
-    Lemma submultiset_matching_inps nn l1 l2 :
-      submultiset l1 l2 -> submultiset (matching_inps nn l1) (matching_inps nn l2).
-    Proof.
-      intros (rest & Hperm). exists (matching_inps nn rest).
-      rewrite <- matching_inps_app. apply matching_inps_perm. exact Hperm.
-    Qed.
 
     Lemma fwd_partition_consistently_incl t2 gs1 gs2 n :
       star gstep initial_gs t2 gs2 ->
@@ -838,13 +1141,6 @@ Definition consistent_good :=
         + eapply fwd_partition_consistently_incl; eassumption.
     Qed.
 
-    Lemma graph_inputs_allowed_submultiset i1 i2 :
-      submultiset i1 i2 -> graph_inputs_allowed i2 -> graph_inputs_allowed i1.
-    Proof.
-      intros Hsub Hga n.
-      eapply allowed_output_submultiset; [ apply (Hga n) | ].
-      apply submultiset_matching_inps. exact Hsub.
-    Qed.
 
     Lemma gstep_pool_step g e g' :
       gstep g e g' ->

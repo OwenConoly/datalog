@@ -19,6 +19,9 @@ Section star.
   Lemma star_one s e s' : step s e s' -> star s [e] s'.
   Proof. intros. eapply star_step; [apply star_refl | eassumption]. Qed.
 
+  Lemma star_nil s s' : star s [] s' -> s' = s.
+  Proof. intros H. inversion H. reflexivity. Qed.
+
   Lemma star_app s1 t1 s2 t2 s3 :
     star s1 t1 s2 -> star s2 t2 s3 -> star s1 (t2 ++ t1) s3.
   Proof.

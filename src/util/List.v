@@ -1483,8 +1483,18 @@ Section misc.
   Lemma submultiset_app_r l1 l2 : submultiset l1 (l1 ++ l2).
   Proof. exists l2. apply Permutation_refl. Qed.
 
+  Lemma submultiset_app_l l1 l2 : submultiset l2 (l1 ++ l2).
+  Proof. exists l1. apply Permutation_app_comm. Qed.
+
   Lemma submultiset_cons a l : submultiset l (a :: l).
   Proof. exists [a]. apply Permutation_cons_append. Qed.
+
+  Lemma submultiset_filter (q : A -> bool) l1 l2 :
+    submultiset l1 l2 -> submultiset (filter q l1) (filter q l2).
+  Proof.
+    intros (rest & Hperm). exists (filter q rest).
+    rewrite <- filter_app, Hperm. apply Permutation_refl.
+  Qed.
 
   Lemma submultiset_incl l1 l2 : submultiset l1 l2 -> incl l1 l2.
   Proof.
