@@ -785,20 +785,31 @@ Definition consistent_good :=
       apply Hgood2. eapply claim_output_mono; [ exact Hcl | exact Hincl ].
     Qed.
 
-    Lemma incl_mod_of_le_weak t1 gs1 t2 gs2 n ns1 ns2 :
+    Lemma submultiset_matching_inps nn l1 l2 :
+      submultiset l1 l2 -> submultiset (matching_inps nn l1) (matching_inps nn l2).
+    Proof.
+      intros (rest & Hperm). exists (matching_inps nn rest).
+      rewrite <- matching_inps_app. apply matching_inps_perm. exact Hperm.
+    Qed.
+
+    Lemma consistently_incl_of_le_weak t1 gs1 t2 gs2 :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
       graph_inputs_allowed (inputs_of t1) ->
       graph_inputs_allowed (inputs_of t2) ->
-      map.get gs1 n = Some ns1 ->
-      map.get gs2 n = Some ns2 ->
       le_weak gs1 gs2 ->
-      submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)) ->
-      consistently_incl equiv claim consistent
-        (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
-        (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue)).
+      submultiset (inputs_of t1) (inputs_of t2) ->
+      Forall2_map (fun _ gns1 gns2 =>
+                     consistently_incl equiv claim consistent
+                       (inputs_of gns1.(gns_trace) ++ gns1.(gns_queue))
+                       (inputs_of gns2.(gns_trace) ++ gns2.(gns_queue)))
+        gs1 gs2.
     Proof.
-      intros Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2 Hlew Hmatch.
+      intros Hstar1 Hstar2 Hga1 Hga2 Hlew Hsub.
+      pose proof Hlew as Hlew0. unfold le_weak, outputs_partition in Hlew0.
+      eapply Forall2_map_impl_strong; [ apply (Forall2_map_map_values'_inv _ _ _ _ _ Hlew0) | ].
+      intros n gns1 gns2 Hg1 Hg2 _.
+      pose proof (submultiset_matching_inps n _ _ Hsub) as Hmatch.
       eapply consistently_incl_perm;
         [ apply Permutation_sym; apply (inputs_are_outputs _ _ Hstar1 _ _ Hg1)
         | apply Permutation_sym; apply (inputs_are_outputs _ _ Hstar2 _ _ Hg2)
@@ -832,13 +843,6 @@ Definition consistent_good :=
       intros Hstar.
       eapply Forall2_map_get_None.
       eapply graph_step_to_node_step_from_beginning. exact Hstar.
-    Qed.
-
-    Lemma submultiset_matching_inps nn l1 l2 :
-      submultiset l1 l2 -> submultiset (matching_inps nn l1) (matching_inps nn l2).
-    Proof.
-      intros (rest & Hperm). exists (matching_inps nn rest).
-      rewrite <- matching_inps_app. apply matching_inps_perm. exact Hperm.
     Qed.
 
     Lemma graph_inputs_allowed_submultiset i1 i2 :
@@ -1013,16 +1017,13 @@ Definition consistent_good :=
       eapply eventually_weaken.
       { exact (eventually_received _ _). }
       intros [gs2' t2'] Hrecv _.
-      cbv [le]. unfold le_weak, outputs_partition in Hlew.
-      pose proof (Forall2_map_map_values'_inv _ _ _ _ _ Hlew) as Hout.
-      eapply Forall2_map_compose_strong; [ | eassumption | eassumption ].
-      intros k ns1 ns2 ns2' Hg1 Hg2 Hg3 _ Hrec.
+      cbv [le].
+      eapply Forall2_map_compose;
+        [ | apply (consistently_incl_of_le_weak t1 gs1 t2 gs2 Hstar1 Hstar2 Hga1 Hga2 Hlew Hsub)
+        | exact Hrecv ].
+      intros k a b c Hci Hrec.
       eapply consistently_incl_shrink_l; [ apply submultiset_app_r | ].
-      eapply consistently_incl_grow_r; [ exact Hrec | ].
-      apply (incl_mod_of_le_weak t1 gs1 t2 gs2 k ns1 ns2
-               Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2
-               Hlew
-               (submultiset_matching_inps k _ _ Hsub)).
+      eapply consistently_incl_grow_r; [ exact Hrec | exact Hci ].
     Qed.
 
     Lemma node_will_match' gs1 t1 lbl outs gs1' gs2 t2 :
