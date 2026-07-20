@@ -35,6 +35,10 @@ Section __.
                          claim s ms2).
 
   Context (consistent_output : stmt -> option node_id -> list message -> Prop).
+  Context (claim_output_mono :
+            forall s n ms1 ms2, claim_output s n ms1 ->
+                           incl_mod equiv ms1 ms2 ->
+                           claim_output s n ms2).
   Context (allowed_output : option node_id -> list message -> Prop).
   Context (consistent : stmt -> list message -> Prop).
   Context {node_map : map.map (option node_id) (list message)}.
@@ -106,11 +110,6 @@ Definition consistent_good :=
     noncontradictory_wf equiv (fun s => claim_output s k) (fun s => consistent_output s k)
                         (allowed_output k).
 
-  (* Gather the per-piece coinductive witnesses into one witness partition [pM]:
-     each piece grows to an [allowed_output] witness that [submultiset]-dominates the
-     first run's piece, [consistently_incl]-covers the second run's piece, and stays
-     [noncontradictory_output] with it (the coinductive tail).  The map-building work is
-     [Forall2_map_choose]; here we just unfold the per-key coinductive and project. *)
   Lemma noncontradictory_witness_map (p1 p2 : node_map) :
     Forall2_map noncontradictory_output p1 p2 ->
     exists pM : node_map,
@@ -274,6 +273,9 @@ Definition consistent_good :=
 
     Definition fwd_total (nn : node_id) (gs : graph_state) : list message :=
       output_map (fun sender outs => filter (forward sender nn) outs) gs.
+
+    Lemma fwd_total_eq nn gs : fwd_total nn gs = concat (values (fwd_partition nn gs)).
+    Proof. reflexivity. Qed.
 
     Definition le_weak g1 g2 :=
       Forall2_map (fun _ => incl_mod equiv) (outputs_partition g1) (outputs_partition g2).
@@ -484,24 +486,24 @@ Definition consistent_good :=
       apply (incl_mod_of_incl equiv). intros x Hx. apply in_or_app. right. exact Hx.
     Qed.
 
-    Lemma le_weak_fwd_total g1 g2 n :
-      le_weak g1 g2 -> incl_mod equiv (fwd_total n g1) (fwd_total n g2).
+    Lemma incl_mod_filter_forward sender nn l1 l2 :
+      incl_mod equiv l1 l2 ->
+      incl_mod equiv (filter (forward sender nn) l1) (filter (forward sender nn) l2).
     Proof.
-      intros Hle x Hx. unfold fwd_total, output_map in Hx.
-      apply In_concat_values in Hx. destruct Hx as (k & vs & Hget & Hin).
-      rewrite get_map_values', outputs_partition_get in Hget.
-      destruct (map.get g1 k) as [gns1|] eqn:Hg1; cbn [option_map] in Hget; [ | discriminate ].
-      fwd. apply filter_In in Hin. destruct Hin as (Hxout & Hfwd).
-      cbv [le_weak Forall2_map] in Hle. specialize (Hle k).
-      rewrite !outputs_partition_get, Hg1 in Hle. simpl in Hle.
-      destruct (map.get g2 k) as [gns2|] eqn:Hg2; cbn [option_map] in Hle; [ | contradiction ].
-      destruct (Hle x Hxout) as (x' & Hx'out & Hequiv).
-      exists x'. split; [ | exact Hequiv ].
-      unfold fwd_total, output_map. apply In_concat_values.
-      exists k, (filter (forward k n) (outputs_of gns2.(gns_trace))). split.
-      - rewrite get_map_values', outputs_partition_get, Hg2. reflexivity.
-      - apply filter_In. split; [ exact Hx'out | ].
-        rewrite <- (forward_equiv k n x x' Hequiv). exact Hfwd.
+      intros Hincl x Hx. apply filter_In in Hx. destruct Hx as (Hin & Hfwd).
+      destruct (Hincl x Hin) as (x' & Hin' & Hequiv).
+      exists x'. split; [ apply filter_In; split; [ exact Hin' | ] | exact Hequiv ].
+      rewrite <- (forward_equiv sender nn x x' Hequiv). exact Hfwd.
+    Qed.
+
+    Lemma le_weak_fwd_partition g1 g2 n :
+      le_weak g1 g2 ->
+      Forall2_map (fun _ => incl_mod equiv) (fwd_partition n g1) (fwd_partition n g2).
+    Proof.
+      intros Hle. unfold fwd_partition.
+      apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
+      eapply Forall2_map_impl; [ exact Hle | ].
+      intros k v1 v2 Hincl. apply incl_mod_filter_forward. exact Hincl.
     Qed.
 
     Definition conserved (gs : graph_state) (ext : list (message * node_id)) : Prop :=
@@ -581,18 +583,25 @@ Definition consistent_good :=
       rewrite app_nil_l in Hcons. exact (Hcons nn nsn Hget).
     Qed.
 
-    Lemma fwd_total_consistent_internal gt gs nn :
+    Lemma fwd_partition_good gt gs nn :
       star gstep initial_gs gt gs ->
-      consistent_internal_inputs (fwd_total nn gs).
+      Forall_map (fun sender => good_inputs_from (Some sender)) (fwd_partition nn gs).
     Proof.
-      intros Hstar. exists (fwd_partition nn gs). split; [ | reflexivity ].
-      intros sender v Hv. rewrite fwd_partition_get in Hv.
+      intros Hstar sender v Hv. rewrite fwd_partition_get in Hv.
       destruct (map.get gs sender) as [gns|] eqn:Hgs; cbn [option_map] in Hv; [ | discriminate ].
       injection Hv as Hv. subst v.
       pose proof (graph_step_to_node_step_from_beginning gs gt Hstar) as Hnodes.
       destruct (Forall2_map_get_r _ _ _ _ _ Hnodes Hgs) as (gns0 & Hget0 & Hrun).
       pose proof (nodes_good sender gns0 Hget0) as (Howf & _ & _).
       exact (Howf _ _ Hrun nn).
+    Qed.
+
+    Lemma fwd_total_consistent_internal gt gs nn :
+      star gstep initial_gs gt gs ->
+      consistent_internal_inputs (fwd_total nn gs).
+    Proof.
+      intros Hstar. exists (fwd_partition nn gs).
+      split; [ exact (fwd_partition_good gt gs nn Hstar) | reflexivity ].
     Qed.
 
     Definition with_external (partition : msg_map) (ext : list message) : node_map :=
@@ -634,6 +643,17 @@ Definition consistent_good :=
     Lemma with_external_None (P : option node_id -> list message -> Prop) partition ext :
       Forall_map P (with_external partition ext) -> P None ext.
     Proof. intros H. apply (H None ext (with_external_get_None partition ext)). Qed.
+
+    Lemma Forall2_map_with_external (R : option node_id -> list message -> list message -> Prop)
+      part1 part2 ext1 ext2 :
+      R None ext1 ext2 ->
+      Forall2_map (fun k => R (Some k)) part1 part2 ->
+      Forall2_map R (with_external part1 ext1) (with_external part2 ext2).
+    Proof.
+      intros HN HS q. destruct q as [k|].
+      - rewrite !with_external_get_Some. exact (HS k).
+      - rewrite !with_external_get_None. exact HN.
+    Qed.
 
     Lemma everything_allowed gt gs :
       star gstep initial_gs gt gs ->
@@ -717,79 +737,6 @@ Definition consistent_good :=
       simpl. cbv [val_sat reachable]. intros. fwd. intros. fwd. eauto.
     Qed.
 
-    Lemma consistent_perm s l1 l2 : Permutation l1 l2 -> consistent s l1 -> consistent s l2.
-    Proof. intros Hp Hc. eapply consistent_mono; [ exact Hc | apply submultiset_perm; exact Hp ]. Qed.
-
-    Lemma claim_perm s l1 l2 : Permutation l1 l2 -> claim s l1 -> claim s l2.
-    Proof.
-      intros Hp Hc. eapply claim_mono; [ exact Hc | ].
-      apply (incl_mod_of_submultiset equiv). apply submultiset_perm. exact Hp.
-    Qed.
-
-    Lemma consistent_good_ext s (partition : msg_map) ext :
-      Forall_map (fun n => good_inputs_from (Some n)) partition ->
-      allowed_output None ext ->
-      claim s (ext ++ concat (values partition)) ->
-      consistent s (ext ++ concat (values partition)) <-> consistent_output s None ext.
-    Proof.
-      intros Hgif Hae Hclaim.
-      assert (Hall : Forall_map allowed_output (with_external partition ext)).
-      { apply Forall_map_with_external; [ exact Hae | ].
-        intros k v Hk. exact (proj1 (Hgif k v Hk)). }
-      assert (Hcl : claim s (concat (values (with_external partition ext)))).
-      { eapply claim_perm; [ apply Permutation_sym, values_with_external | exact Hclaim ]. }
-      pose proof (consistent_good_holds s (with_external partition ext) Hall Hcl)
-        as (Hclaim_out & Hbicond).
-      assert (Hint : Forall_map (fun n => consistent_output s (Some n)) partition).
-      { intros k v Hk. apply (proj2 (Hgif k v Hk)).
-        apply (Hclaim_out (Some k) v). rewrite with_external_get_Some. exact Hk. }
-      split.
-      - intros Hc.
-        apply (consistent_perm s _ _ (Permutation_sym (values_with_external partition ext))) in Hc.
-        apply Hbicond in Hc. exact (with_external_None _ _ _ Hc).
-      - intros Hext.
-        apply (consistent_perm s _ _ (values_with_external partition ext)).
-        apply Hbicond. apply Forall_map_with_external; [ exact Hext | exact Hint ].
-    Qed.
-
-    Lemma consistent_transfer internal_inps1 internal_inps2 exts1 exts2 :
-      consistent_internal_inputs internal_inps1 ->
-      consistent_internal_inputs internal_inps2 ->
-      incl_mod equiv internal_inps1 internal_inps2 ->
-      allowed_output None exts1 ->
-      allowed_output None exts2 ->
-      submultiset exts1 exts2 ->
-      consistently_incl equiv claim consistent
-        (internal_inps1 ++ exts1) (internal_inps2 ++ exts2).
-    Proof.
-      intros Hci1 Hci2 Hwint Hae1 Hae2 Hsubext.
-      destruct Hci1 as (part1 & Hgif1 & Heq1).
-      destruct Hci2 as (part2 & Hgif2 & Heq2).
-      subst internal_inps1 internal_inps2.
-      assert (Hincl_pool : incl_mod equiv (concat (values part1) ++ exts1)
-                                          (concat (values part2) ++ exts2)).
-      { apply incl_mod_app.
-        - apply incl_mod_app_r. exact Hwint.
-        - eapply (incl_mod_trans equiv);
-            [ apply (incl_mod_of_submultiset equiv _ _ Hsubext)
-            | apply (incl_mod_of_incl equiv); intros x Hx; apply in_or_app; right; exact Hx ]. }
-      split; [ exact Hincl_pool | ].
-      intros s Hclaim Hcons.
-      assert (Hext1 : consistent_output s None exts1).
-      { pose proof (consistent_good_ext s part1 exts1 Hgif1 Hae1
-                      (claim_perm s _ _ (Permutation_app_comm (concat (values part1)) exts1) Hclaim)) as Hce.
-        apply (proj1 Hce).
-        eapply consistent_perm; [ apply Permutation_app_comm | exact Hcons ]. }
-      assert (Hext2 : consistent_output s None exts2)
-        by (eapply consistent_output_mono; [ exact Hext1 | exact Hsubext ]).
-      assert (Hclaim2 : claim s (exts2 ++ concat (values part2))).
-      { eapply claim_perm; [ apply Permutation_app_comm | ].
-        eapply claim_mono; [ exact Hclaim | exact Hincl_pool ]. }
-      eapply consistent_perm; [ apply Permutation_app_comm | ].
-      apply (proj2 (consistent_good_ext s part2 exts2 Hgif2 Hae2 Hclaim2)).
-      exact Hext2.
-    Qed.
-
     Lemma consistently_incl_shrink_l l1 l1' l2 :
       submultiset l1' l1 ->
       consistently_incl equiv claim consistent l1 l2 ->
@@ -825,6 +772,19 @@ Definition consistent_good :=
       eapply consistently_incl_grow_r; [ apply submultiset_perm; exact Hp2 | exact H ].
     Qed.
 
+    (* A [good_inputs_from] piece is [consistently_incl]-below any [incl_mod]-larger
+       good piece: consistency of the larger piece follows from its own claim (monotone
+       from the smaller one) and its goodness, so we never use the smaller's consistency. *)
+    Lemma good_consistently_incl k v1 v2 :
+      good_inputs_from k v2 ->
+      incl_mod equiv v1 v2 ->
+      consistently_incl equiv (fun s => claim_output s k) (fun s => consistent_output s k) v1 v2.
+    Proof.
+      intros (_ & Hgood2) Hincl. unfold consistently_incl. split; [ exact Hincl | ].
+      cbv [consistent_le]. intros s Hcl _.
+      apply Hgood2. eapply claim_output_mono; [ exact Hcl | exact Hincl ].
+    Qed.
+
     Lemma incl_mod_of_le_weak t1 gs1 t2 gs2 n ns1 ns2 :
       star gstep initial_gs t1 gs1 ->
       star gstep initial_gs t2 gs2 ->
@@ -832,26 +792,37 @@ Definition consistent_good :=
       graph_inputs_allowed (inputs_of t2) ->
       map.get gs1 n = Some ns1 ->
       map.get gs2 n = Some ns2 ->
-      incl_mod equiv (fwd_total n gs1) (fwd_total n gs2) ->
+      le_weak gs1 gs2 ->
       submultiset (matching_inps n (inputs_of t1)) (matching_inps n (inputs_of t2)) ->
       consistently_incl equiv claim consistent
         (inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
         (inputs_of ns2.(gns_trace) ++ ns2.(gns_queue)).
     Proof.
-      intros Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2 Hwint Hmatch.
-      pose proof (inputs_are_outputs _ _ Hstar1) as Hio1. cbv [Forall_map] in Hio1.
-      specialize (Hio1 _ _ Hg1).
-      pose proof (inputs_are_outputs _ _ Hstar2) as Hio2. cbv [Forall_map] in Hio2.
-      specialize (Hio2 _ _ Hg2).
-      pose proof (fwd_total_consistent_internal _ _ n Hstar1) as Hci1.
-      pose proof (fwd_total_consistent_internal _ _ n Hstar2) as Hci2.
+      intros Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2 Hlew Hmatch.
       eapply consistently_incl_perm;
-        [ apply Permutation_sym; exact Hio1
-        | apply Permutation_sym; exact Hio2
+        [ apply Permutation_sym; apply (inputs_are_outputs _ _ Hstar1 _ _ Hg1)
+        | apply Permutation_sym; apply (inputs_are_outputs _ _ Hstar2 _ _ Hg2)
         | ].
-      apply consistent_transfer; try assumption.
-      - apply Hga1.
-      - apply Hga2.
+      rewrite !fwd_total_eq.
+      eapply consistently_incl_perm;
+        [ eapply Permutation_trans; [ apply values_with_external | apply Permutation_app_comm ]
+        | eapply Permutation_trans; [ apply values_with_external | apply Permutation_app_comm ]
+        | ].
+      apply consistently_incl_concat_values.
+      - apply Forall_map_with_external;
+          [ exact (Hga1 n)
+          | intros k v Hk; exact (proj1 (fwd_partition_good _ _ n Hstar1 k v Hk)) ].
+      - apply Forall_map_with_external;
+          [ exact (Hga2 n)
+          | intros k v Hk; exact (proj1 (fwd_partition_good _ _ n Hstar2 k v Hk)) ].
+      - apply Forall2_map_with_external.
+        + unfold consistently_incl. split.
+          * apply (incl_mod_of_submultiset equiv). exact Hmatch.
+          * cbv [consistent_le]. intros s _ Hcon.
+            eapply consistent_output_mono; [ exact Hcon | exact Hmatch ].
+        + eapply Forall2_map_impl_strong; [ apply (le_weak_fwd_partition _ _ n Hlew) | ].
+          intros k v1 v2 _ Hg2' Hincl.
+          apply good_consistently_incl; [ exact (fwd_partition_good _ _ n Hstar2 k v2 Hg2') | exact Hincl ].
     Qed.
 
     Lemma reachable_domain t gs nn :
@@ -1050,7 +1021,7 @@ Definition consistent_good :=
       eapply consistently_incl_grow_r; [ exact Hrec | ].
       apply (incl_mod_of_le_weak t1 gs1 t2 gs2 k ns1 ns2
                Hstar1 Hstar2 Hga1 Hga2 Hg1 Hg2
-               (le_weak_fwd_total _ _ k Hlew)
+               Hlew
                (submultiset_matching_inps k _ _ Hsub)).
     Qed.
 
