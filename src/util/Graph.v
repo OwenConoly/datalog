@@ -105,11 +105,92 @@ Definition consistent_good :=
   Definition noncontradictory_output (k : option node_id) :=
     noncontradictory_wf equiv claim consistent (allowed_output k).
 
+  (* Gather the per-piece coinductive witnesses into one witness partition [pM]:
+     each piece grows to an [allowed_output] witness that [submultiset]-dominates the
+     first run's piece, [consistently_incl]-covers the second run's piece, and stays
+     [noncontradictory_output] with it (the coinductive tail).  Provable by map
+     induction -- extraction into a [Prop] existential is fine. *)
+  Lemma noncontradictory_witness_map (p1 p2 : node_map) :
+    Forall2_map noncontradictory_output p1 p2 ->
+    exists pM : node_map,
+      Forall2_map (fun _ v m => submultiset v m) p1 pM /\
+      Forall_map allowed_output pM /\
+      Forall2_map (fun _ v m => consistently_incl equiv claim consistent v m) p2 pM /\
+      Forall2_map noncontradictory_output p2 pM.
+  Proof.
+  Admitted.
+
+  Lemma submultiset_app (a b c d : list message) :
+    submultiset a b -> submultiset c d -> submultiset (a ++ c) (b ++ d).
+  Proof.
+    intros Hab Hcd.
+    eapply submultiset_trans; [ apply submultiset_app_head; exact Hcd | ].
+    eapply submultiset_perm_l; [ apply Permutation_app_comm | ].
+    eapply submultiset_perm_r; [ apply Permutation_app_comm | ].
+    apply submultiset_app_head. exact Hab.
+  Qed.
+
+  Lemma Forall2_map_concat_values (R : list message -> list message -> Prop)
+    (Rnil : R [] [])
+    (Rapp : forall a b c d, R a b -> R c d -> R (a ++ c) (b ++ d))
+    (Rperm : forall a b a' b', Permutation a a' -> Permutation b b' -> R a b -> R a' b')
+    (p1 p2 : node_map) :
+    Forall2_map (fun _ => R) p1 p2 ->
+    R (concat (values p1)) (concat (values p2)).
+  Proof.
+    revert p2. pattern p1. revert p1. apply map.map_ind.
+    - intros p2 H.
+      assert (Hp2 : p2 = map.empty).
+      { apply map.map_ext. intro k. rewrite map.get_empty.
+        specialize (H k). rewrite map.get_empty in H.
+        destruct (map.get p2 k); [ contradiction | reflexivity ]. }
+      subst p2. rewrite !values_empty. cbn [concat]. exact Rnil.
+    - intros p1 IHp1 k v Hk p2 H.
+      destruct (Forall2_map_get_l _ _ _ _ _ H (map.get_put_same _ _ _)) as (v2 & Hv2 & Hrel).
+      assert (Htail : Forall2_map (fun _ => R) p1 (map.remove p2 k)).
+      { intro k0. specialize (H k0). destruct (classic (k = k0)) as [<-|Hne].
+        - rewrite map.get_remove_same, Hk. exact I.
+        - rewrite map.get_put_diff in H by congruence.
+          rewrite map.get_remove_diff by congruence. exact H. }
+      specialize (IHp1 _ Htail).
+      eapply Rperm.
+      + apply Permutation_sym, Permutation_concat, (values_put_None p1 k v Hk).
+      + apply Permutation_sym, (concat_values_get _ _ _ Hv2).
+      + apply Rapp; [ exact Hrel | exact IHp1 ].
+  Qed.
+
+  Lemma submultiset_concat_values (p1 pM : node_map) :
+    Forall2_map (fun _ v m => submultiset v m) p1 pM ->
+    submultiset (concat (values p1)) (concat (values pM)).
+  Proof.
+    apply (Forall2_map_concat_values submultiset).
+    - apply submultiset_refl.
+    - exact submultiset_app.
+    - intros a b a' b' Ha Hb Hab.
+      eapply submultiset_perm_l; [ exact Ha | ].
+      eapply submultiset_perm_r; [ exact Hb | exact Hab ].
+  Qed.
+
+  Lemma consistently_incl_concat_values (p2 pM : node_map) :
+    Forall_map allowed_output pM ->
+    Forall2_map (fun _ v m => consistently_incl equiv claim consistent v m) p2 pM ->
+    consistently_incl equiv claim consistent (concat (values p2)) (concat (values pM)).
+  Proof.
+  Admitted.
+
   Lemma noncontradictory_of_outputs (partition1 partition2 : node_map) :
     Forall2_map noncontradictory_output partition1 partition2 ->
     noncontradictory (concat (values partition1)) (concat (values partition2)).
   Proof.
-  Admitted.
+    revert partition1 partition2.
+    cofix CIH. intros p1 p2 H.
+    destruct (noncontradictory_witness_map p1 p2 H) as (pM & Hsub & Hallow & Hci & Htail).
+    unfold noncontradictory. econstructor.
+    - apply submultiset_concat_values. exact Hsub.
+    - apply allowed_of_outputs. exact Hallow.
+    - apply consistently_incl_concat_values; [ exact Hallow | exact Hci ].
+    - apply CIH. exact Htail.
+  Qed.
 
   Definition matching_inps n (inps : list (message * node_id)) :=
     map fst (filter (fun '(_, n0) => eqb n n0) inps).
