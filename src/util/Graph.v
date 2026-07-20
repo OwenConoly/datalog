@@ -103,7 +103,8 @@ Definition consistent_good :=
   Definition noncontradictory := noncontradictory_wf equiv claim consistent allowed.
 
   Definition noncontradictory_output (k : option node_id) :=
-    noncontradictory_wf equiv claim (fun s => consistent_output s k) (allowed_output k).
+    noncontradictory_wf equiv (fun s => claim_output s k) (fun s => consistent_output s k)
+                        (allowed_output k).
 
   Lemma Forall2_map_put2 (R : option node_id -> list message -> list message -> Prop)
     (m1 m2 : node_map) k v1 v2 :
@@ -138,7 +139,8 @@ Definition consistent_good :=
     exists pM : node_map,
       Forall2_map (fun _ v m => submultiset v m) p1 pM /\
       Forall_map allowed_output pM /\
-      Forall2_map (fun _ v m => consistently_incl equiv claim consistent v m) p2 pM /\
+      Forall2_map (fun k v m => consistently_incl equiv (fun s => claim_output s k)
+                                                 (fun s => consistent_output s k) v m) p2 pM /\
       Forall2_map noncontradictory_output p2 pM.
   Proof.
     revert p2. pattern p1. revert p1. apply map.map_ind.
@@ -167,10 +169,11 @@ Definition consistent_good :=
       + apply Forall2_map_put2; [ exact Hk | exact HpM'k | exact Hsub' | exact Hsubm ].
       + apply Forall_map_put;
           [ intros k0 v0 Hget Hne; exact (Hallow' k0 v0 Hget) | exact Hallm ].
-      + admit.
+      + apply Forall2_map_put_right with (v2 := v2);
+          [ exact Hv2 | exact HpM'k | exact Hci' | exact Hcim ].
       + apply Forall2_map_put_right with (v2 := v2);
           [ exact Hv2 | exact HpM'k | exact Hnc' | exact Htailm ].
-  Admitted.
+  Qed.
 
   Lemma submultiset_app (a b c d : list message) :
     submultiset a b -> submultiset c d -> submultiset (a ++ c) (b ++ d).
@@ -244,40 +247,45 @@ Definition consistent_good :=
       exists y. split; [ exact (Permutation_in y Hb Hy) | exact Heq ].
   Qed.
 
+  (*TODO using this lemma should simplify some proofs later in the file?*)
   Lemma consistently_incl_concat_values (p2 pM : node_map) :
+    Forall_map allowed_output p2 ->
     Forall_map allowed_output pM ->
-    Forall2_map (fun k v m => consistently_incl equiv (fun s => claim_output s k) (fun s => consistent_output s k) v m) p2 pM ->
+    Forall2_map (fun k v m => consistently_incl equiv (fun s => claim_output s k)
+                                                (fun s => consistent_output s k) v m) p2 pM ->
     consistently_incl equiv claim consistent (concat (values p2)) (concat (values pM)).
   Proof.
-    intros Hallow H. unfold consistently_incl. split.
-    - apply incl_mod_concat_values.
-      eapply Forall2_map_impl.
-      + exact H.
-      + intros k v m Hci. destruct Hci as (Hincl & _). exact Hincl.
-    - cbv [consistent_le].
-      intros s Hcl Hcon.
-      apply consistent_good_holds; auto.
-      { eapply claim_mono; [eassumption|]. admit. }
-      pose proof consistent_good_holds as Hcon'.
-      cbv [consistent_good] in Hcon'.
-      specialize Hcon' with (2 := Hcl). specialize' Hcon'. 1: admit.
-      fwd. apply Hcon'p1 in Hcon. clear Hcon'p1.
-      intros k v Hkv. eapply Forall2_map_get_r in H; eauto. fwd.
-      cbv [consistently_incl] in Hp1. fwd. eapply Hp1p1; eauto.
-  Admitted.
+    intros Hallow2 HallowM H.
+    assert (Hincl : incl_mod equiv (concat (values p2)) (concat (values pM))).
+    { apply incl_mod_concat_values. eapply Forall2_map_impl; [ exact H | ].
+      intros k v m Hci. destruct Hci as (Hincl & _). exact Hincl. }
+    unfold consistently_incl. split; [ exact Hincl | ].
+    cbv [consistent_le]. intros s Hcl Hcon.
+    assert (Hclaim_pM : claim s (concat (values pM)))
+      by (eapply claim_mono; [ exact Hcl | exact Hincl ]).
+    pose proof (consistent_good_holds s pM HallowM Hclaim_pM) as (_ & HbicondM).
+    pose proof (consistent_good_holds s p2 Hallow2 Hcl) as (Hclaim_out2 & Hbicond2).
+    apply (proj1 Hbicond2) in Hcon.
+    apply (proj2 HbicondM). intros k m Hget.
+    destruct (Forall2_map_get_r _ _ _ _ _ H Hget) as (v & Hv & Hci).
+    destruct Hci as (_ & Hcle). apply Hcle.
+    - exact (Hclaim_out2 k v Hv).
+    - exact (Hcon k v Hv).
+  Qed.
 
   Lemma noncontradictory_of_outputs (partition1 partition2 : node_map) :
+    Forall_map allowed_output partition2 ->
     Forall2_map noncontradictory_output partition1 partition2 ->
     noncontradictory (concat (values partition1)) (concat (values partition2)).
   Proof.
     revert partition1 partition2.
-    cofix CIH. intros p1 p2 H.
-    destruct (noncontradictory_witness_map p1 p2 H) as (pM & Hsub & Hallow & Hci & Htail).
+    cofix CIH. intros p1 p2 Hallow2 H.
+    destruct (noncontradictory_witness_map p1 p2 H) as (pM & Hsub & HallowM & Hci & Htail).
     unfold noncontradictory. econstructor.
     - apply submultiset_concat_values. exact Hsub.
-    - apply allowed_of_outputs. exact Hallow.
-    - apply consistently_incl_concat_values; [ exact Hallow |  ].
-    - apply CIH. exact Htail.
+    - apply allowed_of_outputs. exact HallowM.
+    - apply consistently_incl_concat_values; [ exact Hallow2 | exact HallowM | exact Hci ].
+    - apply CIH; [ exact HallowM | exact Htail ].
   Qed.
 
   Definition matching_inps n (inps : list (message * node_id)) :=
@@ -511,7 +519,7 @@ Definition consistent_good :=
     Proof.
       intros Hn. unfold output_map.
       erewrite outputs_partition_map_values'; [|reflexivity].
-      rewrite outputs_partition_eapply Permutation_trans; [ apply concat_values_map_values'_put | ].
+      rewrite outputs_partition_put. eapply Permutation_trans; [ apply concat_values_map_values'_put | ].
       simpl. rewrite Hdist, <- app_assoc. apply Permutation_app_head.
       apply Permutation_sym.
       apply concat_values_map_values'_get.
