@@ -171,11 +171,38 @@ Definition consistent_good :=
       eapply submultiset_perm_r; [ exact Hb | exact Hab ].
   Qed.
 
+  Lemma incl_mod_app_cong (a b c d : list message) :
+    incl_mod equiv a b -> incl_mod equiv c d -> incl_mod equiv (a ++ c) (b ++ d).
+  Proof.
+    intros Hab Hcd. apply (incl_mod_app equiv).
+    - apply (incl_mod_app_r equiv). exact Hab.
+    - eapply (incl_mod_trans equiv); [ exact Hcd | ].
+      apply (incl_mod_of_incl equiv). intros x Hx. apply in_or_app. right. exact Hx.
+  Qed.
+
+  Lemma incl_mod_concat_values (p1 p2 : node_map) :
+    Forall2_map (fun _ v m => incl_mod equiv v m) p1 p2 ->
+    incl_mod equiv (concat (values p1)) (concat (values p2)).
+  Proof.
+    apply (Forall2_map_concat_values (incl_mod equiv)).
+    - exact (incl_mod_refl equiv []).
+    - exact incl_mod_app_cong.
+    - intros a b a' b' Ha Hb Hab x Hx.
+      destruct (Hab x (Permutation_in x (Permutation_sym Ha) Hx)) as (y & Hy & Heq).
+      exists y. split; [ exact (Permutation_in y Hb Hy) | exact Heq ].
+  Qed.
+
   Lemma consistently_incl_concat_values (p2 pM : node_map) :
     Forall_map allowed_output pM ->
     Forall2_map (fun _ v m => consistently_incl equiv claim consistent v m) p2 pM ->
     consistently_incl equiv claim consistent (concat (values p2)) (concat (values pM)).
   Proof.
+    intros Hallow H. unfold consistently_incl. split.
+    - apply incl_mod_concat_values.
+      eapply Forall2_map_impl.
+      + exact H.
+      + intros k v m Hci. destruct Hci as (Hincl & _). exact Hincl.
+    - admit.
   Admitted.
 
   Lemma noncontradictory_of_outputs (partition1 partition2 : node_map) :
