@@ -98,13 +98,17 @@ Section step.
     - intros s Hcl Hco. exact (Hcm s l2 l2' (Hle s Hcl Hco) Hsub).
   Qed.
 
-  CoInductive noncontradictory l1 l2 :=
+  CoInductive noncontradictory_wf wf l1 l2 :=
   | nc_intro l1' :
     submultiset l1 l1' ->
-    allowed l1' ->
+    wf l1' ->
     consistently_incl l2 l1' ->
-    noncontradictory l2 l1' ->
-    noncontradictory l1 l2.
+    noncontradictory_wf _ l2 l1' ->
+    noncontradictory_wf _ l1 l2.
+
+  Definition noncontradictory_inputs := noncontradictory_wf allowed.
+  Context (outputs_wf : list message -> Prop).
+  Definition noncontradictory_outputs := noncontradictory_wf outputs_wf.
 
   Lemma noncontradictory_wf_refl (wf : list message -> Prop) l :
     wf l -> noncontradictory_wf wf l l.
@@ -431,7 +435,6 @@ Section step.
     - exact (will_output_equiv_step sa e sb (t0 ++ t) o Hstep IH).
   Qed.
 
-  Context (outputs_wf : list message -> Prop).
   Context (initial : state).
 
   Definition outputs_well_formed :=
