@@ -105,6 +105,29 @@ Definition consistent_good :=
   Definition noncontradictory_output (k : option node_id) :=
     noncontradictory_wf equiv claim consistent (allowed_output k).
 
+  Lemma Forall2_map_put2 (R : option node_id -> list message -> list message -> Prop)
+    (m1 m2 : node_map) k v1 v2 :
+    map.get m1 k = None -> map.get m2 k = None ->
+    Forall2_map R m1 m2 -> R k v1 v2 ->
+    Forall2_map R (map.put m1 k v1) (map.put m2 k v2).
+  Proof.
+    intros H1 H2 HF HR k0. destruct (classic (k = k0)) as [<-|Hne].
+    - rewrite !map.get_put_same. exact HR.
+    - rewrite !map.get_put_diff by congruence. exact (HF k0).
+  Qed.
+
+  Lemma Forall2_map_put_right (R : option node_id -> list message -> list message -> Prop)
+    (p q : node_map) k v2 m :
+    map.get p k = Some v2 -> map.get q k = None ->
+    Forall2_map R (map.remove p k) q -> R k v2 m ->
+    Forall2_map R p (map.put q k m).
+  Proof.
+    intros Hp Hq HF HR k0. destruct (classic (k = k0)) as [<-|Hne].
+    - rewrite Hp, map.get_put_same. exact HR.
+    - specialize (HF k0). rewrite map.get_remove_diff in HF by congruence.
+      rewrite map.get_put_diff by congruence. exact HF.
+  Qed.
+
   (* Gather the per-piece coinductive witnesses into one witness partition [pM]:
      each piece grows to an [allowed_output] witness that [submultiset]-dominates the
      first run's piece, [consistently_incl]-covers the second run's piece, and stays
@@ -118,7 +141,37 @@ Definition consistent_good :=
       Forall2_map (fun _ v m => consistently_incl equiv claim consistent v m) p2 pM /\
       Forall2_map noncontradictory_output p2 pM.
   Proof.
-  Admitted.
+    revert p2. pattern p1. revert p1. apply map.map_ind.
+    - intros p2 H.
+      assert (Hp2 : p2 = map.empty).
+      { apply map.map_ext. intro k. rewrite map.get_empty.
+        specialize (H k). rewrite map.get_empty in H.
+        destruct (map.get p2 k); [ contradiction | reflexivity ]. }
+      subst p2. exists map.empty. repeat split.
+      + intro k. rewrite !map.get_empty. exact I.
+      + intros k v Hget. rewrite map.get_empty in Hget. discriminate.
+      + intro k. rewrite !map.get_empty. exact I.
+      + intro k. rewrite !map.get_empty. exact I.
+    - intros p1 IHp1 k v1 Hk p2 H.
+      destruct (Forall2_map_get_l _ _ _ _ _ H (map.get_put_same _ _ _)) as (v2 & Hv2 & Hrel).
+      unfold noncontradictory_output in Hrel. destruct Hrel as [m Hsubm Hallm Hcim Htailm].
+      assert (Htail : Forall2_map noncontradictory_output p1 (map.remove p2 k)).
+      { intro k0. specialize (H k0). destruct (classic (k = k0)) as [<-|Hne].
+        - rewrite Hk, map.get_remove_same. exact I.
+        - rewrite map.get_put_diff in H by congruence.
+          rewrite map.get_remove_diff by congruence. exact H. }
+      destruct (IHp1 _ Htail) as (pM' & Hsub' & Hallow' & Hci' & Hnc').
+      assert (HpM'k : map.get pM' k = None)
+        by exact (proj1 (Forall2_map_get_None _ _ _ k Hsub') Hk).
+      exists (map.put pM' k m). repeat split.
+      + apply Forall2_map_put2; [ exact Hk | exact HpM'k | exact Hsub' | exact Hsubm ].
+      + apply Forall_map_put;
+          [ intros k0 v0 Hget Hne; exact (Hallow' k0 v0 Hget) | exact Hallm ].
+      + apply Forall2_map_put_right with (v2 := v2);
+          [ exact Hv2 | exact HpM'k | exact Hci' | exact Hcim ].
+      + apply Forall2_map_put_right with (v2 := v2);
+          [ exact Hv2 | exact HpM'k | exact Hnc' | exact Htailm ].
+  Qed.
 
   Lemma submultiset_app (a b c d : list message) :
     submultiset a b -> submultiset c d -> submultiset (a ++ c) (b ++ d).
