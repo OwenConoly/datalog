@@ -11,8 +11,6 @@ From coqutil Require Import Tactics Tactics.fwd.
 Import ListNotations.
 
 Notation node_id := nat (only parsing).
-#[export] Instance node_id_eqb : Eqb.Eqb node_id := Eqb.nat_eqb.
-#[export] Instance node_id_eqb_ok : Eqb.Eqb_ok node_id_eqb := Eqb.nat_eqb_ok.
 
 Section __.
   Context {message : Type}.
@@ -101,6 +99,17 @@ Definition consistent_good :=
     intros HP Ha. eapply allowed_submultiset; [ exact Ha | ].
     exists []. rewrite app_nil_r. symmetry. exact HP.
   Qed.
+
+  Definition noncontradictory := noncontradictory_wf equiv claim consistent allowed.
+
+  Definition noncontradictory_output (k : option node_id) :=
+    noncontradictory_wf equiv claim consistent (allowed_output k).
+
+  Lemma noncontradictory_of_outputs (partition1 partition2 : node_map) :
+    Forall2_map noncontradictory_output partition1 partition2 ->
+    noncontradictory (concat (values partition1)) (concat (values partition2)).
+  Proof.
+  Admitted.
 
   Definition matching_inps n (inps : list (message * node_id)) :=
     map fst (filter (fun '(_, n0) => eqb n n0) inps).
