@@ -554,9 +554,21 @@ Section __.
     - intros s Hcl Hco. apply Hc2; [ eapply claim_mono; [ exact Hcl | exact Hi1 ] | apply Hc1; assumption ].
   Qed.
 
-  Print knows_datalog_fact.
-  (* Aggregate-hyp transfer under [consistently_incl]: the [consistent_le] half
-     preserves the aggregate value when the inputs grow only [incl_mod]. *)
+  (* [incl_mod] on a normal fact is plain containment: [dfact_equiv] is equality
+     off the meta constructor. *)
+  Lemma incl_mod_normal_In l1 l2 R args :
+    incl_mod dfact_equiv l1 l2 ->
+    In (normal_dfact R args) l1 -> In (normal_dfact R args) l2.
+  Proof.
+    intros Hincl Hin. destruct (Hincl _ Hin) as (b & Hb & Heq).
+    cbn [dfact_equiv] in Heq. subst b. exact Hb.
+  Qed.
+
+  (* Transfer aggregate knowledge up a [consistently_incl] step. [incl_mod] moves
+     the normal facts and sender metas; [consistent_le] together with
+     [allowed_inputs l2] pins the exact match count; and [noncontradictory] (via
+     its witness [m] and the proven submultiset transfer) bounds l2's matches from
+     above, so the derivability set is preserved exactly. *)
   Lemma knows_datalog_fact_consistently_incl l1 l2 h :
     consistently_incl dfact_equiv claim consistent l1 l2 ->
     noncontradictory_wf dfact_equiv claim consistent allowed_inputs l1 l2 ->
@@ -567,13 +579,12 @@ Section __.
     apply noncontradictory_wf_witness in Hnc.
     destruct Hnc as (m & Hsub1m & Hallowm & Hincl2m).
     destruct h as [R args | R margs mf_set].
-    - cbn [knows_datalog_fact] in Hk |- *.
-      destruct (Hincl12 _ Hk) as (b & Hb & Heq). cbn [dfact_equiv] in Heq. subst b. exact Hb.
+    - cbn [knows_datalog_fact] in Hk |- *. exact (incl_mod_normal_In _ _ _ _ Hincl12 Hk).
     - pose proof (knows_datalog_fact_submultiset l1 m (meta_fact R margs mf_set)
                     Hsub1m Hallowm Hk) as Hkm.
       cbn [knows_datalog_fact] in Hk, Hkm |- *.
       destruct Hk as (num & Hexp & Hexn & Hiff).
-      destruct Hkm as (numm & Hexpm & Hexnm & Hiffm).
+      destruct Hkm as (_ & _ & _ & Hiffm).
       assert (Hclaim1 : claim (R, margs) l1).
       { cbn [claim]. intros src Hsrc. destruct Hexp as (ems & Hf2 & _).
         destruct (Forall2_In_l _ _ _ _ Hf2 Hsrc) as (e & _ & Hin). exists e. exact Hin. }
@@ -587,12 +598,8 @@ Section __.
       + exists emsN. split; [ exact Hf2N | exact HsumN ].
       + apply Existsn_of_ge_le; [ exact HgeN | exact HleN ].
       + intros nfa Hm2. split.
-        * intro Hset.
-          destruct (Hincl12 _ (proj1 (Hiff nfa Hm2) Hset)) as (b & Hb & Heq).
-          cbn [dfact_equiv] in Heq. subst b. exact Hb.
-        * intro Hin2.
-          destruct (Hincl2m _ Hin2) as (b & Hb & Heq). cbn [dfact_equiv] in Heq. subst b.
-          exact (proj2 (Hiffm nfa Hm2) Hb).
+        * intro Hset. exact (incl_mod_normal_In _ _ _ _ Hincl12 (proj1 (Hiff nfa Hm2) Hset)).
+        * intro Hin2. exact (proj2 (Hiffm nfa Hm2) (incl_mod_normal_In _ _ _ _ Hincl2m Hin2)).
   Qed.
 
   Lemma knows_datalog_fact_nc_covered l1 l2 h :
