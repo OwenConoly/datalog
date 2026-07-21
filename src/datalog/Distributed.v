@@ -43,6 +43,10 @@ Section Distributed.
   Context (graph_prog : prog_map).
   Context (Hmrv : Forall_map (fun _ np => meta_rules_valid np.(np_rules)) graph_prog).
   Context (Hname : Forall_map (fun n np => np.(np_name) = Some n) graph_prog).
+  Context (Hsender : Forall_map
+             (fun n np => forall r R, In r np.(np_rules) -> In R (concl_rels r) ->
+                                      In (Some n) (R_senders R))
+             graph_prog).
 
   Definition default_prog : node_prog := {| np_rules := []; np_name := None |}.
   Definition prog_at (n : node_id) : node_prog := get_default default_prog graph_prog n.
@@ -315,10 +319,15 @@ Section Distributed.
      normal facts together. *)
   Lemma node_outputs_well_formed np k :
     np.(np_name) = Some k ->
+    (forall r R, In r np.(np_rules) -> In R (concl_rels r) -> In (Some k) (R_senders R)) ->
     outputs_well_formed (node_step R_senders np)
       (good_node_output forward claim_output consistent_output allowed_output k) node_init.
   Proof.
-    intros Hname_k t s Hstar dest.
+    intros Hname_k Hconcl_send t s Hstar dest.
+    assert (Hsend : forall s0 f, new_facts R_senders np s0 f ->
+                                 In np.(np_name) (R_senders (dfact_rel f))).
+    { intros s0 f Hnf. apply new_facts_concl_rel in Hnf. destruct Hnf as (r & Hr & HR).
+      rewrite Hname_k. exact (Hconcl_send r (dfact_rel f) Hr HR). }
     assert (Hso : s.(sent_facts) = outputs_of t) by (eapply sent_eq_outputs; exact Hstar).
     assert (Hsrc : forall R a src num,
                In (meta_dfact R a src num) s.(sent_facts) -> src = np.(np_name))
@@ -336,7 +345,8 @@ Section Distributed.
         apply Existsn_le_filter.
         rewrite <- Hname_k in Hin_sent.
         eapply Existsn_le_of_Existsn; [ exact (Hcnt R a cnt Hin_sent) | lia ].
-      + admit.
+      + intros f Hin. apply filter_In in Hin. destruct Hin as (Hin_sent & _).
+        rewrite <- Hname_k. eapply sent_rel_sender; [ exact Hsend | exact Hstar | exact Hin_sent ].
     - intros (R & mf_args) Hclaim. cbv [claim_output consistent_output] in Hclaim |- *.
       intros Hn. destruct (Hclaim Hn) as (cnt & Hin_meta).
       exists cnt. split; [ exact Hin_meta | ].
@@ -345,7 +355,7 @@ Section Distributed.
       apply Existsn_ge_filter.
       + intros x (nfa & -> & _). unfold forward in Hfwd |- *. cbn [dfact_rel] in Hfwd |- *. exact Hfwd.
       + eapply Existsn_ge_of_Existsn; [ exact (Hcnt R mf_args cnt Hin_sent) | lia ].
-  Admitted.
+  Qed.
 
   Lemma nodes_good_holds :
     Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
@@ -357,7 +367,7 @@ Section Distributed.
     cbv [node_good graph_node_init gns_node_state].
     erewrite prog_at_get by eassumption.
     ssplit; try eassumption.
-    apply node_outputs_well_formed. eapply Hname; eauto.
+    apply node_outputs_well_formed; [ eapply Hname; eauto | eapply Hsender; eauto ].
   Qed.
 
   Local Notation gstep := (graph_step input_allowed forward output_visible nstep).

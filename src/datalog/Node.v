@@ -825,6 +825,36 @@ Section __.
       + exact (IH R mf_args num Hin).
   Qed.
 
+  Lemma new_facts_concl_rel s f :
+    new_facts np s f -> exists r, In r np.(np_rules) /\ In (dfact_rel f) (concl_rels r).
+  Proof.
+    intros (Hex & _). apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
+    exists r. split; [ exact Hr_in | ].
+    destruct f as [R args | R margs src cnt]; cbn [can_deduce_fact dfact_rel] in Hcdf |- *.
+    - destruct Hcdf as ((hyps & Hnmri & _) & _).
+      eapply non_meta_rule_impl_concl_relname_in; exact Hnmri.
+    - destruct Hcdf as (_ & mc & mh & hyps & Hrmr & Hcdm & _).
+      destruct Hcdm as (ctx & mfr & mfa & mfc & Hres & _ & Hconcl & _).
+      subst r. injection Hres as -> _ _ _. cbn [concl_rels].
+      apply Exists_exists in Hconcl. destruct Hconcl as (c & Hc & (mfa2 & mfs2 & _ & Heq2)).
+      injection Heq2 as -> _ _. apply in_map_iff. exists c. split; [ reflexivity | exact Hc ].
+  Qed.
+
+  Lemma sent_rel_sender t s :
+    (forall s0 f, new_facts np s0 f -> In np.(np_name) (R_senders (dfact_rel f))) ->
+    star (node_step np) node_init t s ->
+    forall f, In f s.(sent_facts) -> In np.(np_name) (R_senders (dfact_rel f)).
+  Proof.
+    intros Hsend Hstar.
+    induction Hstar as [| t0 s' e s'' Hstar IH Hstep]; intros f Hin.
+    - destruct Hin.
+    - inversion Hstep as [s0 out Hnew | s0 inp]; subst; cbn [sent_facts] in Hin.
+      + destruct Hin as [Hhead | Hin_old].
+        * subst out. exact (Hsend s' f Hnew).
+        * exact (IH f Hin_old).
+      + exact (IH f Hin).
+  Qed.
+
   Lemma reachable_node_good t s :
     meta_rules_valid np.(np_rules) ->
     allowed_inputs (inputs_of t) ->
