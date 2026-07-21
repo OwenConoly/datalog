@@ -316,18 +316,18 @@ Section Distributed.
   Lemma nstep_input_total n : input_total (nstep n).
   Proof. intros s m. eexists. apply node_input_step. Qed.
 
-  Lemma nodes_good_holds :
-    Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
-                  consistent nallowed nstep) initial_graph_state.
+  (* A node's emitted facts, forwarded to any destination, form a well-formed input
+     bundle for that destination: every meta it emits is sourced by itself with an
+     accurate [Existsn_le] count (allowed), and any claimed aggregate is realised
+     ([Existsn_ge], consistent). The counts commute with the per-destination forward
+     filter because [forward] is relation-level, keeping a meta and its matching
+     normal facts together. *)
+  Lemma node_outputs_well_formed np k :
+    np.(np_name) = Some k ->
+    outputs_well_formed (node_step R_senders np)
+      (good_node_output forward claim_output consistent_output allowed_output k) node_init.
   Proof.
-    intros k v Hkv. apply initial_graph_state_get in Hkv. fwd.
-    pose proof node_might_implies_will' as H.
-    especialize H; eauto. apply miw'_iff_miw_and_monotone' in H; auto. fwd.
-    cbv [node_good graph_node_init gns_node_state].
-    erewrite prog_at_get by eassumption.
-    ssplit; try eassumption.
-    assert (Hname_k : np.(np_name) = Some k) by (eapply Hname; eauto).
-    intros t s Hstar dest.
+    intros Hname_k t s Hstar dest.
     assert (Hso : s.(sent_facts) = outputs_of t) by (eapply sent_eq_outputs; exact Hstar).
     assert (Hsrc : forall R a src num,
                In (meta_dfact R a src num) s.(sent_facts) -> src = np.(np_name))
@@ -355,6 +355,19 @@ Section Distributed.
       + intros x (nfa & -> & _). unfold forward in Hfwd |- *. cbn [dfact_rel] in Hfwd |- *. exact Hfwd.
       + eapply Existsn_ge_of_Existsn; [ exact (Hcnt R mf_args cnt Hin_sent) | lia ].
   Admitted.
+
+  Lemma nodes_good_holds :
+    Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
+                  consistent nallowed nstep) initial_graph_state.
+  Proof.
+    intros k v Hkv. apply initial_graph_state_get in Hkv. fwd.
+    pose proof node_might_implies_will' as H.
+    especialize H; eauto. apply miw'_iff_miw_and_monotone' in H; auto. fwd.
+    cbv [node_good graph_node_init gns_node_state].
+    erewrite prog_at_get by eassumption.
+    ssplit; try eassumption.
+    apply node_outputs_well_formed. eapply Hname; eauto.
+  Qed.
 
   Local Notation gstep := (graph_step input_allowed forward output_visible nstep).
   Local Notation gia := (graph_inputs_allowed allowed_output).
