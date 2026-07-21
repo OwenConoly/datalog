@@ -1037,6 +1037,27 @@ Section Existsn.
   Lemma Existsn_le_0_Forall_not l : Forall (fun x => ~ P x) l -> Existsn_le 0 l.
   Proof. induction 1; [ apply El_nil | apply El_skip; assumption ]. Qed.
 
+  Lemma Existsn_le_filter (q : T -> bool) k l :
+    Existsn_le k l -> Existsn_le k (filter q l).
+  Proof.
+    induction 1 as [k | x k l Hnpx Hle IH | x k l Hle IH]; cbn [filter].
+    - apply El_nil.
+    - destruct (q x); [ apply El_skip; [ exact Hnpx | exact IH ] | exact IH ].
+    - destruct (q x);
+        [ apply El_take; exact IH
+        | eapply Existsn_le_mono_count; [ exact IH | lia ] ].
+  Qed.
+
+  Lemma Existsn_ge_filter (q : T -> bool) k l :
+    (forall x, P x -> q x = true) ->
+    Existsn_ge k l -> Existsn_ge k (filter q l).
+  Proof.
+    intros Hq. induction 1 as [l | x k l Hk IH | x k l Hpx Hk IH]; cbn [filter].
+    - apply Eg_zero.
+    - destruct (q x); [ apply Eg_skip | ]; exact IH.
+    - rewrite (Hq x Hpx). apply Eg_take; [ exact Hpx | exact IH ].
+  Qed.
+
   Lemma Existsn_le_app a b l1 l2 :
     Existsn_le a l1 -> Existsn_le b l2 -> Existsn_le (a + b) (l1 ++ l2).
   Proof.

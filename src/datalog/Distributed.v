@@ -82,6 +82,16 @@ Section Distributed.
 
   Hint Resolve expect_num_R_facts_incl Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
 
+  Lemma claim_output_mono s n ms1 ms2 :
+    claim_output s n ms1 -> incl_mod dfact_equiv ms1 ms2 -> claim_output s n ms2.
+  Proof.
+    destruct s as (R & mf_args). cbv [claim_output]. intros H1 Hincl Hn.
+    destruct (H1 Hn) as (cnt & Hin).
+    destruct (Hincl _ Hin) as (b & Hin2 & Heq).
+    destruct b as [nf_rel nf_args | R' a' src' cnt']; cbn [dfact_equiv] in Heq; [ congruence | ].
+    destruct Heq as (<- & <- & <-). exists cnt'. exact Hin2.
+  Qed.
+
   Lemma consistent_output_mono s n ms1 ms2 :
     consistent_output s n ms1 -> submultiset ms1 ms2 -> consistent_output s n ms2.
   Proof.
@@ -316,7 +326,34 @@ Section Distributed.
     cbv [node_good graph_node_init gns_node_state].
     erewrite prog_at_get by eassumption.
     ssplit; try eassumption.
-    idtac.
+    assert (Hname_k : np.(np_name) = Some k) by (eapply Hname; eauto).
+    intros t s Hstar dest.
+    assert (Hso : s.(sent_facts) = outputs_of t) by (eapply sent_eq_outputs; exact Hstar).
+    assert (Hsrc : forall R a src num,
+               In (meta_dfact R a src num) s.(sent_facts) -> src = np.(np_name))
+      by (eapply sent_source_correct; exact Hstar).
+    assert (Hcnt : forall R a num,
+               In (meta_dfact R a np.(np_name) num) s.(sent_facts) ->
+               Existsn (dfact_matches R a) num s.(sent_facts))
+      by (eapply sent_counts_correct; exact Hstar).
+    rewrite <- Hso. split.
+    - cbv [allowed_output]. split.
+      + intros R a src cnt Hin.
+        apply filter_In in Hin. destruct Hin as (Hin_sent & Hfwd).
+        assert (Hsrc_k : src = Some k) by (rewrite (Hsrc R a src cnt Hin_sent); exact Hname_k).
+        subst src. split; [ reflexivity | ].
+        apply Existsn_le_filter.
+        rewrite <- Hname_k in Hin_sent.
+        eapply Existsn_le_of_Existsn; [ exact (Hcnt R a cnt Hin_sent) | lia ].
+      + admit.
+    - intros (R & mf_args) Hclaim. cbv [claim_output consistent_output] in Hclaim |- *.
+      intros Hn. destruct (Hclaim Hn) as (cnt & Hin_meta).
+      exists cnt. split; [ exact Hin_meta | ].
+      apply filter_In in Hin_meta. destruct Hin_meta as (Hin_sent & Hfwd).
+      rewrite <- Hname_k in Hin_sent.
+      apply Existsn_ge_filter.
+      + intros x (nfa & -> & _). unfold forward in Hfwd |- *. cbn [dfact_rel] in Hfwd |- *. exact Hfwd.
+      + eapply Existsn_ge_of_Existsn; [ exact (Hcnt R mf_args cnt Hin_sent) | lia ].
   Admitted.
 
   Local Notation gstep := (graph_step input_allowed forward output_visible nstep).
@@ -337,6 +374,7 @@ Section Distributed.
     - exact output_visible_equiv.
     - exact forward_equiv.
     - exact (claim_mono R_senders).
+    - exact claim_output_mono.
     - exact (consistent_mono R_senders).
     - exact consistent_output_mono.
     - exact consistent_good_holds.

@@ -687,6 +687,48 @@ Section __.
     inv_step; simpl; eauto. f_equal. auto.
   Qed.
 
+  Lemma sent_source_correct t s :
+    star (node_step np) node_init t s ->
+    forall R mf_args src num,
+      In (meta_dfact R mf_args src num) s.(sent_facts) -> src = np.(np_name).
+  Proof.
+    induction 1 as [| t0 s' e s'' Hstar IH Hstep]; intros R mf_args src num Hin.
+    - destruct Hin.
+    - inversion Hstep as [s0 out Hnew | s0 inp]; subst; cbn [sent_facts] in Hin |- *.
+      + destruct Hin as [Hhead | Hin_old].
+        * subst out. destruct Hnew as (Hex & _).
+          apply Exists_exists in Hex. destruct Hex as (r & _ & Hcdf).
+          cbn [can_deduce_fact] in Hcdf. exact (proj1 Hcdf).
+        * exact (IH R mf_args src num Hin_old).
+      + exact (IH R mf_args src num Hin).
+  Qed.
+
+  Lemma sent_counts_correct t s :
+    star (node_step np) node_init t s ->
+    forall R mf_args num,
+      In (meta_dfact R mf_args np.(np_name) num) s.(sent_facts) ->
+      Existsn (dfact_matches R mf_args) num s.(sent_facts).
+  Proof.
+    induction 1 as [| t0 s' e s'' Hstar IH Hstep]; intros R mf_args num Hin.
+    - destruct Hin.
+    - inversion Hstep as [s0 out Hnew | s0 inp]; subst; cbn [sent_facts] in Hin |- *.
+      + destruct Hnew as (Hex & _).
+        destruct Hin as [Hhead | Hin_old].
+        * subst out.
+          apply Exists_exists in Hex. destruct Hex as (r & _ & Hcdf).
+          cbn [can_deduce_fact] in Hcdf.
+          destruct Hcdf as (_ & mc & mh & hyps & _ & Hcdm & _).
+          destruct Hcdm as (ctx & mfr & mfa & mfc & Hres & HEx & _ & _).
+          inversion Hres; subst.
+          apply Existsn_no; [ intros (nfa & Hc & _); discriminate Hc | exact HEx ].
+        * apply Existsn_no; [ | exact (IH R mf_args num Hin_old) ].
+          intros (nfa & Hout_eq & Hf2). subst out.
+          apply Exists_exists in Hex. destruct Hex as (r & _ & Hcdf).
+          cbn [can_deduce_fact] in Hcdf. destruct Hcdf as (_ & Hguard).
+          exact (Hguard mf_args num Hin_old Hf2).
+      + exact (IH R mf_args num Hin).
+  Qed.
+
   Lemma reachable_node_good t s :
     meta_rules_valid np.(np_rules) ->
     allowed_inputs (inputs_of t) ->
@@ -798,7 +840,7 @@ Section __.
     meta_rules_valid np.(np_rules) ->
     might_implies_will_equiv' (node_step np) dfact_equiv claim consistent allowed_inputs node_init.
   Proof.
-    intros Hmrv t s o Hstar Hallow Hino s' t' Hincl Hstar' Hallow'.
+    intros Hmrv t s o Hstar Hallow Hino s' t' _ Hincl Hstar' Hallow'.
     assert (Ho_sent : In o s.(sent_facts))
       by (rewrite (sent_eq_outputs t s Hstar); exact Hino).
     pose proof (node_drive_to_dominate' t s s' t' Hmrv Hstar Hallow' Hstar' Hincl) as Hdrive.
