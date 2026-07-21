@@ -1034,6 +1034,21 @@ Section Existsn.
     exact (Existsn_ge_le_bound n k l (Existsn_ge_of_Existsn n l Hn n (le_n n)) Hle).
   Qed.
 
+  Lemma Existsn_of_ge_le n l : Existsn_ge n l -> Existsn_le n l -> Existsn n l.
+  Proof.
+    intros Hge Hle. revert Hge.
+    induction Hle as [ k | x k l Hnpx Hle IH | x k l Hle IH ]; intros Hge.
+    - inversion Hge; subst; constructor.
+    - apply Existsn_no; [ exact Hnpx | ].
+      apply IH. inversion Hge; subst; solve [ apply Eg_zero | assumption | contradiction ].
+    - inversion Hge; subst.
+      + exfalso.
+        lazymatch goal with
+        | H : Existsn_ge (S _) _ |- _ => pose proof (Existsn_ge_le_bound _ _ _ H Hle); lia
+        end.
+      + apply Existsn_yes; [ assumption | apply IH; assumption ].
+  Qed.
+
   Lemma Existsn_le_0_Forall_not l : Forall (fun x => ~ P x) l -> Existsn_le 0 l.
   Proof. induction 1; [ apply El_nil | apply El_skip; assumption ]. Qed.
 

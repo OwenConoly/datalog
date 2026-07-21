@@ -156,6 +156,15 @@ Section step.
     - apply noncontradictory_wf_refl. exact Hwf.
   Qed.
 
+  (* One-step characterisation: a noncontradictory pair has a common well-formed
+     upper bound [m] that submultiset-contains [l1] and [incl_mod]-covers [l2]. *)
+  Lemma noncontradictory_wf_witness (wf : list message -> Prop) l1 l2 :
+    noncontradictory_wf claim consistent wf l1 l2 ->
+    exists m, submultiset l1 m /\ wf m /\ incl_mod equiv l2 m.
+  Proof.
+    intros [m Hsub Hwf Hci _]. exists m. split; [ exact Hsub | split; [ exact Hwf | exact (proj1 Hci) ] ].
+  Qed.
+
   Lemma noncontradictory_wf_shrink_l (wf : list message -> Prop) l1 l1' l2 :
     submultiset l1' l1 -> noncontradictory_wf claim consistent wf l1 l2 ->
     noncontradictory_wf claim consistent wf l1' l2.
