@@ -53,16 +53,7 @@ Section Distributed.
   Local Notation nstep := (fun n => node_step R_senders (prog_at n)).
   Local Notation nallowed := (allowed_inputs R_senders).
 
-  #[local] Instance nequiv_equiv : Equivalence dfact_equiv.
-  Proof.
-    constructor.
-    - intros f. apply dfact_equiv_refl.
-    - intros f1 f2. apply dfact_equiv_sym.
-    - intros [R1 a1 | R1 m1 s1 c1] [R2 a2 | R2 m2 s2 c2] [R3 a3 | R3 m3 s3 c3] H12 H23;
-        cbn [dfact_equiv] in *; try congruence.
-      destruct H12 as (-> & -> & ->), H23 as (-> & -> & ->). repeat split.
-  Qed.
-  Hint Immediate nequiv_equiv : core.
+  Hint Immediate dfact_equiv_Equivalence : core.
 
   Definition claim_output (s : stmt) (n : option node_id) (fs : list dfact) : Prop :=
     let '(R, mf_args) := s in
@@ -383,7 +374,7 @@ Section Distributed.
     intros.
     pose proof initial_graph_state_empty as Hemp.
     eapply graph_might_implies_will; try eassumption.
-    - exact nequiv_equiv.
+    - exact dfact_equiv_Equivalence.
     - exact output_visible_equiv.
     - exact forward_equiv.
     - exact (claim_mono R_senders).
