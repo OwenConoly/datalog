@@ -311,12 +311,7 @@ Section Distributed.
   Lemma nstep_input_total n : input_total (nstep n).
   Proof. intros s m. eexists. apply node_input_step. Qed.
 
-  (* A node's emitted facts, forwarded to any destination, form a well-formed input
-     bundle for that destination: every meta it emits is sourced by itself with an
-     accurate [Existsn_le] count (allowed), and any claimed aggregate is realised
-     ([Existsn_ge], consistent). The counts commute with the per-destination forward
-     filter because [forward] is relation-level, keeping a meta and its matching
-     normal facts together. *)
+  (*TODO should this be in Node.v?*)
   Lemma node_outputs_well_formed np k :
     np.(np_name) = Some k ->
     (forall r R, In r np.(np_rules) -> In R (concl_rels r) -> In (Some k) (R_senders R)) ->
@@ -373,13 +368,8 @@ Section Distributed.
   Local Notation gstep := (graph_step input_allowed forward output_visible nstep).
   Local Notation gia := (graph_inputs_allowed allowed_output).
 
-  Theorem distributed_might_implies_will
-          (t : list (IO_event (@graph_label dfact dfact_mod_count) (dfact * node_id)))
-          (gs : graph_state) (o : dfact * node_id) :
-    star gstep initial_graph_state t gs ->
-    gia (inputs_of t) ->
-    might_output gstep gs t o ->
-    will_output_equiv gstep (graph_equiv dfact_equiv) gia gs t o.
+  Theorem distributed_might_implies_will :
+    might_implies_will_equiv gstep (graph_equiv dfact_equiv) gia initial_graph_state.
   Proof.
     intros.
     pose proof initial_graph_state_empty as Hemp.
