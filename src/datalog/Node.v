@@ -86,6 +86,9 @@ Section __.
               Forall (knows_datalog_fact known) hyps
     end.
 
+  Definition sends_concl_rels (nm : node_id) (rules : list rule) : Prop :=
+    forall r R, In r rules -> In R (concl_rels r) -> In (Some nm) (R_senders R).
+
   Context (p : list rule) (name : node_id).
 
   Definition new_facts (rs : node_state) f :=
@@ -943,5 +946,89 @@ Section __.
     exists o'. split.
     - apply dfact_equiv_sym. exact Ho'_eq.
     - erewrite <- sent_eq_outputs by eassumption. eassumption.
+  Qed.
+
+  (* The output side: predicates on the facts a node emits, and the proof that a
+     reachable node's outputs are well-formed inputs for whoever receives them. *)
+
+  Definition claim_output (s : stmt) (n : option node_id) (fs : list dfact) : Prop :=
+    let '(R, mf_args) := s in
+    In n (R_senders R) -> exists cnt, In (meta_dfact R mf_args n cnt) fs.
+
+  Definition consistent_output (s : stmt) (n : option node_id) (fs : list dfact) : Prop :=
+    let '(R, mf_args) := s in
+    In n (R_senders R) ->
+    exists cnt, In (meta_dfact R mf_args n cnt) fs /\
+      Existsn_ge (dfact_matches R mf_args) cnt fs.
+
+  Definition allowed_output (n : option node_id) (fs : list dfact) : Prop :=
+    (forall R mf_args src cnt,
+       In (meta_dfact R mf_args src cnt) fs ->
+       n = src /\ Existsn_le (dfact_matches R mf_args) cnt fs) /\
+    (forall f, In f fs -> In n (R_senders (dfact_rel f))).
+
+  Lemma claim_output_mono s n ms1 ms2 :
+    claim_output s n ms1 -> incl_mod dfact_equiv ms1 ms2 -> claim_output s n ms2.
+  Proof.
+    destruct s as (R & mf_args). cbv [claim_output]. intros H1 Hincl Hn.
+    destruct (H1 Hn) as (cnt & Hin).
+    destruct (Hincl _ Hin) as (b & Hin2 & Heq).
+    destruct b as [nf_rel nf_args | R' a' src' cnt']; cbn [dfact_equiv] in Heq; [ congruence | ].
+    destruct Heq as (<- & <- & <-). exists cnt'. exact Hin2.
+  Qed.
+
+  Lemma consistent_output_mono s n ms1 ms2 :
+    consistent_output s n ms1 -> submultiset ms1 ms2 -> consistent_output s n ms2.
+  Proof.
+    cbv [consistent_output]. intros H1 H2. fwd.
+    intros. especialize H1; eauto. fwd. eauto 6.
+  Qed.
+
+  Lemma allowed_output_submultiset n : multiset_monotone_dec (allowed_output n).
+  Proof.
+    cbv [multiset_monotone_dec allowed_output]. intros ? ? H1 H2. fwd.
+    split; eauto. intros. especialize H1p0; eauto. fwd. eauto.
+  Qed.
+
+  Lemma node_outputs_well_formed
+      (forward : node_id -> node_id -> dfact -> bool)
+      (forward_rel : forall n1 n2 f g,
+          dfact_rel f = dfact_rel g -> forward n1 n2 f = forward n1 n2 g) :
+    sends_concl_rels name p ->
+    outputs_well_formed node_step
+      (good_node_output forward claim_output consistent_output allowed_output name) node_init.
+  Proof.
+    intros Hconcl_send t s Hstar dest.
+    assert (Hsend : forall s0 f, new_facts s0 f -> In (Some name) (R_senders (dfact_rel f))).
+    { intros s0 f Hnf. apply new_facts_concl_rel in Hnf. destruct Hnf as (r & Hr & HR).
+      exact (Hconcl_send r (dfact_rel f) Hr HR). }
+    assert (Hso : s.(sent_facts) = outputs_of t) by (eapply sent_eq_outputs; exact Hstar).
+    assert (Hsrc : forall R a src num,
+               In (meta_dfact R a src num) s.(sent_facts) -> src = Some name)
+      by (eapply sent_source_correct; exact Hstar).
+    assert (Hcnt : forall R a num,
+               In (meta_dfact R a (Some name) num) s.(sent_facts) ->
+               Existsn (dfact_matches R a) num s.(sent_facts))
+      by (eapply sent_counts_correct; exact Hstar).
+    rewrite <- Hso. split.
+    - cbv [allowed_output]. split.
+      + intros R a src cnt Hin.
+        apply filter_In in Hin. destruct Hin as (Hin_sent & Hfwd).
+        pose proof (Hsrc R a src cnt Hin_sent) as Hsk. subst src.
+        split; [ reflexivity | ].
+        apply Existsn_le_filter.
+        eapply Existsn_le_of_Existsn; [ exact (Hcnt R a cnt Hin_sent) | lia ].
+      + intros f Hin. apply filter_In in Hin. destruct Hin as (Hin_sent & _).
+        eapply sent_rel_sender; [ exact Hsend | exact Hstar | exact Hin_sent ].
+    - intros (R & mf_args) Hclaim. cbv [claim_output consistent_output] in Hclaim |- *.
+      intros Hn. destruct (Hclaim Hn) as (cnt & Hin_meta).
+      exists cnt. split; [ exact Hin_meta | ].
+      apply filter_In in Hin_meta. destruct Hin_meta as (Hin_sent & Hfwd).
+      apply Existsn_ge_filter.
+      + intros x (nfa & -> & _).
+        rewrite (forward_rel name dest (normal_dfact R nfa)
+                   (meta_dfact R mf_args (Some name) cnt) eq_refl).
+        exact Hfwd.
+      + eapply Existsn_ge_of_Existsn; [ exact (Hcnt R mf_args cnt Hin_sent) | lia ].
   Qed.
 End __.
