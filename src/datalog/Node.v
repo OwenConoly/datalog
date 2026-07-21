@@ -495,6 +495,16 @@ Section __.
     exact (proj1 (node_step_star_mono s0 tr s2 Hstar2)).
   Qed.
 
+  Lemma known_facts_input_free s t s' :
+    star (node_step np) s t s' -> inputs_of t = [] -> s'.(known_facts) = s.(known_facts).
+  Proof.
+    intros Hstar. induction Hstar as [| t0 sa e sb Hstar IH Hstep]; intros Hinp.
+    - reflexivity.
+    - inversion Hstep; subst; cbn [inputs_of flat_map app] in Hinp.
+      + exact (IH Hinp).
+      + discriminate Hinp.
+  Qed.
+
   Lemma expect_num_R_facts_incl R mf_args l1 l2 num :
     expect_num_R_facts R mf_args l1 num -> incl l1 l2 ->
     expect_num_R_facts R mf_args l2 num.
@@ -522,6 +532,16 @@ Section __.
     intros Hsub. split.
     - exact (incl_mod_of_submultiset dfact_equiv _ _ Hsub).
     - intros s _ Hc. eapply consistent_mono; [ exact Hc | exact Hsub ].
+  Qed.
+
+  Lemma nc_covered_of_submultiset l1 l2 :
+    submultiset l1 l2 -> allowed_inputs l2 ->
+    nc_covered dfact_equiv claim consistent allowed_inputs l1 l2.
+  Proof.
+    intros Hsub Hallow. apply nc_covered_of_noncontradictory.
+    - apply consistently_incl_of_submultiset; exact Hsub.
+    - apply noncontradictory_wf_of_submultiset;
+        [ exact dfact_equiv_Equivalence | exact Hsub | exact Hallow ].
   Qed.
 
   Lemma consistently_incl_trans l1 l2 l3 :
@@ -575,6 +595,19 @@ Section __.
           exact (proj2 (Hiffm nfa Hm2) Hb).
   Qed.
 
+  Lemma knows_datalog_fact_nc_covered l1 l2 h :
+    nc_covered dfact_equiv claim consistent allowed_inputs l1 l2 ->
+    allowed_inputs l2 ->
+    knows_datalog_fact l1 h -> knows_datalog_fact l2 h.
+  Proof.
+    intros (c & Hsub & Hci & Hnc) Hallow2 Hk.
+    assert (Hallowc : allowed_inputs c)
+      by (eapply allowed_inputs_submultiset; [ exact Hsub | exact Hallow2 ]).
+    eapply knows_datalog_fact_submultiset; [ exact Hsub | exact Hallow2 | ].
+    eapply knows_datalog_fact_consistently_incl;
+      [ exact Hci | exact Hnc | exact Hallowc | exact Hk ].
+  Qed.
+
   Lemma knows_datalog_fact_transfer_down_ci small big hyps_d h :
     consistently_incl dfact_equiv claim consistent small big ->
     allowed_inputs big ->
@@ -590,10 +623,11 @@ Section __.
     node_good s2 t2 ->
     node_step np s1 (O_event lbl outs) s1' ->
     nle s1 s2 ->
+    nc_covered dfact_equiv claim consistent allowed_inputs s1.(known_facts) s2.(known_facts) ->
     eventually (will_step (node_step np) allowed_inputs)
       (fun '(s2', _) => nle s1' s2') (s2, t2).
   Proof.
-    intros Hmrv Hgood2 Hstep (Hknle & Hsnle).
+    intros Hmrv Hgood2 Hstep (Hknle & Hsnle) Hncov.
     invert Hstep. rename H3 into Hnf.
     assert (Hmk : forall (X : node_state) o',
       consistently_incl dfact_equiv claim consistent s1.(known_facts) X.(known_facts) ->
@@ -618,6 +652,9 @@ Section __.
             [exact Hknle | apply consistently_incl_of_submultiset; exact Hkmono]).
     assert (Halk : allowed_inputs sdem.(known_facts))
       by (rewrite Hkdem; exact Haldem).
+    assert (Hncov_dem : nc_covered dfact_equiv claim consistent allowed_inputs
+                          s1.(known_facts) sdem.(known_facts))
+      by (eapply nc_covered_grow_r; [ exact Hncov | exact Hkmono ]).
     destruct output as [Ro oargs | Ro margs osrc ocnt].
     - destruct Hnf as (Hex & _).
       apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
@@ -626,8 +663,8 @@ Section __.
       assert (Hcdn_dem : can_deduce_normal_fact r sdem.(known_facts) Ro oargs).
       { exists hyps. split; [exact Hnmri |].
         rewrite Forall_forall in Hknows1 |- *. intros h Hh.
-        eapply knows_datalog_fact_consistently_incl;
-          [exact HconK | exact Halk | apply Hknows1; exact Hh]. }
+        eapply knows_datalog_fact_nc_covered;
+          [exact Hncov_dem | exact Halk | apply Hknows1; exact Hh]. }
       destruct (classic (In (normal_dfact Ro oargs) sdem.(sent_facts))) as [Hin | Hnin].
       + left. apply eventually_done. eapply Hmk; eauto. simpl. reflexivity.
       + right.
@@ -673,8 +710,8 @@ Section __.
           exists mc, mh, hyps. split; [exact Hrmr |]. split.
           -- cbv [can_deduce_meta_fact]. eauto 8.
           -- rewrite Forall_forall in Hknows1 |- *. intros h Hh.
-             eapply knows_datalog_fact_consistently_incl;
-               [ exact HconK | exact Halk | apply Hknows1; exact Hh ].
+             eapply knows_datalog_fact_nc_covered;
+               [ exact Hncov_dem | exact Halk | apply Hknows1; exact Hh ].
         * apply Forall_forall. intros r'' Hr''_in. cbn [ok_to_deduce_fact].
           intros nfargs Hcdn_dem Hmatch'.
           (* [nfargs] is deducible from the demon's grown [known]; matching the
@@ -796,7 +833,11 @@ Section __.
         specialize (Hga_imp Hga0).
         assert (Hstar2 : star (node_step np) node_init (tr ++ t0) s2) by eauto using star_app.
         eapply node_will_match; try eassumption.
-        eapply reachable_node_good; eassumption.
+        { eapply reachable_node_good; eassumption. }
+        apply nc_covered_of_submultiset.
+        { rewrite (known_facts_input_free s0 T0 smid Hrun' Hinp).
+          exact (proj1 (node_step_star_mono s0 tr s2 Hstar_s0s2)). }
+        rewrite (known_facts_eq_inputs (tr ++ t0) s2 Hstar2). exact Hga_imp.
   Qed.
 
   Lemma node_might_implies_will :
@@ -830,21 +871,25 @@ Section __.
     allowed_inputs (inputs_of t') ->
     star (node_step np) node_init t' s' ->
     consistently_incl dfact_equiv claim consistent (inputs_of t) (inputs_of t') ->
+    noncontradictory_wf dfact_equiv claim consistent allowed_inputs (inputs_of t) (inputs_of t') ->
     eventually (will_step (node_step np) allowed_inputs)
       (fun '(s2, _) => nle s s2) (s', t').
   Proof.
-    intros Hmrv Hstar Hga' Hstar' Hincl. revert Hincl.
-    induction Hstar as [| Tp sm e s Hstar_T IH Hstep]; intros Hincl.
+    intros Hmrv Hstar Hga' Hstar' Hincl Hnc. revert Hincl Hnc.
+    induction Hstar as [| Tp sm e s Hstar_T IH Hstep]; intros Hincl Hnc.
     - apply eventually_done. split.
       + apply consistently_incl_of_submultiset, submultiset_nil_l.
       + intros a Ha. destruct Ha.
-    - cbn [inputs_of flat_map app] in Hincl.
+    - cbn [inputs_of flat_map app] in Hincl, Hnc.
       destruct e as [m | lbl outs].
       + (* input step: the target gains an input; re-derive the domination *)
         assert (HinclT : consistently_incl dfact_equiv claim consistent (inputs_of Tp) (inputs_of t'))
           by (eapply consistently_incl_trans;
                 [ apply consistently_incl_of_submultiset, submultiset_cons | exact Hincl ]).
-        specialize (IH HinclT).
+        assert (HncT : noncontradictory_wf dfact_equiv claim consistent allowed_inputs
+                         (inputs_of Tp) (inputs_of t'))
+          by (eapply noncontradictory_wf_shrink_l; [ apply submultiset_cons | exact Hnc ]).
+        specialize (IH HinclT HncT).
         apply eventually_will_step_annotate in IH.
         eapply eventually_weaken; [ exact IH | ].
         intros [s2 t2] (Hreach & Hle_sm).
@@ -857,7 +902,7 @@ Section __.
           eapply driven_inputs_submultiset; eassumption.
         * cbn [sent_facts]. exact (proj2 Hle_sm).
       + (* output step: reproduce the deduce with node_will_match *)
-        specialize (IH Hincl).
+        specialize (IH Hincl Hnc).
         apply eventually_will_step_annotate in IH.
         eapply eventually_trans; [ exact IH | ].
         intros [s2 t2] (Hreach & Hle_sm).
@@ -865,17 +910,23 @@ Section __.
         specialize (Hga_imp Hga').
         assert (Hstar2 : star (node_step np) node_init (tr ++ t') s2) by eauto using star_app.
         eapply node_will_match; try eassumption.
-        eapply reachable_node_good; eassumption.
+        { eapply reachable_node_good; eassumption. }
+        exists s'.(known_facts). split; [ | split ].
+        * exact (proj1 (node_step_star_mono s' tr s2 Hstar_s's2)).
+        * rewrite (known_facts_eq_inputs Tp sm Hstar_T), (known_facts_eq_inputs t' s' Hstar').
+          exact Hincl.
+        * rewrite (known_facts_eq_inputs Tp sm Hstar_T), (known_facts_eq_inputs t' s' Hstar').
+          exact Hnc.
   Qed.
 
   Lemma node_might_implies_will' :
     meta_rules_valid np.(np_rules) ->
     might_implies_will_equiv' (node_step np) dfact_equiv claim consistent allowed_inputs node_init.
   Proof.
-    intros Hmrv t s o Hstar Hallow Hino s' t' _ Hincl Hstar' Hallow'.
+    intros Hmrv t s o Hstar Hallow Hino s' t' Hnc Hincl Hstar' Hallow'.
     assert (Ho_sent : In o s.(sent_facts))
       by (rewrite (sent_eq_outputs t s Hstar); exact Hino).
-    pose proof (node_drive_to_dominate' t s s' t' Hmrv Hstar Hallow' Hstar' Hincl) as Hdrive.
+    pose proof (node_drive_to_dominate' t s s' t' Hmrv Hstar Hallow' Hstar' Hincl Hnc) as Hdrive.
     apply eventually_will_step_annotate in Hdrive.
     unfold will_output_equiv.
     eapply eventually_trans; [exact Hdrive |].

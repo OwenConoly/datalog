@@ -187,6 +187,36 @@ Section step.
     - eapply noncontradictory_wf_shrink_l; [ exact Hsub | exact Htail ].
   Qed.
 
+  (* The demon does not preserve [noncontradictory_wf l1 l2] (it can grow [l2]
+     into a state that contradicts [l1]), but it does preserve this weaker,
+     upward-closed property: [l2] is a supermultiset of some core [c] that is
+     both [consistently_incl]-covered by [l1] and noncontradictory with [l1]. *)
+  Definition nc_covered (wf : list message -> Prop) (l1 l2 : list message) : Prop :=
+    exists c, submultiset c l2 /\
+      consistently_incl claim consistent l1 c /\
+      noncontradictory_wf claim consistent wf l1 c.
+
+  Lemma nc_covered_of_noncontradictory (wf : list message -> Prop) l1 l2 :
+    consistently_incl claim consistent l1 l2 ->
+    noncontradictory_wf claim consistent wf l1 l2 ->
+    nc_covered wf l1 l2.
+  Proof. intros Hci Hnc. exists l2. split; [ apply submultiset_refl | split; assumption ]. Qed.
+
+  Lemma nc_covered_grow_r (wf : list message -> Prop) l1 l2 l2' :
+    nc_covered wf l1 l2 -> submultiset l2 l2' -> nc_covered wf l1 l2'.
+  Proof.
+    intros (c & Hsub & Hci & Hnc) Hg. exists c.
+    split; [ eapply submultiset_trans; [ exact Hsub | exact Hg ] | split; assumption ].
+  Qed.
+
+  Lemma nc_covered_shrink_l (wf : list message -> Prop) l1 l1' l2 :
+    nc_covered wf l1 l2 -> submultiset l1' l1 -> nc_covered wf l1' l2.
+  Proof.
+    intros (c & Hsub & Hci & Hnc) Hs. exists c. split; [ exact Hsub | split ].
+    - eapply consistently_incl_shrink_l; [ exact Hs | exact Hci ].
+    - eapply noncontradictory_wf_shrink_l; [ exact Hs | exact Hnc ].
+  Qed.
+
   Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
     Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
   Proof. apply Permutation_flat_map. Qed.
