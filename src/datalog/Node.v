@@ -86,17 +86,15 @@ Section __.
               Forall (knows_datalog_fact known) hyps
     end.
 
-  Record node_prog :=
-    { np_rules : list rule;
-      np_name : option node_id }.
+  Context (p : list rule) (name : node_id).
 
-  Definition new_facts (sp : node_prog) (rs : node_state) f :=
+  Definition new_facts (rs : node_state) f :=
     Exists
-      (fun r => can_deduce_fact r sp.(np_name) rs.(known_facts) rs.(sent_facts) f)
-      sp.(np_rules) /\
+      (fun r => can_deduce_fact r (Some name) rs.(known_facts) rs.(sent_facts) f)
+      p /\
       Forall
         (fun r => ok_to_deduce_fact r rs.(known_facts) rs.(sent_facts) f)
-        sp.(np_rules).
+        p.
 
   Variant dfact_mod_count :=
     | normal_dfact_mc (nf_rel : rel) (nf_args : list T)
@@ -110,14 +108,14 @@ Section __.
 
   Local Notation IO_event := (Smallstep.IO_event dfact_mod_count dfact).
 
-  Inductive node_step (sp : node_prog) : node_state -> IO_event -> node_state -> Prop :=
+  Inductive node_step : node_state -> IO_event -> node_state -> Prop :=
   | node_deduce_step rs output :
-    new_facts sp rs output ->
-    node_step sp rs (O_event (mod_count output) [output])
+    new_facts rs output ->
+    node_step rs (O_event (mod_count output) [output])
                    {| known_facts := rs.(known_facts);
                      sent_facts := output :: rs.(sent_facts) |}
   | node_input_step rs input :
-    node_step sp rs (I_event input)
+    node_step rs (I_event input)
                    {| known_facts := input :: rs.(known_facts);
                      sent_facts := rs.(sent_facts) |}.
 
@@ -165,17 +163,15 @@ Section __.
     consistently_incl dfact_equiv claim consistent s1.(known_facts) s2.(known_facts) /\
       incl_mod dfact_equiv s1.(sent_facts) s2.(sent_facts).
 
-  Context (np : node_prog).
-
-  Local Notation node_will_step := (will_step (node_step np) allowed_inputs).
+  Local Notation node_will_step := (will_step node_step allowed_inputs).
 
   Definition meta_facts_correct (s : node_state) : Prop :=
     forall R mf_args num,
-      In (meta_dfact R mf_args np.(np_name) num) s.(sent_facts) ->
+      In (meta_dfact R mf_args (Some name) num) s.(sent_facts) ->
       exists mc mh hyps,
-        In (meta_rule mc mh) np.(np_rules) /\
-          can_deduce_meta_fact mc mh np.(np_name) s.(sent_facts)
-            (meta_dfact R mf_args np.(np_name) num) hyps /\
+        In (meta_rule mc mh) p /\
+          can_deduce_meta_fact mc mh (Some name) s.(sent_facts)
+            (meta_dfact R mf_args (Some name) num) hyps /\
           Forall (knows_datalog_fact s.(known_facts)) hyps
   (*not clear whether we need this next conjunct.  we could get it,
     by saying something like "inputs are consistent outputs from other nodes,
@@ -187,10 +183,10 @@ Section __.
 
   Definition meta_facts_ok (s : node_state) : Prop :=
     forall r R mf_args num,
-      In r np.(np_rules) ->
-      In (meta_dfact R mf_args np.(np_name) num) s.(sent_facts) ->
+      In r p ->
+      In (meta_dfact R mf_args (Some name) num) s.(sent_facts) ->
       ok_to_deduce_fact r s.(known_facts) s.(sent_facts)
-        (meta_dfact R mf_args np.(np_name) num).
+        (meta_dfact R mf_args (Some name) num).
 
   Definition node_good (s : node_state) (t : list IO_event) : Prop :=
     s.(known_facts) = inputs_of t /\
@@ -260,7 +256,7 @@ Section __.
   Lemma step_preserves_meta_facts_correct s e s' :
     allowed_inputs s'.(known_facts) ->
     meta_facts_correct s ->
-    node_step np s e s' ->
+    node_step s e s' ->
     meta_facts_correct s'.
   Proof.
     intros Hallow Hmfc Hstep.
@@ -346,8 +342,8 @@ Section __.
   Lemma meta_concl_rule_impl mc mh ctx R mf_args hyps_d :
     Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args (fun _ => False))) mc ->
     Forall2 (interp_meta_clause ctx) mh hyps_d ->
-    rule_impl (one_step_derives np.(np_rules)) (meta_rule mc mh)
-      (meta_fact R mf_args (one_step_derives np.(np_rules) hyps_d R)) hyps_d.
+    rule_impl (one_step_derives p) (meta_rule mc mh)
+      (meta_fact R mf_args (one_step_derives p hyps_d R)) hyps_d.
   Proof.
     intros Hconcl Hinterp. eapply meta_rule_impl with (ctx := ctx).
     - eapply Exists_impl; [| exact Hconcl].
@@ -357,11 +353,11 @@ Section __.
   Qed.
 
   Lemma step_preserves_meta_facts_ok s e s' :
-    meta_rules_valid np.(np_rules) ->
+    meta_rules_valid p ->
     allowed_inputs s'.(known_facts) ->
     meta_facts_correct s ->
     meta_facts_ok s ->
-    node_step np s e s' ->
+    node_step s e s' ->
     meta_facts_ok s'.
   Proof.
     intros Hmrv Hallow Hmfc Hmfok Hstep.
@@ -395,10 +391,10 @@ Section __.
   Qed.
 
   Lemma node_good_step s e s' t :
-    meta_rules_valid np.(np_rules) ->
+    meta_rules_valid p ->
     node_good s t ->
     allowed_inputs (inputs_of (e :: t)) ->
-    node_step np s e s' ->
+    node_step s e s' ->
     node_good s' (e :: t).
   Proof.
     intros Hmrv (Hkeq & _ & Hmfc & Hmfok) Hallow' Hstep.
@@ -419,10 +415,10 @@ Section __.
   Qed.
 
   Lemma node_good_star s t t' s' :
-    meta_rules_valid np.(np_rules) ->
+    meta_rules_valid p ->
     allowed_inputs (inputs_of (t' ++ t)) ->
     node_good s t ->
-    star (node_step np) s t' s' ->
+    star (node_step) s t' s' ->
     node_good s' (t' ++ t).
   Proof.
     intros Hmrv Hallow Hgood Hstar. revert Hallow.
@@ -436,7 +432,7 @@ Section __.
   Qed.
 
   Lemma node_step_star_mono s t' s' :
-    star (node_step np) s t' s' ->
+    star (node_step) s t' s' ->
     submultiset s.(known_facts) s'.(known_facts) /\
     submultiset s.(sent_facts) s'.(sent_facts).
   Proof.
@@ -451,7 +447,7 @@ Section __.
   Qed.
 
   Lemma known_facts_eq_inputs t s :
-    star (node_step np) node_init t s -> s.(known_facts) = inputs_of t.
+    star (node_step) node_init t s -> s.(known_facts) = inputs_of t.
   Proof.
     intros Hstar. induction Hstar as [| T0 sm e s Hstar_T IH Hstep].
     - reflexivity.
@@ -460,8 +456,8 @@ Section __.
   Qed.
 
   Lemma driven_inputs_submultiset t0 s0 tr s2 :
-    star (node_step np) node_init t0 s0 ->
-    star (node_step np) s0 tr s2 ->
+    star (node_step) node_init t0 s0 ->
+    star (node_step) s0 tr s2 ->
     submultiset (inputs_of t0) s2.(known_facts).
   Proof.
     intros Hstar Hstar2.
@@ -470,7 +466,7 @@ Section __.
   Qed.
 
   Lemma known_facts_input_free s t s' :
-    star (node_step np) s t s' -> inputs_of t = [] -> s'.(known_facts) = s.(known_facts).
+    star (node_step) s t s' -> inputs_of t = [] -> s'.(known_facts) = s.(known_facts).
   Proof.
     intros Hstar. induction Hstar as [| t0 sa e sb Hstar IH Hstep]; intros Hinp.
     - reflexivity.
@@ -603,12 +599,12 @@ Section __.
   Qed.
 
   Lemma node_will_match s1 lbl outs s1' s2 t2 :
-    meta_rules_valid np.(np_rules) ->
+    meta_rules_valid p ->
     node_good s2 t2 ->
-    node_step np s1 (O_event lbl outs) s1' ->
+    node_step s1 (O_event lbl outs) s1' ->
     nle s1 s2 ->
     knows_incl s1.(known_facts) s2.(known_facts) ->
-    eventually (will_step (node_step np) allowed_inputs)
+    eventually (will_step (node_step) allowed_inputs)
       (fun '(s2', _) => nle s1' s2') (s2, t2).
   Proof.
     intros Hmrv Hgood2 Hstep (Hknle & Hsnle) Hki.
@@ -675,16 +671,16 @@ Section __.
       subst osrc.
       destruct Hcdmf as (ctx & mfr & mfa & mfc & Hres & _ & Hconcl & Hinterp).
       fwd.
-      assert (Hin_mr : In (meta_rule mc mh) np.(np_rules))
+      assert (Hin_mr : In (meta_rule mc mh) p)
         by (rewrite <- Hrmr; exact Hr_in).
       destruct (Existsn_total (dfact_matches mfr mfa) sdem.(sent_facts))
         as (num_d & Hexn_d).
       right.
-      replace (mod_count (meta_dfact mfr mfa np.(np_name) mfc))
-        with (mod_count (meta_dfact mfr mfa np.(np_name) num_d)) by reflexivity.
+      replace (mod_count (meta_dfact mfr mfa (Some name) mfc))
+        with (mod_count (meta_dfact mfr mfa (Some name) num_d)) by reflexivity.
       exists {| known_facts := sdem.(known_facts);
-                sent_facts := meta_dfact mfr mfa np.(np_name) num_d :: sdem.(sent_facts) |},
-             [meta_dfact mfr mfa np.(np_name) num_d].
+                sent_facts := meta_dfact mfr mfa (Some name) num_d :: sdem.(sent_facts) |},
+             [meta_dfact mfr mfa (Some name) num_d].
       split.
       + apply node_deduce_step. split.
         * apply Exists_exists. exists r. split; [exact Hr_in |].
@@ -723,20 +719,20 @@ Section __.
 
   Ltac inv_step :=
     match goal with
-    | H: node_step _ _ _ _ |- _ => invert H
+    | H: node_step _ _ _ |- _ => invert H
     end.
 
   Lemma sent_eq_outputs t s :
-    star (node_step np) node_init t s -> s.(sent_facts) = outputs_of t.
+    star (node_step) node_init t s -> s.(sent_facts) = outputs_of t.
   Proof.
     intros Hstar. induction Hstar; eauto.
     inv_step; simpl; eauto. f_equal. auto.
   Qed.
 
   Lemma sent_source_correct t s :
-    star (node_step np) node_init t s ->
+    star (node_step) node_init t s ->
     forall R mf_args src num,
-      In (meta_dfact R mf_args src num) s.(sent_facts) -> src = np.(np_name).
+      In (meta_dfact R mf_args src num) s.(sent_facts) -> src = (Some name).
   Proof.
     induction 1 as [| t0 s' e s'' Hstar IH Hstep]; intros R mf_args src num Hin.
     - destruct Hin.
@@ -750,9 +746,9 @@ Section __.
   Qed.
 
   Lemma sent_counts_correct t s :
-    star (node_step np) node_init t s ->
+    star (node_step) node_init t s ->
     forall R mf_args num,
-      In (meta_dfact R mf_args np.(np_name) num) s.(sent_facts) ->
+      In (meta_dfact R mf_args (Some name) num) s.(sent_facts) ->
       Existsn (dfact_matches R mf_args) num s.(sent_facts).
   Proof.
     induction 1 as [| t0 s' e s'' Hstar IH Hstep]; intros R mf_args num Hin.
@@ -776,7 +772,7 @@ Section __.
   Qed.
 
   Lemma new_facts_concl_rel s f :
-    new_facts np s f -> exists r, In r np.(np_rules) /\ In (dfact_rel f) (concl_rels r).
+    new_facts s f -> exists r, In r p /\ In (dfact_rel f) (concl_rels r).
   Proof.
     intros (Hex & _). apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
     exists r. split; [ exact Hr_in | ].
@@ -791,9 +787,9 @@ Section __.
   Qed.
 
   Lemma sent_rel_sender t s :
-    (forall s0 f, new_facts np s0 f -> In np.(np_name) (R_senders (dfact_rel f))) ->
-    star (node_step np) node_init t s ->
-    forall f, In f s.(sent_facts) -> In np.(np_name) (R_senders (dfact_rel f)).
+    (forall s0 f, new_facts s0 f -> In (Some name) (R_senders (dfact_rel f))) ->
+    star (node_step) node_init t s ->
+    forall f, In f s.(sent_facts) -> In (Some name) (R_senders (dfact_rel f)).
   Proof.
     intros Hsend Hstar.
     induction Hstar as [| t0 s' e s'' Hstar IH Hstep]; intros f Hin.
@@ -806,9 +802,9 @@ Section __.
   Qed.
 
   Lemma reachable_node_good t s :
-    meta_rules_valid np.(np_rules) ->
+    meta_rules_valid p ->
     allowed_inputs (inputs_of t) ->
-    star (node_step np) node_init t s ->
+    star (node_step) node_init t s ->
     node_good s t.
   Proof.
     intros Hmrv Hallow Hstar.
@@ -819,12 +815,12 @@ Section __.
   Qed.
 
   Lemma node_drive_to_dominate t0 s0 t' sf :
-    meta_rules_valid np.(np_rules) ->
-    star (node_step np) node_init t0 s0 ->
+    meta_rules_valid p ->
+    star (node_step) node_init t0 s0 ->
     allowed_inputs (inputs_of t0) ->
-    star (node_step np) s0 t' sf ->
+    star (node_step) s0 t' sf ->
     inputs_of t' = [] ->
-    eventually (will_step (node_step np) allowed_inputs)
+    eventually (will_step (node_step) allowed_inputs)
       (fun '(s2, _) => nle sf s2) (s0, t0).
   Proof.
     intros Hmrv Hstar0 Hga0 Hrun Hinp. revert Hinp.
@@ -838,7 +834,7 @@ Section __.
         intros [s2 t2] (Hreach & Hle_mid).
         destruct Hreach as (tr & Hstar_s0s2 & -> & Hga_imp).
         specialize (Hga_imp Hga0).
-        assert (Hstar2 : star (node_step np) node_init (tr ++ t0) s2) by eauto using star_app.
+        assert (Hstar2 : star (node_step) node_init (tr ++ t0) s2) by eauto using star_app.
         eapply node_will_match; try eassumption.
         { eapply reachable_node_good; eassumption. }
         apply knows_incl_of_submultiset.
@@ -848,11 +844,11 @@ Section __.
   Qed.
 
   Lemma node_might_implies_will :
-    meta_rules_valid np.(np_rules) ->
-    might_implies_will_equiv (node_step np) dfact_equiv allowed_inputs node_init.
+    meta_rules_valid p ->
+    might_implies_will_equiv (node_step) dfact_equiv allowed_inputs node_init.
   Proof.
     intros Hmrv t s o Hstar Hallow (t' & sf & Hrun & Hinp & Hino).
-    assert (Hstarf : star (node_step np) node_init (t' ++ t) sf) by eauto using star_app.
+    assert (Hstarf : star (node_step) node_init (t' ++ t) sf) by eauto using star_app.
     assert (Ho_sent : In o sf.(sent_facts))
       by (rewrite (sent_eq_outputs (t' ++ t) sf Hstarf); exact Hino).
     pose proof (node_drive_to_dominate t s t' sf Hmrv Hstar Hallow Hrun Hinp) as Hdrive.
@@ -864,7 +860,7 @@ Section __.
     destruct (Hsent_dom o Ho_sent) as (o' & Ho'_in & Ho'_eq).
     destruct Hreach as (tr & Hstar_s_s2 & -> & Hga_imp).
     specialize (Hga_imp Hallow).
-    assert (Hstar2 : star (node_step np) node_init (tr ++ t) s2) by eauto using star_app.
+    assert (Hstar2 : star (node_step) node_init (tr ++ t) s2) by eauto using star_app.
     apply eventually_done.
     exists o'. split.
     - apply dfact_equiv_sym. exact Ho'_eq.
@@ -872,13 +868,13 @@ Section __.
   Qed.
 
   Lemma node_drive_to_dominate' t s s' t' :
-    meta_rules_valid np.(np_rules) ->
-    star (node_step np) node_init t s ->
+    meta_rules_valid p ->
+    star (node_step) node_init t s ->
     allowed_inputs (inputs_of t') ->
-    star (node_step np) node_init t' s' ->
+    star (node_step) node_init t' s' ->
     consistently_incl dfact_equiv claim consistent (inputs_of t) (inputs_of t') ->
     noncontradictory_wf dfact_equiv claim consistent allowed_inputs (inputs_of t) (inputs_of t') ->
-    eventually (will_step (node_step np) allowed_inputs)
+    eventually (will_step (node_step) allowed_inputs)
       (fun '(s2, _) => nle s s2) (s', t').
   Proof.
     intros Hmrv Hstar Hga' Hstar' Hincl Hnc. revert Hincl Hnc.
@@ -912,7 +908,7 @@ Section __.
         intros [s2 t2] (Hreach & Hle_sm).
         destruct Hreach as (tr & Hstar_s's2 & -> & Hga_imp).
         specialize (Hga_imp Hga').
-        assert (Hstar2 : star (node_step np) node_init (tr ++ t') s2) by eauto using star_app.
+        assert (Hstar2 : star (node_step) node_init (tr ++ t') s2) by eauto using star_app.
         eapply node_will_match; try eassumption.
         { eapply reachable_node_good; eassumption. }
         eapply knows_incl_grow with (l2 := s'.(known_facts)).
@@ -927,8 +923,8 @@ Section __.
   Qed.
 
   Lemma node_might_implies_will' :
-    meta_rules_valid np.(np_rules) ->
-    might_implies_will_equiv' (node_step np) dfact_equiv claim consistent allowed_inputs node_init.
+    meta_rules_valid p ->
+    might_implies_will_equiv' (node_step) dfact_equiv claim consistent allowed_inputs node_init.
   Proof.
     intros Hmrv t s o Hstar Hallow Hino s' t' Hnc Hincl Hstar' Hallow'.
     assert (Ho_sent : In o s.(sent_facts))
@@ -942,7 +938,7 @@ Section __.
     destruct (Hsent_dom o Ho_sent) as (o' & Ho'_in & Ho'_eq).
     destruct Hreach as (tr & Hstar_s'_s2 & -> & Hga_imp).
     specialize (Hga_imp Hallow').
-    assert (Hstar2 : star (node_step np) node_init (tr ++ t') s2) by eauto using star_app.
+    assert (Hstar2 : star (node_step) node_init (tr ++ t') s2) by eauto using star_app.
     apply eventually_done.
     exists o'. split.
     - apply dfact_equiv_sym. exact Ho'_eq.
