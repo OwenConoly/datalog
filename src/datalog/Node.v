@@ -615,15 +615,35 @@ Section __.
       [ exact Hci | exact Hnc | exact Hallowc | exact Hk ].
   Qed.
 
+  (* Transfer aggregate knowledge down an [nc_covered] step. Route through the
+     core [c] ([big -> c] by the proven submultiset transfer, after lifting the
+     support hyps [small -> c] up) and then through the noncontradictory witness
+     [m] of [(small, c)]: [c -> m] up (consistently_incl transfer) and [m ->
+     small] down (submultiset transfer). *)
   Lemma knows_datalog_fact_transfer_down_ci small big hyps_d h :
-    consistently_incl dfact_equiv claim consistent small big ->
+    nc_covered dfact_equiv claim consistent allowed_inputs small big ->
     allowed_inputs big ->
     Forall (knows_datalog_fact small) hyps_d ->
     fact_potentially_supported hyps_d h ->
     knows_datalog_fact big h ->
     knows_datalog_fact small h.
   Proof.
-  Admitted.
+    intros (c & Hsub_cb & Hci_sc & Hnc_sc) Hallow_big Hhyps_d Hsupp Hknow_big.
+    assert (Hallow_c : allowed_inputs c)
+      by (eapply allowed_inputs_submultiset; [ exact Hsub_cb | exact Hallow_big ]).
+    assert (Hhyps_c : Forall (knows_datalog_fact c) hyps_d).
+    { eapply Forall_impl; [ | exact Hhyps_d ]. intros x Hx.
+      eapply knows_datalog_fact_nc_covered;
+        [ apply nc_covered_of_noncontradictory; [ exact Hci_sc | exact Hnc_sc ]
+        | exact Hallow_c | exact Hx ]. }
+    pose proof (knows_datalog_fact_transfer_down_sub c big hyps_d h
+                  Hsub_cb Hallow_big Hhyps_c Hsupp Hknow_big) as Hknow_c.
+    destruct Hnc_sc as [m Hsub_sm Hallow_m Hci_cm Hnc_cm].
+    pose proof (knows_datalog_fact_consistently_incl c m h
+                  Hci_cm Hnc_cm Hallow_m Hknow_c) as Hknow_m.
+    eapply knows_datalog_fact_transfer_down_sub;
+      [ exact Hsub_sm | exact Hallow_m | exact Hhyps_d | exact Hsupp | exact Hknow_m ].
+  Qed.
 
   Lemma node_will_match s1 lbl outs s1' s2 t2 :
     meta_rules_valid np.(np_rules) ->
@@ -733,7 +753,7 @@ Section __.
                           _ _ _ Hr''_in (simple_rule_impl _ _ _ _ _ Hnmri) Hmatch') as Hpot.
             rewrite Forall_forall in Hknown_local_new, Hpot |- *.
             intros h Hh. eapply knows_datalog_fact_transfer_down_ci;
-              [ exact HconK | exact Halk | exact Hknows1
+              [ exact Hncov_dem | exact Halk | exact Hknows1
               | exact (Hpot h Hh) | exact (Hknown_local_new h Hh) ]. }
           rewrite Forall_forall in Hokall.
           pose proof (Hokall r'' Hr''_in) as Hok1. cbn [ok_to_deduce_fact] in Hok1.
