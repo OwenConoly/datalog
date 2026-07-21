@@ -210,12 +210,6 @@ Section __.
     eapply Existsn_le_submultiset; [ apply Hbound; exact Hf2' | exact Hsub ].
   Qed.
 
-  (* When [small] is a submultiset of an [allowed_inputs] multiset [big] and
-     [small] already realises the full declared count of an aggregate [R/mf_args]
-     ([expect_num] matched by [Existsn]), the extra part [rest] (with [big ~
-     small ++ rest]) contains no further matches: [allowed_inputs] caps [big]'s
-     matches at the declared total, which [small] alone already meets, so an
-     extra match in [rest] would exceed the cap. *)
   Lemma submultiset_rest_no_matches R mf_args small rest big num :
     Permutation big (small ++ rest) ->
     allowed_inputs big ->
@@ -272,11 +266,9 @@ Section __.
     intros Hallow Hmfc Hstep.
     inversion Hstep as [s0 out Hnew | s0 inp]; subst; clear Hstep;
       intros R mf_args num Hin; cbn [known_facts sent_facts] in Hallow, Hin |- *.
-    - (* deduce *)
-      destruct Hnew as (Hex & Hok).
+    - destruct Hnew as (Hex & Hok).
       destruct Hin as [Hhead | Hin_old].
-      + (* out is the newly-deduced meta *)
-        subst out.
+      + subst out.
         apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
         cbn in Hcdf. destruct Hcdf as (_ & mc & mh & hyps & Hr_eq & Hcdm & Hhyps).
         destruct Hcdm as (ctx & mfr & mfa & mfc & Hres & HEx & Hconcl & Hinterp).
@@ -285,8 +277,7 @@ Section __.
         exists ctx, mfr, mfa, mfc.
         split; [exact Hres | split; [| split; [exact Hconcl | exact Hinterp]]].
         apply Existsn_no; [intros (nfa & Hc & _); discriminate Hc | exact HEx].
-      + (* existing meta in sent *)
-        destruct (Hmfc R mf_args num Hin_old) as (mc & mh & hyps & Hrule & Hcdm & Hhyps).
+      + destruct (Hmfc R mf_args num Hin_old) as (mc & mh & hyps & Hrule & Hcdm & Hhyps).
         assert (Hnm : ~ dfact_matches R mf_args out).
         { intros (oargs & Hout & Hmatch). subst out.
           apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
@@ -295,19 +286,13 @@ Section __.
         (*TODO can we use some helper lemma about can_deduce_meta_fact here?*)
         cbv [can_deduce_meta_fact] in Hcdm. fwd.
         cbv [can_deduce_meta_fact]. eauto 15.
-    - (* input *)
-      destruct (Hmfc R mf_args num Hin) as (mc & mh & hyps & Hrule & Hcdm & Hhyps).
+    - destruct (Hmfc R mf_args num Hin) as (mc & mh & hyps & Hrule & Hcdm & Hhyps).
       exists mc, mh, hyps. split; [exact Hrule | split; [exact Hcdm |]].
       eapply Forall_impl; [| exact Hhyps].
       intros h Hh. eapply knows_datalog_fact_submultiset;
         [apply submultiset_cons | exact Hallow | exact Hh].
   Qed.
 
-  (* If [h] is potentially supported by [hyps_d] (all known at the small multiset)
-     then [knows_datalog_fact] transfers down along a submultiset: the extra facts
-     in the bigger multiset cannot be the fresh piece that made [h] known, since
-     they would be fresh matches for a complete aggregate ([submultiset_rest_no_
-     matches]).  The single-input step is the [submultiset_cons] instance. *)
   Lemma knows_datalog_fact_transfer_down_sub small big hyps_d h :
     submultiset small big ->
     allowed_inputs big ->
@@ -349,8 +334,6 @@ Section __.
       + intro Hin. apply (proj2 Hiff_new). apply Hincl. exact Hin.
   Qed.
 
-  (* [interp_meta_clause] only fixes the rel and args of the produced meta-fact;
-     its derivability set is unconstrained, so it can be swapped freely. *)
   Lemma interp_meta_clause_set_irrel ctx c (R : rel) (args : list (option T))
         (S1 S2 : list T -> Prop) :
     interp_meta_clause ctx c (meta_fact R args S1) ->
@@ -360,9 +343,6 @@ Section __.
     injection Heq as -> -> _. exists mf_args, S2. split; [exact Hf2 | reflexivity].
   Qed.
 
-  (* A [can_deduce_meta_fact]'s clauses really do witness that the meta-rule
-     [meta_rule mc mh] derives the aggregate [R/mf_args] (with its derivability
-     set), as a [rule_impl]. *)
   Lemma meta_concl_rule_impl mc mh ctx R mf_args hyps_d :
     Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args (fun _ => False))) mc ->
     Forall2 (interp_meta_clause ctx) mh hyps_d ->
@@ -388,16 +368,14 @@ Section __.
     inversion Hstep as [s0 out Hnew | s0 inp]; subst; clear Hstep;
       intros r R mf_args num Hr_in HIn;
       cbn [known_facts sent_facts] in Hallow, HIn |- *.
-    - (* deduce: sent grows, known fixed *)
-      cbn [ok_to_deduce_fact]. intros nfargs Hcdn Hmatch. apply in_cons.
+    - cbn [ok_to_deduce_fact]. intros nfargs Hcdn Hmatch. apply in_cons.
       destruct HIn as [Hhead | HIn_old].
       + subst out. destruct Hnew as (_ & Hok). rewrite Forall_forall in Hok.
         specialize (Hok r Hr_in). cbn [ok_to_deduce_fact] in Hok.
         exact (Hok nfargs Hcdn Hmatch).
       + pose proof (Hmfok r R mf_args num Hr_in HIn_old) as Hok0.
         cbn [ok_to_deduce_fact] in Hok0. exact (Hok0 nfargs Hcdn Hmatch).
-    - (* input: known grows *)
-      cbn [ok_to_deduce_fact]. intros nfargs Hcdn Hmatch.
+    - cbn [ok_to_deduce_fact]. intros nfargs Hcdn Hmatch.
       destruct (Hmfc R mf_args num HIn) as (mc & mh & hyps_d & Hin_mr & Hcdmf & Hknown_mr).
       destruct Hcdmf as (ctx & mfr & mfa & mfc & Hres & _ & Hconcl & Hinterp).
       assert (mfr = R) as -> by congruence.
@@ -405,10 +383,6 @@ Section __.
       pose proof (Hmfok r R mf_args num Hr_in HIn) as Hok0.
       cbn [ok_to_deduce_fact] in Hok0.
       apply Hok0; [| exact Hmatch].
-      (* [nfargs] is deducible from the grown [inp :: known]; since it matches the
-         aggregate [R/mf_args] that meta-rule [mc/mh] derives, [meta_rules_valid]
-         makes its hypotheses [fact_potentially_supported], so they transfer back
-         down to [known], and [nfargs] is deducible there too. *)
       destruct Hcdn as (local_hyps & Hnmri & Hknown_local_new).
       exists local_hyps. split; [exact Hnmri |].
       pose proof (Hmrv _ _ _ _ _ Hin_mr
@@ -534,9 +508,6 @@ Section __.
     - intros s _ Hc. eapply consistent_mono; [ exact Hc | exact Hsub ].
   Qed.
 
-  (* [l2] knows everything [l1] knows. This is the invariant threaded through the
-     [node_will_match] simulation: it directly gives both aggregate transfers and
-     is preserved as the demon grows [l2] (by the submultiset transfer). *)
   Definition knows_incl (l1 l2 : list dfact) : Prop :=
     forall f, knows_datalog_fact l1 f -> knows_datalog_fact l2 f.
 
@@ -561,8 +532,6 @@ Section __.
     - intros s Hcl Hco. apply Hc2; [ eapply claim_mono; [ exact Hcl | exact Hi1 ] | apply Hc1; assumption ].
   Qed.
 
-  (* [incl_mod] on a normal fact is plain containment: [dfact_equiv] is equality
-     off the meta constructor. *)
   Lemma incl_mod_normal_In l1 l2 R args :
     incl_mod dfact_equiv l1 l2 ->
     In (normal_dfact R args) l1 -> In (normal_dfact R args) l2.
@@ -571,11 +540,6 @@ Section __.
     cbn [dfact_equiv] in Heq. subst b. exact Hb.
   Qed.
 
-  (* Transfer aggregate knowledge up a [consistently_incl] step. [incl_mod] moves
-     the normal facts and sender metas; [consistent_le] together with
-     [allowed_inputs l2] pins the exact match count; and [noncontradictory] (via
-     its witness [m] and the proven submultiset transfer) bounds l2's matches from
-     above, so the derivability set is preserved exactly. *)
   Lemma knows_datalog_fact_consistently_incl l1 l2 h :
     consistently_incl dfact_equiv claim consistent l1 l2 ->
     noncontradictory_wf dfact_equiv claim consistent allowed_inputs l1 l2 ->
@@ -614,10 +578,6 @@ Section __.
     allowed_inputs l2 -> knows_incl l1 l2.
   Proof. intros Hci Hnc Hallow f. apply knows_datalog_fact_consistently_incl; assumption. Qed.
 
-  (* Transfer aggregate knowledge down a [knows_incl] step. [knows_incl] carries
-     the supporting aggregate [meta_fact] up to [big], so [big] and [small] agree
-     on the matches of any supported relation, letting a fact of that relation
-     move back down. No noncontradictory reasoning is needed. *)
   Lemma knows_datalog_fact_transfer_down (small big : list dfact) hyps_d h :
     knows_incl small big ->
     Forall (knows_datalog_fact small) hyps_d ->
@@ -735,10 +695,6 @@ Section __.
              apply Hki_dem. exact (Hknows1 h Hh).
         * apply Forall_forall. intros r'' Hr''_in. cbn [ok_to_deduce_fact].
           intros nfargs Hcdn_dem Hmatch'.
-          (* [nfargs] is deducible from the demon's grown [known]; matching the
-             aggregate [mfr/mfa] that [mc/mh] derives, its hypotheses are
-             [fact_potentially_supported] ([meta_rules_valid]) and hence transfer
-             down to [s1]'s [known]. *)
           assert (Hcdn_s1 : can_deduce_normal_fact r'' s1.(known_facts) mfr nfargs).
           { destruct Hcdn_dem as (local_hyps & Hnmri & Hknown_local_new).
             exists local_hyps. split; [exact Hnmri |].
@@ -915,7 +871,6 @@ Section __.
     - erewrite <- sent_eq_outputs by eassumption. eassumption.
   Qed.
 
-  (* Drive [s'] (whose inputs [consistently_incl]-cover [s]'s) to dominate [s]. *)
   Lemma node_drive_to_dominate' t s s' t' :
     meta_rules_valid np.(np_rules) ->
     star (node_step np) node_init t s ->
@@ -933,8 +888,7 @@ Section __.
       + intros a Ha. destruct Ha.
     - cbn [inputs_of flat_map app] in Hincl, Hnc.
       destruct e as [m | lbl outs].
-      + (* input step: the target gains an input; re-derive the domination *)
-        assert (HinclT : consistently_incl dfact_equiv claim consistent (inputs_of Tp) (inputs_of t'))
+      + assert (HinclT : consistently_incl dfact_equiv claim consistent (inputs_of Tp) (inputs_of t'))
           by (eapply consistently_incl_trans;
                 [ apply consistently_incl_of_submultiset, submultiset_cons | exact Hincl ]).
         assert (HncT : noncontradictory_wf dfact_equiv claim consistent allowed_inputs
@@ -952,8 +906,7 @@ Section __.
           apply consistently_incl_of_submultiset.
           eapply driven_inputs_submultiset; eassumption.
         * cbn [sent_facts]. exact (proj2 Hle_sm).
-      + (* output step: reproduce the deduce with node_will_match *)
-        specialize (IH Hincl Hnc).
+      + specialize (IH Hincl Hnc).
         apply eventually_will_step_annotate in IH.
         eapply eventually_trans; [ exact IH | ].
         intros [s2 t2] (Hreach & Hle_sm).
