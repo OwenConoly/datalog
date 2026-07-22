@@ -997,8 +997,8 @@ Section steps_corresp.
       forall s1 t1 s1' s2 t2 inp,
         R s1 t1 s2 t2 ->
         step1 s1 (I_event inp) s1' ->
-        forall s2',
-          step2 s2 (I_event inp) s2' ->
+        exists s2',
+          step2 s2 (I_event inp) s2' /\
           R s1' (I_event inp :: t1) s2' (I_event inp :: t2).
 
     Definition weak_sim := weak_sim_input /\ weak_sim_output.
@@ -1012,7 +1012,6 @@ Section steps_corresp.
 
     Lemma weak_sim_lift :
       R initial1 [] initial2 [] ->
-      input_total step2 ->
       weak_sim ->
       forall t1 ns1,
         star step1 initial1 t1 ns1 ->
@@ -1021,19 +1020,19 @@ Section steps_corresp.
           inputs_of t2 = inputs_of t1 /\
           R ns1 t1 ns2 t2.
     Proof.
-      intros Hbase Hit2 [Hinput Houtput] t1 ns1 Hstar1.
+      intros Hbase [Hinput Houtput] t1 ns1 Hstar1.
       induction Hstar1 as [ | t0 s' e s'' Hstar0 IH Hstep].
       - exists [], initial2. split; [constructor|]. split; [reflexivity | exact Hbase].
       - destruct IH as (t2 & ns2 & Hstar2 & Hinpeq & HR).
         destruct e as [inp | lbl o].
-        + destruct (Hit2 ns2 inp) as (s2' & Hstep2).
+        + destruct (Hinput s' t0 s'' ns2 t2 inp HR Hstep) as (s2' & Hstep2 & HRnew).
           exists (I_event inp :: t2), s2'.
           split; [eapply star_step; [exact Hstar2 | exact Hstep2]|].
           split.
           * change (inputs_of (I_event inp :: t2)) with (inp :: inputs_of t2).
             change (inputs_of (I_event inp :: t0)) with (inp :: inputs_of t0).
             rewrite Hinpeq. reflexivity.
-          * exact (Hinput s' t0 s'' ns2 t2 inp HR Hstep s2' Hstep2).
+          * exact HRnew.
         + destruct (Houtput s' t0 s'' ns2 t2 lbl o HR Hstep) as (s2' & os & HR' & Hstar2').
           exists (Datatypes.List.map2 O_event os ++ t2), s2'.
           split; [eapply star_app; [exact Hstar2 | exact Hstar2']|].
@@ -1044,13 +1043,12 @@ Section steps_corresp.
 
     Lemma weak_sim_correct :
       R initial1 [] initial2 [] ->
-      input_total step2 ->
       weak_sim ->
       steps_corresp_sound.
     Proof.
-      intros Hbase Hit2 Hws inps output _ Hprod1.
+      intros Hbase Hws inps output _ Hprod1.
       destruct Hprod1 as (t1 & ns1 & Hstar1 & Hinp1 & Hout1).
-      destruct (weak_sim_lift Hbase Hit2 Hws t1 ns1 Hstar1)
+      destruct (weak_sim_lift Hbase Hws t1 ns1 Hstar1)
         as (t2 & ns2 & Hstar2 & Hinpeq & HR).
       exists t2, ns2. split; [exact Hstar2|]. split.
       - rewrite Hinpeq. exact Hinp1.
