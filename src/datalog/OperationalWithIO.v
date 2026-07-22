@@ -215,10 +215,59 @@ Section __.
       + exact Hg.
   Qed.
 
+  Lemma step_length (s : state) (e : IO_event) (s' : state) :
+    length s = length p.(non_meta_rules) -> step s e s' ->
+    length s' = length p.(non_meta_rules).
+  Proof.
+    intros Hln Hstep. destruct Hstep as [a b Hc | a f | a R args Hk].
+    - rewrite (comp_step_length _ _ _ _ Hln Hc). exact Hln.
+    - rewrite length_map. exact Hln.
+    - exact Hln.
+  Qed.
+
+  Lemma step_knows_mono (s : state) (e : IO_event) (s' : state) (g : dfact) :
+    length s = length p.(non_meta_rules) -> step s e s' ->
+    knows_dfact s g -> knows_dfact s' g.
+  Proof.
+    intros Hln Hstep Hk. destruct Hstep as [a b Hc | a f | a R args Hkk].
+    - eapply comp_step_knows_mono_len; eassumption.
+    - apply knows_dfact_add_waiting_mono. exact Hk.
+    - exact Hk.
+  Qed.
+
+  Lemma star_length (s ns : state) (t : list IO_event) :
+    length s = length p.(non_meta_rules) -> star step s t ns ->
+    length ns = length p.(non_meta_rules).
+  Proof.
+    intros Hln Hstar. induction Hstar as [ | t0 s' e s'' Hstar IH Hstep].
+    - exact Hln.
+    - eapply step_length; [exact IH | exact Hstep].
+  Qed.
+
+  Lemma output_known (s ns : state) (t : list IO_event) (g : dfact) :
+    length s = length p.(non_meta_rules) ->
+    star step s t ns -> In g (outputs_of t) -> knows_dfact ns g.
+  Proof.
+    intros Hln Hstar. revert g.
+    induction Hstar as [ | t0 s' e s'' Hstar IH Hstep]; intros g Hin.
+    - destruct Hin.
+    - cbn [outputs_of flat_map] in Hin. rewrite in_app_iff in Hin.
+      destruct Hin as [Hin_e | Hin_t0].
+      + destruct Hstep as [a b Hc | a f | a R args Hk]; cbn in Hin_e.
+        * destruct Hin_e.
+        * destruct Hin_e.
+        * destruct Hin_e as [<- | []]. exact Hk.
+      + eapply step_knows_mono; [ | exact Hstep | exact (IH g Hin_t0)].
+        eapply star_length; [exact Hln | exact Hstar].
+  Qed.
+
   Lemma output_known_final (t : list IO_event) (ns : state) (g : dfact) :
     good_input_facts (inputs_of t) ->
     star step initial t ns -> In g (outputs_of t) -> knows_dfact ns g.
-  Admitted.
+  Proof.
+    intros _ Hstar Hin. eapply output_known; [ | exact Hstar | exact Hin].
+    unfold initial. rewrite repeat_length. reflexivity.
+  Qed.
 
   Theorem produces_sound (inputs : list dfact) (R : rel) (args : list T) :
     good_input_facts inputs ->

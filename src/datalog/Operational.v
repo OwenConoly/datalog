@@ -2414,6 +2414,32 @@ Section __.
       apply knows_dfact_after_step_bw. right. exact Hk.
   Qed.
 
+  Lemma comp_step_knows_mono_len s s' f :
+    length s = length p.(non_meta_rules) ->
+    comp_step s s' -> knows_dfact s f -> knows_dfact s' f.
+  Proof.
+    intros Hlen Hstep Hk.
+    invert Hstep.
+    - apply (proj1 (learn_fact_preserves_knows_dfact _ _ _ H)). exact Hk.
+    - cbv [stepWithLabel] in H. fwd. destruct n as [r k].
+      cbv [fire_at_rule] in Hp2.
+      destruct Hp2 as (fired_rule & _ & _ & _ & Hys). subst y.
+      pose proof (fire_label_decomp s l1 r k x l2 Hlen Hp0) as (Hs_eq & _ & _ & _).
+      rewrite Hs_eq in Hk.
+      apply knows_dfact_after_step_bw. right. exact Hk.
+  Qed.
+
+  Lemma comp_step_length s s' :
+    length s = length p.(non_meta_rules) ->
+    comp_step s s' -> length s' = length s.
+  Proof.
+    intros Hlen Hstep. invert Hstep.
+    - cbv [stepOne] in H. fwd. subst. rewrite !length_app. reflexivity.
+    - cbv [stepWithLabel] in H. fwd. destruct n as [r k].
+      pose proof (fire_label_decomp s l1 r k x l2 Hlen Hp0) as (Hs_eq & _ & _ & _).
+      rewrite length_map, Hs_eq, !length_app. cbn [length]. reflexivity.
+  Qed.
+
   Lemma steps_preserves_knows_dfact inputs s s' f :
     good_input_facts inputs ->
     sane_state inputs s ->
