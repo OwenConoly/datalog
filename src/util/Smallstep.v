@@ -980,6 +980,7 @@ Section steps_corresp.
 
     (*TODO i think Datatypes.List.map2 needs a better name*)
     Context (R : state1 -> list IO_event -> state2 -> list IO_event -> Prop).
+    Context (R_init : R initial1 [] initial2 []).
     Context (R_outputs_corresp :
               forall s1 t1 s2 t2,
                 R s1 t1 s2 t2 ->
@@ -1011,7 +1012,6 @@ Section steps_corresp.
     Qed.
 
     Lemma weak_sim_lift :
-      R initial1 [] initial2 [] ->
       weak_sim ->
       forall t1 ns1,
         star step1 initial1 t1 ns1 ->
@@ -1020,9 +1020,9 @@ Section steps_corresp.
           inputs_of t2 = inputs_of t1 /\
           R ns1 t1 ns2 t2.
     Proof.
-      intros Hbase [Hinput Houtput] t1 ns1 Hstar1.
+      intros [Hinput Houtput] t1 ns1 Hstar1.
       induction Hstar1 as [ | t0 s' e s'' Hstar0 IH Hstep].
-      - exists [], initial2. split; [constructor|]. split; [reflexivity | exact Hbase].
+      - exists [], initial2. split; [constructor|]. split; [reflexivity | exact R_init].
       - destruct IH as (t2 & ns2 & Hstar2 & Hinpeq & HR).
         destruct e as [inp | lbl o].
         + destruct (Hinput s' t0 s'' ns2 t2 inp HR Hstep) as (s2' & Hstep2 & HRnew).
@@ -1042,13 +1042,12 @@ Section steps_corresp.
     Qed.
 
     Lemma weak_sim_correct :
-      R initial1 [] initial2 [] ->
       weak_sim ->
       steps_corresp_sound.
     Proof.
-      intros Hbase Hws inps output _ Hprod1.
+      intros Hws inps output _ Hprod1.
       destruct Hprod1 as (t1 & ns1 & Hstar1 & Hinp1 & Hout1).
-      destruct (weak_sim_lift Hbase Hws t1 ns1 Hstar1)
+      destruct (weak_sim_lift Hws t1 ns1 Hstar1)
         as (t2 & ns2 & Hstar2 & Hinpeq & HR).
       exists t2, ns2. split; [exact Hstar2|]. split.
       - rewrite Hinpeq. exact Hinp1.
