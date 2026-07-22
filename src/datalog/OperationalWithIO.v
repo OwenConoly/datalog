@@ -1,5 +1,5 @@
 From Stdlib Require Import List PeanoNat.
-From Datalog Require Import Datalog Node Operational Smallstep.
+From Datalog Require Import Datalog Node Operational Smallstep List.
 From coqutil Require Import Map.Interface Datatypes.List.
 Import ListNotations.
 
@@ -93,11 +93,31 @@ Section __.
     good_input_facts inputs -> sane_state inputs initial.
   Admitted.
 
+  Lemma Forall3_map_mid {A B B' C} (g : B -> B') (Q : A -> B' -> C -> Prop)
+    (l : list A) (m : list B) (k : list C) :
+    Forall3 (fun a b c => Q a (g b) c) l m k -> Forall3 Q l (map g m) k.
+  Proof. intros H. induction H; cbn; constructor; assumption. Qed.
+
+  Lemma Forall3_repeat_seq {A} (Q : A -> node_state -> nat -> Prop)
+    (l : list A) (x : node_state) (start : nat) :
+    (forall a n, Q a x n) -> Forall3 Q l (repeat x (length l)) (seq start (length l)).
+  Proof.
+    intros HQ. revert start. induction l as [|a l IH]; intros start; cbn; constructor.
+    - apply HQ.
+    - apply IH.
+  Qed.
+
   Lemma mfc_initial : meta_facts_correct initial.
-  Admitted.
+  Proof.
+    unfold meta_facts_correct, initial. rewrite repeat_length.
+    apply Forall3_repeat_seq. intros a n R mf_args num Hin. destruct Hin.
+  Qed.
 
   Lemma mfok_initial : meta_facts_ok initial.
-  Admitted.
+  Proof.
+    unfold meta_facts_ok, initial. rewrite repeat_length.
+    apply Forall3_repeat_seq. intros a n mf_rel mf_args num Hin. destruct Hin.
+  Qed.
 
   Lemma knows_dfact_initial (g : dfact) : ~ knows_dfact initial g.
   Proof.
@@ -123,11 +143,17 @@ Section __.
 
   Lemma add_wf_mfc (f : dfact) (s : state) :
     meta_facts_correct s -> meta_facts_correct (map (add_waiting_fact f) s).
-  Admitted.
+  Proof.
+    unfold meta_facts_correct. rewrite length_map. intros H.
+    apply Forall3_map_mid. exact H.
+  Qed.
 
   Lemma add_wf_mfok (f : dfact) (s : state) :
     meta_facts_ok s -> meta_facts_ok (map (add_waiting_fact f) s).
-  Admitted.
+  Proof.
+    unfold meta_facts_ok. rewrite length_map. intros H.
+    apply Forall3_map_mid. exact H.
+  Qed.
 
   Lemma add_input_sc (inputs : list dfact) (f : dfact) (s : state) :
     good_input_facts inputs -> In f inputs -> sane_state inputs s -> state_correct inputs s ->
