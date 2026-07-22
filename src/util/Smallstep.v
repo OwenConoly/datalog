@@ -973,15 +973,15 @@ Section steps_corresp.
     Context (initial2 : state2).
 
     Definition steps_corresp_sound :=
-      forall t2 ns2 output,
-        star step2 initial2 t2 ns2 ->
-        allowed (inputs_of t2) ->
-        In output (outputs_of t2) ->
-        produces step1 initial1 (inputs_of t2) output.
+      forall t1 ns1 output,
+        star step1 initial1 t1 ns1 ->
+        allowed (inputs_of t1) ->
+        In output (outputs_of t1) ->
+        produces step2 initial2 (inputs_of t1) output.
 
     (*TODO i think Datatypes.List.map2 needs a better name*)
     Context (R : state1 -> list IO_event -> state2 -> list IO_event -> Prop).
-    Context (R_something :
+    Context (R_outputs_corresp :
               forall s1 t1 s2 t2,
                 R s1 t1 s2 t2 ->
                 incl (outputs_of t1) (outputs_of t2)).
@@ -1015,6 +1015,8 @@ Section steps_corresp.
         allowed inps ->
         will_output_equiv step2 equiv allowed ns2 (map I_event inps) o ->
         produces step1 initial1 inps o.
+
+    Print steps_corresp_sound.
 
     Definition steps_corresp_complete :=
       forall t2 ns2 output,
@@ -1058,16 +1060,16 @@ Section steps_corresp.
     Qed.
 
     Lemma sound_sound D :
-      sound step1 allowed initial1 D ->
+      sound step2 allowed initial2 D ->
       steps_corresp_sound ->
-      sound step2 allowed initial2 D.
+      sound step1 allowed initial1 D.
      Proof.
-      intros Hs1 Hcorresp t2 s2 Hstar2 Hall2 o Hout2.
-      pose proof (Hcorresp _ _ _ Hstar2 Hall2 Hout2) as Hpr. unfold produces in Hpr.
-      destruct Hpr as (t1 & s1 & Hstar1 & Hinp & Hout1).
-      assert (Hall1 : allowed (inputs_of t1)).
-      {  rewrite Hinp. exact Hall2. }
-      pose proof (Hs1 _ _ Hstar1 Hall1 _ Hout1) as HD.
+      intros Hs2 Hcorresp t1 s1 Hstar1 Hall1 o Hout1.
+      pose proof (Hcorresp _ _ _ Hstar1 Hall1 Hout1) as Hpr. unfold produces in Hpr.
+      destruct Hpr as (t2 & s2 & Hstar2 & Hinp & Hout2).
+      assert (Hall2 : allowed (inputs_of t2)).
+      {  rewrite Hinp. exact Hall1. }
+      pose proof (Hs2 _ _ Hstar2 Hall2 _ Hout2) as HD.
       rewrite Hinp in HD. exact HD.
     Qed.
 
