@@ -8,7 +8,6 @@ Section __.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T}.
   Context (is_input : rel -> bool).
-  Context (R_senders : rel -> list nat).
   Context (p : prog).
 
   Local Notation IO_event := (Smallstep.IO_event unit dfact).
@@ -27,4 +26,24 @@ Section __.
     {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
 
   Definition initial : state := repeat empty_rule_state (length p.(non_meta_rules)).
+
+  Local Notation R_senders := (Operational.R_senders is_input p).
+  Local Notation rules_of := (Operational.rules_of p).
+  Local Notation knows_datalog_fact := (Node.knows_datalog_fact R_senders).
+  Local Notation good_input_facts := (Operational.good_input_facts is_input).
+
+  Theorem produces_sound (inputs : list dfact) (R : rel) (args : list T) :
+    good_input_facts inputs ->
+    produces step initial inputs (normal_dfact R args) ->
+    prog_impl rules_of (knows_datalog_fact inputs) (normal_fact R args).
+  Proof.
+  Admitted.
+
+  Theorem produces_complete (inputs : list dfact) (R : rel) (args : list T) :
+    good_input_facts inputs ->
+    0 < length p.(non_meta_rules) ->
+    prog_impl rules_of (knows_datalog_fact inputs) (normal_fact R args) ->
+    produces step initial inputs (normal_dfact R args).
+  Proof.
+  Admitted.
 End __.
