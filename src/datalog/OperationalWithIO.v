@@ -18,9 +18,9 @@ Section __.
     step s1 (O_event tt []) s2
   | step_input s f :
     step s (I_event f) (map (add_waiting_fact f) s)
-  | step_output s f :
-    knows_dfact s f ->
-    step s (O_event tt [f]) s.
+  | step_output s R args :
+    knows_dfact s (normal_dfact R args) ->
+    step s (O_event tt [normal_dfact R args]) s.
 
   Definition empty_rule_state : Operational.node_state :=
     {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
