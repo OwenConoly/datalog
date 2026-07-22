@@ -1,4 +1,4 @@
-From Stdlib Require Import List PeanoNat.
+From Stdlib Require Import List PeanoNat Lia.
 From Datalog Require Import Datalog Node Operational Smallstep List.
 From coqutil Require Import Map.Interface Datatypes.List.
 Import ListNotations.
@@ -109,12 +109,71 @@ Section __.
     sane_state (inputs_of t) s /\ meta_facts_correct s /\ meta_facts_ok s /\
     state_correct (inputs_of t) s.
 
+  Lemma Existsn_tl {A} (P : A -> Prop) (x : A) (n : nat) (l : list A) :
+    Existsn P n (x :: l) -> exists m, m <= n /\ Existsn P m l.
+  Proof.
+    intros H. inversion H; subst.
+    - exists n. split; [lia | assumption].
+    - exists n0. split; [lia | assumption].
+  Qed.
+
   Lemma good_input_facts_tl (f : dfact) (l : list dfact) :
     good_input_facts (f :: l) -> good_input_facts l.
-  Admitted.
+  Proof.
+    intros [Hall Hmeta]. split.
+    - inversion Hall; assumption.
+    - intros R a num Hin.
+      destruct (Hmeta R a num (or_intror Hin)) as (Huniq & num' & Hle & Hex).
+      split.
+      + intros num0 Hin0. apply Huniq. right. exact Hin0.
+      + apply Existsn_tl in Hex. destruct Hex as (m & Hm & Hexm).
+        exists m. split; [lia | exact Hexm].
+  Qed.
+
+  Lemma knows_dfact_initial (g : dfact) : ~ knows_dfact initial g.
+  Proof.
+    unfold knows_dfact, initial. intros H. apply Exists_exists in H.
+    destruct H as (rs & Hin & Hrhd). apply repeat_spec in Hin. subst rs.
+    destruct Hrhd as [[] | []].
+  Qed.
+
+  Lemma Forall2_repeat_l {A B} (P : A -> B -> Prop) (x : A) (y : B) (n : nat) :
+    P x y -> Forall2 P (repeat x n) (repeat y n).
+  Proof. intros H. induction n; cbn; constructor; auto. Qed.
+
+  Lemma Forall_repeat_l {A} (P : A -> Prop) (x : A) (n : nat) :
+    P x -> Forall P (repeat x n).
+  Proof. intros H. induction n; cbn; constructor; auto. Qed.
+
+  Lemma list_sum_repeat_0 (n : nat) : list_sum (repeat 0 n) = 0.
+  Proof. induction n; cbn; auto. Qed.
 
   Lemma INV_nil : INV [] initial.
-  Admitted.
+  Proof.
+    unfold INV. cbn [inputs_of flat_map].
+    split; [| split; [apply mfc_initial | split; [apply mfok_initial |]]].
+    - constructor.
+      + unfold initial. rewrite repeat_length. reflexivity.
+      + intros R a num H. exfalso. eapply knows_dfact_initial; exact H.
+      + intros R a n num H. exfalso. eapply knows_dfact_initial; exact H.
+      + intros f H. exfalso. eapply knows_dfact_initial; exact H.
+      + intros R a. exists (repeat 0 (length initial)), 0. split; [| split].
+        * unfold initial. rewrite !repeat_length. apply Forall2_repeat_l. cbn. constructor.
+        * constructor.
+        * apply Forall_repeat_l. exists 0, 0. cbn.
+          split; [constructor | split; [constructor |]].
+          rewrite list_sum_repeat_0. reflexivity.
+      + intros R Hin. split.
+        * intros a. apply Forall_repeat_l. cbn. constructor.
+        * intros a n num H. eapply knows_dfact_initial; exact H.
+      + intros f H. destruct H.
+    - intros f (Hderiv & _). exfalso. destruct f as [R args | R a set].
+      + eapply knows_dfact_initial; exact Hderiv.
+      + cbn in Hderiv. destruct (is_input R).
+        * destruct Hderiv as (num & Hk). eapply knows_dfact_initial; exact Hk.
+        * specialize (Hderiv 0 Hlen). destruct Hderiv as (num & Hk).
+          eapply knows_dfact_initial; exact Hk.
+  Qed.
 
   Lemma add_input_sane (l : list dfact) (f : dfact) (s : state) :
     good_input_facts (f :: l) -> sane_state l s ->
