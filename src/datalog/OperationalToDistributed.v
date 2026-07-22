@@ -1,4 +1,4 @@
-From Stdlib Require Import List PeanoNat Lia Permutation Classical_Prop.
+From Stdlib Require Import List Permutation.
 From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed.
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
@@ -43,25 +43,6 @@ Section __.
       | _, _ => False
       end.
 
-  (* Every deduced fact is broadcast to all nodes (including the deducer itself,
-     matching [comp_step]'s [map (add_waiting_fact _)]). *)
-  Definition forward (n : node_id) (m : dfact) : list node_id :=
-    seq 0 (length p.(non_meta_rules)).
-
-  (* External inputs are restricted here (so the graph's [A] can be total). *)
-  Definition input_allowed (n : node_id) (m : dfact) : bool :=
-    is_input_fact is_input m.
-
-  Definition output_visible (n : node_id) (m : dfact) : bool := true.
-
-  Definition A : list dfact -> Prop := fun _ => True.
-
-
-  (* ---- Obvious equivalence to comp_step (delivery-as-stutter collapse). ---- *)
-
-  (* [ok_to_deduce_fact] is vacuously true for any meta rule: a meta rule never
-     deduces a normal fact ([non_meta_rule_impl] has no meta-rule constructor),
-     so the only nontrivial side condition is the one on [rule_of r]. *)
   Lemma ok_to_deduce_meta (c h : list meta_clause) known sent f :
     ok_to_deduce_fact (meta_rule c h) known sent f.
   Proof.
@@ -70,7 +51,6 @@ Section __.
     - intros nf_args Hcdn _. destruct Hcdn as (hyps & Himpl & _). inversion Himpl.
   Qed.
 
-  (* A node's deduce step is exactly a [fire_at_rule] at that rule. *)
   Lemma new_facts_iff_fire (r : non_meta_rule) (n : nat) (rs : node_state) (f : dfact) :
     new_facts (node_rules_of r) n (to_node_state rs) f <->
     fire_at_rule r n rs (send_fact f rs) f.
@@ -99,9 +79,6 @@ Section __.
         apply in_map_iff in Hin as ((c & h) & Heq & _). subst r'. apply ok_to_deduce_meta.
   Qed.
 
-  (* Learning an input fact: Node.v's [node_input_step] moves the received fact
-     into [known]; Operational.v realises the same move as a [learn_fact_at_rule]
-     that dequeues it from [waiting_facts]. *)
   Lemma dequeue_learn (rs : node_state) (input : dfact) (rest : list dfact) :
     rs.(waiting_facts) = input :: rest ->
     learn_fact_at_rule rs
