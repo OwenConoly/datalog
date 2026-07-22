@@ -1185,14 +1185,32 @@ Section steps_corresp.
     Context (step2 : state2 -> IO_event -> state2 -> Prop).
     Context (initial2 : state2).
 
+    (* Not provable without determinism of step2: [produces] gives *some* step2 run
+       outputting o, but [might_output step2 ns t o] must extend the *specific*
+       reached run (t, ns). *)
     Lemma sound_impl_complete :
       steps_corresp_sound step1 initial1 step2 initial2 ->
       steps_corresp_complete step2 initial2 step1 initial1.
     Proof. Abort.
 
     Lemma complete_impl_sound :
+      input_total step2 ->
       steps_corresp_complete step2 initial2 step1 initial1 ->
       steps_corresp_sound step1 initial1 step2 initial2.
-    Proof. Abort.
+    Proof.
+      intros Hit2 Hcomplete t ns o Hstar1 Hall Hout1.
+      destruct (star_recv_map step2 Hit2 (inputs_of t) initial2) as (ns2 & Hstar2).
+      assert (Hall2 : allowed (inputs_of (map I_event (inputs_of t) : list IO_event))).
+      { rewrite inputs_of_map_I_event. exact Hall. }
+      assert (Hprod1 : produces step1 initial1 (inputs_of (map I_event (inputs_of t) : list IO_event)) o).
+      { rewrite inputs_of_map_I_event. exists t, ns. split; [exact Hstar1|]. split; [reflexivity|exact Hout1]. }
+      pose proof (Hcomplete _ _ _ Hstar2 Hall2 Hprod1) as Hmo2.
+      destruct Hmo2 as (t' & s' & Hstar' & Hinpt' & Hout2).
+      exists (t' ++ map I_event (inputs_of t)), s'.
+      split; [eapply star_app; eassumption|].
+      split.
+      - rewrite inputs_of_app, Hinpt', inputs_of_map_I_event. reflexivity.
+      - exact Hout2.
+    Qed.
   End steps.
 End steps_corresp.
