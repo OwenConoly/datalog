@@ -979,6 +979,36 @@ Section steps_corresp.
         In output (outputs_of t2) ->
         produces step1 initial1 (inputs_of t2) output.
 
+    (*TODO i think Datatypes.List.map2 needs a better name*)
+    Context (R : state1 -> list IO_event -> state2 -> list IO_event -> Prop).
+    Context (R_something :
+              forall s1 t1 s2 t2,
+                R s1 t1 s2 t2 ->
+                incl (outputs_of t1) (outputs_of t2)).
+
+    Definition weak_sim_output :=
+      forall s1 t1 s1' s2 t2 lbl o,
+        R s1 t1 s2 t2 ->
+        step1 s1 (O_event lbl o) s1' ->
+        exists s2' os,
+          R s1' (O_event lbl o :: t1) s2' (Datatypes.List.map2 O_event os ++ t2) /\
+            star step2 s2 (Datatypes.List.map2 O_event os) s2'.
+
+    Definition weak_sim_input :=
+      forall s1 t1 s1' s2 t2 inp,
+        R s1 t1 s2 t2 ->
+        step1 s1 (I_event inp) s1' ->
+        forall s2',
+          step2 s2 (I_event inp) s2' ->
+          R s1' (I_event inp :: t1) s2' (I_event inp :: t2).
+
+    Definition weak_sim := weak_sim_input /\ weak_sim_output.
+
+    Lemma weak_sim_correct :
+      weak_sim ->
+      steps_corresp_sound.
+    Proof. Admitted.
+
     Definition steps_corresp_sound' :=
       forall ns2 inps o,
         star step2 initial2 (map I_event inps) ns2 ->
