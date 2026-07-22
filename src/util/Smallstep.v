@@ -972,12 +972,10 @@ Section steps_corresp.
     Context (step2 : state2 -> IO_event -> state2 -> Prop).
     Context (initial2 : state2).
 
-    Definition steps_corresp_sound :=
-      forall t1 ns1 output,
-        star step1 initial1 t1 ns1 ->
-        allowed (inputs_of t1) ->
-        In output (outputs_of t1) ->
-        produces step2 initial2 (inputs_of t1) output.
+     Definition steps_corresp_sound :=
+      forall inps output,
+        produces step1 initial1 inps output ->
+        produces step2 initial2 inps output.
 
     (*TODO i think Datatypes.List.map2 needs a better name*)
     Context (R : state1 -> list IO_event -> state2 -> list IO_event -> Prop).
