@@ -1010,52 +1010,50 @@ Section steps_corresp.
     Proof. Admitted.
 
     Definition steps_corresp_sound' :=
-      forall ns2 inps o,
-        star step2 initial2 (map I_event inps) ns2 ->
+      forall ns1 inps o,
+        star step1 initial1 (map I_event inps) ns1 ->
         allowed inps ->
-        will_output_equiv step2 equiv allowed ns2 (map I_event inps) o ->
-        produces step1 initial1 inps o.
-
-    Print steps_corresp_sound.
+        will_output_equiv step1 equiv allowed ns1 (map I_event inps) o ->
+        produces step2 initial2 inps o.
 
     Definition steps_corresp_complete :=
-      forall t2 ns2 output,
-        star step2 initial2 t2 ns2 ->
-        allowed (inputs_of t2) ->
-        produces step1 initial1 (inputs_of t2) output ->
-        might_output step2 ns2 t2 output.
+      forall t1 ns1 output,
+        star step1 initial1 t1 ns1 ->
+        allowed (inputs_of t1) ->
+        produces step2 initial2 (inputs_of t1) output ->
+        might_output step1 ns1 t1 output.
 
-    (* Primed completeness: restrict system 2's observed trace to be input-only
+    (* Primed completeness: restrict system 1's observed trace to be input-only
        (the dual restriction to steps_corresp_sound').  This is the form the
        cross-graph completeness lemma proves directly; the bridge below recovers
        the (up-to-equiv) unprimed version from monotone_mod_equiv/input_total of
-       system 2. *)
+       system 1. *)
     Definition steps_corresp_complete' :=
-      forall ns2 inps o,
-        star step2 initial2 (map I_event inps) ns2 ->
+      forall ns1 inps o,
+        star step1 initial1 (map I_event inps) ns1 ->
         allowed inps ->
-        produces step1 initial1 inps o ->
-        might_output step2 ns2 (map I_event inps) o.
+        produces step2 initial2 inps o ->
+        might_output step1 ns1 (map I_event inps) o.
 
     Lemma complete_sound D :
-      input_total step1 ->
-      complete_weak step1 allowed initial1 D ->
+      input_total step2 ->
+      complete_weak step2 allowed initial2 D ->
       steps_corresp_complete ->
-      complete_weak step2 allowed initial2 D.
+      complete_weak step1 allowed initial1 D.
     Proof.
-      intros Hit1 Hcw1 Hcorresp t2 ns2 Hstar2 Hall2 o HD.
-      destruct (star_recv step1 Hit1 (inputs_of t2) initial1)
-        as (t1 & ns1 & Hstar1 & Hinp1).
-      assert (Hall1 : allowed (inputs_of t1)).
-      {  rewrite Hinp1. exact Hall2. }
-      assert (HD1 : D (inputs_of t1) o) by (rewrite Hinp1; exact HD).
-      apply (Hcw1 _ _ Hstar1 Hall1) in HD1.
-      destruct HD1 as (t' & ns' & Hstar' & Hinpt' & Hout).
-      pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar') as Hstar_full.
-      apply (Hcorresp t2 ns2 o Hstar2 Hall2).
-      unfold produces. exists (t' ++ t1), ns'.
+      intros Hit2 Hcw2 Hcorresp t1 ns1 Hstar1 Hall1 o HD.
+      destruct (star_recv step2 Hit2 (inputs_of t1) initial2)
+        as (t2 & ns2 & Hstar2 & Hinp2).
+      assert (Hall2 : allowed (inputs_of t2)).
+      {  rewrite Hinp2. exact Hall1. }
+      assert (HD2 : D (inputs_of t2) o) by (rewrite Hinp2; exact HD).
+      apply (Hcw2 _ _ Hstar2 Hall2) in HD2.
+      destruct HD2 as (t' & ns' & Hstar' & Hinpt' & Hout).
+      pose proof (star_app _ _ _ _ _ _ Hstar2 Hstar') as Hstar_full.
+      apply (Hcorresp t1 ns1 o Hstar1 Hall1).
+      unfold produces. exists (t' ++ t2), ns'.
       split; [exact Hstar_full|]. split.
-      - rewrite inputs_of_app, Hinpt'. exact Hinp1.
+      - rewrite inputs_of_app, Hinpt'. exact Hinp2.
       - exact Hout.
     Qed.
 
@@ -1074,24 +1072,24 @@ Section steps_corresp.
     Qed.
 
     Lemma steps_corresp_sound'_implies_sound :
-      input_total step2 ->
-      might_implies_will_equiv' step2 equiv claim consistent allowed initial2 ->
+      input_total step1 ->
+      might_implies_will_equiv' step1 equiv claim consistent allowed initial1 ->
       steps_corresp_sound' ->
       steps_corresp_sound.
     Proof.
-      intros Hit2 Hmiw2 Hscs' t2 ns2 o Hstar2 Hall2 Hout2.
-      destruct (star_recv_map step2 Hit2 (inputs_of t2) initial2) as (ns2' & Hstar2').
-      assert (Hall' : allowed (inputs_of (map I_event (inputs_of t2) : list IO_event))).
-      {  rewrite inputs_of_map_I_event. exact Hall2. }
-      assert (Hincl : consistently_incl equiv claim consistent (inputs_of t2)
-                           (inputs_of (map I_event (inputs_of t2) : list IO_event))).
+      intros Hit1 Hmiw1 Hscs' t1 ns1 o Hstar1 Hall1 Hout1.
+      destruct (star_recv_map step1 Hit1 (inputs_of t1) initial1) as (ns1' & Hstar1').
+      assert (Hall' : allowed (inputs_of (map I_event (inputs_of t1) : list IO_event))).
+      {  rewrite inputs_of_map_I_event. exact Hall1. }
+      assert (Hincl : consistently_incl equiv claim consistent (inputs_of t1)
+                           (inputs_of (map I_event (inputs_of t1) : list IO_event))).
       { rewrite inputs_of_map_I_event. apply (consistently_incl_refl equiv claim consistent). }
-      assert (Hnc : noncontradictory_inputs equiv claim consistent allowed (inputs_of t2)
-                         (inputs_of (map I_event (inputs_of t2) : list IO_event))).
-      { rewrite inputs_of_map_I_event. exact (noncontradictory_refl equiv claim consistent allowed (inputs_of t2) Hall2). }
-      pose proof (Hmiw2 t2 ns2 o Hstar2 Hall2 Hout2
-                       ns2' (map I_event (inputs_of t2)) Hnc Hincl Hstar2' Hall') as Hwill.
-      exact (Hscs' ns2' (inputs_of t2) o Hstar2' Hall2 Hwill).
+      assert (Hnc : noncontradictory_inputs equiv claim consistent allowed (inputs_of t1)
+                         (inputs_of (map I_event (inputs_of t1) : list IO_event))).
+      { rewrite inputs_of_map_I_event. exact (noncontradictory_refl equiv claim consistent allowed (inputs_of t1) Hall1). }
+      pose proof (Hmiw1 t1 ns1 o Hstar1 Hall1 Hout1
+                       ns1' (map I_event (inputs_of t1)) Hnc Hincl Hstar1' Hall') as Hwill.
+      exact (Hscs' ns1' (inputs_of t1) o Hstar1' Hall1 Hwill).
     Qed.
 
     (* Dual bridge: recover (up-to-equiv) unprimed completeness from the primed
@@ -1100,22 +1098,22 @@ Section steps_corresp.
        on the same inputs).  Since only an up-to-equiv monotonicity survives, the
        conclusion is the equiv-relaxed form of steps_corresp_complete. *)
     Lemma steps_corresp_complete'_implies_complete :
-      input_total step2 ->
-      monotone_mod_equiv step2 equiv claim consistent allowed initial2 ->
+      input_total step1 ->
+      monotone_mod_equiv step1 equiv claim consistent allowed initial1 ->
       steps_corresp_complete' ->
-      forall t2 ns2 output,
-        star step2 initial2 t2 ns2 ->
-        allowed (inputs_of t2) ->
-        produces step1 initial1 (inputs_of t2) output ->
-        might_output_equiv step2 equiv ns2 t2 output.
+      forall t1 ns1 output,
+        star step1 initial1 t1 ns1 ->
+        allowed (inputs_of t1) ->
+        produces step2 initial2 (inputs_of t1) output ->
+        might_output_equiv step1 equiv ns1 t1 output.
     Proof.
-      intros Hit2 Hmono2 Hcc' t2 ns2 o Hstar2 Hall2 Hprod.
-      destruct (star_recv_map step2 Hit2 (inputs_of t2) initial2) as (ns2' & Hstar2').
-      pose proof (Hcc' ns2' (inputs_of t2) o Hstar2' Hall2 Hprod) as Hcan'.
-      apply (Hmono2 (map I_event (inputs_of t2)) t2 ns2' ns2 o Hstar2' Hstar2).
-      -  rewrite inputs_of_map_I_event. exact Hall2.
-      - exact Hall2.
-      - rewrite inputs_of_map_I_event. exact (noncontradictory_refl equiv claim consistent allowed (inputs_of t2) Hall2).
+      intros Hit1 Hmono1 Hcc' t1 ns1 o Hstar1 Hall1 Hprod.
+      destruct (star_recv_map step1 Hit1 (inputs_of t1) initial1) as (ns1' & Hstar1').
+      pose proof (Hcc' ns1' (inputs_of t1) o Hstar1' Hall1 Hprod) as Hcan'.
+      apply (Hmono1 (map I_event (inputs_of t1)) t1 ns1' ns1 o Hstar1' Hstar1).
+      -  rewrite inputs_of_map_I_event. exact Hall1.
+      - exact Hall1.
+      - rewrite inputs_of_map_I_event. exact (noncontradictory_refl equiv claim consistent allowed (inputs_of t1) Hall1).
       - rewrite inputs_of_map_I_event. apply (consistently_incl_refl equiv claim consistent).
       - exact Hcan'.
     Qed.
@@ -1132,46 +1130,43 @@ Section steps_corresp.
           might_output_equiv step2 equiv ns2 t2 output.
 
     Lemma sound_complete_bicorresp :
-      monotone_mod_equiv step1 equiv claim consistent allowed initial1 ->
+      monotone_mod_equiv step2 equiv claim consistent allowed initial2 ->
       steps_corresp_complete ->
       steps_corresp_sound ->
       steps_bicorresp.
     Proof.
       intros Hmono Hcomp Hsound t1 t2 ns1 ns2 Hstar1 Hstar2 Hall1 Hall2 Heq o.
       split.
-      - (* -> : witness [o'] carries through steps_corresp_complete unchanged. *)
-        intros (o' & Hequiv & Hmo1). exists o'. split; [exact Hequiv|].
+      - intros (o' & Hequiv & Hmo1).
         destruct Hmo1 as (t' & ns' & Hstar' & Hinpt' & Hout).
         pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar') as Hstar1'.
-        apply (Hcomp t2 ns2 o' Hstar2 Hall2).
-        unfold produces. exists (t' ++ t1), ns'.
-        split; [exact Hstar1'|]. split.
-        + rewrite inputs_of_app, Hinpt'. exact Heq.
-        + exact Hout.
-      - (* <- : steps_corresp_sound recovers an input-only run of system 1, then
-             monotone_mod_equiv transfers the capability (up to [equiv]) to [t1]. *)
-        intros (o' & Hequiv & Hmo2).
+        assert (Hall1' : allowed (inputs_of (t' ++ t1))).
+        { rewrite inputs_of_app, Hinpt'. exact Hall1. }
+        pose proof (Hsound _ _ _ Hstar1' Hall1' Hout) as Hpr. unfold produces in Hpr.
+        destruct Hpr as (t2' & ns2' & Hstar2' & Heqinp & Hout2).
+        assert (Hcan2' : might_output step2 ns2' t2' o').
+        { exists [], ns2'. split; [constructor|].
+          split; [reflexivity|exact Hout2]. }
+        assert (Hmoe : might_output_equiv step2 equiv ns2 t2 o').
+        { apply (Hmono t2' t2 ns2' ns2 o' Hstar2' Hstar2).
+          - rewrite Heqinp. exact Hall1'.
+          - exact Hall2.
+          - rewrite Heqinp, inputs_of_app, Hinpt', Heq.
+            exact (noncontradictory_refl equiv claim consistent allowed (inputs_of t2) Hall2).
+          - rewrite Heqinp, inputs_of_app, Hinpt', Heq.
+            apply (consistently_incl_refl equiv claim consistent).
+          - exact Hcan2'. }
+        destruct Hmoe as (o'' & Hequiv2 & Hmo2'').
+        exists o''. split; [| exact Hmo2''].
+        destruct equiv_equiv as [_ _ Htrans]. eapply Htrans; [exact Hequiv2 | exact Hequiv].
+      - intros (o' & Hequiv & Hmo2). exists o'. split; [exact Hequiv|].
         destruct Hmo2 as (t' & ns' & Hstar' & Hinpt' & Hout).
         pose proof (star_app _ _ _ _ _ _ Hstar2 Hstar') as Hstar2'.
-        assert (Hall2' : allowed (inputs_of (t' ++ t2))).
-        { rewrite inputs_of_app, Hinpt'. exact Hall2. }
-        pose proof (Hsound _ _ _ Hstar2' Hall2' Hout) as Hpr. unfold produces in Hpr.
-        destruct Hpr as (t1' & ns1' & Hstar1' & Heqinp & Hout1).
-        assert (Hcan1' : might_output step1 ns1' t1' o').
-        { exists [], ns1'. split; [constructor|].
-          split; [reflexivity|exact Hout1]. }
-        assert (Hmoe : might_output_equiv step1 equiv ns1 t1 o').
-        { apply (Hmono t1' t1 ns1' ns1 o' Hstar1' Hstar1).
-          - rewrite Heqinp. exact Hall2'.
-          - exact Hall1.
-          - rewrite Heqinp, inputs_of_app, Hinpt', <- Heq.
-            exact (noncontradictory_refl equiv claim consistent allowed (inputs_of t1) Hall1).
-          - rewrite Heqinp, inputs_of_app, Hinpt', <- Heq.
-            apply (consistently_incl_refl equiv claim consistent).
-          - exact Hcan1'. }
-        destruct Hmoe as (o'' & Hequiv2 & Hmo1'').
-        exists o''. split; [| exact Hmo1''].
-        destruct equiv_equiv as [_ _ Htrans]. eapply Htrans; [exact Hequiv2 | exact Hequiv].
+        apply (Hcomp t1 ns1 o' Hstar1 Hall1).
+        unfold produces. exists (t' ++ t2), ns'.
+        split; [exact Hstar2'|]. split.
+        + rewrite inputs_of_app, Hinpt'. symmetry. exact Heq.
+        + exact Hout.
     Qed.
 
     Fail Fail Definition steps_equiv :=
