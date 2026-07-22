@@ -1558,4 +1558,31 @@ Definition consistent_good :=
     Qed.
   End graph.
 
+  Section graphs.
+    Context {node_state1 : Type}.
+    Context {graph_state1 : map.map node_id (graph_node_state node_state1)}.
+    Context {graph_state1_ok : map.ok graph_state1}.
+    Context (initial_gs1 : graph_state1).
+    Context (node_step1 : node_id -> node_state1 -> IO_event -> node_state1 -> Prop).
+
+    Context {node_state2 : Type}.
+    Context {graph_state2 : map.map node_id (graph_node_state node_state2)}.
+    Context {graph_state2_ok : map.ok graph_state2}.
+    Context (initial_gs2 : graph_state2).
+    Context (node_step2 : node_id -> node_state2 -> IO_event -> node_state2 -> Prop).
+
+    Lemma graphs_corresp_sound' :
+      Forall2_map
+        (fun n gns1 gns2 =>
+           steps_corresp_sound allowed
+             (node_step1 n) gns1.(gns_node_state)
+             (node_step2 n) gns2.(gns_node_state))
+        initial_gs1 initial_gs2 ->
+      steps_corresp_sound' graph_inputs_allowed graph_equiv
+        (graph_step node_step1) initial_gs1
+        (graph_step node_step2) initial_gs2.
+    Proof.
+    Admitted.
+  End graphs.
+
 End __.
