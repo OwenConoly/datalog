@@ -986,30 +986,14 @@ Section steps_corresp.
                 R s1 t1 s2 t2 ->
                 incl (outputs_of t1) (outputs_of t2)).
 
-    Definition weak_sim_output :=
-      forall s1 t1 s1' s2 t2 lbl o,
+    Definition weak_sim :=
+      forall s1 t1 s1' s2 t2 e,
         R s1 t1 s2 t2 ->
-        step1 s1 (O_event lbl o) s1' ->
-        exists s2' os,
-          R s1' (O_event lbl o :: t1) s2' (Datatypes.List.map2 O_event os ++ t2) /\
-            star step2 s2 (Datatypes.List.map2 O_event os) s2'.
-
-    Definition weak_sim_input :=
-      forall s1 t1 s1' s2 t2 inp,
-        R s1 t1 s2 t2 ->
-        step1 s1 (I_event inp) s1' ->
-        exists s2',
-          step2 s2 (I_event inp) s2' /\
-          R s1' (I_event inp :: t1) s2' (I_event inp :: t2).
-
-    Definition weak_sim := weak_sim_input /\ weak_sim_output.
-
-    Lemma inputs_of_map2_O_event (os : list (label * list message)) :
-      inputs_of (Datatypes.List.map2 (@O_event label message) os) = [].
-    Proof.
-      unfold Datatypes.List.map2.
-      induction os as [|a os IH]; [reflexivity | cbn; exact IH].
-    Qed.
+        step1 s1 e s1' ->
+        exists s2' t2',
+          star step2 s2 t2' s2' /\
+          inputs_of t2' = inputs_of [e] /\
+          R s1' (e :: t1) s2' (t2' ++ t2).
 
     Lemma weak_sim_lift :
       weak_sim ->
@@ -1020,25 +1004,17 @@ Section steps_corresp.
           inputs_of t2 = inputs_of t1 /\
           R ns1 t1 ns2 t2.
     Proof.
-      intros [Hinput Houtput] t1 ns1 Hstar1.
+      intros Hws t1 ns1 Hstar1.
       induction Hstar1 as [ | t0 s' e s'' Hstar0 IH Hstep].
       - exists [], initial2. split; [constructor|]. split; [reflexivity | exact R_init].
       - destruct IH as (t2 & ns2 & Hstar2 & Hinpeq & HR).
-        destruct e as [inp | lbl o].
-        + destruct (Hinput s' t0 s'' ns2 t2 inp HR Hstep) as (s2' & Hstep2 & HRnew).
-          exists (I_event inp :: t2), s2'.
-          split; [eapply star_step; [exact Hstar2 | exact Hstep2]|].
-          split.
-          * change (inputs_of (I_event inp :: t2)) with (inp :: inputs_of t2).
-            change (inputs_of (I_event inp :: t0)) with (inp :: inputs_of t0).
-            rewrite Hinpeq. reflexivity.
-          * exact HRnew.
-        + destruct (Houtput s' t0 s'' ns2 t2 lbl o HR Hstep) as (s2' & os & HR' & Hstar2').
-          exists (Datatypes.List.map2 O_event os ++ t2), s2'.
-          split; [eapply star_app; [exact Hstar2 | exact Hstar2']|].
-          split.
-          * rewrite inputs_of_app, inputs_of_map2_O_event. exact Hinpeq.
-          * exact HR'.
+        destruct (Hws s' t0 s'' ns2 t2 e HR Hstep) as (s2' & t2' & Hstar2' & Hinp' & HR').
+        exists (t2' ++ t2), s2'.
+        split; [eapply star_app; [exact Hstar2 | exact Hstar2']|].
+        split.
+        * rewrite inputs_of_app. change (e :: t0) with ([e] ++ t0).
+          rewrite inputs_of_app, Hinp', Hinpeq. reflexivity.
+        * exact HR'.
     Qed.
 
     Lemma weak_sim_correct :
