@@ -1586,3 +1586,5 @@ Definition consistent_good :=
   End graphs.
 
 End __.
+
+Arguments graph_node_state : clear implicits.

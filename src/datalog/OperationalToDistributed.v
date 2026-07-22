@@ -1,16 +1,3 @@
-(* Operational-to-distributed glue.
-
-   This file connects a concrete datalog program [p] to the purely-distributed
-   per-node semantics of Distributed.v.  It builds the graph program from [p] (one
-   node per non-meta rule via [node_prog_of], with a broadcast [forward]) and
-   proves the "very obviously equivalent to comp_step" facts: a node's deduce step
-   is exactly a [fire_at_rule] ([new_facts_iff_fire]) and a node's dequeue step is
-   a [learn_fact_at_rule] ([dequeue_learn]), under the delivery-as-stutter collapse
-   that reads a node's [waiting_facts] as its queue together with the messages in
-   flight to it.  The purely-distributed content -- the per-node liveness theorem
-   [spec_node_can_implies_will] for an arbitrary [spec_node_prog] -- lives in
-   Distributed.v. *)
-
 From Stdlib Require Import List PeanoNat Lia Permutation Classical_Prop.
 From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed.
 From coqutil Require Import Map.Interface.
@@ -22,28 +9,39 @@ Section __.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
   Context (is_input : rel -> bool).
-  Context (R_senders : rel -> list nat).
   Context (p : prog).
-  (* Standing program well-formedness (as in Operational), inherited as the
-     assumptions of this operational-to-distributed layer. *)
   Context (Hp_input : Forall (good_non_meta_rule is_input) p.(non_meta_rules)).
   Context (Hmeta_rules : meta_rules_valid (rules_of p)).
   Context (Hp_meta_input : Forall (good_meta_rule_inputs is_input) p.(meta_rules)).
 
-  Local Notation can_deduce_fact := (can_deduce_fact is_input R_senders).
-  Local Notation can_deduce_normal_fact := (can_deduce_normal_fact is_input R_senders).
-  Local Notation ok_to_deduce_fact := (ok_to_deduce_fact is_input R_senders).
-  Local Notation fire_at_rule := (fire_at_rule is_input R_senders p).
-  Local Notation new_facts := (Node.new_facts is_input R_senders).
+  Context {graph_state : map.map node_id (graph_node_state dfact dfact_mod_count Node.node_state)}.
+  Context {graph_state_ok : map.ok graph_state}.
 
-  (* ---- The graph program built from [p]. ---- *)
+  Local Notation R_senders := (Operational.R_senders is_input p).
+  Local Notation ok_to_deduce_fact := (Node.ok_to_deduce_fact R_senders).
+  Local Notation new_facts := (Node.new_facts R_senders).
+  Local Notation fire_at_rule := (Operational.fire_at_rule is_input p).
 
-  (* Node [n] runs the [n]-th non-meta rule together with all of [p]'s meta rules;
-     [spec_node_label := n] is the node's id, used as the "source" in meta facts. *)
-  Definition node_prog_of (r : non_meta_rule) (n : nat) : spec_node_prog :=
-    {| spec_node_rules :=
-        rule_of r :: map (fun '(c, h) => meta_rule c h) p.(meta_rules);
-      spec_node_label := n |}.
+  Definition node_rules_of (r : non_meta_rule) : list rule :=
+    rule_of r :: map (fun '(c, h) => meta_rule c h) p.(meta_rules).
+
+  Definition to_node_state (rs : node_state) : Node.node_state :=
+    {| Node.known_facts := rs.(Operational.known_facts);
+       Node.sent_facts := rs.(Operational.sent_facts) |}.
+
+  Definition node_states_agree (rs : node_state)
+    (gns : graph_node_state dfact dfact_mod_count Node.node_state) : Prop :=
+    Permutation rs.(Operational.known_facts) gns.(gns_node_state).(Node.known_facts) /\
+      Permutation rs.(Operational.sent_facts) gns.(gns_node_state).(Node.sent_facts) /\
+      Permutation rs.(Operational.waiting_facts) gns.(gns_queue).
+
+  Definition op_graph_equiv (ops : Operational.state) (gs : graph_state) : Prop :=
+    forall n,
+      match nth_error ops n, map.get gs n with
+      | Some rs, Some gns => node_states_agree rs gns
+      | None, None => True
+      | _, _ => False
+      end.
 
   (* Every deduced fact is broadcast to all nodes (including the deducer itself,
      matching [comp_step]'s [map (add_waiting_fact _)]). *)
@@ -74,16 +72,15 @@ Section __.
 
   (* A node's deduce step is exactly a [fire_at_rule] at that rule. *)
   Lemma new_facts_iff_fire (r : non_meta_rule) (n : nat) (rs : node_state) (f : dfact) :
-    new_facts (node_prog_of r n) rs f <->
+    new_facts (node_rules_of r) n (to_node_state rs) f <->
     fire_at_rule r n rs (send_fact f rs) f.
   Proof.
-    unfold Node.new_facts, node_prog_of, fire_at_rule, Operational.fire_at_rule,
-      can_fire_rule_at; cbn [spec_node_rules spec_node_label].
+    unfold Node.new_facts, node_rules_of, to_node_state, Operational.fire_at_rule,
+      can_fire_rule_at; cbn [Node.known_facts Node.sent_facts].
     split.
     - intros (Hex & Hall).
+      pose proof (Forall_inv Hall) as Hok_hd.
       apply Exists_cons in Hex.
-      assert (Hok_hd : ok_to_deduce_fact (rule_of r) rs.(known_facts) rs.(sent_facts) f)
-        by (inversion Hall; subst; assumption).
       destruct Hex as [Hhd | Htl].
       + exists (rule_of r).
         split; [left; reflexivity|]. split; [exact Hhd|]. split; [exact Hok_hd | reflexivity].
@@ -102,8 +99,9 @@ Section __.
         apply in_map_iff in Hin as ((c & h) & Heq & _). subst r'. apply ok_to_deduce_meta.
   Qed.
 
-  (* A node's dequeue step is a [learn_fact_at_rule] (moving the queue head into
-     [known]); the queue is the node's [waiting_facts]. *)
+  (* Learning an input fact: Node.v's [node_input_step] moves the received fact
+     into [known]; Operational.v realises the same move as a [learn_fact_at_rule]
+     that dequeues it from [waiting_facts]. *)
   Lemma dequeue_learn (rs : node_state) (input : dfact) (rest : list dfact) :
     rs.(waiting_facts) = input :: rest ->
     learn_fact_at_rule rs

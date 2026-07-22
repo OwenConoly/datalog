@@ -58,3 +58,4 @@ The `coqutil/` and `verified-scheduling/` directories are git submodules — don
 - Leave at least one blank line before each `Definition`/`Lemma`/`Theorem`.
 - Close arithmetic goals with `lia`; prefer the shortest tactic invocation that works.
 - No dependently typed code (`eq_rect`, dependent `match` on equality proofs).
+- Don't write comments about obvious things: no restating what a definition/lemma already says, no narrating Coq/section/`Arguments` mechanics, no justifying routine constructs. Comment only a genuinely non-obvious *why*, and keep it short. Default to no comment.
