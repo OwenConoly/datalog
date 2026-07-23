@@ -9,13 +9,13 @@ UTIL_VO_FILES := $(UTIL_V_FILES:%.v=%.vo)
 
 util: Makefile.coq
 	$(MAKE) -C coqutil
-	$(MAKE) -C verified-scheduling/src atl
 	$(MAKE) -f Makefile.coq $(UTIL_VO_FILES)
 
 datalog: util
 	$(MAKE) -f Makefile.coq src/datalog/Datalog.vo src/datalog/Blocks.vo src/datalog/Interpreter.vo src/datalog/AggregatingProgram.vo src/datalog/Node.vo src/datalog/Operational.vo src/datalog/Local.vo src/util/Graph.vo src/datalog/Distributed.vo src/datalog/OperationalWithIO.vo src/datalog/OperationalToDistributed.vo
 
 atl: datalog
+	$(MAKE) -C verified-scheduling/src atl
 	$(MAKE) -C verified-scheduling/src low
 	$(MAKE) -C verified-scheduling/src examples
 	$(MAKE) -C verified-scheduling/src codegen

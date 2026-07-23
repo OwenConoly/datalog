@@ -10,8 +10,8 @@ A Coq/Rocq 9.0 formalization of Datalog: core semantics, a verified interpreter,
 
 Submodules must be checked out first: `git submodule update --init --recursive`.
 
-- `make datalog` — the main dev target: builds `src/util` and the core `src/datalog` files (plus the coqutil and ATL prerequisites on first run, which is slow).
-- `make util` — just `src/util` and submodule prerequisites.
+- `make datalog` — the main dev target: builds `src/util` and the core `src/datalog` files (plus the coqutil prerequisite on first run). Does not build the verified-scheduling ATL library — only `make`/`make atl` do.
+- `make util` — just `src/util` and its coqutil prerequisite.
 - `make` (= `make all` = `make atl`) — everything, including verified-scheduling examples/codegen and `src/atl`. Slow; rarely needed for datalog work.
 - Single file (preferred iteration loop; handles dependency order):
   `make -f Makefile.coq src/datalog/Node.vo`

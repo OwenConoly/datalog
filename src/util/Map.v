@@ -1,8 +1,9 @@
-From ATL Require Import FrapWithoutSets.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.MapKeys Tactics Tactics.fwd Datatypes.Option Datatypes.List Eqb.
+From Stdlib Require Import List.
 From Datalog Require Import Eqb.
 From Datalog Require Import Tactics List.
 From Stdlib Require Import Permutation RelationClasses.
+Import ListNotations.
 
 Section MapKeysExtra.
   Context {key key' value : Type}.
@@ -745,45 +746,6 @@ Lemma putmany_None (m1 m2 : mp) k :
   map.get m2 k = None ->
   map.get (map.putmany m1 m2) k = None.
 Proof. map_solver mp_ok. Qed.
-
-Definition fmap_of (m : mp) :=
-  map.fold (@add _ _) $0 m.
-Opaque fmap_of.
-
-Lemma fmap_of_spec (m : mp) k :
-  fmap_of m $? k = map.get m k.
-Proof.
-  cbv [fmap_of]. apply map.fold_spec.
-  - rewrite map.get_empty, lookup_empty. reflexivity.
-  - intros k0 v m0 r H H0. rewrite map.get_put_dec. destr (eqb k0 k).
-    + apply lookup_add_eq. reflexivity.
-    + rewrite lookup_add_ne by auto. auto.
-Qed.
-
-Lemma fmap_of_empty :
-  fmap_of map.empty = $0.
-Proof.
-  apply fmap_ext. intros.
-  rewrite fmap_of_spec, map.get_empty, lookup_empty.
-  reflexivity.
-Qed.
-
-Lemma add_fmap_of m k v :
-  fmap_of m $+ (k, v) = fmap_of (map.put m k v).
-Proof.
-  apply fmap_ext. intros. rewrite fmap_of_spec.
-  rewrite map.get_put_dec. destr (eqb k k0).
-  - rewrite lookup_add_eq; auto.
-  - rewrite lookup_add_ne; auto. apply fmap_of_spec.
-Qed.
-
-Lemma fmap_of_extends_includes m1 m2 :
-  map.extends m2 m1 ->
-  fmap_of m1 $<= fmap_of m2.
-Proof.
-  intros H. apply includes_intro. intros k v Hkv.
-  rewrite fmap_of_spec in *. auto.
-Qed.
 
 Definition agree_on (m1 m2 : mp) k :=
   map.get m1 k = map.get m2 k.
