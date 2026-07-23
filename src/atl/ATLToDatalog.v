@@ -46,7 +46,7 @@ cause everything in the language is purely defined as fn, so maybe it wouldn't w
 having every fn term be uner the fn variant might be messy when it comes to interpreting them with return variables?? *)
 Variant fn : Set :=
   fn_Add | fn_Sub | fn_Divf | fn_Divc | fn_Mul | fn_Mod | fn_Z0 | fn_Pos | fn_Neg | fn_Nat | fn_Opp
-  | fn_Lit (x : Z) | fn_Lt | fn_Le | fn_And | fn_Not | fn_Div | fn_Get.
+  | fn_Lit (x : Z) | fn_Lt | fn_Le | fn_And | fn_Not | fn_Div | fn_Get | fn_Eq.
 
 Axiom (aggregator : Type).
 
@@ -202,6 +202,20 @@ Fixpoint lower_pBexpr {var} (e : pBexpr (var)) : pBexpr' (var) :=
 end.
 
 
+Print Bbop.
+
+Fixpoint lower_pBexpr' (e : pBexpr' nat) : expr exprvar fn :=
+  match e with
+  | BAnd x y => fun_expr fn_And [lower_pBexpr' x; lower_pBexpr' y]
+  | BBop o x y => 
+    match o with
+    | BLt => fun_expr fn_Lt [lower_pZexpr' x; lower_pZexpr' y]
+    | BLe => fun_expr fn_Le [lower_pZexpr' x; lower_pZexpr' y]
+    | BEq => fun_expr fn_Eq [lower_pZexpr' x; lower_pZexpr' y]
+    end
+end.
+
+
 Inductive pATLexpr' { var : type -> Type } : nat -> Type :=
   | Gen : forall n : nat,
           pZexpr' (var tZ) ->
@@ -275,19 +289,162 @@ Print pATLexpr'.
 Print Blocks.blocks_prog.
 Print Datalog.Blocks.block_rule.
 Print pATLexpr.
+Print var_expr.
+Print clause_rel.
+Print Zbop.
+Search Z.
+
+
+(* wrote this to translate a Zexpr into it's numerical value for some of the match cases with lower_pATLexpr' *)
+Fixpoint eval_pZexpr'_total { var : Type } (e : pZexpr' var) : option Z :=
+  match e with
+  | ZBop o x y =>
+    match eval_pZexpr'_total x, eval_pZexpr'_total y with
+    | Some x', Some y' => 
+      match o with
+      | ZTimes => Some (x' * y')%Z
+      | ZPlus => Some (x' + y')%Z
+      | ZDivf => Some (Z.div x' y')
+      | ZDivc => Some (Z.quot x' y')
+      | ZMinus => Some (x' - y')%Z
+      | ZMod => Some (Z.modulo x' y')
+      end
+    | _, _ => None
+    end
+  | ZVar x => None
+  | ZLit x => Some x
+  | Zopp x => option_map Z.opp (eval_pZexpr'_total x)
+end.
 
 Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exprvar) : blocks_prog var := 
   match e with
   | Gen n lo hi body => 
     lower_pATLexpr' (body (length idxs)) (idxs ++ [length idxs])
   | Sum n lo hi body => Block 0 [] []
-  | Guard n b e1 => Block 0 [] []
+  | Guard n b body =>
+    let dimvars := (seq O 8) in
+    let x := 8 in
+    let aux := 0 in
+      LetIn (lower_pATLexpr' body idxs) (fun val =>
+      Block 0 [(0, val)] 
+      [normal_rule 
+      [{| clause_rel := local 0;
+          clause_args := var_expr x ::
+                          map var_expr idxs ++
+                          map var_expr dimvars |}] 
+      [{| clause_rel := input 0;
+          clause_args := var_expr x ::
+                          map var_expr idxs ++
+                          map var_expr dimvars|};
+        {| clause_rel := input 0; clause_args := [lower_pBexpr' b] |}];
+      normal_rule 
+      [{| clause_rel := local 0;
+          clause_args := fun_expr (fn_Lit 0) [] ::
+                                   map var_expr idxs ++       
+                                   map var_expr dimvars |}] 
+      [{| clause_rel := input 0;
+          clause_args := [fun_expr fn_Not [lower_pBexpr' b]] |}]])
   | Lbind n m x f =>
     LetIn (lower_pATLexpr' x idxs) (fun val =>
       lower_pATLexpr' (f (val, (length idxs))) idxs)
-  | Concat n x y => Block 0 [] []
-  | Flatten n x => Block 0 [] []
-  | Split n k x => Block 0 [] []
+  | Concat n e1 e2 => 
+  (* using n instead of size of e1 here because e1 no longer has a size*)
+      let dimvars := seq O (n - 1) in
+      let dimvarO := n - 1 in
+      let x := n in
+      (* using 0 and 1 here for pragmatic reasons *)
+      let aux1 := 0 in
+      let aux2 := S aux1 in
+      let out := S aux2 in
+      let len1 := Z.of_nat match n with
+                    | 0 => 0
+                    | S n => n
+                    end in
+      LetIn (lower_pATLexpr' e1 idxs) (fun val1 =>
+        LetIn (lower_pATLexpr' e2 idxs) (fun val2 =>
+        (* i feel like i'm going to have to come up with better numbers eventually because everything
+        being 0 makes the names useless *)
+          Block 0 [(aux1, val1); (aux2, val2)] 
+          [normal_rule
+          (* i feel like this is probably wrong... i'm not sure how to add in true_rel here *)
+          [{| clause_rel := local out; clause_args := var_expr x :: map var_expr idxs ++ map var_expr (dimvarO :: dimvars) |}]
+          [{| clause_rel := input aux1; clause_args := var_expr x :: map var_expr idxs ++ map var_expr (dimvarO :: dimvars) |}];
+          normal_rule
+          [{| clause_rel := local out; clause_args := var_expr x :: map var_expr idxs ++ map var_expr (dimvarO :: dimvars) |}]
+          [{| clause_rel := input aux2; clause_args := var_expr x :: map var_expr idxs ++ fun_expr fn_Add [] :: map var_expr dimvars |}]]))
+  | Flatten n e => 
+  (* using n instead of e here because you can't get length from e anymore *)
+    let dimvars := (seq O (n - 2)) in
+      let dimvarO := (n - 2) in
+      let x := (n - 1) in
+      (* same as x but i feel like the match statement doesn't work here *)
+      let len2 := Z.of_nat (n - 1) in
+      let aux := 0 in
+      (* out is probably redundant here but it's just to show that there needs to be some number for the clause_rel of the rule *)
+      let out := S aux in
+      LetIn (lower_pATLexpr' e idxs) (fun val => 
+      Block out [(aux, val)] 
+      [normal_rule
+      [{| clause_rel := local out; clause_args := 
+                                 var_expr x ::
+                                   map var_expr idxs ++
+                                   var_expr dimvarO ::
+                                   map var_expr dimvars|}] 
+      [{| clause_rel := input aux; clause_args := var_expr x ::
+                                            map var_expr idxs ++
+                                            fun_expr fn_Divf
+                                            [var_expr dimvarO;
+                                             fun_expr (fn_Lit len2) []] ::
+                                            fun_expr fn_Mod
+                                            [var_expr dimvarO;
+                                             fun_expr (fn_Lit len2) []] ::
+                                            map var_expr dimvars |}]])
+  | Split n k e =>
+    let dimvars := (seq O (n - 1)) in
+    let dimvar1 := (n - 1) in
+    let dimvar2 := n in
+    let x := (S n) in
+    let k' := Z.of_nat (Z.to_nat (
+      match eval_pZexpr'_total k with
+      | Some kz => kz
+      | None => 0 end)) in
+    (* this is an issue because there's no way to get the len currently *)
+    let len := (Z.of_nat 0) in
+    let aux := 0 in
+    let out := S aux in
+    let pad_start := (len mod k')%Z in
+    (* i had to put the facts for the first rule's hypotheses' hypothesis in let statements because there were weird errors with brackets *)
+    let eq_check := fun_expr fn_Eq [var_expr dimvar1; fun_expr (fn_Lit (len / k')) []] in
+    let le_check := fun_expr fn_Le [fun_expr (fn_Lit pad_start) []; var_expr dimvar2] in
+    let bound_check := fun_expr fn_Not [fun_expr fn_And [eq_check; le_check]] in
+    LetIn (lower_pATLexpr' e idxs) (fun val =>
+      Block out [(aux, val)]
+      [normal_rule [{| clause_rel := local out; 
+                        clause_args := var_expr x ::
+                                   (map var_expr idxs ++
+                                   (var_expr dimvar1 ::
+                                   (var_expr dimvar2 ::
+                                   map var_expr dimvars)))|}] 
+                  [ {| clause_rel := input aux; 
+                        clause_args := var_expr x ::
+                                  (map var_expr idxs ++
+                                  (fun_expr fn_Add
+                                  [fun_expr fn_Mul
+                                      [var_expr dimvar1;
+                                      fun_expr (fn_Lit k') []];
+                                    var_expr dimvar2] ::
+                                  map var_expr dimvars)) |};
+                        {| clause_rel := input aux; clause_args := [bound_check] |} ];
+      normal_rule [ {| clause_rel := local out;
+                    clause_args := fun_expr (fn_Lit 0) [] ::
+                                   map var_expr idxs ++
+                                   fun_expr (fn_Lit (len / k')) [] ::
+                                   var_expr dimvar1 ::
+                                   map var_expr dimvars|}]
+                  [{| clause_rel := input aux;
+                    clause_args := [fun_expr fn_Le
+                                             [fun_expr (fn_Lit pad_start) [];
+                                              var_expr dimvar1]] |}]])
   | Transpose n x =>
     let dimvars := (seq O (n - 2)) in
       let dimvar1 := (n - 1) in
@@ -300,10 +457,111 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                     ++ [var_expr dimvar2] ++ [var_expr dimvar1] ++ map var_expr dimvars |}]
           [{| clause_rel := input (length idxs); clause_args := [var_expr Sn] ++ map var_expr idxs 
                     ++ [var_expr dimvar1] ++ [var_expr dimvar2] ++ map var_expr dimvars |}]])
-  | Truncr n k x => Block 0 [] []
-  | Truncl m k x => Block 0 [] []
-  | Padr k x => Block 0 [] []
-  | Padl k x => Block 0 [] []
+  | Truncr n k x => lower_pATLexpr' x idxs
+  | Truncl m k e => 
+    let dimvars := (seq O (m - 1)) in
+    let dimvar1 := (m - 1) in
+    (* placeholder *)
+    let x := m in
+    let k' :=   Z.of_nat (Z.to_nat (
+      match eval_pZexpr'_total k with
+      | Some kz => kz
+      | None => 0 end)) in
+    let aux := 0 in
+    LetIn (lower_pATLexpr' e idxs) (fun val =>
+      (* not sure what numbers to use for block's name + values here*)
+      Block 0 [(0, val)] 
+      [normal_rule 
+      [{| clause_rel := local (S aux); clause_args := 
+                                 var_expr x ::
+                                   map var_expr idxs ++
+                                   var_expr dimvar1 ::
+                                   map var_expr dimvars|}]
+      [{| clause_rel := input aux; clause_args := 
+                              var_expr x ::
+                                 map var_expr idxs ++
+                                 fun_expr fn_Add
+                                 [fun_expr (fn_Lit k') [];
+                                  var_expr dimvar1] ::
+                                 map var_expr dimvars  |}]])
+  | Padr k e => 
+  (* there's not even n here so i just picked a random number *)
+    let dimvars := seq O (8) in
+    let dimvar1 := 8 in
+    let x := 8 in
+    let k' := Z.of_nat (Z.to_nat (
+      match eval_pZexpr'_total k with
+      | Some kz => kz
+      | None => 0 end)) in
+    let aux := 0 in
+    let len := Z.of_nat 0 in
+    LetIn (lower_pATLexpr' e idxs) (fun val =>
+    (* again, using random numbers, i feel like there needs to be rational to this... *)
+      Block 0 [(0, val)] 
+      [normal_rule 
+      [{| clause_rel := local 0;
+          clause_args := var_expr x ::
+                    map var_expr idxs ++
+                    var_expr dimvar1 ::
+                    map var_expr dimvars |}] 
+      [{| clause_rel := input aux;
+          clause_args := var_expr x ::
+                          map var_expr idxs ++
+                          var_expr dimvar1 ::
+                          map var_expr dimvars|};
+        {| clause_rel := input aux;
+          clause_args := [fun_expr fn_Lt
+                            [var_expr dimvar1;
+                              fun_expr (fn_Lit len) []]] |}];
+      normal_rule 
+      [{| clause_rel := local 0;
+          clause_args := fun_expr (fn_Lit 0) [] ::
+                            map var_expr idxs ++
+                            var_expr dimvar1 ::
+                            map var_expr dimvars |}] 
+      [{| clause_rel := input aux;
+          clause_args := [fun_expr fn_Le
+                            [fun_expr (fn_Lit len) [];
+                              var_expr dimvar1]] |}]])
+  | Padl k e =>
+  (* again, using random numbers here *)
+    let dimvars := seq O (7) in
+    let dimvar1 := 6 in
+    let x := 7 in
+    let k' := Z.of_nat (Z.to_nat (
+      match eval_pZexpr'_total k with
+      | Some kz => kz
+      | None => 0 end)) in
+    let aux := 0 in
+    LetIn (lower_pATLexpr' e idxs) (fun val =>
+    Block 0 [(0, val)] 
+    [normal_rule 
+    [{| clause_rel := local 0; 
+      clause_args := var_expr x ::
+                      map var_expr idxs ++
+                      var_expr dimvar1 ::
+                      map var_expr dimvars|}] 
+    [{| clause_rel := input 0;
+      clause_args := var_expr x ::
+                    map var_expr idxs ++
+                    fun_expr fn_Sub
+                    [var_expr dimvar1;
+                    fun_expr (fn_Lit k') []] ::
+                    map var_expr dimvars |};
+      {| clause_rel := input 0;
+      clause_args := [fun_expr fn_Le
+                      [fun_expr (fn_Lit k') [];
+                      var_expr dimvar1]] |}];
+    normal_rule 
+    [{| clause_rel := local 0;
+    clause_args := fun_expr (fn_Lit 0) [] ::
+                    map var_expr idxs ++
+                    var_expr dimvar1 ::
+                    map var_expr dimvars |}] 
+    [{| clause_rel := input 0;
+    clause_args := [fun_expr fn_Lt
+                    [var_expr dimvar1;
+                    fun_expr (fn_Lit k') []]] |}]])
   | Scalar x => 
     let '(value, hyps, next_varname, correspondences) := (lower_pSexpr' idxs 0 x) in
       Block next_varname correspondences 
@@ -312,7 +570,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
 
 Definition lower_main {var n} (e : pATLexpr (var_of var) n) : blocks_prog var :=
   let '(e') := lower_pATLexpr e in
-  lower_pATLexpr' e'.
+  lower_pATLexpr' e' [].
 
 
 
