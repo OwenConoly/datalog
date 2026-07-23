@@ -1400,7 +1400,11 @@ Section __.
     | normal_fact R args => knows_dfact s (normal_dfact R args)
     | meta_fact R mf_args mf_set =>
         if is_input R then
-          exists num, knows_dfact s (meta_dfact R mf_args None num)
+          Exists (fun rs =>
+                    exists num,
+                      rule_has_dfact rs (meta_dfact R mf_args None num) /\
+                        Existsn (dfact_matches R mf_args) num (rs.(known_facts) ++ rs.(waiting_facts)))
+                 s
         else
           forall k, k < length p.(non_meta_rules) ->
             exists num,
