@@ -170,7 +170,8 @@ Section __.
     - intros f (Hderiv & _). exfalso. destruct f as [R args | R a set].
       + eapply knows_dfact_initial; exact Hderiv.
       + cbn in Hderiv. destruct (is_input R).
-        * destruct Hderiv as (num & Hk). eapply knows_dfact_initial; exact Hk.
+        * apply Exists_exists in Hderiv. destruct Hderiv as (rs & Hin & num & Hrh & _).
+          eapply knows_dfact_initial. apply Exists_exists. exists rs. split; [exact Hin | exact Hrh].
         * specialize (Hderiv 0 Hlen). destruct Hderiv as (num & Hk).
           eapply knows_dfact_initial; exact Hk.
   Qed.
