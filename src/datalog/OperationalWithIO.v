@@ -1,4 +1,4 @@
-From Stdlib Require Import List PeanoNat Lia.
+From Stdlib Require Import List PeanoNat Lia Classical_Prop.
 From Datalog Require Import Datalog Node Operational Smallstep List.
 From coqutil Require Import Map.Interface Datatypes.List.
 Import ListNotations.
@@ -175,10 +175,82 @@ Section __.
           eapply knows_dfact_initial; exact Hk.
   Qed.
 
+  Lemma knows_add_self (f : dfact) (s : state) :
+    s <> [] -> knows_dfact (map (add_waiting_fact f) s) f.
+  Proof.
+    destruct s as [|rs0 rest]; [congruence|]. intros _.
+    cbn [map]. apply Exists_cons_hd.
+    unfold rule_has_dfact, add_waiting_fact. cbn. right. left. reflexivity.
+  Qed.
+
+  Lemma knows_add_iff (f : dfact) (s : state) (g : dfact) :
+    s <> [] ->
+    (knows_dfact (map (add_waiting_fact f) s) g <-> g = f \/ knows_dfact s g).
+  Proof.
+    intros Hne. split.
+    - apply knows_dfact_add_waiting.
+    - intros [-> | Hk].
+      + apply knows_add_self; exact Hne.
+      + apply knows_dfact_add_waiting_mono; exact Hk.
+  Qed.
+
+  Lemma s_nonempty (l : list dfact) (s : state) : sane_state l s -> s <> [].
+  Proof.
+    intros Hsane Heq. destruct Hsane as [Hl _ _ _ _ _ _].
+    rewrite Heq in Hl. cbn in Hl. lia.
+  Qed.
+
   Lemma add_input_sane (l : list dfact) (f : dfact) (s : state) :
     good_input_facts (f :: l) -> sane_state l s ->
     sane_state (f :: l) (map (add_waiting_fact f) s).
-  Admitted.
+  Proof.
+    intros Hgood Hsane.
+    pose proof (s_nonempty _ _ Hsane) as Hne.
+    destruct Hgood as [Hall _].
+    pose proof (Forall_inv Hall) as Hf_in.
+    destruct Hsane as [Hlen' Him Ilm Irh Icnt Iir Iik].
+    constructor.
+    - rewrite length_map. exact Hlen'.
+    - intros R a num H. apply (knows_add_iff f s _ Hne) in H. destruct H as [Heq | Hk].
+      + rewrite <- Heq. apply in_eq.
+      + apply in_cons. apply Him. exact Hk.
+    - intros R a n num H. apply (knows_add_iff f s _ Hne) in H. destruct H as [Heq | Hk].
+      + exfalso. rewrite <- Heq in Hf_in. cbn in Hf_in. discriminate.
+      + specialize (Ilm R a n num Hk). unfold nth_sat in *. rewrite nth_error_map.
+        destruct (nth_error s n); exact Ilm.
+    - intros g H. apply (knows_add_iff f s _ Hne) in H. apply Forall_map.
+      destruct H as [Heq | Hk].
+      + apply Forall_forall. intros rs _.
+        unfold rule_has_dfact, add_waiting_fact. cbn. right. rewrite Heq. apply in_eq.
+      + eapply Forall_impl; [| exact (Irh g Hk)]. intros rs Hrh.
+        unfold rule_has_dfact, add_waiting_fact in *. cbn in *.
+        destruct Hrh as [Hk'|Hw]; [left; exact Hk' | right; apply in_cons; exact Hw].
+    - intros R a. destruct (Icnt R a) as (ms & ni & HF2 & Hexl & HFa).
+      destruct (classic (dfact_matches R a f)) as [Hm | Hm].
+      + exists ms, (S ni). split; [| split].
+        * rewrite <- Forall2_map_l. exact HF2.
+        * apply Existsn_yes; [exact Hm | exact Hexl].
+        * apply Forall_map. eapply Forall_impl; [| exact HFa].
+          intros rs (nk & nw & Hnk & Hnw & Hsum). exists nk, (S nw).
+          cbn [add_waiting_fact known_facts waiting_facts].
+          split; [exact Hnk|]. split; [apply Existsn_yes; [exact Hm | exact Hnw] | lia].
+      + exists ms, ni. split; [| split].
+        * rewrite <- Forall2_map_l. exact HF2.
+        * apply Existsn_no; [exact Hm | exact Hexl].
+        * apply Forall_map. eapply Forall_impl; [| exact HFa].
+          intros rs (nk & nw & Hnk & Hnw & Hsum). exists nk, nw.
+          cbn [add_waiting_fact known_facts waiting_facts].
+          split; [exact Hnk|]. split; [apply Existsn_no; [exact Hm | exact Hnw] | exact Hsum].
+    - intros R Hinp. destruct (Iir R Hinp) as [Hsent Hnk]. split.
+      + intros a. apply Forall_map. exact (Hsent a).
+      + intros a n num Hbad. apply (knows_add_iff f s _ Hne) in Hbad.
+        destruct Hbad as [Heq | Hk].
+        * rewrite <- Heq in Hf_in. cbn in Hf_in. discriminate.
+        * exact (Hnk a n num Hk).
+    - intros g Hin. destruct Hin as [Heq | Hin].
+      + subst g. apply knows_add_self. exact Hne.
+      + apply knows_dfact_add_waiting_mono. apply Iik. exact Hin.
+  Qed.
 
   Lemma add_input_sc (l : list dfact) (f : dfact) (s : state) :
     good_input_facts (f :: l) -> sane_state l s -> state_correct l s ->
