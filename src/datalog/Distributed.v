@@ -8,6 +8,15 @@ Section Distributed.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
+  Context {prog_map : map.map node_id (list rule)} {prog_map_ok : map.ok prog_map}.
+
+  Definition layout_good
+    (rel_input_allowed : node_id -> rel -> bool)
+    (rel_forward : node_id -> node_id -> rel -> bool)
+    (rel_visible : node_id -> rel -> bool)
+    (p : prog_map)
+    : bool.
+  Abort.
 
   Context (R_senders : rel -> list (option node_id)).
   Context (R_senders_NoDup : forall R, NoDup (R_senders R)).
@@ -39,7 +48,6 @@ Section Distributed.
     destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
   Qed.
 
-  Context {prog_map : map.map node_id (list rule)} {prog_map_ok : map.ok prog_map}.
   Context (graph_prog : prog_map).
   Context (Hmrv : Forall_map (fun _ p => meta_rules_valid p) graph_prog).
   Context (Hsender : Forall_map (sends_concl_rels R_senders) graph_prog).
@@ -288,11 +296,10 @@ Section Distributed.
     apply node_outputs_well_formed; [ exact forward_rel_level | eapply Hsender; eauto ].
   Qed.
 
-  Local Notation gstep := (graph_step input_allowed forward output_visible nstep).
-  Local Notation gia := (graph_inputs_allowed allowed_output).
+  Definition distributed_step := graph_step input_allowed forward output_visible nstep.
 
   Theorem distributed_might_implies_will :
-    might_implies_will_equiv gstep (graph_equiv dfact_equiv) gia initial_graph_state.
+    might_implies_will_equiv distributed_step (graph_equiv dfact_equiv) (graph_inputs_allowed allowed_output) initial_graph_state.
   Proof.
     intros.
     pose proof initial_graph_state_empty as Hemp.

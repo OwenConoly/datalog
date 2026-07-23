@@ -17,6 +17,10 @@ Section __.
   Context {graph_state : map.map node_id (graph_node_state dfact dfact_mod_count Node.node_state)}.
   Context {graph_state_ok : map.ok graph_state}.
 
+  Context (rel_input_allowed : node_id -> rel -> bool).
+  Context (rel_forward : node_id -> node_id -> rel -> bool).
+  Context (rel_visible : node_id -> rel -> bool).
+
   Local Notation R_senders := (Operational.R_senders is_input p).
   Local Notation ok_to_deduce_fact := (Node.ok_to_deduce_fact R_senders).
   Local Notation new_facts := (Node.new_facts R_senders).
@@ -89,5 +93,8 @@ Section __.
     intros Hwait. unfold learn_fact_at_rule. exists (@nil dfact), input, rest.
     cbn. rewrite Hwait. repeat split; reflexivity.
   Qed.
+
+  Local Notation distributed_step := (distributed_step R_senders rel_input_allowed rel_forward rel_visible).
+  Check distributed_step.
 
 End __.
