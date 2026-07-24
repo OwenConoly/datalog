@@ -205,8 +205,9 @@ Section subset.
     incl l2 l.
   Proof. intros H. cbv [incl] in *. intros. apply H. apply in_app_iff. auto. Qed.
 
-  (*I would like to do some magic to make this infer the eqb to use, but idk how*)
-  (*hmm i am making my compiler take quadratic time.  i guess it already did though.*)
+  (*same as coqutil dedup, except we use the Eqb typeclass*)
+  Definition dedup := List.dedup eqb.
+
   Definition inclb (l1 l2 : list A) :=
     forallb (fun x => existsb (eqb x) l2) l1.
 
