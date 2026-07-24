@@ -1078,7 +1078,7 @@ Section __.
         -- right. exact Hexp_h.
         -- destruct Hexp_h as (expected_msgss & Hf2 & Hsum).
            exists expected_msgss. split; [|exact Hsum].
-           eapply Forall2_impl_strong; [|exact Hf2].
+           eapply Forall2_impl_strong; [exact Hf2|].
            intros n_pos exp_n Hin_old _ _. apply in_cons. exact Hin_old.
       * apply Existsn_no; [|exact Hex_h].
         intros [nf_args_w [Hwf_eq Hmatch_w]].
@@ -3423,7 +3423,7 @@ Section __.
       + apply Hincl. exact Hexp_int.
       + destruct Hexp_int as (msgs & Hf2 & Heq).
         exists msgs. split; [|exact Heq].
-        eapply Forall2_impl_strong; [|exact Hf2].
+        eapply Forall2_impl_strong; [exact Hf2|].
         intros n exp Hexp Hn_in Hexp_in. apply Hincl. exact Hexp.
     - exact Hex_w_0.
   Qed.
@@ -3518,7 +3518,7 @@ Section __.
              ++ apply Hincl. exact Hexp_h.
              ++ destruct Hexp_h as (msgs & Hf2 & Heq).
                 exists msgs. split; [|exact Heq].
-                eapply Forall2_impl_strong; [|exact Hf2].
+                eapply Forall2_impl_strong; [exact Hf2|].
                 intros n exp Hexp_in _ _. apply Hincl. exact Hexp_in.
           -- exact Hex_w_0_h_final.
         * (* Forall (knows_datalog_fact rs_k'.known) hs — already from IH *)
