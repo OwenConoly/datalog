@@ -1,7 +1,7 @@
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 
-From coqutil Require Import Map.Interface Tactics.fwd Datatypes.List Decidable Tactics.destr.
+From coqutil Require Import Map.Interface Tactics.fwd Datatypes.List Decidable Tactics.destr Eqb.
 
 From Datalog Require Import Datalog Tactics List.
 
@@ -123,19 +123,19 @@ Qed.
 
 Definition clause_relvarmap {rel1 rel2 var1 var2 fn}
            (fr : rel1 -> rel2) (fv : var1 -> var2)
-           (c : clause rel1 var1 fn) : clause rel2 var2 fn :=
+           (c : @clause rel1 var1 fn) : @clause rel2 var2 fn :=
   {| clause_rel := fr c.(clause_rel);
      clause_args := map (expr_varmap fv) c.(clause_args) |}.
 
 Definition meta_clause_relvarmap {rel1 rel2 var1 var2 fn}
            (fr : rel1 -> rel2) (fv : var1 -> var2)
-           (c : meta_clause rel1 var1 fn) : meta_clause rel2 var2 fn :=
+           (c : @meta_clause rel1 var1 fn) : @meta_clause rel2 var2 fn :=
   {| meta_clause_rel := fr c.(meta_clause_rel);
      meta_clause_args := map (option_map (expr_varmap fv)) c.(meta_clause_args) |}.
 
 Definition rule_relvarmap {rel1 rel2 var1 var2 fn agg}
            (fr : rel1 -> rel2) (fv : var1 -> var2)
-           (r : rule rel1 var1 fn agg) : rule rel2 var2 fn agg :=
+           (r : @rule rel1 var1 fn agg) : @rule rel2 var2 fn agg :=
   match r with
   | normal_rule concls hyps =>
       normal_rule (map (clause_relvarmap fr fv) concls)
@@ -148,41 +148,42 @@ Definition rule_relvarmap {rel1 rel2 var1 var2 fn agg}
   end.
 
 Definition fact_relmap {rel1 rel2 T} (fr : rel1 -> rel2)
-           (f : fact rel1 T) : fact rel2 T :=
+           (f : @fact rel1 T) : @fact rel2 T :=
   match f with
   | normal_fact R args => normal_fact (fr R) args
   | meta_fact R args mf_set => meta_fact (fr R) args mf_set
   end.
 
 Section Nattify.
-  Context {rel var fn aggregator : Type}.
+  Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
 
-  Context {rel_eqb : rel -> rel -> bool}
-          {rel_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rel_eqb x y)}.
-  Context {var_eqb : var -> var -> bool}
-          {var_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (var_eqb x y)}.
+  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
+  Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
+
+  Let rel_eqb_dec : EqDecider (eqb (A := rel)) := ltac:(exact _).
+  Let var_eqb_dec : EqDecider (eqb (A := var)) := ltac:(exact _).
 
   (* --- 1. Enumerate atoms appearing in syntax --- *)
 
-  Fixpoint rels_of_expr (e : expr var fn) : list rel :=
+  Fixpoint rels_of_expr (e : @expr var fn) : list rel :=
     match e with
     | var_expr _ => []
     | fun_expr _ args => flat_map rels_of_expr args
     end.
 
-  Definition rels_of_clause (c : clause rel var fn) : list rel :=
+  Definition rels_of_clause (c : @clause rel var fn) : list rel :=
     c.(clause_rel) :: flat_map rels_of_expr c.(clause_args).
 
-  Definition vars_of_clause' (c : clause rel var fn) : list var :=
+  Definition vars_of_clause' (c : @clause rel var fn) : list var :=
     flat_map vars_of_expr c.(clause_args).
 
-  Definition rels_of_meta_clause (c : meta_clause rel var fn) : list rel :=
+  Definition rels_of_meta_clause (c : @meta_clause rel var fn) : list rel :=
     c.(meta_clause_rel) :: flat_map rels_of_expr (keep_Some c.(meta_clause_args)).
 
-  Definition vars_of_meta_clause' (c : meta_clause rel var fn) : list var :=
+  Definition vars_of_meta_clause' (c : @meta_clause rel var fn) : list var :=
     flat_map vars_of_expr (keep_Some c.(meta_clause_args)).
 
-  Definition rels_of_rule (r : rule rel var fn aggregator) : list rel :=
+  Definition rels_of_rule (r : @rule rel var fn aggregator) : list rel :=
     match r with
     | normal_rule concls hyps =>
         flat_map rels_of_clause (concls ++ hyps)
@@ -191,7 +192,7 @@ Section Nattify.
     | agg_rule cr _ hr => [cr; hr]
     end.
 
-  Definition vars_of_rule (r : rule rel var fn aggregator) : list var :=
+  Definition vars_of_rule (r : @rule rel var fn aggregator) : list var :=
     match r with
     | normal_rule concls hyps =>
         flat_map vars_of_clause' (concls ++ hyps)
@@ -200,9 +201,9 @@ Section Nattify.
     | agg_rule _ _ _ => []
     end.
 
-  Definition rels_of_prog (p : list (rule rel var fn aggregator)) : list rel :=
+  Definition rels_of_prog (p : list (@rule rel var fn aggregator)) : list rel :=
     flat_map rels_of_rule p.
-  Definition vars_of_prog (p : list (rule rel var fn aggregator)) : list var :=
+  Definition vars_of_prog (p : list (@rule rel var fn aggregator)) : list var :=
     flat_map vars_of_rule p.
 
   (* --- 2. Tables --- *)
@@ -211,35 +212,35 @@ Section Nattify.
     { tbl_rels : list rel;
       tbl_vars : list var }.
 
-  Definition tables_of_prog (p : list (rule rel var fn aggregator)) : nattify_tables :=
-    {| tbl_rels := dedup rel_eqb (rels_of_prog p);
-       tbl_vars := dedup var_eqb (vars_of_prog p) |}.
+  Definition tables_of_prog (p : list (@rule rel var fn aggregator)) : nattify_tables :=
+    {| tbl_rels := dedup eqb (rels_of_prog p);
+       tbl_vars := dedup eqb (vars_of_prog p) |}.
 
   (* --- 3. Encoding atoms as nats --- *)
 
   Definition encode_rel (t : nattify_tables) (R : rel) : nat :=
-    find_index rel_eqb t.(tbl_rels) R.
+    find_index eqb t.(tbl_rels) R.
   Definition encode_var (t : nattify_tables) (v : var) : nat :=
-    find_index var_eqb t.(tbl_vars) v.
+    find_index eqb t.(tbl_vars) v.
 
   (* --- 4. The nattify pass --- *)
 
   Definition nattify_rule (t : nattify_tables)
-             (r : rule rel var fn aggregator) : rule nat nat fn aggregator :=
+             (r : @rule rel var fn aggregator) : @rule nat nat fn aggregator :=
     rule_relvarmap (encode_rel t) (encode_var t) r.
 
-  Definition nattify_prog (p : list (rule rel var fn aggregator))
-    : list (rule nat nat fn aggregator) * nattify_tables :=
+  Definition nattify_prog (p : list (@rule rel var fn aggregator))
+    : list (@rule nat nat fn aggregator) * nattify_tables :=
     let t := tables_of_prog p in
     (map (nattify_rule t) p, t).
 
-  Definition nattify_fact {T : Type} (t : nattify_tables) (f : fact rel T) : fact nat T :=
+  Definition nattify_fact {T : Type} (t : nattify_tables) (f : @fact rel T) : @fact nat T :=
     fact_relmap (encode_rel t) f.
 
   (* === Correctness === *)
 
   Section Correctness.
-    Context {T : Type}.
+    Context {T : valueT}.
     Context `{sig : signature fn aggregator T}.
     Context {context : map.map var T} {context_ok : map.ok context}.
     Context {nat_context : map.map nat T} {nat_context_ok : map.ok nat_context}.
@@ -385,7 +386,7 @@ Section Nattify.
 
     Lemma interp_expr_nattify
       (t : nattify_tables) (ctx : context) (ctxn : nat_context)
-      (e : expr var fn) (v : T) :
+      (e : @expr var fn) (v : T) :
       ctx_corresp t ctx ctxn ->
       incl (vars_of_expr e) t.(tbl_vars) ->
       (interp_expr ctx e v <->
@@ -408,7 +409,7 @@ Section Nattify.
         + invert Hint.
           econstructor; [|eassumption].
           rewrite <- Forall2_map_l.
-          eapply Forall2_impl_strong; [|eassumption].
+          eapply Forall2_impl_strong; [eassumption|].
           intros a a' Ha Hain _.
           rewrite Forall_forall in IHargs, Hincls.
           eapply IHargs; eauto.
@@ -418,7 +419,7 @@ Section Nattify.
           match goal with
           | H : Forall2 _ (map _ _) _ |- _ =>
               rewrite <- Forall2_map_l in H;
-              eapply Forall2_impl_strong; [|exact H]
+              eapply Forall2_impl_strong; [exact H|]
           end.
           intros a a' Ha Hain _.
           rewrite Forall_forall in IHargs, Hincls.
@@ -427,7 +428,7 @@ Section Nattify.
 
     Lemma interp_clause_nattify
       (t : nattify_tables) (ctx : context) (ctxn : nat_context)
-      (c : clause rel var fn) (f : fact rel T) :
+      (c : @clause rel var fn) (f : @fact rel T) :
       ctx_corresp t ctx ctxn ->
       NoDup t.(tbl_rels) ->
       In c.(clause_rel) t.(tbl_rels) ->
@@ -451,7 +452,7 @@ Section Nattify.
         + injection Heq as Hrel Hargs. subst R. subst args.
           exists nf_args. split; [|reflexivity].
           rewrite <- Forall2_map_l.
-          eapply Forall2_impl_strong; [|eassumption].
+          eapply Forall2_impl_strong; [eassumption|].
           intros a a' Ha Hain _.
           rewrite Forall_forall in Hincl_each.
           apply (proj1 (interp_expr_nattify t ctx ctxn a a' Hcorresp (Hincl_each _ Hain))).
@@ -461,7 +462,7 @@ Section Nattify.
           { eapply find_index_inj; eauto. }
           subst R. exists args. split; [|reflexivity].
           rewrite <- Forall2_map_l in Hfa.
-          eapply Forall2_impl_strong; [|exact Hfa].
+          eapply Forall2_impl_strong; [exact Hfa|].
           intros a a' Ha Hain _.
           rewrite Forall_forall in Hincl_each.
           apply (proj2 (interp_expr_nattify t ctx ctxn a a' Hcorresp (Hincl_each _ Hain))).
@@ -472,7 +473,7 @@ Section Nattify.
 
     Lemma interp_meta_clause_nattify
       (t : nattify_tables) (ctx : context) (ctxn : nat_context)
-      (c : meta_clause rel var fn) (f : fact rel T) :
+      (c : @meta_clause rel var fn) (f : @fact rel T) :
       ctx_corresp t ctx ctxn ->
       NoDup t.(tbl_rels) ->
       In c.(meta_clause_rel) t.(tbl_rels) ->
@@ -504,7 +505,7 @@ Section Nattify.
           subst R. subst mf_args. subst mf_set.
           exists mf_args', mf_set'. split; [|reflexivity].
           rewrite <- Forall2_map_l.
-          eapply Forall2_impl_strong; [|eassumption].
+          eapply Forall2_impl_strong; [eassumption|].
           intros [a|] [ay|] Ha Hain _; simpl in Ha |- *;
             try contradiction; try discriminate; try reflexivity.
           rewrite Forall_forall in Hincl_each.
@@ -517,7 +518,7 @@ Section Nattify.
           { eapply find_index_inj; eauto. }
           subst R. exists mf_args, mf_set. split; [|reflexivity].
           rewrite <- Forall2_map_l in Hfa.
-          eapply Forall2_impl_strong; [|exact Hfa].
+          eapply Forall2_impl_strong; [exact Hfa|].
           intros [a|] [ay|] Ha Hain _; simpl in Ha |- *;
             try contradiction; try discriminate; try reflexivity.
           rewrite Forall_forall in Hincl_each.
@@ -528,11 +529,11 @@ Section Nattify.
 
     (* --- Rule-level lemmas --- *)
 
-    Lemma nattify_fact_rel_of (t : nattify_tables) (f : fact rel T) :
+    Lemma nattify_fact_rel_of (t : nattify_tables) (f : @fact rel T) :
       rel_of (nattify_fact t f) = encode_rel t (rel_of f).
     Proof. destruct f; reflexivity. Qed.
 
-    Lemma nattify_fact_eq_in_tbl (t : nattify_tables) (f1 f2 : fact rel T) :
+    Lemma nattify_fact_eq_in_tbl (t : nattify_tables) (f1 f2 : @fact rel T) :
       nattify_fact t f1 = nattify_fact t f2 ->
       In (rel_of f1) t.(tbl_rels) ->
       In (rel_of f2) t.(tbl_rels).
@@ -545,12 +546,12 @@ Section Nattify.
         [assumption|].
       exfalso.
       cbv [encode_rel] in Henc.
-      apply (find_index_In_lt rel_eqb) in Hin1.
-      apply (find_index_not_In_eq rel_eqb) in Hni.
+      apply (find_index_In_lt eqb) in Hin1.
+      apply (find_index_not_In_eq eqb) in Hni.
       rewrite Henc, Hni in Hin1. apply Nat.lt_irrefl in Hin1. assumption.
     Qed.
 
-    Lemma nattify_fact_inj (t : nattify_tables) (f1 f2 : fact rel T) :
+    Lemma nattify_fact_inj (t : nattify_tables) (f1 f2 : @fact rel T) :
       NoDup t.(tbl_rels) ->
       In (rel_of f1) t.(tbl_rels) ->
       In (rel_of f2) t.(tbl_rels) ->
@@ -567,7 +568,7 @@ Section Nattify.
     Qed.
 
     Definition decode_fact (default : rel) (t : nattify_tables)
-                           (fnat : fact nat T) : fact rel T :=
+                           (fnat : @fact nat T) : @fact rel T :=
       match fnat with
       | normal_fact n args => normal_fact (nth n t.(tbl_rels) default) args
       | meta_fact n args mfset => meta_fact (nth n t.(tbl_rels) default) args mfset
@@ -587,7 +588,7 @@ Section Nattify.
       - apply IH. assumption.
     Qed.
 
-    Lemma decode_nattify_inverse (default : rel) (t : nattify_tables) (f : fact rel T) :
+    Lemma decode_nattify_inverse (default : rel) (t : nattify_tables) (f : @fact rel T) :
       In (rel_of f) t.(tbl_rels) ->
       decode_fact default t (nattify_fact t f) = f.
     Proof.
@@ -604,7 +605,7 @@ Section Nattify.
     Qed.
 
     Lemma fnat_decodable_to_original
-      (t : nattify_tables) (default : rel) (fnat : fact nat T) (R0 : rel) :
+      (t : nattify_tables) (default : rel) (fnat : @fact nat T) (R0 : rel) :
       NoDup t.(tbl_rels) ->
       nth_error t.(tbl_rels) (rel_of fnat) = Some R0 ->
       In (rel_of (decode_fact default t fnat)) t.(tbl_rels) /\
@@ -612,7 +613,7 @@ Section Nattify.
     Proof.
       intros Hnd Hnth.
       assert (HinR0 : In R0 t.(tbl_rels)) by (eapply nth_error_In; eassumption).
-      assert (Hfind : find_index rel_eqb t.(tbl_rels) R0 = rel_of fnat).
+      assert (Hfind : find_index eqb t.(tbl_rels) R0 = rel_of fnat).
       { eapply find_index_nth_error_NoDup; eauto. }
       destruct fnat as [n args|n args mfset]; simpl in *;
         rewrite (nth_error_to_nth _ _ _ default Hnth);
@@ -620,7 +621,7 @@ Section Nattify.
     Qed.
 
     Lemma map_nattify_eq_normal_facts
-      (t : nattify_tables) (hyps : list (fact rel T))
+      (t : nattify_tables) (hyps : list (@fact rel T))
       (hr : rel) (args0 : list T) (vals : list (T * T)) :
       NoDup t.(tbl_rels) ->
       In hr t.(tbl_rels) ->
@@ -643,8 +644,8 @@ Section Nattify.
     Qed.
 
     Lemma non_meta_rule_impl_nattify
-      (t : nattify_tables) (r : rule rel var fn aggregator)
-      (R : rel) (args : list T) (hyps : list (fact rel T)) :
+      (t : nattify_tables) (r : @rule rel var fn aggregator)
+      (R : rel) (args : list T) (hyps : list (@fact rel T)) :
       NoDup t.(tbl_rels) ->
       NoDup t.(tbl_vars) ->
       incl (rels_of_rule r) t.(tbl_rels) ->
@@ -678,7 +679,7 @@ Section Nattify.
                               Hcorresp Hnd_r Hcrel Hcvars Hin_R)).
               exact H0p1. }
           * rewrite <- Forall2_map_l. rewrite <- Forall2_map_r.
-            eapply Forall2_impl_strong; [|eassumption].
+            eapply Forall2_impl_strong; [eassumption|].
             intros c h Hch Hcin Hhin.
             assert (Hcrel : In c.(clause_rel) t.(tbl_rels)).
             { apply Hincl_r. simpl. apply in_flat_map. exists c.
@@ -722,7 +723,7 @@ Section Nattify.
                             Hcorresp Hnd_r Hcrel Hcvars Hin_R)).
             exact HExp1.
           * rewrite <- Forall2_map_l in HFa. rewrite <- Forall2_map_r in HFa.
-            eapply Forall2_impl_strong; [|eassumption].
+            eapply Forall2_impl_strong; [eassumption|].
             intros c h Hch Hcin Hhin.
             assert (Hcrel : In c.(clause_rel) t.(tbl_rels)).
             { apply Hincl_r. simpl. apply in_flat_map. exists c.
@@ -772,7 +773,7 @@ Section Nattify.
     Qed.
 
     Lemma extensionally_equal_nattify
-      (t : nattify_tables) (f1 f2 : fact rel T) :
+      (t : nattify_tables) (f1 f2 : @fact rel T) :
       NoDup t.(tbl_rels) ->
       In (rel_of f1) t.(tbl_rels) ->
       In (rel_of f2) t.(tbl_rels) ->
@@ -795,7 +796,7 @@ Section Nattify.
     Qed.
 
     Lemma fact_matches_nattify
-      (t : nattify_tables) (nf mf : fact rel T) :
+      (t : nattify_tables) (nf mf : @fact rel T) :
       NoDup t.(tbl_rels) ->
       In (rel_of nf) t.(tbl_rels) ->
       In (rel_of mf) t.(tbl_rels) ->
@@ -823,7 +824,7 @@ Section Nattify.
     Qed.
 
     Lemma fact_supported_nattify
-      (t : nattify_tables) (mhyps : list (fact rel T)) (f : fact rel T) :
+      (t : nattify_tables) (mhyps : list (@fact rel T)) (f : @fact rel T) :
       NoDup t.(tbl_rels) ->
       In (rel_of f) t.(tbl_rels) ->
       Forall (fun h => In (rel_of h) t.(tbl_rels)) mhyps ->
@@ -853,7 +854,7 @@ Section Nattify.
           assumption.
     Qed.
 
-    Lemma hyp_rels_incl_rels_of_rule (r : rule rel var fn aggregator) :
+    Lemma hyp_rels_incl_rels_of_rule (r : @rule rel var fn aggregator) :
       incl (hyp_rels r) (rels_of_rule r).
     Proof.
       destruct r as [concls hyps|concls hyps|cr ag hr]; simpl; intros x Hx.
@@ -865,26 +866,26 @@ Section Nattify.
     Qed.
 
     Lemma rels_of_rule_in_tbl
-      (p : list (rule rel var fn aggregator)) (r : rule rel var fn aggregator) :
+      (p : list (@rule rel var fn aggregator)) (r : @rule rel var fn aggregator) :
       In r p ->
       incl (rels_of_rule r) (tables_of_prog p).(tbl_rels).
     Proof.
       intros Hr x Hx. cbv [tables_of_prog tbl_rels].
-      apply dedup_In; [exact rel_eqb_spec|].
+      apply dedup_In; [exact rel_eqb_dec|].
       cbv [rels_of_prog]. apply in_flat_map. eauto.
     Qed.
 
     Lemma vars_of_rule_in_tbl
-      (p : list (rule rel var fn aggregator)) (r : rule rel var fn aggregator) :
+      (p : list (@rule rel var fn aggregator)) (r : @rule rel var fn aggregator) :
       In r p ->
       incl (vars_of_rule r) (tables_of_prog p).(tbl_vars).
     Proof.
       intros Hr x Hx. cbv [tables_of_prog tbl_vars].
-      apply dedup_In; [exact var_eqb_spec|].
+      apply dedup_In; [exact var_eqb_dec|].
       cbv [vars_of_prog]. apply in_flat_map. eauto.
     Qed.
 
-    Lemma hyp_rels_nattify_rule (t : nattify_tables) (r : rule rel var fn aggregator) :
+    Lemma hyp_rels_nattify_rule (t : nattify_tables) (r : @rule rel var fn aggregator) :
       hyp_rels (nattify_rule t r) = map (encode_rel t) (hyp_rels r).
     Proof.
       destruct r as [concls hyps|concls hyps|cr ag hr];
@@ -892,10 +893,10 @@ Section Nattify.
     Qed.
 
     Lemma one_step_derives_nattify
-      (p : list (rule rel var fn aggregator))
+      (p : list (@rule rel var fn aggregator))
       (t := tables_of_prog p)
       (p' := fst (nattify_prog p))
-      (mhyps : list (fact rel T)) (R : rel) (args : list T) :
+      (mhyps : list (@fact rel T)) (R : rel) (args : list T) :
       In R t.(tbl_rels) ->
       Forall (fun h => In (rel_of h) t.(tbl_rels)) mhyps ->
       (one_step_derives p mhyps R args <->
@@ -904,10 +905,10 @@ Section Nattify.
       intros HinR Hmhyps_in.
       assert (Hnd_r : NoDup t.(tbl_rels)).
       { unfold t. cbv [tables_of_prog tbl_rels].
-        apply (dedup_NoDup rel_eqb). }
+        apply (dedup_NoDup eqb). }
       assert (Hnd_v : NoDup t.(tbl_vars)).
       { unfold t. cbv [tables_of_prog tbl_vars].
-        apply (dedup_NoDup var_eqb). }
+        apply (dedup_NoDup eqb). }
       cbv [one_step_derives one_step_derives0].
       split.
       - (* fwd *)
@@ -958,7 +959,7 @@ Section Nattify.
           destruct Hhyps_nat_rels as [R0 [HReq HRin]].
           exists R0. split.
           - cbv [encode_rel] in HReq. rewrite <- HReq.
-            apply (find_index_In rel_eqb). apply Hrels_in. apply Hhyp_in. assumption.
+            apply (find_index_In eqb). apply Hrels_in. apply Hhyp_in. assumption.
           - apply Hrels_in. apply Hhyp_in. assumption. }
         assert (Hhyps_in_tbl : Forall (fun h => In (rel_of h) t.(tbl_rels)) orig_hyps).
         { subst orig_hyps. rewrite Forall_forall. intros h Hh.
@@ -1000,10 +1001,10 @@ Section Nattify.
     Qed.
 
     Lemma rule_impl_nattify
-      (p : list (rule rel var fn aggregator))
+      (p : list (@rule rel var fn aggregator))
       (t := tables_of_prog p)
       (p' := fst (nattify_prog p))
-      (r : rule rel var fn aggregator) (f : fact rel T) (hyps : list (fact rel T)) :
+      (r : @rule rel var fn aggregator) (f : @fact rel T) (hyps : list (@fact rel T)) :
       In r p ->
       In (rel_of f) t.(tbl_rels) ->
       Forall (fun h => In (rel_of h) t.(tbl_rels)) hyps ->
@@ -1013,9 +1014,9 @@ Section Nattify.
     Proof.
       intros Hrin Hf_in Hhyps_in.
       assert (Hnd_r : NoDup t.(tbl_rels)).
-      { unfold t. cbv [tables_of_prog tbl_rels]. apply (dedup_NoDup rel_eqb). }
+      { unfold t. cbv [tables_of_prog tbl_rels]. apply (dedup_NoDup eqb). }
       assert (Hnd_v : NoDup t.(tbl_vars)).
-      { unfold t. cbv [tables_of_prog tbl_vars]. apply (dedup_NoDup var_eqb). }
+      { unfold t. cbv [tables_of_prog tbl_vars]. apply (dedup_NoDup eqb). }
       assert (Hrels_in : incl (rels_of_rule r) t.(tbl_rels))
         by (apply rels_of_rule_in_tbl; assumption).
       assert (Hvars_in : incl (vars_of_rule r) t.(tbl_vars))
@@ -1049,7 +1050,7 @@ Section Nattify.
                               Hcorresp Hnd_r Hcrel Hcvars Hf_in)).
               exact H0p1. }
           * rewrite <- Forall2_map_l. rewrite <- Forall2_map_r.
-            eapply Forall2_impl_strong; [|eassumption].
+            eapply Forall2_impl_strong; [eassumption|].
             intros c h Hch Hcin Hhin.
             assert (Hcrel : In c.(meta_clause_rel) t.(tbl_rels)).
             { apply Hrels_in. cbv [rels_of_rule]. apply in_flat_map. exists c.
@@ -1104,7 +1105,7 @@ Section Nattify.
                             Hcorresp Hnd_r Hcrel Hcvars Hf_in)).
             exact HExp1.
           * rewrite <- Forall2_map_l in HFa. rewrite <- Forall2_map_r in HFa.
-            eapply Forall2_impl_strong; [|eassumption].
+            eapply Forall2_impl_strong; [eassumption|].
             intros c h Hch Hcin Hhin.
             assert (Hcrel : In c.(meta_clause_rel) t.(tbl_rels)).
             { apply Hrels_in. cbv [rels_of_rule]. apply in_flat_map.
@@ -1138,7 +1139,7 @@ Section Nattify.
 
     (* --- Main correctness theorem --- *)
 
-    Lemma concl_rels_in_rels_of_rule (r : rule rel var fn aggregator) :
+    Lemma concl_rels_in_rels_of_rule (r : @rule rel var fn aggregator) :
       incl (concl_rels r) (rels_of_rule r).
     Proof.
       destruct r as [concls hyps|concls hyps|cr ag hr]; simpl; intros x Hx.
@@ -1152,8 +1153,8 @@ Section Nattify.
     Qed.
 
     Lemma prog_impl_rel_in_table
-      (p : list (rule rel var fn aggregator))
-      (Q : fact rel T -> Prop) (f : fact rel T) :
+      (p : list (@rule rel var fn aggregator))
+      (Q : @fact rel T -> Prop) (f : @fact rel T) :
       let t := tables_of_prog p in
       (forall f0, Q f0 -> In (rel_of f0) t.(tbl_rels)) ->
       prog_impl p Q f ->
@@ -1167,14 +1168,14 @@ Section Nattify.
         apply rule_impl_concl_relname_in in Hrimpl.
         apply concl_rels_in_rels_of_rule in Hrimpl.
         subst t. cbv [tables_of_prog tbl_rels].
-        apply dedup_In; [exact rel_eqb_spec|].
+        apply dedup_In; [exact rel_eqb_dec|].
         cbv [rels_of_prog]. apply in_flat_map. eauto.
     Qed.
 
     Theorem nattify_prog_correct
-      (p : list (rule rel var fn aggregator))
-      (Q : fact rel T -> Prop)
-      (f : fact rel T) :
+      (p : list (@rule rel var fn aggregator))
+      (Q : @fact rel T -> Prop)
+      (f : @fact rel T) :
       let t  := tables_of_prog p in
       let p' := fst (nattify_prog p) in
       In (rel_of f) t.(tbl_rels) ->
@@ -1214,7 +1215,7 @@ Section Nattify.
       - (* backward *)
         intros Hprog.
         assert (Hnd_r : NoDup t.(tbl_rels)).
-        { unfold t. cbv [tables_of_prog tbl_rels]. apply (dedup_NoDup rel_eqb). }
+        { unfold t. cbv [tables_of_prog tbl_rels]. apply (dedup_NoDup eqb). }
         assert (Hgen :
           forall fnat,
             prog_impl p'
@@ -1258,7 +1259,7 @@ Section Nattify.
               destruct Hhyps_nat_rels as [R0 [HReq HRin]].
               exists R0. split.
               - cbv [encode_rel] in HReq. rewrite <- HReq.
-                apply (find_index_In rel_eqb).
+                apply (find_index_In eqb).
                 apply Hrels_in. apply Hhyp_in. assumption.
               - apply Hrels_in. apply Hhyp_in. assumption. }
             set (orig_hyps := map (decode_fact (rel_of f0) t) hyps_nat).
