@@ -557,11 +557,14 @@ Section Map.
     map.fold (fun (m' : mp') k v => map.put m' k (f k v)) map.empty m.
 
   (*d is a default value... basically, we consider the map to be total, with not-included values mapping to d*)
-  Definition mupd_total d m k f :=
+  Definition mupd_total d f m k :=
     match map.get m k with
     | Some v => map.put m k (f v)
     | None => map.put m k (f d)
     end.
+
+  Definition mupd_with_default `{WithDefault value} f m k :=
+    mupd_total default f m k.
 
   Definition mupd m k f :=
     match map.get m k with
@@ -594,6 +597,14 @@ Section Map.
     map.get m k = None -> get_or_default m k = default.
   Proof. cbv [get_or_default]. apply get_or_None. Qed.
 
+  Lemma get_or_put d (m : mp) k v k' :
+    get_or d (map.put m k v) k' = if eqb k k' then v else get_or d m k'.
+  Proof. cbv [get_or]. rewrite map.get_put_dec. now destr (eqb k k'). Qed.
+
+  Lemma get_or_default_put `{WithDefault value} (m : mp) k v k' :
+    get_or_default (map.put m k v) k' = if eqb k k' then v else get_or_default m k'.
+  Proof. cbv [get_or_default]. apply get_or_put. Qed.
+
   Definition val_sat (m : mp) (k : key) (P : value -> Prop) : Prop :=
     exists v, map.get m k = Some v /\ P v.
 
@@ -608,6 +619,14 @@ Section Map.
     - rewrite map.get_put_dec. reflexivity.
     - destr (eqb k k'); [subst; exact E | reflexivity].
   Qed.
+
+  Lemma mupd_total_eq_put d f (m : mp) k :
+    mupd_total d f m k = map.put m k (f (get_or d m k)).
+  Proof. cbv [mupd_total get_or]. now destruct (map.get m k). Qed.
+
+  Lemma mupd_with_default_eq_put `{WithDefault value} f (m : mp) k :
+    mupd_with_default f m k = map.put m k (f (get_or_default m k)).
+  Proof. cbv [mupd_with_default get_or_default]. apply mupd_total_eq_put. Qed.
 
   Lemma get_map_values' (f : key -> value -> value') (m : mp) (k : key) :
     map.get (map_values' f m) k = option_map (f k) (map.get m k).
@@ -941,6 +960,29 @@ Definition union_with (f : value -> value -> value) (m1 m2 : mp) : mp :=
     | None => map.put acc k v2
     end) m1 m2.
 
+Lemma union_with_get f m1 m2 k :
+  map.get (union_with f m1 m2) k =
+    match map.get m1 k, map.get m2 k with
+    | Some v1, Some v2 => Some (f v1 v2)
+    | Some v1, None => Some v1
+    | None, Some v2 => Some v2
+    | None, None => None
+    end.
+Proof.
+  cbv [union_with]. revert k.
+  eapply map.fold_spec.
+  - intros k. rewrite map.get_empty. now destruct (map.get m1 k).
+  - intros k0 v m r Hnone IH k.
+    assert (Hr0 : map.get r k0 = map.get m1 k0).
+    { specialize (IH k0). rewrite Hnone in IH. now destruct (map.get m1 k0). }
+    cbv beta. rewrite Hr0.
+    destruct (map.get m1 k0) eqn:E0; rewrite ?map.get_put_dec; destr (eqb k0 k).
+    + rewrite E0. reflexivity.
+    + apply IH.
+    + rewrite E0. reflexivity.
+    + apply IH.
+Qed.
+
 Definition compatible_union (m1 m2 : mp) : option mp :=
   if agree_on_overlapb m1 m2 then Some (map.putmany m1 m2) else None.
 
@@ -1022,6 +1064,8 @@ End Map.
 
 Section InvertListMap.
   Context {A B : Type}.
+  Context {A_eqb : Eqb A} {A_eqb_ok : Eqb_ok A_eqb}.
+  Context {B_eqb : Eqb B} {B_eqb_ok : Eqb_ok B_eqb}.
   Context {mpAB : map.map A (list B)} {mpAB_ok : map.ok mpAB}.
   Context {mpBA : map.map B (list A)} {mpBA_ok : map.ok mpBA}.
 
@@ -1029,9 +1073,43 @@ Section InvertListMap.
      [m a] contains [b].  Inputs are nodup sets and each key [a] is visited once, so the result's
      value-lists are nodup too. *)
   Definition invert (m : mpAB) : mpBA :=
-    map.fold (fun acc a bs =>
-      fold_left (fun acc' b => map.put acc' b (a :: get_or_default acc' b)) bs acc)
-      map.empty m.
+    map.fold (fun acc a bs => fold_left (mupd_with_default (cons a)) bs acc) map.empty m.
+
+  Lemma get_or_default_mupd_with_default_cons (a0 : A) (m : mpBA) k k' :
+    get_or_default (mupd_with_default (cons a0) m k) k'
+    = if eqb k k' then a0 :: get_or_default m k else get_or_default m k'.
+  Proof. rewrite mupd_with_default_eq_put, get_or_default_put. reflexivity. Qed.
+
+  Lemma in_get_or_default_invert_step (a0 : A) bs (acc : mpBA) b a :
+    In a (get_or_default (fold_left (mupd_with_default (cons a0)) bs acc) b)
+    <-> In a (get_or_default acc b) \/ (a = a0 /\ In b bs).
+  Proof.
+    revert acc. induction bs as [|b0 bs IH]; intros acc.
+    - cbn [fold_left In]. tauto.
+    - cbn [fold_left]. rewrite IH, get_or_default_mupd_with_default_cons.
+      destr (eqb b0 b); cbn [In]; intuition (subst; solve [auto | congruence]).
+  Qed.
+
+  Lemma in_get_or_default_invert (m : mpAB) b a :
+    In a (get_or_default (invert m) b) <-> exists bs, map.get m a = Some bs /\ In b bs.
+  Proof.
+    cbv [invert]. revert a b. eapply map.fold_spec.
+    - intros a b. split.
+      + intros Hin. cbv [get_or_default get_or default list_default] in Hin.
+        rewrite map.get_empty in Hin. cbn [In] in Hin. contradiction.
+      + intros (bs & H & _). rewrite map.get_empty in H. discriminate.
+    - intros a0 bs0 m0 acc Hnone IH a b.
+      rewrite (in_get_or_default_invert_step a0 bs0 acc b a), IH, map.get_put_dec.
+      destr (eqb a0 a).
+      + split.
+        * intros [(bs & Hg & _) | [_ Hin]].
+          -- rewrite Hnone in Hg. discriminate.
+          -- exists bs0. split; [reflexivity | exact Hin].
+        * intros (bs & Heq & Hin). inversion Heq; subst. right. split; [reflexivity | exact Hin].
+      + split.
+        * intros [H | [Heq _]]; [exact H | congruence].
+        * intros H. left. exact H.
+  Qed.
 End InvertListMap.
 
 (* How [concat (values (map_values' F ·))] transforms under [put]/[get] — the
