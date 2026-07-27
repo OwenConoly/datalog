@@ -676,99 +676,252 @@ Lemma fact_matches_map_bw f1 f2 :
   Qed.
 
   (*now an easier theorem: if f happens to be injective, then the renaming is automatically correct*)
-  Context (f_inj : forall x y, f x = f y -> x = y).
+
+  Lemma concl_in_all (r : @rule rel1 exprvar fn aggregator) x :
+    In x (concl_rels r) -> In x (all_rels r).
+  Proof. cbv [all_rels]. intros. apply in_or_app. auto. Qed.
+
+  Lemma hyp_in_all (r : @rule rel1 exprvar fn aggregator) x :
+    In x (hyp_rels r) -> In x (all_rels r).
+  Proof. cbv [all_rels]. intros. apply in_or_app. auto. Qed.
 
   Lemma map_fact_inj_g a b :
+    (f (rel_of a) = f (rel_of b) -> rel_of a = rel_of b) ->
     map_fact a = map_fact b -> a = b.
   Proof.
-    intros H. eapply map_fact_inj; [|exact H].
-    intros y Hy. apply f_inj. exact Hy.
+    intros Hinj H.
+    destruct a as [Ra ? | Ra ? ?], b as [Rb ? | Rb ? ?];
+      cbv [map_fact rel_of] in *; inversion H; subst;
+      assert (Ra = Rb) by (apply Hinj; assumption); subst; reflexivity.
   Qed.
 
-  Lemma Forall2_fact_equiv_eq l1 l2 :
-    Forall2 fact_equiv l1 l2 -> l1 = l2.
+  Lemma Forall2_fact_equiv_map_eq l1 l2 :
+    Forall2 fact_equiv l1 l2 -> map map_fact l1 = map map_fact l2.
   Proof.
-    induction 1; [reflexivity|].
-    f_equal; [apply map_fact_inj_g; exact H | exact IHForall2].
+    induction 1; simpl; [reflexivity|]. cbv [fact_equiv] in H. congruence.
   Qed.
 
-  Lemma non_meta_rule_impl_map_bw_inj r R args hyps :
-    non_meta_rule_impl (map_rule_rels r) (f R) args (map map_fact hyps) ->
-    non_meta_rule_impl r R args hyps.
+  Lemma non_meta_rule_impl_map_bw_recover r Rimg args hyps_m :
+    non_meta_rule_impl (map_rule_rels r) Rimg args hyps_m ->
+    exists R0 hyps0,
+      Rimg = f R0 /\ In R0 (concl_rels r) /\ hyps_m = map map_fact hyps0 /\
+      non_meta_rule_impl r R0 args hyps0.
   Proof.
-    intros H. apply non_meta_rule_impl_map_bw in H. fwd.
-    cbv [rel_equiv] in Hp0. apply f_inj in Hp0. subst.
-    apply Forall2_fact_equiv_eq in Hp1. subst. exact Hp2.
+    intros H.
+    pose proof (non_meta_rule_impl_concl_relname_in _ _ _ _ H) as Hin.
+    rewrite concl_rels_map_rule_rels in Hin. apply in_map_iff in Hin.
+    destruct Hin as (R0 & HR0eq & HR0in). subst Rimg.
+    pose proof H as Hinv. apply non_meta_rule_invert_map in Hinv.
+    destruct Hinv as [hyps_pre Hpre]. subst hyps_m.
+    apply non_meta_rule_impl_map_bw in H.
+    destruct H as (R0' & hyps0 & Hrel & Hfe & Hnm).
+    cbv [rel_equiv] in Hrel.
+    exists R0', hyps0. ssplit.
+    - exact Hrel.
+    - eapply non_meta_rule_impl_concl_relname_in. exact Hnm.
+    - apply Forall2_fact_equiv_map_eq. exact Hfe.
+    - exact Hnm.
   Qed.
 
-  Lemma fact_supported_map_iff_inj meta_facts g :
-    fact_supported meta_facts g <->
+  Lemma Forall2_interp_meta_clause_recover ctx cs hs :
+    Forall2 (interp_meta_clause ctx) (map map_meta_clause_rel cs) hs ->
+    exists hs0, hs = map map_fact hs0 /\ Forall2 (interp_meta_clause ctx) cs hs0.
+  Proof.
+    revert hs. induction cs as [|c cs IH]; intros hs H; simpl in H.
+    - invert H. exists []. split; constructor.
+    - invert H. cbv [interp_meta_clause] in H2. fwd.
+      apply IH in H4. destruct H4 as (hs0 & Hhs0 & Hok). subst.
+      exists (meta_fact (meta_clause_rel c) mf_args mf_set :: hs0).
+      split; [reflexivity|]. constructor; [|exact Hok].
+      cbv [interp_meta_clause]. eauto.
+  Qed.
+
+  Lemma Forall2_interp_meta_clause_rel ctx (cs : list (@meta_clause rel1 exprvar fn))
+    (hs : list (@fact rel1 T)) :
+    Forall2 (interp_meta_clause ctx) cs hs ->
+    Forall (fun h => In (rel_of h) (map meta_clause_rel cs)) hs.
+  Proof.
+    induction 1 as [| c hh cs' hs' Hc Hrest IH]; simpl; constructor.
+    - cbv [interp_meta_clause] in Hc. fwd. subst. simpl. left. reflexivity.
+    - eapply Forall_impl; [|exact IH]. simpl. intros a Ha. right. exact Ha.
+  Qed.
+
+  Lemma extensionally_equal_map_bw_inj g mf :
+    (f (rel_of g) = f (rel_of mf) -> rel_of g = rel_of mf) ->
+    extensionally_equal (map_fact g) (map_fact mf) ->
+    extensionally_equal g mf.
+  Proof.
+    intros Hinj H.
+    destruct g as [Rg ag | Rg mg sg], mf as [Rm am | Rm mm sm];
+      cbv [extensionally_equal map_fact rel_of] in *; try contradiction; fwd;
+      assert (Rg = Rm) by (apply Hinj; assumption); subst; auto.
+  Qed.
+
+  Lemma fact_matches_map_bw_inj g mf :
+    (f (rel_of g) = f (rel_of mf) -> rel_of g = rel_of mf) ->
+    fact_matches (map_fact g) (map_fact mf) ->
+    fact_matches g mf.
+  Proof.
+    intros Hinj H. cbv [fact_matches] in H. fwd.
+    destruct g as [Rg ag | Rg mg sg]; cbv [map_fact] in Hp0; try discriminate.
+    destruct mf as [Rm am | Rm mm sm]; cbv [map_fact] in Hp1; try discriminate.
+    cbv [rel_of] in Hinj. invert Hp0. invert Hp1.
+    assert (Rg = Rm) by (apply Hinj; congruence). subst.
+    cbv [fact_matches]. do 4 eexists. ssplit; try reflexivity; eassumption.
+  Qed.
+
+  Lemma fact_supported_map_fw meta_facts g :
+    fact_supported meta_facts g ->
     fact_supported (map map_fact meta_facts) (map_fact g).
   Proof.
-    cbv [fact_supported]. rewrite Exists_map. split; intros H.
-    - eapply Exists_impl; [|exact H]. simpl. intros hyp [Hh|Hh].
-      + left. apply extensionally_equal_map_fw. exact Hh.
-      + right. apply fact_matches_map_fw. exact Hh.
-    - eapply Exists_impl; [|exact H]. simpl. intros hyp [Hh|Hh].
-      + left. apply extensionally_equal_map_bw in Hh. fwd.
-        cbv [fact_equiv] in Hhp0, Hhp1.
-        apply map_fact_inj_g in Hhp0, Hhp1. subst. exact Hhp2.
-      + right. apply fact_matches_map_bw in Hh. fwd.
-        cbv [fact_equiv] in Hhp0, Hhp1.
-        apply map_fact_inj_g in Hhp0, Hhp1. subst. exact Hhp2.
+    cbv [fact_supported]. rewrite Exists_map. intros H.
+    eapply Exists_impl; [|exact H]. simpl. intros hyp [Hh|Hh].
+    - left. apply extensionally_equal_map_fw. exact Hh.
+    - right. apply fact_matches_map_fw. exact Hh.
   Qed.
 
-  Lemma one_step_derives_map_iff_inj p meta_facts R args :
+  Lemma fact_supported_map_bw_inj meta_facts g :
+    (forall mf, In mf meta_facts ->
+       f (rel_of g) = f (rel_of mf) -> rel_of g = rel_of mf) ->
+    fact_supported (map map_fact meta_facts) (map_fact g) ->
+    fact_supported meta_facts g.
+  Proof.
+    intros Hinj H. cbv [fact_supported] in *. rewrite Exists_map in H.
+    apply Exists_exists in H. destruct H as (mf & Hin & Hdisj).
+    apply Exists_exists. exists mf. split; [exact Hin|].
+    destruct Hdisj as [Hh|Hh].
+    - left. eapply extensionally_equal_map_bw_inj; [|exact Hh]. apply Hinj. exact Hin.
+    - right. eapply fact_matches_map_bw_inj; [|exact Hh]. apply Hinj. exact Hin.
+  Qed.
+
+  Context
+    (p : list rule)
+      (f_inj : forall x y,
+          In x (flat_map all_rels p) ->
+          In y (flat_map all_rels p) ->
+          f x = f y ->
+          x = y).
+
+  Lemma rel_in_flat_map r x :
+    In r p -> In x (all_rels r) -> In x (flat_map all_rels p).
+  Proof. intros. apply in_flat_map. eauto. Qed.
+
+  Lemma prog_impl_bridge Q h g :
+    (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
+    (forall y, In y (flat_map all_rels p) -> f (rel_of h) = f y -> rel_of h = y) ->
+    fact_equiv h g ->
+    prog_impl p Q g ->
+    prog_impl p Q h.
+  Proof.
+    intros HQ Hh Hfe Hg.
+    pose proof Hg as Hg'. apply prog_impl_rel_of in Hg'.
+    destruct Hg' as [HQg | Hconcl].
+    - apply prog_impl_leaf. apply (proj2 (HQ h g Hfe)). exact HQg.
+    - assert (In (rel_of g) (flat_map all_rels p)) as Hgmem.
+      { apply in_flat_map in Hconcl. fwd. apply in_flat_map.
+        eexists. split; [eassumption|]. apply concl_in_all. assumption. }
+      assert (h = g) as ->; [|exact Hg].
+      apply map_fact_inj_g; [|exact Hfe]. intros Hfe2. apply Hh; assumption.
+  Qed.
+
+  Lemma one_step_derives_map_iff_inj meta_facts R args :
+    In R (flat_map all_rels p) ->
+    Forall (fun mf => In (rel_of mf) (flat_map all_rels p)) meta_facts ->
     one_step_derives p meta_facts R args <->
     one_step_derives (map map_rule_rels p) (map map_fact meta_facts) (f R) args.
   Proof.
-    cbv [one_step_derives one_step_derives0]. split; intros H; fwd.
+    intros HR Hmf. cbv [one_step_derives one_step_derives0]. split; intros H; fwd.
     - exists (map map_fact hyps). split.
       + apply Exists_map. eapply Exists_impl; [|exact Hp0]. simpl.
         intros r Hr. apply non_meta_rule_impl_map_fw. exact Hr.
       + rewrite Lists.List.Forall_map. eapply Forall_impl; [|exact Hp1]. simpl.
-        intros x Hx. apply fact_supported_map_iff_inj. exact Hx.
+        intros x Hx. apply fact_supported_map_fw. exact Hx.
     - apply Exists_map in Hp0. apply Exists_exists in Hp0. fwd.
-      pose proof Hp0p1 as Hinv. apply non_meta_rule_invert_map in Hinv. fwd. subst.
-      apply non_meta_rule_impl_map_bw_inj in Hp0p1.
+      apply non_meta_rule_impl_map_bw_recover in Hp0p1.
+      destruct Hp0p1 as (R0 & hyps0 & Hrel & HR0c & Heq & Hnm). subst.
+      assert (In R0 (flat_map all_rels p)) as HR0.
+      { eapply rel_in_flat_map; [exact Hp0p0|]. apply concl_in_all. exact HR0c. }
+      assert (R = R0) by (apply f_inj; assumption). subst R0.
       exists hyps0. split.
-      + apply Exists_exists. eexists. split; [exact Hp0p0|]. exact Hp0p1.
-      + rewrite Lists.List.Forall_map in Hp1. eapply Forall_impl; [|exact Hp1]. simpl.
-        intros fct Hfct. apply fact_supported_map_iff_inj. exact Hfct.
+      + apply Exists_exists. eexists. split; [exact Hp0p0|]. exact Hnm.
+      + rewrite Lists.List.Forall_map in Hp1.
+        pose proof (non_meta_rule_impl_hyp_relname_in _ _ _ _ Hnm) as Hhr.
+        apply Forall_forall. intros h Hh_in.
+        eapply fact_supported_map_bw_inj;
+          [| rewrite Forall_forall in Hp1; apply Hp1; exact Hh_in ].
+        intros mf Hmf_in Hfeq. apply f_inj; [| |exact Hfeq].
+        * eapply rel_in_flat_map; [exact Hp0p0|]. apply hyp_in_all.
+          rewrite Forall_forall in Hhr. apply Hhr. exact Hh_in.
+        * rewrite Forall_forall in Hmf. apply Hmf. exact Hmf_in.
   Qed.
 
-  Lemma rule_impl_map_iff_inj p r f0 hyps :
-    rule_impl (one_step_derives p) r f0 hyps <->
+  Lemma rule_impl_map_fw_inj r f0 hyps :
+    In r p ->
+    In (rel_of f0) (flat_map all_rels p) ->
+    Forall (fun h => In (rel_of h) (flat_map all_rels p)) hyps ->
+    rule_impl (one_step_derives p) r f0 hyps ->
     rule_impl (one_step_derives (map map_rule_rels p))
       (map_rule_rels r) (map_fact f0) (map map_fact hyps).
   Proof.
-    split; intros H.
-    - invert H.
-      + simpl. apply simple_rule_impl. apply non_meta_rule_impl_map_fw. exact H0.
-      + simpl. eapply meta_rule_impl.
-        * rewrite Exists_map. eapply Exists_impl; [|exact H0]. simpl.
-          intros c Hc. apply interp_meta_clause_map_fw in Hc. exact Hc.
-        * apply Forall2_interp_meta_clause_map_fw. exact H1.
-        * intros args'' Hargs. rewrite (H2 args'' Hargs).
-          apply one_step_derives_map_iff_inj.
-    - invert H.
-      + destruct f0; simpl in *; repeat invert_stuff.
-        apply simple_rule_impl. apply non_meta_rule_impl_map_bw_inj. eassumption.
-      + destruct f0; simpl in *; congruence || fwd.
-        destruct r; simpl in *; congruence || fwd.
-        apply Forall2_interp_meta_clause_map_bw in H3. fwd.
-        apply Forall2_fact_equiv_eq in H3p0. subst.
-        rewrite Exists_map in H2. apply Exists_exists in H2. fwd.
-        apply interp_meta_clause_map_bw with (h := meta_fact _ _ _) in H2p1. fwd.
-        cbv [fact_equiv] in H2p1p0. apply map_fact_inj_g in H2p1p0. subst.
-        eapply meta_rule_impl.
-        * apply Exists_exists. eexists. split; [exact H2p0|]. exact H2p1p1.
-        * exact H3p1.
-        * intros args'' Hargs. rewrite (H4 args'' Hargs). symmetry.
-          apply one_step_derives_map_iff_inj.
+    intros Hr Hf0 Hhyps H. invert H.
+    - simpl. apply simple_rule_impl. apply non_meta_rule_impl_map_fw. exact H0.
+    - simpl. eapply meta_rule_impl.
+      + rewrite Exists_map. eapply Exists_impl; [|exact H0]. simpl.
+        intros c Hc. apply interp_meta_clause_map_fw in Hc. exact Hc.
+      + apply Forall2_interp_meta_clause_map_fw. exact H1.
+      + intros args'' Hargs. rewrite (H2 args'' Hargs).
+        apply one_step_derives_map_iff_inj; [exact Hf0 | exact Hhyps].
   Qed.
 
-  Lemma prog_impl_map_fw_inj p Q f0 :
+  Lemma rule_impl_map_bw_recover r f_target hyps_m :
+    In r p ->
+    rule_impl (one_step_derives (map map_rule_rels p))
+      (map_rule_rels r) f_target hyps_m ->
+    exists f0 hyps0,
+      f_target = map_fact f0 /\
+      hyps_m = map map_fact hyps0 /\
+      In (rel_of f0) (flat_map all_rels p) /\
+      Forall (fun h => In (rel_of h) (flat_map all_rels p)) hyps0 /\
+      rule_impl (one_step_derives p) r f0 hyps0.
+  Proof.
+    intros Hr H. invert H.
+    - apply non_meta_rule_impl_map_bw_recover in H0.
+      destruct H0 as (R0 & hyps0 & Hrel & HR0c & Heq & Hnm).
+      exists (normal_fact R0 args), hyps0. ssplit.
+      + simpl. rewrite Hrel. reflexivity.
+      + exact Heq.
+      + simpl. eapply rel_in_flat_map; [exact Hr|]. apply concl_in_all. exact HR0c.
+      + pose proof (non_meta_rule_impl_hyp_relname_in _ _ _ _ Hnm) as Hhr.
+        eapply Forall_impl; [|exact Hhr]. simpl. intros h Hh.
+        eapply rel_in_flat_map; [exact Hr|]. apply hyp_in_all. exact Hh.
+      + apply simple_rule_impl. exact Hnm.
+    - destruct r as [rc rh | rc rh | cr ag hr]; simpl in *; try discriminate; fwd.
+      apply Forall2_interp_meta_clause_recover in H2.
+      destruct H2 as (hyps0 & Hhm & Hok). subst.
+      assert (Forall (fun h => In (rel_of h) (flat_map all_rels p)) hyps0) as Hhyps0.
+      { pose proof (Forall2_interp_meta_clause_rel _ _ _ Hok) as Hr0.
+        eapply Forall_impl; [|exact Hr0]. simpl. intros h Hh.
+        eapply rel_in_flat_map; [exact Hr|]. apply hyp_in_all. exact Hh. }
+      rewrite Exists_map in H1. apply Exists_exists in H1.
+      destruct H1 as (c & Hc & H1i).
+      cbv [interp_meta_clause] in H1i. destruct H1i as (mfa & mfs & Hae & Heq2).
+      invert Heq2.
+      assert (In (meta_clause_rel c) (flat_map all_rels p)) as HR0.
+      { eapply rel_in_flat_map; [exact Hr|]. apply concl_in_all. apply in_map_iff. eauto. }
+      exists (meta_fact (meta_clause_rel c) mfa S), hyps0. ssplit.
+      + reflexivity.
+      + reflexivity.
+      + exact HR0.
+      + exact Hhyps0.
+      + eapply meta_rule_impl.
+        * apply Exists_exists. exists c. split; [exact Hc|].
+          cbv [interp_meta_clause]. exists mfa, S. split; [exact Hae | reflexivity].
+        * exact Hok.
+        * intros args'' Hargs. rewrite (H3 args'' Hargs). symmetry.
+          apply one_step_derives_map_iff_inj; [exact HR0 | exact Hhyps0].
+  Qed.
+
+  Lemma prog_impl_map_fw_inj Q f0 :
     prog_impl p Q f0 ->
     prog_impl (map map_rule_rels p)
       (fun f' => exists f, f' = map_fact f /\ Q f) (map_fact f0).
@@ -778,40 +931,50 @@ Lemma fact_matches_map_bw f1 f2 :
     - apply Exists_exists in H. destruct H as [r [Hr_in Hr_impl]].
       eapply prog_impl_step.
       + apply Exists_map. apply Exists_exists. exists r. split; [exact Hr_in|].
-        apply rule_impl_map_iff_inj. exact Hr_impl.
+        eapply rule_impl_map_fw_inj; [exact Hr_in | | | exact Hr_impl].
+        * eapply rel_in_flat_map; [exact Hr_in|]. apply concl_in_all.
+          eapply rule_impl_concl_relname_in. exact Hr_impl.
+        * pose proof (rule_impl_hyp_relname_in _ _ _ _ Hr_impl) as Hhr.
+          eapply Forall_impl; [|exact Hhr]. simpl. intros h Hh.
+          eapply rel_in_flat_map; [exact Hr_in|]. apply hyp_in_all. exact Hh.
       + rewrite Lists.List.Forall_map. eapply Forall_impl; [|eassumption]. simpl. auto.
   Qed.
 
-  Lemma prog_impl_map_bw_inj p Q f_target :
+  Lemma prog_impl_map_bw_inj Q f_target :
+    (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
     prog_impl (map map_rule_rels p)
       (fun f' => exists f, f' = map_fact f /\ Q f) f_target ->
     exists f0, f_target = map_fact f0 /\ prog_impl p Q f0.
   Proof.
-    intros Hprog. induction Hprog.
+    intros HQ Hprog. induction Hprog.
     - fwd. eauto.
     - apply Exists_map in H. apply Exists_exists in H. fwd.
-      pose proof Hp1 as Htgt. apply rule_impl_map_rule_rels_f_target in Htgt. fwd. subst.
-      apply Forall_exists_r_Forall2 in H1. fwd.
-      pose proof H1 as H1'.
-      apply Forall2_flip in H1'. eapply Forall2_impl in H1'.
-      1: eapply Forall2_eq_map in H1'.
-      2: { intros. fwd. eauto. }
-      subst.
-      apply rule_impl_map_iff_inj in Hp1.
-      eexists. split; [reflexivity|].
+      eapply rule_impl_map_bw_recover in Hp1; [|exact Hp0].
+      destruct Hp1 as (f0 & hyps0 & Hxeq & Hleq & Hf0mem & Hhypsmem & Hnm). subst.
+      exists f0. split; [reflexivity|].
       eapply prog_impl_step.
-      { apply Exists_exists. eexists. split; [exact Hp0|]. exact Hp1. }
-      apply Forall2_forget_l in H1. eapply Forall_impl; [|exact H1].
-      simpl. intros g0 Hg0. fwd. assumption.
+      { apply Exists_exists. eexists. split; [exact Hp0|]. exact Hnm. }
+      rewrite Lists.List.Forall_map in H1.
+      apply Forall_forall. intros h Hh_in.
+      rewrite Forall_forall in H1, Hhypsmem.
+      specialize (H1 _ Hh_in). destruct H1 as (g & Hgeq & Hgprog).
+      eapply prog_impl_bridge;
+        [ exact HQ
+        | intros y Hy Hfy; apply f_inj; [ apply Hhypsmem; exact Hh_in | exact Hy | exact Hfy ]
+        | | exact Hgprog ].
+      cbv [fact_equiv]. exact Hgeq.
   Qed.
 
-  Lemma prog_impl_map_rule_rels_iff_inj p Q f0 :
+  Lemma prog_impl_map_rule_rels_iff_inj Q f0 :
+    (forall y, In y (flat_map all_rels p) -> f (rel_of f0) = f y -> rel_of f0 = y) ->
+    (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
     prog_impl p Q f0 <->
     prog_impl (map map_rule_rels p) (fun f' => exists f, f' = map_fact f /\ Q f) (map_fact f0).
   Proof.
-    split; intros H.
+    intros Hf0 HQ. split; intros H.
     - apply prog_impl_map_fw_inj. exact H.
-    - apply prog_impl_map_bw_inj in H. fwd.
-      apply map_fact_inj_g in Hp0. subst. exact Hp1.
+    - apply prog_impl_map_bw_inj in H; [|exact HQ]. fwd.
+      eapply prog_impl_bridge; [exact HQ | exact Hf0 | | exact Hp1].
+      cbv [fact_equiv]. exact Hp0.
   Qed.
 End RelMap.
