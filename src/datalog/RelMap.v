@@ -674,4 +674,9 @@ Lemma fact_matches_map_bw f1 f2 :
   Proof.
     destruct f0; reflexivity.
   Qed.
+
+  (*now an easier theorem: if f happens to be injective, then the renaming is automatically correct*)
+  Context (f_inj : forall x y, f x = f y -> x = y).
+
+  (*TODO prove analogy of prog_impl_map_rule_rels_iff*)
 End RelMap.
