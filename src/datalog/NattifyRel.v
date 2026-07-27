@@ -3,7 +3,7 @@ From Stdlib Require Import Lists.List.
 
 From coqutil Require Import Map.Interface Eqb Datatypes.List.
 
-From Datalog Require Import Datalog RelMap List.
+From Datalog Require Import Datalog RelMap List Default.
 
 Import ListNotations.
 
@@ -18,7 +18,7 @@ Section NattifyRel.
     dedup (flat_map all_rels p ++ input_rels).
 
   Definition encode_rel (p : list rule) (R : rel) : nat :=
-    index_of R (rel_table p).
+    unwrap_or (length (rel_table p)) (index_of R (rel_table p)).
 
   Definition nattify_rel_prog (p : list rule) :=
     map (map_rule_rels (encode_rel p)) p.
@@ -38,9 +38,7 @@ Section NattifyRel.
     intros Hatab Heq. cbv [nattify_rel_fact] in Heq.
     apply (map_fact_inj_g (encode_rel p) a b); [|exact Heq].
     intros Henc. cbv [encode_rel] in Henc.
-    assert (In (rel_of b) (rel_table p)) as Hbtab.
-    { apply index_of_lt_iff. rewrite <- Henc. apply index_of_lt_iff. exact Hatab. }
-    apply index_of_inj with (l := rel_table p); [exact Hatab | exact Hbtab | exact Henc].
+    apply index_of_unwrap_inj with (l := rel_table p); [exact Hatab | exact Henc].
   Qed.
 
   Theorem nattify_rel_correct p Q f0 :

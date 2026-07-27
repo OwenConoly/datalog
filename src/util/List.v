@@ -1,6 +1,6 @@
 From Stdlib Require Import Lists.List Permutation Bool Arith.PeanoNat Morphisms RelationClasses Classical_Prop.
 From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics Eqb.
-Require Import Datalog.Tactics Datalog.Eqb.
+Require Import Datalog.Tactics Datalog.Eqb Datalog.Default.
 Import ListNotations.
 
 Local Ltac invert_list_stuff' :=
@@ -553,55 +553,90 @@ Section search.
   Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.
   Implicit Type l : list A.
 
-  Fixpoint index_of (x : A) (l : list A) : nat :=
+  Fixpoint index_of (x : A) (l : list A) : option nat :=
     match l with
-    | [] => 0
-    | y :: l' => if eqb x y then 0 else S (index_of x l')
+    | [] => None
+    | y :: l' => if eqb x y then Some 0 else option_map S (index_of x l')
     end.
 
   Definition indexes_of (x : A) (l : list A) : list nat :=
     map fst (filter (fun p => eqb x (snd p)) (enumerate 0 l)).
 
-  Definition count_occ (x : A) (l : list A) : nat :=
-    length (filter (fun y => eqb x y) l).
+  Fixpoint count_occ (x : A) (l : list A) : nat :=
+    match l with
+    | [] => 0
+    | y :: l' => (if eqb x y then 1 else 0) + count_occ x l'
+    end.
+
+  Lemma index_of_Some x l i :
+    index_of x l = Some i -> nth_error l i = Some x.
+  Proof.
+    revert i. induction l as [|y l' IH]; intros i Heq; simpl in Heq; [discriminate|].
+    destr (eqb x y).
+    - injection Heq as <-. reflexivity.
+    - destruct (index_of x l') as [j|]; simpl in Heq; [|discriminate].
+      injection Heq as <-. simpl. apply IH. reflexivity.
+  Qed.
+
+  Lemma index_of_Some_In x l i :
+    index_of x l = Some i -> In x l.
+  Proof. intros H. apply index_of_Some in H. eapply nth_error_In. exact H. Qed.
+
+  Lemma index_of_Some_lt x l i :
+    index_of x l = Some i -> i < length l.
+  Proof.
+    intros H. apply index_of_Some in H. rewrite <- nth_error_Some, H. discriminate.
+  Qed.
 
   Lemma index_of_In x l :
-    In x l -> nth_error l (index_of x l) = Some x.
-  Proof.
-    induction l as [|y l' IH]; simpl; [contradiction|].
-    destr (eqb x y).
-    - intros _. reflexivity.
-    - intros [Heq|Hin]; [congruence|]. simpl. apply IH. exact Hin.
-  Qed.
-
-  Lemma index_of_not_In x l :
-    ~ In x l -> index_of x l = length l.
+    In x l -> exists i, index_of x l = Some i /\ nth_error l i = Some x.
   Proof.
     induction l as [|y l' IH]; simpl.
-    - intros _. reflexivity.
-    - intros Hni. destr (eqb x y).
-      + exfalso. apply Hni. left. reflexivity.
-      + simpl. f_equal. apply IH. intros Hin. apply Hni. right. exact Hin.
+    - intros [].
+    - intros Hin. destr (eqb x y).
+      + exists 0. split; reflexivity.
+      + destruct Hin as [Heq|Hin]; [congruence|].
+        specialize (IH Hin). destruct IH as (j & Hj & Hn).
+        exists (S j). rewrite Hj. split; [reflexivity | exact Hn].
   Qed.
 
-  Lemma index_of_le x l :
-    index_of x l <= length l.
+  Lemma index_of_inj l x y :
+    In x l -> In y l -> index_of x l = index_of y l -> x = y.
   Proof.
-    induction l as [|y l' IH]; simpl; [lia|].
-    destr (eqb x y); simpl; lia.
+    intros Hx Hy Heq.
+    destruct (index_of_In x l Hx) as (i & Hxi & Hxn).
+    destruct (index_of_In y l Hy) as (j & Hyj & Hyn).
+    rewrite Hxi, Hyj in Heq. injection Heq as <-. congruence.
   Qed.
 
-  Lemma index_of_lt_iff x l :
-    index_of x l < length l <-> In x l.
+  Lemma index_of_unwrap_inj l x y :
+    In x l ->
+    unwrap_or (length l) (index_of x l) = unwrap_or (length l) (index_of y l) -> x = y.
   Proof.
-    split.
-    - induction l as [|y l' IH]; simpl; [lia|].
-      destr (eqb x y); simpl.
-      + intros _. left. congruence.
-      + intros Hlt. right. apply IH. lia.
-    - induction l as [|y l' IH]; simpl; [contradiction|].
-      intros Hin. destr (eqb x y); simpl; [lia|].
-      destruct Hin as [Heq|Hin]; [congruence|]. specialize (IH Hin). lia.
+    intros Hx Heq. destruct (index_of_In x l Hx) as (i & Hxi & _).
+    rewrite Hxi in Heq. cbn in Heq.
+    destruct (index_of y l) as [j|] eqn:Ey; cbn in Heq.
+    - subst j. apply index_of_inj with (l := l);
+        [exact Hx | apply index_of_Some_In with (i := i); exact Ey | rewrite Hxi, Ey; reflexivity].
+    - exfalso. apply index_of_Some_lt in Hxi. lia.
+  Qed.
+
+  Lemma index_of_inj_on l l' :
+    incl l' l -> injective_on (fun x => unwrap_or (length l) (index_of x l)) l'.
+  Proof.
+    intros Hincl x y Hx Hy Heq. cbn in Heq.
+    apply index_of_unwrap_inj with (l := l); [apply Hincl; exact Hx | exact Heq].
+  Qed.
+
+  Lemma index_of_inj_on_cons a l l' :
+    incl l' l -> injective_on (fun x => unwrap_or (length l) (index_of x l)) (a :: l').
+  Proof.
+    intros Hincl x y Hx Hy Heq. cbn in Heq.
+    destruct Hx as [Hxa|Hxl]; destruct Hy as [Hya|Hyl].
+    - congruence.
+    - symmetry. apply index_of_unwrap_inj with (l := l); [apply Hincl; exact Hyl | symmetry; exact Heq].
+    - apply index_of_unwrap_inj with (l := l); [apply Hincl; exact Hxl | exact Heq].
+    - apply index_of_unwrap_inj with (l := l); [apply Hincl; exact Hxl | exact Heq].
   Qed.
 
   Lemma indexes_of_spec x l n :
@@ -618,59 +653,11 @@ Section search.
       + simpl. destr (eqb x x); congruence.
   Qed.
 
-  Lemma index_of_inj l x y :
-    In x l -> In y l -> index_of x l = index_of y l -> x = y.
-  Proof.
-    intros Hx Hy Heq.
-    pose proof (index_of_In x l Hx) as Hix.
-    pose proof (index_of_In y l Hy) as Hiy.
-    rewrite Heq in Hix. congruence.
-  Qed.
-
-  Lemma index_of_inj_on l l' :
-    incl l' l -> injective_on (fun x => index_of x l) l'.
-  Proof.
-    intros Hincl x y Hx Hy Heq. cbn in Heq.
-    apply index_of_inj with (l := l); [apply Hincl; exact Hx | apply Hincl; exact Hy | exact Heq].
-  Qed.
-
-  Lemma index_of_inj_on_cons a l l' :
-    incl l' l -> injective_on (fun x => index_of x l) (a :: l').
-  Proof.
-    intros Hincl x y Hx Hy Heq. cbn in Heq.
-    assert (forall z, In z (a :: l') -> z = a \/ In z l) as Hmem.
-    { intros z [Hz|Hz]; [left; congruence | right; apply Hincl; exact Hz]. }
-    destruct (Hmem x Hx) as [Hxa | Hxl]; destruct (Hmem y Hy) as [Hya | Hyl].
-    - congruence.
-    - subst x. apply index_of_inj with (l := l); [| exact Hyl | exact Heq].
-      apply index_of_lt_iff. rewrite Heq. apply index_of_lt_iff. exact Hyl.
-    - subst y. apply index_of_inj with (l := l); [exact Hxl | | exact Heq].
-      apply index_of_lt_iff. rewrite <- Heq. apply index_of_lt_iff. exact Hxl.
-    - apply index_of_inj with (l := l); [exact Hxl | exact Hyl | exact Heq].
-  Qed.
-
   Lemma count_occ_app x l1 l2 :
     count_occ x (l1 ++ l2) = count_occ x l1 + count_occ x l2.
-  Proof. cbv [count_occ]. rewrite filter_app, length_app. reflexivity. Qed.
-
-  Lemma count_occ_In x l :
-    In x l <-> 0 < count_occ x l.
   Proof.
-    cbv [count_occ]. split.
-    - intros Hin.
-      assert (In x (filter (fun y => eqb x y) l))
-        by (apply filter_In; split; [exact Hin | destr (eqb x x); congruence]).
-      destruct (filter (fun y => eqb x y) l); simpl in *; [contradiction | lia].
-    - intros Hlen. destruct (filter (fun y => eqb x y) l) as [|y ys] eqn:E;
-        simpl in Hlen; [lia|].
-      assert (In y (filter (fun y0 => eqb x y0) l)) by (rewrite E; left; reflexivity).
-      apply filter_In in H. destruct H as (Hin & Heq).
-      assert (x = y) by (destr (eqb x y); congruence). subst. exact Hin.
+    induction l1 as [|y l1' IH]; simpl; [reflexivity | rewrite IH; lia].
   Qed.
-
-  Lemma count_occ_not_In x l :
-    ~ In x l <-> count_occ x l = 0.
-  Proof. rewrite count_occ_In. lia. Qed.
 End search.
 
 Lemma Forall2_map_r {A B C} R (f : B -> C) (l1 : list A) (l2 : list B) :
