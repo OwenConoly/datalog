@@ -1,7 +1,5 @@
 (*from https://github.com/DIJamner/pyrosome/blob/5ec226e35b75502a87d7663f637d2fa14eae6bb8/src/Utils/Default.v*)
 
-From coqutil Require Import Map.Interface.
-
 Section __.
   Context {A : Type}.
 
@@ -22,6 +20,8 @@ Arguments WithDefault : clear implicits.
 #[export] Instance option_default {A} : WithDefault (option A) := None.
 #[export] Instance list_default {A} : WithDefault (list A) := nil.
 #[export] Instance nat_default : WithDefault nat := 0.
+
+From coqutil Require Import Map.Interface.
 #[export] Instance map_default {key value} {mp : map.map key value} : WithDefault mp := map.empty.
 
 From Stdlib Require Import String.
