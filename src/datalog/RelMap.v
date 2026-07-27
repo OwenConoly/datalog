@@ -15,7 +15,7 @@ Section RelMap.
 
   Context {rel1 rel2} (f : rel1 -> rel2).
 
-  Definition injective_on (x : rel1) : Prop :=
+  Definition inj_on_elt (x : rel1) : Prop :=
     forall y, f x = f y -> x = y.
 
   Definition rel_equiv R1 R2 := f R1 = f R2.
@@ -282,7 +282,7 @@ Lemma fact_matches_map_bw f1 f2 :
     rule_impl (one_step_derives p) mr (meta_fact R mf_args mf_set) meta_hyps ->
     Forall2 matches mf_args args ->
     meta_facts_consistent_with_map meta_hyps ->
-    injective_on R ->
+    inj_on_elt R ->
     one_step_derives p meta_hyps R args <->
       one_step_derives (map map_rule_rels p) (map map_fact meta_hyps) (f R) args.
   Proof.
@@ -368,7 +368,7 @@ Lemma fact_matches_map_bw f1 f2 :
   Lemma rule_impl_map_rule_rels_fw p r f0 hyps :
     meta_rules_valid p ->
     In r p ->
-    injective_on (rel_of f0) ->
+    inj_on_elt (rel_of f0) ->
     meta_facts_consistent_with_map hyps ->
     rule_impl (one_step_derives p) r f0 hyps ->
     rule_impl (one_step_derives (map map_rule_rels p))
@@ -421,7 +421,7 @@ Lemma fact_matches_map_bw f1 f2 :
   Lemma rule_impl_map_rule_rels_bw p r f0 hyps :
     meta_rules_valid p ->
     In r p ->
-    injective_on (rel_of f0) ->
+    inj_on_elt (rel_of f0) ->
     meta_facts_consistent_with_map hyps ->
     rule_impl (one_step_derives (map map_rule_rels p))
       (map_rule_rels r)
@@ -480,7 +480,7 @@ Lemma fact_matches_map_bw f1 f2 :
   Qed.
 
   Lemma prog_impl_fact_equiv (p : list rule) Q f1 f2 :
-    Forall injective_on (flat_map concl_rels p) ->
+    Forall inj_on_elt (flat_map concl_rels p) ->
     (forall f1' f2', fact_equiv f1' f2' -> Q f1' <-> Q f2') ->
     fact_equiv f1 f2 ->
     prog_impl p Q f1 <-> prog_impl p Q f2.
@@ -489,7 +489,7 @@ Lemma fact_matches_map_bw f1 f2 :
     - pose proof Hprog as Hprog_copy. apply prog_impl_rel_of in Hprog_copy.
       destruct Hprog_copy as [HQ1 | Hconcl].
       + apply prog_impl_leaf. apply (proj1 (HQ _ _ Heq)). exact HQ1.
-      + rewrite Forall_forall in Hinj. apply Hinj in Hconcl. cbv [injective_on] in Hconcl.
+      + rewrite Forall_forall in Hinj. apply Hinj in Hconcl. cbv [inj_on_elt] in Hconcl.
         destruct f1 as [R1 args1 | R1 mf_args1 S1], f2 as [R2 args2 | R2 mf_args2 S2];
           cbv [fact_equiv map_fact] in Heq; try discriminate;
           inversion Heq;
@@ -498,7 +498,7 @@ Lemma fact_matches_map_bw f1 f2 :
     - pose proof Hprog as Hprog_copy. apply prog_impl_rel_of in Hprog_copy.
       destruct Hprog_copy as [HQ2 | Hconcl].
       + apply prog_impl_leaf. apply (proj2 (HQ _ _ Heq)). exact HQ2.
-      + rewrite Forall_forall in Hinj. apply Hinj in Hconcl. cbv [injective_on] in Hconcl.
+      + rewrite Forall_forall in Hinj. apply Hinj in Hconcl. cbv [inj_on_elt] in Hconcl.
         destruct f1 as [R1 args1 | R1 mf_args1 S1], f2 as [R2 args2 | R2 mf_args2 S2];
           cbv [fact_equiv map_fact] in Heq; try discriminate;
           inversion Heq;
@@ -511,7 +511,7 @@ Lemma fact_matches_map_bw f1 f2 :
     (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
     doesnt_lie Q ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
-    Forall injective_on (flat_map concl_rels p) ->
+    Forall inj_on_elt (flat_map concl_rels p) ->
     prog_impl p Q f0 ->
     prog_impl (map map_rule_rels p) (fun f' => exists f, f' = map_fact f /\ Q f) (map_fact f0).
   Proof.
@@ -550,7 +550,7 @@ Lemma fact_matches_map_bw f1 f2 :
     (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
     doesnt_lie Q ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
-    Forall injective_on (flat_map concl_rels p) ->
+    Forall inj_on_elt (flat_map concl_rels p) ->
     prog_impl (map map_rule_rels p) (fun f' => exists f, f' = map_fact f /\ Q f) f_target ->
     exists f0, f_target = map_fact f0 /\ prog_impl p Q f0.
   Proof.
@@ -598,7 +598,7 @@ Lemma fact_matches_map_bw f1 f2 :
   Qed.
 
   Lemma map_fact_inj f0 f0' :
-    injective_on (rel_of f0) ->
+    inj_on_elt (rel_of f0) ->
     map_fact f0 = map_fact f0' ->
     f0 = f0'.
   Proof.
@@ -621,8 +621,8 @@ Lemma fact_matches_map_bw f1 f2 :
     (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
     doesnt_lie Q ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
-    Forall injective_on (flat_map concl_rels p) ->
-    injective_on (rel_of f0) ->
+    Forall inj_on_elt (flat_map concl_rels p) ->
+    inj_on_elt (rel_of f0) ->
     prog_impl p Q f0 <->
     prog_impl (map map_rule_rels p) (fun f' => exists f, f' = map_fact f /\ Q f) (map_fact f0).
   Proof.
@@ -781,26 +781,23 @@ Lemma fact_matches_map_bw f1 f2 :
   Qed.
 
   Lemma fact_supported_map_bw_inj meta_facts g :
-    (forall mf, In mf meta_facts ->
-       f (rel_of g) = f (rel_of mf) -> rel_of g = rel_of mf) ->
+    injective_on f (rel_of g :: map rel_of meta_facts) ->
     fact_supported (map map_fact meta_facts) (map_fact g) ->
     fact_supported meta_facts g.
   Proof.
     intros Hinj H. cbv [fact_supported] in *. rewrite Exists_map in H.
     apply Exists_exists in H. destruct H as (mf & Hin & Hdisj).
     apply Exists_exists. exists mf. split; [exact Hin|].
+    assert (f (rel_of g) = f (rel_of mf) -> rel_of g = rel_of mf) as Hpair.
+    { intros Hfe. apply Hinj; [left; reflexivity | right; apply in_map; exact Hin | exact Hfe]. }
     destruct Hdisj as [Hh|Hh].
-    - left. eapply extensionally_equal_map_bw_inj; [|exact Hh]. apply Hinj. exact Hin.
-    - right. eapply fact_matches_map_bw_inj; [|exact Hh]. apply Hinj. exact Hin.
+    - left. eapply extensionally_equal_map_bw_inj; [exact Hpair | exact Hh].
+    - right. eapply fact_matches_map_bw_inj; [exact Hpair | exact Hh].
   Qed.
 
   Context
     (p : list rule)
-      (f_inj : forall x y,
-          In x (flat_map all_rels p) ->
-          In y (flat_map all_rels p) ->
-          f x = f y ->
-          x = y).
+      (f_inj : injective_on f (flat_map all_rels p)).
 
   Lemma rel_in_flat_map r x :
     In r p -> In x (all_rels r) -> In x (flat_map all_rels p).
@@ -808,7 +805,7 @@ Lemma fact_matches_map_bw f1 f2 :
 
   Lemma prog_impl_bridge Q h g :
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
-    (forall y, In y (flat_map all_rels p) -> f (rel_of h) = f y -> rel_of h = y) ->
+    injective_on f (rel_of h :: flat_map all_rels p) ->
     fact_equiv h g ->
     prog_impl p Q g ->
     prog_impl p Q h.
@@ -821,7 +818,8 @@ Lemma fact_matches_map_bw f1 f2 :
       { apply in_flat_map in Hconcl. fwd. apply in_flat_map.
         eexists. split; [eassumption|]. apply concl_in_all. assumption. }
       assert (h = g) as ->; [|exact Hg].
-      apply map_fact_inj_g; [|exact Hfe]. intros Hfe2. apply Hh; assumption.
+      apply map_fact_inj_g; [|exact Hfe]. intros Hfe2.
+      apply Hh; [ left; reflexivity | right; exact Hgmem | exact Hfe2 ].
   Qed.
 
   Lemma one_step_derives_map_iff_inj meta_facts R args :
@@ -849,10 +847,12 @@ Lemma fact_matches_map_bw f1 f2 :
         apply Forall_forall. intros h Hh_in.
         eapply fact_supported_map_bw_inj;
           [| rewrite Forall_forall in Hp1; apply Hp1; exact Hh_in ].
-        intros mf Hmf_in Hfeq. apply f_inj; [| |exact Hfeq].
-        * eapply rel_in_flat_map; [exact Hp0p0|]. apply hyp_in_all.
-          rewrite Forall_forall in Hhr. apply Hhr. exact Hh_in.
-        * rewrite Forall_forall in Hmf. apply Hmf. exact Hmf_in.
+        eapply injective_on_incl; [| exact f_inj ].
+        intros z Hz. destruct Hz as [Heq | Hz];
+          [ subst z; eapply rel_in_flat_map; [exact Hp0p0|]; apply hyp_in_all;
+            rewrite Forall_forall in Hhr; apply Hhr; exact Hh_in
+          | apply in_map_iff in Hz; destruct Hz as (mf & Hmfeq & Hmfin); subst z;
+            rewrite Forall_forall in Hmf; apply Hmf; exact Hmfin ].
   Qed.
 
   Lemma rule_impl_map_fw_inj r f0 hyps :
@@ -960,13 +960,13 @@ Lemma fact_matches_map_bw f1 f2 :
       specialize (H1 _ Hh_in). destruct H1 as (g & Hgeq & Hgprog).
       eapply prog_impl_bridge;
         [ exact HQ
-        | intros y Hy Hfy; apply f_inj; [ apply Hhypsmem; exact Hh_in | exact Hy | exact Hfy ]
+        | apply injective_on_cons_in; [ apply Hhypsmem; exact Hh_in | exact f_inj ]
         | | exact Hgprog ].
       cbv [fact_equiv]. exact Hgeq.
   Qed.
 
   Lemma prog_impl_map_rule_rels_iff_inj Q f0 :
-    (forall y, In y (flat_map all_rels p) -> f (rel_of f0) = f y -> rel_of f0 = y) ->
+    injective_on f (rel_of f0 :: flat_map all_rels p) ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
     prog_impl p Q f0 <->
     prog_impl (map map_rule_rels p) (fun f' => exists f, f' = map_fact f /\ Q f) (map_fact f0).

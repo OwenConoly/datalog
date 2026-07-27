@@ -154,6 +154,20 @@ Lemma incl_def {A} (x : A) (xs ys : list A) :
   incl xs ys -> In x xs -> In x ys.
 Proof. auto. Qed.
 
+Definition injective_on {A B} (f : A -> B) (l : list A) : Prop :=
+  forall x y, In x l -> In y l -> f x = f y -> x = y.
+
+Lemma injective_on_incl {A B} (f : A -> B) l1 l2 :
+  incl l1 l2 -> injective_on f l2 -> injective_on f l1.
+Proof. intros Hsub Hinj x y Hx Hy. apply Hinj; auto. Qed.
+
+Lemma injective_on_cons_in {A B} (f : A -> B) a l :
+  In a l -> injective_on f l -> injective_on f (a :: l).
+Proof.
+  intros Hin Hinj. eapply injective_on_incl; [|exact Hinj].
+  intros z Hz. destruct Hz as [Heq | Hz]; [subst; exact Hin | exact Hz].
+Qed.
+
 (* The stdlib [Forall2_impl] takes the implication before the [Forall2]
    premise, so [eauto] tries to discharge the implication with the source
    relation still an unconstrained evar and gives up.  Putting the [Forall2]
@@ -501,6 +515,127 @@ Section SenderCount.
       congruence.
   Qed.
 End SenderCount.
+
+Lemma enumerate_nil {A} start : enumerate start (@nil A) = [].
+Proof. reflexivity. Qed.
+
+Lemma enumerate_cons {A} start (a : A) l :
+  enumerate start (a :: l) = (start, a) :: enumerate (S start) l.
+Proof. reflexivity. Qed.
+
+Lemma in_enumerate_iff {A} (l : list A) start n x :
+  In (n, x) (enumerate start l) <-> exists m, n = start + m /\ nth_error l m = Some x.
+Proof.
+  revert start n. induction l as [|a l' IH]; intros start n.
+  - rewrite enumerate_nil. split; [intros [] | intros (m & _ & Hnth); destruct m; discriminate].
+  - rewrite enumerate_cons. split.
+    + intros [Heq | Hin].
+      * injection Heq as <- <-. exists 0. split; [lia | reflexivity].
+      * apply IH in Hin. destruct Hin as (m & -> & Hnth). exists (S m). split; [lia | exact Hnth].
+    + intros (m & -> & Hnth). destruct m as [|m'].
+      * left. injection Hnth as ->. f_equal. lia.
+      * right. rewrite IH. exists m'. split; [lia | exact Hnth].
+Qed.
+
+Lemma in_enumerate_0_iff {A} (l : list A) n x :
+  In (n, x) (enumerate 0 l) <-> nth_error l n = Some x.
+Proof.
+  rewrite in_enumerate_iff. split.
+  - intros (m & -> & Hnth). exact Hnth.
+  - intros Hnth. exists n. split; [reflexivity | exact Hnth].
+Qed.
+
+Section search.
+  Context {A : Type}.
+  Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.
+  Implicit Type l : list A.
+
+  Fixpoint index_of (x : A) (l : list A) : nat :=
+    match l with
+    | [] => 0
+    | y :: l' => if eqb x y then 0 else S (index_of x l')
+    end.
+
+  Definition indexes_of (x : A) (l : list A) : list nat :=
+    map fst (filter (fun p => eqb x (snd p)) (enumerate 0 l)).
+
+  Definition count_occ (x : A) (l : list A) : nat :=
+    length (filter (fun y => eqb x y) l).
+
+  Lemma index_of_In x l :
+    In x l -> nth_error l (index_of x l) = Some x.
+  Proof.
+    induction l as [|y l' IH]; simpl; [contradiction|].
+    destr (eqb x y).
+    - intros _. reflexivity.
+    - intros [Heq|Hin]; [congruence|]. simpl. apply IH. exact Hin.
+  Qed.
+
+  Lemma index_of_not_In x l :
+    ~ In x l -> index_of x l = length l.
+  Proof.
+    induction l as [|y l' IH]; simpl.
+    - intros _. reflexivity.
+    - intros Hni. destr (eqb x y).
+      + exfalso. apply Hni. left. reflexivity.
+      + simpl. f_equal. apply IH. intros Hin. apply Hni. right. exact Hin.
+  Qed.
+
+  Lemma index_of_le x l :
+    index_of x l <= length l.
+  Proof.
+    induction l as [|y l' IH]; simpl; [lia|].
+    destr (eqb x y); simpl; lia.
+  Qed.
+
+  Lemma index_of_lt_iff x l :
+    index_of x l < length l <-> In x l.
+  Proof.
+    split.
+    - intros Hlt. destruct (classic (In x l)) as [Hin|Hni]; [exact Hin|].
+      apply index_of_not_In in Hni. lia.
+    - induction l as [|y l' IH]; simpl; [contradiction|].
+      intros Hin. destr (eqb x y); simpl; [lia|].
+      destruct Hin as [Heq|Hin]; [congruence|]. specialize (IH Hin). lia.
+  Qed.
+
+  Lemma indexes_of_spec x l n :
+    In n (indexes_of x l) <-> nth_error l n = Some x.
+  Proof.
+    cbv [indexes_of]. rewrite in_map_iff. split.
+    - intros ((i, v) & Hfst & Hin). simpl in Hfst. subst i.
+      apply filter_In in Hin. destruct Hin as (Hin & Heq). simpl in Heq.
+      apply in_enumerate_0_iff in Hin.
+      assert (x = v) by (destr (eqb x v); congruence). subst v. exact Hin.
+    - intros Hnth. exists (n, x). split; [reflexivity|].
+      apply filter_In. split.
+      + apply in_enumerate_0_iff. exact Hnth.
+      + simpl. destr (eqb x x); congruence.
+  Qed.
+
+  Lemma count_occ_app x l1 l2 :
+    count_occ x (l1 ++ l2) = count_occ x l1 + count_occ x l2.
+  Proof. cbv [count_occ]. rewrite filter_app, length_app. reflexivity. Qed.
+
+  Lemma count_occ_In x l :
+    In x l <-> 0 < count_occ x l.
+  Proof.
+    cbv [count_occ]. split.
+    - intros Hin.
+      assert (In x (filter (fun y => eqb x y) l))
+        by (apply filter_In; split; [exact Hin | destr (eqb x x); congruence]).
+      destruct (filter (fun y => eqb x y) l); simpl in *; [contradiction | lia].
+    - intros Hlen. destruct (filter (fun y => eqb x y) l) as [|y ys] eqn:E;
+        simpl in Hlen; [lia|].
+      assert (In y (filter (fun y0 => eqb x y0) l)) by (rewrite E; left; reflexivity).
+      apply filter_In in H. destruct H as (Hin & Heq).
+      assert (x = y) by (destr (eqb x y); congruence). subst. exact Hin.
+  Qed.
+
+  Lemma count_occ_not_In x l :
+    ~ In x l <-> count_occ x l = 0.
+  Proof. rewrite count_occ_In. lia. Qed.
+End search.
 
 Lemma Forall2_map_r {A B C} R (f : B -> C) (l1 : list A) (l2 : list B) :
   Forall2 (fun x y => R x (f y)) l1 l2 <->
