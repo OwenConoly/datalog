@@ -933,6 +933,14 @@ Proof.
   destr (value_eqb v1 v2); [reflexivity | discriminate].
 Qed.
 
+(* union of [m1] and [m2]; on a key in both, the value is [f m1's-value m2's-value]. *)
+Definition union_with (f : value -> value -> value) (m1 m2 : mp) : mp :=
+  map.fold (fun acc k v2 =>
+    match map.get acc k with
+    | Some v1 => map.put acc k (f v1 v2)
+    | None => map.put acc k v2
+    end) m1 m2.
+
 Definition compatible_union (m1 m2 : mp) : option mp :=
   if agree_on_overlapb m1 m2 then Some (map.putmany m1 m2) else None.
 
@@ -1011,6 +1019,20 @@ Proof.
   - intros H. apply Forall_map_of_tuples. exact (Forall2_map_map_inv _ _ _ _ H).
 Qed.
 End Map.
+
+Section InvertListMap.
+  Context {A B : Type}.
+  Context {mpAB : map.map A (list B)} {mpAB_ok : map.ok mpAB}.
+  Context {mpBA : map.map B (list A)} {mpBA_ok : map.ok mpBA}.
+
+  (* invert a relation stored as [A -> set of B] into [B -> set of A]: [b] maps to every [a] whose
+     [m a] contains [b].  Inputs are nodup sets and each key [a] is visited once, so the result's
+     value-lists are nodup too. *)
+  Definition invert (m : mpAB) : mpBA :=
+    map.fold (fun acc a bs =>
+      fold_left (fun acc' b => map.put acc' b (a :: get_or_default acc' b)) bs acc)
+      map.empty m.
+End InvertListMap.
 
 (* How [concat (values (map_values' F ·))] transforms under [put]/[get] — the
    general fact behind every fwd_total / output_total step lemma. *)
