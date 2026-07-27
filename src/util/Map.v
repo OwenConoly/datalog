@@ -1,6 +1,6 @@
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.MapKeys Tactics Tactics.fwd Datatypes.Option Datatypes.List Eqb.
 From Stdlib Require Import List.
-From Datalog Require Import Eqb.
+From Datalog Require Import Eqb Default.
 From Datalog Require Import Tactics List.
 From Stdlib Require Import Permutation RelationClasses.
 Import ListNotations.
@@ -569,20 +569,30 @@ Section Map.
     | None => m
     end.
 
-  (*treat the map as total, reading [d] at keys that are absent*)
-  Definition get_default d m k :=
+  Definition get_or d m k :=
     match map.get m k with
     | Some v => v
     | None => d
     end.
 
-  Lemma get_default_Some d m k v :
-    map.get m k = Some v -> get_default d m k = v.
-  Proof. intros H. cbv [get_default]. rewrite H. reflexivity. Qed.
+  Definition get_or_default `{WithDefault value} m k :=
+    get_or default m k.
 
-  Lemma get_default_None d m k :
-    map.get m k = None -> get_default d m k = d.
-  Proof. intros H. cbv [get_default]. rewrite H. reflexivity. Qed.
+  Lemma get_or_Some d m k v :
+    map.get m k = Some v -> get_or d m k = v.
+  Proof. intros H. cbv [get_or]. rewrite H. reflexivity. Qed.
+
+  Lemma get_or_None d m k :
+    map.get m k = None -> get_or d m k = d.
+  Proof. intros H. cbv [get_or]. rewrite H. reflexivity. Qed.
+
+  Lemma get_or_default_Some `{WithDefault value} m k v :
+    map.get m k = Some v -> get_or_default m k = v.
+  Proof. cbv [get_or_default]. apply get_or_Some. Qed.
+
+  Lemma get_or_default_None `{WithDefault value} m k :
+    map.get m k = None -> get_or_default m k = default.
+  Proof. cbv [get_or_default]. apply get_or_None. Qed.
 
   Definition val_sat (m : mp) (k : key) (P : value -> Prop) : Prop :=
     exists v, map.get m k = Some v /\ P v.

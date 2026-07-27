@@ -1,6 +1,6 @@
 From Stdlib Require Import List Permutation RelationClasses Classical_Prop Lia.
 From coqutil Require Import Datatypes.List.
-From Datalog Require Import Datalog Node Graph Smallstep List Map Eqb Tactics.
+From Datalog Require Import Datalog Node Graph Smallstep List Map Default Eqb Tactics.
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Eqb Decidable.
 Import ListNotations.
 
@@ -52,10 +52,10 @@ Section Distributed.
   Context (Hmrv : Forall_map (fun _ p => meta_rules_valid p) graph_prog).
   Context (Hsender : Forall_map (sends_concl_rels R_senders) graph_prog).
 
-  Definition prog_at (n : node_id) : list rule := get_default [] graph_prog n.
+  Definition prog_at (n : node_id) : list rule := get_or_default graph_prog n.
 
   Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
-  Proof. apply get_default_Some. Qed.
+  Proof. apply get_or_default_Some. Qed.
 
   Local Notation nstep := (fun n => node_step R_senders (prog_at n) n).
   Local Notation nallowed := (allowed_inputs R_senders).
@@ -109,22 +109,22 @@ Section Distributed.
 
   (* the claim's per-sender expected counts, as a real map (absent senders count 0) *)
   Definition count_at R (ems : list nat) (k : option node_id) : nat :=
-    get_default 0 (map.of_list (combine (R_senders R) ems) : count_map) k.
+    get_or_default (map.of_list (combine (R_senders R) ems) : count_map) k.
 
   Lemma count_at_Some R ems k c :
     map.get (map.of_list (combine (R_senders R) ems) : count_map) k = Some c ->
     count_at R ems k = c.
-  Proof. apply get_default_Some. Qed.
+  Proof. apply get_or_default_Some. Qed.
 
   Lemma count_at_None R ems k :
     map.get (map.of_list (combine (R_senders R) ems) : count_map) k = None ->
     count_at R ems k = 0.
-  Proof. apply get_default_None. Qed.
+  Proof. apply get_or_default_None. Qed.
 
   Lemma map_count_at R ems :
     length (R_senders R) = length ems -> map (count_at R ems) (R_senders R) = ems.
   Proof.
-    intros Hlen. unfold count_at, get_default.
+    intros Hlen. unfold count_at, get_or_default, get_or.
     apply map_get_of_list_zip; [ apply R_senders_NoDup | exact Hlen ].
   Qed.
 
