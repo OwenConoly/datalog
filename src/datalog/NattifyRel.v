@@ -26,6 +26,23 @@ Section NattifyRel.
   Definition nattify_rel_fact (p : list rule) (f : fact) :=
     map_fact (encode_rel p) f.
 
+  Lemma rels_of_prog_in_table p R :
+    In R (flat_map all_rels p) -> In R (rel_table p).
+  Proof. intros. cbv [rel_table]. apply dedup_In. apply in_or_app. left. assumption. Qed.
+
+  (* nattify_rel_fact is injective on facts whose relation is in the table *)
+  Lemma nattify_rel_fact_inj p a b :
+    In (rel_of a) (rel_table p) ->
+    nattify_rel_fact p a = nattify_rel_fact p b -> a = b.
+  Proof.
+    intros Hatab Heq. cbv [nattify_rel_fact] in Heq.
+    apply (map_fact_inj_g (encode_rel p) a b); [|exact Heq].
+    intros Henc. cbv [encode_rel] in Henc.
+    assert (In (rel_of b) (rel_table p)) as Hbtab.
+    { apply index_of_lt_iff. rewrite <- Henc. apply index_of_lt_iff. exact Hatab. }
+    apply index_of_inj with (l := rel_table p); [exact Hatab | exact Hbtab | exact Henc].
+  Qed.
+
   Theorem nattify_rel_correct p Q f0 :
     (forall f, Q f -> In (rel_of f) input_rels) ->
     prog_impl p Q f0 <->
@@ -33,5 +50,20 @@ Section NattifyRel.
       (fun fn => exists g, fn = nattify_rel_fact p g /\ Q g)
       (nattify_rel_fact p f0).
   Proof.
-  Admitted.
+    intros HQin.
+    assert (forall f, Q f -> In (rel_of f) (rel_table p)) as HQtab.
+    { intros f Hf. cbv [rel_table]. apply dedup_In. apply in_or_app. right.
+      apply HQin. exact Hf. }
+    cbv [nattify_rel_prog nattify_rel_fact].
+    apply prog_impl_map_rule_rels_iff_inj.
+    - cbv [encode_rel]. apply index_of_inj_on. exact (rels_of_prog_in_table p).
+    - cbv [encode_rel]. apply index_of_inj_on_cons. exact (rels_of_prog_in_table p).
+    - intros f1 f2 Heq. cbv [fact_equiv] in Heq. split; intros HQ.
+      + assert (f1 = f2) as ->
+          by (apply nattify_rel_fact_inj with (p := p); [apply HQtab; exact HQ | exact Heq]).
+        exact HQ.
+      + assert (f2 = f1) as ->
+          by (apply nattify_rel_fact_inj with (p := p); [apply HQtab; exact HQ | exact (eq_sym Heq)]).
+        exact HQ.
+  Qed.
 End NattifyRel.

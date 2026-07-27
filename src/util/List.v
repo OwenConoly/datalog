@@ -207,6 +207,9 @@ Section subset.
   (*same as coqutil dedup, except we use the Eqb typeclass*)
   Definition dedup := List.dedup eqb.
 
+  Lemma dedup_In (x : A) (l : list A) : In x (dedup l) <-> In x l.
+  Proof. cbv [dedup]. symmetry. apply dedup_preserves_In. Qed.
+
   Definition inclb (l1 l2 : list A) :=
     forallb (fun x => existsb (eqb x) l2) l1.
 
@@ -592,8 +595,10 @@ Section search.
     index_of x l < length l <-> In x l.
   Proof.
     split.
-    - intros Hlt. destruct (classic (In x l)) as [Hin|Hni]; [exact Hin|].
-      apply index_of_not_In in Hni. lia.
+    - induction l as [|y l' IH]; simpl; [lia|].
+      destr (eqb x y); simpl.
+      + intros _. left. congruence.
+      + intros Hlt. right. apply IH. lia.
     - induction l as [|y l' IH]; simpl; [contradiction|].
       intros Hin. destr (eqb x y); simpl; [lia|].
       destruct Hin as [Heq|Hin]; [congruence|]. specialize (IH Hin). lia.
@@ -611,6 +616,37 @@ Section search.
       apply filter_In. split.
       + apply in_enumerate_0_iff. exact Hnth.
       + simpl. destr (eqb x x); congruence.
+  Qed.
+
+  Lemma index_of_inj l x y :
+    In x l -> In y l -> index_of x l = index_of y l -> x = y.
+  Proof.
+    intros Hx Hy Heq.
+    pose proof (index_of_In x l Hx) as Hix.
+    pose proof (index_of_In y l Hy) as Hiy.
+    rewrite Heq in Hix. congruence.
+  Qed.
+
+  Lemma index_of_inj_on l l' :
+    incl l' l -> injective_on (fun x => index_of x l) l'.
+  Proof.
+    intros Hincl x y Hx Hy Heq. cbn in Heq.
+    apply index_of_inj with (l := l); [apply Hincl; exact Hx | apply Hincl; exact Hy | exact Heq].
+  Qed.
+
+  Lemma index_of_inj_on_cons a l l' :
+    incl l' l -> injective_on (fun x => index_of x l) (a :: l').
+  Proof.
+    intros Hincl x y Hx Hy Heq. cbn in Heq.
+    assert (forall z, In z (a :: l') -> z = a \/ In z l) as Hmem.
+    { intros z [Hz|Hz]; [left; congruence | right; apply Hincl; exact Hz]. }
+    destruct (Hmem x Hx) as [Hxa | Hxl]; destruct (Hmem y Hy) as [Hya | Hyl].
+    - congruence.
+    - subst x. apply index_of_inj with (l := l); [| exact Hyl | exact Heq].
+      apply index_of_lt_iff. rewrite Heq. apply index_of_lt_iff. exact Hyl.
+    - subst y. apply index_of_inj with (l := l); [exact Hxl | | exact Heq].
+      apply index_of_lt_iff. rewrite <- Heq. apply index_of_lt_iff. exact Hxl.
+    - apply index_of_inj with (l := l); [exact Hxl | exact Hyl | exact Heq].
   Qed.
 
   Lemma count_occ_app x l1 l2 :
