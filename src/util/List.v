@@ -719,6 +719,16 @@ Lemma option_map_None X Y (f : X -> Y) x :
   x = None.
 Proof. cbv [option_map]. destruct_one_match; congruence. Qed.
 
+Definition fst3 {A B C} (x : A * B * C) : A := fst (fst x).
+Definition snd3 {A B C} (x : A * B * C) : B := snd (fst x).
+Definition thd3 {A B C} (x : A * B * C) : C := snd x.
+
+Fixpoint combine3 {A B C} (la : list A) (lb : list B) (lc : list C) : list (A * B * C) :=
+  match la, lb, lc with
+  | a :: la', b :: lb', c :: lc' => (a, b, c) :: combine3 la' lb' lc'
+  | _, _, _ => []
+  end.
+
 (*copied from https://velus.inria.fr/emsoft2021/html/Velus.Common.CommonList.html*)
 Section Forall3.
   Context {A B C : Type}.

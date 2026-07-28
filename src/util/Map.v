@@ -589,6 +589,25 @@ Section Map.
     map.get m k = None -> get_or d m k = d.
   Proof. intros H. cbv [get_or]. rewrite H. reflexivity. Qed.
 
+  Definition map_existsb (f : key -> value -> bool) : mp -> bool :=
+    map.fold (fun res k v => orb res (f k v)) false.
+
+  Lemma map_existsb_exists f m :
+    map_existsb f m = true <-> exists k v, map.get m k = Some v /\ f k v = true.
+  Proof.
+    unfold map_existsb. eapply map.fold_spec.
+    - split; [discriminate|]. intros [k [v [Hg _]]]. rewrite map.get_empty in Hg. discriminate.
+    - intros k v m0 r Hget IH. split.
+      + intros H. apply Bool.orb_prop in H. destruct H as [Hr | Hf].
+        * apply IH in Hr. destruct Hr as [k0 [v0 [Hg Hf0]]].
+          exists k0, v0. split; [| exact Hf0].
+          rewrite map.get_put_dec. destr (eqb k k0); [rewrite Hget in Hg; discriminate | exact Hg].
+        * exists k, v. rewrite map.get_put_same. split; [reflexivity | exact Hf].
+      + intros [k0 [v0 [Hg Hf0]]]. rewrite map.get_put_dec in Hg. destr (eqb k k0).
+        * injection Hg as <-. rewrite Hf0. apply Bool.orb_true_r.
+        * apply Bool.orb_true_intro. left. apply IH. exists k0, v0. split; [exact Hg | exact Hf0].
+  Qed.
+
   Lemma get_or_default_Some `{WithDefault value} m k v :
     map.get m k = Some v -> get_or_default m k = v.
   Proof. cbv [get_or_default]. apply get_or_Some. Qed.
