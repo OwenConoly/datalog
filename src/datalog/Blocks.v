@@ -7,12 +7,14 @@ From Datalog Require Import Map Tactics Fp List Dag Datalog RelMap.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
 Import ListNotations.
+Definition lvarT := Type.
+Existing Class lvarT.
 
 Section Blocks.
   Context {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
-  Context {lvar : Type}.
+  Context {lvar : lvarT}.
 
   Inductive block_rel :=
   | local (_ : lvar)
