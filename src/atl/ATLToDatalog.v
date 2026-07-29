@@ -316,14 +316,97 @@ Fixpoint eval_pZexpr'_total { var : Type } (e : pZexpr' var) : option Z :=
   | Zopp x => option_map Z.opp (eval_pZexpr'_total x)
 end.
 
+Search sizeof.
+Print pATLexpr'.
+
+(* var name explanation: f = function, e = expression, z = pZexpr', s = pSexpr' *)
+Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
+  match e with
+  | Gen n lo hi f => 
+    match eval_pZexpr'_total hi, eval_pZexpr'_total lo with
+    | Some hi', Some lo' => (Z.to_nat hi') - (Z.to_nat lo') :: get_block_size (f 0)
+    | _, _ => [] (*garbage because this shouldn't happen*)
+  end
+  | Sum n lo hi f => get_block_size (f 0)
+  | Guard n b e => get_block_size e
+  | Lbind n m e f => get_block_size e
+  | Concat n e1 e2 => 
+    match get_block_size e1, get_block_size e2 with
+    | x1 :: rest1, x2 :: rest2 => x1 + x2 :: rest1
+    | _, _ => []
+  end
+  | Flatten n e => 
+    match get_block_size e with
+    | a :: b :: rest => a * b :: rest
+    | _ => []
+  end
+  | Split n z e => 
+    match eval_pZexpr'_total z with
+    | Some z' => 
+      let '(zVal) := (Z.to_nat z') in 
+      match get_block_size e with
+      | x :: rest => (x / zVal) :: zVal :: rest
+      | _ => []
+      end
+    | _ => []
+  end
+  | Transpose n e => 
+    match get_block_size e with
+    | a :: b :: rest => b :: a :: rest
+    | _ => []
+  end
+  | Truncr n z e =>
+    match eval_pZexpr'_total z with
+      | Some z' => 
+        let '(zVal) := (Z.to_nat z') in 
+        match get_block_size e with
+        | x :: rest => (x - zVal) :: rest
+        | _ => []
+        end
+      | _ => []
+    end
+  | Truncl n z e => 
+    match eval_pZexpr'_total z with
+      | Some z' => 
+        let '(zVal) := (Z.to_nat z') in 
+        match get_block_size e with
+        | x :: rest => (x - zVal) :: rest
+        | _ => []
+        end
+      | _ => []
+    end
+  | Padr z e => 
+    match eval_pZexpr'_total z with
+      | Some z' => 
+        let '(zVal) := (Z.to_nat z') in 
+        match get_block_size e with
+        | x :: rest => (x + zVal) :: rest
+        | _ => []
+        end
+      | _ => []
+    end
+  | Padl z e => 
+    match eval_pZexpr'_total z with
+      | Some z' => 
+        let '(zVal) := (Z.to_nat z') in 
+        match get_block_size e with
+        | x :: rest => (x + zVal) :: rest
+        | _ => []
+        end
+      | _ => []
+    end
+  | Scalar s => 1 :: []
+end.
+
+
 Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exprvar) : blocks_prog var := 
   match e with
   | Gen n lo hi body => 
     lower_pATLexpr' (body (length idxs)) (idxs ++ [length idxs])
   | Sum n lo hi body => Block 0 [] []
   | Guard n b body =>
-    let dimvars := (seq O 8) in
-    let x := 8 in
+    let dimvars := (seq O (length (get_block_size body))) in
+    let x := length (get_block_size body) in
     let aux := 0 in
       LetIn (lower_pATLexpr' body idxs) (fun val =>
       Block 0 [(0, val)] 
