@@ -9,6 +9,8 @@ From GraphSearch Require Import Dag.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
 Import ListNotations.
+Definition lvarT := Type.
+Existing Class lvarT.
 
 (*relations that are local to a block, "l" is for "local"*)
 Definition lrelT := Type. Existing Class lrelT.
