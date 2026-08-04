@@ -14,4 +14,4 @@ This repo contains:
 
 `git clone --recursive` (to clone the submodules too)
 
-Then run `make` if you want to use this with VsRocq. After `git pull` you may have to run `make clean` first.
+Then run `make`.
