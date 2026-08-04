@@ -1,4 +1,4 @@
-.DEFAULT_GOAL := all
+.DEFAULT_GOAL := datalog
 
 .PHONY: clean all atl datalog util
 
