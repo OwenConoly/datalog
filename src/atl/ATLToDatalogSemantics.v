@@ -19,6 +19,4 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc T
 Import Datatypes.
 Import ListNotations.
 
-From datalog Require Import ATLToDatalog.
-
 Print pATLexpr'.
