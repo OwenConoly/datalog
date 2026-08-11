@@ -13,7 +13,7 @@ From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics Common.
 From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
   Meshgrid ContextsAgree ATLDeep Range.
 From Datalog Require Import Datalog Dag Map List Tactics (*Interpreter QueryableToRunnable*) (*ATLUtils*) (*ZeroLowerBounds*) Blocks.
-From Inferpad Require Import ATLPhoas.
+From Inferpad Require Import ATLPhoas TensorToResult.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable Datatypes.List.
 
@@ -26,6 +26,73 @@ Print pATLexpr.
 Print result_of_pATLexpr.
 (*some property that valid source programs should probably (?) have*)
 Print sound_sizeof.
+
+Fixpoint sizeof_prop {var n} (sizeof_var : var tZ -> option Z) (e : pATLexpr var n) (sz : list nat) : Prop :=
+  let sizeof_prop := fun {n} => @sizeof_prop var n sizeof_var in
+  match e with
+  | Gen lo hi body =>
+      match sizeof_pZexpr sizeof_var lo, sizeof_pZexpr sizeof_var hi with
+      | Some lo', Some hi' =>
+          let n := Z.to_nat (hi' - lo') in
+          exists sz',
+          sz = n :: sz' /\ 0 < n /\ forall x, sizeof_prop (body x) sz'
+      | _, _ => False
+      end
+  | Sum lo hi body =>
+      forall x, sizeof_prop (body x) sz
+  | Guard p body =>
+      sizeof_prop body sz
+  | Lbind e1 e2 =>
+      exists sz',
+      sizeof_prop e1 sz' /\ forall x, sizeof_prop (e2 x) sz
+  | Concat x y =>
+      exists nx ny sz',
+      sizeof_prop x (nx :: sz') /\ sizeof_prop y (ny :: sz') /\ sz = (nx + ny :: sz')
+  | Flatten e =>
+      exists a b sz',
+      sizeof_prop e (a :: b :: sz') /\ sz = a * b :: sz'
+  | Split k e =>
+      exists a sz',
+      sizeof_prop e (a :: sz') /\
+        match sizeof_pZexpr sizeof_var k with
+        | Some k => 0 < Z.to_nat k /\ sz = a //n (Z.to_nat k) :: Z.to_nat k :: sz'
+        | None => False
+        end
+  | Transpose e =>
+      exists a b sz',
+      sizeof_prop e (a :: b :: sz') /\ sz = b :: a :: sz'
+  | Truncr n e | Truncl n e =>
+                   exists m sz',
+                   sizeof_prop e (m :: sz') /\
+                     match sizeof_pZexpr sizeof_var n with
+                     | Some n => Z.to_nat n < m /\ sz = m - Z.to_nat n :: sz'
+                     | None => False
+                     end
+  | Padr n e =>
+      exists m sz',
+      sizeof_prop e (m :: sz') /\
+        match sizeof_pZexpr sizeof_var n with
+        | Some n => sz = m + Z.to_nat n :: sz'
+        | None => False
+        end
+  | Padl n e =>
+      exists m sz',
+      sizeof_prop e (m :: sz') /\
+        match sizeof_pZexpr sizeof_var n with
+        | Some n => sz = (Z.to_nat n + m :: sz')
+        | None => False
+        end
+  | @Var _ n _ => sz = [] /\ n = O
+  | @Get _ n v idxs =>
+      length idxs = n /\ sz = [] /\
+        match v with
+        | Var _ => True
+        | _ => False
+        end
+  | SBop _ x y =>
+      sz = [] /\ sizeof_prop x [] /\ sizeof_prop y []
+  | SIZR _ => sz = []
+  end.
 
 (*target language syntax*)
 Print blocks_prog.
@@ -133,10 +200,6 @@ Fixpoint lower_pSexpr' {var} (idxs0 : list exprvar) (next_varname : exprvar) (e 
   | SLit x => (fun_expr (fn_Lit x) [], [], next_varname, [])
 end.
 
-Print Blocks.blocks_prog.
-
-Print pZexpr'.
-
 (* this is to lower a pZexpr to a pZexpr' *)
 Fixpoint lower_pZexpr {var : Type} (e : pZexpr var) : pZexpr' var :=
   match e with
@@ -148,12 +211,7 @@ Fixpoint lower_pZexpr {var : Type} (e : pZexpr var) : pZexpr' var :=
   | ATLPhoas.ZZ_of_nat n => ZLit (Z.of_nat n)
   | ATLPhoas.ZZopp x => Zopp (lower_pZexpr x)
 end.
-Print option.
 
-
-Set Printing All.
-
-Print interp_Zbop.
 Fixpoint stringvar_ZLit {var} (e : pZexpr var) : Z :=
   match e with
   | ATLPhoas.ZBop o x y => interp_Zbop o (stringvar_ZLit x) (stringvar_ZLit y)
@@ -180,9 +238,6 @@ Fixpoint stringvar_S {var} {n} (e : pATLexpr var n) : pATL_Sexpr' var :=
   | _ => SLit 0
   end.
 
-Print pATLexpr.
-Print pBexpr.
-
 Inductive pBexpr' {var : Type} : Type :=
 	| BAnd : pBexpr' -> pBexpr' -> pBexpr'
   | BBop : Bbop -> pZexpr' var -> pZexpr' var -> pBexpr'.
@@ -194,9 +249,6 @@ Fixpoint lower_pBexpr {var} (e : pBexpr (var)) : pBexpr' (var) :=
   | ATLPhoas.BAnd x y => BAnd (lower_pBexpr x) (lower_pBexpr y)
   | ATLPhoas.BBop b x y => BBop b (lower_pZexpr x) (lower_pZexpr y)
 end.
-
-
-Print Bbop.
 
 Fixpoint lower_pBexpr' (e : pBexpr' nat) : expr :=
   match e with
@@ -279,16 +331,6 @@ Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var) n) : pATLexpr' (var) n :=
   | ATLPhoas.Get _ _ | ATLPhoas.SBop _ _ _ | ATLPhoas.SIZR _ => Scalar (stringvar_S e)
 end.
 
-Print pATLexpr'.
-Print Blocks.blocks_prog.
-Print Datalog.Blocks.block_rule.
-Print pATLexpr.
-Print var_expr.
-Print clause_rel.
-Print Zbop.
-Search Z.
-
-
 (* wrote this to translate a Zexpr into it's numerical value for some of the match cases with lower_pATLexpr' *)
 Fixpoint eval_pZexpr'_total { var : Type } (e : pZexpr' var) : option Z :=
   match e with
@@ -309,9 +351,6 @@ Fixpoint eval_pZexpr'_total { var : Type } (e : pZexpr' var) : option Z :=
   | ZLit x => Some x
   | Zopp x => option_map Z.opp (eval_pZexpr'_total x)
 end.
-
-Search sizeof.
-Print pATLexpr'.
 
 (* var name explanation: f = function, e = expression, z = pZexpr', s = pSexpr' *)
 Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
@@ -393,37 +432,37 @@ Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
 end.
 
 
-Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exprvar) (true_rel : var) : blocks_prog var := 
+Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exprvar) (true_rel : var) : blocks_prog var :=
   match e with
-  | Gen n lo hi body => 
+  | Gen n lo hi body =>
     lower_pATLexpr' (body (length idxs)) (idxs ++ [length idxs]) true_rel
   | Sum n lo hi body => Block 0 [] []
   | Guard n b body =>
     let dimvars := (seq O (length (get_block_size body))) in
     let x := length (get_block_size body) in
       LetIn (lower_pATLexpr' body idxs true_rel) (fun val =>
-      Block 0 [(0, val); (1, true_rel)] 
-      [normal_rule 
+      Block 0 [(0, val); (1, true_rel)]
+      [normal_rule
       [{| clause_rel := local 0;
           clause_args := var_expr x ::
                           map var_expr idxs ++
-                          map var_expr dimvars |}] 
+                          map var_expr dimvars |}]
       [{| clause_rel := input 0;
           clause_args := var_expr x ::
                           map var_expr idxs ++
                           map var_expr dimvars|};
         {| clause_rel := input 1; clause_args := [lower_pBexpr' b] |}];
-      normal_rule 
+      normal_rule
       [{| clause_rel := local 0;
           clause_args := fun_expr (fn_Lit 0) [] ::
-                                   map var_expr idxs ++       
-                                   map var_expr dimvars |}] 
+                                   map var_expr idxs ++
+                                   map var_expr dimvars |}]
       [{| clause_rel := input 1;
           clause_args := [fun_expr fn_Not [lower_pBexpr' b]] |}]])
   | Lbind n m x f =>
     LetIn (lower_pATLexpr' x idxs true_rel) (fun val =>
       lower_pATLexpr' (f (val, (length idxs))) idxs true_rel)
-  | Concat n e1 e2 => 
+  | Concat n e1 e2 =>
   (* using n instead of size of e1 here because e1 no longer has a size*)
       let dimvars := seq O (length (get_block_size e1) - 1) in
       let dimvarO := length (get_block_size e1) - 1 in
@@ -438,7 +477,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                     end in
       LetIn (lower_pATLexpr' e1 idxs true_rel) (fun val1 =>
         LetIn (lower_pATLexpr' e2 idxs true_rel) (fun val2 =>
-          Block out [(aux1, val1); (aux2, val2); (0, true_rel)] 
+          Block out [(aux1, val1); (aux2, val2); (0, true_rel)]
           [normal_rule
           (* i feel like this might work now : i added in the true_rel statemetns, and also it returns the out, so maybe it works???? *)
           [{| clause_rel := local out; clause_args := var_expr x :: map var_expr idxs ++ map var_expr (dimvarO :: dimvars) |}]
@@ -448,7 +487,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
           [{| clause_rel := local out; clause_args := var_expr x :: map var_expr idxs ++ map var_expr (dimvarO :: dimvars) |}]
           [{| clause_rel := input aux2; clause_args := var_expr x :: map var_expr idxs ++ fun_expr fn_Add [] :: map var_expr dimvars |};
           {| clause_rel := input 0; clause_args := [fun_expr fn_Le [fun_expr (fn_Lit len1) []; var_expr dimvarO]] |}]]))
-  | Flatten n e => 
+  | Flatten n e =>
   (* using n instead of e here because you can't get length from e anymore *)
     let dimvars := (seq O (length (get_block_size e) - 2)) in
       let dimvarO := (length (get_block_size e) - 2) in
@@ -461,14 +500,14 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
       let aux := 0 in
       (* out is probably redundant here but it's just to show that there needs to be some number for the clause_rel of the rule *)
       let out := S aux in
-      LetIn (lower_pATLexpr' e idxs true_rel) (fun val => 
-      Block out [(aux, val)] 
+      LetIn (lower_pATLexpr' e idxs true_rel) (fun val =>
+      Block out [(aux, val)]
       [normal_rule
-      [{| clause_rel := local out; clause_args := 
+      [{| clause_rel := local out; clause_args :=
                                  var_expr x ::
                                    map var_expr idxs ++
                                    var_expr dimvarO ::
-                                   map var_expr dimvars|}] 
+                                   map var_expr dimvars|}]
       [{| clause_rel := input aux; clause_args := var_expr x ::
                                             map var_expr idxs ++
                                             fun_expr fn_Divf
@@ -501,13 +540,13 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
     let bound_check := fun_expr fn_Not [fun_expr fn_And [eq_check; le_check]] in
     LetIn (lower_pATLexpr' e idxs true_rel) (fun val =>
       Block out [(aux, val); (0, true_rel)]
-      [normal_rule [{| clause_rel := local out; 
+      [normal_rule [{| clause_rel := local out;
                         clause_args := var_expr x ::
                                    (map var_expr idxs ++
                                    (var_expr dimvar1 ::
                                    (var_expr dimvar2 ::
-                                   map var_expr dimvars)))|}] 
-                  [ {| clause_rel := input aux; 
+                                   map var_expr dimvars)))|}]
+                  [ {| clause_rel := input aux;
                         clause_args := var_expr x ::
                                   (map var_expr idxs ++
                                   (fun_expr fn_Add
@@ -533,15 +572,15 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
       let dimvar2 := length (get_block_size x) in
       let Sn := (S (length (get_block_size x))) in
       let out := 1 in
-        LetIn (lower_pATLexpr' x idxs true_rel) 
+        LetIn (lower_pATLexpr' x idxs true_rel)
         (fun val => Block out [(0, val)]
           [normal_rule
-          [{| clause_rel := local out; clause_args := [var_expr Sn] ++ map var_expr idxs 
+          [{| clause_rel := local out; clause_args := [var_expr Sn] ++ map var_expr idxs
                     ++ [var_expr dimvar2] ++ [var_expr dimvar1] ++ map var_expr dimvars |}]
-          [{| clause_rel := input 0; clause_args := [var_expr Sn] ++ map var_expr idxs 
+          [{| clause_rel := input 0; clause_args := [var_expr Sn] ++ map var_expr idxs
                     ++ [var_expr dimvar1] ++ [var_expr dimvar2] ++ map var_expr dimvars |}]])
   | Truncr n k x => lower_pATLexpr' x idxs true_rel
-  | Truncl m k e => 
+  | Truncl m k e =>
     let dimvars := (seq O (length (get_block_size e) - 1)) in
     let dimvar1 := (length (get_block_size e) - 1) in
     (* placeholder *)
@@ -554,21 +593,21 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
     let out := S aux in
     LetIn (lower_pATLexpr' e idxs true_rel) (fun val =>
       (* not sure what numbers to use for block's name + values here*)
-      Block out [(aux, val)] 
-      [normal_rule 
-      [{| clause_rel := local out; clause_args := 
+      Block out [(aux, val)]
+      [normal_rule
+      [{| clause_rel := local out; clause_args :=
                                  var_expr x ::
                                    map var_expr idxs ++
                                    var_expr dimvar1 ::
                                    map var_expr dimvars|}]
-      [{| clause_rel := input aux; clause_args := 
+      [{| clause_rel := input aux; clause_args :=
                               var_expr x ::
                                  map var_expr idxs ++
                                  fun_expr fn_Add
                                  [fun_expr (fn_Lit k') [];
                                   var_expr dimvar1] ::
                                  map var_expr dimvars  |}]])
-  | Padr k e => 
+  | Padr k e =>
     let dimvars := seq O (length (get_block_size e) - 1) in
     let dimvar1 := length (get_block_size e) - 1 in
     let x := length (get_block_size e) in
@@ -583,13 +622,13 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                     | _ => 0
                     end in
     LetIn (lower_pATLexpr' e idxs true_rel) (fun val =>
-      Block out [(aux, val); (2, true_rel)] 
-      [normal_rule 
+      Block out [(aux, val); (2, true_rel)]
+      [normal_rule
       [{| clause_rel := local out;
           clause_args := var_expr x ::
                     map var_expr idxs ++
                     var_expr dimvar1 ::
-                    map var_expr dimvars |}] 
+                    map var_expr dimvars |}]
       [{| clause_rel := input aux;
           clause_args := var_expr x ::
                           map var_expr idxs ++
@@ -599,12 +638,12 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
           clause_args := [fun_expr fn_Lt
                             [var_expr dimvar1;
                               fun_expr (fn_Lit len) []]] |}];
-      normal_rule 
+      normal_rule
       [{| clause_rel := local out;
           clause_args := fun_expr (fn_Lit 0) [] ::
                             map var_expr idxs ++
                             var_expr dimvar1 ::
-                            map var_expr dimvars |}] 
+                            map var_expr dimvars |}]
       [{| clause_rel := input 2;
           clause_args := [fun_expr fn_Le
                             [fun_expr (fn_Lit len) [];
@@ -620,13 +659,13 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
     let aux := 0 in
     let out := S aux in
     LetIn (lower_pATLexpr' e idxs true_rel) (fun val =>
-    Block out [(aux, val); (2, true_rel)] 
-    [normal_rule 
-    [{| clause_rel := local out; 
+    Block out [(aux, val); (2, true_rel)]
+    [normal_rule
+    [{| clause_rel := local out;
       clause_args := var_expr x ::
                       map var_expr idxs ++
                       var_expr dimvar1 ::
-                      map var_expr dimvars|}] 
+                      map var_expr dimvars|}]
     [{| clause_rel := input aux;
       clause_args := var_expr x ::
                     map var_expr idxs ++
@@ -638,19 +677,19 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
       clause_args := [fun_expr fn_Le
                       [fun_expr (fn_Lit k') [];
                       var_expr dimvar1]] |}];
-    normal_rule 
+    normal_rule
     [{| clause_rel := local out;
     clause_args := fun_expr (fn_Lit 0) [] ::
                     map var_expr idxs ++
                     var_expr dimvar1 ::
-                    map var_expr dimvars |}] 
+                    map var_expr dimvars |}]
     [{| clause_rel := input 2;
     clause_args := [fun_expr fn_Lt
                     [var_expr dimvar1;
                     fun_expr (fn_Lit k') []]] |}]])
-  | Scalar x => 
+  | Scalar x =>
     let '(value, hyps, next_varname, correspondences) := (lower_pSexpr' idxs 0 x) in
-      Block next_varname correspondences 
+      Block next_varname correspondences
           [normal_rule [{| clause_rel := local next_varname; clause_args := [value] |}] hyps]
   end.
 
@@ -659,10 +698,6 @@ Definition lower_main {var n} (e : pATLexpr (var_of var) n) (true_rel : var): bl
   lower_pATLexpr' e' [] true_rel.
 
 (* end of compiler, this stuff should go in ATLToDatalog semantics, but that isn't working *)
-
-Print pATL_Sexpr'.
-Print pZexpr'.
-Print pBexpr'.
 
 Fixpoint dim_n (n : nat) : Set :=
   match n with
@@ -707,16 +742,6 @@ Fixpoint interp_pSexpr' (e : pATL_Sexpr' interp_type_tagged) : R :=
   | SBop o x y => interp_Sbop o (interp_pSexpr' x) (interp_pSexpr' y)
   | SLit z => IZR z
 end.
-
-Print concat.
-Print Instances TensorElem.
-
-Instance dim_n_TensorElem : forall n, TensorElem (dim_n n).
-Proof.
-  induction n as [| n' IHn].
-  - simpl. exact RTensorElem.
-  - simpl. exact TensorTensorElem.
-Defined.
 
 Fixpoint interp_pATLexpr' {n} (e : pATLexpr' interp_type_tagged n) : interp_type (tensor_n n) :=
   match e with
@@ -768,8 +793,6 @@ Proof.
  - simpl. rewrite !pZexpr'_works. reflexivity.
 Qed.
 
-Print stringvar_ZLit.
-
 Definition sizeof_var (v : tagged_Z) : option Z := Some (untag_Z v).
 
 Definition dummy_tensor (n : nat) : dim_n n :=
@@ -785,8 +808,8 @@ Definition dummy (t : type) : interp_type_tagged t :=
   | tensor_n n => dummy_tensor n
   end.
 
-Theorem semantics_work : forall {n} (e : pATLexpr interp_type_tagged n) (sz : list nat), 
-      sound_sizeof dummy sizeof_var e = Some sz -> 
+Theorem semantics_work : forall {n} (e : pATLexpr interp_type_tagged n) (sz : list nat),
+      sizeof_prop sizeof_var e sz ->
       interp_pATLexpr' (lower_pATLexpr e) = interp_pATLexpr e.
 Proof.
   intros n e sz szH.
@@ -807,7 +830,7 @@ Proof.
   | n e IH l                       (* Get *)
   | s e1 IH1 e2 IH2                (* SBop *)
   | p ].                           (* SIZR *)
-  - simpl in szH. simpl. rewrite !pZexpr'_works. 
+  - simpl in szH. simpl. rewrite !pZexpr'_works.
     f_equal. apply functional_extensionality.
     intros x.
     epose proof (sound_sizeof_wf n interp_type_tagged interp_type_tagged sizeof_var sizeof_var dummy dummy (p1 (dummy tZ)) (p1 (itervarZ x))) as Hwf.
@@ -816,6 +839,7 @@ Proof.
     + rewrite H.
     * reflexivity.
     * simpl in szH.
+      Unset Printing All.
       destruct (sound_sizeof dummy sizeof_var (p1 (dummy tZ))) as [sz'|].
       { admit. }
       { admit.  }
@@ -826,20 +850,20 @@ Proof.
     apply functional_extensionality. intros x.
     rewrite H.
     + reflexivity.
-    + admit.
+    + simpl in szH. admit.
   - simpl in szH. apply IH in szH. simpl. rewrite !pBexpr'_works. rewrite szH. reflexivity.
   - simpl in szH. destruct (sound_sizeof dummy sizeof_var e1) eqn:E1; [| discriminate].
-    simpl. rewrite IH1. 
+    simpl. rewrite IH1.
     + f_equal.
     apply functional_extensionality. intros x. rewrite IH2. * admit. * admit.
     + f_equal. admit.
   - simpl. f_equal.
-    + rewrite IH1. 
+    + rewrite IH1.
       * reflexivity.
       * admit.
     + rewrite IH2. * reflexivity. * admit.
-  - simpl in szH. simpl. rewrite IH. 
-    + reflexivity. 
+  - simpl in szH. simpl. rewrite IH.
+    + reflexivity.
     + destruct (sound_sizeof dummy sizeof_var e) as [l|] eqn:E.
       * admit.
       * discriminate.
@@ -849,12 +873,12 @@ Proof.
   - simpl. rewrite pZexpr'_works. admit.
   - simpl. rewrite pZexpr'_works. admit.
   - simpl. rewrite pZexpr'_works. admit.
-  - simpl in szH. destruct n as [| n']. 
+  - simpl in szH. destruct n as [| n'].
     + simpl. admit.
     + simpl. admit.
   - simpl. simpl in szH. destruct (length l =? n) as [|].
     + admit.
     + admit.  (* same error as var becuase get returns garbage when var isn't of dimension 0 *)
   - admit. (* since sbop takes pSexpr', it doesn't work because get doesn't work *)
-  - admit. (* stringvar reutrns 0 for zvar, so it also doesn't match *) 
+  - admit. (* stringvar reutrns 0 for zvar, so it also doesn't match *)
 Admitted.
