@@ -31,13 +31,11 @@ Fixpoint sizeof_prop {var n} (sizeof_var : var tZ -> option Z) (e : pATLexpr var
   let sizeof_prop := fun {n} => @sizeof_prop var n sizeof_var in
   match e with
   | Gen lo hi body =>
-      match sizeof_pZexpr sizeof_var lo, sizeof_pZexpr sizeof_var hi with
-      | Some lo', Some hi' =>
-          let n := Z.to_nat (hi' - lo') in
-          exists sz',
-          sz = n :: sz' /\ 0 < n /\ forall x, sizeof_prop (body x) sz'
-      | _, _ => False
-      end
+      exists lo' hi' sz',
+      sizeof_pZexpr sizeof_var lo = Some lo' /\
+        sizeof_pZexpr sizeof_var hi = Some hi' /\
+        let n := Z.to_nat (hi' - lo') in
+        sz = n :: sz' /\ 0 < n /\ forall x, sizeof_prop (body x) sz'
   | Sum lo hi body =>
       forall x, sizeof_prop (body x) sz
   | Guard p body =>
@@ -52,36 +50,29 @@ Fixpoint sizeof_prop {var n} (sizeof_var : var tZ -> option Z) (e : pATLexpr var
       exists a b sz',
       sizeof_prop e (a :: b :: sz') /\ sz = a * b :: sz'
   | Split k e =>
-      exists a sz',
+      exists a sz' k',
       sizeof_prop e (a :: sz') /\
-        match sizeof_pZexpr sizeof_var k with
-        | Some k => 0 < Z.to_nat k /\ sz = a //n (Z.to_nat k) :: Z.to_nat k :: sz'
-        | None => False
-        end
+        sizeof_pZexpr sizeof_var k = Some k' /\
+        0 < Z.to_nat k' /\
+        sz = a //n (Z.to_nat k') :: Z.to_nat k' :: sz'
   | Transpose e =>
       exists a b sz',
       sizeof_prop e (a :: b :: sz') /\ sz = b :: a :: sz'
   | Truncr n e | Truncl n e =>
-                   exists m sz',
+                   exists m sz' n',
                    sizeof_prop e (m :: sz') /\
-                     match sizeof_pZexpr sizeof_var n with
-                     | Some n => Z.to_nat n < m /\ sz = m - Z.to_nat n :: sz'
-                     | None => False
-                     end
+                     sizeof_pZexpr sizeof_var n = Some n' /\
+                     Z.to_nat n' < m /\ sz = m - Z.to_nat n' :: sz'
   | Padr n e =>
-      exists m sz',
+      exists m sz' n',
       sizeof_prop e (m :: sz') /\
-        match sizeof_pZexpr sizeof_var n with
-        | Some n => sz = m + Z.to_nat n :: sz'
-        | None => False
-        end
+        sizeof_pZexpr sizeof_var n = Some n' /\
+        sz = m + Z.to_nat n' :: sz'
   | Padl n e =>
-      exists m sz',
+      exists m sz' n',
       sizeof_prop e (m :: sz') /\
-        match sizeof_pZexpr sizeof_var n with
-        | Some n => sz = (Z.to_nat n + m :: sz')
-        | None => False
-        end
+        sizeof_pZexpr sizeof_var n = Some n' /\
+        sz = (Z.to_nat n' + m :: sz')
   | @Var _ n _ => sz = [] /\ n = O
   | @Get _ n v idxs =>
       length idxs = n /\ sz = [] /\
