@@ -799,11 +799,18 @@ Definition dummy (t : type) : interp_type_tagged t :=
   | tensor_n n => dummy_tensor n
   end.
 
+Lemma stringvar_S_works (e : pATLexpr interp_type_tagged 0) sz :
+  sizeof_prop sizeof_var e sz -> sz = [] ->
+  interp_pSexpr' (stringvar_S e) = interp_pATLexpr e.
+Proof.
+Admitted. (* still have to write this *)
+
+
 Theorem semantics_work : forall {n} (e : pATLexpr interp_type_tagged n) (sz : list nat),
       sizeof_prop sizeof_var e sz ->
       interp_pATLexpr' (lower_pATLexpr e) = interp_pATLexpr e.
 Proof.
-  intros n e sz szH.
+  intros n e.
   induction e as
   [ n p p0 p1 H                    (* Gen *)
   | n p p0 p1 H                    (* Sum *)
@@ -821,55 +828,82 @@ Proof.
   | n e IH l                       (* Get *)
   | s e1 IH1 e2 IH2                (* SBop *)
   | p ].                           (* SIZR *)
-  - simpl in szH. simpl. rewrite !pZexpr'_works.
+  - intros sz szH. simpl. rewrite !pZexpr'_works.
     f_equal. apply functional_extensionality.
-    intros x.
-    epose proof (sound_sizeof_wf n interp_type_tagged interp_type_tagged sizeof_var sizeof_var dummy dummy (p1 (dummy tZ)) (p1 (itervarZ x))) as Hwf.
-    specialize (Hwf [{| ctx_elt_t := tZ; ctx_elt_p1 := dummy tZ; ctx_elt_p2 := itervarZ x |}]).
-    destruct n as [| n'].
-    + rewrite H.
-    * reflexivity.
-    * simpl in szH.
-      Unset Printing All.
-      destruct (sound_sizeof dummy sizeof_var (p1 (dummy tZ))) as [sz'|].
-      { admit. }
-      { admit.  }
-    + rewrite H.
-    * reflexivity.
-    * admit.
-  - simpl. rewrite !pZexpr'_works. f_equal.
-    apply functional_extensionality. intros x.
-    rewrite H.
+    intros x. inversion szH.
+    destruct H0 as [hi' [sz' [Hlo [Hhi [Hsz [Hpos Hbody]]]]]].
+    rewrite (H (itervarZ x) sz').
     + reflexivity.
-    + simpl in szH. admit.
-  - simpl in szH. apply IH in szH. simpl. rewrite !pBexpr'_works. rewrite szH. reflexivity.
-  - simpl in szH. destruct (sound_sizeof dummy sizeof_var e1) eqn:E1; [| discriminate].
-    simpl. rewrite IH1.
-    + f_equal.
-    apply functional_extensionality. intros x. rewrite IH2. * admit. * admit.
-    + f_equal. admit.
-  - simpl. f_equal.
-    + rewrite IH1.
+    + apply Hbody.
+  - intros sz szH. simpl. rewrite !pZexpr'_works.
+    f_equal. apply functional_extensionality.
+    intros x. rewrite (H (itervarZ x) sz).
+    + reflexivity.
+    + apply szH.
+  - intros sz szH. simpl. rewrite !pBexpr'_works.
+    f_equal. apply (IH sz). exact szH.
+  - intros sz szH. simpl in szH.
+    destruct szH as [sz' [Hsz1 Hsz2]]. 
+    simpl. f_equal.
+    + apply (IH1 sz'). apply Hsz1.
+    + apply functional_extensionality. intros x. 
+      rewrite (IH2 x sz).
       * reflexivity.
-      * admit.
-    + rewrite IH2. * reflexivity. * admit.
-  - simpl in szH. simpl. rewrite IH.
-    + reflexivity.
-    + destruct (sound_sizeof dummy sizeof_var e) as [l|] eqn:E.
-      * admit.
-      * discriminate.
-  - simpl. admit.
-  - simpl. admit.
-  - simpl. rewrite pZexpr'_works. admit.
-  - simpl. rewrite pZexpr'_works. admit.
-  - simpl. rewrite pZexpr'_works. admit.
-  - simpl. rewrite pZexpr'_works. admit.
-  - simpl in szH. destruct n as [| n'].
-    + simpl. admit.
-    + simpl. admit.
-  - simpl. simpl in szH. destruct (length l =? n) as [|].
-    + admit.
-    + admit.  (* same error as var becuase get returns garbage when var isn't of dimension 0 *)
-  - admit. (* since sbop takes pSexpr', it doesn't work because get doesn't work *)
-  - admit. (* stringvar reutrns 0 for zvar, so it also doesn't match *)
+      * apply Hsz2.
+  - intros sz szH. simpl. 
+    destruct szH as [nx [ny [sz' [Hx [Hy Hsz]]]]].
+    f_equal.
+    + apply (IH1 (nx :: sz')). apply Hx.
+    + apply (IH2 (ny :: sz')). apply Hy.
+  - intros sz szH. simpl.
+    f_equal. 
+    destruct szH as [a [b [sz' [He Hsz]]]].
+    apply (IH (a :: b :: sz')). apply He.
+  - intros sz szH. simpl.
+    destruct szH as [a [sz' [k' [He [Hpos Hsz]]]]].
+    f_equal.
+    + apply (IH (a :: sz')). apply He.
+    + apply pZexpr'_works.
+  - intros sz szH. simpl.
+    destruct szH as [a [b [sz' [He Hsz]]]].
+    f_equal. apply (IH (a :: b :: sz')). apply He.
+  - intros sz szH. simpl.
+    destruct szH as [m [sz' [n' [He [Hn [Hlt Hsz]]]]]].
+    f_equal.
+    + apply pZexpr'_works.
+    + apply (IH (m :: sz')). apply He.
+  - intros sz szH. simpl.
+    destruct szH as [m [sz' [n' [He [Hn [Hlt Hsz]]]]]].
+    f_equal.
+    + apply pZexpr'_works.
+    + apply (IH (m :: sz')).  apply He.
+  - intros sz szH. simpl.
+    destruct szH as [m [sz' [n' [He [Hn Hsz]]]]].
+    f_equal.
+    + apply pZexpr'_works.
+    + apply (IH (m :: sz')). apply He.
+  - intros sz szH. simpl.
+    destruct szH as [m [sz' [n' [He [Hn Hsz]]]]].
+    f_equal.
+    + apply pZexpr'_works.
+    + apply (IH (m :: sz')). apply He.
+  - intros sz szH. simpl.
+    destruct szH as [Hsz Hn].
+    subst n. simpl. admit.
+  - intros sz szH.
+    destruct szH as [Hlen [Hsz Hv]].
+    destruct e eqn:Ee; simpl in Hv; try contradiction.
+    simpl. rewrite map_map. f_equal.
+    apply map_ext. intros a. apply pZexpr'_works.
+  - intros sz szH.
+    destruct szH as [Hsz [Hx Hy]].
+    simpl. f_equal.
+    + apply (stringvar_S_works e1 []).
+      * apply Hx. 
+      * reflexivity.
+    + apply (stringvar_S_works e2 []).
+      * apply Hy.
+      * reflexivity.
+  - intros sz szH.
+    simpl. f_equal. admit.
 Admitted.
