@@ -8,6 +8,7 @@ From Stdlib Require Import Strings.String.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Logic.FunctionalExtensionality.
+From Stdlib Require Import Program.Equality.
 
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics Common.
 From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
@@ -26,6 +27,23 @@ Print pATLexpr.
 Print result_of_pATLexpr.
 (*some property that valid source programs should probably (?) have*)
 Print sound_sizeof.
+
+Fixpoint pZexpr_no_vars {var} (e : pZexpr var) : Prop :=
+  match e with
+  | ZBop _ x y => pZexpr_no_vars x /\ pZexpr_no_vars y
+  | ZVar _ => False
+  | ZZ0 | ZZpos _ | ZZneg _ | ZZ_of_nat _ => True
+  | ZZopp x => pZexpr_no_vars x
+  end.
+
+
+Fixpoint stringvar_S_ok {var} (e : pATLexpr var 0) : Prop :=
+  match e with
+  | ATLPhoas.SBop _ x y => stringvar_S_ok x /\ stringvar_S_ok y
+  | ATLPhoas.SIZR _ => True
+  | ATLPhoas.Get _ _ => True
+  | _ => False
+  end.
 
 Fixpoint sizeof_prop {var n} (sizeof_var : var tZ -> option Z) (e : pATLexpr var n) (sz : list nat) : Prop :=
   let sizeof_prop := fun {n} => @sizeof_prop var n sizeof_var in
@@ -81,8 +99,9 @@ Fixpoint sizeof_prop {var n} (sizeof_var : var tZ -> option Z) (e : pATLexpr var
         | _ => False
         end
   | SBop _ x y =>
-      sz = [] /\ sizeof_prop x [] /\ sizeof_prop y []
-  | SIZR _ => sz = []
+    sz = [] /\ sizeof_prop x [] /\ sizeof_prop y [] /\ 
+    stringvar_S_ok x /\ stringvar_S_ok y
+  | SIZR x => sz = [] /\ pZexpr_no_vars x
   end.
 
 (*target language syntax*)
@@ -211,7 +230,7 @@ Fixpoint stringvar_ZLit {var} (e : pZexpr var) : Z :=
   | ATLPhoas.ZZpos p => (Zpos p)
   | ATLPhoas.ZZneg p => (Zneg p)
   | ATLPhoas.ZZ_of_nat n => (Z.of_nat n)
-  | ATLPhoas.ZZopp x => (stringvar_ZLit x)
+  | ATLPhoas.ZZopp x => (- stringvar_ZLit x)%Z
   end.
 
 Fixpoint stringvar_S {var} {n} (e : pATLexpr var n) : pATL_Sexpr' var :=
@@ -291,6 +310,7 @@ Inductive pATLexpr' { var : type -> Type } : nat -> Type :=
   | Padl : forall {n : nat},
            pZexpr' (var tZ) ->
            pATLexpr' (ATLPhoas.S n) -> pATLexpr' (ATLPhoas.S n)
+  | Var : forall n : nat, var (tensor_n n) -> pATLexpr' n
   | Scalar : pATL_Sexpr' var -> pATLexpr' 0
   .
 
@@ -318,7 +338,7 @@ Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var) n) : pATLexpr' (var) n :=
   | ATLPhoas.Truncl k x => Truncl _ (lower_pZexpr k) (lower_pATLexpr x)
   | ATLPhoas.Padr k x => Padr (lower_pZexpr k) (lower_pATLexpr x)
   | ATLPhoas.Padl k x => Padl (lower_pZexpr k) (lower_pATLexpr x)
-  | ATLPhoas.Var x => create_garbage _ _
+  | ATLPhoas.Var x => Var _ x
   | ATLPhoas.Get _ _ | ATLPhoas.SBop _ _ _ | ATLPhoas.SIZR _ => Scalar (stringvar_S e)
 end.
 
@@ -419,6 +439,7 @@ Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
         end
       | _ => []
     end
+  | Var n x => []
   | Scalar s => 1 :: []
 end.
 
@@ -678,6 +699,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
     clause_args := [fun_expr fn_Lt
                     [var_expr dimvar1;
                     fun_expr (fn_Lit k') []]] |}]])
+  | Var n x => Block 0 [] []
   | Scalar x =>
     let '(value, hyps, next_varname, correspondences) := (lower_pSexpr' idxs 0 x) in
       Block next_varname correspondences
@@ -751,6 +773,7 @@ Fixpoint interp_pATLexpr' {n} (e : pATLexpr' interp_type_tagged n) : interp_type
   | Truncl n k x => Common.Truncl (interp_pZexpr' k) (interp_pATLexpr' x)
   | Padl k x => Common.Padl (interp_pZexpr' k) (interp_pATLexpr' x)
   | Padr k x => Common.Padr (interp_pZexpr' k) (interp_pATLexpr' x)
+  | Var n x => x
   | Scalar x => interp_pSexpr' x
   end.
 
@@ -799,11 +822,48 @@ Definition dummy (t : type) : interp_type_tagged t :=
   | tensor_n n => dummy_tensor n
   end.
 
+
 Lemma stringvar_S_works (e : pATLexpr interp_type_tagged 0) sz :
+  stringvar_S_ok e ->
   sizeof_prop sizeof_var e sz -> sz = [] ->
   interp_pSexpr' (stringvar_S e) = interp_pATLexpr e.
 Proof.
-Admitted. (* still have to write this *)
+intros H1 H2 H3.
+dependent induction e.
+- simpl in H1. contradiction.
+- simpl in H1. contradiction.
+- simpl in H1. contradiction.
+- simpl in H1. contradiction.
+- simpl. destruct H2 as [Hlen [Hsz Hv]].
+  destruct e eqn:Ee; simpl in Hv; try contradiction.
+  simpl. f_equal. rewrite map_map. apply map_ext. intros a.
+  apply pZexpr'_works.
+- simpl. destruct H2 as [Hsz1 [Hx [Hy [Hok1 Hok2]]]].
+  f_equal.
+  + eapply IHe1; [reflexivity | reflexivity | | exact Hx | reflexivity].
+    simpl in H1. apply H1.
+  + eapply IHe2; [reflexivity | reflexivity | | exact Hy | reflexivity].
+    simpl in H1. apply H1.
+- simpl. f_equal.
+  destruct H2 as [Hsz Hnv].
+  induction p; simpl in Hnv.
+  * destruct Hnv as [Hnv1 Hnv2].
+    simpl. f_equal.
+    + apply IHp1. 
+      { simpl. simpl in H1. exact H1. }
+      { exact Hnv1. }
+    + apply IHp2.
+      { simpl. simpl in H1. exact H1. }
+      { exact Hnv2. }
+  * contradiction.
+  * simpl. reflexivity.
+  * simpl. reflexivity.
+  * simpl. reflexivity.
+  * simpl. reflexivity.
+  * simpl. f_equal. apply IHp.
+    + simpl. simpl in H1. apply H1.
+    + apply Hnv.
+Qed.
 
 
 Theorem semantics_work : forall {n} (e : pATLexpr interp_type_tagged n) (sz : list nat),
@@ -887,23 +947,38 @@ Proof.
     f_equal.
     + apply pZexpr'_works.
     + apply (IH (m :: sz')). apply He.
-  - intros sz szH. simpl.
-    destruct szH as [Hsz Hn].
-    subst n. simpl. admit.
+  - intros sz szH. simpl. reflexivity.
   - intros sz szH.
     destruct szH as [Hlen [Hsz Hv]].
     destruct e eqn:Ee; simpl in Hv; try contradiction.
     simpl. rewrite map_map. f_equal.
     apply map_ext. intros a. apply pZexpr'_works.
   - intros sz szH.
-    destruct szH as [Hsz [Hx Hy]].
+    destruct szH as [Hsz [Hx [Hy [Hok1 Hok2]]]].
     simpl. f_equal.
-    + apply (stringvar_S_works e1 []).
-      * apply Hx. 
-      * reflexivity.
+    + apply (stringvar_S_works e1 [] Hok1 Hx eq_refl).
     + apply (stringvar_S_works e2 []).
+      * apply Hok2.
       * apply Hy.
       * reflexivity.
   - intros sz szH.
-    simpl. f_equal. admit.
-Admitted.
+    simpl. f_equal. 
+    destruct szH as [Hsz Hnv].
+    induction p; simpl in Hnv.
+    (* ZBop *)
+    + simpl. destruct Hnv as [Hnv1 Hnv2]. f_equal.
+      * apply IHp1. apply Hnv1.
+      * apply IHp2. apply Hnv2.
+    (* ZVar *)
+    + contradiction.
+    (* Z0 *)
+    + simpl. reflexivity.
+    (* ZPos *)
+    + simpl. reflexivity.
+    (* ZNeg *)
+    + simpl. reflexivity.
+    (* ZZ_of_nat *)
+    + simpl. reflexivity.
+    (* Zopp *)
+    + simpl. f_equal. apply IHp. apply Hnv.
+Qed.
