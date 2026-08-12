@@ -1,5 +1,5 @@
 From Stdlib Require Import List Lia Permutation Classical_Prop RelationClasses.
-From Datalog Require Import List Datalog Smallstep Tactics Graph Node.
+From Datalog Require Import List Datalog Smallstep Tactics Graph Node Default.
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
 Import ListNotations.
@@ -20,6 +20,9 @@ Section __.
     { fnode_node : node_state;
       fnode_pending : list dfact;
     }.
+
+  Definition fnode_init node_init :=
+    {| fnode_node := node_init; fnode_pending := [] |}.
 
   Variant fnode_label :=
     | deduce_label (_ : dfact_mod_count)
@@ -43,3 +46,8 @@ Section __.
     fnode_step fs (O_event (forward_label f) [f])
                {| fnode_node := ns'; fnode_pending := q1 ++ q2 |}.
 End __.
+Arguments fnode_state {rel T} node_state.
+Arguments fnode_prog {rel} node_prog.
+
+#[global] Instance fnode_prog_default {rel: relT} {node_prog} `{WithDefault node_prog} : WithDefault (fnode_prog node_prog) :=
+  {| fnode_rules := default; fnode_keep := fun _ => false |}.
