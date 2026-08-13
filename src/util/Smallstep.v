@@ -252,19 +252,18 @@ Section step.
     - right. exists s'', outs. split; [exact Hstep | apply HPQ, HP].
   Qed.
 
-  Definition reachable (s : state) (t : list (IO_event label message))
-                       (s' : state) (t' : list (IO_event label message)) : Prop :=
+  Definition reachable s t s' t' :=
     exists tr, star step s tr s' /\ t' = tr ++ t /\
-               (allowed (inputs_of t) -> allowed (inputs_of t')).
+            (allowed (inputs_of t) -> allowed (inputs_of t')).
+  Hint Unfold reachable : core.
 
   Lemma reachable_refl s t : reachable s t s t.
-  Proof. exists []. split; [apply star_refl | split; [reflexivity | exact (fun H => H)]]. Qed.
+  Proof. eauto using star_refl. Qed.
 
   Lemma reachable_trans s1 t1 s2 t2 s3 t3 :
     reachable s1 t1 s2 t2 -> reachable s2 t2 s3 t3 -> reachable s1 t1 s3 t3.
   Proof.
-    cbv [reachable]. intros. fwd. eexists (_ ++ _).
-    split; eauto using star_app. rewrite <- app_assoc. eauto.
+    cbv [reachable]. intros. fwd. eauto 10 using app_assoc, star_app.
   Qed.
 
   Lemma will_step_reach (s0 : state) (t0 : list (IO_event label message))
@@ -274,11 +273,8 @@ Section step.
   Proof.
     intros [lbl H]. exists lbl. intros s' t' Hstar Hallow.
     destruct (H s' t' Hstar Hallow) as [HP | (s'' & outs & Hstep & HP)].
-    - left. apply HP. exists t'. split; [exact Hstar | split; [reflexivity | intros _; exact Hallow]].
-    - right. exists s'', outs. split; [exact Hstep|]. apply HP.
-      exists (O_event lbl outs :: t').
-      split; [ eapply star_step; [exact Hstar | exact Hstep]
-             | split; [reflexivity | intros _; exact Hallow] ].
+    - eauto 10.
+    - eauto 11 using star_step.
   Qed.
 
   (* [eventually]-analogue of [will_step_reach]: at every reached state the target
@@ -289,10 +285,10 @@ Section step.
     eventually will_step P (s0, t0).
   Proof.
     intros Hev.
-    cut (forall st, reachable s0 t0 (fst st) (snd st) ->
+    enough (forall st, reachable s0 t0 (fst st) (snd st) ->
            eventually will_step (fun '(s, t) => reachable s0 t0 s t -> P (s, t)) st ->
-           eventually will_step P st).
-    { intros H. apply (H (s0, t0)); [ apply reachable_refl | exact Hev ]. }
+           eventually will_step P st) as H.
+    { apply (H (s0, t0)); [ apply reachable_refl | exact Hev ]. }
     clear Hev. intros st Hr Hev. revert Hr.
     induction Hev as [ [s' t'] HQ | [s' t'] ms Hcan Hmid IH ]; intros Hr; cbn [fst snd] in Hr.
     - apply eventually_done. apply HQ, Hr.
@@ -307,8 +303,7 @@ Section step.
     eventually will_step (fun '(s, t) => reachable s0 t0 s t /\ P (s, t)) (s0, t0).
   Proof.
     intros Hev. apply eventually_will_step_reach.
-    eapply eventually_weaken; [ exact Hev | ].
-    intros [s t] HP Hr. split; [ exact Hr | exact HP ].
+    eapply eventually_weaken; eauto. intros. Tactics.destruct_one_pair. eauto.
   Qed.
 
   (*this is not used anywhere, but without it will_step is a bit weird, since it allows
@@ -423,9 +418,6 @@ Section step.
     - destruct Hcan as [lbl Hcan].
       apply eventually_step_cps. exists lbl.
       intros s_d t_d Hstar_d Hallow_d.
-      (* Fold the single step [e_orig] into the demon run [t_d]: with newest-first
-         traces the combined run is [t_d ++ [e_orig]] and lands exactly where the
-         demon does, so no permutation is needed. *)
       assert (Hstar_combined : star step s_orig (t_d ++ [e_orig]) s_d).
       { eapply star_app; [apply star_one; exact Hstep | exact Hstar_d]. }
       assert (Hallow_o : allowed (inputs_of ((t_d ++ [e_orig]) ++ t_orig))).
@@ -439,8 +431,6 @@ Section step.
         rewrite <- app_assoc in Hev. exact Hev.
   Qed.
 
-  (* [will_output_equiv]-analogues of [will_implies_might]/[will_output_step]:
-     the target output is only pinned down up to [equiv]. *)
   Lemma will_equiv_implies_might_equiv s t o :
     allowed (inputs_of t) ->
     will_output_equiv s t o ->
@@ -487,9 +477,8 @@ Section step.
     will_output_equiv s t o ->
     will_output_equiv s' (t' ++ t) o.
   Proof.
-    intros Hstar Hwill. induction Hstar as [ | t0 sa e sb Hstar' IH Hstep].
-    - exact Hwill.
-    - exact (will_output_equiv_step sa e sb (t0 ++ t) o Hstep IH).
+    intros Hstar Hwill. induction Hstar; eauto.
+    eapply will_output_equiv_step; eassumption.
   Qed.
 
   Context (initial : state).
@@ -994,6 +983,17 @@ Section steps_corresp.
           star step2 s2 t2' s2' /\
           inputs_of t2' = inputs_of [e] /\
           R s1' (e :: t1) s2' (t2' ++ t2).
+
+    Axiom labels_of : forall (t : list IO_event), list label.
+    Definition label_sim :=
+      forall s1 t1 t2 s1' s2 lbl1 outs,
+        R s1 t1 s2 t2 ->
+        step1 s1 (O_event lbl1 outs) s1' ->
+        exists s2' t2,
+          star step2 s2 t2 s2' /\
+            forall s1'' t1',
+              star step1 s1 t1' s1'' ->
+              In lbl1 (labels_of t1').
 
     Lemma weak_sim_lift :
       weak_sim ->
