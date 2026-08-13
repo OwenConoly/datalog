@@ -61,7 +61,7 @@ Section __.
   Context {graph : graph.graph node_id}.
   Context (prog_at : node_id -> node_prog).
   Context {fgraph_state : map.map node_id
-            (graph_node_state (dfact * node_id) (fnode_label dfact label) (@fnode_state node_state dfact))}.
+            (graph_node_state (dfact * node_id) (fnode_label dfact label) (fnode_state node_state dfact))}.
   Context {ngraph_state : map.map node_id (graph_node_state dfact label node_state)}.
 
   Definition fprog_at n : fnode_prog node_prog dfact :=
@@ -74,10 +74,13 @@ Section __.
   Definition foutput_visible n (m : dfact * node_id) :=
     let '(f, _) := m in output_visible n f.
 
-  Definition fgraph_step :=
+  Definition reannotate '(m, n) : dfact * node_id * node_id := (m, n, n).
+
+  Definition fgraph_step g1 e g2 :=
     graph_step finput_allowed
       (fun src dst '(f, orig) => existsb (eqb dst) (fforward src (dfact_rel f, orig))) foutput_visible
-      (fun n => fnode_step node_step (fprog_at n) n).
+      (fun n => fnode_step node_step (fprog_at n) n)
+      g1 (translate_event reannotate e) g2.
 
   Definition ngraph_step :=
     graph_step input_allowed
