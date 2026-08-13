@@ -8,7 +8,7 @@ Section Distributed.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
-  Context {prog_map : map.map node_id (list rule)} {prog_map_ok : map.ok prog_map}.
+  Context {prog_map : map.map node_id (fnode_prog (list rule))} {prog_map_ok : map.ok prog_map}.
 
   Definition layout_good
     (rel_input_allowed : node_id -> rel -> bool)
@@ -52,11 +52,7 @@ Section Distributed.
   (* Context (Hmrv : Forall_map (fun _ p => meta_rules_valid p) graph_prog). *)
   (* Context (Hsender : Forall_map (sends_concl_rels R_senders) graph_prog). *)
 
-  Definition prog_at (n : node_id) : list rule :=
-    get_or_default graph_prog n.
-
-  Definition fnode_prog_at n :=
-    {| fnode_rules := prog_at n; fnode_keep := fun R => rel_forward n n R |}.
+  Definition prog_at (n : node_id) : fnode_prog (list rule) := get_or_default graph_prog n.
 
   Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
   Proof. apply get_or_default_Some. Qed.
@@ -248,12 +244,12 @@ Section Distributed.
           -- rewrite (count_at_None _ _ _ Ec). apply Eg_zero.
   Qed.
 
-  Context {graph_state : map.map node_id (graph_node_state dfact fnode_label (fnode_state node_state))}.
+  Context {graph_state : map.map node_id (graph_node_state dfact dfact_mod_count (fnode_state node_state))}.
   Context {graph_state_ok : map.ok graph_state}.
   Context {msg_map : map.map node_id (list dfact)} {msg_map_ok : map.ok msg_map}.
   Context {omap : map.map node_id (list (dfact * node_id))} {omap_ok : map.ok omap}.
 
-  Definition graph_node_init : graph_node_state dfact fnode_label (fnode_state node_state) :=
+  Definition graph_node_init : graph_node_state dfact dfact_mod_count (fnode_state node_state) :=
     {| gns_node_state := fnode_init node_init; gns_trace := []; gns_queue := [] |}.
 
   Definition initial_graph_state : graph_state :=
@@ -279,8 +275,9 @@ Section Distributed.
   Lemma nallowed_multiset_monotone : multiset_monotone_dec nallowed.
   Proof. intros l1 l2 Hl2 Hsub. eapply allowed_inputs_submultiset; eauto. Qed.
 
+  Local Notation nstep := (fun n => node_step R_senders (prog_at n) n).
   Local Notation fnstep :=
-    (fun n => fnode_step (fun p => node_step R_senders p n) (fnode_prog_at n)).
+    (fun n => fnode_step (fun p => node_step R_senders p n) (prog_at n)).
 
   Lemma nstep_input_total n : input_total (fnstep n).
   Proof. intros s m. eexists. Abort. (* apply node_input_step. Qed. *)
@@ -293,14 +290,23 @@ Section Distributed.
     Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
                   consistent nallowed fnstep) initial_graph_state.
   Proof.
-    (* intros k v Hkv. apply initial_graph_state_get in Hkv. fwd. *)
-    (* pose proof node_might_implies_will' as H. *)
-    (* especialize H; eauto. apply miw'_iff_miw_and_monotone' in H; auto. fwd. *)
-    (* cbv [node_good graph_node_init gns_node_state]. *)
-    (* erewrite prog_at_get by eassumption. *)
-    (* ssplit; try eassumption. *)
-    (* apply node_outputs_well_formed; [ exact forward_rel_level | eapply Hsender; eauto ]. *)
-  Abort.
+    intros k v Hkv. apply initial_graph_state_get in Hkv. fwd.
+    pose proof node_might_implies_will' as H.
+    especialize H; eauto. apply miw'_iff_miw_and_monotone' in H; auto. fwd.
+    cbv [node_good graph_node_init gns_node_state].
+    erewrite prog_at_get by eassumption.
+    ssplit; try eassumption.
+    apply node_outputs_well_formed; [ exact forward_rel_level | eapply Hsender; eauto ].
+  Qed.
+
+  Context (node_keep : node_id -> rel -> bool).
+
+  Definition fnode_prog_at (n : node_id) : fnode_prog :=
+    {| fnode_rules := prog_at n; fnode_keep := node_keep n |}.
+
+  Print graph_node_state. Print fnode_state.
+  Context {graph_state : map.map node_id
+             (graph_node_state dfact fnode_label (fnode_state node_state))}.
 
   Definition distributed_step := graph_step input_allowed forward output_visible fnstep.
 
@@ -321,8 +327,8 @@ Section Distributed.
     - exact nallowed_multiset_monotone.
     - exact (allowed_output_submultiset R_senders).
     - exact allowed_of_outputs.
-    - admit. (*exact nstep_input_total*)
-    - admit. (*exact nodes_good_holds.*)
-  Admitted.
+    - exact nstep_input_total.
+    - exact nodes_good_holds.
+  Qed.
 
 End Distributed.
