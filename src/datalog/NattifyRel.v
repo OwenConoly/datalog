@@ -26,9 +26,9 @@ Section NattifyRel.
   Definition nattify_rel_fact (p : list rule) (f : fact) :=
     map_fact (encode_rel p) f.
 
-  Lemma rels_of_prog_in_table p :
-    incl (flat_map all_rels p) (rel_table p).
-  Proof. intros R HR. cbv [rel_table]. apply dedup_In. apply in_or_app. auto. Qed.
+  Lemma rels_of_prog_in_table p R :
+    In R (flat_map all_rels p) -> In R (rel_table p).
+  Proof. intros. cbv [rel_table]. apply dedup_In. apply in_or_app. left. assumption. Qed.
 
   (* nattify_rel_fact is injective on facts whose relation is in the table *)
   Lemma nattify_rel_fact_inj p a b :
@@ -54,11 +54,14 @@ Section NattifyRel.
       apply HQin. exact Hf. }
     cbv [nattify_rel_prog nattify_rel_fact].
     apply prog_impl_map_rule_rels_iff_inj.
-    - cbv [encode_rel]. apply index_of_inj_on. apply rels_of_prog_in_table.
-    - cbv [encode_rel]. apply index_of_inj_on_cons. apply rels_of_prog_in_table.
-    - intros f1 f2 Heq. cbv [fact_equiv] in Heq.
-      split; intros HQ.
-      + apply nattify_rel_fact_inj in Heq; subst; auto.
-      + symmetry in Heq. apply nattify_rel_fact_inj in Heq; subst; auto.
+    - cbv [encode_rel]. apply index_of_inj_on. exact (rels_of_prog_in_table p).
+    - cbv [encode_rel]. apply index_of_inj_on_cons. exact (rels_of_prog_in_table p).
+    - intros f1 f2 Heq. cbv [fact_equiv] in Heq. split; intros HQ.
+      + assert (f1 = f2) as ->
+          by (apply nattify_rel_fact_inj with (p := p); [apply HQtab; exact HQ | exact Heq]).
+        exact HQ.
+      + assert (f2 = f1) as ->
+          by (apply nattify_rel_fact_inj with (p := p); [apply HQtab; exact HQ | exact (eq_sym Heq)]).
+        exact HQ.
   Qed.
 End NattifyRel.

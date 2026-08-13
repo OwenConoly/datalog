@@ -8,7 +8,7 @@ Section Distributed.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
-  Context {prog_map : map.map node_id (fnode_prog (list rule))} {prog_map_ok : map.ok prog_map}.
+  Context {prog_map : map.map node_id (list rule)} {prog_map_ok : map.ok prog_map}.
 
   Definition layout_good
     (rel_input_allowed : node_id -> rel -> bool)
@@ -52,8 +52,11 @@ Section Distributed.
   (* Context (Hmrv : Forall_map (fun _ p => meta_rules_valid p) graph_prog). *)
   (* Context (Hsender : Forall_map (sends_concl_rels R_senders) graph_prog). *)
 
-  Definition prog_at (n : node_id) : fnode_prog (list rule) :=
+  Definition prog_at (n : node_id) : list rule :=
     get_or_default graph_prog n.
+
+  Definition fnode_prog_at n :=
+    {| fnode_rules := prog_at n; fnode_keep := fun R => rel_forward n n R |}.
 
   Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
   Proof. apply get_or_default_Some. Qed.
@@ -65,6 +68,9 @@ Section Distributed.
   Notation allowed_output := (Node.allowed_output R_senders).
 
   Hint Resolve expect_num_R_facts_incl Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
+
+  #[local] Instance option_node_id_eqdec : EqDecider (@eqb (option node_id) _).
+  Proof. intros x y. apply Eqb_ok_BoolSpec. Qed.
 
   Context {node_map : map.map (option node_id) (list dfact)} {node_map_ok : map.ok node_map}.
   Context {count_map : map.map (option node_id) nat} {count_map_ok : map.ok count_map}.
@@ -273,10 +279,10 @@ Section Distributed.
   Lemma nallowed_multiset_monotone : multiset_monotone_dec nallowed.
   Proof. intros l1 l2 Hl2 Hsub. eapply allowed_inputs_submultiset; eauto. Qed.
 
-  Local Notation nstep :=
-    (fun n => fnode_step (fun p => node_step R_senders p n) (prog_at n)).
+  Local Notation fnstep :=
+    (fun n => fnode_step (fun p => node_step R_senders p n) (fnode_prog_at n)).
 
-  Lemma nstep_input_total n : input_total (nstep n).
+  Lemma nstep_input_total n : input_total (fnstep n).
   Proof. intros s m. eexists. Abort. (* apply node_input_step. Qed. *)
 
   Lemma forward_rel_level n1 n2 f g :
@@ -285,7 +291,7 @@ Section Distributed.
 
   Lemma nodes_good_holds :
     Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
-                  consistent nallowed nstep) initial_graph_state.
+                  consistent nallowed fnstep) initial_graph_state.
   Proof.
     (* intros k v Hkv. apply initial_graph_state_get in Hkv. fwd. *)
     (* pose proof node_might_implies_will' as H. *)
@@ -296,7 +302,7 @@ Section Distributed.
     (* apply node_outputs_well_formed; [ exact forward_rel_level | eapply Hsender; eauto ]. *)
   Abort.
 
-  Definition distributed_step := graph_step input_allowed forward output_visible nstep.
+  Definition distributed_step := graph_step input_allowed forward output_visible fnstep.
 
   Theorem distributed_might_implies_will :
     might_implies_will_equiv distributed_step (graph_equiv dfact_equiv) (graph_inputs_allowed allowed_output) initial_graph_state.
