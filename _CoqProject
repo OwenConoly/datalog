@@ -7,6 +7,7 @@
 -Q verified-scheduling/src/examples/ Examples
 
 -Q graph_search/coqutil/src/coqutil coqutil
+-Q graph_search/src GraphSearch
 
 -Q src/util Datalog
 -Q src/datalog Datalog

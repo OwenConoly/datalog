@@ -26,14 +26,14 @@ Build status (July 2026): `src/atl/*.v` (the ATL→Datalog compiler) and `src/da
 To search the compiled libraries for lemmas, write a scratch file containing `Require Import` + `Search ...` commands and compile it:
 
 ```
-coqc -Q coqutil/src/coqutil coqutil -Q src/util Datalog -Q src/datalog Datalog /tmp/search.v
+coqc -Q graph_search/coqutil/src/coqutil coqutil -Q graph_search/src GraphSearch -Q src/util Datalog -Q src/datalog Datalog /tmp/search.v
 ```
 
 To see proof state at a point in a batch `coqc` run, insert `Show.` into the proof script.
 
 ## Architecture
 
-Namespaces (`_CoqProject`): `src/util`, `src/datalog`, and `src/atl` ALL map to the single logical name `Datalog` (so `From Datalog Require Import List` gets `src/util/List.v`, and filenames must be unique across the three dirs). `coqutil/src/coqutil` maps to `coqutil`; the verified-scheduling submodule provides `ATL`, `Codegen`, `Lower`, `Examples`, etc.
+Namespaces (`_CoqProject`): `src/util`, `src/datalog`, and `src/atl` ALL map to the single logical name `Datalog` (so `From Datalog Require Import List` gets `src/util/List.v`, and filenames must be unique across the three dirs). `graph_search/coqutil/src/coqutil` maps to `coqutil` and `graph_search/src` maps to `GraphSearch`, whose `GraphInterface.v` provides the `graph.graph` typeclass — a finite directed-graph interface modeled on coqutil's `map.map` (fields `edges : rep -> vertex -> list vertex`, `sources`, `empty`, `put`, `remove`; law bundle `graph.ok`; reachability toolkit `path`/`reaches`/`all_reachable` depends only on `edges`), with the map-backed implementation `graph_map` in `GraphImpl.v`. The verified-scheduling submodule provides `ATL`, `Codegen`, `Lower`, `Examples`, etc.
 
 Everything is parameterized by typeclasses declared in `src/datalog/Datalog.v` (`signature`, `type_signature`, `query_signature`) plus coqutil `map.map` instances, and developed inside `Section`s with `Context` variables — files state hypotheses abstractly and instantiation happens at usage sites. This design is deliberate; don't restructure it.
 
@@ -48,7 +48,7 @@ Layers, bottom to top:
 - `RelMap.v` holds the proven cross-type relation-renaming machinery (`map_fact`, `map_rule_rels`, `prog_impl_map_rule_rels_iff`), parameterized by an arbitrary `f : rel1 -> rel2`. `Blocks.v` requires it and is the staging/composition layer (PHOAS `LetIn`/`Block` trees over rule fragments): inlining to one flat program (`flatten`, `flatten_correct'`); `Datalog.v`'s `staged_program_iff` composes conclusion-disjoint programs. `AggregatingProgram.v` compiles a small PHOAS aggregation DSL onto blocks (proven). `Nattify.v` renames both relations and variables to `nat` via per-program dedup tables (`nattify_prog`, proven `nattify_prog_correct`); it renames variables too, so it is not just an instance of `RelMap.v`'s rel-only `map_rule_rels`. `Local.v` is the indexed single-node implementation (per-relation `idx_struct` key/value column masks, incrementally maintained aggregates); its `compiler_correct` is stated but Aborted.
 - ATL side (`verified-scheduling/`): scheduling rewrites are equality lemmas on the *shallow* embedding (`atl/ATL.v`), applied with the `rw`/`wrapid`/`inline` Ltac DSL inside `Derive` (see `examples/Matmul.v`: matmul plus two derived tiled schedules); the compiler consumes the *deep* AST (`verified_lowering/proof/ATLDeep.v`).
 
-The `coqutil/` and `verified-scheduling/` directories are git submodules — don't edit them.
+The `graph_search/` and `verified-scheduling/` directories are git submodules — don't edit them. `coqutil` is not a separate submodule: it is bundled at `graph_search/coqutil` and is the `coqutil` logical name the whole project builds against (`make util` builds `graph_search` first).
 
 ## Conventions
 
