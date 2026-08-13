@@ -962,15 +962,13 @@ Section steps_corresp.
           flat_map inputs_of t2' = inputs_of e /\
           R s1' (e :: t1) s2' (t2' ++ t2).
 
+    Print will_step.
     Definition label_sim :=
-      forall s1 t1 t2 s2,
+      forall s1 t1 t2 s2 P,
         R s1 t1 s2 t2 ->
-        forall l1, exists l2s,
-        forall s1' t1' s2' t2',
-          star step2 s2 t2' s2' ->
-          star step1 s1 t1' s1' ->
-          incl l2s (flat_map labels_of t2') ->
-          In l1 (flat_map labels_of t1').
+        will_step step1 P ->
+        eventually (will_step step2 (fun t2' s2' => exists t1' s1',
+                                         R s1' t1' s2' t2' /\ P s1' t1')).
 
     Lemma weak_sim_lift :
       weak_sim ->
