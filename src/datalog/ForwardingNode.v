@@ -99,5 +99,16 @@ Section __.
       In n' (nforward n R) ->
       graph.reaches (forwarding_graph ft (R, n)) n n'.
 
+  Definition forwarding_R {Lf Ln}
+    (s1 : fgraph_state) (t1 : list (IO_event Lf (dfact * node_id)))
+    (s2 : ngraph_state) (t2 : list (IO_event Ln (dfact * node_id))) : Prop :=
+    flat_map inputs_of t1 = flat_map inputs_of t2 /\
+      Forall2_map (fun _ fgns ngns =>
+                     fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
+        s1 s2.
 
+  Lemma fgraph_weak_sims_ngraph :
+    weak_sim fgraph_step ngraph_step forwarding_R.
+  Proof.
+  Admitted.
 End __.

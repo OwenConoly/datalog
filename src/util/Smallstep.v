@@ -922,21 +922,22 @@ Section step.
 End step.
 
 Section steps_corresp.
-  Context {label message : Type}.
+  Context {label1 label2 message : Type}.
   Context (allowed : list message -> Prop).
   Context (equiv : message -> message -> Prop).
   Context {equiv_equiv : Equivalence equiv}.
   Context {stmt} (claim : stmt -> list message -> Prop).
   Context (consistent : stmt -> list message -> Prop).
-  Local Notation IO_event := (IO_event label message).
+  Local Notation IO_event1 := (IO_event label1 message).
+  Local Notation IO_event2 := (IO_event label2 message).
 
   Section steps.
     Context {state1 : Type}.
-    Context (step1 : state1 -> IO_event -> state1 -> Prop).
+    Context (step1 : state1 -> IO_event1 -> state1 -> Prop).
     Context (initial1 : state1).
 
     Context {state2 : Type}.
-    Context (step2 : state2 -> IO_event -> state2 -> Prop).
+    Context (step2 : state2 -> IO_event2 -> state2 -> Prop).
     Context (initial2 : state2).
 
     Definition steps_corresp_sound :=
@@ -945,7 +946,7 @@ Section steps_corresp.
         produces step1 initial1 inps output ->
         produces step2 initial2 inps output.
 
-    Context (R : state1 -> list IO_event -> state2 -> list IO_event -> Prop).
+    Context (R : state1 -> list IO_event1 -> state2 -> list IO_event2 -> Prop).
     Context (R_init : R initial1 [] initial2 []).
     Context (R_outputs_corresp :
               forall s1 t1 s2 t2,
@@ -1034,18 +1035,15 @@ Section steps_corresp.
       destruct Hprod1 as (t1 & ns1 & Hstar1 & Hinp1 & Hout1).
       assert (Hall1 : allowed (flat_map inputs_of t1)) by (rewrite Hinp1; exact Hallowed).
       destruct (star_recv_map step1 Hit1 (flat_map inputs_of t1) initial1) as (ns1' & Hstar1').
-      assert (Hall' : allowed (flat_map inputs_of (map I_event (flat_map inputs_of t1) : list IO_event))).
+      assert (Hall' : allowed (flat_map inputs_of (map I_event (flat_map inputs_of t1) : list IO_event1))).
       {  rewrite inputs_of_map_I_event. exact Hall1. }
       assert (Hincl : consistently_incl equiv claim consistent (flat_map inputs_of t1)
-                           (flat_map inputs_of (map I_event (flat_map inputs_of t1) : list IO_event))).
+                           (flat_map inputs_of (map I_event (flat_map inputs_of t1) : list IO_event1))).
       { rewrite inputs_of_map_I_event. apply (consistently_incl_refl equiv claim consistent). }
       assert (Hnc : noncontradictory_inputs equiv claim consistent allowed (flat_map inputs_of t1)
-                         (flat_map inputs_of (map I_event (flat_map inputs_of t1) : list IO_event))).
-      { rewrite inputs_of_map_I_event. exact (noncontradictory_refl equiv claim consistent allowed (flat_map inputs_of t1) Hall1). }
-      pose proof (Hmiw1 t1 ns1 o Hstar1 Hall1 Hout1
-                       ns1' (map I_event (flat_map inputs_of t1)) Hnc Hincl Hstar1' Hall') as Hwill.
-      rewrite <- Hinp1.
-      exact (Hscs' ns1' (flat_map inputs_of t1) o Hstar1' Hall1 Hwill).
+                         (flat_map inputs_of (map I_event (flat_map inputs_of t1) : list IO_event1))).
+      { rewrite inputs_of_map_I_event. apply noncontradictory_refl; assumption. }
+      rewrite <- Hinp1. eapply Hscs'; eauto.
     Qed.
 
     Fail Fail Definition steps_equiv :=
