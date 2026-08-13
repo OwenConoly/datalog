@@ -1,6 +1,6 @@
 From Stdlib Require Import List Permutation RelationClasses Classical_Prop Lia.
 From coqutil Require Import Datatypes.List.
-From Datalog Require Import Datalog Node ForwardingNode Graph Smallstep List Map Default Eqb Tactics.
+From Datalog Require Import Datalog Node Graph Smallstep List Map Default Eqb Tactics.
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Eqb Decidable.
 Import ListNotations.
 
@@ -8,7 +8,7 @@ Section Distributed.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
-  Context {prog_map : map.map node_id (fnode_prog (list rule))} {prog_map_ok : map.ok prog_map}.
+  Context {prog_map : map.map node_id (list rule)} {prog_map_ok : map.ok prog_map}.
 
   Definition layout_good
     (rel_input_allowed : node_id -> rel -> bool)
@@ -49,13 +49,16 @@ Section Distributed.
   Qed.
 
   Context (graph_prog : prog_map).
-  (* Context (Hmrv : Forall_map (fun _ p => meta_rules_valid p) graph_prog). *)
-  (* Context (Hsender : Forall_map (sends_concl_rels R_senders) graph_prog). *)
+  Context (Hmrv : Forall_map (fun _ p => meta_rules_valid p) graph_prog).
+  Context (Hsender : Forall_map (sends_concl_rels R_senders) graph_prog).
 
-  Definition prog_at (n : node_id) : fnode_prog (list rule) := get_or_default graph_prog n.
+  Definition prog_at (n : node_id) : list rule := get_or_default graph_prog n.
 
   Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
   Proof. apply get_or_default_Some. Qed.
+
+  Local Notation nstep := (fun n => node_step R_senders (prog_at n) n).
+  Local Notation nallowed := (allowed_inputs R_senders).
 
   Hint Immediate dfact_equiv_Equivalence : core.
 
@@ -156,8 +159,6 @@ Section Distributed.
       | exact Hsub | intros k Hnin; apply count_at_off; exact Hnin ].
   Qed.
 
-  Local Notation nallowed := (allowed_inputs R_senders).
-
   Lemma allowed_of_outputs (partition : node_map) :
     Forall_map allowed_output partition -> nallowed (concat (values partition)).
   Proof.
@@ -244,13 +245,13 @@ Section Distributed.
           -- rewrite (count_at_None _ _ _ Ec). apply Eg_zero.
   Qed.
 
-  Context {graph_state : map.map node_id (graph_node_state dfact dfact_mod_count (fnode_state node_state))}.
+  Context {graph_state : map.map node_id (@graph_node_state dfact dfact_mod_count node_state)}.
   Context {graph_state_ok : map.ok graph_state}.
   Context {msg_map : map.map node_id (list dfact)} {msg_map_ok : map.ok msg_map}.
   Context {omap : map.map node_id (list (dfact * node_id))} {omap_ok : map.ok omap}.
 
-  Definition graph_node_init : graph_node_state dfact dfact_mod_count (fnode_state node_state) :=
-    {| gns_node_state := fnode_init node_init; gns_trace := []; gns_queue := [] |}.
+  Definition graph_node_init : @graph_node_state dfact dfact_mod_count node_state :=
+    {| gns_node_state := node_init; gns_trace := []; gns_queue := [] |}.
 
   Definition initial_graph_state : graph_state :=
     map_values' (fun _ _ => graph_node_init) graph_prog.
@@ -275,12 +276,8 @@ Section Distributed.
   Lemma nallowed_multiset_monotone : multiset_monotone_dec nallowed.
   Proof. intros l1 l2 Hl2 Hsub. eapply allowed_inputs_submultiset; eauto. Qed.
 
-  Local Notation nstep := (fun n => node_step R_senders (prog_at n) n).
-  Local Notation fnstep :=
-    (fun n => fnode_step (fun p => node_step R_senders p n) (prog_at n)).
-
-  Lemma nstep_input_total n : input_total (fnstep n).
-  Proof. intros s m. eexists. Abort. (* apply node_input_step. Qed. *)
+  Lemma nstep_input_total n : input_total (nstep n).
+  Proof. intros s m. eexists. apply node_input_step. Qed.
 
   Lemma forward_rel_level n1 n2 f g :
     dfact_rel f = dfact_rel g -> forward n1 n2 f = forward n1 n2 g.
@@ -288,7 +285,7 @@ Section Distributed.
 
   Lemma nodes_good_holds :
     Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
-                  consistent nallowed fnstep) initial_graph_state.
+                  consistent nallowed nstep) initial_graph_state.
   Proof.
     intros k v Hkv. apply initial_graph_state_get in Hkv. fwd.
     pose proof node_might_implies_will' as H.
@@ -299,16 +296,7 @@ Section Distributed.
     apply node_outputs_well_formed; [ exact forward_rel_level | eapply Hsender; eauto ].
   Qed.
 
-  Context (node_keep : node_id -> rel -> bool).
-
-  Definition fnode_prog_at (n : node_id) : fnode_prog :=
-    {| fnode_rules := prog_at n; fnode_keep := node_keep n |}.
-
-  Print graph_node_state. Print fnode_state.
-  Context {graph_state : map.map node_id
-             (graph_node_state dfact fnode_label (fnode_state node_state))}.
-
-  Definition distributed_step := graph_step input_allowed forward output_visible fnstep.
+  Definition distributed_step := graph_step input_allowed forward output_visible nstep.
 
   Theorem distributed_might_implies_will :
     might_implies_will_equiv distributed_step (graph_equiv dfact_equiv) (graph_inputs_allowed allowed_output) initial_graph_state.

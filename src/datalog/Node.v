@@ -971,8 +971,10 @@ Section __.
     claim_output s n ms1 -> incl_mod dfact_equiv ms1 ms2 -> claim_output s n ms2.
   Proof.
     destruct s as (R & mf_args). cbv [claim_output]. intros H1 Hincl Hn.
-    apply H1 in Hn. fwd.
-    specialize (Hincl _ Hn). simpl in Hincl. fwd. eauto.
+    destruct (H1 Hn) as (cnt & Hin).
+    destruct (Hincl _ Hin) as (b & Hin2 & Heq).
+    destruct b as [nf_rel nf_args | R' a' src' cnt']; cbn [dfact_equiv] in Heq; [ congruence | ].
+    destruct Heq as (<- & <- & <-). exists cnt'. exact Hin2.
   Qed.
 
   Lemma consistent_output_mono s n ms1 ms2 :
