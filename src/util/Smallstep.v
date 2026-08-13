@@ -945,7 +945,6 @@ Section steps_corresp.
         produces step1 initial1 inps output ->
         produces step2 initial2 inps output.
 
-    (*TODO i think Datatypes.List.map2 needs a better name*)
     Context (R : state1 -> list IO_event -> state2 -> list IO_event -> Prop).
     Context (R_init : R initial1 [] initial2 []).
     Context (R_outputs_corresp :
@@ -962,13 +961,13 @@ Section steps_corresp.
           flat_map inputs_of t2' = inputs_of e /\
           R s1' (e :: t1) s2' (t2' ++ t2).
 
-    Print will_step.
-    Definition label_sim :=
-      forall s1 t1 t2 s2 P,
+    Definition will_step_sim :=
+      forall s1 t1 s2 t2 P,
         R s1 t1 s2 t2 ->
-        will_step step1 P ->
-        eventually (will_step step2 (fun t2' s2' => exists t1' s1',
-                                         R s1' t1' s2' t2' /\ P s1' t1')).
+        will_step step1 allowed (s1, t1) P ->
+        eventually (will_step step2 allowed)
+          (fun '(s2', t2') => exists s1' t1', R s1' t1' s2' t2' /\ P (s1', t1'))
+          (s2, t2).
 
     Lemma weak_sim_lift :
       weak_sim ->
