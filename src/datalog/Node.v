@@ -192,8 +192,8 @@ Section __.
         (meta_dfact R mf_args (Some name) num).
 
   Definition node_good (s : node_state) (t : list IO_event) : Prop :=
-    s.(known_facts) = inputs_of t /\
-    allowed_inputs (inputs_of t) /\
+    s.(known_facts) = flat_map inputs_of t /\
+    allowed_inputs (flat_map inputs_of t) /\
     meta_facts_correct s /\
     meta_facts_ok s.
 
@@ -396,12 +396,12 @@ Section __.
   Lemma node_good_step s e s' t :
     meta_rules_valid p ->
     node_good s t ->
-    allowed_inputs (inputs_of (e :: t)) ->
+    allowed_inputs (flat_map inputs_of (e :: t)) ->
     node_step s e s' ->
     node_good s' (e :: t).
   Proof.
     intros Hmrv (Hkeq & _ & Hmfc & Hmfok) Hallow' Hstep.
-    assert (Hkeq' : s'.(known_facts) = inputs_of (e :: t)).
+    assert (Hkeq' : s'.(known_facts) = flat_map inputs_of (e :: t)).
     { inversion Hstep; subst; cbn [known_facts]; rewrite Hkeq; reflexivity. }
     assert (Hak : allowed_inputs s'.(known_facts)) by (rewrite Hkeq'; exact Hallow').
     split; [exact Hkeq' | split; [exact Hallow' | split]].
@@ -419,7 +419,7 @@ Section __.
 
   Lemma node_good_star s t t' s' :
     meta_rules_valid p ->
-    allowed_inputs (inputs_of (t' ++ t)) ->
+    allowed_inputs (flat_map inputs_of (t' ++ t)) ->
     node_good s t ->
     star (node_step) s t' s' ->
     node_good s' (t' ++ t).
@@ -427,7 +427,7 @@ Section __.
     intros Hmrv Hallow Hgood Hstar. revert Hallow.
     induction Hstar as [| t0 s'0 e s'' Hstar' IH Hstep]; intros Hallow.
     - exact Hgood.
-    - assert (Hallow0 : allowed_inputs (inputs_of (t0 ++ t))).
+    - assert (Hallow0 : allowed_inputs (flat_map inputs_of (t0 ++ t))).
       { destruct e as [m | lbl outs].
         - eapply allowed_inputs_submultiset; [apply submultiset_cons | exact Hallow].
         - exact Hallow. }
@@ -450,7 +450,7 @@ Section __.
   Qed.
 
   Lemma known_facts_eq_inputs t s :
-    star (node_step) node_init t s -> s.(known_facts) = inputs_of t.
+    star (node_step) node_init t s -> s.(known_facts) = flat_map inputs_of t.
   Proof.
     intros Hstar. induction Hstar as [| T0 sm e s Hstar_T IH Hstep].
     - reflexivity.
@@ -461,7 +461,7 @@ Section __.
   Lemma driven_inputs_submultiset t0 s0 tr s2 :
     star (node_step) node_init t0 s0 ->
     star (node_step) s0 tr s2 ->
-    submultiset (inputs_of t0) s2.(known_facts).
+    submultiset (flat_map inputs_of t0) s2.(known_facts).
   Proof.
     intros Hstar Hstar2.
     rewrite <- (known_facts_eq_inputs t0 s0 Hstar).
@@ -469,7 +469,7 @@ Section __.
   Qed.
 
   Lemma known_facts_input_free s t s' :
-    star (node_step) s t s' -> inputs_of t = [] -> s'.(known_facts) = s.(known_facts).
+    star (node_step) s t s' -> flat_map inputs_of t = [] -> s'.(known_facts) = s.(known_facts).
   Proof.
     intros Hstar. induction Hstar as [| t0 sa e sb Hstar IH Hstep]; intros Hinp.
     - reflexivity.
@@ -726,7 +726,7 @@ Section __.
     end.
 
   Lemma sent_eq_outputs t s :
-    star (node_step) node_init t s -> s.(sent_facts) = outputs_of t.
+    star (node_step) node_init t s -> s.(sent_facts) = flat_map outputs_of t.
   Proof.
     intros Hstar. induction Hstar; eauto.
     inv_step; simpl; eauto. f_equal. auto.
@@ -806,7 +806,7 @@ Section __.
 
   Lemma reachable_node_good t s :
     meta_rules_valid p ->
-    allowed_inputs (inputs_of t) ->
+    allowed_inputs (flat_map inputs_of t) ->
     star (node_step) node_init t s ->
     node_good s t.
   Proof.
@@ -820,9 +820,9 @@ Section __.
   Lemma node_drive_to_dominate t0 s0 t' sf :
     meta_rules_valid p ->
     star (node_step) node_init t0 s0 ->
-    allowed_inputs (inputs_of t0) ->
+    allowed_inputs (flat_map inputs_of t0) ->
     star (node_step) s0 t' sf ->
-    inputs_of t' = [] ->
+    flat_map inputs_of t' = [] ->
     eventually (will_step (node_step) allowed_inputs)
       (fun '(s2, _) => nle sf s2) (s0, t0).
   Proof.
@@ -873,10 +873,10 @@ Section __.
   Lemma node_drive_to_dominate' t s s' t' :
     meta_rules_valid p ->
     star (node_step) node_init t s ->
-    allowed_inputs (inputs_of t') ->
+    allowed_inputs (flat_map inputs_of t') ->
     star (node_step) node_init t' s' ->
-    consistently_incl dfact_equiv claim consistent (inputs_of t) (inputs_of t') ->
-    noncontradictory_wf dfact_equiv claim consistent allowed_inputs (inputs_of t) (inputs_of t') ->
+    consistently_incl dfact_equiv claim consistent (flat_map inputs_of t) (flat_map inputs_of t') ->
+    noncontradictory_wf dfact_equiv claim consistent allowed_inputs (flat_map inputs_of t) (flat_map inputs_of t') ->
     eventually (will_step (node_step) allowed_inputs)
       (fun '(s2, _) => nle s s2) (s', t').
   Proof.
@@ -887,11 +887,11 @@ Section __.
       + intros a Ha. destruct Ha.
     - cbn [inputs_of flat_map app] in Hincl, Hnc.
       destruct e as [m | lbl outs].
-      + assert (HinclT : consistently_incl dfact_equiv claim consistent (inputs_of Tp) (inputs_of t'))
+      + assert (HinclT : consistently_incl dfact_equiv claim consistent (flat_map inputs_of Tp) (flat_map inputs_of t'))
           by (eapply consistently_incl_trans;
                 [ apply consistently_incl_of_submultiset, submultiset_cons | exact Hincl ]).
         assert (HncT : noncontradictory_wf dfact_equiv claim consistent allowed_inputs
-                         (inputs_of Tp) (inputs_of t'))
+                         (flat_map inputs_of Tp) (flat_map inputs_of t'))
           by (eapply noncontradictory_wf_shrink_l; [ apply submultiset_cons | exact Hnc ]).
         specialize (IH HinclT HncT).
         apply eventually_will_step_annotate in IH.
@@ -1002,7 +1002,7 @@ Section __.
     assert (Hsend : forall s0 f, new_facts s0 f -> In (Some name) (R_senders (dfact_rel f))).
     { intros s0 f Hnf. apply new_facts_concl_rel in Hnf. destruct Hnf as (r & Hr & HR).
       exact (Hconcl_send r (dfact_rel f) Hr HR). }
-    assert (Hso : s.(sent_facts) = outputs_of t) by (eapply sent_eq_outputs; exact Hstar).
+    assert (Hso : s.(sent_facts) = flat_map outputs_of t) by (eapply sent_eq_outputs; exact Hstar).
     assert (Hsrc : forall R a src num,
                In (meta_dfact R a src num) s.(sent_facts) -> src = Some name)
       by (eapply sent_source_correct; exact Hstar).

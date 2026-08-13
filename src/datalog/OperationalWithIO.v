@@ -55,14 +55,14 @@ Section __.
 
   Lemma comp_lift (s s' : state) :
     (comp_step is_input p)^* s s' ->
-    exists t, star step s t s' /\ inputs_of t = [] /\ outputs_of t = [].
+    exists t, star step s t s' /\ flat_map inputs_of t = [] /\ flat_map outputs_of t = [].
   Proof.
     intros H. induction H as [ | s0 s1 s2 Hstep Hrest IH].
     - exists []. split; [apply star_refl | split; reflexivity].
     - destruct IH as (t & Hstar & Hin & Hout).
       exists (t ++ [O_event tt []]). split.
       + eapply star_app; [apply star_one; apply step_comp; exact Hstep | exact Hstar].
-      + rewrite inputs_of_app, outputs_of_app, Hin, Hout. split; reflexivity.
+      + rewrite !flat_map_app, Hin, Hout. split; reflexivity.
   Qed.
 
   Lemma Forall3_map_mid {A B B' C} (g : B -> B') (Q : A -> B' -> C -> Prop)
@@ -106,8 +106,8 @@ Section __.
   Qed.
 
   Definition INV (t : list IO_event) (s : state) : Prop :=
-    sane_state (inputs_of t) s /\ meta_facts_correct s /\ meta_facts_ok s /\
-    state_correct (inputs_of t) s.
+    sane_state (flat_map inputs_of t) s /\ meta_facts_correct s /\ meta_facts_ok s /\
+    state_correct (flat_map inputs_of t) s.
 
   Lemma Existsn_tl {A} (P : A -> Prop) (x : A) (n : nat) (l : list A) :
     Existsn P n (x :: l) -> exists m, m <= n /\ Existsn P m l.
@@ -392,7 +392,7 @@ Section __.
   Qed.
 
   Lemma step_preserves_INV (t0 : list IO_event) (e : IO_event) (s1 s2 : state) :
-    good_input_facts (inputs_of (e :: t0)) ->
+    good_input_facts (flat_map inputs_of (e :: t0)) ->
     step s1 e s2 -> INV t0 s1 -> INV (e :: t0) s2.
   Proof.
     intros Hg Hstep (Hsane & Hmfc & Hmfok & Hsc).
@@ -410,7 +410,7 @@ Section __.
   Qed.
 
   Lemma star_INV (t : list IO_event) (s : state) :
-    good_input_facts (inputs_of t) -> star step initial t s -> INV t s.
+    good_input_facts (flat_map inputs_of t) -> star step initial t s -> INV t s.
   Proof.
     intros Hg Hstar. revert Hg.
     induction Hstar as [ | t0 s' e s'' Hstar IH Hstep]; intros Hg.
@@ -452,7 +452,7 @@ Section __.
 
   Lemma output_known (s ns : state) (t : list IO_event) (g : dfact) :
     length s = length p.(non_meta_rules) ->
-    star step s t ns -> In g (outputs_of t) -> knows_dfact ns g.
+    star step s t ns -> In g (flat_map outputs_of t) -> knows_dfact ns g.
   Proof.
     intros Hln Hstar. revert g.
     induction Hstar as [ | t0 s' e s'' Hstar IH Hstep]; intros g Hin.
@@ -468,8 +468,8 @@ Section __.
   Qed.
 
   Lemma output_known_final (t : list IO_event) (ns : state) (g : dfact) :
-    good_input_facts (inputs_of t) ->
-    star step initial t ns -> In g (outputs_of t) -> knows_dfact ns g.
+    good_input_facts (flat_map inputs_of t) ->
+    star step initial t ns -> In g (flat_map outputs_of t) -> knows_dfact ns g.
   Proof.
     intros _ Hstar Hin. eapply output_known; [ | exact Hstar | exact Hin].
     unfold initial. rewrite repeat_length. reflexivity.
@@ -481,7 +481,7 @@ Section __.
     prog_impl rules_of (knows_datalog_fact inputs) (normal_fact R args).
   Proof.
     intros Hg (t & ns & Hstar & Hinp & Hout).
-    assert (Hgt : good_input_facts (inputs_of t)) by (rewrite Hinp; exact Hg).
+    assert (Hgt : good_input_facts (flat_map inputs_of t)) by (rewrite Hinp; exact Hg).
     pose proof (star_INV t ns Hgt Hstar) as (Hsane & _ & _ & Hsc).
     rewrite Hinp in Hsc.
     assert (Hk : knows_dfact ns (normal_dfact R args))
@@ -496,7 +496,7 @@ Section __.
   Proof.
     intros Hg Hprog.
     pose proof (load_star inputs initial) as Hload.
-    assert (Hgio : good_input_facts (inputs_of (map I_event inputs : list IO_event)))
+    assert (Hgio : good_input_facts (flat_map inputs_of (map I_event inputs : list IO_event)))
       by (rewrite inputs_of_map_I_event; exact Hg).
     pose proof (star_INV _ _ Hgio Hload) as (Hsane & Hmfc & Hmfok & Hsc).
     rewrite inputs_of_map_I_event in Hsane, Hsc.
@@ -509,12 +509,9 @@ Section __.
     - eapply star_step.
       + eapply star_app; [exact Hload | exact Htc].
       + apply step_output. exact Hderiv.
-    - replace (inputs_of (O_event tt [normal_dfact R args] :: tc ++ map I_event inputs))
-        with (inputs_of (tc ++ map I_event inputs)) by reflexivity.
-      rewrite inputs_of_app, Htcin, inputs_of_map_I_event. reflexivity.
-    - replace (outputs_of (O_event tt [normal_dfact R args] :: tc ++ map I_event inputs))
-        with (normal_dfact R args :: outputs_of (tc ++ map I_event inputs)) by reflexivity.
-      apply in_eq.
+    - cbn [flat_map inputs_of app].
+      rewrite flat_map_app, Htcin, inputs_of_map_I_event. reflexivity.
+    - cbn [flat_map outputs_of app]. apply in_eq.
   Qed.
 
 End __.
