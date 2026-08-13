@@ -307,13 +307,13 @@ Section Distributed.
     - exact dfact_equiv_Equivalence.
     - exact output_visible_equiv.
     - exact forward_equiv.
-    - exact (claim_mono R_senders).
-    - exact (claim_output_mono R_senders).
-    - exact (consistent_mono R_senders).
-    - exact (consistent_output_mono R_senders).
+    - apply claim_mono.
+    - apply claim_output_mono.
+    - apply consistent_mono.
+    - apply consistent_output_mono.
     - exact consistent_good_holds.
     - exact nallowed_multiset_monotone.
-    - exact (allowed_output_submultiset R_senders).
+    - apply allowed_output_submultiset.
     - exact allowed_of_outputs.
     - admit. (*exact nstep_input_total*)
     - admit. (*exact nodes_good_holds.*)
