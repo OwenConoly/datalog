@@ -156,6 +156,6 @@ Section __.
       simpl. do 2 eexists. split.
       + apply star_one. apply gstep_input.
       + simpl. split; [reflexivity|]. admit.
-    - destruct e; simpl in H1; invert H1. Search l. simpl.
+    -
   Admitted.
 End __.
