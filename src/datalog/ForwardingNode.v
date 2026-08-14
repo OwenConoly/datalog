@@ -84,25 +84,32 @@ Section __.
       (fun n => fnode_step node_step (fprog_at n) n)
       g1 (translate_event (fun x => (x, None)) e) g2.
 
-  Definition forwarding_graph (mn : rel * node_id) :=
+  Definition forwarding_graph (mn : rel * option node_id) :=
     map.fold (fun g src tbl => graph.put_edges g src (get_or_default tbl mn)) graph.empty fts.
 
+  Definition recipients (orig : option node_id) R : list node_id :=
+    match orig with
+    | Some n => nforward n R
+    | None => input_locs R
+    end.
+
   Definition ngraph_step :=
-    graph_step input_allowed
-      (fun src dst m => existsb (eqb dst) (nforward src (dfact_rel m))) output_visible
+    graph_step
+      (fun src dst m => existsb (eqb dst) (recipients src (dfact_rel m)))
+      output_visible
       (fun n => node_step (fprog_at n).(fnode_rules)).
 
   Definition forwarding_tree :=
     forall R n,
-      graph.is_locally_tree (forwarding_graph (R, n)) n.
+      graph.is_locally_tree (forwarding_graph (R, Some n)) n.
 
   Definition forwarding_reaches :=
     forall R n n',
       In n' (nforward n R) ->
-      graph.reaches (forwarding_graph (R, n)) n n'.
+      graph.reaches (forwarding_graph (R, Some n)) n n'.
 
   Definition can_make_it R orig cur destn :=
-    In destn (nforward orig R) /\ graph.reaches (forwarding_graph (R, orig)) cur destn.
+    In destn (recipients orig R) /\ graph.reaches (forwarding_graph (R, orig)) cur destn.
 
   Definition incoming_msgs (fs : fgraph_state) (destn : node_id) : list dfact -> Prop :=
     flat_map_Prop (fun '(cur, ns) =>
@@ -115,8 +122,8 @@ Section __.
       (map.tuples fs).
 
   Definition forwarding_R {Lf Ln}
-    (s1 : fgraph_state) (t1 : list (IO_event Lf (dfact * node_id)))
-    (s2 : ngraph_state) (t2 : list (IO_event Ln (dfact * node_id))) : Prop :=
+    (s1 : fgraph_state) (t1 : list (IO_event Lf dfact))
+    (s2 : ngraph_state) (t2 : list (IO_event Ln dfact)) : Prop :=
     flat_map inputs_of t1 = flat_map inputs_of t2 /\
       Forall2_map (fun destn fgns ngns =>
                      fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state) /\
@@ -129,9 +136,10 @@ Section __.
     weak_sim fgraph_step ngraph_step forwarding_R.
   Proof.
     cbv [weak_sim]. intros. invert H0.
-    - destruct e; simpl in H1; invert H1. destruct m. destruct p; simpl in H2; fwd.
-      simpl in H3. simpl. do 2 eexists. split.
-      + apply star_one. eapply gstep_input. eassumption.
-      + simpl. split; [reflexivity|].
+    - destruct e; simpl in H3; invert H3.
+      simpl. do 2 eexists. split.
+      + apply star_one. eapply gstep_input.
+      + simpl. split; [reflexivity|]. admit.
+    - destruct e; simpl in H1; invert H1. Search l. simpl.
   Admitted.
 End __.
