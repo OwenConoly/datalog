@@ -24,11 +24,9 @@ Section Distributed.
   Notation claim := (Node.claim R_senders).
   Notation consistent := (Node.consistent R_senders).
 
-  Context (rel_input_allowed : node_id -> rel -> bool).
-  Context (rel_forward : node_id -> node_id -> rel -> bool).
+  Context (rel_forward : option node_id -> node_id -> rel -> bool).
   Context (rel_visible : node_id -> rel -> bool).
 
-  Definition input_allowed n (f : dfact) := rel_input_allowed n (dfact_rel f).
   Definition forward n1 n2 (f : dfact) := rel_forward n1 n2 (dfact_rel f).
   Definition output_visible n (f : dfact) := rel_visible n (dfact_rel f).
 
@@ -248,7 +246,6 @@ Section Distributed.
   Context {graph_state : map.map node_id (@graph_node_state dfact dfact_mod_count node_state)}.
   Context {graph_state_ok : map.ok graph_state}.
   Context {msg_map : map.map node_id (list dfact)} {msg_map_ok : map.ok msg_map}.
-  Context {omap : map.map node_id (list (dfact * node_id))} {omap_ok : map.ok omap}.
 
   Definition graph_node_init : @graph_node_state dfact dfact_mod_count node_state :=
     {| gns_node_state := node_init; gns_trace := []; gns_queue := [] |}.
@@ -296,10 +293,10 @@ Section Distributed.
     apply node_outputs_well_formed; [ exact forward_rel_level | eapply Hsender; eauto ].
   Qed.
 
-  Definition distributed_step := graph_step input_allowed forward output_visible nstep.
+  Definition distributed_step := graph_step forward output_visible nstep.
 
   Theorem distributed_might_implies_will :
-    might_implies_will_equiv distributed_step (graph_equiv dfact_equiv) (graph_inputs_allowed allowed_output) initial_graph_state.
+    might_implies_will_equiv distributed_step dfact_equiv (graph_inputs_allowed forward allowed_output) initial_graph_state.
   Proof.
     intros.
     pose proof initial_graph_state_empty as Hemp.

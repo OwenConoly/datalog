@@ -991,7 +991,7 @@ Section __.
   Qed.
 
   Lemma node_outputs_well_formed
-      (forward : node_id -> node_id -> dfact -> bool)
+      (forward : option node_id -> node_id -> dfact -> bool)
       (forward_rel : forall n1 n2 f g,
           dfact_rel f = dfact_rel g -> forward n1 n2 f = forward n1 n2 g) :
     sends_concl_rels name p ->
@@ -1026,7 +1026,7 @@ Section __.
       apply filter_In in Hin_meta. destruct Hin_meta as (Hin_sent & Hfwd).
       apply Existsn_ge_filter.
       + intros x (nfa & -> & _).
-        rewrite (forward_rel name dest (normal_dfact R nfa)
+        rewrite (forward_rel (Some name) dest (normal_dfact R nfa)
                    (meta_dfact R mf_args (Some name) cnt) eq_refl).
         exact Hfwd.
       + eapply Existsn_ge_of_Existsn; [ exact (Hcnt R mf_args cnt Hin_sent) | lia ].

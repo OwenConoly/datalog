@@ -457,7 +457,7 @@ Definition consistent_good :=
       - rewrite output_map_initial by (intros; reflexivity). reflexivity.
       - invert Hstep.
         + cbn [outputs_of flat_map app].
-          rewrite output_map_map_values'_trace by (intros; reflexivity). exact IH.
+          rewrite output_map_map_values'_trace by reflexivity. exact IH.
         + cbn [outputs_of flat_map]. eapply perm_trans; [ apply Permutation_app_head; exact IH | ].
           apply Permutation_sym.
           apply (output_map_run (fun k outs => filter (output_visible k) outs));
@@ -513,22 +513,24 @@ Definition consistent_good :=
         Permutation (flat_map inputs_of nsn.(gns_trace) ++ nsn.(gns_queue))
                     (fwd_total nn gs ++ matching_inps nn ext).
 
+    Lemma fwd_total_map_values'_trace nn g gs :
+      (forall k v, (g k v).(gns_trace) = v.(gns_trace)) ->
+      fwd_total nn (map_values' g gs) = fwd_total nn gs.
+    Proof. intros Hg. unfold fwd_total. apply output_map_map_values'_trace. exact Hg. Qed.
+
     Lemma conservation_step gs e gs' :
       gstep gs e gs' ->
       forall ext, conserved gs ext -> conserved gs' (ext ++ inputs_of e).
     Proof.
       intros Hstep ext IH. cbv [conserved] in IH |- *. intros nn nsn Hg'. invert Hstep.
-      - rewrite get_mupd in Hg'.
-        cbn [inputs_of].
-        rewrite matching_inps_app, (matching_inps_single nn n m), (eqb_sym nn n).
-        eapply perm_trans;
-          [ | symmetry; apply Permutation_app_tail;
-              unfold fwd_total; rewrite output_map_mupd_enqueue; reflexivity ].
-        destr (eqb n nn).
-        + apply option_map_Some in Hg'. fwd.
-          cbn [enqueue gns_trace gns_queue]. simpl.
-          eauto with perm.
-        + rewrite app_nil_r. apply IH. exact Hg'.
+      - rewrite get_map_values' in Hg'. apply option_map_Some in Hg'. fwd.
+        cbn [inputs_of]. rewrite matching_inps_app.
+        rewrite fwd_total_map_values'_trace by reflexivity.
+        cbn [enqueue gns_trace gns_queue].
+        change (filter (forward None nn) [m]) with (matching_inps nn [m]).
+        rewrite (app_assoc (fwd_total nn gs)).
+        eapply perm_trans; [ | apply Permutation_app_tail; exact (IH nn _ Hg'p0) ].
+        rewrite <- app_assoc. apply Permutation_app_head. apply Permutation_app_comm.
       - rewrite get_map_values', map.get_put_dec in Hg'.
         apply option_map_Some in Hg'. fwd.
         simpl. rewrite app_nil_r.
@@ -822,7 +824,8 @@ Definition consistent_good :=
       invert Hstep.
       - match goal with |- Forall2_map _ _ (fwd_partition _ ?g) =>
           assert (Heq : fwd_partition dest g = fwd_partition dest gs2) end.
-        { unfold fwd_partition. rewrite outputs_partition_mupd_enqueue. reflexivity. }
+        { unfold fwd_partition. rewrite outputs_partition_map_values' by reflexivity.
+          reflexivity. }
         rewrite Heq. exact (Hfwd dest).
       - assert (Heq : fwd_partition dest
           (map_values' (fun m => enqueue (filter (forward (Some n) m) outs))
@@ -1162,10 +1165,10 @@ Definition consistent_good :=
                     (flat_map inputs_of ns2.(gns_trace) ++ ns2.(gns_queue))) g g'.
     Proof.
       intros Hstep. invert Hstep.
-      - apply Forall2_map_mupd_r.
-        + intros v1 v2 (Ht & Hp). cbn [enqueue gns_trace gns_queue]. split; [ exact Ht | ].
-          eapply submultiset_trans; [ exact Hp | eauto with submultiset perm ].
-        + apply Forall2_map_dup. intros k v Hv. split; apply submultiset_refl.
+      - apply Forall2_map_map_values'_r. apply Forall2_map_dup. intros k v Hv.
+        cbn [enqueue gns_trace gns_queue]. split.
+        + apply submultiset_refl.
+        + eauto with submultiset perm.
       - apply Forall2_map_map_values'_r. eapply Forall2_map_put_r; [ | exact H | ].
         + apply Forall2_map_dup. intros k v Hv Hne. cbn [enqueue gns_trace gns_queue]. split.
           * apply submultiset_refl.
@@ -1456,40 +1459,26 @@ Definition consistent_good :=
       exists o'. split; [ exists gns'; split; [ exact Hgetf | exact Hino' ] | exact Hequiv ].
     Qed.
 
-    Definition graph_equiv (p1 p2 : message * node_id) : Prop :=
-      equiv (fst p1) (fst p2) /\ snd p1 = snd p2.
-
-    Global Instance graph_equiv_equiv : Equivalence graph_equiv.
-    Proof.
-      destruct equiv_equiv as [Href Hsym Htrans]. constructor.
-      - intros [m n]. split; [ apply Href | reflexivity ].
-      - intros [m1 n1] [m2 n2] (He & Hn). split; [ apply Hsym; exact He | symmetry; exact Hn ].
-      - intros [m1 n1] [m2 n2] [m3 n3] (He1 & Hn1) (He2 & Hn2).
-        split; [ eapply Htrans; eassumption | congruence ].
-    Qed.
-
     Lemma in_output_total gs o :
       In o (output_total gs) ->
-      exists m n, o = (m, n) /\ node_has_output gs n m /\ output_visible n m = true.
+      exists n, node_has_output gs n o /\ output_visible n o = true.
     Proof.
       unfold output_total, output_map. intros Hin.
       apply In_concat_values in Hin. destruct Hin as (k & vs & Hget & Hin).
       rewrite get_map_values', outputs_partition_get in Hget.
       rewrite option_map_option_map in Hget. apply option_map_Some in Hget. fwd.
-      apply in_map_iff in Hin. destruct Hin as (m0 & Heq & Hinf).
-      apply filter_In in Hinf. fwd. subst. do 2 eexists. ssplit; eauto.
-      cbv [node_has_output]. eauto.
+      apply filter_In in Hin. fwd. exists k. split; [ cbv [node_has_output]; eauto | assumption ].
     Qed.
 
     Lemma output_total_in gs n m :
-      node_has_output gs n m -> output_visible n m = true -> In (m, n) (output_total gs).
+      node_has_output gs n m -> output_visible n m = true -> In m (output_total gs).
     Proof.
       intros (v & Hget & Hinout) Hvis.
       unfold output_total, output_map. apply In_concat_values.
       do 2 eexists.
       split.
       - rewrite get_map_values', outputs_partition_get, Hget. reflexivity.
-      - apply in_map_iff. eauto using filter_In.
+      - apply filter_In. eauto.
     Qed.
 
     Lemma drive_to_dominate t0 gs0 t' gs_f :
@@ -1525,7 +1514,7 @@ Definition consistent_good :=
     Qed.
 
     Lemma graph_might_implies_will :
-      might_implies_will_equiv gstep graph_equiv graph_inputs_allowed initial_gs.
+      might_implies_will_equiv gstep equiv graph_inputs_allowed initial_gs.
     Proof.
       intros t gs o Hstar Hga (t' & gs_f & Hrun & Hinp & Hino).
       assert (Hstarf : star gstep initial_gs (t' ++ t) gs_f) by eauto using star_app.
@@ -1534,7 +1523,7 @@ Definition consistent_good :=
       assert (Hint : In o (output_total gs_f)).
       { eapply Permutation_in;
           [ apply (outputs_are_node_outputs (t' ++ t) gs_f Hstarf) | exact Hino ]. }
-      apply in_output_total in Hint. destruct Hint as (m & n & -> & Hnho & Hvis).
+      apply in_output_total in Hint. destruct Hint as (n & Hnho & Hvis).
       pose proof (drive_to_dominate t gs t' gs_f Hstar Hga Hrun Hinp) as Hdrive.
       apply eventually_will_step_annotate in Hdrive.
       unfold will_output_equiv.
@@ -1545,20 +1534,20 @@ Definition consistent_good :=
       assert (Hncgi : noncontradictory_graph_inputs (flat_map inputs_of (t' ++ t)) (flat_map inputs_of (tr ++ t))).
       { apply noncontradictory_graph_inputs_of_submultiset; [ | exact Hga_imp ].
         rewrite !flat_map_app, Hinp. cbn [app]. apply submultiset_app_l. }
-      pose proof (le_node_output (t' ++ t) gs_f gs2 (tr ++ t) n m
+      pose proof (le_node_output (t' ++ t) gs_f gs2 (tr ++ t) n o
                     Hstarf Hstar2 Hgaf Hga_imp Hncgi Hle2 Hnho) as Hemit.
       apply eventually_will_step_annotate in Hemit.
       eapply eventually_weaken; [ exact Hemit | ].
       intros [gs2' t2'] (Hreach' & m' & Hnho' & Heqm).
       destruct Hreach' as (tr' & Hstar_gg' & -> & _).
       assert (Hstar2' : star gstep initial_gs (tr' ++ tr ++ t) gs2') by eauto using star_app.
-      exists (m', n). split.
-      - split; [ exact Heqm | reflexivity ].
+      exists m'. split.
+      - exact Heqm.
       - eapply Permutation_in;
           [ apply Permutation_sym;
             apply (outputs_are_node_outputs (tr' ++ (tr ++ t)) gs2' Hstar2') | ].
-        apply output_total_in; [ exact Hnho' | ].
-        rewrite (output_visible_equiv n m' m Heqm). exact Hvis.
+        apply (output_total_in _ n); [ exact Hnho' | ].
+        rewrite (output_visible_equiv n m' o Heqm). exact Hvis.
     Qed.
   End graph.
 
@@ -1582,7 +1571,7 @@ Definition consistent_good :=
              (node_step1 n) gns1.(gns_node_state)
              (node_step2 n) gns2.(gns_node_state))
         initial_gs1 initial_gs2 ->
-      steps_corresp_sound' graph_inputs_allowed graph_equiv
+      steps_corresp_sound' graph_inputs_allowed equiv
         (graph_step node_step1) initial_gs1
         (graph_step node_step2) initial_gs2.
     Proof.
