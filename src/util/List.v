@@ -1326,6 +1326,16 @@ Section Existsn.
 End Existsn.
 Hint Constructors Existsn : core.
 
+Inductive filter_Prop {A} (P : A -> Prop) : list A -> list A -> Prop :=
+| filter_Prop_nil : filter_Prop P [] []
+| filter_Prop_keep a l r : P a -> filter_Prop P l r -> filter_Prop P (a :: l) (a :: r)
+| filter_Prop_drop a l r : ~ P a -> filter_Prop P l r -> filter_Prop P (a :: l) r.
+
+Inductive flat_map_Prop {A B} (R : A -> list B -> Prop) : list A -> list B -> Prop :=
+| flat_map_Prop_nil : flat_map_Prop R [] []
+| flat_map_Prop_cons a l bs r :
+  R a bs -> flat_map_Prop R l r -> flat_map_Prop R (a :: l) (bs ++ r).
+
 Section misc.
   Context {A B C D : Type}.
   Implicit Type xs : list A.

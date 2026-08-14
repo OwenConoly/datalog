@@ -54,11 +54,11 @@ Section __.
   Context (node_step : node_prog -> node_state -> IO_event label dfact -> node_state -> Prop).
   Context (input_allowed : node_id -> dfact -> bool).
   Context (output_visible : node_id -> dfact -> bool).
-  Context (fforward : node_id -> (rel * node_id) -> list node_id).
   Context (nforward : node_id -> rel -> list node_id).
   Context {forwarding_table : map.map (rel * node_id) (list node_id)}.
   Context {forwarding_tables : map.map node_id forwarding_table}.
   Context {graph : graph.graph node_id}.
+  Context (fts : forwarding_tables).
   Context (prog_at : node_id -> node_prog).
   Context {fgraph_state : map.map node_id
             (graph_node_state (dfact * node_id) (fnode_label dfact label) (fnode_state node_state dfact))}.
@@ -76,35 +76,56 @@ Section __.
 
   Definition reannotate '(m, n) : dfact * node_id * node_id := (m, n, n).
 
+  Definition fforward (src : node_id) (mn : rel * node_id) : list node_id :=
+    get_or_default (get_or_default fts src) mn.
+
   Definition fgraph_step g1 e g2 :=
     graph_step finput_allowed
-      (fun src dst '(f, orig) => existsb (eqb dst) (fforward src (dfact_rel f, orig))) foutput_visible
+      (fun src dst '(f, orig) => existsb (eqb dst) (fforward src (dfact_rel f, orig)))
+      foutput_visible
       (fun n => fnode_step node_step (fprog_at n) n)
       g1 (translate_event reannotate e) g2.
+
+  Definition forwarding_graph (mn : rel * node_id) :=
+    map.fold (fun g src tbl => graph.put_edges g src (get_or_default tbl mn)) graph.empty fts.
 
   Definition ngraph_step :=
     graph_step input_allowed
       (fun src dst m => existsb (eqb dst) (nforward src (dfact_rel m))) output_visible
       (fun n => node_step (fprog_at n).(fnode_rules)).
 
-  Definition forwarding_graph (ft : forwarding_tables) (mn : rel * node_id) :=
-    map.fold (fun g src tbl => graph.put_edges g src (get_or_default tbl mn)) graph.empty ft.
-
-  Definition forwarding_tree ft :=
+  Definition forwarding_tree :=
     forall R n,
-      graph.is_locally_tree (forwarding_graph ft (R, n)) n.
+      graph.is_locally_tree (forwarding_graph (R, n)) n.
 
-  Definition forwarding_reaches ft :=
+  Definition forwarding_reaches :=
     forall R n n',
       In n' (nforward n R) ->
-      graph.reaches (forwarding_graph ft (R, n)) n n'.
+      graph.reaches (forwarding_graph (R, n)) n n'.
+
+  Definition can_make_it R orig cur destn :=
+    let g := forwarding_graph (R, orig) in
+    graph.reaches g cur destn.
+
+  Definition incoming_msgs (fs : fgraph_state) (destn : node_id) : list dfact -> Prop :=
+    flat_map_Prop (fun '(cur, ns) =>
+                   fun msgs =>
+                     exists msgs_lbls,
+                       filter_Prop (fun '(f, orig) => can_make_it (dfact_rel f) orig cur destn)
+                         (ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending))
+                         msgs_lbls /\
+                         msgs = map fst msgs_lbls)
+      (map.tuples fs).
 
   Definition forwarding_R {Lf Ln}
     (s1 : fgraph_state) (t1 : list (IO_event Lf (dfact * node_id)))
     (s2 : ngraph_state) (t2 : list (IO_event Ln (dfact * node_id))) : Prop :=
     flat_map inputs_of t1 = flat_map inputs_of t2 /\
-      Forall2_map (fun _ fgns ngns =>
-                     fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
+      Forall2_map (fun destn fgns ngns =>
+                     fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state) /\
+                       exists msgs,
+                         incoming_msgs s1 destn msgs /\
+                           Permutation msgs ngns.(gns_queue))
         s1 s2.
 
   Lemma fgraph_weak_sims_ngraph :
