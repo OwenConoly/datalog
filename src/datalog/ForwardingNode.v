@@ -17,7 +17,7 @@ Section __.
 
   Record fnode_state :=
     { fnode_node : node_state;
-      fnode_pending : list (message * node_id);
+      fnode_pending : list (message * option node_id);
     }.
 
   Variant fnode_label :=
@@ -25,7 +25,7 @@ Section __.
     | forward_label (_ : message).
 
   Inductive fnode_step (fp : fnode_prog) (self : node_id) :
-    fnode_state -> IO_event fnode_label (message * node_id) -> fnode_state -> Prop :=
+    fnode_state -> IO_event fnode_label (message * option node_id) -> fnode_state -> Prop :=
   | fnode_input fs m :
     fnode_step _ _ fs (I_event m)
                {| fnode_node := fs.(fnode_node); fnode_pending := m :: fs.(fnode_pending) |}
@@ -33,7 +33,7 @@ Section __.
     node_step fp.(fnode_rules) fs.(fnode_node) (O_event lbl outs) ns' ->
     fnode_step _ _ fs (O_event (deduce_label lbl) [])
                {| fnode_node := ns';
-                  fnode_pending := map (fun f => (f, self)) outs ++ fs.(fnode_pending) |}
+                  fnode_pending := map (fun f => (f, Some self)) outs ++ fs.(fnode_pending) |}
   | fnode_dequeue fs ns' q1 q2 f orig :
     fs.(fnode_pending) = q1 ++ (f, orig) :: q2 ->
     (if fp.(fnode_keep) f
@@ -52,39 +52,37 @@ Section __.
   Context {node_prog node_state : Type}.
   Context {label : Type}.
   Context (node_step : node_prog -> node_state -> IO_event label dfact -> node_state -> Prop).
-  Context (input_allowed : node_id -> dfact -> bool).
+  Context (input_locs : rel -> list node_id).
   Context (output_visible : node_id -> dfact -> bool).
   Context (nforward : node_id -> rel -> list node_id).
-  Context {forwarding_table : map.map (rel * node_id) (list node_id)}.
+  Context {forwarding_table : map.map (rel * option node_id) (list node_id)}.
   Context {forwarding_tables : map.map node_id forwarding_table}.
   Context {graph : graph.graph node_id}.
   Context (fts : forwarding_tables).
   Context (prog_at : node_id -> node_prog).
   Context {fgraph_state : map.map node_id
-            (graph_node_state (dfact * node_id) (fnode_label dfact label) (fnode_state node_state dfact))}.
+            (graph_node_state (dfact * option node_id) (fnode_label dfact label) (fnode_state node_state dfact))}.
   Context {ngraph_state : map.map node_id (graph_node_state dfact label node_state)}.
 
   Definition fprog_at n : fnode_prog node_prog dfact :=
     {| fnode_rules := prog_at n;
        fnode_keep := fun f => existsb (eqb n) (nforward n (dfact_rel f)) |}.
 
-  Definition finput_allowed n (m : dfact * node_id) :=
-    let '(f, _) := m in input_allowed n f.
-
-  Definition foutput_visible n (m : dfact * node_id) :=
+  Definition foutput_visible n (m : dfact * option node_id) :=
     let '(f, _) := m in output_visible n f.
 
-  Definition reannotate '(m, n) : dfact * node_id * node_id := (m, n, n).
-
-  Definition fforward (src : node_id) (mn : rel * node_id) : list node_id :=
-    get_or_default (get_or_default fts src) mn.
+  Definition fforward (src : option node_id) (mn : rel * option node_id) : list node_id :=
+    match src with
+    | Some n => get_or_default (get_or_default fts n) mn
+    | None => input_locs (fst mn)
+    end.
 
   Definition fgraph_step g1 e g2 :=
-    graph_step finput_allowed
-      (fun src dst '(f, orig) => existsb (eqb dst) (fforward src (dfact_rel f, orig)))
+    graph_step
+      (fun (src : option node_id) dst '(f, orig) => existsb (eqb dst) (fforward src (dfact_rel f, orig)))
       foutput_visible
       (fun n => fnode_step node_step (fprog_at n) n)
-      g1 (translate_event reannotate e) g2.
+      g1 (translate_event (fun x => (x, None)) e) g2.
 
   Definition forwarding_graph (mn : rel * node_id) :=
     map.fold (fun g src tbl => graph.put_edges g src (get_or_default tbl mn)) graph.empty fts.
