@@ -104,8 +104,7 @@ Section __.
       graph.reaches (forwarding_graph (R, n)) n n'.
 
   Definition can_make_it R orig cur destn :=
-    let g := forwarding_graph (R, orig) in
-    graph.reaches g cur destn.
+    In destn (nforward orig R) /\ graph.reaches (forwarding_graph (R, orig)) cur destn.
 
   Definition incoming_msgs (fs : fgraph_state) (destn : node_id) : list dfact -> Prop :=
     flat_map_Prop (fun '(cur, ns) =>
