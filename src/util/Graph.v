@@ -15,7 +15,8 @@ Notation node_id := nat (only parsing).
 Section __.
   Context {message : Type}.
   Context {label : Type}.
-  Context (forward : option node_id (*sender; None = external*) -> node_id (*receiver*) -> message -> bool (*send?*)).
+  Context (forward : node_id (*sender*) -> node_id (*receiver*) -> message -> bool (*send?*)).
+  Context (input_at : node_id (*receiver*) -> message -> bool (*external input enters here?*)).
   Context (output_visible : node_id -> message -> bool).
 
   Context (equiv : message -> message -> Prop).
@@ -179,7 +180,7 @@ Definition consistent_good :=
   Qed.
 
   Definition matching_inps n (inps : list message) :=
-    filter (forward None n) inps.
+    filter (input_at n) inps.
 
   Definition graph_inputs_allowed (inps : list message) :=
     forall n, allowed_output None (matching_inps n inps).
@@ -205,12 +206,12 @@ Definition consistent_good :=
     Inductive graph_step : graph_state -> gevent -> graph_state -> Prop :=
     | gstep_input gs m :
       graph_step gs (I_event m)
-        (map_values' (fun dst => enqueue (filter (forward None dst) [m])) gs)
+        (map_values' (fun dst => enqueue (filter (input_at dst) [m])) gs)
     | gstep_run gs n ns ns' lbl outs :
       map.get gs n = Some ns ->
       node_step n ns.(gns_node_state) (O_event lbl outs) ns' ->
       graph_step gs (O_event (run n lbl) (filter (output_visible n) outs))
-        (map_values' (fun m => enqueue (filter (forward (Some n) m) outs))
+        (map_values' (fun m => enqueue (filter (forward n m) outs))
            (map.put gs n
                     {| gns_node_state := ns';
                       gns_trace := O_event lbl outs :: ns.(gns_trace);
@@ -247,7 +248,7 @@ Definition consistent_good :=
           forall c, claim_output c n inps -> consistent_output c n inps.
 
     Definition good_node_output n outs :=
-      forall dest, good_inputs_from (Some n) (filter (forward (Some n) dest) outs).
+      forall dest, good_inputs_from (Some n) (filter (forward n dest) outs).
 
     Definition node_good (n : node_id) : graph_node_state node_state -> Prop :=
       fun gns =>
@@ -263,10 +264,10 @@ Definition consistent_good :=
       concat (values (map_values' (mp' := mp') F (outputs_partition gs))).
 
     Definition fwd_partition (nn : node_id) (gs : graph_state) : msg_map :=
-      map_values' (fun sender outs => filter (forward (Some sender) nn) outs) (outputs_partition gs).
+      map_values' (fun sender outs => filter (forward sender nn) outs) (outputs_partition gs).
 
     Definition fwd_total (nn : node_id) (gs : graph_state) : list message :=
-      output_map (fun sender outs => filter (forward (Some sender) nn) outs) gs.
+      output_map (fun sender outs => filter (forward sender nn) outs) gs.
 
     Lemma fwd_total_eq nn gs : fwd_total nn gs = concat (values (fwd_partition nn gs)).
     Proof. reflexivity. Qed.
@@ -352,7 +353,7 @@ Definition consistent_good :=
 
     Lemma fwd_partition_get nn gs sender :
       map.get (fwd_partition nn gs) sender =
-        option_map (fun ns => filter (forward (Some sender) nn) (flat_map outputs_of ns.(gns_trace))) (map.get gs sender).
+        option_map (fun ns => filter (forward sender nn) (flat_map outputs_of ns.(gns_trace))) (map.get gs sender).
     Proof.
       unfold fwd_partition. rewrite get_map_values', outputs_partition_get.
       destruct (map.get gs sender); reflexivity.
@@ -401,7 +402,7 @@ Definition consistent_good :=
       map.get gs n = Some ns ->
       Permutation
         (output_map (mp' := mp') F
-           (map_values' (fun k => enqueue (filter (forward (Some n) k) outs))
+           (map_values' (fun k => enqueue (filter (forward n k) outs))
               (map.put gs n {| gns_node_state := ns';
                                gns_trace := O_event lbl outs :: ns.(gns_trace);
                                gns_queue := ns.(gns_queue) |})))
@@ -470,8 +471,8 @@ Definition consistent_good :=
     Proof. unfold matching_inps. apply filter_app. Qed.
 
     Lemma matching_inps_single nn m :
-      matching_inps nn [m] = if forward None nn m then [m] else [].
-    Proof. unfold matching_inps. cbn [filter]. destruct (forward None nn m); reflexivity. Qed.
+      matching_inps nn [m] = if input_at nn m then [m] else [].
+    Proof. unfold matching_inps. cbn [filter]. destruct (input_at nn m); reflexivity. Qed.
 
     Lemma matching_inps_perm nn e1 e2 :
       Permutation e1 e2 -> Permutation (matching_inps nn e1) (matching_inps nn e2).
@@ -527,7 +528,7 @@ Definition consistent_good :=
         cbn [inputs_of]. rewrite matching_inps_app.
         rewrite fwd_total_map_values'_trace by reflexivity.
         cbn [enqueue gns_trace gns_queue].
-        change (filter (forward None nn) [m]) with (matching_inps nn [m]).
+        change (filter (input_at nn) [m]) with (matching_inps nn [m]).
         rewrite (app_assoc (fwd_total nn gs)).
         eapply perm_trans; [ | apply Permutation_app_tail; exact (IH nn _ Hg'p0) ].
         rewrite <- app_assoc. apply Permutation_app_head. apply Permutation_app_comm.
@@ -536,7 +537,7 @@ Definition consistent_good :=
         simpl. rewrite app_nil_r.
         etransitivity;
           [ | symmetry; apply Permutation_app_tail;
-              apply (output_map_run (fun sender outs => filter (forward (Some sender) nn) outs)
+              apply (output_map_run (fun sender outs => filter (forward sender nn) outs)
                        ltac:(intros; apply filter_app) gs n ns lbl outs ns' H) ].
         destr_sth Nat.eqb.
         + fwd. cbn [enqueue gns_trace gns_queue]. simpl.
@@ -667,12 +668,12 @@ Definition consistent_good :=
 
     Lemma noncontradictory_output_filter n dest l1 l2 :
       noncontradictory_wf equiv
-        (fun s l => claim_output s (Some n) (filter (forward (Some n) dest) l))
-        (fun s l => consistent_output s (Some n) (filter (forward (Some n) dest) l))
-        (fun l => good_inputs_from (Some n) (filter (forward (Some n) dest) l))
+        (fun s l => claim_output s (Some n) (filter (forward n dest) l))
+        (fun s l => consistent_output s (Some n) (filter (forward n dest) l))
+        (fun l => good_inputs_from (Some n) (filter (forward n dest) l))
         l1 l2 ->
       noncontradictory_output (Some n)
-        (filter (forward (Some n) dest) l1) (filter (forward (Some n) dest) l2).
+        (filter (forward n dest) l1) (filter (forward n dest) l2).
     Proof.
       revert l1 l2. cofix CIH. intros l1 l2 Hnc.
       destruct Hnc as [l1' Hsub Hwf [Hincl Hle] Htail].
@@ -694,16 +695,16 @@ Definition consistent_good :=
       allowed (flat_map inputs_of tr2) ->
       noncontradictory (flat_map inputs_of tr1) (flat_map inputs_of tr2) ->
       noncontradictory_output (Some n)
-        (filter (forward (Some n) dest) (flat_map outputs_of tr1))
-        (filter (forward (Some n) dest) (flat_map outputs_of tr2)).
+        (filter (forward n dest) (flat_map outputs_of tr1))
+        (filter (forward n dest) (flat_map outputs_of tr2)).
     Proof.
       intros Howf Hmono Hmiw Hstar1 Hstar2 Hallow2 Hnc.
       apply noncontradictory_output_filter.
       eapply noncontradictory_outputs_of_inputs with
         (claim := claim) (consistent := consistent) (allowed := allowed)
-        (claim_output := fun s l => claim_output s (Some n) (filter (forward (Some n) dest) l))
-        (consistent_output := fun s l => consistent_output s (Some n) (filter (forward (Some n) dest) l))
-        (outputs_wf := fun l => good_inputs_from (Some n) (filter (forward (Some n) dest) l))
+        (claim_output := fun s l => claim_output s (Some n) (filter (forward n dest) l))
+        (consistent_output := fun s l => consistent_output s (Some n) (filter (forward n dest) l))
+        (outputs_wf := fun l => good_inputs_from (Some n) (filter (forward n dest) l))
         (initial := init).
       - exact equiv_equiv.
       - exact allowed_submultiset.
@@ -828,14 +829,14 @@ Definition consistent_good :=
           reflexivity. }
         rewrite Heq. exact (Hfwd dest).
       - assert (Heq : fwd_partition dest
-          (map_values' (fun m => enqueue (filter (forward (Some n) m) outs))
+          (map_values' (fun m => enqueue (filter (forward n m) outs))
              (map.put gs2 n {| gns_node_state := ns'; gns_trace := O_event lbl outs :: gns_trace ns;
                                gns_queue := gns_queue ns |}))
           = map.put (fwd_partition dest gs2) n
-              (filter (forward (Some n) dest) (flat_map outputs_of (O_event lbl outs :: gns_trace ns)))).
+              (filter (forward n dest) (flat_map outputs_of (O_event lbl outs :: gns_trace ns)))).
         { unfold fwd_partition.
           rewrite (outputs_partition_map_values'
-                     (fun m => enqueue (filter (forward (Some n) m) outs)) _ ltac:(intros; reflexivity)).
+                     (fun m => enqueue (filter (forward n m) outs)) _ ltac:(intros; reflexivity)).
           rewrite outputs_partition_put, map_values'_put. reflexivity. }
         rewrite Heq. clear Heq.
         pose proof (Hfwd dest n) as Hfn.
@@ -1372,7 +1373,7 @@ Definition consistent_good :=
         pose proof (le_weak_trans _ _ _ Hlew (star_gstep_le_weak _ _ _ Hreachp0)) as Hlwr.
         cbv [le_weak] in Hlwr |- *.
         rewrite (outputs_partition_map_values'
-                   (fun k => enqueue (filter (forward (Some n) k) outs0)) _ ltac:(intros; reflexivity)),
+                   (fun k => enqueue (filter (forward n k) outs0)) _ ltac:(intros; reflexivity)),
                 outputs_partition_put.
         eapply Forall2_map_put_l;
           [ eapply Forall2_map_impl; [ exact Hlwr | ]; intros ? ? ? Hkf ?; exact Hkf

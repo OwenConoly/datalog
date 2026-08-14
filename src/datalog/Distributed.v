@@ -24,9 +24,11 @@ Section Distributed.
   Notation claim := (Node.claim R_senders).
   Notation consistent := (Node.consistent R_senders).
 
-  Context (rel_forward : option node_id -> node_id -> rel -> bool).
+  Context (rel_input_at : node_id -> rel -> bool).
+  Context (rel_forward : node_id -> node_id -> rel -> bool).
   Context (rel_visible : node_id -> rel -> bool).
 
+  Definition input_at n (f : dfact) := rel_input_at n (dfact_rel f).
   Definition forward n1 n2 (f : dfact) := rel_forward n1 n2 (dfact_rel f).
   Definition output_visible n (f : dfact) := rel_visible n (dfact_rel f).
 
@@ -293,10 +295,10 @@ Section Distributed.
     apply node_outputs_well_formed; [ exact forward_rel_level | eapply Hsender; eauto ].
   Qed.
 
-  Definition distributed_step := graph_step forward output_visible nstep.
+  Definition distributed_step := graph_step forward input_at output_visible nstep.
 
   Theorem distributed_might_implies_will :
-    might_implies_will_equiv distributed_step dfact_equiv (graph_inputs_allowed forward allowed_output) initial_graph_state.
+    might_implies_will_equiv distributed_step dfact_equiv (graph_inputs_allowed input_at allowed_output) initial_graph_state.
   Proof.
     intros.
     pose proof initial_graph_state_empty as Hemp.

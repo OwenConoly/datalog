@@ -71,15 +71,16 @@ Section __.
   Definition foutput_visible n (m : dfact * option node_id) :=
     let '(f, _) := m in output_visible n f.
 
-  Definition fforward (src : option node_id) (mn : rel * option node_id) : list node_id :=
-    match src with
-    | Some n => get_or_default (get_or_default fts n) mn
-    | None => input_locs (fst mn)
-    end.
+  Definition finput_at dst (m : dfact * option node_id) :=
+    let '(f, _) := m in existsb (eqb dst) (input_locs (dfact_rel f)).
+
+  Definition fforward (src : node_id) (mn : rel * option node_id) : list node_id :=
+    get_or_default (get_or_default fts src) mn.
 
   Definition fgraph_step g1 e g2 :=
     graph_step
-      (fun (src : option node_id) dst '(f, orig) => existsb (eqb dst) (fforward src (dfact_rel f, orig)))
+      (fun src dst '(f, orig) => existsb (eqb dst) (fforward src (dfact_rel f, orig)))
+      finput_at
       foutput_visible
       (fun n => fnode_step node_step (fprog_at n) n)
       g1 (translate_event (fun x => (x, None)) e) g2.
@@ -95,7 +96,8 @@ Section __.
 
   Definition ngraph_step :=
     graph_step
-      (fun src dst m => existsb (eqb dst) (recipients src (dfact_rel m)))
+      (fun src dst m => existsb (eqb dst) (nforward src (dfact_rel m)))
+      (fun dst m => existsb (eqb dst) (input_locs (dfact_rel m)))
       output_visible
       (fun n => node_step (fprog_at n).(fnode_rules)).
 
