@@ -130,5 +130,10 @@ Section __.
   Lemma fgraph_weak_sims_ngraph :
     weak_sim fgraph_step ngraph_step forwarding_R.
   Proof.
+    cbv [weak_sim]. intros. invert H0.
+    - destruct e; simpl in H1; invert H1. destruct m. destruct p; simpl in H2; fwd.
+      simpl in H3. simpl. do 2 eexists. split.
+      + apply star_one. eapply gstep_input. eassumption.
+      + simpl. split; [reflexivity|].
   Admitted.
 End __.
