@@ -1582,3 +1582,4 @@ Definition consistent_good :=
 End __.
 
 Arguments graph_node_state : clear implicits.
+Arguments graph_label : clear implicits.

@@ -64,6 +64,12 @@ Section __.
             (graph_node_state (dfact * option node_id) (fnode_label dfact label) (fnode_state node_state dfact))}.
   Context {ngraph_state : map.map node_id (graph_node_state dfact label node_state)}.
 
+  Local Notation flabel := (graph_label (dfact * option node_id) (fnode_label dfact label)).
+  Local Notation nlabel := (graph_label dfact label).
+  Local Notation IO_event := (Smallstep.IO_event flabel dfact).
+  Local Notation fIO_event := (Smallstep.IO_event flabel (dfact * option node_id)).
+  Local Notation nIO_event := (Smallstep.IO_event nlabel dfact).
+
   Definition fprog_at n : fnode_prog node_prog dfact :=
     {| fnode_rules := prog_at n;
        fnode_keep := fun f => existsb (eqb n) (nforward n (dfact_rel f)) |}.
@@ -77,13 +83,21 @@ Section __.
   Definition fforward (src : node_id) (mn : rel * option node_id) : list node_id :=
     get_or_default (get_or_default fts src) mn.
 
+  Definition corresp (e : IO_event) (e' : fIO_event) : Prop :=
+    match e with
+    | O_event lbl msgs => exists msgs', e' = O_event lbl msgs' /\ msgs = map fst msgs'
+    | I_event msg => e' = I_event (msg, None)
+    end.
+
   Definition fgraph_step g1 e g2 :=
-    graph_step
-      (fun src dst '(f, orig) => existsb (eqb dst) (fforward src (dfact_rel f, orig)))
-      finput_at
-      foutput_visible
-      (fun n => fnode_step node_step (fprog_at n) n)
-      g1 (translate_event (fun x => (x, None)) e) g2.
+    exists e',
+      corresp e e' /\
+        graph_step
+          (fun src dst '(f, orig) => existsb (eqb dst) (fforward src (dfact_rel f, orig)))
+          finput_at
+          foutput_visible
+          (fun n => fnode_step node_step (fprog_at n) n)
+          g1 e' g2.
 
   Definition forwarding_graph (mn : rel * option node_id) :=
     map.fold (fun g src tbl => graph.put_edges g src (get_or_default tbl mn)) graph.empty fts.
@@ -123,9 +137,9 @@ Section __.
                          msgs = map fst msgs_lbls)
       (map.tuples fs).
 
-  Definition forwarding_R {Lf Ln}
-    (s1 : fgraph_state) (t1 : list (IO_event Lf dfact))
-    (s2 : ngraph_state) (t2 : list (IO_event Ln dfact)) : Prop :=
+  Definition forwarding_R
+    (s1 : fgraph_state) (t1 : list IO_event)
+    (s2 : ngraph_state) (t2 : list nIO_event) : Prop :=
     flat_map inputs_of t1 = flat_map inputs_of t2 /\
       Forall2_map (fun destn fgns ngns =>
                      fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state) /\
@@ -137,10 +151,10 @@ Section __.
   Lemma fgraph_weak_sims_ngraph :
     weak_sim fgraph_step ngraph_step forwarding_R.
   Proof.
-    cbv [weak_sim]. intros. invert H0.
-    - destruct e; simpl in H3; invert H3.
+    cbv [weak_sim]. intros. cbv [fgraph_step] in H0. fwd. invert H0p1.
+    - destruct e; simpl in H0p0; fwd. 2: congruence.
       simpl. do 2 eexists. split.
-      + apply star_one. eapply gstep_input.
+      + apply star_one. apply gstep_input.
       + simpl. split; [reflexivity|]. admit.
     - destruct e; simpl in H1; invert H1. Search l. simpl.
   Admitted.
