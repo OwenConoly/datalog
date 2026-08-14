@@ -64,6 +64,7 @@ Section __.
             (graph_node_state (dfact * option node_id) (fnode_label dfact label) (fnode_state node_state dfact))}.
   Context {fgraph_state_ok : map.ok fgraph_state}.
   Context {ngraph_state : map.map node_id (graph_node_state dfact label node_state)}.
+  Context {ngraph_state_ok : map.ok ngraph_state}.
 
   Local Notation flabel := (graph_label (dfact * option node_id) (fnode_label dfact label)).
   Local Notation nlabel := (graph_label dfact label).
@@ -202,7 +203,14 @@ Section __.
     - destruct e; simpl in H0p0; fwd. 2: congruence.
       simpl. do 2 eexists. split.
       + apply star_one. apply gstep_input.
-      + simpl. split; [reflexivity|]. admit.
+      + simpl. split; [reflexivity|]. cbv [forwarding_R] in *. fwd. split.
+        { simpl. f_equal. assumption. }
+        apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
+        eapply Forall2_map_impl; [eassumption|]. simpl. intros n fns ns H'. fwd.
+        split; [assumption|].
+          split.
+        { simpl. f_equal.
+        ; [reflexivity|].
     -
   Admitted.
 End __.
