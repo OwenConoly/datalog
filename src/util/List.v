@@ -1336,6 +1336,23 @@ Inductive flat_map_Prop {A B} (R : A -> list B -> Prop) : list A -> list B -> Pr
 | flat_map_Prop_cons a l bs r :
   R a bs -> flat_map_Prop R l r -> flat_map_Prop R (a :: l) (bs ++ r).
 
+Lemma flat_map_Prop_perm {A B} (R : A -> list B -> Prop) l1 l2 r1 :
+  Permutation l1 l2 ->
+  flat_map_Prop R l1 r1 ->
+  exists r2, flat_map_Prop R l2 r2 /\ Permutation r1 r2.
+Proof.
+  intros HP. revert r1. induction HP; intros r1 Hf.
+  - invert Hf. exists []. split; [ constructor | reflexivity ].
+  - invert Hf.
+    match goal with H : flat_map_Prop R _ _ |- _ => destruct (IHHP _ H) as (r2 & Hf2 & Hp2) end.
+    eexists. split; [ constructor; [ eassumption | exact Hf2 ] | apply Permutation_app_head; exact Hp2 ].
+  - invert Hf. match goal with H : flat_map_Prop R (_ :: _) _ |- _ => invert H end.
+    eexists. split; [ constructor; [ eassumption | constructor; [ eassumption | eassumption ] ] | ].
+    rewrite !app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
+  - destruct (IHHP1 _ Hf) as (r2 & Hf2 & Hp2). destruct (IHHP2 _ Hf2) as (r3 & Hf3 & Hp3).
+    exists r3. split; [ assumption | eapply perm_trans; eassumption ].
+Qed.
+
 Section misc.
   Context {A B C D : Type}.
   Implicit Type xs : list A.

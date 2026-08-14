@@ -68,6 +68,29 @@ Section Maps.
     - intros [k0 v0]. exact (map.tuples_put m k v Hk k0 v0).
   Qed.
 
+  Lemma put_eq_put_remove (m : mp1) k v :
+    map.put m k v = map.put (map.remove m k) k v.
+  Proof.
+    apply map.map_ext. intro k0. rewrite !map.get_put_dec. destr (eqb k k0); [ reflexivity | ].
+    rewrite map.get_remove_diff by (intro; congruence). reflexivity.
+  Qed.
+
+  Lemma tuples_put_perm_get (m : mp1) k v :
+    Permutation (map.tuples (map.put m k v)) ((k, v) :: map.tuples (map.remove m k)).
+  Proof. rewrite put_eq_put_remove. apply tuples_put_perm, map.get_remove_same. Qed.
+
+  Lemma tuples_get_perm (m : mp1) k v :
+    map.get m k = Some v ->
+    Permutation (map.tuples m) ((k, v) :: map.tuples (map.remove m k)).
+  Proof.
+    intros Hget.
+    assert (Hrw : m = map.put (map.remove m k) k v).
+    { apply map.map_ext. intro k0. rewrite map.get_put_dec. destr (eqb k k0).
+      - subst. exact Hget.
+      - rewrite map.get_remove_diff by (intro; congruence). reflexivity. }
+    rewrite Hrw at 1. apply tuples_put_perm, map.get_remove_same.
+  Qed.
+
   Lemma values_put_None (m : mp1) k v :
     map.get m k = None ->
     Permutation (values (map.put m k v)) (v :: values m).
