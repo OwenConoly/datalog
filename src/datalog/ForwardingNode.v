@@ -143,11 +143,6 @@ Section __.
       In n' (recipients orig R) ->
       graph.reaches (forwarding_graph (R, orig)) orig (Some n').
 
-
-  Definition can_make_itb R orig (loc : option node_id) destn : bool :=
-    existsb (eqb destn) (recipients orig R) &&
-      graph.reachesb (forwarding_graph (R, orig)) loc (Some destn).
-
   Definition all_pending_msgs (ns : fgraph_node_state) :=
     ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending).
 
@@ -161,8 +156,8 @@ Section __.
   Definition msg_matches (R : rel) (orig : option node_id) (m : dfact * option node_id) : bool :=
     let '(f, o) := m in eqb R (dfact_rel f) && eqb orig o.
 
-  Definition in_recipients (destn : node_id) (m : dfact * option node_id) : bool :=
-    let '(f, o) := m in existsb (eqb destn) (recipients o (dfact_rel f)).
+  Definition recipients_of (m : dfact * option node_id) :=
+    let '(f, o) := m in recipients o (dfact_rel f).
 
   Definition to_pebbles (R : rel) (orig : option node_id) (fg : fgraph_state) : list pebble :=
     flat_map (fun '(n, ns) =>
@@ -218,9 +213,9 @@ Section __.
                      fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state) /\
                        exists queue' : list (dfact * option node_id),
                          ngns.(gns_queue) = map fst queue' /\
-                         Forall (fun m => in_recipients destn m = true) queue' /\
+                         Forall (fun m => In destn (recipients_of m)) queue' /\
                          forall R orig,
-                           existsb (eqb destn) (recipients orig R) = true ->
+                           In destn (recipients orig R) ->
                            Permutation (incoming_msgs R orig s1 destn)
                              (map fst (filter (msg_matches R orig) queue')))
         s1 s2.
