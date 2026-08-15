@@ -132,14 +132,16 @@ Section __.
 
   Definition can_make_itb R orig cur destn : bool :=
     existsb (eqb destn) (recipients orig R) &&
-    graph.reachesb (forwarding_graph (R, orig)) cur destn.
+      graph.reachesb (forwarding_graph (R, orig)) cur destn.
 
-  Definition incoming_msgs_from (destn cur : node_id) (ns : fgraph_node_state) : list dfact :=
-    map fst (filter (fun '(f, orig) => can_make_itb (dfact_rel f) orig cur destn)
-                    (ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending))).
+  Definition all_pending_msgs (ns : fgraph_node_state) :=
+    ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending).
+
+  Definition incoming_msgs_from (destn cur : node_id) pending : list dfact :=
+    map fst (filter (fun '(f, orig) => can_make_itb (dfact_rel f) orig cur destn) pending).
 
   Definition incoming_msgs (fs : fgraph_state) (destn : node_id) : list dfact :=
-    flat_map (fun '(cur, ns) => incoming_msgs_from destn cur ns) (map.tuples fs).
+    flat_map (fun '(cur, ns) => incoming_msgs_from destn cur (all_pending_msgs ns)) (map.tuples fs).
 
   Lemma incoming_msgs_from_enqueue_hit destn cur (ns : fgraph_node_state) d o :
     can_make_itb (dfact_rel d) o cur destn = true ->
@@ -201,10 +203,9 @@ Section __.
         { simpl. f_equal. assumption. }
         apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [eassumption|]. simpl. intros n fns ns H'. fwd.
-        split; [assumption|]. cbv [incoming_msgs]. Search map.tuples map_values'.
-          split.
-        { simpl. f_equal.
-        ; [reflexivity|].
-    -
+        split; [assumption|]. cbv [incoming_msgs].
+        rewrite tuples_map_values'. (*wooow so nice*)
+        rewrite flat_map_map.
+
   Admitted.
 End __.

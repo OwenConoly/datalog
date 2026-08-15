@@ -700,6 +700,21 @@ Section Map.
     destr (eqb k j); cbn [option_map]; congruence.
   Qed.
 
+  Lemma tuples_map_values' (f : key -> value -> value') (m : mp) :
+    Permutation (map.tuples (map_values' f m))
+                (List.map (fun '(k, v) => (k, f k v)) (map.tuples m)).
+  Proof.
+    induction m as [| m' IH k v Hnone] using map.map_ind.
+    - unfold map_values', map.tuples. rewrite !map.fold_empty. reflexivity.
+    - rewrite map_values'_put.
+      assert (Hg : map.get (map_values' f m') k = None)
+        by (rewrite get_map_values', Hnone; reflexivity).
+      eapply perm_trans; [ apply (tuples_put_perm (map_values' f m') k (f k v) Hg) | ].
+      apply Permutation_sym.
+      eapply perm_trans; [ apply (Permutation_map _ (tuples_put_perm m' k v Hnone)) | ].
+      cbn [List.map]. apply perm_skip. apply Permutation_sym. exact IH.
+  Qed.
+
   Lemma keys_eq_tuples (m : mp) : map.keys m = List.map fst (map.tuples m).
   Proof.
     unfold map.keys, map.tuples.
