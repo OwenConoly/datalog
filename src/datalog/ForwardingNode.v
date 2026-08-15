@@ -87,11 +87,13 @@ Section __.
   Context {label : Type}.
   Context (node_step : node_prog -> node_state -> IO_event label dfact -> node_state -> Prop).
   Context (finput_locs : rel -> list node_id).
+  Context (finput_locs_NoDup : forall R, NoDup (finput_locs R)).
   Context (ninput_locs : rel -> list node_id).
   Context (output_visible : node_id -> dfact -> bool).
   Context (nforward : node_id -> rel -> list node_id).
   Context {forwarding_table : map.map (rel * option node_id) (list node_id)}.
   Context {forwarding_tables : map.map node_id forwarding_table}.
+  Context {forwarding_tables_ok : map.ok forwarding_tables}.
   Context {graph : graph.graph (option node_id)} {graph_ok : graph.ok graph}.
   Context (fts : forwarding_tables).
   Context (prog_at : node_id -> node_prog).
@@ -169,6 +171,28 @@ Section __.
     forall R orig n',
       In n' (recipients orig R) ->
       graph.reaches (forwarding_graph (R, orig)) orig (Some n').
+
+  Lemma edge_forwarding_graph_None mn v :
+    graph.edge (forwarding_graph mn) None v <-> In v (map Some (finput_locs (fst mn))).
+  Proof.
+    cbv [forwarding_graph]. rewrite graph.edge_put_edges. split.
+    - intros [He | [_ Hin]]; [ | exact Hin ]. exfalso. revert He.
+      apply (map.fold_spec (fun _ g' => ~ graph.edge g' None v)).
+      + apply graph.edge_empty.
+      + intros k tbl m g' Hget IH. rewrite graph.edge_put_edges.
+        intros [He | [Hc _]]; [ exact (IH He) | congruence ].
+    - intros Hin. right. split; [ reflexivity | exact Hin ].
+  Qed.
+
+  Lemma edges_forwarding_graph_None mn :
+    Permutation (graph.edges (forwarding_graph mn) None) (map Some (finput_locs (fst mn))).
+  Proof.
+    apply NoDup_Permutation.
+    - apply graph.edges_NoDup.
+    - induction (finput_locs_NoDup (fst mn)) as [| a l Ha Hl IH]; cbn [map]; constructor; [ | exact IH ].
+      rewrite in_map_iff. intros [x [Heq Hx]]. injection Heq as ->. exact (Ha Hx).
+    - intros v. exact (edge_forwarding_graph_None mn v).
+  Qed.
 
   Definition all_pending_msgs (ns : fgraph_node_state) :=
     ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending).
@@ -267,7 +291,7 @@ Section __.
       2: { apply Htree. }
       2: { congruence. }
       2: { cbv [pebble_step]. exists nil. split; [reflexivity|].
-           rewrite app_nil_r.
-  Admitted.Print
+           rewrite app_nil_r. rewrite edges_forwarding_graph_None.
+           rewrite map_map. simpl.
+  Admitted.
 End __.
-; {
