@@ -143,6 +143,16 @@ Section __.
   Definition incoming_msgs (fs : fgraph_state) (destn : node_id) : list dfact -> Prop :=
     flat_map_Prop (fun '(cur, ns) => incoming_msgs_from destn cur ns) (map.tuples fs).
 
+  Lemma incoming_msgs_from_enqueue_hit destn cur (ns : fgraph_node_state) d o msgs :
+    can_make_it (dfact_rel d) o cur destn ->
+    incoming_msgs_from destn cur ns msgs ->
+    incoming_msgs_from destn cur (enqueue [(d, o)] ns) (d :: msgs).
+  Proof.
+    cbv [incoming_msgs_from]. intros Hmk (msgs_lbls & Hf & ->).
+    exists ((d, o) :: msgs_lbls). split; [ | reflexivity ].
+    cbn [enqueue gns_queue gns_node_state]. apply filter_Prop_keep; assumption.
+  Qed.
+
   Lemma incoming_msgs_enqueue_hit s cur d o destn msgs :
     map.get s cur <> None ->
     can_make_it (dfact_rel d) o cur destn ->
@@ -150,21 +160,22 @@ Section __.
     exists msgs',
       incoming_msgs (mupd s cur (enqueue [(d, o)])) destn msgs' /\ Permutation msgs' (d :: msgs).
   Proof.
-    intros Hcur Hmk Hin. cbv [incoming_msgs incoming_msgs_from mupd] in *.
+    intros Hcur Hmk Hin. cbv [incoming_msgs mupd] in *.
     destruct (map.get s cur) as [v|] eqn:Ev; [ | congruence ].
     eapply flat_map_Prop_perm in Hin; [ | apply (tuples_get_perm s cur v Ev) ].
-    destruct Hin as (msgs0 & Hf0 & Hp0). invert Hf0. cbn beta iota in *. fwd.
-    match goal with |- context [flat_map_Prop ?RR] =>
-      assert (Hbuilt : flat_map_Prop RR ((cur, enqueue [(d, o)] v) :: map.tuples (map.remove s cur))
-                         (d :: (map fst msgs_lbls ++ r))) end.
-    { rewrite app_comm_cons. apply flat_map_Prop_cons; [ | eassumption ].
-      cbn beta iota. exists ((d, o) :: msgs_lbls). split; [ | reflexivity ].
-      cbn [enqueue gns_queue gns_node_state]. apply filter_Prop_keep; assumption. }
+    destruct Hin as (msgs0 & Hf0 & Hp0). invert Hf0. cbn beta iota in *.
+    match goal with
+    | H : incoming_msgs_from _ _ _ ?bs, Ht : flat_map_Prop ?RR _ ?r |- context [flat_map_Prop ?RR] =>
+        assert (Hbuilt : flat_map_Prop RR ((cur, enqueue [(d, o)] v) :: map.tuples (map.remove s cur))
+                           ((d :: bs) ++ r))
+          by (apply flat_map_Prop_cons;
+              [ exact (incoming_msgs_from_enqueue_hit destn cur v d o bs Hmk H) | exact Ht ])
+    end.
     eapply flat_map_Prop_perm in Hbuilt;
       [ | apply Permutation_sym, (tuples_put_perm_get s cur (enqueue [(d, o)] v)) ].
     destruct Hbuilt as (msgs' & Hf' & Hp'). exists msgs'. split; [ exact Hf' | ].
     eapply perm_trans; [ apply Permutation_sym; exact Hp' | ].
-    apply perm_skip. apply Permutation_sym. exact Hp0.
+    rewrite <- app_comm_cons. apply perm_skip. apply Permutation_sym. exact Hp0.
   Qed.
 
   Lemma incoming_msgs_enqueue_miss s cur d o destn msgs :
