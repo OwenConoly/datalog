@@ -131,6 +131,9 @@ Section __.
       In n' (recipients orig R) ->
       graph.reaches (forwarding_graph (R, orig)) orig (Some n').
 
+  Definition to_pebbles (fg : fgraph_state) :=
+    flat_map (fun '(n, ns) => map (pair (Some n)) (ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending))) (map.tuples fg).
+
   Definition can_make_itb R orig cur destn : bool :=
     existsb (eqb destn) (recipients orig R) &&
       graph.reachesb (forwarding_graph (R, orig)) (Some cur) (Some destn).
@@ -228,6 +231,7 @@ Section __.
         erewrite flat_map_app_perm with (g := fun '(_, _) => _) (h := fun '(_, _) => _)
           by (intros [? ?]; reflexivity).
         apply Permutation_app; [|assumption].
+        Print incoming_msgs_from.
 
         Search Permutation (_ ++ _) (_ ++ _).
         rewrite H'p1.
