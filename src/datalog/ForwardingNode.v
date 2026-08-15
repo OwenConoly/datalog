@@ -57,7 +57,7 @@ Section __.
   Context (nforward : node_id -> rel -> list node_id).
   Context {forwarding_table : map.map (rel * option node_id) (list node_id)}.
   Context {forwarding_tables : map.map node_id forwarding_table}.
-  Context {graph : graph.graph node_id}.
+  Context {graph : graph.graph (option node_id)}.
   Context (fts : forwarding_tables).
   Context (prog_at : node_id -> node_prog).
 
@@ -112,7 +112,8 @@ Section __.
           g1 e' g2.
 
   Definition forwarding_graph (mn : rel * option node_id) :=
-    map.fold (fun g src tbl => graph.put_edges g src (get_or_default tbl mn)) graph.empty fts.
+    let g := map.fold (fun g src tbl => graph.put_edges g (Some src) (map Some (get_or_default tbl mn))) graph.empty fts in
+    graph.put_edges g None (map Some (input_locs (fst mn))).
 
   Definition ngraph_step :=
     graph_step
@@ -122,17 +123,17 @@ Section __.
       (fun n => node_step (fprog_at n).(fnode_rules)).
 
   Definition forwarding_tree :=
-    forall R n,
-      graph.is_locally_tree (forwarding_graph (R, Some n)) n.
+    forall R orig,
+      graph.is_locally_tree (forwarding_graph (R, orig)) orig.
 
   Definition forwarding_reaches :=
-    forall R n n',
-      In n' (nforward n R) ->
-      graph.reaches (forwarding_graph (R, Some n)) n n'.
+    forall R orig n',
+      In n' (recipients orig R) ->
+      graph.reaches (forwarding_graph (R, orig)) orig (Some n').
 
   Definition can_make_itb R orig cur destn : bool :=
     existsb (eqb destn) (recipients orig R) &&
-      graph.reachesb (forwarding_graph (R, orig)) cur destn.
+      graph.reachesb (forwarding_graph (R, orig)) (Some cur) (Some destn).
 
   Definition all_pending_msgs (ns : fgraph_node_state) :=
     ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending).
