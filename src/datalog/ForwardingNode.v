@@ -75,6 +75,7 @@ Section __.
   Local Notation IO_event := (Smallstep.IO_event flabel dfact).
   Local Notation fIO_event := (Smallstep.IO_event flabel (dfact * option node_id)).
   Local Notation nIO_event := (Smallstep.IO_event nlabel dfact).
+  Local Notation pebble := (option node_id * (dfact * option node_id))%type.
 
   Definition recipients (orig : option node_id) R : list node_id :=
     match orig with
@@ -134,6 +135,16 @@ Section __.
   Definition to_pebbles (fg : fgraph_state) :=
     flat_map (fun '(n, ns) => map (pair (Some n)) (ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending))) (map.tuples fg).
 
+  Definition pebble_succs (p : pebble) : list pebble :=
+    let '(loc, (f, orig)) := p in
+    map (fun loc' => (loc', (f, orig)))
+        (graph.edges (forwarding_graph (dfact_rel f, orig)) loc).
+
+  Definition pebble_step (pebbles1 pebbles2 : list pebble) : Prop :=
+    exists p rest,
+      Permutation pebbles1 (p :: rest) /\
+      Permutation pebbles2 (pebble_succs p ++ rest).
+
   Definition can_make_itb R orig (loc : option node_id) destn : bool :=
     existsb (eqb destn) (recipients orig R) &&
       graph.reachesb (forwarding_graph (R, orig)) loc (Some destn).
@@ -162,6 +173,25 @@ Section __.
     cbn [enqueue gns_queue gns_node_state]. rewrite <- app_assoc, map_app, <- app_assoc.
     apply Permutation_app_head.
     rewrite (tuples_get_perm s cur v Hget). cbn [flat_map]. reflexivity.
+  Qed.
+
+  Lemma to_pebbles_map_values' (F : node_id -> fgraph_node_state -> fgraph_node_state) (s : fgraph_state) :
+    Permutation (to_pebbles (map_values' F s))
+                (flat_map (fun '(n, ns) => map (pair (Some n)) (all_pending_msgs (F n ns))) (map.tuples s)).
+  Proof.
+    cbv [to_pebbles]. rewrite tuples_map_values', flat_map_map.
+    erewrite flat_map_ext.
+    - reflexivity.
+    - intros [n ns]. reflexivity.
+  Qed.
+
+  Lemma to_pebbles_map_values'_enqueue (g : node_id -> list (dfact * option node_id)) (s : fgraph_state) :
+    Permutation (to_pebbles (map_values' (fun n ns => enqueue (g n) ns) s))
+                (flat_map (fun '(n, _) => map (pair (Some n)) (g n)) (map.tuples s) ++ to_pebbles s).
+  Proof.
+    rewrite to_pebbles_map_values'. cbv [to_pebbles].
+    apply flat_map_app_perm. intros [n ns].
+    rewrite all_pending_msgs_enqueue, map_app. reflexivity.
   Qed.
 
   Lemma incoming_msgs_enqueue_hit s cur d o destn :
@@ -194,6 +224,8 @@ Section __.
                        Permutation (incoming_msgs s1 destn) ngns.(gns_queue))
         s1 s2.
 
+
+
   Lemma fgraph_weak_sims_ngraph :
     weak_sim fgraph_step ngraph_step forwarding_R.
   Proof.
@@ -205,6 +237,7 @@ Section __.
         { simpl. f_equal. assumption. }
         apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [eassumption|]. simpl. intros n fns ns H'. fwd.
-        split; [assumption|]. cbv [incoming_msgs].
+        split; [assumption|]. cbv [incoming_msgs]. Search to_pebbles map_values'.
+        rewrite to_pebbles_map_values'_enqueue.
   Admitted.
 End __.
