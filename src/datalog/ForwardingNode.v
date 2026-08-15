@@ -52,6 +52,10 @@ Definition pebble_step {V X} {gi : graph.graph V} (g : gi) (ps1 ps2 : list (V * 
     Permutation ps1 ((v, x) :: rest) /\
     Permutation ps2 (map (fun v' => (v', x)) (graph.edges g v) ++ rest).
 
+Definition graph_incoming {V X} {eqbV : Eqb V} {gi : graph.graph V}
+  (g : gi) (target : V) (ps : list (V * X)) : list X :=
+  map snd (filter (fun '(v, _) => graph.reachesb g v target) ps).
+
 Section __.
   Context {rel : relT} {T : valueT}.
   Context {rel_eqb : Eqb rel}.
@@ -164,7 +168,9 @@ Section __.
       (map.tuples fg).
 
   Definition incoming_msgs (R : rel) (orig : option node_id) (fs : fgraph_state) (destn : node_id) : list dfact :=
-    map snd (filter (fun '(loc, _) => can_make_itb R orig loc destn) (to_pebbles R orig fs)).
+    if existsb (eqb destn) (recipients orig R)
+    then graph_incoming (forwarding_graph (R, orig)) (Some destn) (to_pebbles R orig fs)
+    else [].
 
   Lemma to_pebbles_enqueue R orig (s : fgraph_state) cur v ms :
     map.get s cur = Some v ->
@@ -186,10 +192,12 @@ Section __.
     Permutation (incoming_msgs R orig (mupd s cur (enqueue [(d, o)])) destn)
                 (d :: incoming_msgs R orig s destn).
   Proof.
-    intros Hcur Hmatch H. cbv [incoming_msgs mupd].
+    intros Hcur Hmatch H. cbv [can_make_itb] in H. apply andb_prop in H.
+    destruct H as [Hrecip Hreach].
+    cbv [incoming_msgs]. rewrite Hrecip. cbv [graph_incoming mupd].
     destruct (map.get s cur) as [v|] eqn:Ev; [ | congruence ].
     rewrite (to_pebbles_enqueue R orig s cur v [(d, o)] Ev).
-    cbn [filter map app]. rewrite Hmatch. cbn [map filter app]. rewrite H. reflexivity.
+    cbn [filter map app]. rewrite Hmatch. cbn [map filter app]. rewrite Hreach. reflexivity.
   Qed.
 
   Lemma incoming_msgs_enqueue_miss R orig s cur d o destn :
@@ -197,7 +205,8 @@ Section __.
     Permutation (incoming_msgs R orig (mupd s cur (enqueue [(d, o)])) destn)
                 (incoming_msgs R orig s destn).
   Proof.
-    intros Hmatch. cbv [incoming_msgs mupd].
+    intros Hmatch. cbv [incoming_msgs graph_incoming mupd].
+    destruct (existsb (eqb destn) (recipients orig R)); [ | reflexivity ].
     destruct (map.get s cur) as [v|] eqn:Ev; [ | reflexivity ].
     rewrite (to_pebbles_enqueue R orig s cur v [(d, o)] Ev).
     cbn [filter map app]. rewrite Hmatch. reflexivity.
