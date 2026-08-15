@@ -58,7 +58,8 @@ Section __.
   Context {node_prog node_state : Type}.
   Context {label : Type}.
   Context (node_step : node_prog -> node_state -> IO_event label dfact -> node_state -> Prop).
-  Context (input_locs : rel -> list node_id).
+  Context (finput_locs : rel -> list node_id).
+  Context (ninput_locs : rel -> list node_id).
   Context (output_visible : node_id -> dfact -> bool).
   Context (nforward : node_id -> rel -> list node_id).
   Context {forwarding_table : map.map (rel * option node_id) (list node_id)}.
@@ -86,7 +87,7 @@ Section __.
   Definition recipients (orig : option node_id) R : list node_id :=
     match orig with
     | Some n => nforward n R
-    | None => input_locs R
+    | None => ninput_locs R
     end.
 
   Definition fprog_at n : fnode_prog node_prog dfact :=
@@ -97,7 +98,7 @@ Section __.
     let '(f, _) := m in output_visible n f.
 
   Definition finput_at dst (m : dfact * option node_id) :=
-    let '(f, _) := m in existsb (eqb dst) (input_locs (dfact_rel f)).
+    let '(f, _) := m in existsb (eqb dst) (finput_locs (dfact_rel f)).
 
   Definition fforward (src : node_id) (mn : rel * option node_id) : list node_id :=
     get_or_default (get_or_default fts src) mn.
@@ -120,12 +121,12 @@ Section __.
 
   Definition forwarding_graph (mn : rel * option node_id) :=
     let g := map.fold (fun g src tbl => graph.put_edges g (Some src) (map Some (get_or_default tbl mn))) graph.empty fts in
-    graph.put_edges g None (map Some (input_locs (fst mn))).
+    graph.put_edges g None (map Some (finput_locs (fst mn))).
 
   Definition ngraph_step :=
     graph_step
       (fun src dst m => existsb (eqb dst) (nforward src (dfact_rel m)))
-      (fun dst m => existsb (eqb dst) (input_locs (dfact_rel m)))
+      (fun dst m => existsb (eqb dst) (ninput_locs (dfact_rel m)))
       output_visible
       (fun n => node_step (fprog_at n).(fnode_rules)).
 
@@ -227,6 +228,11 @@ Section __.
       simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
       eapply Forall2_map_impl; [eassumption|]. simpl. intros. fwd.
       split; [assumption|].
+      eexists ((if existsb (eqb k) (ninput_locs (dfact_rel d)) then [(d, None)] else []) ++ _).
+      split.
+      { Tactics.destruct_one_match; simpl; try eassumption || reflexivity. f_equal.
+        assumption. }
+      intros. cbv [incoming_msgs].
 
   Admitted.
 End __.
