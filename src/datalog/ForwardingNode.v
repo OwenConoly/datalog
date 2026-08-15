@@ -218,5 +218,15 @@ Section __.
   Lemma fgraph_weak_sims_ngraph :
     weak_sim fgraph_step ngraph_step forwarding_R.
   Proof.
+    cbv [weak_sim]. intros. cbv [fgraph_step] in H0. fwd. invert H0p1.
+    - destruct e; simpl in H0p0; fwd. 2: congruence.
+      do 2 eexists. split.
+      { apply star_one. apply gstep_input. }
+      split; [reflexivity|]. cbv [forwarding_R] in *. fwd. split.
+      { simpl. f_equal. assumption. }
+      simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
+      eapply Forall2_map_impl; [eassumption|]. simpl. intros. fwd.
+      split; [assumption|].
+
   Admitted.
 End __.
