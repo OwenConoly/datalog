@@ -161,6 +161,9 @@ Section __.
   Definition msg_matches (R : rel) (orig : option node_id) (m : dfact * option node_id) : bool :=
     let '(f, o) := m in eqb R (dfact_rel f) && eqb orig o.
 
+  Definition in_recipients (destn : node_id) (m : dfact * option node_id) : bool :=
+    let '(f, o) := m in existsb (eqb destn) (recipients o (dfact_rel f)).
+
   Definition to_pebbles (R : rel) (orig : option node_id) (fg : fgraph_state) : list pebble :=
     flat_map (fun '(n, ns) =>
       map (fun '(f, _) => (Some n, f))
@@ -168,9 +171,7 @@ Section __.
       (map.tuples fg).
 
   Definition incoming_msgs (R : rel) (orig : option node_id) (fs : fgraph_state) (destn : node_id) : list dfact :=
-    if existsb (eqb destn) (recipients orig R)
-    then graph_incoming (forwarding_graph (R, orig)) (Some destn) (to_pebbles R orig fs)
-    else [].
+    graph_incoming (forwarding_graph (R, orig)) (Some destn) (to_pebbles R orig fs).
 
   Lemma to_pebbles_enqueue R orig (s : fgraph_state) cur v ms :
     map.get s cur = Some v ->
@@ -188,13 +189,11 @@ Section __.
   Lemma incoming_msgs_enqueue_hit R orig s cur d o destn :
     map.get s cur <> None ->
     msg_matches R orig (d, o) = true ->
-    can_make_itb R orig (Some cur) destn = true ->
+    graph.reachesb (forwarding_graph (R, orig)) (Some cur) (Some destn) = true ->
     Permutation (incoming_msgs R orig (mupd s cur (enqueue [(d, o)])) destn)
                 (d :: incoming_msgs R orig s destn).
   Proof.
-    intros Hcur Hmatch H. cbv [can_make_itb] in H. apply andb_prop in H.
-    destruct H as [Hrecip Hreach].
-    cbv [incoming_msgs]. rewrite Hrecip. cbv [graph_incoming mupd].
+    intros Hcur Hmatch Hreach. cbv [incoming_msgs graph_incoming mupd].
     destruct (map.get s cur) as [v|] eqn:Ev; [ | congruence ].
     rewrite (to_pebbles_enqueue R orig s cur v [(d, o)] Ev).
     cbn [filter map app]. rewrite Hmatch. cbn [map filter app]. rewrite Hreach. reflexivity.
@@ -206,7 +205,6 @@ Section __.
                 (incoming_msgs R orig s destn).
   Proof.
     intros Hmatch. cbv [incoming_msgs graph_incoming mupd].
-    destruct (existsb (eqb destn) (recipients orig R)); [ | reflexivity ].
     destruct (map.get s cur) as [v|] eqn:Ev; [ | reflexivity ].
     rewrite (to_pebbles_enqueue R orig s cur v [(d, o)] Ev).
     cbn [filter map app]. rewrite Hmatch. reflexivity.
@@ -220,7 +218,9 @@ Section __.
                      fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state) /\
                        exists queue' : list (dfact * option node_id),
                          ngns.(gns_queue) = map fst queue' /\
+                         Forall (fun m => in_recipients destn m = true) queue' /\
                          forall R orig,
+                           existsb (eqb destn) (recipients orig R) = true ->
                            Permutation (incoming_msgs R orig s1 destn)
                              (map fst (filter (msg_matches R orig) queue')))
         s1 s2.
