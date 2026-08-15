@@ -47,14 +47,25 @@ Arguments fnode_prog : clear implicits.
 Arguments fnode_label : clear implicits.
 Arguments fnode_state : clear implicits.
 
-Definition pebble_step {V X} {gi : graph.graph V} (g : gi) (ps1 ps2 : list (V * X)) : Prop :=
-  exists v x rest,
-    Permutation ps1 ((v, x) :: rest) /\
-    Permutation ps2 (map (fun v' => (v', x)) (graph.edges g v) ++ rest).
+Section pebbles.
+  Context {V X : Type} {eqbV : Eqb V} {gi : graph.graph V} {gok : graph.ok gi}.
 
-Definition graph_incoming {V X} {eqbV : Eqb V} {gi : graph.graph V}
-  (g : gi) (target : V) (ps : list (V * X)) : list X :=
-  map snd (filter (fun '(v, _) => graph.reachesb g v target) ps).
+  Definition pebble_step (g : gi) (v : V) (x : X) (ps1 ps2 : list (V * X)) : Prop :=
+    exists rest,
+      Permutation ps1 ((v, x) :: rest) /\
+      Permutation ps2 (map (fun v' => (v', x)) (graph.edges g v) ++ rest).
+
+  Definition graph_incoming (g : gi) (target : V) (ps : list (V * X)) : list X :=
+    map snd (filter (fun '(v, _) => graph.reachesb g v target) ps).
+
+  Lemma graph_incoming_pebble_step (g : gi) v x target ps1 ps2 :
+    graph.is_locally_tree g v ->
+    v <> target ->
+    pebble_step g v x ps1 ps2 ->
+    Permutation (graph_incoming g target ps1) (graph_incoming g target ps2).
+  Proof.
+  Admitted.
+End pebbles.
 
 Section __.
   Context {rel : relT} {T : valueT}.
