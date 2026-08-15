@@ -79,7 +79,7 @@ Section __.
   Context (nforward : node_id -> rel -> list node_id).
   Context {forwarding_table : map.map (rel * option node_id) (list node_id)}.
   Context {forwarding_tables : map.map node_id forwarding_table}.
-  Context {graph : graph.graph (option node_id)}.
+  Context {graph : graph.graph (option node_id)} {graph_ok : graph.ok graph}.
   Context (fts : forwarding_tables).
   Context (prog_at : node_id -> node_prog).
 
@@ -206,8 +206,10 @@ Section __.
         s1 s2.
 
   Lemma fgraph_weak_sims_ngraph :
+    forwarding_tree ->
     weak_sim fgraph_step ngraph_step forwarding_R.
   Proof.
+    intros Htree.
     cbv [weak_sim]. intros. cbv [fgraph_step] in H0. fwd. invert H0p1.
     - destruct e; simpl in H0p0; fwd. 2: congruence.
       do 2 eexists. split.
@@ -225,8 +227,11 @@ Section __.
       { apply Forall_app. split; [|assumption]. Tactics.destruct_one_match.
         - apply Exists_exists in E. fwd. auto.
         - auto. }
-      intros R o HR.
-        intros. cbv [graph_incoming].
-
+      intros R o HR. destruct o.
+      { (*pebbles should be the same*) admit. }
+      rewrite <- graph_incoming_pebble_step with (v := None) (target := Some k).
+      2: { apply Htree. }
+      2: { congruence. }
+      2: {
   Admitted.
 End __.
