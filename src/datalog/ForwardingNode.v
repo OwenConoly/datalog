@@ -145,17 +145,19 @@ Section __.
 
   Lemma incoming_msgs_from_enqueue_hit destn cur (ns : fgraph_node_state) d o :
     can_make_itb (dfact_rel d) o cur destn = true ->
-    incoming_msgs_from destn cur (enqueue [(d, o)] ns) = d :: incoming_msgs_from destn cur ns.
+    incoming_msgs_from destn cur (all_pending_msgs (enqueue [(d, o)] ns))
+      = d :: incoming_msgs_from destn cur (all_pending_msgs ns).
   Proof.
-    intros H. cbv [incoming_msgs_from].
+    intros H. cbv [incoming_msgs_from all_pending_msgs].
     cbn [enqueue gns_queue gns_node_state app filter map]. rewrite H. reflexivity.
   Qed.
 
   Lemma incoming_msgs_from_enqueue_miss destn cur (ns : fgraph_node_state) d o :
     can_make_itb (dfact_rel d) o cur destn = false ->
-    incoming_msgs_from destn cur (enqueue [(d, o)] ns) = incoming_msgs_from destn cur ns.
+    incoming_msgs_from destn cur (all_pending_msgs (enqueue [(d, o)] ns))
+      = incoming_msgs_from destn cur (all_pending_msgs ns).
   Proof.
-    intros H. cbv [incoming_msgs_from].
+    intros H. cbv [incoming_msgs_from all_pending_msgs].
     cbn [enqueue gns_queue gns_node_state app filter map]. rewrite H. reflexivity.
   Qed.
 
@@ -205,7 +207,8 @@ Section __.
         eapply Forall2_map_impl; [eassumption|]. simpl. intros n fns ns H'. fwd.
         split; [assumption|]. cbv [incoming_msgs].
         rewrite tuples_map_values'. (*wooow so nice*)
-        rewrite flat_map_map.
+        rewrite flat_map_map. erewrite flat_map_ext.
+        2: { intros [? ?].
 
   Admitted.
 End __.
