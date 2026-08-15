@@ -1400,6 +1400,16 @@ Section misc.
     flat_map f (flat_map g l) = flat_map (fun x => flat_map f (g x)) l.
   Proof. induction l; simpl; eauto. rewrite flat_map_app. f_equal. assumption. Qed.
 
+  Lemma flat_map_app_perm (f g h : A -> list B) l :
+    (forall x, f x = g x ++ h x) ->
+    Permutation (flat_map f l) (flat_map g l ++ flat_map h l).
+  Proof.
+    intros Hfgh. induction l as [| a l IH]; [ reflexivity | ].
+    cbn [flat_map]. rewrite Hfgh, <- !app_assoc. apply Permutation_app_head.
+    eapply perm_trans; [ apply Permutation_app_head; exact IH | ].
+    rewrite !app_assoc. apply Permutation_app_tail. apply Permutation_app_comm.
+  Qed.
+
   Lemma app_inv_length1 (l1 l1' l2 l2' : list A) :
     l1 ++ l2 = l1' ++ l2' ->
     length l1 = length l1' ->

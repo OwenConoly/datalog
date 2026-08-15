@@ -137,11 +137,25 @@ Section __.
   Definition all_pending_msgs (ns : fgraph_node_state) :=
     ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending).
 
+  Lemma all_pending_msgs_enqueue ms (ns : fgraph_node_state) :
+    all_pending_msgs (enqueue ms ns) = ms ++ all_pending_msgs ns.
+  Proof.
+    cbv [all_pending_msgs]. cbn [enqueue gns_queue gns_node_state].
+    rewrite <- app_assoc. reflexivity.
+  Qed.
+
   Definition incoming_msgs_from (destn cur : node_id) pending : list dfact :=
     map fst (filter (fun '(f, orig) => can_make_itb (dfact_rel f) orig cur destn) pending).
 
   Definition incoming_msgs (fs : fgraph_state) (destn : node_id) : list dfact :=
     flat_map (fun '(cur, ns) => incoming_msgs_from destn cur (all_pending_msgs ns)) (map.tuples fs).
+
+  Lemma incoming_msgs_from_app destn cur a b :
+    incoming_msgs_from destn cur (a ++ b)
+      = incoming_msgs_from destn cur a ++ incoming_msgs_from destn cur b.
+  Proof.
+    cbv [incoming_msgs_from]. rewrite filter_app, map_app. reflexivity.
+  Qed.
 
   Lemma incoming_msgs_from_enqueue_hit destn cur (ns : fgraph_node_state) d o :
     can_make_itb (dfact_rel d) o cur destn = true ->
@@ -208,7 +222,15 @@ Section __.
         split; [assumption|]. cbv [incoming_msgs].
         rewrite tuples_map_values'. (*wooow so nice*)
         rewrite flat_map_map. erewrite flat_map_ext.
-        2: { intros [? ?].
+        2: { intros [? ?]. rewrite all_pending_msgs_enqueue, incoming_msgs_from_app.
+             instantiate (1 := fun '(_, _) => _). reflexivity. }
+        erewrite flat_map_app_perm with (g := fun '(_, _) => _) (h := fun '(_, _) => _)
+          by (intros [? ?]; reflexivity).
+        apply Permutation_app; [|assumption].
+
+        Search Permutation (_ ++ _) (_ ++ _).
+        rewrite H'p1.
+        Search flat_map app.
 
   Admitted.
 End __.
