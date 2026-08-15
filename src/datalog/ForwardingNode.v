@@ -1,4 +1,4 @@
-From Stdlib Require Import List Lia Permutation Classical_Prop RelationClasses.
+From Stdlib Require Import List Lia Permutation Classical_Prop RelationClasses Morphisms.
 From Datalog Require Import List Datalog Smallstep Tactics Graph Map Default Eqb Node.
 From GraphSearch Require Import GraphInterface Examples.
 From coqutil Require Import Map.Interface.
@@ -57,6 +57,19 @@ Section pebbles.
 
   Definition graph_incoming (g : gi) (target : V) (ps : list (V * X)) : list X :=
     map snd (filter (fun '(v, _) => graph.reachesb g v target) ps).
+
+  #[export] Instance graph_incoming_Proper (g : gi) (target : V) :
+    Proper (@Permutation (V * X) ==> @Permutation X) (graph_incoming g target).
+  Proof.
+    intros ps ps' Hp. cbv [graph_incoming].
+    apply Permutation_map. apply Permutation_filter. exact Hp.
+  Qed.
+
+  Lemma graph_incoming_app (g : gi) (target : V) (ps1 ps2 : list (V * X)) :
+    graph_incoming g target (ps1 ++ ps2) = graph_incoming g target ps1 ++ graph_incoming g target ps2.
+  Proof.
+    cbv [graph_incoming]. rewrite filter_app, map_app. reflexivity.
+  Qed.
 
   Lemma graph_incoming_pebble_step (g : gi) v x target ps1 ps2 :
     graph.is_locally_tree g v ->
@@ -189,6 +202,19 @@ Section __.
     rewrite (tuples_get_perm s cur v Hget). cbn [flat_map]. reflexivity.
   Qed.
 
+  Lemma to_pebbles_map_values'_enqueue R orig (g : node_id -> list (dfact * option node_id)) (s : fgraph_state) :
+    Permutation
+      (to_pebbles R orig (map_values' (fun n ns => enqueue (g n) ns) s))
+      (flat_map (fun '(n, _) => map (fun '(f, _) => (Some n, f)) (filter (msg_matches R orig) (g n)))
+                (map.tuples s)
+       ++ to_pebbles R orig s).
+  Proof.
+    cbv [to_pebbles].
+    rewrite tuples_map_values', flat_map_map.
+    apply flat_map_app_perm. intros [n ns]. cbv beta iota.
+    rewrite all_pending_msgs_enqueue, filter_app, map_app. reflexivity.
+  Qed.
+
   Definition forwarding_R
     (s1 : fgraph_state) (t1 : list IO_event)
     (s2 : ngraph_state) (t2 : list nIO_event) : Prop :=
@@ -227,11 +253,23 @@ Section __.
       { apply Forall_app. split; [|assumption]. Tactics.destruct_one_match.
         - apply Exists_exists in E. fwd. auto.
         - auto. }
-      intros R o HR. destruct o.
-      { (*pebbles should be the same*) admit. }
-      rewrite <- graph_incoming_pebble_step with (v := None) (target := Some k).
+      intros R o HR. rewrite to_pebbles_map_values'_enqueue.
+      rewrite filter_app, map_app. rewrite graph_incoming_app. apply Permutation_app.
+      2: { auto. }
+      destruct o.
+      { rewrite flat_map_all_nil.
+        2: { intros [? ?] ?. Tactics.destruct_one_match; try reflexivity.
+             simpl. destr (eqb (Some n) None); try congruence.
+             rewrite Bool.andb_false_r. reflexivity. }
+        Tactics.destruct_one_match; try reflexivity.
+        simpl. destr (eqb (Some n) None); try congruence.
+        rewrite Bool.andb_false_r. reflexivity. }
+      rewrite <- graph_incoming_pebble_step with (ps1 := [(None, d)]) (target := Some k).
       2: { apply Htree. }
       2: { congruence. }
-      2: {
+      2: { cbv [pebble_step]. exists nil. split.
+           { reflexivity. }
+           rewrite app_nil_r.
   Admitted.
 End __.
+; {
