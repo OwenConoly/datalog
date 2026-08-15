@@ -12,7 +12,7 @@ Section __.
 
   Record fnode_prog :=
     { fnode_rules : node_prog;
-      fnode_keep : message -> bool
+      fnode_keep : message -> option node_id -> bool
     }.
 
   Record fnode_state :=
@@ -36,7 +36,7 @@ Section __.
                   fnode_pending := map (fun f => (f, Some self)) outs ++ fs.(fnode_pending) |}
   | fnode_dequeue fs ns' q1 q2 f orig :
     fs.(fnode_pending) = q1 ++ (f, orig) :: q2 ->
-    (if fp.(fnode_keep) f
+    (if fp.(fnode_keep) f orig
      then node_step fp.(fnode_rules) fs.(fnode_node) (I_event f) ns'
      else ns' = fs.(fnode_node)) ->
     fnode_step _ _ fs (O_event (forward_label f) [(f, orig)])
@@ -60,10 +60,14 @@ Section __.
   Context {graph : graph.graph node_id}.
   Context (fts : forwarding_tables).
   Context (prog_at : node_id -> node_prog).
-  Context {fgraph_state : map.map node_id
-            (graph_node_state (dfact * option node_id) (fnode_label dfact label) (fnode_state node_state dfact))}.
+
+  Local Notation fgraph_node_state :=
+    (graph_node_state (dfact * option node_id) (fnode_label dfact label) (fnode_state node_state dfact)).
+  Local Notation ngraph_node_state := (graph_node_state dfact label node_state).
+
+  Context {fgraph_state : map.map node_id fgraph_node_state}.
   Context {fgraph_state_ok : map.ok fgraph_state}.
-  Context {ngraph_state : map.map node_id (graph_node_state dfact label node_state)}.
+  Context {ngraph_state : map.map node_id ngraph_node_state}.
   Context {ngraph_state_ok : map.ok ngraph_state}.
 
   Local Notation flabel := (graph_label (dfact * option node_id) (fnode_label dfact label)).
@@ -72,9 +76,15 @@ Section __.
   Local Notation fIO_event := (Smallstep.IO_event flabel (dfact * option node_id)).
   Local Notation nIO_event := (Smallstep.IO_event nlabel dfact).
 
+  Definition recipients (orig : option node_id) R : list node_id :=
+    match orig with
+    | Some n => nforward n R
+    | None => input_locs R
+    end.
+
   Definition fprog_at n : fnode_prog node_prog dfact :=
     {| fnode_rules := prog_at n;
-       fnode_keep := fun f => existsb (eqb n) (nforward n (dfact_rel f)) |}.
+       fnode_keep := fun f orig => existsb (eqb n) (recipients orig (dfact_rel f)) |}.
 
   Definition foutput_visible n (m : dfact * option node_id) :=
     let '(f, _) := m in output_visible n f.
@@ -104,12 +114,6 @@ Section __.
   Definition forwarding_graph (mn : rel * option node_id) :=
     map.fold (fun g src tbl => graph.put_edges g src (get_or_default tbl mn)) graph.empty fts.
 
-  Definition recipients (orig : option node_id) R : list node_id :=
-    match orig with
-    | Some n => nforward n R
-    | None => input_locs R
-    end.
-
   Definition ngraph_step :=
     graph_step
       (fun src dst m => existsb (eqb dst) (nforward src (dfact_rel m)))
@@ -129,15 +133,15 @@ Section __.
   Definition can_make_it R orig cur destn :=
     In destn (recipients orig R) /\ graph.reaches (forwarding_graph (R, orig)) cur destn.
 
+  Definition incoming_msgs_from (destn cur : node_id) (ns : fgraph_node_state) (msgs : list dfact) :=
+    exists msgs_lbls,
+      filter_Prop (fun '(f, orig) => can_make_it (dfact_rel f) orig cur destn)
+        (ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending))
+        msgs_lbls /\
+        msgs = map fst msgs_lbls.
+
   Definition incoming_msgs (fs : fgraph_state) (destn : node_id) : list dfact -> Prop :=
-    flat_map_Prop (fun '(cur, ns) =>
-                   fun msgs =>
-                     exists msgs_lbls,
-                       filter_Prop (fun '(f, orig) => can_make_it (dfact_rel f) orig cur destn)
-                         (ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending))
-                         msgs_lbls /\
-                         msgs = map fst msgs_lbls)
-      (map.tuples fs).
+    flat_map_Prop (fun '(cur, ns) => incoming_msgs_from destn cur ns) (map.tuples fs).
 
   Lemma incoming_msgs_enqueue_hit s cur d o destn msgs :
     map.get s cur <> None ->
@@ -146,7 +150,7 @@ Section __.
     exists msgs',
       incoming_msgs (mupd s cur (enqueue [(d, o)])) destn msgs' /\ Permutation msgs' (d :: msgs).
   Proof.
-    intros Hcur Hmk Hin. cbv [incoming_msgs mupd] in *.
+    intros Hcur Hmk Hin. cbv [incoming_msgs incoming_msgs_from mupd] in *.
     destruct (map.get s cur) as [v|] eqn:Ev; [ | congruence ].
     eapply flat_map_Prop_perm in Hin; [ | apply (tuples_get_perm s cur v Ev) ].
     destruct Hin as (msgs0 & Hf0 & Hp0). invert Hf0. cbn beta iota in *. fwd.
@@ -169,7 +173,7 @@ Section __.
     exists msgs',
       incoming_msgs (mupd s cur (enqueue [(d, o)])) destn msgs' /\ Permutation msgs' msgs.
   Proof.
-    intros Hmk Hin. cbv [incoming_msgs mupd] in *.
+    intros Hmk Hin. cbv [incoming_msgs incoming_msgs_from mupd] in *.
     destruct (map.get s cur) as [v|] eqn:Ev; [ | exists msgs; split; [ exact Hin | reflexivity ] ].
     eapply flat_map_Prop_perm in Hin; [ | apply (tuples_get_perm s cur v Ev) ].
     destruct Hin as (msgs0 & Hf0 & Hp0). invert Hf0. cbn beta iota in *. fwd.
