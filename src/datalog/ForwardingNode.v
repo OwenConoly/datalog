@@ -1,7 +1,7 @@
 From Stdlib Require Import List Lia Permutation Classical_Prop RelationClasses Morphisms.
 From Datalog Require Import List Datalog Smallstep Tactics Graph Map Default Eqb Node.
 From GraphSearch Require Import GraphInterface Examples.
-From coqutil Require Import Map.Interface.
+From coqutil Require Import Map.Interface Map.Properties.
 From coqutil Require Import Eqb Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
 Import ListNotations.
 
@@ -240,10 +240,14 @@ Section __.
     rewrite all_pending_msgs_enqueue, filter_app, map_app. reflexivity.
   Qed.
 
+  Definition forwarding_compatible (s : fgraph_state) : Prop :=
+    forall mn u n, graph.edge (forwarding_graph mn) u (Some n) -> map.get s n <> None.
+
   Definition forwarding_R
     (s1 : fgraph_state) (t1 : list IO_event)
     (s2 : ngraph_state) (t2 : list nIO_event) : Prop :=
     flat_map inputs_of t1 = flat_map inputs_of t2 /\
+      forwarding_compatible s1 /\
       Forall2_map (fun destn fgns ngns =>
                      fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state) /\
                        exists queue' : list (dfact * option node_id),
@@ -267,6 +271,10 @@ Section __.
       { apply star_one. apply gstep_input. }
       split; [reflexivity|]. cbv [forwarding_R] in *. fwd. split.
       { simpl. f_equal. assumption. }
+      split.
+      { intros mn u n Hedge. rewrite get_map_values'.
+        destruct (map.get s1 n) eqn:Eg; cbn [option_map]; try congruence.
+        exfalso. match goal with H : forwarding_compatible s1 |- _ => exact (H mn u n Hedge Eg) end. }
       simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
       eapply Forall2_map_impl; [eassumption|]. simpl. intros. fwd.
       split; [assumption|].
@@ -294,15 +302,28 @@ Section __.
       2: { cbv [pebble_step]. exists nil. split; [reflexivity|].
            rewrite app_nil_r. rewrite edges_forwarding_graph_None.
            rewrite map_map. simpl. apply NoDup_Permutation.
-           { apply List.NoDup_flat_map. all: admit. }
-           { apply FinFun.Injective_map_NoDup. all: admit. }
+           { apply List.NoDup_flat_map.
+             - apply map.tuples_NoDup.
+             - intros [n ns] _. cbn [fst snd].
+               destruct (existsb (eqb n) (finput_locs (dfact_rel d))); cbn [filter map]; [ | apply NoDup_nil ].
+               destruct (msg_matches (dfact_rel d) None (d, None)); cbn [map].
+               + constructor; [ apply in_nil | constructor ].
+               + constructor.
+             - intros [n1 ns1] [n2 ns2] b Ha1 Ha2 Hb1 Hb2. cbn [fst snd] in Hb1, Hb2.
+               rewrite in_map_iff in Hb1, Hb2.
+               destruct Hb1 as [[f1 o1] [He1 _]]. destruct Hb2 as [[f2 o2] [He2 _]].
+               cbn in He1, He2. subst b. assert (n1 = n2) by congruence. subst n2.
+               apply map.tuples_spec in Ha1, Ha2. rewrite Ha1 in Ha2. f_equal; congruence. }
+           { apply FinFun.Injective_map_NoDup.
+             - intros x y H. congruence.
+             - apply finput_locs_NoDup. }
            intros x. rewrite in_flat_map, in_map_iff. split; intros; fwd.
-           - Tactics.destruct_one_pair. rewrite in_map_iff in Hp4. fwd.
-             apply filter_In in Hp4p1. fwd. Tactics.destruct_one_match.
-             simpl in Hp4p1p1. fwd.
+           - Tactics.destruct_one_pair. rewrite in_map_iff in Hp5. fwd.
+             apply filter_In in Hp5p1. fwd. Tactics.destruct_one_match.
+             simpl in Hp5p1p1. fwd.
              Tactics.destruct_one_match_hyp; [|contradiction].
-             apply Exists_exists in E. fwd. simpl in Hp4p1p0.
-             destruct Hp4p1p0; [|contradiction]. fwd. eauto.
+             apply Exists_exists in E. fwd. simpl in Hp5p1p0.
+             destruct Hp5p1p0; [|contradiction]. fwd. eauto.
            - eexists (_, _).
 
   Admitted.
