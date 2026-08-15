@@ -189,8 +189,9 @@ Section __.
   Proof.
     apply NoDup_Permutation.
     - apply graph.edges_NoDup.
-    - induction (finput_locs_NoDup (fst mn)) as [| a l Ha Hl IH]; cbn [map]; constructor; [ | exact IH ].
-      rewrite in_map_iff. intros [x [Heq Hx]]. injection Heq as ->. exact (Ha Hx).
+    - apply FinFun.Injective_map_NoDup.
+      + intros x y H. congruence.
+      + apply finput_locs_NoDup.
     - intros v. exact (edge_forwarding_graph_None mn v).
   Qed.
 
@@ -292,6 +293,17 @@ Section __.
       2: { congruence. }
       2: { cbv [pebble_step]. exists nil. split; [reflexivity|].
            rewrite app_nil_r. rewrite edges_forwarding_graph_None.
-           rewrite map_map. simpl.
+           rewrite map_map. simpl. apply NoDup_Permutation.
+           { apply List.NoDup_flat_map. all: admit. }
+           { apply FinFun.Injective_map_NoDup. all: admit. }
+           intros x. rewrite in_flat_map, in_map_iff. split; intros; fwd.
+           - Tactics.destruct_one_pair. rewrite in_map_iff in Hp4. fwd.
+             apply filter_In in Hp4p1. fwd. Tactics.destruct_one_match.
+             simpl in Hp4p1p1. fwd.
+             Tactics.destruct_one_match_hyp; [|contradiction].
+             apply Exists_exists in E. fwd. simpl in Hp4p1p0.
+             destruct Hp4p1p0; [|contradiction]. fwd. eauto.
+           - eexists (_, _).
+
   Admitted.
 End __.
