@@ -82,7 +82,7 @@ End pebbles.
 
 Section __.
   Context {rel : relT} {T : valueT}.
-  Context {rel_eqb : Eqb rel}.
+  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {node_prog node_state : Type}.
   Context {label : Type}.
   Context (node_step : node_prog -> node_state -> IO_event label dfact -> node_state -> Prop).
@@ -256,20 +256,18 @@ Section __.
       intros R o HR. rewrite to_pebbles_map_values'_enqueue.
       rewrite filter_app, map_app. rewrite graph_incoming_app. apply Permutation_app.
       2: { auto. }
-      destruct o.
-      { rewrite flat_map_all_nil.
-        2: { intros [? ?] ?. Tactics.destruct_one_match; try reflexivity.
-             simpl. destr (eqb (Some n) None); try congruence.
-             rewrite Bool.andb_false_r. reflexivity. }
-        Tactics.destruct_one_match; try reflexivity.
-        simpl. destr (eqb (Some n) None); try congruence.
-        rewrite Bool.andb_false_r. reflexivity. }
+      destruct (msg_matches R o (d, None)) eqn:E.
+      2: { rewrite flat_map_all_nil.
+           2: { intros [? ?] ?. Tactics.destruct_one_match; try reflexivity.
+                cbn [filter]. rewrite E. reflexivity. }
+           Tactics.destruct_one_match; try reflexivity.
+           cbn [filter]. rewrite E. reflexivity. }
+      simpl in E. fwd.
       rewrite <- graph_incoming_pebble_step with (ps1 := [(None, d)]) (target := Some k).
       2: { apply Htree. }
       2: { congruence. }
-      2: { cbv [pebble_step]. exists nil. split.
-           { reflexivity. }
+      2: { cbv [pebble_step]. exists nil. split; [reflexivity|].
            rewrite app_nil_r.
-  Admitted.
+  Admitted.Print
 End __.
 ; {
