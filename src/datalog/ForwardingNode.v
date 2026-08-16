@@ -274,9 +274,8 @@ Section __.
       split; [reflexivity|]. cbv [forwarding_R] in *. fwd. split.
       { simpl. f_equal. assumption. }
       split.
-      { intros mn u n Hedge. rewrite get_map_values'.
-        destruct (map.get s1 n) eqn:Eg; cbn [option_map]; try congruence.
-        exfalso. match goal with H : forwarding_compatible s1 |- _ => exact (H mn u n Hedge Eg) end. }
+      { intros mn u n Hedge. intros H. rewrite get_map_values' in H.
+        apply option_map_None in H. eapply Hp1; eassumption. }
       simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
       eapply Forall2_map_impl; [eassumption|]. simpl. intros. fwd.
       split; [assumption|].
