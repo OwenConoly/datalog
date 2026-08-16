@@ -191,6 +191,17 @@ Section Maps.
       apply H. assumption.
   Qed.
 
+  Lemma Forall2_map_put_both R (m1 : mp1) (m2 : mp2) k v1 v2 :
+    Forall2_map (fun k' w1 w2 => k <> k' -> R k' w1 w2) m1 m2 ->
+    R k v1 v2 ->
+    Forall2_map R (map.put m1 k v1) (map.put m2 k v2).
+  Proof.
+    intros H HR k0. specialize (H k0). rewrite !map.get_put_dec. destr (eqb k k0).
+    - subst. exact HR.
+    - destruct (map.get m1 k0) as [w1|]; destruct (map.get m2 k0) as [w2|]; try exact H.
+      apply H. assumption.
+  Qed.
+
   Lemma Forall2_map_get_l R (m1 : mp1) (m2 : mp2) k v1 :
     Forall2_map R m1 m2 ->
     map.get m1 k = Some v1 ->
@@ -1126,6 +1137,14 @@ Proof.
   - intros H. apply Forall_map_of_tuples. exact (Forall2_map_map_inv _ _ _ _ H).
 Qed.
 End Map.
+
+Lemma map_values'_id {key value} {mp : map.map key value} {mp_ok : map.ok mp}
+  {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb} (m : mp) :
+  map_values' (mp' := mp) (fun _ v => v) m = m.
+Proof.
+  apply map.map_ext. intro k.
+  rewrite get_map_values'. destruct (map.get m k); reflexivity.
+Qed.
 
 Section InvertListMap.
   Context {A B : Type}.

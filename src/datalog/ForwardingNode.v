@@ -254,6 +254,18 @@ Section __.
     rewrite all_pending_msgs_enqueue, filter_app, map_app. reflexivity.
   Qed.
 
+  Lemma to_pebbles_map_values'_enqueue_nomatch R orig
+    (g : node_id -> list (dfact * option node_id)) (s : fgraph_state) :
+    (forall n m, In m (g n) -> msg_matches R orig m = false) ->
+    Permutation (to_pebbles R orig (map_values' (fun n ns => enqueue (g n) ns) s))
+                (to_pebbles R orig s).
+  Proof.
+    intros Hnm. rewrite to_pebbles_map_values'_enqueue, flat_map_all_nil; [ reflexivity | ].
+    intros [n ns] _. cbn [fst snd].
+    rewrite filter_ext_in with (g := fun _ => false); [ rewrite filter_false; reflexivity | ].
+    intros m Hm. apply (Hnm n m Hm).
+  Qed.
+
   Definition forwarding_compatible (s : fgraph_state) : Prop :=
     forall mn u n, graph.edge (forwarding_graph mn) u (Some n) -> map.get s n <> None.
 
@@ -353,14 +365,13 @@ Section __.
         - auto. }
       intros R o HR.
       destruct (msg_matches R o (d, None)) eqn:E.
-      2: { rewrite to_pebbles_map_values'_enqueue, graph_incoming_app, filter_app, map_app.
-           apply Permutation_app.
-           2: { auto. }
-           rewrite flat_map_all_nil.
-           2: { intros [? ?] ?. Tactics.destruct_one_match; try reflexivity.
-                cbn [filter]. rewrite E. reflexivity. }
-           Tactics.destruct_one_match; try reflexivity.
-           cbn [filter]. rewrite E. reflexivity. }
+      2: { rewrite to_pebbles_map_values'_enqueue_nomatch.
+           2: { intros n m Hm. Tactics.destruct_one_match_hyp; [|contradiction].
+                destruct Hm; [|contradiction]. subst. assumption. }
+           rewrite filter_app, map_app.
+           destruct (existsb (eqb k) (ninput_locs (dfact_rel d))).
+           - cbn [filter]. rewrite E. cbn [map app]. auto.
+           - cbn [filter map app]. auto. }
       simpl in E. fwd.
       simpl in HR. Tactics.destruct_one_match.
       2: { rewrite Forall_forall in E. apply E in HR.
@@ -381,6 +392,32 @@ Section __.
       Tactics.destruct_one_match; fwd.
       { reflexivity. }
       exfalso. apply E0. auto.
-    -
+    - destruct e; simpl in H0p0; congruence || fwd. invert H1.
+      + cbv [forwarding_R] in H. fwd. eapply Forall2_map_get_l in H0; [|eassumption].
+        simpl in H0. fwd.
+        do 2 eexists. split.
+        { apply star_one. apply gstep_run; try eassumption. rewrite <- H0p1.
+          eassumption. }
+        simpl. split; [reflexivity|]. erewrite map_values'_ext.
+        1: rewrite map_values'_id.
+        2: { intros k v. simpl. destruct v. reflexivity. }
+        cbv [enqueue]. cbv [forwarding_R]. split.
+        { simpl. assumption. }
+        split.
+        { admit. }
+        apply Forall2_map_map_values'_r. simpl.
+        apply Forall2_map_put_both.
+        -- eapply Forall2_map_impl; [eassumption|]. simpl.
+           intros. fwd. split.
+           { assumption. }
+           eexists (map (fun x => (x, Some k)) _ ++ _). split.
+           { rewrite map_app, map_map. simpl. rewrite map_id. f_equal. eassumption. }
+           split.
+           { apply Forall_app. split; [|assumption]. apply List.Forall_map.
+             apply List.Forall_filter. simpl. intros. fwd. apply Exists_exists in H.
+             fwd. assumption.
+        Search Forall2_map map.put.
+
+
   Admitted.
 End __.
