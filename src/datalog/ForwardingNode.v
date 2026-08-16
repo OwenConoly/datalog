@@ -93,6 +93,7 @@ Section __.
   Context (nforward : node_id -> rel -> list node_id).
   Context {forwarding_table : map.map (rel * option node_id) (list node_id)}.
   Context {forwarding_tables : map.map node_id forwarding_table}.
+  Context {forwarding_table_ok : map.ok forwarding_table}.
   Context {forwarding_tables_ok : map.ok forwarding_tables}.
   Context {graph : graph.graph (option node_id)} {graph_ok : graph.ok graph}.
   Context {oops : map.map nat (list dfact)} {oops_ok : map.ok oops}.
@@ -173,17 +174,37 @@ Section __.
       In n' (recipients orig R) ->
       graph.reaches (forwarding_graph (R, orig)) orig (Some n').
 
+  Lemma forwarding_graph_spec mn v w :
+    graph.edge (forwarding_graph mn) v w <->
+    match v with
+    | None => In w (map Some (finput_locs (fst mn)))
+    | Some src => In w (map Some (fforward src mn))
+    end.
+  Proof.
+    cbv [forwarding_graph fforward]. rewrite graph.edge_put_edges.
+    assert (Hemp : forall (m : forwarding_tables) k', map.get m k' = None ->
+                   In w (map Some (get_or_default (get_or_default m k') mn)) <-> False).
+    { intros m k' Hk. cbv [get_or_default get_or]. rewrite Hk.
+      cbv [default map_default list_default]. rewrite map.get_empty. cbn [map In]. tauto. }
+    assert (Hfold : forall v0,
+      graph.edge (map.fold (fun g src tbl => graph.put_edges g (Some src) (map Some (get_or_default tbl mn))) graph.empty fts) v0 w
+      <-> match v0 with None => False | Some src => In w (map Some (get_or_default (get_or_default fts src) mn)) end).
+    { apply (map.fold_spec (fun processed acc => forall v0,
+        graph.edge acc v0 w <-> match v0 with None => False | Some src => In w (map Some (get_or_default (get_or_default processed src) mn)) end)).
+      - intros [src|]; rewrite graph.edge_empty_iff; [ | reflexivity ].
+        rewrite (Hemp map.empty src (map.get_empty _)). reflexivity.
+      - intros k tbl processed acc Hget IH v0.
+        rewrite graph.edge_put_edges, (IH v0). destruct v0 as [src|].
+        2: { split; [ intros [[] | [Hc _]]; congruence | intros [] ]. }
+        rewrite get_or_default_put. destr (eqb k src).
+        + rewrite (Hemp processed src Hget). graph.
+        + graph. }
+    rewrite (Hfold v). destruct v; graph.
+  Qed.
+
   Lemma edge_forwarding_graph_None mn v :
     graph.edge (forwarding_graph mn) None v <-> In v (map Some (finput_locs (fst mn))).
-  Proof.
-    cbv [forwarding_graph]. rewrite graph.edge_put_edges. split.
-    - intros [He | [_ Hin]]; [ | exact Hin ]. exfalso. revert He.
-      apply map.fold_spec.
-      + apply graph.edge_empty.
-      + intros ? ? ? ? ? ? He. rewrite graph.edge_put_edges in He.
-        graph.
-    - graph.
-  Qed.
+  Proof. exact (forwarding_graph_spec mn None v). Qed.
 
   Lemma edges_forwarding_graph_None mn :
     Permutation (graph.edges (forwarding_graph mn) None) (map Some (finput_locs (fst mn))).
@@ -198,30 +219,7 @@ Section __.
 
   Lemma edge_forwarding_graph_Some_shape mn u v :
     graph.edge (forwarding_graph mn) u v -> exists n, v = Some n.
-  Proof.
-    cbv [forwarding_graph]. rewrite graph.edge_put_edges. intros [He | [_ Hin]].
-    - revert He. apply (map.fold_spec (fun _ g' => graph.edge g' u v -> exists n, v = Some n)).
-      + intros He. apply graph.edge_empty in He. contradiction.
-      + intros k tbl m g' Hget IH. rewrite graph.edge_put_edges.
-        intros [He | [_ Hin]]; [ exact (IH He) | ]. apply in_map_iff in Hin. fwd. eauto.
-    - apply in_map_iff in Hin. fwd. eauto.
-  Qed.
-
-  Lemma existsb_edges_None dst mn :
-    existsb (eqb (Some dst)) (graph.edges (forwarding_graph mn) None)
-    = existsb (eqb dst) (finput_locs (fst mn)).
-  Proof.
-    apply Bool.eq_true_iff_eq. rewrite !existsb_exists. split.
-    - intros [v [Hv Hveq]]. pose proof (eqb_spec (Some dst) v) as Hs.
-      rewrite Hveq in Hs. cbn in Hs. subst v.
-      apply edge_forwarding_graph_None in Hv. apply in_map_iff in Hv.
-      destruct Hv as [n [Hn Hin]]. inversion Hn. subst.
-      exists dst. split; [ exact Hin | apply eqb_refl_true; typeclasses eauto ].
-    - intros [n [Hn Hveq]]. pose proof (eqb_spec dst n) as Hs.
-      rewrite Hveq in Hs. cbn in Hs. subst n.
-      exists (Some dst). split; [ | apply eqb_refl_true; typeclasses eauto ].
-      apply edge_forwarding_graph_None. apply in_map. exact Hn.
-  Qed.
+  Proof. rewrite forwarding_graph_spec. destruct u; intros H; apply in_map_iff in H; fwd; eauto. Qed.
 
   Definition all_pending_msgs (ns : fgraph_node_state) :=
     ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending).
@@ -385,9 +383,12 @@ Section __.
       erewrite map_values'_ext.
       1: rewrite <- graph_incoming_pebble_step.
       4: { apply pebble_step_forward. assumption. }
-      4: { intros dst ns. f_equal. cbn [filter]. cbv [finput_at].
-           f_equal. rewrite existsb_edges_None. reflexivity. }
       2: { apply Htree. }
+      3: { intros dst ns. f_equal. cbn [filter]. cbv [finput_at].
+           f_equal. eassert (existsb _ _ = _) as ->; [|reflexivity].
+           apply Bool.eq_true_iff_eq. do 2 rewrite <- List.existsb_eqb_in.
+           pose proof forwarding_graph_spec as E'. cbv [graph.edge] in E'.
+           rewrite E'. rewrite in_map_iff. simpl. split; intros; fwd; eauto. }
       2: { congruence. }
       simpl. rewrite! eqb_refl_true by typeclasses eauto. simpl.
       eassert ((_, _) :: _ = [(_, _)] ++ _) as -> by reflexivity.
