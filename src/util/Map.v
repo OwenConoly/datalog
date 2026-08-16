@@ -711,6 +711,16 @@ Section Map.
     rewrite !get_map_values'. destruct (map.get m k); cbn [option_map]; congruence.
   Qed.
 
+  Lemma Forall_map_map_values' (R : key -> value' -> Prop) (f : key -> value -> value') (m : mp) :
+    Forall_map R (map_values' f m) <-> Forall_map (fun k v => R k (f k v)) m.
+  Proof.
+    unfold Forall_map. split.
+    - intros H k v Hget. apply H. rewrite get_map_values', Hget. reflexivity.
+    - intros H k v' Hget. rewrite get_map_values' in Hget.
+      destruct (map.get m k) as [v|] eqn:E; cbn [option_map] in Hget; [|discriminate].
+      injection Hget as <-. apply (H k v E).
+  Qed.
+
   Lemma map_values'_remove (f : key -> value -> value') (m : mp) k :
     map_values' f (map.remove m k) = map.remove (map_values' f m) k.
   Proof.
@@ -1144,6 +1154,18 @@ Lemma map_values'_id {key value} {mp : map.map key value} {mp_ok : map.ok mp}
 Proof.
   apply map.map_ext. intro k.
   rewrite get_map_values'. destruct (map.get m k); reflexivity.
+Qed.
+
+Lemma map_values'_map_values' {key value value' value''}
+  {mp : map.map key value} {mp' : map.map key value'} {mp'' : map.map key value''}
+  {mp_ok : map.ok mp} {mp'_ok : map.ok mp'} {mp''_ok : map.ok mp''}
+  {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb}
+  (f : key -> value' -> value'') (g : key -> value -> value') (m : mp) :
+  map_values' (mp' := mp'') f (map_values' (mp' := mp') g m)
+  = map_values' (mp' := mp'') (fun k v => f k (g k v)) m.
+Proof.
+  apply map.map_ext. intro k.
+  rewrite !get_map_values'. destruct (map.get m k); reflexivity.
 Qed.
 
 Section InvertListMap.

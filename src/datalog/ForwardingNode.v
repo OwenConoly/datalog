@@ -287,7 +287,7 @@ Section __.
                            Permutation
                              (graph_incoming (forwarding_graph (R, orig)) (Some destn) (to_pebbles R orig s1))
                              (map fst (filter (msg_matches R orig) queue')))
-        (map.map_values gns_queue s2).
+        (map_values' (fun _ => gns_queue) s2).
 
   Hint Constructors NoDup : core.
 
@@ -355,13 +355,16 @@ Section __.
       split.
       { intros mn u n Hedge. intros H. rewrite get_map_values' in H.
         apply option_map_None in H. eapply Hp1; eassumption. }
-      simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
-      eapply Forall2_map_impl; [eassumption|]. simpl. intros. fwd.
-      split; [assumption|].
+      split.
+      { simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
+        eapply Forall2_map_impl; [eassumption|]. simpl. intros. assumption. }
+      apply Forall_map_map_values' in Hp3.
+      apply Forall_map_map_values'. apply Forall_map_map_values'.
+      intros k v Hget. specialize (Hp3 k v Hget). simpl in Hp3. fwd.
       eexists ((if existsb (eqb k) (ninput_locs (dfact_rel d)) then [(d, None)] else []) ++ _).
       split.
-      { Tactics.destruct_one_match; simpl; try eassumption || reflexivity. f_equal.
-        assumption. }
+      { cbn [gns_queue enqueue filter]. rewrite map_app.
+        Tactics.destruct_one_match; simpl; try eassumption. f_equal. assumption. }
       split.
       { apply Forall_app. split; [|assumption]. Tactics.destruct_one_match.
         - apply Exists_exists in E. fwd. auto.
@@ -369,8 +372,8 @@ Section __.
       intros R o HR.
       destruct (msg_matches R o (d, None)) eqn:E.
       2: { rewrite to_pebbles_map_values'_enqueue_nomatch.
-           2: { intros n m Hm. Tactics.destruct_one_match_hyp; [|contradiction].
-                destruct Hm; [|contradiction]. subst. assumption. }
+           2: { intros n m Hm. apply filter_In in Hm. destruct Hm as [[Hm|[]] _].
+                subst. assumption. }
            rewrite filter_app, map_app.
            destruct (existsb (eqb k) (ninput_locs (dfact_rel d))).
            - cbn [filter]. rewrite E. cbn [map app]. auto.
@@ -391,7 +394,6 @@ Section __.
       eassert (d :: _ = [_] ++ _) as -> by reflexivity.
       rewrite graph_incoming_app. apply Permutation_app; [|auto].
       cbv [graph_incoming]. simpl.
-      Opaque graph.reachesb. (*without this, fwd does the wrong thing..*)
       Tactics.destruct_one_match; fwd.
       { reflexivity. }
       exfalso. apply E0. auto.
@@ -408,20 +410,22 @@ Section __.
         { simpl. assumption. }
         split.
         { admit. }
-        apply Forall2_map_map_values'_r. simpl.
-        apply Forall2_map_put_both.
-        -- eapply Forall2_map_impl; [eassumption|]. simpl.
-           intros. fwd. split.
-           { assumption. }
-           eexists (map (fun x => (x, Some n)) _ ++ _). split.
-           { rewrite map_app, map_map. simpl. rewrite map_id. f_equal. eassumption. }
-           split.
-           { apply Forall_app. split; [|assumption]. apply List.Forall_map.
-             apply List.Forall_filter. simpl. intros. fwd. apply Exists_exists in H.
-             fwd. assumption. }
-           intros R o HR.
-        Search Forall2_map map.put.
-
-
+        split.
+        { apply Forall2_map_map_values'_r. simpl.
+          apply Forall2_map_put_both.
+          - eapply Forall2_map_impl; [eassumption|]. simpl. auto.
+          - simpl. reflexivity. }
+        rewrite map_values'_map_values'. rewrite map_values'_put. simpl.
+        rewrite map.put_noop with (m := map_values' _ _).
+        2: { rewrite get_map_values'. rewrite H0p0. simpl. reflexivity. }
+        apply Forall_map_map_values'. apply Forall_map_map_values' in Hp3.
+        intros k v Hkv. apply Hp3 in Hkv. clear Hp3. fwd.
+        eexists (map (fun x => (x, Some n)) _ ++ _). split.
+        { rewrite map_app, map_map. simpl. rewrite map_id. f_equal. eassumption. }
+        split.
+        { apply Forall_app. split; [|assumption]. apply List.Forall_map.
+          apply List.Forall_filter. simpl. intros. fwd. apply Exists_exists in H.
+          fwd. assumption. }
+        intros R o HR.
   Admitted.
 End __.
