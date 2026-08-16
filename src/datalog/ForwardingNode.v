@@ -260,11 +260,13 @@ Section __.
                              (map fst (filter (msg_matches R orig) queue')))
         s1 s2.
 
+  Hint Constructors NoDup : core.
   Lemma fgraph_weak_sims_ngraph :
+    forwarding_reaches ->
     forwarding_tree ->
     weak_sim fgraph_step ngraph_step forwarding_R.
   Proof.
-    intros Htree.
+    intros Hreaches Htree.
     cbv [weak_sim]. intros. cbv [fgraph_step] in H0. fwd. invert H0p1.
     - destruct e; simpl in H0p0; fwd. 2: congruence.
       do 2 eexists. split.
@@ -305,15 +307,11 @@ Section __.
            { apply List.NoDup_flat_map.
              - apply map.tuples_NoDup.
              - intros [n ns] _. cbn [fst snd].
-               destruct (existsb (eqb n) (finput_locs (dfact_rel d))); cbn [filter map]; [ | apply NoDup_nil ].
-               destruct (msg_matches (dfact_rel d) None (d, None)); cbn [map].
-               + constructor; [ apply in_nil | constructor ].
-               + constructor.
-             - intros [n1 ns1] [n2 ns2] b Ha1 Ha2 Hb1 Hb2. cbn [fst snd] in Hb1, Hb2.
-               rewrite in_map_iff in Hb1, Hb2.
-               destruct Hb1 as [[f1 o1] [He1 _]]. destruct Hb2 as [[f2 o2] [He2 _]].
-               cbn in He1, He2. subst b. assert (n1 = n2) by congruence. subst n2.
-               apply map.tuples_spec in Ha1, Ha2. rewrite Ha1 in Ha2. f_equal; congruence. }
+               Tactics.destruct_one_match; try solve [simpl; auto].
+               cbn [filter]. Tactics.destruct_one_match; simpl; auto.
+             - intros [? ?] [? ?]. intros.
+               rewrite in_map_iff in *. fwd.
+               rewrite map.tuples_spec in *. congruence. }
            { apply FinFun.Injective_map_NoDup.
              - intros x y H. congruence.
              - apply finput_locs_NoDup. }
@@ -324,7 +322,26 @@ Section __.
              Tactics.destruct_one_match_hyp; [|contradiction].
              apply Exists_exists in E. fwd. simpl in Hp5p1p0.
              destruct Hp5p1p0; [|contradiction]. fwd. eauto.
-           - eexists (_, _).
+           - destruct (map.get s1 x0) eqn:E.
+             2: { eapply Hp1 in E; [contradiction|].
+                  apply edge_forwarding_graph_None.
+                  apply in_map. instantiate (1 := (_, _)). simpl. eassumption. }
+             eexists (_, _). rewrite map.tuples_spec. split; [eassumption|].
+             apply in_map_iff. eexists (_, _). split; [reflexivity|].
+             apply filter_In. Tactics.destruct_one_match.
+             2: { rewrite Forall_forall in E0. apply E0 in Hp5. fwd. congruence. }
+             split; [simpl; eauto|]. simpl. rewrite! eqb_refl_true by typeclasses eauto.
+             reflexivity. }
+      simpl in HR. Tactics.destruct_one_match.
+      2: { rewrite Forall_forall in E. apply E in HR.
+           rewrite eqb_refl_true in HR by typeclasses eauto. congruence. }
+      simpl. rewrite! eqb_refl_true by typeclasses eauto. simpl.
+      cbv [graph_incoming]. simpl.
+      destruct (graph.reachesb _ _ _) eqn:E'.
+      { simpl. reflexivity. }
+      eapply autoforward.BoolSpec_false in E'.
+      2: apply graph.reachesb_spec.
+      exfalso. apply E'. apply Hreaches. assumption.
 
   Admitted.
 End __.
