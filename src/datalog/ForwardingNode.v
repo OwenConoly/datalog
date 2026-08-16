@@ -265,8 +265,29 @@ Section __.
     intros m Hm. apply (Hnm n m Hm).
   Qed.
 
+  Lemma to_pebbles_get_remove R orig (g : fgraph_state) n ns :
+    map.get g n = Some ns ->
+    Permutation
+      (to_pebbles R orig g)
+      (map (fun '(f, _) => (Some n, f)) (filter (msg_matches R orig) (all_pending_msgs ns))
+       ++ to_pebbles R orig (map.remove g n)).
+  Proof.
+    intros Hget. cbv [to_pebbles]. rewrite (tuples_get_perm _ _ _ Hget). reflexivity.
+  Qed.
+
   Definition forwarding_compatible (s : fgraph_state) : Prop :=
     forall mn u n, graph.edge (forwarding_graph mn) u (Some n) -> map.get s n <> None.
+
+  Lemma forwarding_compatible_sub_domain (s s' : fgraph_state) :
+    forwarding_compatible s ->
+    map.sub_domain s s' ->
+    forwarding_compatible s'.
+  Proof.
+    intros Hcompat Hsub mn u n Hedge Hnone.
+    eapply Hcompat in Hedge. apply Hedge.
+    destruct (map.get s n) as [v|] eqn:E; [ | reflexivity ].
+    apply Hsub in E. fwd. congruence.
+  Qed.
 
   Definition forwarding_R
     (s1 : fgraph_state) (t1 : list IO_event)
@@ -323,8 +344,7 @@ Section __.
       destruct Hp1p1p0p0; [|contradiction]. subst.
       eexists. split; [reflexivity|]. apply Exists_exists in Hp1p1p0p1.
       fwd. assumption.
-    - assert (Hshape : exists n, x0 = Some n) by (eapply edge_forwarding_graph_Some_shape; exact Hp1).
-      destruct Hshape as [n ->].
+    - pose proof edge_forwarding_graph_Some_shape as E. especialize E; eauto. fwd.
       destruct (map.get s n) as [ns|] eqn:E.
       2: { exfalso. eapply Hcompat; eassumption. }
       exists (n, ns). split.
@@ -351,8 +371,8 @@ Section __.
       split; [reflexivity|]. cbv [forwarding_R] in *. fwd. split.
       { simpl. f_equal. assumption. }
       split.
-      { intros mn u n Hedge. intros H. rewrite get_map_values' in H.
-        apply option_map_None in H. eapply Hp1; eassumption. }
+      { eapply forwarding_compatible_sub_domain; [eassumption|].
+        apply same_domain_map_values'. }
       split.
       { simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [eassumption|]. simpl. intros. assumption. }
@@ -399,7 +419,8 @@ Section __.
       { reflexivity. }
       exfalso. apply E0. auto.
     - destruct e; simpl in H0p0; congruence || fwd. invert H1.
-      + cbv [forwarding_R] in H. fwd. eapply Forall2_map_get_l in H0; [|eassumption].
+      + cbv [forwarding_R] in H. fwd. pose proof H0 as H0'.
+        eapply Forall2_map_get_l in H0; [|eassumption].
         simpl in H0. fwd.
         do 2 eexists. split.
         { apply star_one. apply gstep_run; try eassumption. rewrite <- H0p1.
@@ -410,7 +431,8 @@ Section __.
         cbv [enqueue]. cbv [forwarding_R]. split.
         { simpl. assumption. }
         split.
-        { admit. }
+        { eapply forwarding_compatible_sub_domain; [eassumption|].
+          apply map.sub_domain_put_r. apply map.sub_domain_refl. }
         split.
         { apply Forall2_map_map_values'_r. simpl.
           apply Forall2_map_put_both.
@@ -428,5 +450,35 @@ Section __.
           apply List.Forall_filter. simpl. intros. fwd. apply Exists_exists in H.
           fwd. assumption. }
         intros R o HR.
+        rewrite to_pebbles_get_remove.
+        2: { apply map.get_put_same. }
+        rewrite map.remove_put_same.
+        especialize Hkvp2; eauto. rewrite to_pebbles_get_remove in Hkvp2 by eassumption.
+        rewrite filter_app with (l' := queue'). rewrite map_app with (l' := filter _ queue').
+        rewrite <- Hkvp2. clear Hkvp2.
+        rewrite !graph_incoming_app. rewrite app_assoc with (n := graph_incoming _ _ _).
+        apply Permutation_app. 2: reflexivity.
+        cbv [all_pending_msgs]. simpl.
+        rewrite !filter_app, !map_app, !graph_incoming_app.
+        repeat rewrite app_assoc.
+        apply Permutation_app; [|reflexivity].
+        rewrite Permutation_app_comm.
+        apply Permutation_app; [|reflexivity].
+        cbv [graph_incoming].
+        rewrite !filter_map_swap, !map_map. cbn [fst snd]. rewrite !map_id.
+        simpl. destr (eqb o (Some n)).
+        2: { erewrite filter_ext with (f := fun _ => (_ && _)%bool).
+             2: { intros. apply Bool.andb_false_r. }
+             erewrite filter_ext with (f := fun _ => (_ && _)%bool).
+             2: { intros. apply Bool.andb_false_r. }
+             do 2 rewrite filter_false. simpl. reflexivity. }
+        destr (graph.reachesb (forwarding_graph (R, Some n)) (Some n) (Some k)).
+        2: { exfalso. apply E. apply Hreaches. assumption. }
+        rewrite filter_true. rewrite filter_comm.
+        erewrite filter_ext_in with (f := fun _ => existsb _ _). 1: rewrite filter_true.
+        2: { intros ? H. apply filter_In in H. fwd. destruct Hp4; [|discriminate].
+             subst. apply List.existsb_eqb_in. assumption. }
+        reflexivity.
+      +
   Admitted.
 End __.

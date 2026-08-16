@@ -1168,6 +1168,16 @@ Proof.
   rewrite !get_map_values'. destruct (map.get m k); reflexivity.
 Qed.
 
+Lemma same_domain_map_values' {key value} {mp : map.map key value} {mp_ok : map.ok mp}
+  {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb} (f : key -> value -> value) (m : mp) :
+  map.same_domain (map_values' (mp' := mp) f m) m.
+Proof.
+  split; intros k v Hget.
+  - rewrite get_map_values' in Hget.
+    destruct (map.get m k) as [w|]; [ eexists; reflexivity | discriminate ].
+  - rewrite get_map_values', Hget. eexists; reflexivity.
+Qed.
+
 Section InvertListMap.
   Context {A B : Type}.
   Context {A_eqb : Eqb A} {A_eqb_ok : Eqb_ok A_eqb}.

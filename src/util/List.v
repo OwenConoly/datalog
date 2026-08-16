@@ -70,6 +70,24 @@ Proof.
   - eapply perm_trans; eassumption.
 Qed.
 
+#[export] Instance Permutation_app_head_Proper {A} (x : list A) :
+  Proper (@Permutation A ==> @Permutation A) (app x).
+Proof.
+  intros l l' HP. apply Permutation_app_head. exact HP.
+Qed.
+
+#[export] Instance Permutation_app_tail_Proper {A} (x : list A) :
+  Proper (@Permutation A ==> @Permutation A) (fun l => l ++ x).
+Proof.
+  intros l l' HP. apply Permutation_app_tail. exact HP.
+Qed.
+
+Lemma filter_comm {A} (p q : A -> bool) (l : list A) :
+  filter p (filter q l) = filter q (filter p l).
+Proof.
+  rewrite !List.filter_filter. apply filter_ext. intro a. apply andb_comm.
+Qed.
+
 Lemma perm_ins {X : Type} (a b d s : list X) :
   Permutation (a ++ b) s -> Permutation (a ++ d ++ b) (d ++ s).
 Proof.
