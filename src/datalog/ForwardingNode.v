@@ -95,6 +95,7 @@ Section __.
   Context {forwarding_tables : map.map node_id forwarding_table}.
   Context {forwarding_tables_ok : map.ok forwarding_tables}.
   Context {graph : graph.graph (option node_id)} {graph_ok : graph.ok graph}.
+  Context {oops : map.map nat (list dfact)} {oops_ok : map.ok oops}.
   Context (fts : forwarding_tables).
   Context (prog_at : node_id -> node_prog).
 
@@ -275,16 +276,18 @@ Section __.
     flat_map inputs_of t1 = flat_map inputs_of t2 /\
       forwarding_compatible s1 /\
       Forall2_map (fun destn fgns ngns =>
-                     fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state) /\
+                     fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
+                  s1 s2 /\
+      Forall_map (fun destn queue =>
                        exists queue' : list (dfact * option node_id),
-                         ngns.(gns_queue) = map fst queue' /\
+                         queue = map fst queue' /\
                          Forall (fun m => In destn (recipients_of m)) queue' /\
                          forall R orig,
                            In destn (recipients orig R) ->
                            Permutation
                              (graph_incoming (forwarding_graph (R, orig)) (Some destn) (to_pebbles R orig s1))
                              (map fst (filter (msg_matches R orig) queue')))
-        s1 s2.
+        (map.map_values gns_queue s2).
 
   Hint Constructors NoDup : core.
 
@@ -410,12 +413,13 @@ Section __.
         -- eapply Forall2_map_impl; [eassumption|]. simpl.
            intros. fwd. split.
            { assumption. }
-           eexists (map (fun x => (x, Some k)) _ ++ _). split.
+           eexists (map (fun x => (x, Some n)) _ ++ _). split.
            { rewrite map_app, map_map. simpl. rewrite map_id. f_equal. eassumption. }
            split.
            { apply Forall_app. split; [|assumption]. apply List.Forall_map.
              apply List.Forall_filter. simpl. intros. fwd. apply Exists_exists in H.
-             fwd. assumption.
+             fwd. assumption. }
+           intros R o HR.
         Search Forall2_map map.put.
 
 
