@@ -59,7 +59,7 @@ Section pebbles.
     map snd (filter (fun '(v, _) => graph.reachesb g v target) ps).
 
   #[export] Instance graph_incoming_Proper (g : gi) (target : V) :
-    Proper (@Permutation (V * X) ==> @Permutation X) (graph_incoming g target).
+    Proper (@Permutation _ ==> @Permutation _) (graph_incoming g target).
   Proof.
     intros ps ps' Hp. cbv [graph_incoming].
     apply Permutation_map. apply Permutation_filter. exact Hp.
@@ -177,11 +177,11 @@ Section __.
   Proof.
     cbv [forwarding_graph]. rewrite graph.edge_put_edges. split.
     - intros [He | [_ Hin]]; [ | exact Hin ]. exfalso. revert He.
-      apply (map.fold_spec (fun _ g' => ~ graph.edge g' None v)).
+      apply map.fold_spec.
       + apply graph.edge_empty.
-      + intros k tbl m g' Hget IH. rewrite graph.edge_put_edges.
-        intros [He | [Hc _]]; [ exact (IH He) | congruence ].
-    - intros Hin. right. split; [ reflexivity | exact Hin ].
+      + intros ? ? ? ? ? ? He. rewrite graph.edge_put_edges in He.
+        graph.
+    - graph.
   Qed.
 
   Lemma edges_forwarding_graph_None mn :
@@ -193,6 +193,33 @@ Section __.
       + intros x y H. congruence.
       + apply finput_locs_NoDup.
     - intros v. exact (edge_forwarding_graph_None mn v).
+  Qed.
+
+  Lemma edge_forwarding_graph_Some_shape mn u v :
+    graph.edge (forwarding_graph mn) u v -> exists n, v = Some n.
+  Proof.
+    cbv [forwarding_graph]. rewrite graph.edge_put_edges. intros [He | [_ Hin]].
+    - revert He. apply (map.fold_spec (fun _ g' => graph.edge g' u v -> exists n, v = Some n)).
+      + intros He. apply graph.edge_empty in He. contradiction.
+      + intros k tbl m g' Hget IH. rewrite graph.edge_put_edges.
+        intros [He | [_ Hin]]; [ exact (IH He) | ]. apply in_map_iff in Hin. fwd. eauto.
+    - apply in_map_iff in Hin. fwd. eauto.
+  Qed.
+
+  Lemma existsb_edges_None dst mn :
+    existsb (eqb (Some dst)) (graph.edges (forwarding_graph mn) None)
+    = existsb (eqb dst) (finput_locs (fst mn)).
+  Proof.
+    apply Bool.eq_true_iff_eq. rewrite !existsb_exists. split.
+    - intros [v [Hv Hveq]]. pose proof (eqb_spec (Some dst) v) as Hs.
+      rewrite Hveq in Hs. cbn in Hs. subst v.
+      apply edge_forwarding_graph_None in Hv. apply in_map_iff in Hv.
+      destruct Hv as [n [Hn Hin]]. inversion Hn. subst.
+      exists dst. split; [ exact Hin | apply eqb_refl_true; typeclasses eauto ].
+    - intros [n [Hn Hveq]]. pose proof (eqb_spec dst n) as Hs.
+      rewrite Hveq in Hs. cbn in Hs. subst n.
+      exists (Some dst). split; [ | apply eqb_refl_true; typeclasses eauto ].
+      apply edge_forwarding_graph_None. apply in_map. exact Hn.
   Qed.
 
   Definition all_pending_msgs (ns : fgraph_node_state) :=
@@ -213,19 +240,6 @@ Section __.
       map (fun '(f, _) => (Some n, f))
         (filter (msg_matches R orig) (all_pending_msgs ns)))
       (map.tuples fg).
-
-  Lemma to_pebbles_enqueue R orig (s : fgraph_state) cur v ms :
-    map.get s cur = Some v ->
-    Permutation (to_pebbles R orig (map.put s cur (enqueue ms v)))
-                (map (fun '(f, _) => (Some cur, f)) (filter (msg_matches R orig) ms)
-                 ++ to_pebbles R orig s).
-  Proof.
-    intros Hget. cbv [to_pebbles].
-    rewrite (tuples_put_perm_get s cur (enqueue ms v)). cbn [flat_map].
-    rewrite all_pending_msgs_enqueue, filter_app, map_app, <- app_assoc.
-    apply Permutation_app_head.
-    rewrite (tuples_get_perm s cur v Hget). cbn [flat_map]. reflexivity.
-  Qed.
 
   Lemma to_pebbles_map_values'_enqueue R orig (g : node_id -> list (dfact * option node_id)) (s : fgraph_state) :
     Permutation
@@ -261,6 +275,56 @@ Section __.
         s1 s2.
 
   Hint Constructors NoDup : core.
+
+  Lemma pebble_step_forward (s : fgraph_state) orig loc f :
+    forwarding_compatible s ->
+    pebble_step (forwarding_graph (dfact_rel f, orig)) loc f
+      ((loc, f) :: to_pebbles (dfact_rel f) orig s)
+      (to_pebbles (dfact_rel f) orig
+         (map_values'
+            (fun dst ns =>
+               enqueue (filter (fun _ => existsb (eqb (Some dst))
+                                  (graph.edges (forwarding_graph (dfact_rel f, orig)) loc)) [(f, orig)]) ns)
+            s)).
+  Proof.
+    intros Hcompat. cbv [pebble_step]. eexists. split; [reflexivity|].
+    etransitivity; [apply to_pebbles_map_values'_enqueue|].
+    apply Permutation_app; [| reflexivity].
+    apply NoDup_Permutation.
+    { apply List.NoDup_flat_map.
+      - apply map.tuples_NoDup.
+      - intros [n ns] _. cbn [fst snd filter].
+        Tactics.destruct_one_match; try solve [simpl; auto].
+        cbn [filter]. Tactics.destruct_one_match; simpl; auto.
+      - intros [? ?] [? ?]. intros.
+        rewrite in_map_iff in *. fwd.
+        rewrite map.tuples_spec in *. congruence. }
+    { apply FinFun.Injective_map_NoDup.
+      - intros x y H. congruence.
+      - apply graph.edges_NoDup. }
+    intros x. rewrite in_flat_map, in_map_iff. split; intros; fwd.
+    - destruct x0 as [n ns].
+      apply in_map_iff in Hp1. fwd.
+      apply filter_In in Hp1p1. fwd.
+      apply filter_In in Hp1p1p0. fwd. simpl in *.
+      destruct Hp1p1p0p0; [|contradiction]. subst.
+      eexists. split; [reflexivity|]. apply Exists_exists in Hp1p1p0p1.
+      fwd. assumption.
+    - assert (Hshape : exists n, x0 = Some n) by (eapply edge_forwarding_graph_Some_shape; exact Hp1).
+      destruct Hshape as [n ->].
+      destruct (map.get s n) as [ns|] eqn:E.
+      2: { exfalso. eapply Hcompat; eassumption. }
+      exists (n, ns). split.
+      + rewrite map.tuples_spec. exact E.
+      + cbn [fst snd]. apply in_map_iff. exists (f, orig). split; [reflexivity|].
+        apply filter_In. split.
+        * apply filter_In. split; [ left; reflexivity | ].
+          apply existsb_exists. exists (Some n). split; [ exact Hp1 | ].
+          apply eqb_refl_true.
+          typeclasses eauto.
+        * cbn [msg_matches]. rewrite !eqb_refl_true by typeclasses eauto. reflexivity.
+  Qed.
+
   Lemma fgraph_weak_sims_ngraph :
     forwarding_reaches ->
     forwarding_tree ->
@@ -287,60 +351,36 @@ Section __.
       { apply Forall_app. split; [|assumption]. Tactics.destruct_one_match.
         - apply Exists_exists in E. fwd. auto.
         - auto. }
-      intros R o HR. rewrite to_pebbles_map_values'_enqueue.
-      rewrite filter_app, map_app. rewrite graph_incoming_app. apply Permutation_app.
-      2: { auto. }
+      intros R o HR.
       destruct (msg_matches R o (d, None)) eqn:E.
-      2: { rewrite flat_map_all_nil.
+      2: { rewrite to_pebbles_map_values'_enqueue, graph_incoming_app, filter_app, map_app.
+           apply Permutation_app.
+           2: { auto. }
+           rewrite flat_map_all_nil.
            2: { intros [? ?] ?. Tactics.destruct_one_match; try reflexivity.
                 cbn [filter]. rewrite E. reflexivity. }
            Tactics.destruct_one_match; try reflexivity.
            cbn [filter]. rewrite E. reflexivity. }
       simpl in E. fwd.
-      rewrite <- graph_incoming_pebble_step with (ps1 := [(None, d)]) (target := Some k).
-      2: { apply Htree. }
-      2: { congruence. }
-      2: { cbv [pebble_step]. exists nil. split; [reflexivity|].
-           rewrite app_nil_r. rewrite edges_forwarding_graph_None.
-           rewrite map_map. simpl. apply NoDup_Permutation.
-           { apply List.NoDup_flat_map.
-             - apply map.tuples_NoDup.
-             - intros [n ns] _. cbn [fst snd].
-               Tactics.destruct_one_match; try solve [simpl; auto].
-               cbn [filter]. Tactics.destruct_one_match; simpl; auto.
-             - intros [? ?] [? ?]. intros.
-               rewrite in_map_iff in *. fwd.
-               rewrite map.tuples_spec in *. congruence. }
-           { apply FinFun.Injective_map_NoDup.
-             - intros x y H. congruence.
-             - apply finput_locs_NoDup. }
-           intros x. rewrite in_flat_map, in_map_iff. split; intros; fwd.
-           - Tactics.destruct_one_pair. rewrite in_map_iff in Hp5. fwd.
-             apply filter_In in Hp5p1. fwd. Tactics.destruct_one_match.
-             simpl in Hp5p1p1. fwd.
-             Tactics.destruct_one_match_hyp; [|contradiction].
-             apply Exists_exists in E. fwd. simpl in Hp5p1p0.
-             destruct Hp5p1p0; [|contradiction]. fwd. eauto.
-           - destruct (map.get s1 x0) eqn:E.
-             2: { eapply Hp1 in E; [contradiction|].
-                  apply edge_forwarding_graph_None.
-                  apply in_map. instantiate (1 := (_, _)). simpl. eassumption. }
-             eexists (_, _). rewrite map.tuples_spec. split; [eassumption|].
-             apply in_map_iff. eexists (_, _). split; [reflexivity|].
-             apply filter_In. Tactics.destruct_one_match.
-             2: { rewrite Forall_forall in E0. apply E0 in Hp5. fwd. congruence. }
-             split; [simpl; eauto|]. simpl. rewrite! eqb_refl_true by typeclasses eauto.
-             reflexivity. }
       simpl in HR. Tactics.destruct_one_match.
       2: { rewrite Forall_forall in E. apply E in HR.
            rewrite eqb_refl_true in HR by typeclasses eauto. congruence. }
+      erewrite map_values'_ext.
+      1: rewrite <- graph_incoming_pebble_step.
+      4: { apply pebble_step_forward. assumption. }
+      4: { intros dst ns. f_equal. cbn [filter]. cbv [finput_at].
+           f_equal. rewrite existsb_edges_None. reflexivity. }
+      2: { apply Htree. }
+      2: { congruence. }
       simpl. rewrite! eqb_refl_true by typeclasses eauto. simpl.
+      eassert ((_, _) :: _ = [(_, _)] ++ _) as -> by reflexivity.
+      eassert (d :: _ = [_] ++ _) as -> by reflexivity.
+      rewrite graph_incoming_app. apply Permutation_app; [|auto].
       cbv [graph_incoming]. simpl.
-      destruct (graph.reachesb _ _ _) eqn:E'.
-      { simpl. reflexivity. }
-      eapply autoforward.BoolSpec_false in E'.
-      2: apply graph.reachesb_spec.
-      exfalso. apply E'. apply Hreaches. assumption.
-
+      Opaque graph.reachesb. (*without this, fwd does the wrong thing..*)
+      Tactics.destruct_one_match; fwd.
+      { reflexivity. }
+      exfalso. apply E0. auto.
+    -
   Admitted.
 End __.

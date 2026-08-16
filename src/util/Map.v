@@ -692,6 +692,14 @@ Section Map.
     destr (eqb k j); cbn [option_map]; congruence.
   Qed.
 
+  Lemma map_values'_ext (f g : key -> value -> value') (m : mp) :
+    (forall k v, f k v = g k v) ->
+    map_values' f m = map_values' g m.
+  Proof.
+    intros Hfg. apply map.map_ext. intro k.
+    rewrite !get_map_values'. destruct (map.get m k); cbn [option_map]; congruence.
+  Qed.
+
   Lemma map_values'_remove (f : key -> value -> value') (m : mp) k :
     map_values' f (map.remove m k) = map.remove (map_values' f m) k.
   Proof.
