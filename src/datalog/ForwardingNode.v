@@ -5,6 +5,19 @@ From coqutil Require Import Map.Interface Map.Properties.
 From coqutil Require Import Eqb Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
 Import ListNotations.
 
+Variant source :=
+  | node_source (_ : node_id)
+  | input_source.
+
+Variant destn :=
+  | node_destn (_ : node_id)
+  | output_destn.
+
+Variant location :=
+  | node_loc (_ : node_id)
+  | input_loc
+  | output_loc.
+
 Section __.
   Context {node_prog node_state : Type}.
   Context {message label : Type}.
@@ -12,12 +25,12 @@ Section __.
 
   Record fnode_prog :=
     { fnode_rules : node_prog;
-      fnode_keep : message -> option node_id -> bool
+      fnode_keep : message -> source -> bool
     }.
 
   Record fnode_state :=
     { fnode_node : node_state;
-      fnode_pending : list (message * option node_id);
+      fnode_pending : list (message * source);
     }.
 
   Variant fnode_label :=
@@ -25,7 +38,7 @@ Section __.
     | forward_label (_ : message).
 
   Inductive fnode_step (fp : fnode_prog) (self : node_id) :
-    fnode_state -> IO_event fnode_label (message * option node_id) -> fnode_state -> Prop :=
+    fnode_state -> IO_event fnode_label (message * source) -> fnode_state -> Prop :=
   | fnode_input fs m :
     fnode_step _ _ fs (I_event m)
                {| fnode_node := fs.(fnode_node); fnode_pending := m :: fs.(fnode_pending) |}
@@ -33,7 +46,7 @@ Section __.
     node_step fp.(fnode_rules) fs.(fnode_node) (O_event lbl outs) ns' ->
     fnode_step _ _ fs (O_event (deduce_label lbl) [])
                {| fnode_node := ns';
-                  fnode_pending := map (fun f => (f, Some self)) outs ++ fs.(fnode_pending) |}
+                  fnode_pending := map (fun f => (f, node_source self)) outs ++ fs.(fnode_pending) |}
   | fnode_dequeue fs ns' q1 q2 f orig :
     fs.(fnode_pending) = q1 ++ (f, orig) :: q2 ->
     (if fp.(fnode_keep) f orig
@@ -79,19 +92,6 @@ Section pebbles.
   Proof.
   Admitted.
 End pebbles.
-
-Variant source :=
-  | node_source (_ : node_id)
-  | input_source.
-
-Variant destn :=
-  | node_destn (_ : node_id)
-  | output_destn.
-
-Variant location :=
-  | node_loc (_ : node_id)
-  | input_loc
-  | output_loc.
 
 Section __.
   Context {rel : relT} {T : valueT}.
