@@ -301,14 +301,14 @@ Section __.
     apply Hsub in E. fwd. congruence.
   Qed.
 
-  Definition node_queue_ok (s1 : fgraph_state) (t1' : list fIO_event) (destn : node_id) (queue : list dfact) : Prop :=
+  Definition node_queue_ok (s1 : fgraph_state) (t1' : list fIO_event) (dest : destn) (queue : list dfact) : Prop :=
     exists queue' : list (dfact * source),
       queue = map fst queue' /\
-      Forall (fun '(f, orig) => In (node_destn destn) (nforward orig (dfact_rel f))) queue' /\
+      Forall (fun '(f, orig) => In dest (nforward orig (dfact_rel f))) queue' /\
       forall R orig,
-        In (node_destn destn) (nforward orig R) ->
+        In dest (nforward orig R) ->
         Permutation
-          (graph_incoming (forwarding_graph (R, orig)) (node_loc destn) (to_pebbles R orig t1' s1))
+          (graph_incoming (forwarding_graph (R, orig)) (loc_of_dest dest) (to_pebbles R orig t1' s1))
           (map fst (filter (msg_matches R orig) queue')).
 
   Definition forwarding_R
@@ -317,12 +317,12 @@ Section __.
     exists t1' : list fIO_event,
       map (translate_event fst) t1' = t1 /\
       flat_map inputs_of t1 = flat_map inputs_of t2 /\
-      incl (flat_map outputs_of t1) (flat_map outputs_of t2) /\
       forwarding_compatible s1 /\
       Forall2_map (fun _ fgns ngns =>
                      fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
                   s1 s2 /\
-      Forall_map (node_queue_ok s1 t1') (map_values' (fun _ => gns_queue) s2).
+      node_queue_ok s1 t1' output_destn (flat_map outputs_of t2) /\
+      Forall_map (fun n => node_queue_ok s1 t1' (node_destn n)) (map_values' (fun _ => gns_queue) s2).
 
   Hint Constructors NoDup : core.
   Lemma pebble_step_forward (s : fgraph_state) orig loc f :
