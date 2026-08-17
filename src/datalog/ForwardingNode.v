@@ -382,29 +382,23 @@ Section __.
       with (if inb output_loc es then [(output_loc, f)] else []).
     2:{ destruct (inb output_loc es); [ | reflexivity ].
         cbn [msg_matches filter]. rewrite !eqb_refl_true by typeclasses eauto. reflexivity. }
-    (* both sides list one pebble per edge target of [loc] *)
     apply NoDup_Permutation.
-    - (* NoDup of node-target pebbles ++ maybe the output pebble *)
-      match goal with |- NoDup (?nt ++ _) => assert (Hnd : NoDup nt) end.
-      { apply List.NoDup_flat_map.
-        - apply map.tuples_NoDup.
-        - intros [n ns] _. cbn [fst snd filter].
+    - apply NoDup_app.
+      + apply List.NoDup_flat_map.
+        -- apply map.tuples_NoDup.
+        -- intros [n ns] _. simpl.
           Tactics.destruct_one_match; try solve [simpl; auto].
           cbn [filter]. Tactics.destruct_one_match; simpl; auto.
-        - intros [? ?] [? ?]. intros. rewrite in_map_iff in *. fwd.
-          rewrite map.tuples_spec in *. congruence. }
-      destruct (inb output_loc es).
-      + eapply Permutation_NoDup; [ apply Permutation_cons_append | ].
-        constructor; [ | exact Hnd ].
-        intros [[n ns] [_ Hin]] % in_flat_map.
-        apply in_map_iff in Hin. destruct Hin as [[? ?] [Heq _]]. inversion Heq.
-      + rewrite app_nil_r. exact Hnd.
-    - (* NoDup of the edge-target pebbles *)
-      apply FinFun.Injective_map_NoDup.
+        -- intros [? ?] [? ?]. intros. rewrite in_map_iff in *. fwd.
+           rewrite map.tuples_spec in *. congruence.
+      + Tactics.destruct_one_match; auto.
+    + intros [? ? ] H. apply in_flat_map in H. fwd. Tactics.destruct_one_match_hyp.
+      apply in_map_iff in Hp1. fwd. Tactics.destruct_one_match; auto. simpl.
+      intros [?|?]; congruence.
+    - apply FinFun.Injective_map_NoDup.
       + intros ? ? Heq. congruence.
       + apply graph.edges_NoDup.
-    - (* both sides contain exactly (v, f) for v an edge target *)
-      intros [v x]. rewrite in_app_iff. split.
+    - intros [v x]. rewrite in_app_iff. split.
       + intros [Hnode | Hout].
         * apply in_flat_map in Hnode. destruct Hnode as [[n ns] [_ Hnode]].
           apply in_map_iff in Hnode. destruct Hnode as [[f0 o0] [Hvx Hnode]].
@@ -438,16 +432,17 @@ Section __.
     - destruct e; simpl in H0p0; fwd. 2: congruence.
       do 2 eexists. split.
       { apply star_one. apply gstep_input. }
-      split; [reflexivity|]. cbv [forwarding_R] in *. fwd. split.
+      split; [reflexivity|]. cbv [forwarding_R] in *. fwd.
+      eexists (I_event (_, _) :: _). split; [reflexivity|]. split.
       { simpl. f_equal. assumption. }
-      split.
-      { simpl. assumption. }
       split.
       { eapply forwarding_compatible_sub_domain; [eassumption|].
         apply same_domain_map_values'. }
       split.
       { simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [eassumption|]. simpl. intros. assumption. }
+      split.
+      {
       apply Forall_map_map_values' in Hp4.
       apply Forall_map_map_values'. apply Forall_map_map_values'.
       intros k v Hget. specialize (Hp4 k v Hget). simpl in Hp4. fwd.
