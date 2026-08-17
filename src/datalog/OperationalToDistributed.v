@@ -17,9 +17,7 @@ Section __.
   Context {graph_state : map.map node_id (graph_node_state dfact dfact_mod_count Node.node_state)}.
   Context {graph_state_ok : map.ok graph_state}.
 
-  Context (rel_input_at : node_id -> rel -> bool).
-  Context (rel_forward : node_id -> node_id -> rel -> bool).
-  Context (rel_visible : node_id -> rel -> bool).
+  Context (rel_forward : source -> destn -> rel -> bool).
 
   Local Notation R_senders := (Operational.R_senders is_input p).
   Local Notation ok_to_deduce_fact := (Node.ok_to_deduce_fact R_senders).
@@ -94,7 +92,7 @@ Section __.
     cbn. rewrite Hwait. repeat split; reflexivity.
   Qed.
 
-  Local Notation distributed_step := (distributed_step R_senders rel_input_at rel_forward rel_visible).
+  Local Notation distributed_step := (distributed_step R_senders rel_forward).
   Check distributed_step.
 
 End __.

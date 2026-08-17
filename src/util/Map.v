@@ -13,7 +13,7 @@ Section MapKeysExtra.
 
   (* coqutil's [get_map_keys_always_invertible] characterizes [get (map_keys g m)]
      only on keys in the image of [g]; this covers the rest. *)
-  Lemma get_map_keys_None (g : key -> key') (m : mp) (k0 : key') :
+  Lemma get_map_keys_not_in_image (g : key -> key') (m : mp) (k0 : key') :
     (forall k, g k <> k0) -> map.get (map.map_keys (map' := mp') g m) k0 = None.
   Proof.
     intros Hg. unfold map.map_keys. eapply map.fold_spec.
@@ -91,7 +91,7 @@ Section Maps.
     rewrite Hrw at 1. apply tuples_put_perm, map.get_remove_same.
   Qed.
 
-  Lemma values_put_None (m : mp1) k v :
+  Lemma values_put_fresh (m : mp1) k v :
     map.get m k = None ->
     Permutation (values (map.put m k v)) (v :: values m).
   Proof.
@@ -107,14 +107,14 @@ Section Maps.
     intros Hk.
     transitivity (values (map.put (map.remove m k) k v0)).
     - rewrite map.put_remove_same, (map.put_noop k v0 m Hk). reflexivity.
-    - apply values_put_None, map.get_remove_same.
+    - apply values_put_fresh, map.get_remove_same.
   Qed.
 
   Lemma values_put (m : mp1) k v :
     Permutation (values (map.put m k v)) (v :: values (map.remove m k)).
   Proof.
     rewrite <- (map.put_remove_same m k v).
-    apply values_put_None, map.get_remove_same.
+    apply values_put_fresh, map.get_remove_same.
   Qed.
 
   Lemma values_Forall (P : value1 -> Prop) (m : mp1) :
@@ -390,7 +390,7 @@ Section MapAcross.
         - rewrite map.get_remove_diff by congruence. exact H. }
       destruct (IH _ Htail) as (l1 & l2 & H1 & H2 & HF).
       exists (v1 :: l1), (v2 :: l2). split; [ | split ].
-      + eapply Permutation_trans; [ apply values_put_None; exact Hk | ]. apply perm_skip, H1.
+      + eapply Permutation_trans; [ apply values_put_fresh; exact Hk | ]. apply perm_skip, H1.
       + eapply Permutation_trans; [ apply (values_remove _ _ _ Hv2) | ]. apply perm_skip, H2.
       + constructor; [ exact HR | exact HF ].
   Qed.
@@ -512,9 +512,9 @@ Section MapKeysInj.
     - split; [ rewrite !values_empty; reflexivity | intro j; rewrite !map.get_empty; reflexivity ].
     - intros k v m0 r Hk [HP Hget]. split.
       + transitivity (v :: values r).
-        { apply values_put_None. rewrite Hget. exact Hk. }
+        { apply values_put_fresh. rewrite Hget. exact Hk. }
         transitivity (v :: values m0); [ apply perm_skip; exact HP | ].
-        symmetry. apply values_put_None. exact Hk.
+        symmetry. apply values_put_fresh. exact Hk.
       + intro j. rewrite !map.get_put_dec, Hget, (eqb_map_inj g Hinj). reflexivity.
   Qed.
 End MapKeysInj.

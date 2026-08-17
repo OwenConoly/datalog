@@ -18,31 +18,19 @@ Section Distributed.
     : bool.
   Abort.
 
-  Context (R_senders : rel -> list (option node_id)).
+  Context (R_senders : rel -> list source).
   Context (R_senders_NoDup : forall R, NoDup (R_senders R)).
 
   Notation claim := (Node.claim R_senders).
   Notation consistent := (Node.consistent R_senders).
 
-  Context (rel_input_at : node_id -> rel -> bool).
-  Context (rel_forward : node_id -> node_id -> rel -> bool).
-  Context (rel_visible : node_id -> rel -> bool).
+  Context (rel_forward : source -> destn -> rel -> bool).
 
-  Definition input_at n (f : dfact) := rel_input_at n (dfact_rel f).
-  Definition forward n1 n2 (f : dfact) := rel_forward n1 n2 (dfact_rel f).
-  Definition output_visible n (f : dfact) := rel_visible n (dfact_rel f).
+  Definition forward (s : source) (d : destn) (f : dfact) := rel_forward s d (dfact_rel f).
 
-  Lemma output_visible_equiv n a b :
+  Lemma forward_equiv s d a b :
     dfact_equiv a b ->
-    output_visible n a = output_visible n b.
-  Proof.
-    intros Heq. unfold output_visible. f_equal.
-    destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
-  Qed.
-
-  Lemma forward_equiv n1 n2 a b :
-    dfact_equiv a b ->
-    forward n1 n2 a = forward n1 n2 b.
+    forward s d a = forward s d b.
   Proof.
     intros Heq. unfold forward. f_equal.
     destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
@@ -68,11 +56,11 @@ Section Distributed.
 
   Hint Resolve expect_num_R_facts_incl Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
 
-  #[local] Instance option_node_id_eqdec : EqDecider (@eqb (option node_id) _).
+  #[local] Instance source_eqdec : EqDecider (@eqb source _).
   Proof. intros x y. apply Eqb_ok_BoolSpec. Qed.
 
-  Context {node_map : map.map (option node_id) (list dfact)} {node_map_ok : map.ok node_map}.
-  Context {count_map : map.map (option node_id) nat} {count_map_ok : map.ok count_map}.
+  Context {node_map : map.map source (list dfact)} {node_map_ok : map.ok node_map}.
+  Context {count_map : map.map source nat} {count_map_ok : map.ok count_map}.
 
   Lemma meta_locate R mf_args (partition : node_map) n cnt :
     Forall_map allowed_output partition ->
@@ -108,7 +96,7 @@ Section Distributed.
   Qed.
 
   (* the claim's per-sender expected counts, as a real map (absent senders count 0) *)
-  Definition count_at R (ems : list nat) (k : option node_id) : nat :=
+  Definition count_at R (ems : list nat) (k : source) : nat :=
     get_or_default (map.of_list (combine (R_senders R) ems) : count_map) k.
 
   Lemma count_at_Some R ems k c :
@@ -278,8 +266,8 @@ Section Distributed.
   Lemma nstep_input_total n : input_total (nstep n).
   Proof. intros s m. eexists. apply node_input_step. Qed.
 
-  Lemma forward_rel_level n1 n2 f g :
-    dfact_rel f = dfact_rel g -> forward n1 n2 f = forward n1 n2 g.
+  Lemma forward_rel_level s d f g :
+    dfact_rel f = dfact_rel g -> forward s d f = forward s d g.
   Proof. intros Heq. unfold forward. rewrite Heq. reflexivity. Qed.
 
   Lemma nodes_good_holds :
@@ -295,16 +283,15 @@ Section Distributed.
     apply node_outputs_well_formed; [ exact forward_rel_level | eapply Hsender; eauto ].
   Qed.
 
-  Definition distributed_step := graph_step forward input_at output_visible nstep.
+  Definition distributed_step := graph_step forward nstep.
 
   Theorem distributed_might_implies_will :
-    might_implies_will_equiv distributed_step dfact_equiv (graph_inputs_allowed input_at allowed_output) initial_graph_state.
+    might_implies_will_equiv distributed_step dfact_equiv (graph_inputs_allowed forward allowed_output) initial_graph_state.
   Proof.
     intros.
     pose proof initial_graph_state_empty as Hemp.
     eapply graph_might_implies_will; try eassumption.
     - exact dfact_equiv_Equivalence.
-    - exact output_visible_equiv.
     - exact forward_equiv.
     - exact (claim_mono R_senders).
     - exact (claim_output_mono R_senders).

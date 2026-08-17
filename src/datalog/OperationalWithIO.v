@@ -1,5 +1,5 @@
 From Stdlib Require Import List PeanoNat Lia Classical_Prop.
-From Datalog Require Import Datalog Node Operational Smallstep List Tactics.
+From Datalog Require Import Datalog Graph Node Operational Smallstep List Tactics.
 From coqutil Require Import Map.Interface Datatypes.List.
 Import ListNotations.
 
@@ -346,7 +346,7 @@ Section __.
         apply Exists_exists in Hd. destruct Hd as (rs' & Hin' & num & Hrh' & Hexn').
         apply in_map_iff in Hin'. destruct Hin' as (rs & Heq_rs & Hin_rs). subst rs'.
         cbn [add_waiting_fact known_facts waiting_facts] in Hrh', Hexn'.
-        assert (Hdm : In (meta_dfact R a None num) (f :: l)).
+        assert (Hdm : In (meta_dfact R a input_source num) (f :: l)).
         { destruct Hrh' as [Hk | Hw].
           - right. apply Him0. apply Exists_exists. exists rs. split; [exact Hin_rs | left; exact Hk].
           - destruct Hw as [Heq | Hw].
