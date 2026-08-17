@@ -9,14 +9,69 @@ Variant source :=
   | node_source (_ : node_id)
   | input_source.
 
+#[export] Instance source_eqb : Eqb source :=
+  fun s1 s2 =>
+    match s1, s2 with
+    | node_source n1, node_source n2 => eqb n1 n2
+    | input_source, input_source => true
+    | _, _ => false
+    end.
+
+#[export] Instance source_eqb_ok : Eqb_ok source_eqb.
+Proof.
+  intros a b. destruct a, b; cbn; try congruence.
+  destr (eqb n n0); congruence.
+Qed.
+
 Variant destn :=
   | node_destn (_ : node_id)
   | output_destn.
+
+#[export] Instance destn_eqb : Eqb destn :=
+  fun d1 d2 =>
+    match d1, d2 with
+    | node_destn n1, node_destn n2 => eqb n1 n2
+    | output_destn, output_destn => true
+    | _, _ => false
+    end.
+
+#[export] Instance destn_eqb_ok : Eqb_ok destn_eqb.
+Proof.
+  intros a b. destruct a, b; cbn; try congruence.
+  destr (eqb n n0); congruence.
+Qed.
 
 Variant location :=
   | node_loc (_ : node_id)
   | input_loc
   | output_loc.
+
+#[export] Instance location_eqb : Eqb location :=
+  fun l1 l2 =>
+    match l1, l2 with
+    | node_loc n1, node_loc n2 => eqb n1 n2
+    | input_loc, input_loc => true
+    | output_loc, output_loc => true
+    | _, _ => false
+    end.
+
+#[export] Instance location_eqb_ok : Eqb_ok location_eqb.
+Proof.
+  intros a b. destruct a, b; cbn; try congruence.
+  destr (eqb n n0); congruence.
+Qed.
+
+Definition loc_of_source (s : source) : location :=
+  match s with
+  | node_source n => node_loc n
+  | input_source => input_loc
+  end.
+
+Definition loc_of_dest (d : destn) : location :=
+  match d with
+  | node_destn n => node_loc n
+  | output_destn => output_loc
+  end.
 
 Section __.
   Context {node_prog node_state : Type}.
@@ -109,13 +164,13 @@ Section __.
   Context {forwarding_tables : map.map source forwarding_table}.
   Context {forwarding_table_ok : map.ok forwarding_table}.
   Context {forwarding_tables_ok : map.ok forwarding_tables}.
-  Context {graph : graph.graph (option node_id)} {graph_ok : graph.ok graph}.
+  Context {graph : graph.graph location} {graph_ok : graph.ok graph}.
   Context {oops : map.map nat (list dfact)} {oops_ok : map.ok oops}.
   Context (fts : forwarding_tables).
   Context (prog_at : node_id -> node_prog).
 
   Local Notation fgraph_node_state :=
-    (graph_node_state (dfact * option node_id) (fnode_label dfact label) (fnode_state node_state dfact)).
+    (graph_node_state (dfact * source) (fnode_label dfact label) (fnode_state node_state dfact)).
   Local Notation ngraph_node_state := (graph_node_state dfact label node_state).
 
   Context {fgraph_state : map.map node_id fgraph_node_state}.
@@ -130,66 +185,54 @@ Section __.
   Local Notation nIO_event := (Smallstep.IO_event nlabel dfact).
   Local Notation pebble := (source * dfact)%type.
 
-  Check List.inb.
   Definition ngraph_step :=
     graph_step
-      (fun src dst m => inb dst (nforward src (dfact_rel m)))
-      (fun dst m => inb dst (ninput_locs (dfact_rel m)))
-      (
+      (fun src dst m => inb (node_destn dst) (nforward (node_source src) (dfact_rel m)))
+      (fun dst m => inb (node_destn dst) (nforward input_source (dfact_rel m)))
+      (fun n f => inb output_destn (nforward (node_source n) (dfact_rel f)))
       (fun n => node_step (prog_at n)).
 
+  Definition fforward (src : node_id) (mn : rel * source) : list destn :=
+    get_or_default (get_or_default fts (node_source src)) mn.
 
-
-  Definition recipients (orig : option node_id) R : list node_id :=
-    match orig with
-    | Some n => nforward n R
-    | None => ninput_locs R
-    end.
-
-  Definition recipients_of (m : dfact * option node_id) :=
-    let '(f, o) := m in recipients o (dfact_rel f).
-
-  Definition foutput_visible n (m : dfact * option node_id) :=
-    let '(f, ) := m in output_visible n f.
-
-  Definition finput_at dst (m : dfact * option node_id) :=
-    let '(f, _) := m in inb dst (finput_locs (dfact_rel f)).
-
-  Definition fforward (src : node_id) (mn : rel * option node_id) : list node_id :=
-    get_or_default (get_or_default fts src) mn.
+  Definition finput_locs R : list destn :=
+    get_or_default (get_or_default fts input_source) (R, input_source).
 
   Definition corresp (e : IO_event) (e' : fIO_event) : Prop :=
     match e with
     | O_event lbl msgs => exists msgs', e' = O_event lbl msgs' /\ msgs = map fst msgs'
-    | I_event msg => e' = I_event (msg, None)
+    | I_event msg => e' = I_event (msg, input_source)
     end.
 
   Definition fprog_at n : fnode_prog node_prog dfact :=
     {| fnode_rules := prog_at n;
-       fnode_keep := fun f orig => inb n (recipients_of (f, orig)) |}.
+       fnode_keep := fun f orig => inb (node_destn n) (nforward orig (dfact_rel f)) |}.
 
   Definition fgraph_step g1 e g2 :=
     exists e',
       corresp e e' /\
         graph_step
-          (fun src dst '(f, orig) => inb dst (fforward src (dfact_rel f, orig)))
+          (fun src dst '(f, orig) => inb (node_destn dst) (fforward src (dfact_rel f, orig)))
           finput_at
           foutput_visible
           (fun n => fnode_step node_step (fprog_at n) n)
           g1 e' g2.
 
-  Definition forwarding_graph (mn : rel * option node_id) :=
-    let g := map.fold (fun g src tbl => graph.put_edges g (Some src) (map Some (get_or_default tbl mn))) graph.empty fts in
-    graph.put_edges g None (map Some (finput_locs (fst mn))).
+  Definition forwarding_graph (mn : rel * source) :=
+    map.fold
+      (fun g src tbl =>
+         graph.put_edges g (loc_of_source src)
+           (map loc_of_dest (get_or_default tbl mn)))
+      graph.empty fts.
 
   Definition forwarding_tree :=
     forall R orig,
-      graph.is_locally_tree (forwarding_graph (R, orig)) orig.
+      graph.is_locally_tree (forwarding_graph (R, orig)) (loc_of_source orig).
 
   Definition forwarding_reaches :=
-    forall R orig n',
-      In n' (recipients orig R) ->
-      graph.reaches (forwarding_graph (R, orig)) orig (Some n').
+    forall R orig d,
+      In d (nforward orig R) ->
+      graph.reaches (forwarding_graph (R, orig)) (loc_of_source orig) (loc_of_dest d).
 
   Lemma forwarding_graph_spec mn v w :
     graph.edge (forwarding_graph mn) v w <->
