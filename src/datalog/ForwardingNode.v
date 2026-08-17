@@ -248,7 +248,7 @@ Section __.
        ++ to_pebbles R orig t s).
   Proof.
     unfold to_pebbles.
-    rewrite Permutation_app_comm, pending_pebbles_map_values'_enqueue, Permutation_app_comm.
+    rewrite pending_pebbles_map_values'_enqueue.
     rewrite <- app_assoc. reflexivity.
   Qed.
 
@@ -283,7 +283,7 @@ Section __.
        ++ to_pebbles R orig t (map.remove g n)).
   Proof.
     intros Hget. unfold to_pebbles.
-    rewrite Permutation_app_comm, pending_pebbles_get_remove, Permutation_app_comm by eassumption.
+    rewrite pending_pebbles_get_remove by eassumption.
     rewrite <- app_assoc. reflexivity.
   Qed.
 
@@ -325,50 +325,107 @@ Section __.
       Forall_map (fun n => node_queue_ok s1 t1' (node_destn n)) (map_values' (fun _ => gns_queue) s2).
 
   Hint Constructors NoDup : core.
-  Lemma pebble_step_forward (s : fgraph_state) orig loc f :
+
+  (* An edge target of the forwarding graph is a node location or the output location. *)
+  Lemma forwarding_edge_target mn loc w :
+    In w (graph.edges (forwarding_graph mn) loc) ->
+    (exists n, w = node_loc n) \/ w = output_loc.
+  Proof.
+    intros Hin. apply (proj1 (forwarding_graph_spec mn loc w)) in Hin.
+    fwd. destruct d; simpl; eauto.
+  Qed.
+
+  Lemma output_pebbles_cons R orig lbl oms t :
+    output_pebbles R orig (O_event lbl oms :: t)
+    = map (fun '(f0, _) => (output_loc, f0)) (filter (msg_matches R orig) oms)
+      ++ output_pebbles R orig t.
+  Proof.
+    cbv [output_pebbles]. cbn [flat_map outputs_of].
+    rewrite filter_app, map_app. reflexivity.
+  Qed.
+
+  (* Prepending an output event to the trace adds its (matching) facts as output pebbles. *)
+  Lemma to_pebbles_output_event R orig lbl oms t fg :
+    Permutation
+      (to_pebbles R orig (O_event lbl oms :: t) fg)
+      (map (fun '(f0, _) => (output_loc, f0)) (filter (msg_matches R orig) oms) ++ to_pebbles R orig t fg).
+  Proof.
+    cbv [to_pebbles]. rewrite output_pebbles_cons, !app_assoc.
+    apply Permutation_app_tail, Permutation_app_comm.
+  Qed.
+
+  (* Forwarding [f] (origin [orig]) out of location [loc]: it leaves [loc] and appears at
+     every edge target -- the node targets get it enqueued, the output target is recorded
+     in the trace by the (arbitrary-labelled) output event. *)
+  Lemma pebble_step_forward (s : fgraph_state) (t1' : list fIO_event) (lbl : flabel) orig loc f :
     forwarding_compatible s ->
     pebble_step (forwarding_graph (dfact_rel f, orig)) loc f
-      ((loc, f) :: to_pebbles (dfact_rel f) orig s)
+      ((loc, f) :: to_pebbles (dfact_rel f) orig t1' s)
       (to_pebbles (dfact_rel f) orig
+         (O_event lbl (filter (fun _ => inb output_loc
+                                (graph.edges (forwarding_graph (dfact_rel f, orig)) loc)) [(f, orig)]) :: t1')
          (map_values'
             (fun dst ns =>
                enqueue (filter (fun _ => inb (node_loc dst)
                                   (graph.edges (forwarding_graph (dfact_rel f, orig)) loc)) [(f, orig)]) ns)
             s)).
   Proof.
-    intros Hcompat. cbv [pebble_step]. eexists. split; [reflexivity|].
-    etransitivity; [apply to_pebbles_map_values'_enqueue|].
-    apply Permutation_app; [| reflexivity].
+    intros Hcompat. cbv [pebble_step]. eexists. split; [ reflexivity | ].
+    set (es := graph.edges (forwarding_graph (dfact_rel f, orig)) loc).
+    etransitivity; [ apply to_pebbles_map_values'_enqueue | ].
+    etransitivity; [ apply Permutation_app_head, to_pebbles_output_event | ].
+    rewrite app_assoc. apply Permutation_app; [ | reflexivity ].
+    (* the single output event contributes exactly the output pebble, when there is one *)
+    replace (map (fun '(f0, _) => (output_loc, f0))
+               (filter (msg_matches (dfact_rel f) orig)
+                  (filter (fun _ => inb output_loc es) [(f, orig)])))
+      with (if inb output_loc es then [(output_loc, f)] else []).
+    2:{ destruct (inb output_loc es); [ | reflexivity ].
+        cbn [msg_matches filter]. rewrite !eqb_refl_true by typeclasses eauto. reflexivity. }
+    (* both sides list one pebble per edge target of [loc] *)
     apply NoDup_Permutation.
-    { apply List.NoDup_flat_map.
-      - apply map.tuples_NoDup.
-      - intros [n ns] _. cbn [fst snd filter].
-        Tactics.destruct_one_match; try solve [simpl; auto].
-        cbn [filter]. Tactics.destruct_one_match; simpl; auto.
-      - intros [? ?] [? ?]. intros.
-        rewrite in_map_iff in *. fwd.
-        rewrite map.tuples_spec in *. congruence. }
-    { apply FinFun.Injective_map_NoDup.
-      - intros x y H. congruence.
-      - apply graph.edges_NoDup. }
-    intros x. rewrite in_flat_map, in_map_iff. split; intros; fwd.
-    - destruct x0 as [n ns].
-      apply in_map_iff in Hp1. fwd.
-      apply filter_In in Hp1p1. fwd.
-      apply filter_In in Hp1p1p0. fwd. simpl in *.
-      destruct Hp1p1p0p0; [|contradiction]. subst. eauto.
-    - pose proof edge_forwarding_graph_Some_shape as E. especialize E; eauto. fwd.
-      destruct (map.get s n) as [ns|] eqn:E.
-      2: { exfalso. eapply Hcompat; eassumption. }
-      exists (n, ns). split.
-      + rewrite map.tuples_spec. exact E.
-      + cbn [fst snd]. apply in_map_iff. exists (f, orig). split; [reflexivity|].
-        apply filter_In. split.
-        * apply filter_In. split; [ left; reflexivity | ].
-          apply existsb_exists. exists (Some n). split; [ exact Hp1 | ].
-          apply eqb_refl_true.
-          typeclasses eauto.
-        * cbn [msg_matches]. rewrite !eqb_refl_true by typeclasses eauto. reflexivity.
+    - (* NoDup of node-target pebbles ++ maybe the output pebble *)
+      match goal with |- NoDup (?nt ++ _) => assert (Hnd : NoDup nt) end.
+      { apply List.NoDup_flat_map.
+        - apply map.tuples_NoDup.
+        - intros [n ns] _. cbn [fst snd filter].
+          Tactics.destruct_one_match; try solve [simpl; auto].
+          cbn [filter]. Tactics.destruct_one_match; simpl; auto.
+        - intros [? ?] [? ?]. intros. rewrite in_map_iff in *. fwd.
+          rewrite map.tuples_spec in *. congruence. }
+      destruct (inb output_loc es).
+      + eapply Permutation_NoDup; [ apply Permutation_cons_append | ].
+        constructor; [ | exact Hnd ].
+        intros [[n ns] [_ Hin]] % in_flat_map.
+        apply in_map_iff in Hin. destruct Hin as [[? ?] [Heq _]]. inversion Heq.
+      + rewrite app_nil_r. exact Hnd.
+    - (* NoDup of the edge-target pebbles *)
+      apply FinFun.Injective_map_NoDup.
+      + intros ? ? Heq. congruence.
+      + apply graph.edges_NoDup.
+    - (* both sides contain exactly (v, f) for v an edge target *)
+      intros [v x]. rewrite in_app_iff. split.
+      + intros [Hnode | Hout].
+        * apply in_flat_map in Hnode. destruct Hnode as [[n ns] [_ Hnode]].
+          apply in_map_iff in Hnode. destruct Hnode as [[f0 o0] [Hvx Hnode]].
+          apply filter_In in Hnode. destruct Hnode as [Hnode _].
+          apply filter_In in Hnode. destruct Hnode as [[ [= <- <-] | [] ] Hedge].
+          apply in_map_iff. exists (node_loc n). split; [ exact Hvx | ].
+          exact (proj1 (inb_true_iff _ _) Hedge).
+        * destruct (inb output_loc es) eqn:Hoe; [ | destruct Hout ].
+          destruct Hout as [ [= <- <-] | [] ].
+          apply in_map_iff. exists output_loc. split; [ reflexivity | ].
+          exact (proj1 (inb_true_iff _ _) Hoe).
+      + intros [w [Hvx Hin]] % in_map_iff. injection Hvx as <- <-.
+        destruct (forwarding_edge_target _ _ _ Hin) as [ [n ->] | -> ].
+        * left. destruct (map.get s n) as [ns|] eqn:Hget.
+          2:{ exfalso. eapply Hcompat; eassumption. }
+          apply in_flat_map. exists (n, ns). split; [ apply map.tuples_spec; exact Hget | ].
+          apply in_map_iff. exists (f, orig). split; [ reflexivity | ].
+          apply filter_In. split.
+          -- apply filter_In. split; [ now left | exact (proj2 (inb_true_iff _ _) Hin) ].
+          -- cbn [msg_matches]. rewrite !eqb_refl_true by typeclasses eauto. reflexivity.
+        * right. apply inb_true_iff in Hin. rewrite Hin. now left.
   Qed.
 
   Lemma fgraph_weak_sims_ngraph :
