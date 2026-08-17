@@ -133,8 +133,8 @@ Section __.
   Check List.inb.
   Definition ngraph_step :=
     graph_step
-      (fun src dst m => existsb (eqb dst) (nforward src (dfact_rel m)))
-      (fun dst m => existsb (eqb dst) (ninput_locs (dfact_rel m)))
+      (fun src dst m => inb dst (nforward src (dfact_rel m)))
+      (fun dst m => inb dst (ninput_locs (dfact_rel m)))
       (
       (fun n => node_step (prog_at n)).
 
@@ -153,7 +153,7 @@ Section __.
     let '(f, ) := m in output_visible n f.
 
   Definition finput_at dst (m : dfact * option node_id) :=
-    let '(f, _) := m in existsb (eqb dst) (finput_locs (dfact_rel f)).
+    let '(f, _) := m in inb dst (finput_locs (dfact_rel f)).
 
   Definition fforward (src : node_id) (mn : rel * option node_id) : list node_id :=
     get_or_default (get_or_default fts src) mn.
@@ -166,13 +166,13 @@ Section __.
 
   Definition fprog_at n : fnode_prog node_prog dfact :=
     {| fnode_rules := prog_at n;
-       fnode_keep := fun f orig => existsb (eqb n) (recipients_of (f, orig)) |}.
+       fnode_keep := fun f orig => inb n (recipients_of (f, orig)) |}.
 
   Definition fgraph_step g1 e g2 :=
     exists e',
       corresp e e' /\
         graph_step
-          (fun src dst '(f, orig) => existsb (eqb dst) (fforward src (dfact_rel f, orig)))
+          (fun src dst '(f, orig) => inb dst (fforward src (dfact_rel f, orig)))
           finput_at
           foutput_visible
           (fun n => fnode_step node_step (fprog_at n) n)
@@ -334,7 +334,7 @@ Section __.
       (to_pebbles (dfact_rel f) orig
          (map_values'
             (fun dst ns =>
-               enqueue (filter (fun _ => existsb (eqb (Some dst))
+               enqueue (filter (fun _ => inb (Some dst)
                                   (graph.edges (forwarding_graph (dfact_rel f, orig)) loc)) [(f, orig)]) ns)
             s)).
   Proof.
@@ -398,7 +398,7 @@ Section __.
       apply Forall_map_map_values' in Hp4.
       apply Forall_map_map_values'. apply Forall_map_map_values'.
       intros k v Hget. specialize (Hp4 k v Hget). simpl in Hp4. fwd.
-      eexists ((if existsb (eqb k) (ninput_locs (dfact_rel d)) then [(d, None)] else []) ++ _).
+      eexists ((if inb k (ninput_locs (dfact_rel d)) then [(d, None)] else []) ++ _).
       split.
       { cbn [gns_queue enqueue filter]. rewrite map_app.
         Tactics.destruct_one_match; simpl; try eassumption. f_equal. assumption. }
@@ -412,7 +412,7 @@ Section __.
            2: { intros n m Hm. apply filter_In in Hm. destruct Hm as [[Hm|[]] _].
                 subst. assumption. }
            rewrite filter_app, map_app.
-           destruct (existsb (eqb k) (ninput_locs (dfact_rel d))).
+           destruct (inb k (ninput_locs (dfact_rel d))).
            - cbn [filter]. rewrite E. cbn [map app]. auto.
            - cbn [filter map app]. auto. }
       simpl in E. fwd.

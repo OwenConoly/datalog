@@ -228,15 +228,29 @@ Section subset.
   Lemma dedup_In (x : A) (l : list A) : In x (dedup l) <-> In x l.
   Proof. cbv [dedup]. symmetry. apply dedup_preserves_In. Qed.
 
+  Definition inb (x : A) l : bool := existsb (eqb x) l.
+
+  #[global] Typeclasses Opaque inb.
+
+  Lemma inb_true_iff x l : inb x l = true <-> In x l.
+  Proof. cbv [inb]. symmetry. apply existsb_eqb_in. Qed.
+
+  #[global] Instance inb_spec x l : BoolSpec (In x l) (~ In x l) (inb x l).
+  Proof.
+    destruct (inb x l) eqn:E; constructor.
+    - apply inb_true_iff. exact E.
+    - intros Hin. apply inb_true_iff in Hin. congruence.
+  Qed.
+
   Definition inclb (l1 l2 : list A) :=
-    forallb (fun x => existsb (eqb x) l2) l1.
+    forallb (fun x => inb x l2) l1.
 
   Lemma inclb_incl l1 l2 :
     inclb l1 l2 = true <-> incl l1 l2.
   Proof.
     cbv [inclb]. rewrite forallb_forall. split.
-    - intros H a H0. apply H in H0. rewrite existsb_exists in H0. fwd. auto.
-    - intros. rewrite existsb_exists. eexists ?[x0]. destr (eqb x ?x0); eauto.
+    - intros H a Ha. apply H in Ha. apply inb_true_iff in Ha. exact Ha.
+    - intros H x Hx. apply inb_true_iff. apply H. exact Hx.
   Qed.
 
   Lemma incl_app_app (x1 : list A) y1 x2 y2 :
@@ -511,16 +525,14 @@ Section SenderCount.
 
   Lemma Permutation_filter_mem (sub sup : list K) :
     NoDup sub -> NoDup sup -> incl sub sup ->
-    Permutation (filter (fun k => existsb (eqb k) sub) sup) sub.
+    Permutation (filter (fun k => inb k sub) sup) sub.
   Proof.
     intros Hsub Hsup Hincl. apply NoDup_Permutation.
     - apply NoDup_filter. exact Hsup.
     - exact Hsub.
     - intros x. rewrite filter_In. split.
-      + intros [_ Hex]. apply existsb_exists in Hex. destruct Hex as (y & Hy & Heq).
-        assert (x = y) by (destr (eqb x y); congruence). subst x. exact Hy.
-      + intros Hx. split; [ apply Hincl; exact Hx | ].
-        apply existsb_exists. exists x. split; [ exact Hx | ]. destr (eqb x x); congruence.
+      + intros [_ Hex]. apply inb_true_iff in Hex. exact Hex.
+      + intros Hx. split; [ apply Hincl; exact Hx | apply inb_true_iff; exact Hx ].
   Qed.
 
   Lemma list_sum_map_over_subset (f : K -> nat) (sub sup : list K) :
@@ -528,11 +540,10 @@ Section SenderCount.
     list_sum (map f sup) = list_sum (map f sub).
   Proof.
     intros Hsub Hsup Hincl Hz.
-    rewrite (list_sum_map_filter_zero f (fun k => existsb (eqb k) sub) sup).
+    rewrite (list_sum_map_filter_zero f (fun k => inb k sub) sup).
     - apply Permutation_list_sum, Permutation_map, Permutation_filter_mem; assumption.
     - intros x _ Hg. apply Hz. intros Hin.
-      assert (existsb (eqb x) sub = true)
-        by (apply existsb_exists; exists x; split; [ exact Hin | destr (eqb x x); congruence ]).
+      assert (inb x sub = true) by (apply inb_true_iff; exact Hin).
       congruence.
   Qed.
 End SenderCount.
@@ -1970,20 +1981,6 @@ Section misc.
   Lemma keep_Some_flat_map (f : B -> list (option A)) (l : list B) :
     keep_Some (flat_map f l) = flat_map (fun x => keep_Some (f x)) l.
   Proof. cbv [keep_Some]. apply flat_map_flat_map. Qed.
-
-  (* Definition inb (x : A) (l : list A) : bool := *)
-  (*   existsb (eqbA x) l. *)
-
-  (* Print BoolSpec. *)
-  (* Lemma inb_spec x l : *)
-  (*   BoolSpec (In x l) (~In x l) (inb x l). *)
-  (* Proof. *)
-  (*   cbv [inb]. destruct (existsb _ _) eqn:E; constructor. *)
-  (*   - apply existsb_exists in E. fwd. auto. *)
-  (*   - Search existsb. About existsb_eqb_in. *)
-  (*   split; intros H; fwd; eauto. *)
-  (*   exists x. destr (eqbA x x); try congruence; auto. *)
-  (* Qed. *)
 End misc.
 
 Create HintDb submultiset.
@@ -2246,26 +2243,26 @@ Proof.
   apply Forall_forall. intros a _ b. apply (eqb_spec a b).
 Qed.
 
-Fixpoint nodupb {T : Type} (eqb : T -> T -> bool) l :=
+Fixpoint nodupb {T : Type} {eqb : Eqb T} l :=
   match l with
-  | x :: l' => if existsb (eqb x) l' then false else nodupb eqb l'
+  | x :: l' => if inb x l' then false else nodupb l'
   | [] => true
   end.
 
 #[global] Instance nodupb_correct {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} l :
-  BoolSpec (NoDup l) (~NoDup l) (nodupb eqb l).
+  BoolSpec (NoDup l) (~NoDup l) (nodupb l).
 Proof.
-  induction l; simpl in *.
+  induction l as [|a l' IH].
   - constructor. constructor.
-  - destr_sth existsb; fwd.
-    + constructor. intros H'. invert H'. apply Exists_exists in E. fwd. auto.
-    + rewrite Forall_forall in E. invert IHl; constructor.
-      -- constructor; auto. intros H'. apply E in H'. fwd. congruence.
+  - cbn [nodupb]. destr (inb a l').
+    + constructor. intros H'. invert H'. contradiction.
+    + invert IH; constructor.
+      -- constructor; assumption.
       -- intros H'. invert H'. auto.
 Qed.
 
 Lemma nodupb_sound {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} l :
-  nodupb eqb l = true ->
+  nodupb l = true ->
   NoDup l.
 Proof. intros. fwd. assumption. Qed.
 
