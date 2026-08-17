@@ -80,19 +80,33 @@ Section pebbles.
   Admitted.
 End pebbles.
 
+Variant source :=
+  | node_source (_ : node_id)
+  | input_source.
+
+Variant destn :=
+  | node_destn (_ : node_id)
+  | output_destn.
+
+Variant location :=
+  | node_loc (_ : node_id)
+  | input_loc
+  | output_loc.
+
 Section __.
   Context {rel : relT} {T : valueT}.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {node_prog node_state : Type}.
   Context {label : Type}.
   Context (node_step : node_prog -> node_state -> IO_event label dfact -> node_state -> Prop).
-  Context (finput_locs : rel -> list node_id).
-  Context (finput_locs_NoDup : forall R, NoDup (finput_locs R)).
-  Context (ninput_locs : rel -> list node_id).
-  Context (output_visible : node_id -> dfact -> bool).
-  Context (nforward : node_id -> rel -> list node_id).
-  Context {forwarding_table : map.map (rel * option node_id) (list node_id)}.
-  Context {forwarding_tables : map.map node_id forwarding_table}.
+  (* Context (finput_locs : rel -> list destn). *)
+  (* Context (finput_locs_NoDup : forall R, NoDup (finput_locs R)). *)
+  (* Context (ninput_locs : rel -> list node_id). *)
+  (* Context (noutput_locs : rel -> list node_id). *)
+  (* Context (foutput_locs : rel -> source -> list source). *)
+  Context (nforward : source -> rel -> list destn).
+  Context {forwarding_table : map.map (rel * source) (list destn)}.
+  Context {forwarding_tables : map.map source forwarding_table}.
   Context {forwarding_table_ok : map.ok forwarding_table}.
   Context {forwarding_tables_ok : map.ok forwarding_tables}.
   Context {graph : graph.graph (option node_id)} {graph_ok : graph.ok graph}.
@@ -109,12 +123,22 @@ Section __.
   Context {ngraph_state : map.map node_id ngraph_node_state}.
   Context {ngraph_state_ok : map.ok ngraph_state}.
 
-  Local Notation flabel := (graph_label (dfact * option node_id) (fnode_label dfact label)).
+  Local Notation flabel := (graph_label (dfact * source) (fnode_label dfact label)).
   Local Notation nlabel := (graph_label dfact label).
   Local Notation IO_event := (Smallstep.IO_event flabel dfact).
-  Local Notation fIO_event := (Smallstep.IO_event flabel (dfact * option node_id)).
+  Local Notation fIO_event := (Smallstep.IO_event flabel (dfact * source)).
   Local Notation nIO_event := (Smallstep.IO_event nlabel dfact).
-  Local Notation pebble := (option node_id * dfact)%type.
+  Local Notation pebble := (source * dfact)%type.
+
+  Check List.inb.
+  Definition ngraph_step :=
+    graph_step
+      (fun src dst m => existsb (eqb dst) (nforward src (dfact_rel m)))
+      (fun dst m => existsb (eqb dst) (ninput_locs (dfact_rel m)))
+      (
+      (fun n => node_step (prog_at n)).
+
+
 
   Definition recipients (orig : option node_id) R : list node_id :=
     match orig with
@@ -125,12 +149,8 @@ Section __.
   Definition recipients_of (m : dfact * option node_id) :=
     let '(f, o) := m in recipients o (dfact_rel f).
 
-  Definition fprog_at n : fnode_prog node_prog dfact :=
-    {| fnode_rules := prog_at n;
-       fnode_keep := fun f orig => existsb (eqb n) (recipients_of (f, orig)) |}.
-
   Definition foutput_visible n (m : dfact * option node_id) :=
-    let '(f, _) := m in output_visible n f.
+    let '(f, ) := m in output_visible n f.
 
   Definition finput_at dst (m : dfact * option node_id) :=
     let '(f, _) := m in existsb (eqb dst) (finput_locs (dfact_rel f)).
@@ -143,6 +163,10 @@ Section __.
     | O_event lbl msgs => exists msgs', e' = O_event lbl msgs' /\ msgs = map fst msgs'
     | I_event msg => e' = I_event (msg, None)
     end.
+
+  Definition fprog_at n : fnode_prog node_prog dfact :=
+    {| fnode_rules := prog_at n;
+       fnode_keep := fun f orig => existsb (eqb n) (recipients_of (f, orig)) |}.
 
   Definition fgraph_step g1 e g2 :=
     exists e',
@@ -157,13 +181,6 @@ Section __.
   Definition forwarding_graph (mn : rel * option node_id) :=
     let g := map.fold (fun g src tbl => graph.put_edges g (Some src) (map Some (get_or_default tbl mn))) graph.empty fts in
     graph.put_edges g None (map Some (finput_locs (fst mn))).
-
-  Definition ngraph_step :=
-    graph_step
-      (fun src dst m => existsb (eqb dst) (nforward src (dfact_rel m)))
-      (fun dst m => existsb (eqb dst) (ninput_locs (dfact_rel m)))
-      output_visible
-      (fun n => node_step (fprog_at n).(fnode_rules)).
 
   Definition forwarding_tree :=
     forall R orig,
@@ -293,6 +310,7 @@ Section __.
     (s1 : fgraph_state) (t1 : list IO_event)
     (s2 : ngraph_state) (t2 : list nIO_event) : Prop :=
     flat_map inputs_of t1 = flat_map inputs_of t2 /\
+      incl (flat_map outputs_of t1) (flat_map outputs_of t2) /\
       forwarding_compatible s1 /\
       Forall2_map (fun destn fgns ngns =>
                      fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
@@ -309,7 +327,6 @@ Section __.
         (map_values' (fun _ => gns_queue) s2).
 
   Hint Constructors NoDup : core.
-
   Lemma pebble_step_forward (s : fgraph_state) orig loc f :
     forwarding_compatible s ->
     pebble_step (forwarding_graph (dfact_rel f, orig)) loc f
@@ -371,14 +388,16 @@ Section __.
       split; [reflexivity|]. cbv [forwarding_R] in *. fwd. split.
       { simpl. f_equal. assumption. }
       split.
+      { simpl. assumption. }
+      split.
       { eapply forwarding_compatible_sub_domain; [eassumption|].
         apply same_domain_map_values'. }
       split.
       { simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [eassumption|]. simpl. intros. assumption. }
-      apply Forall_map_map_values' in Hp3.
+      apply Forall_map_map_values' in Hp4.
       apply Forall_map_map_values'. apply Forall_map_map_values'.
-      intros k v Hget. specialize (Hp3 k v Hget). simpl in Hp3. fwd.
+      intros k v Hget. specialize (Hp4 k v Hget). simpl in Hp4. fwd.
       eexists ((if existsb (eqb k) (ninput_locs (dfact_rel d)) then [(d, None)] else []) ++ _).
       split.
       { cbn [gns_queue enqueue filter]. rewrite map_app.
@@ -431,6 +450,8 @@ Section __.
         cbv [enqueue]. cbv [forwarding_R]. split.
         { simpl. assumption. }
         split.
+        { simpl. apply incl_appr. assumption. }
+        split.
         { eapply forwarding_compatible_sub_domain; [eassumption|].
           apply map.sub_domain_put_r. apply map.sub_domain_refl. }
         split.
@@ -441,8 +462,8 @@ Section __.
         rewrite map_values'_map_values'. rewrite map_values'_put. simpl.
         rewrite map.put_noop with (m := map_values' _ _).
         2: { rewrite get_map_values'. rewrite H0p0. simpl. reflexivity. }
-        apply Forall_map_map_values'. apply Forall_map_map_values' in Hp3.
-        intros k v Hkv. apply Hp3 in Hkv. clear Hp3. fwd.
+        apply Forall_map_map_values'. apply Forall_map_map_values' in Hp4.
+        intros k v Hkv. apply Hp4 in Hkv. clear Hp4. fwd.
         eexists (map (fun x => (x, Some n)) _ ++ _). split.
         { rewrite map_app, map_map. simpl. rewrite map_id. f_equal. eassumption. }
         split.
@@ -476,9 +497,12 @@ Section __.
         2: { exfalso. apply E. apply Hreaches. assumption. }
         rewrite filter_true. rewrite filter_comm.
         erewrite filter_ext_in with (f := fun _ => existsb _ _). 1: rewrite filter_true.
-        2: { intros ? H. apply filter_In in H. fwd. destruct Hp4; [|discriminate].
+        2: { intros ? H. apply filter_In in H. fwd. destruct Hp5; [|discriminate].
              subst. apply List.existsb_eqb_in. assumption. }
         reflexivity.
-      +
-  Admitted.
+      + simpl in H7. simpl. do 2 eexists. split.
+        { apply star_refl. }
+        split; [reflexivity|].
+        simpl. cbv [forwarding_R].
+ simpl.  Admitted.
 End __.
