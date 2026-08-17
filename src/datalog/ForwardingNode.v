@@ -127,7 +127,7 @@ Section __.
   Local Notation IO_event := (Smallstep.IO_event flabel dfact).
   Local Notation fIO_event := (Smallstep.IO_event flabel (dfact * source)).
   Local Notation nIO_event := (Smallstep.IO_event nlabel dfact).
-  Local Notation pebble := (source * dfact)%type.
+  Local Notation pebble := (location * dfact)%type.
 
   Definition ngraph_step :=
     graph_step
@@ -156,11 +156,10 @@ Section __.
           g1 e' g2.
 
   Definition forwarding_graph (mn : rel * source) :=
-    map.fold
-      (fun g src tbl =>
-         graph.put_edges g (loc_of_source src)
-           (map loc_of_dest (get_or_default tbl mn)))
-      graph.empty fts.
+    graph.of_edges
+      (flat_map
+         (fun '(s, tbl) => map (fun d => (loc_of_source s, loc_of_dest d)) (get_or_default tbl mn))
+         (map.tuples fts)).
 
   Definition forwarding_tree :=
     forall R orig,
@@ -171,39 +170,27 @@ Section __.
       In d (nforward orig R) ->
       graph.reaches (forwarding_graph (R, orig)) (loc_of_source orig) (loc_of_dest d).
 
-  Lemma forwarding_graph_spec mn v w :
-    graph.edge (forwarding_graph mn) v w <->
-    match v with
-    | None => In w (map Some (finput_locs (fst mn)))
-    | Some src => In w (map Some (fforward src mn))
-    end.
+  Lemma forwarding_graph_spec mn u w :
+    graph.edge (forwarding_graph mn) u w <->
+    exists s d, In d (fforward s mn) /\ u = loc_of_source s /\ w = loc_of_dest d.
   Proof.
-    cbv [forwarding_graph fforward]. rewrite graph.edge_put_edges.
-    assert (Hemp : forall (m : forwarding_tables) k', map.get m k' = None ->
-                   In w (map Some (get_or_default (get_or_default m k') mn)) <-> False).
-    { intros m k' Hk. cbv [get_or_default get_or]. rewrite Hk.
-      cbv [default map_default list_default]. rewrite map.get_empty. cbn [map In]. tauto. }
-    assert (Hfold : forall v0,
-      graph.edge (map.fold (fun g src tbl => graph.put_edges g (Some src) (map Some (get_or_default tbl mn))) graph.empty fts) v0 w
-      <-> match v0 with None => False | Some src => In w (map Some (get_or_default (get_or_default fts src) mn)) end).
-    { apply (map.fold_spec (fun processed acc => forall v0,
-        graph.edge acc v0 w <-> match v0 with None => False | Some src => In w (map Some (get_or_default (get_or_default processed src) mn)) end)).
-      - intros [src|]; rewrite graph.edge_empty_iff; [ | reflexivity ].
-        rewrite (Hemp map.empty src (map.get_empty _)). reflexivity.
-      - intros k tbl processed acc Hget IH v0.
-        rewrite graph.edge_put_edges, (IH v0). destruct v0 as [src|].
-        2: { split; [ intros [[] | [Hc _]]; congruence | intros [] ]. }
-        rewrite get_or_default_put. destr (eqb k src).
-        + rewrite (Hemp processed src Hget). graph.
-        + graph. }
-    rewrite (Hfold v). destruct v; graph.
+    unfold forwarding_graph, fforward. rewrite graph.edge_of_edges, in_flat_map. split.
+    - intros ([s tbl] & Htup & Hin). apply map.tuples_spec in Htup.
+      apply in_map_iff in Hin. destruct Hin as (d & Heq & Hind).
+      inversion Heq; subst. exists s, d. rewrite (get_or_default_Some _ _ _ Htup). auto.
+    - intros (s & d & Hind & -> & ->). destruct (map.get fts s) as [tbl|] eqn:Hget.
+      + rewrite (get_or_default_Some _ _ _ Hget) in Hind.
+        exists (s, tbl). split; [ apply map.tuples_spec; exact Hget | ].
+        apply in_map_iff. exists d. auto.
+      + exfalso. cbv [get_or_default get_or] in Hind. rewrite Hget in Hind.
+        cbv [default map_default list_default] in Hind. rewrite map.get_empty in Hind.
+        cbn [In] in Hind. exact Hind.
   Qed.
 
-  Lemma edge_forwarding_graph_None mn v :
-    graph.edge (forwarding_graph mn) None v <-> In v (map Some (finput_locs (fst mn))).
-  Proof. exact (forwarding_graph_spec mn None v). Qed.
+(* NOTE: the remaining edge-characterization lemmas still assume option node_id
+   vertices and the removed finput_locs; they need redesign for the location graph
+   (output_loc is now a real edge target).
 
-  Lemma edges_forwarding_graph_None mn :
     Permutation (graph.edges (forwarding_graph mn) None) (map Some (finput_locs (fst mn))).
   Proof.
     apply NoDup_Permutation.
@@ -213,10 +200,7 @@ Section __.
       + apply finput_locs_NoDup.
     - intros v. exact (edge_forwarding_graph_None mn v).
   Qed.
-
-  Lemma edge_forwarding_graph_Some_shape mn u v :
-    graph.edge (forwarding_graph mn) u v -> exists n, v = Some n.
-  Proof. rewrite forwarding_graph_spec. destruct u; intros H; apply in_map_iff in H; fwd; eauto. Qed.
+*)
 
   Definition all_pending_msgs (ns : fgraph_node_state) :=
     ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending).
@@ -228,19 +212,19 @@ Section __.
     rewrite <- app_assoc. reflexivity.
   Qed.
 
-  Definition msg_matches (R : rel) (orig : option node_id) (m : dfact * option node_id) : bool :=
+  Definition msg_matches (R : rel) (orig : source) (m : dfact * source) : bool :=
     let '(f, o) := m in eqb R (dfact_rel f) && eqb orig o.
 
-  Definition to_pebbles (R : rel) (orig : option node_id) (fg : fgraph_state) : list pebble :=
+  Definition to_pebbles (R : rel) (orig : source) (fg : fgraph_state) : list pebble :=
     flat_map (fun '(n, ns) =>
-      map (fun '(f, _) => (Some n, f))
+      map (fun '(f, _) => (node_loc n, f))
         (filter (msg_matches R orig) (all_pending_msgs ns)))
       (map.tuples fg).
 
-  Lemma to_pebbles_map_values'_enqueue R orig (g : node_id -> list (dfact * option node_id)) (s : fgraph_state) :
+  Lemma to_pebbles_map_values'_enqueue R orig (g : node_id -> list (dfact * source)) (s : fgraph_state) :
     Permutation
       (to_pebbles R orig (map_values' (fun n ns => enqueue (g n) ns) s))
-      (flat_map (fun '(n, _) => map (fun '(f, _) => (Some n, f)) (filter (msg_matches R orig) (g n)))
+      (flat_map (fun '(n, _) => map (fun '(f, _) => (node_loc n, f)) (filter (msg_matches R orig) (g n)))
                 (map.tuples s)
        ++ to_pebbles R orig s).
   Proof.
@@ -251,7 +235,7 @@ Section __.
   Qed.
 
   Lemma to_pebbles_map_values'_enqueue_nomatch R orig
-    (g : node_id -> list (dfact * option node_id)) (s : fgraph_state) :
+    (g : node_id -> list (dfact * source)) (s : fgraph_state) :
     (forall n m, In m (g n) -> msg_matches R orig m = false) ->
     Permutation (to_pebbles R orig (map_values' (fun n ns => enqueue (g n) ns) s))
                 (to_pebbles R orig s).
@@ -266,14 +250,14 @@ Section __.
     map.get g n = Some ns ->
     Permutation
       (to_pebbles R orig g)
-      (map (fun '(f, _) => (Some n, f)) (filter (msg_matches R orig) (all_pending_msgs ns))
+      (map (fun '(f, _) => (node_loc n, f)) (filter (msg_matches R orig) (all_pending_msgs ns))
        ++ to_pebbles R orig (map.remove g n)).
   Proof.
     intros Hget. cbv [to_pebbles]. rewrite (tuples_get_perm _ _ _ Hget). reflexivity.
   Qed.
 
   Definition forwarding_compatible (s : fgraph_state) : Prop :=
-    forall mn u n, graph.edge (forwarding_graph mn) u (Some n) -> map.get s n <> None.
+    forall mn u n, graph.edge (forwarding_graph mn) u (node_loc n) -> map.get s n <> None.
 
   Lemma forwarding_compatible_sub_domain (s s' : fgraph_state) :
     forwarding_compatible s ->
@@ -296,13 +280,13 @@ Section __.
                      fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
                   s1 s2 /\
       Forall_map (fun destn queue =>
-                       exists queue' : list (dfact * option node_id),
+                       exists queue' : list (dfact * source),
                          queue = map fst queue' /\
-                         Forall (fun m => In destn (recipients_of m)) queue' /\
+                         Forall (fun '(f, orig) => In (node_destn destn) (nforward orig (dfact_rel f))) queue' /\
                          forall R orig,
-                           In destn (recipients orig R) ->
+                           In (node_destn destn) (nforward orig R) ->
                            Permutation
-                             (graph_incoming (forwarding_graph (R, orig)) (Some destn) (to_pebbles R orig s1))
+                             (graph_incoming (forwarding_graph (R, orig)) (node_loc destn) (to_pebbles R orig s1))
                              (map fst (filter (msg_matches R orig) queue')))
         (map_values' (fun _ => gns_queue) s2).
 
@@ -314,7 +298,7 @@ Section __.
       (to_pebbles (dfact_rel f) orig
          (map_values'
             (fun dst ns =>
-               enqueue (filter (fun _ => inb (Some dst)
+               enqueue (filter (fun _ => inb (node_loc dst)
                                   (graph.edges (forwarding_graph (dfact_rel f, orig)) loc)) [(f, orig)]) ns)
             s)).
   Proof.
@@ -338,9 +322,7 @@ Section __.
       apply in_map_iff in Hp1. fwd.
       apply filter_In in Hp1p1. fwd.
       apply filter_In in Hp1p1p0. fwd. simpl in *.
-      destruct Hp1p1p0p0; [|contradiction]. subst.
-      eexists. split; [reflexivity|]. apply Exists_exists in Hp1p1p0p1.
-      fwd. assumption.
+      destruct Hp1p1p0p0; [|contradiction]. subst. eauto.
     - pose proof edge_forwarding_graph_Some_shape as E. especialize E; eauto. fwd.
       destruct (map.get s n) as [ns|] eqn:E.
       2: { exfalso. eapply Hcompat; eassumption. }
