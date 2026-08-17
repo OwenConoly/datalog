@@ -233,27 +233,31 @@ Section Distributed.
           -- rewrite (count_at_None _ _ _ Ec). apply Eg_zero.
   Qed.
 
-  Context {graph_state : map.map node_id (@graph_node_state dfact dfact_mod_count node_state)}.
-  Context {graph_state_ok : map.ok graph_state}.
+  Context {gmap : map.map node_id (@graph_node_state dfact dfact_mod_count node_state)}.
+  Context {gmap_ok : map.ok gmap}.
   Context {msg_map : map.map node_id (list dfact)} {msg_map_ok : map.ok msg_map}.
 
   Definition graph_node_init : @graph_node_state dfact dfact_mod_count node_state :=
     {| gns_node_state := node_init; gns_trace := []; gns_queue := [] |}.
 
-  Definition initial_graph_state : graph_state :=
+  Definition initial_graph_nodes : gmap :=
     map_values' (fun _ _ => graph_node_init) graph_prog.
 
+  Definition initial_graph_state :=
+    {| graph_nodes := initial_graph_nodes; graph_output_queue := @nil dfact |}.
+
   Lemma initial_graph_state_get n gns :
-    map.get initial_graph_state n = Some gns ->
+    map.get initial_graph_state.(graph_nodes) n = Some gns ->
     exists np, map.get graph_prog n = Some np /\ gns = graph_node_init.
   Proof.
-    intros H. unfold initial_graph_state in H. rewrite get_map_values' in H.
+    intros H. unfold initial_graph_state, initial_graph_nodes in H. cbn [graph_nodes] in H.
+    rewrite get_map_values' in H.
     destruct (map.get graph_prog n) as [np|] eqn:Hg; cbn [option_map] in H; [ | discriminate ].
     exists np. split; [ reflexivity | congruence ].
   Qed.
 
   Lemma initial_graph_state_empty n gns :
-    map.get initial_graph_state n = Some gns ->
+    map.get initial_graph_state.(graph_nodes) n = Some gns ->
     gns.(gns_trace) = [] /\ gns.(gns_queue) = [].
   Proof.
     intros H. apply initial_graph_state_get in H. destruct H as (np & _ & ->).
@@ -272,7 +276,7 @@ Section Distributed.
 
   Lemma nodes_good_holds :
     Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
-                  consistent nallowed nstep) initial_graph_state.
+                  consistent nallowed nstep) initial_graph_state.(graph_nodes).
   Proof.
     intros k v Hkv. apply initial_graph_state_get in Hkv. fwd.
     pose proof node_might_implies_will' as H.
@@ -290,6 +294,7 @@ Section Distributed.
   Proof.
     intros.
     pose proof initial_graph_state_empty as Hemp.
+    assert (Hoq : initial_graph_state.(graph_output_queue) = []) by reflexivity.
     eapply graph_might_implies_will; try eassumption.
     - exact dfact_equiv_Equivalence.
     - exact forward_equiv.
