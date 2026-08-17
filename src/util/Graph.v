@@ -183,10 +183,10 @@ Definition consistent_good :=
       intros k v1 v2 m Hq. exact (proj1 Hq).
     - intros k m Hget. destruct (Forall3_map_get_r _ _ _ _ _ _ HM Hget) as (v1 & v2 & _ & _ & Hq).
       exact (proj1 (proj2 Hq)).
-    - eapply Forall3_map_forget_l; eapply Forall3_map_impl; [ exact HM | ].
-      intros k v1 v2 m Hq. exact (proj1 (proj2 (proj2 Hq))).
-    - eapply Forall3_map_forget_l; eapply Forall3_map_impl; [ exact HM | ].
-      intros k v1 v2 m Hq. exact (proj2 (proj2 (proj2 Hq))).
+    - eapply Forall3_map_forget_l. eapply Forall3_map_impl; [ eassumption | ].
+      simpl. intros. fwd. eassumption.
+    - eapply Forall3_map_forget_l. eapply Forall3_map_impl; [ eassumption | ].
+      simpl. intros. fwd. eassumption.
   Qed.
 
   (*TODO using this lemma should simplify some proofs later in the file?*)
@@ -248,7 +248,11 @@ Definition consistent_good :=
         gns_trace : list IO_event;
         gns_queue : list message }.
 
-    Context {graph_state : map.map node_id graph_node_state}.
+    Context {m1 : map.map node_id graph_node_state}.
+
+    Record graph_state :=
+      { graph_nodes : partial_map node_id graph_node_state;
+        graph_output_queue : list message }.
 
     Definition enqueue inps gns :=
       {| gns_node_state := gns.(gns_node_state);
@@ -258,7 +262,9 @@ Definition consistent_good :=
     Inductive graph_step : graph_state -> gevent -> graph_state -> Prop :=
     | gstep_input gs m :
       graph_step gs (I_event m)
-        (map_values' (fun dst => enqueue (filter (forward input_source (node_destn dst)) [m])) gs)
+                 {| graph_output_queue := filter (forward input_source output_destn) [m] ++ gs.(graph_output_queue);
+                   graph_nodes :=
+                     map_values' (fun dst => enqueue (filter (forward input_source (node_destn dst)) [m])) gs.(graph_nodes) |}
     | gstep_run gs n ns ns' lbl outs :
       map.get gs n = Some ns ->
       node_step n ns.(gns_node_state) (O_event lbl outs) ns' ->
