@@ -439,10 +439,11 @@ Section __.
     apply in_map_iff. exists (f, o2). split; [reflexivity | exact Hin2].
   Qed.
 
-  Definition queue_at_dest (s2 : ngstate) (d : destn) :=
+  Definition queue_at_dest {M L NS} {nm : map.map node_id (graph_node_state M L NS)}
+    (s : @graph_state M L NS nm) (d : destn) :=
     match d with
-    | node_destn n => unwrap_or_default (option_map gns_queue (map.get s2.(graph_nodes) n))
-    | output_destn => s2.(graph_output_queue)
+    | node_destn n => unwrap_or_default (option_map gns_queue (map.get s.(graph_nodes) n))
+    | output_destn => s.(graph_output_queue)
     end.
 
   Definition valid_dest d :=
@@ -496,19 +497,37 @@ Section __.
     apply (travelling_to_incl (dest_msgs s1) output_destn). apply HRp4. exact I.
   Qed.
 
-  Lemma forwarding_R_output_incl_rev s1 t1 s2 t2 :
-    forwarding_R s1 t1 s2 t2 ->
-    (forall f orig, In (f, orig) s1.(graph_output_queue) ->
-                    In output_destn (nforward orig (dfact_rel f))) ->
-    incl (map fst s1.(graph_output_queue)) s2.(graph_output_queue).
+  Lemma in_queue_at_dest_dest_msgs (s : fgstate) dest m :
+    In m (queue_at_dest s dest) ->
+    In (dest, m) (dest_msgs s).
   Proof.
-    intros HR Hwf. cbv [forwarding_R] in HR. fwd.
-    specialize (HRp4 output_destn I). cbn [queue_at_dest] in HRp4.
+    intros Hin. cbv [dest_msgs]. apply in_or_app. destruct dest as [n|].
+    - left. cbn [queue_at_dest] in Hin.
+      destruct (map.get s.(graph_nodes) n) as [ns|] eqn:Hget.
+      2: { cbn [option_map unwrap_or_default unwrap_or default list_default] in Hin.
+           destruct Hin. }
+      cbn [option_map unwrap_or_default unwrap_or] in Hin.
+      apply in_flat_map. exists (n, ns). split.
+      + apply map.tuples_spec. exact Hget.
+      + apply in_map_iff. exists m. split; [reflexivity|].
+        cbv [all_pending_msgs]. apply in_or_app. left. exact Hin.
+    - right. cbn [queue_at_dest] in Hin.
+      apply in_map_iff. exists m. split; [reflexivity | exact Hin].
+  Qed.
+
+  Lemma forwarding_R_queue_incl s1 t1 s2 t2 dest :
+    forwarding_R s1 t1 s2 t2 ->
+    valid_dest dest ->
+    (forall f orig, In (f, orig) (queue_at_dest s1 dest) ->
+                    In dest (nforward orig (dfact_rel f))) ->
+    incl (map fst (queue_at_dest s1 dest)) (queue_at_dest s2 dest).
+  Proof.
+    intros HR Hvalid Hwf. cbv [forwarding_R] in HR. fwd.
+    specialize (HRp4 dest Hvalid).
     intros f Hf. apply in_map_iff in Hf. destruct Hf as ((f', orig) & Heq & Hin).
     simpl in Heq. subst f'.
-    apply (travelling_to_in _ output_destn _ f orig HRp4).
-    - cbv [dest_msgs]. apply in_or_app. right. apply in_map_iff.
-      exists (f, orig). split; [reflexivity | exact Hin].
+    apply (travelling_to_in _ dest _ f orig HRp4).
+    - apply in_queue_at_dest_dest_msgs. exact Hin.
     - apply Hwf. exact Hin.
   Qed.
 
