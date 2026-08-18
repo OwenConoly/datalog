@@ -388,6 +388,57 @@ Section __.
       + apply HPB. exact Hin.
   Qed.
 
+  Lemma travelling_to_incl dm dest queue :
+    travelling_to dm dest queue ->
+    incl queue (map (fun '(_, (f, _)) => f) dm).
+  Proof.
+    intros (queue' & Hq & HF & HP) f Hf. subst queue.
+    apply in_map_iff in Hf. destruct Hf as ((f', orig) & Heq & Hin).
+    simpl in Heq. subst f'.
+    rewrite Forall_forall in HF. specialize (HF _ Hin). simpl in HF.
+    specialize (HP (dfact_rel f) orig HF).
+    assert (Hrhs : In f (map fst (filter (msg_matches (dfact_rel f) orig) queue'))).
+    { apply in_map_iff. exists (f, orig). split; [reflexivity|].
+      apply filter_In. split; [exact Hin|].
+      cbn [msg_matches]. rewrite !eqb_refl_true by typeclasses eauto. reflexivity. }
+    assert (Hlhs : In f (graph_incoming (forwarding_graph (dfact_rel f, orig))
+                                        (loc_of_dest dest)
+                                        (msgs_to_pebbles (dfact_rel f) orig dm))).
+    { eapply Permutation_in; [ symmetry; exact HP | exact Hrhs ]. }
+    cbv [graph_incoming] in Hlhs. apply in_map_iff in Hlhs.
+    destruct Hlhs as ((loc, f2) & Hsnd & Hin2). simpl in Hsnd. subst f2.
+    apply filter_In in Hin2. destruct Hin2 as [Hin2 _].
+    cbv [msgs_to_pebbles] in Hin2. apply in_map_iff in Hin2.
+    destruct Hin2 as ((d, (f3, o3)) & Heq3 & Hin3).
+    apply filter_In in Hin3. destruct Hin3 as [Hin3 _].
+    inversion Heq3. subst.
+    apply in_map_iff. exists (d, (f, o3)). split; [reflexivity | exact Hin3].
+  Qed.
+
+  Lemma travelling_to_in dm dest queue f orig :
+    travelling_to dm dest queue ->
+    In (dest, (f, orig)) dm ->
+    In dest (nforward orig (dfact_rel f)) ->
+    In f queue.
+  Proof.
+    intros (queue' & Hq & HF & HP) Hin Hprem. subst queue.
+    specialize (HP (dfact_rel f) orig Hprem).
+    assert (Hlhs : In f (graph_incoming (forwarding_graph (dfact_rel f, orig))
+                                        (loc_of_dest dest)
+                                        (msgs_to_pebbles (dfact_rel f) orig dm))).
+    { cbv [graph_incoming]. apply in_map_iff. exists (loc_of_dest dest, f). split; [reflexivity|].
+      apply filter_In. split.
+      - cbv [msgs_to_pebbles]. apply in_map_iff. exists (dest, (f, orig)).
+        split; [reflexivity|]. apply filter_In. split; [exact Hin|].
+        cbn [msg_matches]. rewrite !eqb_refl_true by typeclasses eauto. reflexivity.
+      - destr (graph.reachesb (forwarding_graph (dfact_rel f, orig)) (loc_of_dest dest) (loc_of_dest dest));
+          [ reflexivity | exfalso; eauto using graph.reaches_self ]. }
+    eapply Permutation_in in Hlhs; [| exact HP].
+    apply in_map_iff in Hlhs. destruct Hlhs as ((f2, o2) & Hfst & Hin2). simpl in Hfst. subst f2.
+    apply filter_In in Hin2. destruct Hin2 as [Hin2 _].
+    apply in_map_iff. exists (f, o2). split; [reflexivity | exact Hin2].
+  Qed.
+
   Definition queue_at_dest (s2 : ngstate) (d : destn) :=
     match d with
     | node_destn n => unwrap_or_default (option_map gns_queue (map.get s2.(graph_nodes) n))
@@ -436,6 +487,30 @@ Section __.
                      fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
         s1.(graph_nodes) s2.(graph_nodes) /\
       (forall dest, valid_dest dest -> travelling_to (dest_msgs s1) dest (queue_at_dest s2 dest)).
+
+  Lemma forwarding_R_output_incl s1 t1 s2 t2 :
+    forwarding_R s1 t1 s2 t2 ->
+    incl s2.(graph_output_queue) (map (fun '(_, (f, _)) => f) (dest_msgs s1)).
+  Proof.
+    intros HR. cbv [forwarding_R] in HR. fwd.
+    apply (travelling_to_incl (dest_msgs s1) output_destn). apply HRp4. exact I.
+  Qed.
+
+  Lemma forwarding_R_output_incl_rev s1 t1 s2 t2 :
+    forwarding_R s1 t1 s2 t2 ->
+    (forall f orig, In (f, orig) s1.(graph_output_queue) ->
+                    In output_destn (nforward orig (dfact_rel f))) ->
+    incl (map fst s1.(graph_output_queue)) s2.(graph_output_queue).
+  Proof.
+    intros HR Hwf. cbv [forwarding_R] in HR. fwd.
+    specialize (HRp4 output_destn I). cbn [queue_at_dest] in HRp4.
+    intros f Hf. apply in_map_iff in Hf. destruct Hf as ((f', orig) & Heq & Hin).
+    simpl in Heq. subst f'.
+    apply (travelling_to_in _ output_destn _ f orig HRp4).
+    - cbv [dest_msgs]. apply in_or_app. right. apply in_map_iff.
+      exists (f, orig). split; [reflexivity | exact Hin].
+    - apply Hwf. exact Hin.
+  Qed.
 
   Hint Constructors NoDup : core.
 
@@ -584,6 +659,7 @@ Section __.
            apply Permutation_app_head. symmetry. apply Permutation_middle. }
       simpl. auto.
     - destruct e; simpl in H0p0; congruence || fwd.
+
 
       do 2 eexists.
       +
