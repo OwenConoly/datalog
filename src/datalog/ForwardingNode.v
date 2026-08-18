@@ -202,48 +202,68 @@ Section __.
   Definition msg_matches (R : rel) (orig : source) (m : dfact * source) : bool :=
     let '(f, o) := m in eqb R (dfact_rel f) && eqb orig o.
 
-  Definition pending_pebbles (R : rel) (orig : source) (fg : fgraph_state) : list pebble :=
-    flat_map (fun '(n, ns) =>
-      map (fun '(f, _) => (node_loc n, f))
-        (filter (msg_matches R orig) (all_pending_msgs ns)))
-      (map.tuples fg).
+  Definition dest_msgs (s1 : fgstate) : list (destn * (dfact * source)) :=
+    flat_map (fun '(n, ns) => map (fun m => (node_destn n, m)) (all_pending_msgs ns))
+             (map.tuples s1.(graph_nodes))
+    ++ map (fun m => (output_destn, m)) s1.(graph_output_queue).
 
-  Definition output_queue_pebbles (R : rel) (orig : source) (q : list (dfact * source)) : list pebble :=
-    map (fun '(f, _) => (output_loc, f)) (filter (msg_matches R orig) q).
+  Definition msgs_to_pebbles (R : rel) (orig : source) (dm : list (destn * (dfact * source))) : list pebble :=
+    map (fun '(d, (f, _)) => (loc_of_dest d, f)) (filter (fun '(_, m) => msg_matches R orig m) dm).
 
   Definition to_pebbles (R : rel) (orig : source) (s1 : fgstate) : list pebble :=
-    pending_pebbles R orig s1.(graph_nodes) ++ output_queue_pebbles R orig s1.(graph_output_queue).
+    msgs_to_pebbles R orig (dest_msgs s1).
 
-  Lemma pending_pebbles_map_values'_enqueue R orig (g : node_id -> list (dfact * source)) (s : fgraph_state) :
+  Lemma msgs_to_pebbles_app R orig a b :
+    msgs_to_pebbles R orig (a ++ b) = msgs_to_pebbles R orig a ++ msgs_to_pebbles R orig b.
+  Proof. cbv [msgs_to_pebbles]. rewrite filter_app, map_app. reflexivity. Qed.
+
+  #[export] Instance msgs_to_pebbles_Proper R orig :
+    Proper (@Permutation _ ==> @Permutation _) (msgs_to_pebbles R orig).
+  Proof. intros a b H. cbv [msgs_to_pebbles]. apply Permutation_map, Permutation_filter, H. Qed.
+
+  Lemma dest_msgs_map_values'_enqueue (g : node_id -> list (dfact * source)) (s : fgstate) :
     Permutation
-      (pending_pebbles R orig (map_values' (fun n ns => enqueue (g n) ns) s))
-      (flat_map (fun '(n, _) => map (fun '(f, _) => (node_loc n, f)) (filter (msg_matches R orig) (g n)))
-                (map.tuples s)
-       ++ pending_pebbles R orig s).
+      (dest_msgs {| graph_nodes := map_values' (fun n ns => enqueue (g n) ns) s.(graph_nodes);
+                    graph_output_queue := s.(graph_output_queue) |})
+      (flat_map (fun '(n, _) => map (fun m => (node_destn n, m)) (g n)) (map.tuples s.(graph_nodes))
+       ++ dest_msgs s).
   Proof.
-    cbv [pending_pebbles].
-    rewrite tuples_map_values', flat_map_map.
-    apply flat_map_app_perm. intros [n ns]. cbv beta iota.
-    rewrite all_pending_msgs_enqueue, filter_app, map_app. reflexivity.
+    cbv [dest_msgs]. cbn [graph_nodes graph_output_queue].
+    rewrite tuples_map_values', flat_map_map, app_assoc.
+    apply Permutation_app_tail. apply flat_map_app_perm. intros [n ns]. cbv beta iota.
+    rewrite all_pending_msgs_enqueue, map_app. reflexivity.
   Qed.
 
-  Lemma output_queue_pebbles_app R orig q1 q2 :
-    output_queue_pebbles R orig (q1 ++ q2) =
-    output_queue_pebbles R orig q1 ++ output_queue_pebbles R orig q2.
+  Lemma dest_msgs_output_append oms (s : fgstate) :
+    Permutation
+      (dest_msgs {| graph_nodes := s.(graph_nodes); graph_output_queue := oms ++ s.(graph_output_queue) |})
+      (map (fun m => (output_destn, m)) oms ++ dest_msgs s).
   Proof.
-    cbv [output_queue_pebbles]. rewrite filter_app, map_app. reflexivity.
+    cbv [dest_msgs]. cbn [graph_nodes graph_output_queue].
+    rewrite map_app. apply Permutation_app_swap_app.
+  Qed.
+
+  Lemma dest_msgs_get_remove (s : fgstate) n ns :
+    map.get s.(graph_nodes) n = Some ns ->
+    Permutation
+      (dest_msgs s)
+      (map (fun m => (node_destn n, m)) (all_pending_msgs ns)
+       ++ dest_msgs {| graph_nodes := map.remove s.(graph_nodes) n; graph_output_queue := s.(graph_output_queue) |}).
+  Proof.
+    intros Hget. cbv [dest_msgs]. cbn [graph_nodes graph_output_queue].
+    rewrite (tuples_get_perm _ _ _ Hget). cbn [flat_map].
+    rewrite <- app_assoc. reflexivity.
   Qed.
 
   Lemma to_pebbles_map_values'_enqueue R orig (g : node_id -> list (dfact * source)) (s : fgstate) :
     Permutation
       (to_pebbles R orig {| graph_nodes := map_values' (fun n ns => enqueue (g n) ns) s.(graph_nodes);
                             graph_output_queue := s.(graph_output_queue) |})
-      (flat_map (fun '(n, _) => map (fun '(f, _) => (node_loc n, f)) (filter (msg_matches R orig) (g n)))
-                (map.tuples s.(graph_nodes))
+      (msgs_to_pebbles R orig
+         (flat_map (fun '(n, _) => map (fun m => (node_destn n, m)) (g n)) (map.tuples s.(graph_nodes)))
        ++ to_pebbles R orig s).
   Proof.
-    unfold to_pebbles. cbn [graph_nodes graph_output_queue].
-    rewrite pending_pebbles_map_values'_enqueue, <- app_assoc. reflexivity.
+    unfold to_pebbles. rewrite dest_msgs_map_values'_enqueue, msgs_to_pebbles_app. reflexivity.
   Qed.
 
   Lemma to_pebbles_map_values'_enqueue_nomatch R orig
@@ -254,45 +274,35 @@ Section __.
                             graph_output_queue := s.(graph_output_queue) |})
       (to_pebbles R orig s).
   Proof.
-    intros Hnm. unfold to_pebbles. cbn [graph_nodes graph_output_queue].
-    apply Permutation_app; [ | reflexivity ].
-    rewrite pending_pebbles_map_values'_enqueue, flat_map_all_nil; [ reflexivity | ].
-    intros [n ns] _. cbn [fst snd].
-    rewrite filter_ext_in with (g := fun _ => false); [ rewrite filter_false; reflexivity | ].
-    intros m Hm. apply (Hnm n m Hm).
+    intros Hnm. rewrite to_pebbles_map_values'_enqueue.
+    match goal with |- Permutation (?d ++ _) _ => assert (Hd : d = []) end.
+    { cbv [msgs_to_pebbles]. erewrite filter_ext_in with (g := fun _ => false).
+      - rewrite filter_false. reflexivity.
+      - intros [d' m] Hin. apply in_flat_map in Hin. destruct Hin as [[k ns] [_ Hin]].
+        apply in_map_iff in Hin. destruct Hin as [m' [Heq Hin']]. injection Heq as _ Hm.
+        cbn. rewrite <- Hm. apply (Hnm k m' Hin'). }
+    rewrite Hd. reflexivity.
   Qed.
 
   Lemma to_pebbles_output_append R orig oms (s : fgstate) :
     Permutation
       (to_pebbles R orig {| graph_nodes := s.(graph_nodes);
                             graph_output_queue := oms ++ s.(graph_output_queue) |})
-      (output_queue_pebbles R orig oms ++ to_pebbles R orig s).
+      (msgs_to_pebbles R orig (map (fun m => (output_destn, m)) oms) ++ to_pebbles R orig s).
   Proof.
-    unfold to_pebbles. cbn [graph_nodes graph_output_queue].
-    rewrite output_queue_pebbles_app. apply Permutation_app_swap_app.
-  Qed.
-
-  Lemma pending_pebbles_get_remove R orig (g : fgraph_state) n ns :
-    map.get g n = Some ns ->
-    Permutation
-      (pending_pebbles R orig g)
-      (map (fun '(f, _) => (node_loc n, f)) (filter (msg_matches R orig) (all_pending_msgs ns))
-       ++ pending_pebbles R orig (map.remove g n)).
-  Proof.
-    intros Hget. cbv [pending_pebbles]. rewrite (tuples_get_perm _ _ _ Hget). reflexivity.
+    unfold to_pebbles. rewrite dest_msgs_output_append, msgs_to_pebbles_app. reflexivity.
   Qed.
 
   Lemma to_pebbles_get_remove R orig (s : fgstate) n ns :
     map.get s.(graph_nodes) n = Some ns ->
     Permutation
       (to_pebbles R orig s)
-      (map (fun '(f, _) => (node_loc n, f)) (filter (msg_matches R orig) (all_pending_msgs ns))
+      (msgs_to_pebbles R orig (map (fun m => (node_destn n, m)) (all_pending_msgs ns))
        ++ to_pebbles R orig {| graph_nodes := map.remove s.(graph_nodes) n;
                                graph_output_queue := s.(graph_output_queue) |}).
   Proof.
-    intros Hget. unfold to_pebbles. cbn [graph_nodes graph_output_queue].
-    rewrite pending_pebbles_get_remove by eassumption.
-    rewrite <- app_assoc. reflexivity.
+    intros Hget. unfold to_pebbles at 1.
+    rewrite (dest_msgs_get_remove _ _ _ Hget), msgs_to_pebbles_app. reflexivity.
   Qed.
 
   Definition forwarding_compatible (s : fgraph_state) : Prop :=
