@@ -127,9 +127,11 @@ Section __.
   Local Notation fgstate := (graph_state (dfact * source) (fnode_label dfact label) (fnode_state node_state dfact)).
   Local Notation ngstate := (graph_state dfact label node_state).
 
+  Definition nforwardb (s : source) d f := inb d (nforward s (dfact_rel f)).
+
   Definition ngraph_step :=
     graph_step
-      (fun s d m => inb d (nforward s (dfact_rel m)))
+      nforwardb
       (fun n => node_step (prog_at n)).
 
   Definition fforward (s : source) (mn : rel * source) : list destn :=
@@ -293,18 +295,33 @@ Section __.
     rewrite <- app_assoc. reflexivity.
   Qed.
 
-  Definition forwarding_compatible (s : fgstate) : Prop :=
-    forall mn u n, graph.edge (forwarding_graph mn) u (node_loc n) -> map.get s.(graph_nodes) n <> None.
+  Definition forwarding_compatible (s : fgraph_state) : Prop :=
+    forall mn u n, graph.edge (forwarding_graph mn) u (node_loc n) -> map.get s n <> None.
 
-  Lemma forwarding_compatible_sub_domain (s s' : fgstate) :
+  Lemma forwarding_compatible_sub_domain s s' :
     forwarding_compatible s ->
-    map.sub_domain s.(graph_nodes) s'.(graph_nodes) ->
+    map.sub_domain s s' ->
     forwarding_compatible s'.
   Proof.
     intros Hcompat Hsub mn u n Hedge Hnone.
     eapply Hcompat in Hedge. apply Hedge.
-    destruct (map.get s.(graph_nodes) n) as [v|] eqn:E; [ | reflexivity ].
+    destruct (map.get s n) as [v|] eqn:E; [ | reflexivity ].
     apply Hsub in E. fwd. congruence.
+  Qed.
+
+  Lemma forward_to_sub_domain keep msgs (gs : fgstate) :
+    map.sub_domain gs.(graph_nodes) (forward_to keep msgs gs).(graph_nodes).
+  Proof.
+    cbn [forward_to graph_nodes]. apply same_domain_map_values'.
+  Qed.
+
+  Lemma forward_to_nil keep (gs : fgstate) :
+    forward_to keep [] gs = gs.
+  Proof.
+    destruct gs as [gn goq]. cbv [forward_to]. cbn [filter]. rewrite app_nil_l. f_equal.
+    erewrite map_values'_ext.
+    - apply map_values'_id.
+    - intros k v. destruct v; reflexivity.
   Qed.
 
   Definition travelling_to (s1 : fgstate) (dest : destn) (queue : list dfact) : Prop :=
@@ -328,7 +345,7 @@ Section __.
     (s2 : ngstate) (t2 : list nIO_event) : Prop :=
     flat_map inputs_of t1 = flat_map inputs_of t2 /\
       flat_map outputs_of t1 = flat_map outputs_of t2 /\
-      forwarding_compatible s1 /\
+      forwarding_compatible s1.(graph_nodes) /\
       Forall2_map (fun _ fgns ngns =>
                      fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
         s1.(graph_nodes) s2.(graph_nodes) /\
@@ -345,7 +362,7 @@ Section __.
   Qed.
 
   Lemma pebble_step_forward (s : fgstate) R orig src (msgs : list (dfact * source)) :
-    forwarding_compatible s ->
+    forwarding_compatible s.(graph_nodes) ->
     clos_refl_trans_1n _ (pebble_step (forwarding_graph (R, orig)) (loc_of_source src))
       (map (fun '(f, _) => (loc_of_source src, f)) (filter (msg_matches R orig) msgs)
        ++ to_pebbles R orig s)
@@ -419,15 +436,34 @@ Section __.
       { simpl. f_equal. assumption. }
       split.
       { simpl. assumption. }
-
-      eexists (I_event (_, _) :: _). split; [reflexivity|]. split.
-      { simpl. f_equal. assumption. }
       split.
       { eapply forwarding_compatible_sub_domain; [eassumption|].
-        apply same_domain_map_values'. }
+        apply forward_to_sub_domain. }
       split.
       { simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [eassumption|]. simpl. intros. assumption. }
+      admit.
+    - destruct e; simpl in H0p0; congruence || fwd. invert H1.
+      + cbv [forwarding_R] in H. fwd. pose proof H0 as H0'.
+        eapply Forall2_map_get_l in H0; [|eassumption].
+        simpl in H0. fwd.
+        do 2 eexists. split.
+        { apply star_one. apply gstep_run; try eassumption. rewrite <- H0p1.
+          eassumption. }
+        simpl. split; [reflexivity|]. rewrite forward_to_nil.
+        cbv [forwarding_R]. simpl.
+        split; [assumption|]. split; [assumption|].
+        split.
+        { eapply forwarding_compatible_sub_domain; [eassumption|].
+          apply map.sub_domain_put_r. apply map.sub_domain_refl. }
+        split.
+        { apply Forall2_map_map_values'_r. simpl.
+          apply Forall2_map_put_both.
+          - eapply Forall2_map_impl; [eassumption|]. simpl. auto.
+          - simpl. reflexivity. }
+        admit.
+      +
+      destruct
       split.
       {
       apply Forall_map_map_values' in Hp4.
