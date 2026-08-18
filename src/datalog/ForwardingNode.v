@@ -372,6 +372,22 @@ Section __.
     unfold travelling_to. setoid_rewrite Hp. reflexivity.
   Qed.
 
+  Lemma travelling_to_app dmA dmB dest queueA queueB :
+    travelling_to dmA dest queueA ->
+    travelling_to dmB dest queueB ->
+    travelling_to (dmA ++ dmB) dest (queueA ++ queueB).
+  Proof.
+    intros (qA & HqA & HFA & HPA) (qB & HqB & HFB & HPB). subst queueA queueB.
+    exists (qA ++ qB). split; [ | split ].
+    - rewrite map_app. reflexivity.
+    - apply Forall_app. split; [ exact HFA | exact HFB ].
+    - intros R orig Hin.
+      rewrite msgs_to_pebbles_app, graph_incoming_app, filter_app, map_app.
+      apply Permutation_app.
+      + apply HPA. exact Hin.
+      + apply HPB. exact Hin.
+  Qed.
+
   Definition queue_at_dest (s2 : ngstate) (d : destn) :=
     match d with
     | node_destn n => unwrap_or_default (option_map gns_queue (map.get s2.(graph_nodes) n))
@@ -397,6 +413,17 @@ Section __.
       rewrite get_map_values', Hns.
       cbn [option_map unwrap_or_default unwrap_or gns_queue enqueue]. reflexivity.
     - cbv [queue_at_dest forward_to]. cbn [graph_nodes graph_output_queue]. reflexivity.
+  Qed.
+
+  Lemma queue_at_dest_ext (sa sb : ngstate) dest :
+    (forall n, option_map gns_queue (map.get sa.(graph_nodes) n)
+             = option_map gns_queue (map.get sb.(graph_nodes) n)) ->
+    sa.(graph_output_queue) = sb.(graph_output_queue) ->
+    queue_at_dest sa dest = queue_at_dest sb dest.
+  Proof.
+    intros Hq Hout. destruct dest as [m|].
+    - cbn [queue_at_dest]. rewrite Hq. reflexivity.
+    - cbn [queue_at_dest]. exact Hout.
   Qed.
 
   Definition forwarding_R
@@ -530,7 +557,35 @@ Section __.
              eapply same_domain_trans.
              - eapply Forall2_map_same_domain. eassumption.
              - eapply same_domain_put_r. eassumption. }
-        fail.
+        rewrite (queue_at_dest_ext _ s2).
+        2: { simpl. intros. rewrite map.get_put_dec.
+             Tactics.destruct_one_match; try reflexivity.
+             simpl. rewrite H0p0. reflexivity. }
+        2: { reflexivity. }
+        apply travelling_to_app; [|solve[auto]].
+        admit.
+      + simpl. do 2 eexists.
+        admit.
+    - destruct e; simpl in H0p0; congruence || fwd. invert H1.
+      do 2 eexists. split.
+      { apply star_refl. }
+      split; [reflexivity|].
+      cbv [forwarding_R] in *. simpl. fwd.
+      split; [assumption|]. split; [assumption|]. split.
+      { eapply forwarding_compatible_same_domain; [eassumption|].
+        eapply same_domain_put_r. exact H0. }
+      split.
+      { pose proof @Forall2_map_get_l as H'. especialize H'; eauto. fwd.
+        eapply Forall2_map_put_l; try eassumption.
+        eapply Forall2_map_impl; [eassumption|]. auto. }
+      intros. rewrite dest_msgs_put with (new := []).
+      2: eassumption.
+      2: { cbv [all_pending_msgs]. simpl. rewrite H2. rewrite <- !app_assoc.
+           apply Permutation_app_head. symmetry. apply Permutation_middle. }
+      simpl. auto.
+    - destruct e; simpl in H0p0; congruence || fwd.
+
+      do 2 eexists.
       +
       destruct
       split.
