@@ -255,6 +255,22 @@ Section __.
     rewrite <- app_assoc. reflexivity.
   Qed.
 
+  Lemma dest_msgs_put (s : fgstate) n v v' new :
+    map.get s.(graph_nodes) n = Some v ->
+    Permutation (all_pending_msgs v') (new ++ all_pending_msgs v) ->
+    Permutation
+      (dest_msgs {| graph_nodes := map.put s.(graph_nodes) n v';
+                    graph_output_queue := s.(graph_output_queue) |})
+      (map (fun m => (node_destn n, m)) new ++ dest_msgs s).
+  Proof.
+    intros Hget Hperm.
+    erewrite dest_msgs_get_remove with (n := n) (ns := v').
+    2: { cbn [graph_nodes]. apply map.get_put_same. }
+    cbn [graph_nodes graph_output_queue]. rewrite map.remove_put_same.
+    rewrite (dest_msgs_get_remove s n v Hget), app_assoc, <- map_app.
+    apply Permutation_app_tail. apply Permutation_map. exact Hperm.
+  Qed.
+
   Lemma to_pebbles_map_values'_enqueue R orig (g : node_id -> list (dfact * source)) (s : fgstate) :
     Permutation
       (to_pebbles R orig {| graph_nodes := map_values' (fun n ns => enqueue (g n) ns) s.(graph_nodes);
@@ -305,22 +321,27 @@ Section __.
     rewrite (dest_msgs_get_remove _ _ _ Hget), msgs_to_pebbles_app. reflexivity.
   Qed.
 
-  Definition forwarding_compatible (s : fgraph_state) : Prop :=
-    forall mn u n, graph.edge (forwarding_graph mn) u (node_loc n) -> map.get s n <> None.
+  Definition forwarding_compatible {V} {M : map.map node_id V} (s : M) :=
+    forall n, map.get s n <> None <-> map.get fts (node_source n) <> None.
 
-  Lemma forwarding_compatible_sub_domain s s' :
+  Context (forwarding_wf :
+            forall s ms n, fforwardb s (node_destn n) ms = true -> map.get fts (node_source n) <> None).
+
+  Lemma forwarding_compatible_same_domain {V1} {M1 : map.map node_id V1}
+    {V2} {M2 : map.map node_id V2} (s : M1) (s' : M2) :
     forwarding_compatible s ->
-    map.sub_domain s s' ->
+    same_domain s s' ->
     forwarding_compatible s'.
   Proof.
-    intros Hcompat Hsub mn u n Hedge Hnone.
-    eapply Hcompat in Hedge. apply Hedge.
-    destruct (map.get s n) as [v|] eqn:E; [ | reflexivity ].
-    apply Hsub in E. fwd. congruence.
+    intros Hcompat Hsd n. rewrite <- (Hcompat n).
+    pose proof (Forall2_map_get_None _ _ _ n Hsd) as Hnone.
+    split.
+    - intros Hne Heq. apply Hne. apply (proj1 Hnone). exact Heq.
+    - intros Hne Heq. apply Hne. apply (proj2 Hnone). exact Heq.
   Qed.
 
-  Lemma forward_to_sub_domain keep msgs (gs : fgstate) :
-    map.sub_domain gs.(graph_nodes) (forward_to keep msgs gs).(graph_nodes).
+  Lemma forward_to_same_domain keep msgs (gs : fgstate) :
+    same_domain gs.(graph_nodes) (forward_to keep msgs gs).(graph_nodes).
   Proof.
     cbn [forward_to graph_nodes]. apply same_domain_map_values'.
   Qed.
@@ -334,21 +355,49 @@ Section __.
     - intros k v. destruct v; reflexivity.
   Qed.
 
-  Definition travelling_to (s1 : fgstate) (dest : destn) (queue : list dfact) : Prop :=
+  Definition travelling_to (dm : list (destn * (dfact * source))) (dest : destn) (queue : list dfact) : Prop :=
     exists queue' : list (dfact * source),
       queue = map fst queue' /\
       Forall (fun '(f, orig) => In dest (nforward orig (dfact_rel f))) queue' /\
       forall R orig,
         In dest (nforward orig R) ->
         Permutation
-          (graph_incoming (forwarding_graph (R, orig)) (loc_of_dest dest) (to_pebbles R orig s1))
+          (graph_incoming (forwarding_graph (R, orig)) (loc_of_dest dest) (msgs_to_pebbles R orig dm))
           (map fst (filter (msg_matches R orig) queue')).
+
+  #[export] Instance travelling_to_Proper :
+    Proper (@Permutation _ ==> eq ==> eq ==> iff) travelling_to.
+  Proof.
+    intros dm dm' Hp d d' Hd q q' Hq. subst.
+    unfold travelling_to. setoid_rewrite Hp. reflexivity.
+  Qed.
 
   Definition queue_at_dest (s2 : ngstate) (d : destn) :=
     match d with
     | node_destn n => unwrap_or_default (option_map gns_queue (map.get s2.(graph_nodes) n))
     | output_destn => s2.(graph_output_queue)
     end.
+
+  Definition valid_dest d :=
+    match d with
+    | output_destn => True
+    | node_destn n => map.get fts (node_source n) <> None
+    end.
+
+  Lemma queue_at_dest_forward_to keep msgs (s : ngstate) dest :
+    forwarding_compatible s.(graph_nodes) ->
+    valid_dest dest ->
+    queue_at_dest (forward_to keep msgs s) dest
+    = filter (keep dest) msgs ++ queue_at_dest s dest.
+  Proof.
+    intros Hcompat Hvalid. destruct dest as [n|].
+    - cbv [valid_dest] in Hvalid. apply (proj2 (Hcompat n)) in Hvalid.
+      destruct (map.get s.(graph_nodes) n) as [ns|] eqn:Hns; [ | congruence ].
+      cbv [queue_at_dest forward_to]. cbn [graph_nodes graph_output_queue].
+      rewrite get_map_values', Hns.
+      cbn [option_map unwrap_or_default unwrap_or gns_queue enqueue]. reflexivity.
+    - cbv [queue_at_dest forward_to]. cbn [graph_nodes graph_output_queue]. reflexivity.
+  Qed.
 
   Definition forwarding_R
     (s1 : fgstate) (t1 : list IO_event)
@@ -359,7 +408,7 @@ Section __.
       Forall2_map (fun _ fgns ngns =>
                      fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
         s1.(graph_nodes) s2.(graph_nodes) /\
-      (forall dest, travelling_to s1 dest (queue_at_dest s2 dest)).
+      (forall dest, valid_dest dest -> travelling_to (dest_msgs s1) dest (queue_at_dest s2 dest)).
 
   Hint Constructors NoDup : core.
 
@@ -447,8 +496,8 @@ Section __.
       split.
       { simpl. assumption. }
       split.
-      { eapply forwarding_compatible_sub_domain; [eassumption|].
-        apply forward_to_sub_domain. }
+      { eapply forwarding_compatible_same_domain; [eassumption|].
+        apply forward_to_same_domain. }
       split.
       { simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [eassumption|]. simpl. intros. assumption. }
@@ -464,14 +513,24 @@ Section __.
         cbv [forwarding_R]. simpl.
         split; [assumption|]. split; [assumption|].
         split.
-        { eapply forwarding_compatible_sub_domain; [eassumption|].
-          apply map.sub_domain_put_r. apply map.sub_domain_refl. }
+        { eapply forwarding_compatible_same_domain; [eassumption|].
+          eapply same_domain_put_r; eassumption. }
         split.
         { apply Forall2_map_map_values'_r. simpl.
           apply Forall2_map_put_both.
           - eapply Forall2_map_impl; [eassumption|]. simpl. auto.
           - simpl. reflexivity. }
-        admit.
+        intros. rewrite dest_msgs_put.
+        2: eassumption.
+        2: { cbv [all_pending_msgs]. simpl. rewrite !app_assoc.
+             apply Permutation_app; [|reflexivity]. apply Permutation_app_comm. }
+        rewrite map_map. rewrite queue_at_dest_forward_to.
+        3: eassumption.
+        2: { simpl. eapply forwarding_compatible_same_domain; [eassumption|].
+             eapply same_domain_trans.
+             - eapply Forall2_map_same_domain. eassumption.
+             - eapply same_domain_put_r. eassumption. }
+        fail.
       +
       destruct
       split.
@@ -533,8 +592,8 @@ Section __.
         split.
         { simpl. apply incl_appr. assumption. }
         split.
-        { eapply forwarding_compatible_sub_domain; [eassumption|].
-          apply map.sub_domain_put_r. apply map.sub_domain_refl. }
+        { eapply forwarding_compatible_same_domain; [eassumption|].
+          eapply same_domain_put_r; eassumption. }
         split.
         { apply Forall2_map_map_values'_r. simpl.
           apply Forall2_map_put_both.

@@ -149,6 +149,14 @@ Section Maps.
   Definition same_domain (m1 : mp1) (m2 : mp2) : Prop :=
     Forall2_map (fun _ _ _ => True) m1 m2.
 
+  Lemma Forall2_map_same_domain R (m1 : mp1) (m2 : mp2) :
+    Forall2_map R m1 m2 ->
+    same_domain m1 m2.
+  Proof.
+    intros H k. specialize (H k).
+    destruct (map.get m1 k); destruct (map.get m2 k); (exact I || assumption).
+  Qed.
+
   Lemma Forall2_map_impl_strong (R R' : key -> value1 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) :
     Forall2_map R m1 m2 ->
     (forall k v1 v2,
@@ -362,6 +370,47 @@ Section Maps.
       end.
 
 End Maps.
+
+Lemma same_domain_refl {key value} {mp : map.map key value} (m : mp) :
+  same_domain m m.
+Proof.
+  intros k. destruct (map.get m k); exact I.
+Qed.
+
+Lemma same_domain_sym {key value1 value2}
+  {mp1 : map.map key value1} {mp2 : map.map key value2} (m1 : mp1) (m2 : mp2) :
+  same_domain m1 m2 ->
+  same_domain m2 m1.
+Proof.
+  intros H. apply Forall2_map_intro.
+  - intros k. pose proof (Forall2_map_get_None _ _ _ k H) as A. tauto.
+  - intros. exact I.
+Qed.
+
+Lemma same_domain_trans {key value1 value2 value3}
+  {mp1 : map.map key value1} {mp2 : map.map key value2} {mp3 : map.map key value3}
+  (m1 : mp1) (m2 : mp2) (m3 : mp3) :
+  same_domain m1 m2 ->
+  same_domain m2 m3 ->
+  same_domain m1 m3.
+Proof.
+  intros H12 H23. apply Forall2_map_intro.
+  - intros k.
+    pose proof (Forall2_map_get_None _ _ _ k H12) as A.
+    pose proof (Forall2_map_get_None _ _ _ k H23) as B.
+    tauto.
+  - intros. exact I.
+Qed.
+
+Lemma same_domain_put_r {key value} {mp : map.map key value} {mp_ok : map.ok mp}
+  {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb} (m : mp) k v v' :
+  map.get m k = Some v ->
+  same_domain m (map.put m k v').
+Proof.
+  intros Hget k0. rewrite map.get_put_dec. destr (eqb k k0).
+  - subst. rewrite Hget. exact I.
+  - destruct (map.get m k0); exact I.
+Qed.
 
 (* Utilities relating maps of *different* value types via [Forall2_map]/[Forall3_map];
    these can't live in [Section Maps] because [Forall2_map] there is fixed to [mp1]/[mp2]. *)
@@ -1170,14 +1219,12 @@ Proof.
   rewrite !get_map_values'. destruct (map.get m k); reflexivity.
 Qed.
 
-Lemma same_domain_map_values' {key value} {mp : map.map key value} {mp_ok : map.ok mp}
-  {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb} (f : key -> value -> value) (m : mp) :
-  map.same_domain (map_values' (mp' := mp) f m) m.
+Lemma same_domain_map_values' {key value value'} {mp : map.map key value} {mp' : map.map key value'}
+  {mp_ok : map.ok mp} {mp'_ok : map.ok mp'}
+  {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb} (f : key -> value -> value') (m : mp) :
+  same_domain m (map_values' (mp' := mp') f m).
 Proof.
-  split; intros k v Hget.
-  - rewrite get_map_values' in Hget.
-    destruct (map.get m k) as [w|]; [ eexists; reflexivity | discriminate ].
-  - rewrite get_map_values', Hget. eexists; reflexivity.
+  intros k. rewrite get_map_values'. destruct (map.get m k); cbn [option_map]; exact I.
 Qed.
 
 Section InvertListMap.
