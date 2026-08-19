@@ -507,6 +507,48 @@ Section __.
     cbn [app] in HP. exact HP.
   Qed.
 
+  Lemma travelling_to_deduced1 n dest x :
+    forwarding_reaches ->
+    travelling_to [(node_destn n, (x, node_source n))] dest
+      (if nforwardb (node_source n) dest x then [x] else []).
+  Proof.
+    intros Hreaches. destruct (nforwardb (node_source n) dest x) eqn:Hnf.
+    - exists [(x, node_source n)]. split; [reflexivity | split].
+      + constructor; [ | constructor ].
+        cbv [nforwardb] in Hnf. apply inb_true_iff. exact Hnf.
+      + intros R orig Hprem.
+        cbv [msgs_to_pebbles graph_incoming]. cbn [filter map msg_matches].
+        destr (eqb R (dfact_rel x)); destr (eqb orig (node_source n));
+          cbn [andb map filter loc_of_dest]; try reflexivity.
+        assert (Hre : graph.reaches (forwarding_graph (dfact_rel x, node_source n))
+                        (node_loc n) (loc_of_dest dest)).
+        { change (node_loc n) with (loc_of_source (node_source n)). apply Hreaches. exact Hprem. }
+        destr (graph.reachesb (forwarding_graph (dfact_rel x, node_source n))
+                 (node_loc n) (loc_of_dest dest));
+          [ cbn [map]; reflexivity | contradiction ].
+    - exists []. split; [reflexivity | split; [constructor | ]].
+      intros R orig Hprem.
+      cbv [msgs_to_pebbles graph_incoming]. cbn [filter map msg_matches].
+      destr (eqb R (dfact_rel x)); destr (eqb orig (node_source n));
+        cbn [andb map filter]; try reflexivity.
+      exfalso. cbv [nforwardb] in Hnf. rewrite <- inb_true_iff in Hprem. congruence.
+  Qed.
+
+  Lemma travelling_to_deduced n dest outs :
+    forwarding_reaches ->
+    travelling_to (map (fun x => (node_destn n, (x, node_source n))) outs) dest
+      (filter (nforwardb (node_source n) dest) outs).
+  Proof.
+    intros Hreaches. induction outs as [| x outs' IH].
+    - exists []. split; [reflexivity | split; [constructor | ]].
+      intros R orig Hprem. reflexivity.
+    - cbn [map filter].
+      pose proof (travelling_to_deduced1 n dest x Hreaches) as H1.
+      destruct (nforwardb (node_source n) dest x).
+      + exact (travelling_to_app [_] _ dest [x] _ H1 IH).
+      + exact (travelling_to_app [_] _ dest [] _ H1 IH).
+  Qed.
+
   Lemma travelling_to_incl dm dest queue :
     travelling_to dm dest queue ->
     incl queue (map (fun '(_, (f, _)) => f) dm).
@@ -790,7 +832,7 @@ Section __.
              simpl. rewrite H0p0. reflexivity. }
         2: { reflexivity. }
         apply travelling_to_app; [|solve[auto]].
-        admit.
+        apply travelling_to_deduced. assumption.
       + simpl. do 2 eexists.
         admit.
     - destruct e; simpl in H0p0; congruence || fwd. invert H1.
