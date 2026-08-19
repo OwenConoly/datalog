@@ -193,6 +193,17 @@ Section __.
         cbn [In] in Hind. exact Hind.
   Qed.
 
+  Lemma output_loc_reaches_only mn w :
+    graph.reaches (forwarding_graph mn) output_loc w -> w = output_loc.
+  Proof.
+    cbv [graph.reaches graph.path_to]. intros (p & Hpath & Hlast).
+    destruct p as [| v p'].
+    - cbn in Hlast. exact Hlast.
+    - exfalso. cbn [graph.path] in Hpath. destruct Hpath as [Hedge _].
+      apply forwarding_graph_spec in Hedge. destruct Hedge as (s & d & _ & Hs & _).
+      destruct s; discriminate Hs.
+  Qed.
+
   Definition all_pending_msgs (ns : fgraph_node_state) :=
     ns.(gns_queue) ++ ns.(gns_node_state).(fnode_pending).
 
@@ -403,6 +414,11 @@ Section __.
       + apply HPB. exact Hin.
   Qed.
 
+  (*note: this and the next lemma (_cons_unreached) could, i think, be replaced by a more general lemma saying that
+    travelling_to (a ++ b) dest (qa ++ qb) ->
+    travellilng_to a dest qa ->
+    travelling_to b dest qb.
+   *)
   Lemma travelling_to_cons_inv dm dest f orig queue :
     In dest (nforward orig (dfact_rel f)) ->
     travelling_to ((dest, (f, orig)) :: dm) dest (f :: queue) ->
@@ -822,10 +838,7 @@ Section __.
            assumption. }
       simpl. simpl in Hdest. destruct m.
       apply travelling_to_cons_inv_unreached in Hdest.
-      1: apply Hdest.
-           Search dest_msgs.
-
-      Print dest_msgs.
-        Search
+      { apply Hdest. }
+      simpl. intros Hr. apply output_loc_reaches_only in Hr. discriminate Hr.
   Admitted.
 End __.
