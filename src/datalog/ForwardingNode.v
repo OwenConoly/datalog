@@ -450,6 +450,13 @@ Section __.
     | output_destn => s.(graph_output_queue)
     end.
 
+  Print fnode_state.
+  Definition inner_queue_at_dest :=
+    match d with
+    | node_destn n => unwrap_or_default (option_map fnode_pending (option_map gns_node_state (map.get s.(graph_nodes) n)))
+    | output_destn => s.(graph_output_queue)
+    end.
+
   Definition valid_dest d :=
     match d with
     | output_destn => True
@@ -484,7 +491,7 @@ Section __.
 
   Definition wf_queues (s1 : fgstate) :=
     forall dest f orig,
-      In (f, orig) (queue_at_dest s1 dest) ->
+      In (f, orig) (inner_queue_at_dest s1 dest) ->
       In dest (nforward orig (dfact_rel f)).
 
   Definition forwarding_R
@@ -530,7 +537,7 @@ Section __.
     valid_dest dest ->
     (forall f orig, In (f, orig) (queue_at_dest s1 dest) ->
                     In dest (nforward orig (dfact_rel f))) ->
-    incl (map fst (queue_at_dest s1 dest)) (queue_at_dest s2 dest).
+    incl (map fst (inner_queue_at_dest s1 dest)) (queue_at_dest s2 dest).
   Proof.
     intros HR Hvalid Hwf. cbv [forwarding_R] in HR. fwd.
     specialize (HRp5 dest Hvalid).
