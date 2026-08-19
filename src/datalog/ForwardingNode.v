@@ -238,13 +238,16 @@ Section __.
     rewrite all_pending_msgs_enqueue, map_app. reflexivity.
   Qed.
 
-  Lemma dest_msgs_output_append oms (s : fgstate) :
-    Permutation
-      (dest_msgs {| graph_nodes := s.(graph_nodes); graph_output_queue := oms ++ s.(graph_output_queue) |})
-      (map (fun m => (output_destn, m)) oms ++ dest_msgs s).
+  Lemma dest_msgs_output_append (s1 s2 : fgstate) oms :
+    s1.(graph_nodes) = s2.(graph_nodes) ->
+    Permutation s1.(graph_output_queue) (oms ++ s2.(graph_output_queue)) ->
+    Permutation (dest_msgs s1) (map (fun m => (output_destn, m)) oms ++ dest_msgs s2).
   Proof.
-    cbv [dest_msgs]. cbn [graph_nodes graph_output_queue].
-    rewrite map_app. apply Permutation_app_swap_app.
+    intros Hnodes Hperm. cbv [dest_msgs]. rewrite Hnodes.
+    etransitivity.
+    2: apply Permutation_app_swap_app.
+    apply Permutation_app_head.
+    rewrite <- map_app. apply Permutation_map. exact Hperm.
   Qed.
 
   Lemma dest_msgs_get_remove (s : fgstate) n ns :
@@ -304,15 +307,6 @@ Section __.
     rewrite Hd. reflexivity.
   Qed.
 
-  Lemma to_pebbles_output_append R orig oms (s : fgstate) :
-    Permutation
-      (to_pebbles R orig {| graph_nodes := s.(graph_nodes);
-                            graph_output_queue := oms ++ s.(graph_output_queue) |})
-      (msgs_to_pebbles R orig (map (fun m => (output_destn, m)) oms) ++ to_pebbles R orig s).
-  Proof.
-    unfold to_pebbles. rewrite dest_msgs_output_append, msgs_to_pebbles_app. reflexivity.
-  Qed.
-
   Lemma to_pebbles_get_remove R orig (s : fgstate) n ns :
     map.get s.(graph_nodes) n = Some ns ->
     Permutation
@@ -369,11 +363,28 @@ Section __.
           (graph_incoming (forwarding_graph (R, orig)) (loc_of_dest dest) (msgs_to_pebbles R orig dm))
           (map fst (filter (msg_matches R orig) queue')).
 
-  #[export] Instance travelling_to_Proper :
-    Proper (@Permutation _ ==> eq ==> eq ==> iff) travelling_to.
+  Lemma travelling_to_perm dm dm' d q q' :
+    Permutation dm dm' ->
+    Permutation q q' ->
+    travelling_to dm d q ->
+    travelling_to dm' d q'.
   Proof.
-    intros dm dm' Hp d d' Hd q q' Hq. subst.
-    unfold travelling_to. setoid_rewrite Hp. reflexivity.
+    intros Hdm Hq (queue' & Hqeq & HF & HP). subst q.
+    symmetry in Hq. apply Permutation_map_inv in Hq.
+    destruct Hq as (queue'' & Hq'eq & Hqperm).
+    exists queue''. split; [exact Hq'eq | split].
+    - rewrite <- Hqperm. exact HF.
+    - intros R orig Hin. specialize (HP R orig Hin).
+      rewrite <- Hdm. etransitivity; [ exact HP | ].
+      apply Permutation_map, Permutation_filter, Hqperm.
+  Qed.
+
+  #[export] Instance travelling_to_Proper :
+    Proper (@Permutation _ ==> eq ==> @Permutation _ ==> iff) travelling_to.
+  Proof.
+    intros dm dm' Hdm d d' Hd q q' Hq. subst d'. split; intros Ht.
+    - eapply travelling_to_perm; [ exact Hdm | exact Hq | exact Ht ].
+    - eapply travelling_to_perm; [ symmetry; exact Hdm | symmetry; exact Hq | exact Ht ].
   Qed.
 
   Lemma travelling_to_app dmA dmB dest queueA queueB :
@@ -390,6 +401,75 @@ Section __.
       apply Permutation_app.
       + apply HPA. exact Hin.
       + apply HPB. exact Hin.
+  Qed.
+
+  Lemma travelling_to_cons_inv dm dest f orig queue :
+    In dest (nforward orig (dfact_rel f)) ->
+    travelling_to ((dest, (f, orig)) :: dm) dest (f :: queue) ->
+    travelling_to dm dest queue.
+  Proof.
+    intros Hnf (queue' & Hqeq & HF & HP).
+    assert (Hrefl : graph.reachesb (forwarding_graph (dfact_rel f, orig))
+                      (loc_of_dest dest) (loc_of_dest dest) = true).
+    { destr (graph.reachesb (forwarding_graph (dfact_rel f, orig))
+               (loc_of_dest dest) (loc_of_dest dest));
+        [ reflexivity | exfalso; eauto using graph.reaches_self ]. }
+    assert (Hheadgi : forall l,
+               graph_incoming (forwarding_graph (dfact_rel f, orig)) (loc_of_dest dest)
+                 (msgs_to_pebbles (dfact_rel f) orig ((dest, (f, orig)) :: l))
+               = f :: graph_incoming (forwarding_graph (dfact_rel f, orig)) (loc_of_dest dest)
+                       (msgs_to_pebbles (dfact_rel f) orig l)).
+    { intro l. change ((dest, (f, orig)) :: l) with ([(dest, (f, orig))] ++ l).
+      rewrite msgs_to_pebbles_app, graph_incoming_app.
+      cbv [msgs_to_pebbles graph_incoming]. cbn [filter map msg_matches].
+      rewrite !eqb_refl_true by typeclasses eauto. cbn [andb filter map].
+      rewrite Hrefl. cbn [map]. reflexivity. }
+    assert (Hheadother : forall R o l, (R = dfact_rel f -> o <> orig) ->
+               msgs_to_pebbles R o ((dest, (f, orig)) :: l) = msgs_to_pebbles R o l).
+    { intros R o l Hne. change ((dest, (f, orig)) :: l) with ([(dest, (f, orig))] ++ l).
+      rewrite msgs_to_pebbles_app. cbv [msgs_to_pebbles]. cbn [filter map msg_matches].
+      destr (eqb R (dfact_rel f)); destr (eqb o orig); cbn [andb map app]; try reflexivity.
+      exfalso. apply Hne; congruence. }
+    assert (Hfilterother : forall R o (l : list (dfact * source)), (R = dfact_rel f -> o <> orig) ->
+               filter (msg_matches R o) ((f, orig) :: l) = filter (msg_matches R o) l).
+    { intros R o l Hne. cbn [filter msg_matches].
+      destr (eqb R (dfact_rel f)); destr (eqb o orig); cbn [andb]; try reflexivity.
+      exfalso. apply Hne; congruence. }
+    assert (Hbin : In (f, orig) queue').
+    { pose proof (HP (dfact_rel f) orig Hnf) as HPb. rewrite Hheadgi in HPb.
+      assert (Hb : In f (map fst (filter (msg_matches (dfact_rel f) orig) queue'))).
+      { eapply Permutation_in; [ exact HPb | left; reflexivity ]. }
+      apply in_map_iff in Hb. destruct Hb as ((f', o') & Hfst & Hinf). cbn in Hfst. subst f'.
+      apply filter_In in Hinf. destruct Hinf as [Hinf Hm]. cbn [msg_matches] in Hm.
+      rewrite eqb_refl_true in Hm by typeclasses eauto.
+      destr (eqb orig o'); [ | discriminate Hm ]. exact Hinf. }
+    apply in_split in Hbin. destruct Hbin as (l1 & l2 & Hsplit).
+    assert (Htx : travelling_to dm dest (map fst (l1 ++ l2))).
+    { exists (l1 ++ l2). split; [reflexivity | split].
+      - subst queue'. apply Forall_app in HF. destruct HF as [HF1 HF2].
+        inversion HF2. apply Forall_app. split; assumption.
+      - intros R o Hprem. specialize (HP R o Hprem). subst queue'.
+        destruct (eqb R (dfact_rel f) && eqb o orig)%bool eqn:E.
+        + destr (eqb R (dfact_rel f)); [ | discriminate E ].
+          destr (eqb o orig); [ | discriminate E ].
+          rewrite Hheadgi in HP. rewrite filter_app in HP. cbn [filter msg_matches] in HP.
+          rewrite !eqb_refl_true in HP by typeclasses eauto. cbn [andb map] in HP.
+          rewrite map_app in HP. cbn [map fst] in HP.
+          rewrite filter_app, map_app.
+          apply (Permutation_cons_inv (a := f)).
+          etransitivity; [ exact HP | ]. symmetry. apply Permutation_middle.
+        + assert (Hne : R = dfact_rel f -> o <> orig).
+          { intros HR Ho. subst R o. rewrite !eqb_refl_true in E by typeclasses eauto.
+            discriminate E. }
+          rewrite (Hheadother R o) in HP by exact Hne.
+          rewrite filter_app in HP. rewrite (Hfilterother R o) in HP by exact Hne.
+          rewrite <- filter_app in HP. exact HP. }
+    assert (Hpy : Permutation (map fst (l1 ++ l2)) queue).
+    { assert (Heq : map fst l1 ++ f :: map fst l2 = f :: queue).
+      { subst queue'. rewrite map_app in Hqeq. cbn [map] in Hqeq. symmetry. exact Hqeq. }
+      rewrite map_app. apply (Permutation_cons_inv (a := f)). rewrite <- Heq.
+      apply Permutation_middle. }
+    rewrite Hpy in Htx. exact Htx.
   Qed.
 
   Lemma travelling_to_incl dm dest queue :
@@ -712,9 +792,12 @@ Section __.
       { admit. }
       split; [assumption|].
       intros dest Hdest. apply Hp5 in Hdest.
-      rewrite dest_msgs_output_append in Hdest.
+      erewrite dest_msgs_output_append with (s2 := Build_graph_state _ _) (oms := [m]) in Hdest.
+      2: { simpl. reflexivity. }
+      2: { simpl. rewrite H0. symmetry. apply Permutation_middle. }
       destruct dest.
-      2: { simpl. simpl in Hdest. rewrite Houts in Hdest.
+      2: { simpl. cbn [queue_at_dest] in Hdest. rewrite Houts in Hdest.
+           simpl in Hdest. rewrite <- Permutation_middle in Hdest.
            Search dest_msgs.
 
       Print dest_msgs.
