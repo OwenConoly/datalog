@@ -450,13 +450,6 @@ Section __.
     | output_destn => s.(graph_output_queue)
     end.
 
-  Print fnode_state.
-  Definition inner_queue_at_dest :=
-    match d with
-    | node_destn n => unwrap_or_default (option_map fnode_pending (option_map gns_node_state (map.get s.(graph_nodes) n)))
-    | output_destn => s.(graph_output_queue)
-    end.
-
   Definition valid_dest d :=
     match d with
     | output_destn => True
@@ -490,9 +483,9 @@ Section __.
   Qed.
 
   Definition wf_queues (s1 : fgstate) :=
-    forall dest f orig,
-      In (f, orig) (inner_queue_at_dest s1 dest) ->
-      In dest (nforward orig (dfact_rel f)).
+    forall f orig,
+      In (f, orig) s1.(graph_output_queue) ->
+      In output_destn (nforward orig (dfact_rel f)).
 
   Definition forwarding_R
     (s1 : fgstate) (t1 : list IO_event)
@@ -514,61 +507,33 @@ Section __.
     apply (travelling_to_incl (dest_msgs s1) output_destn). apply HRp5. exact I.
   Qed.
 
-  Lemma in_queue_at_dest_dest_msgs (s : fgstate) dest m :
-    In m (queue_at_dest s dest) ->
-    In (dest, m) (dest_msgs s).
+  Lemma in_output_dest_msgs (s : fgstate) f orig :
+    In (f, orig) s.(graph_output_queue) ->
+    In (output_destn, (f, orig)) (dest_msgs s).
   Proof.
-    intros Hin. cbv [dest_msgs]. apply in_or_app. destruct dest as [n|].
-    - left. cbn [queue_at_dest] in Hin.
-      destruct (map.get s.(graph_nodes) n) as [ns|] eqn:Hget.
-      2: { cbn [option_map unwrap_or_default unwrap_or default list_default] in Hin.
-           destruct Hin. }
-      cbn [option_map unwrap_or_default unwrap_or] in Hin.
-      apply in_flat_map. exists (n, ns). split.
-      + apply map.tuples_spec. exact Hget.
-      + apply in_map_iff. exists m. split; [reflexivity|].
-        cbv [all_pending_msgs]. apply in_or_app. left. exact Hin.
-    - right. cbn [queue_at_dest] in Hin.
-      apply in_map_iff. exists m. split; [reflexivity | exact Hin].
+    intros Hin. cbv [dest_msgs]. apply in_or_app. right.
+    apply in_map_iff. exists (f, orig). split; [reflexivity | exact Hin].
   Qed.
 
-  Lemma forwarding_R_queue_incl s1 t1 s2 t2 dest :
+  Lemma forwarding_R_output_incl_rev s1 t1 s2 t2 :
     forwarding_R s1 t1 s2 t2 ->
-    valid_dest dest ->
-    (forall f orig, In (f, orig) (queue_at_dest s1 dest) ->
-                    In dest (nforward orig (dfact_rel f))) ->
-    incl (map fst (inner_queue_at_dest s1 dest)) (queue_at_dest s2 dest).
+    incl (map fst s1.(graph_output_queue)) s2.(graph_output_queue).
   Proof.
-    intros HR Hvalid Hwf. cbv [forwarding_R] in HR. fwd.
-    specialize (HRp5 dest Hvalid).
+    intros HR. cbv [forwarding_R] in HR. fwd.
+    specialize (HRp5 output_destn I). cbn [queue_at_dest] in HRp5.
     intros f Hf. apply in_map_iff in Hf. destruct Hf as ((f', orig) & Heq & Hin).
     simpl in Heq. subst f'.
-    apply (travelling_to_in _ dest _ f orig HRp5).
-    - apply in_queue_at_dest_dest_msgs. exact Hin.
-    - apply Hwf. exact Hin.
+    apply (travelling_to_in _ output_destn _ f orig HRp5).
+    - apply in_output_dest_msgs. exact Hin.
+    - eapply HRp3. exact Hin.
   Qed.
 
   Lemma wf_queues_incl (sa sb : fgstate) :
-    (forall dest, incl (queue_at_dest sa dest) (queue_at_dest sb dest)) ->
+    incl sa.(graph_output_queue) sb.(graph_output_queue) ->
     wf_queues sb ->
     wf_queues sa.
   Proof.
-    intros Hincl Hsb dest f orig Hin. apply Hsb. apply Hincl. exact Hin.
-  Qed.
-
-  Lemma queue_at_dest_put_incl (s : fgstate) n ns ns' dest :
-    map.get s.(graph_nodes) n = Some ns ->
-    incl ns'.(gns_queue) ns.(gns_queue) ->
-    incl (queue_at_dest {| graph_nodes := map.put s.(graph_nodes) n ns';
-                           graph_output_queue := s.(graph_output_queue) |} dest)
-         (queue_at_dest s dest).
-  Proof.
-    intros Hget Hincl. destruct dest as [k|].
-    - cbn [queue_at_dest graph_nodes]. destr (eqb n k).
-      + subst. rewrite map.get_put_same, Hget.
-        cbn [option_map unwrap_or_default unwrap_or]. exact Hincl.
-      + rewrite map.get_put_diff by congruence. apply incl_refl.
-    - cbn [queue_at_dest graph_output_queue]. apply incl_refl.
+    intros Hincl Hsb f orig Hin. apply Hsb. apply Hincl. exact Hin.
   Qed.
 
   Hint Constructors NoDup : core.
@@ -644,9 +609,10 @@ Section __.
   Lemma fgraph_weak_sims_ngraph :
     forwarding_reaches ->
     forwarding_tree ->
+    no_extra_outputs ->
     weak_sim fgraph_step ngraph_step forwarding_R.
   Proof.
-    intros Hreaches Htree.
+    intros Hreaches Htree Hno.
     cbv [weak_sim]. intros. cbv [fgraph_step] in H0. fwd. invert H0p1.
     - destruct e; simpl in H0p0; fwd. 2: congruence.
       do 2 eexists. split.
@@ -660,7 +626,15 @@ Section __.
       { eapply forwarding_compatible_same_domain; [eassumption|].
         apply forward_to_same_domain. }
       split.
-      { Print wf_queues. Print queue_at_dest. admit. }
+      { intros f orig Hin.
+        cbn [forward_to graph_output_queue] in Hin.
+        apply in_app_or in Hin. destruct Hin as [Hin | Hin]; [|solve[eauto]].
+        apply filter_In in Hin. destruct Hin as [Hin Hkeep].
+        destruct Hin as [Heq | []]. fwd.
+        apply inb_true_iff in Hkeep.
+        apply Hno.
+        eapply graph.reaches_step_before; [ apply graph.reaches_self | ].
+        apply forwarding_graph_spec. fwd. eauto. }
       split.
       { simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [eassumption|]. simpl. intros. assumption. }
@@ -679,9 +653,7 @@ Section __.
         { eapply forwarding_compatible_same_domain; [eassumption|].
           eapply same_domain_put_r; eassumption. }
         split.
-        { eapply wf_queues_incl; [ | eassumption ].
-          intro dest. eapply queue_at_dest_put_incl; [ exact H0' | ].
-          cbn [gns_queue]. apply incl_refl. }
+        { eapply wf_queues_incl; [ | eassumption ]. cbn [graph_output_queue]. apply incl_refl. }
         split.
         { apply Forall2_map_map_values'_r. simpl.
           apply Forall2_map_put_both.
@@ -715,11 +687,7 @@ Section __.
       { eapply forwarding_compatible_same_domain; [eassumption|].
         eapply same_domain_put_r. exact H0. }
       split.
-      { eapply wf_queues_incl; [ | eassumption ].
-        intro dest. eapply queue_at_dest_put_incl; [ exact H0 | ].
-        cbn [gns_queue]. rewrite H2. intros x Hx.
-        apply in_app_or in Hx. apply in_or_app.
-        destruct Hx as [Hx | Hx]; [ left; exact Hx | right; right; exact Hx ]. }
+      { eapply wf_queues_incl; [ | eassumption ]. cbn [graph_output_queue]. apply incl_refl. }
       split.
       { pose proof @Forall2_map_get_l as H'. especialize H'; eauto. fwd.
         eapply Forall2_map_put_l; try eassumption.
