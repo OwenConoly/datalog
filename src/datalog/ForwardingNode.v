@@ -1006,7 +1006,25 @@ Section __.
         2: { reflexivity. }
         apply travelling_to_app; [|solve[auto]].
         apply travelling_to_deduced. assumption.
-      + simpl. do 2 eexists.
+      + simpl. simpl in H7. cbv [forwarding_R] in H. fwd.
+        Tactics.destruct_one_match_hyp.
+        -- pose proof @Forall2_map_get_l as Hget. especialize Hget; try eassumption.
+           fwd. rewrite Hgetp1 in *.
+           eapply travelling_to_in in E.
+           2: { apply Hp5. simpl. apply Hp2. congruence. }
+           2: { admit. }
+           simpl in E. rewrite Hgetp0 in E. simpl in E. apply in_split in E. fwd.
+           do 2 eexists. split.
+           { apply star_one. apply gstep_receive; eassumption. }
+           split; [reflexivity|].
+           cbv [forwarding_R]. simpl.
+           split; [assumption|]. split; [assumption|]. split.
+           { admit. }
+           split.
+           { admit. }
+           split.
+           { admit. }
+           intros. rewrite dest_msgs_forward_to.
         admit.
     - destruct e; simpl in H0p0; congruence || fwd. invert H1.
       do 2 eexists. split.
