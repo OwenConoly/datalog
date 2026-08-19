@@ -698,5 +698,26 @@ Section __.
            apply Permutation_app_head. symmetry. apply Permutation_middle. }
       simpl. auto.
     - destruct e; simpl in H0p0; congruence || fwd.
+      pose proof forwarding_R_output_incl_rev as Houts. especialize Houts; eauto.
+      cbv [incl] in Houts. especialize Houts.
+      { apply in_map. rewrite H0. apply in_app_iff. simpl. eauto. }
+      apply in_split in Houts. fwd.
+      do 2 eexists. split.
+      { apply star_one. apply gstep_output. eassumption. }
+      split; [reflexivity|]. simpl.
+      cbv [forwarding_R] in *. fwd. simpl.
+      split; [assumption|]. split.
+      { f_equal. assumption. }
+      split; [assumption|]. split.
+      { admit. }
+      split; [assumption|].
+      intros dest Hdest. apply Hp5 in Hdest.
+      rewrite dest_msgs_output_append in Hdest.
+      destruct dest.
+      2: { simpl. simpl in Hdest. rewrite Houts in Hdest.
+           Search dest_msgs.
+
+      Print dest_msgs.
+        Search
   Admitted.
 End __.
