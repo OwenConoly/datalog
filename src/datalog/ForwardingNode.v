@@ -17,6 +17,14 @@ Definition loc_of_dest (d : destn) : location :=
   | output_destn => output_loc
   end.
 
+Lemma loc_of_source_inj s1 s2 :
+  loc_of_source s1 = loc_of_source s2 -> s1 = s2.
+Proof. destruct s1, s2; simpl; congruence. Qed.
+
+Lemma loc_of_dest_inj d1 d2 :
+  loc_of_dest d1 = loc_of_dest d2 -> d1 = d2.
+Proof. destruct d1, d2; simpl; congruence. Qed.
+
 Section __.
   Context {node_prog node_state : Type}.
   Context {message label : Type}.
@@ -335,6 +343,23 @@ Section __.
 
   Context (forwarding_wf :
             forall s ms n, fforwardb s (node_destn n) ms = true -> map.get fts (node_source n) <> None).
+
+  Context (fts_NoDup : forall src mn, NoDup (fforward src mn)).
+
+  Lemma forwarding_graph_edges_from_source src mn :
+    Permutation (graph.edges (forwarding_graph mn) (loc_of_source src))
+                (map loc_of_dest (fforward src mn)).
+  Proof.
+    apply NoDup_Permutation.
+    - apply graph.edges_NoDup.
+    - apply FinFun.Injective_map_NoDup; [ exact loc_of_dest_inj | apply fts_NoDup ].
+    - intros w. split.
+      + intros Hin. apply forwarding_graph_spec in Hin.
+        destruct Hin as (s' & d' & Hind & Hsrc & Hw).
+        apply loc_of_source_inj in Hsrc. subst s'. subst w. apply in_map. exact Hind.
+      + intros Hin. apply in_map_iff in Hin. destruct Hin as (d' & Hw & Hind).
+        apply forwarding_graph_spec. exists src, d'. subst w. auto.
+  Qed.
 
   Lemma forwarding_compatible_same_domain {V1} {M1 : map.map node_id V1}
     {V2} {M2 : map.map node_id V2} (s : M1) (s' : M2) :
@@ -762,6 +787,147 @@ Section __.
   (*       * right. apply inb_true_iff in Hin. rewrite Hin. now left. *)
   (* Qed. *)
   Admitted.
+
+  Lemma msgs_to_pebbles_forwarded R orig src d L :
+    msgs_to_pebbles R orig (map (fun d' => (d', (d, src))) L)
+    = (if (eqb R (dfact_rel d) && eqb orig src)%bool
+       then map (fun d' => (loc_of_dest d', d)) L else []).
+  Proof.
+    cbv [msgs_to_pebbles].
+    induction L as [| d' L' IH]; cbn [map filter msg_matches].
+    - destruct (eqb R (dfact_rel d) && eqb orig src)%bool; reflexivity.
+    - destruct (eqb R (dfact_rel d) && eqb orig src)%bool; cbn [map]; rewrite IH; reflexivity.
+  Qed.
+
+  Lemma travelling_to_forwarded src d dest :
+    forwarding_reaches -> forwarding_tree ->
+    loc_of_source src <> loc_of_dest dest ->
+    travelling_to (map (fun d' => (d', (d, src))) (fforward src (dfact_rel d, src))) dest
+      (filter (nforwardb src dest) [d]).
+  Proof.
+    intros Hreaches Htree Hne.
+    assert (Hgi : Permutation
+      (graph_incoming (forwarding_graph (dfact_rel d, src)) (loc_of_dest dest)
+         (map (fun d' => (loc_of_dest d', d)) (fforward src (dfact_rel d, src))))
+      (graph_incoming (forwarding_graph (dfact_rel d, src)) (loc_of_dest dest) [(loc_of_source src, d)])).
+    { rewrite <- (map_map loc_of_dest (fun v' => (v', d))).
+      transitivity (graph_incoming (forwarding_graph (dfact_rel d, src)) (loc_of_dest dest)
+                      (map (fun v' => (v', d))
+                         (graph.edges (forwarding_graph (dfact_rel d, src)) (loc_of_source src)))).
+      { apply graph_incoming_Proper. apply Permutation_map. symmetry.
+        apply forwarding_graph_edges_from_source. }
+      symmetry. apply graph_incoming_pebble_step with (v := loc_of_source src);
+        [ apply Htree | exact Hne | ].
+      exists [], d. split; [ reflexivity | rewrite app_nil_r; reflexivity ]. }
+    cbn [filter].
+    destruct (nforwardb src dest d) eqn:Hnf.
+    - exists [(d, src)]. split; [reflexivity | split].
+      + constructor; [ | constructor ]. cbv [nforwardb] in Hnf. apply inb_true_iff. exact Hnf.
+      + intros R orig Hprem. rewrite msgs_to_pebbles_forwarded.
+        cbn [filter map msg_matches].
+        destr (eqb R (dfact_rel d)); destr (eqb orig src); cbn [andb map];
+          [ | reflexivity | reflexivity | reflexivity ].
+        rewrite Hgi. cbv [graph_incoming]. cbn [filter map].
+        assert (Hre : graph.reaches (forwarding_graph (dfact_rel d, src))
+                        (loc_of_source src) (loc_of_dest dest)) by (apply Hreaches; exact Hprem).
+        destr (graph.reachesb (forwarding_graph (dfact_rel d, src)) (loc_of_source src) (loc_of_dest dest));
+          [ cbn [map]; reflexivity | contradiction ].
+    - exists []. split; [reflexivity | split; [constructor | ]].
+      intros R orig Hprem. rewrite msgs_to_pebbles_forwarded.
+      cbn [filter map].
+      destr (eqb R (dfact_rel d)); destr (eqb orig src); cbn [andb map];
+        [ | reflexivity | reflexivity | reflexivity ].
+      exfalso. cbv [nforwardb] in Hnf. rewrite <- inb_true_iff in Hprem. congruence.
+  Qed.
+
+  Lemma dest_msgs_forward_to src d (s : fgstate) :
+    forwarding_compatible s.(graph_nodes) ->
+    Permutation
+      (dest_msgs (forward_to (fforwardb src) [(d, src)] s))
+      (map (fun d' => (d', (d, src))) (fforward src (dfact_rel d, src)) ++ dest_msgs s).
+  Proof.
+    intros Hcompat.
+    transitivity
+      (map (fun m => (output_destn, m)) (filter (fforwardb src output_destn) [(d, src)])
+       ++ (flat_map (fun '(n, _) => map (fun m => (node_destn n, m))
+                      (filter (fforwardb src (node_destn n)) [(d, src)])) (map.tuples s.(graph_nodes))
+           ++ dest_msgs s)).
+    { etransitivity.
+      - apply dest_msgs_output_append with
+          (oms := filter (fforwardb src output_destn) [(d, src)])
+          (s2 := {| graph_nodes := map_values' (fun n ns =>
+                      enqueue (filter (fforwardb src (node_destn n)) [(d, src)]) ns) s.(graph_nodes);
+                    graph_output_queue := s.(graph_output_queue) |}).
+        + cbn [forward_to graph_nodes]. reflexivity.
+        + cbn [forward_to graph_output_queue]. reflexivity.
+      - apply Permutation_app_head.
+        apply (dest_msgs_map_values'_enqueue
+                 (fun n => filter (fforwardb src (node_destn n)) [(d, src)]) s). }
+    rewrite app_assoc. apply Permutation_app_tail.
+    apply NoDup_Permutation.
+    - apply NoDup_app.
+      + cbv [fforwardb]. cbn [filter map].
+        destruct (inb output_destn (fforward src (dfact_rel d, src)));
+          repeat constructor; simpl; tauto.
+      + apply List.NoDup_flat_map.
+        * apply map.tuples_NoDup.
+        * intros [n ns] _. cbv [fforwardb]. cbn [filter map].
+          destruct (inb (node_destn n) (fforward src (dfact_rel d, src)));
+            repeat constructor; simpl; tauto.
+        * intros [n1 ns1] [n2 ns2] b Hin1 Hin2 Hb1 Hb2.
+          cbv [fforwardb] in Hb1, Hb2. cbn [filter map] in Hb1, Hb2.
+          destruct (inb (node_destn n1) (fforward src (dfact_rel d, src)));
+            cbn [In] in Hb1; [ | destruct Hb1 ].
+          destruct (inb (node_destn n2) (fforward src (dfact_rel d, src)));
+            cbn [In] in Hb2; [ | destruct Hb2 ].
+          destruct Hb1 as [Hb1 | []]. destruct Hb2 as [Hb2 | []]. subst b.
+          injection Hb2 as Hn. subst n2.
+          rewrite map.tuples_spec in Hin1, Hin2. congruence.
+      + intros [dd m] Hout Hnode.
+        cbv [fforwardb] in Hout. cbn [filter map] in Hout.
+        destruct (inb output_destn (fforward src (dfact_rel d, src)));
+          cbn [In] in Hout; [ | destruct Hout ].
+        destruct Hout as [Heq | []]. injection Heq as <- <-.
+        apply in_flat_map in Hnode. destruct Hnode as [[n ns] [_ Hnode]].
+        cbv [fforwardb] in Hnode. cbn [filter map] in Hnode.
+        destruct (inb (node_destn n) (fforward src (dfact_rel d, src)));
+          cbn [In] in Hnode; [ | destruct Hnode ].
+        destruct Hnode as [Heq | []]. discriminate Heq.
+    - apply FinFun.Injective_map_NoDup; [ intros a b Hab; congruence | apply fts_NoDup ].
+    - intros [dd m]. rewrite in_app_iff. split.
+      + intros [Hout | Hnode].
+        * cbv [fforwardb] in Hout. cbn [filter map] in Hout.
+          destruct (inb output_destn (fforward src (dfact_rel d, src))) eqn:Hoe;
+            cbn [In] in Hout; [ | destruct Hout ].
+          destruct Hout as [Heq | []]. injection Heq as <- <-.
+          apply in_map_iff. exists output_destn. split; [ reflexivity | ].
+          apply inb_true_iff. exact Hoe.
+        * apply in_flat_map in Hnode. destruct Hnode as [[n ns] [_ Hnode]].
+          cbv [fforwardb] in Hnode. cbn [filter map] in Hnode.
+          destruct (inb (node_destn n) (fforward src (dfact_rel d, src))) eqn:Hne;
+            cbn [In] in Hnode; [ | destruct Hnode ].
+          destruct Hnode as [Heq | []]. injection Heq as <- <-.
+          apply in_map_iff. exists (node_destn n). split; [ reflexivity | ].
+          apply inb_true_iff. exact Hne.
+      + intros Hin. apply in_map_iff in Hin. destruct Hin as [d' [Heq Hind]].
+        injection Heq as <- <-. destruct d' as [n | ].
+        * right. apply in_flat_map.
+          destruct (map.get s.(graph_nodes) n) as [ns | ] eqn:Hget.
+          2:{ exfalso.
+              assert (Hfts : map.get fts (node_source n) <> None).
+              { apply (forwarding_wf src (d, src) n). cbv [fforwardb].
+                apply inb_true_iff. exact Hind. }
+              exact (proj2 (Hcompat n) Hfts Hget). }
+          exists (n, ns). split; [ apply map.tuples_spec; exact Hget | ].
+          cbv [fforwardb]. cbn [filter map].
+          assert (Hb : inb (node_destn n) (fforward src (dfact_rel d, src)) = true)
+            by (apply inb_true_iff; exact Hind).
+          rewrite Hb. cbn [map]. left. reflexivity.
+        * left. cbv [fforwardb]. cbn [filter map].
+          assert (Hb : inb output_destn (fforward src (dfact_rel d, src)) = true)
+            by (apply inb_true_iff; exact Hind).
+          rewrite Hb. cbn [map]. left. reflexivity.
+  Qed.
 
   Lemma fgraph_weak_sims_ngraph :
     forwarding_reaches ->
