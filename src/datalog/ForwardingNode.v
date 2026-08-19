@@ -297,6 +297,26 @@ Section __.
     apply Permutation_app_tail. apply Permutation_map. exact Hperm.
   Qed.
 
+  Lemma dest_msgs_put' (s : fgstate) n v v' a :
+    map.get s.(graph_nodes) n = Some v ->
+    Permutation (all_pending_msgs v) (a ++ all_pending_msgs v') ->
+    Permutation
+      (dest_msgs s)
+      (map (fun m => (node_destn n, m)) a
+       ++ dest_msgs {| graph_nodes := map.put s.(graph_nodes) n v';
+                       graph_output_queue := s.(graph_output_queue) |}).
+  Proof.
+    intros Hget Hperm.
+    rewrite (dest_msgs_get_remove s n v Hget).
+    rewrite (dest_msgs_get_remove
+               {| graph_nodes := map.put s.(graph_nodes) n v';
+                  graph_output_queue := s.(graph_output_queue) |} n v').
+    2: { cbn [graph_nodes]. apply map.get_put_same. }
+    cbn [graph_nodes graph_output_queue]. rewrite map.remove_put_same.
+    rewrite app_assoc, <- map_app.
+    apply Permutation_app_tail. apply Permutation_map. exact Hperm.
+  Qed.
+
   Lemma to_pebbles_map_values'_enqueue R orig (g : node_id -> list (dfact * source)) (s : fgstate) :
     Permutation
       (to_pebbles R orig {| graph_nodes := map_values' (fun n ns => enqueue (g n) ns) s.(graph_nodes);
@@ -664,6 +684,25 @@ Section __.
     - cbn [queue_at_dest]. exact Hout.
   Qed.
 
+  Lemma queue_at_dest_put (s : ngstate) n gns gns' a dest :
+    map.get s.(graph_nodes) n = Some gns ->
+    Permutation gns.(gns_queue) (a ++ gns'.(gns_queue)) ->
+    Permutation
+      (queue_at_dest s dest)
+      ((if eqb dest (node_destn n) then a else [])
+       ++ queue_at_dest {| graph_nodes := map.put s.(graph_nodes) n gns';
+                           graph_output_queue := s.(graph_output_queue) |} dest).
+  Proof.
+    intros Hget Hperm. destruct dest as [m | ].
+    - destr (eqb (node_destn m) (node_destn n)).
+      + cbn [queue_at_dest graph_nodes]. rewrite map.get_put_same, Hget.
+        cbn [option_map unwrap_or_default unwrap_or gns_queue]. exact Hperm.
+      + cbn [queue_at_dest graph_nodes]. rewrite map.get_put_diff by congruence.
+        reflexivity.
+    - destr (eqb output_destn (node_destn n)); [ discriminate | ].
+      cbn [queue_at_dest graph_output_queue]. reflexivity.
+  Qed.
+
   Definition wf_queues (s1 : fgstate) :=
     forall f orig,
       In (f, orig) s1.(graph_output_queue) ->
@@ -1025,6 +1064,8 @@ Section __.
            split.
            { admit. }
            intros. rewrite dest_msgs_forward_to.
+           2: { admit. }
+           fail.
         admit.
     - destruct e; simpl in H0p0; congruence || fwd. invert H1.
       do 2 eexists. split.
