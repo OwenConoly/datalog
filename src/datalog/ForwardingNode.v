@@ -961,7 +961,14 @@ Section __.
       split.
       { simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [eassumption|]. simpl. intros. assumption. }
-      admit.
+      intros.
+      rewrite dest_msgs_forward_to by assumption.
+      rewrite queue_at_dest_forward_to; try assumption.
+      2: { eapply forwarding_compatible_same_domain; [eassumption|].
+           eapply Forall2_map_same_domain. eassumption. }
+      apply travelling_to_app; [|solve[auto]].
+      apply travelling_to_forwarded; try assumption.
+      intro H'. simpl in H'. destruct dest; discriminate H'.
     - destruct e; simpl in H0p0; congruence || fwd. invert H1.
       + cbv [forwarding_R] in H. fwd. pose proof H0 as H0'.
         eapply Forall2_map_get_l in H0; [|eassumption].
