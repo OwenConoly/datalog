@@ -472,6 +472,25 @@ Section __.
     rewrite Hpy in Htx. exact Htx.
   Qed.
 
+  Lemma travelling_to_cons_inv_unreached d f orig dm dest queue :
+    ~ graph.reaches (forwarding_graph (dfact_rel f, orig)) (loc_of_dest d) (loc_of_dest dest) ->
+    travelling_to ((d, (f, orig)) :: dm) dest queue ->
+    travelling_to dm dest queue.
+  Proof.
+    intros Hnr (queue' & Hqeq & HF & HP).
+    exists queue'. split; [exact Hqeq | split; [exact HF | ]].
+    intros R o Hprem. specialize (HP R o Hprem).
+    assert (Hhead : graph_incoming (forwarding_graph (R, o)) (loc_of_dest dest)
+                      (msgs_to_pebbles R o [(d, (f, orig))]) = []).
+    { cbv [msgs_to_pebbles graph_incoming]. cbn [filter map msg_matches].
+      destr (eqb R (dfact_rel f)); destr (eqb o orig); cbn [andb map filter]; try reflexivity.
+      destr (graph.reachesb (forwarding_graph (dfact_rel f, orig)) (loc_of_dest d) (loc_of_dest dest));
+        cbn [map]; [ exfalso; apply Hnr; assumption | reflexivity ]. }
+    change ((d, (f, orig)) :: dm) with ([(d, (f, orig))] ++ dm) in HP.
+    rewrite msgs_to_pebbles_app, graph_incoming_app, Hhead in HP.
+    cbn [app] in HP. exact HP.
+  Qed.
+
   Lemma travelling_to_incl dm dest queue :
     travelling_to dm dest queue ->
     incl queue (map (fun '(_, (f, _)) => f) dm).
@@ -798,6 +817,12 @@ Section __.
       destruct dest.
       2: { simpl. cbn [queue_at_dest] in Hdest. rewrite Houts in Hdest.
            simpl in Hdest. rewrite <- Permutation_middle in Hdest.
+           destruct m. simpl in Hdest. apply travelling_to_cons_inv in Hdest.
+           2: { apply Hp3. rewrite H0. apply in_app_iff. simpl. auto. }
+           assumption. }
+      simpl. simpl in Hdest. destruct m.
+      apply travelling_to_cons_inv_unreached in Hdest.
+      1: apply Hdest.
            Search dest_msgs.
 
       Print dest_msgs.
