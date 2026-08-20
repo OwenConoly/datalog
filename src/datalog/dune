@@ -1,6 +1,13 @@
 (rocq.theory
-(modules :standard \ Local JSON QueryableToRunnable FancyNotations ForwardingNode)
-(name Datalog)
-(package datalog)
-(theories Stdlib coqutil GraphSearch Datalog.Util)
-(generate_project_file))
+ (modules
+  :standard
+  \
+  Local
+  JSON
+  QueryableToRunnable
+  FancyNotations
+  ForwardingNode)
+ (name Datalog)
+ (package datalog)
+ (theories Stdlib coqutil GraphSearch Datalog.Util)
+ (generate_project_file))
