@@ -10,6 +10,10 @@ This repo contains:
 
 ## Building
 
-* Do `opam install coq-json` if you want to use the JSON stuff.
-* Do a recursive clone, to get the submodules
-* `dune build` to build
+* to get dependencies: `opam install coq-json`
+* cloning: pass `--recursive` to get the submodules
+* run `dune build` to build
+
+By default, `dune build` will skip the src/atl directory.
+(Currently, mostly everything in that directory is broken.)
+If you want to build stuff in that directory, you can either do `dune build src/atl` in the root directory, or you can do `cd src/atl && dune build`.
