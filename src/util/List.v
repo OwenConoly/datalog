@@ -1,6 +1,6 @@
 From Stdlib Require Import Lists.List Permutation Bool Arith.PeanoNat Morphisms RelationClasses Classical_Prop.
 From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics Eqb.
-Require Import Datalog.Tactics Datalog.Eqb Datalog.Default.
+From Datalog Require Import Tactics Eqb Default.
 Import ListNotations.
 
 Local Ltac invert_list_stuff' :=

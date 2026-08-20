@@ -8,3 +8,5 @@
 **~
 **#
 **Makefile.coq*
+_build/
+src/_RocqProject
