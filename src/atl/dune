@@ -1,5 +1,5 @@
 (rocq.theory
 (name Datalog.ATL)
 (package datalog)
-(theories Stdlib coqutil ATL)
+(theories Stdlib coqutil Datalog ATL Examples Codegen Lower Inferpad)
 (generate_project_file))
