@@ -1,6 +1,4 @@
-Works with Rocq 9.1.1 (probably works with later versions too).
-
-This repo contains:
+## Contents
 
 - basic Datalog semantics, plus logical semantics for aggregation.
 - some "intermediate Datalog" language, which is basically just Datalog plus let and let rec.
@@ -9,6 +7,8 @@ This repo contains:
 - some in-progress work on a verified transformation from Datalog-with-fancy-aggregation-features to some appropriate ISA-ish Datalog-ish language.
 
 ## Building
+
+Works with Rocq 9.1.1 (probably works with later versions too).
 
 * to get dependencies: `opam install coq-json`
 * cloning: pass `--recursive` to get the submodules

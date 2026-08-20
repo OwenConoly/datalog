@@ -2,6 +2,5 @@
 (using rocq 0.13)
 
 (package
-(name datalog)
-(depends coq-json)
-)
+ (name datalog)
+ (depends coq-json))
