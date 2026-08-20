@@ -1,0 +1,14 @@
+-Q _build/default/verified-scheduling/src/verified_scheduling/atl/ ATL
+-Q _build/default/verified-scheduling/src/verified_scheduling/codegen/ Codegen
+-Q _build/default/verified-scheduling/src/verified_scheduling/c/ Test
+-Q _build/default/verified-scheduling/src/verified_lowering/proof Lower
+-Q _build/default/verified-scheduling/src/verified_lowering/inferpad Inferpad
+-Q _build/default/verified-scheduling/src/verified_lowering/stringify Stringify
+-Q _build/default/verified-scheduling/src/examples/ Examples
+
+-Q _build/default/graph_search/coqutil/src/coqutil coqutil
+-Q _build/default/graph_search/src GraphSearch
+
+-R _build/default/src/util Datalog.Util
+-R _build/default/src/datalog Datalog
+-R _build/default/src/atl Datalog.ATL
