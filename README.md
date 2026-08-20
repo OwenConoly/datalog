@@ -1,6 +1,4 @@
-Works with Rocq 9.0.0 (probably works with later versions too).
-
-Requires https://github.com/liyishuai/coq-json if you want to use the JSON stuff.
+Works with Rocq 9.1.1 (probably works with later versions too).
 
 This repo contains:
 
@@ -12,6 +10,6 @@ This repo contains:
 
 ## Building
 
-`git clone --recursive` (to clone the submodules too)
-
-Then run `make`.
+* Do `opam install coq-json` if you want to use the JSON stuff.
+* Do a recursive clone, to get the submodules
+* `dune build` to build
