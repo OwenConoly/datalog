@@ -1,0 +1,5 @@
+(rocq.theory
+(name Datalog.Util)
+(package datalog)
+(theories Stdlib coqutil)
+(generate_project_file))
