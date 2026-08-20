@@ -1,3 +1,10 @@
+; don't build the atl/ directory (or its dependency verified-scheduling) by default, since it's mostly broken
+(alias
+ (name default)
+ (deps
+  (alias_rec src/util/default)
+  (alias_rec src/datalog/default)))
+
 (subdir
  verified-scheduling/src/verified_scheduling/atl
  (rocq.theory
