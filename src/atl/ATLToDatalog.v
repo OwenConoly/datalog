@@ -18,6 +18,7 @@ From Inferpad Require Import ATLPhoas TensorToResult.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable Datatypes.List.
 
+
 Import Datatypes.
 Import ListNotations.
 
@@ -982,3 +983,108 @@ Proof.
     (* Zopp *)
     + simpl. f_equal. apply IHp. apply Hnv.
 Qed.
+
+Print ctx_elt.
+Inductive wf_pZexpr' {var1 var2} : list (var1 * var2) -> pZexpr' var1 -> pZexpr' var2 -> Prop :=
+| wf_ZBop ctx o x1 x2 y1 y2 :
+    wf_pZexpr' ctx x1 x2 ->
+    wf_pZexpr' ctx y1 y2 ->
+    wf_pZexpr' ctx (ZBop o x1 y1) (ZBop o x2 y2)
+| wf_ZVar ctx x1 x2 :
+    In (x1, x2) ctx ->
+    wf_pZexpr' ctx (ZVar x1) (ZVar x2)
+| wf_ZLit ctx z :
+    wf_pZexpr' ctx (ZLit z) (ZLit z)
+| wf_Zopp ctx x1 x2 :
+    wf_pZexpr' ctx x1 x2 ->
+    wf_pZexpr' ctx (Zopp x1) (Zopp x2).
+
+(* this extracts tZ from ctx so that if wf_pSexpr' or wf_pATLexpr' wants to call wf_pZexpr' it
+    can because the ctx can now be the appropriate type *)
+Definition zctx {var1 var2} (ctx : list (ctx_elt2 var1 var2)) : list (var1 tZ * var2 tZ) :=
+  flat_map (fun c : ctx_elt2 var1 var2 =>
+    match ctx_elt_t var1 var2 c as t0 return var1 t0 -> var2 t0 -> list (var1 tZ * var2 tZ) with
+    | tZ => fun p1 p2 => [(p1, p2)]
+    | _ => fun _ _ => []
+    end (ctx_elt_p1 var1 var2 c) (ctx_elt_p2 var1 var2 c)) ctx.
+
+Inductive wf_pBexpr' {var1 var2} : list (ctx_elt2 var1 var2) -> pBexpr' (var1 tZ) -> pBexpr' (var2 tZ) -> Prop :=
+| wf_BAnd ctx a1 a2 b1 b2 :
+    wf_pBexpr' ctx a1 a2 ->
+    wf_pBexpr' ctx b1 b2 ->
+    wf_pBexpr' ctx (BAnd a1 b1) (BAnd a2 b2)
+| wf_BBop ctx o x1 x2 y1 y2 :
+    wf_pZexpr' (zctx ctx) x1 x2 ->
+    wf_pZexpr' (zctx ctx) y1 y2 ->
+    wf_pBexpr' ctx (BBop o x1 y1) (BBop o x2 y2).
+
+Inductive wf_pSexpr' {var1 var2} : list (ctx_elt2 var1 var2) -> pATL_Sexpr' var1 -> pATL_Sexpr' var2 -> Prop :=
+| wf_Get ctx n v1 v2 idxs1 idxs2 :
+  In {| ctx_elt_t := tensor_n n; ctx_elt_p1 := v1; ctx_elt_p2 := v2 |} ctx ->
+  Forall2 (wf_pZexpr' (zctx ctx)) idxs1 idxs2 ->
+    wf_pSexpr' ctx (Get n v1 idxs1) (Get n v2 idxs2)
+| wf_SBop ctx o x1 x2 y1 y2 :
+  wf_pSexpr' ctx x1 x2 ->
+  wf_pSexpr' ctx y1 y2 ->
+  wf_pSexpr' ctx (SBop o x1 y1) (SBop o x2 y2)
+| wf_SLit ctx z1 z2 :
+  wf_pSexpr' ctx (SLit z1) (SLit z2).
+
+Inductive wf_pATL_expr' {var1 var2} : list (ctx_elt2 var1 var2) -> forall n, pATLexpr' var1 n -> pATLexpr' var2 n -> Prop :=
+| wf_Gen ctx n lo1 lo2 hi1 hi2 body1 body2 :
+  let pZexpr_ctx := (zctx ctx) in
+  wf_pZexpr' pZexpr_ctx lo1 lo2 ->
+  wf_pZexpr' pZexpr_ctx hi1 hi2 ->
+  (forall x1 x2, wf_pATL_expr' ({| ctx_elt_t := tZ; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) n (body1 x1) (body2 x2)) ->
+  wf_pATL_expr' ctx (S n) (Gen n lo1 hi1 body1) (Gen n lo2 hi2 body2)
+| wf_Sum ctx n lo1 lo2 hi1 hi2 body1 body2 :
+  let pZexpr_ctx := (zctx ctx) in
+  wf_pZexpr' pZexpr_ctx lo1 lo2 ->
+  wf_pZexpr' pZexpr_ctx hi1 hi2 ->
+  (forall x1 x2, wf_pATL_expr' ({| ctx_elt_t := tZ; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) n (body1 x1) (body2 x2)) ->
+  wf_pATL_expr' ctx n (Sum n lo1 hi1 body1) (Sum n lo2 hi2 body2)
+| wf_Guard ctx n b1 b2 body1 body2 :
+  wf_pBexpr' ctx b1 b2 ->
+  wf_pATL_expr' ctx n body1 body2 ->
+  wf_pATL_expr' ctx n (Guard n b1 body1) (Guard n b2 body2)
+| wf_Lbind ctx n m val1 val2 body1 body2 :
+  wf_pATL_expr' ctx n val1 val2 ->
+  (forall x1 x2, wf_pATL_expr' ({| ctx_elt_t := tensor_n n; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) m (body1 x1) (body2 x2)) ->
+  wf_pATL_expr' ctx m (Lbind n m val1 body1) (Lbind n m val2 body2)
+| wf_Concat ctx n x1 x2 y1 y2 :
+  wf_pATL_expr' ctx (S n) x1 x2 ->
+  wf_pATL_expr' ctx (S n) y1 y2 ->
+  wf_pATL_expr' ctx (S n) (Concat n x1 y1) (Concat n x2 y2)
+| wf_Flatten ctx n expr1 expr2 :
+  wf_pATL_expr' ctx (S (S n)) expr1 expr2 ->
+  wf_pATL_expr' ctx (S n) (Flatten n expr1) (Flatten n expr2)
+| wf_Split ctx n k1 k2 e1 e2 :
+  wf_pZexpr' (zctx ctx) k1 k2 ->
+  wf_pATL_expr' ctx (S n) e1 e2 ->
+  wf_pATL_expr' ctx (S (S n)) (Split n k1 e1) (Split n k2 e2)
+| wf_Transpose ctx n e1 e2 :
+  wf_pATL_expr' ctx (S (S n)) e1 e2 ->
+  wf_pATL_expr' ctx (S (S n)) (Transpose n e1) (Transpose n e2)
+| wf_Truncr ctx n z1 z2 e1 e2 :
+  wf_pZexpr' (zctx ctx) z1 z2 ->
+  wf_pATL_expr' ctx (S n) e1 e2 ->
+  wf_pATL_expr' ctx (S n) (Truncr n z1 e1) (Truncr n z2 e2)
+| wf_Truncl ctx n z1 z2 e1 e2 :
+  wf_pZexpr' (zctx ctx) z1 z2 ->
+  wf_pATL_expr' ctx (S n) e1 e2 ->
+  wf_pATL_expr' ctx (S n) (Truncl n z1 e1) (Truncl n z2 e2)
+| wf_Padr ctx n z1 z2 e1 e2 :
+  wf_pZexpr' (zctx ctx) z1 z2 ->
+  wf_pATL_expr' ctx (S n) e1 e2 ->
+  wf_pATL_expr' ctx (S n) (Padr z1 e1) (Padr z2 e2)
+| wf_Padl ctx n z1 z2 e1 e2 :
+  wf_pZexpr' (zctx ctx) z1 z2 ->
+  wf_pATL_expr' ctx (S n) e1 e2 ->
+  wf_pATL_expr' ctx (S n) (Padl z1 e1) (Padl z2 e2)
+| wf_Var ctx n v1 v2 :
+  In {| ctx_elt_t := tensor_n n; ctx_elt_p1 := v1; ctx_elt_p2 := v2 |} ctx ->
+  wf_pATL_expr' ctx n (Var n v1) (Var n v2)
+| wf_Scalar ctx s1 s2 :
+  wf_pSexpr' ctx s1 s2 ->
+  wf_pATL_expr' ctx 0 (Scalar s1) (Scalar s2)
+.
