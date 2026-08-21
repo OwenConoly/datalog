@@ -966,7 +966,7 @@ Section __.
   Fixpoint expr_matches (equalities : list (exprvar * exprvar)) (e1 e2 : expr) :=
     match e1, e2 with
     | Datalog.var_expr v1, Datalog.var_expr v2 =>
-        existsb (eqb (v1, v2)) equalities
+        inb (v1, v2) equalities
     | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
         fn_eqb f1 f2 &&
           Nat.eqb (List.length args1) (List.length args2) &&
@@ -990,8 +990,8 @@ Section __.
     induction e1; intros e2 ctx1 ctx2 val Hmatch Heq H1.
     - destruct e2; simpl in Hmatch; try discriminate.
       repeat invert_stuff.
-      rewrite Forall_forall in Heq. apply Heq in Hmatchp0.
-      rewrite Hmatchp0 in *. auto.
+      rewrite Forall_forall in Heq. apply Heq in Hmatch.
+      rewrite Hmatch in *. auto.
     - destruct e2; simpl in Hmatch; try discriminate.
       repeat invert_stuff.
       rewrite map2_eq_map_combine in Hmatchp1.

@@ -5,6 +5,8 @@ From Datalog Require Import Tactics List.
 From Stdlib Require Import Permutation RelationClasses.
 Import ListNotations.
 
+Definition partial_map k v `{map.map k v} := @map.rep k v _.
+
 Section MapKeysExtra.
   Context {key key' value : Type}.
   Context {mp : map.map key value} {mp_ok : map.ok mp}.
@@ -13,7 +15,7 @@ Section MapKeysExtra.
 
   (* coqutil's [get_map_keys_always_invertible] characterizes [get (map_keys g m)]
      only on keys in the image of [g]; this covers the rest. *)
-  Lemma get_map_keys_None (g : key -> key') (m : mp) (k0 : key') :
+  Lemma get_map_keys_not_in_image (g : key -> key') (m : mp) (k0 : key') :
     (forall k, g k <> k0) -> map.get (map.map_keys (map' := mp') g m) k0 = None.
   Proof.
     intros Hg. unfold map.map_keys. eapply map.fold_spec.
@@ -68,7 +70,30 @@ Section Maps.
     - intros [k0 v0]. exact (map.tuples_put m k v Hk k0 v0).
   Qed.
 
-  Lemma values_put_None (m : mp1) k v :
+  Lemma put_eq_put_remove (m : mp1) k v :
+    map.put m k v = map.put (map.remove m k) k v.
+  Proof.
+    apply map.map_ext. intro k0. rewrite !map.get_put_dec. destr (eqb k k0); [ reflexivity | ].
+    rewrite map.get_remove_diff by (intro; congruence). reflexivity.
+  Qed.
+
+  Lemma tuples_put_perm_get (m : mp1) k v :
+    Permutation (map.tuples (map.put m k v)) ((k, v) :: map.tuples (map.remove m k)).
+  Proof. rewrite put_eq_put_remove. apply tuples_put_perm, map.get_remove_same. Qed.
+
+  Lemma tuples_get_perm (m : mp1) k v :
+    map.get m k = Some v ->
+    Permutation (map.tuples m) ((k, v) :: map.tuples (map.remove m k)).
+  Proof.
+    intros Hget.
+    assert (Hrw : m = map.put (map.remove m k) k v).
+    { apply map.map_ext. intro k0. rewrite map.get_put_dec. destr (eqb k k0).
+      - subst. exact Hget.
+      - rewrite map.get_remove_diff by (intro; congruence). reflexivity. }
+    rewrite Hrw at 1. apply tuples_put_perm, map.get_remove_same.
+  Qed.
+
+  Lemma values_put_fresh (m : mp1) k v :
     map.get m k = None ->
     Permutation (values (map.put m k v)) (v :: values m).
   Proof.
@@ -84,14 +109,14 @@ Section Maps.
     intros Hk.
     transitivity (values (map.put (map.remove m k) k v0)).
     - rewrite map.put_remove_same, (map.put_noop k v0 m Hk). reflexivity.
-    - apply values_put_None, map.get_remove_same.
+    - apply values_put_fresh, map.get_remove_same.
   Qed.
 
   Lemma values_put (m : mp1) k v :
     Permutation (values (map.put m k v)) (v :: values (map.remove m k)).
   Proof.
     rewrite <- (map.put_remove_same m k v).
-    apply values_put_None, map.get_remove_same.
+    apply values_put_fresh, map.get_remove_same.
   Qed.
 
   Lemma values_Forall (P : value1 -> Prop) (m : mp1) :
@@ -123,6 +148,14 @@ Section Maps.
   (* can't use coqutil's map.same_domain because it requires mp1 = mp2. *)
   Definition same_domain (m1 : mp1) (m2 : mp2) : Prop :=
     Forall2_map (fun _ _ _ => True) m1 m2.
+
+  Lemma Forall2_map_same_domain R (m1 : mp1) (m2 : mp2) :
+    Forall2_map R m1 m2 ->
+    same_domain m1 m2.
+  Proof.
+    intros H k. specialize (H k).
+    destruct (map.get m1 k); destruct (map.get m2 k); (exact I || assumption).
+  Qed.
 
   Lemma Forall2_map_impl_strong (R R' : key -> value1 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) :
     Forall2_map R m1 m2 ->
@@ -164,6 +197,17 @@ Section Maps.
   Proof.
     intros H Hget HR k0. specialize (H k0). rewrite map.get_put_dec. destr (eqb k k0).
     - subst. rewrite Hget. exact HR.
+    - destruct (map.get m1 k0) as [w1|]; destruct (map.get m2 k0) as [w2|]; try exact H.
+      apply H. assumption.
+  Qed.
+
+  Lemma Forall2_map_put_both R (m1 : mp1) (m2 : mp2) k v1 v2 :
+    Forall2_map (fun k' w1 w2 => k <> k' -> R k' w1 w2) m1 m2 ->
+    R k v1 v2 ->
+    Forall2_map R (map.put m1 k v1) (map.put m2 k v2).
+  Proof.
+    intros H HR k0. specialize (H k0). rewrite !map.get_put_dec. destr (eqb k k0).
+    - subst. exact HR.
     - destruct (map.get m1 k0) as [w1|]; destruct (map.get m2 k0) as [w2|]; try exact H.
       apply H. assumption.
   Qed.
@@ -327,6 +371,47 @@ Section Maps.
 
 End Maps.
 
+Lemma same_domain_refl {key value} {mp : map.map key value} (m : mp) :
+  same_domain m m.
+Proof.
+  intros k. destruct (map.get m k); exact I.
+Qed.
+
+Lemma same_domain_sym {key value1 value2}
+  {mp1 : map.map key value1} {mp2 : map.map key value2} (m1 : mp1) (m2 : mp2) :
+  same_domain m1 m2 ->
+  same_domain m2 m1.
+Proof.
+  intros H. apply Forall2_map_intro.
+  - intros k. pose proof (Forall2_map_get_None _ _ _ k H) as A. tauto.
+  - intros. exact I.
+Qed.
+
+Lemma same_domain_trans {key value1 value2 value3}
+  {mp1 : map.map key value1} {mp2 : map.map key value2} {mp3 : map.map key value3}
+  (m1 : mp1) (m2 : mp2) (m3 : mp3) :
+  same_domain m1 m2 ->
+  same_domain m2 m3 ->
+  same_domain m1 m3.
+Proof.
+  intros H12 H23. apply Forall2_map_intro.
+  - intros k.
+    pose proof (Forall2_map_get_None _ _ _ k H12) as A.
+    pose proof (Forall2_map_get_None _ _ _ k H23) as B.
+    tauto.
+  - intros. exact I.
+Qed.
+
+Lemma same_domain_put_r {key value} {mp : map.map key value} {mp_ok : map.ok mp}
+  {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb} (m : mp) k v v' :
+  map.get m k = Some v ->
+  same_domain m (map.put m k v').
+Proof.
+  intros Hget k0. rewrite map.get_put_dec. destr (eqb k k0).
+  - subst. rewrite Hget. exact I.
+  - destruct (map.get m k0); exact I.
+Qed.
+
 (* Utilities relating maps of *different* value types via [Forall2_map]/[Forall3_map];
    these can't live in [Section Maps] because [Forall2_map] there is fixed to [mp1]/[mp2]. *)
 Section MapAcross.
@@ -356,7 +441,7 @@ Section MapAcross.
         - rewrite map.get_remove_diff by congruence. exact H. }
       destruct (IH _ Htail) as (l1 & l2 & H1 & H2 & HF).
       exists (v1 :: l1), (v2 :: l2). split; [ | split ].
-      + eapply Permutation_trans; [ apply values_put_None; exact Hk | ]. apply perm_skip, H1.
+      + eapply Permutation_trans; [ apply values_put_fresh; exact Hk | ]. apply perm_skip, H1.
       + eapply Permutation_trans; [ apply (values_remove _ _ _ Hv2) | ]. apply perm_skip, H2.
       + constructor; [ exact HR | exact HF ].
   Qed.
@@ -478,9 +563,9 @@ Section MapKeysInj.
     - split; [ rewrite !values_empty; reflexivity | intro j; rewrite !map.get_empty; reflexivity ].
     - intros k v m0 r Hk [HP Hget]. split.
       + transitivity (v :: values r).
-        { apply values_put_None. rewrite Hget. exact Hk. }
+        { apply values_put_fresh. rewrite Hget. exact Hk. }
         transitivity (v :: values m0); [ apply perm_skip; exact HP | ].
-        symmetry. apply values_put_None. exact Hk.
+        symmetry. apply values_put_fresh. exact Hk.
       + intro j. rewrite !map.get_put_dec, Hget, (eqb_map_inj g Hinj). reflexivity.
   Qed.
 End MapKeysInj.
@@ -669,12 +754,45 @@ Section Map.
     destr (eqb k j); cbn [option_map]; congruence.
   Qed.
 
+  Lemma map_values'_ext (f g : key -> value -> value') (m : mp) :
+    (forall k v, f k v = g k v) ->
+    map_values' f m = map_values' g m.
+  Proof.
+    intros Hfg. apply map.map_ext. intro k.
+    rewrite !get_map_values'. destruct (map.get m k); cbn [option_map]; congruence.
+  Qed.
+
+  Lemma Forall_map_map_values' (R : key -> value' -> Prop) (f : key -> value -> value') (m : mp) :
+    Forall_map R (map_values' f m) <-> Forall_map (fun k v => R k (f k v)) m.
+  Proof.
+    unfold Forall_map. split.
+    - intros H k v Hget. apply H. rewrite get_map_values', Hget. reflexivity.
+    - intros H k v' Hget. rewrite get_map_values' in Hget.
+      destruct (map.get m k) as [v|] eqn:E; cbn [option_map] in Hget; [|discriminate].
+      injection Hget as <-. apply (H k v E).
+  Qed.
+
   Lemma map_values'_remove (f : key -> value -> value') (m : mp) k :
     map_values' f (map.remove m k) = map.remove (map_values' f m) k.
   Proof.
     apply map.map_ext. intro j.
     rewrite get_map_values', !map.get_remove_dec, get_map_values'.
     destr (eqb k j); cbn [option_map]; congruence.
+  Qed.
+
+  Lemma tuples_map_values' (f : key -> value -> value') (m : mp) :
+    Permutation (map.tuples (map_values' f m))
+                (List.map (fun '(k, v) => (k, f k v)) (map.tuples m)).
+  Proof.
+    induction m as [| m' IH k v Hnone] using map.map_ind.
+    - unfold map_values', map.tuples. rewrite !map.fold_empty. reflexivity.
+    - rewrite map_values'_put.
+      assert (Hg : map.get (map_values' f m') k = None)
+        by (rewrite get_map_values', Hnone; reflexivity).
+      eapply perm_trans; [ apply (tuples_put_perm (map_values' f m') k (f k v) Hg) | ].
+      apply Permutation_sym.
+      eapply perm_trans; [ apply (Permutation_map _ (tuples_put_perm m' k v Hnone)) | ].
+      cbn [List.map]. apply perm_skip. apply Permutation_sym. exact IH.
   Qed.
 
   Lemma keys_eq_tuples (m : mp) : map.keys m = List.map fst (map.tuples m).
@@ -1080,6 +1198,34 @@ Proof.
   - intros H. apply Forall_map_of_tuples. exact (Forall2_map_map_inv _ _ _ _ H).
 Qed.
 End Map.
+
+Lemma map_values'_id {key value} {mp : map.map key value} {mp_ok : map.ok mp}
+  {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb} (m : mp) :
+  map_values' (mp' := mp) (fun _ v => v) m = m.
+Proof.
+  apply map.map_ext. intro k.
+  rewrite get_map_values'. destruct (map.get m k); reflexivity.
+Qed.
+
+Lemma map_values'_map_values' {key value value' value''}
+  {mp : map.map key value} {mp' : map.map key value'} {mp'' : map.map key value''}
+  {mp_ok : map.ok mp} {mp'_ok : map.ok mp'} {mp''_ok : map.ok mp''}
+  {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb}
+  (f : key -> value' -> value'') (g : key -> value -> value') (m : mp) :
+  map_values' (mp' := mp'') f (map_values' (mp' := mp') g m)
+  = map_values' (mp' := mp'') (fun k v => f k (g k v)) m.
+Proof.
+  apply map.map_ext. intro k.
+  rewrite !get_map_values'. destruct (map.get m k); reflexivity.
+Qed.
+
+Lemma same_domain_map_values' {key value value'} {mp : map.map key value} {mp' : map.map key value'}
+  {mp_ok : map.ok mp} {mp'_ok : map.ok mp'}
+  {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb} (f : key -> value -> value') (m : mp) :
+  same_domain m (map_values' (mp' := mp') f m).
+Proof.
+  intros k. rewrite get_map_values'. destruct (map.get m k); cbn [option_map]; exact I.
+Qed.
 
 Section InvertListMap.
   Context {A B : Type}.
