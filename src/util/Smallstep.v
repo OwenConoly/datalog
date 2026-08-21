@@ -15,20 +15,17 @@ Section star.
     star s t0 s' ->
     step s' e s'' ->
     star s (e :: t0) s''.
+  Hint Constructors star : core.
 
   Lemma star_one s e s' : step s e s' -> star s [e] s'.
-  Proof. intros. eapply star_step; [apply star_refl | eassumption]. Qed.
+  Proof. eauto. Qed.
 
   Lemma star_nil s s' : star s [] s' -> s' = s.
-  Proof. intros H. inversion H. reflexivity. Qed.
+  Proof. invert 1. reflexivity. Qed.
 
   Lemma star_app s1 t1 s2 t2 s3 :
     star s1 t1 s2 -> star s2 t2 s3 -> star s1 (t2 ++ t1) s3.
-  Proof.
-    intros H1 H2. induction H2 as [ | t0 s' e s'' Hstar IH Hstep]; cbn.
-    - exact H1.
-    - eapply star_step; [exact IH | exact Hstep].
-  Qed.
+  Proof. induction 2; simpl; eauto. Qed.
 End star.
 
 Section io.
@@ -38,19 +35,22 @@ Section io.
     | I_event : message -> IO_event
     | O_event : label -> list message -> IO_event.
 
-  Definition inputs_of (t : list IO_event) :=
-    flat_map (fun e => match e with I_event m => [m] | _ => [] end) t.
+  Definition inputs_of (e : IO_event) :=
+    match e with I_event m => [m] | _ => [] end.
 
-  Definition outputs_of (t : list IO_event) :=
-    flat_map (fun e => match e with O_event _ outs => outs | _ => [] end) t.
+  Definition outputs_of (e : IO_event) :=
+    match e with O_event _ outs => outs | _ => [] end.
+
+  Definition labels_of (e : IO_event) :=
+    match e with O_event lbl _ => [lbl] | _ => [] end.
 
   Lemma inputs_of_map_I_event (l : list message) :
-    inputs_of (map I_event l) = l.
-  Proof.
-    unfold inputs_of.
-    induction l as [|m l IH]; [reflexivity|].
-    cbn. rewrite IH. reflexivity.
-  Qed.
+    flat_map inputs_of (map I_event l) = l.
+  Proof. induction l; cbn; congruence. Qed.
+
+  Lemma outputs_of_map_I_event (l : list message) :
+    flat_map outputs_of (map I_event l) = [].
+  Proof. induction l; cbn; congruence. Qed.
 End io.
 
 Arguments IO_event : clear implicits.
@@ -178,33 +178,13 @@ Section step.
     - eapply noncontradictory_wf_shrink_l; [ exact Hsub | exact Htail ].
   Qed.
 
-  Lemma outputs_of_perm (t1 t2 : list (IO_event label message)) :
-    Permutation t1 t2 -> Permutation (outputs_of t1) (outputs_of t2).
-  Proof. apply Permutation_flat_map. Qed.
-
-  Lemma outputs_of_app (t1 t2 : list (IO_event label message)) :
-    outputs_of (t1 ++ t2) = outputs_of t1 ++ outputs_of t2.
-  Proof. apply flat_map_app. Qed.
-
-  Lemma outputs_of_map_I_event (l : list message) :
-    outputs_of (map (@I_event label message) l) = [].
-  Proof. induction l as [|m l IH]; [reflexivity | cbn; exact IH]. Qed.
-
-  Lemma inputs_of_perm (t1 t2 : list (IO_event label message)) :
-    Permutation t1 t2 -> Permutation (inputs_of t1) (inputs_of t2).
-  Proof. apply Permutation_flat_map. Qed.
-
-  Lemma inputs_of_app (t1 t2 : list (IO_event label message)) :
-    inputs_of (t1 ++ t2) = inputs_of t1 ++ inputs_of t2.
-  Proof. apply flat_map_app. Qed.
-
   Definition input_total :=
     forall s m, exists s', step s (I_event m) s'.
 
   Lemma star_recv :
     input_total ->
     forall (inputs : list message) (s : state),
-      exists tr s', star step s tr s' /\ inputs_of tr = inputs.
+      exists tr s', star step s tr s' /\ flat_map inputs_of tr = inputs.
   Proof.
     intros Htotal.
     induction inputs as [|m inputs IH]; intros s.
@@ -234,7 +214,7 @@ Section step.
     exists lbl,
     forall s' t',
       star step s t' s' ->
-      allowed (inputs_of (t' ++ t)) ->
+      allowed (flat_map inputs_of (t' ++ t)) ->
       P (s', t' ++ t) \/
         exists s'' outs,
           step s' (O_event lbl outs) s'' /\
@@ -252,19 +232,18 @@ Section step.
     - right. exists s'', outs. split; [exact Hstep | apply HPQ, HP].
   Qed.
 
-  Definition reachable (s : state) (t : list (IO_event label message))
-                       (s' : state) (t' : list (IO_event label message)) : Prop :=
+  Definition reachable s t s' t' :=
     exists tr, star step s tr s' /\ t' = tr ++ t /\
-               (allowed (inputs_of t) -> allowed (inputs_of t')).
+            (allowed (flat_map inputs_of t) -> allowed (flat_map inputs_of t')).
+  Hint Unfold reachable : core.
 
   Lemma reachable_refl s t : reachable s t s t.
-  Proof. exists []. split; [apply star_refl | split; [reflexivity | exact (fun H => H)]]. Qed.
+  Proof. eauto using star_refl. Qed.
 
   Lemma reachable_trans s1 t1 s2 t2 s3 t3 :
     reachable s1 t1 s2 t2 -> reachable s2 t2 s3 t3 -> reachable s1 t1 s3 t3.
   Proof.
-    cbv [reachable]. intros. fwd. eexists (_ ++ _).
-    split; eauto using star_app. rewrite <- app_assoc. eauto.
+    cbv [reachable]. intros. fwd. eauto 10 using app_assoc, star_app.
   Qed.
 
   Lemma will_step_reach (s0 : state) (t0 : list (IO_event label message))
@@ -274,11 +253,8 @@ Section step.
   Proof.
     intros [lbl H]. exists lbl. intros s' t' Hstar Hallow.
     destruct (H s' t' Hstar Hallow) as [HP | (s'' & outs & Hstep & HP)].
-    - left. apply HP. exists t'. split; [exact Hstar | split; [reflexivity | intros _; exact Hallow]].
-    - right. exists s'', outs. split; [exact Hstep|]. apply HP.
-      exists (O_event lbl outs :: t').
-      split; [ eapply star_step; [exact Hstar | exact Hstep]
-             | split; [reflexivity | intros _; exact Hallow] ].
+    - eauto 10.
+    - eauto 11 using star_step.
   Qed.
 
   (* [eventually]-analogue of [will_step_reach]: at every reached state the target
@@ -289,10 +265,10 @@ Section step.
     eventually will_step P (s0, t0).
   Proof.
     intros Hev.
-    cut (forall st, reachable s0 t0 (fst st) (snd st) ->
+    enough (forall st, reachable s0 t0 (fst st) (snd st) ->
            eventually will_step (fun '(s, t) => reachable s0 t0 s t -> P (s, t)) st ->
-           eventually will_step P st).
-    { intros H. apply (H (s0, t0)); [ apply reachable_refl | exact Hev ]. }
+           eventually will_step P st) as H.
+    { apply (H (s0, t0)); [ apply reachable_refl | exact Hev ]. }
     clear Hev. intros st Hr Hev. revert Hr.
     induction Hev as [ [s' t'] HQ | [s' t'] ms Hcan Hmid IH ]; intros Hr; cbn [fst snd] in Hr.
     - apply eventually_done. apply HQ, Hr.
@@ -307,8 +283,7 @@ Section step.
     eventually will_step (fun '(s, t) => reachable s0 t0 s t /\ P (s, t)) (s0, t0).
   Proof.
     intros Hev. apply eventually_will_step_reach.
-    eapply eventually_weaken; [ exact Hev | ].
-    intros [s t] HP Hr. split; [ exact Hr | exact HP ].
+    eapply eventually_weaken; eauto. intros. Tactics.destruct_one_pair. eauto.
   Qed.
 
   (*this is not used anywhere, but without it will_step is a bit weird, since it allows
@@ -322,11 +297,11 @@ Section step.
 
   Lemma eventually_will_step_to_star :
     forall (P : state * list (IO_event label message) -> Prop) s t,
-      allowed (inputs_of t) ->
+      allowed (flat_map inputs_of t) ->
       eventually will_step P (s, t) ->
       exists s' tr,
         star step s tr s' /\
-        inputs_of tr = [] /\
+        flat_map inputs_of tr = [] /\
         P (s', tr ++ t).
   Proof.
     intros P s0 t0 Hallow Hwill.
@@ -336,26 +311,26 @@ Section step.
       intros s0 t0 Hallow [= -> ->].
     - exists s0, []. split; [constructor|]. split; [reflexivity|exact HP].
     - destruct Hcan as [lbl Hcan].
-      assert (Hallow0 : allowed (inputs_of ([] ++ t0))) by (cbn; exact Hallow).
+      assert (Hallow0 : allowed (flat_map inputs_of ([] ++ t0))) by (cbn; exact Hallow).
       destruct (Hcan s0 [] (star_refl _ _) Hallow0)
         as [Hmid0 | (s'' & outs & Hstep & Hmidset)].
       + apply (IH (s0, [] ++ t0) Hmid0 s0 t0 Hallow eq_refl).
-      + assert (Hallow' : allowed (inputs_of (O_event lbl outs :: t0))).
+      + assert (Hallow' : allowed (flat_map inputs_of (O_event lbl outs :: t0))).
         { exact Hallow. }
         destruct (IH _ Hmidset s'' (O_event lbl outs :: t0) Hallow' eq_refl)
           as (s_final & tr & Hstar & Hinp & HP).
         exists s_final, (tr ++ [O_event lbl outs]). split.
         * eapply star_app; [apply star_one; exact Hstep | exact Hstar].
         * split.
-          -- rewrite inputs_of_app, Hinp. reflexivity.
+          -- rewrite flat_map_app, Hinp. reflexivity.
           -- rewrite <- app_assoc. exact HP.
   Qed.
 
   Definition might_output start t output :=
     exists t' s',
       star step start t' s' /\
-        inputs_of t' = [] /\
-        In output (outputs_of (t' ++ t)).
+        flat_map inputs_of t' = [] /\
+        In output (flat_map outputs_of (t' ++ t)).
 
   Definition might_output_equiv start t o :=
     exists o', equiv o' o /\ might_output start t o'.
@@ -363,22 +338,22 @@ Section step.
   Definition produces (init : state) (inputs : list message) (output : message) : Prop :=
     exists t ns,
       star step init t ns /\
-      inputs_of t = inputs /\
-      In output (outputs_of t).
+      flat_map inputs_of t = inputs /\
+      In output (flat_map outputs_of t).
 
   Definition will_output start t (output : message) : Prop :=
     eventually will_step
-      (fun '(_, t') => In output (outputs_of t'))
+      (fun '(_, t') => In output (flat_map outputs_of t'))
       (start, t).
 
   Definition will_output_equiv start t (output : message) : Prop :=
     eventually will_step
-      (fun '(_, t') => exists o', equiv o' output /\ In o' (outputs_of t'))
+      (fun '(_, t') => exists o', equiv o' output /\ In o' (flat_map outputs_of t'))
       (start, t).
 
   Lemma will_implies_might :
     forall s t o,
-      allowed (inputs_of t) ->
+      allowed (flat_map inputs_of t) ->
       will_output s t o ->
       might_output s t o.
   Proof.
@@ -395,14 +370,14 @@ Section step.
       cbn in Hcan. specialize (Hcan Hall).
       destruct Hcan as [Hmid0 | (s'' & outs & Hstep & Hmidset)].
       + apply (IH (s0, t0) Hmid0 s0 t0 Hall eq_refl).
-      + assert (Hall' : allowed (inputs_of (O_event lbl outs :: t0))).
+      + assert (Hall' : allowed (flat_map inputs_of (O_event lbl outs :: t0))).
         { exact Hall. }
         destruct (IH _ Hmidset s'' (O_event lbl outs :: t0) Hall' eq_refl)
           as (t'' & s''' & Hstar'' & Hinp'' & Hout'').
         exists (t'' ++ [O_event lbl outs]), s'''. split.
         * eapply star_app; [apply star_one; exact Hstep | exact Hstar''].
         * split.
-          -- rewrite inputs_of_app, Hinp''. reflexivity.
+          -- rewrite flat_map_app, Hinp''. reflexivity.
           -- rewrite <- app_assoc. exact Hout''.
   Qed.
 
@@ -423,12 +398,9 @@ Section step.
     - destruct Hcan as [lbl Hcan].
       apply eventually_step_cps. exists lbl.
       intros s_d t_d Hstar_d Hallow_d.
-      (* Fold the single step [e_orig] into the demon run [t_d]: with newest-first
-         traces the combined run is [t_d ++ [e_orig]] and lands exactly where the
-         demon does, so no permutation is needed. *)
       assert (Hstar_combined : star step s_orig (t_d ++ [e_orig]) s_d).
       { eapply star_app; [apply star_one; exact Hstep | exact Hstar_d]. }
-      assert (Hallow_o : allowed (inputs_of ((t_d ++ [e_orig]) ++ t_orig))).
+      assert (Hallow_o : allowed (flat_map inputs_of ((t_d ++ [e_orig]) ++ t_orig))).
       { rewrite <- app_assoc. exact Hallow_d. }
       specialize (Hcan s_d (t_d ++ [e_orig]) Hstar_combined Hallow_o).
       destruct Hcan as [Hmid_left | (s'' & outs & Hstep_a & Hmidset)].
@@ -439,10 +411,8 @@ Section step.
         rewrite <- app_assoc in Hev. exact Hev.
   Qed.
 
-  (* [will_output_equiv]-analogues of [will_implies_might]/[will_output_step]:
-     the target output is only pinned down up to [equiv]. *)
   Lemma will_equiv_implies_might_equiv s t o :
-    allowed (inputs_of t) ->
+    allowed (flat_map inputs_of t) ->
     will_output_equiv s t o ->
     might_output_equiv s t o.
   Proof.
@@ -471,7 +441,7 @@ Section step.
       intros s_d t_d Hstar_d Hallow_d.
       assert (Hstar_combined : star step s_orig (t_d ++ [e_orig]) s_d).
       { eapply star_app; [apply star_one; exact Hstep | exact Hstar_d]. }
-      assert (Hallow_o : allowed (inputs_of ((t_d ++ [e_orig]) ++ t_orig))).
+      assert (Hallow_o : allowed (flat_map inputs_of ((t_d ++ [e_orig]) ++ t_orig))).
       { rewrite <- app_assoc. exact Hallow_d. }
       specialize (Hcan s_d (t_d ++ [e_orig]) Hstar_combined Hallow_o).
       destruct Hcan as [Hmid_left | (s'' & outs & Hstep_a & Hmidset)].
@@ -487,15 +457,14 @@ Section step.
     will_output_equiv s t o ->
     will_output_equiv s' (t' ++ t) o.
   Proof.
-    intros Hstar Hwill. induction Hstar as [ | t0 sa e sb Hstar' IH Hstep].
-    - exact Hwill.
-    - exact (will_output_equiv_step sa e sb (t0 ++ t) o Hstep IH).
+    intros Hstar Hwill. induction Hstar; eauto.
+    eapply will_output_equiv_step; eassumption.
   Qed.
 
   Context (initial : state).
 
   Definition outputs_well_formed :=
-    forall t s, star step initial t s -> outputs_wf (outputs_of t).
+    forall t s, star step initial t s -> outputs_wf (flat_map outputs_of t).
 
   Definition might_implies_will_equiv_at s t :=
     forall o,
@@ -505,26 +474,26 @@ Section step.
   Definition might_implies_will_equiv :=
     forall t s o,
       star step initial t s ->
-      allowed (inputs_of t) ->
+      allowed (flat_map inputs_of t) ->
       might_output s t o ->
       will_output_equiv s t o.
 
   Definition might_implies_will_equiv' :=
     forall t s o,
       star step initial t s ->
-      allowed (inputs_of t) ->
-      In o (outputs_of t) ->
+      allowed (flat_map inputs_of t) ->
+      In o (flat_map outputs_of t) ->
       forall s' t',
-        noncontradictory_inputs (inputs_of t) (inputs_of t') ->
-        consistently_incl claim consistent (inputs_of t) (inputs_of t') ->
+        noncontradictory_inputs (flat_map inputs_of t) (flat_map inputs_of t') ->
+        consistently_incl claim consistent (flat_map inputs_of t) (flat_map inputs_of t') ->
         star step initial t' s' ->
-        allowed (inputs_of t') ->
+        allowed (flat_map inputs_of t') ->
         will_output_equiv s' t' o.
 
   Lemma might_output_step_preserved :
     might_implies_will_equiv ->
     forall ns tau e ns' o,
-      allowed (inputs_of (e :: tau)) ->
+      allowed (flat_map inputs_of (e :: tau)) ->
       star step initial tau ns ->
       step ns e ns' ->
       might_output_equiv ns tau o ->
@@ -532,10 +501,9 @@ Section step.
   Proof.
     intros Hmiw ns tau e ns' o Halt Hstar Hstep Hcan.
     destruct Hcan as (o' & Hequiv & Hmo).
-    assert (Halt_tau : allowed (inputs_of tau)).
+    assert (Halt_tau : allowed (flat_map inputs_of tau)).
     { eapply allowed_submultiset; [exact Halt|].
-      exists (inputs_of [e]). change (e :: tau) with ([e] ++ tau).
-      rewrite inputs_of_app. apply Permutation_app_comm. }
+      exists (inputs_of e). cbn [flat_map]. apply Permutation_app_comm. }
     pose proof (Hmiw tau ns o' Hstar Halt_tau Hmo) as Hwill.
     pose proof (will_output_equiv_step ns e ns' tau o' Hstep Hwill) as Hwill'.
     pose proof (will_equiv_implies_might_equiv ns' (e :: tau) o' Halt Hwill') as Hmoe.
@@ -548,8 +516,8 @@ Section step.
     forall t1 t2 s1 s2 o,
       star step initial t1 s1 ->
       star step s1 t2 s2 ->
-      allowed (inputs_of t1) ->
-      allowed (inputs_of (t2 ++ t1)) ->
+      allowed (flat_map inputs_of t1) ->
+      allowed (flat_map inputs_of (t2 ++ t1)) ->
       might_output s1 t1 o ->
       might_output_equiv s2 (t2 ++ t1) o.
 
@@ -557,10 +525,10 @@ Section step.
     forall t1 t2 s1 s2 o,
       star step initial t1 s1 ->
       star step initial t2 s2 ->
-      allowed (inputs_of t1) ->
-      allowed (inputs_of t2) ->
-      noncontradictory_inputs (inputs_of t1) (inputs_of t2) ->
-      consistently_incl claim consistent (inputs_of t1) (inputs_of t2) ->
+      allowed (flat_map inputs_of t1) ->
+      allowed (flat_map inputs_of t2) ->
+      noncontradictory_inputs (flat_map inputs_of t1) (flat_map inputs_of t2) ->
+      consistently_incl claim consistent (flat_map inputs_of t1) (flat_map inputs_of t2) ->
       might_output s1 t1 o ->
       might_output_equiv s2 t2 o.
 
@@ -568,9 +536,9 @@ Section step.
     forall t1 t2 s1 s2 o,
       star step initial t1 s1 ->
       star step initial t2 s2 ->
-      allowed (inputs_of t1) ->
-      allowed (inputs_of t2) ->
-      submultiset (inputs_of t1) (inputs_of t2) ->
+      allowed (flat_map inputs_of t1) ->
+      allowed (flat_map inputs_of t2) ->
+      submultiset (flat_map inputs_of t1) (flat_map inputs_of t2) ->
       might_output s1 t1 o ->
       might_output_equiv s2 t2 o.
 
@@ -581,7 +549,7 @@ Section step.
     - apply noncontradictory_wf_of_submultiset; [ exact Hsub | exact Hal2 ].
     - split.
       + exact (incl_mod_of_submultiset equiv _ _ Hsub).
-      + intros s _ Hcons. exact (consistent_mono s (inputs_of t1) (inputs_of t2) Hcons Hsub).
+      + intros s _ Hcons. exact (consistent_mono s (flat_map inputs_of t1) (flat_map inputs_of t2) Hcons Hsub).
   Qed.
 
   Lemma miw'_iff_miw_and_monotone' :
@@ -594,24 +562,24 @@ Section step.
         intros t s o Hstar Hall Hcan.
         destruct Hcan as (T_a & s_f & Hstar_a & Hinp_a & Hout).
         pose proof (star_app _ _ _ _ _ _ Hstar Hstar_a) as Hstar_T.
-        assert (HallT : allowed (inputs_of (T_a ++ t))).
-        { rewrite inputs_of_app, Hinp_a. exact Hall. }
+        assert (HallT : allowed (flat_map inputs_of (T_a ++ t))).
+        { rewrite flat_map_app, Hinp_a. exact Hall. }
         apply (Hmiw' (T_a ++ t) s_f o Hstar_T HallT Hout s t).
-        * rewrite inputs_of_app, Hinp_a. cbn [app].
+        * rewrite flat_map_app, Hinp_a. cbn [app].
           apply noncontradictory_refl. exact Hall.
-        * rewrite inputs_of_app, Hinp_a. apply consistently_incl_refl.
+        * rewrite flat_map_app, Hinp_a. apply consistently_incl_refl.
         * exact Hstar.
         * exact Hall.
       + (* monotone_mod_equiv *)
         intros t1 t2 s1 s2 o Hstar1 Hstar2 Hall1 Hall2 Hnc Hincl Hcan1.
         destruct Hcan1 as (T_a & s_f & Hstar_a & Hinp_a & Hout).
         pose proof (star_app _ _ _ _ _ _ Hstar1 Hstar_a) as Hstar_T.
-        assert (HallT : allowed (inputs_of (T_a ++ t1))).
-        { rewrite inputs_of_app, Hinp_a. exact Hall1. }
-        assert (HncT : noncontradictory_inputs (inputs_of (T_a ++ t1)) (inputs_of t2)).
-        { rewrite inputs_of_app, Hinp_a. exact Hnc. }
-        assert (HinclT : consistently_incl claim consistent (inputs_of (T_a ++ t1)) (inputs_of t2)).
-        { rewrite inputs_of_app, Hinp_a. exact Hincl. }
+        assert (HallT : allowed (flat_map inputs_of (T_a ++ t1))).
+        { rewrite flat_map_app, Hinp_a. exact Hall1. }
+        assert (HncT : noncontradictory_inputs (flat_map inputs_of (T_a ++ t1)) (flat_map inputs_of t2)).
+        { rewrite flat_map_app, Hinp_a. exact Hnc. }
+        assert (HinclT : consistently_incl claim consistent (flat_map inputs_of (T_a ++ t1)) (flat_map inputs_of t2)).
+        { rewrite flat_map_app, Hinp_a. exact Hincl. }
         pose proof (Hmiw' (T_a ++ t1) s_f o Hstar_T HallT Hout s2 t2 HncT HinclT Hstar2 Hall2)
           as Hwill.
         exact (will_equiv_implies_might_equiv s2 t2 o Hall2 Hwill).
@@ -655,11 +623,10 @@ Section step.
   Qed.
 
   Lemma ev_stable_ex_out (R : message -> Prop) :
-    ev_stable (fun '(_, t') => exists o', R o' /\ In o' (outputs_of t')).
+    ev_stable (fun '(_, t') => exists o', R o' /\ In o' (flat_map outputs_of t')).
   Proof.
     intros s s' e t (o' & HR & Hin) Hstep. exists o'. split; [exact HR|].
-    change (e :: t) with ([e] ++ t). rewrite outputs_of_app.
-    apply in_or_app. right. exact Hin.
+    cbn [flat_map]. apply in_or_app. right. exact Hin.
   Qed.
 
   Lemma eventually_carry_stable_gen P Q st :
@@ -688,7 +655,7 @@ Section step.
   Lemma eventually_will_step_advance Q s t s' t' :
     ev_stable Q ->
     star step s t' s' ->
-    allowed (inputs_of (t' ++ t)) ->
+    allowed (flat_map inputs_of (t' ++ t)) ->
     eventually will_step Q (s, t) ->
     eventually will_step Q (s', t' ++ t).
   Proof.
@@ -701,7 +668,7 @@ Section step.
       intros s'' sigma Hstar_sigma Hallow_sigma.
       assert (Hcomb : star step s (sigma ++ t') s'').
       { eapply star_app; [exact Hstar | exact Hstar_sigma]. }
-      assert (Hallow_comb : allowed (inputs_of ((sigma ++ t') ++ t))).
+      assert (Hallow_comb : allowed (flat_map inputs_of ((sigma ++ t') ++ t))).
       { rewrite <- app_assoc. exact Hallow_sigma. }
       specialize (HQstep s'' (sigma ++ t') Hcomb Hallow_comb).
       destruct HQstep as [Hleft | (s3 & outs & Hst & Hright)].
@@ -762,15 +729,15 @@ Section step.
   Lemma will_output_all outs ns t :
     might_implies_will_equiv ->
     star step initial t ns ->
-    allowed (inputs_of t) ->
+    allowed (flat_map inputs_of t) ->
     Forall (might_output_equiv ns t) outs ->
     eventually will_step
-      (fun '(_, t') => Forall (fun o => exists o', equiv o o' /\ In o' (outputs_of t')) outs) (ns, t).
+      (fun '(_, t') => Forall (fun o => exists o', equiv o o' /\ In o' (flat_map outputs_of t')) outs) (ns, t).
   Proof.
     intros Hmiw Hstar Hallow HF.
     eapply eventually_weaken.
     - eapply (eventually_will_step_Forall
-                (map (fun o => (fun '(_, t') => exists o', equiv o o' /\ In o' (outputs_of t'))) outs)
+                (map (fun o => (fun '(_, t') => exists o', equiv o o' /\ In o' (flat_map outputs_of t'))) outs)
                 (ns, t)).
       + rewrite Forall_map, Forall_forall. intros o _.
         apply (ev_stable_ex_out (fun o' => equiv o o')).
@@ -790,9 +757,9 @@ Section step.
      [star].  Generalizes [will_implies_might] to any trace predicate [Q]. *)
   Lemma will_step_extract (Q : list (IO_event label message) -> Prop) :
     forall s0 t0,
-      allowed (inputs_of t0) ->
+      allowed (flat_map inputs_of t0) ->
       eventually will_step (fun '(_, t) => Q t) (s0, t0) ->
-      exists tf sf, star step s0 tf sf /\ inputs_of tf = [] /\ Q (tf ++ t0).
+      exists tf sf, star step s0 tf sf /\ flat_map inputs_of tf = [] /\ Q (tf ++ t0).
   Proof.
     intros s0 t0 Hall Hev.
     remember (s0, t0) as st eqn:Est.
@@ -805,13 +772,13 @@ Section step.
       cbn in Hcan. specialize (Hcan Hall).
       destruct Hcan as [Hmid0 | (s'' & outs & Hstep & Hmidset)].
       + apply (IH (s0, t0) Hmid0 s0 t0 Hall eq_refl).
-      + assert (Hall' : allowed (inputs_of (O_event lbl outs :: t0))) by exact Hall.
+      + assert (Hall' : allowed (flat_map inputs_of (O_event lbl outs :: t0))) by exact Hall.
         destruct (IH _ Hmidset s'' (O_event lbl outs :: t0) Hall' eq_refl)
           as (tf & sf & Hstarf & Hinpf & HQf).
         exists (tf ++ [O_event lbl outs]), sf. split.
         * eapply star_app; [apply star_one; exact Hstep | exact Hstarf].
         * split.
-          -- rewrite inputs_of_app, Hinpf. reflexivity.
+          -- rewrite flat_map_app, Hinpf. reflexivity.
           -- rewrite <- app_assoc. exact HQf.
   Qed.
 
@@ -820,23 +787,23 @@ Section step.
     forall t s t' s',
       star step initial t s ->
       star step initial t' s' ->
-      allowed (inputs_of t) ->
-      allowed (inputs_of t') ->
-      noncontradictory_inputs (inputs_of t) (inputs_of t') ->
-      consistently_incl claim consistent (inputs_of t) (inputs_of t') ->
+      allowed (flat_map inputs_of t) ->
+      allowed (flat_map inputs_of t') ->
+      noncontradictory_inputs (flat_map inputs_of t) (flat_map inputs_of t') ->
+      consistently_incl claim consistent (flat_map inputs_of t) (flat_map inputs_of t') ->
       exists tf sf,
         star step s' tf sf /\
-        inputs_of tf = [] /\
-        incl_mod equiv (outputs_of t) (outputs_of (tf ++ t')).
+        flat_map inputs_of tf = [] /\
+        incl_mod equiv (flat_map outputs_of t) (flat_map outputs_of (tf ++ t')).
   Proof.
     intros Hmiw' t s t' s' Hstar Hstar' Hallt Hallt' Hnc Hci.
     pose proof (proj1 miw'_iff_miw_and_monotone' Hmiw') as (Hmiw & Hmono).
-    assert (HF : Forall (might_output_equiv s' t') (outputs_of t)).
+    assert (HF : Forall (might_output_equiv s' t') (flat_map outputs_of t)).
     { apply Forall_forall. intros o Ho.
       assert (Hmo : might_output s t o).
       { exists [], s. split; [apply star_refl | split; [reflexivity | cbn [app]; exact Ho]]. }
       exact (Hmono t t' s s' o Hstar Hstar' Hallt Hallt' Hnc Hci Hmo). }
-    pose proof (will_output_all (outputs_of t) s' t' Hmiw Hstar' Hallt' HF) as Hev.
+    pose proof (will_output_all (flat_map outputs_of t) s' t' Hmiw Hstar' Hallt' HF) as Hev.
     destruct (will_step_extract _ s' t' Hallt' Hev) as (tf & sf & Hstarf & Hinpf & HQ).
     exists tf, sf. split; [ exact Hstarf | ]. split; [ exact Hinpf | ].
     intros o Ho. rewrite Forall_forall in HQ. destruct (HQ o Ho) as (o' & Hequiv & Hin).
@@ -846,21 +813,21 @@ Section step.
   Lemma noncontradictory_drive :
     input_total ->
     forall (t t' : list (IO_event label message)) s,
-      noncontradictory_inputs (inputs_of t) (inputs_of t') ->
+      noncontradictory_inputs (flat_map inputs_of t) (flat_map inputs_of t') ->
       exists tr sf,
         star step s tr sf /\
-        outputs_of tr = [] /\
-        allowed (inputs_of (tr ++ t)) /\
-        consistently_incl claim consistent (inputs_of t') (inputs_of (tr ++ t)) /\
-        noncontradictory_inputs (inputs_of t') (inputs_of (tr ++ t)).
+        flat_map outputs_of tr = [] /\
+        allowed (flat_map inputs_of (tr ++ t)) /\
+        consistently_incl claim consistent (flat_map inputs_of t') (flat_map inputs_of (tr ++ t)) /\
+        noncontradictory_inputs (flat_map inputs_of t') (flat_map inputs_of (tr ++ t)).
   Proof.
     intros Hit t t' s Hnc.
     destruct Hnc as [l' [rest Hperm] HallL Hci Htail].
     destruct (star_recv_map Hit rest s) as (sf & Hstartr).
-    assert (Hinp : Permutation (inputs_of (map I_event rest ++ t)) l').
-    { rewrite inputs_of_app, inputs_of_map_I_event.
+    assert (Hinp : Permutation (flat_map inputs_of (map I_event rest ++ t)) l').
+    { rewrite flat_map_app, inputs_of_map_I_event.
       eapply Permutation_trans; [ apply Permutation_app_comm | apply Permutation_sym; exact Hperm ]. }
-    assert (Hsub_TL : submultiset (inputs_of (map I_event rest ++ t)) l')
+    assert (Hsub_TL : submultiset (flat_map inputs_of (map I_event rest ++ t)) l')
       by (exists []; rewrite app_nil_r; apply Permutation_sym; exact Hinp).
     exists (map I_event rest), sf.
     split; [ exact Hstartr | ].
@@ -878,9 +845,9 @@ Section step.
     outputs_well_formed ->
     star step initial t s ->
     star step initial t' s' ->
-    allowed (inputs_of t') ->
-    noncontradictory_inputs (inputs_of t) (inputs_of t') ->
-    noncontradictory_outputs (outputs_of t) (outputs_of t').
+    allowed (flat_map inputs_of t') ->
+    noncontradictory_inputs (flat_map inputs_of t) (flat_map inputs_of t') ->
+    noncontradictory_outputs (flat_map outputs_of t) (flat_map outputs_of t').
   Proof.
     intros Hmiw' Hit Howf.
     revert t s t' s'.
@@ -894,19 +861,19 @@ Section step.
       as (tf & sTf & Hstarf & Hinpf & Hcov).
     assert (HstarTf : star step initial (tf ++ tr ++ t) sTf)
       by (eapply star_app; [ exact HstarT | exact Hstarf ]).
-    assert (Hsub_out : submultiset (outputs_of t) (outputs_of (tf ++ tr ++ t))).
-    { rewrite !outputs_of_app, Houttr. cbn [app].
-      exists (outputs_of tf). apply Permutation_app_comm. }
-    assert (Hwf_out : outputs_wf (outputs_of (tf ++ tr ++ t)))
+    assert (Hsub_out : submultiset (flat_map outputs_of t) (flat_map outputs_of (tf ++ tr ++ t))).
+    { rewrite !flat_map_app, Houttr. cbn [app].
+      exists (flat_map outputs_of tf). apply Permutation_app_comm. }
+    assert (Hwf_out : outputs_wf (flat_map outputs_of (tf ++ tr ++ t)))
       by (eapply Howf; exact HstarTf).
-    assert (Hci_out : consistently_incl claim_output consistent_output (outputs_of t') (outputs_of (tf ++ tr ++ t))).
+    assert (Hci_out : consistently_incl claim_output consistent_output (flat_map outputs_of t') (flat_map outputs_of (tf ++ tr ++ t))).
     { split; [ exact Hcov | ].
       intros s0 Hcl _.
       apply outputs_wf_consistent; [ exact Hwf_out | eapply claim_output_mono; [ exact Hcl | exact Hcov ] ]. }
-    assert (Halltf : allowed (inputs_of (tf ++ tr ++ t))).
-    { rewrite inputs_of_app, Hinpf. cbn [app]. exact HallT. }
-    assert (Hnctf : noncontradictory_inputs (inputs_of t') (inputs_of (tf ++ tr ++ t))).
-    { rewrite inputs_of_app, Hinpf. cbn [app]. exact HncT. }
+    assert (Halltf : allowed (flat_map inputs_of (tf ++ tr ++ t))).
+    { rewrite flat_map_app, Hinpf. cbn [app]. exact HallT. }
+    assert (Hnctf : noncontradictory_inputs (flat_map inputs_of t') (flat_map inputs_of (tf ++ tr ++ t))).
+    { rewrite flat_map_app, Hinpf. cbn [app]. exact HncT. }
     econstructor.
     - exact Hsub_out.
     - exact Hwf_out.
@@ -919,27 +886,27 @@ Section step.
   Definition complete :=
     forall t s,
       star step initial t s ->
-      allowed (inputs_of t) ->
+      allowed (flat_map inputs_of t) ->
       forall output,
-        D (inputs_of t) output ->
+        D (flat_map inputs_of t) output ->
         will_output_equiv s t output.
 
   Definition sound :=
     forall t s,
       star step initial t s ->
-      allowed (inputs_of t) ->
+      allowed (flat_map inputs_of t) ->
       forall output,
-        In output (outputs_of t) ->
-        D (inputs_of t) output.
+        In output (flat_map outputs_of t) ->
+        D (flat_map inputs_of t) output.
 
   Definition described_by := sound /\ complete.
 
   Definition complete_weak :=
     forall t s,
       star step initial t s ->
-      allowed (inputs_of t) ->
+      allowed (flat_map inputs_of t) ->
       forall output,
-        D (inputs_of t) output ->
+        D (flat_map inputs_of t) output ->
         might_output s t output.
 
   Definition described_by_weak := sound /\ complete_weak.
@@ -955,21 +922,22 @@ Section step.
 End step.
 
 Section steps_corresp.
-  Context {label message : Type}.
+  Context {label1 label2 message : Type}.
   Context (allowed : list message -> Prop).
   Context (equiv : message -> message -> Prop).
   Context {equiv_equiv : Equivalence equiv}.
   Context {stmt} (claim : stmt -> list message -> Prop).
   Context (consistent : stmt -> list message -> Prop).
-  Local Notation IO_event := (IO_event label message).
+  Local Notation IO_event1 := (IO_event label1 message).
+  Local Notation IO_event2 := (IO_event label2 message).
 
   Section steps.
     Context {state1 : Type}.
-    Context (step1 : state1 -> IO_event -> state1 -> Prop).
+    Context (step1 : state1 -> IO_event1 -> state1 -> Prop).
     Context (initial1 : state1).
 
     Context {state2 : Type}.
-    Context (step2 : state2 -> IO_event -> state2 -> Prop).
+    Context (step2 : state2 -> IO_event2 -> state2 -> Prop).
     Context (initial2 : state2).
 
     Definition steps_corresp_sound :=
@@ -978,13 +946,12 @@ Section steps_corresp.
         produces step1 initial1 inps output ->
         produces step2 initial2 inps output.
 
-    (*TODO i think Datatypes.List.map2 needs a better name*)
-    Context (R : state1 -> list IO_event -> state2 -> list IO_event -> Prop).
+    Context (R : state1 -> list IO_event1 -> state2 -> list IO_event2 -> Prop).
     Context (R_init : R initial1 [] initial2 []).
     Context (R_outputs_corresp :
               forall s1 t1 s2 t2,
                 R s1 t1 s2 t2 ->
-                incl (outputs_of t1) (outputs_of t2)).
+                incl (flat_map outputs_of t1) (flat_map outputs_of t2)).
 
     Definition weak_sim :=
       forall s1 t1 s1' s2 t2 e,
@@ -992,8 +959,16 @@ Section steps_corresp.
         step1 s1 e s1' ->
         exists s2' t2',
           star step2 s2 t2' s2' /\
-          inputs_of t2' = inputs_of [e] /\
+          flat_map inputs_of t2' = inputs_of e /\
           R s1' (e :: t1) s2' (t2' ++ t2).
+
+    Definition will_step_sim :=
+      forall s1 t1 s2 t2 P,
+        R s1 t1 s2 t2 ->
+        will_step step1 allowed (s1, t1) P ->
+        eventually (will_step step2 allowed)
+          (fun '(s2', t2') => exists s1' t1', R s1' t1' s2' t2' /\ P (s1', t1'))
+          (s2, t2).
 
     Lemma weak_sim_lift :
       weak_sim ->
@@ -1001,7 +976,7 @@ Section steps_corresp.
         star step1 initial1 t1 ns1 ->
         exists t2 ns2,
           star step2 initial2 t2 ns2 /\
-          inputs_of t2 = inputs_of t1 /\
+          flat_map inputs_of t2 = flat_map inputs_of t1 /\
           R ns1 t1 ns2 t2.
     Proof.
       intros Hws t1 ns1 Hstar1.
@@ -1012,8 +987,7 @@ Section steps_corresp.
         exists (t2' ++ t2), s2'.
         split; [eapply star_app; [exact Hstar2 | exact Hstar2']|].
         split.
-        * rewrite inputs_of_app. change (e :: t0) with ([e] ++ t0).
-          rewrite inputs_of_app, Hinp', Hinpeq. reflexivity.
+        * rewrite flat_map_app, Hinp', Hinpeq. reflexivity.
         * exact HR'.
     Qed.
 
@@ -1043,10 +1017,10 @@ Section steps_corresp.
       sound step1 allowed initial1 D.
     Proof.
       intros Hs2 Hcorresp t1 s1 Hstar1 Hall1 o Hout1.
-      assert (Hprod1 : produces step1 initial1 (inputs_of t1) o).
+      assert (Hprod1 : produces step1 initial1 (flat_map inputs_of t1) o).
       { exists t1, s1. split; [exact Hstar1|]. split; [reflexivity|exact Hout1]. }
       destruct (Hcorresp _ _ Hall1 Hprod1) as (t2 & s2 & Hstar2 & Hinp & Hout2).
-      assert (Hall2 : allowed (inputs_of t2)) by (rewrite Hinp; exact Hall1).
+      assert (Hall2 : allowed (flat_map inputs_of t2)) by (rewrite Hinp; exact Hall1).
       pose proof (Hs2 _ _ Hstar2 Hall2 _ Hout2) as HD.
       rewrite Hinp in HD. exact HD.
     Qed.
@@ -1059,20 +1033,17 @@ Section steps_corresp.
     Proof.
       intros Hit1 Hmiw1 Hscs' inps o Hallowed Hprod1.
       destruct Hprod1 as (t1 & ns1 & Hstar1 & Hinp1 & Hout1).
-      assert (Hall1 : allowed (inputs_of t1)) by (rewrite Hinp1; exact Hallowed).
-      destruct (star_recv_map step1 Hit1 (inputs_of t1) initial1) as (ns1' & Hstar1').
-      assert (Hall' : allowed (inputs_of (map I_event (inputs_of t1) : list IO_event))).
+      assert (Hall1 : allowed (flat_map inputs_of t1)) by (rewrite Hinp1; exact Hallowed).
+      destruct (star_recv_map step1 Hit1 (flat_map inputs_of t1) initial1) as (ns1' & Hstar1').
+      assert (Hall' : allowed (flat_map inputs_of (map I_event (flat_map inputs_of t1) : list IO_event1))).
       {  rewrite inputs_of_map_I_event. exact Hall1. }
-      assert (Hincl : consistently_incl equiv claim consistent (inputs_of t1)
-                           (inputs_of (map I_event (inputs_of t1) : list IO_event))).
+      assert (Hincl : consistently_incl equiv claim consistent (flat_map inputs_of t1)
+                           (flat_map inputs_of (map I_event (flat_map inputs_of t1) : list IO_event1))).
       { rewrite inputs_of_map_I_event. apply (consistently_incl_refl equiv claim consistent). }
-      assert (Hnc : noncontradictory_inputs equiv claim consistent allowed (inputs_of t1)
-                         (inputs_of (map I_event (inputs_of t1) : list IO_event))).
-      { rewrite inputs_of_map_I_event. exact (noncontradictory_refl equiv claim consistent allowed (inputs_of t1) Hall1). }
-      pose proof (Hmiw1 t1 ns1 o Hstar1 Hall1 Hout1
-                       ns1' (map I_event (inputs_of t1)) Hnc Hincl Hstar1' Hall') as Hwill.
-      rewrite <- Hinp1.
-      exact (Hscs' ns1' (inputs_of t1) o Hstar1' Hall1 Hwill).
+      assert (Hnc : noncontradictory_inputs equiv claim consistent allowed (flat_map inputs_of t1)
+                         (flat_map inputs_of (map I_event (flat_map inputs_of t1) : list IO_event1))).
+      { rewrite inputs_of_map_I_event. apply noncontradictory_refl; assumption. }
+      rewrite <- Hinp1. eapply Hscs'; eauto.
     Qed.
 
     Fail Fail Definition steps_equiv :=

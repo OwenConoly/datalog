@@ -1,0 +1,48 @@
+; don't build the atl/ directory (or its dependency verified-scheduling) by default, since it's mostly broken
+
+(alias
+ (name default)
+ (deps
+  (alias_rec src/util/default)
+  (alias_rec src/datalog/default)))
+
+(subdir
+ verified-scheduling/src/verified_scheduling/atl
+ (rocq.theory
+  (name ATL)
+  (package datalog)
+  (theories Stdlib)
+  (flags :standard -w -all)))
+
+(subdir
+ verified-scheduling/src/examples
+ (rocq.theory
+  (name Examples)
+  (package datalog)
+  (theories Stdlib ATL)
+  (flags :standard -w -all)))
+
+(subdir
+ verified-scheduling/src/verified_scheduling/codegen
+ (rocq.theory
+  (name Codegen)
+  (package datalog)
+  (theories Stdlib Ltac2 ATL Examples)
+  (flags :standard -w -all)))
+
+(subdir
+ verified-scheduling/src/verified_lowering/proof
+ (rocq.theory
+  (name Lower)
+  (package datalog)
+  (theories Stdlib ATL)
+  (modules :standard \ Overflow AssignNoOverwrite)
+  (flags :standard -w -all)))
+
+(subdir
+ verified-scheduling/src/verified_lowering/inferpad
+ (rocq.theory
+  (name Inferpad)
+  (package datalog)
+  (theories Stdlib ATL Codegen Examples Lower)
+  (flags :standard -w -all)))

@@ -1,7 +1,6 @@
-[submodule "coqutil"]
-	path = coqutil
-	url = https://github.com/mit-plv/coqutil.git
-
 [submodule "verified-scheduling"]
 	path = verified-scheduling
 	url = https://github.com/OwenConoly/verified-scheduling.git
+[submodule "graph_search"]
+	path = graph_search
+	url = https://github.com/owenconoly/graph_search.git
