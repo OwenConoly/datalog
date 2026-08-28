@@ -244,6 +244,17 @@ Section __.
     Proper (@Permutation _ ==> @Permutation _) (msgs_to_pebbles R orig).
   Proof. intros a b H. cbv [msgs_to_pebbles]. apply Permutation_map, Permutation_filter, H. Qed.
 
+  Lemma msgs_to_pebbles_forwarded R orig src d L :
+    msgs_to_pebbles R orig (map (fun d' => (d', (d, src))) L)
+    = (if (eqb R (dfact_rel d) && eqb orig src)%bool
+       then map (fun d' => (loc_of_dest d', d)) L else []).
+  Proof.
+    cbv [msgs_to_pebbles].
+    induction L as [| d' L' IH]; cbn [map filter msg_matches].
+    - destruct (eqb R (dfact_rel d) && eqb orig src)%bool; reflexivity.
+    - destruct (eqb R (dfact_rel d) && eqb orig src)%bool; cbn [map]; rewrite IH; reflexivity.
+  Qed.
+
   Lemma dest_msgs_map_values'_enqueue (g : node_id -> list (dfact * source)) (s : fgstate) :
     Permutation
       (dest_msgs {| graph_nodes := map_values' (fun n ns => enqueue (g n) ns) s.(graph_nodes);
@@ -532,6 +543,71 @@ Section __.
       apply (Permutation_app_inv_l (map fst (filter (msg_matches R orig) Qa))).
       etransitivity; [ apply Permutation_app_tail; symmetry; exact HPa | ].
       etransitivity; [ exact HPab | exact Hfil ].
+  Qed.
+
+  (* travelling_to depends on the message list only through the per-channel graph_incoming,
+     so a pebble step at a vertex other than dest (unaffected channels unchanged) leaves it
+     invariant -- a direct corollary of graph_incoming_pebble_step. *)
+  Lemma travelling_to_pebble_step v dm dm' dest queue :
+    v <> loc_of_dest dest ->
+    (forall R orig,
+        (graph.is_locally_tree (forwarding_graph (R, orig)) v /\
+         pebble_step (forwarding_graph (R, orig)) v
+           (msgs_to_pebbles R orig dm) (msgs_to_pebbles R orig dm'))
+        \/ Permutation (msgs_to_pebbles R orig dm) (msgs_to_pebbles R orig dm')) ->
+    travelling_to dm dest queue ->
+    travelling_to dm' dest queue.
+  Proof.
+    intros Hne Hstep (queue' & Hq & HF & HP).
+    exists queue'. split; [ exact Hq | split; [ exact HF | ] ].
+    intros R orig Hin. specialize (HP R orig Hin). specialize (Hstep R orig).
+    etransitivity; [ | exact HP ].
+    destruct Hstep as [ [Htree Hps] | Hperm ].
+    - symmetry. apply graph_incoming_pebble_step with (v := v);
+        [ exact Htree | exact Hne | exact Hps ].
+    - apply graph_incoming_Proper. symmetry. exact Hperm.
+  Qed.
+
+  Definition forwarding_step (s : source) (f : dfact) (orig : source)
+    (dm1 dm2 : list (destn * (dfact * source))) : Prop :=
+    exists d0 rest,
+      loc_of_dest d0 = loc_of_source s /\
+      Permutation dm1 ((d0, (f, orig)) :: rest) /\
+      Permutation dm2 (map (fun d' => (d', (f, orig)))
+                         (fforward s (dfact_rel f, orig)) ++ rest).
+
+  Lemma travelling_to_forwarding_step s f orig dm dm' dest queue :
+    graph.is_locally_tree (forwarding_graph (dfact_rel f, orig)) (loc_of_source s) ->
+    loc_of_source s <> loc_of_dest dest ->
+    forwarding_step s f orig dm dm' ->
+    travelling_to dm dest queue ->
+    travelling_to dm' dest queue.
+  Proof.
+    intros Htree Hne (d0 & rest & Hloc & Hdm & Hdm') Htr.
+    apply (travelling_to_pebble_step (loc_of_source s) dm dm' dest queue Hne); [ | exact Htr ].
+    intros R orig'.
+    assert (Ha : Permutation (msgs_to_pebbles R orig' dm)
+                   (msgs_to_pebbles R orig' (map (fun d' => (d', (f, orig))) [d0])
+                    ++ msgs_to_pebbles R orig' rest)).
+    { rewrite <- msgs_to_pebbles_app. apply msgs_to_pebbles_Proper. exact Hdm. }
+    assert (Hb : Permutation (msgs_to_pebbles R orig' dm')
+                   (msgs_to_pebbles R orig' (map (fun d' => (d', (f, orig)))
+                                              (fforward s (dfact_rel f, orig)))
+                    ++ msgs_to_pebbles R orig' rest)).
+    { rewrite <- msgs_to_pebbles_app. apply msgs_to_pebbles_Proper. exact Hdm'. }
+    rewrite !msgs_to_pebbles_forwarded in Ha, Hb.
+    destr (eqb R (dfact_rel f)); destr (eqb orig' orig); cbn [andb map] in Ha, Hb.
+    - left. split; [ exact Htree | ].
+      exists (msgs_to_pebbles (dfact_rel f) orig rest), f.
+      split.
+      + etransitivity; [ exact Ha | ]. rewrite Hloc. reflexivity.
+      + etransitivity; [ exact Hb | ]. apply Permutation_app_tail.
+        rewrite <- (map_map loc_of_dest (fun v' => (v', f))).
+        apply Permutation_map.
+        symmetry. apply forwarding_graph_edges_from_source.
+    - right. etransitivity; [ exact Ha | ]. symmetry. exact Hb.
+    - right. etransitivity; [ exact Ha | ]. symmetry. exact Hb.
+    - right. etransitivity; [ exact Ha | ]. symmetry. exact Hb.
   Qed.
 
   Lemma travelling_to_cons_inv dm dest f orig queue :
@@ -894,17 +970,6 @@ Section __.
   (* Qed. *)
   Admitted.
 
-  Lemma msgs_to_pebbles_forwarded R orig src d L :
-    msgs_to_pebbles R orig (map (fun d' => (d', (d, src))) L)
-    = (if (eqb R (dfact_rel d) && eqb orig src)%bool
-       then map (fun d' => (loc_of_dest d', d)) L else []).
-  Proof.
-    cbv [msgs_to_pebbles].
-    induction L as [| d' L' IH]; cbn [map filter msg_matches].
-    - destruct (eqb R (dfact_rel d) && eqb orig src)%bool; reflexivity.
-    - destruct (eqb R (dfact_rel d) && eqb orig src)%bool; cbn [map]; rewrite IH; reflexivity.
-  Qed.
-
   Lemma travelling_to_forwarded src d dest :
     forwarding_reaches -> forwarding_tree ->
     loc_of_source src <> loc_of_dest dest ->
@@ -1187,7 +1252,7 @@ Section __.
               { admit. }
               eapply travelling_to_Proper; try eassumption; try reflexivity.
               repeat rewrite map_app. repeat rewrite <- app_assoc. reflexivity.
-           ++ Search pebble_step.
+           ++ eapply travelling_to_pebble_step. Search pebble_step.
 
 
               do
