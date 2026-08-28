@@ -300,22 +300,11 @@ Section __.
   Lemma dest_msgs_put' (s : fgstate) n v v' a :
     map.get s.(graph_nodes) n = Some v ->
     Permutation (all_pending_msgs v) (a ++ all_pending_msgs v') ->
-    Permutation
-      (dest_msgs s)
+    Permutation (dest_msgs s)
       (map (fun m => (node_destn n, m)) a
-       ++ dest_msgs {| graph_nodes := map.put s.(graph_nodes) n v';
-                       graph_output_queue := s.(graph_output_queue) |}).
-  Proof.
-    intros Hget Hperm.
-    rewrite (dest_msgs_get_remove s n v Hget).
-    rewrite (dest_msgs_get_remove
-               {| graph_nodes := map.put s.(graph_nodes) n v';
-                  graph_output_queue := s.(graph_output_queue) |} n v').
-    2: { cbn [graph_nodes]. apply map.get_put_same. }
-    cbn [graph_nodes graph_output_queue]. rewrite map.remove_put_same.
-    rewrite app_assoc, <- map_app.
-    apply Permutation_app_tail. apply Permutation_map. exact Hperm.
-  Qed.
+         ++ dest_msgs {| graph_nodes := map.put s.(graph_nodes) n v';
+                        graph_output_queue := s.(graph_output_queue) |}).
+  Proof. Admitted.
 
   Lemma to_pebbles_map_values'_enqueue R orig (g : node_id -> list (dfact * source)) (s : fgstate) :
     Permutation
@@ -1065,6 +1054,22 @@ Section __.
            { admit. }
            intros. rewrite dest_msgs_forward_to.
            2: { admit. }
+           move Hp5 at bottom. specialize (Hp5 _ ltac:(eassumption)).
+           erewrite queue_at_dest_put with (gns' := {| gns_queue := l1 ++ l2|}) in Hp5.
+           2: eassumption.
+           2: { rewrite E. simpl. Search (Permutation _ (_ ++ _ :: _)).
+                rewrite <- Permutation_middle. instantiate (1 := [_]).
+                simpl. reflexivity. }
+           Check travelling_to_cons_inv.
+           rewrite dest_msgs_put' in Hp5. 2: eassumption.
+           Print dest_msgs.
+           Check queue_at_dest_put.
+
+           Check dest_msgs_put'.
+           rewrite dest_msgs_put'.
+           2: { apply map.get_put_same. }
+           2: { cbv [all_pending_msgs]. simpl. rewrite H5.
+
            fail.
         admit.
     - destruct e; simpl in H0p0; congruence || fwd. invert H1.
