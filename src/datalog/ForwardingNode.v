@@ -754,19 +754,16 @@ Section __.
     - cbn [queue_at_dest]. exact Hout.
   Qed.
 
-  Lemma queue_at_dest_put (s : ngstate) n gns gns' a dest :
-    map.get s.(graph_nodes) n = Some gns ->
-    Permutation gns.(gns_queue) (a ++ gns'.(gns_queue)) ->
+  Lemma queue_at_dest_put (s : ngstate) n gns' dest :
     Permutation
-      (queue_at_dest s dest)
-      ((if eqb dest (node_destn n) then a else [])
-       ++ queue_at_dest {| graph_nodes := map.put s.(graph_nodes) n gns';
-                           graph_output_queue := s.(graph_output_queue) |} dest).
+      (queue_at_dest {| graph_nodes := map.put s.(graph_nodes) n gns';
+                           graph_output_queue := s.(graph_output_queue) |} dest)
+      (if eqb dest (node_destn n) then gns'.(gns_queue) else queue_at_dest s dest).
   Proof.
-    intros Hget Hperm. destruct dest as [m | ].
+    destruct dest as [m | ].
     - destr (eqb (node_destn m) (node_destn n)).
-      + cbn [queue_at_dest graph_nodes]. rewrite map.get_put_same, Hget.
-        cbn [option_map unwrap_or_default unwrap_or gns_queue]. exact Hperm.
+      + cbn [queue_at_dest graph_nodes]. rewrite map.get_put_same.
+        cbn [option_map unwrap_or_default unwrap_or gns_queue]. reflexivity.
       + cbn [queue_at_dest graph_nodes]. rewrite map.get_put_diff by congruence.
         reflexivity.
     - destr (eqb output_destn (node_destn n)); [ discriminate | ].
@@ -1048,6 +1045,23 @@ Section __.
        dest).
   Proof. Admitted.
 
+  Definition not_syntactically_nil {T} (l : T) := True.
+
+  Ltac check_not_nil :=
+    match goal with
+    | |- not_syntactically_nil ?l =>
+        lazymatch l with
+        | @nil _ => fail
+        | _ => idtac
+        end;
+        constructor
+    end.
+
+  Lemma app_one_cons {A} (a : A) l :
+    not_syntactically_nil l ->
+    a :: l = [a] ++ l.
+  Proof. reflexivity. Qed.
+
   Lemma fgraph_weak_sims_ngraph :
     forwarding_reaches ->
     forwarding_tree ->
@@ -1156,6 +1170,44 @@ Section __.
            { destruct ns; simpl in *; subst. intros. destruct v2; simpl in *; subst.
              cbv [all_pending_msgs]. simpl. intros. rewrite H5. reflexivity. }
            intros Hp5.
+           Search queue_at_dest.
+           rewrite queue_at_dest_put. destr (eqb dest (node_destn n)).
+           ++ simpl. simpl in Hp5. rewrite Hgetp0 in Hp5. simpl in Hp5.
+              rewrite E in Hp5. repeat rewrite map_app in Hp5.
+              repeat rewrite <- !app_assoc in Hp5. simpl in Hp5.
+              repeat rewrite <- Permutation_middle in Hp5.
+              Fail (do 2 rewrite app_one_cons in Hp5 by check_not_nil).
+              rewrite app_one_cons in Hp5 by check_not_nil.
+              rewrite (app_one_cons f) in Hp5 by check_not_nil.
+              apply travelling_to_app with (queueA := []).
+              { admit. }
+              fold (@app dfact).
+              pose proof travelling_to_app_inv as H'.
+              specialize H' with (1 := Hp5). especialize H'.
+              { admit. }
+              eapply travelling_to_Proper; try eassumption; try reflexivity.
+              repeat rewrite map_app. repeat rewrite <- app_assoc. reflexivity.
+           ++ Search pebble_step.
+
+
+              do
+              Print check_not_nil.
+              Check app_one_cons.
+              Opaque not_syntactically_nil.
+              Set Nested Proofs Allowed.
+              Goal (not_syntactically_nil (@nil nat)).
+                {
+                  match goal with
+                  | |- not_syntactically_nil ?l => lazymatch l with
+                                                 | @nil _ => fail
+                                                 | _ => idtac l
+                                                 end
+                  end.
+                  match [] with
+                  | @nil _ => fail
+                  | _ => idtac
+              do 2 rewrite app_one_cons in Hp5 by check_not_nil.
+              do 2 rewrite
            rewrite queue_at_dest_remove in Hp5 by eassumption.
            rewrite queue_at_dest_remove by apply map.get_put_same. simpl.
           rewrite map.remove_put_same.
