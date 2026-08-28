@@ -957,6 +957,16 @@ Section __.
           rewrite Hb. cbn [map]. left. reflexivity.
   Qed.
 
+  Lemma queue_at_dest_remove (s : ngstate) n gns dest :
+    map.get s.(graph_nodes) n = Some gns ->
+    Permutation
+      (queue_at_dest s dest)
+      ((if eqb dest (node_destn n) then gns.(gns_queue) else [])
+       ++ queue_at_dest {| graph_nodes := map.remove s.(graph_nodes) n;
+                           graph_output_queue := s.(graph_output_queue) |}
+       dest).
+  Proof. Admitted.
+
   Lemma fgraph_weak_sims_ngraph :
     forwarding_reaches ->
     forwarding_tree ->
@@ -1055,6 +1065,30 @@ Section __.
            intros. rewrite dest_msgs_forward_to.
            2: { admit. }
            move Hp5 at bottom. specialize (Hp5 _ ltac:(eassumption)).
+           rewrite dest_msgs_get_remove.
+           2: { simpl. apply map.get_put_same. }
+           simpl. rewrite map.remove_put_same. cbv [all_pending_msgs]. simpl.
+           rewrite dest_msgs_get_remove in Hp5.
+           2: eassumption.
+           revert Hp5.
+           eassert (all_pending_msgs ns = gns_queue ns ++ _) as ->.
+           { destruct ns; simpl in *; subst. intros. destruct v2; simpl in *; subst.
+             cbv [all_pending_msgs]. simpl. intros. rewrite H5. reflexivity. }
+           intros Hp5.
+           rewrite queue_at_dest_remove in Hp5 by eassumption.
+           rewrite !map_app in Hp5. simpl in Hp5.
+           rewrite (Permutation_app_comm (map _ _)) in Hp5.
+           rewrite (Permutation_app_comm (map _ _)) in Hp5.
+           repeat rewrite <- app_assoc in Hp5. simpl in Hp5.
+           Search ([_] ++ _).
+           revert Hp5.
+           eassert ((_, _) :: _ = [_] ++ _) as -> by reflexivity.
+           intros Hp5.
+           apply travelling_to_app_inv in Hp5.
+
+             replace gns_queue with (Graph.gns_queue ns). reflexivity.
+           eapply travlling_to
+           Search queue_at_dest.
            erewrite queue_at_dest_put with (gns' := {| gns_queue := l1 ++ l2|}) in Hp5.
            2: eassumption.
            2: { rewrite E. simpl. Search (Permutation _ (_ ++ _ :: _)).
