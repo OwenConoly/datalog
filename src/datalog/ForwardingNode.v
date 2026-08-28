@@ -448,11 +448,92 @@ Section __.
       + apply HPB. exact Hin.
   Qed.
 
-  (*note: this and the next lemma (_cons_unreached) could, i think, be replaced by a more general lemma saying that
+  (* Within a channel (R, orig) every entry's origin is pinned to orig, so a pair is
+     determined by its dfact: the sub-multiset cancellation goes through with
+     [Permutation_cons_inv], needing no decidable equality on dfact. *)
+  Lemma witness_sub_split (Qa Qab : list (dfact * source)) :
+    (forall R orig, exists t,
+        Permutation (map fst (filter (msg_matches R orig) Qab))
+                    (map fst (filter (msg_matches R orig) Qa) ++ t)) ->
+    exists Qb, Permutation Qab (Qa ++ Qb).
+  Proof.
+    revert Qab. induction Qa as [| [f orig] Qa' IH]; intros Qab Hsub.
+    - exists Qab. reflexivity.
+    - assert (Hmatch : msg_matches (dfact_rel f) orig (f, orig) = true).
+      { cbn [msg_matches]. rewrite !eqb_refl_true by typeclasses eauto. reflexivity. }
+      assert (Hin : In (f, orig) Qab).
+      { destruct (Hsub (dfact_rel f) orig) as [t Ht].
+        assert (Hf : In f (map fst (filter (msg_matches (dfact_rel f) orig) Qab))).
+        { eapply Permutation_in; [ symmetry; exact Ht | ].
+          apply in_or_app. left. cbn [filter]. rewrite Hmatch. cbn [map]. left. reflexivity. }
+        apply in_map_iff in Hf. destruct Hf as ((f', o') & Hfst & Hfin). cbn in Hfst. subst f'.
+        apply filter_In in Hfin. destruct Hfin as [Hfin Hm].
+        cbn [msg_matches] in Hm. apply andb_prop in Hm. destruct Hm as [_ Ho].
+        destr (eqb orig o'); [ exact Hfin | discriminate Ho ]. }
+      apply in_split in Hin. destruct Hin as (l1 & l2 & Hsplit).
+      assert (HQ : Permutation Qab ((f, orig) :: (l1 ++ l2))).
+      { subst Qab. symmetry. apply Permutation_middle. }
+      destruct (IH (l1 ++ l2)) as (Qb & HQb).
+      { intros R o. destruct (Hsub R o) as [t Ht]. exists t.
+        assert (Hfilt : Permutation (filter (msg_matches R o) Qab)
+                          (filter (msg_matches R o) ((f, orig) :: (l1 ++ l2)))).
+        { apply Permutation_filter. exact HQ. }
+        cbn [filter] in Hfilt, Ht.
+        destruct (msg_matches R o (f, orig)) eqn:M.
+        - apply (Permutation_map fst) in Hfilt. cbn [map] in Hfilt, Ht.
+          apply (Permutation_cons_inv (a := f)).
+          etransitivity; [ symmetry; exact Hfilt | exact Ht ].
+        - apply (Permutation_map fst) in Hfilt.
+          etransitivity; [ symmetry; exact Hfilt | exact Ht ]. }
+      exists Qb. etransitivity; [ exact HQ | ]. apply perm_skip. exact HQb.
+  Qed.
+
+  Lemma travelling_to_app_inv a b dest qa qb :
     travelling_to (a ++ b) dest (qa ++ qb) ->
-    travellilng_to a dest qa ->
+    travelling_to a dest qa ->
     travelling_to b dest qb.
-   *)
+  Proof.
+    intros (Qab & HqabE & HFab & HPab) (Qa & HqaE & HFa & HPa).
+    assert (Hsub : forall R orig, exists t,
+      Permutation (map fst (filter (msg_matches R orig) Qab))
+                  (map fst (filter (msg_matches R orig) Qa) ++ t)).
+    { intros R orig. destruct (inb dest (nforward orig R)) eqn:Hin.
+      - apply inb_true_iff in Hin.
+        exists (graph_incoming (forwarding_graph (R, orig)) (loc_of_dest dest)
+                  (msgs_to_pebbles R orig b)).
+        specialize (HPab R orig Hin). specialize (HPa R orig Hin).
+        rewrite msgs_to_pebbles_app, graph_incoming_app in HPab.
+        etransitivity; [ symmetry; exact HPab | ].
+        apply Permutation_app_tail. exact HPa.
+      - assert (Hnr : ~ In dest (nforward orig R)).
+        { intro Hc. rewrite <- inb_true_iff in Hc. congruence. }
+        assert (Hnil : forall Q, Forall (fun '(f, o) => In dest (nforward o (dfact_rel f))) Q ->
+                                 filter (msg_matches R orig) Q = []).
+        { intros Q HFQ. erewrite filter_ext_in with (g := fun _ => false); [ apply filter_false | ].
+          intros [f o] Hx. rewrite Forall_forall in HFQ. specialize (HFQ _ Hx). cbn beta in HFQ.
+          cbn [msg_matches]. destr (eqb R (dfact_rel f)); destr (eqb orig o); cbn [andb]; try reflexivity.
+          exfalso. apply Hnr. exact HFQ. }
+        exists []. rewrite (Hnil Qab HFab), (Hnil Qa HFa). reflexivity. }
+    destruct (witness_sub_split Qa Qab Hsub) as (Qb & HQb).
+    assert (Hmap : Permutation (map fst Qab) (map fst Qa ++ map fst Qb)).
+    { rewrite <- map_app. apply Permutation_map. exact HQb. }
+    rewrite <- HqabE, <- HqaE in Hmap. apply Permutation_app_inv_l in Hmap.
+    apply (travelling_to_perm b b dest (map fst Qb) qb);
+      [ reflexivity | symmetry; exact Hmap | ].
+    exists Qb. split; [ reflexivity | split ].
+    - eapply Permutation_Forall in HFab; [ | exact HQb ].
+      apply Forall_app in HFab. tauto.
+    - intros R orig Hin. specialize (HPab R orig Hin). specialize (HPa R orig Hin).
+      rewrite msgs_to_pebbles_app, graph_incoming_app in HPab.
+      assert (Hfil : Permutation (map fst (filter (msg_matches R orig) Qab))
+                       (map fst (filter (msg_matches R orig) Qa)
+                        ++ map fst (filter (msg_matches R orig) Qb))).
+      { rewrite <- map_app, <- filter_app. apply Permutation_map, Permutation_filter. exact HQb. }
+      apply (Permutation_app_inv_l (map fst (filter (msg_matches R orig) Qa))).
+      etransitivity; [ apply Permutation_app_tail; symmetry; exact HPa | ].
+      etransitivity; [ exact HPab | exact Hfil ].
+  Qed.
+
   Lemma travelling_to_cons_inv dm dest f orig queue :
     In dest (nforward orig (dfact_rel f)) ->
     travelling_to ((dest, (f, orig)) :: dm) dest (f :: queue) ->
