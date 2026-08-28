@@ -1157,6 +1157,15 @@ Section __.
              cbv [all_pending_msgs]. simpl. intros. rewrite H5. reflexivity. }
            intros Hp5.
            rewrite queue_at_dest_remove in Hp5 by eassumption.
+           rewrite queue_at_dest_remove by apply map.get_put_same. simpl.
+           rewrite map.remove_put_same.
+           eassert (Permutation
+                      (if eqb dest (node_destn n) then gns_queue v2 else [])
+                      ((if eqb dest (node_destn n) then [_] else []) ++
+                         (if eqb dest (node_destn n) then l1 ++ l2 else []))) as Hrw.
+           { Tactics.destruct_one_match; [|simpl; reflexivity].
+             rewrite E. rewrite <- Permutation_middle. simpl. reflexivity. }
+           rewrite Hrw in Hp5. clear Hrw.
            rewrite !map_app in Hp5. simpl in Hp5.
            rewrite (Permutation_app_comm (map _ _)) in Hp5.
            rewrite (Permutation_app_comm (map _ _)) in Hp5.
@@ -1165,26 +1174,13 @@ Section __.
            revert Hp5.
            eassert ((_, _) :: _ = [_] ++ _) as -> by reflexivity.
            intros Hp5.
-           apply travelling_to_app_inv in Hp5.
-
-             replace gns_queue with (Graph.gns_queue ns). reflexivity.
-           eapply travlling_to
-           Search queue_at_dest.
-           erewrite queue_at_dest_put with (gns' := {| gns_queue := l1 ++ l2|}) in Hp5.
-           2: eassumption.
-           2: { rewrite E. simpl. Search (Permutation _ (_ ++ _ :: _)).
-                rewrite <- Permutation_middle. instantiate (1 := [_]).
-                simpl. reflexivity. }
-           Check travelling_to_cons_inv.
-           rewrite dest_msgs_put' in Hp5. 2: eassumption.
-           Print dest_msgs.
-           Check queue_at_dest_put.
-
-           Check dest_msgs_put'.
-           rewrite dest_msgs_put'.
-           2: { apply map.get_put_same. }
-           2: { cbv [all_pending_msgs]. simpl. rewrite H5.
-
+           Check travelling_to_app_inv.
+           pose proof travelling_to_app_inv as H'.
+           specialize H' with (1 := Hp5). especialize H'.
+           { admit. }
+           eapply travelling_to_Proper; [| | |eassumption]. 2,3: reflexivity.
+           repeat rewrite app_assoc. apply Permutation_app; [|reflexivity].
+           repeat rewrite <- app_assoc.
            fail.
         admit.
     - destruct e; simpl in H0p0; congruence || fwd. invert H1.
