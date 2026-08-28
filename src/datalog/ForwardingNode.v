@@ -1158,7 +1158,7 @@ Section __.
            intros Hp5.
            rewrite queue_at_dest_remove in Hp5 by eassumption.
            rewrite queue_at_dest_remove by apply map.get_put_same. simpl.
-           rewrite map.remove_put_same.
+          rewrite map.remove_put_same.
            eassert (Permutation
                       (if eqb dest (node_destn n) then gns_queue v2 else [])
                       ((if eqb dest (node_destn n) then [_] else []) ++
@@ -1174,10 +1174,12 @@ Section __.
            revert Hp5.
            eassert ((_, _) :: _ = [_] ++ _) as -> by reflexivity.
            intros Hp5.
+           Search pebble_step.
            Check travelling_to_app_inv.
            pose proof travelling_to_app_inv as H'.
            specialize H' with (1 := Hp5). especialize H'.
-           { admit. }
+           { Search travelling_to. admit. }
+
            eapply travelling_to_Proper; [| | |eassumption]. 2,3: reflexivity.
            repeat rewrite app_assoc. apply Permutation_app; [|reflexivity].
            repeat rewrite <- app_assoc.
