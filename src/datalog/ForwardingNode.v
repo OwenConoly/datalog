@@ -594,6 +594,21 @@ Section __.
     - right. etransitivity; [ exact Ha | ]. symmetry. exact Hb.
   Qed.
 
+  Lemma travelling_to_forwarding_step_self n f orig dm dm' qhead queue :
+    forwarding_step (node_source n) f orig dm dm' ->
+    travelling_to (map (fun d' => (loc_of_dest d', (f, orig)))
+                     (fforward (node_source n) (dfact_rel f, orig))) (node_destn n) [] ->
+    travelling_to [(node_loc n, (f, orig))] (node_destn n) qhead ->
+    travelling_to dm (node_destn n) (qhead ++ queue) ->
+    travelling_to dm' (node_destn n) queue.
+  Proof.
+    intros (rest & Hdm & Hdm') Hfwd Hhead Htr.
+    rewrite Hdm in Htr. rewrite Hdm'.
+    apply travelling_to_app with (queueA := []).
+    - exact Hfwd.
+    - eapply travelling_to_app_inv; [ | exact Hhead ]. exact Htr.
+  Qed.
+
   Lemma travelling_to_cons_inv dm dest f orig queue :
     In dest (nforward orig (dfact_rel f)) ->
     travelling_to ((loc_of_dest dest, (f, orig)) :: dm) dest (f :: queue) ->
@@ -1236,32 +1251,13 @@ Section __.
                + exact Hp5. }
            intros dest Hdest. specialize (Hp6 dest Hdest).
            rewrite queue_at_dest_put. destr (eqb dest (node_destn n)).
-           ++ rewrite dest_msgs_forward_to.
-              2: { eapply forwarding_compatible_same_domain; [exact Hp2|].
-                   cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
-              rewrite dest_msgs_get_remove.
-              2: { simpl. apply map.get_put_same. }
-              simpl. rewrite map.remove_put_same. cbv [all_pending_msgs]. simpl.
-              rewrite dest_msgs_get_remove in Hp6.
-              2: eassumption.
-              revert Hp6.
-              eassert (all_pending_msgs ns = gns_queue ns ++ _) as ->.
-              { cbv [all_pending_msgs]. rewrite H5. reflexivity. }
-              intros Hp6.
-              simpl. simpl in Hp6. rewrite Hgetp0 in Hp6. simpl in Hp6.
-              rewrite E in Hp6. repeat rewrite map_app in Hp6.
-              repeat rewrite <- !app_assoc in Hp6. simpl in Hp6.
-              repeat rewrite <- Permutation_middle in Hp6.
-              rewrite app_one_cons in Hp6.
-              rewrite (app_one_cons f) in Hp6.
-              apply travelling_to_app with (queueA := []).
+           ++ eapply travelling_to_forwarding_step_self with (qhead := [f]).
+              { eapply dest_msgs_dequeue; [ exact Hp2 | exact H0 | ].
+                eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ]. }
               { admit. }
-              fold (@app dfact).
-              pose proof travelling_to_app_inv as H'.
-              specialize H' with (1 := Hp6). especialize H'.
               { admit. }
-              eapply travelling_to_Proper; try eassumption; try reflexivity.
-              repeat rewrite map_app. repeat rewrite <- app_assoc. reflexivity.
+              simpl in Hp6. rewrite Hgetp0 in Hp6. simpl in Hp6. rewrite E in Hp6.
+              rewrite <- Permutation_middle in Hp6. exact Hp6.
            ++ eapply travelling_to_dequeue; try eassumption.
               eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ].
         -- subst. do 2 eexists. split; [apply star_refl|]. split; [reflexivity|].
@@ -1299,30 +1295,12 @@ Section __.
                + exact Hp5. }
            intros dest Hdest. specialize (Hp6 dest Hdest).
            destr (eqb dest (node_destn n)).
-           ++ rewrite dest_msgs_forward_to.
-              2: { eapply forwarding_compatible_same_domain; [exact Hp2|].
-                   cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
-              rewrite dest_msgs_get_remove.
-              2: { simpl. apply map.get_put_same. }
-              simpl. rewrite map.remove_put_same. cbv [all_pending_msgs]. simpl.
-              rewrite dest_msgs_get_remove in Hp6.
-              2: eassumption.
-              revert Hp6.
-              eassert (all_pending_msgs ns = gns_queue ns ++ _) as ->.
-              { cbv [all_pending_msgs]. rewrite H5. reflexivity. }
-              intros Hp6.
-              simpl. simpl in Hp6. rewrite Hgetp0 in Hp6 |- *. simpl in Hp6 |- *.
-              rewrite !map_app in Hp6.
-              rewrite <- !app_assoc in Hp6. simpl in Hp6.
-              rewrite <- !Permutation_middle in Hp6.
-              rewrite app_one_cons in Hp6.
-              apply travelling_to_app with (queueA := []).
+           ++ eapply travelling_to_forwarding_step_self with (qhead := []).
+              { eapply dest_msgs_dequeue; [ exact Hp2 | exact H0 | ].
+                eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ]. }
               { admit. }
-              pose proof travelling_to_app_inv as H'.
-              specialize H' with (qa := nil) (1 := Hp6). especialize H'.
               { admit. (*note: this is the same as the previous admit.*) }
-              eapply travelling_to_Proper; try eassumption; try reflexivity.
-              repeat rewrite map_app. repeat rewrite <- app_assoc. reflexivity.
+              exact Hp6.
            ++ eapply travelling_to_dequeue; try eassumption.
               eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ].
     - destruct e; simpl in H0p0; congruence || fwd. invert H1.
