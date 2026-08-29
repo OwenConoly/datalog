@@ -658,21 +658,6 @@ Section __.
     - right. etransitivity; [ exact Ha | ]. symmetry. exact Hb.
   Qed.
 
-  Lemma travelling_to_forwarding_step_exchange s f orig dm dm' dest qmsg qcopies queue :
-    forwarding_step s f orig dm dm' ->
-    travelling_to [(loc_of_source s, (f, orig))] dest qmsg ->
-    travelling_to (map (fun d' => (loc_of_dest d', (f, orig)))
-                     (fforward s (dfact_rel f, orig))) dest qcopies ->
-    travelling_to dm dest (qmsg ++ queue) ->
-    travelling_to dm' dest (qcopies ++ queue).
-  Proof.
-    intros (rest & Hdm & Hdm') Hmsg Hcopies Htr.
-    rewrite Hdm in Htr. rewrite Hdm'.
-    apply travelling_to_app.
-    - exact Hcopies.
-    - eapply travelling_to_app_inv; [ | exact Hmsg ]. exact Htr.
-  Qed.
-
   Lemma travelling_to_cons_inv dm dest f orig queue :
     In dest (nforward orig (dfact_rel f)) ->
     travelling_to ((loc_of_dest dest, (f, orig)) :: dm) dest (f :: queue) ->
@@ -1054,27 +1039,20 @@ Section __.
   Qed.
 
   Lemma dest_msgs_dequeue (s : fgstate) n ns v' f orig :
-    forwarding_compatible s.(graph_nodes) ->
     map.get s.(graph_nodes) n = Some ns ->
     Permutation (all_pending_msgs ns) ((f, orig) :: all_pending_msgs v') ->
-    forwarding_step (node_source n) f orig
-      (dest_msgs s)
-      (dest_msgs (forward_to (fforwardb (node_source n)) [(f, orig)]
-                    {| graph_nodes := map.put s.(graph_nodes) n v';
-                       graph_output_queue := s.(graph_output_queue) |})).
+    Permutation (dest_msgs s)
+      ((node_loc n, (f, orig))
+       :: dest_msgs {| graph_nodes := map.put s.(graph_nodes) n v';
+                       graph_output_queue := s.(graph_output_queue) |}).
   Proof.
-    intros Hcompat Hget Hperm. cbv [forwarding_step]. cbn [loc_of_source].
-    eexists. split.
-    - etransitivity; [ apply (dest_msgs_get_remove s n ns Hget) | ].
-      rewrite (Permutation_map (fun m => (node_loc n, m)) Hperm).
-      cbn [map]. rewrite <- app_comm_cons. reflexivity.
-    - rewrite dest_msgs_forward_to.
-      2: { eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
-           cbn [graph_nodes]. eapply same_domain_put_r. exact Hget. }
-      apply Permutation_app_head.
-      etransitivity.
-      { apply dest_msgs_get_remove. cbn [graph_nodes]. apply map.get_put_same. }
-      cbn [graph_nodes graph_output_queue]. rewrite map.remove_put_same. reflexivity.
+    intros Hget Hperm.
+    etransitivity; [ apply (dest_msgs_get_remove s n ns Hget) | ].
+    rewrite (Permutation_map (fun m => (node_loc n, m)) Hperm).
+    cbn [map]. rewrite <- app_comm_cons. apply perm_skip.
+    symmetry. etransitivity.
+    { apply dest_msgs_get_remove. cbn [graph_nodes]. apply map.get_put_same. }
+    cbn [graph_nodes graph_output_queue]. rewrite map.remove_put_same. reflexivity.
   Qed.
 
   Lemma travelling_to_dequeue (s : fgstate) n ns v' f orig dest queue :
@@ -1098,7 +1076,11 @@ Section __.
         rewrite Hperm. left. reflexivity.
       + apply Htree.
     - destruct dest; cbn [loc_of_source loc_of_dest]; congruence.
-    - eapply dest_msgs_dequeue; eassumption.
+    - eexists. split.
+      + cbn [loc_of_source]. eapply dest_msgs_dequeue; eassumption.
+      + apply dest_msgs_forward_to.
+        eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
+        cbn [graph_nodes]. eapply same_domain_put_r. exact Hget.
     - exact Htr.
   Qed.
 
@@ -1234,14 +1216,19 @@ Section __.
                + exact Hp5. }
            intros dest Hdest. specialize (Hp6 dest Hdest).
            rewrite queue_at_dest_put. destr (eqb dest (node_destn n)).
-           ++ eapply travelling_to_forwarding_step_exchange with (qmsg := [f]) (qcopies := []).
-              { eapply dest_msgs_dequeue; [ exact Hp2 | exact H0 | ].
-                eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ]. }
-              { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
-                destr (nforwardb orig (node_destn n) f); [ exact Hat | contradiction ]. }
+           ++ simpl in Hp6. rewrite Hgetp0 in Hp6. simpl in Hp6. rewrite E in Hp6.
+              rewrite <- Permutation_middle in Hp6.
+              rewrite dest_msgs_forward_to.
+              2: { eapply forwarding_compatible_same_domain; [ exact Hp2 | ].
+                   cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
+              apply travelling_to_app with (queueA := []).
               { apply travelling_to_map_unreached. admit. }
-              simpl in Hp6. rewrite Hgetp0 in Hp6. simpl in Hp6. rewrite E in Hp6.
-              rewrite <- Permutation_middle in Hp6. exact Hp6.
+              eapply travelling_to_app_inv with (qa := [f]).
+              2: { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
+                   destr (nforwardb orig (node_destn n) f); [ exact Hat | contradiction ]. }
+              eapply travelling_to_perm; [ | reflexivity | exact Hp6 ].
+              eapply dest_msgs_dequeue; [ exact H0 | ].
+              eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ].
            ++ eapply travelling_to_dequeue; try eassumption.
               eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ].
         -- subst. do 2 eexists. split; [apply star_refl|]. split; [reflexivity|].
@@ -1279,13 +1266,17 @@ Section __.
                + exact Hp5. }
            intros dest Hdest. specialize (Hp6 dest Hdest).
            destr (eqb dest (node_destn n)).
-           ++ eapply travelling_to_forwarding_step_exchange with (qmsg := []) (qcopies := []).
-              { eapply dest_msgs_dequeue; [ exact Hp2 | exact H0 | ].
-                eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ]. }
-              { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
-                destr (nforwardb orig (node_destn n) f); [ contradiction | exact Hat ]. }
+           ++ rewrite dest_msgs_forward_to.
+              2: { eapply forwarding_compatible_same_domain; [ exact Hp2 | ].
+                   cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
+              apply travelling_to_app with (queueA := []).
               { apply travelling_to_map_unreached. admit. (*note: same as the previous admit.*) }
-              exact Hp6.
+              eapply travelling_to_app_inv with (qa := []).
+              2: { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
+                   destr (nforwardb orig (node_destn n) f); [ contradiction | exact Hat ]. }
+              eapply travelling_to_perm; [ | reflexivity | exact Hp6 ].
+              eapply dest_msgs_dequeue; [ exact H0 | ].
+              eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ].
            ++ eapply travelling_to_dequeue; try eassumption.
               eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ].
     - destruct e; simpl in H0p0; congruence || fwd. invert H1.
