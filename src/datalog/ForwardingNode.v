@@ -79,6 +79,14 @@ Section pebbles.
   Proof.
   Admitted.
 
+  Lemma is_locally_tree_no_return (g : gi) root u w :
+    graph.is_locally_tree g root ->
+    graph.reaches g root u ->
+    graph.edge g u w ->
+    ~ graph.reaches g w u.
+  Proof.
+  Admitted.
+
   Context {X : Type}.
 
   Definition pebble_step (g : gi) (v : V) (ps1 ps2 : list (V * X)) : Prop :=
@@ -1222,7 +1230,12 @@ Section __.
               2: { eapply forwarding_compatible_same_domain; [ exact Hp2 | ].
                    cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
               apply travelling_to_app with (queueA := []).
-              { apply travelling_to_map_unreached. admit. }
+              { apply travelling_to_map_unreached. apply Forall_forall. intros d' Hd'.
+                eapply is_locally_tree_no_return.
+                - apply Htree.
+                - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H5 ].
+                - apply forwarding_graph_spec. exists (node_source n), d'.
+                  split; [ exact Hd' | split; reflexivity ]. }
               eapply travelling_to_app_inv with (qa := [f]).
               2: { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
                    destr (nforwardb orig (node_destn n) f); [ exact Hat | contradiction ]. }
@@ -1270,7 +1283,12 @@ Section __.
               2: { eapply forwarding_compatible_same_domain; [ exact Hp2 | ].
                    cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
               apply travelling_to_app with (queueA := []).
-              { apply travelling_to_map_unreached. admit. (*note: same as the previous admit.*) }
+              { apply travelling_to_map_unreached. apply Forall_forall. intros d' Hd'.
+                eapply is_locally_tree_no_return.
+                - apply Htree.
+                - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H5 ].
+                - apply forwarding_graph_spec. exists (node_source n), d'.
+                  split; [ exact Hd' | split; reflexivity ]. }
               eapply travelling_to_app_inv with (qa := []).
               2: { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
                    destr (nforwardb orig (node_destn n) f); [ contradiction | exact Hat ]. }
@@ -1340,5 +1358,5 @@ Section __.
       apply travelling_to_cons_inv_unreached in Hdest.
       { apply Hdest. }
       simpl. intros Hr. apply output_loc_reaches_only in Hr. discriminate Hr.
-  Admitted.
+  Qed.
 End __.
