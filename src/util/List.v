@@ -249,6 +249,10 @@ Section subset.
     incl (x1 ++ y1) (x2 ++ y2).
   Proof. cbv [incl]. intros. repeat rewrite in_app_iff in *. intuition auto. Qed.
 
+  Lemma incl_middle (a b : list A) x :
+    incl (a ++ b) (a ++ x :: b).
+  Proof. apply incl_app_app; [ apply incl_refl | apply incl_tl, incl_refl ]. Qed.
+
   Lemma incl_cons_idk x l1 l2 :
     incl l1 (x :: l2) ->
     exists l1',

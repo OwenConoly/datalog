@@ -335,9 +335,10 @@ Section __.
     2: { cbn [graph_nodes]. apply map.get_put_same. }
     cbn [graph_nodes graph_output_queue] in Hin. rewrite map.remove_put_same in Hin.
     rewrite (dest_msgs_get_remove s n v Hget). apply in_or_app.
-    apply in_app_or in Hin. destruct Hin as [Hin | Hin]; [ left | right; exact Hin ].
-    apply in_map_iff in Hin. destruct Hin as (m & Heq & Hm).
-    apply in_map_iff. exists m. split; [ exact Heq | apply Hincl; exact Hm ].
+    apply in_app_or in Hin. destruct Hin as [Hin | Hin].
+    - left. apply in_map_iff in Hin. destruct Hin as (m & Heq & Hm).
+      apply in_map_iff. exists m. split; [ exact Heq | apply Hincl, Hm ].
+    - right. exact Hin.
   Qed.
 
   Definition forwarding_compatible {V} {M : map.map node_id V} (s : M) :=
@@ -839,8 +840,7 @@ Section __.
   Lemma dm_reachable_app dm1 dm2 :
     dm_reachable dm1 -> dm_reachable dm2 -> dm_reachable (dm1 ++ dm2).
   Proof.
-    intros H1 H2 loc f orig Hin. apply in_app_or in Hin.
-    destruct Hin as [Hin | Hin]; [ apply H1 | apply H2 ]; exact Hin.
+    intros H1 H2 loc f orig Hin. apply in_app_or in Hin. destruct Hin; auto.
   Qed.
 
   Lemma dm_reachable_incl dm dm' :
@@ -1040,6 +1040,51 @@ Section __.
     a :: l = [a] ++ l.
   Proof. reflexivity. Qed.
 
+  Lemma msgs_reachable_pending (s : fgstate) n ns q1 f orig q2 :
+    msgs_reachable s ->
+    map.get s.(graph_nodes) n = Some ns ->
+    ns.(gns_node_state).(fnode_pending) = q1 ++ (f, orig) :: q2 ->
+    graph.reaches (forwarding_graph (dfact_rel f, orig)) (loc_of_source orig) (node_loc n).
+  Proof.
+    intros Hmr Hget Hpend. apply Hmr. eapply in_node_dest_msgs; [ exact Hget | ].
+    cbv [all_pending_msgs]. apply in_or_app. right. rewrite Hpend.
+    apply in_or_app. right. left. reflexivity.
+  Qed.
+
+  Lemma msgs_reachable_forward_to src f orig (s : fgstate) :
+    forwarding_compatible s.(graph_nodes) ->
+    graph.reaches (forwarding_graph (dfact_rel f, orig)) (loc_of_source orig) (loc_of_source src) ->
+    msgs_reachable s ->
+    msgs_reachable (forward_to (fforwardb src) [(f, orig)] s).
+  Proof.
+    intros Hcompat Hre Hmr. unfold msgs_reachable in *.
+    eapply dm_reachable_perm; [ apply dest_msgs_forward_to, Hcompat | ].
+    apply dm_reachable_app; [ apply dm_reachable_forwarded, Hre | exact Hmr ].
+  Qed.
+
+  Lemma msgs_reachable_put_incl (s : fgstate) n v v' :
+    map.get s.(graph_nodes) n = Some v ->
+    incl (all_pending_msgs v') (all_pending_msgs v) ->
+    msgs_reachable s ->
+    msgs_reachable {| graph_nodes := map.put s.(graph_nodes) n v';
+                      graph_output_queue := s.(graph_output_queue) |}.
+  Proof.
+    intros Hget Hincl Hmr. unfold msgs_reachable in *.
+    eapply dm_reachable_incl.
+    - eapply dest_msgs_put_incl; [ exact Hget | exact Hincl ].
+    - exact Hmr.
+  Qed.
+
+  Lemma incl_all_pending_dequeue (ns v' : fgraph_node_state) q1 f orig q2 :
+    v'.(gns_queue) = ns.(gns_queue) ->
+    v'.(gns_node_state).(fnode_pending) = q1 ++ q2 ->
+    ns.(gns_node_state).(fnode_pending) = q1 ++ (f, orig) :: q2 ->
+    incl (all_pending_msgs v') (all_pending_msgs ns).
+  Proof.
+    intros Hq Hv' Hns. cbv [all_pending_msgs]. rewrite Hq, Hv', Hns, !app_assoc.
+    apply incl_middle.
+  Qed.
+
   Lemma fgraph_weak_sims_ngraph :
     forwarding_reaches ->
     forwarding_tree ->
@@ -1073,9 +1118,7 @@ Section __.
       { simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [eassumption|]. simpl. intros. assumption. }
       split.
-      { unfold msgs_reachable.
-        eapply dm_reachable_perm; [ apply dest_msgs_forward_to; assumption | ].
-        apply dm_reachable_app; [ apply dm_reachable_forwarded; apply graph.reaches_self | assumption ]. }
+      { apply msgs_reachable_forward_to; [ assumption | apply graph.reaches_self | assumption ]. }
       intros.
       rewrite dest_msgs_forward_to by assumption.
       rewrite queue_at_dest_forward_to; try assumption.
@@ -1155,9 +1198,7 @@ Section __.
              destruct Hin as [Heq | []]. injection Heq as <- <-.
              apply inb_true_iff in Hkeep. apply Hno.
              eapply graph.reaches_step.
-             - apply Hp5. eapply in_node_dest_msgs; [ exact H0 | ].
-               cbv [all_pending_msgs]. apply in_or_app. right. rewrite H5.
-               apply in_or_app. right. left. reflexivity.
+             - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H5 ].
              - apply forwarding_graph_spec. exists (node_source n), output_destn.
                split; [ exact Hkeep | split; reflexivity ]. }
            split.
@@ -1166,24 +1207,14 @@ Section __.
              - eapply Forall2_map_impl; [exact Hp4|]. simpl. auto.
              - simpl. reflexivity. }
            split.
-           { unfold msgs_reachable.
-             eapply dm_reachable_perm.
-             { eapply dest_msgs_forward_to.
-               eapply forwarding_compatible_same_domain; [exact Hp2|].
-               cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
-             apply dm_reachable_app.
-             - apply dm_reachable_forwarded.
-               apply Hp5. eapply in_node_dest_msgs; [ exact H0 | ].
-               cbv [all_pending_msgs]. apply in_or_app. right. rewrite H5.
-               apply in_or_app. right. left. reflexivity.
-             - eapply dm_reachable_incl.
-               { eapply dest_msgs_put_incl; [ exact H0 | ].
-                 intros y Hy. cbv [all_pending_msgs] in *.
-                 cbn [gns_queue gns_node_state fnode_pending] in Hy |- *. rewrite H5.
-                 apply in_or_app. apply in_app_or in Hy. destruct Hy as [Hy | Hy]; [ left; exact Hy | right ].
-                 apply in_or_app. apply in_app_or in Hy. destruct Hy as [Hy | Hy];
-                   [ left; exact Hy | right; right; exact Hy ]. }
-               assumption. }
+           { apply msgs_reachable_forward_to.
+             - eapply forwarding_compatible_same_domain; [exact Hp2|].
+               cbn [graph_nodes]. eapply same_domain_put_r. exact H0.
+             - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H5 ].
+             - eapply msgs_reachable_put_incl.
+               + exact H0.
+               + eapply incl_all_pending_dequeue; [ reflexivity | reflexivity | exact H5 ].
+               + exact Hp5. }
            intros. rewrite dest_msgs_forward_to.
            2: { eapply forwarding_compatible_same_domain; [exact Hp2|].
                 cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
@@ -1222,9 +1253,7 @@ Section __.
                    repeat rewrite map_app. simpl. repeat rewrite <- app_assoc.
                    rewrite <- !Permutation_middle. reflexivity. }
               { eapply is_locally_tree_reaches.
-                - apply Hp5. eapply in_node_dest_msgs; [ exact H0 | ].
-                  cbv [all_pending_msgs]. apply in_or_app. right. rewrite H5.
-                  apply in_or_app. right. left. reflexivity.
+                - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H5 ].
                 - apply Htree. }
               simpl. destruct dest; simpl; congruence.
         -- subst. do 2 eexists. split; [apply star_refl|]. split; [reflexivity|].
@@ -1241,9 +1270,7 @@ Section __.
              destruct Hin as [Heq | []]. injection Heq as <- <-.
              apply inb_true_iff in Hkeep. apply Hno.
              eapply graph.reaches_step.
-             - apply Hp5. eapply in_node_dest_msgs; [ exact H0 | ].
-               cbv [all_pending_msgs]. apply in_or_app. right. rewrite H5.
-               apply in_or_app. right. left. reflexivity.
+             - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H5 ].
              - apply forwarding_graph_spec. exists (node_source n), output_destn.
                split; [ exact Hkeep | split; reflexivity ]. }
            pose proof @Forall2_map_get_l as Hget. especialize Hget; try eassumption.
@@ -1254,24 +1281,14 @@ Section __.
              2: { simpl. assumption. }
              eapply Forall2_map_impl; [eassumption|]. simpl. auto. }
            split.
-           { unfold msgs_reachable.
-             eapply dm_reachable_perm.
-             { eapply dest_msgs_forward_to.
-               eapply forwarding_compatible_same_domain; [exact Hp2|].
-               cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
-             apply dm_reachable_app.
-             - apply dm_reachable_forwarded.
-               apply Hp5. eapply in_node_dest_msgs; [ exact H0 | ].
-               cbv [all_pending_msgs]. apply in_or_app. right. rewrite H5.
-               apply in_or_app. right. left. reflexivity.
-             - eapply dm_reachable_incl.
-               { eapply dest_msgs_put_incl; [ exact H0 | ].
-                 intros y Hy. cbv [all_pending_msgs] in *.
-                 cbn [gns_queue gns_node_state fnode_pending] in Hy |- *. rewrite H5.
-                 apply in_or_app. apply in_app_or in Hy. destruct Hy as [Hy | Hy]; [ left; exact Hy | right ].
-                 apply in_or_app. apply in_app_or in Hy. destruct Hy as [Hy | Hy];
-                   [ left; exact Hy | right; right; exact Hy ]. }
-               assumption. }
+           { apply msgs_reachable_forward_to.
+             - eapply forwarding_compatible_same_domain; [exact Hp2|].
+               cbn [graph_nodes]. eapply same_domain_put_r. exact H0.
+             - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H5 ].
+             - eapply msgs_reachable_put_incl.
+               + exact H0.
+               + eapply incl_all_pending_dequeue; [ reflexivity | reflexivity | exact H5 ].
+               + exact Hp5. }
            intros. rewrite dest_msgs_forward_to.
            2: { simpl. eapply forwarding_compatible_same_domain; [exact Hp2|].
                 cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
@@ -1306,9 +1323,7 @@ Section __.
                    repeat rewrite map_app. simpl. repeat rewrite <- app_assoc.
                    rewrite <- !Permutation_middle. reflexivity. }
               { eapply is_locally_tree_reaches.
-                - apply Hp5. eapply in_node_dest_msgs; [ exact H0 | ].
-                  cbv [all_pending_msgs]. apply in_or_app. right. rewrite H5.
-                  apply in_or_app. right. left. reflexivity.
+                - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H5 ].
                 - apply Htree. }
               simpl. destruct dest; simpl; congruence.
     - destruct e; simpl in H0p0; congruence || fwd. invert H1.
@@ -1356,12 +1371,8 @@ Section __.
       split.
       { unfold msgs_reachable.
         eapply dm_reachable_incl; [ | eassumption ].
-        intros x Hx. cbv [dest_msgs] in Hx |- *. cbn [graph_nodes graph_output_queue] in Hx |- *.
-        apply in_app_or in Hx. apply in_or_app. destruct Hx as [Hx | Hx]; [ left; exact Hx | right ].
-        rewrite H0. apply in_map_iff in Hx. destruct Hx as (y & Heq & Hy).
-        apply in_map_iff. exists y. split; [ exact Heq | ].
-        apply in_or_app. apply in_app_or in Hy. destruct Hy as [Hy | Hy];
-          [ left; exact Hy | right; right; exact Hy ]. }
+        cbv [dest_msgs]. cbn [graph_nodes graph_output_queue]. rewrite H0, !map_app.
+        cbn [map]. rewrite !app_assoc. apply incl_middle. }
       intros dest Hdest. apply Hp6 in Hdest.
       erewrite dest_msgs_output_append with (s2 := Build_graph_state _ _) (oms := [m]) in Hdest.
       2: { simpl. reflexivity. }
