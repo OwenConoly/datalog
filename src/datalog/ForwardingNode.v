@@ -967,20 +967,7 @@ Section __.
           rewrite Hb. cbn [map]. left. reflexivity.
   Qed.
 
-  Definition not_syntactically_nil {T} (l : T) := True.
-
-  Ltac check_not_nil :=
-    match goal with
-    | |- not_syntactically_nil ?l =>
-        lazymatch l with
-        | @nil _ => fail
-        | _ => idtac
-        end;
-        constructor
-    end.
-
   Lemma app_one_cons {A} (a : A) l :
-    not_syntactically_nil l ->
     a :: l = [a] ++ l.
   Proof. reflexivity. Qed.
 
@@ -1107,8 +1094,8 @@ Section __.
               repeat rewrite <- !app_assoc in Hp5. simpl in Hp5.
               repeat rewrite <- Permutation_middle in Hp5.
               Fail (do 2 rewrite app_one_cons in Hp5 by check_not_nil).
-              rewrite app_one_cons in Hp5 by check_not_nil.
-              rewrite (app_one_cons f) in Hp5 by check_not_nil.
+              rewrite app_one_cons in Hp5.
+              rewrite (app_one_cons f) in Hp5.
               apply travelling_to_app with (queueA := []).
               { admit. }
               fold (@app dfact).
@@ -1119,7 +1106,7 @@ Section __.
               repeat rewrite map_app. repeat rewrite <- app_assoc. reflexivity.
            ++ eapply travelling_to_forwarding_step. 4: eassumption.
               3: { cbv [forwarding_step]. eexists. split; [|reflexivity].
-                   simpl. rewrite (app_one_cons (_, (_, _))) by check_not_nil.
+                   simpl. rewrite (app_one_cons (_, (_, _))).
                    repeat rewrite app_assoc. apply Permutation_app; [|reflexivity].
                    repeat rewrite map_app. simpl. repeat rewrite <- app_assoc.
                    rewrite <- !Permutation_middle. reflexivity. }
@@ -1159,7 +1146,7 @@ Section __.
               rewrite !map_app in Hp5.
               rewrite <- !app_assoc in Hp5. simpl in Hp5.
               rewrite <- !Permutation_middle in Hp5.
-              rewrite app_one_cons in Hp5 by check_not_nil.
+              rewrite app_one_cons in Hp5.
               apply travelling_to_app with (queueA := []).
               { admit. }
               pose proof travelling_to_app_inv as H'.
@@ -1169,7 +1156,7 @@ Section __.
               repeat rewrite map_app. repeat rewrite <- app_assoc. reflexivity.
            ++ eapply travelling_to_forwarding_step. 4: eassumption.
               3: { cbv [forwarding_step]. eexists. split; [|reflexivity].
-                   simpl. rewrite (app_one_cons (_, (_, _))) by check_not_nil.
+                   simpl. rewrite (app_one_cons (_, (_, _))).
                    repeat rewrite app_assoc. apply Permutation_app; [|reflexivity].
                    repeat rewrite map_app. simpl. repeat rewrite <- app_assoc.
                    rewrite <- !Permutation_middle. reflexivity. }
