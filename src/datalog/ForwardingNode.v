@@ -594,19 +594,19 @@ Section __.
     - right. etransitivity; [ exact Ha | ]. symmetry. exact Hb.
   Qed.
 
-  Lemma travelling_to_forwarding_step_self n f orig dm dm' qhead queue :
-    forwarding_step (node_source n) f orig dm dm' ->
+  Lemma travelling_to_forwarding_step_exchange s f orig dm dm' dest qmsg qcopies queue :
+    forwarding_step s f orig dm dm' ->
+    travelling_to [(loc_of_source s, (f, orig))] dest qmsg ->
     travelling_to (map (fun d' => (loc_of_dest d', (f, orig)))
-                     (fforward (node_source n) (dfact_rel f, orig))) (node_destn n) [] ->
-    travelling_to [(node_loc n, (f, orig))] (node_destn n) qhead ->
-    travelling_to dm (node_destn n) (qhead ++ queue) ->
-    travelling_to dm' (node_destn n) queue.
+                     (fforward s (dfact_rel f, orig))) dest qcopies ->
+    travelling_to dm dest (qmsg ++ queue) ->
+    travelling_to dm' dest (qcopies ++ queue).
   Proof.
-    intros (rest & Hdm & Hdm') Hfwd Hhead Htr.
+    intros (rest & Hdm & Hdm') Hmsg Hcopies Htr.
     rewrite Hdm in Htr. rewrite Hdm'.
-    apply travelling_to_app with (queueA := []).
-    - exact Hfwd.
-    - eapply travelling_to_app_inv; [ | exact Hhead ]. exact Htr.
+    apply travelling_to_app.
+    - exact Hcopies.
+    - eapply travelling_to_app_inv; [ | exact Hmsg ]. exact Htr.
   Qed.
 
   Lemma travelling_to_cons_inv dm dest f orig queue :
@@ -1251,7 +1251,7 @@ Section __.
                + exact Hp5. }
            intros dest Hdest. specialize (Hp6 dest Hdest).
            rewrite queue_at_dest_put. destr (eqb dest (node_destn n)).
-           ++ eapply travelling_to_forwarding_step_self with (qhead := [f]).
+           ++ eapply travelling_to_forwarding_step_exchange with (qmsg := [f]) (qcopies := []).
               { eapply dest_msgs_dequeue; [ exact Hp2 | exact H0 | ].
                 eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ]. }
               { admit. }
@@ -1295,7 +1295,7 @@ Section __.
                + exact Hp5. }
            intros dest Hdest. specialize (Hp6 dest Hdest).
            destr (eqb dest (node_destn n)).
-           ++ eapply travelling_to_forwarding_step_self with (qhead := []).
+           ++ eapply travelling_to_forwarding_step_exchange with (qmsg := []) (qcopies := []).
               { eapply dest_msgs_dequeue; [ exact Hp2 | exact H0 | ].
                 eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H5 ]. }
               { admit. }
