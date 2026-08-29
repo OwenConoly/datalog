@@ -891,6 +891,16 @@ Section __.
     apply in_map_iff. exists (f, orig). split; [reflexivity | exact Hin].
   Qed.
 
+  Lemma in_node_dest_msgs (s : fgstate) n ns m :
+    map.get s.(graph_nodes) n = Some ns ->
+    In m (all_pending_msgs ns) ->
+    In (node_loc n, m) (dest_msgs s).
+  Proof.
+    intros Hget Hin. cbv [dest_msgs]. apply in_or_app. left.
+    apply in_flat_map. exists (n, ns). split; [ apply map.tuples_spec; exact Hget | ].
+    apply in_map_iff. exists m. split; [reflexivity | exact Hin].
+  Qed.
+
   Lemma forwarding_R_output_incl_rev s1 t1 s2 t2 :
     forwarding_R s1 t1 s2 t2 ->
     incl (map fst s1.(graph_output_queue)) s2.(graph_output_queue).
@@ -1194,20 +1204,28 @@ Section __.
            fwd. rewrite Hgetp1 in *.
            eapply travelling_to_in in E.
            2: { apply Hp5. simpl. apply Hp2. congruence. }
-           2: { admit. }
+           2: { eapply in_node_dest_msgs; [ exact H0 | ].
+                cbv [all_pending_msgs]. apply in_or_app. right. rewrite H5.
+                apply in_or_app. right. left. reflexivity. }
            simpl in E. rewrite Hgetp0 in E. simpl in E. apply in_split in E. fwd.
            do 2 eexists. split.
            { apply star_one. apply gstep_receive; eassumption. }
            split; [reflexivity|].
            cbv [forwarding_R]. simpl.
            split; [assumption|]. split; [assumption|]. split.
-           { admit. }
+           { eapply forwarding_compatible_same_domain; [exact Hp2|].
+             eapply same_domain_trans;
+               [ eapply same_domain_put_r; exact H0 | apply same_domain_map_values' ]. }
            split.
            { admit. }
            split.
-           { admit. }
+           { apply Forall2_map_map_values'_l. simpl.
+             apply Forall2_map_put_both.
+             - eapply Forall2_map_impl; [exact Hp4|]. simpl. auto.
+             - simpl. reflexivity. }
            intros. rewrite dest_msgs_forward_to.
-           2: { admit. }
+           2: { eapply forwarding_compatible_same_domain; [exact Hp2|].
+                cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
            move Hp5 at bottom. specialize (Hp5 _ ltac:(eassumption)).
            rewrite dest_msgs_get_remove.
            2: { simpl. apply map.get_put_same. }
@@ -1248,7 +1266,8 @@ Section __.
            cbv [forwarding_R]. simpl. split; [assumption|]. split; [assumption|].
            split.
            { eapply forwarding_compatible_same_domain; [eassumption|].
-             admit. }
+             eapply same_domain_trans;
+               [ eapply same_domain_put_r; exact H0 | apply same_domain_map_values' ]. }
            split.
            { admit. }
            pose proof @Forall2_map_get_l as Hget. especialize Hget; try eassumption.
@@ -1259,7 +1278,8 @@ Section __.
              2: { simpl. assumption. }
              eapply Forall2_map_impl; [eassumption|]. simpl. auto. }
            intros. rewrite dest_msgs_forward_to.
-           2: { simpl. admit. }
+           2: { simpl. eapply forwarding_compatible_same_domain; [exact Hp2|].
+                cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
            move Hp5 at bottom. specialize (Hp5 _ ltac:(eassumption)).
            rewrite dest_msgs_get_remove.
            2: { simpl. apply map.get_put_same. }
@@ -1323,7 +1343,8 @@ Section __.
       split; [assumption|]. split.
       { f_equal. assumption. }
       split; [assumption|]. split.
-      { admit. }
+      { eapply wf_queues_incl; [ | exact Hp3 ]. cbn [graph_output_queue]. rewrite H0.
+        apply incl_app; [ apply incl_appl, incl_refl | apply incl_appr, incl_tl, incl_refl ]. }
       split; [assumption|].
       intros dest Hdest. apply Hp5 in Hdest.
       erewrite dest_msgs_output_append with (s2 := Build_graph_state _ _) (oms := [m]) in Hdest.
