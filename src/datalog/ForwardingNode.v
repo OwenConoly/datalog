@@ -1236,7 +1236,42 @@ Section __.
               { admit. }
               eapply travelling_to_Proper; try eassumption; try reflexivity.
               repeat rewrite map_app. repeat rewrite <- app_assoc. reflexivity.
-           ++ eapply travelling_to_pebble_step. Search pebble_step.
+           ++ eapply travelling_to_forwarding_step. 4: eassumption.
+              3: { cbv [forwarding_step]. eexists. split; [|reflexivity].
+                   simpl. rewrite (app_one_cons (_, (_, _))) by check_not_nil.
+                   repeat rewrite app_assoc. apply Permutation_app; [|reflexivity].
+                   repeat rewrite map_app. simpl. repeat rewrite <- app_assoc.
+                   rewrite <- !Permutation_middle. reflexivity. }
+              { simpl. move Htree at bottom. cbv [forwarding_tree] in Htree. admit. }
+              simpl. destruct dest; simpl; congruence.
+        -- subst. do 2 eexists. split; [apply star_refl|]. split; [reflexivity|].
+           cbv [forwarding_R]. simpl. split; [assumption|]. split; [assumption|].
+           split.
+           { eapply forwarding_compatible_same_domain; [eassumption|].
+             admit. }
+           split.
+           { admit. }
+           pose proof @Forall2_map_get_l as Hget. especialize Hget; try eassumption.
+           fwd.
+           split.
+           { apply Forall2_map_map_values'_l. simpl.
+             eapply Forall2_map_put_l; [|eassumption|].
+             2: { simpl. assumption. }
+             eapply Forall2_map_impl; [eassumption|]. simpl. auto. }
+
+             Search Forall2_map map.put.
+             2:
+             ; [|eassumption|].
+           Search wf_queues.
+           { reflexivity.
+           {
+
+              apply Htree.
+                   Check syntactic_permutation.
+                   2: { reflexivity. }
+
+              .     -
+
 
 
               do
