@@ -1355,6 +1355,10 @@ Section misc.
   Implicit Type ys : list B.
   Implicit Type zs : list C.
 
+  Lemma app_one_cons (a : A) l :
+    a :: l = [a] ++ l.
+  Proof. reflexivity. Qed.
+
   Lemma map_inj (f : A -> B) (l1 l2 : list A) :
     (forall x y, f x = f y -> x = y) ->
     map f l1 = map f l2 ->

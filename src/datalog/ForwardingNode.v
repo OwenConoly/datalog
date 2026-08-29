@@ -1,8 +1,8 @@
-From Stdlib Require Import List Lia Permutation RelationClasses Morphisms Relations.
-From Datalog Require Import List Datalog Smallstep Tactics Graph Map Default Eqb Node.
+From Stdlib Require Import List Permutation Morphisms.
+From Datalog Require Import List Datalog Smallstep Tactics Graph Map Default Node.
 From GraphSearch Require Import GraphInterface Examples.
 From coqutil Require Import Map.Interface Map.Properties.
-From coqutil Require Import Eqb Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
+From coqutil Require Import Eqb Tactics Tactics.fwd.
 Import ListNotations.
 
 Definition loc_of_source (s : source) : location :=
@@ -135,7 +135,7 @@ Section __.
 
   Local Notation flabel := (graph_label (dfact * source) (fnode_label dfact label)).
   Local Notation nlabel := (graph_label dfact label).
-  Local Notation IO_event := (Smallstep.IO_event flabel dfact).
+  Local Notation fnIO_event := (Smallstep.IO_event flabel dfact).
   Local Notation fIO_event := (Smallstep.IO_event flabel (dfact * source)).
   Local Notation nIO_event := (Smallstep.IO_event nlabel dfact).
   Local Notation pebble := (location * dfact)%type.
@@ -155,7 +155,7 @@ Section __.
 
   Definition fforwardb s d '(f, orig) := inb d (fforward s (dfact_rel f, orig)).
 
-  Definition corresp (e : IO_event) (e' : fIO_event) : Prop :=
+  Definition corresp (e : fnIO_event) (e' : fIO_event) : Prop :=
     match e with
     | O_event lbl msgs => exists msgs', e' = O_event lbl msgs' /\ msgs = map fst msgs'
     | I_event msg => e' = I_event (msg, input_source)
@@ -200,7 +200,7 @@ Section __.
     unfold forwarding_graph, fforward. rewrite graph.edge_of_edges, in_flat_map. split.
     - intros ([s tbl] & Htup & Hin). apply map.tuples_spec in Htup.
       apply in_map_iff in Hin. destruct Hin as (d & Heq & Hind).
-      inversion Heq; subst. exists s, d. rewrite (get_or_default_Some _ _ _ Htup). auto.
+      injection Heq as <- <-. exists s, d. rewrite (get_or_default_Some _ _ _ Htup). auto.
     - intros (s & d & Hind & -> & ->). destruct (map.get fts s) as [tbl|] eqn:Hget.
       + rewrite (get_or_default_Some _ _ _ Hget) in Hind.
         exists (s, tbl). split; [ apply map.tuples_spec; exact Hget | ].
@@ -231,8 +231,8 @@ Section __.
     rewrite <- app_assoc. reflexivity.
   Qed.
 
-  Definition msg_matches (R : rel) (orig : source) (m : dfact * source) : bool :=
-    let '(f, o) := m in eqb R (dfact_rel f) && eqb orig o.
+  Definition msg_matches (R : rel) (orig : source) '((f, o) : dfact * source) : bool :=
+    eqb R (dfact_rel f) && eqb orig o.
 
   Definition dest_msgs (s1 : fgstate) : list (location * (dfact * source)) :=
     flat_map (fun '(n, ns) => map (fun m => (node_loc n, m)) (all_pending_msgs ns))
@@ -721,33 +721,6 @@ Section __.
       + exact (travelling_to_app [_] _ dest [] _ H1 IH).
   Qed.
 
-  Lemma travelling_to_incl dm dest queue :
-    travelling_to dm dest queue ->
-    incl queue (map (fun '(_, (f, _)) => f) dm).
-  Proof.
-    intros (queue' & Hq & HF & HP) f Hf. subst queue.
-    apply in_map_iff in Hf. destruct Hf as ((f', orig) & Heq & Hin).
-    simpl in Heq. subst f'.
-    rewrite Forall_forall in HF. specialize (HF _ Hin). simpl in HF.
-    specialize (HP (dfact_rel f) orig HF).
-    assert (Hrhs : In f (map fst (filter (msg_matches (dfact_rel f) orig) queue'))).
-    { apply in_map_iff. exists (f, orig). split; [reflexivity|].
-      apply filter_In. split; [exact Hin|].
-      cbn [msg_matches]. rewrite !eqb_refl_true by typeclasses eauto. reflexivity. }
-    assert (Hlhs : In f (graph_incoming (forwarding_graph (dfact_rel f, orig))
-                                        (loc_of_dest dest)
-                                        (msgs_to_pebbles (dfact_rel f) orig dm))).
-    { eapply Permutation_in; [ symmetry; exact HP | exact Hrhs ]. }
-    cbv [graph_incoming] in Hlhs. apply in_map_iff in Hlhs.
-    destruct Hlhs as ((loc, f2) & Hsnd & Hin2). simpl in Hsnd. subst f2.
-    apply filter_In in Hin2. destruct Hin2 as [Hin2 _].
-    cbv [msgs_to_pebbles] in Hin2. apply in_map_iff in Hin2.
-    destruct Hin2 as ((l, (f3, o3)) & Heq3 & Hin3).
-    apply filter_In in Hin3. destruct Hin3 as [Hin3 _].
-    injection Heq3 as Hl Hf3. subst f3.
-    apply in_map_iff. exists (l, (f, o3)). split; [reflexivity | exact Hin3].
-  Qed.
-
   Lemma travelling_to_in dm dest queue f orig :
     travelling_to dm dest queue ->
     In (loc_of_dest dest, (f, orig)) dm ->
@@ -772,8 +745,7 @@ Section __.
     apply in_map_iff. exists (f, o2). split; [reflexivity | exact Hin2].
   Qed.
 
-  Definition queue_at_dest {M L NS} {nm : map.map node_id (graph_node_state M L NS)}
-    (s : @graph_state M L NS nm) (d : destn) :=
+  Definition queue_at_dest (s : ngstate) (d : destn) :=
     match d with
     | node_destn n => unwrap_or_default (option_map gns_queue (map.get s.(graph_nodes) n))
     | output_destn => s.(graph_output_queue)
@@ -873,7 +845,7 @@ Section __.
   Definition msgs_reachable (s1 : fgstate) := dm_reachable (dest_msgs s1).
 
   Definition forwarding_R
-    (s1 : fgstate) (t1 : list IO_event)
+    (s1 : fgstate) (t1 : list fnIO_event)
     (s2 : ngstate) (t2 : list nIO_event) : Prop :=
     flat_map inputs_of t1 = flat_map inputs_of t2 /\
       flat_map outputs_of t1 = flat_map outputs_of t2 /\
@@ -884,14 +856,6 @@ Section __.
         s1.(graph_nodes) s2.(graph_nodes) /\
       msgs_reachable s1 /\
       (forall dest, valid_dest dest -> travelling_to (dest_msgs s1) dest (queue_at_dest s2 dest)).
-
-  Lemma forwarding_R_output_incl s1 t1 s2 t2 :
-    forwarding_R s1 t1 s2 t2 ->
-    incl s2.(graph_output_queue) (map (fun '(_, (f, _)) => f) (dest_msgs s1)).
-  Proof.
-    intros HR. cbv [forwarding_R] in HR. fwd.
-    apply (travelling_to_incl (dest_msgs s1) output_destn). apply HRp6. exact I.
-  Qed.
 
   Lemma in_output_dest_msgs (s : fgstate) f orig :
     In (f, orig) s.(graph_output_queue) ->
@@ -931,8 +895,6 @@ Section __.
   Proof.
     intros Hincl Hsb f orig Hin. apply Hsb. apply Hincl. exact Hin.
   Qed.
-
-  Hint Constructors NoDup : core.
 
   Lemma travelling_to_forwarded src d dest :
     forwarding_reaches -> forwarding_tree ->
@@ -1000,7 +962,8 @@ Section __.
         destruct (inb (node_destn n) (fforward src (dfact_rel d, orig)));
           cbn [In] in Hnode; [ | destruct Hnode ].
         destruct Hnode as [Heq | []]. discriminate Heq.
-    - apply FinFun.Injective_map_NoDup; [ intros a b Hab; apply loc_of_dest_inj; congruence | apply fts_NoDup ].
+    - apply FinFun.Injective_map_NoDup; [ | apply fts_NoDup ].
+      intros a b Hab. apply loc_of_dest_inj. congruence.
     - intros [dd m]. rewrite in_app_iff. split.
       + intros [Hout | Hnode].
         * cbv [fforwardb] in Hout. cbn [filter map] in Hout.
@@ -1035,10 +998,6 @@ Section __.
             by (apply inb_true_iff; exact Hind).
           rewrite Hb. cbn [map]. left. reflexivity.
   Qed.
-
-  Lemma app_one_cons {A} (a : A) l :
-    a :: l = [a] ++ l.
-  Proof. reflexivity. Qed.
 
   Lemma msgs_reachable_pending (s : fgstate) n ns q1 f orig q2 :
     msgs_reachable s ->
@@ -1141,7 +1100,7 @@ Section __.
         { eapply forwarding_compatible_same_domain; [eassumption|].
           eapply same_domain_put_r; eassumption. }
         split.
-        { eapply wf_queues_incl; [ | eassumption ]. cbn [graph_output_queue]. apply incl_refl. }
+        { assumption. }
         split.
         { apply Forall2_map_map_values'_r. simpl.
           apply Forall2_map_put_both.
@@ -1226,16 +1185,13 @@ Section __.
            2: eassumption.
            revert Hp6.
            eassert (all_pending_msgs ns = gns_queue ns ++ _) as ->.
-           { destruct ns; simpl in *; subst. intros. destruct v2; simpl in *; subst.
-             cbv [all_pending_msgs]. simpl. intros. rewrite H5. reflexivity. }
+           {              cbv [all_pending_msgs]. rewrite H5. reflexivity. }
            intros Hp6.
-           Search queue_at_dest.
            rewrite queue_at_dest_put. destr (eqb dest (node_destn n)).
            ++ simpl. simpl in Hp6. rewrite Hgetp0 in Hp6. simpl in Hp6.
               rewrite E in Hp6. repeat rewrite map_app in Hp6.
               repeat rewrite <- !app_assoc in Hp6. simpl in Hp6.
               repeat rewrite <- Permutation_middle in Hp6.
-              Fail (do 2 rewrite app_one_cons in Hp6 by check_not_nil).
               rewrite app_one_cons in Hp6.
               rewrite (app_one_cons f) in Hp6.
               apply travelling_to_app with (queueA := []).
@@ -1300,8 +1256,7 @@ Section __.
            2: eassumption.
            revert Hp6.
            eassert (all_pending_msgs ns = gns_queue ns ++ _) as ->.
-           { destruct ns; simpl in *; subst. intros. destruct v2; simpl in *; subst.
-             cbv [all_pending_msgs]. simpl. intros. rewrite H5. reflexivity. }
+           {              cbv [all_pending_msgs]. rewrite H5. reflexivity. }
            intros Hp6.
            destr (eqb dest (node_destn n)).
            ++ simpl. simpl in Hp6. rewrite Hgetp0 in Hp6 |- *. simpl in Hp6 |- *.
@@ -1335,7 +1290,7 @@ Section __.
       { eapply forwarding_compatible_same_domain; [eassumption|].
         eapply same_domain_put_r. exact H0. }
       split.
-      { eapply wf_queues_incl; [ | eassumption ]. cbn [graph_output_queue]. apply incl_refl. }
+      { assumption. }
       split.
       { pose proof @Forall2_map_get_l as H'. especialize H'; eauto. fwd.
         eapply Forall2_map_put_l; try eassumption.
