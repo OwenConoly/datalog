@@ -1,6 +1,6 @@
 From Stdlib Require Import List Permutation Morphisms.
 From Datalog Require Import List Datalog Smallstep Tactics Graph Map Default Node.
-From GraphSearch Require Import GraphInterface Examples.
+From GraphSearch Require Import GraphInterface Examples MoreTrees.
 From coqutil Require Import Map.Interface Map.Properties.
 From coqutil Require Import Eqb Tactics Tactics.fwd.
 Import ListNotations.
@@ -69,15 +69,6 @@ Arguments fnode_state : clear implicits.
 
 Section pebbles.
   Context {V : Type} {eqbV : Eqb V} {gi : graph.graph V} {gok : graph.ok gi}.
-
-  (* A connected subgraph of a tree is a tree: local-tree-ness propagates from the
-     root to any reachable vertex. *)
-  Lemma is_locally_tree_reaches (g : gi) root v :
-    graph.reaches g root v ->
-    graph.is_locally_tree g root ->
-    graph.is_locally_tree g v.
-  Proof.
-  Admitted.
 
   Lemma is_locally_tree_no_return (g : gi) root u w :
     graph.is_locally_tree g root ->
