@@ -1258,69 +1258,40 @@ Section __.
              eapply Forall2_map_put_l; [|eassumption|].
              2: { simpl. assumption. }
              eapply Forall2_map_impl; [eassumption|]. simpl. auto. }
-
-             Search Forall2_map map.put.
-             2:
-             ; [|eassumption|].
-           Search wf_queues.
-           { reflexivity.
-           {
-
-              apply Htree.
-                   Check syntactic_permutation.
-                   2: { reflexivity. }
-
-              .     -
-
-
-
-              do
-              Print check_not_nil.
-              Check app_one_cons.
-              Opaque not_syntactically_nil.
-              Set Nested Proofs Allowed.
-              Goal (not_syntactically_nil (@nil nat)).
-                {
-                  match goal with
-                  | |- not_syntactically_nil ?l => lazymatch l with
-                                                 | @nil _ => fail
-                                                 | _ => idtac l
-                                                 end
-                  end.
-                  match [] with
-                  | @nil _ => fail
-                  | _ => idtac
-              do 2 rewrite app_one_cons in Hp5 by check_not_nil.
-              do 2 rewrite
-           rewrite queue_at_dest_remove in Hp5 by eassumption.
-           rewrite queue_at_dest_remove by apply map.get_put_same. simpl.
-          rewrite map.remove_put_same.
-           eassert (Permutation
-                      (if eqb dest (node_destn n) then gns_queue v2 else [])
-                      ((if eqb dest (node_destn n) then [_] else []) ++
-                         (if eqb dest (node_destn n) then l1 ++ l2 else []))) as Hrw.
-           { Tactics.destruct_one_match; [|simpl; reflexivity].
-             rewrite E. rewrite <- Permutation_middle. simpl. reflexivity. }
-           rewrite Hrw in Hp5. clear Hrw.
-           rewrite !map_app in Hp5. simpl in Hp5.
-           rewrite (Permutation_app_comm (map _ _)) in Hp5.
-           rewrite (Permutation_app_comm (map _ _)) in Hp5.
-           repeat rewrite <- app_assoc in Hp5. simpl in Hp5.
-           Search ([_] ++ _).
+           intros. rewrite dest_msgs_forward_to.
+           2: { simpl. admit. }
+           move Hp5 at bottom. specialize (Hp5 _ ltac:(eassumption)).
+           rewrite dest_msgs_get_remove.
+           2: { simpl. apply map.get_put_same. }
+           simpl. rewrite map.remove_put_same. cbv [all_pending_msgs]. simpl.
+           rewrite dest_msgs_get_remove in Hp5.
+           2: eassumption.
            revert Hp5.
-           eassert ((_, _) :: _ = [_] ++ _) as -> by reflexivity.
+           eassert (all_pending_msgs ns = gns_queue ns ++ _) as ->.
+           { destruct ns; simpl in *; subst. intros. destruct v2; simpl in *; subst.
+             cbv [all_pending_msgs]. simpl. intros. rewrite H5. reflexivity. }
            intros Hp5.
-           Search pebble_step.
-           Check travelling_to_app_inv.
-           pose proof travelling_to_app_inv as H'.
-           specialize H' with (1 := Hp5). especialize H'.
-           { Search travelling_to. admit. }
-
-           eapply travelling_to_Proper; [| | |eassumption]. 2,3: reflexivity.
-           repeat rewrite app_assoc. apply Permutation_app; [|reflexivity].
-           repeat rewrite <- app_assoc.
-           fail.
-        admit.
+           destr (eqb dest (node_destn n)).
+           ++ simpl. simpl in Hp5. rewrite Hgetp0 in Hp5 |- *. simpl in Hp5 |- *.
+              rewrite !map_app in Hp5.
+              rewrite <- !app_assoc in Hp5. simpl in Hp5.
+              rewrite <- !Permutation_middle in Hp5.
+              rewrite app_one_cons in Hp5 by check_not_nil.
+              apply travelling_to_app with (queueA := []).
+              { admit. }
+              pose proof travelling_to_app_inv as H'.
+              specialize H' with (qa := nil) (1 := Hp5). especialize H'.
+              { admit. (*note: this is the same as the previous admit.*) }
+              eapply travelling_to_Proper; try eassumption; try reflexivity.
+              repeat rewrite map_app. repeat rewrite <- app_assoc. reflexivity.
+           ++ eapply travelling_to_forwarding_step. 4: eassumption.
+              3: { cbv [forwarding_step]. eexists. split; [|reflexivity].
+                   simpl. rewrite (app_one_cons (_, (_, _))) by check_not_nil.
+                   repeat rewrite app_assoc. apply Permutation_app; [|reflexivity].
+                   repeat rewrite map_app. simpl. repeat rewrite <- app_assoc.
+                   rewrite <- !Permutation_middle. reflexivity. }
+              { simpl. move Htree at bottom. cbv [forwarding_tree] in Htree. admit. }
+              simpl. destruct dest; simpl; congruence.
     - destruct e; simpl in H0p0; congruence || fwd. invert H1.
       do 2 eexists. split.
       { apply star_refl. }
