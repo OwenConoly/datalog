@@ -70,14 +70,6 @@ Arguments fnode_state : clear implicits.
 Section pebbles.
   Context {V : Type} {eqbV : Eqb V} {gi : graph.graph V} {gok : graph.ok gi}.
 
-  Lemma is_locally_tree_no_return (g : gi) root u w :
-    graph.is_locally_tree g root ->
-    graph.reaches g root u ->
-    graph.edge g u w ->
-    ~ graph.reaches g w u.
-  Proof.
-  Admitted.
-
   Context {X : Type}.
 
   Definition pebble_step (g : gi) (v : V) (ps1 ps2 : list (V * X)) : Prop :=
