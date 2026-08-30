@@ -15,7 +15,8 @@ From Stdlib Require Import Wellfounded Wellfounded.Wellfounded Wellfounded.Trans
 From Stdlib Require Import Wellfounded.Inverse_Image.
 From Stdlib Require Import Relations.Relation_Definitions.
 
-From Datalog Require Import Datalog Map Tactics Fp List Interpreter Dag.
+From Datalog Require Import Datalog Map Tactics Fp List Interpreter.
+From GraphSearch Require Import Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 

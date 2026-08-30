@@ -10,7 +10,8 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 From Datalog Require Import Eqb.
 
 
-From Datalog Require Import Datalog Map Tactics Fp List Dag.
+From Datalog Require Import Datalog Map Tactics Fp List.
+From GraphSearch Require Import Dag.
 
 Import ListNotations.
 

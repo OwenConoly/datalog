@@ -2,7 +2,8 @@ From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 
-From Datalog Require Import Map Tactics Fp List Dag Datalog RelMap.
+From Datalog Require Import Map Tactics Fp List Datalog RelMap.
+From GraphSearch Require Import Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 

@@ -6,7 +6,8 @@ From Stdlib Require Import Classical_Prop.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
-From Datalog Require Import Map Tactics Fp List Dag Eqb.
+From Datalog Require Import Map Tactics Fp List Eqb.
+From GraphSearch Require Import Dag.
 
 Import ListNotations.
 

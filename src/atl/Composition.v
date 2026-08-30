@@ -12,7 +12,8 @@ From Stdlib Require Import micromega.Lia.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
 From Lower Require Import ATLDeep.
 
-From Datalog Require Import QueryableToRunnable Datalog Map Tactics Fp List Dag Interpreter ZeroLowerBounds ATLUtils.
+From Datalog Require Import QueryableToRunnable Datalog Map Tactics Fp List Interpreter ZeroLowerBounds ATLUtils.
+From GraphSearch Require Import Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
