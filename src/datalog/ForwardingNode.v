@@ -849,6 +849,7 @@ Section __.
 
   Definition msgs_reachable (s1 : fgstate) := dm_reachable (dest_msgs s1).
 
+  (* TODO better name *)
   Definition delivered_to (s1 : fgstate) (s2 : ngstate) (dest : destn) :=
     exists queue,
       Permutation (queue_at_dest s2 dest) (arrived s1 dest ++ queue) /\
