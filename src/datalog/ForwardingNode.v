@@ -38,29 +38,43 @@ Section __.
   Record fnode_state :=
     { fnode_node : node_state;
       fnode_pending : list (message * source);
+      fnode_to_consume : list (message * source);
     }.
 
   Variant fnode_label :=
     | deduce_label (_ : label)
-    | forward_label (_ : message).
+    | forward_label (_ : message)
+    | consume_label (_ : message).
 
   Inductive fnode_step (fp : fnode_prog) (self : node_id) :
     fnode_state -> IO_event fnode_label (message * source) -> fnode_state -> Prop :=
   | fnode_input fs m :
     fnode_step _ _ fs (I_event m)
-               {| fnode_node := fs.(fnode_node); fnode_pending := m :: fs.(fnode_pending) |}
+               {| fnode_node := fs.(fnode_node);
+                  fnode_pending := m :: fs.(fnode_pending);
+                  fnode_to_consume := fs.(fnode_to_consume) |}
   | fnode_deduce fs ns' lbl outs :
     node_step fp.(fnode_rules) fs.(fnode_node) (O_event lbl outs) ns' ->
     fnode_step _ _ fs (O_event (deduce_label lbl) [])
                {| fnode_node := ns';
-                  fnode_pending := map (fun f => (f, node_source self)) outs ++ fs.(fnode_pending) |}
-  | fnode_dequeue fs ns' q1 q2 f orig :
+                  fnode_pending := map (fun f => (f, node_source self)) outs ++ fs.(fnode_pending);
+                  fnode_to_consume := fs.(fnode_to_consume) |}
+  | fnode_route fs q1 q2 f orig :
     fs.(fnode_pending) = q1 ++ (f, orig) :: q2 ->
-    (if fp.(fnode_keep) f orig
-     then node_step fp.(fnode_rules) fs.(fnode_node) (I_event f) ns'
-     else ns' = fs.(fnode_node)) ->
     fnode_step _ _ fs (O_event (forward_label f) [(f, orig)])
-               {| fnode_node := ns'; fnode_pending := q1 ++ q2 |}.
+               {| fnode_node := fs.(fnode_node);
+                  fnode_pending := q1 ++ q2;
+                  fnode_to_consume :=
+                    if fp.(fnode_keep) f orig
+                    then (f, orig) :: fs.(fnode_to_consume)
+                    else fs.(fnode_to_consume) |}
+  | fnode_consume fs ns' q1 q2 f orig :
+    fs.(fnode_to_consume) = q1 ++ (f, orig) :: q2 ->
+    node_step fp.(fnode_rules) fs.(fnode_node) (I_event f) ns' ->
+    fnode_step _ _ fs (O_event (consume_label f) [])
+               {| fnode_node := ns';
+                  fnode_pending := fs.(fnode_pending);
+                  fnode_to_consume := q1 ++ q2 |}.
 
 End __.
 Arguments fnode_prog : clear implicits.
