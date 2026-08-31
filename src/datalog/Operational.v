@@ -246,20 +246,6 @@ Section __.
 
   Arguments sane_state : clear implicits.
 
-  Lemma learn_fact_at_rule_rule_has_dfact rs1 rs2 :
-    learn_fact_at_rule rs1 rs2 ->
-    forall f, rule_has_dfact rs1 f <-> rule_has_dfact rs2 f.
-  Proof.
-    cbv [learn_fact_at_rule rule_has_dfact]. intros H f. fwd.
-    rewrite Hp0, Hp1, Hp2. simpl. repeat rewrite in_app_iff. simpl.
-    intuition congruence.
-  Qed.
-
-  Lemma learn_fact_at_rule_sent rs1 rs2 :
-    learn_fact_at_rule rs1 rs2 ->
-    rs2.(sent_facts) = rs1.(sent_facts).
-  Proof. cbv [learn_fact_at_rule]. intros H. fwd. assumption. Qed.
-
   Lemma exists_swap A (P : A -> Prop) l1 x y l2 :
     (P x -> P y) ->
     Exists P (l1 ++ x :: l2) -> Exists P (l1 ++ y :: l2).
@@ -301,35 +287,6 @@ Section __.
     apply Forall2_app; [assumption|]. constructor; auto.
   Qed.
 
-  Lemma learn_fact_at_rule_perm rs1 rs2 :
-    learn_fact_at_rule rs1 rs2 ->
-    Permutation (rs1.(known_facts) ++ rs1.(waiting_facts))
-                (rs2.(known_facts) ++ rs2.(waiting_facts)).
-  Proof.
-    cbv [learn_fact_at_rule]. intros H. fwd.
-    rewrite Hp0, Hp1, Hp2. simpl.
-    eapply perm_trans.
-    - apply Permutation_app_head. apply Permutation_sym. apply Permutation_middle.
-    - apply Permutation_sym. apply Permutation_middle.
-  Qed.
-
-  Lemma learn_fact_at_rule_existsn_split (P : dfact -> Prop) rs1 rs2 :
-    learn_fact_at_rule rs1 rs2 ->
-    forall num_k num_w,
-      Existsn P num_k rs1.(known_facts) ->
-      Existsn P num_w rs1.(waiting_facts) ->
-      exists num_k' num_w',
-        Existsn P num_k' rs2.(known_facts) /\
-        Existsn P num_w' rs2.(waiting_facts) /\
-        num_k' + num_w' = num_k + num_w.
-  Proof.
-    intros H num_k num_w Hk Hw.
-    pose proof (learn_fact_at_rule_perm _ _ H) as Hperm.
-    pose proof (Existsn_app _ _ _ _ _ Hk Hw) as Hcat.
-    eapply Existsn_perm in Hcat. 2: exact Hperm.
-    apply Existsn_split in Hcat. fwd. eauto.
-  Qed.
-
   Lemma nth_error_app_middle A (l1 : list A) x l2 n :
     nth_error (l1 ++ x :: l2) n =
     match Nat.compare n (length l1) with
@@ -365,40 +322,6 @@ Section __.
     destruct (nth_error l n); reflexivity.
   Qed.
 
-  Lemma knows_dfact_add_waiting F s f :
-    knows_dfact (map (add_waiting_fact F) s) f -> f = F \/ knows_dfact s f.
-  Proof.
-    cbv [knows_dfact rule_has_dfact]. intros HE. apply Exists_exists in HE.
-    destruct HE as (rs' & Hin' & [Hk | Hw]).
-    - apply in_map_iff in Hin'. destruct Hin' as (rs & Heq & Hin); subst rs'.
-      cbv [add_waiting_fact] in Hk; simpl in Hk.
-      right. apply Exists_exists. exists rs. auto.
-    - apply in_map_iff in Hin'. destruct Hin' as (rs & Heq & Hin); subst rs'.
-      cbv [add_waiting_fact] in Hw; simpl in Hw.
-      destruct Hw as [<-|Hw]; auto.
-      right. apply Exists_exists. exists rs. auto.
-  Qed.
-
-  Lemma knows_dfact_after_step F l1 x l2 f :
-    knows_dfact (map (add_waiting_fact F) (l1 ++ send_fact F x :: l2)) f ->
-    f = F \/ knows_dfact (l1 ++ x :: l2) f.
-  Proof.
-    intros HE. apply knows_dfact_add_waiting in HE.
-    destruct HE as [|HE]; [auto|]. right.
-    cbv [knows_dfact rule_has_dfact send_fact] in *.
-    rewrite Exists_app in HE |- *. simpl in HE |- *.
-    rewrite Exists_cons in HE |- *. intuition.
-  Qed.
-
-  Lemma rule_has_dfact_afw F rs f :
-    rule_has_dfact rs f -> rule_has_dfact (add_waiting_fact F rs) f.
-  Proof. cbv [rule_has_dfact add_waiting_fact]; simpl; intuition. Qed.
-
-  Lemma rule_has_dfact_afw_F F rs :
-    rule_has_dfact (add_waiting_fact F rs) F.
-  Proof. cbv [rule_has_dfact add_waiting_fact]; simpl; auto. Qed.
-
-
   Lemma can_deduce_implies_not_input r kf nf_rel nf_args :
     good_non_meta_rule r ->
     can_deduce_normal_fact (rule_of r) kf nf_rel nf_args ->
@@ -417,48 +340,12 @@ Section __.
     - invert Himpl. exact Hgood.
   Qed.
 
-  Lemma send_fact_rule_has_dfact F rs f :
-    rule_has_dfact (send_fact F rs) f <-> rule_has_dfact rs f.
-  Proof. cbv [send_fact rule_has_dfact]. simpl. reflexivity. Qed.
-
-  Lemma knows_dfact_send_fact_in_middle F l1 x l2 f :
-    knows_dfact (l1 ++ send_fact F x :: l2) f <-> knows_dfact (l1 ++ x :: l2) f.
-  Proof.
-    cbv [knows_dfact]. split; apply exists_swap; cbv [send_fact rule_has_dfact]; simpl; auto.
-  Qed.
-
-  Lemma knows_dfact_add_waiting_mono F s g :
-    knows_dfact s g -> knows_dfact (map (add_waiting_fact F) s) g.
-  Proof.
-    cbv [knows_dfact]. intros HE. apply Exists_exists in HE. apply Exists_exists.
-    destruct HE as (rs & Hin & Hd). exists (add_waiting_fact F rs).
-    split; [apply in_map; exact Hin|].
-    cbv [add_waiting_fact rule_has_dfact] in *. simpl. intuition.
-  Qed.
-
-  Lemma knows_dfact_after_step_bw F l1 x l2 f :
-    f = F \/ knows_dfact (l1 ++ x :: l2) f ->
-    knows_dfact (map (add_waiting_fact F) (l1 ++ send_fact F x :: l2)) f.
-  Proof.
-    intros [Heq|Hkd].
-    - subst f. cbv [knows_dfact rule_has_dfact add_waiting_fact send_fact].
-      rewrite map_app. simpl. apply Exists_app. right.
-      apply Exists_cons_hd. simpl. right. left. reflexivity.
-    - rewrite <- knows_dfact_send_fact_in_middle in Hkd.
-      cbv [knows_dfact] in *.
-      apply Exists_exists in Hkd. apply Exists_exists.
-      destruct Hkd as (rs & Hin & Hd). exists (add_waiting_fact F rs).
-      split.
-      + apply in_map_iff. exists rs. split; [reflexivity|exact Hin].
-      + cbv [add_waiting_fact rule_has_dfact] in *. simpl. intuition.
-  Qed.
-
   (* Read off the firing position from a [fire_rule] step's [stepWithLabel]
      witness: the fired rule [r] sits at index [length l1] of [s], which equals
      the recorded firing index [k], and [s] decomposes accordingly.  Every
      [comp_step] inversion that handles [fire_rule] needs this alignment, so it
      is factored out here. *)
-  Lemma fire_label_decomp (s : state) l1 (r : non_meta_rule) k (x : node_state) l2 :
+  Lemma fire_label_decomp (s : list (list dfact)) l1 (r : non_meta_rule) k (x : list dfact) l2 :
     length s = length p.(non_meta_rules) ->
     combine (combine p.(non_meta_rules) (seq 0 (length s))) s = l1 ++ (r, k, x) :: l2 ->
     s = map snd l1 ++ x :: map snd l2 /\
@@ -505,15 +392,16 @@ Section __.
      [length l1]) on state [l1 ++ rs :: l2] is one [comp_step].  Lets callers
      build a fire step from a positional witness without unfolding
      [stepWithLabel]/[combine]. *)
-  Lemma fire_rule_at new_fact l1 rn rs rs' l2 :
+  Lemma fire_rule_at new_fact known l1 rn rs rs' l2 :
     length (l1 ++ rs :: l2) = length p.(non_meta_rules) ->
     nth_error p.(non_meta_rules) (length l1) = Some rn ->
-    fire_at_rule rn (length l1) rs rs' new_fact ->
-    comp_step (l1 ++ rs :: l2) (map (add_waiting_fact new_fact) (l1 ++ rs' :: l2)).
+    fire_at_rule rn (length l1) known rs rs' new_fact ->
+    comp_step {| known_facts := known; sents := l1 ++ rs :: l2 |}
+              {| known_facts := new_fact :: known; sents := l1 ++ rs' :: l2 |}.
   Proof.
     intros Hlen Hnth_rn Hstep.
-    apply (fire_rule new_fact (l1 ++ rs :: l2) (l1 ++ rs' :: l2)).
-    cbv [stepWithLabel].
+    apply (fire_rule new_fact {| known_facts := known; sents := l1 ++ rs :: l2 |} (l1 ++ rs' :: l2)).
+    cbv [stepWithLabel]. cbn [known_facts sents].
     apply nth_error_split in Hnth_rn.
     destruct Hnth_rn as (nmrs_pre & nmrs_post & Hnmrs_eq & Hnmrs_pre_len).
     assert (Hk_lt : length l1 < length (l1 ++ rs :: l2))
