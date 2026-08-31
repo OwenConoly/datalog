@@ -1322,8 +1322,8 @@ Section __.
   Proof.
     intros Hget Hin. cbv [all_pending_msgs] in Hin. apply in_app_or in Hin.
     destruct Hin as [Hin | Hin].
-    2: { exists s, [], ns. split; [ apply star_refl | ].
-         split; [ constructor | split; [ exact Hget | exact Hin ] ]. }
+    2: { exists s, [], ns. split; [ apply star_refl | ]. split; [ constructor | ].
+         split; [ exact Hget | exact Hin ]. }
     apply in_split in Hin. destruct Hin as (ms1 & ms2 & Hms).
     eexists _, [O_event (receive n m) []], _. split.
     { apply star_one. cbv [fgraph_step]. eexists. split.
@@ -1460,7 +1460,8 @@ Section __.
     destruct (fgraph_route_to sa n ns' f orig d HRap2 Hgeta Hpenda Hd) as (sb & Hstep & Hinb).
     exists sb, (O_event (run n (forward_label f)) [] :: ta). split.
     { eapply star_step; eassumption. }
-    split; [ constructor; [ exact I | exact Hsila ] | ].
+    split.
+    { constructor; [ exact I | exact Hsila ]. }
     subst next. exact Hinb.
   Qed.
 
@@ -1483,12 +1484,13 @@ Section __.
     - destruct Hpath as [Hedge Hpath'].
       destruct (fgraph_hop s1 t1 s2 t2 f orig loc next Hreaches Htree Hno HR Hin Hedge)
         as (sa & ta & Hstara & Hsila & Hina).
+      rewrite last_cons in Hlast.
       destruct (IH sa (ta ++ t1) next
                   (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila)
-                  Hina (conj Hpath' ltac:(rewrite last_cons in Hlast; exact Hlast)))
+                  Hina (conj Hpath' Hlast))
         as (sb & tb & Hstarb & Hsilb & Hinb).
       exists sb, (tb ++ ta). split; [ eapply star_app; eassumption | ].
-      split; [ apply Forall_app; split; assumption | exact Hinb ].
+      split; [ | exact Hinb ]. apply Forall_app. split; assumption.
   Qed.
 
   Lemma fgraph_deliver_to_node (s1 : fgstate) t1 s2 t2 n f :
@@ -1524,9 +1526,10 @@ Section __.
       as (sb & tb & ms' & Hstarb & Hsilb & Hgetb & Hpendb).
     destruct (fgraph_route_keeps sb n ms' f orig Hgetb Hpendb Hroute) as (sc & Hstepc & Hinc).
     exists sc, (O_event (run n (forward_label f)) [] :: (tb ++ ta)), orig.
-    split; [ eapply star_step; [ eapply star_app; eassumption | exact Hstepc ] | ].
-    split; [ | exact Hinc ].
-    constructor; [ exact I | apply Forall_app; split; assumption ].
+    split.
+    { eapply star_step; [ eapply star_app; eassumption | exact Hstepc ]. }
+    split; [ | exact Hinc ]. constructor; [ exact I | ].
+    apply Forall_app. split; assumption.
   Qed.
 
   Lemma fgraph_deliver_to_output (s1 : fgstate) t1 s2 t2 f :
@@ -1550,7 +1553,7 @@ Section __.
                 Hreaches Htree Hno HR Hdm Hpath) as (sa & ta & Hstara & Hsila & Hina).
     cbn [loc_of_dest] in Hina. apply in_dest_msgs_inv in Hina.
     destruct Hina as [(m & ms & Hloc & _ & _) | (_ & Hout)]; [ discriminate Hloc | ].
-    exists sa, ta, orig. split; [ exact Hstara | split; [ exact Hsila | exact Hout ] ].
+    exists sa, ta, orig. split; [ exact Hstara | ]. split; [ exact Hsila | exact Hout ].
   Qed.
 
   Lemma fgraph_weak_sims_ngraph :
@@ -1832,7 +1835,8 @@ Section __.
       apply travelling_to_deduced. assumption.
     - pose proof HR as HR'. cbv [forwarding_R] in HR'. fwd.
       destruct (Forall2_map_get_r _ _ _ _ _ HR'p4 H) as (fns & Hfns & Hfnseq).
-      assert (Hvalid : valid_dest (node_destn n)) by (simpl; apply HR'p2; congruence).
+      assert (Hvalid : valid_dest (node_destn n)).
+      { simpl. apply HR'p2. congruence. }
       assert (Hin : In m (queue_at_dest ns (node_destn n))).
       { erewrite queue_at_dest_get by exact H. rewrite H1.
         apply in_or_app. right. left. reflexivity. }
@@ -1878,8 +1882,8 @@ Section __.
       rewrite <- !Permutation_middle in HQd. cbn [app] in HQd.
       apply Permutation_cons_inv in HQd.
       cbn [gns_queue gns_node_state fnode_to_consume]. rewrite map_app. exact HQd.
-    - assert (Hin : In m ns.(graph_output_queue))
-        by (rewrite H; apply in_app_iff; simpl; auto).
+    - assert (Hin : In m ns.(graph_output_queue)).
+      { rewrite H. apply in_app_iff. simpl. auto. }
       destruct (fgraph_deliver_to_output fs ft ns nt m Hreaches Htree Hno HR Hin)
         as (fsa & fta & orig & Hstara & Hsila & Hout).
       pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila) as HRa.
