@@ -17,14 +17,14 @@ The build is **dune** (`dune-project` declares `(using rocq 0.13)`). Prerequisit
 
 Individual files compile fast (a couple of seconds each) — iterate with foreground `dune build <file>.vo` rather than background builds. Check for incomplete proofs with `grep -rn "Admitted" src/`.
 
-Build status: default `dune build` is green. The core `src/datalog` theory (`AggregatingProgram`, `Blocks`, `Datalog`, `Distributed`, `Interpreter`, `NattifyRel`, `Node`, `Operational`, `OperationalToDistributed`, `OperationalWithIO`, `RelMap`) plus `src/util` compile end-to-end. `src/datalog/dune` excludes five WIP modules from the theory (`modules :standard \ Local JSON QueryableToRunnable FancyNotations ForwardingNode`): `QueryableToRunnable.v` and `src/atl/*.v` predate the core-API refactor (record facts, `prog_impl_fact`, `clause_R`, `node_prog`) and don't compile against the current `Datalog.v`/`Node.v`; `Local.v` (indexed single-node impl) has an Aborted `compiler_correct` and a standing type error; `JSON.v` needs coq-json; `ForwardingNode.v` is active WIP (the forwarding↔bare-node weak-simulation proof, with admits).
+Build status: default `dune build` is green. The core `src/datalog` theory (`AggregatingProgram`, `Blocks`, `Datalog`, `Distributed`, `ForwardingNode`, `Interpreter`, `NattifyRel`, `Node`, `Operational`, `OperationalToDistributed`, `OperationalWithIO`, `RelMap`) plus `src/util` compile end-to-end; `ForwardingNode.v` (the forwarding↔bare-node weak-simulation proof) is admit-free. `src/datalog/dune` excludes four WIP modules from the theory (`modules :standard \ Local JSON QueryableToRunnable FancyNotations`): `QueryableToRunnable.v` and `src/atl/*.v` predate the core-API refactor (record facts, `prog_impl_fact`, `clause_R`, `node_prog`) and don't compile against the current `Datalog.v`/`Node.v`; `Local.v` (indexed single-node impl) has an Aborted `compiler_correct` and a standing type error; `JSON.v` needs coq-json.
 
 dune has no rule for the excluded modules — build one directly with `rocq compile` after a `dune build` has populated `_build/default` (the `.vo` lands next to the source):
 
 ```
 rocq compile -R _build/default/src/util Datalog.Util -R _build/default/src/datalog Datalog \
   -Q _build/default/graph_search/coqutil/src/coqutil coqutil \
-  -Q _build/default/graph_search/src GraphSearch src/datalog/ForwardingNode.v
+  -Q _build/default/graph_search/src GraphSearch src/datalog/Local.v
 ```
 
 Those `-R`/`-Q` flags are exactly the `_build/default`-rooted lines dune writes into `_CoqProject`. The same command compiles a scratch `Require Import` + `Search ...` file to query the compiled libraries for lemmas.
