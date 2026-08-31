@@ -714,6 +714,36 @@ Section __.
     apply in_map_iff. exists (f, o2). split; [reflexivity | exact Hin2].
   Qed.
 
+  Lemma travelling_to_in_inv dm dest queue f :
+    travelling_to dm dest queue ->
+    In f queue ->
+    exists loc orig,
+      In (loc, (f, orig)) dm /\
+      graph.reaches (forwarding_graph (dfact_rel f, orig)) loc (loc_of_dest dest) /\
+      In dest (nforward orig (dfact_rel f)).
+  Proof.
+    intros (queue' & Hq & HF & HP) Hin. subst queue.
+    apply in_map_iff in Hin. destruct Hin as ((f', orig) & Hfst & Hin). simpl in Hfst. subst f'.
+    pose proof (proj1 (Forall_forall _ _) HF _ Hin) as Hprem.
+    specialize (HP (dfact_rel f) orig Hprem).
+    assert (Hrhs : In f (map fst (filter (msg_matches (dfact_rel f) orig) queue'))).
+    { apply in_map_iff. exists (f, orig). split; [ reflexivity | ].
+      apply filter_In. split; [ exact Hin | ].
+      cbn [msg_matches]. rewrite !eqb_refl_true by typeclasses eauto. reflexivity. }
+    eapply Permutation_in in Hrhs; [ | symmetry; exact HP ].
+    cbv [graph_incoming] in Hrhs. apply in_map_iff in Hrhs.
+    destruct Hrhs as ((loc, f'') & Hsnd & Hpeb). simpl in Hsnd. subst f''.
+    apply filter_In in Hpeb. destruct Hpeb as [Hpeb Hreach].
+    cbv [msgs_to_pebbles] in Hpeb. apply in_map_iff in Hpeb.
+    destruct Hpeb as ((loc', (f'', o)) & Heq & Hdm). fwd.
+    apply filter_In in Hdm. destruct Hdm as [Hdm Hmatch].
+    cbn [msg_matches] in Hmatch.
+    destr (eqb (dfact_rel f) (dfact_rel f) && eqb orig o)%bool; [ | discriminate ].
+    destruct E as [_ Eo].
+    exists loc, orig. split; [ rewrite Eo; exact Hdm | ].
+    split; [ exact Hreach | exact Hprem ].
+  Qed.
+
   Definition queue_at_dest (s : ngstate) (d : destn) :=
     match d with
     | node_destn n => unwrap_or_default (option_map gns_queue (map.get s.(graph_nodes) n))
@@ -773,19 +803,20 @@ Section __.
       cbn [queue_at_dest graph_output_queue]. reflexivity.
   Qed.
 
+  Definition to_consume_at (s1 : fgstate) (n : node_id) :=
+    unwrap_or_default (option_map (fun ns => ns.(gns_node_state).(fnode_to_consume))
+                         (map.get s1.(graph_nodes) n)).
+
   Definition arrived (s1 : fgstate) (d : destn) :=
     match d with
-    | node_destn n =>
-        map fst (unwrap_or_default
-                   (option_map (fun ns => ns.(gns_node_state).(fnode_to_consume))
-                      (map.get s1.(graph_nodes) n)))
+    | node_destn n => map fst (to_consume_at s1 n)
     | output_destn => []
     end.
 
   Lemma arrived_get (s : fgstate) n ns :
     map.get s.(graph_nodes) n = Some ns ->
     arrived s (node_destn n) = map fst ns.(gns_node_state).(fnode_to_consume).
-  Proof. intros Hget. cbn [arrived]. rewrite Hget. reflexivity. Qed.
+  Proof. intros Hget. cbv [arrived to_consume_at]. rewrite Hget. reflexivity. Qed.
 
   Lemma arrived_put (s : fgstate) n gns' dest :
     arrived {| graph_nodes := map.put s.(graph_nodes) n gns';
@@ -796,8 +827,9 @@ Section __.
   Proof.
     destruct dest as [m | ].
     - destr (eqb (node_destn m) (node_destn n)).
-      + cbn [arrived graph_nodes]. rewrite map.get_put_same. reflexivity.
-      + cbn [arrived graph_nodes]. rewrite map.get_put_diff by congruence. reflexivity.
+      + cbv [arrived to_consume_at]. cbn [graph_nodes]. rewrite map.get_put_same. reflexivity.
+      + cbv [arrived to_consume_at]. cbn [graph_nodes].
+        rewrite map.get_put_diff by congruence. reflexivity.
     - destr (eqb output_destn (node_destn n)); [ discriminate | reflexivity ].
   Qed.
 
@@ -816,7 +848,7 @@ Section __.
     arrived (forward_to keep msgs s) dest = arrived s dest.
   Proof.
     destruct dest as [n | ]; [ | reflexivity ].
-    cbn [arrived forward_to graph_nodes]. rewrite get_map_values'.
+    cbv [arrived to_consume_at]. cbn [forward_to graph_nodes]. rewrite get_map_values'.
     destruct (map.get s.(graph_nodes) n); reflexivity.
   Qed.
 
@@ -1262,6 +1294,263 @@ Section __.
            apply Permutation_app_head. symmetry. apply Permutation_middle. }
       simpl. exact Htr.
     - destruct e; simpl in Hstepp0; congruence || fwd. destruct Hsilent.
+  Qed.
+
+  Lemma in_dest_msgs_inv (s : fgstate) loc m :
+    In (loc, m) (dest_msgs s) ->
+    (exists n ns, loc = node_loc n /\ map.get s.(graph_nodes) n = Some ns
+                  /\ In m (all_pending_msgs ns))
+    \/ (loc = output_loc /\ In m s.(graph_output_queue)).
+  Proof.
+    cbv [dest_msgs]. intros Hin. apply in_app_or in Hin. destruct Hin as [Hin | Hin].
+    - left. apply in_flat_map in Hin. destruct Hin as ((n, ns) & Htup & Hin).
+      apply in_map_iff in Hin. destruct Hin as (m' & Heq & Hm'). fwd.
+      exists n, ns. split; [ reflexivity | ].
+      split; [ apply map.tuples_spec, Htup | exact Hm' ].
+    - right. apply in_map_iff in Hin. destruct Hin as (m' & Heq & Hm'). fwd.
+      split; [ reflexivity | exact Hm' ].
+  Qed.
+
+  Lemma fgraph_to_pending (s : fgstate) n ns m :
+    map.get s.(graph_nodes) n = Some ns ->
+    In m (all_pending_msgs ns) ->
+    exists s' t ns',
+      star fgraph_step s t s' /\
+      Forall silent_event t /\
+      map.get s'.(graph_nodes) n = Some ns' /\
+      In m ns'.(gns_node_state).(fnode_pending).
+  Proof.
+    intros Hget Hin. cbv [all_pending_msgs] in Hin. apply in_app_or in Hin.
+    destruct Hin as [Hin | Hin].
+    2: { exists s, [], ns. split; [ apply star_refl | ].
+         split; [ constructor | split; [ exact Hget | exact Hin ] ]. }
+    apply in_split in Hin. destruct Hin as (ms1 & ms2 & Hms).
+    eexists _, [O_event (receive n m) []], _. split.
+    { apply star_one. cbv [fgraph_step]. eexists. split.
+      { cbn [corresp]. exists []. split; reflexivity. }
+      eapply gstep_receive; [ exact Hget | apply fnode_input | exact Hms ]. }
+    split; [ repeat constructor | ].
+    cbn [graph_nodes]. rewrite map.get_put_same.
+    split; [ reflexivity | ]. cbn [gns_node_state fnode_pending]. left. reflexivity.
+  Qed.
+
+  Lemma in_forward_to_dest_msgs keep msgs (s : fgstate) m msg :
+    map.get s.(graph_nodes) m <> None ->
+    In msg (filter (keep (node_destn m)) msgs) ->
+    In (node_loc m, msg) (dest_msgs (forward_to keep msgs s)).
+  Proof.
+    intros Hm Hin. destruct (map.get s.(graph_nodes) m) as [ms|] eqn:Hget; [ | congruence ].
+    eapply in_node_dest_msgs.
+    - cbn [forward_to graph_nodes]. rewrite get_map_values', Hget. reflexivity.
+    - rewrite all_pending_msgs_enqueue. apply in_or_app. left. exact Hin.
+  Qed.
+
+  Lemma in_forward_to_output keep msgs (s : fgstate) msg :
+    In msg (filter (keep output_destn) msgs) ->
+    In (output_loc, msg) (dest_msgs (forward_to keep msgs s)).
+  Proof.
+    intros Hin. destruct msg as (f, orig). apply in_output_dest_msgs.
+    cbn [forward_to graph_output_queue]. apply in_or_app. left. exact Hin.
+  Qed.
+
+  Lemma fgraph_route_step (s : fgstate) n ns f orig q1 q2 :
+    map.get s.(graph_nodes) n = Some ns ->
+    ns.(gns_node_state).(fnode_pending) = q1 ++ (f, orig) :: q2 ->
+    fgraph_step s (O_event (run n (forward_label f)) [])
+      (forward_to (fforwardb (node_source n)) [(f, orig)]
+         {| graph_nodes :=
+              map.put s.(graph_nodes) n
+                {| gns_node_state :=
+                     {| fnode_node := ns.(gns_node_state).(fnode_node);
+                        fnode_pending := q1 ++ q2;
+                        fnode_to_consume :=
+                          if (fprog_at n).(fnode_keep) f orig
+                          then (f, orig) :: ns.(gns_node_state).(fnode_to_consume)
+                          else ns.(gns_node_state).(fnode_to_consume) |};
+                   gns_trace := O_event (forward_label f) [(f, orig)] :: ns.(gns_trace);
+                   gns_queue := ns.(gns_queue) |};
+            graph_output_queue := s.(graph_output_queue) |}).
+  Proof.
+    intros Hget Hq. cbv [fgraph_step]. eexists. split.
+    { cbn [corresp]. exists []. split; reflexivity. }
+    eapply gstep_run; [ exact Hget | ]. apply fnode_route. exact Hq.
+  Qed.
+
+  Lemma fgraph_route_to (s : fgstate) n ns f orig d :
+    forwarding_compatible s.(graph_nodes) ->
+    map.get s.(graph_nodes) n = Some ns ->
+    In (f, orig) ns.(gns_node_state).(fnode_pending) ->
+    In d (fforward (node_source n) (dfact_rel f, orig)) ->
+    exists s',
+      fgraph_step s (O_event (run n (forward_label f)) []) s' /\
+      In (loc_of_dest d, (f, orig)) (dest_msgs s').
+  Proof.
+    intros Hcompat Hget Hin Hd.
+    apply in_split in Hin. destruct Hin as (q1 & q2 & Hq).
+    eexists. split; [ eapply fgraph_route_step; eassumption | ].
+    assert (Hkeep : filter (fforwardb (node_source n) d) [(f, orig)] = [(f, orig)]).
+    { rewrite filter_fforwardb_single. destr (inb d (fforward (node_source n) (dfact_rel f, orig)));
+        [ reflexivity | contradiction ]. }
+    destruct d as [m | ].
+    - apply in_forward_to_dest_msgs; [ | rewrite Hkeep; left; reflexivity ].
+      cbn [graph_nodes]. destr (eqb n m).
+      { rewrite map.get_put_same. congruence. }
+      rewrite map.get_put_diff by (symmetry; exact E).
+      apply (proj2 (Hcompat m)). eapply (forwarding_wf (node_source n) (f, orig)).
+      cbn [fforwardb]. apply (proj2 (inb_true_iff _ _)). exact Hd.
+    - apply in_forward_to_output. rewrite Hkeep. left. reflexivity.
+  Qed.
+
+  Lemma fgraph_route_keeps (s : fgstate) n ns f orig :
+    map.get s.(graph_nodes) n = Some ns ->
+    In (f, orig) ns.(gns_node_state).(fnode_pending) ->
+    In (node_destn n) (nforward orig (dfact_rel f)) ->
+    exists s',
+      fgraph_step s (O_event (run n (forward_label f)) []) s' /\
+      In (f, orig) (to_consume_at s' n).
+  Proof.
+    intros Hget Hin Hkeep.
+    apply in_split in Hin. destruct Hin as (q1 & q2 & Hq).
+    eexists. split; [ eapply fgraph_route_step; eassumption | ].
+    cbv [to_consume_at]. cbn [forward_to graph_nodes]. rewrite get_map_values'.
+    rewrite map.get_put_same.
+    cbn [option_map unwrap_or_default unwrap_or enqueue gns_node_state fnode_to_consume fprog_at fnode_keep].
+    destr (inb (node_destn n) (nforward orig (dfact_rel f))); [ | contradiction ].
+    left. reflexivity.
+  Qed.
+
+  Lemma forwarding_R_silent_star s1 t1 s2 t2 t1' s1' :
+    forwarding_reaches ->
+    forwarding_tree ->
+    no_extra_outputs ->
+    forwarding_R s1 t1 s2 t2 ->
+    star fgraph_step s1 t1' s1' ->
+    Forall silent_event t1' ->
+    forwarding_R s1' (t1' ++ t1) s2 t2.
+  Proof.
+    intros Hreaches Htree Hno HR Hstar. induction Hstar as [ | t0 sa e sb Hstar IH Hstep ].
+    - intros _. exact HR.
+    - intros Hsil. apply Forall_cons_iff in Hsil. destruct Hsil as [Hsile Hsil0].
+      eapply forwarding_R_silent_step; try eassumption. apply IH, Hsil0.
+  Qed.
+
+  Lemma fgraph_hop (s1 : fgstate) t1 s2 t2 f orig loc next :
+    forwarding_reaches ->
+    forwarding_tree ->
+    no_extra_outputs ->
+    forwarding_R s1 t1 s2 t2 ->
+    In (loc, (f, orig)) (dest_msgs s1) ->
+    graph.edge (forwarding_graph (dfact_rel f, orig)) loc next ->
+    exists s1' t1',
+      star fgraph_step s1 t1' s1' /\
+      Forall silent_event t1' /\
+      In (next, (f, orig)) (dest_msgs s1').
+  Proof.
+    intros Hreaches Htree Hno HR Hin Hedge.
+    apply forwarding_graph_spec in Hedge. destruct Hedge as (src & d & Hd & Hsrc & Hnext).
+    apply in_dest_msgs_inv in Hin.
+    destruct Hin as [(n & ns & Hloc & Hget & Hpend) | (Hloc & Hout)].
+    2: { subst loc. destruct src; discriminate Hsrc. }
+    subst loc. assert (src = node_source n) by (destruct src; simpl in Hsrc; congruence).
+    subst src.
+    destruct (fgraph_to_pending s1 n ns (f, orig) Hget Hpend)
+      as (sa & ta & ns' & Hstara & Hsila & Hgeta & Hpenda).
+    pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila) as HRa.
+    cbv [forwarding_R] in HRa. fwd.
+    destruct (fgraph_route_to sa n ns' f orig d HRap2 Hgeta Hpenda Hd) as (sb & Hstep & Hinb).
+    exists sb, (O_event (run n (forward_label f)) [] :: ta). split.
+    { eapply star_step; eassumption. }
+    split; [ constructor; [ exact I | exact Hsila ] | ].
+    subst next. exact Hinb.
+  Qed.
+
+  Lemma fgraph_deliver (s1 : fgstate) t1 s2 t2 f orig loc p dst :
+    forwarding_reaches ->
+    forwarding_tree ->
+    no_extra_outputs ->
+    forwarding_R s1 t1 s2 t2 ->
+    In (loc, (f, orig)) (dest_msgs s1) ->
+    graph.path_to (forwarding_graph (dfact_rel f, orig)) loc p dst ->
+    exists s1' t1',
+      star fgraph_step s1 t1' s1' /\
+      Forall silent_event t1' /\
+      In (dst, (f, orig)) (dest_msgs s1').
+  Proof.
+    intros Hreaches Htree Hno. revert s1 t1 loc.
+    induction p as [| next p' IH]; intros s1 t1 loc HR Hin (Hpath & Hlast).
+    - simpl in Hlast. subst dst. exists s1, []. split; [ apply star_refl | ].
+      split; [ constructor | exact Hin ].
+    - destruct Hpath as [Hedge Hpath'].
+      destruct (fgraph_hop s1 t1 s2 t2 f orig loc next Hreaches Htree Hno HR Hin Hedge)
+        as (sa & ta & Hstara & Hsila & Hina).
+      destruct (IH sa (ta ++ t1) next
+                  (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila)
+                  Hina (conj Hpath' ltac:(rewrite last_cons in Hlast; exact Hlast)))
+        as (sb & tb & Hstarb & Hsilb & Hinb).
+      exists sb, (tb ++ ta). split; [ eapply star_app; eassumption | ].
+      split; [ apply Forall_app; split; assumption | exact Hinb ].
+  Qed.
+
+  Lemma fgraph_deliver_to_node (s1 : fgstate) t1 s2 t2 n f :
+    forwarding_reaches ->
+    forwarding_tree ->
+    no_extra_outputs ->
+    forwarding_R s1 t1 s2 t2 ->
+    valid_dest (node_destn n) ->
+    In f (queue_at_dest s2 (node_destn n)) ->
+    exists s1' t1' orig,
+      star fgraph_step s1 t1' s1' /\
+      Forall silent_event t1' /\
+      In (f, orig) (to_consume_at s1' n).
+  Proof.
+    intros Hreaches Htree Hno HR Hvalid Hin.
+    pose proof HR as HR'. cbv [forwarding_R delivered_to] in HR'. fwd.
+    specialize (HR'p6 (node_destn n) Hvalid). fwd.
+    eapply Permutation_in in Hin; [ | exact HR'p6p0 ].
+    apply in_app_or in Hin. destruct Hin as [Hin | Hin].
+    { cbn [arrived] in Hin. apply in_map_iff in Hin.
+      destruct Hin as ((f', orig) & Hfst & Hin). simpl in Hfst. subst f'.
+      exists s1, [], orig. split; [ apply star_refl | ].
+      split; [ constructor | exact Hin ]. }
+    eapply travelling_to_in_inv in Hin; [ | exact HR'p6p1 ].
+    destruct Hin as (loc & orig & Hdm & (p & Hpath) & Hroute).
+    destruct (fgraph_deliver s1 t1 s2 t2 f orig loc p (loc_of_dest (node_destn n))
+                Hreaches Htree Hno HR Hdm Hpath) as (sa & ta & Hstara & Hsila & Hina).
+    pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila) as HRa.
+    cbn [loc_of_dest] in Hina. apply in_dest_msgs_inv in Hina.
+    destruct Hina as [(m & ms & Hloc & Hgetm & Hpend) | (Hloc & _)]; [ | discriminate Hloc ].
+    injection Hloc as Hnm. subst m.
+    destruct (fgraph_to_pending sa n ms (f, orig) Hgetm Hpend)
+      as (sb & tb & ms' & Hstarb & Hsilb & Hgetb & Hpendb).
+    destruct (fgraph_route_keeps sb n ms' f orig Hgetb Hpendb Hroute) as (sc & Hstepc & Hinc).
+    exists sc, (O_event (run n (forward_label f)) [] :: (tb ++ ta)), orig.
+    split; [ eapply star_step; [ eapply star_app; eassumption | exact Hstepc ] | ].
+    split; [ | exact Hinc ].
+    constructor; [ exact I | apply Forall_app; split; assumption ].
+  Qed.
+
+  Lemma fgraph_deliver_to_output (s1 : fgstate) t1 s2 t2 f :
+    forwarding_reaches ->
+    forwarding_tree ->
+    no_extra_outputs ->
+    forwarding_R s1 t1 s2 t2 ->
+    In f s2.(graph_output_queue) ->
+    exists s1' t1' orig,
+      star fgraph_step s1 t1' s1' /\
+      Forall silent_event t1' /\
+      In (f, orig) s1'.(graph_output_queue).
+  Proof.
+    intros Hreaches Htree Hno HR Hin.
+    pose proof HR as HR'. cbv [forwarding_R delivered_to] in HR'. fwd.
+    specialize (HR'p6 output_destn I). fwd. cbn [arrived app] in HR'p6p0.
+    eapply Permutation_in in Hin; [ | exact HR'p6p0 ].
+    eapply travelling_to_in_inv in Hin; [ | exact HR'p6p1 ].
+    destruct Hin as (loc & orig & Hdm & (p & Hpath) & _).
+    destruct (fgraph_deliver s1 t1 s2 t2 f orig loc p (loc_of_dest output_destn)
+                Hreaches Htree Hno HR Hdm Hpath) as (sa & ta & Hstara & Hsila & Hina).
+    cbn [loc_of_dest] in Hina. apply in_dest_msgs_inv in Hina.
+    destruct Hina as [(m & ms & Hloc & _ & _) | (_ & Hout)]; [ discriminate Hloc | ].
+    exists sa, ta, orig. split; [ exact Hstara | split; [ exact Hsila | exact Hout ] ].
   Qed.
 
   Lemma fgraph_weak_sims_ngraph :
