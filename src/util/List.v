@@ -1,5 +1,6 @@
 From Stdlib Require Import Lists.List Permutation Bool Arith.PeanoNat Morphisms RelationClasses Classical_Prop.
 From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics Eqb.
+From GraphSearch Require Export List.
 From Datalog Require Import Tactics Eqb Default.
 Import ListNotations.
 
@@ -59,16 +60,6 @@ Proof.
 Qed.
 
 Import ListNotations.
-
-#[export] Instance Permutation_filter {A} (q : A -> bool) :
-  Proper (@Permutation A ==> @Permutation A) (filter q).
-Proof.
-  intros l l' HP. induction HP; cbn [filter].
-  - apply Permutation_refl.
-  - destruct (q x); [ apply perm_skip | ]; assumption.
-  - destruct (q x), (q y); solve [ apply perm_swap | apply Permutation_refl ].
-  - eapply perm_trans; eassumption.
-Qed.
 
 #[export] Existing Instance Permutation_app'.
 

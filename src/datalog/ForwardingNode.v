@@ -67,42 +67,6 @@ Arguments fnode_prog : clear implicits.
 Arguments fnode_label : clear implicits.
 Arguments fnode_state : clear implicits.
 
-Section pebbles.
-  Context {V : Type} {eqbV : Eqb V} {gi : graph.graph V} {gok : graph.ok gi}.
-
-  Context {X : Type}.
-
-  Definition pebble_step (g : gi) (v : V) (ps1 ps2 : list (V * X)) : Prop :=
-    exists rest x,
-      Permutation ps1 ((v, x) :: rest) /\
-      Permutation ps2 (map (fun v' => (v', x)) (graph.edges g v) ++ rest).
-
-  Definition graph_incoming (g : gi) (target : V) (ps : list (V * X)) : list X :=
-    map snd (filter (fun '(v, _) => graph.reachesb g v target) ps).
-
-  #[export] Instance graph_incoming_Proper (g : gi) (target : V) :
-    Proper (@Permutation _ ==> @Permutation _) (graph_incoming g target).
-  Proof.
-    intros ps ps' Hp. cbv [graph_incoming].
-    apply Permutation_map. apply Permutation_filter. exact Hp.
-  Qed.
-
-  Lemma graph_incoming_app (g : gi) (target : V) (ps1 ps2 : list (V * X)) :
-    graph_incoming g target (ps1 ++ ps2) = graph_incoming g target ps1 ++ graph_incoming g target ps2.
-  Proof.
-    cbv [graph_incoming]. rewrite filter_app, map_app. reflexivity.
-  Qed.
-
-  Lemma graph_incoming_pebble_step (g : gi) v target ps1 ps2 :
-    graph.is_locally_tree g v ->
-    v <> target ->
-    pebble_step g v ps1 ps2 ->
-    Permutation (graph_incoming g target ps1) (graph_incoming g target ps2).
-  Proof.
-  Admitted.
-
-End pebbles.
-
 Section __.
   Context {rel : relT} {T : valueT}.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
@@ -606,7 +570,7 @@ Section __.
     destruct Hstep as [ [Htree Hps] | Hperm ].
     - symmetry. apply graph_incoming_pebble_step with (v := v);
         [ exact Htree | exact Hne | exact Hps ].
-    - apply graph_incoming_Proper. symmetry. exact Hperm.
+    - apply Permutation_graph_incoming. symmetry. exact Hperm.
   Qed.
 
   Definition forwarding_step (s : source) (f : dfact) (orig : source)

@@ -1,5 +1,5 @@
 (rocq.theory
  (name Datalog.Util)
  (package datalog)
- (theories Stdlib coqutil)
+ (theories Stdlib coqutil GraphSearch)
  (generate_project_file))
