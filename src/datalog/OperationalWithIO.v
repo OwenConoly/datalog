@@ -17,20 +17,21 @@ Section __.
 
   Local Notation IO_event := (Smallstep.IO_event unit dfact).
 
+  Definition add_input (f : dfact) (s : state) : state :=
+    {| known_facts := f :: s.(known_facts); sents := s.(sents) |}.
+
   Inductive step : state -> IO_event -> state -> Prop :=
   | step_comp s1 s2 :
     comp_step is_input p s1 s2 ->
     step s1 (O_event tt []) s2
   | step_input s f :
-    step s (I_event f) (map (add_waiting_fact f) s)
+    step s (I_event f) (add_input f s)
   | step_output s R args :
-    knows_dfact s (normal_dfact R args) ->
+    In (normal_dfact R args) s.(known_facts) ->
     step s (O_event tt [normal_dfact R args]) s.
 
-  Definition empty_rule_state : Operational.node_state :=
-    {| known_facts := []; waiting_facts := []; sent_facts := [] |}.
-
-  Definition initial : state := repeat empty_rule_state (length p.(non_meta_rules)).
+  Definition initial : state :=
+    {| known_facts := []; sents := repeat [] (length p.(non_meta_rules)) |}.
 
   Local Notation R_senders := (Operational.R_senders is_input p).
   Local Notation rules_of := (Operational.rules_of p).
@@ -44,7 +45,7 @@ Section __.
   Local Notation has_derived_datalog_fact := (Operational.has_derived_datalog_fact is_input p).
 
   Definition load (l : list dfact) (s : state) : state :=
-    fold_right (fun f s' => map (add_waiting_fact f) s') s l.
+    fold_right add_input s l.
 
   Lemma load_star (l : list dfact) (s : state) :
     star step s (map I_event l) (load l s).
@@ -65,13 +66,8 @@ Section __.
       + rewrite !flat_map_app, Hin, Hout. split; reflexivity.
   Qed.
 
-  Lemma Forall3_map_mid {A B B' C} (g : B -> B') (Q : A -> B' -> C -> Prop)
-    (l : list A) (m : list B) (k : list C) :
-    Forall3 (fun a b c => Q a (g b) c) l m k -> Forall3 Q l (map g m) k.
-  Proof. intros H. induction H; cbn; constructor; assumption. Qed.
-
-  Lemma Forall3_repeat_seq {A} (Q : A -> node_state -> nat -> Prop)
-    (l : list A) (x : node_state) (start : nat) :
+  Lemma Forall3_repeat_seq {A} (Q : A -> list dfact -> nat -> Prop)
+    (l : list A) (x : list dfact) (start : nat) :
     (forall a n, Q a x n) -> Forall3 Q l (repeat x (length l)) (seq start (length l)).
   Proof.
     intros HQ. revert start. induction l as [|a l IH]; intros start; cbn; constructor.
@@ -81,33 +77,15 @@ Section __.
 
   Lemma mfc_initial : meta_facts_correct initial.
   Proof.
-    unfold meta_facts_correct, initial. rewrite repeat_length.
+    unfold meta_facts_correct, initial. cbn [known_facts sents]. rewrite repeat_length.
     apply Forall3_repeat_seq. intros a n R mf_args num Hin. destruct Hin.
   Qed.
 
   Lemma mfok_initial : meta_facts_ok initial.
   Proof.
-    unfold meta_facts_ok, initial. rewrite repeat_length.
+    unfold meta_facts_ok, initial. cbn [known_facts sents]. rewrite repeat_length.
     apply Forall3_repeat_seq. intros a n mf_rel mf_args num Hin. destruct Hin.
   Qed.
-
-  Lemma add_wf_mfc (f : dfact) (s : state) :
-    meta_facts_correct s -> meta_facts_correct (map (add_waiting_fact f) s).
-  Proof.
-    unfold meta_facts_correct. rewrite length_map. intros H.
-    apply Forall3_map_mid. exact H.
-  Qed.
-
-  Lemma add_wf_mfok (f : dfact) (s : state) :
-    meta_facts_ok s -> meta_facts_ok (map (add_waiting_fact f) s).
-  Proof.
-    unfold meta_facts_ok. rewrite length_map. intros H.
-    apply Forall3_map_mid. exact H.
-  Qed.
-
-  Definition INV (t : list IO_event) (s : state) : Prop :=
-    sane_state (flat_map inputs_of t) s /\ meta_facts_correct s /\ meta_facts_ok s /\
-    state_correct (flat_map inputs_of t) s.
 
   Lemma Existsn_tl {A} (P : A -> Prop) (x : A) (n : nat) (l : list A) :
     Existsn P n (x :: l) -> exists m, m <= n /\ Existsn P m l.
@@ -130,13 +108,6 @@ Section __.
         exists m. split; [lia | exact Hexm].
   Qed.
 
-  Lemma knows_dfact_initial (g : dfact) : ~ knows_dfact initial g.
-  Proof.
-    unfold knows_dfact, initial. intros H. apply Exists_exists in H.
-    destruct H as (rs & Hin & Hrhd). apply repeat_spec in Hin. subst rs.
-    destruct Hrhd as [[] | []].
-  Qed.
-
   Lemma Forall2_repeat_l {A B} (P : A -> B -> Prop) (x : A) (y : B) (n : nat) :
     P x y -> Forall2 P (repeat x n) (repeat y n).
   Proof. intros H. induction n; cbn; constructor; auto. Qed.
@@ -148,109 +119,120 @@ Section __.
   Lemma list_sum_repeat_0 (n : nat) : list_sum (repeat 0 n) = 0.
   Proof. induction n; cbn; auto. Qed.
 
+  Lemma INV_nil_sane : sane_state [] initial.
+  Proof.
+    unfold initial. constructor; cbn [known_facts sents].
+    - rewrite repeat_length. reflexivity.
+    - intros R a num H. destruct H.
+    - intros R a n num H. destruct H.
+    - intros R a. exists (repeat 0 (length p.(non_meta_rules))), 0, 0.
+      split; [| split; [| split]].
+      + apply Forall2_repeat_l. constructor.
+      + constructor.
+      + constructor.
+      + rewrite list_sum_repeat_0. reflexivity.
+    - intros R HER. split.
+      + intros a. apply Forall_repeat_l. constructor.
+      + intros a n num H. destruct H.
+    - intros g H. destruct H.
+  Qed.
+
+  Lemma has_derived_initial (g : fact) : ~ has_derived_datalog_fact initial g.
+  Proof.
+    unfold has_derived_datalog_fact, initial. cbn [known_facts].
+    destruct g as [R args | R mf_args mf_set].
+    - intros H. destruct H.
+    - destruct (is_input R).
+      + intros (num & H & _). destruct H.
+      + intros H. destruct (H 0 Hlen) as (num & Hin). destruct Hin.
+  Qed.
+
+  Lemma INV_nil_sc : state_correct [] initial.
+  Proof.
+    intros g (Hd & _). exfalso. eapply has_derived_initial; exact Hd.
+  Qed.
+
+  Definition INV (t : list IO_event) (s : state) : Prop :=
+    sane_state (flat_map inputs_of t) s /\ meta_facts_correct s /\ meta_facts_ok s /\
+    state_correct (flat_map inputs_of t) s.
+
   Lemma INV_nil : INV [] initial.
   Proof.
     unfold INV. cbn [inputs_of flat_map].
-    split; [| split; [apply mfc_initial | split; [apply mfok_initial |]]].
-    - constructor.
-      + unfold initial. rewrite repeat_length. reflexivity.
-      + intros R a num H. exfalso. eapply knows_dfact_initial; exact H.
-      + intros R a n num H. exfalso. eapply knows_dfact_initial; exact H.
-      + intros f H. exfalso. eapply knows_dfact_initial; exact H.
-      + intros R a. exists (repeat 0 (length initial)), 0. split; [| split].
-        * unfold initial. rewrite !repeat_length. apply Forall2_repeat_l. cbn. constructor.
-        * constructor.
-        * apply Forall_repeat_l. exists 0, 0. cbn.
-          split; [constructor | split; [constructor |]].
-          rewrite list_sum_repeat_0. reflexivity.
-      + intros R Hin. split.
-        * intros a. apply Forall_repeat_l. cbn. constructor.
-        * intros a n num H. eapply knows_dfact_initial; exact H.
-      + intros f H. destruct H.
-    - intros f (Hderiv & _). exfalso. destruct f as [R args | R a set].
-      + eapply knows_dfact_initial; exact Hderiv.
-      + cbn in Hderiv. destruct (is_input R).
-        * apply Exists_exists in Hderiv. destruct Hderiv as (rs & Hin & num & Hrh & _).
-          eapply knows_dfact_initial. apply Exists_exists. exists rs. split; [exact Hin | exact Hrh].
-        * specialize (Hderiv 0 Hlen). destruct Hderiv as (num & Hk).
-          eapply knows_dfact_initial; exact Hk.
-  Qed.
-
-  Lemma knows_add_self (f : dfact) (s : state) :
-    s <> [] -> knows_dfact (map (add_waiting_fact f) s) f.
-  Proof.
-    destruct s as [|rs0 rest]; [congruence|]. intros _.
-    cbn [map]. apply Exists_cons_hd.
-    unfold rule_has_dfact, add_waiting_fact. cbn. right. left. reflexivity.
-  Qed.
-
-  Lemma knows_add_iff (f : dfact) (s : state) (g : dfact) :
-    s <> [] ->
-    (knows_dfact (map (add_waiting_fact f) s) g <-> g = f \/ knows_dfact s g).
-  Proof.
-    intros Hne. split.
-    - apply knows_dfact_add_waiting.
-    - intros [-> | Hk].
-      + apply knows_add_self; exact Hne.
-      + apply knows_dfact_add_waiting_mono; exact Hk.
-  Qed.
-
-  Lemma s_nonempty (l : list dfact) (s : state) : sane_state l s -> s <> [].
-  Proof.
-    intros Hsane Heq. destruct Hsane as [Hl _ _ _ _ _ _].
-    rewrite Heq in Hl. cbn in Hl. lia.
+    split; [apply INV_nil_sane | split; [apply mfc_initial | split; [apply mfok_initial | apply INV_nil_sc]]].
   Qed.
 
   Lemma add_input_sane (l : list dfact) (f : dfact) (s : state) :
     good_input_facts (f :: l) -> sane_state l s ->
-    sane_state (f :: l) (map (add_waiting_fact f) s).
+    sane_state (f :: l) (add_input f s).
   Proof.
     intros Hgood Hsane.
-    pose proof (s_nonempty _ _ Hsane) as Hne.
-    destruct Hgood as [Hall _].
-    pose proof (Forall_inv Hall) as Hf_in.
-    destruct Hsane as [Hlen' Him Ilm Irh Icnt Iir Iik].
-    constructor.
-    - rewrite length_map. exact Hlen'.
-    - intros R a num H. apply (knows_add_iff f s _ Hne) in H. destruct H as [Heq | Hk].
-      + rewrite <- Heq. apply in_eq.
-      + apply in_cons. apply Him. exact Hk.
-    - intros R a n num H. apply (knows_add_iff f s _ Hne) in H. destruct H as [Heq | Hk].
-      + exfalso. rewrite <- Heq in Hf_in. cbn in Hf_in. discriminate.
-      + specialize (Ilm R a n num Hk). unfold nth_sat in *. rewrite nth_error_map.
-        destruct (nth_error s n); exact Ilm.
-    - intros g H. apply (knows_add_iff f s _ Hne) in H. apply Forall_map.
-      destruct H as [Heq | Hk].
-      + apply Forall_forall. intros rs _.
-        unfold rule_has_dfact, add_waiting_fact. cbn. right. rewrite Heq. apply in_eq.
-      + eapply Forall_impl; [| exact (Irh g Hk)]. intros rs Hrh.
-        unfold rule_has_dfact, add_waiting_fact in *. cbn in *.
-        destruct Hrh as [Hk'|Hw]; [left; exact Hk' | right; apply in_cons; exact Hw].
-    - intros R a. destruct (Icnt R a) as (ms & ni & HF2 & Hexl & HFa).
+    pose proof (Forall_inv (proj1 Hgood)) as Hf_in.
+    destruct Hsane as [Hlen' Him Ilm Icnt Iir Iik].
+    unfold add_input. constructor; cbn [known_facts sents].
+    - exact Hlen'.
+    - intros R a num H. destruct (in_inv H) as [Heq | Hin].
+      + left. exact Heq.
+      + right. exact (Him _ _ _ Hin).
+    - intros R a n num H. destruct (in_inv H) as [Heq | Hin].
+      + exfalso. subst f. cbn in Hf_in. discriminate.
+      + exact (Ilm _ _ _ _ Hin).
+    - intros R a. destruct (Icnt R a) as (msgs & ni & nk & Hf2 & Hexn_l & Hexn_k & Hsum).
       destruct (classic (dfact_matches R a f)) as [Hm | Hm].
-      + exists ms, (S ni). split; [| split].
-        * rewrite <- Forall2_map_l. exact HF2.
-        * apply Existsn_yes; [exact Hm | exact Hexl].
-        * apply Forall_map. eapply Forall_impl; [| exact HFa].
-          intros rs (nk & nw & Hnk & Hnw & Hsum). exists nk, (S nw).
-          cbn [add_waiting_fact known_facts waiting_facts].
-          split; [exact Hnk|]. split; [apply Existsn_yes; [exact Hm | exact Hnw] | lia].
-      + exists ms, ni. split; [| split].
-        * rewrite <- Forall2_map_l. exact HF2.
-        * apply Existsn_no; [exact Hm | exact Hexl].
-        * apply Forall_map. eapply Forall_impl; [| exact HFa].
-          intros rs (nk & nw & Hnk & Hnw & Hsum). exists nk, nw.
-          cbn [add_waiting_fact known_facts waiting_facts].
-          split; [exact Hnk|]. split; [apply Existsn_no; [exact Hm | exact Hnw] | exact Hsum].
-    - intros R Hinp. destruct (Iir R Hinp) as [Hsent Hnk]. split.
-      + intros a. apply Forall_map. exact (Hsent a).
-      + intros a n num Hbad. apply (knows_add_iff f s _ Hne) in Hbad.
-        destruct Hbad as [Heq | Hk].
-        * rewrite <- Heq in Hf_in. cbn in Hf_in. discriminate.
-        * exact (Hnk a n num Hk).
-    - intros g Hin. destruct Hin as [Heq | Hin].
-      + subst g. apply knows_add_self. exact Hne.
-      + apply knows_dfact_add_waiting_mono. apply Iik. exact Hin.
+      + exists msgs, (S ni), (S nk). split; [exact Hf2 | split; [| split]].
+        * apply Existsn_yes; [exact Hm | exact Hexn_l].
+        * apply Existsn_yes; [exact Hm | exact Hexn_k].
+        * lia.
+      + exists msgs, ni, nk. split; [exact Hf2 | split; [| split]].
+        * apply Existsn_no; [exact Hm | exact Hexn_l].
+        * apply Existsn_no; [exact Hm | exact Hexn_k].
+        * exact Hsum.
+    - intros R HER. destruct (Iir R HER) as (Hz & Hnk). split.
+      + exact Hz.
+      + intros a n num H. destruct (in_inv H) as [Heq | Hin].
+        * exfalso. subst f. cbn in Hf_in. discriminate.
+        * exact (Hnk a n num Hin).
+    - intros g H. destruct (in_inv H) as [Heq | Hin].
+      + left. exact Heq.
+      + right. exact (Iik g Hin).
+  Qed.
+
+  Lemma add_input_knows_incl (l : list dfact) (f : dfact) (s : state) :
+    good_input_facts (f :: l) -> sane_state l s ->
+    Node.knows_incl R_senders s.(known_facts) (f :: s.(known_facts)).
+  Proof.
+    intros Hgood Hsane. apply knows_incl_of_submultiset.
+    - apply submultiset_cons.
+    - pose proof (add_input_sane l f s Hgood Hsane) as Hsane'.
+      exact (sane_allowed_inputs _ _ _ _ Hgood Hsane').
+  Qed.
+
+  Lemma add_wf_mfc (l : list dfact) (f : dfact) (s : state) :
+    good_input_facts (f :: l) -> sane_state l s ->
+    meta_facts_correct s -> meta_facts_correct (add_input f s).
+  Proof.
+    intros Hgood Hsane Hmfc.
+    pose proof (add_input_knows_incl l f s Hgood Hsane) as Hincl.
+    unfold meta_facts_correct in *. unfold add_input. cbn [known_facts sents].
+    eapply Forall3_impl; [| exact Hmfc].
+    intros r sent n Hat R mf_args num Hin.
+    destruct (Hat R mf_args num Hin) as (mc & mh & hyps & Hin_mr & Hcan & Hknows & Hno).
+    exists mc, mh, hyps. split; [exact Hin_mr | split; [exact Hcan | split; [| exact Hno]]].
+    eapply Forall_impl; [| exact Hknows]. intros h Hh. apply Hincl. exact Hh.
+  Qed.
+
+  Lemma add_wf_mfok (l : list dfact) (f : dfact) (s : state) :
+    good_input_facts (f :: l) -> sane_state l s ->
+    meta_facts_correct s -> meta_facts_ok s -> meta_facts_ok (add_input f s).
+  Proof.
+    intros Hgood Hsane Hmfc Hmfok.
+    pose proof (add_input_knows_incl l f s Hgood Hsane) as Hincl.
+    unfold Operational.meta_facts_correct in Hmfc.
+    unfold Operational.meta_facts_ok in Hmfok |- *.
+    unfold add_input. cbn [known_facts sents].
+    pose proof (Forall3_conj _ _ _ _ _ Hmfc Hmfok) as Hcomb.
+    eapply meta_facts_ok_forall3_grow;
+      [ exact Hmeta_rules | apply incl_refl | exact Hincl | exact Hcomb ].
   Qed.
 
   Lemma non_meta_rule_impl_not_input (r : non_meta_rule) R nfa hyps :
@@ -314,81 +296,84 @@ Section __.
           -- exact (proj2 (Hiff nfa Hm) Hin2).
   Qed.
 
+  Lemma input_matching_known_iff_l (l : list dfact) (s : state) R mf_args :
+    sane_state l s -> is_input R = true ->
+    forall n, Existsn (dfact_matches R mf_args) n s.(known_facts) <->
+              Existsn (dfact_matches R mf_args) n l.
+  Proof.
+    intros Hsane HER.
+    destruct Hsane as [Hlen' Him Ilm Icnt Iir Iik].
+    destruct (Icnt R mf_args) as (msgs & ni & nk & Hf2 & Hexn_l & Hexn_k & Hsum).
+    assert (Hmsgs0 : list_sum msgs = 0).
+    { destruct (Iir R HER) as (Hz & _). specialize (Hz mf_args).
+      apply list_sum_zero.
+      clear -Hf2 Hz. revert Hz. induction Hf2 as [| a b la lb Hab Hf2' IH]; intros Hz.
+      - constructor.
+      - inversion Hz as [| ? ? Hz0 Hzs]; subst.
+        constructor; [ eapply Existsn_unique; eassumption | apply IH; exact Hzs ]. }
+    rewrite Hmsgs0, Nat.add_0_r in Hsum. subst nk.
+    intros n. split; intro Hn.
+    - rewrite (Existsn_unique _ _ _ _ Hn Hexn_k). exact Hexn_l.
+    - rewrite (Existsn_unique _ _ _ _ Hn Hexn_l). exact Hexn_k.
+  Qed.
+
   Lemma add_input_sc (l : list dfact) (f : dfact) (s : state) :
     good_input_facts (f :: l) -> sane_state l s -> state_correct l s ->
-    state_correct (f :: l) (map (add_waiting_fact f) s).
+    state_correct (f :: l) (add_input f s).
   Proof.
     intros Hgood Hsane Hsc g (Hd & Hmc).
-    pose proof (s_nonempty _ _ Hsane) as Hne.
-    pose proof Hgood as [Hall _]. pose proof (Forall_inv Hall) as Hf_in.
-    (* weaken a base(l) derivation to base(f::l) *)
+    pose proof (Forall_inv (proj1 Hgood)) as Hf_in.
+    pose proof Hsane as Hsane_c. destruct Hsane_c as [_ Him _ _ _ Iik].
     assert (Hweak : forall g', prog_impl rules_of (knows_datalog_fact l) g' ->
                                prog_impl rules_of (knows_datalog_fact (f :: l)) g').
     { intros g' Hp. eapply prog_impl_weaken_hyp; [exact Hp |].
       intros y Hy. apply (knows_datalog_fact_add_input f l y Hgood Hy). }
-    destruct g as [R args | R a mf_set].
-    - (* normal g *)
-      cbv [has_derived_datalog_fact] in Hd. apply (knows_add_iff f s _ Hne) in Hd.
-      destruct Hd as [Heq | Hk].
-      + apply prog_impl_leaf. cbn [Node.knows_datalog_fact]. rewrite <- Heq. apply in_eq.
-      + apply Hweak. apply Hsc. split; [exact Hk | exact I].
-    - (* meta g *)
-      destruct (is_input R) eqn:HER.
-      + (* input R: the state's aggregation is complete; build a knows_datalog_fact leaf *)
-        apply prog_impl_leaf.
-        assert (Hkn_in : forall nfa, knows_dfact s (normal_dfact R nfa) -> In (normal_dfact R nfa) l).
-        { intros nfa Hkn. apply (prog_impl_input_normal_leaf l R nfa HER).
-          apply Hsc. split; [exact Hkn | exact I]. }
-        pose proof (add_input_sane l f s Hgood Hsane) as Hsane'.
-        pose proof Hsane as Hs0. destruct Hs0 as [_ Him0 _ _ _ _ Iik0].
-        pose proof Hsane' as Hs1. destruct Hs1 as [_ _ _ _ Icnt1 Iir1 _].
+    destruct g as [R args | R mf_args mf_set].
+    - cbv [has_derived_datalog_fact] in Hd. unfold add_input in Hd. cbn [known_facts] in Hd.
+      destruct (in_inv Hd) as [Heq | Hin].
+      + apply prog_impl_leaf. cbn [Node.knows_datalog_fact]. left. exact Heq.
+      + apply Hweak. apply Hsc. split; [exact Hin | exact I].
+    - destruct (is_input R) eqn:HER.
+      + apply prog_impl_leaf. cbn [Node.knows_datalog_fact].
         cbv [has_derived_datalog_fact] in Hd. rewrite HER in Hd.
-        apply Exists_exists in Hd. destruct Hd as (rs' & Hin' & num & Hrh' & Hexn').
-        apply in_map_iff in Hin'. destruct Hin' as (rs & Heq_rs & Hin_rs). subst rs'.
-        cbn [add_waiting_fact known_facts waiting_facts] in Hrh', Hexn'.
-        assert (Hdm : In (meta_dfact R a input_source num) (f :: l)).
-        { destruct Hrh' as [Hk | Hw].
-          - right. apply Him0. apply Exists_exists. exists rs. split; [exact Hin_rs | left; exact Hk].
-          - destruct Hw as [Heq | Hw].
-            + left. exact Heq.
-            + right. apply Him0. apply Exists_exists. exists rs. split; [exact Hin_rs | right; exact Hw]. }
-        cbn [Node.knows_datalog_fact]. exists num. split; [| split].
-        * rewrite expect_num_R_facts_eq, HER. exact Hdm.
-        * destruct (Icnt1 R a) as (msgs' & num_inp' & Hf2' & Hexn_inp' & Hforall').
-          destruct (Iir1 R HER) as (Hsent0' & _). specialize (Hsent0' a).
-          assert (Hsum0 : list_sum msgs' = 0).
-          { enough (Forall (eq 0) msgs') as HF by
-              (clear -HF; induction HF; simpl; [reflexivity | subst; assumption]).
-            clear -Hf2' Hsent0'. revert Hsent0'.
-            induction Hf2' as [| x y xs ys H Hf2'' IH]; intros Hsent0'.
-            - constructor.
-            - inversion Hsent0' as [| ? ? Hqx Hqxs]; subst. constructor.
-              + symmetry. eapply Existsn_unique; [exact H | exact Hqx].
-              + apply IH. exact Hqxs. }
-          rewrite Forall_forall in Hforall'.
-          specialize (Hforall' (add_waiting_fact f rs) (in_map _ _ _ Hin_rs)).
-          destruct Hforall' as (nk & nw & Hnk & Hnw & Hsum).
-          cbn [add_waiting_fact known_facts waiting_facts] in Hnk, Hnw.
-          rewrite Hsum0, Nat.add_0_r in Hsum.
-          pose proof (Existsn_app _ _ _ _ _ Hnk Hnw) as Happ.
-          pose proof (Existsn_unique _ _ _ _ Hexn' Happ) as Hnn.
-          assert (Hnum : num = num_inp') by (rewrite Hnn; exact Hsum).
-          rewrite Hnum. exact Hexn_inp'.
+        unfold add_input in Hd. cbn [known_facts] in Hd.
+        destruct Hd as (num & Hdm_pool & Hexn_pool).
+        assert (Hdm_fl : In (meta_dfact R mf_args input_source num) (f :: l)).
+        { destruct (in_inv Hdm_pool) as [Heq | Hin].
+          - left. exact Heq.
+          - right. exact (Him _ _ _ Hin). }
+        assert (Hexn_fl : Existsn (dfact_matches R mf_args) num (f :: l)).
+        { destruct (classic (dfact_matches R mf_args f)) as [Hfm | Hfm].
+          - inversion Hexn_pool as [| | x n' l' Hp' Hrest]; subst; [exfalso; auto |].
+            apply Existsn_yes; [exact Hfm |].
+            apply (input_matching_known_iff_l l s R mf_args Hsane HER). exact Hrest.
+          - apply Existsn_no; [exact Hfm |].
+            apply (input_matching_known_iff_l l s R mf_args Hsane HER).
+            exact (proj1 (Existsn_cons_no_iff _ f num s.(known_facts) Hfm) Hexn_pool). }
+        exists num. split; [| split].
+        * rewrite expect_num_R_facts_eq, HER. exact Hdm_fl.
+        * exact Hexn_fl.
         * intros nfa Hm. cbv [mf_consistent_state] in Hmc. specialize (Hmc nfa Hm).
-          rewrite Hmc, (knows_add_iff f s (normal_dfact R nfa) Hne). cbn [In]. split.
-          -- intros [Heq | Hk]; [left; symmetry; exact Heq | right; apply Hkn_in; exact Hk].
-          -- intros [Heq | Hin]; [left; symmetry; exact Heq | right; apply Iik0; exact Hin].
-      + (* non-input R: fired/input f is irrelevant, reduce to base(l) via Hsc *)
-        apply Hweak. apply Hsc. split.
+          unfold add_input in Hmc. cbn [known_facts] in Hmc. rewrite Hmc.
+          assert (Hknl : In (normal_dfact R nfa) s.(known_facts) -> In (normal_dfact R nfa) l).
+          { intros Hkn. apply (prog_impl_input_normal_leaf l R nfa HER).
+            apply Hsc. split; [exact Hkn | exact I]. }
+          split.
+          -- intros [Heq | Hin]; [left; exact Heq | right; apply Hknl; exact Hin].
+          -- intros [Heq | Hin]; [left; exact Heq | right; apply Iik; exact Hin].
+      + apply Hweak. apply Hsc. split.
         * cbv [has_derived_datalog_fact] in Hd |- *. rewrite HER in Hd |- *.
-          intros k Hk. specialize (Hd k Hk). destruct Hd as (num & Hkn). exists num.
-          apply (knows_add_iff f s _ Hne) in Hkn. destruct Hkn as [Heq | Hk_s]; [| exact Hk_s].
-          exfalso. rewrite <- Heq in Hf_in. cbn in Hf_in. discriminate.
+          unfold add_input in Hd. cbn [known_facts] in Hd.
+          intros k Hk. destruct (Hd k Hk) as (num & Hin). exists num.
+          destruct (in_inv Hin) as [Heq | Hin_k]; [| exact Hin_k].
+          exfalso. subst f. cbn in Hf_in. discriminate.
         * cbv [mf_consistent_state] in Hmc |- *. intros nfa Hm. specialize (Hmc nfa Hm).
-          rewrite Hmc. split.
-          -- intro H. apply (knows_add_iff f s _ Hne) in H. destruct H as [Heq | Hk_s]; [| exact Hk_s].
-             exfalso. rewrite <- Heq in Hf_in. cbn in Hf_in. rewrite HER in Hf_in. discriminate.
-          -- apply knows_dfact_add_waiting_mono.
+          unfold add_input in Hmc. cbn [known_facts] in Hmc. rewrite Hmc.
+          assert (Hfne : f <> normal_dfact R nfa).
+          { intros Heq. subst f. cbn in Hf_in. rewrite HER in Hf_in. discriminate. }
+          split.
+          -- intros [Heq | Hin]; [exfalso; apply Hfne; exact Heq | exact Hin].
+          -- intros Hin. right. exact Hin.
   Qed.
 
   Lemma step_preserves_INV (t0 : list IO_event) (e : IO_event) (s1 s2 : state) :
@@ -403,8 +388,8 @@ Section __.
       split; [eapply step_preserves_meta_facts_ok; eassumption|].
       eapply comp_step_sound; eassumption.
     - split; [apply add_input_sane; assumption|].
-      split; [apply add_wf_mfc; exact Hmfc|].
-      split; [apply add_wf_mfok; exact Hmfok|].
+      split; [eapply add_wf_mfc; eassumption|].
+      split; [eapply add_wf_mfok; eassumption|].
       apply add_input_sc; assumption.
     - split; [exact Hsane|]. split; [exact Hmfc|]. split; [exact Hmfok|]. exact Hsc.
   Qed.
@@ -421,40 +406,19 @@ Section __.
       + exact Hg.
   Qed.
 
-  Lemma step_length (s : state) (e : IO_event) (s' : state) :
-    length s = length p.(non_meta_rules) -> step s e s' ->
-    length s' = length p.(non_meta_rules).
-  Proof.
-    intros Hln Hstep. destruct Hstep as [a b Hc | a f | a R args Hk].
-    - rewrite (comp_step_length _ _ _ _ Hln Hc). exact Hln.
-    - rewrite length_map. exact Hln.
-    - exact Hln.
-  Qed.
-
   Lemma step_knows_mono (s : state) (e : IO_event) (s' : state) (g : dfact) :
-    length s = length p.(non_meta_rules) -> step s e s' ->
-    knows_dfact s g -> knows_dfact s' g.
+    step s e s' -> In g s.(known_facts) -> In g s'.(known_facts).
   Proof.
-    intros Hln Hstep Hk. destruct Hstep as [a b Hc | a f | a R args Hkk].
-    - eapply comp_step_knows_mono_len; eassumption.
-    - apply knows_dfact_add_waiting_mono. exact Hk.
-    - exact Hk.
-  Qed.
-
-  Lemma star_length (s ns : state) (t : list IO_event) :
-    length s = length p.(non_meta_rules) -> star step s t ns ->
-    length ns = length p.(non_meta_rules).
-  Proof.
-    intros Hln Hstar. induction Hstar as [ | t0 s' e s'' Hstar IH Hstep].
-    - exact Hln.
-    - eapply step_length; [exact IH | exact Hstep].
+    intros Hstep Hin. destruct Hstep as [a b Hc | a f | a R args Hkk].
+    - apply (comp_step_known_incl _ _ _ _ Hc). exact Hin.
+    - unfold add_input. cbn [known_facts]. right. exact Hin.
+    - exact Hin.
   Qed.
 
   Lemma output_known (s ns : state) (t : list IO_event) (g : dfact) :
-    length s = length p.(non_meta_rules) ->
-    star step s t ns -> In g (flat_map outputs_of t) -> knows_dfact ns g.
+    star step s t ns -> In g (flat_map outputs_of t) -> In g ns.(known_facts).
   Proof.
-    intros Hln Hstar. revert g.
+    intros Hstar. revert g.
     induction Hstar as [ | t0 s' e s'' Hstar IH Hstep]; intros g Hin.
     - destruct Hin.
     - cbn [outputs_of flat_map] in Hin. rewrite in_app_iff in Hin.
@@ -463,16 +427,7 @@ Section __.
         * destruct Hin_e.
         * destruct Hin_e.
         * destruct Hin_e as [<- | []]. exact Hk.
-      + eapply step_knows_mono; [ | exact Hstep | exact (IH g Hin_t0)].
-        eapply star_length; [exact Hln | exact Hstar].
-  Qed.
-
-  Lemma output_known_final (t : list IO_event) (ns : state) (g : dfact) :
-    good_input_facts (flat_map inputs_of t) ->
-    star step initial t ns -> In g (flat_map outputs_of t) -> knows_dfact ns g.
-  Proof.
-    intros _ Hstar Hin. eapply output_known; [ | exact Hstar | exact Hin].
-    unfold initial. rewrite repeat_length. reflexivity.
+      + eapply step_knows_mono; [ exact Hstep | exact (IH g Hin_t0) ].
   Qed.
 
   Theorem produces_sound (inputs : list dfact) (R : rel) (args : list T) :
@@ -484,8 +439,8 @@ Section __.
     assert (Hgt : good_input_facts (flat_map inputs_of t)) by (rewrite Hinp; exact Hg).
     pose proof (star_INV t ns Hgt Hstar) as (Hsane & _ & _ & Hsc).
     rewrite Hinp in Hsc.
-    assert (Hk : knows_dfact ns (normal_dfact R args))
-      by (eapply output_known_final; eassumption).
+    assert (Hk : In (normal_dfact R args) ns.(known_facts))
+      by (eapply output_known; eassumption).
     apply Hsc. split; [exact Hk | exact I].
   Qed.
 

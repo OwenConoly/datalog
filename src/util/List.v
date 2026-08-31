@@ -1527,6 +1527,11 @@ Section misc.
     Forall3 R2 xs ys zs.
   Proof. induction 2; constructor; eauto. Qed.
 
+  Lemma Forall3_conj (P Q : A -> B -> C -> Prop) xs ys zs :
+    Forall3 P xs ys zs -> Forall3 Q xs ys zs ->
+    Forall3 (fun a b c => P a b c /\ Q a b c) xs ys zs.
+  Proof. intros H. induction H; intros HQ; invert HQ; constructor; auto. Qed.
+
   Lemma Forall3_swap23 R xs ys zs :
     Forall3 (fun x z y => R x y z) xs zs ys ->
     Forall3 R xs ys zs.

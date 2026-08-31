@@ -1233,11 +1233,6 @@ Section __.
       | exact (Hok _ _ _ HIn) ].
   Qed.
 
-  Lemma Forall3_conj {A B} (P Q : A -> B -> nat -> Prop) xs ys zs :
-    Forall3 P xs ys zs -> Forall3 Q xs ys zs ->
-    Forall3 (fun a b c => P a b c /\ Q a b c) xs ys zs.
-  Proof. intros H. induction H; intros HQ; invert HQ; constructor; auto. Qed.
-
   Lemma meta_facts_ok_forall3_grow k1 k2 nmrs sents ofs :
     incl nmrs p.(non_meta_rules) ->
     knows_incl k1 k2 ->
