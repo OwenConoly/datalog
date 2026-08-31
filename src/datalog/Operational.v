@@ -1906,6 +1906,55 @@ Section __.
     rewrite Hbic. unfold S0. reflexivity.
   Qed.
 
+  (* Fire one deducible normal fact into node [k]'s sent list.  The no-conflict
+     precondition of the fire step is discharged from [meta_facts_ok]: a matching
+     done-message in [k]'s sent list would, by [ok_to_deduce], already have put the
+     fact there, contradicting that it is absent. *)
+  Lemma comp_step_fire_normal inputs s k rn R args sent :
+    sane_state inputs s ->
+    meta_facts_ok s ->
+    nth_error p.(non_meta_rules) k = Some rn ->
+    nth_error s.(sents) k = Some sent ->
+    can_deduce_normal_fact (rule_of rn) s.(known_facts) R args ->
+    ~ In (normal_dfact R args) sent ->
+    exists s',
+      comp_step s s' /\
+        s'.(known_facts) = normal_dfact R args :: s.(known_facts) /\
+        nth_error s'.(sents) k = Some (normal_dfact R args :: sent).
+  Proof.
+    intros Hsane Hmf_ok Hnth_rn Hnth_sent Hcdn Hnot_in.
+    pose proof Hsane.(sane_length) as Hlen_s.
+    assert (Hk_lt : k < length s.(sents))
+      by (rewrite Hlen_s; eapply nth_error_Some_bound_index; exact Hnth_rn).
+    pose proof Hnth_sent as Hsplit. apply nth_error_split in Hsplit.
+    destruct Hsplit as (l1 & l2 & Hsents_eq & Hl1_len).
+    assert (Hno_conflict :
+              forall mf_args num,
+                In (meta_dfact R mf_args (node_source k) num) sent ->
+                Forall2 matches mf_args args -> False).
+    { intros mf_args num Hin_meta Hmatch.
+      pose proof (meta_facts_ok_lookup _ _ _ _ Hmf_ok Hnth_rn Hnth_sent) as Hmfor.
+      specialize (Hmfor R mf_args num Hin_meta). cbv [ok_to_deduce_fact] in Hmfor.
+      specialize (Hmfor args Hcdn Hmatch).
+      exact (Hnot_in Hmfor). }
+    destruct s as [kf st]. cbn [known_facts sents] in *. subst st.
+    exists {| known_facts := normal_dfact R args :: kf;
+              sents := l1 ++ (normal_dfact R args :: sent) :: l2 |}.
+    ssplit.
+    - eapply fire_rule_at.
+      + exact Hlen_s.
+      + rewrite Hl1_len. exact Hnth_rn.
+      + exists (rule_of rn). ssplit.
+        * left. reflexivity.
+        * cbn [can_deduce_fact]. split; [ exact Hcdn |].
+          intros mf_args num Hin_meta Hmatch. rewrite Hl1_len in Hin_meta.
+          exact (Hno_conflict mf_args num Hin_meta Hmatch).
+        * exact I.
+        * reflexivity.
+    - cbn [known_facts]. reflexivity.
+    - cbn [sents]. rewrite nth_error_app2 by lia. rewrite Hl1_len, Nat.sub_diag. reflexivity.
+  Qed.
+
   Lemma good_layout_complete_rule inputs s (ru : rule) f hyps :
     good_input_facts inputs ->
     sane_state inputs s ->
