@@ -30,23 +30,6 @@ Section __.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
 
-  (* Operational keeps the three-field node state (with a receive queue
-     [waiting_facts]) that its monolithic [comp_step] is written against.  This is
-     its own record, independent of Node.v's [node_state], which dropped
-     [waiting_facts]; the node_state-independent deduction predicates
-     ([knows_datalog_fact], [can_deduce_fact], ...) still come from Node.v. *)
-  Record node_state :=
-    { known_facts : list dfact;
-      waiting_facts : list dfact;
-      sent_facts : list dfact }.
-
-  Definition learn_fact_at_rule (s1 s2 : node_state) : Prop :=
-    exists l1 x l2,
-      s2.(known_facts) = x :: s1.(known_facts) /\
-        s1.(waiting_facts) = l1 ++ x :: l2 /\
-        s2.(waiting_facts) = l1 ++ l2 /\
-        s2.(sent_facts) = s1.(sent_facts).
-
   Implicit Types mf_rel : rel.
   Implicit Types mf_args : list (option T).
   Implicit Types nf_args : list T.
@@ -65,14 +48,13 @@ Section __.
     { meta_rules : list (list meta_clause * list meta_clause);
       non_meta_rules : list non_meta_rule }.
 
-  Implicit Types known_facts sent_facts waiting_facts input_facts inputs : list dfact.
+  Implicit Types known_facts sent_facts input_facts inputs sent : list dfact.
+  Implicit Types sents : list (list dfact).
   Implicit Types nf result : dfact.
-  Implicit Types rs : node_state.
   Implicit Types p : prog.
   Implicit Types r : non_meta_rule.
 
-  Definition state :=
-    list node_state.
+  Record state := { known_facts : list dfact; sents : list (list dfact) }.
 
   Context (is_input : rel -> bool).
 
@@ -126,39 +108,32 @@ Section __.
       + rewrite <- Forall2_map_l. exact HF2.
   Qed.
 
-  Definition meta_facts_correct_at_rule mrs n rs r :=
+  Definition meta_facts_correct_at_rule mrs known n sent :=
     forall R mf_args num,
-      In (meta_dfact R mf_args (node_source n) num) rs.(sent_facts) ->
+      In (meta_dfact R mf_args (node_source n) num) sent ->
       exists mf_concls mf_hyps hyps,
         In (mf_concls, mf_hyps) mrs /\
-          can_deduce_meta_fact mf_concls mf_hyps (node_source n) rs.(sent_facts) (meta_dfact R mf_args (node_source n) num) hyps /\
-          Forall (knows_datalog_fact rs.(known_facts)) hyps /\
+          can_deduce_meta_fact mf_concls mf_hyps (node_source n) sent (meta_dfact R mf_args (node_source n) num) hyps /\
+          Forall (knows_datalog_fact known) hyps /\
           (forall mf_set, ~In (meta_fact R mf_args mf_set) hyps).
 
   Definition meta_facts_correct (s : state) :=
-    Forall3 (fun r rs n =>
-               meta_facts_correct_at_rule p.(meta_rules) n rs r)
-            p.(non_meta_rules) s (seq 0 (length s)).
+    Forall3 (fun r sent n =>
+               meta_facts_correct_at_rule p.(meta_rules) s.(known_facts) n sent)
+            p.(non_meta_rules) s.(sents) (seq 0 (length s.(sents))).
 
-  Definition meta_facts_ok_at_rule n rs r :=
+  Definition meta_facts_ok_at_rule known n sent r :=
     forall mf_rel mf_args num,
-      In (meta_dfact mf_rel mf_args (node_source n) num) rs.(sent_facts) ->
-      ok_to_deduce_fact (rule_of r) rs.(known_facts) rs.(sent_facts)
+      In (meta_dfact mf_rel mf_args (node_source n) num) sent ->
+      ok_to_deduce_fact (rule_of r) known sent
         (meta_dfact mf_rel mf_args (node_source n) num).
 
   Definition meta_facts_ok (s : state) :=
-    Forall3 (fun r rs n => meta_facts_ok_at_rule n rs r)
-            p.(non_meta_rules) s (seq 0 (length s)).
+    Forall3 (fun r sent n => meta_facts_ok_at_rule s.(known_facts) n sent r)
+            p.(non_meta_rules) s.(sents) (seq 0 (length s.(sents))).
 
-  Definition add_waiting_fact f (rs : node_state) :=
-    {| known_facts := rs.(known_facts);
-      waiting_facts := f :: rs.(waiting_facts);
-      sent_facts := rs.(sent_facts); |}.
-
-  Definition send_fact f rs :=
-    {| known_facts := rs.(known_facts);
-      waiting_facts := rs.(waiting_facts);
-      sent_facts := f :: rs.(sent_facts) |}.
+  Definition add_known_fact f (s : state) :=
+    {| known_facts := f :: s.(known_facts); sents := s.(sents) |}.
 
   Definition can_fire_rule_at r fired_rule :=
     fired_rule = rule_of r \/
@@ -166,24 +141,21 @@ Section __.
         In (mr_concls, mr_hyps) p.(meta_rules) /\
           fired_rule = meta_rule mr_concls mr_hyps.
 
-  (* The effect of rule [r] (at index [n]) firing fact [f] in rule-state [rs],
-     producing [rs']: [r] is allowed to fire some [fired_rule] that deduces [f]
-     from [rs], and [rs'] records [f] as sent. *)
-  Definition fire_at_rule (r : non_meta_rule) (n : nat) (rs rs' : node_state) (f : dfact) : Prop :=
+  (* The effect of rule [r] (at index [n]) firing fact [f]: given the global
+     [known] pool and the rule's sent list [sent], [r] fires some [fired_rule]
+     that deduces [f], and [sent'] records [f] as sent. *)
+  Definition fire_at_rule (r : non_meta_rule) (n : nat) known (sent sent' : list dfact) (f : dfact) : Prop :=
     exists fired_rule,
       can_fire_rule_at r fired_rule /\
-        can_deduce_fact fired_rule (node_source n) rs.(known_facts) rs.(sent_facts) f /\
-        ok_to_deduce_fact (rule_of r) rs.(known_facts) rs.(sent_facts) f /\
-        rs' = send_fact f rs.
+        can_deduce_fact fired_rule (node_source n) known sent f /\
+        ok_to_deduce_fact (rule_of r) known sent f /\
+        sent' = f :: sent.
 
   Inductive comp_step : state -> state -> Prop :=
-  | learn_fact s1 s2 :
-    stepOne learn_fact_at_rule s1 s2 ->
-    comp_step s1 s2
-  | fire_rule new_fact s1 s2 :
-    stepWithLabel (fun '(r, n) rs rs' => fire_at_rule r n rs rs' new_fact)
-      (combine p.(non_meta_rules) (seq O (length s1))) s1 s2 ->
-    comp_step s1 (map (add_waiting_fact new_fact) s2).
+  | fire_rule new_fact s sents' :
+    stepWithLabel (fun '(r, n) sent sent' => fire_at_rule r n s.(known_facts) sent sent' new_fact)
+      (combine p.(non_meta_rules) (seq O (length s.(sents)))) s.(sents) sents' ->
+    comp_step s {| known_facts := new_fact :: s.(known_facts); sents := sents' |}.
 
   Definition is_input_fact (f : dfact) :=
     match f with
@@ -227,12 +199,6 @@ Section __.
 
   Context (Hmeta_finite : meta_facts_finite).
 
-  Definition rule_has_dfact rs f :=
-    In f rs.(known_facts) \/ In f rs.(waiting_facts).
-
-  Definition knows_dfact (s : state) f :=
-    Exists (fun rs => rule_has_dfact rs f) s.
-
   Definition nth_sat {T} (l : list T) n (P : T -> Prop) :=
     match nth_error l n with
     | Some x => P x
@@ -249,40 +215,33 @@ Section __.
                 Existsn (dfact_matches R mf_args) num' input_facts).
 
   Record sane_state {input_facts : list dfact} {s : state} : Prop := {
-    sane_length : length s = length p.(non_meta_rules);
+    sane_length : length s.(sents) = length p.(non_meta_rules);
     sane_input_meta :
       forall R mf_args num,
-        knows_dfact s (meta_dfact R mf_args input_source num) ->
+        In (meta_dfact R mf_args input_source num) s.(known_facts) ->
         In (meta_dfact R mf_args input_source num) input_facts;
     sane_local_meta :
       forall R mf_args n num,
-          knows_dfact s (meta_dfact R mf_args (node_source n) num) ->
-          nth_sat s n (fun rs =>
-                         Existsn (dfact_matches R mf_args) num rs.(sent_facts) /\
-                         In (meta_dfact R mf_args (node_source n) num) rs.(sent_facts));
-    sane_rule_has :
-      forall f,
-          knows_dfact s f ->
-          Forall (fun rs => rule_has_dfact rs f) s;
+          In (meta_dfact R mf_args (node_source n) num) s.(known_facts) ->
+          nth_sat s.(sents) n (fun sent =>
+                         Existsn (dfact_matches R mf_args) num sent /\
+                         In (meta_dfact R mf_args (node_source n) num) sent);
     sane_count :
       forall R mf_args,
-        exists msgs_sents num_inp,
-          Forall2 (fun rs msgs_sent =>
-                     Existsn (dfact_matches R mf_args) msgs_sent rs.(sent_facts))
-            s msgs_sents /\
+        exists msgs_sents num_inp num_known,
+          Forall2 (fun sent msgs_sent =>
+                     Existsn (dfact_matches R mf_args) msgs_sent sent)
+            s.(sents) msgs_sents /\
             Existsn (dfact_matches R mf_args) num_inp input_facts /\
-            Forall (fun rs_n =>
-                      exists num_known num_wait,
-                        Existsn (dfact_matches R mf_args) num_known rs_n.(known_facts) /\
-                          Existsn (dfact_matches R mf_args) num_wait rs_n.(waiting_facts) /\
-                          num_known + num_wait = num_inp + list_sum msgs_sents) s;
+            Existsn (dfact_matches R mf_args) num_known s.(known_facts) /\
+            num_known = num_inp + list_sum msgs_sents;
     sane_input_rel :
       forall R,
           is_input R = true ->
-          (forall mf_args, Forall (fun rs => Existsn (dfact_matches R mf_args) O rs.(sent_facts)) s) /\
-            (forall mf_args n num, ~knows_dfact s (meta_dfact R mf_args (node_source n) num));
+          (forall mf_args, Forall (fun sent => Existsn (dfact_matches R mf_args) O sent) s.(sents)) /\
+            (forall mf_args n num, ~In (meta_dfact R mf_args (node_source n) num) s.(known_facts));
     sane_inputs_known :
-      forall f, In f input_facts -> knows_dfact s f;
+      forall f, In f input_facts -> In f s.(known_facts);
   }.
 
   Arguments sane_state : clear implicits.
@@ -1366,18 +1325,16 @@ Section __.
 
   Definition has_derived_datalog_fact (s : state) (f : fact) :=
     match f with
-    | normal_fact R args => knows_dfact s (normal_dfact R args)
+    | normal_fact R args => In (normal_dfact R args) s.(known_facts)
     | meta_fact R mf_args mf_set =>
         if is_input R then
-          Exists (fun rs =>
-                    exists num,
-                      rule_has_dfact rs (meta_dfact R mf_args input_source num) /\
-                        Existsn (dfact_matches R mf_args) num (rs.(known_facts) ++ rs.(waiting_facts)))
-                 s
+          exists num,
+            In (meta_dfact R mf_args input_source num) s.(known_facts) /\
+              Existsn (dfact_matches R mf_args) num s.(known_facts)
         else
           forall k, k < length p.(non_meta_rules) ->
             exists num,
-              knows_dfact s (meta_dfact R mf_args (node_source k) num)
+              In (meta_dfact R mf_args (node_source k) num) s.(known_facts)
     end.
 
   Definition mf_consistent_state (s : state) (f : fact) :=
@@ -1386,7 +1343,7 @@ Section __.
     | meta_fact R mf_args mf_set =>
         forall nf_args,
           Forall2 matches mf_args nf_args ->
-          mf_set nf_args <-> knows_dfact s (normal_dfact R nf_args)
+          mf_set nf_args <-> In (normal_dfact R nf_args) s.(known_facts)
     end.
 
   Definition state_correct (inputs : list dfact) (s : state) :=
