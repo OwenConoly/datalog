@@ -2196,6 +2196,97 @@ Section __.
       eapply crt1n_trans_compose; eassumption.
   Qed.
 
+  Definition start (inputs : list dfact) : state :=
+    {| known_facts := inputs; sents := repeat [] (length p.(non_meta_rules)) |}.
+
+  Lemma good_input_no_node_meta (inputs : list dfact) R a n num :
+    good_input_facts inputs -> ~ In (meta_dfact R a (node_source n) num) inputs.
+  Proof.
+    intros [Hall _] Hin. rewrite Forall_forall in Hall.
+    specialize (Hall _ Hin). cbn in Hall. discriminate.
+  Qed.
+
+  Lemma mfc_start (inputs : list dfact) : meta_facts_correct (start inputs).
+  Proof.
+    unfold meta_facts_correct, start. cbn [known_facts sents]. rewrite repeat_length.
+    apply Forall3_repeat_2. eapply Forall2_impl.
+    - apply Forall2_true. rewrite length_seq. reflexivity.
+    - intros r n _ R mf_args num Hin. destruct Hin.
+  Qed.
+
+  Lemma mfok_start (inputs : list dfact) : meta_facts_ok (start inputs).
+  Proof.
+    unfold meta_facts_ok, start. cbn [known_facts sents]. rewrite repeat_length.
+    apply Forall3_repeat_2. eapply Forall2_impl.
+    - apply Forall2_true. rewrite length_seq. reflexivity.
+    - intros r n _ mf_rel mf_args num Hin. destruct Hin.
+  Qed.
+
+  Lemma sane_start (inputs : list dfact) :
+    good_input_facts inputs -> sane_state inputs (start inputs).
+  Proof.
+    intros Hg. unfold start. constructor; cbn [known_facts sents].
+    - apply repeat_length.
+    - intros R a num H. exact H.
+    - intros R a n num H. exfalso. exact (good_input_no_node_meta inputs R a n num Hg H).
+    - intros R a. destruct (Existsn_total (dfact_matches R a) inputs) as (nk & Hnk).
+      exists (repeat 0 (length p.(non_meta_rules))), nk, nk. split; [| split; [| split]].
+      + apply Forall2_repeat. constructor.
+      + exact Hnk.
+      + exact Hnk.
+      + rewrite list_sum_repeat. lia.
+    - intros R HER. split.
+      + intros a. apply Forall_repeat. constructor.
+      + intros a n num. exact (good_input_no_node_meta inputs R a n num Hg).
+    - intros g H. exact H.
+  Qed.
+
+  Lemma sc_start (inputs : list dfact) :
+    0 < length p.(non_meta_rules) ->
+    good_input_facts inputs -> state_correct inputs (start inputs).
+  Proof.
+    intros Hlen Hg f (Hd & Hmc). destruct f as [R args | R mf_args mf_set].
+    - cbv [has_derived_datalog_fact] in Hd. unfold start in Hd. cbn [known_facts] in Hd.
+      apply prog_impl_leaf. cbn [Node.knows_datalog_fact]. exact Hd.
+    - cbv [has_derived_datalog_fact] in Hd. cbv [mf_consistent_state] in Hmc.
+      unfold start in Hd, Hmc. cbn [known_facts] in Hd, Hmc.
+      destruct (is_input R) eqn:HER.
+      + apply prog_impl_leaf. cbn [Node.knows_datalog_fact].
+        destruct Hd as (num & Hin & Hexn). exists num. split; [| split].
+        * rewrite expect_num_R_facts_eq, HER. exact Hin.
+        * exact Hexn.
+        * intros nfa Hm. exact (Hmc nfa Hm).
+      + exfalso. destruct (Hd 0 Hlen) as (num & Hin).
+        exact (good_input_no_node_meta inputs R mf_args 0 num Hg Hin).
+  Qed.
+
+  Theorem prog_impl_iff_comp_step (inputs : list dfact) (f : fact) :
+    0 < length p.(non_meta_rules) ->
+    good_input_facts inputs ->
+    (prog_impl rules_of (knows_datalog_fact inputs) f <->
+     exists s', comp_step^* (start inputs) s' /\
+                has_derived_datalog_fact s' f /\ mf_consistent_state s' f).
+  Proof.
+    intros Hlen Hg.
+    pose proof (sane_start inputs Hg) as Hsane.
+    pose proof (mfc_start inputs) as Hmfc.
+    pose proof (mfok_start inputs) as Hmfok.
+    pose proof (sc_start inputs Hlen Hg) as Hsc.
+    split.
+    - intros Hprog.
+      assert (Hcompl : state_complete inputs (start inputs))
+        by (apply comp_step_complete; assumption).
+      destruct (Hcompl _ Hprog) as (s' & Hsteps & Hderiv).
+      assert (Hsc' : state_correct inputs s')
+        by (eapply comp_steps_sound; eassumption).
+      exists s'. split; [exact Hsteps | split; [exact Hderiv |]].
+      eapply correct_impl_consistent; eassumption.
+    - intros (s' & Hsteps & Hderiv & Hcons).
+      assert (Hsc' : state_correct inputs s')
+        by (eapply comp_steps_sound; eassumption).
+      apply Hsc'. split; [exact Hderiv | exact Hcons].
+  Qed.
+
 End __.
 
 Arguments sane_state {rel exprvar fn aggregator T} is_input p input_facts s.
