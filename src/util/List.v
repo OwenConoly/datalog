@@ -440,6 +440,14 @@ Section Forall.
     Forall2 R (rev xs) (rev ys).
   Proof. induction 1; simpl; auto using Forall2_app. Qed.
 
+  Lemma Forall_repeat (P : A -> Prop) (x : A) (n : nat) :
+    P x -> Forall P (repeat x n).
+  Proof. intros H. induction n; cbn; constructor; auto. Qed.
+
+  Lemma Forall2_repeat (R : A -> B -> Prop) (x : A) (y : B) (n : nat) :
+    R x y -> Forall2 R (repeat x n) (repeat y n).
+  Proof. intros H. induction n; cbn; constructor; auto. Qed.
+
   Lemma zip_ext_in (f : _ -> _ -> C) g xs ys :
     (forall x y, In (x, y) (combine xs ys) -> f x y = g x y) ->
     zip f xs ys = zip g xs ys.
@@ -762,6 +770,10 @@ Section Forall3.
       length l1 = length l2
       /\ length l2 = length l3.
   Proof. intros l1 l2 l3 H. induction H; simpl; firstorder. Qed.
+
+  Lemma Forall3_repeat_2 (b : B) (xs : list A) (zs : list C) :
+    Forall2 (fun a c => R a b c) xs zs -> Forall3 xs (repeat b (length xs)) zs.
+  Proof. induction 1; cbn; constructor; auto. Qed.
 
 
   Lemma Forall3_in_right:
