@@ -248,47 +248,6 @@ Section __.
 
   Arguments sane_state : clear implicits.
 
-  Lemma exists_swap A (P : A -> Prop) l1 x y l2 :
-    (P x -> P y) ->
-    Exists P (l1 ++ x :: l2) -> Exists P (l1 ++ y :: l2).
-  Proof.
-    intros H Hex.
-    apply Exists_app in Hex. apply Exists_app. destruct Hex as [Hex|Hex]; auto.
-    right. apply Exists_cons in Hex. apply Exists_cons.
-    destruct Hex as [Hx|Hl2]; auto.
-  Qed.
-
-  Lemma forall_swap A (P : A -> Prop) l1 x y l2 :
-    (P x -> P y) ->
-    Forall P (l1 ++ x :: l2) -> Forall P (l1 ++ y :: l2).
-  Proof.
-    intros H Hf.
-    apply Forall_app in Hf. apply Forall_app. destruct Hf as [Hf1 Hf2]. split; auto.
-    apply Forall_cons_iff in Hf2. apply Forall_cons_iff.
-    destruct Hf2 as [Hx Hl2]. auto.
-  Qed.
-
-  Lemma nth_sat_swap A l1 (x y : A) l2 (P : A -> Prop) k :
-    (P x -> P y) ->
-    nth_sat (l1 ++ x :: l2) k P -> nth_sat (l1 ++ y :: l2) k P.
-  Proof.
-    intros H. cbv [nth_sat].
-    destruct (Nat.lt_ge_cases k (length l1)) as [Hk|Hk].
-    - rewrite ! nth_error_app1 by assumption. auto.
-    - rewrite ! nth_error_app2 by assumption.
-      destruct (k - length l1) eqn:E; simpl; auto.
-  Qed.
-
-  Lemma forall2_swap_l A B l1 (x y : A) l2 (ms : list B) (P : A -> B -> Prop) :
-    (forall m, P x m -> P y m) ->
-    Forall2 P (l1 ++ x :: l2) ms ->
-    Forall2 P (l1 ++ y :: l2) ms.
-  Proof.
-    intros H Hf.
-    apply Forall2_app_inv_l in Hf. fwd. invert_list_stuff.
-    apply Forall2_app; [assumption|]. constructor; auto.
-  Qed.
-
   Lemma nth_error_app_middle A (l1 : list A) x l2 n :
     nth_error (l1 ++ x :: l2) n =
     match Nat.compare n (length l1) with
@@ -315,13 +274,6 @@ Section __.
   Proof.
     cbv [nth_sat]. rewrite nth_error_app_middle.
     destruct (Nat.compare_spec n (length l1)) as [-> | Hlt | Hgt]; reflexivity.
-  Qed.
-
-  Lemma nth_sat_map A B (f : A -> B) l n (P : B -> Prop) :
-    nth_sat (map f l) n P <-> nth_sat l n (fun x => P (f x)).
-  Proof.
-    cbv [nth_sat]. rewrite nth_error_map.
-    destruct (nth_error l n); reflexivity.
   Qed.
 
   Lemma can_deduce_implies_not_input r kf nf_rel nf_args :
@@ -581,23 +533,6 @@ Section __.
     induction 1; intros [|n] x' y' Hx Hy; simpl in *; try discriminate.
     - injection Hx as ->. injection Hy as ->. assumption.
     - eapply IHForall2; eassumption.
-  Qed.
-
-  Lemma Forall2_nth_error_bwd {A B} (R : A -> B -> Prop) xs ys :
-    length xs = length ys ->
-    (forall n x y,
-      nth_error xs n = Some x ->
-      nth_error ys n = Some y ->
-      R x y) ->
-    Forall2 R xs ys.
-  Proof.
-    revert ys. induction xs as [|x xs IH]; intros [|y ys] Hlen H; simpl in *;
-      try discriminate.
-    - constructor.
-    - constructor.
-      + apply (H 0); reflexivity.
-      + apply IH; [lia|]. intros n x' y' Hx Hy.
-        apply (H (S n)); assumption.
   Qed.
 
   Lemma meta_facts_correct_lookup s k r sent :
@@ -1318,20 +1253,6 @@ Section __.
     - intro H. apply Existsn_no; assumption.
   Qed.
 
-  Lemma Existsn_middle_no (P : dfact -> Prop) x n l1 l2 :
-    ~ P x -> (Existsn P n (l1 ++ x :: l2) <-> Existsn P n (l1 ++ l2)).
-  Proof.
-    intros Hx.
-    assert (Hp : Permutation (l1 ++ x :: l2) (x :: (l1 ++ l2)))
-      by (symmetry; apply Permutation_middle).
-    split; intro H.
-    - apply (proj1 (Existsn_cons_no_iff P x n (l1 ++ l2) Hx)).
-      eapply Existsn_perm; [ exact H | exact Hp ].
-    - eapply Existsn_perm;
-        [ apply (proj2 (Existsn_cons_no_iff P x n (l1 ++ l2) Hx)); exact H
-        | apply Permutation_sym; exact Hp ].
-  Qed.
-
   Lemma has_derived_input_meta_cons_bw R mf_args mf_set F s :
     is_input R = true ->
     ~ dfact_matches R mf_args F ->
@@ -1598,26 +1519,6 @@ Section __.
   Proof.
     intros Hsteps. induction Hsteps; [apply incl_refl|].
     eapply incl_tran; [ apply comp_step_known_incl; exact H | exact IHHsteps ].
-  Qed.
-
-  Lemma comp_step_sents_length s s' :
-    length s.(sents) = length p.(non_meta_rules) ->
-    comp_step s s' -> length s'.(sents) = length s.(sents).
-  Proof.
-    intros Hlen Hstep. invert Hstep. cbn [sents] in *.
-    cbv [stepWithLabel] in H. fwd. destruct n as [r k].
-    pose proof (fire_label_decomp _ l1 r k x l2 Hlen Hp0) as (Hs_eq & _ & _ & _).
-    rewrite Hs_eq, !length_app. reflexivity.
-  Qed.
-
-  Lemma steps_preserves_sents_length inputs s s' :
-    good_input_facts inputs ->
-    sane_state inputs s ->
-    comp_step^* s s' -> length s'.(sents) = length s.(sents).
-  Proof.
-    intros Hinp Hsane Hsteps. revert Hsane. induction Hsteps; intros Hsane; [reflexivity|].
-    rewrite IHHsteps by eauto using step_preserves_sane.
-    apply comp_step_sents_length; [ exact Hsane.(sane_length) | exact H ].
   Qed.
 
   Lemma step_preserves_has_derived inputs s s' f :
