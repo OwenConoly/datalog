@@ -1,5 +1,5 @@
 From Stdlib Require Import List PeanoNat Lia Classical_Prop.
-From Datalog Require Import Datalog Graph Node Operational Smallstep List Tactics.
+From Datalog Require Import Datalog Graph Node Operational List Tactics.
 From coqutil Require Import Map.Interface Datatypes.List.
 Import ListNotations.
 
@@ -15,20 +15,8 @@ Section __.
   Context (Hfin : meta_facts_finite p).
   Context (Hlen : 0 < length p.(non_meta_rules)).
 
-  Local Notation IO_event := (Smallstep.IO_event unit dfact).
-
   Definition add_input (f : dfact) (s : state) : state :=
     {| known_facts := f :: s.(known_facts); sents := s.(sents) |}.
-
-  Inductive step : state -> IO_event -> state -> Prop :=
-  | step_comp s1 s2 :
-    comp_step is_input p s1 s2 ->
-    step s1 (O_event tt []) s2
-  | step_input s f :
-    step s (I_event f) (add_input f s)
-  | step_output s R args :
-    In (normal_dfact R args) s.(known_facts) ->
-    step s (O_event tt [normal_dfact R args]) s.
 
   Definition initial : state :=
     {| known_facts := []; sents := repeat [] (length p.(non_meta_rules)) |}.
@@ -47,23 +35,14 @@ Section __.
   Definition load (l : list dfact) (s : state) : state :=
     fold_right add_input s l.
 
-  Lemma load_star (l : list dfact) (s : state) :
-    star step s (map I_event l) (load l s).
-  Proof.
-    induction l as [|f l IH]; [apply star_refl|].
-    cbn [map load fold_right]. eapply star_step; [exact IH | apply step_input].
-  Qed.
+  Definition start (inputs : list dfact) : state :=
+    {| known_facts := inputs; sents := repeat [] (length p.(non_meta_rules)) |}.
 
-  Lemma comp_lift (s s' : state) :
-    (comp_step is_input p)^* s s' ->
-    exists t, star step s t s' /\ flat_map inputs_of t = [] /\ flat_map outputs_of t = [].
+  Lemma start_eq (inputs : list dfact) : load inputs initial = start inputs.
   Proof.
-    intros H. induction H as [ | s0 s1 s2 Hstep Hrest IH].
-    - exists []. split; [apply star_refl | split; reflexivity].
-    - destruct IH as (t & Hstar & Hin & Hout).
-      exists (t ++ [O_event tt []]). split.
-      + eapply star_app; [apply star_one; apply step_comp; exact Hstep | exact Hstar].
-      + rewrite !flat_map_app, Hin, Hout. split; reflexivity.
+    unfold start, load, initial. induction inputs as [|f l IH]; cbn [fold_right].
+    - reflexivity.
+    - rewrite IH. reflexivity.
   Qed.
 
   Lemma Forall3_repeat_seq {A} (Q : A -> list dfact -> nat -> Prop)
@@ -150,16 +129,6 @@ Section __.
   Lemma INV_nil_sc : state_correct [] initial.
   Proof.
     intros g (Hd & _). exfalso. eapply has_derived_initial; exact Hd.
-  Qed.
-
-  Definition INV (t : list IO_event) (s : state) : Prop :=
-    sane_state (flat_map inputs_of t) s /\ meta_facts_correct s /\ meta_facts_ok s /\
-    state_correct (flat_map inputs_of t) s.
-
-  Lemma INV_nil : INV [] initial.
-  Proof.
-    unfold INV. cbn [inputs_of flat_map].
-    split; [apply INV_nil_sane | split; [apply mfc_initial | split; [apply mfok_initial | apply INV_nil_sc]]].
   Qed.
 
   Lemma add_input_sane (l : list dfact) (f : dfact) (s : state) :
@@ -376,97 +345,47 @@ Section __.
           -- intros Hin. right. exact Hin.
   Qed.
 
-  Lemma step_preserves_INV (t0 : list IO_event) (e : IO_event) (s1 s2 : state) :
-    good_input_facts (flat_map inputs_of (e :: t0)) ->
-    step s1 e s2 -> INV t0 s1 -> INV (e :: t0) s2.
-  Proof.
-    intros Hg Hstep (Hsane & Hmfc & Hmfok & Hsc).
-    destruct Hstep as [a b Hc | a f | a R args Hk]; unfold INV in *;
-      cbn [inputs_of flat_map] in Hg |- *.
-    - split; [eapply step_preserves_sane; eassumption|].
-      split; [eapply step_preserves_mfs_correct; eassumption|].
-      split; [eapply step_preserves_meta_facts_ok; eassumption|].
-      eapply comp_step_sound; eassumption.
-    - split; [apply add_input_sane; assumption|].
-      split; [eapply add_wf_mfc; eassumption|].
-      split; [eapply add_wf_mfok; eassumption|].
-      apply add_input_sc; assumption.
-    - split; [exact Hsane|]. split; [exact Hmfc|]. split; [exact Hmfok|]. exact Hsc.
-  Qed.
-
-  Lemma star_INV (t : list IO_event) (s : state) :
-    good_input_facts (flat_map inputs_of t) -> star step initial t s -> INV t s.
-  Proof.
-    intros Hg Hstar. revert Hg.
-    induction Hstar as [ | t0 s' e s'' Hstar IH Hstep]; intros Hg.
-    - apply INV_nil.
-    - eapply step_preserves_INV; [exact Hg | exact Hstep |].
-      apply IH. destruct e as [f | lbl outs]; cbn [inputs_of flat_map] in Hg.
-      + eapply good_input_facts_tl; exact Hg.
-      + exact Hg.
-  Qed.
-
-  Lemma step_knows_mono (s : state) (e : IO_event) (s' : state) (g : dfact) :
-    step s e s' -> In g s.(known_facts) -> In g s'.(known_facts).
-  Proof.
-    intros Hstep Hin. destruct Hstep as [a b Hc | a f | a R args Hkk].
-    - apply (comp_step_known_incl _ _ _ _ Hc). exact Hin.
-    - unfold add_input. cbn [known_facts]. right. exact Hin.
-    - exact Hin.
-  Qed.
-
-  Lemma output_known (s ns : state) (t : list IO_event) (g : dfact) :
-    star step s t ns -> In g (flat_map outputs_of t) -> In g ns.(known_facts).
-  Proof.
-    intros Hstar. revert g.
-    induction Hstar as [ | t0 s' e s'' Hstar IH Hstep]; intros g Hin.
-    - destruct Hin.
-    - cbn [outputs_of flat_map] in Hin. rewrite in_app_iff in Hin.
-      destruct Hin as [Hin_e | Hin_t0].
-      + destruct Hstep as [a b Hc | a f | a R args Hk]; cbn in Hin_e.
-        * destruct Hin_e.
-        * destruct Hin_e.
-        * destruct Hin_e as [<- | []]. exact Hk.
-      + eapply step_knows_mono; [ exact Hstep | exact (IH g Hin_t0) ].
-  Qed.
-
-  Theorem produces_sound (inputs : list dfact) (R : rel) (args : list T) :
+  Lemma load_INV (inputs : list dfact) :
     good_input_facts inputs ->
-    produces step initial inputs (normal_dfact R args) ->
-    prog_impl rules_of (knows_datalog_fact inputs) (normal_fact R args).
+    sane_state inputs (load inputs initial) /\
+    meta_facts_correct (load inputs initial) /\
+    meta_facts_ok (load inputs initial) /\
+    state_correct inputs (load inputs initial).
   Proof.
-    intros Hg (t & ns & Hstar & Hinp & Hout).
-    assert (Hgt : good_input_facts (flat_map inputs_of t)) by (rewrite Hinp; exact Hg).
-    pose proof (star_INV t ns Hgt Hstar) as (Hsane & _ & _ & Hsc).
-    rewrite Hinp in Hsc.
-    assert (Hk : In (normal_dfact R args) ns.(known_facts))
-      by (eapply output_known; eassumption).
-    apply Hsc. split; [exact Hk | exact I].
+    induction inputs as [|f l IH]; intros Hg.
+    - change (load [] initial) with initial.
+      split; [apply INV_nil_sane |].
+      split; [apply mfc_initial |].
+      split; [apply mfok_initial | apply INV_nil_sc].
+    - change (load (f :: l) initial) with (add_input f (load l initial)).
+      pose proof (good_input_facts_tl f l Hg) as Hgl.
+      destruct (IH Hgl) as (Hsane & Hmfc & Hmfok & Hsc).
+      split; [apply add_input_sane; assumption |].
+      split; [eapply add_wf_mfc; eassumption |].
+      split; [eapply add_wf_mfok; eassumption | apply add_input_sc; assumption].
   Qed.
 
-  Theorem produces_complete (inputs : list dfact) (R : rel) (args : list T) :
+  Theorem prog_impl_iff_comp_step (inputs : list dfact) (f : fact) :
     good_input_facts inputs ->
-    prog_impl rules_of (knows_datalog_fact inputs) (normal_fact R args) ->
-    produces step initial inputs (normal_dfact R args).
+    (prog_impl rules_of (knows_datalog_fact inputs) f <->
+     exists s', (comp_step is_input p)^* (start inputs) s' /\
+                has_derived_datalog_fact s' f /\ mf_consistent_state s' f).
   Proof.
-    intros Hg Hprog.
-    pose proof (load_star inputs initial) as Hload.
-    assert (Hgio : good_input_facts (flat_map inputs_of (map I_event inputs : list IO_event)))
-      by (rewrite inputs_of_map_I_event; exact Hg).
-    pose proof (star_INV _ _ Hgio Hload) as (Hsane & Hmfc & Hmfok & Hsc).
-    rewrite inputs_of_map_I_event in Hsane, Hsc.
-    assert (Hcompl : state_complete inputs (load inputs initial))
-      by (apply comp_step_complete; assumption).
-    destruct (Hcompl (normal_fact R args) Hprog) as (s' & Hcomp & Hderiv).
-    destruct (comp_lift _ _ Hcomp) as (tc & Htc & Htcin & Htcout).
-    exists (O_event tt [normal_dfact R args] :: tc ++ map I_event inputs), s'.
-    split; [| split].
-    - eapply star_step.
-      + eapply star_app; [exact Hload | exact Htc].
-      + apply step_output. exact Hderiv.
-    - cbn [flat_map inputs_of app].
-      rewrite flat_map_app, Htcin, inputs_of_map_I_event. reflexivity.
-    - cbn [flat_map outputs_of app]. apply in_eq.
+    intros Hg. rewrite <- start_eq.
+    destruct (load_INV inputs Hg) as (Hsane & Hmfc & Hmfok & Hsc).
+    split.
+    - intros Hprog.
+      assert (Hcompl : state_complete inputs (load inputs initial))
+        by (apply comp_step_complete; assumption).
+      destruct (Hcompl _ Hprog) as (s' & Hsteps & Hderiv).
+      assert (Hsc' : state_correct inputs s')
+        by (eapply comp_steps_sound; eassumption).
+      exists s'. split; [exact Hsteps | split; [exact Hderiv |]].
+      eapply correct_impl_consistent; eassumption.
+    - intros (s' & Hsteps & Hderiv & Hcons).
+      assert (Hsc' : state_correct inputs s')
+        by (eapply comp_steps_sound; eassumption).
+      apply Hsc'. split; [exact Hderiv | exact Hcons].
   Qed.
 
 End __.
