@@ -71,6 +71,23 @@ Section __.
 
   Definition sender_rules : list non_meta_rule := dedup eqb p.(non_meta_rules).
 
+  Lemma non_meta_rules_pos r : In r p.(non_meta_rules) -> 0 < length p.(non_meta_rules).
+  Proof.
+    intros H. destruct p.(non_meta_rules) as [|? ?]; [ destruct H | cbn [length]; lia ].
+  Qed.
+
+  Lemma non_meta_rules_pos_inv : 0 < length p.(non_meta_rules) -> exists r, In r p.(non_meta_rules).
+  Proof.
+    destruct p.(non_meta_rules) as [|r0 ?];
+      [ cbn [length]; lia | intros _; exists r0; left; reflexivity ].
+  Qed.
+
+  Lemma In_sender_rules r : In r p.(non_meta_rules) -> In r sender_rules.
+  Proof. exact (proj1 (dedup_preserves_In p.(non_meta_rules) r)). Qed.
+
+  Lemma sender_rules_In r : In r sender_rules -> In r p.(non_meta_rules).
+  Proof. exact (proj2 (dedup_preserves_In p.(non_meta_rules) r)). Qed.
+
   Definition R_senders : rel -> list op_source :=
     fun R => if is_input R then [from_input] else map from_rule sender_rules.
 
@@ -252,6 +269,16 @@ Section __.
     - invert Himpl. exact Hgood.
   Qed.
 
+  Lemma get_or_default_values_0 (P : dfact -> Prop) (m : sent_map) k :
+    Forall (fun sent => Existsn P 0 sent) (values m) ->
+    Existsn P 0 (get_or_default m k).
+  Proof.
+    intros Hz. destruct (map.get m k) as [v|] eqn:Eg.
+    - rewrite (get_or_default_Some _ _ _ Eg). rewrite Forall_forall in Hz.
+      apply Hz. rewrite In_values. exists k. exact Eg.
+    - rewrite (get_or_default_None _ _ Eg). apply Existsn_nil.
+  Qed.
+
   Lemma Forall2_update_at_nat {A} (R S : A -> nat -> Prop) (a : A) (d : nat) (l : list A) (ns : list nat) :
     NoDup l -> In a l ->
     Forall2 R l ns ->
@@ -293,7 +320,7 @@ Section __.
               (fun r0 c => Existsn P c (get_or_default (mupd_with_default (cons f) m r) r0))
               r d sender_rules msgs).
     - unfold sender_rules. apply NoDup_dedup.
-    - unfold sender_rules. exact (proj1 (dedup_preserves_In p.(non_meta_rules) r) Hin_r).
+    - exact (In_sender_rules r Hin_r).
     - exact Hf2.
     - intros x _ Hxr n HRx. rewrite get_or_default_mupd.
       destr (eqb r x); [ exfalso; apply Hxr; congruence | exact HRx ].
@@ -423,18 +450,6 @@ Section __.
       + intros f Hf. right. exact (Hinp_propagated f Hf).
   Qed.
 
-  Lemma Forall2_nth_error_fwd {A B} (R : A -> B -> Prop) xs ys :
-    Forall2 R xs ys ->
-    forall n x y,
-      nth_error xs n = Some x ->
-      nth_error ys n = Some y ->
-      R x y.
-  Proof.
-    induction 1; intros [|n] x' y' Hx Hy; simpl in *; try discriminate.
-    - injection Hx as ->. injection Hy as ->. assumption.
-    - eapply IHForall2; eassumption.
-  Qed.
-
   Lemma sane_allowed_inputs inputs s :
     good_input_facts inputs ->
     sane_state inputs s ->
@@ -452,17 +467,13 @@ Section __.
       destruct Hinp as (_ & Hgc). destruct (Hgc _ _ _ Hexp) as (_ & num' & Hle & Hex').
       pose proof (Existsn_unique _ _ _ _ Hinp_cnt Hex') as ->.
       assert (Hms0 : list_sum msgs = 0).
-      { apply list_sum_zero.
-        destruct (Hinp_rel R ER) as (Hz & _). specialize (Hz mf_args).
-        clear -Hms Hz sent_map_ok nmr_eqb nmr_eqb_ok.
-        induction Hms as [| r0 mm l l' Hr0 Hms' IH]; [ constructor | ].
-        constructor; [ | exact IH ].
-        assert (H0 : Existsn (dfact_matches R mf_args) 0 (get_or_default s.(sents) r0)).
-        { destruct (map.get s.(sents) r0) as [v|] eqn:Eg.
-          - rewrite (get_or_default_Some _ _ _ Eg).
-            rewrite Forall_forall in Hz. apply Hz. rewrite In_values. exists r0. exact Eg.
-          - rewrite (get_or_default_None _ _ Eg). apply Existsn_nil. }
-        eapply Existsn_unique; [ exact H0 | exact Hr0 ]. }
+      { destruct (Hinp_rel R ER) as (Hz & _). specialize (Hz mf_args).
+        assert (Hmz : msgs = repeat 0 (length sender_rules)).
+        { eapply Forall2_unique_r;
+            [ exact Hms
+            | apply Forall2_repeat_r, Forall_forall; intros r0 _; apply get_or_default_values_0; exact Hz
+            | intros x y y' Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ]. }
+        rewrite Hmz, list_sum_repeat. lia. }
       rewrite Hms0, Nat.add_0_r. exact Hle.
     - destruct Hexp as (emss & Hexpp0 & Hsum_ems).
       assert (Hni0 : num_inp = 0).
@@ -474,20 +485,10 @@ Section __.
         rewrite Forall_forall in Hrel. specialize (Hrel _ Hin_f). simpl in Hrel. congruence. }
       subst num_inp. cbn [Nat.add]. rewrite Hsum_ems.
       enough (msgs = emss) as -> by lia.
-      pose proof (Forall2_length Hms) as Hlen_ms.
-      pose proof (Forall2_length Hexpp0) as Hlen_es.
-      apply nth_error_ext. intros k.
-      destruct (nth_error msgs k) as [mk|] eqn:Hmk, (nth_error emss k) as [ek|] eqn:Hek.
-      + f_equal.
-        destruct (nth_error sender_rules k) as [rk|] eqn:Hrk;
-          [| apply nth_error_None in Hrk; apply nth_error_Some_bound_index in Hmk; lia ].
-        pose proof (Forall2_nth_error_fwd _ _ _ Hms k rk mk Hrk Hmk) as HEm. cbv beta in HEm.
-        pose proof (Forall2_nth_error_fwd _ _ _ Hexpp0 k rk ek Hrk Hek) as HEe. cbv beta in HEe.
-        apply Hmf_sent in HEe. destruct HEe as (HEe_ex & _).
-        eapply Existsn_unique; [ exact HEm | exact HEe_ex ].
-      + apply nth_error_None in Hek. apply nth_error_Some_bound_index in Hmk. lia.
-      + apply nth_error_None in Hmk. apply nth_error_Some_bound_index in Hek. lia.
-      + reflexivity.
+      eapply Forall2_unique_r;
+        [ exact Hms | | intros x y y' Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ].
+      eapply Forall2_impl_strong; [ exact Hexpp0 | ].
+      intros rk ek HIn _ _. exact (proj1 (Hmf_sent _ _ _ _ HIn)).
   Qed.
 
   Lemma comp_step_known_cons s s' :
@@ -507,10 +508,10 @@ Section __.
     - exact (sane_allowed_inputs _ _ Hinp (step_preserves_sane _ _ _ Hinp Hsane Hstep)).
   Qed.
 
-  Lemma meta_facts_correct_at_rule_mono mrs k1 k2 n sent :
+  Lemma meta_facts_correct_at_rule_mono mrs k1 k2 r sent :
     knows_incl k1 k2 ->
-    meta_facts_correct_at_rule mrs k1 n sent ->
-    meta_facts_correct_at_rule mrs k2 n sent.
+    meta_facts_correct_at_rule mrs k1 r sent ->
+    meta_facts_correct_at_rule mrs k2 r sent.
   Proof.
     intros Hincl H R mf_args num HIn.
     destruct (H R mf_args num HIn) as (mc & mh & hyps & Hin & Hcd & Hkn & Hns).
@@ -598,7 +599,7 @@ Section __.
           rewrite expect_num_R_facts_eq, HNI_R in Hexp_self.
           destruct Hexp_self as (expected_msgss & Hf2 & _).
           destruct (Forall2_In_l _ _ _ _ Hf2
-                      (proj1 (dedup_preserves_In p.(non_meta_rules) r0) Hin_r))
+                      (In_sender_rules r0 Hin_r))
             as (num_old & _ & Hin_x_known). cbv beta in Hin_x_known.
           specialize (Hmf_sent _ _ _ _ Hin_x_known). destruct Hmf_sent as (_ & Hin_x_sent).
           specialize (Hmfc_r R mf_args num_old Hin_x_sent).
@@ -688,7 +689,7 @@ Section __.
       rewrite expect_num_R_facts_eq in Hexp. destruct (is_input R0) eqn:HER0.
       + exists num. split; [ exact Hexp | exact Hexn ].
       + intros r Hr. destruct Hexp as (msgss & Hf2 & _).
-        destruct (Forall2_In_l _ _ _ _ Hf2 (proj1 (dedup_preserves_In p.(non_meta_rules) r) Hr))
+        destruct (Forall2_In_l _ _ _ _ Hf2 (In_sender_rules r Hr))
           as (m & _ & Hin_m). cbv beta in Hin_m.
         exists m. exact Hin_m.
   Qed.
@@ -762,11 +763,8 @@ Section __.
              ++ destruct Hin_rel as [Hrel_eq|[]]. subst cr. simpl in Hp_input.
                 congruence.
         * destruct Hexp as (msgss & Hf2_msgs & _).
-          destruct p.(non_meta_rules) as [| r0 rest] eqn:Enm; [ simpl in Hlt; lia | ].
-          assert (Hin_r0 : In r0 sender_rules).
-          { unfold sender_rules. apply (proj1 (dedup_preserves_In p.(non_meta_rules) r0)).
-            rewrite Enm. left. reflexivity. }
-          destruct (Forall2_In_l _ _ _ _ Hf2_msgs Hin_r0) as (m0 & _ & Hin_m0).
+          destruct (non_meta_rules_pos_inv Hlt) as (r0 & Hin_r0).
+          destruct (Forall2_In_l _ _ _ _ Hf2_msgs (In_sender_rules r0 Hin_r0)) as (m0 & _ & Hin_m0).
           cbv beta in Hin_m0.
           destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
           specialize (Hinp_all _ Hin_m0). simpl in Hinp_all. congruence.
@@ -806,7 +804,7 @@ Section __.
     destruct (Hsane.(sane_count) R (map Some nf_args))
       as (msgs_sents & num_inp & num_known & Hf2_sent & _ & Hkn & Hsum).
     destruct (Forall2_In_l _ _ _ _ Hf2_sent
-                (proj1 (dedup_preserves_In p.(non_meta_rules) r) Hin_r))
+                (In_sender_rules r Hin_r))
       as (ms & Hin_comb & Hexn_sent). cbv beta in Hexn_sent.
     assert (Hms_pos : 1 <= ms).
     { destruct ms; [|lia]. apply Existsn_0_Forall_not in Hexn_sent.
@@ -897,9 +895,7 @@ Section __.
         pose proof (Hpot _ Hh) as Hpot_h.
         pose proof (Hhyps _ Hh) as Hprog_h.
         assert (Hgood_inputs_Q : good_inputs rules_of (knows_datalog_fact inputs)).
-        { apply good_inputs_knows_datalog_fact_inputs; [exact Hinp|].
-          remember p.(non_meta_rules) as nmrs eqn:E.
-          destruct nmrs as [|a l0]; [ destruct Hin_rk | cbn [length]; lia ]. }
+        { apply good_inputs_knows_datalog_fact_inputs; [ exact Hinp | exact (non_meta_rules_pos _ Hin_rk) ]. }
         pose proof (valid_impl_honest _ Hmeta_rules _ Hgood_inputs_Q) as Hhonest.
         cbv [doesnt_lie] in Hhonest.
         destruct h as [R' args' | R' mf_args' mf_set'_h].
@@ -1242,9 +1238,8 @@ Section __.
                                 Hf1_True nf_args1 Hmatch1) as Humfc.
                   subst s'.
                   assert (Hgood_inputs_Q : good_inputs rules_of (knows_datalog_fact inputs)).
-                  { apply good_inputs_knows_datalog_fact_inputs; [ exact Hinp | ].
-                    remember p.(non_meta_rules) as nmrs eqn:Enm.
-                    destruct nmrs as [|a l0]; [ destruct Hin_r | cbn [length]; lia ]. }
+                  { apply good_inputs_knows_datalog_fact_inputs;
+                      [ exact Hinp | exact (non_meta_rules_pos _ Hin_r) ]. }
                   pose proof (valid_impl_honest _ Hmeta_rules _ Hgood_inputs_Q) as Hhonest.
                   cbv [doesnt_lie] in Hhonest.
                   pose proof (Hhonest _ _ _ Hprog_constr) as Hcon_constr.
@@ -1258,7 +1253,7 @@ Section __.
                   rewrite expect_num_R_facts_eq, HER in Hexp.
                   destruct Hexp as (msgss & Hf2_msgs & _).
                   destruct (Forall2_In_l _ _ _ _ Hf2_msgs
-                              (proj1 (dedup_preserves_In p.(non_meta_rules) r) Hin_r))
+                              (In_sender_rules r Hin_r))
                     as (m & _ & Hin_m). cbv beta in Hin_m.
                   destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
                   specialize (Hinp_all _ Hin_m). simpl in Hinp_all. congruence.
@@ -1347,7 +1342,7 @@ Section __.
               sender_rules nums.
   Proof.
     intros H. apply Forall_exists_r_Forall2. apply Forall_forall. intros r Hr.
-    apply H. exact (proj2 (dedup_preserves_In p.(non_meta_rules) r) Hr).
+    apply H. exact (sender_rules_In r Hr).
   Qed.
 
   (* In the single global pool, a fact that is [has_derived] and [mf_consistent]
@@ -1384,19 +1379,10 @@ Section __.
           specialize (Hinp_all _ Hin_g). subst g. cbn [is_input_fact] in Hinp_all. congruence. }
         assert (Hmsgs_eq : list_sum msgs = list_sum nums).
         { f_equal.
-          pose proof (Forall2_length Hf2m) as Hlm. pose proof (Forall2_length Hf2) as Hln.
-          apply nth_error_ext. intros i.
-          destruct (nth_error msgs i) as [mi|] eqn:Hmi, (nth_error nums i) as [ni|] eqn:Hni.
-          - f_equal.
-            destruct (nth_error sender_rules i) as [ri|] eqn:Hri;
-              [| apply nth_error_None in Hri; apply nth_error_Some_bound_index in Hmi; lia ].
-            pose proof (Forall2_nth_error_fwd _ _ _ Hf2m i ri mi Hri Hmi) as Hexn_mi. cbv beta in Hexn_mi.
-            pose proof (Forall2_nth_error_fwd _ _ _ Hf2 i ri ni Hri Hni) as Hin_i. cbv beta in Hin_i.
-            pose proof (Hsane.(sane_local_meta) _ _ _ _ Hin_i) as (Hexn_ni & _).
-            exact (Existsn_unique _ _ _ _ Hexn_mi Hexn_ni).
-          - apply nth_error_None in Hni. apply nth_error_Some_bound_index in Hmi. lia.
-          - apply nth_error_None in Hmi. apply nth_error_Some_bound_index in Hni. lia.
-          - reflexivity. }
+          eapply Forall2_unique_r;
+            [ exact Hf2m | | intros x y y' Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ].
+          eapply Forall2_impl_strong; [ exact Hf2 | ].
+          intros ri ni HIn _ _. exact (proj1 (Hsane.(sane_local_meta) _ _ _ _ HIn)). }
         rewrite Hinp0, Nat.add_0_l, Hmsgs_eq in Hsum. subst num_kn. exact Hexn_kn.
       + exact Hc.
   Qed.
@@ -1488,19 +1474,15 @@ Section __.
         pose proof (Existsn_unique _ _ _ _ Hexn_inp Hexn) as ->.
         destruct (Hsane.(sane_input_rel) R HER) as (Hsent0 & _). specialize (Hsent0 mf_args).
         assert (Hsum0 : list_sum msgs = 0).
-        { apply list_sum_zero.
-          clear -Hf2 Hsent0 sent_map_ok nmr_eqb nmr_eqb_ok.
-          induction Hf2 as [|r0 m sr ms Hex Hrest IH]; [ constructor | ].
-          constructor; [ | exact IH ].
-          assert (H0 : Existsn (dfact_matches R mf_args) 0 (get_or_default (sents s) r0)).
-          { destruct (map.get (sents s) r0) as [v|] eqn:Eg.
-            - rewrite (get_or_default_Some _ _ _ Eg). rewrite Forall_forall in Hsent0.
-              apply Hsent0. rewrite In_values. exists r0. exact Eg.
-            - rewrite (get_or_default_None _ _ Eg). apply Existsn_nil. }
-          eapply Existsn_unique; [ exact H0 | exact Hex ]. }
+        { assert (Hmz : msgs = repeat 0 (length sender_rules)).
+          { eapply Forall2_unique_r;
+              [ exact Hf2
+              | apply Forall2_repeat_r, Forall_forall; intros r0 _; apply get_or_default_values_0; exact Hsent0
+              | intros x y y' Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ]. }
+          rewrite Hmz, list_sum_repeat. lia. }
         rewrite Hsum0, Nat.add_0_r in Hsum. subst num_kn. exact Hexn_kn.
       + intros r' Hr'. destruct Hexp as (msgss & Hf2 & _).
-        destruct (Forall2_In_l _ _ _ _ Hf2 (proj1 (dedup_preserves_In p.(non_meta_rules) r') Hr'))
+        destruct (Forall2_In_l _ _ _ _ Hf2 (In_sender_rules r' Hr'))
           as (mk & _ & Hin_mk). cbv beta in Hin_mk.
         exists mk. apply Hinp_known. exact Hin_mk.
   Qed.
@@ -1809,9 +1791,7 @@ Section __.
         - destruct (IH ltac:(intros x Hx; apply Hincl; right; exact Hx))
             as (s' & Hsteps' & Hrs_forced).
           assert (Hin_r0 : In r0 p.(non_meta_rules)) by (apply Hincl; left; reflexivity).
-          assert (Hlen_pos : 0 < length p.(non_meta_rules)).
-          { remember p.(non_meta_rules) as nmrs eqn:Enm.
-            destruct nmrs as [|a l0]; [ destruct Hin_r0 | cbn [length]; lia ]. }
+          pose proof (non_meta_rules_pos _ Hin_r0) as Hlen_pos.
           assert (Hsane' : sane_state inputs s') by eauto using steps_preserves_sane.
           assert (Hmfc' : meta_facts_correct s') by eauto using steps_preserves_mfs_correct.
           assert (Hmf_ok' : meta_facts_ok s') by eauto using steps_preserves_meta_facts_ok.
@@ -1971,9 +1951,8 @@ Section __.
         * rewrite expect_num_R_facts_eq, HER. exact Hin.
         * exact Hexn.
         * intros nfa Hm. exact (Hmc nfa Hm).
-      + exfalso. remember p.(non_meta_rules) as nmrs eqn:E.
-        destruct nmrs as [|r0 l0]; [ cbn [length] in Hlen; lia | ].
-        destruct (Hd r0 (or_introl eq_refl)) as (num & Hin).
+      + exfalso. destruct (non_meta_rules_pos_inv Hlen) as (r0 & Hin_r0).
+        destruct (Hd r0 Hin_r0) as (num & Hin).
         exact (good_input_no_node_meta inputs R mf_args r0 num Hg Hin).
   Qed.
 
