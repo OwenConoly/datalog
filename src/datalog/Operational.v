@@ -262,17 +262,24 @@ Section __.
       /\ list_sum msgs' = list_sum msgs + d.
   Proof.
     intros Hin_r Hinc Hf2.
-    eapply (Forall2_update_at_nat
-              (fun r0 c => Existsn P c (get_or_default m r0))
-              (fun r0 c => Existsn P c (get_or_default (mupd_with_default (cons f) m r) r0))
-              r d sender_rules msgs).
-    - unfold sender_rules. apply NoDup_dedup.
-    - unfold sender_rules. exact (proj1 (dedup_preserves_In p.(non_meta_rules) r) Hin_r).
-    - exact Hf2.
-    - intros x _ Hxr n HRx. rewrite get_or_default_mupd_cons.
-      destr (eqb r x); [ exfalso; apply Hxr; congruence | exact HRx ].
-    - intros n HRr. rewrite get_or_default_mupd_cons. destr (eqb r r); [ | congruence ].
-      exact (Hinc n HRr).
+    assert (Hoff : forall x c, In x sender_rules -> x <> r ->
+              Existsn P c (get_or_default m x) ->
+              Existsn P c (get_or_default (mupd_with_default (cons f) m r) x)).
+    { intros x c Hx Hxr HRx. rewrite get_or_default_mupd.
+      destr (eqb r x); [ exfalso; apply Hxr; congruence | exact HRx ]. }
+    assert (Hatr : forall c, Existsn P c (get_or_default m r) ->
+              exists c', Existsn P c' (get_or_default (mupd_with_default (cons f) m r) r) /\ id c' = id c + d).
+    { intros c HRc. exists (c + d). split; [| reflexivity].
+      rewrite get_or_default_mupd. destr (eqb r r); [ exact (Hinc c HRc) | congruence ]. }
+    destruct (Forall2_update_at id
+                (fun r0 c => Existsn P c (get_or_default m r0))
+                (fun r0 c => Existsn P c (get_or_default (mupd_with_default (cons f) m r) r0))
+                r d sender_rules msgs
+                ltac:(unfold sender_rules; apply NoDup_dedup)
+                (proj1 (dedup_preserves_In p.(non_meta_rules) r) Hin_r)
+                Hf2 Hoff Hatr) as (msgs' & HF2' & Hsum).
+    rewrite !map_id in Hsum.
+    exists msgs'. split; [ exact HF2' | exact Hsum ].
   Qed.
 
   Lemma step_preserves_sane inputs s1 s2 :
@@ -301,7 +308,7 @@ Section __.
       + intros R a num [Heq | Hin]; [ discriminate | exact (Hmf_inp _ _ _ Hin) ].
       + intros R a r0 num [Heq | Hin]; [ discriminate | ].
         specialize (Hmf_sent _ _ _ _ Hin). destruct Hmf_sent as (HE & HI).
-        rewrite get_or_default_mupd_cons. destr (eqb r r0).
+        rewrite get_or_default_mupd. destr (eqb r r0).
         * assert (Hnmatch : ~ dfact_matches R a (normal_dfact nf_rel nf_args : dfact)).
           { intros (nf_args0 & Heqf & Hmatch). injection Heqf as -> ->.
             exact (Hnometa _ _ HI Hmatch). }
@@ -357,7 +364,7 @@ Section __.
         injection Heqc as -> _ _. apply (Hp_meta_input _ Hin_c). }
       constructor; cbn [known_facts sents].
       + intros R a num [Heq | Hin]; [ discriminate | exact (Hmf_inp _ _ _ Hin) ].
-      + intros R a r0 num Hin. rewrite get_or_default_mupd_cons. destr (eqb r r0).
+      + intros R a r0 num Hin. rewrite get_or_default_mupd. destr (eqb r r0).
         * destruct Hin as [Heq | Hin].
           -- injection Heq as -> -> ->.
              split; [ apply Existsn_no; [ intros (? & Hq & _); discriminate | exact HsentExistsn ]
@@ -532,7 +539,7 @@ Section __.
     cbv [fire_at_rule] in Hfire. destruct Hfire as (fired_rule & Hcfr & Hcan_f & Hok_f).
     cbv [meta_facts_correct] in Hmfc |- *. cbn [known_facts sents] in Hmono |- *.
     pose proof (Hmfc r Hin_r) as Hmfc_r.
-    intros r0 Hr0. rewrite get_or_default_mupd_cons. destr (eqb r r0);
+    intros r0 Hr0. rewrite get_or_default_mupd. destr (eqb r r0);
       [ | eapply meta_facts_correct_at_rule_mono; [ exact Hmono | exact (Hmfc r0 Hr0) ] ].
     intros R mf_args num HIn.
       destruct new_fact as [nf_rel nf_args | new_mfr new_mfa new_source new_mfc].
@@ -982,7 +989,7 @@ Section __.
     cbv [meta_facts_ok] in Hmf_ok |- *. cbv [meta_facts_correct] in Hmfc.
     cbn [known_facts sents] in Hmono |- *.
     pose proof (Hmf_ok r Hin_r) as Hmfok_r. pose proof (Hmfc r Hin_r) as Hmfc_r.
-    intros r0 Hr0. rewrite get_or_default_mupd_cons. destr (eqb r r0);
+    intros r0 Hr0. rewrite get_or_default_mupd. destr (eqb r r0);
       [ | eapply meta_facts_ok_at_rule_grow;
           [ exact Hr0 | exact Hmono | exact (Hmfc r0 Hr0) | exact (Hmf_ok r0 Hr0) ] ].
     intros mf_rel mf_args num HIn.
@@ -1320,7 +1327,7 @@ Section __.
       Forall2 (fun r num => In (meta_dfact R mf_args (from_rule r) num) s.(known_facts))
               sender_rules nums.
   Proof.
-    intros H. apply Forall2_of_forall_In. intros r Hr.
+    intros H. apply Forall_exists_r_Forall2. apply Forall_forall. intros r Hr.
     apply H. exact (proj2 (dedup_preserves_In p.(non_meta_rules) r) Hr).
   Qed.
 
@@ -1560,7 +1567,7 @@ Section __.
       + cbn [can_deduce_fact]. split; [ exact Hcdn | exact Hno_conflict ].
       + exact I.
     - cbn [known_facts]. reflexivity.
-    - cbn [sents]. rewrite get_or_default_mupd_cons. destr (eqb rn rn); [ reflexivity | congruence ].
+    - cbn [sents]. rewrite get_or_default_mupd. destr (eqb rn rn); [ reflexivity | congruence ].
   Qed.
 
   (* Drive node [rn] to sent-broadcast every [R_concl]-fact matching [args_concl]
@@ -1919,7 +1926,8 @@ Section __.
     - intros R a r num H. exfalso. exact (good_input_no_node_meta inputs R a r num Hg H).
     - intros R a. destruct (Existsn_total (dfact_matches R a) inputs) as (nk & Hnk).
       exists (repeat 0 (length sender_rules)), nk, nk. split; [| split; [| split]].
-      + apply Forall2_repeat_r. intros r _. rewrite get_or_default_empty. apply Existsn_nil.
+      + apply Forall2_repeat_r. apply Forall_forall. intros r _.
+        rewrite get_or_default_empty. apply Existsn_nil.
       + exact Hnk.
       + exact Hnk.
       + rewrite list_sum_repeat. lia.

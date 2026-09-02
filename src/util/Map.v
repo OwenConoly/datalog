@@ -742,6 +742,11 @@ Section Map.
     mupd_with_default f m k = map.put m k (f (get_or_default m k)).
   Proof. cbv [mupd_with_default get_or_default]. apply mupd_total_eq_put. Qed.
 
+  Lemma get_or_default_mupd `{WithDefault value} (g : value -> value) (m : mp) k k' :
+    get_or_default (mupd_with_default g m k) k'
+    = if eqb k k' then g (get_or_default m k) else get_or_default m k'.
+  Proof. rewrite mupd_with_default_eq_put, get_or_default_put. reflexivity. Qed.
+
   Lemma get_map_values' (f : key -> value -> value') (m : mp) (k : key) :
     map.get (map_values' f m) k = option_map (f k) (map.get m k).
   Proof.
@@ -1236,17 +1241,6 @@ Lemma same_domain_map_values' {key value value'} {mp : map.map key value} {mp' :
 Proof.
   intros k. rewrite get_map_values'. destruct (map.get m k); cbn [option_map]; exact I.
 Qed.
-
-Section GetOrDefaultMupd.
-  Context {key A : Type}.
-  Context {mp : map.map key (list A)} {mp_ok : map.ok mp}.
-  Context {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb}.
-
-  Lemma get_or_default_mupd_cons (m : mp) k a k' :
-    get_or_default (mupd_with_default (cons a) m k) k'
-    = if eqb k k' then a :: get_or_default m k else get_or_default m k'.
-  Proof. rewrite mupd_with_default_eq_put, get_or_default_put. reflexivity. Qed.
-End GetOrDefaultMupd.
 
 Section InvertListMap.
   Context {A B : Type}.

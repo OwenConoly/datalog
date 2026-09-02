@@ -486,50 +486,43 @@ Proof. induction 1; simpl; [reflexivity | subst; assumption]. Qed.
 Lemma Permutation_list_sum l1 l2 : Permutation l1 l2 -> list_sum l1 = list_sum l2.
 Proof. induction 1; rewrite ?list_sum_cons; lia. Qed.
 
-(* Bump the value paired with the single occurrence of [a] in a [Forall2] over a
-   duplicate-free list by [d]; every other element keeps its value. *)
-Lemma Forall2_update_at_nat {A} (R S : A -> nat -> Prop) (a : A) (d : nat) (l : list A) (ns : list nat) :
+(* Rebuild a [Forall2] over a duplicate-free list under a new relation [S] that
+   agrees with [R] away from [a]; at the single occurrence of [a] the companion
+   value may change, tracked by a [nat]-measure [f] that grows by [d]. *)
+Lemma Forall2_update_at {A B} (f : B -> nat) (R S : A -> B -> Prop) (a : A) (d : nat)
+    (l : list A) (bs : list B) :
   NoDup l -> In a l ->
-  Forall2 R l ns ->
-  (forall x, In x l -> x <> a -> forall n, R x n -> S x n) ->
-  (forall n, R a n -> S a (n + d)) ->
-  exists ns', Forall2 S l ns' /\ list_sum ns' = list_sum ns + d.
+  Forall2 R l bs ->
+  (forall x b, In x l -> x <> a -> R x b -> S x b) ->
+  (forall b, R a b -> exists b', S a b' /\ f b' = f b + d) ->
+  exists bs', Forall2 S l bs' /\ list_sum (map f bs') = list_sum (map f bs) + d.
 Proof.
   intros Hnd Hin HF. revert Hnd Hin.
-  induction HF as [| x n l' ns' HR HF IH]; intros Hnd Hin Hother Hat.
+  induction HF as [| x b l' bs' HR HF IH]; intros Hnd Hin Hother Hat.
   - inversion Hin.
   - inversion Hnd as [| xx ll Hnotin Hnd']; subst.
     destruct Hin as [Heq | Hin'].
-    + subst x. exists ((n + d) :: ns'). split.
-      * constructor; [ exact (Hat _ HR) | ].
+    + subst x. destruct (Hat _ HR) as (b' & HSb' & Hfb').
+      exists (b' :: bs'). split.
+      * constructor; [ exact HSb' | ].
         eapply Forall2_impl_strong; [ exact HF | ].
-        intros y m Hry Hy _. apply (Hother y); [ right; exact Hy | | exact Hry ].
+        intros y c Hry Hy _. apply (Hother y c); [ right; exact Hy | | exact Hry ].
         intro Hya; subst y; exact (Hnotin Hy).
-      * rewrite !list_sum_cons. lia.
+      * cbn [map]. rewrite !list_sum_cons, Hfb'. lia.
     + assert (Hxa : x <> a) by (intro Hc; subst x; exact (Hnotin Hin')).
-      specialize (IH Hnd' Hin' (fun y Hy => Hother y (or_intror Hy)) Hat).
-      destruct IH as (ns'' & HF'' & Hsum).
-      exists (n :: ns''). split.
-      * constructor; [ apply (Hother x); [ left; reflexivity | exact Hxa | exact HR ] | exact HF'' ].
-      * rewrite !list_sum_cons. lia.
+      specialize (IH Hnd' Hin' (fun y c Hy => Hother y c (or_intror Hy)) Hat).
+      destruct IH as (bs'' & HF'' & Hsum).
+      exists (b :: bs''). split.
+      * constructor; [ apply (Hother x b); [ left; reflexivity | exact Hxa | exact HR ] | exact HF'' ].
+      * cbn [map]. rewrite !list_sum_cons. lia.
 Qed.
 
 Lemma Forall2_repeat_r {A B} (R : A -> B -> Prop) (l : list A) (y : B) :
-  (forall x, In x l -> R x y) -> Forall2 R l (repeat y (length l)).
+  Forall (fun x => R x y) l -> Forall2 R l (repeat y (length l)).
 Proof.
-  induction l as [|a l IH]; intros H; cbn [length repeat]; constructor.
-  - apply H. left. reflexivity.
-  - apply IH. intros x Hx. apply H. right. exact Hx.
-Qed.
-
-Lemma Forall2_of_forall_In {A B} (R : A -> B -> Prop) (l : list A) :
-  (forall x, In x l -> exists y, R x y) -> exists ys, Forall2 R l ys.
-Proof.
-  induction l as [|a l IH]; intros H.
-  - exists []. constructor.
-  - destruct (H a (or_introl eq_refl)) as (y & Hy).
-    destruct (IH (fun x Hx => H x (or_intror Hx))) as (ys & Hys).
-    exists (y :: ys). constructor; assumption.
+  induction 1 as [| x l' Hx Hl' IH]; cbn [length repeat].
+  - constructor.
+  - constructor; assumption.
 Qed.
 
 Lemma Forall2_In_l {A B} (R : A -> B -> Prop) xs ys x :
