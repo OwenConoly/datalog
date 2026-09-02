@@ -252,6 +252,32 @@ Section __.
     - invert Himpl. exact Hgood.
   Qed.
 
+  Lemma Forall2_update_at_nat {A} (R S : A -> nat -> Prop) (a : A) (d : nat) (l : list A) (ns : list nat) :
+    NoDup l -> In a l ->
+    Forall2 R l ns ->
+    (forall x, In x l -> x <> a -> forall n, R x n -> S x n) ->
+    (forall n, R a n -> S a (n + d)) ->
+    exists ns', Forall2 S l ns' /\ list_sum ns' = list_sum ns + d.
+  Proof.
+    intros Hnd Hin HF. revert Hnd Hin.
+    induction HF as [| x n l' ns' HR HF IH]; intros Hnd Hin Hother Hat.
+    - inversion Hin.
+    - inversion Hnd as [| xx ll Hnotin Hnd']; subst.
+      destruct Hin as [Heq | Hin'].
+      + subst x. exists ((n + d) :: ns'). split.
+        * constructor; [ exact (Hat _ HR) | ].
+          eapply Forall2_impl_strong; [ exact HF | ].
+          intros y m Hry Hy _. apply (Hother y); [ right; exact Hy | | exact Hry ].
+          intro Hya; subst y; exact (Hnotin Hy).
+        * rewrite !list_sum_cons. lia.
+      + assert (Hxa : x <> a) by (intro Hc; subst x; exact (Hnotin Hin')).
+        specialize (IH Hnd' Hin' (fun y Hy => Hother y (or_intror Hy)) Hat).
+        destruct IH as (ns'' & HF'' & Hsum).
+        exists (n :: ns''). split.
+        * constructor; [ apply (Hother x); [ left; reflexivity | exact Hxa | exact HR ] | exact HF'' ].
+        * rewrite !list_sum_cons. lia.
+  Qed.
+
   Lemma sane_count_forall2_fire (P : dfact -> Prop) (m : sent_map) (r : non_meta_rule)
       (f : dfact) (msgs : list nat) (d : nat) :
     In r p.(non_meta_rules) ->
@@ -262,24 +288,17 @@ Section __.
       /\ list_sum msgs' = list_sum msgs + d.
   Proof.
     intros Hin_r Hinc Hf2.
-    assert (Hoff : forall x c, In x sender_rules -> x <> r ->
-              Existsn P c (get_or_default m x) ->
-              Existsn P c (get_or_default (mupd_with_default (cons f) m r) x)).
-    { intros x c Hx Hxr HRx. rewrite get_or_default_mupd.
-      destr (eqb r x); [ exfalso; apply Hxr; congruence | exact HRx ]. }
-    assert (Hatr : forall c, Existsn P c (get_or_default m r) ->
-              exists c', Existsn P c' (get_or_default (mupd_with_default (cons f) m r) r) /\ id c' = id c + d).
-    { intros c HRc. exists (c + d). split; [| reflexivity].
-      rewrite get_or_default_mupd. destr (eqb r r); [ exact (Hinc c HRc) | congruence ]. }
-    destruct (Forall2_update_at id
-                (fun r0 c => Existsn P c (get_or_default m r0))
-                (fun r0 c => Existsn P c (get_or_default (mupd_with_default (cons f) m r) r0))
-                r d sender_rules msgs
-                ltac:(unfold sender_rules; apply NoDup_dedup)
-                (proj1 (dedup_preserves_In p.(non_meta_rules) r) Hin_r)
-                Hf2 Hoff Hatr) as (msgs' & HF2' & Hsum).
-    rewrite !map_id in Hsum.
-    exists msgs'. split; [ exact HF2' | exact Hsum ].
+    eapply (Forall2_update_at_nat
+              (fun r0 c => Existsn P c (get_or_default m r0))
+              (fun r0 c => Existsn P c (get_or_default (mupd_with_default (cons f) m r) r0))
+              r d sender_rules msgs).
+    - unfold sender_rules. apply NoDup_dedup.
+    - unfold sender_rules. exact (proj1 (dedup_preserves_In p.(non_meta_rules) r) Hin_r).
+    - exact Hf2.
+    - intros x _ Hxr n HRx. rewrite get_or_default_mupd.
+      destr (eqb r x); [ exfalso; apply Hxr; congruence | exact HRx ].
+    - intros n HRr. rewrite get_or_default_mupd. destr (eqb r r); [ | congruence ].
+      exact (Hinc n HRr).
   Qed.
 
   Lemma step_preserves_sane inputs s1 s2 :

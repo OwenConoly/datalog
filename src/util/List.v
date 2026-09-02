@@ -486,37 +486,6 @@ Proof. induction 1; simpl; [reflexivity | subst; assumption]. Qed.
 Lemma Permutation_list_sum l1 l2 : Permutation l1 l2 -> list_sum l1 = list_sum l2.
 Proof. induction 1; rewrite ?list_sum_cons; lia. Qed.
 
-(* Rebuild a [Forall2] over a duplicate-free list under a new relation [S] that
-   agrees with [R] away from [a]; at the single occurrence of [a] the companion
-   value may change, tracked by a [nat]-measure [f] that grows by [d]. *)
-Lemma Forall2_update_at {A B} (f : B -> nat) (R S : A -> B -> Prop) (a : A) (d : nat)
-    (l : list A) (bs : list B) :
-  NoDup l -> In a l ->
-  Forall2 R l bs ->
-  (forall x b, In x l -> x <> a -> R x b -> S x b) ->
-  (forall b, R a b -> exists b', S a b' /\ f b' = f b + d) ->
-  exists bs', Forall2 S l bs' /\ list_sum (map f bs') = list_sum (map f bs) + d.
-Proof.
-  intros Hnd Hin HF. revert Hnd Hin.
-  induction HF as [| x b l' bs' HR HF IH]; intros Hnd Hin Hother Hat.
-  - inversion Hin.
-  - inversion Hnd as [| xx ll Hnotin Hnd']; subst.
-    destruct Hin as [Heq | Hin'].
-    + subst x. destruct (Hat _ HR) as (b' & HSb' & Hfb').
-      exists (b' :: bs'). split.
-      * constructor; [ exact HSb' | ].
-        eapply Forall2_impl_strong; [ exact HF | ].
-        intros y c Hry Hy _. apply (Hother y c); [ right; exact Hy | | exact Hry ].
-        intro Hya; subst y; exact (Hnotin Hy).
-      * cbn [map]. rewrite !list_sum_cons, Hfb'. lia.
-    + assert (Hxa : x <> a) by (intro Hc; subst x; exact (Hnotin Hin')).
-      specialize (IH Hnd' Hin' (fun y c Hy => Hother y c (or_intror Hy)) Hat).
-      destruct IH as (bs'' & HF'' & Hsum).
-      exists (b :: bs''). split.
-      * constructor; [ apply (Hother x b); [ left; reflexivity | exact Hxa | exact HR ] | exact HF'' ].
-      * cbn [map]. rewrite !list_sum_cons. lia.
-Qed.
-
 Lemma Forall2_repeat_r {A B} (R : A -> B -> Prop) (l : list A) (y : B) :
   Forall (fun x => R x y) l -> Forall2 R l (repeat y (length l)).
 Proof.
