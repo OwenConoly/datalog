@@ -86,6 +86,7 @@ Section __.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {node_prog node_state : Type}.
   Context {label : Type}.
+  #[local] Instance mf_label : mf_labelT := source.
   Context (node_step : node_prog -> node_state -> IO_event label dfact -> node_state -> Prop).
   Context (nforward : source -> rel -> list destn).
   Context {forwarding_table : map.map (rel * source) (list destn)}.

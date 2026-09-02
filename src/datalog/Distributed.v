@@ -10,13 +10,9 @@ Section Distributed.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
   Context {prog_map : map.map node_id (list rule)} {prog_map_ok : map.ok prog_map}.
 
-  Definition layout_good
-    (rel_input_allowed : node_id -> rel -> bool)
-    (rel_forward : node_id -> node_id -> rel -> bool)
-    (rel_visible : node_id -> rel -> bool)
-    (p : prog_map)
-    : bool.
-  Abort.
+  #[local] Instance mf_label : mf_labelT := source.
+
+  Ltac map_func := cbv [mf_label] in *; Datalog.Util.Tactics.map_func.
 
   Context (R_senders : rel -> list source).
   Context (R_senders_NoDup : forall R, NoDup (R_senders R)).
@@ -38,26 +34,58 @@ Section Distributed.
 
   Context (graph_prog : prog_map).
   Context (Hmrv : Forall_map (fun _ p => meta_rules_valid p) graph_prog).
-  Context (Hsender : Forall_map (sends_concl_rels R_senders) graph_prog).
+  Context (Hsender : Forall_map (fun n p => sends_concl_rels R_senders (node_source n) p) graph_prog).
 
   Definition prog_at (n : node_id) : list rule := get_or_default graph_prog n.
 
   Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
   Proof. apply get_or_default_Some. Qed.
 
-  Local Notation nstep := (fun n => node_step R_senders (prog_at n) n).
+  Local Notation nstep := (fun n => node_step R_senders (prog_at n) (node_source n)).
   Local Notation nallowed := (allowed_inputs R_senders).
 
   Hint Immediate dfact_equiv_Equivalence : core.
 
-  Notation claim_output := (Node.claim_output R_senders).
-  Notation consistent_output := (Node.consistent_output R_senders).
-  Notation allowed_output := (Node.allowed_output R_senders).
-
   Hint Resolve expect_num_R_facts_incl Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
 
-  #[local] Instance source_eqdec : EqDecider (@eqb source _).
-  Proof. intros x y. apply Eqb_ok_BoolSpec. Qed.
+  Definition claim_output (s : stmt) (n : source) (fs : list dfact) : Prop :=
+    let '(R, mf_args) := s in
+    In n (R_senders R) -> exists cnt, In (meta_dfact R mf_args n cnt) fs.
+
+  Definition consistent_output (s : stmt) (n : source) (fs : list dfact) : Prop :=
+    let '(R, mf_args) := s in
+    In n (R_senders R) ->
+    exists cnt, In (meta_dfact R mf_args n cnt) fs /\
+      Existsn_ge (dfact_matches R mf_args) cnt fs.
+
+  Definition allowed_output (n : source) (fs : list dfact) : Prop :=
+    (forall R mf_args src cnt,
+       In (meta_dfact R mf_args src cnt) fs ->
+       n = src /\ Existsn_le (dfact_matches R mf_args) cnt fs) /\
+    (forall f, In f fs -> In n (R_senders (dfact_rel f))).
+
+  Lemma claim_output_mono s n ms1 ms2 :
+    claim_output s n ms1 -> incl_mod dfact_equiv ms1 ms2 -> claim_output s n ms2.
+  Proof.
+    destruct s as (R & mf_args). cbv [claim_output]. intros H1 Hincl Hn.
+    destruct (H1 Hn) as (cnt & Hin).
+    destruct (Hincl _ Hin) as (b & Hin2 & Heq).
+    destruct b as [nf_rel nf_args | R' a' src' cnt']; cbn [dfact_equiv] in Heq; [ congruence | ].
+    destruct Heq as (<- & <- & <-). exists cnt'. exact Hin2.
+  Qed.
+
+  Lemma consistent_output_mono s n ms1 ms2 :
+    consistent_output s n ms1 -> submultiset ms1 ms2 -> consistent_output s n ms2.
+  Proof.
+    cbv [consistent_output]. intros H1 H2. fwd.
+    intros. especialize H1; eauto. fwd. eauto 6.
+  Qed.
+
+  Lemma allowed_output_submultiset n : multiset_monotone_dec (allowed_output n).
+  Proof.
+    cbv [multiset_monotone_dec allowed_output]. intros ? ? H1 H2. fwd.
+    split; eauto. intros. especialize H1p0; eauto. fwd. eauto.
+  Qed.
 
   Context {node_map : map.map source (list dfact)} {node_map_ok : map.ok node_map}.
   Context {count_map : map.map source nat} {count_map_ok : map.ok count_map}.
@@ -274,6 +302,48 @@ Section Distributed.
     dfact_rel f = dfact_rel g -> forward s d f = forward s d g.
   Proof. intros Heq. unfold forward. rewrite Heq. reflexivity. Qed.
 
+  Lemma node_outputs_well_formed (k : node_id) (p : list rule)
+      (forward : source -> destn -> dfact -> bool)
+      (forward_rel : forall s d f g,
+          dfact_rel f = dfact_rel g -> forward s d f = forward s d g) :
+    sends_concl_rels R_senders (node_source k) p ->
+    outputs_well_formed (node_step R_senders p (node_source k))
+      (good_node_output forward claim_output consistent_output allowed_output k) node_init.
+  Proof.
+    intros Hconcl_send t s Hstar dest. set (name := node_source k) in *.
+    assert (Hsend : forall s0 f, new_facts R_senders p name s0 f -> In name (R_senders (dfact_rel f))).
+    { intros s0 f Hnf. apply new_facts_concl_rel in Hnf. destruct Hnf as (r & Hr & HR).
+      exact (Hconcl_send r (dfact_rel f) Hr HR). }
+    assert (Hso : s.(sent_facts) = flat_map outputs_of t) by (eapply sent_eq_outputs; exact Hstar).
+    assert (Hsrc : forall R a src num,
+               In (meta_dfact R a src num) s.(sent_facts) -> src = name)
+      by (eapply sent_source_correct; exact Hstar).
+    assert (Hcnt : forall R a num,
+               In (meta_dfact R a name num) s.(sent_facts) ->
+               Existsn (dfact_matches R a) num s.(sent_facts))
+      by (eapply sent_counts_correct; exact Hstar).
+    rewrite <- Hso. split.
+    - cbv [allowed_output]. split.
+      + intros R a src cnt Hin.
+        apply filter_In in Hin. destruct Hin as (Hin_sent & Hfwd).
+        pose proof (Hsrc R a src cnt Hin_sent) as Hsk. subst src.
+        split; [ reflexivity | ].
+        apply Existsn_le_filter.
+        eapply Existsn_le_of_Existsn; [ exact (Hcnt R a cnt Hin_sent) | lia ].
+      + intros f Hin. apply filter_In in Hin. destruct Hin as (Hin_sent & _).
+        eapply sent_rel_sender; [ exact Hsend | exact Hstar | exact Hin_sent ].
+    - intros (R & mf_args) Hclaim. cbv [claim_output consistent_output] in Hclaim |- *.
+      intros Hn. destruct (Hclaim Hn) as (cnt & Hin_meta).
+      exists cnt. split; [ exact Hin_meta | ].
+      apply filter_In in Hin_meta. destruct Hin_meta as (Hin_sent & Hfwd).
+      apply Existsn_ge_filter.
+      + intros x (nfa & -> & _).
+        rewrite (forward_rel name (node_destn dest) (normal_dfact R nfa)
+                   (meta_dfact R mf_args name cnt) eq_refl).
+        exact Hfwd.
+      + eapply Existsn_ge_of_Existsn; [ exact (Hcnt R mf_args cnt Hin_sent) | lia ].
+  Qed.
+
   Lemma nodes_good_holds :
     Forall_map (node_good forward dfact_equiv claim claim_output consistent_output allowed_output
                   consistent nallowed nstep) initial_graph_state.(graph_nodes).
@@ -299,12 +369,12 @@ Section Distributed.
     - exact dfact_equiv_Equivalence.
     - exact forward_equiv.
     - exact (claim_mono R_senders).
-    - exact (claim_output_mono R_senders).
+    - exact claim_output_mono.
     - exact (consistent_mono R_senders).
-    - exact (consistent_output_mono R_senders).
+    - exact consistent_output_mono.
     - exact consistent_good_holds.
     - exact nallowed_multiset_monotone.
-    - exact (allowed_output_submultiset R_senders).
+    - exact allowed_output_submultiset.
     - exact allowed_of_outputs.
     - exact nstep_input_total.
     - exact nodes_good_holds.

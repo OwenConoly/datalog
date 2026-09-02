@@ -30,6 +30,8 @@ Section __.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
 
+  #[local] Instance mf_label : mf_labelT := source.
+
   Implicit Types mf_rel : rel.
   Implicit Types mf_args : list (option T).
   Implicit Types nf_args : list T.
@@ -469,7 +471,7 @@ Section __.
       subst fired_rule.
       cbv [can_deduce_meta_fact] in Hcdmf.
       destruct Hcdmf as (ctx & mfr_t & mfa_t & mfc_t & Hnf_eq & HsentExistsn & Hmc_concl & Hmc_hyps).
-      fwd.
+      cbv [mf_label] in *. fwd.
       constructor; cbn [known_facts sents].
       + rewrite !length_app in *. cbn [length] in *. lia.
       + intros R mf_args num Hk. destruct Hk as [Heq | Hk]; [discriminate|].
