@@ -137,6 +137,16 @@ Section Maps.
     - apply H; assumption.
   Qed.
 
+  Lemma Forall_values_put (P : value1 -> Prop) (m : mp1) k w :
+    Forall P (values m) -> P w -> Forall P (values (map.put m k w)).
+  Proof.
+    intros HF HPw. apply Forall_forall. intros x Hx.
+    apply In_values in Hx. destruct Hx as (k0 & Hget).
+    rewrite map.get_put_dec in Hget. destr (eqb k k0).
+    - injection Hget as <-. exact HPw.
+    - rewrite Forall_forall in HF. apply HF. apply In_values. eauto.
+  Qed.
+
   Definition Forall2_map (R : key -> value1 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) : Prop :=
     forall k,
       match map.get m1 k, map.get m2 k with
@@ -1226,6 +1236,17 @@ Lemma same_domain_map_values' {key value value'} {mp : map.map key value} {mp' :
 Proof.
   intros k. rewrite get_map_values'. destruct (map.get m k); cbn [option_map]; exact I.
 Qed.
+
+Section GetOrDefaultMupd.
+  Context {key A : Type}.
+  Context {mp : map.map key (list A)} {mp_ok : map.ok mp}.
+  Context {key_eqb : Eqb key} {key_eqb_ok : Eqb_ok key_eqb}.
+
+  Lemma get_or_default_mupd_cons (m : mp) k a k' :
+    get_or_default (mupd_with_default (cons a) m k) k'
+    = if eqb k k' then a :: get_or_default m k else get_or_default m k'.
+  Proof. rewrite mupd_with_default_eq_put, get_or_default_put. reflexivity. Qed.
+End GetOrDefaultMupd.
 
 Section InvertListMap.
   Context {A B : Type}.
