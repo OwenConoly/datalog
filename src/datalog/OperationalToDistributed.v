@@ -1,5 +1,5 @@
 From Stdlib Require Import List Permutation.
-From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed.
+From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map.
 From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
@@ -14,85 +14,69 @@ Section __.
   Context (Hmeta_rules : meta_rules_valid (rules_of p)).
   Context (Hp_meta_input : Forall (good_meta_rule_inputs is_input) p.(meta_rules)).
 
-  Context {graph_state : map.map node_id (graph_node_state dfact dfact_mod_count Node.node_state)}.
-  Context {graph_state_ok : map.ok graph_state}.
+  Context {gns_map : map.map node_id (graph_node_state dfact dfact_mod_count Node.node_state)}.
+  Context {gns_map_ok : map.ok gns_map}.
 
   Context (rel_forward : source -> destn -> rel -> bool).
+  Context {prog_map : map.map node_id (list rule)} {prog_map_ok : map.ok prog_map}.
+  Context (graph_prog : prog_map).
 
   Local Notation R_senders := (Operational.R_senders is_input p).
   Local Notation ok_to_deduce_fact := (Node.ok_to_deduce_fact R_senders).
   Local Notation new_facts := (Node.new_facts R_senders).
   Local Notation fire_at_rule := (Operational.fire_at_rule is_input p).
 
-  Definition node_rules_of (r : non_meta_rule) : list rule :=
-    rule_of r :: map (fun '(c, h) => meta_rule c h) p.(meta_rules).
+  Context (graph_senders : rel -> list source).
 
-  Definition to_node_state (rs : node_state) : Node.node_state :=
-    {| Node.known_facts := rs.(Operational.known_facts);
-       Node.sent_facts := rs.(Operational.sent_facts) |}.
+  Local Notation distributed_step := (distributed_step graph_senders rel_forward graph_prog).
+  Local Notation start := (Operational.start p).
+  Local Notation comp_step := (Operational.comp_step is_input p).
+  Local Notation has_derived_datalog_fact := (Operational.has_derived_datalog_fact is_input p).
 
-  Definition node_states_agree (rs : node_state)
-    (gns : graph_node_state dfact dfact_mod_count Node.node_state) : Prop :=
-    Permutation rs.(Operational.known_facts) gns.(gns_node_state).(Node.known_facts) /\
-      Permutation rs.(Operational.sent_facts) gns.(gns_node_state).(Node.sent_facts) /\
-      Permutation rs.(Operational.waiting_facts) gns.(gns_queue).
+  Definition graph_prog_distributes_program (rules : list rule) :=
+    same_set rules (concat (values graph_prog)).
 
-  Definition op_graph_equiv (ops : Operational.state) (gs : graph_state) : Prop :=
-    forall n,
-      match nth_error ops n, map.get gs n with
-      | Some rs, Some gns => node_states_agree rs gns
-      | None, None => True
-      | _, _ => False
-      end.
+  Definition node_senders_ok :=
+    forall R n np,
+      map.get graph_prog n = Some np ->
+      In R (flat_map concl_rels np) ->
+      In (node_source n) (graph_senders R).
 
-  Lemma ok_to_deduce_meta (c h : list meta_clause) known sent f :
-    ok_to_deduce_fact (meta_rule c h) known sent f.
+  Definition input_senders_ok :=
+    forall R,
+      is_input R = true ->
+      In input_source (graph_senders R).
+
+  Context (Hlayout : graph_prog_distributes_program (rules_of p)).
+  Context (Hsenders_node : node_senders_ok).
+  Context (Hsenders_input : input_senders_ok).
+
+  Definition distribute_R (os : state) (gs : graph_state dfact dfact_mod_count Node.node_state) :=
+    Forall2_map (fun _ np (ns : graph_node_state dfact dfact_mod_count Node.node_state) =>
+                   forall f,
+                     In (dfact_rel f) (flat_map hyp_rels np) ->
+                     In f ns.(gns_node_state).(Node.known_facts) <-> In f os.(known_facts)
+
+      ) graph_prog gs.(graph_nodes).
+
+  Lemma sim1 os gs os' :
+    distribute_R os gs ->
+    comp_step os os' ->
+    exists gs' t,
+      star distributed_step gs t gs' /\
+        distribute_R os' gs'.
   Proof.
-    destruct f as [R args | R args src num].
-    - exact I.
-    - intros nf_args Hcdn _. destruct Hcdn as (hyps & Himpl & _). inversion Himpl.
-  Qed.
+  Admitted.
 
-  Lemma new_facts_iff_fire (r : non_meta_rule) (n : nat) (rs : node_state) (f : dfact) :
-    new_facts (node_rules_of r) n (to_node_state rs) f <->
-    fire_at_rule r n rs (send_fact f rs) f.
-  Proof.
-    unfold Node.new_facts, node_rules_of, to_node_state, Operational.fire_at_rule,
-      can_fire_rule_at; cbn [Node.known_facts Node.sent_facts].
-    split.
-    - intros (Hex & Hall).
-      pose proof (Forall_inv Hall) as Hok_hd.
-      apply Exists_cons in Hex.
-      destruct Hex as [Hhd | Htl].
-      + exists (rule_of r).
-        split; [left; reflexivity|]. split; [exact Hhd|]. split; [exact Hok_hd | reflexivity].
-      + apply Exists_exists in Htl as (r' & Hin & Hcd).
-        apply in_map_iff in Hin as ((c & h) & Heq & Hinm). subst r'.
-        exists (meta_rule c h).
-        split; [right; exists c, h; split; [exact Hinm | reflexivity]|].
-        split; [exact Hcd|]. split; [exact Hok_hd | reflexivity].
-    - intros (fired & Hfire & Hcd & Hok & _). split.
-      + apply Exists_cons. destruct Hfire as [-> | (mc & mh & Hin & ->)].
-        * left. exact Hcd.
-        * right. apply Exists_exists. exists (meta_rule mc mh). split; [|exact Hcd].
-          apply in_map_iff. exists (mc, mh). split; [reflexivity | exact Hin].
-      + apply Forall_cons; [exact Hok |].
-        apply Forall_forall. intros r' Hin.
-        apply in_map_iff in Hin as ((c & h) & Heq & _). subst r'. apply ok_to_deduce_meta.
-  Qed.
+  (*we add two pieces of complexity here.
+    first, we have a graph (wow)
+    second, we do not broadcast facts; we route them according to relation names, in the obvious way.
+   *)
 
-  Lemma dequeue_learn (rs : node_state) (input : dfact) (rest : list dfact) :
-    rs.(waiting_facts) = input :: rest ->
-    learn_fact_at_rule rs
-      {| known_facts := input :: rs.(known_facts);
-        waiting_facts := rest;
-        sent_facts := rs.(sent_facts) |}.
-  Proof.
-    intros Hwait. unfold learn_fact_at_rule. exists (@nil dfact), input, rest.
-    cbn. rewrite Hwait. repeat split; reflexivity.
-  Qed.
+  Print distributed_step.
 
-  Local Notation distributed_step := (distributed_step R_senders rel_forward).
+
+
   Check distributed_step.
 
 End __.
