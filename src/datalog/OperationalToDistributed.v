@@ -1,11 +1,12 @@
 From Stdlib Require Import List Permutation.
 From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map.
-From coqutil Require Import Map.Interface.
+From coqutil Require Import Map.Interface Eqb.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
 
 Section __.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
   Context (is_input : rel -> bool).
@@ -33,8 +34,22 @@ Section __.
   Local Notation comp_step := (Operational.comp_step is_input p).
   Local Notation has_derived_datalog_fact := (Operational.has_derived_datalog_fact is_input p).
 
-  Definition graph_prog_distributes_program (rules : list rule) :=
-    same_set rules (concat (values graph_prog)).
+  Definition graph_prog_distributes_normal_rules (rules : list rule) :=
+    forall concls hyps,
+      In (normal_rule concls hyps) rules <->
+        In (normal_rule concls hyps) (concat (values graph_prog)).
+
+  Axiom is_normal : rule -> bool.
+
+  Definition graph_prog_distributes_meta_rules (rules : list rule) :=
+    forall concls hyps,
+      In (meta_rule concls hyps) rules ->
+      Forall_map (fun _ rules =>
+                    forall R,
+                      In R (map meta_clause_rel concls) ->
+                      In R (flat_map concl_rels (filter is_normal rules)) ->
+                      In (meta_rule concls hyps) rules)
+        graph_prog.
 
   Definition node_senders_ok :=
     forall R n np,
@@ -47,17 +62,27 @@ Section __.
       is_input R = true ->
       In input_source (graph_senders R).
 
-  Context (Hlayout : graph_prog_distributes_program (rules_of p)).
+  Context (Hlayout_normal : graph_prog_distributes_normal_rules (rules_of p)).
+  Context (Hlayout_meta : graph_prog_distributes_meta_rules (rules_of p)).
   Context (Hsenders_node : node_senders_ok).
   Context (Hsenders_input : input_senders_ok).
 
-  Definition distribute_R (os : state) (gs : graph_state dfact dfact_mod_count Node.node_state) :=
-    Forall2_map (fun _ np (ns : graph_node_state dfact dfact_mod_count Node.node_state) =>
-                   forall f,
-                     In (dfact_rel f) (flat_map hyp_rels np) ->
-                     In f ns.(gns_node_state).(Node.known_facts) <-> In f os.(known_facts)
+  Print meta_dfact.
+  Definition graph_facts_of (ofact : dfact) :=
+    match ofact with
+    | normal_dfact R args => [normal_dfact R args]
+    | meta_dfact R args n =>
+        map (fun '(f
 
-      ) graph_prog gs.(graph_nodes).
+                 filter (fun '(_, rules) => inb R (flat_map concl_rels (filter is_normal rules))) (map.tuples graph_prog)
+
+  Definition distribute_R (os : state) (gs : graph_state dfact dfact_mod_count Node.node_state) :=
+    Forall2_map (fun n np (ns : graph_node_state dfact dfact_mod_count Node.node_state) =>
+                   ns.(gns_node_state).(Node.known_facts) =
+                     (filter (fun f => inb (dfact_rel f) (flat_map hyp_rels np)) os.(known_facts)) /\
+                     nth_error os.(sents) n = Some ns.(gns_node_state).(Node.sent_facts) /\
+                     ns.(gns_queue) = [])
+      graph_prog gs.(graph_nodes).
 
   Lemma sim1 os gs os' :
     distribute_R os gs ->
@@ -66,6 +91,7 @@ Section __.
       star distributed_step gs t gs' /\
         distribute_R os' gs'.
   Proof.
+
   Admitted.
 
   (*we add two pieces of complexity here.
