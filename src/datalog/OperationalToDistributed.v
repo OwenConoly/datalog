@@ -1,12 +1,12 @@
 From Stdlib Require Import List Permutation.
-From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map.
+From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default.
 From coqutil Require Import Map.Interface Eqb.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
 
 Open Scope bool_scope.
 
-#[local] Instance mf_label : mf_labelT := node_id.
+#[local] Instance mf_label : mf_labelT := source.
 Section __.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
@@ -23,6 +23,7 @@ Section __.
 
   Context (rel_forward : source -> destn -> rel -> bool).
   Context {prog_map : map.map node_id (list rule)} {prog_map_ok : map.ok prog_map}.
+  Context {sent_map : map.map rule (list (dfact (mf_label := op_source)))}.
   Context (graph_prog : prog_map).
 
   Local Notation R_senders := (Operational.R_senders is_input p).
@@ -41,8 +42,6 @@ Section __.
     forall concls hyps,
       In (normal_rule concls hyps) rules <->
         In (normal_rule concls hyps) (concat (values graph_prog)).
-
-  Axiom is_normal : rule -> bool.
 
   Definition graph_prog_distributes_meta_rules (rules : list rule) :=
     forall concls hyps,
@@ -79,7 +78,7 @@ Section __.
   (*       [meta_dfact R args input_source num] (*i guess?*) *)
   (*   | meta_dfact R args (from_rule nr) num => *)
 
-        
+
   (* Definition graph_known_facts_of (ofact : dfact (mf_label := op_source)) := *)
   (*   match ofact with *)
   (*   | normal_dfact R args => [normal_dfact R args] *)
@@ -89,13 +88,19 @@ Section __.
   (*   | meta_dfact R args from_input num => *)
   (*       [meta_dfact R args input_source num] *)
   (*   end. *)
-  
 
-  Definition distribute_R (os : state) (gs : graph_state dfact dfact_mod_count Node.node_state) :=
-    Forall2_map (fun n np (ns : graph_node_state dfact dfact_mod_count Node.node_state) =>
-                   filter (fun f => is_normal f && inb (dfact_rel f) (flat_map hyp_rels np))
-                     flat_map (get_or_default os.(sents)) np =
-                     filter is_normal ns.(gns_node_state).(Node.sent_facts) /\
+  Definition distribute_R (os : state) (gs : graph_state dfact dfact_mod_count node_state) :=
+    Forall2_map (fun n np ns =>
+                   flat_map normal_facts_of
+                     (filter (fun f => inb (dfact_rel f) (flat_map hyp_rels np))
+                        (flat_map (get_or_default os.(sents)) np)) =
+                     flat_map normal_facts_of ns.(gns_node_state).(Node.sent_facts) /\
+                     (forall R args num,
+                         In (meta_dfact R args (node_source n) num) ns.(gns_node_state).(Node.sent_facts) <->
+                           (exists nums,
+                               Forall2 (fun nr num0 => In (meta_dfact R args (from_rule nr) num0) (get_or_default os.(sents) nr))
+                                 (dedup (filter is_normal np)) nums /\
+                                 num = list_sum nums)) /\
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
 

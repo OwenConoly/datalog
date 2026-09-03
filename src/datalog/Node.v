@@ -18,6 +18,18 @@ Section __.
   | normal_dfact (nf_rel : rel) (nf_args : list T)
   | meta_dfact (mf_rel : rel) (mf_args : list (option T)) (src : mf_label) (expected_msgs : nat).
 
+  Definition is_normal_dfact (f : dfact) : bool :=
+    match f with
+    | normal_dfact _ _ => true
+    | meta_dfact _ _ _ _ => false
+    end.
+
+  Definition normal_facts_of (f : dfact) : list (rel * list T) :=
+    match f with
+    | normal_dfact R args => [(R, args)]
+    | meta_dfact _ _ _ _ => []
+    end.
+
   Definition dfact_rel (f : dfact) : rel :=
     match f with
     | normal_dfact R _ => R
