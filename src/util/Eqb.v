@@ -5,6 +5,8 @@ From coqutil Require Import Eqb Decidable.
 A)
   : BoolSpec (x = y) (x <> y) (f x y) := eqb_boolspec A x y.
 
+#[global] Hint Mode Eqb - : typeclass_instances.
+#[global] Hint Mode Eqb_ok - - : typeclass_instances.
 
 Section eqb_prod.
   Context {A B : Type}.
