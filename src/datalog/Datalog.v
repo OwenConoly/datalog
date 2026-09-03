@@ -164,6 +164,12 @@ Section __.
   (*hmm maybe this shoudl actually be some construct for injection of normlal facts into fmeta facsts, then could just do agg_over_rel?*)
   (*| agg_over_set (concl_rel : rel) (agg : aggregator) (cardinality : expr) (hyp_rel : rel) (hyp_args : list var)*).
 
+  Definition is_normal (r : rule) : bool :=
+    match r with
+    | meta_rule _ _ => false
+    | _ => true
+    end.
+
   (*None is a wildcard*)
   Definition matches (x : option T) y :=
     match x with

@@ -2280,6 +2280,15 @@ Lemma nodupb_sound {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} l :
   NoDup l.
 Proof. intros. fwd. assumption. Qed.
 
+Lemma In_length_pos {A} (x : A) (l : list A) : In x l -> 0 < length l.
+Proof. intros H. destruct l as [|? ?]; [ destruct H | cbn [length]; lia ]. Qed.
+
+Lemma length_pos_In {A} (l : list A) : 0 < length l -> exists x, In x l.
+Proof.
+  destruct l as [|x ?];
+    [ cbn [length]; lia | intros _; exists x; left; reflexivity ].
+Qed.
+
 Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
 Hint Resolve seq_incl incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_in Permutation_sym : incl.
