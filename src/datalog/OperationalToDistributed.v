@@ -4,16 +4,19 @@ From coqutil Require Import Map.Interface Eqb.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
 
+Open Scope bool_scope.
+
+#[local] Instance mf_label : mf_labelT := node_id.
 Section __.
   Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
-  Context `{sig : signature fn aggregator T}.
+  Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
+  Context {sig : signature fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
   Context (is_input : rel -> bool).
-  Context (p : prog).
-  Context (Hp_input : Forall (good_non_meta_rule is_input) p.(non_meta_rules)).
-  Context (Hmeta_rules : meta_rules_valid (rules_of p)).
-  Context (Hp_meta_input : Forall (good_meta_rule_inputs is_input) p.(meta_rules)).
+  Context (p : list rule).
+  Context (Hmeta_rules : meta_rules_valid p).
+  Context (Hp_rule_inputs : Forall (good_rule_inputs is_input) p).
 
   Context {gns_map : map.map node_id (graph_node_state dfact dfact_mod_count Node.node_state)}.
   Context {gns_map_ok : map.ok gns_map}.
@@ -30,7 +33,7 @@ Section __.
   Context (graph_senders : rel -> list source).
 
   Local Notation distributed_step := (distributed_step graph_senders rel_forward graph_prog).
-  Local Notation start := (Operational.start p).
+  Local Notation start := (initial p).
   Local Notation comp_step := (Operational.comp_step is_input p).
   Local Notation has_derived_datalog_fact := (Operational.has_derived_datalog_fact is_input p).
 
@@ -62,25 +65,37 @@ Section __.
       is_input R = true ->
       In input_source (graph_senders R).
 
-  Context (Hlayout_normal : graph_prog_distributes_normal_rules (rules_of p)).
-  Context (Hlayout_meta : graph_prog_distributes_meta_rules (rules_of p)).
+  Context (Hlayout_normal : graph_prog_distributes_normal_rules p).
+  Context (Hlayout_meta : graph_prog_distributes_meta_rules p).
   Context (Hsenders_node : node_senders_ok).
   Context (Hsenders_input : input_senders_ok).
 
-  Print meta_dfact.
-  Definition graph_facts_of (ofact : dfact) :=
-    match ofact with
-    | normal_dfact R args => [normal_dfact R args]
-    | meta_dfact R args n =>
-        map (fun '(f
+  (* In (meta_dfact R args  *)
+  (* Definition graph_sent_facts_of (ofact : dfact (mf_label := op_source)) := *)
+  (*   match ofact with *)
+  (*   | normal_dfact R args => *)
+  (*       [normal_dfact R args] *)
+  (*   | meta_dfact R args from_input num => *)
+  (*       [meta_dfact R args input_source num] (*i guess?*) *)
+  (*   | meta_dfact R args (from_rule nr) num => *)
 
-                 filter (fun '(_, rules) => inb R (flat_map concl_rels (filter is_normal rules))) (map.tuples graph_prog)
+        
+  (* Definition graph_known_facts_of (ofact : dfact (mf_label := op_source)) := *)
+  (*   match ofact with *)
+  (*   | normal_dfact R args => [normal_dfact R args] *)
+  (*   | meta_dfact R args (from_rule nr) num => *)
+  (*       let ns := map fst (filter (fun '(n, rules) => inb (rule_of nr) rules && inb (node_source n) (graph_senders R)) (map.tuples graph_prog)) in *)
+  (*       map (fun n => meta_dfact R args (node_source n) (length ns * num)) ns *)
+  (*   | meta_dfact R args from_input num => *)
+  (*       [meta_dfact R args input_source num] *)
+  (*   end. *)
+  
 
   Definition distribute_R (os : state) (gs : graph_state dfact dfact_mod_count Node.node_state) :=
     Forall2_map (fun n np (ns : graph_node_state dfact dfact_mod_count Node.node_state) =>
-                   ns.(gns_node_state).(Node.known_facts) =
-                     (filter (fun f => inb (dfact_rel f) (flat_map hyp_rels np)) os.(known_facts)) /\
-                     nth_error os.(sents) n = Some ns.(gns_node_state).(Node.sent_facts) /\
+                   filter (fun f => is_normal f && inb (dfact_rel f) (flat_map hyp_rels np))
+                     flat_map (get_or_default os.(sents)) np =
+                     filter is_normal ns.(gns_node_state).(Node.sent_facts) /\
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
 
