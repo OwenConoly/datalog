@@ -27,8 +27,6 @@ From coqutil Require Ltac2Lib.rdelta.
    tests below want Classic. *)
 Local Set Default Proof Mode "Classic".
 
-(* Singleton class, so [Dot R name T] is convertible to [R -> T] and [cbv [dot]]
-   leaves the bare projection with no residue of the name string. *)
 Class Dot (R : Type) (name : string) (T : Type) := dot : R -> T.
 
 (* Postpone rather than attempt while an input is evar-headed. Without this a
@@ -143,21 +141,8 @@ Ltac solve_dot_ltac1 := ltac2:(solve_dot ()).
    the latter is taken by PrimArray and by mathcomp's finmap/tuple, which take a
    term index where this needs an ident, so they would override rather than
    disambiguate. *)
-Notation "x .{ f }" := (@dot _ (ident_to_string! f) _ _ x)
+Notation "x .{ f }" := ((_ : Dot _ (ident_to_string! f) _) x)
   (at level 2, f ident, left associativity, only parsing).
-
-(* Printing. The elaborated term is [@dot A.t "a" nat A.a x], which Coq shows as
-   [dot x]; the instance argument is the term the hint resolved to, so printing
-   that answers the question [Check] was run to ask.
-
-   The delimiter has to differ from the parsed one: a notation key fixes the
-   kind of its arguments, and [f] is an [ident] when parsing but a [constr] when
-   printing, so reusing [.{ }] is rejected. [.{{ }}] does not re-parse. True
-   round-tripping is out of reach either way -- printing the string "a" as the
-   identifier [a] needs one notation per field name. Swap the body for
-   [(@dot _ f _ _ x)] to show the name looked up instead of what it found. *)
-Notation "x .{{ f }}" := (@dot _ _ _ f x)
-  (at level 2, left associativity, only printing, format "x .{{ f }}").
 
 Module Tests.
 
