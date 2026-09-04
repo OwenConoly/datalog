@@ -102,7 +102,7 @@ Definition SExpr t := forall var, Sexpr var t.
 Definition Wf_Sexpr {t} (e : SExpr t) :=
   forall var1 var2, wf_Sexpr [] t (e var1) (e var2).
 
-Definition lit x : expr := fun_expr (fn_lit x) [].
+Definition lit x : expr := expr.app (fn_lit x) [].
 
 Definition interp_bop o x y :=
   match o with
@@ -165,11 +165,11 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
   | Var t x =>
       Block O [(O, x)]
         [normal_rule
-           [{| clause_rel := local O; clause_args := [var_expr O] |}]
-           [{| clause_rel := input O; clause_args := [var_expr O] |}];
+           [{| clause.rel := local O; clause.args := [expr.var O] |}]
+           [{| clause.rel := input O; clause.args := [expr.var O] |}];
          meta_rule
-           [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-           [{| meta_clause_rel := input O; meta_clause_args := [None] |}]]
+           [{| meta_clause.rel := local O; meta_clause.args := [None] |}]
+           [{| meta_clause.rel := input O; meta_clause.args := [None] |}]]
   | bop_over_vals o x y =>
       LetIn (compile_Sexpr x)
         (fun x' =>
@@ -177,15 +177,15 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
              (fun y' =>
                 Block O [(O, x'); (1, y')]
                   [normal_rule
-                     [{| clause_rel := local O; clause_args := [fun_expr (fn_bop o) [var_expr O; var_expr (S O)]] |}]
-                     [{| clause_rel := input 0; clause_args := [var_expr O] |};
-                      {| clause_rel := input 1; clause_args := [var_expr (S O)] |}];
+                     [{| clause.rel := local O; clause.args := [expr.app (fn_bop o) [expr.var O; expr.var (S O)]] |}]
+                     [{| clause.rel := input 0; clause.args := [expr.var O] |};
+                      {| clause.rel := input 1; clause.args := [expr.var (S O)] |}];
                    meta_rule
-                     [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                     [{| meta_clause_rel := input 0; meta_clause_args := [None] |};
-                      {| meta_clause_rel := input 1; meta_clause_args := [None] |}]]))
+                     [{| meta_clause.rel := local O; meta_clause.args := [None] |}]
+                     [{| meta_clause.rel := input 0; meta_clause.args := [None] |};
+                      {| meta_clause.rel := input 1; meta_clause.args := [None] |}]]))
   | empty => Block O [] [meta_rule
-                          [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
+                          [{| meta_clause.rel := local O; meta_clause.args := [None] |}]
                           []]
   | singleton x => (*we happen to represent sets in the same format as elements*)
       compile_Sexpr x
@@ -196,13 +196,13 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
              (fun y' =>
                 Block O [(0, x'); (1, y')]
                   [normal_rule
-                     [{| clause_rel := local O; clause_args := [var_expr O] |}]
-                     [{| clause_rel := input 0; clause_args := [var_expr O] |};
-                      {| clause_rel := input 1; clause_args := [var_expr O] |}];
+                     [{| clause.rel := local O; clause.args := [expr.var O] |}]
+                     [{| clause.rel := input 0; clause.args := [expr.var O] |};
+                      {| clause.rel := input 1; clause.args := [expr.var O] |}];
                    meta_rule
-                     [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                     [{| meta_clause_rel := input 0; meta_clause_args := [None] |};
-                      {| meta_clause_rel := input 1; meta_clause_args := [None] |}]]))
+                     [{| meta_clause.rel := local O; meta_clause.args := [None] |}]
+                     [{| meta_clause.rel := input 0; meta_clause.args := [None] |};
+                      {| meta_clause.rel := input 1; meta_clause.args := [None] |}]]))
   | let_in t1 t2 x f =>
       LetIn (compile_Sexpr x)
         (fun x' => compile_Sexpr (f x'))
@@ -212,14 +212,14 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
            Block O [(0, x')]
              [agg_rule (local O) o (local (S O));
               meta_rule
-                [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                [{| meta_clause_rel := local (S O); meta_clause_args := [None; None] |}];
+                [{| meta_clause.rel := local O; meta_clause.args := [None] |}]
+                [{| meta_clause.rel := local (S O); meta_clause.args := [None; None] |}];
               normal_rule
-                [{| clause_rel := local (S O); clause_args := [var_expr O; var_expr O] |}]
-                [{| clause_rel := input 0; clause_args := [var_expr O] |}];
+                [{| clause.rel := local (S O); clause.args := [expr.var O; expr.var O] |}]
+                [{| clause.rel := input 0; clause.args := [expr.var O] |}];
               meta_rule
-                [{| meta_clause_rel := local (S O); meta_clause_args := [None; None] |}]
-                [{| meta_clause_rel := input 0; meta_clause_args := [None] |}]])
+                [{| meta_clause.rel := local (S O); meta_clause.args := [None; None] |}]
+                [{| meta_clause.rel := input 0; meta_clause.args := [None] |}]])
   end.
 
 Definition sum_expr {var} (S : var set) :=

@@ -79,14 +79,14 @@ Section __.
 
   Fixpoint subst_in_expr ctx e : option T :=
     match e with
-    | var_expr v => map.get ctx v
-    | fun_expr f args => option_coalesce (option_map (interp_fun f) (option_all (map (subst_in_expr ctx) args)))
+    | expr.var v => map.get ctx v
+    | expr.app f args => option_coalesce (option_map (interp_fun f) (option_all (map (subst_in_expr ctx) args)))
     end.
 
-  Hint Constructors interp_expr : core.
+  Hint Constructors expr.interp : core.
   Lemma subst_in_expr_sound ctx e v :
     subst_in_expr ctx e = Some v ->
-    interp_expr ctx e v.
+    expr.interp ctx e v.
   Proof.
     revert v. induction e; simpl; intros; eauto.
     apply option_coalesce_Some, option_map_Some in H0. fwd.
@@ -96,7 +96,7 @@ Section __.
   Qed.
 
   Lemma subst_in_expr_complete ctx e v :
-    interp_expr ctx e v ->
+    expr.interp ctx e v ->
     subst_in_expr ctx e = Some v.
   Proof.
     revert v. induction e; invert 1; simpl; eauto.
@@ -107,21 +107,21 @@ Section __.
   Qed.
 
   Definition subst_in_clause ctx (c : clause) :=
-    option_map (normal_fact c.(clause_rel))
-      (option_all (map (subst_in_expr ctx) c.(clause_args))).
+    option_map (normal_fact c.(clause.rel))
+      (option_all (map (subst_in_expr ctx) c.(clause.args))).
 
   Lemma subst_in_clause_sound ctx f f' :
     subst_in_clause ctx f = Some f' ->
-    interp_clause ctx f f'.
+    clause.interp ctx f f'.
   Proof.
     cbv [subst_in_clause]. intros H. apply option_map_Some in H.
-    fwd. apply option_all_Forall2 in Hp0. cbv [interp_clause].
+    fwd. apply option_all_Forall2 in Hp0. cbv [clause.interp].
     rewrite <- Forall2_map_l in Hp0.
     eauto using Forall2_impl, subst_in_expr_sound.
   Qed.
 
   Lemma subst_in_clause_complete ctx c f :
-    interp_clause ctx c f ->
+    clause.interp ctx c f ->
     subst_in_clause ctx c = Some f.
   Proof.
     intros. repeat invert_stuff. cbv [subst_in_clause].
@@ -131,17 +131,17 @@ Section __.
   Qed.
 
   Definition subst_in_meta_clause ctx (c : meta_clause) (S : list T -> Prop) :=
-    option_map (fun args => meta_fact c.(meta_clause_rel) args S)
+    option_map (fun args => meta_fact c.(meta_clause.rel) args S)
       (option_all (map (fun o => match o with
                                  | None => Some None
                                  | Some e => option_map Some (subst_in_expr ctx e)
-                                 end) c.(meta_clause_args))).
+                                 end) c.(meta_clause.args))).
 
   Lemma subst_in_meta_clause_sound ctx c S f :
     subst_in_meta_clause ctx c S = Some f ->
-    interp_meta_clause ctx c f.
+    meta_clause.interp ctx c f.
   Proof.
-    cbv [subst_in_meta_clause interp_meta_clause]. intros H.
+    cbv [subst_in_meta_clause meta_clause.interp]. intros H.
     apply option_map_Some in H. fwd.
     apply option_all_Forall2 in Hp0.
     do 2 eexists. split; [|reflexivity].
@@ -159,7 +159,7 @@ Section __.
     end.
 
   Lemma subst_in_meta_clause_complete ctx c R args S0 :
-    interp_meta_clause ctx c (meta_fact R args S0) ->
+    meta_clause.interp ctx c (meta_fact R args S0) ->
     forall S1,
       subst_in_meta_clause ctx c S1 = Some (meta_fact R args S1).
   Proof.
@@ -185,7 +185,7 @@ Section __.
   Qed.
 
   Lemma subst_expr_with_vars ctx ctx' e :
-    Forall (fun v => map.get ctx v <> None) (vars_of_expr e) ->
+    Forall (fun v => map.get ctx v <> None) (expr.vars e) ->
     map.extends ctx' ctx ->
     subst_in_expr ctx e = subst_in_expr ctx' e.
   Proof.
@@ -198,14 +198,14 @@ Section __.
   Definition context_of_args (args : list expr) (args' : list T) :=
     concat (zip (fun arg arg' =>
                    match arg with
-                   | var_expr v => [(v, arg')]
+                   | expr.var v => [(v, arg')]
                    | _ => []
                    end) args args').
 
   Definition context_of_clause (c : clause) (f : fact) :=
     match f with
     | normal_fact _ args =>
-        context_of_args c.(clause_args) args
+        context_of_args c.(clause.args) args
     | meta_fact _ _ _ => []
     end.
 
@@ -213,8 +213,8 @@ Section __.
     concat (zip context_of_clause hyps hyps').
 
   Lemma bare_in_context_args ctx x args args' :
-    In (var_expr x) args ->
-    Forall2 (interp_expr ctx) args args' ->
+    In (expr.var x) args ->
+    Forall2 (expr.interp ctx) args args' ->
     exists v, In (x, v) (context_of_args args args').
   Proof.
     intros H1 H2. cbv [context_of_args]. apply Forall2_forget_r_strong in H2.
@@ -225,8 +225,8 @@ Section __.
   Qed.
 
   Lemma bare_in_context_clause ctx x c f :
-    In (var_expr x) c.(clause_args) ->
-    interp_clause ctx c f ->
+    In (expr.var x) c.(clause.args) ->
+    clause.interp ctx c f ->
     exists v, In (x, v) (context_of_clause c f).
   Proof.
     intros H1 H2. cbv [context_of_clause]. invert_stuff.
@@ -234,8 +234,8 @@ Section __.
   Qed.
 
   Lemma bare_in_context_hyps ctx x hyps hyps' :
-    In (var_expr x) (flat_map clause_args hyps) ->
-    Forall2 (interp_clause ctx) hyps hyps' ->
+    In (expr.var x) (flat_map clause.args hyps) ->
+    Forall2 (clause.interp ctx) hyps hyps' ->
     exists v, In (x, v) (context_of_hyps hyps hyps').
   Proof.
     intros H1 H2. apply in_flat_map in H1. fwd. cbv [context_of_hyps].
@@ -247,7 +247,7 @@ Section __.
   Qed.
 
   Lemma interp_args_context_right ctx args args' :
-    Forall2 (interp_expr ctx) args args' ->
+    Forall2 (expr.interp ctx) args args' ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_args args args').
   Proof.
     intros H. apply Forall2_combine in H. rewrite Forall_forall in *.
@@ -258,8 +258,8 @@ Section __.
   Qed.
 
   Lemma context_of_args_agree_on ctx args args' v :
-    Forall2 (interp_expr ctx) args args' ->
-    In (var_expr v) args ->
+    Forall2 (expr.interp ctx) args args' ->
+    In (expr.var v) args ->
     agree_on ctx (map.of_list (context_of_args args args')) v.
   Proof.
     intros H Hv. pose proof H as H'.
@@ -270,14 +270,14 @@ Section __.
   Qed.
 
   Lemma interp_clause_context_right ctx f f' :
-    interp_clause ctx f f' ->
+    clause.interp ctx f f' ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_clause f f').
   Proof.
     intros. invert_stuff. apply interp_args_context_right. assumption.
   Qed.
 
   Lemma interp_hyps_context_right ctx hyps hyps' :
-    Forall2 (interp_clause ctx) hyps hyps' ->
+    Forall2 (clause.interp ctx) hyps hyps' ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_hyps hyps hyps').
   Proof.
     intros H. apply Forall2_combine in H. rewrite Forall_forall in *.
@@ -288,7 +288,7 @@ Section __.
   Qed.
 
   Lemma interp_hyps_context_right_weak ctx hyps hyps' :
-    Forall2 (interp_clause ctx) hyps hyps' ->
+    Forall2 (clause.interp ctx) hyps hyps' ->
     map.extends ctx (map.of_list (context_of_hyps hyps hyps')).
   Proof.
     intros H. apply interp_hyps_context_right in H. cbv [map.extends].
@@ -297,8 +297,8 @@ Section __.
   Qed.
 
   Lemma context_of_hyps_agree ctx hyps hyps' v :
-    Forall2 (interp_clause ctx) hyps hyps' ->
-    In (var_expr v) (flat_map clause_args hyps) ->
+    Forall2 (clause.interp ctx) hyps hyps' ->
+    In (expr.var v) (flat_map clause.args hyps) ->
     agree_on ctx (map.of_list (context_of_hyps hyps hyps')) v.
   Proof.
     intros H1 H2.
@@ -310,8 +310,8 @@ Section __.
   Qed.
 
   Lemma in_vars_interp_expr_not_None ctx e e' v :
-    interp_expr ctx e e' ->
-    In v (vars_of_expr e) ->
+    expr.interp ctx e e' ->
+    In v (expr.vars e) ->
     map.get ctx v <> None.
   Proof.
     intros H1 H2. revert e' H1. induction e.
@@ -327,7 +327,7 @@ Section __.
     | normal_rule rule_concls _ =>
         keep_Some (map (subst_in_clause ctx) rule_concls)
     | meta_rule rule_concls _ =>
-        keep_Some (map (fun c => subst_in_meta_clause ctx c (env hyps' c.(meta_clause_rel))) rule_concls)
+        keep_Some (map (fun c => subst_in_meta_clause ctx c (env hyps' c.(meta_clause.rel))) rule_concls)
     | agg_rule concl_rel agg hyp_rel =>
         match hyps' with
         | meta_fact _ (_ :: _ :: args) _ :: rest =>
@@ -348,8 +348,8 @@ Section __.
 
   Definition matches_ctx (r : rule) (hyps : list fact) (ctx : context) : Prop :=
     match r with
-    | normal_rule _ rule_hyps => Forall2 (interp_clause ctx) rule_hyps hyps
-    | meta_rule _ rule_hyps => Forall2 (interp_meta_clause ctx) rule_hyps hyps
+    | normal_rule _ rule_hyps => Forall2 (clause.interp ctx) rule_hyps hyps
+    | meta_rule _ rule_hyps => Forall2 (meta_clause.interp ctx) rule_hyps hyps
     | agg_rule _ _ _ => True
     end.
   Hint Unfold matches_ctx : core.
@@ -399,13 +399,13 @@ Section __.
   (*   exists concl, *)
   (*     r.(rule_concls) = [concl] /\ *)
   (*       (forall v,  ~ (exists ae : agg_expr, rule_agg r = Some (v, ae)) /\ In v (vars_of_fact concl) -> *)
-  (*            In (var_expr v) (fact_ins concl) \/ *)
-  (*              In (var_expr v) (flat_map fact_args r.(rule_hyps))) /\ *)
+  (*            In (expr.var v) (fact_ins concl) \/ *)
+  (*              In (expr.var v) (flat_map fact_args r.(rule_hyps))) /\ *)
   (*       match r.(rule_agg) with *)
   (*       | Some (_, aexpr) => *)
   (*           (forall v, appears_in_agg_expr v aexpr -> *)
-  (*                 In (var_expr v) (fact_ins concl) \/ *)
-  (*                   In (var_expr v) (flat_map fact_args r.(rule_hyps))) *)
+  (*                 In (expr.var v) (fact_ins concl) \/ *)
+  (*                   In (expr.var v) (flat_map fact_args r.(rule_hyps))) *)
   (*       | None => True *)
   (*       end. *)
 
@@ -497,7 +497,7 @@ Section __.
   Definition context_of_meta_clause (c : meta_clause) (f : fact) :=
     match f with
     | meta_fact _ mf_args _ =>
-        context_of_args (keep_Some c.(meta_clause_args)) (keep_Some mf_args)
+        context_of_args (keep_Some c.(meta_clause.args)) (keep_Some mf_args)
     | normal_fact _ _ => []
     end.
 
@@ -561,34 +561,34 @@ Section __.
       (possible_hyps r facts).
 
   Lemma subst_in_expr_ctxs_agree ctx ctx' e :
-    Forall (agree_on ctx ctx') (vars_of_expr e) ->
+    Forall (agree_on ctx ctx') (expr.vars e) ->
     subst_in_expr ctx e = subst_in_expr ctx' e.
   Proof.
     intros H.
     destruct (subst_in_expr ctx e) eqn:E; destruct (subst_in_expr ctx' e) eqn:E'; auto.
-    - apply subst_in_expr_sound in E, E'. f_equal. eauto using interp_expr_det'.
-    - apply subst_in_expr_sound in E. eapply interp_expr_agree_on in E; eauto.
+    - apply subst_in_expr_sound in E, E'. f_equal. eauto using expr.interp_det'.
+    - apply subst_in_expr_sound in E. eapply expr.interp_agree_on in E; eauto.
       apply subst_in_expr_complete in E. congruence.
-    - apply subst_in_expr_sound in E'. eapply interp_expr_agree_on in E'.
+    - apply subst_in_expr_sound in E'. eapply expr.interp_agree_on in E'.
       2: { eapply Forall_impl; [|eassumption]. intros. symmetry. eassumption. }
       apply subst_in_expr_complete in E'. congruence.
   Qed.
 
   Lemma subst_in_clause_ctxs_agree ctx ctx' f :
-    Forall (agree_on ctx ctx') (vars_of_clause f) ->
+    Forall (agree_on ctx ctx') (clause.vars f) ->
     subst_in_clause ctx f = subst_in_clause ctx' f.
   Proof.
     intros H. cbv [subst_in_clause]. f_equal. f_equal. apply map_ext_in.
-    intros. cbv [vars_of_clause] in H. apply Forall_flat_map in H.
+    intros. cbv [clause.vars] in H. apply Forall_flat_map in H.
     rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)).
     apply subst_in_expr_ctxs_agree. assumption.
   Qed.
 
   Lemma subst_in_meta_clause_ctxs_agree ctx ctx' c S :
-    Forall (agree_on ctx ctx') (vars_of_meta_clause c) ->
+    Forall (agree_on ctx ctx') (meta_clause.vars c) ->
     subst_in_meta_clause ctx c S = subst_in_meta_clause ctx' c S.
   Proof.
-    cbv [subst_in_meta_clause vars_of_meta_clause]. intros H. f_equal. f_equal.
+    cbv [subst_in_meta_clause meta_clause.vars]. intros H. f_equal. f_equal.
     apply map_ext_in. intros o Ho. destruct o as [e|]; [|reflexivity].
     simpl. f_equal. apply subst_in_expr_ctxs_agree.
     rewrite Forall_flat_map, Forall_forall in H. apply H.
@@ -614,17 +614,17 @@ Section __.
   Qed.
 
   Lemma interp_meta_args_context_right ctx c f :
-    interp_meta_clause ctx c f ->
+    meta_clause.interp ctx c f ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_meta_clause c f).
   Proof.
-    intros. cbv [interp_meta_clause] in H. fwd.
+    intros. cbv [meta_clause.interp] in H. fwd.
     simpl.
     apply interp_args_context_right.
     apply Forall2_option_relation_keep_Some. assumption.
   Qed.
 
   Lemma interp_meta_hyps_context_right ctx hyps hyps' :
-    Forall2 (interp_meta_clause ctx) hyps hyps' ->
+    Forall2 (meta_clause.interp ctx) hyps hyps' ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_meta_hyps hyps hyps').
   Proof.
     intros H. apply Forall2_combine in H. rewrite Forall_forall in *.
@@ -636,7 +636,7 @@ Section __.
   Qed.
 
   Lemma interp_meta_hyps_context_right_weak ctx hyps hyps' :
-    Forall2 (interp_meta_clause ctx) hyps hyps' ->
+    Forall2 (meta_clause.interp ctx) hyps hyps' ->
     map.extends ctx (map.of_list (context_of_meta_hyps hyps hyps')).
   Proof.
     intros H. apply interp_meta_hyps_context_right in H. cbv [map.extends].
@@ -645,8 +645,8 @@ Section __.
   Qed.
 
   Lemma bare_in_context_hyps' ctx x hyps hyps' :
-    In (var_expr x) (flat_map clause_args hyps) ->
-    Forall2 (interp_clause ctx) hyps hyps' ->
+    In (expr.var x) (flat_map clause.args hyps) ->
+    Forall2 (clause.interp ctx) hyps hyps' ->
     exists v, In (x, v) (context_of_hyps hyps hyps').
   Proof.
     intros H1 H2. apply in_flat_map in H1. fwd. cbv [context_of_hyps].
@@ -658,8 +658,8 @@ Section __.
   Qed.
 
   Lemma bare_in_context_meta_clause ctx x c f :
-    In (var_expr x) (keep_Some c.(meta_clause_args)) ->
-    interp_meta_clause ctx c f ->
+    In (expr.var x) (keep_Some c.(meta_clause.args)) ->
+    meta_clause.interp ctx c f ->
     exists v, In (x, v) (context_of_meta_clause c f).
   Proof.
     intros H1 H2. cbv [context_of_meta_clause]. repeat invert_stuff.
@@ -668,8 +668,8 @@ Section __.
   Qed.
 
   Lemma bare_in_context_meta_hyps ctx x hyps hyps' :
-    In (var_expr x) (flat_map (fun c => keep_Some c.(meta_clause_args)) hyps) ->
-    Forall2 (interp_meta_clause ctx) hyps hyps' ->
+    In (expr.var x) (flat_map (fun c => keep_Some c.(meta_clause.args)) hyps) ->
+    Forall2 (meta_clause.interp ctx) hyps hyps' ->
     exists v, In (x, v) (context_of_meta_hyps hyps hyps').
   Proof.
     intros H1 H2. apply in_flat_map in H1. fwd. cbv [context_of_meta_hyps].
@@ -679,8 +679,8 @@ Section __.
   Qed.
 
   Lemma context_of_meta_hyps_agree ctx hyps hyps' v :
-    Forall2 (interp_meta_clause ctx) hyps hyps' ->
-    In (var_expr v) (flat_map (fun c => keep_Some c.(meta_clause_args)) hyps) ->
+    Forall2 (meta_clause.interp ctx) hyps hyps' ->
+    In (expr.var v) (flat_map (fun c => keep_Some c.(meta_clause.args)) hyps) ->
     agree_on ctx (map.of_list (context_of_meta_hyps hyps hyps')) v.
   Proof.
     intros H1 H2.
@@ -851,8 +851,8 @@ Section __.
   #[global] Instance expr_eqb : Eqb expr :=
     fix expr_eqb e1 e2 :=
       match e1, e2 with
-      | Datalog.var_expr v1, Datalog.var_expr v2 => var_eqb v1 v2
-      | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
+      | Datalog.expr.var v1, Datalog.expr.var v2 => var_eqb v1 v2
+      | Datalog.expr.app f1 args1, Datalog.expr.app f2 args2 =>
           fn_eqb f1 f2 && list_eqb (aeqb := expr_eqb) args1 args2
       | _, _ => false
       end.
@@ -877,8 +877,8 @@ Section __.
   (*var * var may as well be separate namepsaces, e.g. mvar * nvar*)
   Fixpoint expr_compat (e1 e2 : expr) : option (list (exprvar * exprvar)) :=
     match e1, e2 with
-    | Datalog.var_expr v1, Datalog.var_expr v2 => Some [(v1, v2)]
-    | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
+    | Datalog.expr.var v1, Datalog.expr.var v2 => Some [(v1, v2)]
+    | Datalog.expr.app f1 args1, Datalog.expr.app f2 args2 =>
         if fn_eqb f1 f2 &&
              fn_inj f1 &&
              Nat.eqb (List.length args1) (List.length args2) then
@@ -890,8 +890,8 @@ Section __.
 
   Lemma expr_compat_sound e1 e2 l ctx1 ctx2 val :
     expr_compat e1 e2 = Some l ->
-    interp_expr ctx1 e1 val ->
-    interp_expr ctx2 e2 val ->
+    expr.interp ctx1 e1 val ->
+    expr.interp ctx2 e2 val ->
     Forall (fun '(v1, v2) =>
               exists val', map.get ctx1 v1 = Some val' /\ map.get ctx2 v2 = Some val') l.
   Proof.
@@ -916,7 +916,7 @@ Section __.
       rewrite map2_eq_map_combine in Hvsp0. apply in_map_iff in Hvsp0.
       fwd.
       match goal with
-      | H1: Forall2 (interp_expr ctx1) _ _, H2: Forall2 (interp_expr ctx2) _ _ |- _ =>
+      | H1: Forall2 (expr.interp ctx1) _ _, H2: Forall2 (expr.interp ctx2) _ _ |- _ =>
           eapply Forall2_same_r in H2; [|exact H1];
           rename H2 into Hargs
       end.
@@ -933,13 +933,13 @@ Section __.
                            | Some me' => expr_compat me' e
                            | None => Some []
                            end)
-                     mc.(meta_clause_args)
-                          nc.(clause_args))).
+                     mc.(meta_clause.args)
+                          nc.(clause.args))).
 
   Lemma clause_compat_sound mc nc l ctx1 ctx2 R argsM argsN setM :
     clause_compat mc nc = Some l ->
-    interp_meta_clause ctx1 mc (meta_fact R argsM setM) ->
-    interp_clause ctx2 nc (normal_fact R argsN) ->
+    meta_clause.interp ctx1 mc (meta_fact R argsM setM) ->
+    clause.interp ctx2 nc (normal_fact R argsN) ->
     Forall2 matches argsM argsN ->
     Forall (fun '(v1, v2) => exists val', map.get ctx1 v1 = Some val' /\ map.get ctx2 v2 = Some val') l.
   Proof.
@@ -966,9 +966,9 @@ Section __.
 
   Fixpoint expr_matches (equalities : list (exprvar * exprvar)) (e1 e2 : expr) :=
     match e1, e2 with
-    | Datalog.var_expr v1, Datalog.var_expr v2 =>
+    | Datalog.expr.var v1, Datalog.expr.var v2 =>
         inb (v1, v2) equalities
-    | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
+    | Datalog.expr.app f1 args1, Datalog.expr.app f2 args2 =>
         fn_eqb f1 f2 &&
           Nat.eqb (List.length args1) (List.length args2) &&
           forallb (eqb true) (map2 (expr_matches equalities) args1 args2)
@@ -984,8 +984,8 @@ Section __.
   Lemma expr_matches_sound equalities e1 e2 ctx1 ctx2 val :
     expr_matches equalities e1 e2 = true ->
     Forall (fun '(x, y) => map.get ctx1 x = map.get ctx2 y) equalities ->
-    interp_expr ctx1 e1 val ->
-    interp_expr ctx2 e2 val.
+    expr.interp ctx1 e1 val ->
+    expr.interp ctx2 e2 val.
   Proof.
     revert e2 ctx1 ctx2 val.
     induction e1; intros e2 ctx1 ctx2 val Hmatch Heq H1.
@@ -1008,8 +1008,8 @@ Section __.
   Qed.
 
   Definition clause_matches (equalities : list (exprvar * exprvar)) (mc : meta_clause) (nc : clause) :=
-    rel_eqb mc.(meta_clause_rel) nc.(clause_rel) &&
-      (length mc.(meta_clause_args) =? length nc.(clause_args))%nat &&
+    rel_eqb mc.(meta_clause.rel) nc.(clause.rel) &&
+      (length mc.(meta_clause.args) =? length nc.(clause.args))%nat &&
       forallb
         (eqb true)
         (map2 (fun me e =>
@@ -1017,14 +1017,14 @@ Section __.
                  | Some me' => expr_matches equalities me' e
                  | None => true
                  end)
-           mc.(meta_clause_args)
-                nc.(clause_args)).
+           mc.(meta_clause.args)
+                nc.(clause.args)).
 
   Lemma clause_matches_sound equalities mc nc ctx1 ctx2 RM RN argsM argsN setM :
     clause_matches equalities mc nc = true ->
     Forall (fun '(x, y) => map.get ctx1 x = map.get ctx2 y) equalities ->
-    interp_meta_clause ctx1 mc (meta_fact RM argsM setM) ->
-    interp_clause ctx2 nc (normal_fact RN argsN) ->
+    meta_clause.interp ctx1 mc (meta_fact RM argsM setM) ->
+    clause.interp ctx2 nc (normal_fact RN argsN) ->
     RM = RN /\ Forall2 matches argsM argsN.
   Proof.
     intros Hmatch Heq Hmc Hnc.
@@ -1043,12 +1043,12 @@ Section __.
     simpl. intros argM argN H. fwd.
     cbv [option_relation] in Hp2p2.
     destruct_one_match_hyp; fwd; subst; simpl; auto.
-    eapply interp_expr_det; [|eassumption].
+    eapply expr.interp_det; [|eassumption].
     eapply expr_matches_sound; eauto.
   Qed.
 
   Definition check_meta_rule_against_normal_rule mconcls mhyps nconcls nhyps : bool :=
-    let same_rel_mn mhyp nhyp := rel_eqb mhyp.(meta_clause_rel) nhyp.(clause_rel) in
+    let same_rel_mn mhyp nhyp := rel_eqb mhyp.(meta_clause.rel) nhyp.(clause.rel) in
     forallb (fun mconcl =>
                let nconcl_matches := filter (same_rel_mn mconcl) nconcls in
                forallb (fun nconcl =>
@@ -1065,13 +1065,13 @@ Section __.
 
   Definition check_meta_rule_against_agg_rule (mconcls mhyps : list meta_clause) (concl_rel hyp_rel : rel) : bool :=
     forallb (fun mconcl =>
-               negb (rel_eqb mconcl.(meta_clause_rel) concl_rel) ||
-                 match mconcl.(meta_clause_args) with
+               negb (rel_eqb mconcl.(meta_clause.rel) concl_rel) ||
+                 match mconcl.(meta_clause.args) with
                  | _ :: stuff =>
                      existsb
                        (fun mhyp =>
-                          rel_eqb mhyp.(meta_clause_rel) hyp_rel &&
-                            match mhyp.(meta_clause_args) with
+                          rel_eqb mhyp.(meta_clause.rel) hyp_rel &&
+                            match mhyp.(meta_clause.args) with
                             | None :: None :: stuff' =>
                                 match option_all stuff, option_all stuff' with
                                 | Some stuff, Some stuff' => eqb stuff stuff'
@@ -1091,7 +1091,7 @@ Section __.
     end.
 
   Opaque clause_matches.
-  Hint Unfold interp_meta_clause interp_clause : core.
+  Hint Unfold meta_clause.interp clause.interp : core.
   Lemma check_meta_rule_against_normal_rule_sound env mconcls mhyps nconcls nhyps R mf_args mf_set args mhyps' nhyps' :
     check_meta_rule_against_normal_rule mconcls mhyps nconcls nhyps = true ->
     rule_impl env (meta_rule mconcls mhyps) (meta_fact R mf_args mf_set) mhyps' ->
@@ -1110,7 +1110,7 @@ Section __.
     specialize (H _ ltac:(eassumption)). fwd. apply Exists_exists in H. fwd.
     repeat invert_stuff. simpl.
     match goal with
-    | H: Forall2 (interp_meta_clause _) _ _ |- _ => rename H into Hmhyps
+    | H: Forall2 (meta_clause.interp _) _ _ |- _ => rename H into Hmhyps
     end.
     apply Forall2_forget_r in Hmhyps. rewrite Forall_forall in Hmhyps.
     specialize (Hmhyps _ ltac:(eassumption)). repeat invert_stuff.
@@ -1134,7 +1134,7 @@ Section __.
     rewrite Forall_forall in H. specialize (H _ ltac:(eassumption)). fwd.
     destruct H as [H|H]; [congruence|]. fwd. apply Exists_exists in H. fwd.
     match goal with
-    | H: Forall2 (interp_meta_clause _) _ _ |- _ =>
+    | H: Forall2 (meta_clause.interp _) _ _ |- _ =>
         apply Forall2_forget_r in H; rewrite Forall_forall in H;
         specialize (H _ ltac:(eassumption)); rename H into Hmhyps'
     end.
@@ -1147,7 +1147,7 @@ Section __.
     { apply Forall2_eq_eq. rewrite <- Forall2_map_r.
       eapply Forall2_impl; [eassumption|]. simpl.
       intros. fwd. cbn [matches] in *. subst. f_equal.
-      eapply interp_expr_det; eassumption. }
+      eapply expr.interp_det; eassumption. }
     subst.
     constructor.
     { simpl. eauto. }

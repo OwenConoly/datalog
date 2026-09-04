@@ -232,7 +232,7 @@ Section __.
       | H : Exists _ _ |- _ =>
         apply Exists_exists in H; destruct H as (c & Hin_c & Hint)
       end.
-      cbv [interp_clause] in Hint. destruct Hint as (nfargs & _ & Heq).
+      cbv [clause.interp] in Hint. destruct Hint as (nfargs & _ & Heq).
       injection Heq as -> ->.
       rewrite Forall_forall in Hgood. apply Hgood, in_map, Hin_c.
     - invert Himpl.
@@ -372,7 +372,7 @@ Section __.
       cbv [mf_label] in *. fwd.
       assert (Hmf_rel_noninput : is_input mfr_t = false).
       { apply Exists_exists in Hmc_concl. destruct Hmc_concl as (c & Hin_c & Hint).
-        cbv [interp_meta_clause] in Hint. destruct Hint as (mfa & mfs & _ & Heqc).
+        cbv [meta_clause.interp] in Hint. destruct Hint as (mfa & mfs & _ & Heqc).
         injection Heqc as -> _ _.
         eapply concl_rel_not_input; [ exact Hmr_in | apply in_map, Hin_c ]. }
       constructor; cbn [known_facts sents].
@@ -439,7 +439,7 @@ Section __.
         { eapply Forall2_unique_r;
             [ exact Hms
             | apply Forall2_repeat_r, Forall_forall; intros r0 _; apply get_or_default_values_0; exact Hz
-            | intros x y y' Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ]. }
+            | intros x y y' _ Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ]. }
         rewrite Hmz, list_sum_repeat. lia. }
       rewrite Hms0, Nat.add_0_r. exact Hle.
     - destruct Hexp as (emss & Hexpp0 & Hsum_ems).
@@ -453,7 +453,7 @@ Section __.
       subst num_inp. cbn [Nat.add]. rewrite Hsum_ems.
       enough (msgs = emss) as -> by lia.
       eapply Forall2_unique_r;
-        [ exact Hms | | intros x y y' Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ].
+        [ exact Hms | | intros x y y' _ Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ].
       eapply Forall2_impl_strong; [ exact Hexpp0 | ].
       intros rk ek HIn _ _. exact (proj1 (Hmf_sent _ _ _ _ HIn)).
   Qed.
@@ -550,7 +550,7 @@ Section __.
         injection Hcombined as Heq_R Heq_args Heq_num. subst mf_rel' mf_args' mf_cnt'.
         assert (HNI_R : is_input R = false).
         { apply Exists_exists in Hconcl. destruct Hconcl as (c_concl & Hin_c & Hint_c).
-          cbv [interp_meta_clause] in Hint_c.
+          cbv [meta_clause.interp] in Hint_c.
           destruct Hint_c as (mfa_v & mfs_v & _ & Heqv).
           injection Heqv as Hrel _ _. rewrite Hrel.
           eapply concl_rel_not_input; [ exact Hmr_in | apply in_map, Hin_c ]. }
@@ -784,7 +784,7 @@ Section __.
                     (meta_fact R mf_args S_constr) hyps_d).
         { apply meta_rule_impl with (ctx := ctx).
           - eapply Exists_impl; [|exact Hconcl].
-            intros c Hclause. cbv [interp_meta_clause] in Hclause |- *.
+            intros c Hclause. cbv [meta_clause.interp] in Hclause |- *.
             destruct Hclause as (mfa_v & mfs_v & Hf2_v & Heq_v).
             injection Heq_v as Hcrel Hcargs _.
             exists mfa_v, S_constr. rewrite Hcargs. split; [exact Hf2_v|].
@@ -1076,7 +1076,7 @@ Section __.
                    + exact Hin_mr.
                    + apply meta_rule_impl with (ctx := ctx).
                      * eapply Exists_impl; [|exact Hexists_concl].
-                       intros c Hclause. cbv [interp_meta_clause] in Hclause |- *.
+                       intros c Hclause. cbv [meta_clause.interp] in Hclause |- *.
                        destruct Hclause as (mfa_v & mfs_v & Hf2_v & Heq_v).
                        injection Heq_v as Hcrel Hcargs _.
                        exists mfa_v, S_constr. rewrite Hcargs. split; [exact Hf2_v|].
@@ -1257,7 +1257,7 @@ Section __.
         assert (Hmsgs_eq : list_sum msgs = list_sum nums).
         { f_equal.
           eapply Forall2_unique_r;
-            [ exact Hf2m | | intros x y y' Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ].
+            [ exact Hf2m | | intros x y y' _ Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ].
           eapply Forall2_impl_strong; [ exact Hf2 | ].
           intros ri ni HIn _ _. exact (proj1 (Hsane.(sane_local_meta) _ _ _ _ HIn)). }
         rewrite Hinp0, Nat.add_0_l, Hmsgs_eq in Hsum. subst num_kn. exact Hexn_kn.
@@ -1355,7 +1355,7 @@ Section __.
           { eapply Forall2_unique_r;
               [ exact Hf2
               | apply Forall2_repeat_r, Forall_forall; intros r0 _; apply get_or_default_values_0; exact Hsent0
-              | intros x y y' Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ]. }
+              | intros x y y' _ Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ]. }
           rewrite Hmz, list_sum_repeat. lia. }
         rewrite Hsum0, Nat.add_0_r in Hsum. subst num_kn. exact Hexn_kn.
       + intros r' Hr'. destruct Hexp as (msgss & Hf2 & _).
@@ -1553,8 +1553,8 @@ Section __.
     In rn non_meta_rules ->
     In (meta_rule rule_concls rule_hyps) p ->
     Existsn (dfact_matches R args) ms (get_or_default s.(sents) rn) ->
-    Exists (fun c => interp_meta_clause ctx c (meta_fact R args S)) rule_concls ->
-    Forall2 (interp_meta_clause ctx) rule_hyps hyps ->
+    Exists (fun c => meta_clause.interp ctx c (meta_fact R args S)) rule_concls ->
+    Forall2 (meta_clause.interp ctx) rule_hyps hyps ->
     Forall (knows_datalog_fact s.(known_facts)) hyps ->
     ok_to_deduce_fact (rn) s.(known_facts) (get_or_default s.(sents) rn)
       (meta_dfact R args (from_rule rn) ms) ->
@@ -1575,7 +1575,7 @@ Section __.
         * reflexivity.
         * exact Hexn.
         * eapply Exists_impl; [| exact Hconcl ]. intros c Hc.
-          cbv [interp_meta_clause] in Hc |- *. destruct Hc as (mfa & mfs & Hf2 & Heq).
+          cbv [meta_clause.interp] in Hc |- *. destruct Hc as (mfa & mfs & Hf2 & Heq).
           injection Heq as Hrel Hmfa _. exists args, (fun _ => False). split.
           -- rewrite Hmfa. exact Hf2.
           -- rewrite <- Hrel. reflexivity.
@@ -1626,7 +1626,7 @@ Section __.
     - rename H into Hconcl, H0 into Hforall2_hyps, H1 into HS_def.
       assert (HR_noninput : is_input R = false).
       { apply Exists_exists in Hconcl. destruct Hconcl as (c & Hin_c & Hint).
-        cbv [interp_meta_clause] in Hint. destruct Hint as (mfa & mfs & _ & Heq).
+        cbv [meta_clause.interp] in Hint. destruct Hint as (mfa & mfs & _ & Heq).
         injection Heq as -> _ _.
         eapply concl_rel_not_input; [ exact Hin_r | apply in_map, Hin_c ]. }
       assert (Hpi_hyps : Forall (prog_impl p (knows_datalog_fact inputs)) hyps).

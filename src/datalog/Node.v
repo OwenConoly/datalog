@@ -74,8 +74,8 @@ Section __.
     exists ctx mf_rel mf_args mf_cnt,
       result = meta_dfact mf_rel mf_args node mf_cnt /\
         Existsn (dfact_matches mf_rel mf_args) mf_cnt sent_facts /\
-        Exists (fun c => interp_meta_clause ctx c (meta_fact mf_rel mf_args (fun _ => False))) mf_concls /\
-        Forall2 (interp_meta_clause ctx) mf_hyps hyps.
+        Exists (fun c => meta_clause.interp ctx c (meta_fact mf_rel mf_args (fun _ => False))) mf_concls /\
+        Forall2 (meta_clause.interp ctx) mf_hyps hyps.
 
   Definition ok_to_deduce_fact (r : rule) known sent f :=
     match f with
@@ -352,16 +352,16 @@ Section __.
 
   Lemma interp_meta_clause_set_irrel ctx c (R : rel) (args : list (option T))
         (S1 S2 : list T -> Prop) :
-    interp_meta_clause ctx c (meta_fact R args S1) ->
-    interp_meta_clause ctx c (meta_fact R args S2).
+    meta_clause.interp ctx c (meta_fact R args S1) ->
+    meta_clause.interp ctx c (meta_fact R args S2).
   Proof.
-    cbv [interp_meta_clause]. intros (mf_args & mf_set & Hf2 & Heq).
+    cbv [meta_clause.interp]. intros (mf_args & mf_set & Hf2 & Heq).
     injection Heq as -> -> _. exists mf_args, S2. split; [exact Hf2 | reflexivity].
   Qed.
 
   Lemma meta_concl_rule_impl mc mh ctx R mf_args hyps_d :
-    Exists (fun c => interp_meta_clause ctx c (meta_fact R mf_args (fun _ => False))) mc ->
-    Forall2 (interp_meta_clause ctx) mh hyps_d ->
+    Exists (fun c => meta_clause.interp ctx c (meta_fact R mf_args (fun _ => False))) mc ->
+    Forall2 (meta_clause.interp ctx) mh hyps_d ->
     rule_impl (one_step_derives p) (meta_rule mc mh)
       (meta_fact R mf_args (one_step_derives p hyps_d R)) hyps_d.
   Proof.
