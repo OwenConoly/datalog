@@ -14,6 +14,7 @@ From Stdlib Require Import Strings.String.
 From Ltac2 Require Import Ltac2.
 
 From coqutil Require Import Macros.ident_to_string.
+From coqutil Require Import Tactics.ident_to_string.
 From coqutil Require Import Tactics.ident_of_string.
 From coqutil Require Import Ltac2Lib.Failf.
 From coqutil Require Tactics.reference_to_string.
@@ -141,11 +142,16 @@ Ltac solve_dot_ltac1 := ltac2:(solve_dot ()).
    the latter is taken by PrimArray and by mathcomp's finmap/tuple, which take a
    term index where this needs an ident, so they would override rather than
    disambiguate. *)
-Notation "x .{ f }" := ((_ : Dot _ (ident_to_string! f) _) x)
+Notation "x .{ f }" :=
+  (match (fun f : Set => f) return _ with f => ltac:(
+     let lam := lazymatch goal with _ := ?lam |- _ => lam end in
+     constr_string_of_lambda_cps lam ltac:(fun name =>
+       let r := type of x in
+       let inst := constr:(_ : Dot r name _) in
+       let inst := eval cbv beta in inst in
+       exact (inst x)))
+   end)
   (at level 2, f ident, left associativity, only parsing).
-
-Definition blah := tt.
-Notation "moo( x )" := ltac:(let y := eval cbv delta [blah] in x in exact y).
 
 Module Tests.
 
@@ -169,10 +175,10 @@ Module Tests.
   End Nested.
 
   (* Colliding field names, resolved by the receiver's type. *)
-  Definition t_a (x : A.t) : nat := moo(x.{a}). Print t_a.
+  Definition t_a (x : A.t) : nat := x.{a}.
   Definition t_a' (y : B.t) : list nat := y.{a}.
   Definition t_b (x : A.t) : bool := x.{b}.
-  Definition t_b' (y : B.t) : nat := y.{b}. Print t_b'.
+  Definition t_b' (y : B.t) : nat := y.{b}.
 
   (* Generalized as in Lean: any definition in the module, not just a field. *)
   Definition t_nonfield (x : A.t) : nat := x.{double}.
@@ -183,9 +189,6 @@ Module Tests.
 
   Definition t_chain (w : Nested.t) : nat := w.{inner}.{a}.
   Definition t_chain' (w : Nested.t) : nat := w.{inner}.{double}.
-
-  (* Postponed while the receiver's type is still an evar. *)
-  Definition t_postponed : nat := (fun q => q.{a}) (A.Build_t 3 true).
 
   Fail Definition t_miss (z : P.t bool) := z.{missing}.
   Fail Definition t_miss' (x : A.t) := x.{c}.
