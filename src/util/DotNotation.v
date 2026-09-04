@@ -144,6 +144,9 @@ Ltac solve_dot_ltac1 := ltac2:(solve_dot ()).
 Notation "x .{ f }" := ((_ : Dot _ (ident_to_string! f) _) x)
   (at level 2, f ident, left associativity, only parsing).
 
+Definition blah := tt.
+Notation "moo( x )" := ltac:(let y := eval cbv delta [blah] in x in exact y).
+
 Module Tests.
 
   Module A.
@@ -166,10 +169,10 @@ Module Tests.
   End Nested.
 
   (* Colliding field names, resolved by the receiver's type. *)
-  Definition t_a (x : A.t) : nat := x.{a}.
+  Definition t_a (x : A.t) : nat := moo(x.{a}). Print t_a.
   Definition t_a' (y : B.t) : list nat := y.{a}.
   Definition t_b (x : A.t) : bool := x.{b}.
-  Definition t_b' (y : B.t) : nat := y.{b}.
+  Definition t_b' (y : B.t) : nat := y.{b}. Print t_b'.
 
   (* Generalized as in Lean: any definition in the module, not just a field. *)
   Definition t_nonfield (x : A.t) : nat := x.{double}.
