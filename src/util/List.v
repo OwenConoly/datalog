@@ -346,10 +346,10 @@ Section Forall.
   Lemma Forall2_unique_r R xs ys ys' :
     Forall2 R xs ys ->
     Forall2 R xs ys' ->
-    (forall x y y', R x y -> R x y' -> y = y') ->
+    (forall x y y', In x xs -> R x y -> R x y' -> y = y') ->
     ys = ys'.
   Proof.
-    intros H. revert ys'. induction H; intros; invert_list_stuff'; f_equal; eauto.
+    intros H. revert ys'. induction H; intros; simpl in *; invert_list_stuff'; f_equal; eauto.
   Qed.
 
   Lemma Forall2_and R1 R2 xs ys :

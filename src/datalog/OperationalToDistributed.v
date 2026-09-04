@@ -1,6 +1,6 @@
 From Stdlib Require Import List Permutation.
 From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics.
-From coqutil Require Import Map.Interface Eqb.
+From coqutil Require Import Map.Interface Eqb Tactics.fwd.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
 
@@ -89,7 +89,14 @@ Section __.
       star distributed_step gs t gs' /\
         distribute_R os' gs'.
   Proof.
-    intros H. invert 1. cbv [fire_at_rule] in H2.
+    intros H. invert 1. rename H1 into Hp, H2 into Hr.
+    cbv [fire_at_rule] in Hr. fwd.
+    cbv [can_fire_rule_at] in Hrp0. destruct Hrp0 as [Hrp0|Hrp0].
+    - subst. admit.
+    - fwd. cbv [can_deduce_fact] in Hrp1. Tactics.destruct_one_match_hyp.
+      { fwd. cbv [can_deduce_normal_fact] in Hrp1p0. fwd. invert Hrp1p0p0. }
+      fwd.
+      fwd.
   Admitted.
 
   (*we add two pieces of complexity here.
