@@ -39,6 +39,20 @@ Ltac invert e := invertN e || invert' e.
 Ltac invert0 H := invert H; fail.
 Ltac invert1 H := invert H; [].
 
+Ltac invert1_any_step :=
+  match goal with
+  | H:?P |- _ =>
+      lazymatch P with
+      | @eq _ _ _ => fail
+      | map.ok _ => fail
+      | _ => match type of P with
+             | Prop => progress invert1 H
+             end
+      end
+  end.
+
+Ltac invert1_any := repeat invert1_any_step.
+
 Ltac dep_invert H :=
   invert H;
   repeat match goal with

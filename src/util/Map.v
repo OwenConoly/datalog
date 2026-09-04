@@ -1191,6 +1191,15 @@ Proof.
       * apply E. right. apply IH; eauto.
 Qed.
 
+Lemma compatible_union_of_list_extends (ms : list mp) u :
+  compatible_union_of_list ms = Some u ->
+  forall m, In m ms -> map.extends u m.
+Proof.
+  intros Heq m Hin x v Hget.
+  eapply compatible_union_of_list_get in Heq.
+  apply Heq. exists m. split; assumption.
+Qed.
+
 Lemma Forall_map_tuples (R : key -> value -> Prop) (m : mp) :
   Forall_map R m -> Forall (fun p => R (fst p) (snd p)) (map.tuples m).
 Proof.

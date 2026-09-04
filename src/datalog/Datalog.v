@@ -25,15 +25,6 @@ Class signature {fn aggregator T : Type} : Type :=
     agg_id : aggregator -> T; }.
 Arguments signature : clear implicits.
 
-Class type_signature {rel fn aggregator : Type} : Type :=
-  {
-    type : Type;
-    fun_type : fn -> list type * type;
-    rel_type : rel -> list type;
-    agg_type : aggregator -> type * type;
-  }.
-Arguments type_signature : clear implicits.
-
 Class query_signature {rel : Type} :=
   { outs : rel -> nat }.
 Arguments query_signature : clear implicits.
@@ -48,20 +39,6 @@ Existing Class exprvarT.
 Existing Class fnT.
 Existing Class aggregatorT.
 Existing Class valueT.
-
-Ltac invert1_any_step :=
-        match goal with
-        | H:?P |- _ =>
-            lazymatch P with
-            | @eq _ _ _ => fail
-            | map.ok _ => fail
-            | _ => match type of P with
-                  | Prop => progress invert1 H
-                  end
-            end
-        end.
-
-Ltac invert1_any := repeat invert1_any_step.
 
 Goal forall {exprvar : exprvarT} {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb} (v v0 : exprvar),
     BoolSpec (v = v0) (v <> v0) (var_eqb v v0).
@@ -106,7 +83,6 @@ Module expr.
       | app _ args => S (fold_right Nat.max O (map size args))
       end.
 
-    (*TODO use the fancy new Register whatever instead of this name?*)
     Lemma expr_ind P :
       (forall v, P (var v)) ->
       (forall f args,
@@ -251,9 +227,22 @@ End __.
 End clause. Notation clause := clause.clause.
 
 Module meta_clause.
-  Record meta_clause {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
-    { rel : rel;
-      args : list (option expr) }.
+  Section __.
+    Context {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {value : valueT}.
+    Context {context : map.map exprvar value} {context_ok : map.ok context}.
+    Context {sig : signature fn aggregator value}.
+    Record meta_clause :=
+      { rel : relt;
+        args : list (option expr) }.
+
+    Definition interp (ctx: context) (c : meta_clause) (f : fact) : Prop :=
+      exists mf_args mf_set,
+        Forall2 (option_relation (expr.interp ctx)) c.(args) mf_args /\
+          f = meta_fact c.(rel) mf_args mf_set.
+
+    Definition vars (c : meta_clause) : list exprvar :=
+      flat_map expr.vars (keep_Some c.{args}).
+  End __.
 End meta_clause. Notation meta_clause := meta_clause.meta_clause.
 
 Section __.
@@ -302,11 +291,6 @@ Section __.
   Proof.
     destruct args, args'; simpl; intros; congruence || fwd; auto.
   Qed.
-
-  Definition interp_meta_clause (ctx: context) (c : meta_clause) (f : fact) : Prop :=
-    exists mf_args mf_set,
-      Forall2 (option_relation (expr.interp ctx)) c.{args} mf_args /\
-        f = meta_fact c.{rel} mf_args mf_set.
 
   Inductive rule :=
   | normal_rule (rule_concls : list clause) (rule_hyps : list clause)
@@ -398,8 +382,8 @@ Section __.
     non_meta_rule_impl r R args hyps ->
     rule_impl _ r (normal_fact R args) hyps
   | meta_rule_impl rule_concls rule_hyps ctx R args hyps S :
-    Exists (fun c => interp_meta_clause ctx c (meta_fact R args (fun args' => S args'))) rule_concls ->
-      Forall2 (interp_meta_clause ctx) rule_hyps hyps ->
+    Exists (fun c => meta_clause.interp ctx c (meta_fact R args (fun args' => S args'))) rule_concls ->
+      Forall2 (meta_clause.interp ctx) rule_hyps hyps ->
       (forall args'',
           Forall2 matches args args'' ->
           S args'' <-> env hyps R args'') ->
@@ -517,7 +501,7 @@ Section __.
       + eassumption.
       + eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
         apply Forall3_ignore2 in H2. eapply Forall2_impl; [eassumption|].
-        simpl. intros. fwd. cbv [interp_meta_clause extensionally_equal] in *.
+        simpl. intros. fwd. cbv [meta_clause.interp extensionally_equal] in *.
         fwd. eauto.
       + intros. rewrite H3 by assumption.
         split; intros; eapply one_step_derives_ext; eauto.
@@ -584,7 +568,7 @@ Section __.
     invert 1. intros Heq.
     econstructor; [|eassumption|].
     { eapply Exists_impl; [|eassumption].
-      simpl. cbv [interp_meta_clause]. intros. fwd. eauto. }
+      simpl. cbv [meta_clause.interp]. intros. fwd. eauto. }
     intros. rewrite <- Heq by eassumption. auto.
   Qed.
 
@@ -705,16 +689,13 @@ Section __.
       admit.
   Abort.
 
-  Definition vars_of_meta_clause (c : meta_clause) : list exprvar :=
-    flat_map expr.vars (keep_Some c.{args}).
-
   Ltac invert_stuff :=
     match goal with
     | _ => progress cbn [matches rel_of fact_of args_of clause.rel clause.args meta_clause.rel meta_clause.args] in *
     | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
     | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
     | H : clause.interp _ _ _ |- _ => cbv [clause.interp] in H; fwd
-    | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
+    | H : meta_clause.interp _ _ _ |- _ => cbv [meta_clause.interp] in H; fwd
     | H : expr.interp _ _ _ |- _ => invert1 H
     | H : In _ [_] |- _ => destruct H; [|contradiction]
     | H : Exists _ _ |- _ => apply Exists_exists in H; fwd
@@ -754,7 +735,7 @@ Section __.
     | normal_rule rule_concls rule_hyps =>
         flat_map clause.vars rule_concls
     | meta_rule rule_concls rule_hyps =>
-        flat_map vars_of_meta_clause rule_concls
+        flat_map meta_clause.vars rule_concls
     | agg_rule _ _ _ => []
     end.
 
@@ -1051,7 +1032,7 @@ Section __.
       apply in_flat_map. exists (meta_rule rule_concls rule_hyps).
       split; [exact Hrin |].
       simpl. apply Exists_exists in H. destruct H as [c [Hcin Hc]].
-      cbv [interp_meta_clause] in Hc.
+      cbv [meta_clause.interp] in Hc.
       destruct Hc as [mf_args [mf_set [H_forall2 H_eq]]].
       inversion H_eq; subst.
       apply in_map_iff. exists c. split; [reflexivity | exact Hcin].
@@ -1393,7 +1374,7 @@ Section __.
   Proof.
     invert 1. eapply Forall_impl.
     2: { eapply Forall2_forget_l. eassumption. }
-    simpl. intros. fwd. cbv [interp_meta_clause] in *. fwd.
+    simpl. intros. fwd. cbv [meta_clause.interp] in *. fwd.
     exact I.
   Qed.
 
@@ -1661,284 +1642,6 @@ Section __.
   (*   intros. split; auto using loopless_program. intros [H'|H']; fwd; eauto. *)
   (* Qed. *)
 
-  Context `{tsig : type_signature rel fn aggregator}.
-  Context {type_context : map.map exprvar type}
-          {type_context_ok : map.ok type_context}.
-
-  Unset Elimination Schemes.
-  Inductive well_typed_expr (tctx : type_context) : expr -> type -> Prop :=
-  | wt_var_expr x t :
-    map.get tctx x = Some t ->
-    well_typed_expr tctx (expr.var x) t
-  | wt_fun_expr f args arg_ts t :
-    fun_type f = (arg_ts, t) ->
-    Forall2 (well_typed_expr tctx) args arg_ts ->
-    well_typed_expr tctx (expr.app f args) t.
-  Set Elimination Schemes.
-
-  Definition well_typed_clause (tctx : type_context) (c : clause) : Prop :=
-    Forall2 (well_typed_expr tctx) c.{args} (rel_type c.{rel}).
-
-  Definition well_typed_opt_expr (tctx : type_context) (oe : option expr) (t : type) : Prop :=
-    match oe with
-    | None => True
-    | Some e => well_typed_expr tctx e t
-    end.
-
-  Definition well_typed_meta_clause (tctx : type_context) (c : meta_clause) : Prop :=
-    Forall2 (well_typed_opt_expr tctx)
-      c.{args} (rel_type c.{rel}).
-
-  Definition well_typed_rule (r : rule) : Prop :=
-    exists tctx : type_context,
-      match r with
-      | normal_rule concls hyps =>
-          Forall (well_typed_clause tctx) concls /\
-          Forall (well_typed_clause tctx) hyps
-      | meta_rule concls hyps =>
-          Forall (well_typed_meta_clause tctx) concls /\
-          Forall (well_typed_meta_clause tctx) hyps
-      | agg_rule concl_rel agg hyp_rel =>
-          exists i_type in_type out_type shared,
-            agg_type agg = (in_type, out_type) /\
-            rel_type concl_rel = out_type :: shared /\
-            rel_type hyp_rel = i_type :: in_type :: shared
-      end.
-
-  Context {type_eqb : Eqb type} {type_eqb_ok : Eqb_ok type_eqb}.
-
-  Fixpoint check_expr_type e t : option type_context :=
-    match e with
-    | expr.var x => Some (map.put map.empty x t)
-    | expr.app f args =>
-        let '(arg_ts, ret_t) := fun_type f in
-        if (type_eqb ret_t t && Nat.eqb (length arg_ts) (length args))%bool
-        then compatible_union_of_list_option (value_eqb := type_eqb) (map2 check_expr_type args arg_ts)
-        else None
-    end.
-
-  Definition check_clause_type (c : clause) : option type_context :=
-    let arg_ts := rel_type c.{rel} in
-    if Nat.eqb (length c.{args}) (length arg_ts)
-    then compatible_union_of_list_option
-           (value_eqb := type_eqb) (map2 check_expr_type c.{args} arg_ts)
-    else None.
-
-  Definition check_opt_expr_type (oe : option expr) (t : type) : option type_context :=
-    match oe with
-    | None => Some map.empty
-    | Some e => check_expr_type e t
-    end.
-
-  Definition check_meta_clause_type (c : meta_clause) : option type_context :=
-    let arg_ts := rel_type c.{rel} in
-    if Nat.eqb (length c.{args}) (length arg_ts)
-    then compatible_union_of_list_option
-           (value_eqb := type_eqb) (map2 check_opt_expr_type c.{args} arg_ts)
-    else None.
-
-  Definition check_rule_type (r : rule) : option type_context :=
-    match r with
-    | normal_rule concls hyps =>
-        compatible_union_of_list_option
-          (value_eqb := type_eqb)
-          (map check_clause_type (concls ++ hyps))
-    | meta_rule concls hyps =>
-        compatible_union_of_list_option
-          (value_eqb := type_eqb)
-          (map check_meta_clause_type (concls ++ hyps))
-    | agg_rule concl_rel agg hyp_rel =>
-        let '(in_type, out_type) := agg_type agg in
-        match rel_type concl_rel, rel_type hyp_rel with
-        | out_t :: c_shared, _ :: in_t :: h_shared =>
-            if (type_eqb out_type out_t &&
-                type_eqb in_type in_t &&
-                list_eqb c_shared h_shared)%bool
-            then Some map.empty
-            else None
-        | _, _ => None
-        end
-    end.
-
-  Lemma well_typed_expr_extends e :
-    forall tctx tctx' t,
-      well_typed_expr tctx e t ->
-      map.extends tctx' tctx ->
-      well_typed_expr tctx' e t.
-  Proof.
-    induction e; intros tctx tctx' t' Hwt Hext.
-    - inversion Hwt; subst. constructor. apply Hext. assumption.
-    - inversion Hwt; subst. econstructor; [eassumption|].
-      eapply Forall2_impl_strong; [eassumption|].
-      intros a t_a Hwa Hin _. rewrite Forall_forall in H. eauto.
-  Qed.
-
-  Lemma well_typed_clause_extends tctx tctx' c :
-    well_typed_clause tctx c ->
-    map.extends tctx' tctx ->
-    well_typed_clause tctx' c.
-  Proof.
-    cbv [well_typed_clause]. intros H Hext.
-    eapply Forall2_impl_strong; [eassumption|].
-    intros; eauto using well_typed_expr_extends.
-  Qed.
-
-  Lemma well_typed_meta_clause_extends tctx tctx' c :
-    well_typed_meta_clause tctx c ->
-    map.extends tctx' tctx ->
-    well_typed_meta_clause tctx' c.
-  Proof.
-    cbv [well_typed_meta_clause]. intros H Hext.
-    eapply Forall2_impl_strong; [eassumption|].
-    intros [e|] t Hopt _ _; cbv [well_typed_opt_expr] in *;
-      eauto using well_typed_expr_extends.
-  Qed.
-
-  Lemma compatible_union_of_list_extends (ms : list type_context) u :
-    compatible_union_of_list (value_eqb := type_eqb) ms = Some u ->
-    forall m, In m ms -> map.extends u m.
-  Proof.
-    intros Heq m Hin x v Hget.
-    eapply (compatible_union_of_list_get (value_eqb := type_eqb)) in Heq.
-    apply Heq. eauto.
-  Qed.
-
-  Lemma check_expr_type_sound e :
-    forall t tctx,
-      check_expr_type e t = Some tctx ->
-      well_typed_expr tctx e t.
-  Proof.
-    induction e; intros t' tctx Hck; simpl in Hck.
-    - injection Hck as <-.
-      constructor. apply map.get_put_same.
-    - destruct (fun_type f) as [arg_ts ret_t] eqn:Eft.
-      destruct ((type_eqb ret_t t' && Nat.eqb (length arg_ts) (length args))%bool) eqn:Echk;
-        [|discriminate].
-      apply Bool.andb_true_iff in Echk. destruct Echk as [Eret Elen].
-      destr (type_eqb ret_t t'); [|discriminate].
-      apply Nat.eqb_eq in Elen.
-      cbv [compatible_union_of_list_option] in Hck.
-      destruct (option_all (map2 check_expr_type args arg_ts)) as [ctxs|] eqn:Eall;
-        [|discriminate].
-      simpl in Hck.
-      destruct (compatible_union_of_list (value_eqb := type_eqb) ctxs) as [u|] eqn:Eun;
-        [|discriminate].
-      simpl in Hck. injection Hck as <-.
-      apply option_all_map2_Forall3 in Eall; [|congruence].
-      econstructor; [eassumption|].
-      pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
-      apply Forall3_ignore3_strong in Eall.
-      eapply Forall2_impl_strong; [eassumption|].
-      intros a t_a [c [Hin Hck_a]] Hin_a _.
-      rewrite Forall_forall in H.
-      eapply well_typed_expr_extends; eauto.
-  Qed.
-
-  Lemma check_clause_type_sound c tctx :
-    check_clause_type c = Some tctx ->
-    well_typed_clause tctx c.
-  Proof.
-    cbv [check_clause_type well_typed_clause].
-    destruct (Nat.eqb (length c.{args}) (length (rel_type c.{rel})))
-      eqn:Elen; [|discriminate].
-    apply Nat.eqb_eq in Elen.
-    intros Hck.
-    cbv [compatible_union_of_list_option] in Hck.
-    destruct (option_all (map2 check_expr_type c.{args} (rel_type c.{rel})))
-      as [ctxs|] eqn:Eall; [|discriminate].
-    simpl in Hck.
-    destruct (compatible_union_of_list (value_eqb := type_eqb) ctxs) as [u|] eqn:Eun;
-      [|discriminate].
-    simpl in Hck. injection Hck as <-.
-    apply option_all_map2_Forall3 in Eall; [|assumption].
-    pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
-    apply Forall3_ignore3_strong in Eall.
-    eapply Forall2_impl_strong; [eassumption|].
-    intros a t_a [c0 [Hin Hck_a]] _ _.
-    eapply well_typed_expr_extends; eauto using check_expr_type_sound.
-  Qed.
-
-  Lemma check_meta_clause_type_sound c tctx :
-    check_meta_clause_type c = Some tctx ->
-    well_typed_meta_clause tctx c.
-  Proof.
-    cbv [check_meta_clause_type well_typed_meta_clause].
-    destruct (Nat.eqb (length c.{args}) (length (rel_type c.{rel})))
-      eqn:Elen; [|discriminate].
-    apply Nat.eqb_eq in Elen.
-    intros Hck.
-    cbv [compatible_union_of_list_option] in Hck.
-    destruct (option_all (map2 check_opt_expr_type c.{args} (rel_type c.{rel})))
-      as [ctxs|] eqn:Eall; [|discriminate].
-    simpl in Hck.
-    destruct (compatible_union_of_list (value_eqb := type_eqb) ctxs) as [u|] eqn:Eun;
-      [|discriminate].
-    simpl in Hck. injection Hck as <-.
-    apply option_all_map2_Forall3 in Eall; [|assumption].
-    pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
-    apply Forall3_ignore3_strong in Eall.
-    eapply Forall2_impl_strong; [eassumption|].
-    intros [e|] t_a [c0 [Hin Hck_a]] _ _;
-      cbv [check_opt_expr_type well_typed_opt_expr] in *.
-    - eapply well_typed_expr_extends; eauto using check_expr_type_sound.
-    - exact I.
-  Qed.
-
-  Lemma check_rule_type_sound r tctx :
-    check_rule_type r = Some tctx ->
-    well_typed_rule r.
-  Proof.
-    cbv [check_rule_type well_typed_rule]. destruct r as [concls hyps|concls hyps|cr ag hr].
-    - intros Hck. exists tctx.
-      cbv [compatible_union_of_list_option] in Hck.
-      destruct (option_all (map check_clause_type (concls ++ hyps))) as [ctxs|] eqn:Eall;
-        [|discriminate].
-      simpl in Hck.
-      destruct (compatible_union_of_list (value_eqb := type_eqb) ctxs) as [u|] eqn:Eun;
-        [|discriminate].
-      simpl in Hck. inversion Hck; subst u; clear Hck.
-      pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
-      apply option_all_map_Some' in Eall.
-      apply Forall_app.
-      enough (Hall : Forall (well_typed_clause tctx) (concls ++ hyps)) by tauto.
-      apply Forall_forall. intros c0 Hin.
-      assert (In (check_clause_type c0) (map Some ctxs)) as Hin'
-          by (rewrite <- Eall; apply in_map; assumption).
-      apply in_map_iff in Hin'. destruct Hin' as [m [Heq Hin_m]].
-      eapply well_typed_clause_extends; [eauto using check_clause_type_sound|].
-      auto.
-    - intros Hck. exists tctx.
-      cbv [compatible_union_of_list_option] in Hck.
-      destruct (option_all (map check_meta_clause_type (concls ++ hyps))) as [ctxs|] eqn:Eall;
-        [|discriminate].
-      simpl in Hck.
-      destruct (compatible_union_of_list (value_eqb := type_eqb) ctxs) as [u|] eqn:Eun;
-        [|discriminate].
-      simpl in Hck. inversion Hck; subst u; clear Hck.
-      pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
-      apply option_all_map_Some' in Eall.
-      apply Forall_app.
-      enough (Hall : Forall (well_typed_meta_clause tctx) (concls ++ hyps)) by tauto.
-      apply Forall_forall. intros c0 Hin.
-      assert (In (check_meta_clause_type c0) (map Some ctxs)) as Hin'
-          by (rewrite <- Eall; apply in_map; assumption).
-      apply in_map_iff in Hin'. destruct Hin' as [m [Heq Hin_m]].
-      eapply well_typed_meta_clause_extends;
-        [eauto using check_meta_clause_type_sound|]. auto.
-    - destruct (agg_type ag) as [in_t out_t] eqn:Eagt.
-      destruct (rel_type cr) as [|out_t' c_sh] eqn:Ecr; [discriminate|].
-      destruct (rel_type hr) as [|i_t [|in_t' h_sh]] eqn:Ehr; try discriminate.
-      destruct ((type_eqb out_t out_t' &&
-                 type_eqb in_t in_t' &&
-                 list_eqb c_sh h_sh)%bool) eqn:Echk; [|discriminate].
-      intros _.
-      apply Bool.andb_true_iff in Echk. destruct Echk as [Echk Esh].
-      apply Bool.andb_true_iff in Echk. destruct Echk as [Eout Ein].
-      destr (type_eqb out_t out_t'); [|discriminate].
-      destr (type_eqb in_t in_t'); [|discriminate].
-      destr (list_eqb c_sh h_sh); [|discriminate].
-      exists map.empty, i_t, in_t', out_t', h_sh. auto.
-  Qed.
 End __.
 
 Fixpoint expr_varmap {var1 var2 : exprvarT} {fn : fnT}
@@ -1985,8 +1688,8 @@ Ltac interp_exprs :=
     (*     eapply interp_clause_subst_more; [|eassumption] *)
     | |- clause.interp _ _ _ =>
         cbv [clause.interp]; eexists; split; [|reflexivity]; simpl
-    | |- interp_meta_clause _ _ _ =>
-        cbv [interp_meta_clause]; do 2 eexists; split; [|reflexivity]; simpl
+    | |- meta_clause.interp _ _ _ =>
+        cbv [meta_clause.interp]; do 2 eexists; split; [|reflexivity]; simpl
     | |- _ /\ _ => split; [solve [interp_exprs] |]
     | |- Exists _ [_] => apply Exists_cons_hd
 
@@ -2007,7 +1710,7 @@ Ltac invert_stuff :=
   | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
   | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
   | H : clause.interp _ _ _ |- _ => cbv [clause.interp] in H; fwd
-  | H : interp_meta_clause _ _ _ |- _ => cbv [interp_meta_clause] in H; fwd
+  | H : meta_clause.interp _ _ _ |- _ => cbv [meta_clause.interp] in H; fwd
   | H : expr.interp _ _ _ |- _ => invert1 H
   | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
   | _ => progress subst
