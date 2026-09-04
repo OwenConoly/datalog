@@ -1,5 +1,5 @@
 From Stdlib Require Import List Permutation.
-From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default.
+From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics.
 From coqutil Require Import Map.Interface Eqb.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
@@ -69,32 +69,10 @@ Section __.
   Context (Hsenders_node : node_senders_ok).
   Context (Hsenders_input : input_senders_ok).
 
-  (* In (meta_dfact R args  *)
-  (* Definition graph_sent_facts_of (ofact : dfact (mf_label := op_source)) := *)
-  (*   match ofact with *)
-  (*   | normal_dfact R args => *)
-  (*       [normal_dfact R args] *)
-  (*   | meta_dfact R args from_input num => *)
-  (*       [meta_dfact R args input_source num] (*i guess?*) *)
-  (*   | meta_dfact R args (from_rule nr) num => *)
-
-
-  (* Definition graph_known_facts_of (ofact : dfact (mf_label := op_source)) := *)
-  (*   match ofact with *)
-  (*   | normal_dfact R args => [normal_dfact R args] *)
-  (*   | meta_dfact R args (from_rule nr) num => *)
-  (*       let ns := map fst (filter (fun '(n, rules) => inb (rule_of nr) rules && inb (node_source n) (graph_senders R)) (map.tuples graph_prog)) in *)
-  (*       map (fun n => meta_dfact R args (node_source n) (length ns * num)) ns *)
-  (*   | meta_dfact R args from_input num => *)
-  (*       [meta_dfact R args input_source num] *)
-  (*   end. *)
-
   Definition distribute_R (os : state) (gs : graph_state dfact dfact_mod_count node_state) :=
     Forall2_map (fun n np ns =>
-                   flat_map normal_facts_of
-                     (filter (fun f => inb (dfact_rel f) (flat_map hyp_rels np))
-                        (flat_map (get_or_default os.(sents)) np)) =
-                     flat_map normal_facts_of ns.(gns_node_state).(Node.sent_facts) /\
+                   Permutation (flat_map normal_facts_of (flat_map (get_or_default os.(sents)) (dedup np)))
+                     (flat_map normal_facts_of ns.(gns_node_state).(Node.sent_facts)) /\
                      (forall R args num,
                          In (meta_dfact R args (node_source n) num) ns.(gns_node_state).(Node.sent_facts) <->
                            (exists nums,
@@ -111,7 +89,7 @@ Section __.
       star distributed_step gs t gs' /\
         distribute_R os' gs'.
   Proof.
-
+    intros H. invert 1. cbv [fire_at_rule] in H2.
   Admitted.
 
   (*we add two pieces of complexity here.
