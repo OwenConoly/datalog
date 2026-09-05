@@ -6,7 +6,7 @@ From Stdlib Require Import Classical_Prop.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
-From Datalog Require Import Map Tactics Fp List Eqb DotNotation.
+From Datalog Require Import Map Tactics Fp List Eqb.
 From GraphSearch Require Import Dag.
 
 Import ListNotations.
@@ -180,7 +180,7 @@ Module clause.
     Qed.
 
     Definition vars (c : clause) : list exprvar :=
-      flat_map expr.vars c.{args}.
+      flat_map expr.vars c.(args).
 
     Lemma interp_agree_on ctx1 ctx2 c f :
       interp ctx1 c f ->
@@ -241,7 +241,7 @@ Module meta_clause.
           f = meta_fact c.(rel) mf_args mf_set.
 
     Definition vars (c : meta_clause) : list exprvar :=
-      flat_map expr.vars (keep_Some c.{args}).
+      flat_map expr.vars (keep_Some c.(args)).
   End __.
 End meta_clause. Notation meta_clause := meta_clause.meta_clause.
 
@@ -1653,13 +1653,13 @@ Fixpoint expr_varmap {var1 var2 : exprvarT} {fn : fnT}
 
 Definition clause_varmap {rel : relT} {var1 var2 : exprvarT} {fn : fnT}
   (f : var1 -> var2) (c : @clause rel var1 fn) : @clause rel var2 fn :=
-  {| clause.rel := c.{rel};
-     clause.args := map (expr_varmap f) c.{args} |}.
+  {| clause.rel := c.(clause.rel);
+     clause.args := map (expr_varmap f) c.(clause.args) |}.
 
 Definition meta_clause_varmap {rel : relT} {var1 var2 : exprvarT} {fn : fnT}
   (f : var1 -> var2) (c : @meta_clause rel var1 fn) : @meta_clause rel var2 fn :=
-  {| meta_clause.rel := c.{rel};
-     meta_clause.args := map (option_map (expr_varmap f)) c.{args} |}.
+  {| meta_clause.rel := c.(meta_clause.rel);
+     meta_clause.args := map (option_map (expr_varmap f)) c.(meta_clause.args) |}.
 
 Hint Constructors non_meta_rule_impl : core.
 Hint Constructors rule_impl : core.

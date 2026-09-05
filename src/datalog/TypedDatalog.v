@@ -6,7 +6,7 @@ From Stdlib Require Import Classical_Prop.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
-From Datalog Require Import Map Tactics Fp List Eqb DotNotation Datalog.
+From Datalog Require Import Map Tactics Fp List Eqb Datalog.
 From GraphSearch Require Import Dag.
 
 Import ListNotations.
@@ -39,7 +39,7 @@ Section __.
   Set Elimination Schemes.
 
   Definition well_typed_clause (tctx : type_context) (c : clause) : Prop :=
-    Forall2 (well_typed_expr tctx) c.{args} (rel_type c.{rel}).
+    Forall2 (well_typed_expr tctx) c.(clause.args) (rel_type c.(clause.rel)).
 
   Definition well_typed_opt_expr (tctx : type_context) (oe : option expr) (t : type) : Prop :=
     match oe with
@@ -49,7 +49,7 @@ Section __.
 
   Definition well_typed_meta_clause (tctx : type_context) (c : meta_clause) : Prop :=
     Forall2 (well_typed_opt_expr tctx)
-      c.{args} (rel_type c.{rel}).
+      c.(meta_clause.args) (rel_type c.(meta_clause.rel)).
 
   Definition well_typed_rule (r : rule) : Prop :=
     exists tctx : type_context,
@@ -80,10 +80,10 @@ Section __.
     end.
 
   Definition check_clause_type (c : clause) : option type_context :=
-    let arg_ts := rel_type c.{rel} in
-    if Nat.eqb (length c.{args}) (length arg_ts)
+    let arg_ts := rel_type c.(clause.rel) in
+    if Nat.eqb (length c.(clause.args)) (length arg_ts)
     then compatible_union_of_list_option
-           (map2 check_expr_type c.{args} arg_ts)
+           (map2 check_expr_type c.(clause.args) arg_ts)
     else None.
 
   Definition check_opt_expr_type (oe : option expr) (t : type) : option type_context :=
@@ -93,10 +93,10 @@ Section __.
     end.
 
   Definition check_meta_clause_type (c : meta_clause) : option type_context :=
-    let arg_ts := rel_type c.{rel} in
-    if Nat.eqb (length c.{args}) (length arg_ts)
+    let arg_ts := rel_type c.(meta_clause.rel) in
+    if Nat.eqb (length c.(meta_clause.args)) (length arg_ts)
     then compatible_union_of_list_option
-           (map2 check_opt_expr_type c.{args} arg_ts)
+           (map2 check_opt_expr_type c.(meta_clause.args) arg_ts)
     else None.
 
   Definition check_rule_type (r : rule) : option type_context :=
@@ -192,12 +192,12 @@ Section __.
     well_typed_clause tctx c.
   Proof.
     cbv [check_clause_type well_typed_clause].
-    destruct (Nat.eqb (length c.{args}) (length (rel_type c.{rel})))
+    destruct (Nat.eqb (length c.(clause.args)) (length (rel_type c.(clause.rel))))
       eqn:Elen; [|discriminate].
     apply Nat.eqb_eq in Elen.
     intros Hck.
     cbv [compatible_union_of_list_option] in Hck.
-    destruct (option_all (map2 check_expr_type c.{args} (rel_type c.{rel})))
+    destruct (option_all (map2 check_expr_type c.(clause.args) (rel_type c.(clause.rel))))
       as [ctxs|] eqn:Eall; [|discriminate].
     simpl in Hck.
     destruct (compatible_union_of_list ctxs) as [u|] eqn:Eun;
@@ -216,12 +216,12 @@ Section __.
     well_typed_meta_clause tctx c.
   Proof.
     cbv [check_meta_clause_type well_typed_meta_clause].
-    destruct (Nat.eqb (length c.{args}) (length (rel_type c.{rel})))
+    destruct (Nat.eqb (length c.(meta_clause.args)) (length (rel_type c.(meta_clause.rel))))
       eqn:Elen; [|discriminate].
     apply Nat.eqb_eq in Elen.
     intros Hck.
     cbv [compatible_union_of_list_option] in Hck.
-    destruct (option_all (map2 check_opt_expr_type c.{args} (rel_type c.{rel})))
+    destruct (option_all (map2 check_opt_expr_type c.(meta_clause.args) (rel_type c.(meta_clause.rel))))
       as [ctxs|] eqn:Eall; [|discriminate].
     simpl in Hck.
     destruct (compatible_union_of_list ctxs) as [u|] eqn:Eun;

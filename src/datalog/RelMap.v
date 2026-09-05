@@ -2,7 +2,7 @@ From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 
-From Datalog Require Import Map Tactics Fp List Datalog DotNotation.
+From Datalog Require Import Map Tactics Fp List Datalog.
 From GraphSearch Require Import Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
@@ -30,8 +30,8 @@ Section RelMap.
   Definition fact_equiv f1 f2 := map_fact f1 = map_fact f2.
 
   Definition map_clause_rel (c : clause) : clause :=
-    {| clause.rel := f c.{rel};
-      clause.args := c.{args} |}.
+    {| clause.rel := f c.(clause.rel);
+      clause.args := c.(clause.args) |}.
 
   Lemma interp_clause_map_fw ctx c h :
     clause.interp ctx c h ->
@@ -84,8 +84,8 @@ Section RelMap.
   Qed.
 
   Definition map_meta_clause_rel (c : meta_clause) : meta_clause :=
-    {| meta_clause.rel := f c.{rel};
-      meta_clause.args := c.{args} |}.
+    {| meta_clause.rel := f c.(meta_clause.rel);
+      meta_clause.args := c.(meta_clause.args) |}.
 
   Definition map_rule_rels (r : rule) : rule :=
     match r with
