@@ -3,6 +3,7 @@ From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
+From Datalog.Util Require Import Autodestr.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
@@ -151,25 +152,54 @@ Module expr.
   End __.
 End expr. Notation expr := expr.expr.
 
-Variant fact {rel : relT} {value : valueT} :=
-  | normal_fact (nf_rel : rel) (nf_args : list value)
-  | meta_fact (mf_rel : rel) (mf_args : list (option value)) (mf_set : list value -> Prop).
+Module normal_fact.
+  Section __.
+    Context {relt : relT} {value : valueT}.
+    Record normal_fact :=
+      { rel : relt;
+        args : list value }.
+  End __.
+End normal_fact. Notation normal_fact := normal_fact.normal_fact.
+
+(*could consider extending this?*)
+Variant value_pattern {value : valueT} :=
+  | exactly (v : value)
+  | any.
+
+Module fact_pattern.
+  Section __.
+    Context {relt : relT} {value : valueT}.
+    Record fact_pattern :=
+      { rel : relt;
+        args : list value_pattern }.
+  End __.
+End fact_pattern. Notation fact_pattern := fact_pattern.fact_pattern.
+
+Module meta_fact.
+  Section __.
+    Context {relt : relT} {value : valueT}.
+    Record meta_fact :=
+      { pattern : fact_pattern;
+        set : normal_fact -> Prop }.
+  End __.
+End meta_fact. Notation meta_fact := meta_fact.meta_fact.
 
 #[local] Hint Resolve Forall2_impl : core.
 
 Module clause.
+  Record clause {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
+    { rel : relt;
+      args : list expr }.
+  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@clause _ _ _) :: prev ().
+
   Section __.
     Context {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {value : valueT}.
     Context {context : map.map exprvar value} {context_ok : map.ok context}.
     Context {sig : signature fn aggregator value}.
-    Record clause :=
-      { rel : relt;
-        args : list expr }.
 
-    Definition interp (ctx: context) (c : clause) (f : fact) : Prop :=
-      exists nf_args,
-        Forall2 (expr.interp ctx) c.(args) nf_args /\
-          f = normal_fact c.(rel) nf_args.
+    Definition interp (ctx: context) (c : clause) (f : normal_fact) :=
+      c.(rel) = f.(normal_fact.rel) /\
+        Forall2 (expr.interp ctx) c.(args) f.(normal_fact.args).
 
     Lemma interp_subst_more s s' f f' :
       map.extends s' s ->
@@ -188,7 +218,7 @@ Module clause.
       interp ctx2 c f.
     Proof.
       cbv [interp]. intros Hinterp Hagree. fwd.
-      eexists. split; [|auto].
+      autodestr. simpl in *. subst. split; auto.
       eapply Forall2_impl_strong; [eassumption|].
       intros. cbv [vars] in Hagree.
       rewrite Forall_flat_map, Forall_forall in Hagree.
@@ -200,7 +230,8 @@ Module clause.
       interp ctx c f2 ->
       f1 = f2.
     Proof.
-      intros. invert1_any. f_equal.
+      intros. cbv [interp] in *. fwd. autodestr. simpl in *. fwd.
+      destruct f1, f2. f_equal
       eapply Forall2_unique_r; eauto using expr.interp_det.
     Qed.
 
@@ -226,7 +257,7 @@ Module clause.
 End __.
 End clause. Notation clause := clause.clause.
 
-Module meta_clause.
+Module pattern_clause.
   Section __.
     Context {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {value : valueT}.
     Context {context : map.map exprvar value} {context_ok : map.ok context}.
