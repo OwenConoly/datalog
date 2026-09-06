@@ -1,12 +1,6 @@
 (*https://github.com/mit-plv/fiat-crypto/blob/master/src/Util/Tactics/DestructHyps.v ?*)
 From coqutil Require Import Ltac2.
 Ltac2 mutable to_destruct () : (constr -> bool) list := [].
-Ltac2 boolify (tac : unit -> 'a) : bool :=
-  match Control.case tac with
-  | Err _ => false
-  | Val (_, _) => true
-  end.
-Ltac2 Check boolify.
 
 Ltac2 Check Pattern.matches.
 Ltac2 Eval Pattern.matches pat:(?x) constr:(nat).

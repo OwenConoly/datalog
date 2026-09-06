@@ -150,7 +150,8 @@ Module expr.
       v1 = v2.
     Proof. eauto using interp_det, interp_agree_on. Qed.
   End __.
-End expr. Notation expr := expr.expr.
+End expr.
+Export expr (expr).
 
 Module normal_fact.
   Section __.
@@ -159,7 +160,8 @@ Module normal_fact.
       { rel : relt;
         args : list value }.
   End __.
-End normal_fact. Notation normal_fact := normal_fact.normal_fact.
+End normal_fact.
+Export normal_fact (normal_fact).
 
 (*could consider extending this?*)
 Variant value_pattern {value : valueT} :=
@@ -173,7 +175,8 @@ Module fact_pattern.
       { rel : relt;
         args : list value_pattern }.
   End __.
-End fact_pattern. Notation fact_pattern := fact_pattern.fact_pattern.
+End fact_pattern.
+Export fact_pattern (fact_pattern).
 
 Module meta_fact.
   Section __.
@@ -182,7 +185,8 @@ Module meta_fact.
       { pattern : fact_pattern;
         set : normal_fact -> Prop }.
   End __.
-End meta_fact. Notation meta_fact := meta_fact.meta_fact.
+End meta_fact.
+Export meta_fact (meta_fact).
 
 #[local] Hint Resolve Forall2_impl : core.
 
@@ -190,8 +194,7 @@ Module clause.
   Record clause {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
     { rel : relt;
       args : list expr }.
-  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@clause _ _ _) :: prev ().
-
+  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(clause _ _ _) :: prev ().
   Section __.
     Context {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {value : valueT}.
     Context {context : map.map exprvar value} {context_ok : map.ok context}.
@@ -231,6 +234,7 @@ Module clause.
       f1 = f2.
     Proof.
       intros. cbv [interp] in *. fwd. autodestr. simpl in *. fwd.
+
       destruct f1, f2. f_equal
       eapply Forall2_unique_r; eauto using expr.interp_det.
     Qed.
@@ -254,8 +258,11 @@ Module clause.
       rewrite Forall_forall in H2p0. apply H2p0 in Hv.
       fwd. invert1_any. cbv [agree_on]. congruence.
     Qed.
+
+    Definition dummy := tt.
 End __.
 End clause. Notation clause := clause.clause.
+Export clause (dummy).
 
 Module pattern_clause.
   Section __.
