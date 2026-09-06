@@ -1,6 +1,6 @@
 From Stdlib Require Import List Permutation.
 From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics.
-From coqutil Require Import Map.Interface Eqb Tactics.fwd.
+From coqutil Require Import Map.Interface Eqb Tactics.fwd Tactics.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
 
@@ -39,16 +39,16 @@ Section __.
   Local Notation has_derived_datalog_fact := (Operational.has_derived_datalog_fact is_input p).
 
   Definition graph_prog_distributes_normal_rules (rules : list rule) :=
-    forall concls hyps,
-      In (normal_rule concls hyps) rules <->
-        In (normal_rule concls hyps) (concat (values graph_prog)).
+    forall r,
+      is_normal r = true ->
+      In r rules <-> In r (concat (values graph_prog)).
 
   Definition graph_prog_distributes_meta_rules (rules : list rule) :=
     forall concls hyps,
       In (meta_rule concls hyps) rules ->
       Forall_map (fun _ rules =>
                     forall R,
-                      In R (map meta_clause_rel concls) ->
+                      In R (map meta_clause.rel concls) ->
                       In R (flat_map concl_rels (filter is_normal rules)) ->
                       In (meta_rule concls hyps) rules)
         graph_prog.
@@ -92,7 +92,25 @@ Section __.
     intros H. invert 1. rename H1 into Hp, H2 into Hr.
     cbv [fire_at_rule] in Hr. fwd.
     cbv [can_fire_rule_at] in Hrp0. destruct Hrp0 as [Hrp0|Hrp0].
-    - subst. admit.
+    - subst. cbv [non_meta_rules] in Hp. apply filter_In in Hp. fwd.
+      clear Hrp2. cbv [can_deduce_fact] in Hrp1. Tactics.destruct_one_match_hyp.
+      2: { fwd. simpl in *. discriminate. }
+      fwd.
+      cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
+      apply Hlayout_normal in Hpp0; auto. apply in_concat in Hpp0. fwd.
+      apply In_values in Hpp0p0. fwd.
+      cbv [distribute_R] in H.
+      epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
+      do 2 eexists. split.
+      + eapply star_step.
+        -- apply star_one. apply gstep_run.
+           ++ eassumption.
+           ++ cbv [prog_at]. erewrite get_or_default_Some by eassumption.
+              apply node_deduce_step.
+              cbv [Node.new_facts]. Print can_deduce_fact.
+              Print node_step.
+        destruct r; simpl in *; try discriminate; fwd. 2: { simpl in *.
+      fwd. admit.
     - fwd. cbv [can_deduce_fact] in Hrp1. Tactics.destruct_one_match_hyp.
       { fwd. cbv [can_deduce_normal_fact] in Hrp1p0. fwd. invert Hrp1p0p0. }
       fwd.

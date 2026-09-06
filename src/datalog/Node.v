@@ -70,24 +70,30 @@ Section __.
       non_meta_rule_impl r nf_rel nf_args hyps /\
         Forall (knows_datalog_fact known_facts) hyps.
 
-  Definition can_deduce_meta_fact (mf_concls mf_hyps : list meta_clause) (node : mf_label) (sent_facts : list dfact) (result : dfact) (hyps : list fact) :=
-    exists ctx mf_rel mf_args mf_cnt,
-      result = meta_dfact mf_rel mf_args node mf_cnt /\
-        Existsn (dfact_matches mf_rel mf_args) mf_cnt sent_facts /\
-        Exists (fun c => meta_clause.interp ctx c (meta_fact mf_rel mf_args (fun _ => False))) mf_concls /\
-        Forall2 (meta_clause.interp ctx) mf_hyps hyps.
-
-  Definition ok_to_deduce_fact (r : rule) known sent f :=
-    match f with
-    | normal_dfact nf_rel nf_args => True
-    | meta_dfact mf_rel mf_args source num_msgs =>
-        forall nf_args,
-          can_deduce_normal_fact r known mf_rel nf_args ->
-          Forall2 matches mf_args nf_args ->
-          In (normal_dfact mf_rel nf_args) sent
+  Print rule_impl. Print dfact.
+  Definition drule_impl (r : rule) (concl : dfact) (hyps : list dfact) :=
+    match concl with
+    | normal_dfact R args =>
+        (*hyps should have type "list normal_fact"*)
+        non_meta_rule_impl r R args hyps
+    | meta_dfact R args src num_facts =>
+        exists rule_concls rule_hyps ctx,
+        r = meta_rule rule_concls rule_hyps /\
+          Existsn (dfact_matches R args) num_facts sent_facts /\
+          Exists (fun c => meta_clause.interp ctx c (meta_fact R args (fun _ => False))) rule_concls /\
+          Forall2 (meta_clause.interp ctx) rule_hyps hyps
     end.
 
-  Definition can_deduce_fact (r : rule) node known sent f :=
+
+  Definition can_deduce_meta_fact (mf_concls mf_hyps : list meta_clause) (node : mf_label) (sent_facts : list dfact) mf_rel mf_args mf_cnt (hyps : list fact) :=
+
+  Definition ready_to_deduce_meta_fact known sent mf_rel mf_args (r : rule) :=
+    forall nf_args,
+      can_deduce_normal_fact r known mf_rel nf_args ->
+      Forall2 matches mf_args nf_args ->
+      In (normal_dfact mf_rel nf_args) sent.
+
+  Definition can_deduce_fact node known sent f r :=
     match f with
     | normal_dfact nf_rel nf_args =>
         can_deduce_normal_fact r known nf_rel nf_args /\
@@ -99,7 +105,7 @@ Section __.
         source = node /\
           exists mr_concls mr_hyps hyps,
             r = meta_rule mr_concls mr_hyps /\
-              can_deduce_meta_fact mr_concls mr_hyps node sent f hyps /\
+              can_deduce_meta_fact mr_concls mr_hyps node sent mf_rel mf_args num_msgs hyps /\
               Forall (knows_datalog_fact known) hyps
     end.
 
@@ -109,9 +115,13 @@ Section __.
   Context (p : list rule) (name : mf_label).
 
   Definition new_facts (rs : node_state) f :=
-    Exists
-      (fun r => can_deduce_fact r name rs.(known_facts) rs.(sent_facts) f)
-      p /\
+    match f with
+    | normal_dfact R args =>
+        Exists (can_deduce_fact name rs.(known_facts) rs.(sent_facts) f) p
+    | meta_dfact R args src num_msgs =>
+
+
+    /\
       Forall
         (fun r => ok_to_deduce_fact r rs.(known_facts) rs.(sent_facts) f)
         p.
