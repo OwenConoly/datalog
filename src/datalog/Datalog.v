@@ -174,8 +174,17 @@ Module value_pattern.
       | exactly v0 => v0 = v
       | any => True
       end.
+
+    Lemma matches_map_exactly vs :
+      Forall2 matches (map exactly vs) vs.
+    Proof.
+      rewrite <- Forall2_map_l. apply Forall2_same. apply Forall_forall. simpl. auto.
+    Qed.
 End __.
+
 End value_pattern. Export value_pattern (value_pattern).
+#[export] Hint Unfold value_pattern.matches : core.
+#[export] Hint Resolve value_pattern.matches_map_exactly : core.
 
 Module fact_pattern.
   Record fact_pattern {relt : relT} {value : valueT} :=
@@ -394,6 +403,22 @@ Module fact.
       | normal nf => Exists (fun hyp => meta_fact.matches hyp nf) mfs
       | meta mf => Exists (meta_fact.ext_eq mf) mfs
       end.
+
+    Lemma implied_by_mfs_ext hyps hyps' f :
+      Forall2 meta_fact.ext_eq hyps hyps' ->
+      implied_by_mfs hyps f ->
+      implied_by_mfs hyps' f.
+    Proof.
+      intros H1 H2. cbv [fact_supported] in *. apply Exists_exists in H2. fwd.
+      apply Forall2_forget_r in H1. rewrite Forall_forall in H1. apply H1 in H2p0.
+      fwd. apply Exists_exists. eexists. split; [eassumption|].
+      destruct f, x, y; destruct H2p1; simpl in *; fwd; contradiction || eauto.
+      - right. cbv [fact_matches] in H. fwd. cbv [fact_matches].
+        do 4 eexists. ssplit; try reflexivity; auto. apply H2p0p1p2; auto.
+      - left. ssplit; auto. intros. rewrite <- H2p0p1p2 by assumption. apply Hp2.
+        assumption.
+      - exfalso. cbv [fact_matches] in H. fwd. congruence.
+    Qed.
   End __.
 End fact. Export fact (fact).
 
@@ -441,17 +466,7 @@ Module rule.
         1: apply Forall2_eq_map in H5.
         2: { cbv [fact.ext_eq]. intros. fwd. instantiate (1 := fun '(_, _) => _). reflexivity. }
         subst. econstructor. eapply is_list_set_ext; [eassumption|].
-        simpl. intros. fwd. apply H3p1.
-
-        constructor; auto. auto.
-             simpl. intros (?, ?). apply H3p2.
-             constructor; try solve [cbv [matches]; auto].
-             constructor; try solve [cbv [matches]; auto].
-             rewrite <-  Forall2_map_l. apply Forall2_same.
-             apply Forall_forall. simpl. auto. }
-        apply Forall2_eq_eq. apply Forall2_flip.
-        rewrite <- Forall2_map_l in *. eapply Forall2_impl; [eassumption|].
-        simpl. intros (?, ?) ? ?. cbv [extensionally_equal] in *. fwd. reflexivity.
+        simpl. intros. fwd. apply H3p1. auto.
     Qed.
 
     (*if we know only mfs and the normal facts that mfs include, then can we derive f with exactly one rule application?*)
@@ -516,22 +531,6 @@ Module program.
 
     (*making this an abbreviation allows directly using lemmas about pftree "without unfolding" interp *)
     Abbreviation interp p := (pftree (interp_step p)).
-
-  Lemma fact_supported_ext hyps hyps' f :
-    Forall2 extensionally_equal hyps hyps' ->
-    fact_supported hyps f ->
-    fact_supported hyps' f.
-  Proof.
-    intros H1 H2. cbv [fact_supported] in *. apply Exists_exists in H2. fwd.
-    apply Forall2_forget_r in H1. rewrite Forall_forall in H1. apply H1 in H2p0.
-    fwd. apply Exists_exists. eexists. split; [eassumption|].
-    destruct f, x, y; destruct H2p1; simpl in *; fwd; contradiction || eauto.
-    - right. cbv [fact_matches] in H. fwd. cbv [fact_matches].
-      do 4 eexists. ssplit; try reflexivity; auto. apply H2p0p1p2; auto.
-    - left. ssplit; auto. intros. rewrite <- H2p0p1p2 by assumption. apply Hp2.
-      assumption.
-    - exfalso. cbv [fact_matches] in H. fwd. congruence.
-  Qed.
 
   Lemma one_step_derives_ext p hyps hyps' R args'' :
     Forall2 extensionally_equal hyps hyps' ->
