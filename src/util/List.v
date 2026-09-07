@@ -277,6 +277,16 @@ Section Forall.
     Forall2 R xs xs.
   Proof. induction 1; auto. Qed.
 
+  #[global] Instance Forall2_Equivalence (R : A -> A -> Prop) {R_equiv : Equivalence R} :
+    Equivalence (Forall2 R).
+  Proof.
+    constructor.
+    - intros l. induction l; constructor; auto. reflexivity.
+    - intros l1 l2 H. induction H; constructor; auto. symmetry. assumption.
+    - intros l1 l2 l3 H. revert l3. induction H; auto.
+      intros l3 H3. invert H3. constructor; eauto. etransitivity; eauto.
+  Qed.
+
   Lemma Forall2_combine R xs ys :
     Forall2 R xs ys ->
     Forall (fun '(x, y) => R x y) (combine xs ys).
@@ -397,6 +407,11 @@ Section Forall.
       + exact Heq.
       + apply IH. exact Htail.
   Qed.
+
+  Lemma Forall2_map_eq (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
+    Forall2 (fun x y => f x = g y) l1 l2 ->
+    map f l1 = map g l2.
+  Proof. induction 1; simpl; congruence. Qed.
 
   Lemma Forall2_eq_map (f : B -> A) (l1 : list A) (l2 : list B) :
     Forall2 (fun x y => y = f x) l2 l1 <-> l1 = map f l2.

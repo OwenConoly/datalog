@@ -117,3 +117,5 @@ Ltac map_func :=
 
 From Datalog.Util Require Import Autodestr Autocbn.
 Ltac simp := repeat (autodestr; autocbn; subst).
+
+#[export] Hint Unfold iff : core.
