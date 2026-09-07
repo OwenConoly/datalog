@@ -3,7 +3,7 @@ From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
-From Datalog.Util Require Import Autodestr Autocbn.
+From Datalog.Util Require Import Autodestr Autocbn Pftree.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Datatypes.List Datatypes.Option Eqb.
 
@@ -471,45 +471,19 @@ Module meta_rule.
         pattern_interp r pat (map meta_fact.pattern hyps) /\
           meta_fact.ext_eq mf
             ({| meta_fact.pattern := pat;
-               meta_fact.set := fun args =>
-                                  rule.one_step_derives prog hyps
-                                                        {| normal_fact.rel := pat.(fact_pattern.rel);
-                                                          normal_fact.args := args |} |}).
+               meta_fact.set :=
+                 fun args =>
+                   rule.one_step_derives prog hyps
+                                         {| normal_fact.rel := pat.(fact_pattern.rel);
+                                           normal_fact.args := args |} |}).
   End __.
 End meta_rule.
 
-  Unset Elimination Schemes.
-  Inductive pftree {T : Type} (P : T -> list T -> Prop) (Q : T -> Prop) : T -> Prop :=
-  | pftree_leaf x :
-    Q x ->
-    pftree _ _ x
-  | pftree_step x l :
-    P x l ->
-    Forall (pftree _ _) l ->
-    pftree _ _ x.
-  Set Elimination Schemes.
-  Hint Constructors pftree : core.
-
-  Hint Constructors rule_impl : core.
-
-  Lemma pftree_ind {U : Type} (P : U -> list U -> Prop) Q R :
-    (forall x, Q x -> R x) ->
-    (forall x l,
-        P x l ->
-        Forall (pftree P Q) l ->
-        Forall R l ->
-        R x) ->
-    forall x, pftree P Q x -> R x.
-  Proof.
-    intros H1 H2. fix self 2.
-    intros x Hx. invert Hx. 1: auto. eapply H2. 1,2: eassumption.
-    clear -H0 self. induction H0; eauto.
-  Qed.
-
-  Lemma pftree_trans {U : Type} P (x : U) Q :
-    pftree P (pftree P Q) x ->
-    pftree P Q x.
-  Proof. induction 1; eauto. Qed.
+Module program.
+  Record program :=
+    { rules : list rule;
+      meta_rules : list meta_rule;
+      inputs : list rel }.
 
   Definition prog_impl (p : list rule) : (fact -> Prop) -> fact -> Prop :=
     pftree (fun f hyps => Exists (fun r => rule_impl (one_step_derives p) r f hyps) p).
@@ -641,12 +615,6 @@ End meta_rule.
           Forall (prog_impl p Q) hyps'.
   Proof. invert 1; eauto. Qed.
 
-  Lemma pftree_weaken_hyp {U : Type} P (x : U) Q1 Q2 :
-    pftree P Q1 x ->
-    (forall y, Q1 y -> Q2 y) ->
-    pftree P Q2 x.
-  Proof. intros H1 H2. induction H1; eauto. Qed.
-
   Lemma prog_impl_weaken_hyp p x Q1 Q2 :
     prog_impl p Q1 x ->
     (forall y, Q1 y -> Q2 y) ->
@@ -719,18 +687,6 @@ End meta_rule.
           (forall y, P1 y -> S (P2, y)) ->
           S (P2, x)).
 
-  Lemma pftree_lfp {U : Type} (P : U -> list U -> Prop) :
-    equiv (fun '(Q0, x) => pftree P Q0 x)
-      (lfp (fun Q '(Q0, x) => Q0 x \/ Q (Q0, x) \/ exists l, P x l /\ Forall (fun y => Q (Q0, y)) l)).
-  Proof.
-    cbv [equiv lfp fp]. intros [Q0 x]. split; intros; fwd.
-    - apply H0. induction H; eauto.
-      right. right. exists l. split; [assumption|]. eapply Forall_impl; [|eassumption].
-      simpl. intros y. apply (H0 (_, _)).
-    - apply (H (fun '(Q, x) => _)). clear. intros [Q x]. intros [Hx| [Hx |Hx] ]; eauto.
-      fwd. eapply pftree_step; eassumption.
-  Qed.
-
   Lemma prog_impl_lfp p :
     equiv (fun '(P, f) => prog_impl p P f) (lfp (F p)).
   Proof.
@@ -752,22 +708,6 @@ End meta_rule.
   Hint Unfold prog_impl : core.
 
   Hint Extern 2 => eapply Forall_impl; [|eassumption]; cbv beta : core.
-  Hint Extern 2 => eapply Forall2_impl; [eassumption|]; cbv beta : core.
-
-  Lemma pftree_weaken {U : Type} P1 P2 Q (x : U) :
-    pftree P1 Q x ->
-    (forall y l, P1 y l -> P2 y l) ->
-    pftree P2 Q x.
-  Proof. induction 1; eauto. Qed.
-
-  Lemma pftree_equiv {U} (P1 P2 : U -> list U -> Prop) Q (x:U) :
-    (forall y l, P1 y l <-> P2 y l) ->
-    pftree P1 Q x <-> pftree P2 Q x.
-  Proof.
-    intros H. split; intros Htree.
-    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
-    - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
-  Qed.
 
   Lemma S_sane_lfp p : S_sane (lfp (F p)).
   Proof.

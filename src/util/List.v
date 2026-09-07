@@ -343,6 +343,12 @@ Section Forall.
     exists ys, Forall2 R xs ys.
   Proof. induction 1; fwd; eauto. Qed.
 
+  Lemma Forall_impl P Q xs :
+    Forall P xs ->
+    (forall x, P x -> Q x) ->
+    Forall Q xs.
+  Proof. eauto using Forall_impl. Qed.
+
   Lemma Forall2_unique_r R xs ys ys' :
     Forall2 R xs ys ->
     Forall2 R xs ys' ->
@@ -839,7 +845,7 @@ Section Forall3.
   Proof.
     induction 1; eauto.
     constructor; simpl; eauto 7.
-    eapply Forall_impl; [|eassumption].
+    eapply Forall_impl; [eassumption|].
     simpl. intros. fwd. eauto 7.
   Qed.
 
@@ -1943,7 +1949,7 @@ Section misc.
       rewrite existsb_exists in E'.
       rewrite <- Exists_exists in E'.
       rewrite <- Forall_Exists_neg in E'.
-      eapply Forall_impl; [|eassumption].
+      eapply Forall_impl; [eassumption|].
       simpl. intros. destruct (f _); congruence.
   Qed.
 
