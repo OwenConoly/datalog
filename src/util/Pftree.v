@@ -67,3 +67,10 @@ Proof.
   - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
   - eapply pftree_weaken; [exact Htree | intros y l Hyl; apply H; exact Hyl].
 Qed.
+
+Lemma pftree_hyp_ext P f Q1 Q2 :
+  (forall f', Q1 f' <-> Q2 f') ->
+  pftree P Q1 f <-> pftree P Q2 f.
+Proof.
+  eauto using pftree_weaken_hyp.
+Qed.

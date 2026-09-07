@@ -420,7 +420,23 @@ Module fact.
       end.
 
     Lemma ext_eq_Equivalence : Equivalence ext_eq.
-    Admitted.
+    Proof.
+      constructor.
+      - intros f. destruct f; simpl; reflexivity.
+      - intros f1 f2. destruct f1, f2; simpl; intros; contradiction || now symmetry.
+      - intros f1 f2 f3. destruct f1, f2, f3; simpl; intros;
+          contradiction || (etransitivity; eassumption).
+    Qed.
+
+    Lemma ext_eq_map_meta mfs fs :
+      Forall2 ext_eq (map meta mfs) fs ->
+      exists mfs', fs = map meta mfs' /\ Forall2 meta_fact.ext_eq mfs mfs'.
+    Proof.
+      revert fs. induction mfs; simpl; intros fs H; invert H.
+      - exists []. auto.
+      - destruct y; simpl in *; [contradiction|]. apply IHmfs in H4. fwd.
+        exists (m :: mfs'). auto.
+    Qed.
 
     (*if we know only mfs and the normal_facts that mfs include, then do we know f?*)
     Definition implied_by_mfs (mfs : list meta_fact) (f : fact) :=
@@ -596,7 +612,11 @@ Module program.
       Forall2 fact.ext_eq hyps hyps' ->
       interp_step p f hyps'.
     Proof.
-    Admitted.
+      intros H1 H2. invert H1.
+      - constructor. rewrite Exists_exists in *. fwd. eauto using rule.interp_ext.
+      - apply fact.ext_eq_map_meta in H2. fwd. constructor.
+        rewrite Exists_exists in *. fwd. eauto using meta_rule.interp_ext_hyps.
+    Qed.
 
     Lemma interp_step_strong p Q f hyps :
       interp_step p f hyps ->
