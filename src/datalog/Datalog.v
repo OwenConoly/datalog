@@ -3,7 +3,7 @@ From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
-From Datalog.Util Require Import Autodestr.
+From Datalog.Util Require Import Autodestr Autocbn.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
@@ -154,14 +154,14 @@ End expr.
 Export expr (expr).
 
 Module normal_fact.
-  Section __.
-    Context {relt : relT} {value : valueT}.
-    Record normal_fact :=
-      { rel : relt;
-        args : list value }.
-  End __.
+  Record normal_fact {relt : relT} {value : valueT} :=
+    { rel : relt;
+      args : list value }.
+  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@normal_fact _ _) :: prev ().
+  Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 End normal_fact.
 Export normal_fact (normal_fact).
+Print Ltac2 to_destruct.
 
 (*could consider extending this?*)
 Variant value_pattern {value : valueT} :=
@@ -169,22 +169,20 @@ Variant value_pattern {value : valueT} :=
   | any.
 
 Module fact_pattern.
-  Section __.
-    Context {relt : relT} {value : valueT}.
-    Record fact_pattern :=
-      { rel : relt;
-        args : list value_pattern }.
-  End __.
+  Record fact_pattern {relt : relT} {value : valueT} :=
+    { rel : relt;
+      args : list value_pattern }.
+  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@fact_pattern _ _) :: prev ().
+  Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 End fact_pattern.
 Export fact_pattern (fact_pattern).
 
 Module meta_fact.
-  Section __.
-    Context {relt : relT} {value : valueT}.
-    Record meta_fact :=
-      { pattern : fact_pattern;
-        set : normal_fact -> Prop }.
-  End __.
+  Record meta_fact {relt : relT} {value : valueT} :=
+    { pattern : fact_pattern;
+      set : normal_fact -> Prop }.
+  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _) :: prev ().
+  Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
 End meta_fact.
 Export meta_fact (meta_fact).
 
@@ -194,7 +192,9 @@ Module clause.
   Record clause {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
     { rel : relt;
       args : list expr }.
-  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(clause _ _ _) :: prev ().
+  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@clause _ _ _) :: prev ().
+  Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
+
   Section __.
     Context {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {value : valueT}.
     Context {context : map.map exprvar value} {context_ok : map.ok context}.
@@ -220,8 +220,8 @@ Module clause.
       Forall (agree_on ctx1 ctx2) (vars c) ->
       interp ctx2 c f.
     Proof.
-      cbv [interp]. intros Hinterp Hagree. fwd.
-      autodestr. simpl in *. subst. split; auto.
+      cbv [interp]. intros Hinterp Hagree.
+      fwd'. split; auto.
       eapply Forall2_impl_strong; [eassumption|].
       intros. cbv [vars] in Hagree.
       rewrite Forall_flat_map, Forall_forall in Hagree.
@@ -233,9 +233,7 @@ Module clause.
       interp ctx c f2 ->
       f1 = f2.
     Proof.
-      intros. cbv [interp] in *. fwd. autodestr. simpl in *. fwd.
-
-      destruct f1, f2. f_equal
+      intros. cbv [interp] in *. fwd'. Print Ltac2  autodestr.
       eapply Forall2_unique_r; eauto using expr.interp_det.
     Qed.
 

@@ -70,12 +70,12 @@ Section __.
       non_meta_rule_impl r nf_rel nf_args hyps /\
         Forall (knows_datalog_fact known_facts) hyps.
 
-  Print rule_impl. Print dfact.
   Definition drule_impl (r : rule) (concl : dfact) (hyps : list dfact) :=
     match concl with
     | normal_dfact R args =>
-        (*hyps should have type "list normal_fact"*)
-        non_meta_rule_impl r R args hyps
+        exists hyps',
+        non_meta_rule_impl r R args hyps' /\
+          Forall (knows_datalog_fact hyps) hyps'
     | meta_dfact R args src num_facts =>
         exists rule_concls rule_hyps ctx,
         r = meta_rule rule_concls rule_hyps /\

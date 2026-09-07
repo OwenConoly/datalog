@@ -1,5 +1,5 @@
 (*https://github.com/mit-plv/fiat-crypto/blob/master/src/Util/Tactics/DestructHyps.v ?*)
-From coqutil Require Import Ltac2.
+From Datalog Require Import Ltac2.
 Ltac2 mutable to_destruct () : (constr -> bool) list := [].
 
 Ltac2 Check Pattern.matches.
