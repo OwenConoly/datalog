@@ -5,7 +5,7 @@ From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
 From Datalog.Util Require Import Autodestr Autocbn.
 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Datatypes.List Datatypes.Option Eqb.
 
 From Datalog Require Import Map Tactics Fp List Eqb.
 From GraphSearch Require Import Dag.
@@ -150,41 +150,75 @@ Module expr.
       v1 = v2.
     Proof. eauto using interp_det, interp_agree_on. Qed.
   End __.
-End expr.
-Export expr (expr).
+End expr. Export expr (expr).
 
 Module normal_fact.
   Record normal_fact {relt : relT} {value : valueT} :=
     { rel : relt;
       args : list value }.
-  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@normal_fact _ _) :: prev ().
-  Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
-End normal_fact.
-Export normal_fact (normal_fact).
-Print Ltac2 to_destruct.
+  (*i don't actually want this to be global; i'd prefer to instead export it along with normal_fact.  but the Import/Export commands aren't granular enough for me to do that.*)
+  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@normal_fact _ _) :: prev ().
+  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
+End normal_fact. Export normal_fact (normal_fact).
 
-(*could consider extending this?*)
-Variant value_pattern {value : valueT} :=
-  | exactly (v : value)
-  | any.
+Module value_pattern.
+  Section __.
+    Context {value : valueT}.
+    (*could consider extending this?*)
+    Variant value_pattern {value : valueT} :=
+      | exactly (v : value)
+      | any.
+
+    Definition matches (p : value_pattern) v :=
+      match p with
+      | exactly v0 => v0 = v
+      | any => True
+      end.
+End __.
+End value_pattern. Export value_pattern (value_pattern).
 
 Module fact_pattern.
   Record fact_pattern {relt : relT} {value : valueT} :=
     { rel : relt;
       args : list value_pattern }.
-  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@fact_pattern _ _) :: prev ().
-  Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
-End fact_pattern.
-Export fact_pattern (fact_pattern).
+  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@fact_pattern _ _) :: prev ().
+  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
+
+  Section __.
+    Context {relt : relT} {value : valueT}.
+    Definition matches (fp : fact_pattern) f :=
+      fp.(rel) = f.(normal_fact.rel) /\
+        Forall2 value_pattern.matches fp.(args) f.(normal_fact.args).
+  End __.
+End fact_pattern. Export fact_pattern (fact_pattern).
 
 Module meta_fact.
   Record meta_fact {relt : relT} {value : valueT} :=
     { pattern : fact_pattern;
-      set : normal_fact -> Prop }.
-  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _) :: prev ().
-  Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
-End meta_fact.
-Export meta_fact (meta_fact).
+      set : list value -> Prop }.
+  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _) :: prev ().
+  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
+  Section __.
+    Context {relt : relT} {value : valueT}.
+
+    Definition matches mf nf :=
+      fact_pattern.matches mf.(pattern) nf /\ mf.(set) nf.(normal_fact.args).
+
+    Definition ext_eq (mf1 mf2 : meta_fact) :=
+      forall nf, matches mf1 nf <-> matches mf2 nf.
+
+    Lemma ext_eq_intro mf1 mf2 :
+      mf1.(pattern) = mf2.(pattern) ->
+      (forall args,
+          Forall2 value_pattern.matches mf1.(pattern).(fact_pattern.args) args ->
+          mf1.(set) args <-> mf2.(set) args) ->
+      ext_eq mf1 mf2.
+    Proof.
+      intros H1 H2. fwd. cbv [ext_eq matches]. simpl. intros.
+      split; intros; fwd; cbv [fact_pattern.matches] in *; fwd; edestruct H2; eauto.
+    Qed.
+  End __.
+End meta_fact. Export meta_fact (meta_fact).
 
 #[local] Hint Resolve Forall2_impl : core.
 
@@ -192,8 +226,8 @@ Module clause.
   Record clause {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
     { rel : relt;
       args : list expr }.
-  Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@clause _ _ _) :: prev ().
-  Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
+  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@clause _ _ _) :: prev ().
+  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
   Section __.
     Context {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {value : valueT}.
@@ -221,7 +255,7 @@ Module clause.
       interp ctx2 c f.
     Proof.
       cbv [interp]. intros Hinterp Hagree.
-      fwd'. split; auto.
+      fwd. split; auto.
       eapply Forall2_impl_strong; [eassumption|].
       intros. cbv [vars] in Hagree.
       rewrite Forall_flat_map, Forall_forall in Hagree.
@@ -233,7 +267,7 @@ Module clause.
       interp ctx c f2 ->
       f1 = f2.
     Proof.
-      intros. cbv [interp] in *. fwd'. Print Ltac2  autodestr.
+      intros. cbv [interp] in *. fwd. f_equal.
       eapply Forall2_unique_r; eauto using expr.interp_det.
     Qed.
 
@@ -251,133 +285,198 @@ Module clause.
       agree_on ctx1 ctx2 v.
     Proof.
       cbv [interp]. intros H1 H2 Hv. fwd.
-      eapply Forall2_and in H2p0; [|exact H1p0].
-      apply Forall2_forget_r in H2p0.
-      rewrite Forall_forall in H2p0. apply H2p0 in Hv.
+      eapply Forall2_and in H2p1; [|exact H1p1].
+      apply Forall2_forget_r in H2p1.
+      rewrite Forall_forall in H2p1. apply H2p1 in Hv.
       fwd. invert1_any. cbv [agree_on]. congruence.
     Qed.
-
-    Definition dummy := tt.
 End __.
-End clause. Notation clause := clause.clause.
-Export clause (dummy).
+End clause. Export clause (clause).
 
-Module pattern_clause.
+Module expr_pattern.
   Section __.
     Context {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {value : valueT}.
     Context {context : map.map exprvar value} {context_ok : map.ok context}.
     Context {sig : signature fn aggregator value}.
-    Record meta_clause :=
-      { rel : relt;
-        args : list (option expr) }.
 
-    Definition interp (ctx: context) (c : meta_clause) (f : fact) : Prop :=
-      exists mf_args mf_set,
-        Forall2 (option_relation (expr.interp ctx)) c.(args) mf_args /\
-          f = meta_fact c.(rel) mf_args mf_set.
+    (*could reuse the value_pattern type idk*)
+    Variant expr_pattern :=
+      | exactly (e : expr)
+      | any.
 
-    Definition vars (c : meta_clause) : list exprvar :=
-      flat_map expr.vars (keep_Some c.(args)).
+    Variant interp (ctx : context) : expr_pattern -> value_pattern -> Prop :=
+      | interp_exactly p v :
+        expr.interp ctx p v ->
+        interp _ (exactly p) (value_pattern.exactly v)
+      | interp_any :
+        interp _ any value_pattern.any.
+
+    Definition vars p :=
+      match p with
+      | exactly e => expr.vars e
+      | any => []
+      end.
   End __.
-End meta_clause. Notation meta_clause := meta_clause.meta_clause.
+End expr_pattern. Export expr_pattern (expr_pattern).
 
-Section __.
-  Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-  Context {sig : signature fn aggregator T} `{query_sig : query_signature rel}.
-  Context {context : map.map exprvar T} {context_ok : map.ok context}.
-  Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
+Module clause_pattern.
+  Section __.
+    Context {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {value : valueT}.
+    Context {context : map.map exprvar value} {context_ok : map.ok context}.
+    Context {sig : signature fn aggregator value}.
+    Record clause_pattern :=
+      { rel : relt;
+        args : list expr_pattern }.
 
-  Definition rel_of (f : fact) :=
-    match f with
-    | normal_fact R _ => R
-    | meta_fact R _ _ => R
-    end.
+    Definition interp (ctx: context) (cp : clause_pattern) (fp : fact_pattern) :=
+      cp.(rel) = fp.(fact_pattern.rel) /\
+        Forall2 (expr_pattern.interp ctx) cp.(args) fp.(fact_pattern.args).
 
-  Variant fact_args :=
-    | normal_fact_args (nf_args : list T)
-    | meta_fact_args (mf_args : list (option T)) (mf_set : list T -> Prop).
+    Definition vars (c : clause_pattern) : list exprvar :=
+      flat_map expr_pattern.vars c.(args).
+  End __.
+End clause_pattern. Export clause_pattern (clause_pattern).
 
-  Definition args_of f :=
-    match f with
-    | normal_fact _ nf_args => normal_fact_args nf_args
-    | meta_fact _ mf_args mf_set => meta_fact_args mf_args mf_set
-    end.
+Module fact.
+  Section __.
+    Context {relt : relT} {value : valueT}.
+    Variant fact :=
+      | normal (_ : normal_fact)
+      | meta (_ : meta_fact).
 
-  Definition fact_of R args : fact :=
-    match args with
-    | normal_fact_args nf_args => normal_fact R nf_args
-    | meta_fact_args mf_args mf_set => meta_fact R mf_args mf_set
-    end.
+    Definition rel_of (f : fact) :=
+      match f with
+      | normal nf => nf.(normal_fact.rel)
+      | meta mf => mf.(meta_fact.pattern).(fact_pattern.rel)
+      end.
 
-  Lemma fact_of_rel_of_args_of f :
-    fact_of (rel_of f) (args_of f) = f.
-  Proof. destruct f; reflexivity. Qed.
+    Variant args :=
+      | normal_args (nf_args : list value)
+      | meta_args (mf_args : list value_pattern) (mf_set : list value -> Prop).
 
-  Lemma rel_of_fact_of R args :
-    rel_of (fact_of R args) = R.
-  Proof. destruct args; reflexivity. Qed.
+    Definition args_of f :=
+      match f with
+      | normal nf => normal_args nf.(normal_fact.args)
+      | meta {| meta_fact.pattern := pat; meta_fact.set := st |} =>
+          meta_args pat.(fact_pattern.args) st
+      end.
 
-  Lemma args_of_fact_of R args :
-    args_of (fact_of R args) = args.
-  Proof. destruct args; reflexivity. Qed.
+    Definition of_args R args : fact :=
+      match args with
+      | normal_args nf_args =>
+          normal {| normal_fact.rel := R;
+                   normal_fact.args := nf_args |}
+      | meta_args mf_args mf_set =>
+          meta {| meta_fact.pattern :=
+                   {| fact_pattern.rel := R;
+                     fact_pattern.args := mf_args |};
+                 meta_fact.set := mf_set |}
+      end.
 
-  Lemma fact_of_inj R args R' args' :
-    fact_of R args = fact_of R' args' ->
-    R = R' /\ args = args'.
-  Proof.
-    destruct args, args'; simpl; intros; congruence || fwd; auto.
-  Qed.
+    Lemma of_args_args_of f :
+      of_args (rel_of f) (args_of f) = f.
+    Proof. destruct f; fwd; reflexivity. Qed.
 
-  Inductive rule :=
-  | normal_rule (rule_concls : list clause) (rule_hyps : list clause)
-  | meta_rule (rule_concls : list meta_clause) (rule_hyps : list meta_clause)
-  (* we deduce concl_rel(\sum_{i \in S} x_i, y_1, ..., y_n)
-     from agg_rule concl_rel sum hyp_rel
-     where S and x are s.t. the target_rel facts are of the form
-     { target_rel(i, x_i, y_1, ..., y_n) : i \in S }.
-   *)
-  | agg_rule (concl_rel : rel) (agg : aggregator) (hyp_rel : rel)
-  (*TODO uncomment following*)
-  (*hmm maybe this shoudl actually be some construct for injection of normlal facts into fmeta facsts, then could just do agg_over_rel?*)
-  (*| agg_over_set (concl_rel : rel) (agg : aggregator) (cardinality : expr) (hyp_rel : rel) (hyp_args : list var)*).
+    Lemma rel_of_of_args R args :
+      rel_of (of_args R args) = R.
+    Proof. destruct args; reflexivity. Qed.
 
-  Definition is_normal (r : rule) : bool :=
-    match r with
-    | meta_rule _ _ => false
-    | _ => true
-    end.
+    Lemma args_of_of_args R args :
+      args_of (of_args R args) = args.
+    Proof. destruct args; reflexivity. Qed.
 
-  (*None is a wildcard*)
-  Definition matches (x : option T) y :=
-    match x with
-    | None => True
-    | Some x0 => x0 = y
-    end.
+    Lemma fact_of_inj R args R' args' :
+      of_args R args = of_args R' args' ->
+      R = R' /\ args = args'.
+    Proof.
+      destruct args, args'; simpl; intros; congruence || fwd; auto.
+    Qed.
 
-  Definition fact_matches nf mf :=
-    exists (R : rel) nf_args mf_args mf_set,
-      nf = normal_fact R nf_args /\
-        mf = meta_fact R mf_args mf_set /\
-        Forall2 matches mf_args nf_args /\
-        mf_set nf_args.
+    Definition ext_eq (f1 f2 : fact) :=
+      match f1, f2 with
+      | normal nf1, normal nf2 => nf1 = nf2
+      | meta mf1, meta mf2 => meta_fact.ext_eq mf1 mf2
+      | _, _ => False
+      end.
 
-  Definition interp_agg agg (vals : list (T * T)) :=
-    fold_right (agg_bop agg) (agg_id agg) (map snd vals).
+    (*if we know only mfs and the normal_facts that mfs include, then do we know f?*)
+    Definition implied_by_mfs (mfs : list meta_fact) (f : fact) :=
+      match f with
+      | normal nf => Exists (fun hyp => meta_fact.matches hyp nf) mfs
+      | meta mf => Exists (meta_fact.ext_eq mf) mfs
+      end.
+  End __.
+End fact. Export fact (fact).
 
-  Inductive non_meta_rule_impl : rule -> rel -> list T -> list fact -> Prop :=
-  | normal_rule_impl rule_concls rule_hyps ctx R args hyps :
-    Exists (fun c => clause.interp ctx c (normal_fact R args)) rule_concls ->
-    Forall2 (clause.interp ctx) rule_hyps hyps ->
-    non_meta_rule_impl (normal_rule rule_concls rule_hyps) R args hyps
-  | agg_rule_impl S vals concl_rel agg hyp_rel (args : list T) :
-    is_list_set (fun '(i, x) => S (i :: x :: args)) vals ->
-    non_meta_rule_impl
-      (agg_rule concl_rel agg hyp_rel)
-      concl_rel
-      (interp_agg agg vals :: args)
-      (meta_fact hyp_rel (None :: None :: map Some args) S ::
-         map (fun '(i, x_i) => normal_fact hyp_rel (i :: x_i :: args)) vals).
-  Hint Constructors non_meta_rule_impl : core.
+Module rule.
+  Section __.
+    Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+    Context {sig : signature fn aggregator T} {query_sig : query_signature rel}.
+    Context {context : map.map exprvar T} {context_ok : map.ok context}.
+    Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
+
+    Variant rule :=
+      | impl (concls : list clause) (hyps : list clause)
+      | agg (concl : rel) (agg : aggregator) (hyp : rel).
+        (*hmm maybe this shoudl actually be some construct for injection of normlal facts into fmeta facsts, then could just do agg_over_rel?*)
+        (*| agg_over_set (concl_rel : rel) (agg : aggregator) (cardinality : expr) (hyp_rel : rel) (hyp_args : list var)*)
+
+    Definition interp_agg agg (vals : list (T * T)) :=
+      fold_right (agg_bop agg) (agg_id agg) (map snd vals).
+
+    Variant interp : rule -> normal_fact -> list fact -> Prop :=
+      | interp_impl rule_concls rule_hyps ctx nf hyps :
+        Exists (fun c => clause.interp ctx c nf) rule_concls ->
+        Forall2 (clause.interp ctx) rule_hyps hyps ->
+        interp (impl rule_concls rule_hyps) nf (map fact.normal hyps)
+      | agg_rule_impl S vals concl_rel a hyp_rel (args : list T) :
+        is_list_set (fun '(i, x) => S (i :: x :: args)) vals ->
+        interp
+          (agg concl_rel a hyp_rel)
+          {| normal_fact.rel := concl_rel;
+            normal_fact.args := interp_agg a vals :: args |}
+          (fact.meta {| meta_fact.pattern :=
+                         {| fact_pattern.rel := hyp_rel;
+                           fact_pattern.args := value_pattern.any :: value_pattern.any :: map value_pattern.exactly args |};
+                       meta_fact.set := S |}
+             ::
+             map (fun '(i, x_i) => fact.normal {| normal_fact.rel := hyp_rel; normal_fact.args := (i :: x_i :: args) |}) vals).
+
+    (*if we know only mfs and the normal facts that mfs include, then can we derive f with exactly one rule application?*)
+    Definition one_step_derives (p : list rule) (mfs : list meta_fact) (nf : normal_fact) :=
+      exists hyps,
+        Exists (fun r => interp r nf hyps) p /\
+          Forall (fact.implied_by_mfs mfs) hyps.
+  End __.
+End rule.
+
+Module meta_rule.
+  Section __.
+    Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+    Context {sig : signature fn aggregator T} {query_sig : query_signature rel}.
+    Context {context : map.map exprvar T} {context_ok : map.ok context}.
+    Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
+
+    Record meta_rule :=
+      { concls : list clause_pattern;
+        hyps : list clause_pattern }.
+
+    Definition pattern_interp r p ps :=
+      exists ctx,
+        Exists (fun c => clause_pattern.interp ctx c p) r.(concls) /\
+          Forall2 (clause_pattern.interp ctx) r.(hyps) ps.
+
+    Definition interp prog r mf hyps :=
+      exists pat,
+        pattern_interp r pat (map meta_fact.pattern hyps) /\
+          meta_fact.ext_eq mf
+            ({| meta_fact.pattern := pat;
+               meta_fact.set := fun args =>
+                                  rule.one_step_derives prog hyps
+                                                        {| normal_fact.rel := pat.(fact_pattern.rel);
+                                                          normal_fact.args := args |} |}).
+  End __.
+End meta_rule.
 
   Unset Elimination Schemes.
   Inductive pftree {T : Type} (P : T -> list T -> Prop) (Q : T -> Prop) : T -> Prop :=
@@ -391,39 +490,6 @@ Section __.
   Set Elimination Schemes.
   Hint Constructors pftree : core.
 
-  Definition extensionally_equal (f1 f2 : fact) : Prop :=
-    match f1, f2 with
-    | normal_fact R1 args1, normal_fact R2 args2 =>
-        R1 = R2 /\ args1 = args2
-    | meta_fact R1 mf_args1 mf_set1, meta_fact R2 mf_args2 mf_set2 =>
-        R1 = R2 /\ mf_args1 = mf_args2 /\
-        (forall args, Forall2 matches mf_args1 args -> (mf_set1 args <-> mf_set2 args))
-    | _, _ => False
-    end.
-
-  (*TODO: meta_facts should have a type that restricts it to just being meta-facts?*)
-  (*fact_supported is a goofy name*)
-  Definition fact_supported (meta_facts : list fact) (f : fact) : Prop :=
-    Exists (fun hyp => extensionally_equal f hyp \/ fact_matches f hyp) meta_facts.
-
-  Definition one_step_derives0 fact_supported (p : list rule) (meta_facts : list fact) (R : rel) (args : list T) : Prop :=
-    exists hyps,
-      Exists (fun r => non_meta_rule_impl r R args hyps) p /\
-        Forall (fact_supported meta_facts) hyps.
-  Definition one_step_derives := one_step_derives0 fact_supported.
-  Hint Unfold one_step_derives0 fact_supported : core.
-
-  Inductive rule_impl (env : list fact -> rel -> list T -> Prop) : rule -> fact -> list fact -> Prop :=
-  | simple_rule_impl r R args hyps :
-    non_meta_rule_impl r R args hyps ->
-    rule_impl _ r (normal_fact R args) hyps
-  | meta_rule_impl rule_concls rule_hyps ctx R args hyps S :
-    Exists (fun c => meta_clause.interp ctx c (meta_fact R args (fun args' => S args'))) rule_concls ->
-      Forall2 (meta_clause.interp ctx) rule_hyps hyps ->
-      (forall args'',
-          Forall2 matches args args'' ->
-          S args'' <-> env hyps R args'') ->
-      rule_impl env (meta_rule rule_concls rule_hyps) (meta_fact R args S) hyps.
   Hint Constructors rule_impl : core.
 
   Lemma pftree_ind {U : Type} (P : U -> list U -> Prop) Q R :

@@ -116,4 +116,4 @@ Ltac map_func :=
     end.
 From coqutil Require Import Tactics.fwd.
 From Datalog.Util Require Import Autodestr Autocbn.
-Ltac fwd' := repeat (fwd_step || (autodestr; autocbn; subst)).
+Ltac fwd := repeat (fwd_step || (autodestr; autocbn; subst)).

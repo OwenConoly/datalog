@@ -31,7 +31,7 @@ Definition is_list_set {X : Type} (S : X -> Prop) (l : list X) :=
   (forall x, S x <-> In x l) /\ NoDup l.
 
 Lemma is_list_set_map X Y S l (f : X -> Y) :
-  FinFun.Injective f ->
+  Finite.Injective f ->
   is_list_set S l ->
   is_list_set (fun y => exists x, y = f x /\ S x) (map f l).
 Proof.
@@ -39,7 +39,7 @@ Proof.
   - intros. split; intros H3; fwd.
     + apply in_map_iff. apply H1 in H3p1. eauto.
     + apply in_map_iff in H3. fwd. apply H1 in H3p1. eauto.
-  - apply FinFun.Injective_map_NoDup; assumption.
+  - apply Finite.Injective_map_NoDup; assumption.
 Qed.
 
 Lemma is_list_set_ext X (S1 S2 : X -> _) l :
