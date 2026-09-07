@@ -31,7 +31,7 @@ Ltac2 matching_hyp_ids ts :=
 Ltac2 destruct_matching_hyps ts :=
   simple_destruct (matching_hyp_ids ts).
 
-Ltac2 autodestr0 () := destruct_matching_hyps (to_destruct ()).
+Ltac2 autodestr0 () := Control.enter (fun () => destruct_matching_hyps (to_destruct ())).
 
 Ltac2 Notation autodestr := autodestr0 ().
 Ltac autodestr := ltac2:(autodestr).

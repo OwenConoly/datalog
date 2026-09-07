@@ -2,10 +2,10 @@ From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
-From Stdlib Require Import Classical_Prop.
+From Stdlib Require Import Classical_Prop RelationClasses.
 From Datalog.Util Require Import Autodestr Autocbn Pftree.
 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Datatypes.List Datatypes.Option Eqb.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
 From Datalog Require Import Map Tactics Fp List Eqb.
 From GraphSearch Require Import Dag.
@@ -218,10 +218,25 @@ Module meta_fact.
         forall args,
           Forall2 value_pattern.matches mf1.(pattern).(fact_pattern.args) args ->
           mf1.(set) args <-> mf2.(set) args.
+
+    Lemma matches_ext mf nf mf' :
+      matches mf nf ->
+      ext_eq mf mf' ->
+      matches mf' nf.
+    Proof.
+      cbv [matches ext_eq]. intros H1 H2. fwd. simp.
+      cbv [fact_pattern.matches] in *. fwd. simp. edestruct H2p1; eauto.
+    Qed.
+
+    Lemma ext_eq_Equivalence : Equivalence ext_eq.
+    Proof. Admitted.
   End __.
 End meta_fact. Export meta_fact (meta_fact).
+#[export] Hint Resolve meta_fact.matches_ext : core.
+#[export] Existing Instance meta_fact.ext_eq_Equivalence.
 
 #[local] Hint Resolve Forall2_impl : core.
+#[local] Hint Resolve Forall_impl : core.
 
 Module clause.
   Record clause {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
@@ -266,7 +281,7 @@ Module clause.
       interp ctx c f2 ->
       f1 = f2.
     Proof.
-      intros. cbv [interp] in *. fwd. f_equal.
+      intros. cbv [interp] in *. fwd. simp. f_equal.
       eapply Forall2_unique_r; eauto using expr.interp_det.
     Qed.
 
@@ -373,7 +388,7 @@ Module fact.
 
     Lemma of_args_args_of f :
       of_args (rel_of f) (args_of f) = f.
-    Proof. destruct f; fwd; reflexivity. Qed.
+    Proof. destruct f; fwd; simp; reflexivity. Qed.
 
     Lemma rel_of_of_args R args :
       rel_of (of_args R args) = R.
@@ -409,18 +424,21 @@ Module fact.
       implied_by_mfs hyps f ->
       implied_by_mfs hyps' f.
     Proof.
-      intros H1 H2. cbv [fact_supported] in *. apply Exists_exists in H2. fwd.
-      apply Forall2_forget_r in H1. rewrite Forall_forall in H1. apply H1 in H2p0.
-      fwd. apply Exists_exists. eexists. split; [eassumption|].
-      destruct f, x, y; destruct H2p1; simpl in *; fwd; contradiction || eauto.
-      - right. cbv [fact_matches] in H. fwd. cbv [fact_matches].
-        do 4 eexists. ssplit; try reflexivity; auto. apply H2p0p1p2; auto.
-      - left. ssplit; auto. intros. rewrite <- H2p0p1p2 by assumption. apply Hp2.
-        assumption.
-      - exfalso. cbv [fact_matches] in H. fwd. congruence.
+      intros H1 H2. apply Forall2_forget_r in H1. rewrite Forall_forall in H1.
+      destruct f; simpl in *.
+      - rewrite Exists_exists in *. fwd. especialize H1; eauto. fwd. eauto.
+      - rewrite Exists_exists in *. fwd. especialize H1; eauto. fwd. eexists.
+        split; [eassumption|]. etransitivity; eassumption.
     Qed.
+
+    Definition is_meta f :=
+      match f with
+      | meta _ => True
+      | normal _ => False
+      end.
   End __.
 End fact. Export fact (fact).
+#[export] Hint Resolve fact.implied_by_mfs_ext : core.
 
 Module rule.
   Section __.
@@ -460,13 +478,13 @@ Module rule.
         1: apply Forall2_eq_map in H2.
         2: { simpl. intros. fwd. reflexivity. }
         subst. econstructor; eassumption.
-      - invert H2. cbv [fact.ext_eq] in H3. fwd. cbv [meta_fact.ext_eq] in *. fwd.
+      - invert H2. cbv [fact.ext_eq] in H3. fwd. cbv [meta_fact.ext_eq] in *. simp. fwd.
         invert H3p0. (*<- i thought fwd should have done this?*)
         apply Forall2_map_l in H5. eapply Forall2_impl in H5.
         1: apply Forall2_eq_map in H5.
-        2: { cbv [fact.ext_eq]. intros. fwd. instantiate (1 := fun '(_, _) => _). reflexivity. }
+        2: { cbv [fact.ext_eq]. intros. simp. fwd. instantiate (1 := fun '(_, _) => _). reflexivity. }
         subst. econstructor. eapply is_list_set_ext; [eassumption|].
-        simpl. intros. fwd. apply H3p1. auto.
+        simpl. intros. simp. apply H3p1. auto.
     Qed.
 
     (*if we know only mfs and the normal facts that mfs include, then can we derive f with exactly one rule application?*)
@@ -474,6 +492,14 @@ Module rule.
       exists hyps,
         Exists (fun r => interp r nf hyps) p /\
           Forall (fact.implied_by_mfs mfs) hyps.
+
+    Lemma one_step_derives_ext p hyps hyps' nf :
+      Forall2 meta_fact.ext_eq hyps hyps' ->
+      one_step_derives p hyps nf ->
+      one_step_derives p hyps' nf.
+    Proof.
+      intros H1 H2. cbv [one_step_derives] in *. fwd. eauto.
+    Qed.
   End __.
 End rule. Export rule (rule).
 
@@ -485,8 +511,7 @@ Module meta_rule.
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(concls) :: reference:(hyps) :: prev ().
 
   Section __.
-    Context `{datalog_params}.
-    Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
+    Context `{params : datalog_params}.
 
     Definition pattern_interp r p ps :=
       exists ctx,
@@ -503,6 +528,33 @@ Module meta_rule.
                    rule.one_step_derives prog hyps
                                          {| normal_fact.rel := pat.(fact_pattern.rel);
                                            normal_fact.args := args |} |}).
+
+    Lemma pattern_interp_ext hyps hyps' :
+      Forall2 meta_fact.ext_eq hyps hyps' ->
+      map meta_fact.pattern hyps = map meta_fact.pattern hyps'.
+    Proof.
+      intros H. Search Forall2 map.
+
+    Lemma interp_ext p r f hyps hyps' :
+      interp p r f hyps ->
+      Forall2 meta_fact.ext_eq hyps hyps' ->
+      interp p r f hyps'.
+    Proof.
+      intros H1 H2. cbv [interp] in *. fwd. eexists. split; [eassumption|]. invert H1. fwd.
+      econstructor.
+      + eassumption.
+        + eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
+          apply Forall3_ignore2 in H2. eapply Forall2_impl; [eassumption|].
+          simpl. intros. fwd. cbv [meta_clause.interp extensionally_equal] in *.
+          fwd. eauto.
+        + intros. rewrite H3 by assumption.
+          split; intros; eapply one_step_derives_ext; eauto.
+          apply Forall2_flip. eapply Forall2_impl; [eassumption|].
+          auto using extensionally_equal_sym.
+    Qed.
+
+
+
   End __.
 End meta_rule. Export meta_rule (meta_rule).
 
@@ -532,21 +584,6 @@ Module program.
     (*making this an abbreviation allows directly using lemmas about pftree "without unfolding" interp *)
     Abbreviation interp p := (pftree (interp_step p)).
 
-  Lemma one_step_derives_ext p hyps hyps' R args'' :
-    Forall2 extensionally_equal hyps hyps' ->
-    one_step_derives p hyps R args'' -> one_step_derives p hyps' R args''.
-  Proof.
-    intros H1 H2. cbv [one_step_derives one_step_derives0] in *. fwd.
-    eexists. split; [eassumption|]. eapply Forall_impl; [|eassumption].
-    intros f Hf. eapply fact_supported_ext; eassumption.
-  Qed.
-
-  Definition is_meta f :=
-    match f with
-    | meta_fact _ _ _ => True
-    | normal_fact _ _ => False
-    end.
-
   Lemma extensionally_equal_sym f1 f2 :
     extensionally_equal f1 f2 ->
     extensionally_equal f2 f1.
@@ -554,25 +591,6 @@ Module program.
     cbv [extensionally_equal]. intros.
     destruct f1, f2; fwd; auto.
     ssplit; auto. symmetry. auto.
-  Qed.
-
-  Lemma rule_impl_ext p r f hyps hyps' :
-    rule_impl (one_step_derives p) r f hyps ->
-    Forall2 extensionally_equal hyps hyps' ->
-    rule_impl (one_step_derives p) r f hyps'.
-  Proof.
-    intros H1 H2. invert H1.
-    - constructor. eauto using non_meta_rule_impl_ext.
-    - econstructor.
-      + eassumption.
-      + eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
-        apply Forall3_ignore2 in H2. eapply Forall2_impl; [eassumption|].
-        simpl. intros. fwd. cbv [meta_clause.interp extensionally_equal] in *.
-        fwd. eauto.
-      + intros. rewrite H3 by assumption.
-        split; intros; eapply one_step_derives_ext; eauto.
-        apply Forall2_flip. eapply Forall2_impl; [eassumption|].
-        auto using extensionally_equal_sym.
   Qed.
 
   Lemma prog_impl_step_strong p Q f hyps' :

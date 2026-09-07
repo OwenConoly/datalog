@@ -23,7 +23,9 @@ Print Ltac2 Type Std.clause.
 Ltac2 y () := cbn in *.
 Print Ltac2 y.
 
-Ltac2 autocbn0 () := Std.cbn (default_redflags_of (to_cbn ())) { Std.on_hyps := None; Std.on_concl := Std.AllOccurrences }.
+Ltac2 autocbn1 () := Std.cbn (default_redflags_of (to_cbn ())) { Std.on_hyps := None; Std.on_concl := Std.AllOccurrences }.
+
+Ltac2 autocbn0 () := Control.enter (fun () => autocbn1 ()).
 
 Ltac2 Notation autocbn := autocbn0 ().
 Ltac autocbn := ltac2:(autocbn).

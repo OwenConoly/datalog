@@ -114,6 +114,6 @@ Ltac map_func :=
   repeat match goal with
     | H1: map.get ?x ?y = _, H2: map.get ?x ?y = _ |- _ => rewrite H1 in H2; invert H2
     end.
-From coqutil Require Import Tactics.fwd.
+
 From Datalog.Util Require Import Autodestr Autocbn.
-Ltac fwd := repeat (fwd_step || (autodestr; autocbn; subst)).
+Ltac simp := repeat (autodestr; autocbn; subst).

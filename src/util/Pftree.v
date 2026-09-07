@@ -1,5 +1,6 @@
 From Stdlib Require Import List.
 From Datalog.Util Require Import Tactics Fp List.
+From coqutil Require Import Tactics.fwd.
 
 Unset Elimination Schemes.
 Inductive pftree {T : Type} (P : T -> list T -> Prop) (Q : T -> Prop) : T -> Prop :=
