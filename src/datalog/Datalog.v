@@ -213,7 +213,7 @@ Module meta_fact.
     Definition matches mf nf :=
       fact_pattern.matches mf.(pattern) nf /\ mf.(set) nf.(normal_fact.args).
 
-    Definition ext_eq (mf1 mf2 : meta_fact) :=
+    Definition equiv (mf1 mf2 : meta_fact) :=
       mf1.(pattern) = mf2.(pattern) /\
         forall args,
           Forall2 value_pattern.matches mf1.(pattern).(fact_pattern.args) args ->
@@ -221,16 +221,16 @@ Module meta_fact.
 
     Lemma matches_ext mf nf mf' :
       matches mf nf ->
-      ext_eq mf mf' ->
+      equiv mf mf' ->
       matches mf' nf.
     Proof.
-      cbv [matches ext_eq]. intros H1 H2. fwd. simp.
+      cbv [matches equiv]. intros H1 H2. fwd. simp.
       cbv [fact_pattern.matches] in *. fwd. simp. edestruct H2p1; eauto.
     Qed.
 
-    Lemma ext_eq_Equivalence : Equivalence ext_eq.
+    Lemma equiv_Equivalence : Equivalence equiv.
     Proof.
-      cbv [ext_eq]. constructor.
+      cbv [equiv]. constructor.
       - intros. split; [reflexivity|]. intros. reflexivity.
       - intros mf1 mf2 H. fwd. split; [congruence|]. intros.
         symmetry. apply Hp1. congruence.
@@ -240,7 +240,7 @@ Module meta_fact.
   End __.
 End meta_fact. Export meta_fact (meta_fact).
 #[export] Hint Resolve meta_fact.matches_ext : core.
-#[export] Existing Instance meta_fact.ext_eq_Equivalence.
+#[export] Existing Instance meta_fact.equiv_Equivalence.
 
 #[local] Hint Resolve Forall2_impl : core.
 #[local] Hint Resolve Forall_impl : core.
@@ -412,14 +412,14 @@ Module fact.
       destruct args, args'; simpl; intros; congruence || fwd; auto.
     Qed.
 
-    Definition ext_eq (f1 f2 : fact) :=
+    Definition equiv (f1 f2 : fact) :=
       match f1, f2 with
       | normal nf1, normal nf2 => nf1 = nf2
-      | meta mf1, meta mf2 => meta_fact.ext_eq mf1 mf2
+      | meta mf1, meta mf2 => meta_fact.equiv mf1 mf2
       | _, _ => False
       end.
 
-    Lemma ext_eq_Equivalence : Equivalence ext_eq.
+    Lemma equiv_Equivalence : Equivalence equiv.
     Proof.
       constructor.
       - intros f. destruct f; simpl; reflexivity.
@@ -428,9 +428,9 @@ Module fact.
           contradiction || (etransitivity; eassumption).
     Qed.
 
-    Lemma ext_eq_map_meta mfs fs :
-      Forall2 ext_eq (map meta mfs) fs ->
-      exists mfs', fs = map meta mfs' /\ Forall2 meta_fact.ext_eq mfs mfs'.
+    Lemma equiv_map_meta mfs fs :
+      Forall2 equiv (map meta mfs) fs ->
+      exists mfs', fs = map meta mfs' /\ Forall2 meta_fact.equiv mfs mfs'.
     Proof.
       revert fs. induction mfs; simpl; intros fs H; invert H.
       - exists []. auto.
@@ -442,11 +442,11 @@ Module fact.
     Definition implied_by_mfs (mfs : list meta_fact) (f : fact) :=
       match f with
       | normal nf => Exists (fun hyp => meta_fact.matches hyp nf) mfs
-      | meta mf => Exists (meta_fact.ext_eq mf) mfs
+      | meta mf => Exists (meta_fact.equiv mf) mfs
       end.
 
     Lemma implied_by_mfs_ext hyps hyps' f :
-      Forall2 meta_fact.ext_eq hyps hyps' ->
+      Forall2 meta_fact.equiv hyps hyps' ->
       implied_by_mfs hyps f ->
       implied_by_mfs hyps' f.
     Proof.
@@ -465,7 +465,7 @@ Module fact.
   End __.
 End fact. Export fact (fact).
 #[export] Hint Resolve fact.implied_by_mfs_ext : core.
-#[export] Existing Instance fact.ext_eq_Equivalence.
+#[export] Existing Instance fact.equiv_Equivalence.
 
 Module rule.
   Section __.
@@ -497,7 +497,7 @@ Module rule.
 
     Lemma interp_ext r f hyps hyps' :
       interp r f hyps ->
-      Forall2 fact.ext_eq hyps hyps' ->
+      Forall2 fact.equiv hyps hyps' ->
       interp r f hyps'.
     Proof.
       intros H1 H2. invert H1.
@@ -505,11 +505,11 @@ Module rule.
         1: apply Forall2_eq_map in H2.
         2: { simpl. intros. fwd. reflexivity. }
         subst. econstructor; eassumption.
-      - invert H2. cbv [fact.ext_eq] in H3. fwd. cbv [meta_fact.ext_eq] in *. simp. fwd.
+      - invert H2. cbv [fact.equiv] in H3. fwd. cbv [meta_fact.equiv] in *. simp. fwd.
         invert H3p0. (*<- i thought fwd should have done this?*)
         apply Forall2_map_l in H5. eapply Forall2_impl in H5.
         1: apply Forall2_eq_map in H5.
-        2: { cbv [fact.ext_eq]. intros. simp. fwd. instantiate (1 := fun '(_, _) => _). reflexivity. }
+        2: { cbv [fact.equiv]. intros. simp. fwd. instantiate (1 := fun '(_, _) => _). reflexivity. }
         subst. econstructor. eapply is_list_set_ext; [eassumption|].
         simpl. intros. simp. apply H3p1. auto.
     Qed.
@@ -521,7 +521,7 @@ Module rule.
           Forall (fact.implied_by_mfs mfs) hyps.
 
     Lemma one_step_derives_ext p hyps hyps' nf :
-      Forall2 meta_fact.ext_eq hyps hyps' ->
+      Forall2 meta_fact.equiv hyps hyps' ->
       one_step_derives p hyps nf ->
       one_step_derives p hyps' nf.
     Proof.
@@ -549,7 +549,7 @@ Module meta_rule.
     Definition interp prog r mf hyps :=
       exists pat,
         pattern_interp r pat (map meta_fact.pattern hyps) /\
-          meta_fact.ext_eq mf
+          meta_fact.equiv mf
             ({| meta_fact.pattern := pat;
                meta_fact.set :=
                  fun args =>
@@ -559,20 +559,20 @@ Module meta_rule.
 
     Lemma interp_ext_hyps p r f hyps hyps' :
       interp p r f hyps ->
-      Forall2 meta_fact.ext_eq hyps hyps' ->
+      Forall2 meta_fact.equiv hyps hyps' ->
       interp p r f hyps'.
     Proof.
       intros H1 H2. cbv [interp] in *. fwd.
       erewrite <- Forall2_map_eq.
-      2: { eapply Forall2_impl; [eassumption|]. cbv [meta_fact.ext_eq]. intros. fwd. eassumption. }
+      2: { eapply Forall2_impl; [eassumption|]. cbv [meta_fact.equiv]. intros. fwd. eassumption. }
       eexists. split; [eassumption|]. etransitivity; [eassumption|].
-      cbv [meta_fact.ext_eq]. simpl. split; auto. intros.
+      cbv [meta_fact.equiv]. simpl. split; auto. intros.
       split; eauto. symmetry in H2. eauto.
     Qed.
 
     Lemma interp_ext_concl p r mf mf' hyps :
       interp p r mf hyps ->
-      meta_fact.ext_eq mf mf' ->
+      meta_fact.equiv mf mf' ->
       interp p r mf' hyps.
     Proof.
       cbv [interp]. intros. fwd. eexists. split; [eassumption|].
@@ -609,18 +609,18 @@ Module program.
 
     Lemma interp_step_ext_hyps p f hyps hyps' :
       interp_step p f hyps ->
-      Forall2 fact.ext_eq hyps hyps' ->
+      Forall2 fact.equiv hyps hyps' ->
       interp_step p f hyps'.
     Proof.
       intros H1 H2. invert H1.
       - constructor. rewrite Exists_exists in *. fwd. eauto using rule.interp_ext.
-      - apply fact.ext_eq_map_meta in H2. fwd. constructor.
+      - apply fact.equiv_map_meta in H2. fwd. constructor.
         rewrite Exists_exists in *. fwd. eauto using meta_rule.interp_ext_hyps.
     Qed.
 
     Lemma interp_step_strong p Q f hyps :
       interp_step p f hyps ->
-      Forall (fun hyp => exists hyp', fact.ext_eq hyp hyp' /\ interp p Q hyp') hyps ->
+      Forall (fun hyp => exists hyp', fact.equiv hyp hyp' /\ interp p Q hyp') hyps ->
       interp p Q f.
     Proof.
       intros H1 H2. apply Forall_exists_r_Forall2 in H2.

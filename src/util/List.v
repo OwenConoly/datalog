@@ -2319,3 +2319,6 @@ Lemma choose_any_n_mono {A} n (xs ys : list A) :
   incl (choose_any_n n xs) (choose_any_n n ys).
 Proof. induction n; simpl; auto with incl. Qed.
 Hint Resolve choose_any_n_mono : incl.
+
+#[export] Hint Resolve Forall_impl : core.
+#[export] Hint Resolve Forall2_impl : core.
