@@ -205,18 +205,10 @@ Module meta_fact.
       fact_pattern.matches mf.(pattern) nf /\ mf.(set) nf.(normal_fact.args).
 
     Definition ext_eq (mf1 mf2 : meta_fact) :=
-      forall nf, matches mf1 nf <-> matches mf2 nf.
-
-    Lemma ext_eq_intro mf1 mf2 :
-      mf1.(pattern) = mf2.(pattern) ->
-      (forall args,
+      mf1.(pattern) = mf2.(pattern) /\
+        forall args,
           Forall2 value_pattern.matches mf1.(pattern).(fact_pattern.args) args ->
-          mf1.(set) args <-> mf2.(set) args) ->
-      ext_eq mf1 mf2.
-    Proof.
-      intros H1 H2. fwd. cbv [ext_eq matches]. simpl. intros.
-      split; intros; fwd; cbv [fact_pattern.matches] in *; fwd; edestruct H2; eauto.
-    Qed.
+          mf1.(set) args <-> mf2.(set) args.
   End __.
 End meta_fact. Export meta_fact (meta_fact).
 
@@ -433,6 +425,35 @@ Module rule.
              ::
              map (fun '(i, x_i) => fact.normal {| normal_fact.rel := hyp_rel; normal_fact.args := (i :: x_i :: args) |}) vals).
 
+    Lemma interp_ext r f hyps hyps' :
+      interp r f hyps ->
+      Forall2 fact.ext_eq hyps hyps' ->
+      interp r f hyps'.
+    Proof.
+      intros H1 H2. invert H1.
+      - apply Forall2_map_l in H2. eapply Forall2_impl in H2.
+        1: apply Forall2_eq_map in H2.
+        2: { simpl. intros. fwd. reflexivity. }
+        subst. econstructor; eassumption.
+      - invert H2. cbv [fact.ext_eq] in H3. fwd. cbv [meta_fact.ext_eq] in *. fwd.
+        invert H3p0. (*<- i thought fwd should have done this?*)
+        apply Forall2_map_l in H5. eapply Forall2_impl in H5.
+        1: apply Forall2_eq_map in H5.
+        2: { cbv [fact.ext_eq]. intros. fwd. instantiate (1 := fun '(_, _) => _). reflexivity. }
+        subst. econstructor. eapply is_list_set_ext; [eassumption|].
+        simpl. intros. fwd. apply H3p1.
+
+        constructor; auto. auto.
+             simpl. intros (?, ?). apply H3p2.
+             constructor; try solve [cbv [matches]; auto].
+             constructor; try solve [cbv [matches]; auto].
+             rewrite <-  Forall2_map_l. apply Forall2_same.
+             apply Forall_forall. simpl. auto. }
+        apply Forall2_eq_eq. apply Forall2_flip.
+        rewrite <- Forall2_map_l in *. eapply Forall2_impl; [eassumption|].
+        simpl. intros (?, ?) ? ?. cbv [extensionally_equal] in *. fwd. reflexivity.
+    Qed.
+
     (*if we know only mfs and the normal facts that mfs include, then can we derive f with exactly one rule application?*)
     Definition one_step_derives (p : list rule) (mfs : list meta_fact) (nf : normal_fact) :=
       exists hyps,
@@ -473,6 +494,7 @@ End meta_rule. Export meta_rule (meta_rule).
 Module program.
   (*include inputs as a field, since it is needed for the definition of validity of meta-rules.
     could also consider having an outputs field?
+    TODO is it really a good idea to put inputs here?
    *)
   Record program {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} :=
     { rules : list rule;
@@ -494,28 +516,6 @@ Module program.
 
     (*making this an abbreviation allows directly using lemmas about pftree "without unfolding" interp *)
     Abbreviation interp p := (pftree (interp_step p)).
-
-    Lemma non_meta_rule_impl_ext r R args hyps hyps' :
-      non_meta_rule_impl r R args hyps ->
-      Forall2 extensionally_equal hyps hyps' ->
-      non_meta_rule_impl r R args hyps'.
-    Proof.
-      intros H1 H2. invert H1.
-      - econstructor; eauto. eapply Forall2_Forall2_Forall3 in H2; [|eassumption].
-        apply Forall3_ignore2 in H2. eapply Forall2_impl; [eassumption|].
-        simpl. intros. fwd. cbv [clause.interp extensionally_equal] in *. fwd. eauto.
-      - invert H2. cbv [extensionally_equal] in H3. fwd.
-        eassert (l' = _) as ->.
-        2: { econstructor. eapply is_list_set_ext; [eassumption|].
-             simpl. intros (?, ?). apply H3p2.
-             constructor; try solve [cbv [matches]; auto].
-             constructor; try solve [cbv [matches]; auto].
-             rewrite <-  Forall2_map_l. apply Forall2_same.
-             apply Forall_forall. simpl. auto. }
-        apply Forall2_eq_eq. apply Forall2_flip.
-        rewrite <- Forall2_map_l in *. eapply Forall2_impl; [eassumption|].
-        simpl. intros (?, ?) ? ?. cbv [extensionally_equal] in *. fwd. reflexivity.
-    Qed.
 
   Lemma fact_supported_ext hyps hyps' f :
     Forall2 extensionally_equal hyps hyps' ->
