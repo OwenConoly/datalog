@@ -13,19 +13,19 @@ From GraphSearch Require Import Dag.
 Import ListNotations.
 
 Definition relT := Type. Existing Class relT.
-Definition rel `{relT} := (_ : relT).
+Abbreviation rel := (_ : relT).
 
 Definition exprvarT := Type. Existing Class exprvarT.
-Definition exprvar `{exprvarT} := (_ : exprvarT).
+Abbreviation exprvar := (_ : exprvarT).
 
 Definition fnT := Type. Existing Class fnT.
-Definition fn `{fnT} := (_ : fnT).
+Abbreviation fn := (_ : fnT).
 
 Definition aggregatorT := Type. Existing Class aggregatorT.
-Definition aggregator `{aggregatorT} := (_ : aggregatorT).
+Abbreviation aggregator := (_ : aggregatorT).
 
 Definition valueT := Type. Existing Class valueT.
-Definition value `{valueT} := (_ : valueT).
+Abbreviation value := (_ : valueT).
 
 Class datalog_semantics {_fn : fnT} {_aggregator : aggregatorT} {_value : valueT} : Type :=
   {
@@ -592,7 +592,6 @@ Module rule.
         2: { simpl. intros. fwd. reflexivity. }
         subst. econstructor; eassumption.
       - invert H2. cbv [fact.equiv] in H3. fwd. cbv [meta_fact.equiv] in *. simp. fwd.
-        invert H3p0. (*<- i thought fwd should have done this?*)
         apply Forall2_map_l in H5. eapply Forall2_impl in H5.
         1: apply Forall2_eq_map in H5.
         2: { cbv [fact.equiv]. intros. simp. fwd. instantiate (1 := fun '(_, _) => _). reflexivity. }

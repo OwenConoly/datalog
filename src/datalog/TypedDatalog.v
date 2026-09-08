@@ -161,8 +161,7 @@ Section __.
       well_typed_expr tctx e t.
   Proof.
     induction e; intros t' tctx Hck; simpl in Hck.
-    - injection Hck as <-.
-      constructor. apply map.get_put_same.
+    - fwd. constructor. apply map.get_put_same.
     - destruct (fun_type f) as [arg_ts ret_t] eqn:Eft.
       destruct ((type_eqb ret_t t' && Nat.eqb (length arg_ts) (length args))%bool) eqn:Echk;
         [|discriminate].
@@ -172,18 +171,15 @@ Section __.
       cbv [compatible_union_of_list_option] in Hck.
       destruct (option_all (map2 check_expr_type args arg_ts)) as [ctxs|] eqn:Eall;
         [|discriminate].
-      simpl in Hck.
-      destruct (compatible_union_of_list ctxs) as [u|] eqn:Eun;
-        [|discriminate].
-      simpl in Hck. injection Hck as <-.
-      apply option_all_map2_Forall3 in Eall; [|auto].
+      simpl in Hck. fwd.
+      apply option_all_map2_Forall3 in Eall; [|congruence].
       econstructor; [eassumption|].
-      pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
       apply Forall3_ignore3_strong in Eall.
       eapply Forall2_impl_strong; [eassumption|].
       intros a t_a [c [Hin Hck_a]] Hin_a _.
       rewrite Forall_forall in H.
       eapply well_typed_expr_extends; eauto.
+      eapply compatible_union_of_list_extends; eassumption.
   Qed.
 
   Lemma check_clause_type_sound c tctx :
@@ -191,23 +187,16 @@ Section __.
     well_typed_clause tctx c.
   Proof.
     cbv [check_clause_type well_typed_clause].
-    destruct (Nat.eqb (length c.(clause.args)) (length (rel_type c.(clause.rel))))
-      eqn:Elen; [|discriminate].
-    apply Nat.eqb_eq in Elen.
-    intros Hck.
+    intros Hck. fwd.
     cbv [compatible_union_of_list_option] in Hck.
-    destruct (option_all (map2 check_expr_type c.(clause.args) (rel_type c.(clause.rel))))
-      as [ctxs|] eqn:Eall; [|discriminate].
-    simpl in Hck.
-    destruct (compatible_union_of_list ctxs) as [u|] eqn:Eun;
-      [|discriminate].
-    simpl in Hck. injection Hck as <-.
+    destruct (option_all _) as [ctxs|] eqn:Eall; [|discriminate].
+    simpl in Hck. fwd.
     apply option_all_map2_Forall3 in Eall; [|assumption].
-    pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
     apply Forall3_ignore3_strong in Eall.
     eapply Forall2_impl_strong; [eassumption|].
     intros a t_a [c0 [Hin Hck_a]] _ _.
     eapply well_typed_expr_extends; eauto using check_expr_type_sound.
+    eapply compatible_union_of_list_extends; eassumption.
   Qed.
 
   Lemma check_clause_pattern_type_sound c tctx :
@@ -215,24 +204,18 @@ Section __.
     well_typed_clause_pattern tctx c.
   Proof.
     cbv [check_clause_pattern_type well_typed_clause_pattern].
-    destruct (Nat.eqb (length c.(clause_pattern.args)) (length (rel_type c.(clause_pattern.rel))))
-      eqn:Elen; [|discriminate].
-    apply Nat.eqb_eq in Elen.
     intros Hck.
+    fwd.
     cbv [compatible_union_of_list_option] in Hck.
-    destruct (option_all (map2 check_expr_pattern_type c.(clause_pattern.args) (rel_type c.(clause_pattern.rel))))
-      as [ctxs|] eqn:Eall; [|discriminate].
-    simpl in Hck.
-    destruct (compatible_union_of_list ctxs) as [u|] eqn:Eun;
-      [|discriminate].
-    simpl in Hck. injection Hck as <-.
+    destruct (option_all _) as [ctxs|] eqn:Eall; [|discriminate].
+    simpl in Hck. fwd.
     apply option_all_map2_Forall3 in Eall; [|assumption].
-    pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
     apply Forall3_ignore3_strong in Eall.
     eapply Forall2_impl_strong; [eassumption|].
     intros [e|] t_a [c0 [Hin Hck_a]] _ _;
       cbv [check_expr_pattern_type well_typed_expr_pattern] in *.
     - eapply well_typed_expr_extends; eauto using check_expr_type_sound.
+      eapply compatible_union_of_list_extends; eassumption.
     - exact I.
   Qed.
 
