@@ -56,6 +56,16 @@ Module pftree.
       intros. eapply step; [eassumption|]. rewrite Forall_forall in *. eauto 6.
     Qed.
 
+    Lemma trim_leaves P Q x :
+      pftree P Q x ->
+      pftree P (fun y => Q y /\ (y = x \/ exists z l, P z l /\ In y l)) x.
+    Proof.
+      intros. eapply invariant with (Inv := fun y => y = x \/ exists z l, P z l /\ In y l).
+      - auto.
+      - intros. rewrite Forall_forall. intros. right. eauto.
+      - assumption.
+    Qed.
+
     (*TODO make this look nicer?*)
     Lemma equiv_lfp P :
       equiv (fun '(Q0, x) => pftree P Q0 x)
@@ -106,7 +116,7 @@ Module pftree.
       pftree (fun y l => P1 y l \/ P2 y l) Q x.
     Proof. eauto 7 using weaken, trans, weaken_hyp. Qed.
 
-    Lemma pftree_stratify_iff (P1 P2 : T -> list T -> Prop) Q x :
+    Lemma stratify_iff (P1 P2 : T -> list T -> Prop) Q x :
       (forall y l z l', P2 y l -> In z l -> ~ P1 z l') ->
       pftree (fun y l => P1 y l \/ P2 y l) Q x <-> pftree P1 (pftree P2 Q) x.
     Proof. auto using stratify, unstratify. Qed.

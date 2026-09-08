@@ -819,7 +819,7 @@ Module program.
       interp p Q f.
     Proof.
       intros H1 H2. apply Forall_exists_r_Forall2 in H2.
-      fwd. eapply pftree_step.
+      fwd. eapply pftree.step.
       - eapply interp_step_ext_hyps; [eassumption|].
         eapply Forall2_impl; [eassumption|]. simpl. intros. fwd. assumption.
       - eapply Forall_impl. 1: eapply Forall2_forget_l; eassumption. simpl.
@@ -832,7 +832,7 @@ Module program.
       Q f \/ interp p Q f'.
     Proof.
       intros H1 H2. invert H1; auto.
-      right. eapply pftree_step; [|eassumption].
+      right. eapply pftree.step; [|eassumption].
       eauto using interp_step_ext_concl.
     Qed.
 
@@ -841,10 +841,10 @@ Module program.
       Proper (fact.equiv ==> iff) (interp p Q).
     Proof.
       intros H f1 f2 Hfs. split; intros H'.
-      - eapply interp_ext in H'; eauto. destruct H'; eauto. apply pftree_leaf.
+      - eapply interp_ext in H'; eauto. destruct H'; eauto. apply pftree.leaf.
         eapply H; try eassumption. symmetry. assumption.
       - eapply interp_ext in H'. 2: symmetry; eassumption.
-        destruct H'; eauto. apply pftree_leaf.
+        destruct H'; eauto. apply pftree.leaf.
         eapply H; eassumption.
     Qed.
 
@@ -869,8 +869,8 @@ Module program.
         interp p (fun f' => Q f' /\ (f' = f \/ In (fact.rel f') (hyp_rels p))) f.
     Proof.
       split; intros H.
-      - eapply pftree_invariant; eauto.
-      - eapply pftree_weaken_hyp; [eassumption|]. simpl. intros. fwd. assumption.
+      - apply pftree.invariant; eauto.
+      - eapply pftree.weaken_hyp; [eassumption|]. simpl. intros. fwd. assumption.
     Qed.
 
     Lemma interp_hyp_ext_strong p Q1 Q2 f :
@@ -882,7 +882,7 @@ Module program.
       assert (Hequiv: forall f', f' = f \/ In (fact.rel f') (hyp_rels p) -> Q1 f' <-> Q2 f').
       { intros f' [-> | Hin]; auto. }
       rewrite (interp_invariant p Q1 f), (interp_invariant p Q2 f).
-      apply pftree_hyp_ext. intros f'. split.
+      apply pftree.hyp_ext. intros f'. split.
       - intros. fwd. split; auto. apply Hequiv; auto.
       - intros. fwd. split; auto. apply Hequiv; auto.
     Qed.
@@ -909,7 +909,7 @@ Module program.
         (flat_map rule.concl_rels p2.(rules)) ->
       interp p1 Q f ->
       interp (union p1 p2) Q f.
-    Proof. intros. eapply pftree_weaken; eauto using interp_step_union. Qed.
+    Proof. intros. eapply pftree.weaken; eauto using interp_step_union. Qed.
 
     Lemma interp_step_same_set p1 p2 f hyps :
       same_set p1.(rules) p2.(rules) ->
@@ -929,7 +929,7 @@ Module program.
       same_set p1.(meta_rules) p2.(meta_rules) ->
       interp p1 Q f ->
       interp p2 Q f.
-    Proof. intros. eapply pftree_weaken; eauto using interp_step_same_set. Qed.
+    Proof. intros. eapply pftree.weaken; eauto using interp_step_same_set. Qed.
 
   (* Ltac invert_stuff := *)
   (*   match goal with *)
@@ -990,7 +990,7 @@ Module program.
     prog_impl p1 (prog_impl p2 Q) f.
   Proof.
     intros Hdisj Hmr1 Hmr2. induction 1 using prog_impl_ind.
-    - apply pftree_leaf. apply pftree_leaf. assumption.
+    - apply pftree.leaf. apply pftree.leaf. assumption.
     - apply Exists_app in H. destruct H as [H|H].
       + eapply prog_impl_step. 2: eassumption.
         rewrite Exists_exists in *. fwd.
@@ -998,7 +998,7 @@ Module program.
         eapply staged_program_rule_impl; [|eassumption].
         eapply disjoint_lists_incl_l; [eassumption|].
         apply incl_flat_map_r. assumption.
-      + apply pftree_leaf. eapply prog_impl_step.
+      + apply pftree.leaf. eapply prog_impl_step.
         -- rewrite Exists_exists in *. fwd. eexists. split; [eassumption|].
            eapply staged_program_rule_impl with (p2 := p1).
            2: { eapply rule_impl_list_set; [eassumption|].
@@ -1233,7 +1233,7 @@ Module program.
   Proof.
     induction 1; constructor; auto.
     destruct H; fwd; auto.
-    eapply pftree_step; [eassumption|].
+    eapply pftree.step; [eassumption|].
     Search Forall incl. eauto using incl_Forall.
   Qed.
 
