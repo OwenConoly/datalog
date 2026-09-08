@@ -505,6 +505,27 @@ Module fact.
 
     Definition set_doesnt_lie (S : fact -> Prop) :=
       forall mf, S (meta mf) -> set_consistent_with mf S.
+
+    Definition args_consistent mf_args mf_set (S_args : args -> Prop) :=
+      forall nf_args,
+        Forall2 value_pattern.matches mf_args nf_args ->
+        mf_set nf_args <-> S_args (normal_args nf_args).
+
+    Definition honest_args (S_args : args -> Prop) :=
+      forall mf_args mf_set,
+        S_args (meta_args mf_args mf_set) ->
+        args_consistent mf_args mf_set S_args.
+
+    Lemma set_doesnt_lie_honest_args (S : fact -> Prop) R :
+      set_doesnt_lie S ->
+      honest_args (fun a => S (of_args R a)).
+    Proof.
+      cbv [set_doesnt_lie honest_args args_consistent].
+      intros H mf_args mf_set Hmeta nf_args Hargs. apply H in Hmeta.
+      cbv [set_consistent_with] in Hmeta. simpl in Hmeta.
+      apply (Hmeta {| normal_fact.rel := R; normal_fact.args := nf_args |}).
+      cbv [fact_pattern.matches]. simpl. auto.
+    Qed.
   End __.
 End fact. Export fact (fact).
 #[export] Hint Resolve fact.implied_by_mfs_ext : core.
@@ -1164,31 +1185,6 @@ Module program.
 
   End __.
 End program.
-
-  Definition args_consistent mf_args mf_set (S_args : fact_args -> Prop) :=
-    forall nf_args,
-      Forall2 matches mf_args nf_args ->
-      mf_set nf_args <-> S_args (normal_fact_args nf_args).
-
-  Definition honest_args (S_args : fact_args -> Prop) :=
-    forall mf_args mf_set,
-      S_args (meta_fact_args mf_args mf_set) ->
-      args_consistent mf_args mf_set S_args.
-
-  Lemma doesnt_lie_honest_args S R :
-    doesnt_lie S ->
-    honest_args (fun args => S (fact_of R args)).
-  Proof. cbv [doesnt_lie honest_args consistent args_consistent]. eauto. Qed.
-
-  Lemma meta_hyps_are_meta_facts env r mf_rel mf_args mf_set hyps :
-    rule_impl env r (meta_fact mf_rel mf_args mf_set) hyps ->
-    Forall is_meta hyps.
-  Proof.
-    invert 1. eapply Forall_impl.
-    2: { eapply Forall2_forget_l. eassumption. }
-    simpl. intros. fwd. cbv [meta_clause.interp] in *. fwd.
-    exact I.
-  Qed.
 
   Lemma meta_facts_consistent' p Q f1 f2 :
     (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
