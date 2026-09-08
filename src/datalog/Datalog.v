@@ -442,25 +442,49 @@ Module fact.
         exists (m :: mfs'). auto.
     Qed.
 
-    (*if we know only mfs and the normal_facts that mfs include, then do we know f?*)
-    Definition implied_by_mfs (mfs : list meta_fact) (f : fact) :=
+    (*if we know hyp and the normal_facts that hyp includes, then do we know f?*)
+    Definition implied_by_mf (f : fact) (hyp : meta_fact) :=
       match f with
-      | normal nf => Exists (fun hyp => meta_fact.matches hyp nf) mfs
-      | meta mf => Exists (meta_fact.equiv mf) mfs
+      | normal nf => meta_fact.matches hyp nf
+      | meta mf => meta_fact.equiv mf hyp
       end.
+
+    Definition implied_by_mfs (mfs : list meta_fact) (f : fact) :=
+      Exists (implied_by_mf f) mfs.
+
+    (*the pattern half of implied_by_mf: does fp cover f, ignoring sets?*)
+    Definition covered_by (f : fact) (fp : fact_pattern) :=
+      match f with
+      | normal nf => fact_pattern.matches fp nf
+      | meta mf => fp = mf.(meta_fact.pattern)
+      end.
+
+    Definition covered_by_pats (pats : list fact_pattern) (f : fact) :=
+      Exists (covered_by f) pats.
 
     Lemma implied_by_mfs_ext hyps hyps' f :
       Forall2 meta_fact.equiv hyps hyps' ->
       implied_by_mfs hyps f ->
       implied_by_mfs hyps' f.
     Proof.
-      intros H1 H2. apply Forall2_forget_r in H1. rewrite Forall_forall in H1.
+      cbv [implied_by_mfs implied_by_mf]. intros H1 H2.
+      apply Forall2_forget_r in H1. rewrite Forall_forall in H1.
       destruct f; simpl in *.
       - rewrite Exists_exists in *. fwd. especialize H1; eauto. fwd. eauto.
       - rewrite Exists_exists in *. fwd. especialize H1; eauto. fwd. eexists.
         split; [eassumption|]. etransitivity; eassumption.
     Qed.
 
+    Lemma implied_by_mfs_pats mfs f :
+      implied_by_mfs mfs f ->
+      covered_by_pats (map meta_fact.pattern mfs) f.
+    Proof.
+      cbv [implied_by_mfs covered_by_pats implied_by_mf covered_by]. destruct f; intros H.
+      - rewrite Exists_map. eapply Exists_impl; [|eassumption].
+        cbv [meta_fact.matches]. simpl. intros. fwd. assumption.
+      - rewrite Exists_map. eapply Exists_impl; [|eassumption].
+        cbv [meta_fact.equiv]. simpl. intros. fwd. symmetry. assumption.
+    Qed.
     Definition is_meta f :=
       match f with
       | meta _ => True
@@ -472,6 +496,7 @@ Module fact.
       | meta mf => meta_fact.rel mf
       | normal nf => normal_fact.rel nf
       end.
+
   End __.
 End fact. Export fact (fact).
 #[export] Hint Resolve fact.implied_by_mfs_ext : core.
@@ -1026,6 +1051,17 @@ Module program.
       Q f \/ In (fact.rel f) (concl_rels p).
     Proof. invert 1; eauto. Qed.
 
+    (*whenever a meta-rule's conclusion pattern covers a normal rule's conclusion,
+      the meta-rule's hypothesis patterns cover that normal rule's hypotheses*)
+    Definition meta_rules_valid (p : program) :=
+      forall mr pat pats nr nf hyps,
+        In mr p.(meta_rules) ->
+        meta_rule.pattern_interp mr pat pats ->
+        In nr p.(rules) ->
+        rule.interp nr nf hyps ->
+        fact_pattern.matches pat nf ->
+        Forall (fact.covered_by_pats pats) hyps.
+
   (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
   (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
   (*   prog_impl_with_no_meta_rules (p1 ++ p2) Q f -> *)
@@ -1062,28 +1098,6 @@ Module program.
 
   End __.
 End program.
-
-  (*just like fact_supported, except it puts no constraint on the sets*)
-  Definition fact_potentially_supported (mhyps : list fact) (f : fact) :=
-    match f with
-    | normal_fact R' nf_args' =>
-        exists mf_args' mf_set',
-        In (meta_fact R' mf_args' mf_set') mhyps /\
-          Forall2 matches mf_args' nf_args'
-    | meta_fact R' mf_args' _ =>
-        exists mf_set',
-        In (meta_fact R' mf_args' mf_set') mhyps
-    end.
-
-  Definition meta_rules_valid p :=
-    forall R mf_args mf_set mhyps mr,
-      In mr p ->
-      rule_impl (one_step_derives p) mr (meta_fact R mf_args mf_set) mhyps ->
-      forall nr args hyps,
-        In nr p ->
-        rule_impl (one_step_derives p) nr (normal_fact R args) hyps ->
-        Forall2 matches mf_args args ->
-        Forall (fact_potentially_supported mhyps) hyps.
 
   Definition consistent (mf_rel : rel) mf_args mf_set S :=
     forall nf_args,
