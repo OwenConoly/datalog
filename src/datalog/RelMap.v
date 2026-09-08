@@ -344,194 +344,254 @@ Section RelMap.
     exists x. split; [assumption|]. eapply implied_by_mf_agree; eauto.
   Qed.
 
-  (* --- ported above this line; the rest is still the old API --- *)
-
-  Lemma meta_cond_map_iff mr mf_args mf_set p R (args : list T) meta_hyps :
-    meta_rules_valid p ->
-    In mr p ->
-    rule_impl (one_step_derives p) mr (meta_fact R mf_args mf_set) meta_hyps ->
-    Forall2 matches mf_args args ->
-    meta_facts_consistent_with_map meta_hyps ->
-    inj_on_elt R ->
-    one_step_derives p meta_hyps R args <->
-      one_step_derives (map map_rule_rels p) (map map_fact meta_hyps) (f R) args.
+  Lemma normal_fact_equiv_inj nf nf' :
+    inj_on_elt nf.(normal_fact.rel) ->
+    normal_fact_equiv nf nf' ->
+    nf = nf'.
   Proof.
-    intros Hvalid HIn Hmr Hmf_args Hmfs_consistent Hinj.
-    cbv [one_step_derives one_step_derives0].
-    pose proof Hmr as Hmh.
-    apply meta_hyps_are_meta_facts in Hmh.
-    apply Hvalid in Hmr; [|assumption].
-    clear Hvalid HIn.
+    intros Hinj H. cbv [normal_fact_equiv map_normal_fact] in H. simp. fwd.
+    f_equal. auto.
+  Qed.
+
+  Lemma one_step_derives_map_iff p mr pat mhyps nf :
+    program.meta_rules_valid p ->
+    In mr p.(program.meta_rules) ->
+    meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) ->
+    fact_pattern.matches pat nf ->
+    meta_facts_agree_under_map mhyps ->
+    inj_on_elt nf.(normal_fact.rel) ->
+    rule.one_step_derives p.(program.rules) mhyps nf <->
+      rule.one_step_derives (map map_rule_rels p.(program.rules))
+        (map map_meta_fact mhyps) (map_normal_fact nf).
+  Proof.
+    intros Hvalid Hmr Hpat Hmatch Hagree Hinj. cbv [rule.one_step_derives].
     split; intros H; fwd.
-    - eexists. split.
-      { apply Exists_map. eapply Exists_impl; [|eassumption]. simpl.
-        intros. apply non_meta_rule_impl_map_fw. eassumption. }
-      rewrite Lists.List.Forall_map. eapply Forall_impl; [|eassumption].
-      intros f' Hex. apply Exists_exists in Hex. fwd.
-      apply Exists_exists. eexists. split; [apply in_map; eassumption |].
-      destruct Hexp1 as [Hext | Hmatch].
-      + left. apply extensionally_equal_map_fw. eassumption.
-      + right. apply fact_matches_map_fw. eassumption.
-    - apply Exists_map in Hp0. apply Exists_exists in Hp0. fwd.
-      pose proof Hp0p1 as Hp1'.
-      apply non_meta_rule_invert_map in Hp0p1. fwd.
-      eapply non_meta_rule_impl_map_bw in Hp1'. fwd.
-      apply Hinj in Hp1'p0. subst.
-      specialize (Hmr _ _ _ ltac:(eassumption) ltac:(eauto) ltac:(eassumption)).
-      eexists. split; [apply Exists_exists; eauto |].
-      clear Hp1'p2.
-      rewrite Lists.List.Forall_map in Hp1.
-      apply Forall2_forget_l in Hp1'p1. apply Forall_forall.
-      intros f' Hf'. rewrite Forall_forall in Hp1'p1.
-      specialize (Hp1'p1 _ Hf'). fwd.
-      rewrite Forall_forall in Hp1.
-      specialize (Hp1 _ ltac:(eassumption)). apply Exists_map in Hp1.
-      apply Exists_exists in Hp1. fwd.
-      rewrite Forall_forall in Hmr. specialize (Hmr _ Hf').
-      cbv [fact_potentially_supported] in Hmr.
-      rewrite Forall_forall in Hmh. specialize (Hmh _ ltac:(eassumption)).
-      destruct Hp1p1 as [Hext | Hmatch].
-      * apply extensionally_equal_map_bw in Hext. fwd.
-        destruct f'.
-        { (*gross*)
-          exfalso.
-          destruct x0, x1, f1', f2';
-            cbv [is_meta] in Hmh; try contradiction;
-            cbv [fact_equiv map_fact] in Hp1'p1p1; try discriminate Hp1'p1p1;
-            cbv [fact_equiv map_fact] in Hextp0; try discriminate Hextp0;
-            cbv [fact_equiv map_fact] in Hextp1; try discriminate Hextp1;
-            cbv [extensionally_equal] in Hextp2; try contradiction. }
-        fwd.
-        apply Exists_exists. eexists. split; [exact Hmr|].
-        left. simpl. ssplit; auto.
-        intros args' Hargs'.
-        cbv [fact_equiv map_fact] in Hp1'p1p1, Hextp0, Hextp1.
-        destruct x0 as [| R_x0 args_x0 S_x0]; try discriminate.
-        destruct f1' as [| R_f1 args_f1 S_f1]; try discriminate.
-        destruct f2' as [| R_f2 args_f2 S_f2]; try contradiction.
-        destruct x1 as [| R_x1 args_x1 S_x1]; try discriminate.
-        simpl in Hextp2. fwd.
-        rewrite Hextp2p2 by assumption.
-        eapply Hmfs_consistent; try eassumption.
-        congruence.
-      * apply fact_matches_map_bw in Hmatch. fwd.
-        destruct f'.
-        2: { exfalso.
-             cbv [fact_matches] in Hmatchp2. fwd.
-             cbv [fact_equiv map_fact] in Hmatchp0, Hp1'p1p1.
-             destruct x0; congruence. }
-        fwd. apply Exists_exists. eexists. split; [exact Hmrp0|].
-        right. cbv [fact_matches]. do 4 eexists. ssplit; try reflexivity.
-        1: assumption.
-        cbv [fact_matches] in Hmatchp2.
-        destruct Hmatchp2 as [R_f [nf_args_f [mf_args_f [mf_set_f [H_match_args [H_set_eval [H_f1' H_f2']]]]]]].
-        subst f1' f2'.
-
-        cbv [fact_equiv map_fact] in Hp1'p1p1, Hmatchp0, Hmatchp1.
-        destruct x0 as [R_x0 args_x0 | ]; try discriminate.
-        destruct x1 as [ | R_x1 mf_args_x1 S_x1]; try contradiction.
-        fwd.
-        fwd. cbv [meta_facts_consistent_with_map] in Hmfs_consistent.
-        rewrite Hmfs_consistent; eauto. congruence.
+    - exists (map map_fact hyps). split.
+      + apply Exists_map, Exists_exists. eauto using rule_interp_map_fw.
+      + apply Forall_forall. intros h Hh. apply in_map_iff in Hh. fwd.
+        apply implied_by_mfs_map_fw. rewrite Forall_forall in Hp1. auto.
+    - apply in_map_iff in Hp0p0. fwd.
+      pose proof Hp0p1 as Hinv. apply rule_interp_invert_map in Hinv. fwd.
+      apply rule_interp_map_bw in Hp0p1. fwd.
+      apply normal_fact_equiv_inj in Hp0p1p0; [|assumption]. subst.
+      exists hyps'. split; [apply Exists_exists; eauto|].
+      pose proof (Hvalid _ _ Hmr Hp0p0p1 _ _ _ _ Hpat Hp0p1p2 Hmatch) as Hcov.
+      apply Forall2_forget_l in Hp0p1p1.
+      rewrite Forall_forall in Hp0p1p1, Hcov, Hp1.
+      apply Forall_forall. intros h' Hh'.
+      specialize (Hp0p1p1 _ Hh'). fwd.
+      eapply implied_by_mfs_covered_bw; [assumption| |auto].
+      cbv [fact_equiv] in *. rewrite <- Hp0p1p1p1.
+      apply Hp1. apply in_map. assumption.
   Qed.
 
-  Lemma rule_impl_map_rule_rels_fw p r f0 hyps :
-    meta_rules_valid p ->
-    In r p ->
-    inj_on_elt (rel_of f0) ->
-    meta_facts_consistent_with_map hyps ->
-    rule_impl (one_step_derives p) r f0 hyps ->
-    rule_impl (one_step_derives (map map_rule_rels p))
-      (map_rule_rels r)
-      (map_fact f0)
-      (map map_fact hyps).
+  Lemma map_fact_meta l :
+    map map_fact (map fact.meta l) = map fact.meta (map map_meta_fact l).
+  Proof. rewrite !map_map. apply map_ext. intros. reflexivity. Qed.
+
+  Lemma map_pattern_map_meta_fact l :
+    map meta_fact.pattern (map map_meta_fact l) =
+      map map_fact_pattern (map meta_fact.pattern l).
+  Proof. rewrite !map_map. apply map_ext. intros. reflexivity. Qed.
+
+  Lemma pattern_interp_map_fw mr pat pats :
+    meta_rule.pattern_interp mr pat pats ->
+    meta_rule.pattern_interp (map_meta_rule_rels mr) (map_fact_pattern pat)
+      (map map_fact_pattern pats).
   Proof.
-    intros Hvalid Hr Hinj Hcon Himpl. pose proof Himpl as Himpl0. invert Himpl.
-    - econstructor. apply non_meta_rule_impl_map_fw. eassumption.
-    - simpl. econstructor.
-      + rewrite Exists_map. eapply Exists_impl; [|eassumption].
-        simpl. intros c Hc. eapply interp_meta_clause_map_fw in Hc. eassumption.
-      + apply Forall2_interp_meta_clause_map_fw. eassumption.
-      + intros args'' Hargs. rewrite H1 by assumption.
-        eapply meta_cond_map_iff; eassumption.
+    cbv [meta_rule.pattern_interp map_meta_rule_rels]. simpl. intros. fwd.
+    exists ctx. split.
+    - apply Exists_map, Exists_exists. eauto using interp_clause_pattern_map_fw.
+    - apply Forall2_interp_clause_pattern_map_fw. assumption.
   Qed.
 
-  Lemma Forall2_interp_meta_clause_map_bw ctx hyps1 hyps2 :
-    Forall2 (meta_clause.interp ctx) (map map_meta_clause_rel hyps1) (map map_fact hyps2) ->
+  Lemma meta_rule_interp_map_fw p mr mf mhyps :
+    program.meta_rules_valid p ->
+    In mr p.(program.meta_rules) ->
+    meta_facts_agree_under_map mhyps ->
+    inj_on_elt (meta_fact.rel mf) ->
+    meta_rule.interp p.(program.rules) mr mf mhyps ->
+    meta_rule.interp (map map_rule_rels p.(program.rules)) (map_meta_rule_rels mr)
+      (map_meta_fact mf) (map map_meta_fact mhyps).
+  Proof.
+    intros Hvalid Hmr Hagree Hinj H.
+    cbv [meta_rule.interp meta_fact.equiv meta_fact.rel] in *. fwd.
+    destruct mf. simpl in *. subst.
+    exists (map_fact_pattern pat). rewrite map_pattern_map_meta_fact.
+    split; [auto using pattern_interp_map_fw|].
+    cbv [map_meta_fact map_fact_pattern]. simpl. split; [reflexivity|].
+    intros args Hargs. rewrite Hp2 by assumption.
+    apply (one_step_derives_map_iff p mr pat mhyps
+             {| normal_fact.rel := pat.(fact_pattern.rel); normal_fact.args := args |}); auto.
+  Qed.
+
+  Definition map_program (p : program) : program :=
+    {| program.rules := map map_rule_rels p.(program.rules);
+      program.meta_rules := map map_meta_rule_rels p.(program.meta_rules) |}.
+
+  Definition facts_agree_under_map (hyps : list fact) :=
+    forall mf1 mf2,
+      In (fact.meta mf1) hyps ->
+      In (fact.meta mf2) hyps ->
+      meta_fact.agree (map_meta_fact mf1) (map_meta_fact mf2).
+
+  Lemma facts_agree_under_map_meta mhyps :
+    facts_agree_under_map (map fact.meta mhyps) ->
+    meta_facts_agree_under_map mhyps.
+  Proof.
+    cbv [facts_agree_under_map meta_facts_agree_under_map]. auto using in_map.
+  Qed.
+
+  Lemma interp_step_map_fw p fct hyps :
+    program.meta_rules_valid p ->
+    inj_on_elt (fact.rel fct) ->
+    facts_agree_under_map hyps ->
+    program.interp_step p fct hyps ->
+    program.interp_step (map_program p) (map_fact fct) (map map_fact hyps).
+  Proof.
+    intros Hvalid Hinj Hagree H. invert H; simpl in *.
+    - constructor. simpl. apply Exists_map, Exists_exists. fwd.
+      eauto using rule_interp_map_fw.
+    - rewrite map_fact_meta. constructor. simpl.
+      apply Exists_map, Exists_exists. fwd.
+      eexists. split; [eassumption|].
+      apply meta_rule_interp_map_fw; auto using facts_agree_under_map_meta.
+  Qed.
+
+  Lemma Forall2_interp_clause_pattern_map_bw ctx hyps1 hyps2 :
+    Forall2 (clause_pattern.interp ctx)
+      (map map_clause_pattern_rel hyps1) (map map_fact_pattern hyps2) ->
     exists hyps2',
-      Forall2 fact_equiv hyps2 hyps2' /\
-      Forall2 (meta_clause.interp ctx) hyps1 hyps2'.
+      Forall2 fact_pattern_equiv hyps2 hyps2' /\
+      Forall2 (clause_pattern.interp ctx) hyps1 hyps2'.
   Proof.
     intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
     induction H.
     - eexists []. split; constructor.
-    - apply interp_meta_clause_map_bw in H. destruct H as [h' [Heq Hinterp]].
-      destruct IHForall2 as [hyps2' [HForall_eq HForall_interp]].
-      eexists (h' :: hyps2'). split; constructor; eauto.
+    - apply interp_clause_pattern_map_bw in H. fwd.
+      eexists (_ :: _). split; constructor; eauto.
   Qed.
 
-  Lemma meta_facts_consistent_with_map_equiv hyps hyps' :
-    meta_facts_consistent_with_map hyps ->
-    Forall2 fact_equiv hyps hyps' ->
-    meta_facts_consistent_with_map hyps'.
+  Lemma pattern_interp_map_bw mr pat pats :
+    meta_rule.pattern_interp (map_meta_rule_rels mr) (map_fact_pattern pat)
+      (map map_fact_pattern pats) ->
+    exists pat0 pats0,
+      fact_pattern_equiv pat pat0 /\
+      Forall2 fact_pattern_equiv pats pats0 /\
+      meta_rule.pattern_interp mr pat0 pats0.
   Proof.
-    intros Hcon Heq.
-    cbv [meta_facts_consistent_with_map].
-    intros R1 args1 S1 R2 args2 S2 Hin1 Hin2 Hf_eq nf_args Hmatch1 Hmatch2.
+    cbv [meta_rule.pattern_interp map_meta_rule_rels]. simpl. intros. fwd.
+    apply in_map_iff in Hp0p0. fwd.
+    apply interp_clause_pattern_map_bw in Hp0p1.
+    apply Forall2_interp_clause_pattern_map_bw in Hp1. fwd.
+    eexists _, _. ssplit; [eassumption|eassumption|].
+    exists ctx. split; [apply Exists_exists; eauto | assumption].
+  Qed.
 
+  Definition meta_fact_equiv m1 m2 := map_meta_fact m1 = map_meta_fact m2.
+
+  Lemma meta_facts_of_patterns mhyps pats :
+    Forall2 fact_pattern_equiv (map meta_fact.pattern mhyps) pats ->
+    exists mhyps',
+      Forall2 meta_fact_equiv mhyps mhyps' /\
+      map meta_fact.pattern mhyps' = pats.
+  Proof.
+    rewrite <- Forall2_map_l. induction 1; [now exists []|]. fwd.
+    eexists ({| meta_fact.pattern := y; meta_fact.set := x.(meta_fact.set) |} :: _).
+    split.
+    - constructor; [|eassumption]. cbv [meta_fact_equiv map_meta_fact]. simpl.
+      f_equal. assumption.
+    - simpl. f_equal.
+  Qed.
+
+  Lemma fact_pattern_equiv_inj fp fp' :
+    inj_on_elt fp.(fact_pattern.rel) ->
+    fact_pattern_equiv fp fp' ->
+    fp = fp'.
+  Proof.
+    intros Hinj H. cbv [fact_pattern_equiv map_fact_pattern] in H. simp. fwd.
+    f_equal. auto.
+  Qed.
+
+  Lemma meta_facts_agree_under_map_equiv mhyps mhyps' :
+    meta_facts_agree_under_map mhyps ->
+    Forall2 meta_fact_equiv mhyps mhyps' ->
+    meta_facts_agree_under_map mhyps'.
+  Proof.
+    cbv [meta_facts_agree_under_map meta_fact_equiv]. intros Hagree Heq mf1 mf2 H1 H2.
     apply Forall2_forget_l in Heq. rewrite Forall_forall in Heq.
-    apply Heq in Hin1, Hin2. fwd.
-
-    cbv [fact_equiv map_fact] in Hin1p1, Hin2p1.
-    destruct x as [| R1' args1' S1']; try discriminate.
-    destruct x0 as [| R2' args2' S2']; try discriminate.
-    fwd. eauto using eq_trans.
+    apply Heq in H1, H2. fwd. rewrite <- H1p1, <- H2p1. auto.
   Qed.
 
-  Lemma rule_impl_map_rule_rels_bw p r f0 hyps :
-    meta_rules_valid p ->
-    In r p ->
-    inj_on_elt (rel_of f0) ->
-    meta_facts_consistent_with_map hyps ->
-    rule_impl (one_step_derives (map map_rule_rels p))
-      (map_rule_rels r)
-      (map_fact f0)
-      (map map_fact hyps) ->
-    exists f0' hyps',
-      fact_equiv f0 f0' /\
-      Forall2 fact_equiv hyps hyps' /\
-      rule_impl (one_step_derives p) r f0' hyps'.
+  Lemma meta_rule_interp_map_bw p mr mf mhyps :
+    program.meta_rules_valid p ->
+    In mr p.(program.meta_rules) ->
+    meta_facts_agree_under_map mhyps ->
+    inj_on_elt (meta_fact.rel mf) ->
+    meta_rule.interp (map map_rule_rels p.(program.rules)) (map_meta_rule_rels mr)
+      (map_meta_fact mf) (map map_meta_fact mhyps) ->
+    exists mhyps',
+      Forall2 meta_fact_equiv mhyps mhyps' /\
+      meta_rule.interp p.(program.rules) mr mf mhyps'.
   Proof.
-    intros Hvalid Hr Hinj Hcon Himpl. invert Himpl.
-    - destruct f0; simpl in *; repeat invert_stuff.
-      eassert (H':_) by (eapply non_meta_rule_impl_map_bw; eassumption).
-      fwd. apply Hinj in H'p0. subst. eauto 7.
-    - destruct f0; simpl in *; congruence || fwd.
-      destruct r; simpl in *; congruence || fwd.
-      apply Forall2_interp_meta_clause_map_bw in H2. fwd.
-      rewrite Exists_map in H1. apply Exists_exists in H1. fwd.
-      apply interp_meta_clause_map_bw with (h := meta_fact _ _ _) in H1p1. fwd.
-      do 2 eexists. split; [eassumption|]. split; [eassumption|].
-      cbv [fact_equiv] in H1p1p0. simpl in H1p1p0.
-      destruct h'; simpl in H1p1p0; try discriminate. fwd.
-      econstructor.
-      + apply Exists_exists. eauto.
-      + assumption.
-      + intros. rewrite H3 by assumption. symmetry.
-        apply Hinj in H1. subst.
-        replace (map map_fact hyps) with (map map_fact hyps2').
-        2: { apply Forall2_eq_map. rewrite <- Forall2_map_r.
-             eapply Forall2_impl; [eassumption|].
-             auto. }
-        eapply meta_cond_map_iff; try eassumption.
-        2: { eauto using meta_facts_consistent_with_map_equiv. }
-        econstructor.
-        -- apply Exists_exists. eexists. split; [eassumption|].
-           cbv [meta_clause.interp]. cbv [meta_clause.interp] in H1p1p1.
-           fwd. eauto.
-        -- assumption.
-        -- intros. reflexivity.
+    intros Hvalid Hmr Hagree Hinj H.
+    cbv [meta_rule.interp meta_fact.equiv meta_fact.rel] in *. fwd.
+    destruct mf. simpl in *. subst.
+    rewrite map_pattern_map_meta_fact in Hp0.
+    apply pattern_interp_map_bw in Hp0. fwd.
+    apply fact_pattern_equiv_inj in Hp0p0; [|assumption]. subst.
+    apply meta_facts_of_patterns in Hp0p1. fwd.
+    rewrite (Forall2_map_eq _ _ _ _ Hp0p1p0) in Hp2.
+    exists mhyps'. split; [assumption|].
+    exists pat0. ssplit; [assumption|reflexivity|].
+    intros args Hargs. rewrite Hp2 by assumption. symmetry.
+    apply (one_step_derives_map_iff p mr pat0 mhyps'
+             {| normal_fact.rel := pat0.(fact_pattern.rel); normal_fact.args := args |});
+      eauto using meta_facts_agree_under_map_equiv.
   Qed.
+
+  Lemma map_fact_meta_inv l1 l2 :
+    map fact.meta l1 = map map_fact l2 ->
+    exists l2', l2 = map fact.meta l2' /\ l1 = map map_meta_fact l2'.
+  Proof.
+    revert l2. induction l1; intros [|b l2] H; simpl in H; try discriminate.
+    - exists nil. auto.
+    - destruct b; simpl in H; [discriminate|]. invert H.
+      apply IHl1 in H2. fwd. exists (m :: l2'). auto.
+  Qed.
+
+  Lemma Forall2_fact_equiv_meta l1 l2 :
+    Forall2 meta_fact_equiv l1 l2 ->
+    Forall2 fact_equiv (map fact.meta l1) (map fact.meta l2).
+  Proof.
+    intros. rewrite <- Forall2_map_l, <- Forall2_map_r.
+    eapply Forall2_impl; [eassumption|]. cbv [fact_equiv meta_fact_equiv]. simpl.
+    intros. f_equal. assumption.
+  Qed.
+
+  Lemma interp_step_map_bw p fct hyps :
+    program.meta_rules_valid p ->
+    inj_on_elt (fact.rel fct) ->
+    facts_agree_under_map hyps ->
+    program.interp_step (map_program p) (map_fact fct) (map map_fact hyps) ->
+    exists hyps', Forall2 fact_equiv hyps hyps' /\ program.interp_step p fct hyps'.
+  Proof.
+    intros Hvalid Hinj Hagree H. cbv [map_program] in H.
+    destruct fct as [nf|mf]; simpl in *; invert H; fwd.
+    - apply in_map_iff in H1p0. fwd.
+      apply rule_interp_map_bw in H1p1. fwd.
+      apply normal_fact_equiv_inj in H1p1p0; [|assumption]. subst.
+      eexists. split; [eassumption|]. constructor. apply Exists_exists. eauto.
+    - apply map_fact_meta_inv in H1. fwd.
+      apply in_map_iff in H2p0. fwd.
+      apply facts_agree_under_map_meta in Hagree.
+      eapply meta_rule_interp_map_bw in H2p1; try assumption.
+      fwd. exists (map fact.meta mhyps'). split.
+      + apply Forall2_fact_equiv_meta. assumption.
+      + constructor. apply Exists_exists. eauto.
+  Qed.
+
+  (* --- ported above this line; the rest is still the old API --- *)
 
   Lemma rule_impl_map_rule_rels_f_target blah r f_target hyps :
     rule_impl blah (map_rule_rels r) f_target hyps ->
