@@ -13,35 +13,35 @@ From GraphSearch Require Import Dag.
 Import ListNotations.
 
 Definition relT := Type. Existing Class relT.
-Definition relt `{relT} := (_ : relT).
+Definition rel `{relT} := (_ : relT).
 
 Definition exprvarT := Type. Existing Class exprvarT.
-Definition exprvart `{exprvarT} := (_ : exprvarT).
+Definition exprvar `{exprvarT} := (_ : exprvarT).
 
 Definition fnT := Type. Existing Class fnT.
-Definition fnt `{fnT} := (_ : fnT).
+Definition fn `{fnT} := (_ : fnT).
 
 Definition aggregatorT := Type. Existing Class aggregatorT.
-Definition aggregatort `{aggregatorT} := (_ : aggregatorT).
+Definition aggregator `{aggregatorT} := (_ : aggregatorT).
 
 Definition valueT := Type. Existing Class valueT.
-Definition valuet `{valueT} := (_ : valueT).
+Definition value `{valueT} := (_ : valueT).
 
-Class datalog_semantics {fn : fnT} {aggregator : aggregatorT} {value : valueT} : Type :=
+Class datalog_semantics {_fn : fnT} {_aggregator : aggregatorT} {_value : valueT} : Type :=
   {
-    interp_fun : fn -> list value -> option value;
+    interp_fun : _fn -> list _value -> option _value;
     (* (*if x represents a finite set S then get_set x = Some S. *)
     (*   note: suffices to have this be T -> option nat, for cardinality... *)
     (*   should i do that? *) *)
     (* get_set : T -> option (T -> Prop); *)
-    get_nat : value -> nat;
-    agg_bop : aggregator -> value -> value -> value;
-    agg_id : aggregator -> value; }.
+    get_nat : _value -> nat;
+    agg_bop : _aggregator -> _value -> _value -> _value;
+    agg_id : _aggregator -> _value; }.
 Arguments datalog_semantics : clear implicits.
 
-Class datalog_params {rel : relT} {exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map exprvar valuet} {context_ok : map.ok context} := {}.
+Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map _exprvar value} {context_ok : map.ok context} := {}.
 
-Definition interp_agg `{datalog_semantics} agg (vals : list (valuet * valuet)) :=
+Definition interp_agg `{datalog_semantics} agg (vals : list (value * value)) :=
   fold_right (agg_bop agg) (agg_id agg) (map snd vals).
 
 Class query_signature {rel : Type} :=
@@ -67,7 +67,7 @@ Module expr.
     | var (v : exprvar)
     | app (f : fn) (args : list expr).
 
-    Inductive interp (ctx : context) : expr -> valuet -> Prop :=
+    Inductive interp (ctx : context) : expr -> value -> Prop :=
     | interp_var_expr x v :
       map.get ctx x = Some v ->
       interp ctx (var x) v
@@ -375,8 +375,8 @@ Module fact.
       end.
 
     Variant args :=
-      | normal_args (nf_args : list valuet)
-      | meta_args (mf_args : list value_pattern) (mf_set : list valuet -> Prop).
+      | normal_args (nf_args : list value)
+      | meta_args (mf_args : list value_pattern) (mf_set : list value -> Prop).
 
     Definition args_of f :=
       match f with
@@ -466,6 +466,12 @@ Module fact.
       | meta _ => True
       | normal _ => False
       end.
+
+    Definition rel f :=
+      match f with
+      | meta mf => meta_fact.rel mf
+      | normal nf => normal_fact.rel nf
+      end.
   End __.
 End fact. Export fact (fact).
 #[export] Hint Resolve fact.implied_by_mfs_ext : core.
@@ -486,7 +492,7 @@ Module rule.
         Exists (fun c => clause.interp ctx c nf) rule_concls ->
         Forall2 (clause.interp ctx) rule_hyps hyps ->
         interp (impl rule_concls rule_hyps) nf (map fact.normal hyps)
-      | interp_agg S vals concl_rel a hyp_rel (args : list valuet) :
+      | interp_agg S vals concl_rel a hyp_rel (args : list value) :
         is_list_set (fun '(i, x) => S (i :: x :: args)) vals ->
         interp
           (agg concl_rel a hyp_rel)
@@ -608,6 +614,19 @@ Module rule.
       reflexivity.
     - left. reflexivity.
   Qed.
+
+  Lemma interp_hyp_relname_in r f hyps :
+    interp r f hyps ->
+    Forall (fun hyp => In (fact.rel hyp) (hyp_rels r)) hyps.
+  Proof.
+    invert 1.
+    - simpl. apply Forall_forall. intros x Hx. apply in_map_iff in Hx. fwd.
+      simpl. apply in_map_iff. simp. cbv [clause.interp] in *. simp. fwd.
+      apply Forall2_forget_l in H1. rewrite Forall_forall in H1. especialize H1; eauto.
+      fwd. simp. eexists. split; [|eassumption]. reflexivity.
+    - simpl. constructor; [simpl; auto|]. apply List.Forall_map.
+      apply Forall_forall. intros. simp. simpl. auto.
+  Qed.
   End __.
 End rule. Export rule (rule).
 #[export] Hint Resolve rule.one_step_derives_ext : core.
@@ -663,14 +682,35 @@ Module meta_rule.
     Definition concl_rels (r : meta_rule) :=
       map clause_pattern.rel r.(concls).
 
+    Definition hyp_rels (r : meta_rule) :=
+      map clause_pattern.rel r.(hyps).
+
+    Lemma pattern_interp_concl_relname_in r pat ps :
+      pattern_interp r pat ps ->
+      In pat.(fact_pattern.rel) (concl_rels r).
+    Proof.
+      cbv [pattern_interp concl_rels clause_pattern.interp]. intros. fwd.
+      apply in_map_iff. eauto.
+    Qed.
+
     Lemma interp_concl_relname_in p r f hyps :
       interp p r f hyps ->
       In (meta_fact.rel f) (concl_rels r).
     Proof.
-      cbv [interp]. intros. fwd. cbv [meta_fact.equiv] in *. fwd. simp.
-      cbv [meta_fact.rel]. simpl. cbv [concl_rels]. simpl.
-      cbv [pattern_interp clause_pattern.interp] in Hp0. fwd. simp.
-      apply in_map_iff. eexists. split; [|eassumption]. simpl. reflexivity.
+      cbv [interp meta_fact.equiv meta_fact.rel]. intros H. fwd. simp.
+      apply pattern_interp_concl_relname_in in Hp0. simp. assumption.
+    Qed.
+
+    Lemma interp_hyp_relname_in p r f hyps :
+      interp p r f hyps ->
+      Forall (fun hyp => In (meta_fact.rel hyp) (hyp_rels r)) hyps.
+    Proof.
+      cbv [interp]. intros H. fwd. simp.
+      cbv [pattern_interp clause_pattern.interp] in *. fwd. simp.
+      apply Forall2_map_r in Hp0p1.
+      eapply Forall_impl; [eapply Forall2_forget_l; eassumption|].
+      simpl. intros. fwd. simp. cbv [meta_fact.rel hyp_rels]. simpl.
+      apply in_map_iff. eexists. split; [|eassumption]. reflexivity.
     Qed.
   End __.
 End meta_rule. Export meta_rule (meta_rule).
@@ -680,6 +720,7 @@ Module program.
   (*include inputs as a field, since it is needed for the definition of validity of meta-rules.
     could also consider having an outputs field?
     TODO is it really a good idea to put inputs here?
+    I think it's a bad idea.
    *)
   Record program {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} :=
     { rules : list rule;
@@ -774,32 +815,6 @@ Module program.
   (*   | _ => progress fwd *)
   (*   | _ => congruence *)
   (*   end. *)
-
-  Lemma non_meta_rule_impl_hyp_relname_in r R args hyps :
-    non_meta_rule_impl r R args hyps ->
-    Forall (fun hyp => In (rel_of hyp) (hyp_rels r)) hyps.
-  Proof.
-    invert 1.
-    - simpl.
-      eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
-      intros. repeat invert_stuff.
-      eauto using in_map.
-    - simpl. constructor; eauto.
-      apply List.Forall_map. apply Forall_forall.
-      intros [? ?]. simpl. auto.
-  Qed.
-
-  Lemma rule_impl_hyp_relname_in p r f hyps :
-    rule_impl p r f hyps ->
-    Forall (fun hyp => In (rel_of hyp) (hyp_rels r)) hyps.
-  Proof.
-    invert 1.
-    - eapply non_meta_rule_impl_hyp_relname_in. eassumption.
-    - simpl.
-      eapply Forall_impl; [|eapply Forall2_forget_l; eassumption].
-      intros. repeat invert_stuff.
-      eauto using in_map.
-  Qed.
 
   Lemma pftree_weaken_hyp_strong {U : Type} (P : U -> list U -> Prop) Q1 Q2 (x : U) (Inv : U -> Prop) :
     (Q1 x -> Q2 x) ->
@@ -1090,11 +1105,6 @@ Module program.
     apply incl_flat_map_strong; auto with incl. intros.
     eapply incl_tran; auto with incl.
   Qed.
-
-  Lemma prog_impl_trans p Q f :
-    prog_impl p (prog_impl p Q) f ->
-    prog_impl p Q f.
-  Proof. apply pftree_trans. Qed.
 
   Lemma staged_program_iff p1 p2 Q f :
     disjoint_lists (flat_map concl_rels p1) (flat_map all_rels p2) ->
