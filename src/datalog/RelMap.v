@@ -786,17 +786,19 @@ Section RelMap.
   Lemma concl_rels_map_program p :
     program.concl_rels (map_program p) = map f (program.concl_rels p).
   Proof.
-    cbv [program.concl_rels map_program]. simpl. rewrite map_app, !map_flat_map, !flat_map_map.
-    erewrite !flat_map_ext;
-      [reflexivity | apply concl_rels_map_meta_rule_rels | apply concl_rels_map_rule_rels].
+    cbv [program.concl_rels map_program]. simpl.
+    rewrite map_app, !map_flat_map, !flat_map_map. f_equal.
+    - apply flat_map_ext. apply concl_rels_map_rule_rels.
+    - apply flat_map_ext. apply concl_rels_map_meta_rule_rels.
   Qed.
 
   Lemma hyp_rels_map_program p :
     program.hyp_rels (map_program p) = map f (program.hyp_rels p).
   Proof.
-    cbv [program.hyp_rels map_program]. simpl. rewrite map_app, !map_flat_map, !flat_map_map.
-    erewrite !flat_map_ext;
-      [reflexivity | apply hyp_rels_map_meta_rule_rels | apply hyp_rels_map_rule_rels].
+    cbv [program.hyp_rels map_program]. simpl.
+    rewrite map_app, !map_flat_map, !flat_map_map. f_equal.
+    - apply flat_map_ext. apply hyp_rels_map_rule_rels.
+    - apply flat_map_ext. apply hyp_rels_map_meta_rule_rels.
   Qed.
 
   Lemma all_rels_map_program p :
@@ -812,20 +814,16 @@ Section RelMap.
 
   Lemma map_fact_eq_of_args fct :
     map_fact fct = fact.of_args (f (fact.rel_of fct)) (fact.args_of fct).
-  Proof. destruct fct; reflexivity. Qed.
+  Proof. destruct fct; simp; reflexivity. Qed.
 
-  (* --- ported above this line; the rest is still the old API --- *)
-
+  (*not yet ported to the current API:
   (*now an easier theorem: if f happens to be injective, then the renaming is automatically correct*)
-
   Lemma concl_in_all (r : @rule rel1 exprvar fn aggregator) x :
     In x (concl_rels r) -> In x (all_rels r).
   Proof. cbv [all_rels]. intros. apply in_or_app. auto. Qed.
-
   Lemma hyp_in_all (r : @rule rel1 exprvar fn aggregator) x :
     In x (hyp_rels r) -> In x (all_rels r).
   Proof. cbv [all_rels]. intros. apply in_or_app. auto. Qed.
-
   Lemma map_fact_inj_g a b :
     (f (rel_of a) = f (rel_of b) -> rel_of a = rel_of b) ->
     map_fact a = map_fact b -> a = b.
@@ -835,13 +833,11 @@ Section RelMap.
       cbv [map_fact rel_of] in *; inversion H; subst;
       assert (Ra = Rb) by (apply Hinj; assumption); subst; reflexivity.
   Qed.
-
   Lemma Forall2_fact_equiv_map_eq l1 l2 :
     Forall2 fact_equiv l1 l2 -> map map_fact l1 = map map_fact l2.
   Proof.
     induction 1; simpl; [reflexivity|]. cbv [fact_equiv] in H. congruence.
   Qed.
-
   Lemma non_meta_rule_impl_map_bw_recover r Rimg args hyps_m :
     non_meta_rule_impl (map_rule_rels r) Rimg args hyps_m ->
     exists R0 hyps0,
@@ -863,7 +859,6 @@ Section RelMap.
     - apply Forall2_fact_equiv_map_eq. exact Hfe.
     - exact Hnm.
   Qed.
-
   Lemma Forall2_interp_meta_clause_recover ctx cs hs :
     Forall2 (meta_clause.interp ctx) (map map_meta_clause_rel cs) hs ->
     exists hs0, hs = map map_fact hs0 /\ Forall2 (meta_clause.interp ctx) cs hs0.
@@ -876,7 +871,6 @@ Section RelMap.
       split; [reflexivity|]. constructor; [|exact Hok].
       cbv [meta_clause.interp]. eauto.
   Qed.
-
   Lemma Forall2_interp_meta_clause_rel ctx (cs : list (@meta_clause rel1 exprvar fn))
     (hs : list (@fact rel1 T)) :
     Forall2 (meta_clause.interp ctx) cs hs ->
@@ -886,7 +880,6 @@ Section RelMap.
     - cbv [meta_clause.interp] in Hc. fwd. subst. simpl. left. reflexivity.
     - eapply Forall_impl; [|exact IH]. simpl. intros a Ha. right. exact Ha.
   Qed.
-
   Lemma extensionally_equal_map_bw_inj g mf :
     (f (rel_of g) = f (rel_of mf) -> rel_of g = rel_of mf) ->
     extensionally_equal (map_fact g) (map_fact mf) ->
@@ -897,7 +890,6 @@ Section RelMap.
       cbv [extensionally_equal map_fact rel_of] in *; try contradiction; fwd;
       assert (Rg = Rm) by (apply Hinj; assumption); subst; auto.
   Qed.
-
   Lemma fact_matches_map_bw_inj g mf :
     (f (rel_of g) = f (rel_of mf) -> rel_of g = rel_of mf) ->
     fact_matches (map_fact g) (map_fact mf) ->
@@ -910,7 +902,6 @@ Section RelMap.
     assert (Rg = Rm) by (apply Hinj; congruence). subst.
     cbv [fact_matches]. do 4 eexists. ssplit; try reflexivity; eassumption.
   Qed.
-
   Lemma fact_supported_map_fw meta_facts g :
     fact_supported meta_facts g ->
     fact_supported (map map_fact meta_facts) (map_fact g).
@@ -920,7 +911,6 @@ Section RelMap.
     - left. apply extensionally_equal_map_fw. exact Hh.
     - right. apply fact_matches_map_fw. exact Hh.
   Qed.
-
   Lemma fact_supported_map_bw_inj meta_facts g :
     injective_on f (rel_of g :: map rel_of meta_facts) ->
     fact_supported (map map_fact meta_facts) (map_fact g) ->
@@ -935,15 +925,12 @@ Section RelMap.
     - left. eapply extensionally_equal_map_bw_inj; [exact Hpair | exact Hh].
     - right. eapply fact_matches_map_bw_inj; [exact Hpair | exact Hh].
   Qed.
-
   Context
     (p : list rule)
       (f_inj : injective_on f (flat_map all_rels p)).
-
   Lemma rel_in_flat_map r x :
     In r p -> In x (all_rels r) -> In x (flat_map all_rels p).
   Proof. intros. apply in_flat_map. eauto. Qed.
-
   Lemma prog_impl_bridge Q h g :
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
     injective_on f (rel_of h :: flat_map all_rels p) ->
@@ -962,7 +949,6 @@ Section RelMap.
       apply map_fact_inj_g; [|exact Hfe]. intros Hfe2.
       apply Hh; [ left; reflexivity | right; exact Hgmem | exact Hfe2 ].
   Qed.
-
   Lemma one_step_derives_map_iff_inj meta_facts R args :
     In R (flat_map all_rels p) ->
     Forall (fun mf => In (rel_of mf) (flat_map all_rels p)) meta_facts ->
@@ -995,7 +981,6 @@ Section RelMap.
           | apply in_map_iff in Hz; destruct Hz as (mf & Hmfeq & Hmfin); subst z;
             rewrite Forall_forall in Hmf; apply Hmf; exact Hmfin ].
   Qed.
-
   Lemma rule_impl_map_fw_inj r f0 hyps :
     In r p ->
     In (rel_of f0) (flat_map all_rels p) ->
@@ -1013,7 +998,6 @@ Section RelMap.
       + intros args'' Hargs. rewrite (H2 args'' Hargs).
         apply one_step_derives_map_iff_inj; [exact Hf0 | exact Hhyps].
   Qed.
-
   Lemma rule_impl_map_bw_recover r f_target hyps_m :
     In r p ->
     rule_impl (one_step_derives (map map_rule_rels p))
@@ -1061,7 +1045,6 @@ Section RelMap.
         * intros args'' Hargs. rewrite (H3 args'' Hargs). symmetry.
           apply one_step_derives_map_iff_inj; [exact HR0 | exact Hhyps0].
   Qed.
-
   Lemma prog_impl_map_fw_inj Q f0 :
     prog_impl p Q f0 ->
     prog_impl (map map_rule_rels p)
@@ -1080,7 +1063,6 @@ Section RelMap.
           eapply rel_in_flat_map; [exact Hr_in|]. apply hyp_in_all. exact Hh.
       + rewrite Lists.List.Forall_map. eapply Forall_impl; [|eassumption]. simpl. auto.
   Qed.
-
   Lemma prog_impl_map_bw_inj Q f_target :
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
     prog_impl (map map_rule_rels p)
@@ -1105,7 +1087,6 @@ Section RelMap.
         | | exact Hgprog ].
       cbv [fact_equiv]. exact Hgeq.
   Qed.
-
   Lemma prog_impl_map_rule_rels_iff_inj Q f0 :
     injective_on f (rel_of f0 :: flat_map all_rels p) ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
@@ -1118,4 +1099,6 @@ Section RelMap.
       eapply prog_impl_bridge; [exact HQ | exact Hf0 | | exact Hp1].
       cbv [fact_equiv]. exact Hp0.
   Qed.
+   *)
+
 End RelMap.
