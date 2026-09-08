@@ -718,17 +718,11 @@ End meta_rule. Export meta_rule (meta_rule).
 #[export] Hint Resolve meta_rule.interp_ext_concl : core.
 
 Module program.
-  (*include inputs as a field, since it is needed for the definition of validity of meta-rules.
-    could also consider having an outputs field?
-    TODO is it really a good idea to put inputs here?
-    I think it's a bad idea.
-   *)
   Record program {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} :=
     { rules : list rule;
-      meta_rules : list meta_rule;
-      inputs : list relt }.
+      meta_rules : list meta_rule }.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@program _ _ _ _) :: prev ().
-  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rules) :: reference:(meta_rules) :: reference:(inputs) :: prev ().
+  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rules) :: reference:(meta_rules) :: prev ().
 
   Section __.
     Context `{params : datalog_params}.
@@ -890,26 +884,26 @@ Module program.
   (*   simpl. intros. fwd. eauto using incl_Exists. *)
   (* Qed. *)
 
-  Lemma staged_program_rule_impl p1 p2 r f hyps :
-    disjoint_lists (meta_concl_rels r) (flat_map concl_rels p2) ->
-    rule_impl (one_step_derives (p1 ++ p2)) r f hyps ->
-    rule_impl (one_step_derives p1) r f hyps.
-  Proof.
-    intros Hout. invert 1.
-    - invert H0.
-      + constructor. econstructor; eassumption.
-      + constructor. econstructor; eassumption.
-    - econstructor; try eassumption.
-      intros args'' Hargs''. rewrite H2 by assumption.
-      cbv [one_step_derives one_step_derives0]. split; intros H'.
-      + fwd. apply Exists_app in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto 6.
-        apply Exists_exists in H'p0. fwd.
-        apply non_meta_rule_impl_concl_relname_in in H'p0p1.
-        repeat invert_stuff. exfalso. eapply Hout.
-        -- apply in_map. eassumption.
-        -- apply in_flat_map. eauto.
-      + fwd. eexists. rewrite Exists_app. eauto.
-  Qed.
+    Lemma staged_program_rule_impl p1 p2 r f hyps :
+      disjoint_lists (meta_concl_rels r) (flat_map concl_rels p2) ->
+      rule_impl (one_step_derives (p1 ++ p2)) r f hyps ->
+      rule_impl (one_step_derives p1) r f hyps.
+    Proof.
+      intros Hout. invert 1.
+      - invert H0.
+        + constructor. econstructor; eassumption.
+        + constructor. econstructor; eassumption.
+      - econstructor; try eassumption.
+        intros args'' Hargs''. rewrite H2 by assumption.
+        cbv [one_step_derives one_step_derives0]. split; intros H'.
+        + fwd. apply Exists_app in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto 6.
+          apply Exists_exists in H'p0. fwd.
+          apply non_meta_rule_impl_concl_relname_in in H'p0p1.
+          repeat invert_stuff. exfalso. eapply Hout.
+          -- apply in_map. eassumption.
+          -- apply in_flat_map. eauto.
+        + fwd. eexists. rewrite Exists_app. eauto.
+    Qed.
 
   Lemma staged_program_rule_impl_bw p1 p2 r f hyps :
     disjoint_lists (meta_concl_rels r) (flat_map concl_rels p2) ->
@@ -1124,7 +1118,7 @@ Module program.
   Qed.
 
   (*just like fact_supported, except it puts no constraint on the sets*)
-  Definition fact_potentially_supported (mhyps : list fact) (f : fact) : Prop :=
+  Definition fact_potentially_supported (mhyps : list fact) (f : fact) :=
     match f with
     | normal_fact R' nf_args' =>
         exists mf_args' mf_set',

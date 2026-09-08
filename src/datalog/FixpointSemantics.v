@@ -2,6 +2,19 @@
   here we prove them equivalent to some fixpoint semantics, which used to be used in the currently-broken QueryableToRunnable.v but are not currently used for anything.
  *)
 
+From Stdlib Require Import List.
+From coqutil Require Import Tactics.fwd.
+From Datalog.Util Require Import Tactics Fp List Pftree.
+From Datalog Require Import Datalog.
+Import ListNotations.
+
+Section __.
+  Context {fact rule meta_fact normal_fact : Type}.
+  Context {one_step_derives : list rule -> list meta_fact -> normal_fact -> Prop}.
+  Context {rule_impl :
+            (list meta_fact -> normal_fact -> Prop) -> rule -> fact -> list fact -> Prop}.
+  Context {prog_impl : list rule -> (fact -> Prop) -> fact -> Prop}.
+
   Definition F p Q Px :=
     let '(P, x) := Px in
     P x \/ Q (P, x) \/ exists hyps', Exists (fun r => rule_impl (one_step_derives p) r x hyps') p /\ Forall (fun x => Q (P, x)) hyps'.
@@ -10,8 +23,7 @@
     (forall x, S1 x -> S2 x) ->
     (forall x, F p S1 x -> F p S2 x).
   Proof.
-    cbv [F]. intros Hle [P x] H. intuition auto. fwd. right. right. eexists.
-    split; [eassumption|]. eapply Forall_impl; eauto. simpl. auto.
+    cbv [F]. intros Hle [P x] H. intuition auto. fwd. eauto 8.
   Qed.
 
   Definition S_sane {U : Type} (S : (U -> Prop) * U -> Prop) :=
@@ -62,3 +74,4 @@
       apply H. right. right. eexists. split; [|eassumption]. apply Exists_exists. eauto.
       admit.
   Abort.
+End __.
