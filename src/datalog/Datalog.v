@@ -877,6 +877,8 @@ Module program.
     Qed.
     #[local] Hint Resolve interp_step_concl_relname_in.
 
+    Definition all_rels (p : program) := concl_rels p ++ hyp_rels p.
+
     Lemma interp_invariant p Q f :
       interp p Q f <->
         interp p (fun f' => Q f' /\ (f' = f \/ In (fact.rel f') (hyp_rels p))) f.
@@ -904,17 +906,18 @@ Module program.
       {| rules := p1.(rules) ++ p2.(rules);
         meta_rules := p1.(meta_rules) ++ p2.(meta_rules) |}.
 
+    (*p2's rules conclude nothing p1's meta-rules aggregate over*)
+    Definition meta_indep (p1 p2 : program) :=
+      disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
+        (flat_map rule.concl_rels p2.(rules)).
+
     (*p2 reads nothing p1 concludes, and neither one's rules disturb the other's meta-rules*)
     Definition stratified (p1 p2 : program) :=
-      disjoint_lists (concl_rels p1) (hyp_rels p2) /\
-        disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
-          (flat_map rule.concl_rels p2.(rules)) /\
-        disjoint_lists (flat_map meta_rule.concl_rels p2.(meta_rules))
-          (flat_map rule.concl_rels p1.(rules)).
+      disjoint_lists (concl_rels p1) (hyp_rels p2) /\ meta_indep p1 p2 /\ meta_indep p2 p1.
+    #[local] Hint Unfold stratified : core.
 
     Lemma interp_step_union p1 p2 f hyps :
-      disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
-        (flat_map rule.concl_rels p2.(rules)) ->
+      meta_indep p1 p2 ->
       interp_step p1 f hyps ->
       interp_step (union p1 p2) f hyps.
     Proof.
@@ -926,17 +929,14 @@ Module program.
     Qed.
 
     Lemma interp_union p1 p2 Q f :
-      disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
-        (flat_map rule.concl_rels p2.(rules)) ->
+      meta_indep p1 p2 ->
       interp p1 Q f ->
       interp (union p1 p2) Q f.
     Proof. intros. eapply pftree.weaken; eauto using interp_step_union. Qed.
 
     Lemma interp_step_union_inv p1 p2 f hyps :
-      disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
-        (flat_map rule.concl_rels p2.(rules)) ->
-      disjoint_lists (flat_map meta_rule.concl_rels p2.(meta_rules))
-        (flat_map rule.concl_rels p1.(rules)) ->
+      meta_indep p1 p2 ->
+      meta_indep p2 p1 ->
       interp_step (union p1 p2) f hyps ->
       interp_step p1 f hyps \/ interp_step p2 f hyps.
     Proof.
@@ -987,22 +987,39 @@ Module program.
       interp p2 Q f.
     Proof. intros. eapply pftree.weaken; eauto using interp_step_same_set. Qed.
 
-  (* Ltac invert_stuff := *)
-  (*   match goal with *)
-  (*   | _ => progress cbn [matches rel_of fact_of args_of clause.rel clause.args meta_clause.rel meta_clause.args] in * *)
-  (*   | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H *)
-  (*   | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H *)
-  (*   | H : clause.interp _ _ _ |- _ => cbv [clause.interp] in H; fwd *)
-  (*   | H : meta_clause.interp _ _ _ |- _ => cbv [meta_clause.interp] in H; fwd *)
-  (*   | H : expr.interp _ _ _ |- _ => invert1 H *)
-  (*   | H : In _ [_] |- _ => destruct H; [|contradiction] *)
-  (*   | H : Exists _ _ |- _ => apply Exists_exists in H; fwd *)
-  (*   | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst *)
-  (*   | _ => progress subst *)
-  (*   | _ => progress invert_list_stuff *)
-  (*   | _ => progress fwd *)
-  (*   | _ => congruence *)
-  (*   end. *)
+    Lemma unstratify p1 p2 Q f :
+      meta_indep p1 p2 ->
+      meta_indep p2 p1 ->
+      interp p1 (interp p2 Q) f ->
+      interp (union p1 p2) Q f.
+    Proof.
+      intros H12 H21 H. apply pftree.trans.
+      apply interp_union with (p2 := p2) in H; [|assumption].
+      eapply pftree.weaken_hyp; [eassumption|]. simpl. intros y Hy.
+      apply interp_union with (p2 := p1) in Hy; [|assumption].
+      eapply interp_same_set; [| |eassumption]; cbv [union]; simpl;
+        apply same_set_app_comm.
+    Qed.
+
+    Lemma stratified_of_disjoint p1 p2 :
+      disjoint_lists (concl_rels p1) (all_rels p2) ->
+      stratified p1 p2.
+    Proof.
+      intros H. cbv [stratified meta_indep]. ssplit.
+      - eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels]; auto with incl.
+      - eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels concl_rels];
+          auto with incl.
+      - apply disjoint_lists_comm in H.
+        eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels concl_rels];
+          auto with incl.
+    Qed.
+
+    Lemma stratify_iff p1 p2 Q f :
+      stratified p1 p2 ->
+      interp (union p1 p2) Q f <-> interp p1 (interp p2 Q) f.
+    Proof.
+      cbv [stratified]. intros. fwd. auto 6 using stratify, unstratify.
+    Qed.
 
   (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
   (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
@@ -1037,52 +1054,6 @@ Module program.
   (*   intros Hincl H. eapply pftree_weaken; [eassumption|]. *)
   (*   simpl. intros. fwd. eauto using incl_Exists. *)
   (* Qed. *)
-
-  Lemma meta_concl_rels_incl_concl_rels r :
-    incl (meta_concl_rels r) (concl_rels r).
-  Proof. destruct r; simpl; auto with incl. Qed.
-  Hint Resolve meta_concl_rels_incl_concl_rels : incl.
-
-  Lemma concl_rels_incl_all_rels r :
-    incl (concl_rels r) (all_rels r).
-  Proof. cbv [all_rels]. auto with incl. Qed.
-  Hint Resolve concl_rels_incl_all_rels : incl.
-
-  Lemma hyp_rels_incl_all_rels r :
-    incl (hyp_rels r) (all_rels r).
-  Proof. cbv [all_rels]. auto with incl. Qed.
-  Hint Resolve hyp_rels_incl_all_rels : incl.
-
-  Lemma staged_program_weak p1 p2 Q f :
-    disjoint_lists (flat_map concl_rels p1) (flat_map all_rels p2) ->
-    prog_impl (p1 ++ p2) Q f ->
-    prog_impl p1 (prog_impl p2 Q) f.
-  Proof.
-    intros Hdisj H. apply staged_program; auto.
-    1,2: eapply disjoint_lists_incl; [eassumption| |]; auto with incl.
-    apply disjoint_lists_comm.
-    eapply disjoint_lists_incl; [eassumption| |]; auto with incl.
-    apply incl_flat_map_strong; auto with incl. intros.
-    eapply incl_tran; auto with incl.
-  Qed.
-
-  Lemma staged_program_iff p1 p2 Q f :
-    disjoint_lists (flat_map concl_rels p1) (flat_map all_rels p2) ->
-    prog_impl (p1 ++ p2) Q f <->
-    prog_impl p1 (prog_impl p2 Q) f.
-  Proof.
-    split; auto using staged_program_weak. intros.
-    apply prog_impl_trans. eapply prog_impl_subset'.
-    { eapply disjoint_lists_incl; [eassumption| |]; auto with incl. }
-    eapply prog_impl_weaken_hyp; [eassumption|].
-    intros.
-    eapply prog_impl_same_set. 2: apply same_set_app_comm.
-    eapply prog_impl_subset'; [|eassumption].
-    apply disjoint_lists_comm.
-    eapply disjoint_lists_incl; [eassumption | |]; auto with incl.
-    apply incl_flat_map_strong; auto with incl.
-    intros. eapply incl_tran; auto with incl.
-  Qed.
 
   Lemma prog_impl_rel_of p Q f :
     prog_impl p Q f ->
