@@ -637,6 +637,21 @@ Module rule.
       apply in_app_iff in Hp0p0. destruct Hp0p0; eauto.
       exfalso. apply Hout. apply in_flat_map. eauto using interp_concl_relname_in.
     Qed.
+
+    Lemma one_step_derives_incl p1 p2 mfs nf :
+      incl p1 p2 ->
+      one_step_derives p1 mfs nf ->
+      one_step_derives p2 mfs nf.
+    Proof. cbv [one_step_derives]. intros Hincl H. fwd. eauto 6. Qed.
+
+    Lemma one_step_derives_same_set p1 p2 mfs nf :
+      same_set p1 p2 ->
+      one_step_derives p1 mfs nf <-> one_step_derives p2 mfs nf.
+    Proof.
+      intros Hiff. split; apply one_step_derives_incl.
+      - intros x Hx. apply Hiff. assumption.
+      - intros x Hx. apply Hiff. assumption.
+    Qed.
   End __.
 End rule. Export rule (rule).
 #[export] Hint Resolve rule.one_step_derives_ext : core.
@@ -744,6 +759,13 @@ Module meta_rule.
     Proof.
       intros Hdisj. apply interp_prog_ext. intros.
       apply rule.one_step_derives_app. eauto.
+    Qed.
+
+    Lemma interp_same_set p1 p2 r mf hyps :
+      same_set p1 p2 ->
+      interp p1 r mf hyps <-> interp p2 r mf hyps.
+    Proof.
+      intros. apply interp_prog_ext. intros. apply rule.one_step_derives_same_set. assumption.
     Qed.
   End __.
 End meta_rule. Export meta_rule (meta_rule).
@@ -889,6 +911,26 @@ Module program.
       interp (union p1 p2) Q f.
     Proof. intros. eapply pftree_weaken; eauto using interp_step_union. Qed.
 
+    Lemma interp_step_same_set p1 p2 f hyps :
+      same_set p1.(rules) p2.(rules) ->
+      same_set p1.(meta_rules) p2.(meta_rules) ->
+      interp_step p1 f hyps ->
+      interp_step p2 f hyps.
+    Proof.
+      intros Hr Hmr H. invert H; constructor; rewrite Exists_exists in *; fwd.
+      - eexists. split; [|eassumption]. apply Hr. assumption.
+      - eexists. split.
+        + apply Hmr. eassumption.
+        + apply meta_rule.interp_same_set with (p1 := rules p1); assumption.
+    Qed.
+
+    Lemma interp_same_set p1 p2 Q f :
+      same_set p1.(rules) p2.(rules) ->
+      same_set p1.(meta_rules) p2.(meta_rules) ->
+      interp p1 Q f ->
+      interp p2 Q f.
+    Proof. intros. eapply pftree_weaken; eauto using interp_step_same_set. Qed.
+
   (* Ltac invert_stuff := *)
   (*   match goal with *)
   (*   | _ => progress cbn [matches rel_of fact_of args_of clause.rel clause.args meta_clause.rel meta_clause.args] in * *)
@@ -939,90 +981,6 @@ Module program.
   (*   intros Hincl H. eapply pftree_weaken; [eassumption|]. *)
   (*   simpl. intros. fwd. eauto using incl_Exists. *)
   (* Qed. *)
-
-  Lemma rule_impl_list_set p1 p2 r f hyps :
-    rule_impl (one_step_derives p1) r f hyps ->
-    same_set p1 p2 ->
-    rule_impl (one_step_derives p2) r f hyps.
-  Proof.
-    intros H Hiff. invert H.
-    - constructor. assumption.
-    - econstructor; try eassumption. intros. rewrite H2 by assumption.
-      clear -Hiff. cbv [one_step_derives one_step_derives0].
-      split; intros; fwd.
-      + eexists. split; eauto. rewrite Exists_exists in *. fwd. edestruct Hiff; eauto.
-      + eexists. split; eauto. rewrite Exists_exists in *. fwd. edestruct Hiff; eauto.
-  Qed.
-
-  Lemma prog_impl_same_set p1 p2 Q f :
-    prog_impl p1 Q f ->
-    same_set p1 p2 ->
-    prog_impl p2 Q f.
-  Proof.
-    intros H Hiff. induction H using prog_impl_ind.
-    - apply prog_impl_leaf. assumption.
-    - eapply prog_impl_step; [|eassumption].
-      rewrite Exists_exists in *. fwd.
-      edestruct Hiff; eauto using rule_impl_list_set.
-  Qed.
-
-  Lemma one_step_derives_subset p1 p2 hyps R args :
-    incl p1 p2 ->
-    (forall r', In r' p2 -> In r' p1 \/ disjoint_lists (flat_map meta_concl_rels p1) (concl_rels r')) ->
-    In R (flat_map meta_concl_rels p1) ->
-    one_step_derives p1 hyps R args <-> one_step_derives p2 hyps R args.
-  Proof.
-    intros Hincl Hdisj HR. cbv [one_step_derives one_step_derives0].
-    split; intros; fwd.
-    - eexists. split; eauto. eapply incl_Exists; eassumption.
-    - apply Exists_exists in Hp0. fwd.
-      destruct (Hdisj _ ltac:(eassumption)) as [Hr_in_p1 | Hdisj_r'].
-      + eexists. rewrite Exists_exists. eauto.
-      + exfalso. eapply Hdisj_r'; [exact HR |].
-        eapply non_meta_rule_impl_concl_relname_in; eassumption.
-  Qed.
-
-  Lemma rule_impl_subset p1 p2 r f hyps :
-    incl p1 p2 ->
-    (forall r', In r' p2 -> In r' p1 \/ disjoint_lists (flat_map meta_concl_rels p1) (concl_rels r')) ->
-    In r p1 ->
-    rule_impl (one_step_derives p1) r f hyps ->
-    rule_impl (one_step_derives p2) r f hyps.
-  Proof.
-    intros Hincl Hdisj Hrin Hrule.
-    inversion Hrule; subst.
-    - constructor. assumption.
-    - econstructor; [eassumption | eassumption |].
-      intros args'' Hargs''.
-      rewrite H1 by assumption.
-      apply one_step_derives_subset; auto.
-      apply in_flat_map. exists (meta_rule rule_concls rule_hyps).
-      split; [exact Hrin |].
-      simpl. apply Exists_exists in H. destruct H as [c [Hcin Hc]].
-      cbv [meta_clause.interp] in Hc.
-      destruct Hc as [mf_args [mf_set [H_forall2 H_eq]]].
-      inversion H_eq; subst.
-      apply in_map_iff. exists c. split; [reflexivity | exact Hcin].
-  Qed.
-
-  Lemma prog_impl_subset p1 p2 Q f :
-    incl p1 p2 ->
-    (forall r, In r p2 ->
-          In r p1 \/
-            disjoint_lists (flat_map meta_concl_rels p1) (concl_rels r)) ->
-    prog_impl p1 Q f ->
-    prog_impl p2 Q f.
-  Proof.
-    intros Hincl Hdisj Hprog.
-    induction Hprog using prog_impl_ind.
-    - apply prog_impl_leaf. assumption.
-    - apply Exists_exists in H. destruct H as [r [Hrin Hrule]].
-      eapply prog_impl_step.
-      + apply Exists_exists. exists r. split.
-        * apply Hincl. exact Hrin.
-        * eapply rule_impl_subset; eassumption.
-      + assumption.
-  Qed.
 
   Lemma staged_program p1 p2 Q f :
     disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) ->
