@@ -160,6 +160,7 @@ Module normal_fact.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@normal_fact _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 End normal_fact. Export normal_fact (normal_fact).
+#[export] Hint Unfold normal_fact.rel normal_fact.args : core.
 
 Module value_pattern.
   Section __.
@@ -237,6 +238,8 @@ Module meta_fact.
       - intros mf1 mf2 mf3 H1 H2. fwd. split; [congruence|]. intros.
         etransitivity; [now apply H1p1|]. apply H2p1. congruence.
     Qed.
+
+    Definition rel mf := mf.(pattern).(fact_pattern.rel).
   End __.
 End meta_fact. Export meta_fact (meta_fact).
 #[export] Hint Resolve meta_fact.matches_ext : core.
@@ -313,6 +316,7 @@ Module clause.
     Qed.
 End __.
 End clause. Export clause (clause).
+#[export] Hint Unfold clause.rel clause.args : core.
 
 Module expr_pattern.
   Section __.
@@ -525,7 +529,7 @@ Module rule.
       one_step_derives p hyps nf ->
       one_step_derives p hyps' nf.
     Proof.
-      intros H1 H2. cbv [one_step_derives] in *. fwd. eauto.
+      intros H1 H2. cbv [one_step_derives] in *. fwd. eauto 6.
     Qed.
 
     Definition concl_rels (r : rule) :=
@@ -556,6 +560,54 @@ Module rule.
       end.
 
     Definition all_vars r := concl_vars r ++ hyp_vars r.
+
+    Definition hyp_args r :=
+      match r with
+      | impl _ rule_hyps => flat_map clause.args rule_hyps
+      | agg _ _ _ => []
+      end.
+
+  Definition is_bottomup (r : rule) :=
+    forall v, In v (all_vars r) -> In (expr.var v) (hyp_args r).
+
+  (* Definition clause_outs (c : clause) := firstn (outs (fst c.(clause_R))) c.(clause_args). *)
+  (* Definition clause_ins (c : clause) := skipn (outs (fst c.(clause_R))) c.(clause_args). *)
+
+  (* Definition with_only_ins (c : clause) := *)
+  (*   {| clause_R := c.(clause_R); clause_args := clause_ins c |}. *)
+
+  (* (*2 conditions. *)
+   (*  * hyp_ins only depend on concl_ins, and *)
+   (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
+   (*  (implicit conditions: every concl_in is of the form var_expr blah, where blah was not *)
+   (*  bound to the agg_expr) *)
+   (*  *) *)
+  (* Definition goodish_rule (r : rule) := *)
+  (*   match r with *)
+  (*   | normal_rule rule_concls rule_hyps => *)
+  (*       exists concl, *)
+  (*       rule_concls = [concl] /\ *)
+  (*         (forall v, *)
+  (*             In v (flat_map vars_of_clause rule_concls) \/ *)
+  (*               In v (flat_map vars_of_clause rule_hyps) -> *)
+  (*             In (var_expr v) (flat_map clause_args rule_hyps) \/ *)
+  (*               In (var_expr v) (clause_ins concl)) /\ *)
+  (*         (forall v, In v (flat_map vars_of_expr (flat_map clause_ins rule_hyps)) -> *)
+  (*               In (var_expr v) (clause_ins concl)) /\ *)
+  (*         (forall v, In v (flat_map vars_of_expr (clause_ins concl)) -> *)
+  (*               In (var_expr v) (clause_ins concl)) *)
+  (*   | agg_rule _ _ _ => True *)
+  (*   end. *)
+
+  Lemma interp_concl_relname_in r f hyps :
+    interp r f hyps ->
+    In f.(normal_fact.rel) (concl_rels r).
+  Proof.
+    invert 1.
+    - fwd. simpl. apply in_map_iff. simp. invert H0p1. simp. eexists. split; eauto.
+      reflexivity.
+    - left. reflexivity.
+  Qed.
   End __.
 End rule. Export rule (rule).
 #[export] Hint Resolve rule.one_step_derives_ext : core.
@@ -610,6 +662,16 @@ Module meta_rule.
 
     Definition concl_rels (r : meta_rule) :=
       map clause_pattern.rel r.(concls).
+
+    Lemma interp_concl_relname_in p r f hyps :
+      interp p r f hyps ->
+      In (meta_fact.rel f) (concl_rels r).
+    Proof.
+      cbv [interp]. intros. fwd. cbv [meta_fact.equiv] in *. fwd. simp.
+      cbv [meta_fact.rel]. simpl. cbv [concl_rels]. simpl.
+      cbv [pattern_interp clause_pattern.interp] in Hp0. fwd. simp.
+      apply in_map_iff. eexists. split; [|eassumption]. simpl. reflexivity.
+    Qed.
   End __.
 End meta_rule. Export meta_rule (meta_rule).
 #[export] Hint Resolve meta_rule.interp_ext_concl : core.
@@ -712,67 +774,6 @@ Module program.
   (*   | _ => progress fwd *)
   (*   | _ => congruence *)
   (*   end. *)
-
-  Definition rule_hyp_args r :=
-    match r with
-    | normal_rule _ rule_hyps =>
-        flat_map clause.args rule_hyps
-    | meta_rule _ rule_hyps =>
-        keep_Some (flat_map meta_clause.args rule_hyps)
-    | agg_rule _ _ _ => []
-    end.
-
-  Definition good_rule (r : rule) :=
-    forall v, In v (all_vars r) -> In (expr.var v) (rule_hyp_args r).
-
-  Definition good_prog (p : list rule) := Forall good_rule p.
-
-  (* Definition clause_outs (c : clause) := firstn (outs (fst c.(clause_R))) c.(clause_args). *)
-  (* Definition clause_ins (c : clause) := skipn (outs (fst c.(clause_R))) c.(clause_args). *)
-
-  (* Definition with_only_ins (c : clause) := *)
-  (*   {| clause_R := c.(clause_R); clause_args := clause_ins c |}. *)
-
-  (* (*2 conditions. *)
-  (*  * hyp_ins only depend on concl_ins, and *)
-  (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
-  (*  (implicit conditions: every concl_in is of the form var_expr blah, where blah was not *)
-  (*  bound to the agg_expr) *)
-  (*  *) *)
-  (* Definition goodish_rule (r : rule) := *)
-  (*   match r with *)
-  (*   | normal_rule rule_concls rule_hyps => *)
-  (*       exists concl, *)
-  (*       rule_concls = [concl] /\ *)
-  (*         (forall v, *)
-  (*             In v (flat_map vars_of_clause rule_concls) \/ *)
-  (*               In v (flat_map vars_of_clause rule_hyps) -> *)
-  (*             In (var_expr v) (flat_map clause_args rule_hyps) \/ *)
-  (*               In (var_expr v) (clause_ins concl)) /\ *)
-  (*         (forall v, In v (flat_map vars_of_expr (flat_map clause_ins rule_hyps)) -> *)
-  (*               In (var_expr v) (clause_ins concl)) /\ *)
-  (*         (forall v, In v (flat_map vars_of_expr (clause_ins concl)) -> *)
-  (*               In (var_expr v) (clause_ins concl)) *)
-  (*   | agg_rule _ _ _ => True *)
-  (*   end. *)
-
-  Lemma non_meta_rule_impl_concl_relname_in r R args hyps :
-    non_meta_rule_impl r R args hyps ->
-    In R (concl_rels r).
-  Proof.
-    invert 1.
-    - repeat invert_stuff. apply in_map_iff. eauto.
-    - left. reflexivity.
-  Qed.
-
-  Lemma rule_impl_concl_relname_in p r f hyps :
-    rule_impl p r f hyps ->
-    In (rel_of f) (concl_rels r).
-  Proof.
-    invert 1.
-    - eapply non_meta_rule_impl_concl_relname_in. eassumption.
-    - repeat invert_stuff. apply in_map_iff. eauto.
-  Qed.
 
   Lemma non_meta_rule_impl_hyp_relname_in r R args hyps :
     non_meta_rule_impl r R args hyps ->

@@ -114,8 +114,15 @@ Ltac map_func :=
   repeat match goal with
     | H1: map.get ?x ?y = _, H2: map.get ?x ?y = _ |- _ => rewrite H1 in H2; invert H2
     end.
-
 From Datalog.Util Require Import Autodestr Autocbn.
 Ltac simp := repeat (autodestr; autocbn; subst).
 
 #[export] Hint Unfold iff : core.
+
+From coqutil Require Import autoforward.
+#[global] Instance Exists_exists_fwd A P (l : list A) : autoforward (Exists P l) (exists x, In x l /\ P x).
+Proof. cbv [autoforward]. rewrite Exists_exists. auto. Qed.
+
+Lemma Exists_exists_bwd A P (l : list A) x : In x l -> P x -> Exists P l.
+Proof. intros. apply Exists_exists. eauto. Qed.
+#[export] Hint Resolve Exists_exists_bwd : core.
