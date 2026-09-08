@@ -186,13 +186,13 @@ Module pftree.
     (*this is a lemma about pairwise properties, because that is all that i need to reason about.
       it is also true for n-wise properties, or even properties of arbitrary-length finite lists.
       it is not true for infinite sets. *)
-    Lemma stepping_induction' P Q (R : T -> T -> Prop) :
+    Lemma pairwise_ind' P Q (R : T -> T -> Prop) :
       (forall x1 x2, R x1 x2 <-> R x2 x1) ->
       (forall x xs,
           (forall y1 y2, In y1 xs -> In y2 xs -> R y1 y2) ->
           Forall (pftree P Q) (x :: xs) ->
           Forall (fun y => Q y \/ exists l, P y l /\ incl l xs) (x :: xs) ->
-          forall y, In y (x :: xs) -> R x y) ->
+          Forall (R x) (x :: xs)) ->
       forall xs,
         flat P Q xs ->
         forall x1 x2,
@@ -203,22 +203,23 @@ Module pftree.
       intros Hcomm Hstep xs Hxs.
       induction Hxs as [|x xs Hx Hxs IH].
       - simpl. contradiction.
-      - assert (Hall: forall y, In y (x :: xs) -> R x y).
+      - assert (Hall: Forall (R x) (x :: xs)).
         { apply Hstep.
           - assumption.
           - apply flat_pftree. constructor; assumption.
           - constructor; auto using flat_forall_step. }
+        rewrite Forall_forall in Hall.
         intros x1 x2 [H1|H1] [H2|H2]; subst; auto.
         apply Hcomm. auto.
     Qed.
 
-    Lemma stepping_induction P Q (R : T -> T -> Prop) :
+    Lemma pairwise_ind P Q (R : T -> T -> Prop) :
       (forall x1 x2, R x1 x2 <-> R x2 x1) ->
       (forall x xs,
           (forall y1 y2, In y1 xs -> In y2 xs -> R y1 y2) ->
           Forall (pftree P Q) (x :: xs) ->
           Forall (fun y => Q y \/ exists l, P y l /\ incl l xs) (x :: xs) ->
-          forall y, In y (x :: xs) -> R x y) ->
+          Forall (R x) (x :: xs)) ->
       forall x1 x2,
         pftree P Q x1 ->
         pftree P Q x2 ->
@@ -226,7 +227,7 @@ Module pftree.
     Proof.
       intros ? ? x1 x2 H1 H2. apply exists_flat in H1, H2.
       fwd. eapply flat_app in H1p0; [|exact H2p0].
-      eapply stepping_induction'; try eassumption.
+      eapply pairwise_ind'; try eassumption.
       1,2: apply in_app_iff; auto.
     Qed.
   End __.
