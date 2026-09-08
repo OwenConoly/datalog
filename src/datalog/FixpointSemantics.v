@@ -9,15 +9,12 @@ From Datalog Require Import Datalog.
 Import ListNotations.
 
 Section __.
-  Context {fact rule meta_fact normal_fact : Type}.
-  Context {one_step_derives : list rule -> list meta_fact -> normal_fact -> Prop}.
-  Context {rule_impl :
-            (list meta_fact -> normal_fact -> Prop) -> rule -> fact -> list fact -> Prop}.
-  Context {prog_impl : list rule -> (fact -> Prop) -> fact -> Prop}.
+  Context `{params : datalog_params}.
 
-  Definition F p Q Px :=
+  Definition F (p : program) Q Px :=
     let '(P, x) := Px in
-    P x \/ Q (P, x) \/ exists hyps', Exists (fun r => rule_impl (one_step_derives p) r x hyps') p /\ Forall (fun x => Q (P, x)) hyps'.
+    P x \/ Q (P, x) \/
+      exists hyps, program.interp_step p x hyps /\ Forall (fun y => Q (P, y)) hyps.
 
   Lemma F_mono p S1 S2 :
     (forall x, S1 x -> S2 x) ->
@@ -33,12 +30,11 @@ Section __.
           (forall y, P1 y -> S (P2, y)) ->
           S (P2, x)).
 
-  Lemma prog_impl_lfp p :
-    equiv (fun '(P, f) => prog_impl p P f) (lfp (F p)).
+  Lemma interp_lfp p :
+    equiv (fun '(P, f) => program.interp p P f) (lfp (F p)).
   Proof.
-    cbv [equiv]. intros. cbv [prog_impl].
-    epose proof pftree_lfp as H. cbv [equiv] in H. rewrite H.
-    cbv [F]. reflexivity.
+    cbv [equiv]. intros. epose proof pftree.equiv_lfp as H. cbv [equiv] in H.
+    rewrite H. cbv [F]. reflexivity.
   Qed.
 
   Lemma S_sane_ext {U : Type} (P Q : (U -> Prop) * U -> Prop) :
@@ -51,27 +47,17 @@ Section __.
     fwd. eauto 9.
   Qed.
 
-  Hint Unfold prog_impl : core.
-
   Lemma S_sane_lfp p : S_sane (lfp (F p)).
   Proof.
-    eapply S_sane_ext; [apply prog_impl_lfp|]. cbv [S_sane]. split; intros; eauto.
-    Fail Fail solve [induction H; eauto].
-    eapply pftree_trans. eapply pftree_weaken_hyp; eauto.
+    eapply S_sane_ext; [apply interp_lfp|]. cbv [S_sane]. split; intros; eauto.
+    eapply pftree.trans. eapply pftree.weaken_hyp; eauto.
   Qed.
 
   (*this gets more complicated due to meta rules :((( *)
-  Lemma split_fixpoint (p : list rule) S :
+  Lemma split_fixpoint (p : program) S :
     (forall P x, P x -> S (P, x)) ->
-    (forall r, In r p -> fp (F [r]) S) <->
+    (forall r, In r p.(program.rules) ->
+        fp (F {| program.rules := [r]; program.meta_rules := [] |}) S) <->
       fp (F p) S.
-  Proof.
-    intros Sgood1. cbv [fp F]. split.
-    - intros H [P x] Hx. destruct Hx as [Hx| [Hx|Hx]]; eauto.
-      fwd. apply Exists_exists in Hxp0. fwd. eapply H; eauto 6. admit.
-    - intros H r Hr [P x] Hx. destruct Hx as [Hx| [Hx|Hx]]; eauto. fwd.
-      invert_list_stuff.
-      apply H. right. right. eexists. split; [|eassumption]. apply Exists_exists. eauto.
-      admit.
-  Abort.
+  Proof. Abort.
 End __.

@@ -1394,7 +1394,8 @@ Module program.
     (* Qed. *)
 
   End __.
-End program.
+  Abbreviation interp p := (pftree (interp_step p)).
+End program. Export program (program).
 Fixpoint expr_varmap {var1 var2 : exprvarT} {fn : fnT}
   (f : var1 -> var2) (e : @expr var1 fn) : @expr var2 fn :=
   match e with
