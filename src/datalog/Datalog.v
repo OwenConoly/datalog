@@ -1439,10 +1439,8 @@ Ltac interp_exprs :=
 
     | |- expr.interp _ _ _ => econstructor
     | |- expr_pattern.interp _ _ _ => econstructor
-    | |- clause.interp _ _ _ =>
-        cbv [clause.interp]; split; [reflexivity|]; simpl
-    | |- clause_pattern.interp _ _ _ =>
-        cbv [clause_pattern.interp]; split; [reflexivity|]; simpl
+    | |- clause.interp _ _ _ => cbv [clause.interp]; simpl
+    | |- clause_pattern.interp _ _ _ => cbv [clause_pattern.interp]; simpl
     | |- _ /\ _ => split; [solve [interp_exprs] |]
     | |- Exists _ [_] => apply Exists_cons_hd
 
@@ -1471,5 +1469,6 @@ Ltac invert_stuff :=
   | _ => progress subst
   | _ => progress invert_list_stuff
   | _ => progress fwd
+  | _ => progress simp
   | _ => congruence
   end.
