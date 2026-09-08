@@ -1245,12 +1245,10 @@ Module program.
           cbv [meta_rule.interp meta_fact.equiv] in E1, E2. fwd.
           rewrite E1p2 by assumption. rewrite E2p2 by assumption. simp.
           split; intros Hd.
-          * eapply (one_step_derives_mhyps _ hyps _ _ _ _ Hvalid).
-            2: exact E2p0.
-            all: eassumption.
-          * eapply (one_step_derives_mhyps _ hyps0 _ _ _ _ Hvalid).
-            2: exact E1p0.
-            all: try eassumption.
+          * eapply one_step_derives_mhyps in Hvalid.
+            3: exact E2p0. all: eassumption.
+          * eapply one_step_derives_mhyps in Hvalid.
+            3: exact E1p0. all: try eassumption.
             intros. apply meta_fact.agree_sym. auto.
     Qed.
 
@@ -1288,79 +1286,72 @@ Module program.
   (*   simpl. intros. fwd. eauto using incl_Exists. *)
   (* Qed. *)
 
+
+    Lemma meta_facts_consistent p Q mf1 mf2 :
+      (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
+      (forall mf1 mf2, Q (fact.meta mf1) -> Q (fact.meta mf2) -> meta_fact.agree mf1 mf2) ->
+      meta_rules_valid p ->
+      interp p Q (fact.meta mf1) ->
+      interp p Q (fact.meta mf2) ->
+      meta_fact.agree mf1 mf2.
+    Proof.
+      intros. eapply (meta_facts_consistent' p Q (fact.meta mf1) (fact.meta mf2)); eassumption.
+    Qed.
+
+    Lemma valid_impl_honest p :
+      meta_rules_valid p ->
+      honest p.
+    Proof.
+      intros Hvalid Q [Hdisj Q_honest] mf Hderiv.
+      assert (HQagree: forall mf1 mf2,
+                 Q (fact.meta mf1) -> Q (fact.meta mf2) -> meta_fact.agree mf1 mf2).
+      { intros a b Ha Hb. apply Q_honest in Ha, Hb.
+        cbv [fact.set_consistent_with] in Ha, Hb. cbv [meta_fact.agree]. intros nf Hm1 Hm2.
+        rewrite Ha by assumption. rewrite Hb by assumption. reflexivity. }
+      remember (fact.meta mf) as f eqn:Ef. revert mf Ef.
+      induction Hderiv; intros mf Ef; subst.
+      - pose proof H as HQ. apply Q_honest in H.
+        cbv [fact.set_consistent_with] in H |- *. intros nf Hmatch.
+        rewrite H by assumption. split; intros H'.
+        + apply pftree.leaf. assumption.
+        + invert H'; [assumption|].
+          exfalso. apply interp_step_concl_relname_in in H0.
+          eapply Hdisj; [exact HQ|].
+          cbv [fact.rel meta_fact.rel] in *. cbv [fact_pattern.matches] in Hmatch. fwd.
+          congruence.
+      - invert H. rewrite Forall_forall in H0, H1.
+        eapply meta_rules_valid_step'; try eassumption.
+        + rewrite Forall_forall. intros mhyp Hin.
+          apply (H1 (fact.meta mhyp)); auto using in_map.
+        + intros mhyp mf' Hin Hd Hpat.
+          apply meta_fact.equiv_of_agree; [assumption|].
+          eapply meta_facts_consistent; try eassumption.
+          apply H0. apply in_map. assumption.
+        + rewrite Forall_forall. intros mhyp Hin.
+          apply H0. apply in_map. assumption.
+    Qed.
+
+    Lemma use_honest p Q mf :
+      honest p ->
+      good_input_set p Q ->
+      interp p Q (fact.meta mf) ->
+      Q (fact.meta mf) \/
+        interp p Q (fact.meta {| meta_fact.pattern := mf.(meta_fact.pattern);
+                                meta_fact.set :=
+                                  fun args =>
+                                    interp p Q
+                                      (fact.normal {| normal_fact.rel := meta_fact.rel mf;
+                                                     normal_fact.args := args |}) |}).
+    Proof.
+      intros Hhonest Hgood H. eapply interp_ext; [eassumption|].
+      cbv [fact.equiv]. apply meta_fact.equiv_of_agree; [reflexivity|].
+      pose proof (Hhonest Q Hgood mf H) as Hc. cbv [fact.set_consistent_with] in Hc.
+      cbv [meta_fact.agree]. simpl. intros nf Hm1 Hm2.
+      rewrite Hc by assumption. cbv [meta_fact.rel].
+      cbv [fact_pattern.matches] in Hm1. fwd. simp. reflexivity.
+    Qed.
   End __.
 End program.
-    Lemma meta_facts_consistent p Q mf_rel mf_args1 mf_args2 mf_set1 mf_set2 :
-    (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
-    (forall mf_rel mf_args1 mf_args2 mf_set1 mf_set2,
-        Q (meta_fact mf_rel mf_args1 mf_set1) ->
-        Q (meta_fact mf_rel mf_args2 mf_set2) ->
-        forall nf_args : list T,
-          Forall2 matches mf_args1 nf_args ->
-          Forall2 matches mf_args2 nf_args ->
-          mf_set1 nf_args <-> mf_set2 nf_args) ->
-    meta_rules_valid p ->
-    prog_impl p Q (meta_fact mf_rel mf_args1 mf_set1) ->
-    prog_impl p Q (meta_fact mf_rel mf_args2 mf_set2) ->
-    forall nf_args,
-      Forall2 matches mf_args1 nf_args ->
-      Forall2 matches mf_args2 nf_args ->
-      mf_set1 nf_args <-> mf_set2 nf_args.
-  Proof.
-    intros H1 H2 H3 H4 H5 ? H6 H7. pose proof meta_facts_consistent' as H'.
-    epose proof (H' _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) H4 H5) as H''.
-    simpl in H''. apply H''; auto.
-  Qed.
-
-  Lemma valid_impl_honest p :
-    meta_rules_valid p ->
-    honest_prog p.
-  Proof.
-    intros Hvalid Q [Hdisj Q_honest].
-    cbv [honest_prog doesnt_lie].
-    intros mf_rel mf_args mf_set H_prog_M.
-    remember (meta_fact mf_rel mf_args mf_set) as f eqn:Ef.
-    revert mf_rel mf_args mf_set Ef.
-    induction H_prog_M using prog_impl_ind;
-      intros mf_rel mf_args mf_set Ef;
-      subst.
-    - intros nf_args Hargs. cbv [doesnt_lie consistent] in Q_honest.
-      rewrite Q_honest by eassumption. split; intros H'.
-      -- apply prog_impl_leaf. assumption.
-      -- apply invert_prog_impl in H'. destruct H' as [H'|H']; [assumption|].
-         exfalso. fwd. apply Exists_exists in H'p0. fwd.
-         eapply Hdisj; [eassumption|]. simpl.
-         apply in_flat_map. eexists. split; [eassumption|].
-         apply rule_impl_concl_relname_in in H'p0p1.
-         exact H'p0p1.
-    - apply Exists_exists in H. destruct H as [mr1 [Hmr1_in Hmr1_impl]].
-      eapply meta_rules_valid_step'; try eassumption.
-      * intros mf_rel' mf_args' mf_set' Hin.
-        rewrite Forall_forall in H1. specialize (H1 _ Hin _ _ _ eq_refl).
-        exact H1.
-      * intros.
-        Check meta_facts_consistent.
-        eapply meta_facts_consistent; try eassumption.
-        2: { rewrite Forall_forall in H0. auto. }
-        clear -Q_honest.
-        cbv [doesnt_lie] in Q_honest.
-        intros mf_rel mf_args1 mf_args2 mf_set1 mf_set2 H1 H2 nf_args Hargs1 Hargs2.
-        apply Q_honest in H1, H2.
-        cbv [consistent] in H1, H2. rewrite H1, H2 by assumption. reflexivity.
-  Qed.
-
-  Lemma use_honest_prog p Q mf_rel mf_args mf_set :
-    honest_prog p ->
-    good_inputs p Q ->
-    prog_impl p Q (meta_fact mf_rel mf_args mf_set) ->
-    Q (meta_fact mf_rel mf_args mf_set) \/
-      prog_impl p Q (meta_fact mf_rel mf_args (fun args => prog_impl p Q (normal_fact mf_rel args))).
-  Proof.
-    intros H1 H2 H3.
-    eapply prog_impl_mf_ext; [eassumption|].
-    cbv [honest_prog] in H1. apply H1; assumption.
-  Qed.
-
   (*ugh idk what to say here*)
   (* Lemma prog_impl_subset'' (p1 p2 : list rule) Q f : *)
   (*   doesnt_lie p1 Q -> *)
@@ -1405,7 +1396,6 @@ End program.
   (*   intros. split; auto using loopless_program. intros [H'|H']; fwd; eauto. *)
   (* Qed. *)
 
-End __.
 
 Fixpoint expr_varmap {var1 var2 : exprvarT} {fn : fnT}
   (f : var1 -> var2) (e : @expr var1 fn) : @expr var2 fn :=
