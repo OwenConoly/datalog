@@ -39,6 +39,10 @@ Section RelMap.
     | fact.meta mf => fact.meta (map_meta_fact mf)
     end.
 
+  Lemma map_fact_normal l :
+    map map_fact (map fact.normal l) = map fact.normal (map map_normal_fact l).
+  Proof. rewrite !map_map. apply map_ext. intros. reflexivity. Qed.
+
   Definition fact_equiv f1 f2 := map_fact f1 = map_fact f2.
 
   Definition normal_fact_equiv n1 n2 := map_normal_fact n1 = map_normal_fact n2.
@@ -50,10 +54,7 @@ Section RelMap.
   Lemma interp_clause_map_fw ctx c h :
     clause.interp ctx c h ->
     clause.interp ctx (map_clause_rel c) (map_normal_fact h).
-  Proof.
-    cbv [clause.interp map_clause_rel map_normal_fact]. simpl. intros. fwd.
-    split; [congruence|assumption].
-  Qed.
+  Proof. intros. repeat invert_stuff. interp_exprs. Qed.
 
   Hint Unfold clause.interp rel_equiv fact_equiv normal_fact_equiv : core.
   Lemma interp_clause_map_bw ctx c h :
@@ -63,7 +64,7 @@ Section RelMap.
     intros H. cbv [clause.interp] in H. fwd.
     eexists {| normal_fact.rel := clause.rel c; normal_fact.args := _ |}. split.
     - cbv [normal_fact_equiv map_normal_fact]. simpl. f_equal. simpl in *. congruence.
-    - cbv [clause.interp]. simpl. eauto.
+    - eauto.
   Qed.
 
   Lemma Forall2_interp_clause_map_fw ctx hyps1 hyps2 :
@@ -120,11 +121,7 @@ Section RelMap.
     rule.interp (map_rule_rels r) (map_normal_fact nf) (map map_fact hyps).
   Proof.
     invert 1.
-    - simpl.
-      assert (Hm : map map_fact (map fact.normal hyps0)
-                   = map fact.normal (map map_normal_fact hyps0)).
-      { rewrite !map_map. apply map_ext. intros. reflexivity. }
-      rewrite Hm. eapply rule.interp_impl.
+    - simpl. rewrite map_fact_normal. econstructor.
       + apply Exists_map. eapply Exists_impl; [|eassumption].
         simpl. eauto using interp_clause_map_fw.
       + apply Forall2_interp_clause_map_fw. assumption.
@@ -139,10 +136,7 @@ Section RelMap.
   Lemma interp_clause_pattern_map_fw ctx c fp :
     clause_pattern.interp ctx c fp ->
     clause_pattern.interp ctx (map_clause_pattern_rel c) (map_fact_pattern fp).
-  Proof.
-    cbv [clause_pattern.interp map_clause_pattern_rel map_fact_pattern]. simpl.
-    intros. fwd. split; [congruence|assumption].
-  Qed.
+  Proof. intros. repeat invert_stuff. interp_exprs. Qed.
 
   Lemma Forall2_interp_clause_pattern_map_fw ctx hyps1 hyps2 :
     Forall2 (clause_pattern.interp ctx) hyps1 hyps2 ->
@@ -170,7 +164,7 @@ Section RelMap.
     intros H. cbv [clause_pattern.interp] in H. fwd.
     eexists {| fact_pattern.rel := clause_pattern.rel c; fact_pattern.args := _ |}. split.
     - cbv [fact_pattern_equiv map_fact_pattern]. simpl. f_equal. simpl in *. congruence.
-    - cbv [clause_pattern.interp]. simpl. eauto.
+    - eauto.
   Qed.
 
   Lemma Forall2_interp_clause_pattern_map_bw' ctx hyps1 hyps2 :
