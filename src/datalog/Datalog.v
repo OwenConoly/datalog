@@ -1080,6 +1080,54 @@ Module program.
     Definition honest (p : program) :=
       forall Q, good_input_set p Q -> fact.set_doesnt_lie (interp p Q).
 
+    Lemma meta_rules_valid_step' p Q mr mf mhyps :
+      (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
+      meta_rules_valid p ->
+      In mr p.(meta_rules) ->
+      meta_rule.interp p.(rules) mr mf mhyps ->
+      Forall (fun mhyp => fact.set_consistent_with mhyp (interp p Q)) mhyps ->
+      (forall mhyp mf',
+          In mhyp mhyps ->
+          interp p Q (fact.meta mf') ->
+          mhyp.(meta_fact.pattern) = mf'.(meta_fact.pattern) ->
+          meta_fact.equiv mhyp mf') ->
+      Forall (fun mhyp => interp p Q (fact.meta mhyp)) mhyps ->
+      fact.set_consistent_with mf (interp p Q).
+    Proof.
+      intros Hinp Hvalid Hmr Hinterp Hcons Hagree Hderiv.
+      rewrite Forall_forall in Hcons, Hderiv. cbv [fact.set_consistent_with] in Hcons.
+      pose proof Hinterp as Hpat. cbv [meta_rule.interp meta_fact.equiv] in Hpat. fwd. simp.
+      cbv [fact.set_consistent_with]. intros nf Hmatch.
+      pose proof Hmatch as Hm. cbv [fact_pattern.matches] in Hm. fwd. simp.
+      rewrite Hpatp2 by assumption. split; intros H.
+      - cbv [rule.one_step_derives] in H. fwd.
+        eapply interp_step_strong.
+        + constructor. apply Exists_exists. eauto.
+        + eapply Forall_impl; [eassumption|]. simpl. intros f Hf.
+          cbv [fact.implied_by_mfs] in Hf. rewrite Exists_exists in Hf. fwd.
+          destruct f.
+          * eexists. split; [reflexivity|].
+            cbv [fact.implied_by_mf meta_fact.matches] in Hfp1. fwd.
+            rewrite <- Hcons by eassumption. assumption.
+          * eexists (fact.meta _). split; [eassumption|]. auto.
+      - invert H.
+        + exfalso. apply meta_rule.pattern_interp_concl_relname_in in Hpatp0. simp.
+          eapply Hinp; [eassumption|]. simpl.
+          cbv [concl_rels]. apply in_or_app. right. apply in_flat_map. eauto.
+        + invert H0. rewrite Exists_exists in H2. fwd.
+          specialize (Hvalid _ _ Hmr H2p0 _ _ _ _ Hpatp0 H2p1 Hmatch).
+          cbv [rule.one_step_derives]. eexists.
+          split; [apply Exists_exists; eauto|].
+          eapply Forall_impl; [eapply Forall_and; [exact Hvalid | exact H1]|].
+          simpl. intros f Hf. fwd. apply in_map_iff in Hfp0p0. fwd.
+          cbv [fact.implied_by_mfs]. apply Exists_exists. eexists.
+          split; [eassumption|].
+          cbv [fact.covered_by] in Hfp0p1. destruct f.
+          * cbv [fact.implied_by_mf meta_fact.matches].
+            split; [assumption|]. rewrite Hcons by eassumption. assumption.
+          * cbv [fact.implied_by_mf]. symmetry. apply Hagree; auto.
+    Qed.
+
   (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
   (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
   (*   prog_impl_with_no_meta_rules (p1 ++ p2) Q f -> *)
@@ -1116,62 +1164,6 @@ Module program.
 
   End __.
 End program.
-
-  Hint Unfold extensionally_equal : core.
-  Lemma meta_rules_valid_step' p Q mf_rel mf_args mf_set mr mhyps :
-    (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
-    meta_rules_valid p ->
-    In mr p ->
-    rule_impl (one_step_derives p) mr (meta_fact mf_rel mf_args mf_set) mhyps ->
-    (forall mf_rel' mf_args' mf_set',
-        In (meta_fact mf_rel' mf_args' mf_set') mhyps ->
-        consistent mf_rel' mf_args' mf_set' (prog_impl p Q)) ->
-    (forall mf_rel' mf_args' mf_set' mf_set'0,
-        In (meta_fact mf_rel' mf_args' mf_set') mhyps ->
-        prog_impl p Q (meta_fact mf_rel' mf_args' mf_set'0) ->
-        forall nf_args',
-          Forall2 matches mf_args' nf_args' ->
-          mf_set' nf_args' <-> mf_set'0 nf_args') ->
-    Forall (prog_impl p Q) mhyps ->
-    consistent mf_rel mf_args mf_set (prog_impl p Q).
-  Proof.
-    intros Hinp H1 H2 Hmr_impl H4 H5 H6.
-    pose proof Hmr_impl as Hvalid. apply H1 in Hvalid; [|assumption].
-    cbv [consistent]. intros nf_args Hmatch. split; intros Hnf_args.
-    - clear H5 Hvalid. invert Hmr_impl. rewrite H10 in Hnf_args by assumption.
-      cbv [one_step_derives one_step_derives0] in Hnf_args. fwd.
-      eapply prog_impl_step_strong.
-      { eapply Exists_impl; [|eassumption]. simpl. eauto. }
-      eapply Forall_impl; [|eassumption]. intros f' Hf'.
-
-      cbv [fact_supported] in Hf'. apply Exists_exists in Hf'. fwd.
-      destruct Hf'p1 as [Hf'p1|Hf'p1].
-      { eexists. split; [eassumption|]. rewrite Forall_forall in H6. auto. }
-      exists f'. split. { apply extensionally_equal_refl. }
-      cbv [fact_matches] in Hf'p1. fwd.
-      apply H4 in Hf'p0. cbv [consistent] in Hf'p0. apply Hf'p0; eassumption.
-    - apply invert_prog_impl in Hnf_args. destruct Hnf_args as [Hnf_args|Hnf_args].
-      { exfalso. eapply Hinp; [eassumption|]. simpl.
-        apply in_flat_map. apply rule_impl_concl_relname_in in Hmr_impl. simpl in Hmr_impl. eauto. }
-      clear H1 H2.
-      fwd. apply Exists_exists in Hnf_argsp0. fwd.
-      specialize (Hvalid _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
-      invert Hmr_impl. rewrite H9 by assumption.
-      invert Hnf_argsp0p1. cbv [one_step_derives one_step_derives0].
-      eexists. rewrite Exists_exists. split; [eauto|].
-      eapply Forall_impl.
-      2: { apply Forall_and; [exact Hvalid|exact Hnf_argsp1]. }
-      clear hyps' Hvalid Hnf_argsp1 H7.
-      simpl. intros f Hf. fwd.
-      cbv [fact_potentially_supported] in Hfp0. destruct f; fwd.
-      + cbv [fact_supported]. apply Exists_exists. eexists. split; [eassumption|].
-        right. cbv [fact_matches]. do 4 eexists. ssplit; try reflexivity.
-        1: assumption. apply H4 in Hfp0p0. cbv [consistent] in Hfp0p0.
-        rewrite Hfp0p0 by assumption. assumption.
-      + cbv [fact_supported]. apply Exists_exists. eexists. split; [eassumption|].
-        left. simpl. ssplit; auto. intros args Hargs.
-        symmetry. eapply H5; eassumption.
-  Qed.
 
   Definition args_consistent mf_args mf_set (S_args : fact_args -> Prop) :=
     forall nf_args,
