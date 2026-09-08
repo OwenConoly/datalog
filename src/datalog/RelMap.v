@@ -767,49 +767,54 @@ Section RelMap.
       apply map_fact_inj in H'p0; [|assumption]. subst. assumption.
   Qed.
 
-  (* --- ported above this line; the rest is still the old API --- *)
-
   Lemma concl_rels_map_rule_rels r :
-    concl_rels (map_rule_rels r) = map f (concl_rels r).
-  Proof.
-    destruct r; simpl.
-    - do 2 rewrite map_map. reflexivity.
-    - do 2 rewrite map_map. reflexivity.
-    - reflexivity.
-  Qed.
+    rule.concl_rels (map_rule_rels r) = map f (rule.concl_rels r).
+  Proof. destruct r; simpl; [rewrite !map_map|]; reflexivity. Qed.
 
   Lemma hyp_rels_map_rule_rels r :
-    hyp_rels (map_rule_rels r) = map f (hyp_rels r).
+    rule.hyp_rels (map_rule_rels r) = map f (rule.hyp_rels r).
+  Proof. destruct r; simpl; [rewrite !map_map|]; reflexivity. Qed.
+
+  Lemma concl_rels_map_meta_rule_rels mr :
+    meta_rule.concl_rels (map_meta_rule_rels mr) = map f (meta_rule.concl_rels mr).
+  Proof. cbv [meta_rule.concl_rels map_meta_rule_rels]. simpl. rewrite !map_map. reflexivity. Qed.
+
+  Lemma hyp_rels_map_meta_rule_rels mr :
+    meta_rule.hyp_rels (map_meta_rule_rels mr) = map f (meta_rule.hyp_rels mr).
+  Proof. cbv [meta_rule.hyp_rels map_meta_rule_rels]. simpl. rewrite !map_map. reflexivity. Qed.
+
+  Lemma concl_rels_map_program p :
+    program.concl_rels (map_program p) = map f (program.concl_rels p).
   Proof.
-    destruct r; simpl.
-    - do 2 rewrite map_map. reflexivity.
-    - do 2 rewrite map_map. reflexivity.
-    - reflexivity.
+    cbv [program.concl_rels map_program]. simpl. rewrite map_app, !map_flat_map, !flat_map_map.
+    erewrite !flat_map_ext;
+      [reflexivity | apply concl_rels_map_meta_rule_rels | apply concl_rels_map_rule_rels].
   Qed.
 
-  Lemma all_rels_map_rule_rels r :
-    all_rels (map_rule_rels r) = map f (all_rels r).
+  Lemma hyp_rels_map_program p :
+    program.hyp_rels (map_program p) = map f (program.hyp_rels p).
   Proof.
-    cbv [all_rels].
-    rewrite concl_rels_map_rule_rels, hyp_rels_map_rule_rels.
+    cbv [program.hyp_rels map_program]. simpl. rewrite map_app, !map_flat_map, !flat_map_map.
+    erewrite !flat_map_ext;
+      [reflexivity | apply hyp_rels_map_meta_rule_rels | apply hyp_rels_map_rule_rels].
+  Qed.
+
+  Lemma all_rels_map_program p :
+    program.all_rels (map_program p) = map f (program.all_rels p).
+  Proof.
+    cbv [program.all_rels]. rewrite concl_rels_map_program, hyp_rels_map_program.
     rewrite map_app. reflexivity.
   Qed.
 
-  Lemma fact_of_g_args_of fct :
-    fact_of (f (rel_of fct)) (args_of fct) = map_fact fct.
+  Lemma map_fact_of_args R args :
+    map_fact (fact.of_args R args) = fact.of_args (f R) args.
+  Proof. destruct args; reflexivity. Qed.
+
+  Lemma map_fact_eq_of_args fct :
+    map_fact fct = fact.of_args (f (fact.rel_of fct)) (fact.args_of fct).
   Proof. destruct fct; reflexivity. Qed.
 
-  Lemma map_fact_fact_of R args :
-    map_fact (fact_of R args) = fact_of (f R) args.
-  Proof.
-    destruct args; reflexivity.
-  Qed.
-
-  Lemma map_fact_eq_fact_of f0 :
-    map_fact f0 = fact_of (f (rel_of f0)) (args_of f0).
-  Proof.
-    destruct f0; reflexivity.
-  Qed.
+  (* --- ported above this line; the rest is still the old API --- *)
 
   (*now an easier theorem: if f happens to be injective, then the renaming is automatically correct*)
 

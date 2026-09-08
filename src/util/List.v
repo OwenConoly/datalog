@@ -1462,6 +1462,10 @@ Section misc.
     flat_map f (map g l) = flat_map (fun x => f (g x)) l.
   Proof. induction l; simpl; f_equal; auto. Qed.
 
+  Lemma map_flat_map (g : A -> list B) (h : B -> C) l :
+    map h (flat_map g l) = flat_map (fun x => map h (g x)) l.
+  Proof. induction l; simpl; [reflexivity|]. rewrite map_app. congruence. Qed.
+
   Lemma flat_map_flat_map (f : B -> list C) (g : A -> list B) l :
     flat_map f (flat_map g l) = flat_map (fun x => flat_map f (g x)) l.
   Proof. induction l; simpl; eauto. rewrite flat_map_app. f_equal. assumption. Qed.
