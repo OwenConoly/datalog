@@ -800,6 +800,45 @@ Module program.
         eapply H; eassumption.
     Qed.
 
+    Definition hyp_rels (p : program) :=
+      flat_map rule.hyp_rels p.(rules) ++ flat_map meta_rule.hyp_rels p.(meta_rules).
+
+    Lemma interp_step_hyp_relname_in p f hyps :
+      interp_step p f hyps ->
+      Forall (fun hyp => In (fact.rel hyp) (hyp_rels p)) hyps.
+    Proof.
+      cbv [hyp_rels]. invert 1.
+      - fwd. eapply Forall_impl; [eapply rule.interp_hyp_relname_in; eassumption|].
+        simpl. intros. apply in_or_app. left. apply in_flat_map. eauto.
+      - fwd. apply List.Forall_map.
+        eapply Forall_impl; [eapply meta_rule.interp_hyp_relname_in; eassumption|].
+        simpl. intros. apply in_or_app. right. apply in_flat_map. eauto.
+    Qed.
+    #[local] Hint Resolve interp_step_hyp_relname_in.
+
+    Lemma interp_invariant p Q f :
+      interp p Q f <->
+        interp p (fun f' => Q f' /\ (f' = f \/ In (fact.rel f') (hyp_rels p))) f.
+    Proof.
+      split; intros H.
+      - eapply pftree_invariant; eauto.
+      - eapply pftree_weaken_hyp; [eassumption|]. simpl. intros. fwd. assumption.
+    Qed.
+
+    Lemma interp_hyp_ext_strong p Q1 Q2 f :
+      (Q1 f <-> Q2 f) ->
+      (forall f', In (fact.rel f') (hyp_rels p) -> Q1 f' <-> Q2 f') ->
+      interp p Q1 f <-> interp p Q2 f.
+    Proof.
+      intros Hf Hhyps.
+      assert (Hequiv: forall f', f' = f \/ In (fact.rel f') (hyp_rels p) -> Q1 f' <-> Q2 f').
+      { intros f' [-> | Hin]; auto. }
+      rewrite (interp_invariant p Q1 f), (interp_invariant p Q2 f).
+      apply pftree_hyp_ext. intros f'. split.
+      - intros. fwd. split; auto. apply Hequiv; auto.
+      - intros. fwd. split; auto. apply Hequiv; auto.
+    Qed.
+
   (* Ltac invert_stuff := *)
   (*   match goal with *)
   (*   | _ => progress cbn [matches rel_of fact_of args_of clause.rel clause.args meta_clause.rel meta_clause.args] in * *)
@@ -816,23 +855,6 @@ Module program.
   (*   | _ => progress fwd *)
   (*   | _ => congruence *)
   (*   end. *)
-
-  Lemma prog_impl_hyp_ext_strong p Q1 Q2 f :
-    (Q1 f <-> Q2 f) ->
-    (forall f', In (rel_of f') (flat_map hyp_rels p) -> Q1 f' <-> Q2 f') ->
-    prog_impl p Q1 f <-> prog_impl p Q2 f.
-  Proof.
-    intros Hf Hhyps.
-    apply pftree_hyp_ext_framed with (Inv := fun f' => In (rel_of f') (flat_map hyp_rels p)).
-    - exact Hf.
-    - intros y l Hex.
-      apply Exists_exists in Hex. fwd.
-      apply rule_impl_hyp_relname_in in Hexp1.
-      eapply Forall_impl; [|exact Hexp1].
-      simpl. intros hyp Hhyp.
-      apply in_flat_map. eexists; split; eauto.
-    - exact Hhyps.
-  Qed.
 
   (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
   (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
