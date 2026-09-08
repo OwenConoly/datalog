@@ -485,6 +485,7 @@ Module fact.
       - rewrite Exists_map. eapply Exists_impl; [|eassumption].
         cbv [meta_fact.equiv]. simpl. intros. fwd. symmetry. assumption.
     Qed.
+
     Definition is_meta f :=
       match f with
       | meta _ => True
@@ -497,6 +498,13 @@ Module fact.
       | normal nf => normal_fact.rel nf
       end.
 
+    Definition set_consistent_with (mf : meta_fact) (S : fact -> Prop) :=
+      forall nf,
+        fact_pattern.matches mf.(meta_fact.pattern) nf ->
+        mf.(meta_fact.set) nf.(normal_fact.args) <-> S (normal nf).
+
+    Definition set_doesnt_lie (S : fact -> Prop) :=
+      forall mf, S (meta mf) -> set_consistent_with mf S.
   End __.
 End fact. Export fact (fact).
 #[export] Hint Resolve fact.implied_by_mfs_ext : core.
@@ -1066,6 +1074,12 @@ Module program.
         In nr p.(rules) ->
         meta_rule.valid_for mr nr.
 
+    Definition good_input_set (p : program) (Q : fact -> Prop) :=
+      (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) /\ fact.set_doesnt_lie Q.
+
+    Definition honest (p : program) :=
+      forall Q, good_input_set p Q -> fact.set_doesnt_lie (interp p Q).
+
   (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
   (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
   (*   prog_impl_with_no_meta_rules (p1 ++ p2) Q f -> *)
@@ -1102,11 +1116,6 @@ Module program.
 
   End __.
 End program.
-
-  Definition consistent (mf_rel : rel) mf_args mf_set S :=
-    forall nf_args,
-      Forall2 matches mf_args nf_args ->
-      mf_set nf_args <-> S (normal_fact mf_rel nf_args).
 
   Hint Unfold extensionally_equal : core.
   Lemma meta_rules_valid_step' p Q mf_rel mf_args mf_set mr mhyps :
@@ -1163,11 +1172,6 @@ End program.
         left. simpl. ssplit; auto. intros args Hargs.
         symmetry. eapply H5; eassumption.
   Qed.
-
-  Definition doesnt_lie S :=
-    forall mf_rel mf_args mf_set,
-      S (meta_fact mf_rel mf_args mf_set) ->
-      consistent mf_rel mf_args mf_set S.
 
   Definition args_consistent mf_args mf_set (S_args : fact_args -> Prop) :=
     forall nf_args,
@@ -1354,16 +1358,6 @@ End program.
     epose proof (H' _ _ _ _ ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) H4 H5) as H''.
     simpl in H''. apply H''; auto.
   Qed.
-
-  Definition good_inputs p Q :=
-    (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) /\
-      doesnt_lie Q.
-
-
-  Definition honest_prog p :=
-    forall Q,
-      good_inputs p Q ->
-      doesnt_lie (prog_impl p Q).
 
   Lemma valid_impl_honest p :
     meta_rules_valid p ->
