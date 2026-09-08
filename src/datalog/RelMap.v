@@ -2,7 +2,7 @@ From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 
-From Datalog Require Import Map Tactics Fp List Datalog.
+From Datalog Require Import Map Tactics Fp List Pftree Datalog.
 From GraphSearch Require Import Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
@@ -235,11 +235,10 @@ Section RelMap.
 
   Lemma interp_clause_map_image ctx c h :
     clause.interp ctx (map_clause_rel c) h ->
-    exists h', h = map_normal_fact h'.
+    h = map_normal_fact {| normal_fact.rel := c.(clause.rel);
+                          normal_fact.args := h.(normal_fact.args) |}.
   Proof.
-    intros. exists {| normal_fact.rel := c.(clause.rel);
-                     normal_fact.args := h.(normal_fact.args) |}.
-    cbv [clause.interp map_clause_rel map_normal_fact] in *. simpl in *. fwd. simp.
+    cbv [clause.interp map_clause_rel map_normal_fact]. simpl. intros. fwd. simp.
     reflexivity.
   Qed.
 
@@ -250,6 +249,15 @@ Section RelMap.
     intros H. apply Forall_ex_eq_map. rewrite <- Forall2_map_l in H.
     apply Forall2_forget_l in H. eapply Forall_impl; [eassumption|].
     simpl. intros. fwd. eauto using interp_clause_map_image.
+  Qed.
+
+  Lemma interp_clause_pattern_map_image ctx c fp :
+    clause_pattern.interp ctx (map_clause_pattern_rel c) fp ->
+    fp = map_fact_pattern {| fact_pattern.rel := c.(clause_pattern.rel);
+                            fact_pattern.args := fp.(fact_pattern.args) |}.
+  Proof.
+    cbv [clause_pattern.interp map_clause_pattern_rel map_fact_pattern]. simpl.
+    intros. fwd. simp. reflexivity.
   Qed.
 
   Lemma rule_interp_invert_map r nf hyps :
@@ -308,13 +316,6 @@ Section RelMap.
       meta_fact.agree (map_meta_fact mf1) (map_meta_fact mf2).
 
   Hint Unfold fact_pattern.matches : core.
-  Lemma matches_map_fact_pattern fp R args :
-    f fp.(fact_pattern.rel) = R ->
-    Forall2 value_pattern.matches fp.(fact_pattern.args) args ->
-    fact_pattern.matches (map_fact_pattern fp)
-      {| normal_fact.rel := R; normal_fact.args := args |}.
-  Proof. cbv [fact_pattern.matches map_fact_pattern]. simpl. auto. Qed.
-
   Lemma implied_by_mf_agree fct mf1 mf2 :
     fact.implied_by_mf (map_fact fct) (map_meta_fact mf1) ->
     meta_fact.agree (map_meta_fact mf1) (map_meta_fact mf2) ->
@@ -591,177 +592,182 @@ Section RelMap.
       + constructor. apply Exists_exists. eauto.
   Qed.
 
-  (* --- ported above this line; the rest is still the old API --- *)
-
-  Lemma rule_impl_map_rule_rels_f_target blah r f_target hyps :
-    rule_impl blah (map_rule_rels r) f_target hyps ->
-    exists f0, f_target = map_fact f0 /\ In (rel_of f0) (concl_rels r).
+  Lemma rule_interp_map_target r nf hyps :
+    rule.interp (map_rule_rels r) nf hyps ->
+    exists nf0, nf = map_normal_fact nf0 /\ In nf0.(normal_fact.rel) (rule.concl_rels r).
   Proof.
-    invert 1.
-    - destruct r; simpl in H0; invert H0.
-      + rewrite Exists_map in H2. apply Exists_exists in H2. fwd.
-        cbv [clause.interp] in H2p1. fwd.
-        eexists (normal_fact _ _). simpl. auto using in_map.
-      + eexists (normal_fact _ _). simpl. auto using in_map.
-    - destruct r; simpl in H0; invert H0.
-      rewrite Exists_map in H1. apply Exists_exists in H1. fwd.
-      cbv [meta_clause.interp] in H1p1. fwd.
-      eexists (meta_fact _ _ _). simpl. auto using in_map.
+    intros H. destruct r; invert H; fwd.
+    - apply in_map_iff in H2p0. fwd.
+      apply interp_clause_map_image in H2p1.
+      eexists. split; [eassumption|]. simpl. apply in_map. assumption.
+    - eexists {| normal_fact.rel := concl; normal_fact.args := _ |}.
+      split; [reflexivity|]. simpl. auto.
   Qed.
 
-  Lemma prog_impl_fact_equiv (p : list rule) Q f1 f2 :
-    Forall inj_on_elt (flat_map concl_rels p) ->
+  Lemma meta_rule_interp_map_target prog mr mf hyps :
+    meta_rule.interp prog (map_meta_rule_rels mr) mf hyps ->
+    exists mf0, mf = map_meta_fact mf0 /\
+                 In (meta_fact.rel mf0) (meta_rule.concl_rels mr).
+  Proof.
+    cbv [meta_rule.interp meta_rule.pattern_interp map_meta_rule_rels
+           meta_fact.equiv meta_fact.rel meta_rule.concl_rels]. simpl.
+    intros. fwd. apply in_map_iff in Hp0p0p0. fwd.
+    apply interp_clause_pattern_map_image in Hp0p0p1.
+    destruct mf as [mf_pat mf_set]. simpl in *.
+    exists {| meta_fact.pattern :=
+               {| fact_pattern.rel := x0.(clause_pattern.rel);
+                 fact_pattern.args := mf_pat.(fact_pattern.args) |};
+             meta_fact.set := mf_set |}.
+    split.
+    - cbv [map_meta_fact map_fact_pattern] in *. simpl in *. congruence.
+    - simpl. apply in_map. assumption.
+  Qed.
+
+  Lemma interp_step_map_target p fct hyps :
+    program.interp_step (map_program p) fct hyps ->
+    exists fct0, fct = map_fact fct0 /\ In (fact.rel fct0) (program.concl_rels p).
+  Proof.
+    cbv [map_program program.concl_rels]. intros H. invert H; simpl in *; fwd.
+    - apply in_map_iff in H0p0. fwd.
+      apply rule_interp_map_target in H0p1. fwd.
+      eexists (fact.normal _). split; [reflexivity|].
+      simpl. apply in_or_app. left. apply in_flat_map. eauto.
+    - apply in_map_iff in H0p0. fwd.
+      apply meta_rule_interp_map_target in H0p1. fwd.
+      eexists (fact.meta _). split; [reflexivity|].
+      simpl. apply in_or_app. right. apply in_flat_map. eauto.
+  Qed.
+
+  Lemma meta_fact_equiv_inj mf mf' :
+    inj_on_elt (meta_fact.rel mf) ->
+    meta_fact_equiv mf mf' ->
+    mf = mf'.
+  Proof.
+    cbv [meta_fact_equiv map_meta_fact meta_fact.rel]. intros Hinj H. simp. fwd.
+    f_equal. apply fact_pattern_equiv_inj; assumption.
+  Qed.
+
+  Lemma map_fact_inj fct fct' :
+    inj_on_elt (fact.rel fct) ->
+    fact_equiv fct fct' ->
+    fct = fct'.
+  Proof.
+    destruct fct, fct'; cbv [fact_equiv]; simpl; intros Hinj H; try discriminate.
+    - f_equal. apply normal_fact_equiv_inj; [assumption|]. cbv [normal_fact_equiv]. congruence.
+    - f_equal. apply meta_fact_equiv_inj; [assumption|]. cbv [meta_fact_equiv]. congruence.
+  Qed.
+
+  Lemma interp_fact_equiv p Q f1 f2 :
+    Forall inj_on_elt (program.concl_rels p) ->
     (forall f1' f2', fact_equiv f1' f2' -> Q f1' <-> Q f2') ->
     fact_equiv f1 f2 ->
-    prog_impl p Q f1 <-> prog_impl p Q f2.
+    program.interp p Q f1 <-> program.interp p Q f2.
   Proof.
-    intros Hinj HQ Heq. split; intros Hprog.
-    - pose proof Hprog as Hprog_copy. apply prog_impl_rel_of in Hprog_copy.
-      destruct Hprog_copy as [HQ1 | Hconcl].
-      + apply prog_impl_leaf. apply (proj1 (HQ _ _ Heq)). exact HQ1.
-      + rewrite Forall_forall in Hinj. apply Hinj in Hconcl. cbv [inj_on_elt] in Hconcl.
-        destruct f1 as [R1 args1 | R1 mf_args1 S1], f2 as [R2 args2 | R2 mf_args2 S2];
-          cbv [fact_equiv map_fact] in Heq; try discriminate;
-          inversion Heq;
-          assert (f R1 = f R2) by congruence;
-          apply Hconcl in H; subst; exact Hprog.
-    - pose proof Hprog as Hprog_copy. apply prog_impl_rel_of in Hprog_copy.
-      destruct Hprog_copy as [HQ2 | Hconcl].
-      + apply prog_impl_leaf. apply (proj2 (HQ _ _ Heq)). exact HQ2.
-      + rewrite Forall_forall in Hinj. apply Hinj in Hconcl. cbv [inj_on_elt] in Hconcl.
-        destruct f1 as [R1 args1 | R1 mf_args1 S1], f2 as [R2 args2 | R2 mf_args2 S2];
-          cbv [fact_equiv map_fact] in Heq; try discriminate;
-          inversion Heq;
-          assert (f R2 = f R1) by congruence;
-          apply Hconcl in H; subst; exact Hprog.
+    intros Hinj HQ Heq. rewrite Forall_forall in Hinj.
+    assert (H: forall a b, fact_equiv a b -> program.interp p Q a -> program.interp p Q b).
+    { intros a b Hab Ha. destruct (program.interp_rel_of _ _ _ Ha) as [HQa|Hin].
+      - apply pftree.leaf. apply (HQ _ _ Hab). assumption.
+      - apply Hinj in Hin. apply map_fact_inj in Hab; [|assumption]. subst. assumption. }
+    split; intros Hi.
+    - eapply H; eassumption.
+    - eapply H; [|eassumption]. cbv [fact_equiv] in *. congruence.
   Qed.
 
-  Lemma prog_impl_map_rule_rels_fw p Q f0 :
-    meta_rules_valid p ->
-    (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
-    doesnt_lie Q ->
+  Lemma facts_agree_under_map_of_interp p Q hyps :
+    program.meta_rules_valid p ->
+    (forall fct, Q fct -> ~ In (fact.rel fct) (program.concl_rels p)) ->
+    fact.set_doesnt_lie Q ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
-    Forall inj_on_elt (flat_map concl_rels p) ->
-    prog_impl p Q f0 ->
-    prog_impl (map map_rule_rels p) (fun f' => exists f, f' = map_fact f /\ Q f) (map_fact f0).
+    Forall inj_on_elt (program.concl_rels p) ->
+    Forall (program.interp p Q) hyps ->
+    facts_agree_under_map hyps.
   Proof.
-    intros Hvalid Hinp Hlie HQ Hinj Hprog.
-    induction Hprog.
-    - apply prog_impl_leaf. eexists; eauto.
-    - apply Exists_exists in H. destruct H as [r [Hr_in Hr_impl]].
-      eapply prog_impl_step.
-      + apply Exists_map. apply Exists_exists. exists r. split; [exact Hr_in|].
-        eapply rule_impl_map_rule_rels_fw; try eassumption.
-        * rewrite Forall_forall in Hinj. apply Hinj. apply in_flat_map.
-          eexists. split; [eassumption|].
-          eapply rule_impl_concl_relname_in. eassumption.
-        * intros R1 args1 S1 R2 args2 S2 Hin1 Hin2 Heq nf_args Hmatch1 Hmatch2.
-          rewrite Forall_forall in H0.
-          eapply meta_facts_consistent.
-          -- eassumption.
-          -- intros R' args1' args2' S1' S2' HQ1 HQ2 nf_args' Hmatch1' Hmatch2'.
-             cbv [doesnt_lie consistent] in Hlie.
-             rewrite (Hlie _ _ _ HQ1 _ Hmatch1'), (Hlie _ _ _ HQ2 _ Hmatch2').
-             reflexivity.
-          -- eassumption.
-          -- apply H0. exact Hin1.
-          -- rewrite prog_impl_fact_equiv; try eassumption.
-             ++ apply H0. exact Hin2.
-             ++ cbv [fact_equiv]. simpl. f_equal. congruence.
-          -- eassumption.
-          -- eassumption.
-      + rewrite Lists.List.Forall_map. eapply Forall_impl; [|eassumption].
-        simpl. auto.
+    intros Hvalid Hinp Hlie HQ Hinj Hderiv mf1 mf2 H1 H2.
+    rewrite Forall_forall in Hderiv. apply Hderiv in H1, H2.
+    cbv [meta_fact.agree map_meta_fact map_fact_pattern fact_pattern.matches]. simpl.
+    intros nf Hm1 Hm2. fwd.
+    assert (Hd2: program.interp p Q
+                   (fact.meta {| meta_fact.pattern :=
+                                  {| fact_pattern.rel := meta_fact.rel mf1;
+                                    fact_pattern.args :=
+                                      mf2.(meta_fact.pattern).(fact_pattern.args) |};
+                               meta_fact.set := mf2.(meta_fact.set) |})).
+    { apply (interp_fact_equiv p Q (fact.meta mf2)); auto.
+      cbv [fact_equiv map_fact map_meta_fact map_fact_pattern meta_fact.rel]. simp. congruence. }
+    pose proof (program.meta_facts_consistent p Q mf1 _ Hinp
+                  ltac:(eauto using fact.set_doesnt_lie_agree) Hvalid H1 Hd2) as Hagree.
+    apply (Hagree {| normal_fact.rel := meta_fact.rel mf1;
+                    normal_fact.args := nf.(normal_fact.args) |}); auto.
   Qed.
 
-  Hint Resolve prog_impl_leaf : core.
-  Lemma prog_impl_map_rule_rels_bw' p Q f_target :
-    meta_rules_valid p ->
-    (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
-    doesnt_lie Q ->
+  Lemma interp_map_fw p Q fct :
+    program.meta_rules_valid p ->
+    (forall f', Q f' -> ~ In (fact.rel f') (program.concl_rels p)) ->
+    fact.set_doesnt_lie Q ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
-    Forall inj_on_elt (flat_map concl_rels p) ->
-    prog_impl (map map_rule_rels p) (fun f' => exists f, f' = map_fact f /\ Q f) f_target ->
-    exists f0, f_target = map_fact f0 /\ prog_impl p Q f0.
+    Forall inj_on_elt (program.concl_rels p) ->
+    program.interp p Q fct ->
+    program.interp (map_program p)
+      (fun f' => exists g, f' = map_fact g /\ Q g) (map_fact fct).
   Proof.
-    intros Hvalid Hinp Hlie HQ Hinj Hprog.
-    induction Hprog.
-    - fwd. eauto.
-    - apply Exists_map in H. apply Exists_exists in H. fwd.
-      pose proof Hp1 as H'. apply rule_impl_map_rule_rels_f_target in H'.
-      fwd.
-      apply Forall_exists_r_Forall2 in H1. fwd.
-      pose proof H1 as H1'.
-      apply Forall2_flip in H1'. eapply Forall2_impl in H1'.
-      1: eapply Forall2_eq_map in H1'.
-      2: { intros. fwd. eauto. }
-      subst.
-      eassert (H':_).
-      { eapply rule_impl_map_rule_rels_bw; try eassumption.
-        - rewrite Forall_forall in Hinj. apply Hinj. apply in_flat_map.
-          eexists. split; [eassumption|]. assumption.
-        - intros R1 args1 S1 R2 args2 S2 Hin1 Hin2 Heq nf_args Hmatch1 Hmatch2.
-          rewrite Forall_forall in H0. Check meta_facts_consistent.
-          eapply meta_facts_consistent.
-          -- eassumption.
-          -- intros R' args1' args2' S1' S2' HQ1 HQ2 nf_args' Hmatch1' Hmatch2'.
-             cbv [doesnt_lie consistent] in Hlie.
-             rewrite (Hlie _ _ _ HQ1 _ Hmatch1'), (Hlie _ _ _ HQ2 _ Hmatch2').
-             reflexivity.
-          -- eassumption.
-          -- apply Forall2_forget_l in H1. rewrite Forall_forall in H1.
-             apply H1 in Hin1. fwd. eassumption.
-          -- rewrite prog_impl_fact_equiv; try eassumption.
-             ++ apply Forall2_forget_l in H1. rewrite Forall_forall in H1.
-                apply H1 in Hin2. fwd. eassumption.
-             ++ cbv [fact_equiv]. simpl. f_equal. congruence.
-          -- eassumption.
-          -- eassumption. }
-      fwd.
-      eexists. split; [eassumption|].
-      eapply prog_impl_step.
-      { apply Exists_exists. eauto. }
-      apply Forall2_forget_l in H'p2, H1. rewrite Forall_forall in H1, H'p2.
-      apply Forall_forall. intros f' Hf'. apply H'p2 in Hf'. fwd.
-      apply H1 in Hf'p0. fwd.
-      rewrite <- prog_impl_fact_equiv; eassumption.
+    intros Hvalid Hinp Hlie HQ Hinj Hprog. induction Hprog.
+    - apply pftree.leaf. eauto.
+    - eapply pftree.step.
+      + eapply interp_step_map_fw; try eassumption.
+        * rewrite Forall_forall in Hinj. apply Hinj.
+          eauto using program.interp_step_concl_relname_in.
+        * eapply facts_agree_under_map_of_interp; eassumption.
+      + apply Forall_forall. intros h Hh. apply in_map_iff in Hh. fwd.
+        rewrite Forall_forall in H1. auto.
   Qed.
 
-  Lemma map_fact_inj f0 f0' :
-    inj_on_elt (rel_of f0) ->
-    map_fact f0 = map_fact f0' ->
-    f0 = f0'.
-  Proof.
-    intros Hinj Heq.
-    destruct f0 as [R1 args1 | R1 mf_args1 S1],
-             f0' as [R2 args2 | R2 mf_args2 S2];
-      cbv [map_fact rel_of] in *; try discriminate.
-    - (* Case: normal_fact *)
-      inversion Heq; subst.
-      assert (R1 = R2) by (apply Hinj; congruence).
-      subst. reflexivity.
-    - (* Case: meta_fact *)
-      inversion Heq; subst.
-      assert (R1 = R2) by (apply Hinj; congruence).
-      subst. reflexivity.
-  Qed.
-
-  Lemma prog_impl_map_rule_rels_iff p Q f0 :
-    meta_rules_valid p ->
-    (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
-    doesnt_lie Q ->
+  Lemma interp_map_bw p Q f_target :
+    program.meta_rules_valid p ->
+    (forall f', Q f' -> ~ In (fact.rel f') (program.concl_rels p)) ->
+    fact.set_doesnt_lie Q ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
-    Forall inj_on_elt (flat_map concl_rels p) ->
-    inj_on_elt (rel_of f0) ->
-    prog_impl p Q f0 <->
-    prog_impl (map map_rule_rels p) (fun f' => exists f, f' = map_fact f /\ Q f) (map_fact f0).
+    Forall inj_on_elt (program.concl_rels p) ->
+    program.interp (map_program p)
+      (fun f' => exists g, f' = map_fact g /\ Q g) f_target ->
+    exists fct, f_target = map_fact fct /\ program.interp p Q fct.
+  Proof.
+    intros Hvalid Hinp Hlie HQ Hinj Hprog. induction Hprog.
+    - fwd. eauto using pftree.leaf.
+    - apply Forall_exists_r_Forall2 in H1. fwd.
+      assert (Hl: l = map map_fact ys).
+      { apply Forall2_eq_map. rewrite <- Forall2_flip_iff.
+        eapply Forall2_impl; [eassumption|]. simpl. intros. fwd. auto. }
+      assert (Hys: Forall (program.interp p Q) ys).
+      { apply Forall2_forget_l in H1. eapply Forall_impl; [eassumption|].
+        simpl. intros. fwd. auto. }
+      subst l. pose proof H as Ht. apply interp_step_map_target in Ht. fwd.
+      eapply interp_step_map_bw in H; try eassumption.
+      2: { rewrite Forall_forall in Hinj. auto. }
+      2: { eapply facts_agree_under_map_of_interp; eassumption. }
+      fwd. eexists. split; [reflexivity|]. eapply pftree.step; [eassumption|].
+      apply Forall2_forget_l in Hp0. rewrite Forall_forall in Hp0, Hys.
+      apply Forall_forall. intros h Hh. apply Hp0 in Hh. fwd.
+      apply (interp_fact_equiv p Q x); auto.
+  Qed.
+
+  Lemma interp_map_iff p Q fct :
+    program.meta_rules_valid p ->
+    (forall f', Q f' -> ~ In (fact.rel f') (program.concl_rels p)) ->
+    fact.set_doesnt_lie Q ->
+    (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
+    Forall inj_on_elt (program.concl_rels p) ->
+    inj_on_elt (fact.rel fct) ->
+    program.interp p Q fct <->
+      program.interp (map_program p)
+        (fun f' => exists g, f' = map_fact g /\ Q g) (map_fact fct).
   Proof.
     intros. split; intros H'.
-    - apply prog_impl_map_rule_rels_fw; assumption.
-    - eapply prog_impl_map_rule_rels_bw' in H'; try assumption.
-      destruct H' as [f0' [Heq Hprog]].
-      eapply map_fact_inj in Heq; try assumption. subst. assumption.
+    - apply interp_map_fw; assumption.
+    - eapply interp_map_bw in H'; try assumption. fwd.
+      apply map_fact_inj in H'p0; [|assumption]. subst. assumption.
   Qed.
+
+  (* --- ported above this line; the rest is still the old API --- *)
 
   Lemma concl_rels_map_rule_rels r :
     concl_rels (map_rule_rels r) = map f (concl_rels r).

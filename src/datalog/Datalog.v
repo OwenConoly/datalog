@@ -528,6 +528,17 @@ Module fact.
     Definition set_doesnt_lie (S : fact -> Prop) :=
       forall mf, S (meta mf) -> set_consistent_with mf S.
 
+    Lemma set_doesnt_lie_agree (S : fact -> Prop) mf1 mf2 :
+      set_doesnt_lie S ->
+      S (meta mf1) ->
+      S (meta mf2) ->
+      meta_fact.agree mf1 mf2.
+    Proof.
+      cbv [set_doesnt_lie set_consistent_with meta_fact.agree].
+      intros H H1 H2 nf Hm1 Hm2.
+      rewrite (H _ H1) by assumption. rewrite (H _ H2) by assumption. reflexivity.
+    Qed.
+
     Definition args_consistent mf_args mf_set (S_args : args -> Prop) :=
       forall nf_args,
         Forall2 value_pattern.matches mf_args nf_args ->
@@ -1269,9 +1280,7 @@ Module program.
       intros Hvalid Q [Hdisj Q_honest] mf Hderiv.
       assert (HQagree: forall mf1 mf2,
                  Q (fact.meta mf1) -> Q (fact.meta mf2) -> meta_fact.agree mf1 mf2).
-      { intros a b Ha Hb. apply Q_honest in Ha, Hb.
-        cbv [fact.set_consistent_with] in Ha, Hb. cbv [meta_fact.agree]. intros nf Hm1 Hm2.
-        rewrite Ha by assumption. rewrite Hb by assumption. reflexivity. }
+      { eauto using fact.set_doesnt_lie_agree. }
       remember (fact.meta mf) as f eqn:Ef. revert mf Ef.
       induction Hderiv; intros mf Ef; subst.
       - pose proof H as HQ. apply Q_honest in H.
