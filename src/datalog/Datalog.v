@@ -1080,11 +1080,10 @@ Module program.
     Definition honest (p : program) :=
       forall Q, good_input_set p Q -> fact.set_doesnt_lie (interp p Q).
 
-    Lemma meta_rules_valid_step' p Q mr mf mhyps :
+    Lemma meta_rules_valid_step' p Q mf mhyps :
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
       meta_rules_valid p ->
-      In mr p.(meta_rules) ->
-      meta_rule.interp p.(rules) mr mf mhyps ->
+      Exists (fun mr => meta_rule.interp p.(rules) mr mf mhyps) p.(meta_rules) ->
       Forall (fun mhyp => fact.set_consistent_with mhyp (interp p Q)) mhyps ->
       (forall mhyp mf',
           In mhyp mhyps ->
@@ -1094,7 +1093,8 @@ Module program.
       Forall (fun mhyp => interp p Q (fact.meta mhyp)) mhyps ->
       fact.set_consistent_with mf (interp p Q).
     Proof.
-      intros Hinp Hvalid Hmr Hinterp Hcons Hagree Hderiv.
+      intros Hinp Hvalid Hex Hcons Hagree Hderiv.
+      rewrite Exists_exists in Hex. destruct Hex as [mr [Hmr Hinterp]].
       rewrite Forall_forall in Hcons, Hderiv. cbv [fact.set_consistent_with] in Hcons.
       pose proof Hinterp as Hpat. cbv [meta_rule.interp meta_fact.equiv] in Hpat. fwd. simp.
       cbv [fact.set_consistent_with]. intros nf Hmatch.
