@@ -100,7 +100,7 @@ Fixpoint sizeof_prop {var n} (sizeof_var : var tZ -> option Z) (e : pATLexpr var
         | _ => False
         end
   | SBop _ x y =>
-    sz = [] /\ sizeof_prop x [] /\ sizeof_prop y [] /\ 
+    sz = [] /\ sizeof_prop x [] /\ sizeof_prop y [] /\
     stringvar_S_ok x /\ stringvar_S_ok y
   | SIZR x => sz = [] /\ pZexpr_no_vars x
   end.
@@ -713,29 +713,6 @@ Definition lower_main {var n} (e : pATLexpr (var_of var) n) (true_rel : var): bl
 
 (* end of compiler, this stuff should go in ATLToDatalog semantics, but that isn't working *)
 
-Fixpoint dim_n (n : nat) : Set :=
-  match n with
-  | O => R
-  | S n' => list (dim_n n')
-  end.
-
-
-Definition interp_type t : Type :=
-  match t with
-  | tZ => Z
-  | tB => bool
-  | tensor_n n => dim_n n
-  end.
-
-Definition interp_type_tagged t : Type :=
-  match t with
-  | tZ => tagged_Z
-  | tB => bool
-  | tensor_n n => dim_n n
-  end.
-
-
-
 Fixpoint interp_pZexpr' (e : pZexpr' tagged_Z) : Z :=
   match e with
   | ZBop o x y => interp_Zbop o (interp_pZexpr' x) (interp_pZexpr' y)
@@ -850,7 +827,7 @@ dependent induction e.
   induction p; simpl in Hnv.
   * destruct Hnv as [Hnv1 Hnv2].
     simpl. f_equal.
-    + apply IHp1. 
+    + apply IHp1.
       { simpl. simpl in H1. exact H1. }
       { exact Hnv1. }
     + apply IHp2.
@@ -904,20 +881,20 @@ Proof.
   - intros sz szH. simpl. rewrite !pBexpr'_works.
     f_equal. apply (IH sz). exact szH.
   - intros sz szH. simpl in szH.
-    destruct szH as [sz' [Hsz1 Hsz2]]. 
+    destruct szH as [sz' [Hsz1 Hsz2]].
     simpl. f_equal.
     + apply (IH1 sz'). apply Hsz1.
-    + apply functional_extensionality. intros x. 
+    + apply functional_extensionality. intros x.
       rewrite (IH2 x sz).
       * reflexivity.
       * apply Hsz2.
-  - intros sz szH. simpl. 
+  - intros sz szH. simpl.
     destruct szH as [nx [ny [sz' [Hx [Hy Hsz]]]]].
     f_equal.
     + apply (IH1 (nx :: sz')). apply Hx.
     + apply (IH2 (ny :: sz')). apply Hy.
   - intros sz szH. simpl.
-    f_equal. 
+    f_equal.
     destruct szH as [a [b [sz' [He Hsz]]]].
     apply (IH (a :: b :: sz')). apply He.
   - intros sz szH. simpl.
@@ -963,7 +940,7 @@ Proof.
       * apply Hy.
       * reflexivity.
   - intros sz szH.
-    simpl. f_equal. 
+    simpl. f_equal.
     destruct szH as [Hsz Hnv].
     induction p; simpl in Hnv.
     (* ZBop *)
@@ -1088,3 +1065,24 @@ Inductive wf_pATL_expr' {var1 var2} : list (ctx_elt2 var1 var2) -> forall n, pAT
   wf_pSexpr' ctx s1 s2 ->
   wf_pATL_expr' ctx 0 (Scalar s1) (Scalar s2)
 .
+
+Instance value : valueT.
+Admitted. (*TODO fill in.  look at example in AggregatingProgram.v.*)
+Definition value_of : R -> value.
+Admitted. (*TODO fill in.*)
+
+Instance dsig : signature fn aggregator value.
+Admitted. (*TODO fill in.  look at example in AggregatingProgram.v.*)
+
+Context {context : map.map exprvar value}.
+
+Lemma lower_pSexpr'_correct var x ctx e e' idxs0 next_varname datalog_expr hyps hyps' next_varname' bs :
+  wf_pSexpr' ctx e e' ->
+  (forall n name depth value,
+      In {| ctx_elt_t := tensor_n n; ctx_elt_p1 := (name, depth); ctx_elt_p2 := value |} ctx ->
+      True(*TODO some hypothesis about tensors in the context*)) ->
+  lower_pSexpr' (var := var) idxs0 next_varname e = (datalog_expr, hyps, next_varname', bs) ->
+  interp_pSexpr' e' = x ->
+  Forall2 (interp_clause map.empty(*TODO this should not be map.empty*)) hyps hyps' /\
+    interp_expr map.empty(*TODO also should not be map.empty*) datalog_expr (value_of x).
+Proof. Admitted.
