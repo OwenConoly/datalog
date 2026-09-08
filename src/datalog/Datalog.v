@@ -1109,10 +1109,6 @@ End program.
       mf_set nf_args <-> S (normal_fact mf_rel nf_args).
 
   Hint Unfold extensionally_equal : core.
-  Lemma extensionally_equal_refl : forall f,
-    extensionally_equal f f.
-  Proof. destruct f; auto. Qed.
-
   Lemma meta_rules_valid_step' p Q mf_rel mf_args mf_set mr mhyps :
     (forall f, Q f -> ~ In (rel_of f) (flat_map concl_rels p)) ->
     meta_rules_valid p ->
@@ -1187,113 +1183,6 @@ End program.
     doesnt_lie S ->
     honest_args (fun args => S (fact_of R args)).
   Proof. cbv [doesnt_lie honest_args consistent args_consistent]. eauto. Qed.
-
-  (*this is a lemma about pairwise properties, because that is all that i need to reasona baout.
-    it is also true for n-wise properties, or even properties of arbitrary-length finite lists.
-   it is not true for infinite sets. *)
-
-  Inductive is_flat_pftree {U} Q (P : U -> list U -> _) : list U -> Prop :=
-  | is_flat_pftree_nil : is_flat_pftree _ _ []
-  | is_flat_pftree_cons x xs :
-    Q x \/ (exists l, P x l /\ incl l xs) ->
-    is_flat_pftree _ _ xs ->
-    is_flat_pftree _ _ (x :: xs).
-  Hint Constructors is_flat_pftree : core.
-
-  Lemma is_flat_pftree_app U (Q : U -> _) P xs1 xs2 :
-    is_flat_pftree Q P xs1 ->
-    is_flat_pftree Q P xs2 ->
-    is_flat_pftree Q P (xs1 ++ xs2).
-  Proof.
-    intros H1 H2. induction H1; simpl; auto.
-    constructor; auto. destruct H as [H|H]; auto.
-    fwd. right. eexists. split; [eassumption|].
-    auto with incl.
-  Qed.
-
-  Lemma is_flat_pftree_concat U (Q : U -> _) P xss :
-    Forall (is_flat_pftree Q P) xss ->
-    is_flat_pftree Q P (concat xss).
-  Proof. induction 1; simpl; auto using is_flat_pftree_app. Qed.
-
-  Lemma pftree_impl_exists_flat_pftree U (P : U -> list U -> _) Q x :
-    pftree P Q x ->
-    exists xs,
-      is_flat_pftree Q P xs /\ In x xs.
-  Proof.
-    induction 1.
-    - exists [x]. simpl. auto.
-    - apply Forall_exists_r_Forall2 in H1. fwd.
-      exists (x :: concat ys). simpl. split; auto. constructor.
-      + right. eexists. split; [eassumption|].
-        apply Forall2_forget_r in H1. cbv [incl]. apply Forall_forall.
-        eapply Forall_impl; [|eassumption].
-        simpl. intros. fwd. rewrite in_concat. eauto.
-      + apply is_flat_pftree_concat.
-        apply Forall2_forget_l in H1. eapply Forall_impl; [|eassumption].
-        simpl. intros. fwd. assumption.
-  Qed.
-
-  Lemma is_flat_pftree_pftree U (P : U -> _ -> _) Q xs :
-    is_flat_pftree Q P xs ->
-    Forall (pftree P Q) xs.
-  Proof.
-    induction 1; constructor; auto.
-    destruct H; fwd; auto.
-    eapply pftree.step; [eassumption|].
-    Search Forall incl. eauto using incl_Forall.
-  Qed.
-
-  Hint Unfold In : core.
-  Lemma stepping_induction' U (P : U -> list U -> _) R Q :
-    (forall x1 x2, R x1 x2 <-> R x2 x1) ->
-    (forall xs,
-        (forall x1 x2, In x1 xs -> In x2 xs -> R x1 x2) ->
-        forall x,
-        is_flat_pftree Q P (x :: xs) ->
-        (forall y, In y (x :: xs) -> R x y)) ->
-    forall xs,
-      is_flat_pftree Q P xs ->
-      forall x1 x2,
-        In x1 xs ->
-        In x2 xs ->
-        R x1 x2.
-  Proof.
-    intros Hcomm Hstep xs Hxs.
-    induction Hxs.
-    - simpl. contradiction.
-    - specialize (Hstep _ IHHxs).
-      intros x1 x2 [H1|H1] [H2|H2]; subst; auto.
-      apply Hcomm. auto.
-  Qed.
-
-  Lemma stepping_induction U (P : U -> list U -> _) R Q :
-    (forall x1 x2, R x1 x2 <-> R x2 x1) ->
-    (forall xs,
-        (forall x1 x2, In x1 xs -> In x2 xs -> R x1 x2) ->
-        forall x,
-        is_flat_pftree Q P (x :: xs) ->
-        (forall y, In y (x :: xs) -> R x y)) ->
-    forall x1 x2,
-      pftree P Q x1 ->
-      pftree P Q x2 ->
-      R x1 x2.
-  Proof.
-    intros ? ? x1 x2 H1 H2. apply pftree_impl_exists_flat_pftree in H1, H2.
-    fwd. eapply is_flat_pftree_app in H1p0; [|exact H2p0].
-    clear H2p0. eapply stepping_induction'; try eassumption.
-    1,2: apply in_app_iff; auto.
-  Qed.
-
-  Lemma is_flat_pftree_forall_step U (P : U -> _ -> _) Q xs :
-    is_flat_pftree Q P xs ->
-    Forall (fun x => Q x \/ (exists l : list U, P x l /\ incl l xs)) xs.
-  Proof.
-    induction 1; auto. constructor.
-    - destruct H; fwd; auto. right. eexists. split; [eassumption|].
-      auto with incl.
-    - eapply Forall_impl; [|eassumption]. simpl. intros ? [?|?]; fwd; eauto 6 with incl.
-  Qed.
 
   Lemma meta_hyps_are_meta_facts env r mf_rel mf_args mf_set hyps :
     rule_impl env r (meta_fact mf_rel mf_args mf_set) hyps ->

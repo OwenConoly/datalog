@@ -1,6 +1,7 @@
 From Stdlib Require Import List.
 From Datalog.Util Require Import Tactics Fp List.
 From coqutil Require Import Tactics.fwd.
+Import ListNotations.
 
 Module pftree.
   Section __.
@@ -120,6 +121,114 @@ Module pftree.
       (forall y l z l', P2 y l -> In z l -> ~ P1 z l') ->
       pftree (fun y l => P1 y l \/ P2 y l) Q x <-> pftree P1 (pftree P2 Q) x.
     Proof. auto using stratify, unstratify. Qed.
+
+    (*a linearized proof tree: each element is a leaf, or steps into elements later in the list*)
+    Inductive flat P (Q : T -> Prop) : list T -> Prop :=
+    | flat_nil : flat _ _ []
+    | flat_cons x xs :
+      Q x \/ (exists l, P x l /\ incl l xs) ->
+      flat _ _ xs ->
+      flat _ _ (x :: xs).
+    #[local] Hint Constructors flat : core.
+
+    Lemma flat_app P Q xs1 xs2 :
+      flat P Q xs1 ->
+      flat P Q xs2 ->
+      flat P Q (xs1 ++ xs2).
+    Proof.
+      induction 1; simpl; auto. intros. constructor; auto.
+      destruct H; fwd; eauto 6 with incl.
+    Qed.
+
+    Lemma flat_concat P Q xss :
+      Forall (flat P Q) xss ->
+      flat P Q (concat xss).
+    Proof. induction 1; simpl; auto using flat_app. Qed.
+
+    Lemma exists_flat P Q x :
+      pftree P Q x ->
+      exists xs, flat P Q xs /\ In x xs.
+    Proof.
+      induction 1.
+      - exists [x]. simpl. auto.
+      - apply Forall_exists_r_Forall2 in H1. fwd.
+        exists (x :: concat ys). simpl. split; auto. constructor.
+        + right. eexists. split; [eassumption|].
+          apply Forall2_forget_r in H1. cbv [incl]. apply Forall_forall.
+          eapply Forall_impl; [eassumption|].
+          simpl. intros. fwd. rewrite in_concat. eauto.
+        + apply flat_concat.
+          apply Forall2_forget_l in H1. eapply Forall_impl; [eassumption|].
+          simpl. intros. fwd. assumption.
+    Qed.
+
+    Lemma flat_pftree P Q xs :
+      flat P Q xs ->
+      Forall (pftree P Q) xs.
+    Proof.
+      induction 1; constructor; auto.
+      destruct H; fwd; auto.
+      eapply step; [eassumption|]. eauto using incl_Forall.
+    Qed.
+
+    Lemma flat_forall_step P Q xs :
+      flat P Q xs ->
+      Forall (fun x => Q x \/ exists l, P x l /\ incl l xs) xs.
+    Proof.
+      induction 1; auto. constructor.
+      - destruct H; fwd; auto. right. eexists. split; [eassumption|].
+        auto with incl.
+      - eapply Forall_impl; [eassumption|]. simpl. intros ? [?|?]; fwd; eauto 6 with incl.
+    Qed.
+
+    #[local] Hint Unfold In : core.
+
+    (*this is a lemma about pairwise properties, because that is all that i need to reason about.
+      it is also true for n-wise properties, or even properties of arbitrary-length finite lists.
+      it is not true for infinite sets. *)
+    Lemma stepping_induction' P Q (R : T -> T -> Prop) :
+      (forall x1 x2, R x1 x2 <-> R x2 x1) ->
+      (forall x xs,
+          (forall y1 y2, In y1 xs -> In y2 xs -> R y1 y2) ->
+          Forall (pftree P Q) (x :: xs) ->
+          Forall (fun y => Q y \/ exists l, P y l /\ incl l xs) (x :: xs) ->
+          forall y, In y (x :: xs) -> R x y) ->
+      forall xs,
+        flat P Q xs ->
+        forall x1 x2,
+          In x1 xs ->
+          In x2 xs ->
+          R x1 x2.
+    Proof.
+      intros Hcomm Hstep xs Hxs.
+      induction Hxs as [|x xs Hx Hxs IH].
+      - simpl. contradiction.
+      - assert (Hall: forall y, In y (x :: xs) -> R x y).
+        { apply Hstep.
+          - assumption.
+          - apply flat_pftree. constructor; assumption.
+          - constructor; auto using flat_forall_step. }
+        intros x1 x2 [H1|H1] [H2|H2]; subst; auto.
+        apply Hcomm. auto.
+    Qed.
+
+    Lemma stepping_induction P Q (R : T -> T -> Prop) :
+      (forall x1 x2, R x1 x2 <-> R x2 x1) ->
+      (forall x xs,
+          (forall y1 y2, In y1 xs -> In y2 xs -> R y1 y2) ->
+          Forall (pftree P Q) (x :: xs) ->
+          Forall (fun y => Q y \/ exists l, P y l /\ incl l xs) (x :: xs) ->
+          forall y, In y (x :: xs) -> R x y) ->
+      forall x1 x2,
+        pftree P Q x1 ->
+        pftree P Q x2 ->
+        R x1 x2.
+    Proof.
+      intros ? ? x1 x2 H1 H2. apply exists_flat in H1, H2.
+      fwd. eapply flat_app in H1p0; [|exact H2p0].
+      eapply stepping_induction'; try eassumption.
+      1,2: apply in_app_iff; auto.
+    Qed.
   End __.
 End pftree. Export pftree (pftree).
 #[export] Hint Constructors pftree : core.
