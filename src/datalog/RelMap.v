@@ -11,7 +11,7 @@ Import ListNotations.
 
 Section RelMap.
   Context {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-  Context `{sig : signature fn aggregator T}.
+  Context {semantics : datalog_semantics fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
 
   Context {rel1 rel2} (f : rel1 -> rel2).
@@ -21,13 +21,27 @@ Section RelMap.
 
   Definition rel_equiv R1 R2 := f R1 = f R2.
 
+  Definition map_normal_fact (nf : normal_fact) : normal_fact :=
+    {| normal_fact.rel := f nf.(normal_fact.rel);
+      normal_fact.args := nf.(normal_fact.args) |}.
+
+  Definition map_fact_pattern (fp : fact_pattern) : fact_pattern :=
+    {| fact_pattern.rel := f fp.(fact_pattern.rel);
+      fact_pattern.args := fp.(fact_pattern.args) |}.
+
+  Definition map_meta_fact (mf : meta_fact) : meta_fact :=
+    {| meta_fact.pattern := map_fact_pattern mf.(meta_fact.pattern);
+      meta_fact.set := mf.(meta_fact.set) |}.
+
   Definition map_fact (fct : fact) : fact :=
     match fct with
-    | normal_fact R args => normal_fact (f R) args
-    | meta_fact R mf_args mf_set => meta_fact (f R) mf_args mf_set
+    | fact.normal nf => fact.normal (map_normal_fact nf)
+    | fact.meta mf => fact.meta (map_meta_fact mf)
     end.
 
   Definition fact_equiv f1 f2 := map_fact f1 = map_fact f2.
+
+  Definition normal_fact_equiv n1 n2 := map_normal_fact n1 = map_normal_fact n2.
 
   Definition map_clause_rel (c : clause) : clause :=
     {| clause.rel := f c.(clause.rel);
@@ -35,24 +49,26 @@ Section RelMap.
 
   Lemma interp_clause_map_fw ctx c h :
     clause.interp ctx c h ->
-    clause.interp ctx (map_clause_rel c) (map_fact h).
-  Proof. intros. repeat invert_stuff. interp_exprs. Qed.
+    clause.interp ctx (map_clause_rel c) (map_normal_fact h).
+  Proof.
+    cbv [clause.interp map_clause_rel map_normal_fact]. simpl. intros. fwd.
+    split; [congruence|assumption].
+  Qed.
 
-  Hint Unfold clause.interp rel_equiv fact_equiv : core.
+  Hint Unfold clause.interp rel_equiv fact_equiv normal_fact_equiv : core.
   Lemma interp_clause_map_bw ctx c h :
-    clause.interp ctx (map_clause_rel c) (map_fact h) ->
-    exists h', fact_equiv h h' /\ clause.interp ctx c h'.
+    clause.interp ctx (map_clause_rel c) (map_normal_fact h) ->
+    exists h', normal_fact_equiv h h' /\ clause.interp ctx c h'.
   Proof.
     intros H. cbv [clause.interp] in H. fwd.
-    destruct h; simpl in *; repeat invert_stuff.
-    eexists (normal_fact (clause.rel c) _). split.
-    - cbv [fact_equiv]. simpl. f_equal. assumption.
-    - eauto.
+    eexists {| normal_fact.rel := clause.rel c; normal_fact.args := _ |}. split.
+    - cbv [normal_fact_equiv map_normal_fact]. simpl. f_equal. simpl in *. congruence.
+    - cbv [clause.interp]. simpl. eauto.
   Qed.
 
   Lemma Forall2_interp_clause_map_fw ctx hyps1 hyps2 :
     Forall2 (clause.interp ctx) hyps1 hyps2 ->
-    Forall2 (clause.interp ctx) (map map_clause_rel hyps1) (map map_fact hyps2).
+    Forall2 (clause.interp ctx) (map map_clause_rel hyps1) (map map_normal_fact hyps2).
   Proof.
     intros.
     rewrite <- Forall2_map_l, <- Forall2_map_r.
@@ -61,9 +77,9 @@ Section RelMap.
   Qed.
 
   Lemma Forall2_interp_clause_map_bw ctx hyps1 hyps2 :
-    Forall2 (clause.interp ctx) (map map_clause_rel hyps1) (map map_fact hyps2) ->
+    Forall2 (clause.interp ctx) (map map_clause_rel hyps1) (map map_normal_fact hyps2) ->
     exists hyps2',
-      Forall2 fact_equiv hyps2 hyps2' /\
+      Forall2 normal_fact_equiv hyps2 hyps2' /\
       Forall2 (clause.interp ctx) hyps1 hyps2'.
   Proof.
     intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
@@ -75,113 +91,108 @@ Section RelMap.
   Qed.
 
   Lemma Forall2_interp_clause_map_bw' ctx hyps1 hyps2 :
-    Forall2 (clause.interp ctx) (map map_clause_rel hyps1) (map map_fact hyps2) ->
-    Forall2 (fun c h => exists h', fact_equiv h h' /\ clause.interp ctx c h') hyps1 hyps2.
+    Forall2 (clause.interp ctx) (map map_clause_rel hyps1) (map map_normal_fact hyps2) ->
+    Forall2 (fun c h => exists h', normal_fact_equiv h h' /\ clause.interp ctx c h') hyps1 hyps2.
   Proof.
     intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
     eapply Forall2_impl; [eassumption|].
     eauto using interp_clause_map_bw.
   Qed.
 
-  Definition map_meta_clause_rel (c : meta_clause) : meta_clause :=
-    {| meta_clause.rel := f c.(meta_clause.rel);
-      meta_clause.args := c.(meta_clause.args) |}.
+  Definition map_clause_pattern_rel (c : clause_pattern) : clause_pattern :=
+    {| clause_pattern.rel := f c.(clause_pattern.rel);
+      clause_pattern.args := c.(clause_pattern.args) |}.
 
   Definition map_rule_rels (r : rule) : rule :=
     match r with
-    | normal_rule concls hyps =>
-        normal_rule (map (map_clause_rel) concls) (map (map_clause_rel) hyps)
-    | meta_rule concls hyps =>
-        meta_rule (map (map_meta_clause_rel) concls) (map (map_meta_clause_rel) hyps)
-    | agg_rule concl agg hyp =>
-        agg_rule (f concl) agg (f hyp)
+    | rule.impl concls hyps =>
+        rule.impl (map map_clause_rel concls) (map map_clause_rel hyps)
+    | rule.agg concl agg hyp =>
+        rule.agg (f concl) agg (f hyp)
     end.
 
-  Lemma non_meta_rule_impl_map_fw r R args hyps :
-    non_meta_rule_impl r R args hyps ->
-    non_meta_rule_impl (map_rule_rels r) (f R) args (map map_fact hyps).
+  Definition map_meta_rule_rels (r : meta_rule) : meta_rule :=
+    {| meta_rule.concls := map map_clause_pattern_rel r.(meta_rule.concls);
+      meta_rule.hyps := map map_clause_pattern_rel r.(meta_rule.hyps) |}.
+
+  Lemma rule_interp_map_fw r nf hyps :
+    rule.interp r nf hyps ->
+    rule.interp (map_rule_rels r) (map_normal_fact nf) (map map_fact hyps).
   Proof.
     invert 1.
-    - econstructor.
+    - simpl.
+      assert (Hm : map map_fact (map fact.normal hyps0)
+                   = map fact.normal (map map_normal_fact hyps0)).
+      { rewrite !map_map. apply map_ext. intros. reflexivity. }
+      rewrite Hm. eapply rule.interp_impl.
       + apply Exists_map. eapply Exists_impl; [|eassumption].
-        simpl. intros c Hc. eapply interp_clause_map_fw in Hc. eassumption.
-      + apply Forall2_interp_clause_map_fw. eassumption.
-    - simpl. eassert (meta_fact _ _ _ :: _ = _) as ->.
-      2: { econstructor. eassumption. }
-      f_equal. rewrite map_map. apply map_ext. intros [? ?]. reflexivity.
+        simpl. eauto using interp_clause_map_fw.
+      + apply Forall2_interp_clause_map_fw. assumption.
+    - simpl. rewrite map_map.
+      eassert (map _ vals = _) as ->.
+      2: { constructor. eassumption. }
+      apply map_ext. intros [? ?]. reflexivity.
   Qed.
 
-  Lemma interp_meta_clause_map_fw ctx c f0 :
-    meta_clause.interp ctx c f0 ->
-    meta_clause.interp ctx (map_meta_clause_rel c) (map_fact f0).
+  Definition fact_pattern_equiv p1 p2 := map_fact_pattern p1 = map_fact_pattern p2.
+
+  Lemma interp_clause_pattern_map_fw ctx c fp :
+    clause_pattern.interp ctx c fp ->
+    clause_pattern.interp ctx (map_clause_pattern_rel c) (map_fact_pattern fp).
   Proof.
-    cbv [meta_clause.interp]. intros. fwd. unfold map_fact. eauto.
+    cbv [clause_pattern.interp map_clause_pattern_rel map_fact_pattern]. simpl.
+    intros. fwd. split; [congruence|assumption].
   Qed.
 
-  Lemma Forall2_interp_meta_clause_map_fw ctx hyps1 hyps2 :
-    Forall2 (meta_clause.interp ctx) hyps1 hyps2 ->
-    Forall2 (meta_clause.interp ctx) (map map_meta_clause_rel hyps1) (map map_fact hyps2).
+  Lemma Forall2_interp_clause_pattern_map_fw ctx hyps1 hyps2 :
+    Forall2 (clause_pattern.interp ctx) hyps1 hyps2 ->
+    Forall2 (clause_pattern.interp ctx)
+      (map map_clause_pattern_rel hyps1) (map map_fact_pattern hyps2).
   Proof.
     intros. rewrite <- Forall2_map_l, <- Forall2_map_r.
     eapply Forall2_impl; [eassumption|].
-    eauto using interp_meta_clause_map_fw.
+    eauto using interp_clause_pattern_map_fw.
   Qed.
 
-Lemma fact_matches_map_fw f1 f2 :
-  fact_matches f1 f2 ->
-  fact_matches (map_fact f1) (map_fact f2).
-Proof.
-  intros. cbv [fact_matches] in *. fwd. unfold map_fact. eauto 10.
-Qed.
-
-Lemma fact_matches_map_bw f1 f2 :
-    fact_matches (map_fact f1) (map_fact f2) ->
-    exists f1' f2',
-      fact_equiv f1 f1' /\
-      fact_equiv f2 f2' /\
-      fact_matches f1' f2'.
+  Lemma meta_fact_matches_map_fw mf nf :
+    meta_fact.matches mf nf ->
+    meta_fact.matches (map_meta_fact mf) (map_normal_fact nf).
   Proof.
-    intros H. cbv [fact_matches] in H. fwd.
-    destruct f1, f2; simpl in *; repeat invert_stuff.
-    exists (normal_fact nf_rel nf_args), (meta_fact nf_rel mf_args mf_set).
-    split; [|split].
-    - cbv [fact_equiv]. simpl. f_equal.
-    - cbv [fact_equiv]. simpl. f_equal. congruence.
-    - cbv [fact_matches]. eauto 10.
+    cbv [meta_fact.matches fact_pattern.matches map_meta_fact map_fact_pattern
+           map_normal_fact]. simpl. intros. fwd. ssplit; auto. congruence.
   Qed.
 
-  Hint Unfold meta_clause.interp : core.
-  Lemma interp_meta_clause_map_bw ctx c h :
-    meta_clause.interp ctx (map_meta_clause_rel c) (map_fact h) ->
-    exists h', fact_equiv h h' /\ meta_clause.interp ctx c h'.
+  Hint Unfold clause_pattern.interp : core.
+  Lemma interp_clause_pattern_map_bw ctx c fp :
+    clause_pattern.interp ctx (map_clause_pattern_rel c) (map_fact_pattern fp) ->
+    exists fp', fact_pattern_equiv fp fp' /\ clause_pattern.interp ctx c fp'.
   Proof.
-    intros H. cbv [meta_clause.interp] in H. fwd.
-    destruct h; simpl in *; repeat invert_stuff.
-    eexists (meta_fact (meta_clause.rel c) _ _). split.
-    - cbv [fact_equiv]. simpl. f_equal. assumption.
-    - eauto.
+    intros H. cbv [clause_pattern.interp] in H. fwd.
+    eexists {| fact_pattern.rel := clause_pattern.rel c; fact_pattern.args := _ |}. split.
+    - cbv [fact_pattern_equiv map_fact_pattern]. simpl. f_equal. simpl in *. congruence.
+    - cbv [clause_pattern.interp]. simpl. eauto.
   Qed.
 
-  Lemma Forall2_interp_meta_clause_map_bw' ctx hyps1 hyps2 :
-    Forall2 (meta_clause.interp ctx) (map map_meta_clause_rel hyps1) (map map_fact hyps2) ->
-    Forall2 (fun c h => exists h', fact_equiv h h' /\ meta_clause.interp ctx c h') hyps1 hyps2.
+  Lemma Forall2_interp_clause_pattern_map_bw' ctx hyps1 hyps2 :
+    Forall2 (clause_pattern.interp ctx)
+      (map map_clause_pattern_rel hyps1) (map map_fact_pattern hyps2) ->
+    Forall2 (fun c fp => exists fp', fact_pattern_equiv fp fp' /\
+                                    clause_pattern.interp ctx c fp') hyps1 hyps2.
   Proof.
     intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
     eapply Forall2_impl; [eassumption|].
-    eauto using interp_meta_clause_map_bw.
+    eauto using interp_clause_pattern_map_bw.
   Qed.
 
-      Lemma rel_of_map_fact fct :
-    rel_of (map_fact fct) = f (rel_of fct).
-  Proof.
-    destruct fct; reflexivity.
-  Qed.
+  Lemma rel_map_fact fct :
+    fact.rel (map_fact fct) = f (fact.rel fct).
+  Proof. destruct fct; reflexivity. Qed.
 
   Lemma args_of_map_fact fct :
-    args_of (map_fact fct) = args_of fct.
-  Proof.
-    destruct fct; reflexivity.
-  Qed.
+    fact.args_of (map_fact fct) = fact.args_of fct.
+  Proof. destruct fct; simp; reflexivity. Qed.
+
+  (* --- ported above this line; the rest is still the old API --- *)
 
   Lemma non_meta_rule_impl_map_bw r R args hyps :
     non_meta_rule_impl (map_rule_rels r) (f R) args (map map_fact hyps) ->
