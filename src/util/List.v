@@ -353,6 +353,13 @@ Section Forall.
     exists ys, Forall2 R xs ys.
   Proof. induction 1; fwd; eauto. Qed.
 
+  Lemma Forall_ex_eq_map (g : B -> A) xs :
+    Forall (fun x => exists y, x = g y) xs ->
+    exists ys, xs = map g ys.
+  Proof.
+    induction 1; [now exists []|]. fwd. eexists (_ :: _). simpl. f_equal; eassumption.
+  Qed.
+
   Lemma Forall_impl P Q xs :
     Forall P xs ->
     (forall x, P x -> Q x) ->

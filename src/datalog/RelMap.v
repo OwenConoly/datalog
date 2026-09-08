@@ -43,6 +43,16 @@ Section RelMap.
     map map_fact (map fact.normal l) = map fact.normal (map map_normal_fact l).
   Proof. rewrite !map_map. apply map_ext. intros. reflexivity. Qed.
 
+  Lemma map_fact_normal_inv l1 l2 :
+    map fact.normal l1 = map map_fact l2 ->
+    exists l2', l2 = map fact.normal l2' /\ l1 = map map_normal_fact l2'.
+  Proof.
+    revert l2. induction l1; intros [|b l2] H; simpl in H; try discriminate.
+    - exists nil. auto.
+    - destruct b; simpl in H; [|discriminate]. invert H.
+      apply IHl1 in H2. fwd. exists (n :: l2'). auto.
+  Qed.
+
   Definition fact_equiv f1 f2 := map_fact f1 = map_fact f2.
 
   Definition normal_fact_equiv n1 n2 := map_normal_fact n1 = map_normal_fact n2.
@@ -186,101 +196,155 @@ Section RelMap.
     fact.args_of (map_fact fct) = fact.args_of fct.
   Proof. destruct fct; simp; reflexivity. Qed.
 
-  (* --- ported above this line; the rest is still the old API --- *)
+  Lemma Forall2_fact_equiv_normal l1 l2 :
+    Forall2 normal_fact_equiv l1 l2 ->
+    Forall2 fact_equiv (map fact.normal l1) (map fact.normal l2).
+  Proof.
+    intros. rewrite <- Forall2_map_l, <- Forall2_map_r.
+    eapply Forall2_impl; [eassumption|]. cbv [fact_equiv normal_fact_equiv]. simpl.
+    intros. f_equal. assumption.
+  Qed.
 
-  Lemma non_meta_rule_impl_map_bw r R args hyps :
-    non_meta_rule_impl (map_rule_rels r) (f R) args (map map_fact hyps) ->
-    exists R0 hyps0,
-      rel_equiv R R0 /\
-      Forall2 fact_equiv hyps hyps0 /\
-        non_meta_rule_impl r R0 args hyps0.
+  Lemma rule_interp_map_bw r nf hyps :
+    rule.interp (map_rule_rels r) (map_normal_fact nf) (map map_fact hyps) ->
+    exists nf' hyps',
+      normal_fact_equiv nf nf' /\
+      Forall2 fact_equiv hyps hyps' /\
+      rule.interp r nf' hyps'.
   Proof.
     intros H. destruct r; invert H.
-    - rewrite Exists_map in H2.
-      apply Forall2_interp_clause_map_bw in H6.
-      apply Exists_exists in H2. fwd.
-      apply interp_clause_map_bw with (h := normal_fact _ _) in H2p1.
-      fwd. cbv [fact_equiv] in H2p1p0. simpl in H2p1p0.
-      destruct h'; simpl in H2p1p0; congruence || fwd.
-      eexists nf_rel, _. ssplit; eauto.
-      econstructor.
-      + apply Exists_exists. eexists. split; [exact H2p0 |].
-        eassumption.
+    - apply map_fact_normal_inv in H2. fwd.
+      apply Forall2_interp_clause_map_bw in H5. fwd.
+      apply in_map_iff in H4p0. fwd.
+      apply interp_clause_map_bw in H4p1. fwd.
+      eexists _, (map fact.normal hyps2'). ssplit.
       + eassumption.
-    - destruct hyps as [|hyp hyps]; simpl in *; discriminate || fwd.
-      destruct hyp; simpl in *; discriminate || fwd.
-      do 2 eexists. split; [symmetry; eassumption|].
-      split.
-      2: { econstructor. eassumption. }
+      + apply Forall2_fact_equiv_normal. eassumption.
+      + econstructor; [apply Exists_exists; eauto | eassumption].
+    - destruct hyps as [|h0 hyps]; simpl in H6; [discriminate|]. invert H6.
+      destruct h0; simpl in *; [discriminate|].
+      eexists _, _. ssplit.
+      3: { econstructor. eassumption. }
+      1: { cbv [normal_fact_equiv map_normal_fact]. simpl. f_equal; congruence. }
       constructor.
-      { cbv [fact_equiv]. simpl. f_equal. auto. }
-      rewrite <- Forall2_map_r.
-      eapply Forall2_impl.
-      1: { eapply map_eq_Forall2. symmetry. eassumption. }
-      simpl. intros f' (?, ?) Hf'. destruct f'; simpl in Hf'; discriminate || fwd.
-      cbv [fact_equiv]. simpl. f_equal. auto.
+      + symmetry. assumption.
+      + apply map_eq_Forall2 in H2. rewrite <- Forall2_map_r, <- Forall2_flip_iff.
+        eapply Forall2_impl; [eassumption|].
+        intros [? ?] ?. cbv [fact_equiv]. auto.
   Qed.
 
-  Lemma non_meta_rule_invert_map r R args hyps :
-    non_meta_rule_impl (map_rule_rels r) (f R) args hyps ->
-    exists hyps0,
-      hyps = map map_fact hyps0.
+  Lemma interp_clause_map_image ctx c h :
+    clause.interp ctx (map_clause_rel c) h ->
+    exists h', h = map_normal_fact h'.
+  Proof.
+    intros. exists {| normal_fact.rel := c.(clause.rel);
+                     normal_fact.args := h.(normal_fact.args) |}.
+    cbv [clause.interp map_clause_rel map_normal_fact] in *. simpl in *. fwd. simp.
+    reflexivity.
+  Qed.
+
+  Lemma Forall2_interp_clause_map_image ctx cs hs :
+    Forall2 (clause.interp ctx) (map map_clause_rel cs) hs ->
+    exists hs', hs = map map_normal_fact hs'.
+  Proof.
+    intros H. apply Forall_ex_eq_map. rewrite <- Forall2_map_l in H.
+    apply Forall2_forget_l in H. eapply Forall_impl; [eassumption|].
+    simpl. intros. fwd. eauto using interp_clause_map_image.
+  Qed.
+
+  Lemma rule_interp_invert_map r nf hyps :
+    rule.interp (map_rule_rels r) nf hyps ->
+    exists hyps0, hyps = map map_fact hyps0.
   Proof.
     intros H. destruct r; invert H.
-    - rewrite Exists_map in *. rewrite <- Forall2_map_l in *.
-      epose proof Forall_exists_r_Forall2 as H'. edestruct H' as [hyps0 Hhyps0].
-      2: { eexists. apply Forall2_eq_map. apply Forall2_flip. eassumption. }
-      apply Forall2_forget_l in H6. eapply Forall_impl; [|eassumption].
-      simpl. intros. fwd. repeat invert_stuff. simpl.
-      eexists (normal_fact _ _). reflexivity.
-    - eexists (meta_fact _ _ _ ::
-               map (fun '(x, y) => normal_fact hyp_rel (x :: y :: _)) _).
-      simpl. f_equal. rewrite map_map.
-      apply map_ext. intros [? ?]. reflexivity.
+    - apply Forall2_interp_clause_map_image in H5. fwd.
+      exists (map fact.normal hs'). symmetry. apply map_fact_normal.
+    - exists (fact.meta {| meta_fact.pattern :=
+                            {| fact_pattern.rel := hyp;
+                              fact_pattern.args := value_pattern.any :: value_pattern.any
+                                                     :: map value_pattern.exactly args |};
+                          meta_fact.set := S |}
+                :: map (fun '(i, x_i) =>
+                          fact.normal {| normal_fact.rel := hyp;
+                                        normal_fact.args := i :: x_i :: args |}) vals).
+      simpl. f_equal. rewrite map_map. apply map_ext. intros [? ?]. reflexivity.
   Qed.
 
-  Lemma extensionally_equal_map_fw f1 f2 :
-    extensionally_equal f1 f2 ->
-    extensionally_equal (map_fact f1) (map_fact f2).
+  Lemma fact_pattern_matches_map_fw fp nf :
+    fact_pattern.matches fp nf ->
+    fact_pattern.matches (map_fact_pattern fp) (map_normal_fact nf).
   Proof.
-    intros H. destruct f1, f2; cbv [extensionally_equal] in *; try contradiction; fwd.
-    - split; [f_equal; auto | auto].
-    - split; [f_equal; auto | split; auto].
+    cbv [fact_pattern.matches map_fact_pattern map_normal_fact]. simpl. intros. fwd.
+    split; [congruence | assumption].
   Qed.
 
-  Lemma extensionally_equal_map_bw f1 f2 :
-    extensionally_equal (map_fact f1) (map_fact f2) ->
-    exists f1' f2',
-      fact_equiv f1 f1' /\
-      fact_equiv f2 f2' /\
-      extensionally_equal f1' f2'.
+  Lemma meta_fact_equiv_map_fw mf1 mf2 :
+    meta_fact.equiv mf1 mf2 ->
+    meta_fact.equiv (map_meta_fact mf1) (map_meta_fact mf2).
   Proof.
-    intros H. destruct f1 as [R1 args1 | R1 mf_args1 mf_set1],
-                       f2 as [R2 args2 | R2 mf_args2 mf_set2];
-    cbv [extensionally_equal] in H; try contradiction; fwd.
-    - exists (normal_fact R1 args1), (normal_fact R1 args2).
-      simpl in *. fwd.
-      split; [|split].
-      + cbv [fact_equiv]. reflexivity.
-      + cbv [fact_equiv]. simpl in *. f_equal. congruence.
-      + cbv [extensionally_equal]. auto.
-    - exists (meta_fact R1 mf_args1 mf_set1), (meta_fact R1 mf_args2 mf_set2).
-      simpl in *. fwd.
-      split; [|split].
-      + cbv [fact_equiv]. reflexivity.
-      + cbv [fact_equiv]. simpl. f_equal. congruence.
-      + cbv [extensionally_equal]. eauto.
+    cbv [meta_fact.equiv map_meta_fact map_fact_pattern]. simpl. intros. fwd.
+    split; [congruence|]. assumption.
   Qed.
 
-  Definition meta_facts_consistent_with_map (meta_facts : list fact) :=
-    forall R1 args1 S1 R2 args2 S2,
-      In (meta_fact R1 args1 S1) meta_facts ->
-      In (meta_fact R2 args2 S2) meta_facts ->
-      f R1 = f R2 ->
-      forall nf_args,
-        Forall2 matches args1 nf_args ->
-        Forall2 matches args2 nf_args ->
-        S1 nf_args <-> S2 nf_args.
+  Lemma implied_by_mf_map_fw fct mf :
+    fact.implied_by_mf fct mf ->
+    fact.implied_by_mf (map_fact fct) (map_meta_fact mf).
+  Proof.
+    destruct fct; simpl; auto using meta_fact_matches_map_fw, meta_fact_equiv_map_fw.
+  Qed.
+
+  Lemma implied_by_mfs_map_fw mfs fct :
+    fact.implied_by_mfs mfs fct ->
+    fact.implied_by_mfs (map map_meta_fact mfs) (map_fact fct).
+  Proof.
+    cbv [fact.implied_by_mfs]. rewrite Exists_map. intros.
+    eapply Exists_impl; [|eassumption]. auto using implied_by_mf_map_fw.
+  Qed.
+
+  Definition meta_facts_agree_under_map (mhyps : list meta_fact) :=
+    forall mf1 mf2,
+      In mf1 mhyps ->
+      In mf2 mhyps ->
+      meta_fact.agree (map_meta_fact mf1) (map_meta_fact mf2).
+
+  Hint Unfold fact_pattern.matches : core.
+  Lemma matches_map_fact_pattern fp R args :
+    f fp.(fact_pattern.rel) = R ->
+    Forall2 value_pattern.matches fp.(fact_pattern.args) args ->
+    fact_pattern.matches (map_fact_pattern fp)
+      {| normal_fact.rel := R; normal_fact.args := args |}.
+  Proof. cbv [fact_pattern.matches map_fact_pattern]. simpl. auto. Qed.
+
+  Lemma implied_by_mf_agree fct mf1 mf2 :
+    fact.implied_by_mf (map_fact fct) (map_meta_fact mf1) ->
+    meta_fact.agree (map_meta_fact mf1) (map_meta_fact mf2) ->
+    fact.covered_by fct mf2.(meta_fact.pattern) ->
+    fact.implied_by_mf fct mf2.
+  Proof.
+    cbv [meta_fact.agree]. intros Himp Hagree Hcov. destruct fct as [nf|m].
+    - cbv [fact.implied_by_mf fact.covered_by meta_fact.matches map_fact
+             map_meta_fact] in *. simpl in *. fwd.
+      split; [assumption|].
+      apply (Hagree (map_normal_fact nf)); auto using fact_pattern_matches_map_fw.
+    - cbv [fact.implied_by_mf fact.covered_by meta_fact.equiv map_fact map_meta_fact
+             map_fact_pattern] in *. simp. fwd.
+      split; [reflexivity|]. intros args Hargs.
+      rewrite Himpp1 by assumption.
+      apply (Hagree {| normal_fact.rel := f rel0; normal_fact.args := args |}); auto.
+  Qed.
+
+  Lemma implied_by_mfs_covered_bw mhyps fct :
+    meta_facts_agree_under_map mhyps ->
+    fact.implied_by_mfs (map map_meta_fact mhyps) (map_fact fct) ->
+    fact.covered_by_pats (map meta_fact.pattern mhyps) fct ->
+    fact.implied_by_mfs mhyps fct.
+  Proof.
+    cbv [fact.implied_by_mfs fact.covered_by_pats meta_facts_agree_under_map].
+    rewrite !Exists_map, !Exists_exists. intros Hagree H1 H2. fwd.
+    exists x. split; [assumption|]. eapply implied_by_mf_agree; eauto.
+  Qed.
+
+  (* --- ported above this line; the rest is still the old API --- *)
 
   Lemma meta_cond_map_iff mr mf_args mf_set p R (args : list T) meta_hyps :
     meta_rules_valid p ->
