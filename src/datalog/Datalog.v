@@ -2,7 +2,7 @@ From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
-From Stdlib Require Import Classical_Prop RelationClasses.
+From Stdlib Require Import Classical_Prop RelationClasses Morphisms.
 From Datalog.Util Require Import Autodestr Autocbn Pftree.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
@@ -527,6 +527,35 @@ Module rule.
     Proof.
       intros H1 H2. cbv [one_step_derives] in *. fwd. eauto.
     Qed.
+
+    Definition concl_rels (r : rule) :=
+      match r with
+      | impl rule_concls _ => map clause.rel rule_concls
+      | agg concl_rel _ _ => [concl_rel]
+      end.
+
+    Definition hyp_rels (r : rule) : list rel :=
+      match r with
+      | impl _ rule_hyps => map clause.rel rule_hyps
+      | agg _ _ hyp_rel => [hyp_rel]
+      end.
+
+    Definition all_rels (r : rule) : list rel :=
+      concl_rels r ++ hyp_rels r.
+
+    Definition concl_vars r :=
+      match r with
+      | impl rule_concls _ => flat_map clause.vars rule_concls
+      | agg _ _ _ => []
+      end.
+
+    Definition hyp_vars r :=
+      match r with
+      | impl _ rule_hyps => flat_map clause.vars rule_hyps
+      | agg _ _ _ => []
+      end.
+
+    Definition all_vars r := concl_vars r ++ hyp_vars r.
   End __.
 End rule. Export rule (rule).
 #[export] Hint Resolve rule.one_step_derives_ext : core.
@@ -578,8 +607,12 @@ Module meta_rule.
       cbv [interp]. intros. fwd. eexists. split; [eassumption|].
       etransitivity; eauto. symmetry. eassumption.
     Qed.
+
+    Definition concl_rels (r : meta_rule) :=
+      map clause_pattern.rel r.(concls).
   End __.
 End meta_rule. Export meta_rule (meta_rule).
+#[export] Hint Resolve meta_rule.interp_ext_concl : core.
 
 Module program.
   (*include inputs as a field, since it is needed for the definition of validity of meta-rules.
@@ -618,7 +651,15 @@ Module program.
         rewrite Exists_exists in *. fwd. eauto using meta_rule.interp_ext_hyps.
     Qed.
 
-    Lemma interp_step_ext_concl
+    Lemma interp_step_ext_concl p f f' hyps :
+      interp_step p f hyps ->
+      fact.equiv f f' ->
+      interp_step p f' hyps.
+    Proof.
+      intros H1 H2. invert H1; destruct f'; simpl in H2; try contradiction; subst.
+      - constructor. assumption.
+      - constructor. rewrite Exists_exists in *. fwd. eauto.
+    Qed.
 
     Lemma interp_step_strong p Q f hyps :
       interp_step p f hyps ->
@@ -633,150 +674,44 @@ Module program.
         intros. fwd. assumption.
     Qed.
 
-    Lemma interp_ext_concl p Q f f' :
+    Lemma interp_ext p Q f f' :
       interp p Q f ->
       fact.equiv f f' ->
       Q f \/ interp p Q f'.
     Proof.
       intros H1 H2. invert H1; auto.
-      right. eapply pftree_step; [|eassumption]. Searhc eauto.
-      eapply Exists_impl; [|eassumption]. simpl.
-      eauto using rule_impl_mf_ext.
+      right. eapply pftree_step; [|eassumption].
+      eauto using interp_step_ext_concl.
     Qed.
 
-  Lemma prog_impl_mf_ext' p Q mf_rel mf_args mf_set mf_set' :
-    prog_impl p Q (meta_fact mf_rel mf_args mf_set) ->
-    (forall nf_args,
-        Forall2 matches mf_args nf_args ->
-        mf_set nf_args <-> mf_set' nf_args) ->
-    ~Q (meta_fact mf_rel mf_args mf_set) ->
-    prog_impl p Q (meta_fact mf_rel mf_args mf_set').
-  Proof.
-    intros H1 H2 H3. eapply prog_impl_mf_ext in H1. 2: exact H2.
-    destruct H1; eauto. exfalso. auto.
-  Qed.
+    Lemma interp_ext' p Q :
+      Proper (fact.equiv ==> iff) Q ->
+      Proper (fact.equiv ==> iff) (interp p Q).
+    Proof.
+      intros H f1 f2 Hfs. split; intros H'.
+      - eapply interp_ext in H'; eauto. destruct H'; eauto. apply pftree_leaf.
+        eapply H; try eassumption. symmetry. assumption.
+      - eapply interp_ext in H'. 2: symmetry; eassumption.
+        destruct H'; eauto. apply pftree_leaf.
+        eapply H; eassumption.
+    Qed.
 
-  Definition F p Q Px :=
-    let '(P, x) := Px in
-    P x \/ Q (P, x) \/ exists hyps', Exists (fun r => rule_impl (one_step_derives p) r x hyps') p /\ Forall (fun x => Q (P, x)) hyps'.
-
-  Lemma F_mono p S1 S2 :
-    (forall x, S1 x -> S2 x) ->
-    (forall x, F p S1 x -> F p S2 x).
-  Proof.
-    cbv [F]. intros Hle [P x] H. intuition auto. fwd. right. right. eexists.
-    split; [eassumption|]. eapply Forall_impl; eauto. simpl. auto.
-  Qed.
-
-  Definition S_sane {U : Type} (S : (U -> Prop) * U -> Prop) :=
-    (forall P x, P x -> S (P, x)) /\
-      (forall P1 x P2,
-          S (P1, x) ->
-          (forall y, P1 y -> S (P2, y)) ->
-          S (P2, x)).
-
-  Lemma prog_impl_lfp p :
-    equiv (fun '(P, f) => prog_impl p P f) (lfp (F p)).
-  Proof.
-    cbv [equiv]. intros. cbv [prog_impl].
-    epose proof pftree_lfp as H. cbv [equiv] in H. rewrite H.
-    cbv [F]. reflexivity.
-  Qed.
-
-  Lemma S_sane_ext {U : Type} (P Q : (U -> Prop) * U -> Prop) :
-    equiv P Q ->
-    S_sane P ->
-    S_sane Q.
-  Proof.
-    cbv [equiv S_sane]. intros.
-    assert ((forall x, P x -> Q x) /\ (forall x, Q x -> P x)) by (split; intros; apply H; assumption).
-    fwd. eauto 9.
-  Qed.
-
-  Hint Unfold prog_impl : core.
-
-  Hint Extern 2 => eapply Forall_impl; [|eassumption]; cbv beta : core.
-
-  Lemma S_sane_lfp p : S_sane (lfp (F p)).
-  Proof.
-    eapply S_sane_ext; [apply prog_impl_lfp|]. cbv [S_sane]. split; intros; eauto.
-    Fail Fail solve [induction H; eauto].
-    eapply pftree_trans. eapply pftree_weaken_hyp; eauto.
-  Qed.
-
-  (*this gets more complicated due to meta rules :((( *)
-  Lemma split_fixpoint (p : list rule) S :
-    (forall P x, P x -> S (P, x)) ->
-    (forall r, In r p -> fp (F [r]) S) <->
-      fp (F p) S.
-  Proof.
-    intros Sgood1. cbv [fp F]. split.
-    - intros H [P x] Hx. destruct Hx as [Hx| [Hx|Hx]]; eauto.
-      fwd. apply Exists_exists in Hxp0. fwd. eapply H; eauto 6. admit.
-    - intros H r Hr [P x] Hx. destruct Hx as [Hx| [Hx|Hx]]; eauto. fwd.
-      invert_list_stuff.
-      apply H. right. right. eexists. split; [|eassumption]. apply Exists_exists. eauto.
-      admit.
-  Abort.
-
-  Ltac invert_stuff :=
-    match goal with
-    | _ => progress cbn [matches rel_of fact_of args_of clause.rel clause.args meta_clause.rel meta_clause.args] in *
-    | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
-    | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
-    | H : clause.interp _ _ _ |- _ => cbv [clause.interp] in H; fwd
-    | H : meta_clause.interp _ _ _ |- _ => cbv [meta_clause.interp] in H; fwd
-    | H : expr.interp _ _ _ |- _ => invert1 H
-    | H : In _ [_] |- _ => destruct H; [|contradiction]
-    | H : Exists _ _ |- _ => apply Exists_exists in H; fwd
-    | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
-    | _ => progress subst
-    | _ => progress invert_list_stuff
-    | _ => progress fwd
-    | _ => congruence
-    end.
-
-  Definition concl_rels (r : rule) : list rel :=
-    match r with
-    | normal_rule rule_concls _ => map clause.rel rule_concls
-    | meta_rule rule_concls _ => map meta_clause.rel rule_concls
-    | agg_rule concl_rel _ _ => [concl_rel]
-    end.
-
-  Definition meta_concl_rels (r : rule) : list rel :=
-    match r with
-    | normal_rule _ _ => []
-    | meta_rule rule_concls _ => map meta_clause.rel rule_concls
-    | agg_rule _ _ _ => []
-    end.
-
-  Definition hyp_rels (r : rule) : list rel :=
-    match r with
-    | normal_rule _ rule_hyps => map clause.rel rule_hyps
-    | meta_rule rule_concls rule_hyps => map meta_clause.rel rule_hyps
-    | agg_rule _ _ hyp_rel => [hyp_rel]
-    end.
-
-  Definition all_rels (r : rule) : list rel :=
-    concl_rels r ++ hyp_rels r.
-
-  Definition concl_vars r :=
-    match r with
-    | normal_rule rule_concls rule_hyps =>
-        flat_map clause.vars rule_concls
-    | meta_rule rule_concls rule_hyps =>
-        flat_map meta_clause.vars rule_concls
-    | agg_rule _ _ _ => []
-    end.
-
-  Definition hyp_vars r :=
-    match r with
-    | normal_rule _ rule_hyps => flat_map clause.vars rule_hyps
-    | meta_rule _ rule_hyps => flat_map meta_clause.vars rule_hyps
-    | agg_rule _ _ _ => []
-    end.
-
-  Definition all_vars r := concl_vars r ++ hyp_vars r.
+  (* Ltac invert_stuff := *)
+  (*   match goal with *)
+  (*   | _ => progress cbn [matches rel_of fact_of args_of clause.rel clause.args meta_clause.rel meta_clause.args] in * *)
+  (*   | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H *)
+  (*   | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H *)
+  (*   | H : clause.interp _ _ _ |- _ => cbv [clause.interp] in H; fwd *)
+  (*   | H : meta_clause.interp _ _ _ |- _ => cbv [meta_clause.interp] in H; fwd *)
+  (*   | H : expr.interp _ _ _ |- _ => invert1 H *)
+  (*   | H : In _ [_] |- _ => destruct H; [|contradiction] *)
+  (*   | H : Exists _ _ |- _ => apply Exists_exists in H; fwd *)
+  (*   | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst *)
+  (*   | _ => progress subst *)
+  (*   | _ => progress invert_list_stuff *)
+  (*   | _ => progress fwd *)
+  (*   | _ => congruence *)
+  (*   end. *)
 
   Definition rule_hyp_args r :=
     match r with
