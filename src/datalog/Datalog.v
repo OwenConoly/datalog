@@ -1252,41 +1252,6 @@ Module program.
             intros. apply meta_fact.agree_sym. auto.
     Qed.
 
-  (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
-  (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
-  (*   prog_impl_with_no_meta_rules (p1 ++ p2) Q f -> *)
-  (*   prog_impl_with_no_meta_rules p1 (prog_impl_with_no_meta_rules p2 Q) f. *)
-  (* Proof. *)
-  (*   intros Hdisj H. induction H. *)
-  (*   - apply pftree_leaf. apply pftree_leaf. assumption. *)
-  (*   - rename H into Hr. fwd. rewrite Exists_app in Hrp1. *)
-  (*     destruct Hrp1 as [Hr|Hr]. *)
-  (*     { eapply pftree_step; eauto. } *)
-  (*     apply pftree_leaf. eapply pftree_step; eauto. *)
-  (*     apply Exists_exists in Hr. fwd. *)
-  (*     apply non_meta_rule_impl_hyp_relname_in in Hrp1. *)
-  (*     eapply Forall_impl. *)
-  (*     2: { apply Forall_and; [apply Hrp1|apply H1]. } *)
-  (*     simpl. intros f [Hf1 Hf2]. *)
-  (*     invert Hf2; [assumption|]. *)
-  (*     exfalso. rename H into HR. fwd. simpl in Hf1. *)
-  (*     apply (Hdisj R0). *)
-  (*     2: { apply in_flat_map. simpl in Hf1. eauto. } *)
-  (*     apply Exists_exists in HRp1. fwd. *)
-  (*     apply non_meta_rule_impl_concl_relname_in in HRp1p1. *)
-  (*     apply in_flat_map. eauto. *)
-  (* Qed. *)
-
-  (* Lemma prog_impl_with_no_meta_rules_subset p1 p2 Q f : *)
-  (*   incl p1 p2 -> *)
-  (*   prog_impl_with_no_meta_rules p1 Q f -> *)
-  (*   prog_impl_with_no_meta_rules p2 Q f. *)
-  (* Proof. *)
-  (*   intros Hincl H. eapply pftree_weaken; [eassumption|]. *)
-  (*   simpl. intros. fwd. eauto using incl_Exists. *)
-  (* Qed. *)
-
-
     Lemma meta_facts_consistent p Q mf1 mf2 :
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
       (forall mf1 mf2, Q (fact.meta mf1) -> Q (fact.meta mf2) -> meta_fact.agree mf1 mf2) ->
@@ -1350,53 +1315,86 @@ Module program.
       rewrite Hc by assumption. cbv [meta_fact.rel].
       cbv [fact_pattern.matches] in Hm1. fwd. simp. reflexivity.
     Qed.
+    (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
+    (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
+    (*   prog_impl_with_no_meta_rules (p1 ++ p2) Q f -> *)
+    (*   prog_impl_with_no_meta_rules p1 (prog_impl_with_no_meta_rules p2 Q) f. *)
+    (* Proof. *)
+    (*   intros Hdisj H. induction H. *)
+    (*   - apply pftree_leaf. apply pftree_leaf. assumption. *)
+    (*   - rename H into Hr. fwd. rewrite Exists_app in Hrp1. *)
+    (*     destruct Hrp1 as [Hr|Hr]. *)
+    (*     { eapply pftree_step; eauto. } *)
+    (*     apply pftree_leaf. eapply pftree_step; eauto. *)
+    (*     apply Exists_exists in Hr. fwd. *)
+    (*     apply non_meta_rule_impl_hyp_relname_in in Hrp1. *)
+    (*     eapply Forall_impl. *)
+    (*     2: { apply Forall_and; [apply Hrp1|apply H1]. } *)
+    (*     simpl. intros f [Hf1 Hf2]. *)
+    (*     invert Hf2; [assumption|]. *)
+    (*     exfalso. rename H into HR. fwd. simpl in Hf1. *)
+    (*     apply (Hdisj R0). *)
+    (*     2: { apply in_flat_map. simpl in Hf1. eauto. } *)
+    (*     apply Exists_exists in HRp1. fwd. *)
+    (*     apply non_meta_rule_impl_concl_relname_in in HRp1p1. *)
+    (*     apply in_flat_map. eauto. *)
+    (* Qed. *)
+
+    (* Lemma prog_impl_with_no_meta_rules_subset p1 p2 Q f : *)
+    (*   incl p1 p2 -> *)
+    (*   prog_impl_with_no_meta_rules p1 Q f -> *)
+    (*   prog_impl_with_no_meta_rules p2 Q f. *)
+    (* Proof. *)
+    (*   intros Hincl H. eapply pftree_weaken; [eassumption|]. *)
+    (*   simpl. intros. fwd. eauto using incl_Exists. *)
+    (* Qed. *)
+
+    (*ugh idk what to say here*)
+    (* Lemma prog_impl_subset'' (p1 p2 : list rule) Q f : *)
+    (*   doesnt_lie p1 Q -> *)
+    (*   doesnt_lie p2 Q -> *)
+    (*   (forall x, In x p1 -> In x p2) -> *)
+    (*   prog_impl p1 Q f -> *)
+    (*   prog_impl p2 Q f. *)
+    (* Proof. *)
+    (*   intros H1 H2 Hsub H. eapply pftree_weaken; simpl; eauto. simpl. *)
+    (*   intros ? ? Hr. apply Exists_exists in Hr. apply Exists_exists. fwd. *)
+    (*   eexists. split; [eauto|]. *)
+    (* Abort. *)
+
+
+    (* Lemma loopless_program p Q f : *)
+    (*   disjoint_lists (flat_map concl_rels p) (flat_map hyp_rels p) -> *)
+    (*   prog_impl_implication p Q f -> *)
+    (*   Q f \/ *)
+    (*     exists hyps, *)
+    (*       Forall Q hyps /\ *)
+    (*         Exists (fun r => rule_impl r f hyps) p. *)
+    (* Proof. *)
+    (*   intros Hdisj. induction 1. *)
+    (*   - auto. *)
+    (*   - right. fold (prog_impl_implication p) in *. eexists. split; [|eassumption]. *)
+    (*     rewrite Forall_forall in *. intros f Hf. specialize (H1 _ Hf). *)
+    (*     destruct H1 as [H1|H1]; auto. fwd. rewrite Exists_exists in *. fwd. *)
+    (*     apply rule_impl_hyp_relname_in in Hp1. apply rule_impl_concl_relname_in in H1p1p1. *)
+    (*     rewrite Forall_forall in Hp1. specialize (Hp1 _ Hf). exfalso. eapply Hdisj. *)
+    (*     + apply in_flat_map. eauto. *)
+    (*     + apply in_flat_map. eauto. *)
+    (* Qed. *)
+
+    (* Lemma loopless_program_iff p Q f : *)
+    (*   disjoint_lists (flat_map concl_rels p) (flat_map hyp_rels p) -> *)
+    (*   prog_impl_implication p Q f <-> *)
+    (*     (Q f \/ *)
+    (*        exists hyps, *)
+    (*          Forall Q hyps /\ *)
+    (*            Exists (fun r => rule_impl r f hyps) p). *)
+    (* Proof. *)
+    (*   intros. split; auto using loopless_program. intros [H'|H']; fwd; eauto. *)
+    (* Qed. *)
+
   End __.
 End program.
-  (*ugh idk what to say here*)
-  (* Lemma prog_impl_subset'' (p1 p2 : list rule) Q f : *)
-  (*   doesnt_lie p1 Q -> *)
-  (*   doesnt_lie p2 Q -> *)
-  (*   (forall x, In x p1 -> In x p2) -> *)
-  (*   prog_impl p1 Q f -> *)
-  (*   prog_impl p2 Q f. *)
-  (* Proof. *)
-  (*   intros H1 H2 Hsub H. eapply pftree_weaken; simpl; eauto. simpl. *)
-  (*   intros ? ? Hr. apply Exists_exists in Hr. apply Exists_exists. fwd. *)
-  (*   eexists. split; [eauto|]. *)
-  (* Abort. *)
-
-
-  (* Lemma loopless_program p Q f : *)
-  (*   disjoint_lists (flat_map concl_rels p) (flat_map hyp_rels p) -> *)
-  (*   prog_impl_implication p Q f -> *)
-  (*   Q f \/ *)
-  (*     exists hyps, *)
-  (*       Forall Q hyps /\ *)
-  (*         Exists (fun r => rule_impl r f hyps) p. *)
-  (* Proof. *)
-  (*   intros Hdisj. induction 1. *)
-  (*   - auto. *)
-  (*   - right. fold (prog_impl_implication p) in *. eexists. split; [|eassumption]. *)
-  (*     rewrite Forall_forall in *. intros f Hf. specialize (H1 _ Hf). *)
-  (*     destruct H1 as [H1|H1]; auto. fwd. rewrite Exists_exists in *. fwd. *)
-  (*     apply rule_impl_hyp_relname_in in Hp1. apply rule_impl_concl_relname_in in H1p1p1. *)
-  (*     rewrite Forall_forall in Hp1. specialize (Hp1 _ Hf). exfalso. eapply Hdisj. *)
-  (*     + apply in_flat_map. eauto. *)
-  (*     + apply in_flat_map. eauto. *)
-  (* Qed. *)
-
-  (* Lemma loopless_program_iff p Q f : *)
-  (*   disjoint_lists (flat_map concl_rels p) (flat_map hyp_rels p) -> *)
-  (*   prog_impl_implication p Q f <-> *)
-  (*     (Q f \/ *)
-  (*        exists hyps, *)
-  (*          Forall Q hyps /\ *)
-  (*            Exists (fun r => rule_impl r f hyps) p). *)
-  (* Proof. *)
-  (*   intros. split; auto using loopless_program. intros [H'|H']; fwd; eauto. *)
-  (* Qed. *)
-
-
 Fixpoint expr_varmap {var1 var2 : exprvarT} {fn : fnT}
   (f : var1 -> var2) (e : @expr var1 fn) : @expr var2 fn :=
   match e with
@@ -1404,20 +1402,26 @@ Fixpoint expr_varmap {var1 var2 : exprvarT} {fn : fnT}
   | expr.app fu args => expr.app fu (map (expr_varmap f) args)
   end.
 
+Definition expr_pattern_varmap {var1 var2 : exprvarT} {fn : fnT}
+  (f : var1 -> var2) (e : @expr_pattern var1 fn) : @expr_pattern var2 fn :=
+  match e with
+  | expr_pattern.exactly e => expr_pattern.exactly (expr_varmap f e)
+  | expr_pattern.any => expr_pattern.any
+  end.
+
 Definition clause_varmap {rel : relT} {var1 var2 : exprvarT} {fn : fnT}
   (f : var1 -> var2) (c : @clause rel var1 fn) : @clause rel var2 fn :=
   {| clause.rel := c.(clause.rel);
      clause.args := map (expr_varmap f) c.(clause.args) |}.
 
-Definition meta_clause_varmap {rel : relT} {var1 var2 : exprvarT} {fn : fnT}
-  (f : var1 -> var2) (c : @meta_clause rel var1 fn) : @meta_clause rel var2 fn :=
-  {| meta_clause.rel := c.(meta_clause.rel);
-     meta_clause.args := map (option_map (expr_varmap f)) c.(meta_clause.args) |}.
+Definition clause_pattern_varmap {rel : relT} {var1 var2 : exprvarT} {fn : fnT}
+  (f : var1 -> var2) (c : @clause_pattern rel var1 fn) : @clause_pattern rel var2 fn :=
+  {| clause_pattern.rel := c.(clause_pattern.rel);
+     clause_pattern.args := map (expr_pattern_varmap f) c.(clause_pattern.args) |}.
 
-Hint Constructors non_meta_rule_impl : core.
-Hint Constructors rule_impl : core.
-Hint Immediate extensionally_equal_refl : core.
-Hint Unfold extensionally_equal : core.
+#[export] Hint Constructors rule.interp : core.
+#[export] Hint Extern 1 (fact.equiv ?x ?x) => reflexivity : core.
+#[export] Hint Unfold fact.equiv : core.
 
 Ltac interp_exprs :=
   repeat rewrite map_app; simpl;
@@ -1435,14 +1439,11 @@ Ltac interp_exprs :=
     | |- Forall _ [] => constructor
 
     | |- expr.interp _ _ _ => econstructor
-    (* | |- interp_expr _ _ _ => *)
-    (*     eapply interp_expr_subst_more; [|eassumption] *)
-    (* | |- interp_clause _ _ _ => *)
-    (*     eapply interp_clause_subst_more; [|eassumption] *)
+    | |- expr_pattern.interp _ _ _ => econstructor
     | |- clause.interp _ _ _ =>
-        cbv [clause.interp]; eexists; split; [|reflexivity]; simpl
-    | |- meta_clause.interp _ _ _ =>
-        cbv [meta_clause.interp]; do 2 eexists; split; [|reflexivity]; simpl
+        cbv [clause.interp]; split; [reflexivity|]; simpl
+    | |- clause_pattern.interp _ _ _ =>
+        cbv [clause_pattern.interp]; split; [reflexivity|]; simpl
     | |- _ /\ _ => split; [solve [interp_exprs] |]
     | |- Exists _ [_] => apply Exists_cons_hd
 
@@ -1456,16 +1457,18 @@ Ltac interp_exprs :=
 (*TODO this is reproduced within the section, and idk how to get it out*)
 Ltac invert_stuff :=
   match goal with
-  | _ => progress cbn [matches rel_of fact_of args_of clause.rel clause.args meta_clause.rel meta_clause.args fact_supported extensionally_equal] in *
-  | H : one_step_derives _ _ _ _ |- _ => cbv [one_step_derives one_step_derives0] in H; fwd
-  | H : fact_matches _ _ |- _ => cbv [fact_matches] in H; fwd
-  | H : fact_supported _ _ |- _ => cbv [fact_supported] in H
-  | H : rule_impl _ _ _ _ |- _ => invert1 H || invert0 H
-  | H : non_meta_rule_impl _ _ _ _ |- _ => progress (invert1 H) || invert0 H
+  | _ => progress cbn [value_pattern.matches fact.rel fact.of_args fact.args_of
+                       clause.rel clause.args clause_pattern.rel clause_pattern.args
+                       fact.implied_by_mfs fact.implied_by_mf fact.equiv] in *
+  | H : rule.one_step_derives _ _ _ |- _ => cbv [rule.one_step_derives] in H; fwd
+  | H : meta_fact.matches _ _ |- _ => cbv [meta_fact.matches] in H; fwd
+  | H : fact.implied_by_mfs _ _ |- _ => cbv [fact.implied_by_mfs] in H
+  | H : rule.interp _ _ _ |- _ => invert1 H || invert0 H
   | H : clause.interp _ _ _ |- _ => cbv [clause.interp] in H; fwd
-  | H : meta_clause.interp _ _ _ |- _ => cbv [meta_clause.interp] in H; fwd
+  | H : clause_pattern.interp _ _ _ |- _ => cbv [clause_pattern.interp] in H; fwd
   | H : expr.interp _ _ _ |- _ => invert1 H
-  | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ => first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
+  | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ =>
+      first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
   | _ => progress subst
   | _ => progress invert_list_stuff
   | _ => progress fwd
