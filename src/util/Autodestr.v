@@ -25,8 +25,11 @@ Ltac2 simple_destruct (ids : ident list) :=
 Ltac2 matching_hyps (ts : (constr -> bool) list) :=
   List.filter (fun (_, _, t) => List.exist (fun test => test t) ts) (Control.hyps ()).
 
+(*[destruct] cannot clear a section variable, so it would case-analyse the goal
+  and leave the variable in place, and [simp] would fire on it forever*)
 Ltac2 matching_hyp_ids ts :=
-  List.map (fun (name, _, _) => name) (matching_hyps ts).
+  List.filter (fun id => Bool.neg (is_section_var id))
+    (List.map (fun (name, _, _) => name) (matching_hyps ts)).
 
 Ltac2 destruct_matching_hyps ts :=
   simple_destruct (matching_hyp_ids ts).
@@ -40,3 +43,10 @@ Goal forall x : nat * nat, nat.
   intros.
   autodestr.
 Abort.
+
+Section SectionVar.
+  Context (p : nat * nat).
+  Goal fst p = fst p.
+    repeat (progress autodestr).
+  Abort.
+End SectionVar.

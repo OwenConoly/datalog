@@ -816,6 +816,117 @@ Section RelMap.
     map_fact fct = fact.of_args (f (fact.rel_of fct)) (fact.args_of fct).
   Proof. destruct fct; simp; reflexivity. Qed.
 
+  Lemma implied_by_mf_map_bw_inj fct mf :
+    (f (fact.rel fct) = f (meta_fact.rel mf) -> fact.rel fct = meta_fact.rel mf) ->
+    fact.implied_by_mf (map_fact fct) (map_meta_fact mf) ->
+    fact.implied_by_mf fct mf.
+  Proof.
+    cbv [fact.implied_by_mf fact.rel meta_fact.rel meta_fact.matches meta_fact.equiv
+           map_fact map_normal_fact map_meta_fact map_fact_pattern fact_pattern.matches].
+    destruct fct; simp; intros Hinj H; fwd.
+    - ssplit; auto. symmetry. apply Hinj. congruence.
+    - split; [|assumption]. f_equal. auto.
+  Qed.
+
+  Lemma implied_by_mfs_map_bw_inj mfs fct :
+    (forall mf, In mf mfs ->
+                f (fact.rel fct) = f (meta_fact.rel mf) ->
+                fact.rel fct = meta_fact.rel mf) ->
+    fact.implied_by_mfs (map map_meta_fact mfs) (map_fact fct) ->
+    fact.implied_by_mfs mfs fct.
+  Proof.
+    cbv [fact.implied_by_mfs]. rewrite Exists_map, !Exists_exists.
+    intros Hinj H. fwd. eauto using implied_by_mf_map_bw_inj.
+  Qed.
+
+  Lemma Forall2_interp_clause_pattern_map_image ctx cs hs :
+    Forall2 (clause_pattern.interp ctx) (map map_clause_pattern_rel cs) hs ->
+    exists hs', hs = map map_fact_pattern hs'.
+  Proof.
+    intros H. apply Forall_ex_eq_map. rewrite <- Forall2_map_l in H.
+    apply Forall2_forget_l in H. eapply Forall_impl; [eassumption|].
+    simpl. intros. fwd. eauto using interp_clause_pattern_map_image.
+  Qed.
+
+  Lemma meta_fact_map_image mh pat :
+    mh.(meta_fact.pattern) = map_fact_pattern pat ->
+    mh = map_meta_fact {| meta_fact.pattern := pat; meta_fact.set := mh.(meta_fact.set) |}.
+  Proof. destruct mh. cbv [map_meta_fact]. simpl. intros. congruence. Qed.
+
+  Lemma meta_facts_map_image mhyps pats :
+    map meta_fact.pattern mhyps = map map_fact_pattern pats ->
+    exists mhyps0, mhyps = map map_meta_fact mhyps0.
+  Proof.
+    intros H. apply Forall_ex_eq_map. apply map_eq_Forall2 in H.
+    eapply Forall_impl; [eapply Forall2_forget_r; eassumption|].
+    simpl. intros. fwd. eauto using meta_fact_map_image.
+  Qed.
+
+  (*now an easier theorem: if f happens to be injective, then the renaming is
+    automatically correct*)
+
+  Section inj.
+    Context (p : program) (f_inj : injective_on f (program.all_rels p)).
+
+    Lemma rule_concl_rel_in r x :
+      In r p.(program.rules) ->
+      In x (rule.concl_rels r) ->
+      In x (program.all_rels p).
+    Proof.
+      cbv [program.all_rels program.concl_rels]. intros.
+      apply in_or_app. left. apply in_or_app. left. apply in_flat_map. eauto.
+    Qed.
+
+    Lemma rule_hyp_rel_in r x :
+      In r p.(program.rules) ->
+      In x (rule.hyp_rels r) ->
+      In x (program.all_rels p).
+    Proof.
+      cbv [program.all_rels program.hyp_rels]. intros.
+      apply in_or_app. right. apply in_or_app. left. apply in_flat_map. eauto.
+    Qed.
+
+    Lemma meta_rule_concl_rel_in mr x :
+      In mr p.(program.meta_rules) ->
+      In x (meta_rule.concl_rels mr) ->
+      In x (program.all_rels p).
+    Proof.
+      cbv [program.all_rels program.concl_rels]. intros.
+      apply in_or_app. left. apply in_or_app. right. apply in_flat_map. eauto.
+    Qed.
+
+    Lemma meta_rule_hyp_rel_in mr x :
+      In mr p.(program.meta_rules) ->
+      In x (meta_rule.hyp_rels mr) ->
+      In x (program.all_rels p).
+    Proof.
+      cbv [program.all_rels program.hyp_rels]. intros.
+      apply in_or_app. right. apply in_or_app. right. apply in_flat_map. eauto.
+    Qed.
+
+    Lemma normal_fact_equiv_eq nf nf' :
+      In nf.(normal_fact.rel) (program.all_rels p) ->
+      In nf'.(normal_fact.rel) (program.all_rels p) ->
+      normal_fact_equiv nf nf' ->
+      nf = nf'.
+    Proof.
+      cbv [normal_fact_equiv map_normal_fact]. intros. simp. fwd. f_equal. auto.
+    Qed.
+
+    Lemma fact_equiv_eq a b :
+      In (fact.rel a) (program.all_rels p) ->
+      In (fact.rel b) (program.all_rels p) ->
+      fact_equiv a b ->
+      a = b.
+    Proof.
+      destruct a, b; cbv [fact_equiv fact.rel]; simpl; intros ? ? Heq;
+        try discriminate.
+      - f_equal. apply normal_fact_equiv_eq; auto. cbv [normal_fact_equiv]. congruence.
+      - f_equal. cbv [map_meta_fact map_fact_pattern meta_fact.rel] in *. simp. fwd.
+        f_equal. f_equal. auto.
+    Qed.
+  End inj.
+
   (*not yet ported to the current API:
   (*now an easier theorem: if f happens to be injective, then the renaming is automatically correct*)
   Lemma concl_in_all (r : @rule rel1 exprvar fn aggregator) x :
