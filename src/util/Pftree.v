@@ -44,6 +44,17 @@ Section __.
     pftree P Q2 x.
   Proof. intros H1 H2. induction H1; eauto. Qed.
 
+  Lemma pftree_invariant P Q x Inv :
+    Inv x ->
+    (forall y l, Inv y -> P y l -> Forall Inv l) ->
+    pftree P Q x ->
+    pftree P (fun y => Q y /\ Inv y) x.
+  Proof.
+    intros Hx Hclosed Htree. setoid_rewrite Forall_forall in Hclosed.
+    revert Hx. induction Htree; auto.
+    intros. eapply pftree_step; [eassumption|]. rewrite Forall_forall in *. eauto 6.
+  Qed.
+
   (*TODO make this look nicer?*)
   Lemma pftree_lfp P :
     equiv (fun '(Q0, x) => pftree P Q0 x)

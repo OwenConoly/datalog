@@ -573,60 +573,61 @@ Module rule.
       | agg _ _ _ => []
       end.
 
-  Definition is_bottomup (r : rule) :=
-    forall v, In v (all_vars r) -> In (expr.var v) (hyp_args r).
+    (*is rule r conducive to bottom-up evaluation?*)
+    Definition is_bottomup (r : rule) :=
+      forall v, In v (all_vars r) -> In (expr.var v) (hyp_args r).
 
-  (* Definition clause_outs (c : clause) := firstn (outs (fst c.(clause_R))) c.(clause_args). *)
-  (* Definition clause_ins (c : clause) := skipn (outs (fst c.(clause_R))) c.(clause_args). *)
+    (* Definition clause_outs (c : clause) := firstn (outs (fst c.(clause_R))) c.(clause_args). *)
+    (* Definition clause_ins (c : clause) := skipn (outs (fst c.(clause_R))) c.(clause_args). *)
 
-  (* Definition with_only_ins (c : clause) := *)
-  (*   {| clause_R := c.(clause_R); clause_args := clause_ins c |}. *)
+    (* Definition with_only_ins (c : clause) := *)
+    (*   {| clause_R := c.(clause_R); clause_args := clause_ins c |}. *)
 
-  (* (*2 conditions. *)
-   (*  * hyp_ins only depend on concl_ins, and *)
-   (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
-   (*  (implicit conditions: every concl_in is of the form var_expr blah, where blah was not *)
-   (*  bound to the agg_expr) *)
-   (*  *) *)
-  (* Definition goodish_rule (r : rule) := *)
-  (*   match r with *)
-  (*   | normal_rule rule_concls rule_hyps => *)
-  (*       exists concl, *)
-  (*       rule_concls = [concl] /\ *)
-  (*         (forall v, *)
-  (*             In v (flat_map vars_of_clause rule_concls) \/ *)
-  (*               In v (flat_map vars_of_clause rule_hyps) -> *)
-  (*             In (var_expr v) (flat_map clause_args rule_hyps) \/ *)
-  (*               In (var_expr v) (clause_ins concl)) /\ *)
-  (*         (forall v, In v (flat_map vars_of_expr (flat_map clause_ins rule_hyps)) -> *)
-  (*               In (var_expr v) (clause_ins concl)) /\ *)
-  (*         (forall v, In v (flat_map vars_of_expr (clause_ins concl)) -> *)
-  (*               In (var_expr v) (clause_ins concl)) *)
-  (*   | agg_rule _ _ _ => True *)
-  (*   end. *)
+    (* (*2 conditions. *)
+     (*  * hyp_ins only depend on concl_ins, and *)
+     (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
+     (*  (implicit conditions: every concl_in is of the form var_expr blah, where blah was not *)
+     (*  bound to the agg_expr) *)
+     (*  *) *)
+    (* Definition goodish_rule (r : rule) := *)
+    (*   match r with *)
+    (*   | normal_rule rule_concls rule_hyps => *)
+    (*       exists concl, *)
+    (*       rule_concls = [concl] /\ *)
+    (*         (forall v, *)
+    (*             In v (flat_map vars_of_clause rule_concls) \/ *)
+    (*               In v (flat_map vars_of_clause rule_hyps) -> *)
+    (*             In (var_expr v) (flat_map clause_args rule_hyps) \/ *)
+    (*               In (var_expr v) (clause_ins concl)) /\ *)
+    (*         (forall v, In v (flat_map vars_of_expr (flat_map clause_ins rule_hyps)) -> *)
+    (*               In (var_expr v) (clause_ins concl)) /\ *)
+    (*         (forall v, In v (flat_map vars_of_expr (clause_ins concl)) -> *)
+    (*               In (var_expr v) (clause_ins concl)) *)
+    (*   | agg_rule _ _ _ => True *)
+    (*   end. *)
 
-  Lemma interp_concl_relname_in r f hyps :
-    interp r f hyps ->
-    In f.(normal_fact.rel) (concl_rels r).
-  Proof.
-    invert 1.
-    - fwd. simpl. apply in_map_iff. simp. invert H0p1. simp. eexists. split; eauto.
-      reflexivity.
-    - left. reflexivity.
-  Qed.
+    Lemma interp_concl_relname_in r f hyps :
+      interp r f hyps ->
+      In f.(normal_fact.rel) (concl_rels r).
+    Proof.
+      invert 1.
+      - fwd. simpl. apply in_map_iff. simp. invert H0p1. simp. eexists. split; eauto.
+        reflexivity.
+      - left. reflexivity.
+    Qed.
 
-  Lemma interp_hyp_relname_in r f hyps :
-    interp r f hyps ->
-    Forall (fun hyp => In (fact.rel hyp) (hyp_rels r)) hyps.
-  Proof.
-    invert 1.
-    - simpl. apply Forall_forall. intros x Hx. apply in_map_iff in Hx. fwd.
-      simpl. apply in_map_iff. simp. cbv [clause.interp] in *. simp. fwd.
-      apply Forall2_forget_l in H1. rewrite Forall_forall in H1. especialize H1; eauto.
-      fwd. simp. eexists. split; [|eassumption]. reflexivity.
-    - simpl. constructor; [simpl; auto|]. apply List.Forall_map.
-      apply Forall_forall. intros. simp. simpl. auto.
-  Qed.
+    Lemma interp_hyp_relname_in r f hyps :
+      interp r f hyps ->
+      Forall (fun hyp => In (fact.rel hyp) (hyp_rels r)) hyps.
+    Proof.
+      invert 1.
+      - simpl. apply Forall_forall. intros x Hx. apply in_map_iff in Hx. fwd.
+        simpl. apply in_map_iff. simp. cbv [clause.interp] in *. simp. fwd.
+        apply Forall2_forget_l in H1. rewrite Forall_forall in H1. especialize H1; eauto.
+        fwd. simp. eexists. split; [|eassumption]. reflexivity.
+      - simpl. constructor; [simpl; auto|]. apply List.Forall_map.
+        apply Forall_forall. intros. simp. simpl. auto.
+    Qed.
   End __.
 End rule. Export rule (rule).
 #[export] Hint Resolve rule.one_step_derives_ext : core.
@@ -815,41 +816,6 @@ Module program.
   (*   | _ => progress fwd *)
   (*   | _ => congruence *)
   (*   end. *)
-
-  Lemma pftree_weaken_hyp_strong {U : Type} (P : U -> list U -> Prop) Q1 Q2 (x : U) (Inv : U -> Prop) :
-    (Q1 x -> Q2 x) ->
-    (forall y l, P y l -> Forall Inv l) ->
-    (forall y, Inv y -> Q1 y -> Q2 y) ->
-    pftree P Q1 x -> pftree P Q2 x.
-  Proof.
-    intros Hx Hstep Hinv Htree.
-    assert (Hgen: forall y, pftree P Q1 y -> (Q1 y -> Q2 y) \/ Inv y -> pftree P Q2 y).
-    { intros y Hy. induction Hy.
-      - intros Hcond. apply pftree_leaf. destruct Hcond as [Hcond | Hcond].
-        + apply Hcond. exact H.
-        + apply Hinv; auto.
-      - intros _. eapply pftree_step; [exact H |].
-        pose proof (Hstep _ _ H) as Hinv_l.
-        rewrite Forall_forall in H1, Hinv_l |- *.
-        intros z Hz. apply H1; [exact Hz |].
-        right. apply Hinv_l. exact Hz. }
-    apply Hgen; auto.
-  Qed.
-
-  Lemma pftree_hyp_ext_framed {U : Type} (P : U -> list U -> Prop) Q1 Q2 (x : U) (Inv : U -> Prop) :
-    (Q1 x <-> Q2 x) ->
-    (forall y l, P y l -> Forall Inv l) ->
-    (forall y, Inv y -> Q1 y <-> Q2 y) ->
-    pftree P Q1 x <-> pftree P Q2 x.
-  Proof.
-    intros Hx Hstep Hinv. split; apply pftree_weaken_hyp_strong with (Inv := Inv).
-    - apply Hx.
-    - exact Hstep.
-    - intros; apply Hinv; auto.
-    - apply Hx.
-    - exact Hstep.
-    - intros; apply Hinv; auto.
-  Qed.
 
   Lemma prog_impl_hyp_ext_strong p Q1 Q2 f :
     (Q1 f <-> Q2 f) ->
