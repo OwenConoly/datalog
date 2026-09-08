@@ -792,6 +792,15 @@ Module meta_rule.
     Proof.
       intros. apply interp_prog_ext. intros. apply rule.one_step_derives_same_set. assumption.
     Qed.
+
+    (*whenever r's conclusion pattern covers a conclusion of nr,
+      r's hypothesis patterns cover nr's hypotheses*)
+    Definition valid_for (r : meta_rule) (nr : rule) :=
+      forall pat pats nf hyps,
+        pattern_interp r pat pats ->
+        rule.interp nr nf hyps ->
+        fact_pattern.matches pat nf ->
+        Forall (fact.covered_by_pats pats) hyps.
   End __.
 End meta_rule. Export meta_rule (meta_rule).
 #[export] Hint Resolve meta_rule.interp_ext_concl : core.
@@ -1051,16 +1060,11 @@ Module program.
       Q f \/ In (fact.rel f) (concl_rels p).
     Proof. invert 1; eauto. Qed.
 
-    (*whenever a meta-rule's conclusion pattern covers a normal rule's conclusion,
-      the meta-rule's hypothesis patterns cover that normal rule's hypotheses*)
     Definition meta_rules_valid (p : program) :=
-      forall mr pat pats nr nf hyps,
+      forall mr nr,
         In mr p.(meta_rules) ->
-        meta_rule.pattern_interp mr pat pats ->
         In nr p.(rules) ->
-        rule.interp nr nf hyps ->
-        fact_pattern.matches pat nf ->
-        Forall (fact.covered_by_pats pats) hyps.
+        meta_rule.valid_for mr nr.
 
   (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
   (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
