@@ -708,7 +708,7 @@ Section step.
   Proof.
     intros H. cbv [ev_stable]. intros ? ? ? ? H' ?.
     eapply Forall_impl.
-    2: { apply Forall_and; [exact H|exact H']. }
+    1: { apply Forall_and; [exact H|exact H']. }
     simpl. intros. fwd. eauto.
   Qed.
 
@@ -741,7 +741,7 @@ Section step.
                 (ns, t)).
       + rewrite Forall_map, Forall_forall. intros o _.
         apply (ev_stable_ex_out (fun o' => equiv o o')).
-      + rewrite Forall_map. eapply Forall_impl; [| exact HF]. intros o Hmoe.
+      + rewrite Forall_map. eapply Forall_impl; [exact HF|]. intros o Hmoe.
         destruct Hmoe as (o' & Hequiv & Hmo).
         pose proof (Hmiw t ns o' Hstar Hallow Hmo) as HW.
         unfold will_output_equiv in HW.

@@ -2,7 +2,7 @@ From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
-From Stdlib Require Import Classical_Prop RelationClasses Morphisms.
+From Stdlib Require Import RelationClasses Morphisms.
 From Datalog.Util Require Import Autodestr Autocbn Pftree.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
@@ -1123,7 +1123,7 @@ Module program.
     Definition honest (p : program) :=
       forall Q, good_input_set p Q -> fact.set_doesnt_lie (interp p Q).
 
-    Lemma meta_rules_valid_step' p Q mf mhyps :
+    Lemma meta_rules_valid_step p Q mf mhyps :
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
       meta_rules_valid p ->
       Exists (fun mr => meta_rule.interp p.(rules) mr mf mhyps) p.(meta_rules) ->
@@ -1285,7 +1285,7 @@ Module program.
           cbv [fact.rel meta_fact.rel] in *. cbv [fact_pattern.matches] in Hmatch. fwd.
           congruence.
       - invert H. rewrite Forall_forall in H0, H1.
-        eapply meta_rules_valid_step'; try eassumption.
+        eapply meta_rules_valid_step; try eassumption.
         + rewrite Forall_forall. intros mhyp Hin.
           apply (H1 (fact.meta mhyp)); auto using in_map.
         + intros mhyp mf' Hin Hd Hpat.
@@ -1420,7 +1420,6 @@ Definition clause_pattern_varmap {rel : relT} {var1 var2 : exprvarT} {fn : fnT}
      clause_pattern.args := map (expr_pattern_varmap f) c.(clause_pattern.args) |}.
 
 #[export] Hint Constructors rule.interp : core.
-#[export] Hint Extern 1 (fact.equiv ?x ?x) => reflexivity : core.
 #[export] Hint Unfold fact.equiv : core.
 
 Ltac interp_exprs :=
