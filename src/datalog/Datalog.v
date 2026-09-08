@@ -864,6 +864,19 @@ Module program.
     Qed.
     #[local] Hint Resolve interp_step_hyp_relname_in.
 
+    Definition concl_rels (p : program) :=
+      flat_map rule.concl_rels p.(rules) ++ flat_map meta_rule.concl_rels p.(meta_rules).
+
+    Lemma interp_step_concl_relname_in p f hyps :
+      interp_step p f hyps ->
+      In (fact.rel f) (concl_rels p).
+    Proof.
+      cbv [concl_rels]. invert 1; fwd; simpl; apply in_or_app.
+      - left. apply in_flat_map. eauto using rule.interp_concl_relname_in.
+      - right. apply in_flat_map. eauto using meta_rule.interp_concl_relname_in.
+    Qed.
+    #[local] Hint Resolve interp_step_concl_relname_in.
+
     Lemma interp_invariant p Q f :
       interp p Q f <->
         interp p (fun f' => Q f' /\ (f' = f \/ In (fact.rel f') (hyp_rels p))) f.
@@ -891,6 +904,14 @@ Module program.
       {| rules := p1.(rules) ++ p2.(rules);
         meta_rules := p1.(meta_rules) ++ p2.(meta_rules) |}.
 
+    (*p2 reads nothing p1 concludes, and neither one's rules disturb the other's meta-rules*)
+    Definition stratified (p1 p2 : program) :=
+      disjoint_lists (concl_rels p1) (hyp_rels p2) /\
+        disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
+          (flat_map rule.concl_rels p2.(rules)) /\
+        disjoint_lists (flat_map meta_rule.concl_rels p2.(meta_rules))
+          (flat_map rule.concl_rels p1.(rules)).
+
     Lemma interp_step_union p1 p2 f hyps :
       disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
         (flat_map rule.concl_rels p2.(rules)) ->
@@ -910,6 +931,41 @@ Module program.
       interp p1 Q f ->
       interp (union p1 p2) Q f.
     Proof. intros. eapply pftree.weaken; eauto using interp_step_union. Qed.
+
+    Lemma interp_step_union_inv p1 p2 f hyps :
+      disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
+        (flat_map rule.concl_rels p2.(rules)) ->
+      disjoint_lists (flat_map meta_rule.concl_rels p2.(meta_rules))
+        (flat_map rule.concl_rels p1.(rules)) ->
+      interp_step (union p1 p2) f hyps ->
+      interp_step p1 f hyps \/ interp_step p2 f hyps.
+    Proof.
+      intros H12 H21 H. invert H; cbv [union] in *; simpl in *;
+        apply Exists_app in H0; destruct H0; rewrite Exists_exists in *; fwd.
+      - left. constructor. apply Exists_exists. eauto.
+      - right. constructor. apply Exists_exists. eauto.
+      - left. constructor. apply Exists_exists. eexists. split; [eassumption|].
+        apply meta_rule.interp_app with (p2 := rules p2); [|assumption].
+        eapply disjoint_lists_incl_l; [eassumption|]. apply incl_flat_map_r. assumption.
+      - right. constructor. apply Exists_exists. eexists. split; [eassumption|].
+        apply meta_rule.interp_app with (p2 := rules p1).
+        + eapply disjoint_lists_incl_l; [eassumption|]. apply incl_flat_map_r. assumption.
+        + apply meta_rule.interp_same_set with (p1 := rules p1 ++ rules p2);
+            auto using same_set_app_comm.
+    Qed.
+
+    Lemma stratify p1 p2 Q f :
+      stratified p1 p2 ->
+      interp (union p1 p2) Q f ->
+      interp p1 (interp p2 Q) f.
+    Proof.
+      intros (H1 & H12 & H21) H. apply pftree.stratify.
+      - intros y l z l' Hy Hz Hz'. eapply H1.
+        + eapply interp_step_concl_relname_in. eassumption.
+        + apply interp_step_hyp_relname_in in Hy. rewrite Forall_forall in Hy. auto.
+      - eapply pftree.weaken; [eassumption|]. simpl. intros.
+        eauto using interp_step_union_inv.
+    Qed.
 
     Lemma interp_step_same_set p1 p2 f hyps :
       same_set p1.(rules) p2.(rules) ->
@@ -981,41 +1037,6 @@ Module program.
   (*   intros Hincl H. eapply pftree_weaken; [eassumption|]. *)
   (*   simpl. intros. fwd. eauto using incl_Exists. *)
   (* Qed. *)
-
-  Lemma staged_program p1 p2 Q f :
-    disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) ->
-    disjoint_lists (flat_map meta_concl_rels p1) (flat_map concl_rels p2) ->
-    disjoint_lists (flat_map meta_concl_rels p2) (flat_map concl_rels p1) ->
-    prog_impl (p1 ++ p2) Q f ->
-    prog_impl p1 (prog_impl p2 Q) f.
-  Proof.
-    intros Hdisj Hmr1 Hmr2. induction 1 using prog_impl_ind.
-    - apply pftree.leaf. apply pftree.leaf. assumption.
-    - apply Exists_app in H. destruct H as [H|H].
-      + eapply prog_impl_step. 2: eassumption.
-        rewrite Exists_exists in *. fwd.
-        eexists. split; [eassumption|].
-        eapply staged_program_rule_impl; [|eassumption].
-        eapply disjoint_lists_incl_l; [eassumption|].
-        apply incl_flat_map_r. assumption.
-      + apply pftree.leaf. eapply prog_impl_step.
-        -- rewrite Exists_exists in *. fwd. eexists. split; [eassumption|].
-           eapply staged_program_rule_impl with (p2 := p1).
-           2: { eapply rule_impl_list_set; [eassumption|].
-                apply same_set_app_comm. }
-           eapply disjoint_lists_incl_l; [eassumption|].
-           apply incl_flat_map_r. assumption.
-        -- rewrite Exists_exists in H. fwd.
-           apply rule_impl_hyp_relname_in in Hp1.
-           eapply Forall_impl.
-           2: { eapply Forall_and; [apply Hp1|apply H1]. }
-           simpl. intros f' [Hf'1 Hf'2].
-           invert Hf'2; [assumption|].
-           apply Exists_exists in H. fwd.
-           apply rule_impl_concl_relname_in in Hp3.
-           exfalso.
-           eapply Hdisj; apply in_flat_map; eauto.
-  Qed.
 
   Lemma meta_concl_rels_incl_concl_rels r :
     incl (meta_concl_rels r) (concl_rels r).
