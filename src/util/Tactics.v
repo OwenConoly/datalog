@@ -119,6 +119,8 @@ Ltac simp := repeat (autodestr; autocbn; subst).
 
 #[export] Hint Unfold iff : core.
 
+#[export] Hint Resolve in_or_app : core.
+
 From coqutil Require Import autoforward.
 #[global] Instance Exists_exists_fwd A P (l : list A) : autoforward (Exists P l) (exists x, In x l /\ P x).
 Proof. cbv [autoforward]. rewrite Exists_exists. auto. Qed.

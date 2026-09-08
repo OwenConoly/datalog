@@ -628,6 +628,15 @@ Module rule.
       - simpl. constructor; [simpl; auto|]. apply List.Forall_map.
         apply Forall_forall. intros. simp. simpl. auto.
     Qed.
+
+    Lemma one_step_derives_app p1 p2 mfs nf :
+      ~ In nf.(normal_fact.rel) (flat_map concl_rels p2) ->
+      one_step_derives (p1 ++ p2) mfs nf <-> one_step_derives p1 mfs nf.
+    Proof.
+      cbv [one_step_derives]. intros Hout. split; intros H; fwd; eauto 6.
+      apply in_app_iff in Hp0p0. destruct Hp0p0; eauto.
+      exfalso. apply Hout. apply in_flat_map. eauto using interp_concl_relname_in.
+    Qed.
   End __.
 End rule. Export rule (rule).
 #[export] Hint Resolve rule.one_step_derives_ext : core.
@@ -712,6 +721,29 @@ Module meta_rule.
       eapply Forall_impl; [eapply Forall2_forget_l; eassumption|].
       simpl. intros. fwd. simp. cbv [meta_fact.rel hyp_rels]. simpl.
       apply in_map_iff. eexists. split; [|eassumption]. reflexivity.
+    Qed.
+
+    Lemma interp_prog_ext p1 p2 r mf hyps :
+      (forall mfs nf,
+          In nf.(normal_fact.rel) (concl_rels r) ->
+          rule.one_step_derives p1 mfs nf <-> rule.one_step_derives p2 mfs nf) ->
+      interp p1 r mf hyps <-> interp p2 r mf hyps.
+    Proof.
+      cbv [interp]. intros H. split; intros H'; fwd.
+      - eexists. split; [eassumption|]. etransitivity; [eassumption|].
+        cbv [meta_fact.equiv]. simpl. split; [reflexivity|]. intros.
+        apply H. simpl. eauto using pattern_interp_concl_relname_in.
+      - eexists. split; [eassumption|]. etransitivity; [eassumption|].
+        cbv [meta_fact.equiv]. simpl. split; [reflexivity|]. intros.
+        symmetry. apply H. simpl. eauto using pattern_interp_concl_relname_in.
+    Qed.
+
+    Lemma interp_app p1 p2 r mf hyps :
+      disjoint_lists (concl_rels r) (flat_map rule.concl_rels p2) ->
+      interp (p1 ++ p2) r mf hyps <-> interp p1 r mf hyps.
+    Proof.
+      intros Hdisj. apply interp_prog_ext. intros.
+      apply rule.one_step_derives_app. eauto.
     Qed.
   End __.
 End meta_rule. Export meta_rule (meta_rule).
@@ -833,6 +865,30 @@ Module program.
       - intros. fwd. split; auto. apply Hequiv; auto.
     Qed.
 
+    Definition union (p1 p2 : program) :=
+      {| rules := p1.(rules) ++ p2.(rules);
+        meta_rules := p1.(meta_rules) ++ p2.(meta_rules) |}.
+
+    Lemma interp_step_union p1 p2 f hyps :
+      disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
+        (flat_map rule.concl_rels p2.(rules)) ->
+      interp_step p1 f hyps ->
+      interp_step (union p1 p2) f hyps.
+    Proof.
+      intros Hdisj H. invert H; constructor; cbv [union]; simpl; apply Exists_app; left.
+      - assumption.
+      - rewrite Exists_exists in *. fwd. eexists. split; [eassumption|].
+        apply meta_rule.interp_app; [|assumption].
+        eapply disjoint_lists_incl_l; [eassumption|]. apply incl_flat_map_r. assumption.
+    Qed.
+
+    Lemma interp_union p1 p2 Q f :
+      disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
+        (flat_map rule.concl_rels p2.(rules)) ->
+      interp p1 Q f ->
+      interp (union p1 p2) Q f.
+    Proof. intros. eapply pftree_weaken; eauto using interp_step_union. Qed.
+
   (* Ltac invert_stuff := *)
   (*   match goal with *)
   (*   | _ => progress cbn [matches rel_of fact_of args_of clause.rel clause.args meta_clause.rel meta_clause.args] in * *)
@@ -883,63 +939,6 @@ Module program.
   (*   intros Hincl H. eapply pftree_weaken; [eassumption|]. *)
   (*   simpl. intros. fwd. eauto using incl_Exists. *)
   (* Qed. *)
-
-    Lemma staged_program_rule_impl p1 p2 r f hyps :
-      disjoint_lists (meta_concl_rels r) (flat_map concl_rels p2) ->
-      rule_impl (one_step_derives (p1 ++ p2)) r f hyps ->
-      rule_impl (one_step_derives p1) r f hyps.
-    Proof.
-      intros Hout. invert 1.
-      - invert H0.
-        + constructor. econstructor; eassumption.
-        + constructor. econstructor; eassumption.
-      - econstructor; try eassumption.
-        intros args'' Hargs''. rewrite H2 by assumption.
-        cbv [one_step_derives one_step_derives0]. split; intros H'.
-        + fwd. apply Exists_app in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto 6.
-          apply Exists_exists in H'p0. fwd.
-          apply non_meta_rule_impl_concl_relname_in in H'p0p1.
-          repeat invert_stuff. exfalso. eapply Hout.
-          -- apply in_map. eassumption.
-          -- apply in_flat_map. eauto.
-        + fwd. eexists. rewrite Exists_app. eauto.
-    Qed.
-
-  Lemma staged_program_rule_impl_bw p1 p2 r f hyps :
-    disjoint_lists (meta_concl_rels r) (flat_map concl_rels p2) ->
-    rule_impl (one_step_derives p1) r f hyps ->
-    rule_impl (one_step_derives (p1 ++ p2)) r f hyps.
-  Proof.
-    intros Hout. invert 1.
-    - invert H0.
-      + constructor. econstructor; eassumption.
-      + constructor. econstructor; eassumption.
-    - econstructor; try eassumption.
-      intros args'' Hargs''. rewrite H2 by assumption.
-      cbv [one_step_derives one_step_derives0]. split; intros H'.
-      + fwd. eexists. rewrite Exists_app. eauto.
-      + fwd. eexists. rewrite Exists_app in H'p0. destruct H'p0 as [H'p0|H'p0]; eauto.
-        apply Exists_exists in H'p0. fwd.
-        apply non_meta_rule_impl_concl_relname_in in H'p0p1.
-        repeat invert_stuff. exfalso. eapply Hout.
-        -- apply in_map. eassumption.
-        -- apply in_flat_map. eauto.
-  Qed.
-
-  Lemma prog_impl_subset' p1 p2 Q f :
-    disjoint_lists (flat_map meta_concl_rels p1) (flat_map concl_rels p2) ->
-    prog_impl p1 Q f ->
-    prog_impl (p1 ++ p2) Q f.
-  Proof.
-    intros Hdisj H. induction H using prog_impl_ind.
-    - apply prog_impl_leaf. assumption.
-    - eapply prog_impl_step; [|eassumption].
-      rewrite Exists_exists in *. fwd. eexists.
-      rewrite in_app_iff. split; [eauto|].
-      eapply staged_program_rule_impl_bw; [|eassumption].
-      eapply disjoint_lists_incl_l; [eassumption|].
-      apply incl_flat_map_r. assumption.
-  Qed.
 
   Lemma rule_impl_list_set p1 p2 r f hyps :
     rule_impl (one_step_derives p1) r f hyps ->
