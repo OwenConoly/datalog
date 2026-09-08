@@ -618,6 +618,8 @@ Module program.
         rewrite Exists_exists in *. fwd. eauto using meta_rule.interp_ext_hyps.
     Qed.
 
+    Lemma interp_step_ext_concl
+
     Lemma interp_step_strong p Q f hyps :
       interp_step p f hyps ->
       Forall (fun hyp => exists hyp', fact.equiv hyp hyp' /\ interp p Q hyp') hyps ->
@@ -631,26 +633,16 @@ Module program.
         intros. fwd. assumption.
     Qed.
 
-  Lemma prog_impl_hyp_ext p f Q1 Q2 :
-    (forall f', Q1 f' <-> Q2 f') ->
-    prog_impl p Q1 f <-> prog_impl p Q2 f.
-  Proof.
-    eauto using prog_impl_weaken_hyp.
-  Qed.
-
-  Lemma prog_impl_mf_ext p Q mf_rel mf_args mf_set mf_set' :
-    prog_impl p Q (meta_fact mf_rel mf_args mf_set) ->
-    (forall nf_args,
-        Forall2 matches mf_args nf_args ->
-        mf_set nf_args <-> mf_set' nf_args) ->
-    Q (meta_fact mf_rel mf_args mf_set) \/
-      prog_impl p Q (meta_fact mf_rel mf_args mf_set').
-  Proof.
-    intros H1 H2. apply invert_prog_impl in H1. destruct H1 as [H1|H1]; auto.
-    fwd. right. eapply prog_impl_step; [|eassumption].
-    eapply Exists_impl; [|eassumption]. simpl.
-    eauto using rule_impl_mf_ext.
-  Qed.
+    Lemma interp_ext_concl p Q f f' :
+      interp p Q f ->
+      fact.equiv f f' ->
+      Q f \/ interp p Q f'.
+    Proof.
+      intros H1 H2. invert H1; auto.
+      right. eapply pftree_step; [|eassumption]. Searhc eauto.
+      eapply Exists_impl; [|eassumption]. simpl.
+      eauto using rule_impl_mf_ext.
+    Qed.
 
   Lemma prog_impl_mf_ext' p Q mf_rel mf_args mf_set mf_set' :
     prog_impl p Q (meta_fact mf_rel mf_args mf_set) ->
