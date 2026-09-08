@@ -1021,6 +1021,11 @@ Module program.
       cbv [stratified]. intros. fwd. auto 6 using stratify, unstratify.
     Qed.
 
+    Lemma interp_rel_of p Q f :
+      interp p Q f ->
+      Q f \/ In (fact.rel f) (concl_rels p).
+    Proof. invert 1; eauto. Qed.
+
   (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
   (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
   (*   prog_impl_with_no_meta_rules (p1 ++ p2) Q f -> *)
@@ -1055,16 +1060,8 @@ Module program.
   (*   simpl. intros. fwd. eauto using incl_Exists. *)
   (* Qed. *)
 
-  Lemma prog_impl_rel_of p Q f :
-    prog_impl p Q f ->
-    Q f \/ In (rel_of f) (flat_map concl_rels p).
-  Proof.
-    intros H. apply invert_prog_impl in H. destruct H as [Hq | [hyps' [Hex _]]].
-    - left. exact Hq.
-    - right. apply Exists_exists in Hex. destruct Hex as [r [Hrin Hrule]].
-      apply in_flat_map. exists r. split; [exact Hrin |].
-      eapply rule_impl_concl_relname_in. exact Hrule.
-  Qed.
+  End __.
+End program.
 
   (*just like fact_supported, except it puts no constraint on the sets*)
   Definition fact_potentially_supported (mhyps : list fact) (f : fact) :=
