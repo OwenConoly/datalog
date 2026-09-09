@@ -20,7 +20,7 @@ Class type_signature {rel fn aggregator : Type} : Type :=
 Arguments type_signature : clear implicits.
 
 Section __.
-  Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
+  Context `{params : datalog_params}.
   Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
   Context `{tsig : type_signature rel fn aggregator}.
   Context {type_context : map.map exprvar type}
