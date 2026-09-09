@@ -790,6 +790,20 @@ Module meta_rule.
     Definition hyp_rels (r : meta_rule) :=
       map clause_pattern.rel r.(hyps).
 
+    Definition concl_vars (r : meta_rule) :=
+      flat_map clause_pattern.vars r.(concls).
+
+    Definition hyp_vars (r : meta_rule) :=
+      flat_map clause_pattern.vars r.(hyps).
+
+    Definition all_vars (r : meta_rule) := concl_vars r ++ hyp_vars r.
+
+    Definition hyp_args (r : meta_rule) :=
+      flat_map clause_pattern.args r.(hyps).
+
+    Definition is_bottomup (r : meta_rule) :=
+      forall v, In v (all_vars r) -> In (expr_pattern.exactly (expr.var v)) (hyp_args r).
+
     Lemma pattern_interp_concl_relname_in r pat ps :
       pattern_interp r pat ps ->
       In pat.(fact_pattern.rel) (concl_rels r).
