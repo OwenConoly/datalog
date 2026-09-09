@@ -810,7 +810,7 @@ Section RelMap.
   Proof. destruct args; reflexivity. Qed.
 
   Lemma map_fact_eq_of_args fct :
-    map_fact fct = fact.of_args (f (fact.rel_of fct)) (fact.args_of fct).
+    map_fact fct = fact.of_args (f (fact.rel fct)) (fact.args_of fct).
   Proof. destruct fct; simp; reflexivity. Qed.
 
   Lemma implied_by_mf_map_bw_inj fct mf :

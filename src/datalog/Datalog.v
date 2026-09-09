@@ -390,10 +390,10 @@ Module fact.
       | normal (_ : normal_fact)
       | meta (_ : meta_fact).
 
-    Definition rel_of (f : fact) :=
+    Definition rel f :=
       match f with
-      | normal nf => nf.(normal_fact.rel)
-      | meta mf => mf.(meta_fact.pattern).(fact_pattern.rel)
+      | meta mf => meta_fact.rel mf
+      | normal nf => normal_fact.rel nf
       end.
 
     Variant args :=
@@ -420,11 +420,11 @@ Module fact.
       end.
 
     Lemma of_args_args_of f :
-      of_args (rel_of f) (args_of f) = f.
+      of_args (rel f) (args_of f) = f.
     Proof. destruct f; fwd; simp; reflexivity. Qed.
 
-    Lemma rel_of_of_args R args :
-      rel_of (of_args R args) = R.
+    Lemma rel_of_args R args :
+      rel (of_args R args) = R.
     Proof. destruct args; reflexivity. Qed.
 
     Lemma args_of_of_args R args :
@@ -512,12 +512,6 @@ Module fact.
       match f with
       | meta _ => True
       | normal _ => False
-      end.
-
-    Definition rel f :=
-      match f with
-      | meta mf => meta_fact.rel mf
-      | normal nf => normal_fact.rel nf
       end.
 
     Definition set_consistent_with (mf : meta_fact) (S : fact -> Prop) :=

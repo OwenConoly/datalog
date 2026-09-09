@@ -160,6 +160,13 @@ Lemma injective_on_incl {A B} (f : A -> B) l1 l2 :
   incl l1 l2 -> injective_on f l2 -> injective_on f l1.
 Proof. intros Hsub Hinj x y Hx Hy. apply Hinj; auto. Qed.
 
+Lemma injective_on_cons_head {A B} (f : A -> B) a b l :
+  injective_on f (a :: l) ->
+  In b l ->
+  f a = f b ->
+  a = b.
+Proof. intros Hinj Hb. apply Hinj; simpl; auto. Qed.
+
 Lemma injective_on_cons_in {A B} (f : A -> B) a l :
   In a l -> injective_on f l -> injective_on f (a :: l).
 Proof.
@@ -352,6 +359,15 @@ Section Forall.
     Forall (fun x => exists y, R x y) xs ->
     exists ys, Forall2 R xs ys.
   Proof. induction 1; fwd; eauto. Qed.
+
+  Lemma Forall2_exists_r_map (R : A -> B -> Prop) (R' : A -> C -> Prop) (g : C -> B) xs ys :
+    Forall2 R xs ys ->
+    (forall x y, R x y -> exists z, y = g z /\ R' x z) ->
+    exists zs, ys = map g zs /\ Forall2 R' xs zs.
+  Proof.
+    intros H Hex. induction H; fwd; [now exists []|].
+    apply Hex in H. fwd. exists (z :: zs). simpl. eauto.
+  Qed.
 
   Lemma Forall_ex_eq_map (g : B -> A) xs :
     Forall (fun x => exists y, x = g y) xs ->
