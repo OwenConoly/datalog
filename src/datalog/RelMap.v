@@ -617,14 +617,13 @@ Section RelMap.
 
   Lemma facts_agree_under_map_of_interp p Q hyps :
     program.meta_rules_valid p ->
-    (forall fct, Q fct -> ~ In (fact.rel fct) (program.concl_rels p)) ->
-    fact.set_doesnt_lie Q ->
+    program.good_input_set p Q ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
     Forall inj_on_elt (program.concl_rels p) ->
     Forall (program.interp p Q) hyps ->
     facts_agree_under_map hyps.
   Proof.
-    intros Hvalid Hinp Hlie HQ Hinj Hderiv mf1 mf2 H1 H2.
+    intros Hvalid [Hinp Hlie] HQ Hinj Hderiv mf1 mf2 H1 H2.
     rewrite Forall_forall in Hderiv. apply Hderiv in H1, H2.
     cbv [meta_fact.agree map_meta_fact map_fact_pattern fact_pattern.matches]. simpl.
     intros nf Hm1 Hm2. fwd.
@@ -644,15 +643,14 @@ Section RelMap.
 
   Lemma interp_map_fw p Q fct :
     program.meta_rules_valid p ->
-    (forall f', Q f' -> ~ In (fact.rel f') (program.concl_rels p)) ->
-    fact.set_doesnt_lie Q ->
+    program.good_input_set p Q ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
     Forall inj_on_elt (program.concl_rels p) ->
     program.interp p Q fct ->
     program.interp (map_program p)
       (fun f' => exists g, f' = map_fact g /\ Q g) (map_fact fct).
   Proof.
-    intros Hvalid Hinp Hlie HQ Hinj Hprog. induction Hprog.
+    intros Hvalid Hgood HQ Hinj Hprog. induction Hprog.
     - apply pftree.leaf. eauto.
     - eapply pftree.step.
       + eapply interp_step_map_fw; try eassumption.
@@ -674,15 +672,14 @@ Section RelMap.
 
   Lemma interp_map_bw p Q f_target :
     program.meta_rules_valid p ->
-    (forall f', Q f' -> ~ In (fact.rel f') (program.concl_rels p)) ->
-    fact.set_doesnt_lie Q ->
+    program.good_input_set p Q ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
     Forall inj_on_elt (program.concl_rels p) ->
     program.interp (map_program p)
       (fun f' => exists g, f' = map_fact g /\ Q g) f_target ->
     exists fct, f_target = map_fact fct /\ program.interp p Q fct.
   Proof.
-    intros Hvalid Hinp Hlie HQ Hinj Hprog. induction Hprog.
+    intros Hvalid Hgood HQ Hinj Hprog. induction Hprog.
     - fwd. eauto using pftree.leaf.
     - apply interp_map_hyps_image in H1. fwd.
       eapply interp_step_map_bw in H; try eassumption.
@@ -695,8 +692,7 @@ Section RelMap.
 
   Lemma interp_map_iff p Q fct :
     program.meta_rules_valid p ->
-    (forall f', Q f' -> ~ In (fact.rel f') (program.concl_rels p)) ->
-    fact.set_doesnt_lie Q ->
+    program.good_input_set p Q ->
     (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
     Forall inj_on_elt (program.concl_rels p) ->
     inj_on_elt (fact.rel fct) ->
@@ -760,7 +756,7 @@ Section RelMap.
   Proof. destruct fct; simp; reflexivity. Qed.
 
   Lemma implied_by_mf_map_bw_inj fct mf :
-    (f (fact.rel fct) = f (meta_fact.rel mf) -> fact.rel fct = meta_fact.rel mf) ->
+    inj_at (fact.rel fct) (meta_fact.rel mf) ->
     fact.implied_by_mf (map_fact fct) (map_meta_fact mf) ->
     fact.implied_by_mf fct mf.
   Proof.
@@ -772,9 +768,7 @@ Section RelMap.
   Qed.
 
   Lemma implied_by_mfs_map_bw_inj mfs fct :
-    (forall mf, In mf mfs ->
-                f (fact.rel fct) = f (meta_fact.rel mf) ->
-                fact.rel fct = meta_fact.rel mf) ->
+    (forall mf, In mf mfs -> inj_at (fact.rel fct) (meta_fact.rel mf)) ->
     fact.implied_by_mfs (map map_meta_fact mfs) (map_fact fct) ->
     fact.implied_by_mfs mfs fct.
   Proof.
