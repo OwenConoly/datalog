@@ -944,12 +944,10 @@ Section __.
   #[global] Instance expr_eqb_ok : Eqb_ok expr_eqb.
   Proof.
     intros e1. induction e1; intros [v0|f0 args0]; cbv [eqb] in *; simpl; try congruence.
-    - pose proof (eqb_spec v v0) as Hv. cbv [eqb] in Hv.
-      destruct (var_eqb v v0); subst; congruence.
-    - pose proof (eqb_spec f f0) as Hf. cbv [eqb] in Hf.
-      destruct (fn_eqb f f0); simpl; [subst|congruence].
-      pose proof (list_eqb_ok_strong args H args0) as Hl. cbv [eqb] in Hl.
-      destruct (list_eqb args args0); [subst|]; congruence.
+    - destr (var_eqb v v0); congruence.
+    - pose proof (list_eqb_ok_strong args H args0) as Hl.
+      Tactics.destruct_one_match; fwd; try congruence.
+      destruct E as [|E]; try congruence. rewrite E in *. congruence.
   Qed.
 
   (*Note: this can be weakened; we only need injectivity on length-n lists (for each n)*)

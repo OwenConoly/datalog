@@ -2281,6 +2281,7 @@ Qed.
 
 #[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) :=
   fun x y => (length x =? length y) && forallb (eqb true) (map2 aeqb x y).
+#[global] Typeclasses Opaque list_eqb.
 
 Lemma list_eqb_ok_strong {A} {aeqb : Eqb A} (x : list A) :
   Forall (fun a => forall b, if aeqb a b then a = b else a <> b) x ->
