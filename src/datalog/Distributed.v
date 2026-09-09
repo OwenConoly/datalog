@@ -1,4 +1,4 @@
-From Stdlib Require Import List Permutation RelationClasses Classical_Prop Lia.
+From Stdlib Require Import List Lia.
 From coqutil Require Import Datatypes.List.
 From Datalog Require Import Datalog Node Graph Smallstep List Map Default Eqb Tactics.
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Eqb Decidable.
@@ -126,55 +126,109 @@ Section Distributed.
   Qed.
 
   (* the claim's per-sender expected counts, as a real map (absent senders count 0) *)
-  Definition count_at R (ems : list nat) (k : source) : nat :=
-    get_or_default (map.of_list (combine (R_senders R) ems) : count_map) k.
+  Definition claim_counts (pat : fact_pattern) (ems : list nat) : count_map :=
+    map.of_list (combine (R_senders pat.(fact_pattern.rel)) ems).
 
-  Lemma count_at_Some R ems k c :
-    map.get (map.of_list (combine (R_senders R) ems) : count_map) k = Some c ->
-    count_at R ems k = c.
+  Definition count_at (pat : fact_pattern) (ems : list nat) (k : source) : nat :=
+    get_or_default (claim_counts pat ems) k.
+
+  Lemma count_at_Some pat ems k c :
+    map.get (claim_counts pat ems) k = Some c -> count_at pat ems k = c.
   Proof. apply get_or_default_Some. Qed.
 
-  Lemma count_at_None R ems k :
-    map.get (map.of_list (combine (R_senders R) ems) : count_map) k = None ->
-    count_at R ems k = 0.
+  Lemma count_at_None pat ems k :
+    map.get (claim_counts pat ems) k = None -> count_at pat ems k = 0.
   Proof. apply get_or_default_None. Qed.
 
-  Lemma map_count_at R ems :
-    length (R_senders R) = length ems -> map (count_at R ems) (R_senders R) = ems.
+  Lemma map_count_at pat ems :
+    length (R_senders pat.(fact_pattern.rel)) = length ems ->
+    map (count_at pat ems) (R_senders pat.(fact_pattern.rel)) = ems.
   Proof.
-    intros Hlen. unfold count_at, get_or_default, get_or.
+    intros Hlen. unfold count_at, claim_counts, get_or_default, get_or.
     apply map_get_of_list_zip; [ apply R_senders_NoDup | exact Hlen ].
   Qed.
 
-  Lemma count_at_off R ems k : ~ In k (R_senders R) -> count_at R ems k = 0.
+  Lemma count_at_off pat ems k :
+    ~ In k (R_senders pat.(fact_pattern.rel)) -> count_at pat ems k = 0.
   Proof.
     intros Hnin. apply count_at_None, get_of_list_not_In.
     intros Hin. apply in_map_iff in Hin. destruct Hin as ((k' & c) & Heq & Hin).
     cbn in Heq. subst k'. apply Hnin. eapply in_combine_l; exact Hin.
   Qed.
 
-  Lemma count_at_In R ems k :
-    length (R_senders R) = length ems -> In k (R_senders R) ->
-    map.get (map.of_list (combine (R_senders R) ems) : count_map) k = Some (count_at R ems k).
+  Lemma count_at_combine pat ems k c :
+    length (R_senders pat.(fact_pattern.rel)) = length ems ->
+    In (k, c) (combine (R_senders pat.(fact_pattern.rel)) ems) ->
+    count_at pat ems k = c.
   Proof.
-    intros Hlen Hin.
-    assert (Hnd : NoDup (List.map fst (combine (R_senders R) ems)))
-      by (rewrite map_fst_combine by exact Hlen; apply R_senders_NoDup).
-    rewrite <- (map_fst_combine (R_senders R) ems Hlen) in Hin.
-    apply in_map_iff in Hin. destruct Hin as ((k' & c) & Heq & Hcomb). cbn in Heq. subst k'.
-    pose proof (map.get_of_list_In_NoDup (combine (R_senders R) ems) Hnd k c Hcomb) as Hget.
-    rewrite (count_at_Some _ _ _ _ Hget). exact Hget.
+    intros Hlen Hcomb. apply count_at_Some, map.get_of_list_In_NoDup; [| exact Hcomb].
+    rewrite map_fst_combine by exact Hlen. apply R_senders_NoDup.
   Qed.
 
-  Lemma sum_count_at R ems (partition : node_map) :
-    length (R_senders R) = length ems ->
-    incl (R_senders R) (map.keys partition) ->
-    list_sum (List.map (count_at R ems) (map.keys partition)) = list_sum ems.
+  Lemma count_at_In pat ems k :
+    length (R_senders pat.(fact_pattern.rel)) = length ems ->
+    In k (R_senders pat.(fact_pattern.rel)) ->
+    map.get (claim_counts pat ems) k = Some (count_at pat ems k).
+  Proof.
+    intros Hlen Hin.
+    rewrite <- (map_fst_combine (R_senders pat.(fact_pattern.rel)) ems Hlen) in Hin.
+    apply in_map_iff in Hin. destruct Hin as ((k' & c) & Heq & Hcomb). cbn in Heq. subst k'.
+    rewrite (count_at_combine _ _ _ _ Hlen Hcomb).
+    apply map.get_of_list_In_NoDup; [| exact Hcomb].
+    rewrite map_fst_combine by exact Hlen. apply R_senders_NoDup.
+  Qed.
+
+  Lemma counts_get_Forall2 (P : source -> nat -> Prop) pat ems k c :
+    Forall2 P (R_senders pat.(fact_pattern.rel)) ems ->
+    map.get (claim_counts pat ems) k = Some c ->
+    P k c.
+  Proof.
+    intros HF Hget.
+    exact (proj1 (Forall_forall _ _) (Forall2_combine _ _ _ HF) _ (get_of_list_In _ _ _ Hget)).
+  Qed.
+
+  Lemma sum_count_at pat ems (partition : node_map) :
+    length (R_senders pat.(fact_pattern.rel)) = length ems ->
+    incl (R_senders pat.(fact_pattern.rel)) (map.keys partition) ->
+    list_sum (List.map (count_at pat ems) (map.keys partition)) = list_sum ems.
   Proof.
     intros Hlen Hsub.
-    rewrite (list_sum_map_over_subset (count_at R ems) (R_senders R) (map.keys partition));
+    rewrite (list_sum_map_over_subset (count_at pat ems) (R_senders pat.(fact_pattern.rel))
+               (map.keys partition));
       [ f_equal; apply map_count_at; exact Hlen | apply R_senders_NoDup | apply map.keys_NoDup
       | exact Hsub | intros k Hnin; apply count_at_off; exact Hnin ].
+  Qed.
+
+  Lemma senders_in_keys pat ems (partition : node_map) :
+    Forall_map allowed_output partition ->
+    Forall2 (fun k e => In (message.done_with pat k e) (concat (values partition)))
+            (R_senders pat.(fact_pattern.rel)) ems ->
+    incl (R_senders pat.(fact_pattern.rel)) (map.keys partition).
+  Proof.
+    intros HF Hems k Hk.
+    destruct (Forall2_In_l _ _ _ _ Hems Hk) as (em & _ & Hmeta).
+    destruct (meta_locate _ _ _ _ HF Hmeta) as (ms & Hget & _).
+    eapply map.in_keys; exact Hget.
+  Qed.
+
+  (*each node's sent multiset stays within the count the claim assigns it*)
+  Lemma counts_bound pat ems (partition : node_map) k ms :
+    Forall_map allowed_output partition ->
+    Forall2 (fun k e => In (message.done_with pat k e) (concat (values partition)))
+            (R_senders pat.(fact_pattern.rel)) ems ->
+    map.get partition k = Some ms ->
+    Existsn_le (message.matches pat) (count_at pat ems k) ms.
+  Proof.
+    intros HF Hems Hget.
+    destruct (map.get (claim_counts pat ems) k) as [c|] eqn:Ec.
+    - rewrite (count_at_Some _ _ _ _ Ec).
+      pose proof (counts_get_Forall2 _ _ _ _ _ Hems Ec) as Hmeta.
+      destruct (sender_block _ _ _ _ HF Hmeta) as (ms' & Hget' & _ & Hle).
+      map_func. assumption.
+    - rewrite (count_at_None _ _ _ Ec). apply Existsn_le_0_Forall_not.
+      eapply no_R_matches_off_senders; [ exact HF | exact Hget | ].
+      intros Hin.
+      rewrite count_at_In in Ec by (eauto using Forall2_length). discriminate.
   Qed.
 
   Lemma allowed_of_outputs (partition : node_map) :
@@ -183,20 +237,9 @@ Section Distributed.
     intros HF pat ems Hems.
     assert (Hlen : length (R_senders pat.(fact_pattern.rel)) = length ems)
       by (eapply Forall2_length; exact Hems).
-    assert (Hsub : incl (R_senders pat.(fact_pattern.rel)) (map.keys partition)).
-    { intros k Hk. destruct (Forall2_In_l _ _ _ _ Hems Hk) as (em & _ & Hmeta).
-      destruct (meta_locate _ _ _ _ HF Hmeta) as (ms & Hget & _). eapply map.in_keys; exact Hget. }
-    rewrite <- (sum_count_at pat.(fact_pattern.rel) ems partition Hlen Hsub).
+    rewrite <- (sum_count_at pat ems partition Hlen (senders_in_keys _ _ _ HF Hems)).
     apply Existsn_le_concat_map. intros k ms Hget.
-    destruct (map.get (map.of_list (combine (R_senders pat.(fact_pattern.rel)) ems) : count_map) k)
-      as [c|] eqn:Ec.
-    - rewrite (count_at_Some _ _ _ _ Ec).
-      pose proof (proj1 (Forall_forall _ _) (Forall2_combine _ _ _ Hems) _ (get_of_list_In _ _ _ Ec)) as Hmeta.
-      destruct (sender_block _ _ _ _ HF Hmeta) as (ms' & Hget' & _ & Hle).
-      simpl in *. map_func. assumption.
-    - rewrite (count_at_None _ _ _ Ec). apply Existsn_le_0_Forall_not.
-      eapply no_R_matches_off_senders; [ exact HF | exact Hget | ].
-      intros Hin. rewrite count_at_In in Ec by assumption. discriminate.
+    exact (counts_bound _ _ _ _ _ HF Hems Hget).
   Qed.
 
   Lemma consistent_good_holds :
@@ -213,32 +256,16 @@ Section Distributed.
         destruct Hcons as (num & (ems & Hexpect & Hnum) & Hge). subst num.
         assert (Hlen : length (R_senders pat.(fact_pattern.rel)) = length ems)
           by (eapply Forall2_length; exact Hexpect).
-        assert (Hsub : incl (R_senders pat.(fact_pattern.rel)) (map.keys partition)).
-        { intros k Hk. destruct (Forall2_In_l _ _ _ _ Hexpect Hk) as (em & _ & Hmeta).
-          destruct (meta_locate _ _ _ _ Hallow Hmeta) as (ms & Hget & _). eapply map.in_keys; exact Hget. }
-        assert (Hle : Forall_map (fun k ms => Existsn_le (message.matches pat) (count_at pat.(fact_pattern.rel) ems k) ms)
-                                 partition).
-        { intros k ms Hget.
-          destruct (map.get (map.of_list (combine (R_senders pat.(fact_pattern.rel)) ems) : count_map) k)
-            as [c|] eqn:Ec.
-          - rewrite (count_at_Some _ _ _ _ Ec).
-            pose proof (proj1 (Forall_forall _ _) (Forall2_combine _ _ _ Hexpect) _ (get_of_list_In _ _ _ Ec)) as Hmeta.
-            destruct (sender_block _ _ _ _ Hallow Hmeta) as (ms' & Hget' & _ & Hle_ms).
-            map_func. exact Hle_ms.
-          - rewrite (count_at_None _ _ _ Ec). apply Existsn_le_0_Forall_not.
-            eapply no_R_matches_off_senders; [ exact Hallow | exact Hget | ].
-            intros Hin. rewrite (count_at_In pat.(fact_pattern.rel) ems k Hlen Hin) in Ec. discriminate. }
-        rewrite <- (sum_count_at pat.(fact_pattern.rel) ems partition Hlen Hsub) in Hge.
-        pose proof (Existsn_squeeze_map (message.matches pat) (count_at pat.(fact_pattern.rel) ems) partition Hge Hle) as Hsq.
+        rewrite <- (sum_count_at pat ems partition Hlen
+                      (senders_in_keys _ _ _ Hallow Hexpect)) in Hge.
+        pose proof (Existsn_squeeze_map (message.matches pat) (count_at pat ems) partition Hge
+                      (fun k ms Hget => counts_bound _ _ _ _ _ Hallow Hexpect Hget)) as Hsq.
         intros n ms Hget. cbv [consistent_output]. intros Hn.
         destruct (Forall2_In_l _ _ _ _ Hexpect Hn) as (em & Hcomb & Hmeta).
         exists em. split.
         * destruct (meta_locate _ _ _ _ Hallow Hmeta) as (ms' & Hget' & Hin_ms).
           map_func. exact Hin_ms.
-        * pose proof (count_at_Some pat.(fact_pattern.rel) ems n em
-                        (map.get_of_list_In_NoDup (combine (R_senders pat.(fact_pattern.rel)) ems)
-                           ltac:(rewrite map_fst_combine by exact Hlen; apply R_senders_NoDup) n em Hcomb)) as Hen.
-          rewrite <- Hen. exact (Hsq n ms Hget).
+        * rewrite <- (count_at_combine _ _ _ _ Hlen Hcomb). exact (Hsq n ms Hget).
       + intros HcoF. cbv [node.consistent node.expects_num_facts].
         assert (Hbuild : Forall (fun k => exists cnt ms, map.get partition k = Some ms /\
                     In (message.done_with pat k cnt) ms /\ Existsn_ge (message.matches pat) cnt ms)
@@ -253,17 +280,15 @@ Section Distributed.
         * exists ems. split; [ | reflexivity ].
           eapply Forall2_impl; [ exact Hbuild2 | ]. intros k cnt (ms & Hget & Hin & _).
           apply In_concat_values. exists k, ms. split; [ exact Hget | exact Hin ].
-        * assert (Hlen : length (R_senders pat.(fact_pattern.rel)) = length ems)
-            by (eapply Forall2_length; exact Hbuild2).
-          assert (Hsub : incl (R_senders pat.(fact_pattern.rel)) (map.keys partition)).
+        * assert (Hsub : incl (R_senders pat.(fact_pattern.rel)) (map.keys partition)).
           { intros k Hk. destruct (Forall2_In_l _ _ _ _ Hbuild2 Hk) as (cnt & _ & (ms & Hget & _)).
             eapply map.in_keys; exact Hget. }
-          rewrite <- (sum_count_at pat.(fact_pattern.rel) ems partition Hlen Hsub).
+          rewrite <- (sum_count_at pat ems partition
+                        ltac:(eauto using Forall2_length) Hsub).
           apply Existsn_ge_concat_map. intros k ms Hget.
-          destruct (map.get (map.of_list (combine (R_senders pat.(fact_pattern.rel)) ems) : count_map) k)
-            as [c|] eqn:Ec.
+          destruct (map.get (claim_counts pat ems) k) as [c|] eqn:Ec.
           -- rewrite (count_at_Some _ _ _ _ Ec).
-             pose proof (proj1 (Forall_forall _ _) (Forall2_combine _ _ _ Hbuild2) _ (get_of_list_In _ _ _ Ec))
+             pose proof (counts_get_Forall2 _ _ _ _ _ Hbuild2 Ec)
                as (ms' & Hget' & _ & Hge_ms).
              map_func. exact Hge_ms.
           -- rewrite (count_at_None _ _ _ Ec). apply Eg_zero.
