@@ -71,47 +71,41 @@ Section __.
       rule.interp r nf hyps /\
         Forall (knows_fact known_facts) hyps.
 
-  Definition can_deduce_meta_fact (mr : meta_rule) (node : mf_label) (sent_facts : list dfact)
-    (result : dfact) (hyps : list meta_fact) :=
-    exists pat mf_cnt,
-      result = meta_dfact pat node mf_cnt /\
-        Existsn (dfact_matches pat) mf_cnt sent_facts /\
-        meta_rule.pattern_interp mr pat (map meta_fact.pattern hyps).
-
-  Definition safe_to_deduce_pat (r : rule) known sent pat :=
-    forall nf,
-      can_deduce_normal_fact r known nf ->
-      fact_pattern.matches pat nf ->
-      In (normal_dfact nf) sent.
+  Definition can_deduce_pattern (mr : meta_rule) (known_facts : list dfact) (pat : fact_pattern) :=
+    exists mhyps,
+      meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
+        Forall (knows_meta_fact known_facts) mhyps.
 
   Definition sends_concl_rels (nm : mf_label) (p : program) : Prop :=
     forall R, In R (program.concl_rels p) -> In nm (R_senders R).
 
   Context (p : program) (name : mf_label).
 
-  Definition can_deduce_normal_fact' r known sent (nf : normal_fact) :=
-    can_deduce_normal_fact r known nf /\
-      (forall pat num,
-          In (meta_dfact pat name num) sent ->
-          fact_pattern.matches pat nf ->
-          False).
+  (*a sent done-message promises a final count for its pattern, so a fact
+    matching one must not be emitted anew*)
+  Definition counted (sent : list dfact) (nf : normal_fact) :=
+    exists pat num,
+      In (meta_dfact pat name num) sent /\
+        fact_pattern.matches pat nf.
 
-  Definition can_deduce_meta_fact' known sent r source mf :=
-    source = name /\
-      exists hyps,
-        can_deduce_meta_fact r name sent mf hyps /\
-          Forall (knows_meta_fact known) hyps.
+  (*every fact the program can currently derive matching pat has been sent*)
+  Definition saturated (known sent : list dfact) (pat : fact_pattern) :=
+    forall r nf,
+      In r p.(program.rules) ->
+      can_deduce_normal_fact r known nf ->
+      fact_pattern.matches pat nf ->
+      In (normal_dfact nf) sent.
 
   Definition can_deduce_fact (rs : node_state) (f : dfact) :=
     match f with
     | normal_dfact nf =>
-        Exists (fun r => can_deduce_normal_fact' r rs.(known_facts) rs.(sent_facts) nf)
-          p.(program.rules)
-    | meta_dfact pat src _ =>
-        Exists (fun mr => can_deduce_meta_fact' rs.(known_facts) rs.(sent_facts) mr src f)
-          p.(program.meta_rules) /\
-          Forall (fun r => safe_to_deduce_pat r rs.(known_facts) rs.(sent_facts) pat)
-            p.(program.rules)
+        Exists (fun r => can_deduce_normal_fact r rs.(known_facts) nf) p.(program.rules) /\
+          ~ counted rs.(sent_facts) nf
+    | meta_dfact pat src num =>
+        src = name /\
+          Exists (fun mr => can_deduce_pattern mr rs.(known_facts) pat) p.(program.meta_rules) /\
+          Existsn (dfact_matches pat) num rs.(sent_facts) /\
+          saturated rs.(known_facts) rs.(sent_facts) pat
     end.
 
   Variant dfact_mod_count :=
