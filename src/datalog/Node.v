@@ -4,71 +4,75 @@ From coqutil Require Import Map.Interface.
 From coqutil Require Import Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
 Import ListNotations.
 
-Definition mf_labelT := Type.
-Existing Class mf_labelT.
-#[global] Typeclasses Transparent mf_labelT.
+Definition sender_labelT := Type.
+Existing Class sender_labelT.
+#[global] Typeclasses Transparent sender_labelT.
 
-Module countless.
+(*a specification for how a datalog node should behave.
+  eventually, an "implementation" should live in Local.v.
+  i expect we'll want to do "Import spec" in files that don't think about the implementation.
+  this module wraps almost the whole file, so let's not indent inside of it.
+ *)
+Module spec_node.
+Module action_label.
   Section __.
-    Context `{params : datalog_params} {mf_label : mf_labelT}.
+    Context `{params : datalog_params} {sender_label : sender_labelT}.
 
-    Variant countless :=
+    Variant action_label :=
       | normal (nf : normal_fact)
-      | meta (pattern : fact_pattern) (src : mf_label).
+      | done_with (pattern : fact_pattern).
   End __.
-End countless. Export countless (countless).
+End action_label. Export action_label (action_label).
 
-Module dfact.
+Module message.
   Section __.
-    Context `{params : datalog_params} {mf_label : mf_labelT}.
-    Context (R_senders : rel -> list mf_label).
+    Context `{params : datalog_params} {sender_label : sender_labelT}.
+    Context (R_senders : rel -> list sender_label).
 
-    Inductive dfact :=
+    Variant message :=
     | normal (nf : normal_fact)
-    | meta (pattern : fact_pattern) (src : mf_label) (expected_msgs : nat).
+    | done_with (pattern : fact_pattern) (src : sender_label) (count : nat).
 
-    Definition is_normal (f : dfact) : bool :=
+    Definition is_normal (f : message) : bool :=
       match f with
       | normal _ => true
-      | meta _ _ _ => false
+      | done_with _ _ _ => false
       end.
 
-    Definition to_normal_facts (f : dfact) : list normal_fact :=
+    Definition normal_facts (f : message) : list normal_fact :=
       match f with
       | normal nf => [nf]
-      | meta _ _ _ => []
+      | done_with _ _ _ => []
       end.
 
-    Definition dfact_rel (f : dfact) : rel :=
+    Definition rel (f : message) : rel :=
       match f with
       | normal nf => nf.(normal_fact.rel)
-      | meta pat _ _ => pat.(fact_pattern.rel)
+      | done_with pat _ _ => pat.(fact_pattern.rel)
       end.
 
-    Definition matches (pat : fact_pattern) (f : dfact) :=
+    Definition matches (pat : fact_pattern) (f : message) :=
       match f with
       | normal nf => fact_pattern.matches pat nf
-      | meta _ _ _ => False
+      | done_with _ _ _ => False
       end.
 
-    Definition equiv (f1 f2 : dfact) : Prop :=
+    Definition equiv (f1 f2 : message) :=
       match f1, f2 with
-      | meta p1 s1 _, meta p2 s2 _ => p1 = p2 /\ s1 = s2
+      | done_with p1 s1 _, done_with p2 s2 _ => p1 = p2 /\ s1 = s2
       | _, _ => f1 = f2
       end.
 
-
-
-    Definition set_knows_normal_fact (dfacts : list dfact) (nf : normal_fact) :=
+    Definition set_knows_normal_fact (dfacts : list message) (nf : normal_fact) :=
       In (normal nf) dfacts.
 
-    Definition set_expects_num_facts (pat : fact_pattern) (known : list dfact) num :=
+    Definition set_expects_num_facts (pat : fact_pattern) (known : list message) num :=
       exists expected_msgss,
-        Forall2 (fun n expected_msgs => In (meta pat n expected_msgs) known)
+        Forall2 (fun n expected_msgs => In (done_with pat n expected_msgs) known)
           (R_senders pat.(fact_pattern.rel)) expected_msgss /\
           num = list_sum expected_msgss.
 
-    Definition set_knows_meta_fact (dfacts : list dfact) (mf : meta_fact) :=
+    Definition set_knows_meta_fact (dfacts : list message) (mf : meta_fact) :=
       exists num,
         set_expects_num_facts mf.(meta_fact.pattern) dfacts num /\
           Existsn (matches mf.(meta_fact.pattern)) num dfacts /\
@@ -80,42 +84,40 @@ Module dfact.
       | fact.meta mf => set_knows_meta_fact dfacts mf
       end.
 
-    Definition mod_count (f : dfact) :=
+    Definition label (f : message) :=
       match f with
-      | normal nf => countless.normal nf
-      | meta pat src _ => countless.meta pat src
+      | normal nf => action_label.normal nf
+      | done_with pat _ _ => action_label.done_with pat
       end.
   End __.
-End dfact. Export dfact (dfact).
+End message. Export message (message).
 
-Module node.
-  Module state.
-    Section __.
-      Context `{params : datalog_params} {mf_label : mf_labelT}.
+Module state.
+  Section __.
+    Context `{params : datalog_params} {sender_label : sender_labelT}.
+    Context (R_senders : rel -> list sender_label).
 
-      Record state :=
-        { known : list dfact;
-          sent : list dfact }.
-
-
+    Record state :=
+      { known : list message;
+        sent : list message }.
+  End __.
+End state. Export state (state).
 
   Section __.
-    Context `{params : datalog_params} {mf_label : mf_labelT}.
-    Context (R_senders : rel -> list mf_label).
-
-
-  Definition can_deduce_normal_fact (r : rule) (known : list dfact) (nf : normal_fact) :=
-    exists hyps,
-      rule.interp r nf hyps /\
-        Forall (dfact.set_knows_fact R_senders known) hyps.
+    Context `{params : datalog_params} {sender_label : sender_labelT}.
+    Context (R_senders : rel -> list sender_label).
+    Definition can_deduce_normal_fact (r : rule) (known : list message) (nf : normal_fact) :=
+      exists hyps,
+        rule.interp r nf hyps /\
+          Forall (message.set_knows_fact R_senders known) hyps.
 
   Definition can_deduce_pattern (mr : meta_rule) (known : list dfact) (pat : fact_pattern) :=
     exists mhyps,
       meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
         Forall (dfact.set_knows_meta_fact R_senders known) mhyps.
 
-  Definition sends_concl_rels (nm : mf_label) (p : program) : Prop :=
-    forall R, In R (program.concl_rels p) -> In nm (R_senders R).
+Definition sends_concl_rels (nm : mf_label) (p : program) : Prop :=
+  forall R, In R (program.concl_rels p) -> In nm (R_senders R).
 
   Context (p : program) (name : mf_label).
 
