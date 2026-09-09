@@ -5,7 +5,7 @@ From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties.
 
-From Datalog Require Import Map Tactics Fp List Datalog Graph Node Default.
+From Datalog Require Import Map Tactics Fp List Pftree Datalog Graph Node Default.
 From GraphSearch Require Import Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
@@ -816,698 +816,7 @@ Section __.
       eapply ok_to_deduce_grow; try eassumption.
   Qed.
 
-  (*ported above; the rest is still the old API
-  Lemma get_or_default_values_0 (P : dfact -> Prop) (m : sent_map) k :
-    Forall (fun sent => Existsn P 0 sent) (values m) ->
-    Existsn P 0 (get_or_default m k).
-  Proof.
-    intros Hz. destruct (map.get m k) as [v|] eqn:Eg.
-    - rewrite (get_or_default_Some _ _ _ Eg). rewrite Forall_forall in Hz.
-      apply Hz. rewrite In_values. exists k. exact Eg.
-    - rewrite (get_or_default_None _ _ Eg). apply Existsn_nil.
-  Qed.
-
-  Lemma Forall2_update_at_nat {A} (R S : A -> nat -> Prop) (a : A) (d : nat) (l : list A) (ns : list nat) :
-    NoDup l -> In a l ->
-    Forall2 R l ns ->
-    (forall x, In x l -> x <> a -> forall n, R x n -> S x n) ->
-    (forall n, R a n -> S a (n + d)) ->
-    exists ns', Forall2 S l ns' /\ list_sum ns' = list_sum ns + d.
-  Proof.
-    intros Hnd Hin HF. revert Hnd Hin.
-    induction HF as [| x n l' ns' HR HF IH]; intros Hnd Hin Hother Hat.
-    - inversion Hin.
-    - inversion Hnd as [| xx ll Hnotin Hnd']; subst.
-      destruct Hin as [Heq | Hin'].
-      + subst x. exists ((n + d) :: ns'). split.
-        * constructor; [ exact (Hat _ HR) | ].
-          eapply Forall2_impl_strong; [ exact HF | ].
-          intros y m Hry Hy _. apply (Hother y); [ right; exact Hy | | exact Hry ].
-          intro Hya; subst y; exact (Hnotin Hy).
-        * rewrite !list_sum_cons. lia.
-      + assert (Hxa : x <> a) by (intro Hc; subst x; exact (Hnotin Hin')).
-        specialize (IH Hnd' Hin' (fun y Hy => Hother y (or_intror Hy)) Hat).
-        destruct IH as (ns'' & HF'' & Hsum).
-        exists (n :: ns''). split.
-        * constructor; [ apply (Hother x); [ left; reflexivity | exact Hxa | exact HR ] | exact HF'' ].
-        * rewrite !list_sum_cons. lia.
-  Qed.
-
-  Lemma sane_count_forall2_fire (P : dfact -> Prop) (m : sent_map) (r : rule)
-      (f : dfact) (msgs : list nat) (d : nat) :
-    In r non_meta_rules ->
-    (forall c, Existsn P c (get_or_default m r) -> Existsn P (c + d) (f :: get_or_default m r)) ->
-    Forall2 (fun r0 c => Existsn P c (get_or_default m r0)) sender_rules msgs ->
-    exists msgs',
-      Forall2 (fun r0 c => Existsn P c (get_or_default (mupd_with_default (cons f) m r) r0)) sender_rules msgs'
-      /\ list_sum msgs' = list_sum msgs + d.
-  Proof.
-    intros Hin_r Hinc Hf2.
-    eapply (Forall2_update_at_nat
-              (fun r0 c => Existsn P c (get_or_default m r0))
-              (fun r0 c => Existsn P c (get_or_default (mupd_with_default (cons f) m r) r0))
-              r d sender_rules msgs).
-    - unfold sender_rules. apply NoDup_dedup.
-    - exact (In_sender_rules r Hin_r).
-    - exact Hf2.
-    - intros x _ Hxr n HRx. rewrite get_or_default_mupd.
-      destr (eqb r x); [ exfalso; apply Hxr; congruence | exact HRx ].
-    - intros n HRr. rewrite get_or_default_mupd. destr (eqb r r); [ | congruence ].
-      exact (Hinc n HRr).
-  Qed.
-
-  Lemma step_preserves_sane inputs s1 s2 :
-    good_input_facts inputs ->
-    sane_state inputs s1 ->
-    comp_step s1 s2 ->
-    sane_state inputs s2.
-  Proof.
-    intros Hinp Hsane Hstep.
-    destruct Hsane as [Hmf_inp Hmf_sent Hcount Hinp_sane Hinp_propagated].
-    invert Hstep.
-    rename H into Hin_r. rename H0 into Hfire.
-    cbv [fire_at_rule] in Hfire.
-    destruct Hfire as (fired_rule & Hcfr & Hcan_f & Hok_f).
-    destruct new_fact as [nf_rel nf_args | mf_rel mf_args new_source num_msgs].
-    - (* fire_rule with a normal_dfact *)
-      cbv [can_deduce_fact] in Hcan_f. destruct Hcan_f as (Hcan & Hnometa). clear Hok_f.
-      assert (Hfr_eq : fired_rule = r).
-      { destruct Hcan as (hyps & Himpl & _).
-        destruct Hcfr as [-> | (mc & mh & _ & ->)]; [reflexivity | invert Himpl]. }
-      subst fired_rule.
-      assert (Hnf_noninput : is_input nf_rel = false).
-      { rewrite Forall_forall in Hp_good. specialize (Hp_good r (non_meta_rules_In_p r Hin_r)).
-        eapply can_deduce_implies_not_input; eassumption. }
-      constructor; cbn [known_facts sents].
-      + intros R a num [Heq | Hin]; [ discriminate | exact (Hmf_inp _ _ _ Hin) ].
-      + intros R a r0 num [Heq | Hin]; [ discriminate | ].
-        specialize (Hmf_sent _ _ _ _ Hin). destruct Hmf_sent as (HE & HI).
-        rewrite get_or_default_mupd. destr (eqb r r0).
-        * assert (Hnmatch : ~ dfact_matches R a (normal_dfact nf_rel nf_args : dfact)).
-          { intros (nf_args0 & Heqf & Hmatch). injection Heqf as -> ->.
-            exact (Hnometa _ _ HI Hmatch). }
-          split; [ apply Existsn_no; [ exact Hnmatch | exact HE ] | right; exact HI ].
-        * split; [ exact HE | exact HI ].
-      + intros R a. specialize (Hcount R a).
-        destruct Hcount as (msgs & num_inp & num_known & Hf2 & Hni & Hnk & Hsum).
-        destruct (classic (dfact_matches R a (normal_dfact nf_rel nf_args : dfact))) as [Hm | Hm].
-        * assert (Hinc : forall c, Existsn (dfact_matches R a) c (get_or_default (sents s1) r) ->
-                    Existsn (dfact_matches R a) (c + 1)
-                      (normal_dfact nf_rel nf_args :: get_or_default (sents s1) r)).
-          { intros c Hc. rewrite Nat.add_1_r. apply Existsn_yes; [ exact Hm | exact Hc ]. }
-          edestruct (sane_count_forall2_fire (dfact_matches R a) (sents s1) r
-                       (normal_dfact nf_rel nf_args) msgs 1 Hin_r Hinc Hf2) as (msgs' & Hf2' & Hsum').
-          exists msgs', num_inp, (S num_known). ssplit;
-            [ exact Hf2' | exact Hni | apply Existsn_yes; [ exact Hm | exact Hnk ] | lia ].
-        * assert (Hinc : forall c, Existsn (dfact_matches R a) c (get_or_default (sents s1) r) ->
-                    Existsn (dfact_matches R a) (c + 0)
-                      (normal_dfact nf_rel nf_args :: get_or_default (sents s1) r)).
-          { intros c Hc. rewrite Nat.add_0_r. apply Existsn_no; [ exact Hm | exact Hc ]. }
-          edestruct (sane_count_forall2_fire (dfact_matches R a) (sents s1) r
-                       (normal_dfact nf_rel nf_args) msgs 0 Hin_r Hinc Hf2) as (msgs' & Hf2' & Hsum').
-          exists msgs', num_inp, num_known. ssplit;
-            [ exact Hf2' | exact Hni | apply Existsn_no; [ exact Hm | exact Hnk ] | lia ].
-      + intros R HR. specialize (Hinp_sane R HR). destruct Hinp_sane as (HForall & Hnone). split.
-        * intros a. rewrite mupd_with_default_eq_put.
-          apply Forall_values_put; [ exact (HForall a) | ].
-          apply Existsn_no.
-          -- intros (nf_args0 & Heqf & _). injection Heqf as -> _. congruence.
-          -- pose proof (HForall a) as HFa. rewrite Forall_forall in HFa.
-             destruct (map.get (sents s1) r) as [v|] eqn:Eg.
-             ++ rewrite (get_or_default_Some _ _ _ Eg). apply HFa, In_values. exists r. exact Eg.
-             ++ rewrite (get_or_default_None _ _ Eg). apply Existsn_nil.
-        * intros a r0 num [Heq | Hin]; [ discriminate | exact (Hnone _ _ _ Hin) ].
-      + intros f Hf. right. exact (Hinp_propagated f Hf).
-    - (* fire_rule with a meta_dfact *)
-      cbv [can_deduce_fact] in Hcan_f.
-      destruct Hcan_f as (Hsrc & mr_concls & mr_hyps & hyps & Hfr_eq & Hcdmf & Hknow_hyps).
-      subst new_source.
-      assert (Hmr_in : In (meta_rule mr_concls mr_hyps) p).
-      { rewrite Hfr_eq in Hcfr. exact (can_fire_meta_In _ _ _ Hin_r Hcfr). }
-      subst fired_rule.
-      cbv [can_deduce_meta_fact] in Hcdmf.
-      destruct Hcdmf as (ctx & mfr_t & mfa_t & mfc_t & Hnf_eq & HsentExistsn & Hmc_concl & Hmc_hyps).
-      cbv [mf_label] in *. fwd.
-      assert (Hmf_rel_noninput : is_input mfr_t = false).
-      { apply Exists_exists in Hmc_concl. destruct Hmc_concl as (c & Hin_c & Hint).
-        cbv [meta_clause.interp] in Hint. destruct Hint as (mfa & mfs & _ & Heqc).
-        injection Heqc as -> _ _.
-        eapply concl_rel_not_input; [ exact Hmr_in | apply in_map, Hin_c ]. }
-      constructor; cbn [known_facts sents].
-      + intros R a num [Heq | Hin]; [ discriminate | exact (Hmf_inp _ _ _ Hin) ].
-      + intros R a r0 num Hin. rewrite get_or_default_mupd. destr (eqb r r0).
-        * destruct Hin as [Heq | Hin].
-          -- injection Heq as -> -> ->.
-             split; [ apply Existsn_no; [ intros (? & Hq & _); discriminate | exact HsentExistsn ]
-                    | left; reflexivity ].
-          -- specialize (Hmf_sent _ _ _ _ Hin). destruct Hmf_sent as (HE & HI).
-             split; [ apply Existsn_no; [ intros (? & Hq & _); discriminate | exact HE ]
-                    | right; exact HI ].
-        * destruct Hin as [Heq | Hin].
-          -- injection Heq as -> -> Hr0 ->. congruence.
-          -- specialize (Hmf_sent _ _ _ _ Hin). destruct Hmf_sent as (HE & HI).
-             split; [ exact HE | exact HI ].
-      + intros R a. specialize (Hcount R a).
-        destruct Hcount as (msgs & num_inp & num_known & Hf2 & Hni & Hnk & Hsum).
-        assert (Hnm : ~ dfact_matches R a (meta_dfact mfr_t mfa_t (from_rule r) mfc_t : dfact)).
-        { intros (? & Hq & _). discriminate. }
-        assert (Hinc : forall c, Existsn (dfact_matches R a) c (get_or_default (sents s1) r) ->
-                  Existsn (dfact_matches R a) (c + 0)
-                    (meta_dfact mfr_t mfa_t (from_rule r) mfc_t :: get_or_default (sents s1) r)).
-        { intros c Hc. rewrite Nat.add_0_r. apply Existsn_no; [ exact Hnm | exact Hc ]. }
-        edestruct (sane_count_forall2_fire (dfact_matches R a) (sents s1) r
-                     (meta_dfact mfr_t mfa_t (from_rule r) mfc_t) msgs 0 Hin_r Hinc Hf2)
-          as (msgs' & Hf2' & Hsum').
-        exists msgs', num_inp, num_known. ssplit;
-          [ exact Hf2' | exact Hni | apply Existsn_no; [ exact Hnm | exact Hnk ] | lia ].
-      + intros R HR. specialize (Hinp_sane R HR). destruct Hinp_sane as (HForall & Hnone). split.
-        * intros a. rewrite mupd_with_default_eq_put.
-          apply Forall_values_put; [ exact (HForall a) | ].
-          apply Existsn_no.
-          -- intros (? & Hq & _). discriminate.
-          -- pose proof (HForall a) as HFa. rewrite Forall_forall in HFa.
-             destruct (map.get (sents s1) r) as [v|] eqn:Eg.
-             ++ rewrite (get_or_default_Some _ _ _ Eg). apply HFa, In_values. exists r. exact Eg.
-             ++ rewrite (get_or_default_None _ _ Eg). apply Existsn_nil.
-        * intros a r0 num [Heq | Hin].
-          -- injection Heq as -> _ _. congruence.
-          -- exact (Hnone _ _ _ Hin).
-      + intros f Hf. right. exact (Hinp_propagated f Hf).
-  Qed.
-
-  Lemma sane_allowed_inputs inputs s :
-    good_input_facts inputs ->
-    sane_state inputs s ->
-    allowed_inputs s.(known_facts).
-  Proof.
-    intros Hinp Hsane R mf_args ems Hf2.
-    assert (Hexp : expect_num_R_facts R mf_args s.(known_facts) (list_sum ems))
-      by (exists ems; split; [ exact Hf2 | reflexivity ]).
-    rewrite expect_num_R_facts_eq in Hexp.
-    destruct Hsane as [Hmf_inp Hmf_sent Hcount Hinp_rel Hinp_known].
-    destruct (Hcount R mf_args) as (msgs & num_inp & num_known & Hms & Hinp_cnt & Hkn_cnt & Hsum).
-    eapply Existsn_le_of_Existsn; [ exact Hkn_cnt | ]. rewrite Hsum.
-    destruct (is_input R) eqn:ER; cbv iota in Hexp.
-    - apply Hmf_inp in Hexp.
-      destruct Hinp as (_ & Hgc). destruct (Hgc _ _ _ Hexp) as (_ & num' & Hle & Hex').
-      pose proof (Existsn_unique _ _ _ _ Hinp_cnt Hex') as ->.
-      assert (Hms0 : list_sum msgs = 0).
-      { destruct (Hinp_rel R ER) as (Hz & _). specialize (Hz mf_args).
-        assert (Hmz : msgs = repeat 0 (length sender_rules)).
-        { eapply Forall2_unique_r;
-            [ exact Hms
-            | apply Forall2_repeat_r, Forall_forall; intros r0 _; apply get_or_default_values_0; exact Hz
-            | intros x y y' _ Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ]. }
-        rewrite Hmz, list_sum_repeat. lia. }
-      rewrite Hms0, Nat.add_0_r. exact Hle.
-    - destruct Hexp as (emss & Hexpp0 & Hsum_ems).
-      assert (Hni0 : num_inp = 0).
-      { destruct Hinp as (Hrel & _).
-        enough (Existsn (dfact_matches R mf_args) 0 inputs) as Hno
-          by exact (Existsn_unique _ _ _ _ Hinp_cnt Hno).
-        apply Forall_not_Existsn_0. apply Forall_forall. intros f Hin_f Hdf.
-        destruct Hdf as (nfa & Heqf & _). subst f.
-        rewrite Forall_forall in Hrel. specialize (Hrel _ Hin_f). simpl in Hrel. congruence. }
-      subst num_inp. cbn [Nat.add]. rewrite Hsum_ems.
-      enough (msgs = emss) as -> by lia.
-      eapply Forall2_unique_r;
-        [ exact Hms | | intros x y y' _ Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ].
-      eapply Forall2_impl_strong; [ exact Hexpp0 | ].
-      intros rk ek HIn _ _. exact (proj1 (Hmf_sent _ _ _ _ HIn)).
-  Qed.
-
-  Lemma comp_step_known_cons s s' :
-    comp_step s s' -> exists f, s'.(known_facts) = f :: s.(known_facts).
-  Proof. intros H. invert H. cbn [known_facts]. eauto. Qed.
-
-  Lemma comp_step_knows_incl inputs s s' :
-    good_input_facts inputs ->
-    sane_state inputs s ->
-    comp_step s s' ->
-    knows_incl s.(known_facts) s'.(known_facts).
-  Proof.
-    intros Hinp Hsane Hstep.
-    destruct (comp_step_known_cons _ _ Hstep) as (f & Hf).
-    apply knows_incl_of_submultiset.
-    - exists [f]. rewrite Hf. apply Permutation_cons_append.
-    - exact (sane_allowed_inputs _ _ Hinp (step_preserves_sane _ _ _ Hinp Hsane Hstep)).
-  Qed.
-
-  Lemma meta_facts_correct_at_rule_mono mrs k1 k2 r sent :
-    knows_incl k1 k2 ->
-    meta_facts_correct_at_rule mrs k1 r sent ->
-    meta_facts_correct_at_rule mrs k2 r sent.
-  Proof.
-    intros Hincl H R mf_args num HIn.
-    destruct (H R mf_args num HIn) as (mc & mh & hyps & Hin & Hcd & Hkn & Hns).
-    exists mc, mh, hyps. split; [ exact Hin |]. split; [ exact Hcd |].
-    split; [ eapply Forall_impl; [ exact Hincl | exact Hkn ] | exact Hns ].
-  Qed.
-
-  Lemma at_rule_cons_tail mrs k1 k2 r f sent R mf_args num :
-    knows_incl k1 k2 ->
-    ~ dfact_matches R mf_args f ->
-    meta_facts_correct_at_rule mrs k1 r sent ->
-    In (meta_dfact R mf_args (from_rule r) num) sent ->
-    exists mfc mfh hyps,
-      In (meta_rule mfc mfh) mrs /\
-        can_deduce_meta_fact mfc mfh (from_rule r) (f :: sent)
-          (meta_dfact R mf_args (from_rule r) num) hyps /\
-        Forall (knows_datalog_fact k2) hyps /\
-        (forall mf_set, ~ In (meta_fact R mf_args mf_set) hyps).
-  Proof.
-    intros Hincl Hnm H HIn.
-    destruct (H R mf_args num HIn) as (mfc & mfh & hyps & Hin0 & Hcan0 & Hkn0 & Hns0).
-    exists mfc, mfh, hyps. split; [ exact Hin0 |].
-    cbv [can_deduce_meta_fact] in Hcan0 |- *.
-    destruct Hcan0 as (ctx0 & mr0 & ma0 & mc0 & Hres0 & HEx0 & Hconcl0 & Hinterp0).
-    injection Hres0 as Hr0 Ha0 Hc0. subst mr0 ma0 mc0.
-    split; [| split].
-    - exists ctx0, R, mf_args, num. split; [ reflexivity |].
-      split; [ apply Existsn_no; [ exact Hnm | exact HEx0 ] |].
-      split; [ exact Hconcl0 | exact Hinterp0 ].
-    - eapply Forall_impl; [ exact Hincl | exact Hkn0 ].
-    - exact Hns0.
-  Qed.
-
-  Lemma step_preserves_mfs_correct inputs s s' :
-    good_input_facts inputs ->
-    sane_state inputs s ->
-    meta_facts_correct s ->
-    comp_step s s' ->
-    meta_facts_correct s'.
-  Proof.
-    intros Hinp Hsane Hmfc Hstep.
-    pose proof (comp_step_knows_incl _ _ _ Hinp Hsane Hstep) as Hmono.
-    pose proof Hsane as Hsane0. destruct Hsane0 as [_ Hmf_sent _ _ _].
-    invert Hstep. rename H into Hin_r. rename H0 into Hfire.
-    cbv [fire_at_rule] in Hfire. destruct Hfire as (fired_rule & Hcfr & Hcan_f & Hok_f).
-    cbv [meta_facts_correct] in Hmfc |- *. cbn [known_facts sents] in Hmono |- *.
-    pose proof (Hmfc r Hin_r) as Hmfc_r.
-    intros r0 Hr0. rewrite get_or_default_mupd. destr (eqb r r0);
-      [ | eapply meta_facts_correct_at_rule_mono; [ exact Hmono | exact (Hmfc r0 Hr0) ] ].
-    intros R mf_args num HIn.
-      destruct new_fact as [nf_rel nf_args | new_mfr new_mfa new_source new_mfc].
-      + cbv [can_deduce_fact] in Hcan_f. destruct Hcan_f as (_ & Hnometa). clear Hok_f.
-        destruct HIn as [Heq | HIn]; [ discriminate | ].
-        eapply at_rule_cons_tail; [ exact Hmono | | exact Hmfc_r | exact HIn ].
-        intros [nf2 [Heqm Hmatch]]. injection Heqm as -> ->.
-        eapply Hnometa; [ exact HIn | exact Hmatch ].
-      + cbv [can_deduce_fact] in Hcan_f.
-        destruct Hcan_f as (Hsrc & mf_concls & mf_hyps & hyps & Hfr_eq & Hcan & Hknown_h).
-        subst new_source.
-        assert (Hmr_in : In (meta_rule mf_concls mf_hyps) p).
-        { rewrite Hfr_eq in Hcfr. exact (can_fire_meta_In _ _ _ Hin_r Hcfr). }
-        subst fired_rule.
-        destruct HIn as [Heq_nf | HIn_old].
-        2:{ eapply at_rule_cons_tail; [ exact Hmono | | exact Hmfc_r | exact HIn_old ].
-            intros [nf2 [Heqm _]]. discriminate. }
-        cbv [can_deduce_meta_fact] in Hcan |- *.
-        destruct Hcan as (ctx & mf_rel' & mf_args' & mf_cnt' & Hres & HEx & Hconcl & Hinterp).
-        pose proof (eq_trans (eq_sym Heq_nf) Hres) as Hcombined.
-        injection Hcombined as Heq_R Heq_args Heq_num. subst mf_rel' mf_args' mf_cnt'.
-        assert (HNI_R : is_input R = false).
-        { apply Exists_exists in Hconcl. destruct Hconcl as (c_concl & Hin_c & Hint_c).
-          cbv [meta_clause.interp] in Hint_c.
-          destruct Hint_c as (mfa_v & mfs_v & _ & Heqv).
-          injection Heqv as Hrel _ _. rewrite Hrel.
-          eapply concl_rel_not_input; [ exact Hmr_in | apply in_map, Hin_c ]. }
-        destruct (classic (exists mfs', In (meta_fact R mf_args mfs') hyps)) as [Hself | Hnoself].
-        * destruct Hself as (mfs' & Hin_hyp).
-          rewrite Forall_forall in Hknown_h. pose proof (Hknown_h _ Hin_hyp) as Hkdf_self.
-          simpl in Hkdf_self. destruct Hkdf_self as (num_self & Hexp_self & _ & _).
-          rewrite expect_num_R_facts_eq, HNI_R in Hexp_self.
-          destruct Hexp_self as (expected_msgss & Hf2 & _).
-          destruct (Forall2_In_l _ _ _ _ Hf2
-                      (In_sender_rules r0 Hin_r))
-            as (num_old & _ & Hin_x_known). cbv beta in Hin_x_known.
-          specialize (Hmf_sent _ _ _ _ Hin_x_known). destruct Hmf_sent as (_ & Hin_x_sent).
-          specialize (Hmfc_r R mf_args num_old Hin_x_sent).
-          destruct Hmfc_r as (mfc_old & mfh_old & hyps_old & Hin_mr_old & Hcan_old & Hknown_old & Hnoself_old).
-          exists mfc_old, mfh_old, hyps_old. split; [ exact Hin_mr_old |].
-          cbv [can_deduce_meta_fact] in Hcan_old |- *.
-          destruct Hcan_old as (ctx_old & mro & mao & mco & Hres_old & HEx_old & Hconcl_old & Hinterp_old).
-          injection Hres_old as Hr_o Ha_o _. subst mro mao.
-          split; [| split].
-          -- exists ctx_old, R, mf_args, num. split; [reflexivity|]. split.
-             { apply Existsn_no; [| exact HEx]. intros [nf_args2 [Heq _]]. discriminate. }
-             split; [exact Hconcl_old|]. exact Hinterp_old.
-          -- eapply Forall_impl; [ exact Hmono | exact Hknown_old ].
-          -- exact Hnoself_old.
-        * exists mf_concls, mf_hyps, hyps. split; [ exact Hmr_in |].
-          split; [| split].
-          { exists ctx, R, mf_args, num. split; [reflexivity|]. split.
-            { apply Existsn_no; [| exact HEx]. intros [nf_args2 [Heq _]]. discriminate. }
-            split; [exact Hconcl|]. exact Hinterp. }
-          { eapply Forall_impl; [ exact Hmono | exact Hknown_h ]. }
-          { intros mfs Hin'. apply Hnoself. exists mfs. exact Hin'. }
-  Qed.
-
-  Lemma steps_preserves_sane inputs s s' :
-    good_input_facts inputs ->
-    sane_state inputs s ->
-    comp_step^* s s' ->
-    sane_state inputs s'.
-  Proof.
-    intros Hinp Hsane Hsteps. induction Hsteps; auto.
-    apply IHHsteps; auto.
-    eapply step_preserves_sane; eassumption.
-  Qed.
-
-  Lemma steps_preserves_mfs_correct inputs s s' :
-    good_input_facts inputs ->
-    sane_state inputs s ->
-    meta_facts_correct s ->
-    comp_step^* s s' ->
-    meta_facts_correct s'.
-  Proof.
-    intros Hinp Hsane Hmfc Hsteps. induction Hsteps; auto.
-    apply IHHsteps; auto.
-    - eapply step_preserves_sane; eassumption.
-    - eapply step_preserves_mfs_correct; eassumption.
-  Qed.
-
-  Definition has_derived_datalog_fact (s : state) (f : fact) :=
-    match f with
-    | normal_fact R args => In (normal_dfact R args) s.(known_facts)
-    | meta_fact R mf_args mf_set =>
-        if is_input R then
-          exists num,
-            In (meta_dfact R mf_args from_input num) s.(known_facts) /\
-              Existsn (dfact_matches R mf_args) num s.(known_facts)
-        else
-          forall r, In r non_meta_rules ->
-            exists num,
-              In (meta_dfact R mf_args (from_rule r) num) s.(known_facts)
-    end.
-
-  Definition mf_consistent_state (s : state) (f : fact) :=
-    match f with
-    | normal_fact _ _ => True
-    | meta_fact R mf_args mf_set =>
-        forall nf_args,
-          Forall2 matches mf_args nf_args ->
-          mf_set nf_args <-> In (normal_dfact R nf_args) s.(known_facts)
-    end.
-
-  Definition state_correct (inputs : list dfact) (s : state) :=
-    forall f,
-      has_derived_datalog_fact s f /\ mf_consistent_state s f ->
-      prog_impl p (knows_datalog_fact inputs) f.
-
-  Lemma knows_datalog_fact_local_lift_has_derived s h :
-    knows_datalog_fact s.(known_facts) h ->
-    has_derived_datalog_fact s h.
-  Proof.
-    intros Hkdf. destruct h as [R0 args0 | R0 mf_args0 mf_set0]; cbn [has_derived_datalog_fact].
-    - exact Hkdf.
-    - destruct Hkdf as (num & Hexp & Hexn & _).
-      rewrite expect_num_R_facts_eq in Hexp. destruct (is_input R0) eqn:HER0.
-      + exists num. split; [ exact Hexp | exact Hexn ].
-      + intros r Hr. destruct Hexp as (msgss & Hf2 & _).
-        destruct (Forall2_In_l _ _ _ _ Hf2 (In_sender_rules r Hr))
-          as (m & _ & Hin_m). cbv beta in Hin_m.
-        exists m. exact Hin_m.
-  Qed.
-
-  Lemma knows_datalog_fact_local_lift_mf_consistent s h :
-    knows_datalog_fact s.(known_facts) h ->
-    mf_consistent_state s h.
-  Proof.
-    intros Hkdf.
-    destruct h as [R0 args0 | R0 mf_args0 mf_set0]; cbn [mf_consistent_state]; [exact I|].
-    intros nf_args Hmatch. destruct Hkdf as (num & _ & _ & Hbic). exact (Hbic nf_args Hmatch).
-  Qed.
-
-  Lemma good_inputs_knows_datalog_fact_inputs inputs :
-    good_input_facts inputs ->
-    0 < length non_meta_rules ->
-    good_inputs p (knows_datalog_fact inputs).
-  Proof.
-    intros Hinp Hlt. split.
-    - intros f Hf. destruct f as [R0 args0 | R0 mf_args0 mf_set0]; simpl in Hf.
-      + destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
-        specialize (Hinp_all _ Hf). simpl in Hinp_all.
-        intros Hin_concl. apply in_flat_map in Hin_concl.
-        destruct Hin_concl as (r0 & Hin_r0 & Hin_rel).
-        pose proof (concl_rel_not_input _ _ Hin_r0 Hin_rel) as HR0.
-        cbn [rel_of] in *. congruence.
-      + destruct Hf as (num0 & Hexp & _ & _).
-        rewrite expect_num_R_facts_eq in Hexp.
-        destruct (is_input R0) eqn:HER0.
-        * intros Hin_concl. apply in_flat_map in Hin_concl.
-          destruct Hin_concl as (r0 & Hin_r0 & Hin_rel).
-            pose proof (concl_rel_not_input _ _ Hin_r0 Hin_rel) as HR0.
-          cbn [rel_of] in HR0. congruence.
-        * destruct Hexp as (msgss & Hf2_msgs & _).
-          destruct (length_pos_In _ Hlt) as (r0 & Hin_r0).
-          destruct (Forall2_In_l _ _ _ _ Hf2_msgs (In_sender_rules r0 Hin_r0)) as (m0 & _ & Hin_m0).
-          cbv beta in Hin_m0.
-          destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
-          specialize (Hinp_all _ Hin_m0). simpl in Hinp_all. congruence.
-    - cbv [doesnt_lie consistent]. intros mfr0 mfa0 mfs0 Hin nf_args0 Hmatch_nf.
-      simpl in Hin. destruct Hin as (num0 & _ & _ & Hbic).
-      simpl. apply Hbic. exact Hmatch_nf.
-  Qed.
-
-  Lemma matches_map_Some (args ga : list T) :
-    Forall2 matches (map Some args) ga -> ga = args.
-  Proof.
-    revert ga. induction args as [|a args IH]; intros [|y ga] H; invert H; auto.
-    cbn [matches] in *. f_equal; [symmetry; assumption | apply IH; assumption].
-  Qed.
-
-  Lemma dfact_matches_exact (R : rel) (nf_args : list T) (g : dfact) :
-    dfact_matches R (map Some nf_args) g <-> g = normal_dfact R nf_args.
-  Proof.
-    cbv [dfact_matches]. split.
-    - intros (ga & -> & Hf2). apply matches_map_Some in Hf2. subst. reflexivity.
-    - intros ->. exists nf_args. split; [reflexivity|].
-      clear. induction nf_args as [|a l IH]; cbn [map]; constructor;
-        [cbn [matches]; reflexivity | exact IH].
-  Qed.
-
-  Lemma sent_implies_knows inputs s (R : rel) (nf_args : list T) r :
-    sane_state inputs s ->
-    In r non_meta_rules ->
-    In (normal_dfact R nf_args) (get_or_default s.(sents) r) ->
-    In (normal_dfact R nf_args) s.(known_facts).
-  Proof.
-    intros Hsane Hin_r Hin_nf.
-    destruct (Hsane.(sane_count) R (map Some nf_args))
-      as (msgs_sents & num_inp & num_known & Hf2_sent & _ & Hkn & Hsum).
-    destruct (Forall2_In_l _ _ _ _ Hf2_sent
-                (In_sender_rules r Hin_r))
-      as (ms & Hin_comb & Hexn_sent). cbv beta in Hexn_sent.
-    assert (Hms_pos : 1 <= ms).
-    { destruct ms; [|lia]. apply Existsn_0_Forall_not in Hexn_sent.
-      rewrite Forall_forall in Hexn_sent. exfalso.
-      apply (Hexn_sent (normal_dfact R nf_args) Hin_nf).
-      apply dfact_matches_exact. reflexivity. }
-    assert (Hpos : 1 <= num_known).
-    { rewrite Hsum. pose proof (in_le_list_sum ms msgs_sents (in_combine_r _ _ _ _ Hin_comb)). lia. }
-    destruct num_known; [lia|].
-    apply Existsn_S in Hkn. destruct Hkn as (l1 & xx & l2 & -> & Hpx & _).
-    apply dfact_matches_exact in Hpx. subst xx. apply in_or_app. right. left. reflexivity.
-  Qed.
-
-  Lemma use_meta_facts_correct (R : rel) (mf_args : list (option T))
-    (inputs : list dfact) (s : state) :
-    good_input_facts inputs ->
-    sane_state inputs s ->
-    meta_facts_correct s ->
-    meta_facts_ok s ->
-    is_input R = false ->
-    (forall mf_rel' mf_args' mf_set',
-        (R, mf_args) <> (mf_rel', mf_args') ->
-        has_derived_datalog_fact s (meta_fact mf_rel' mf_args' mf_set') /\
-        mf_consistent_state s (meta_fact mf_rel' mf_args' mf_set') ->
-        prog_impl p (knows_datalog_fact inputs) (meta_fact mf_rel' mf_args' mf_set')) ->
-    has_derived_datalog_fact s (meta_fact R mf_args (fun _ => True)) ->
-    forall nf_args,
-      Forall2 matches mf_args nf_args ->
-      prog_impl p (knows_datalog_fact inputs) (normal_fact R nf_args) ->
-      In (normal_dfact R nf_args) s.(known_facts).
-  Proof.
-    intros Hinp Hsane Hmf Hmf_ok HER HRs HR nf_args Hmatch Hprog.
-    invert Hprog.
-    - simpl in H.
-      destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
-      specialize (Hinp_all _ H). simpl in Hinp_all. congruence.
-    - rename H into Hrule_exists. rename H0 into Hhyps. rename l into hyps.
-      apply Exists_exists in Hrule_exists.
-      destruct Hrule_exists as (r_k & Hin_r & Hrule_impl).
-      invert Hrule_impl.
-      match goal with H : non_meta_rule_impl _ _ _ _ |- _ => rename H into Hnmri end.
-      assert (Hin_rk : In r_k non_meta_rules).
-      { apply In_non_meta_rules;
-          [ exact Hin_r | destruct r_k; [ reflexivity | invert Hnmri | reflexivity ] ]. }
-      simpl in HR. rewrite HER in HR.
-      specialize (HR _ Hin_rk). destruct HR as (num_k & Hkknows).
-      pose proof Hsane as [_ Hmf_sent _ _ _].
-      pose proof (Hmf_sent _ _ _ _ Hkknows) as (Hexn_k & Hin_k_sent).
-      pose proof (Hmf r_k Hin_rk _ _ _ Hin_k_sent) as Hmfc_rk.
-      destruct Hmfc_rk as (mf_concls & mf_hyps & hyps_d & Hin_mr & Hcan & Hkdf_h & Hnoselfref_h).
-      cbv [can_deduce_meta_fact] in Hcan.
-      destruct Hcan as (ctx & mf_rel_c & mf_args_c & mf_cnt_c
-                       & Heq_F & Hexn_F & Hconcl & Hf2_h).
-      injection Heq_F as Hr_eq Ha_eq Hc_eq. subst mf_rel_c mf_args_c mf_cnt_c.
-      pose proof (Hmf_ok r_k Hin_rk _ _ _ Hin_k_sent) as Hsound_can.
-      cbv [ok_to_deduce_fact] in Hsound_can.
-      assert (Hcan_nf : can_deduce_normal_fact (r_k) s.(known_facts) R nf_args).
-      { cbv [can_deduce_normal_fact]. exists hyps. split; [exact Hnmri|].
-        pose (S_constr := fun args'' => one_step_derives p hyps_d R args'').
-        assert (Hmr_impl :
-                  rule_impl (one_step_derives p) (meta_rule mf_concls mf_hyps)
-                    (meta_fact R mf_args S_constr) hyps_d).
-        { apply meta_rule_impl with (ctx := ctx).
-          - eapply Exists_impl; [|exact Hconcl].
-            intros c Hclause. cbv [meta_clause.interp] in Hclause |- *.
-            destruct Hclause as (mfa_v & mfs_v & Hf2_v & Heq_v).
-            injection Heq_v as Hcrel Hcargs _.
-            exists mfa_v, S_constr. rewrite Hcargs. split; [exact Hf2_v|].
-            rewrite <- Hcrel. reflexivity.
-          - exact Hf2_h.
-          - intros args'' Hmatch_args''. subst S_constr. reflexivity. }
-        assert (Hnr_impl :
-                  rule_impl (one_step_derives p) (r_k)
-                    (normal_fact R nf_args) hyps).
-        { apply simple_rule_impl. exact Hnmri. }
-        pose proof (Hmeta_rules _ _ _ _ _ Hin_mr Hmr_impl _ _ _
-                                Hin_r Hnr_impl Hmatch) as Hpot.
-        rewrite Forall_forall. intros h Hh.
-        rewrite Forall_forall in Hpot, Hkdf_h, Hhyps.
-        pose proof (Hpot _ Hh) as Hpot_h.
-        pose proof (Hhyps _ Hh) as Hprog_h.
-        assert (Hgood_inputs_Q : good_inputs p (knows_datalog_fact inputs)).
-        { apply good_inputs_knows_datalog_fact_inputs; [ exact Hinp | exact (In_length_pos _ _ Hin_rk) ]. }
-        pose proof (valid_impl_honest _ Hmeta_rules _ Hgood_inputs_Q) as Hhonest.
-        cbv [doesnt_lie] in Hhonest.
-        destruct h as [R' args' | R' mf_args' mf_set'_h].
-        + cbv [fact_potentially_supported] in Hpot_h.
-          destruct Hpot_h as (mf_args' & mf_set'_m & Hin_m & Hmatch_m).
-          pose proof (Hkdf_h _ Hin_m) as Hkd_m.
-          destruct (classic ((R, mf_args) = (R', mf_args'))) as [Heq | Hne].
-          * exfalso. injection Heq as -> ->. apply (Hnoselfref_h mf_set'_m). exact Hin_m.
-          * pose proof (knows_datalog_fact_local_lift_has_derived _ _ Hkd_m) as Hhd_m.
-            pose proof (knows_datalog_fact_local_lift_mf_consistent _ _ Hkd_m) as Hmc_m.
-            pose proof (HRs _ _ _ Hne (conj Hhd_m Hmc_m)) as Hprog_m.
-            pose proof (Hhonest _ _ _ Hprog_m) as Hcon_m.
-            cbv [consistent] in Hcon_m. specialize (Hcon_m _ Hmatch_m).
-            apply Hcon_m in Hprog_h.
-            simpl in Hkd_m. destruct Hkd_m as (num_m & _ & _ & Hbic_m).
-            specialize (Hbic_m _ Hmatch_m). simpl. apply Hbic_m. exact Hprog_h.
-        + cbv [fact_potentially_supported] in Hpot_h.
-          destruct Hpot_h as (mf_set'_m & Hin_m).
-          pose proof (Hkdf_h _ Hin_m) as Hkd_m.
-          destruct (classic ((R, mf_args) = (R', mf_args'))) as [Heq | Hne].
-          * exfalso. injection Heq as -> ->. apply (Hnoselfref_h mf_set'_m). exact Hin_m.
-          * pose proof (knows_datalog_fact_local_lift_has_derived _ _ Hkd_m) as Hhd_m.
-            pose proof (knows_datalog_fact_local_lift_mf_consistent _ _ Hkd_m) as Hmc_m.
-            pose proof (HRs _ _ _ Hne (conj Hhd_m Hmc_m)) as Hprog_m.
-            pose proof (Hhonest _ _ _ Hprog_m) as Hcon_m.
-            pose proof (Hhonest _ _ _ Hprog_h) as Hcon_h.
-            cbv [consistent] in Hcon_m, Hcon_h.
-            simpl in Hkd_m |- *.
-            destruct Hkd_m as (num_m & Hexp_m & Hexn_m & Hbic_m).
-            exists num_m. split; [exact Hexp_m|]. split; [exact Hexn_m|].
-            intros nf_args0 Hmatch_nf.
-            specialize (Hbic_m _ Hmatch_nf).
-            specialize (Hcon_m _ Hmatch_nf).
-            specialize (Hcon_h _ Hmatch_nf).
-            rewrite Hcon_h, <- Hcon_m. exact Hbic_m. }
-      specialize (Hsound_can _ Hcan_nf Hmatch).
-      eapply sent_implies_knows; [ exact Hsane | exact Hin_rk | exact Hsound_can ].
-  Qed.
-
-  Lemma ok_to_deduce_grow k1 k2 r sent node mf_rel mf_args num mf_concls mf_hyps mr_hyps_d :
-    In r non_meta_rules ->
-    knows_incl k1 k2 ->
-    In (meta_rule mf_concls mf_hyps) p ->
-    can_deduce_meta_fact mf_concls mf_hyps node sent (meta_dfact mf_rel mf_args node num) mr_hyps_d ->
-    Forall (knows_datalog_fact k1) mr_hyps_d ->
-    ok_to_deduce_fact (r) k1 sent (meta_dfact mf_rel mf_args node num) ->
-    ok_to_deduce_fact (r) k2 sent (meta_dfact mf_rel mf_args node num).
-  Proof.
-    intros Hin_r Hincl Hin_mr Hcdmf Hknown_mr Hok nf_args Hcdn Hmatch.
-    destruct Hcdn as (local_hyps & Hnmri & Hknown_local_big).
-    pose (S_constr := fun args'' => one_step_derives p mr_hyps_d mf_rel args'').
-    assert (Hri_meta : rule_impl (one_step_derives p) (meta_rule mf_concls mf_hyps)
-                        (meta_fact mf_rel mf_args S_constr) mr_hyps_d).
-    { cbv [can_deduce_meta_fact] in Hcdmf.
-      destruct Hcdmf as (ctx_m & mr' & ma' & mc' & Heq_m & _ & Hconcl_m & Hinterp_m).
-      inversion Heq_m. subst mr' ma' mc'. clear Heq_m.
-      eapply meta_rule_impl with (ctx := ctx_m).
-      - eapply Exists_impl; [| exact Hconcl_m].
-        intros c (mfa & mfs & Hf2 & Heqv). injection Heqv as Hrel Hargs _.
-        exists mfa, S_constr. split; [exact Hf2|]. rewrite Hargs, Hrel. reflexivity.
-      - exact Hinterp_m.
-      - intros args'' _. subst S_constr. reflexivity. }
-    assert (Hri_normal : rule_impl (one_step_derives p) (r)
-                          (normal_fact mf_rel nf_args) local_hyps)
-      by (apply simple_rule_impl; exact Hnmri).
-    pose proof (Hmeta_rules _ _ _ _ _ Hin_mr Hri_meta _ _ _ (non_meta_rules_In_p _ Hin_r) Hri_normal Hmatch)
-      as Hpot.
-    apply (Hok nf_args); [| exact Hmatch].
-    exists local_hyps. split; [exact Hnmri |].
-    rewrite Forall_forall in Hknown_local_big, Hpot |- *. intros h Hh.
-    eapply knows_datalog_fact_transfer_down;
-      [ exact Hincl | exact Hknown_mr | apply Hpot; exact Hh | apply Hknown_local_big; exact Hh ].
-  Qed.
-
-  Lemma meta_facts_ok_at_rule_grow k1 k2 r sent :
-    In r non_meta_rules ->
-    knows_incl k1 k2 ->
-    meta_facts_correct_at_rule p k1 r sent ->
-    meta_facts_ok_at_rule k1 r sent ->
-    meta_facts_ok_at_rule k2 r sent.
-  Proof.
-    intros Hin_r Hincl Hc Hok mf_rel mf_args num HIn.
-    destruct (Hc _ _ _ HIn) as (mf_concls & mf_hyps & mr_hyps_d & Hin_mr & Hcdmf & Hknown_mr & _).
-    eapply ok_to_deduce_grow; try eassumption. apply Hok. assumption.
-  Qed.
-
-  Lemma step_preserves_meta_facts_ok inputs s s' :
-    good_input_facts inputs ->
-    sane_state inputs s ->
-    meta_facts_correct s ->
-    meta_facts_ok s ->
-    comp_step s s' ->
-    meta_facts_ok s'.
-  Proof.
-    intros Hinp Hsane Hmfc Hmf_ok Hstep.
-    pose proof (comp_step_knows_incl _ _ _ Hinp Hsane Hstep) as Hmono.
-    invert Hstep. rename H into Hin_r. rename H0 into Hfire.
-    cbv [fire_at_rule] in Hfire. destruct Hfire as (fired_rule & Hcfr & Hcan_f & Hok_f).
-    cbv [meta_facts_ok] in Hmf_ok |- *. cbv [meta_facts_correct] in Hmfc.
-    cbn [known_facts sents] in Hmono |- *.
-    pose proof (Hmf_ok r Hin_r) as Hmfok_r. pose proof (Hmfc r Hin_r) as Hmfc_r.
-    intros r0 Hr0. rewrite get_or_default_mupd. destr (eqb r r0);
-      [ | eapply meta_facts_ok_at_rule_grow;
-          [ exact Hr0 | exact Hmono | exact (Hmfc r0 Hr0) | exact (Hmf_ok r0 Hr0) ] ].
-    intros mf_rel mf_args num HIn.
-    destruct new_fact as [nf_rel nf_args | new_mfr new_mfa new_source new_mfc].
-    - destruct HIn as [Heq | HIn_old]; [ discriminate | ].
-      intros nf_args0 Hcdn0 Hmatch0. right.
-      exact (meta_facts_ok_at_rule_grow _ _ _ _ Hin_r Hmono Hmfc_r Hmfok_r
-               mf_rel mf_args num HIn_old nf_args0 Hcdn0 Hmatch0).
-    - destruct HIn as [Heq | HIn_old].
-      2:{ intros nf_args0 Hcdn0 Hmatch0. right.
-          exact (meta_facts_ok_at_rule_grow _ _ _ _ Hin_r Hmono Hmfc_r Hmfok_r
-                   mf_rel mf_args num HIn_old nf_args0 Hcdn0 Hmatch0). }
-      cbv [can_deduce_fact] in Hcan_f.
-      destruct Hcan_f as (Hsrc & mf_concls & mf_hyps & hyps & Hfr_eq & Hcan & Hknown_h).
-      subst new_source.
-      assert (Hmr_in : In (meta_rule mf_concls mf_hyps) p).
-      { rewrite Hfr_eq in Hcfr. exact (can_fire_meta_In _ _ _ Hin_r Hcfr). }
-      subst fired_rule.
-      injection Heq as Hr Ha Hn. subst new_mfr new_mfa new_mfc.
-      intros nf_args0 Hcdn0 Hmatch0. right.
-      exact (ok_to_deduce_grow _ _ _ (get_or_default (sents s) r0) _ mf_rel mf_args num
-               mf_concls mf_hyps hyps Hin_r Hmono Hmr_in Hcan Hknown_h Hok_f nf_args0 Hcdn0 Hmatch0).
-  Qed.
-
-  Lemma Existsn_cons_no_iff (P : dfact -> Prop) x n l :
+  Lemma Existsn_cons_no_iff (P : message -> Prop) x n l :
     ~ P x -> (Existsn P n (x :: l) <-> Existsn P n l).
   Proof.
     intros Hx. split.
@@ -1515,12 +824,12 @@ Section __.
     - intro H. apply Existsn_no; assumption.
   Qed.
 
-  Lemma has_derived_input_meta_cons_bw R mf_args mf_set F s :
-    is_input R = true ->
-    ~ dfact_matches R mf_args F ->
-    (forall num, F <> meta_dfact R mf_args from_input num) ->
-    has_derived_datalog_fact (add_known_fact F s) (meta_fact R mf_args mf_set) ->
-    has_derived_datalog_fact s (meta_fact R mf_args mf_set).
+  Lemma has_derived_input_meta_cons_bw mf F s :
+    is_input (meta_fact.rel mf) = true ->
+    ~ message.matches mf.(meta_fact.pattern) F ->
+    (forall num, F <> message.done_with mf.(meta_fact.pattern) from_input num) ->
+    has_derived_datalog_fact (add_known_fact F s) (fact.meta mf) ->
+    has_derived_datalog_fact s (fact.meta mf).
   Proof.
     intros HER Hnm Hnd Hf. cbv [has_derived_datalog_fact add_known_fact] in Hf |- *.
     cbn [known_facts] in Hf. rewrite HER in Hf |- *.
@@ -1541,189 +850,192 @@ Section __.
     intros Hinp Hsane Hmfc Hmf_ok Hsound Hstep f (Hf1 & Hf2).
     pose proof Hstep as Hstep_save.
     invert Hstep. rename H into Hin_r. rename H0 into Hfire.
-    cbv [fire_at_rule] in Hfire. destruct Hfire as (fired_rule & Hcfr & Hcan_f & Hok_f).
-    assert (Hlift : forall h, knows_datalog_fact s.(known_facts) h ->
-                     prog_impl p (knows_datalog_fact inputs) h).
+    cbv [fire_at_rule] in Hfire.
+    assert (Hlift : forall h, knows_fact s.(known_facts) h ->
+                     program.interp p (knows_fact inputs) h).
     { intros h Hh. apply Hsound. split;
-        [ apply knows_datalog_fact_local_lift_has_derived; exact Hh
-        | apply knows_datalog_fact_local_lift_mf_consistent; exact Hh ]. }
+        [ apply knows_fact_local_lift_has_derived; exact Hh
+        | apply knows_fact_local_lift_mf_consistent; exact Hh ]. }
     cbn [known_facts sents] in Hf1, Hf2 |- *.
-    destruct new_fact as [nf_rel nf_args | new_mfr new_mfa new_source new_mfc].
-    { cbv [can_deduce_fact] in Hcan_f. destruct Hcan_f as (Hded & Hno_sent). clear Hok_f.
-      assert (Hfr_eq : fired_rule = r).
-      { destruct Hcfr as [H' | (mc & mh & _ & H')]; [ exact H' |].
-        destruct Hded as (hyps & Hnmri & _). subst fired_rule. invert Hnmri. }
-      subst fired_rule.
-      destruct f as [R args | R mf_args mf_set].
+    destruct new_fact as [nnf | npat nsrc ncnt].
+    { cbn [node.can_deduce node.state.known node.state.sent node_prog
+             program.rules program.meta_rules] in Hfire.
+      destruct Hfire as (Hex & Hfresh). invert_list_stuff.
+      match goal with Hc : can_deduce_normal_fact _ _ _ |- _ => rename Hc into Hded end.
+      destruct f as [nf | mf].
       - cbv [has_derived_datalog_fact] in Hf1.
         destruct Hf1 as [Heq | Hf1].
-        + injection Heq as -> ->.
-          destruct Hded as (hyps & Hnmri & Hkdf_hyps).
-          eapply prog_impl_step.
-          * apply Exists_exists. exists (r). split.
-            -- exact (non_meta_rules_In_p _ Hin_r).
-            -- apply simple_rule_impl. exact Hnmri.
+        + invert Heq.
+          destruct Hded as (hyps & Hri & Hkdf_hyps).
+          eapply pftree.step.
+          * constructor. apply Exists_exists. eauto.
           * rewrite Forall_forall in Hkdf_hyps |- *. intros h Hin_h.
             apply Hlift. exact (Hkdf_hyps _ Hin_h).
         + apply Hsound. split; [ exact Hf1 | exact I ].
-      - assert (HNI_nf : is_input nf_rel = false).
-        { rewrite Forall_forall in Hp_good.
-          eapply can_deduce_implies_not_input;
-            [ apply Hp_good, non_meta_rules_In_p, Hin_r | exact Hded ]. }
-        assert (Hf1_s : has_derived_datalog_fact s (meta_fact R mf_args mf_set)).
-        { cbv [has_derived_datalog_fact] in Hf1 |- *. destruct (is_input R) eqn:HER.
+      - assert (HNI_nf : is_input nnf.(normal_fact.rel) = false)
+          by (eapply can_deduce_implies_not_input; eassumption).
+        assert (Hf1_s : has_derived_datalog_fact s (fact.meta mf)).
+        { cbv [has_derived_datalog_fact] in Hf1 |- *.
+          destruct (is_input (meta_fact.rel mf)) eqn:HER.
           - destruct Hf1 as (num & Hin & Hexn). exists num. split.
             + destruct Hin as [Heq | Hin]; [ discriminate | exact Hin ].
             + revert Hexn. apply Existsn_cons_no_iff.
-              intros (nfa & Heq & _). injection Heq as HR _. rewrite HR, HER in HNI_nf. discriminate.
+              intros (Hrel & _). cbv [meta_fact.rel] in HER. congruence.
           - intros r' Hr'. destruct (Hf1 r' Hr') as (num & Hin).
             destruct Hin as [Heq | Hin]; [ discriminate | exists num; exact Hin ]. }
-        destruct (classic (R = nf_rel)) as [-> | HRne].
-        + assert (Hf2_s : mf_consistent_state s (meta_fact nf_rel mf_args mf_set)).
-          { cbv [mf_consistent_state] in Hf2 |- *. intros nf_args0 Hmatch0.
-            specialize (Hf2 _ Hmatch0).
-            destruct (classic (nf_args0 = nf_args)) as [-> | HNe].
-            - destruct (classic (In (normal_dfact nf_rel nf_args) s.(known_facts))) as [Hk | Hnk].
-              + split; intros _; [ exact Hk | apply Hf2; right; exact Hk ].
-              + exfalso.
-                cbv [has_derived_datalog_fact] in Hf1_s. rewrite HNI_nf in Hf1_s.
-                destruct (Hf1_s _ Hin_r) as (num & Hknows).
-                pose proof (Hsane.(sane_local_meta) _ _ _ _ Hknows) as (_ & Hin_x).
-                eapply Hno_sent; [ exact Hin_x | exact Hmatch0 ].
-            - rewrite Hf2. split.
-              + intros [Heq | Hk]; [ congruence | exact Hk ].
-              + intros Hk. right. exact Hk. }
-          apply Hsound. split; [ exact Hf1_s | exact Hf2_s ].
-        + assert (Hf2_s : mf_consistent_state s (meta_fact R mf_args mf_set)).
-          { cbv [mf_consistent_state] in Hf2 |- *. intros nf_args0 Hmatch0.
-            specialize (Hf2 _ Hmatch0). rewrite Hf2. split.
-            - intros [Heq | Hk]; [ congruence | exact Hk ].
-            - intros Hk. right. exact Hk. }
-          apply Hsound. split; [ exact Hf1_s | exact Hf2_s ]. }
-    { cbv [can_deduce_fact] in Hcan_f.
-      destruct Hcan_f as (Hsrc & mf_concls & mf_hyps & hyps & Hfr_eq & Hcan & Hknown_h_fire).
-      subst new_source. subst fired_rule.
-      assert (Hin_mr : In (meta_rule mf_concls mf_hyps) p) by exact (can_fire_meta_In _ _ _ Hin_r Hcfr).
-      cbv [can_deduce_meta_fact] in Hcan.
-      destruct Hcan as (ctx & Fmfr & Fmfa & Fmfc & HFeq & Hexn_F & Hexists_concl & Hf2_h).
-      assert (Hkd_normal : forall R0 args0,
-                 In (normal_dfact R0 args0) (meta_dfact new_mfr new_mfa (from_rule r) new_mfc :: s.(known_facts)) <->
-                 In (normal_dfact R0 args0) s.(known_facts)).
+        assert (Hf2_s : mf_consistent_state s (fact.meta mf)).
+        { cbv [mf_consistent_state fact.set_consistent_with] in Hf2 |- *.
+          intros nf0 Hm0. specialize (Hf2 _ Hm0). rewrite Hf2. split.
+          - intros [Heq | Hk]; [ | exact Hk ].
+            invert Heq. exfalso.
+            cbv [has_derived_datalog_fact meta_fact.rel] in Hf1_s.
+            destruct Hm0 as (Hrel0 & Hargs0).
+            rewrite Hrel0, HNI_nf in Hf1_s. cbv iota in Hf1_s.
+            destruct (Hf1_s _ Hin_r) as (num & Hknows).
+            pose proof (Hsane.(sane_local_meta) _ _ _ Hknows) as (_ & Hin_x).
+            apply Hfresh. exists mf.(meta_fact.pattern), num.
+            split; [exact Hin_x |]. split; [exact Hrel0 |]. exact Hargs0.
+          - intros Hk. right. exact Hk. }
+        apply Hsound. split; [ exact Hf1_s | exact Hf2_s ]. }
+    { cbn [node.can_deduce node.state.known node.state.sent node_prog
+             program.rules program.meta_rules] in Hfire.
+      destruct Hfire as (Hsrc & Hexmr & Hexn_F & Hsat). subst nsrc.
+      apply Exists_exists in Hexmr.
+      destruct Hexmr as (mr & Hin_mr & mhyps & Hpi & Hknown_h_fire).
+      assert (Hkd_normal : forall nf0,
+                 In (message.normal nf0)
+                   (message.done_with npat (from_rule r) ncnt :: s.(known_facts)) <->
+                 In (message.normal nf0) s.(known_facts)).
       { intros. split; [ intros [Heq | Hk]; [ discriminate | exact Hk ] | intros Hk; right; exact Hk ]. }
-      destruct f as [R args | R mf_args mf_set].
+      destruct f as [nf | mf].
       - cbv [has_derived_datalog_fact] in Hf1. apply Hkd_normal in Hf1.
         apply Hsound. split; [ exact Hf1 | exact I ].
-      - assert (Hf2_s : mf_consistent_state s (meta_fact R mf_args mf_set)).
-        { cbv [mf_consistent_state] in Hf2 |- *. intros nf_args0 Hmatch0.
-          specialize (Hf2 _ Hmatch0). rewrite Hf2. exact (Hkd_normal R nf_args0). }
-        destruct (is_input R) eqn:HER.
-        + assert (Hnm : ~ dfact_matches R mf_args
-                          (meta_dfact new_mfr new_mfa (from_rule r) new_mfc))
-            by (intros (nfa & Heq & _); discriminate).
+      - assert (Hf2_s : mf_consistent_state s (fact.meta mf)).
+        { cbv [mf_consistent_state fact.set_consistent_with] in Hf2 |- *.
+          intros nf0 Hm0. specialize (Hf2 _ Hm0). rewrite Hf2. exact (Hkd_normal nf0). }
+        destruct (is_input (meta_fact.rel mf)) eqn:HER.
+        + assert (Hnm : ~ message.matches mf.(meta_fact.pattern)
+                          (message.done_with npat (from_rule r) ncnt))
+            by (intros []).
           assert (Hnd : forall num,
-                     meta_dfact new_mfr new_mfa (from_rule r) new_mfc
-                     <> meta_dfact R mf_args from_input num)
-            by (intros num Heq; injection Heq as _ _ Hn _; discriminate).
+                     message.done_with npat (from_rule r) ncnt
+                     <> message.done_with mf.(meta_fact.pattern) from_input num)
+            by (intros num Heq; invert Heq).
           apply Hsound. split; [ | exact Hf2_s ].
-          eapply (has_derived_input_meta_cons_bw R mf_args mf_set _ s HER Hnm Hnd).
+          eapply (has_derived_input_meta_cons_bw mf _ s HER Hnm Hnd).
           cbv [add_known_fact]. exact Hf1.
-        + injection HFeq as HFr HFa HFc. subst Fmfr Fmfa Fmfc.
-          destruct (classic (R = new_mfr /\ mf_args = new_mfa)) as [[-> ->] | HNeq].
+        + destruct (classic (mf.(meta_fact.pattern) = npat)) as [Hpe | HNeq].
           * destruct (classic (exists num0,
-                        In (meta_dfact new_mfr new_mfa (from_rule r) num0) s.(known_facts)))
+                        In (message.done_with npat (from_rule r) num0) s.(known_facts)))
               as [HA1 | HA2].
-            -- assert (Hf1_s : has_derived_datalog_fact s (meta_fact new_mfr new_mfa mf_set)).
-               { cbv [has_derived_datalog_fact] in Hf1 |- *. rewrite HER in Hf1 |- *.
+            -- assert (Hf1_s : has_derived_datalog_fact s (fact.meta mf)).
+               { cbv [has_derived_datalog_fact] in Hf1 |- *.
+                 rewrite HER in Hf1 |- *. rewrite Hpe in *.
                  intros r' Hr'. destruct (classic (r' = r)) as [-> | Hrne]; [ exact HA1 |].
                  destruct (Hf1 r' Hr') as (num & Hin). destruct Hin as [Heq | Hk_s];
-                   [ congruence | exists num; exact Hk_s ]. }
+                   [ invert Heq; congruence | exists num; exact Hk_s ]. }
                apply Hsound. split; [ exact Hf1_s | exact Hf2_s ].
             -- set (s' := {| known_facts :=
-                               meta_dfact new_mfr new_mfa (from_rule r) new_mfc
+                               message.done_with npat (from_rule r) ncnt
                                :: known_facts s;
                              sents :=
                                mupd_with_default
-                                 (cons (meta_dfact new_mfr new_mfa (from_rule r) new_mfc))
+                                 (cons (message.done_with npat (from_rule r) ncnt))
                                  (sents s) r |}) in Hstep_save, Hf1, Hf2.
-               pose (S_constr := fun args'' => one_step_derives p hyps new_mfr args'').
+               pose (mf_constr :=
+                       {| meta_fact.pattern := npat;
+                         meta_fact.set :=
+                           fun args =>
+                             rule.one_step_derives p.(program.rules) mhyps
+                               {| normal_fact.rel := npat.(fact_pattern.rel);
+                                 normal_fact.args := args |} |}).
                assert (Hprog_constr :
-                         prog_impl p (knows_datalog_fact inputs)
-                           (meta_fact new_mfr new_mfa S_constr)).
-               { eapply prog_impl_step.
-                 - apply Exists_exists. exists (meta_rule mf_concls mf_hyps). split.
-                   + exact Hin_mr.
-                   + apply meta_rule_impl with (ctx := ctx).
-                     * eapply Exists_impl; [|exact Hexists_concl].
-                       intros c Hclause. cbv [meta_clause.interp] in Hclause |- *.
-                       destruct Hclause as (mfa_v & mfs_v & Hf2_v & Heq_v).
-                       injection Heq_v as Hcrel Hcargs _.
-                       exists mfa_v, S_constr. rewrite Hcargs. split; [exact Hf2_v|].
-                       rewrite <- Hcrel. reflexivity.
-                     * exact Hf2_h.
-                     * intros args'' _. subst S_constr. reflexivity.
-                 - rewrite Forall_forall in Hknown_h_fire |- *. intros h Hin_h.
-                   apply Hlift. exact (Hknown_h_fire _ Hin_h). }
-               eapply prog_impl_mf_ext'; [ exact Hprog_constr | | ].
-               ++ intros nf_args1 Hmatch1.
-                  pose proof (step_preserves_sane _ _ _ Hinp Hsane Hstep_save) as Hsane_s'.
-                  pose proof (step_preserves_mfs_correct _ _ _ Hinp Hsane Hmfc Hstep_save) as Hmfc_s'.
-                  pose proof (step_preserves_meta_facts_ok _ _ _ Hinp Hsane Hmfc Hmf_ok Hstep_save)
-                    as Hmf_ok_s'.
-                  assert (HRs_umfc :
-                    forall mf_rel' mf_args' mf_set',
-                      (new_mfr, new_mfa) <> (mf_rel', mf_args') ->
-                      has_derived_datalog_fact s' (meta_fact mf_rel' mf_args' mf_set') /\
-                      mf_consistent_state s' (meta_fact mf_rel' mf_args' mf_set') ->
-                      prog_impl p (knows_datalog_fact inputs)
-                        (meta_fact mf_rel' mf_args' mf_set')).
-                  { intros mfr' mfa' mfs' Hne (Hhd' & Hmc').
-                    subst s'. apply Hsound. split.
-                    - cbv [has_derived_datalog_fact] in Hhd' |- *.
-                      cbn [known_facts sents] in Hhd'. destruct (is_input mfr') eqn:HERmfr'.
-                      + destruct Hhd' as (num & Hin & Hexn). exists num. split.
-                        * destruct Hin as [Heq | Hin]; [ | exact Hin ].
-                          injection Heq as -> -> _ _. exfalso. apply Hne. reflexivity.
-                        * revert Hexn. apply Existsn_cons_no_iff.
-                          intros (nfa & Heq & _). discriminate.
-                      + intros r' Hr'. cbn [known_facts sents] in Hhd'.
-                        destruct (Hhd' r' Hr') as (num & Hin).
-                        destruct Hin as [Heq | Hin]; [ | exists num; exact Hin ].
-                        injection Heq as -> -> _ _. exfalso. apply Hne. reflexivity.
-                    - cbv [mf_consistent_state] in Hmc' |- *. intros nf_args2 Hmatch2.
-                      specialize (Hmc' _ Hmatch2). cbn [known_facts sents] in Hmc'.
-                      rewrite Hmc'. exact (Hkd_normal mfr' nf_args2). }
-                  assert (Hf1_True : has_derived_datalog_fact s'
-                                       (meta_fact new_mfr new_mfa (fun _ => True))).
-                  { cbv [has_derived_datalog_fact] in Hf1 |- *. rewrite HER in Hf1 |- *. exact Hf1. }
-                  pose proof (use_meta_facts_correct new_mfr new_mfa inputs s'
-                                Hinp Hsane_s' Hmfc_s' Hmf_ok_s' HER HRs_umfc
-                                Hf1_True nf_args1 Hmatch1) as Humfc.
-                  subst s'.
-                  assert (Hgood_inputs_Q : good_inputs p (knows_datalog_fact inputs)).
-                  { apply good_inputs_knows_datalog_fact_inputs;
-                      [ exact Hinp | exact (In_length_pos _ _ Hin_r) ]. }
-                  pose proof (valid_impl_honest _ Hmeta_rules _ Hgood_inputs_Q) as Hhonest.
-                  cbv [doesnt_lie] in Hhonest.
-                  pose proof (Hhonest _ _ _ Hprog_constr) as Hcon_constr.
-                  cbv [consistent] in Hcon_constr. specialize (Hcon_constr _ Hmatch1).
-                  rewrite Hcon_constr. split.
-                  ** intros Hprog. apply Humfc in Hprog.
-                     apply (proj2 (Hf2 _ Hmatch1)). exact Hprog.
-                  ** intros Hms. apply (proj1 (Hf2 _ Hmatch1)) in Hms.
-                     apply Hkd_normal in Hms. apply Hsound. split; [ exact Hms | exact I ].
-               ++ intros HQ. simpl in HQ. destruct HQ as (num & Hexp & _ & _).
-                  rewrite expect_num_R_facts_eq, HER in Hexp.
-                  destruct Hexp as (msgss & Hf2_msgs & _).
-                  destruct (Forall2_In_l _ _ _ _ Hf2_msgs
-                              (In_sender_rules r Hin_r))
-                    as (m & _ & Hin_m). cbv beta in Hin_m.
-                  destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
-                  specialize (Hinp_all _ Hin_m). simpl in Hinp_all. congruence.
-          * assert (Hf1_s : has_derived_datalog_fact s (meta_fact R mf_args mf_set)).
+                         program.interp p (knows_fact inputs) (fact.meta mf_constr)).
+               { eapply pftree.step.
+                 - constructor. apply Exists_exists. exists mr. split; [exact Hin_mr|].
+                   exists npat. split; [exact Hpi|]. split; [reflexivity|].
+                   intros. reflexivity.
+                 - apply Forall_forall. intros h Hh. apply in_map_iff in Hh. fwd.
+                   apply Hlift. cbn [node.knows_fact].
+                   rewrite Forall_forall in Hknown_h_fire. auto. }
+               assert (HNI_npat : is_input npat.(fact_pattern.rel) = false)
+                 by (eapply pattern_concl_not_input; eassumption).
+               assert (Hgood_Q : program.good_input_set p (knows_fact inputs))
+                 by (apply good_inputs_knows_fact_inputs;
+                     eauto using In_length_pos).
+               pose proof (program.valid_impl_honest p Hmeta_rules _ Hgood_Q) as Hhonest.
+               pose proof (Hhonest _ Hprog_constr) as Hcon_constr.
+               cbv [fact.set_consistent_with fact.normal_subset] in Hcon_constr.
+               assert (Hequiv : fact.equiv (fact.meta mf_constr) (fact.meta mf)).
+               { subst mf_constr. cbv [fact.equiv meta_fact.equiv]. simpl.
+                 split; [congruence|].
+                 intros args Hargs.
+                 pose proof (step_preserves_sane _ _ _ Hinp Hsane Hstep_save) as Hsane_s'.
+                 pose proof (step_preserves_mfs_correct _ _ _ Hinp Hsane Hmfc Hstep_save)
+                   as Hmfc_s'.
+                 pose proof (step_preserves_meta_facts_ok _ _ _ Hinp Hsane Hmfc Hmf_ok
+                               Hstep_save) as Hmf_ok_s'.
+                 assert (HRs_umfc :
+                   forall mf',
+                     mf'.(meta_fact.pattern) <> npat ->
+                     has_derived_datalog_fact s' (fact.meta mf') /\
+                     mf_consistent_state s' (fact.meta mf') ->
+                     program.interp p (knows_fact inputs) (fact.meta mf')).
+                 { intros mf' Hne (Hhd' & Hmc').
+                   apply Hsound. split.
+                   - cbv [has_derived_datalog_fact] in Hhd' |- *.
+                     subst s'. cbn [known_facts sents] in Hhd'.
+                     destruct (is_input (meta_fact.rel mf')) eqn:HERmf'.
+                     + destruct Hhd' as (num & Hin & Hexn). exists num. split.
+                       * destruct Hin as [Heq | Hin]; [ invert Heq | exact Hin ].
+                       * revert Hexn. apply Existsn_cons_no_iff. intros [].
+                     + intros r' Hr'. destruct (Hhd' r' Hr') as (num & Hin).
+                       destruct Hin as [Heq | Hin]; [ | exists num; exact Hin ].
+                       invert Heq. congruence.
+                   - cbv [mf_consistent_state fact.set_consistent_with] in Hmc' |- *.
+                     intros nf2 Hm2. specialize (Hmc' _ Hm2). subst s'.
+                     cbn [known_facts] in Hmc'. rewrite Hmc'. exact (Hkd_normal nf2). }
+                 assert (Hf1_True : has_derived_datalog_fact s'
+                            (fact.meta {| meta_fact.pattern := npat;
+                                         meta_fact.set := fun _ => True |})).
+                 { cbv [has_derived_datalog_fact meta_fact.rel] in Hf1 |- *. simpl.
+                   rewrite Hpe in Hf1. exact Hf1. }
+                 pose proof (use_meta_facts_correct npat inputs s'
+                               Hinp Hsane_s' Hmfc_s' Hmf_ok_s' HNI_npat
+                               ltac:(eauto using In_length_pos) HRs_umfc Hf1_True)
+                   as Humfc.
+                 assert (Hm_npat : fact_pattern.matches npat
+                            {| normal_fact.rel := npat.(fact_pattern.rel);
+                              normal_fact.args := args |})
+                   by (split; [reflexivity | exact Hargs]).
+                 assert (Hm_mf : fact_pattern.matches mf.(meta_fact.pattern)
+                            {| normal_fact.rel := npat.(fact_pattern.rel);
+                              normal_fact.args := args |})
+                   by (rewrite Hpe; exact Hm_npat).
+                 specialize (Hcon_constr _ Hm_npat).
+                 cbn [meta_fact.set meta_fact.pattern normal_fact.args] in Hcon_constr.
+                 cbv [mf_consistent_state fact.set_consistent_with] in Hf2.
+                 specialize (Hf2 _ Hm_mf). cbn [normal_fact.args] in Hf2.
+                 rewrite Hcon_constr, Hf2. subst s'. cbn [known_facts].
+                 split.
+                 - intros Hprog. exact (Humfc _ Hm_npat Hprog).
+                 - intros HIn. apply Hkd_normal in HIn.
+                   apply Hsound. split; [ exact HIn | exact I ]. }
+               destruct (program.interp_ext _ _ _ _ Hprog_constr Hequiv)
+                 as [HQbad | Hgoal]; [| exact Hgoal].
+               exfalso. subst mf_constr.
+               destruct HQbad as (num & Hexp & _ & _). cbn [meta_fact.pattern] in Hexp.
+               rewrite expects_num_facts_eq, HNI_npat in Hexp.
+               destruct Hexp as (msgss & Hf2m & _).
+               destruct (Forall2_In_l _ _ _ _ Hf2m (In_sender_rules r Hin_r))
+                 as (m & _ & Hin_m). cbv beta in Hin_m.
+               destruct Hinp as (Hinp_all & _). rewrite Forall_forall in Hinp_all.
+               specialize (Hinp_all _ Hin_m). simpl in Hinp_all. congruence.
+          * assert (Hf1_s : has_derived_datalog_fact s (fact.meta mf)).
             { cbv [has_derived_datalog_fact] in Hf1 |- *. rewrite HER in Hf1 |- *.
               intros r' Hr'. destruct (Hf1 r' Hr') as (num & Hin).
               destruct Hin as [Heq | Hk_s]; [ | exists num; exact Hk_s ].
-              injection Heq as -> -> _ _. exfalso. apply HNeq. split; reflexivity. }
+              invert Heq. congruence. }
             apply Hsound. split; [ exact Hf1_s | exact Hf2_s ]. }
   Qed.
 
@@ -1758,28 +1070,22 @@ Section __.
     has_derived_datalog_fact s f -> has_derived_datalog_fact s' f.
   Proof.
     intros Hsane Hstep Hd.
-    pose proof (comp_step_known_incl _ _ Hstep) as Hincl.
     invert Hstep. rename H into Hin_r. rename H0 into Hfire.
-    cbn [known_facts sents] in Hincl |- *.
-    cbv [fire_at_rule] in Hfire. destruct Hfire as (fired_rule & Hcfr & Hcan_f & _).
-    destruct f as [R args | R mf_args mf_set]; cbv [has_derived_datalog_fact] in *.
+    cbv [fire_at_rule] in Hfire.
+    destruct f as [nf | mf]; cbv [has_derived_datalog_fact] in *; cbn [known_facts].
     - apply in_cons. exact Hd.
-    - destruct (is_input R) eqn:HER.
+    - destruct (is_input (meta_fact.rel mf)) eqn:HER.
       + destruct Hd as (num & Hin & Hexn). exists num. split; [ apply in_cons; exact Hin |].
-        assert (Hnm : ~ dfact_matches R mf_args new_fact).
-        { destruct new_fact as [nf_rel nf_args | ? ? ? ?].
-          - intros (nfa & Heq & _). injection Heq as HRr _.
-            cbv [can_deduce_fact] in Hcan_f. destruct Hcan_f as (Hded & _).
-            assert (Hfr : fired_rule = r).
-            { destruct Hcfr as [H'|(mc & mh & _ & H')]; [exact H'|].
-              subst fired_rule. destruct Hded as (hyps & Hnmri & _). invert Hnmri. }
-            subst fired_rule.
-            assert (Hni : is_input nf_rel = false) by
-              (eapply can_deduce_implies_not_input;
-               [ rewrite Forall_forall in Hp_good; apply Hp_good, non_meta_rules_In_p, Hin_r | exact Hded ]).
-            rewrite HRr in Hni. congruence.
-          - intros (nfa & Heq & _). discriminate. }
-        exact (proj2 (Existsn_cons_no_iff _ new_fact num s.(known_facts) Hnm) Hexn).
+        assert (Hnm : ~ message.matches mf.(meta_fact.pattern) new_fact).
+        { destruct new_fact as [nnf | npat nsrc ncnt]; [| intros [] ].
+          intros (Hrel & _).
+          cbn [node.can_deduce node.state.known node.state.sent node_prog
+               program.rules program.meta_rules] in Hfire.
+          destruct Hfire as (Hex & _). invert_list_stuff.
+          assert (Hni : is_input nnf.(normal_fact.rel) = false)
+            by (eapply can_deduce_implies_not_input; eassumption).
+          cbv [meta_fact.rel] in HER. congruence. }
+        apply (proj2 (Existsn_cons_no_iff _ new_fact num s.(known_facts) Hnm)). exact Hexn.
       + intros r' Hr'. destruct (Hd r' Hr') as (num & Hin). exists num. apply in_cons. exact Hin.
   Qed.
 
@@ -1795,11 +1101,11 @@ Section __.
     eapply step_preserves_has_derived; eassumption.
   Qed.
 
-  Lemma extract_per_source_meta_dfacts s R mf_args :
-    (forall r, In r non_meta_rules ->
-       exists num, In (meta_dfact R mf_args (from_rule r) num) s.(known_facts)) ->
+  Lemma extract_per_source_dones s pat :
+    (forall r, In r p.(program.rules) ->
+       exists num, In (message.done_with pat (from_rule r) num) s.(known_facts)) ->
     exists nums,
-      Forall2 (fun r num => In (meta_dfact R mf_args (from_rule r) num) s.(known_facts))
+      Forall2 (fun r num => In (message.done_with pat (from_rule r) num) s.(known_facts))
               sender_rules nums.
   Proof.
     intros H. apply Forall_exists_r_Forall2. apply Forall_forall. intros r Hr.
@@ -1811,33 +1117,36 @@ Section __.
     sane_state inputs s ->
     has_derived_datalog_fact s h ->
     mf_consistent_state s h ->
-    knows_datalog_fact s.(known_facts) h.
+    knows_fact s.(known_facts) h.
   Proof.
     intros Hinp Hsane Hd Hc.
-    destruct h as [R args | R mf_args mf_set]; [ exact Hd |].
+    destruct h as [nf | mf]; [ exact Hd |].
     cbv [has_derived_datalog_fact mf_consistent_state] in Hd, Hc.
-    cbn [knows_datalog_fact].
-    destruct (is_input R) eqn:HER.
+    cbn [node.knows_fact]. cbv [meta_fact.rel] in Hd |- *.
+    destruct (is_input mf.(meta_fact.pattern).(fact_pattern.rel)) eqn:HER.
     - destruct Hd as (num & Hin & Hexn). exists num. ssplit.
-      + rewrite expect_num_R_facts_eq, HER. exact Hin.
+      + rewrite expects_num_facts_eq, HER. exact Hin.
       + exact Hexn.
       + exact Hc.
-    - pose proof (extract_per_source_meta_dfacts s R mf_args Hd) as (nums & Hf2).
+    - pose proof (extract_per_source_dones s mf.(meta_fact.pattern) Hd) as (nums & Hf2).
       exists (list_sum nums). ssplit.
-      + rewrite expect_num_R_facts_eq, HER. exists nums. split; [exact Hf2 | reflexivity].
-      + destruct (Hsane.(sane_count) R mf_args) as (msgs & num_inp & num_kn & Hf2m & Hexn_inp & Hexn_kn & Hsum).
+      + rewrite expects_num_facts_eq, HER. exists nums. split; [exact Hf2 | reflexivity].
+      + destruct (Hsane.(sane_count) mf.(meta_fact.pattern))
+          as (msgs & num_inp & num_kn & Hf2m & Hexn_inp & Hexn_kn & Hsum).
         assert (Hinp0 : num_inp = 0).
-        { enough (HE : Existsn (dfact_matches R mf_args) 0 inputs)
+        { enough (HE : Existsn (message.matches mf.(meta_fact.pattern)) 0 inputs)
             by (exact (Existsn_unique _ _ _ _ Hexn_inp HE)).
           apply Forall_not_Existsn_0. destruct Hinp as (Hinp_all & _).
-          rewrite Forall_forall in Hinp_all |- *. intros g Hin_g (nfa & Hg & _).
-          specialize (Hinp_all _ Hin_g). subst g. cbn [is_input_fact] in Hinp_all. congruence. }
+          rewrite Forall_forall in Hinp_all |- *. intros g Hin_g Hmg.
+          specialize (Hinp_all _ Hin_g).
+          destruct g as [gnf | gpat gsrc gnum]; [| exact Hmg].
+          destruct Hmg as (Hrel & _). cbn [is_input_fact] in Hinp_all. congruence. }
         assert (Hmsgs_eq : list_sum msgs = list_sum nums).
         { f_equal.
           eapply Forall2_unique_r;
             [ exact Hf2m | | intros x y y' _ Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ].
           eapply Forall2_impl_strong; [ exact Hf2 | ].
-          intros ri ni HIn _ _. exact (proj1 (Hsane.(sane_local_meta) _ _ _ _ HIn)). }
+          intros ri ni HIn _ _. exact (proj1 (Hsane.(sane_local_meta) _ _ _ HIn)). }
         rewrite Hinp0, Nat.add_0_l, Hmsgs_eq in Hsum. subst num_kn. exact Hexn_kn.
       + exact Hc.
   Qed.
@@ -1907,32 +1216,35 @@ Section __.
       exists s'. ssplit.
       + eapply crt1n_trans_compose; eassumption.
       + constructor; [exact Hh_derived|].
-        eapply Forall_impl; [|exact Hderived_hs].
+        eapply Forall_impl; [ exact Hderived_hs | ].
         cbv beta. intros h0. eapply steps_preserves_has_derived; eauto.
   Qed.
 
-  Lemma knows_datalog_fact_inputs_has_derived inputs s f :
+  Lemma knows_fact_inputs_has_derived inputs s f :
     good_input_facts inputs ->
     sane_state inputs s ->
-    knows_datalog_fact inputs f ->
+    knows_fact inputs f ->
     has_derived_datalog_fact s f.
   Proof.
     intros Hinp Hsane Hkdf.
     pose proof Hsane.(sane_inputs_known) as Hinp_known.
-    destruct f as [R args | R mf_args mf_set]; cbv [has_derived_datalog_fact] in *.
+    destruct f as [nf | mf]; cbv [has_derived_datalog_fact] in *.
     - apply Hinp_known. exact Hkdf.
     - simpl in Hkdf. destruct Hkdf as (num & Hexp & Hexn & _).
-      rewrite expect_num_R_facts_eq in Hexp.
-      destruct (is_input R) eqn:HER.
+      rewrite expects_num_facts_eq in Hexp.
+      cbv [meta_fact.rel].
+      destruct (is_input mf.(meta_fact.pattern).(fact_pattern.rel)) eqn:HER.
       + exists num. split; [ apply Hinp_known; exact Hexp |].
-        destruct (Hsane.(sane_count) R mf_args) as (msgs & num_inp & num_kn & Hf2 & Hexn_inp & Hexn_kn & Hsum).
+        destruct (Hsane.(sane_count) mf.(meta_fact.pattern))
+          as (msgs & num_inp & num_kn & Hf2 & Hexn_inp & Hexn_kn & Hsum).
         pose proof (Existsn_unique _ _ _ _ Hexn_inp Hexn) as ->.
-        destruct (Hsane.(sane_input_rel) R HER) as (Hsent0 & _). specialize (Hsent0 mf_args).
+        destruct (Hsane.(sane_input_rel) _ HER) as (Hsent0 & _).
         assert (Hsum0 : list_sum msgs = 0).
         { assert (Hmz : msgs = repeat 0 (length sender_rules)).
           { eapply Forall2_unique_r;
               [ exact Hf2
-              | apply Forall2_repeat_r, Forall_forall; intros r0 _; apply get_or_default_values_0; exact Hsent0
+              | apply Forall2_repeat_r, Forall_forall; intros r0 _;
+                apply get_or_default_values_0; exact Hsent0
               | intros x y y' _ Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ]. }
           rewrite Hmz, list_sum_repeat. lia. }
         rewrite Hsum0, Nat.add_0_r in Hsum. subst num_kn. exact Hexn_kn.
@@ -1944,138 +1256,148 @@ Section __.
 
   Lemma correct_impl_consistent inputs s f :
     good_input_facts inputs ->
-    0 < length non_meta_rules ->
+    0 < length p.(program.rules) ->
     state_correct inputs s ->
-    prog_impl p (knows_datalog_fact inputs) f ->
+    program.interp p (knows_fact inputs) f ->
     has_derived_datalog_fact s f ->
     mf_consistent_state s f.
   Proof.
     intros Hinp Hlen Hsound Himpl Hderived.
-    destruct f as [R args | R mf_args mf_set]; [exact I|].
-    cbv [mf_consistent_state]. intros nf_args Hmatch.
-    pose (S0 := fun args' => In (normal_dfact R args') s.(known_facts)).
-    assert (Hd0 : has_derived_datalog_fact s (meta_fact R mf_args S0)).
-    { cbv [has_derived_datalog_fact] in *. exact Hderived. }
-    assert (Hc0 : mf_consistent_state s (meta_fact R mf_args S0)).
-    { cbv [mf_consistent_state]. intros nf_args' Hmatch'.
-      unfold S0. reflexivity. }
-    pose proof (Hsound (meta_fact R mf_args S0) (conj Hd0 Hc0)) as Himpl0.
-    pose proof (good_inputs_knows_datalog_fact_inputs inputs Hinp Hlen) as Hgi.
-    destruct Hgi as (Hrel_disj & Hdoesnt_lie).
-    assert (Hpair_unique : forall mfr mfa1 mfa2 mfs1 mfs2,
-              knows_datalog_fact inputs (meta_fact mfr mfa1 mfs1) ->
-              knows_datalog_fact inputs (meta_fact mfr mfa2 mfs2) ->
-              forall nfa, Forall2 matches mfa1 nfa -> Forall2 matches mfa2 nfa ->
-              mfs1 nfa <-> mfs2 nfa).
-    { intros mfr mfa1 mfa2 mfs1 mfs2 HQ1 HQ2 nfa Hm1 Hm2.
-      pose proof (Hdoesnt_lie mfr mfa1 mfs1 HQ1 nfa Hm1) as H1.
-      pose proof (Hdoesnt_lie mfr mfa2 mfs2 HQ2 nfa Hm2) as H2.
-      cbv [rel_of] in H1, H2.
-      rewrite H1, H2. reflexivity. }
-    pose proof (meta_facts_consistent p (knows_datalog_fact inputs)
-                  R mf_args mf_args mf_set S0
-                  Hrel_disj Hpair_unique Hmeta_rules
-                  Himpl Himpl0 nf_args Hmatch Hmatch) as Hbic.
-    rewrite Hbic. unfold S0. reflexivity.
+    destruct f as [nf | mf]; [exact I|].
+    cbv [mf_consistent_state fact.set_consistent_with]. intros nf0 Hmatch.
+    pose (mf0 := {| meta_fact.pattern := mf.(meta_fact.pattern);
+                   meta_fact.set := fun args' =>
+                     In (message.normal
+                           {| normal_fact.rel := mf.(meta_fact.pattern).(fact_pattern.rel);
+                             normal_fact.args := args' |}) s.(known_facts) |}).
+    assert (Hc0 : mf_consistent_state s (fact.meta mf0)).
+    { intros [nrel nargs] (Hrel & _). cbn in Hrel |- *.
+      replace nrel with mf.(meta_fact.pattern).(fact_pattern.rel) by congruence.
+      reflexivity. }
+    assert (Hd0 : has_derived_datalog_fact s (fact.meta mf0)) by exact Hderived.
+    pose proof (Hsound (fact.meta mf0) (conj Hd0 Hc0)) as Himpl0.
+    destruct (good_inputs_knows_fact_inputs inputs Hinp Hlen) as (Hrel_disj & Hdoesnt_lie).
+    assert (HQagree : forall mf1 mf2,
+               knows_fact inputs (fact.meta mf1) ->
+               knows_fact inputs (fact.meta mf2) ->
+               meta_fact.agree mf1 mf2)
+      by eauto using fact.set_doesnt_lie_agree.
+    pose proof (program.meta_facts_consistent p (knows_fact inputs) mf mf0
+                  Hrel_disj HQagree Hmeta_rules Himpl Himpl0) as Hagree.
+    rewrite (Hagree nf0 Hmatch Hmatch). exact (Hc0 nf0 Hmatch).
   Qed.
 
   (* Fire one deducible normal fact into node [k]'s sent list.  The no-conflict
      precondition of the fire step is discharged from [meta_facts_ok]: a matching
      done-message in [k]'s sent list would, by [ok_to_deduce], already have put the
      fact there, contradicting that it is absent. *)
-  Lemma comp_step_fire_normal inputs s rn R args :
+  Lemma comp_step_fire_normal inputs s rn nf :
     sane_state inputs s ->
     meta_facts_ok s ->
-    In rn non_meta_rules ->
-    can_deduce_normal_fact (rn) s.(known_facts) R args ->
-    ~ In (normal_dfact R args) (get_or_default s.(sents) rn) ->
+    In rn p.(program.rules) ->
+    can_deduce_normal_fact rn s.(known_facts) nf ->
+    ~ In (message.normal nf) (get_or_default s.(sents) rn) ->
     exists s',
       comp_step s s' /\
-        s'.(known_facts) = normal_dfact R args :: s.(known_facts) /\
-        get_or_default s'.(sents) rn = normal_dfact R args :: get_or_default s.(sents) rn.
+        s'.(known_facts) = message.normal nf :: s.(known_facts) /\
+        get_or_default s'.(sents) rn = message.normal nf :: get_or_default s.(sents) rn.
   Proof.
     intros Hsane Hmf_ok Hin_rn Hcdn Hnot_in.
-    assert (Hno_conflict :
-              forall mf_args num,
-                In (meta_dfact R mf_args (from_rule rn) num) (get_or_default s.(sents) rn) ->
-                Forall2 matches mf_args args -> False).
-    { intros mf_args num Hin_meta Hmatch.
-      pose proof (Hmf_ok rn Hin_rn) as Hmfor.
-      specialize (Hmfor R mf_args num Hin_meta). cbv [ok_to_deduce_fact] in Hmfor.
-      exact (Hnot_in (Hmfor args Hcdn Hmatch)). }
-    exists {| known_facts := normal_dfact R args :: s.(known_facts);
-              sents := mupd_with_default (cons (normal_dfact R args)) s.(sents) rn |}.
+    exists {| known_facts := message.normal nf :: s.(known_facts);
+             sents := mupd_with_default (cons (message.normal nf)) s.(sents) rn |}.
     ssplit.
-    - apply (fire_rule (normal_dfact R args) s rn); [ exact Hin_rn |].
-      cbv [fire_at_rule]. exists (rn). ssplit.
-      + left. reflexivity.
-      + cbn [can_deduce_fact]. split; [ exact Hcdn | exact Hno_conflict ].
-      + exact I.
+    - apply (fire_rule (message.normal nf) s rn); [ exact Hin_rn |].
+      cbv [fire_at_rule].
+      cbn [node.can_deduce node.state.known node.state.sent node_prog
+           program.rules program.meta_rules].
+      split.
+      + constructor. exact Hcdn.
+      + intros (pat & num & Hin_meta & Hmatch).
+        pose proof (Hmf_ok rn Hin_rn _ _ Hin_meta) as Hmfor.
+        exact (Hnot_in (Hmfor nf Hcdn Hmatch)).
     - cbn [known_facts]. reflexivity.
     - cbn [sents]. rewrite get_or_default_mupd. destr (eqb rn rn); [ reflexivity | congruence ].
   Qed.
 
-  (* Drive node [rn] to sent-broadcast every [R_concl]-fact matching [args_concl]
+  (* Drive node [rn] to sent-broadcast every fact matching [mf]'s pattern
      that its rule can deduce, so that firing the [(from_rule rn)] done-message
      is [ok_to_deduce].  Termination: the set of such facts is bounded by the
      finite list [l] from [meta_facts_finite] applied to the (real) meta-fact. *)
-  Lemma rule_can_force_normal_dfacts inputs s rn R_concl args_concl S_set :
+  Lemma rule_can_force_normal_facts inputs s rn (mf : meta_fact) :
     good_input_facts inputs ->
-    0 < length non_meta_rules ->
+    0 < length p.(program.rules) ->
     sane_state inputs s ->
     meta_facts_correct s ->
     meta_facts_ok s ->
     state_correct inputs s ->
-    In rn non_meta_rules ->
-    prog_impl p (knows_datalog_fact inputs) (meta_fact R_concl args_concl S_set) ->
+    In rn p.(program.rules) ->
+    program.interp p (knows_fact inputs) (fact.meta mf) ->
     exists s',
       comp_step^* s s' /\
-        ok_to_deduce_fact (rn) s'.(known_facts) (get_or_default s'.(sents) rn)
-          (meta_dfact R_concl args_concl (from_rule rn) 0).
+        ok_to_deduce rn s'.(known_facts) (get_or_default s'.(sents) rn)
+          mf.(meta_fact.pattern).
   Proof.
     intros Hinp Hlen_pos Hsane Hmfc Hmf_ok Hsound Hin_rn Hpi_meta.
-    assert (Hpremise : forall R mf_args S,
-               knows_datalog_fact inputs (meta_fact R mf_args S) ->
-               exists l, forall args, Forall2 matches mf_args args -> S args -> In args l).
-    { intros R0 mf0 S0 Hk. cbv [knows_datalog_fact] in Hk. destruct Hk as (num & _ & _ & Hbi).
-      exists (map (fun df => match df with normal_dfact _ a => a | _ => nil end) inputs).
-      intros args Hmatch HS. apply Hbi in HS; [| exact Hmatch].
-      apply in_map_iff. exists (normal_dfact R0 args). split; [reflexivity | exact HS]. }
-    pose proof (Hmeta_finite (knows_datalog_fact inputs) Hpremise R_concl args_concl S_set Hpi_meta)
-      as (l & Hl_bound).
-    pose proof (good_inputs_knows_datalog_fact_inputs inputs Hinp Hlen_pos) as Hgi.
-    pose proof (valid_impl_honest _ Hmeta_rules _ Hgi) as Hhonest.
-    cbv [doesnt_lie] in Hhonest.
-    pose proof (Hhonest R_concl args_concl S_set Hpi_meta) as Hcons_meta.
-    cbv [consistent] in Hcons_meta.
-    assert (Hl_reachable : forall nf_args s',
+    assert (Hpremise : forall mf',
+               knows_fact inputs (fact.meta mf') ->
+               exists l, forall args,
+                 Forall2 value_pattern.matches
+                   mf'.(meta_fact.pattern).(fact_pattern.args) args ->
+                 mf'.(meta_fact.set) args -> In args l).
+    { intros mf' Hk. destruct Hk as (num & _ & _ & Hbi).
+      exists (map (fun m => match m with
+                       | message.normal nf0 => nf0.(normal_fact.args)
+                       | _ => []
+                       end) inputs).
+      intros args Hmatch HS.
+      specialize (Hbi {| normal_fact.rel := mf'.(meta_fact.pattern).(fact_pattern.rel);
+                        normal_fact.args := args |}
+                    ltac:(split; [reflexivity | exact Hmatch])).
+      cbn [normal_fact.args] in Hbi. apply Hbi in HS.
+      apply in_map_iff. eexists. split; [| exact HS]. reflexivity. }
+    pose proof (good_inputs_knows_fact_inputs inputs Hinp Hlen_pos) as Hgi.
+    pose proof (program.valid_impl_honest p Hmeta_rules _ Hgi) as Hhonest.
+    pose proof (Hhonest _ Hpi_meta) as Hcons_meta.
+    cbv [fact.set_consistent_with fact.normal_subset] in Hcons_meta.
+    assert (Hl_nf : exists l, forall nf,
+               fact_pattern.matches mf.(meta_fact.pattern) nf ->
+               mf.(meta_fact.set) nf.(normal_fact.args) -> In nf l).
+    { destruct (Hmeta_finite (knows_fact inputs) Hpremise mf Hpi_meta) as (l0 & Hl0).
+      exists (map (fun a => {| normal_fact.rel := mf.(meta_fact.pattern).(fact_pattern.rel);
+                          normal_fact.args := a |}) l0).
+      intros [nrel nargs] (Hrel & Hargs) HS. cbn in *.
+      apply in_map_iff. exists nargs. split.
+      - f_equal. congruence.
+      - eauto. }
+    destruct Hl_nf as (l & Hl_bound).
+    assert (Hl_reachable : forall nf s',
               comp_step^* s s' ->
-              In (normal_dfact R_concl nf_args) s'.(known_facts) ->
-              Forall2 matches args_concl nf_args -> In nf_args l).
-    { intros nf_args s' Hsteps' Hknows Hmatch.
-      apply Hl_bound; [exact Hmatch|]. apply (Hcons_meta nf_args Hmatch).
+              In (message.normal nf) s'.(known_facts) ->
+              fact_pattern.matches mf.(meta_fact.pattern) nf -> In nf l).
+    { intros nf s' Hsteps' Hknows Hmatch.
+      apply Hl_bound; [exact Hmatch|]. apply (Hcons_meta nf Hmatch).
       assert (Hsane' : sane_state inputs s') by eauto using steps_preserves_sane.
       assert (Hsound' : state_correct inputs s') by eauto using comp_steps_sound.
-      apply Hsound'. split; [ cbv [has_derived_datalog_fact]; exact Hknows | exact I ]. }
-    assert (Hcand0 : forall nf_args s',
+      apply Hsound'. split; [ exact Hknows | exact I ]. }
+    assert (Hcand0 : forall nf s',
               comp_step^* s s' ->
-              In (normal_dfact R_concl nf_args) s'.(known_facts) ->
-              Forall2 matches args_concl nf_args ->
-              In (normal_dfact R_concl nf_args) (get_or_default s.(sents) rn) \/ In nf_args l).
-    { intros nf_args s' Hsteps' Hknows Hmatch. right. eapply Hl_reachable; eassumption. }
+              In (message.normal nf) s'.(known_facts) ->
+              fact_pattern.matches mf.(meta_fact.pattern) nf ->
+              In (message.normal nf) (get_or_default s.(sents) rn) \/ In nf l).
+    { intros nf s' Hsteps' Hknows Hmatch. right. eapply Hl_reachable; eassumption. }
     clear Hl_reachable Hpi_meta Hl_bound Hhonest Hcons_meta Hgi Hpremise.
     remember (length l) as len eqn:Elen.
     assert (Hlen : length l < S len) by lia. clear Elen.
     revert l s Hlen Hsane Hmfc Hmf_ok Hsound Hcand0. generalize (S len). clear len.
     intros len. induction len as [|len IH]; intros l s Hlen Hsane Hmfc Hmf_ok Hsound Hcand; [lia|].
-    destruct (classic (Exists (fun nf : list T =>
-                          can_deduce_normal_fact (rn) s.(known_facts) R_concl nf /\
-                          Forall2 matches args_concl nf /\
-                          ~ In (normal_dfact R_concl nf) (get_or_default s.(sents) rn)) l)) as [Hex | Hno].
+    destruct (classic (Exists (fun nf =>
+                          can_deduce_normal_fact rn s.(known_facts) nf /\
+                          fact_pattern.matches mf.(meta_fact.pattern) nf /\
+                          ~ In (message.normal nf) (get_or_default s.(sents) rn)) l)) as [Hex | Hno].
     - rewrite Exists_exists in Hex.
       destruct Hex as (nf & Hin_l & Hcdn_nf & Hmatch & Hnot_in_sent).
       apply in_split in Hin_l. destruct Hin_l as (l1 & l2 & Hl_split).
-      pose proof (comp_step_fire_normal inputs s rn R_concl nf
+      pose proof (comp_step_fire_normal inputs s rn nf
                     Hsane Hmf_ok Hin_rn Hcdn_nf Hnot_in_sent)
         as (s_fire & Hstep_fire & Hkn_fire & Hgd_fire).
       assert (Hsteps_fire : comp_step^* s s_fire)
@@ -2084,20 +1406,20 @@ Section __.
       assert (Hmfc_fire : meta_facts_correct s_fire) by eauto using step_preserves_mfs_correct.
       assert (Hmf_ok_fire : meta_facts_ok s_fire) by eauto using step_preserves_meta_facts_ok.
       assert (Hsound_fire : state_correct inputs s_fire) by eauto using comp_step_sound.
-      assert (Hcand_fire : forall nf_args s'',
+      assert (Hcand_fire : forall nf0 s'',
                 comp_step^* s_fire s'' ->
-                In (normal_dfact R_concl nf_args) s''.(known_facts) ->
-                Forall2 matches args_concl nf_args ->
-                In (normal_dfact R_concl nf_args) (get_or_default s_fire.(sents) rn) \/ In nf_args (l1 ++ l2)).
-      { intros nf_args s'' Hsteps'' Hkn'' Hmatch''.
+                In (message.normal nf0) s''.(known_facts) ->
+                fact_pattern.matches mf.(meta_fact.pattern) nf0 ->
+                In (message.normal nf0) (get_or_default s_fire.(sents) rn) \/ In nf0 (l1 ++ l2)).
+      { intros nf0 s'' Hsteps'' Hkn'' Hmatch''.
         assert (Hsteps_tot : comp_step^* s s'')
           by (eapply crt1n_trans_compose; [exact Hsteps_fire | exact Hsteps'']).
-        specialize (Hcand nf_args s'' Hsteps_tot Hkn'' Hmatch'').
+        specialize (Hcand nf0 s'' Hsteps_tot Hkn'' Hmatch'').
         destruct Hcand as [Hc | Hc].
         - left. rewrite Hgd_fire. right. exact Hc.
         - rewrite Hl_split in Hc. apply in_app_iff in Hc. destruct Hc as [Hc | [Hc | Hc]].
           + right. apply in_app_iff. left. exact Hc.
-          + subst nf_args. left. rewrite Hgd_fire. left. reflexivity.
+          + subst nf0. left. rewrite Hgd_fire. left. reflexivity.
           + right. apply in_app_iff. right. exact Hc. }
       assert (Hlen' : length (l1 ++ l2) < len).
       { rewrite Hl_split, length_app in Hlen. rewrite length_app. simpl in Hlen. lia. }
@@ -2106,150 +1428,142 @@ Section __.
       exists s'. ssplit;
         [ eapply crt1n_trans_compose; [exact Hsteps_fire | exact Hsteps'] | exact Hforcing' ].
     - exists s. ssplit; [ apply rt1n_refl |].
-      cbv [ok_to_deduce_fact]. intros nf_args Hcdn_nf Hmatch.
-      destruct (classic (In (normal_dfact R_concl nf_args) (get_or_default s.(sents) rn)))
+      cbv [ok_to_deduce]. intros nf Hcdn_nf Hmatch.
+      destruct (classic (In (message.normal nf) (get_or_default s.(sents) rn)))
         as [Hin | Hnin]; [exact Hin|].
       exfalso.
-      pose proof (comp_step_fire_normal inputs s rn R_concl nf_args
+      pose proof (comp_step_fire_normal inputs s rn nf
                     Hsane Hmf_ok Hin_rn Hcdn_nf Hnin)
         as (s_fire & Hstep_fire & Hkn_fire & _).
-      assert (Hin_kn_fire : In (normal_dfact R_concl nf_args) s_fire.(known_facts))
+      assert (Hin_kn_fire : In (message.normal nf) s_fire.(known_facts))
         by (rewrite Hkn_fire; left; reflexivity).
       assert (Hsteps1 : comp_step^* s s_fire)
         by (eapply Relation_Operators.rt1n_trans; [exact Hstep_fire | apply rt1n_refl]).
-      specialize (Hcand nf_args s_fire Hsteps1 Hin_kn_fire Hmatch).
+      specialize (Hcand nf s_fire Hsteps1 Hin_kn_fire Hmatch).
       destruct Hcand as [Hc | Hc].
       + apply Hnin. exact Hc.
-      + apply Hno. apply Exists_exists. exists nf_args.
+      + apply Hno. apply Exists_exists. exists nf.
         split; [exact Hc | split; [exact Hcdn_nf | split; [exact Hmatch | exact Hnin]]].
   Qed.
 
-  (* Fire the [(from_rule rn)] done-message for [(R, args)] at node [rn], given the
+  (* Fire the [(from_rule rn)] done-message for [pat] at node [rn], given the
      rule's concl/hyp interpretation, that its hyps are known, and [ok_to_deduce]. *)
-  Lemma comp_step_fire_meta inputs s rn rule_concls rule_hyps ctx R args S hyps ms :
+  Lemma comp_step_fire_meta inputs s rn mr pat mhyps ms :
     sane_state inputs s ->
-    In rn non_meta_rules ->
-    In (meta_rule rule_concls rule_hyps) p ->
-    Existsn (dfact_matches R args) ms (get_or_default s.(sents) rn) ->
-    Exists (fun c => meta_clause.interp ctx c (meta_fact R args S)) rule_concls ->
-    Forall2 (meta_clause.interp ctx) rule_hyps hyps ->
-    Forall (knows_datalog_fact s.(known_facts)) hyps ->
-    ok_to_deduce_fact (rn) s.(known_facts) (get_or_default s.(sents) rn)
-      (meta_dfact R args (from_rule rn) ms) ->
+    In rn p.(program.rules) ->
+    In mr p.(program.meta_rules) ->
+    Existsn (message.matches pat) ms (get_or_default s.(sents) rn) ->
+    meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) ->
+    Forall (knows_meta_fact s.(known_facts)) mhyps ->
+    ok_to_deduce rn s.(known_facts) (get_or_default s.(sents) rn) pat ->
     exists s',
       comp_step s s' /\
-        s'.(known_facts) = meta_dfact R args (from_rule rn) ms :: s.(known_facts).
+        s'.(known_facts) = message.done_with pat (from_rule rn) ms :: s.(known_facts).
   Proof.
-    intros Hsane Hin_rn Hin_mr Hexn Hconcl Hhyps Hknow Hok.
-    exists {| known_facts := meta_dfact R args (from_rule rn) ms :: s.(known_facts);
-              sents := mupd_with_default (cons (meta_dfact R args (from_rule rn) ms)) s.(sents) rn |}.
+    intros Hsane Hin_rn Hin_mr Hexn Hpi Hknow Hok.
+    exists {| known_facts := message.done_with pat (from_rule rn) ms :: s.(known_facts);
+             sents := mupd_with_default (cons (message.done_with pat (from_rule rn) ms))
+                        s.(sents) rn |}.
     split; [| cbn [known_facts]; reflexivity ].
-    apply (fire_rule (meta_dfact R args (from_rule rn) ms) s rn); [ exact Hin_rn |].
-    cbv [fire_at_rule]. exists (meta_rule rule_concls rule_hyps). ssplit.
-    - right. exists rule_concls, rule_hyps. split; [exact Hin_mr | reflexivity].
-    - cbn [can_deduce_fact]. split; [reflexivity|].
-      exists rule_concls, rule_hyps, hyps. split; [reflexivity|]. split.
-      + cbv [can_deduce_meta_fact]. exists ctx, R, args, ms. ssplit.
-        * reflexivity.
-        * exact Hexn.
-        * eapply Exists_impl; [| exact Hconcl ]. intros c Hc.
-          cbv [meta_clause.interp] in Hc |- *. destruct Hc as (mfa & mfs & Hf2 & Heq).
-          injection Heq as Hrel Hmfa _. exists args, (fun _ => False). split.
-          -- rewrite Hmfa. exact Hf2.
-          -- rewrite <- Hrel. reflexivity.
-        * exact Hhyps.
-      + exact Hknow.
-    - cbn [ok_to_deduce_fact] in Hok |- *. exact Hok.
+    apply (fire_rule (message.done_with pat (from_rule rn) ms) s rn); [ exact Hin_rn |].
+    cbv [fire_at_rule].
+    cbn [node.can_deduce node.state.known node.state.sent node_prog
+         program.rules program.meta_rules].
+    ssplit.
+    - reflexivity.
+    - apply Exists_exists. exists mr. split; [ exact Hin_mr |].
+      exists mhyps. split; [ exact Hpi | exact Hknow ].
+    - exact Hexn.
+    - intros r0 nf Hin0 Hcdn Hm.
+      cbn [node_prog program.rules] in Hin0. destruct Hin0 as [Heq | []]. subst r0.
+      exact (Hok nf Hcdn Hm).
   Qed.
 
-  Lemma good_layout_complete_rule inputs s (ru : rule) f hyps :
+  Lemma good_layout_complete_rule inputs s f hyps :
     good_input_facts inputs ->
     sane_state inputs s ->
     meta_facts_correct s ->
     meta_facts_ok s ->
     state_correct inputs s ->
-    In ru p ->
-    rule_impl (one_step_derives p) ru f hyps ->
+    program.interp_step p f hyps ->
     Forall (has_derived_datalog_fact s) hyps ->
     Forall (mf_consistent_state s) hyps ->
     exists s',
       comp_step^* s s' /\
         has_derived_datalog_fact s' f.
   Proof.
-    intros Hinp Hsane Hmfc Hmf_ok Hsound Hin_r Himpl Hderived Hcons.
-    pose proof Himpl as Himpl_save.
+    intros Hinp Hsane Hmfc Hmf_ok Hsound Himpl Hderived Hcons.
     invert Himpl.
-    - rename H into Hnmri.
-      assert (Hin_nmr : exists nmr, In nmr non_meta_rules /\ nmr = ru).
-      { exists ru. split; [ | reflexivity ].
-        apply In_non_meta_rules;
-          [ exact Hin_r | destruct ru; [ reflexivity | invert Hnmri | reflexivity ] ]. }
-      destruct Hin_nmr as (nmr & Hin_nmr & Hnmr_eq).
-      destruct (classic (In (normal_dfact R args) s.(known_facts))) as [Hin | Hnin].
+    - rename f0 into nf. apply Exists_exists in H. destruct H as (rn & Hin_rn & Hri).
+      destruct (classic (In (message.normal nf) s.(known_facts))) as [Hin | Hnin].
       + exists s. split; [apply rt1n_refl | exact Hin].
-      + assert (Hcdn : can_deduce_normal_fact (nmr) s.(known_facts) R args).
-        { exists hyps. split; [ rewrite Hnmr_eq; exact Hnmri |].
+      + assert (Hcdn : can_deduce_normal_fact rn s.(known_facts) nf).
+        { exists hyps. split; [ exact Hri |].
           rewrite Forall_forall. intros h Hh. eapply derived_consistent_impl_knows;
             [ exact Hinp | exact Hsane
             | rewrite Forall_forall in Hderived; apply Hderived; exact Hh
             | rewrite Forall_forall in Hcons; apply Hcons; exact Hh ]. }
-        assert (Hnin_sent : ~ In (normal_dfact R args) (get_or_default s.(sents) nmr)).
+        assert (Hnin_sent : ~ In (message.normal nf) (get_or_default s.(sents) rn)).
         { intros Hs. apply Hnin.
-          eapply sent_implies_knows; [ exact Hsane | exact Hin_nmr | exact Hs ]. }
-        pose proof (comp_step_fire_normal inputs s nmr R args Hsane Hmf_ok Hin_nmr Hcdn Hnin_sent)
+          eapply sent_implies_knows; [ exact Hsane | exact Hin_rn | exact Hs ]. }
+        pose proof (comp_step_fire_normal inputs s rn nf Hsane Hmf_ok Hin_rn Hcdn Hnin_sent)
           as (s' & Hstep & Hkn & _).
         exists s'. split.
         * eapply Relation_Operators.rt1n_trans; [exact Hstep | apply rt1n_refl].
         * cbv [has_derived_datalog_fact]. rewrite Hkn. left. reflexivity.
-    - rename H into Hconcl, H0 into Hforall2_hyps, H1 into HS_def.
-      assert (HR_noninput : is_input R = false).
-      { apply Exists_exists in Hconcl. destruct Hconcl as (c & Hin_c & Hint).
-        cbv [meta_clause.interp] in Hint. destruct Hint as (mfa & mfs & _ & Heq).
-        injection Heq as -> _ _.
-        eapply concl_rel_not_input; [ exact Hin_r | apply in_map, Hin_c ]. }
-      assert (Hpi_hyps : Forall (prog_impl p (knows_datalog_fact inputs)) hyps).
+    - rename f0 into mf, hyps0 into mhyps.
+      apply Exists_exists in H. destruct H as (mr & Hin_mr & Hmri).
+      pose proof Hmri as Hmri_save.
+      destruct Hmri as (pat & Hpi & Hequiv).
+      destruct Hequiv as (Hpe & _). cbn [meta_fact.pattern] in Hpe.
+      assert (HR_noninput : is_input pat.(fact_pattern.rel) = false)
+        by (eapply pattern_concl_not_input; eassumption).
+      assert (Hpi_hyps : Forall (program.interp p (knows_fact inputs)) (map fact.meta mhyps)).
       { rewrite Forall_forall. intros h Hh. apply Hsound. split;
           [ rewrite Forall_forall in Hderived; apply Hderived; exact Hh
           | rewrite Forall_forall in Hcons; apply Hcons; exact Hh ]. }
-      assert (Hpi_meta : prog_impl p (knows_datalog_fact inputs) (meta_fact R args S)).
-      { eapply prog_impl_step.
-        - apply Exists_exists. exists (meta_rule rule_concls rule_hyps). split.
-          + exact Hin_r.
-          + exact Himpl_save.
+      assert (Hpi_meta : program.interp p (knows_fact inputs) (fact.meta mf)).
+      { eapply pftree.step.
+        - constructor. apply Exists_exists. exists mr. split; [exact Hin_mr | exact Hmri_save].
         - exact Hpi_hyps. }
-      assert (Hgoal_n : forall rs, incl rs non_meta_rules ->
+      assert (Hgoal_n : forall rs, incl rs p.(program.rules) ->
                 exists s', comp_step^* s s' /\
                   (forall r, In r rs -> exists num,
-                     In (meta_dfact R args (from_rule r) num) s'.(known_facts))).
+                     In (message.done_with pat (from_rule r) num) s'.(known_facts))).
       { induction rs as [|r0 rs IH]; intros Hincl.
         - exists s. split; [apply rt1n_refl|]. intros r [].
         - destruct (IH ltac:(intros x Hx; apply Hincl; right; exact Hx))
             as (s' & Hsteps' & Hrs_forced).
-          assert (Hin_r0 : In r0 non_meta_rules) by (apply Hincl; left; reflexivity).
+          assert (Hin_r0 : In r0 p.(program.rules)) by (apply Hincl; left; reflexivity).
           pose proof (In_length_pos _ _ Hin_r0) as Hlen_pos.
           assert (Hsane' : sane_state inputs s') by eauto using steps_preserves_sane.
           assert (Hmfc' : meta_facts_correct s') by eauto using steps_preserves_mfs_correct.
           assert (Hmf_ok' : meta_facts_ok s') by eauto using steps_preserves_meta_facts_ok.
           assert (Hsound' : state_correct inputs s') by eauto using comp_steps_sound.
-          pose proof (rule_can_force_normal_dfacts inputs s' r0 R args S
+          pose proof (rule_can_force_normal_facts inputs s' r0 mf
                         Hinp Hlen_pos Hsane' Hmfc' Hmf_ok' Hsound' Hin_r0 Hpi_meta)
             as (s'' & Hsteps_force & Hforcing).
+          rewrite Hpe in Hforcing.
           assert (Hsteps'' : comp_step^* s s'')
             by (eapply crt1n_trans_compose; [exact Hsteps' | exact Hsteps_force]).
           assert (Hsane'' : sane_state inputs s'') by eauto using steps_preserves_sane.
           assert (Hsound'' : state_correct inputs s'') by eauto using comp_steps_sound.
-          assert (Hknow_hyps'' : Forall (knows_datalog_fact s''.(known_facts)) hyps).
-          { rewrite Forall_forall. intros h Hh.
-            assert (Hd'' : has_derived_datalog_fact s'' h).
+          assert (Hknow_hyps'' : Forall (knows_meta_fact s''.(known_facts)) mhyps).
+          { rewrite Forall_forall. intros mh Hmh.
+            assert (Hh : In (fact.meta mh) (map fact.meta mhyps)) by (apply in_map, Hmh).
+            assert (Hd'' : has_derived_datalog_fact s'' (fact.meta mh)).
             { eapply steps_preserves_has_derived; [ exact Hinp | exact Hsane | exact Hsteps'' |].
-              rewrite Forall_forall in Hderived; apply Hderived; exact Hh. }
-            eapply derived_consistent_impl_knows; [ exact Hinp | exact Hsane'' | exact Hd'' |].
-            eapply correct_impl_consistent;
-              [ exact Hinp | lia | exact Hsound''
-              | rewrite Forall_forall in Hpi_hyps; apply Hpi_hyps; exact Hh | exact Hd'' ]. }
-          destruct (Existsn_total (dfact_matches R args) (get_or_default s''.(sents) r0)) as (ms & Hexn_ms).
-          pose proof (comp_step_fire_meta inputs s'' r0 rule_concls rule_hyps ctx R args S hyps ms
-                        Hsane'' Hin_r0 Hin_r Hexn_ms Hconcl Hforall2_hyps Hknow_hyps'' Hforcing)
+              rewrite Forall_forall in Hderived. apply Hderived. exact Hh. }
+            assert (Hc'' : mf_consistent_state s'' (fact.meta mh)).
+            { eapply correct_impl_consistent;
+                [ exact Hinp | lia | exact Hsound''
+                | rewrite Forall_forall in Hpi_hyps; apply Hpi_hyps; exact Hh | exact Hd'' ]. }
+            exact (derived_consistent_impl_knows inputs s'' (fact.meta mh)
+                     Hinp Hsane'' Hd'' Hc''). }
+          destruct (Existsn_total (message.matches pat) (get_or_default s''.(sents) r0))
+            as (ms & Hexn_ms).
+          pose proof (comp_step_fire_meta inputs s'' r0 mr pat mhyps ms
+                        Hsane'' Hin_r0 Hin_mr Hexn_ms Hpi Hknow_hyps'' Hforcing)
             as (s''' & Hstep_fire & Hkn_fire).
           exists s'''. split.
           + eapply crt1n_trans_compose; [ exact Hsteps'' |].
@@ -2260,22 +1574,23 @@ Section __.
               pose proof (comp_step_known_incl _ _ Hstep_fire) as Hincl_fire.
               pose proof (comp_steps_known_incl _ _ Hsteps_force) as Hincl_force.
               apply Hincl_fire, Hincl_force. exact Hin_num. }
-      specialize (Hgoal_n non_meta_rules (incl_refl _)).
+      specialize (Hgoal_n p.(program.rules) (incl_refl _)).
       destruct Hgoal_n as (s' & Hsteps & Hall).
       exists s'. split; [exact Hsteps|].
-      cbv [has_derived_datalog_fact]. rewrite HR_noninput. intros r Hr. apply Hall. exact Hr.
+      cbv [has_derived_datalog_fact meta_fact.rel]. rewrite Hpe, HR_noninput.
+      intros r Hr. apply Hall. exact Hr.
   Qed.
 
-  Definition state_complete (inputs : list dfact) (s : state) :=
+  Definition state_complete (inputs : list message) (s : state) :=
     forall f,
-      prog_impl p (knows_datalog_fact inputs) f ->
+      program.interp p (knows_fact inputs) f ->
       exists s',
         comp_step^* s s' /\
           has_derived_datalog_fact s' f.
 
   Lemma comp_step_complete inputs s :
     good_input_facts inputs ->
-    0 < length non_meta_rules ->
+    0 < length p.(program.rules) ->
     sane_state inputs s ->
     meta_facts_correct s ->
     meta_facts_ok s ->
@@ -2293,13 +1608,11 @@ Section __.
     enough (HR : R f).
     { apply HR; assumption. }
     revert f Himpl.
-    apply prog_impl_ind.
+    apply pftree.ind.
     - intros f0 Hkdf s0 Hsane0 Hmfc0 Hmf_ok0 Hsound0.
       exists s0. split; [apply rt1n_refl|].
-      eapply knows_datalog_fact_inputs_has_derived; eassumption.
-    - intros f0 hyps Hexists Hforall_pi Hforall_R s0 Hsane0 Hmfc0 Hmf_ok0 Hsound0.
-      apply Exists_exists in Hexists.
-      destruct Hexists as (ru & Hin_r & Hrule_impl).
+      eapply knows_fact_inputs_has_derived; eassumption.
+    - intros f0 hyps Hstep0 Hforall_pi Hforall_R s0 Hsane0 Hmfc0 Hmf_ok0 Hsound0.
       pose proof (compose_completion inputs s0 hyps Hinp Hsane0 Hmfc0 Hmf_ok0 Hsound0 Hforall_R)
         as (s1 & Hsteps1 & Hderived1).
       assert (Hsane1 : sane_state inputs s1) by eauto using steps_preserves_sane.
@@ -2315,18 +1628,18 @@ Section __.
         - exact Hsound1.
         - rewrite Forall_forall in Hforall_pi. apply Hforall_pi. assumption.
         - rewrite Forall_forall in Hderived1. apply Hderived1. assumption. }
-      pose proof (good_layout_complete_rule inputs s1 ru f0 hyps
-                    Hinp Hsane1 Hmfc1 Hmf_ok1 Hsound1 Hin_r Hrule_impl Hderived1 Hcons1)
+      pose proof (good_layout_complete_rule inputs s1 f0 hyps
+                    Hinp Hsane1 Hmfc1 Hmf_ok1 Hsound1 Hstep0 Hderived1 Hcons1)
         as (s2 & Hsteps2 & Hderived2).
       exists s2. split; [|exact Hderived2].
       eapply crt1n_trans_compose; eassumption.
   Qed.
 
-  Definition initial (inputs : list dfact) : state :=
+  Definition initial (inputs : list message) : state :=
     {| known_facts := inputs; sents := map.empty |}.
 
-  Lemma good_input_no_node_meta (inputs : list dfact) R a r num :
-    good_input_facts inputs -> ~ In (meta_dfact R a (from_rule r) num) inputs.
+  Lemma good_input_no_node_meta (inputs : list message) pat r num :
+    good_input_facts inputs -> ~ In (message.done_with pat (from_rule r) num) inputs.
   Proof.
     intros [Hall _] Hin. rewrite Forall_forall in Hall.
     specialize (Hall _ Hin). cbn in Hall. discriminate.
@@ -2335,61 +1648,61 @@ Section __.
   Lemma get_or_default_empty r : get_or_default (map.empty : sent_map) r = [].
   Proof. rewrite (get_or_default_None (map.empty : sent_map) r) by apply map.get_empty. reflexivity. Qed.
 
-  Lemma mfc_initial (inputs : list dfact) : meta_facts_correct (initial inputs).
+  Lemma mfc_initial (inputs : list message) : meta_facts_correct (initial inputs).
   Proof.
     unfold meta_facts_correct, initial. cbn [known_facts sents].
-    intros r Hr R mf_args num Hin. rewrite get_or_default_empty in Hin. destruct Hin.
+    intros r Hr pat num Hin. rewrite get_or_default_empty in Hin. destruct Hin.
   Qed.
 
-  Lemma mfok_initial (inputs : list dfact) : meta_facts_ok (initial inputs).
+  Lemma mfok_initial (inputs : list message) : meta_facts_ok (initial inputs).
   Proof.
     unfold meta_facts_ok, initial. cbn [known_facts sents].
-    intros r Hr mf_rel mf_args num Hin. rewrite get_or_default_empty in Hin. destruct Hin.
+    intros r Hr pat num Hin. rewrite get_or_default_empty in Hin. destruct Hin.
   Qed.
 
-  Lemma sane_initial (inputs : list dfact) :
+  Lemma sane_initial (inputs : list message) :
     good_input_facts inputs -> sane_state inputs (initial inputs).
   Proof.
     intros Hg. unfold initial. constructor; cbn [known_facts sents].
-    - intros R a num H. exact H.
-    - intros R a r num H. exfalso. exact (good_input_no_node_meta inputs R a r num Hg H).
-    - intros R a. destruct (Existsn_total (dfact_matches R a) inputs) as (nk & Hnk).
+    - intros pat num H. exact H.
+    - intros pat r num H. exfalso. exact (good_input_no_node_meta inputs pat r num Hg H).
+    - intros pat. destruct (Existsn_total (message.matches pat) inputs) as (nk & Hnk).
       exists (repeat 0 (length sender_rules)), nk, nk. split; [| split; [| split]].
       + apply Forall2_repeat_r. apply Forall_forall. intros r _.
         rewrite get_or_default_empty. apply Existsn_nil.
       + exact Hnk.
       + exact Hnk.
       + rewrite list_sum_repeat. lia.
-    - intros R HER. split.
-      + intros a. rewrite values_empty. constructor.
-      + intros a r num. exact (good_input_no_node_meta inputs R a r num Hg).
+    - intros pat HER. split.
+      + rewrite values_empty. constructor.
+      + intros r num. exact (good_input_no_node_meta inputs pat r num Hg).
     - intros g H. exact H.
   Qed.
 
-  Lemma sc_initial (inputs : list dfact) :
-    0 < length non_meta_rules ->
+  Lemma sc_initial (inputs : list message) :
+    0 < length p.(program.rules) ->
     good_input_facts inputs -> state_correct inputs (initial inputs).
   Proof.
-    intros Hlen Hg f (Hd & Hmc). destruct f as [R args | R mf_args mf_set].
+    intros Hlen Hg f (Hd & Hmc). destruct f as [nf | mf].
     - cbv [has_derived_datalog_fact] in Hd. unfold initial in Hd. cbn [known_facts] in Hd.
-      apply prog_impl_leaf. cbn [Node.knows_datalog_fact]. exact Hd.
+      apply pftree.leaf. exact Hd.
     - cbv [has_derived_datalog_fact] in Hd. cbv [mf_consistent_state] in Hmc.
       unfold initial in Hd, Hmc. cbn [known_facts] in Hd, Hmc.
-      destruct (is_input R) eqn:HER.
-      + apply prog_impl_leaf. cbn [Node.knows_datalog_fact].
-        destruct Hd as (num & Hin & Hexn). exists num. split; [| split].
-        * rewrite expect_num_R_facts_eq, HER. exact Hin.
+      destruct (is_input (meta_fact.rel mf)) eqn:HER.
+      + apply pftree.leaf. cbn [node.knows_fact].
+        destruct Hd as (num & Hin & Hexn). exists num. ssplit.
+        * rewrite expects_num_facts_eq. cbv [meta_fact.rel] in HER. rewrite HER. exact Hin.
         * exact Hexn.
-        * intros nfa Hm. exact (Hmc nfa Hm).
+        * exact Hmc.
       + exfalso. destruct (length_pos_In _ Hlen) as (r0 & Hin_r0).
         destruct (Hd r0 Hin_r0) as (num & Hin).
-        exact (good_input_no_node_meta inputs R mf_args r0 num Hg Hin).
+        exact (good_input_no_node_meta inputs mf.(meta_fact.pattern) r0 num Hg Hin).
   Qed.
 
-  Theorem prog_impl_iff_comp_step (inputs : list dfact) (f : fact) :
-    0 < length non_meta_rules ->
+  Theorem prog_impl_iff_comp_step (inputs : list message) (f : fact) :
+    0 < length p.(program.rules) ->
     good_input_facts inputs ->
-    (prog_impl p (knows_datalog_fact inputs) f <->
+    (program.interp p (knows_fact inputs) f <->
      exists s', comp_step^* (initial inputs) s' /\
                 has_derived_datalog_fact s' f /\ mf_consistent_state s' f).
   Proof.
@@ -2415,6 +1728,4 @@ Section __.
 
 End __.
 
-Arguments sane_state {rel exprvar fn aggregator T rule_eqb sent_map} is_input p input_facts s.
-*)
-End __.
+Arguments sane_state {_rel _exprvar _fn _aggregator _value rule_eqb sent_map} is_input p input_facts s.
