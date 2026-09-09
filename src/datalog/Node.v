@@ -8,114 +8,138 @@ Definition mf_labelT := Type.
 Existing Class mf_labelT.
 #[global] Typeclasses Transparent mf_labelT.
 
-Section __.
-  Context `{params : datalog_params}.
-  Context {mf_label : mf_labelT}.
+Module countless.
+  Section __.
+    Context `{params : datalog_params} {mf_label : mf_labelT}.
 
-  Inductive dfact :=
-  | normal_dfact (nf : normal_fact)
-  | meta_dfact (pattern : fact_pattern) (src : mf_label) (expected_msgs : nat).
+    Variant countless :=
+      | normal (nf : normal_fact)
+      | meta (pattern : fact_pattern) (src : mf_label).
+  End __.
+End countless. Export countless (countless).
 
-  Definition is_normal_dfact (f : dfact) : bool :=
-    match f with
-    | normal_dfact _ => true
-    | meta_dfact _ _ _ => false
-    end.
+Module dfact.
+  Section __.
+    Context `{params : datalog_params} {mf_label : mf_labelT}.
+    Context (R_senders : rel -> list mf_label).
 
-  Definition normal_facts_of (f : dfact) : list normal_fact :=
-    match f with
-    | normal_dfact nf => [nf]
-    | meta_dfact _ _ _ => []
-    end.
+    Inductive dfact :=
+    | normal (nf : normal_fact)
+    | meta (pattern : fact_pattern) (src : mf_label) (expected_msgs : nat).
 
-  Definition dfact_rel (f : dfact) : rel :=
-    match f with
-    | normal_dfact nf => nf.(normal_fact.rel)
-    | meta_dfact pat _ _ => pat.(fact_pattern.rel)
-    end.
+    Definition is_normal (f : dfact) : bool :=
+      match f with
+      | normal _ => true
+      | meta _ _ _ => false
+      end.
 
-  Record node_state :=
-    { known_facts : list dfact;
-      sent_facts : list dfact }.
+    Definition to_normal_facts (f : dfact) : list normal_fact :=
+      match f with
+      | normal nf => [nf]
+      | meta _ _ _ => []
+      end.
 
-  Context (R_senders : rel -> list mf_label).
+    Definition dfact_rel (f : dfact) : rel :=
+      match f with
+      | normal nf => nf.(normal_fact.rel)
+      | meta pat _ _ => pat.(fact_pattern.rel)
+      end.
 
-  Definition expect_num_facts (pat : fact_pattern) (known_facts : list dfact) num :=
-    exists expected_msgss,
-      Forall2 (fun n expected_msgs => In (meta_dfact pat n expected_msgs) known_facts)
-        (R_senders pat.(fact_pattern.rel)) expected_msgss /\
-        num = list_sum expected_msgss.
+    Definition matches (pat : fact_pattern) (f : dfact) :=
+      match f with
+      | normal nf => fact_pattern.matches pat nf
+      | meta _ _ _ => False
+      end.
 
-  Definition dfact_matches (pat : fact_pattern) (f : dfact) :=
-    exists nf,
-      f = normal_dfact nf /\
-        fact_pattern.matches pat nf.
+    Definition equiv (f1 f2 : dfact) : Prop :=
+      match f1, f2 with
+      | meta p1 s1 _, meta p2 s2 _ => p1 = p2 /\ s1 = s2
+      | _, _ => f1 = f2
+      end.
 
-  Definition knows_normal_fact (dfacts : list dfact) (nf : normal_fact) :=
-    In (normal_dfact nf) dfacts.
 
-  Definition knows_meta_fact (dfacts : list dfact) (mf : meta_fact) :=
-    exists num,
-      expect_num_facts mf.(meta_fact.pattern) dfacts num /\
-        Existsn (dfact_matches mf.(meta_fact.pattern)) num dfacts /\
-        fact.set_consistent_with mf (knows_normal_fact dfacts).
 
-  Definition knows_fact dfacts f :=
-    match f with
-    | fact.normal nf => knows_normal_fact dfacts nf
-    | fact.meta mf => knows_meta_fact dfacts mf
-    end.
+    Definition set_knows_normal_fact (dfacts : list dfact) (nf : normal_fact) :=
+      In (normal nf) dfacts.
 
-  Definition can_deduce_normal_fact (r : rule) (known_facts : list dfact) (nf : normal_fact) :=
+    Definition set_expects_num_facts (pat : fact_pattern) (known : list dfact) num :=
+      exists expected_msgss,
+        Forall2 (fun n expected_msgs => In (meta pat n expected_msgs) known)
+          (R_senders pat.(fact_pattern.rel)) expected_msgss /\
+          num = list_sum expected_msgss.
+
+    Definition set_knows_meta_fact (dfacts : list dfact) (mf : meta_fact) :=
+      exists num,
+        set_expects_num_facts mf.(meta_fact.pattern) dfacts num /\
+          Existsn (matches mf.(meta_fact.pattern)) num dfacts /\
+          fact.set_consistent_with mf (set_knows_normal_fact dfacts).
+
+    Definition set_knows_fact dfacts f :=
+      match f with
+      | fact.normal nf => set_knows_normal_fact dfacts nf
+      | fact.meta mf => set_knows_meta_fact dfacts mf
+      end.
+
+    Definition mod_count (f : dfact) :=
+      match f with
+      | normal nf => countless.normal nf
+      | meta pat src _ => countless.meta pat src
+      end.
+  End __.
+End dfact. Export dfact (dfact).
+
+Module node.
+  Module state.
+    Section __.
+      Context `{params : datalog_params} {mf_label : mf_labelT}.
+
+      Record state :=
+        { known : list dfact;
+          sent : list dfact }.
+
+
+
+  Section __.
+    Context `{params : datalog_params} {mf_label : mf_labelT}.
+    Context (R_senders : rel -> list mf_label).
+
+
+  Definition can_deduce_normal_fact (r : rule) (known : list dfact) (nf : normal_fact) :=
     exists hyps,
       rule.interp r nf hyps /\
-        Forall (knows_fact known_facts) hyps.
+        Forall (dfact.set_knows_fact R_senders known) hyps.
 
-  Definition can_deduce_pattern (mr : meta_rule) (known_facts : list dfact) (pat : fact_pattern) :=
+  Definition can_deduce_pattern (mr : meta_rule) (known : list dfact) (pat : fact_pattern) :=
     exists mhyps,
       meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
-        Forall (knows_meta_fact known_facts) mhyps.
+        Forall (dfact.set_knows_meta_fact R_senders known) mhyps.
 
   Definition sends_concl_rels (nm : mf_label) (p : program) : Prop :=
     forall R, In R (program.concl_rels p) -> In nm (R_senders R).
 
   Context (p : program) (name : mf_label).
 
-  (*a sent done-message promises a final count for its pattern, so a fact
-    matching one must not be emitted anew*)
   Definition counted (sent : list dfact) (nf : normal_fact) :=
     exists pat num,
-      In (meta_dfact pat name num) sent /\
-        fact_pattern.matches pat nf.
+      In (dfact.meta pat name num) sent /\ fact_pattern.matches pat nf.
 
-  (*every fact the program can currently derive matching pat has been sent*)
   Definition saturated (known sent : list dfact) (pat : fact_pattern) :=
     forall r nf,
       In r p.(program.rules) ->
       can_deduce_normal_fact r known nf ->
       fact_pattern.matches pat nf ->
-      In (normal_dfact nf) sent.
+      In (dfact.normal nf) sent.
 
-  Definition can_deduce_fact (rs : node_state) (f : dfact) :=
+  Definition can_deduce_fact (rs : state) (f : dfact) :=
     match f with
-    | normal_dfact nf =>
+    | dfact.normal nf =>
         Exists (fun r => can_deduce_normal_fact r rs.(known_facts) nf) p.(program.rules) /\
           ~ counted rs.(sent_facts) nf
-    | meta_dfact pat src num =>
+    | dfact.meta pat src num =>
         src = name /\
           Exists (fun mr => can_deduce_pattern mr rs.(known_facts) pat) p.(program.meta_rules) /\
-          Existsn (dfact_matches pat) num rs.(sent_facts) /\
+          Existsn (dfact.matches pat) num rs.(sent_facts) /\
           saturated rs.(known_facts) rs.(sent_facts) pat
-    end.
-
-  Variant dfact_mod_count :=
-    | normal_dfact_mc (nf : normal_fact)
-    | meta_dfact_mc (pattern : fact_pattern) (src : mf_label).
-
-  Definition mod_count (f : dfact) :=
-    match f with
-    | normal_dfact nf => normal_dfact_mc nf
-    | meta_dfact pat src _ => meta_dfact_mc pat src
     end.
 
   Local Notation IO_event := (Smallstep.IO_event dfact_mod_count dfact).
@@ -136,12 +160,6 @@ Section __.
       Forall2 (fun k e => In (meta_dfact pat k e) input_facts)
               (R_senders pat.(fact_pattern.rel)) expected_msgss ->
       Existsn_le (dfact_matches pat) (list_sum expected_msgss) input_facts.
-
-  Definition dfact_equiv (f1 f2 : dfact) : Prop :=
-    match f1, f2 with
-    | meta_dfact p1 s1 _, meta_dfact p2 s2 _ => p1 = p2 /\ s1 = s2
-    | _, _ => f1 = f2
-    end.
 
   Definition node_init : node_state :=
     {| known_facts := []; sent_facts := [] |}.
