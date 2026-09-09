@@ -100,18 +100,19 @@ Section __.
     source = name /\
       exists hyps,
         can_deduce_meta_fact r name sent mf hyps /\
-          Forall (fun mh => knows_fact known (fact.meta mh)) hyps.
+          Forall (knows_meta_fact known) hyps.
 
   Definition can_deduce_fact (rs : node_state) (f : dfact) :=
     match f with
     | normal_dfact nf =>
-        Exists (fun r => can_deduce_normal_fact r known nf) p.(program.rules) /\
-
-        can_deduce_normal_fact'
-    can_deduce_fact rs.(known_facts) rs.(sent_facts) f /\
-      Forall
-        (fun r => ok_to_deduce_fact r rs.(known_facts) rs.(sent_facts) f)
-        p.(program.rules).
+        Exists (fun r => can_deduce_normal_fact' r rs.(known_facts) rs.(sent_facts) nf)
+          p.(program.rules)
+    | meta_dfact pat src _ =>
+        Exists (fun mr => can_deduce_meta_fact' rs.(known_facts) rs.(sent_facts) mr src f)
+          p.(program.meta_rules) /\
+          Forall (fun r => safe_to_deduce_pat r rs.(known_facts) rs.(sent_facts) pat)
+            p.(program.rules)
+    end.
 
   Variant dfact_mod_count :=
     | normal_dfact_mc (nf : normal_fact)
@@ -127,7 +128,7 @@ Section __.
 
   Inductive node_step : node_state -> IO_event -> node_state -> Prop :=
   | node_deduce_step rs output :
-    new_facts rs output ->
+    can_deduce_fact rs output ->
     node_step rs (O_event (mod_count output) [output])
                    {| known_facts := rs.(known_facts);
                      sent_facts := output :: rs.(sent_facts) |}
@@ -165,14 +166,11 @@ Section __.
 
   Local Notation node_will_step := (will_step node_step allowed_inputs).
 
-  Definition meta_facts_correct (s : node_state) : Prop :=
+  (*every done-message this node has sent could still be deduced now*)
+  Definition meta_facts_ok (s : node_state) : Prop :=
     forall pat num,
       In (meta_dfact pat name num) s.(sent_facts) ->
-      exists mr hyps,
-        In mr p.(program.meta_rules) /\
-          can_deduce_meta_fact mr name s.(sent_facts)
-            (meta_dfact pat name num) hyps /\
-          Forall (fun mh => knows_datalog_fact s.(known_facts) (fact.meta mh)) hyps
+      can_deduce_fact s (meta_dfact pat name num)
   (*not clear whether we need this next conjunct.  we could get it,
     by saying something like "inputs are consistent outputs from other nodes,
     plus the outputs of this node."
@@ -181,17 +179,9 @@ Section __.
   (*/\
           (forall mf_set, ~ In (meta_fact R mf_args mf_set) hyps)*).
 
-  Definition meta_facts_ok (s : node_state) : Prop :=
-    forall r pat num,
-      In r p.(program.rules) ->
-      In (meta_dfact pat name num) s.(sent_facts) ->
-      ok_to_deduce_fact r s.(known_facts) s.(sent_facts)
-        (meta_dfact pat name num).
-
   Definition node_good (s : node_state) (t : list IO_event) : Prop :=
     s.(known_facts) = flat_map inputs_of t /\
     allowed_inputs (flat_map inputs_of t) /\
-    meta_facts_correct s /\
     meta_facts_ok s.
 
   (*ported above; the rest is still the old API
