@@ -48,6 +48,41 @@ Section RelMap.
     map map_fact (map fact.normal l) = map fact.normal (map map_normal_fact l).
   Proof. rewrite !map_map. apply map_ext. intros. reflexivity. Qed.
 
+  Lemma map_fact_meta l :
+    map map_fact (map fact.meta l) = map fact.meta (map map_meta_fact l).
+  Proof. rewrite !map_map. apply map_ext. intros. reflexivity. Qed.
+
+  Lemma map_pattern_map_meta_fact l :
+    map meta_fact.pattern (map map_meta_fact l) =
+      map map_fact_pattern (map meta_fact.pattern l).
+  Proof. rewrite !map_map. apply map_ext. intros. reflexivity. Qed.
+
+  Lemma map_fact_meta_inv l1 l2 :
+    map fact.meta l1 = map map_fact l2 ->
+    exists l2', l2 = map fact.meta l2' /\ l1 = map map_meta_fact l2'.
+  Proof.
+    revert l2. induction l1; intros [|b l2] H; simpl in H; try discriminate.
+    - exists nil. auto.
+    - destruct b; simpl in H; [discriminate|]. invert H.
+      apply IHl1 in H2. fwd. exists (m :: l2'). auto.
+  Qed.
+
+  Lemma rel_map_fact fct :
+    fact.rel (map_fact fct) = f (fact.rel fct).
+  Proof. destruct fct; reflexivity. Qed.
+
+  Lemma args_of_map_fact fct :
+    fact.args_of (map_fact fct) = fact.args_of fct.
+  Proof. destruct fct; simp; reflexivity. Qed.
+
+  Lemma map_fact_of_args R args :
+    map_fact (fact.of_args R args) = fact.of_args (f R) args.
+  Proof. destruct args; reflexivity. Qed.
+
+  Lemma map_fact_eq_of_args fct :
+    map_fact fct = fact.of_args (f (fact.rel fct)) (fact.args_of fct).
+  Proof. destruct fct; simp; reflexivity. Qed.
+
   Definition fact_equiv f1 f2 := map_fact f1 = map_fact f2.
 
   Definition normal_fact_equiv n1 n2 := map_normal_fact n1 = map_normal_fact n2.
@@ -58,6 +93,15 @@ Section RelMap.
 
   Hint Unfold clause.interp clause_pattern.interp fact_pattern.matches
     fact_equiv normal_fact_equiv : core.
+
+  Lemma Forall2_fact_equiv_meta l1 l2 :
+    Forall2 meta_fact_equiv l1 l2 ->
+    Forall2 fact_equiv (map fact.meta l1) (map fact.meta l2).
+  Proof.
+    intros. rewrite <- Forall2_map_l, <- Forall2_map_r.
+    eapply Forall2_impl; [eassumption|]. cbv [fact_equiv meta_fact_equiv]. simpl.
+    intros. f_equal. assumption.
+  Qed.
 
   Definition map_clause_rel (c : clause) : clause :=
     {| clause.rel := f c.(clause.rel);
@@ -122,6 +166,7 @@ Section RelMap.
         simpl. eauto using clause_interp_map_fw.
       + apply Forall2_clause_interp_map_fw. assumption.
     - simpl. rewrite map_map.
+      (*the second goal pins the evar, so it must be solved first*)
       eassert (map _ vals = _) as ->.
       2: { constructor. eassumption. }
       apply map_ext. intros [? ?]. reflexivity.
@@ -202,14 +247,6 @@ Section RelMap.
     cbv [meta_fact.matches fact_pattern.matches map_meta_fact map_fact_pattern
            map_normal_fact]. simpl. intros. fwd. ssplit; auto. congruence.
   Qed.
-
-  Lemma rel_map_fact fct :
-    fact.rel (map_fact fct) = f (fact.rel fct).
-  Proof. destruct fct; reflexivity. Qed.
-
-  Lemma args_of_map_fact fct :
-    fact.args_of (map_fact fct) = fact.args_of fct.
-  Proof. destruct fct; simp; reflexivity. Qed.
 
   Lemma fact_pattern_matches_map_fw fp nf :
     fact_pattern.matches fp nf ->
@@ -352,15 +389,6 @@ Section RelMap.
       apply Hp1. apply in_map. assumption.
   Qed.
 
-  Lemma map_fact_meta l :
-    map map_fact (map fact.meta l) = map fact.meta (map map_meta_fact l).
-  Proof. rewrite !map_map. apply map_ext. intros. reflexivity. Qed.
-
-  Lemma map_pattern_map_meta_fact l :
-    map meta_fact.pattern (map map_meta_fact l) =
-      map map_fact_pattern (map meta_fact.pattern l).
-  Proof. rewrite !map_map. apply map_ext. intros. reflexivity. Qed.
-
   Lemma pattern_interp_map_fw mr pat pats :
     meta_rule.pattern_interp mr pat pats ->
     meta_rule.pattern_interp (map_meta_rule_rels mr) (map_fact_pattern pat)
@@ -451,41 +479,6 @@ Section RelMap.
              {| normal_fact.rel := pat.(fact_pattern.rel); normal_fact.args := args |}); auto.
   Qed.
 
-  Definition map_program (p : program) : program :=
-    {| program.rules := map map_rule_rels p.(program.rules);
-      program.meta_rules := map map_meta_rule_rels p.(program.meta_rules) |}.
-
-  Definition facts_agree_under_map (hyps : list fact) :=
-    forall mf1 mf2,
-      In (fact.meta mf1) hyps ->
-      In (fact.meta mf2) hyps ->
-      meta_fact.agree (map_meta_fact mf1) (map_meta_fact mf2).
-
-  Lemma facts_agree_under_map_meta mhyps :
-    facts_agree_under_map (map fact.meta mhyps) ->
-    meta_facts_agree_under_map mhyps.
-  Proof.
-    cbv [facts_agree_under_map meta_facts_agree_under_map]. auto using in_map.
-  Qed.
-
-  Lemma interp_step_map_fw p fct hyps :
-    program.meta_rules_valid p ->
-    Forall inj_on_elt (program.concl_rels p) ->
-    facts_agree_under_map hyps ->
-    program.interp_step p fct hyps ->
-    program.interp_step (map_program p) (map_fact fct) (map map_fact hyps).
-  Proof.
-    intros Hvalid Hinj Hagree H. rewrite Forall_forall in Hinj.
-    pose proof (program.interp_step_concl_relname_in _ _ _ H) as Hin.
-    invert H; simpl in *.
-    - constructor. simpl. apply Exists_map, Exists_exists. fwd.
-      eauto using rule_interp_map_fw.
-    - rewrite map_fact_meta. constructor. simpl.
-      apply Exists_map, Exists_exists. fwd.
-      eexists. split; [eassumption|].
-      apply meta_rule_interp_map_fw; auto using facts_agree_under_map_meta.
-  Qed.
-
   Lemma pattern_interp_map_bw mr pat pats :
     meta_rule.pattern_interp (map_meta_rule_rels mr) (map_fact_pattern pat)
       (map map_fact_pattern pats) ->
@@ -550,23 +543,39 @@ Section RelMap.
       eauto using meta_facts_agree_under_map_equiv.
   Qed.
 
-  Lemma map_fact_meta_inv l1 l2 :
-    map fact.meta l1 = map map_fact l2 ->
-    exists l2', l2 = map fact.meta l2' /\ l1 = map map_meta_fact l2'.
+  Definition map_program (p : program) : program :=
+    {| program.rules := map map_rule_rels p.(program.rules);
+      program.meta_rules := map map_meta_rule_rels p.(program.meta_rules) |}.
+
+  Definition facts_agree_under_map (hyps : list fact) :=
+    forall mf1 mf2,
+      In (fact.meta mf1) hyps ->
+      In (fact.meta mf2) hyps ->
+      meta_fact.agree (map_meta_fact mf1) (map_meta_fact mf2).
+
+  Lemma facts_agree_under_map_meta mhyps :
+    facts_agree_under_map (map fact.meta mhyps) ->
+    meta_facts_agree_under_map mhyps.
   Proof.
-    revert l2. induction l1; intros [|b l2] H; simpl in H; try discriminate.
-    - exists nil. auto.
-    - destruct b; simpl in H; [discriminate|]. invert H.
-      apply IHl1 in H2. fwd. exists (m :: l2'). auto.
+    cbv [facts_agree_under_map meta_facts_agree_under_map]. auto using in_map.
   Qed.
 
-  Lemma Forall2_fact_equiv_meta l1 l2 :
-    Forall2 meta_fact_equiv l1 l2 ->
-    Forall2 fact_equiv (map fact.meta l1) (map fact.meta l2).
+  Lemma interp_step_map_fw p fct hyps :
+    program.meta_rules_valid p ->
+    Forall inj_on_elt (program.concl_rels p) ->
+    facts_agree_under_map hyps ->
+    program.interp_step p fct hyps ->
+    program.interp_step (map_program p) (map_fact fct) (map map_fact hyps).
   Proof.
-    intros. rewrite <- Forall2_map_l, <- Forall2_map_r.
-    eapply Forall2_impl; [eassumption|]. cbv [fact_equiv meta_fact_equiv]. simpl.
-    intros. f_equal. assumption.
+    intros Hvalid Hinj Hagree H. rewrite Forall_forall in Hinj.
+    pose proof (program.interp_step_concl_relname_in _ _ _ H) as Hin.
+    invert H; simpl in *.
+    - constructor. simpl. apply Exists_map, Exists_exists. fwd.
+      eauto using rule_interp_map_fw.
+    - rewrite map_fact_meta. constructor. simpl.
+      apply Exists_map, Exists_exists. fwd.
+      eexists. split; [eassumption|].
+      apply meta_rule_interp_map_fw; auto using facts_agree_under_map_meta.
   Qed.
 
   Lemma interp_step_map_bw p fct_img hyps :
@@ -746,14 +755,6 @@ Section RelMap.
     cbv [program.all_rels]. rewrite concl_rels_map_program, hyp_rels_map_program.
     rewrite map_app. reflexivity.
   Qed.
-
-  Lemma map_fact_of_args R args :
-    map_fact (fact.of_args R args) = fact.of_args (f R) args.
-  Proof. destruct args; reflexivity. Qed.
-
-  Lemma map_fact_eq_of_args fct :
-    map_fact fct = fact.of_args (f (fact.rel fct)) (fact.args_of fct).
-  Proof. destruct fct; simp; reflexivity. Qed.
 
   Lemma implied_by_mf_map_bw_inj fct mf :
     inj_at (fact.rel fct) (meta_fact.rel mf) ->
