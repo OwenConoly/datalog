@@ -369,6 +369,17 @@ Section RelMap.
     - f_equal. apply meta_fact_equiv_eq; [assumption|]. cbv [meta_fact_equiv]. congruence.
   Qed.
 
+  Lemma one_step_derives_map_fw rules mhyps nf :
+    rule.one_step_derives rules mhyps nf ->
+    rule.one_step_derives (map map_rule_rels rules) (map map_meta_fact mhyps)
+      (map_normal_fact nf).
+  Proof.
+    cbv [rule.one_step_derives]. intros H. fwd. exists (map map_fact hyps). split.
+    - apply Exists_map, Exists_exists. eauto using rule_interp_map_fw.
+    - apply Forall_forall. intros h Hh. apply in_map_iff in Hh. fwd.
+      apply implied_by_mfs_map_fw. rewrite Forall_forall in Hp1. auto.
+  Qed.
+
   Lemma one_step_derives_map_iff p mr pat mhyps nf :
     program.meta_rules_valid p ->
     In mr p.(program.meta_rules) ->
@@ -380,13 +391,9 @@ Section RelMap.
       rule.one_step_derives (map map_rule_rels p.(program.rules))
         (map map_meta_fact mhyps) (map_normal_fact nf).
   Proof.
-    intros Hvalid Hmr Hpat Hmatch Hagree Hinj. cbv [rule.one_step_derives].
-    split; intros H; fwd.
-    - exists (map map_fact hyps). split.
-      + apply Exists_map, Exists_exists. eauto using rule_interp_map_fw.
-      + apply Forall_forall. intros h Hh. apply in_map_iff in Hh. fwd.
-        apply implied_by_mfs_map_fw. rewrite Forall_forall in Hp1. auto.
-    - apply in_map_iff in Hp0p0. fwd.
+    intros Hvalid Hmr Hpat Hmatch Hagree Hinj. split; intros H.
+    - apply one_step_derives_map_fw. assumption.
+    - cbv [rule.one_step_derives] in *. fwd. apply in_map_iff in Hp0p0. fwd.
       pose proof Hp0p1 as Hinv. apply rule_interp_invert_map in Hinv. fwd.
       apply rule_interp_map_bw in Hp0p1. fwd.
       apply normal_fact_equiv_eq in Hp0p1p0; [|auto]. subst.
@@ -881,41 +888,37 @@ Section RelMap.
   Section inj.
     Context (p : program) (f_inj : injective_on f (program.all_rels p)).
 
+    Ltac in_all_rels :=
+      intros;
+      cbv [program.all_rels program.concl_rels program.hyp_rels];
+      rewrite !in_app_iff, !in_flat_map;
+      eauto 6.
+
     Lemma rule_concl_rel_in r x :
       In r p.(program.rules) ->
       In x (rule.concl_rels r) ->
       In x (program.all_rels p).
-    Proof.
-      cbv [program.all_rels program.concl_rels]. intros.
-      apply in_or_app. left. apply in_or_app. left. apply in_flat_map. eauto.
-    Qed.
+    Proof. in_all_rels. Qed.
 
     Lemma rule_hyp_rel_in r x :
       In r p.(program.rules) ->
       In x (rule.hyp_rels r) ->
       In x (program.all_rels p).
-    Proof.
-      cbv [program.all_rels program.hyp_rels]. intros.
-      apply in_or_app. right. apply in_or_app. left. apply in_flat_map. eauto.
-    Qed.
+    Proof. in_all_rels. Qed.
 
     Lemma meta_rule_concl_rel_in mr x :
       In mr p.(program.meta_rules) ->
       In x (meta_rule.concl_rels mr) ->
       In x (program.all_rels p).
-    Proof.
-      cbv [program.all_rels program.concl_rels]. intros.
-      apply in_or_app. left. apply in_or_app. right. apply in_flat_map. eauto.
-    Qed.
+    Proof. in_all_rels. Qed.
 
     Lemma meta_rule_hyp_rel_in mr x :
       In mr p.(program.meta_rules) ->
       In x (meta_rule.hyp_rels mr) ->
       In x (program.all_rels p).
-    Proof.
-      cbv [program.all_rels program.hyp_rels]. intros.
-      apply in_or_app. right. apply in_or_app. right. apply in_flat_map. eauto.
-    Qed.
+    Proof. in_all_rels. Qed.
+    Hint Resolve rule_concl_rel_in rule_hyp_rel_in
+      meta_rule_concl_rel_in meta_rule_hyp_rel_in : core.
 
     Lemma f_inj_at x y :
       In x (program.all_rels p) ->
@@ -931,23 +934,20 @@ Section RelMap.
         rule.one_step_derives (map map_rule_rels p.(program.rules))
           (map map_meta_fact mhyps) (map_normal_fact nf).
     Proof.
-      intros Hnf Hmhyps. cbv [rule.one_step_derives]. split; intros H; fwd.
-      - exists (map map_fact hyps). split.
-        + apply Exists_map, Exists_exists. eauto using rule_interp_map_fw.
-        + apply Forall_forall. intros h Hh. apply in_map_iff in Hh. fwd.
-          apply implied_by_mfs_map_fw. rewrite Forall_forall in Hp1. auto.
-      - apply in_map_iff in Hp0p0. fwd.
+      intros Hnf Hmhyps. split; intros H.
+      - apply one_step_derives_map_fw. assumption.
+      - cbv [rule.one_step_derives] in *. fwd. apply in_map_iff in Hp0p0. fwd.
         pose proof Hp0p1 as Hinv. apply rule_interp_invert_map in Hinv. fwd.
         apply rule_interp_map_bw in Hp0p1. fwd.
         assert (nf = nf') as ->.
-        { apply normal_fact_equiv_eq; [|assumption]. apply f_inj_at; auto.
-          eapply rule_concl_rel_in; eauto using rule.interp_concl_relname_in. }
+        { apply normal_fact_equiv_eq; [|assumption].
+          apply f_inj_at; eauto using rule.interp_concl_relname_in. }
         exists hyps'. split; [apply Exists_exists; eauto|].
         pose proof (rule.interp_hyp_relname_in _ _ _ Hp0p1p2) as Hhr.
         apply Forall2_forget_l in Hp0p1p1.
         rewrite Forall_forall in Hp0p1p1, Hp1, Hhr, Hmhyps.
         apply Forall_forall. intros h' Hh'. apply implied_by_mfs_map_bw_inj.
-        + intros mf Hmf Heq. apply f_inj; auto. eapply rule_hyp_rel_in; eauto.
+        + intros mf Hmf Heq. apply f_inj; eauto using rule.interp_hyp_relname_in.
         + specialize (Hp0p1p1 _ Hh'). fwd. cbv [fact_equiv] in *.
           rewrite <- Hp0p1p1p1. apply Hp1. apply in_map. assumption.
     Qed.
@@ -976,15 +976,14 @@ Section RelMap.
       rewrite map_pattern_map_meta_fact in Hp0.
       apply pattern_interp_map_bw in Hp0. fwd.
       assert (pattern = pat0) as <-.
-      { apply fact_pattern_equiv_eq; [|assumption]. apply f_inj_at; auto.
-        eapply meta_rule_concl_rel_in; [eassumption|].
-        eapply meta_rule.pattern_interp_concl_relname_in. eassumption. }
+      { apply fact_pattern_equiv_eq; [|assumption].
+        apply f_inj_at; eauto using meta_rule.pattern_interp_concl_relname_in. }
       assert (map meta_fact.pattern mhyps = pats0) as <-.
       { apply Forall2_fact_pattern_equiv_eq; auto.
         - apply List.Forall_map. assumption.
         - eapply Forall_impl;
             [eapply meta_rule.pattern_interp_hyp_relname_in; eassumption|].
-          simpl. intros. eapply meta_rule_hyp_rel_in; eassumption. }
+          simpl. eauto. }
       exists pattern. ssplit; [assumption|reflexivity|].
       intros args Hargs. rewrite Hp2 by assumption. symmetry.
       apply (one_step_derives_map_iff_inj mhyps
@@ -1007,10 +1006,8 @@ Section RelMap.
       intros args Hargs. rewrite Hp2 by assumption.
       apply (one_step_derives_map_iff_inj mhyps
                {| normal_fact.rel := pat.(fact_pattern.rel); normal_fact.args := args |}).
-      - simpl. eapply meta_rule_concl_rel_in; eauto.
-        eapply meta_rule.pattern_interp_concl_relname_in. eassumption.
-      - eapply Forall_impl; [eassumption|]. simpl. intros.
-        eapply meta_rule_hyp_rel_in; eauto.
+      - simpl. eauto using meta_rule.pattern_interp_concl_relname_in.
+      - eapply Forall_impl; [eassumption|]. simpl. eauto.
     Qed.
 
     Lemma interp_step_map_fw_inj fct hyps :
@@ -1040,16 +1037,14 @@ Section RelMap.
         pose proof H0p1 as Himg. apply rule_interp_invert_map in Himg. fwd.
         apply rule_interp_map_bw in H0p1. fwd.
         assert (nf0 = nf') as ->.
-        { apply normal_fact_equiv_eq; [|assumption]. apply f_inj_at.
-          - eapply rule_concl_rel_in; eassumption.
-          - eapply rule_concl_rel_in; [eassumption|].
-            eapply rule.interp_concl_relname_in. eassumption. }
+        { apply normal_fact_equiv_eq; [|assumption].
+          apply f_inj_at; eauto using rule.interp_concl_relname_in. }
         exists (fact.normal nf'), hyps'. ssplit.
         + reflexivity.
         + apply Forall2_map_eq. eapply Forall2_impl; [eassumption|]. auto.
-        + eapply rule_concl_rel_in; eassumption.
+        + eauto.
         + eapply Forall_impl; [eapply rule.interp_hyp_relname_in; eassumption|].
-          simpl. intros. eapply rule_hyp_rel_in; eassumption.
+          simpl. eauto.
         + constructor. apply Exists_exists. eauto.
       - apply in_map_iff in H0p0. fwd.
         pose proof H0p1 as Htgt. apply meta_rule_interp_map_target in Htgt. fwd.
@@ -1057,14 +1052,12 @@ Section RelMap.
         exists (fact.meta mf0), (map fact.meta mhyps0). ssplit.
         + reflexivity.
         + symmetry. apply map_fact_meta.
-        + eapply meta_rule_concl_rel_in; eassumption.
-        + apply List.Forall_map. eapply Forall_impl; [eassumption|].
-          simpl. intros. eapply meta_rule_hyp_rel_in; eassumption.
+        + eauto.
+        + apply List.Forall_map. eapply Forall_impl; [eassumption|]. simpl. eauto.
         + constructor. apply Exists_exists. eexists. split; [eassumption|].
           apply meta_rule_interp_map_bw_inj; try assumption.
-          * eapply meta_rule_concl_rel_in; eassumption.
-          * eapply Forall_impl; [eassumption|].
-            simpl. intros. eapply meta_rule_hyp_rel_in; eassumption.
+          * eauto.
+          * eapply Forall_impl; [eassumption|]. simpl. eauto.
     Qed.
 
     Lemma interp_bridge Q h g :
