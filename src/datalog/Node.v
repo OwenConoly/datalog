@@ -95,7 +95,6 @@ End message. Export message (message).
 Module state.
   Section __.
     Context `{params : datalog_params} {sender_label : sender_labelT}.
-    Context (R_senders : rel -> list sender_label).
 
     Record state :=
       { known : list message;
@@ -103,88 +102,89 @@ Module state.
   End __.
 End state. Export state (state).
 
-  Section __.
-    Context `{params : datalog_params} {sender_label : sender_labelT}.
-    Context (R_senders : rel -> list sender_label).
-    Definition can_deduce_normal_fact (r : rule) (known : list message) (nf : normal_fact) :=
-      exists hyps,
-        rule.interp r nf hyps /\
-          Forall (message.set_knows_fact R_senders known) hyps.
+Section __.
+  Context `{params : datalog_params} {sender_label : sender_labelT}.
+  Context (R_senders : rel -> list sender_label).
 
-  Definition can_deduce_pattern (mr : meta_rule) (known : list dfact) (pat : fact_pattern) :=
+  Definition can_deduce_normal_fact (r : rule) (known : list message) (nf : normal_fact) :=
+    exists hyps,
+      rule.interp r nf hyps /\
+        Forall (message.set_knows_fact R_senders known) hyps.
+
+  Definition can_deduce_pattern (mr : meta_rule) (known : list message) (pat : fact_pattern) :=
     exists mhyps,
       meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
-        Forall (dfact.set_knows_meta_fact R_senders known) mhyps.
+        Forall (message.set_knows_meta_fact R_senders known) mhyps.
 
-Definition sends_concl_rels (nm : mf_label) (p : program) : Prop :=
-  forall R, In R (program.concl_rels p) -> In nm (R_senders R).
+  Definition sends_concl_rels (nm : sender_label) (p : program) : Prop :=
+    forall R, In R (program.concl_rels p) -> In nm (R_senders R).
 
-  Context (p : program) (name : mf_label).
+  Context (p : program) (name : sender_label).
 
-  Definition counted (sent : list dfact) (nf : normal_fact) :=
+  Definition counted (sent : list message) (nf : normal_fact) :=
     exists pat num,
-      In (dfact.meta pat name num) sent /\ fact_pattern.matches pat nf.
+      In (message.done_with pat name num) sent /\ fact_pattern.matches pat nf.
 
-  Definition saturated (known sent : list dfact) (pat : fact_pattern) :=
+  Definition saturated (known sent : list message) (pat : fact_pattern) :=
     forall r nf,
       In r p.(program.rules) ->
       can_deduce_normal_fact r known nf ->
       fact_pattern.matches pat nf ->
-      In (dfact.normal nf) sent.
+      In (message.normal nf) sent.
 
-  Definition can_deduce_fact (rs : state) (f : dfact) :=
-    match f with
-    | dfact.normal nf =>
-        Exists (fun r => can_deduce_normal_fact r rs.(known_facts) nf) p.(program.rules) /\
-          ~ counted rs.(sent_facts) nf
-    | dfact.meta pat src num =>
+  Definition can_deduce (rs : state) (m : message) :=
+    match m with
+    | message.normal nf =>
+        Exists (fun r => can_deduce_normal_fact r rs.(state.known) nf) p.(program.rules) /\
+          ~ counted rs.(state.sent) nf
+    | message.done_with pat src num =>
         src = name /\
-          Exists (fun mr => can_deduce_pattern mr rs.(known_facts) pat) p.(program.meta_rules) /\
-          Existsn (dfact.matches pat) num rs.(sent_facts) /\
-          saturated rs.(known_facts) rs.(sent_facts) pat
+          Exists (fun mr => can_deduce_pattern mr rs.(state.known) pat) p.(program.meta_rules) /\
+          Existsn (message.matches pat) num rs.(state.sent) /\
+          saturated rs.(state.known) rs.(state.sent) pat
     end.
 
-  Local Notation IO_event := (Smallstep.IO_event dfact_mod_count dfact).
+  Local Notation IO_event := (Smallstep.IO_event action_label message).
 
-  Inductive node_step : node_state -> IO_event -> node_state -> Prop :=
-  | node_deduce_step rs output :
-    can_deduce_fact rs output ->
-    node_step rs (O_event (mod_count output) [output])
-                   {| known_facts := rs.(known_facts);
-                     sent_facts := output :: rs.(sent_facts) |}
-  | node_input_step rs input :
-    node_step rs (I_event input)
-                   {| known_facts := input :: rs.(known_facts);
-                     sent_facts := rs.(sent_facts) |}.
+  Inductive step : state -> IO_event -> state -> Prop :=
+  | deduce_step rs output :
+    can_deduce rs output ->
+    step rs (O_event (message.label output) [output])
+      {| state.known := rs.(state.known);
+        state.sent := output :: rs.(state.sent) |}
+  | input_step rs input :
+    step rs (I_event input)
+      {| state.known := input :: rs.(state.known);
+        state.sent := rs.(state.sent) |}.
 
-  Definition allowed_inputs (input_facts : list dfact) :=
+  Definition allowed_inputs (inputs : list message) :=
     forall pat expected_msgss,
-      Forall2 (fun k e => In (meta_dfact pat k e) input_facts)
+      Forall2 (fun k e => In (message.done_with pat k e) inputs)
               (R_senders pat.(fact_pattern.rel)) expected_msgss ->
-      Existsn_le (dfact_matches pat) (list_sum expected_msgss) input_facts.
+      Existsn_le (message.matches pat) (list_sum expected_msgss) inputs.
 
-  Definition node_init : node_state :=
-    {| known_facts := []; sent_facts := [] |}.
+  Definition init : state :=
+    {| state.known := []; state.sent := [] |}.
 
-  Definition claim (pat : fact_pattern) (l : list dfact) :=
+  Definition claim (pat : fact_pattern) (l : list message) :=
     forall src, In src (R_senders pat.(fact_pattern.rel)) ->
-      exists cnt, In (meta_dfact pat src cnt) l.
+      exists cnt, In (message.done_with pat src cnt) l.
 
-  Definition consistent (pat : fact_pattern) (l : list dfact) : Prop :=
-    exists num, expect_num_facts pat l num /\
-             Existsn_ge (dfact_matches pat) num l.
+  Definition consistent (pat : fact_pattern) (l : list message) : Prop :=
+    exists num, message.set_expects_num_facts R_senders pat l num /\
+             Existsn_ge (message.matches pat) num l.
 
-  Definition nle (s1 s2 : node_state) :=
-    consistently_incl dfact_equiv claim consistent s1.(known_facts) s2.(known_facts) /\
-      incl_mod dfact_equiv s1.(sent_facts) s2.(sent_facts).
+  Definition nle (s1 s2 : state) :=
+    consistently_incl message.equiv claim consistent s1.(state.known) s2.(state.known) /\
+      incl_mod message.equiv s1.(state.sent) s2.(state.sent).
 
-  Local Notation node_will_step := (will_step node_step allowed_inputs).
+  Local Notation will_step := (will_step step allowed_inputs).
 
   (*every done-message this node has sent could still be deduced now*)
-  Definition meta_facts_ok (s : node_state) : Prop :=
+  Definition sent_dones_ok (s : state) : Prop :=
     forall pat num,
-      In (meta_dfact pat name num) s.(sent_facts) ->
-      can_deduce_fact s (meta_dfact pat name num)
+      In (message.done_with pat name num) s.(state.sent) ->
+      can_deduce s (message.done_with pat name num)
   (*not clear whether we need this next conjunct.  we could get it,
     by saying something like "inputs are consistent outputs from other nodes,
     plus the outputs of this node."
@@ -193,10 +193,10 @@ Definition sends_concl_rels (nm : mf_label) (p : program) : Prop :=
   (*/\
           (forall mf_set, ~ In (meta_fact R mf_args mf_set) hyps)*).
 
-  Definition node_good (s : node_state) (t : list IO_event) : Prop :=
-    s.(known_facts) = flat_map inputs_of t /\
+  Definition good (s : state) (t : list IO_event) : Prop :=
+    s.(state.known) = flat_map inputs_of t /\
     allowed_inputs (flat_map inputs_of t) /\
-    meta_facts_ok s.
+    sent_dones_ok s.
 
   (*ported above; the rest is still the old API
   Lemma allowed_inputs_submultiset l1 l2 :
@@ -953,3 +953,4 @@ Definition sends_concl_rels (nm : mf_label) (p : program) : Prop :=
 End __.
 *)
 End __.
+End spec_node.
