@@ -166,30 +166,6 @@ Section __.
     simpl. simp. reflexivity.
   Qed.
 
-  Lemma subst_in_expr_mono ctx ctx' e v :
-    map.extends ctx' ctx ->
-    subst_in_expr ctx e = Some v ->
-    subst_in_expr ctx' e = Some v.
-  Proof.
-    intros H. revert v. induction e; simpl; intros; eauto. rewrite Forall_forall in H0.
-    apply option_coalesce_Some, option_map_Some in H1. fwd.
-    apply option_all_Forall2 in H1p0. erewrite Forall2_option_all.
-    2: { rewrite <- Forall2_map_l in *. eapply Forall2_impl_strong; [eassumption|].
-         simpl. eauto. }
-    simpl. rewrite H1p1. reflexivity.
-  Qed.
-
-  Lemma subst_expr_with_vars ctx ctx' e :
-    Forall (fun v => map.get ctx v <> None) (expr.vars e) ->
-    map.extends ctx' ctx ->
-    subst_in_expr ctx e = subst_in_expr ctx' e.
-  Proof.
-    induction e; simpl; intros; invert_list_stuff.
-    - destruct (map.get _ _) eqn:E; try congruence. symmetry. auto.
-    - rewrite Forall_flat_map in H0. f_equal. f_equal. f_equal. apply map_ext_in.
-      rewrite Forall_forall in *. eauto.
-  Qed.
-
   Definition context_of_args (args : list expr) (args' : list value) :=
     concat (zip (fun arg arg' =>
                    match arg with
@@ -319,19 +295,6 @@ Section __.
     apply in_fst in H'. apply in_of_list_Some_strong in H'. fwd.
     eapply interp_hyps_context_right_weak in H1; eauto.
     specialize (H1 _ _ H'p0). cbv [agree_on]. rewrite H1, H'p0. reflexivity.
-  Qed.
-
-  Lemma in_vars_interp_expr_not_None ctx e e' v :
-    expr.interp ctx e e' ->
-    In v (expr.vars e) ->
-    map.get ctx v <> None.
-  Proof.
-    intros H1 H2. revert e' H1. induction e.
-    - intros e' H. invert H. simpl in H2. destruct H2; congruence.
-    - intros e' H'. invert H'. apply Forall2_forget_r in H3.
-      eapply Forall_and in H3; [|exact H]. clear H. simpl in H2.
-      apply in_flat_map in H2. fwd. rewrite Forall_forall in H3.
-      specialize (H3 _ H2p0). fwd. eapply H3p0; eauto.
   Qed.
 
   Definition expr_of_pattern (p : expr_pattern) : option expr :=
