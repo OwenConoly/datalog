@@ -1,15 +1,13 @@
 From Stdlib Require Import Lists.List.
 
-From coqutil Require Import Map.Interface Eqb.
+From coqutil Require Import Eqb.
 
 From Datalog Require Import Datalog RelMap List Default.
 
 Import ListNotations.
 
 Section NattifyRel.
-  Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-  Context {semantics : datalog_semantics fn aggregator T}.
-  Context {context : map.map exprvar T} {context_ok : map.ok context}.
+  Context `{params : datalog_params}.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context (input_rels : list rel).
 
