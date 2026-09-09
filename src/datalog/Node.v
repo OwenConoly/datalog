@@ -10,10 +10,10 @@ Existing Class sender_labelT.
 
 (*a specification for how a datalog node should behave.
   eventually, an "implementation" should live in Local.v.
-  i expect we'll want to do "Import spec" in files that don't think about the implementation.
+  i expect we'll want to do "Import node" in files that don't think about the implementation.
   this module wraps almost the whole file, so let's not indent inside of it.
  *)
-Module spec_node.
+Module node.
 Module action_label.
   Section __.
     Context `{params : datalog_params} {sender_label : sender_labelT}.
@@ -63,27 +63,6 @@ Module message.
       | _, _ => f1 = f2
       end.
 
-    Definition set_knows_normal_fact (dfacts : list message) (nf : normal_fact) :=
-      In (normal nf) dfacts.
-
-    Definition set_expects_num_facts (pat : fact_pattern) (known : list message) num :=
-      exists expected_msgss,
-        Forall2 (fun n expected_msgs => In (done_with pat n expected_msgs) known)
-          (R_senders pat.(fact_pattern.rel)) expected_msgss /\
-          num = list_sum expected_msgss.
-
-    Definition set_knows_meta_fact (dfacts : list message) (mf : meta_fact) :=
-      exists num,
-        set_expects_num_facts mf.(meta_fact.pattern) dfacts num /\
-          Existsn (matches mf.(meta_fact.pattern)) num dfacts /\
-          fact.set_consistent_with mf (set_knows_normal_fact dfacts).
-
-    Definition set_knows_fact dfacts f :=
-      match f with
-      | fact.normal nf => set_knows_normal_fact dfacts nf
-      | fact.meta mf => set_knows_meta_fact dfacts mf
-      end.
-
     Definition label (f : message) :=
       match f with
       | normal nf => action_label.normal nf
@@ -106,17 +85,38 @@ Section __.
   Context `{params : datalog_params} {sender_label : sender_labelT}.
   Context (R_senders : rel -> list sender_label).
 
+  Definition knows_normal_fact (known : list message) (nf : normal_fact) :=
+    In (message.normal nf) known.
+
+  Definition expects_num_facts (known : list message) (pat : fact_pattern) num :=
+    exists expected_msgss,
+      Forall2 (fun n expected_msgs => In (message.done_with pat n expected_msgs) known)
+        (R_senders pat.(fact_pattern.rel)) expected_msgss /\
+        num = list_sum expected_msgss.
+
+  Definition knows_meta_fact (known : list message) (mf : meta_fact) :=
+    exists num,
+      expects_num_facts known mf.(meta_fact.pattern) num /\
+        Existsn (message.matches mf.(meta_fact.pattern)) num known /\
+        fact.set_consistent_with mf (knows_normal_fact known).
+
+  Definition knows_fact dfacts f :=
+    match f with
+    | fact.normal nf => knows_normal_fact dfacts nf
+    | fact.meta mf => knows_meta_fact dfacts mf
+    end.
+
   Definition can_deduce_normal_fact (r : rule) (known : list message) (nf : normal_fact) :=
     exists hyps,
       rule.interp r nf hyps /\
-        Forall (message.set_knows_fact R_senders known) hyps.
+        Forall (knows_fact known) hyps.
 
   Definition can_deduce_pattern (mr : meta_rule) (known : list message) (pat : fact_pattern) :=
     exists mhyps,
       meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
-        Forall (message.set_knows_meta_fact R_senders known) mhyps.
+        Forall (knows_meta_fact known) mhyps.
 
-  Definition sends_concl_rels (nm : sender_label) (p : program) : Prop :=
+  Definition sends_concl_rels (nm : sender_label) (p : program) :=
     forall R, In R (program.concl_rels p) -> In nm (R_senders R).
 
   Context (p : program) (name : sender_label).
@@ -125,33 +125,33 @@ Section __.
     exists pat num,
       In (message.done_with pat name num) sent /\ fact_pattern.matches pat nf.
 
-  Definition saturated (known sent : list message) (pat : fact_pattern) :=
+  Definition saturated (ns : state) (pat : fact_pattern) :=
     forall r nf,
       In r p.(program.rules) ->
-      can_deduce_normal_fact r known nf ->
+      can_deduce_normal_fact r ns.(state.known) nf ->
       fact_pattern.matches pat nf ->
-      In (message.normal nf) sent.
+      In (message.normal nf) ns.(state.sent).
 
-  Definition can_deduce (rs : state) (m : message) :=
+  Definition can_deduce (ns : state) (m : message) :=
     match m with
     | message.normal nf =>
-        Exists (fun r => can_deduce_normal_fact r rs.(state.known) nf) p.(program.rules) /\
-          ~ counted rs.(state.sent) nf
+        Exists (fun r => can_deduce_normal_fact r ns.(state.known) nf) p.(program.rules) /\
+          ~ counted ns.(state.sent) nf
     | message.done_with pat src num =>
         src = name /\
-          Exists (fun mr => can_deduce_pattern mr rs.(state.known) pat) p.(program.meta_rules) /\
-          Existsn (message.matches pat) num rs.(state.sent) /\
-          saturated rs.(state.known) rs.(state.sent) pat
+          Exists (fun mr => can_deduce_pattern mr ns.(state.known) pat) p.(program.meta_rules) /\
+          Existsn (message.matches pat) num ns.(state.sent) /\
+          saturated ns pat
     end.
 
   Local Notation IO_event := (Smallstep.IO_event action_label message).
 
   Inductive step : state -> IO_event -> state -> Prop :=
-  | deduce_step rs output :
-    can_deduce rs output ->
-    step rs (O_event (message.label output) [output])
-      {| state.known := rs.(state.known);
-        state.sent := output :: rs.(state.sent) |}
+  | deduce_step ns output :
+    can_deduce ns output ->
+    step ns (O_event (message.label output) [output])
+      {| state.known := ns.(state.known);
+        state.sent := output :: ns.(state.sent) |}
   | input_step rs input :
     step rs (I_event input)
       {| state.known := input :: rs.(state.known);
@@ -170,9 +170,9 @@ Section __.
     forall src, In src (R_senders pat.(fact_pattern.rel)) ->
       exists cnt, In (message.done_with pat src cnt) l.
 
-  Definition consistent (pat : fact_pattern) (l : list message) : Prop :=
-    exists num, message.set_expects_num_facts R_senders pat l num /\
-             Existsn_ge (message.matches pat) num l.
+  Definition consistent (pat : fact_pattern) (known : list message) : Prop :=
+    exists num, expects_num_facts known pat num /\
+             Existsn_ge (message.matches pat) num known.
 
   Definition nle (s1 s2 : state) :=
     consistently_incl message.equiv claim consistent s1.(state.known) s2.(state.known) /\
@@ -193,7 +193,7 @@ Section __.
   (*/\
           (forall mf_set, ~ In (meta_fact R mf_args mf_set) hyps)*).
 
-  Definition good (s : state) (t : list IO_event) : Prop :=
+  Definition good (s : state) (t : list IO_event) :=
     s.(state.known) = flat_map inputs_of t /\
     allowed_inputs (flat_map inputs_of t) /\
     sent_dones_ok s.
@@ -953,4 +953,4 @@ Section __.
 End __.
 *)
 End __.
-End spec_node.
+End node.
