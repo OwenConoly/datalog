@@ -977,6 +977,46 @@ Module program.
 
     Definition all_rels (p : program) := concl_rels p ++ hyp_rels p.
 
+    Ltac in_rel_list :=
+      intros;
+      cbv [all_rels concl_rels hyp_rels];
+      rewrite ?in_app_iff, !in_flat_map;
+      eauto 6.
+
+    Lemma rule_concl_rel_in p r x :
+      In r p.(rules) ->
+      In x (rule.concl_rels r) ->
+      In x (concl_rels p).
+    Proof. in_rel_list. Qed.
+
+    Lemma rule_hyp_rel_in p r x :
+      In r p.(rules) ->
+      In x (rule.hyp_rels r) ->
+      In x (hyp_rels p).
+    Proof. in_rel_list. Qed.
+
+    Lemma meta_rule_concl_rel_in p mr x :
+      In mr p.(meta_rules) ->
+      In x (meta_rule.concl_rels mr) ->
+      In x (concl_rels p).
+    Proof. in_rel_list. Qed.
+
+    Lemma meta_rule_hyp_rel_in p mr x :
+      In mr p.(meta_rules) ->
+      In x (meta_rule.hyp_rels mr) ->
+      In x (hyp_rels p).
+    Proof. in_rel_list. Qed.
+
+    Lemma concl_rel_all p x :
+      In x (concl_rels p) ->
+      In x (all_rels p).
+    Proof. cbv [all_rels]. intros. apply in_or_app. auto. Qed.
+
+    Lemma hyp_rel_all p x :
+      In x (hyp_rels p) ->
+      In x (all_rels p).
+    Proof. cbv [all_rels]. intros. apply in_or_app. auto. Qed.
+
     Lemma interp_invariant p Q f :
       interp p Q f <->
         interp p (fun f' => Q f' /\ (f' = f \/ In (fact.rel f') (hyp_rels p))) f.
