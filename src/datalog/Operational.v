@@ -11,74 +11,63 @@ From GraphSearch Require Import Dag.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
 Import ListNotations.
+Import node.
 
 Notation "R ^*" := (clos_refl_trans_1n _ R) (format "R ^*").
 #[global] Hint Constructors clos_refl_trans_1n : core.
 
 Section __.
-  Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-  Context {sig : signature fn aggregator T}.
-  Context {context : map.map exprvar T} {context_ok : map.ok context}.
+  Context `{params : datalog_params}.
   Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 
   Variant op_source :=
   | from_rule (r : rule)
   | from_input.
 
-  #[local] Instance mf_label : mf_labelT := op_source.
+  #[local] Instance sender_label : sender_labelT := op_source.
 
-  Context {sent_map : map.map rule (list dfact)} {sent_map_ok : map.ok sent_map}.
+  Context {sent_map : map.map rule (list message)} {sent_map_ok : map.ok sent_map}.
 
-  Record state := { known_facts : list dfact; sents : sent_map }.
+  Record state := { known_facts : list message; sents : sent_map }.
 
   Context (is_input : rel -> bool).
 
-  Context (p : list rule).
+  Context (p : program).
 
-  Definition non_meta_rules : list rule := filter is_normal p.
+  Definition sender_rules : list rule := dedup eqb p.(program.rules).
 
-  Definition sender_rules : list rule := dedup eqb non_meta_rules.
+  Lemma In_sender_rules r : In r p.(program.rules) -> In r sender_rules.
+  Proof. exact (proj1 (dedup_preserves_In _ r)). Qed.
 
-  Lemma non_meta_rules_In_p r : In r non_meta_rules -> In r p.
-  Proof. unfold non_meta_rules. intros H. apply filter_In in H. exact (proj1 H). Qed.
-
-  Lemma In_non_meta_rules r : In r p -> is_normal r = true -> In r non_meta_rules.
-  Proof. unfold non_meta_rules. intros Hin Hnorm. apply (proj2 (filter_In _ _ _)). split; assumption. Qed.
-
-  Lemma non_meta_rules_is_normal r : In r non_meta_rules -> is_normal r = true.
-  Proof. unfold non_meta_rules. intros H. apply filter_In in H. exact (proj2 H). Qed.
-
-  Lemma In_sender_rules r : In r non_meta_rules -> In r sender_rules.
-  Proof. exact (proj1 (dedup_preserves_In non_meta_rules r)). Qed.
-
-  Lemma sender_rules_In r : In r sender_rules -> In r non_meta_rules.
-  Proof. exact (proj2 (dedup_preserves_In non_meta_rules r)). Qed.
+  Lemma sender_rules_In r : In r sender_rules -> In r p.(program.rules).
+  Proof. exact (proj2 (dedup_preserves_In _ r)). Qed.
 
   Definition R_senders : rel -> list op_source :=
     fun R => if is_input R then [from_input] else map from_rule sender_rules.
 
-  Local Notation expect_num_R_facts := (expect_num_R_facts R_senders).
-  Local Notation knows_datalog_fact := (knows_datalog_fact R_senders).
-  Local Notation can_deduce_normal_fact := (can_deduce_normal_fact R_senders).
-  Local Notation ok_to_deduce_fact := (ok_to_deduce_fact R_senders).
-  Local Notation can_deduce_fact := (can_deduce_fact R_senders).
-  Local Notation allowed_inputs := (Node.allowed_inputs R_senders).
-  Local Notation knows_incl := (Node.knows_incl R_senders).
+  Local Notation expects_num_facts := (node.expects_num_facts R_senders).
+  Local Notation knows_fact := (node.knows_fact R_senders).
+  Local Notation knows_meta_fact := (node.knows_meta_fact R_senders).
+  Local Notation can_deduce_normal_fact := (node.can_deduce_normal_fact R_senders).
+  Local Notation can_deduce_pattern := (node.can_deduce_pattern R_senders).
+  Local Notation allowed_inputs := (node.allowed_inputs R_senders).
+  Local Notation knows_incl := (node.knows_incl R_senders).
 
-  (* [expect_num_R_facts] with the new [R_senders] recovers its old [is_input] form:
+  (* [expects_num_facts] with the new [R_senders] recovers its old [is_input] form:
      for input relations, a single [None]-declaration; otherwise one [Some k] count
      per node. *)
-  Lemma expect_num_R_facts_eq R mf_args known_facts num :
-    expect_num_R_facts R mf_args known_facts num <->
-    (if is_input R
-     then In (meta_dfact R mf_args from_input num) known_facts
+  Lemma expects_num_facts_eq pat known num :
+    expects_num_facts known pat num <->
+    (if is_input pat.(fact_pattern.rel)
+     then In (message.done_with pat from_input num) known
      else exists expected_msgss,
-       Forall2 (fun r expected_msgs => In (meta_dfact R mf_args (from_rule r) expected_msgs) known_facts)
+       Forall2 (fun r expected_msgs =>
+                  In (message.done_with pat (from_rule r) expected_msgs) known)
                sender_rules expected_msgss /\
        num = list_sum expected_msgss).
   Proof.
-    unfold Node.expect_num_R_facts, R_senders.
-    destruct (is_input R); cbn.
+    unfold node.expects_num_facts, R_senders.
+    destruct (is_input pat.(fact_pattern.rel)); cbn.
     - split.
       + intros (ems & HF2 & Hsum).
         inversion HF2 as [| a e la lb Ha Hlb]; subst.
@@ -90,81 +79,71 @@ Section __.
       + rewrite <- Forall2_map_l. exact HF2.
   Qed.
 
-  Definition meta_facts_correct_at_rule rs known r sent :=
-    forall R mf_args num,
-      In (meta_dfact R mf_args (from_rule r) num) sent ->
-      exists mf_concls mf_hyps hyps,
-        In (meta_rule mf_concls mf_hyps) rs /\
-          can_deduce_meta_fact mf_concls mf_hyps (from_rule r) sent (meta_dfact R mf_args (from_rule r) num) hyps /\
-          Forall (knows_datalog_fact known) hyps /\
-          (forall mf_set, ~In (meta_fact R mf_args mf_set) hyps).
+  Definition meta_facts_correct_at_rule (mrs : list meta_rule) known r sent :=
+    forall pat num,
+      In (message.done_with pat (from_rule r) num) sent ->
+      exists mr mhyps,
+        In mr mrs /\
+          Existsn (message.matches pat) num sent /\
+          meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
+          Forall (knows_meta_fact known) mhyps /\
+          Forall (fun mh => mh.(meta_fact.pattern) <> pat) mhyps.
 
   Definition meta_facts_correct (s : state) :=
-    forall r, In r non_meta_rules ->
-      meta_facts_correct_at_rule p s.(known_facts) r (get_or_default s.(sents) r).
+    forall r, In r p.(program.rules) ->
+      meta_facts_correct_at_rule p.(program.meta_rules) s.(known_facts) r
+        (get_or_default s.(sents) r).
+
+  (*[node.saturated] specialized to the one rule of one positional node*)
+  Definition ok_to_deduce (r : rule) known sent (pat : fact_pattern) :=
+    forall nf,
+      can_deduce_normal_fact r known nf ->
+      fact_pattern.matches pat nf ->
+      In (message.normal nf) sent.
 
   Definition meta_facts_ok_at_rule known r sent :=
-    forall mf_rel mf_args num,
-      In (meta_dfact mf_rel mf_args (from_rule r) num) sent ->
-      ok_to_deduce_fact r known sent
-        (meta_dfact mf_rel mf_args (from_rule r) num).
+    forall pat num,
+      In (message.done_with pat (from_rule r) num) sent ->
+      ok_to_deduce r known sent pat.
 
   Definition meta_facts_ok (s : state) :=
-    forall r, In r non_meta_rules ->
+    forall r, In r p.(program.rules) ->
       meta_facts_ok_at_rule s.(known_facts) r (get_or_default s.(sents) r).
 
   Definition add_known_fact f (s : state) :=
     {| known_facts := f :: s.(known_facts); sents := s.(sents) |}.
 
-  Definition can_fire_rule_at r fired_rule :=
-    fired_rule = r \/
-      exists mr_concls mr_hyps,
-        In (meta_rule mr_concls mr_hyps) p /\
-          fired_rule = meta_rule mr_concls mr_hyps.
-
-  Lemma can_fire_meta_In r mc mh :
-    In r non_meta_rules -> can_fire_rule_at r (meta_rule mc mh) -> In (meta_rule mc mh) p.
-  Proof.
-    intros Hr [Heq | (mc' & mh' & Hin & Heq)].
-    - pose proof (non_meta_rules_is_normal _ Hr) as Hn. rewrite <- Heq in Hn. discriminate Hn.
-    - injection Heq as -> ->. exact Hin.
-  Qed.
+  (*the node for rule [r] runs [r] plus all the meta rules*)
+  Definition node_prog (r : rule) : program :=
+    {| program.rules := [r]; program.meta_rules := p.(program.meta_rules) |}.
 
   (* The effect of node [r] firing fact [f]: given the global [known] pool and
-     the node's sent list [sent], [r] fires some [fired_rule] that deduces [f]. *)
-  Definition fire_at_rule (r : rule) known (sent : list dfact) (f : dfact) : Prop :=
-    exists fired_rule,
-      can_fire_rule_at r fired_rule /\
-        can_deduce_fact fired_rule (from_rule r) known sent f /\
-        ok_to_deduce_fact r known sent f.
+     the node's sent list [sent]. *)
+  Definition fire_at_rule (r : rule) known (sent : list message) (f : message) : Prop :=
+    node.can_deduce R_senders (node_prog r) (from_rule r)
+      {| node.state.known := known; node.state.sent := sent |} f.
 
   Inductive comp_step : state -> state -> Prop :=
   | fire_rule new_fact s r :
-    In r non_meta_rules ->
+    In r p.(program.rules) ->
     fire_at_rule r s.(known_facts) (get_or_default s.(sents) r) new_fact ->
     comp_step s {| known_facts := new_fact :: s.(known_facts);
                   sents := mupd_with_default (cons new_fact) s.(sents) r |}.
 
-  Definition is_input_fact (f : dfact) :=
+  Definition is_input_fact (f : message) :=
     match f with
-    | normal_dfact R _ => is_input R
-    | meta_dfact R _ from_input _ => is_input R
-    | meta_dfact _ _ (from_rule _) _ => false
+    | message.normal nf => is_input nf.(normal_fact.rel)
+    | message.done_with pat from_input _ => is_input pat.(fact_pattern.rel)
+    | message.done_with _ (from_rule _) _ => false
     end.
 
-  Context (Hmeta_rules : meta_rules_valid p).
+  Context (Hmeta_rules : program.meta_rules_valid p).
 
-  Definition good_rule_inputs (r : rule) : Prop :=
-    Forall (fun R => is_input R = false) (concl_rels r).
+  Context (Hp_good : Forall (fun R => is_input R = false) (program.concl_rels p)).
 
-  Context (Hp_good : Forall good_rule_inputs p).
-
-  Lemma concl_rel_not_input r R :
-    In r p -> In R (concl_rels r) -> is_input R = false.
-  Proof.
-    intros Hr HR. rewrite Forall_forall in Hp_good. specialize (Hp_good _ Hr).
-    unfold good_rule_inputs in Hp_good. rewrite Forall_forall in Hp_good. exact (Hp_good _ HR).
-  Qed.
+  Lemma concl_rel_not_input R :
+    In R (program.concl_rels p) -> is_input R = false.
+  Proof. rewrite Forall_forall in Hp_good. auto. Qed.
 
   (* Propagation of meta-fact finiteness: analog of SimpleDataflow.v:2505
      [meta_facts_finite].  We constrain the matching nf_args range only,
@@ -173,72 +152,403 @@ Section __.
      case provable from finiteness of the inputs list. *)
   Definition meta_facts_finite :=
     forall Q,
-      (forall R mf_args S, Q (meta_fact R mf_args S) ->
-                            exists l, forall args,
-                              Forall2 matches mf_args args -> S args -> In args l) ->
-      forall R mf_args S, prog_impl p Q (meta_fact R mf_args S) ->
-                          exists l, forall args,
-                            Forall2 matches mf_args args -> S args -> In args l.
+      (forall mf, Q (fact.meta mf) ->
+                  exists l, forall args,
+                    Forall2 value_pattern.matches
+                      mf.(meta_fact.pattern).(fact_pattern.args) args ->
+                    mf.(meta_fact.set) args -> In args l) ->
+      forall mf, program.interp p Q (fact.meta mf) ->
+                 exists l, forall args,
+                   Forall2 value_pattern.matches
+                     mf.(meta_fact.pattern).(fact_pattern.args) args ->
+                   mf.(meta_fact.set) args -> In args l.
 
   Context (Hmeta_finite : meta_facts_finite).
 
   Definition good_input_facts input_facts :=
     Forall (fun f => is_input_fact f = true) input_facts /\
-      (forall R mf_args num,
-          In (meta_dfact R mf_args from_input num) input_facts ->
-          (forall num0, In (meta_dfact R mf_args from_input num0) input_facts -> num0 = num) /\
+      (forall pat num,
+          In (message.done_with pat from_input num) input_facts ->
+          (forall num0, In (message.done_with pat from_input num0) input_facts -> num0 = num) /\
             exists num',
               num' <= num /\
-                Existsn (dfact_matches R mf_args) num' input_facts).
+                Existsn (message.matches pat) num' input_facts).
 
-  Record sane_state {input_facts : list dfact} {s : state} : Prop := {
+  Record sane_state {input_facts : list message} {s : state} : Prop := {
     sane_input_meta :
-      forall R mf_args num,
-        In (meta_dfact R mf_args from_input num) s.(known_facts) ->
-        In (meta_dfact R mf_args from_input num) input_facts;
+      forall pat num,
+        In (message.done_with pat from_input num) s.(known_facts) ->
+        In (message.done_with pat from_input num) input_facts;
     sane_local_meta :
-      forall R mf_args r num,
-          In (meta_dfact R mf_args (from_rule r) num) s.(known_facts) ->
-          Existsn (dfact_matches R mf_args) num (get_or_default s.(sents) r) /\
-          In (meta_dfact R mf_args (from_rule r) num) (get_or_default s.(sents) r);
+      forall pat r num,
+          In (message.done_with pat (from_rule r) num) s.(known_facts) ->
+          Existsn (message.matches pat) num (get_or_default s.(sents) r) /\
+          In (message.done_with pat (from_rule r) num) (get_or_default s.(sents) r);
     sane_count :
-      forall R mf_args,
+      forall pat,
         exists msgs_sents num_inp num_known,
-          Forall2 (fun r m => Existsn (dfact_matches R mf_args) m (get_or_default s.(sents) r))
+          Forall2 (fun r m => Existsn (message.matches pat) m (get_or_default s.(sents) r))
                   sender_rules msgs_sents /\
-            Existsn (dfact_matches R mf_args) num_inp input_facts /\
-            Existsn (dfact_matches R mf_args) num_known s.(known_facts) /\
+            Existsn (message.matches pat) num_inp input_facts /\
+            Existsn (message.matches pat) num_known s.(known_facts) /\
             num_known = num_inp + list_sum msgs_sents;
     sane_input_rel :
-      forall R,
-          is_input R = true ->
-          (forall mf_args, Forall (fun sent => Existsn (dfact_matches R mf_args) O sent) (values s.(sents))) /\
-            (forall mf_args r num, ~In (meta_dfact R mf_args (from_rule r) num) s.(known_facts));
+      forall pat,
+          is_input pat.(fact_pattern.rel) = true ->
+          Forall (fun sent => Existsn (message.matches pat) O sent) (values s.(sents)) /\
+            (forall r num, ~In (message.done_with pat (from_rule r) num) s.(known_facts));
     sane_inputs_known :
       forall f, In f input_facts -> In f s.(known_facts);
   }.
 
   Arguments sane_state : clear implicits.
 
-  Lemma can_deduce_implies_not_input r kf nf_rel nf_args :
-    good_rule_inputs r ->
-    can_deduce_normal_fact r kf nf_rel nf_args ->
-    is_input nf_rel = false.
+  Lemma can_deduce_implies_not_input r kf nf :
+    In r p.(program.rules) ->
+    can_deduce_normal_fact r kf nf ->
+    is_input nf.(normal_fact.rel) = false.
   Proof.
-    intros Hgood (hyps & Himpl & _). unfold good_rule_inputs in Hgood.
-    destruct r as [cs hs | mcs mhs | concl agg hyp]; cbn [concl_rels] in Hgood.
-    - invert Himpl.
-      match goal with
-      | H : Exists _ _ |- _ =>
-        apply Exists_exists in H; destruct H as (c & Hin_c & Hint)
-      end.
-      cbv [clause.interp] in Hint. destruct Hint as (nfargs & _ & Heq).
-      injection Heq as -> ->.
-      rewrite Forall_forall in Hgood. apply Hgood, in_map, Hin_c.
-    - invert Himpl.
-    - invert Himpl. rewrite Forall_forall in Hgood. apply Hgood. left. reflexivity.
+    intros Hr (hyps & Hri & _). apply concl_rel_not_input.
+    eauto using program.rule_concl_rel_in, rule.interp_concl_relname_in.
   Qed.
 
+  Lemma pattern_concl_not_input mr pat pats :
+    In mr p.(program.meta_rules) ->
+    meta_rule.pattern_interp mr pat pats ->
+    is_input pat.(fact_pattern.rel) = false.
+  Proof.
+    intros. apply concl_rel_not_input.
+    eauto using program.meta_rule_concl_rel_in,
+      meta_rule.pattern_interp_concl_relname_in.
+  Qed.
+
+  Lemma get_or_default_values_0 (P : message -> Prop) (m : sent_map) k :
+    Forall (fun sent => Existsn P 0 sent) (values m) ->
+    Existsn P 0 (get_or_default m k).
+  Proof.
+    intros Hz. destruct (map.get m k) as [v|] eqn:Eg.
+    - rewrite (get_or_default_Some _ _ _ Eg). rewrite Forall_forall in Hz.
+      apply Hz. rewrite In_values. exists k. exact Eg.
+    - rewrite (get_or_default_None _ _ Eg). apply Existsn_nil.
+  Qed.
+
+  Lemma Forall2_update_at_nat {A} (R S : A -> nat -> Prop) (a : A) (d : nat) (l : list A) (ns : list nat) :
+    NoDup l -> In a l ->
+    Forall2 R l ns ->
+    (forall x, In x l -> x <> a -> forall n, R x n -> S x n) ->
+    (forall n, R a n -> S a (n + d)) ->
+    exists ns', Forall2 S l ns' /\ list_sum ns' = list_sum ns + d.
+  Proof.
+    intros Hnd Hin HF. revert Hnd Hin.
+    induction HF as [| x n l' ns' HR HF IH]; intros Hnd Hin Hother Hat.
+    - inversion Hin.
+    - inversion Hnd as [| xx ll Hnotin Hnd']; subst.
+      destruct Hin as [Heq | Hin'].
+      + subst x. exists ((n + d) :: ns'). split.
+        * constructor; [ exact (Hat _ HR) | ].
+          eapply Forall2_impl_strong; [ exact HF | ].
+          intros y m Hry Hy _. apply (Hother y); [ right; exact Hy | | exact Hry ].
+          intro Hya; subst y; exact (Hnotin Hy).
+        * rewrite !list_sum_cons. lia.
+      + assert (Hxa : x <> a) by (intro Hc; subst x; exact (Hnotin Hin')).
+        specialize (IH Hnd' Hin' (fun y Hy => Hother y (or_intror Hy)) Hat).
+        destruct IH as (ns'' & HF'' & Hsum).
+        exists (n :: ns''). split.
+        * constructor; [ apply (Hother x); [ left; reflexivity | exact Hxa | exact HR ] | exact HF'' ].
+        * rewrite !list_sum_cons. lia.
+  Qed.
+
+  Lemma sane_count_forall2_fire (P : message -> Prop) (m : sent_map) (r : rule)
+      (f : message) (msgs : list nat) (d : nat) :
+    In r p.(program.rules) ->
+    (forall c, Existsn P c (get_or_default m r) -> Existsn P (c + d) (f :: get_or_default m r)) ->
+    Forall2 (fun r0 c => Existsn P c (get_or_default m r0)) sender_rules msgs ->
+    exists msgs',
+      Forall2 (fun r0 c => Existsn P c (get_or_default (mupd_with_default (cons f) m r) r0)) sender_rules msgs'
+      /\ list_sum msgs' = list_sum msgs + d.
+  Proof.
+    intros Hin_r Hinc Hf2.
+    eapply (Forall2_update_at_nat
+              (fun r0 c => Existsn P c (get_or_default m r0))
+              (fun r0 c => Existsn P c (get_or_default (mupd_with_default (cons f) m r) r0))
+              r d sender_rules msgs).
+    - unfold sender_rules. apply NoDup_dedup.
+    - exact (In_sender_rules r Hin_r).
+    - exact Hf2.
+    - intros x _ Hxr n HRx. rewrite get_or_default_mupd.
+      destr (eqb r x); [ exfalso; apply Hxr; congruence | exact HRx ].
+    - intros n HRr. rewrite get_or_default_mupd. destr (eqb r r); [ | congruence ].
+      exact (Hinc n HRr).
+  Qed.
+
+  Lemma step_preserves_sane inputs s1 s2 :
+    good_input_facts inputs ->
+    sane_state inputs s1 ->
+    comp_step s1 s2 ->
+    sane_state inputs s2.
+  Proof.
+    intros Hinp Hsane Hstep.
+    destruct Hsane as [Hmf_inp Hmf_sent Hcount Hinp_sane Hinp_propagated].
+    invert Hstep.
+    rename H into Hin_r. rename H0 into Hfire.
+    cbv [fire_at_rule] in Hfire.
+    destruct new_fact as [nf | pat src cnt].
+    - cbn [node.can_deduce node.state.known node.state.sent node_prog program.rules program.meta_rules] in Hfire.
+      destruct Hfire as (Hex & Hfresh). invert_list_stuff.
+      assert (Hnf_noninput : is_input nf.(normal_fact.rel) = false)
+        by (eapply can_deduce_implies_not_input; eassumption).
+      constructor; cbn [known_facts sents].
+      + intros pat0 num [Heq | Hin]; [ discriminate | exact (Hmf_inp _ _ Hin) ].
+      + intros pat0 r0 num [Heq | Hin]; [ discriminate | ].
+        specialize (Hmf_sent _ _ _ Hin). destruct Hmf_sent as (HE & HI).
+        rewrite get_or_default_mupd. destr (eqb r r0).
+        * assert (Hnmatch : ~ message.matches pat0 (message.normal nf)).
+          { intros Hmatch. apply Hfresh. exists pat0, num. auto. }
+          split; [ apply Existsn_no; [ exact Hnmatch | exact HE ] | right; exact HI ].
+        * split; [ exact HE | exact HI ].
+      + intros pat0. specialize (Hcount pat0).
+        destruct Hcount as (msgs & num_inp & num_known & Hf2 & Hni & Hnk & Hsum).
+        destruct (classic (message.matches pat0 (message.normal nf))) as [Hm | Hm].
+        * assert (Hinc : forall c, Existsn (message.matches pat0) c (get_or_default (sents s1) r) ->
+                    Existsn (message.matches pat0) (c + 1)
+                      (message.normal nf :: get_or_default (sents s1) r)).
+          { intros c Hc. rewrite Nat.add_1_r. apply Existsn_yes; [ exact Hm | exact Hc ]. }
+          edestruct (sane_count_forall2_fire (message.matches pat0) (sents s1) r
+                       (message.normal nf) msgs 1 Hin_r Hinc Hf2) as (msgs' & Hf2' & Hsum').
+          exists msgs', num_inp, (S num_known). ssplit;
+            [ exact Hf2' | exact Hni | apply Existsn_yes; [ exact Hm | exact Hnk ] | lia ].
+        * assert (Hinc : forall c, Existsn (message.matches pat0) c (get_or_default (sents s1) r) ->
+                    Existsn (message.matches pat0) (c + 0)
+                      (message.normal nf :: get_or_default (sents s1) r)).
+          { intros c Hc. rewrite Nat.add_0_r. apply Existsn_no; [ exact Hm | exact Hc ]. }
+          edestruct (sane_count_forall2_fire (message.matches pat0) (sents s1) r
+                       (message.normal nf) msgs 0 Hin_r Hinc Hf2) as (msgs' & Hf2' & Hsum').
+          exists msgs', num_inp, num_known. ssplit;
+            [ exact Hf2' | exact Hni | apply Existsn_no; [ exact Hm | exact Hnk ] | lia ].
+      + intros pat0 HR. specialize (Hinp_sane pat0 HR). destruct Hinp_sane as (HForall & Hnone). split.
+        * rewrite mupd_with_default_eq_put.
+          apply Forall_values_put; [ exact HForall | ].
+          apply Existsn_no.
+          -- intros (Hrel & _). congruence.
+          -- rewrite Forall_forall in HForall.
+             destruct (map.get (sents s1) r) as [v|] eqn:Eg.
+             ++ rewrite (get_or_default_Some _ _ _ Eg). apply HForall, In_values. exists r. exact Eg.
+             ++ rewrite (get_or_default_None _ _ Eg). apply Existsn_nil.
+        * intros r0 num [Heq | Hin]; [ discriminate | exact (Hnone _ _ Hin) ].
+      + intros f Hf. right. exact (Hinp_propagated f Hf).
+    - cbn [node.can_deduce node.state.known node.state.sent node_prog program.rules program.meta_rules] in Hfire.
+      destruct Hfire as (Hsrc & Hexmr & Hexn & Hsat). subst src.
+      assert (Hpat_noninput : is_input pat.(fact_pattern.rel) = false).
+      { apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr & mhyps & Hpi & _).
+        eapply pattern_concl_not_input; eassumption. }
+      constructor; cbn [known_facts sents].
+      + intros pat0 num [Heq | Hin]; [ discriminate | exact (Hmf_inp _ _ Hin) ].
+      + intros pat0 r0 num Hin. rewrite get_or_default_mupd. destr (eqb r r0).
+        * destruct Hin as [Heq | Hin].
+          -- invert Heq.
+             split; [ apply Existsn_no; [ intros [] | exact Hexn ] | left; reflexivity ].
+          -- specialize (Hmf_sent _ _ _ Hin). destruct Hmf_sent as (HE & HI).
+             split; [ apply Existsn_no; [ intros [] | exact HE ] | right; exact HI ].
+        * destruct Hin as [Heq | Hin].
+          -- invert Heq. congruence.
+          -- specialize (Hmf_sent _ _ _ Hin). destruct Hmf_sent as (HE & HI). auto.
+      + intros pat0. specialize (Hcount pat0).
+        destruct Hcount as (msgs & num_inp & num_known & Hf2 & Hni & Hnk & Hsum).
+        assert (Hinc : forall c, Existsn (message.matches pat0) c (get_or_default (sents s1) r) ->
+                  Existsn (message.matches pat0) (c + 0)
+                    (message.done_with pat (from_rule r) cnt :: get_or_default (sents s1) r)).
+        { intros c Hc. rewrite Nat.add_0_r. apply Existsn_no; [ intros [] | exact Hc ]. }
+        edestruct (sane_count_forall2_fire (message.matches pat0) (sents s1) r
+                     (message.done_with pat (from_rule r) cnt) msgs 0 Hin_r Hinc Hf2)
+          as (msgs' & Hf2' & Hsum').
+        exists msgs', num_inp, num_known. ssplit;
+          [ exact Hf2' | exact Hni | apply Existsn_no; [ intros [] | exact Hnk ] | lia ].
+      + intros pat0 HR. specialize (Hinp_sane pat0 HR). destruct Hinp_sane as (HForall & Hnone). split.
+        * rewrite mupd_with_default_eq_put.
+          apply Forall_values_put; [ exact HForall | ].
+          apply Existsn_no; [ intros [] | ].
+          rewrite Forall_forall in HForall.
+          destruct (map.get (sents s1) r) as [v|] eqn:Eg.
+          -- rewrite (get_or_default_Some _ _ _ Eg). apply HForall, In_values. exists r. exact Eg.
+          -- rewrite (get_or_default_None _ _ Eg). apply Existsn_nil.
+        * intros r0 num [Heq | Hin].
+          -- invert Heq. congruence.
+          -- exact (Hnone _ _ Hin).
+      + intros f Hf. right. exact (Hinp_propagated f Hf).
+  Qed.
+
+  Lemma sane_allowed_inputs inputs s :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    allowed_inputs s.(known_facts).
+  Proof.
+    intros Hinp Hsane pat ems Hf2.
+    assert (Hexp : expects_num_facts s.(known_facts) pat (list_sum ems))
+      by (exists ems; split; [ exact Hf2 | reflexivity ]).
+    rewrite expects_num_facts_eq in Hexp.
+    destruct Hsane as [Hmf_inp Hmf_sent Hcount Hinp_rel Hinp_known].
+    destruct (Hcount pat) as (msgs & num_inp & num_known & Hms & Hinp_cnt & Hkn_cnt & Hsum).
+    eapply Existsn_le_of_Existsn; [ exact Hkn_cnt | ]. rewrite Hsum.
+    destruct (is_input pat.(fact_pattern.rel)) eqn:ER; cbv iota in Hexp.
+    - apply Hmf_inp in Hexp.
+      destruct Hinp as (_ & Hgc). destruct (Hgc _ _ Hexp) as (_ & num' & Hle & Hex').
+      pose proof (Existsn_unique _ _ _ _ Hinp_cnt Hex') as ->.
+      assert (Hms0 : list_sum msgs = 0).
+      { destruct (Hinp_rel pat ER) as (Hz & _).
+        assert (Hmz : msgs = repeat 0 (length sender_rules)).
+        { eapply Forall2_unique_r;
+            [ exact Hms
+            | apply Forall2_repeat_r, Forall_forall; intros r0 _;
+              apply get_or_default_values_0; exact Hz
+            | intros x y y' _ Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ]. }
+        rewrite Hmz, list_sum_repeat. lia. }
+      rewrite Hms0, Nat.add_0_r. exact Hle.
+    - destruct Hexp as (emss & Hexpp0 & Hsum_ems).
+      assert (Hni0 : num_inp = 0).
+      { destruct Hinp as (Hrel & _).
+        enough (Existsn (message.matches pat) 0 inputs) as Hno
+          by exact (Existsn_unique _ _ _ _ Hinp_cnt Hno).
+        apply Forall_not_Existsn_0. apply Forall_forall. intros f Hin_f Hdf.
+        destruct f as [nf|]; [|exact Hdf].
+        destruct Hdf as (Hrel_eq & _).
+        rewrite Forall_forall in Hrel. specialize (Hrel _ Hin_f). simpl in Hrel. congruence. }
+      subst num_inp. cbn [Nat.add]. rewrite Hsum_ems.
+      enough (msgs = emss) as -> by lia.
+      eapply Forall2_unique_r;
+        [ exact Hms | | intros x y y' _ Hy Hy'; exact (Existsn_unique _ _ _ _ Hy Hy') ].
+      eapply Forall2_impl_strong; [ exact Hexpp0 | ].
+      intros rk ek HIn _ _. exact (proj1 (Hmf_sent _ _ _ HIn)).
+  Qed.
+
+  Lemma comp_step_known_cons s s' :
+    comp_step s s' -> exists f, s'.(known_facts) = f :: s.(known_facts).
+  Proof. intros H. invert H. cbn [known_facts]. eauto. Qed.
+
+  Lemma comp_step_knows_incl inputs s s' :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    comp_step s s' ->
+    knows_incl s.(known_facts) s'.(known_facts).
+  Proof.
+    intros Hinp Hsane Hstep.
+    destruct (comp_step_known_cons _ _ Hstep) as (f & Hf).
+    apply node.knows_incl_of_submultiset.
+    - exists [f]. rewrite Hf. apply Permutation_cons_append.
+    - exact (sane_allowed_inputs _ _ Hinp (step_preserves_sane _ _ _ Hinp Hsane Hstep)).
+  Qed.
+
+  Lemma meta_facts_correct_at_rule_mono mrs k1 k2 r sent :
+    knows_incl k1 k2 ->
+    meta_facts_correct_at_rule mrs k1 r sent ->
+    meta_facts_correct_at_rule mrs k2 r sent.
+  Proof.
+    intros Hincl H pat num HIn.
+    destruct (H _ _ HIn) as (mr & mhyps & Hin & Hexn & Hpi & Hkn & Hns).
+    exists mr, mhyps. ssplit; try assumption.
+    eapply Forall_impl; [ exact Hkn | ]. intros mh Hmh.
+    exact (Hincl (fact.meta mh) Hmh).
+  Qed.
+
+  Lemma at_rule_cons_tail mrs k1 k2 r f sent pat num :
+    knows_incl k1 k2 ->
+    ~ message.matches pat f ->
+    meta_facts_correct_at_rule mrs k1 r sent ->
+    In (message.done_with pat (from_rule r) num) sent ->
+    exists mr mhyps,
+      In mr mrs /\
+        Existsn (message.matches pat) num (f :: sent) /\
+        meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
+        Forall (knows_meta_fact k2) mhyps /\
+        Forall (fun mh => mh.(meta_fact.pattern) <> pat) mhyps.
+  Proof.
+    intros Hincl Hnm H HIn.
+    destruct (H _ _ HIn) as (mr & mhyps & Hin0 & Hexn0 & Hpi0 & Hkn0 & Hns0).
+    exists mr, mhyps. ssplit; try assumption.
+    - apply Existsn_no; assumption.
+    - eapply Forall_impl; [ exact Hkn0 | ]. intros mh Hmh.
+      exact (Hincl (fact.meta mh) Hmh).
+  Qed.
+
+  Lemma step_preserves_mfs_correct inputs s s' :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    comp_step s s' ->
+    meta_facts_correct s'.
+  Proof.
+    intros Hinp Hsane Hmfc Hstep.
+    pose proof (comp_step_knows_incl _ _ _ Hinp Hsane Hstep) as Hmono.
+    pose proof Hsane as Hsane0. destruct Hsane0 as [_ Hmf_sent _ _ _].
+    invert Hstep. rename H into Hin_r. rename H0 into Hfire.
+    cbv [fire_at_rule] in Hfire.
+    cbn [node.can_deduce node.state.known node.state.sent node_prog
+           program.rules program.meta_rules] in Hfire.
+    cbv [meta_facts_correct] in Hmfc |- *. cbn [known_facts sents] in Hmono |- *.
+    pose proof (Hmfc r Hin_r) as Hmfc_r.
+    intros r0 Hr0. rewrite get_or_default_mupd. destr (eqb r r0);
+      [ | eapply meta_facts_correct_at_rule_mono; [ exact Hmono | exact (Hmfc r0 Hr0) ] ].
+    intros pat num HIn.
+    destruct new_fact as [nf | npat nsrc ncnt].
+    + destruct Hfire as (Hex & Hfresh).
+      destruct HIn as [Heq | HIn]; [ discriminate | ].
+      eapply at_rule_cons_tail; [ exact Hmono | | exact Hmfc_r | exact HIn ].
+      intros Hmatch. apply Hfresh. exists pat, num. auto.
+    + destruct Hfire as (Hsrc & Hexmr & Hexn & Hsat). subst nsrc.
+      destruct HIn as [Heq_nf | HIn_old].
+      2:{ eapply at_rule_cons_tail; [ exact Hmono | intros [] | exact Hmfc_r | exact HIn_old ]. }
+      invert Heq_nf.
+      apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr_in & mhyps & Hpi & Hkn).
+      assert (HNI : is_input pat.(fact_pattern.rel) = false)
+        by (eapply pattern_concl_not_input; eassumption).
+      destruct (classic (exists mh, In mh mhyps /\ mh.(meta_fact.pattern) = pat))
+        as [Hself | Hnoself].
+      * destruct Hself as (mh & Hin_mh & Hmh_pat).
+        rewrite Forall_forall in Hkn. pose proof (Hkn _ Hin_mh) as Hk_mh.
+        destruct Hk_mh as (num_self & Hexp_self & _ & _).
+        rewrite Hmh_pat in Hexp_self.
+        rewrite expects_num_facts_eq, HNI in Hexp_self.
+        destruct Hexp_self as (expected_msgss & Hf2 & _).
+        destruct (Forall2_In_l _ _ _ _ Hf2 (In_sender_rules r0 Hin_r))
+          as (num_old & _ & Hin_x_known). cbv beta in Hin_x_known.
+        specialize (Hmf_sent _ _ _ Hin_x_known). destruct Hmf_sent as (_ & Hin_x_sent).
+        destruct (Hmfc_r _ _ Hin_x_sent)
+          as (mr_old & mhyps_old & Hin_mr_old & Hexn_old & Hpi_old & Hkn_old & Hns_old).
+        exists mr_old, mhyps_old. ssplit; try assumption.
+        -- apply Existsn_no; [ intros [] | exact Hexn ].
+        -- eapply Forall_impl; [ exact Hkn_old | ]. intros mh0 Hmh0.
+           exact (Hmono (fact.meta mh0) Hmh0).
+      * exists mr, mhyps. ssplit; try assumption.
+        -- apply Existsn_no; [ intros [] | exact Hexn ].
+        -- eapply Forall_impl; [ exact Hkn | ]. intros mh0 Hmh0.
+           exact (Hmono (fact.meta mh0) Hmh0).
+        -- apply Forall_forall. intros mh0 Hmh0 Heq. apply Hnoself. eauto.
+  Qed.
+
+  Lemma steps_preserves_sane inputs s s' :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    comp_step^* s s' ->
+    sane_state inputs s'.
+  Proof.
+    intros Hinp Hsane Hsteps. induction Hsteps; auto.
+    apply IHHsteps; auto.
+    eapply step_preserves_sane; eassumption.
+  Qed.
+
+  Lemma steps_preserves_mfs_correct inputs s s' :
+    good_input_facts inputs ->
+    sane_state inputs s ->
+    meta_facts_correct s ->
+    comp_step^* s s' ->
+    meta_facts_correct s'.
+  Proof.
+    intros Hinp Hsane Hmfc Hsteps. induction Hsteps; auto.
+    apply IHHsteps; auto.
+    - eapply step_preserves_sane; eassumption.
+    - eapply step_preserves_mfs_correct; eassumption.
+  Qed.
+
+  (*ported above; the rest is still the old API
   Lemma get_or_default_values_0 (P : dfact -> Prop) (m : sent_map) k :
     Forall (fun sent => Existsn P 0 sent) (values m) ->
     Existsn P 0 (get_or_default m k).
@@ -1838,3 +2148,5 @@ Section __.
 End __.
 
 Arguments sane_state {rel exprvar fn aggregator T rule_eqb sent_map} is_input p input_facts s.
+*)
+End __.
