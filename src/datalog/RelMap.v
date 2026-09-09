@@ -19,8 +19,6 @@ Section RelMap.
   Definition inj_on_elt (x : rel1) : Prop :=
     forall y, f x = f y -> x = y.
 
-  Definition rel_equiv R1 R2 := f R1 = f R2.
-
   Definition map_normal_fact (nf : normal_fact) : normal_fact :=
     {| normal_fact.rel := f nf.(normal_fact.rel);
       normal_fact.args := nf.(normal_fact.args) |}.
@@ -66,7 +64,7 @@ Section RelMap.
     clause.interp ctx (map_clause_rel c) (map_normal_fact h).
   Proof. intros. repeat invert_stuff. interp_exprs. Qed.
 
-  Hint Unfold clause.interp rel_equiv fact_equiv normal_fact_equiv : core.
+  Hint Unfold clause.interp fact_equiv normal_fact_equiv : core.
   Lemma interp_clause_map_bw ctx c h :
     clause.interp ctx (map_clause_rel c) (map_normal_fact h) ->
     exists h', normal_fact_equiv h h' /\ clause.interp ctx c h'.
@@ -99,15 +97,6 @@ Section RelMap.
     - apply interp_clause_map_bw in H. destruct H as [h' [Heq Hinterp]].
       destruct IHForall2 as [hyps2' [HForall_eq HForall_interp]].
       eexists (h' :: hyps2'). split; constructor; eauto.
-  Qed.
-
-  Lemma Forall2_interp_clause_map_bw' ctx hyps1 hyps2 :
-    Forall2 (clause.interp ctx) (map map_clause_rel hyps1) (map map_normal_fact hyps2) ->
-    Forall2 (fun c h => exists h', normal_fact_equiv h h' /\ clause.interp ctx c h') hyps1 hyps2.
-  Proof.
-    intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
-    eapply Forall2_impl; [eassumption|].
-    eauto using interp_clause_map_bw.
   Qed.
 
   Definition map_clause_pattern_rel (c : clause_pattern) : clause_pattern :=
@@ -175,17 +164,6 @@ Section RelMap.
     eexists {| fact_pattern.rel := clause_pattern.rel c; fact_pattern.args := _ |}. split.
     - cbv [fact_pattern_equiv map_fact_pattern]. simpl. f_equal. simpl in *. congruence.
     - eauto.
-  Qed.
-
-  Lemma Forall2_interp_clause_pattern_map_bw' ctx hyps1 hyps2 :
-    Forall2 (clause_pattern.interp ctx)
-      (map map_clause_pattern_rel hyps1) (map map_fact_pattern hyps2) ->
-    Forall2 (fun c fp => exists fp', fact_pattern_equiv fp fp' /\
-                                    clause_pattern.interp ctx c fp') hyps1 hyps2.
-  Proof.
-    intros H. rewrite <- Forall2_map_l, <- Forall2_map_r in H.
-    eapply Forall2_impl; [eassumption|].
-    eauto using interp_clause_pattern_map_bw.
   Qed.
 
   Lemma rel_map_fact fct :
@@ -1184,6 +1162,4 @@ Section RelMap.
         eapply interp_bridge; eauto.
     Qed.
   End inj.
-
-
 End RelMap.
