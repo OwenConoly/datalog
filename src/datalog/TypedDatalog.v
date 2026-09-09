@@ -256,6 +256,7 @@ Section __.
       destr (list_eqb c_sh h_sh); [|discriminate].
       exists map.empty, i_t, in_t', out_t', h_sh. auto.
   Qed.
+
   Lemma check_meta_rule_type_sound r tctx :
     check_meta_rule_type r = Some tctx ->
     well_typed_meta_rule r.
@@ -263,23 +264,23 @@ Section __.
     cbv [check_meta_rule_type well_typed_meta_rule].
     remember (meta_rule.concls r) as concls. remember (meta_rule.hyps r) as hyps.
     intros Hck. exists tctx.
-      cbv [compatible_union_of_list_option] in Hck.
-      destruct (option_all (map check_clause_pattern_type (concls ++ hyps))) as [ctxs|] eqn:Eall;
-        [|discriminate].
-      simpl in Hck.
-      destruct (compatible_union_of_list ctxs) as [u|] eqn:Eun;
-        [|discriminate].
-      simpl in Hck. inversion Hck; subst u; clear Hck.
-      pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
-      apply option_all_map_Some' in Eall.
-      apply Forall_app.
-      enough (Hall : Forall (well_typed_clause_pattern tctx) (concls ++ hyps)) by tauto.
-      apply Forall_forall. intros c0 Hin.
-      assert (In (check_clause_pattern_type c0) (map Some ctxs)) as Hin'
-          by (rewrite <- Eall; apply in_map; assumption).
-      apply in_map_iff in Hin'. destruct Hin' as [m [Heq Hin_m]].
-      eapply well_typed_clause_pattern_extends;
-        [eauto using check_clause_pattern_type_sound|]. auto.
+    cbv [compatible_union_of_list_option] in Hck.
+    destruct (option_all (map check_clause_pattern_type (concls ++ hyps))) as [ctxs|] eqn:Eall;
+      [|discriminate].
+    simpl in Hck.
+    destruct (compatible_union_of_list ctxs) as [u|] eqn:Eun;
+      [|discriminate].
+    simpl in Hck. inversion Hck; subst u; clear Hck.
+    pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
+    apply option_all_map_Some' in Eall.
+    apply Forall_app.
+    enough (Hall : Forall (well_typed_clause_pattern tctx) (concls ++ hyps)) by tauto.
+    apply Forall_forall. intros c0 Hin.
+    assert (In (check_clause_pattern_type c0) (map Some ctxs)) as Hin'
+      by (rewrite <- Eall; apply in_map; assumption).
+    apply in_map_iff in Hin'. destruct Hin' as [m [Heq Hin_m]].
+    eapply well_typed_clause_pattern_extends;
+      [eauto using check_clause_pattern_type_sound|]. auto.
   Qed.
 
 End __.
