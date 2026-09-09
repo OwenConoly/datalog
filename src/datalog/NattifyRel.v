@@ -27,6 +27,7 @@ Section NattifyRel.
     In R (program.all_rels p) -> In R (rel_table p).
   Proof. intros. cbv [rel_table]. apply dedup_In. apply in_or_app. auto. Qed.
 
+  (* nattify_rel_fact is injective on facts whose relation is in the table *)
   Lemma nattify_rel_fact_inj p a b :
     In (fact.rel a) (rel_table p) ->
     nattify_rel_fact p a = nattify_rel_fact p b ->
