@@ -49,7 +49,6 @@ Section NattifyRel.
     assert (HQtab : forall g, Q g -> In (fact.rel g) (rel_table p)).
     { intros g Hg. cbv [rel_table]. apply dedup_In. apply in_or_app. auto. }
     apply interp_map_iff_inj.
-    - cbv [encode_rel]. apply index_of_inj_on. exact (prog_rels_in_table p).
     - cbv [encode_rel]. apply index_of_inj_on_cons. exact (prog_rels_in_table p).
     - intros f1 f2 Heq. split; intros HQf.
       + replace f2 with f1; [assumption|]. apply (nattify_rel_fact_inj p); auto.

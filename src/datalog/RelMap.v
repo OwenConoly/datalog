@@ -961,17 +961,21 @@ Section RelMap.
         + auto.
     Qed.
 
-    Lemma interp_map_iff_inj Q fct :
-      injective_on f (fact.rel fct :: program.all_rels p) ->
-      (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
-      program.interp p Q fct <->
-        program.interp (map_program p)
-          (fun f' => exists g, f' = map_fact g /\ Q g) (map_fact fct).
-    Proof.
-      intros Hfct HQ. split; intros H.
-      - apply interp_map_fw_inj. assumption.
-      - apply interp_map_bw_inj in H; [|assumption]. fwd.
-        eapply interp_bridge; eauto.
-    Qed.
   End inj.
+
+  Lemma interp_map_iff_inj p Q fct :
+    injective_on f (fact.rel fct :: program.all_rels p) ->
+    (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
+    program.interp p Q fct <->
+      program.interp (map_program p)
+        (fun f' => exists g, f' = map_fact g /\ Q g) (map_fact fct).
+  Proof.
+    intros Hinj HQ.
+    assert (f_inj : injective_on f (program.all_rels p)).
+    { eapply injective_on_incl; [|eassumption]. apply incl_tl, incl_refl. }
+    split; intros H.
+    - apply interp_map_fw_inj; assumption.
+    - eapply interp_map_bw_inj in H; try eassumption. fwd.
+      eapply interp_bridge; eauto.
+  Qed.
 End RelMap.
