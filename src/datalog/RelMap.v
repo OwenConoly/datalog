@@ -16,8 +16,15 @@ Section RelMap.
 
   Context {rel1 rel2} (f : rel1 -> rel2).
 
-  Definition inj_on_elt (x : rel1) : Prop :=
-    forall y, f x = f y -> x = y.
+  Definition inj_at (x y : rel1) : Prop := f x = f y -> x = y.
+
+  Definition inj_on_elt (x : rel1) : Prop := forall y, inj_at x y.
+
+  Lemma inj_on_elt_at x y :
+    inj_on_elt x ->
+    inj_at x y.
+  Proof. auto. Qed.
+  Hint Resolve inj_on_elt_at : core.
 
   Definition map_normal_fact (nf : normal_fact) : normal_fact :=
     {| normal_fact.rel := f nf.(normal_fact.rel);
@@ -54,6 +61,10 @@ Section RelMap.
   Definition fact_equiv f1 f2 := map_fact f1 = map_fact f2.
 
   Definition normal_fact_equiv n1 n2 := map_normal_fact n1 = map_normal_fact n2.
+
+  Definition fact_pattern_equiv p1 p2 := map_fact_pattern p1 = map_fact_pattern p2.
+
+  Definition meta_fact_equiv m1 m2 := map_meta_fact m1 = map_meta_fact m2.
 
   Definition map_clause_rel (c : clause) : clause :=
     {| clause.rel := f c.(clause.rel);
@@ -129,8 +140,6 @@ Section RelMap.
       2: { constructor. eassumption. }
       apply map_ext. intros [? ?]. reflexivity.
   Qed.
-
-  Definition fact_pattern_equiv p1 p2 := map_fact_pattern p1 = map_fact_pattern p2.
 
   Lemma interp_clause_pattern_map_fw ctx c fp :
     clause_pattern.interp ctx c fp ->
@@ -323,13 +332,41 @@ Section RelMap.
     exists x. split; [assumption|]. eapply implied_by_mf_agree; eauto.
   Qed.
 
-  Lemma normal_fact_equiv_inj nf nf' :
-    inj_on_elt nf.(normal_fact.rel) ->
+  Lemma normal_fact_equiv_eq nf nf' :
+    inj_at nf.(normal_fact.rel) nf'.(normal_fact.rel) ->
     normal_fact_equiv nf nf' ->
     nf = nf'.
   Proof.
     intros Hinj H. cbv [normal_fact_equiv map_normal_fact] in H. simp. fwd.
     f_equal. auto.
+  Qed.
+
+  Lemma fact_pattern_equiv_eq fp fp' :
+    inj_at fp.(fact_pattern.rel) fp'.(fact_pattern.rel) ->
+    fact_pattern_equiv fp fp' ->
+    fp = fp'.
+  Proof.
+    intros Hinj H. cbv [fact_pattern_equiv map_fact_pattern] in H. simp. fwd.
+    f_equal. auto.
+  Qed.
+
+  Lemma meta_fact_equiv_eq mf mf' :
+    inj_at (meta_fact.rel mf) (meta_fact.rel mf') ->
+    meta_fact_equiv mf mf' ->
+    mf = mf'.
+  Proof.
+    cbv [meta_fact_equiv map_meta_fact meta_fact.rel]. intros Hinj H. simp. fwd.
+    f_equal. apply fact_pattern_equiv_eq; assumption.
+  Qed.
+
+  Lemma fact_equiv_eq a b :
+    inj_at (fact.rel a) (fact.rel b) ->
+    fact_equiv a b ->
+    a = b.
+  Proof.
+    destruct a, b; cbv [fact_equiv]; simpl; intros Hinj H; try discriminate.
+    - f_equal. apply normal_fact_equiv_eq; [assumption|]. cbv [normal_fact_equiv]. congruence.
+    - f_equal. apply meta_fact_equiv_eq; [assumption|]. cbv [meta_fact_equiv]. congruence.
   Qed.
 
   Lemma one_step_derives_map_iff p mr pat mhyps nf :
@@ -352,7 +389,7 @@ Section RelMap.
     - apply in_map_iff in Hp0p0. fwd.
       pose proof Hp0p1 as Hinv. apply rule_interp_invert_map in Hinv. fwd.
       apply rule_interp_map_bw in Hp0p1. fwd.
-      apply normal_fact_equiv_inj in Hp0p1p0; [|assumption]. subst.
+      apply normal_fact_equiv_eq in Hp0p1p0; [|auto]. subst.
       exists hyps'. split; [apply Exists_exists; eauto|].
       pose proof (Hvalid _ _ Hmr Hp0p0p1 _ _ _ _ Hpat Hp0p1p2 Hmatch) as Hcov.
       apply Forall2_forget_l in Hp0p1p1.
@@ -467,8 +504,6 @@ Section RelMap.
     exists ctx. split; [apply Exists_exists; eauto | assumption].
   Qed.
 
-  Definition meta_fact_equiv m1 m2 := map_meta_fact m1 = map_meta_fact m2.
-
   Lemma meta_facts_of_patterns mhyps pats :
     Forall2 fact_pattern_equiv (map meta_fact.pattern mhyps) pats ->
     exists mhyps',
@@ -481,15 +516,6 @@ Section RelMap.
     - constructor; [|eassumption]. cbv [meta_fact_equiv map_meta_fact]. simpl.
       f_equal. assumption.
     - simpl. f_equal.
-  Qed.
-
-  Lemma fact_pattern_equiv_inj fp fp' :
-    inj_on_elt fp.(fact_pattern.rel) ->
-    fact_pattern_equiv fp fp' ->
-    fp = fp'.
-  Proof.
-    intros Hinj H. cbv [fact_pattern_equiv map_fact_pattern] in H. simp. fwd.
-    f_equal. auto.
   Qed.
 
   Lemma meta_facts_agree_under_map_equiv mhyps mhyps' :
@@ -518,7 +544,7 @@ Section RelMap.
     destruct mf. simpl in *. subst.
     rewrite map_pattern_map_meta_fact in Hp0.
     apply pattern_interp_map_bw in Hp0. fwd.
-    apply fact_pattern_equiv_inj in Hp0p0; [|assumption]. subst.
+    apply fact_pattern_equiv_eq in Hp0p0; [|auto]. subst.
     apply meta_facts_of_patterns in Hp0p1. fwd.
     rewrite (Forall2_map_eq _ _ _ _ Hp0p1p0) in Hp2.
     exists mhyps'. split; [assumption|].
@@ -559,7 +585,7 @@ Section RelMap.
     destruct fct as [nf|mf]; simpl in *; invert H; fwd.
     - apply in_map_iff in H1p0. fwd.
       apply rule_interp_map_bw in H1p1. fwd.
-      apply normal_fact_equiv_inj in H1p1p0; [|assumption]. subst.
+      apply normal_fact_equiv_eq in H1p1p0; [|auto]. subst.
       eexists. split; [eassumption|]. constructor. apply Exists_exists. eauto.
     - apply map_fact_meta_inv in H1. fwd.
       apply in_map_iff in H2p0. fwd.
@@ -616,25 +642,6 @@ Section RelMap.
       simpl. apply in_or_app. right. apply in_flat_map. eauto.
   Qed.
 
-  Lemma meta_fact_equiv_inj mf mf' :
-    inj_on_elt (meta_fact.rel mf) ->
-    meta_fact_equiv mf mf' ->
-    mf = mf'.
-  Proof.
-    cbv [meta_fact_equiv map_meta_fact meta_fact.rel]. intros Hinj H. simp. fwd.
-    f_equal. apply fact_pattern_equiv_inj; assumption.
-  Qed.
-
-  Lemma map_fact_inj fct fct' :
-    inj_on_elt (fact.rel fct) ->
-    fact_equiv fct fct' ->
-    fct = fct'.
-  Proof.
-    destruct fct, fct'; cbv [fact_equiv]; simpl; intros Hinj H; try discriminate.
-    - f_equal. apply normal_fact_equiv_inj; [assumption|]. cbv [normal_fact_equiv]. congruence.
-    - f_equal. apply meta_fact_equiv_inj; [assumption|]. cbv [meta_fact_equiv]. congruence.
-  Qed.
-
   Lemma interp_fact_equiv p Q f1 f2 :
     Forall inj_on_elt (program.concl_rels p) ->
     (forall f1' f2', fact_equiv f1' f2' -> Q f1' <-> Q f2') ->
@@ -645,7 +652,7 @@ Section RelMap.
     assert (H: forall a b, fact_equiv a b -> program.interp p Q a -> program.interp p Q b).
     { intros a b Hab Ha. destruct (program.interp_rel_of _ _ _ Ha) as [HQa|Hin].
       - apply pftree.leaf. apply (HQ _ _ Hab). assumption.
-      - apply Hinj in Hin. apply map_fact_inj in Hab; [|assumption]. subst. assumption. }
+      - apply Hinj in Hin. apply fact_equiv_eq in Hab; [|auto]. subst. assumption. }
     split; intros Hi.
     - eapply H; eassumption.
     - eapply H; [|eassumption]. cbv [fact_equiv] in *. congruence.
@@ -742,7 +749,7 @@ Section RelMap.
     intros. split; intros H'.
     - apply interp_map_fw; assumption.
     - eapply interp_map_bw in H'; try assumption. fwd.
-      apply map_fact_inj in H'p0; [|assumption]. subst. assumption.
+      apply fact_equiv_eq in H'p0; [|auto]. subst. assumption.
   Qed.
 
   Lemma concl_rels_map_rule_rels r :
@@ -910,36 +917,12 @@ Section RelMap.
       apply in_or_app. right. apply in_or_app. right. apply in_flat_map. eauto.
     Qed.
 
-    Lemma normal_fact_equiv_eq nf nf' :
-      In nf.(normal_fact.rel) (program.all_rels p) ->
-      In nf'.(normal_fact.rel) (program.all_rels p) ->
-      normal_fact_equiv nf nf' ->
-      nf = nf'.
-    Proof.
-      cbv [normal_fact_equiv map_normal_fact]. intros. simp. fwd. f_equal. auto.
-    Qed.
-
-    Lemma fact_equiv_eq a b :
-      In (fact.rel a) (program.all_rels p) ->
-      In (fact.rel b) (program.all_rels p) ->
-      fact_equiv a b ->
-      a = b.
-    Proof.
-      destruct a, b; cbv [fact_equiv fact.rel]; simpl; intros ? ? Heq;
-        try discriminate.
-      - f_equal. apply normal_fact_equiv_eq; auto. cbv [normal_fact_equiv]. congruence.
-      - f_equal. cbv [map_meta_fact map_fact_pattern meta_fact.rel] in *. simp. fwd.
-        f_equal. f_equal. auto.
-    Qed.
-
-    Lemma fact_pattern_equiv_eq fp fp' :
-      In fp.(fact_pattern.rel) (program.all_rels p) ->
-      In fp'.(fact_pattern.rel) (program.all_rels p) ->
-      fact_pattern_equiv fp fp' ->
-      fp = fp'.
-    Proof.
-      cbv [fact_pattern_equiv map_fact_pattern]. intros. simp. fwd. f_equal. auto.
-    Qed.
+    Lemma f_inj_at x y :
+      In x (program.all_rels p) ->
+      In y (program.all_rels p) ->
+      inj_at x y.
+    Proof. cbv [inj_at]. auto. Qed.
+    Hint Resolve f_inj_at : core.
 
     Lemma one_step_derives_map_iff_inj mhyps nf :
       In nf.(normal_fact.rel) (program.all_rels p) ->
@@ -957,7 +940,7 @@ Section RelMap.
         pose proof Hp0p1 as Hinv. apply rule_interp_invert_map in Hinv. fwd.
         apply rule_interp_map_bw in Hp0p1. fwd.
         assert (nf = nf') as ->.
-        { apply normal_fact_equiv_eq; auto.
+        { apply normal_fact_equiv_eq; [|assumption]. apply f_inj_at; auto.
           eapply rule_concl_rel_in; eauto using rule.interp_concl_relname_in. }
         exists hyps'. split; [apply Exists_exists; eauto|].
         pose proof (rule.interp_hyp_relname_in _ _ _ Hp0p1p2) as Hhr.
@@ -993,7 +976,7 @@ Section RelMap.
       rewrite map_pattern_map_meta_fact in Hp0.
       apply pattern_interp_map_bw in Hp0. fwd.
       assert (pattern = pat0) as <-.
-      { apply fact_pattern_equiv_eq; auto.
+      { apply fact_pattern_equiv_eq; [|assumption]. apply f_inj_at; auto.
         eapply meta_rule_concl_rel_in; [eassumption|].
         eapply meta_rule.pattern_interp_concl_relname_in. eassumption. }
       assert (map meta_fact.pattern mhyps = pats0) as <-.
@@ -1057,7 +1040,7 @@ Section RelMap.
         pose proof H0p1 as Himg. apply rule_interp_invert_map in Himg. fwd.
         apply rule_interp_map_bw in H0p1. fwd.
         assert (nf0 = nf') as ->.
-        { apply normal_fact_equiv_eq; auto.
+        { apply normal_fact_equiv_eq; [|assumption]. apply f_inj_at.
           - eapply rule_concl_rel_in; eassumption.
           - eapply rule_concl_rel_in; [eassumption|].
             eapply rule.interp_concl_relname_in. eassumption. }
@@ -1084,19 +1067,6 @@ Section RelMap.
             simpl. intros. eapply meta_rule_hyp_rel_in; eassumption.
     Qed.
 
-    Lemma fact_equiv_eq_cons a b :
-      injective_on f (fact.rel a :: program.all_rels p) ->
-      In (fact.rel b) (program.all_rels p) ->
-      fact_equiv a b ->
-      a = b.
-    Proof.
-      intros Hinj Hb Heq.
-      assert (fact.rel a = fact.rel b).
-      { apply Hinj; simpl; auto. rewrite <- !rel_map_fact. cbv [fact_equiv] in Heq.
-        congruence. }
-      apply fact_equiv_eq; auto. congruence.
-    Qed.
-
     Lemma interp_bridge Q h g :
       (forall f1 f2, fact_equiv f1 f2 -> Q f1 <-> Q f2) ->
       injective_on f (fact.rel h :: program.all_rels p) ->
@@ -1107,7 +1077,9 @@ Section RelMap.
       intros HQ Hinj Heq Hg. destruct (program.interp_rel_of _ _ _ Hg) as [HQg|Hin].
       - apply pftree.leaf. apply (HQ _ _ Heq). assumption.
       - assert (h = g) as ->; [|assumption].
-        apply fact_equiv_eq_cons; auto. cbv [program.all_rels]. apply in_or_app. auto.
+        apply fact_equiv_eq; [|assumption]. cbv [inj_at]. intros.
+        apply Hinj; simpl; auto.
+        right. cbv [program.all_rels]. apply in_or_app. auto.
     Qed.
 
     Lemma interp_map_fw_inj Q fct :
