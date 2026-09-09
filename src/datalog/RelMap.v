@@ -713,6 +713,17 @@ Section RelMap.
         rewrite Forall_forall in H1. auto.
   Qed.
 
+  Lemma interp_map_hyps_image p Q l :
+    Forall (fun y => exists fct, y = map_fact fct /\ program.interp p Q fct) l ->
+    exists ys, l = map map_fact ys /\ Forall (program.interp p Q) ys.
+  Proof.
+    intros H. apply Forall_exists_r_Forall2 in H. fwd. exists ys. split.
+    - apply Forall2_eq_map. rewrite <- Forall2_flip_iff.
+      eapply Forall2_impl; [eassumption|]. simpl. intros. fwd. auto.
+    - apply Forall2_forget_l in H. eapply Forall_impl; [eassumption|].
+      simpl. intros. fwd. auto.
+  Qed.
+
   Lemma interp_map_bw p Q f_target :
     program.meta_rules_valid p ->
     (forall f', Q f' -> ~ In (fact.rel f') (program.concl_rels p)) ->
@@ -725,19 +736,13 @@ Section RelMap.
   Proof.
     intros Hvalid Hinp Hlie HQ Hinj Hprog. induction Hprog.
     - fwd. eauto using pftree.leaf.
-    - apply Forall_exists_r_Forall2 in H1. fwd.
-      assert (Hl: l = map map_fact ys).
-      { apply Forall2_eq_map. rewrite <- Forall2_flip_iff.
-        eapply Forall2_impl; [eassumption|]. simpl. intros. fwd. auto. }
-      assert (Hys: Forall (program.interp p Q) ys).
-      { apply Forall2_forget_l in H1. eapply Forall_impl; [eassumption|].
-        simpl. intros. fwd. auto. }
-      subst l. pose proof H as Ht. apply interp_step_map_target in Ht. fwd.
+    - apply interp_map_hyps_image in H1. fwd.
+      pose proof H as Ht. apply interp_step_map_target in Ht. fwd.
       eapply interp_step_map_bw in H; try eassumption.
       2: { rewrite Forall_forall in Hinj. auto. }
       2: { eapply facts_agree_under_map_of_interp; eassumption. }
       fwd. eexists. split; [reflexivity|]. eapply pftree.step; [eassumption|].
-      apply Forall2_forget_l in Hp0. rewrite Forall_forall in Hp0, Hys.
+      apply Forall2_forget_l in Hp0. rewrite Forall_forall in Hp0, H1p1.
       apply Forall_forall. intros h Hh. apply Hp0 in Hh. fwd.
       apply (interp_fact_equiv p Q x); auto.
   Qed.
@@ -1095,17 +1100,11 @@ Section RelMap.
     Proof.
       intros HQ Hprog. induction Hprog.
       - fwd. eauto using pftree.leaf.
-      - apply Forall_exists_r_Forall2 in H1. fwd.
-        assert (Hl: l = map map_fact ys).
-        { apply Forall2_eq_map. rewrite <- Forall2_flip_iff.
-          eapply Forall2_impl; [eassumption|]. simpl. intros. fwd. auto. }
-        assert (Hys: Forall (program.interp p Q) ys).
-        { apply Forall2_forget_l in H1. eapply Forall_impl; [eassumption|].
-          simpl. intros. fwd. auto. }
-        subst l. apply interp_step_map_bw_inj in H. fwd.
+      - apply interp_map_hyps_image in H1. fwd.
+        apply interp_step_map_bw_inj in H. fwd.
         exists fct. split; [reflexivity|]. eapply pftree.step; [eassumption|].
         apply map_eq_Forall2 in Hp1. apply Forall2_forget_l in Hp1.
-        rewrite Forall_forall in Hp1, Hys, Hp3.
+        rewrite Forall_forall in Hp1, H1p1, Hp3.
         apply Forall_forall. intros h Hh. specialize (Hp1 _ Hh). fwd.
         eapply interp_bridge.
         + assumption.
