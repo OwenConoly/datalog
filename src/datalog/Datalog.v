@@ -181,6 +181,13 @@ Module value_pattern.
     Proof.
       rewrite <- Forall2_map_l. apply Forall2_same. apply Forall_forall. simpl. auto.
     Qed.
+
+    Lemma matches_map_exactly_inv vs vs' :
+      Forall2 matches (map exactly vs) vs' -> vs' = vs.
+    Proof.
+      revert vs'. induction vs as [|v vs IH]; intros [|y vs'] H; invert H; auto.
+      cbn [matches] in *. f_equal; auto.
+    Qed.
 End __.
 
 End value_pattern. Export value_pattern (value_pattern).
