@@ -514,13 +514,16 @@ Module fact.
       | normal _ => False
       end.
 
-    Definition set_consistent_with (mf : meta_fact) (S : fact -> Prop) :=
+    Definition set_consistent_with (mf : meta_fact) (S : normal_fact -> Prop) :=
       forall nf,
         fact_pattern.matches mf.(meta_fact.pattern) nf ->
-        mf.(meta_fact.set) nf.(normal_fact.args) <-> S (normal nf).
+        mf.(meta_fact.set) nf.(normal_fact.args) <-> S nf.
+
+    Definition normal_subset (S : fact -> Prop) :=
+      fun nf => S (normal nf).
 
     Definition set_doesnt_lie (S : fact -> Prop) :=
-      forall mf, S (meta mf) -> set_consistent_with mf S.
+      forall mf, S (meta mf) -> set_consistent_with mf (normal_subset S).
 
     Lemma set_doesnt_lie_agree (S : fact -> Prop) mf1 mf2 :
       set_doesnt_lie S ->
@@ -1194,14 +1197,14 @@ Module program.
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
       meta_rules_valid p ->
       Exists (fun mr => meta_rule.interp p.(rules) mr mf mhyps) p.(meta_rules) ->
-      Forall (fun mhyp => fact.set_consistent_with mhyp (interp p Q)) mhyps ->
+      Forall (fun mhyp => fact.set_consistent_with mhyp (fact.normal_subset (interp p Q))) mhyps ->
       (forall mhyp mf',
           In mhyp mhyps ->
           interp p Q (fact.meta mf') ->
           mhyp.(meta_fact.pattern) = mf'.(meta_fact.pattern) ->
           meta_fact.equiv mhyp mf') ->
       Forall (fun mhyp => interp p Q (fact.meta mhyp)) mhyps ->
-      fact.set_consistent_with mf (interp p Q).
+      fact.set_consistent_with mf (fact.normal_subset (interp p Q)).
     Proof.
       intros Hinp Hvalid Hex Hcons Hagree Hderiv.
       rewrite Exists_exists in Hex. destruct Hex as [mr [Hmr Hinterp]].
@@ -1218,6 +1221,7 @@ Module program.
           destruct f.
           * eexists. split; [reflexivity|].
             cbv [fact.implied_by_mf meta_fact.matches] in Hfp1. fwd.
+            cbv [fact.normal_subset] in Hcons.
             rewrite <- Hcons by eassumption. assumption.
           * eexists (fact.meta _). split; [eassumption|]. auto.
       - invert H.

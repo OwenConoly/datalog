@@ -51,23 +51,25 @@ Section __.
       f = normal_dfact nf /\
         fact_pattern.matches pat nf.
 
-  Definition knows_datalog_fact (dfacts : list dfact) (f : fact) :=
+  Definition knows_normal_fact (dfacts : list dfact) (nf : normal_fact) :=
+    In (normal_dfact nf) dfacts.
+
+  Definition knows_meta_fact (dfacts : list dfact) (mf : meta_fact) :=
+    exists num,
+      expect_num_facts mf.(meta_fact.pattern) dfacts num /\
+        Existsn (dfact_matches mf.(meta_fact.pattern)) num dfacts /\
+        fact.set_consistent_with mf (knows_normal_fact dfacts).
+
+  Definition knows_fact dfacts f :=
     match f with
-    | fact.normal nf =>
-        In (normal_dfact nf) dfacts
-    | fact.meta mf =>
-        exists num,
-        expect_num_facts mf.(meta_fact.pattern) dfacts num /\
-          Existsn (dfact_matches mf.(meta_fact.pattern)) num dfacts /\
-          (forall nf,
-              fact_pattern.matches mf.(meta_fact.pattern) nf ->
-              mf.(meta_fact.set) nf.(normal_fact.args) <-> In (normal_dfact nf) dfacts)
+    | fact.normal nf => knows_normal_fact dfacts nf
+    | fact.meta mf => knows_meta_fact dfacts mf
     end.
 
   Definition can_deduce_normal_fact (r : rule) (known_facts : list dfact) (nf : normal_fact) :=
     exists hyps,
       rule.interp r nf hyps /\
-        Forall (knows_datalog_fact known_facts) hyps.
+        Forall (knows_fact known_facts) hyps.
 
   Definition can_deduce_meta_fact (mr : meta_rule) (node : mf_label) (sent_facts : list dfact)
     (result : dfact) (hyps : list meta_fact) :=
@@ -76,41 +78,36 @@ Section __.
         Existsn (dfact_matches pat) mf_cnt sent_facts /\
         meta_rule.pattern_interp mr pat (map meta_fact.pattern hyps).
 
-  Definition ok_to_deduce_fact (r : rule) known sent (f : dfact) :=
-    match f with
-    | normal_dfact _ => True
-    | meta_dfact pat source num_msgs =>
-        forall nf,
-          can_deduce_normal_fact r known nf ->
-          fact_pattern.matches pat nf ->
-          In (normal_dfact nf) sent
-    end.
+  Definition safe_to_deduce_pat (r : rule) known sent pat :=
+    forall nf,
+      can_deduce_normal_fact r known nf ->
+      fact_pattern.matches pat nf ->
+      In (normal_dfact nf) sent.
 
   Definition sends_concl_rels (nm : mf_label) (p : program) : Prop :=
     forall R, In R (program.concl_rels p) -> In nm (R_senders R).
 
   Context (p : program) (name : mf_label).
 
-  (*[can_deduce_fact] mentions the program now: the old per-rule parameter cannot
-    range over both rules and meta rules since the types split*)
-  Definition can_deduce_fact known sent (f : dfact) :=
+  Definition can_deduce_normal_fact' r known sent (nf : normal_fact) :=
+    can_deduce_normal_fact r known nf /\
+      (forall pat num,
+          In (meta_dfact pat name num) sent ->
+          fact_pattern.matches pat nf ->
+          False).
+
+  Definition can_deduce_meta_fact' known sent r source mf :=
+    source = name /\
+      exists hyps,
+        can_deduce_meta_fact r name sent mf hyps /\
+          Forall (fun mh => knows_fact known (fact.meta mh)) hyps.
+
+  Definition can_deduce_fact (rs : node_state) (f : dfact) :=
     match f with
     | normal_dfact nf =>
         Exists (fun r => can_deduce_normal_fact r known nf) p.(program.rules) /\
-          (forall pat num,
-              In (meta_dfact pat name num) sent ->
-              fact_pattern.matches pat nf ->
-              False)
-    | meta_dfact pat source num_msgs =>
-        source = name /\
-          Exists (fun mr =>
-                    exists hyps,
-                      can_deduce_meta_fact mr name sent f hyps /\
-                        Forall (fun mh => knows_datalog_fact known (fact.meta mh)) hyps)
-            p.(program.meta_rules)
-    end.
 
-  Definition new_facts (rs : node_state) (f : dfact) :=
+        can_deduce_normal_fact'
     can_deduce_fact rs.(known_facts) rs.(sent_facts) f /\
       Forall
         (fun r => ok_to_deduce_fact r rs.(known_facts) rs.(sent_facts) f)
