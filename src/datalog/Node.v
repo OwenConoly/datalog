@@ -9,31 +9,29 @@ Existing Class mf_labelT.
 #[global] Typeclasses Transparent mf_labelT.
 
 Section __.
-  Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+  Context `{params : datalog_params}.
   Context {mf_label : mf_labelT}.
-  Context `{sig : signature fn aggregator T}.
-  Context {context : map.map exprvar T} {context_ok : map.ok context}.
 
   Inductive dfact :=
-  | normal_dfact (nf_rel : rel) (nf_args : list T)
-  | meta_dfact (mf_rel : rel) (mf_args : list (option T)) (src : mf_label) (expected_msgs : nat).
+  | normal_dfact (nf : normal_fact)
+  | meta_dfact (pattern : fact_pattern) (src : mf_label) (expected_msgs : nat).
 
   Definition is_normal_dfact (f : dfact) : bool :=
     match f with
-    | normal_dfact _ _ => true
-    | meta_dfact _ _ _ _ => false
+    | normal_dfact _ => true
+    | meta_dfact _ _ _ => false
     end.
 
-  Definition normal_facts_of (f : dfact) : list (rel * list T) :=
+  Definition normal_facts_of (f : dfact) : list normal_fact :=
     match f with
-    | normal_dfact R args => [(R, args)]
-    | meta_dfact _ _ _ _ => []
+    | normal_dfact nf => [nf]
+    | meta_dfact _ _ _ => []
     end.
 
   Definition dfact_rel (f : dfact) : rel :=
     match f with
-    | normal_dfact R _ => R
-    | meta_dfact R _ _ _ => R
+    | normal_dfact nf => nf.(normal_fact.rel)
+    | meta_dfact pat _ _ => pat.(fact_pattern.rel)
     end.
 
   Record node_state :=
@@ -42,98 +40,90 @@ Section __.
 
   Context (R_senders : rel -> list mf_label).
 
-  Definition expect_num_R_facts R mf_args known_facts num :=
+  Definition expect_num_facts (pat : fact_pattern) (known_facts : list dfact) num :=
     exists expected_msgss,
-      Forall2 (fun n expected_msgs => In (meta_dfact R mf_args n expected_msgs) known_facts) (R_senders R) expected_msgss /\
+      Forall2 (fun n expected_msgs => In (meta_dfact pat n expected_msgs) known_facts)
+        (R_senders pat.(fact_pattern.rel)) expected_msgss /\
         num = list_sum expected_msgss.
 
-  Definition dfact_matches mf_rel mf_args nf :=
-    exists nf_args,
-      nf = normal_dfact mf_rel nf_args /\
-        Forall2 matches mf_args nf_args.
+  Definition dfact_matches (pat : fact_pattern) (f : dfact) :=
+    exists nf,
+      f = normal_dfact nf /\
+        fact_pattern.matches pat nf.
 
   Definition knows_datalog_fact (dfacts : list dfact) (f : fact) :=
     match f with
-    | normal_fact nf_rel nf_args =>
-        In (normal_dfact nf_rel nf_args) dfacts
-    | meta_fact mf_rel mf_args mf_set =>
+    | fact.normal nf =>
+        In (normal_dfact nf) dfacts
+    | fact.meta mf =>
         exists num,
-        expect_num_R_facts mf_rel mf_args dfacts num /\
-          Existsn (dfact_matches mf_rel mf_args) num dfacts /\
-          (forall nf_args,
-              Forall2 matches mf_args nf_args ->
-              mf_set nf_args <-> In (normal_dfact mf_rel nf_args) dfacts)
+        expect_num_facts mf.(meta_fact.pattern) dfacts num /\
+          Existsn (dfact_matches mf.(meta_fact.pattern)) num dfacts /\
+          (forall nf,
+              fact_pattern.matches mf.(meta_fact.pattern) nf ->
+              mf.(meta_fact.set) nf.(normal_fact.args) <-> In (normal_dfact nf) dfacts)
     end.
 
-  Definition can_deduce_normal_fact (r : rule) (known_facts : list dfact) nf_rel nf_args :=
+  Definition can_deduce_normal_fact (r : rule) (known_facts : list dfact) (nf : normal_fact) :=
     exists hyps,
-      non_meta_rule_impl r nf_rel nf_args hyps /\
+      rule.interp r nf hyps /\
         Forall (knows_datalog_fact known_facts) hyps.
 
-  Definition drule_impl (r : rule) (concl : dfact) (hyps : list dfact) :=
-    match concl with
-    | normal_dfact R args =>
-        exists hyps',
-        non_meta_rule_impl r R args hyps' /\
-          Forall (knows_datalog_fact hyps) hyps'
-    | meta_dfact R args src num_facts =>
-        exists rule_concls rule_hyps ctx,
-        r = meta_rule rule_concls rule_hyps /\
-          Existsn (dfact_matches R args) num_facts sent_facts /\
-          Exists (fun c => meta_clause.interp ctx c (meta_fact R args (fun _ => False))) rule_concls /\
-          Forall2 (meta_clause.interp ctx) rule_hyps hyps
+  Definition can_deduce_meta_fact (mr : meta_rule) (node : mf_label) (sent_facts : list dfact)
+    (result : dfact) (hyps : list meta_fact) :=
+    exists pat mf_cnt,
+      result = meta_dfact pat node mf_cnt /\
+        Existsn (dfact_matches pat) mf_cnt sent_facts /\
+        meta_rule.pattern_interp mr pat (map meta_fact.pattern hyps).
+
+  Definition ok_to_deduce_fact (r : rule) known sent (f : dfact) :=
+    match f with
+    | normal_dfact _ => True
+    | meta_dfact pat source num_msgs =>
+        forall nf,
+          can_deduce_normal_fact r known nf ->
+          fact_pattern.matches pat nf ->
+          In (normal_dfact nf) sent
     end.
 
+  Definition sends_concl_rels (nm : mf_label) (p : program) : Prop :=
+    forall R, In R (program.concl_rels p) -> In nm (R_senders R).
 
-  Definition can_deduce_meta_fact (mf_concls mf_hyps : list meta_clause) (node : mf_label) (sent_facts : list dfact) mf_rel mf_args mf_cnt (hyps : list fact) :=
+  Context (p : program) (name : mf_label).
 
-  Definition ready_to_deduce_meta_fact known sent mf_rel mf_args (r : rule) :=
-    forall nf_args,
-      can_deduce_normal_fact r known mf_rel nf_args ->
-      Forall2 matches mf_args nf_args ->
-      In (normal_dfact mf_rel nf_args) sent.
-
-  Definition can_deduce_fact node known sent f r :=
+  (*[can_deduce_fact] mentions the program now: the old per-rule parameter cannot
+    range over both rules and meta rules since the types split*)
+  Definition can_deduce_fact known sent (f : dfact) :=
     match f with
-    | normal_dfact nf_rel nf_args =>
-        can_deduce_normal_fact r known nf_rel nf_args /\
-          forall mf_args num,
-            In (meta_dfact nf_rel mf_args node num) sent ->
-            Forall2 matches mf_args nf_args ->
-            False
-    | meta_dfact mf_rel mf_args source num_msgs =>
-        source = node /\
-          exists mr_concls mr_hyps hyps,
-            r = meta_rule mr_concls mr_hyps /\
-              can_deduce_meta_fact mr_concls mr_hyps node sent mf_rel mf_args num_msgs hyps /\
-              Forall (knows_datalog_fact known) hyps
+    | normal_dfact nf =>
+        Exists (fun r => can_deduce_normal_fact r known nf) p.(program.rules) /\
+          (forall pat num,
+              In (meta_dfact pat name num) sent ->
+              fact_pattern.matches pat nf ->
+              False)
+    | meta_dfact pat source num_msgs =>
+        source = name /\
+          Exists (fun mr =>
+                    exists hyps,
+                      can_deduce_meta_fact mr name sent f hyps /\
+                        Forall (fun mh => knows_datalog_fact known (fact.meta mh)) hyps)
+            p.(program.meta_rules)
     end.
 
-  Definition sends_concl_rels (nm : mf_label) (rules : list rule) : Prop :=
-    forall r R, In r rules -> In R (concl_rels r) -> In nm (R_senders R).
-
-  Context (p : list rule) (name : mf_label).
-
-  Definition new_facts (rs : node_state) f :=
-    match f with
-    | normal_dfact R args =>
-        Exists (can_deduce_fact name rs.(known_facts) rs.(sent_facts) f) p
-    | meta_dfact R args src num_msgs =>
-
-
-    /\
+  Definition new_facts (rs : node_state) (f : dfact) :=
+    can_deduce_fact rs.(known_facts) rs.(sent_facts) f /\
       Forall
         (fun r => ok_to_deduce_fact r rs.(known_facts) rs.(sent_facts) f)
-        p.
+        p.(program.rules).
 
   Variant dfact_mod_count :=
-    | normal_dfact_mc (nf_rel : rel) (nf_args : list T)
-    | meta_dfact_mc (mf_rel : rel) (mf_args : list (option T)) (src : mf_label).
+    | normal_dfact_mc (nf : normal_fact)
+    | meta_dfact_mc (pattern : fact_pattern) (src : mf_label).
 
   Definition mod_count (f : dfact) :=
     match f with
-    | normal_dfact R args => normal_dfact_mc R args
-    | meta_dfact R margs src _ => meta_dfact_mc R margs src
+    | normal_dfact nf => normal_dfact_mc nf
+    | meta_dfact pat src _ => meta_dfact_mc pat src
     end.
 
   Local Notation IO_event := (Smallstep.IO_event dfact_mod_count dfact).
@@ -150,44 +140,27 @@ Section __.
                      sent_facts := rs.(sent_facts) |}.
 
   Definition allowed_inputs (input_facts : list dfact) :=
-    forall R mf_args expected_msgss,
-      Forall2 (fun k e => In (meta_dfact R mf_args k e) input_facts)
-              (R_senders R) expected_msgss ->
-      Existsn_le (dfact_matches R mf_args) (list_sum expected_msgss) input_facts.
+    forall pat expected_msgss,
+      Forall2 (fun k e => In (meta_dfact pat k e) input_facts)
+              (R_senders pat.(fact_pattern.rel)) expected_msgss ->
+      Existsn_le (dfact_matches pat) (list_sum expected_msgss) input_facts.
 
   Definition dfact_equiv (f1 f2 : dfact) : Prop :=
     match f1, f2 with
-    | meta_dfact R1 a1 s1 _, meta_dfact R2 a2 s2 _ => R1 = R2 /\ a1 = a2 /\ s1 = s2
+    | meta_dfact p1 s1 _, meta_dfact p2 s2 _ => p1 = p2 /\ s1 = s2
     | _, _ => f1 = f2
     end.
-
-  Lemma dfact_equiv_refl f : dfact_equiv f f.
-  Proof. destruct f; simpl; auto. Qed.
-
-  Lemma dfact_equiv_sym f1 f2 : dfact_equiv f1 f2 -> dfact_equiv f2 f1.
-  Proof. destruct f1, f2; simpl; intros; fwd; try congruence; auto. Qed.
-
-  Lemma dfact_equiv_trans f1 f2 f3 :
-    dfact_equiv f1 f2 -> dfact_equiv f2 f3 -> dfact_equiv f1 f3.
-  Proof. destruct f1, f2, f3; simpl; intros; fwd; try congruence; auto. Qed.
-
-  #[local] Instance dfact_equiv_Equivalence : Equivalence dfact_equiv.
-  Proof. constructor; [ exact dfact_equiv_refl | exact dfact_equiv_sym | exact dfact_equiv_trans ]. Qed.
 
   Definition node_init : node_state :=
     {| known_facts := []; sent_facts := [] |}.
 
-  Definition stmt : Type := (rel * list (option T))%type.
+  Definition claim (pat : fact_pattern) (l : list dfact) :=
+    forall src, In src (R_senders pat.(fact_pattern.rel)) ->
+      exists cnt, In (meta_dfact pat src cnt) l.
 
-  Definition claim (s : stmt) (l : list dfact) :=
-    let '(R, mf_args) := s in
-    forall src, In src (R_senders R) ->
-      exists cnt, In (meta_dfact R mf_args src cnt) l.
-
-  Definition consistent (s : stmt) (l : list dfact) : Prop :=
-    let '(R, mf_args) := s in
-    exists num, expect_num_R_facts R mf_args l num /\
-             Existsn_ge (dfact_matches R mf_args) num l.
+  Definition consistent (pat : fact_pattern) (l : list dfact) : Prop :=
+    exists num, expect_num_facts pat l num /\
+             Existsn_ge (dfact_matches pat) num l.
 
   Definition nle (s1 s2 : node_state) :=
     consistently_incl dfact_equiv claim consistent s1.(known_facts) s2.(known_facts) /\
@@ -196,13 +169,13 @@ Section __.
   Local Notation node_will_step := (will_step node_step allowed_inputs).
 
   Definition meta_facts_correct (s : node_state) : Prop :=
-    forall R mf_args num,
-      In (meta_dfact R mf_args name num) s.(sent_facts) ->
-      exists mc mh hyps,
-        In (meta_rule mc mh) p /\
-          can_deduce_meta_fact mc mh name s.(sent_facts)
-            (meta_dfact R mf_args name num) hyps /\
-          Forall (knows_datalog_fact s.(known_facts)) hyps
+    forall pat num,
+      In (meta_dfact pat name num) s.(sent_facts) ->
+      exists mr hyps,
+        In mr p.(program.meta_rules) /\
+          can_deduce_meta_fact mr name s.(sent_facts)
+            (meta_dfact pat name num) hyps /\
+          Forall (fun mh => knows_datalog_fact s.(known_facts) (fact.meta mh)) hyps
   (*not clear whether we need this next conjunct.  we could get it,
     by saying something like "inputs are consistent outputs from other nodes,
     plus the outputs of this node."
@@ -212,11 +185,11 @@ Section __.
           (forall mf_set, ~ In (meta_fact R mf_args mf_set) hyps)*).
 
   Definition meta_facts_ok (s : node_state) : Prop :=
-    forall r R mf_args num,
-      In r p ->
-      In (meta_dfact R mf_args name num) s.(sent_facts) ->
+    forall r pat num,
+      In r p.(program.rules) ->
+      In (meta_dfact pat name num) s.(sent_facts) ->
       ok_to_deduce_fact r s.(known_facts) s.(sent_facts)
-        (meta_dfact R mf_args name num).
+        (meta_dfact pat name num).
 
   Definition node_good (s : node_state) (t : list IO_event) : Prop :=
     s.(known_facts) = flat_map inputs_of t /\
@@ -224,6 +197,7 @@ Section __.
     meta_facts_correct s /\
     meta_facts_ok s.
 
+  (*ported above; the rest is still the old API
   Lemma allowed_inputs_submultiset l1 l2 :
     submultiset l1 l2 -> allowed_inputs l2 -> allowed_inputs l1.
   Proof.
@@ -975,4 +949,6 @@ Section __.
     - erewrite <- sent_eq_outputs by eassumption. eassumption.
   Qed.
 
+End __.
+*)
 End __.
