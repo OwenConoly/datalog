@@ -812,6 +812,15 @@ Module meta_rule.
       apply pattern_interp_concl_relname_in in Hp0. simp. assumption.
     Qed.
 
+    Lemma pattern_interp_hyp_relname_in r pat ps :
+      pattern_interp r pat ps ->
+      Forall (fun fp => In fp.(fact_pattern.rel) (hyp_rels r)) ps.
+    Proof.
+      cbv [pattern_interp clause_pattern.interp]. intros H. fwd.
+      eapply Forall_impl; [eapply Forall2_forget_l; eassumption|].
+      simpl. intros. fwd. cbv [hyp_rels]. apply in_map_iff. eauto.
+    Qed.
+
     Lemma interp_hyp_relname_in p r f hyps :
       interp p r f hyps ->
       Forall (fun hyp => In (meta_fact.rel hyp) (hyp_rels r)) hyps.
