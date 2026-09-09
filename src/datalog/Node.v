@@ -553,635 +553,204 @@ Section __.
       cbv [knows_normal_fact] in *. tauto.
   Qed.
 
-  (*ported above; the rest is still the old API
-  Lemma allowed_inputs_submultiset l1 l2 :
-    submultiset l1 l2 -> allowed_inputs l2 -> allowed_inputs l1.
-  Proof.
-    intros Hsub Hbound R mf_args ems Hf2.
-    pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) l2)
-                           (R_senders R) ems)
-      by (clear -Hf2 Hincl; induction Hf2; constructor;
-            [apply Hincl; assumption | assumption]).
-    eapply Existsn_le_submultiset; [ apply Hbound; exact Hf2' | exact Hsub ].
-  Qed.
-
-  Lemma submultiset_rest_no_matches R mf_args small rest big num :
-    Permutation big (small ++ rest) ->
-    allowed_inputs big ->
-    expect_num_R_facts R mf_args small num ->
-    Existsn (dfact_matches R mf_args) num small ->
-    Forall (fun x => ~ dfact_matches R mf_args x) rest.
-  Proof.
-    intros Hperm Hallow Hexp Hex.
-    pose proof (submultiset_incl _ _ (ex_intro _ rest Hperm)) as Hincl.
-    destruct Hexp as (ems & Hf2 & Hsum).
-    assert (Hf2' : Forall2 (fun k e => In (meta_dfact R mf_args k e) big)
-                           (R_senders R) ems)
-      by (clear -Hf2 Hincl; induction Hf2; constructor;
-            [apply Hincl; assumption | assumption]).
-    pose proof (Existsn_le_perm _ _ _ _ Hperm (Hallow R mf_args ems Hf2')) as Hle.
-    apply Forall_forall. intros x Hx Hmatch.
-    pose proof (Existsn_ge_of_Existsn _ _ _ Hex num (le_n num)) as Hge_small.
-    pose proof (Existsn_ge_app _ _ _ _ _ Hge_small (Existsn_ge_1 _ _ _ Hx Hmatch)) as Hge_app.
-    pose proof (Existsn_ge_le_bound _ _ _ _ Hge_app Hle). lia.
-  Qed.
-
-  Lemma knows_datalog_fact_submultiset l1 l2 h :
-    submultiset l1 l2 -> allowed_inputs l2 ->
-    knows_datalog_fact l1 h -> knows_datalog_fact l2 h.
-  Proof.
-    intros Hsub Hallow Hk. pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    destruct Hsub as (rest & Hperm).
-    destruct h as [R args | R margs mf_set].
-    - apply Hincl. exact Hk.
-    - destruct Hk as (num & Hexp & Hexn & Hiff).
-      pose proof (submultiset_rest_no_matches R margs l1 rest l2 num Hperm Hallow Hexp Hexn)
-        as Hrest_no.
-      exists num. split; [| split].
-      + destruct Hexp as (ems & Hf2 & Hsum). exists ems. split; [| exact Hsum].
-        clear -Hf2 Hincl. induction Hf2; constructor; [apply Hincl; assumption | assumption].
-      + eapply Existsn_perm; [ | apply Permutation_sym; exact Hperm ].
-        replace num with (num + 0) by lia.
-        apply Existsn_app; [ exact Hexn | apply Forall_not_Existsn_0; exact Hrest_no ].
-      + intros nfa Hm. specialize (Hiff nfa Hm). split; intro H.
-        * apply Hincl. apply (proj1 Hiff). exact H.
-        * apply (proj2 Hiff).
-          pose proof (Permutation_in _ Hperm H) as H'.
-          apply in_app_or in H'. destruct H' as [Hin1 | Hinr]; [exact Hin1 |].
-          exfalso. rewrite Forall_forall in Hrest_no.
-          apply (Hrest_no _ Hinr). exists nfa. split; [reflexivity | exact Hm].
-  Qed.
-
-  Lemma step_preserves_meta_facts_correct s e s' :
-    allowed_inputs s'.(known_facts) ->
-    meta_facts_correct s ->
-    node_step s e s' ->
-    meta_facts_correct s'.
-  Proof.
-    intros Hallow Hmfc Hstep.
-    inversion Hstep as [s0 out Hnew | s0 inp]; subst; clear Hstep;
-      intros R mf_args num Hin; cbn [known_facts sent_facts] in Hallow, Hin |- *.
-    - destruct Hnew as (Hex & Hok).
-      destruct Hin as [Hhead | Hin_old].
-      + subst out.
-        apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
-        cbn in Hcdf. destruct Hcdf as (_ & mc & mh & hyps & Hr_eq & Hcdm & Hhyps).
-        destruct Hcdm as (ctx & mfr & mfa & mfc & Hres & HEx & Hconcl & Hinterp).
-        exists mc, mh, hyps. subst r.
-        split; [exact Hr_in | split; [| exact Hhyps]].
-        exists ctx, mfr, mfa, mfc.
-        split; [exact Hres | split; [| split; [exact Hconcl | exact Hinterp]]].
-        apply Existsn_no; [intros (nfa & Hc & _); discriminate Hc | exact HEx].
-      + destruct (Hmfc R mf_args num Hin_old) as (mc & mh & hyps & Hrule & Hcdm & Hhyps).
-        assert (Hnm : ~ dfact_matches R mf_args out).
-        { intros (oargs & Hout & Hmatch). subst out.
-          apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
-          cbn in Hcdf. destruct Hcdf as (_ & Hguard).
-          exact (Hguard mf_args num Hin_old Hmatch). }
-        (*TODO can we use some helper lemma about can_deduce_meta_fact here?*)
-        cbv [can_deduce_meta_fact] in Hcdm. fwd.
-        cbv [can_deduce_meta_fact]. eauto 15.
-    - destruct (Hmfc R mf_args num Hin) as (mc & mh & hyps & Hrule & Hcdm & Hhyps).
-      exists mc, mh, hyps. split; [exact Hrule | split; [exact Hcdm |]].
-      eapply Forall_impl; [| exact Hhyps].
-      intros h Hh. eapply knows_datalog_fact_submultiset;
-        [apply submultiset_cons | exact Hallow | exact Hh].
-  Qed.
-
-  Lemma knows_datalog_fact_transfer_down_sub small big hyps_d h :
-    submultiset small big ->
-    allowed_inputs big ->
-    Forall (knows_datalog_fact small) hyps_d ->
-    fact_potentially_supported hyps_d h ->
-    knows_datalog_fact big h ->
-    knows_datalog_fact small h.
-  Proof.
-    intros Hsub Hallow Hhyps_d Hsupp Hknow_big.
-    pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    destruct Hsub as (rest & Hperm).
-    destruct h as [Rh nfh | Rh mah msh].
-    - cbn [fact_potentially_supported] in Hsupp.
-      destruct Hsupp as (mah' & msh' & Hin_supp & Hmatch_supp).
-      rewrite Forall_forall in Hhyps_d. specialize (Hhyps_d _ Hin_supp).
-      cbn [knows_datalog_fact] in Hknow_big, Hhyps_d |- *.
-      pose proof (Permutation_in _ Hperm Hknow_big) as Hin_app.
-      apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
-      exfalso. destruct Hhyps_d as (num_h & Hexp_h & Hex_h & _).
-      pose proof (submultiset_rest_no_matches Rh mah' small rest big num_h
-                    Hperm Hallow Hexp_h Hex_h) as Hrest_no.
-      rewrite Forall_forall in Hrest_no.
-      apply (Hrest_no _ Hinr). exists nfh. split; [reflexivity | exact Hmatch_supp].
-    - cbn [fact_potentially_supported] in Hsupp.
-      destruct Hsupp as (msh' & Hin_supp).
-      rewrite Forall_forall in Hhyps_d. specialize (Hhyps_d _ Hin_supp).
-      cbn [knows_datalog_fact] in Hknow_big, Hhyps_d |- *.
-      destruct Hhyps_d as (num_old & Hexp_old & Hex_old & _).
-      destruct Hknow_big as (num_new & Hexp_new & Hex_new & Hiff_new).
-      pose proof (submultiset_rest_no_matches Rh mah small rest big num_old
-                    Hperm Hallow Hexp_old Hex_old) as Hrest_no.
-      exists num_old. split; [exact Hexp_old | split; [exact Hex_old |]].
-      intros nf Hm. specialize (Hiff_new nf Hm). split.
-      + intro Hset. apply Hiff_new in Hset.
-        pose proof (Permutation_in _ Hperm Hset) as Hin_app.
-        apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
-        exfalso. rewrite Forall_forall in Hrest_no.
-        apply (Hrest_no _ Hinr). exists nf. split; [reflexivity | exact Hm].
-      + intro Hin. apply (proj2 Hiff_new). apply Hincl. exact Hin.
-  Qed.
-
-  Lemma interp_meta_clause_set_irrel ctx c (R : rel) (args : list (option T))
-        (S1 S2 : list T -> Prop) :
-    meta_clause.interp ctx c (meta_fact R args S1) ->
-    meta_clause.interp ctx c (meta_fact R args S2).
-  Proof.
-    cbv [meta_clause.interp]. intros (mf_args & mf_set & Hf2 & Heq).
-    injection Heq as -> -> _. exists mf_args, S2. split; [exact Hf2 | reflexivity].
-  Qed.
-
-  Lemma meta_concl_rule_impl mc mh ctx R mf_args hyps_d :
-    Exists (fun c => meta_clause.interp ctx c (meta_fact R mf_args (fun _ => False))) mc ->
-    Forall2 (meta_clause.interp ctx) mh hyps_d ->
-    rule_impl (one_step_derives p) (meta_rule mc mh)
-      (meta_fact R mf_args (one_step_derives p hyps_d R)) hyps_d.
-  Proof.
-    intros Hconcl Hinterp. eapply meta_rule_impl with (ctx := ctx).
-    - eapply Exists_impl; [| exact Hconcl].
-      intros c Hc. eapply interp_meta_clause_set_irrel. exact Hc.
-    - exact Hinterp.
-    - intros args'' _. reflexivity.
-  Qed.
-
-  Lemma step_preserves_meta_facts_ok s e s' :
-    meta_rules_valid p ->
-    allowed_inputs s'.(known_facts) ->
-    meta_facts_correct s ->
-    meta_facts_ok s ->
-    node_step s e s' ->
-    meta_facts_ok s'.
-  Proof.
-    intros Hmrv Hallow Hmfc Hmfok Hstep.
-    inversion Hstep as [s0 out Hnew | s0 inp]; subst; clear Hstep;
-      intros r R mf_args num Hr_in HIn;
-      cbn [known_facts sent_facts] in Hallow, HIn |- *.
-    - cbn [ok_to_deduce_fact]. intros nfargs Hcdn Hmatch. apply in_cons.
-      destruct HIn as [Hhead | HIn_old].
-      + subst out. destruct Hnew as (_ & Hok). rewrite Forall_forall in Hok.
-        specialize (Hok r Hr_in). cbn [ok_to_deduce_fact] in Hok.
-        exact (Hok nfargs Hcdn Hmatch).
-      + pose proof (Hmfok r R mf_args num Hr_in HIn_old) as Hok0.
-        cbn [ok_to_deduce_fact] in Hok0. exact (Hok0 nfargs Hcdn Hmatch).
-    - cbn [ok_to_deduce_fact]. intros nfargs Hcdn Hmatch.
-      destruct (Hmfc R mf_args num HIn) as (mc & mh & hyps_d & Hin_mr & Hcdmf & Hknown_mr).
-      destruct Hcdmf as (ctx & mfr & mfa & mfc & Hres & _ & Hconcl & Hinterp).
-      assert (mfr = R) as -> by congruence.
-      assert (mfa = mf_args) as -> by congruence.
-      pose proof (Hmfok r R mf_args num Hr_in HIn) as Hok0.
-      cbn [ok_to_deduce_fact] in Hok0.
-      apply Hok0; [| exact Hmatch].
-      destruct Hcdn as (local_hyps & Hnmri & Hknown_local_new).
-      exists local_hyps. split; [exact Hnmri |].
-      pose proof (Hmrv _ _ _ _ _ Hin_mr
-                    (meta_concl_rule_impl _ _ _ _ _ _ Hconcl Hinterp)
-                    _ _ _ Hr_in (simple_rule_impl _ _ _ _ _ Hnmri) Hmatch) as Hpot.
-      rewrite Forall_forall in Hknown_local_new, Hpot |- *.
-      intros h Hh. eapply knows_datalog_fact_transfer_down_sub;
-        [ apply submultiset_cons | exact Hallow | exact Hknown_mr
-        | exact (Hpot h Hh) | exact (Hknown_local_new h Hh) ].
-  Qed.
-
-  Lemma node_good_step s e s' t :
-    meta_rules_valid p ->
-    node_good s t ->
-    allowed_inputs (flat_map inputs_of (e :: t)) ->
-    node_step s e s' ->
-    node_good s' (e :: t).
-  Proof.
-    intros Hmrv (Hkeq & _ & Hmfc & Hmfok) Hallow' Hstep.
-    assert (Hkeq' : s'.(known_facts) = flat_map inputs_of (e :: t)).
-    { inversion Hstep; subst; cbn [known_facts]; rewrite Hkeq; reflexivity. }
-    assert (Hak : allowed_inputs s'.(known_facts)) by (rewrite Hkeq'; exact Hallow').
-    split; [exact Hkeq' | split; [exact Hallow' | split]].
-    - eapply step_preserves_meta_facts_correct; eassumption.
-    - eapply step_preserves_meta_facts_ok; eassumption.
-  Qed.
-
-  Lemma node_good_init : node_good node_init [].
-  Proof.
-    split; [reflexivity | split; [| split]].
-    - intros R mf_args ems _. apply El_nil.
-    - intros R mf_args num H. destruct H.
-    - intros r R mf_args num Hr H. destruct H.
-  Qed.
-
-  Lemma node_good_star s t t' s' :
-    meta_rules_valid p ->
-    allowed_inputs (flat_map inputs_of (t' ++ t)) ->
-    node_good s t ->
-    star (node_step) s t' s' ->
-    node_good s' (t' ++ t).
-  Proof.
-    intros Hmrv Hallow Hgood Hstar. revert Hallow.
-    induction Hstar as [| t0 s'0 e s'' Hstar' IH Hstep]; intros Hallow.
-    - exact Hgood.
-    - assert (Hallow0 : allowed_inputs (flat_map inputs_of (t0 ++ t))).
-      { destruct e as [m | lbl outs].
-        - eapply allowed_inputs_submultiset; [apply submultiset_cons | exact Hallow].
-        - exact Hallow. }
-      exact (node_good_step s'0 e s'' (t0 ++ t) Hmrv (IH Hallow0) Hallow Hstep).
-  Qed.
-
-  Lemma node_step_star_mono s t' s' :
-    star (node_step) s t' s' ->
-    submultiset s.(known_facts) s'.(known_facts) /\
-    submultiset s.(sent_facts) s'.(sent_facts).
-  Proof.
-    intros Hstar. induction Hstar as [| t0 sa e sb Hstar' IH Hstep].
-    - split; apply submultiset_refl.
-    - destruct IH as (IHk & IHs).
-      assert (submultiset sa.(known_facts) sb.(known_facts) /\
-              submultiset sa.(sent_facts) sb.(sent_facts)) as (Hk & Hs).
-      { inversion Hstep; subst; cbn [known_facts sent_facts];
-          split; try apply submultiset_refl; apply submultiset_cons. }
-      split; eapply submultiset_trans; eassumption.
-  Qed.
-
-  Lemma known_facts_eq_inputs t s :
-    star (node_step) node_init t s -> s.(known_facts) = flat_map inputs_of t.
-  Proof.
-    intros Hstar. induction Hstar as [| T0 sm e s Hstar_T IH Hstep].
-    - reflexivity.
-    - inversion Hstep; subst; cbn [known_facts inputs_of flat_map app];
-        rewrite IH; reflexivity.
-  Qed.
-
-  Lemma driven_inputs_submultiset t0 s0 tr s2 :
-    star (node_step) node_init t0 s0 ->
-    star (node_step) s0 tr s2 ->
-    submultiset (flat_map inputs_of t0) s2.(known_facts).
-  Proof.
-    intros Hstar Hstar2.
-    rewrite <- (known_facts_eq_inputs t0 s0 Hstar).
-    exact (proj1 (node_step_star_mono s0 tr s2 Hstar2)).
-  Qed.
-
-  Lemma known_facts_input_free s t s' :
-    star (node_step) s t s' -> flat_map inputs_of t = [] -> s'.(known_facts) = s.(known_facts).
-  Proof.
-    intros Hstar. induction Hstar as [| t0 sa e sb Hstar IH Hstep]; intros Hinp.
-    - reflexivity.
-    - inversion Hstep; subst; cbn [inputs_of flat_map app] in Hinp.
-      + exact (IH Hinp).
-      + discriminate Hinp.
-  Qed.
-
-  Lemma expect_num_R_facts_incl R mf_args l1 l2 num :
-    expect_num_R_facts R mf_args l1 num -> incl l1 l2 ->
-    expect_num_R_facts R mf_args l2 num.
-  Proof. cbv [expect_num_R_facts]. intros. fwd. eauto using Forall2_impl. Qed.
-
-  #[local] Hint Resolve expect_num_R_facts_incl Existsn_ge_submultiset
-    Existsn_le_submultiset submultiset_incl incl_def : core.
-
-  Lemma consistent_mono s ms1 ms2 :
-    consistent s ms1 -> submultiset ms1 ms2 -> consistent s ms2.
-  Proof. cbv [consistent]. intros. fwd. eauto 6. Qed.
-
-  Lemma claim_mono s ms1 ms2 :
-    claim s ms1 -> incl_mod dfact_equiv ms1 ms2 -> claim s ms2.
-  Proof.
-    cbv [claim]. intros H Hincl. fwd.
-    intros. especialize H; eauto. fwd.
-    cbv [incl_mod] in Hincl. especialize Hincl; eauto. fwd.
-    cbv [dfact_equiv] in Hinclp1. fwd. eauto.
-  Qed.
-
-  Lemma consistently_incl_of_submultiset l1 l2 :
-    submultiset l1 l2 -> consistently_incl dfact_equiv claim consistent l1 l2.
-  Proof.
-    intros Hsub. split.
-    - exact (incl_mod_of_submultiset dfact_equiv _ _ Hsub).
-    - intros s _ Hc. eapply consistent_mono; [ exact Hc | exact Hsub ].
-  Qed.
-
-  Definition knows_incl (l1 l2 : list dfact) : Prop :=
-    forall f, knows_datalog_fact l1 f -> knows_datalog_fact l2 f.
-
-  Lemma knows_incl_of_submultiset l1 l2 :
-    submultiset l1 l2 -> allowed_inputs l2 -> knows_incl l1 l2.
-  Proof. intros Hsub Hallow f. apply knows_datalog_fact_submultiset; assumption. Qed.
-
-  Lemma knows_incl_grow l1 l2 l2' :
-    knows_incl l1 l2 -> submultiset l2 l2' -> allowed_inputs l2' -> knows_incl l1 l2'.
-  Proof.
-    intros Hki Hsub Hallow f Hf.
-    eapply knows_datalog_fact_submultiset; [ exact Hsub | exact Hallow | apply Hki; exact Hf ].
-  Qed.
-
-  Lemma consistently_incl_trans l1 l2 l3 :
-    consistently_incl dfact_equiv claim consistent l1 l2 ->
-    consistently_incl dfact_equiv claim consistent l2 l3 ->
-    consistently_incl dfact_equiv claim consistent l1 l3.
-  Proof.
-    intros (Hi1 & Hc1) (Hi2 & Hc2). split.
-    - exact (incl_mod_trans dfact_equiv l1 l2 l3 Hi1 Hi2).
-    - intros s Hcl Hco. apply Hc2; [ eapply claim_mono; [ exact Hcl | exact Hi1 ] | apply Hc1; assumption ].
-  Qed.
-
-  Lemma incl_mod_normal_In l1 l2 R args :
-    incl_mod dfact_equiv l1 l2 ->
-    In (normal_dfact R args) l1 -> In (normal_dfact R args) l2.
-  Proof.
-    intros Hincl Hin. destruct (Hincl _ Hin) as (b & Hb & Heq).
-    cbn [dfact_equiv] in Heq. subst b. exact Hb.
-  Qed.
-
-  Lemma knows_datalog_fact_consistently_incl l1 l2 h :
-    consistently_incl dfact_equiv claim consistent l1 l2 ->
-    noncontradictory_wf dfact_equiv claim consistent allowed_inputs l1 l2 ->
-    allowed_inputs l2 ->
-    knows_datalog_fact l1 h -> knows_datalog_fact l2 h.
-  Proof.
-    intros (Hincl12 & Hcle12) Hnc Hallow2 Hk.
-    destruct Hnc as [m Hsub1m Hallowm (Hincl2m & _) _].
-    destruct h as [R args | R margs mf_set].
-    - cbn [knows_datalog_fact] in Hk |- *. exact (incl_mod_normal_In _ _ _ _ Hincl12 Hk).
-    - pose proof (knows_datalog_fact_submultiset l1 m (meta_fact R margs mf_set)
-                    Hsub1m Hallowm Hk) as Hkm.
-      cbn [knows_datalog_fact] in Hk, Hkm |- *.
-      destruct Hk as (num & Hexp & Hexn & Hiff).
-      destruct Hkm as (_ & _ & _ & Hiffm).
-      assert (Hclaim1 : claim (R, margs) l1).
-      { cbn [claim]. intros src Hsrc. destruct Hexp as (ems & Hf2 & _).
-        destruct (Forall2_In_l _ _ _ _ Hf2 Hsrc) as (e & _ & Hin). exists e. exact Hin. }
-      assert (Hcons1 : consistent (R, margs) l1).
-      { cbn [consistent]. exists num. split; [ exact Hexp | ].
-        eapply Existsn_ge_of_Existsn; [ exact Hexn | lia ]. }
-      destruct (Hcle12 (R, margs) Hclaim1 Hcons1) as (N & HexpN & HgeN).
-      destruct HexpN as (emsN & Hf2N & HsumN).
-      pose proof (Hallow2 R margs emsN Hf2N) as HleN. rewrite <- HsumN in HleN.
-      exists N. split; [ | split ].
-      + exists emsN. split; [ exact Hf2N | exact HsumN ].
-      + apply Existsn_of_ge_le; [ exact HgeN | exact HleN ].
-      + intros nfa Hm2. split.
-        * intro Hset. exact (incl_mod_normal_In _ _ _ _ Hincl12 (proj1 (Hiff nfa Hm2) Hset)).
-        * intro Hin2. exact (proj2 (Hiffm nfa Hm2) (incl_mod_normal_In _ _ _ _ Hincl2m Hin2)).
-  Qed.
-
-  Lemma knows_incl_of_consistently_incl l1 l2 :
-    consistently_incl dfact_equiv claim consistent l1 l2 ->
-    noncontradictory_wf dfact_equiv claim consistent allowed_inputs l1 l2 ->
-    allowed_inputs l2 -> knows_incl l1 l2.
-  Proof. intros Hci Hnc Hallow f. apply knows_datalog_fact_consistently_incl; assumption. Qed.
-
-  Lemma knows_datalog_fact_transfer_down (small big : list dfact) hyps_d h :
-    knows_incl small big ->
-    Forall (knows_datalog_fact small) hyps_d ->
-    fact_potentially_supported hyps_d h ->
-    knows_datalog_fact big h ->
-    knows_datalog_fact small h.
-  Proof.
-    intros Hki Hhyps_d Hsupp Hknow_big. rewrite Forall_forall in Hhyps_d.
-    destruct h as [Rh nfh | Rh mah msh]; cbn [fact_potentially_supported] in Hsupp.
-    - destruct Hsupp as (mah' & msh' & Hin_supp & Hmatch).
-      pose proof (Hhyps_d _ Hin_supp) as Hks. pose proof (Hki _ Hks) as Hkb.
-      cbn [knows_datalog_fact] in Hks, Hkb, Hknow_big |- *.
-      destruct Hks as (_ & _ & _ & Hiff_s). destruct Hkb as (_ & _ & _ & Hiff_b).
-      apply (proj1 (Hiff_s nfh Hmatch)). apply (proj2 (Hiff_b nfh Hmatch)). exact Hknow_big.
-    - destruct Hsupp as (msh' & Hin_supp).
-      pose proof (Hhyps_d _ Hin_supp) as Hks. pose proof (Hki _ Hks) as Hkb.
-      cbn [knows_datalog_fact] in Hks, Hkb, Hknow_big |- *.
-      destruct Hks as (num_s & Hexp_s & Hex_s & Hiff_s).
-      destruct Hknow_big as (_ & _ & _ & Hiff_b). destruct Hkb as (_ & _ & _ & Hiff_b').
-      exists num_s. split; [ exact Hexp_s | split; [ exact Hex_s | ] ].
-      intros nf Hm. specialize (Hiff_s nf Hm). specialize (Hiff_b nf Hm).
-      specialize (Hiff_b' nf Hm). tauto.
-  Qed.
-
-  Lemma node_will_match s1 lbl outs s1' s2 t2 :
-    meta_rules_valid p ->
-    node_good s2 t2 ->
-    node_step s1 (O_event lbl outs) s1' ->
+  Lemma will_match s1 lbl outs s1' s2 t2 :
+    program.meta_rules_valid p ->
+    good s2 t2 ->
+    step s1 (O_event lbl outs) s1' ->
     nle s1 s2 ->
-    knows_incl s1.(known_facts) s2.(known_facts) ->
-    eventually (will_step (node_step) allowed_inputs)
-      (fun '(s2', _) => nle s1' s2') (s2, t2).
+    knows_incl s1.(state.known) s2.(state.known) ->
+    eventually will_step (fun '(s2', _) => nle s1' s2') (s2, t2).
   Proof.
     intros Hmrv Hgood2 Hstep (Hknle & Hsnle) Hki.
     invert Hstep. rename H3 into Hnf.
-    assert (Hmk : forall (X : node_state) o',
-      consistently_incl dfact_equiv claim consistent s1.(known_facts) X.(known_facts) ->
-      submultiset s2.(sent_facts) X.(sent_facts) ->
-      In o' X.(sent_facts) -> dfact_equiv output o' ->
-      nle {| known_facts := s1.(known_facts);
-             sent_facts := output :: s1.(sent_facts) |} X).
+    assert (Hmk : forall (X : state) o',
+      consistently_incl message.equiv claim consistent s1.(state.known) X.(state.known) ->
+      submultiset s2.(state.sent) X.(state.sent) ->
+      In o' X.(state.sent) -> message.equiv output o' ->
+      nle {| state.known := s1.(state.known);
+             state.sent := output :: s1.(state.sent) |} X).
     { intros X o' Hk Hs Ho'in Ho'eq. split.
-      - cbn [known_facts]. exact Hk.
-      - cbn [sent_facts]. intros a Ha. cbn [In] in Ha. destruct Ha as [Hao | Ha].
+      - cbn [state.known]. exact Hk.
+      - cbn [state.sent]. intros a Ha. cbn [In] in Ha. destruct Ha as [Hao | Ha].
         + subst a. exists o'. split; [exact Ho'in | exact Ho'eq].
         + destruct (Hsnle a Ha) as (b & Hb & Hab). exists b. split; [| exact Hab].
           eapply submultiset_incl; [exact Hs | exact Hb]. }
     apply eventually_step_cps. cbn [will_step].
-    exists (mod_count output). intros sdem tdem Hstar Hallowdem.
-    pose proof (node_good_star s2 t2 tdem sdem Hmrv Hallowdem Hgood2 Hstar)
-      as (Hkdem & Haldem & Hmfcdem & Hmfokdem).
-    pose proof (node_step_star_mono s2 tdem sdem Hstar) as (Hkmono & Hsmono).
-    assert (HconK : consistently_incl dfact_equiv claim consistent
-                      s1.(known_facts) sdem.(known_facts))
+    exists (message.label output). intros sdem tdem Hstar Hallowdem.
+    pose proof (good_star s2 t2 tdem sdem Hmrv Hallowdem Hgood2 Hstar)
+      as (Hkdem & Haldem & Hokdem).
+    pose proof (step_star_mono s2 tdem sdem Hstar) as (Hkmono & Hsmono).
+    assert (HconK : consistently_incl message.equiv claim consistent
+                      s1.(state.known) sdem.(state.known))
       by (eapply consistently_incl_trans;
             [exact Hknle | apply consistently_incl_of_submultiset; exact Hkmono]).
-    assert (Halk : allowed_inputs sdem.(known_facts))
+    assert (Halk : allowed_inputs sdem.(state.known))
       by (rewrite Hkdem; exact Haldem).
-    assert (Hki_dem : knows_incl s1.(known_facts) sdem.(known_facts))
+    assert (Hki_dem : knows_incl s1.(state.known) sdem.(state.known))
       by (eapply knows_incl_grow; [ exact Hki | exact Hkmono | exact Halk ]).
-    destruct output as [Ro oargs | Ro margs osrc ocnt].
+    destruct output as [nf | pat osrc ocnt].
     - destruct Hnf as (Hex & _).
-      apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
-      cbn [can_deduce_fact] in Hcdf. destruct Hcdf as (Hcdn1 & _).
-      destruct Hcdn1 as (hyps & Hnmri & Hknows1).
-      assert (Hcdn_dem : can_deduce_normal_fact r sdem.(known_facts) Ro oargs).
-      { exists hyps. split; [exact Hnmri |].
-        rewrite Forall_forall in Hknows1 |- *. intros h Hh.
-        apply Hki_dem. exact (Hknows1 h Hh). }
-      destruct (classic (In (normal_dfact Ro oargs) sdem.(sent_facts))) as [Hin | Hnin].
-      + left. apply eventually_done. eapply Hmk; eauto. simpl. reflexivity.
+      apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdn1).
+      destruct Hcdn1 as (hyps & Hri & Hknows1).
+      assert (Hcdn_dem : can_deduce_normal_fact r sdem.(state.known) nf).
+      { exists hyps. split; [exact Hri |].
+        eapply Forall_impl; [exact Hknows1|]. simpl. intros h Hh. apply Hki_dem. exact Hh. }
+      destruct (classic (In (message.normal nf) sdem.(state.sent))) as [Hin | Hnin].
+      + left. apply eventually_done. eapply Hmk; eauto. reflexivity.
       + right.
-        exists {| known_facts := sdem.(known_facts);
-                  sent_facts := normal_dfact Ro oargs :: sdem.(sent_facts) |},
-               [normal_dfact Ro oargs].
+        exists {| state.known := sdem.(state.known);
+                  state.sent := message.normal nf :: sdem.(state.sent) |},
+               [message.normal nf].
         split.
-        * apply node_deduce_step. split.
-          -- apply Exists_exists. exists r. split; [exact Hr_in |].
-             cbn [can_deduce_fact]. split; [exact Hcdn_dem |].
-             intros margs' num' Hinmeta Hmatch'.
-             pose proof (Hmfokdem r Ro margs' num' Hr_in Hinmeta) as Hok.
-             cbn [ok_to_deduce_fact] in Hok.
-             exact (Hnin (Hok oargs Hcdn_dem Hmatch')).
-          -- apply Forall_forall. intros r'' _. cbn [ok_to_deduce_fact]. exact I.
+        * apply deduce_step. cbn [can_deduce]. split.
+          -- apply Exists_exists. eauto.
+          -- intros (pat' & num' & Hinmeta & Hmatch').
+             apply Hnin.
+             pose proof (Hokdem _ _ Hinmeta) as (_ & _ & _ & Hsat).
+             exact (Hsat r nf Hr_in Hcdn_dem Hmatch').
         * apply eventually_done.
-          apply (Hmk _ (normal_dfact Ro oargs)).
-          -- cbn [known_facts]. exact HconK.
-          -- cbn [sent_facts]. eapply submultiset_trans; [exact Hsmono | apply submultiset_cons].
-          -- cbn [sent_facts]. left. reflexivity.
-          -- cbn [dfact_equiv]. reflexivity.
-    - destruct Hnf as (Hex & Hokall).
-      apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
-      cbn [can_deduce_fact] in Hcdf.
-      destruct Hcdf as (Hsrc & mc & mh & hyps & Hrmr & Hcdmf & Hknows1).
-      subst osrc.
-      destruct Hcdmf as (ctx & mfr & mfa & mfc & Hres & _ & Hconcl & Hinterp).
-      fwd.
-      assert (Hin_mr : In (meta_rule mc mh) p)
-        by (rewrite <- Hrmr; exact Hr_in).
-      destruct (Existsn_total (dfact_matches mfr mfa) sdem.(sent_facts))
+          apply (Hmk _ (message.normal nf)).
+          -- cbn [state.known]. exact HconK.
+          -- cbn [state.sent].
+             eapply submultiset_trans; [exact Hsmono | apply submultiset_cons].
+          -- cbn [state.sent]. left. reflexivity.
+          -- reflexivity.
+    - destruct Hnf as (Hsrc & Hexmr & Hexn1 & Hsat1). subst osrc.
+      destruct (Existsn_total (message.matches pat) sdem.(state.sent))
         as (num_d & Hexn_d).
       right.
-      replace (mod_count (meta_dfact mfr mfa name mfc))
-        with (mod_count (meta_dfact mfr mfa name num_d)) by reflexivity.
-      exists {| known_facts := sdem.(known_facts);
-                sent_facts := meta_dfact mfr mfa name num_d :: sdem.(sent_facts) |},
-             [meta_dfact mfr mfa name num_d].
+      replace (message.label (message.done_with pat name ocnt))
+        with (message.label (message.done_with pat name num_d)) by reflexivity.
+      exists {| state.known := sdem.(state.known);
+                state.sent := message.done_with pat name num_d :: sdem.(state.sent) |},
+             [message.done_with pat name num_d].
       split.
-      + apply node_deduce_step. split.
-        * apply Exists_exists. exists r. split; [exact Hr_in |].
-          cbn [can_deduce_fact]. split; [reflexivity |].
-          exists mc, mh, hyps. split; [exact Hrmr |]. split.
-          -- cbv [can_deduce_meta_fact]. eauto 8.
-          -- rewrite Forall_forall in Hknows1 |- *. intros h Hh.
-             apply Hki_dem. exact (Hknows1 h Hh).
-        * apply Forall_forall. intros r'' Hr''_in. cbn [ok_to_deduce_fact].
-          intros nfargs Hcdn_dem Hmatch'.
-          assert (Hcdn_s1 : can_deduce_normal_fact r'' s1.(known_facts) mfr nfargs).
-          { destruct Hcdn_dem as (local_hyps & Hnmri & Hknown_local_new).
-            exists local_hyps. split; [exact Hnmri |].
-            pose proof (Hmrv _ _ _ _ _ Hin_mr
-                          (meta_concl_rule_impl _ _ _ _ _ _ Hconcl Hinterp)
-                          _ _ _ Hr''_in (simple_rule_impl _ _ _ _ _ Hnmri) Hmatch') as Hpot.
-            rewrite Forall_forall in Hknown_local_new, Hpot |- *.
-            intros h Hh. eapply knows_datalog_fact_transfer_down;
-              [ exact Hki_dem | exact Hknows1
-              | exact (Hpot h Hh) | exact (Hknown_local_new h Hh) ]. }
-          rewrite Forall_forall in Hokall.
-          pose proof (Hokall r'' Hr''_in) as Hok1. cbn [ok_to_deduce_fact] in Hok1.
-          pose proof (Hok1 nfargs Hcdn_s1 Hmatch') as Hin_s1.
+      + apply deduce_step. cbn [can_deduce]. ssplit.
+        * reflexivity.
+        * eapply Exists_impl; [|exact Hexmr]. simpl.
+          intros mr (mhyps & Hpi & Hkn). exists mhyps. split; [exact Hpi|].
+          eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
+          apply (Hki_dem (fact.meta mh)). exact Hmh.
+        * exact Hexn_d.
+        * intros r'' nf Hr''_in Hcdn_dem Hmatch'.
+          apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr_in & mhyps & Hpi & Hkn).
+          assert (Hcdn_s1 : can_deduce_normal_fact r'' s1.(state.known) nf).
+          { destruct Hcdn_dem as (local_hyps & Hri & Hknown_new).
+            exists local_hyps. split; [exact Hri |].
+            pose proof (Hmrv _ _ Hmr_in Hr''_in _ _ _ _ Hpi Hri Hmatch') as Hcov.
+            rewrite Forall_forall in Hknown_new, Hcov |- *.
+            intros h Hh. eapply knows_fact_transfer_down;
+              [ exact Hki_dem | exact Hkn | eauto | eauto ]. }
+          pose proof (Hsat1 r'' nf Hr''_in Hcdn_s1 Hmatch') as Hin_s1.
           destruct (Hsnle _ Hin_s1) as (b & Hb & Hab).
-          simpl in Hab. subst. eapply submultiset_incl; eassumption.
-      + apply eventually_done. eapply Hmk; simpl; eauto.
-        all: simpl; eauto.
-        eauto using submultiset_trans, submultiset_cons.
+          destruct b; cbn [message.equiv] in Hab; fwd; [|congruence].
+          eapply submultiset_incl; eassumption.
+      + apply eventually_done. eapply Hmk.
+        * cbn [state.known]. exact HconK.
+        * cbn [state.sent].
+          eapply submultiset_trans; [exact Hsmono | apply submultiset_cons].
+        * cbn [state.sent]. left. reflexivity.
+        * cbn [message.equiv]. auto.
   Qed.
 
   Lemma nle_refl s : nle s s.
   Proof.
-    split; [ exact (consistently_incl_refl dfact_equiv claim consistent _) | ].
-    intros a Ha. exists a. split; [exact Ha | apply dfact_equiv_refl].
+    split; [ exact (consistently_incl_refl message.equiv claim consistent _) | ].
+    intros a Ha. exists a. split; [exact Ha | reflexivity].
   Qed.
 
   Ltac inv_step :=
     match goal with
-    | H: node_step _ _ _ |- _ => invert H
+    | H: step _ _ _ |- _ => invert H
     end.
 
   Lemma sent_eq_outputs t s :
-    star (node_step) node_init t s -> s.(sent_facts) = flat_map outputs_of t.
+    star step init t s -> s.(state.sent) = flat_map outputs_of t.
   Proof.
     intros Hstar. induction Hstar; eauto.
     inv_step; simpl; eauto. f_equal. auto.
   Qed.
 
   Lemma sent_source_correct t s :
-    star (node_step) node_init t s ->
-    forall R mf_args src num,
-      In (meta_dfact R mf_args src num) s.(sent_facts) -> src = name.
+    star step init t s ->
+    forall pat src num,
+      In (message.done_with pat src num) s.(state.sent) -> src = name.
   Proof.
-    induction 1 as [| t0 s' e s'' Hstar IH Hstep]; intros R mf_args src num Hin.
+    induction 1 as [| t0 s' e s'' Hstar IH Hstep]; intros pat src num Hin.
     - destruct Hin.
-    - inversion Hstep as [s0 out Hnew | s0 inp]; subst; cbn [sent_facts] in Hin |- *.
-      + destruct Hin as [Hhead | Hin_old].
-        * subst out. destruct Hnew as (Hex & _).
-          apply Exists_exists in Hex. destruct Hex as (r & _ & Hcdf).
-          cbn [can_deduce_fact] in Hcdf. exact (proj1 Hcdf).
-        * exact (IH R mf_args src num Hin_old).
-      + exact (IH R mf_args src num Hin).
+    - invert Hstep; cbn [state.sent] in Hin |- *.
+      + destruct Hin as [Hhead | Hin_old]; [| exact (IH _ _ _ Hin_old)].
+        subst output. destruct H as (Hsrc & _). exact Hsrc.
+      + exact (IH _ _ _ Hin).
   Qed.
 
   Lemma sent_counts_correct t s :
-    star (node_step) node_init t s ->
-    forall R mf_args num,
-      In (meta_dfact R mf_args name num) s.(sent_facts) ->
-      Existsn (dfact_matches R mf_args) num s.(sent_facts).
+    star step init t s ->
+    forall pat num,
+      In (message.done_with pat name num) s.(state.sent) ->
+      Existsn (message.matches pat) num s.(state.sent).
   Proof.
-    induction 1 as [| t0 s' e s'' Hstar IH Hstep]; intros R mf_args num Hin.
+    induction 1 as [| t0 s' e s'' Hstar IH Hstep]; intros pat num Hin.
     - destruct Hin.
-    - inversion Hstep as [s0 out Hnew | s0 inp]; subst; cbn [sent_facts] in Hin |- *.
-      + destruct Hnew as (Hex & _).
-        destruct Hin as [Hhead | Hin_old].
-        * subst out.
-          apply Exists_exists in Hex. destruct Hex as (r & _ & Hcdf).
-          cbn [can_deduce_fact] in Hcdf.
-          destruct Hcdf as (_ & mc & mh & hyps & _ & Hcdm & _).
-          destruct Hcdm as (ctx & mfr & mfa & mfc & Hres & HEx & _ & _).
-          inversion Hres; subst.
-          apply Existsn_no; [ intros (nfa & Hc & _); discriminate Hc | exact HEx ].
-        * apply Existsn_no; [ | exact (IH R mf_args num Hin_old) ].
-          intros (nfa & Hout_eq & Hf2). subst out.
-          apply Exists_exists in Hex. destruct Hex as (r & _ & Hcdf).
-          cbn [can_deduce_fact] in Hcdf. destruct Hcdf as (_ & Hguard).
-          exact (Hguard mf_args num Hin_old Hf2).
-      + exact (IH R mf_args num Hin).
+    - invert Hstep; cbn [state.sent] in Hin |- *.
+      + destruct Hin as [Hhead | Hin_old].
+        * subst output. destruct H as (_ & _ & Hexn & _).
+          apply Existsn_no; [intros [] | exact Hexn].
+        * apply Existsn_no; [ | exact (IH _ _ Hin_old) ].
+          intros Hmatch. destruct output as [nf' | pat' src' cnt']; [| exact Hmatch].
+          cbn [message.matches] in Hmatch.
+          destruct H as (_ & Hfresh). apply Hfresh. exists pat, num. auto.
+      + exact (IH _ _ Hin).
   Qed.
 
-  Lemma new_facts_concl_rel s f :
-    new_facts s f -> exists r, In r p /\ In (dfact_rel f) (concl_rels r).
+  Lemma can_deduce_concl_rel ns m :
+    can_deduce ns m -> In (message.rel m) (program.concl_rels p).
   Proof.
-    intros (Hex & _). apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdf).
-    exists r. split; [ exact Hr_in | ].
-    destruct f as [R args | R margs src cnt]; cbn [can_deduce_fact dfact_rel] in Hcdf |- *.
-    - destruct Hcdf as ((hyps & Hnmri & _) & _).
-      eapply non_meta_rule_impl_concl_relname_in; exact Hnmri.
-    - destruct Hcdf as (_ & mc & mh & hyps & Hrmr & Hcdm & _).
-      destruct Hcdm as (ctx & mfr & mfa & mfc & Hres & _ & Hconcl & _).
-      subst r. injection Hres as -> _ _ _. cbn [concl_rels].
-      apply Exists_exists in Hconcl. destruct Hconcl as (c & Hc & (mfa2 & mfs2 & _ & Heq2)).
-      injection Heq2 as -> _ _. apply in_map_iff. exists c. split; [ reflexivity | exact Hc ].
+    destruct m as [nf | pat src num]; cbn [can_deduce message.rel].
+    - intros (Hex & _). apply Exists_exists in Hex.
+      destruct Hex as (r & Hr & hyps & Hri & _).
+      eapply program.rule_concl_rel_in; eauto using rule.interp_concl_relname_in.
+    - intros (_ & Hex & _). apply Exists_exists in Hex.
+      destruct Hex as (mr & Hmr & mhyps & Hpi & _).
+      eapply program.meta_rule_concl_rel_in;
+        eauto using meta_rule.pattern_interp_concl_relname_in.
   Qed.
 
   Lemma sent_rel_sender t s :
-    (forall s0 f, new_facts s0 f -> In name (R_senders (dfact_rel f))) ->
-    star (node_step) node_init t s ->
-    forall f, In f s.(sent_facts) -> In name (R_senders (dfact_rel f)).
+    (forall s0 f, can_deduce s0 f -> In name (R_senders (message.rel f))) ->
+    star step init t s ->
+    forall f, In f s.(state.sent) -> In name (R_senders (message.rel f)).
   Proof.
     intros Hsend Hstar.
     induction Hstar as [| t0 s' e s'' Hstar IH Hstep]; intros f Hin.
     - destruct Hin.
-    - inversion Hstep as [s0 out Hnew | s0 inp]; subst; cbn [sent_facts] in Hin.
+    - invert Hstep; cbn [state.sent] in Hin.
       + destruct Hin as [Hhead | Hin_old].
-        * subst out. exact (Hsend s' f Hnew).
+        * subst output. exact (Hsend s' f H).
         * exact (IH f Hin_old).
       + exact (IH f Hin).
   Qed.
 
-  Lemma reachable_node_good t s :
-    meta_rules_valid p ->
+  Lemma reachable_good t s :
+    program.meta_rules_valid p ->
     allowed_inputs (flat_map inputs_of t) ->
-    star (node_step) node_init t s ->
-    node_good s t.
+    star step init t s ->
+    good s t.
   Proof.
     intros Hmrv Hallow Hstar.
-    assert (node_good s (t ++ [])) as Hg.
-    { eapply node_good_star;
-        [ exact Hmrv | rewrite app_nil_r; exact Hallow | apply node_good_init | exact Hstar ]. }
+    assert (good s (t ++ [])) as Hg.
+    { eapply good_star;
+        [ exact Hmrv | rewrite app_nil_r; exact Hallow | apply good_init | exact Hstar ]. }
     rewrite app_nil_r in Hg. exact Hg.
   Qed.
 
-  Lemma node_drive_to_dominate t0 s0 t' sf :
-    meta_rules_valid p ->
-    star (node_step) node_init t0 s0 ->
+  Lemma drive_to_dominate t0 s0 t' sf :
+    program.meta_rules_valid p ->
+    star step init t0 s0 ->
     allowed_inputs (flat_map inputs_of t0) ->
-    star (node_step) s0 t' sf ->
+    star step s0 t' sf ->
     flat_map inputs_of t' = [] ->
-    eventually (will_step (node_step) allowed_inputs)
-      (fun '(s2, _) => nle sf s2) (s0, t0).
+    eventually will_step (fun '(s2, _) => nle sf s2) (s0, t0).
   Proof.
     intros Hmrv Hstar0 Hga0 Hrun Hinp. revert Hinp.
     induction Hrun as [| T0 smid e sf' Hrun' IH Hstep]; intros Hinp.
@@ -1194,24 +763,24 @@ Section __.
         intros [s2 t2] (Hreach & Hle_mid).
         destruct Hreach as (tr & Hstar_s0s2 & -> & Hga_imp).
         specialize (Hga_imp Hga0).
-        assert (Hstar2 : star (node_step) node_init (tr ++ t0) s2) by eauto using star_app.
-        eapply node_will_match; try eassumption.
-        { eapply reachable_node_good; eassumption. }
+        assert (Hstar2 : star step init (tr ++ t0) s2) by eauto using star_app.
+        eapply will_match; try eassumption.
+        { eapply reachable_good; eassumption. }
         apply knows_incl_of_submultiset.
-        { rewrite (known_facts_input_free s0 T0 smid Hrun' Hinp).
-          exact (proj1 (node_step_star_mono s0 tr s2 Hstar_s0s2)). }
-        rewrite (known_facts_eq_inputs (tr ++ t0) s2 Hstar2). exact Hga_imp.
+        { rewrite (known_input_free s0 T0 smid Hrun' Hinp).
+          exact (proj1 (step_star_mono s0 tr s2 Hstar_s0s2)). }
+        rewrite (known_eq_inputs (tr ++ t0) s2 Hstar2). exact Hga_imp.
   Qed.
 
-  Lemma node_might_implies_will :
-    meta_rules_valid p ->
-    might_implies_will_equiv (node_step) dfact_equiv allowed_inputs node_init.
+  Lemma might_implies_will :
+    program.meta_rules_valid p ->
+    might_implies_will_equiv step message.equiv allowed_inputs init.
   Proof.
     intros Hmrv t s o Hstar Hallow (t' & sf & Hrun & Hinp & Hino).
-    assert (Hstarf : star (node_step) node_init (t' ++ t) sf) by eauto using star_app.
-    assert (Ho_sent : In o sf.(sent_facts))
+    assert (Hstarf : star step init (t' ++ t) sf) by eauto using star_app.
+    assert (Ho_sent : In o sf.(state.sent))
       by (rewrite (sent_eq_outputs (t' ++ t) sf Hstarf); exact Hino).
-    pose proof (node_drive_to_dominate t s t' sf Hmrv Hstar Hallow Hrun Hinp) as Hdrive.
+    pose proof (drive_to_dominate t s t' sf Hmrv Hstar Hallow Hrun Hinp) as Hdrive.
     apply eventually_will_step_annotate in Hdrive.
     unfold will_output_equiv.
     eapply eventually_trans; [exact Hdrive |].
@@ -1220,22 +789,23 @@ Section __.
     destruct (Hsent_dom o Ho_sent) as (o' & Ho'_in & Ho'_eq).
     destruct Hreach as (tr & Hstar_s_s2 & -> & Hga_imp).
     specialize (Hga_imp Hallow).
-    assert (Hstar2 : star (node_step) node_init (tr ++ t) s2) by eauto using star_app.
+    assert (Hstar2 : star step init (tr ++ t) s2) by eauto using star_app.
     apply eventually_done.
     exists o'. split.
-    - apply dfact_equiv_sym. exact Ho'_eq.
+    - symmetry. exact Ho'_eq.
     - erewrite <- sent_eq_outputs by eassumption. eassumption.
   Qed.
 
-  Lemma node_drive_to_dominate' t s s' t' :
-    meta_rules_valid p ->
-    star (node_step) node_init t s ->
+  Lemma drive_to_dominate' t s s' t' :
+    program.meta_rules_valid p ->
+    star step init t s ->
     allowed_inputs (flat_map inputs_of t') ->
-    star (node_step) node_init t' s' ->
-    consistently_incl dfact_equiv claim consistent (flat_map inputs_of t) (flat_map inputs_of t') ->
-    noncontradictory_wf dfact_equiv claim consistent allowed_inputs (flat_map inputs_of t) (flat_map inputs_of t') ->
-    eventually (will_step (node_step) allowed_inputs)
-      (fun '(s2, _) => nle s s2) (s', t').
+    star step init t' s' ->
+    consistently_incl message.equiv claim consistent
+      (flat_map inputs_of t) (flat_map inputs_of t') ->
+    noncontradictory_wf message.equiv claim consistent allowed_inputs
+      (flat_map inputs_of t) (flat_map inputs_of t') ->
+    eventually will_step (fun '(s2, _) => nle s s2) (s', t').
   Proof.
     intros Hmrv Hstar Hga' Hstar' Hincl Hnc. revert Hincl Hnc.
     induction Hstar as [| Tp sm e s Hstar_T IH Hstep]; intros Hincl Hnc.
@@ -1244,10 +814,11 @@ Section __.
       + intros a Ha. destruct Ha.
     - cbn [inputs_of flat_map app] in Hincl, Hnc.
       destruct e as [m | lbl outs].
-      + assert (HinclT : consistently_incl dfact_equiv claim consistent (flat_map inputs_of Tp) (flat_map inputs_of t'))
+      + assert (HinclT : consistently_incl message.equiv claim consistent
+                           (flat_map inputs_of Tp) (flat_map inputs_of t'))
           by (eapply consistently_incl_trans;
                 [ apply consistently_incl_of_submultiset, submultiset_cons | exact Hincl ]).
-        assert (HncT : noncontradictory_wf dfact_equiv claim consistent allowed_inputs
+        assert (HncT : noncontradictory_wf message.equiv claim consistent allowed_inputs
                          (flat_map inputs_of Tp) (flat_map inputs_of t'))
           by (eapply noncontradictory_wf_shrink_l; [ apply submultiset_cons | exact Hnc ]).
         specialize (IH HinclT HncT).
@@ -1255,41 +826,41 @@ Section __.
         eapply eventually_weaken; [ exact IH | ].
         intros [s2 t2] (Hreach & Hle_sm).
         destruct Hreach as (tr & Hstar_s's2 & -> & _).
-        inversion Hstep; subst.
+        invert Hstep.
         split.
-        * cbn [known_facts]. rewrite (known_facts_eq_inputs Tp sm Hstar_T).
+        * cbn [state.known]. rewrite (known_eq_inputs Tp sm Hstar_T).
           eapply consistently_incl_trans; [ exact Hincl | ].
           apply consistently_incl_of_submultiset.
           eapply driven_inputs_submultiset; eassumption.
-        * cbn [sent_facts]. exact (proj2 Hle_sm).
+        * cbn [state.sent]. exact (proj2 Hle_sm).
       + specialize (IH Hincl Hnc).
         apply eventually_will_step_annotate in IH.
         eapply eventually_trans; [ exact IH | ].
         intros [s2 t2] (Hreach & Hle_sm).
         destruct Hreach as (tr & Hstar_s's2 & -> & Hga_imp).
         specialize (Hga_imp Hga').
-        assert (Hstar2 : star (node_step) node_init (tr ++ t') s2) by eauto using star_app.
-        eapply node_will_match; try eassumption.
-        { eapply reachable_node_good; eassumption. }
-        eapply knows_incl_grow with (l2 := s'.(known_facts)).
+        assert (Hstar2 : star step init (tr ++ t') s2) by eauto using star_app.
+        eapply will_match; try eassumption.
+        { eapply reachable_good; eassumption. }
+        eapply knows_incl_grow with (l2 := s'.(state.known)).
         { eapply knows_incl_of_consistently_incl.
-          { rewrite (known_facts_eq_inputs Tp sm Hstar_T), (known_facts_eq_inputs t' s' Hstar').
+          { rewrite (known_eq_inputs Tp sm Hstar_T), (known_eq_inputs t' s' Hstar').
             exact Hincl. }
-          { rewrite (known_facts_eq_inputs Tp sm Hstar_T), (known_facts_eq_inputs t' s' Hstar').
+          { rewrite (known_eq_inputs Tp sm Hstar_T), (known_eq_inputs t' s' Hstar').
             exact Hnc. }
-          rewrite (known_facts_eq_inputs t' s' Hstar'). exact Hga'. }
-        { exact (proj1 (node_step_star_mono s' tr s2 Hstar_s's2)). }
-        rewrite (known_facts_eq_inputs (tr ++ t') s2 Hstar2). exact Hga_imp.
+          rewrite (known_eq_inputs t' s' Hstar'). exact Hga'. }
+        { exact (proj1 (step_star_mono s' tr s2 Hstar_s's2)). }
+        rewrite (known_eq_inputs (tr ++ t') s2 Hstar2). exact Hga_imp.
   Qed.
 
-  Lemma node_might_implies_will' :
-    meta_rules_valid p ->
-    might_implies_will_equiv' (node_step) dfact_equiv claim consistent allowed_inputs node_init.
+  Lemma might_implies_will' :
+    program.meta_rules_valid p ->
+    might_implies_will_equiv' step message.equiv claim consistent allowed_inputs init.
   Proof.
     intros Hmrv t s o Hstar Hallow Hino s' t' Hnc Hincl Hstar' Hallow'.
-    assert (Ho_sent : In o s.(sent_facts))
+    assert (Ho_sent : In o s.(state.sent))
       by (rewrite (sent_eq_outputs t s Hstar); exact Hino).
-    pose proof (node_drive_to_dominate' t s s' t' Hmrv Hstar Hallow' Hstar' Hincl Hnc) as Hdrive.
+    pose proof (drive_to_dominate' t s s' t' Hmrv Hstar Hallow' Hstar' Hincl Hnc) as Hdrive.
     apply eventually_will_step_annotate in Hdrive.
     unfold will_output_equiv.
     eapply eventually_trans; [exact Hdrive |].
@@ -1298,14 +869,12 @@ Section __.
     destruct (Hsent_dom o Ho_sent) as (o' & Ho'_in & Ho'_eq).
     destruct Hreach as (tr & Hstar_s'_s2 & -> & Hga_imp).
     specialize (Hga_imp Hallow').
-    assert (Hstar2 : star (node_step) node_init (tr ++ t') s2) by eauto using star_app.
+    assert (Hstar2 : star step init (tr ++ t') s2) by eauto using star_app.
     apply eventually_done.
     exists o'. split.
-    - apply dfact_equiv_sym. exact Ho'_eq.
+    - symmetry. exact Ho'_eq.
     - erewrite <- sent_eq_outputs by eassumption. eassumption.
   Qed.
 
-End __.
-*)
 End __.
 End node.
