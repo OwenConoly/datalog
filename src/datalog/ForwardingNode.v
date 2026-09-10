@@ -346,6 +346,10 @@ Section __.
 
   Context (fts_NoDup : forall src mn, NoDup (fforward src mn)).
 
+  Context (Hreaches : forwarding_reaches)
+          (Htree : forwarding_tree)
+          (Hno : no_extra_outputs).
+
   Lemma forwarding_graph_edges_from_source src mn :
     Permutation (graph.edges (forwarding_graph mn) (loc_of_source src))
                 (map loc_of_dest (fforward src mn)).
@@ -606,9 +610,9 @@ Section __.
     exists queue'. split; [ exact Hq | split; [ exact HF | ] ].
     intros R orig Hin. specialize (HP R orig Hin). specialize (Hstep R orig).
     etransitivity; [ | exact HP ].
-    destruct Hstep as [ [Htree Hps] | Hperm ].
+    destruct Hstep as [ [Hltree Hps] | Hperm ].
     - symmetry. apply graph_incoming_pebble_step with (v := v);
-        [ exact Htree | exact Hne | exact Hps ].
+        [ exact Hltree | exact Hne | exact Hps ].
     - apply Permutation_graph_incoming. symmetry. exact Hperm.
   Qed.
 
@@ -626,7 +630,7 @@ Section __.
     travelling_to dm dest queue ->
     travelling_to dm' dest queue.
   Proof.
-    intros Htree Hne (rest & Hdm & Hdm') Htr.
+    intros Hltree Hne (rest & Hdm & Hdm') Htr.
     apply (travelling_to_pebble_step (loc_of_source s) dm dm' dest queue Hne); [ | exact Htr ].
     intros R orig'.
     assert (Ha : Permutation (msgs_to_pebbles R orig' dm)
@@ -641,7 +645,7 @@ Section __.
     rewrite msgs_to_pebbles_forwarded in Hb. rewrite msgs_to_pebbles_single in Ha.
     destr (eqb R (message.rel f) && eqb orig' orig)%bool.
     - destruct E as [-> ->].
-      left. split; [ exact Htree | ].
+      left. split; [ exact Hltree | ].
       exists (msgs_to_pebbles (message.rel f) orig rest), f.
       split.
       + etransitivity; [ exact Ha | ]. reflexivity.
@@ -674,11 +678,10 @@ Section __.
   Qed.
 
   Lemma travelling_to_single src d dest :
-    forwarding_reaches ->
     travelling_to [(loc_of_source src, (d, src))] dest
       (if nforwardb src dest d then [d] else []).
   Proof.
-    intros Hreaches. pose proof (travelling_to_at (loc_of_source src) d src dest) as H.
+    pose proof (travelling_to_at (loc_of_source src) d src dest) as H.
     destr (nforwardb src dest d); [ | exact H ].
     destr (graph.reachesb (forwarding_graph (message.rel d, src)) (loc_of_source src) (loc_of_dest dest));
       [ exact H | ].
@@ -686,14 +689,13 @@ Section __.
   Qed.
 
   Lemma travelling_to_deduced n dest outs :
-    forwarding_reaches ->
     travelling_to (map (fun x => (node_loc n, (x, node_source n))) outs) dest
       (filter (nforwardb (node_source n) dest) outs).
   Proof.
-    intros Hreaches. induction outs as [| x outs' IH].
+    induction outs as [| x outs' IH].
     - apply travelling_to_nil.
     - cbn [map filter].
-      pose proof (travelling_to_single (node_source n) x dest Hreaches) as H1.
+      pose proof (travelling_to_single (node_source n) x dest) as H1.
       destruct (nforwardb (node_source n) dest x).
       + exact (travelling_to_app [_] _ dest [x] _ H1 IH).
       + exact (travelling_to_app [_] _ dest [] _ H1 IH).
@@ -976,15 +978,14 @@ Section __.
   Qed.
 
   Lemma travelling_to_forwarded src d dest :
-    forwarding_reaches -> forwarding_tree ->
     loc_of_source src <> loc_of_dest dest ->
     travelling_to (map (fun d' => (loc_of_dest d', (d, src))) (fforward src (message.rel d, src))) dest
       (filter (nforwardb src dest) [d]).
   Proof.
-    intros Hreaches Htree Hne.
+    intros Hne.
     change (filter (nforwardb src dest) [d]) with (if nforwardb src dest d then [d] else []).
     eapply (travelling_to_forwarding_step src d src [(loc_of_source src, (d, src))]);
-      [ apply Htree | exact Hne | | apply travelling_to_single; assumption ].
+      [ apply Htree | exact Hne | | apply travelling_to_single ].
     exists []. split; [ reflexivity | rewrite app_nil_r; reflexivity ].
   Qed.
 
@@ -1099,6 +1100,23 @@ Section __.
     apply dm_reachable_app; [ apply dm_reachable_forwarded, Hre | exact Hmr ].
   Qed.
 
+  Lemma wf_queues_forward_to (s : fgstate) src f orig :
+    graph.reaches (forwarding_graph (message.rel f, orig))
+      (loc_of_source orig) (loc_of_source src) ->
+    wf_queues s ->
+    wf_queues (forward_to (fforwardb src) [(f, orig)] s).
+  Proof.
+    intros Hre Hwf f' orig' Hin.
+    cbn [forward_to graph_output_queue] in Hin.
+    apply in_app_or in Hin. destruct Hin as [Hin | Hin]; [ | exact (Hwf _ _ Hin) ].
+    apply filter_In in Hin. destruct Hin as [Hin Hkeep].
+    destruct Hin as [Heq | []]. injection Heq as <- <-.
+    apply inb_true_iff in Hkeep. apply Hno.
+    eapply graph.reaches_step; [ exact Hre | ].
+    apply forwarding_graph_spec. exists src, output_destn.
+    split; [ exact Hkeep | split; reflexivity ].
+  Qed.
+
   Lemma msgs_reachable_put_incl (s : fgstate) n v v' :
     map.get s.(graph_nodes) n = Some v ->
     incl (all_pending_msgs v') (all_pending_msgs v) ->
@@ -1151,7 +1169,6 @@ Section __.
   Qed.
 
   Lemma travelling_to_dequeue (s : fgstate) n ns v' f orig dest queue :
-    forwarding_tree ->
     forwarding_compatible s.(graph_nodes) ->
     msgs_reachable s ->
     map.get s.(graph_nodes) n = Some ns ->
@@ -1164,7 +1181,7 @@ Section __.
                        graph_output_queue := s.(graph_output_queue) |}))
       dest queue.
   Proof.
-    intros Htree Hcompat Hmr Hget Hperm Hne Htr.
+    intros Hcompat Hmr Hget Hperm Hne Htr.
     eapply travelling_to_forwarding_step with (s := node_source n) (f := f) (orig := orig).
     - eapply is_locally_tree_reaches.
       + apply Hmr. eapply in_node_dest_msgs; [ exact Hget | ].
@@ -1180,12 +1197,11 @@ Section __.
   Qed.
 
   Lemma travelling_to_forwarded_no_return n f orig :
-    forwarding_tree ->
     graph.reaches (forwarding_graph (message.rel f, orig)) (loc_of_source orig) (node_loc n) ->
     travelling_to (map (fun d' => (loc_of_dest d', (f, orig)))
                      (fforward (node_source n) (message.rel f, orig))) (node_destn n) [].
   Proof.
-    intros Htree Hre.
+    intros Hre.
     apply travelling_to_map_unreached. apply Forall_forall. intros d' Hd'.
     eapply is_locally_tree_no_return.
     - apply Htree.
@@ -1195,15 +1211,12 @@ Section __.
   Qed.
 
   Lemma forwarding_R_silent_step s1 t1 s2 t2 e s1' :
-    forwarding_reaches ->
-    forwarding_tree ->
-    no_extra_outputs ->
     forwarding_R s1 t1 s2 t2 ->
     fgraph_step s1 e s1' ->
     silent_event e ->
     forwarding_R s1' (e :: t1) s2 t2.
   Proof.
-    intros Hreaches Htree Hno [Hinp Hout Hcompat Hwf Hnodes Hmr Hdel] Hstep Hsilent.
+    intros [Hinp Hout Hcompat Hwf Hnodes Hmr Hdel] Hstep Hsilent.
     cbv [fgraph_step] in Hstep. fwd. invert Hstepp1.
     - destruct e; simpl in Hstepp0; fwd; [ destruct Hsilent | congruence ].
     - destruct e; simpl in Hstepp0; congruence || fwd.
@@ -1223,14 +1236,7 @@ Section __.
         * eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
           eapply same_domain_trans;
             [ eapply same_domain_put_r; exact Hget1 | apply same_domain_map_values' ].
-        * intros f' orig' Hin.
-          apply in_app_or in Hin. destruct Hin as [Hin | Hin]; [ | exact (Hwf _ _ Hin) ].
-          apply filter_In in Hin. destruct Hin as [Hin Hkeep].
-          destruct Hin as [Heq | []]. injection Heq as <- <-.
-          apply inb_true_iff in Hkeep. apply Hno.
-          eapply graph.reaches_step; [ exact Hre | ].
-          apply forwarding_graph_spec. exists (node_source n), output_destn.
-          split; [ exact Hkeep | split; reflexivity ].
+        * apply wf_queues_forward_to; [ exact Hre | exact Hwf ].
         * apply Forall2_map_map_values'_l. simpl.
           eapply Forall2_map_put_l; [ | exact Hget2 | simpl; exact Hngns ].
           eapply Forall2_map_impl; [ exact Hnodes | ]. simpl. auto.
@@ -1264,7 +1270,7 @@ Section __.
                cbn [map fst fnode_to_consume gns_node_state app].
                rewrite !app_assoc. symmetry. apply Permutation_middle. }
              apply travelling_to_app with (queueA := []).
-             { apply travelling_to_forwarded_no_return; [ exact Htree | exact Hre ]. }
+             { apply travelling_to_forwarded_no_return. exact Hre. }
              eapply travelling_to_app_inv with (qa := [f]).
              2: { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
                   destr (nforwardb orig (node_destn n) f); [ exact Hat | contradiction ]. }
@@ -1275,7 +1281,7 @@ Section __.
           -- exists Q. split.
              { rewrite HQ. erewrite arrived_get by exact Hget1. reflexivity. }
              apply travelling_to_app with (queueA := []).
-             { apply travelling_to_forwarded_no_return; [ exact Htree | exact Hre ]. }
+             { apply travelling_to_forwarded_no_return. exact Hre. }
              eapply travelling_to_app_inv with (qa := []).
              2: { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
                   destr (nforwardb orig (node_destn n) f); [ contradiction | exact Hat ]. }
@@ -1437,24 +1443,18 @@ Section __.
   Qed.
 
   Lemma forwarding_R_silent_star s1 t1 s2 t2 t1' s1' :
-    forwarding_reaches ->
-    forwarding_tree ->
-    no_extra_outputs ->
     forwarding_R s1 t1 s2 t2 ->
     star fgraph_step s1 t1' s1' ->
     Forall silent_event t1' ->
     forwarding_R s1' (t1' ++ t1) s2 t2.
   Proof.
-    intros Hreaches Htree Hno HR Hstar. induction Hstar as [ | t0 sa e sb Hstar IH Hstep ].
+    intros HR Hstar. induction Hstar as [ | t0 sa e sb Hstar IH Hstep ].
     - intros _. exact HR.
     - intros Hsil. apply Forall_cons_iff in Hsil. destruct Hsil as [Hsile Hsil0].
       eapply forwarding_R_silent_step; try eassumption. apply IH, Hsil0.
   Qed.
 
   Lemma fgraph_hop (s1 : fgstate) t1 s2 t2 f orig loc next :
-    forwarding_reaches ->
-    forwarding_tree ->
-    no_extra_outputs ->
     forwarding_R s1 t1 s2 t2 ->
     In (loc, (f, orig)) (dest_msgs s1) ->
     graph.edge (forwarding_graph (message.rel f, orig)) loc next ->
@@ -1463,7 +1463,7 @@ Section __.
       Forall silent_event t1' /\
       In (next, (f, orig)) (dest_msgs s1').
   Proof.
-    intros Hreaches Htree Hno HR Hin Hedge.
+    intros HR Hin Hedge.
     apply forwarding_graph_spec in Hedge. destruct Hedge as (src & d & Hd & Hsrc & Hnext).
     apply in_dest_msgs_inv in Hin.
     destruct Hin as [(n & ns & Hloc & Hget & Hpend) | (Hloc & Hout)].
@@ -1472,7 +1472,7 @@ Section __.
     subst src.
     destruct (fgraph_to_pending s1 n ns (f, orig) Hget Hpend)
       as (sa & ta & ns' & Hstara & Hsila & Hgeta & Hpenda).
-    pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila) as HRa.
+    pose proof (forwarding_R_silent_star _ _ _ _ _ _ HR Hstara Hsila) as HRa.
     destruct (fgraph_route_to sa n ns' f orig d HRa.(fR_compat) Hgeta Hpenda Hd)
       as (sb & Hstep & Hinb).
     exists sb, (O_event (run n (forward_label f)) [] :: ta). split.
@@ -1483,9 +1483,6 @@ Section __.
   Qed.
 
   Lemma fgraph_deliver (s1 : fgstate) t1 s2 t2 f orig loc p dst :
-    forwarding_reaches ->
-    forwarding_tree ->
-    no_extra_outputs ->
     forwarding_R s1 t1 s2 t2 ->
     In (loc, (f, orig)) (dest_msgs s1) ->
     graph.path_to (forwarding_graph (message.rel f, orig)) loc p dst ->
@@ -1494,16 +1491,16 @@ Section __.
       Forall silent_event t1' /\
       In (dst, (f, orig)) (dest_msgs s1').
   Proof.
-    intros Hreaches Htree Hno. revert s1 t1 loc.
+    revert s1 t1 loc.
     induction p as [| next p' IH]; intros s1 t1 loc HR Hin (Hpath & Hlast).
     - simpl in Hlast. subst dst. exists s1, []. split; [ apply star_refl | ].
       split; [ constructor | exact Hin ].
     - destruct Hpath as [Hedge Hpath'].
-      destruct (fgraph_hop s1 t1 s2 t2 f orig loc next Hreaches Htree Hno HR Hin Hedge)
+      destruct (fgraph_hop s1 t1 s2 t2 f orig loc next HR Hin Hedge)
         as (sa & ta & Hstara & Hsila & Hina).
       rewrite last_cons in Hlast.
       destruct (IH sa (ta ++ t1) next
-                  (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila)
+                  (forwarding_R_silent_star _ _ _ _ _ _ HR Hstara Hsila)
                   Hina (conj Hpath' Hlast))
         as (sb & tb & Hstarb & Hsilb & Hinb).
       exists sb, (tb ++ ta). split; [ eapply star_app; eassumption | ].
@@ -1511,9 +1508,6 @@ Section __.
   Qed.
 
   Lemma fgraph_deliver_to_node (s1 : fgstate) t1 s2 t2 n f :
-    forwarding_reaches ->
-    forwarding_tree ->
-    no_extra_outputs ->
     forwarding_R s1 t1 s2 t2 ->
     valid_dest (node_destn n) ->
     In f (queue_at_dest s2 (node_destn n)) ->
@@ -1522,7 +1516,7 @@ Section __.
       Forall silent_event t1' /\
       In (f, orig) (to_consume_at s1' n).
   Proof.
-    intros Hreaches Htree Hno HR Hvalid Hin.
+    intros HR Hvalid Hin.
     destruct (HR.(fR_delivered) (node_destn n) Hvalid) as (Q & HQ & Htr).
     eapply Permutation_in in Hin; [ | exact HQ ].
     apply in_app_or in Hin. destruct Hin as [Hin | Hin].
@@ -1533,7 +1527,7 @@ Section __.
     eapply travelling_to_in_inv in Hin; [ | exact Htr ].
     destruct Hin as (loc & orig & Hdm & (p & Hpath) & Hroute).
     destruct (fgraph_deliver s1 t1 s2 t2 f orig loc p (loc_of_dest (node_destn n))
-                Hreaches Htree Hno HR Hdm Hpath) as (sa & ta & Hstara & Hsila & Hina).
+                HR Hdm Hpath) as (sa & ta & Hstara & Hsila & Hina).
     cbn [loc_of_dest] in Hina. apply in_dest_msgs_inv in Hina.
     destruct Hina as [(m & ms & Hloc & Hgetm & Hpend) | (Hloc & _)]; [ | discriminate Hloc ].
     injection Hloc as Hnm. subst m.
@@ -1548,9 +1542,6 @@ Section __.
   Qed.
 
   Lemma fgraph_deliver_to_output (s1 : fgstate) t1 s2 t2 f :
-    forwarding_reaches ->
-    forwarding_tree ->
-    no_extra_outputs ->
     forwarding_R s1 t1 s2 t2 ->
     In f s2.(graph_output_queue) ->
     exists s1' t1' orig,
@@ -1558,14 +1549,14 @@ Section __.
       Forall silent_event t1' /\
       In (f, orig) s1'.(graph_output_queue).
   Proof.
-    intros Hreaches Htree Hno HR Hin.
+    intros HR Hin.
     destruct (HR.(fR_delivered) output_destn I) as (Q & HQ & Htr).
     cbn [arrived app] in HQ.
     eapply Permutation_in in Hin; [ | exact HQ ].
     eapply travelling_to_in_inv in Hin; [ | exact Htr ].
     destruct Hin as (loc & orig & Hdm & (p & Hpath) & _).
     destruct (fgraph_deliver s1 t1 s2 t2 f orig loc p (loc_of_dest output_destn)
-                Hreaches Htree Hno HR Hdm Hpath) as (sa & ta & Hstara & Hsila & Hina).
+                HR Hdm Hpath) as (sa & ta & Hstara & Hsila & Hina).
     cbn [loc_of_dest] in Hina. apply in_dest_msgs_inv in Hina.
     destruct Hina as [(m & ms & Hloc & _ & _) | (_ & Hout)]; [ discriminate Hloc | ].
     exists sa, ta, orig. split; [ exact Hstara | ]. split; [ exact Hsila | exact Hout ].
@@ -1576,28 +1567,19 @@ Section __.
      each contributing only its own step construction. ===== *)
 
   Lemma forwarding_R_input s1 t1 s2 t2 m :
-    forwarding_reaches ->
-    forwarding_tree ->
-    no_extra_outputs ->
     forwarding_R s1 t1 s2 t2 ->
     forwarding_R
       (forward_to (fforwardb input_source) [(m, input_source)] s1) (I_event m :: t1)
       (forward_to (nforwardb input_source) [m] s2) (I_event m :: t2).
   Proof.
-    intros Hreaches Htree Hno [Hinp Hout Hcompat Hwf Hnodes Hmr Hdel].
+    intros [Hinp Hout Hcompat Hwf Hnodes Hmr Hdel].
     constructor; cbn [flat_map inputs_of outputs_of app
                       forward_to graph_nodes graph_output_queue].
     - f_equal. exact Hinp.
     - exact Hout.
     - eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
       apply forward_to_same_domain.
-    - intros f orig Hin.
-      apply in_app_or in Hin. destruct Hin as [Hin | Hin]; [ | exact (Hwf _ _ Hin) ].
-      apply filter_In in Hin. destruct Hin as [Hin Hkeep].
-      destruct Hin as [Heq | []]. fwd.
-      apply inb_true_iff in Hkeep. apply Hno.
-      eapply graph.reaches_step_before; [ apply graph.reaches_self | ].
-      apply forwarding_graph_spec. fwd. eauto.
+    - apply wf_queues_forward_to; [ apply graph.reaches_self | exact Hwf ].
     - apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
       eapply Forall2_map_impl; [ exact Hnodes | ]. simpl. auto.
     - apply msgs_reachable_forward_to;
@@ -1610,12 +1592,11 @@ Section __.
         rewrite arrived_forward_to, HQ. apply Permutation_app_swap_app.
       + rewrite dest_msgs_forward_to by exact Hcompat.
         apply travelling_to_app; [ | exact Htr ].
-        apply travelling_to_forwarded; [ exact Hreaches | exact Htree | ].
+        apply travelling_to_forwarded.
         intro Hc. destruct dest; discriminate Hc.
   Qed.
 
   Lemma forwarding_R_deduce s1 t1 s2 t2 n fns ngns ns' lbl outs :
-    forwarding_reaches ->
     forwarding_R s1 t1 s2 t2 ->
     map.get s1.(graph_nodes) n = Some fns ->
     map.get s2.(graph_nodes) n = Some ngns ->
@@ -1641,7 +1622,7 @@ Section __.
             graph_output_queue := s2.(graph_output_queue) |})
       (O_event (run n lbl) [] :: t2).
   Proof.
-    intros Hreaches [Hinp Hout Hcompat Hwf Hnodes Hmr Hdel] Hget1 Hget2 Hnstep.
+    intros [Hinp Hout Hcompat Hwf Hnodes Hmr Hdel] Hget1 Hget2 Hnstep.
     constructor; cbn [flat_map inputs_of outputs_of app graph_nodes graph_output_queue].
     - exact Hinp.
     - exact Hout.
@@ -1678,7 +1659,7 @@ Section __.
              apply Permutation_app; [ apply Permutation_app_comm | reflexivity ]. }
         rewrite map_map.
         apply travelling_to_app; [ | exact Htr ].
-        apply travelling_to_deduced. exact Hreaches.
+        apply travelling_to_deduced.
   Qed.
 
   Lemma forwarding_R_consume s1 t1 s2 t2 n fns ngns ns' f orig c1 c2 ms1 ms2 :
@@ -1773,12 +1754,9 @@ Section __.
   Qed.
 
   Lemma fgraph_weak_sims_ngraph :
-    forwarding_reaches ->
-    forwarding_tree ->
-    no_extra_outputs ->
     weak_sim fgraph_step ngraph_step forwarding_R.
   Proof.
-    intros Hreaches Htree Hno s1 t1 s1' s2 t2 e HR Hstep.
+    intros s1 t1 s1' s2 t2 e HR Hstep.
     destruct (silent_event_dec e) as [Hsil | Hsil].
     { exists s2, []. split; [ apply star_refl | ]. split.
       { symmetry. apply silent_event_inputs, Hsil. }
@@ -1830,12 +1808,9 @@ Section __.
   Qed.
 
   Lemma ngraph_weak_sims_fgraph :
-    forwarding_reaches ->
-    forwarding_tree ->
-    no_extra_outputs ->
     weak_sim ngraph_step fgraph_step (fun ns nt fs ft => forwarding_R fs ft ns nt).
   Proof.
-    intros Hreaches Htree Hno ns nt ns' fs ft e HR Hstep.
+    intros ns nt ns' fs ft e HR Hstep.
     cbv [ngraph_step] in Hstep. invert Hstep.
     - exists (forward_to (fforwardb input_source) [(m, input_source)] fs), [I_event m].
       split.
@@ -1857,9 +1832,9 @@ Section __.
       assert (Hin : In m (queue_at_dest ns (node_destn n))).
       { erewrite queue_at_dest_get by exact H. rewrite H1.
         apply in_or_app. right. left. reflexivity. }
-      destruct (fgraph_deliver_to_node fs ft ns nt n m Hreaches Htree Hno HR Hvalid Hin)
+      destruct (fgraph_deliver_to_node fs ft ns nt n m HR Hvalid Hin)
         as (fsa & fta & orig & Hstara & Hsila & Hinc).
-      pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila)
+      pose proof (forwarding_R_silent_star _ _ _ _ _ _ HR Hstara Hsila)
         as HRa.
       destruct (Forall2_map_get_r _ _ _ _ _ HRa.(fR_nodes) H) as (fnsa & Hfnsa & Hfnsaeq).
       cbv [to_consume_at] in Hinc. rewrite Hfnsa in Hinc.
@@ -1877,9 +1852,9 @@ Section __.
       eapply forwarding_R_consume; eassumption.
     - assert (Hin : In m ns.(graph_output_queue)).
       { rewrite H. apply in_app_iff. right. left. reflexivity. }
-      destruct (fgraph_deliver_to_output fs ft ns nt m Hreaches Htree Hno HR Hin)
+      destruct (fgraph_deliver_to_output fs ft ns nt m HR Hin)
         as (fsa & fta & orig & Hstara & Hsila & Hout).
-      pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila)
+      pose proof (forwarding_R_silent_star _ _ _ _ _ _ HR Hstara Hsila)
         as HRa.
       apply in_split in Hout. destruct Hout as (oq1 & oq2 & Hoq).
       eexists _, (O_event (emit (m, orig)) [m] :: fta).
