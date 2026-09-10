@@ -27,16 +27,16 @@ Abbreviation aggregator := (_ : aggregatorT).
 Definition valueT := Type. Existing Class valueT.
 Abbreviation value := (_ : valueT).
 
-Class datalog_semantics {_fn : fnT} {_aggregator : aggregatorT} {_value : valueT} : Type :=
+Class datalog_semantics {_fn : fnT} {_aggregator: aggregatorT} {_value : valueT} : Type :=
   {
-    interp_fun : _fn -> list _value -> option _value;
+    interp_fun : fn -> list value -> option value;
     (* (*if x represents a finite set S then get_set x = Some S. *)
     (*   note: suffices to have this be T -> option nat, for cardinality... *)
     (*   should i do that? *) *)
     (* get_set : T -> option (T -> Prop); *)
-    get_nat : _value -> nat;
-    agg_bop : _aggregator -> _value -> _value -> _value;
-    agg_id : _aggregator -> _value; }.
+    get_nat : value -> nat;
+    agg_bop : aggregator -> value -> value -> value;
+    agg_id : aggregator -> value; }.
 Arguments datalog_semantics : clear implicits.
 
 Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map _exprvar value} {context_ok : map.ok context} := {}.
