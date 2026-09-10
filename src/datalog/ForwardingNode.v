@@ -162,6 +162,13 @@ Section __.
     silent_event e -> inputs_of e = [].
   Proof. destruct e as [m | lbl outs]; [ destruct 1 | reflexivity ]. Qed.
 
+  Lemma silent_star_inputs t :
+    Forall silent_event t -> flat_map inputs_of t = [].
+  Proof.
+    induction 1 as [ | e t He _ IH ]; [ reflexivity | ].
+    cbn [flat_map]. rewrite IH, app_nil_r. apply silent_event_inputs, He.
+  Qed.
+
 
   Definition forwarding_graph (mn : rel * source) :=
     graph.of_edges
@@ -913,18 +920,20 @@ Section __.
     apply in_or_app. auto.
   Qed.
 
-  Definition forwarding_R
-    (s1 : fgstate) (t1 : list fnIO_event)
-    (s2 : ngstate) (t2 : list nIO_event) : Prop :=
-    flat_map inputs_of t1 = flat_map inputs_of t2 /\
-      flat_map outputs_of t1 = flat_map outputs_of t2 /\
-      forwarding_compatible s1.(graph_nodes) /\
-      wf_queues s1 /\
-      Forall2_map (fun _ fgns ngns =>
-                     fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
-        s1.(graph_nodes) s2.(graph_nodes) /\
-      msgs_reachable s1 /\
-      (forall dest, valid_dest dest -> delivered_to s1 s2 dest).
+  Record forwarding_R {s1 : fgstate} {t1 : list fnIO_event}
+                      {s2 : ngstate} {t2 : list nIO_event} : Prop := {
+    fR_inputs : flat_map inputs_of t1 = flat_map inputs_of t2;
+    fR_outputs : flat_map outputs_of t1 = flat_map outputs_of t2;
+    fR_compat : forwarding_compatible s1.(graph_nodes);
+    fR_wf : wf_queues s1;
+    fR_nodes : Forall2_map (fun _ fgns ngns =>
+                   fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
+                 s1.(graph_nodes) s2.(graph_nodes);
+    fR_reachable : msgs_reachable s1;
+    fR_delivered : forall dest, valid_dest dest -> delivered_to s1 s2 dest;
+  }.
+
+  Arguments forwarding_R : clear implicits.
 
   Lemma in_output_dest_msgs (s : fgstate) f orig :
     In (f, orig) s.(graph_output_queue) ->
@@ -948,14 +957,14 @@ Section __.
     forwarding_R s1 t1 s2 t2 ->
     incl (map fst s1.(graph_output_queue)) s2.(graph_output_queue).
   Proof.
-    intros HR. cbv [forwarding_R delivered_to] in HR. fwd.
-    specialize (HRp6 output_destn I). fwd. cbn [arrived app] in HRp6p0.
+    intros HR. destruct (HR.(fR_delivered) output_destn I) as (Q & HQ & Htr).
+    cbn [arrived app] in HQ.
     intros f Hf. apply in_map_iff in Hf. destruct Hf as ((f', orig) & Heq & Hin).
     simpl in Heq. subst f'.
-    eapply Permutation_in; [ symmetry; exact HRp6p0 | ].
-    apply (travelling_to_in _ output_destn _ f orig HRp6p1).
+    eapply Permutation_in; [ symmetry; exact HQ | ].
+    apply (travelling_to_in _ output_destn _ f orig Htr).
     - apply in_output_dest_msgs. exact Hin.
-    - eapply HRp3. exact Hin.
+    - eapply HR.(fR_wf). exact Hin.
   Qed.
 
   Lemma wf_queues_incl (sa sb : fgstate) :
@@ -1170,6 +1179,21 @@ Section __.
     - exact Htr.
   Qed.
 
+  Lemma travelling_to_forwarded_no_return n f orig :
+    forwarding_tree ->
+    graph.reaches (forwarding_graph (message.rel f, orig)) (loc_of_source orig) (node_loc n) ->
+    travelling_to (map (fun d' => (loc_of_dest d', (f, orig)))
+                     (fforward (node_source n) (message.rel f, orig))) (node_destn n) [].
+  Proof.
+    intros Htree Hre.
+    apply travelling_to_map_unreached. apply Forall_forall. intros d' Hd'.
+    eapply is_locally_tree_no_return.
+    - apply Htree.
+    - exact Hre.
+    - apply forwarding_graph_spec. exists (node_source n), d'.
+      split; [ exact Hd' | split; reflexivity ].
+  Qed.
+
   Lemma forwarding_R_silent_step s1 t1 s2 t2 e s1' :
     forwarding_reaches ->
     forwarding_tree ->
@@ -1179,122 +1203,113 @@ Section __.
     silent_event e ->
     forwarding_R s1' (e :: t1) s2 t2.
   Proof.
-    intros Hreaches Htree Hno H Hstep Hsilent.
+    intros Hreaches Htree Hno [Hinp Hout Hcompat Hwf Hnodes Hmr Hdel] Hstep Hsilent.
     cbv [fgraph_step] in Hstep. fwd. invert Hstepp1.
     - destruct e; simpl in Hstepp0; fwd; [ destruct Hsilent | congruence ].
-    - destruct e; simpl in Hstepp0; congruence || fwd. invert H1.
+    - destruct e; simpl in Hstepp0; congruence || fwd.
+      match goal with Hg : map.get _ _ = Some _ |- _ => rename Hg into Hget1 end.
+      match goal with Hf : fnode_step _ _ _ _ _ _ |- _ => invert Hf end.
       + destruct Hsilent.
-      + cbv [forwarding_R] in H. fwd.
-        pose proof @Forall2_map_get_l as Hget. especialize Hget; try eassumption. fwd.
-        cbv [forwarding_R]. simpl.
-        split; [assumption|]. split; [assumption|].
-        split.
-        { eapply forwarding_compatible_same_domain; [exact Hp2|].
+      + match goal with Hp : fnode_pending _ = _ |- _ => rename Hp into Hpend end.
+        pose proof (Forall2_map_get_l _ _ _ _ _ Hnodes Hget1) as (ngns & Hget2 & Hngns).
+        assert (Hre : graph.reaches (forwarding_graph (message.rel f, orig))
+                        (loc_of_source orig) (node_loc n))
+          by (eapply msgs_reachable_pending; [ exact Hmr | exact Hget1 | exact Hpend ]).
+        constructor; cbn [flat_map inputs_of outputs_of app
+                          forward_to graph_nodes graph_output_queue
+                          fprog_at fnode_keep].
+        * exact Hinp.
+        * exact Hout.
+        * eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
           eapply same_domain_trans;
-            [ eapply same_domain_put_r; exact H0 | apply same_domain_map_values' ]. }
-        split.
-        { intros f' orig' Hin.
-          cbn [forward_to graph_output_queue] in Hin. apply in_app_or in Hin.
-          destruct Hin as [Hin | Hin]; [ | exact (Hp3 _ _ Hin) ].
+            [ eapply same_domain_put_r; exact Hget1 | apply same_domain_map_values' ].
+        * intros f' orig' Hin.
+          apply in_app_or in Hin. destruct Hin as [Hin | Hin]; [ | exact (Hwf _ _ Hin) ].
           apply filter_In in Hin. destruct Hin as [Hin Hkeep].
           destruct Hin as [Heq | []]. injection Heq as <- <-.
           apply inb_true_iff in Hkeep. apply Hno.
-          eapply graph.reaches_step.
-          - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H6 ].
-          - apply forwarding_graph_spec. exists (node_source n), output_destn.
-            split; [ exact Hkeep | split; reflexivity ]. }
-        split.
-        { apply Forall2_map_map_values'_l. simpl.
-          eapply Forall2_map_put_l; [|eassumption|].
-          2: { simpl. assumption. }
-          eapply Forall2_map_impl; [eassumption|]. simpl. auto. }
-        split.
-        { apply msgs_reachable_forward_to.
-          - eapply forwarding_compatible_same_domain; [exact Hp2|].
-            cbn [graph_nodes]. eapply same_domain_put_r. exact H0.
-          - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H6 ].
-          - eapply msgs_reachable_put_incl.
-            + exact H0.
-            + eapply incl_all_pending_dequeue; [ reflexivity | reflexivity | exact H6 ].
-            + exact Hp5. }
-        intros dest Hdest. specialize (Hp6 dest Hdest).
-        destruct Hp6 as (Q & HQ & Htr). cbv [delivered_to].
-        setoid_rewrite arrived_forward_to. setoid_rewrite arrived_put.
-        destr (eqb dest (node_destn n)).
-        2: { exists Q. split; [ exact HQ | ].
-             eapply travelling_to_dequeue; try eassumption.
-             eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H6 ]. }
-        setoid_rewrite dest_msgs_forward_to.
-        2: { eapply forwarding_compatible_same_domain; [ exact Hp2 | ].
-             cbn [graph_nodes]. eapply same_domain_put_r. exact H0. }
-        destr (inb (node_destn n) (nforward orig (message.rel f))).
-        -- eapply travelling_to_in in Htr as Hf.
-           2: { eapply in_node_dest_msgs; [ exact H0 | ].
-                cbv [all_pending_msgs]. apply in_or_app. right. rewrite H6.
-                apply in_or_app. right. left. reflexivity. }
-           2: { exact E. }
-           apply in_split in Hf. destruct Hf as (Qa & Qb & ->).
-           exists (Qa ++ Qb). split.
-           { rewrite HQ. erewrite arrived_get by exact H0.
-             cbn [map fst fnode_to_consume gns_node_state app].
-             rewrite !app_assoc. symmetry. apply Permutation_middle. }
-           apply travelling_to_app with (queueA := []).
-           { apply travelling_to_map_unreached. apply Forall_forall. intros d' Hd'.
-             eapply is_locally_tree_no_return.
-             - apply Htree.
-             - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H6 ].
-             - apply forwarding_graph_spec. exists (node_source n), d'.
-               split; [ exact Hd' | split; reflexivity ]. }
-           eapply travelling_to_app_inv with (qa := [f]).
-           2: { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
-                destr (nforwardb orig (node_destn n) f); [ exact Hat | contradiction ]. }
-           rewrite <- Permutation_middle in Htr.
-           eapply travelling_to_perm; [ | reflexivity | exact Htr ].
-           eapply dest_msgs_dequeue; [ exact H0 | ].
-           eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H6 ].
-        -- exists Q. split.
-           { rewrite HQ. erewrite arrived_get by exact H0. reflexivity. }
-           apply travelling_to_app with (queueA := []).
-           { apply travelling_to_map_unreached. apply Forall_forall. intros d' Hd'.
-             eapply is_locally_tree_no_return.
-             - apply Htree.
-             - eapply msgs_reachable_pending; [ exact Hp5 | exact H0 | exact H6 ].
-             - apply forwarding_graph_spec. exists (node_source n), d'.
-               split; [ exact Hd' | split; reflexivity ]. }
-           eapply travelling_to_app_inv with (qa := []).
-           2: { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
-                destr (nforwardb orig (node_destn n) f); [ contradiction | exact Hat ]. }
-           eapply travelling_to_perm; [ | reflexivity | exact Htr ].
-           eapply dest_msgs_dequeue; [ exact H0 | ].
-           eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact H6 ].
+          eapply graph.reaches_step; [ exact Hre | ].
+          apply forwarding_graph_spec. exists (node_source n), output_destn.
+          split; [ exact Hkeep | split; reflexivity ].
+        * apply Forall2_map_map_values'_l. simpl.
+          eapply Forall2_map_put_l; [ | exact Hget2 | simpl; exact Hngns ].
+          eapply Forall2_map_impl; [ exact Hnodes | ]. simpl. auto.
+        * apply msgs_reachable_forward_to.
+          -- eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
+             cbn [graph_nodes]. eapply same_domain_put_r. exact Hget1.
+          -- exact Hre.
+          -- eapply msgs_reachable_put_incl.
+             ++ exact Hget1.
+             ++ eapply incl_all_pending_dequeue; [ reflexivity | reflexivity | exact Hpend ].
+             ++ exact Hmr.
+        * intros dest Hdest. destruct (Hdel dest Hdest) as (Q & HQ & Htr).
+          cbv [delivered_to].
+          setoid_rewrite arrived_forward_to. setoid_rewrite arrived_put.
+          destr (eqb dest (node_destn n)).
+          2: { exists Q. split; [ exact HQ | ].
+               eapply travelling_to_dequeue; try eassumption.
+               eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact Hpend ]. }
+          setoid_rewrite dest_msgs_forward_to.
+          2: { eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
+               cbn [graph_nodes]. eapply same_domain_put_r. exact Hget1. }
+          destr (inb (node_destn n) (nforward orig (message.rel f))).
+          -- eapply travelling_to_in in Htr as Hf.
+             2: { eapply in_node_dest_msgs; [ exact Hget1 | ].
+                  cbv [all_pending_msgs]. apply in_or_app. right. rewrite Hpend.
+                  apply in_or_app. right. left. reflexivity. }
+             2: { exact E. }
+             apply in_split in Hf. destruct Hf as (Qa & Qb & ->).
+             exists (Qa ++ Qb). split.
+             { rewrite HQ. erewrite arrived_get by exact Hget1.
+               cbn [map fst fnode_to_consume gns_node_state app].
+               rewrite !app_assoc. symmetry. apply Permutation_middle. }
+             apply travelling_to_app with (queueA := []).
+             { apply travelling_to_forwarded_no_return; [ exact Htree | exact Hre ]. }
+             eapply travelling_to_app_inv with (qa := [f]).
+             2: { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
+                  destr (nforwardb orig (node_destn n) f); [ exact Hat | contradiction ]. }
+             rewrite <- Permutation_middle in Htr.
+             eapply travelling_to_perm; [ | reflexivity | exact Htr ].
+             eapply dest_msgs_dequeue; [ exact Hget1 | ].
+             eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact Hpend ].
+          -- exists Q. split.
+             { rewrite HQ. erewrite arrived_get by exact Hget1. reflexivity. }
+             apply travelling_to_app with (queueA := []).
+             { apply travelling_to_forwarded_no_return; [ exact Htree | exact Hre ]. }
+             eapply travelling_to_app_inv with (qa := []).
+             2: { pose proof (travelling_to_at_dest f orig (node_destn n)) as Hat.
+                  destr (nforwardb orig (node_destn n) f); [ contradiction | exact Hat ]. }
+             eapply travelling_to_perm; [ | reflexivity | exact Htr ].
+             eapply dest_msgs_dequeue; [ exact Hget1 | ].
+             eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact Hpend ].
       + destruct Hsilent.
-    - destruct e; simpl in Hstepp0; congruence || fwd. invert H1.
-      cbv [forwarding_R] in *. simpl. fwd.
-      split; [assumption|]. split; [assumption|]. split.
-      { eapply forwarding_compatible_same_domain; [eassumption|].
-        eapply same_domain_put_r. exact H0. }
-      split.
-      { assumption. }
-      split.
-      { pose proof @Forall2_map_get_l as H'. especialize H'; eauto. fwd.
-        eapply Forall2_map_put_l; try eassumption.
-        eapply Forall2_map_impl; [eassumption|]. auto. }
-      split.
-      { unfold msgs_reachable.
-        eapply dm_reachable_perm.
+    - destruct e; simpl in Hstepp0; congruence || fwd.
+      match goal with Hg : map.get _ _ = Some _ |- _ => rename Hg into Hget1 end.
+      match goal with Hq : gns_queue _ = _ |- _ => rename Hq into Hqueue end.
+      match goal with Hf : fnode_step _ _ _ _ _ _ |- _ => invert Hf end.
+      pose proof (Forall2_map_get_l _ _ _ _ _ Hnodes Hget1) as (ngns & Hget2 & Hngns).
+      constructor; cbn [flat_map inputs_of outputs_of app graph_nodes graph_output_queue].
+      + exact Hinp.
+      + exact Hout.
+      + eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
+        eapply same_domain_put_r. exact Hget1.
+      + exact Hwf.
+      + eapply Forall2_map_put_l; [ | exact Hget2 | simpl; exact Hngns ].
+        eapply Forall2_map_impl; [ exact Hnodes | ]. auto.
+      + eapply dm_reachable_perm.
         { eapply dest_msgs_put with (new := []).
-          - eassumption.
-          - cbv [all_pending_msgs]. simpl. rewrite H2. rewrite <- !app_assoc.
+          - exact Hget1.
+          - cbv [all_pending_msgs]. simpl. rewrite Hqueue. rewrite <- !app_assoc.
             apply Permutation_app_head. symmetry. apply Permutation_middle. }
-        simpl. assumption. }
-      intros dest Hdest. specialize (Hp6 dest Hdest).
-      destruct Hp6 as (Q & HQ & Htr). cbv [delivered_to]. exists Q. split.
-      { erewrite arrived_put_unchanged by (eassumption || reflexivity). exact HQ. }
-      rewrite dest_msgs_put with (new := []).
-      2: eassumption.
-      2: { cbv [all_pending_msgs]. simpl. rewrite H2. rewrite <- !app_assoc.
-           apply Permutation_app_head. symmetry. apply Permutation_middle. }
-      simpl. exact Htr.
+        simpl. exact Hmr.
+      + intros dest Hdest. destruct (Hdel dest Hdest) as (Q & HQ & Htr).
+        exists Q. split.
+        { erewrite arrived_put_unchanged by (eassumption || reflexivity). exact HQ. }
+        rewrite dest_msgs_put with (new := []).
+        2: exact Hget1.
+        2: { cbv [all_pending_msgs]. simpl. rewrite Hqueue. rewrite <- !app_assoc.
+             apply Permutation_app_head. symmetry. apply Permutation_middle. }
+        simpl. exact Htr.
     - destruct e; simpl in Hstepp0; congruence || fwd. destruct Hsilent.
   Qed.
 
@@ -1458,8 +1473,8 @@ Section __.
     destruct (fgraph_to_pending s1 n ns (f, orig) Hget Hpend)
       as (sa & ta & ns' & Hstara & Hsila & Hgeta & Hpenda).
     pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila) as HRa.
-    cbv [forwarding_R] in HRa. fwd.
-    destruct (fgraph_route_to sa n ns' f orig d HRap2 Hgeta Hpenda Hd) as (sb & Hstep & Hinb).
+    destruct (fgraph_route_to sa n ns' f orig d HRa.(fR_compat) Hgeta Hpenda Hd)
+      as (sb & Hstep & Hinb).
     exists sb, (O_event (run n (forward_label f)) [] :: ta). split.
     { eapply star_step; eassumption. }
     split.
@@ -1508,19 +1523,17 @@ Section __.
       In (f, orig) (to_consume_at s1' n).
   Proof.
     intros Hreaches Htree Hno HR Hvalid Hin.
-    pose proof HR as HR'. cbv [forwarding_R delivered_to] in HR'. fwd.
-    specialize (HR'p6 (node_destn n) Hvalid). fwd.
-    eapply Permutation_in in Hin; [ | exact HR'p6p0 ].
+    destruct (HR.(fR_delivered) (node_destn n) Hvalid) as (Q & HQ & Htr).
+    eapply Permutation_in in Hin; [ | exact HQ ].
     apply in_app_or in Hin. destruct Hin as [Hin | Hin].
     { cbn [arrived] in Hin. apply in_map_iff in Hin.
       destruct Hin as ((f', orig) & Hfst & Hin). simpl in Hfst. subst f'.
       exists s1, [], orig. split; [ apply star_refl | ].
       split; [ constructor | exact Hin ]. }
-    eapply travelling_to_in_inv in Hin; [ | exact HR'p6p1 ].
+    eapply travelling_to_in_inv in Hin; [ | exact Htr ].
     destruct Hin as (loc & orig & Hdm & (p & Hpath) & Hroute).
     destruct (fgraph_deliver s1 t1 s2 t2 f orig loc p (loc_of_dest (node_destn n))
                 Hreaches Htree Hno HR Hdm Hpath) as (sa & ta & Hstara & Hsila & Hina).
-    pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila) as HRa.
     cbn [loc_of_dest] in Hina. apply in_dest_msgs_inv in Hina.
     destruct Hina as [(m & ms & Hloc & Hgetm & Hpend) | (Hloc & _)]; [ | discriminate Hloc ].
     injection Hloc as Hnm. subst m.
@@ -1546,10 +1559,10 @@ Section __.
       In (f, orig) s1'.(graph_output_queue).
   Proof.
     intros Hreaches Htree Hno HR Hin.
-    pose proof HR as HR'. cbv [forwarding_R delivered_to] in HR'. fwd.
-    specialize (HR'p6 output_destn I). fwd. cbn [arrived app] in HR'p6p0.
-    eapply Permutation_in in Hin; [ | exact HR'p6p0 ].
-    eapply travelling_to_in_inv in Hin; [ | exact HR'p6p1 ].
+    destruct (HR.(fR_delivered) output_destn I) as (Q & HQ & Htr).
+    cbn [arrived app] in HQ.
+    eapply Permutation_in in Hin; [ | exact HQ ].
+    eapply travelling_to_in_inv in Hin; [ | exact Htr ].
     destruct Hin as (loc & orig & Hdm & (p & Hpath) & _).
     destruct (fgraph_deliver s1 t1 s2 t2 f orig loc p (loc_of_dest output_destn)
                 Hreaches Htree Hno HR Hdm Hpath) as (sa & ta & Hstara & Hsila & Hina).
@@ -1558,188 +1571,262 @@ Section __.
     exists sa, ta, orig. split; [ exact Hstara | ]. split; [ exact Hsila | exact Hout ].
   Qed.
 
+  (* ===== The four synchronized step shapes.  Each lemma re-establishes
+     [forwarding_R] once; the two weak-simulation directions below share them,
+     each contributing only its own step construction. ===== *)
+
+  Lemma forwarding_R_input s1 t1 s2 t2 m :
+    forwarding_reaches ->
+    forwarding_tree ->
+    no_extra_outputs ->
+    forwarding_R s1 t1 s2 t2 ->
+    forwarding_R
+      (forward_to (fforwardb input_source) [(m, input_source)] s1) (I_event m :: t1)
+      (forward_to (nforwardb input_source) [m] s2) (I_event m :: t2).
+  Proof.
+    intros Hreaches Htree Hno [Hinp Hout Hcompat Hwf Hnodes Hmr Hdel].
+    constructor; cbn [flat_map inputs_of outputs_of app
+                      forward_to graph_nodes graph_output_queue].
+    - f_equal. exact Hinp.
+    - exact Hout.
+    - eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
+      apply forward_to_same_domain.
+    - intros f orig Hin.
+      apply in_app_or in Hin. destruct Hin as [Hin | Hin]; [ | exact (Hwf _ _ Hin) ].
+      apply filter_In in Hin. destruct Hin as [Hin Hkeep].
+      destruct Hin as [Heq | []]. fwd.
+      apply inb_true_iff in Hkeep. apply Hno.
+      eapply graph.reaches_step_before; [ apply graph.reaches_self | ].
+      apply forwarding_graph_spec. fwd. eauto.
+    - apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
+      eapply Forall2_map_impl; [ exact Hnodes | ]. simpl. auto.
+    - apply msgs_reachable_forward_to;
+        [ exact Hcompat | apply graph.reaches_self | exact Hmr ].
+    - intros dest Hdest. destruct (Hdel dest Hdest) as (Q & HQ & Htr).
+      eexists. split.
+      + rewrite queue_at_dest_forward_to; [ | | exact Hdest ].
+        2: { eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
+             eapply Forall2_map_same_domain. exact Hnodes. }
+        rewrite arrived_forward_to, HQ. apply Permutation_app_swap_app.
+      + rewrite dest_msgs_forward_to by exact Hcompat.
+        apply travelling_to_app; [ | exact Htr ].
+        apply travelling_to_forwarded; [ exact Hreaches | exact Htree | ].
+        intro Hc. destruct dest; discriminate Hc.
+  Qed.
+
+  Lemma forwarding_R_deduce s1 t1 s2 t2 n fns ngns ns' lbl outs :
+    forwarding_reaches ->
+    forwarding_R s1 t1 s2 t2 ->
+    map.get s1.(graph_nodes) n = Some fns ->
+    map.get s2.(graph_nodes) n = Some ngns ->
+    node_step (prog_at n) fns.(gns_node_state).(fnode_node) (O_event lbl outs) ns' ->
+    forwarding_R
+      {| graph_nodes :=
+           map.put s1.(graph_nodes) n
+             {| gns_node_state :=
+                  {| fnode_node := ns';
+                     fnode_pending := map (fun f => (f, node_source n)) outs
+                                      ++ fns.(gns_node_state).(fnode_pending);
+                     fnode_to_consume := fns.(gns_node_state).(fnode_to_consume) |};
+                gns_trace := O_event (deduce_label lbl) [] :: fns.(gns_trace);
+                gns_queue := fns.(gns_queue) |};
+         graph_output_queue := s1.(graph_output_queue) |}
+      (O_event (run n (deduce_label lbl)) [] :: t1)
+      (forward_to (nforwardb (node_source n)) outs
+         {| graph_nodes :=
+              map.put s2.(graph_nodes) n
+                {| gns_node_state := ns';
+                   gns_trace := O_event lbl outs :: ngns.(gns_trace);
+                   gns_queue := ngns.(gns_queue) |};
+            graph_output_queue := s2.(graph_output_queue) |})
+      (O_event (run n lbl) [] :: t2).
+  Proof.
+    intros Hreaches [Hinp Hout Hcompat Hwf Hnodes Hmr Hdel] Hget1 Hget2 Hnstep.
+    constructor; cbn [flat_map inputs_of outputs_of app graph_nodes graph_output_queue].
+    - exact Hinp.
+    - exact Hout.
+    - eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
+      eapply same_domain_put_r. exact Hget1.
+    - exact Hwf.
+    - apply Forall2_map_map_values'_r. simpl.
+      apply Forall2_map_put_both.
+      + eapply Forall2_map_impl; [ exact Hnodes | ]. simpl. auto.
+      + simpl. reflexivity.
+    - eapply dm_reachable_perm.
+      { eapply dest_msgs_put.
+        - exact Hget1.
+        - cbv [all_pending_msgs]. simpl. rewrite !app_assoc.
+          apply Permutation_app; [ apply Permutation_app_comm | reflexivity ]. }
+      apply dm_reachable_app; [ apply dm_reachable_deduced | exact Hmr ].
+    - intros dest Hdest. destruct (Hdel dest Hdest) as (Q & HQ & Htr).
+      eexists. split.
+      + rewrite queue_at_dest_forward_to; [ | | exact Hdest ].
+        2: { simpl. eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
+             eapply same_domain_trans.
+             - eapply Forall2_map_same_domain. exact Hnodes.
+             - eapply same_domain_put_r. exact Hget2. }
+        rewrite (queue_at_dest_ext _ s2).
+        2: { simpl. intros. rewrite map.get_put_dec.
+             Tactics.destruct_one_match; try reflexivity.
+             simpl. rewrite Hget2. reflexivity. }
+        2: { reflexivity. }
+        erewrite arrived_put_unchanged by (eassumption || reflexivity).
+        rewrite HQ. apply Permutation_app_swap_app.
+      + rewrite dest_msgs_put.
+        2: exact Hget1.
+        2: { cbv [all_pending_msgs]. simpl. rewrite !app_assoc.
+             apply Permutation_app; [ apply Permutation_app_comm | reflexivity ]. }
+        rewrite map_map.
+        apply travelling_to_app; [ | exact Htr ].
+        apply travelling_to_deduced. exact Hreaches.
+  Qed.
+
+  Lemma forwarding_R_consume s1 t1 s2 t2 n fns ngns ns' f orig c1 c2 ms1 ms2 :
+    forwarding_R s1 t1 s2 t2 ->
+    map.get s1.(graph_nodes) n = Some fns ->
+    map.get s2.(graph_nodes) n = Some ngns ->
+    fns.(gns_node_state).(fnode_to_consume) = c1 ++ (f, orig) :: c2 ->
+    ngns.(gns_queue) = ms1 ++ f :: ms2 ->
+    forwarding_R
+      {| graph_nodes :=
+           map.put s1.(graph_nodes) n
+             {| gns_node_state :=
+                  {| fnode_node := ns';
+                     fnode_pending := fns.(gns_node_state).(fnode_pending);
+                     fnode_to_consume := c1 ++ c2 |};
+                gns_trace := O_event (consume_label f) [] :: fns.(gns_trace);
+                gns_queue := fns.(gns_queue) |};
+         graph_output_queue := s1.(graph_output_queue) |}
+      (O_event (run n (consume_label f)) [] :: t1)
+      {| graph_nodes :=
+           map.put s2.(graph_nodes) n
+             {| gns_node_state := ns';
+                gns_trace := I_event f :: ngns.(gns_trace);
+                gns_queue := ms1 ++ ms2 |};
+         graph_output_queue := s2.(graph_output_queue) |}
+      (O_event (receive n f) [] :: t2).
+  Proof.
+    intros [Hinp Hout Hcompat Hwf Hnodes Hmr Hdel] Hget1 Hget2 Hc Hms.
+    constructor; cbn [flat_map inputs_of outputs_of app graph_nodes graph_output_queue].
+    - exact Hinp.
+    - exact Hout.
+    - eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
+      eapply same_domain_put_r. exact Hget1.
+    - exact Hwf.
+    - apply Forall2_map_put_both.
+      + eapply Forall2_map_impl; [ exact Hnodes | ]. simpl. auto.
+      + reflexivity.
+    - eapply dm_reachable_perm.
+      { eapply dest_msgs_put with (new := []); [ exact Hget1 | reflexivity ]. }
+      simpl. exact Hmr.
+    - intros dest Hdest. destruct (Hdel dest Hdest) as (Q & HQ & Htr).
+      exists Q. split.
+      2: { rewrite dest_msgs_put with (new := []); [ | exact Hget1 | reflexivity ].
+           simpl. exact Htr. }
+      rewrite queue_at_dest_put, arrived_put. destr (eqb dest (node_destn n)).
+      2: exact HQ.
+      erewrite queue_at_dest_get in HQ by exact Hget2.
+      erewrite arrived_get in HQ by exact Hget1.
+      rewrite Hms, Hc, map_app in HQ. cbn [map fst] in HQ.
+      rewrite <- !Permutation_middle in HQ. cbn [app] in HQ.
+      apply Permutation_cons_inv in HQ.
+      cbn [gns_queue gns_node_state fnode_to_consume]. rewrite map_app. exact HQ.
+  Qed.
+
+  Lemma forwarding_R_output s1 t1 s2 t2 m orig oq1 oq2 q1 q2 :
+    forwarding_R s1 t1 s2 t2 ->
+    s1.(graph_output_queue) = oq1 ++ (m, orig) :: oq2 ->
+    s2.(graph_output_queue) = q1 ++ m :: q2 ->
+    forwarding_R
+      {| graph_nodes := s1.(graph_nodes); graph_output_queue := oq1 ++ oq2 |}
+      (O_event (emit (m, orig)) [m] :: t1)
+      {| graph_nodes := s2.(graph_nodes); graph_output_queue := q1 ++ q2 |}
+      (O_event (emit m) [m] :: t2).
+  Proof.
+    intros HR Ho1 Ho2.
+    pose proof HR as [Hinp Hout Hcompat Hwf Hnodes Hmr Hdel].
+    constructor; cbn [flat_map inputs_of outputs_of app graph_nodes graph_output_queue].
+    - exact Hinp.
+    - f_equal. exact Hout.
+    - exact Hcompat.
+    - eapply wf_queues_incl; [ | exact Hwf ]. cbn [graph_output_queue]. rewrite Ho1.
+      apply incl_app; [ apply incl_appl, incl_refl | apply incl_appr, incl_tl, incl_refl ].
+    - exact Hnodes.
+    - eapply dm_reachable_incl; [ | exact Hmr ].
+      cbv [dest_msgs]. cbn [graph_nodes graph_output_queue]. rewrite Ho1, !map_app.
+      cbn [map]. rewrite !app_assoc. apply incl_middle.
+    - intros dest Hdest. destruct (Hdel dest Hdest) as (Q & HQ & Htr).
+      erewrite dest_msgs_output_append
+        with (s2 := Build_graph_state _ _) (oms := [(m, orig)]) in Htr.
+      2: { simpl. reflexivity. }
+      2: { simpl. rewrite Ho1. symmetry. apply Permutation_middle. }
+      destruct dest as [k | ].
+      + exists Q. split; [ exact HQ | ].
+        simpl in Htr. apply travelling_to_cons_inv_unreached in Htr; [ exact Htr | ].
+        simpl. intros Hr. apply output_loc_reaches_only in Hr. discriminate Hr.
+      + exists (q1 ++ q2). split; [ reflexivity | ].
+        cbn [queue_at_dest arrived app] in HQ. rewrite Ho2 in HQ.
+        rewrite <- Permutation_middle in HQ. rewrite <- HQ in Htr.
+        simpl in Htr. apply travelling_to_cons_inv in Htr.
+        2: { apply Hwf. rewrite Ho1. apply in_app_iff. cbn [In]. auto. }
+        exact Htr.
+  Qed.
+
   Lemma fgraph_weak_sims_ngraph :
     forwarding_reaches ->
     forwarding_tree ->
     no_extra_outputs ->
     weak_sim fgraph_step ngraph_step forwarding_R.
   Proof.
-    intros Hreaches Htree Hno.
-    cbv [weak_sim]. intros.
+    intros Hreaches Htree Hno s1 t1 s1' s2 t2 e HR Hstep.
     destruct (silent_event_dec e) as [Hsil | Hsil].
     { exists s2, []. split; [ apply star_refl | ]. split.
       { symmetry. apply silent_event_inputs, Hsil. }
       eapply forwarding_R_silent_step; eassumption. }
-    cbv [fgraph_step] in H0. fwd. invert H0p1.
-    - destruct e; simpl in H0p0; fwd. 2: congruence.
-      do 2 eexists. split.
-      { apply star_one. apply gstep_input. }
-      split; [reflexivity|]. cbv [forwarding_R] in *. fwd.
-      split.
-      { simpl. f_equal. assumption. }
-      split.
-      { simpl. assumption. }
-      split.
-      { eapply forwarding_compatible_same_domain; [eassumption|].
-        apply forward_to_same_domain. }
-      split.
-      { intros f orig Hin.
-        cbn [forward_to graph_output_queue] in Hin.
-        apply in_app_or in Hin. destruct Hin as [Hin | Hin]; [|solve[eauto]].
-        apply filter_In in Hin. destruct Hin as [Hin Hkeep].
-        destruct Hin as [Heq | []]. fwd.
-        apply inb_true_iff in Hkeep.
-        apply Hno.
-        eapply graph.reaches_step_before; [ apply graph.reaches_self | ].
-        apply forwarding_graph_spec. fwd. eauto. }
-      split.
-      { simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
-        eapply Forall2_map_impl; [eassumption|]. simpl. intros. assumption. }
-      split.
-      { apply msgs_reachable_forward_to; [ assumption | apply graph.reaches_self | assumption ]. }
-      intros dest Hdest. specialize (Hp6 dest Hdest).
-      destruct Hp6 as (Q & HQ & Htr). cbv [delivered_to]. eexists. split.
-      { rewrite queue_at_dest_forward_to; try assumption.
-        2: { eapply forwarding_compatible_same_domain; [eassumption|].
-             eapply Forall2_map_same_domain. eassumption. }
-        rewrite arrived_forward_to, HQ. apply Permutation_app_swap_app. }
-      rewrite dest_msgs_forward_to by assumption.
-      apply travelling_to_app; [ | exact Htr ].
-      apply travelling_to_forwarded; try assumption.
-      intro H'. simpl in H'. destruct dest; discriminate H'.
-    - destruct e; simpl in H0p0; congruence || fwd. invert H1.
-      + cbv [forwarding_R] in H. fwd. pose proof H0 as H0'.
-        eapply Forall2_map_get_l in H0; [|eassumption].
-        simpl in H0. fwd.
-        do 2 eexists. split.
-        { apply star_one. apply gstep_run; try eassumption. rewrite <- H0p1.
-          eassumption. }
-        simpl. split; [reflexivity|]. rewrite forward_to_nil.
-        cbv [forwarding_R]. simpl.
-        split; [assumption|]. split; [assumption|].
-        split.
-        { eapply forwarding_compatible_same_domain; [eassumption|].
-          eapply same_domain_put_r; eassumption. }
-        split.
-        { assumption. }
-        split.
-        { apply Forall2_map_map_values'_r. simpl.
-          apply Forall2_map_put_both.
-          - eapply Forall2_map_impl; [eassumption|]. simpl. auto.
-          - simpl. reflexivity. }
-        split.
-        { unfold msgs_reachable.
-          eapply dm_reachable_perm.
-          { eapply dest_msgs_put.
-            - eassumption.
-            - cbv [all_pending_msgs]. simpl. rewrite !app_assoc.
-              apply Permutation_app; [|reflexivity]. apply Permutation_app_comm. }
-          apply dm_reachable_app; [ apply dm_reachable_deduced | assumption ]. }
-        intros dest Hdest. specialize (Hp6 dest Hdest).
-        destruct Hp6 as (Q & HQ & Htr). cbv [delivered_to]. eexists. split.
-        { rewrite queue_at_dest_forward_to.
-          3: eassumption.
-          2: { simpl. eapply forwarding_compatible_same_domain; [eassumption|].
-               eapply same_domain_trans.
-               - eapply Forall2_map_same_domain. eassumption.
-               - eapply same_domain_put_r. eassumption. }
-          rewrite (queue_at_dest_ext _ s2).
-          2: { simpl. intros. rewrite map.get_put_dec.
-               Tactics.destruct_one_match; try reflexivity.
-               simpl. rewrite H0p0. reflexivity. }
-          2: { reflexivity. }
-          erewrite arrived_put_unchanged by (eassumption || reflexivity).
-          rewrite HQ. apply Permutation_app_swap_app. }
-        rewrite dest_msgs_put.
-        2: eassumption.
-        2: { cbv [all_pending_msgs]. simpl. rewrite !app_assoc.
-             apply Permutation_app; [|reflexivity]. apply Permutation_app_comm. }
-        rewrite map_map.
-        apply travelling_to_app; [ | exact Htr ].
-        apply travelling_to_deduced. assumption.
+    cbv [fgraph_step] in Hstep. fwd. invert Hstepp1.
+    - destruct e as [me | lble outse]; simpl in Hstepp0; fwd. 2: congruence.
+      eexists _, [I_event me]. split; [ apply star_one, gstep_input | ].
+      split; [ reflexivity | ].
+      apply forwarding_R_input; assumption.
+    - destruct e; simpl in Hstepp0; congruence || fwd.
+      match goal with Hg : map.get _ _ = Some _ |- _ => rename Hg into Hget1 end.
+      match goal with Hf : fnode_step _ _ _ _ _ _ |- _ => invert Hf end.
+      + match goal with Hn : node_step _ _ _ _ |- _ => rename Hn into Hnstep end.
+        pose proof (Forall2_map_get_l _ _ _ _ _ HR.(fR_nodes) Hget1) as (ngns & Hget2 & Hngns).
+        eexists _, [O_event (run n lbl0) []]. split.
+        { apply star_one. eapply gstep_run; [ exact Hget2 | ].
+          rewrite <- Hngns. exact Hnstep. }
+        split; [ reflexivity | ]. rewrite forward_to_nil.
+        eapply forwarding_R_deduce; eassumption.
       + destruct (Hsil I).
-      + cbv [forwarding_R] in H. fwd.
-        pose proof @Forall2_map_get_l as Hget. especialize Hget; try eassumption. fwd.
+      + match goal with Hn : node_step _ _ _ _ |- _ => rename Hn into Hnstep end.
+        match goal with Hp : fnode_to_consume _ = _ |- _ => rename Hp into Hcons end.
+        pose proof (Forall2_map_get_l _ _ _ _ _ HR.(fR_nodes) Hget1) as (ngns & Hget2 & Hngns).
         assert (Hin : In f (queue_at_dest s2 (node_destn n))).
         { eapply delivered_to_arrived_incl.
-          { apply Hp6. simpl. apply Hp2. congruence. }
-          erewrite arrived_get by exact H0. rewrite H5, map_app.
+          { apply HR.(fR_delivered). simpl. apply HR.(fR_compat). congruence. }
+          erewrite arrived_get by exact Hget1. rewrite Hcons, map_app.
           apply in_or_app. right. left. reflexivity. }
-        erewrite queue_at_dest_get in Hin by exact Hgetp0.
+        erewrite queue_at_dest_get in Hin by exact Hget2.
         apply in_split in Hin. destruct Hin as (ms1 & ms2 & Hms).
-        do 2 eexists. split.
-        { apply star_one. eapply gstep_receive; [ exact Hgetp0 | | exact Hms ].
-          rewrite <- Hgetp1. exact H7. }
-        split; [reflexivity|]. rewrite forward_to_nil.
-        cbv [forwarding_R]. simpl.
-        split; [assumption|]. split; [assumption|].
-        split.
-        { eapply forwarding_compatible_same_domain; [eassumption|].
-          eapply same_domain_put_r. exact H0. }
-        split; [assumption|].
-        split.
-        { apply Forall2_map_put_both.
-          - eapply Forall2_map_impl; [eassumption|]. simpl. auto.
-          - reflexivity. }
-        split.
-        { unfold msgs_reachable. eapply dm_reachable_perm.
-          { eapply dest_msgs_put with (new := []); [ exact H0 | reflexivity ]. }
-          simpl. assumption. }
-        intros dest Hdest. specialize (Hp6 dest Hdest).
-        destruct Hp6 as (Qd & HQd & Htrd). cbv [delivered_to]. exists Qd. split.
-        2: { rewrite dest_msgs_put with (new := []); [ | exact H0 | reflexivity ].
-             simpl. exact Htrd. }
-        rewrite queue_at_dest_put, arrived_put. destr (eqb dest (node_destn n)).
-        2: exact HQd.
-        erewrite queue_at_dest_get in HQd by exact Hgetp0.
-        erewrite arrived_get in HQd by exact H0.
-        rewrite Hms, H5, map_app in HQd. cbn [map fst] in HQd.
-        rewrite <- !Permutation_middle in HQd. cbn [app] in HQd.
-        apply Permutation_cons_inv in HQd.
-        cbn [gns_queue gns_node_state fnode_to_consume]. rewrite map_app. exact HQd.
-    - destruct e; simpl in H0p0; congruence || fwd. destruct (Hsil I).
-    - destruct e; simpl in H0p0; congruence || fwd.
-      pose proof forwarding_R_output_incl_rev as Houts. especialize Houts; eauto.
-      cbv [incl] in Houts. especialize Houts.
-      { apply in_map. rewrite H0. apply in_app_iff. simpl. eauto. }
-      apply in_split in Houts. destruct Houts as (oq1 & oq2 & Hoq).
-      do 2 eexists. split.
-      { apply star_one. apply gstep_output. eassumption. }
-      split; [reflexivity|]. simpl.
-      cbv [forwarding_R] in *. fwd. simpl.
-      split; [assumption|]. split.
-      { f_equal. assumption. }
-      split; [assumption|]. split.
-      { eapply wf_queues_incl; [ | exact Hp3 ]. cbn [graph_output_queue]. rewrite H0.
-        apply incl_app; [ apply incl_appl, incl_refl | apply incl_appr, incl_tl, incl_refl ]. }
-      split; [assumption|].
-      split.
-      { unfold msgs_reachable.
-        eapply dm_reachable_incl; [ | eassumption ].
-        cbv [dest_msgs]. cbn [graph_nodes graph_output_queue]. rewrite H0, !map_app.
-        cbn [map]. rewrite !app_assoc. apply incl_middle. }
-      intros dest Hdest. specialize (Hp6 dest Hdest).
-      destruct Hp6 as (Q & HQ & Htr). cbv [delivered_to].
-      erewrite dest_msgs_output_append with (s2 := Build_graph_state _ _) (oms := [m]) in Htr.
-      2: { simpl. reflexivity. }
-      2: { simpl. rewrite H0. symmetry. apply Permutation_middle. }
-      destruct dest.
-      2: { exists (oq1 ++ oq2). split; [ reflexivity | ].
-           cbn [queue_at_dest arrived app] in HQ. rewrite Hoq in HQ.
-           rewrite <- Permutation_middle in HQ. rewrite <- HQ in Htr.
-           destruct m. simpl in Htr. apply travelling_to_cons_inv in Htr.
-           2: { apply Hp3. rewrite H0. apply in_app_iff. simpl. auto. }
-           exact Htr. }
-      exists Q. split; [ exact HQ | ].
-      destruct m. simpl in Htr. apply travelling_to_cons_inv_unreached in Htr.
-      { exact Htr. }
-      simpl. intros Hr. apply output_loc_reaches_only in Hr. discriminate Hr.
-  Qed.
-  Lemma silent_star_inputs t :
-    Forall silent_event t -> flat_map inputs_of t = [].
-  Proof.
-    induction 1 as [ | e t He _ IH ]; [ reflexivity | ].
-    cbn [flat_map]. rewrite IH, app_nil_r. apply silent_event_inputs, He.
+        eexists _, [O_event (receive n f) []]. split.
+        { apply star_one. eapply gstep_receive; [ exact Hget2 | | exact Hms ].
+          rewrite <- Hngns. exact Hnstep. }
+        split; [ reflexivity | ]. rewrite forward_to_nil.
+        eapply forwarding_R_consume; eassumption.
+    - destruct e; simpl in Hstepp0; congruence || fwd. destruct (Hsil I).
+    - destruct e; simpl in Hstepp0; congruence || fwd.
+      match goal with Ho : graph_output_queue _ = _ |- _ => rename Ho into Hoq1 end.
+      destruct m as (m & orig).
+      assert (Hm : In m (map fst s1.(graph_output_queue))).
+      { apply in_map_iff. exists (m, orig). split; [ reflexivity | ].
+        rewrite Hoq1. apply in_app_iff. right. left. reflexivity. }
+      apply (forwarding_R_output_incl_rev _ _ _ _ HR) in Hm.
+      apply in_split in Hm. destruct Hm as (nq1 & nq2 & Hnq).
+      eexists _, [O_event (emit m) [m]]. split.
+      { apply star_one. apply gstep_output. exact Hnq. }
+      split; [ reflexivity | ].
+      eapply forwarding_R_output; eassumption.
   Qed.
 
   Lemma ngraph_weak_sims_fgraph :
@@ -1748,186 +1835,61 @@ Section __.
     no_extra_outputs ->
     weak_sim ngraph_step fgraph_step (fun ns nt fs ft => forwarding_R fs ft ns nt).
   Proof.
-    intros Hreaches Htree Hno.
-    cbv [weak_sim]. intros ns nt ns' fs ft e HR Hstep.
+    intros Hreaches Htree Hno ns nt ns' fs ft e HR Hstep.
     cbv [ngraph_step] in Hstep. invert Hstep.
     - exists (forward_to (fforwardb input_source) [(m, input_source)] fs), [I_event m].
       split.
-      { apply star_one. cbv [fgraph_step]. eexists. split; [ reflexivity | apply gstep_input ]. }
+      { apply star_one. eexists. split; [ reflexivity | apply gstep_input ]. }
       split; [ reflexivity | ].
-      cbv [forwarding_R] in HR |- *. fwd.
-      split.
-      { simpl. f_equal. assumption. }
-      split.
-      { simpl. assumption. }
-      split.
-      { eapply forwarding_compatible_same_domain; [eassumption|].
-        apply forward_to_same_domain. }
-      split.
-      { intros f orig Hin.
-        cbn [forward_to graph_output_queue] in Hin.
-        apply in_app_or in Hin. destruct Hin as [Hin | Hin]; [|solve[eauto]].
-        apply filter_In in Hin. destruct Hin as [Hin Hkeep].
-        destruct Hin as [Heq | []]. fwd.
-        apply inb_true_iff in Hkeep. apply Hno.
-        eapply graph.reaches_step_before; [ apply graph.reaches_self | ].
-        apply forwarding_graph_spec. fwd. eauto. }
-      split.
-      { simpl. apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
-        eapply Forall2_map_impl; [eassumption|]. simpl. intros. assumption. }
-      split.
-      { apply msgs_reachable_forward_to; [ assumption | apply graph.reaches_self | assumption ]. }
-      intros dest Hdest. specialize (HRp6 dest Hdest).
-      destruct HRp6 as (Q & HQ & Htr). cbv [delivered_to]. eexists. split.
-      { rewrite queue_at_dest_forward_to; try assumption.
-        2: { eapply forwarding_compatible_same_domain; [eassumption|].
-             eapply Forall2_map_same_domain. eassumption. }
-        rewrite arrived_forward_to, HQ. apply Permutation_app_swap_app. }
-      rewrite dest_msgs_forward_to by assumption.
-      apply travelling_to_app; [ | exact Htr ].
-      apply travelling_to_forwarded; try assumption.
-      intro H'. simpl in H'. destruct dest; discriminate H'.
-    - pose proof HR as HR'. cbv [forwarding_R] in HR'. fwd.
-      destruct (Forall2_map_get_r _ _ _ _ _ HR'p4 H) as (fns & Hfns & Hfnseq).
-      eexists _, [O_event (run n (deduce_label lbl)) []].
-      split.
-      { apply star_one. cbv [fgraph_step]. eexists. split.
+      apply forwarding_R_input; assumption.
+    - destruct (Forall2_map_get_r _ _ _ _ _ HR.(fR_nodes) H) as (fns & Hfns & Hfnseq).
+      eexists _, [O_event (run n (deduce_label lbl)) []]. split.
+      { apply star_one. eexists. split.
         { cbn [corresp]. exists []. split; reflexivity. }
-        eapply gstep_run; [ exact Hfns | ]. apply fnode_deduce. rewrite Hfnseq. exact H0. }
+        eapply gstep_run; [ exact Hfns | ]. apply fnode_deduce.
+        rewrite Hfnseq. exact H0. }
       split; [ reflexivity | ]. rewrite forward_to_nil.
-      cbv [forwarding_R]. simpl.
-      split; [assumption|]. split; [assumption|].
-      split.
-      { eapply forwarding_compatible_same_domain; [eassumption|].
-        eapply same_domain_put_r; eassumption. }
-      split; [assumption|].
-      split.
-      { apply Forall2_map_map_values'_r. simpl.
-        apply Forall2_map_put_both.
-        - eapply Forall2_map_impl; [eassumption|]. simpl. auto.
-        - simpl. reflexivity. }
-      split.
-      { unfold msgs_reachable. eapply dm_reachable_perm.
-        { eapply dest_msgs_put.
-          - exact Hfns.
-          - cbv [all_pending_msgs]. simpl. rewrite !app_assoc.
-            apply Permutation_app; [|reflexivity]. apply Permutation_app_comm. }
-        apply dm_reachable_app; [ apply dm_reachable_deduced | assumption ]. }
-      intros dest Hdest. specialize (HR'p6 dest Hdest).
-      destruct HR'p6 as (Q & HQ & Htr). cbv [delivered_to]. eexists. split.
-      { rewrite queue_at_dest_forward_to.
-        3: eassumption.
-        2: { simpl. eapply forwarding_compatible_same_domain; [eassumption|].
-             eapply same_domain_trans.
-             - eapply Forall2_map_same_domain. eassumption.
-             - eapply same_domain_put_r. eassumption. }
-        rewrite (queue_at_dest_ext _ ns).
-        2: { simpl. intros. rewrite map.get_put_dec.
-             Tactics.destruct_one_match; try reflexivity.
-             simpl. rewrite H. reflexivity. }
-        2: { reflexivity. }
-        erewrite arrived_put_unchanged by (eassumption || reflexivity).
-        rewrite HQ. apply Permutation_app_swap_app. }
-      rewrite dest_msgs_put.
-      2: exact Hfns.
-      2: { cbv [all_pending_msgs]. simpl. rewrite !app_assoc.
-           apply Permutation_app; [|reflexivity]. apply Permutation_app_comm. }
-      rewrite map_map.
-      apply travelling_to_app; [ | exact Htr ].
-      apply travelling_to_deduced. assumption.
-    - pose proof HR as HR'. cbv [forwarding_R] in HR'. fwd.
-      destruct (Forall2_map_get_r _ _ _ _ _ HR'p4 H) as (fns & Hfns & Hfnseq).
+      eapply forwarding_R_deduce; try eassumption.
+      rewrite Hfnseq. exact H0.
+    - destruct (Forall2_map_get_r _ _ _ _ _ HR.(fR_nodes) H) as (fns & Hfns & Hfnseq).
       assert (Hvalid : valid_dest (node_destn n)).
-      { simpl. apply HR'p2. congruence. }
+      { simpl. apply HR.(fR_compat). congruence. }
       assert (Hin : In m (queue_at_dest ns (node_destn n))).
       { erewrite queue_at_dest_get by exact H. rewrite H1.
         apply in_or_app. right. left. reflexivity. }
       destruct (fgraph_deliver_to_node fs ft ns nt n m Hreaches Htree Hno HR Hvalid Hin)
         as (fsa & fta & orig & Hstara & Hsila & Hinc).
-      pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila) as HRa.
-      pose proof HRa as HRa'. cbv [forwarding_R] in HRa'. fwd.
-      destruct (Forall2_map_get_r _ _ _ _ _ HRa'p4 H) as (fnsa & Hfnsa & Hfnsaeq).
+      pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila)
+        as HRa.
+      destruct (Forall2_map_get_r _ _ _ _ _ HRa.(fR_nodes) H) as (fnsa & Hfnsa & Hfnsaeq).
       cbv [to_consume_at] in Hinc. rewrite Hfnsa in Hinc.
       cbn [option_map unwrap_or_default unwrap_or] in Hinc.
       apply in_split in Hinc. destruct Hinc as (c1 & c2 & Hc).
       eexists _, (O_event (run n (consume_label m)) [] :: fta).
       split.
-      { eapply star_step; [ exact Hstara | ]. cbv [fgraph_step]. eexists. split.
+      { eapply star_step; [ exact Hstara | ]. eexists. split.
         { cbn [corresp]. exists []. split; reflexivity. }
         eapply gstep_run; [ exact Hfnsa | ]. eapply fnode_consume; [ exact Hc | ].
         rewrite Hfnsaeq. exact H0. }
       split.
       { cbn [flat_map inputs_of]. rewrite silent_star_inputs by exact Hsila. reflexivity. }
-      rewrite forward_to_nil. cbv [forwarding_R]. simpl.
-      split; [assumption|]. split; [assumption|].
-      split.
-      { eapply forwarding_compatible_same_domain; [eassumption|].
-        eapply same_domain_put_r. exact Hfnsa. }
-      split; [assumption|].
-      split.
-      { apply Forall2_map_put_both.
-        - eapply Forall2_map_impl; [eassumption|]. simpl. auto.
-        - reflexivity. }
-      split.
-      { unfold msgs_reachable. eapply dm_reachable_perm.
-        { eapply dest_msgs_put with (new := []); [ exact Hfnsa | reflexivity ]. }
-        simpl. assumption. }
-      intros dest Hdest. specialize (HRa'p6 dest Hdest).
-      destruct HRa'p6 as (Qd & HQd & Htrd). cbv [delivered_to]. exists Qd. split.
-      2: { rewrite dest_msgs_put with (new := []); [ | exact Hfnsa | reflexivity ].
-           simpl. exact Htrd. }
-      rewrite queue_at_dest_put, arrived_put. destr (eqb dest (node_destn n)).
-      2: exact HQd.
-      erewrite queue_at_dest_get in HQd by exact H.
-      erewrite arrived_get in HQd by exact Hfnsa.
-      rewrite H1, Hc, map_app in HQd. cbn [map fst] in HQd.
-      rewrite <- !Permutation_middle in HQd. cbn [app] in HQd.
-      apply Permutation_cons_inv in HQd.
-      cbn [gns_queue gns_node_state fnode_to_consume]. rewrite map_app. exact HQd.
+      rewrite forward_to_nil.
+      eapply forwarding_R_consume; eassumption.
     - assert (Hin : In m ns.(graph_output_queue)).
-      { rewrite H. apply in_app_iff. simpl. auto. }
+      { rewrite H. apply in_app_iff. right. left. reflexivity. }
       destruct (fgraph_deliver_to_output fs ft ns nt m Hreaches Htree Hno HR Hin)
         as (fsa & fta & orig & Hstara & Hsila & Hout).
-      pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila) as HRa.
-      pose proof HRa as HRa'. cbv [forwarding_R] in HRa'. fwd.
+      pose proof (forwarding_R_silent_star _ _ _ _ _ _ Hreaches Htree Hno HR Hstara Hsila)
+        as HRa.
       apply in_split in Hout. destruct Hout as (oq1 & oq2 & Hoq).
       eexists _, (O_event (emit (m, orig)) [m] :: fta).
       split.
-      { eapply star_step; [ exact Hstara | ]. cbv [fgraph_step]. eexists. split.
+      { eapply star_step; [ exact Hstara | ]. eexists. split.
         { cbn [corresp]. exists [(m, orig)]. split; reflexivity. }
         apply gstep_output. exact Hoq. }
       split.
       { cbn [flat_map inputs_of]. rewrite silent_star_inputs by exact Hsila. reflexivity. }
-      cbv [forwarding_R]. simpl.
-      split; [assumption|].
-      split.
-      { f_equal. assumption. }
-      split; [assumption|].
-      split.
-      { eapply wf_queues_incl; [ | exact HRa'p3 ]. cbn [graph_output_queue]. rewrite Hoq.
-        apply incl_app; [ apply incl_appl, incl_refl | apply incl_appr, incl_tl, incl_refl ]. }
-      split; [assumption|].
-      split.
-      { unfold msgs_reachable.
-        eapply dm_reachable_incl; [ | eassumption ].
-        cbv [dest_msgs]. cbn [graph_nodes graph_output_queue]. rewrite Hoq, !map_app.
-        cbn [map]. rewrite !app_assoc. apply incl_middle. }
-      intros dest Hdest. specialize (HRa'p6 dest Hdest).
-      destruct HRa'p6 as (Q & HQ & Htr). cbv [delivered_to].
-      erewrite dest_msgs_output_append with (s2 := Build_graph_state _ _) (oms := [(m, orig)]) in Htr.
-      2: { simpl. reflexivity. }
-      2: { simpl. rewrite Hoq. symmetry. apply Permutation_middle. }
-      destruct dest.
-      2: { exists (q1 ++ q2). split; [ reflexivity | ].
-           cbn [queue_at_dest arrived app] in HQ. rewrite H in HQ.
-           rewrite <- Permutation_middle in HQ. rewrite <- HQ in Htr.
-           simpl in Htr. apply travelling_to_cons_inv in Htr.
-           2: { apply HRa'p3. rewrite Hoq. apply in_app_iff. simpl. auto. }
-           exact Htr. }
-      exists Q. split; [ exact HQ | ].
-      simpl in Htr. apply travelling_to_cons_inv_unreached in Htr.
-      { exact Htr. }
-      simpl. intros Hr. apply output_loc_reaches_only in Hr. discriminate Hr.
+      eapply forwarding_R_output; eassumption.
   Qed.
 
 End __.
