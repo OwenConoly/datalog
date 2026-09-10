@@ -1505,29 +1505,6 @@ Section __.
     cbn [forward_to graph_output_queue]. apply in_or_app. left. exact Hin.
   Qed.
 
-  Lemma fgraph_route_step (s : fgstate) n ns f orig q1 q2 :
-    map.get s.(graph_nodes) n = Some ns ->
-    ns.(gns_node_state).(fnode_pending) = q1 ++ (f, orig) :: q2 ->
-    fgraph_step s (O_event (run n (forward_label f)) [])
-      (forward_to (fforwardb (node_source n)) [(f, orig)]
-         {| graph_nodes :=
-              map.put s.(graph_nodes) n
-                {| gns_node_state :=
-                     {| fnode_node := ns.(gns_node_state).(fnode_node);
-                        fnode_pending := q1 ++ q2;
-                        fnode_to_consume :=
-                          if (fprog_at n).(fnode_keep) f orig
-                          then (f, orig) :: ns.(gns_node_state).(fnode_to_consume)
-                          else ns.(gns_node_state).(fnode_to_consume) |};
-                   gns_trace := O_event (forward_label f) [(f, orig)] :: ns.(gns_trace);
-                   gns_queue := ns.(gns_queue) |};
-            graph_output_queue := s.(graph_output_queue) |}).
-  Proof.
-    intros Hget Hq. cbv [fgraph_step]. eexists. split.
-    { cbn [corresp]. exists []. split; reflexivity. }
-    eapply gstep_run; [ exact Hget | ]. apply fnode_route. exact Hq.
-  Qed.
-
   Lemma fgraph_route_to (s : fgstate) n ns f orig d :
     forwarding_compatible s.(graph_nodes) ->
     map.get s.(graph_nodes) n = Some ns ->
@@ -1539,7 +1516,10 @@ Section __.
   Proof.
     intros Hcompat Hget Hin Hd.
     apply in_split in Hin. destruct Hin as (q1 & q2 & Hq).
-    eexists. split; [ eapply fgraph_route_step; eassumption | ].
+    eexists. split.
+    { eexists. split.
+      { cbn [corresp]. exists []. split; reflexivity. }
+      eapply gstep_run; [ exact Hget | ]. apply fnode_route. exact Hq. }
     assert (Hkeep : filter (fforwardb (node_source n) d) [(f, orig)] = [(f, orig)]).
     { rewrite filter_fforwardb_single. destr (inb d (fforward (node_source n) (message.rel f, orig)));
         [ reflexivity | contradiction ]. }
@@ -1563,7 +1543,10 @@ Section __.
   Proof.
     intros Hget Hin Hkeep.
     apply in_split in Hin. destruct Hin as (q1 & q2 & Hq).
-    eexists. split; [ eapply fgraph_route_step; eassumption | ].
+    eexists. split.
+    { eexists. split.
+      { cbn [corresp]. exists []. split; reflexivity. }
+      eapply gstep_run; [ exact Hget | ]. apply fnode_route. exact Hq. }
     cbv [to_consume_at]. cbn [forward_to graph_nodes]. rewrite get_map_values'.
     rewrite map.get_put_same.
     cbn [option_map unwrap_or_default unwrap_or enqueue gns_node_state fnode_to_consume fprog_at fnode_keep].
@@ -1700,29 +1683,6 @@ Section __.
     eapply Forall2_map_same_domain. exact HR.(fR_nodes).
   Qed.
 
-  (* assembles [forwarding_R] for a synchronized step: the traces stay matched,
-     the fgraph-side invariant rides along the step, and the caller supplies the
-     two genuinely joint fields *)
-  Lemma forwarding_R_step s1 t1 s2 t2 s1' e1 s2' e2 :
-    forwarding_R s1 t1 s2 t2 ->
-    fgraph_step s1 e1 s1' ->
-    inputs_of e1 = inputs_of e2 ->
-    outputs_of e1 = outputs_of e2 ->
-    Forall2_map (fun _ fgns ngns =>
-        fgns.(gns_node_state).(fnode_node) = ngns.(gns_node_state))
-      s1'.(graph_nodes) s2'.(graph_nodes) ->
-    (forall dest, valid_dest dest -> delivered_to s1' s2' dest) ->
-    forwarding_R s1' (e1 :: t1) s2' (e2 :: t2).
-  Proof.
-    intros [Hinp Hout Hwf1 _ _] Hstep Hi Ho Hnodes Hdel.
-    constructor; cbn [flat_map].
-    - rewrite Hi, Hinp. reflexivity.
-    - rewrite Ho, Hout. reflexivity.
-    - eapply fgraph_step_preserves_state_wf; eassumption.
-    - exact Hnodes.
-    - exact Hdel.
-  Qed.
-
   Lemma fgraph_weak_sims_ngraph :
     weak_sim fgraph_step ngraph_step forwarding_R.
   Proof.
@@ -1736,11 +1696,10 @@ Section __.
     - destruct e as [me | lble outse]; simpl in Hstepp0; fwd. 2: congruence.
       eexists _, [I_event me]. split; [ apply star_one, gstep_input | ].
       split; [ reflexivity | ].
-      eapply forwarding_R_step.
-      + exact HR.
-      + exact Hstep0.
-      + reflexivity.
-      + reflexivity.
+      constructor.
+      + cbn [flat_map app inputs_of]. f_equal. exact HR.(fR_inputs).
+      + exact HR.(fR_outputs).
+      + eapply fgraph_step_preserves_state_wf; [ exact HR.(fR_wf) | exact Hstep0 ].
       + apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [ exact HR.(fR_nodes) | ]. simpl. auto.
       + eapply delivered_to_gain
@@ -1762,11 +1721,10 @@ Section __.
           rewrite <- Hngns. exact Hnstep. }
         split; [ reflexivity | ].
         rewrite forward_to_nil. rewrite forward_to_nil in Hstep0.
-        eapply forwarding_R_step.
-        * exact HR.
-        * exact Hstep0.
-        * reflexivity.
-        * reflexivity.
+        constructor.
+        * exact HR.(fR_inputs).
+        * exact HR.(fR_outputs).
+        * eapply fgraph_step_preserves_state_wf; [ exact HR.(fR_wf) | exact Hstep0 ].
         * apply Forall2_map_map_values'_r. simpl.
           apply Forall2_map_put_both.
           -- eapply Forall2_map_impl; [ exact HR.(fR_nodes) | ]. simpl. auto.
@@ -1806,11 +1764,10 @@ Section __.
           rewrite <- Hngns. exact Hnstep. }
         split; [ reflexivity | ].
         rewrite forward_to_nil. rewrite forward_to_nil in Hstep0.
-        eapply forwarding_R_step.
-        * exact HR.
-        * exact Hstep0.
-        * reflexivity.
-        * reflexivity.
+        constructor.
+        * exact HR.(fR_inputs).
+        * exact HR.(fR_outputs).
+        * eapply fgraph_step_preserves_state_wf; [ exact HR.(fR_wf) | exact Hstep0 ].
         * apply Forall2_map_put_both.
           -- eapply Forall2_map_impl; [ exact HR.(fR_nodes) | ]. simpl. auto.
           -- reflexivity.
@@ -1843,11 +1800,10 @@ Section __.
       eexists _, [O_event (emit m) [m]]. split.
       { apply star_one. apply gstep_output. exact Hnq. }
       split; [ reflexivity | ].
-      eapply forwarding_R_step.
-      + exact HR.
-      + exact Hstep0.
-      + reflexivity.
-      + reflexivity.
+      constructor.
+      + exact HR.(fR_inputs).
+      + cbn [flat_map app outputs_of map fst]. f_equal. exact HR.(fR_outputs).
+      + eapply fgraph_step_preserves_state_wf; [ exact HR.(fR_wf) | exact Hstep0 ].
       + exact HR.(fR_nodes).
       + eapply delivered_to_pop_output with (s1 := s1) (s2 := s2) (m := m) (orig := orig).
         * apply HR.(fR_wf).(fwf_queues). rewrite Hoq1.
@@ -1872,11 +1828,10 @@ Section __.
       { eexists. split; [ reflexivity | apply gstep_input ]. }
       eexists _, [I_event m]. split; [ apply star_one, Hstep1 | ].
       split; [ reflexivity | ].
-      eapply forwarding_R_step.
-      + exact HR.
-      + exact Hstep1.
-      + reflexivity.
-      + reflexivity.
+      constructor.
+      + cbn [flat_map app inputs_of]. f_equal. exact HR.(fR_inputs).
+      + exact HR.(fR_outputs).
+      + eapply fgraph_step_preserves_state_wf; [ exact HR.(fR_wf) | exact Hstep1 ].
       + apply Forall2_map_map_values'_l, Forall2_map_map_values'_r.
         eapply Forall2_map_impl; [ exact HR.(fR_nodes) | ]. simpl. auto.
       + eapply delivered_to_gain
@@ -1898,11 +1853,10 @@ Section __.
       eexists _, [O_event (run n (deduce_label lbl)) []]. split.
       { apply star_one. exact Hstep1. }
       split; [ reflexivity | ].
-      eapply forwarding_R_step.
-      + exact HR.
-      + exact Hstep1.
-      + reflexivity.
-      + reflexivity.
+      constructor.
+      + exact HR.(fR_inputs).
+      + exact HR.(fR_outputs).
+      + eapply fgraph_step_preserves_state_wf; [ exact HR.(fR_wf) | exact Hstep1 ].
       + apply Forall2_map_map_values'_r. simpl.
         apply Forall2_map_put_both.
         * eapply Forall2_map_impl; [ exact HR.(fR_nodes) | ]. simpl. auto.
@@ -1951,11 +1905,10 @@ Section __.
       { eapply star_step; [ exact Hstara | ]. exact Hstep1. }
       split.
       { cbn [flat_map inputs_of]. rewrite silent_star_inputs by exact Hsila. reflexivity. }
-      eapply forwarding_R_step.
-      + exact HRa.
-      + exact Hstep1.
-      + reflexivity.
-      + reflexivity.
+      constructor.
+      + exact HRa.(fR_inputs).
+      + exact HRa.(fR_outputs).
+      + eapply fgraph_step_preserves_state_wf; [ exact HRa.(fR_wf) | exact Hstep1 ].
       + apply Forall2_map_put_both.
         * eapply Forall2_map_impl; [ exact HRa.(fR_nodes) | ]. simpl. auto.
         * reflexivity.
@@ -1991,11 +1944,10 @@ Section __.
       { eapply star_step; [ exact Hstara | ]. exact Hstep1. }
       split.
       { cbn [flat_map inputs_of]. rewrite silent_star_inputs by exact Hsila. reflexivity. }
-      eapply forwarding_R_step.
-      + exact HRa.
-      + exact Hstep1.
-      + reflexivity.
-      + reflexivity.
+      constructor.
+      + exact HRa.(fR_inputs).
+      + cbn [flat_map app outputs_of map fst]. f_equal. exact HRa.(fR_outputs).
+      + eapply fgraph_step_preserves_state_wf; [ exact HRa.(fR_wf) | exact Hstep1 ].
       + exact HRa.(fR_nodes).
       + eapply delivered_to_pop_output with (s1 := fsa) (s2 := ns) (m := m) (orig := orig).
         * apply HRa.(fR_wf).(fwf_queues). rewrite Hoq.
