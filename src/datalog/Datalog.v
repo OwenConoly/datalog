@@ -1068,6 +1068,27 @@ Module program.
       {| rules := p1.(rules) ++ p2.(rules);
         meta_rules := p1.(meta_rules) ++ p2.(meta_rules) |}.
 
+    Lemma concl_rels_union p1 p2 :
+      Permutation (concl_rels (union p1 p2)) (concl_rels p1 ++ concl_rels p2).
+    Proof.
+      cbv [concl_rels union]. simpl. rewrite !flat_map_app, <- !app_assoc.
+      apply Permutation_app_head. apply Permutation_app_swap_app.
+    Qed.
+
+    Lemma hyp_rels_union p1 p2 :
+      Permutation (hyp_rels (union p1 p2)) (hyp_rels p1 ++ hyp_rels p2).
+    Proof.
+      cbv [hyp_rels union]. simpl. rewrite !flat_map_app, <- !app_assoc.
+      apply Permutation_app_head. apply Permutation_app_swap_app.
+    Qed.
+
+    Lemma all_rels_union p1 p2 :
+      Permutation (all_rels (union p1 p2)) (all_rels p1 ++ all_rels p2).
+    Proof.
+      cbv [all_rels]. rewrite concl_rels_union, hyp_rels_union, <- !app_assoc.
+      apply Permutation_app_head. apply Permutation_app_swap_app.
+    Qed.
+
     (*p2's rules conclude nothing p1's meta-rules aggregate over*)
     Definition meta_indep (p1 p2 : program) :=
       disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
