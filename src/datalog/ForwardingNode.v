@@ -799,10 +799,9 @@ Section __.
   Qed.
 
   Lemma queue_at_dest_put (s : ngstate) n gns' dest :
-    Permutation
-      (queue_at_dest {| graph_nodes := map.put s.(graph_nodes) n gns';
-                           graph_output_queue := s.(graph_output_queue) |} dest)
-      (if eqb dest (node_destn n) then gns'.(gns_queue) else queue_at_dest s dest).
+    queue_at_dest {| graph_nodes := map.put s.(graph_nodes) n gns';
+                     graph_output_queue := s.(graph_output_queue) |} dest
+    = if eqb dest (node_destn n) then gns'.(gns_queue) else queue_at_dest s dest.
   Proof.
     destruct dest as [m | ].
     - destr (eqb (node_destn m) (node_destn n)).
@@ -1238,34 +1237,6 @@ Section __.
     cbn [graph_nodes graph_output_queue]. rewrite map.remove_put_same. reflexivity.
   Qed.
 
-  Lemma travelling_to_dequeue (s : fgstate) n ns v' f orig dest queue :
-    forwarding_compatible s.(graph_nodes) ->
-    msgs_reachable s ->
-    map.get s.(graph_nodes) n = Some ns ->
-    Permutation (all_pending_msgs ns) ((f, orig) :: all_pending_msgs v') ->
-    dest <> node_destn n ->
-    travelling_to (dest_msgs s) dest queue ->
-    travelling_to
-      (dest_msgs (forward_to (fforwardb (node_source n)) [(f, orig)]
-                    {| graph_nodes := map.put s.(graph_nodes) n v';
-                       graph_output_queue := s.(graph_output_queue) |}))
-      dest queue.
-  Proof.
-    intros Hcompat Hmr Hget Hperm Hne Htr.
-    eapply travelling_to_forwarding_step with (s := node_source n) (f := f) (orig := orig).
-    - eapply is_locally_tree_reaches.
-      + apply Hmr. eapply in_node_dest_msgs; [ exact Hget | ].
-        rewrite Hperm. left. reflexivity.
-      + apply Htree.
-    - destruct dest; cbn [loc_of_source loc_of_dest]; congruence.
-    - eexists. split.
-      + cbn [loc_of_source]. eapply dest_msgs_dequeue; eassumption.
-      + apply dest_msgs_forward_to.
-        eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
-        cbn [graph_nodes]. eapply same_domain_put_r. exact Hget.
-    - exact Htr.
-  Qed.
-
   Lemma travelling_to_forwarded_no_return n f orig :
     graph.reaches (forwarding_graph (message.rel f, orig)) (loc_of_source orig) (node_loc n) ->
     travelling_to (map (fun d' => (loc_of_dest d', (f, orig)))
@@ -1286,15 +1257,15 @@ Section __.
     fgstate_wf s1'.
   Proof.
     intros [Hcompat Hwf Hmr] Hstep.
-    cbv [fgraph_step] in Hstep. fwd. invert Hstepp1.
-    - destruct e; simpl in Hstepp0; fwd. 2: congruence.
+    destruct Hstep as (e' & Hcorr & Hstep). invert Hstep.
+    - destruct e; simpl in Hcorr; fwd. 2: congruence.
       constructor.
       + eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
         apply forward_to_same_domain.
       + apply wf_queues_forward_to; [ apply graph.reaches_self | exact Hwf ].
       + apply msgs_reachable_forward_to;
           [ exact Hcompat | apply graph.reaches_self | exact Hmr ].
-    - destruct e; simpl in Hstepp0; congruence || fwd.
+    - destruct e; simpl in Hcorr; congruence || fwd.
       match goal with Hg : map.get _ _ = Some _ |- _ => rename Hg into Hget1 end.
       match goal with Hf : fnode_step _ _ _ _ _ _ |- _ => invert Hf end.
       + rewrite forward_to_nil. constructor.
@@ -1331,7 +1302,7 @@ Section __.
         * eapply dm_reachable_perm.
           { eapply dest_msgs_put with (new := []); [ exact Hget1 | reflexivity ]. }
           simpl. exact Hmr.
-    - destruct e; simpl in Hstepp0; congruence || fwd.
+    - destruct e; simpl in Hcorr; congruence || fwd.
       match goal with Hg : map.get _ _ = Some _ |- _ => rename Hg into Hget1 end.
       match goal with Hq : gns_queue _ = _ |- _ => rename Hq into Hqueue end.
       match goal with Hf : fnode_step _ _ _ _ _ _ |- _ => invert Hf end.
@@ -1345,7 +1316,7 @@ Section __.
           - cbv [all_pending_msgs]. simpl. rewrite Hqueue. rewrite <- !app_assoc.
             apply Permutation_app_head. symmetry. apply Permutation_middle. }
         simpl. exact Hmr.
-    - destruct e; simpl in Hstepp0; congruence || fwd.
+    - destruct e; simpl in Hcorr; congruence || fwd.
       match goal with Ho : graph_output_queue _ = _ |- _ => rename Ho into Hoq end.
       constructor.
       + exact Hcompat.
@@ -1365,9 +1336,9 @@ Section __.
     intros [Hinp Hout Hwf1 Hnodes Hdel] Hstep Hsilent.
     pose proof (fgraph_step_preserves_state_wf _ _ _ Hwf1 Hstep) as Hwf'.
     destruct Hwf1 as [Hcompat Hwf Hmr].
-    cbv [fgraph_step] in Hstep. fwd. invert Hstepp1.
-    - destruct e; simpl in Hstepp0; fwd; [ destruct Hsilent | congruence ].
-    - destruct e; simpl in Hstepp0; congruence || fwd.
+    destruct Hstep as (e' & Hcorr & Hstep). invert Hstep.
+    - destruct e; simpl in Hcorr; fwd; [ destruct Hsilent | congruence ].
+    - destruct e; simpl in Hcorr; congruence || fwd.
       match goal with Hg : map.get _ _ = Some _ |- _ => rename Hg into Hget1 end.
       match goal with Hf : fnode_step _ _ _ _ _ _ |- _ => invert Hf end.
       + destruct Hsilent.
@@ -1390,8 +1361,18 @@ Section __.
           setoid_rewrite arrived_forward_to. setoid_rewrite arrived_put.
           destr (eqb dest (node_destn n)).
           2: { exists Q. split; [ exact HQ | ].
-               eapply travelling_to_dequeue; try eassumption.
-               eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact Hpend ]. }
+               eapply travelling_to_forwarding_step
+                 with (s := node_source n) (f := f) (orig := orig).
+               - eapply is_locally_tree_reaches; [ exact Hre | apply Htree ].
+               - destruct dest; cbn [loc_of_source loc_of_dest]; congruence.
+               - eexists. split.
+                 2: { apply dest_msgs_forward_to.
+                      eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
+                      cbn [graph_nodes]. eapply same_domain_put_r. exact Hget1. }
+                 cbn [loc_of_source]. eapply dest_msgs_dequeue; [ exact Hget1 | ].
+                 eapply all_pending_msgs_dequeue;
+                   [ reflexivity | reflexivity | exact Hpend ].
+               - exact Htr. }
           setoid_rewrite dest_msgs_forward_to.
           2: { eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
                cbn [graph_nodes]. eapply same_domain_put_r. exact Hget1. }
@@ -1426,7 +1407,7 @@ Section __.
              eapply dest_msgs_dequeue; [ exact Hget1 | ].
              eapply all_pending_msgs_dequeue; [ reflexivity | reflexivity | exact Hpend ].
       + destruct Hsilent.
-    - destruct e; simpl in Hstepp0; congruence || fwd.
+    - destruct e; simpl in Hcorr; congruence || fwd.
       match goal with Hg : map.get _ _ = Some _ |- _ => rename Hg into Hget1 end.
       match goal with Hq : gns_queue _ = _ |- _ => rename Hq into Hqueue end.
       match goal with Hf : fnode_step _ _ _ _ _ _ |- _ => invert Hf end.
@@ -1445,7 +1426,7 @@ Section __.
         2: { cbv [all_pending_msgs]. simpl. rewrite Hqueue. rewrite <- !app_assoc.
              apply Permutation_app_head. symmetry. apply Permutation_middle. }
         simpl. exact Htr.
-    - destruct e; simpl in Hstepp0; congruence || fwd. destruct Hsilent.
+    - destruct e; simpl in Hcorr; congruence || fwd. destruct Hsilent.
   Qed.
 
   Lemma in_dest_msgs_inv (s : fgstate) loc m :
@@ -1692,8 +1673,8 @@ Section __.
       { symmetry. apply silent_event_inputs, Hsil. }
       eapply forwarding_R_silent_step; eassumption. }
     pose proof Hstep as Hstep0.
-    cbv [fgraph_step] in Hstep. fwd. invert Hstepp1.
-    - destruct e as [me | lble outse]; simpl in Hstepp0; fwd. 2: congruence.
+    destruct Hstep as (e' & Hcorr & Hstep). invert Hstep.
+    - destruct e as [me | lble outse]; simpl in Hcorr; fwd. 2: congruence.
       eexists _, [I_event me]. split; [ apply star_one, gstep_input | ].
       split; [ reflexivity | ].
       constructor.
@@ -1711,7 +1692,7 @@ Section __.
         * intros d. apply travelling_to_forwarded.
           intro Hc. destruct d; discriminate Hc.
         * exact HR.(fR_delivered).
-    - destruct e; simpl in Hstepp0; congruence || fwd.
+    - destruct e; simpl in Hcorr; congruence || fwd.
       match goal with Hg : map.get _ _ = Some _ |- _ => rename Hg into Hget1 end.
       match goal with Hf : fnode_step _ _ _ _ _ _ |- _ => invert Hf end.
       + match goal with Hn : node_step _ _ _ _ |- _ => rename Hn into Hnstep end.
@@ -1788,8 +1769,8 @@ Section __.
              cbn [gns_queue]. rewrite Hms.
              symmetry. apply Permutation_middle.
           -- exact HR.(fR_delivered).
-    - destruct e; simpl in Hstepp0; congruence || fwd. destruct (Hsil I).
-    - destruct e; simpl in Hstepp0; congruence || fwd.
+    - destruct e; simpl in Hcorr; congruence || fwd. destruct (Hsil I).
+    - destruct e; simpl in Hcorr; congruence || fwd.
       match goal with Ho : graph_output_queue _ = _ |- _ => rename Ho into Hoq1 end.
       destruct m as (m & orig).
       assert (Hm : In m (map fst s1.(graph_output_queue))).
