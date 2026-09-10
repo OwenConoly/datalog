@@ -19,8 +19,8 @@ Section Distributed.
   Context (R_senders : rel -> list source).
   Context (R_senders_NoDup : forall R, NoDup (R_senders R)).
 
-  Notation claim := (node.claim R_senders).
-  Notation consistent := (node.consistent R_senders).
+  Abbreviation claim := (node.claim R_senders).
+  Abbreviation consistent := (node.consistent R_senders).
 
   Context (rel_forward : source -> destn -> rel -> bool).
 
@@ -43,8 +43,8 @@ Section Distributed.
   Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
   Proof. apply get_or_default_Some. Qed.
 
-  Local Notation nstep := (fun n => node.step R_senders (prog_at n) (node_source n)).
-  Local Notation nallowed := (node.allowed_inputs R_senders).
+  Local Abbreviation nstep := (fun n => node.step R_senders (prog_at n) (node_source n)).
+  Local Abbreviation nallowed := (node.allowed_inputs R_senders).
 
   Hint Immediate message.equiv_Equivalence : core.
 

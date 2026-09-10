@@ -152,7 +152,7 @@ Section __.
           saturated ns pat
     end.
 
-  Local Notation IO_event := (Smallstep.IO_event action_label message).
+  Local Abbreviation IO_event := (Smallstep.IO_event action_label message).
 
   Inductive step : state -> IO_event -> state -> Prop :=
   | deduce_step ns output :
@@ -186,7 +186,7 @@ Section __.
     consistently_incl message.equiv claim consistent s1.(state.known) s2.(state.known) /\
       incl_mod message.equiv s1.(state.sent) s2.(state.sent).
 
-  Local Notation will_step := (will_step step allowed_inputs).
+  Local Abbreviation will_step := (will_step step allowed_inputs).
 
   (*every done-message this node has sent could still be deduced now*)
   Definition sent_dones_ok (s : state) : Prop :=

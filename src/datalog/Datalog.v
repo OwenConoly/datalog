@@ -1012,7 +1012,7 @@ Module program.
         eapply Forall_impl; [eapply meta_rule.interp_hyp_relname_in; eassumption|].
         simpl. intros. apply in_or_app. right. apply in_flat_map. eauto.
     Qed.
-    #[local] Hint Resolve interp_step_hyp_relname_in.
+    #[local] Hint Resolve interp_step_hyp_relname_in : core.
 
     Definition concl_rels (p : program) :=
       flat_map rule.concl_rels p.(rules) ++ flat_map meta_rule.concl_rels p.(meta_rules).
@@ -1025,7 +1025,7 @@ Module program.
       - left. apply in_flat_map. eauto using rule.interp_concl_relname_in.
       - right. apply in_flat_map. eauto using meta_rule.interp_concl_relname_in.
     Qed.
-    #[local] Hint Resolve interp_step_concl_relname_in.
+    #[local] Hint Resolve interp_step_concl_relname_in : core.
 
     Definition all_rels (p : program) := concl_rels p ++ hyp_rels p.
 

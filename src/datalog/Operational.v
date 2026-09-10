@@ -44,12 +44,12 @@ Section __.
   Definition R_senders : rel -> list op_source :=
     fun R => if is_input R then [from_input] else map from_rule sender_rules.
 
-  Local Notation expects_num_facts := (node.expects_num_facts R_senders).
-  Local Notation knows_fact := (node.knows_fact R_senders).
-  Local Notation knows_meta_fact := (node.knows_meta_fact R_senders).
-  Local Notation can_deduce_normal_fact := (node.can_deduce_normal_fact R_senders).
-  Local Notation allowed_inputs := (node.allowed_inputs R_senders).
-  Local Notation knows_incl := (node.knows_incl R_senders).
+  Local Abbreviation expects_num_facts := (node.expects_num_facts R_senders).
+  Local Abbreviation knows_fact := (node.knows_fact R_senders).
+  Local Abbreviation knows_meta_fact := (node.knows_meta_fact R_senders).
+  Local Abbreviation can_deduce_normal_fact := (node.can_deduce_normal_fact R_senders).
+  Local Abbreviation allowed_inputs := (node.allowed_inputs R_senders).
+  Local Abbreviation knows_incl := (node.knows_incl R_senders).
 
   (* [expects_num_facts] with the new [R_senders] recovers its old [is_input] form:
      for input relations, a single [None]-declaration; otherwise one [Some k] count

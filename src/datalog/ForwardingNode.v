@@ -98,24 +98,24 @@ Section __.
   Context (fts : forwarding_tables).
   Context (prog_at : node_id -> node_prog).
 
-  Local Notation fgraph_node_state :=
+  Local Abbreviation fgraph_node_state :=
     (graph_node_state (message * source) (fnode_label message label) (fnode_state node_state message)).
-  Local Notation ngraph_node_state := (graph_node_state message label node_state).
+  Local Abbreviation ngraph_node_state := (graph_node_state message label node_state).
 
   Context {fgraph_state : map.map node_id fgraph_node_state}.
   Context {fgraph_state_ok : map.ok fgraph_state}.
   Context {ngraph_state : map.map node_id ngraph_node_state}.
   Context {ngraph_state_ok : map.ok ngraph_state}.
 
-  Local Notation flabel := (graph_label (message * source) (fnode_label message label)).
-  Local Notation nlabel := (graph_label message label).
-  Local Notation fnIO_event := (Smallstep.IO_event flabel message).
-  Local Notation fIO_event := (Smallstep.IO_event flabel (message * source)).
-  Local Notation nIO_event := (Smallstep.IO_event nlabel message).
-  Local Notation pebble := (location * message)%type.
+  Local Abbreviation flabel := (graph_label (message * source) (fnode_label message label)).
+  Local Abbreviation nlabel := (graph_label message label).
+  Local Abbreviation fnIO_event := (Smallstep.IO_event flabel message).
+  Local Abbreviation fIO_event := (Smallstep.IO_event flabel (message * source)).
+  Local Abbreviation nIO_event := (Smallstep.IO_event nlabel message).
+  Local Abbreviation pebble := (location * message)%type.
 
-  Local Notation fgstate := (graph_state (message * source) (fnode_label message label) (fnode_state node_state message)).
-  Local Notation ngstate := (graph_state message label node_state).
+  Local Abbreviation fgstate := (graph_state (message * source) (fnode_label message label) (fnode_state node_state message)).
+  Local Abbreviation ngstate := (graph_state message label node_state).
 
   Definition nforwardb (s : source) d f := inb d (nforward s (message.rel f)).
 

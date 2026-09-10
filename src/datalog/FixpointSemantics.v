@@ -11,16 +11,13 @@ Import ListNotations.
 Section __.
   Context `{params : datalog_params}.
 
-  Definition F (p : program) Q Px :=
-    let '(P, x) := Px in
-    P x \/ Q (P, x) \/
-      exists hyps, program.interp_step p x hyps /\ Forall (fun y => Q (P, y)) hyps.
+  Definition F (p : program) := pftree.F (program.interp_step p).
 
   Lemma F_mono p S1 S2 :
     (forall x, S1 x -> S2 x) ->
     (forall x, F p S1 x -> F p S2 x).
   Proof.
-    cbv [F]. intros Hle [P x] H. intuition auto. fwd. eauto 8.
+    cbv [F pftree.F]. intros Hle [P x] H. intuition auto. fwd. eauto 8.
   Qed.
 
   Definition S_sane {U : Type} (S : (U -> Prop) * U -> Prop) :=
@@ -32,10 +29,7 @@ Section __.
 
   Lemma interp_lfp p :
     equiv (fun '(P, f) => program.interp p P f) (lfp (F p)).
-  Proof.
-    cbv [equiv]. intros. epose proof pftree.equiv_lfp as H. cbv [equiv] in H.
-    rewrite H. cbv [F]. reflexivity.
-  Qed.
+  Proof. apply pftree.equiv_lfp. Qed.
 
   Lemma S_sane_ext {U : Type} (P Q : (U -> Prop) * U -> Prop) :
     equiv P Q ->

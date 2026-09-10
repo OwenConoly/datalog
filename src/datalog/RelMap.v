@@ -81,12 +81,6 @@ Section RelMap.
 
   Lemma map_fact_decompose fct :
     map_fact fct = fact.of_args (f (fact.rel fct)) (fact.args_of fct).
-  Proof.
-    rewrite <- (fact.of_args_args_of fct) at 1. apply map_fact_of_args.
-  Qed.
-
-  Lemma map_fact_eq_of_args fct :
-    map_fact fct = fact.of_args (f (fact.rel fct)) (fact.args_of fct).
   Proof. destruct fct; simp; reflexivity. Qed.
 
   Definition fact_equiv f1 f2 := map_fact f1 = map_fact f2.

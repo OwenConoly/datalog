@@ -10,7 +10,7 @@ From Datalog Require Import Tactics.
 From coqutil Require Import Tactics Tactics.fwd.
 Import ListNotations.
 
-Notation node_id := nat (only parsing).
+Abbreviation node_id := nat (only parsing).
 
 Variant source :=
   | node_source (_ : node_id)
@@ -107,14 +107,14 @@ Section __.
             submultiset ms1 ms2 ->
             consistent_output s n ms2).
 
-  Local Notation IO_event := (Smallstep.IO_event label message).
+  Local Abbreviation IO_event := (Smallstep.IO_event label message).
 
   Variant graph_label :=
     | receive (_ : node_id) (_ : message)
     | run (_ : node_id) (_ : label)
     | emit (_ : message).
 
-  Local Notation gevent := (Smallstep.IO_event graph_label message).
+  Local Abbreviation gevent := (Smallstep.IO_event graph_label message).
 
   (*we could alo consider something like this?*)
   (*

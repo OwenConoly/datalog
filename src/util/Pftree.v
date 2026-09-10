@@ -72,12 +72,14 @@ Module pftree.
       - assumption.
     Qed.
 
-    (*TODO make this look nicer?*)
+    Definition F P Q Px :=
+      let '(Q0, x) := Px in
+      Q0 x \/ Q (Q0, x) \/ exists l, P x l /\ Forall (fun y => Q (Q0, y)) l.
+
     Lemma equiv_lfp P :
-      equiv (fun '(Q0, x) => pftree P Q0 x)
-        (lfp (fun Q '(Q0, x) => Q0 x \/ Q (Q0, x) \/ exists l, P x l /\ Forall (fun y => Q (Q0, y)) l)).
+      equiv (fun '(Q0, x) => pftree P Q0 x) (lfp (F P)).
     Proof.
-      cbv [equiv lfp fp]. intros [Q0 x]. split; intros; fwd.
+      cbv [equiv lfp fp F]. intros [Q0 x]. split; intros; fwd.
       - apply H0. induction H; eauto.
         right. right. exists l. split; [assumption|]. eapply Forall_impl; [eassumption|].
         simpl. intros y. apply (H0 (_, _)).
