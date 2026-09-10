@@ -35,6 +35,11 @@ Module pftree.
     Qed.
     Register Scheme ind as ind_nodep for pftree.
 
+    Lemma invert P Q x :
+      pftree P Q x ->
+      Q x \/ exists l, P x l /\ Forall (pftree P Q) l.
+    Proof. invert 1; eauto. Qed.
+
     Lemma trans P x Q :
       pftree P (pftree P Q) x ->
       pftree P Q x.

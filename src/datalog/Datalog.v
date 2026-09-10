@@ -772,6 +772,34 @@ Module meta_rule.
                                          {| normal_fact.rel := pat.(fact_pattern.rel);
                                            normal_fact.args := args |} |}).
 
+    Lemma interp_intro prog r mf mhyps ctx pat :
+      Exists (fun c => clause_pattern.interp ctx c pat) r.(concls) ->
+      Forall2 (clause_pattern.interp ctx) r.(hyps) (map meta_fact.pattern mhyps) ->
+      meta_fact.equiv mf
+        {| meta_fact.pattern := pat;
+          meta_fact.set :=
+            fun args =>
+              rule.one_step_derives prog mhyps
+                                    {| normal_fact.rel := pat.(fact_pattern.rel);
+                                      normal_fact.args := args |} |} ->
+      interp prog r mf mhyps.
+    Proof. intros. exists pat. split; [exists ctx|]; auto. Qed.
+
+    Lemma interp_canonical prog r mhyps ctx pat :
+      Exists (fun c => clause_pattern.interp ctx c pat) r.(concls) ->
+      Forall2 (clause_pattern.interp ctx) r.(hyps) (map meta_fact.pattern mhyps) ->
+      interp prog r
+        {| meta_fact.pattern := pat;
+          meta_fact.set :=
+            fun args =>
+              rule.one_step_derives prog mhyps
+                                    {| normal_fact.rel := pat.(fact_pattern.rel);
+                                      normal_fact.args := args |} |} mhyps.
+    Proof.
+      intros. eapply interp_intro; eauto.
+      split; [reflexivity|]. intros. reflexivity.
+    Qed.
+
     Lemma interp_ext_hyps p r f hyps hyps' :
       interp p r f hyps ->
       Forall2 meta_fact.equiv hyps hyps' ->
