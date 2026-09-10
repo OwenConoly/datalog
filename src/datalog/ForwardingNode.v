@@ -169,7 +169,6 @@ Section __.
     cbn [flat_map]. rewrite IH, app_nil_r. apply silent_event_inputs, He.
   Qed.
 
-
   Definition forwarding_graph (mn : rel * source) :=
     graph.of_edges
       (flat_map
@@ -317,25 +316,6 @@ Section __.
     cbn [graph_nodes graph_output_queue]. rewrite map.remove_put_same.
     rewrite (dest_msgs_get_remove s n v Hget), app_assoc, <- map_app.
     apply Permutation_app_tail. apply Permutation_map. exact Hperm.
-  Qed.
-
-  Lemma dest_msgs_put_incl (s : fgstate) n v v' :
-    map.get s.(graph_nodes) n = Some v ->
-    incl (all_pending_msgs v') (all_pending_msgs v) ->
-    incl
-      (dest_msgs {| graph_nodes := map.put s.(graph_nodes) n v';
-                    graph_output_queue := s.(graph_output_queue) |})
-      (dest_msgs s).
-  Proof.
-    intros Hget Hincl x Hin.
-    erewrite dest_msgs_get_remove with (n := n) (ns := v') in Hin.
-    2: { cbn [graph_nodes]. apply map.get_put_same. }
-    cbn [graph_nodes graph_output_queue] in Hin. rewrite map.remove_put_same in Hin.
-    rewrite (dest_msgs_get_remove s n v Hget). apply in_or_app.
-    apply in_app_or in Hin. destruct Hin as [Hin | Hin].
-    - left. apply in_map_iff in Hin. destruct Hin as (m & Heq & Hm).
-      apply in_map_iff. exists m. split; [ exact Heq | apply Hincl, Hm ].
-    - right. exact Hin.
   Qed.
 
   Definition forwarding_compatible {V} {M : map.map node_id V} (s : M) :=
@@ -787,17 +767,6 @@ Section __.
     queue_at_dest s (node_destn n) = ns.(gns_queue).
   Proof. intros Hget. cbn [queue_at_dest]. rewrite Hget. reflexivity. Qed.
 
-  Lemma queue_at_dest_ext (sa sb : ngstate) dest :
-    (forall n, option_map gns_queue (map.get sa.(graph_nodes) n)
-             = option_map gns_queue (map.get sb.(graph_nodes) n)) ->
-    sa.(graph_output_queue) = sb.(graph_output_queue) ->
-    queue_at_dest sa dest = queue_at_dest sb dest.
-  Proof.
-    intros Hq Hout. destruct dest as [m|].
-    - cbn [queue_at_dest]. rewrite Hq. reflexivity.
-    - cbn [queue_at_dest]. exact Hout.
-  Qed.
-
   Lemma queue_at_dest_put (s : ngstate) n gns' dest :
     queue_at_dest {| graph_nodes := map.put s.(graph_nodes) n gns';
                      graph_output_queue := s.(graph_output_queue) |} dest
@@ -811,6 +780,18 @@ Section __.
         reflexivity.
     - destr (eqb output_destn (node_destn n)); [ discriminate | ].
       cbn [queue_at_dest graph_output_queue]. reflexivity.
+  Qed.
+
+  Lemma queue_at_dest_put_queue (s : ngstate) n ns gns' dest :
+    map.get s.(graph_nodes) n = Some ns ->
+    gns'.(gns_queue) = ns.(gns_queue) ->
+    queue_at_dest {| graph_nodes := map.put s.(graph_nodes) n gns';
+                     graph_output_queue := s.(graph_output_queue) |} dest
+    = queue_at_dest s dest.
+  Proof.
+    intros Hget Hq. rewrite queue_at_dest_put.
+    destr (eqb dest (node_destn n)); [ | reflexivity ].
+    erewrite queue_at_dest_get by exact Hget. exact Hq.
   Qed.
 
   Definition to_consume_at (s1 : fgstate) (n : node_id) :=
@@ -1186,19 +1167,6 @@ Section __.
     split; [ exact Hkeep | split; reflexivity ].
   Qed.
 
-  Lemma msgs_reachable_put_incl (s : fgstate) n v v' :
-    map.get s.(graph_nodes) n = Some v ->
-    incl (all_pending_msgs v') (all_pending_msgs v) ->
-    msgs_reachable s ->
-    msgs_reachable {| graph_nodes := map.put s.(graph_nodes) n v';
-                      graph_output_queue := s.(graph_output_queue) |}.
-  Proof.
-    intros Hget Hincl Hmr. unfold msgs_reachable in *.
-    eapply dm_reachable_incl.
-    - eapply dest_msgs_put_incl; [ exact Hget | exact Hincl ].
-    - exact Hmr.
-  Qed.
-
   Lemma all_pending_msgs_dequeue (ns v' : fgraph_node_state) q1 f orig q2 :
     v'.(gns_queue) = ns.(gns_queue) ->
     v'.(gns_node_state).(fnode_pending) = q1 ++ q2 ->
@@ -1207,17 +1175,6 @@ Section __.
   Proof.
     intros Hq Hv' Hns. cbv [all_pending_msgs]. rewrite Hq, Hv', Hns, !app_assoc.
     symmetry. apply Permutation_middle.
-  Qed.
-
-  Lemma incl_all_pending_dequeue (ns v' : fgraph_node_state) q1 f orig q2 :
-    v'.(gns_queue) = ns.(gns_queue) ->
-    v'.(gns_node_state).(fnode_pending) = q1 ++ q2 ->
-    ns.(gns_node_state).(fnode_pending) = q1 ++ (f, orig) :: q2 ->
-    incl (all_pending_msgs v') (all_pending_msgs ns).
-  Proof.
-    intros Hq Hv' Hns x Hx. eapply Permutation_in.
-    - symmetry. eapply all_pending_msgs_dequeue; eassumption.
-    - right. exact Hx.
   Qed.
 
   Lemma dest_msgs_dequeue (s : fgstate) n ns v' f orig :
@@ -1235,6 +1192,19 @@ Section __.
     symmetry. etransitivity.
     { apply dest_msgs_get_remove. cbn [graph_nodes]. apply map.get_put_same. }
     cbn [graph_nodes graph_output_queue]. rewrite map.remove_put_same. reflexivity.
+  Qed.
+
+  Lemma msgs_reachable_dequeue (s : fgstate) n ns v' f orig :
+    map.get s.(graph_nodes) n = Some ns ->
+    Permutation (all_pending_msgs ns) ((f, orig) :: all_pending_msgs v') ->
+    msgs_reachable s ->
+    msgs_reachable {| graph_nodes := map.put s.(graph_nodes) n v';
+                      graph_output_queue := s.(graph_output_queue) |}.
+  Proof.
+    intros Hget Hperm Hmr loc f' orig' Hin. apply Hmr.
+    eapply Permutation_in.
+    { symmetry. eapply dest_msgs_dequeue; [ exact Hget | exact Hperm ]. }
+    right. exact Hin.
   Qed.
 
   Lemma travelling_to_forwarded_no_return n f orig :
@@ -1291,10 +1261,9 @@ Section __.
           -- eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
              cbn [graph_nodes]. eapply same_domain_put_r. exact Hget1.
           -- exact Hre.
-          -- eapply msgs_reachable_put_incl.
-             ++ exact Hget1.
-             ++ eapply incl_all_pending_dequeue; [ reflexivity | reflexivity | exact Hpend ].
-             ++ exact Hmr.
+          -- eapply msgs_reachable_dequeue; [ exact Hget1 | | exact Hmr ].
+             eapply all_pending_msgs_dequeue;
+               [ reflexivity | reflexivity | exact Hpend ].
       + rewrite forward_to_nil. constructor.
         * eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
           eapply same_domain_put_r. exact Hget1.
@@ -1721,12 +1690,8 @@ Section __.
              2: { simpl. eapply forwarding_compatible_same_domain;
                     [ apply (forwarding_R_ngraph_compat _ _ _ _ HR) | ].
                   eapply same_domain_put_r. exact Hget2. }
-             rewrite (queue_at_dest_ext _ s2).
-             2: { simpl. intros. rewrite map.get_put_dec.
-                  Tactics.destruct_one_match; try reflexivity.
-                  simpl. rewrite Hget2. reflexivity. }
-             2: { reflexivity. }
-             reflexivity.
+             erewrite queue_at_dest_put_queue;
+               [ reflexivity | exact Hget2 | reflexivity ].
           -- intros d. rewrite map_map. apply travelling_to_deduced.
           -- exact HR.(fR_delivered).
       + destruct (Hsil I).
@@ -1853,12 +1818,8 @@ Section __.
           2: { simpl. eapply forwarding_compatible_same_domain;
                  [ apply (forwarding_R_ngraph_compat _ _ _ _ HR) | ].
                eapply same_domain_put_r. exact H. }
-          rewrite (queue_at_dest_ext _ ns).
-          2: { simpl. intros. rewrite map.get_put_dec.
-               Tactics.destruct_one_match; try reflexivity.
-               simpl. rewrite H. reflexivity. }
-          2: { reflexivity. }
-          reflexivity.
+          erewrite queue_at_dest_put_queue;
+            [ reflexivity | exact H | reflexivity ].
         * intros d. rewrite map_map. apply travelling_to_deduced.
         * exact HR.(fR_delivered).
     - destruct (Forall2_map_get_r _ _ _ _ _ HR.(fR_nodes) H) as (fns & Hfns & Hfnseq).
