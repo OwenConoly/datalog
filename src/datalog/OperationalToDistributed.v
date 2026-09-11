@@ -84,12 +84,14 @@ Section __.
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
 
-  Lemma can_deduce_iff os gs n ns np f r :
+  Lemma can_deduce_iff os gs n ns np f :
     distribute_R os gs ->
     map.get gs.(graph_nodes) n = Some ns ->
     map.get graph_prog n = Some np ->
     can_deduce graph_senders np (node_source n) ns.(gns_node_state) (message.normal f) <->
-      fire_at_rule is_input p r os.(known_facts) (get_or_default os.(sents) r) (message.normal f).
+      Exists (fun r =>
+                fire_at_rule is_input p r os.(known_facts) (get_or_default os.(sents) r) (message.normal f))
+        np.(program.rules).
   Proof. Admitted.
 
   Lemma sim1 os gs os' :
