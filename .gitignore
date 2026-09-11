@@ -7,4 +7,8 @@
 **.aux
 **~
 **#
-**Makefile.coq*
+_build/
+_RocqProject
+src/_RocqProject
+src/datalog/_RocqProject
+src/util/_RocqProject
