@@ -1066,13 +1066,56 @@ Inductive wf_pATL_expr' {var1 var2} : list (ctx_elt2 var1 var2) -> forall n, pAT
   wf_pATL_expr' ctx 0 (Scalar s1) (Scalar s2)
 .
 
-Instance value : valueT.
-Admitted. (*TODO fill in.  look at example in AggregatingProgram.v.*)
-Definition value_of : R -> value.
-Admitted. (*TODO fill in.*)
+Instance value : valueT := R.
+Definition value_of : R -> value := fun x => x.
 
-Instance dsig : signature fn aggregator value.
-Admitted. (*TODO fill in.  look at example in AggregatingProgram.v.*)
+Definition Rltb (x y : R) : bool :=
+  match Rlt_dec x y with
+  | left _ => true
+  | right _ => false
+  end.
+
+Definition Rleb (x y : R) : bool :=
+  match Rle_dec x y with
+  | left _ => true
+  | right _ => false
+  end.
+
+Definition Reqb (x y : R) : bool :=
+  match Req_dec_T x y with
+  | left _ => true
+  | right _ => false
+  end.
+
+Definition interp_fun (f : fn) (args : list value) : option value :=
+  match f, args with
+  | fn_Add, [x; y] => Some (x + y)%R
+  | fn_Sub, [x; y] => Some (x - y)%R
+  | fn_Mul, [x; y] => Some (x * y)%R
+  | fn_Divf, [x; y] => Some (x / y)%R
+  | fn_Divc, [x; y] => Some ((x + y - 1)/ y)%R
+  | fn_Mod, [x; y] => None (* how to do mod with R, becuase it doesn't have mod *)
+  | fn_Z0, [] => Some 0%R
+  | fn_Pos, [x] => Some x
+  | fn_Neg, [x] => Some (-x)%R
+  | fn_Nat, [x] => Some x
+  | fn_Opp, [x] => Some (-x)%R
+  | fn_Lit z, [] => Some (IZR z)
+  | fn_Lt, [x; y] => Some (if Rltb x y then 1%R else 0%R)
+  | fn_Le, [x; y] => Some (if Rleb x y then 1%R else 0%R)
+  | fn_And, [x; y] => Some (if Reqb x 0%R then 0%R else if Reqb y 0%R then 0%R else 1%R)
+  | fn_Not, [x] => Some (if Reqb x 0%R then 1%R else 0%R)
+  | fn_Div, [x; y] => Some (x / y)%R
+  | fn_Get, _ => None (* what to do here? *)
+  | fn_Eq, [x; y] => Some (if Reqb x y then 1%R else 0%R)  | _, _ => None
+  end.
+
+Axiom get_nat : value -> nat.
+Axiom agg_bop : aggregator -> value -> value -> value.
+Axiom agg_id : aggregator -> value.
+
+Instance dsig : signature fn aggregator value :=
+  { interp_fun := interp_fun; get_nat := get_nat; agg_bop := agg_bop; agg_id := agg_id }.
 
 Context {context : map.map exprvar value}.
 
