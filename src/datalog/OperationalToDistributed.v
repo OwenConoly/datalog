@@ -70,13 +70,25 @@ Section __.
   Context (Hsenders_node : node_senders_ok).
   Context (Hsenders_input : input_senders_ok).
 
+  (*f is *)
+  Definition nodes_containing r :=
+    map fst (filter (fun '(n, np) => inb r np.(program.rules)) (map.tuples graph_prog)).
+
+  Definition graph_facts_sent' r (fs : list normal_fact) :=
+    flat_map (fun f => map (fun n => (n, f)) (nodes_containing r)) fs.
+
+  Definition graph_facts_sent sents :=
+    flat_map (fun '(r, fs) => graph_facts_sent' r (flat_map (message.normal_facts (sender_label := op_source)) fs)) (map.tuples sents).
+
+  Definition graph_sents (gs : graph_state message action_label state) :=
+    flat_map (fun '(n, ns) => map (pair n) (flat_map message.normal_facts ns.(gns_node_state).(state.sent))) (map.tuples gs.(graph_nodes)).
+
   Definition distribute_R (os : Operational.state) (gs : graph_state message action_label state) :=
+    Permutation (graph_facts_sent os.(sents)) (graph_sents gs) /\
     Forall2_map (fun n np ns =>
-                   Permutation
-                     (flat_map message.normal_facts (flat_map (get_or_default os.(sents)) (dedup np.(program.rules))))
-                     (flat_map message.normal_facts ns.(gns_node_state).(state.sent)) /\
                      (forall pat num,
-                         In (message.done_with pat (node_source n) num) ns.(gns_node_state).(state.sent) <->
+                         (In (node_source n) (graph_senders (fact_pattern.rel pat)) ->
+                          In (message.done_with pat (node_source n) num) ns.(gns_node_state).(state.sent)) <->
                            (exists nums,
                                Forall2 (fun nr num0 => In (message.done_with pat (from_rule nr) num0) (get_or_default os.(sents) nr))
                                  (dedup np.(program.rules)) nums /\
