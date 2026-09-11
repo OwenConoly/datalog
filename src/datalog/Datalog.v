@@ -150,7 +150,7 @@ Module expr.
       v1 = v2.
     Proof. eauto using interp_det, interp_agree_on. Qed.
   End __.
-End expr. Export expr (expr).
+End expr. Abbreviation expr := expr.expr.
 
 Module normal_fact.
   Record normal_fact {relt : relT} {value : valueT} :=
@@ -159,7 +159,7 @@ Module normal_fact.
   (*i don't actually want this to be global; i'd prefer to instead export it along with normal_fact.  but the Import/Export commands aren't granular enough for me to do that.*)
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@normal_fact _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
-End normal_fact. Export normal_fact (normal_fact).
+End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 #[export] Hint Unfold normal_fact.rel normal_fact.args : core.
 
 Module value_pattern.
@@ -190,7 +190,7 @@ Module value_pattern.
     Qed.
 End __.
 
-End value_pattern. Export value_pattern (value_pattern).
+End value_pattern. Abbreviation value_pattern := value_pattern.value_pattern.
 #[export] Hint Unfold value_pattern.matches : core.
 #[export] Hint Resolve value_pattern.matches_map_exactly : core.
 
@@ -207,7 +207,7 @@ Module fact_pattern.
       fp.(rel) = f.(normal_fact.rel) /\
         Forall2 value_pattern.matches fp.(args) f.(normal_fact.args).
   End __.
-End fact_pattern. Export fact_pattern (fact_pattern).
+End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 
 Module meta_fact.
   Record meta_fact {relt : relT} {value : valueT} :=
@@ -270,7 +270,7 @@ Module meta_fact.
       cbv [fact_pattern.matches]; simpl; auto.
     Qed.
   End __.
-End meta_fact. Export meta_fact (meta_fact).
+End meta_fact. Abbreviation meta_fact := meta_fact.meta_fact.
 #[export] Hint Resolve meta_fact.matches_ext : core.
 #[export] Existing Instance meta_fact.equiv_Equivalence.
 
@@ -344,7 +344,7 @@ Module clause.
       fwd. invert1_any. cbv [agree_on]. congruence.
     Qed.
 End __.
-End clause. Export clause (clause).
+End clause. Abbreviation clause := clause.clause.
 #[export] Hint Unfold clause.rel clause.args : core.
 
 Module expr_pattern.
@@ -369,7 +369,7 @@ Module expr_pattern.
       | any => []
       end.
   End __.
-End expr_pattern. Export expr_pattern (expr_pattern).
+End expr_pattern. Abbreviation expr_pattern := expr_pattern.expr_pattern.
 
 Module clause_pattern.
   Record clause_pattern {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
@@ -388,7 +388,7 @@ Module clause_pattern.
     Definition vars (c : clause_pattern) : list exprvar :=
       flat_map expr_pattern.vars c.(args).
   End __.
-End clause_pattern. Export clause_pattern (clause_pattern).
+End clause_pattern. Abbreviation clause_pattern := clause_pattern.clause_pattern.
 
 Module fact.
   Section __.
@@ -564,7 +564,7 @@ Module fact.
       cbv [fact_pattern.matches]. simpl. auto.
     Qed.
   End __.
-End fact. Export fact (fact).
+End fact. Abbreviation fact := fact.fact.
 #[export] Hint Resolve fact.implied_by_mfs_ext : core.
 #[export] Existing Instance fact.equiv_Equivalence.
 
@@ -743,7 +743,7 @@ Module rule.
       - intros x Hx. apply Hiff. assumption.
     Qed.
   End __.
-End rule. Export rule (rule).
+End rule. Abbreviation rule := rule.rule.
 #[export] Hint Resolve rule.one_step_derives_ext : core.
 
 Module meta_rule.
@@ -918,7 +918,7 @@ Module meta_rule.
         fact_pattern.matches pat nf ->
         Forall (fact.covered_by_pats pats) hyps.
   End __.
-End meta_rule. Export meta_rule (meta_rule).
+End meta_rule. Abbreviation meta_rule := meta_rule.meta_rule.
 #[export] Hint Resolve meta_rule.interp_ext_concl : core.
 
 Module program.
@@ -1520,7 +1520,7 @@ Module program.
 
   End __.
   Abbreviation interp p := (pftree (interp_step p)).
-End program. Export program (program).
+End program. Abbreviation program := program.program.
 Fixpoint expr_varmap {var1 var2 : exprvarT} {fn : fnT}
   (f : var1 -> var2) (e : @expr var1 fn) : @expr var2 fn :=
   match e with

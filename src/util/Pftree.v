@@ -238,5 +238,5 @@ Module pftree.
       1,2: apply in_app_iff; auto.
     Qed.
   End __.
-End pftree. Export pftree (pftree).
+End pftree. Abbreviation pftree := pftree.pftree.
 #[export] Hint Constructors pftree : core.

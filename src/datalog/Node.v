@@ -22,7 +22,7 @@ Module action_label.
       | normal (nf : normal_fact)
       | done_with (pattern : fact_pattern).
   End __.
-End action_label. Export action_label (action_label).
+End action_label. Abbreviation action_label := action_label.action_label.
 
 Module message.
   Section __.
@@ -77,7 +77,7 @@ Module message.
       - intros f1 f2 f3. destruct f1, f2, f3; simpl; intros; fwd; auto || congruence.
     Qed.
   End __.
-End message. Export message (message).
+End message. Abbreviation message := message.message.
 
 Module state.
   Section __.
@@ -87,7 +87,7 @@ Module state.
       { known : list message;
         sent : list message }.
   End __.
-End state. Export state (state).
+End state. Abbreviation state := state.state.
 
 Section __.
   Context `{params : datalog_params} {sender_label : sender_labelT}.
