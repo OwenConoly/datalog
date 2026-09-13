@@ -87,16 +87,20 @@ Section Blocks.
     wf_program ctx p1 p2 ->
     wf_blocks_prog ctx (Block ret p1) (Block ret p2).
 
-  (*TODO try out (var -> Prop) instead of (list var) ??*)
-  Print clause.vars.
+  Definition vars_of_block_rel {var} (R : block_rel var) :=
+    match R with
+    | input R0 => [R0]
+    | local _ => []
+    end.
+
   Inductive vars_in {var} : list var -> blocks_prog var -> Prop :=
   | vars_in_LetIn ctx x f :
     vars_in ctx x ->
     (forall x', vars_in (x' :: ctx) (f x')) ->
     vars_in ctx (LetIn x f)
-  | vars_in_Block ctx ret inps p :
-    Forall (fun '(_, R) => In R ctx) inps ->
-    vars_in ctx (Block ret inps p).
+  | vars_in_Block ctx ret p :
+    incl (flat_map vars_of_block_rel (program.all_rels p)) ctx ->
+    vars_in ctx (Block ret p).
 
   Lemma vars_in_incl var (ctx1 ctx2 : list var) (p : blocks_prog var) :
     incl ctx1 ctx2 ->
@@ -105,26 +109,20 @@ Section Blocks.
   Proof.
     intros Hincl Hvars. revert ctx2 Hincl.
     induction Hvars; intros; constructor; auto with incl.
-    eapply Forall_impl; [ eassumption | ]. intros [? ?]. auto with incl.
+    eapply incl_tran; eassumption.
   Qed.
 
   Inductive flat_rel : Type :=
-  (* | input_rel (block : nat) (name : lvar) *)
-  | false_rel
   | lvar_rel (block : nat) (name : lvar).
 
   Definition flat_program := program (relt := flat_rel).
 
-  Context {relmap : map.map lvar flat_rel} {relmap_ok : map.ok relmap}.
   Context {lvar_eqb : Eqb lvar} {lvar_eqb_ok : Eqb_ok lvar_eqb}.
 
-  Definition flatten_rel (block : nat) (m : relmap) (R : block_rel) :=
+  Definition flatten_rel (block : nat) (R : block_rel flat_rel) :=
     match R with
     | local x => lvar_rel block x
-    | input x => match map.get m x with
-                | Some R => R
-                | None => false_rel
-                end
+    | input x => x
     end.
 
   Fixpoint flatten (name : nat) (e : blocks_prog flat_rel) : nat * flat_rel * flat_program :=
@@ -133,20 +131,18 @@ Section Blocks.
         let '(name', Rx, p2) := flatten name x in
         let '(name'', Rfx, p1) := flatten name' (f Rx) in
         (name'', Rfx, program.union p1 p2)
-    | Block ret inputs p =>
-        (S name, lvar_rel name ret, map_program (flatten_rel name (map.of_list inputs)) p)
+    | Block ret p =>
+        (S name, lvar_rel name ret, map_program (flatten_rel name) p)
     end.
 
   Definition in_range lo hi x :=
     match x with
     | lvar_rel block_id _ => lo <= block_id < hi
-    | false_rel => False
     end.
 
   Definition not_as_big_as hi x :=
     match x with
     | lvar_rel block_id _ => block_id < hi
-    | false_rel => False
     end.
 
   Lemma in_range_weaken lo0 lo hi hi0 x :
@@ -169,7 +165,7 @@ Section Blocks.
     False.
   Proof. destruct x; simpl; auto. lia. Qed.
 
-  Definition is_not_input R :=
+  Definition is_not_input {var} (R : block_rel var) :=
     match R with
     | local _ => True
     | input _ => False
@@ -179,49 +175,40 @@ Section Blocks.
     match e with
     | LetIn x f =>
         valid_blocks_prog x /\ (forall v, valid_blocks_prog (f v))
-    | Block ret inputs p =>
+    | Block ret p =>
         program.meta_rules_valid p /\
-          NoDup (map fst inputs) /\
           Forall is_not_input (program.concl_rels p)
     end.
-
-  Lemma valid_blocks_prog_LetIn {var : Type} (x : blocks_prog var) (f : var -> blocks_prog var) :
-    valid_blocks_prog (LetIn x f) = (valid_blocks_prog x /\ forall v, valid_blocks_prog (f v)).
-  Proof. reflexivity. Qed.
-
   Hint Constructors vars_in : core.
 
-  Lemma block_good_input_set (inps : list (lvar * (fact.args -> Prop))) (p : block_program) :
-    NoDup (map fst inps) ->
+  Lemma block_good_input_set (p : block_program (fact.args -> Prop)) :
     Forall is_not_input (program.concl_rels p) ->
-    Forall (fun '(_, P) => fact.honest_args P) inps ->
+    Forall fact.honest_args (flat_map vars_of_block_rel (program.all_rels p)) ->
     program.good_input_set p
-      (fun f => Exists (fun '(R, P) => input R = fact.rel f /\ P (fact.args_of f)) inps).
+      (fun f => exists R, fact.rel f = input R /\ R (fact.args_of f)).
   Proof.
-    intros Hnodup Hconcl Hhonest. split.
-    - intros f Hf. apply Exists_exists in Hf.
-      destruct Hf as ([R0 P] & Hin0 & Hrel0 & _).
-      rewrite <- Hrel0. intros H'. rewrite Forall_forall in Hconcl.
-      apply Hconcl in H'. exact H'.
-    - intros [pat st] Hmf nf Hmatch.
-      apply Exists_exists in Hmf.
-      destruct Hmf as ([R0 P] & Hin0 & Hrel0 & HP).
-      simpl in Hrel0, HP. cbv [meta_fact.rel] in Hrel0. simpl in Hrel0.
-      rewrite Forall_forall in Hhonest.
-      specialize (Hhonest _ Hin0). simpl in Hhonest.
-      destruct Hmatch as [Hmrel Hmargs]. simpl in Hmrel, Hmargs.
-      cbv [fact.honest_args fact.args_consistent] in Hhonest.
-      cbn [meta_fact.set].
-      rewrite (Hhonest _ _ HP _ Hmargs).
-      split; intros H'.
-      + apply Exists_exists. exists (R0, P). simpl.
-        split; [ exact Hin0 | ]. split; [ congruence | ]. exact H'.
-      + apply Exists_exists in H'. destruct H' as [[R1 P'] [Hin1 [Hrel1 Hargs1]]].
-        simpl in Hrel1.
-        assert (R1 = R0) by congruence. subst R1.
-        assert (P = P') by (eapply NoDup_fst_In_inj; eassumption).
-        subst P'. exact Hargs1.
-  Qed.
+    intros Hconcl Hhonest. split.
+    - intros ? H. fwd. rewrite Hp0 in *. intros H'. rewrite Forall_forall in Hconcl.
+      apply Hconcl in H'. simpl in *. assumption.
+    - Admitted. (* intros [pat st] Hmf nf Hmatch. *)
+  (*     apply Exists_exists in Hmf. *)
+  (*     destruct Hmf as ([R0 P] & Hin0 & Hrel0 & HP). *)
+  (*     simpl in Hrel0, HP. cbv [meta_fact.rel] in Hrel0. simpl in Hrel0. *)
+  (*     rewrite Forall_forall in Hhonest. *)
+  (*     specialize (Hhonest _ Hin0). simpl in Hhonest. *)
+  (*     destruct Hmatch as [Hmrel Hmargs]. simpl in Hmrel, Hmargs. *)
+  (*     cbv [fact.honest_args fact.args_consistent] in Hhonest. *)
+  (*     cbn [meta_fact.set]. *)
+  (*     rewrite (Hhonest _ _ HP _ Hmargs). *)
+  (*     split; intros H'. *)
+  (*     + apply Exists_exists. exists (R0, P). simpl. *)
+  (*       split; [ exact Hin0 | ]. split; [ congruence | ]. exact H'. *)
+  (*     + apply Exists_exists in H'. destruct H' as [[R1 P'] [Hin1 [Hrel1 Hargs1]]]. *)
+  (*       simpl in Hrel1. *)
+  (*       assert (R1 = R0) by congruence. subst R1. *)
+  (*       assert (P = P') by (eapply NoDup_fst_In_inj; eassumption). *)
+  (*       subst P'. exact Hargs1. *)
+  (* Qed. *)
 
   Lemma interp_blocks_prog_honest ctx (e : blocks_prog (fact.args -> Prop)) :
     valid_blocks_prog e ->
@@ -233,7 +220,10 @@ Section Blocks.
     - simpl in Hvalid. fwd. eauto.
     - simpl in Hvalid. fwd.
       apply fact.set_doesnt_lie_honest_args.
-      apply (program.valid_impl_honest _ Hvalidp0).
+      Search fact.set_doesnt_lie.
+      Lemma fact.set_doesnt_lie_ext.
+      Check program.interp_invariant. Check iff1.
+      apply program.valid_impl_honest; [eassumption|].
       apply block_good_input_set; [ assumption | assumption | ].
       eapply Forall_impl; [ eassumption | ].
       intros [? P] HP. simpl in HP.
