@@ -93,21 +93,33 @@ Section Blocks.
     | local _ => []
     end.
 
+  Ltac aggress' :=
+    match goal with
+    | _ => progress intros
+    | _ => contradiction
+    | _ => congruence
+    | _ => progress simpl in *
+    | H: _ \/ _ |- _ => destruct H
+    | |- _ <-> _ => split
+    | |- _ /\ _ => split
+    | |- _ \/ _ => left; solve[repeat aggress']
+    | |- _ \/ _ => right; solve[repeat aggress']
+    end.
+
+  Ltac fin := solve [repeat aggress'].
+
   Lemma inv_vars_of_block_rel var (R : block_rel var) R0 :
     In R0 (vars_of_block_rel R) <-> R = input R0.
-  Proof.
-    split
-    destruct R; split; simpl; intros; try congruence; try contradiction.
-    - intros [|]; subst; contradiction || auto. Qed.
+  Proof. destruct R; fin. Qed.
 
   Definition vars_of_block {var} (p : block_program var) := flat_map vars_of_block_rel (program.hyp_rels p).
 
   Lemma inv_vars_of_block var p (R : var) :
     In R (vars_of_block p) <-> (In (input R) (program.hyp_rels p)).
   Proof.
-    cbv [vars_of_block]. rewrite in_flat_map. split; intros H; fwd; eauto.
-    - apply inv_vars_of_block_rel in Hp1. subst. assumption.
-    - eauto.
+    cbv [vars_of_block]. rewrite in_flat_map.
+    setoid_rewrite inv_vars_of_block_rel. split; intros; fwd; eauto.
+  Qed.
 
   Inductive vars_in {var} : list var -> blocks_prog var -> Prop :=
   | vars_in_LetIn ctx x f :
@@ -199,39 +211,24 @@ Section Blocks.
 
   Lemma block_good_input_set (p : block_program (fact.args -> Prop)) :
     Forall is_not_input (program.concl_rels p) ->
-    Forall fact.honest_args (flat_map vars_of_block_rel (program.hyp_rels p)) ->
+    Forall fact.honest_args (vars_of_block p) ->
     program.good_input_set p
-      (fun f => exists R, fact.rel f = input R /\ R (fact.args_of f) /\ In R (flat_map vars_of_block_rel (program.hyp_rels p))).
+      (fun f => exists R, fact.rel f = input R /\ R (fact.args_of f) /\ In R (vars_of_block p)).
   Proof.
     intros Hconcl Hhonest. split.
     - intros ? H. fwd. rewrite Hp0 in *. intros H'. rewrite Forall_forall in Hconcl.
       apply Hconcl in H'. simpl in *. assumption.
     - cbv [fact.set_doesnt_lie]. intros. fwd. simp. simpl in *.
       (*TODO simp should do this*)cbv [meta_fact.rel] in *.
-      simpl in *. subst.
-      apply in_flat_map in Hp2. fwd. apply inv_vars_of_block_rel in Hp2p1. subst.
+      simpl in *. subst. apply inv_vars_of_block in Hp2. cbv [fact.normal_subset]. simpl.
+      rewrite Forall_forall in Hhonest. setoid_rewrite inv_vars_of_block in Hhonest.
+      especialize Hhonest; eauto. cbv [fact.honest_args] in Hhonest.
+      especialize Hhonest; eauto. cbv [fact.args_consistent] in Hhonest.
       cbv [fact.set_consistent_with]. simpl. intros nf Hnf. simp.
       (*TODO simp should do this*)cbv [fact_pattern.matches] in Hnf. simpl in Hnf. fwd.
-      cbv [fact.normal_subset]. simpl. setoid_rewrite
-      Search fact.set_doesnt_lie. Admitted. (* intros [pat st] Hmf nf Hmatch. *)
-  (*     apply Exists_exists in Hmf. *)
-  (*     destruct Hmf as ([R0 P] & Hin0 & Hrel0 & HP). *)
-  (*     simpl in Hrel0, HP. cbv [meta_fact.rel] in Hrel0. simpl in Hrel0. *)
-  (*     rewrite Forall_forall in Hhonest. *)
-  (*     specialize (Hhonest _ Hin0). simpl in Hhonest. *)
-  (*     destruct Hmatch as [Hmrel Hmargs]. simpl in Hmrel, Hmargs. *)
-  (*     cbv [fact.honest_args fact.args_consistent] in Hhonest. *)
-  (*     cbn [meta_fact.set]. *)
-  (*     rewrite (Hhonest _ _ HP _ Hmargs). *)
-  (*     split; intros H'. *)
-  (*     + apply Exists_exists. exists (R0, P). simpl. *)
-  (*       split; [ exact Hin0 | ]. split; [ congruence | ]. exact H'. *)
-  (*     + apply Exists_exists in H'. destruct H' as [[R1 P'] [Hin1 [Hrel1 Hargs1]]]. *)
-  (*       simpl in Hrel1. *)
-  (*       assert (R1 = R0) by congruence. subst R1. *)
-  (*       assert (P = P') by (eapply NoDup_fst_In_inj; eassumption). *)
-  (*       subst P'. exact Hargs1. *)
-  (* Qed. *)
+      cbv [fact.normal_subset]. simpl. setoid_rewrite inv_vars_of_block.
+      rewrite Hhonest by eassumption. split; intros; fwd; eauto.
+  Qed.
 
   Lemma interp_blocks_prog_honest ctx (e : blocks_prog (fact.args -> Prop)) :
     valid_blocks_prog e ->
@@ -239,7 +236,7 @@ Section Blocks.
     Forall fact.honest_args ctx ->
     fact.honest_args (interp_blocks_prog e).
   Proof.
-    intros Hvalid. Print vars_in. induction 1; intros Hctx; simpl.
+    intros Hvalid. induction 1; intros Hctx; simpl.
     - simpl in Hvalid. fwd. eauto.
     - simpl in Hvalid. fwd.
       eapply fact.honest_args_ext.
@@ -260,6 +257,7 @@ Section Blocks.
 
   Lemma blocks_prog_impl_mf_ext (e : blocks_prog (fact.args -> Prop)) mf_args mf_set mf_set' :
     interp_blocks_prog e (fact.meta_args mf_args mf_set) ->
+
     (forall nf_args,
         Forall2 value_pattern.matches mf_args nf_args ->
         mf_set nf_args <-> mf_set' nf_args) ->

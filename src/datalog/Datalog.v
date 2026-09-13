@@ -558,7 +558,7 @@ Module fact.
       (forall a, S1 a <-> S2 a) ->
       honest_args S2.
     Proof.
-      cbv [honest_args args_consistent]. intros Hhonest Hext mf_args mf_set Hmeta nf_args Hargs.
+      cbv [honest_args args_consistent]. intros ? Hext **.
       rewrite <- Hext in *. eauto.
     Qed.
 
