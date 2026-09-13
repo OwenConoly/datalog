@@ -5,7 +5,7 @@ From Stdlib Require Import Permutation.
 From Stdlib Require Import RelationClasses Morphisms.
 From Datalog.Util Require Import Autodestr Autocbn Pftree.
 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb Lift1Prop.
 
 From Datalog Require Import Map Tactics Fp List Eqb.
 From GraphSearch Require Import Dag.
@@ -553,6 +553,15 @@ Module fact.
         S_args (meta_args mf_args mf_set) ->
         args_consistent mf_args mf_set S_args.
 
+    Lemma honest_args_ext (S1 S2 : args -> Prop) :
+      (forall a, S1 a <-> S2 a) ->
+      honest_args S1 ->
+      honest_args S2.
+    Proof.
+      cbv [honest_args args_consistent]. intros Hext Hhonest mf_args mf_set Hmeta nf_args Hargs.
+      rewrite <- Hext in *. eauto.
+    Qed.
+
     Lemma set_doesnt_lie_honest_args (S : fact -> Prop) R :
       set_doesnt_lie S ->
       honest_args (fun a => S (of_args R a)).
@@ -1076,6 +1085,16 @@ Module program.
       split; intros H.
       - apply pftree.invariant; eauto.
       - eapply pftree.weaken_hyp; [eassumption|]. simpl. intros. fwd. assumption.
+    Qed.
+
+    Lemma interp_invariant' p Q f :
+      ~Q f ->
+      interp p Q f <->
+        interp p (fun f' => Q f' /\ In (fact.rel f') (hyp_rels p)) f.
+    Proof.
+      intros. rewrite interp_invariant. apply pftree.hyp_ext.
+      intros. split; intros; fwd; eauto. (*TODO destruct_one_or*)
+      invert H0p1; auto || (exfalso; auto).
     Qed.
 
     Lemma interp_hyp_ext_strong p Q1 Q2 f :

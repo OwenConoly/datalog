@@ -185,7 +185,7 @@ Section Blocks.
     Forall is_not_input (program.concl_rels p) ->
     Forall fact.honest_args (flat_map vars_of_block_rel (program.all_rels p)) ->
     program.good_input_set p
-      (fun f => exists R, fact.rel f = input R /\ R (fact.args_of f)).
+      (fun f => exists R, fact.rel f = input R /\ R (fact.args_of f) /\ In R (flat_map vars_of_block_rel (program.all_rels p))).
   Proof.
     intros Hconcl Hhonest. split.
     - intros ? H. fwd. rewrite Hp0 in *. intros H'. rewrite Forall_forall in Hconcl.
@@ -219,12 +219,17 @@ Section Blocks.
     intros Hvalid. induction 1; intros Hctx; simpl.
     - simpl in Hvalid. fwd. eauto.
     - simpl in Hvalid. fwd.
+      eapply fact.honest_args_ext.
+      { intros. rewrite program.interp_invariant' at 2.
+        2: { intro. fwd. rewrite fact.rel_of_args in *. congruence. }
+        instantiate (1 := fun _ => _). simpl. reflexivity. }
       apply fact.set_doesnt_lie_honest_args.
-      Search fact.set_doesnt_lie.
-      Lemma fact.set_doesnt_lie_ext.
-      Check program.interp_invariant. Check iff1.
       apply program.valid_impl_honest; [eassumption|].
-      apply block_good_input_set; [ assumption | assumption | ].
+      eapply block_good_input_set; try assumption.
+        rewrite Forall_forall in *. auto. }
+      simpl.
+
+      ; [ assumption | eassumption | ].
       eapply Forall_impl; [ eassumption | ].
       intros [? P] HP. simpl in HP.
       rewrite Forall_forall in Hctx. auto.
