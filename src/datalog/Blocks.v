@@ -93,13 +93,29 @@ Section Blocks.
     | local _ => []
     end.
 
+  Lemma inv_vars_of_block_rel var (R : block_rel var) R0 :
+    In R0 (vars_of_block_rel R) <-> R = input R0.
+  Proof.
+    split
+    destruct R; split; simpl; intros; try congruence; try contradiction.
+    - intros [|]; subst; contradiction || auto. Qed.
+
+  Definition vars_of_block {var} (p : block_program var) := flat_map vars_of_block_rel (program.hyp_rels p).
+
+  Lemma inv_vars_of_block var p (R : var) :
+    In R (vars_of_block p) <-> (In (input R) (program.hyp_rels p)).
+  Proof.
+    cbv [vars_of_block]. rewrite in_flat_map. split; intros H; fwd; eauto.
+    - apply inv_vars_of_block_rel in Hp1. subst. assumption.
+    - eauto.
+
   Inductive vars_in {var} : list var -> blocks_prog var -> Prop :=
   | vars_in_LetIn ctx x f :
     vars_in ctx x ->
     (forall x', vars_in (x' :: ctx) (f x')) ->
     vars_in ctx (LetIn x f)
   | vars_in_Block ctx ret p :
-    incl (flat_map vars_of_block_rel (program.all_rels p)) ctx ->
+    incl (vars_of_block p) ctx ->
     vars_in ctx (Block ret p).
 
   Lemma vars_in_incl var (ctx1 ctx2 : list var) (p : blocks_prog var) :
@@ -190,7 +206,14 @@ Section Blocks.
     intros Hconcl Hhonest. split.
     - intros ? H. fwd. rewrite Hp0 in *. intros H'. rewrite Forall_forall in Hconcl.
       apply Hconcl in H'. simpl in *. assumption.
-    - Admitted. (* intros [pat st] Hmf nf Hmatch. *)
+    - cbv [fact.set_doesnt_lie]. intros. fwd. simp. simpl in *.
+      (*TODO simp should do this*)cbv [meta_fact.rel] in *.
+      simpl in *. subst.
+      apply in_flat_map in Hp2. fwd. apply inv_vars_of_block_rel in Hp2p1. subst.
+      cbv [fact.set_consistent_with]. simpl. intros nf Hnf. simp.
+      (*TODO simp should do this*)cbv [fact_pattern.matches] in Hnf. simpl in Hnf. fwd.
+      cbv [fact.normal_subset]. simpl. setoid_rewrite
+      Search fact.set_doesnt_lie. Admitted. (* intros [pat st] Hmf nf Hmatch. *)
   (*     apply Exists_exists in Hmf. *)
   (*     destruct Hmf as ([R0 P] & Hin0 & Hrel0 & HP). *)
   (*     simpl in Hrel0, HP. cbv [meta_fact.rel] in Hrel0. simpl in Hrel0. *)
@@ -216,24 +239,23 @@ Section Blocks.
     Forall fact.honest_args ctx ->
     fact.honest_args (interp_blocks_prog e).
   Proof.
-    intros Hvalid. induction 1; intros Hctx; simpl.
+    intros Hvalid. Print vars_in. induction 1; intros Hctx; simpl.
     - simpl in Hvalid. fwd. eauto.
     - simpl in Hvalid. fwd.
       eapply fact.honest_args_ext.
-      { intros. rewrite program.interp_invariant' at 2.
-        2: { intro. fwd. rewrite fact.rel_of_args in *. congruence. }
-        instantiate (1 := fun _ => _). simpl. reflexivity. }
+      2: { intros. rewrite program.interp_invariant' at 2.
+           2: { intro. fwd. rewrite fact.rel_of_args in *. congruence. }
+           instantiate (1 := fun _ => _). simpl. reflexivity. }
       apply fact.set_doesnt_lie_honest_args.
       apply program.valid_impl_honest; [eassumption|].
       eapply program.good_input_set_ext.
       { eapply block_good_input_set; try assumption.
         rewrite Forall_forall in *. auto. }
-      simpl.
-
-      ; [ assumption | eassumption | ].
-      eapply Forall_impl; [ eassumption | ].
-      intros [? P] HP. simpl in HP.
-      rewrite Forall_forall in Hctx. auto.
+      simpl. intros. split; intros H'; fwd; eauto.
+      + rewrite H'p0 in *. apply in_flat_map in H'p2. fwd.
+        apply inv_vars_of_block_rel in H'p2p1. subst. eauto.
+      + rewrite H'p0p0 in *. setoid_rewrite in_flat_map.
+        eexists. ssplit; eauto. eexists. split; eauto. simpl. auto.
   Qed.
 
   Lemma blocks_prog_impl_mf_ext (e : blocks_prog (fact.args -> Prop)) mf_args mf_set mf_set' :
