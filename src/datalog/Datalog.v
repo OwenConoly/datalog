@@ -1265,6 +1265,17 @@ Module program.
     Definition good_input_set (p : program) (Q : fact -> Prop) :=
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) /\ fact.set_doesnt_lie Q.
 
+    Lemma good_input_set_ext p (Q1 Q2 : fact -> Prop) :
+      (forall f, Q1 f <-> Q2 f) ->
+      good_input_set p Q1 ->
+      good_input_set p Q2.
+    Proof.
+      cbv [good_input_set fact.set_doesnt_lie fact.set_consistent_with fact.normal_subset].
+      intros Hext [Hconcl Hlie]. split.
+      - intros f Hf. rewrite <- Hext in Hf. eauto.
+      - intros mf Hmf nf Hmatch. rewrite <- Hext in *. eauto.
+    Qed.
+
     Definition honest (p : program) :=
       forall Q, good_input_set p Q -> fact.set_doesnt_lie (interp p Q).
 

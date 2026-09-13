@@ -183,9 +183,9 @@ Section Blocks.
 
   Lemma block_good_input_set (p : block_program (fact.args -> Prop)) :
     Forall is_not_input (program.concl_rels p) ->
-    Forall fact.honest_args (flat_map vars_of_block_rel (program.all_rels p)) ->
+    Forall fact.honest_args (flat_map vars_of_block_rel (program.hyp_rels p)) ->
     program.good_input_set p
-      (fun f => exists R, fact.rel f = input R /\ R (fact.args_of f) /\ In R (flat_map vars_of_block_rel (program.all_rels p))).
+      (fun f => exists R, fact.rel f = input R /\ R (fact.args_of f) /\ In R (flat_map vars_of_block_rel (program.hyp_rels p))).
   Proof.
     intros Hconcl Hhonest. split.
     - intros ? H. fwd. rewrite Hp0 in *. intros H'. rewrite Forall_forall in Hconcl.
@@ -225,7 +225,8 @@ Section Blocks.
         instantiate (1 := fun _ => _). simpl. reflexivity. }
       apply fact.set_doesnt_lie_honest_args.
       apply program.valid_impl_honest; [eassumption|].
-      eapply block_good_input_set; try assumption.
+      eapply program.good_input_set_ext.
+      { eapply block_good_input_set; try assumption.
         rewrite Forall_forall in *. auto. }
       simpl.
 
