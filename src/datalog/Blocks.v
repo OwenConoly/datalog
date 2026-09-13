@@ -16,58 +16,51 @@ Section Blocks.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
   Context {lvar : Type}.
 
-  Inductive block_rel :=
+  Inductive block_rel {var} :=
   | local (_ : lvar)
-  | input (_ : lvar).
+  | input (_ : var).
+  Arguments block_rel : clear implicits.
 
-  Definition block_program := program (relt := block_rel).
+  Definition block_program var := program (relt := block_rel var).
 
   Inductive blocks_prog {var} :=
   | LetIn (x : blocks_prog) (f : var -> blocks_prog)
   (* | SetGlobal (x : gvar) (v : blocks_prog) *)
-  (* why the inputs nonsense?  because---to give meta-rules correct semantics---
-     we need to be able to distinguish between different relations that have the
-     same denotation.  mapping them to different lvars achieves this.
-
-     an alternative solution would be: instead of defining interp_blocks_prog with
-     var := fact_args -> Prop, instead do var := nat, or maybe
-     var := nat * (fact_args -> Prop).
-     but i do not want to deal with that.
-
-     we should have NoDup (map fst inputs).
-
-     note: probably i should let an input have type var or be a global.
+  (* note: probably i should let an input have type var or be a global.
      but i am ignoring globals for now.
    *)
-  | Block (ret : lvar) (inputs : list (lvar * var)) (p : block_program).
+  | Block (ret : lvar) (p : block_program var).
   Arguments blocks_prog : clear implicits.
 
-  Context (lvar1 lvar2 : lvar).
-  Context (p1 p2 : block_program).
-
-  Definition example {var} : @blocks_prog var :=
-    LetIn (Block lvar1 [] p1) (fun val =>
-                                Block lvar1 [(lvar2, val)] p2).
+  Definition example {var} (ret : lvar) p1 p2 : blocks_prog var :=
+    LetIn (Block ret p1) (fun val => Block ret (p2 val)).
 
   Fixpoint interp_blocks_prog (e : blocks_prog (fact.args -> Prop)) : fact.args -> Prop :=
     match e with
     | LetIn x f =>
         interp_blocks_prog (f (interp_blocks_prog x))
-    | Block ret inputs p =>
+    | Block ret p =>
         fun args =>
           program.interp p
-            (fun f => Exists (fun '(R, R') => input R = fact.rel f /\ R' (fact.args_of f)) inputs)
+            (fun f => exists R, fact.rel f = input R /\ R (fact.args_of f))
             (fact.of_args (local ret) args)
     end.
+
+  Variant wf_rule {var1 var2} (ctx : list (var1 * var2)) : rule (_rel := block_rel var1) -> rule (_rel := block_rel var2) -> Prop :=
+    | wf_impl concls1 hyps1 concls2 hyps2 :
+      Forall2 (wf_clause ctx) concls1 concls2 ->
+      Forall2 (wf_clause ctx) hyps1 hyps2 ->
+      wf_rule _ (rule.impl concls1 hyps1) (rule.impl concls2 hyps2).
 
   Inductive wf_blocks_prog {var1 var2} : list (var1 * var2) -> blocks_prog var1 -> blocks_prog var2 -> Prop :=
   | wf_LetIn ctx x1 x2 f1 f2 :
     wf_blocks_prog ctx x1 x2 ->
     (forall x1' x2', wf_blocks_prog ((x1', x2') :: ctx) (f1 x1') (f2 x2')) ->
     wf_blocks_prog ctx (LetIn x1 f1) (LetIn x2 f2)
-  | wf_Block ctx ret inps1 inps2 p :
+  | wf_Block ctx ret p :
+
     Forall2 (fun '(x1, R1) '(x2, R2) => x1 = x2 /\ In (R1, R2) ctx) inps1 inps2 ->
-    wf_blocks_prog ctx (Block ret inps1 p) (Block ret inps2 p).
+    wf_blocks_prog ctx (Block ret p) (Block ret p).
 
   (*TODO try out (var -> Prop) instead of (list var) ??*)
   Inductive vars_in {var} : list var -> blocks_prog var -> Prop :=
