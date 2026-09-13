@@ -2,6 +2,7 @@ From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import Permutation.
 From Stdlib Require Import micromega.Lia.
+From Stdlib Require Import Morphisms.
 
 From Datalog Require Import Map Tactics Fp List Pftree Datalog RelMap.
 From GraphSearch Require Import Dag.
@@ -255,18 +256,14 @@ Section Blocks.
         eexists. ssplit; eauto. eexists. split; eauto. simpl. auto.
   Qed.
 
-  Lemma blocks_prog_impl_mf_ext (e : blocks_prog (fact.args -> Prop)) mf_args mf_set mf_set' :
-    interp_blocks_prog e (fact.meta_args mf_args mf_set) ->
-
-    (forall nf_args,
-        Forall2 value_pattern.matches mf_args nf_args ->
-        mf_set nf_args <-> mf_set' nf_args) ->
-    interp_blocks_prog e (fact.meta_args mf_args mf_set').
+  Lemma interp_blocks_prog_ext (e : blocks_prog (fact.args -> Prop)) :
+    Proper (fact.args_equiv ==> iff) (interp_blocks_prog e).
   Proof.
-    revert mf_args mf_set mf_set'.
-    induction e; intros mf_args mf_set mf_set' Himpl Hext.
-    - simpl in *. eauto.
-    - simpl in *.
+    induction e; intros args1 args2 Hequiv.
+    - rewrite Hequiv. reflexivity.
+    - simpl. Search (program.interp _). apply program.interp_ext'.
+      + cbv [Proper respectful]. Check program.interp_ext. simpl.
+      simpl in *.
       eapply program.interp_ext in Himpl.
       2: { instantiate (1 := fact.of_args (local ret) (fact.meta_args mf_args mf_set')).
            cbv [fact.equiv meta_fact.equiv]. simpl. auto. }

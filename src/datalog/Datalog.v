@@ -1018,6 +1018,11 @@ Module program.
       eauto using interp_step_ext_concl.
     Qed.
 
+    Lemma interp_ext'' p Q f f' :
+      ~Q f ->
+      ~Q f' ->
+      interp p Q f <-> interp p Q f'.
+
     Lemma interp_ext' p Q :
       Proper (fact.equiv ==> iff) Q ->
       Proper (fact.equiv ==> iff) (interp p Q).
