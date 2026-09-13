@@ -101,11 +101,11 @@ Module expr.
     Register Scheme expr_ind as ind_nodep for expr.
 
     Lemma interp_subst_more s s' v e :
-      map.extends s' s ->
       interp s e v ->
+      map.extends s' s ->
       interp s' e v.
     Proof.
-      intros Hext H. revert s s' Hext v H. induction e; intros s s' Hext v0 Hv0.
+      intros H Hext. revert s s' Hext v H. induction e; intros s s' Hext v0 Hv0.
       - invert Hv0. constructor. auto.
       - invert Hv0. econstructor; eauto.
         eapply Forall2_impl_strong; [eassumption|]. intros. rewrite Forall_forall in H.
@@ -292,8 +292,8 @@ Module clause.
         Forall2 (expr.interp ctx) c.(args) f.(normal_fact.args).
 
     Lemma interp_subst_more s s' f f' :
-      map.extends s' s ->
       interp s f f' ->
+      map.extends s' s ->
       interp s' f f'.
     Proof.
       cbv [interp]. intros. fwd. eauto using expr.interp_subst_more.
@@ -492,11 +492,11 @@ Module fact.
       Exists (covered_by f) pats.
 
     Lemma implied_by_mfs_ext hyps hyps' f :
-      Forall2 meta_fact.equiv hyps hyps' ->
       implied_by_mfs hyps f ->
+      Forall2 meta_fact.equiv hyps hyps' ->
       implied_by_mfs hyps' f.
     Proof.
-      cbv [implied_by_mfs implied_by_mf]. intros H1 H2.
+      cbv [implied_by_mfs implied_by_mf]. intros H2 H1.
       apply Forall2_forget_r in H1. rewrite Forall_forall in H1.
       destruct f; simpl in *.
       - rewrite Exists_exists in *. fwd. especialize H1; eauto. fwd. eauto.
@@ -554,11 +554,11 @@ Module fact.
         args_consistent mf_args mf_set S_args.
 
     Lemma honest_args_ext (S1 S2 : args -> Prop) :
-      (forall a, S1 a <-> S2 a) ->
       honest_args S1 ->
+      (forall a, S1 a <-> S2 a) ->
       honest_args S2.
     Proof.
-      cbv [honest_args args_consistent]. intros Hext Hhonest mf_args mf_set Hmeta nf_args Hargs.
+      cbv [honest_args args_consistent]. intros Hhonest Hext mf_args mf_set Hmeta nf_args Hargs.
       rewrite <- Hext in *. eauto.
     Qed.
 
@@ -630,11 +630,11 @@ Module rule.
           Forall (fact.implied_by_mfs mfs) hyps.
 
     Lemma one_step_derives_ext p hyps hyps' nf :
-      Forall2 meta_fact.equiv hyps hyps' ->
       one_step_derives p hyps nf ->
+      Forall2 meta_fact.equiv hyps hyps' ->
       one_step_derives p hyps' nf.
     Proof.
-      intros H1 H2. cbv [one_step_derives] in *. fwd. eauto 6.
+      intros H2 H1. cbv [one_step_derives] in *. fwd. eauto 6.
     Qed.
 
     Definition concl_rels (r : rule) :=
@@ -738,18 +738,18 @@ Module rule.
     Qed.
 
     Lemma one_step_derives_incl p1 p2 mfs nf :
-      incl p1 p2 ->
       one_step_derives p1 mfs nf ->
+      incl p1 p2 ->
       one_step_derives p2 mfs nf.
-    Proof. cbv [one_step_derives]. intros Hincl H. fwd. eauto 6. Qed.
+    Proof. cbv [one_step_derives]. intros H Hincl. fwd. eauto 6. Qed.
 
     Lemma one_step_derives_same_set p1 p2 mfs nf :
       same_set p1 p2 ->
       one_step_derives p1 mfs nf <-> one_step_derives p2 mfs nf.
     Proof.
-      intros Hiff. split; apply one_step_derives_incl.
-      - intros x Hx. apply Hiff. assumption.
-      - intros x Hx. apply Hiff. assumption.
+      intros Hiff. split; intros H.
+      - eapply one_step_derives_incl; [eassumption|]. intros x Hx. apply Hiff. assumption.
+      - eapply one_step_derives_incl; [eassumption|]. intros x Hx. apply Hiff. assumption.
     Qed.
   End __.
 End rule. Abbreviation rule := rule.rule.
@@ -1198,12 +1198,12 @@ Module program.
     Qed.
 
     Lemma interp_step_same_set p1 p2 f hyps :
+      interp_step p1 f hyps ->
       same_set p1.(rules) p2.(rules) ->
       same_set p1.(meta_rules) p2.(meta_rules) ->
-      interp_step p1 f hyps ->
       interp_step p2 f hyps.
     Proof.
-      intros Hr Hmr H. invert H; constructor; rewrite Exists_exists in *; fwd.
+      intros H Hr Hmr. invert H; constructor; rewrite Exists_exists in *; fwd.
       - eexists. split; [|eassumption]. apply Hr. assumption.
       - eexists. split.
         + apply Hmr. eassumption.
@@ -1211,9 +1211,9 @@ Module program.
     Qed.
 
     Lemma interp_same_set p1 p2 Q f :
+      interp p1 Q f ->
       same_set p1.(rules) p2.(rules) ->
       same_set p1.(meta_rules) p2.(meta_rules) ->
-      interp p1 Q f ->
       interp p2 Q f.
     Proof. intros. eapply pftree.weaken; eauto using interp_step_same_set. Qed.
 
@@ -1227,7 +1227,7 @@ Module program.
       apply interp_union with (p2 := p2) in H; [|assumption].
       eapply pftree.weaken_hyp; [eassumption|]. simpl. intros y Hy.
       apply interp_union with (p2 := p1) in Hy; [|assumption].
-      eapply interp_same_set; [| |eassumption]; cbv [union]; simpl;
+      eapply interp_same_set; [eassumption| |]; cbv [union]; simpl;
         apply same_set_app_comm.
     Qed.
 
@@ -1266,12 +1266,12 @@ Module program.
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) /\ fact.set_doesnt_lie Q.
 
     Lemma good_input_set_ext p (Q1 Q2 : fact -> Prop) :
-      (forall f, Q1 f <-> Q2 f) ->
       good_input_set p Q1 ->
+      (forall f, Q1 f <-> Q2 f) ->
       good_input_set p Q2.
     Proof.
       cbv [good_input_set fact.set_doesnt_lie fact.set_consistent_with fact.normal_subset].
-      intros Hext [Hconcl Hlie]. split.
+      intros [Hconcl Hlie] Hext. split.
       - intros f Hf. rewrite <- Hext in Hf. eauto.
       - intros mf Hmf nf Hmatch. rewrite <- Hext in *. eauto.
     Qed.
@@ -1333,11 +1333,11 @@ Module program.
       In mr2 p.(meta_rules) ->
       meta_rule.pattern_interp mr2 pat2 (map meta_fact.pattern mh2) ->
       fact_pattern.matches pat2 nf ->
-      (forall mhyp1 mhyp2, In mhyp1 mh1 -> In mhyp2 mh2 -> meta_fact.agree mhyp1 mhyp2) ->
       rule.one_step_derives p.(rules) mh1 nf ->
+      (forall mhyp1 mhyp2, In mhyp1 mh1 -> In mhyp2 mh2 -> meta_fact.agree mhyp1 mhyp2) ->
       rule.one_step_derives p.(rules) mh2 nf.
     Proof.
-      intros Hvalid Hmr2 Hpat2 Hmatch Hagree Hderiv.
+      intros Hvalid Hmr2 Hpat2 Hmatch Hderiv Hagree.
       cbv [rule.one_step_derives] in *. fwd.
       specialize (Hvalid _ _ Hmr2 Hderivp0p0 _ _ _ _ Hpat2 Hderivp0p1 Hmatch).
       eexists. split; [apply Exists_exists; eauto|].
