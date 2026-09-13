@@ -452,6 +452,17 @@ Module fact.
       | _, _ => False
       end.
 
+    Definition args_equiv (a1 a2 : args) :=
+      match a1, a2 with
+      | normal_args nf_args1, normal_args nf_args2 => nf_args1 = nf_args2
+      | meta_args mf_args1 mf_set1, meta_args mf_args2 mf_set2 =>
+          mf_args1 = mf_args2 /\
+            forall nf_args,
+              Forall2 value_pattern.matches mf_args1 nf_args ->
+              mf_set1 nf_args <-> mf_set2 nf_args
+      | _, _ => False
+      end.
+
     Lemma equiv_Equivalence : Equivalence equiv.
     Proof.
       constructor.
@@ -459,6 +470,17 @@ Module fact.
       - intros f1 f2. destruct f1, f2; simpl; intros; contradiction || now symmetry.
       - intros f1 f2 f3. destruct f1, f2, f3; simpl; intros;
           contradiction || (etransitivity; eassumption).
+    Qed.
+
+    Lemma args_equiv_Equivalence : Equivalence args_equiv.
+    Proof.
+      cbv [args_equiv]. constructor.
+      - intros a. destruct a; auto.
+      - intros a1 a2 H. destruct a1, a2; try contradiction; fwd; auto.
+        split; [congruence|]. intros. symmetry. apply Hp1. congruence.
+      - intros a1 a2 a3 H1 H2. destruct a1, a2, a3; try contradiction; fwd; try congruence.
+        split; [congruence|]. intros.
+        etransitivity; [now apply H1p1|]. apply H2p1. congruence.
     Qed.
 
     Lemma equiv_map_meta mfs fs :
@@ -576,6 +598,7 @@ Module fact.
 End fact. Abbreviation fact := fact.fact.
 #[export] Hint Resolve fact.implied_by_mfs_ext : core.
 #[export] Existing Instance fact.equiv_Equivalence.
+#[export] Existing Instance fact.args_equiv_Equivalence.
 
 Module rule.
   Section __.
