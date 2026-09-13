@@ -46,23 +46,49 @@ Section Blocks.
             (fact.of_args (local ret) args)
     end.
 
+  Definition wf_rel {var1 var2} (ctx : list (var1 * var2)) (R1 : block_rel var1) (R2 : block_rel var2) :=
+    match R1, R2 with
+    | local x1, local x2 => x1 = x2
+    | input v1, input v2 => In (v1, v2) ctx
+    | _, _ => False
+    end.
+
+  Definition wf_clause {var1 var2} (ctx : list (var1 * var2)) (c1 : clause (relt := block_rel var1)) (c2 : clause (relt := block_rel var2)) :=
+    wf_rel ctx c1.(clause.rel) c2.(clause.rel) /\ c1.(clause.args) = c2.(clause.args).
+
   Variant wf_rule {var1 var2} (ctx : list (var1 * var2)) : rule (_rel := block_rel var1) -> rule (_rel := block_rel var2) -> Prop :=
     | wf_impl concls1 hyps1 concls2 hyps2 :
       Forall2 (wf_clause ctx) concls1 concls2 ->
       Forall2 (wf_clause ctx) hyps1 hyps2 ->
-      wf_rule _ (rule.impl concls1 hyps1) (rule.impl concls2 hyps2).
+      wf_rule _ (rule.impl concls1 hyps1) (rule.impl concls2 hyps2)
+    | wf_agg concl1 concl2 a hyp1 hyp2 :
+      wf_rel ctx concl1 concl2 ->
+      wf_rel ctx hyp1 hyp2 ->
+      wf_rule _ (rule.agg concl1 a hyp1) (rule.agg concl2 a hyp2).
+
+  Definition wf_clause_pattern {var1 var2} (ctx : list (var1 * var2)) (cp1 : clause_pattern (relt := block_rel var1)) (cp2 : clause_pattern (relt := block_rel var2)) :=
+    wf_rel ctx cp1.(clause_pattern.rel) cp2.(clause_pattern.rel) /\
+      cp1.(clause_pattern.args) = cp2.(clause_pattern.args).
+
+  Definition wf_meta_rule {var1 var2} (ctx : list (var1 * var2)) (mr1 : meta_rule (relt := block_rel var1)) (mr2 : meta_rule (relt := block_rel var2)) :=
+    Forall2 (wf_clause_pattern ctx) mr1.(meta_rule.concls) mr2.(meta_rule.concls) /\
+      Forall2 (wf_clause_pattern ctx) mr1.(meta_rule.hyps) mr2.(meta_rule.hyps).
+
+  Definition wf_program {var1 var2} (ctx : list (var1 * var2)) (p1 : block_program var1) (p2 : block_program var2) :=
+    Forall2 (wf_rule ctx) p1.(program.rules) p2.(program.rules) /\
+      Forall2 (wf_meta_rule ctx) p1.(program.meta_rules) p2.(program.meta_rules).
 
   Inductive wf_blocks_prog {var1 var2} : list (var1 * var2) -> blocks_prog var1 -> blocks_prog var2 -> Prop :=
   | wf_LetIn ctx x1 x2 f1 f2 :
     wf_blocks_prog ctx x1 x2 ->
     (forall x1' x2', wf_blocks_prog ((x1', x2') :: ctx) (f1 x1') (f2 x2')) ->
     wf_blocks_prog ctx (LetIn x1 f1) (LetIn x2 f2)
-  | wf_Block ctx ret p :
-
-    Forall2 (fun '(x1, R1) '(x2, R2) => x1 = x2 /\ In (R1, R2) ctx) inps1 inps2 ->
-    wf_blocks_prog ctx (Block ret p) (Block ret p).
+  | wf_Block ctx ret p1 p2 :
+    wf_program ctx p1 p2 ->
+    wf_blocks_prog ctx (Block ret p1) (Block ret p2).
 
   (*TODO try out (var -> Prop) instead of (list var) ??*)
+  Print clause.vars.
   Inductive vars_in {var} : list var -> blocks_prog var -> Prop :=
   | vars_in_LetIn ctx x f :
     vars_in ctx x ->
