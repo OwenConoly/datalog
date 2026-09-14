@@ -149,8 +149,9 @@ Module expr.
       v1 = v2.
     Proof.
       revert v1 v2. induction e; simpl; intros.
-      - invert1_any. map_func. reflexivity.
-      - invert1_any. enough (args' = args'0) by congruence.
+      - (*TODO use invert1_any but with whitelist instead of blacklist*)
+        invert H. invert H0. map_func. reflexivity.
+      - invert H0. invert H1. enough (args' = args'0) by congruence.
         eapply Forall2_unique_r; try eassumption.
         rewrite Forall_forall in H. eauto.
     Qed.
@@ -163,7 +164,7 @@ Module expr.
     Proof. eauto using interp_det, interp_agree_on. Qed.
   End __.
 End expr. Abbreviation expr := expr.expr.
-Check datalog_params0.
+
 Module normal_fact.
   Record normal_fact {relt : relT} {value : valueT} :=
     { rel : relt;
@@ -377,7 +378,6 @@ Module clause.
     Proof.
       intros. cbv [interp] in *. fwd. simp. f_equal.
       eapply Forall2_unique_r; eauto using expr.interp_det.
-      intros. eapply expr.interp_det; eassumption.
     Qed.
 
     Lemma interp_det' c ctx1 ctx2 f1 f2 :
