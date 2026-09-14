@@ -3,24 +3,27 @@ From coqutil Require Import Datatypes.List Tactics.fwd.
 From Stdlib Require Import List.
 
 Module fset.
-  Class impl {T : Type} {P : T -> bool} :=
+  Class impl {T : Type} :=
     { rep : Type;
+      P : T -> bool;
       to_list : rep -> list T;
       of_list : list T -> rep;
     }.
   Arguments impl : clear implicits.
-  #[global] Hint Mode impl + + : typeclass_instances.
-  #[local] Hint Mode impl - - : typeclass_instances.
-
-  Class ok {T P} {impl : impl T P} := {
+  #[global] Hint Mode impl + : typeclass_instances.
+  #[local] Hint Mode impl - : typeclass_instances.
+  Class ok {T} {impl : impl T} := {
       ext : forall s1 s2, same_set (to_list s1) (to_list s2) -> s1 = s2;
       to_list_of_list : forall s, same_set (to_list (of_list s)) (filter P s);
       of_list_to_list : forall s, of_list (to_list s) = s;
     }.
-  Arguments ok {_ _} _.
+  Arguments ok {_} _.
+
+  Class impl_with {T} (P : T -> bool) := { _impl : impl T }.
+  #[global] Instance fset_with_inst {T} {i : impl T} : impl_with i.(P) := { _impl := _ }.
 
   Section __.
-    Context {T P} {impl : impl T P} {ok : ok impl}.
+    Context {T} {impl : impl T} {ok : ok impl}.
 
     Definition has s x := In x (to_list s).
 
@@ -39,4 +42,4 @@ Module fset.
   End __.
 End fset.
 
-Definition fset T P {impl : fset.impl T P} : Type := @fset.rep T P _.
+Definition fset T P {impl : fset.impl_with P} : Type := @fset.rep T impl.(fset._impl).
