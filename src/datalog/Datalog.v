@@ -9,6 +9,7 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 
 From Datalog Require Import Map Tactics Fp List Eqb.
 From GraphSearch Require Import Dag.
+From Datalog.Util Require Import FilteredSet.
 
 Import ListNotations.
 
@@ -39,7 +40,13 @@ Class datalog_semantics {_fn : fnT} {_aggregator: aggregatorT} {_value : valueT}
     agg_id : aggregator -> value; }.
 Arguments datalog_semantics : clear implicits.
 
-Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map _exprvar value} {context_ok : map.ok context} := {}.
+Class datalog_params
+  {_rel : relT} {_exprvar : exprvarT}
+  `{semantics : datalog_semantics}
+  {context : map.map _exprvar value} {context_ok : map.ok context}
+  {_matching_set : forall P, fset.impl (list value) P} {_matching_set_ok : forall P, fset.ok (_matching_set P)}
+  {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}
+  := {}.
 
 Definition interp_agg `{datalog_semantics} agg (vals : list (value * value)) :=
   fold_right (agg_bop agg) (agg_id agg) (map snd vals).
@@ -164,7 +171,7 @@ End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 
 Module value_pattern.
   Section __.
-    Context {value : valueT}.
+    Context {value : valueT} {value_eqb : Eqb value}.
     (*could consider extending this?*)
     Variant value_pattern {value : valueT} :=
       | exactly (v : value)
@@ -176,6 +183,12 @@ Module value_pattern.
       | any => True
       end.
 
+    Definition matchesb (p : value_pattern) v :=
+      match p with
+      | exactly v0 => eqb v0 v
+      | any => true
+      end.
+
     Lemma matches_map_exactly vs :
       Forall2 matches (map exactly vs) vs.
     Proof.
@@ -185,8 +198,8 @@ Module value_pattern.
     Lemma matches_map_exactly_inv vs vs' :
       Forall2 matches (map exactly vs) vs' -> vs' = vs.
     Proof.
-      revert vs'. induction vs as [|v vs IH]; intros [|y vs'] H; invert H; auto.
-      cbn [matches] in *. f_equal; auto.
+      intros H. symmetry. apply Forall2_map_l in H. apply Forall2_eq_eq.
+      eapply Forall2_impl; [eassumption|]. simpl. auto.
     Qed.
 End __.
 
@@ -210,41 +223,20 @@ Module fact_pattern.
 End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 
 Module meta_fact.
-  Record meta_fact {relt : relT} {value : valueT} :=
-    { pattern : fact_pattern;
-      set : list value -> Prop }.
-  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _) :: prev ().
-  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
   Section __.
-    Context {relt : relT} {value : valueT}.
+    Context `{params : datalog_params}.
+    Record meta_fact :=
+      { pattern : fact_pattern;
+        set : fset (list value) (forallb2 value_pattern.matchesb pattern.(fact_pattern.args)) }.
+  End __.
+  (*TODO replace pattern_pred with head_pred so that i dont have to do the underscores*)
+  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _ _ _) :: prev ().
+  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
 
+  Section __.
+    Context `{params : datalog_params}.
     Definition matches mf nf :=
-      fact_pattern.matches mf.(pattern) nf /\ mf.(set) nf.(normal_fact.args).
-
-    Definition equiv (mf1 mf2 : meta_fact) :=
-      mf1.(pattern) = mf2.(pattern) /\
-        forall args,
-          Forall2 value_pattern.matches mf1.(pattern).(fact_pattern.args) args ->
-          mf1.(set) args <-> mf2.(set) args.
-
-    Lemma matches_ext mf nf mf' :
-      matches mf nf ->
-      equiv mf mf' ->
-      matches mf' nf.
-    Proof.
-      cbv [matches equiv]. intros H1 H2. fwd. simp.
-      cbv [fact_pattern.matches] in *. fwd. simp. edestruct H2p1; eauto.
-    Qed.
-
-    Lemma equiv_Equivalence : Equivalence equiv.
-    Proof.
-      cbv [equiv]. constructor.
-      - intros. split; [reflexivity|]. intros. reflexivity.
-      - intros mf1 mf2 H. fwd. split; [congruence|]. intros.
-        symmetry. apply Hp1. congruence.
-      - intros mf1 mf2 mf3 H1 H2. fwd. split; [congruence|]. intros.
-        etransitivity; [now apply H1p1|]. apply H2p1. congruence.
-    Qed.
+      fact_pattern.matches mf.(pattern) nf /\ fset.has mf.(set) nf.(normal_fact.args).
 
     Definition rel mf := mf.(pattern).(fact_pattern.rel).
 
@@ -252,19 +244,23 @@ Module meta_fact.
       forall nf,
         fact_pattern.matches mf1.(pattern) nf ->
         fact_pattern.matches mf2.(pattern) nf ->
-        mf1.(set) nf.(normal_fact.args) <-> mf2.(set) nf.(normal_fact.args).
+        fset.has mf1.(set) nf.(normal_fact.args) <-> fset.has mf2.(set) nf.(normal_fact.args).
 
     Lemma agree_sym mf1 mf2 :
       agree mf1 mf2 ->
       agree mf2 mf1.
-    Proof. cbv [agree]. intros H nf H1 H2. symmetry. auto. Qed.
+    Proof. cbv [agree]. intros. symmetry. auto. Qed.
 
-    Lemma equiv_of_agree mf1 mf2 :
+    Lemma eq_of_agree mf1 mf2 :
       mf1.(pattern) = mf2.(pattern) ->
       agree mf1 mf2 ->
-      equiv mf1 mf2.
+      mf1 = mf2.
     Proof.
-      cbv [equiv agree]. intros Hpat Hagree. split; [assumption|]. intros args Hargs.
+      cbv [agree]. intros Hpat Hagree. simp. f_equal.
+      apply fset.ext_strong. intros. About forallb2. fwd.
+
+      Lemma fset.impl_same_set
+      pose (x := (2, 2)). Ltac2 Eval to_destruct (). autodestr. simp. split; [assumption|]. intros args Hargs.
       rewrite <- Hpat in *.
       eapply (Hagree (normal_fact.Build_normal_fact _ _ _ _));
       cbv [fact_pattern.matches]; simpl; auto.
