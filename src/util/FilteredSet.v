@@ -8,11 +8,11 @@ Module fset.
       to_list : rep -> list T;
       of_list : list T -> rep;
     }.
-  Arguments impl : clear implicits.
+  Arguments impl {_} _.
   #[global] Hint Mode impl + + : typeclass_instances.
   #[local] Hint Mode impl - - : typeclass_instances.
 
-  Class ok {T P} {impl : impl T P} := {
+  Class ok {T} {P : T -> _} {impl : impl P} := {
       ext : forall s1 s2, same_set (to_list s1) (to_list s2) -> s1 = s2;
       to_list_of_list : forall s, same_set (to_list (of_list s)) (filter P s);
       of_list_to_list : forall s, of_list (to_list s) = s;
@@ -20,7 +20,7 @@ Module fset.
   Arguments ok {_ _} _.
 
   Section __.
-    Context {T P} {impl : impl T P} {ok : ok impl}.
+    Context {T} {P : T -> _} {impl : impl P} {ok : ok impl}.
 
     Definition has s x := In x (to_list s).
 
@@ -39,4 +39,4 @@ Module fset.
   End __.
 End fset.
 
-Definition fset T P {impl : fset.impl T P} : Type := @fset.rep T P _.
+Definition fset T P {impl : fset.impl P} : Type := @fset.rep T P _.
