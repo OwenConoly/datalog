@@ -9,7 +9,7 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 
 From Datalog Require Import Map Tactics Fp List Eqb Decidable.
 From GraphSearch Require Import Dag.
-From Datalog.Util Require Import FilteredSet.
+From Datalog.Util Require Import Quotient.
 
 Import ListNotations.
 
@@ -40,11 +40,18 @@ Class datalog_semantics {_fn : fnT} {_aggregator: aggregatorT} {_value : valueT}
     agg_id : aggregator -> value; }.
 Arguments datalog_semantics : clear implicits.
 
+Definition lists_agree_on {T} (P : T -> bool) (x y : list T) :=
+  same_set (filter P x) (filter P y).
+
+Definition sum_agrees_on {T U} (P : T -> U -> bool) (x y : T * list U) :=
+  fst x = fst y /\ same_set (filter (P (fst x)) (snd x)) (filter (P (fst y)) (snd y)).
+
 Class datalog_params
   {_rel : relT} {_exprvar : exprvarT}
   `{semantics : datalog_semantics}
   {context : map.map _exprvar value} {context_ok : map.ok context}
-  {_matching_set : forall P, fset.impl (list value) P} {_matching_set_ok : forall P, fset.ok (_matching_set P)}
+  {_matching_set : forall (P : _value -> bool), quot.quot (list value) (lists_agree_on P)}
+  {_matching_sum : forall (P : _rel -> _value -> bool), quot.quot (rel * list value) (sum_agrees_on P)}
   {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}
   := {}.
 
@@ -171,7 +178,7 @@ End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 
 Module value_pattern.
   Section __.
-    Context {value : valueT} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
+    Context `{params : datalog_params}.
     (*could consider extending this?*)
     Variant value_pattern {value : valueT} :=
       | exactly (v : value)
@@ -219,6 +226,7 @@ Module fact_pattern.
   Record fact_pattern {relt : relT} {value : valueT} :=
     { rel : relt;
       args : list value_pattern }.
+    (*TODO replace pattern_pred with head_pred so that i dont have to do the underscores*)
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@fact_pattern _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
@@ -233,16 +241,14 @@ End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 Module meta_fact.
   Section __.
     Context `{params : datalog_params}.
-    Definition matches_set value_pats :=
-      fset (list value) (forallb2 value_pattern.matchesb value_pats).
     Record meta_fact :=
       { pattern : fact_pattern;
-        set : matches_set pattern.(fact_pattern.args) }.
-  End __.
-  (*TODO replace pattern_pred with head_pred so that i dont have to do the underscores*)
-  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _ _ _) :: prev ().
-  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
+        set : list (list value) }.
 
+    Definition meta_fact' :=
+      quot.quot (rel * list (list value)) (sum_agrees_on (forallb2 (value_pattern.matchesb (value_eqb := value_eqb)))).
+
+  End __.
   Section __.
     Context `{params : datalog_params}.
     Definition matches mf nf :=
