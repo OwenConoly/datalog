@@ -233,9 +233,11 @@ End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 Module meta_fact.
   Section __.
     Context `{params : datalog_params}.
+    Definition matches_set value_pats :=
+      fset (list value) (forallb2 value_pattern.matchesb value_pats).
     Record meta_fact :=
       { pattern : fact_pattern;
-        set : fset (list value) (forallb2 value_pattern.matchesb pattern.(fact_pattern.args)) }.
+        set : matches_set pattern.(fact_pattern.args) }.
   End __.
   (*TODO replace pattern_pred with head_pred so that i dont have to do the underscores*)
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _ _ _) :: prev ().
@@ -266,22 +268,11 @@ Module meta_fact.
     Proof.
       cbv [agree]. intros Hpat Hagree. simp. f_equal.
       apply fset.has_ext. intros. fwd.
-      especialize Hagree.
-      { instantiate (1 := {| normal_fact.rel := _ |}). cbv [fact_pattern.matches].
-        simpl.
-        simpl. simpl. simp.
-      specialize (Hagree {| normal_fact.rel := _ |}). Search fwd. intros. About forallb2. fwd.
-
-      Lemma fset.impl_same_set
-      pose (x := (2, 2)). Ltac2 Eval to_destruct (). autodestr. simp. split; [assumption|]. intros args Hargs.
-      rewrite <- Hpat in *.
-      eapply (Hagree (normal_fact.Build_normal_fact _ _ _ _));
-      cbv [fact_pattern.matches]; simpl; auto.
+      eapply (Hagree {| normal_fact.rel := _ |});
+        (*TODO simp should do this*)cbv [fact_pattern.matches]; simp; eauto.
     Qed.
   End __.
 End meta_fact. Abbreviation meta_fact := meta_fact.meta_fact.
-#[export] Hint Resolve meta_fact.matches_ext : core.
-#[export] Existing Instance meta_fact.equiv_Equivalence.
 
 #[local] Hint Resolve Forall2_impl : core.
 #[local] Hint Resolve Forall_impl : core.
@@ -420,7 +411,7 @@ Module fact.
       match f with
       | normal nf => normal_args nf.(normal_fact.args)
       | meta {| meta_fact.pattern := pat; meta_fact.set := st |} =>
-          meta_args pat.(fact_pattern.args) st
+          meta_args pat.(fact_pattern.args) (
       end.
 
     Definition of_args R args : fact :=
