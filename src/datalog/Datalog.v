@@ -44,7 +44,7 @@ Class datalog_params
   {_rel : relT} {_exprvar : exprvarT}
   `{semantics : datalog_semantics}
   {context : map.map _exprvar value} {context_ok : map.ok context}
-  {list_value_fset : fset.impls (list value)} {list_value_fset_ok : fset.oks list_value_fset}
+  {_matching_set : forall (P : list value -> bool), fset.impl_with P} {_matching_set_ok : forall P, fset.ok (_matching_set P).(fset._impl)}
   {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}
   := {}.
 
