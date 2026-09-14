@@ -961,7 +961,6 @@ Proof.
     + simpl. f_equal. apply IHp. apply Hnv.
 Qed.
 
-Print ctx_elt.
 Inductive wf_pZexpr' {var1 var2} : list (var1 * var2) -> pZexpr' var1 -> pZexpr' var2 -> Prop :=
 | wf_ZBop ctx o x1 x2 y1 y2 :
     wf_pZexpr' ctx x1 x2 ->
@@ -976,14 +975,13 @@ Inductive wf_pZexpr' {var1 var2} : list (var1 * var2) -> pZexpr' var1 -> pZexpr'
     wf_pZexpr' ctx x1 x2 ->
     wf_pZexpr' ctx (Zopp x1) (Zopp x2).
 
-(* this extracts tZ from ctx so that if wf_pSexpr' or wf_pATLexpr' wants to call wf_pZexpr' it
-    can because the ctx can now be the appropriate type *)
-Definition zctx {var1 var2} (ctx : list (ctx_elt2 var1 var2)) : list (var1 tZ * var2 tZ) :=
-  flat_map (fun c : ctx_elt2 var1 var2 =>
-    match ctx_elt_t var1 var2 c as t0 return var1 t0 -> var2 t0 -> list (var1 tZ * var2 tZ) with
-    | tZ => fun p1 p2 => [(p1, p2)]
-    | _ => fun _ _ => []
-    end (ctx_elt_p1 var1 var2 c) (ctx_elt_p2 var1 var2 c)) ctx.
+Definition zctx_elt {var1 var2} (elt : ctx_elt2 var1 var2) : list (var1 tZ * var2 tZ) :=
+  match elt with
+  | {| ctx_elt_t := tZ; ctx_elt_p1 := p1; ctx_elt_p2 := p2 |} => [(p1, p2)]
+  | _ => []
+  end.
+
+Definition zctx {var1 var2} (ctx : list (ctx_elt2 var1 var2)) := flat_map zctx_elt ctx.
 
 Inductive wf_pBexpr' {var1 var2} : list (ctx_elt2 var1 var2) -> pBexpr' (var1 tZ) -> pBexpr' (var2 tZ) -> Prop :=
 | wf_BAnd ctx a1 a2 b1 b2 :
@@ -1074,24 +1072,6 @@ Variant value : Type :=
 Instance value_T : valueT := value.
 Definition value_of : R -> value := VR.
 
-Definition Rltb (x y : R) : bool :=
-  match Rlt_dec x y with
-  | left _ => true
-  | right _ => false
-  end.
-
-Definition Rleb (x y : R) : bool :=
-  match Rle_dec x y with
-  | left _ => true
-  | right _ => false
-  end.
-
-Definition Reqb (x y : R) : bool :=
-  match Req_dec_T x y with
-  | left _ => true
-  | right _ => false
-  end.
-
 Definition interp_fun (f : fn) (args : list value) : option value :=
   match f, args with
   | fn_Add, [VR x; VR y] => Some (VR (x + y))
@@ -1119,20 +1099,31 @@ Axiom agg_id : aggregator -> value.
 Instance dsig : signature fn aggregator value :=
   { interp_fun := interp_fun; get_nat := get_nat; agg_bop := agg_bop; agg_id := agg_id }.
 
-Context {context : map.map exprvar value}.
+Context {context : map.map exprvar value} {context_ok : map.ok context}.
 
-Print interp_blocks_prog.
+Definition untag_zctx {A} (ctx : list (A * tagged_Z)) : list (A * value) :=
+  map (fun '(x, y) => (x, VZ (untag_Z y))) ctx.
 
-(* i addded idxs0' back, because the map needs it, and then i also made e' of type innterp_type_tagged because i kept getting type errors and this fixed it *)
-Lemma lower_pSexpr'_correct var x ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps hyps' next_varname' bs :
+Definition context_of {var} (ctx : list (ctx_elt2 (var_of var) interp_type_tagged)) : context :=
+  map.of_list (untag_zctx (zctx ctx)).
+
+Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps next_varname' bs :
   wf_pSexpr' ctx e e' ->
-  Forall2 (fun a b => interp_expr (map.of_list (combine idxs0 idxs0')) (var_expr a) b) idxs0 idxs0' ->
-  (forall n (name : var) depth (tensor_val : interp_type_tagged (tensor_n n)),
-      In {| ctx_elt_t := tensor_n n; ctx_elt_p1 := (name, depth); ctx_elt_p2 := tensor_val |} ctx ->
-      True(* i need a datalog_ctx param + a way to isolate name's relation as a fact_args -> Prop, then relate it to tensor_val via something like agrees *)) ->
-  lower_pSexpr' (var := var) idxs0 next_varname e = (datalog_expr, hyps, next_varname', bs) ->
-  interp_pSexpr' e' = x ->
-  Forall2 (interp_clause (map.of_list (combine idxs0 idxs0'))) hyps hyps' /\
-    interp_expr (map.of_list (combine idxs0 idxs0')) datalog_expr (value_of x). (* does the map.of_list part with idxs0 and idxs0' make sense? *)
-Proof. Admitted.
-
+  Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
+  lower_pSexpr' idxs0 next_varname e = (datalog_expr, hyps, next_varname', bs) ->
+  exists hyps' substn,
+    Forall2 (interp_clause (map.putmany substn (context_of ctx))) hyps hyps' /\
+      Forall (fun hyp' => True (*TODO hyp' is true*)) hyps' /\
+      interp_expr (map.putmany substn (context_of ctx)) datalog_expr (value_of (interp_pSexpr' e')).
+Proof.
+  induction 1.
+  - intros Hidxs Hcomp. simpl in *. Tactics.destruct_one_match_hyp. invert Hcomp.
+    eexists. eexists (map.put map.empty _ (VZ _)). split.
+    + constructor; [|constructor]. cbv [interp_clause]. simpl. eexists. split; [|reflexivity].
+      constructor.
+      -- constructor. rewrite map.get_putmany_dec. rewrite map.get_put_same.
+         eassert (map.get _ next_varname = None) as ->.
+         { (*TODO this should be provable*) admit. }
+         reflexivity.
+      -- admit.
+Admitted.
