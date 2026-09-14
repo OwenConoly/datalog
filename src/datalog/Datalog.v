@@ -7,7 +7,7 @@ From Datalog.Util Require Import Autodestr Autocbn Pftree.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
-From Datalog Require Import Map Tactics Fp List Eqb.
+From Datalog Require Import Map Tactics Fp List Eqb Decidable.
 From GraphSearch Require Import Dag.
 From Datalog.Util Require Import FilteredSet.
 
@@ -171,7 +171,7 @@ End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 
 Module value_pattern.
   Section __.
-    Context {value : valueT} {value_eqb : Eqb value}.
+    Context {value : valueT} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
     (*could consider extending this?*)
     Variant value_pattern {value : valueT} :=
       | exactly (v : value)
@@ -188,6 +188,14 @@ Module value_pattern.
       | exactly v0 => eqb v0 v
       | any => true
       end.
+
+    #[global] Instance matchesb_spec p v :
+      Reflects (matches p v) (matchesb p v).
+    Proof.
+      destruct p; simpl.
+      - exact _.
+      - constructor. constructor.
+    Qed.
 
     Lemma matches_map_exactly vs :
       Forall2 matches (map exactly vs) vs.
@@ -257,7 +265,12 @@ Module meta_fact.
       mf1 = mf2.
     Proof.
       cbv [agree]. intros Hpat Hagree. simp. f_equal.
-      apply fset.ext_strong. intros. About forallb2. fwd.
+      apply fset.has_ext. intros. fwd.
+      especialize Hagree.
+      { instantiate (1 := {| normal_fact.rel := _ |}). cbv [fact_pattern.matches].
+        simpl.
+        simpl. simpl. simp.
+      specialize (Hagree {| normal_fact.rel := _ |}). Search fwd. intros. About forallb2. fwd.
 
       Lemma fset.impl_same_set
       pose (x := (2, 2)). Ltac2 Eval to_destruct (). autodestr. simp. split; [assumption|]. intros args Hargs.

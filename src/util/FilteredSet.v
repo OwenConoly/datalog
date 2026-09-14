@@ -19,10 +19,6 @@ Module fset.
     }.
   Arguments ok {_ _} _.
 
-  From Stdlib Require Import Morphisms.
-  #[global] Instance blah A :
-    Proper (eq ==> same_set ==> iff) (@In A).
-  Proof. Admitted.
   Section __.
     Context {T P} {impl : impl T P} {ok : ok impl}.
 

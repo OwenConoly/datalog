@@ -1,7 +1,7 @@
 From Stdlib Require Import Lists.List Permutation Bool Arith.PeanoNat Morphisms RelationClasses Classical_Prop.
 From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics Eqb.
 From GraphSearch Require Export List.
-From Datalog Require Import Tactics Eqb Default.
+From Datalog Require Import Tactics Eqb Default Decidable.
 Import ListNotations.
 
 Local Ltac invert_list_stuff' :=
@@ -2356,3 +2356,18 @@ Hint Resolve choose_any_n_mono : incl.
 
 #[export] Hint Resolve Forall_impl : core.
 #[export] Hint Resolve Forall2_impl : core.
+
+#[export] Instance forallb2_spec {A B} {f : A -> B -> bool} {P : A -> B -> Prop}
+  {Hf : forall a b, Reflects (P a b) (f a b)} l1 l2 :
+  Reflects (Forall2 P l1 l2) (forallb2 f l1 l2).
+Proof.
+  revert l2. induction l1 as [|a l1]; intros [|b l2]; simpl.
+  - constructor. constructor.
+  - constructor. intros H. inversion H.
+  - constructor. intros H. inversion H.
+  - destruct (Hf a b); simpl.
+    + destruct (IHl1 l2); constructor.
+      * constructor; assumption.
+      * intros Hc. inversion_clear Hc. contradiction.
+    + constructor. intros Hc. inversion_clear Hc. contradiction.
+Qed.
