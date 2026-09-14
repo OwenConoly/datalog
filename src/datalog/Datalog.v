@@ -263,35 +263,48 @@ Module meta_fact.
         Context `{params : datalog_params0}.
 
         Record repr :=
-          { args : list value_pattern;
+          { pattern : list value_pattern;
             set : list (list value) }.
 
         Definition equiv (a1 a2 : repr) :=
-          a1.(args) = a2.(args) /\
+          a1.(pattern) = a2.(pattern) /\
             forall args',
-              Forall2 value_pattern.matches a1.(args) args' ->
+              Forall2 value_pattern.matches a1.(pattern) args' ->
               In args' a1.(set) <-> In args' a2.(set).
       End __.
       #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@repr _ _) :: prev ().
-      #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(args) :: reference:(set) :: prev ().
+      #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
     End repr. Abbreviation repr := repr.repr.
     Section __.
-      Context `{params : datalog_params0} {mf_q_eq : quot repr repr.equiv}.
+      Context `{params : datalog_params0} {mfa_q_eq : quot repr repr.equiv}.
       Definition args : Type := repr / repr.equiv.
+      Definition pattern (a : args) := repr.pattern (quot.repr a).
+      Definition set (a : args) := repr.set (quot.repr a).
+      Definition mk p s : args := quot.pi ({| repr.pattern := p; repr.set := s |}).
+
+      Lemma set_mk a :
     End __.
-  End args.
+  End args. Abbreviation args := args.args.
 
   Section __.
-    Context `{params : datalog_params0} {mf_q_eq : quot repr repr.equiv}.
-    Definition args : Type := repr / repr.equiv.
+    Context `{params : datalog_params0} {mf_q_eq : quot repr repr.equiv}
+    {mfa_q_eq : quot args.repr args.repr.equiv}.
 
     Definition meta_fact : Type := repr / repr.equiv.
 
     Definition pattern (mf : meta_fact) := repr.pattern (quot.repr mf).
     Definition set (mf : meta_fact) := repr.set (quot.repr mf).
+    Definition mk pattern set : meta_fact :=
+      quot.pi {| repr.pattern := pattern; repr.set := set |}.
 
     Definition matches mf nf :=
       fact_pattern.matches (pattern mf) nf /\ In nf.(normal_fact.args) (set mf).
+
+    Definition to_args mf : args :=
+      args.mk (pattern mf).(fact_pattern.args) (set mf).
+
+    Definition of_args R args :=
+      mk ({| fact_pattern.rel := R; fact_pattern.args := args.pattern args |}) (args.set args).
 
     Definition rel mf := (pattern mf).(fact_pattern.rel).
 
@@ -300,6 +313,11 @@ Module meta_fact.
         fact_pattern.matches (pattern mf1) nf ->
         fact_pattern.matches (pattern mf2) nf ->
         In nf.(normal_fact.args) (set mf1) <-> In nf.(normal_fact.args) (set mf2).
+
+    Lemma of_args_to_args mf :
+      of_args (rel mf) (to_args mf) = mf.
+    Proof. cbv [rel to_args pattern]. rewrite <- (quot.reprK mf) at 4.
+           destruct (quot.repr mf); simp. cbv [of_args mk]. f_equal. reflexivity. simpl. simpl.
 
     Lemma agree_sym mf1 mf2 :
       agree mf1 mf2 ->
@@ -448,7 +466,8 @@ End clause_pattern. Abbreviation clause_pattern := clause_pattern.clause_pattern
 
 Module fact.
   Section __.
-    Context `{params : datalog_params0} {mf_q_eq : quot meta_fact.repr meta_fact.repr.equiv}.
+    Context `{params : datalog_params0} {mf_q_eq : quot meta_fact.repr meta_fact.repr.equiv}
+      {mfa_q_eq : quot meta_fact.args.repr meta_fact.args.repr.equiv}.
 
     Variant fact :=
       | normal (_ : normal_fact)
@@ -462,13 +481,12 @@ Module fact.
 
     Variant args :=
       | normal_args (nf_args : list value)
-      | meta_args (mf_args : list value_pattern) (mf_set : list value -> Prop).
+      | meta_args (mf_args : meta_fact.args).
 
     Definition args_of f :=
       match f with
       | normal nf => normal_args nf.(normal_fact.args)
-      | meta {| meta_fact.pattern := pat; meta_fact.set := st |} =>
-          meta_args pat.(fact_pattern.args) (
+      | meta mf => meta_args (meta_fact.to_args mf)
       end.
 
     Definition of_args R args : fact :=
@@ -476,16 +494,13 @@ Module fact.
       | normal_args nf_args =>
           normal {| normal_fact.rel := R;
                    normal_fact.args := nf_args |}
-      | meta_args mf_args mf_set =>
-          meta {| meta_fact.pattern :=
-                   {| fact_pattern.rel := R;
-                     fact_pattern.args := mf_args |};
-                 meta_fact.set := mf_set |}
+      | meta_args mf_args =>
+          meta (meta_fact.of_args R mf_args)
       end.
 
     Lemma of_args_args_of f :
       of_args (rel f) (args_of f) = f.
-    Proof. destruct f; fwd; simp; reflexivity. Qed.
+    Proof. destruct f; fwd; simp; try reflexivity. simpl. f_equal. Qed.
 
     Lemma rel_of_args R args :
       rel (of_args R args) = R.
