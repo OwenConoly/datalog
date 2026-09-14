@@ -46,12 +46,10 @@ Definition lists_agree_on {T} (P : T -> bool) (x y : list T) :=
 Definition sum_agrees_on {T U} (P : T -> U -> bool) (x y : T * list U) :=
   fst x = fst y /\ same_set (filter (P (fst x)) (snd x)) (filter (P (fst y)) (snd y)).
 
-Class datalog_params
+Class datalog_params0
   {_rel : relT} {_exprvar : exprvarT}
   `{semantics : datalog_semantics}
   {context : map.map _exprvar value} {context_ok : map.ok context}
-  {_matching_set : forall (P : _value -> bool), quot.quot (list value) (lists_agree_on P)}
-  {_matching_sum : forall (P : _rel -> _value -> bool), quot.quot (rel * list value) (sum_agrees_on P)}
   {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}
   := {}.
 
@@ -74,7 +72,7 @@ Proof. intros. typeclasses eauto. Abort.
 
 Module expr.
   Section __.
-    Context `{params: datalog_params}.
+    Context `{params: datalog_params0}.
 
     Unset Elimination Schemes.
     Inductive expr :=
@@ -165,7 +163,7 @@ Module expr.
     Proof. eauto using interp_det, interp_agree_on. Qed.
   End __.
 End expr. Abbreviation expr := expr.expr.
-
+Check datalog_params0.
 Module normal_fact.
   Record normal_fact {relt : relT} {value : valueT} :=
     { rel : relt;
@@ -178,7 +176,7 @@ End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 
 Module value_pattern.
   Section __.
-    Context `{params : datalog_params}.
+    Context `{params : datalog_params0}.
     (*could consider extending this?*)
     Variant value_pattern {value : valueT} :=
       | exactly (v : value)
@@ -239,28 +237,68 @@ Module fact_pattern.
 End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 
 Module meta_fact.
-  Section __.
-    Context `{params : datalog_params}.
-    Record meta_fact :=
-      { pattern : fact_pattern;
-        set : list (list value) }.
+  Module repr.
+    Section __.
+      Context `{params : datalog_params0}.
 
-    Definition meta_fact' :=
-      quot.quot (rel * list (list value)) (sum_agrees_on (forallb2 (value_pattern.matchesb (value_eqb := value_eqb)))).
+      Record repr :=
+        { pattern : fact_pattern;
+          set : list (list value) }.
 
-  End __.
+      Definition equiv (f1 f2 : repr) :=
+        f1.(pattern) = f2.(pattern) /\
+          forall nf,
+            Forall2 value_pattern.matches f1.(pattern).(fact_pattern.args) nf ->
+            In nf f1.(set) <-> In nf f2.(set).
+
+    End __.
+    #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@repr _ _) :: prev ().
+    #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
+  End repr. Abbreviation repr := repr.repr.
+
+  Module args.
+    Module repr.
+      Section __.
+        Context `{params : datalog_params0}.
+
+        Record repr :=
+          { args : list value_pattern;
+            set : list (list value) }.
+
+        Definition equiv (a1 a2 : repr) :=
+          a1.(args) = a2.(args) /\
+            forall args',
+              Forall2 value_pattern.matches a1.(args) args' ->
+              In args' a1.(set) <-> In args' a2.(set).
+      End __.
+      #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@repr _ _) :: prev ().
+      #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(args) :: reference:(set) :: prev ().
+    End repr. Abbreviation repr := repr.repr.
+    Section __.
+      Context `{params : datalog_params0} {mf_q_eq : quot repr repr.equiv}.
+      Definition args : Type := repr / repr.equiv.
+    End __.
+  End args.
+
   Section __.
-    Context `{params : datalog_params}.
+    Context `{params : datalog_params0} {mf_q_eq : quot repr repr.equiv}.
+    Definition args : Type := repr / repr.equiv.
+
+    Definition meta_fact : Type := repr / repr.equiv.
+
+    Definition pattern (mf : meta_fact) := repr.pattern (quot.repr mf).
+    Definition set (mf : meta_fact) := repr.set (quot.repr mf).
+
     Definition matches mf nf :=
-      fact_pattern.matches mf.(pattern) nf /\ fset.has mf.(set) nf.(normal_fact.args).
+      fact_pattern.matches (pattern mf) nf /\ In nf.(normal_fact.args) (set mf).
 
-    Definition rel mf := mf.(pattern).(fact_pattern.rel).
+    Definition rel mf := (pattern mf).(fact_pattern.rel).
 
     Definition agree (mf1 mf2 : meta_fact) :=
       forall nf,
-        fact_pattern.matches mf1.(pattern) nf ->
-        fact_pattern.matches mf2.(pattern) nf ->
-        fset.has mf1.(set) nf.(normal_fact.args) <-> fset.has mf2.(set) nf.(normal_fact.args).
+        fact_pattern.matches (pattern mf1) nf ->
+        fact_pattern.matches (pattern mf2) nf ->
+        In nf.(normal_fact.args) (set mf1) <-> In nf.(normal_fact.args) (set mf2).
 
     Lemma agree_sym mf1 mf2 :
       agree mf1 mf2 ->
@@ -268,12 +306,14 @@ Module meta_fact.
     Proof. cbv [agree]. intros. symmetry. auto. Qed.
 
     Lemma eq_of_agree mf1 mf2 :
-      mf1.(pattern) = mf2.(pattern) ->
+      pattern mf1 = pattern mf2 ->
       agree mf1 mf2 ->
       mf1 = mf2.
     Proof.
-      cbv [agree]. intros Hpat Hagree. simp. f_equal.
-      apply fset.has_ext. intros. fwd.
+      cbv [agree]. intros Hpat Hagree. apply quot.equiv_eq.
+      (*TODO simp should do this*)cbv [pattern set] in *. destruct (quot.repr mf1), (quot.repr mf2).
+      simp. fwd.
+      cbv [repr.equiv]. simpl. split; [reflexivity|]. intros.
       eapply (Hagree {| normal_fact.rel := _ |});
         (*TODO simp should do this*)cbv [fact_pattern.matches]; simp; eauto.
     Qed.
@@ -282,6 +322,15 @@ End meta_fact. Abbreviation meta_fact := meta_fact.meta_fact.
 
 #[local] Hint Resolve Forall2_impl : core.
 #[local] Hint Resolve Forall_impl : core.
+
+Class datalog_params
+  {_rel : relT} {_exprvar : exprvarT}
+  `{semantics : datalog_semantics}
+  {context : map.map _exprvar value} {context_ok : map.ok context}
+  {mf_q_eq : quot meta_fact.repr meta_fact.repr.equiv}
+  {mf_q_eq : quot meta_fact.args.repr meta_fact.args.repr.equiv}
+  {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}
+  := {}.
 
 Module clause.
   Record clause {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
@@ -328,6 +377,7 @@ Module clause.
     Proof.
       intros. cbv [interp] in *. fwd. simp. f_equal.
       eapply Forall2_unique_r; eauto using expr.interp_det.
+      intros. eapply expr.interp_det; eassumption.
     Qed.
 
     Lemma interp_det' c ctx1 ctx2 f1 f2 :
@@ -385,7 +435,7 @@ Module clause_pattern.
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
   Section __.
-    Context `{params : datalog_params}.
+    Context `{params : datalog_params0}.
 
     Definition interp (ctx: context) (cp : clause_pattern) (fp : fact_pattern) :=
       cp.(rel) = fp.(fact_pattern.rel) /\
@@ -398,7 +448,8 @@ End clause_pattern. Abbreviation clause_pattern := clause_pattern.clause_pattern
 
 Module fact.
   Section __.
-    Context `{params : datalog_params}.
+    Context `{params : datalog_params0} {mf_q_eq : quot meta_fact.repr meta_fact.repr.equiv}.
+
     Variant fact :=
       | normal (_ : normal_fact)
       | meta (_ : meta_fact).
