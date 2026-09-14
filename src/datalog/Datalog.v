@@ -44,7 +44,7 @@ Class datalog_params
   {_rel : relT} {_exprvar : exprvarT}
   `{semantics : datalog_semantics}
   {context : map.map _exprvar value} {context_ok : map.ok context}
-  {_matching_set : forall (P : list value -> bool), fset.impl_with P} {_matching_set_ok : forall P, fset.ok (_matching_set P).(fset._impl)}
+  {_matching_set : forall P, fset.impl (list value) P} {_matching_set_ok : forall P, fset.ok (_matching_set P)}
   {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}
   := {}.
 
@@ -223,22 +223,21 @@ Module fact_pattern.
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
   Section __.
-    Context `{params : datalog_params}.
+    Context {relt : relT} {value : valueT}.
     Definition matches (fp : fact_pattern) f :=
       fp.(rel) = f.(normal_fact.rel) /\
         Forall2 value_pattern.matches fp.(args) f.(normal_fact.args).
-
-    Definition args_set value_pats :=
-      fset (list value) (forallb2 value_pattern.matchesb value_pats).
   End __.
 End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 
 Module meta_fact.
   Section __.
     Context `{params : datalog_params}.
+    Definition matches_set value_pats :=
+      fset (list value) (forallb2 value_pattern.matchesb value_pats).
     Record meta_fact :=
       { pattern : fact_pattern;
-        set : fact_pattern.args_set pattern.(fact_pattern.args) }.
+        set : matches_set pattern.(fact_pattern.args) }.
   End __.
   (*TODO replace pattern_pred with head_pred so that i dont have to do the underscores*)
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _ _ _) :: prev ().
@@ -268,10 +267,9 @@ Module meta_fact.
       mf1 = mf2.
     Proof.
       cbv [agree]. intros Hpat Hagree. simp. f_equal.
-      apply fset.has_ext. intros. fwd. cbv [fset.P fset._impl] in H. simpl in H. simpl in H.
+      apply fset.has_ext. intros. fwd.
       eapply (Hagree {| normal_fact.rel := _ |});
         (*TODO simp should do this*)cbv [fact_pattern.matches]; simp; eauto.
-      simpl in H.
     Qed.
   End __.
 End meta_fact. Abbreviation meta_fact := meta_fact.meta_fact.
@@ -407,13 +405,13 @@ Module fact.
 
     Variant args :=
       | normal_args (nf_args : list value)
-      | meta_args (mf_args : list value_pattern) (mf_set : fact_pattern.args_set mf_args).
+      | meta_args (mf_args : list value_pattern) (mf_set : list value -> Prop).
 
     Definition args_of f :=
       match f with
       | normal nf => normal_args nf.(normal_fact.args)
       | meta {| meta_fact.pattern := pat; meta_fact.set := st |} =>
-          meta_args pat.(fact_pattern.args) st
+          meta_args pat.(fact_pattern.args) (
       end.
 
     Definition of_args R args : fact :=
@@ -445,9 +443,6 @@ Module fact.
       R = R' /\ args = args'.
     Proof.
       destruct args, args'; simpl; intros; congruence || fwd; auto.
-      invert H0.
-      Fail progress fwd. invert H0.
-      auto. fwd.
     Qed.
 
     Definition equiv (f1 f2 : fact) :=
