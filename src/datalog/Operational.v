@@ -15,7 +15,7 @@ From Stdlib Require Import Permutation.
 From Stdlib Require Import Classical_Prop.
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties.
 
-From Datalog Require Import Map Tactics Fp List Dag Datalog Node.
+From Datalog Require Import Map Tactics Fp List Dag Datalog Graph Node.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option.
 
@@ -91,8 +91,8 @@ Section __.
 
   Context (p : prog).
 
-  Definition R_senders : rel -> list (option nat) :=
-    fun R => if is_input R then [None] else map Some (seq 0 (length p.(non_meta_rules))).
+  Definition R_senders : rel -> list source :=
+    fun R => if is_input R then [input_source] else map node_source (seq 0 (length p.(non_meta_rules))).
 
   Local Notation expect_num_R_facts := (expect_num_R_facts R_senders).
   Local Notation knows_datalog_fact := (knows_datalog_fact R_senders).
@@ -106,9 +106,9 @@ Section __.
   Lemma expect_num_R_facts_eq R mf_args known_facts num :
     expect_num_R_facts R mf_args known_facts num <->
     (if is_input R
-     then In (meta_dfact R mf_args None num) known_facts
+     then In (meta_dfact R mf_args input_source num) known_facts
      else exists expected_msgss,
-       Forall2 (fun n expected_msgs => In (meta_dfact R mf_args (Some n) expected_msgs) known_facts)
+       Forall2 (fun n expected_msgs => In (meta_dfact R mf_args (node_source n) expected_msgs) known_facts)
                (seq 0 (length p.(non_meta_rules))) expected_msgss /\
        num = list_sum expected_msgss).
   Proof.
@@ -127,10 +127,10 @@ Section __.
 
   Definition meta_facts_correct_at_rule mrs n rs r :=
     forall R mf_args num,
-      In (meta_dfact R mf_args (Some n) num) rs.(sent_facts) ->
+      In (meta_dfact R mf_args (node_source n) num) rs.(sent_facts) ->
       exists mf_concls mf_hyps hyps,
         In (mf_concls, mf_hyps) mrs /\
-          can_deduce_meta_fact mf_concls mf_hyps (Some n) rs.(sent_facts) (meta_dfact R mf_args (Some n) num) hyps /\
+          can_deduce_meta_fact mf_concls mf_hyps (node_source n) rs.(sent_facts) (meta_dfact R mf_args (node_source n) num) hyps /\
           Forall (knows_datalog_fact rs.(known_facts)) hyps /\
           (forall mf_set, ~In (meta_fact R mf_args mf_set) hyps).
 
@@ -141,9 +141,9 @@ Section __.
 
   Definition meta_facts_ok_at_rule n rs r :=
     forall mf_rel mf_args num,
-      In (meta_dfact mf_rel mf_args (Some n) num) rs.(sent_facts) ->
+      In (meta_dfact mf_rel mf_args (node_source n) num) rs.(sent_facts) ->
       ok_to_deduce_fact (rule_of r) rs.(known_facts) rs.(sent_facts)
-        (meta_dfact mf_rel mf_args (Some n) num).
+        (meta_dfact mf_rel mf_args (node_source n) num).
 
   Definition meta_facts_ok (s : state) :=
     Forall3 (fun r rs n => meta_facts_ok_at_rule n rs r)
@@ -171,7 +171,7 @@ Section __.
   Definition fire_at_rule (r : non_meta_rule) (n : nat) (rs rs' : node_state) (f : dfact) : Prop :=
     exists fired_rule,
       can_fire_rule_at r fired_rule /\
-        can_deduce_fact fired_rule (Some n) rs.(known_facts) rs.(sent_facts) f /\
+        can_deduce_fact fired_rule (node_source n) rs.(known_facts) rs.(sent_facts) f /\
         ok_to_deduce_fact (rule_of r) rs.(known_facts) rs.(sent_facts) f /\
         rs' = send_fact f rs.
 
@@ -187,8 +187,8 @@ Section __.
   Definition is_input_fact (f : dfact) :=
     match f with
     | normal_dfact R _ => is_input R
-    | meta_dfact R _ None _ => is_input R
-    | meta_dfact _ _ (Some _) _ => false
+    | meta_dfact R _ input_source _ => is_input R
+    | meta_dfact _ _ (node_source _) _ => false
     end.
 
   Definition rules_of : list rule :=
@@ -241,8 +241,8 @@ Section __.
   Definition good_input_facts input_facts :=
     Forall (fun f => is_input_fact f = true) input_facts /\
       (forall R mf_args num,
-          In (meta_dfact R mf_args None num) input_facts ->
-          (forall num0, In (meta_dfact R mf_args None num0) input_facts -> num0 = num) /\
+          In (meta_dfact R mf_args input_source num) input_facts ->
+          (forall num0, In (meta_dfact R mf_args input_source num0) input_facts -> num0 = num) /\
             exists num',
               num' <= num /\
                 Existsn (dfact_matches R mf_args) num' input_facts).
@@ -251,14 +251,14 @@ Section __.
     sane_length : length s = length p.(non_meta_rules);
     sane_input_meta :
       forall R mf_args num,
-        knows_dfact s (meta_dfact R mf_args None num) ->
-        In (meta_dfact R mf_args None num) input_facts;
+        knows_dfact s (meta_dfact R mf_args input_source num) ->
+        In (meta_dfact R mf_args input_source num) input_facts;
     sane_local_meta :
       forall R mf_args n num,
-          knows_dfact s (meta_dfact R mf_args (Some n) num) ->
+          knows_dfact s (meta_dfact R mf_args (node_source n) num) ->
           nth_sat s n (fun rs =>
                          Existsn (dfact_matches R mf_args) num rs.(sent_facts) /\
-                         In (meta_dfact R mf_args (Some n) num) rs.(sent_facts));
+                         In (meta_dfact R mf_args (node_source n) num) rs.(sent_facts));
     sane_rule_has :
       forall f,
           knows_dfact s f ->
@@ -279,7 +279,7 @@ Section __.
       forall R,
           is_input R = true ->
           (forall mf_args, Forall (fun rs => Existsn (dfact_matches R mf_args) O rs.(sent_facts)) s) /\
-            (forall mf_args n num, ~knows_dfact s (meta_dfact R mf_args (Some n) num));
+            (forall mf_args n num, ~knows_dfact s (meta_dfact R mf_args (node_source n) num));
     sane_inputs_known :
       forall f, In f input_facts -> knows_dfact s f;
   }.
@@ -977,7 +977,7 @@ Section __.
     - (* input: meta_dfact in rs.known --> in inputs.  num_inp <= num.
          All rules have sent_facts count = 0 for input R.  Per-rule sum
          then forces num_wait <= 0; In matching contradicts. *)
-      assert (Hk : knows_dfact s (meta_dfact R mf_args None num)).
+      assert (Hk : knows_dfact s (meta_dfact R mf_args input_source num)).
       { cbv [knows_dfact]. apply Exists_exists. exists rs. split; auto.
         cbv [rule_has_dfact]. left. exact Hexp. }
       specialize (Hmf_inp _ _ _ Hk).
@@ -1035,7 +1035,7 @@ Section __.
             rewrite Hltb. reflexivity. }
           pose proof (Forall2_nth_error_fwd _ _ _ Hexpp0 _ _ _ Hseq_k Hes) as HE_es_in.
           cbv beta in HE_es_in.
-          assert (Hknows : knows_dfact s (meta_dfact R mf_args (Some k) es)).
+          assert (Hknows : knows_dfact s (meta_dfact R mf_args (node_source k) es)).
           { cbv [knows_dfact]. apply Exists_exists. exists rs. split; auto.
             cbv [rule_has_dfact]. left. exact HE_es_in. }
           specialize (Hmf_sent _ _ _ _ Hknows).
@@ -1214,8 +1214,8 @@ Section __.
         - rewrite Hrf_eq in Hfr_eq. destruct r_fire; discriminate.
         - rewrite Hrf_eq in Hfr_eq. injection Hfr_eq as -> ->. exact Hin_mr. }
       subst fired_rule.
-      assert (Hnf_eq : meta_dfact new_mfr new_mfa (Some k_fire) new_mfc
-                      = meta_dfact new_mfr new_mfa (Some k_fire) new_mfc) by reflexivity.
+      assert (Hnf_eq : meta_dfact new_mfr new_mfa (node_source k_fire) new_mfc
+                      = meta_dfact new_mfr new_mfa (node_source k_fire) new_mfc) by reflexivity.
       (* r_x is the firing rule (same as r_fire). *)
       assert (Hr_eq : r_x = r_fire).
       { pose proof (f_equal (fun ll => nth_error ll (length l1)) Hnmrs) as Hr_x.
@@ -1238,7 +1238,7 @@ Section __.
         cbv [meta_facts_correct_at_rule send_fact] in Hmid |- *. simpl.
         intros R mf_args num HIn.
         destruct HIn as [Heq_nf | HIn_old].
-        { (* HIn picks new_fact = meta_dfact R mf_args (Some (length l1)) num *)
+        { (* HIn picks new_fact = meta_dfact R mf_args (node_source (length l1)) num *)
           cbv [can_deduce_meta_fact] in Hcan |- *.
           destruct Hcan as (ctx & mf_rel' & mf_args' & mf_cnt' & Hres & HEx & Hconcl & Hinterp).
           pose proof (eq_trans (eq_sym Heq_nf) Hres) as Hcombined.
@@ -1281,7 +1281,7 @@ Section __.
             pose proof (Forall2_nth_error_fwd _ _ _ Hf2 (length l1) _ _ Hk_seq2 Hmsg)
               as Hin_x_known.
             assert (Hknows_old : knows_dfact s
-              (meta_dfact R mf_args (Some (length l1)) num_old)).
+              (meta_dfact R mf_args (node_source (length l1)) num_old)).
             { cbv [knows_dfact]. apply Exists_exists. exists x. split.
               - rewrite Hs_eq. apply in_or_app. right. apply in_eq.
               - left. exact Hin_x_known. }
@@ -1370,13 +1370,13 @@ Section __.
         if is_input R then
           Exists (fun rs =>
                     exists num,
-                      rule_has_dfact rs (meta_dfact R mf_args None num) /\
+                      rule_has_dfact rs (meta_dfact R mf_args input_source num) /\
                         Existsn (dfact_matches R mf_args) num (rs.(known_facts) ++ rs.(waiting_facts)))
                  s
         else
           forall k, k < length p.(non_meta_rules) ->
             exists num,
-              knows_dfact s (meta_dfact R mf_args (Some k) num)
+              knows_dfact s (meta_dfact R mf_args (node_source k) num)
     end.
 
   Definition mf_consistent_state (s : state) (f : fact) :=
@@ -1515,9 +1515,9 @@ Section __.
       pose proof (learn_fact_at_rule_rule_has_dfact _ _ Hlfr) as Hrh.
       pose proof (learn_fact_at_rule_kw_perm _ _ Hlfr) as Hperm.
       split; intros (num & Hr & He); exists num; split.
-      + apply (proj1 (Hrh (meta_dfact R mf_args None num))). exact Hr.
+      + apply (proj1 (Hrh (meta_dfact R mf_args input_source num))). exact Hr.
       + eapply Existsn_perm; [exact He | exact Hperm].
-      + apply (proj2 (Hrh (meta_dfact R mf_args None num))). exact Hr.
+      + apply (proj2 (Hrh (meta_dfact R mf_args input_source num))). exact Hr.
       + eapply Existsn_perm; [exact He | apply Permutation_sym; exact Hperm].
     - split; intros H k Hk; specialize (H k Hk);
         destruct H as (num & Hk_d); exists num;
@@ -2009,7 +2009,7 @@ Section __.
   Lemma has_derived_input_meta_add_waiting_iff R mf_args mf_set F s :
     is_input R = true ->
     ~ dfact_matches R mf_args F ->
-    (forall num, F <> meta_dfact R mf_args None num) ->
+    (forall num, F <> meta_dfact R mf_args input_source num) ->
     (has_derived_datalog_fact (map (add_waiting_fact F) s) (meta_fact R mf_args mf_set) <->
      has_derived_datalog_fact s (meta_fact R mf_args mf_set)).
   Proof.
@@ -2051,7 +2051,7 @@ Section __.
     (l1 : list (U * node_state)) (x : node_state) (l2 : list (U * node_state)) :
     is_input R = true ->
     ~ dfact_matches R mf_args F ->
-    (forall num, F <> meta_dfact R mf_args None num) ->
+    (forall num, F <> meta_dfact R mf_args input_source num) ->
     has_derived_datalog_fact
       (map (add_waiting_fact F) (map snd l1 ++ send_fact sf x :: map snd l2))
       (meta_fact R mf_args mf_set) ->
@@ -2068,7 +2068,7 @@ Section __.
     (l1 : list (U * node_state)) (x : node_state) (l2 : list (U * node_state)) :
     is_input R = true ->
     ~ dfact_matches R mf_args F ->
-    (forall num, F <> meta_dfact R mf_args None num) ->
+    (forall num, F <> meta_dfact R mf_args input_source num) ->
     has_derived_datalog_fact (map snd l1 ++ x :: map snd l2) (meta_fact R mf_args mf_set) ->
     has_derived_datalog_fact
       (map (add_waiting_fact F) (map snd l1 ++ send_fact sf x :: map snd l2))
@@ -2261,7 +2261,7 @@ Section __.
       { destruct Hcfr as [Hreq | (mc' & mh' & Hin' & Hreq)].
         - destruct r_fire; discriminate.
         - injection Hreq as -> ->. exact Hin'. }
-      set (F := meta_dfact new_mfr new_mfa (Some k_fire) new_mfc) in *.
+      set (F := meta_dfact new_mfr new_mfa (node_source k_fire) new_mfc) in *.
       assert (Hlen_s : length s = length p.(non_meta_rules))
         by exact Hsane.(sane_length).
       pose proof (fire_label_decomp s l1 r_fire k_fire x l2 Hlen_s Hcomb)
@@ -2274,7 +2274,7 @@ Section __.
       (* F is a meta_dfact (from can_deduce_meta_fact), so knows_dfact s'
          (normal _ _) = knows_dfact s (normal _ _). *)
       assert (HF_meta : exists mf_rel mf_args mf_cnt,
-                 F = meta_dfact mf_rel mf_args (Some k_fire) mf_cnt).
+                 F = meta_dfact mf_rel mf_args (node_source k_fire) mf_cnt).
       { cbv [can_deduce_meta_fact] in Hcan.
         destruct Hcan as (ctx & mf_rel & mf_args & mf_cnt & Heq & _).
         exists mf_rel, mf_args, mf_cnt. subst F. exact Heq. }
@@ -2300,7 +2300,7 @@ Section __.
           destruct HF_meta as (mfr' & mfa' & mfc' & HFeq).
           assert (Hnm : ~ dfact_matches R mf_args F)
             by (rewrite HFeq; intros (nfa & Heq & _); discriminate).
-          assert (Hnd : forall num, F <> meta_dfact R mf_args None num)
+          assert (Hnd : forall num, F <> meta_dfact R mf_args input_source num)
             by (rewrite HFeq; intros num Heq; discriminate).
           rewrite Hs2_eq in Hf1.
           apply (has_derived_meta_fire_bw R mf_args mf_set F F l1 x l2 HER Hnm Hnd) in Hf1.
@@ -2309,7 +2309,7 @@ Section __.
         * (* not is_input R.  Case-split on whether F matches the target meta-fact:
              - Case B (F doesn't match): F = meta_dfact mf_rel0 mf_args0 ..., and
                (R, mf_args) != (mf_rel0, mf_args0), so for every k the new fact
-               doesn't match meta_dfact R mf_args (Some k) num.  Hf1 lifts to s.
+               doesn't match meta_dfact R mf_args (node_source k) num.  Hf1 lifts to s.
              - Case A (F matches): R = mf_rel0 and mf_args = mf_args0.  Then F is
                the witness for k = k_fire, and s may have no other witness.
                Requires deriving prog_impl ... f via the firing meta-rule. *)
@@ -2323,7 +2323,7 @@ Section __.
                        + bridge (~100 lines, needs use_meta_facts_correct analog). *)
              subst R mf_args.
              destruct (classic (exists num0,
-                          knows_dfact s (meta_dfact mf_rel0 mf_args0 (Some k_fire) num0)))
+                          knows_dfact s (meta_dfact mf_rel0 mf_args0 (node_source k_fire) num0)))
                 as [HA1 | HA2].
              { (* A.1: lift Hf1 to s for all k *)
                assert (Hf1_s : has_derived_datalog_fact s
@@ -2399,7 +2399,7 @@ Section __.
                     + (* input mfr': fired F = meta (Some) irrelevant; transport back *)
                       assert (Hnm : ~ dfact_matches mfr' mfa' F)
                         by (rewrite HFeq; intros (nfa & Heq & _); discriminate).
-                      assert (Hnd : forall num, F <> meta_dfact mfr' mfa' None num)
+                      assert (Hnd : forall num, F <> meta_dfact mfr' mfa' input_source num)
                         by (rewrite HFeq; intros num Heq; discriminate).
                       rewrite Hs2_eq in Hhd'.
                       apply (has_derived_meta_fire_bw mfr' mfa' mfs' F F l1 x l2 HERmfr' Hnm Hnd) in Hhd'.
@@ -2876,7 +2876,7 @@ Section __.
       rewrite expect_num_R_facts_eq in Hexp.
       destruct (is_input R) eqn:HER.
       + (* input R: reconstruct the coupled witness (done-message + node's exact count) *)
-        assert (Hkn : knows_dfact s (meta_dfact R mf_args None num)) by (apply Hinp_prop; exact Hexp).
+        assert (Hkn : knows_dfact s (meta_dfact R mf_args input_source num)) by (apply Hinp_prop; exact Hexp).
         apply Exists_exists in Hkn. destruct Hkn as (rs & Hin & Hrh).
         apply Exists_exists. exists rs. split; [exact Hin |]. exists num. split; [exact Hrh |].
         destruct (Hsane.(sane_count) R mf_args) as (msgs_sents & num_inp & Hf2m & Hexn_inp & Hforall).
@@ -2916,10 +2916,10 @@ Section __.
   (* Extract a list of per-source meta_dfacts from has_derived's forall-exists form.
      Each (Some k_src) meta_dfact has its own count num_k; we collect them into a list. *)
   Lemma extract_per_source_meta_dfacts s mf_rel mf_args n :
-    (forall k_src, k_src < n -> exists num, knows_dfact s (meta_dfact mf_rel mf_args (Some k_src) num)) ->
+    (forall k_src, k_src < n -> exists num, knows_dfact s (meta_dfact mf_rel mf_args (node_source k_src) num)) ->
     exists nums : list nat,
       length nums = n /\
-      Forall2 (fun k_src num => knows_dfact s (meta_dfact mf_rel mf_args (Some k_src) num))
+      Forall2 (fun k_src num => knows_dfact s (meta_dfact mf_rel mf_args (node_source k_src) num))
               (seq 0 n) nums.
   Proof.
     induction n; intros H.
@@ -2943,10 +2943,10 @@ Section __.
     sane_state inputs s ->
     k < length s ->
     (if is_input mf_rel then
-       exists num, knows_dfact s (meta_dfact mf_rel mf_args None num)
+       exists num, knows_dfact s (meta_dfact mf_rel mf_args input_source num)
      else
        forall k_src, k_src < length p.(non_meta_rules) ->
-         exists num, knows_dfact s (meta_dfact mf_rel mf_args (Some k_src) num)) ->
+         exists num, knows_dfact s (meta_dfact mf_rel mf_args (node_source k_src) num)) ->
     exists s' rs' num,
       comp_step^* s s' /\
         nth_error s' k = Some rs' /\
@@ -2959,7 +2959,7 @@ Section __.
     - (* Input case: single meta_dfact with None *)
       destruct Hknow as (num & Hknows_m).
       pose proof (flush_waiting_to_known inputs s k
-                    [meta_dfact mf_rel mf_args None num]
+                    [meta_dfact mf_rel mf_args input_source num]
                     Hinp Hsane
                     ltac:(constructor; [exact Hknows_m|constructor])
                     Hk) as (s' & rs_k & Hsteps & Hnth & Hin_dfs & Hiff & Hlo).
@@ -2969,7 +2969,7 @@ Section __.
     - (* Non-input case: per-source counts *)
       pose proof (extract_per_source_meta_dfacts s mf_rel mf_args (length p.(non_meta_rules)) Hknow)
         as (nums & Hlen_nums & HF2_nums).
-      pose (meta_dfs := map (fun '(k_src, num) => meta_dfact mf_rel mf_args (Some k_src) num)
+      pose (meta_dfs := map (fun '(k_src, num) => meta_dfact mf_rel mf_args (node_source k_src) num)
                             (combine (seq 0 (length p.(non_meta_rules))) nums)).
       assert (Hnth_combine_split : forall {A B} (l1 : list A) (l2 : list B) i a b,
                 nth_error (combine l1 l2) i = Some (a, b) ->
@@ -3260,7 +3260,7 @@ Section __.
         cbv [knows_datalog_fact] in HQ.
         destruct HQ as (num_q & Hexp_q & Hex_q & _).
         rewrite expect_num_R_facts_eq in Hexp_q. rewrite Hinp_rel in Hexp_q.
-        assert (Hknows_meta : knows_dfact s (meta_dfact mf_rel mf_args None num)).
+        assert (Hknows_meta : knows_dfact s (meta_dfact mf_rel mf_args input_source num)).
         { cbv [knows_dfact]. apply Exists_exists. exists rs.
           split; [eapply nth_error_In; exact Hnth|]. left. exact Hexp. }
         pose proof (Hmf_inp _ _ _ Hknows_meta) as Hmf_inp_meta.
@@ -3297,7 +3297,7 @@ Section __.
             assert (E : i <? length p.(non_meta_rules) = true) by (apply Nat.ltb_lt; lia).
             rewrite E. reflexivity. }
           pose proof (Forall2_nth_error_fwd _ _ _ HF2_int i i num_i Hi_seq Hi_num) as Hin_meta.
-          assert (Hknows_s : knows_dfact s (meta_dfact mf_rel mf_args (Some i) num_i)).
+          assert (Hknows_s : knows_dfact s (meta_dfact mf_rel mf_args (node_source i) num_i)).
           { cbv [knows_dfact]. apply Exists_exists. exists rs.
             split; [eapply nth_error_In; exact Hnth|]. left. exact Hin_meta. }
           specialize (Hmf_sent _ _ _ _ Hknows_s).
@@ -3378,10 +3378,10 @@ Section __.
     (* Extract the meta-count info from has_derived *)
     assert (Hknow_meta_info :
               if is_input mf_rel then
-                exists num, knows_dfact s (meta_dfact mf_rel mf_args None num)
+                exists num, knows_dfact s (meta_dfact mf_rel mf_args input_source num)
               else
                 forall k_src, k_src < length p.(non_meta_rules) ->
-                  exists num, knows_dfact s (meta_dfact mf_rel mf_args (Some k_src) num)).
+                  exists num, knows_dfact s (meta_dfact mf_rel mf_args (node_source k_src) num)).
     { cbv [has_derived_datalog_fact] in Hd.
       destruct (is_input mf_rel).
       - apply Exists_exists in Hd. destruct Hd as (rs & Hin & num & Hrh & _).
@@ -3627,7 +3627,7 @@ Section __.
        sent-based) put [nf_args] in [sent], hence broadcast into known∪waiting. *)
     assert (Hno_conflict :
               forall mf_args num,
-                In (meta_dfact R_concl mf_args (Some n) num) rs.(sent_facts) ->
+                In (meta_dfact R_concl mf_args (node_source n) num) rs.(sent_facts) ->
                 Forall2 matches mf_args nf_args ->
                 False).
     { intros mf_args num Hin_meta Hmatch.
@@ -3753,7 +3753,7 @@ Section __.
     pose proof Hsane.(sane_length) as Hlen_s.
     assert (Hno_conflict :
               forall mf_args num,
-                In (meta_dfact R_concl mf_args (Some n) num) rs.(sent_facts) ->
+                In (meta_dfact R_concl mf_args (node_source n) num) rs.(sent_facts) ->
                 Forall2 matches mf_args nf_args -> False).
     { intros mf_args num Hin_meta Hmatch.
       pose proof (meta_facts_ok_lookup _ _ _ _ Hmf_ok Hnth_rn Hnth_rs) as Hmfor.
@@ -3803,7 +3803,7 @@ Section __.
       comp_step^* s s' /\
       nth_error s' n = Some rs' /\
       ok_to_deduce_fact (rule_of rn) rs'.(known_facts) rs'.(sent_facts)
-        (meta_dfact R_concl args_concl (Some n) 0) /\
+        (meta_dfact R_concl args_concl (node_source n) 0) /\
       Forall (knows_datalog_fact rs'.(known_facts)) hyps.
   Proof.
     intros Hinp Hlen_pos Hsane Hmfc Hmf_ok Hsound Hn_lt Hnth_rn Hnth_rs
@@ -4091,9 +4091,9 @@ Section __.
           cbv [has_derived_datalog_fact] in Hd_meta.
           rewrite Hhr_inp in Hd_meta.
           apply Exists_exists in Hd_meta. destruct Hd_meta as (rs_w & Hin_w & num_inp & Hrh_w & Hexn_w).
-          assert (Hknows_meta : knows_dfact s (meta_dfact hr mf_args None num_inp))
+          assert (Hknows_meta : knows_dfact s (meta_dfact hr mf_args input_source num_inp))
             by (apply Exists_exists; exists rs_w; split; [exact Hin_w | exact Hrh_w]).
-          pose (all_dfs := meta_dfact hr mf_args None num_inp :: val_dfs).
+          pose (all_dfs := meta_dfact hr mf_args input_source num_inp :: val_dfs).
           assert (Hkn_all_dfs : Forall (knows_dfact s) all_dfs).
           { constructor; [exact Hknows_meta|exact Hkn_val_dfs]. }
           (* Flush all_dfs into rs_k's known *)
@@ -4167,10 +4167,10 @@ Section __.
         * (* Non-input hr: per-source meta_dfacts *)
           cbv [has_derived_datalog_fact] in Hd_meta.
           rewrite Hhr_inp in Hd_meta.
-          (* Hd_meta : forall k_src < length non_meta_rules, exists num, knows_dfact s (meta_dfact hr mf_args (Some k_src) num) *)
+          (* Hd_meta : forall k_src < length non_meta_rules, exists num, knows_dfact s (meta_dfact hr mf_args (node_source k_src) num) *)
           pose proof (extract_per_source_meta_dfacts s hr mf_args (length p.(non_meta_rules)) Hd_meta)
             as (nums & Hlen_nums & HF2_nums).
-          pose (meta_dfs := map (fun '(k_src, num) => meta_dfact hr mf_args (Some k_src) num)
+          pose (meta_dfs := map (fun '(k_src, num) => meta_dfact hr mf_args (node_source k_src) num)
                                 (combine (seq 0 (length p.(non_meta_rules))) nums)).
           assert (Hnth_combine_split : forall {A B} (l1 : list A) (l2 : list B) i a b,
                     nth_error (combine l1 l2) i = Some (a, b) ->
@@ -4300,7 +4300,7 @@ Section __.
       assert (Hgoal_n : forall n, n <= length p.(non_meta_rules) ->
                 exists s', comp_step^* s s' /\
                   (forall k, k < n ->
-                     exists num, knows_dfact s' (meta_dfact R_concl args_concl (Some k) num))).
+                     exists num, knows_dfact s' (meta_dfact R_concl args_concl (node_source k) num))).
       { induction n as [|n IH]; intros Hn.
         - exists s. split; [apply rt1n_refl|]. intros k Hk. lia.
         - destruct (IH ltac:(lia)) as (s' & Hsteps_s' & Hk_lt_n).
@@ -4406,7 +4406,7 @@ Section __.
           pose proof Hnth_rs_n_post as Hnth_save.
           apply nth_error_split in Hnth_save.
           destruct Hnth_save as (s''_pre & s''_post & Hs''_eq & Hs''_pre_len).
-          set (new_fact := meta_dfact R_concl args_concl (Some n) ms_n).
+          set (new_fact := meta_dfact R_concl args_concl (node_source n) ms_n).
           set (rs_n_post' := send_fact new_fact rs_n_post).
           set (s2 := s''_pre ++ rs_n_post' :: s''_post).
           assert (Hstep_fire : comp_step s'' (map (add_waiting_fact new_fact) s2)).
