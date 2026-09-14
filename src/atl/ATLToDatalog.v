@@ -124,8 +124,8 @@ Definition example_pATLexpr {var} : pATLexpr var 1 :=
 cause everything in the language is purely defined as fn, so maybe it wouldn't work, but
 having every fn term be uner the fn variant might be messy when it comes to interpreting them with return variables?? *)
 Variant fn : fnT :=
-  fn_Add | fn_Sub | fn_Divf | fn_Divc | fn_Mul | fn_Mod | fn_Z0 | fn_Pos | fn_Neg | fn_Nat | fn_Opp
-  | fn_Lit (x : Z) | fn_Lt | fn_Le | fn_And | fn_Not | fn_Div | fn_Get | fn_Eq.
+  fn_Add | fn_Sub | fn_Divf | fn_Divc | fn_Mul | fn_Mod | fn_Nat | fn_Opp
+  | fn_Lit (x : Z) | fn_Lt | fn_Le | fn_And | fn_Not | fn_Div | fn_Eq.
 
 #[local] Existing Instance fn.
 
@@ -1066,8 +1066,13 @@ Inductive wf_pATL_expr' {var1 var2} : list (ctx_elt2 var1 var2) -> forall n, pAT
   wf_pATL_expr' ctx 0 (Scalar s1) (Scalar s2)
 .
 
-Instance value : valueT := R.
-Definition value_of : R -> value := fun x => x.
+Variant value : Type :=
+  | Vbool (b : bool)
+  | VZ (z : Z)
+  | VR (r : R).
+
+Instance value_T : valueT := value.
+Definition value_of : R -> value := VR.
 
 Definition Rltb (x y : R) : bool :=
   match Rlt_dec x y with
@@ -1089,25 +1094,22 @@ Definition Reqb (x y : R) : bool :=
 
 Definition interp_fun (f : fn) (args : list value) : option value :=
   match f, args with
-  | fn_Add, [x; y] => Some (x + y)%R
-  | fn_Sub, [x; y] => Some (x - y)%R
-  | fn_Mul, [x; y] => Some (x * y)%R
-  | fn_Divf, [x; y] => Some (x / y)%R
-  | fn_Divc, [x; y] => Some ((x + y - 1)/ y)%R
-  | fn_Mod, [x; y] => None (* how to do mod with R, becuase it doesn't have mod *)
-  | fn_Z0, [] => Some 0%R
-  | fn_Pos, [x] => Some x
-  | fn_Neg, [x] => Some (-x)%R
-  | fn_Nat, [x] => Some x
-  | fn_Opp, [x] => Some (-x)%R
-  | fn_Lit z, [] => Some (IZR z)
-  | fn_Lt, [x; y] => Some (if Rltb x y then 1%R else 0%R)
-  | fn_Le, [x; y] => Some (if Rleb x y then 1%R else 0%R)
-  | fn_And, [x; y] => Some (if Reqb x 0%R then 0%R else if Reqb y 0%R then 0%R else 1%R)
-  | fn_Not, [x] => Some (if Reqb x 0%R then 1%R else 0%R)
-  | fn_Div, [x; y] => Some (x / y)%R
-  | fn_Get, _ => None (* what to do here? *)
-  | fn_Eq, [x; y] => Some (if Reqb x y then 1%R else 0%R)  | _, _ => None
+  | fn_Add, [VR x; VR y] => Some (VR (x + y))
+  | fn_Sub, [VR x; VR y] => Some (VR (x - y))
+  | fn_Mul, [VR x; VR y] => Some (VR (x * y))
+  | fn_Divf, [VR x; VR y] => Some (VR (x / y))
+  | fn_Div, [VR x; VR y] => Some (VR (x / y))
+  | fn_Divc, [VZ x; VZ y] => Some (VZ (x // y))
+  | fn_Mod, [VZ x; VZ y] => Some (VZ (Z.modulo x y))
+  | fn_Nat, [VZ x] => Some (VZ x) (* unsure of intended semantics — flag to Owen *)
+  | fn_Opp, [VR x] => Some (VR (- x))
+  | fn_Lit z, [] => Some (VZ z)
+  | fn_Lt, [VZ x; VZ y] => Some (Vbool (Z.ltb x y))
+  | fn_Le, [VZ x; VZ y] => Some (Vbool (Z.leb x y))
+  | fn_And, [Vbool x; Vbool y] => Some (Vbool (x && y))
+  | fn_Not, [Vbool x] => Some (Vbool (negb x))
+  | fn_Eq, [VZ x; VZ y] => Some (Vbool (Z.eqb x y))
+  | _, _ => None
   end.
 
 Axiom get_nat : value -> nat.
@@ -1119,13 +1121,18 @@ Instance dsig : signature fn aggregator value :=
 
 Context {context : map.map exprvar value}.
 
-Lemma lower_pSexpr'_correct var x ctx e e' idxs0 next_varname datalog_expr hyps hyps' next_varname' bs :
+Print interp_blocks_prog.
+
+(* i addded idxs0' back, because the map needs it, and then i also made e' of type innterp_type_tagged because i kept getting type errors and this fixed it *)
+Lemma lower_pSexpr'_correct var x ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps hyps' next_varname' bs :
   wf_pSexpr' ctx e e' ->
-  (forall n name depth value,
-      In {| ctx_elt_t := tensor_n n; ctx_elt_p1 := (name, depth); ctx_elt_p2 := value |} ctx ->
-      True(*TODO some hypothesis about tensors in the context*)) ->
+  Forall2 (fun a b => interp_expr (map.of_list (combine idxs0 idxs0')) (var_expr a) b) idxs0 idxs0' ->
+  (forall n (name : var) depth (tensor_val : interp_type_tagged (tensor_n n)),
+      In {| ctx_elt_t := tensor_n n; ctx_elt_p1 := (name, depth); ctx_elt_p2 := tensor_val |} ctx ->
+      True(* i need a datalog_ctx param + a way to isolate name's relation as a fact_args -> Prop, then relate it to tensor_val via something like agrees *)) ->
   lower_pSexpr' (var := var) idxs0 next_varname e = (datalog_expr, hyps, next_varname', bs) ->
   interp_pSexpr' e' = x ->
-  Forall2 (interp_clause map.empty(*TODO this should not be map.empty*)) hyps hyps' /\
-    interp_expr map.empty(*TODO also should not be map.empty*) datalog_expr (value_of x).
+  Forall2 (interp_clause (map.of_list (combine idxs0 idxs0'))) hyps hyps' /\
+    interp_expr (map.of_list (combine idxs0 idxs0')) datalog_expr (value_of x). (* does the map.of_list part with idxs0 and idxs0' make sense? *)
 Proof. Admitted.
+
