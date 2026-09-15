@@ -925,8 +925,8 @@ Section steps_corresp.
   Context {equiv_equiv : Equivalence equiv}.
   Context {stmt} (claim : stmt -> list message -> Prop).
   Context (consistent : stmt -> list message -> Prop).
-  Local Notation IO_event1 := (IO_event label1 message).
-  Local Notation IO_event2 := (IO_event label2 message).
+  Local Abbreviation IO_event1 := (IO_event label1 message).
+  Local Abbreviation IO_event2 := (IO_event label2 message).
 
   Section steps.
     Context {state1 : Type}.

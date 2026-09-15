@@ -2221,7 +2221,7 @@ Lemma map_cons_eq {A B : Type} (f : A -> B) x l l' :
   map f l = l' ->
   map f (x :: l) = f x :: l'.
 Proof. simpl. intros. f_equal. assumption. Qed.
-Print invert_list_stuff'.
+
 Ltac invert_list_stuff :=
   repeat match goal with
     | H: option_map _ _ = None |- _ => apply option_map_None in H; fwd
@@ -2344,6 +2344,7 @@ Proof.
     [ cbn [length]; lia | intros _; exists x; left; reflexivity ].
 Qed.
 
+Create HintDb incl.
 Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
 Hint Resolve seq_incl incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_in Permutation_sym : incl.
