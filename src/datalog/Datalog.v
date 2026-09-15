@@ -884,12 +884,6 @@ Module program.
       interp p Q f.
     Proof. intros. eapply pftree.step; eassumption. Qed.
 
-    Lemma interp_ext p Q f f' :
-      interp p Q f ->
-      f = f' ->
-      Q f \/ interp p Q f'.
-    Proof. intros H <-. invert H; [auto|]. right. eapply pftree.step; eassumption. Qed.
-
     Definition hyp_rels (p : program) :=
       flat_map rule.hyp_rels p.(rules) ++ flat_map meta_rule.hyp_rels p.(meta_rules).
 
