@@ -323,51 +323,52 @@ Section __.
     eauto using Forall2_impl, expr_pattern_interp_option.
   Qed.
 
-  Definition context_of_clause_pattern (cp : clause_pattern) (mf : meta_fact) :=
+  Definition context_of_clause_pattern (cp : clause_pattern) (fp : fact_pattern) :=
     context_of_args
       (keep_Some (map expr_of_pattern cp.(clause_pattern.args)))
-      (keep_Some (map value_of_pattern
-                    mf.(meta_fact.pattern).(fact_pattern.args))).
+      (keep_Some (map value_of_pattern fp.(fact_pattern.args))).
 
-  Definition context_of_pattern_hyps (hyps : list clause_pattern) (hyps' : list meta_fact) :=
-    concat (zip context_of_clause_pattern hyps hyps').
+  Definition context_of_pattern_hyps (hyps : list clause_pattern) (pats : list fact_pattern) :=
+    concat (zip context_of_clause_pattern hyps pats).
 
-  Lemma interp_pattern_hyps_context_right ctx hyps hyps' :
-    Forall2 (clause_pattern.interp ctx) hyps hyps' ->
-    Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_pattern_hyps hyps hyps').
+  Lemma interp_pattern_hyps_context_right ctx hyps pats :
+    Forall2 (clause_pattern.interp ctx) hyps pats ->
+    Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_pattern_hyps hyps pats).
   Proof.
     intros H. apply Forall2_combine in H. rewrite Forall_forall in *.
     intros x Hx. cbv [context_of_pattern_hyps] in *. rewrite in_concat in Hx. fwd.
     cbv [zip] in Hxp0. rewrite in_map_iff in Hxp0. fwd. destruct x1 as [cp f].
-    apply H in Hxp0p1. apply interp_clause_pattern_context_right in Hxp0p1.
-    rewrite Forall_forall in Hxp0p1. apply Hxp0p1 in Hxp1. assumption.
+    apply H in Hxp0p1. cbv [clause_pattern.interp] in Hxp0p1. fwd.
+    cbv [context_of_clause_pattern] in Hxp1. revert x Hxp1.
+    apply Forall_forall.
+    auto using interp_args_context_right, pattern_args_interp_keep_Some.
   Qed.
 
-  Lemma interp_pattern_hyps_context_right_weak ctx hyps hyps' :
-    Forall2 (clause_pattern_fact_interp ctx) hyps hyps' ->
-    map.extends ctx (map.of_list (context_of_pattern_hyps hyps hyps')).
+  Lemma interp_pattern_hyps_context_right_weak ctx hyps pats :
+    Forall2 (clause_pattern.interp ctx) hyps pats ->
+    map.extends ctx (map.of_list (context_of_pattern_hyps hyps pats)).
   Proof.
     intros H. apply interp_pattern_hyps_context_right in H. cbv [map.extends].
     intros. apply of_list_Some_in in H0. rewrite Forall_forall in H.
     apply H in H0. assumption.
   Qed.
 
-  Lemma bare_in_context_clause_pattern ctx x cp f :
+  Lemma bare_in_context_clause_pattern ctx x cp fp :
     In (expr.var x) (keep_Some (map expr_of_pattern cp.(clause_pattern.args))) ->
-    clause_pattern_fact_interp ctx cp f ->
-    exists v, In (x, v) (context_of_clause_pattern cp f).
+    clause_pattern.interp ctx cp fp ->
+    exists v, In (x, v) (context_of_clause_pattern cp fp).
   Proof.
     intros H1 H2.
-    cbv [clause_pattern_fact_interp clause_pattern.interp] in H2. fwd.
+    cbv [clause_pattern.interp] in H2. fwd.
     cbv [context_of_clause_pattern].
     eauto using bare_in_context_args, pattern_args_interp_keep_Some.
   Qed.
 
-  Lemma bare_in_context_pattern_hyps ctx x hyps hyps' :
+  Lemma bare_in_context_pattern_hyps ctx x hyps pats :
     In (expr.var x)
       (flat_map (fun cp => keep_Some (map expr_of_pattern cp.(clause_pattern.args))) hyps) ->
-    Forall2 (clause_pattern_fact_interp ctx) hyps hyps' ->
-    exists v, In (x, v) (context_of_pattern_hyps hyps hyps').
+    Forall2 (clause_pattern.interp ctx) hyps pats ->
+    exists v, In (x, v) (context_of_pattern_hyps hyps pats).
   Proof.
     intros H1 H2. apply in_flat_map in H1. fwd. cbv [context_of_pattern_hyps].
     apply Forall2_forget_r_strong in H2. rewrite Forall_forall in H2.
@@ -376,11 +377,11 @@ Section __.
     eexists. rewrite in_concat. cbv [zip]. eexists. rewrite in_map_iff. eauto.
   Qed.
 
-  Lemma context_of_pattern_hyps_agree ctx hyps hyps' v :
-    Forall2 (clause_pattern_fact_interp ctx) hyps hyps' ->
+  Lemma context_of_pattern_hyps_agree ctx hyps pats v :
+    Forall2 (clause_pattern.interp ctx) hyps pats ->
     In (expr.var v)
       (flat_map (fun cp => keep_Some (map expr_of_pattern cp.(clause_pattern.args))) hyps) ->
-    agree_on ctx (map.of_list (context_of_pattern_hyps hyps hyps')) v.
+    agree_on ctx (map.of_list (context_of_pattern_hyps hyps pats)) v.
   Proof.
     intros H1 H2.
     pose proof bare_in_context_pattern_hyps as H'.
@@ -434,7 +435,7 @@ Section __.
   Hint Unfold matches_ctx : core.
 
   Definition meta_matches_ctx (mr : meta_rule) (hyps' : list meta_fact) ctx : Prop :=
-    Forall2 (clause_pattern_fact_interp ctx) mr.(meta_rule.hyps) (map meta_fact.pattern hyps').
+    Forall2 (clause_pattern.interp ctx) mr.(meta_rule.hyps) (map meta_fact.pattern hyps').
   Hint Unfold meta_matches_ctx : core.
 
   Lemma option_all_map_value_of_exactly args :
