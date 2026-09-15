@@ -1322,24 +1322,19 @@ Module program.
           apply H0. apply in_map. assumption.
     Qed.
 
-    Lemma use_honest p Q mf :
+    Lemma use_honest p Q mf args :
       honest p ->
       good_input_set p Q ->
       interp p Q (fact.meta mf) ->
-      Q (fact.meta mf) \/
-        interp p Q (fact.meta {| meta_fact.pattern := mf.(meta_fact.pattern);
-                                meta_fact.set :=
-                                  fun args =>
-                                    interp p Q
-                                      (fact.normal {| normal_fact.rel := meta_fact.rel mf;
-                                                     normal_fact.args := args |}) |}).
+      Forall2 value_pattern.matches mf.(meta_fact.pattern).(fact_pattern.args) args ->
+      fset.contains mf.(meta_fact.set) args <->
+        interp p Q (fact.normal {| normal_fact.rel := meta_fact.rel mf;
+                                  normal_fact.args := args |}).
     Proof.
-      intros Hhonest Hgood H. eapply interp_ext; [eassumption|].
-      cbv [fact.equiv]. apply meta_fact.equiv_of_agree; [reflexivity|].
-      pose proof (Hhonest Q Hgood mf H) as Hc. cbv [fact.set_consistent_with] in Hc.
-      cbv [meta_fact.agree]. simpl. intros nf Hm1 Hm2.
-      rewrite Hc by assumption. cbv [meta_fact.rel].
-      cbv [fact_pattern.matches] in Hm1. fwd. simp. reflexivity.
+      intros Hhonest Hgood H Hargs.
+      apply (Hhonest Q Hgood mf H {| normal_fact.rel := meta_fact.rel mf;
+                                    normal_fact.args := args |}).
+      cbv [fact_pattern.matches]. auto.
     Qed.
     (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
     (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
@@ -1447,7 +1442,6 @@ Definition clause_pattern_varmap {rel : relT} {var1 var2 : exprvarT} {fn : fnT}
      clause_pattern.args := map (expr_pattern_varmap f) c.(clause_pattern.args) |}.
 
 #[export] Hint Constructors rule.interp : core.
-#[export] Hint Unfold fact.equiv : core.
 
 Ltac interp_exprs :=
   repeat rewrite map_app; simpl;
@@ -1483,7 +1477,7 @@ Ltac invert_stuff :=
   match goal with
   | _ => progress cbn [value_pattern.matches fact.rel fact.of_args fact.args_of
                        clause.rel clause.args clause_pattern.rel clause_pattern.args
-                       fact.implied_by_mfs fact.implied_by_mf fact.equiv] in *
+                       fact.implied_by_mfs fact.implied_by_mf] in *
   | H : rule.one_step_derives _ _ _ |- _ => cbv [rule.one_step_derives] in H; fwd
   | H : meta_fact.matches _ _ |- _ => cbv [meta_fact.matches] in H; fwd
   | H : fact.implied_by_mfs _ _ |- _ => cbv [fact.implied_by_mfs] in H
