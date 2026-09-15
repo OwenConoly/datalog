@@ -326,6 +326,16 @@ Module meta_fact.
       rewrite Forall_forall in Hpf. auto.
     Qed.
 
+    Lemma mk_keys mf :
+      mk mf.(pattern) (map.keys mf.(set)) = mf.
+    Proof.
+      apply eq_ext; [reflexivity|]. apply fset.ext. intros x. split.
+      - intros Hx. rewrite contains_mk in Hx; [exact Hx|].
+        apply (contains_matches (mk mf.(pattern) (map.keys mf.(set))) x Hx).
+      - intros Hx. rewrite contains_mk; [exact Hx|].
+        apply (contains_matches mf x Hx).
+    Qed.
+
     Lemma eq_of_agree mf1 mf2 :
       mf1.(pattern) = mf2.(pattern) ->
       agree mf1 mf2 ->
