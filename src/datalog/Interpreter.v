@@ -426,11 +426,6 @@ Section __.
     metas_of (map fact.meta l) = l.
   Proof. induction l; simpl; congruence. Qed.
 
-  (*the set an interpreted meta rule attaches to its conclusions*)
-  Definition step_set (rules : list rule) (hyps' : list fact) (R : rel) : list value -> Prop :=
-    fun args => rule.one_step_derives rules (metas_of hyps')
-                  {| normal_fact.rel := R; normal_fact.args := args |}.
-
   Definition eval_rule ctx (hyps' : list fact) (r : rule) : list fact :=
     match r with
     | rule.impl rule_concls _ =>
@@ -463,9 +458,8 @@ Section __.
         end
     end.
 
-  Definition eval_meta_rule (rules : list rule) ctx (hyps' : list fact) (mr : meta_rule) : list fact :=
-    map (fun pat => fact.meta {| meta_fact.pattern := pat;
-                                meta_fact.set := step_set rules hyps' pat.(fact_pattern.rel) |})
+  Definition eval_meta_rule set ctx (hyps' : list fact) (mr : meta_rule) : list meta_fact :=
+    map (fun pat => meta_fact.mk pat set)
       (keep_Some (map (subst_in_clause_pattern ctx) mr.(meta_rule.concls))).
 
   Definition matches_ctx (r : rule) (hyps' : list fact) ctx : Prop :=
@@ -504,9 +498,9 @@ Section __.
 
   Lemma eval_meta_rule_complete rules mr mf mhyps :
     meta_rule.interp rules mr mf mhyps ->
-    exists ctx f',
-      In f' (eval_meta_rule rules ctx (map fact.meta mhyps) mr) /\
-        fact.equiv (fact.meta mf) f' /\
+    exists ctx vals,
+      In mf (eval_meta_rule vals ctx (map fact.meta mhyps) mr) /\
+        Forall (fun args => exists R, rule.one_step_derives rules mhyps {| normal_fact.rel := R; normal_fact.args := args |}) vals /\
         meta_matches_ctx mr (map fact.meta mhyps) ctx.
   Proof.
     cbv [meta_rule.interp meta_rule.pattern_interp]. intros H. fwd.
