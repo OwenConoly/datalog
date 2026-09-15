@@ -14,6 +14,8 @@ Section Blocks.
   Context {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context {semantics : datalog_semantics fn aggregator T}.
   Context {context : map.map exprvar T} {context_ok : map.ok context}.
+  Context {value_eqb : Eqb T} {value_eqb_ok : Eqb_ok value_eqb}.
+  Context {value_set : map.map (list T) unit} {value_set_ok : map.ok value_set}.
   Context {lvar : Type}.
 
   Inductive block_rel :=
@@ -184,7 +186,7 @@ Section Blocks.
       destruct Hf as ([R0 P] & Hin0 & Hrel0 & _).
       rewrite <- Hrel0. intros H'. rewrite Forall_forall in Hconcl.
       apply Hconcl in H'. exact H'.
-    - intros [pat st] Hmf nf Hmatch.
+    - intros [pat st pf] Hmf nf Hmatch.
       apply Exists_exists in Hmf.
       destruct Hmf as ([R0 P] & Hin0 & Hrel0 & HP).
       simpl in Hrel0, HP. cbv [meta_fact.rel] in Hrel0. simpl in Hrel0.
@@ -193,7 +195,7 @@ Section Blocks.
       destruct Hmatch as [Hmrel Hmargs]. simpl in Hmrel, Hmargs.
       cbv [fact.honest_args fact.args_consistent] in Hhonest.
       cbn [meta_fact.set].
-      rewrite (Hhonest _ _ HP _ Hmargs).
+      rewrite (Hhonest _ _ _ HP _ Hmargs).
       split; intros H'.
       + apply Exists_exists. exists (R0, P). simpl.
         split; [ exact Hin0 | ]. split; [ congruence | ]. exact H'.
@@ -221,35 +223,16 @@ Section Blocks.
       rewrite Forall_forall in Hctx. auto.
   Qed.
 
-  Lemma blocks_prog_impl_mf_ext (e : blocks_prog (fact.args -> Prop)) mf_args mf_set mf_set' :
-    interp_blocks_prog e (fact.meta_args mf_args mf_set) ->
-    (forall nf_args,
-        Forall2 value_pattern.matches mf_args nf_args ->
-        mf_set nf_args <-> mf_set' nf_args) ->
-    interp_blocks_prog e (fact.meta_args mf_args mf_set').
-  Proof.
-    revert mf_args mf_set mf_set'.
-    induction e; intros mf_args mf_set mf_set' Himpl Hext.
-    - simpl in *. eauto.
-    - simpl in *.
-      eapply program.interp_ext in Himpl.
-      2: { instantiate (1 := fact.of_args (local ret) (fact.meta_args mf_args mf_set')).
-           cbv [fact.equiv meta_fact.equiv]. simpl. auto. }
-      destruct Himpl as [HQ | Himpl]; [ | exact Himpl ].
-      apply Exists_exists in HQ. fwd. discriminate.
-  Qed.
-
-  Lemma use_valid_blocks_prog ctx p mf_args mf_set :
+  Lemma use_valid_blocks_prog ctx p mf_args mf_set pf nf_args :
     valid_blocks_prog p ->
     vars_in ctx p ->
     Forall fact.honest_args ctx ->
-    interp_blocks_prog p (fact.meta_args mf_args mf_set) ->
-    interp_blocks_prog p
-      (fact.meta_args mf_args (fun args => interp_blocks_prog p (fact.normal_args args))).
+    interp_blocks_prog p (fact.meta_args mf_args mf_set pf) ->
+    Forall2 value_pattern.matches mf_args nf_args ->
+    fset.contains mf_set nf_args <-> interp_blocks_prog p (fact.normal_args nf_args).
   Proof.
-    intros.
-    eapply blocks_prog_impl_mf_ext; [eassumption|].
-    intros. eapply interp_blocks_prog_honest; [|try eassumption..]. assumption.
+    intros Hvalid Hvars Hctx Hmeta Hmatch.
+    eapply interp_blocks_prog_honest; eassumption.
   Qed.
 
   Lemma wf_blocks_prog_vars_in {var1 var2} (x : var2) (ctx : list (var1 * var2)) (p : blocks_prog var1) (p' : blocks_prog var2) :

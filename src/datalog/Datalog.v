@@ -484,6 +484,21 @@ Module fact.
       | meta_args (mf_args : list value_pattern) (mf_set : fset (list value))
                   (_pf : meta_fact.canonicalb mf_args mf_set = true).
 
+    Lemma meta_args_ext mf_args s1 pf1 s2 pf2 :
+      (forall nf_args,
+          Forall2 value_pattern.matches mf_args nf_args ->
+          (fset.contains s1 nf_args <-> fset.contains s2 nf_args)) ->
+      meta_args mf_args s1 pf1 = meta_args mf_args s2 pf2.
+    Proof.
+      intros Hext.
+      assert (s1 = s2) as <-.
+      { apply fset.ext. intros x.
+        rewrite Reflects_true_iff in pf1, pf2 by typeclasses eauto.
+        cbv [meta_fact.canonical] in pf1, pf2. rewrite Forall_forall in pf1, pf2.
+        split; intros Hx; apply Hext; auto. }
+      f_equal. apply Eqdep_dec.UIP_dec, Bool.bool_dec.
+    Qed.
+
     Definition args_of f :=
       match f with
       | normal nf => normal_args nf.(normal_fact.args)
