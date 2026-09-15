@@ -332,6 +332,18 @@ Module meta_fact.
       rewrite Forall_forall in Hpf. auto.
     Qed.
 
+    Lemma mk_same_set pat vals vals' :
+      same_set vals vals' ->
+      mk pat vals = mk pat vals'.
+    Proof.
+      intros Hsame. apply eq_ext; [reflexivity|]. apply fset.ext. intros x.
+      destruct (forallb2 value_pattern.matchesb pat.(fact_pattern.args) x) eqn:Em.
+      - rewrite Reflects_true_iff in Em by typeclasses eauto.
+        rewrite !contains_mk by exact Em. apply Hsame.
+      - split; intros Hc; apply contains_matches in Hc; simpl in Hc;
+          rewrite Reflects_false_iff in Em by typeclasses eauto; contradiction.
+    Qed.
+
     Lemma mk_keys mf :
       mk mf.(pattern) (map.keys mf.(set)) = mf.
     Proof.

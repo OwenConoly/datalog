@@ -643,6 +643,14 @@ Section __.
     apply in_flat_map. eauto.
   Qed.
 
+  Lemma eval_meta_rule_same_set set set' ctx mr :
+    same_set set set' ->
+    eval_meta_rule set ctx mr = eval_meta_rule set' ctx mr.
+  Proof.
+    intros H. cbv [eval_meta_rule]. apply map_ext. intros pat.
+    apply meta_fact.mk_same_set, H.
+  Qed.
+
   Lemma eval_meta_rule_ctxs_agree rules ctx ctx' mr :
     (forall v, In v (meta_rule.all_vars mr) -> agree_on ctx ctx' v) ->
     eval_meta_rule rules ctx mr = eval_meta_rule rules ctx' mr.
@@ -780,19 +788,27 @@ Section __.
       (possible_meta_hyps mr facts).
 
   Lemma step_meta_rule_complete rules mr mf mhyps facts :
+    Forall rule.is_bottomup rules ->
     meta_rule.is_bottomup mr ->
     incl (map fact.meta mhyps) facts ->
     meta_rule.interp rules mr mf mhyps ->
-    exists f',
-      In f' (step_meta_rule rules mr facts) /\ fact.equiv (fact.meta mf) f'.
+    In mf (step_meta_rule rules mr facts).
   Proof.
-    intros Hgood Hincl Himpl.
-    destruct (eval_meta_rule_complete _ _ _ _ Himpl) as [ctx [f' [Hctx [Heq Hmatch]]]].
-    exists f'. split; [|exact Heq].
-    cbv [step_meta_rule]. apply in_flat_map. eexists. split.
-    - eapply meta_rule_interp_possible_hyps; eassumption.
-    - erewrite eval_meta_rule_ctxs_agree; [exact Hctx|].
-      intros v Hv. symmetry. eapply meta_is_bottomup_ctx_agree; eassumption.
+    intros Hrules Hgood Hincl Himpl.
+    destruct (eval_meta_rule_complete _ _ _ _ Himpl) as (ctx & vals & Hin & Hvals & Hmatch).
+    rewrite Forall_forall in Hvals.
+    cbv [step_meta_rule]. apply in_flat_map. exists mhyps. split.
+    { eapply meta_rule_interp_possible_hyps; eassumption. }
+    cbv [possible_concl_sets]. eapply in_flat_map_subsets with (s := vals).
+    { intros. apply eval_meta_rule_same_set. assumption. }
+    { intros args Hargs. apply Hvals in Hargs.
+      apply eval_one_step_derives_complete in Hargs; [|assumption].
+      apply in_map_iff. eexists. split.
+      2: { apply in_flat_map. eexists.
+           split; [eassumption | apply fact.in_normal_facts; reflexivity]. }
+      reflexivity. }
+    erewrite eval_meta_rule_ctxs_agree with (ctx' := ctx); [exact Hin|].
+    intros v Hv. symmetry. eapply meta_is_bottomup_ctx_agree; eassumption.
   Qed.
 
   Definition step_program (p : program) (facts : list fact) : list fact :=
