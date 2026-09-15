@@ -563,7 +563,7 @@ Proof.
                          eexists. split; [reflexivity|]. apply IHHwfp0. assumption.
                 +++ constructor; [|constructor]. apply pftree.leaf.
                     simpl. apply Exists_cons_hd. split; [reflexivity|].
-                    eapply use_valid_blocks_prog.
+                    eapply interp_blocks_prog_honest.
                     ++++ eauto.
                     ++++ eapply compile_Sexpr_vars_in. 2: eassumption. 1: eauto.
                     ++++ eauto.

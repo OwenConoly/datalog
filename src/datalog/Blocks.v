@@ -223,18 +223,6 @@ Section Blocks.
       rewrite Forall_forall in Hctx. auto.
   Qed.
 
-  Lemma use_valid_blocks_prog ctx p mf_args mf_set pf nf_args :
-    valid_blocks_prog p ->
-    vars_in ctx p ->
-    Forall fact.honest_args ctx ->
-    interp_blocks_prog p (fact.meta_args mf_args mf_set pf) ->
-    Forall2 value_pattern.matches mf_args nf_args ->
-    fset.contains mf_set nf_args <-> interp_blocks_prog p (fact.normal_args nf_args).
-  Proof.
-    intros Hvalid Hvars Hctx Hmeta Hmatch.
-    eapply interp_blocks_prog_honest; eassumption.
-  Qed.
-
   Lemma wf_blocks_prog_vars_in {var1 var2} (x : var2) (ctx : list (var1 * var2)) (p : blocks_prog var1) (p' : blocks_prog var2) :
     wf_blocks_prog ctx p p' ->
     vars_in (map fst ctx) p.
