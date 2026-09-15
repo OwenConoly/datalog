@@ -203,22 +203,11 @@ Section __.
     | fact.meta _ => False
     end.
 
-  Definition clause_pattern_fact_interp ctx (cp : clause_pattern) (mf : meta_fact) :=
-    clause_pattern.interp ctx cp mf.(meta_fact.pattern).
-
   Lemma clause_fact_interp_normal ctx hyps hyps' :
     Forall2 (clause.interp ctx) hyps hyps' ->
     Forall2 (clause_fact_interp ctx) hyps (map fact.normal hyps').
   Proof.
     intros. rewrite <- Forall2_map_r. eapply Forall2_impl; [eassumption|]. auto.
-  Qed.
-
-  Lemma clause_pattern_fact_interp_meta ctx hyps mhyps :
-    Forall2 (clause_pattern.interp ctx) hyps (map meta_fact.pattern mhyps) ->
-    Forall2 (clause_pattern_fact_interp ctx) hyps mhyps.
-  Proof.
-    intros H. rewrite <- Forall2_map_r in H.
-    eapply Forall2_impl; [eassumption|]. simpl. auto.
   Qed.
 
   Lemma bare_in_context_args ctx x args args' :
@@ -343,18 +332,8 @@ Section __.
   Definition context_of_pattern_hyps (hyps : list clause_pattern) (hyps' : list meta_fact) :=
     concat (zip context_of_clause_pattern hyps hyps').
 
-  Lemma interp_clause_pattern_context_right ctx cp f :
-    clause_pattern_fact_interp ctx cp f ->
-    Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_clause_pattern cp f).
-  Proof.
-    intros H.
-    cbv [clause_pattern_fact_interp clause_pattern.interp] in H.
-    simpl in H.
-    auto using interp_args_context_right, pattern_args_interp_keep_Some.
-  Qed.
-
   Lemma interp_pattern_hyps_context_right ctx hyps hyps' :
-    Forall2 (clause_pattern_fact_interp ctx) hyps hyps' ->
+    Forall2 (clause_pattern.interp ctx) hyps hyps' ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_pattern_hyps hyps hyps').
   Proof.
     intros H. apply Forall2_combine in H. rewrite Forall_forall in *.
@@ -378,8 +357,9 @@ Section __.
     clause_pattern_fact_interp ctx cp f ->
     exists v, In (x, v) (context_of_clause_pattern cp f).
   Proof.
-    intros H1 H2. destruct f; simpl in *; [contradiction|].
-    cbv [clause_pattern.interp] in H2. fwd.
+    intros H1 H2.
+    cbv [clause_pattern_fact_interp clause_pattern.interp] in H2. fwd.
+    cbv [context_of_clause_pattern].
     eauto using bare_in_context_args, pattern_args_interp_keep_Some.
   Qed.
 
@@ -453,8 +433,8 @@ Section __.
     end.
   Hint Unfold matches_ctx : core.
 
-  Definition meta_matches_ctx (mr : meta_rule) (hyps' : list fact) ctx : Prop :=
-    Forall2 (clause_pattern_fact_interp ctx) mr.(meta_rule.hyps) hyps'.
+  Definition meta_matches_ctx (mr : meta_rule) (hyps' : list meta_fact) ctx : Prop :=
+    Forall2 (clause_pattern_fact_interp ctx) mr.(meta_rule.hyps) (map meta_fact.pattern hyps').
   Hint Unfold meta_matches_ctx : core.
 
   Lemma option_all_map_value_of_exactly args :
