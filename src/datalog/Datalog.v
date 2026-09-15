@@ -764,13 +764,11 @@ Module meta_rule.
           Forall2 (clause_pattern.interp ctx) r.(hyps) ps.
 
     Definition interp prog r mf hyps :=
-      exists pat vals,
-        mf = meta_fact.mk pat vals /\
-          pattern_interp r pat (map meta_fact.pattern hyps) /\
-          is_list_set (fun args =>
-                       rule.one_step_derives prog hyps
-                         {| normal_fact.rel := pat.(fact_pattern.rel);
-                           normal_fact.args := args |}) vals.
+      pattern_interp r mf.(meta_fact.pattern) (map meta_fact.pattern hyps) /\
+        forall nf,
+          fact_pattern.matches mf.(meta_fact.pattern) nf ->
+          fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <->
+            rule.one_step_derives prog hyps nf.
 
     Definition concl_rels (r : meta_rule) :=
       map clause_pattern.rel r.(concls).
@@ -1288,7 +1286,7 @@ Module program.
       interp p Q (fact.meta mf2) ->
       meta_fact.agree mf1 mf2.
     Proof.
-      intros. eapply (meta_facts_consistent' p Q (fact.meta mf1) (fact.meta mf2)); eassumption.
+      intros. eapply (meta_facts_consistent' _ _ (fact.meta _) (fact.meta _)); eassumption.
     Qed.
 
     Lemma valid_impl_honest p :
