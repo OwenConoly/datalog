@@ -602,8 +602,7 @@ Module rule.
         Exists (fun c => clause.interp ctx c nf) rule_concls ->
         Forall2 (clause.interp ctx) rule_hyps hyps ->
         interp (impl rule_concls rule_hyps) nf (map fact.normal hyps)
-      | interp_agg S vals concl_rel a hyp_rel (args : list value) :
-        is_list_set (fun '(i, x) => S (i :: x :: args)) vals ->
+      | interp_agg vals concl_rel a hyp_rel (args : list value) :
         interp
           (agg concl_rel a hyp_rel)
           {| normal_fact.rel := concl_rel;
@@ -616,37 +615,11 @@ Module rule.
              ::
              map (fun '(i, x_i) => fact.normal {| normal_fact.rel := hyp_rel; normal_fact.args := (i :: x_i :: args) |}) vals).
 
-    Lemma interp_ext r f hyps hyps' :
-      interp r f hyps ->
-      Forall2 fact.equiv hyps hyps' ->
-      interp r f hyps'.
-    Proof.
-      intros H1 H2. invert H1.
-      - apply Forall2_map_l in H2. eapply Forall2_impl in H2.
-        1: apply Forall2_eq_map in H2.
-        2: { simpl. intros. fwd. reflexivity. }
-        subst. econstructor; eassumption.
-      - invert H2. cbv [fact.equiv] in H3. fwd. cbv [meta_fact.equiv] in *. simp. fwd.
-        apply Forall2_map_l in H5. eapply Forall2_impl in H5.
-        1: apply Forall2_eq_map in H5.
-        2: { cbv [fact.equiv]. intros. simp. fwd. instantiate (1 := fun '(_, _) => _). reflexivity. }
-        subst. econstructor. eapply is_list_set_ext; [eassumption|].
-        simpl. intros. simp. apply H3p1. auto.
-    Qed.
-
     (*if we know only mfs and the normal facts that mfs include, then can we derive f with exactly one rule application?*)
     Definition one_step_derives (p : list rule) (mfs : list meta_fact) (nf : normal_fact) :=
       exists hyps,
         Exists (fun r => interp r nf hyps) p /\
           Forall (fact.implied_by_mfs mfs) hyps.
-
-    Lemma one_step_derives_ext p hyps hyps' nf :
-      Forall2 meta_fact.equiv hyps hyps' ->
-      one_step_derives p hyps nf ->
-      one_step_derives p hyps' nf.
-    Proof.
-      intros H1 H2. cbv [one_step_derives] in *. fwd. eauto 6.
-    Qed.
 
     Definition concl_rels (r : rule) :=
       match r with
@@ -764,7 +737,6 @@ Module rule.
     Qed.
   End __.
 End rule. Abbreviation rule := rule.rule.
-#[export] Hint Resolve rule.one_step_derives_ext : core.
 
 Module meta_rule.
   Record meta_rule {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
@@ -782,65 +754,13 @@ Module meta_rule.
           Forall2 (clause_pattern.interp ctx) r.(hyps) ps.
 
     Definition interp prog r mf hyps :=
-      exists pat,
-        pattern_interp r pat (map meta_fact.pattern hyps) /\
-          meta_fact.equiv mf
-            ({| meta_fact.pattern := pat;
-               meta_fact.set :=
-                 fun args =>
-                   rule.one_step_derives prog hyps
-                                         {| normal_fact.rel := pat.(fact_pattern.rel);
-                                           normal_fact.args := args |} |}).
-
-    Lemma interp_intro prog r mf mhyps ctx pat :
-      Exists (fun c => clause_pattern.interp ctx c pat) r.(concls) ->
-      Forall2 (clause_pattern.interp ctx) r.(hyps) (map meta_fact.pattern mhyps) ->
-      meta_fact.equiv mf
-        {| meta_fact.pattern := pat;
-          meta_fact.set :=
-            fun args =>
-              rule.one_step_derives prog mhyps
-                                    {| normal_fact.rel := pat.(fact_pattern.rel);
-                                      normal_fact.args := args |} |} ->
-      interp prog r mf mhyps.
-    Proof. intros. exists pat. split; [exists ctx|]; auto. Qed.
-
-    Lemma interp_canonical prog r mhyps ctx pat :
-      Exists (fun c => clause_pattern.interp ctx c pat) r.(concls) ->
-      Forall2 (clause_pattern.interp ctx) r.(hyps) (map meta_fact.pattern mhyps) ->
-      interp prog r
-        {| meta_fact.pattern := pat;
-          meta_fact.set :=
-            fun args =>
-              rule.one_step_derives prog mhyps
-                                    {| normal_fact.rel := pat.(fact_pattern.rel);
-                                      normal_fact.args := args |} |} mhyps.
-    Proof.
-      intros. eapply interp_intro; eauto.
-      split; [reflexivity|]. intros. reflexivity.
-    Qed.
-
-    Lemma interp_ext_hyps p r f hyps hyps' :
-      interp p r f hyps ->
-      Forall2 meta_fact.equiv hyps hyps' ->
-      interp p r f hyps'.
-    Proof.
-      intros H1 H2. cbv [interp] in *. fwd.
-      erewrite <- Forall2_map_eq.
-      2: { eapply Forall2_impl; [eassumption|]. cbv [meta_fact.equiv]. intros. fwd. eassumption. }
-      eexists. split; [eassumption|]. etransitivity; [eassumption|].
-      cbv [meta_fact.equiv]. simpl. split; auto. intros.
-      split; eauto. symmetry in H2. eauto.
-    Qed.
-
-    Lemma interp_ext_concl p r mf mf' hyps :
-      interp p r mf hyps ->
-      meta_fact.equiv mf mf' ->
-      interp p r mf' hyps.
-    Proof.
-      cbv [interp]. intros. fwd. eexists. split; [eassumption|].
-      etransitivity; eauto. symmetry. eassumption.
-    Qed.
+      exists pat vals,
+        mf = meta_fact.mk pat vals /\
+          pattern_interp r pat (map meta_fact.pattern hyps) /\
+          is_list_set (fun args =>
+                       rule.one_step_derives prog hyps
+                         {| normal_fact.rel := pat.(fact_pattern.rel);
+                           normal_fact.args := args |}) vals.
 
     Definition concl_rels (r : meta_rule) :=
       map clause_pattern.rel r.(concls).
@@ -874,8 +794,8 @@ Module meta_rule.
       interp p r f hyps ->
       In (meta_fact.rel f) (concl_rels r).
     Proof.
-      cbv [interp meta_fact.equiv meta_fact.rel]. intros H. fwd. simp.
-      apply pattern_interp_concl_relname_in in Hp0. simp. assumption.
+      cbv [interp]. intros H. fwd. subst.
+      eapply pattern_interp_concl_relname_in. eassumption.
     Qed.
 
     Lemma pattern_interp_hyp_relname_in r pat ps :
@@ -891,12 +811,9 @@ Module meta_rule.
       interp p r f hyps ->
       Forall (fun hyp => In (meta_fact.rel hyp) (hyp_rels r)) hyps.
     Proof.
-      cbv [interp]. intros H. fwd. simp.
-      cbv [pattern_interp clause_pattern.interp] in *. fwd. simp.
-      apply Forall2_map_r in Hp0p1.
-      eapply Forall_impl; [eapply Forall2_forget_l; eassumption|].
-      simpl. intros. fwd. simp. cbv [meta_fact.rel hyp_rels]. simpl.
-      apply in_map_iff. eexists. split; [|eassumption]. reflexivity.
+      intros (pat & vals & Heq & Hpat & His).
+      apply pattern_interp_hyp_relname_in in Hpat.
+      rewrite Lists.List.Forall_map in Hpat. exact Hpat.
     Qed.
 
     Lemma interp_prog_ext p1 p2 r mf hyps :
@@ -905,13 +822,13 @@ Module meta_rule.
           rule.one_step_derives p1 mfs nf <-> rule.one_step_derives p2 mfs nf) ->
       interp p1 r mf hyps <-> interp p2 r mf hyps.
     Proof.
-      cbv [interp]. intros H. split; intros H'; fwd.
-      - eexists. split; [eassumption|]. etransitivity; [eassumption|].
-        cbv [meta_fact.equiv]. simpl. split; [reflexivity|]. intros.
-        apply H. simpl. eauto using pattern_interp_concl_relname_in.
-      - eexists. split; [eassumption|]. etransitivity; [eassumption|].
-        cbv [meta_fact.equiv]. simpl. split; [reflexivity|]. intros.
-        symmetry. apply H. simpl. eauto using pattern_interp_concl_relname_in.
+      cbv [interp]. intros H. split; intros H'; fwd; subst.
+      - exists pat, vals. ssplit; [reflexivity | eassumption | ].
+        eapply is_list_set_ext; [eassumption|]. simpl. intros.
+        apply H. eauto using pattern_interp_concl_relname_in.
+      - exists pat, vals. ssplit; [reflexivity | eassumption | ].
+        eapply is_list_set_ext; [eassumption|]. simpl. intros.
+        symmetry. apply H. eauto using pattern_interp_concl_relname_in.
     Qed.
 
     Lemma interp_app p1 p2 r mf hyps :
@@ -939,7 +856,6 @@ Module meta_rule.
         Forall (fact.covered_by_pats pats) hyps.
   End __.
 End meta_rule. Abbreviation meta_rule := meta_rule.meta_rule.
-#[export] Hint Resolve meta_rule.interp_ext_concl : core.
 
 Module program.
   Record program {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} :=
@@ -962,61 +878,17 @@ Module program.
     (*making this an abbreviation allows directly using lemmas about pftree "without unfolding" interp *)
     Abbreviation interp p := (pftree (interp_step p)).
 
-    Lemma interp_step_ext_hyps p f hyps hyps' :
-      interp_step p f hyps ->
-      Forall2 fact.equiv hyps hyps' ->
-      interp_step p f hyps'.
-    Proof.
-      intros H1 H2. invert H1.
-      - constructor. rewrite Exists_exists in *. fwd. eauto using rule.interp_ext.
-      - apply fact.equiv_map_meta in H2. fwd. constructor.
-        rewrite Exists_exists in *. fwd. eauto using meta_rule.interp_ext_hyps.
-    Qed.
-
-    Lemma interp_step_ext_concl p f f' hyps :
-      interp_step p f hyps ->
-      fact.equiv f f' ->
-      interp_step p f' hyps.
-    Proof.
-      intros H1 H2. invert H1; destruct f'; simpl in H2; try contradiction; subst.
-      - constructor. assumption.
-      - constructor. rewrite Exists_exists in *. fwd. eauto.
-    Qed.
-
     Lemma interp_step_strong p Q f hyps :
       interp_step p f hyps ->
-      Forall (fun hyp => exists hyp', fact.equiv hyp hyp' /\ interp p Q hyp') hyps ->
+      Forall (interp p Q) hyps ->
       interp p Q f.
-    Proof.
-      intros H1 H2. apply Forall_exists_r_Forall2 in H2.
-      fwd. eapply pftree.step.
-      - eapply interp_step_ext_hyps; [eassumption|].
-        eapply Forall2_impl; [eassumption|]. simpl. intros. fwd. assumption.
-      - eapply Forall_impl. 1: eapply Forall2_forget_l; eassumption. simpl.
-        intros. fwd. assumption.
-    Qed.
+    Proof. intros. eapply pftree.step; eassumption. Qed.
 
     Lemma interp_ext p Q f f' :
       interp p Q f ->
-      fact.equiv f f' ->
+      f = f' ->
       Q f \/ interp p Q f'.
-    Proof.
-      intros H1 H2. invert H1; auto.
-      right. eapply pftree.step; [|eassumption].
-      eauto using interp_step_ext_concl.
-    Qed.
-
-    Lemma interp_ext' p Q :
-      Proper (fact.equiv ==> iff) Q ->
-      Proper (fact.equiv ==> iff) (interp p Q).
-    Proof.
-      intros H f1 f2 Hfs. split; intros H'.
-      - eapply interp_ext in H'; eauto. destruct H'; eauto. apply pftree.leaf.
-        eapply H; try eassumption. symmetry. assumption.
-      - eapply interp_ext in H'. 2: symmetry; eassumption.
-        destruct H'; eauto. apply pftree.leaf.
-        eapply H; eassumption.
-    Qed.
+    Proof. intros H <-. invert H; [auto|]. right. eapply pftree.step; eassumption. Qed.
 
     Definition hyp_rels (p : program) :=
       flat_map rule.hyp_rels p.(rules) ++ flat_map meta_rule.hyp_rels p.(meta_rules).
