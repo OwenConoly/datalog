@@ -342,6 +342,17 @@ Module meta_fact.
         apply (contains_matches mf x Hx).
     Qed.
 
+    Lemma in_normal_facts mf nf :
+      In nf (normal_facts mf) <-> matches mf nf.
+    Proof.
+      cbv [normal_facts matches fact_pattern.matches fset.contains rel].
+      rewrite in_map_iff. split.
+      - intros (args & <- & Hin). simpl. ssplit; [reflexivity | | exact Hin].
+        apply (contains_matches mf args Hin).
+      - intros ((Hrel & Hargs) & Hin). exists nf.(normal_fact.args).
+        destruct nf. simpl in *. subst. auto.
+    Qed.
+
     Lemma eq_of_agree mf1 mf2 :
       mf1.(pattern) = mf2.(pattern) ->
       agree mf1 mf2 ->
@@ -582,6 +593,16 @@ Module fact.
       | meta _ => True
       | normal _ => False
       end.
+
+    Definition meta_facts (f : fact) : list meta_fact :=
+      match f with
+      | normal _ => []
+      | meta mf => [mf]
+      end.
+
+    Lemma in_meta_facts mf f :
+      In mf (meta_facts f) <-> f = meta mf.
+    Proof. destruct f; simpl; intuition congruence. Qed.
 
     Definition set_consistent_with (mf : meta_fact) (S : normal_fact -> Prop) :=
       forall nf,
