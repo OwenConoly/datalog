@@ -500,16 +500,16 @@ Section __.
     meta_rule.interp rules mr mf mhyps ->
     exists ctx vals,
       In mf (eval_meta_rule vals ctx (map fact.meta mhyps) mr) /\
-        Forall (fun args => exists R, rule.one_step_derives rules mhyps {| normal_fact.rel := R; normal_fact.args := args |}) vals /\
+        Forall (fun args => rule.one_step_derives rules mhyps {| normal_fact.rel := meta_fact.rel mf; normal_fact.args := args |}) vals /\
         meta_matches_ctx mr (map fact.meta mhyps) ctx.
   Proof.
-    cbv [meta_rule.interp meta_rule.pattern_interp]. intros H. fwd.
-    exists ctx. eexists. ssplit.
-    - cbv [eval_meta_rule]. apply in_map. apply in_keep_Some. apply in_map_iff.
+    intros [Hpat Hset]. cbv [meta_rule.pattern_interp] in Hpat. fwd.
+    exists ctx, (map.keys mf.(meta_fact.set)). ssplit.
+    - cbv [eval_meta_rule]. apply in_map_iff. eexists.
+      split; [apply meta_fact.mk_keys|]. apply in_keep_Some. apply in_map_iff.
       eauto using subst_in_clause_pattern_complete.
-    - cbv [fact.equiv]. etransitivity; [eassumption|].
-      cbv [meta_fact.equiv step_set]. simpl. rewrite metas_of_map_meta.
-      auto.
+    - apply Forall_forall. intros args Hargs. apply Hset; [|exact Hargs].
+      split; [reflexivity | apply meta_fact.contains_matches, Hargs].
     - auto using clause_pattern_fact_interp_meta.
   Qed.
 
@@ -760,16 +760,6 @@ Section __.
       (fun hyps' => eval_rule (ctx_of_rule r hyps') hyps' r)
       (possible_hyps r facts).
 
-  Definition step_meta_rule (rules : list rule) (mr : meta_rule) (facts : list fact) : list fact :=
-    flat_map
-      (fun hyps' => eval_meta_rule rules (ctx_of_meta_rule mr hyps') hyps' mr)
-      (possible_meta_hyps mr facts).
-
-  Definition step_program (p : program) (facts : list fact) : list fact :=
-    flat_map (fun r => step_rule r facts) p.(program.rules) ++
-      flat_map (fun mr => step_meta_rule p.(program.rules) mr facts)
-        p.(program.meta_rules).
-
   Lemma step_rule_complete r nf hyps facts :
     rule.is_bottomup r ->
     incl hyps facts ->
@@ -783,6 +773,25 @@ Section __.
       erewrite eval_rule_ctxs_agree; [exact Hctx|].
       intros v Hv. symmetry. eapply is_bottomup_ctx_agree; eassumption.
   Qed.
+
+  Definition step_rules rules facts :=
+    flat_map (fun r => step_rule r facts) rules.
+
+  Definition eval_one_step_derives rules mfs :=
+    step_rules rules
+      (map fact.meta mfs ++ map fact.normal (flat_map meta_fact.normal_facts mfs)).
+
+
+
+  Definition step_meta_rule (rules : list rule) (mr : meta_rule) (facts : list fact) : list fact :=
+    flat_map
+      (fun hyps' => eval_meta_rule rules (ctx_of_meta_rule mr hyps') hyps' mr)
+      (possible_meta_hyps mr facts).
+
+  Definition step_program (p : program) (facts : list fact) : list fact :=
+    flat_map (fun r => step_rule r facts) p.(program.rules) ++
+      flat_map (fun mr => step_meta_rule p.(program.rules) mr facts)
+        p.(program.meta_rules).
 
   Lemma step_meta_rule_complete rules mr mf mhyps facts :
     meta_rule.is_bottomup mr ->
