@@ -5,7 +5,8 @@ From Datalog Require Import Tactics List.
 From Stdlib Require Import Permutation RelationClasses.
 Import ListNotations.
 
-Definition partial_map k v `{map.map k v} := @map.rep k v _.
+Definition partial_map k v {map : map.map k v} := @map.rep k v _.
+Definition fset k {map : map.map k unit} := @map.rep k unit _.
 
 Section MapKeysExtra.
   Context {key key' value : Type}.
