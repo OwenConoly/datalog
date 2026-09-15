@@ -178,7 +178,7 @@ Section RelMap.
         (g := fun '(i, x_i) => fact.normal {| normal_fact.rel := f hyp_rel;
                                              normal_fact.args := i :: x_i :: args |}).
       2: { intros [? ?]. reflexivity. }
-      constructor.
+      constructor. assumption.
   Qed.
 
   Lemma rule_interp_map_inv r nf hyps :
@@ -211,7 +211,7 @@ Section RelMap.
       + reflexivity.
       + simpl. rewrite map_meta_fact_mk. f_equal. rewrite map_map.
         apply map_ext. intros [? ?]. reflexivity.
-      + constructor.
+      + constructor. assumption.
   Qed.
 
   Lemma clause_pattern_interp_map_fw ctx c fp :

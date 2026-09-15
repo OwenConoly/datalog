@@ -638,6 +638,7 @@ Module rule.
         Forall2 (clause.interp ctx) rule_hyps hyps ->
         interp (impl rule_concls rule_hyps) nf (map fact.normal hyps)
       | interp_agg vals concl_rel a hyp_rel (args : list value) :
+        NoDup vals ->
         interp
           (agg concl_rel a hyp_rel)
           {| normal_fact.rel := concl_rel;
