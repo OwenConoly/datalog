@@ -40,7 +40,7 @@ Class datalog_semantics {_fn : fnT} {_aggregator: aggregatorT} {_value : valueT}
     agg_id : aggregator -> value; }.
 Arguments datalog_semantics : clear implicits.
 
-Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map _exprvar value} {context_ok : map.ok context} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb} := {}.
+Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map _exprvar value} {context_ok : map.ok context} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb} {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set} := {}.
 
 Definition interp_agg `{datalog_semantics} agg (vals : list (value * value)) :=
   fold_right (agg_bop agg) (agg_id agg) (map snd vals).
@@ -236,14 +236,13 @@ End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 Module meta_fact.
   Section __.
     Context `{params : datalog_params}.
-
-    Definition canonicalb (pat : list value_pattern) (vals : list (list value)) :=
-      forallb (forallb2 value_pattern.matchesb pat) vals.
+    Definition canonicalb (pat : list value_pattern) (vals : fset (list value)) :=
+      map.forallb (fun args _ => forallb2 value_pattern.matchesb pat args) vals.
 
     Record meta_fact :=
       { pattern : fact_pattern;
-        set : list (list value);
-        _ : canonicalb pattern.(fact_pattern.args) set = true }.
+        set : fset (list value);
+        _pf : canonicalb pattern.(fact_pattern.args) set = true }.
   End __.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
@@ -251,9 +250,12 @@ Module meta_fact.
   Section __.
     Context `{params : datalog_params}.
 
-    Definition mk (pat : fact_pattern) (vals : list (list value)) : meta_fact :=
-      Build_meta_fact pat
-        (filter (forallb2 value_pattern.matchesb pat.(fact_pattern.args)) vals)
+    Definition mk (pat : fact_pattern) (vals : list (list value)) : meta_fact.
+    Proof.
+      refine {| pattern := pat;
+               set := (map.of_list (map (fun x => (x, tt)) (filter (forallb2 value_pattern.matchesb pat.(fact_pattern.args)) vals))) |}.
+      cbv [canonicalb]. apply map.forallb_spec.
+      abstract: {.
         (forallb_filter _ vals).
 
     Lemma pattern_mk pat vals :
