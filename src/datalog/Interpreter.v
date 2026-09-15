@@ -416,16 +416,6 @@ Section __.
     specialize (H1 _ _ H'p0). cbv [agree_on]. rewrite H1, H'p0. reflexivity.
   Qed.
 
-  Definition metas_of : list fact -> list meta_fact :=
-    flat_map (fun f => match f with
-                       | fact.meta mf => [mf]
-                       | fact.normal _ => []
-                       end).
-
-  Lemma metas_of_map_meta l :
-    metas_of (map fact.meta l) = l.
-  Proof. induction l; simpl; congruence. Qed.
-
   Definition eval_rule ctx (hyps' : list fact) (r : rule) : list fact :=
     match r with
     | rule.impl rule_concls _ =>
@@ -721,8 +711,8 @@ Section __.
     | rule.agg _ _ _ => flat_map (fun n => choose_any_n n facts) (seq 1 (S (length facts)))
     end.
 
-  Definition possible_meta_hyps (mr : meta_rule) (facts : list fact) : list (list fact) :=
-    choose_any_n (length mr.(meta_rule.hyps)) facts.
+  Definition possible_meta_hyps (mr : meta_rule) (facts : list fact) : list (list meta_fact) :=
+    choose_any_n (length mr.(meta_rule.hyps)) (flat_map fact.meta_facts facts).
 
   Lemma rule_interp_possible_hyps r nf hyps facts :
     incl hyps facts ->
@@ -747,12 +737,14 @@ Section __.
   Lemma meta_rule_interp_possible_hyps rules mr mf mhyps facts :
     incl (map fact.meta mhyps) facts ->
     meta_rule.interp rules mr mf mhyps ->
-    In (map fact.meta mhyps) (possible_meta_hyps mr facts).
+    In mhyps (possible_meta_hyps mr facts).
   Proof.
     cbv [meta_rule.interp meta_rule.pattern_interp possible_meta_hyps].
-    intros Hincl H. fwd. apply choose_n_spec; [|assumption].
-    rewrite length_map. apply Forall2_length in Hp0p1.
-    rewrite length_map in Hp0p1. congruence.
+    intros Hincl H. fwd. apply choose_n_spec.
+    - apply Forall2_length in Hp0p1.
+      rewrite length_map in Hp0p1. congruence.
+    - cbv [incl] in *. setoid_rewrite in_map_iff in Hincl. intros f Hf.
+      rewrite in_flat_map. setoid_rewrite fact.in_meta_facts. eauto 6.
   Qed.
 
   Definition step_rule (r : rule) (facts : list fact) : list fact :=
@@ -781,7 +773,24 @@ Section __.
     step_rules rules
       (map fact.meta mfs ++ map fact.normal (flat_map meta_fact.normal_facts mfs)).
 
-
+  Lemma eval_one_step_derives_complete rules mfs nf :
+    Forall rule.is_bottomup rules ->
+    rule.one_step_derives rules mfs nf ->
+    In (fact.normal nf) (eval_one_step_derives rules mfs).
+  Proof.
+    intros Hgood (hyps & Hex & Himp). rewrite Forall_forall in Hgood, Himp.
+    rewrite Exists_exists in Hex. destruct Hex as (r & Hr & Hinterp).
+    cbv [eval_one_step_derives step_rules]. apply in_flat_map.
+    exists r. split; [exact Hr|].
+    eapply step_rule_complete; [auto | | eassumption].
+    intros f Hf. apply Himp in Hf.
+    cbv [fact.implied_by_mfs] in Hf. rewrite Exists_exists in Hf.
+    destruct Hf as (mf & Hmf & Himpl). apply in_app_iff.
+    destruct f as [nf0 | m].
+    - right. apply in_map, in_flat_map. exists mf.
+      split; [exact Hmf | apply meta_fact.in_normal_facts, Himpl].
+    - left. cbv [fact.implied_by_mf] in Himpl. subst m. apply in_map, Hmf.
+  Qed.
 
   Definition step_meta_rule (rules : list rule) (mr : meta_rule) (facts : list fact) : list fact :=
     flat_map
