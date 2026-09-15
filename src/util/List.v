@@ -2381,3 +2381,27 @@ Proof.
       * intros Hc. inversion_clear Hc. contradiction.
     + constructor. intros Hc. inversion_clear Hc. contradiction.
 Qed.
+
+#[export] Instance Forall_same_set_Proper A (P : A -> Prop) :
+  Proper (same_set ==> iff) (Forall P).
+Proof.
+  intros l1 l2 Hs. rewrite !Forall_forall.
+  split; intros H x Hx; apply H; apply Hs; exact Hx.
+Qed.
+
+#[export] Instance forallb_reflect A (f : A -> bool) (P : A -> Prop)
+  {Hf : forall x, Reflects (P x) (f x)} xs :
+  Reflects (Forall P xs) (forallb f xs).
+Proof.
+  induction xs as [|x xs]; simpl.
+  - constructor. constructor.
+  - destruct (Hf x); simpl.
+    + destruct IHxs; constructor.
+      * constructor; assumption.
+      * intros Hc. inversion_clear Hc. contradiction.
+    + constructor. intros Hc. inversion_clear Hc. contradiction.
+Qed.
+
+#[export] Instance In_same_set_Proper A :
+  Proper (eq ==> same_set ==> iff) (@In A).
+Proof. intros x y -> l1 l2 Hs. apply Hs. Qed.

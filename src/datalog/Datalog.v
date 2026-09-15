@@ -237,34 +237,41 @@ Module meta_fact.
   Section __.
     Context `{params : datalog_params}.
     Definition canonicalb (pat : list value_pattern) (vals : fset (list value)) :=
-      map.forallb (fun args _ => forallb2 value_pattern.matchesb pat args) vals.
+      forallb (forallb2 value_pattern.matchesb pat) (map.keys vals).
+
+    Definition canonical (pat : list value_pattern) (vals : fset (list value)) :=
+      Forall (Forall2 value_pattern.matches pat) (map.keys vals).
 
     Record meta_fact :=
       { pattern : fact_pattern;
         set : fset (list value);
         _pf : canonicalb pattern.(fact_pattern.args) set = true }.
   End __.
-  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _ _) :: prev ().
+  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _ _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
 
   Section __.
     Context `{params : datalog_params}.
 
+    Definition to_canonical_set pat vals :=
+      map.of_list (map (fun args => (args, tt))
+                     (filter (forallb2 value_pattern.matchesb pat) vals)).
+
+    Lemma canonical_of_list pat vals :
+      canonical pat (to_canonical_set pat vals).
+    Proof.
+      cbv [canonical to_canonical_set]. rewrite keys_of_list_same_set. rewrite map_map.
+      simpl. rewrite map_id. apply Forall_filter. intros. fwd. assumption.
+    Qed.
+
     Definition mk (pat : fact_pattern) (vals : list (list value)) : meta_fact.
     Proof.
       refine {| pattern := pat;
-               set := (map.of_list (map (fun x => (x, tt)) (filter (forallb2 value_pattern.matchesb pat.(fact_pattern.args)) vals))) |}.
-      cbv [canonicalb]. apply map.forallb_spec.
-      abstract: {.
-        (forallb_filter _ vals).
-
-    Lemma pattern_mk pat vals :
-      (mk pat vals).(pattern) = pat.
-    Proof. reflexivity. Qed.
-
-    Lemma set_mk pat vals :
-      (mk pat vals).(set) = filter (forallb2 value_pattern.matchesb pat.(fact_pattern.args)) vals.
-    Proof. reflexivity. Qed.
+               set := map.of_list (map (fun args => (args, tt))
+                        (filter (forallb2 value_pattern.matchesb pat.(fact_pattern.args)) vals)) |}.
+      abstract (intros; rewrite Reflects_true_iff by typeclasses eauto;
+                apply canonical_of_list).
+    Defined.
 
     Lemma eq_ext mf1 mf2 :
       mf1.(pattern) = mf2.(pattern) ->
@@ -275,63 +282,18 @@ Module meta_fact.
       apply Eqdep_dec.UIP_dec, Bool.bool_dec.
     Qed.
 
-    Lemma mk_surj mf :
-      mf = mk mf.(pattern) mf.(set).
-    Proof.
-      apply eq_ext.
-      - rewrite pattern_mk. reflexivity.
-      - rewrite set_mk. destruct mf. simpl. symmetry.
-        apply forallb_filter_id. assumption.
-    Qed.
-
-    Lemma set_matches mf args :
-      In args mf.(set) ->
-      Forall2 value_pattern.matches mf.(pattern).(fact_pattern.args) args.
-    Proof.
-      destruct mf as [pat vals Hc]. simpl. intros Hin.
-      cbv [canonicalb] in Hc. rewrite forallb_forall in Hc.
-      apply Hc in Hin. apply forallb2_true_iff in Hin.
-      eapply Forall2_impl; [eassumption|]. simpl. intros.
-      apply value_pattern.matchesb_matches. assumption.
-    Qed.
-
     Definition matches mf nf :=
-      fact_pattern.matches mf.(pattern) nf /\ In nf.(normal_fact.args) mf.(set).
+      fact_pattern.matches mf.(pattern) nf /\ fset.contains mf.(set) nf.(normal_fact.args).
 
     Lemma matches_mk pat vals nf :
       matches (mk pat vals) nf <->
       fact_pattern.matches pat nf /\ In nf.(normal_fact.args) vals.
     Proof.
-      cbv [matches fact_pattern.matches]. rewrite pattern_mk, set_mk, filter_In.
-      split; intros H; fwd; ssplit; auto.
-      apply forallb2_true_iff.
-      eapply Forall2_impl; [eassumption|]. simpl. intros.
-      apply value_pattern.matchesb_matches. assumption.
-    Qed.
-
-    Definition equiv (mf1 mf2 : meta_fact) :=
-      mf1.(pattern) = mf2.(pattern) /\
-        forall args,
-          Forall2 value_pattern.matches mf1.(pattern).(fact_pattern.args) args ->
-          (In args mf1.(set) <-> In args mf2.(set)).
-
-    Lemma matches_ext mf nf mf' :
-      matches mf nf ->
-      equiv mf mf' ->
-      matches mf' nf.
-    Proof.
-      cbv [matches equiv fact_pattern.matches]. intros H1 H2. fwd.
-      rewrite <- H2p0. ssplit; auto. apply H2p1; auto.
-    Qed.
-
-    Lemma equiv_Equivalence : Equivalence equiv.
-    Proof.
-      cbv [equiv]. constructor.
-      - intros. split; [reflexivity|]. intros. reflexivity.
-      - intros mf1 mf2 H. fwd. split; [congruence|]. intros.
-        symmetry. apply Hp1. congruence.
-      - intros mf1 mf2 mf3 H1 H2. fwd. split; [congruence|]. intros.
-        etransitivity; [now apply H1p1|]. apply H2p1. congruence.
+      cbv [matches fact_pattern.matches]. simpl. simp.
+      cbv [fset.contains]. rewrite keys_of_list_same_set, map_map.
+      rewrite in_map_iff. simpl. setoid_rewrite filter_In.
+      setoid_rewrite Reflects_true_iff; [|typeclasses eauto].
+      split; intros; fwd; eauto 6.
     Qed.
 
     Definition rel mf := mf.(pattern).(fact_pattern.rel).
@@ -340,22 +302,23 @@ Module meta_fact.
       forall nf,
         fact_pattern.matches mf1.(pattern) nf ->
         fact_pattern.matches mf2.(pattern) nf ->
-        (In nf.(normal_fact.args) mf1.(set) <-> In nf.(normal_fact.args) mf2.(set)).
+        (fset.contains mf1.(set) nf.(normal_fact.args) <-> fset.contains mf2.(set) nf.(normal_fact.args)).
 
     Lemma agree_sym mf1 mf2 :
       agree mf1 mf2 ->
       agree mf2 mf1.
     Proof. cbv [agree]. intros H nf H1 H2. symmetry. auto. Qed.
 
-    Lemma equiv_of_agree mf1 mf2 :
+    Lemma eq_of_agree mf1 mf2 :
       mf1.(pattern) = mf2.(pattern) ->
       agree mf1 mf2 ->
-      equiv mf1 mf2.
+      mf1 = mf2.
     Proof.
-      cbv [equiv agree]. intros Hpat Hagree. split; [assumption|]. intros args Hargs.
-      rewrite <- Hpat in *.
-      eapply (Hagree (normal_fact.Build_normal_fact _ _ _ _));
-      cbv [fact_pattern.matches]; simpl; auto.
+      cbv [equiv agree]. intros Hpat Hagree. apply eq_ext; auto.
+      apply fset.ext. intros.
+      eapply (Hagree {| normal_fact.rel := _ |});
+        cbv [fact_pattern.matches]; auto.
+      { destruct mf1. simpl in *. simp.
     Qed.
   End __.
 End meta_fact. Abbreviation meta_fact := meta_fact.meta_fact.
