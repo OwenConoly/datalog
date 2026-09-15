@@ -501,8 +501,8 @@ Module fact.
       R = R' /\ a = a'.
     Proof.
       intros H. split.
-      - pose proof (f_equal rel H) as Hr. rewrite !rel_of_args in Hr. exact Hr.
-      - pose proof (f_equal args_of H) as Ha. rewrite !args_of_of_args in Ha. exact Ha.
+      - rewrite <- (rel_of_args R a), <- (rel_of_args R' a'), H. reflexivity.
+      - rewrite <- (args_of_of_args R a), <- (args_of_of_args R' a'), H. reflexivity.
     Qed.
 
     (*if we know hyp and the normal_facts that hyp includes, then do we know f?*)
@@ -608,10 +608,11 @@ Module rule.
           (agg concl_rel a hyp_rel)
           {| normal_fact.rel := concl_rel;
             normal_fact.args := interp_agg a vals :: args |}
-          (fact.meta {| meta_fact.pattern :=
-                         {| fact_pattern.rel := hyp_rel;
-                           fact_pattern.args := value_pattern.any :: value_pattern.any :: map value_pattern.exactly args |};
-                       meta_fact.set := S |}
+          (fact.meta
+             (meta_fact.mk
+                {| fact_pattern.rel := hyp_rel;
+                  fact_pattern.args := value_pattern.any :: value_pattern.any :: map value_pattern.exactly args |}
+                (map (fun '(i, x) => i :: x :: args) vals))
              ::
              map (fun '(i, x_i) => fact.normal {| normal_fact.rel := hyp_rel; normal_fact.args := (i :: x_i :: args) |}) vals).
 
