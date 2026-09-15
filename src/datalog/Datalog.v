@@ -1146,8 +1146,6 @@ Module program.
     Definition honest (p : program) :=
       forall Q, good_input_set p Q -> fact.set_doesnt_lie (interp p Q).
 
-    (*a meta rule's hypotheses determine, for each matching fact, whether one
-      rule application derives it: the derivable ones are exactly the known ones*)
     Lemma one_step_derives_iff p Q mr mhyps pat nf :
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
       meta_rules_valid p ->

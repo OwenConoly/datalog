@@ -30,25 +30,24 @@ Section __.
 
   Record state := { known_facts : list message; sents : sent_map }.
 
-  Definition normal_args_with (R : rel) (ms : list message) : list (list value) :=
-    flat_map (fun m =>
-                match m with
-                | message.normal nf =>
-                    if eqb R nf.(normal_fact.rel) then [nf.(normal_fact.args)] else []
-                | message.done_with _ _ _ => []
-                end) ms.
+  Definition normal_args_with (R : rel) (m : message) : list (list value) :=
+    match m with
+    | message.normal nf =>
+        if eqb R nf.(normal_fact.rel) then [nf.(normal_fact.args)] else []
+    | message.done_with _ _ _ => []
+    end.
 
   Lemma In_normal_args_with R ms args :
-    In args (normal_args_with R ms) <->
+    In args (flat_map (normal_args_with R) ms) <->
     In (message.normal {| normal_fact.rel := R; normal_fact.args := args |}) ms.
   Proof.
-    cbv [normal_args_with]. rewrite in_flat_map. split.
+    rewrite in_flat_map. split.
     - intros ([nf | ] & Hin & Hargs); [|destruct Hargs].
-      destruct nf as [nrel nargs]. simpl in Hargs.
+      destruct nf as [nrel nargs]. cbv [normal_args_with] in Hargs. simpl in Hargs.
       destr (eqb R nrel); [|destruct Hargs].
       destruct Hargs as [-> | []]. subst. exact Hin.
-    - intros Hin. eexists. split; [eassumption|]. simpl.
-      destr (eqb R R); [simpl; auto | congruence].
+    - intros Hin. eexists. split; [eassumption|]. cbv [normal_args_with].
+      rewrite eqb_refl_true; simpl; auto.
   Qed.
 
   Context (is_input : rel -> bool).
@@ -1219,7 +1218,7 @@ Section __.
     destruct f as [nf | mf]; [exact I|].
     cbv [mf_consistent_state fact.set_consistent_with]. intros nf0 Hmatch.
     pose (mf0 := meta_fact.mk mf.(meta_fact.pattern)
-                   (normal_args_with mf.(meta_fact.pattern).(fact_pattern.rel)
+                   (flat_map (normal_args_with mf.(meta_fact.pattern).(fact_pattern.rel))
                       s.(known_facts))).
     assert (Hc0 : mf_consistent_state s (fact.meta mf0)).
     { intros nf Hm. pose proof Hm as (Hrel & Hargs). subst mf0.
