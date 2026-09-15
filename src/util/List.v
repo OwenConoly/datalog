@@ -1777,6 +1777,25 @@ Section misc.
       intros y. specialize (Hset y). specialize (Hset' y). simpl in *. intuition.
   Qed.
 
+  Lemma in_subsets_incl s l :
+    incl s l ->
+    exists s', In s' (subsets l) /\ same_set s s'.
+  Proof.
+    intros H. destruct (incl_sublist_same_set _ _ H) as (s' & Hsub & Hsame).
+    exists s'. split; [apply in_subsets, Hsub | exact Hsame].
+  Qed.
+
+  Lemma in_flat_map_subsets (f : list A -> list B) y s l :
+    (forall s1 s2, same_set s1 s2 -> f s1 = f s2) ->
+    incl s l ->
+    In y (f s) ->
+    In y (flat_map f (subsets l)).
+  Proof.
+    intros Hf Hincl Hin. apply in_flat_map.
+    destruct (in_subsets_incl _ _ Hincl) as (s' & Hin' & Hsame).
+    exists s'. split; [exact Hin'|]. erewrite <- Hf; eassumption.
+  Qed.
+
   Lemma disjoint_lists_alt (l1 l2 : list A) :
     Forall (fun x => Forall (fun y => y <> x) l2) l1 ->
     disjoint_lists l1 l2.
