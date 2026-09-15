@@ -768,20 +768,16 @@ Section __.
     - left. cbv [fact.implied_by_mf] in Himpl. subst m. apply in_map, Hmf.
   Qed.
 
-  Print eval_meta_rule.
-  Definition step_meta_rule (rules : list rule) (mr : meta_rule) (facts : list fact) : list fact :=
+  Definition possible_concl_sets fs :=
+    subsets (map normal_fact.args (flat_map fact.normal_facts fs)).
+
+  Definition step_meta_rule (rules : list rule) (mr : meta_rule) (facts : list fact) : list meta_fact :=
     flat_map
       (fun hyps' =>
-         let sets := eval_one_step_derives rules hyps' in
-         flat_map (fun set =>
-                     eval_meta_rule set (ctx_of_meta_rule mr hyps') mr)
-                  sets)
+         flat_map
+           (fun set => eval_meta_rule set (ctx_of_meta_rule mr hyps') mr)
+           (possible_concl_sets (eval_one_step_derives rules hyps')))
       (possible_meta_hyps mr facts).
-
-  Definition step_program (p : program) (facts : list fact) : list fact :=
-    flat_map (fun r => step_rule r facts) p.(program.rules) ++
-      flat_map (fun mr => step_meta_rule p.(program.rules) mr facts)
-        p.(program.meta_rules).
 
   Lemma step_meta_rule_complete rules mr mf mhyps facts :
     meta_rule.is_bottomup mr ->
@@ -798,6 +794,11 @@ Section __.
     - erewrite eval_meta_rule_ctxs_agree; [exact Hctx|].
       intros v Hv. symmetry. eapply meta_is_bottomup_ctx_agree; eassumption.
   Qed.
+
+  Definition step_program (p : program) (facts : list fact) : list fact :=
+    step_rules p.(program.rules) facts ++
+      flat_map (fun mr => step_meta_rule p.(program.rules) mr facts)
+        p.(program.meta_rules).
 
   Lemma step_program_complete p f hyps facts :
     Forall rule.is_bottomup p.(program.rules) ->

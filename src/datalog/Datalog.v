@@ -594,6 +594,16 @@ Module fact.
       | normal _ => False
       end.
 
+    Definition normal_facts (f : fact) : list normal_fact :=
+      match f with
+      | normal nf => [nf]
+      | meta _ => []
+      end.
+
+    Lemma in_normal_facts nf f :
+      In nf (normal_facts f) <-> f = normal nf.
+    Proof. destruct f; simpl; intuition congruence. Qed.
+
     Definition meta_facts (f : fact) : list meta_fact :=
       match f with
       | normal _ => []
