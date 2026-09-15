@@ -203,11 +203,8 @@ Section __.
     | fact.meta _ => False
     end.
 
-  Definition clause_pattern_fact_interp ctx (cp : clause_pattern) (f : fact) :=
-    match f with
-    | fact.meta mf => clause_pattern.interp ctx cp mf.(meta_fact.pattern)
-    | fact.normal _ => False
-    end.
+  Definition clause_pattern_fact_interp ctx (cp : clause_pattern) (mf : meta_fact) :=
+    clause_pattern.interp ctx cp mf.(meta_fact.pattern).
 
   Lemma clause_fact_interp_normal ctx hyps hyps' :
     Forall2 (clause.interp ctx) hyps hyps' ->
@@ -218,9 +215,9 @@ Section __.
 
   Lemma clause_pattern_fact_interp_meta ctx hyps mhyps :
     Forall2 (clause_pattern.interp ctx) hyps (map meta_fact.pattern mhyps) ->
-    Forall2 (clause_pattern_fact_interp ctx) hyps (map fact.meta mhyps).
+    Forall2 (clause_pattern_fact_interp ctx) hyps mhyps.
   Proof.
-    intros H. rewrite <- Forall2_map_r in H. rewrite <- Forall2_map_r.
+    intros H. rewrite <- Forall2_map_r in H.
     eapply Forall2_impl; [eassumption|]. simpl. auto.
   Qed.
 
@@ -337,25 +334,22 @@ Section __.
     eauto using Forall2_impl, expr_pattern_interp_option.
   Qed.
 
-  Definition context_of_clause_pattern (cp : clause_pattern) (f : fact) :=
-    match f with
-    | fact.meta mf =>
-        context_of_args
-          (keep_Some (map expr_of_pattern cp.(clause_pattern.args)))
-          (keep_Some (map value_of_pattern
-                        mf.(meta_fact.pattern).(fact_pattern.args)))
-    | fact.normal _ => []
-    end.
+  Definition context_of_clause_pattern (cp : clause_pattern) (mf : meta_fact) :=
+    context_of_args
+      (keep_Some (map expr_of_pattern cp.(clause_pattern.args)))
+      (keep_Some (map value_of_pattern
+                    mf.(meta_fact.pattern).(fact_pattern.args))).
 
-  Definition context_of_pattern_hyps (hyps : list clause_pattern) (hyps' : list fact) :=
+  Definition context_of_pattern_hyps (hyps : list clause_pattern) (hyps' : list meta_fact) :=
     concat (zip context_of_clause_pattern hyps hyps').
 
   Lemma interp_clause_pattern_context_right ctx cp f :
     clause_pattern_fact_interp ctx cp f ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_clause_pattern cp f).
   Proof.
-    intros H. destruct f; simpl in *; [contradiction|].
-    cbv [clause_pattern.interp] in H. fwd.
+    intros H.
+    cbv [clause_pattern_fact_interp clause_pattern.interp] in H.
+    simpl in H.
     auto using interp_args_context_right, pattern_args_interp_keep_Some.
   Qed.
 
@@ -448,7 +442,7 @@ Section __.
         end
     end.
 
-  Definition eval_meta_rule set ctx (hyps' : list fact) (mr : meta_rule) : list meta_fact :=
+  Definition eval_meta_rule set ctx (mr : meta_rule) : list meta_fact :=
     map (fun pat => meta_fact.mk pat set)
       (keep_Some (map (subst_in_clause_pattern ctx) mr.(meta_rule.concls))).
 
@@ -489,7 +483,7 @@ Section __.
   Lemma eval_meta_rule_complete rules mr mf mhyps :
     meta_rule.interp rules mr mf mhyps ->
     exists ctx vals,
-      In mf (eval_meta_rule vals ctx (map fact.meta mhyps) mr) /\
+      In mf (eval_meta_rule vals ctx mr) /\
         Forall (fun args => rule.one_step_derives rules mhyps {| normal_fact.rel := meta_fact.rel mf; normal_fact.args := args |}) vals /\
         meta_matches_ctx mr (map fact.meta mhyps) ctx.
   Proof.
@@ -667,9 +661,9 @@ Section __.
     apply in_flat_map. eauto.
   Qed.
 
-  Lemma eval_meta_rule_ctxs_agree rules ctx ctx' hyps' mr :
+  Lemma eval_meta_rule_ctxs_agree rules ctx ctx' mr :
     (forall v, In v (meta_rule.all_vars mr) -> agree_on ctx ctx' v) ->
-    eval_meta_rule rules ctx hyps' mr = eval_meta_rule rules ctx' hyps' mr.
+    eval_meta_rule rules ctx mr = eval_meta_rule rules ctx' mr.
   Proof.
     intros H. cbv [eval_meta_rule]. f_equal. f_equal. apply map_ext_in.
     intros cp Hcp. apply subst_in_clause_pattern_ctxs_agree.
@@ -792,9 +786,14 @@ Section __.
     - left. cbv [fact.implied_by_mf] in Himpl. subst m. apply in_map, Hmf.
   Qed.
 
+  Print eval_meta_rule.
   Definition step_meta_rule (rules : list rule) (mr : meta_rule) (facts : list fact) : list fact :=
     flat_map
-      (fun hyps' => eval_meta_rule rules (ctx_of_meta_rule mr hyps') hyps' mr)
+      (fun hyps' =>
+         let sets := eval_one_step_derives rules hyps' in
+         flat_map (fun set =>
+                     eval_meta_rule set (ctx_of_meta_rule mr hyps') mr)
+                  sets)
       (possible_meta_hyps mr facts).
 
   Definition step_program (p : program) (facts : list fact) : list fact :=
