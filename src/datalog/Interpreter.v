@@ -466,7 +466,7 @@ Section __.
     exists ctx vals,
       In mf (eval_meta_rule vals ctx mr) /\
         Forall (fun args => rule.one_step_derives rules mhyps {| normal_fact.rel := meta_fact.rel mf; normal_fact.args := args |}) vals /\
-        meta_matches_ctx mr (map fact.meta mhyps) ctx.
+        meta_matches_ctx mr mhyps ctx.
   Proof.
     intros [Hpat Hset]. cbv [meta_rule.pattern_interp] in Hpat. fwd.
     exists ctx, (map.keys mf.(meta_fact.set)). ssplit.
@@ -475,7 +475,7 @@ Section __.
       eauto using subst_in_clause_pattern_complete.
     - apply Forall_forall. intros args Hargs. apply Hset; [|exact Hargs].
       split; [reflexivity | apply meta_fact.contains_matches, Hargs].
-    - auto using clause_pattern_fact_interp_meta.
+    - exact Hpatp1.
   Qed.
 
   (*if r is a goodish rule, and this condition holds, then we get the functionalish
@@ -585,8 +585,9 @@ Section __.
     | rule.agg _ _ _ => map.empty
     end.
 
-  Definition ctx_of_meta_rule (mr : meta_rule) (hyps' : list fact) : context :=
-    map.of_list (context_of_pattern_hyps mr.(meta_rule.hyps) hyps').
+  Definition ctx_of_meta_rule (mr : meta_rule) (hyps' : list meta_fact) : context :=
+    map.of_list (context_of_pattern_hyps mr.(meta_rule.hyps)
+                   (map meta_fact.pattern hyps')).
 
   Lemma subst_in_expr_ctxs_agree ctx ctx' e :
     Forall (agree_on ctx ctx') (expr.vars e) ->
