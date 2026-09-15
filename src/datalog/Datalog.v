@@ -819,7 +819,7 @@ Module meta_rule.
       interp p r f hyps ->
       Forall (fun hyp => In (meta_fact.rel hyp) (hyp_rels r)) hyps.
     Proof.
-      intros (pat & vals & Heq & Hpat & His).
+      intros [Hpat _].
       apply pattern_interp_hyp_relname_in in Hpat.
       rewrite Lists.List.Forall_map in Hpat. exact Hpat.
     Qed.
@@ -830,13 +830,16 @@ Module meta_rule.
           rule.one_step_derives p1 mfs nf <-> rule.one_step_derives p2 mfs nf) ->
       interp p1 r mf hyps <-> interp p2 r mf hyps.
     Proof.
-      cbv [interp]. intros H. split; intros H'; fwd; subst.
-      - exists pat, vals. ssplit; [reflexivity | eassumption | ].
-        eapply is_list_set_ext; [eassumption|]. simpl. intros.
-        apply H. eauto using pattern_interp_concl_relname_in.
-      - exists pat, vals. ssplit; [reflexivity | eassumption | ].
-        eapply is_list_set_ext; [eassumption|]. simpl. intros.
-        symmetry. apply H. eauto using pattern_interp_concl_relname_in.
+      cbv [interp]. intros H.
+      assert (Hin : forall nf,
+                 fact_pattern.matches mf.(meta_fact.pattern) nf ->
+                 pattern_interp r mf.(meta_fact.pattern) (map meta_fact.pattern hyps) ->
+                 In nf.(normal_fact.rel) (concl_rels r)).
+      { intros nf Hmatch Hpat. rewrite <- (proj1 Hmatch).
+        eauto using pattern_interp_concl_relname_in. }
+      split; intros [Hpat Hset]; (split; [exact Hpat|]); intros nf Hmatch.
+      - rewrite Hset by assumption. apply H. eauto.
+      - rewrite Hset by assumption. symmetry. apply H. eauto.
     Qed.
 
     Lemma interp_app p1 p2 r mf hyps :
@@ -1143,10 +1146,13 @@ Module program.
     Definition honest (p : program) :=
       forall Q, good_input_set p Q -> fact.set_doesnt_lie (interp p Q).
 
-    Lemma meta_rules_valid_step p Q mf mhyps :
+    (*a meta rule's hypotheses determine, for each matching fact, whether one
+      rule application derives it: the derivable ones are exactly the known ones*)
+    Lemma one_step_derives_iff p Q mr mhyps pat nf :
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
       meta_rules_valid p ->
-      Exists (fun mr => meta_rule.interp p.(rules) mr mf mhyps) p.(meta_rules) ->
+      In mr p.(meta_rules) ->
+      meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) ->
       Forall (fun mhyp => fact.set_consistent_with mhyp (fact.normal_subset (interp p Q))) mhyps ->
       (forall mhyp mf',
           In mhyp mhyps ->
@@ -1154,16 +1160,12 @@ Module program.
           mhyp.(meta_fact.pattern) = mf'.(meta_fact.pattern) ->
           mhyp = mf') ->
       Forall (fun mhyp => interp p Q (fact.meta mhyp)) mhyps ->
-      fact.set_consistent_with mf (fact.normal_subset (interp p Q)).
+      fact_pattern.matches pat nf ->
+      rule.one_step_derives p.(rules) mhyps nf <-> interp p Q (fact.normal nf).
     Proof.
-      intros Hinp Hvalid Hex Hcons Hagree Hderiv.
-      rewrite Exists_exists in Hex. destruct Hex as [mr [Hmr Hinterp]].
+      intros Hinp Hvalid Hmr Hpat Hcons Hagree Hderiv Hmatch.
       rewrite Forall_forall in Hcons, Hderiv. cbv [fact.set_consistent_with] in Hcons.
-      destruct Hinterp as (pat & vals & -> & Hpat & His).
-      cbv [fact.set_consistent_with fact.normal_subset]. intros nf Hmatch.
-      pose proof Hmatch as Hm. cbv [fact_pattern.matches] in Hm. simpl in Hm. fwd.
-      rewrite meta_fact.contains_mk by assumption. rewrite <- (proj1 His).
-      simp. split; intros H.
+      split; intros H.
       - cbv [rule.one_step_derives] in H. fwd.
         eapply interp_step_strong.
         + constructor. apply Exists_exists. eauto.
@@ -1174,7 +1176,8 @@ Module program.
             exact (proj1 (Hcons _ Hp1p0 nf0 Hp1p1p0) Hp1p1p1).
           * cbv [fact.implied_by_mf] in Hp1p1. subst m. apply Hderiv. assumption.
       - invert H.
-        + exfalso. apply meta_rule.pattern_interp_concl_relname_in in Hpat. simp.
+        + exfalso. apply meta_rule.pattern_interp_concl_relname_in in Hpat.
+          cbv [fact_pattern.matches] in Hmatch. fwd. simp.
           eapply Hinp; [eassumption|]. simpl.
           cbv [concl_rels]. apply in_or_app. right. apply in_flat_map. eauto.
         + invert H0. rewrite Exists_exists in H2. fwd.
@@ -1189,6 +1192,25 @@ Module program.
           * cbv [fact.implied_by_mf meta_fact.matches].
             split; [assumption|]. rewrite Hcons by eassumption. assumption.
           * cbv [fact.implied_by_mf]. symmetry. apply Hagree; auto.
+    Qed.
+
+    Lemma meta_rules_valid_step p Q mf mhyps :
+      (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
+      meta_rules_valid p ->
+      Exists (fun mr => meta_rule.interp p.(rules) mr mf mhyps) p.(meta_rules) ->
+      Forall (fun mhyp => fact.set_consistent_with mhyp (fact.normal_subset (interp p Q))) mhyps ->
+      (forall mhyp mf',
+          In mhyp mhyps ->
+          interp p Q (fact.meta mf') ->
+          mhyp.(meta_fact.pattern) = mf'.(meta_fact.pattern) ->
+          mhyp = mf') ->
+      Forall (fun mhyp => interp p Q (fact.meta mhyp)) mhyps ->
+      fact.set_consistent_with mf (fact.normal_subset (interp p Q)).
+    Proof.
+      intros Hinp Hvalid Hex Hcons Hagree Hderiv.
+      rewrite Exists_exists in Hex. destruct Hex as [mr [Hmr [Hpat Hset]]].
+      cbv [fact.set_consistent_with fact.normal_subset]. intros nf Hmatch.
+      rewrite Hset by assumption. eapply one_step_derives_iff; eassumption.
     Qed.
 
     Lemma one_step_derives_mhyps p mh1 mh2 mr2 pat2 nf :
@@ -1261,21 +1283,14 @@ Module program.
           { intros mhyp1 mhyp2 Ha Hb.
             apply (IH (fact.meta mhyp1) (fact.meta mhyp2));
               [apply Hxp1 | apply Hzp1]; apply in_map; assumption. }
-          destruct H0p1 as (pat1 & vals1 & -> & Hpat1 & His1).
-          destruct H1p1 as (pat2 & vals2 & -> & Hpat2 & His2).
-          simpl in Hm1, Hm2.
-          rewrite meta_fact.contains_mk by apply Hm1.
-          rewrite meta_fact.contains_mk by apply Hm2.
-          rewrite <- (proj1 His1), <- (proj1 His2).
-          cbv [fact_pattern.matches] in Hm1, Hm2. fwd. simp.
+          destruct H0p1 as [Hpat1 Hset1]. destruct H1p1 as [Hpat2 Hset2].
+          rewrite Hset1, Hset2 by assumption.
           split; intros Hd.
           * eapply one_step_derives_mhyps in Hvalid.
-            3: exact Hpat2. all: try eassumption.
-            cbv [fact_pattern.matches]. auto.
+            3: exact Hpat2. all: eassumption.
           * eapply one_step_derives_mhyps in Hvalid.
             3: exact Hpat1. all: try eassumption.
-            -- cbv [fact_pattern.matches]. auto.
-            -- intros. apply meta_fact.agree_sym. auto.
+            intros. apply meta_fact.agree_sym. auto.
     Qed.
 
     Lemma meta_facts_consistent p Q mf1 mf2 :
