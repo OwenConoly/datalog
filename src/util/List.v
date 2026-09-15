@@ -1741,64 +1741,40 @@ Section misc.
           apply IH; assumption.
   Qed.
 
-  (*the elements of [l] at the positions in [idxs], in [l]'s order*)
-  Fixpoint select_from (i : nat) (idxs : list nat) (l : list A) : list A :=
-    match l with
-    | [] => []
-    | x :: l' =>
-        if existsb (Nat.eqb i) idxs
-        then x :: select_from (S i) idxs l'
-        else select_from (S i) idxs l'
-    end.
+  Lemma sublist_nil_l l :
+    sublist [] l.
+  Proof. induction l; constructor; assumption. Qed.
 
-  Lemma sublist_select_from i idxs l :
-    sublist (select_from i idxs l) l.
+  Lemma sublist_cons_in a s l :
+    sublist s l ->
+    In a l ->
+    exists s', sublist s' l /\ same_set (a :: s) s'.
   Proof.
-    revert i. induction l as [|x l IH]; intros i; simpl; [constructor|].
-    destruct (existsb (Nat.eqb i) idxs); constructor; apply IH.
-  Qed.
-
-  Lemma in_select_from i idxs l x :
-    In x (select_from i idxs l) <->
-      exists j, In (i + j) idxs /\ nth_error l j = Some x.
-  Proof.
-    revert i. induction l as [|y l IH]; intros i; simpl.
-    - split; [contradiction|]. intros (j & _ & Hj). destruct j; discriminate.
-    - destruct (existsb (Nat.eqb i) idxs) eqn:E.
-      + apply existsb_exists in E. destruct E as (i' & Hi' & Heq).
-        apply Nat.eqb_eq in Heq. subst i'. simpl. rewrite IH. split.
-        * intros [-> | (j & Hj & Hnth)].
-          -- exists 0. rewrite Nat.add_0_r. auto.
-          -- exists (S j). simpl. replace (i + S j) with (S i + j) by lia. auto.
-        * intros ([|j] & Hj & Hnth); simpl in Hnth.
-          -- left. congruence.
-          -- right. exists j. replace (S i + j) with (i + S j) by lia. auto.
-      + rewrite IH. split.
-        * intros (j & Hj & Hnth). exists (S j). simpl.
-          replace (i + S j) with (S i + j) by lia. auto.
-        * intros ([|j] & Hj & Hnth); simpl in Hnth.
-          -- exfalso. rewrite Nat.add_0_r in Hj.
-             assert (existsb (Nat.eqb i) idxs = true) as Hc.
-             { apply existsb_exists. exists i. rewrite Nat.eqb_refl. auto. }
-             congruence.
-          -- exists j. replace (S i + j) with (i + S j) by lia. auto.
+    induction 1; intros Hin.
+    - contradiction.
+    - destruct Hin as [-> | Hin].
+      + exists (a :: s). split; [constructor; assumption|]. intro. reflexivity.
+      + destruct (IHsublist Hin) as (s' & ? & ?).
+        exists s'. split; [constructor; assumption|]. assumption.
+    - destruct Hin as [-> | Hin].
+      + exists (a :: s). split; [constructor; assumption|].
+        intros y. simpl. intuition.
+      + destruct (IHsublist Hin) as (s' & ? & Hset).
+        exists (x :: s'). split; [constructor; assumption|].
+        intros y. specialize (Hset y). simpl in *. intuition.
   Qed.
 
   Lemma incl_sublist_same_set s l :
     incl s l ->
     exists s', sublist s' l /\ same_set s s'.
   Proof.
-    intros Hincl.
-    assert (Forall (fun a => exists i, nth_error l i = Some a) s) as Hidx.
-    { apply Forall_forall. intros a Ha. apply In_nth_error. auto. }
-    apply Forall_exists_r_Forall2 in Hidx. destruct Hidx as (idxs & Hidxs).
-    exists (select_from 0 idxs l). split; [apply sublist_select_from|].
-    intros a. rewrite in_select_from. simpl. split.
-    - intros Ha. apply Forall2_forget_r_strong in Hidxs.
-      rewrite Forall_forall in Hidxs. apply Hidxs in Ha. fwd.
-      exists y. split; [|assumption]. eapply in_combine_r. eassumption.
-    - intros (j & Hj & Hnth). apply Forall2_forget_l in Hidxs.
-      rewrite Forall_forall in Hidxs. apply Hidxs in Hj. fwd. congruence.
+    induction s as [|a s IH]; intros Hincl.
+    - exists []. split; [apply sublist_nil_l|]. intro. reflexivity.
+    - apply incl_cons_inv in Hincl. destruct Hincl as [Ha Hincl].
+      destruct (IH Hincl) as (s0 & Hs0 & Hset).
+      destruct (sublist_cons_in _ _ _ Hs0 Ha) as (s' & ? & Hset').
+      exists s'. split; [assumption|].
+      intros y. specialize (Hset y). specialize (Hset' y). simpl in *. intuition.
   Qed.
 
   Lemma disjoint_lists_alt (l1 l2 : list A) :
