@@ -811,26 +811,28 @@ Section __.
     intros v Hv. symmetry. eapply meta_is_bottomup_ctx_agree; eassumption.
   Qed.
 
+  Definition step_meta_rules (p : program) (facts : list fact) : list meta_fact :=
+    flat_map (fun mr => step_meta_rule p.(program.rules) mr facts) p.(program.meta_rules).
+
   Definition step_program (p : program) (facts : list fact) : list fact :=
     step_rules p.(program.rules) facts ++
-      flat_map (fun mr => step_meta_rule p.(program.rules) mr facts)
-        p.(program.meta_rules).
+      map fact.meta (step_meta_rules p facts).
 
   Lemma step_program_complete p f hyps facts :
     Forall rule.is_bottomup p.(program.rules) ->
     Forall meta_rule.is_bottomup p.(program.meta_rules) ->
     incl hyps facts ->
     program.interp_step p f hyps ->
-    exists f', In f' (step_program p facts) /\ fact.equiv f f'.
+    In f (step_program p facts).
   Proof.
-    intros Hgood Hmgood Hincl H. rewrite Forall_forall in Hgood, Hmgood.
+    intros Hgood Hmgood Hincl H. pose proof Hgood as Hgood'.
+    rewrite Forall_forall in Hgood, Hmgood.
     cbv [step_program]. invert H; fwd.
-    - exists (fact.normal f0). split; [|reflexivity].
-      apply in_or_app. left. apply in_flat_map.
+    - apply in_or_app. left. cbv [step_rules]. apply in_flat_map.
       eauto using step_rule_complete.
-    - edestruct step_meta_rule_complete as [f' [Hin Heq]]; eauto.
-      exists f'. split; [|assumption].
-      apply in_or_app. right. apply in_flat_map. eauto.
+    - apply in_or_app. right. apply in_map. cbv [step_meta_rules]. apply in_flat_map.
+      eexists. split; [eassumption|].
+      eapply step_meta_rule_complete; eauto.
   Qed.
 
   Definition eval n (p : program) start :=
@@ -867,6 +869,19 @@ Section __.
   Proof. intros. cbv [step_meta_rule]. auto with incl. Qed.
   Hint Resolve step_meta_rule_mono : incl.
 
+  Lemma step_rules_mono rules fs1 fs2 :
+    incl fs1 fs2 ->
+    length fs1 <= length fs2 ->
+    incl (step_rules rules fs1) (step_rules rules fs2).
+  Proof. intros. cbv [step_rules]. auto with incl. Qed.
+  Hint Resolve step_rules_mono : incl.
+
+  Lemma step_meta_rules_mono p fs1 fs2 :
+    incl fs1 fs2 ->
+    incl (step_meta_rules p fs1) (step_meta_rules p fs2).
+  Proof. intros. cbv [step_meta_rules]. auto with incl. Qed.
+  Hint Resolve step_meta_rules_mono : incl.
+
   Lemma step_program_mono p fs1 fs2 :
     incl fs1 fs2 ->
     length fs1 <= length fs2 ->
@@ -889,26 +904,21 @@ Section __.
     (forall x, Q x <-> In x start) ->
     forall f,
       program.interp p Q f ->
-      (exists f', In f' (eval n p start) /\ fact.equiv f f') \/
+      In f (eval n p start) \/
         (exists l, path (rel_graph p) (fact.rel f) l /\ n <= length l).
   Proof.
     intros Hp Hmp HQ. induction n.
     - intros f Hf. invert Hf.
-      + left. exists f. split; [apply HQ; assumption | reflexivity].
+      + left. apply HQ. assumption.
       + right. exists nil. simpl. split; [constructor|lia].
     - intros f Hf. invert Hf.
-      + left. exists f. split; [|reflexivity].
-        apply eval_start_incl. apply HQ. assumption.
+      + left. apply eval_start_incl. apply HQ. assumption.
       + eapply Forall_impl in H0.
         2: { intros x Hx. apply IHn in Hx. exact Hx. }
         apply Forall_or in H0. destruct H0 as [H0|H0].
-        * left. apply Forall_exists_r_Forall2 in H0. fwd.
-          eapply program.interp_step_ext_hyps in H.
-          2: { eapply Forall2_impl; [eassumption|]. simpl. intros. fwd. eassumption. }
-          eapply step_program_complete in H; try assumption.
-          { fwd. eexists. simpl. rewrite in_app_iff. eauto. }
-          apply Forall2_forget_l in H0. intros y Hy. rewrite Forall_forall in H0.
-          apply H0 in Hy. fwd. assumption.
+        * left. simpl. rewrite in_app_iff. left.
+          eapply step_program_complete; try assumption;
+            [rewrite Forall_forall in H0; exact H0 | eassumption].
         * right. rewrite Exists_exists in H0. fwd. eexists (_ :: _). split.
           { constructor; [|eassumption]. apply rel_graph_spec in H.
             rewrite Forall_forall in H. apply H. assumption. }
@@ -922,7 +932,7 @@ Section __.
     dag (rel_graph p) ->
     forall f,
       program.interp p Q f ->
-      exists f', In f' (eval_dag p start) /\ fact.equiv f f'.
+      In f (eval_dag p start).
   Proof.
     intros Hp Hmp HQ Hdag f Hf.
     eapply eval_complete in Hf; eauto. destruct Hf as [Hf|Hf]; eauto.
