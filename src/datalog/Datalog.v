@@ -311,7 +311,7 @@ Module meta_fact.
       fset.contains mf.(set) x ->
       Forall2 value_pattern.matches mf.(pattern).(fact_pattern.args) x.
     Proof.
-      destruct mf as [pat s Hpf]. cbv [fset.contains]. simpl. intros Hin.
+      destruct mf as [? ? Hpf]. cbv [fset.contains]. simpl. intros Hin.
       rewrite Reflects_true_iff in Hpf by typeclasses eauto.
       rewrite Forall_forall in Hpf. auto.
     Qed.
@@ -322,16 +322,10 @@ Module meta_fact.
       mf1 = mf2.
     Proof.
       intros Hpat Hagree. apply eq_ext; [assumption|]. apply fset.ext. intros x.
-      destruct (forallb2 value_pattern.matchesb
-                  mf1.(pattern).(fact_pattern.args) x) eqn:Em.
-      - rewrite Reflects_true_iff in Em by typeclasses eauto.
-        apply (Hagree {| normal_fact.rel := mf1.(pattern).(fact_pattern.rel);
-                        normal_fact.args := x |}); cbv [fact_pattern.matches]; simpl.
-        + split; [reflexivity | exact Em].
-        + rewrite <- Hpat. split; [reflexivity | exact Em].
-      - rewrite Reflects_false_iff in Em by typeclasses eauto.
-        split; intros Hc; apply contains_matches in Hc; [| rewrite <- Hpat in Hc];
-          contradiction.
+      destr (forallb2 value_pattern.matchesb mf1.(pattern).(fact_pattern.args) x).
+      - simp. eapply (Hagree {| normal_fact.rel := _ |}); cbv [fact_pattern.matches]; simpl in *; eauto.
+      - split; intros Hc; apply contains_matches in Hc; try contradiction.
+        rewrite <- Hpat in Hc. contradiction.
     Qed.
   End __.
 End meta_fact. Abbreviation meta_fact := meta_fact.meta_fact.
@@ -467,77 +461,55 @@ Module fact.
 
     Variant args :=
       | normal_args (nf_args : list value)
-      | meta_args (mf_args : list value_pattern) (mf_set : list value -> Prop).
+      | meta_args (mf_args : list value_pattern) (mf_set : fset (list value))
+                  (_pf : meta_fact.canonicalb mf_args mf_set = true).
 
     Definition args_of f :=
       match f with
       | normal nf => normal_args nf.(normal_fact.args)
-      | meta {| meta_fact.pattern := pat; meta_fact.set := st |} =>
-          meta_args pat.(fact_pattern.args) st
+      | meta mf => meta_args mf.(meta_fact.pattern).(fact_pattern.args)
+                     mf.(meta_fact.set) mf.(meta_fact._pf)
       end.
 
-    Definition of_args R args : fact :=
-      match args with
+    Definition of_args R a : fact :=
+      match a with
       | normal_args nf_args =>
           normal {| normal_fact.rel := R;
                    normal_fact.args := nf_args |}
-      | meta_args mf_args mf_set =>
+      | meta_args mf_args mf_set pf =>
           meta {| meta_fact.pattern :=
                    {| fact_pattern.rel := R;
                      fact_pattern.args := mf_args |};
-                 meta_fact.set := mf_set |}
+                 meta_fact.set := mf_set;
+                 meta_fact._pf := pf |}
       end.
 
     Lemma of_args_args_of f :
       of_args (rel f) (args_of f) = f.
-    Proof. destruct f; fwd; simp; reflexivity. Qed.
+    Proof. destruct f; simp; reflexivity. Qed.
 
-    Lemma rel_of_args R args :
-      rel (of_args R args) = R.
-    Proof. destruct args; reflexivity. Qed.
+    Lemma rel_of_args R a :
+      rel (of_args R a) = R.
+    Proof. destruct a; reflexivity. Qed.
 
-    Lemma args_of_of_args R args :
-      args_of (of_args R args) = args.
-    Proof. destruct args; reflexivity. Qed.
+    Lemma args_of_of_args R a :
+      args_of (of_args R a) = a.
+    Proof. destruct a; reflexivity. Qed.
 
-    Lemma fact_of_inj R args R' args' :
-      of_args R args = of_args R' args' ->
-      R = R' /\ args = args'.
+    Lemma fact_of_inj R a R' a' :
+      of_args R a = of_args R' a' ->
+      R = R' /\ a = a'.
     Proof.
-      destruct args, args'; simpl; intros; congruence || fwd; auto.
-    Qed.
-
-    Definition equiv (f1 f2 : fact) :=
-      match f1, f2 with
-      | normal nf1, normal nf2 => nf1 = nf2
-      | meta mf1, meta mf2 => meta_fact.equiv mf1 mf2
-      | _, _ => False
-      end.
-
-    Lemma equiv_Equivalence : Equivalence equiv.
-    Proof.
-      constructor.
-      - intros f. destruct f; simpl; reflexivity.
-      - intros f1 f2. destruct f1, f2; simpl; intros; contradiction || now symmetry.
-      - intros f1 f2 f3. destruct f1, f2, f3; simpl; intros;
-          contradiction || (etransitivity; eassumption).
-    Qed.
-
-    Lemma equiv_map_meta mfs fs :
-      Forall2 equiv (map meta mfs) fs ->
-      exists mfs', fs = map meta mfs' /\ Forall2 meta_fact.equiv mfs mfs'.
-    Proof.
-      revert fs. induction mfs; simpl; intros fs H; invert H.
-      - exists []. auto.
-      - destruct y; simpl in *; [contradiction|]. apply IHmfs in H4. fwd.
-        exists (m :: mfs'). auto.
+      intros H. split.
+      - pose proof (f_equal rel H) as Hr. rewrite !rel_of_args in Hr. exact Hr.
+      - pose proof (f_equal args_of H) as Ha. rewrite !args_of_of_args in Ha. exact Ha.
     Qed.
 
     (*if we know hyp and the normal_facts that hyp includes, then do we know f?*)
     Definition implied_by_mf (f : fact) (hyp : meta_fact) :=
       match f with
       | normal nf => meta_fact.matches hyp nf
-      | meta mf => meta_fact.equiv mf hyp
+      | meta mf => mf = hyp
       end.
 
     Definition implied_by_mfs (mfs : list meta_fact) (f : fact) :=
@@ -553,19 +525,6 @@ Module fact.
     Definition covered_by_pats (pats : list fact_pattern) (f : fact) :=
       Exists (covered_by f) pats.
 
-    Lemma implied_by_mfs_ext hyps hyps' f :
-      Forall2 meta_fact.equiv hyps hyps' ->
-      implied_by_mfs hyps f ->
-      implied_by_mfs hyps' f.
-    Proof.
-      cbv [implied_by_mfs implied_by_mf]. intros H1 H2.
-      apply Forall2_forget_r in H1. rewrite Forall_forall in H1.
-      destruct f; simpl in *.
-      - rewrite Exists_exists in *. fwd. especialize H1; eauto. fwd. eauto.
-      - rewrite Exists_exists in *. fwd. especialize H1; eauto. fwd. eexists.
-        split; [eassumption|]. etransitivity; eassumption.
-    Qed.
-
     Lemma implied_by_mfs_pats mfs f :
       implied_by_mfs mfs f ->
       covered_by_pats (map meta_fact.pattern mfs) f.
@@ -574,7 +533,7 @@ Module fact.
       - rewrite Exists_map. eapply Exists_impl; [|eassumption].
         cbv [meta_fact.matches]. simpl. intros. fwd. assumption.
       - rewrite Exists_map. eapply Exists_impl; [|eassumption].
-        cbv [meta_fact.equiv]. simpl. intros. fwd. symmetry. assumption.
+        simpl. intros x Hx. rewrite Hx. reflexivity.
     Qed.
 
     Definition is_meta f :=
@@ -586,7 +545,7 @@ Module fact.
     Definition set_consistent_with (mf : meta_fact) (S : normal_fact -> Prop) :=
       forall nf,
         fact_pattern.matches mf.(meta_fact.pattern) nf ->
-        mf.(meta_fact.set) nf.(normal_fact.args) <-> S nf.
+        fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <-> S nf.
 
     Definition normal_subset (S : fact -> Prop) :=
       fun nf => S (normal nf).
@@ -608,11 +567,11 @@ Module fact.
     Definition args_consistent mf_args mf_set (S_args : args -> Prop) :=
       forall nf_args,
         Forall2 value_pattern.matches mf_args nf_args ->
-        mf_set nf_args <-> S_args (normal_args nf_args).
+        fset.contains mf_set nf_args <-> S_args (normal_args nf_args).
 
     Definition honest_args (S_args : args -> Prop) :=
-      forall mf_args mf_set,
-        S_args (meta_args mf_args mf_set) ->
+      forall mf_args mf_set pf,
+        S_args (meta_args mf_args mf_set pf) ->
         args_consistent mf_args mf_set S_args.
 
     Lemma set_doesnt_lie_honest_args (S : fact -> Prop) R :
@@ -620,15 +579,13 @@ Module fact.
       honest_args (fun a => S (of_args R a)).
     Proof.
       cbv [set_doesnt_lie honest_args args_consistent].
-      intros H mf_args mf_set Hmeta nf_args Hargs. apply H in Hmeta.
+      intros H mf_args mf_set pf Hmeta nf_args Hargs. apply H in Hmeta.
       cbv [set_consistent_with] in Hmeta. simpl in Hmeta.
       apply (Hmeta {| normal_fact.rel := R; normal_fact.args := nf_args |}).
       cbv [fact_pattern.matches]. simpl. auto.
     Qed.
   End __.
 End fact. Abbreviation fact := fact.fact.
-#[export] Hint Resolve fact.implied_by_mfs_ext : core.
-#[export] Existing Instance fact.equiv_Equivalence.
 
 Module rule.
   Section __.
