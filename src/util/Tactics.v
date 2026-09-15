@@ -114,8 +114,8 @@ Ltac map_func :=
   repeat match goal with
     | H1: map.get ?x ?y = _, H2: map.get ?x ?y = _ |- _ => rewrite H1 in H2; invert H2
     end.
-From Datalog.Util Require Import Autodestr Autocbn.
-Ltac simp := repeat (autodestr; autocbn; subst).
+From Datalog.Util Require Import Autodestr Autocbn Autocbv.
+Ltac simp := repeat (autodestr; autocbv; autocbn; subst).
 
 #[export] Hint Unfold iff : core.
 
