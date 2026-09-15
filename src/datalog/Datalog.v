@@ -279,10 +279,10 @@ Module meta_fact.
       Context `{params : datalog_params0} {mfa_q_eq : quot repr repr.equiv}.
       Definition args : Type := repr / repr.equiv.
       Definition pattern (a : args) := repr.pattern (quot.repr a).
-      Definition set (a : args) := repr.set (quot.repr a).
       Definition mk p s : args := quot.pi ({| repr.pattern := p; repr.set := s |}).
 
-      Lemma set_mk a :
+      Lemma set_mk p s : set (mk p s) = s.
+      Proof. cbv [mk set]. rewrite quot.reprK.
     End __.
   End args. Abbreviation args := args.args.
 
