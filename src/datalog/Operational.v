@@ -143,26 +143,6 @@ Section __.
     In R (program.concl_rels p) -> is_input R = false.
   Proof. rewrite Forall_forall in Hp_good. auto. Qed.
 
-  (* Propagation of meta-fact finiteness: analog of SimpleDataflow.v:2505
-     [meta_facts_finite].  We constrain the matching nf_args range only,
-     because that is all the meta-fact semantics actually pin down (the
-     S predicate is opaque on non-matching args).  This makes the leaf
-     case provable from finiteness of the inputs list. *)
-  Definition meta_facts_finite :=
-    forall Q,
-      (forall mf, Q (fact.meta mf) ->
-                  exists l, forall args,
-                    Forall2 value_pattern.matches
-                      mf.(meta_fact.pattern).(fact_pattern.args) args ->
-                    mf.(meta_fact.set) args -> In args l) ->
-      forall mf, program.interp p Q (fact.meta mf) ->
-                 exists l, forall args,
-                   Forall2 value_pattern.matches
-                     mf.(meta_fact.pattern).(fact_pattern.args) args ->
-                   mf.(meta_fact.set) args -> In args l.
-
-  Context (Hmeta_finite : meta_facts_finite).
-
   Definition good_input_facts input_facts :=
     Forall (fun f => is_input_fact f = true) input_facts /\
       (forall pat num,
@@ -675,7 +655,7 @@ Section __.
         mf_consistent_state s (fact.meta mf') ->
         program.interp p (knows_fact inputs) (fact.meta mf')) ->
     has_derived_datalog_fact s
-      (fact.meta {| meta_fact.pattern := pat; meta_fact.set := fun _ => True |}) ->
+      (fact.meta (meta_fact.mk pat [])) ->
     forall nf,
       fact_pattern.matches pat nf ->
       program.interp p (knows_fact inputs) (fact.normal nf) ->
@@ -1280,7 +1260,7 @@ Section __.
   (* Drive node [rn] to sent-broadcast every fact matching [mf]'s pattern
      that its rule can deduce, so that firing the [(from_rule rn)] done-message
      is [ok_to_deduce].  Termination: the set of such facts is bounded by the
-     finite list [l] from [meta_facts_finite] applied to the (real) meta-fact. *)
+     finite key list of the (real) meta-fact's set. *)
   Lemma rule_can_force_normal_facts inputs s rn (mf : meta_fact) :
     good_input_facts inputs ->
     0 < length p.(program.rules) ->
@@ -1296,37 +1276,19 @@ Section __.
           mf.(meta_fact.pattern).
   Proof.
     intros Hinp Hlen_pos Hsane Hmfc Hmf_ok Hsound Hin_rn Hpi_meta.
-    assert (Hpremise : forall mf',
-               knows_fact inputs (fact.meta mf') ->
-               exists l, forall args,
-                 Forall2 value_pattern.matches
-                   mf'.(meta_fact.pattern).(fact_pattern.args) args ->
-                 mf'.(meta_fact.set) args -> In args l).
-    { intros mf' Hk. destruct Hk as (num & _ & _ & Hbi).
-      exists (map (fun m => match m with
-                       | message.normal nf0 => nf0.(normal_fact.args)
-                       | _ => []
-                       end) inputs).
-      intros args Hmatch HS.
-      specialize (Hbi {| normal_fact.rel := mf'.(meta_fact.pattern).(fact_pattern.rel);
-                        normal_fact.args := args |}
-                    ltac:(split; [reflexivity | exact Hmatch])).
-      cbn [normal_fact.args] in Hbi. apply Hbi in HS.
-      apply in_map_iff. eexists. split; [| exact HS]. reflexivity. }
     pose proof (good_inputs_knows_fact_inputs inputs Hinp Hlen_pos) as Hgi.
     pose proof (program.valid_impl_honest p Hmeta_rules _ Hgi) as Hhonest.
     pose proof (Hhonest _ Hpi_meta) as Hcons_meta.
     cbv [fact.set_consistent_with fact.normal_subset] in Hcons_meta.
     assert (Hl_nf : exists l, forall nf,
                fact_pattern.matches mf.(meta_fact.pattern) nf ->
-               mf.(meta_fact.set) nf.(normal_fact.args) -> In nf l).
-    { destruct (Hmeta_finite (knows_fact inputs) Hpremise mf Hpi_meta) as (l0 & Hl0).
-      exists (map (fun a => {| normal_fact.rel := mf.(meta_fact.pattern).(fact_pattern.rel);
-                          normal_fact.args := a |}) l0).
+               fset.contains fset.contains mf.(meta_fact.set) nf.(normal_fact.args) -> In nf l).
+    { exists (map (fun a => {| normal_fact.rel := mf.(meta_fact.pattern).(fact_pattern.rel);
+                          normal_fact.args := a |}) (map.keys mf.(meta_fact.set))).
       intros [nrel nargs] (Hrel & Hargs) HS. cbn in *.
       apply in_map_iff. exists nargs. split.
       - f_equal. congruence.
-      - eauto. }
+      - exact HS. }
     destruct Hl_nf as (l & Hl_bound).
     assert (Hl_reachable : forall nf s',
               comp_step^* s s' ->
