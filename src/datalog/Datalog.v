@@ -306,6 +306,12 @@ Module meta_fact.
 
     Definition rel mf := mf.(pattern).(fact_pattern.rel).
 
+    Definition normal_facts (mf : meta_fact) : list normal_fact :=
+      map
+        (fun args => {| normal_fact.rel := rel mf;
+                    normal_fact.args := args |})
+        (map.keys mf.(set)).
+
     Definition agree (mf1 mf2 : meta_fact) :=
       forall nf,
         fact_pattern.matches mf1.(pattern) nf ->
