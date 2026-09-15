@@ -267,10 +267,8 @@ Module meta_fact.
     Definition mk (pat : fact_pattern) (vals : list (list value)) : meta_fact.
     Proof.
       refine {| pattern := pat;
-               set := map.of_list (map (fun args => (args, tt))
-                        (filter (forallb2 value_pattern.matchesb pat.(fact_pattern.args)) vals)) |}.
-      abstract (intros; rewrite Reflects_true_iff by typeclasses eauto;
-                apply canonical_of_list).
+               set := to_canonical_set pat.(fact_pattern.args) vals |}.
+      abstract (rewrite Reflects_true_iff by typeclasses eauto; apply canonical_of_list).
     Defined.
 
     Lemma eq_ext mf1 mf2 :
@@ -290,7 +288,7 @@ Module meta_fact.
       fact_pattern.matches pat nf /\ In nf.(normal_fact.args) vals.
     Proof.
       cbv [matches fact_pattern.matches]. simpl. simp.
-      cbv [fset.contains]. rewrite keys_of_list_same_set, map_map.
+      cbv [fset.contains to_canonical_set]. rewrite keys_of_list_same_set, map_map.
       rewrite in_map_iff. simpl. setoid_rewrite filter_In.
       setoid_rewrite Reflects_true_iff; [|typeclasses eauto].
       split; intros; fwd; eauto 6.
@@ -309,21 +307,34 @@ Module meta_fact.
       agree mf2 mf1.
     Proof. cbv [agree]. intros H nf H1 H2. symmetry. auto. Qed.
 
+    Lemma contains_matches mf x :
+      fset.contains mf.(set) x ->
+      Forall2 value_pattern.matches mf.(pattern).(fact_pattern.args) x.
+    Proof.
+      destruct mf as [pat s Hpf]. cbv [fset.contains]. simpl. intros Hin.
+      rewrite Reflects_true_iff in Hpf by typeclasses eauto.
+      rewrite Forall_forall in Hpf. auto.
+    Qed.
+
     Lemma eq_of_agree mf1 mf2 :
       mf1.(pattern) = mf2.(pattern) ->
       agree mf1 mf2 ->
       mf1 = mf2.
     Proof.
-      cbv [equiv agree]. intros Hpat Hagree. apply eq_ext; auto.
-      apply fset.ext. intros.
-      eapply (Hagree {| normal_fact.rel := _ |});
-        cbv [fact_pattern.matches]; auto.
-      { destruct mf1. simpl in *. simp.
+      intros Hpat Hagree. apply eq_ext; [assumption|]. apply fset.ext. intros x.
+      destruct (forallb2 value_pattern.matchesb
+                  mf1.(pattern).(fact_pattern.args) x) eqn:Em.
+      - rewrite Reflects_true_iff in Em by typeclasses eauto.
+        apply (Hagree {| normal_fact.rel := mf1.(pattern).(fact_pattern.rel);
+                        normal_fact.args := x |}); cbv [fact_pattern.matches]; simpl.
+        + split; [reflexivity | exact Em].
+        + rewrite <- Hpat. split; [reflexivity | exact Em].
+      - rewrite Reflects_false_iff in Em by typeclasses eauto.
+        split; intros Hc; apply contains_matches in Hc; [| rewrite <- Hpat in Hc];
+          contradiction.
     Qed.
   End __.
 End meta_fact. Abbreviation meta_fact := meta_fact.meta_fact.
-#[export] Hint Resolve meta_fact.matches_ext : core.
-#[export] Existing Instance meta_fact.equiv_Equivalence.
 
 #[local] Hint Resolve Forall2_impl : core.
 #[local] Hint Resolve Forall_impl : core.
