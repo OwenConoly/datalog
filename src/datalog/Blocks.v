@@ -502,6 +502,50 @@ Section Blocks.
     inj_on_elt (unflatten_rel ctx) (local y).
   Proof. intros [y'|x] Heq; cbn in Heq; congruence. Qed.
 
+  Lemma ctx_lookup_cases ctx x :
+    In (ctx_lookup ctx x, x) ctx \/ ctx_lookup ctx x = fun _ => False.
+  Proof.
+    induction ctx as [|[R y] ctx' IH]; [auto|]. simpl. destr (eqb x y); [auto|].
+    destruct IH; auto.
+  Qed.
+
+  Lemma flat_input_set_unflatten_fw ctx f1 f2 :
+    NoDup (map snd ctx) ->
+    fact_equiv (unflatten_rel ctx) f1 f2 ->
+    flat_input_set ctx f1 ->
+    flat_input_set ctx f2.
+  Proof.
+    cbv [fact_equiv flat_input_set]. intros Hnd Heq Hf1. fwd.
+    pose proof (f_equal fact.rel Heq) as Hrel.
+    pose proof (f_equal fact.args_of Heq) as Hargs.
+    rewrite !rel_map_fact in Hrel. rewrite !args_of_map_fact in Hargs.
+    rewrite Hf1p0 in Hrel. simpl in Hrel.
+    rewrite (ctx_lookup_In _ _ _ Hnd Hf1p1) in Hrel.
+    destruct (fact.rel f2) as [y|x2]; simpl in Hrel; [discriminate|].
+    injection Hrel as ->. exists (ctx_lookup ctx x2), x2. ssplit; [reflexivity| |].
+    - destruct (ctx_lookup_cases ctx x2) as [?|Hnone]; [assumption|].
+      exfalso. rewrite Hnone in Hf1p2. exact Hf1p2.
+    - rewrite <- Hargs. exact Hf1p2.
+  Qed.
+
+  Lemma flat_input_set_flatten_fw ctx name f1 f2 :
+    Forall (in_range O name) (map snd ctx) ->
+    fact_equiv (flatten_rel name) f1 f2 ->
+    flat_input_set ctx f1 ->
+    flat_input_set ctx f2.
+  Proof.
+    cbv [fact_equiv flat_input_set]. intros Hctx Heq Hf1. fwd.
+    pose proof (f_equal fact.rel Heq) as Hrel.
+    pose proof (f_equal fact.args_of Heq) as Hargs.
+    rewrite !rel_map_fact in Hrel. rewrite !args_of_map_fact in Hargs.
+    rewrite Hf1p0 in Hrel. simpl in Hrel.
+    destruct (fact.rel f2) as [y|x2]; simpl in Hrel.
+    - exfalso. rewrite Forall_forall in Hctx.
+      specialize (Hctx _ ltac:(eauto using in_snd)). rewrite Hrel in Hctx.
+      simpl in Hctx. lia.
+    - exists R, x. ssplit; [congruence|assumption|]. rewrite <- Hargs. exact Hf1p2.
+  Qed.
+
   Lemma flat_input_set_good ctx (p : block_program flat_rel) :
     NoDup (map snd ctx) ->
     Forall is_not_input (program.concl_rels p) ->
