@@ -31,7 +31,7 @@ Definition is_list_set {X : Type} (S : X -> Prop) (l : list X) :=
   (forall x, S x <-> In x l) /\ NoDup l.
 
 Lemma is_list_set_map X Y S l (f : X -> Y) :
-  FinFun.Injective f ->
+  Finite.Injective f ->
   is_list_set S l ->
   is_list_set (fun y => exists x, y = f x /\ S x) (map f l).
 Proof.
@@ -39,7 +39,7 @@ Proof.
   - intros. split; intros H3; fwd.
     + apply in_map_iff. apply H1 in H3p1. eauto.
     + apply in_map_iff in H3. fwd. apply H1 in H3p1. eauto.
-  - apply FinFun.Injective_map_NoDup; assumption.
+  - apply Finite.Injective_map_NoDup; assumption.
 Qed.
 
 Lemma is_list_set_ext X (S1 S2 : X -> _) l :
@@ -160,6 +160,13 @@ Lemma injective_on_incl {A B} (f : A -> B) l1 l2 :
   incl l1 l2 -> injective_on f l2 -> injective_on f l1.
 Proof. intros Hsub Hinj x y Hx Hy. apply Hinj; auto. Qed.
 
+Lemma injective_on_cons_head {A B} (f : A -> B) a b l :
+  injective_on f (a :: l) ->
+  In b l ->
+  f a = f b ->
+  a = b.
+Proof. intros Hinj Hb. apply Hinj; simpl; auto. Qed.
+
 Lemma injective_on_cons_in {A B} (f : A -> B) a l :
   In a l -> injective_on f l -> injective_on f (a :: l).
 Proof.
@@ -277,6 +284,16 @@ Section Forall.
     Forall2 R xs xs.
   Proof. induction 1; auto. Qed.
 
+  #[global] Instance Forall2_Equivalence (R : A -> A -> Prop) {R_equiv : Equivalence R} :
+    Equivalence (Forall2 R).
+  Proof.
+    constructor.
+    - intros l. induction l; constructor; auto. reflexivity.
+    - intros l1 l2 H. induction H; constructor; auto. symmetry. assumption.
+    - intros l1 l2 l3 H. revert l3. induction H; auto.
+      intros l3 H3. invert H3. constructor; eauto. etransitivity; eauto.
+  Qed.
+
   Lemma Forall2_combine R xs ys :
     Forall2 R xs ys ->
     Forall (fun '(x, y) => R x y) (combine xs ys).
@@ -343,6 +360,28 @@ Section Forall.
     exists ys, Forall2 R xs ys.
   Proof. induction 1; fwd; eauto. Qed.
 
+  Lemma Forall2_exists_r_map (R : A -> B -> Prop) (R' : A -> C -> Prop) (g : C -> B) xs ys :
+    Forall2 R xs ys ->
+    (forall x y, R x y -> exists z, y = g z /\ R' x z) ->
+    exists zs, ys = map g zs /\ Forall2 R' xs zs.
+  Proof.
+    intros H Hex. induction H; fwd; [now exists []|].
+    apply Hex in H. fwd. exists (z :: zs). simpl. eauto.
+  Qed.
+
+  Lemma Forall_ex_eq_map (g : B -> A) xs :
+    Forall (fun x => exists y, x = g y) xs ->
+    exists ys, xs = map g ys.
+  Proof.
+    induction 1; [now exists []|]. fwd. eexists (_ :: _). simpl. f_equal; eassumption.
+  Qed.
+
+  Lemma Forall_impl P Q xs :
+    Forall P xs ->
+    (forall x, P x -> Q x) ->
+    Forall Q xs.
+  Proof. eauto using Forall_impl. Qed.
+
   Lemma Forall2_unique_r R xs ys ys' :
     Forall2 R xs ys ->
     Forall2 R xs ys' ->
@@ -391,6 +430,11 @@ Section Forall.
       + exact Heq.
       + apply IH. exact Htail.
   Qed.
+
+  Lemma Forall2_map_eq (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
+    Forall2 (fun x y => f x = g y) l1 l2 ->
+    map f l1 = map g l2.
+  Proof. induction 1; simpl; congruence. Qed.
 
   Lemma Forall2_eq_map (f : B -> A) (l1 : list A) (l2 : list B) :
     Forall2 (fun x y => y = f x) l2 l1 <-> l1 = map f l2.
@@ -839,7 +883,7 @@ Section Forall3.
   Proof.
     induction 1; eauto.
     constructor; simpl; eauto 7.
-    eapply Forall_impl; [|eassumption].
+    eapply Forall_impl; [eassumption|].
     simpl. intros. fwd. eauto 7.
   Qed.
 
@@ -1072,6 +1116,12 @@ Section Existsn.
     Existsn n l ->
     Existsn (S n) (x :: l).
   Hint Constructors Existsn : core.
+
+  Lemma Existsn_cons_no x n l :
+    ~ P x ->
+    Existsn n (x :: l) ->
+    Existsn n l.
+  Proof. intros Hx H. invert H; [ assumption | exfalso; auto ]. Qed.
 
   Lemma Existsn_S n l :
     Existsn (S n) l ->
@@ -1433,6 +1483,10 @@ Section misc.
   Lemma flat_map_map (g : A -> B) (f : B -> list C) l :
     flat_map f (map g l) = flat_map (fun x => f (g x)) l.
   Proof. induction l; simpl; f_equal; auto. Qed.
+
+  Lemma map_flat_map (g : A -> list B) (h : B -> C) l :
+    map h (flat_map g l) = flat_map (fun x => map h (g x)) l.
+  Proof. induction l; simpl; [reflexivity|]. rewrite map_app. congruence. Qed.
 
   Lemma flat_map_flat_map (f : B -> list C) (g : A -> list B) l :
     flat_map f (flat_map g l) = flat_map (fun x => flat_map f (g x)) l.
@@ -1943,7 +1997,7 @@ Section misc.
       rewrite existsb_exists in E'.
       rewrite <- Exists_exists in E'.
       rewrite <- Forall_Exists_neg in E'.
-      eapply Forall_impl; [|eassumption].
+      eapply Forall_impl; [eassumption|].
       simpl. intros. destruct (f _); congruence.
   Qed.
 
@@ -2233,6 +2287,7 @@ Qed.
 
 #[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) :=
   fun x y => (length x =? length y) && forallb (eqb true) (map2 aeqb x y).
+#[global] Typeclasses Opaque list_eqb.
 
 Lemma list_eqb_ok_strong {A} {aeqb : Eqb A} (x : list A) :
   Forall (fun a => forall b, if aeqb a b then a = b else a <> b) x ->
@@ -2298,3 +2353,6 @@ Lemma choose_any_n_mono {A} n (xs ys : list A) :
   incl (choose_any_n n xs) (choose_any_n n ys).
 Proof. induction n; simpl; auto with incl. Qed.
 Hint Resolve choose_any_n_mono : incl.
+
+#[export] Hint Resolve Forall_impl : core.
+#[export] Hint Resolve Forall2_impl : core.

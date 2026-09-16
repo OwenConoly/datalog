@@ -711,6 +711,21 @@ Section Map.
     map.get m k = None -> get_or_default m k = default.
   Proof. cbv [get_or_default]. apply get_or_None. Qed.
 
+  Lemma get_or_default_empty `{WithDefault value} k :
+    get_or_default (map.empty : mp) k = default.
+  Proof. apply get_or_default_None, map.get_empty. Qed.
+
+  Lemma get_or_default_values `{WithDefault value} (P : value -> Prop) (m : mp) k :
+    Forall P (values m) ->
+    P default ->
+    P (get_or_default m k).
+  Proof.
+    intros HF Hd. destruct (map.get m k) as [v|] eqn:Eg.
+    - rewrite (get_or_default_Some _ _ _ Eg). rewrite Forall_forall in HF.
+      apply HF. apply In_values. eauto.
+    - rewrite (get_or_default_None _ _ Eg). exact Hd.
+  Qed.
+
   Lemma get_or_put d (m : mp) k v k' :
     get_or d (map.put m k v) k' = if eqb k k' then v else get_or d m k'.
   Proof. cbv [get_or]. rewrite map.get_put_dec. now destr (eqb k k'). Qed.

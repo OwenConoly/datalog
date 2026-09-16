@@ -708,7 +708,7 @@ Section step.
   Proof.
     intros H. cbv [ev_stable]. intros ? ? ? ? H' ?.
     eapply Forall_impl.
-    2: { apply Forall_and; [exact H|exact H']. }
+    { apply Forall_and; [exact H|exact H']. }
     simpl. intros. fwd. eauto.
   Qed.
 
@@ -741,7 +741,7 @@ Section step.
                 (ns, t)).
       + rewrite Forall_map, Forall_forall. intros o _.
         apply (ev_stable_ex_out (fun o' => equiv o o')).
-      + rewrite Forall_map. eapply Forall_impl; [| exact HF]. intros o Hmoe.
+      + rewrite Forall_map. eapply Forall_impl; [exact HF|]. intros o Hmoe.
         destruct Hmoe as (o' & Hequiv & Hmo).
         pose proof (Hmiw t ns o' Hstar Hallow Hmo) as HW.
         unfold will_output_equiv in HW.
@@ -874,11 +874,8 @@ Section step.
     { rewrite flat_map_app, Hinpf. cbn [app]. exact HallT. }
     assert (Hnctf : noncontradictory_inputs (flat_map inputs_of t') (flat_map inputs_of (tf ++ tr ++ t))).
     { rewrite flat_map_app, Hinpf. cbn [app]. exact HncT. }
-    econstructor.
-    - exact Hsub_out.
-    - exact Hwf_out.
-    - exact Hci_out.
-    - exact (CIH t' s' (tf ++ tr ++ t) sTf Hstar' HstarTf Halltf Hnctf).
+    econstructor; try eassumption.
+    eapply CIH; eassumption.
   Qed.
 
   Context (D : list message -> message -> Prop).

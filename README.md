@@ -8,7 +8,7 @@
 
 ## Building
 
-Works with Rocq 9.1.1 (probably works with later versions too).
+Works with Rocq 9.2.
 
 * to get dependencies: `opam install coq-json`
 * cloning: pass `--recursive` to get the submodules
