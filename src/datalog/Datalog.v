@@ -556,6 +556,15 @@ Module fact_args.
       forall ma,
         S (meta ma) ->
         consistent ma S.
+
+    Lemma honest_ext S1 S2 :
+      honest S1 ->
+      (forall a, S1 a <-> S2 a) ->
+      honest S2.
+    Proof.
+      cbv [honest consistent]. intros H Hiff ma Hma nf_args Hargs.
+      rewrite <- Hiff. apply H; [apply Hiff, Hma | assumption].
+    Qed.
   End __.
 End fact_args. Abbreviation fact_args := fact_args.fact_args.
 
@@ -1078,6 +1087,16 @@ Module program.
       - eapply pftree.weaken_hyp; [eassumption|]. simpl. intros. fwd. assumption.
     Qed.
 
+    Lemma interp_invariant' p Q f :
+      ~Q f ->
+      interp p Q f <->
+        interp p (fun f' => Q f' /\ In (fact.rel f') (hyp_rels p)) f.
+    Proof.
+      intros. rewrite interp_invariant. apply pftree.hyp_ext.
+      intros. split; intros; fwd; eauto. (*TODO destruct_one_or*)
+      invert H0p1; auto || (exfalso; auto).
+    Qed.
+
     Lemma interp_hyp_ext_strong p Q1 Q2 f :
       (Q1 f <-> Q2 f) ->
       (forall f', In (fact.rel f') (hyp_rels p) -> Q1 f' <-> Q2 f') ->
@@ -1245,6 +1264,17 @@ Module program.
 
     Definition good_input_set (p : program) (Q : fact -> Prop) :=
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) /\ fact.set_doesnt_lie Q.
+
+    Lemma good_input_set_ext p Q1 Q2 :
+      good_input_set p Q1 ->
+      (forall f, Q1 f <-> Q2 f) ->
+      good_input_set p Q2.
+    Proof.
+      cbv [good_input_set fact.set_doesnt_lie fact.set_consistent_with fact.normal_subset].
+      intros [Hconcl Hlie] Hext. split.
+      - intros f Hf. rewrite <- Hext in Hf. eauto.
+      - intros mf Hmf nf Hmatch. rewrite <- Hext in *. eauto.
+    Qed.
 
     Definition honest (p : program) :=
       forall Q, good_input_set p Q -> fact.set_doesnt_lie (interp p Q).
