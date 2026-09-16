@@ -195,7 +195,7 @@ Section Blocks.
       destruct Hmatch as [Hmrel Hmargs]. simpl in Hmrel, Hmargs.
       cbv [fact.honest_args fact.args_consistent] in Hhonest.
       cbn [meta_fact.set].
-      rewrite (Hhonest _ _ _ HP _ Hmargs).
+      rewrite (Hhonest _ HP _ Hmargs).
       split; intros H'.
       + apply Exists_exists. exists (R0, P). simpl.
         split; [ exact Hin0 | ]. split; [ congruence | ]. exact H'.
