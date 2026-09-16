@@ -259,14 +259,50 @@ Section Blocks.
         eexists. ssplit; eauto. eexists. split; eauto. simpl. auto.
   Qed.
 
+  Lemma wf_rule_hyp_rels {var1 var2} (ctx : list (var1 * var2)) r1 r2 :
+    wf_rule ctx r1 r2 ->
+    Forall2 (wf_rel ctx) (rule.hyp_rels r1) (rule.hyp_rels r2).
+  Proof.
+    destruct 1; simpl.
+    - rewrite <- Forall2_map_l, <- Forall2_map_r.
+      eapply Forall2_impl; [eassumption|]. cbv [wf_clause]. intros. fwd. assumption.
+    - eauto.
+  Qed.
+
+  Lemma wf_meta_rule_hyp_rels {var1 var2} (ctx : list (var1 * var2)) mr1 mr2 :
+    wf_meta_rule ctx mr1 mr2 ->
+    Forall2 (wf_rel ctx) (meta_rule.hyp_rels mr1) (meta_rule.hyp_rels mr2).
+  Proof.
+    cbv [wf_meta_rule meta_rule.hyp_rels]. intros. fwd.
+    rewrite <- Forall2_map_l, <- Forall2_map_r.
+    eapply Forall2_impl; [eassumption|]. cbv [wf_clause_pattern]. intros. fwd. assumption.
+  Qed.
+
+  Lemma wf_program_hyp_rels {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
+    wf_program ctx p1 p2 ->
+    Forall2 (wf_rel ctx) (program.hyp_rels p1) (program.hyp_rels p2).
+  Proof.
+    cbv [wf_program program.hyp_rels]. intros. fwd. apply Forall2_app.
+    - apply Forall2_flat_map. eapply Forall2_impl; [eassumption|].
+      eauto using wf_rule_hyp_rels.
+    - apply Forall2_flat_map. eapply Forall2_impl; [eassumption|].
+      eauto using wf_meta_rule_hyp_rels.
+  Qed.
+
+  Lemma wf_program_vars_of_block {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
+    wf_program ctx p1 p2 ->
+    incl (vars_of_block p1) (map fst ctx).
+  Proof.
+    intros Hwf R HR. apply inv_vars_of_block in HR.
+    eapply Forall2_In_l in HR; [|apply (wf_program_hyp_rels _ _ _ Hwf)].
+    fwd. destruct y; try contradiction. eapply in_fst. eassumption.
+  Qed.
+
   Lemma wf_blocks_prog_vars_in {var1 var2} (x : var2) (ctx : list (var1 * var2)) (p : blocks_prog var1) (p' : blocks_prog var2) :
     wf_blocks_prog ctx p p' ->
     vars_in (map fst ctx) p.
   Proof.
-    induction 1; simpl in *; eauto.
-    constructor. eapply Forall_impl.
-    1: { eapply Forall2_forget_r. eassumption. }
-    simpl. intros [? ?] ?. fwd. eapply in_fst. eassumption.
+    induction 1; simpl in *; eauto using wf_program_vars_of_block.
   Qed.
 
   Hint Resolve in_fst in_snd : core.
