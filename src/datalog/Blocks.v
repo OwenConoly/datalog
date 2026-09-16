@@ -495,6 +495,35 @@ Section Blocks.
 
   Hint Resolve in_fst in_snd : core.
 
+  Definition flat_input_set (ctx : list ((fact_args -> Prop) * flat_rel)) f :=
+    exists R x, fact.rel f = input x /\ In (R, x) ctx /\ R (fact.args_of f).
+
+  Lemma unflatten_inj_on_local ctx y :
+    inj_on_elt (unflatten_rel ctx) (local y).
+  Proof. intros [y'|x] Heq; cbn in Heq; congruence. Qed.
+
+  Lemma flat_input_set_good ctx (p : block_program flat_rel) :
+    NoDup (map snd ctx) ->
+    Forall is_not_input (program.concl_rels p) ->
+    Forall fact_args.honest (map fst ctx) ->
+    program.good_input_set p (flat_input_set ctx).
+  Proof.
+    intros Hnd Hconcl Hhonest. rewrite Forall_forall in Hconcl, Hhonest.
+    cbv [flat_input_set]. split.
+    - intros f Hf. fwd. rewrite Hfp0. intros Hin. apply Hconcl in Hin. exact Hin.
+    - cbv [fact.set_doesnt_lie]. intros mf Hmf. fwd.
+      cbv [fact.set_consistent_with fact.normal_subset]. intros nf Hnf.
+      specialize (Hhonest _ ltac:(eauto using in_fst)).
+      cbv [fact_args.honest] in Hhonest. specialize (Hhonest _ Hmfp2).
+      cbv [fact_args.consistent] in Hhonest.
+      cbv [fact_pattern.matches] in Hnf. simpl in *. fwd.
+      cbv [meta_fact.rel] in Hmfp0.
+      rewrite (Hhonest _ ltac:(eassumption)). split.
+      + intros HR. exists R, x. ssplit; [congruence | assumption | assumption].
+      + intros HR. fwd. assert (x0 = x) as -> by congruence.
+        eapply NoDup_snd_In_inj in Hmfp1; [|eassumption..]. subst. assumption.
+  Qed.
+
   Lemma flatten_correct' ctx name e e0 name' Rret p :
     wf_blocks_prog ctx e e0 ->
     valid_blocks_prog e ->
