@@ -498,6 +498,7 @@ Section Blocks.
   Lemma flatten_correct' ctx name e e0 name' Rret p :
     wf_blocks_prog ctx e e0 ->
     valid_blocks_prog e ->
+    valid_blocks_prog e0 ->
     flatten name e0 = (name', Rret, p) ->
     Forall (in_range O name) (map snd ctx) ->
     NoDup (map snd ctx) ->
@@ -512,18 +513,19 @@ Section Blocks.
           program.interp p (fun f => exists R, In (R, fact.rel f) ctx /\ R (fact.args_of f))
             (fact.of_args Rret args).
   Proof.
-    intros Hwf Hvalid. revert name name' Rret p.
+    intros Hwf Hvalid Hvalid0. revert name name' Rret p.
     induction Hwf;
       intros name name' Rret p0 Hflat Hctx1 Hctx2 Hctx3;
       simpl in Hflat;
       fwd;
       simpl.
-    - simpl in Hvalid. fwd.
-      specialize (IHHwf ltac:(assumption)). epose_dep IHHwf.
+    - simpl in Hvalid, Hvalid0. fwd.
+      specialize (IHHwf ltac:(assumption) ltac:(assumption)). epose_dep IHHwf.
       specialize (IHHwf ltac:(eassumption) ltac:(eassumption) ltac:(assumption) ltac:(eassumption)).
       fwd.
       rename H0 into IH'. specialize (IH' (interp_blocks_prog x1)).
-      epose_dep IH'. specialize (IH' ltac:(eauto)). epose_dep IH'.
+      epose_dep IH'. specialize (IH' ltac:(eauto)). specialize (IH' ltac:(eauto)).
+      epose_dep IH'.
       specialize (IH' ltac:(eassumption)). specialize' IH'.
       { constructor.
         - eapply in_range_weaken; [eassumption| |]; lia.
@@ -606,7 +608,8 @@ Section Blocks.
                   rewrite Forall_forall in Hctx1.
                   apply in_snd in HRf'p1. apply Hctx1 in HRf'p1.
                   exfalso. eauto using in_nonoverlapping_ranges.
-    - simpl in Hvalid. destruct Hvalid as (Hmrv & Hnoinp).
+    - simpl in Hvalid, Hvalid0. destruct Hvalid as (Hmrv & Hnoinp).
+      destruct Hvalid0 as (Hmrv2 & Hnoinp2).
       ssplit.
       + lia.
       + lia.
