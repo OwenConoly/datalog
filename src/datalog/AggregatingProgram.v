@@ -11,6 +11,7 @@ Variant bop := sum | prod.
 Variant type := val | set.
 Definition obj := nat.
 Context {context : map.map nat obj} {context_ok : map.ok context}.
+Context {value_set : map.map (list obj) unit} {value_set_ok : map.ok value_set}.
 Variant agg_fn :=
   | fn_lit (o : obj)
   | fn_bop (o : bop).
@@ -307,7 +308,7 @@ Definition set_of {t} (e' : interp_type t) :=
 
 Definition agrees {t} (e : fact_args -> Prop) (e' : interp_type t) :=
   (forall x, set_of e' x <-> e (fact_args.normal [x])) /\
-    (exists S, e (fact_args.meta [value_pattern.any] S)).
+    (exists S, e (fact_args.meta (meta_args.mk [value_pattern.any] S))).
 
 (*a fresh name, so that the recursive occurrences below really refer to this
   tactic rather than to the imported [Datalog.invert_stuff]*)
@@ -413,13 +414,9 @@ Proof.
             eapply rule.interp_impl with (ctx := map.put map.empty 0 _); interp_exprs.
          ++ interp_exprs.
       -- intros Hx. repeat invert_stuff. assumption.
-    + eexists. eapply pftree.step with
-        (l := map fact.meta [{| meta_fact.pattern :=
-                                 {| fact_pattern.rel := input O;
-                                   fact_pattern.args := [value_pattern.any] |};
-                               meta_fact.set := S |}]).
+    + eexists. eapply pftree.step.
       -- constructor. simpl. apply Exists_cons_hd.
-         eapply meta_rule.interp_canonical with (ctx := map.empty); interp_exprs.
+         Print meta_rule.interp. with (ctx := map.empty); interp_exprs.
       -- interp_exprs.
   - dep_invert He'.
     destr_vbp.
