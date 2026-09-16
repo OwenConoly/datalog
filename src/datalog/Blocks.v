@@ -322,9 +322,10 @@ Section Blocks.
     Forall is_not_input (program.concl_rels p1) ->
     Forall is_not_input (program.concl_rels p2).
   Proof.
-    intros Hwf Hnoinp. rewrite Forall_forall in Hnoinp.
-    eapply Forall_impl; [apply (Forall2_forget_l _ _ _ (wf_program_concl_rels _ _ _ Hwf))|].
-    intros R (x & Hx & Hwfx). apply Hnoinp in Hx. destruct x, R; cbn in *; auto.
+    intros Hwf Hnoinp. rewrite Forall_forall in *. intros R HR.
+    eapply Forall2_In_r in HR; [|apply (wf_program_concl_rels _ _ _ Hwf)].
+    fwd. apply in_combine_l in HRp0. apply Hnoinp in HRp0.
+    destruct x, R; cbn in *; auto.
   Qed.
 
   Lemma wf_program_vars_of_block {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
@@ -334,6 +335,28 @@ Section Blocks.
     intros Hwf R HR. apply inv_vars_of_block in HR.
     eapply Forall2_In_l in HR; [|apply (wf_program_hyp_rels _ _ _ Hwf)].
     fwd. destruct y; try contradiction. eapply in_fst. eassumption.
+  Qed.
+
+  Lemma wf_program_vars_of_block_r {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
+    wf_program ctx p1 p2 ->
+    incl (vars_of_block p2) (map snd ctx).
+  Proof.
+    intros Hwf R HR. apply inv_vars_of_block in HR.
+    eapply Forall2_In_r in HR; [|apply (wf_program_hyp_rels _ _ _ Hwf)].
+    fwd. destruct x; try contradiction. eapply in_snd. eassumption.
+  Qed.
+
+  Lemma wf_program_input_in_ctx {var1 var2} (ctx : list (var1 * var2)) p1 p2 x :
+    wf_program ctx p1 p2 ->
+    Forall is_not_input (program.concl_rels p1) ->
+    In (input x) (program.all_rels p2) ->
+    In x (map snd ctx).
+  Proof.
+    intros Hwf Hnoinp HR. cbv [program.all_rels] in HR. apply in_app_iff in HR.
+    destruct HR as [HR|HR].
+    - exfalso. pose proof (wf_program_not_input _ _ _ Hwf Hnoinp) as Hni.
+      rewrite Forall_forall in Hni. apply Hni in HR. exact HR.
+    - eapply wf_program_vars_of_block_r; [eassumption|]. apply inv_vars_of_block, HR.
   Qed.
 
   Lemma wf_blocks_prog_vars_in {var1 var2} (x : var2) (ctx : list (var1 * var2)) (p : blocks_prog var1) (p' : blocks_prog var2) :
@@ -465,13 +488,8 @@ Section Blocks.
         eapply Forall_impl; [eapply wf_program_not_input; eassumption|].
         intros R HR. destruct R; simpl in *; [lia | contradiction].
       + rewrite all_rels_map_program. apply List.Forall_map. apply Forall_forall.
-        intros R HR.
-        destruct R; try solve [simpl; auto]. simpl.
-        destruct (map.get _ _) eqn:E; simpl.
-        -- apply of_list_Some_in in E.
-           apply Forall2_forget_l in H. rewrite Forall_forall in H.
-           apply H in E. destruct E as [[? ?] ?]. fwd. eauto.
-        -- auto.
+        intros R HR. destruct R; simpl; [left; lia | right].
+        eapply wf_program_input_in_ctx; eassumption.
       + intros args.
         erewrite interp_map_iff with (f := flatten_rel name (map.of_list inps2)).
         -- rewrite map_fact_of_args. simpl. apply program.interp_hyp_ext_strong.
