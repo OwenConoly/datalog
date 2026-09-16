@@ -549,6 +549,15 @@ Proof.
   - destruct (IH Hin) as (y & Hcomb & Hy). exists y. split; [ right; exact Hcomb | exact Hy ].
 Qed.
 
+Lemma Forall2_In_r {A B} (R : A -> B -> Prop) xs ys y :
+  Forall2 R xs ys -> In y ys -> exists x, In (x, y) (combine xs ys) /\ R x y.
+Proof.
+  induction 1 as [| a b xs' ys' Hab HF IH]; [ contradiction | ].
+  intros [-> | Hin].
+  - exists a. split; [ left; reflexivity | exact Hab ].
+  - destruct (IH Hin) as (x & Hcomb & Hx). exists x. split; [ right; exact Hcomb | exact Hx ].
+Qed.
+
 Lemma map_fst_combine {A B} (a : list A) (b : list B) :
   length a = length b -> map fst (combine a b) = a.
 Proof.
