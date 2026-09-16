@@ -259,23 +259,6 @@ Section Blocks.
         eexists. ssplit; eauto. eexists. split; eauto. simpl. auto.
   Qed.
 
-  Lemma interp_blocks_prog_honest ctx (e : blocks_prog (fact_args -> Prop)) :
-    valid_blocks_prog e ->
-    vars_in ctx e ->
-    Forall fact_args.honest ctx ->
-    fact_args.honest (interp_blocks_prog e).
-  Proof.
-    intros Hvalid. induction 1; intros Hctx; simpl.
-    - simpl in Hvalid. fwd. eauto.
-    - simpl in Hvalid. fwd.
-      apply fact.set_doesnt_lie_honest_args.
-      apply (program.valid_impl_honest _ Hvalidp0).
-      apply block_good_input_set; [ assumption | assumption | ].
-      eapply Forall_impl; [ eassumption | ].
-      intros [? P] HP. simpl in HP.
-      rewrite Forall_forall in Hctx. auto.
-  Qed.
-
   Lemma wf_blocks_prog_vars_in {var1 var2} (x : var2) (ctx : list (var1 * var2)) (p : blocks_prog var1) (p' : blocks_prog var2) :
     wf_blocks_prog ctx p p' ->
     vars_in (map fst ctx) p.
