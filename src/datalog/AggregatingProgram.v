@@ -305,9 +305,9 @@ Definition set_of {t} (e' : interp_type t) :=
   | val => fun e' => eq e'
   end e'.
 
-Definition agrees {t} (e : fact.args -> Prop) (e' : interp_type t) :=
-  (forall x, set_of e' x <-> e (fact.normal_args [x])) /\
-    (exists S, e (fact.meta_args [value_pattern.any] S)).
+Definition agrees {t} (e : fact_args -> Prop) (e' : interp_type t) :=
+  (forall x, set_of e' x <-> e (fact_args.normal [x])) /\
+    (exists S, e (fact_args.meta [value_pattern.any] S)).
 
 (*a fresh name, so that the recursive occurrences below really refer to this
   tactic rather than to the imported [Datalog.invert_stuff]*)
@@ -395,7 +395,7 @@ Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
   wf_Sexpr ctx t e e0 ->
   Forall (fun elt => agrees elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
-  Forall fact.honest_args (map (@ctx_elt_p2 _ (fun _ => _)) ctx) ->
+  Forall fact_args.honest (map (@ctx_elt_p2 _ (fun _ => _)) ctx) ->
   valid_blocks_prog (compile_Sexpr e0) ->
   interp_Sexpr e e' ->
   agrees (interp_blocks_prog (compile_Sexpr e0)) e'.
@@ -541,7 +541,7 @@ Proof.
                                  fact_pattern.args := [value_pattern.any] |};
                              meta_fact.set :=
                                fun args => interp_blocks_prog (compile_Sexpr x2)
-                                             (fact.normal_args args) |}]).
+                                             (fact_args.normal args) |}]).
                 +++ constructor. simpl. doExists 1.
                     eapply meta_rule.interp_intro with (ctx := map.empty)
                       (pat := {| fact_pattern.rel := local 1;
