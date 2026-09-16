@@ -1222,9 +1222,8 @@ Section __.
                       s.(known_facts))).
     assert (Hc0 : mf_consistent_state s (fact.meta mf0)).
     { intros nf Hm. pose proof Hm as (Hrel & Hargs). subst mf0.
-      rewrite meta_fact.contains_mk by exact Hargs.
-      rewrite In_normal_args_with. destruct nf. cbn in Hrel |- *.
-      rewrite Hrel. reflexivity. }
+      rewrite meta_fact.contains_mk, In_normal_args_with. destruct nf.
+      cbn in Hrel, Hargs |- *. rewrite Hrel. tauto. }
     assert (Hd0 : has_derived_datalog_fact s (fact.meta mf0)) by exact Hderived.
     pose proof (Hsound (fact.meta mf0) (conj Hd0 Hc0)) as Himpl0.
     destruct (good_inputs_knows_fact_inputs inputs Hinp Hlen) as (Hrel_disj & Hdoesnt_lie).
