@@ -151,11 +151,129 @@ Section Blocks.
 
   Context {lvar_eqb : Eqb lvar} {lvar_eqb_ok : Eqb_ok lvar_eqb}.
 
+  #[global] Instance flat_rel_eqb : Eqb flat_rel :=
+    fun x y =>
+      match x, y with
+      | lvar_rel b1 n1, lvar_rel b2 n2 => andb (eqb b1 b2) (eqb n1 n2)
+      end.
+
+  #[global] Instance flat_rel_eqb_ok : Eqb_ok flat_rel_eqb.
+  Proof.
+    intros [b1 n1] [b2 n2]. cbv [eqb flat_rel_eqb].
+    pose proof (eqb_spec b1 b2) as Hb. pose proof (eqb_spec n1 n2) as Hn.
+    cbv [eqb] in Hb, Hn.
+    destruct (nat_eqb b1 b2), (lvar_eqb n1 n2); subst; simpl; congruence.
+  Qed.
+
+  Fixpoint ctx_lookup (ctx : list ((fact_args -> Prop) * flat_rel)) x : fact_args -> Prop :=
+    match ctx with
+    | [] => fun _ => False
+    | (R, y) :: ctx' => if eqb x y then R else ctx_lookup ctx' x
+    end.
+
+  Definition unflatten_rel ctx (R : block_rel flat_rel) : block_rel (fact_args -> Prop) :=
+    match R with
+    | local y => local y
+    | input x => input (ctx_lookup ctx x)
+    end.
+
+  Lemma ctx_lookup_In ctx R x :
+    NoDup (map snd ctx) ->
+    In (R, x) ctx ->
+    ctx_lookup ctx x = R.
+  Proof.
+    induction ctx as [|[R' y] ctx' IH]; [contradiction|].
+    simpl. intros Hnd [Heq|Hin]; invert Hnd.
+    - fwd. destr (eqb x x); congruence.
+    - destr (eqb x y); [|auto]. exfalso. eauto using in_snd.
+  Qed.
+
+  Lemma wf_rel_unflatten ctx R1 R2 :
+    NoDup (map snd ctx) ->
+    wf_rel ctx R1 R2 ->
+    unflatten_rel ctx R2 = R1.
+  Proof.
+    intros Hnd Hwf. destruct R1, R2; cbn in Hwf |- *; try contradiction.
+    - congruence.
+    - erewrite ctx_lookup_In; eauto.
+  Qed.
+
   Definition flatten_rel (block : nat) (R : block_rel flat_rel) :=
     match R with
     | local x => lvar_rel block x
     | input x => x
     end.
+
+  Lemma wf_clause_unflatten ctx c1 c2 :
+    NoDup (map snd ctx) ->
+    wf_clause ctx c1 c2 ->
+    map_clause_rel (unflatten_rel ctx) c2 = c1.
+  Proof.
+    cbv [wf_clause map_clause_rel]. intros Hnd Hwf. destruct c1, c2. simp. fwd.
+    erewrite wf_rel_unflatten by eauto. reflexivity.
+  Qed.
+
+  Lemma wf_clause_pattern_unflatten ctx cp1 cp2 :
+    NoDup (map snd ctx) ->
+    wf_clause_pattern ctx cp1 cp2 ->
+    map_clause_pattern_rel (unflatten_rel ctx) cp2 = cp1.
+  Proof.
+    cbv [wf_clause_pattern map_clause_pattern_rel]. intros Hnd Hwf.
+    destruct cp1, cp2. simp. fwd. erewrite wf_rel_unflatten by eauto. reflexivity.
+  Qed.
+
+  Lemma wf_clauses_unflatten ctx cs1 cs2 :
+    NoDup (map snd ctx) ->
+    Forall2 (wf_clause ctx) cs1 cs2 ->
+    map (map_clause_rel (unflatten_rel ctx)) cs2 = cs1.
+  Proof.
+    intros Hnd Hwf. symmetry. rewrite <- map_id at 1. apply Forall2_map_eq.
+    eapply Forall2_impl; [eassumption|]. intros. symmetry.
+    eauto using wf_clause_unflatten.
+  Qed.
+
+  Lemma wf_clause_patterns_unflatten ctx cs1 cs2 :
+    NoDup (map snd ctx) ->
+    Forall2 (wf_clause_pattern ctx) cs1 cs2 ->
+    map (map_clause_pattern_rel (unflatten_rel ctx)) cs2 = cs1.
+  Proof.
+    intros Hnd Hwf. symmetry. rewrite <- map_id at 1. apply Forall2_map_eq.
+    eapply Forall2_impl; [eassumption|]. intros. symmetry.
+    eauto using wf_clause_pattern_unflatten.
+  Qed.
+
+  Lemma wf_rule_unflatten ctx r1 r2 :
+    NoDup (map snd ctx) ->
+    wf_rule ctx r1 r2 ->
+    map_rule_rels (unflatten_rel ctx) r2 = r1.
+  Proof.
+    intros Hnd Hwf. destruct Hwf; simpl.
+    - erewrite !wf_clauses_unflatten by eauto. reflexivity.
+    - erewrite !wf_rel_unflatten by eauto. reflexivity.
+  Qed.
+
+  Lemma wf_meta_rule_unflatten ctx mr1 mr2 :
+    NoDup (map snd ctx) ->
+    wf_meta_rule ctx mr1 mr2 ->
+    map_meta_rule_rels (unflatten_rel ctx) mr2 = mr1.
+  Proof.
+    cbv [wf_meta_rule map_meta_rule_rels]. intros Hnd Hwf. destruct mr1, mr2. simp. fwd.
+    erewrite !wf_clause_patterns_unflatten by eauto. reflexivity.
+  Qed.
+
+  Lemma wf_program_unflatten ctx p1 p2 :
+    NoDup (map snd ctx) ->
+    wf_program ctx p1 p2 ->
+    map_program (unflatten_rel ctx) p2 = p1.
+  Proof.
+    cbv [wf_program map_program]. intros Hnd Hwf. destruct p1. simp. fwd. f_equal.
+    - symmetry. rewrite <- map_id at 1. apply Forall2_map_eq.
+      eapply Forall2_impl; [eassumption|]. intros. symmetry.
+      eauto using wf_rule_unflatten.
+    - symmetry. rewrite <- map_id at 1. apply Forall2_map_eq.
+      eapply Forall2_impl; [eassumption|]. intros. symmetry.
+      eauto using wf_meta_rule_unflatten.
+  Qed.
 
   Fixpoint flatten (name : nat) (e : blocks_prog flat_rel) : nat * flat_rel * flat_program :=
     match e with
@@ -176,6 +294,15 @@ Section Blocks.
     match x with
     | lvar_rel block_id _ => block_id < hi
     end.
+
+  Lemma flatten_rel_inj name rs :
+    (forall x, In (input x) rs -> in_range O name x) ->
+    injective_on (flatten_rel name) rs.
+  Proof.
+    intros Hin R1 R2 H1 H2 Heq. destruct R1, R2; simpl in Heq; try congruence.
+    - apply Hin in H2. rewrite <- Heq in H2. simpl in H2. lia.
+    - apply Hin in H1. rewrite Heq in H1. simpl in H1. lia.
+  Qed.
 
   Lemma in_range_weaken lo0 lo hi hi0 x :
     in_range lo hi x ->
@@ -491,7 +618,7 @@ Section Blocks.
         intros R HR. destruct R; simpl; [left; lia | right].
         eapply wf_program_input_in_ctx; eassumption.
       + intros args.
-        erewrite interp_map_iff with (f := flatten_rel name (map.of_list inps2)).
+        erewrite interp_map_iff with (f := flatten_rel name).
         -- rewrite map_fact_of_args. simpl. apply program.interp_hyp_ext_strong.
            ++ split; intros H'; fwd.
               --- apply Forall2_forget_r in H. rewrite Forall_forall in H.
