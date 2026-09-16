@@ -51,7 +51,7 @@ Section Blocks.
     LetIn (Block lvar1 [] p1) (fun val =>
                                 Block lvar1 [(lvar2, val)] p2).
 
-  Fixpoint interp_blocks_prog (e : blocks_prog (fact.args -> Prop)) : fact.args -> Prop :=
+  Fixpoint interp_blocks_prog (e : blocks_prog (fact_args -> Prop)) : fact_args -> Prop :=
     match e with
     | LetIn x f =>
         interp_blocks_prog (f (interp_blocks_prog x))
@@ -174,10 +174,10 @@ Section Blocks.
 
   Hint Constructors vars_in : core.
 
-  Lemma block_good_input_set (inps : list (lvar * (fact.args -> Prop))) (p : block_program) :
+  Lemma block_good_input_set (inps : list (lvar * (fact_args -> Prop))) (p : block_program) :
     NoDup (map fst inps) ->
     Forall is_not_input (program.concl_rels p) ->
-    Forall (fun '(_, P) => fact.honest_args P) inps ->
+    Forall (fun '(_, P) => fact_args.honest P) inps ->
     program.good_input_set p
       (fun f => Exists (fun '(R, P) => input R = fact.rel f /\ P (fact.args_of f)) inps).
   Proof.
@@ -193,7 +193,7 @@ Section Blocks.
       rewrite Forall_forall in Hhonest.
       specialize (Hhonest _ Hin0). simpl in Hhonest.
       destruct Hmatch as [Hmrel Hmargs]. simpl in Hmrel, Hmargs.
-      cbv [fact.honest_args fact.args_consistent] in Hhonest.
+      cbv [fact_args.honest fact_args.consistent] in Hhonest.
       cbn [meta_fact.set].
       rewrite (Hhonest _ HP _ Hmargs).
       split; intros H'.
@@ -206,11 +206,11 @@ Section Blocks.
         subst P'. exact Hargs1.
   Qed.
 
-  Lemma interp_blocks_prog_honest ctx (e : blocks_prog (fact.args -> Prop)) :
+  Lemma interp_blocks_prog_honest ctx (e : blocks_prog (fact_args -> Prop)) :
     valid_blocks_prog e ->
     vars_in ctx e ->
-    Forall fact.honest_args ctx ->
-    fact.honest_args (interp_blocks_prog e).
+    Forall fact_args.honest ctx ->
+    fact_args.honest (interp_blocks_prog e).
   Proof.
     intros Hvalid. induction 1; intros Hctx; simpl.
     - simpl in Hvalid. fwd. eauto.
@@ -241,7 +241,7 @@ Section Blocks.
     flatten name e0 = (name', Rret, p) ->
     Forall (in_range O name) (map snd ctx) ->
     NoDup (map snd ctx) ->
-    Forall fact.honest_args (map fst ctx) ->
+    Forall fact_args.honest (map fst ctx) ->
     name <= name' /\
       in_range name name' Rret /\
       Forall (in_range name name') (program.concl_rels p) /\

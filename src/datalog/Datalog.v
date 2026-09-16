@@ -540,6 +540,25 @@ Module clause_pattern.
   End __.
 End clause_pattern. Abbreviation clause_pattern := clause_pattern.clause_pattern.
 
+Module fact_args.
+  Section __.
+    Context `{params : datalog_params}.
+    Variant fact_args :=
+      | normal (nf_args : list value)
+      | meta (ma : meta_args).
+
+    Definition consistent ma (S : fact_args -> Prop) :=
+      forall nf_args,
+        Forall2 value_pattern.matches ma.(meta_args.args) nf_args ->
+        fset.contains ma.(meta_args.set) nf_args <-> S (normal nf_args).
+
+    Definition honest (S : fact_args -> Prop) :=
+      forall ma,
+        S (meta ma) ->
+        consistent ma S.
+  End __.
+End fact_args. Abbreviation fact_args := fact_args.fact_args.
+
 Module fact.
   Section __.
     Context `{params : datalog_params}.
@@ -553,22 +572,18 @@ Module fact.
       | normal nf => normal_fact.rel nf
       end.
 
-    Variant args :=
-      | normal_args (nf_args : list value)
-      | meta_args (ma : meta_args).
-
     Definition args_of f :=
       match f with
-      | normal nf => normal_args nf.(normal_fact.args)
-      | meta mf => meta_args (meta_fact.args_of mf)
+      | normal nf => fact_args.normal nf.(normal_fact.args)
+      | meta mf => fact_args.meta (meta_fact.args_of mf)
       end.
 
     Definition of_args R a : fact :=
       match a with
-      | normal_args nf_args =>
+      | fact_args.normal nf_args =>
           normal {| normal_fact.rel := R;
                    normal_fact.args := nf_args |}
-      | meta_args ma => meta (meta_fact.of_args R ma)
+      | fact_args.meta ma => meta (meta_fact.of_args R ma)
       end.
 
     Lemma of_args_args_of f :
@@ -671,21 +686,11 @@ Module fact.
       rewrite (H _ H1) by assumption. rewrite (H _ H2) by assumption. reflexivity.
     Qed.
 
-    Definition args_consistent ma (S_args : args -> Prop) :=
-      forall nf_args,
-        Forall2 value_pattern.matches ma.(meta_args.args) nf_args ->
-        fset.contains ma.(meta_args.set) nf_args <-> S_args (normal_args nf_args).
-
-    Definition honest_args (S_args : args -> Prop) :=
-      forall ma,
-        S_args (meta_args ma) ->
-        args_consistent ma S_args.
-
     Lemma set_doesnt_lie_honest_args (S : fact -> Prop) R :
       set_doesnt_lie S ->
-      honest_args (fun a => S (of_args R a)).
+      fact_args.honest (fun a => S (of_args R a)).
     Proof.
-      cbv [set_doesnt_lie honest_args args_consistent].
+      cbv [set_doesnt_lie fact_args.honest fact_args.consistent].
       intros H ma Hmeta nf_args Hargs. apply H in Hmeta.
       cbv [set_consistent_with] in Hmeta. simpl in Hmeta.
       apply (Hmeta {| normal_fact.rel := R; normal_fact.args := nf_args |}).
