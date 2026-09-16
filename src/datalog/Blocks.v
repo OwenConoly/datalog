@@ -259,24 +259,41 @@ Section Blocks.
         eexists. ssplit; eauto. eexists. split; eauto. simpl. auto.
   Qed.
 
+  Lemma wf_clauses_rels {var1 var2} (ctx : list (var1 * var2)) cs1 cs2 :
+    Forall2 (wf_clause ctx) cs1 cs2 ->
+    Forall2 (wf_rel ctx) (map clause.rel cs1) (map clause.rel cs2).
+  Proof.
+    intros. rewrite <- Forall2_map_l, <- Forall2_map_r.
+    eapply Forall2_impl; [eassumption|]. cbv [wf_clause]. intros. fwd. assumption.
+  Qed.
+
+  Lemma wf_clause_patterns_rels {var1 var2} (ctx : list (var1 * var2)) cs1 cs2 :
+    Forall2 (wf_clause_pattern ctx) cs1 cs2 ->
+    Forall2 (wf_rel ctx) (map clause_pattern.rel cs1) (map clause_pattern.rel cs2).
+  Proof.
+    intros. rewrite <- Forall2_map_l, <- Forall2_map_r.
+    eapply Forall2_impl; [eassumption|]. cbv [wf_clause_pattern]. intros. fwd. assumption.
+  Qed.
+
   Lemma wf_rule_hyp_rels {var1 var2} (ctx : list (var1 * var2)) r1 r2 :
     wf_rule ctx r1 r2 ->
     Forall2 (wf_rel ctx) (rule.hyp_rels r1) (rule.hyp_rels r2).
-  Proof.
-    destruct 1; simpl.
-    - rewrite <- Forall2_map_l, <- Forall2_map_r.
-      eapply Forall2_impl; [eassumption|]. cbv [wf_clause]. intros. fwd. assumption.
-    - eauto.
-  Qed.
+  Proof. destruct 1; simpl; eauto using wf_clauses_rels. Qed.
+
+  Lemma wf_rule_concl_rels {var1 var2} (ctx : list (var1 * var2)) r1 r2 :
+    wf_rule ctx r1 r2 ->
+    Forall2 (wf_rel ctx) (rule.concl_rels r1) (rule.concl_rels r2).
+  Proof. destruct 1; simpl; eauto using wf_clauses_rels. Qed.
 
   Lemma wf_meta_rule_hyp_rels {var1 var2} (ctx : list (var1 * var2)) mr1 mr2 :
     wf_meta_rule ctx mr1 mr2 ->
     Forall2 (wf_rel ctx) (meta_rule.hyp_rels mr1) (meta_rule.hyp_rels mr2).
-  Proof.
-    cbv [wf_meta_rule meta_rule.hyp_rels]. intros. fwd.
-    rewrite <- Forall2_map_l, <- Forall2_map_r.
-    eapply Forall2_impl; [eassumption|]. cbv [wf_clause_pattern]. intros. fwd. assumption.
-  Qed.
+  Proof. cbv [wf_meta_rule]. intros. fwd. eauto using wf_clause_patterns_rels. Qed.
+
+  Lemma wf_meta_rule_concl_rels {var1 var2} (ctx : list (var1 * var2)) mr1 mr2 :
+    wf_meta_rule ctx mr1 mr2 ->
+    Forall2 (wf_rel ctx) (meta_rule.concl_rels mr1) (meta_rule.concl_rels mr2).
+  Proof. cbv [wf_meta_rule]. intros. fwd. eauto using wf_clause_patterns_rels. Qed.
 
   Lemma wf_program_hyp_rels {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
     wf_program ctx p1 p2 ->
@@ -287,6 +304,27 @@ Section Blocks.
       eauto using wf_rule_hyp_rels.
     - apply Forall2_flat_map. eapply Forall2_impl; [eassumption|].
       eauto using wf_meta_rule_hyp_rels.
+  Qed.
+
+  Lemma wf_program_concl_rels {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
+    wf_program ctx p1 p2 ->
+    Forall2 (wf_rel ctx) (program.concl_rels p1) (program.concl_rels p2).
+  Proof.
+    cbv [wf_program program.concl_rels]. intros. fwd. apply Forall2_app.
+    - apply Forall2_flat_map. eapply Forall2_impl; [eassumption|].
+      eauto using wf_rule_concl_rels.
+    - apply Forall2_flat_map. eapply Forall2_impl; [eassumption|].
+      eauto using wf_meta_rule_concl_rels.
+  Qed.
+
+  Lemma wf_program_not_input {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
+    wf_program ctx p1 p2 ->
+    Forall is_not_input (program.concl_rels p1) ->
+    Forall is_not_input (program.concl_rels p2).
+  Proof.
+    intros Hwf Hnoinp. rewrite Forall_forall in Hnoinp.
+    eapply Forall_impl; [apply (Forall2_forget_l _ _ _ (wf_program_concl_rels _ _ _ Hwf))|].
+    intros R (x & Hx & Hwfx). apply Hnoinp in Hx. destruct x, R; cbn in *; auto.
   Qed.
 
   Lemma wf_program_vars_of_block {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
@@ -423,11 +461,9 @@ Section Blocks.
       + lia.
       + lia.
       + lia.
-      + rewrite concl_rels_map_program. apply List.Forall_map. apply Forall_forall.
-        intros R HR. destruct R.
-        2: { exfalso. rewrite Forall_forall in Hnoinp.
-             eapply (Hnoinp (input _)). eassumption. }
-        simpl. lia.
+      + rewrite concl_rels_map_program. apply List.Forall_map.
+        eapply Forall_impl; [eapply wf_program_not_input; eassumption|].
+        intros R HR. destruct R; simpl in *; [lia | contradiction].
       + rewrite all_rels_map_program. apply List.Forall_map. apply Forall_forall.
         intros R HR.
         destruct R; try solve [simpl; auto]. simpl.
