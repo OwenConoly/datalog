@@ -317,7 +317,7 @@ Section Blocks.
     name <= name' /\
       in_range name name' Rret /\
       Forall (in_range name name') (program.concl_rels p) /\
-      Forall (fun R => in_range name name' R \/ In R (map snd ctx) \/ R = false_rel)
+      Forall (fun R => in_range name name' R \/ In R (map snd ctx))
         (program.all_rels p) /\
       forall args,
         interp_blocks_prog e args <->
@@ -357,19 +357,18 @@ Section Blocks.
       + eapply Permutation_Forall; [ symmetry; apply program.all_rels_union | ].
         apply Forall_app. split.
         -- eapply Forall_impl; [eassumption|]. simpl.
-           intros R [HR| [[HR|HR]|HR]]; subst; eauto using in_range_weaken.
+           intros R [HR| [HR|HR]]; subst; eauto using in_range_weaken.
         -- eapply Forall_impl; [eassumption|]. simpl.
            intros R [HR|HR]; eauto using in_range_weaken.
       + intros args.
         rewrite program.stratify_iff.
         2: { apply program.stratified_of_disjoint. intros x H1 H2.
              rewrite Forall_forall in *.
-             apply IH'p2 in H1. apply IHHwfp3 in H2. destruct H2 as [H2|[H2|H2]].
+             apply IH'p2 in H1. apply IHHwfp3 in H2. destruct H2 as [H2|H2].
              - eapply in_nonoverlapping_ranges. 1: exact H2. 1: exact H1. lia.
              - apply in_map_iff in H2. destruct H2 as [[? ?] H2]. fwd.
                specialize (Hctx1 _ ltac:(eauto)). simpl in H1.
-               eapply in_nonoverlapping_ranges. 1: exact Hctx1. 1: exact H1. lia.
-             - subst. cbv [in_range] in H1. contradiction. }
+               eapply in_nonoverlapping_ranges. 1: exact Hctx1. 1: exact H1. lia. }
         rewrite IH'p4.
         apply program.interp_hyp_ext_strong.
         { split; intros Hargs; simpl; fwd; exfalso.
@@ -411,7 +410,7 @@ Section Blocks.
               rewrite Forall_forall in IHHwfp2. apply IHHwfp2 in Hf'.
               destruct HRf' as [HRf'|HRf'].
               { exfalso. eauto using in_nonoverlapping_ranges. }
-              simpl in HRf'. destruct HRf' as [[HRf'|HRf']|HRf'].
+              simpl in HRf'. destruct HRf' as [HRf'|HRf'].
               --- subst. simpl. eexists. split; eauto. apply IHHwfp4.
                   rewrite fact.of_args_args_of. assumption.
               --- apply in_map_iff in HRf'. destruct HRf' as [[? ?] HRf'].
@@ -419,18 +418,11 @@ Section Blocks.
                   rewrite Forall_forall in Hctx1.
                   apply in_snd in HRf'p1. apply Hctx1 in HRf'p1.
                   exfalso. eauto using in_nonoverlapping_ranges.
-              --- apply program.interp_rel_of in Hf''. destruct Hf'' as [Hf''|Hf''].
-                  { fwd. simpl. eauto. }
-                  exfalso. rewrite HRf' in Hf''. apply IHHwfp2 in Hf''.
-                  simpl in Hf''. contradiction.
-    - simpl in Hvalid. destruct Hvalid as (Hmrv & Hnodup & Hnoinp).
-      eassert (inps_eq : map fst _ = map fst _).
-      { apply Forall2_eq_eq. rewrite <- Forall2_map_l, <- Forall2_map_r.
-        eapply Forall2_impl; [eassumption|]. intros (?, ?) (?, ?) ?. fwd. reflexivity. }
+    - simpl in Hvalid. destruct Hvalid as (Hmrv & Hnoinp).
       ssplit.
       + lia.
       + lia.
-      + simpl. lia.
+      + lia.
       + rewrite concl_rels_map_program. apply List.Forall_map. apply Forall_forall.
         intros R HR. destruct R.
         2: { exfalso. rewrite Forall_forall in Hnoinp.
