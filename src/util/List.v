@@ -2394,31 +2394,14 @@ Proof.
   congruence.
 Qed.
 
-#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) :=
-  fun x y => (length x =? length y) && forallb (eqb true) (map2 aeqb x y).
+#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) := list_eqb aeqb.
 #[global] Typeclasses Opaque list_eqb.
-
-Lemma list_eqb_ok_strong {A} {aeqb : Eqb A} (x : list A) :
-  Forall (fun a => forall b, if aeqb a b then a = b else a <> b) x ->
-  forall y, if list_eqb x y then x = y else x <> y.
-Proof.
-  induction x as [|x0 x IH]; intros Hall [|y0 y];
-    cbv [eqb list_eqb]; simpl; try congruence.
-  inversion Hall as [|? ? Hx0 Hx]; subst.
-  pose proof (Hx0 y0) as Ha.
-  destruct (aeqb x0 y0); simpl.
-  - subst. specialize (IH Hx y). cbv [eqb list_eqb] in IH.
-    destruct (Nat.eqb_spec (length x) (length y)); simpl in IH; simpl;
-      [|congruence].
-    destruct (forallb _ _); simpl; congruence.
-  - destruct (Nat.eqb (length x) (length y)); simpl; congruence.
-Qed.
 
 #[global] Instance list_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
   : Eqb_ok list_eqb.
 Proof.
-  intros x. apply list_eqb_ok_strong.
-  apply Forall_forall. intros a _ b. apply (eqb_spec a b).
+  intros x y. cbv [eqb list_eqb]. pose proof (List.list_eqb_spec x y) as H.
+  cbv [eqb] in H. destruct H; assumption.
 Qed.
 
 Fixpoint nodupb {T : Type} {eqb : Eqb T} l :=
@@ -2489,6 +2472,17 @@ Proof.
       * constructor; assumption.
       * intros Hc. inversion_clear Hc. contradiction.
     + constructor. intros Hc. inversion_clear Hc. contradiction.
+Qed.
+
+Lemma forallb2_eqb_ok_strong A (f : A -> A -> bool) xs ys :
+  Forall (fun x => forall y, if f x y then x = y else x <> y) xs ->
+  if forallb2 f xs ys then xs = ys else xs <> ys.
+Proof.
+  revert ys. induction xs as [|x xs]; intros [|y ys] H; simpl; try congruence.
+  apply Forall_cons_iff in H. destruct H as [Hx Hxs].
+  specialize (Hx y). specialize (IHxs ys Hxs).
+  destruct (f x y); simpl; [subst|congruence].
+  destruct (forallb2 f xs ys); congruence.
 Qed.
 
 #[export] Instance Forall_same_set_Proper A (P : A -> Prop) :

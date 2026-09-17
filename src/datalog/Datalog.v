@@ -12,6 +12,7 @@ From Datalog Require Import Map Tactics Fp List Eqb Decidable.
 From GraphSearch Require Import Dag.
 
 Import ListNotations.
+Open Scope bool_scope.
 
 Definition relT := Type. Existing Class relT.
 Abbreviation rel := (_ : relT).
@@ -150,6 +151,27 @@ Module expr.
       Forall (agree_on ctx1 ctx2) (vars e) ->
       v1 = v2.
     Proof. eauto using interp_det, interp_agree_on. Qed.
+
+    Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
+    Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
+
+    #[global] Instance eqb : Eqb expr :=
+      fix expr_eqb e1 e2 :=
+        match e1, e2 with
+        | var v1, var v2 => var_eqb v1 v2
+        | app f1 args1, app f2 args2 =>
+            fn_eqb f1 f2 && forallb2 expr_eqb args1 args2
+        | _, _ => false
+        end.
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof.
+      intros e1. induction e1 as [v|f args IH]; intros [v0|f0 args0]; cbv [Eqb.eqb] in *; simpl; try congruence.
+      - destr (var_eqb v v0); congruence.
+      - destr (fn_eqb f f0); simpl; [|congruence].
+        pose proof (forallb2_eqb_ok_strong _ eqb args args0 IH) as Hargs.
+        destruct (forallb2 eqb args args0); congruence.
+    Qed.
   End __.
 End expr. Abbreviation expr := expr.expr.
 #[export] Hint Constructors expr.interp : core.
@@ -531,6 +553,22 @@ Module expr_pattern.
       | exactly e => Some e
       | any => None
       end.
+
+    Context {expr_eqb : Eqb expr} {expr_eqb_ok : Eqb_ok expr_eqb}.
+
+    #[global] Instance eqb : Eqb expr_pattern :=
+      fun p1 p2 =>
+        match p1, p2 with
+        | exactly e1, exactly e2 => eqb e1 e2
+        | any, any => true
+        | _, _ => false
+        end.
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof.
+      intros [e1|] [e2|]; cbv [Eqb.eqb eqb]; try congruence.
+      destr (expr_eqb e1 e2); congruence.
+    Qed.
   End __.
 End expr_pattern. Abbreviation expr_pattern := expr_pattern.expr_pattern.
 
@@ -550,6 +588,21 @@ Module clause_pattern.
 
     Definition vars (c : clause_pattern) : list exprvar :=
       flat_map expr_pattern.vars c.(args).
+  End __.
+
+  Section __.
+    Context {relt : relT} {exprvar : exprvarT} {fn : fnT}.
+    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
+    Context {expr_pattern_eqb : Eqb expr_pattern} {expr_pattern_eqb_ok : Eqb_ok expr_pattern_eqb}.
+
+    #[global] Instance eqb : Eqb clause_pattern :=
+      fun c1 c2 => eqb c1.(rel) c2.(rel) && eqb c1.(args) c2.(args).
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof.
+      intros [R1 args1] [R2 args2]. cbv [Eqb.eqb eqb]. simpl.
+      destr (rel_eqb R1 R2); [|congruence]. destr (list_eqb args1 args2); congruence.
+    Qed.
   End __.
 End clause_pattern. Abbreviation clause_pattern := clause_pattern.clause_pattern.
 

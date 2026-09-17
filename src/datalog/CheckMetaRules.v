@@ -26,49 +26,6 @@ Section __.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context (fn_inj : fn -> bool).
 
-  #[global] Instance expr_eqb : Eqb expr :=
-    fix expr_eqb e1 e2 :=
-      match e1, e2 with
-      | Datalog.expr.var v1, Datalog.expr.var v2 => var_eqb v1 v2
-      | Datalog.expr.app f1 args1, Datalog.expr.app f2 args2 =>
-          fn_eqb f1 f2 && list_eqb (aeqb := expr_eqb) args1 args2
-      | _, _ => false
-      end.
-
-  #[global] Instance expr_eqb_ok : Eqb_ok expr_eqb.
-  Proof.
-    intros e1. induction e1; intros [v0|f0 args0]; cbv [eqb] in *; simpl; try congruence.
-    - destr (var_eqb v v0); congruence.
-    - pose proof (list_eqb_ok_strong args H args0) as Hl.
-      Tactics.destruct_one_match; fwd; try congruence.
-      destruct E as [|E]; try congruence. rewrite E in *. congruence.
-  Qed.
-
-  #[global] Instance expr_pattern_eqb : Eqb expr_pattern :=
-    fun p1 p2 =>
-      match p1, p2 with
-      | expr_pattern.exactly e1, expr_pattern.exactly e2 => eqb e1 e2
-      | expr_pattern.any, expr_pattern.any => true
-      | _, _ => false
-      end.
-
-  #[global] Instance expr_pattern_eqb_ok : Eqb_ok expr_pattern_eqb.
-  Proof.
-    intros [e1|] [e2|]; cbv [Eqb.eqb expr_pattern_eqb]; try congruence.
-    destr (expr_eqb e1 e2); congruence.
-  Qed.
-
-  #[global] Instance clause_pattern_eqb : Eqb clause_pattern :=
-    fun c1 c2 =>
-      eqb c1.(clause_pattern.rel) c2.(clause_pattern.rel) &&
-        eqb c1.(clause_pattern.args) c2.(clause_pattern.args).
-
-  #[global] Instance clause_pattern_eqb_ok : Eqb_ok clause_pattern_eqb.
-  Proof.
-    intros [R1 args1] [R2 args2]. cbv [Eqb.eqb clause_pattern_eqb]. simpl.
-    destr (rel_eqb R1 R2); [|congruence]. destr (list_eqb args1 args2); congruence.
-  Qed.
-
   (*Note: this can be weakened; we only need injectivity on length-n lists (for each n)*)
   Context (fn_inj_spec :
             forall f,
