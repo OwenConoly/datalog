@@ -3,25 +3,75 @@ From Stdlib Require Import Lists.List.
 From Stdlib Require Import Permutation.
 From Stdlib Require Import micromega.Lia.
 
-From Datalog Require Import Map Tactics Fp List Pftree Datalog RelMap.
+From Datalog Require Import Map Tactics Fp List Pftree Datalog RelMap Eqb.
 From GraphSearch Require Import Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
 Import ListNotations.
 
-Section Blocks.
-  Context {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-  Context {semantics : datalog_semantics fn aggregator T}.
-  Context {context : map.map exprvar T} {context_ok : map.ok context}.
-  Context {value_eqb : Eqb T} {value_eqb_ok : Eqb_ok value_eqb}.
-  Context {value_set : map.map (list T) unit} {value_set_ok : map.ok value_set}.
-  Context {lvar : Type}.
+(*relations that are local to a block, "l" is for "local"*)
+Definition lrelT := Type. Existing Class lrelT.
+Abbreviation lrel := (_ : lrelT).
+#[global] Typeclasses Transparent lrelT.
 
-  Inductive block_rel {var} :=
-  | local (_ : lvar)
-  | input (_ : var).
-  Arguments block_rel : clear implicits.
+Module block_rel.
+  Section __.
+    Context `{_lrel : lrelT} {var : Type}.
+
+    Inductive block_rel :=
+    | local (_ : lrel)
+    | input (_ : var).
+
+    Definition vars (R : block_rel) :=
+      match R with
+      | input R0 => [R0]
+      | local _ => []
+      end.
+
+    Definition is_not_input (R : block_rel) :=
+      match R with
+      | local _ => True
+      | input _ => False
+      end.
+
+    Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
+    Context {lrel_eqb : Eqb lrel} {lrel_eqb_ok : Eqb_ok lrel_eqb}.
+
+    #[global] Instance eqb : Eqb block_rel :=
+      fun R1 R2 =>
+        match R1, R2 with
+        | local l1, local l2 => eqb l1 l2
+        | input l1, input l2 => eqb l1 l2
+        | _, _ => false
+        end.
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof.
+      intros x y. cbv [Eqb.eqb eqb].
+      destruct x, y; try congruence; Tactics.destruct_one_match; congruence.
+    Qed.
+  End __.
+  Arguments block_rel {_lrel} var.
+
+  Section __.
+    Context `{_lrel : lrelT}.
+    Definition wf {var1 var2} (ctx : list (var1 * var2)) (R1 : block_rel var1) (R2 : block_rel var2) :=
+      match R1, R2 with
+      | local x1, local x2 => x1 = x2
+      | input v1, input v2 => In (v1, v2) ctx
+      | _, _ => False
+      end.
+  End __.
+End block_rel. Abbreviation block_rel := block_rel.block_rel.
+
+Section Blocks.
+  Context `{params : datalog_params}.
+  (*apparently works, just makes "Print Instances" act weird
+    https://github.com/rocq-prover/rocq/issues/7342*)
+  Remove Hints _rel : typeclass_instances.
+  (*instead of doing "Remove Hints", could consider creating datalog_params_without_rel?*)
+  Context `{_lrel : lrelT}.
 
   Definition block_program var := program (relt := block_rel var).
 
@@ -31,10 +81,10 @@ Section Blocks.
   (* note: probably i should let an input have type var or be a global.
      but i am ignoring globals for now.
    *)
-  | Block (ret : lvar) (p : block_program var).
+  | Block (ret : lrel) (p : block_program var).
   Arguments blocks_prog : clear implicits.
 
-  Definition example {var} (ret : lvar) p1 p2 : blocks_prog var :=
+  Definition example {var} (ret : lrel) p1 p2 : blocks_prog var :=
     LetIn (Block ret p1) (fun val => Block ret (p2 val)).
 
   Fixpoint interp_blocks_prog (e : blocks_prog (fact_args -> Prop)) : fact_args -> Prop :=
@@ -44,15 +94,8 @@ Section Blocks.
     | Block ret p =>
         fun args =>
           program.interp p
-            (fun f => exists R, fact.rel f = input R /\ R (fact.args_of f))
-            (fact.of_args (local ret) args)
-    end.
-
-  Definition wf_rel {var1 var2} (ctx : list (var1 * var2)) (R1 : block_rel var1) (R2 : block_rel var2) :=
-    match R1, R2 with
-    | local x1, local x2 => x1 = x2
-    | input v1, input v2 => In (v1, v2) ctx
-    | _, _ => False
+            (fun f => exists R, fact.rel f = block_rel.input R /\ R (fact.args_of f))
+            (fact.of_args (block_rel.local ret) args)
     end.
 
   Inductive wf_blocks_prog {var1 var2} : list (var1 * var2) -> blocks_prog var1 -> blocks_prog var2 -> Prop :=
@@ -61,23 +104,17 @@ Section Blocks.
     (forall x1' x2', wf_blocks_prog ((x1', x2') :: ctx) (f1 x1') (f2 x2')) ->
     wf_blocks_prog ctx (LetIn x1 f1) (LetIn x2 f2)
   | wf_Block ctx ret p1 p2 :
-    wf_program (wf_rel ctx) p1 p2 ->
+    wf_program (block_rel.wf ctx) p1 p2 ->
     wf_blocks_prog ctx (Block ret p1) (Block ret p2).
 
-  Definition vars_of_block_rel {var} (R : block_rel var) :=
-    match R with
-    | input R0 => [R0]
-    | local _ => []
-    end.
-
   Lemma inv_vars_of_block_rel var (R : block_rel var) R0 :
-    In R0 (vars_of_block_rel R) <-> R = input R0.
+    In R0 (block_rel.vars R) <-> R = block_rel.input R0.
   Proof. destruct R; simpl in *; intuition congruence. Qed.
 
-  Definition vars_of_block {var} (p : block_program var) := flat_map vars_of_block_rel (program.hyp_rels p).
+  Definition vars_of_block {var} (p : block_program var) := flat_map block_rel.vars (program.hyp_rels p).
 
   Lemma inv_vars_of_block var p (R : var) :
-    In R (vars_of_block p) <-> (In (input R) (program.hyp_rels p)).
+    In R (vars_of_block p) <-> (In (block_rel.input R) (program.hyp_rels p)).
   Proof.
     cbv [vars_of_block]. rewrite in_flat_map.
     setoid_rewrite inv_vars_of_block_rel. split; intros; fwd; eauto.
@@ -93,7 +130,6 @@ Section Blocks.
     incl (vars_of_block p) ctx ->
     vars_in ctx (Block ret p).
 
-
   Lemma vars_in_incl var (ctx1 ctx2 : list var) (p : blocks_prog var) :
     incl ctx1 ctx2 ->
     vars_in ctx1 p ->
@@ -105,16 +141,16 @@ Section Blocks.
   Qed.
 
   Inductive flat_rel : Type :=
-  | lvar_rel (block : nat) (name : lvar).
+  | lvar_rel (block : nat) (name : lrel).
 
   Definition flat_program := program (relt := flat_rel).
 
-  Context {lvar_eqb : Eqb lvar} {lvar_eqb_ok : Eqb_ok lvar_eqb}.
+  Context {lrel_eqb : Eqb lrel} {lvar_eqb_ok : Eqb_ok lrel_eqb}.
 
   Definition flatten_rel (block : nat) (R : block_rel flat_rel) :=
     match R with
-    | local x => lvar_rel block x
-    | input x => x
+    | block_rel.local x => lvar_rel block x
+    | block_rel.input x => x
     end.
 
   Fixpoint flatten (name : nat) (e : blocks_prog flat_rel) : nat * flat_rel * flat_program :=
@@ -138,7 +174,7 @@ Section Blocks.
     end.
 
   Lemma flatten_rel_inj name rs :
-    (forall x, In (input x) rs -> in_range O name x) ->
+    (forall x, In (block_rel.input x) rs -> in_range O name x) ->
     injective_on (flatten_rel name) rs.
   Proof.
     intros Hin R1 R2 H1 H2 Heq. destruct R1, R2; simpl in Heq; try congruence.
@@ -166,27 +202,21 @@ Section Blocks.
     False.
   Proof. destruct x; simpl; auto. lia. Qed.
 
-  Definition is_not_input {var} (R : block_rel var) :=
-    match R with
-    | local _ => True
-    | input _ => False
-    end.
-
   Fixpoint valid_blocks_prog {var} (e : blocks_prog var) : Prop :=
     match e with
     | LetIn x f =>
         valid_blocks_prog x /\ (forall v, valid_blocks_prog (f v))
     | Block ret p =>
         program.meta_rules_valid p /\
-          Forall is_not_input (program.concl_rels p)
+          Forall block_rel.is_not_input (program.concl_rels p)
     end.
   Hint Constructors vars_in : core.
 
   Lemma block_good_input_set (p : block_program (fact_args -> Prop)) :
-    Forall is_not_input (program.concl_rels p) ->
+    Forall block_rel.is_not_input (program.concl_rels p) ->
     Forall fact_args.honest (vars_of_block p) ->
     program.good_input_set p
-      (fun f => exists R, fact.rel f = input R /\ R (fact.args_of f) /\ In R (vars_of_block p)).
+      (fun f => exists R, fact.rel f = block_rel.input R /\ R (fact.args_of f) /\ In R (vars_of_block p)).
   Proof.
     intros Hconcl Hhonest. split.
     - intros ? H. fwd. rewrite Hp0 in *. intros H'. rewrite Forall_forall in Hconcl.
@@ -229,9 +259,9 @@ Section Blocks.
   Qed.
 
   Lemma wf_program_not_input {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
-    wf_program (wf_rel ctx) p1 p2 ->
-    Forall is_not_input (program.concl_rels p1) ->
-    Forall is_not_input (program.concl_rels p2).
+    wf_program (block_rel.wf ctx) p1 p2 ->
+    Forall block_rel.is_not_input (program.concl_rels p1) ->
+    Forall block_rel.is_not_input (program.concl_rels p2).
   Proof.
     intros Hwf Hnoinp. rewrite Forall_forall in *. intros R HR.
     eapply Forall2_In_r in HR; [|apply (wf_program_concl_rels _ _ _ Hwf)].
@@ -240,7 +270,7 @@ Section Blocks.
   Qed.
 
   Lemma wf_program_vars_of_block {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
-    wf_program (wf_rel ctx) p1 p2 ->
+    wf_program (block_rel.wf ctx) p1 p2 ->
     incl (vars_of_block p1) (map fst ctx).
   Proof.
     intros Hwf R HR. apply inv_vars_of_block in HR.
@@ -249,7 +279,7 @@ Section Blocks.
   Qed.
 
   Lemma wf_program_vars_of_block_r {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
-    wf_program (wf_rel ctx) p1 p2 ->
+    wf_program (block_rel.wf ctx) p1 p2 ->
     incl (vars_of_block p2) (map snd ctx).
   Proof.
     intros Hwf R HR. apply inv_vars_of_block in HR.
@@ -258,9 +288,9 @@ Section Blocks.
   Qed.
 
   Lemma wf_program_input_in_ctx {var1 var2} (ctx : list (var1 * var2)) p1 p2 x :
-    wf_program (wf_rel ctx) p1 p2 ->
-    Forall is_not_input (program.concl_rels p1) ->
-    In (input x) (program.all_rels p2) ->
+    wf_program (block_rel.wf ctx) p1 p2 ->
+    Forall block_rel.is_not_input (program.concl_rels p1) ->
+    In (block_rel.input x) (program.all_rels p2) ->
     In x (map snd ctx).
   Proof.
     intros Hwf Hnoinp HR. cbv [program.all_rels] in HR. apply in_app_iff in HR.
@@ -282,7 +312,7 @@ Section Blocks.
   Lemma flat_good_input_set ctx name (p : block_program flat_rel) :
     Forall (in_range O name) (map snd ctx) ->
     NoDup (map snd ctx) ->
-    Forall is_not_input (program.concl_rels p) ->
+    Forall block_rel.is_not_input (program.concl_rels p) ->
     Forall fact_args.honest (map fst ctx) ->
     program.good_input_set (map_program (flatten_rel name) p)
       (fun f => exists R, In (R, fact.rel f) ctx /\ R (fact.args_of f)).
@@ -429,7 +459,7 @@ Section Blocks.
         intros R HR. destruct R; simpl; [left; lia | right].
         eapply wf_program_input_in_ctx; eassumption.
       + intros args. symmetry. rewrite Forall_forall in Hctx1.
-        apply (interp_wf_iff (fun x R => exists y, wf_rel ctx R y /\ flatten_rel name y = x)).
+        apply (interp_wf_iff (fun x R => exists y, block_rel.wf ctx R y /\ flatten_rel name y = x)).
         -- apply wf_program_flip. eapply wf_program_comp; [eassumption | apply wf_program_map].
         -- apply Forall_forall. intros x _ R R' (y & Hy & <-) (y' & Hy' & Hx').
            destruct R as [l|P], y as [l0|z]; simpl in Hy; try contradiction;
@@ -460,21 +490,18 @@ Section Blocks.
               ** exists P. split; [reflexivity|]. replace P with R; [assumption|].
                  eapply NoDup_snd_In_inj; eassumption.
               ** injection HR as <-. eauto.
-        -- apply wf_fact_of_args. exists (local ret). split; reflexivity.
+        -- apply wf_fact_of_args. exists (block_rel.local ret). split; reflexivity.
   Qed.
 End Blocks.
-
-
 Arguments blocks_prog {_ _ _ _} _.
-Arguments block_rel : clear implicits.
 
 Ltac interp_exprs :=
   repeat match goal with
-    | |- program.interp _ _ (fact.normal {| normal_fact.rel := input _;
+    | |- program.interp _ _ (fact.normal {| normal_fact.rel := block_rel.input _;
                                            normal_fact.args := _ |}) =>
         apply pftree.leaf
     | |- program.interp _ _ (fact.meta {| meta_fact.pattern :=
-                                           {| fact_pattern.rel := input _;
+                                           {| fact_pattern.rel := block_rel.input _;
                                              fact_pattern.args := _ |};
                                          meta_fact.set := _ |}) =>
         apply pftree.leaf
