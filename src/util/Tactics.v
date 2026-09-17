@@ -128,3 +128,19 @@ Proof. cbv [autoforward]. rewrite Exists_exists. auto. Qed.
 Lemma Exists_exists_bwd A P (l : list A) x : In x l -> P x -> Exists P l.
 Proof. intros. apply Exists_exists. eauto. Qed.
 #[export] Hint Resolve Exists_exists_bwd : core.
+
+(*not used yet; idk if i want to try using it*)
+Ltac aggress' :=
+  match goal with
+  | _ => progress intros
+  | _ => contradiction
+  | _ => congruence
+  | _ => progress simpl in *
+  | H: _ \/ _ |- _ => destruct H
+  | |- _ <-> _ => split
+  | |- _ /\ _ => split
+  | |- _ \/ _ => left; solve[repeat aggress']
+  | |- _ \/ _ => right; solve[repeat aggress']
+  end.
+
+Ltac fin := solve [repeat aggress'].

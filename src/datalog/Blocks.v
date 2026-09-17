@@ -70,24 +70,9 @@ Section Blocks.
     | local _ => []
     end.
 
-  Ltac aggress' :=
-    match goal with
-    | _ => progress intros
-    | _ => contradiction
-    | _ => congruence
-    | _ => progress simpl in *
-    | H: _ \/ _ |- _ => destruct H
-    | |- _ <-> _ => split
-    | |- _ /\ _ => split
-    | |- _ \/ _ => left; solve[repeat aggress']
-    | |- _ \/ _ => right; solve[repeat aggress']
-    end.
-
-  Ltac fin := solve [repeat aggress'].
-
   Lemma inv_vars_of_block_rel var (R : block_rel var) R0 :
     In R0 (vars_of_block_rel R) <-> R = input R0.
-  Proof. destruct R; fin. Qed.
+  Proof. destruct R; simpl in *; intuition congruence. Qed.
 
   Definition vars_of_block {var} (p : block_program var) := flat_map vars_of_block_rel (program.hyp_rels p).
 
