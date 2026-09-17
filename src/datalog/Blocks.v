@@ -161,33 +161,6 @@ Section Blocks.
     - apply Hin in H1. rewrite Heq in H1. simpl in H1. lia.
   Qed.
 
-  Definition unflatten_rel name (ctx : list ((fact_args -> Prop) * flat_rel)) x
-    (R : block_rel (fact_args -> Prop)) :=
-    match R with
-    | local y => x = lvar_rel name y
-    | input P => In (P, x) ctx
-    end.
-
-  Lemma unflatten_rel_fun name ctx x :
-    Forall (in_range O name) (map snd ctx) ->
-    NoDup (map snd ctx) ->
-    functional_at (unflatten_rel name ctx) x.
-  Proof.
-    intros Hctx Hnd [y|P] [y'|P'] H H'; simpl in *; rewrite Forall_forall in Hctx.
-    - congruence.
-    - exfalso. subst. apply in_snd, Hctx in H'. simpl in H'. lia.
-    - exfalso. subst. apply in_snd, Hctx in H. simpl in H. lia.
-    - f_equal. eapply NoDup_snd_In_inj; eassumption.
-  Qed.
-
-  Lemma unflatten_rel_inj name ctx y :
-    Forall (in_range O name) (map snd ctx) ->
-    inj_on_elt (unflatten_rel name ctx) (lvar_rel name y).
-  Proof.
-    intros Hctx x' [y'|P] H H'; simpl in *; [congruence|].
-    exfalso. rewrite Forall_forall in Hctx. apply in_snd, Hctx in H. simpl in H. lia.
-  Qed.
-
   Lemma in_range_weaken lo0 lo hi hi0 x :
     in_range lo hi x ->
     lo0 <= lo ->
@@ -470,31 +443,39 @@ Section Blocks.
       + rewrite all_rels_map_program. apply List.Forall_map. apply Forall_forall.
         intros R HR. destruct R; simpl; [left; lia | right].
         eapply wf_program_input_in_ctx; eassumption.
-      + intros args. symmetry.
-        apply (interp_wf_iff (unflatten_rel name ctx)).
-        -- eapply wf_program_impl.
-           { apply wf_program_flip. eapply wf_program_comp; [eassumption | apply wf_program_map]. }
-           intros x R (y & Hy & Hx). cbv [map_rel] in Hx.
-           destruct R, y; simpl in *; try contradiction; congruence.
-        -- apply Forall_forall. intros x _. apply unflatten_rel_fun; assumption.
+      + intros args. symmetry. rewrite Forall_forall in Hctx1.
+        apply (interp_wf_iff (fun x R => exists y, wf_rel ctx R y /\ flatten_rel name y = x)).
+        -- apply wf_program_flip. eapply wf_program_comp; [eassumption | apply wf_program_map].
+        -- apply Forall_forall. intros x _ R R' (y & Hy & <-) (y' & Hy' & Hx').
+           destruct R as [l|P], y as [l0|z]; simpl in Hy; try contradiction;
+             destruct R' as [l'|P'], y' as [l0'|z']; simpl in Hy'; try contradiction;
+             simpl in Hx'.
+           ++ congruence.
+           ++ exfalso. subst. apply in_snd, Hctx1 in Hy'. simpl in Hy'. lia.
+           ++ exfalso. subst. apply in_snd, Hctx1 in Hy. simpl in Hy. lia.
+           ++ subst. f_equal. eapply NoDup_snd_In_inj; eassumption.
         -- rewrite concl_rels_map_program. apply List.Forall_map.
            eapply Forall_impl; [eapply wf_program_not_input; eassumption|].
-           intros [y|P] HR; [|contradiction]. apply unflatten_rel_inj. assumption.
+           intros [l|P] HR; [|contradiction]. intros x' R (y & Hy & Hx) (y' & Hy' & <-).
+           destruct R as [l'|P'], y as [l0|z]; simpl in Hy; try contradiction;
+             destruct y' as [l0'|z']; simpl in Hy'; try contradiction; simpl in *.
+           ++ congruence.
+           ++ exfalso. subst. apply in_snd, Hctx1 in Hy. simpl in Hy. lia.
         -- eapply meta_rules_valid_wf; [apply wf_program_map | | | exact Hmrv2].
            ++ apply Forall_forall. auto using functional_at_map.
            ++ apply inj_on_map, flatten_rel_inj. intros x Hx.
               rewrite Forall_forall in Hnoinp2. apply Hnoinp2 in Hx. contradiction.
-        -- apply flat_good_input_set; assumption.
+        -- apply flat_good_input_set; try assumption. apply Forall_forall. assumption.
         -- intros g1 g2 Hg. pose proof (wf_fact_rel _ _ _ Hg) as Hrel.
-           rewrite (wf_fact_args _ _ _ Hg). rewrite Forall_forall in Hctx1.
-           destruct (fact.rel g2) as [y|P]; simpl in Hrel.
+           destruct Hrel as (y & Hy & Hx). rewrite (wf_fact_args _ _ _ Hg), <- Hx.
+           destruct (fact.rel g2) as [l|P], y as [l0|z]; simpl in Hy; try contradiction; simpl.
            ++ split; intros (R & HR & HR'); exfalso; [|discriminate].
-              rewrite Hrel in HR. apply in_snd, Hctx1 in HR. simpl in HR. lia.
+              apply in_snd, Hctx1 in HR. simpl in HR. lia.
            ++ split; intros (R & HR & HR').
               ** exists P. split; [reflexivity|]. replace P with R; [assumption|].
                  eapply NoDup_snd_In_inj; eassumption.
               ** injection HR as <-. eauto.
-        -- apply wf_fact_of_args. reflexivity.
+        -- apply wf_fact_of_args. exists (local ret). split; reflexivity.
   Qed.
 End Blocks.
 
