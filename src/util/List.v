@@ -558,6 +558,25 @@ Proof.
   - destruct (IH Hin) as (x & Hcomb & Hx). exists x. split; [ right; exact Hcomb | exact Hx ].
 Qed.
 
+Lemma Forall2_comp {A B C} (R : A -> B -> Prop) (S : B -> C -> Prop) xs ys zs :
+  Forall2 R xs ys ->
+  Forall2 S ys zs ->
+  Forall2 (fun x z => exists y, R x y /\ S y z) xs zs.
+Proof. intros H. revert zs. induction H; invert 1; eauto. Qed.
+
+Lemma Forall2_Forall2_exists {A B C D} (R : A -> B -> Prop) (S : A -> C -> Prop)
+  (T : C -> D -> Prop) (U : B -> D -> Prop) xs ys zs :
+  Forall2 R xs ys ->
+  Forall2 S xs zs ->
+  (forall x y z, R x y -> S x z -> exists w, T z w /\ U y w) ->
+  exists ws, Forall2 T zs ws /\ Forall2 U ys ws.
+Proof.
+  intros H. revert zs. induction H; intros zs Hzs Hex; invert Hzs; [exists []; auto|].
+  edestruct Hex as (w & ? & ?); [eassumption..|].
+  edestruct IHForall2 as (ws & ? & ?); [eassumption..|].
+  exists (w :: ws). auto.
+Qed.
+
 Lemma map_fst_combine {A B} (a : list A) (b : list B) :
   length a = length b -> map fst (combine a b) = a.
 Proof.
