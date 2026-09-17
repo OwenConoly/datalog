@@ -19,6 +19,7 @@ Variant agg_fn :=
 #[local] Instance agg_fnT : fnT := agg_fn.
 #[local] Instance agg_aggregatorT : aggregatorT := bop.
 #[local] Instance obj_valueT : valueT := obj.
+#[local] Instance lrel : lrelT := nat.
 
 Definition fn_inj f :=
   match f with
@@ -136,8 +137,6 @@ Definition extract_nat (x : obj) :=
     agg_bop := interp_bop;
     agg_id := bop_id }.
 
-#[local] Instance agg_params : datalog_params (_rel := block_rel nat) := {}.
-
 Lemma fn_inj_correct f :
   fn_inj f = true ->
   partial_injective (interp_fun f).
@@ -147,65 +146,48 @@ Proof.
   destruct x, y; simpl in *; try discriminate; auto.
 Qed.
 
-#[global] Instance block_rel_eqb {A} {aeqb : Eqb A} : Eqb (block_rel A) :=
-  fun R1 R2 =>
-    match R1, R2 with
-    | local l1, local l2 => aeqb l1 l2
-    | input l1, input l2 => aeqb l1 l2
-    | _, _ => false
-    end.
-
-#[global] Instance block_rel_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
-  : Eqb_ok block_rel_eqb.
-Proof.
-  intros x y. cbv [eqb block_rel_eqb].
-  destruct x, y; try congruence;
-    (pose proof (eqb_spec a a0) as Ha; cbv [eqb] in Ha;
-     destruct (aeqb a a0); subst; congruence).
-Qed.
-
 Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var :=
   match e with
   | Var t x =>
-      Block O [(O, x)]
+      Block O
         {| program.rules :=
              [rule.impl
-                [{| clause.rel := local O; clause.args := [expr.var O] |}]
-                [{| clause.rel := input O; clause.args := [expr.var O] |}]];
+                [{| clause.rel := block_rel.local O; clause.args := [expr.var O] |}]
+                [{| clause.rel := block_rel.input x; clause.args := [expr.var O] |}]];
           program.meta_rules :=
             [{| meta_rule.concls :=
-                 [{| clause_pattern.rel := local O;
+                 [{| clause_pattern.rel := block_rel.local O;
                     clause_pattern.args := [expr_pattern.any] |}];
                meta_rule.hyps :=
-                 [{| clause_pattern.rel := input O;
+                 [{| clause_pattern.rel := block_rel.input x;
                     clause_pattern.args := [expr_pattern.any] |}] |}] |}
   | bop_over_vals o x y =>
       LetIn (compile_Sexpr x)
         (fun x' =>
            LetIn (compile_Sexpr y)
              (fun y' =>
-                Block O [(O, x'); (1, y')]
+                Block O
                   {| program.rules :=
                        [rule.impl
-                          [{| clause.rel := local O;
+                          [{| clause.rel := block_rel.local O;
                              clause.args := [expr.app (fn_bop o) [expr.var O; expr.var (S O)]] |}]
-                          [{| clause.rel := input 0; clause.args := [expr.var O] |};
-                           {| clause.rel := input 1; clause.args := [expr.var (S O)] |}]];
+                          [{| clause.rel := block_rel.input x'; clause.args := [expr.var O] |};
+                           {| clause.rel := block_rel.input y'; clause.args := [expr.var (S O)] |}]];
                     program.meta_rules :=
                       [{| meta_rule.concls :=
-                           [{| clause_pattern.rel := local O;
+                           [{| clause_pattern.rel := block_rel.local O;
                               clause_pattern.args := [expr_pattern.any] |}];
                          meta_rule.hyps :=
-                           [{| clause_pattern.rel := input 0;
+                           [{| clause_pattern.rel := block_rel.input x';
                               clause_pattern.args := [expr_pattern.any] |};
-                            {| clause_pattern.rel := input 1;
+                            {| clause_pattern.rel := block_rel.input x';
                               clause_pattern.args := [expr_pattern.any] |}] |}] |}))
   | empty =>
-      Block O []
+      Block O
         {| program.rules := [];
           program.meta_rules :=
             [{| meta_rule.concls :=
-                 [{| clause_pattern.rel := local O;
+                 [{| clause_pattern.rel := block_rel.local O;
                     clause_pattern.args := [expr_pattern.any] |}];
                meta_rule.hyps := [] |}] |}
   | singleton x => (*we happen to represent sets in the same format as elements*)
@@ -215,20 +197,20 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
         (fun x' =>
            LetIn (compile_Sexpr y)
              (fun y' =>
-                Block O [(0, x'); (1, y')]
+                Block O
                   {| program.rules :=
                        [rule.impl
-                          [{| clause.rel := local O; clause.args := [expr.var O] |}]
-                          [{| clause.rel := input 0; clause.args := [expr.var O] |};
-                           {| clause.rel := input 1; clause.args := [expr.var O] |}]];
+                          [{| clause.rel := block_rel.local O; clause.args := [expr.var O] |}]
+                          [{| clause.rel := block_rel.input x'; clause.args := [expr.var O] |};
+                           {| clause.rel := block_rel.input y'; clause.args := [expr.var O] |}]];
                     program.meta_rules :=
                       [{| meta_rule.concls :=
-                           [{| clause_pattern.rel := local O;
+                           [{| clause_pattern.rel := block_rel.local O;
                               clause_pattern.args := [expr_pattern.any] |}];
                          meta_rule.hyps :=
-                           [{| clause_pattern.rel := input 0;
+                           [{| clause_pattern.rel := block_rel.input y';
                               clause_pattern.args := [expr_pattern.any] |};
-                            {| clause_pattern.rel := input 1;
+                            {| clause_pattern.rel := block_rel.input y';
                               clause_pattern.args := [expr_pattern.any] |}] |}] |}))
   | let_in t1 t2 x f =>
       LetIn (compile_Sexpr x)
@@ -236,24 +218,24 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
   | bop_over_set o x =>
       LetIn (compile_Sexpr x)
         (fun x' =>
-           Block O [(0, x')]
+           Block O
              {| program.rules :=
-                  [rule.agg (local O) o (local (S O));
+                  [rule.agg (block_rel.local O) o (block_rel.local (S O));
                    rule.impl
-                     [{| clause.rel := local (S O); clause.args := [expr.var O; expr.var O] |}]
-                     [{| clause.rel := input 0; clause.args := [expr.var O] |}]];
+                     [{| clause.rel := block_rel.local (S O); clause.args := [expr.var O; expr.var O] |}]
+                     [{| clause.rel := block_rel.input x'; clause.args := [expr.var O] |}]];
                program.meta_rules :=
                  [{| meta_rule.concls :=
-                      [{| clause_pattern.rel := local O;
+                      [{| clause_pattern.rel := block_rel.local O;
                          clause_pattern.args := [expr_pattern.any] |}];
                     meta_rule.hyps :=
-                      [{| clause_pattern.rel := local (S O);
+                      [{| clause_pattern.rel := block_rel.local (S O);
                          clause_pattern.args := [expr_pattern.any; expr_pattern.any] |}] |};
                   {| meta_rule.concls :=
-                      [{| clause_pattern.rel := local (S O);
+                      [{| clause_pattern.rel := block_rel.local (S O);
                          clause_pattern.args := [expr_pattern.any; expr_pattern.any] |}];
                      meta_rule.hyps :=
-                       [{| clause_pattern.rel := input 0;
+                       [{| clause_pattern.rel := block_rel.input x';
                           clause_pattern.args := [expr_pattern.any] |}] |}] |})
   end.
 
@@ -327,9 +309,9 @@ Ltac agg_invert_stuff :=
 
 Ltac invert_stuff := agg_invert_stuff.
 
-Lemma check_is_not_input var (vs : list (@block_rel var)):
-  forallb (fun v => match v with | input _ => false | local _ => true end) vs = true ->
-  Forall is_not_input vs.
+Lemma check_is_not_input var (vs : list (block_rel var)):
+  forallb (fun v => match v with | block_rel.input _ => false | block_rel.local _ => true end) vs = true ->
+  Forall block_rel.is_not_input vs.
 Proof.
   intros H. fwd. eapply Forall_impl; [eassumption|]. simpl.
   intros R. destruct R; simpl; congruence || auto.
@@ -348,9 +330,13 @@ Proof.
       | |- NoDup _ =>
           eapply @nodupb_sound; [typeclasses eauto|];
           reflexivity
-      | |- Forall is_not_input _ =>
+      | |- Forall block_rel.is_not_input _ =>
           apply check_is_not_input; reflexivity
       end.
+  { eapply check_meta_rules_valid_sound with (fn_inj := fn_inj);
+      [apply fn_inj_correct|];
+      simpl.
+    vm_compute.
 Qed.
 
 Ltac destr_vbp :=
