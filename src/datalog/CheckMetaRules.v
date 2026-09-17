@@ -44,6 +44,31 @@ Section __.
       destruct E as [|E]; try congruence. rewrite E in *. congruence.
   Qed.
 
+  #[global] Instance expr_pattern_eqb : Eqb expr_pattern :=
+    fun p1 p2 =>
+      match p1, p2 with
+      | expr_pattern.exactly e1, expr_pattern.exactly e2 => eqb e1 e2
+      | expr_pattern.any, expr_pattern.any => true
+      | _, _ => false
+      end.
+
+  #[global] Instance expr_pattern_eqb_ok : Eqb_ok expr_pattern_eqb.
+  Proof.
+    intros [e1|] [e2|]; cbv [Eqb.eqb expr_pattern_eqb]; try congruence.
+    destr (expr_eqb e1 e2); congruence.
+  Qed.
+
+  #[global] Instance clause_pattern_eqb : Eqb clause_pattern :=
+    fun c1 c2 =>
+      eqb c1.(clause_pattern.rel) c2.(clause_pattern.rel) &&
+        eqb c1.(clause_pattern.args) c2.(clause_pattern.args).
+
+  #[global] Instance clause_pattern_eqb_ok : Eqb_ok clause_pattern_eqb.
+  Proof.
+    intros [R1 args1] [R2 args2]. cbv [Eqb.eqb clause_pattern_eqb]. simpl.
+    destr (rel_eqb R1 R2); [|congruence]. destr (list_eqb args1 args2); congruence.
+  Qed.
+
   (*Note: this can be weakened; we only need injectivity on length-n lists (for each n)*)
   Context (fn_inj_spec :
             forall f,
@@ -266,20 +291,15 @@ Section __.
     forallb (fun mconcl =>
                negb (rel_eqb mconcl.(clause_pattern.rel) concl_rel) ||
                  match mconcl.(clause_pattern.args) with
-                 | _ :: stuff =>
-                     existsb
-                       (fun mhyp =>
-                          rel_eqb mhyp.(clause_pattern.rel) hyp_rel &&
-                            match mhyp.(clause_pattern.args) with
-                            | expr_pattern.any :: expr_pattern.any :: stuff' =>
-                                match option_all (map expr_pattern.expr_of stuff),
-                                  option_all (map expr_pattern.expr_of stuff') with
-                                | Some es, Some es' => eqb es es'
-                                | _, _ => false
-                                end
-                            | _ => false
-                            end)
-                       mr.(meta_rule.hyps)
+                 | _ :: shared =>
+                     match option_all (map expr_pattern.expr_of shared) with
+                     | Some es =>
+                         inb {| clause_pattern.rel := hyp_rel;
+                               clause_pattern.args :=
+                                 expr_pattern.any :: expr_pattern.any :: map expr_pattern.exactly es |}
+                           mr.(meta_rule.hyps)
+                     | None => false
+                     end
                  | [] => false
                  end)
       mr.(meta_rule.concls).
@@ -303,13 +323,6 @@ Section __.
     - invert H. exists (v :: vs). simpl. eauto using Forall2_cons.
   Qed.
 
-  Lemma matches_map_exactly_eq (vs args : list value) :
-    Forall2 value_pattern.matches (map value_pattern.exactly vs) args ->
-    vs = args.
-  Proof.
-    intros H. rewrite <- Forall2_map_l in H. induction H; simpl in *; congruence.
-  Qed.
-
   Lemma check_meta_rule_against_agg_sound mr concl_rel agg hyp_rel pat pats nf hyps :
     check_meta_rule_against_agg mr concl_rel hyp_rel = true ->
     meta_rule.pattern_interp mr pat pats ->
@@ -319,47 +332,36 @@ Section __.
   Proof.
     intros Hcheck Hpat Hn Hmatch.
     cbv [meta_rule.pattern_interp] in Hpat. fwd.
-    invert Hn.
-    pose proof Hmatch as Hrel. cbv [fact_pattern.matches] in Hrel. fwd. simpl in *.
+    invert Hn. destruct pat as [pat_rel pat_args].
+    cbv [fact_pattern.matches] in Hmatch. simpl in Hmatch. fwd.
     rewrite Forall_forall in Hcheck. specialize (Hcheck _ Hpatp0p0).
-    cbv [clause_pattern.interp] in Hpatp0p1. fwd.
-    destr (rel_eqb (clause_pattern.rel x) concl_rel); simpl in Hcheck; [|congruence].
-    invert_list_stuff.
+    cbv [clause_pattern.interp] in Hpatp0p1. simpl in Hpatp0p1. fwd.
     destruct Hcheck as [Hcheck|Hcheck]; [congruence|].
-    destruct (clause_pattern.args x) as [|ep0 stuff]; [discriminate|].
-    apply existsb_exists in Hcheck. destruct Hcheck as [mhyp [Hmhyp Hc]].
-    apply andb_prop in Hc. destruct Hc as [Hcrel Hc].
-    destr (rel_eqb (clause_pattern.rel mhyp) hyp_rel); [|discriminate].
-    destruct (clause_pattern.args mhyp) as [|ep1 rest] eqn:Em; [discriminate|].
-    destruct ep1; [discriminate|].
-    destruct rest as [|ep2 stuff']; [discriminate|].
-    destruct ep2; [discriminate|].
-    destruct (option_all (map expr_pattern.expr_of stuff)) as [es|] eqn:Es; [|discriminate].
-    destruct (option_all (map expr_pattern.expr_of stuff')) as [es'|] eqn:Es'; [|discriminate].
-    assert (es' = es) as ->.
-    { pose proof (eqb_spec es es') as He. rewrite Hc in He. congruence. }
-    apply option_all_expr_of_pattern in Es, Es'. subst stuff stuff'.
-    invert Hpatp0p1p1.
-    rewrite <- H in H5. invert H5.
-    apply exactly_interp_forall2 in H7. fwd.
-    apply matches_map_exactly_eq in H3. subst vs.
+    destruct (clause_pattern.args x) as [|p0 shared]; [discriminate|].
+    destruct (option_all (map expr_pattern.expr_of shared)) as [es|] eqn:Es; [|discriminate].
+    apply option_all_expr_of_pattern in Es. subst shared.
+    apply inb_true_iff in Hcheck.
     apply Forall2_forget_r in Hpatp1. rewrite Forall_forall in Hpatp1.
-    destruct (Hpatp1 _ Hmhyp) as [pat' [Hpat' Hip']].
-    cbv [clause_pattern.interp] in Hip'. rewrite Em in Hip'.
-    destruct Hip' as [Hrel' Hargs'].
-    invert Hargs'. invert H5. invert H7. invert H5.
-    apply exactly_interp_forall2 in H9. fwd.
-    assert (vs = args) as ->.
-    { eapply Forall2_unique_r; eauto using expr.interp_det. }
+    destruct (Hpatp1 _ Hcheck) as [[pat'_rel pat'_args] [Hpat' Hip']].
+    cbv [clause_pattern.interp] in Hip'. simpl in Hip'. fwd.
+    repeat invert_stuff.
+    repeat match goal with
+      | H : expr_pattern.interp _ expr_pattern.any _ |- _ => invert H
+      | H : Forall2 (expr_pattern.interp _) (map expr_pattern.exactly _) _ |- _ =>
+          apply exactly_interp_forall2 in H; destruct H as [? [-> H]]
+      | H : Forall2 value_pattern.matches (map value_pattern.exactly _) _ |- _ =>
+          apply value_pattern.matches_map_exactly_inv in H; subst
+      end.
+    match goal with
+    | H1 : Forall2 (expr.interp _) es ?vs, H2 : Forall2 (expr.interp _) es ?vs' |- _ =>
+        replace vs' with vs in * by (eapply Forall2_unique_r; eauto using expr.interp_det)
+    end.
     constructor.
-    { cbv [fact.covered_by_pats]. apply Exists_exists. exists pat'. split; [assumption|].
-      simpl. destruct pat'. simpl in *. f_equal; congruence. }
-    apply Forall_forall. intros f' Hf'. apply in_map_iff in Hf'.
-    destruct Hf' as [[i x_i] [<- _]].
-    cbv [fact.covered_by_pats]. apply Exists_exists. exists pat'. split; [assumption|].
-    simpl. cbv [fact_pattern.matches]. simpl. split; [congruence|].
-    rewrite <- H3. constructor; [exact I|]. constructor; [exact I|].
-    apply value_pattern.matches_map_exactly.
+    - cbv [fact.covered_by_pats]. apply Exists_exists. eexists. split; [eassumption|reflexivity].
+    - apply Forall_forall. intros f' Hf'. apply in_map_iff in Hf'. destruct Hf' as [[i x_i] [<- _]].
+      cbv [fact.covered_by_pats]. apply Exists_exists. eexists. split; [eassumption|].
+      cbv [fact.covered_by fact_pattern.matches]. simpl. split; [reflexivity|].
+      constructor; [exact I|]. constructor; [exact I|]. apply value_pattern.matches_map_exactly.
   Qed.
 
   Definition check_meta_rule_against_rule (mr : meta_rule) (nr : rule) : bool :=
