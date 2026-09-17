@@ -178,26 +178,6 @@ Section RelMap.
         f_equal; eauto using wf_normal_fact_inj, wf_meta_fact_inj.
     Qed.
 
-    Lemma Forall2_wf_fact_fun hyps1 hyps2 hyps2' :
-      Forall (fun h => functional_at (fact.rel h)) hyps1 ->
-      Forall2 wf_fact hyps1 hyps2 ->
-      Forall2 wf_fact hyps1 hyps2' ->
-      hyps2 = hyps2'.
-    Proof.
-      intros Hfun H H'. eapply Forall2_unique_r; [exact H | exact H' |].
-      rewrite Forall_forall in Hfun. eauto using wf_fact_fun.
-    Qed.
-
-    Lemma Forall2_wf_fact_pattern_fun pats1 pats2 pats2' :
-      Forall (fun fp => functional_at fp.(fact_pattern.rel)) pats1 ->
-      Forall2 wf_fact_pattern pats1 pats2 ->
-      Forall2 wf_fact_pattern pats1 pats2' ->
-      pats2 = pats2'.
-    Proof.
-      intros Hfun H H'. eapply Forall2_unique_r; [exact H | exact H' |].
-      rewrite Forall_forall in Hfun. eauto using wf_fact_pattern_fun.
-    Qed.
-
     Definition wf_clause (c1 : clause (relt := rel1)) (c2 : clause (relt := rel2)) :=
       wf_rel c1.(clause.rel) c2.(clause.rel) /\ c1.(clause.args) = c2.(clause.args).
 
@@ -633,23 +613,25 @@ Section RelMap.
       Proof. rewrite Forall_forall in Hfun. auto. Qed.
       Hint Resolve functional_at_concl functional_at_hyp : core.
 
-      Lemma functional_at_hyps r hyps nf :
+      Lemma functional_at_hyps r hyps nf h :
         In r p1.(program.rules) ->
         rule.interp r nf hyps ->
-        Forall (fun h => functional_at (fact.rel h)) hyps.
+        In h hyps ->
+        functional_at (fact.rel h).
       Proof.
-        intros Hr Hint. eapply Forall_impl; [eapply rule.interp_hyp_relname_in; eassumption|].
-        eauto.
+        intros Hr Hint Hh. pose proof (rule.interp_hyp_relname_in _ _ _ Hint) as Hrels.
+        rewrite Forall_forall in Hrels. eauto.
       Qed.
 
-      Lemma functional_at_pats mr pat pats :
+      Lemma functional_at_pats mr pat pats fp :
         In mr p1.(program.meta_rules) ->
         meta_rule.pattern_interp mr pat pats ->
-        Forall (fun fp => functional_at fp.(fact_pattern.rel)) pats.
+        In fp pats ->
+        functional_at fp.(fact_pattern.rel).
       Proof.
-        intros Hmr Hpat.
-        eapply Forall_impl; [eapply meta_rule.pattern_interp_hyp_relname_in; eassumption|].
-        eauto.
+        intros Hmr Hpat Hfp.
+        pose proof (meta_rule.pattern_interp_hyp_relname_in _ _ _ Hpat) as Hrels.
+        rewrite Forall_forall in Hrels. eauto.
       Qed.
 
       Lemma wf_fact_exists h1 :
@@ -683,10 +665,9 @@ Section RelMap.
         2: { eapply wf_normal_fact_fun; [|eassumption..].
              eauto using rule.interp_concl_relname_in. }
         exists hyps2. split; [apply Exists_exists; eauto|].
-        pose proof (functional_at_hyps _ _ _ ltac:(eauto) Hp0p1) as Hfun'.
-        rewrite Forall_forall in Hp1, Hfun' |- *. intros h2 Hh2.
+        rewrite Forall_forall in Hp1 |- *. intros h2 Hh2.
         eapply Forall2_In_r in Hh2; [|eassumption]. fwd.
-        eapply implied_by_mfs_wf with (h1 := x0); eauto.
+        eapply implied_by_mfs_wf with (h1 := x0); eauto using functional_at_hyps.
       Qed.
 
       Section General.
@@ -717,10 +698,9 @@ Section RelMap.
                eauto using rule.interp_concl_relname_in. }
           exists hyps1. split; [apply Exists_exists; eauto|].
           pose proof (Hvalid _ _ Hmr ltac:(eauto) _ _ _ _ Hpat Hint1p2 Hmatch) as Hcov.
-          pose proof (functional_at_hyps _ _ _ ltac:(eauto) Hint1p2) as Hfun'.
-          rewrite Forall_forall in Hp1, Hcov, Hfun' |- *. intros h1 Hh1.
+          rewrite Forall_forall in Hp1, Hcov |- *. intros h1 Hh1.
           eapply Forall2_In_l in Hh1 as Hh2; [|eassumption]. fwd.
-          eapply implied_by_mfs_wf_bw with (h2 := y); eauto.
+          eapply implied_by_mfs_wf_bw with (h2 := y); eauto using functional_at_hyps.
         Qed.
 
         Lemma meta_rule_interp_wf mr1 mr2 mf1 mf2 mhyps1 mhyps2 :
@@ -738,10 +718,10 @@ Section RelMap.
           2: { eapply wf_fact_pattern_fun; [| apply Hmf | eassumption].
                eauto using meta_rule.pattern_interp_concl_relname_in. }
           replace pats2 with (map meta_fact.pattern mhyps2) in *.
-          2: { eapply Forall2_wf_fact_pattern_fun; [| |eassumption].
-               - eauto using functional_at_pats.
+          2: { eapply Forall2_unique_r; [| eassumption |].
                - rewrite <- Forall2_map_l, <- Forall2_map_r.
-                 eapply Forall2_impl; [eassumption|]. intros. apply H. }
+                 eapply Forall2_impl; [eassumption|]. intros. apply H.
+               - eauto using wf_fact_pattern_fun, functional_at_pats. }
           split; [assumption|].
           intros nf2 Hmatch2.
           pose proof (Hset {| normal_fact.rel := meta_fact.rel mf1;
@@ -802,8 +782,8 @@ Section RelMap.
             2: { eapply wf_normal_fact_fun; [|eassumption..].
                  eauto using rule.interp_concl_relname_in. }
             replace hyps2 with hyps0.
-            2: { eapply Forall2_wf_fact_fun; [|eassumption..].
-                 eauto using functional_at_hyps. }
+            2: { eapply Forall2_unique_r; [eassumption | eassumption |].
+                 eauto using wf_fact_fun, functional_at_hyps. }
             constructor. apply Exists_exists. eauto.
           - destruct f2 as [|mf2]; [contradiction|].
             apply Forall2_wf_fact_meta in Hhyps. fwd.
@@ -974,10 +954,10 @@ Section RelMap.
           2: { eapply wf_fact_pattern_fun; [| apply Hmf | eassumption].
                eauto using meta_rule.pattern_interp_concl_relname_in. }
           replace pats2 with (map meta_fact.pattern mhyps2) in *.
-          2: { eapply Forall2_wf_fact_pattern_fun; [| |eassumption].
-               - eauto using functional_at_pats.
+          2: { eapply Forall2_unique_r; [| eassumption |].
                - rewrite <- Forall2_map_l, <- Forall2_map_r.
-                 eapply Forall2_impl; [eassumption|]. intros. apply H. }
+                 eapply Forall2_impl; [eassumption|]. intros. apply H.
+               - eauto using wf_fact_pattern_fun, functional_at_pats. }
           split; [assumption|].
           intros nf2 Hmatch2.
           pose proof (Hset {| normal_fact.rel := meta_fact.rel mf1;
@@ -1042,8 +1022,8 @@ Section RelMap.
             2: { eapply wf_normal_fact_fun; [|eassumption..].
                  eauto using rule.interp_concl_relname_in. }
             replace hyps2 with hyps0.
-            2: { eapply Forall2_wf_fact_fun; [|eassumption..].
-                 eauto using functional_at_hyps. }
+            2: { eapply Forall2_unique_r; [eassumption | eassumption |].
+                 eauto using wf_fact_fun, functional_at_hyps. }
             constructor. apply Exists_exists. eauto.
           - destruct f2 as [|mf2]; [contradiction|].
             apply Forall2_wf_fact_meta in Hhyps. fwd.
@@ -1191,18 +1171,6 @@ Section RelMap.
       | fact.normal nf => fact.normal (map_normal_fact nf)
       | fact.meta mf => fact.meta (map_meta_fact mf)
       end.
-
-    Lemma rel_map_fact fct :
-      fact.rel (map_fact fct) = f (fact.rel fct).
-    Proof. destruct fct; reflexivity. Qed.
-
-    Lemma args_of_map_fact fct :
-      fact.args_of (map_fact fct) = fact.args_of fct.
-    Proof. destruct fct; simp; reflexivity. Qed.
-
-    Lemma map_fact_of_args R args :
-      map_fact (fact.of_args R args) = fact.of_args (f R) args.
-    Proof. destruct args; reflexivity. Qed.
 
     Lemma map_fact_decompose fct :
       map_fact fct = fact.of_args (f (fact.rel fct)) (fact.args_of fct).
