@@ -3,7 +3,7 @@ From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Datatypes.List Tactics Tactics.fwd Eqb.
 From Datalog Require Import Eqb.
-From Datalog Require Import List Pftree Datalog (* FancyNotations *) Tactics Blocks Interpreter.
+From Datalog Require Import List Pftree Datalog (* FancyNotations *) Tactics Blocks CheckMetaRules.
 Import ListNotations.
 
 Section __.
