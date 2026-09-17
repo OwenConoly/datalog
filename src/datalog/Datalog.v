@@ -152,6 +152,7 @@ Module expr.
     Proof. eauto using interp_det, interp_agree_on. Qed.
   End __.
 End expr. Abbreviation expr := expr.expr.
+#[export] Hint Constructors expr.interp : core.
 
 Module normal_fact.
   Record normal_fact {relt : relT} {value : valueT} :=
@@ -181,6 +182,12 @@ Module value_pattern.
       match p with
       | exactly v0 => eqb v0 v
       | any => true
+      end.
+
+    Definition value_of (p : value_pattern) : option value :=
+      match p with
+      | exactly v => Some v
+      | any => None
       end.
 
     Lemma matchesb_matches p v :
@@ -517,6 +524,12 @@ Module expr_pattern.
       match p with
       | exactly e => expr.vars e
       | any => []
+      end.
+
+    Definition expr_of p :=
+      match p with
+      | exactly e => Some e
+      | any => None
       end.
   End __.
 End expr_pattern. Abbreviation expr_pattern := expr_pattern.expr_pattern.
