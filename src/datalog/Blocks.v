@@ -55,38 +55,13 @@ Section Blocks.
     | _, _ => False
     end.
 
-  Definition wf_clause {var1 var2} (ctx : list (var1 * var2)) (c1 : clause (relt := block_rel var1)) (c2 : clause (relt := block_rel var2)) :=
-    wf_rel ctx c1.(clause.rel) c2.(clause.rel) /\ c1.(clause.args) = c2.(clause.args).
-
-  Variant wf_rule {var1 var2} (ctx : list (var1 * var2)) : rule (_rel := block_rel var1) -> rule (_rel := block_rel var2) -> Prop :=
-    | wf_impl concls1 hyps1 concls2 hyps2 :
-      Forall2 (wf_clause ctx) concls1 concls2 ->
-      Forall2 (wf_clause ctx) hyps1 hyps2 ->
-      wf_rule _ (rule.impl concls1 hyps1) (rule.impl concls2 hyps2)
-    | wf_agg concl1 concl2 a hyp1 hyp2 :
-      wf_rel ctx concl1 concl2 ->
-      wf_rel ctx hyp1 hyp2 ->
-      wf_rule _ (rule.agg concl1 a hyp1) (rule.agg concl2 a hyp2).
-
-  Definition wf_clause_pattern {var1 var2} (ctx : list (var1 * var2)) (cp1 : clause_pattern (relt := block_rel var1)) (cp2 : clause_pattern (relt := block_rel var2)) :=
-    wf_rel ctx cp1.(clause_pattern.rel) cp2.(clause_pattern.rel) /\
-      cp1.(clause_pattern.args) = cp2.(clause_pattern.args).
-
-  Definition wf_meta_rule {var1 var2} (ctx : list (var1 * var2)) (mr1 : meta_rule (relt := block_rel var1)) (mr2 : meta_rule (relt := block_rel var2)) :=
-    Forall2 (wf_clause_pattern ctx) mr1.(meta_rule.concls) mr2.(meta_rule.concls) /\
-      Forall2 (wf_clause_pattern ctx) mr1.(meta_rule.hyps) mr2.(meta_rule.hyps).
-
-  Definition wf_program {var1 var2} (ctx : list (var1 * var2)) (p1 : block_program var1) (p2 : block_program var2) :=
-    Forall2 (wf_rule ctx) p1.(program.rules) p2.(program.rules) /\
-      Forall2 (wf_meta_rule ctx) p1.(program.meta_rules) p2.(program.meta_rules).
-
   Inductive wf_blocks_prog {var1 var2} : list (var1 * var2) -> blocks_prog var1 -> blocks_prog var2 -> Prop :=
   | wf_LetIn ctx x1 x2 f1 f2 :
     wf_blocks_prog ctx x1 x2 ->
     (forall x1' x2', wf_blocks_prog ((x1', x2') :: ctx) (f1 x1') (f2 x2')) ->
     wf_blocks_prog ctx (LetIn x1 f1) (LetIn x2 f2)
   | wf_Block ctx ret p1 p2 :
-    wf_program ctx p1 p2 ->
+    wf_program (wf_rel ctx) p1 p2 ->
     wf_blocks_prog ctx (Block ret p1) (Block ret p2).
 
   Definition vars_of_block_rel {var} (R : block_rel var) :=
@@ -151,129 +126,11 @@ Section Blocks.
 
   Context {lvar_eqb : Eqb lvar} {lvar_eqb_ok : Eqb_ok lvar_eqb}.
 
-  #[global] Instance flat_rel_eqb : Eqb flat_rel :=
-    fun x y =>
-      match x, y with
-      | lvar_rel b1 n1, lvar_rel b2 n2 => andb (eqb b1 b2) (eqb n1 n2)
-      end.
-
-  #[global] Instance flat_rel_eqb_ok : Eqb_ok flat_rel_eqb.
-  Proof.
-    intros [b1 n1] [b2 n2]. cbv [eqb flat_rel_eqb].
-    pose proof (eqb_spec b1 b2) as Hb. pose proof (eqb_spec n1 n2) as Hn.
-    cbv [eqb] in Hb, Hn.
-    destruct (nat_eqb b1 b2), (lvar_eqb n1 n2); subst; simpl; congruence.
-  Qed.
-
-  Fixpoint ctx_lookup (ctx : list ((fact_args -> Prop) * flat_rel)) x : fact_args -> Prop :=
-    match ctx with
-    | [] => fun _ => False
-    | (R, y) :: ctx' => if eqb x y then R else ctx_lookup ctx' x
-    end.
-
-  Definition unflatten_rel ctx (R : block_rel flat_rel) : block_rel (fact_args -> Prop) :=
-    match R with
-    | local y => local y
-    | input x => input (ctx_lookup ctx x)
-    end.
-
-  Lemma ctx_lookup_In ctx R x :
-    NoDup (map snd ctx) ->
-    In (R, x) ctx ->
-    ctx_lookup ctx x = R.
-  Proof.
-    induction ctx as [|[R' y] ctx' IH]; [contradiction|].
-    simpl. intros Hnd [Heq|Hin]; invert Hnd.
-    - fwd. destr (eqb x x); congruence.
-    - destr (eqb x y); [|auto]. exfalso. eauto using in_snd.
-  Qed.
-
-  Lemma wf_rel_unflatten ctx R1 R2 :
-    NoDup (map snd ctx) ->
-    wf_rel ctx R1 R2 ->
-    unflatten_rel ctx R2 = R1.
-  Proof.
-    intros Hnd Hwf. destruct R1, R2; cbn in Hwf |- *; try contradiction.
-    - congruence.
-    - erewrite ctx_lookup_In; eauto.
-  Qed.
-
   Definition flatten_rel (block : nat) (R : block_rel flat_rel) :=
     match R with
     | local x => lvar_rel block x
     | input x => x
     end.
-
-  Lemma wf_clause_unflatten ctx c1 c2 :
-    NoDup (map snd ctx) ->
-    wf_clause ctx c1 c2 ->
-    map_clause_rel (unflatten_rel ctx) c2 = c1.
-  Proof.
-    cbv [wf_clause map_clause_rel]. intros Hnd Hwf. destruct c1, c2. simp. fwd.
-    erewrite wf_rel_unflatten by eauto. reflexivity.
-  Qed.
-
-  Lemma wf_clause_pattern_unflatten ctx cp1 cp2 :
-    NoDup (map snd ctx) ->
-    wf_clause_pattern ctx cp1 cp2 ->
-    map_clause_pattern_rel (unflatten_rel ctx) cp2 = cp1.
-  Proof.
-    cbv [wf_clause_pattern map_clause_pattern_rel]. intros Hnd Hwf.
-    destruct cp1, cp2. simp. fwd. erewrite wf_rel_unflatten by eauto. reflexivity.
-  Qed.
-
-  Lemma wf_clauses_unflatten ctx cs1 cs2 :
-    NoDup (map snd ctx) ->
-    Forall2 (wf_clause ctx) cs1 cs2 ->
-    map (map_clause_rel (unflatten_rel ctx)) cs2 = cs1.
-  Proof.
-    intros Hnd Hwf. symmetry. rewrite <- map_id at 1. apply Forall2_map_eq.
-    eapply Forall2_impl; [eassumption|]. intros. symmetry.
-    eauto using wf_clause_unflatten.
-  Qed.
-
-  Lemma wf_clause_patterns_unflatten ctx cs1 cs2 :
-    NoDup (map snd ctx) ->
-    Forall2 (wf_clause_pattern ctx) cs1 cs2 ->
-    map (map_clause_pattern_rel (unflatten_rel ctx)) cs2 = cs1.
-  Proof.
-    intros Hnd Hwf. symmetry. rewrite <- map_id at 1. apply Forall2_map_eq.
-    eapply Forall2_impl; [eassumption|]. intros. symmetry.
-    eauto using wf_clause_pattern_unflatten.
-  Qed.
-
-  Lemma wf_rule_unflatten ctx r1 r2 :
-    NoDup (map snd ctx) ->
-    wf_rule ctx r1 r2 ->
-    map_rule_rels (unflatten_rel ctx) r2 = r1.
-  Proof.
-    intros Hnd Hwf. destruct Hwf; simpl.
-    - erewrite !wf_clauses_unflatten by eauto. reflexivity.
-    - erewrite !wf_rel_unflatten by eauto. reflexivity.
-  Qed.
-
-  Lemma wf_meta_rule_unflatten ctx mr1 mr2 :
-    NoDup (map snd ctx) ->
-    wf_meta_rule ctx mr1 mr2 ->
-    map_meta_rule_rels (unflatten_rel ctx) mr2 = mr1.
-  Proof.
-    cbv [wf_meta_rule map_meta_rule_rels]. intros Hnd Hwf. destruct mr1, mr2. simp. fwd.
-    erewrite !wf_clause_patterns_unflatten by eauto. reflexivity.
-  Qed.
-
-  Lemma wf_program_unflatten ctx p1 p2 :
-    NoDup (map snd ctx) ->
-    wf_program ctx p1 p2 ->
-    map_program (unflatten_rel ctx) p2 = p1.
-  Proof.
-    cbv [wf_program map_program]. intros Hnd Hwf. destruct p1. simp. fwd. f_equal.
-    - symmetry. rewrite <- map_id at 1. apply Forall2_map_eq.
-      eapply Forall2_impl; [eassumption|]. intros. symmetry.
-      eauto using wf_rule_unflatten.
-    - symmetry. rewrite <- map_id at 1. apply Forall2_map_eq.
-      eapply Forall2_impl; [eassumption|]. intros. symmetry.
-      eauto using wf_meta_rule_unflatten.
-  Qed.
 
   Fixpoint flatten (name : nat) (e : blocks_prog flat_rel) : nat * flat_rel * flat_program :=
     match e with
@@ -302,6 +159,33 @@ Section Blocks.
     intros Hin R1 R2 H1 H2 Heq. destruct R1, R2; simpl in Heq; try congruence.
     - apply Hin in H2. rewrite <- Heq in H2. simpl in H2. lia.
     - apply Hin in H1. rewrite Heq in H1. simpl in H1. lia.
+  Qed.
+
+  Definition unflatten_rel name (ctx : list ((fact_args -> Prop) * flat_rel)) x
+    (R : block_rel (fact_args -> Prop)) :=
+    match R with
+    | local y => x = lvar_rel name y
+    | input P => In (P, x) ctx
+    end.
+
+  Lemma unflatten_rel_fun name ctx x :
+    Forall (in_range O name) (map snd ctx) ->
+    NoDup (map snd ctx) ->
+    functional_at (unflatten_rel name ctx) x.
+  Proof.
+    intros Hctx Hnd [y|P] [y'|P'] H H'; simpl in *; rewrite Forall_forall in Hctx.
+    - congruence.
+    - exfalso. subst. apply in_snd, Hctx in H'. simpl in H'. lia.
+    - exfalso. subst. apply in_snd, Hctx in H. simpl in H. lia.
+    - f_equal. eapply NoDup_snd_In_inj; eassumption.
+  Qed.
+
+  Lemma unflatten_rel_inj name ctx y :
+    Forall (in_range O name) (map snd ctx) ->
+    inj_on_elt (unflatten_rel name ctx) (lvar_rel name y).
+  Proof.
+    intros Hctx x' [y'|P] H H'; simpl in *; [congruence|].
+    exfalso. rewrite Forall_forall in Hctx. apply in_snd, Hctx in H. simpl in H. lia.
   Qed.
 
   Lemma in_range_weaken lo0 lo hi hi0 x :
@@ -386,66 +270,8 @@ Section Blocks.
         eexists. ssplit; eauto. eexists. split; eauto. simpl. auto.
   Qed.
 
-  Lemma wf_clauses_rels {var1 var2} (ctx : list (var1 * var2)) cs1 cs2 :
-    Forall2 (wf_clause ctx) cs1 cs2 ->
-    Forall2 (wf_rel ctx) (map clause.rel cs1) (map clause.rel cs2).
-  Proof.
-    intros. rewrite <- Forall2_map_l, <- Forall2_map_r.
-    eapply Forall2_impl; [eassumption|]. cbv [wf_clause]. intros. fwd. assumption.
-  Qed.
-
-  Lemma wf_clause_patterns_rels {var1 var2} (ctx : list (var1 * var2)) cs1 cs2 :
-    Forall2 (wf_clause_pattern ctx) cs1 cs2 ->
-    Forall2 (wf_rel ctx) (map clause_pattern.rel cs1) (map clause_pattern.rel cs2).
-  Proof.
-    intros. rewrite <- Forall2_map_l, <- Forall2_map_r.
-    eapply Forall2_impl; [eassumption|]. cbv [wf_clause_pattern]. intros. fwd. assumption.
-  Qed.
-
-  Lemma wf_rule_hyp_rels {var1 var2} (ctx : list (var1 * var2)) r1 r2 :
-    wf_rule ctx r1 r2 ->
-    Forall2 (wf_rel ctx) (rule.hyp_rels r1) (rule.hyp_rels r2).
-  Proof. destruct 1; simpl; eauto using wf_clauses_rels. Qed.
-
-  Lemma wf_rule_concl_rels {var1 var2} (ctx : list (var1 * var2)) r1 r2 :
-    wf_rule ctx r1 r2 ->
-    Forall2 (wf_rel ctx) (rule.concl_rels r1) (rule.concl_rels r2).
-  Proof. destruct 1; simpl; eauto using wf_clauses_rels. Qed.
-
-  Lemma wf_meta_rule_hyp_rels {var1 var2} (ctx : list (var1 * var2)) mr1 mr2 :
-    wf_meta_rule ctx mr1 mr2 ->
-    Forall2 (wf_rel ctx) (meta_rule.hyp_rels mr1) (meta_rule.hyp_rels mr2).
-  Proof. cbv [wf_meta_rule]. intros. fwd. eauto using wf_clause_patterns_rels. Qed.
-
-  Lemma wf_meta_rule_concl_rels {var1 var2} (ctx : list (var1 * var2)) mr1 mr2 :
-    wf_meta_rule ctx mr1 mr2 ->
-    Forall2 (wf_rel ctx) (meta_rule.concl_rels mr1) (meta_rule.concl_rels mr2).
-  Proof. cbv [wf_meta_rule]. intros. fwd. eauto using wf_clause_patterns_rels. Qed.
-
-  Lemma wf_program_hyp_rels {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
-    wf_program ctx p1 p2 ->
-    Forall2 (wf_rel ctx) (program.hyp_rels p1) (program.hyp_rels p2).
-  Proof.
-    cbv [wf_program program.hyp_rels]. intros. fwd. apply Forall2_app.
-    - apply Forall2_flat_map. eapply Forall2_impl; [eassumption|].
-      eauto using wf_rule_hyp_rels.
-    - apply Forall2_flat_map. eapply Forall2_impl; [eassumption|].
-      eauto using wf_meta_rule_hyp_rels.
-  Qed.
-
-  Lemma wf_program_concl_rels {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
-    wf_program ctx p1 p2 ->
-    Forall2 (wf_rel ctx) (program.concl_rels p1) (program.concl_rels p2).
-  Proof.
-    cbv [wf_program program.concl_rels]. intros. fwd. apply Forall2_app.
-    - apply Forall2_flat_map. eapply Forall2_impl; [eassumption|].
-      eauto using wf_rule_concl_rels.
-    - apply Forall2_flat_map. eapply Forall2_impl; [eassumption|].
-      eauto using wf_meta_rule_concl_rels.
-  Qed.
-
   Lemma wf_program_not_input {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
-    wf_program ctx p1 p2 ->
+    wf_program (wf_rel ctx) p1 p2 ->
     Forall is_not_input (program.concl_rels p1) ->
     Forall is_not_input (program.concl_rels p2).
   Proof.
@@ -456,7 +282,7 @@ Section Blocks.
   Qed.
 
   Lemma wf_program_vars_of_block {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
-    wf_program ctx p1 p2 ->
+    wf_program (wf_rel ctx) p1 p2 ->
     incl (vars_of_block p1) (map fst ctx).
   Proof.
     intros Hwf R HR. apply inv_vars_of_block in HR.
@@ -465,7 +291,7 @@ Section Blocks.
   Qed.
 
   Lemma wf_program_vars_of_block_r {var1 var2} (ctx : list (var1 * var2)) p1 p2 :
-    wf_program ctx p1 p2 ->
+    wf_program (wf_rel ctx) p1 p2 ->
     incl (vars_of_block p2) (map snd ctx).
   Proof.
     intros Hwf R HR. apply inv_vars_of_block in HR.
@@ -474,7 +300,7 @@ Section Blocks.
   Qed.
 
   Lemma wf_program_input_in_ctx {var1 var2} (ctx : list (var1 * var2)) p1 p2 x :
-    wf_program ctx p1 p2 ->
+    wf_program (wf_rel ctx) p1 p2 ->
     Forall is_not_input (program.concl_rels p1) ->
     In (input x) (program.all_rels p2) ->
     In x (map snd ctx).
@@ -495,88 +321,28 @@ Section Blocks.
 
   Hint Resolve in_fst in_snd : core.
 
-  Definition flat_input_set (ctx : list ((fact_args -> Prop) * flat_rel)) f :=
-    exists R x, fact.rel f = input x /\ In (R, x) ctx /\ R (fact.args_of f).
-
-  Lemma unflatten_inj_on_local ctx y :
-    inj_on_elt (unflatten_rel ctx) (local y).
-  Proof. intros [y'|x] Heq; cbn in Heq; congruence. Qed.
-
-  Lemma ctx_lookup_cases ctx x :
-    In (ctx_lookup ctx x, x) ctx \/ ctx_lookup ctx x = fun _ => False.
-  Proof.
-    induction ctx as [|[R y] ctx' IH]; [auto|]. simpl. destr (eqb x y); [auto|].
-    destruct IH; auto.
-  Qed.
-
-  Lemma flat_input_set_unflatten_fw ctx f1 f2 :
-    NoDup (map snd ctx) ->
-    fact_equiv (unflatten_rel ctx) f1 f2 ->
-    flat_input_set ctx f1 ->
-    flat_input_set ctx f2.
-  Proof.
-    cbv [fact_equiv flat_input_set]. intros Hnd Heq Hf1. fwd.
-    pose proof (f_equal fact.rel Heq) as Hrel.
-    pose proof (f_equal fact.args_of Heq) as Hargs.
-    rewrite !rel_map_fact in Hrel. rewrite !args_of_map_fact in Hargs.
-    rewrite Hf1p0 in Hrel. simpl in Hrel.
-    rewrite (ctx_lookup_In _ _ _ Hnd Hf1p1) in Hrel.
-    destruct (fact.rel f2) as [y|x2]; simpl in Hrel; [discriminate|].
-    injection Hrel as ->. exists (ctx_lookup ctx x2), x2. ssplit; [reflexivity| |].
-    - destruct (ctx_lookup_cases ctx x2) as [?|Hnone]; [assumption|].
-      exfalso. rewrite Hnone in Hf1p2. exact Hf1p2.
-    - rewrite <- Hargs. exact Hf1p2.
-  Qed.
-
-  Lemma flat_input_set_flatten_fw ctx name f1 f2 :
+  Lemma flat_good_input_set ctx name (p : block_program flat_rel) :
     Forall (in_range O name) (map snd ctx) ->
-    fact_equiv (flatten_rel name) f1 f2 ->
-    flat_input_set ctx f1 ->
-    flat_input_set ctx f2.
-  Proof.
-    cbv [fact_equiv flat_input_set]. intros Hctx Heq Hf1. fwd.
-    pose proof (f_equal fact.rel Heq) as Hrel.
-    pose proof (f_equal fact.args_of Heq) as Hargs.
-    rewrite !rel_map_fact in Hrel. rewrite !args_of_map_fact in Hargs.
-    rewrite Hf1p0 in Hrel. simpl in Hrel.
-    destruct (fact.rel f2) as [y|x2]; simpl in Hrel.
-    - exfalso. rewrite Forall_forall in Hctx.
-      specialize (Hctx _ ltac:(eauto using in_snd)). rewrite Hrel in Hctx.
-      simpl in Hctx. lia.
-    - exists R, x. ssplit; [congruence|assumption|]. rewrite <- Hargs. exact Hf1p2.
-  Qed.
-
-  Lemma flat_input_set_flatten_iff ctx name f' :
-    (exists g, f' = map_fact (flatten_rel name) g /\ flat_input_set ctx g) <->
-      (exists R, In (R, fact.rel f') ctx /\ R (fact.args_of f')).
-  Proof.
-    cbv [flat_input_set]. split; intros Hf; fwd.
-    - rewrite rel_map_fact, args_of_map_fact, Hfp1p0. simpl. eauto.
-    - exists (fact.of_args (input (fact.rel f')) (fact.args_of f')).
-      rewrite map_fact_of_args, fact.rel_of_args, fact.args_of_of_args. simpl.
-      split; [rewrite fact.of_args_args_of; reflexivity|]. eauto.
-  Qed.
-
-  Lemma flat_input_set_good ctx (p : block_program flat_rel) :
     NoDup (map snd ctx) ->
     Forall is_not_input (program.concl_rels p) ->
     Forall fact_args.honest (map fst ctx) ->
-    program.good_input_set p (flat_input_set ctx).
+    program.good_input_set (map_program (flatten_rel name) p)
+      (fun f => exists R, In (R, fact.rel f) ctx /\ R (fact.args_of f)).
   Proof.
-    intros Hnd Hconcl Hhonest. rewrite Forall_forall in Hconcl, Hhonest.
-    cbv [flat_input_set]. split.
-    - intros f Hf. fwd. rewrite Hfp0. intros Hin. apply Hconcl in Hin. exact Hin.
+    intros Hctx Hnd Hconcl Hhonest. rewrite Forall_forall in Hctx, Hconcl, Hhonest. split.
+    - intros f Hf Hin. fwd. rewrite concl_rels_map_program in Hin. apply in_map_iff in Hin. fwd.
+      apply Hconcl in Hinp1. destruct x; [|contradiction]. simpl in Hinp0.
+      apply in_snd, Hctx in Hfp0. rewrite <- Hinp0 in Hfp0. simpl in Hfp0. lia.
     - cbv [fact.set_doesnt_lie]. intros mf Hmf. fwd.
       cbv [fact.set_consistent_with fact.normal_subset]. intros nf Hnf.
       specialize (Hhonest _ ltac:(eauto using in_fst)).
-      cbv [fact_args.honest] in Hhonest. specialize (Hhonest _ Hmfp2).
+      cbv [fact_args.honest] in Hhonest. specialize (Hhonest _ Hmfp1).
       cbv [fact_args.consistent] in Hhonest.
-      cbv [fact_pattern.matches] in Hnf. simpl in *. fwd.
-      cbv [meta_fact.rel] in Hmfp0.
+      cbv [fact_pattern.matches] in Hnf. simpl in *. cbv [meta_fact.rel] in Hmfp0. fwd.
       rewrite (Hhonest _ ltac:(eassumption)). split.
-      + intros HR. exists R, x. ssplit; [congruence | assumption | assumption].
-      + intros HR. fwd. assert (x0 = x) as -> by congruence.
-        eapply NoDup_snd_In_inj in Hmfp1; [|eassumption..]. subst. assumption.
+      + intros HR. exists R. split; [congruence | assumption].
+      + intros (R0 & HR0 & HR). replace R0 with R in HR; [assumption|].
+        eapply NoDup_snd_In_inj; [eassumption | eassumption | congruence].
   Qed.
 
   Lemma flatten_correct' ctx name e e0 name' Rret p :
@@ -704,52 +470,31 @@ Section Blocks.
       + rewrite all_rels_map_program. apply List.Forall_map. apply Forall_forall.
         intros R HR. destruct R; simpl; [left; lia | right].
         eapply wf_program_input_in_ctx; eassumption.
-      + intros args.
-        transitivity (program.interp p2 (flat_input_set ctx)
-                        (fact.of_args (local ret) args)).
-        -- symmetry. erewrite interp_map_iff with (f := unflatten_rel ctx).
-           ++ rewrite (wf_program_unflatten _ _ _ Hctx2 H), map_fact_of_args. simpl.
-              apply program.interp_hyp_ext_strong.
-              ** split; intros Hf; fwd; exfalso.
-                 --- cbv [flat_input_set] in Hfp1. fwd.
-                     pose proof (f_equal fact.rel Hfp0) as Hr.
-                     rewrite fact.rel_of_args, rel_map_fact, Hfp1p0 in Hr. discriminate.
-                 --- rewrite fact.rel_of_args in Hfp0. discriminate.
-              ** intros f' Hf'. split; intros Hf; fwd.
-                 --- cbv [flat_input_set] in Hfp1. fwd.
-                     rewrite rel_map_fact, args_of_map_fact, Hfp1p0. simpl.
-                     rewrite (ctx_lookup_In _ _ _ Hctx2 Hfp1p1). eauto.
-                 --- assert (In R (map fst ctx)) as Hin.
-                     { eapply wf_program_vars_of_block; [eassumption|].
-                       apply inv_vars_of_block. congruence. }
-                     apply in_map_iff in Hin.
-                     destruct Hin as ([R' x] & Heq & Hin). simpl in Heq. subst R'.
-                     exists (fact.of_args (input x) (fact.args_of f')).
-                     rewrite map_fact_of_args. simpl.
-                     rewrite (ctx_lookup_In _ _ _ Hctx2 Hin). split.
-                     +++ rewrite <- Hfp0. symmetry. apply fact.of_args_args_of.
-                     +++ cbv [flat_input_set].
-                         rewrite fact.rel_of_args, fact.args_of_of_args. eauto.
-           ++ exact Hmrv2.
-           ++ apply flat_input_set_good; assumption.
-           ++ intros f1 f2 Hequiv. split; intros Hf.
-              ** eapply flat_input_set_unflatten_fw; eassumption.
-              ** cbv [fact_equiv] in Hequiv. symmetry in Hequiv.
-                 eapply flat_input_set_unflatten_fw; eassumption.
-           ++ eapply Forall_impl; [eassumption|]. intros [y|R'] Hni; [|contradiction].
-              apply unflatten_inj_on_local.
-           ++ rewrite fact.rel_of_args. apply unflatten_inj_on_local.
-        -- erewrite interp_map_iff_inj with (f := flatten_rel name).
-           ++ rewrite map_fact_of_args. simpl. apply program.interp_hyp_ext_strong.
-              ** apply flat_input_set_flatten_iff.
-              ** intros f' Hf'. apply flat_input_set_flatten_iff.
-           ++ rewrite fact.rel_of_args. apply flatten_rel_inj.
-              intros x [Hx|Hx]; [discriminate|]. rewrite Forall_forall in Hctx1.
-              apply Hctx1. eapply wf_program_input_in_ctx; eassumption.
-           ++ intros f1 f2 Hequiv. split; intros Hf.
-              ** eapply flat_input_set_flatten_fw; eassumption.
-              ** cbv [fact_equiv] in Hequiv. symmetry in Hequiv.
-                 eapply flat_input_set_flatten_fw; eassumption.
+      + intros args. symmetry.
+        apply (interp_wf_iff (unflatten_rel name ctx)).
+        -- eapply wf_program_impl.
+           { apply wf_program_flip. eapply wf_program_comp; [eassumption | apply wf_program_map]. }
+           intros x R (y & Hy & Hx). cbv [map_rel] in Hx.
+           destruct R, y; simpl in *; try contradiction; congruence.
+        -- apply Forall_forall. intros x _. apply unflatten_rel_fun; assumption.
+        -- rewrite concl_rels_map_program. apply List.Forall_map.
+           eapply Forall_impl; [eapply wf_program_not_input; eassumption|].
+           intros [y|P] HR; [|contradiction]. apply unflatten_rel_inj. assumption.
+        -- eapply meta_rules_valid_wf; [apply wf_program_map | | | exact Hmrv2].
+           ++ apply Forall_forall. auto using functional_at_map.
+           ++ apply inj_on_map, flatten_rel_inj. intros x Hx.
+              rewrite Forall_forall in Hnoinp2. apply Hnoinp2 in Hx. contradiction.
+        -- apply flat_good_input_set; assumption.
+        -- intros g1 g2 Hg. pose proof (wf_fact_rel _ _ _ Hg) as Hrel.
+           rewrite (wf_fact_args _ _ _ Hg). rewrite Forall_forall in Hctx1.
+           destruct (fact.rel g2) as [y|P]; simpl in Hrel.
+           ++ split; intros (R & HR & HR'); exfalso; [|discriminate].
+              rewrite Hrel in HR. apply in_snd, Hctx1 in HR. simpl in HR. lia.
+           ++ split; intros (R & HR & HR').
+              ** exists P. split; [reflexivity|]. replace P with R; [assumption|].
+                 eapply NoDup_snd_In_inj; eassumption.
+              ** injection HR as <-. eauto.
+        -- apply wf_fact_of_args. reflexivity.
   Qed.
 End Blocks.
 
