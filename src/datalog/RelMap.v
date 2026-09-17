@@ -1376,41 +1376,6 @@ Section RelMap.
         eauto using wf_rule_flip, wf_meta_rule_flip.
     Qed.
 
-    Lemma wf_clause_impl (R S : rel1 -> rel2 -> Prop) c1 c2 :
-      wf_clause R c1 c2 ->
-      (forall x y, R x y -> S x y) ->
-      wf_clause S c1 c2.
-    Proof. cbv [wf_clause]. intuition. Qed.
-
-    Lemma wf_rule_impl (R S : rel1 -> rel2 -> Prop) r1 r2 :
-      wf_rule R r1 r2 ->
-      (forall x y, R x y -> S x y) ->
-      wf_rule S r1 r2.
-    Proof. destruct 1; constructor; eauto using Forall2_impl, wf_clause_impl. Qed.
-
-    Lemma wf_clause_pattern_impl (R S : rel1 -> rel2 -> Prop) c1 c2 :
-      wf_clause_pattern R c1 c2 ->
-      (forall x y, R x y -> S x y) ->
-      wf_clause_pattern S c1 c2.
-    Proof. cbv [wf_clause_pattern]. intuition. Qed.
-
-    Lemma wf_meta_rule_impl (R S : rel1 -> rel2 -> Prop) mr1 mr2 :
-      wf_meta_rule R mr1 mr2 ->
-      (forall x y, R x y -> S x y) ->
-      wf_meta_rule S mr1 mr2.
-    Proof.
-      cbv [wf_meta_rule]. intros. fwd. split; eauto using Forall2_impl, wf_clause_pattern_impl.
-    Qed.
-
-    Lemma wf_program_impl (R S : rel1 -> rel2 -> Prop) p1 p2 :
-      wf_program R p1 p2 ->
-      (forall x y, R x y -> S x y) ->
-      wf_program S p1 p2.
-    Proof.
-      cbv [wf_program]. intros. fwd.
-      split; eauto using Forall2_impl, wf_rule_impl, wf_meta_rule_impl.
-    Qed.
-
     Lemma wf_clause_comp (R : rel1 -> rel2 -> Prop) (S : rel2 -> rel3 -> Prop) c1 c2 c3 :
       wf_clause R c1 c2 ->
       wf_clause S c2 c3 ->
