@@ -146,9 +146,7 @@ Section __.
     | Datalog.expr.var v1, Datalog.expr.var v2 =>
         inb (v1, v2) equalities
     | Datalog.expr.app f1 args1, Datalog.expr.app f2 args2 =>
-        fn_eqb f1 f2 &&
-          Nat.eqb (List.length args1) (List.length args2) &&
-          forallb (eqb true) (map2 (expr_matches equalities) args1 args2)
+        fn_eqb f1 f2 && forallb2 (expr_matches equalities) args1 args2
     | _, _ => false
     end.
 
@@ -166,10 +164,7 @@ Section __.
       rewrite Hmatch in *. auto.
     - destruct e2; simpl in Hmatch; try discriminate.
       repeat invert_stuff.
-      rewrite map2_eq_map_combine in Hmatchp1.
-      rewrite Lists.List.Forall_map in Hmatchp1.
-      apply Forall_combine_Forall2 in Hmatchp1.
-      2: { assumption. }
+      apply forallb2_true_iff in Hmatchp1.
       econstructor; [|eassumption].
       eapply Forall2_impl.
       1: { eapply Forall2_same_r; apply Forall2_flip; eassumption. }
@@ -180,16 +175,12 @@ Section __.
 
   Definition clause_matches (equalities : list (exprvar * exprvar)) (cp : clause_pattern) (nc : clause) :=
     rel_eqb cp.(clause_pattern.rel) nc.(clause.rel) &&
-      (length cp.(clause_pattern.args) =? length nc.(clause.args))%nat &&
-      forallb
-        (eqb true)
-        (map2 (fun ep e =>
-                 match ep with
-                 | expr_pattern.exactly me => expr_matches equalities me e
-                 | expr_pattern.any => true
-                 end)
-           cp.(clause_pattern.args)
-           nc.(clause.args)).
+      forallb2 (fun ep e =>
+                  match ep with
+                  | expr_pattern.exactly me => expr_matches equalities me e
+                  | expr_pattern.any => true
+                  end)
+        cp.(clause_pattern.args) nc.(clause.args).
 
   Lemma clause_matches_sound equalities cp nc ctx1 ctx2 fp nf :
     clause_matches equalities cp nc = true ->
@@ -202,9 +193,7 @@ Section __.
     cbv [clause_matches] in Hmatch. cbv [clause_pattern.interp] in Hcp.
     cbv [clause.interp] in Hnc. cbv [fact_pattern.matches]. fwd.
     split; [congruence|].
-    rewrite map2_eq_map_combine in Hmatchp1.
-    rewrite Lists.List.Forall_map in Hmatchp1.
-    apply Forall_combine_Forall2 in Hmatchp1; [|assumption].
+    apply forallb2_true_iff in Hmatchp1.
     apply Forall2_flip in Hcpp1.
     apply Forall2_flip in Hmatchp1.
     eapply Forall2_same_r in Hcpp1; [|exact Hmatchp1].
@@ -219,8 +208,7 @@ Section __.
     - invert Hp2p2. constructor.
   Qed.
 
-  Definition check_meta_rule_against_impl (mconcls mhyps : list clause_pattern)
-    (nconcls nhyps : list clause) : bool :=
+  Definition check_meta_rule_against_impl (mr : meta_rule) (nconcls nhyps : list clause) : bool :=
     forallb (fun mconcl =>
                let nconcl_matches :=
                  filter (fun nconcl => rel_eqb mconcl.(clause_pattern.rel) nconcl.(clause.rel))
@@ -230,15 +218,15 @@ Section __.
                           | Some equalities =>
                               forallb (fun nhyp =>
                                          existsb (fun mhyp => clause_matches equalities mhyp nhyp)
-                                           mhyps)
+                                           mr.(meta_rule.hyps))
                                 nhyps
                           | None => false (*we already know they have the same relation, so they'd better be compatible*)
                           end)
                  nconcl_matches)
-      mconcls.
+      mr.(meta_rule.concls).
 
   Lemma check_meta_rule_against_impl_sound mr nconcls nhyps pat pats nf hyps :
-    check_meta_rule_against_impl mr.(meta_rule.concls) mr.(meta_rule.hyps) nconcls nhyps = true ->
+    check_meta_rule_against_impl mr nconcls nhyps = true ->
     meta_rule.pattern_interp mr pat pats ->
     rule.interp (rule.impl nconcls nhyps) nf hyps ->
     fact_pattern.matches pat nf ->
@@ -274,8 +262,7 @@ Section __.
     eapply clause_matches_sound; eassumption.
   Qed.
 
-  Definition check_meta_rule_against_agg (mconcls mhyps : list clause_pattern)
-    (concl_rel hyp_rel : rel) : bool :=
+  Definition check_meta_rule_against_agg (mr : meta_rule) (concl_rel hyp_rel : rel) : bool :=
     forallb (fun mconcl =>
                negb (rel_eqb mconcl.(clause_pattern.rel) concl_rel) ||
                  match mconcl.(clause_pattern.args) with
@@ -292,10 +279,10 @@ Section __.
                                 end
                             | _ => false
                             end)
-                       mhyps
+                       mr.(meta_rule.hyps)
                  | [] => false
                  end)
-      mconcls.
+      mr.(meta_rule.concls).
 
   Lemma option_all_expr_of_pattern ps es :
     option_all (map expr_pattern.expr_of ps) = Some es ->
@@ -324,7 +311,7 @@ Section __.
   Qed.
 
   Lemma check_meta_rule_against_agg_sound mr concl_rel agg hyp_rel pat pats nf hyps :
-    check_meta_rule_against_agg mr.(meta_rule.concls) mr.(meta_rule.hyps) concl_rel hyp_rel = true ->
+    check_meta_rule_against_agg mr concl_rel hyp_rel = true ->
     meta_rule.pattern_interp mr pat pats ->
     rule.interp (rule.agg concl_rel agg hyp_rel) nf hyps ->
     fact_pattern.matches pat nf ->
@@ -377,10 +364,8 @@ Section __.
 
   Definition check_meta_rule_against_rule (mr : meta_rule) (nr : rule) : bool :=
     match nr with
-    | rule.impl nconcls nhyps =>
-        check_meta_rule_against_impl mr.(meta_rule.concls) mr.(meta_rule.hyps) nconcls nhyps
-    | rule.agg concl_rel _ hyp_rel =>
-        check_meta_rule_against_agg mr.(meta_rule.concls) mr.(meta_rule.hyps) concl_rel hyp_rel
+    | rule.impl nconcls nhyps => check_meta_rule_against_impl mr nconcls nhyps
+    | rule.agg concl_rel _ hyp_rel => check_meta_rule_against_agg mr concl_rel hyp_rel
     end.
 
   Lemma check_meta_rule_against_rule_sound mr nr :
