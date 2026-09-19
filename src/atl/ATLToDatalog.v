@@ -1107,23 +1107,35 @@ Definition untag_zctx {A} (ctx : list (A * tagged_Z)) : list (A * value) :=
 Definition context_of {var} (ctx : list (ctx_elt2 (var_of var) interp_type_tagged)) : context :=
   map.of_list (untag_zctx (zctx ctx)).
 
+Print R.
 Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps next_varname' bs :
   wf_pSexpr' ctx e e' ->
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
   lower_pSexpr' idxs0 next_varname e = (datalog_expr, hyps, next_varname', bs) ->
   exists hyps' substn,
+    next_varname <= next_varname' /\
     Forall2 (interp_clause (map.putmany substn (context_of ctx))) hyps hyps' /\
-      Forall (fun hyp' => True (*TODO hyp' is true*)) hyps' /\
+    Forall2 (fun hyp' '(l, v) =>
+      exists n depth tensor_val idx_vals,
+        In {| ctx_elt_t := tensor_n n; ctx_elt_p1 := (v, depth); ctx_elt_p2 := tensor_val |} ctx /\
+        match hyp' with
+        | normal_fact r (val_arg :: idx_args) =>
+            r = local l /\
+            Forall2 (fun a b => a = VZ b) idx_args idx_vals /\
+            val_arg = value_of (get_R tensor_val idx_vals)
+        | _ => False
+        end) hyps' bs (* this is meant to show that hyps' is true *) /\
       interp_expr (map.putmany substn (context_of ctx)) datalog_expr (value_of (interp_pSexpr' e')).
 Proof.
   induction 1.
   - intros Hidxs Hcomp. simpl in *. Tactics.destruct_one_match_hyp. invert Hcomp.
     eexists. eexists (map.put map.empty _ (VZ _)). split.
-    + constructor; [|constructor]. cbv [interp_clause]. simpl. eexists. split; [|reflexivity].
+    + lia. 
+    + (*constructor; [|constructor]. cbv [interp_clause]. simpl. eexists. split; [|reflexivity].
       constructor.
       -- constructor. rewrite map.get_putmany_dec. rewrite map.get_put_same.
          eassert (map.get _ next_varname = None) as ->.
-         { (*TODO this should be provable*) admit. }
+         { (*TODO this should be provable*) admit. } (* look at line 1867 of the old proof, add something saying that the nextvarname hasn't been used yet *)
          reflexivity.
-      -- admit.
+      -- admit.*)
 Admitted.
