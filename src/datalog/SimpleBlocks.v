@@ -1,6 +1,14 @@
 From Datalog Require Import Datalog Blocks List Pftree Map.
 From Stdlib Require Import List.
 
+Module result.
+  Section __. Context `{params : datalog_params}.
+  Record result :=
+    { normals : list value -> Prop;
+      done_pats : list value_pattern -> Prop }.
+  End __.
+End result. Abbreviation result := result.result.
+
 Module sblocks.
   Section __.
     Context `{params : datalog_params}.
@@ -8,30 +16,37 @@ Module sblocks.
     Definition inp_holds f :=
       match f with
       | fact.normal {| normal_fact.rel := block_rel.input R; normal_fact.args := args |} =>
-          R (fact_args.normal args)
+          R.(result.normals) args
       | fact.meta {| meta_fact.pattern := {| fact_pattern.rel := block_rel.input R;
                                             fact_pattern.args := mf_args |};
                     meta_fact.set := st |} =>
-          exists mf,
-          R mf /\
+          R.(result.done_pats) mf_args /\
             forall args,
               Forall2 value_pattern.matches mf_args args ->
-              R (fact_args.normal args) <-> fset.contains st args
+              R.(result.normals) args <-> fset.contains st args
       | _ => False
       end.
 
-    Print meta_rule.interp.
-
-    Definition finiteness interp mr c hyps :=
-      Forall
-      meta_rule.pattern_interp mr pat (map meta_fact.pattern hyps) ->
-      exists st,
-        {|
-
-    Fixpoint interp (p : blocks_prog (fact_args -> Prop)) :=
+    (*TODO in which places should this replace interp_blocks_prog?  almost everywhere?*)
+    Print interp_blocks_prog.
+    Fixpoint interp (p : blocks_prog result) :=
       match p with
       | LetIn x f => interp (f (interp x))
       | Block ret p =>
-          (forall f,
+          {| result.normals :=
+              fun args => program.interp p inp_holds
+                         (fact.normal
+                            {| normal_fact.rel := block_rel.local ret;
+                              normal_fact.args := args |});
+            result.done_pats :=
+              fun pat => exists st,
+                  program.interp p inp_holds
+                    (fact.meta
+                       (meta_fact.mk
+                          {| fact_pattern.rel := block_rel.local ret;
+                            fact_pattern.args := pat |}
+                          st))
+            |}
+      end.
   End __.
 End sblocks.
