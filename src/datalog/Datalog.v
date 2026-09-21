@@ -669,8 +669,29 @@ Module result.
 
     Definition of_facts R (fs : fact -> Prop) :=
       {| normal := fun nf_args => fs (fact.normal {| normal_fact.rel := R; normal_fact.args := nf_args |});
-        done := fun mf_args => exists mf, fs (fact.meta mf) /\
-                                    mf.(meta_fact.pattern).(fact_pattern.args) = mf_args |}.
+        done := fun mf_args =>
+          exists mf, fs (fact.meta mf) /\
+                mf.(meta_fact.pattern) = {| fact_pattern.rel := R; fact_pattern.args := mf_args |} |}.
+
+    Lemma contains_of_facts R fs f :
+      fact.set_doesnt_lie fs ->
+      fact.rel f = R ->
+      contains (of_facts R fs) f <-> fs f.
+    Proof.
+      intros Hlie Hrel. destruct f as [nf|mf]; simpl in Hrel; subst; simpl.
+      - destruct nf. reflexivity.
+      - split.
+        + intros [(mf' & Hmf' & Hpat) Hcons]. replace mf with mf'; [exact Hmf'|].
+          apply meta_fact.eq_of_agree.
+          { rewrite Hpat. cbv [meta_fact.rel]. destruct (meta_fact.pattern mf). reflexivity. }
+          intros [r a] Hm' Hm. rewrite (Hlie _ Hmf' _ Hm'), (Hcons _ Hm).
+          cbv [fact_pattern.matches] in Hm. simpl in *. fwd. reflexivity.
+        + intros Hmf. split.
+          * exists mf. split; [exact Hmf|]. cbv [meta_fact.rel]. destruct (meta_fact.pattern mf).
+            reflexivity.
+          * intros [r a] Hm. rewrite (Hlie _ Hmf _ Hm). cbv [fact.normal_subset].
+            cbv [fact_pattern.matches] in Hm. simpl in *. fwd. reflexivity.
+    Qed.
   End __.
 End result. Abbreviation result := result.result.
 

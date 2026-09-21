@@ -68,6 +68,10 @@ Module fact.
       | fact.meta mf1, fact.meta mf2 => meta_fact.wf wf_rel mf1 mf2
       | _, _ => False
       end.
+
+    Lemma rel_map_rel g f :
+      fact.rel (map_rel g f) = g (fact.rel f).
+    Proof. destruct f; reflexivity. Qed.
   End __.
 End fact.
 
@@ -195,6 +199,19 @@ Section RelMap.
       inj_at x x'.
     Proof. auto. Qed.
     Hint Resolve inj_on_elt_at inj_on_at : core.
+
+    Lemma wf_fact_contains r g1 g2 :
+      fact.wf wf_rel g1 g2 ->
+      result.contains r g1 <-> result.contains r g2.
+    Proof.
+      destruct g1 as [[r1 a1]|[[r1 a1] s1 p1]], g2 as [[r2 a2]|[[r2 a2] s2 p2]];
+        cbv [fact.wf normal_fact.wf meta_fact.wf fact_pattern.wf result.contains
+             meta_fact.consistent_with fact_pattern.matches];
+        simpl; intros; fwd; try contradiction; try reflexivity.
+      split; intros [Hd Hc]; (split; [assumption|]); intros [rn an] [_ Ha]; simpl in *.
+      - apply (Hc {| normal_fact.rel := r1; normal_fact.args := an |}). auto.
+      - apply (Hc {| normal_fact.rel := r2; normal_fact.args := an |}). auto.
+    Qed.
 
     Lemma wf_fact_map_rel_r g h :
       fact.wf wf_rel h (fact.map_rel g h) <-> wf_rel (fact.rel h) (g (fact.rel h)).

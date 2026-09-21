@@ -579,7 +579,7 @@ Proof.
                 eapply compile_Sexpr_vars_in; eauto. }
          move Hmf at bottom.
          assert (Heq: forall x y, (x = y /\ x' x) <-> S0 [x; y]).
-         { intros x y. cbv [fact.set_consistent_with] in Hmf.
+         { intros x y. cbv [meta_fact.consistent_with] in Hmf.
            specialize (Hmf {| normal_fact.rel := local 1;
                              normal_fact.args := [x; y] |}).
            simpl in Hmf.

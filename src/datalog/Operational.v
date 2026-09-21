@@ -565,7 +565,7 @@ Section __.
     match f with
     | fact.normal _ => True
     | fact.meta mf =>
-        fact.set_consistent_with mf (fun nf => In (message.normal nf) s.(known_facts))
+        meta_fact.consistent_with mf (fun nf => In (message.normal nf) s.(known_facts))
     end.
 
   Definition state_correct (inputs : list message) (s : state) :=
@@ -719,14 +719,14 @@ Section __.
           - apply (knows_fact_local_lift_has_derived s (fact.meta mh)). exact Hk_mh.
           - apply (knows_fact_local_lift_mf_consistent s (fact.meta mh)). exact Hk_mh. }
         pose proof (Hhonest _ Hprog_mh) as Hcon_mh.
-        cbv [fact.set_consistent_with fact.normal_subset] in Hcon_mh.
+        cbv [meta_fact.consistent_with fact.normal_subset] in Hcon_mh.
         destruct Hk_mh as (num_m & Hexp_m & Hexn_m & Hbic_m).
-        cbv [fact.set_consistent_with] in Hbic_m.
+        cbv [meta_fact.consistent_with] in Hbic_m.
         destruct h as [nf_h | mf_h]; simpl in Hcov_h.
         + specialize (Hcon_mh _ Hcov_h). specialize (Hbic_m _ Hcov_h).
           simpl. apply Hbic_m. apply Hcon_mh. exact Hprog_h.
         + pose proof (Hhonest _ Hprog_h) as Hcon_h.
-          cbv [fact.set_consistent_with fact.normal_subset] in Hcon_h.
+          cbv [meta_fact.consistent_with fact.normal_subset] in Hcon_h.
           simpl. exists num_m. rewrite Hcov_h in Hexp_m, Hexn_m.
           split; [exact Hexp_m|]. split; [exact Hexn_m|].
           intros nf0 Hm0.
@@ -868,7 +868,7 @@ Section __.
           - intros r' Hr'. destruct (Hf1 r' Hr') as (num & Hin).
             destruct Hin as [Heq | Hin]; [ discriminate | exists num; exact Hin ]. }
         assert (Hf2_s : mf_consistent_state s (fact.meta mf)).
-        { cbv [mf_consistent_state fact.set_consistent_with] in Hf2 |- *.
+        { cbv [mf_consistent_state meta_fact.consistent_with] in Hf2 |- *.
           intros nf0 Hm0. specialize (Hf2 _ Hm0). rewrite Hf2. split.
           - intros [Heq | Hk]; [ | exact Hk ].
             invert Heq. exfalso.
@@ -895,7 +895,7 @@ Section __.
       - cbv [has_derived_datalog_fact] in Hf1. apply Hkd_normal in Hf1.
         apply Hsound. split; [ exact Hf1 | exact I ].
       - assert (Hf2_s : mf_consistent_state s (fact.meta mf)).
-        { cbv [mf_consistent_state fact.set_consistent_with] in Hf2 |- *.
+        { cbv [mf_consistent_state meta_fact.consistent_with] in Hf2 |- *.
           intros nf0 Hm0. specialize (Hf2 _ Hm0). rewrite Hf2. exact (Hkd_normal nf0). }
         destruct (is_input (meta_fact.rel mf)) eqn:HER.
         + assert (Hnm : ~ message.matches mf.(meta_fact.pattern)
@@ -966,7 +966,7 @@ Section __.
                      + intros r' Hr'. destruct (Hhd' r' Hr') as (num & Hin).
                        destruct Hin as [Heq | Hin]; [ | exists num; exact Hin ].
                        invert Heq. congruence.
-                   - cbv [mf_consistent_state fact.set_consistent_with] in Hmc' |- *.
+                   - cbv [mf_consistent_state meta_fact.consistent_with] in Hmc' |- *.
                      intros nf2 Hm2. specialize (Hmc' _ Hm2). subst s'.
                      cbn [known_facts] in Hmc'. rewrite Hmc'. exact (Hkd_normal nf2). }
                  assert (Hf1_True : has_derived_datalog_fact s'
@@ -980,7 +980,7 @@ Section __.
                  assert (Hm_npat : fact_pattern.matches npat nf)
                    by (rewrite <- Hpe; exact Hmatch_mf).
                  assert (Hcons_mhyps :
-                           Forall (fun mh => fact.set_consistent_with mh
+                           Forall (fun mh => meta_fact.consistent_with mh
                                      (fact.normal_subset
                                         (program.interp p (knows_fact inputs)))) mhyps).
                  { apply Forall_forall. intros mh Hmh. apply Hhonest.
@@ -999,7 +999,7 @@ Section __.
                        eapply fact.set_doesnt_lie_agree;
                        [ apply Hgood_Q | exact Hg1 | exact Hg2 ]
                      | rewrite Forall_forall in Hmhyps_derived; auto ]. }
-                 cbv [mf_consistent_state fact.set_consistent_with] in Hf2.
+                 cbv [mf_consistent_state meta_fact.consistent_with] in Hf2.
                  specialize (Hf2 _ Hmatch_mf).
                  rewrite Hf2. subst s'. cbn [known_facts].
                  rewrite (program.one_step_derives_iff p (knows_fact inputs) mr mhyps npat nf)
@@ -1216,7 +1216,7 @@ Section __.
   Proof.
     intros Hinp Hlen Hsound Himpl Hderived.
     destruct f as [nf | mf]; [exact I|].
-    cbv [mf_consistent_state fact.set_consistent_with]. intros nf0 Hmatch.
+    cbv [mf_consistent_state meta_fact.consistent_with]. intros nf0 Hmatch.
     pose (mf0 := meta_fact.mk mf.(meta_fact.pattern)
                    (flat_map (normal_args_with mf.(meta_fact.pattern).(fact_pattern.rel))
                       s.(known_facts))).
@@ -1291,7 +1291,7 @@ Section __.
     pose proof (good_inputs_knows_fact_inputs inputs Hinp Hlen_pos) as Hgi.
     pose proof (program.valid_impl_honest p Hmeta_rules _ Hgi) as Hhonest.
     pose proof (Hhonest _ Hpi_meta) as Hcons_meta.
-    cbv [fact.set_consistent_with fact.normal_subset] in Hcons_meta.
+    cbv [meta_fact.consistent_with fact.normal_subset] in Hcons_meta.
     assert (Hl_nf : exists l, forall nf,
                fact_pattern.matches mf.(meta_fact.pattern) nf ->
                fset.contains mf.(meta_fact.set) nf.(normal_fact.args) -> In nf l).
