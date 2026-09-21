@@ -356,10 +356,10 @@ Section __.
     specialize (H1 _ _ H'p0). cbv [agree_on]. rewrite H1, H'p0. reflexivity.
   Qed.
 
-  Definition eval_rule ctx (hyps' : list fact) (r : rule) : list fact :=
+  Definition eval_rule ctx (hyps' : list fact) (r : rule) : list normal_fact :=
     match r with
     | rule.impl rule_concls _ =>
-        map fact.normal (keep_Some (map (subst_in_clause ctx) rule_concls))
+        keep_Some (map (subst_in_clause ctx) rule_concls)
     | rule.agg concl_rel agg hyp_rel =>
         match hyps' with
         | fact.meta mf :: rest =>
@@ -378,8 +378,8 @@ Section __.
                                       end) rest) in
                 match args, vals with
                 | Some args, Some vals =>
-                    [fact.normal {| normal_fact.rel := concl_rel;
-                                   normal_fact.args := interp_agg agg vals :: args |}]
+                    [{| normal_fact.rel := concl_rel;
+                       normal_fact.args := interp_agg agg vals :: args |}]
                 | _, _ => []
                 end
             | _ => []
@@ -408,14 +408,14 @@ Section __.
   Lemma eval_rule_complete r nf hyps :
     rule.interp r nf hyps ->
     exists ctx,
-      In (fact.normal nf) (eval_rule ctx hyps r) /\
+      In nf (eval_rule ctx hyps r) /\
         matches_ctx r hyps ctx.
   Proof.
     invert 1.
     - exists ctx. cbv [eval_rule].
       apply Exists_exists in H0. fwd. split; eauto.
-      apply in_map. apply in_keep_Some. apply in_map_iff.
-        eauto using subst_in_clause_complete.
+      apply in_keep_Some. apply in_map_iff.
+      eauto using subst_in_clause_complete.
     - exists map.empty. cbv [eval_rule]. simpl. split; [|exact I].
       rewrite map_map. simpl. rewrite option_all_map_Some.
       rewrite map_map. erewrite map_ext.
@@ -598,7 +598,7 @@ Section __.
     eval_rule ctx hyps' r = eval_rule ctx' hyps' r.
   Proof.
     destruct r; simpl; intros H; [|reflexivity].
-    f_equal. f_equal. apply map_ext_in. intros c Hc.
+    f_equal. apply map_ext_in. intros c Hc.
     apply subst_in_clause_ctxs_agree.
     apply Forall_forall. intros v Hv. apply H.
     cbv [rule.all_vars rule.concl_vars]. apply in_app_iff. left.
@@ -654,7 +654,7 @@ Section __.
 
   Definition possible_hyps (r : rule) (facts : list fact) : list (list fact) :=
     match r with
-    | rule.impl _ rule_hyps => choose_any_n (length rule_hyps) facts
+    | rule.impl _ hyps => choose_any_n (length hyps) facts
     | rule.agg _ _ _ => flat_map (fun n => choose_any_n n facts) (seq 1 (S (length facts)))
     end.
 
@@ -694,7 +694,7 @@ Section __.
       rewrite in_flat_map. setoid_rewrite fact.in_meta_facts. eauto 6.
   Qed.
 
-  Definition step_rule (r : rule) (facts : list fact) : list fact :=
+  Definition step_rule (r : rule) (facts : list fact) : list normal_fact :=
     flat_map
       (fun hyps' => eval_rule (ctx_of_rule r hyps') hyps' r)
       (possible_hyps r facts).
@@ -703,7 +703,7 @@ Section __.
     rule.is_bottomup r ->
     incl hyps facts ->
     rule.interp r nf hyps ->
-    In (fact.normal nf) (step_rule r facts).
+    In nf (step_rule r facts).
   Proof.
     intros Hgood Hincl Himpl.
     cbv [step_rule]. apply in_flat_map. eexists. split.
@@ -723,7 +723,7 @@ Section __.
   Lemma eval_one_step_derives_complete rules mfs nf :
     Forall rule.is_bottomup rules ->
     rule.one_step_derives rules mfs nf ->
-    In (fact.normal nf) (eval_one_step_derives rules mfs).
+    In nf (eval_one_step_derives rules mfs).
   Proof.
     intros Hgood (hyps & Hex & Himp). rewrite Forall_forall in Hgood, Himp.
     rewrite Exists_exists in Hex. destruct Hex as (r & Hr & Hinterp).
@@ -740,7 +740,7 @@ Section __.
   Qed.
 
   Definition possible_concl_sets fs :=
-    subsets (map normal_fact.args (flat_map fact.normal_facts fs)).
+    subsets (map normal_fact.args fs).
 
   Definition step_meta_rule (rules : list rule) (mr : meta_rule) (facts : list fact) : list meta_fact :=
     flat_map
@@ -766,10 +766,7 @@ Section __.
     { intros. apply eval_meta_rule_same_set. assumption. }
     { intros args Hargs. apply Hvals in Hargs.
       apply eval_one_step_derives_complete in Hargs; [|assumption].
-      apply in_map_iff. eexists. split.
-      2: { apply in_flat_map. eexists.
-           split; [eassumption | apply fact.in_normal_facts; reflexivity]. }
-      reflexivity. }
+      apply in_map_iff. eexists. split; [|eassumption]. reflexivity. }
     erewrite eval_meta_rule_ctxs_agree with (ctx' := ctx); [exact Hin|].
     intros v Hv. symmetry. eapply meta_is_bottomup_ctx_agree; eassumption.
   Qed.
@@ -778,7 +775,7 @@ Section __.
     flat_map (fun mr => step_meta_rule p.(program.rules) mr facts) p.(program.meta_rules).
 
   Definition step_program (p : program) (facts : list fact) : list fact :=
-    step_rules p.(program.rules) facts ++
+    map fact.normal (step_rules p.(program.rules) facts) ++
       map fact.meta (step_meta_rules p facts).
 
   Lemma step_program_complete p f hyps facts :
@@ -791,7 +788,7 @@ Section __.
     intros Hgood Hmgood Hincl H. pose proof Hgood as Hgood'.
     rewrite Forall_forall in Hgood, Hmgood.
     cbv [step_program]. invert H; fwd.
-    - apply in_or_app. left. cbv [step_rules]. apply in_flat_map.
+    - apply in_or_app. left. cbv [step_rules]. apply in_map. apply in_flat_map.
       eauto using step_rule_complete.
     - apply in_or_app. right. apply in_map. cbv [step_meta_rules]. apply in_flat_map.
       eexists. split; [eassumption|].
