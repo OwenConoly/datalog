@@ -11,4 +11,6 @@ End __.
 
 Module fprog.
   Section __.
-    Definition
+    Definition foo := tt.
+  End __.
+End fprog.
