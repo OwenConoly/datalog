@@ -9,6 +9,18 @@ Module result.
   End __.
 End result. Abbreviation result := result.result.
 
+Section __. Context `{params : datalog_params}.
+  Definition closed mr P :=
+    forall pat hyps,
+      meta_rule.pattern_interp mr pat (map meta_fact.pattern hyps) ->
+      Forall P hyps ->
+      exists st,
+        P (meta_fact.mk pat st).
+
+  Definition closed' mrs P :=
+    Forall (fun mr => closed mr P) mrs.
+End __.
+
 Module sblocks.
   Section __.
     Context `{params : datalog_params}.
@@ -39,7 +51,9 @@ Module sblocks.
                             {| normal_fact.rel := block_rel.local ret;
                               normal_fact.args := args |});
             result.done_pats :=
-              fun pat => exists st,
+              fun pat =>
+                closed' p.(program.meta_rules) (fun mf => program.interp p inp_holds (fact.meta mf)) ->
+                exists st,
                   program.interp p inp_holds
                     (fact.meta
                        (meta_fact.mk
