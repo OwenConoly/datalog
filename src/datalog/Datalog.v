@@ -288,6 +288,20 @@ Module fact_pattern.
     Definition matches (fp : fact_pattern) f :=
       fp.(rel) = f.(normal_fact.rel) /\
         Forall2 value_pattern.matches fp.(args) f.(normal_fact.args).
+
+    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
+    Context {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
+
+    Definition matchesb (fp : fact_pattern) f :=
+      eqb fp.(rel) f.(normal_fact.rel) && forallb2 value_pattern.matchesb fp.(args) f.(normal_fact.args).
+
+    #[global] Instance matchesb_spec fp f :
+      Reflects (matches fp f) (matchesb fp f).
+    Proof.
+      cbv [matches matchesb Eqb.eqb]. destr (rel_eqb fp.(rel) f.(normal_fact.rel)); simpl.
+      - eapply Reflects_iff; [exact _|]. intuition congruence.
+      - constructor. intuition congruence.
+    Qed.
   End __.
 
   Section __.
