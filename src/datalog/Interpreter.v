@@ -183,29 +183,11 @@ Section __.
                    | _ => []
                    end) args args').
 
-  Definition context_of_clause (c : clause) (f : fact) :=
-    match f with
-    | fact.normal nf => context_of_args c.(clause.args) nf.(normal_fact.args)
-    | fact.meta _ => []
-    end.
+  Definition context_of_clause (c : clause) (f : normal_fact) :=
+    context_of_args c.(clause.args) f.(normal_fact.args).
 
-  Definition context_of_hyps (hyps : list clause) (hyps' : list fact) :=
+  Definition context_of_hyps (hyps : list clause) (hyps' : list normal_fact) :=
     concat (zip context_of_clause hyps hyps').
-
-  (*the pool an interpreter works over is a list fact, so here are the
-    clause-fact versions of the interp relations*)
-  Definition clause_fact_interp ctx (c : clause) (f : fact) :=
-    match f with
-    | fact.normal nf => clause.interp ctx c nf
-    | fact.meta _ => False
-    end.
-
-  Lemma clause_fact_interp_normal ctx hyps hyps' :
-    Forall2 (clause.interp ctx) hyps hyps' ->
-    Forall2 (clause_fact_interp ctx) hyps (map fact.normal hyps').
-  Proof.
-    intros. rewrite <- Forall2_map_r. eapply Forall2_impl; [eassumption|]. auto.
-  Qed.
 
   Lemma bare_in_context_args ctx x args args' :
     In (expr.var x) args ->
@@ -221,16 +203,15 @@ Section __.
 
   Lemma bare_in_context_clause ctx x c f :
     In (expr.var x) c.(clause.args) ->
-    clause_fact_interp ctx c f ->
+    clause.interp ctx c f ->
     exists v, In (x, v) (context_of_clause c f).
   Proof.
-    intros H1 H2. destruct f; simpl in *; [|contradiction].
-    cbv [clause.interp] in H2. fwd. eapply bare_in_context_args; eassumption.
+    intros H1 H2. cbv [clause.interp] in H2. fwd. eapply bare_in_context_args; eassumption.
   Qed.
 
   Lemma bare_in_context_hyps ctx x hyps hyps' :
     In (expr.var x) (flat_map clause.args hyps) ->
-    Forall2 (clause_fact_interp ctx) hyps hyps' ->
+    Forall2 (clause.interp ctx) hyps hyps' ->
     exists v, In (x, v) (context_of_hyps hyps hyps').
   Proof.
     intros H1 H2. apply in_flat_map in H1. fwd. cbv [context_of_hyps].
@@ -253,15 +234,14 @@ Section __.
   Qed.
 
   Lemma interp_clause_context_right ctx c f :
-    clause_fact_interp ctx c f ->
+    clause.interp ctx c f ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_clause c f).
   Proof.
-    intros. destruct f; simpl in *; [|contradiction].
-    cbv [clause.interp] in H. fwd. apply interp_args_context_right. assumption.
+    intros. cbv [clause.interp] in H. fwd. apply interp_args_context_right. assumption.
   Qed.
 
   Lemma interp_hyps_context_right ctx hyps hyps' :
-    Forall2 (clause_fact_interp ctx) hyps hyps' ->
+    Forall2 (clause.interp ctx) hyps hyps' ->
     Forall (fun '(x, v) => map.get ctx x = Some v) (context_of_hyps hyps hyps').
   Proof.
     intros H. apply Forall2_combine in H. rewrite Forall_forall in *.
@@ -272,7 +252,7 @@ Section __.
   Qed.
 
   Lemma interp_hyps_context_right_weak ctx hyps hyps' :
-    Forall2 (clause_fact_interp ctx) hyps hyps' ->
+    Forall2 (clause.interp ctx) hyps hyps' ->
     map.extends ctx (map.of_list (context_of_hyps hyps hyps')).
   Proof.
     intros H. apply interp_hyps_context_right in H. cbv [map.extends].
@@ -281,7 +261,7 @@ Section __.
   Qed.
 
   Lemma context_of_hyps_agree ctx hyps hyps' v :
-    Forall2 (clause_fact_interp ctx) hyps hyps' ->
+    Forall2 (clause.interp ctx) hyps hyps' ->
     In (expr.var v) (flat_map clause.args hyps) ->
     agree_on ctx (map.of_list (context_of_hyps hyps hyps')) v.
   Proof.
@@ -414,7 +394,9 @@ Section __.
 
   Definition matches_ctx (r : rule) (hyps' : list fact) ctx : Prop :=
     match r with
-    | rule.impl _ rule_hyps => Forall2 (clause_fact_interp ctx) rule_hyps hyps'
+    | rule.impl _ rule_hyps => exists nfs,
+        hyps' = map fact.normal nfs /\
+        Forall2 (clause.interp ctx) rule_hyps nfs
     | rule.agg _ _ _ => True
     end.
   Hint Unfold matches_ctx : core.
@@ -422,10 +404,6 @@ Section __.
   Definition meta_matches_ctx (mr : meta_rule) (hyps' : list meta_fact) ctx : Prop :=
     Forall2 (clause_pattern.interp ctx) mr.(meta_rule.hyps) (map meta_fact.pattern hyps').
   Hint Unfold meta_matches_ctx : core.
-
-  Lemma option_all_map_value_of_exactly (args : list value) :
-    option_all (map value_pattern.value_of (map value_pattern.exactly args)) = Some args.
-  Proof. induction args; simpl; [reflexivity|]. rewrite IHargs. reflexivity. Qed.
 
   Lemma eval_rule_complete r nf hyps :
     rule.interp r nf hyps ->
@@ -435,12 +413,12 @@ Section __.
   Proof.
     invert 1.
     - exists ctx. cbv [eval_rule].
-      apply Exists_exists in H0. fwd.
-      split; auto using clause_fact_interp_normal.
-      apply in_map. apply in_keep_Some. apply in_map_iff.
-      eauto using subst_in_clause_complete.
+      apply Exists_exists in H0. fwd. split.
+      + apply in_map. apply in_keep_Some. apply in_map_iff.
+        eauto using subst_in_clause_complete.
+      + cbv [matches_ctx]. eauto.
     - exists map.empty. cbv [eval_rule]. simpl. split; [|exact I].
-      rewrite option_all_map_value_of_exactly.
+      rewrite map_map. simpl. rewrite option_all_map_Some.
       rewrite map_map. erewrite map_ext.
       2: { intros (?, ?). reflexivity. }
       rewrite option_all_map_Some. simpl. auto.
@@ -566,7 +544,7 @@ Section __.
 
   Definition ctx_of_rule (r : rule) (hyps' : list fact) : context :=
     match r with
-    | rule.impl _ rule_hyps => map.of_list (context_of_hyps rule_hyps hyps')
+    | rule.impl _ rule_hyps => map.of_list (context_of_hyps rule_hyps (flat_map fact.normal_facts hyps'))
     | rule.agg _ _ _ => map.empty
     end.
 
@@ -656,7 +634,8 @@ Section __.
     intros Hgood Hmatch Hv.
     cbv [rule.is_bottomup] in Hgood. apply Hgood in Hv.
     destruct r; simpl in *.
-    - eauto using context_of_hyps_agree.
+    - fwd. rewrite flat_map_map. simpl. rewrite <- map_is_flat_map. rewrite map_id.
+      eauto using context_of_hyps_agree.
     - contradiction.
   Qed.
 
