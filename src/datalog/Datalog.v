@@ -183,6 +183,21 @@ Module normal_fact.
   (*i don't actually want this to be global; i'd prefer to instead export it along with normal_fact.  but the Import/Export commands aren't granular enough for me to do that.*)
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@normal_fact _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
+
+  Section __.
+    Context {relt : relT} {value : valueT}.
+    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
+    Context {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
+
+    #[global] Instance eqb : Eqb normal_fact :=
+      fun f1 f2 => eqb f1.(rel) f2.(rel) && eqb f1.(args) f2.(args).
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof.
+      intros [R1 args1] [R2 args2]. cbv [Eqb.eqb eqb]. simpl.
+      destr (rel_eqb R1 R2); [|congruence]. destr (list_eqb args1 args2); congruence.
+    Qed.
+  End __.
 End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 #[export] Hint Unfold normal_fact.rel normal_fact.args : core.
 
@@ -241,6 +256,20 @@ Module value_pattern.
       revert vs'. induction vs as [|v vs IH]; intros [|y vs'] H; invert H; auto.
       cbn [matches] in *. f_equal; auto.
     Qed.
+
+    #[global] Instance eqb : Eqb value_pattern :=
+      fun p1 p2 =>
+        match p1, p2 with
+        | exactly v1, exactly v2 => eqb v1 v2
+        | any, any => true
+        | _, _ => false
+        end.
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof.
+      intros [v1|] [v2|]; cbv [Eqb.eqb eqb]; try congruence.
+      destr (value_eqb v1 v2); congruence.
+    Qed.
 End __.
 
 End value_pattern. Abbreviation value_pattern := value_pattern.value_pattern.
@@ -259,6 +288,21 @@ Module fact_pattern.
     Definition matches (fp : fact_pattern) f :=
       fp.(rel) = f.(normal_fact.rel) /\
         Forall2 value_pattern.matches fp.(args) f.(normal_fact.args).
+  End __.
+
+  Section __.
+    Context {relt : relT} {value : valueT}.
+    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
+    Context {value_pattern_eqb : Eqb value_pattern} {value_pattern_eqb_ok : Eqb_ok value_pattern_eqb}.
+
+    #[global] Instance eqb : Eqb fact_pattern :=
+      fun p1 p2 => eqb p1.(rel) p2.(rel) && eqb p1.(args) p2.(args).
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof.
+      intros [R1 args1] [R2 args2]. cbv [Eqb.eqb eqb]. simpl.
+      destr (rel_eqb R1 R2); [|congruence]. destr (list_eqb args1 args2); congruence.
+    Qed.
   End __.
 End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 
