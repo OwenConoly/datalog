@@ -413,10 +413,9 @@ Section __.
   Proof.
     invert 1.
     - exists ctx. cbv [eval_rule].
-      apply Exists_exists in H0. fwd. split.
-      + apply in_map. apply in_keep_Some. apply in_map_iff.
+      apply Exists_exists in H0. fwd. split; eauto.
+      apply in_map. apply in_keep_Some. apply in_map_iff.
         eauto using subst_in_clause_complete.
-      + cbv [matches_ctx]. eauto.
     - exists map.empty. cbv [eval_rule]. simpl. split; [|exact I].
       rewrite map_map. simpl. rewrite option_all_map_Some.
       rewrite map_map. erewrite map_ext.
@@ -807,60 +806,9 @@ Section __.
 
   Definition eval_dag p start := eval (count_rels p) p start.
 
-  Lemma possible_hyps_mono r fs1 fs2 :
-    incl fs1 fs2 ->
-    length fs1 <= length fs2 ->
-    incl (possible_hyps r fs1) (possible_hyps r fs2).
-  Proof. intros Hincl Hlen. destruct r; simpl; auto with incl. Qed.
-  Hint Resolve possible_hyps_mono : incl.
-
-  Lemma possible_meta_hyps_mono mr fs1 fs2 :
-    incl fs1 fs2 ->
-    incl (possible_meta_hyps mr fs1) (possible_meta_hyps mr fs2).
-  Proof. intros Hincl. cbv [possible_meta_hyps]. auto with incl. Qed.
-  Hint Resolve possible_meta_hyps_mono : incl.
-
-  Lemma step_rule_mono r fs1 fs2 :
-    incl fs1 fs2 ->
-    length fs1 <= length fs2 ->
-    incl (step_rule r fs1) (step_rule r fs2).
-  Proof. intros. cbv [step_rule]. auto with incl. Qed.
-  Hint Resolve step_rule_mono : incl.
-
-  Lemma step_meta_rule_mono rules mr fs1 fs2 :
-    incl fs1 fs2 ->
-    incl (step_meta_rule rules mr fs1) (step_meta_rule rules mr fs2).
-  Proof. intros. cbv [step_meta_rule]. auto with incl. Qed.
-  Hint Resolve step_meta_rule_mono : incl.
-
-  Lemma step_rules_mono rules fs1 fs2 :
-    incl fs1 fs2 ->
-    length fs1 <= length fs2 ->
-    incl (step_rules rules fs1) (step_rules rules fs2).
-  Proof. intros. cbv [step_rules]. auto with incl. Qed.
-  Hint Resolve step_rules_mono : incl.
-
-  Lemma step_meta_rules_mono p fs1 fs2 :
-    incl fs1 fs2 ->
-    incl (step_meta_rules p fs1) (step_meta_rules p fs2).
-  Proof. intros. cbv [step_meta_rules]. auto with incl. Qed.
-  Hint Resolve step_meta_rules_mono : incl.
-
-  Lemma step_program_mono p fs1 fs2 :
-    incl fs1 fs2 ->
-    length fs1 <= length fs2 ->
-    incl (step_program p fs1) (step_program p fs2).
-  Proof. intros. cbv [step_program]. auto with incl. Qed.
-  Hint Resolve step_program_mono : incl.
-
-  Lemma eval_mono n m p start :
-    n <= m ->
-    incl (eval n p start) (eval m p start).
-  Proof. induction 1; simpl; auto with incl. Qed.
-
   Lemma eval_start_incl n p start :
     incl start (eval n p start).
-  Proof. apply eval_mono with (n := 0). lia. Qed.
+  Proof. induction n; simpl; auto with incl. Qed.
 
   Lemma eval_complete p Q n start :
     Forall rule.is_bottomup p.(program.rules) ->
