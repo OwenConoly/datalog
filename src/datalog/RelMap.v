@@ -74,10 +74,10 @@ Section RelMap.
       | _, _ => False
       end.
 
-    Lemma wf_fact_of_args R1 R2 a :
-      wf_fact (fact.of_args R1 a) (fact.of_args R2 a) <-> wf_rel R1 R2.
+    Lemma wf_fact_with_rel {relt} R1 R2 (g : fact (_rel := relt)) :
+      wf_fact (fact.with_rel R1 g) (fact.with_rel R2 g) <-> wf_rel R1 R2.
     Proof.
-      destruct a; cbv [wf_fact wf_normal_fact wf_meta_fact wf_fact_pattern]; simpl; intuition.
+      destruct g; cbv [wf_fact wf_normal_fact wf_meta_fact wf_fact_pattern]; simpl; intuition.
     Qed.
 
     Lemma wf_fact_rel f1 f2 :
@@ -88,14 +88,14 @@ Section RelMap.
         simpl; intuition.
     Qed.
 
-    Lemma wf_fact_args f1 f2 :
+    Lemma wf_fact_with_rel_eq {relt} (R : relt) f1 f2 :
       wf_fact f1 f2 ->
-      fact.args_of f1 = fact.args_of f2.
+      fact.with_rel R f1 = fact.with_rel R f2.
     Proof.
       destruct f1, f2; cbv [wf_fact wf_normal_fact wf_meta_fact wf_fact_pattern]; simpl;
         intros; fwd; try contradiction.
       - congruence.
-      - f_equal. apply meta_args.eq_ext; assumption.
+      - f_equal. apply meta_fact.eq_ext; simpl; congruence.
     Qed.
 
     Lemma wf_normal_fact_fun nf1 nf2 nf2' :
@@ -456,8 +456,8 @@ Section RelMap.
       wf_fact_pattern pat1 mf2.(meta_fact.pattern) ->
       exists mf1, pat1 = mf1.(meta_fact.pattern) /\ wf_meta_fact mf1 mf2.
     Proof.
-      intros H. exists (meta_fact.of_args pat1.(fact_pattern.rel) (meta_fact.args_of mf2)).
-      cbv [wf_fact_pattern wf_meta_fact meta_fact.of_args meta_fact.args_of] in *.
+      intros H. exists (meta_fact.with_rel pat1.(fact_pattern.rel) mf2).
+      cbv [wf_fact_pattern wf_meta_fact meta_fact.with_rel] in *.
       destruct pat1. simpl in *. fwd. auto.
     Qed.
 
@@ -639,8 +639,8 @@ Section RelMap.
         exists h2, wf_fact h1 h2.
       Proof.
         intros H. eapply Forall2_In_l in H; [|apply wf_program_hyp_rels; exact Hwf]. fwd.
-        exists (fact.of_args y (fact.args_of h1)). rewrite <- (fact.of_args_args_of h1) at 1.
-        apply wf_fact_of_args. assumption.
+        exists (fact.with_rel y h1). rewrite <- (fact.with_rel_rel h1) at 1.
+        apply wf_fact_with_rel. assumption.
       Qed.
 
       Lemma wf_fact_exists_inv h2 :
@@ -648,8 +648,8 @@ Section RelMap.
         exists h1, wf_fact h1 h2.
       Proof.
         intros H. eapply Forall2_In_r in H; [|apply wf_program_hyp_rels; exact Hwf]. fwd.
-        exists (fact.of_args x (fact.args_of h2)). rewrite <- (fact.of_args_args_of h2) at 2.
-        apply wf_fact_of_args. assumption.
+        exists (fact.with_rel x h2). rewrite <- (fact.with_rel_rel h2) at 2.
+        apply wf_fact_with_rel. assumption.
       Qed.
 
       Lemma one_step_derives_wf mhyps1 mhyps2 nf1 nf2 :
@@ -841,18 +841,17 @@ Section RelMap.
           destruct (H _ Hin') as ([|mf1'] & Hwf1' & Hi1'); [contradiction|].
           intros nf Hm Hm'.
           assert (Hi'' : program.interp p1 Q1
-                           (fact.meta (meta_fact.of_args (meta_fact.rel mf1)
-                                         (meta_fact.args_of mf1')))).
+                           (fact.meta (meta_fact.with_rel (meta_fact.rel mf1) mf1'))).
           { eapply interp_wf_transport with (f1 := fact.meta mf1'); [eassumption| |eassumption].
-            cbv [wf_fact wf_meta_fact wf_fact_pattern fact_pattern.matches meta_fact.of_args
-                   meta_fact.args_of meta_fact.rel] in *. simpl. fwd. ssplit; congruence. }
+            cbv [wf_fact wf_meta_fact wf_fact_pattern fact_pattern.matches meta_fact.with_rel
+                   meta_fact.rel] in *. simpl. fwd. ssplit; congruence. }
           pose proof (program.meta_facts_consistent p1 Q1 _ _ (proj1 Hgood)
                         ltac:(intros; eapply fact.set_doesnt_lie_agree; [apply Hgood | eassumption..])
                         Hvalid Hi1 Hi'') as Hagree.
           specialize (Hagree {| normal_fact.rel := meta_fact.rel mf1;
                                normal_fact.args := nf.(normal_fact.args) |}).
-          cbv [wf_fact wf_meta_fact wf_fact_pattern fact_pattern.matches meta_fact.of_args
-                 meta_fact.args_of meta_fact.rel] in *. simpl in *. fwd.
+          cbv [wf_fact wf_meta_fact wf_fact_pattern fact_pattern.matches meta_fact.with_rel
+                 meta_fact.rel] in *. simpl in *. fwd.
           rewrite <- Hwf1p1, <- Hwf1'p1. apply Hagree; split; congruence.
         Qed.
 
@@ -1173,7 +1172,7 @@ Section RelMap.
       end.
 
     Lemma map_fact_decompose fct :
-      map_fact fct = fact.of_args (f (fact.rel fct)) (fact.args_of fct).
+      map_fact fct = fact.with_rel (f (fact.rel fct)) fct.
     Proof. destruct fct; simp; reflexivity. Qed.
 
     Definition fact_equiv f1 f2 := map_fact f1 = map_fact f2.
@@ -1184,8 +1183,10 @@ Section RelMap.
       a = b.
     Proof.
       cbv [fact_equiv]. rewrite !map_fact_decompose. intros Hinj H.
-      apply fact.fact_of_inj in H. fwd.
-      rewrite <- (fact.of_args_args_of a), <- (fact.of_args_args_of b). f_equal; auto.
+      assert (Hrel : fact.rel a = fact.rel b).
+      { apply Hinj. rewrite <- (fact.rel_with_rel (f (fact.rel a)) a), H. apply fact.rel_with_rel. }
+      rewrite <- (fact.with_rel_rel a), <- (fact.with_rel_rel b), <- Hrel.
+      rewrite <- (fact.with_rel_with_rel _ (f (fact.rel a)) a), H. apply fact.with_rel_with_rel.
     Qed.
 
     Lemma wf_fact_map g1 g2 :
@@ -1193,9 +1194,9 @@ Section RelMap.
     Proof.
       split; intros H.
       - pose proof (wf_fact_rel _ _ _ H) as Hrel. cbv [map_rel] in Hrel.
-        rewrite map_fact_decompose, Hrel, (wf_fact_args _ _ _ H). apply fact.of_args_args_of.
-      - subst. rewrite map_fact_decompose. rewrite <- (fact.of_args_args_of g1) at 1.
-        apply wf_fact_of_args. reflexivity.
+        rewrite map_fact_decompose, Hrel, (wf_fact_with_rel_eq _ _ _ _ H). apply fact.with_rel_rel.
+      - subst. rewrite map_fact_decompose. rewrite <- (fact.with_rel_rel g1) at 1.
+        apply wf_fact_with_rel. reflexivity.
     Qed.
 
     Definition map_clause_rel (c : clause) : clause :=

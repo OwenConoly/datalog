@@ -262,7 +262,8 @@ Module fact_pattern.
   End __.
 End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 
-Module meta_args.
+
+Module meta_fact.
   Section __.
     Context `{params : datalog_params}.
     Definition canonicalb (pat : list value_pattern) (vals : fset (list value)) :=
@@ -271,16 +272,21 @@ Module meta_args.
     Definition canonical (pat : list value_pattern) (vals : fset (list value)) :=
       Forall (Forall2 value_pattern.matches pat) (map.keys vals).
 
-    Record meta_args :=
-      { args : list value_pattern;
+    Record meta_fact :=
+      { pattern : fact_pattern;
         set : fset (list value);
-        _pf : canonicalb args set = true }.
+        _pf : canonicalb pattern.(fact_pattern.args) set = true }.
   End __.
-  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_args _ _ _) :: prev ().
-  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(args) :: reference:(set) :: prev ().
+  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _ _ _) :: prev ().
+  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
 
   Section __.
     Context `{params : datalog_params}.
+
+    Definition with_rel {relt'} (R : relt') (mf : meta_fact) : meta_fact (_rel := relt') :=
+      {| pattern := {| fact_pattern.rel := R; fact_pattern.args := mf.(pattern).(fact_pattern.args) |};
+        set := mf.(set);
+        _pf := mf.(_pf) |}.
 
     Definition to_canonical_set pat vals :=
       map.of_list (map (fun args => (args, tt))
@@ -303,66 +309,12 @@ Module meta_args.
       apply contains_to_canonical_set in Hin. fwd. assumption.
     Qed.
 
-    Definition mk (pat : list value_pattern) (vals : list (list value)) : meta_args.
+    Definition mk (pat : fact_pattern) (vals : list (list value)) : meta_fact.
     Proof.
-      refine {| args := pat; set := to_canonical_set pat vals |}.
+      refine {| pattern := pat; set := to_canonical_set pat.(fact_pattern.args) vals |}.
       abstract (rewrite Reflects_true_iff by typeclasses eauto;
                 apply canonical_of_list).
     Defined.
-
-    Lemma eq_ext ma1 ma2 :
-      ma1.(args) = ma2.(args) ->
-      ma1.(set) = ma2.(set) ->
-      ma1 = ma2.
-    Proof.
-      destruct ma1, ma2. simpl. intros. subst. f_equal.
-      apply Eqdep_dec.UIP_dec, Bool.bool_dec.
-    Qed.
-
-    Lemma contains_mk pat vals nf_args :
-      fset.contains (mk pat vals).(set) nf_args <->
-        Forall2 value_pattern.matches pat nf_args /\ In nf_args vals.
-    Proof. apply contains_to_canonical_set. Qed.
-
-    Lemma contains_matches ma nf_args :
-      fset.contains ma.(set) nf_args ->
-      Forall2 value_pattern.matches ma.(args) nf_args.
-    Proof.
-      destruct ma as [? ? Hpf]. cbv [fset.contains]. simpl. intros Hin.
-      rewrite Reflects_true_iff in Hpf by typeclasses eauto.
-      rewrite Forall_forall in Hpf. auto.
-    Qed.
-  End __.
-End meta_args. Abbreviation meta_args := meta_args.meta_args.
-
-Module meta_fact.
-  Section __.
-    Context `{params : datalog_params}.
-    Record meta_fact :=
-      { pattern : fact_pattern;
-        set : fset (list value);
-        _pf : meta_args.canonicalb pattern.(fact_pattern.args) set = true }.
-  End __.
-  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_fact _ _ _ _) :: prev ().
-  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(pattern) :: reference:(set) :: prev ().
-
-  Section __.
-    Context `{params : datalog_params}.
-
-    Definition args_of mf :=
-      {| meta_args.args := mf.(pattern).(fact_pattern.args);
-        meta_args.set := mf.(set);
-        meta_args._pf := mf.(_pf) |}.
-
-    Definition of_args R ma : meta_fact :=
-      {| pattern := {| fact_pattern.rel := R; fact_pattern.args := ma.(meta_args.args) |};
-        set := ma.(meta_args.set);
-        _pf := ma.(meta_args._pf) |}.
-
-    Definition mk (pat : fact_pattern) (vals : list (list value)) :=
-      {| pattern := pat;
-        set := (meta_args.mk pat.(fact_pattern.args) vals).(meta_args.set);
-        _pf := (meta_args.mk pat.(fact_pattern.args) vals).(meta_args._pf) |}.
 
     Lemma eq_ext mf1 mf2 :
       mf1.(pattern) = mf2.(pattern) ->
@@ -381,13 +333,13 @@ Module meta_fact.
       fact_pattern.matches pat nf /\ In nf.(normal_fact.args) vals.
     Proof.
       cbv [matches fact_pattern.matches]. simpl.
-      rewrite meta_args.contains_to_canonical_set. tauto.
+      rewrite contains_to_canonical_set. tauto.
     Qed.
 
     Lemma contains_mk pat vals args :
       fset.contains (mk pat vals).(set) args <->
         Forall2 value_pattern.matches pat.(fact_pattern.args) args /\ In args vals.
-    Proof. apply meta_args.contains_to_canonical_set. Qed.
+    Proof. apply contains_to_canonical_set. Qed.
 
     Definition rel mf := mf.(pattern).(fact_pattern.rel).
 
@@ -411,7 +363,11 @@ Module meta_fact.
     Lemma contains_matches mf x :
       fset.contains mf.(set) x ->
       Forall2 value_pattern.matches mf.(pattern).(fact_pattern.args) x.
-    Proof. apply (meta_args.contains_matches (args_of mf)). Qed.
+    Proof.
+      destruct mf as [? ? Hpf]. cbv [fset.contains]. simpl. intros Hin.
+      rewrite Reflects_true_iff in Hpf by typeclasses eauto.
+      rewrite Forall_forall in Hpf. auto.
+    Qed.
 
     Lemma mk_same_set pat vals vals' :
       same_set vals vals' ->
@@ -605,34 +561,6 @@ Module clause_pattern.
   End __.
 End clause_pattern. Abbreviation clause_pattern := clause_pattern.clause_pattern.
 
-Module fact_args.
-  Section __.
-    Context `{params : datalog_params}.
-    Variant fact_args :=
-      | normal (nf_args : list value)
-      | meta (ma : meta_args).
-
-    Definition consistent ma (S : fact_args -> Prop) :=
-      forall nf_args,
-        Forall2 value_pattern.matches ma.(meta_args.args) nf_args ->
-        fset.contains ma.(meta_args.set) nf_args <-> S (normal nf_args).
-
-    Definition honest (S : fact_args -> Prop) :=
-      forall ma,
-        S (meta ma) ->
-        consistent ma S.
-
-    Lemma honest_ext S1 S2 :
-      honest S1 ->
-      (forall a, S1 a <-> S2 a) ->
-      honest S2.
-    Proof.
-      cbv [honest consistent]. intros H Hiff ma Hma nf_args Hargs.
-      rewrite <- Hiff. apply H; [apply Hiff, Hma | assumption].
-    Qed.
-  End __.
-End fact_args. Abbreviation fact_args := fact_args.fact_args.
-
 Module fact.
   Section __.
     Context `{params : datalog_params}.
@@ -645,41 +573,6 @@ Module fact.
       | meta mf => meta_fact.rel mf
       | normal nf => normal_fact.rel nf
       end.
-
-    Definition args_of f :=
-      match f with
-      | normal nf => fact_args.normal nf.(normal_fact.args)
-      | meta mf => fact_args.meta (meta_fact.args_of mf)
-      end.
-
-    Definition of_args R a : fact :=
-      match a with
-      | fact_args.normal nf_args =>
-          normal {| normal_fact.rel := R;
-                   normal_fact.args := nf_args |}
-      | fact_args.meta ma => meta (meta_fact.of_args R ma)
-      end.
-
-    Lemma of_args_args_of f :
-      of_args (rel f) (args_of f) = f.
-    Proof. destruct f; simp; reflexivity. Qed.
-
-    Lemma rel_of_args R a :
-      rel (of_args R a) = R.
-    Proof. destruct a; reflexivity. Qed.
-
-    Lemma args_of_of_args R a :
-      args_of (of_args R a) = a.
-    Proof. destruct a; simp; reflexivity. Qed.
-
-    Lemma fact_of_inj R a R' a' :
-      of_args R a = of_args R' a' ->
-      R = R' /\ a = a'.
-    Proof.
-      intros H. split.
-      - rewrite <- (rel_of_args R a), <- (rel_of_args R' a'), H. reflexivity.
-      - rewrite <- (args_of_of_args R a), <- (args_of_of_args R' a'), H. reflexivity.
-    Qed.
 
     (*if we know hyp and the normal_facts that hyp includes, then do we know f?*)
     Definition implied_by_mf (f : fact) (hyp : meta_fact) :=
@@ -760,16 +653,31 @@ Module fact.
       rewrite (H _ H1) by assumption. rewrite (H _ H2) by assumption. reflexivity.
     Qed.
 
-    Lemma set_doesnt_lie_honest_args (S : fact -> Prop) R :
-      set_doesnt_lie S ->
-      fact_args.honest (fun a => S (of_args R a)).
-    Proof.
-      cbv [set_doesnt_lie fact_args.honest fact_args.consistent].
-      intros H ma Hmeta nf_args Hargs. apply H in Hmeta.
-      cbv [set_consistent_with] in Hmeta. simpl in Hmeta.
-      apply (Hmeta {| normal_fact.rel := R; normal_fact.args := nf_args |}).
-      cbv [fact_pattern.matches]. simpl. auto.
-    Qed.
+  End __.
+  Section __.
+    Context `{params : datalog_params}.
+
+    Definition with_rel {relt'} (R : relt') (f : fact) : fact (_rel := relt') :=
+      match f with
+      | normal nf => normal {| normal_fact.rel := R; normal_fact.args := nf.(normal_fact.args) |}
+      | meta mf => meta (meta_fact.with_rel R mf)
+      end.
+
+    Lemma rel_with_rel {relt'} (R : relt') f :
+      rel (with_rel R f) = R.
+    Proof. destruct f; reflexivity. Qed.
+
+    Lemma with_rel_rel f :
+      with_rel (rel f) f = f.
+    Proof. destruct f; simp; reflexivity. Qed.
+  End __.
+
+  Section __.
+    Context `{params : datalog_params}.
+
+    Lemma with_rel_with_rel {relt' relt''} (R : relt'') (R' : relt') f :
+      with_rel R (with_rel R' f) = with_rel R f.
+    Proof. destruct f; reflexivity. Qed.
   End __.
 End fact. Abbreviation fact := fact.fact.
 
@@ -1684,7 +1592,7 @@ Ltac interp_exprs :=
 (*TODO this is reproduced within the section, and idk how to get it out*)
 Ltac invert_stuff :=
   match goal with
-  | _ => progress cbn [value_pattern.matches fact.rel fact.of_args fact.args_of
+  | _ => progress cbn [value_pattern.matches fact.rel fact.with_rel
                        clause.rel clause.args clause_pattern.rel clause_pattern.args
                        fact.implied_by_mfs fact.implied_by_mf] in *
   | H : rule.one_step_derives _ _ _ |- _ => cbv [rule.one_step_derives] in H; fwd
