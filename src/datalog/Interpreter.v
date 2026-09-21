@@ -4,7 +4,7 @@ From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Bool.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
-From Datalog Require Import Eqb.
+From Datalog Require Import Eqb Default.
 
 From Datalog Require Import Datalog Map Tactics Fp List.
 From GraphSearch Require Import Dag.
@@ -13,6 +13,7 @@ Import ListNotations.
 
 Section __.
   Context `{params : datalog_params}.
+  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
 
   (* Print list_prod. (*why is this not defined in terms of flat_map?*) *)
@@ -356,89 +357,111 @@ Section __.
     specialize (H1 _ _ H'p0). cbv [agree_on]. rewrite H1, H'p0. reflexivity.
   Qed.
 
-  Definition eval_rule ctx (hyps' : list fact) (r : rule) : list normal_fact :=
+  Definition eval_agg_rule (concl_rel : rel) agg mf :=
+    let args := skipn 2 mf.(meta_fact.pattern).(fact_pattern.args) in
+    let args := unwrap_or_default (option_all (map value_pattern.value_of args)) in
+    let vals := map (fun f => match args with
+                           | i :: x_i :: _ => Some (i, x_i)
+                           | _ => None
+                           end)
+                  (map.keys mf.(meta_fact.set)) in
+    let vals := unwrap_or_default (option_all vals) in
+    {| normal_fact.rel := concl_rel;
+      normal_fact.args := interp_agg agg vals :: args |}.
+
+  Definition is_agg_mf (hyp_rel : rel) (mf : meta_fact) :=
+    eqb (meta_fact.rel mf) hyp_rel &&
+      match mf.(meta_fact.pattern).(fact_pattern.args) with
+      | value_pattern.any :: value_pattern.any :: rest =>
+          forallb value_pattern.is_exactlyb rest
+      | _ => false
+      end.
+
+  Definition check_hyps ctx rule_hyps hyps :=
+    eqb (option_all (map (subst_in_clause ctx) rule_hyps)) (Some hyps).
+
+  Definition check_meta_hyps ctx rule_hyps hyps :=
+    eqb (option_all (map (subst_in_clause_pattern ctx) rule_hyps)) (Some hyps).
+
+  Definition step_rule facts (r : rule) : list normal_fact :=
     match r with
-    | rule.impl rule_concls _ =>
-        keep_Some (map (subst_in_clause ctx) rule_concls)
+    | rule.impl rule_concls rule_hyps =>
+        let possible_hyps := choose_any_n (length rule_hyps) (flat_map fact.normal_facts facts) in
+        let ctxs := flat_map (fun hyps =>
+                                     let ctx := map.of_list (context_of_hyps rule_hyps hyps) in
+                                     if check_hyps ctx rule_hyps hyps then [ctx] else [])
+                           possible_hyps in
+        flat_map (fun ctx => keep_Some (map (subst_in_clause ctx) rule_concls)) ctxs
     | rule.agg concl_rel agg hyp_rel =>
-        match hyps' with
-        | fact.meta mf :: rest =>
-            match mf.(meta_fact.pattern).(fact_pattern.args) with
-            | _ :: _ :: vargs =>
-                let args := option_all (map value_pattern.value_of vargs) in
-                let vals := option_all
-                              (map (fun f =>
-                                      match f with
-                                      | fact.normal nf =>
-                                          match nf.(normal_fact.args) with
-                                          | i :: x_i :: _ => Some (i, x_i)
-                                          | _ => None
-                                          end
-                                      | fact.meta _ => None
-                                      end) rest) in
-                match args, vals with
-                | Some args, Some vals =>
-                    [{| normal_fact.rel := concl_rel;
-                       normal_fact.args := interp_agg agg vals :: args |}]
-                | _, _ => []
-                end
-            | _ => []
-            end
-        | _ => []
-        end
+        let mfs := filter (is_agg_mf hyp_rel) (flat_map fact.meta_facts facts) in
+        map (eval_agg_rule concl_rel agg) mfs
     end.
 
-  Definition eval_meta_rule set ctx (mr : meta_rule) : list meta_fact :=
-    map (fun pat => meta_fact.mk pat set)
-      (keep_Some (map (subst_in_clause_pattern ctx) mr.(meta_rule.concls))).
+  Definition step_rules facts := flat_map (step_rule facts).
 
-  Definition matches_ctx (r : rule) (hyps' : list fact) ctx : Prop :=
-    match r with
-    | rule.impl _ rule_hyps => exists nfs,
-        hyps' = map fact.normal nfs /\
-        Forall2 (clause.interp ctx) rule_hyps nfs
-    | rule.agg _ _ _ => True
-    end.
-  Hint Unfold matches_ctx : core.
+  Definition eval_one_step_derives rules mfs :=
+    step_rules
+      (map fact.meta mfs ++ map fact.normal (flat_map meta_fact.normal_facts mfs)) rules.
 
-  Definition meta_matches_ctx (mr : meta_rule) (hyps' : list meta_fact) ctx : Prop :=
-    Forall2 (clause_pattern.interp ctx) mr.(meta_rule.hyps) (map meta_fact.pattern hyps').
-  Hint Unfold meta_matches_ctx : core.
+  Definition step_meta_rule rules mfs r : list meta_fact :=
+    let possible_hyps := choose_any_n (length r.(meta_rule.hyps)) mfs in
+    let ctxs_results := flat_map (fun hyps =>
+                                    let ctx := map.of_list (context_of_pattern_hyps r.(meta_rule.hyps) (map meta_fact.pattern hyps)) in
+                                    if check_meta_hyps ctx r.(meta_rule.hyps) (map meta_fact.pattern hyps) then [(ctx, eval_one_step_derives rules mfs)] else [])
+                  possible_hyps in
+    flat_map (fun '(ctx, results) =>
+                let pats := keep_Some (map (subst_in_clause_pattern ctx) r.(meta_rule.concls)) in
+                map (fun pat => meta_fact.mk pat (map normal_fact.args (filter (fact_pattern.matchesb pat) (results))))
+                    pats)
+             ctxs_results.
 
-  Lemma eval_rule_complete r nf hyps :
-    rule.interp r nf hyps ->
-    exists ctx,
-      In nf (eval_rule ctx hyps r) /\
-        matches_ctx r hyps ctx.
-  Proof.
-    invert 1.
-    - exists ctx. cbv [eval_rule].
-      apply Exists_exists in H0. fwd. split; eauto.
-      apply in_keep_Some. apply in_map_iff.
-      eauto using subst_in_clause_complete.
-    - exists map.empty. cbv [eval_rule]. simpl. split; [|exact I].
-      rewrite map_map. simpl. rewrite option_all_map_Some.
-      rewrite map_map. erewrite map_ext.
-      2: { intros (?, ?). reflexivity. }
-      rewrite option_all_map_Some. simpl. auto.
-  Qed.
+  (* Definition matches_ctx (r : rule) (hyps' : list fact) ctx : Prop := *)
+  (*   match r with *)
+  (*   | rule.impl _ rule_hyps => exists nfs, *)
+  (*       hyps' = map fact.normal nfs /\ *)
+  (*       Forall2 (clause.interp ctx) rule_hyps nfs *)
+  (*   | rule.agg _ _ _ => True *)
+  (*   end. *)
+  (* Hint Unfold matches_ctx : core. *)
 
-  Lemma eval_meta_rule_complete rules mr mf mhyps :
-    meta_rule.interp rules mr mf mhyps ->
-    exists ctx vals,
-      In mf (eval_meta_rule vals ctx mr) /\
-        Forall (fun args => rule.one_step_derives rules mhyps {| normal_fact.rel := meta_fact.rel mf; normal_fact.args := args |}) vals /\
-        meta_matches_ctx mr mhyps ctx.
-  Proof.
-    intros [Hpat Hset]. cbv [meta_rule.pattern_interp] in Hpat. fwd.
-    exists ctx, (map.keys mf.(meta_fact.set)). ssplit.
-    - cbv [eval_meta_rule]. apply in_map_iff. eexists.
-      split; [apply meta_fact.mk_keys|]. apply in_keep_Some. apply in_map_iff.
-      eauto using subst_in_clause_pattern_complete.
-    - apply Forall_forall. intros args Hargs. apply Hset; [|exact Hargs].
-      split; [reflexivity | apply meta_fact.contains_matches, Hargs].
-    - exact Hpatp1.
-  Qed.
+  (* Definition meta_matches_ctx (mr : meta_rule) (hyps' : list meta_fact) ctx : Prop := *)
+  (*   Forall2 (clause_pattern.interp ctx) mr.(meta_rule.hyps) (map meta_fact.pattern hyps'). *)
+  (* Hint Unfold meta_matches_ctx : core. *)
+
+  (* Lemma eval_rule_complete r nf hyps : *)
+  (*   rule.interp r nf hyps -> *)
+  (*   exists ctx, *)
+  (*     In nf (eval_rule ctx hyps r) /\ *)
+  (*       matches_ctx r hyps ctx. *)
+  (* Proof. *)
+  (*   invert 1. *)
+  (*   - exists ctx. cbv [eval_rule]. *)
+  (*     apply Exists_exists in H0. fwd. split; eauto. *)
+  (*     apply in_keep_Some. apply in_map_iff. *)
+  (*     eauto using subst_in_clause_complete. *)
+  (*   - exists map.empty. cbv [eval_rule]. simpl. split; [|exact I]. *)
+  (*     rewrite map_map. simpl. rewrite option_all_map_Some. *)
+  (*     rewrite map_map. erewrite map_ext. *)
+  (*     2: { intros (?, ?). reflexivity. } *)
+  (*     rewrite option_all_map_Some. simpl. auto. *)
+  (* Qed. *)
+
+  (* Lemma eval_meta_rule_complete rules mr mf mhyps : *)
+  (*   meta_rule.interp rules mr mf mhyps -> *)
+  (*   exists ctx vals, *)
+  (*     In mf (eval_meta_rule vals ctx mr) /\ *)
+  (*       Forall (fun args => rule.one_step_derives rules mhyps {| normal_fact.rel := meta_fact.rel mf; normal_fact.args := args |}) vals /\ *)
+  (*       meta_matches_ctx mr mhyps ctx. *)
+  (* Proof. *)
+  (*   intros [Hpat Hset]. cbv [meta_rule.pattern_interp] in Hpat. fwd. *)
+  (*   exists ctx, (map.keys mf.(meta_fact.set)). ssplit. *)
+  (*   - cbv [eval_meta_rule]. apply in_map_iff. eexists. *)
+  (*     split; [apply meta_fact.mk_keys|]. apply in_keep_Some. apply in_map_iff. *)
+  (*     eauto using subst_in_clause_pattern_complete. *)
+  (*   - apply Forall_forall. intros args Hargs. apply Hset; [|exact Hargs]. *)
+  (*     split; [reflexivity | apply meta_fact.contains_matches, Hargs]. *)
+  (*   - exact Hpatp1. *)
+  (* Qed. *)
 
   (*if r is a goodish rule, and this condition holds, then we get the functionalish
     behavrios as encapsulated in lemma agree_fucntional*)
@@ -652,12 +675,6 @@ Section __.
     apply in_map_iff. eexists. split; [|eassumption]. reflexivity.
   Qed.
 
-  Definition possible_hyps (r : rule) (facts : list fact) : list (list fact) :=
-    match r with
-    | rule.impl _ hyps => choose_any_n (length hyps) facts
-    | rule.agg _ _ _ => flat_map (fun n => choose_any_n n facts) (seq 1 (S (length facts)))
-    end.
-
   Definition possible_meta_hyps (mr : meta_rule) (facts : list fact) : list (list meta_fact) :=
     choose_any_n (length mr.(meta_rule.hyps)) (flat_map fact.meta_facts facts).
 
@@ -694,11 +711,6 @@ Section __.
       rewrite in_flat_map. setoid_rewrite fact.in_meta_facts. eauto 6.
   Qed.
 
-  Definition step_rule (r : rule) (facts : list fact) : list normal_fact :=
-    flat_map
-      (fun hyps' => eval_rule (ctx_of_rule r hyps') hyps' r)
-      (possible_hyps r facts).
-
   Lemma step_rule_complete r nf hyps facts :
     rule.is_bottomup r ->
     incl hyps facts ->
@@ -712,13 +724,6 @@ Section __.
       erewrite eval_rule_ctxs_agree; [exact Hctx|].
       intros v Hv. symmetry. eapply is_bottomup_ctx_agree; eassumption.
   Qed.
-
-  Definition step_rules rules facts :=
-    flat_map (fun r => step_rule r facts) rules.
-
-  Definition eval_one_step_derives rules mfs :=
-    step_rules rules
-      (map fact.meta mfs ++ map fact.normal (flat_map meta_fact.normal_facts mfs)).
 
   Lemma eval_one_step_derives_complete rules mfs nf :
     Forall rule.is_bottomup rules ->

@@ -215,6 +215,12 @@ Module value_pattern.
       | any => True
       end.
 
+    Definition is_exactlyb vp :=
+      match vp with
+      | any => false
+      | exactly _ => true
+      end.
+
     Definition matchesb (p : value_pattern) v :=
       match p with
       | exactly v0 => eqb v0 v
@@ -271,7 +277,6 @@ Module value_pattern.
       destr (value_eqb v1 v2); congruence.
     Qed.
 End __.
-
 End value_pattern. Abbreviation value_pattern := value_pattern.value_pattern.
 #[export] Hint Unfold value_pattern.matches : core.
 #[export] Hint Resolve value_pattern.matches_map_exactly : core.
@@ -340,7 +345,7 @@ Module meta_fact.
   Section __.
     Context `{params : datalog_params}.
 
-    Definition to_canonical_set pat vals :=
+    Definition to_canonical_set pat (vals : list (list value)) :=
       map.of_list (map (fun args => (args, tt))
                      (filter (forallb2 value_pattern.matchesb pat) vals)).
 
@@ -417,7 +422,7 @@ Module meta_fact.
       agree mf2 mf1.
     Proof. cbv [agree]. intros H nf H1 H2. symmetry. auto. Qed.
 
-    Lemma contains_matches mf x :
+    Lemma contains_matches (mf : meta_fact) x :
       fset.contains mf.(set) x ->
       Forall2 value_pattern.matches mf.(pattern).(fact_pattern.args) x.
     Proof.

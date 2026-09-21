@@ -28,7 +28,7 @@ Module fset.
     Qed.
   End __.
   Arguments fset _ {_}.
-End fset. Notation fset := fset.fset.
+End fset. Abbreviation fset := fset.fset.
 
 Section MapKeysExtra.
   Context {key key' value : Type}.

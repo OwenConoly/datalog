@@ -227,8 +227,8 @@ Section __.
     rewrite <- app_assoc. reflexivity.
   Qed.
 
-  Definition msg_matches (R : rel) (orig : source) '((f, o) : message * source) : bool :=
-    eqb R (message.rel f) && eqb orig o.
+  Definition msg_matches (R : _rel) (orig : source) '((f, o) : message * source) : bool :=
+    eqb (R : rel) (message.rel f) && eqb orig o.
 
   Definition dest_msgs (s1 : fgstate) : list (location * (message * source)) :=
     flat_map (fun '(n, ns) => map (fun m => (node_loc n, m)) (all_pending_msgs ns))
@@ -1904,5 +1904,4 @@ Section __.
           rewrite H, <- Permutation_middle. reflexivity.
         * exact HRa.(fR_delivered).
   Qed.
-
 End __.

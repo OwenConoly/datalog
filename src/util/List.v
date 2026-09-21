@@ -2398,19 +2398,19 @@ Qed.
 #[global] Typeclasses Opaque list_eqb.
 
 #[global] Instance list_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
-  : Eqb_ok list_eqb.
+  : Eqb_ok (list_eqb (aeqb := aeqb)).
 Proof.
   intros x y. cbv [eqb list_eqb]. pose proof (List.list_eqb_spec x y) as H.
   cbv [eqb] in H. destruct H; assumption.
 Qed.
 
-Fixpoint nodupb {T : Type} {eqb : Eqb T} l :=
+Fixpoint nodupb {T : Type} {eqb : Eqb T} (l : list T) :=
   match l with
   | x :: l' => if inb x l' then false else nodupb l'
   | [] => true
   end.
 
-#[global] Instance nodupb_correct {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} l :
+#[global] Instance nodupb_correct {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} (l : list T) :
   BoolSpec (NoDup l) (~NoDup l) (nodupb l).
 Proof.
   induction l as [|a l' IH].
@@ -2422,7 +2422,7 @@ Proof.
       -- intros H'. invert H'. auto.
 Qed.
 
-Lemma nodupb_sound {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} l :
+Lemma nodupb_sound {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} (l : list T) :
   nodupb l = true ->
   NoDup l.
 Proof. intros. fwd. assumption. Qed.

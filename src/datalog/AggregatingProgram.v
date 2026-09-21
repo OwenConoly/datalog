@@ -293,22 +293,19 @@ Definition agrees {t} (e : result) (e' : interp_type t) :=
   (forall x, set_of e' x <-> e.(result.normal) [x]) /\
     (e.(result.done) [value_pattern.any]).
 
-(*a fresh name, so that the recursive occurrences below really refer to this
-  tactic rather than to the imported [Datalog.invert_stuff]*)
-Ltac agg_invert_stuff :=
+Ltac invert_stuff :=
   match goal with
   | _ => match goal with _ => Datalog.invert_stuff end
   | H: _ \/ _ |- _ => destruct H as [H|H]
   | H: In _ (_ :: _) |- _ => destruct H
   | H: program.interp_step _ _ _ |- _ => invert H
   | H: Forall _ (map _ _) |- _ => progress cbn [map] in H
-  | H: Exists _ _ |- _ => invert1_Exists ltac:(repeat agg_invert_stuff) H
+  | H: Exists _ _ |- _ => invert1_Exists ltac:(repeat invert_stuff) H
   | H: pftree _ _ (fact.normal _) |- _ =>
-      (apply pftree.invert in H; destruct H; [solve[repeat agg_invert_stuff]|]) ||
-      (apply pftree.invert in H; destruct H; [|solve[repeat agg_invert_stuff]])
+      (apply pftree.invert in H; destruct H; [solve[repeat invert_stuff]|]) ||
+        (apply pftree.invert in H; destruct H; [|solve[repeat invert_stuff]])
+  | H: blocks_prog.inp_holds _ |- _ => cbv [blocks_prog.inp_holds fact.rel result.contains] in H
   end.
-
-Ltac invert_stuff := agg_invert_stuff.
 
 Lemma check_is_not_input var (vs : list (block_rel var)):
   forallb (fun v => match v with | block_rel.input _ => false | block_rel.local _ => true end) vs = true ->
@@ -369,7 +366,8 @@ Proof.
             instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.
       -- intros Hx. repeat invert_stuff. assumption.
-    + eexists. eapply pftree.step.
+    + Print program.finite. edestruct Hfin as eexists. split.
+      -- apply Hfin. eapply pftree.step.
       -- constructor. simpl. apply Exists_cons_hd.
          Print meta_rule.interp. with (ctx := map.empty); interp_exprs.
       -- interp_exprs.
