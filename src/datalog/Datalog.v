@@ -452,7 +452,6 @@ Module meta_fact.
     Qed.
   End __.
 End meta_fact. Abbreviation meta_fact := meta_fact.meta_fact.
-
 #[local] Hint Resolve Forall2_impl : core.
 #[local] Hint Resolve Forall_impl : core.
 

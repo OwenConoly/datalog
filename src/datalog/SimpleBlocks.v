@@ -1,21 +1,50 @@
-From Datalog Require Import Datalog Blocks List.
+From Datalog Require Import Datalog Blocks List Pftree.
 From Stdlib Require Import List.
-Check blocks_prog.
 
-Module simple_args.
+
+
+Print block_rel.
+Print program.interp. Print program.interp_step.
+P c hs ->
+  forall hs,
+
+Module sargs.
   Section __.
     Context `{params : datalog_params}.
-    Variant simple_args :=
+    Variant sargs :=
       | normal (nf : list value)
-      | meta (pattern : list value_pattern).
+      | meta (mf_args : meta_args)
+      | done_with (p : list value_pattern).
   End __.
-End simple_args. Notation simple_args := simple_args.simple_args.
+End sargs. Abbreviation sargs := sargs.sargs.
 
-Module simple.
+Module sfact.
   Section __.
-    Context `{params : datalog_params}.
-    Context {lvar : Type}.
-    Fixpoint interp_blocks_prog (e : blocks_prog (lvar := lvar) (simple_args -> Prop)) : simple_args -> Prop :=
+    Context `{params : datalog_params} {lrel : lrelT}.
+    Remove Hints _rel : typeclass_instances.
+
+    Variant sfact {var} :=
+      | normal (nf : normal_fact (relt := block_rel var))
+      | meta (mf : meta_fact (_rel := block_rel var))
+      | done_with (p : fact_pattern (relt := block_rel var)).
+  End __.
+  Arguments sfact {_ _ _ _} _.
+End sfact. Abbreviation sfact := sfact.sfact.
+
+Module srule.
+  Section __.
+    Context `{params : datalog_params} {lrel : lrelT}.
+    Remove Hints _rel : typeclass_instances.
+    Context {var : Type}.
+
+    Inductive interp_step (sblock : block_program var) (f : sfact var) :=
+    | rstep :
+
+Module sblocks.
+  Section __.
+    Context `{params : datalog_params}. Print blocks_prog.
+    Context `{lvar : lrelT}.
+    Fixpoint interp_blocks_prog (e : blocks_prog (simple_args -> Prop)) : simple_args -> Prop :=
       match e with
       | LetIn x f =>
           interp_blocks_prog (f (interp_blocks_prog x))

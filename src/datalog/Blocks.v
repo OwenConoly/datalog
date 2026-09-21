@@ -19,7 +19,7 @@ Module block_rel.
   Section __.
     Context `{_lrel : lrelT} {var : Type}.
 
-    Inductive block_rel :=
+    Inductive block_rel : relT :=
     | local (_ : lrel)
     | input (_ : var).
 
