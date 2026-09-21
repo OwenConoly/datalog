@@ -21,7 +21,7 @@ Section NattifyRel.
     map_program (encode_rel p) p.
 
   Definition nattify_rel_fact (p : program) (fct : fact) :=
-    map_fact (encode_rel p) fct.
+    fact.map_rel (encode_rel p) fct.
 
   Lemma prog_rels_in_table p R :
     In R (program.all_rels p) -> In R (rel_table p).
@@ -33,7 +33,7 @@ Section NattifyRel.
     nattify_rel_fact p a = nattify_rel_fact p b ->
     a = b.
   Proof.
-    intros Ha Heq. apply (fact_equiv_eq (encode_rel p)); [|exact Heq].
+    intros Ha Heq. apply (fact.map_rel_inj (encode_rel p)); [|exact Heq].
     intros Henc. eapply index_of_unwrap_inj; eassumption.
   Qed.
 
