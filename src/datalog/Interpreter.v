@@ -360,7 +360,7 @@ Section __.
   Definition eval_agg_rule (concl_rel : rel) agg mf :=
     let args := skipn 2 mf.(meta_fact.pattern).(fact_pattern.args) in
     let args := unwrap_or_default (option_all (map value_pattern.value_of args)) in
-    let vals := map (fun f => match args with
+    let vals := map (fun f => match f with
                            | i :: x_i :: _ => Some (i, x_i)
                            | _ => None
                            end)
@@ -369,11 +369,12 @@ Section __.
     {| normal_fact.rel := concl_rel;
       normal_fact.args := interp_agg agg vals :: args |}.
 
-  Definition is_agg_mf (hyp_rel : rel) (mf : meta_fact) :=
+  Definition is_agg_mf facts (hyp_rel : rel) (mf : meta_fact) :=
     eqb (meta_fact.rel mf) hyp_rel &&
       match mf.(meta_fact.pattern).(fact_pattern.args) with
       | value_pattern.any :: value_pattern.any :: rest =>
-          forallb value_pattern.is_exactlyb rest
+          forallb value_pattern.is_exactlyb rest &&
+            inclb (meta_fact.normal_facts mf) (flat_map fact.normal_facts facts)
       | _ => false
       end.
 
@@ -393,7 +394,7 @@ Section __.
                            possible_hyps in
         flat_map (fun ctx => keep_Some (map (subst_in_clause ctx) rule_concls)) ctxs
     | rule.agg concl_rel agg hyp_rel =>
-        let mfs := filter (is_agg_mf hyp_rel) (flat_map fact.meta_facts facts) in
+        let mfs := filter (is_agg_mf facts hyp_rel) (flat_map fact.meta_facts facts) in
         map (eval_agg_rule concl_rel agg) mfs
     end.
 
@@ -407,7 +408,7 @@ Section __.
     let possible_hyps := choose_any_n (length r.(meta_rule.hyps)) mfs in
     let ctxs_results := flat_map (fun hyps =>
                                     let ctx := map.of_list (context_of_pattern_hyps r.(meta_rule.hyps) (map meta_fact.pattern hyps)) in
-                                    if check_meta_hyps ctx r.(meta_rule.hyps) (map meta_fact.pattern hyps) then [(ctx, eval_one_step_derives rules mfs)] else [])
+                                    if check_meta_hyps ctx r.(meta_rule.hyps) (map meta_fact.pattern hyps) then [(ctx, eval_one_step_derives rules hyps)] else [])
                   possible_hyps in
     flat_map (fun '(ctx, results) =>
                 let pats := keep_Some (map (subst_in_clause_pattern ctx) r.(meta_rule.concls)) in
