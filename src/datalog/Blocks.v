@@ -87,7 +87,7 @@ Section Blocks.
   Definition example {var} (ret : lrel) p1 p2 : blocks_prog var :=
     LetIn (Block ret p1) (fun val => Block ret (p2 val)).
 
-  Fixpoint interp_blocks_prog (e : blocks_prog (fact_args -> Prop)) : fact_args -> Prop :=
+  Fixpoint interp_blocks_prog (e : blocks_prog result) : result :=
     match e with
     | LetIn x f =>
         interp_blocks_prog (f (interp_blocks_prog x))

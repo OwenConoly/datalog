@@ -183,10 +183,6 @@ Module normal_fact.
   (*i don't actually want this to be global; i'd prefer to instead export it along with normal_fact.  but the Import/Export commands aren't granular enough for me to do that.*)
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@normal_fact _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
-
-  Definition map_rel {relt relt' value} (g : relt -> relt') (nf : normal_fact (relt := relt) (value := value))
-    : normal_fact (relt := relt') :=
-    {| rel := g nf.(rel); args := nf.(args) |}.
 End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 #[export] Hint Unfold normal_fact.rel normal_fact.args : core.
 
@@ -258,10 +254,6 @@ Module fact_pattern.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@fact_pattern _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
-  Definition map_rel {relt relt' value} (g : relt -> relt') (fp : fact_pattern (relt := relt) (value := value))
-    : fact_pattern (relt := relt') :=
-    {| rel := g fp.(rel); args := fp.(args) |}.
-
   Section __.
     Context {relt : relT} {value : valueT}.
     Definition matches (fp : fact_pattern) f :=
@@ -270,6 +262,14 @@ Module fact_pattern.
   End __.
 End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 
+Module result.
+  Section __.
+    Context `{params : datalog_params}.
+    Record result :=
+      { normal : list value -> Prop;
+        done : list value_pattern -> Prop; }.
+  End __.
+End result. Abbreviation result := result.result.
 
 Module meta_fact.
   Section __.
@@ -290,11 +290,6 @@ Module meta_fact.
 
   Section __.
     Context `{params : datalog_params}.
-
-    Definition map_rel {relt relt'} (g : relt -> relt') (mf : meta_fact (_rel := relt)) : meta_fact (_rel := relt') :=
-      {| pattern := fact_pattern.map_rel g mf.(pattern);
-        set := mf.(set);
-        _pf := mf.(_pf) |}.
 
     Definition to_canonical_set pat vals :=
       map.of_list (map (fun args => (args, tt))
@@ -661,39 +656,6 @@ Module fact.
       rewrite (H _ H1) by assumption. rewrite (H _ H2) by assumption. reflexivity.
     Qed.
 
-  End __.
-  Section __.
-    Context `{params : datalog_params}.
-
-    Definition map_rel {relt relt'} (g : relt -> relt') (f : fact (_rel := relt)) : fact (_rel := relt') :=
-      match f with
-      | normal nf => normal (normal_fact.map_rel g nf)
-      | meta mf => meta (meta_fact.map_rel g mf)
-      end.
-
-    Lemma rel_map_rel {relt relt'} (g : relt -> relt') f :
-      rel (map_rel g f) = g (rel f).
-    Proof. destruct f; reflexivity. Qed.
-
-    Lemma map_rel_rel {relt} (f : fact (_rel := relt)) :
-      map_rel (fun _ => rel f) f = f.
-    Proof. destruct f; simp; reflexivity. Qed.
-
-    Lemma map_rel_const {relt relt' relt''} (g : relt -> relt') (R : relt'') f :
-      map_rel (fun _ => R) (map_rel g f) = map_rel (fun _ => R) f.
-    Proof. destruct f; reflexivity. Qed.
-
-    Lemma map_rel_inj {relt relt'} (g : relt -> relt') a b :
-      (g (rel a) = g (rel b) -> rel a = rel b) ->
-      map_rel g a = map_rel g b ->
-      a = b.
-    Proof.
-      intros Hinj H.
-      assert (Hrel : rel a = rel b).
-      { apply Hinj. rewrite <- (rel_map_rel g a), H. apply rel_map_rel. }
-      rewrite <- (map_rel_rel a), <- (map_rel_rel b), <- Hrel.
-      rewrite <- (map_rel_const g (rel a) a), H. apply map_rel_const.
-    Qed.
   End __.
 End fact. Abbreviation fact := fact.fact.
 
@@ -1608,7 +1570,7 @@ Ltac interp_exprs :=
 (*TODO this is reproduced within the section, and idk how to get it out*)
 Ltac invert_stuff :=
   match goal with
-  | _ => progress cbn [value_pattern.matches fact.rel fact.map_rel
+  | _ => progress cbn [value_pattern.matches fact.rel
                        clause.rel clause.args clause_pattern.rel clause_pattern.args
                        fact.implied_by_mfs fact.implied_by_mf] in *
   | H : rule.one_step_derives _ _ _ |- _ => cbv [rule.one_step_derives] in H; fwd
