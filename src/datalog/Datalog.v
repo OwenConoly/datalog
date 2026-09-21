@@ -262,15 +262,6 @@ Module fact_pattern.
   End __.
 End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 
-Module result.
-  Section __.
-    Context `{params : datalog_params}.
-    Record result :=
-      { normal : list value -> Prop;
-        done : list value_pattern -> Prop; }.
-  End __.
-End result. Abbreviation result := result.result.
-
 Module meta_fact.
   Section __.
     Context `{params : datalog_params}.
@@ -351,6 +342,11 @@ Module meta_fact.
         (fun args => {| normal_fact.rel := rel mf;
                     normal_fact.args := args |})
         (map.keys mf.(set)).
+
+    Definition consistent_with (mf : meta_fact) (S : normal_fact -> Prop) :=
+      forall nf,
+        fact_pattern.matches mf.(meta_fact.pattern) nf ->
+        fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <-> S nf.
 
     Definition agree (mf1 mf2 : meta_fact) :=
       forall nf,
@@ -634,16 +630,11 @@ Module fact.
       In mf (meta_facts f) <-> f = meta mf.
     Proof. destruct f; simpl; intuition congruence. Qed.
 
-    Definition set_consistent_with (mf : meta_fact) (S : normal_fact -> Prop) :=
-      forall nf,
-        fact_pattern.matches mf.(meta_fact.pattern) nf ->
-        fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <-> S nf.
-
     Definition normal_subset (S : fact -> Prop) :=
       fun nf => S (normal nf).
 
     Definition set_doesnt_lie (S : fact -> Prop) :=
-      forall mf, S (meta mf) -> set_consistent_with mf (normal_subset S).
+      forall mf, S (meta mf) -> meta_fact.consistent_with mf (normal_subset S).
 
     Lemma set_doesnt_lie_agree (S : fact -> Prop) mf1 mf2 :
       set_doesnt_lie S ->
@@ -651,13 +642,37 @@ Module fact.
       S (meta mf2) ->
       meta_fact.agree mf1 mf2.
     Proof.
-      cbv [set_doesnt_lie set_consistent_with meta_fact.agree].
+      cbv [set_doesnt_lie meta_fact.consistent_with meta_fact.agree].
       intros H H1 H2 nf Hm1 Hm2.
       rewrite (H _ H1) by assumption. rewrite (H _ H2) by assumption. reflexivity.
     Qed.
 
   End __.
 End fact. Abbreviation fact := fact.fact.
+
+Module result.
+  Section __.
+    Context `{params : datalog_params}.
+    Record result :=
+      { normal : list value -> Prop;
+        done : list value_pattern -> Prop; }.
+
+    (*ignores the relation of r*)
+    Definition contains (r : result) (f : fact) :=
+      match f with
+      | fact.meta mf =>
+          r.(done) mf.(meta_fact.pattern).(fact_pattern.args) /\
+            meta_fact.consistent_with mf (fun nf => r.(normal) nf.(normal_fact.args))
+      | fact.normal nf =>
+          r.(normal) nf.(normal_fact.args)
+      end.
+
+    Definition of_facts R (fs : fact -> Prop) :=
+      {| normal := fun nf_args => fs (fact.normal {| normal_fact.rel := R; normal_fact.args := nf_args |});
+        done := fun mf_args => exists mf, fs (fact.meta mf) /\
+                                    mf.(meta_fact.pattern).(fact_pattern.args) = mf_args |}.
+  End __.
+End result. Abbreviation result := result.result.
 
 Module rule.
   Section __.
@@ -1221,7 +1236,7 @@ Module program.
       (forall f, Q1 f <-> Q2 f) ->
       good_input_set p Q2.
     Proof.
-      cbv [good_input_set fact.set_doesnt_lie fact.set_consistent_with fact.normal_subset].
+      cbv [good_input_set fact.set_doesnt_lie meta_fact.consistent_with fact.normal_subset].
       intros [Hconcl Hlie] Hext. split.
       - intros f Hf. rewrite <- Hext in Hf. eauto.
       - intros mf Hmf nf Hmatch. rewrite <- Hext in *. eauto.
@@ -1235,7 +1250,7 @@ Module program.
       meta_rules_valid p ->
       In mr p.(meta_rules) ->
       meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) ->
-      Forall (fun mhyp => fact.set_consistent_with mhyp (fact.normal_subset (interp p Q))) mhyps ->
+      Forall (fun mhyp => meta_fact.consistent_with mhyp (fact.normal_subset (interp p Q))) mhyps ->
       (forall mhyp mf',
           In mhyp mhyps ->
           interp p Q (fact.meta mf') ->
@@ -1246,7 +1261,7 @@ Module program.
       rule.one_step_derives p.(rules) mhyps nf <-> interp p Q (fact.normal nf).
     Proof.
       intros Hinp Hvalid Hmr Hpat Hcons Hagree Hderiv Hmatch.
-      rewrite Forall_forall in Hcons, Hderiv. cbv [fact.set_consistent_with] in Hcons.
+      rewrite Forall_forall in Hcons, Hderiv. cbv [meta_fact.consistent_with] in Hcons.
       split; intros H.
       - cbv [rule.one_step_derives] in H. fwd.
         eapply interp_step_strong.
@@ -1280,18 +1295,18 @@ Module program.
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
       meta_rules_valid p ->
       Exists (fun mr => meta_rule.interp p.(rules) mr mf mhyps) p.(meta_rules) ->
-      Forall (fun mhyp => fact.set_consistent_with mhyp (fact.normal_subset (interp p Q))) mhyps ->
+      Forall (fun mhyp => meta_fact.consistent_with mhyp (fact.normal_subset (interp p Q))) mhyps ->
       (forall mhyp mf',
           In mhyp mhyps ->
           interp p Q (fact.meta mf') ->
           mhyp.(meta_fact.pattern) = mf'.(meta_fact.pattern) ->
           mhyp = mf') ->
       Forall (fun mhyp => interp p Q (fact.meta mhyp)) mhyps ->
-      fact.set_consistent_with mf (fact.normal_subset (interp p Q)).
+      meta_fact.consistent_with mf (fact.normal_subset (interp p Q)).
     Proof.
       intros Hinp Hvalid Hex Hcons Hagree Hderiv.
       rewrite Exists_exists in Hex. destruct Hex as [mr [Hmr [Hpat Hset]]].
-      cbv [fact.set_consistent_with fact.normal_subset]. intros nf Hmatch.
+      cbv [meta_fact.consistent_with fact.normal_subset]. intros nf Hmatch.
       rewrite Hset by assumption. eapply one_step_derives_iff; eassumption.
     Qed.
 
@@ -1397,7 +1412,7 @@ Module program.
       remember (fact.meta mf) as f eqn:Ef. revert mf Ef.
       induction Hderiv; intros mf Ef; subst.
       - pose proof H as HQ. apply Q_honest in H.
-        cbv [fact.set_consistent_with] in H |- *. intros nf Hmatch.
+        cbv [meta_fact.consistent_with] in H |- *. intros nf Hmatch.
         rewrite H by assumption. split; intros H'.
         + apply pftree.leaf. assumption.
         + invert H'; [assumption|].
