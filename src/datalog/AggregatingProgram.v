@@ -5,6 +5,7 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Datatypes.Li
 From Datalog Require Import Eqb.
 From Datalog Require Import List Pftree Datalog (* FancyNotations *) Tactics Blocks CheckMetaRules.
 Import ListNotations.
+Import blocks_prog.
 
 Section __.
 Variant bop := sum | prod.
@@ -288,9 +289,9 @@ Definition set_of {t} (e' : interp_type t) :=
   | val => fun e' => eq e'
   end e'.
 
-Definition agrees {t} (e : fact_args -> Prop) (e' : interp_type t) :=
-  (forall x, set_of e' x <-> e (fact_args.normal [x])) /\
-    (exists S, e (fact_args.meta (meta_args.mk [value_pattern.any] S))).
+Definition agrees {t} (e : result) (e' : interp_type t) :=
+  (forall x, set_of e' x <-> e.(result.normal) [x]) /\
+    (e.(result.done) [value_pattern.any]).
 
 (*a fresh name, so that the recursive occurrences below really refer to this
   tactic rather than to the imported [Datalog.invert_stuff]*)
@@ -337,38 +338,7 @@ Proof.
       [apply fn_inj_correct|];
       simpl.
     vm_compute.
-Qed.
-
-Ltac destr_vbp :=
-  repeat match goal with
-    | H: valid_blocks_prog _ |- _ =>
-        progress (cbn [compile_Sexpr] in H;
-                  repeat rewrite valid_blocks_prog_LetIn in H;
-                  fwd)
-    | H: forall _, valid_blocks_prog _ |- _ =>
-        specialize (H (fun _ => False))
-    | H: forall _, valid_blocks_prog _ /\ _ |- _ =>
-        specialize (H (fun _ => False))
-    end.
-
-Hint Resolve vars_in_incl : core.
-Hint Constructors vars_in : core.
-Lemma compile_Sexpr_vars_in var1 var2 t (dummy : forall t, var1 t) e (ctx : list (@ctx_elt2 var1 (fun _ => var2))) e0 :
-  wf_Sexpr ctx t e e0 ->
-  vars_in (map (@ctx_elt_p2 _ (fun _ => _)) ctx) (compile_Sexpr e0).
-Proof.
-  induction 1;
-    repeat match goal with
-      | _ => progress (intros; simpl in * )
-      | |- vars_in _ _ => constructor
-      | |- In _ (map _ _) => apply in_map_iff
-      | |- Forall _ (_ :: _) => constructor
-      | |- Forall _ [] => constructor
-      | _ => solve[eauto]
-      | |- vars_in (_ :: _) _ => eapply vars_in_incl; [|solve[eauto]]; auto with incl
-      end.
-  eexists. split; [|eassumption]. reflexivity.
-Qed.
+Abort.
 
 Definition dummy (t : type) : interp_type t :=
   match t with
@@ -382,22 +352,21 @@ Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
   wf_Sexpr ctx t e e0 ->
   Forall (fun elt => agrees elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
-  Forall fact_args.honest (map (@ctx_elt_p2 _ (fun _ => _)) ctx) ->
-  valid_blocks_prog (compile_Sexpr e0) ->
+  finite (compile_Sexpr e0) ->
   interp_Sexpr e e' ->
-  agrees (interp_blocks_prog (compile_Sexpr e0)) e'.
+  agrees (interp (compile_Sexpr e0)) e'.
 Proof.
-  intros Hwf Hctx Hhonest Hvalid. revert e'. induction Hwf; intros e' He'.
+  intros Hwf Hctx Hfin. revert e'. induction Hwf; intros e' He'.
   - dep_invert He'. rewrite Forall_forall in Hctx.
     specialize (Hctx _ H). clear H. simpl in Hctx.
     cbv [agrees] in Hctx. fwd.
     cbv [agrees]. simpl. split.
     + intros x. rewrite Hctxp0. clear Hctxp0. split.
-      -- intros Hx. eapply pftree.step with
-           (l := map fact.normal [{| normal_fact.rel := input O;
-                                    normal_fact.args := [x] |}]).
-         ++ constructor. apply Exists_cons_hd.
+      -- intros Hx. eapply pftree.step.
+         ++ apply program.rule_step. apply Exists_cons_hd.
             eapply rule.interp_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+            (* :((( *)
+            instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.
       -- intros Hx. repeat invert_stuff. assumption.
     + eexists. eapply pftree.step.
