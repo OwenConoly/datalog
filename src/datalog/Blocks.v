@@ -106,6 +106,12 @@ Module blocks_prog.
     | wf_Block ctx ret p1 p2 :
       program.wf (block_rel.wf ctx) p1 p2 ->
       wf ctx (Block ret p1) (Block ret p2).
+
+    Fixpoint finite e :=
+      match e with
+      | LetIn x f => forall x, finite (f x)
+      | Block ret p => program.finite p inp_holds
+      end.
   End __.
   Arguments blocks_prog {_ _ _ _} _.
 End blocks_prog. Abbreviation blocks_prog := blocks_prog.blocks_prog.
@@ -374,9 +380,10 @@ Section Blocks.
         2: { apply program.valid_impl_honest; [assumption|]. apply block_good_input_set. assumption. }
         2: { apply fact.rel_map_rel. }
         symmetry.
-        apply (interp_wf_iff (fun x R => exists y, block_rel.wf ctx R y /\ flatten_rel name y = x)).
+        eapply interp_wf_iff.
         -- apply wf_program_flip. eapply wf_program_comp; [eassumption | apply wf_program_map].
         -- apply Forall_forall. intros x _ R R' (y & Hy & <-) (y' & Hy' & Hx').
+           cbv [map_rel] in *. subst.
            destruct R as [l|P], y as [l0|z]; simpl in Hy; try contradiction;
              destruct R' as [l'|P'], y' as [l0'|z']; simpl in Hy'; try contradiction;
              simpl in Hx'.
@@ -387,6 +394,7 @@ Section Blocks.
         -- rewrite concl_rels_map_program. apply List.Forall_map.
            eapply Forall_impl; [eapply wf_program_not_input; eassumption|].
            intros [l|P] HR; [|contradiction]. intros x' R (y & Hy & Hx) (y' & Hy' & <-).
+           cbv [map_rel] in *. subst.
            destruct R as [l'|P'], y as [l0|z]; simpl in Hy; try contradiction;
              destruct y' as [l0'|z']; simpl in Hy'; try contradiction; simpl in *.
            ++ congruence.
@@ -405,7 +413,8 @@ Section Blocks.
               ** intros (R & HR & HR'). replace P with R; [|eapply NoDup_snd_In_inj; eassumption].
                  apply (wf_fact_contains _ _ _ _ Hg12), HR'.
               ** intros HP. exists P. split; [exact Hy|]. apply (wf_fact_contains _ _ _ _ Hg12), HP.
-        -- apply wf_fact_map_rel_r. exists (block_rel.local ret). split; [reflexivity | simpl; congruence].
+        -- apply wf_fact_map_rel_r. eexists (block_rel.local _). split; [reflexivity | ].
+           cbv [map_rel]. simpl. congruence.
   Qed.
 End Blocks.
 

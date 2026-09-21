@@ -889,6 +889,13 @@ Module meta_rule.
     Definition is_bottomup (r : meta_rule) :=
       forall v, In v (all_vars r) -> In (expr_pattern.exactly (expr.var v)) (hyp_args r).
 
+    Definition finite mr P :=
+      forall pat hyps,
+        pattern_interp mr pat (map meta_fact.pattern hyps) ->
+        Forall P hyps ->
+        exists st,
+          P (meta_fact.mk pat st).
+
     Lemma pattern_interp_concl_relname_in r pat ps :
       pattern_interp r pat ps ->
       In pat.(fact_pattern.rel) (concl_rels r).
@@ -1024,6 +1031,9 @@ Module program.
     #[local] Hint Resolve interp_step_concl_relname_in : core.
 
     Definition all_rels (p : program) := concl_rels p ++ hyp_rels p.
+
+    Definition finite (p : program) Q :=
+      Forall (fun mr => meta_rule.finite mr (fun mf => interp p Q (fact.meta mf))) p.(meta_rules).
 
     Ltac in_rel_list :=
       intros;
