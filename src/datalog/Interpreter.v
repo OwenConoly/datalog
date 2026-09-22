@@ -357,26 +357,39 @@ Section __.
     specialize (H1 _ _ H'p0). cbv [agree_on]. rewrite H1, H'p0. reflexivity.
   Qed.
 
-  Definition eval_agg_rule (concl_rel : rel) agg mf :=
-    let args := skipn 2 mf.(meta_fact.pattern).(fact_pattern.args) in
-    let args := unwrap_or_default (option_all (map value_pattern.value_of args)) in
-    let vals := map (fun f => match f with
-                           | i :: x_i :: _ => Some (i, x_i)
-                           | _ => None
-                           end)
-                  (map.keys mf.(meta_fact.set)) in
-    let vals := unwrap_or_default (option_all vals) in
-    {| normal_fact.rel := concl_rel;
-      normal_fact.args := interp_agg agg vals :: args |}.
+  Declare Scope option_monad_scope.
+  Open Scope option_monad_scope.
 
-  Definition is_agg_mf facts (hyp_rel : rel) (mf : meta_fact) :=
-    eqb (meta_fact.rel mf) hyp_rel &&
-      match mf.(meta_fact.pattern).(fact_pattern.args) with
-      | value_pattern.any :: value_pattern.any :: rest =>
-          forallb value_pattern.is_exactlyb rest &&
-            inclb (meta_fact.normal_facts mf) (flat_map fact.normal_facts facts)
-      | _ => false
-      end.
+  Notation "' pat <- c1 ;; c2" :=
+    (match c1 with
+     | pat => c2
+     | _ => None
+     end)
+    (at level 60, pat pattern, c1 at next level, right associativity) : option_monad_scope.
+
+  Notation "x <- c1 ;; c2" :=
+    (match c1 with
+     | Some x => c2
+     | None => None
+     end)
+    (at level 60, c1 at next level, right associativity) : option_monad_scope.
+
+  Notation "'assert' c1 ;; c2" :=
+    (match c1 with
+     | true => c2
+     | false => None
+     end)
+    (at level 60, right associativity) : option_monad_scope.
+
+  Definition eval_agg_rule concl_rel agg hyp_rel facts (mf : meta_fact) : option normal_fact :=
+    assert eqb (meta_fact.rel mf) hyp_rel;;
+    assert inclb (meta_fact.normal_facts mf) (flat_map fact.normal_facts facts);;
+    '(value_pattern.any :: value_pattern.any :: rest) <- mf.(meta_fact.pattern).(fact_pattern.args);;
+    rest <- option_all (map value_pattern.value_of rest);;
+    let vals := map (fun f => '(i :: x_i :: _) <- f;; Some (i, x_i)) (map.keys mf.(meta_fact.set)) in
+    vals <- option_all vals;;
+    Some {| normal_fact.rel := concl_rel;
+      normal_fact.args := interp_agg agg vals :: rest |}.
 
   Definition check_hyps ctx rule_hyps hyps :=
     eqb (option_all (map (subst_in_clause ctx) rule_hyps)) (Some hyps).
@@ -394,8 +407,7 @@ Section __.
                            possible_hyps in
         flat_map (fun ctx => keep_Some (map (subst_in_clause ctx) rule_concls)) ctxs
     | rule.agg concl_rel agg hyp_rel =>
-        let mfs := filter (is_agg_mf facts hyp_rel) (flat_map fact.meta_facts facts) in
-        map (eval_agg_rule concl_rel agg) mfs
+        keep_Some (map (eval_agg_rule concl_rel agg hyp_rel facts) (flat_map fact.meta_facts facts))
     end.
 
   Definition step_rules facts := flat_map (step_rule facts).
@@ -414,7 +426,7 @@ Section __.
                 let pats := keep_Some (map (subst_in_clause_pattern ctx) r.(meta_rule.concls)) in
                 map (fun pat => meta_fact.mk pat (map normal_fact.args (filter (fact_pattern.matchesb pat) (results))))
                     pats)
-             ctxs_results.
+      ctxs_results.
 
   (* Definition matches_ctx (r : rule) (hyps' : list fact) ctx : Prop := *)
   (*   match r with *)
