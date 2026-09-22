@@ -195,7 +195,6 @@ Section subset.
   Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.
   Implicit Type l : list A.
 
-
   Lemma Permutation_incl l l' :
     Permutation l l' ->
     incl l l'.
@@ -272,7 +271,6 @@ Section subset.
            apply incl_cons; simpl; auto. do 2 apply incl_tl. apply incl_refl.
         -- apply incl_cons; simpl; auto. apply incl_tl. assumption.
   Qed.
-
 End subset.
 
 Section Forall.
