@@ -392,77 +392,60 @@ Proof.
          | H: _ |- _ => apply IHHwf2p0 in H
          end.
          cbv [set_of] in *. subst. reflexivity.
-    + eexists. eapply pftree.step with
-        (l := map fact.meta
-                [{| meta_fact.pattern :=
-                     {| fact_pattern.rel := input 0;
-                       fact_pattern.args := [value_pattern.any] |};
-                   meta_fact.set := _ |};
-                 {| meta_fact.pattern :=
-                     {| fact_pattern.rel := input 1;
-                       fact_pattern.args := [value_pattern.any] |};
-                   meta_fact.set := _ |}]).
-      -- constructor. simpl. apply Exists_cons_hd.
-         eapply meta_rule.interp_canonical with (ctx := map.empty); interp_exprs.
+    + simpl. eapply pftree.step.
+      -- apply Exists_cons_hd. cbv [meta_rule.pattern_interp]. simpl.
+         exists map.empty. interp_exprs.
+         ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
+         ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
       -- interp_exprs.
+         ++ apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
+         ++ apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
   - dep_invert He'. simpl. split.
-    + intros x. split.
+    + simpl. intros x. split.
       -- contradiction.
       -- intros H. repeat invert_stuff.
-    + eexists. eapply pftree.step with (l := map fact.meta []).
-      -- constructor. simpl. apply Exists_cons_hd.
-         eapply meta_rule.interp_canonical with (ctx := map.empty); interp_exprs.
+    + simpl. eapply pftree.step.
+      -- apply Exists_cons_hd.
+         cbv [meta_rule.pattern_interp]. exists map.empty. interp_exprs.
       -- interp_exprs.
   - dep_invert He'.
-    specialize (IHHwf ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf. fwd. split.
     + intros x. rewrite <- IHHwfp0. split; auto.
     + eauto.
   - dep_invert He'.
-    destr_vbp.
-    specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
-    specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf1 ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf2 ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf1, IHHwf2. cbv [agrees]. fwd. simpl. split.
     + intros x. rewrite IHHwf1p0, IHHwf2p0. clear IHHwf1p0 IHHwf2p0. split.
-      -- intros [? ?]. eapply pftree.step with
-           (l := map fact.normal
-                   [{| normal_fact.rel := input 0; normal_fact.args := [x] |};
-                    {| normal_fact.rel := input 1; normal_fact.args := [x] |}]).
-         ++ constructor. apply Exists_cons_hd.
+      -- intros [? ?]. eapply pftree.step.
+         ++ apply program.rule_step. simpl. apply Exists_cons_hd.
             eapply rule.interp_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+            --- instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
+            --- instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.
-      -- intros H. repeat invert_stuff. simpl in *. repeat invert_stuff. auto.
-    + eexists. eapply pftree.step with
-        (l := map fact.meta
-                [{| meta_fact.pattern :=
-                     {| fact_pattern.rel := input 0;
-                       fact_pattern.args := [value_pattern.any] |};
-                   meta_fact.set := _ |};
-                 {| meta_fact.pattern :=
-                     {| fact_pattern.rel := input 1;
-                       fact_pattern.args := [value_pattern.any] |};
-                   meta_fact.set := _ |}]).
-      -- constructor. simpl. apply Exists_cons_hd.
-         eapply meta_rule.interp_canonical with (ctx := map.empty); interp_exprs.
+      -- intros H. repeat invert_stuff. auto.
+    + eapply pftree.step.
+      -- apply Exists_cons_hd.
+         cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
+         ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
+         ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
       -- interp_exprs.
+         ++ apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
+         ++ apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
   - rename H0 into IHHwf'.
     dep_invert He'.
-    simpl in Hvalid. fwd.
-    specialize (IHHwf ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
     simpl in IHHwf'.
     epose_dep IHHwf'.
-    specialize (IHHwf' ltac:(eauto)). specialize' IHHwf'.
-    { constructor; auto. eapply interp_blocks_prog_honest; eauto.
-      eapply compile_Sexpr_vars_in; eauto. }
-    specialize (IHHwf' ltac:(eauto) ltac:(eauto) ltac:(eauto)).
+    specialize (IHHwf' ltac:(eauto) _ ltac:(eauto)).
     clear Hctx. cbv [agrees] in *. fwd. split.
     + intros x. rewrite IHHwf'p0. clear IHHwf'p0.
       simpl. reflexivity.
     + simpl. eauto.
   - dep_invert He'.
-    destr_vbp.
     rename H2 into Hset.
-    specialize (IHHwf ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees]. simpl. cbv [agrees] in IHHwf. fwd. split.
     + intros x. split.
       -- intros. subst. eapply pftree.step.
@@ -472,24 +455,13 @@ Proof.
                  - apply is_list_set_map with (f := fun x => (x, x)).
                    2: eassumption.
                    cbv [Finite.Injective]. invert 1. reflexivity.
-                 - simpl. intros [? ?]. instantiate (1 := fun x =>
-                                                            match x with
-                                                            | [_; _] => _
-                                                            | _ => _
-                                                            end).
-                   simpl. reflexivity. }
+                 - simpl. intros [? ?]. instantiate (1 := fun '(_, _) => _). simpl.
+                   reflexivity. }
             simpl. cbv [interp_agg]. rewrite map_map. simpl.
             rewrite map_id. reflexivity.
          ++ constructor.
-            --- eapply pftree.step with
-                  (l := map fact.meta
-                          [{| meta_fact.pattern :=
-                               {| fact_pattern.rel := input 0;
-                                 fact_pattern.args := [value_pattern.any] |};
-                             meta_fact.set :=
-                               fun args => interp_blocks_prog (compile_Sexpr x2)
-                                             (fact_args.normal args) |}]).
-                +++ constructor. simpl. doExists 1.
+            --- eapply pftree.step.
+                +++ apply program.meta_rule_step. constructor. simpl. doExists 1.
                     eapply meta_rule.interp_intro with (ctx := map.empty)
                       (pat := {| fact_pattern.rel := local 1;
                                 fact_pattern.args := [value_pattern.any; value_pattern.any] |}).
