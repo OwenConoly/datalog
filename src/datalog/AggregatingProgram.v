@@ -3,9 +3,9 @@ From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Datatypes.List Tactics Tactics.fwd Eqb.
 From Datalog Require Import Eqb.
-From Datalog Require Import List Pftree Datalog (* FancyNotations *) Tactics Blocks CheckMetaRules.
+From Datalog Require Import List Pftree Datalog (* FancyNotations *) Tactics Blocks CheckMetaRules SimpleBlocks.
 Import ListNotations.
-Import blocks_prog.
+Import Blocks.blocks_prog SimpleBlocks.blocks_prog.
 
 Section __.
 Variant bop := sum | prod.
@@ -349,11 +349,10 @@ Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
   wf_Sexpr ctx t e e0 ->
   Forall (fun elt => agrees elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
-  finite (compile_Sexpr e0) ->
   interp_Sexpr e e' ->
-  agrees (interp (compile_Sexpr e0)) e'.
+  agrees (simple_interp (compile_Sexpr e0)) e'.
 Proof.
-  intros Hwf Hctx Hfin. revert e'. induction Hwf; intros e' He'.
+  intros Hwf Hctx. revert e'. induction Hwf; intros e' He'.
   - dep_invert He'. rewrite Forall_forall in Hctx.
     specialize (Hctx _ H). clear H. simpl in Hctx.
     cbv [agrees] in Hctx. fwd.
@@ -366,24 +365,22 @@ Proof.
             instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.
       -- intros Hx. repeat invert_stuff. assumption.
-    + Print program.finite. edestruct Hfin as eexists. split.
-      -- apply Hfin. eapply pftree.step.
-      -- constructor. simpl. apply Exists_cons_hd.
-         Print meta_rule.interp. with (ctx := map.empty); interp_exprs.
-      -- interp_exprs.
+    + eapply pftree.step.
+      -- constructor. cbv [meta_rule.pattern_interp]. simpl. exists map.empty.
+         interp_exprs.
+         instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
+      -- interp_exprs. apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
   - dep_invert He'.
-    destr_vbp.
-    specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
-    specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf1 ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf2 ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf1, IHHwf2. fwd.
     simpl. split.
     + intros x. simpl. split.
-      -- intros. subst. eapply pftree.step with
-           (l := map fact.normal
-                   [{| normal_fact.rel := input 0; normal_fact.args := [x'] |};
-                    {| normal_fact.rel := input 1; normal_fact.args := [y'] |}]).
-         ++ constructor. apply Exists_cons_hd.
+      -- intros. subst. eapply pftree.step.
+         ++ apply program.rule_step. apply Exists_cons_hd.
             eapply rule.interp_impl with (ctx := map.put (map.put map.empty 0 _) 1 _); interp_exprs.
+            --- instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
+            --- instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.
             --- apply IHHwf1p0. reflexivity.
             --- apply IHHwf2p0. reflexivity.
