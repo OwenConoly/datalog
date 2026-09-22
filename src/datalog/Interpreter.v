@@ -955,3 +955,16 @@ Section __.
     apply eval_sound; [assumption|]. intros x. apply HQ.
   Qed.
 End __.
+
+Module program.
+  Section __.
+    Context `{params : datalog_params}.
+    Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
+
+    Definition finite rules p Q :=
+      forall pat hyps,
+        Exists (fun mr => meta_rule.pattern_interp mr pat (map meta_fact.pattern hyps)) p.(program.meta_rules) ->
+        Forall (program.interp p Q) (map fact.meta hyps) ->
+        program.interp p Q (fact.meta (meta_fact.mk pat (map normal_fact.args (filter (fact_pattern.matchesb pat) (eval_one_step_derives rules hyps))))).
+  End __.
+End program.
