@@ -509,92 +509,57 @@ Proof.
                     simpl. interp_exprs.
                 +++ interp_exprs.
       -- intros H.
+         (*TODO something clever so that this bullet goes away*)
          repeat invert_stuff.
          destruct hyps; [discriminate H2|]. destruct hyps; [|discriminate H2].
          simpl in H2. repeat invert_stuff.
-         cbn [meta_fact.rel] in *.
-         { invert H0p1. repeat invert_stuff.
-
-           repeat invert_stuff. }
-           cbn [meta_fact.pattern meta_fact.set meta_fact.mk fact_pattern.args] in *.
-         2: { invert H0p1. cbv [meta_rule.pattern_interp] in H0. fwd.
-              cbv [clause_pattern.interp] in H0p0p1. simpl in H0p0p1.
-              invert H. simpl in *. repeat invert_stuff.
-         invert H.
-         repeat lazymatch goal with
-                | H: pftree _ _ (fact.meta _) |- _ => fail
-                | _ => invert_stuff
-                end.
-         lazymatch goal with
-         | H: pftree _ _ (fact.meta _) |- _ => rename H into Hmf
-         end.
-         move Hmf at bottom.
-         (* assert (Heq: forall x y, (x = y /\ x' x) <-> S0 [x; y]). *)
-         (* { intros x y. cbv [meta_fact.consistent_with] in Hmf. *)
-         (*   specialize (Hmf {| normal_fact.rel := local 1; *)
-         (*                     normal_fact.args := [x; y] |}). *)
-         (*   simpl in Hmf. *)
-         (*   specialize (Hmf ltac:(split; [reflexivity|]; repeat constructor)). *)
-         (*   rewrite Hmf. *)
-         (*   cbv [fact.normal_subset]. rewrite IHHwfp0. split. *)
-         (*   - intros H'. fwd. eapply pftree.step with *)
-         (*       (l := map fact.normal [{| normal_fact.rel := input 0; *)
-         (*                                normal_fact.args := [y] |}]). *)
-         (*     + constructor. doExists 1. *)
-         (*       eapply rule.interp_impl with (ctx := map.put map.empty 0 _); interp_exprs. *)
-         (*     + interp_exprs. *)
-         (*   - intros H'. repeat invert_stuff. auto. } *)
-         match goal with
-         | H: is_list_set (fun _ => _) _ |- _ => rename H into Hset'
-         end.
-         move Hset at bottom. move Hset' at bottom.
-         cbv [interp_agg]. simpl.
-         apply fold_right_change_order.
-         { (*all bops are commutative, for a certain interpretation of the word*)
-           intros. destruct o; simpl; lia. }
-         eapply is_list_set_perm. 1: eassumption.
-         cbv [is_list_set] in Hset, Hset'. fwd. split.
-         { intros x. split; intros Hx.
-           - rewrite in_map_iff. eexists (_, _). rewrite <- Hset'p0. rewrite <- Heq.
-             simpl. eauto.
-           - apply in_map_iff in Hx. fwd. apply Hset'p0 in Hxp1. destruct x0.
-             apply Heq in Hxp1. fwd. assumption. }
+         assert (Hmf : forall v, fset.contains set0 [v] <-> set_of x' v).
+         { intros v. rewrite IHHwfp0. eapply (Hp1 {| normal_fact.rel := _; normal_fact.args := [v] |}). repeat constructor. }
+         assert (Hvals : forall a b, In (a, b) vals <-> a = b /\ set_of x' a).
+         { intros a b.
+           specialize (H0p1p1 {| normal_fact.rel := block_rel.local 1; normal_fact.args := [a; b] |}
+                         ltac:(repeat constructor)).
+           simpl in H0p1p1. rewrite meta_fact.contains_to_canonical_set, in_map_iff in H0p1p1.
+           destruct H0p1p1 as [Hfw Hbw]. split.
+           - intros Hin. specialize' Hfw.
+             { split; [repeat constructor | exists (a, b); auto]. }
+             repeat invert_stuff. split; [reflexivity|]. apply Hmf. assumption.
+           - intros [<- Hx]. specialize' Hbw.
+             { exists (map fact.normal [{| normal_fact.rel := block_rel.input (simple_interp (compile_Sexpr x2)); normal_fact.args := [a] |}]).
+               split.
+               { doExists 1. eapply rule.interp_impl with (ctx := map.put map.empty 0 _); interp_exprs. }
+               repeat constructor. apply Hmf. exact Hx. }
+             destruct Hbw as [_ Hbw]. fwd. assumption. }
+         cbv [interp_agg]. simpl. apply fold_right_change_order.
+         { intros. destruct o; simpl; lia. }
+         eapply is_list_set_perm; [exact Hset|]. split.
+         { intros v. rewrite in_map_iff. split.
+           - intros Hv. exists (v, v). split; [reflexivity|]. apply Hvals. auto.
+           - intros ((a, b) & <- & Hab). apply Hvals in Hab. fwd. assumption. }
          apply Finite.Injective_map_NoDup_in; [|assumption].
-         intros (?, ?) (?, ?). simpl. intros H1' H2' ?. subst.
-         apply Hset'p0 in H1', H2'. apply Heq in H1', H2'. fwd. reflexivity.
-    + eexists. eapply pftree.step with
-        (l := map fact.meta
-                [{| meta_fact.pattern :=
-                     {| fact_pattern.rel := local 1;
-                       fact_pattern.args := [value_pattern.any; value_pattern.any] |};
-                   meta_fact.set := _ |}]).
-      -- constructor. simpl. apply Exists_cons_hd.
-         eapply meta_rule.interp_canonical with (ctx := map.empty); interp_exprs.
-      -- constructor; [|constructor].
-         eapply pftree.step with
-           (l := map fact.meta
-                   [{| meta_fact.pattern :=
-                        {| fact_pattern.rel := input 0;
-                          fact_pattern.args := [value_pattern.any] |};
-                      meta_fact.set := _ |}]).
-         ++ constructor. simpl. doExists 1.
-            eapply meta_rule.interp_canonical with (ctx := map.empty); interp_exprs.
+         intros (a, b) (c, d) Hab Hcd Heq. simpl in Heq. subst.
+         apply Hvals in Hab, Hcd. fwd. reflexivity.
+    + eapply pftree.step.
+      -- apply Exists_cons_hd.
+         cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
+         instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
+      -- interp_exprs. eapply pftree.step.
+         ++ doExists 1.
+            cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
+            instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.
-            Unshelve.
-            all: exact True.
+            apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
 Qed.
 
 Lemma compile_SExpr_correct t (e : SExpr t) e' :
   Wf_Sexpr e ->
   interp_Sexpr (e _) e' ->
-  agrees (interp_blocks_prog (compile_Sexpr (e _))) e'.
+  agrees (simple_interp (compile_Sexpr (e _))) e'.
 Proof.
   intros Hwf Hinterp.
   eapply compile_Sexpr_correct with (ctx := []).
   - apply Hwf.
   - constructor.
-  - constructor.
-  - apply compile_Sexpr_valid.
-  - exact Hinterp.
+  - assumption.
 Qed.
 End __.
