@@ -1685,7 +1685,6 @@ Ltac interp_exprs :=
     | |- _ => eassumption (*hsould this just be assumption?*)
     end.
 
-(*TODO this is reproduced within the section, and idk how to get it out*)
 Ltac invert_stuff :=
   match goal with
   | _ => progress cbn [value_pattern.matches fact.rel
