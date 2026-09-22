@@ -16,7 +16,7 @@ From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
 
 From Datalog Require Import Datalog Map List Tactics Blocks SimpleBlocks.
 From GraphSearch Require Import Dag.
-From Inferpad Require Import ATLPhoas.
+From Inferpad Require Import ATLPhoas TensorToResult.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable Datatypes.List.
 
@@ -198,18 +198,17 @@ Fixpoint lower_pSexpr' {var} (idxs0 : list exprvar) (next_varname : exprvar) (e 
   match e with
   (* when i tried to update Get with your suggestion to vr, it wouldn't take jus var, so then i made it a var of tensor_n, and then
   that required a for all n : nat, and so now get has an extra variable (??) of n?? *)
-  | Get n (var, depth) idxs =>
+  | Get n (x, depth) idxs =>
   (* i feel like this actually should work?? the value part might be wrong, but i basically just copied the defintion from your compiler, and then updated
   it to fit the new types, so i think that the hypotheses part is right?? *)
     (expr.var next_varname,
-            [{| clause.rel := block_rel.local next_varname; clause.args := expr.var next_varname :: map var_expr (firstn depth idxs0) ++ map lower_pZexpr' idxs |}],
-            S next_varname,
-            [( next_varname, var)])
+            [{| clause.rel := block_rel.input x; clause.args := expr.var next_varname :: map expr.var (firstn depth idxs0) ++ map lower_pZexpr' idxs |}],
+            S next_varname)
   | SBop o x y =>
-    let '(e1, hyps1, next_varname, correspondences1) := lower_pSexpr' idxs0 next_varname x in
-    let '(e2, hyps2, next_varname, correspondences2) := lower_pSexpr' idxs0 next_varname y in
-    (fun_expr (sbop_to_fn o) [e1; e2], (hyps1 ++ hyps2)%list, next_varname, correspondences1 ++ correspondences2)
-  | SLit x => (fun_expr (fn_Lit x) [], [], next_varname, [])
+    let '(e1, hyps1, next_varname) := lower_pSexpr' idxs0 next_varname x in
+    let '(e2, hyps2, next_varname) := lower_pSexpr' idxs0 next_varname y in
+    (expr.app (sbop_to_fn o) [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
+  | SLit x => (expr.app (fn_Lit x) [], [], next_varname)
 end.
 
 (* this is to lower a pZexpr to a pZexpr' *)
@@ -255,7 +254,6 @@ Inductive pBexpr' {var : Type} : Type :=
   | BBop : Bbop -> pZexpr' var -> pZexpr' var -> pBexpr'.
 Arguments pBexpr' : clear implicits.
 
-
 Fixpoint lower_pBexpr {var} (e : pBexpr (var)) : pBexpr' (var) :=
   match e with
   | ATLPhoas.BAnd x y => BAnd (lower_pBexpr x) (lower_pBexpr y)
@@ -264,15 +262,14 @@ end.
 
 Fixpoint lower_pBexpr' (e : pBexpr' nat) : expr :=
   match e with
-  | BAnd x y => fun_expr fn_And [lower_pBexpr' x; lower_pBexpr' y]
+  | BAnd x y => expr.app fn_And [lower_pBexpr' x; lower_pBexpr' y]
   | BBop o x y =>
     match o with
-    | BLt => fun_expr fn_Lt [lower_pZexpr' x; lower_pZexpr' y]
-    | BLe => fun_expr fn_Le [lower_pZexpr' x; lower_pZexpr' y]
-    | BEq => fun_expr fn_Eq [lower_pZexpr' x; lower_pZexpr' y]
+    | BLt => expr.app fn_Lt [lower_pZexpr' x; lower_pZexpr' y]
+    | BLe => expr.app fn_Le [lower_pZexpr' x; lower_pZexpr' y]
+    | BEq => expr.app fn_Eq [lower_pZexpr' x; lower_pZexpr' y]
     end
 end.
-
 
 Inductive pATLexpr' { var : type -> Type } : nat -> Type :=
   | Gen : forall n : nat,
@@ -315,9 +312,7 @@ Inductive pATLexpr' { var : type -> Type } : nat -> Type :=
   | Var : forall n : nat, var (tensor_n n) -> pATLexpr' n
   | Scalar : pATL_Sexpr' var -> pATLexpr' 0
   .
-
 Arguments pATLexpr' : clear implicits.
-
 
 Fixpoint create_garbage (var : type -> Type) (n : nat) : pATLexpr' (var) n :=
   match n with
@@ -445,34 +440,39 @@ Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
   | Scalar s => 1 :: []
 end.
 
-
+Import Blocks.blocks_prog.
+Check rule.impl.
 Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exprvar) (true_rel : var) : blocks_prog var :=
   match e with
   | Gen n lo hi body =>
     lower_pATLexpr' (body (length idxs)) (idxs ++ [length idxs]) true_rel
-  | Sum n lo hi body => Block 0 [] []
+  | Sum n lo hi body => Block 0 {| program.rules := []; program.meta_rules := [] |}
   | Guard n b body =>
     let dimvars := (seq O (length (get_block_size body))) in
     let x := length (get_block_size body) in
-      LetIn (lower_pATLexpr' body idxs true_rel) (fun val =>
-      Block 0 [(0, val); (1, true_rel)]
-      [normal_rule
-      [{| clause_rel := local 0;
-          clause_args := var_expr x ::
-                          map var_expr idxs ++
-                          map var_expr dimvars |}]
-      [{| clause_rel := input 0;
-          clause_args := var_expr x ::
-                          map var_expr idxs ++
-                          map var_expr dimvars|};
-        {| clause_rel := input 1; clause_args := [lower_pBexpr' b] |}];
-      normal_rule
-      [{| clause_rel := local 0;
-          clause_args := fun_expr (fn_Lit 0) [] ::
-                                   map var_expr idxs ++
-                                   map var_expr dimvars |}]
-      [{| clause_rel := input 1;
-          clause_args := [fun_expr fn_Not [lower_pBexpr' b]] |}]])
+    LetIn (lower_pATLexpr' body idxs true_rel)
+      (fun val =>
+         Block 0
+               {| program.rules :=
+                   [rule.impl
+                      [{| clause.rel := block_rel.local 0;
+                         clause.args := expr.var x ::
+                                          map expr.var idxs ++
+                                          map expr.var dimvars |}]
+                      [{| clause.rel := block_rel.input val;
+                         clause.args := expr.var x ::
+                                          map expr.var idxs ++
+                                          map expr.var dimvars|};
+                       {| clause.rel := block_rel.input true_rel; clause.args := [lower_pBexpr' b] |}];
+                    rule.impl
+                      [{| clause.rel := block_rel.local 0;
+                         clause.args := expr.app (fn_Lit 0) [] ::
+                                          map expr.var idxs ++
+                                          map expr.var dimvars |}]
+                      [{| clause.rel := block_rel.input true_rel;
+                         clause.args := [expr.app fn_Not [lower_pBexpr' b]] |}]];
+                 program.meta_rules := [];
+               |})
   | Lbind n m x f =>
     LetIn (lower_pATLexpr' x idxs true_rel) (fun val =>
       lower_pATLexpr' (f (val, (length idxs))) idxs true_rel)
@@ -489,18 +489,23 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                     | [] => 0
                     | n :: _ => n
                     end in
-      LetIn (lower_pATLexpr' e1 idxs true_rel) (fun val1 =>
-        LetIn (lower_pATLexpr' e2 idxs true_rel) (fun val2 =>
-          Block out [(aux1, val1); (aux2, val2); (0, true_rel)]
-          [normal_rule
-          (* i feel like this might work now : i added in the true_rel statemetns, and also it returns the out, so maybe it works???? *)
-          [{| clause_rel := local out; clause_args := var_expr x :: map var_expr idxs ++ map var_expr (dimvarO :: dimvars) |}]
-          [{| clause_rel := input aux1; clause_args := var_expr x :: map var_expr idxs ++ map var_expr (dimvarO :: dimvars) |};
-          {| clause_rel := input 0; clause_args := [fun_expr fn_Lt [var_expr dimvarO; fun_expr (fn_Lit len1) []]] |}];
-          normal_rule
-          [{| clause_rel := local out; clause_args := var_expr x :: map var_expr idxs ++ map var_expr (dimvarO :: dimvars) |}]
-          [{| clause_rel := input aux2; clause_args := var_expr x :: map var_expr idxs ++ fun_expr fn_Add [] :: map var_expr dimvars |};
-          {| clause_rel := input 0; clause_args := [fun_expr fn_Le [fun_expr (fn_Lit len1) []; var_expr dimvarO]] |}]]))
+      LetIn (lower_pATLexpr' e1 idxs true_rel)
+        (fun val1 =>
+           LetIn (lower_pATLexpr' e2 idxs true_rel)
+             (fun val2 =>
+                Block out
+                      {| program.rules :=
+                          [rule.impl
+                             (* i feel like this might work now : i added in the true_rel statemetns, and also it returns the out, so maybe it works???? *)
+                             [{| clause.rel := block_rel.local out; clause.args := expr.var x :: map expr.var idxs ++ map expr.var (dimvarO :: dimvars) |}]
+                             [{| clause.rel := block_rel.input val1; clause.args := expr.var x :: map expr.var idxs ++ map expr.var (dimvarO :: dimvars) |};
+                              {| clause.rel := block_rel.input true_rel; clause.args := [expr.app fn_Lt [expr.var dimvarO; expr.app (fn_Lit len1) []]] |}];
+                           rule.impl
+                             [{| clause.rel := block_rel.local out; clause.args := expr.var x :: map expr.var idxs ++ map expr.var (dimvarO :: dimvars) |}]
+                             [{| clause.rel := block_rel.input val2; clause.args := expr.var x :: map expr.var idxs ++ expr.app fn_Add [] :: map expr.var dimvars |};
+                              {| clause.rel := block_rel.input true_rel; clause.args := [expr.app fn_Le [expr.app (fn_Lit len1) []; expr.var dimvarO]] |}]];
+                        program.meta_rules := [];
+                      |}))
   | Flatten n e =>
   (* using n instead of e here because you can't get length from e anymore *)
     let dimvars := (seq O (length (get_block_size e) - 2)) in
@@ -512,26 +517,32 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                     | _ => 0
                     end in
       let aux := 0 in
-      (* out is probably redundant here but it's just to show that there needs to be some number for the clause_rel of the rule *)
+      (* out is probably redundant here but it's just to show that there needs to be some number for the clause.rel of the rule *)
       let out := S aux in
-      LetIn (lower_pATLexpr' e idxs true_rel) (fun val =>
-      Block out [(aux, val)]
-      [normal_rule
-      [{| clause_rel := local out; clause_args :=
-                                 var_expr x ::
-                                   map var_expr idxs ++
-                                   var_expr dimvarO ::
-                                   map var_expr dimvars|}]
-      [{| clause_rel := input aux; clause_args := var_expr x ::
-                                            map var_expr idxs ++
-                                            fun_expr fn_Divf
-                                            [var_expr dimvarO;
-                                             fun_expr (fn_Lit len2) []] ::
-                                            fun_expr fn_Mod
-                                            [var_expr dimvarO;
-                                             fun_expr (fn_Lit len2) []] ::
-                                            map var_expr dimvars |}]])
-  | Split n k e =>
+      LetIn (lower_pATLexpr' e idxs true_rel)
+        (fun val =>
+           Block out
+                 {| program.rules :=
+                     [rule.impl
+                        [{| clause.rel := block_rel.local out;
+                           clause.args :=
+                             expr.var x ::
+                               map expr.var idxs ++
+                               expr.var dimvarO ::
+                               map expr.var dimvars|}]
+                        [{| clause.rel := block_rel.input val;
+                           clause.args := expr.var x ::
+                                            map expr.var idxs ++
+                                            expr.app fn_Divf
+                                            [expr.var dimvarO;
+                                             expr.app (fn_Lit len2) []] ::
+                                            expr.app fn_Mod
+                                            [expr.var dimvarO;
+                                             expr.app (fn_Lit len2) []] ::
+                                            map expr.var dimvars |}]];
+                   program.meta_rules := [];
+                 |})
+        | Split n k e =>
     let dimvars := (seq O (length (get_block_size e) - 1)) in
     let dimvar1 := (length (get_block_size e) - 1) in
     let dimvar2 := length (get_block_size e) in
@@ -549,37 +560,42 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
     let out := S aux in
     let pad_start := (len mod k')%Z in
     (* i had to put the facts for the first rule's hypotheses' hypothesis in let statements because there were weird errors with brackets *)
-    let eq_check := fun_expr fn_Eq [var_expr dimvar1; fun_expr (fn_Lit (len / k')) []] in
-    let le_check := fun_expr fn_Le [fun_expr (fn_Lit pad_start) []; var_expr dimvar2] in
-    let bound_check := fun_expr fn_Not [fun_expr fn_And [eq_check; le_check]] in
-    LetIn (lower_pATLexpr' e idxs true_rel) (fun val =>
-      Block out [(aux, val); (0, true_rel)]
-      [normal_rule [{| clause_rel := local out;
-                        clause_args := var_expr x ::
-                                   (map var_expr idxs ++
-                                   (var_expr dimvar1 ::
-                                   (var_expr dimvar2 ::
-                                   map var_expr dimvars)))|}]
-                  [ {| clause_rel := input aux;
-                        clause_args := var_expr x ::
-                                  (map var_expr idxs ++
-                                  (fun_expr fn_Add
-                                  [fun_expr fn_Mul
-                                      [var_expr dimvar1;
-                                      fun_expr (fn_Lit k') []];
-                                    var_expr dimvar2] ::
-                                  map var_expr dimvars)) |};
-                        {| clause_rel := input 0; clause_args := [bound_check] |} ];
-      normal_rule [ {| clause_rel := local out;
-                    clause_args := fun_expr (fn_Lit 0) [] ::
-                                   map var_expr idxs ++
-                                   fun_expr (fn_Lit (len / k')) [] ::
-                                   var_expr dimvar1 ::
-                                   map var_expr dimvars|}]
-                  [{| clause_rel := input 0;
-                    clause_args := [fun_expr fn_Le
-                                             [fun_expr (fn_Lit pad_start) [];
-                                              var_expr dimvar1]] |}]])
+    let eq_check := expr.app fn_Eq [expr.var dimvar1; expr.app (fn_Lit (len / k')) []] in
+    let le_check := expr.app fn_Le [expr.app (fn_Lit pad_start) []; expr.var dimvar2] in
+    let bound_check := expr.app fn_Not [expr.app fn_And [eq_check; le_check]] in
+    LetIn (lower_pATLexpr' e idxs true_rel)
+      (fun val =>
+         Block out
+               {| program.rules :=
+                   [rule.impl
+                      [{| clause.rel := block_rel.local out;
+                         clause.args := expr.var x ::
+                                          map expr.var idxs ++
+                                          expr.var dimvar1 ::
+                                          expr.var dimvar2 ::
+                                          map expr.var dimvars|}]
+                      [ {| clause.rel := block_rel.input val;
+                          clause.args := expr.var x ::
+                                           map expr.var idxs ++
+                                           expr.app fn_Add
+                                           [expr.app fn_Mul
+                                              [expr.var dimvar1;
+                                               expr.app (fn_Lit k') []];
+                                            expr.var dimvar2] ::
+                                           map expr.var dimvars |};
+                        {| clause.rel := block_rel.input true_rel; clause.args := [bound_check] |} ];
+                    rule.impl
+                      [{| clause.rel := block_rel.local out;
+                         clause.args := expr.app (fn_Lit 0) [] ::
+                                          map expr.var idxs ++
+                                          expr.app (fn_Lit (len / k')) [] ::
+                                          expr.var dimvar1 ::
+                                          map expr.var dimvars |}]
+                      [{| clause.rel := block_rel.input true_rel;
+                         clause.args := [expr.app fn_Le
+                                           [expr.app (fn_Lit pad_start) [];
+                                            expr.var dimvar1]] |}]];
+                 program.meta_rules := [] |})
   | Transpose n x =>
     let dimvars := (seq O (length (get_block_size x) - 2)) in
       let dimvar1 := (length (get_block_size x) - 1) in
@@ -587,12 +603,23 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
       let Sn := (S (length (get_block_size x))) in
       let out := 1 in
         LetIn (lower_pATLexpr' x idxs true_rel)
-        (fun val => Block out [(0, val)]
-          [normal_rule
-          [{| clause_rel := local out; clause_args := [var_expr Sn] ++ map var_expr idxs
-                    ++ [var_expr dimvar2] ++ [var_expr dimvar1] ++ map var_expr dimvars |}]
-          [{| clause_rel := input 0; clause_args := [var_expr Sn] ++ map var_expr idxs
-                    ++ [var_expr dimvar1] ++ [var_expr dimvar2] ++ map var_expr dimvars |}]])
+          (fun val =>
+             Block out
+                   {| program.rules :=
+                       [rule.impl
+                          [{| clause.rel := block_rel.local out;
+                             clause.args := [expr.var Sn] ++
+                                              map expr.var idxs ++
+                                              [expr.var dimvar2] ++
+                                              [expr.var dimvar1] ++
+                                              map expr.var dimvars |}]
+                          [{| clause.rel := block_rel.input val;
+                             clause.args := [expr.var Sn] ++
+                                              map expr.var idxs ++
+                                              [expr.var dimvar1] ++
+                                              [expr.var dimvar2] ++
+                                              map expr.var dimvars |}]];
+                     program.meta_rules := [] |})
   | Truncr n k x => lower_pATLexpr' x idxs true_rel
   | Truncl m k e =>
     let dimvars := (seq O (length (get_block_size e) - 1)) in
@@ -605,22 +632,28 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
       | None => 0 end)) in
     let aux := 0 in
     let out := S aux in
-    LetIn (lower_pATLexpr' e idxs true_rel) (fun val =>
-      (* not sure what numbers to use for block's name + values here*)
-      Block out [(aux, val)]
-      [normal_rule
-      [{| clause_rel := local out; clause_args :=
-                                 var_expr x ::
-                                   map var_expr idxs ++
-                                   var_expr dimvar1 ::
-                                   map var_expr dimvars|}]
-      [{| clause_rel := input aux; clause_args :=
-                              var_expr x ::
-                                 map var_expr idxs ++
-                                 fun_expr fn_Add
-                                 [fun_expr (fn_Lit k') [];
-                                  var_expr dimvar1] ::
-                                 map var_expr dimvars  |}]])
+    LetIn (lower_pATLexpr' e idxs true_rel)
+      (fun val =>
+         (* not sure what numbers to use for block's name + values here*)
+         Block out
+               {| program.rules :=
+                   [rule.impl
+                      [{| clause.rel := block_rel.local out;
+                         clause.args :=
+                           expr.var x ::
+                             map expr.var idxs ++
+                             expr.var dimvar1 ::
+                             map expr.var dimvars |}]
+                      [{| clause.rel := block_rel.input val;
+                         clause.args :=
+                           expr.var x ::
+                             map expr.var idxs ++
+                             expr.app fn_Add
+                             [expr.app (fn_Lit k') [];
+                              expr.var dimvar1] ::
+                             map expr.var dimvars  |}]];
+                 program.meta_rules := [];
+               |})
   | Padr k e =>
     let dimvars := seq O (length (get_block_size e) - 1) in
     let dimvar1 := length (get_block_size e) - 1 in
@@ -635,33 +668,37 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                     | d :: _ => d
                     | _ => 0
                     end in
-    LetIn (lower_pATLexpr' e idxs true_rel) (fun val =>
-      Block out [(aux, val); (2, true_rel)]
-      [normal_rule
-      [{| clause_rel := local out;
-          clause_args := var_expr x ::
-                    map var_expr idxs ++
-                    var_expr dimvar1 ::
-                    map var_expr dimvars |}]
-      [{| clause_rel := input aux;
-          clause_args := var_expr x ::
-                          map var_expr idxs ++
-                          var_expr dimvar1 ::
-                          map var_expr dimvars|};
-        {| clause_rel := input 2;
-          clause_args := [fun_expr fn_Lt
-                            [var_expr dimvar1;
-                              fun_expr (fn_Lit len) []]] |}];
-      normal_rule
-      [{| clause_rel := local out;
-          clause_args := fun_expr (fn_Lit 0) [] ::
-                            map var_expr idxs ++
-                            var_expr dimvar1 ::
-                            map var_expr dimvars |}]
-      [{| clause_rel := input 2;
-          clause_args := [fun_expr fn_Le
-                            [fun_expr (fn_Lit len) [];
-                              var_expr dimvar1]] |}]])
+    LetIn (lower_pATLexpr' e idxs true_rel)
+      (fun val =>
+         Block out
+               {| program.rules :=
+                   [rule.impl
+                      [{| clause.rel := block_rel.local out;
+                         clause.args := expr.var x ::
+                                          map expr.var idxs ++
+                                          expr.var dimvar1 ::
+                                          map expr.var dimvars |}]
+                      [{| clause.rel := block_rel.input val;
+                         clause.args := expr.var x ::
+                                          map expr.var idxs ++
+                                          expr.var dimvar1 ::
+                                          map expr.var dimvars|};
+                       {| clause.rel := block_rel.input true_rel;
+                         clause.args := [expr.app fn_Lt
+                                           [expr.var dimvar1;
+                                            expr.app (fn_Lit len) []]] |}];
+                    rule.impl
+                      [{| clause.rel := block_rel.local out;
+                         clause.args := expr.app (fn_Lit 0) [] ::
+                                          map expr.var idxs ++
+                                          expr.var dimvar1 ::
+                                          map expr.var dimvars |}]
+                      [{| clause.rel := block_rel.input true_rel;
+                         clause.args := [expr.app fn_Le
+                                           [expr.app (fn_Lit len) [];
+                                            expr.var dimvar1]] |}]];
+                 program.meta_rules := [];
+               |})
   | Padl k e =>
     let dimvars := seq O (length (get_block_size e) - 1) in
     let dimvar1 := length (get_block_size e) - 1 in
@@ -672,40 +709,50 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
       | None => 0 end)) in
     let aux := 0 in
     let out := S aux in
-    LetIn (lower_pATLexpr' e idxs true_rel) (fun val =>
-    Block out [(aux, val); (2, true_rel)]
-    [normal_rule
-    [{| clause_rel := local out;
-      clause_args := var_expr x ::
-                      map var_expr idxs ++
-                      var_expr dimvar1 ::
-                      map var_expr dimvars|}]
-    [{| clause_rel := input aux;
-      clause_args := var_expr x ::
-                    map var_expr idxs ++
-                    fun_expr fn_Sub
-                    [var_expr dimvar1;
-                    fun_expr (fn_Lit k') []] ::
-                    map var_expr dimvars |};
-      {| clause_rel := input 2;
-      clause_args := [fun_expr fn_Le
-                      [fun_expr (fn_Lit k') [];
-                      var_expr dimvar1]] |}];
-    normal_rule
-    [{| clause_rel := local out;
-    clause_args := fun_expr (fn_Lit 0) [] ::
-                    map var_expr idxs ++
-                    var_expr dimvar1 ::
-                    map var_expr dimvars |}]
-    [{| clause_rel := input 2;
-    clause_args := [fun_expr fn_Lt
-                    [var_expr dimvar1;
-                    fun_expr (fn_Lit k') []]] |}]])
-  | Var n x => Block 0 [] []
+    LetIn (lower_pATLexpr' e idxs true_rel)
+      (fun val =>
+         Block out
+               {| program.rules :=
+                   [rule.impl
+                      [{| clause.rel := block_rel.local out;
+                         clause.args := expr.var x ::
+                                          map expr.var idxs ++
+                                          expr.var dimvar1 ::
+                                          map expr.var dimvars|}]
+                      [{| clause.rel := block_rel.input val;
+                         clause.args := expr.var x ::
+                                          map expr.var idxs ++
+                                          expr.app fn_Sub
+                                          [expr.var dimvar1;
+                                           expr.app (fn_Lit k') []] ::
+                                          map expr.var dimvars |};
+                       {| clause.rel := block_rel.input true_rel;
+                         clause.args := [expr.app fn_Le
+                                           [expr.app (fn_Lit k') [];
+                                            expr.var dimvar1]] |}];
+                    rule.impl
+                      [{| clause.rel := block_rel.local out;
+                         clause.args := expr.app (fn_Lit 0) [] ::
+                                          map expr.var idxs ++
+                                          expr.var dimvar1 ::
+                                          map expr.var dimvars |}]
+                      [{| clause.rel := block_rel.input true_rel;
+                         clause.args := [expr.app fn_Lt
+                                           [expr.var dimvar1;
+                                            expr.app (fn_Lit k') []]] |}]];
+                 program.meta_rules := [];
+               |})
+  | Var n x => Block 0 {| program.rules := []; program.meta_rules := [] |}
   | Scalar x =>
-    let '(value, hyps, next_varname, correspondences) := (lower_pSexpr' idxs 0 x) in
-      Block next_varname correspondences
-          [normal_rule [{| clause_rel := local next_varname; clause_args := [value] |}] hyps]
+    let '(value, hyps, next_varname) := (lower_pSexpr' idxs 0 x) in
+    Block next_varname
+          {| program.rules :=
+              [rule.impl
+                 [{| clause.rel := block_rel.local next_varname;
+                    clause.args := [value] |}]
+                 hyps];
+            program.meta_rules := [];
+          |}
   end.
 
 Definition lower_main {var n} (e : pATLexpr (var_of var) n) (true_rel : var): blocks_prog var :=
@@ -733,7 +780,7 @@ Fixpoint interp_pSexpr' (e : pATL_Sexpr' interp_type_tagged) : R :=
   | Get n x idxs => get_R x (map interp_pZexpr' idxs)
   | SBop o x y => interp_Sbop o (interp_pSexpr' x) (interp_pSexpr' y)
   | SLit z => IZR z
-end.
+  end.
 
 Fixpoint interp_pATLexpr' {n} (e : pATLexpr' interp_type_tagged n) : interp_type (tensor_n n) :=
   match e with
@@ -744,7 +791,7 @@ Fixpoint interp_pATLexpr' {n} (e : pATLexpr' interp_type_tagged n) : interp_type
   | Guard n b e1 => iverson (interp_pBexpr' b) (interp_pATLexpr' e1)
   | Lbind n m x f => let_binding (interp_pATLexpr' x) (fun x0 => interp_pATLexpr' (f x0))
   | Concat n x y => (*ATL.concat (interp_pATLexpr' x) (interp_pATLexpr' y) *)
-  @ATL.concat (interp_type (tensor_n n)) (dim_n_TensorElem n) (interp_pATLexpr' x) (interp_pATLexpr' y)
+  ATL.concat (interp_pATLexpr' x) (interp_pATLexpr' y)
   | Flatten n x => Common.flatten (interp_pATLexpr' x)
   | Split n k x => Tile (interp_pATLexpr' x) (interp_pZexpr' k)
   | Transpose n x => transpose (interp_pATLexpr' x)
@@ -1097,7 +1144,7 @@ Axiom get_nat : value -> nat.
 Axiom agg_bop : aggregator -> value -> value -> value.
 Axiom agg_id : aggregator -> value.
 
-Instance dsig : signature fn aggregator value :=
+Instance dsig : datalog_semantics fn aggregator value :=
   { interp_fun := interp_fun; get_nat := get_nat; agg_bop := agg_bop; agg_id := agg_id }.
 
 Context {context : map.map exprvar value} {context_ok : map.ok context}.
@@ -1109,24 +1156,22 @@ Definition context_of {var} (ctx : list (ctx_elt2 (var_of var) interp_type_tagge
   map.of_list (untag_zctx (zctx ctx)).
 
 Print R.
-Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps next_varname' bs :
+Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps next_varname' :
   wf_pSexpr' ctx e e' ->
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
-  lower_pSexpr' idxs0 next_varname e = (datalog_expr, hyps, next_varname', bs) ->
+  lower_pSexpr' idxs0 next_varname e = (datalog_expr, hyps, next_varname') ->
   exists hyps' substn,
     next_varname <= next_varname' /\
-    Forall2 (interp_clause (map.putmany substn (context_of ctx))) hyps hyps' /\
-    Forall2 (fun hyp' '(l, v) =>
-      exists n depth tensor_val idx_vals,
+    Forall2 (clause.interp (map.putmany substn (context_of ctx))) hyps hyps' /\
+    Forall (fun hyp' =>
+      exists v n depth tensor_val idx_vals,
         In {| ctx_elt_t := tensor_n n; ctx_elt_p1 := (v, depth); ctx_elt_p2 := tensor_val |} ctx /\
-        match hyp' with
-        | normal_fact r (val_arg :: idx_args) =>
-            r = local l /\
-            Forall2 (fun a b => a = VZ b) idx_args idx_vals /\
-            val_arg = value_of (get_R tensor_val idx_vals)
-        | _ => False
-        end) hyps' bs (* this is meant to show that hyps' is true *) /\
-      interp_expr (map.putmany substn (context_of ctx)) datalog_expr (value_of (interp_pSexpr' e')).
+          hyp'.(normal_fact.rel) = block_rel.input v /\
+          exists val_arg idx_args,
+            val_arg :: idx_args = hyp'.(normal_fact.args) /\
+              Forall2 (fun a b => a = VZ b) idx_args idx_vals /\
+              val_arg = value_of (get_R tensor_val idx_vals)) hyps' (* this is meant to show that hyps' is true *) /\
+      expr.interp (map.putmany substn (context_of ctx)) datalog_expr (value_of (interp_pSexpr' e')).
 Proof.
   induction 1.
   - intros Hidxs Hcomp. simpl in *. Tactics.destruct_one_match_hyp. invert Hcomp.
