@@ -106,12 +106,6 @@ Module blocks_prog.
     | wf_Block ctx ret p1 p2 :
       program.wf (block_rel.wf ctx) p1 p2 ->
       wf ctx (Block ret p1) (Block ret p2).
-
-    Fixpoint finite e :=
-      match e with
-      | LetIn x f => forall x, finite (f x)
-      | Block ret p => program.finite p inp_holds
-      end.
   End __.
   Arguments blocks_prog {_ _ _ _} _.
 End blocks_prog. Abbreviation blocks_prog := blocks_prog.blocks_prog.
