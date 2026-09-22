@@ -367,13 +367,6 @@ Section __.
      end)
     (at level 60, pat pattern, c1 at next level, right associativity) : option_monad_scope.
 
-  Notation "x <- c1 ;; c2" :=
-    (match c1 with
-     | Some x => c2
-     | None => None
-     end)
-    (at level 60, c1 at next level, right associativity) : option_monad_scope.
-
   Notation "'assert' c1 ;; c2" :=
     (match c1 with
      | true => c2
@@ -385,11 +378,11 @@ Section __.
     assert eqb (meta_fact.rel mf) hyp_rel;;
     assert inclb (meta_fact.normal_facts mf) (flat_map fact.normal_facts facts);;
     '(value_pattern.any :: value_pattern.any :: rest) <- mf.(meta_fact.pattern).(fact_pattern.args);;
-    rest <- option_all (map value_pattern.value_of rest);;
+    '(Some args) <- option_all (map value_pattern.value_of rest);;
     let vals := map (fun f => '(i :: x_i :: _) <- f;; Some (i, x_i)) (map.keys mf.(meta_fact.set)) in
-    vals <- option_all vals;;
+    '(Some vals) <- option_all vals;;
     Some {| normal_fact.rel := concl_rel;
-      normal_fact.args := interp_agg agg vals :: rest |}.
+      normal_fact.args := interp_agg agg vals :: args |}.
 
   Definition check_hyps ctx rule_hyps hyps :=
     eqb (option_all (map (subst_in_clause ctx) rule_hyps)) (Some hyps).
