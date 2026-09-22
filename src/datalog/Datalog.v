@@ -473,6 +473,7 @@ Module meta_fact.
         rewrite <- Hpat in Hc. contradiction.
     Qed.
   End __.
+  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(mk) :: prev ().
 End meta_fact. Abbreviation meta_fact := meta_fact.meta_fact.
 #[local] Hint Resolve Forall2_impl : core.
 #[local] Hint Resolve Forall_impl : core.
@@ -1690,6 +1691,7 @@ Ltac invert_stuff :=
   | _ => progress cbn [value_pattern.matches fact.rel
                        clause.rel clause.args clause_pattern.rel clause_pattern.args
                        fact.implied_by_mfs fact.implied_by_mf] in *
+  | _ => progress cbv [meta_fact.rel] in *
   | H : rule.one_step_derives _ _ _ |- _ => cbv [rule.one_step_derives] in H; fwd
   | H : meta_fact.matches _ _ |- _ => cbv [meta_fact.matches] in H; fwd
   | H : fact.implied_by_mfs _ _ |- _ => cbv [fact.implied_by_mfs] in H

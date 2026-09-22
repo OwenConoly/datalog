@@ -301,7 +301,7 @@ Ltac invert_stuff :=
   | H: program.interp_step _ _ _ |- _ => invert H
   | H: Forall _ (map _ _) |- _ => progress cbn [map] in H
   | H: Exists _ _ |- _ => invert1_Exists ltac:(repeat invert_stuff) H
-  | H: pftree _ _ (fact.normal _) |- _ =>
+  | H: pftree _ _ _ |- _ =>
       (apply pftree.invert in H; destruct H; [solve[repeat invert_stuff]|]) ||
         (apply pftree.invert in H; destruct H; [|solve[repeat invert_stuff]])
   | H: blocks_prog.inp_holds _ |- _ => cbv [blocks_prog.inp_holds fact.rel result.contains] in H
@@ -510,14 +510,9 @@ Proof.
                 +++ interp_exprs.
       -- intros H.
          repeat invert_stuff.
-         apply pftree.invert in H2.
-         destruct H2 as [H2|H2].
-         { cbv [inp_holds] in H2. simpl in H2. destruct H2. }
-         #[local] Ltac2 Set to_cbn as prev := fun _ => reference:(meta_fact.mk) :: prev ().
-         repeat invert_stuff.
-         1,2: invert H. 1,2: repeat invert_stuff.
-         invert H. destruct hyps; [discriminate H2|]. destruct hyps; [|discriminate H2].
+         destruct hyps; [discriminate H2|]. destruct hyps; [|discriminate H2].
          simpl in H2. repeat invert_stuff.
+         cbn [meta_fact.rel] in *.
          { invert H0p1. repeat invert_stuff.
 
            repeat invert_stuff. }
