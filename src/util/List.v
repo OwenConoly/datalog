@@ -1731,18 +1731,17 @@ Section misc.
     | O => [[]]
     end.
 
-  Lemma choose_n_spec n (hyps fs : list A) :
-    length hyps = n ->
-    incl hyps fs ->
-    In hyps (choose_any_n n fs).
+  Lemma in_choose_any_n n (hyps fs : list A) :
+    In hyps (choose_any_n n fs) <-> length hyps = n /\ incl hyps fs.
   Proof.
-    revert hyps fs. induction n; intros hyps fs Hlen Hincl.
-    - destruct hyps; [|discriminate Hlen]. simpl. auto.
-    - destruct hyps; [discriminate Hlen|]. simpl in Hlen.
-      apply incl_cons_inv in Hincl. fwd.
-      specialize (IHn hyps _ ltac:(lia) ltac:(eassumption)).
-      simpl. apply in_flat_map. eexists. split; [eassumption|].
-      apply in_map. assumption.
+    revert hyps. induction n; intros [|h hyps]; simpl.
+    - split; [intros _ | intros _; left; reflexivity]. split; [reflexivity | apply incl_nil_l].
+    - split; [intros [[=]|[]] | intros [[=] _]].
+    - split; [intros H | intros [[=] _]].
+      apply in_flat_map in H. destruct H as (? & _ & H). apply in_map_iff in H. destruct H as (? & [=] & _).
+    - rewrite in_flat_map. setoid_rewrite in_map_iff. setoid_rewrite IHn. split.
+      + intros (h' & Hh' & hyps' & [= <- <-] & Hlen & Hincl). split; [congruence | auto using incl_cons].
+      + intros [[= Hlen] Hincl]. apply incl_cons_inv in Hincl. fwd. eauto 7.
   Qed.
 
   Inductive sublist : list A -> list A -> Prop :=

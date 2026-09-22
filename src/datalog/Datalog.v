@@ -215,12 +215,6 @@ Module value_pattern.
       | any => True
       end.
 
-    Definition is_exactlyb vp :=
-      match vp with
-      | any => false
-      | exactly _ => true
-      end.
-
     Definition matchesb (p : value_pattern) v :=
       match p with
       | exactly v0 => eqb v0 v
@@ -437,6 +431,16 @@ Module meta_fact.
     Proof.
       intros Hsame. apply eq_ext; [reflexivity|]. apply fset.ext. intros args.
       rewrite !contains_mk, Hsame. reflexivity.
+    Qed.
+
+    Lemma mk_keys_perm pat vals :
+      NoDup vals ->
+      Forall (Forall2 value_pattern.matches pat.(fact_pattern.args)) vals ->
+      Permutation (map.keys (mk pat vals).(set)) vals.
+    Proof.
+      intros Hnd Hm. rewrite Forall_forall in Hm.
+      apply NoDup_Permutation; [apply map.keys_NoDup | assumption |]. intros args.
+      pose proof (contains_mk pat vals args) as H. cbv [fset.contains] in H. rewrite H. intuition auto.
     Qed.
 
     Lemma mk_keys mf :
@@ -683,6 +687,13 @@ Module fact.
       In nf (normal_facts f) <-> f = normal nf.
     Proof. destruct f; simpl; intuition congruence. Qed.
 
+    Lemma in_flat_map_normal_facts nf fs :
+      In nf (flat_map normal_facts fs) <-> In (normal nf) fs.
+    Proof.
+      rewrite in_flat_map. setoid_rewrite in_normal_facts.
+      split; [intros (? & ? & ->) | intros]; eauto.
+    Qed.
+
     Definition meta_facts (f : fact) : list meta_fact :=
       match f with
       | normal _ => []
@@ -692,6 +703,13 @@ Module fact.
     Lemma in_meta_facts mf f :
       In mf (meta_facts f) <-> f = meta mf.
     Proof. destruct f; simpl; intuition congruence. Qed.
+
+    Lemma in_flat_map_meta_facts mf fs :
+      In mf (flat_map meta_facts fs) <-> In (meta mf) fs.
+    Proof.
+      rewrite in_flat_map. setoid_rewrite in_meta_facts.
+      split; [intros (? & ? & ->) | intros]; eauto.
+    Qed.
 
     Definition normal_subset (S : fact -> Prop) :=
       fun nf => S (normal nf).
