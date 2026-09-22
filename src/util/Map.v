@@ -5,7 +5,30 @@ From Datalog Require Import Tactics List.
 From Stdlib Require Import Permutation RelationClasses.
 Import ListNotations.
 
-Definition partial_map k v `{map.map k v} := @map.rep k v _.
+Definition partial_map k v {map : map.map k v} := @map.rep k v _.
+Module fset.
+  Section __.
+    Context {k} {map : map.map k unit}.
+    Definition fset := @map.rep k unit _.
+    Definition contains (s : map) x := In x (map.keys s).
+
+    Context {ok : map.ok map} {k_eqb : Eqb k} {k_eqb_ok : Eqb_ok k_eqb}.
+
+    Lemma ext (s1 s2 : map) :
+      (forall x, contains s1 x <-> contains s2 x) ->
+      s1 = s2.
+    Proof.
+      cbv [contains]. intros H. apply map.map_ext. intros x. specialize (H x).
+      destruct (map.get s1 x) as [[]|] eqn:E1, (map.get s2 x) as [[]|] eqn:E2;
+        try reflexivity; exfalso.
+      - assert (In x (map.keys s2)) as Hin by (apply H; eapply map.in_keys; exact E1).
+        apply map.in_keys_inv in Hin. congruence.
+      - assert (In x (map.keys s1)) as Hin by (apply H; eapply map.in_keys; exact E2).
+        apply map.in_keys_inv in Hin. congruence.
+    Qed.
+  End __.
+  Arguments fset _ {_}.
+End fset. Abbreviation fset := fset.fset.
 
 Section MapKeysExtra.
   Context {key key' value : Type}.
@@ -135,6 +158,16 @@ Section Maps.
     intros H HR k0 v0 Hget. rewrite map.get_put_dec in Hget. destr (eqb k k0).
     - injection Hget as Hv. subst. exact HR.
     - apply H; assumption.
+  Qed.
+
+  Lemma Forall_values_put (P : value1 -> Prop) (m : mp1) k w :
+    Forall P (values m) -> P w -> Forall P (values (map.put m k w)).
+  Proof.
+    intros HF HPw. apply Forall_forall. intros x Hx.
+    apply In_values in Hx. destruct Hx as (k0 & Hget).
+    rewrite map.get_put_dec in Hget. destr (eqb k k0).
+    - injection Hget as <-. exact HPw.
+    - rewrite Forall_forall in HF. apply HF. apply In_values. eauto.
   Qed.
 
   Definition Forall2_map (R : key -> value1 -> value2 -> Prop) (m1 : mp1) (m2 : mp2) : Prop :=
@@ -701,6 +734,21 @@ Section Map.
     map.get m k = None -> get_or_default m k = default.
   Proof. cbv [get_or_default]. apply get_or_None. Qed.
 
+  Lemma get_or_default_empty `{WithDefault value} k :
+    get_or_default (map.empty : mp) k = default.
+  Proof. apply get_or_default_None, map.get_empty. Qed.
+
+  Lemma get_or_default_values `{WithDefault value} (P : value -> Prop) (m : mp) k :
+    Forall P (values m) ->
+    P default ->
+    P (get_or_default m k).
+  Proof.
+    intros HF Hd. destruct (map.get m k) as [v|] eqn:Eg.
+    - rewrite (get_or_default_Some _ _ _ Eg). rewrite Forall_forall in HF.
+      apply HF. apply In_values. eauto.
+    - rewrite (get_or_default_None _ _ Eg). exact Hd.
+  Qed.
+
   Lemma get_or_put d (m : mp) k v k' :
     get_or d (map.put m k v) k' = if eqb k k' then v else get_or d m k'.
   Proof. cbv [get_or]. rewrite map.get_put_dec. now destr (eqb k k'). Qed.
@@ -731,6 +779,11 @@ Section Map.
   Lemma mupd_with_default_eq_put `{WithDefault value} f (m : mp) k :
     mupd_with_default f m k = map.put m k (f (get_or_default m k)).
   Proof. cbv [mupd_with_default get_or_default]. apply mupd_total_eq_put. Qed.
+
+  Lemma get_or_default_mupd `{WithDefault value} (g : value -> value) (m : mp) k k' :
+    get_or_default (mupd_with_default g m k) k'
+    = if eqb k k' then g (get_or_default m k) else get_or_default m k'.
+  Proof. rewrite mupd_with_default_eq_put, get_or_default_put. reflexivity. Qed.
 
   Lemma get_map_values' (f : key -> value -> value') (m : mp) (k : key) :
     map.get (map_values' f m) k = option_map (f k) (map.get m k).
@@ -1022,6 +1075,16 @@ Proof.
   - apply IHkvs in H. fwd. rewrite map.get_put_dec. destr (eqb k0 k); eauto.
 Qed.
 
+Lemma keys_of_list_same_set kvs :
+  same_set (map.keys (map.of_list (map := mp) kvs)) (map fst kvs).
+Proof.
+  intros k. split; intros Hk.
+  - apply map.in_keys_inv in Hk.
+    destruct (map.get _ k) eqn:E; [|congruence].
+    apply of_list_Some_in in E. eauto using in_fst.
+  - apply in_of_list_Some_strong in Hk. fwd. eapply map.in_keys. eassumption.
+Qed.
+
 Lemma in_of_list_Some k kvs :
   In k (map fst kvs) ->
   exists v,
@@ -1059,6 +1122,34 @@ Lemma disjointb_disjoint m1 m2 :
 Proof.
   cbv [map.disjoint]. intros H k **. eapply map.get_forallb in H; eauto.
   eapply map.get_forallb in H; eauto. destr (eqb k k); simpl in *; congruence.
+Qed.
+
+#[global] Instance forallb_spec (f : key -> value -> bool) m :
+  BoolSpec (forall k v, map.get m k = Some v -> f k v = true)
+    (exists k v, map.get m k = Some v /\ f k v = false)
+    (map.forallb f m).
+Proof.
+  destruct (map.forallb f m) eqn:E; constructor.
+  - intros k v Hget. eapply map.get_forallb; eassumption.
+  - revert E. cbv [map.forallb].
+    eapply map.fold_spec with
+      (P := fun m r => r = false -> exists k v, map.get m k = Some v /\ f k v = false).
+    + intros. discriminate.
+    + intros k v m0 r Hnone IH Hr. apply Bool.andb_false_iff in Hr.
+      destruct Hr as [Hr|Hr].
+      * specialize (IH Hr). destruct IH as (k0 & v0 & Hget & Hf).
+        exists k0, v0. rewrite map.get_put_dec. destr (eqb k k0); [congruence|auto].
+      * exists k, v. rewrite map.get_put_same. auto.
+Qed.
+
+Lemma forallb_true_iff (f : key -> value -> bool) m :
+  map.forallb f m = true <-> (forall k v, map.get m k = Some v -> f k v = true).
+Proof.
+  destruct (forallb_spec f m).
+  - split; auto.
+  - split.
+    + intros. discriminate.
+    + intros H'. destruct H as (k & v & Hget & Hf). apply H' in Hget. congruence.
 Qed.
 
 Definition agree_on_overlap (m1 m2 : mp) : Prop :=
@@ -1174,6 +1265,15 @@ Proof.
     + fwd. destruct Hgetp0 as [Heq | Hin].
       * subst. apply E. auto.
       * apply E. right. apply IH; eauto.
+Qed.
+
+Lemma compatible_union_of_list_extends (ms : list mp) u :
+  compatible_union_of_list ms = Some u ->
+  forall m, In m ms -> map.extends u m.
+Proof.
+  intros Heq m Hin x v Hget.
+  eapply compatible_union_of_list_get in Heq.
+  apply Heq. exists m. split; assumption.
 Qed.
 
 Lemma Forall_map_tuples (R : key -> value -> Prop) (m : mp) :

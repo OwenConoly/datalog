@@ -2,21 +2,25 @@ From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Datatypes.List Tactics Tactics.fwd Eqb.
-From Datalog Require Import Eqb.
-From Datalog Require Import List Datalog (* FancyNotations *) Tactics Blocks Interpreter.
+From Datalog Require Import Eqb Map.
+From Datalog Require Import List Pftree Datalog (* FancyNotations *) Tactics Blocks CheckMetaRules SimpleBlocks Autocbn.
 Import ListNotations.
+Import Blocks.blocks_prog SimpleBlocks.blocks_prog.
 
 Section __.
 Variant bop := sum | prod.
 Variant type := val | set.
 Definition obj := nat.
 Context {context : map.map nat obj} {context_ok : map.ok context}.
+Context {value_set : map.map (list obj) unit} {value_set_ok : map.ok value_set}.
 Variant agg_fn :=
   | fn_lit (o : obj)
   | fn_bop (o : bop).
-#[local] Instance agg_syntax : datalog_syntax :=
-  {| rel := block_rel nat; exprvar := nat; fn := agg_fn; aggregator := bop |}.
+#[local] Instance agg_exprvar : exprvarT := nat.
+#[local] Instance agg_fnT : fnT := agg_fn.
+#[local] Instance agg_aggregatorT : aggregatorT := bop.
 #[local] Instance obj_valueT : valueT := obj.
+#[local] Instance lrel : lrelT := nat.
 
 Definition fn_inj f :=
   match f with
@@ -102,7 +106,7 @@ Definition SExpr t := forall var, Sexpr var t.
 Definition Wf_Sexpr {t} (e : SExpr t) :=
   forall var1 var2, wf_Sexpr [] t (e var1) (e var2).
 
-Definition lit x : expr := fun_expr (fn_lit x) [].
+Definition lit x : expr := expr.app (fn_lit x) [].
 
 Definition interp_bop o x y :=
   match o with
@@ -128,7 +132,7 @@ Definition interp_fn (f : fn) (args : list obj) : option obj :=
 Definition extract_nat (x : obj) :=
   Some x.
 
-Instance Sig : signature fn bop obj :=
+#[local] Instance Sig : datalog_semantics agg_fn bop obj :=
   { interp_fun := interp_fn;
     get_nat := fun _ => O;
     agg_bop := interp_bop;
@@ -143,50 +147,50 @@ Proof.
   destruct x, y; simpl in *; try discriminate; auto.
 Qed.
 
-#[global] Instance block_rel_eqb {A} {aeqb : Eqb A} : Eqb (block_rel A) :=
-  fun R1 R2 =>
-    match R1, R2 with
-    | local l1, local l2 => aeqb l1 l2
-    | input l1, input l2 => aeqb l1 l2
-    | _, _ => false
-    end.
-
-#[global] Instance block_rel_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
-  : Eqb_ok block_rel_eqb.
-Proof.
-  intros x y. cbv [eqb block_rel_eqb].
-  destruct x, y; try congruence;
-    (pose proof (eqb_spec a a0) as Ha; cbv [eqb] in Ha;
-     destruct (aeqb a a0); subst; congruence).
-Qed.
-
 Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var :=
   match e with
   | Var t x =>
-      Block O [(O, x)]
-        [normal_rule
-           [{| clause_rel := local O; clause_args := [var_expr O] |}]
-           [{| clause_rel := input O; clause_args := [var_expr O] |}];
-         meta_rule
-           [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-           [{| meta_clause_rel := input O; meta_clause_args := [None] |}]]
+      Block O
+        {| program.rules :=
+             [rule.impl
+                [{| clause.rel := block_rel.local O; clause.args := [expr.var O] |}]
+                [{| clause.rel := block_rel.input x; clause.args := [expr.var O] |}]];
+          program.meta_rules :=
+            [{| meta_rule.concls :=
+                 [{| clause_pattern.rel := block_rel.local O;
+                    clause_pattern.args := [expr_pattern.any] |}];
+               meta_rule.hyps :=
+                 [{| clause_pattern.rel := block_rel.input x;
+                    clause_pattern.args := [expr_pattern.any] |}] |}] |}
   | bop_over_vals o x y =>
       LetIn (compile_Sexpr x)
         (fun x' =>
            LetIn (compile_Sexpr y)
              (fun y' =>
-                Block O [(O, x'); (1, y')]
-                  [normal_rule
-                     [{| clause_rel := local O; clause_args := [fun_expr (fn_bop o) [var_expr O; var_expr (S O)]] |}]
-                     [{| clause_rel := input 0; clause_args := [var_expr O] |};
-                      {| clause_rel := input 1; clause_args := [var_expr (S O)] |}];
-                   meta_rule
-                     [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                     [{| meta_clause_rel := input 0; meta_clause_args := [None] |};
-                      {| meta_clause_rel := input 1; meta_clause_args := [None] |}]]))
-  | empty => Block O [] [meta_rule
-                          [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                          []]
+                Block O
+                  {| program.rules :=
+                       [rule.impl
+                          [{| clause.rel := block_rel.local O;
+                             clause.args := [expr.app (fn_bop o) [expr.var O; expr.var (S O)]] |}]
+                          [{| clause.rel := block_rel.input x'; clause.args := [expr.var O] |};
+                           {| clause.rel := block_rel.input y'; clause.args := [expr.var (S O)] |}]];
+                    program.meta_rules :=
+                      [{| meta_rule.concls :=
+                           [{| clause_pattern.rel := block_rel.local O;
+                              clause_pattern.args := [expr_pattern.any] |}];
+                         meta_rule.hyps :=
+                           [{| clause_pattern.rel := block_rel.input x';
+                              clause_pattern.args := [expr_pattern.any] |};
+                            {| clause_pattern.rel := block_rel.input x';
+                              clause_pattern.args := [expr_pattern.any] |}] |}] |}))
+  | empty =>
+      Block O
+        {| program.rules := [];
+          program.meta_rules :=
+            [{| meta_rule.concls :=
+                 [{| clause_pattern.rel := block_rel.local O;
+                    clause_pattern.args := [expr_pattern.any] |}];
+               meta_rule.hyps := [] |}] |}
   | singleton x => (*we happen to represent sets in the same format as elements*)
       compile_Sexpr x
   | intersection x y =>
@@ -194,32 +198,46 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
         (fun x' =>
            LetIn (compile_Sexpr y)
              (fun y' =>
-                Block O [(0, x'); (1, y')]
-                  [normal_rule
-                     [{| clause_rel := local O; clause_args := [var_expr O] |}]
-                     [{| clause_rel := input 0; clause_args := [var_expr O] |};
-                      {| clause_rel := input 1; clause_args := [var_expr O] |}];
-                   meta_rule
-                     [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                     [{| meta_clause_rel := input 0; meta_clause_args := [None] |};
-                      {| meta_clause_rel := input 1; meta_clause_args := [None] |}]]))
+                Block O
+                  {| program.rules :=
+                       [rule.impl
+                          [{| clause.rel := block_rel.local O; clause.args := [expr.var O] |}]
+                          [{| clause.rel := block_rel.input x'; clause.args := [expr.var O] |};
+                           {| clause.rel := block_rel.input y'; clause.args := [expr.var O] |}]];
+                    program.meta_rules :=
+                      [{| meta_rule.concls :=
+                           [{| clause_pattern.rel := block_rel.local O;
+                              clause_pattern.args := [expr_pattern.any] |}];
+                         meta_rule.hyps :=
+                           [{| clause_pattern.rel := block_rel.input y';
+                              clause_pattern.args := [expr_pattern.any] |};
+                            {| clause_pattern.rel := block_rel.input y';
+                              clause_pattern.args := [expr_pattern.any] |}] |}] |}))
   | let_in t1 t2 x f =>
       LetIn (compile_Sexpr x)
         (fun x' => compile_Sexpr (f x'))
   | bop_over_set o x =>
       LetIn (compile_Sexpr x)
         (fun x' =>
-           Block O [(0, x')]
-             [agg_rule (local O) o (local (S O));
-              meta_rule
-                [{| meta_clause_rel := local O; meta_clause_args := [None] |}]
-                [{| meta_clause_rel := local (S O); meta_clause_args := [None; None] |}];
-              normal_rule
-                [{| clause_rel := local (S O); clause_args := [var_expr O; var_expr O] |}]
-                [{| clause_rel := input 0; clause_args := [var_expr O] |}];
-              meta_rule
-                [{| meta_clause_rel := local (S O); meta_clause_args := [None; None] |}]
-                [{| meta_clause_rel := input 0; meta_clause_args := [None] |}]])
+           Block O
+             {| program.rules :=
+                  [rule.agg (block_rel.local O) o (block_rel.local (S O));
+                   rule.impl
+                     [{| clause.rel := block_rel.local (S O); clause.args := [expr.var O; expr.var O] |}]
+                     [{| clause.rel := block_rel.input x'; clause.args := [expr.var O] |}]];
+               program.meta_rules :=
+                 [{| meta_rule.concls :=
+                      [{| clause_pattern.rel := block_rel.local O;
+                         clause_pattern.args := [expr_pattern.any] |}];
+                    meta_rule.hyps :=
+                      [{| clause_pattern.rel := block_rel.local (S O);
+                         clause_pattern.args := [expr_pattern.any; expr_pattern.any] |}] |};
+                  {| meta_rule.concls :=
+                      [{| clause_pattern.rel := block_rel.local (S O);
+                         clause_pattern.args := [expr_pattern.any; expr_pattern.any] |}];
+                     meta_rule.hyps :=
+                       [{| clause_pattern.rel := block_rel.input x';
+                          clause_pattern.args := [expr_pattern.any] |}] |}] |})
   end.
 
 Definition sum_expr {var} (S : var set) :=
@@ -271,24 +289,29 @@ Definition set_of {t} (e' : interp_type t) :=
   | val => fun e' => eq e'
   end e'.
 
-Definition agrees {t} (e : fact_args -> Prop) (e' : interp_type t) :=
-  (forall x, set_of e' x <-> e (normal_fact_args [x])) /\
-    (exists S, e (meta_fact_args [None] S)).
+Definition agrees {t} (e : result) (e' : interp_type t) :=
+  (forall x, set_of e' x <-> e.(result.normal) [x]) /\
+    (e.(result.done) [value_pattern.any]).
 
 Ltac invert_stuff :=
   match goal with
-  | _ => Datalog.invert_stuff
+  | _ => match goal with _ => Datalog.invert_stuff end
+  | H: _ \/ _ |- _ => destruct H as [H|H]
+  | H: In _ (_ :: _) |- _ => destruct H
+  | H: program.interp_step _ _ _ |- _ => invert H
+  | H: Forall _ (map _ _) |- _ => progress cbn [map] in H
   | H: Exists _ _ |- _ => invert1_Exists ltac:(repeat invert_stuff) H
-  | H: prog_impl _ _ (normal_fact _ _) |- _ =>
-      (apply invert_prog_impl in H; destruct H; [solve[repeat invert_stuff]|]) ||
-      (apply invert_prog_impl in H; destruct H; [|solve[repeat invert_stuff]])
+  | H: pftree _ _ _ |- _ =>
+      (apply pftree.invert in H; destruct H; [solve[repeat invert_stuff]|]) ||
+        (apply pftree.invert in H; destruct H; [|solve[repeat invert_stuff]])
+  | H: blocks_prog.inp_holds _ |- _ => cbv [blocks_prog.inp_holds fact.rel result.contains] in H
   end.
 
-Lemma check_is_not_input var (vs : list (@block_rel var)):
-  forallb (fun v => match v with | input _ => false | local _ => true end) vs = true ->
-  Forall is_not_input vs.
+Lemma check_is_not_input var (vs : list (block_rel var)):
+  forallb (fun v => match v with | block_rel.input _ => false | block_rel.local _ => true end) vs = true ->
+  Forall block_rel.is_not_input vs.
 Proof.
-  intros H. fwd. eapply Forall_impl; [|eassumption]. simpl.
+  intros H. fwd. eapply Forall_impl; [eassumption|]. simpl.
   intros R. destruct R; simpl; congruence || auto.
 Qed.
 
@@ -298,48 +321,21 @@ Proof.
   induction e; simpl;
     repeat match goal with
       | _ => progress (intros; ssplit; auto)
-      | |- meta_rules_valid _ =>
+      | |- program.meta_rules_valid _ =>
           eapply check_meta_rules_valid_sound with (fn_inj := fn_inj);
           [apply fn_inj_correct|];
           reflexivity
       | |- NoDup _ =>
           eapply @nodupb_sound; [typeclasses eauto|];
           reflexivity
-      | |- Forall is_not_input _ =>
+      | |- Forall block_rel.is_not_input _ =>
           apply check_is_not_input; reflexivity
       end.
-Qed.
-
-Ltac destr_vbp :=
-  repeat match goal with
-    | H: valid_blocks_prog _ |- _ =>
-        progress (cbn [compile_Sexpr] in H;
-                  repeat rewrite valid_blocks_prog_LetIn in H;
-                  fwd)
-    | H: forall _, valid_blocks_prog _ |- _ =>
-        specialize (H (fun _ => False))
-    | H: forall _, valid_blocks_prog _ /\ _ |- _ =>
-        specialize (H (fun _ => False))
-    end.
-
-Hint Resolve vars_in_incl : core.
-Hint Constructors vars_in : core.
-Lemma compile_Sexpr_vars_in var1 var2 t (dummy : forall t, var1 t) e (ctx : list (@ctx_elt2 var1 (fun _ => var2))) e0 :
-  wf_Sexpr ctx t e e0 ->
-  vars_in (map (@ctx_elt_p2 _ (fun _ => _)) ctx) (compile_Sexpr e0).
-Proof.
-  induction 1;
-    repeat match goal with
-      | _ => progress (intros; simpl in * )
-      | |- vars_in _ _ => constructor
-      | |- In _ (map _ _) => apply in_map_iff
-      | |- Forall _ (_ :: _) => constructor
-      | |- Forall _ [] => constructor
-      | _ => solve[eauto]
-      | |- vars_in (_ :: _) _ => eapply vars_in_incl; [|solve[eauto]]; auto with incl
-      end.
-  eexists. split; [|eassumption]. reflexivity.
-Qed.
+  { eapply check_meta_rules_valid_sound with (fn_inj := fn_inj);
+      [apply fn_inj_correct|];
+      simpl.
+    vm_compute.
+Abort.
 
 Definition dummy (t : type) : interp_type t :=
   match t with
@@ -353,36 +349,38 @@ Hint Unfold Option.option_relation : core.
 Lemma compile_Sexpr_correct ctx t e e0 e' :
   wf_Sexpr ctx t e e0 ->
   Forall (fun elt => agrees elt.(ctx_elt_p2) elt.(ctx_elt_p1)) ctx ->
-  Forall honest_args (map (@ctx_elt_p2 _ (fun _ => _)) ctx) ->
-  valid_blocks_prog (compile_Sexpr e0) ->
   interp_Sexpr e e' ->
-  agrees (interp_blocks_prog (compile_Sexpr e0)) e'.
+  agrees (simple_interp (compile_Sexpr e0)) e'.
 Proof.
-  intros Hwf Hctx Hhonest Hvalid. revert e'. induction Hwf; intros e' He'.
+  intros Hwf Hctx. revert e'. induction Hwf; intros e' He'.
   - dep_invert He'. rewrite Forall_forall in Hctx.
     specialize (Hctx _ H). clear H. simpl in Hctx.
-    cbv [agrees] in Hctx. fwd. cbv [agrees]. simpl. split.
-    + intros. rewrite Hctxp0. clear Hctxp0. split.
-      -- intros. eapply prog_impl_step.
-         ++ apply Exists_cons_hd. constructor.
-            eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+    cbv [agrees] in Hctx. fwd.
+    cbv [agrees]. simpl. split.
+    + intros x. rewrite Hctxp0. clear Hctxp0. split.
+      -- intros Hx. eapply pftree.step.
+         ++ apply program.rule_step. apply Exists_cons_hd.
+            eapply rule.interp_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+            (* :((( *)
+            instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.
-      -- intros. repeat invert_stuff. assumption.
-    (*meta fact*)
-    + eexists. eapply prog_impl_step.
-      -- simpl. apply Exists_cons_tl. apply Exists_cons_hd.
-         eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
-      -- interp_exprs.
+      -- intros Hx. repeat invert_stuff. assumption.
+    + eapply pftree.step.
+      -- constructor. cbv [meta_rule.pattern_interp]. simpl. exists map.empty.
+         interp_exprs.
+         instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
+      -- interp_exprs. apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
   - dep_invert He'.
-    destr_vbp.
-    specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
-    specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf1 ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf2 ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf1, IHHwf2. fwd.
     simpl. split.
     + intros x. simpl. split.
-      -- intros. subst. eapply prog_impl_step.
-         ++ simpl. apply Exists_cons_hd. constructor.
-            eapply normal_rule_impl with (ctx := map.put (map.put map.empty 0 _) 1 _); interp_exprs.
+      -- intros. subst. eapply pftree.step.
+         ++ apply program.rule_step. apply Exists_cons_hd.
+            eapply rule.interp_impl with (ctx := map.put (map.put map.empty 0 _) 1 _); interp_exprs.
+            --- instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
+            --- instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.
             --- apply IHHwf1p0. reflexivity.
             --- apply IHHwf2p0. reflexivity.
@@ -394,175 +392,174 @@ Proof.
          | H: _ |- _ => apply IHHwf2p0 in H
          end.
          cbv [set_of] in *. subst. reflexivity.
-    + eexists. eapply prog_impl_step.
-      -- simpl. doExists 1.
-         eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
+    + simpl. eapply pftree.step.
+      -- apply Exists_cons_hd. cbv [meta_rule.pattern_interp]. simpl.
+         exists map.empty. interp_exprs.
+         ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
+         ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
       -- interp_exprs.
+         ++ apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
+         ++ apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
   - dep_invert He'. simpl. split.
-    + intros x. split.
+    + simpl. intros x. split.
       -- contradiction.
       -- intros H. repeat invert_stuff.
-    + eexists. eapply prog_impl_step.
-      -- simpl. apply Exists_cons_hd.
-         eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
+    + simpl. eapply pftree.step.
+      -- apply Exists_cons_hd.
+         cbv [meta_rule.pattern_interp]. exists map.empty. interp_exprs.
       -- interp_exprs.
   - dep_invert He'.
-    specialize (IHHwf ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf. fwd. split.
     + intros x. rewrite <- IHHwfp0. split; auto.
     + eauto.
   - dep_invert He'.
-    destr_vbp.
-    specialize (IHHwf1 ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
-    specialize (IHHwf2 ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf1 ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf2 ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees] in IHHwf1, IHHwf2. cbv [agrees]. fwd. simpl. split.
     + intros x. rewrite IHHwf1p0, IHHwf2p0. clear IHHwf1p0 IHHwf2p0. split.
-      -- intros [? ?]. eapply prog_impl_step.
-         ++ simpl. apply Exists_cons_hd. constructor.
-            eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+      -- intros [? ?]. eapply pftree.step.
+         ++ apply program.rule_step. simpl. apply Exists_cons_hd.
+            eapply rule.interp_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+            --- instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
+            --- instantiate (1 := {| normal_fact.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.
       -- intros H. repeat invert_stuff. auto.
-    + eexists. eapply prog_impl_step.
-      -- simpl. apply Exists_cons_tl. apply Exists_cons_hd.
-         eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
+    + eapply pftree.step.
+      -- apply Exists_cons_hd.
+         cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
+         ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
+         ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
       -- interp_exprs.
+         ++ apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
+         ++ apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
   - rename H0 into IHHwf'.
     dep_invert He'.
-    simpl in Hvalid. fwd.
-    specialize (IHHwf ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
     simpl in IHHwf'.
     epose_dep IHHwf'.
-    specialize (IHHwf' ltac:(eauto)). specialize' IHHwf'.
-    { constructor; auto. eapply interp_blocks_prog_honest; eauto.
-      eapply compile_Sexpr_vars_in; eauto. }
-    specialize (IHHwf' ltac:(eauto) ltac:(eauto) ltac:(eauto)).
+    specialize (IHHwf' ltac:(eauto) _ ltac:(eauto)).
     clear Hctx. cbv [agrees] in *. fwd. split.
     + intros x. rewrite IHHwf'p0. clear IHHwf'p0.
       simpl. reflexivity.
     + simpl. eauto.
   - dep_invert He'.
-    destr_vbp.
     rename H2 into Hset.
-    specialize (IHHwf ltac:(eassumption) ltac:(eassumption) ltac:(eassumption) _ ltac:(eassumption)).
+    specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
     cbv [agrees]. simpl. cbv [agrees] in IHHwf. fwd. split.
     + intros x. split.
-      -- intros. subst. eapply prog_impl_step.
-         ++ simpl. eapply Exists_cons_hd. constructor.
+      -- intros. subst. eapply pftree.step.
+         ++ constructor. apply Exists_cons_hd.
             eassert (fold_right _ _ _ = _) as ->.
-            2: { constructor. eapply is_list_set_ext.
+            2: { eapply rule.interp_agg. eapply is_list_set_ext.
                  - apply is_list_set_map with (f := fun x => (x, x)).
                    2: eassumption.
-                   cbv [FinFun.Injective]. invert 1. reflexivity.
-                 - simpl. intros [? ?]. instantiate (1 := fun x =>
-                                                            match x with
-                                                            | [_; _] => _
-                                                            | _ => _
-                                                            end).
-                   simpl. reflexivity. }
-         simpl. cbv [interp_agg]. rewrite map_map. simpl.
-         rewrite map_id. reflexivity.
+                   cbv [Finite.Injective]. invert 1. reflexivity.
+                 - simpl. intros [? ?]. instantiate (1 := fun '(_, _) => _). simpl.
+                   reflexivity. }
+            simpl. cbv [interp_agg]. rewrite map_map. simpl.
+            rewrite map_id. reflexivity.
          ++ constructor.
-            --- eapply prog_impl_mf_ext'.
-                +++ eapply prog_impl_step.
-                ---- simpl. do 3 apply Exists_cons_tl. apply Exists_cons_hd.
-                    eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
-                ---- simpl. constructor; [|constructor]. apply prog_impl_leaf.
-                     simpl. doExists 0. split; [reflexivity|].
-                     eapply use_valid_blocks_prog; [eauto|eauto|idtac|eauto].
-                     ++++ eapply compile_Sexpr_vars_in. 2: eassumption. 1: eauto.
-                     ++++ eassumption.
-            +++ simpl. intros. repeat invert_stuff. split.
-                ---- intros H. repeat invert_stuff.
-                     eexists. split; [reflexivity|]. apply IHHwfp0. assumption.
-                ---- intros H. fwd. cbv [one_step_derives one_step_derives0].
-                     eexists. split.
-                     { doExists 2.
-                       eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs. }
-                     interp_exprs. cbv [fact_supported]. doExists 0. simpl.
-                     right.
-                     (*TODO maybe this should work?*) Fail solve [interp_exprs].
-                     cbv [fact_matches]. do 4 eexists. ssplit; eauto. interp_exprs.
-            +++ simpl. intros H. repeat invert_stuff.
+            --- eapply pftree.step.
+                +++ apply program.meta_rule_step. simpl. doExists 1.
+                    cbv [meta_rule.interp]. simpl. split.
+                    { cbv [meta_rule.pattern_interp]. simpl. exists map.empty.
+                      Fail Timeout 3 interp_exprs. (*TODO fix*)
+                      instantiate (1 := [_]). interp_exprs.
+                      instantiate (1 := meta_fact.mk _ _).
+                      simpl. instantiate (1 := {| fact_pattern.rel := _ |}).
+                      simpl. interp_exprs. }
+                    simpl. intros nf Hnf. cbv [fact_pattern.matches] in Hnf.
+                    simpl in Hnf. fwd. simp. repeat invert_stuff.
+                    rewrite meta_fact.contains_to_canonical_set.
+                    rewrite map_map, in_map_iff.
+                    split.
+                    ---- intros H. fwd. cbv [rule.one_step_derives]. eexists. split.
+                         { doExists 1.
+                           eapply rule.interp_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+                           instantiate (1 := {| normal_fact.rel := _ |}).
+                           simpl. interp_exprs. }
+                         constructor; [|constructor]. apply Exists_cons_hd.
+                         cbv [fact.implied_by_mf meta_fact.matches]. simpl. split.
+                         { split; [reflexivity|]. repeat constructor. }
+                         instantiate (1 := map (fun x => [x]) l).
+                         apply meta_fact.contains_to_canonical_set.
+                         rewrite in_map_iff. interp_exprs. eauto.
+                    ---- intros H. repeat invert_stuff.
+                         apply meta_fact.contains_to_canonical_set in H0p1. fwd.
+                         apply in_map_iff in H0p1p1. fwd. interp_exprs. eauto.
+                +++ simpl. interp_exprs. apply pftree.leaf.
+                    cbv [inp_holds]. simpl. split; [assumption|].
+                    cbv [meta_fact.consistent_with]. simpl.
+                    intros nf Hnf. cbv [fact_pattern.matches] in Hnf. simpl in Hnf.
+                    fwd. simp. repeat invert_stuff.
+                    rewrite meta_fact.contains_to_canonical_set, in_map_iff.
+                    split; intros; repeat invert_stuff; eauto.
+                    ---- apply IHHwfp0. cbv [is_list_set] in Hset. fwd.
+                         apply Hsetp0. assumption.
+                    ---- interp_exprs. apply IHHwfp0 in H. cbv [is_list_set] in Hset.
+                         fwd. apply Hsetp0 in H. eauto.
             --- rewrite map_map. apply List.Forall_map.
                 cbv [is_list_set] in Hset. fwd. apply Forall_forall.
                 intros x Hx. apply Hsetp0 in Hx. apply IHHwfp0 in Hx.
-                eapply prog_impl_step.
-                +++ simpl. doExists 2. constructor.
-                    eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+                eapply pftree.step.
+                +++ constructor. doExists 1.
+                    eapply rule.interp_impl with (ctx := map.put map.empty 0 _); interp_exprs.
+                    instantiate (1 := {| normal_fact.rel := _ |}).
+                    simpl. interp_exprs.
                 +++ interp_exprs.
       -- intros H.
-         repeat lazymatch goal with
-                | H: prog_impl _ _ (meta_fact _ _ _) |- _ => fail
-                | _ => invert_stuff
-                end.
-         lazymatch goal with
-         | H: prog_impl _ _ (meta_fact _ _ _) |- _ => rename H into Hmf
-         end.
-         simpl in Hvalidp1. fwd.
-         apply valid_impl_honest in Hvalidp1p0.
-         apply Hvalidp1p0 in Hmf.
-         2: { cbv [good_inputs]. simpl. split.
-              - intros ? ? ?. repeat invert_stuff.
-                destruct f; simpl in *; subst;
-                (*TODO should not do this*)
-                  repeat match goal with
-                    | H0 : _ \/ _ |- _ => destruct H0 as [H0|H0]; [rewrite <- H0 in *; congruence|]
-                    end;
-                  contradiction.
-              - cbv [doesnt_lie]. intros. repeat invert_stuff.
-                eapply interp_blocks_prog_honest in H2p1; eauto.
-                2: { eapply compile_Sexpr_vars_in; eauto. }
-                cbv [consistent]. intros. cbv [args_consistent] in H2p1.
-                rewrite H2p1 by assumption. split; intros; repeat invert_stuff; eauto. }
-         move Hmf at bottom.
-         assert (Heq: forall x y, (x = y /\ x' x) <-> S0 [x; y]).
-         { intros x y. cbv [consistent] in Hmf. rewrite Hmf; [|interp_exprs].
-           rewrite IHHwfp0. split.
-           - intros H. fwd. eapply prog_impl_step.
-             + simpl. doExists 2. constructor.
-               eapply normal_rule_impl with (ctx := map.put map.empty 0 _); interp_exprs.
-             + interp_exprs.
-           - intros H. repeat invert_stuff. auto. }
-         match goal with
-         | H: is_list_set (fun _ => _) _ |- _ => rename H into Hset'
-         end.
-         move Hset at bottom. move Hset' at bottom.
-         cbv [interp_agg]. simpl.
-         apply fold_right_change_order.
-         { (*all bops are commutative, for a certain interpretation of the word*)
-           intros. destruct o; simpl; lia. }
-         eapply is_list_set_perm. 1: eassumption.
-         cbv [is_list_set] in Hset, Hset'. fwd. split.
-         { intros x. split; intros Hx.
-           - rewrite in_map_iff. eexists (_, _). rewrite <- Hset'p0. rewrite <- Heq.
-             simpl. eauto.
-           - apply in_map_iff in Hx. fwd. apply Hset'p0 in Hxp1. destruct x0.
-             apply Heq in Hxp1. fwd. assumption. }
-         apply FinFun.Injective_map_NoDup_in; [|assumption].
-         intros (?, ?) (?, ?). simpl. intros H1' H2' ?. subst.
-         apply Hset'p0 in H1', H2'. apply Heq in H1', H2'. fwd. reflexivity.
-    + eexists. eapply prog_impl_step.
-      -- simpl. doExists 1.
-         eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
-      -- interp_exprs. eapply prog_impl_step.
-         ++ simpl. doExists 3.
-            eapply meta_rule_impl with (ctx := map.empty) (S := fun _ => _); interp_exprs.
+         (*TODO something clever so that this bullet goes away*)
+         repeat invert_stuff.
+         destruct hyps; [discriminate H2|]. destruct hyps; [|discriminate H2].
+         simpl in H2. repeat invert_stuff.
+         assert (Hmf : forall v, fset.contains set0 [v] <-> set_of x' v).
+         { intros v. rewrite IHHwfp0. eapply (Hp1 {| normal_fact.rel := _; normal_fact.args := [v] |}). repeat constructor. }
+         assert (Hvals : forall a b, In (a, b) vals <-> a = b /\ set_of x' a).
+         { intros a b.
+           specialize (H0p1p1 {| normal_fact.rel := block_rel.local 1; normal_fact.args := [a; b] |}
+                         ltac:(repeat constructor)).
+           simpl in H0p1p1. rewrite meta_fact.contains_to_canonical_set, in_map_iff in H0p1p1.
+           destruct H0p1p1 as [Hfw Hbw]. split.
+           - intros Hin. specialize' Hfw.
+             { split; [repeat constructor | exists (a, b); auto]. }
+             repeat invert_stuff. split; [reflexivity|]. apply Hmf. assumption.
+           - intros [<- Hx]. specialize' Hbw.
+             { exists (map fact.normal [{| normal_fact.rel := block_rel.input (simple_interp (compile_Sexpr x2)); normal_fact.args := [a] |}]).
+               split.
+               { doExists 1. eapply rule.interp_impl with (ctx := map.put map.empty 0 _); interp_exprs. }
+               repeat constructor. apply Hmf. exact Hx. }
+             destruct Hbw as [_ Hbw]. fwd. assumption. }
+         cbv [interp_agg]. simpl. apply fold_right_change_order.
+         { intros. destruct o; simpl; lia. }
+         eapply is_list_set_perm; [exact Hset|]. split.
+         { intros v. rewrite in_map_iff. split.
+           - intros Hv. exists (v, v). split; [reflexivity|]. apply Hvals. auto.
+           - intros ((a, b) & <- & Hab). apply Hvals in Hab. fwd. assumption. }
+         apply Finite.Injective_map_NoDup_in; [|assumption].
+         intros (a, b) (c, d) Hab Hcd Heq. simpl in Heq. subst.
+         apply Hvals in Hab, Hcd. fwd. reflexivity.
+    + eapply pftree.step.
+      -- apply Exists_cons_hd.
+         cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
+         instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
+      -- interp_exprs. eapply pftree.step.
+         ++ doExists 1.
+            cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
+            instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.
-            Unshelve.
-            all: exact True.
+            apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
 Qed.
 
 Lemma compile_SExpr_correct t (e : SExpr t) e' :
   Wf_Sexpr e ->
   interp_Sexpr (e _) e' ->
-  agrees (interp_blocks_prog (compile_Sexpr (e _))) e'.
+  agrees (simple_interp (compile_Sexpr (e _))) e'.
 Proof.
   intros Hwf Hinterp.
   eapply compile_Sexpr_correct with (ctx := []).
   - apply Hwf.
   - constructor.
-  - constructor.
-  - apply compile_Sexpr_valid.
-  - exact Hinterp.
+  - assumption.
 Qed.
 End __.

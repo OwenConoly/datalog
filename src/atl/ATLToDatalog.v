@@ -13,8 +13,10 @@ From Stdlib Require Import Program.Equality.
 From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics Common.
 From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
   Meshgrid ContextsAgree ATLDeep Range.
-From Datalog Require Import Datalog Dag Map List Tactics (*Interpreter QueryableToRunnable*) (*ATLUtils*) (*ZeroLowerBounds*) Blocks.
-From Inferpad Require Import ATLPhoas TensorToResult.
+
+From Datalog Require Import Datalog Map List Tactics Blocks SimpleBlocks.
+From GraphSearch Require Import Dag.
+From Inferpad Require Import ATLPhoas.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable Datatypes.List.
 
@@ -108,7 +110,7 @@ Fixpoint sizeof_prop {var n} (sizeof_var : var tZ -> option Z) (e : pATLexpr var
 (*target language syntax*)
 Print blocks_prog.
 (*target language semantics*)
-Print interp_blocks_prog.
+Print blocks_prog.interp.
 
 (*example source program*)
 (* GEN [i < 10] (IZR i) *)
@@ -117,7 +119,7 @@ Definition example_pATLexpr {var} : pATLexpr var 1 :=
   Gen (ZZ_of_nat 0) (ZZ_of_nat 10)
     (fun i => SIZR (ZVar i)).
 (*TODO fill these in*)
-#[local] Instance lvar : lvarT := nat.
+#[local] Instance lrel : lrelT := nat.
 #[local] Instance exprvar : exprvarT := nat.
 
 (* should i be seperating these definitions into more variants like in the previous compiler?
@@ -163,10 +165,10 @@ Arguments pZexpr' : clear implicits.
 
 Fixpoint lower_pZexpr' (e : pZexpr' nat) : expr :=
   match e with
-  | ZBop op x y => fun_expr (ZBop_to_fn op) [lower_pZexpr' x; lower_pZexpr' y]
-  | ZVar x => var_expr x
-  | ZLit p => fun_expr (fn_Lit p) []
-  | Zopp x => fun_expr fn_Opp [lower_pZexpr' x]
+  | ZBop op x y => expr.app (ZBop_to_fn op) [lower_pZexpr' x; lower_pZexpr' y]
+  | ZVar x => expr.var x
+  | ZLit p => expr.app (fn_Lit p) []
+  | Zopp x => expr.app fn_Opp [lower_pZexpr' x]
 end.
 
 Inductive pATL_Sexpr' {var : type -> Type} : Type :=
@@ -192,16 +194,15 @@ Gen_{i = 0}^{i = 10}
 Fixpoint lower_pSexpr' {var} (idxs0 : list exprvar) (next_varname : exprvar) (e : pATL_Sexpr' (var_of var)) :
     expr (*value of expr*) *
     list clause (*hypotheses*) *
-    exprvar (*next varname*) *
-    list (lvar * var) :=
+    exprvar (*next varname*) :=
   match e with
   (* when i tried to update Get with your suggestion to vr, it wouldn't take jus var, so then i made it a var of tensor_n, and then
   that required a for all n : nat, and so now get has an extra variable (??) of n?? *)
   | Get n (var, depth) idxs =>
   (* i feel like this actually should work?? the value part might be wrong, but i basically just copied the defintion from your compiler, and then updated
   it to fit the new types, so i think that the hypotheses part is right?? *)
-    (var_expr next_varname,
-            [{| clause_rel := local next_varname; clause_args := var_expr ( next_varname) :: map var_expr (firstn depth idxs0) ++ map lower_pZexpr' idxs |}],
+    (expr.var next_varname,
+            [{| clause.rel := block_rel.local next_varname; clause.args := expr.var next_varname :: map var_expr (firstn depth idxs0) ++ map lower_pZexpr' idxs |}],
             S next_varname,
             [( next_varname, var)])
   | SBop o x y =>
@@ -1130,7 +1131,7 @@ Proof.
   induction 1.
   - intros Hidxs Hcomp. simpl in *. Tactics.destruct_one_match_hyp. invert Hcomp.
     eexists. eexists (map.put map.empty _ (VZ _)). split.
-    + lia. 
+    + lia.
     + (*constructor; [|constructor]. cbv [interp_clause]. simpl. eexists. split; [|reflexivity].
       constructor.
       -- constructor. rewrite map.get_putmany_dec. rewrite map.get_put_same.

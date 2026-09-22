@@ -4,6 +4,7 @@
  (name default)
  (deps
   (alias_rec src/util/default)
+  (alias_rec graph_search/default)
   (alias_rec src/datalog/default)))
 
 (subdir

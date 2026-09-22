@@ -5,8 +5,8 @@
   Local
   JSON
   QueryableToRunnable
-  FancyNotations
-  ForwardingNode)
+  OperationalToDistributed
+  FancyNotations)
  (name Datalog)
  (package datalog)
  (theories Stdlib coqutil GraphSearch Datalog.Util)

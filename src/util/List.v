@@ -1,6 +1,7 @@
 From Stdlib Require Import Lists.List Permutation Bool Arith.PeanoNat Morphisms RelationClasses Classical_Prop.
 From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics Eqb.
-From Datalog Require Import Tactics Eqb Default.
+From GraphSearch Require Export List.
+From Datalog Require Import Tactics Eqb Default Decidable.
 Import ListNotations.
 
 Local Ltac invert_list_stuff' :=
@@ -30,7 +31,7 @@ Definition is_list_set {X : Type} (S : X -> Prop) (l : list X) :=
   (forall x, S x <-> In x l) /\ NoDup l.
 
 Lemma is_list_set_map X Y S l (f : X -> Y) :
-  FinFun.Injective f ->
+  Finite.Injective f ->
   is_list_set S l ->
   is_list_set (fun y => exists x, y = f x /\ S x) (map f l).
 Proof.
@@ -38,7 +39,7 @@ Proof.
   - intros. split; intros H3; fwd.
     + apply in_map_iff. apply H1 in H3p1. eauto.
     + apply in_map_iff in H3. fwd. apply H1 in H3p1. eauto.
-  - apply FinFun.Injective_map_NoDup; assumption.
+  - apply Finite.Injective_map_NoDup; assumption.
 Qed.
 
 Lemma is_list_set_ext X (S1 S2 : X -> _) l :
@@ -59,16 +60,6 @@ Proof.
 Qed.
 
 Import ListNotations.
-
-#[export] Instance Permutation_filter {A} (q : A -> bool) :
-  Proper (@Permutation A ==> @Permutation A) (filter q).
-Proof.
-  intros l l' HP. induction HP; cbn [filter].
-  - apply Permutation_refl.
-  - destruct (q x); [ apply perm_skip | ]; assumption.
-  - destruct (q x), (q y); solve [ apply perm_swap | apply Permutation_refl ].
-  - eapply perm_trans; eassumption.
-Qed.
 
 #[export] Existing Instance Permutation_app'.
 
@@ -169,6 +160,13 @@ Lemma injective_on_incl {A B} (f : A -> B) l1 l2 :
   incl l1 l2 -> injective_on f l2 -> injective_on f l1.
 Proof. intros Hsub Hinj x y Hx Hy. apply Hinj; auto. Qed.
 
+Lemma injective_on_cons_head {A B} (f : A -> B) a b l :
+  injective_on f (a :: l) ->
+  In b l ->
+  f a = f b ->
+  a = b.
+Proof. intros Hinj Hb. apply Hinj; simpl; auto. Qed.
+
 Lemma injective_on_cons_in {A B} (f : A -> B) a l :
   In a l -> injective_on f l -> injective_on f (a :: l).
 Proof.
@@ -249,6 +247,10 @@ Section subset.
     incl (x1 ++ y1) (x2 ++ y2).
   Proof. cbv [incl]. intros. repeat rewrite in_app_iff in *. intuition auto. Qed.
 
+  Lemma incl_middle (a b : list A) x :
+    incl (a ++ b) (a ++ x :: b).
+  Proof. apply incl_app_app; [ apply incl_refl | apply incl_tl, incl_refl ]. Qed.
+
   Lemma incl_cons_idk x l1 l2 :
     incl l1 (x :: l2) ->
     exists l1',
@@ -281,6 +283,16 @@ Section Forall.
     Forall (fun x => R x x) xs ->
     Forall2 R xs xs.
   Proof. induction 1; auto. Qed.
+
+  #[global] Instance Forall2_Equivalence (R : A -> A -> Prop) {R_equiv : Equivalence R} :
+    Equivalence (Forall2 R).
+  Proof.
+    constructor.
+    - intros l. induction l; constructor; auto. reflexivity.
+    - intros l1 l2 H. induction H; constructor; auto. symmetry. assumption.
+    - intros l1 l2 l3 H. revert l3. induction H; auto.
+      intros l3 H3. invert H3. constructor; eauto. etransitivity; eauto.
+  Qed.
 
   Lemma Forall2_combine R xs ys :
     Forall2 R xs ys ->
@@ -348,13 +360,35 @@ Section Forall.
     exists ys, Forall2 R xs ys.
   Proof. induction 1; fwd; eauto. Qed.
 
+  Lemma Forall2_exists_r_map (R : A -> B -> Prop) (R' : A -> C -> Prop) (g : C -> B) xs ys :
+    Forall2 R xs ys ->
+    (forall x y, R x y -> exists z, y = g z /\ R' x z) ->
+    exists zs, ys = map g zs /\ Forall2 R' xs zs.
+  Proof.
+    intros H Hex. induction H; fwd; [now exists []|].
+    apply Hex in H. fwd. exists (z :: zs). simpl. eauto.
+  Qed.
+
+  Lemma Forall_ex_eq_map (g : B -> A) xs :
+    Forall (fun x => exists y, x = g y) xs ->
+    exists ys, xs = map g ys.
+  Proof.
+    induction 1; [now exists []|]. fwd. eexists (_ :: _). simpl. f_equal; eassumption.
+  Qed.
+
+  Lemma Forall_impl P Q xs :
+    Forall P xs ->
+    (forall x, P x -> Q x) ->
+    Forall Q xs.
+  Proof. eauto using Forall_impl. Qed.
+
   Lemma Forall2_unique_r R xs ys ys' :
     Forall2 R xs ys ->
     Forall2 R xs ys' ->
-    (forall x y y', R x y -> R x y' -> y = y') ->
+    (forall x y y', In x xs -> R x y -> R x y' -> y = y') ->
     ys = ys'.
   Proof.
-    intros H. revert ys'. induction H; intros; invert_list_stuff'; f_equal; eauto.
+    intros H. revert ys'. induction H; intros; simpl in *; invert_list_stuff'; f_equal; eauto.
   Qed.
 
   Lemma Forall2_and R1 R2 xs ys :
@@ -396,6 +430,11 @@ Section Forall.
       + exact Heq.
       + apply IH. exact Htail.
   Qed.
+
+  Lemma Forall2_map_eq (f : A -> C) (g : B -> C) (l1 : list A) (l2 : list B) :
+    Forall2 (fun x y => f x = g y) l1 l2 ->
+    map f l1 = map g l2.
+  Proof. induction 1; simpl; congruence. Qed.
 
   Lemma Forall2_eq_map (f : B -> A) (l1 : list A) (l2 : list B) :
     Forall2 (fun x y => y = f x) l2 l1 <-> l1 = map f l2.
@@ -445,6 +484,14 @@ Section Forall.
     Forall2 R (rev xs) (rev ys).
   Proof. induction 1; simpl; auto using Forall2_app. Qed.
 
+  Lemma Forall_repeat (P : A -> Prop) (x : A) (n : nat) :
+    P x -> Forall P (repeat x n).
+  Proof. intros H. induction n; cbn; constructor; auto. Qed.
+
+  Lemma Forall2_repeat (R : A -> B -> Prop) (x : A) (y : B) (n : nat) :
+    R x y -> Forall2 R (repeat x n) (repeat y n).
+  Proof. intros H. induction n; cbn; constructor; auto. Qed.
+
   Lemma zip_ext_in (f : _ -> _ -> C) g xs ys :
     (forall x y, In (x, y) (combine xs ys) -> f x y = g x y) ->
     zip f xs ys = zip g xs ys.
@@ -483,6 +530,14 @@ Proof. induction 1; simpl; [reflexivity | subst; assumption]. Qed.
 Lemma Permutation_list_sum l1 l2 : Permutation l1 l2 -> list_sum l1 = list_sum l2.
 Proof. induction 1; rewrite ?list_sum_cons; lia. Qed.
 
+Lemma Forall2_repeat_r {A B} (R : A -> B -> Prop) (l : list A) (y : B) :
+  Forall (fun x => R x y) l -> Forall2 R l (repeat y (length l)).
+Proof.
+  induction 1 as [| x l' Hx Hl' IH]; cbn [length repeat].
+  - constructor.
+  - constructor; assumption.
+Qed.
+
 Lemma Forall2_In_l {A B} (R : A -> B -> Prop) xs ys x :
   Forall2 R xs ys -> In x xs -> exists y, In (x, y) (combine xs ys) /\ R x y.
 Proof.
@@ -490,6 +545,34 @@ Proof.
   intros [-> | Hin].
   - exists b. split; [ left; reflexivity | exact Hab ].
   - destruct (IH Hin) as (y & Hcomb & Hy). exists y. split; [ right; exact Hcomb | exact Hy ].
+Qed.
+
+Lemma Forall2_In_r {A B} (R : A -> B -> Prop) xs ys y :
+  Forall2 R xs ys -> In y ys -> exists x, In (x, y) (combine xs ys) /\ R x y.
+Proof.
+  induction 1 as [| a b xs' ys' Hab HF IH]; [ contradiction | ].
+  intros [-> | Hin].
+  - exists a. split; [ left; reflexivity | exact Hab ].
+  - destruct (IH Hin) as (x & Hcomb & Hx). exists x. split; [ right; exact Hcomb | exact Hx ].
+Qed.
+
+Lemma Forall2_comp {A B C} (R : A -> B -> Prop) (S : B -> C -> Prop) xs ys zs :
+  Forall2 R xs ys ->
+  Forall2 S ys zs ->
+  Forall2 (fun x z => exists y, R x y /\ S y z) xs zs.
+Proof. intros H. revert zs. induction H; invert 1; eauto. Qed.
+
+Lemma Forall2_Forall2_exists {A B C D} (R : A -> B -> Prop) (S : A -> C -> Prop)
+  (T : C -> D -> Prop) (U : B -> D -> Prop) xs ys zs :
+  Forall2 R xs ys ->
+  Forall2 S xs zs ->
+  (forall x y z, R x y -> S x z -> exists w, T z w /\ U y w) ->
+  exists ws, Forall2 T zs ws /\ Forall2 U ys ws.
+Proof.
+  intros H. revert zs. induction H; intros zs Hzs Hex; invert Hzs; [exists []; auto|].
+  edestruct Hex as (w & ? & ?); [eassumption..|].
+  edestruct IHForall2 as (ws & ? & ?); [eassumption..|].
+  exists (w :: ws). auto.
 Qed.
 
 Lemma map_fst_combine {A B} (a : list A) (b : list B) :
@@ -768,6 +851,10 @@ Section Forall3.
       /\ length l2 = length l3.
   Proof. intros l1 l2 l3 H. induction H; simpl; firstorder. Qed.
 
+  Lemma Forall3_repeat_2 (b : B) (xs : list A) (zs : list C) :
+    Forall2 (fun a c => R a b c) xs zs -> Forall3 xs (repeat b (length xs)) zs.
+  Proof. induction 1; cbn; constructor; auto. Qed.
+
 
   Lemma Forall3_in_right:
     forall (xs : list A)
@@ -824,7 +911,7 @@ Section Forall3.
   Proof.
     induction 1; eauto.
     constructor; simpl; eauto 7.
-    eapply Forall_impl; [|eassumption].
+    eapply Forall_impl; [eassumption|].
     simpl. intros. fwd. eauto 7.
   Qed.
 
@@ -1057,6 +1144,12 @@ Section Existsn.
     Existsn n l ->
     Existsn (S n) (x :: l).
   Hint Constructors Existsn : core.
+
+  Lemma Existsn_cons_no x n l :
+    ~ P x ->
+    Existsn n (x :: l) ->
+    Existsn n l.
+  Proof. intros Hx H. invert H; [ assumption | exfalso; auto ]. Qed.
 
   Lemma Existsn_S n l :
     Existsn (S n) l ->
@@ -1351,6 +1444,10 @@ Section misc.
   Implicit Type ys : list B.
   Implicit Type zs : list C.
 
+  Lemma app_one_cons (a : A) l :
+    a :: l = [a] ++ l.
+  Proof. reflexivity. Qed.
+
   Lemma map_inj (f : A -> B) (l1 l2 : list A) :
     (forall x y, f x = f y -> x = y) ->
     map f l1 = map f l2 ->
@@ -1414,6 +1511,10 @@ Section misc.
   Lemma flat_map_map (g : A -> B) (f : B -> list C) l :
     flat_map f (map g l) = flat_map (fun x => f (g x)) l.
   Proof. induction l; simpl; f_equal; auto. Qed.
+
+  Lemma map_flat_map (g : A -> list B) (h : B -> C) l :
+    map h (flat_map g l) = flat_map (fun x => map h (g x)) l.
+  Proof. induction l; simpl; [reflexivity|]. rewrite map_app. congruence. Qed.
 
   Lemma flat_map_flat_map (f : B -> list C) (g : A -> list B) l :
     flat_map f (flat_map g l) = flat_map (fun x => flat_map f (g x)) l.
@@ -1528,6 +1629,11 @@ Section misc.
     Forall3 R2 xs ys zs.
   Proof. induction 2; constructor; eauto. Qed.
 
+  Lemma Forall3_conj (P Q : A -> B -> C -> Prop) xs ys zs :
+    Forall3 P xs ys zs -> Forall3 Q xs ys zs ->
+    Forall3 (fun a b c => P a b c /\ Q a b c) xs ys zs.
+  Proof. intros H. induction H; intros HQ; invert HQ; constructor; auto. Qed.
+
   Lemma Forall3_swap23 R xs ys zs :
     Forall3 (fun x z y => R x y z) xs zs ys ->
     Forall3 R xs ys zs.
@@ -1623,18 +1729,96 @@ Section misc.
     | O => [[]]
     end.
 
-  Lemma choose_n_spec n (hyps fs : list A) :
-    length hyps = n ->
-    incl hyps fs ->
-    In hyps (choose_any_n n fs).
+  Lemma in_choose_any_n n (hyps fs : list A) :
+    In hyps (choose_any_n n fs) <-> length hyps = n /\ incl hyps fs.
   Proof.
-    revert hyps fs. induction n; intros hyps fs Hlen Hincl.
-    - destruct hyps; [|discriminate Hlen]. simpl. auto.
-    - destruct hyps; [discriminate Hlen|]. simpl in Hlen.
-      apply incl_cons_inv in Hincl. fwd.
-      specialize (IHn hyps _ ltac:(lia) ltac:(eassumption)).
-      simpl. apply in_flat_map. eexists. split; [eassumption|].
-      apply in_map. assumption.
+    revert hyps. induction n; intros [|h hyps]; simpl.
+    - split; [intros _ | intros _; left; reflexivity]. split; [reflexivity | apply incl_nil_l].
+    - split; [intros [[=]|[]] | intros [[=] _]].
+    - split; [intros H | intros [[=] _]].
+      apply in_flat_map in H. destruct H as (? & _ & H). apply in_map_iff in H. destruct H as (? & [=] & _).
+    - rewrite in_flat_map. setoid_rewrite in_map_iff. setoid_rewrite IHn. split.
+      + intros (h' & Hh' & hyps' & [= <- <-] & Hlen & Hincl). split; [congruence | auto using incl_cons].
+      + intros [[= Hlen] Hincl]. apply incl_cons_inv in Hincl. fwd. eauto 7.
+  Qed.
+
+  Inductive sublist : list A -> list A -> Prop :=
+  | sublist_nil : sublist [] []
+  | sublist_skip x s l : sublist s l -> sublist s (x :: l)
+  | sublist_keep x s l : sublist s l -> sublist (x :: s) (x :: l).
+
+  Fixpoint subsets (l : list A) : list (list A) :=
+    match l with
+    | [] => [[]]
+    | x :: l' => map (cons x) (subsets l') ++ subsets l'
+    end.
+
+  Lemma in_subsets s l :
+    In s (subsets l) <-> sublist s l.
+  Proof.
+    revert s. induction l as [|x l IH]; intros s; simpl.
+    - split.
+      + intros [<- | []]. constructor.
+      + inversion 1. auto.
+    - rewrite in_app_iff, in_map_iff. split.
+      + intros [(t & <- & Ht) | Ht]; constructor; apply IH; assumption.
+      + inversion 1; subst; [right | left; eexists; split; [reflexivity|]];
+          apply IH; assumption.
+  Qed.
+
+  Lemma sublist_nil_l l :
+    sublist [] l.
+  Proof. induction l; constructor; assumption. Qed.
+
+  Lemma sublist_cons_in a s l :
+    sublist s l ->
+    In a l ->
+    exists s', sublist s' l /\ same_set (a :: s) s'.
+  Proof.
+    induction 1; intros Hin.
+    - contradiction.
+    - destruct Hin as [-> | Hin].
+      + exists (a :: s). split; [constructor; assumption|]. intro. reflexivity.
+      + destruct (IHsublist Hin) as (s' & ? & ?).
+        exists s'. split; [constructor; assumption|]. assumption.
+    - destruct Hin as [-> | Hin].
+      + exists (a :: s). split; [constructor; assumption|].
+        intros y. simpl. intuition.
+      + destruct (IHsublist Hin) as (s' & ? & Hset).
+        exists (x :: s'). split; [constructor; assumption|].
+        intros y. specialize (Hset y). simpl in *. intuition.
+  Qed.
+
+  Lemma incl_sublist_same_set s l :
+    incl s l ->
+    exists s', sublist s' l /\ same_set s s'.
+  Proof.
+    induction s as [|a s IH]; intros Hincl.
+    - exists []. split; [apply sublist_nil_l|]. intro. reflexivity.
+    - apply incl_cons_inv in Hincl. destruct Hincl as [Ha Hincl].
+      destruct (IH Hincl) as (s0 & Hs0 & Hset).
+      destruct (sublist_cons_in _ _ _ Hs0 Ha) as (s' & ? & Hset').
+      exists s'. split; [assumption|].
+      intros y. specialize (Hset y). specialize (Hset' y). simpl in *. intuition.
+  Qed.
+
+  Lemma in_subsets_incl s l :
+    incl s l ->
+    exists s', In s' (subsets l) /\ same_set s s'.
+  Proof.
+    intros H. destruct (incl_sublist_same_set _ _ H) as (s' & Hsub & Hsame).
+    exists s'. split; [apply in_subsets, Hsub | exact Hsame].
+  Qed.
+
+  Lemma in_flat_map_subsets (f : list A -> list B) y s l :
+    (forall s1 s2, same_set s1 s2 -> f s1 = f s2) ->
+    incl s l ->
+    In y (f s) ->
+    In y (flat_map f (subsets l)).
+  Proof.
+    intros Hf Hincl Hin. apply in_flat_map.
+    destruct (in_subsets_incl _ _ Hincl) as (s' & Hin' & Hsame).
+    exists s'. split; [exact Hin'|]. erewrite <- Hf; eassumption.
   Qed.
 
   Lemma disjoint_lists_alt (l1 l2 : list A) :
@@ -1919,7 +2103,7 @@ Section misc.
       rewrite existsb_exists in E'.
       rewrite <- Exists_exists in E'.
       rewrite <- Forall_Exists_neg in E'.
-      eapply Forall_impl; [|eassumption].
+      eapply Forall_impl; [eassumption|].
       simpl. intros. destruct (f _); congruence.
   Qed.
 
@@ -2143,7 +2327,7 @@ Lemma map_cons_eq {A B : Type} (f : A -> B) x l l' :
   map f l = l' ->
   map f (x :: l) = f x :: l'.
 Proof. simpl. intros. f_equal. assumption. Qed.
-Print invert_list_stuff'.
+
 Ltac invert_list_stuff :=
   repeat match goal with
     | H: option_map _ _ = None |- _ => apply option_map_None in H; fwd
@@ -2207,39 +2391,23 @@ Proof.
   congruence.
 Qed.
 
-#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) :=
-  fun x y => (length x =? length y) && forallb (eqb true) (map2 aeqb x y).
-
-Lemma list_eqb_ok_strong {A} {aeqb : Eqb A} (x : list A) :
-  Forall (fun a => forall b, if aeqb a b then a = b else a <> b) x ->
-  forall y, if list_eqb x y then x = y else x <> y.
-Proof.
-  induction x as [|x0 x IH]; intros Hall [|y0 y];
-    cbv [eqb list_eqb]; simpl; try congruence.
-  inversion Hall as [|? ? Hx0 Hx]; subst.
-  pose proof (Hx0 y0) as Ha.
-  destruct (aeqb x0 y0); simpl.
-  - subst. specialize (IH Hx y). cbv [eqb list_eqb] in IH.
-    destruct (Nat.eqb_spec (length x) (length y)); simpl in IH; simpl;
-      [|congruence].
-    destruct (forallb _ _); simpl; congruence.
-  - destruct (Nat.eqb (length x) (length y)); simpl; congruence.
-Qed.
+#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) := list_eqb aeqb.
+#[global] Typeclasses Opaque list_eqb.
 
 #[global] Instance list_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
-  : Eqb_ok list_eqb.
+  : Eqb_ok (list_eqb (aeqb := aeqb)).
 Proof.
-  intros x. apply list_eqb_ok_strong.
-  apply Forall_forall. intros a _ b. apply (eqb_spec a b).
+  intros x y. cbv [eqb list_eqb]. pose proof (List.list_eqb_spec x y) as H.
+  cbv [eqb] in H. destruct H; assumption.
 Qed.
 
-Fixpoint nodupb {T : Type} {eqb : Eqb T} l :=
+Fixpoint nodupb {T : Type} {eqb : Eqb T} (l : list T) :=
   match l with
   | x :: l' => if inb x l' then false else nodupb l'
   | [] => true
   end.
 
-#[global] Instance nodupb_correct {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} l :
+#[global] Instance nodupb_correct {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} (l : list T) :
   BoolSpec (NoDup l) (~NoDup l) (nodupb l).
 Proof.
   induction l as [|a l' IH].
@@ -2251,11 +2419,21 @@ Proof.
       -- intros H'. invert H'. auto.
 Qed.
 
-Lemma nodupb_sound {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} l :
+Lemma nodupb_sound {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} (l : list T) :
   nodupb l = true ->
   NoDup l.
 Proof. intros. fwd. assumption. Qed.
 
+Lemma In_length_pos {A} (x : A) (l : list A) : In x l -> 0 < length l.
+Proof. intros H. destruct l as [|? ?]; [ destruct H | cbn [length]; lia ]. Qed.
+
+Lemma length_pos_In {A} (l : list A) : 0 < length l -> exists x, In x l.
+Proof.
+  destruct l as [|x ?];
+    [ cbn [length]; lia | intros _; exists x; left; reflexivity ].
+Qed.
+
+Create HintDb incl.
 Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
 Hint Resolve seq_incl incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_in Permutation_sym : incl.
@@ -2265,3 +2443,65 @@ Lemma choose_any_n_mono {A} n (xs ys : list A) :
   incl (choose_any_n n xs) (choose_any_n n ys).
 Proof. induction n; simpl; auto with incl. Qed.
 Hint Resolve choose_any_n_mono : incl.
+
+#[export] Hint Resolve Forall_impl : core.
+#[export] Hint Resolve Forall2_impl : core.
+
+Lemma forallb2_true_iff A B (f : A -> B -> bool) l1 l2 :
+  forallb2 f l1 l2 = true <-> Forall2 (fun a b => f a b = true) l1 l2.
+Proof.
+  revert l2. induction l1 as [|a l1]; intros [|b l2]; simpl; split; intros H;
+    try discriminate; try solve [invert H]; try solve [constructor]; auto.
+  - apply andb_prop in H. constructor; [tauto|]. apply IHl1. tauto.
+  - invert H. apply andb_true_intro. split; [assumption|]. apply IHl1. assumption.
+Qed.
+
+#[export] Instance forallb2_spec {A B} {f : A -> B -> bool} {P : A -> B -> Prop}
+  {Hf : forall a b, Reflects (P a b) (f a b)} l1 l2 :
+  Reflects (Forall2 P l1 l2) (forallb2 f l1 l2).
+Proof.
+  revert l2. induction l1 as [|a l1]; intros [|b l2]; simpl.
+  - constructor. constructor.
+  - constructor. intros H. inversion H.
+  - constructor. intros H. inversion H.
+  - destruct (Hf a b); simpl.
+    + destruct (IHl1 l2); constructor.
+      * constructor; assumption.
+      * intros Hc. inversion_clear Hc. contradiction.
+    + constructor. intros Hc. inversion_clear Hc. contradiction.
+Qed.
+
+Lemma forallb2_eqb_ok_strong A (f : A -> A -> bool) xs ys :
+  Forall (fun x => forall y, if f x y then x = y else x <> y) xs ->
+  if forallb2 f xs ys then xs = ys else xs <> ys.
+Proof.
+  revert ys. induction xs as [|x xs]; intros [|y ys] H; simpl; try congruence.
+  apply Forall_cons_iff in H. destruct H as [Hx Hxs].
+  specialize (Hx y). specialize (IHxs ys Hxs).
+  destruct (f x y); simpl; [subst|congruence].
+  destruct (forallb2 f xs ys); congruence.
+Qed.
+
+#[export] Instance Forall_same_set_Proper A (P : A -> Prop) :
+  Proper (same_set ==> iff) (Forall P).
+Proof.
+  intros l1 l2 Hs. rewrite !Forall_forall.
+  split; intros H x Hx; apply H; apply Hs; exact Hx.
+Qed.
+
+#[export] Instance forallb_reflect A (f : A -> bool) (P : A -> Prop)
+  {Hf : forall x, Reflects (P x) (f x)} xs :
+  Reflects (Forall P xs) (forallb f xs).
+Proof.
+  induction xs as [|x xs]; simpl.
+  - constructor. constructor.
+  - destruct (Hf x); simpl.
+    + destruct IHxs; constructor.
+      * constructor; assumption.
+      * intros Hc. inversion_clear Hc. contradiction.
+    + constructor. intros Hc. inversion_clear Hc. contradiction.
+Qed.
+
+#[export] Instance In_same_set_Proper A :
+  Proper (eq ==> same_set ==> iff) (@In A).
+Proof. intros x y -> l1 l2 Hs. apply Hs. Qed.
