@@ -1,7 +1,7 @@
 From Stdlib Require Import Lists.List Permutation Bool Arith.PeanoNat Morphisms RelationClasses Classical_Prop.
 From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics Eqb.
 From GraphSearch Require Export List.
-From Datalog Require Import Tactics Eqb Default.
+From Datalog Require Import Tactics Eqb Default Decidable.
 Import ListNotations.
 
 Local Ltac invert_list_stuff' :=
@@ -545,6 +545,34 @@ Proof.
   intros [-> | Hin].
   - exists b. split; [ left; reflexivity | exact Hab ].
   - destruct (IH Hin) as (y & Hcomb & Hy). exists y. split; [ right; exact Hcomb | exact Hy ].
+Qed.
+
+Lemma Forall2_In_r {A B} (R : A -> B -> Prop) xs ys y :
+  Forall2 R xs ys -> In y ys -> exists x, In (x, y) (combine xs ys) /\ R x y.
+Proof.
+  induction 1 as [| a b xs' ys' Hab HF IH]; [ contradiction | ].
+  intros [-> | Hin].
+  - exists a. split; [ left; reflexivity | exact Hab ].
+  - destruct (IH Hin) as (x & Hcomb & Hx). exists x. split; [ right; exact Hcomb | exact Hx ].
+Qed.
+
+Lemma Forall2_comp {A B C} (R : A -> B -> Prop) (S : B -> C -> Prop) xs ys zs :
+  Forall2 R xs ys ->
+  Forall2 S ys zs ->
+  Forall2 (fun x z => exists y, R x y /\ S y z) xs zs.
+Proof. intros H. revert zs. induction H; invert 1; eauto. Qed.
+
+Lemma Forall2_Forall2_exists {A B C D} (R : A -> B -> Prop) (S : A -> C -> Prop)
+  (T : C -> D -> Prop) (U : B -> D -> Prop) xs ys zs :
+  Forall2 R xs ys ->
+  Forall2 S xs zs ->
+  (forall x y z, R x y -> S x z -> exists w, T z w /\ U y w) ->
+  exists ws, Forall2 T zs ws /\ Forall2 U ys ws.
+Proof.
+  intros H. revert zs. induction H; intros zs Hzs Hex; invert Hzs; [exists []; auto|].
+  edestruct Hex as (w & ? & ?); [eassumption..|].
+  edestruct IHForall2 as (ws & ? & ?); [eassumption..|].
+  exists (w :: ws). auto.
 Qed.
 
 Lemma map_fst_combine {A B} (a : list A) (b : list B) :
@@ -1701,18 +1729,96 @@ Section misc.
     | O => [[]]
     end.
 
-  Lemma choose_n_spec n (hyps fs : list A) :
-    length hyps = n ->
-    incl hyps fs ->
-    In hyps (choose_any_n n fs).
+  Lemma in_choose_any_n n (hyps fs : list A) :
+    In hyps (choose_any_n n fs) <-> length hyps = n /\ incl hyps fs.
   Proof.
-    revert hyps fs. induction n; intros hyps fs Hlen Hincl.
-    - destruct hyps; [|discriminate Hlen]. simpl. auto.
-    - destruct hyps; [discriminate Hlen|]. simpl in Hlen.
-      apply incl_cons_inv in Hincl. fwd.
-      specialize (IHn hyps _ ltac:(lia) ltac:(eassumption)).
-      simpl. apply in_flat_map. eexists. split; [eassumption|].
-      apply in_map. assumption.
+    revert hyps. induction n; intros [|h hyps]; simpl.
+    - split; [intros _ | intros _; left; reflexivity]. split; [reflexivity | apply incl_nil_l].
+    - split; [intros [[=]|[]] | intros [[=] _]].
+    - split; [intros H | intros [[=] _]].
+      apply in_flat_map in H. destruct H as (? & _ & H). apply in_map_iff in H. destruct H as (? & [=] & _).
+    - rewrite in_flat_map. setoid_rewrite in_map_iff. setoid_rewrite IHn. split.
+      + intros (h' & Hh' & hyps' & [= <- <-] & Hlen & Hincl). split; [congruence | auto using incl_cons].
+      + intros [[= Hlen] Hincl]. apply incl_cons_inv in Hincl. fwd. eauto 7.
+  Qed.
+
+  Inductive sublist : list A -> list A -> Prop :=
+  | sublist_nil : sublist [] []
+  | sublist_skip x s l : sublist s l -> sublist s (x :: l)
+  | sublist_keep x s l : sublist s l -> sublist (x :: s) (x :: l).
+
+  Fixpoint subsets (l : list A) : list (list A) :=
+    match l with
+    | [] => [[]]
+    | x :: l' => map (cons x) (subsets l') ++ subsets l'
+    end.
+
+  Lemma in_subsets s l :
+    In s (subsets l) <-> sublist s l.
+  Proof.
+    revert s. induction l as [|x l IH]; intros s; simpl.
+    - split.
+      + intros [<- | []]. constructor.
+      + inversion 1. auto.
+    - rewrite in_app_iff, in_map_iff. split.
+      + intros [(t & <- & Ht) | Ht]; constructor; apply IH; assumption.
+      + inversion 1; subst; [right | left; eexists; split; [reflexivity|]];
+          apply IH; assumption.
+  Qed.
+
+  Lemma sublist_nil_l l :
+    sublist [] l.
+  Proof. induction l; constructor; assumption. Qed.
+
+  Lemma sublist_cons_in a s l :
+    sublist s l ->
+    In a l ->
+    exists s', sublist s' l /\ same_set (a :: s) s'.
+  Proof.
+    induction 1; intros Hin.
+    - contradiction.
+    - destruct Hin as [-> | Hin].
+      + exists (a :: s). split; [constructor; assumption|]. intro. reflexivity.
+      + destruct (IHsublist Hin) as (s' & ? & ?).
+        exists s'. split; [constructor; assumption|]. assumption.
+    - destruct Hin as [-> | Hin].
+      + exists (a :: s). split; [constructor; assumption|].
+        intros y. simpl. intuition.
+      + destruct (IHsublist Hin) as (s' & ? & Hset).
+        exists (x :: s'). split; [constructor; assumption|].
+        intros y. specialize (Hset y). simpl in *. intuition.
+  Qed.
+
+  Lemma incl_sublist_same_set s l :
+    incl s l ->
+    exists s', sublist s' l /\ same_set s s'.
+  Proof.
+    induction s as [|a s IH]; intros Hincl.
+    - exists []. split; [apply sublist_nil_l|]. intro. reflexivity.
+    - apply incl_cons_inv in Hincl. destruct Hincl as [Ha Hincl].
+      destruct (IH Hincl) as (s0 & Hs0 & Hset).
+      destruct (sublist_cons_in _ _ _ Hs0 Ha) as (s' & ? & Hset').
+      exists s'. split; [assumption|].
+      intros y. specialize (Hset y). specialize (Hset' y). simpl in *. intuition.
+  Qed.
+
+  Lemma in_subsets_incl s l :
+    incl s l ->
+    exists s', In s' (subsets l) /\ same_set s s'.
+  Proof.
+    intros H. destruct (incl_sublist_same_set _ _ H) as (s' & Hsub & Hsame).
+    exists s'. split; [apply in_subsets, Hsub | exact Hsame].
+  Qed.
+
+  Lemma in_flat_map_subsets (f : list A -> list B) y s l :
+    (forall s1 s2, same_set s1 s2 -> f s1 = f s2) ->
+    incl s l ->
+    In y (f s) ->
+    In y (flat_map f (subsets l)).
+  Proof.
+    intros Hf Hincl Hin. apply in_flat_map.
+    destruct (in_subsets_incl _ _ Hincl) as (s' & Hin' & Hsame).
+    exists s'. split; [exact Hin'|]. erewrite <- Hf; eassumption.
   Qed.
 
   Lemma disjoint_lists_alt (l1 l2 : list A) :
@@ -2221,7 +2327,7 @@ Lemma map_cons_eq {A B : Type} (f : A -> B) x l l' :
   map f l = l' ->
   map f (x :: l) = f x :: l'.
 Proof. simpl. intros. f_equal. assumption. Qed.
-Print invert_list_stuff'.
+
 Ltac invert_list_stuff :=
   repeat match goal with
     | H: option_map _ _ = None |- _ => apply option_map_None in H; fwd
@@ -2285,40 +2391,23 @@ Proof.
   congruence.
 Qed.
 
-#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) :=
-  fun x y => (length x =? length y) && forallb (eqb true) (map2 aeqb x y).
+#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) := list_eqb aeqb.
 #[global] Typeclasses Opaque list_eqb.
 
-Lemma list_eqb_ok_strong {A} {aeqb : Eqb A} (x : list A) :
-  Forall (fun a => forall b, if aeqb a b then a = b else a <> b) x ->
-  forall y, if list_eqb x y then x = y else x <> y.
-Proof.
-  induction x as [|x0 x IH]; intros Hall [|y0 y];
-    cbv [eqb list_eqb]; simpl; try congruence.
-  inversion Hall as [|? ? Hx0 Hx]; subst.
-  pose proof (Hx0 y0) as Ha.
-  destruct (aeqb x0 y0); simpl.
-  - subst. specialize (IH Hx y). cbv [eqb list_eqb] in IH.
-    destruct (Nat.eqb_spec (length x) (length y)); simpl in IH; simpl;
-      [|congruence].
-    destruct (forallb _ _); simpl; congruence.
-  - destruct (Nat.eqb (length x) (length y)); simpl; congruence.
-Qed.
-
 #[global] Instance list_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
-  : Eqb_ok list_eqb.
+  : Eqb_ok (list_eqb (aeqb := aeqb)).
 Proof.
-  intros x. apply list_eqb_ok_strong.
-  apply Forall_forall. intros a _ b. apply (eqb_spec a b).
+  intros x y. cbv [eqb list_eqb]. pose proof (List.list_eqb_spec x y) as H.
+  cbv [eqb] in H. destruct H; assumption.
 Qed.
 
-Fixpoint nodupb {T : Type} {eqb : Eqb T} l :=
+Fixpoint nodupb {T : Type} {eqb : Eqb T} (l : list T) :=
   match l with
   | x :: l' => if inb x l' then false else nodupb l'
   | [] => true
   end.
 
-#[global] Instance nodupb_correct {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} l :
+#[global] Instance nodupb_correct {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} (l : list T) :
   BoolSpec (NoDup l) (~NoDup l) (nodupb l).
 Proof.
   induction l as [|a l' IH].
@@ -2330,7 +2419,7 @@ Proof.
       -- intros H'. invert H'. auto.
 Qed.
 
-Lemma nodupb_sound {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} l :
+Lemma nodupb_sound {T} {eqb : Eqb T} {eqb_ok : Eqb_ok eqb} (l : list T) :
   nodupb l = true ->
   NoDup l.
 Proof. intros. fwd. assumption. Qed.
@@ -2344,6 +2433,7 @@ Proof.
     [ cbn [length]; lia | intros _; exists x; left; reflexivity ].
 Qed.
 
+Create HintDb incl.
 Hint Extern 0 => apply incl_app : incl.
 Hint Immediate incl_refl incl_nil_l in_eq : incl.
 Hint Resolve seq_incl incl_app_bw_l incl_app_bw_r incl_flat_map_strong incl_map incl_app incl_appl incl_appr incl_tl incl_cons Permutation_incl Permutation_in Permutation_sym : incl.
@@ -2356,3 +2446,62 @@ Hint Resolve choose_any_n_mono : incl.
 
 #[export] Hint Resolve Forall_impl : core.
 #[export] Hint Resolve Forall2_impl : core.
+
+Lemma forallb2_true_iff A B (f : A -> B -> bool) l1 l2 :
+  forallb2 f l1 l2 = true <-> Forall2 (fun a b => f a b = true) l1 l2.
+Proof.
+  revert l2. induction l1 as [|a l1]; intros [|b l2]; simpl; split; intros H;
+    try discriminate; try solve [invert H]; try solve [constructor]; auto.
+  - apply andb_prop in H. constructor; [tauto|]. apply IHl1. tauto.
+  - invert H. apply andb_true_intro. split; [assumption|]. apply IHl1. assumption.
+Qed.
+
+#[export] Instance forallb2_spec {A B} {f : A -> B -> bool} {P : A -> B -> Prop}
+  {Hf : forall a b, Reflects (P a b) (f a b)} l1 l2 :
+  Reflects (Forall2 P l1 l2) (forallb2 f l1 l2).
+Proof.
+  revert l2. induction l1 as [|a l1]; intros [|b l2]; simpl.
+  - constructor. constructor.
+  - constructor. intros H. inversion H.
+  - constructor. intros H. inversion H.
+  - destruct (Hf a b); simpl.
+    + destruct (IHl1 l2); constructor.
+      * constructor; assumption.
+      * intros Hc. inversion_clear Hc. contradiction.
+    + constructor. intros Hc. inversion_clear Hc. contradiction.
+Qed.
+
+Lemma forallb2_eqb_ok_strong A (f : A -> A -> bool) xs ys :
+  Forall (fun x => forall y, if f x y then x = y else x <> y) xs ->
+  if forallb2 f xs ys then xs = ys else xs <> ys.
+Proof.
+  revert ys. induction xs as [|x xs]; intros [|y ys] H; simpl; try congruence.
+  apply Forall_cons_iff in H. destruct H as [Hx Hxs].
+  specialize (Hx y). specialize (IHxs ys Hxs).
+  destruct (f x y); simpl; [subst|congruence].
+  destruct (forallb2 f xs ys); congruence.
+Qed.
+
+#[export] Instance Forall_same_set_Proper A (P : A -> Prop) :
+  Proper (same_set ==> iff) (Forall P).
+Proof.
+  intros l1 l2 Hs. rewrite !Forall_forall.
+  split; intros H x Hx; apply H; apply Hs; exact Hx.
+Qed.
+
+#[export] Instance forallb_reflect A (f : A -> bool) (P : A -> Prop)
+  {Hf : forall x, Reflects (P x) (f x)} xs :
+  Reflects (Forall P xs) (forallb f xs).
+Proof.
+  induction xs as [|x xs]; simpl.
+  - constructor. constructor.
+  - destruct (Hf x); simpl.
+    + destruct IHxs; constructor.
+      * constructor; assumption.
+      * intros Hc. inversion_clear Hc. contradiction.
+    + constructor. intros Hc. inversion_clear Hc. contradiction.
+Qed.
+
+#[export] Instance In_same_set_Proper A :
+  Proper (eq ==> same_set ==> iff) (@In A).
+Proof. intros x y -> l1 l2 Hs. apply Hs. Qed.

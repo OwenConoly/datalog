@@ -114,8 +114,8 @@ Ltac map_func :=
   repeat match goal with
     | H1: map.get ?x ?y = _, H2: map.get ?x ?y = _ |- _ => rewrite H1 in H2; invert H2
     end.
-From Datalog.Util Require Import Autodestr Autocbn.
-Ltac simp := repeat (autodestr; autocbn; subst).
+From Datalog.Util Require Import Autodestr Autocbn Autocbv.
+Ltac simp := repeat (autodestr; autocbv; autocbn; subst).
 
 #[export] Hint Unfold iff : core.
 
@@ -128,3 +128,40 @@ Proof. cbv [autoforward]. rewrite Exists_exists. auto. Qed.
 Lemma Exists_exists_bwd A P (l : list A) x : In x l -> P x -> Exists P l.
 Proof. intros. apply Exists_exists. eauto. Qed.
 #[export] Hint Resolve Exists_exists_bwd : core.
+
+From coqutil Require Import Tactics.fwd_core.
+(* coqutil's inv_rec compares constructor arguments with constr_eq, so a hidden
+   relT/lrelT argument spelled two convertible ways (nat vs. an instance) makes
+   fwd give up on the whole equation. *)
+Ltac inv_rec t1 t2 ::=
+  lazymatch t1 with
+  | ?f1 ?a1 =>
+    lazymatch t2 with
+    | ?f2 ?a2 =>
+      (tryif first [constr_eq a1 a2 | is_ground a1; is_ground a2; unify a1 a2]
+       then idtac
+       else lazymatch type of a1 with
+            | Set => idtac
+            | Type => idtac
+            | _ => let H := fresh in assert (a1 = a2) as H by congruence; fwd_subst H
+            end);
+      inv_rec f1 f2
+    end
+  | _ => idtac
+  end.
+
+(*not used yet; idk if i want to try using it*)
+Ltac aggress' :=
+  match goal with
+  | _ => progress intros
+  | _ => contradiction
+  | _ => congruence
+  | _ => progress simpl in *
+  | H: _ \/ _ |- _ => destruct H
+  | |- _ <-> _ => split
+  | |- _ /\ _ => split
+  | |- _ \/ _ => left; solve[repeat aggress']
+  | |- _ \/ _ => right; solve[repeat aggress']
+  end.
+
+Ltac fin := solve [repeat aggress'].

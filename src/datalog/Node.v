@@ -106,7 +106,7 @@ Section __.
     exists num,
       expects_num_facts known mf.(meta_fact.pattern) num /\
         Existsn (message.matches mf.(meta_fact.pattern)) num known /\
-        fact.set_consistent_with mf (knows_normal_fact known).
+        meta_fact.consistent_with mf (knows_normal_fact known).
 
   Definition knows_fact dfacts f :=
     match f with
