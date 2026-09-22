@@ -1,27 +1,18 @@
-From Stdlib Require Import QArith.
-From Stdlib Require Import Arith.Arith.
-From Stdlib Require Import Reals.Reals. Import Rdefinitions. Import RIneq.
-From Stdlib Require Import ZArith.Zdiv.
-From Stdlib Require Import ZArith.Int.
-From Stdlib Require Import ZArith.Znat.
+From Stdlib Require Import Reals.Reals.
 From Stdlib Require Import Strings.String.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Logic.FunctionalExtensionality.
 From Stdlib Require Import Program.Equality.
 
-From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics Common.
-From Lower Require Import Zexpr Bexpr Sexpr Array Result ListMisc
-  Meshgrid ContextsAgree ATLDeep Range.
+From ATL Require Import ATL Div Common.
 
-From Datalog Require Import Datalog Map List Tactics Blocks SimpleBlocks.
-From GraphSearch Require Import Dag.
+From Datalog Require Import Datalog Tactics Blocks.
 From Inferpad Require Import ATLPhoas TensorToResult.
 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Map.OfFunc Tactics.fwd Tactics.destr Tactics Decidable Datatypes.List.
+From coqutil Require Import Map.Interface Map.Properties Tactics.
 
 
-Import Datatypes.
 Import ListNotations.
 
 (*source language syntax*)
@@ -481,10 +472,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
       let dimvars := seq O (length (get_block_size e1) - 1) in
       let dimvarO := length (get_block_size e1) - 1 in
       let x := length (get_block_size e1) in
-      (* using 0 and 1 here for pragmatic reasons *)
-      let aux1 := 1 in
-      let aux2 := S aux1 in
-      let out := S aux2 in
+      let out := O in
       let len1 := Z.of_nat match get_block_size e1 with
                     | [] => 0
                     | n :: _ => n
@@ -516,9 +504,8 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                     | _ :: di :: _ => di
                     | _ => 0
                     end in
-      let aux := 0 in
       (* out is probably redundant here but it's just to show that there needs to be some number for the clause.rel of the rule *)
-      let out := S aux in
+      let out := O in
       LetIn (lower_pATLexpr' e idxs true_rel)
         (fun val =>
            Block out
@@ -556,8 +543,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                     | d :: _ => d
                     | _ => 0
                     end in
-    let aux := 1 in
-    let out := S aux in
+    let out := O in
     let pad_start := (len mod k')%Z in
     (* i had to put the facts for the first rule's hypotheses' hypothesis in let statements because there were weird errors with brackets *)
     let eq_check := expr.app fn_Eq [expr.var dimvar1; expr.app (fn_Lit (len / k')) []] in
@@ -630,8 +616,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
       match eval_pZexpr'_total k with
       | Some kz => kz
       | None => 0 end)) in
-    let aux := 0 in
-    let out := S aux in
+    let out := O in
     LetIn (lower_pATLexpr' e idxs true_rel)
       (fun val =>
          (* not sure what numbers to use for block's name + values here*)
@@ -658,12 +643,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
     let dimvars := seq O (length (get_block_size e) - 1) in
     let dimvar1 := length (get_block_size e) - 1 in
     let x := length (get_block_size e) in
-    let k' := Z.of_nat (Z.to_nat (
-      match eval_pZexpr'_total k with
-      | Some kz => kz
-      | None => 0 end)) in
-    let aux := 0 in
-    let out := S aux in
+    let out := O in
     let len := Z.of_nat match get_block_size e with
                     | d :: _ => d
                     | _ => 0
@@ -707,8 +687,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
       match eval_pZexpr'_total k with
       | Some kz => kz
       | None => 0 end)) in
-    let aux := 0 in
-    let out := S aux in
+    let out := O in
     LetIn (lower_pATLexpr' e idxs true_rel)
       (fun val =>
          Block out
