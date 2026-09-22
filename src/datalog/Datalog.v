@@ -1696,6 +1696,8 @@ Ltac invert_stuff :=
   | H : rule.interp _ _ _ |- _ => invert1 H || invert0 H
   | H : clause.interp _ _ _ |- _ => cbv [clause.interp] in H; fwd
   | H : clause_pattern.interp _ _ _ |- _ => cbv [clause_pattern.interp] in H; fwd
+  | H : meta_rule.pattern_interp _ _ _ |- _ => cbv [meta_rule.pattern_interp] in H; fwd
+  | H : meta_rule.interp _ _ _ _ |- _ => cbv [meta_rule.interp] in H; fwd
   | H : expr.interp _ _ _ |- _ => invert1 H
   | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ =>
       first [is_var y | is_var z]; assert (y = z) by congruence; clear H1; subst
