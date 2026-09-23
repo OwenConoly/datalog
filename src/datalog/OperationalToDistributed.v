@@ -6,19 +6,17 @@ Import ListNotations.
 
 Open Scope bool_scope.
 
-#[local] Instance mf_label : mf_labelT := source.
+#[local] Instance sender_label : sender_labelT := source.
 Section __.
-  Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+  Context `{params : datalog_params}.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
-  Context {sig : signature fn aggregator T}.
-  Context {context : map.map exprvar T} {context_ok : map.ok context}.
   Context (is_input : rel -> bool).
-  Context (p : list rule).
-  Context (Hmeta_rules : meta_rules_valid p).
-  Context (Hp_rule_inputs : Forall (good_rule_inputs is_input) p).
+  Context (p : program).
+  Context (Hmeta_rules : program.meta_rules_valid p).
+  (* Context (Hp_rule_inputs : Forall (good_rule_inputs is_input) p). *)
 
-  Context {gns_map : map.map node_id (graph_node_state dfact dfact_mod_count Node.node_state)}.
+  Context {gns_map : map.map node_id (graph_node_state dfact  node.state)}.
   Context {gns_map_ok : map.ok gns_map}.
 
   Context (rel_forward : source -> destn -> rel -> bool).
