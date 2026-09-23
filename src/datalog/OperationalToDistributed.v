@@ -6,7 +6,6 @@ Import ListNotations.
 
 Open Scope bool_scope.
 
-#[local] Instance sender_label : sender_labelT := source.
 Section __.
   Context `{params : datalog_params}.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
@@ -14,48 +13,42 @@ Section __.
   Context (is_input : rel -> bool).
   Context (p : program).
   Context (Hmeta_rules : program.meta_rules_valid p).
-  (* Context (Hp_rule_inputs : Forall (good_rule_inputs is_input) p). *)
+  Context (Hp_good : Forall (fun R => is_input R = false) (program.concl_rels p)).
 
-  Context {gns_map : map.map node_id (graph_node_state dfact  node.state)}.
-  Context {gns_map_ok : map.ok gns_map}.
+  #[local] Instance sender_label : sender_labelT := source.
+
+  Context {sent_map : map.map rule (list (node.message (sender_label := op_source)))}
+    {sent_map_ok : map.ok sent_map}.
+  Context {prog_map : map.map node_id program} {prog_map_ok : map.ok prog_map}.
+  Context {gns_map : map.map node_id (graph_node_state node.message node.action_label node.state)}
+    {gns_map_ok : map.ok gns_map}.
 
   Context (rel_forward : source -> destn -> rel -> bool).
-  Context {prog_map : map.map node_id (list rule)} {prog_map_ok : map.ok prog_map}.
-  Context {sent_map : map.map rule (list (dfact (mf_label := op_source)))}.
   Context (graph_prog : prog_map).
-
-  Local Notation R_senders := (Operational.R_senders is_input p).
-  Local Notation ok_to_deduce_fact := (Node.ok_to_deduce_fact R_senders).
-  Local Notation new_facts := (Node.new_facts R_senders).
-  Local Notation fire_at_rule := (Operational.fire_at_rule is_input p).
-
   Context (graph_senders : rel -> list source).
 
-  Local Notation distributed_step := (distributed_step graph_senders rel_forward graph_prog).
-  Local Notation start := (initial p).
-  Local Notation comp_step := (Operational.comp_step is_input p).
-  Local Notation has_derived_datalog_fact := (Operational.has_derived_datalog_fact is_input p).
+  Local Abbreviation R_senders := (Operational.R_senders is_input p).
+  Local Abbreviation can_deduce := (node.can_deduce R_senders).
+  Local Abbreviation fire_at_rule := (Operational.fire_at_rule is_input p).
+  Local Abbreviation comp_step := (Operational.comp_step is_input p).
+  Local Abbreviation has_derived_datalog_fact := (Operational.has_derived_datalog_fact is_input p).
+  Local Abbreviation distributed_step := (Distributed.distributed_step graph_senders rel_forward graph_prog).
 
-  Definition graph_prog_distributes_normal_rules (rules : list rule) :=
-    forall r,
-      is_normal r = true ->
-      In r rules <-> In r (concat (values graph_prog)).
+  Definition graph_prog_distributes_normal_rules (prog : program) :=
+    forall r, In r prog.(program.rules) <-> In r (flat_map program.rules (values graph_prog)).
 
-  Definition graph_prog_distributes_meta_rules (rules : list rule) :=
-    forall concls hyps,
-      In (meta_rule concls hyps) rules ->
-      Forall_map (fun _ rules =>
+  Definition graph_prog_distributes_meta_rules (prog : program) :=
+    forall mr,
+      In mr prog.(program.meta_rules) ->
+      Forall_map (fun _ np =>
                     forall R,
-                      In R (map meta_clause.rel concls) ->
-                      In R (flat_map concl_rels (filter is_normal rules)) ->
-                      In (meta_rule concls hyps) rules)
+                      In R (meta_rule.concl_rels mr) ->
+                      In R (flat_map rule.concl_rels np.(program.rules)) ->
+                      In mr np.(program.meta_rules))
         graph_prog.
 
   Definition node_senders_ok :=
-    forall R n np,
-      map.get graph_prog n = Some np ->
-      In R (flat_map concl_rels np) ->
-      In (node_source n) (graph_senders R).
+    Forall_map (fun n np => node.sends_concl_rels graph_senders (node_source n) np) graph_prog.
 
   Definition input_senders_ok :=
     forall R,
@@ -67,16 +60,21 @@ Section __.
   Context (Hsenders_node : node_senders_ok).
   Context (Hsenders_input : input_senders_ok).
 
-  Definition distribute_R (os : state) (gs : graph_state dfact dfact_mod_count node_state) :=
+  (*operational state os is consistent with node-program np at node n being done with fp after having sent n messages*)
+  Definition operational_done_with os np n fp num :=
+    exists nums,
+      Forall2 (fun nr num0 => In (node.message.done_with fp (from_rule nr) n) (get_or_default os.(sents) nr))
+        (dedup np.(program.rules)) nums /\
+        num = list_sum nums.
+
+  Definition distribute_R (os : state) (gs : graph_state node.message node.action_label node.state) :=
     Forall2_map (fun n np ns =>
-                   Permutation (flat_map normal_facts_of (flat_map (get_or_default os.(sents)) (dedup np)))
-                     (flat_map normal_facts_of ns.(gns_node_state).(Node.sent_facts)) /\
-                     (forall R args num,
-                         In (meta_dfact R args (node_source n) num) ns.(gns_node_state).(Node.sent_facts) <->
-                           (exists nums,
-                               Forall2 (fun nr num0 => In (meta_dfact R args (from_rule nr) num0) (get_or_default os.(sents) nr))
-                                 (dedup (filter is_normal np)) nums /\
-                                 num = list_sum nums)) /\
+                   Permutation
+                     (flat_map node.message.normal_facts (flat_map (get_or_default os.(sents)) (dedup np.(program.rules))))
+                     (flat_map node.message.normal_facts ns.(gns_node_state).(node.state.sent)) /\
+                     (forall fp num,
+                         In (node.message.done_with fp (node_source n) num) ns.(gns_node_state).(node.state.sent) <->
+                           operational_done_with os np n fp num) /\
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
 
