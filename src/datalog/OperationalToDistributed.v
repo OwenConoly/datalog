@@ -1,6 +1,6 @@
 From Stdlib Require Import List Permutation.
+From coqutil Require Import Map.Interface Eqb Tactics.fwd Tactics Datatypes.List.
 From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics.
-From coqutil Require Import Map.Interface Eqb Tactics.fwd Tactics.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 
 Import ListNotations.
@@ -34,8 +34,13 @@ Section __.
   Local Abbreviation has_derived_datalog_fact := (Operational.has_derived_datalog_fact is_input p).
   Local Abbreviation distributed_step := (Distributed.distributed_step graph_prog is_input).
 
+  Definition all_rules :=
+    flat_map program.rules (values graph_prog).
+
+  Context (NoDup_all_rules : NoDup all_rules).
+
   Definition graph_prog_distributes_normal_rules (prog : program) :=
-    forall r, In r prog.(program.rules) <-> In r (flat_map program.rules (values graph_prog)).
+    forall r, In r prog.(program.rules) <-> In r all_rules.
 
   Definition graph_prog_distributes_meta_rules (prog : program) :=
     forall mr,
@@ -51,14 +56,8 @@ Section __.
   Context (Hlayout_meta : graph_prog_distributes_meta_rules p).
 
   (*operational state os is consistent with node-program np being done with fp after having sent n messages*)
-  Definition operational_done_with os rules fp num :=
-    exists nums,
-      Forall2 (fun nr num0 => In (message.done_with fp (from_rule nr) num0) os.(op_state.known))
-        rules nums /\
-        num = list_sum nums.
-
   Definition normal_facts_sent_by_rules os rules :=
-    flat_map message.normal_facts (flat_map (get_or_default os.(op_state.sents)) (dedup rules)).
+    flat_map message.normal_facts (flat_map (get_or_default os.(op_state.sents)) rules).
 
   Definition normal_facts_sent_by_node (ns : graph_node_state message action_label state) :=
     flat_map message.normal_facts ns.(gns_node_state).(state.sent).
@@ -75,11 +74,17 @@ Section __.
     | input_source => [from_input]
     end.
 
-  Definition done_msgs_corresp rules (os : op_state) (ns : graph_node_state message action_label state) :=
+  Definition operational_done_with os (src : source) fp num :=
+    exists nums,
+      Forall2 (fun src num0 => In (message.done_with fp src num0) os.(op_state.known))
+        (op_sources_of src) nums /\
+        num = list_sum nums.
+
+  Definition done_msgs_corresp (os : op_state) (ns : graph_node_state message action_label state) :=
     forall fp num src,
       In (message.done_with fp src num) ns.(gns_node_state).(state.known) <->
         In src (graph_senders (fact_pattern.rel fp)) /\
-          operational_done_with os rules fp num.
+          operational_done_with os src fp num.
 
   Definition distribute_R (os : op_state) (gs : graph_state message action_label state) :=
     Forall2_map (fun n np ns =>
@@ -89,18 +94,34 @@ Section __.
                      Permutation
                        (normal_facts_wanted_by_rules os np.(program.rules))
                        (normal_facts_known_by_node ns) /\
-                     done_msgs_corresp (dedup np.(program.rules)) os ns /\
+                     done_msgs_corresp os ns /\
                      (forall fp num,
                          In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent) <->
-                           operational_done_with os np.(program.rules) fp num) /\
+                           operational_done_with os (node_source n) fp num) /\
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
+
+  Lemma R_senders_to_graph_senders R :
+    Permutation (R_senders R) (flat_map op_sources_of (graph_senders R)).
+  Proof.
+    cbv [R_senders graph_senders]. destr (is_input R).
+    - simpl. reflexivity.
+    - apply NoDup_Permutation.
+      + apply Finite.Injective_map_NoDup.
+        -- cbv [Finite.Injective]. congruence.
+        -- cbv [sender_rules]. apply NoDup_dedup.
+      + rewrite flat_map_filter_map. apply NoDup_flat_map.
+        -- apply Properties.map.tuples_NoDup.
+        -- intros [? ?] ?. destr (inb R (program.concl_rels p0)).
+           ++
+
+
 
   Lemma sth' r rules os ns f :
     In r rules ->
     In (fact.rel f) (rule.hyp_rels r) ->
     Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
-    done_msgs_corresp rules os ns ->
+    done_msgs_corresp os ns ->
     knows_fact R_senders (op_state.known os) f ->
     knows_fact graph_senders (state.known (gns_node_state ns)) f.
   Proof.

@@ -872,6 +872,14 @@ Proof.
   apply Hx. rewrite (Hinj x x' b); auto using in_eq, in_cons.
 Qed.
 
+Lemma flat_map_filter_map {A B C} (f : B -> list C) (g : A -> option B) l :
+  flat_map f (filter_map g l) =
+    flat_map (fun x => match g x with Some y => f y | None => [] end) l.
+Proof.
+  induction l as [| x l]; simpl; [reflexivity|].
+  destruct (g x); simpl; congruence.
+Qed.
+
 Definition partial_injective {A B} (f : A -> option B) : Prop :=
   forall x y v, f x = Some v -> f y = Some v -> x = y.
 
