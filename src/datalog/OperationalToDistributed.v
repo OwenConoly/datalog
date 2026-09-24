@@ -2,7 +2,9 @@ From Stdlib Require Import List Permutation.
 From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics.
 From coqutil Require Import Map.Interface Eqb Tactics.fwd Tactics.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
+
 Import ListNotations.
+Import node.
 
 Open Scope bool_scope.
 
@@ -17,10 +19,10 @@ Section __.
 
   #[local] Instance sender_label : sender_labelT := source.
 
-  Context {sent_map : map.map rule (list (node.message (sender_label := op_source)))}
+  Context {sent_map : map.map rule (list (message (sender_label := op_source)))}
     {sent_map_ok : map.ok sent_map}.
   Context {prog_map : map.map node_id program} {prog_map_ok : map.ok prog_map}.
-  Context {gns_map : map.map node_id (graph_node_state node.message node.action_label node.state)}
+  Context {gns_map : map.map node_id (graph_node_state message action_label state)}
     {gns_map_ok : map.ok gns_map}.
 
   Context (rel_forward : source -> destn -> rel -> bool).
@@ -28,7 +30,7 @@ Section __.
   Context (graph_senders : rel -> list source).
 
   Local Abbreviation R_senders := (Operational.R_senders is_input p).
-  Local Abbreviation can_deduce := (node.can_deduce R_senders).
+  Local Abbreviation can_deduce := (can_deduce R_senders).
   Local Abbreviation fire_at_rule := (Operational.fire_at_rule is_input p).
   Local Abbreviation comp_step := (Operational.comp_step is_input p).
   Local Abbreviation has_derived_datalog_fact := (Operational.has_derived_datalog_fact is_input p).
@@ -48,7 +50,7 @@ Section __.
         graph_prog.
 
   Definition node_senders_ok :=
-    Forall_map (fun n np => node.sends_concl_rels graph_senders (node_source n) np) graph_prog.
+    Forall_map (fun n np => sends_concl_rels graph_senders (node_source n) np) graph_prog.
 
   Definition input_senders_ok :=
     forall R,
@@ -63,23 +65,23 @@ Section __.
   (*operational state os is consistent with node-program np being done with fp after having sent n messages*)
   Definition operational_done_with os np fp num :=
     exists nums,
-      Forall2 (fun nr num0 => In (node.message.done_with fp (from_rule nr) num0) (get_or_default os.(op_state.sents) nr))
+      Forall2 (fun nr num0 => In (message.done_with fp (from_rule nr) num0) (get_or_default os.(op_state.sents) nr))
         (dedup np.(program.rules)) nums /\
         num = list_sum nums.
 
   Definition normal_facts_sent_by_rules os rules :=
-    flat_map node.message.normal_facts (flat_map (get_or_default os.(op_state.sents)) (dedup rules)).
+    flat_map message.normal_facts (flat_map (get_or_default os.(op_state.sents)) (dedup rules)).
 
-  Definition normal_facts_sent_by_node (ns : graph_node_state node.message node.action_label node.state) :=
-    flat_map node.message.normal_facts ns.(gns_node_state).(node.state.sent).
+  Definition normal_facts_sent_by_node (ns : graph_node_state message action_label state) :=
+    flat_map message.normal_facts ns.(gns_node_state).(state.sent).
 
-  Definition normal_facts_known_by_node (ns : graph_node_state node.message node.action_label node.state) :=
-    flat_map node.message.normal_facts ns.(gns_node_state).(node.state.known).
+  Definition normal_facts_known_by_node (ns : graph_node_state message action_label state) :=
+    flat_map message.normal_facts ns.(gns_node_state).(state.known).
 
-  Definition normal_facts_wanted_by_rules os rules :=
-    filter (fun f => true) (flat_map node.message.normal_facts os.(op_state.known)).
+  Definition normal_facts_wanted_by_rules os (rules : list rule) :=
+    filter (fun f => inb (normal_fact.rel f) (flat_map rule.hyp_rels rules)) (flat_map message.normal_facts os.(op_state.known)).
 
-  Definition distribute_R (os : op_state) (gs : graph_state node.message node.action_label node.state) :=
+  Definition distribute_R (os : op_state) (gs : graph_state message action_label state) :=
     Forall2_map (fun n np ns =>
                    Permutation
                      (normal_facts_sent_by_rules os np.(program.rules))
@@ -88,13 +90,37 @@ Section __.
                        (normal_facts_wanted_by_rules os np.(program.rules))
                        (normal_facts_known_by_node ns) /\
                      (forall fp num,
-                         In (node.message.done_with fp (node_source n) num) ns.(gns_node_state).(node.state.sent) <->
+                         In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent) <->
                            operational_done_with os np fp num) /\
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
 
-  Lemma same_known_facts :
+  Lemma sth' r rules os ns f :
+    In r rules ->
+    In (fact.rel f) (rule.hyp_rels r) ->
+    Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
+    knows_fact R_senders (op_state.known os) f ->
+    knows_fact graph_senders (state.known (gns_node_state ns)) f.
+  Proof.
+    intros Hr Hf Hperm H. cbv [knows_fact] in H |- *. destruct f as [nf | mf].
+    - cbv [knows_normal_fact] in H |- *. simpl in Hf.
 
+      Search @node.knows_normal_fact. Search @knows_normal_fact.
+  Admitted.
+
+  Lemma sth r rules os ns nf :
+    In r rules ->
+    Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
+    can_deduce_normal_fact R_senders r (op_state.known os) nf ->
+    can_deduce_normal_fact graph_senders r (state.known (gns_node_state ns)) nf.
+  Proof.
+    intros Hr Hperm H. cbv [can_deduce_normal_fact] in *.
+    fwd. eexists. split; [eassumption|].
+    apply rule.interp_hyp_relname_in in Hp0.
+    eapply Forall_impl.
+    { apply Forall_and; [exact Hp0|exact Hp1]. }
+    simpl. intros. fwd. eapply sth'; eassumption.
+  Qed.
 
   Lemma sim1 os gs os' :
     distribute_R os gs ->
@@ -104,7 +130,7 @@ Section __.
         distribute_R os' gs'.
   Proof.
     intros H. invert 1. rename H1 into Hp, H2 into Hr.
-    cbv [fire_at_rule node.can_deduce] in Hr. simpl in Hr. destruct new_fact; fwd.
+    cbv [fire_at_rule can_deduce] in Hr. simpl in Hr. destruct new_fact; fwd.
     - invert_stuff. subst.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
       apply Hlayout_normal in Hp; auto. apply in_flat_map in Hp. fwd.
@@ -116,10 +142,10 @@ Section __.
         -- apply star_one. apply gstep_run.
            ++ eassumption.
            ++ cbv [prog_at]. erewrite get_or_default_Some by eassumption.
-              eapply node.deduce_step with (output := node.message.normal _).
+              eapply deduce_step with (output := message.normal _).
               simpl. split.
               --- apply Exists_exists. eexists. split; [eassumption|].
-
+                  Search x.
               ; [|eassumption].
               cbv [Node.new_facts]. Print can_deduce_fact.
               Print node_step.
