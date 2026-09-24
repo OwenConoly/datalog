@@ -6,8 +6,6 @@ From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
 Import node.
 
-From Datalog Require Import Monadish.
-Open Scope option_monad_scope.
 Open Scope bool_scope.
 
 Section __.
@@ -21,22 +19,20 @@ Section __.
 
   #[local] Instance sender_label : sender_labelT := source.
 
-  Context {sent_map : map.map rule (list (message (sender_label := op_source)))}
-    {sent_map_ok : map.ok sent_map}.
+  Context {sent_map : map.map rule (list (message (sender_label := op_source)))} {sent_map_ok : map.ok sent_map}.
   Context {prog_map : map.map node_id program} {prog_map_ok : map.ok prog_map}.
-  Context {gns_map : map.map node_id (graph_node_state message action_label state)}
-    {gns_map_ok : map.ok gns_map}.
+  Context {gns_map : map.map node_id (graph_node_state message action_label state)} {gns_map_ok : map.ok gns_map}.
 
   Context (graph_prog : prog_map).
+  Context (Hgraph_good : Forall_map (fun _ np => Forall (fun R => is_input R = false) (program.concl_rels np)) graph_prog).
 
-  Definition graph_senders (R : rel) : list source :=
-
+  Local Abbreviation graph_senders := (Distributed.R_senders graph_prog is_input).
   Local Abbreviation R_senders := (Operational.R_senders is_input p).
   Local Abbreviation can_deduce := (can_deduce R_senders).
   Local Abbreviation fire_at_rule := (Operational.fire_at_rule is_input p).
   Local Abbreviation comp_step := (Operational.comp_step is_input p).
   Local Abbreviation has_derived_datalog_fact := (Operational.has_derived_datalog_fact is_input p).
-  Local Abbreviation distributed_step := (Distributed.distributed_step graph_senders rel_forward graph_prog).
+  Local Abbreviation distributed_step := (Distributed.distributed_step graph_prog is_input).
 
   Definition graph_prog_distributes_normal_rules (prog : program) :=
     forall r, In r prog.(program.rules) <-> In r (flat_map program.rules (values graph_prog)).
@@ -51,18 +47,8 @@ Section __.
                       In mr np.(program.meta_rules))
         graph_prog.
 
-  Definition node_senders_ok :=
-    Forall_map (fun n np => sends_concl_rels graph_senders (node_source n) np) graph_prog.
-
-  Definition input_senders_ok :=
-    forall R,
-      is_input R = true ->
-      In input_source (graph_senders R).
-
   Context (Hlayout_normal : graph_prog_distributes_normal_rules p).
   Context (Hlayout_meta : graph_prog_distributes_meta_rules p).
-  Context (Hsenders_node : node_senders_ok).
-  Context (Hsenders_input : input_senders_ok).
 
   (*operational state os is consistent with node-program np being done with fp after having sent n messages*)
   Definition operational_done_with os np fp num :=
