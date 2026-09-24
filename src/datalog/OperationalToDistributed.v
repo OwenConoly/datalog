@@ -63,12 +63,12 @@ Section __.
   (*operational state os is consistent with node-program np being done with fp after having sent n messages*)
   Definition operational_done_with os np fp num :=
     exists nums,
-      Forall2 (fun nr num0 => In (node.message.done_with fp (from_rule nr) num0) (get_or_default os.(sents) nr))
+      Forall2 (fun nr num0 => In (node.message.done_with fp (from_rule nr) num0) (get_or_default os.(op_state.sents) nr))
         (dedup np.(program.rules)) nums /\
         num = list_sum nums.
 
   Definition normal_facts_sent_by_rules os rules :=
-    flat_map node.message.normal_facts (flat_map (get_or_default os.(sents)) (dedup rules)).
+    flat_map node.message.normal_facts (flat_map (get_or_default os.(op_state.sents)) (dedup rules)).
 
   Definition normal_facts_sent_by_node (ns : graph_node_state node.message node.action_label node.state) :=
     flat_map node.message.normal_facts ns.(gns_node_state).(node.state.sent).
@@ -77,9 +77,9 @@ Section __.
     flat_map node.message.normal_facts ns.(gns_node_state).(node.state.known).
 
   Definition normal_facts_wanted_by_rules os rules :=
-    filter (fun f => true) (flat_map node.message.normal_facts os.(known)).
+    filter (fun f => true) (flat_map node.message.normal_facts os.(op_state.known)).
 
-  Definition distribute_R (os : state) (gs : graph_state node.message node.action_label node.state) :=
+  Definition distribute_R (os : op_state) (gs : graph_state node.message node.action_label node.state) :=
     Forall2_map (fun n np ns =>
                    Permutation
                      (normal_facts_sent_by_rules os np.(program.rules))
