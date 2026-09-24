@@ -12,6 +12,8 @@ From Inferpad Require Import ATLPhoas TensorToResult.
 
 From coqutil Require Import Map.Interface Map.Properties Tactics.
 
+From Datalog Require Import ATLToDatalogSemantics.
+
 Locate ATLToDatalogSemantics.
 Locate ATLUtils.
 
@@ -1166,3 +1168,4 @@ Proof.
          reflexivity.
       -- admit.*)
 Admitted.
+End __.

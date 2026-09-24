@@ -268,3 +268,4 @@ Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var) n) : pATLexpr' (var) n :=
   | ATLPhoas.Var x => Var _ x
   | ATLPhoas.Get _ _ | ATLPhoas.SBop _ _ _ | ATLPhoas.SIZR _ => Scalar (stringvar_S e)
 end.
+End __.
