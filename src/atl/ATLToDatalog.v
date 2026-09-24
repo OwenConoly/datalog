@@ -12,6 +12,8 @@ From Inferpad Require Import ATLPhoas TensorToResult.
 
 From coqutil Require Import Map.Interface Map.Properties Tactics.
 
+Locate ATLToDatalogSemantics.
+Locate ATLUtils.
 
 Import ListNotations.
 
