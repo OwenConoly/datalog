@@ -51,10 +51,10 @@ Section __.
   Context (Hlayout_meta : graph_prog_distributes_meta_rules p).
 
   (*operational state os is consistent with node-program np being done with fp after having sent n messages*)
-  Definition operational_done_with os np fp num :=
+  Definition operational_done_with os rules fp num :=
     exists nums,
-      Forall2 (fun nr num0 => In (message.done_with fp (from_rule nr) num0) (get_or_default os.(op_state.sents) nr))
-        (dedup np.(program.rules)) nums /\
+      Forall2 (fun nr num0 => In (message.done_with fp (from_rule nr) num0) os.(op_state.known))
+        rules nums /\
         num = list_sum nums.
 
   Definition normal_facts_sent_by_rules os rules :=
@@ -69,13 +69,17 @@ Section __.
   Definition normal_facts_wanted_by_rules os (rules : list rule) :=
     filter (fun f => inb (normal_fact.rel f) (flat_map rule.hyp_rels rules)) (flat_map message.normal_facts os.(op_state.known)).
 
-  Print Distributed.rel_forward.
-
   Definition op_sources_of (src : source) : list op_source :=
     match src with
     | node_source n => map from_rule (get_or_default graph_prog n).(program.rules)
     | input_source => [from_input]
     end.
+
+  Definition done_msgs_corresp rules (os : op_state) (ns : graph_node_state message action_label state) :=
+    forall fp num src,
+      In (message.done_with fp src num) ns.(gns_node_state).(state.known) <->
+        In src (graph_senders (fact_pattern.rel fp)) /\
+          operational_done_with os rules fp num.
 
   Definition distribute_R (os : op_state) (gs : graph_state message action_label state) :=
     Forall2_map (fun n np ns =>
@@ -85,16 +89,10 @@ Section __.
                      Permutation
                        (normal_facts_wanted_by_rules os np.(program.rules))
                        (normal_facts_known_by_node ns) /\
-                     (forall fp num src,
-                         In (message.done_with fp src num) ns.(gns_node_state).(state.known) <->
-                           (In src (graph_senders (fact_pattern.rel fp)) /\
-                              (forall r,
-                                  In r (prog_at src).(program.rules) ->
-                                  exists numr,
-                                    In (message.done_with fp (from_rule r) numr) os.(op_state.known)))) /\
+                     done_msgs_corresp (dedup np.(program.rules)) os ns /\
                      (forall fp num,
                          In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent) <->
-                           operational_done_with os np fp num) /\
+                           operational_done_with os np.(program.rules) fp num) /\
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
 
@@ -102,10 +100,11 @@ Section __.
     In r rules ->
     In (fact.rel f) (rule.hyp_rels r) ->
     Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
+    done_msgs_corresp rules os ns ->
     knows_fact R_senders (op_state.known os) f ->
     knows_fact graph_senders (state.known (gns_node_state ns)) f.
   Proof.
-    intros Hr Hf Hperm H. cbv [knows_fact] in H |- *. destruct f as [nf | mf].
+    intros Hr Hf Hperm Hcorresp H. cbv [knows_fact] in H |- *. destruct f as [nf | mf].
     - cbv [knows_normal_fact] in H |- *. simpl in Hf.
       apply Permutation_incl in Hperm.
       cbv [normal_facts_wanted_by_rules incl] in Hperm. especialize Hperm.
@@ -114,7 +113,9 @@ Section __.
       cbv [normal_facts_known_by_node] in Hperm.
       rewrite message.in_flat_map_normal_facts in Hperm. assumption.
     - cbv [knows_meta_fact] in H |- *. fwd. eexists. split.
-      + clear Hp1 Hp2. cbv [expects_num_facts] in Hp0 |- *.
+      + clear Hp1 Hp2. cbv [expects_num_facts] in Hp0 |- *. fwd.
+        cbv [done_msgs_corresp] in Hcorresp.
+        Print Distributed.R_senders. graph_senders.
         Print op_source.
         (forall pat n num,
             In (message.done_with pat n num) (op_state.known os) ->
