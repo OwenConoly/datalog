@@ -880,6 +880,13 @@ Proof.
   destruct (g x); simpl; congruence.
 Qed.
 
+Lemma NoDup_flat_map_in {A B} (f : A -> list B) l a :
+  NoDup (flat_map f l) -> In a l -> NoDup (f a).
+Proof.
+  intros Hnd Hin. apply in_split in Hin. fwd. rewrite flat_map_app in Hnd. simpl in Hnd.
+  eauto using NoDup_app_remove_l, NoDup_app_remove_r.
+Qed.
+
 Definition partial_injective {A B} (f : A -> option B) : Prop :=
   forall x y v, f x = Some v -> f y = Some v -> x = y.
 

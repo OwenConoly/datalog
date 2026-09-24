@@ -74,6 +74,20 @@ Section __.
     | input_source => [from_input]
     end.
 
+  Lemma NoDup_node_rules n : NoDup (get_or_default graph_prog n).(program.rules).
+  Proof.
+    destruct (map.get graph_prog n) eqn:E.
+    - erewrite get_or_default_Some by eassumption.
+      eapply NoDup_flat_map_in; [exact NoDup_all_rules|]. apply In_values. eauto.
+    - erewrite get_or_default_None by eassumption. constructor.
+  Qed.
+
+  Lemma NoDup_op_sources_of src : NoDup (op_sources_of src).
+  Proof.
+    destruct src; simpl; [| constructor; [intros [] | constructor]].
+    apply Finite.Injective_map_NoDup; [| apply NoDup_node_rules]. cbv [Finite.Injective]. congruence.
+  Qed.
+
   Definition operational_done_with os (src : source) fp num :=
     exists nums,
       Forall2 (fun src num0 => In (message.done_with fp src num0) os.(op_state.known))
@@ -101,21 +115,17 @@ Section __.
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
 
-  Lemma R_senders_to_graph_senders R :
-    Permutation (R_senders R) (flat_map op_sources_of (graph_senders R)).
+  Lemma R_senders_all_nodes R :
+    is_input R = false ->
+    Permutation (R_senders R) (flat_map op_sources_of (map node_source (map.keys graph_prog))).
   Proof.
-    cbv [R_senders graph_senders]. destr (is_input R).
-    - simpl. reflexivity.
-    - apply NoDup_Permutation.
-      + apply Finite.Injective_map_NoDup.
-        -- cbv [Finite.Injective]. congruence.
-        -- cbv [sender_rules]. apply NoDup_dedup.
-      + rewrite flat_map_filter_map. apply NoDup_flat_map.
-        -- apply Properties.map.tuples_NoDup.
-        -- intros [? ?] ?. destr (inb R (program.concl_rels p0)).
-           ++
-
-
+    intros HR. cbv [Operational.R_senders Operational.sender_rules]. rewrite HR. cbn iota.
+    transitivity (map from_rule all_rules).
+    - apply Permutation_map, NoDup_Permutation; [apply NoDup_dedup | exact NoDup_all_rules |].
+      intros r. rewrite <- dedup_preserves_In. apply Hlayout_normal.
+    - cbv [all_rules]. rewrite values_eq_map_keys, !flat_map_concat_map, concat_map, !map_map.
+      reflexivity.
+  Qed.
 
   Lemma sth' r rules os ns f :
     In r rules ->

@@ -856,6 +856,13 @@ Section Map.
     - intros k v m0 r1 r2 _ IH. cbn [List.map fst]. rewrite IH. reflexivity.
   Qed.
 
+  Lemma values_eq_map_keys `{WithDefault value} m :
+    values m = map (get_or_default m) (map.keys m).
+  Proof.
+    rewrite values_eq_tuples, keys_eq_tuples, map_map. apply map_ext_in. intros [k v] Hin.
+    symmetry. apply get_or_default_Some, map.tuples_spec. exact Hin.
+  Qed.
+
   Lemma Forall2_map_map_values'_r {value1} {mp1 : map.map key value1}
       (R' : key -> value1 -> value' -> Prop)
       (g : key -> value -> value') (m1 : mp1) (m2 : mp) :
