@@ -89,6 +89,11 @@ Section __.
                      Permutation
                        (normal_facts_wanted_by_rules os np.(program.rules))
                        (normal_facts_known_by_node ns) /\
+                     (forall fp num src,
+                         In (message.done_with fp src num) ns.(gns_node_state).(state.known) <->
+                           (In src (graph_senders (fact_pattern.rel fp)) /\
+                              (forall
+                     ) /\
                      (forall fp num,
                          In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent) <->
                            operational_done_with os np fp num) /\
@@ -110,7 +115,15 @@ Section __.
         split; [eassumption|]. apply inb_true_iff. apply in_flat_map. eauto. }
       cbv [normal_facts_known_by_node] in Hperm.
       rewrite message.in_flat_map_normal_facts in Hperm. assumption.
-    -
+    - cbv [knows_meta_fact] in H |- *. fwd. eexists. split.
+      + clear Hp1 Hp2. cbv [expects_num_facts] in Hp0 |- *.
+        Print op_source.
+        (forall pat n num,
+            In (message.done_with pat n num) (op_state.known os) ->
+            ~In n (graph_senders (fact_pattern.rel pat))
+        In (message.done_with (meta_fact.pattern mf) n expected_msgs)
+        forall
+         Print Operational.R_senders.
   Admitted.
 
   Lemma sth r rules os ns nf :
