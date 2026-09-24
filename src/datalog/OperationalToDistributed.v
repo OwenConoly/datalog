@@ -115,17 +115,29 @@ Section __.
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
 
-  Lemma R_senders_all_nodes R :
-    is_input R = false ->
-    Permutation (R_senders R) (flat_map op_sources_of (map node_source (map.keys graph_prog))).
+  Lemma R_senders_to_graph_senders R :
+    exists xs,
+      disjoint_lists xs (flat_map op_sources_of (graph_senders R)) /\
+    Permutation (R_senders R) (xs ++ flat_map op_sources_of (graph_senders R)).
   Proof.
-    intros HR. cbv [Operational.R_senders Operational.sender_rules]. rewrite HR. cbn iota.
-    transitivity (map from_rule all_rules).
-    - apply Permutation_map, NoDup_Permutation; [apply NoDup_dedup | exact NoDup_all_rules |].
-      intros r. rewrite <- dedup_preserves_In. apply Hlayout_normal.
-    - cbv [all_rules]. rewrite values_eq_map_keys, !flat_map_concat_map, concat_map, !map_map.
-      reflexivity.
-  Qed.
+    cbv [R_senders graph_senders]. destr (is_input R).
+    - simpl. reflexivity.
+    - apply NoDup_Permutation.
+      + apply Finite.Injective_map_NoDup.
+        -- cbv [Finite.Injective]. congruence.
+        -- cbv [sender_rules]. apply NoDup_dedup.
+      + rewrite flat_map_filter_map. apply NoDup_flat_map.
+        -- apply Properties.map.tuples_NoDup.
+        -- intros [? ?] ?. destr (inb R (program.concl_rels p0)).
+           ++ apply NoDup_op_sources_of.
+           ++ constructor.
+        -- intros [? ?] [? ?] ? ? ?. destr (inb R (program.concl_rels p0)); destr (inb R (program.concl_rels p1)); simpl; try contradiction.
+           admit.
+      + intros. rewrite flat_map_filter_map, in_map_iff, in_flat_map. Print op_sources_of.
+              Search op_sources_of.
+             .
+
+
 
   Lemma sth' r rules os ns f :
     In r rules ->
