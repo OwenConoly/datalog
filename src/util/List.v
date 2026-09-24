@@ -800,13 +800,16 @@ Section fun_of_pairs.
     eauto using in_combine_l.
   Qed.
 
+  Lemma fun_of_lists_In d ks vs k v :
+    NoDup ks -> length ks = length vs -> In (k, v) (combine ks vs) -> fun_of_lists d ks vs k = v.
+  Proof. intros. apply fun_of_pairs_In; [rewrite map_fst_combine |]; assumption. Qed.
+
   Lemma map_fun_of_lists d ks vs :
     NoDup ks -> length ks = length vs -> map (fun_of_lists d ks vs) ks = vs.
   Proof.
     intros Hnd Hlen. transitivity (map id vs); [| apply map_id]. apply Forall2_map_eq.
     apply Forall_combine_Forall2 with (R := fun '(k, v) => fun_of_lists d ks vs k = id v); [| exact Hlen].
-    apply Forall_forall. intros [k v] Hin. apply fun_of_pairs_In; [| exact Hin].
-    rewrite map_fst_combine; assumption.
+    apply Forall_forall. intros [k v] Hin. apply fun_of_lists_In; assumption.
   Qed.
 End fun_of_pairs.
 
@@ -845,6 +848,29 @@ Fixpoint filter_map {A B} (f : A -> option B) (l : list A) : list B :=
       | None => filter_map f l
       end
   end.
+
+Lemma in_filter_map {A B} (f : A -> option B) l y :
+  In y (filter_map f l) <-> exists x, In x l /\ f x = Some y.
+Proof.
+  induction l as [| x l]; simpl.
+  - split; [intros [] | intros (? & [] & _)].
+  - destruct (f x) eqn:E; simpl; rewrite IHl; split.
+    + intros [-> | (x' & Hx' & Hf)]; eauto.
+    + intros (x' & [-> | Hx'] & Hf); [left; congruence | right; eauto].
+    + intros (x' & Hx' & Hf). eauto.
+    + intros (x' & [-> | Hx'] & Hf); [congruence | eauto].
+Qed.
+
+Lemma NoDup_filter_map {A B} (f : A -> option B) l :
+  NoDup l ->
+  (forall x x' y, In x l -> In x' l -> f x = Some y -> f x' = Some y -> x = x') ->
+  NoDup (filter_map f l).
+Proof.
+  induction 1 as [| x l Hx Hnd IH]; simpl; intros Hinj; [constructor|].
+  destruct (f x) eqn:E; [constructor|]; eauto using in_cons.
+  intros Hin. apply in_filter_map in Hin. destruct Hin as (x' & Hx' & Hf).
+  apply Hx. rewrite (Hinj x x' b); auto using in_eq, in_cons.
+Qed.
 
 Definition partial_injective {A B} (f : A -> option B) : Prop :=
   forall x y v, f x = Some v -> f y = Some v -> x = y.
