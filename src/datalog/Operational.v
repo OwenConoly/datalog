@@ -28,7 +28,7 @@ Section __.
 
   Context {sent_map : map.map rule (list message)} {sent_map_ok : map.ok sent_map}.
 
-  Record state := { known_facts : list message; sents : sent_map }.
+  Record dstate := { known_facts : list message; sents : sent_map }.
 
   Definition normal_args_with (R : rel) (m : message) : list (list value) :=
     match m with

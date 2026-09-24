@@ -60,23 +60,41 @@ Section __.
   Context (Hsenders_node : node_senders_ok).
   Context (Hsenders_input : input_senders_ok).
 
-  (*operational state os is consistent with node-program np at node n being done with fp after having sent n messages*)
-  Definition operational_done_with os np n fp num :=
+  (*operational state os is consistent with node-program np being done with fp after having sent n messages*)
+  Definition operational_done_with os np fp num :=
     exists nums,
-      Forall2 (fun nr num0 => In (node.message.done_with fp (from_rule nr) n) (get_or_default os.(sents) nr))
+      Forall2 (fun nr num0 => In (node.message.done_with fp (from_rule nr) num0) (get_or_default os.(sents) nr))
         (dedup np.(program.rules)) nums /\
         num = list_sum nums.
+
+  Definition normal_facts_sent_by_rules os rules :=
+    flat_map node.message.normal_facts (flat_map (get_or_default os.(sents)) (dedup rules)).
+
+  Definition normal_facts_sent_by_node (ns : graph_node_state node.message node.action_label node.state) :=
+    flat_map node.message.normal_facts ns.(gns_node_state).(node.state.sent).
+
+  Definition normal_facts_known_by_node (ns : graph_node_state node.message node.action_label node.state) :=
+    flat_map node.message.normal_facts ns.(gns_node_state).(node.state.known).
+
+  Definition normal_facts_wanted_by_rules os rules :=
+    filter (fun f => true) (flat_map node.message.normal_facts os.(known)).
 
   Definition distribute_R (os : state) (gs : graph_state node.message node.action_label node.state) :=
     Forall2_map (fun n np ns =>
                    Permutation
-                     (flat_map node.message.normal_facts (flat_map (get_or_default os.(sents)) (dedup np.(program.rules))))
-                     (flat_map node.message.normal_facts ns.(gns_node_state).(node.state.sent)) /\
+                     (normal_facts_sent_by_rules os np.(program.rules))
+                     (normal_facts_sent_by_node ns) /\
+                     Permutation
+                       (normal_facts_wanted_by_rules os np.(program.rules))
+                       (normal_facts_known_by_node ns) /\
                      (forall fp num,
                          In (node.message.done_with fp (node_source n) num) ns.(gns_node_state).(node.state.sent) <->
-                           operational_done_with os np n fp num) /\
+                           operational_done_with os np fp num) /\
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
+
+  Lemma same_known_facts :
+
 
   Lemma sim1 os gs os' :
     distribute_R os gs ->
@@ -86,15 +104,11 @@ Section __.
         distribute_R os' gs'.
   Proof.
     intros H. invert 1. rename H1 into Hp, H2 into Hr.
-    cbv [fire_at_rule] in Hr. fwd.
-    cbv [can_fire_rule_at] in Hrp0. destruct Hrp0 as [Hrp0|Hrp0].
-    - subst. cbv [non_meta_rules] in Hp. apply filter_In in Hp. fwd.
-      clear Hrp2. cbv [can_deduce_fact] in Hrp1. Tactics.destruct_one_match_hyp.
-      2: { fwd. simpl in *. discriminate. }
-      fwd.
+    cbv [fire_at_rule node.can_deduce] in Hr. simpl in Hr. destruct new_fact; fwd.
+    - invert_stuff. subst.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
-      apply Hlayout_normal in Hpp0; auto. apply in_concat in Hpp0. fwd.
-      apply In_values in Hpp0p0. fwd.
+      apply Hlayout_normal in Hp; auto. apply in_flat_map in Hp. fwd.
+      apply In_values in Hpp0. fwd.
       cbv [distribute_R] in H.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
       do 2 eexists. split.
@@ -102,7 +116,11 @@ Section __.
         -- apply star_one. apply gstep_run.
            ++ eassumption.
            ++ cbv [prog_at]. erewrite get_or_default_Some by eassumption.
-              apply node_deduce_step.
+              eapply node.deduce_step with (output := node.message.normal _).
+              simpl. split.
+              --- apply Exists_exists. eexists. split; [eassumption|].
+
+              ; [|eassumption].
               cbv [Node.new_facts]. Print can_deduce_fact.
               Print node_step.
         destruct r; simpl in *; try discriminate; fwd. 2: { simpl in *.
