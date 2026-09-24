@@ -24,11 +24,28 @@ Section Distributed.
 
   Definition prog_at (n : node_id) : program := get_or_default graph_prog n.
 
+  Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
+  Proof. apply get_or_default_Some. Qed.
+
   Definition rel_forward (s : source) (d : destn) (R : rel) : bool :=
     match d with
     | output_destn => true (*TODO: don't output everything*)
     | node_destn nd => inb R (program.hyp_rels (prog_at nd))
     end.
+
+  Definition forward (s : source) (d : destn) (f : message) := rel_forward s d (message.rel f).
+
+  Lemma forward_equiv s d a b :
+    message.equiv a b ->
+    forward s d a = forward s d b.
+  Proof.
+    intros Heq. unfold forward. f_equal.
+    destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
+  Qed.
+
+  Lemma forward_rel_level s d f g :
+    message.rel f = message.rel g -> forward s d f = forward s d g.
+  Proof. intros. cbv [forward]. congruence. Qed.
 
   Definition R_senders (R : rel) : list source :=
     if is_input R then [input_source] else
@@ -41,9 +58,8 @@ Section Distributed.
     cbv [R_senders]. destruct (is_input R); [constructor; [intros [] | constructor]|].
     apply NoDup_filter_map; [apply map.tuples_NoDup|].
     intros [n p] [n' p'] s Hin Hin' Hf Hf'. simpl in Hf, Hf'.
-    destruct (inb R (program.concl_rels p)); [|discriminate].
-    destruct (inb R (program.concl_rels p')); [|discriminate].
-    apply map.tuples_spec in Hin, Hin'. invert Hf. invert Hf'. congruence.
+    apply map.tuples_spec in Hin, Hin'.
+    destruct (inb R (program.concl_rels p)), (inb R (program.concl_rels p')); congruence.
   Qed.
 
   Lemma node_sends_concl_rels k p R :
@@ -57,25 +73,10 @@ Section Distributed.
 
   Abbreviation claim := (node.claim R_senders).
   Abbreviation consistent := (node.consistent R_senders).
-
-  Definition forward (s : source) (d : destn) (f : message) := rel_forward s d (message.rel f).
-
-  Lemma forward_equiv s d a b :
-    message.equiv a b ->
-    forward s d a = forward s d b.
-  Proof.
-    intros Heq. unfold forward. f_equal.
-    destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
-  Qed.
-
-  Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
-  Proof. apply get_or_default_Some. Qed.
-
   Local Abbreviation nstep := (fun n => node.step R_senders (prog_at n) (node_source n)).
   Local Abbreviation nallowed := (node.allowed_inputs R_senders).
 
   Hint Immediate message.equiv_Equivalence : core.
-
   Hint Resolve node.expects_num_facts_incl Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
 
   Definition claim_output (pat : fact_pattern) (n : source) (fs : list message) : Prop :=
@@ -96,11 +97,8 @@ Section Distributed.
   Lemma claim_output_mono pat n ms1 ms2 :
     claim_output pat n ms1 -> incl_mod message.equiv ms1 ms2 -> claim_output pat n ms2.
   Proof.
-    cbv [claim_output]. intros H1 Hincl Hn.
-    destruct (H1 Hn) as (cnt & Hin).
-    destruct (Hincl _ Hin) as (b & Hin2 & Heq).
-    destruct b as [nf | pat' src' cnt']; cbn [message.equiv] in Heq; [ congruence | ].
-    destruct Heq as (<- & <-). exists cnt'. exact Hin2.
+    cbv [claim_output]. intros H1 Hincl Hn. especialize H1; eauto. fwd.
+    destruct (Hincl _ H1) as ([|] & Hin2 & Heq); simpl in Heq; fwd; try congruence. eauto.
   Qed.
 
   Lemma consistent_output_mono pat n ms1 ms2 :
@@ -121,12 +119,11 @@ Section Distributed.
   Lemma meta_locate pat (partition : node_map) n cnt :
     Forall_map allowed_output partition ->
     In (message.done_with pat n cnt) (concat (values partition)) ->
-    exists ms, map.get partition n = Some ms /\ In (message.done_with pat n cnt) ms.
+    exists ms, map.get partition n = Some ms /\ In (message.done_with pat n cnt) ms /\
+                 Existsn_le (message.matches pat) cnt ms.
   Proof.
-    intros HF Hin. apply In_concat_values in Hin. destruct Hin as (k & ms & Hget & Hin_ms).
-    pose proof (HF k ms Hget) as (Hall & _).
-    destruct (Hall _ _ _ Hin_ms) as (Hsrc & _). subst k.
-    exists ms. split; [ exact Hget | exact Hin_ms ].
+    intros HF Hin. apply In_concat_values in Hin. destruct Hin as (k & ms & Hget & Hin).
+    destruct (HF _ _ Hget) as (Hall & _). specialize (Hall _ _ _ Hin). fwd. eauto.
   Qed.
 
   Lemma no_R_matches_off_senders pat (partition : node_map) n ms :
@@ -135,21 +132,8 @@ Section Distributed.
     Forall (fun f => ~ message.matches pat f) ms.
   Proof.
     intros HF Hget Hnin. apply Forall_forall. intros f Hf Hmatch. apply Hnin.
-    pose proof (HF n ms Hget) as (_ & Hsend).
-    destruct f as [nf | pat' src' cnt']; [| destruct Hmatch].
-    destruct Hmatch as (Hrel & _). rewrite Hrel. exact (Hsend _ Hf).
-  Qed.
-
-  Lemma sender_block pat (partition : node_map) n cnt :
-    Forall_map allowed_output partition ->
-    In (message.done_with pat n cnt) (concat (values partition)) ->
-    exists ms, map.get partition n = Some ms /\ In (message.done_with pat n cnt) ms /\
-               Existsn_le (message.matches pat) cnt ms.
-  Proof.
-    intros HF Hin. destruct (meta_locate _ _ _ _ HF Hin) as (ms & Hget & Hin_ms).
-    pose proof (HF n ms Hget) as (Hall & _).
-    destruct (Hall _ _ _ Hin_ms) as (_ & Hle).
-    exists ms. split; [ exact Hget | split; [ exact Hin_ms | exact Hle ] ].
+    destruct (HF _ _ Hget) as (_ & Hsend). specialize (Hsend _ Hf).
+    destruct f as [nf |]; [| destruct Hmatch]. destruct Hmatch as (Hrel & _). rewrite Hrel. exact Hsend.
   Qed.
 
   (* the claim's per-sender expected counts (absent senders count 0) *)
@@ -174,10 +158,8 @@ Section Distributed.
             (R_senders pat.(fact_pattern.rel)) ems ->
     incl (R_senders pat.(fact_pattern.rel)) (map.keys partition).
   Proof.
-    intros HF Hems k Hk.
-    destruct (Forall2_In_l _ _ _ _ Hems Hk) as (em & _ & Hmeta).
-    destruct (meta_locate _ _ _ _ HF Hmeta) as (ms & Hget & _).
-    eapply map.in_keys; exact Hget.
+    intros HF Hems k Hk. destruct (Forall2_In_l _ _ _ _ Hems Hk) as (em & _ & Hmeta).
+    eapply meta_locate in Hmeta; eauto. fwd. eapply map.in_keys; eassumption.
   Qed.
 
   (*each node's sent multiset stays within the count the claim assigns it*)
@@ -191,8 +173,7 @@ Section Distributed.
     intros HF Hems Hget. destr (inb k (R_senders pat.(fact_pattern.rel))).
     - destruct (Forall2_In_l _ _ _ _ Hems E) as (em & Hcomb & Hmeta).
       erewrite fun_of_lists_In by eauto using R_senders_NoDup, Forall2_length.
-      destruct (sender_block _ _ _ _ HF Hmeta) as (ms' & Hget' & _ & Hle).
-      map_func. assumption.
+      eapply meta_locate in Hmeta; eauto. fwd. map_func. assumption.
     - rewrite fun_of_lists_off by assumption. apply Existsn_le_0_Forall_not.
       eapply no_R_matches_off_senders; eassumption.
   Qed.
@@ -201,63 +182,44 @@ Section Distributed.
     Forall_map allowed_output partition -> nallowed (concat (values partition)).
   Proof.
     intros HF pat ems Hems.
-    assert (Hlen : length (R_senders pat.(fact_pattern.rel)) = length ems)
-      by (eapply Forall2_length; exact Hems).
-    rewrite <- (sum_count_at pat ems partition Hlen (senders_in_keys _ _ _ HF Hems)).
-    apply Existsn_le_concat_map. intros k ms Hget.
-    exact (counts_bound _ _ _ _ _ HF Hems Hget).
+    erewrite <- sum_count_at by eauto using Forall2_length, senders_in_keys.
+    apply Existsn_le_concat_map. intros k ms Hget. eapply counts_bound; eassumption.
   Qed.
 
   Lemma consistent_good_holds :
     consistent_good claim claim_output consistent_output allowed_output consistent.
   Proof.
-    intros pat partition Hallow Hclaim. cbv [node.claim] in Hclaim.
-    split.
-    - intros n ms Hget. cbv [claim_output]. intros Hn.
-      destruct (Hclaim n Hn) as (cnt & Hin).
-      destruct (meta_locate _ _ _ _ Hallow Hin) as (ms' & Hget' & Hin_ms).
-      map_func. exists cnt. assumption.
-    - split.
-      + intros Hcons. cbv [node.consistent node.expects_num_facts] in Hcons.
-        destruct Hcons as (num & (ems & Hexpect & Hnum) & Hge). subst num.
-        assert (Hlen : length (R_senders pat.(fact_pattern.rel)) = length ems)
-          by (eapply Forall2_length; exact Hexpect).
-        rewrite <- (sum_count_at pat ems partition Hlen
-                      (senders_in_keys _ _ _ Hallow Hexpect)) in Hge.
-        pose proof (Existsn_squeeze_map (message.matches pat) (count_at pat ems) partition Hge
-                      (fun k ms Hget => counts_bound _ _ _ _ _ Hallow Hexpect Hget)) as Hsq.
-        intros n ms Hget. cbv [consistent_output]. intros Hn.
-        destruct (Forall2_In_l _ _ _ _ Hexpect Hn) as (em & Hcomb & Hmeta).
-        exists em. split.
-        * destruct (meta_locate _ _ _ _ Hallow Hmeta) as (ms' & Hget' & Hin_ms).
-          map_func. exact Hin_ms.
-        * rewrite <- (fun_of_lists_In 0 _ _ _ _ (R_senders_NoDup _) Hlen Hcomb). exact (Hsq n ms Hget).
-      + intros HcoF. cbv [node.consistent node.expects_num_facts].
+    intros pat partition Hallow Hclaim. cbv [node.claim] in Hclaim. split.
+    - intros n ms Hget Hn. specialize (Hclaim _ Hn). fwd.
+      eapply meta_locate in Hclaim; eauto. fwd. map_func. eauto.
+    - cbv [node.consistent node.expects_num_facts]. split.
+      + intros (num & (ems & Hexpect & ->) & Hge).
+        erewrite <- sum_count_at in Hge by eauto using Forall2_length, senders_in_keys.
+        intros n ms Hget Hn. destruct (Forall2_In_l _ _ _ _ Hexpect Hn) as (em & Hcomb & Hmeta).
+        exists (count_at pat ems n). split.
+        * erewrite fun_of_lists_In by eauto using R_senders_NoDup, Forall2_length.
+          eapply meta_locate in Hmeta; eauto. fwd. map_func. assumption.
+        * eapply Existsn_squeeze_map; [exact Hge | intros ? ? ?; eapply counts_bound; eassumption | exact Hget].
+      + intros HcoF.
         assert (Hbuild : Forall (fun k => exists cnt ms, map.get partition k = Some ms /\
                     In (message.done_with pat k cnt) ms /\ Existsn_ge (message.matches pat) cnt ms)
                     (R_senders pat.(fact_pattern.rel))).
-        { apply Forall_forall. intros k Hk. destruct (Hclaim k Hk) as (cnt0 & Hin0).
-          destruct (meta_locate _ _ _ _ Hallow Hin0) as (ms & Hget & _).
-          specialize (HcoF k ms Hget). cbv [consistent_output] in HcoF.
-          destruct (HcoF Hk) as (cnt & Hin & Hge).
-          exists cnt, ms. split; [ exact Hget | split; [ exact Hin | exact Hge ] ]. }
-        apply Forall_exists_r_Forall2 in Hbuild. destruct Hbuild as (ems & Hbuild2).
-        exists (list_sum ems). split.
-        * exists ems. split; [ | reflexivity ].
-          eapply Forall2_impl; [ exact Hbuild2 | ]. intros k cnt (ms & Hget & Hin & _).
-          apply In_concat_values. exists k, ms. split; [ exact Hget | exact Hin ].
-        * assert (Hsub : incl (R_senders pat.(fact_pattern.rel)) (map.keys partition)).
-          { intros k Hk. destruct (Forall2_In_l _ _ _ _ Hbuild2 Hk) as (cnt & _ & (ms & Hget & _)).
-            eapply map.in_keys; exact Hget. }
-          rewrite <- (sum_count_at pat ems partition
-                        ltac:(eauto using Forall2_length) Hsub).
-          apply Existsn_ge_concat_map. intros k ms Hget.
-          destr (inb k (R_senders pat.(fact_pattern.rel))).
-          -- destruct (Forall2_In_l _ _ _ _ Hbuild2 E)
-               as (cnt & Hcomb & ms' & Hget' & _ & Hge_ms).
-             erewrite fun_of_lists_In by eauto using R_senders_NoDup, Forall2_length.
-             map_func. exact Hge_ms.
-          -- rewrite fun_of_lists_off by assumption. apply Eg_zero.
+        { apply Forall_forall. intros k Hk. specialize (Hclaim _ Hk). fwd.
+          eapply meta_locate in Hclaim; eauto. fwd.
+          cbv [Forall_map consistent_output] in HcoF. especialize HcoF; eauto. fwd. eauto 6. }
+        apply Forall_exists_r_Forall2 in Hbuild. destruct Hbuild as (ems & Hbuild).
+        assert (Hin : Forall2 (fun k e => In (message.done_with pat k e) (concat (values partition)))
+                        (R_senders pat.(fact_pattern.rel)) ems).
+        { eapply Forall2_impl; [exact Hbuild|]. intros ? ? H. cbv beta in H. fwd.
+          apply In_concat_values. eauto. }
+        exists (list_sum ems). split; [eauto|].
+        erewrite <- sum_count_at by eauto using Forall2_length, senders_in_keys.
+        apply Existsn_ge_concat_map. intros k ms Hget.
+        destr (inb k (R_senders pat.(fact_pattern.rel))).
+        -- destruct (Forall2_In_l _ _ _ _ Hbuild E) as (cnt & Hcomb & Hk). fwd.
+           erewrite fun_of_lists_In by eauto using R_senders_NoDup, Forall2_length.
+           map_func. assumption.
+        -- rewrite fun_of_lists_off by assumption. apply Eg_zero.
   Qed.
 
   Context {gmap : map.map node_id (@graph_node_state message action_label state)}.
@@ -277,19 +239,14 @@ Section Distributed.
     map.get initial_graph_state.(graph_nodes) n = Some gns ->
     exists np, map.get graph_prog n = Some np /\ gns = graph_node_init.
   Proof.
-    intros H. unfold initial_graph_state, initial_graph_nodes in H. cbn [graph_nodes] in H.
-    rewrite get_map_values' in H.
-    destruct (map.get graph_prog n) as [np|] eqn:Hg; cbn [option_map] in H; [ | discriminate ].
-    exists np. split; [ reflexivity | congruence ].
+    cbv [initial_graph_state initial_graph_nodes]. cbn [graph_nodes]. rewrite get_map_values'.
+    destruct (map.get graph_prog n); simpl; intros; fwd; try discriminate; eauto.
   Qed.
 
   Lemma initial_graph_state_empty n gns :
     map.get initial_graph_state.(graph_nodes) n = Some gns ->
     gns.(gns_trace) = [] /\ gns.(gns_queue) = [].
-  Proof.
-    intros H. apply initial_graph_state_get in H. destruct H as (np & _ & ->).
-    split; reflexivity.
-  Qed.
+  Proof. intros H. apply initial_graph_state_get in H. fwd. auto. Qed.
 
   Lemma nallowed_multiset_monotone : multiset_monotone_dec nallowed.
   Proof. intros l1 l2 Hl2 Hsub. eapply node.allowed_inputs_submultiset; eauto. Qed.
@@ -297,52 +254,29 @@ Section Distributed.
   Lemma nstep_input_total n : input_total (nstep n).
   Proof. intros s m. eexists. apply node.input_step. Qed.
 
-  Lemma forward_rel_level s d f g :
-    message.rel f = message.rel g -> forward s d f = forward s d g.
-  Proof. intros Heq. unfold forward. rewrite Heq. reflexivity. Qed.
-
-  Lemma node_outputs_well_formed (k : node_id) (p : program)
-      (forward : source -> destn -> message -> bool)
-      (forward_rel : forall s d f g,
-          message.rel f = message.rel g -> forward s d f = forward s d g) :
+  Lemma node_outputs_well_formed k p :
     map.get graph_prog k = Some p ->
     outputs_well_formed (node.step R_senders p (node_source k))
       (good_node_output forward claim_output consistent_output allowed_output k) node.init.
   Proof.
     intros Hget t s Hstar dest. set (name := node_source k) in *.
-    assert (Hsend : forall s0 f, node.can_deduce R_senders p name s0 f ->
-                      In name (R_senders (message.rel f))).
-    { intros s0 f Hnf. apply node.can_deduce_concl_rel in Hnf. eapply node_sends_concl_rels; eassumption. }
-    assert (Hso : s.(state.sent) = flat_map outputs_of t)
-      by (eapply node.sent_eq_outputs; exact Hstar).
-    assert (Hsrc : forall pat src num,
-               In (message.done_with pat src num) s.(state.sent) -> src = name)
-      by (eapply node.sent_source_correct; exact Hstar).
-    assert (Hcnt : forall pat num,
-               In (message.done_with pat name num) s.(state.sent) ->
-               Existsn (message.matches pat) num s.(state.sent))
-      by (eapply node.sent_counts_correct; exact Hstar).
+    pose proof (node.sent_eq_outputs _ _ _ _ _ Hstar) as Hso.
+    pose proof (node.sent_source_correct _ _ _ _ _ Hstar) as Hsrc.
+    pose proof (node.sent_counts_correct _ _ _ _ _ Hstar) as Hcnt.
     rewrite <- Hso. split.
     - cbv [allowed_output]. split.
-      + intros pat src cnt Hin.
-        apply filter_In in Hin. destruct Hin as (Hin_sent & Hfwd).
-        pose proof (Hsrc pat src cnt Hin_sent) as Hsk. subst src.
-        split; [ reflexivity | ].
-        apply Existsn_le_filter.
-        eapply Existsn_le_of_Existsn; [ exact (Hcnt pat cnt Hin_sent) | lia ].
+      + intros pat src cnt Hin. apply filter_In in Hin. destruct Hin as (Hin_sent & _).
+        specialize (Hsrc _ _ _ Hin_sent). subst. split; [reflexivity|].
+        apply Existsn_le_filter. eapply Existsn_le_of_Existsn; [eauto | lia].
       + intros f Hin. apply filter_In in Hin. destruct Hin as (Hin_sent & _).
-        eapply node.sent_rel_sender; [ exact Hsend | exact Hstar | exact Hin_sent ].
-    - intros pat Hclaim. cbv [claim_output consistent_output] in Hclaim |- *.
-      intros Hn. destruct (Hclaim Hn) as (cnt & Hin_meta).
-      exists cnt. split; [ exact Hin_meta | ].
-      apply filter_In in Hin_meta. destruct Hin_meta as (Hin_sent & Hfwd).
+        eapply node.sent_rel_sender; [| exact Hstar | exact Hin_sent].
+        intros ? ? Hcd. apply node.can_deduce_concl_rel in Hcd. eauto using node_sends_concl_rels.
+    - intros pat Hclaim Hn. cbv [claim_output consistent_output] in *. specialize (Hclaim Hn). fwd.
+      exists cnt. split; [assumption|]. apply filter_In in Hclaim. destruct Hclaim as (Hsent & Hfwd).
       apply Existsn_ge_filter.
-      + intros x Hmx. destruct x as [nf | pat' src' cnt']; [| destruct Hmx].
-        destruct Hmx as (Hrel & _).
-        rewrite (forward_rel name (node_destn dest) (message.normal nf)
-                   (message.done_with pat name cnt)); [ exact Hfwd | ].
-        cbn [message.rel]. congruence.
-      + eapply Existsn_ge_of_Existsn; [ exact (Hcnt pat cnt Hin_sent) | lia ].
+      + intros f Hf. rewrite (forward_rel_level _ _ f (message.done_with pat name cnt)); [exact Hfwd|].
+        destruct f as [nf |]; [| destruct Hf]. destruct Hf as (Hrel & _). cbn [message.rel]. congruence.
+      + eapply Existsn_ge_of_Existsn; [eauto | lia].
   Qed.
 
   Lemma nodes_good_holds :
@@ -350,12 +284,10 @@ Section Distributed.
                   consistent nallowed nstep) initial_graph_state.(graph_nodes).
   Proof.
     intros k v Hkv. apply initial_graph_state_get in Hkv. fwd.
-    pose proof node.might_implies_will' as H.
-    especialize H; eauto. apply miw'_iff_miw_and_monotone' in H; auto. fwd.
-    cbv [node_good graph_node_init gns_node_state].
-    erewrite prog_at_get by eassumption.
-    ssplit; try eassumption.
-    apply node_outputs_well_formed; [ exact forward_rel_level | eassumption ].
+    pose proof node.might_implies_will' as H. especialize H; eauto.
+    apply miw'_iff_miw_and_monotone' in H; auto. fwd.
+    cbv [node_good graph_node_init gns_node_state]. erewrite prog_at_get by eassumption.
+    ssplit; try eassumption. apply node_outputs_well_formed; eassumption.
   Qed.
 
   Definition distributed_step := graph_step forward nstep.
