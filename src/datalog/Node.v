@@ -45,6 +45,16 @@ Module message.
       | done_with _ _ _ => []
       end.
 
+    Lemma in_flat_map_normal_facts nf l :
+      In nf (flat_map normal_facts l) <-> In (normal nf) l.
+    Proof.
+      rewrite in_flat_map. split.
+      - intros ([nf' | ] & Hin & Hnf); simpl in Hnf.
+        + destruct Hnf as [-> | []]. exact Hin.
+        + destruct Hnf.
+      - intros Hin. eexists. split; [exact Hin|]. simpl. auto.
+    Qed.
+
     Definition rel (f : message) : rel :=
       match f with
       | normal nf => nf.(normal_fact.rel)

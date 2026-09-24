@@ -104,8 +104,13 @@ Section __.
   Proof.
     intros Hr Hf Hperm H. cbv [knows_fact] in H |- *. destruct f as [nf | mf].
     - cbv [knows_normal_fact] in H |- *. simpl in Hf.
-
-      Search @node.knows_normal_fact. Search @knows_normal_fact.
+      apply Permutation_incl in Hperm.
+      cbv [normal_facts_wanted_by_rules incl] in Hperm. especialize Hperm.
+      { rewrite filter_In. rewrite message.in_flat_map_normal_facts.
+        split; [eassumption|]. apply inb_true_iff. apply in_flat_map. eauto. }
+      cbv [normal_facts_known_by_node] in Hperm.
+      rewrite message.in_flat_map_normal_facts in Hperm. assumption.
+    -
   Admitted.
 
   Lemma sth r rules os ns nf :
