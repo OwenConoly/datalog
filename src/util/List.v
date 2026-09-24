@@ -762,6 +762,54 @@ Section search.
   Qed.
 End search.
 
+Section fun_of_pairs.
+  Context {A B : Type}.
+  Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.
+
+  Fixpoint fun_of_pairs (d : B) (ps : list (A * B)) (x : A) : B :=
+    match ps with
+    | [] => d
+    | (k, v) :: ps => if eqb k x then v else fun_of_pairs d ps x
+    end.
+
+  Lemma fun_of_pairs_off d ps x :
+    ~ In x (map fst ps) -> fun_of_pairs d ps x = d.
+  Proof.
+    induction ps as [| [k v] ps]; simpl; intros; [reflexivity|].
+    destr (eqb k x); subst; intuition.
+  Qed.
+
+  Lemma fun_of_pairs_In d ps k v :
+    NoDup (map fst ps) -> In (k, v) ps -> fun_of_pairs d ps k = v.
+  Proof.
+    induction ps as [| [k' v'] ps]; simpl; intros Hnd Hin; [contradiction|].
+    invert Hnd. destr (eqb k' k); subst.
+    - destruct Hin as [Hin | Hin]; [congruence|].
+      exfalso. apply (in_map fst) in Hin. simpl in Hin. contradiction.
+    - destruct Hin as [Hin | Hin]; [congruence | auto].
+  Qed.
+
+  Definition fun_of_lists (d : B) (ks : list A) (vs : list B) : A -> B :=
+    fun_of_pairs d (combine ks vs).
+
+  Lemma fun_of_lists_off d ks vs x :
+    ~ In x ks -> fun_of_lists d ks vs x = d.
+  Proof.
+    intros Hx. apply fun_of_pairs_off. intros Hin. apply Hx.
+    apply in_map_iff in Hin. destruct Hin as ([k v] & Heq & Hin). simpl in Heq. subst.
+    eauto using in_combine_l.
+  Qed.
+
+  Lemma map_fun_of_lists d ks vs :
+    NoDup ks -> length ks = length vs -> map (fun_of_lists d ks vs) ks = vs.
+  Proof.
+    intros Hnd Hlen. transitivity (map id vs); [| apply map_id]. apply Forall2_map_eq.
+    apply Forall_combine_Forall2 with (R := fun '(k, v) => fun_of_lists d ks vs k = id v); [| exact Hlen].
+    apply Forall_forall. intros [k v] Hin. apply fun_of_pairs_In; [| exact Hin].
+    rewrite map_fst_combine; assumption.
+  Qed.
+End fun_of_pairs.
+
 Lemma Forall2_map_r {A B C} R (f : B -> C) (l1 : list A) (l2 : list B) :
   Forall2 (fun x y => R x (f y)) l1 l2 <->
     Forall2 R l1 (map f l2).
