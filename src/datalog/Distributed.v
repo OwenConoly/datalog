@@ -13,6 +13,7 @@ Section Distributed.
   Context (graph_prog : prog_map).
   Context (Hmrv : Forall_map (fun _ p => program.meta_rules_valid p) graph_prog).
   Context (is_input : rel -> bool).
+  Context (Hp_good : Forall_map (fun _ p => Forall (fun R => is_input R = false) (program.concl_rels p)) graph_prog).
 
   #[local] Instance sender_label : sender_labelT := source.
 
@@ -43,6 +44,15 @@ Section Distributed.
     destruct (inb R (program.concl_rels p)); [|discriminate].
     destruct (inb R (program.concl_rels p')); [|discriminate].
     apply map.tuples_spec in Hin, Hin'. invert Hf. invert Hf'. congruence.
+  Qed.
+
+  Lemma node_sends_concl_rels k p R :
+    map.get graph_prog k = Some p -> In R (program.concl_rels p) -> In (node_source k) (R_senders R).
+  Proof.
+    intros Hget HR. cbv [R_senders].
+    pose proof (Hp_good _ _ Hget) as HF. rewrite Forall_forall in HF. rewrite HF by assumption.
+    apply in_filter_map. exists (k, p). split; [apply map.tuples_spec; assumption|].
+    simpl. destr (inb R (program.concl_rels p)); [reflexivity | contradiction].
   Qed.
 
   Abbreviation claim := (node.claim R_senders).
@@ -151,10 +161,11 @@ Section Distributed.
     list_sum (List.map (count_at pat ems) (map.keys partition)) = list_sum ems.
   Proof.
     intros Hlen Hsub.
-    rewrite (list_sum_map_over_subset (count_at pat ems) (R_senders pat.(fact_pattern.rel))
-               (map.keys partition));
-      [ f_equal; apply map_fun_of_lists; [ apply R_senders_NoDup | exact Hlen ] | apply R_senders_NoDup
-      | apply map.keys_NoDup | exact Hsub | intros k Hnin; apply fun_of_lists_off; exact Hnin ].
+    erewrite list_sum_map_over_subset; try eassumption.
+    - f_equal. apply map_fun_of_lists; [|eassumption]. apply R_senders_NoDup.
+    - apply R_senders_NoDup.
+    - apply map.keys_NoDup.
+    - intros. apply fun_of_lists_off. assumption.
   Qed.
 
   Lemma senders_in_keys pat ems (partition : node_map) :
@@ -294,14 +305,14 @@ Section Distributed.
       (forward : source -> destn -> message -> bool)
       (forward_rel : forall s d f g,
           message.rel f = message.rel g -> forward s d f = forward s d g) :
-    node.sends_concl_rels R_senders (node_source k) p ->
+    map.get graph_prog k = Some p ->
     outputs_well_formed (node.step R_senders p (node_source k))
       (good_node_output forward claim_output consistent_output allowed_output k) node.init.
   Proof.
-    intros Hconcl_send t s Hstar dest. set (name := node_source k) in *.
+    intros Hget t s Hstar dest. set (name := node_source k) in *.
     assert (Hsend : forall s0 f, node.can_deduce R_senders p name s0 f ->
                       In name (R_senders (message.rel f))).
-    { intros s0 f Hnf. apply node.can_deduce_concl_rel in Hnf. exact (Hconcl_send _ Hnf). }
+    { intros s0 f Hnf. apply node.can_deduce_concl_rel in Hnf. eapply node_sends_concl_rels; eassumption. }
     assert (Hso : s.(state.sent) = flat_map outputs_of t)
       by (eapply node.sent_eq_outputs; exact Hstar).
     assert (Hsrc : forall pat src num,
@@ -344,7 +355,7 @@ Section Distributed.
     cbv [node_good graph_node_init gns_node_state].
     erewrite prog_at_get by eassumption.
     ssplit; try eassumption.
-    apply node_outputs_well_formed; [ exact forward_rel_level | eapply Hsender; eauto ].
+    apply node_outputs_well_formed; [ exact forward_rel_level | eassumption ].
   Qed.
 
   Definition distributed_step := graph_step forward nstep.
