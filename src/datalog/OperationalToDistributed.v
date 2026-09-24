@@ -69,6 +69,14 @@ Section __.
   Definition normal_facts_wanted_by_rules os (rules : list rule) :=
     filter (fun f => inb (normal_fact.rel f) (flat_map rule.hyp_rels rules)) (flat_map message.normal_facts os.(op_state.known)).
 
+  Print Distributed.rel_forward.
+
+  Definition op_sources_of (src : source) : list op_source :=
+    match src with
+    | node_source n => map from_rule (get_or_default graph_prog n).(program.rules)
+    | input_source => [from_input]
+    end.
+
   Definition distribute_R (os : op_state) (gs : graph_state message action_label state) :=
     Forall2_map (fun n np ns =>
                    Permutation
@@ -80,8 +88,10 @@ Section __.
                      (forall fp num src,
                          In (message.done_with fp src num) ns.(gns_node_state).(state.known) <->
                            (In src (graph_senders (fact_pattern.rel fp)) /\
-                              (forall
-                     ) /\
+                              (forall r,
+                                  In r (prog_at src).(program.rules) ->
+                                  exists numr,
+                                    In (message.done_with fp (from_rule r) numr) os.(op_state.known)))) /\
                      (forall fp num,
                          In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent) <->
                            operational_done_with os np fp num) /\

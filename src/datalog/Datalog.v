@@ -8,7 +8,7 @@ From Datalog.Util Require Import Autodestr Autocbn Pftree.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
-From Datalog Require Import Map Tactics Fp List Eqb Decidable.
+From Datalog Require Import Map Tactics Fp List Eqb Decidable Default.
 From GraphSearch Require Import Dag.
 
 Import ListNotations.
@@ -1549,6 +1549,7 @@ Module program.
                                     normal_fact.args := args |}).
       cbv [fact_pattern.matches]. auto.
     Qed.
+
     (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
     (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
     (*   prog_impl_with_no_meta_rules (p1 ++ p2) Q f -> *)
@@ -1630,6 +1631,10 @@ Module program.
   End __.
   Abbreviation interp p := (pftree (interp_step p)).
 End program. Abbreviation program := program.program.
+
+#[export] Instance program_default `{relT} `{exprvarT} `{fnT} `{aggregatorT} : WithDefault program :=
+  {| program.rules := []; program.meta_rules := [] |}.
+
 Fixpoint expr_varmap {var1 var2 : exprvarT} {fn : fnT}
   (f : var1 -> var2) (e : @expr var1 fn) : @expr var2 fn :=
   match e with

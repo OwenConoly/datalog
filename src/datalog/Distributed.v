@@ -17,9 +17,6 @@ Section Distributed.
 
   #[local] Instance sender_label : sender_labelT := source.
 
-  #[local] Instance program_default : WithDefault program :=
-    {| program.rules := []; program.meta_rules := [] |}.
-
   Ltac map_func := cbv [sender_label] in *; Datalog.Util.Tactics.map_func.
 
   Definition prog_at (n : node_id) : program := get_or_default graph_prog n.
