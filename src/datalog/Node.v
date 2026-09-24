@@ -134,9 +134,6 @@ Section __.
       meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
         Forall (knows_meta_fact known) mhyps.
 
-  Definition sends_concl_rels (nm : sender_label) (p : program) :=
-    forall R, In R (program.concl_rels p) -> In nm (R_senders R).
-
   Context (p : program) (name : sender_label).
 
   Definition counted (sent : list message) (nf : normal_fact) :=

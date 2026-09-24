@@ -48,8 +48,6 @@ Section Distributed.
     destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
   Qed.
 
-  Context (Hsender : Forall_map (fun n p => node.sends_concl_rels R_senders (node_source n) p) graph_prog).
-
   Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
   Proof. apply get_or_default_Some. Qed.
 
