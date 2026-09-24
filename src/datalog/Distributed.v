@@ -4,10 +4,18 @@ From Datalog Require Import Datalog Node Graph Smallstep List Map Default Eqb Ta
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Eqb Decidable.
 Import ListNotations.
 Import node.
+From Datalog Require Import Monadish.
+Open Scope option_monad_scope.
+
 
 Section Distributed.
   Context `{params : datalog_params}.
+  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {prog_map : map.map node_id program} {prog_map_ok : map.ok prog_map}.
+
+  Context (graph_prog : prog_map).
+  Context (Hmrv : Forall_map (fun _ p => program.meta_rules_valid p) graph_prog).
+  Context (is_input : rel -> bool).
 
   #[local] Instance sender_label : sender_labelT := source.
 
@@ -16,13 +24,30 @@ Section Distributed.
 
   Ltac map_func := cbv [sender_label] in *; Datalog.Util.Tactics.map_func.
 
-  Context (R_senders : rel -> list source).
-  Context (R_senders_NoDup : forall R, NoDup (R_senders R)).
+  Definition disjointb {T} `{Eqb T} (l1 l2 : list T) :=
+    forallb (fun x1 => forallb (fun x2 => negb (eqb x1 x2)) l2).
 
-  Abbreviation claim := (node.claim R_senders).
-  Abbreviation consistent := (node.consistent R_senders).
+  Definition rel_forward (s : source) (d : destn) (R : rel) : bool :=
+    match d with
+    | output_destn => true (*TODO: don't output everything*)
+    | node_destn nd =>
+        match s with
+        | input_source => is_input R
+        | node_source ns =>
+            '(Some ps) <- map.get graph_prog ns;;
+            '(Some pd) <- map.get graph_prog nd;;
+            inb R (program.concl_rels ps) && inb R (program.hyp_rels pd)
+        end
+    end.
 
-  Context (rel_forward : source -> destn -> rel -> bool).
+  Definition distr_senders (R : rel) : list source :=
+    if is_input R then [input_source] else
+      filter_map
+        (fun '(n, p) => if inb R (program.concl_rels p) then Some (node_source n) else None)
+        (map.tuples graph_prog).
+
+  Abbreviation claim := (node.claim distr_senders).
+  Abbreviation consistent := (node.consistent distr_senders).
 
   Definition forward (s : source) (d : destn) (f : message) := rel_forward s d (message.rel f).
 
@@ -34,28 +59,26 @@ Section Distributed.
     destruct a, b; simpl in Heq; fwd; congruence || reflexivity.
   Qed.
 
-  Context (graph_prog : prog_map).
-  Context (Hmrv : Forall_map (fun _ p => program.meta_rules_valid p) graph_prog).
-  Context (Hsender : Forall_map (fun n p => node.sends_concl_rels R_senders (node_source n) p) graph_prog).
+  Context (Hsender : Forall_map (fun n p => node.sends_concl_rels distr_senders (node_source n) p) graph_prog).
 
   Definition prog_at (n : node_id) : program := get_or_default graph_prog n.
 
   Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
   Proof. apply get_or_default_Some. Qed.
 
-  Local Abbreviation nstep := (fun n => node.step R_senders (prog_at n) (node_source n)).
-  Local Abbreviation nallowed := (node.allowed_inputs R_senders).
+  Local Abbreviation nstep := (fun n => node.step distr_senders (prog_at n) (node_source n)).
+  Local Abbreviation nallowed := (node.allowed_inputs distr_senders).
 
   Hint Immediate message.equiv_Equivalence : core.
 
   Hint Resolve node.expects_num_facts_incl Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
 
   Definition claim_output (pat : fact_pattern) (n : source) (fs : list message) : Prop :=
-    In n (R_senders pat.(fact_pattern.rel)) ->
+    In n (distr_senders pat.(fact_pattern.rel)) ->
     exists cnt, In (message.done_with pat n cnt) fs.
 
   Definition consistent_output (pat : fact_pattern) (n : source) (fs : list message) : Prop :=
-    In n (R_senders pat.(fact_pattern.rel)) ->
+    In n (distr_senders pat.(fact_pattern.rel)) ->
     exists cnt, In (message.done_with pat n cnt) fs /\
       Existsn_ge (message.matches pat) cnt fs.
 
@@ -63,7 +86,7 @@ Section Distributed.
     (forall pat src cnt,
        In (message.done_with pat src cnt) fs ->
        n = src /\ Existsn_le (message.matches pat) cnt fs) /\
-    (forall f, In f fs -> In n (R_senders (message.rel f))).
+    (forall f, In f fs -> In n (distr_senders (message.rel f))).
 
   Lemma claim_output_mono pat n ms1 ms2 :
     claim_output pat n ms1 -> incl_mod message.equiv ms1 ms2 -> claim_output pat n ms2.
@@ -104,7 +127,7 @@ Section Distributed.
 
   Lemma no_R_matches_off_senders pat (partition : node_map) n ms :
     Forall_map allowed_output partition ->
-    map.get partition n = Some ms -> ~ In n (R_senders pat.(fact_pattern.rel)) ->
+    map.get partition n = Some ms -> ~ In n (distr_senders pat.(fact_pattern.rel)) ->
     Forall (fun f => ~ message.matches pat f) ms.
   Proof.
     intros HF Hget Hnin. apply Forall_forall. intros f Hf Hmatch. apply Hnin.
@@ -127,7 +150,7 @@ Section Distributed.
 
   (* the claim's per-sender expected counts, as a real map (absent senders count 0) *)
   Definition claim_counts (pat : fact_pattern) (ems : list nat) : count_map :=
-    map.of_list (combine (R_senders pat.(fact_pattern.rel)) ems).
+    map.of_list (combine (distr_senders pat.(fact_pattern.rel)) ems).
 
   Definition count_at (pat : fact_pattern) (ems : list nat) (k : source) : nat :=
     get_or_default (claim_counts pat ems) k.

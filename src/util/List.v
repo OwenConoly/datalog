@@ -788,6 +788,16 @@ Proof.
   repeat (destruct_one_match; try congruence).
 Qed.
 
+Fixpoint filter_map {A B} (f : A -> option B) (l : list A) : list B :=
+  match l with
+  | [] => []
+  | x :: l =>
+      match f x with
+      | Some y => y :: filter_map f l
+      | None => filter_map f l
+      end
+  end.
+
 Definition partial_injective {A B} (f : A -> option B) : Prop :=
   forall x y v, f x = Some v -> f y = Some v -> x = y.
 

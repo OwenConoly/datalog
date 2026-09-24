@@ -6,6 +6,8 @@ From coqutil Require Import Semantics.OmniSmallstepCombinators.
 Import ListNotations.
 Import node.
 
+From Datalog Require Import Monadish.
+Open Scope option_monad_scope.
 Open Scope bool_scope.
 
 Section __.
@@ -25,9 +27,9 @@ Section __.
   Context {gns_map : map.map node_id (graph_node_state message action_label state)}
     {gns_map_ok : map.ok gns_map}.
 
-  Context (rel_forward : source -> destn -> rel -> bool).
   Context (graph_prog : prog_map).
-  Context (graph_senders : rel -> list source).
+
+  Definition graph_senders (R : rel) : list source :=
 
   Local Abbreviation R_senders := (Operational.R_senders is_input p).
   Local Abbreviation can_deduce := (can_deduce R_senders).
