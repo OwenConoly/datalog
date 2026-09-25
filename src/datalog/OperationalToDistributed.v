@@ -363,8 +363,7 @@ Section __.
     distribute_R os gs ->
     comp_step os os' ->
     exists gs' t,
-      star distributed_step gs t gs' /\
-        distribute_R os' gs'.
+      star distributed_step gs t gs' /\ distribute_R os' gs'.
   Proof.
     intros Hos1 Hos2 H. invert 1. rename H1 into Hp, H2 into Hr.
     cbv [fire_at_rule can_deduce] in Hr. simpl in Hr. destruct new_fact; fwd.
@@ -374,6 +373,7 @@ Section __.
       apply In_values in Hpp0. fwd.
       cbv [distribute_R] in H.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
+      edestruct eat_forwarded_msgs as [t Ht].
       do 2 eexists. split.
       + eapply star_app.
         -- apply star_one. apply gstep_run.
@@ -389,7 +389,10 @@ Section __.
                   rewrite Forall_forall in H'. apply H'.
                   simpl. apply in_map. erewrite get_or_default_Some by eassumption.
                   assumption.
-        --
+        -- apply Ht.
+      + clear Ht. cbv [distribute_R].
+        cbv [directly_send_to]. simpl. Search Forall2_map map_values'.
+        apply Forall2_map_map_values'_r.
             Print forward_to.
            Definition
            Print distribute
