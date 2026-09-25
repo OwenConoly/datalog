@@ -39,20 +39,18 @@ Module message.
       | done_with _ _ _ => false
       end.
 
-    Definition normal_facts (f : message) : list normal_fact :=
+    Definition as_normal (f : message) : option normal_fact :=
       match f with
-      | normal nf => [nf]
-      | done_with _ _ _ => []
+      | normal nf => Some nf
+      | done_with _ _ _ => None
       end.
 
-    Lemma in_flat_map_normal_facts nf l :
-      In nf (flat_map normal_facts l) <-> In (normal nf) l.
+    Lemma in_filter_map_as_normal nf l :
+      In nf (filter_map as_normal l) <-> In (normal nf) l.
     Proof.
-      rewrite in_flat_map. split.
-      - intros ([nf' | ] & Hin & Hnf); simpl in Hnf.
-        + destruct Hnf as [-> | []]. exact Hin.
-        + destruct Hnf.
-      - intros Hin. eexists. split; [exact Hin|]. simpl. auto.
+      rewrite in_filter_map. split.
+      - intros ([nf' | ] & Hin & Hnf); simpl in Hnf; congruence.
+      - intros Hin. eexists. split; [exact Hin|]. reflexivity.
     Qed.
 
     Definition rel (f : message) : rel :=

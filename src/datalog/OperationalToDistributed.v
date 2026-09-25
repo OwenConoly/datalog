@@ -57,16 +57,16 @@ Section __.
 
   (*operational state os is consistent with node-program np being done with fp after having sent n messages*)
   Definition normal_facts_sent_by_rules os rules :=
-    flat_map message.normal_facts (flat_map (get_or_default os.(op_state.sents)) rules).
+    filter_map message.as_normal (flat_map (get_or_default os.(op_state.sents)) rules).
 
   Definition normal_facts_sent_by_node (ns : graph_node_state message action_label state) :=
-    flat_map message.normal_facts ns.(gns_node_state).(state.sent).
+    filter_map message.as_normal ns.(gns_node_state).(state.sent).
 
   Definition normal_facts_known_by_node (ns : graph_node_state message action_label state) :=
-    flat_map message.normal_facts ns.(gns_node_state).(state.known).
+    filter_map message.as_normal ns.(gns_node_state).(state.known).
 
   Definition normal_facts_wanted_by_rules os (rules : list rule) :=
-    filter (fun f => inb (normal_fact.rel f) (flat_map rule.hyp_rels rules)) (flat_map message.normal_facts os.(op_state.known)).
+    filter (fun f => inb (normal_fact.rel f) (flat_map rule.hyp_rels rules)) (filter_map message.as_normal os.(op_state.known)).
 
   Definition op_sources_of (src : source) : list op_source :=
     match src with
@@ -204,9 +204,9 @@ Section __.
     intros HR Hperm. cbv [knows_normal_fact].
     transitivity (In nf (normal_facts_wanted_by_rules os rules)).
     - cbv [normal_facts_wanted_by_rules].
-      rewrite filter_In, message.in_flat_map_normal_facts.
+      rewrite filter_In, message.in_filter_map_as_normal.
       split; intros; fwd; eauto. split; auto. apply inb_true_iff. auto.
-    - rewrite Hperm. cbv [normal_facts_known_by_node]. apply message.in_flat_map_normal_facts.
+    - rewrite Hperm. cbv [normal_facts_known_by_node]. apply message.in_filter_map_as_normal.
   Qed.
 
   Lemma op_existsn_iff pat rules ns os n :
@@ -231,10 +231,10 @@ Section __.
     - cbv [knows_normal_fact] in H |- *. simpl in Hf.
       apply Permutation_incl in Hperm.
       cbv [normal_facts_wanted_by_rules incl] in Hperm. especialize Hperm.
-      { rewrite filter_In. rewrite message.in_flat_map_normal_facts.
+      { rewrite filter_In. rewrite message.in_filter_map_as_normal.
         split; [eassumption|]. apply inb_true_iff. apply in_flat_map. eauto. }
       cbv [normal_facts_known_by_node] in Hperm.
-      rewrite message.in_flat_map_normal_facts in Hperm. assumption.
+      rewrite message.in_filter_map_as_normal in Hperm. assumption.
     - cbv [knows_meta_fact] in H |- *. fwd.
 
       cbv [expects_num_facts] in Hp0 |- *. fwd.

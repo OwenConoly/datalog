@@ -41,24 +41,23 @@ Section __.
 
   Context {sent_map : map.map rule (list message)} {sent_map_ok : map.ok sent_map}.
 
-  Definition normal_args_with (R : rel) (m : message) : list (list value) :=
+  Definition normal_args_with (R : rel) (m : message) : option (list value) :=
     match m with
     | message.normal nf =>
-        if eqb R nf.(normal_fact.rel) then [nf.(normal_fact.args)] else []
-    | message.done_with _ _ _ => []
+        if eqb R nf.(normal_fact.rel) then Some nf.(normal_fact.args) else None
+    | message.done_with _ _ _ => None
     end.
 
   Lemma In_normal_args_with R ms args :
-    In args (flat_map (normal_args_with R) ms) <->
+    In args (filter_map (normal_args_with R) ms) <->
     In (message.normal {| normal_fact.rel := R; normal_fact.args := args |}) ms.
   Proof.
-    rewrite in_flat_map. split.
-    - intros ([nf | ] & Hin & Hargs); [|destruct Hargs].
+    rewrite in_filter_map. split.
+    - intros ([nf | ] & Hin & Hargs); [|discriminate].
       destruct nf as [nrel nargs]. cbv [normal_args_with] in Hargs. simpl in Hargs.
-      destr (eqb R nrel); [|destruct Hargs].
-      destruct Hargs as [-> | []]. subst. exact Hin.
+      destr (eqb R nrel); [|discriminate]. invert Hargs. assumption.
     - intros Hin. eexists. split; [eassumption|]. cbv [normal_args_with].
-      rewrite eqb_refl_true; simpl; auto.
+      rewrite eqb_refl_true by assumption. reflexivity.
   Qed.
 
   Context (is_input : rel -> bool).
@@ -1236,7 +1235,7 @@ Section __.
     destruct f as [nf | mf]; [exact I|].
     cbv [mf_consistent_state meta_fact.consistent_with]. intros nf0 Hmatch.
     pose (mf0 := meta_fact.mk mf.(meta_fact.pattern)
-                   (flat_map (normal_args_with mf.(meta_fact.pattern).(fact_pattern.rel))
+                   (filter_map (normal_args_with mf.(meta_fact.pattern).(fact_pattern.rel))
                       s.(op_state.known))).
     assert (Hc0 : mf_consistent_state s (fact.meta mf0)).
     { intros nf Hm. pose proof Hm as (Hrel & Hargs). subst mf0.

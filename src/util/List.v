@@ -1578,23 +1578,24 @@ Section Existsn.
   Qed.
 End Existsn.
 
-(*TODO: state this over filter_map instead of a flat_map with blocks of length <= 1*)
-Lemma Existsn_flat_map_le1 {A B} (P : B -> Prop) (Q : A -> Prop) (f : A -> list B) n l :
-  (forall x, Q x <-> Exists P (f x)) ->
-  (forall x, length (f x) <= 1) ->
-  Existsn Q n l <-> Existsn P n (flat_map f l).
+Lemma Existsn_filter_map {A B} (P : B -> Prop) (Q : A -> Prop) (g : A -> option B) n l :
+  (forall x, Q x <-> exists y, g x = Some y /\ P y) ->
+  Existsn Q n l <-> Existsn P n (filter_map g l).
 Proof.
-  intros HQ Hlen. revert n. induction l as [| x l IH]; intros n; simpl.
+  intros HQ. revert n. induction l as [| x l IH]; intros n; simpl.
   - split; intros H; invert H; constructor.
-  - specialize (HQ x). specialize (Hlen x). destruct (f x) as [| y [| y' l']]; simpl in *; [| | lia].
-    + rewrite Exists_nil in HQ. split; intros H.
+  - specialize (HQ x). destruct (g x) as [y |].
+    + assert (HQy : Q x <-> P y).
+      { rewrite HQ. split; [intros (? & [= ->] & ?); assumption | eauto]. }
+      split; intros H; invert H.
+      * apply Existsn_no; [tauto | apply IH; assumption].
+      * apply Existsn_yes; [tauto | apply IH; assumption].
+      * apply Existsn_no; [tauto | apply IH; assumption].
+      * apply Existsn_yes; [tauto | apply IH; assumption].
+    + assert (HnQ : ~ Q x) by (rewrite HQ; intros (? & [=] & _)).
+      split; intros H.
       * invert H; [apply IH; assumption | tauto].
-      * apply Existsn_no; [tauto | apply IH; assumption].
-    + rewrite Exists_cons, Exists_nil in HQ. split; intros H; invert H.
-      * apply Existsn_no; [tauto | apply IH; assumption].
-      * apply Existsn_yes; [tauto | apply IH; assumption].
-      * apply Existsn_no; [tauto | apply IH; assumption].
-      * apply Existsn_yes; [tauto | apply IH; assumption].
+      * apply Existsn_no; [assumption | apply IH; assumption].
 Qed.
 Hint Constructors Existsn : core.
 

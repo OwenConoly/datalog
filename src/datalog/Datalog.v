@@ -687,37 +687,37 @@ Module fact.
       | normal _ => False
       end.
 
-    Definition normal_facts (f : fact) : list normal_fact :=
+    Definition as_normal (f : fact) : option normal_fact :=
       match f with
-      | normal nf => [nf]
-      | meta _ => []
+      | normal nf => Some nf
+      | meta _ => None
       end.
 
-    Lemma in_normal_facts nf f :
-      In nf (normal_facts f) <-> f = normal nf.
+    Lemma as_normal_Some nf f :
+      as_normal f = Some nf <-> f = normal nf.
     Proof. destruct f; simpl; intuition congruence. Qed.
 
-    Lemma in_flat_map_normal_facts nf fs :
-      In nf (flat_map normal_facts fs) <-> In (normal nf) fs.
+    Lemma in_filter_map_as_normal nf fs :
+      In nf (filter_map as_normal fs) <-> In (normal nf) fs.
     Proof.
-      rewrite in_flat_map. setoid_rewrite in_normal_facts.
+      rewrite in_filter_map. setoid_rewrite as_normal_Some.
       split; [intros (? & ? & ->) | intros]; eauto.
     Qed.
 
-    Definition meta_facts (f : fact) : list meta_fact :=
+    Definition as_meta (f : fact) : option meta_fact :=
       match f with
-      | normal _ => []
-      | meta mf => [mf]
+      | normal _ => None
+      | meta mf => Some mf
       end.
 
-    Lemma in_meta_facts mf f :
-      In mf (meta_facts f) <-> f = meta mf.
+    Lemma as_meta_Some mf f :
+      as_meta f = Some mf <-> f = meta mf.
     Proof. destruct f; simpl; intuition congruence. Qed.
 
-    Lemma in_flat_map_meta_facts mf fs :
-      In mf (flat_map meta_facts fs) <-> In (meta mf) fs.
+    Lemma in_filter_map_as_meta mf fs :
+      In mf (filter_map as_meta fs) <-> In (meta mf) fs.
     Proof.
-      rewrite in_flat_map. setoid_rewrite in_meta_facts.
+      rewrite in_filter_map. setoid_rewrite as_meta_Some.
       split; [intros (? & ? & ->) | intros]; eauto.
     Qed.
 
