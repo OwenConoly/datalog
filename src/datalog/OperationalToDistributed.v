@@ -195,14 +195,18 @@ Section __.
       apply in_map. erewrite get_or_default_Some by eassumption. assumption.
   Qed.
 
-  Lemma op_knows_normal_fact_iff R nf rules ns os :
-    In R (flat_map rule.hyp_rels rules) ->
+  Lemma op_knows_normal_fact_iff nf rules ns os :
+    In nf.(normal_fact.rel) (flat_map rule.hyp_rels rules) ->
     Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
     knows_normal_fact (op_state.known os) nf <->
       knows_normal_fact (state.known (gns_node_state ns)) nf.
   Proof.
     intros HR Hperm. cbv [knows_normal_fact].
-
+    transitivity (In nf (normal_facts_wanted_by_rules os rules)).
+    - cbv [normal_facts_wanted_by_rules]. rewrite filter_In, message.in_flat_map_normal_facts.
+      split; [intros H; split; [exact H | apply inb_true_iff; exact HR] | tauto].
+    - rewrite Hperm. cbv [normal_facts_known_by_node]. apply message.in_flat_map_normal_facts.
+  Qed.
 
   Lemma sth' r rules os ns f :
     In r rules ->
