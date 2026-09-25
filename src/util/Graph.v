@@ -265,6 +265,13 @@ Definition consistent_good :=
          graph_output_queue :=
            filter (keep output_destn) msgs ++ gs.(graph_output_queue) |}.
 
+    Variant receive_step (n : node_id) : graph_node_state -> message -> graph_node_state -> Prop :=
+    | receive_step_intro ns ns' m ms1 ms2 :
+      node_step n ns.(gns_node_state) (I_event m) ns' ->
+      ns.(gns_queue) = ms1 ++ m :: ms2 ->
+      receive_step n ns m
+        {| gns_node_state := ns'; gns_trace := I_event m :: ns.(gns_trace); gns_queue := ms1 ++ ms2 |}.
+
     Inductive graph_step : graph_state -> gevent -> graph_state -> Prop :=
     | gstep_input gs m :
       graph_step gs (I_event m) (forward_to (forward input_source) [m] gs)
@@ -279,22 +286,73 @@ Definition consistent_good :=
                           gns_trace := O_event lbl outs :: ns.(gns_trace);
                           gns_queue := ns.(gns_queue) |};
               graph_output_queue := gs.(graph_output_queue) |})
-    | gstep_receive gs n ns ns' m ms1 ms2 :
+    | gstep_receive gs n ns m ns' :
       map.get gs.(graph_nodes) n = Some ns ->
-      node_step n ns.(gns_node_state) (I_event m) ns' ->
-      ns.(gns_queue) = ms1 ++ m :: ms2 ->
+      receive_step n ns m ns' ->
       graph_step gs (O_event (receive n m) [])
         {| graph_output_queue := gs.(graph_output_queue);
-           graph_nodes :=
-             map.put gs.(graph_nodes) n
-                     {| gns_node_state := ns';
-                       gns_trace := I_event m :: ns.(gns_trace);
-                       gns_queue := ms1 ++ ms2 |} |}
+           graph_nodes := map.put gs.(graph_nodes) n ns' |}
     | gstep_output gs q1 m q2 :
       gs.(graph_output_queue) = q1 ++ m :: q2 ->
       graph_step gs (O_event (emit m) [m])
         {| graph_nodes := gs.(graph_nodes);
           graph_output_queue := q1 ++ q2 |}.
+
+    Lemma star_receive_step nodes oq n ns ms ns' :
+      map.get nodes n = Some ns ->
+      star (receive_step n) ns ms ns' ->
+      star graph_step {| graph_nodes := nodes; graph_output_queue := oq |}
+        (map (fun m => O_event (receive n m) []) ms)
+        {| graph_nodes := map.put nodes n ns'; graph_output_queue := oq |}.
+    Proof.
+      intros Hget Hstar. revert nodes Hget. induction Hstar; intros nodes Hget.
+      - rewrite map.put_noop by assumption. apply star_refl.
+      - simpl. eapply star_step; [apply IHHstar; assumption |].
+        rewrite <- (map.put_put_same n s' s''). eapply gstep_receive; [apply map.get_put_same | assumption].
+    Qed.
+
+    Lemma star_per_node_gen (b : graph_state) todo :
+      forall a,
+        a.(graph_output_queue) = b.(graph_output_queue) ->
+        (forall n, ~ In n todo -> map.get a.(graph_nodes) n = map.get b.(graph_nodes) n) ->
+        (forall n, In n todo ->
+           exists na nb ms, map.get a.(graph_nodes) n = Some na /\ map.get b.(graph_nodes) n = Some nb /\
+             star (receive_step n) na ms nb) ->
+        exists t, star graph_step a t b.
+    Proof.
+      induction todo as [| k todo IH]; intros a Hoq Hout Hin.
+      - exists []. replace a with b; [apply star_refl|].
+        destruct a, b. simpl in *. f_equal; [| congruence].
+        apply map.map_ext. intros k. specialize (Hout k ltac:(intros [])). congruence.
+      - destruct a as [nodes oq]. simpl in *.
+        destruct (Hin k (in_eq _ _)) as (na & nb & ms & Ha & Hb & Hstar).
+        edestruct (IH {| graph_nodes := map.put nodes k nb; graph_output_queue := oq |}) as (t & Hrest); simpl.
+        + assumption.
+        + intros n Hn. destr (eqb n k).
+          * rewrite map.get_put_same. congruence.
+          * rewrite map.get_put_diff by congruence. apply Hout. intros [-> | ?]; auto.
+        + intros n Hn. destr (eqb n k).
+          * exists nb, nb, []. rewrite map.get_put_same. auto using star_refl.
+          * rewrite map.get_put_diff by congruence. apply Hin. right. assumption.
+        + eexists. eapply star_app; [eapply star_receive_step; eassumption | exact Hrest].
+    Qed.
+
+    Lemma star_per_node a b :
+      a.(graph_output_queue) = b.(graph_output_queue) ->
+      Forall2_map (fun n na nb => exists ms, star (receive_step n) na ms nb) a.(graph_nodes) b.(graph_nodes) ->
+      exists t, star graph_step a t b.
+    Proof.
+      intros Hoq HF. apply (star_per_node_gen b (map.keys a.(graph_nodes))); [assumption | |].
+      - intros n Hn. specialize (HF n). destruct (map.get a.(graph_nodes) n) eqn:E.
+        + exfalso. apply Hn. eapply map.in_keys. exact E.
+        + destruct (map.get b.(graph_nodes) n); [contradiction | reflexivity].
+      - intros n Hn. apply map.in_keys_inv in Hn. specialize (HF n).
+        destruct (map.get a.(graph_nodes) n) as [na |]; [| contradiction].
+        destruct (map.get b.(graph_nodes) n) as [nb |]; [| contradiction]. fwd. eauto 6.
+    Qed.
+
+    Ltac invert_receive :=
+      match goal with H : receive_step _ _ _ _ |- _ => invert H end.
 
     Context {msg_map : map.map node_id (list message)}.
     Context {msg_map_ok : map.ok msg_map}.
@@ -376,7 +434,7 @@ Definition consistent_good :=
     Proof.
       induction 1 as [ | gt2 smid e gs' Hstar IH Hstep].
       - apply Forall2_map_dup. intros n gns _. exists []. ssplit; eauto.
-      - invert Hstep; cbn [forward_to graph_nodes graph_output_queue].
+      - invert Hstep; try invert_receive; cbn [forward_to graph_nodes graph_output_queue].
         + apply Forall2_map_map_values'_r. eapply Forall2_map_impl; [ exact IH | ].
           intros k v1 v2 Hr. cbn [enqueue gns_trace gns_node_state]. exact Hr.
         + apply Forall2_map_map_values'_r. simpl.
@@ -521,7 +579,7 @@ Definition consistent_good :=
       induction 1 as [ | gt0 gmid e gs Hstar IH Hstep ].
       - cbn [flat_map]. rewrite initial_output_queue_empty.
         rewrite output_map_initial by (intros; reflexivity). reflexivity.
-      - invert Hstep; cbn [forward_to graph_nodes graph_output_queue outputs_of inputs_of flat_map].
+      - invert Hstep; try invert_receive; cbn [forward_to graph_nodes graph_output_queue outputs_of inputs_of flat_map].
         + rewrite app_nil_l, output_map_map_values'_trace by reflexivity.
           rewrite (filter_app _ [m]).
           eapply perm_trans; [ apply Permutation_app_swap_app | ].
@@ -597,7 +655,7 @@ Definition consistent_good :=
       forall ext, conserved gs ext -> conserved gs' (ext ++ inputs_of e).
     Proof.
       intros Hstep ext IH. cbv [conserved] in IH |- *. intros nn nsn Hg'.
-      invert Hstep; cbn [forward_to graph_nodes graph_output_queue] in Hg' |- *.
+      invert Hstep; try invert_receive; cbn [forward_to graph_nodes graph_output_queue] in Hg' |- *.
       - rewrite get_map_values' in Hg'. apply option_map_Some in Hg'. fwd.
         cbn [inputs_of]. rewrite matching_inps_app.
         rewrite fwd_total_map_values'_trace by reflexivity.
@@ -624,7 +682,7 @@ Definition consistent_good :=
               unfold fwd_total;
               erewrite output_map_put_output_eq by (eassumption || reflexivity); reflexivity ].
         destr_sth Nat.eqb; eauto.
-        fwd. simpl. specialize (IH _ _ ltac:(eassumption)). rewrite H1 in IH.
+        fwd. simpl. specialize (IH _ _ ltac:(eassumption)). rewrite H2 in IH.
         eauto with perm.
       - cbn [inputs_of]. rewrite app_nil_r. exact (IH nn nsn Hg').
     Qed.
@@ -897,7 +955,7 @@ Definition consistent_good :=
         (fwd_partition dest gs1.(graph_nodes)) (fwd_partition dest gs2'.(graph_nodes)).
     Proof.
       intros Hstar1 Hstar2 Hstep Hga Hnci Hfwd.
-      invert Hstep; cbn [forward_to graph_nodes graph_output_queue].
+      invert Hstep; try invert_receive; cbn [forward_to graph_nodes graph_output_queue].
       - match goal with |- Forall2_map _ _ (fwd_partition _ ?g) =>
           assert (Heq : fwd_partition dest g = fwd_partition dest gs2.(graph_nodes)) end.
         { unfold fwd_partition. rewrite outputs_partition_map_values' by reflexivity.
@@ -1241,7 +1299,7 @@ Definition consistent_good :=
         submultiset (flat_map inputs_of ns1.(gns_trace) ++ ns1.(gns_queue))
                     (flat_map inputs_of ns2.(gns_trace) ++ ns2.(gns_queue))) g.(graph_nodes) g'.(graph_nodes).
     Proof.
-      intros Hstep. invert Hstep; cbn [forward_to graph_nodes graph_output_queue].
+      intros Hstep. invert Hstep; try invert_receive; cbn [forward_to graph_nodes graph_output_queue].
       - apply Forall2_map_map_values'_r. apply Forall2_map_dup. intros k v Hv.
         cbn [enqueue gns_trace gns_queue]. split.
         + apply submultiset_refl.
@@ -1261,7 +1319,7 @@ Definition consistent_good :=
           cbn [flat_map inputs_of app].
           split.
           * apply submultiset_cons.
-          * rewrite H1. eauto with submultiset perm.
+          * rewrite H2. eauto with submultiset perm.
       - apply Forall2_map_refl. intros. split; apply submultiset_refl.
     Qed.
 
@@ -1307,7 +1365,7 @@ Definition consistent_good :=
         + apply in_split in Hin_d. destruct Hin_d as (ms1 & ms2 & Hq).
           destruct (nodes_input_total n (gns_node_state nd) a) as (nd' & Hns).
           right. eexists _, []. split.
-          { eapply gstep_receive; [ exact Hget_d | exact Hns | exact Hq ]. }
+          { eapply gstep_receive; [ exact Hget_d | eapply receive_step_intro; [ exact Hns | exact Hq ] ]. }
           set (ndr := {| gns_node_state := nd'; gns_trace := I_event a :: gns_trace nd;
                          gns_queue := ms1 ++ ms2 |}).
           assert (Hget_r : map.get (map.put gs_d.(graph_nodes) n ndr) n = Some ndr)
@@ -1416,7 +1474,7 @@ Definition consistent_good :=
       epose proof (graph_step_to_node_step_from_beginning gs1 t1) as Hns1'.
       epose proof (graph_step_to_node_step_from_beginning gs2 t2) as Hns2'.
       especialize Hns1'; eauto. especialize Hns2'; eauto.
-      invert Hstep.
+      invert Hstep; try invert_receive.
       - especialize Hle'; eauto. fwd. map_func.
         eapply Forall2_map_get_r in Hns1'; eauto. fwd.
         eapply Forall2_map_get_l in Hns2'; eauto. fwd.
@@ -1585,7 +1643,7 @@ Definition consistent_good :=
       graph_step g e g' ->
       submultiset g.(graph_output_queue) (outputs_of e ++ g'.(graph_output_queue)).
     Proof.
-      intros Hstep. invert Hstep; cbn [forward_to graph_output_queue outputs_of app].
+      intros Hstep. invert Hstep; try invert_receive; cbn [forward_to graph_output_queue outputs_of app].
       - apply submultiset_app_l.
       - apply submultiset_app_l.
       - apply submultiset_refl.
