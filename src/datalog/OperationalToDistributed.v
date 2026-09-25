@@ -217,7 +217,14 @@ Section __.
   Proof.
     intros HR H Hperm. cbv [normal_facts_wanted_by_rules] in Hperm.
     cbv [normal_facts_known_by_node] in Hperm. Search Existsn filter_map.
-    eapply Existsn_filter_map. 2: rewrite <- Hperm.
+    eapply Existsn_filter_map with (P := fact_pattern.matches pat). 2: rewrite <- Hperm.
+    { intros x. destruct x; simpl; intros; split; intros; fwd; (eauto || contradiction || discriminate). }
+    apply Existsn_filter.
+    { intros nf Hnf. apply inb_true_iff. cbv [fact_pattern.matches] in Hnf.
+      fwd. rewrite <- Hnfp0. assumption. }
+    rewrite <- Existsn_filter_map; [eassumption|].
+    { intros x. destruct x; simpl; intros; split; intros; fwd; (eauto || contradiction || discriminate). }
+  Qed.
 
   Lemma sth' r rules os ns f :
     In r rules ->
@@ -263,40 +270,13 @@ Section __.
         rewrite list_sum_app in Hp1. rewrite H in Hp1. rewrite <- plus_n_O in Hp1.
 
         move Hperm at bottom.
-
-
-        Search
-        admit.
+        eapply op_existsn_iff; try eassumption.
+        apply in_flat_map. eauto.
       + move Hp2 at bottom. eapply meta_fact.consistent_with_ext; [eassumption|].
         intros nf Hnf. move Hperm at bottom.
         eapply op_knows_normal_fact_iff; try eassumption. rewrite Hnf.
         apply in_flat_map. eauto.
   Qed.
-
-        Print normal_facts_wanted_by_rules.
-        Search meta_fact.consistent_with.
-
-          Print op_sources_of.
-          Search graph_senders
-
-            cbv [graph_senders op_sources_of] in Hp3.
-          simpl in Hp3. apply sth'' in Hp5.
-          simp
-          Print graph_senders. Print Distributed.R_senders.
-
-
-
-
-
-        Print Distributed.R_senders. graph_senders.
-        Print op_source.
-        (forall pat n num,
-            In (message.done_with pat n num) (op_state.known os) ->
-            ~In n (graph_senders (fact_pattern.rel pat))
-        In (message.done_with (meta_fact.pattern mf) n expected_msgs)
-        forall
-         Print Operational.R_senders.
-  Admitted.
 
   Lemma sth r rules os ns nf :
     In r rules ->
@@ -309,7 +289,7 @@ Section __.
     apply rule.interp_hyp_relname_in in Hp0.
     eapply Forall_impl.
     { apply Forall_and; [exact Hp0|exact Hp1]. }
-    simpl. intros. fwd. eapply sth'; eassumption.
+    simpl. intros. fwd. eapply sth'; try eassumption.
   Qed.
 
   Lemma sim1 os gs os' :

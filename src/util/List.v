@@ -1578,6 +1578,10 @@ Section Existsn.
   Qed.
 End Existsn.
 
+#[export] Instance Existsn_Permutation_Proper T (P : T -> Prop) n :
+  Proper (Permutation (A:=T) ==> iff) (Existsn P n).
+Proof. intros l1 l2 Hperm. split; intros H; eapply Existsn_perm; eauto using Permutation_sym. Qed.
+
 Lemma Existsn_filter_map {A B} (P : B -> Prop) (Q : A -> Prop) (g : A -> option B) n l :
   (forall x, Q x <-> exists y, g x = Some y /\ P y) ->
   Existsn Q n l <-> Existsn P n (filter_map g l).
