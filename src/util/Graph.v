@@ -1768,3 +1768,6 @@ End __.
 Arguments graph_node_state : clear implicits.
 Arguments graph_label : clear implicits.
 Arguments graph_state message label node_state {m1}.
+
+Ltac invert_receive :=
+  match goal with H : receive_step _ _ _ _ _ |- _ => invert H end.
