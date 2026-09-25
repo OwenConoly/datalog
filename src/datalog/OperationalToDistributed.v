@@ -176,6 +176,11 @@ Section __.
       In src (op_actual_R_senders (fact_pattern.rel pat)) \/
         num = 0.
 
+  Definition op_state_sents_ok os :=
+    forall pat r num,
+      In (message.done_with pat (from_rule r) num) (op_state.known os) <->
+        In (message.done_with pat (from_rule r) num) (get_or_default os.(op_state.sents) r).
+
   Lemma sth'' R :
     incl (op_actual_R_senders R) (flat_map op_sources_of (graph_senders R)).
   Proof.
@@ -280,11 +285,13 @@ Section __.
 
   Lemma sth r rules os ns nf :
     In r rules ->
+    op_state_reasonable os ->
+    done_msgs_corresp os ns ->
     Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
     can_deduce_normal_fact R_senders r (op_state.known os) nf ->
     can_deduce_normal_fact graph_senders r (state.known (gns_node_state ns)) nf.
   Proof.
-    intros Hr Hperm H. cbv [can_deduce_normal_fact] in *.
+    intros Hr Hos Hcorresp Hperm H. cbv [can_deduce_normal_fact] in *.
     fwd. eexists. split; [eassumption|].
     apply rule.interp_hyp_relname_in in Hp0.
     eapply Forall_impl.
@@ -292,14 +299,22 @@ Section __.
     simpl. intros. fwd. eapply sth'; try eassumption.
   Qed.
 
+  Lemma blah os x nf :
+    op_state_sents_ok os ->
+    counted (from_rule x) (get_or_default (op_state.sents os) x) nf <->
+      counted (from_rule x) os.(op_state.known) nf.
+  Proof. Admitted.
+
   Lemma sim1 os gs os' :
+    op_state_reasonable os ->
+    op_state_sents_ok os ->
     distribute_R os gs ->
     comp_step os os' ->
     exists gs' t,
       star distributed_step gs t gs' /\
         distribute_R os' gs'.
   Proof.
-    intros H. invert 1. rename H1 into Hp, H2 into Hr.
+    intros Hos1 Hos2 H. invert 1. rename H1 into Hp, H2 into Hr.
     cbv [fire_at_rule can_deduce] in Hr. simpl in Hr. destruct new_fact; fwd.
     - invert_stuff. subst.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
@@ -315,8 +330,11 @@ Section __.
               eapply deduce_step with (output := message.normal _).
               simpl. split.
               --- apply Exists_exists. eexists. split; [eassumption|].
-                  Search x.
-              ; [|eassumption].
+                  eapply sth; try eassumption.
+              --- Print counted.
+                counted src (state.sent (gns_node_state v2)) nf <->
+                          forall
+                intros Hcnt. Print counted.
               cbv [Node.new_facts]. Print can_deduce_fact.
               Print node_step.
         destruct r; simpl in *; try discriminate; fwd. 2: { simpl in *.
