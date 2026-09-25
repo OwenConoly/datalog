@@ -541,6 +541,10 @@ Proof. induction 1; simpl; [reflexivity | subst; assumption]. Qed.
 Lemma Permutation_list_sum l1 l2 : Permutation l1 l2 -> list_sum l1 = list_sum l2.
 Proof. induction 1; rewrite ?list_sum_cons; lia. Qed.
 
+Lemma list_sum_concat (ls : list (list nat)) :
+  list_sum (concat ls) = list_sum (map list_sum ls).
+Proof. induction ls; simpl; [reflexivity | rewrite list_sum_app; congruence]. Qed.
+
 Lemma NoDup_incl_Permutation {A} (sub sup : list A) :
   NoDup sub -> incl sub sup -> exists rest, Permutation sup (sub ++ rest).
 Proof.

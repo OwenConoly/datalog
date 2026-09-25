@@ -1,5 +1,5 @@
 From Stdlib Require Import List Permutation.
-From coqutil Require Import Map.Interface Eqb Tactics.fwd Tactics Datatypes.List.
+From coqutil Require Import Map.Interface Map.Properties Eqb Tactics.fwd Tactics Datatypes.List.
 From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 
@@ -165,15 +165,46 @@ Section __.
     eapply Permutation_NoDup; [exact Hperm | apply Operational.R_senders_NoDup].
   Qed.
 
+  Definition op_actual_R_senders R :=
+    if is_input R then [from_input] else
+      map from_rule
+        (filter (fun r => inb R (rule.concl_rels r)) (sender_rules p)).
+
+  Definition op_state_reasonable os :=
+    forall pat src num,
+      In (message.done_with pat src num) (op_state.known os) ->
+      In src (op_actual_R_senders (fact_pattern.rel pat)) \/
+        num = 0.
+
+  Lemma sth'' R :
+    incl (op_actual_R_senders R) (flat_map op_sources_of (graph_senders R)).
+  Proof.
+    cbv [op_actual_R_senders graph_senders op_sources_of]. destruct (is_input R).
+    - simpl. auto with incl.
+    - rewrite flat_map_filter_map. intros x Hx.
+      rewrite in_map_iff in Hx. fwd. rewrite filter_In in Hxp1. fwd.
+      apply in_flat_map. cbv [sender_rules] in Hxp1p0.
+      apply dedup_preserves_In in Hxp1p0. apply Hlayout_normal in Hxp1p0.
+      cbv [all_rules] in Hxp1p0. apply in_flat_map in Hxp1p0. fwd.
+      apply In_values in Hxp1p0p0. fwd.
+      eexists (_, _). split.
+      { apply map.tuples_spec. eassumption. }
+      rewrite (proj2 (inb_true_iff _ _)).
+      2: { cbv [program.concl_rels]. apply in_app_iff. left. apply in_flat_map.
+           eauto. }
+      apply in_map. erewrite get_or_default_Some by eassumption. assumption.
+  Qed.
+
   Lemma sth' r rules os ns f :
     In r rules ->
     In (fact.rel f) (rule.hyp_rels r) ->
+    op_state_reasonable os ->
     Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
     done_msgs_corresp os ns ->
     knows_fact R_senders (op_state.known os) f ->
     knows_fact graph_senders (state.known (gns_node_state ns)) f.
   Proof.
-    intros Hr Hf Hperm Hcorresp H. cbv [knows_fact] in H |- *. destruct f as [nf | mf].
+    intros Hr Hf Hos Hperm Hcorresp H. cbv [knows_fact] in H |- *. destruct f as [nf | mf].
     - cbv [knows_normal_fact] in H |- *. simpl in Hf.
       apply Permutation_incl in Hperm.
       cbv [normal_facts_wanted_by_rules incl] in Hperm. especialize Hperm.
@@ -181,20 +212,41 @@ Section __.
         split; [eassumption|]. apply inb_true_iff. apply in_flat_map. eauto. }
       cbv [normal_facts_known_by_node] in Hperm.
       rewrite message.in_flat_map_normal_facts in Hperm. assumption.
-    - cbv [knows_meta_fact] in H |- *. fwd. eexists. split.
-      + clear Hp1 Hp2. cbv [expects_num_facts] in Hp0 |- *. fwd.
-        cbv [done_msgs_corresp] in Hcorresp.
-        epose proof (R_senders_to_graph_senders _) as H. fwd.
-        Search Permutation Forall2.
-        eapply Permutation_Forall2 in Hp0p0; [|eassumption]. fwd.
-        Search Forall2 flat_map. About Forall2_flat_map.
-        apply Forall2_app_inv_l in Hp0p0p1. fwd.
-        apply Forall2_flat_map_inv_l in Hp0p0p1p0. fwd.
-        eexists (map list_sum _). split.
+    - cbv [knows_meta_fact] in H |- *. fwd.
+
+      cbv [expects_num_facts] in Hp0 |- *. fwd.
+      cbv [done_msgs_corresp] in Hcorresp.
+      epose proof (R_senders_to_graph_senders _) as H. fwd.
+      eapply Permutation_Forall2 in Hp0p0; [|eassumption]. fwd.
+      apply Forall2_app_inv_l in Hp0p0p1. fwd.
+      apply Forall2_flat_map_inv_l in Hp0p0p1p0. fwd.
+
+      eexists. ssplit.
+      + clear Hp1 Hp2. eexists (map list_sum _). split.
         { apply Forall2_map_r. eapply Forall2_impl_strong; [eassumption|].
           simpl. intros node_src msgss HR Hsrc _. apply Hcorresp.
           split; [assumption|]. cbv [operational_done_with]. eauto. }
         reflexivity.
+      + rewrite <- list_sum_concat.
+        assert (list_sum l2'0 = 0).
+        { apply Forall2_forget_l in Hp0p0p1p1.
+          apply list_sum_zero. eapply Forall_impl; [eassumption|].
+          simpl. intros. fwd. cbv [disjoint_lists] in Hp3.
+          specialize (Hp3 _ Hp4). apply Hos in Hp5.
+          destruct Hp5 as [Hp5|Hp5]; [|auto].
+          exfalso. apply Hp3. apply sth''. assumption. }
+
+          Print op_sources_of.
+          Search graph_senders
+
+            cbv [graph_senders op_sources_of] in Hp3.
+          simpl in Hp3. apply sth'' in Hp5.
+          simp
+          Print graph_senders. Print Distributed.R_senders.
+
+
+
+
 
         Print Distributed.R_senders. graph_senders.
         Print op_source.
