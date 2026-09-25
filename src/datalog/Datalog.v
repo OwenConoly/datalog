@@ -405,6 +405,15 @@ Module meta_fact.
         fact_pattern.matches mf.(meta_fact.pattern) nf ->
         fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <-> S nf.
 
+    Lemma consistent_with_ext mf S1 S2 :
+      consistent_with mf S1 ->
+      (forall nf, nf.(normal_fact.rel) = rel mf -> S1 nf <-> S2 nf) ->
+      consistent_with mf S2.
+    Proof.
+      cbv [consistent_with]. intros H HS nf Hm. rewrite H by assumption. apply HS.
+      destruct Hm as (Hrel & _). cbv [rel]. congruence.
+    Qed.
+
     Definition agree (mf1 mf2 : meta_fact) :=
       forall nf,
         fact_pattern.matches mf1.(pattern) nf ->
