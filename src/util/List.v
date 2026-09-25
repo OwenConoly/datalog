@@ -413,6 +413,17 @@ Section Forall.
       + destruct l1; inversion Hl1. subst. constructor; auto.
   Qed.
 
+  Lemma Forall2_flat_map_inv_l R (f : A -> list B) (l1 : list A) (l2 : list C) :
+    Forall2 R (flat_map f l1) l2 ->
+    exists l2s, concat l2s = l2 /\ Forall2 (fun x zs => Forall2 R (f x) zs) l1 l2s.
+  Proof.
+    revert l2. induction l1 as [| x l1 IH]; simpl; intros l2 H.
+    - invert H. exists []. split; [reflexivity | constructor].
+    - apply Forall2_app_inv_l in H. destruct H as (ys & l2' & Hx & Hrest & ->).
+      apply IH in Hrest. destruct Hrest as (l2s & <- & Hl2s).
+      exists (ys :: l2s). split; [reflexivity | constructor; assumption].
+  Qed.
+
   Lemma Forall2_flip_iff R (l1 : list A) (l2 : list B) :
     Forall2 (fun x y => R y x) l2 l1 <->
       Forall2 R l1 l2.
