@@ -203,8 +203,9 @@ Section __.
   Proof.
     intros HR Hperm. cbv [knows_normal_fact].
     transitivity (In nf (normal_facts_wanted_by_rules os rules)).
-    - cbv [normal_facts_wanted_by_rules]. rewrite filter_In, message.in_flat_map_normal_facts.
-      split; [intros H; split; [exact H | apply inb_true_iff; exact HR] | tauto].
+    - cbv [normal_facts_wanted_by_rules].
+      rewrite filter_In, message.in_flat_map_normal_facts.
+      split; intros; fwd; eauto. split; auto. apply inb_true_iff. auto.
     - rewrite Hperm. cbv [normal_facts_known_by_node]. apply message.in_flat_map_normal_facts.
   Qed.
 
@@ -250,9 +251,13 @@ Section __.
           exfalso. apply Hp3. apply sth''. assumption. }
         move Hp1 at bottom. rewrite Hp0p0p0 in Hp1.
         rewrite list_sum_app in Hp1. rewrite H in Hp1. rewrite <- plus_n_O in Hp1.
+
         admit.
       + move Hp2 at bottom. eapply meta_fact.consistent_with_ext; [eassumption|].
         intros nf Hnf. move Hperm at bottom.
+        eapply op_knows_normal_fact_iff; try eassumption. rewrite Hnf.
+        apply in_flat_map. eauto.
+  Qed.
 
         Print normal_facts_wanted_by_rules.
         Search meta_fact.consistent_with.
