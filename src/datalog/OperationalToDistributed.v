@@ -184,6 +184,18 @@ Section __.
     - cbv [knows_meta_fact] in H |- *. fwd. eexists. split.
       + clear Hp1 Hp2. cbv [expects_num_facts] in Hp0 |- *. fwd.
         cbv [done_msgs_corresp] in Hcorresp.
+        epose proof (R_senders_to_graph_senders _) as H. fwd.
+        Search Permutation Forall2.
+        eapply Permutation_Forall2 in Hp0p0; [|eassumption]. fwd.
+        Search Forall2 flat_map. About Forall2_flat_map.
+        apply Forall2_app_inv_l in Hp0p0p1. fwd.
+        apply Forall2_flat_map_inv_l in Hp0p0p1p0. fwd.
+        eexists (map list_sum _). split.
+        { apply Forall2_map_r. eapply Forall2_impl_strong; [eassumption|].
+          simpl. intros node_src msgss HR Hsrc _. apply Hcorresp.
+          split; [assumption|]. cbv [operational_done_with]. eauto. }
+        reflexivity.
+
         Print Distributed.R_senders. graph_senders.
         Print op_source.
         (forall pat n num,
