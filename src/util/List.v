@@ -1445,6 +1445,20 @@ Section Existsn.
   Lemma Existsn_le_0_Forall_not l : Forall (fun x => ~ P x) l -> Existsn_le 0 l.
   Proof. induction 1; [ apply El_nil | apply El_skip; assumption ]. Qed.
 
+  Lemma Existsn_filter (q : T -> bool) n l :
+    (forall x, P x -> q x = true) ->
+    Existsn n (filter q l) <-> Existsn n l.
+  Proof.
+    intros Hq. revert n. induction l as [| x l IH]; intros n; simpl; [reflexivity|].
+    destruct (q x) eqn:E.
+    - split; intros H; invert H; [apply Existsn_no | apply Existsn_yes | apply Existsn_no | apply Existsn_yes];
+        try apply IH; assumption.
+    - assert (Hnp : ~ P x) by (intros HP; rewrite Hq in E by assumption; discriminate).
+      split; intros H.
+      + apply Existsn_no; [assumption | apply IH; assumption].
+      + apply IH. eapply Existsn_cons_no; eassumption.
+  Qed.
+
   Lemma Existsn_le_filter (q : T -> bool) k l :
     Existsn_le k l -> Existsn_le k (filter q l).
   Proof.
@@ -1563,6 +1577,25 @@ Section Existsn.
     - apply IH. eapply Existsn_ge_mono_count; [ exact Hge_b | lia ].
   Qed.
 End Existsn.
+
+(*TODO: state this over filter_map instead of a flat_map with blocks of length <= 1*)
+Lemma Existsn_flat_map_le1 {A B} (P : B -> Prop) (Q : A -> Prop) (f : A -> list B) n l :
+  (forall x, Q x <-> Exists P (f x)) ->
+  (forall x, length (f x) <= 1) ->
+  Existsn Q n l <-> Existsn P n (flat_map f l).
+Proof.
+  intros HQ Hlen. revert n. induction l as [| x l IH]; intros n; simpl.
+  - split; intros H; invert H; constructor.
+  - specialize (HQ x). specialize (Hlen x). destruct (f x) as [| y [| y' l']]; simpl in *; [| | lia].
+    + rewrite Exists_nil in HQ. split; intros H.
+      * invert H; [apply IH; assumption | tauto].
+      * apply Existsn_no; [tauto | apply IH; assumption].
+    + rewrite Exists_cons, Exists_nil in HQ. split; intros H; invert H.
+      * apply Existsn_no; [tauto | apply IH; assumption].
+      * apply Existsn_yes; [tauto | apply IH; assumption].
+      * apply Existsn_no; [tauto | apply IH; assumption].
+      * apply Existsn_yes; [tauto | apply IH; assumption].
+Qed.
 Hint Constructors Existsn : core.
 
 Section misc.
