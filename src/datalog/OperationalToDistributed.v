@@ -209,6 +209,15 @@ Section __.
     - rewrite Hperm. cbv [normal_facts_known_by_node]. apply message.in_flat_map_normal_facts.
   Qed.
 
+  Lemma op_existsn_iff pat rules ns os n :
+    In (fact_pattern.rel pat) (flat_map rule.hyp_rels rules) ->
+    Existsn (message.matches pat) n (op_state.known os) ->
+    Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
+    Existsn (message.matches pat) n (state.known (gns_node_state ns)).
+  Proof.
+    intros HR H Hperm. cbv [normal_facts_wanted_by_rules] in Hperm.
+    cbv [normal_facts_known_by_node] in Hperm.
+
   Lemma sth' r rules os ns f :
     In r rules ->
     In (fact.rel f) (rule.hyp_rels r) ->
@@ -252,6 +261,10 @@ Section __.
         move Hp1 at bottom. rewrite Hp0p0p0 in Hp1.
         rewrite list_sum_app in Hp1. rewrite H in Hp1. rewrite <- plus_n_O in Hp1.
 
+        move Hperm at bottom.
+
+
+        Search
         admit.
       + move Hp2 at bottom. eapply meta_fact.consistent_with_ext; [eassumption|].
         intros nf Hnf. move Hperm at bottom.
