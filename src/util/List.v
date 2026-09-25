@@ -530,6 +530,19 @@ Proof. induction 1; simpl; [reflexivity | subst; assumption]. Qed.
 Lemma Permutation_list_sum l1 l2 : Permutation l1 l2 -> list_sum l1 = list_sum l2.
 Proof. induction 1; rewrite ?list_sum_cons; lia. Qed.
 
+Lemma NoDup_incl_Permutation {A} (sub sup : list A) :
+  NoDup sub -> incl sub sup -> exists rest, Permutation sup (sub ++ rest).
+Proof.
+  revert sup. induction sub as [| a sub IH]; intros sup Hnd Hincl.
+  - exists sup. reflexivity.
+  - invert Hnd. apply incl_cons_inv in Hincl. destruct Hincl as (Hin & Hincl).
+    apply in_split in Hin. destruct Hin as (l1 & l2 & ->).
+    edestruct (IH (l1 ++ l2)) as (rest & Hperm); [assumption | |].
+    { intros x Hx. apply in_or_app. specialize (Hincl x Hx). apply in_app_or in Hincl.
+      destruct Hincl as [? | [-> | ?]]; [auto | contradiction | auto]. }
+    exists rest. rewrite <- Permutation_middle. simpl. apply perm_skip. exact Hperm.
+Qed.
+
 Lemma Forall2_repeat_r {A B} (R : A -> B -> Prop) (l : list A) (y : B) :
   Forall (fun x => R x y) l -> Forall2 R l (repeat y (length l)).
 Proof.
@@ -1929,6 +1942,10 @@ Section misc.
     - intros ? [?|?]; subst; eauto.
       rewrite Forall_forall in *. unfold not in *. eauto.
   Qed.
+
+  Lemma NoDup_app_disjoint_lists (l1 l2 : list A) :
+    NoDup (l1 ++ l2) -> disjoint_lists l1 l2.
+  Proof. intros H. apply NoDup_app_iff in H. cbv [disjoint_lists]. fwd. eauto. Qed.
 
   Lemma option_all_map_Some (l : list A) :
     option_all (map Some l) = Some l.

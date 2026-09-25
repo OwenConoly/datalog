@@ -76,6 +76,13 @@ Section __.
   Definition R_senders : rel -> list op_source :=
     fun R => if is_input R then [from_input] else map from_rule sender_rules.
 
+  Lemma R_senders_NoDup R : NoDup (R_senders R).
+  Proof.
+    cbv [R_senders sender_rules]. destruct (is_input R).
+    - constructor; [intros [] | constructor].
+    - apply Finite.Injective_map_NoDup; [intros ? ? ?; congruence | apply NoDup_dedup].
+  Qed.
+
   Local Abbreviation expects_num_facts := (node.expects_num_facts R_senders).
   Local Abbreviation knows_fact := (node.knows_fact R_senders).
   Local Abbreviation knows_meta_fact := (node.knows_meta_fact R_senders).

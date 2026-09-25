@@ -115,7 +115,7 @@ Section __.
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
 
-  Lemma R_senders_to_graph_senders R :
+  Lemma R_senders_to_graph_senders' R :
      incl (flat_map op_sources_of (graph_senders R)) (R_senders R).
   Proof.
     cbv [R_senders graph_senders]. destr (is_input R).
@@ -135,7 +135,8 @@ Section __.
   Lemma op_sources_all_nodes :
     flat_map op_sources_of (map node_source (map.keys graph_prog)) = map from_rule all_rules.
   Proof.
-    cbv [all_rules]. rewrite values_eq_map_keys, !flat_map_concat_map, concat_map, !map_map.
+    cbv [all_rules].
+    rewrite values_eq_map_keys, !flat_map_concat_map, concat_map, !map_map.
     reflexivity.
   Qed.
 
@@ -150,6 +151,18 @@ Section __.
         intros [n np] s Hs. simpl in *. destruct (inb R (program.concl_rels np)); congruence.
       + rewrite op_sources_all_nodes.
         apply Finite.Injective_map_NoDup; [intros ? ? ?; congruence | exact NoDup_all_rules].
+  Qed.
+
+  Lemma R_senders_to_graph_senders R :
+    exists rest,
+      Permutation (R_senders R) (flat_map op_sources_of (graph_senders R) ++ rest) /\
+        disjoint_lists rest (flat_map op_sources_of (graph_senders R)).
+  Proof.
+    pose proof (R_senders_to_graph_senders' R) as Hincl.
+    apply NoDup_incl_Permutation in Hincl; [| apply NoDup_flat_map_op_sources].
+    destruct Hincl as (rest & Hperm). exists rest. split; [exact Hperm|].
+    apply disjoint_lists_comm, NoDup_app_disjoint_lists.
+    eapply Permutation_NoDup; [exact Hperm | apply Operational.R_senders_NoDup].
   Qed.
 
   Lemma sth' r rules os ns f :
