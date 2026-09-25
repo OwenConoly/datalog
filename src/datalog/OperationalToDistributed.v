@@ -132,16 +132,25 @@ Section __.
       apply In_values. eauto.
   Qed.
 
+  Lemma op_sources_all_nodes :
+    flat_map op_sources_of (map node_source (map.keys graph_prog)) = map from_rule all_rules.
+  Proof.
+    cbv [all_rules]. rewrite values_eq_map_keys, !flat_map_concat_map, concat_map, !map_map.
+    reflexivity.
+  Qed.
+
   Lemma NoDup_flat_map_op_sources R :
     NoDup (flat_map op_sources_of (graph_senders R)).
   Proof.
-    cbv [graph_senders]. destruct (is_input _).
-    - simpl. repeat constructor. simpl. auto.
-    - rewrite flat_map_filter_map. cbv [all_rules] in NoDup_all_rules.
-
-
-      Search NoDup.
-
+    destr (is_input R).
+    - cbv [Distributed.R_senders]. rewrite E. cbn. constructor; [intros [] | constructor].
+    - eapply NoDup_sublist with (l := flat_map op_sources_of (map node_source (map.keys graph_prog))).
+      + apply sublist_flat_map. cbv [Distributed.R_senders]. rewrite E. cbn iota.
+        rewrite keys_eq_tuples, map_map. apply sublist_filter_map.
+        intros [n np] s Hs. simpl in *. destruct (inb R (program.concl_rels np)); congruence.
+      + rewrite op_sources_all_nodes.
+        apply Finite.Injective_map_NoDup; [intros ? ? ?; congruence | exact NoDup_all_rules].
+  Qed.
 
   Lemma sth' r rules os ns f :
     In r rules ->

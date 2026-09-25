@@ -1948,6 +1948,33 @@ Section misc.
     if x then true else false.
 End misc.
 
+Lemma sublist_In {A} (s l : list A) a : sublist s l -> In a s -> In a l.
+Proof. induction 1; simpl; intuition. Qed.
+
+Lemma NoDup_sublist {A} (s l : list A) : sublist s l -> NoDup l -> NoDup s.
+Proof.
+  induction 1; intros Hnd; invert Hnd; [constructor | auto |].
+  constructor; [| auto]. intros Hin. eauto using sublist_In.
+Qed.
+
+Lemma sublist_app_l {A} (l1 s l : list A) : sublist s l -> sublist s (l1 ++ l).
+Proof. induction l1; simpl; auto using sublist_skip. Qed.
+
+Lemma sublist_app_head {A} (l1 s l : list A) : sublist s l -> sublist (l1 ++ s) (l1 ++ l).
+Proof. induction l1; simpl; auto using sublist_keep. Qed.
+
+Lemma sublist_flat_map {A B} (f : A -> list B) s l :
+  sublist s l -> sublist (flat_map f s) (flat_map f l).
+Proof. induction 1; simpl; auto using sublist_nil, sublist_app_l, sublist_app_head. Qed.
+
+Lemma sublist_filter_map {A B} (g : A -> option B) (h : A -> B) l :
+  (forall x y, g x = Some y -> y = h x) ->
+  sublist (filter_map g l) (map h l).
+Proof.
+  intros Hg. induction l as [| x l]; simpl; [constructor|].
+  destruct (g x) eqn:E; [rewrite (Hg _ _ E); apply sublist_keep | apply sublist_skip]; assumption.
+Qed.
+
 Section misc.
   Context {A B C D : Type}.
   Implicit Type xs : list A.
