@@ -94,6 +94,10 @@ Module state.
     Record state :=
       { known : list message;
         sent : list message }.
+
+    Definition add_to_known inps s :=
+      {| known := inps ++ s.(known);
+        sent := s.(sent) |}.
   End __.
 End state. Abbreviation state := state.state.
 
@@ -880,6 +884,5 @@ Section __.
     - symmetry. exact Ho'_eq.
     - erewrite <- sent_eq_outputs by eassumption. eassumption.
   Qed.
-
 End __.
 End node.

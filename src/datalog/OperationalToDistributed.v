@@ -322,6 +322,23 @@ Section __.
     simpl. intros. cbv [counted]. fwd. eauto.
   Qed.
 
+  Definition eat inps (gns : graph_node_state message action_label state) :=
+    {| gns_node_state := state.add_to_known inps gns.(gns_node_state);
+      gns_trace := map I_event inps ++ gns.(gns_trace);
+      gns_queue := gns.(gns_queue);
+    |}.
+
+  Definition directly_send_to keep msgs gs :=
+    {| graph_nodes := map_values' (fun dst => eat (filter (keep (node_destn dst)) msgs)) gs.(graph_nodes);
+      graph_output_queue := filter (keep output_destn) msgs ++ gs.(graph_output_queue); |}.
+
+  Lemma eat_forwarded_msgs nids msgs st :
+    exists t,
+      star distributed_step (forward_to nids msgs st) t (directly_send_to nids msgs st).
+  Proof.
+
+
+
   Lemma sim1 os gs os' :
     op_state_reasonable os ->
     op_state_sents_ok os ->
@@ -340,7 +357,7 @@ Section __.
       cbv [distribute_R] in H.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
       do 2 eexists. split.
-      + eapply star_step.
+      + eapply star_app.
         -- apply star_one. apply gstep_run.
            ++ eassumption.
            ++ cbv [prog_at]. erewrite get_or_default_Some by eassumption.
@@ -355,6 +372,9 @@ Section __.
                   simpl. apply in_map. erewrite get_or_default_Some by eassumption.
                   assumption.
         --
+            Print forward_to.
+           Definition
+           Print distribute
   Admitted.
 
   (*we add two pieces of complexity here.
