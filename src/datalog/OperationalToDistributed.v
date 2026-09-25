@@ -195,6 +195,15 @@ Section __.
       apply in_map. erewrite get_or_default_Some by eassumption. assumption.
   Qed.
 
+  Lemma op_knows_normal_fact_iff R nf rules ns os :
+    In R (flat_map rule.hyp_rels rules) ->
+    Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
+    knows_normal_fact (op_state.known os) nf <->
+      knows_normal_fact (state.known (gns_node_state ns)) nf.
+  Proof.
+    intros HR Hperm. cbv [knows_normal_fact].
+
+
   Lemma sth' r rules os ns f :
     In r rules ->
     In (fact.rel f) (rule.hyp_rels r) ->
@@ -235,6 +244,14 @@ Section __.
           specialize (Hp3 _ Hp4). apply Hos in Hp5.
           destruct Hp5 as [Hp5|Hp5]; [|auto].
           exfalso. apply Hp3. apply sth''. assumption. }
+        move Hp1 at bottom. rewrite Hp0p0p0 in Hp1.
+        rewrite list_sum_app in Hp1. rewrite H in Hp1. rewrite <- plus_n_O in Hp1.
+        admit.
+      + move Hp2 at bottom. eapply meta_fact.consistent_with_ext; [eassumption|].
+        intros nf Hnf. move Hperm at bottom.
+
+        Print normal_facts_wanted_by_rules.
+        Search meta_fact.consistent_with.
 
           Print op_sources_of.
           Search graph_senders
