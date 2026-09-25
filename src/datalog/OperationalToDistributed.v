@@ -65,8 +65,8 @@ Section __.
   Definition normal_facts_known_by_node (ns : graph_node_state message action_label state) :=
     filter_map message.as_normal ns.(gns_node_state).(state.known).
 
-  Definition normal_facts_wanted_by_rules os (rules : list rule) :=
-    filter (fun f => inb (normal_fact.rel f) (flat_map rule.hyp_rels rules)) (filter_map message.as_normal os.(op_state.known)).
+  Definition normal_facts_wanted_by_rules os (np : program) :=
+    filter (fun f => inb (normal_fact.rel f) (program.hyp_rels np)) (filter_map message.as_normal os.(op_state.known)).
 
   Definition op_sources_of (src : source) : list op_source :=
     match src with
@@ -107,18 +107,15 @@ Section __.
         In (node_source n) (graph_senders (fact_pattern.rel fp)) /\
           operational_done_with os (node_source n) fp num.
 
+  Definition node_corresp (os : op_state) n np (ns : graph_node_state message action_label state) :=
+    Permutation (normal_facts_sent_by_rules os np.(program.rules)) (normal_facts_sent_by_node ns) /\
+      Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) /\
+      done_msgs_corresp os ns /\
+      sent_done_msgs_corresp os n ns /\
+      ns.(gns_queue) = [].
+
   Definition distribute_R (os : op_state) (gs : graph_state message action_label state) :=
-    Forall2_map (fun n np ns =>
-                   Permutation
-                     (normal_facts_sent_by_rules os np.(program.rules))
-                     (normal_facts_sent_by_node ns) /\
-                     Permutation
-                       (normal_facts_wanted_by_rules os np.(program.rules))
-                       (normal_facts_known_by_node ns) /\
-                     done_msgs_corresp os ns /\
-                     sent_done_msgs_corresp os n ns /\
-                     ns.(gns_queue) = [])
-      graph_prog gs.(graph_nodes).
+    Forall2_map (node_corresp os) graph_prog gs.(graph_nodes).
 
   Lemma R_senders_to_graph_senders' R :
      incl (flat_map op_sources_of (graph_senders R)) (R_senders R).
@@ -205,24 +202,24 @@ Section __.
       apply in_map. erewrite get_or_default_Some by eassumption. assumption.
   Qed.
 
-  Lemma op_knows_normal_fact_iff nf rules ns os :
-    In nf.(normal_fact.rel) (flat_map rule.hyp_rels rules) ->
-    Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
+  Lemma op_knows_normal_fact_iff nf np ns os :
+    In nf.(normal_fact.rel) (program.hyp_rels np) ->
+    Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->
     knows_normal_fact (op_state.known os) nf <->
       knows_normal_fact (state.known (gns_node_state ns)) nf.
   Proof.
     intros HR Hperm. cbv [knows_normal_fact].
-    transitivity (In nf (normal_facts_wanted_by_rules os rules)).
+    transitivity (In nf (normal_facts_wanted_by_rules os np)).
     - cbv [normal_facts_wanted_by_rules].
       rewrite filter_In, message.in_filter_map_as_normal.
       split; intros; fwd; eauto. split; auto. apply inb_true_iff. auto.
     - rewrite Hperm. cbv [normal_facts_known_by_node]. apply message.in_filter_map_as_normal.
   Qed.
 
-  Lemma op_existsn_iff pat rules ns os n :
-    In (fact_pattern.rel pat) (flat_map rule.hyp_rels rules) ->
+  Lemma op_existsn_iff pat np ns os n :
+    In (fact_pattern.rel pat) (program.hyp_rels np) ->
     Existsn (message.matches pat) n (op_state.known os) ->
-    Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
+    Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->
     Existsn (message.matches pat) n (state.known (gns_node_state ns)).
   Proof.
     intros HR H Hperm. cbv [normal_facts_wanted_by_rules] in Hperm.
@@ -236,11 +233,15 @@ Section __.
     { intros x. destruct x; simpl; intros; split; intros; fwd; (eauto || contradiction || discriminate). }
   Qed.
 
-  Lemma sth' r rules os ns f :
-    In r rules ->
+  Lemma hyp_rel_in_program (np : program) r R :
+    In r np.(program.rules) -> In R (rule.hyp_rels r) -> In R (program.hyp_rels np).
+  Proof. intros. cbv [program.hyp_rels]. apply in_or_app. left. apply in_flat_map. eauto. Qed.
+
+  Lemma sth' r (np : program) os ns f :
+    In r np.(program.rules) ->
     In (fact.rel f) (rule.hyp_rels r) ->
     op_state_reasonable os ->
-    Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
+    Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->
     done_msgs_corresp os ns ->
     knows_fact R_senders (op_state.known os) f ->
     knows_fact graph_senders (state.known (gns_node_state ns)) f.
@@ -250,7 +251,7 @@ Section __.
       apply Permutation_incl in Hperm.
       cbv [normal_facts_wanted_by_rules incl] in Hperm. especialize Hperm.
       { rewrite filter_In. rewrite message.in_filter_map_as_normal.
-        split; [eassumption|]. apply inb_true_iff. apply in_flat_map. eauto. }
+        split; [eassumption|]. apply inb_true_iff. eapply hyp_rel_in_program; eauto. }
       cbv [normal_facts_known_by_node] in Hperm.
       rewrite message.in_filter_map_as_normal in Hperm. assumption.
     - cbv [knows_meta_fact] in H |- *. fwd.
@@ -281,18 +282,18 @@ Section __.
 
         move Hperm at bottom.
         eapply op_existsn_iff; try eassumption.
-        apply in_flat_map. eauto.
+        eapply hyp_rel_in_program; eauto.
       + move Hp2 at bottom. eapply meta_fact.consistent_with_ext; [eassumption|].
         intros nf Hnf. move Hperm at bottom.
         eapply op_knows_normal_fact_iff; try eassumption. rewrite Hnf.
-        apply in_flat_map. eauto.
+        eapply hyp_rel_in_program; eauto.
   Qed.
 
-  Lemma sth r rules os ns nf :
-    In r rules ->
+  Lemma sth r (np : program) os ns nf :
+    In r np.(program.rules) ->
     op_state_reasonable os ->
     done_msgs_corresp os ns ->
-    Permutation (normal_facts_wanted_by_rules os rules) (normal_facts_known_by_node ns) ->
+    Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->
     can_deduce_normal_fact R_senders r (op_state.known os) nf ->
     can_deduce_normal_fact graph_senders r (state.known (gns_node_state ns)) nf.
   Proof.
@@ -373,6 +374,7 @@ Section __.
       apply In_values in Hpp0. fwd.
       cbv [distribute_R] in H.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
+      pose proof Hkp1 as Hcorr. cbv [node_corresp] in Hkp1. fwd.
       edestruct eat_forwarded_msgs as [t Ht].
       do 2 eexists. split.
       + eapply star_app.
@@ -390,12 +392,8 @@ Section __.
                   simpl. apply in_map. erewrite get_or_default_Some by eassumption.
                   assumption.
         -- apply Ht.
-      + clear Ht. cbv [distribute_R].
-        cbv [directly_send_to]. simpl. Search Forall2_map map_values'.
-        apply Forall2_map_map_values'_r.
-            Print forward_to.
-           Definition
-           Print distribute
+      + clear Ht. admit.
+    - admit.
   Admitted.
 
   (*we add two pieces of complexity here.
