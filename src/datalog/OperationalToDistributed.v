@@ -332,12 +332,30 @@ Section __.
     {| graph_nodes := map_values' (fun dst => eat (filter (keep (node_destn dst)) msgs)) gs.(graph_nodes);
       graph_output_queue := filter (keep output_destn) msgs ++ gs.(graph_output_queue); |}.
 
+  Local Abbreviation nstep := (fun n => node.step graph_senders (Distributed.prog_at graph_prog n) (node_source n)).
+
+  Lemma eat_app inps1 inps2 gns : eat (inps1 ++ inps2) gns = eat inps1 (eat inps2 gns).
+  Proof. cbv [eat state.add_to_known]. rewrite map_app, <- !app_assoc. reflexivity. Qed.
+
+  Lemma drain_node n inps gns :
+    star (receive_step nstep n) (enqueue inps gns) inps (eat inps gns).
+  Proof.
+    revert gns. induction inps as [| m inps IH] using rev_ind; intros gns.
+    - destruct gns as [[known sent] trace queue]. apply star_refl.
+    - rewrite eat_app. eapply star_app; [apply star_one | apply IH].
+      destruct gns as [node trace queue]. cbv [enqueue eat state.add_to_known]. simpl.
+      rewrite <- app_assoc. apply receive_step_intro; [apply node.input_step | reflexivity].
+  Qed.
+
   Lemma eat_forwarded_msgs nids msgs st :
     exists t,
       star distributed_step (forward_to nids msgs st) t (directly_send_to nids msgs st).
   Proof.
-
-
+    apply star_per_node; [exact gns_map_ok | reflexivity |].
+    cbv [forward_to directly_send_to]. cbn [graph_nodes].
+    apply Forall2_map_map_values'_l, Forall2_map_map_values'_r, Forall2_map_dup.
+    intros n gns _. eexists. apply drain_node.
+  Qed.
 
   Lemma sim1 os gs os' :
     op_state_reasonable os ->
