@@ -216,7 +216,8 @@ Section __.
     Existsn (message.matches pat) n (state.known (gns_node_state ns)).
   Proof.
     intros HR H Hperm. cbv [normal_facts_wanted_by_rules] in Hperm.
-    cbv [normal_facts_known_by_node] in Hperm.
+    cbv [normal_facts_known_by_node] in Hperm. Search Existsn filter_map.
+    eapply Existsn_filter_map. 2: rewrite <- Hperm.
 
   Lemma sth' r rules os ns f :
     In r rules ->
