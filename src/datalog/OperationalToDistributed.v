@@ -116,27 +116,31 @@ Section __.
       graph_prog gs.(graph_nodes).
 
   Lemma R_senders_to_graph_senders R :
-    exists xs,
-      disjoint_lists xs (flat_map op_sources_of (graph_senders R)) /\
-    Permutation (R_senders R) (xs ++ flat_map op_sources_of (graph_senders R)).
+     incl (flat_map op_sources_of (graph_senders R)) (R_senders R).
   Proof.
     cbv [R_senders graph_senders]. destr (is_input R).
-    - simpl. reflexivity.
-    - apply NoDup_Permutation.
-      + apply Finite.Injective_map_NoDup.
-        -- cbv [Finite.Injective]. congruence.
-        -- cbv [sender_rules]. apply NoDup_dedup.
-      + rewrite flat_map_filter_map. apply NoDup_flat_map.
-        -- apply Properties.map.tuples_NoDup.
-        -- intros [? ?] ?. destr (inb R (program.concl_rels p0)).
-           ++ apply NoDup_op_sources_of.
-           ++ constructor.
-        -- intros [? ?] [? ?] ? ? ?. destr (inb R (program.concl_rels p0)); destr (inb R (program.concl_rels p1)); simpl; try contradiction.
-           admit.
-      + intros. rewrite flat_map_filter_map, in_map_iff, in_flat_map. Print op_sources_of.
-              Search op_sources_of.
-             .
+    - simpl. auto with incl.
+    - rewrite flat_map_filter_map. intros x Hx. rewrite in_flat_map in Hx.
+      fwd. Fail progress simp.
+      repeat (Tactics.destruct_one_match_hyp; try (contradiction || discriminate); []).
+      fwd. cbv [sender_rules]. apply in_map_iff. cbv [op_sources_of] in Hxp1.
+      apply in_map_iff in Hxp1. fwd. apply Properties.map.tuples_spec in Hxp0.
+      cbv [get_or_default get_or] in Hxp1p1. rewrite Hxp0 in Hxp1p1.
+      eexists. split; [reflexivity|]. Search Datatypes.List.dedup.
+      rewrite <- dedup_preserves_In. apply Hlayout_normal. cbv [all_rules].
+      apply in_flat_map. eexists. split; [|eassumption]. Search values.
+      apply In_values. eauto.
+  Qed.
 
+  Lemma NoDup_flat_map_op_sources R :
+    NoDup (flat_map op_sources_of (graph_senders R)).
+  Proof.
+    cbv [graph_senders]. destruct (is_input _).
+    - simpl. repeat constructor. simpl. auto.
+    - rewrite flat_map_filter_map. cbv [all_rules] in NoDup_all_rules.
+
+
+      Search NoDup.
 
 
   Lemma sth' r rules os ns f :
