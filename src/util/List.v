@@ -908,6 +908,16 @@ Proof.
   destruct (g x); simpl; congruence.
 Qed.
 
+Lemma Permutation_filter_map {A B} (g : A -> option B) l l' :
+  Permutation l l' -> Permutation (filter_map g l) (filter_map g l').
+Proof.
+  intros Hperm. induction Hperm; simpl.
+  - reflexivity.
+  - destruct (g x); [apply perm_skip |]; assumption.
+  - destruct (g x), (g y); simpl; try apply perm_swap; reflexivity.
+  - etransitivity; eassumption.
+Qed.
+
 Lemma NoDup_flat_map_in {A B} (f : A -> list B) l a :
   NoDup (flat_map f l) -> In a l -> NoDup (f a).
 Proof.
@@ -2017,6 +2027,17 @@ Section misc.
   Definition is_Some (x : option A) :=
     if x then true else false.
 End misc.
+
+Lemma NoDup_flat_map_inj {A B} (f : A -> list B) l a1 a2 b :
+  NoDup (flat_map f l) -> In a1 l -> In a2 l -> In b (f a1) -> In b (f a2) -> a1 = a2.
+Proof.
+  intros Hnd H1 H2 Hb1 Hb2. apply in_split in H1. destruct H1 as (l1 & l2 & ->).
+  rewrite flat_map_app in Hnd. simpl in Hnd.
+  apply in_app_or in H2. destruct H2 as [H2 | [-> | H2]]; [| reflexivity |]; exfalso.
+  - eapply NoDup_app_disjoint_lists; [exact Hnd | apply in_flat_map; eauto | apply in_or_app; auto].
+  - apply NoDup_app_remove_l in Hnd.
+    eapply NoDup_app_disjoint_lists; [exact Hnd | exact Hb1 | apply in_flat_map; eauto].
+Qed.
 
 Lemma sublist_In {A} (s l : list A) a : sublist s l -> In a s -> In a l.
 Proof. induction 1; simpl; intuition. Qed.

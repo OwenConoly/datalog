@@ -358,6 +358,132 @@ Section __.
     intros n gns _. eexists. apply drain_node.
   Qed.
 
+  Definition fire_normal os r nf : op_state :=
+    {| op_state.known := message.normal nf :: os.(op_state.known);
+      op_state.sents := mupd_with_default (cons (message.normal nf)) os.(op_state.sents) r |}.
+
+  Lemma operational_done_with_fire os r nf src fp num :
+    operational_done_with (fire_normal os r nf) src fp num <-> operational_done_with os src fp num.
+  Proof.
+    cbv [operational_done_with fire_normal]. simpl.
+    split; intros (nums & HF & ->); exists nums; (split; [| reflexivity]);
+      (eapply Forall2_impl; [exact HF|]); simpl; intros; intuition congruence.
+  Qed.
+
+  Lemma done_msgs_corresp_fire os r nf (b : bool) ns :
+    done_msgs_corresp os ns ->
+    done_msgs_corresp (fire_normal os r nf) (eat (if b then [message.normal nf] else []) ns).
+  Proof.
+    cbv [done_msgs_corresp]. intros H fp num src.
+    rewrite operational_done_with_fire, <- (H fp num src). cbv [eat state.add_to_known]. simpl.
+    destruct b; simpl; intuition congruence.
+  Qed.
+
+  Lemma sent_done_msgs_corresp_fire os r nf n ns ns' :
+    (forall fp num,
+        In (message.done_with fp (node_source n) num) ns'.(gns_node_state).(state.sent) <->
+          In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent)) ->
+    sent_done_msgs_corresp os n ns ->
+    sent_done_msgs_corresp (fire_normal os r nf) n ns'.
+  Proof.
+    cbv [sent_done_msgs_corresp]. intros Hsent H fp num.
+    rewrite operational_done_with_fire, Hsent. apply H.
+  Qed.
+
+  Lemma flat_map_sents_fire_off os r nf rules :
+    ~ In r rules ->
+    flat_map (get_or_default (fire_normal os r nf).(op_state.sents)) rules =
+      flat_map (get_or_default os.(op_state.sents)) rules.
+  Proof.
+    intros Hr. rewrite !flat_map_concat_map. f_equal. apply map_ext_in. intros r' Hr'.
+    cbv [fire_normal]. simpl. rewrite get_or_default_mupd.
+    destr (eqb r r'); [subst; contradiction | reflexivity].
+  Qed.
+
+  Lemma normal_facts_sent_by_rules_fire_other os r nf rules :
+    ~ In r rules ->
+    normal_facts_sent_by_rules (fire_normal os r nf) rules = normal_facts_sent_by_rules os rules.
+  Proof. intros. cbv [normal_facts_sent_by_rules]. f_equal. apply flat_map_sents_fire_off. assumption. Qed.
+
+  Lemma normal_facts_sent_by_rules_fire_self os r nf rules :
+    In r rules -> NoDup rules ->
+    Permutation (normal_facts_sent_by_rules (fire_normal os r nf) rules)
+      (nf :: normal_facts_sent_by_rules os rules).
+  Proof.
+    intros Hr Hnd. apply in_split in Hr. destruct Hr as (l1 & l2 & ->). apply NoDup_remove_2 in Hnd.
+    cbv [normal_facts_sent_by_rules].
+    transitivity (filter_map message.as_normal
+                    (flat_map (get_or_default (fire_normal os r nf).(op_state.sents)) (r :: l1 ++ l2))).
+    { apply Permutation_filter_map. rewrite !flat_map_concat_map.
+      apply Permutation_concat, Permutation_map. symmetry. apply Permutation_middle. }
+    transitivity (nf :: filter_map message.as_normal
+                          (flat_map (get_or_default os.(op_state.sents)) (r :: l1 ++ l2))).
+    2: { apply perm_skip, Permutation_filter_map. rewrite !flat_map_concat_map.
+         apply Permutation_concat, Permutation_map, Permutation_middle. }
+    cbn [flat_map]. rewrite flat_map_sents_fire_off by assumption. cbv [fire_normal]. simpl.
+    rewrite get_or_default_mupd, eqb_refl_true by assumption. reflexivity.
+  Qed.
+
+  Lemma normal_facts_wanted_fire os r nf np :
+    normal_facts_wanted_by_rules (fire_normal os r nf) np =
+      (if inb nf.(normal_fact.rel) (program.hyp_rels np) then [nf] else []) ++
+        normal_facts_wanted_by_rules os np.
+  Proof. cbv [normal_facts_wanted_by_rules fire_normal]. simpl. destruct (inb _ _); reflexivity. Qed.
+
+  Lemma normal_facts_known_eat (b : bool) nf ns :
+    normal_facts_known_by_node (eat (if b then [message.normal nf] else []) ns) =
+      (if b then [nf] else []) ++ normal_facts_known_by_node ns.
+  Proof. cbv [normal_facts_known_by_node eat state.add_to_known]. simpl. destruct b; reflexivity. Qed.
+
+  Lemma rule_at_unique n n' np np' r :
+    map.get graph_prog n = Some np -> map.get graph_prog n' = Some np' ->
+    In r np.(program.rules) -> In r np'.(program.rules) -> n = n'.
+  Proof.
+    intros Hn Hn' Hr Hr'. pose proof NoDup_all_rules as Hnd. cbv [all_rules] in Hnd.
+    rewrite values_eq_map_keys, flat_map_concat_map, map_map, <- flat_map_concat_map in Hnd.
+    eapply NoDup_flat_map_inj; [exact Hnd | eapply map.in_keys; eassumption | eapply map.in_keys; eassumption | |].
+    - cbv beta. erewrite get_or_default_Some by eassumption. exact Hr.
+    - cbv beta. erewrite get_or_default_Some by eassumption. exact Hr'.
+  Qed.
+
+  Lemma node_corresp_fire_other os r nf n np ns :
+    map.get graph_prog n = Some np ->
+    ~ In r np.(program.rules) ->
+    node_corresp os n np ns ->
+    node_corresp (fire_normal os r nf) n np
+      (eat (if inb nf.(normal_fact.rel) (program.hyp_rels (prog_at graph_prog n)) then [message.normal nf] else []) ns).
+  Proof.
+    intros Hget Hr (Hsent & Hknown & Hdone & Hsdone & Hq). erewrite prog_at_get by eassumption.
+    cbv [node_corresp]. ssplit.
+    - rewrite normal_facts_sent_by_rules_fire_other by assumption. exact Hsent.
+    - rewrite normal_facts_wanted_fire, normal_facts_known_eat.
+      destruct (inb _ _); simpl; [apply perm_skip |]; exact Hknown.
+    - apply done_msgs_corresp_fire. exact Hdone.
+    - eapply sent_done_msgs_corresp_fire; [| exact Hsdone]. intros. reflexivity.
+    - exact Hq.
+  Qed.
+
+  Lemma node_corresp_fire_self os r nf n np ns tr :
+    map.get graph_prog n = Some np ->
+    In r np.(program.rules) ->
+    node_corresp os n np ns ->
+    node_corresp (fire_normal os r nf) n np
+      (eat (if inb nf.(normal_fact.rel) (program.hyp_rels (prog_at graph_prog n)) then [message.normal nf] else [])
+         {| gns_node_state := {| state.known := ns.(gns_node_state).(state.known);
+                                 state.sent := message.normal nf :: ns.(gns_node_state).(state.sent) |};
+            gns_trace := tr; gns_queue := ns.(gns_queue) |}).
+  Proof.
+    intros Hget Hr (Hsent & Hknown & Hdone & Hsdone & Hq). erewrite prog_at_get by eassumption.
+    pose proof (NoDup_node_rules n) as Hnd. erewrite get_or_default_Some in Hnd by eassumption.
+    cbv [node_corresp]. ssplit.
+    - rewrite normal_facts_sent_by_rules_fire_self by assumption. apply perm_skip. exact Hsent.
+    - rewrite normal_facts_wanted_fire, normal_facts_known_eat.
+      destruct (inb _ _); simpl; [apply perm_skip |]; exact Hknown.
+    - apply done_msgs_corresp_fire. exact Hdone.
+    - eapply sent_done_msgs_corresp_fire; [| exact Hsdone]. intros. simpl. intuition congruence.
+    - exact Hq.
+  Qed.
+
   Lemma sim1 os gs os' :
     op_state_reasonable os ->
     op_state_sents_ok os ->
@@ -392,7 +518,13 @@ Section __.
                   simpl. apply in_map. erewrite get_or_default_Some by eassumption.
                   assumption.
         -- apply Ht.
-      + clear Ht. admit.
+      + clear Ht. cbv [distribute_R directly_send_to]. simpl.
+        apply Forall2_map_map_values'_r.
+        eapply Forall2_map_put_r; [| exact Hpp0 |].
+        * eapply Forall2_map_impl_strong; [exact H|]. intros k0 np ns Hk0 _ Hnc Hne.
+          apply node_corresp_fire_other; [exact Hk0 | | exact Hnc].
+          intros Hr. apply Hne. eapply rule_at_unique; eassumption.
+        * apply node_corresp_fire_self; assumption.
     - admit.
   Admitted.
 
