@@ -411,15 +411,7 @@ Section __.
       (nf :: normal_facts_sent_by_rules os rules).
   Proof.
     intros Hr Hnd. apply in_split in Hr. destruct Hr as (l1 & l2 & ->). apply NoDup_remove_2 in Hnd.
-    cbv [normal_facts_sent_by_rules].
-    transitivity (filter_map message.as_normal
-                    (flat_map (get_or_default (fire_normal os r nf).(op_state.sents)) (r :: l1 ++ l2))).
-    { apply Permutation_filter_map. rewrite !flat_map_concat_map.
-      apply Permutation_concat, Permutation_map. symmetry. apply Permutation_middle. }
-    transitivity (nf :: filter_map message.as_normal
-                          (flat_map (get_or_default os.(op_state.sents)) (r :: l1 ++ l2))).
-    2: { apply perm_skip, Permutation_filter_map. rewrite !flat_map_concat_map.
-         apply Permutation_concat, Permutation_map, Permutation_middle. }
+    cbv [normal_facts_sent_by_rules]. rewrite <- (Permutation_middle l1 l2 r).
     cbn [flat_map]. rewrite flat_map_sents_fire_off by assumption. cbv [fire_normal]. simpl.
     rewrite get_or_default_mupd, eqb_refl_true by assumption. reflexivity.
   Qed.

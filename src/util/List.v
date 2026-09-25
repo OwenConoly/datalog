@@ -62,6 +62,7 @@ Qed.
 Import ListNotations.
 
 #[export] Existing Instance Permutation_app'.
+#[export] Existing Instance Permutation_cons.
 
 Lemma filter_comm {A} (p q : A -> bool) (l : list A) :
   filter p (filter q l) = filter q (filter p l).
@@ -908,10 +909,10 @@ Proof.
   destruct (g x); simpl; congruence.
 Qed.
 
-Lemma Permutation_filter_map {A B} (g : A -> option B) l l' :
-  Permutation l l' -> Permutation (filter_map g l) (filter_map g l').
+#[export] Instance Permutation_filter_map {A B} (g : A -> option B) :
+  Proper (Permutation (A:=A) ==> Permutation (A:=B)) (filter_map g).
 Proof.
-  intros Hperm. induction Hperm; simpl.
+  intros l l' Hperm. induction Hperm; simpl.
   - reflexivity.
   - destruct (g x); [apply perm_skip |]; assumption.
   - destruct (g x), (g y); simpl; try apply perm_swap; reflexivity.
