@@ -100,6 +100,13 @@ Section __.
         In src (graph_senders (fact_pattern.rel fp)) /\
           operational_done_with os src fp num.
 
+  (*TODO consider how to merge this with done_msgs_corresp*)
+  Definition sent_done_msgs_corresp (os : op_state) n (ns : graph_node_state message action_label state) :=
+    forall fp num,
+      In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent) <->
+        In (node_source n) (graph_senders (fact_pattern.rel fp)) /\
+          operational_done_with os (node_source n) fp num.
+
   Definition distribute_R (os : op_state) (gs : graph_state message action_label state) :=
     Forall2_map (fun n np ns =>
                    Permutation
@@ -109,9 +116,7 @@ Section __.
                        (normal_facts_wanted_by_rules os np.(program.rules))
                        (normal_facts_known_by_node ns) /\
                      done_msgs_corresp os ns /\
-                     (forall fp num,
-                         In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent) <->
-                           operational_done_with os (node_source n) fp num) /\
+                     sent_done_msgs_corresp os n ns /\
                      ns.(gns_queue) = [])
       graph_prog gs.(graph_nodes).
 
@@ -303,7 +308,19 @@ Section __.
     op_state_sents_ok os ->
     counted (from_rule x) (get_or_default (op_state.sents os) x) nf <->
       counted (from_rule x) os.(op_state.known) nf.
-  Proof. Admitted.
+  Proof. intros Hok. cbv [counted op_state_sents_ok] in *. setoid_rewrite Hok. reflexivity. Qed.
+
+  (*TODO want some converse to this?*)
+  Lemma blah' os k ns nf :
+    sent_done_msgs_corresp os k ns ->
+    counted (node_source k) (state.sent ns.(gns_node_state)) nf ->
+    Forall (fun src => counted src os.(op_state.known) nf) (op_sources_of (node_source k)).
+  Proof.
+    intros H1 H2. cbv [sent_done_msgs_corresp] in H1. cbv [counted] in H2.
+    fwd. apply H1 in H2p0. fwd. cbv [operational_done_with] in H2p0p1. fwd.
+    apply Forall2_forget_r in H2p0p1p0. eapply Forall_impl; [eassumption|].
+    simpl. intros. cbv [counted]. fwd. eauto.
+  Qed.
 
   Lemma sim1 os gs os' :
     op_state_reasonable os ->
@@ -331,18 +348,13 @@ Section __.
               simpl. split.
               --- apply Exists_exists. eexists. split; [eassumption|].
                   eapply sth; try eassumption.
-              --- Print counted.
-                counted src (state.sent (gns_node_state v2)) nf <->
-                          forall
-                intros Hcnt. Print counted.
-              cbv [Node.new_facts]. Print can_deduce_fact.
-              Print node_step.
-        destruct r; simpl in *; try discriminate; fwd. 2: { simpl in *.
-      fwd. admit.
-    - fwd. cbv [can_deduce_fact] in Hrp1. Tactics.destruct_one_match_hyp.
-      { fwd. cbv [can_deduce_normal_fact] in Hrp1p0. fwd. invert Hrp1p0p0. }
-      fwd.
-      fwd.
+              --- rewrite blah in Hrp1 by assumption.
+                  intro Hcnt. apply Hrp1.
+                  pose proof blah' as H'. especialize H'; eauto.
+                  rewrite Forall_forall in H'. apply H'.
+                  simpl. apply in_map. erewrite get_or_default_Some by eassumption.
+                  assumption.
+        --
   Admitted.
 
   (*we add two pieces of complexity here.
