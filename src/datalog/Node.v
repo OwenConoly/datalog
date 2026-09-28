@@ -108,15 +108,15 @@ Section __.
   Definition knows_normal_fact (known : list message) (nf : normal_fact) :=
     In (message.normal nf) known.
 
-  Definition expects_num_facts (known : list message) (pat : fact_pattern) num :=
+  Definition expects_num_facts (senders : list sender_label) (pat : fact_pattern) (known : list message) num :=
     exists expected_msgss,
       Forall2 (fun n expected_msgs => In (message.done_with pat n expected_msgs) known)
-        (R_senders pat.(fact_pattern.rel)) expected_msgss /\
+        senders expected_msgss /\
         num = list_sum expected_msgss.
 
   Definition knows_meta_fact (known : list message) (mf : meta_fact) :=
     exists num,
-      expects_num_facts known mf.(meta_fact.pattern) num /\
+      expects_num_facts (R_senders mf.(meta_fact.pattern).(fact_pattern.rel)) mf.(meta_fact.pattern) known num /\
         Existsn (message.matches mf.(meta_fact.pattern)) num known /\
         meta_fact.consistent_with mf (knows_normal_fact known).
 
@@ -188,7 +188,7 @@ Section __.
       exists cnt, In (message.done_with pat src cnt) l.
 
   Definition consistent (pat : fact_pattern) (known : list message) : Prop :=
-    exists num, expects_num_facts known pat num /\
+    exists num, expects_num_facts (R_senders pat.(fact_pattern.rel)) pat known num /\
              Existsn_ge (message.matches pat) num known.
 
   Definition nle (s1 s2 : state) :=
@@ -232,7 +232,7 @@ Section __.
   Lemma submultiset_rest_no_matches pat small rest big num :
     Permutation big (small ++ rest) ->
     allowed_inputs big ->
-    expects_num_facts small pat num ->
+    expects_num_facts (R_senders pat.(fact_pattern.rel)) pat small num ->
     Existsn (message.matches pat) num small ->
     Forall (fun x => ~ message.matches pat x) rest.
   Proof.
@@ -436,10 +436,19 @@ Section __.
       + discriminate Hinp.
   Qed.
 
-  Lemma expects_num_facts_incl pat l1 l2 num :
-    expects_num_facts l1 pat num -> incl l1 l2 ->
-    expects_num_facts l2 pat num.
+  Lemma expects_num_facts_incl senders pat l1 l2 num :
+    expects_num_facts senders pat l1 num -> incl l1 l2 ->
+    expects_num_facts senders pat l2 num.
   Proof. cbv [expects_num_facts]. intros. fwd. eauto using Forall2_impl. Qed.
+
+  Lemma expects_num_facts_cons_normal senders pat nf known num :
+    expects_num_facts senders pat (message.normal nf :: known) num <->
+      expects_num_facts senders pat known num.
+  Proof.
+    cbv [expects_num_facts].
+    split; intros (nums & HF & ->); exists nums; (split; [| reflexivity]);
+      (eapply Forall2_impl; [exact HF|]); simpl; intros; intuition congruence.
+  Qed.
 
   #[local] Hint Resolve expects_num_facts_incl Existsn_ge_submultiset
     Existsn_le_submultiset submultiset_incl incl_def : core.

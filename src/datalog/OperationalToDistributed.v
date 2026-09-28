@@ -88,24 +88,18 @@ Section __.
     apply Finite.Injective_map_NoDup; [| apply NoDup_node_rules]. cbv [Finite.Injective]. congruence.
   Qed.
 
-  Definition operational_done_with known (src : source) fp num :=
-    exists nums,
-      Forall2 (fun src num0 => In (message.done_with fp src num0) known)
-        (op_sources_of src) nums /\
-        num = list_sum nums.
-
   Definition done_msgs_corresp (op_known : list (message (sender_label := op_source))) (ns : graph_node_state message action_label state) :=
     forall fp num src,
       In (message.done_with fp src num) ns.(gns_node_state).(state.known) <->
         In src (graph_senders (fact_pattern.rel fp)) /\
-          operational_done_with op_known src fp num.
+          expects_num_facts (op_sources_of src) fp op_known num.
 
   (*TODO consider how to merge this with done_msgs_corresp*)
   Definition sent_done_msgs_corresp (op_known : list (message (sender_label := op_source))) n (ns : graph_node_state message action_label state) :=
     forall fp num,
       In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent) <->
         In (node_source n) (graph_senders (fact_pattern.rel fp)) /\
-          operational_done_with op_known (node_source n) fp num.
+          expects_num_facts (op_sources_of (node_source n)) fp op_known num.
 
   Definition node_corresp (os : op_state) n np (ns : graph_node_state message action_label state) :=
     Permutation (normal_facts_sent_by_rules os np.(program.rules)) (normal_facts_sent_by_node ns) /\
@@ -267,7 +261,7 @@ Section __.
       + clear Hp1 Hp2. eexists (map list_sum _). split.
         { apply Forall2_map_r. eapply Forall2_impl_strong; [eassumption|].
           simpl. intros node_src msgss HR Hsrc _. apply Hcorresp.
-          split; [assumption|]. cbv [operational_done_with]. eauto. }
+          split; [assumption|]. cbv [expects_num_facts]. eauto. }
         reflexivity.
       + rewrite <- list_sum_concat.
         assert (list_sum l2'0 = 0).
@@ -319,7 +313,7 @@ Section __.
     Forall (fun src => counted src op_known nf) (op_sources_of (node_source k)).
   Proof.
     intros H1 H2. cbv [sent_done_msgs_corresp] in H1. cbv [counted] in H2.
-    fwd. apply H1 in H2p0. fwd. cbv [operational_done_with] in H2p0p1. fwd.
+    fwd. apply H1 in H2p0. fwd. cbv [expects_num_facts] in H2p0p1. fwd.
     apply Forall2_forget_r in H2p0p1p0. eapply Forall_impl; [eassumption|].
     simpl. intros. cbv [counted]. fwd. eauto.
   Qed.
@@ -359,20 +353,12 @@ Section __.
     intros n gns _. eexists. apply drain_node.
   Qed.
 
-  Lemma operational_done_with_cons_normal (known : list (message (sender_label := op_source))) nf src fp num :
-    operational_done_with (message.normal nf :: known) src fp num <-> operational_done_with known src fp num.
-  Proof.
-    cbv [operational_done_with].
-    split; intros (nums & HF & ->); exists nums; (split; [| reflexivity]);
-      (eapply Forall2_impl; [exact HF|]); simpl; intros; intuition congruence.
-  Qed.
-
   Lemma done_msgs_corresp_cons_normal (known : list (message (sender_label := op_source))) nf (b : bool) ns :
     done_msgs_corresp known ns ->
     done_msgs_corresp (message.normal nf :: known) (eat (if b then [message.normal nf] else []) ns).
   Proof.
     cbv [done_msgs_corresp]. intros H fp num src.
-    rewrite operational_done_with_cons_normal, <- (H fp num src). cbv [eat state.add_to_known]. simpl.
+    rewrite expects_num_facts_cons_normal, <- (H fp num src). cbv [eat state.add_to_known]. simpl.
     destruct b; simpl; intuition congruence.
   Qed.
 
@@ -384,7 +370,7 @@ Section __.
     sent_done_msgs_corresp (message.normal nf :: known) n ns'.
   Proof.
     cbv [sent_done_msgs_corresp]. intros Hsent H fp num.
-    rewrite operational_done_with_cons_normal, Hsent. apply H.
+    rewrite expects_num_facts_cons_normal, Hsent. apply H.
   Qed.
 
   Lemma flat_map_sents_deduce_off os r nf rules :
@@ -521,7 +507,7 @@ Section __.
       apply Hlayout_normal in Hp. clear Hlayout_normal.
       cbv [all_rules] in Hp. apply in_flat_map in Hp. fwd.
       apply In_values in Hpp0. fwd. specialize (Hrp1p0 _ _ Hpp0). simpl in Hrp1p0.
-      pose proof Classical_Prop.classic (exists num, operational_done_with os (node_source k) pattern num) as [[num Hdone]|Hnot_done].
+      pose proof Classical_Prop.classic (exists num, expects_num_facts (op_sources_of (node_source k)) pattern os.(op_state.known) num) as [[num Hdone]|Hnot_done].
       +
       operational_done_with
 

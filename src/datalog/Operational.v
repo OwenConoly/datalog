@@ -82,7 +82,7 @@ Section __.
     - apply Finite.Injective_map_NoDup; [intros ? ? ?; congruence | apply NoDup_dedup].
   Qed.
 
-  Local Abbreviation expects_num_facts := (node.expects_num_facts R_senders).
+  Local Abbreviation expects_num_facts pat := (node.expects_num_facts (R_senders pat.(fact_pattern.rel)) pat).
   Local Abbreviation knows_fact := (node.knows_fact R_senders).
   Local Abbreviation knows_meta_fact := (node.knows_meta_fact R_senders).
   Local Abbreviation can_deduce_normal_fact := (node.can_deduce_normal_fact R_senders).
@@ -93,7 +93,7 @@ Section __.
      for input relations, a single [None]-declaration; otherwise one [Some k] count
      per node. *)
   Lemma expects_num_facts_eq pat known num :
-    expects_num_facts known pat num <->
+    expects_num_facts pat known num <->
     (if is_input pat.(fact_pattern.rel)
      then In (message.done_with pat from_input num) known
      else exists expected_msgss,
@@ -427,7 +427,7 @@ Section __.
     allowed_inputs s.(op_state.known).
   Proof.
     intros Hinp Hsane pat ems Hf2.
-    assert (Hexp : expects_num_facts s.(op_state.known) pat (list_sum ems))
+    assert (Hexp : expects_num_facts pat s.(op_state.known) (list_sum ems))
       by (exists ems; split; [ exact Hf2 | reflexivity ]).
     rewrite expects_num_facts_eq in Hexp.
     destruct (Hsane.(sane_count) pat) as (msgs & num_inp & num_known & Hms & Hinp_cnt & Hkn_cnt & Hsum).
