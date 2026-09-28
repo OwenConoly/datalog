@@ -29,7 +29,7 @@ Section __.
   Local Abbreviation graph_senders := (Distributed.R_senders graph_prog is_input).
   Local Abbreviation R_senders := (Operational.R_senders is_input p).
   Local Abbreviation can_deduce := (can_deduce R_senders).
-  Local Abbreviation fire_at_rule := (Operational.fire_at_rule is_input p).
+  Local Abbreviation can_deduce_message := (Operational.can_deduce_message is_input p).
   Local Abbreviation comp_step := (Operational.comp_step is_input p).
   Local Abbreviation has_derived_datalog_fact := (Operational.has_derived_datalog_fact is_input p).
   Local Abbreviation distributed_step := (Distributed.distributed_step graph_prog is_input).
@@ -359,10 +359,6 @@ Section __.
     intros n gns _. eexists. apply drain_node.
   Qed.
 
-  Definition fire_normal os r nf : op_state :=
-    {| op_state.known := message.normal nf :: os.(op_state.known);
-      op_state.sents := mupd_with_default (cons (message.normal nf)) os.(op_state.sents) r |}.
-
   Lemma operational_done_with_cons_normal (known : list (message (sender_label := op_source))) nf src fp num :
     operational_done_with (message.normal nf :: known) src fp num <-> operational_done_with known src fp num.
   Proof.
@@ -391,37 +387,36 @@ Section __.
     rewrite operational_done_with_cons_normal, Hsent. apply H.
   Qed.
 
-  Lemma flat_map_sents_fire_off os r nf rules :
+  Lemma flat_map_sents_deduce_off os r nf rules :
     ~ In r rules ->
-    flat_map (get_or_default (fire_normal os r nf).(op_state.sents)) rules =
+    flat_map (get_or_default (deduce_message os r (message.normal nf)).(op_state.sents)) rules =
       flat_map (get_or_default os.(op_state.sents)) rules.
   Proof.
     intros Hr. rewrite !flat_map_concat_map. f_equal. apply map_ext_in. intros r' Hr'.
-    cbv [fire_normal]. simpl. rewrite get_or_default_mupd.
-    destr (eqb r r'); [subst; contradiction | reflexivity].
+    rewrite get_or_default_deduce_message_sents. destr (eqb r r'); [subst; contradiction | reflexivity].
   Qed.
 
-  Lemma normal_facts_sent_by_rules_fire_other os r nf rules :
+  Lemma normal_facts_sent_by_rules_deduce_other os r nf rules :
     ~ In r rules ->
-    normal_facts_sent_by_rules (fire_normal os r nf) rules = normal_facts_sent_by_rules os rules.
-  Proof. intros. cbv [normal_facts_sent_by_rules]. f_equal. apply flat_map_sents_fire_off. assumption. Qed.
+    normal_facts_sent_by_rules (deduce_message os r (message.normal nf)) rules = normal_facts_sent_by_rules os rules.
+  Proof. intros. cbv [normal_facts_sent_by_rules]. f_equal. apply flat_map_sents_deduce_off. assumption. Qed.
 
-  Lemma normal_facts_sent_by_rules_fire_self os r nf rules :
+  Lemma normal_facts_sent_by_rules_deduce_self os r nf rules :
     In r rules -> NoDup rules ->
-    Permutation (normal_facts_sent_by_rules (fire_normal os r nf) rules)
+    Permutation (normal_facts_sent_by_rules (deduce_message os r (message.normal nf)) rules)
       (nf :: normal_facts_sent_by_rules os rules).
   Proof.
     intros Hr Hnd. apply in_split in Hr. destruct Hr as (l1 & l2 & ->). apply NoDup_remove_2 in Hnd.
     cbv [normal_facts_sent_by_rules]. rewrite <- (Permutation_middle l1 l2 r).
-    cbn [flat_map]. rewrite flat_map_sents_fire_off by assumption. cbv [fire_normal]. simpl.
-    rewrite get_or_default_mupd, eqb_refl_true by assumption. reflexivity.
+    cbn [flat_map]. rewrite flat_map_sents_deduce_off by assumption.
+    rewrite get_or_default_deduce_message_sents, eqb_refl_true by assumption. reflexivity.
   Qed.
 
-  Lemma normal_facts_wanted_fire os r nf np :
-    normal_facts_wanted_by_rules (fire_normal os r nf) np =
+  Lemma normal_facts_wanted_deduce os r nf np :
+    normal_facts_wanted_by_rules (deduce_message os r (message.normal nf)) np =
       (if inb nf.(normal_fact.rel) (program.hyp_rels np) then [nf] else []) ++
         normal_facts_wanted_by_rules os np.
-  Proof. cbv [normal_facts_wanted_by_rules fire_normal]. simpl. destruct (inb _ _); reflexivity. Qed.
+  Proof. cbv [normal_facts_wanted_by_rules deduce_message]. simpl. destruct (inb _ _); reflexivity. Qed.
 
   Lemma normal_facts_known_eat (b : bool) nf ns :
     normal_facts_known_by_node (eat (if b then [message.normal nf] else []) ns) =
@@ -439,29 +434,29 @@ Section __.
     - cbv beta. erewrite get_or_default_Some by eassumption. exact Hr'.
   Qed.
 
-  Lemma node_corresp_fire_other os r nf n np ns :
+  Lemma node_corresp_deduce_other os r nf n np ns :
     map.get graph_prog n = Some np ->
     ~ In r np.(program.rules) ->
     node_corresp os n np ns ->
-    node_corresp (fire_normal os r nf) n np
+    node_corresp (deduce_message os r (message.normal nf)) n np
       (eat (if inb nf.(normal_fact.rel) (program.hyp_rels (prog_at graph_prog n)) then [message.normal nf] else []) ns).
   Proof.
     intros Hget Hr (Hsent & Hknown & Hdone & Hsdone & Hq). erewrite prog_at_get by eassumption.
     cbv [node_corresp]. ssplit.
-    - rewrite normal_facts_sent_by_rules_fire_other by assumption. exact Hsent.
-    - rewrite normal_facts_wanted_fire, normal_facts_known_eat.
+    - rewrite normal_facts_sent_by_rules_deduce_other by assumption. exact Hsent.
+    - rewrite normal_facts_wanted_deduce, normal_facts_known_eat.
       destruct (inb _ _); simpl; [apply perm_skip |]; exact Hknown.
-    - cbn [fire_normal op_state.known]. apply done_msgs_corresp_cons_normal. exact Hdone.
-    - cbn [fire_normal op_state.known]. eapply sent_done_msgs_corresp_cons_normal; [| exact Hsdone].
+    - cbn [deduce_message op_state.known]. apply done_msgs_corresp_cons_normal. exact Hdone.
+    - cbn [deduce_message op_state.known]. eapply sent_done_msgs_corresp_cons_normal; [| exact Hsdone].
       intros. reflexivity.
     - exact Hq.
   Qed.
 
-  Lemma node_corresp_fire_self os r nf n np ns tr :
+  Lemma node_corresp_deduce_self os r nf n np ns tr :
     map.get graph_prog n = Some np ->
     In r np.(program.rules) ->
     node_corresp os n np ns ->
-    node_corresp (fire_normal os r nf) n np
+    node_corresp (deduce_message os r (message.normal nf)) n np
       (eat (if inb nf.(normal_fact.rel) (program.hyp_rels (prog_at graph_prog n)) then [message.normal nf] else [])
          {| gns_node_state := {| state.known := ns.(gns_node_state).(state.known);
                                  state.sent := message.normal nf :: ns.(gns_node_state).(state.sent) |};
@@ -470,11 +465,11 @@ Section __.
     intros Hget Hr (Hsent & Hknown & Hdone & Hsdone & Hq). erewrite prog_at_get by eassumption.
     pose proof (NoDup_node_rules n) as Hnd. erewrite get_or_default_Some in Hnd by eassumption.
     cbv [node_corresp]. ssplit.
-    - rewrite normal_facts_sent_by_rules_fire_self by assumption. apply perm_skip. exact Hsent.
-    - rewrite normal_facts_wanted_fire, normal_facts_known_eat.
+    - rewrite normal_facts_sent_by_rules_deduce_self by assumption. apply perm_skip. exact Hsent.
+    - rewrite normal_facts_wanted_deduce, normal_facts_known_eat.
       destruct (inb _ _); simpl; [apply perm_skip |]; exact Hknown.
-    - cbn [fire_normal op_state.known]. apply done_msgs_corresp_cons_normal. exact Hdone.
-    - cbn [fire_normal op_state.known]. eapply sent_done_msgs_corresp_cons_normal; [| exact Hsdone].
+    - cbn [deduce_message op_state.known]. apply done_msgs_corresp_cons_normal. exact Hdone.
+    - cbn [deduce_message op_state.known]. eapply sent_done_msgs_corresp_cons_normal; [| exact Hsdone].
       intros. simpl. intuition congruence.
     - exact Hq.
   Qed.
@@ -488,7 +483,7 @@ Section __.
       star distributed_step gs t gs' /\ distribute_R os' gs'.
   Proof.
     intros Hos1 Hos2 H. invert 1. rename H1 into Hp, H2 into Hr.
-    cbv [fire_at_rule can_deduce] in Hr. simpl in Hr. destruct new_fact; fwd.
+    cbv [can_deduce_message can_deduce] in Hr. simpl in Hr. destruct new_fact; fwd.
     - invert_stuff. subst.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
       apply Hlayout_normal in Hp; auto. apply in_flat_map in Hp. fwd.
@@ -517,9 +512,9 @@ Section __.
         apply Forall2_map_map_values'_r.
         eapply Forall2_map_put_r; [| exact Hpp0 |].
         * eapply Forall2_map_impl_strong; [exact H|]. intros k0 np ns Hk0 _ Hnc Hne.
-          apply node_corresp_fire_other; [exact Hk0 | | exact Hnc].
+          apply node_corresp_deduce_other; [exact Hk0 | | exact Hnc].
           intros Hr. apply Hne. eapply rule_at_unique; eassumption.
-        * apply node_corresp_fire_self; assumption.
+        * apply node_corresp_deduce_self; assumption.
     - cbv [graph_prog_distributes_meta_rules] in Hlayout_meta.
       apply Hlayout_meta in Hrp1p0. clear Hlayout_meta.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.

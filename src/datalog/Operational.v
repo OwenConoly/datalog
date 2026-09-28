@@ -149,22 +149,30 @@ Section __.
   Definition add_known_fact f (s : op_state) :=
     {| op_state.known := f :: s.(op_state.known); op_state.sents := s.(op_state.sents) |}.
 
-  (*the node for rule [r] runs [r] plus all the meta rules*)
   Definition node_prog (r : rule) : program :=
     {| program.rules := [r]; program.meta_rules := p.(program.meta_rules) |}.
 
-  (* The effect of node [r] firing fact [f]: given the global [known] pool and
-     the node's sent list [sent]. *)
-  Definition fire_at_rule (r : rule) known (sent : list message) (f : message) : Prop :=
+  Definition can_deduce_message (r : rule) known (sent : list message) (f : message) : Prop :=
     node.can_deduce R_senders (node_prog r) (from_rule r)
       {| node.state.known := known; node.state.sent := sent |} f.
+
+  Definition deduce_message (s : op_state) r m : op_state :=
+    {| op_state.known := m :: s.(op_state.known);
+      op_state.sents := mupd_with_default (cons m) s.(op_state.sents) r |}.
+
+  Lemma get_or_default_deduce_message_sents s r m r' :
+    get_or_default (deduce_message s r m).(op_state.sents) r' =
+      if eqb r r' then m :: get_or_default s.(op_state.sents) r' else get_or_default s.(op_state.sents) r'.
+  Proof.
+    cbv [deduce_message]. cbn [deduce_message op_state.sents]. rewrite get_or_default_mupd.
+    destr (eqb r r'); [subst |]; reflexivity.
+  Qed.
 
   Inductive comp_step : op_state -> op_state -> Prop :=
   | fire_rule new_fact s r :
     In r p.(program.rules) ->
-    fire_at_rule r s.(op_state.known) (get_or_default s.(op_state.sents) r) new_fact ->
-    comp_step s {| op_state.known := new_fact :: s.(op_state.known);
-                  op_state.sents := mupd_with_default (cons new_fact) s.(op_state.sents) r |}.
+    can_deduce_message r s.(op_state.known) (get_or_default s.(op_state.sents) r) new_fact ->
+    comp_step s (deduce_message s r new_fact).
 
   Definition is_input_fact (f : message) :=
     match f with
@@ -341,7 +349,7 @@ Section __.
     destruct Hsane as [Hmf_inp Hmf_sent Hcount Hinp_sane Hinp_propagated].
     invert Hstep.
     rename H into Hin_r. rename H0 into Hfire.
-    cbv [fire_at_rule] in Hfire.
+    cbv [can_deduce_message] in Hfire.
     assert (Hcount' : forall pat0,
               exists msgs num_inp num_known,
                 Forall2 (fun r0 m => Existsn (message.matches pat0) m
@@ -368,7 +376,7 @@ Section __.
       destruct Hfire as (Hex & Hfresh). invert_list_stuff.
       assert (Hnf_noninput : is_input nf.(normal_fact.rel) = false)
         by (eapply can_deduce_implies_not_input; eassumption).
-      constructor; cbn [op_state.known op_state.sents].
+      constructor; cbn [deduce_message op_state.known op_state.sents].
       + intros pat0 num [Heq | Hin]; [ discriminate | exact (Hmf_inp _ _ Hin) ].
       + intros pat0 r0 num [Heq | Hin]; [ discriminate | ].
         specialize (Hmf_sent _ _ _ Hin). destruct Hmf_sent as (HE & HI).
@@ -390,7 +398,7 @@ Section __.
       assert (Hpat_noninput : is_input pat.(fact_pattern.rel) = false).
       { apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr & mhyps & Hpi & _).
         eapply pattern_concl_not_input; eassumption. }
-      constructor; cbn [op_state.known op_state.sents].
+      constructor; cbn [deduce_message op_state.known op_state.sents].
       + intros pat0 num [Heq | Hin]; [ discriminate | exact (Hmf_inp _ _ Hin) ].
       + intros pat0 r0 num Hin. rewrite get_or_default_mupd. destr (eqb r r0).
         * destruct Hin as [Heq | Hin].
@@ -438,7 +446,7 @@ Section __.
 
   Lemma comp_step_known_cons s s' :
     comp_step s s' -> exists f, s'.(op_state.known) = f :: s.(op_state.known).
-  Proof. intros H. invert H. cbn [op_state.known]. eauto. Qed.
+  Proof. intros H. invert H. cbn [deduce_message op_state.known]. eauto. Qed.
 
   Lemma comp_step_knows_incl inputs s s' :
     good_input_facts inputs ->
@@ -496,10 +504,10 @@ Section __.
     pose proof (comp_step_knows_incl _ _ _ Hinp Hsane Hstep) as Hmono.
     pose proof Hsane as Hsane0. destruct Hsane0 as [_ Hmf_sent _ _ _].
     invert Hstep. rename H into Hin_r. rename H0 into Hfire.
-    cbv [fire_at_rule] in Hfire.
+    cbv [can_deduce_message] in Hfire.
     cbn [node.can_deduce node.state.known node.state.sent node_prog
            program.rules program.meta_rules] in Hfire.
-    cbv [meta_facts_correct] in Hmfc |- *. cbn [op_state.known op_state.sents] in Hmono |- *.
+    cbv [meta_facts_correct] in Hmfc |- *. cbn [deduce_message op_state.known op_state.sents] in Hmono |- *.
     pose proof (Hmfc r Hin_r) as Hmfc_r.
     intros r0 Hr0. rewrite get_or_default_mupd. destr (eqb r r0);
       [ | eapply meta_facts_correct_at_rule_mono; [ exact Hmono | exact (Hmfc r0 Hr0) ] ].
@@ -797,11 +805,11 @@ Section __.
     intros Hinp Hsane Hmfc Hmf_ok Hstep.
     pose proof (comp_step_knows_incl _ _ _ Hinp Hsane Hstep) as Hmono.
     invert Hstep. rename H into Hin_r. rename H0 into Hfire.
-    cbv [fire_at_rule] in Hfire.
+    cbv [can_deduce_message] in Hfire.
     cbn [node.can_deduce node.state.known node.state.sent node_prog
            program.rules program.meta_rules] in Hfire.
     cbv [meta_facts_ok] in Hmf_ok |- *. cbv [meta_facts_correct] in Hmfc.
-    cbn [op_state.known op_state.sents] in Hmono |- *.
+    cbn [deduce_message op_state.known op_state.sents] in Hmono |- *.
     pose proof (Hmf_ok r Hin_r) as Hmfok_r. pose proof (Hmfc r Hin_r) as Hmfc_r.
     intros r0 Hr0. rewrite get_or_default_mupd. destr (eqb r r0);
       [ | eapply meta_facts_ok_at_rule_grow;
@@ -833,7 +841,7 @@ Section __.
     has_derived_datalog_fact s (fact.meta mf).
   Proof.
     intros HER Hnm Hnd Hf. cbv [has_derived_datalog_fact add_known_fact] in Hf |- *.
-    cbn [op_state.known] in Hf. rewrite HER in Hf |- *.
+    cbn [deduce_message op_state.known] in Hf. rewrite HER in Hf |- *.
     destruct Hf as (num & Hin & Hexn). exists num. split.
     - destruct Hin as [Heq | Hin]; [ exfalso; exact (Hnd num Heq) | exact Hin ].
     - exact (Existsn_cons_no _ _ _ _ Hnm Hexn).
@@ -851,13 +859,13 @@ Section __.
     intros Hinp Hsane Hmfc Hmf_ok Hsound Hstep f (Hf1 & Hf2).
     pose proof Hstep as Hstep_save.
     invert Hstep. rename H into Hin_r. rename H0 into Hfire.
-    cbv [fire_at_rule] in Hfire.
+    cbv [can_deduce_message] in Hfire.
     assert (Hlift : forall h, knows_fact s.(op_state.known) h ->
                      program.interp p (knows_fact inputs) h).
     { intros h Hh. apply Hsound. split;
         [ apply knows_fact_local_lift_has_derived; exact Hh
         | apply knows_fact_local_lift_mf_consistent; exact Hh ]. }
-    cbn [op_state.known op_state.sents] in Hf1, Hf2 |- *.
+    cbn [deduce_message op_state.known op_state.sents] in Hf1, Hf2 |- *.
     destruct new_fact as [nnf | npat nsrc ncnt].
     { cbn [node.can_deduce node.state.known node.state.sent node_prog
              program.rules program.meta_rules] in Hfire.
@@ -975,7 +983,7 @@ Section __.
                  { intros mf' Hne (Hhd' & Hmc').
                    apply Hsound. split.
                    - cbv [has_derived_datalog_fact] in Hhd' |- *.
-                     subst s'. cbn [op_state.known op_state.sents] in Hhd'.
+                     subst s'. cbn [deduce_message op_state.known op_state.sents] in Hhd'.
                      destruct (is_input (meta_fact.rel mf')) eqn:HERmf'.
                      + destruct Hhd' as (num & Hin & Hexn). exists num. split.
                        * destruct Hin as [Heq | Hin]; [ invert Heq | exact Hin ].
@@ -985,7 +993,7 @@ Section __.
                        invert Heq. congruence.
                    - cbv [mf_consistent_state meta_fact.consistent_with] in Hmc' |- *.
                      intros nf2 Hm2. specialize (Hmc' _ Hm2). subst s'.
-                     cbn [op_state.known] in Hmc'. rewrite Hmc'. exact (Hkd_normal nf2). }
+                     cbn [deduce_message op_state.known] in Hmc'. rewrite Hmc'. exact (Hkd_normal nf2). }
                  assert (Hf1_True : has_derived_datalog_fact s'
                             (fact.meta (meta_fact.mk npat []))).
                  { cbv [has_derived_datalog_fact meta_fact.rel] in Hf1 |- *. simpl.
@@ -1018,7 +1026,7 @@ Section __.
                      | rewrite Forall_forall in Hmhyps_derived; auto ]. }
                  cbv [mf_consistent_state meta_fact.consistent_with] in Hf2.
                  specialize (Hf2 _ Hmatch_mf).
-                 rewrite Hf2. subst s'. cbn [op_state.known].
+                 rewrite Hf2. subst s'. cbn [deduce_message op_state.known].
                  rewrite (program.one_step_derives_iff p (knows_fact inputs) mr mhyps npat nf)
                    by (assumption || apply Hgood_Q).
                  split.
@@ -1049,7 +1057,7 @@ Section __.
 
   Lemma comp_step_known_incl s s' :
     comp_step s s' -> incl s.(op_state.known) s'.(op_state.known).
-  Proof. intros Hstep. invert Hstep. cbn [op_state.known]. apply incl_tl, incl_refl. Qed.
+  Proof. intros Hstep. invert Hstep. cbn [deduce_message op_state.known]. apply incl_tl, incl_refl. Qed.
 
   Lemma comp_steps_known_incl s s' :
     comp_step^* s s' -> incl s.(op_state.known) s'.(op_state.known).
@@ -1064,8 +1072,8 @@ Section __.
   Proof.
     intros Hstep Hd.
     invert Hstep. rename H into Hin_r. rename H0 into Hfire.
-    cbv [fire_at_rule] in Hfire.
-    destruct f as [nf | mf]; cbv [has_derived_datalog_fact] in *; cbn [op_state.known].
+    cbv [can_deduce_message] in Hfire.
+    destruct f as [nf | mf]; cbv [has_derived_datalog_fact] in *; cbn [deduce_message op_state.known].
     - apply in_cons. exact Hd.
     - destruct (is_input (meta_fact.rel mf)) eqn:HER.
       + destruct Hd as (num & Hin & Hexn). exists num. split; [ apply in_cons; exact Hin |].
@@ -1270,11 +1278,10 @@ Section __.
         get_or_default s'.(op_state.sents) rn = message.normal nf :: get_or_default s.(op_state.sents) rn.
   Proof.
     intros Hsane Hmf_ok Hin_rn Hcdn Hnot_in.
-    exists {| op_state.known := message.normal nf :: s.(op_state.known);
-             op_state.sents := mupd_with_default (cons (message.normal nf)) s.(op_state.sents) rn |}.
+    exists (deduce_message s rn (message.normal nf)).
     ssplit.
     - apply (fire_rule (message.normal nf) s rn); [ exact Hin_rn |].
-      cbv [fire_at_rule].
+      cbv [can_deduce_message].
       cbn [node.can_deduce node.state.known node.state.sent node_prog
            program.rules program.meta_rules].
       split.
@@ -1282,8 +1289,8 @@ Section __.
       + intros (pat & num & Hin_meta & Hmatch).
         pose proof (Hmf_ok rn Hin_rn _ _ Hin_meta) as Hmfor.
         exact (Hnot_in (Hmfor nf Hcdn Hmatch)).
-    - cbn [op_state.known]. reflexivity.
-    - cbn [op_state.sents]. rewrite get_or_default_mupd. destr (eqb rn rn); [ reflexivity | congruence ].
+    - cbn [deduce_message op_state.known]. reflexivity.
+    - cbn [deduce_message op_state.sents]. rewrite get_or_default_mupd. destr (eqb rn rn); [ reflexivity | congruence ].
   Qed.
 
   (* Drive node [rn] to sent-broadcast every fact matching [mf]'s pattern
@@ -1410,12 +1417,10 @@ Section __.
         s'.(op_state.known) = message.done_with pat (from_rule rn) ms :: s.(op_state.known).
   Proof.
     intros Hsane Hin_rn Hin_mr Hexn Hpi Hknow Hok.
-    exists {| op_state.known := message.done_with pat (from_rule rn) ms :: s.(op_state.known);
-             op_state.sents := mupd_with_default (cons (message.done_with pat (from_rule rn) ms))
-                        s.(op_state.sents) rn |}.
-    split; [| cbn [op_state.known]; reflexivity ].
+    exists (deduce_message s rn (message.done_with pat (from_rule rn) ms)).
+    split; [| cbn [deduce_message op_state.known]; reflexivity ].
     apply (fire_rule (message.done_with pat (from_rule rn) ms) s rn); [ exact Hin_rn |].
-    cbv [fire_at_rule].
+    cbv [can_deduce_message].
     cbn [node.can_deduce node.state.known node.state.sent node_prog
          program.rules program.meta_rules].
     ssplit.
@@ -1595,20 +1600,20 @@ Section __.
 
   Lemma mfc_initial (inputs : list message) : meta_facts_correct (initial inputs).
   Proof.
-    unfold meta_facts_correct, initial. cbn [op_state.known op_state.sents].
+    unfold meta_facts_correct, initial. cbn [deduce_message op_state.known op_state.sents].
     intros r Hr pat num Hin. rewrite get_or_default_empty in Hin. destruct Hin.
   Qed.
 
   Lemma mfok_initial (inputs : list message) : meta_facts_ok (initial inputs).
   Proof.
-    unfold meta_facts_ok, initial. cbn [op_state.known op_state.sents].
+    unfold meta_facts_ok, initial. cbn [deduce_message op_state.known op_state.sents].
     intros r Hr pat num Hin. rewrite get_or_default_empty in Hin. destruct Hin.
   Qed.
 
   Lemma sane_initial (inputs : list message) :
     good_input_facts inputs -> sane_state inputs (initial inputs).
   Proof.
-    intros Hg. unfold initial. constructor; cbn [op_state.known op_state.sents].
+    intros Hg. unfold initial. constructor; cbn [deduce_message op_state.known op_state.sents].
     - intros pat num H. exact H.
     - intros pat r num H. exfalso. exact (good_input_no_node_meta inputs pat r num Hg H).
     - intros pat. destruct (Existsn_total (message.matches pat) inputs) as (nk & Hnk).
@@ -1629,10 +1634,10 @@ Section __.
     good_input_facts inputs -> state_correct inputs (initial inputs).
   Proof.
     intros Hlen Hg f (Hd & Hmc). destruct f as [nf | mf].
-    - cbv [has_derived_datalog_fact] in Hd. unfold initial in Hd. cbn [op_state.known] in Hd.
+    - cbv [has_derived_datalog_fact] in Hd. unfold initial in Hd. cbn [deduce_message op_state.known] in Hd.
       apply pftree.leaf. exact Hd.
     - cbv [has_derived_datalog_fact] in Hd. cbv [mf_consistent_state] in Hmc.
-      unfold initial in Hd, Hmc. cbn [op_state.known] in Hd, Hmc.
+      unfold initial in Hd, Hmc. cbn [deduce_message op_state.known] in Hd, Hmc.
       destruct (is_input (meta_fact.rel mf)) eqn:HER.
       + apply pftree.leaf. cbn [node.knows_fact].
         destruct Hd as (num & Hin & Hexn). exists num. ssplit.
