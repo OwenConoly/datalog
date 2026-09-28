@@ -88,30 +88,30 @@ Section __.
     apply Finite.Injective_map_NoDup; [| apply NoDup_node_rules]. cbv [Finite.Injective]. congruence.
   Qed.
 
-  Definition operational_done_with os (src : source) fp num :=
+  Definition operational_done_with known (src : source) fp num :=
     exists nums,
-      Forall2 (fun src num0 => In (message.done_with fp src num0) os.(op_state.known))
+      Forall2 (fun src num0 => In (message.done_with fp src num0) known)
         (op_sources_of src) nums /\
         num = list_sum nums.
 
-  Definition done_msgs_corresp (os : op_state) (ns : graph_node_state message action_label state) :=
+  Definition done_msgs_corresp (op_known : list (message (sender_label := op_source))) (ns : graph_node_state message action_label state) :=
     forall fp num src,
       In (message.done_with fp src num) ns.(gns_node_state).(state.known) <->
         In src (graph_senders (fact_pattern.rel fp)) /\
-          operational_done_with os src fp num.
+          operational_done_with op_known src fp num.
 
   (*TODO consider how to merge this with done_msgs_corresp*)
-  Definition sent_done_msgs_corresp (os : op_state) n (ns : graph_node_state message action_label state) :=
+  Definition sent_done_msgs_corresp (op_known : list (message (sender_label := op_source))) n (ns : graph_node_state message action_label state) :=
     forall fp num,
       In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent) <->
         In (node_source n) (graph_senders (fact_pattern.rel fp)) /\
-          operational_done_with os (node_source n) fp num.
+          operational_done_with op_known (node_source n) fp num.
 
   Definition node_corresp (os : op_state) n np (ns : graph_node_state message action_label state) :=
     Permutation (normal_facts_sent_by_rules os np.(program.rules)) (normal_facts_sent_by_node ns) /\
       Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) /\
-      done_msgs_corresp os ns /\
-      sent_done_msgs_corresp os n ns /\
+      done_msgs_corresp os.(op_state.known) ns /\
+      sent_done_msgs_corresp os.(op_state.known) n ns /\
       ns.(gns_queue) = [].
 
   Definition distribute_R (os : op_state) (gs : graph_state message action_label state) :=
@@ -242,7 +242,7 @@ Section __.
     In (fact.rel f) (rule.hyp_rels r) ->
     op_state_reasonable os ->
     Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->
-    done_msgs_corresp os ns ->
+    done_msgs_corresp os.(op_state.known) ns ->
     knows_fact R_senders (op_state.known os) f ->
     knows_fact graph_senders (state.known (gns_node_state ns)) f.
   Proof.
@@ -281,6 +281,7 @@ Section __.
         rewrite list_sum_app in Hp1. rewrite H in Hp1. rewrite <- plus_n_O in Hp1.
 
         move Hperm at bottom.
+        Check op_existsn_iff.
         eapply op_existsn_iff; try eassumption.
         eapply hyp_rel_in_program; eauto.
       + move Hp2 at bottom. eapply meta_fact.consistent_with_ext; [eassumption|].
@@ -292,7 +293,7 @@ Section __.
   Lemma sth r (np : program) os ns nf :
     In r np.(program.rules) ->
     op_state_reasonable os ->
-    done_msgs_corresp os ns ->
+    done_msgs_corresp os.(op_state.known) ns ->
     Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->
     can_deduce_normal_fact R_senders r (op_state.known os) nf ->
     can_deduce_normal_fact graph_senders r (state.known (gns_node_state ns)) nf.
@@ -312,10 +313,10 @@ Section __.
   Proof. intros Hok. cbv [counted op_state_sents_ok] in *. setoid_rewrite Hok. reflexivity. Qed.
 
   (*TODO want some converse to this?*)
-  Lemma blah' os k ns nf :
-    sent_done_msgs_corresp os k ns ->
+  Lemma blah' op_known k ns nf :
+    sent_done_msgs_corresp op_known k ns ->
     counted (node_source k) (state.sent ns.(gns_node_state)) nf ->
-    Forall (fun src => counted src os.(op_state.known) nf) (op_sources_of (node_source k)).
+    Forall (fun src => counted src op_known nf) (op_sources_of (node_source k)).
   Proof.
     intros H1 H2. cbv [sent_done_msgs_corresp] in H1. cbv [counted] in H2.
     fwd. apply H1 in H2p0. fwd. cbv [operational_done_with] in H2p0p1. fwd.
@@ -517,7 +518,23 @@ Section __.
           apply node_corresp_fire_other; [exact Hk0 | | exact Hnc].
           intros Hr. apply Hne. eapply rule_at_unique; eassumption.
         * apply node_corresp_fire_self; assumption.
-    - admit.
+    - cbv [graph_prog_distributes_meta_rules] in Hlayout_meta.
+      apply Hlayout_meta in Hrp1p0. clear Hlayout_meta.
+      cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
+      apply Hlayout_normal in Hp. clear Hlayout_normal.
+      cbv [all_rules] in Hp. apply in_flat_map in Hp. fwd.
+      apply In_values in Hpp0. fwd. specialize (Hrp1p0 _ _ Hpp0). simpl in Hrp1p0.
+      pose proof Classical_Prop.classic (exists num, operational_done_with os (node_source k) pattern num) as [[num Hdone]|Hnot_done].
+      +
+      operational_done_with
+
+      Search all_rules.
+      Print node_corresp. Print done_msgs_corresp.
+      epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
+      do 2 eexists. split.
+      + eapply star_app.
+        -- apply star_one. apply gstep_run.
+        Print distribute_R. Print node_corresp. invert_stuff. subst.
   Admitted.
 
   (*we add two pieces of complexity here.
