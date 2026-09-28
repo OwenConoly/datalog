@@ -227,21 +227,20 @@ Section __.
     { intros x. destruct x; simpl; intros; split; intros; fwd; (eauto || contradiction || discriminate). }
   Qed.
 
-  Lemma sth' r (np : program) os ns f :
-    In r np.(program.rules) ->
-    In (fact.rel f) (rule.hyp_rels r) ->
+  Lemma sth' (np : program) os ns f :
+    In (fact.rel f) (program.hyp_rels np) ->
     op_state_reasonable os ->
     Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->
     done_msgs_corresp os.(op_state.known) ns ->
     knows_fact R_senders (op_state.known os) f ->
     knows_fact graph_senders (state.known (gns_node_state ns)) f.
   Proof.
-    intros Hr Hf Hos Hperm Hcorresp H. cbv [knows_fact] in H |- *. destruct f as [nf | mf].
+    intros Hf Hos Hperm Hcorresp H. cbv [knows_fact] in H |- *. destruct f as [nf | mf].
     - cbv [knows_normal_fact] in H |- *. simpl in Hf.
       apply Permutation_incl in Hperm.
       cbv [normal_facts_wanted_by_rules incl] in Hperm. especialize Hperm.
       { rewrite filter_In. rewrite message.in_filter_map_as_normal.
-        split; [eassumption|]. apply inb_true_iff. eapply program.rule_hyp_rel_in; eauto. }
+        split; [eassumption|]. apply inb_true_iff. assumption. }
       cbv [normal_facts_known_by_node] in Hperm.
       rewrite message.in_filter_map_as_normal in Hperm. assumption.
     - cbv [knows_meta_fact] in H |- *. fwd.
@@ -272,12 +271,10 @@ Section __.
 
         move Hperm at bottom.
         Check op_existsn_iff.
-        eapply op_existsn_iff; try eassumption.
-        eapply program.rule_hyp_rel_in; eauto.
+        eapply op_existsn_iff; eassumption.
       + move Hp2 at bottom. eapply meta_fact.consistent_with_ext; [eassumption|].
         intros nf Hnf. move Hperm at bottom.
-        eapply op_knows_normal_fact_iff; try eassumption. rewrite Hnf.
-        eapply program.rule_hyp_rel_in; eauto.
+        eapply op_knows_normal_fact_iff; try eassumption. rewrite Hnf. exact Hf.
   Qed.
 
   Lemma sth r (np : program) os ns nf :
@@ -293,7 +290,24 @@ Section __.
     apply rule.interp_hyp_relname_in in Hp0.
     eapply Forall_impl.
     { apply Forall_and; [exact Hp0|exact Hp1]. }
-    simpl. intros. fwd. eapply sth'; try eassumption.
+    simpl. intros. fwd. eapply sth'; try eassumption. eapply program.rule_hyp_rel_in; eauto.
+  Qed.
+
+  Lemma sth_meta mr (np : program) os ns pat :
+    In mr np.(program.meta_rules) ->
+    op_state_reasonable os ->
+    done_msgs_corresp os.(op_state.known) ns ->
+    Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->
+    can_deduce_pattern R_senders mr (op_state.known os) pat ->
+    can_deduce_pattern graph_senders mr (state.known (gns_node_state ns)) pat.
+  Proof.
+    intros Hmr Hos Hcorresp Hperm H. cbv [can_deduce_pattern] in *.
+    fwd. eexists. split; [eassumption|].
+    apply meta_rule.pattern_interp_hyp_relname_in in Hp0. rewrite Lists.List.Forall_map in Hp0.
+    eapply Forall_impl.
+    { apply Forall_and; [exact Hp0|exact Hp1]. }
+    simpl. intros. fwd. eapply sth' with (f := fact.meta _); try eassumption.
+    eapply program.meta_rule_hyp_rel_in; eauto.
   Qed.
 
   Lemma blah os x nf :
