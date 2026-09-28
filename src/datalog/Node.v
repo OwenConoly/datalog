@@ -136,6 +136,11 @@ Section __.
       meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
         Forall (knows_meta_fact known) mhyps.
 
+  Lemma can_deduce_pattern_concl_relname_in mr known pat :
+    can_deduce_pattern mr known pat ->
+    In pat.(fact_pattern.rel) (meta_rule.concl_rels mr).
+  Proof. intros (? & ? & _). eauto using meta_rule.pattern_interp_concl_relname_in. Qed.
+
   Context (p : program) (name : sender_label).
 
   Definition counted (sent : list message) (nf : normal_fact) :=

@@ -227,10 +227,6 @@ Section __.
     { intros x. destruct x; simpl; intros; split; intros; fwd; (eauto || contradiction || discriminate). }
   Qed.
 
-  Lemma hyp_rel_in_program (np : program) r R :
-    In r np.(program.rules) -> In R (rule.hyp_rels r) -> In R (program.hyp_rels np).
-  Proof. intros. cbv [program.hyp_rels]. apply in_or_app. left. apply in_flat_map. eauto. Qed.
-
   Lemma sth' r (np : program) os ns f :
     In r np.(program.rules) ->
     In (fact.rel f) (rule.hyp_rels r) ->
@@ -245,7 +241,7 @@ Section __.
       apply Permutation_incl in Hperm.
       cbv [normal_facts_wanted_by_rules incl] in Hperm. especialize Hperm.
       { rewrite filter_In. rewrite message.in_filter_map_as_normal.
-        split; [eassumption|]. apply inb_true_iff. eapply hyp_rel_in_program; eauto. }
+        split; [eassumption|]. apply inb_true_iff. eapply program.rule_hyp_rel_in; eauto. }
       cbv [normal_facts_known_by_node] in Hperm.
       rewrite message.in_filter_map_as_normal in Hperm. assumption.
     - cbv [knows_meta_fact] in H |- *. fwd.
@@ -277,11 +273,11 @@ Section __.
         move Hperm at bottom.
         Check op_existsn_iff.
         eapply op_existsn_iff; try eassumption.
-        eapply hyp_rel_in_program; eauto.
+        eapply program.rule_hyp_rel_in; eauto.
       + move Hp2 at bottom. eapply meta_fact.consistent_with_ext; [eassumption|].
         intros nf Hnf. move Hperm at bottom.
         eapply op_knows_normal_fact_iff; try eassumption. rewrite Hnf.
-        eapply hyp_rel_in_program; eauto.
+        eapply program.rule_hyp_rel_in; eauto.
   Qed.
 
   Lemma sth r (np : program) os ns nf :
