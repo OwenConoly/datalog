@@ -15,13 +15,31 @@ Import node.
 Notation "R ^*" := (clos_refl_trans_1n _ R) (format "R ^*").
 #[global] Hint Constructors clos_refl_trans_1n : core.
 
-Section __.
-  Context `{params : datalog_params}.
+Module op_source.
+  Section __.
+    Context `{params : datalog_params}.
 
-  Variant op_source :=
-  | from_rule (r : rule)
-  | from_input.
-End __.
+    Variant op_source :=
+      | rule (r : rule)
+      | input.
+
+    Context {rule_eqb : Eqb rule.rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
+
+    #[global] Instance eqb : Eqb op_source :=
+      fun s1 s2 =>
+        match s1, s2 with
+        | rule r1, rule r2 => eqb r1 r2
+        | input, input => true
+        | _, _ => false
+        end.
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof.
+      intros a b. destruct a, b; cbn; try congruence.
+      destr (Eqb.eqb r r0); congruence.
+    Qed.
+  End __.
+End op_source. Abbreviation op_source := op_source.op_source.
 
 #[local] Instance sender_label `{relT} `{exprvarT} `{fnT} `{aggregatorT} : sender_labelT := op_source.
 

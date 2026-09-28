@@ -507,7 +507,7 @@ Section __.
       apply Hlayout_normal in Hp. clear Hlayout_normal.
       cbv [all_rules] in Hp. apply in_flat_map in Hp. fwd.
       apply In_values in Hpp0. fwd. specialize (Hrp1p0 _ _ Hpp0). simpl in Hrp1p0.
-      pose proof Classical_Prop.classic (exists num, expects_num_facts (op_sources_of (node_source k)) pattern os.(op_state.known) num) as [[num Hdone]|Hnot_done].
+      pose proof Classical_Prop.classic (exists num, expects_num_facts (removeb eqb (from_rule r) (op_sources_of (node_source k))) pattern os.(op_state.known) num) as [[num Hdone]|Hnot_done].
       +
       operational_done_with
 
