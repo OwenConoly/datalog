@@ -22,175 +22,81 @@ Module op_source.
     Variant op_source :=
       | rule (r : rule)
       | input.
-
-    Context {rule_eqb : Eqb rule.rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
-
-    #[global] Instance eqb : Eqb op_source :=
-      fun s1 s2 =>
-        match s1, s2 with
-        | rule r1, rule r2 => eqb r1 r2
-        | input, input => true
-        | _, _ => false
-        end.
-
-    #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros a b. destruct a, b; cbn; try congruence.
-      destr (Eqb.eqb r r0); congruence.
-    Qed.
   End __.
 End op_source. Abbreviation op_source := op_source.op_source.
-
-#[local] Instance sender_label `{relT} `{exprvarT} `{fnT} `{aggregatorT} : sender_labelT := op_source.
-
-Module op_state.
-  Section __.
-    Context `{params : datalog_params}.
-    Context {sent_map : map.map rule (list message)}.
-
-    Record op_state := { known : list message; sents : sent_map }.
-  End __.
-End op_state. Abbreviation op_state := op_state.op_state.
 
 Section __.
   Context `{params : datalog_params}.
   Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
 
-  Context {sent_map : map.map rule (list message)} {sent_map_ok : map.ok sent_map}.
-
-  Definition normal_args_with (R : rel) (m : message) : option (list value) :=
-    match m with
-    | message.normal nf =>
-        if eqb R nf.(normal_fact.rel) then Some nf.(normal_fact.args) else None
-    | message.done_with _ _ _ => None
-    end.
-
-  Lemma In_normal_args_with R ms args :
-    In args (filter_map (normal_args_with R) ms) <->
-    In (message.normal {| normal_fact.rel := R; normal_fact.args := args |}) ms.
-  Proof.
-    rewrite in_filter_map. split.
-    - intros ([nf | ] & Hin & Hargs); [|discriminate].
-      destruct nf as [nrel nargs]. cbv [normal_args_with] in Hargs. simpl in Hargs.
-      destr (eqb R nrel); [|discriminate]. invert Hargs. assumption.
-    - intros Hin. eexists. split; [eassumption|]. cbv [normal_args_with].
-      rewrite eqb_refl_true by assumption. reflexivity.
-  Qed.
-
   Context (is_input : rel -> bool).
 
   Context (p : program).
 
-  Definition sender_rules : list rule := dedup eqb p.(program.rules).
+  Variant message :=
+    | fact_message (nf : normal_fact)
+    | done_with (pat : fact_pattern) (src : op_source).
 
-  Lemma In_sender_rules r : In r p.(program.rules) -> In r sender_rules.
-  Proof. exact (proj1 (dedup_preserves_In _ r)). Qed.
+  Definition all_done_with known pat :=
+    if is_input pat.(fact_pattern.rel) then
+      In (done_with pat op_source.input) known
+    else
+      Forall (fun r => In (done_with pat (op_source.rule r)) known) p.(program.rules).
 
-  Lemma sender_rules_In r : In r sender_rules -> In r p.(program.rules).
-  Proof. exact (proj2 (dedup_preserves_In _ r)). Qed.
-
-  Definition R_senders : rel -> list op_source :=
-    fun R => if is_input R then [op_source.input] else map op_source.rule sender_rules.
-
-  Lemma R_senders_NoDup R : NoDup (R_senders R).
-  Proof.
-    cbv [R_senders sender_rules]. destruct (is_input R).
-    - constructor; [intros [] | constructor].
-    - apply Finite.Injective_map_NoDup; [intros ? ? ?; congruence | apply NoDup_dedup].
-  Qed.
-
-  Local Abbreviation expects_num_facts pat := (node.expects_num_facts (R_senders pat.(fact_pattern.rel)) pat).
-  Local Abbreviation knows_fact := (node.knows_fact R_senders).
-  Local Abbreviation knows_meta_fact := (node.knows_meta_fact R_senders).
-  Local Abbreviation can_deduce_normal_fact := (node.can_deduce_normal_fact R_senders).
-  Local Abbreviation allowed_inputs := (node.allowed_inputs R_senders).
-  Local Abbreviation knows_incl := (node.knows_incl R_senders).
-
-  (* [expects_num_facts] with the new [R_senders] recovers its old [is_input] form:
-     for input relations, a single [None]-declaration; otherwise one [Some k] count
-     per node. *)
-  Lemma expects_num_facts_eq pat known num :
-    expects_num_facts pat known num <->
-    (if is_input pat.(fact_pattern.rel)
-     then In (message.done_with pat op_source.input num) known
-     else exists expected_msgss,
-       Forall2 (fun r expected_msgs =>
-                  In (message.done_with pat (op_source.rule r) expected_msgs) known)
-               sender_rules expected_msgss /\
-       num = list_sum expected_msgss).
-  Proof.
-    unfold node.expects_num_facts, R_senders.
-    destruct (is_input pat.(fact_pattern.rel)); cbn.
-    - split.
-      + intros (ems & HF2 & Hsum).
-        inversion HF2 as [| a e la lb Ha Hlb]; subst.
-        inversion Hlb; subst. cbn. rewrite Nat.add_0_r. exact Ha.
-      + intros HIn. exists [num]. split; [| cbn; lia].
-        constructor; [exact HIn | constructor].
-    - split; intros (ems & HF2 & Hsum); exists ems; split; try assumption.
-      + rewrite <- Forall2_map_l in HF2. exact HF2.
-      + rewrite <- Forall2_map_l. exact HF2.
-  Qed.
-
-  Definition meta_facts_correct_at_rule (mrs : list meta_rule) known r sent :=
-    forall pat num,
-      In (message.done_with pat (op_source.rule r) num) sent ->
-      exists mr mhyps,
+  Definition meta_facts_correct_at_rule (mrs : list meta_rule) (known : list message) r :=
+    forall pat,
+      In (done_with pat (op_source.rule r)) known ->
+      exists mr pats,
         In mr mrs /\
-          Existsn (message.matches pat) num sent /\
-          meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
-          Forall (knows_meta_fact known) mhyps /\
-          Forall (fun mh => mh.(meta_fact.pattern) <> pat) mhyps.
+          meta_rule.pattern_interp mr pat pats /\
+          Forall (all_done_with known) pats /\
+          ~In pat pats.
 
-  Definition meta_facts_correct (s : op_state) :=
-    forall r, In r p.(program.rules) ->
-      meta_facts_correct_at_rule p.(program.meta_rules) s.(op_state.known) r
-        (get_or_default s.(op_state.sents) r).
+  Definition meta_facts_correct (known : list message) :=
+    Forall (meta_facts_correct_at_rule p.(program.meta_rules) known).
 
-  (*[node.saturated] specialized to the one rule of one positional node*)
-  Definition ok_to_deduce (r : rule) known sent (pat : fact_pattern) :=
+  Definition op_knows_meta_fact known mf :=
+    all_done_with known mf.(meta_fact.pattern) /\
+      meta_fact.consistent_with mf (fun nf => In (fact_message nf) known).
+
+  Definition op_knows_fact known f :=
+    match f with
+    | fact.normal nf => In (fact_message nf) known
+    | fact.meta mf => op_knows_meta_fact known mf
+    end.
+
+  Definition op_can_deduce_normal_fact r known nf :=
+    exists hyps,
+      rule.interp r nf hyps /\ Forall (op_knows_fact known) hyps.
+
+  Definition ok_to_deduce (r : rule) known (pat : fact_pattern) :=
     forall nf,
-      can_deduce_normal_fact r known nf ->
+      op_can_deduce_normal_fact r known nf ->
       fact_pattern.matches pat nf ->
-      In (message.normal nf) sent.
+      In (fact_message nf) known.
 
-  Definition meta_facts_ok_at_rule known r sent :=
-    forall pat num,
-      In (message.done_with pat (op_source.rule r) num) sent ->
-      ok_to_deduce r known sent pat.
+  Definition meta_facts_ok_at_rule known r :=
+    forall pat,
+      In (done_with pat (op_source.rule r)) known ->
+      ok_to_deduce r known pat.
 
-  Definition meta_facts_ok (s : op_state) :=
-    forall r, In r p.(program.rules) ->
-      meta_facts_ok_at_rule s.(op_state.known) r (get_or_default s.(op_state.sents) r).
+  Definition meta_facts_ok known :=
+    Forall (meta_facts_ok_at_rule known) p.(program.rules).
 
-  Definition add_known_fact f (s : op_state) :=
-    {| op_state.known := f :: s.(op_state.known); op_state.sents := s.(op_state.sents) |}.
+  Definition can_deduce_message (r : rule) known (f : message) : Prop :=
+    match f with
+    | fact_message nf => op_can_deduce_normal_fact r known nf
+    | done_with pat src =>
+        src = op_source.rule r /\
+          ok_to_deduce r known pat
+    end.
 
-  Definition node_prog (r : rule) : program :=
-    {| program.rules := [r]; program.meta_rules := p.(program.meta_rules) |}.
-
-  Definition can_deduce_message (r : rule) known (sent : list message) (f : message) : Prop :=
-    node.can_deduce R_senders (node_prog r) (op_source.rule r)
-      {| node.state.known := known; node.state.sent := sent |} f.
-
-  Definition deduce_message (s : op_state) r m : op_state :=
-    {| op_state.known := m :: s.(op_state.known);
-      op_state.sents := mupd_with_default (cons m) s.(op_state.sents) r |}.
-
-  Lemma get_or_default_deduce_message_sents s r m r' :
-    get_or_default (deduce_message s r m).(op_state.sents) r' =
-      if eqb r r' then m :: get_or_default s.(op_state.sents) r' else get_or_default s.(op_state.sents) r'.
-  Proof.
-    cbv [deduce_message]. cbn [deduce_message op_state.sents]. rewrite get_or_default_mupd.
-    destr (eqb r r'); [subst |]; reflexivity.
-  Qed.
-
-  Inductive comp_step : op_state -> op_state -> Prop :=
+  Variant comp_step : list message -> list message -> Prop :=
   | fire_rule new_fact s r :
     In r p.(program.rules) ->
-    can_deduce_message r s.(op_state.known) (get_or_default s.(op_state.sents) r) new_fact ->
-    comp_step s (deduce_message s r new_fact).
+    can_deduce_message r s new_fact ->
+    comp_step s (new_fact :: s).
 
   Definition is_input_fact (f : message) :=
     match f with
@@ -202,7 +108,7 @@ Section __.
   Context (Hmeta_rules : program.meta_rules_valid p).
 
   Context (Hp_good : Forall (fun R => is_input R = false) (program.concl_rels p)).
-
+a
   Lemma concl_rel_not_input R :
     In R (program.concl_rels p) -> is_input R = false.
   Proof. rewrite Forall_forall in Hp_good. auto. Qed.
