@@ -512,9 +512,9 @@ Section __.
               simpl. split; [reflexivity|]. split.
               --- apply Exists_exists. eexists. split.
                   +++ erewrite prog_at_get by eassumption. eapply Hrp1p0.
-                      2: exact Hin. Print can_deduce_pattern.
-                      Search program.
-                      ; [eassumption|]. split; [|eassumption].
+                      2: exact Hin. cbv [can_deduce_pattern] in Hrp1p1. fwd.
+                      eapply meta_rule.pattern_interp_concl_relname_in. eassumption.
+                  +++
               Print step.
         Print distribute_R. Print node_corresp. invert_stuff. subst.
   Admitted.
