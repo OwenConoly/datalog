@@ -44,17 +44,23 @@ Section __.
     else
       Forall (fun r => In (done_with pat (op_source.rule r)) known) p.(program.rules).
 
-  Definition meta_facts_correct_at_rule (mrs : list meta_rule) (known : list message) r :=
+  Definition op_can_deduce_pattern pat known :=
+    exists mr pats,
+      In mr p.(program.meta_rules) /\
+        meta_rule.pattern_interp mr pat pats /\
+        Forall (all_done_with known) pats.
+
+  Definition meta_facts_correct_at_rule (known : list message) r :=
     forall pat,
       In (done_with pat (op_source.rule r)) known ->
       exists mr pats,
-        In mr mrs /\
+        In mr p.(program.meta_rules) /\
           meta_rule.pattern_interp mr pat pats /\
           Forall (all_done_with known) pats /\
           ~In pat pats.
 
   Definition meta_facts_correct (known : list message) :=
-    Forall (meta_facts_correct_at_rule p.(program.meta_rules) known).
+    Forall (meta_facts_correct_at_rule known) p.(program.rules).
 
   Definition op_knows_meta_fact known mf :=
     all_done_with known mf.(meta_fact.pattern) /\
@@ -89,7 +95,8 @@ Section __.
     | fact_message nf => op_can_deduce_normal_fact r known nf
     | done_with pat src =>
         src = op_source.rule r /\
-          ok_to_deduce r known pat
+          ok_to_deduce r known pat /\
+          op_can_deduce_pattern pat known
     end.
 
   Variant comp_step : list message -> list message -> Prop :=
@@ -108,7 +115,7 @@ Section __.
   Context (Hmeta_rules : program.meta_rules_valid p).
 
   Context (Hp_good : Forall (fun R => is_input R = false) (program.concl_rels p)).
-a
+
   Lemma concl_rel_not_input R :
     In R (program.concl_rels p) -> is_input R = false.
   Proof. rewrite Forall_forall in Hp_good. auto. Qed.
