@@ -216,15 +216,21 @@ Section __.
     Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->
     Existsn (message.matches pat) n (state.known (gns_node_state ns)).
   Proof.
-    intros HR H Hperm. cbv [normal_facts_wanted_by_rules] in Hperm.
-    cbv [normal_facts_known_by_node] in Hperm. Search Existsn filter_map.
-    eapply Existsn_filter_map with (P := fact_pattern.matches pat). 2: rewrite <- Hperm.
-    { intros x. destruct x; simpl; intros; split; intros; fwd; (eauto || contradiction || discriminate). }
-    apply Existsn_filter.
-    { intros nf Hnf. apply inb_true_iff. cbv [fact_pattern.matches] in Hnf.
-      fwd. rewrite <- Hnfp0. assumption. }
-    rewrite <- Existsn_filter_map; [eassumption|].
-    { intros x. destruct x; simpl; intros; split; intros; fwd; (eauto || contradiction || discriminate). }
+    intros HR H Hperm. cbv [normal_facts_wanted_by_rules normal_facts_known_by_node] in Hperm.
+    rewrite message.Existsn_matches_filter_map_as_normal in H.
+    rewrite message.Existsn_matches_filter_map_as_normal, <- Hperm.
+    apply Existsn_filter; [| assumption].
+    intros nf Hnf. apply inb_true_iff. cbv [fact_pattern.matches] in Hnf.
+    fwd. rewrite <- Hnfp0. assumption.
+  Qed.
+
+  Lemma op_existsn_sent_iff pat (np : program) ns os n :
+    Permutation (normal_facts_sent_by_rules os np.(program.rules)) (normal_facts_sent_by_node ns) ->
+    Existsn (message.matches pat) n (flat_map (get_or_default os.(op_state.sents)) np.(program.rules)) <->
+      Existsn (message.matches pat) n (state.sent (gns_node_state ns)).
+  Proof.
+    intros Hperm. cbv [normal_facts_sent_by_rules normal_facts_sent_by_node] in Hperm.
+    rewrite !message.Existsn_matches_filter_map_as_normal, Hperm. reflexivity.
   Qed.
 
   Lemma sth' (np : program) os ns f :
@@ -270,7 +276,6 @@ Section __.
         rewrite list_sum_app in Hp1. rewrite H in Hp1. rewrite <- plus_n_O in Hp1.
 
         move Hperm at bottom.
-        Check op_existsn_iff.
         eapply op_existsn_iff; eassumption.
       + move Hp2 at bottom. eapply meta_fact.consistent_with_ext; [eassumption|].
         intros nf Hnf. move Hperm at bottom.
@@ -523,7 +528,7 @@ Section __.
         -- eapply star_app.
            ++ apply star_one. apply gstep_run. 1: eassumption.
               eapply deduce_step with (output := message.done_with _ _ _).
-              simpl. split; [reflexivity|]. split.
+              simpl. split; [reflexivity|]. ssplit.
               --- apply Exists_exists. eexists. split.
                   +++ cbv [can_deduce_pattern] in Hrp1p1. fwd.
                       erewrite prog_at_get by eassumption. eapply Hrp1p0. 2: exact Hin.
@@ -532,8 +537,12 @@ Section __.
                       eapply Hrp1p0; try eassumption.
                       cbv [can_deduce_pattern] in Hrp1p1. fwd.
                       eapply meta_rule.pattern_interp_concl_relname_in. eassumption.
-              --- split.
-                  {
+              --- admit. (*Existsn_total or something*)
+              --- erewrite prog_at_get by eassumption. cbv [saturated].
+                  split.
+                  { eapply op_existsn_sent_iff.
+                    rewrite <- op_existsn_sent_iff in Hrp2.
+                    eapply op_existsn_sent_iff. 2: eassumption. Search Existsn. eapply
                   rewrite
 
 

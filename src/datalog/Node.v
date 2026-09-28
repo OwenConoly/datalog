@@ -65,6 +65,12 @@ Module message.
       | done_with _ _ _ => False
       end.
 
+    Lemma Existsn_matches_filter_map_as_normal pat n l :
+      Existsn (matches pat) n l <-> Existsn (fact_pattern.matches pat) n (filter_map as_normal l).
+    Proof.
+      apply Existsn_filter_map. intros [nf | ]; simpl; split; intros; fwd; (eauto || contradiction || discriminate).
+    Qed.
+
     Definition equiv (f1 f2 : message) :=
       match f1, f2 with
       | done_with p1 s1 _, done_with p2 s2 _ => p1 = p2 /\ s1 = s2
