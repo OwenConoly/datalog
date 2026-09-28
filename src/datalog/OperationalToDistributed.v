@@ -70,8 +70,8 @@ Section __.
 
   Definition op_sources_of (src : source) : list op_source :=
     match src with
-    | node_source n => map from_rule (get_or_default graph_prog n).(program.rules)
-    | input_source => [from_input]
+    | node_source n => map op_source.rule (get_or_default graph_prog n).(program.rules)
+    | input_source => [op_source.input]
     end.
 
   Lemma NoDup_node_rules n : NoDup (get_or_default graph_prog n).(program.rules).
@@ -129,7 +129,7 @@ Section __.
   Qed.
 
   Lemma op_sources_all_nodes :
-    flat_map op_sources_of (map node_source (map.keys graph_prog)) = map from_rule all_rules.
+    flat_map op_sources_of (map node_source (map.keys graph_prog)) = map op_source.rule all_rules.
   Proof.
     cbv [all_rules].
     rewrite values_eq_map_keys, !flat_map_concat_map, concat_map, !map_map.
@@ -162,8 +162,8 @@ Section __.
   Qed.
 
   Definition op_actual_R_senders R :=
-    if is_input R then [from_input] else
-      map from_rule
+    if is_input R then [op_source.input] else
+      map op_source.rule
         (filter (fun r => inb R (rule.concl_rels r)) (sender_rules p)).
 
   Definition op_state_reasonable os :=
@@ -174,8 +174,8 @@ Section __.
 
   Definition op_state_sents_ok os :=
     forall pat r num,
-      In (message.done_with pat (from_rule r) num) (op_state.known os) <->
-        In (message.done_with pat (from_rule r) num) (get_or_default os.(op_state.sents) r).
+      In (message.done_with pat (op_source.rule r) num) (op_state.known os) <->
+        In (message.done_with pat (op_source.rule r) num) (get_or_default os.(op_state.sents) r).
 
   Lemma sth'' R :
     incl (op_actual_R_senders R) (flat_map op_sources_of (graph_senders R)).
@@ -302,8 +302,8 @@ Section __.
 
   Lemma blah os x nf :
     op_state_sents_ok os ->
-    counted (from_rule x) (get_or_default (op_state.sents os) x) nf <->
-      counted (from_rule x) os.(op_state.known) nf.
+    counted (op_source.rule x) (get_or_default (op_state.sents os) x) nf <->
+      counted (op_source.rule x) os.(op_state.known) nf.
   Proof. intros Hok. cbv [counted op_state_sents_ok] in *. setoid_rewrite Hok. reflexivity. Qed.
 
   (*TODO want some converse to this?*)
@@ -507,7 +507,7 @@ Section __.
       apply Hlayout_normal in Hp. clear Hlayout_normal.
       cbv [all_rules] in Hp. apply in_flat_map in Hp. fwd.
       apply In_values in Hpp0. fwd. specialize (Hrp1p0 _ _ Hpp0). simpl in Hrp1p0.
-      pose proof Classical_Prop.classic (exists num, expects_num_facts (removeb eqb (from_rule r) (op_sources_of (node_source k))) pattern os.(op_state.known) num) as [[num Hdone]|Hnot_done].
+      pose proof Classical_Prop.classic (exists num, expects_num_facts (removeb eqb (op_source.rule r) (op_sources_of (node_source k))) pattern os.(op_state.known) num) as [[num Hdone]|Hnot_done].
       +
       operational_done_with
 
