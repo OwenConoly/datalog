@@ -512,23 +512,35 @@ Section __.
           intros Hr. apply Hne. eapply rule_at_unique; eassumption.
         * apply node_corresp_deduce_self; assumption.
     - cbv [graph_prog_distributes_meta_rules] in Hlayout_meta.
-      apply Hlayout_meta in Hrp1p0. clear Hlayout_meta.
+      apply Hlayout_meta in Hrp1p0.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
-      apply Hlayout_normal in Hp. clear Hlayout_normal.
+      apply Hlayout_normal in Hp.
       cbv [all_rules] in Hp. apply in_flat_map in Hp. fwd.
       apply In_values in Hpp0. fwd. specialize (Hrp1p0 _ _ Hpp0). simpl in Hrp1p0.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
       pose proof Classical_Prop.classic (In (fact_pattern.rel pattern) (flat_map rule.concl_rels (program.rules x0)) /\ exists num, expects_num_facts (removeb eqb (op_source.rule r) (op_sources_of (node_source k))) pattern os.(op_state.known) num) as [[Hin [num Hdone]]|Hnot_done].
-      + cbv [can_deduce_pattern] in Hrp1p1. fwd.
-        do 2 eexists. split.
+      + do 2 eexists. split.
         -- eapply star_app.
            ++ apply star_one. apply gstep_run. 1: eassumption.
               eapply deduce_step with (output := message.done_with _ _ _).
               simpl. split; [reflexivity|]. split.
               --- apply Exists_exists. eexists. split.
-                  +++ erewrite prog_at_get by eassumption. eapply Hrp1p0. 2: exact Hin.
+                  +++ cbv [can_deduce_pattern] in Hrp1p1. fwd.
+                      erewrite prog_at_get by eassumption. eapply Hrp1p0. 2: exact Hin.
                       eapply meta_rule.pattern_interp_concl_relname_in. eassumption.
-                  +++ cbv [can_deduce_pattern]. eexists. split; [eassumption|].
+                  +++ cbv [node_corresp] in Hkp1. fwd. eapply sth_meta; try eassumption.
+                      eapply Hrp1p0; try eassumption.
+                      cbv [can_deduce_pattern] in Hrp1p1. fwd.
+                      eapply meta_rule.pattern_interp_concl_relname_in. eassumption.
+              --- split.
+                  {
+                  rewrite
+
+
+                        e
+                       cbv [
+                            Search x. eassumption. cbv [can_deduce_pattern]. eexists. split; [eassumption|].
+
                       done.
                       Search knows_meta_fact.
                       Print can_deduce_pattern.
