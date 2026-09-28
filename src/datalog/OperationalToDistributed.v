@@ -507,16 +507,19 @@ Section __.
       apply Hlayout_normal in Hp. clear Hlayout_normal.
       cbv [all_rules] in Hp. apply in_flat_map in Hp. fwd.
       apply In_values in Hpp0. fwd. specialize (Hrp1p0 _ _ Hpp0). simpl in Hrp1p0.
-      pose proof Classical_Prop.classic (exists num, expects_num_facts (removeb eqb (op_source.rule r) (op_sources_of (node_source k))) pattern os.(op_state.known) num) as [[num Hdone]|Hnot_done].
-      +
-      operational_done_with
-
-      Search all_rules.
-      Print node_corresp. Print done_msgs_corresp.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
-      do 2 eexists. split.
-      + eapply star_app.
-        -- apply star_one. apply gstep_run.
+      pose proof Classical_Prop.classic (In (fact_pattern.rel pattern) (flat_map rule.concl_rels (program.rules x0)) /\ exists num, expects_num_facts (removeb eqb (op_source.rule r) (op_sources_of (node_source k))) pattern os.(op_state.known) num) as [[Hin [num Hdone]]|Hnot_done].
+      + do 2 eexists. split.
+        -- eapply star_app.
+           ++ apply star_one. apply gstep_run. 1: eassumption.
+              eapply deduce_step with (output := message.done_with _ _ _).
+              simpl. split; [reflexivity|]. split.
+              --- apply Exists_exists. eexists. split.
+                  +++ erewrite prog_at_get by eassumption. eapply Hrp1p0.
+                      2: exact Hin. Print can_deduce_pattern.
+                      Search program.
+                      ; [eassumption|]. split; [|eassumption].
+              Print step.
         Print distribute_R. Print node_corresp. invert_stuff. subst.
   Admitted.
 
