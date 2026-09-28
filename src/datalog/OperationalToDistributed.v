@@ -363,32 +363,32 @@ Section __.
     {| op_state.known := message.normal nf :: os.(op_state.known);
       op_state.sents := mupd_with_default (cons (message.normal nf)) os.(op_state.sents) r |}.
 
-  Lemma operational_done_with_fire os r nf src fp num :
-    operational_done_with (fire_normal os r nf) src fp num <-> operational_done_with os src fp num.
+  Lemma operational_done_with_cons_normal (known : list (message (sender_label := op_source))) nf src fp num :
+    operational_done_with (message.normal nf :: known) src fp num <-> operational_done_with known src fp num.
   Proof.
-    cbv [operational_done_with fire_normal]. simpl.
+    cbv [operational_done_with].
     split; intros (nums & HF & ->); exists nums; (split; [| reflexivity]);
       (eapply Forall2_impl; [exact HF|]); simpl; intros; intuition congruence.
   Qed.
 
-  Lemma done_msgs_corresp_fire os r nf (b : bool) ns :
-    done_msgs_corresp os ns ->
-    done_msgs_corresp (fire_normal os r nf) (eat (if b then [message.normal nf] else []) ns).
+  Lemma done_msgs_corresp_cons_normal (known : list (message (sender_label := op_source))) nf (b : bool) ns :
+    done_msgs_corresp known ns ->
+    done_msgs_corresp (message.normal nf :: known) (eat (if b then [message.normal nf] else []) ns).
   Proof.
     cbv [done_msgs_corresp]. intros H fp num src.
-    rewrite operational_done_with_fire, <- (H fp num src). cbv [eat state.add_to_known]. simpl.
+    rewrite operational_done_with_cons_normal, <- (H fp num src). cbv [eat state.add_to_known]. simpl.
     destruct b; simpl; intuition congruence.
   Qed.
 
-  Lemma sent_done_msgs_corresp_fire os r nf n ns ns' :
+  Lemma sent_done_msgs_corresp_cons_normal (known : list (message (sender_label := op_source))) nf n ns ns' :
     (forall fp num,
         In (message.done_with fp (node_source n) num) ns'.(gns_node_state).(state.sent) <->
           In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent)) ->
-    sent_done_msgs_corresp os n ns ->
-    sent_done_msgs_corresp (fire_normal os r nf) n ns'.
+    sent_done_msgs_corresp known n ns ->
+    sent_done_msgs_corresp (message.normal nf :: known) n ns'.
   Proof.
     cbv [sent_done_msgs_corresp]. intros Hsent H fp num.
-    rewrite operational_done_with_fire, Hsent. apply H.
+    rewrite operational_done_with_cons_normal, Hsent. apply H.
   Qed.
 
   Lemma flat_map_sents_fire_off os r nf rules :
@@ -451,8 +451,9 @@ Section __.
     - rewrite normal_facts_sent_by_rules_fire_other by assumption. exact Hsent.
     - rewrite normal_facts_wanted_fire, normal_facts_known_eat.
       destruct (inb _ _); simpl; [apply perm_skip |]; exact Hknown.
-    - apply done_msgs_corresp_fire. exact Hdone.
-    - eapply sent_done_msgs_corresp_fire; [| exact Hsdone]. intros. reflexivity.
+    - cbn [fire_normal op_state.known]. apply done_msgs_corresp_cons_normal. exact Hdone.
+    - cbn [fire_normal op_state.known]. eapply sent_done_msgs_corresp_cons_normal; [| exact Hsdone].
+      intros. reflexivity.
     - exact Hq.
   Qed.
 
@@ -472,8 +473,9 @@ Section __.
     - rewrite normal_facts_sent_by_rules_fire_self by assumption. apply perm_skip. exact Hsent.
     - rewrite normal_facts_wanted_fire, normal_facts_known_eat.
       destruct (inb _ _); simpl; [apply perm_skip |]; exact Hknown.
-    - apply done_msgs_corresp_fire. exact Hdone.
-    - eapply sent_done_msgs_corresp_fire; [| exact Hsdone]. intros. simpl. intuition congruence.
+    - cbn [fire_normal op_state.known]. apply done_msgs_corresp_cons_normal. exact Hdone.
+    - cbn [fire_normal op_state.known]. eapply sent_done_msgs_corresp_cons_normal; [| exact Hsdone].
+      intros. simpl. intuition congruence.
     - exact Hq.
   Qed.
 
