@@ -116,7 +116,7 @@ Section __.
 
   Definition knows_meta_fact (known : list message) (mf : meta_fact) :=
     exists num,
-      expects_num_facts (R_senders mf.(meta_fact.pattern).(fact_pattern.rel)) mf.(meta_fact.pattern) known num /\
+      expects_num_facts (R_senders (meta_fact.rel mf)) mf.(meta_fact.pattern) known num /\
         Existsn (message.matches mf.(meta_fact.pattern)) num known /\
         meta_fact.consistent_with mf (knows_normal_fact known).
 
@@ -301,7 +301,7 @@ Section __.
       apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
       exfalso. apply (Hrest_no _ Hinr). exact Hcov.
     - destruct Hknow_big as (num_new & Hexp_new & Hex_new & Hiff_new).
-      rewrite Hcov in Hexp_h, Hex_h, Hrest_no.
+      cbv [meta_fact.rel] in Hexp_h. rewrite Hcov in Hexp_h, Hex_h, Hrest_no.
       exists num_h. split; [exact Hexp_h | split; [exact Hex_h |]].
       intros nf Hm. specialize (Hiff_new nf Hm). split.
       + intro Hset. apply Hiff_new in Hset.
@@ -562,7 +562,7 @@ Section __.
       apply (proj1 (Hiff_s nf Hcov)). apply (proj2 (Hiff_b nf Hcov)). exact Hknow_big.
     - destruct Hhyps as (num_s & Hexp_s & Hex_s & Hiff_s).
       destruct Hknow_big as (_ & _ & _ & Hiff_b). destruct Hkb as (_ & _ & _ & Hiff_b').
-      rewrite Hcov in Hexp_s, Hex_s.
+      cbv [meta_fact.rel] in Hexp_s. rewrite Hcov in Hexp_s, Hex_s.
       exists num_s. split; [ exact Hexp_s | split; [ exact Hex_s | ] ].
       intros nf Hm.
       assert (Hm' : fact_pattern.matches mh.(meta_fact.pattern) nf)

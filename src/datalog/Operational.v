@@ -524,7 +524,7 @@ Section __.
       * destruct Hself as (mh & Hin_mh & Hmh_pat).
         rewrite Forall_forall in Hkn. pose proof (Hkn _ Hin_mh) as Hk_mh.
         destruct Hk_mh as (num_self & Hexp_self & _ & _).
-        rewrite Hmh_pat in Hexp_self.
+        cbv [meta_fact.rel] in Hexp_self. rewrite Hmh_pat in Hexp_self.
         rewrite expects_num_facts_eq, HNI in Hexp_self.
         destruct Hexp_self as (expected_msgss & Hf2 & _).
         destruct (Forall2_In_l _ _ _ _ Hf2 (In_sender_rules r0 Hin_r))
@@ -600,8 +600,8 @@ Section __.
     intros Hkdf. destruct h as [nf | mf]; cbn [has_derived_datalog_fact].
     - exact Hkdf.
     - destruct Hkdf as (num & Hexp & Hexn & _).
-      rewrite expects_num_facts_eq in Hexp.
-      cbv [meta_fact.rel]. destruct (is_input mf.(meta_fact.pattern).(fact_pattern.rel)) eqn:HER.
+      cbv [meta_fact.rel] in Hexp |- *. rewrite expects_num_facts_eq in Hexp.
+      destruct (is_input mf.(meta_fact.pattern).(fact_pattern.rel)) eqn:HER.
       + exists num. split; [ exact Hexp | exact Hexn ].
       + intros r Hr. destruct Hexp as (msgss & Hf2 & _).
         destruct (Forall2_In_l _ _ _ _ Hf2 (In_sender_rules r Hr))
@@ -631,8 +631,7 @@ Section __.
         pose proof (concl_rel_not_input _ Hin_concl) as HR0.
         cbv [fact.rel] in *. congruence.
       + destruct Hf as (num0 & Hexp & _ & _).
-        rewrite expects_num_facts_eq in Hexp.
-        cbv [fact.rel meta_fact.rel].
+        cbv [fact.rel meta_fact.rel] in Hexp |- *. rewrite expects_num_facts_eq in Hexp.
         destruct (is_input mf.(meta_fact.pattern).(fact_pattern.rel)) eqn:HER.
         * intros Hin_concl.
           pose proof (concl_rel_not_input _ Hin_concl) as HR0. congruence.
@@ -747,7 +746,7 @@ Section __.
           simpl. apply Hbic_m. apply Hcon_mh. exact Hprog_h.
         + pose proof (Hhonest _ Hprog_h) as Hcon_h.
           cbv [meta_fact.consistent_with fact.normal_subset] in Hcon_h.
-          simpl. exists num_m. rewrite Hcov_h in Hexp_m, Hexn_m.
+          simpl. exists num_m. cbv [meta_fact.rel] in Hexp_m. rewrite Hcov_h in Hexp_m, Hexn_m.
           split; [exact Hexp_m|]. split; [exact Hexn_m|].
           intros nf0 Hm0.
           assert (Hm0' : fact_pattern.matches mh.(meta_fact.pattern) nf0)
@@ -1114,7 +1113,7 @@ Section __.
     intros Hinp Hsane Hd Hc.
     destruct h as [nf | mf]; [ exact Hd |].
     cbv [has_derived_datalog_fact mf_consistent_state] in Hd, Hc.
-    cbn [node.knows_fact]. cbv [meta_fact.rel] in Hd |- *.
+    cbn [node.knows_fact]. cbv [node.knows_meta_fact meta_fact.rel] in Hd |- *.
     destruct (is_input mf.(meta_fact.pattern).(fact_pattern.rel)) eqn:HER.
     - destruct Hd as (num & Hin & Hexn). exists num. ssplit.
       + rewrite expects_num_facts_eq, HER. exact Hin.
@@ -1211,8 +1210,7 @@ Section __.
     destruct f as [nf | mf]; cbv [has_derived_datalog_fact] in *.
     - apply Hinp_known. exact Hkdf.
     - simpl in Hkdf. destruct Hkdf as (num & Hexp & Hexn & _).
-      rewrite expects_num_facts_eq in Hexp.
-      cbv [meta_fact.rel].
+      cbv [meta_fact.rel] in Hexp |- *. rewrite expects_num_facts_eq in Hexp.
       destruct (is_input mf.(meta_fact.pattern).(fact_pattern.rel)) eqn:HER.
       + exists num. split; [ apply Hinp_known; exact Hexp |].
         destruct (Hsane.(sane_count) mf.(meta_fact.pattern))
@@ -1628,7 +1626,7 @@ Section __.
       destruct (is_input (meta_fact.rel mf)) eqn:HER.
       + apply pftree.leaf. cbn [node.knows_fact].
         destruct Hd as (num & Hin & Hexn). exists num. ssplit.
-        * rewrite expects_num_facts_eq. cbv [meta_fact.rel] in HER. rewrite HER. exact Hin.
+        * cbv [meta_fact.rel] in HER |- *. rewrite expects_num_facts_eq, HER. exact Hin.
         * exact Hexn.
         * exact Hmc.
       + exfalso. destruct (length_pos_In _ Hlen) as (r0 & Hin_r0).
