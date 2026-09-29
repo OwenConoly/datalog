@@ -362,31 +362,37 @@ Section __.
       rewrite Hcons, Hnormal by assumption. rewrite <- (proj1 Hm). tauto.
   Qed.
 
-  Lemma sim1 os gs os' :
-    distribute_R os gs ->
+  Lemma sim1 os gs os' gt :
+    op_ish_inputs gs ->
+    Forall2_map (fun _ => inps_corresp os) graph_prog gs.(graph_nodes) ->
     comp_step os os' ->
     exists gs' t,
-      star distributed_step gs t gs' /\ distribute_R os' gs'.
+      star distributed_step gs t gs' /\ outs_corresp os' gs' gt.
   Proof.
-    intros HR Hstep. cbv [comp_step] in Hstep. fwd. cbv [can_deduce_message] in Hstepp1.
+    intros Hopish HR Hstep. cbv [comp_step] in Hstep. fwd. cbv [can_deduce_message] in Hstepp1.
     destruct new_fact as [nf|pat src].
     - cbv [op_can_deduce_normal_fact] in Hstepp1. fwd.
-      cbv [distribute_R] in HR.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
       apply Hlayout_normal in Hstepp0.
       cbv [all_rules] in Hstepp0. apply in_flat_map in Hstepp0. fwd.
       apply In_values in Hstepp0p0. fwd.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
       do 2 eexists. split.
-      + eapply star_app.
-        -- apply star_one. apply gstep_run. 1: eassumption.
-           eapply deduce_step with (output := message.normal _).
-           simpl. split.
-           ++ apply Exists_exists. eexists. erewrite prog_at_get by eassumption.
-              split; [eassumption|]. cbv [can_deduce_normal_fact].
-              eexists. split; [eassumption|]. eapply Forall_impl; [eassumption|].
-              intros. eapply idkkk. 2: eassumption. 2: eassumption. admit.
-           ++
+      + apply star_one. apply gstep_run. 1: eassumption.
+        eapply deduce_step with (output := message.normal _).
+        simpl. split.
+        ++ apply Exists_exists. eexists. erewrite prog_at_get by eassumption.
+           split; [eassumption|]. cbv [can_deduce_normal_fact].
+           eexists. split; [eassumption|]. rewrite Forall_forall in Hstepp1p1 |- *.
+           intros f Hf. eapply idkkk.
+           --- eapply program.rule_hyp_rel_in; try eassumption.
+               Search rule.hyp_rels. apply rule.interp_hyp_relname_in in Hstepp1p0.
+               rewrite Forall_forall in Hstepp1p0. auto.
+           --- cbv [op_ish_inputs] in Hopish. eapply Hopish. eassumption.
+           --- eauto.
+           --- assumption.
+        ++ admit.
+      + Search forward_to.
 
 
   Print consistent_with.
