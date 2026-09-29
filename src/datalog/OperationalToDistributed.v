@@ -152,9 +152,12 @@ Section __.
       apply in_map. erewrite get_or_default_Some by eassumption. assumption.
   Qed.
 
+  Definition node_all_done_with (pat : fact_pattern) (known : list message) :=
+    Forall (fun src => exists num, In (message.done_with pat src num) known) (graph_senders pat.(fact_pattern.rel)).
+
   Definition op_ish_inputs_to (known : list message) :=
     forall pat,
-      Forall (fun src => exists num, In (message.done_with pat src num) known) (graph_senders pat.(fact_pattern.rel)) ->
+      node_all_done_with pat known ->
       exists mf,
         mf.(meta_fact.pattern) = pat /\ knows_meta_fact graph_senders known mf.
 
@@ -462,8 +465,7 @@ Section __.
            cbn [op_sources_of] in Houts. erewrite get_or_default_Some in Houts by eassumption.
            rewrite Lists.List.Forall_map, Forall_forall in Houts.
            cbv [meta_facts_ok] in Hmfs. rewrite Forall_forall in Hmfs.
-           apply (Hmfs r Hp pat (Houts r Hstepp0p1) nf); [| assumption].
-           exists hyps. auto.
+           eapply Hmfs; eauto. eexists. eauto.
       + rewrite all_outputs_forward_to.
         erewrite all_outputs_put with (new := [_]); try eassumption || reflexivity.
         simpl. apply outs_corresp_cons_normal. assumption.
@@ -475,13 +477,27 @@ Section __.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
       specialize (Hstepp1p2p0 _ _ ltac:(eassumption)). simpl in Hstepp1p2p0.
       pose proof Classical_Prop.classic (In (fact_pattern.rel pat) (flat_map rule.concl_rels (program.rules x)) /\ forall src, In src (op_sources_of (node_source k)) -> src = op_source.rule r \/ In (op_message.done_with pat src) os) as [Hyes|Hno].
-      + do 2 eexists. split.
+      + fwd. do 2 eexists. split.
         -- apply star_one. apply gstep_run. 1: eassumption.
            eapply deduce_step with (output := message.done_with _ _ _).
            erewrite prog_at_get by eassumption.
            simpl. split; [reflexivity|]. split.
            ++ apply Exists_exists. eexists. split.
-              --- eapply Hstepp1p2p0.
+              --- eapply Hstepp1p2p0. 2: eassumption.
+                  eapply meta_rule.pattern_interp_concl_relname_in. eassumption.
+              --- cbv [can_deduce_pattern].
+                  eapply Forall_impl in Hstepp1p2p2.
+                  1: eapply Forall_exists_r_Forall2 in Hstepp1p2p2.
+                  2: { intros pat' Hpat'. simpl.
+                       cbv [op_ish_inputs] in Hopish.
+                       specialize (Hopish _ _ ltac:(eassumption)). simpl in Hopish.
+                       cbv [op_ish_inputs_to] in Hopish.
+                       apply Hopish with (pat := pat'). Print all_done_with.
+                       eexists. apply
+                       Print can_deduce_pattern.
+                       Search all_done_with.
+                  Search Forall Forall2 "r". eexists. split; [eassumption|].
+                  fwd.
 
       Lemma op_knows_normal_fact_iff nf np ns os :
     In nf.(normal_fact.rel) (program.hyp_rels np) ->
