@@ -454,7 +454,14 @@ Section __.
              2: { eapply program.rule_concl_rel_in; try eassumption.
                   eapply rule.interp_concl_relname_in; eassumption. }
              reflexivity. }
-           fail.
+           destruct Houts as [_ Houts]. especialize Houts.
+           { exists num. apply in_or_app. left. cbv [all_outputs]. apply in_flat_map.
+             eexists. split; [apply In_values; eauto | exact Hcntp0]. }
+           cbn [op_sources_of] in Houts. erewrite get_or_default_Some in Houts by eassumption.
+           rewrite Lists.List.Forall_map, Forall_forall in Houts.
+           cbv [meta_facts_ok] in Hmfs. rewrite Forall_forall in Hmfs.
+           apply (Hmfs r Hp pat (Houts r Hstepp0p1) nf); [| assumption].
+           exists hyps. auto.
       + rewrite all_outputs_forward_to.
         erewrite all_outputs_put with (new := [_]); try eassumption || reflexivity.
         simpl. apply outs_corresp_cons_normal. assumption.
