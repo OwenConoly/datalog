@@ -348,6 +348,13 @@ Section __.
     Proper (Permutation (A:=message) ==> iff) (outs_corresp known).
   Proof. intros l1 l2 Hperm. cbv [outs_corresp]. setoid_rewrite Hperm. reflexivity. Qed.
 
+  #[global] Instance outs_corresp_same_set_Proper :
+    Proper (same_set ==> same_set ==> iff) outs_corresp.
+  Proof.
+    intros k1 k2 Hk o1 o2 Ho. cbv [outs_corresp same_set] in *.
+    setoid_rewrite Forall_forall. setoid_rewrite Hk. setoid_rewrite Ho. reflexivity.
+  Qed.
+
   Lemma outs_corresp_cons_normal known outs nf :
     outs_corresp known outs ->
     outs_corresp (op_message.normal nf :: known) (message.normal nf :: outs).
@@ -399,6 +406,12 @@ Section __.
       rewrite Hcons, Hnormal by assumption. rewrite <- (proj1 Hm). tauto.
   Qed.
 
+  Lemma BStrue b P :
+    Reflects P b ->
+    P ->
+    b = true.
+  Proof. Admitted.
+
   Lemma sim1 os gs os' (gt : list (IO_event (graph_label message action_label) message))  :
     op_ish_inputs gs ->
     Forall2_map (fun _ => inps_corresp os) graph_prog gs.(graph_nodes) ->
@@ -409,31 +422,45 @@ Section __.
       star distributed_step gs t gs' /\
         outs_corresp os' (all_outputs gs' ++ flat_map inputs_of gt).
   Proof.
-    intros Hopish Hinps Houts Hmfs Hstep. cbv [comp_step] in Hstep.
-    fwd. cbv [can_deduce_message] in Hstepp1. destruct new_fact as [nf|pat src].
+    intros Hopish Hinps Houts Hmfs Hstep. cbv [comp_step] in Hstep. fwd.
+    cbv [can_deduce_message] in Hstepp1. destruct new_fact as [nf|pat src].
     - cbv [op_can_deduce_normal_fact] in Hstepp1. fwd.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
+      pose proof Hstepp0 as Hp.
       apply Hlayout_normal in Hstepp0.
       cbv [all_rules] in Hstepp0. apply in_flat_map in Hstepp0. fwd.
       apply In_values in Hstepp0p0. fwd.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
       pose proof (Classical_Prop.classic (In (op_message.normal nf) os)) as [Hin|Hnin].
-      { do 2 eexists. split; [apply star_refl|]. Search outs_corresp.
+      { do 2 eexists. split; [apply star_refl|].
+        rewrite same_set_cons_in by assumption.
+        assumption. }
       do 2 eexists. split.
       + apply star_one. apply gstep_run. 1: eassumption.
         eapply deduce_step with (output := message.normal _).
         simpl. split.
         ++ apply Exists_exists. eexists. erewrite prog_at_get by eassumption.
-           split; [eassumption|]. cbv [can_deduce_normal_fact].
+           split; [exact Hstepp0p1|]. cbv [can_deduce_normal_fact].
            eexists. split; [eassumption|]. rewrite Forall_forall in Hstepp1p1 |- *.
            intros f Hf. eapply idkkk.
-           --- eapply program.rule_hyp_rel_in; try eassumption.
+           --- eapply program.rule_hyp_rel_in. 1: exact Hstepp0p1.
                apply rule.interp_hyp_relname_in in Hstepp1p0.
                rewrite Forall_forall in Hstepp1p0. auto.
            --- cbv [op_ish_inputs] in Hopish. eapply Hopish. eassumption.
            --- eauto.
            --- assumption.
-        ++ admit.
+        ++ intro Hcnt. apply Hnin. cbv [meta_facts_ok_at_rule] in Hmfs.
+           cbv [counted] in Hcnt. fwd. cbv [outs_corresp] in Houts.
+           destruct Houts as [_ Houts]. especialize Houts.
+           { cbv [fact_pattern.matches] in Hcntp1. fwd. rewrite Hcntp1p0.
+             cbv [graph_senders]. erewrite rule_concl_not_input; try eassumption.
+             apply in_filter_map. eexists (_, _). split.
+             { apply map.tuples_spec. eassumption. }
+             erewrite (BStrue (inb _ _)); try typeclasses eauto.
+             2: { eapply program.rule_concl_rel_in; try eassumption.
+                  eapply rule.interp_concl_relname_in; eassumption. }
+             reflexivity. }
+           fail.
       + rewrite all_outputs_forward_to.
         erewrite all_outputs_put with (new := [_]); try eassumption || reflexivity.
         simpl. apply outs_corresp_cons_normal. assumption.

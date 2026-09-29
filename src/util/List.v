@@ -2747,3 +2747,15 @@ Qed.
 #[export] Instance In_same_set_Proper A :
   Proper (eq ==> same_set ==> iff) (@In A).
 Proof. intros x y -> l1 l2 Hs. apply Hs. Qed.
+
+#[export] Instance same_set_Equivalence A : Equivalence (@same_set A).
+Proof.
+  split.
+  - intros l x. reflexivity.
+  - intros l1 l2 H x. symmetry. apply H.
+  - intros l1 l2 l3 H1 H2 x. rewrite (H1 x). apply H2.
+Qed.
+
+Lemma same_set_cons_in {A} (x : A) l :
+  In x l -> same_set (x :: l) l.
+Proof. intros Hin y. simpl. intuition congruence. Qed.
