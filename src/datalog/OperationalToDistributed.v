@@ -168,15 +168,12 @@ Section __.
       exists mf,
         mf.(meta_fact.pattern) = pat /\ knows_meta_fact graph_senders known mf.
 
-  Definition op_ish_output_counts_in (sent : list message) :=
-    forall pat src num,
-      In (message.done_with pat src num) sent ->
-      Existsn (message.matches pat) num sent.
-
-  Definition outputs_ok_from (src : source) sent :=
-    forall pat src' num,
-      In (message.done_with pat src' num) sent ->
-      src' = src.
+  (* [Distributed.allowed_output] with exact counts. *)
+  Definition outputs_ok_from (src : source) (outs : list message) :=
+    (forall pat src' num,
+        In (message.done_with pat src' num) outs ->
+        src' = src /\ Existsn (message.matches pat) num outs) /\
+      (forall f, In f outs -> In src (graph_senders (message.rel f))).
 
   Context {msg_map : map.map nat (list message)}.
 
@@ -199,25 +196,13 @@ Section __.
   Definition op_ish_inputs (gs : graph_state message action_label state) :=
     Forall_map (fun _ ns => op_ish_inputs_to ns.(gns_node_state).(state.known)) gs.(graph_nodes).
 
-  Definition op_ish_outputs (gs : graph_state message action_label state) (gt : list (IO_event (graph_label message action_label) message)) :=
-    Forall_map (fun _ ns => op_ish_output_counts_in ns.(gns_node_state).(state.sent)) gs.(graph_nodes) /\
-      op_ish_output_counts_in (flat_map inputs_of gt).
-
   Definition queues_empty (gs : graph_state message action_label state) :=
     Forall_map (fun _ ns => ns.(gns_queue) = []) gs.(graph_nodes).
 
-  Definition outputs_in_own_rels_from (src : source) sent :=
-    forall f, In f sent -> In src (graph_senders (message.rel f)).
-
-  Definition outputs_in_own_rels (gs : graph_state message action_label state) :=
-    Forall_map (fun n ns => outputs_in_own_rels_from (node_source n) ns.(gns_node_state).(state.sent)) gs.(graph_nodes).
-
   Lemma get_op_ish_inputs gs gt :
     queues_empty gs ->
-    op_ish_outputs gs gt ->
-    outputs_in_own_rels gs ->
-    inputs_eq_outputs gs gt ->
     outputs_ok gs gt ->
+    inputs_eq_outputs gs gt ->
     op_ish_inputs gs.
   Proof. Admitted. Check known_eq_inputs. Print allowed_output.
 
