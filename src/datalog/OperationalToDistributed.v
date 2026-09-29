@@ -491,7 +491,7 @@ Section __.
         -- apply star_one. apply gstep_run. 1: eassumption.
            eapply deduce_step with (output := message.done_with _ _ _).
            erewrite prog_at_get by eassumption.
-           simpl. split; [reflexivity|]. split.
+           simpl. split; [reflexivity|]. ssplit.
            ++ apply Exists_exists. eexists. split.
               --- eapply Hstepp1p2p0. 2: eassumption.
                   eapply meta_rule.pattern_interp_concl_relname_in. eassumption.
@@ -509,8 +509,15 @@ Section __.
                        eapply program.meta_rule_hyp_rel_in; [| exact Hrel'].
                        eapply Hstepp1p2p0; [| eassumption].
                        eapply meta_rule.pattern_interp_concl_relname_in. eassumption. }
-                  Search Forall Forall2 "r". eexists. split; [eassumption|].
-                  fwd.
+                  destruct Hstepp1p2p2 as [mhyps Hmhyps]. exists mhyps.
+                  apply Forall2_flip in Hmhyps.
+                  eassert (map _ mhyps = pats) as ->.
+                  { symmetry. eapply Forall2_eq_map. eapply Forall2_impl; [eassumption|].
+                    simpl. intros. fwd. reflexivity. }
+                  split; [eassumption|].
+                  eapply Forall2_forget_r in Hmhyps. eapply Forall_impl; [eassumption|].
+                  simpl. intros. fwd. auto.
+           ++
 
       Lemma op_knows_normal_fact_iff nf np ns os :
     In nf.(normal_fact.rel) (program.hyp_rels np) ->
