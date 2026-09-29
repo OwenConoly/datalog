@@ -389,6 +389,26 @@ Section __.
               In src (graph_senders pat.(fact_pattern.rel)) /\
               Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src)).
 
+  Lemma op_all_done_node_all_done os np ns pat :
+    In pat.(fact_pattern.rel) (program.hyp_rels np) ->
+    inps_corresp os np ns ->
+    all_done_with is_input p os pat ->
+    node_all_done_with pat ns.(gns_node_state).(state.known).
+  Proof.
+    intros Hrel (_ & Hdone) Hall. cbv [node_all_done_with]. apply Forall_forall.
+    intros src Hsrc. apply Hdone. ssplit; [exact Hrel | exact Hsrc |].
+    cbv [all_done_with] in Hall. cbv [Distributed.R_senders] in Hsrc.
+    destruct (is_input _).
+    - destruct Hsrc as [<- | []]. cbn [op_sources_of]. auto.
+    - apply in_filter_map in Hsrc. destruct Hsrc as ([m prog] & Htup & Hsrc).
+      destruct (inb _ _) eqn:E in Hsrc; [invert Hsrc | discriminate].
+      apply Properties.map.tuples_spec in Htup.
+      cbn [op_sources_of]. erewrite get_or_default_Some by eassumption.
+      rewrite Lists.List.Forall_map. apply Forall_forall. intros r Hr.
+      rewrite Forall_forall in Hall. apply Hall, Hlayout_normal. cbv [all_rules].
+      apply in_flat_map. eexists. split; [apply In_values; eauto | exact Hr].
+  Qed.
+
   Lemma idkkk known f np ns :
     In (fact.rel f) (program.hyp_rels np) ->
     op_ish_inputs_to ns.(gns_node_state).(state.known) ->
@@ -396,22 +416,12 @@ Section __.
     inps_corresp known np ns ->
     knows_fact graph_senders ns.(gns_node_state).(state.known) f.
   Proof.
-    intros Hrel Hinps H (Hnormal & Hdone). destruct f as [nf | mf]; cbv [knows_fact fact.rel] in *.
+    intros Hrel Hinps H Hcorr. pose proof Hcorr as (Hnormal & _).
+    destruct f as [nf | mf]; cbv [knows_fact fact.rel] in *.
     - cbv [knows_normal_fact]. apply Hnormal. auto.
     - destruct H as (Hall & Hcons).
       destruct (Hinps mf.(meta_fact.pattern)) as (mf' & Hpat & num & Hexp & Hexn & _).
-      { cbv [node_all_done_with]. apply Forall_forall. intros src Hsrc. apply Hdone.
-        ssplit; [exact Hrel | exact Hsrc |].
-        cbv [all_done_with meta_fact.rel] in Hall. cbv [Distributed.R_senders] in Hsrc.
-        destruct (is_input _).
-        - destruct Hsrc as [<- | []]. cbn [op_sources_of]. auto.
-        - apply in_filter_map in Hsrc. destruct Hsrc as ([m prog] & Htup & Hsrc).
-          destruct (inb _ _) eqn:E in Hsrc; [invert Hsrc | discriminate].
-          apply Properties.map.tuples_spec in Htup.
-          cbn [op_sources_of]. erewrite get_or_default_Some by eassumption.
-          rewrite Lists.List.Forall_map. apply Forall_forall. intros r Hr.
-          rewrite Forall_forall in Hall. apply Hall, Hlayout_normal. cbv [all_rules].
-          apply in_flat_map. eexists. split; [apply In_values; eauto | exact Hr]. }
+      { eapply op_all_done_node_all_done; [exact Hrel | exact Hcorr | exact Hall]. }
       exists num. cbv [meta_fact.rel] in Hexp |- *. rewrite Hpat in Hexp, Hexn.
       ssplit; [exact Hexp | exact Hexn |].
       cbv [meta_fact.consistent_with knows_normal_fact] in Hcons |- *. intros nf Hm.
@@ -486,16 +496,19 @@ Section __.
               --- eapply Hstepp1p2p0. 2: eassumption.
                   eapply meta_rule.pattern_interp_concl_relname_in. eassumption.
               --- cbv [can_deduce_pattern].
+                  eapply Forall_and in Hstepp1p2p2;
+                    [| eapply meta_rule.pattern_interp_hyp_relname_in; eassumption].
                   eapply Forall_impl in Hstepp1p2p2.
                   1: eapply Forall_exists_r_Forall2 in Hstepp1p2p2.
-                  2: { intros pat' Hpat'. simpl.
+                  2: { intros pat' (Hrel' & Hpat'). simpl.
                        cbv [op_ish_inputs] in Hopish.
                        specialize (Hopish _ _ ltac:(eassumption)). simpl in Hopish.
                        cbv [op_ish_inputs_to] in Hopish.
-                       apply Hopish with (pat := pat'). Print all_done_with.
-                       eexists. apply
-                       Print can_deduce_pattern.
-                       Search all_done_with.
+                       apply Hopish with (pat := pat').
+                       eapply op_all_done_node_all_done; [| eassumption | exact Hpat'].
+                       eapply program.meta_rule_hyp_rel_in; [| exact Hrel'].
+                       eapply Hstepp1p2p0; [| eassumption].
+                       eapply meta_rule.pattern_interp_concl_relname_in. eassumption. }
                   Search Forall Forall2 "r". eexists. split; [eassumption|].
                   fwd.
 
