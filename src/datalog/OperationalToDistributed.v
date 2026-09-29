@@ -1,6 +1,6 @@
 From Stdlib Require Import List Permutation.
 From coqutil Require Import Map.Interface Map.Properties Eqb Tactics.fwd Tactics Datatypes.List.
-From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics.
+From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics Decidable.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 
 Import ListNotations.
@@ -199,12 +199,133 @@ Section __.
   Definition queues_empty (gs : graph_state message action_label state) :=
     Forall_map (fun _ ns => ns.(gns_queue) = []) gs.(graph_nodes).
 
+  Definition node_sent (gs : graph_state message action_label state) n :=
+    match map.get gs.(graph_nodes) n with
+    | Some ns => ns.(gns_node_state).(state.sent)
+    | None => []
+    end.
+
+  Definition outs_of gs (inputs : list message) (src : source) :=
+    match src with
+    | node_source n => node_sent gs n
+    | input_source => inputs
+    end.
+
+  Definition all_sources (gs : graph_state message action_label state) :=
+    input_source :: map node_source (map.keys gs.(graph_nodes)).
+
+  Lemma NoDup_all_sources gs : NoDup (all_sources gs).
+  Proof.
+    constructor.
+    - intros Hin. apply in_map_iff in Hin. fwd. discriminate.
+    - apply Finite.Injective_map_NoDup; [intros ? ? ?; congruence | apply Properties.map.keys_NoDup].
+  Qed.
+
+  Lemma all_outputs_eq gs :
+    all_outputs gs = flat_map (node_sent gs) (map.keys gs.(graph_nodes)).
+  Proof.
+    cbv [all_outputs].
+    rewrite values_eq_tuples, keys_eq_tuples, !flat_map_concat_map, map_map, map_map.
+    f_equal. apply map_ext_in. intros [k v] Hin. cbv [node_sent]. simpl.
+    rewrite (proj1 (Properties.map.tuples_spec _ _ _) Hin). reflexivity.
+  Qed.
+
+  Lemma all_outputs_flat_map gs inputs :
+    Permutation (all_outputs gs ++ inputs) (flat_map (outs_of gs inputs) (all_sources gs)).
+  Proof.
+    cbv [all_sources outs_of]. cbn [flat_map].
+    rewrite all_outputs_eq, (flat_map_concat_map _ (map _ _)), map_map, <- flat_map_concat_map.
+    apply Permutation_app_comm.
+  Qed.
+
+  Lemma outputs_ok_outs_of gs gt src :
+    outputs_ok gs gt ->
+    In src (all_sources gs) ->
+    outputs_ok_from src (outs_of gs (flat_map inputs_of gt) src).
+  Proof.
+    intros (Hnodes & Hinp) [<- | Hin]; [exact Hinp|].
+    apply in_map_iff in Hin. destruct Hin as (n & <- & _). cbv [outs_of node_sent].
+    destruct (map.get gs.(graph_nodes) n) eqn:E; [eapply Hnodes; exact E|].
+    split; [intros ? ? ? [] | intros ? []].
+  Qed.
+
+  Lemma done_source gs gt pat src c :
+    outputs_ok gs gt ->
+    In (message.done_with pat src c) (all_outputs gs ++ flat_map inputs_of gt) ->
+    In src (all_sources gs) /\ Existsn (message.matches pat) c (outs_of gs (flat_map inputs_of gt) src).
+  Proof.
+    intros (Hnodes & Hinp) Hin. apply in_app_iff in Hin. destruct Hin as [Hin | Hin].
+    - cbv [all_outputs] in Hin. apply in_flat_map in Hin. destruct Hin as (ns & Hns & Hin).
+      apply In_values in Hns. destruct Hns as (n & Hget).
+      destruct (proj1 (Hnodes _ _ Hget) _ _ _ Hin) as (-> & Hcnt).
+      split; [right; apply in_map; eapply Properties.map.in_keys; exact Hget|].
+      cbv [outs_of node_sent]. rewrite Hget. exact Hcnt.
+    - destruct (proj1 Hinp _ _ _ Hin) as (-> & Hcnt). split; [left; reflexivity | exact Hcnt].
+  Qed.
+
+  Definition all_matching (known : list message) pat :=
+    meta_fact.mk pat
+      (map normal_fact.args (filter (fact_pattern.matchesb pat) (filter_map message.as_normal known))).
+
+  Lemma all_matching_consistent known pat :
+    meta_fact.consistent_with (all_matching known pat) (knows_normal_fact known).
+  Proof.
+    intros nf Hm. cbv [all_matching knows_normal_fact].
+    rewrite meta_fact.contains_mk, in_map_iff. split.
+    - intros (_ & nf' & Hargs & Hin). apply filter_In in Hin. destruct Hin as (Hin & Hm').
+      rewrite (Reflects_true_iff (fact_pattern.matches pat nf')) in Hm' by typeclasses eauto.
+      apply message.in_filter_map_as_normal in Hin.
+      destruct nf, nf', Hm, Hm'. simpl in *. congruence.
+    - intros Hin. split; [exact (proj2 Hm)|]. eexists. split; [reflexivity|].
+      apply filter_In. split; [apply message.in_filter_map_as_normal; exact Hin|].
+      rewrite (Reflects_true_iff (fact_pattern.matches pat nf)) by typeclasses eauto. exact Hm.
+  Qed.
+
   Lemma get_op_ish_inputs gs gt :
     queues_empty gs ->
     outputs_ok gs gt ->
     inputs_eq_outputs gs gt ->
     op_ish_inputs gs.
-  Proof. Admitted. Check known_eq_inputs. Print allowed_output.
+  Proof.
+    intros Hq Hok Hio. cbv [op_ish_inputs Forall_map op_ish_inputs_to]. intros nn ns Hget pat Hdone.
+    specialize (Hq _ _ Hget). specialize (Hio _ _ Hget). cbv beta in Hq, Hio.
+    rewrite Hq, app_nil_r in Hio.
+    set (inputs := flat_map inputs_of gt) in *.
+    set (q := fun m => rel_forward graph_prog (node_destn nn) (message.rel m)) in *.
+    assert (Hknown : forall m, In m ns.(gns_node_state).(state.known) ->
+                               In m (all_outputs gs ++ inputs) /\ q m = true).
+    { intros m Hm. eapply Permutation_in in Hm; [| exact Hio]. apply filter_In. exact Hm. }
+    pose proof Hdone as Hcs. apply Forall_exists_r_Forall2 in Hcs. destruct Hcs as (cs & Hcs).
+    exists (all_matching ns.(gns_node_state).(state.known) pat). split; [reflexivity|].
+    exists (list_sum cs).
+    ssplit; [exists cs; split; [exact Hcs | reflexivity] | | apply all_matching_consistent].
+    eapply Existsn_perm; [| symmetry; exact Hio].
+    destruct (rel_forward graph_prog (node_destn nn) pat.(fact_pattern.rel)) eqn:E.
+    - apply Existsn_filter.
+      { intros [nf | ? ? ?] Hm; [| destruct Hm]. subst q. cbn [message.rel].
+        rewrite <- (proj1 Hm). exact E. }
+      eapply Existsn_perm; [| symmetry; apply all_outputs_flat_map].
+      eapply Existsn_flat_map_incl.
+      + apply Distributed.R_senders_NoDup.
+      + apply NoDup_all_sources.
+      + intros src Hsrc. rewrite Forall_forall in Hdone. destruct (Hdone _ Hsrc) as (c & Hin).
+        exact (proj1 (done_source _ _ _ _ _ Hok (proj1 (Hknown _ Hin)))).
+      + eapply Forall2_impl; [exact Hcs|]. intros src c Hin.
+        exact (proj2 (done_source _ _ _ _ _ Hok (proj1 (Hknown _ Hin)))).
+      + intros src Hsrc Hnot. apply Forall_not_Existsn_0, Forall_forall. intros m Hm Hmatch.
+        apply Hnot.
+        destruct (outputs_ok_outs_of _ _ _ Hok Hsrc) as (_ & Hrel). specialize (Hrel _ Hm).
+        destruct m as [nf | ? ? ?]; [| destruct Hmatch].
+        cbn [message.rel] in Hrel. rewrite <- (proj1 Hmatch) in Hrel. exact Hrel.
+    - assert (Hnone : forall m, message.rel m = pat.(fact_pattern.rel) ->
+                                ~ In m (filter q (all_outputs gs ++ inputs))).
+      { intros m Hm Hin. apply filter_In in Hin. destruct Hin as (_ & Hq'). subst q.
+        cbv beta in Hq'. rewrite Hm, E in Hq'. discriminate. }
+      invert Hcs.
+      + apply Forall_not_Existsn_0, Forall_forall. intros [nf | ? ? ?] Hin Hmatch; [| destruct Hmatch].
+        eapply Hnone; [| exact Hin]. exact (eq_sym (proj1 Hmatch)).
+      + exfalso. eapply Hnone; [| eapply Permutation_in; [exact Hio | eassumption]]. reflexivity.
+  Qed.
 
   Lemma idkkk known f np ns :
     op_ish_inputs_to ns.(gns_node_state).(state.known) ->

@@ -1341,6 +1341,11 @@ Section Existsn.
     - eauto.
   Qed.
 
+  Lemma Existsn_flat_map {A} (f : A -> list T) xs cs :
+    Forall2 (fun x c => Existsn c (f x)) xs cs ->
+    Existsn (list_sum cs) (flat_map f xs).
+  Proof. induction 1; simpl; [constructor | apply Existsn_app; assumption]. Qed.
+
   Lemma Existsn_0_Forall_not l :
     Existsn 0 l ->
     Forall (fun x => ~P x) l.
@@ -2028,6 +2033,25 @@ Section misc.
   Definition is_Some (x : option A) :=
     if x then true else false.
 End misc.
+
+Lemma Existsn_flat_map_incl {A T} (P : T -> Prop) (f : A -> list T) l1 l2 cs :
+  NoDup l1 -> NoDup l2 -> incl l1 l2 ->
+  Forall2 (fun x c => Existsn P c (f x)) l1 cs ->
+  (forall x, In x l2 -> ~ In x l1 -> Existsn P 0 (f x)) ->
+  Existsn P (list_sum cs) (flat_map f l2).
+Proof.
+  intros Hnd1 Hnd2 Hincl HF Hrest.
+  destruct (NoDup_incl_Permutation _ _ Hnd1 Hincl) as (rest & Hperm).
+  eapply Existsn_perm; [| apply Permutation_sym, Permutation_flat_map; exact Hperm].
+  rewrite flat_map_app, <- (Nat.add_0_r (list_sum cs)).
+  apply Existsn_app; [apply Existsn_flat_map; assumption|].
+  pose proof (NoDup_app_disjoint_lists _ _ (Permutation_NoDup Hperm Hnd2)) as Hdisj.
+  assert (Hzero : Forall (fun x => Existsn P 0 (f x)) rest).
+  { apply Forall_forall. intros x Hx. apply Hrest.
+    - eapply Permutation_in; [symmetry; exact Hperm|]. apply in_or_app. auto.
+    - intros Hx1. eapply Hdisj; eassumption. }
+  clear -Hzero. induction Hzero; simpl; [constructor|]. apply (Existsn_app _ 0 0); assumption.
+Qed.
 
 Lemma NoDup_flat_map_inj {A B} (f : A -> list B) l a1 a2 b :
   NoDup (flat_map f l) -> In a1 l -> In a2 l -> In b (f a1) -> In b (f a2) -> a1 = a2.
