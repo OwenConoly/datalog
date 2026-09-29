@@ -228,6 +228,15 @@ Section __.
     apply Permutation_app_comm.
   Qed.
 
+  Lemma in_all_outputs gs k ns m :
+    map.get gs.(graph_nodes) k = Some ns ->
+    In m ns.(gns_node_state).(state.sent) ->
+    In m (all_outputs gs).
+  Proof.
+    intros Hget Hin. cbv [all_outputs]. apply in_flat_map.
+    eexists. split; [apply In_values; eauto | exact Hin].
+  Qed.
+
   Lemma all_outputs_forward_to keep msgs gs :
     Permutation (all_outputs (forward_to keep msgs gs)) (all_outputs gs).
   Proof.
@@ -446,17 +455,10 @@ Section __.
         ++ intro Hcnt. apply Hnin. cbv [meta_facts_ok_at_rule] in Hmfs.
            cbv [counted] in Hcnt. fwd. cbv [outs_corresp] in Houts.
            destruct Houts as [_ Houts]. especialize Houts.
-           { cbv [fact_pattern.matches] in Hcntp1. fwd. rewrite Hcntp1p0.
-             cbv [graph_senders]. erewrite rule_concl_not_input; try eassumption.
-             apply in_filter_map. eexists (_, _). split.
-             { apply map.tuples_spec. eassumption. }
-             rewrite_true (inb _ _).
-             2: { eapply program.rule_concl_rel_in; try eassumption.
-                  eapply rule.interp_concl_relname_in; eassumption. }
-             reflexivity. }
+           { rewrite (proj1 Hcntp1). eapply node_sends_concl_rels;
+               eauto using program.rule_concl_rel_in, rule.interp_concl_relname_in. }
            destruct Houts as [_ Houts]. especialize Houts.
-           { exists num. apply in_or_app. left. cbv [all_outputs]. apply in_flat_map.
-             eexists. split; [apply In_values; eauto | exact Hcntp0]. }
+           { exists num. apply in_or_app. left. eapply in_all_outputs; eassumption. }
            cbn [op_sources_of] in Houts. erewrite get_or_default_Some in Houts by eassumption.
            rewrite Lists.List.Forall_map, Forall_forall in Houts.
            cbv [meta_facts_ok] in Hmfs. rewrite Forall_forall in Hmfs.
