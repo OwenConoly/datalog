@@ -199,11 +199,14 @@ Section __.
   Definition op_ish_inputs (gs : graph_state message action_label state) :=
     Forall_map (fun _ ns => op_ish_inputs_to ns.(gns_node_state).(state.known)) gs.(graph_nodes).
 
-  Definition op_ish_outputs (gs : graph_state message action_label state) :=
-    Forall_map (fun _ ns => op_ish_output_counts_in ns.(gns_node_state).(state.known)) gs.(graph_nodes).
+  Definition op_ish_outputs (gs : graph_state message action_label state) (gt : list (IO_event (graph_label message action_label) message)) :=
+    Forall_map (fun _ ns => op_ish_output_counts_in ns.(gns_node_state).(state.sent)) gs.(graph_nodes) /\
+      op_ish_output_counts_in (flat_map inputs_of gt).
 
   Definition queues_empty (gs : graph_state message action_label state) :=
     Forall_map (fun _ ns => ns.(gns_queue) = []) gs.(graph_nodes).
+
+  Definition
 
   Lemma get_op_ish_inputs gs gt :
     queues_empty gs ->
