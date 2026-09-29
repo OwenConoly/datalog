@@ -582,7 +582,7 @@ Section __.
                   eapply Forall2_forget_r in Hmhyps. eapply Forall_impl; [eassumption|].
                   simpl. intros. fwd. auto.
            ++ admit. (*apply Existsn_total.*)
-           ++ cbv [saturated]. intros r' nf Hr Hnf1 Hnf2.
+           ++ fail. cbv [saturated]. intros r' nf Hr Hnf1 Hnf2.
               move Hmfs at bottom. cbv [meta_facts_ok] in Hmfs.
               rewrite Forall_forall in Hmfs. specialize (Hmfs _ ltac:(eassumption)).
               cbv [meta_facts_ok_at_rule] in Hmfs.
@@ -590,7 +590,8 @@ Section __.
               cbv [outs_corresp] in Houts. destruct Houts as [Houts _].
               specialize (Houts nf (node_source k)). simpl in Houts.
               cbv [node_sent] in Houts. rewrite Hkp0 in Houts. apply Houts.
-              apply Exists_exists.
+              apply Exists_exists. erewrite get_or_default_Some by eassumption.
+
 
               Search outs_corresp.
               Print ok_to_deduce.
