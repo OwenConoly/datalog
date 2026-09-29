@@ -237,6 +237,17 @@ Section __.
     apply Permutation_refl'. f_equal. apply map_ext. intros [k v]. reflexivity.
   Qed.
 
+  Lemma all_outputs_put gs gs' k ns ns' new :
+    map.get gs.(graph_nodes) k = Some ns ->
+    gs'.(graph_nodes) = map.put gs.(graph_nodes) k ns' ->
+    ns'.(gns_node_state).(state.sent) = new ++ ns.(gns_node_state).(state.sent) ->
+    Permutation (all_outputs gs') (new ++ all_outputs gs).
+  Proof.
+    intros Hget Hnodes Hsent. cbv [all_outputs].
+    rewrite Hnodes, values_put, (values_remove _ _ _ Hget). cbn [flat_map].
+    rewrite Hsent, <- app_assoc. reflexivity.
+  Qed.
+
   Lemma outputs_ok_outs_of gs gt src :
     outputs_ok gs gt ->
     In src (all_sources gs) ->
@@ -405,6 +416,8 @@ Section __.
            --- assumption.
         ++ admit.
       + rewrite all_outputs_forward_to.
+        erewrite all_outputs_put with (new := [_]); try eassumption || reflexivity.
+        simpl.
 
 
   Print consistent_with.
