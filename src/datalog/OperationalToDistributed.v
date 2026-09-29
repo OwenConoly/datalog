@@ -206,11 +206,16 @@ Section __.
   Definition queues_empty (gs : graph_state message action_label state) :=
     Forall_map (fun _ ns => ns.(gns_queue) = []) gs.(graph_nodes).
 
-  Definition
+  Definition outputs_in_own_rels_from (src : source) sent :=
+    forall f, In f sent -> In src (graph_senders (message.rel f)).
+
+  Definition outputs_in_own_rels (gs : graph_state message action_label state) :=
+    Forall_map (fun n ns => outputs_in_own_rels_from (node_source n) ns.(gns_node_state).(state.sent)) gs.(graph_nodes).
 
   Lemma get_op_ish_inputs gs gt :
     queues_empty gs ->
-    op_ish_outputs gs ->
+    op_ish_outputs gs gt ->
+    outputs_in_own_rels gs ->
     inputs_eq_outputs gs gt ->
     outputs_ok gs gt ->
     op_ish_inputs gs.
