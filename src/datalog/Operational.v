@@ -179,7 +179,7 @@ Section __.
 
   Lemma comp_step_incl s s' :
     comp_step s s' -> incl s s'.
-  Proof. intros (m & r & _ & _ & ->). apply incl_tl, incl_refl. Qed.
+  Proof. cbv [comp_step]. intros. fwd. auto with incl. Qed.
 
   Lemma comp_steps_incl s s' :
     comp_step^* s s' -> incl s s'.

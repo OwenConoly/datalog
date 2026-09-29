@@ -403,12 +403,13 @@ Section __.
     op_ish_inputs gs ->
     Forall2_map (fun _ => inps_corresp os) graph_prog gs.(graph_nodes) ->
     outs_corresp os (all_outputs gs ++ flat_map inputs_of gt) ->
+    meta_facts_ok is_input p os ->
     comp_step os os' ->
     exists gs' t,
       star distributed_step gs t gs' /\
         outs_corresp os' (all_outputs gs' ++ flat_map inputs_of gt).
   Proof.
-    intros Hopish Hinps Houts Hstep. cbv [comp_step] in Hstep.
+    intros Hopish Hinps Houts Hmfs Hstep. cbv [comp_step] in Hstep.
     fwd. cbv [can_deduce_message] in Hstepp1. destruct new_fact as [nf|pat src].
     - cbv [op_can_deduce_normal_fact] in Hstepp1. fwd.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
@@ -416,6 +417,8 @@ Section __.
       cbv [all_rules] in Hstepp0. apply in_flat_map in Hstepp0. fwd.
       apply In_values in Hstepp0p0. fwd.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
+      pose proof (Classical_Prop.classic (In (op_message.normal nf) os)) as [Hin|Hnin].
+      { do 2 eexists. split; [apply star_refl|]. Search outs_corresp.
       do 2 eexists. split.
       + apply star_one. apply gstep_run. 1: eassumption.
         eapply deduce_step with (output := message.normal _).
