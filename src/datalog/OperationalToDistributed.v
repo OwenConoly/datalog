@@ -439,10 +439,10 @@ Section __.
         outs_corresp os' (all_outputs gs' ++ flat_map inputs_of gt).
   Proof.
     intros Hopish Hinps Houts Hmfs Hstep. cbv [comp_step] in Hstep. fwd.
+    pose proof Hstepp0 as Hp.
     cbv [can_deduce_message] in Hstepp1. destruct new_fact as [nf|pat src].
     - cbv [op_can_deduce_normal_fact] in Hstepp1. fwd.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
-      pose proof Hstepp0 as Hp.
       apply Hlayout_normal in Hstepp0.
       cbv [all_rules] in Hstepp0. apply in_flat_map in Hstepp0. fwd.
       apply In_values in Hstepp0p0. fwd.
@@ -517,7 +517,14 @@ Section __.
                   split; [eassumption|].
                   eapply Forall2_forget_r in Hmhyps. eapply Forall_impl; [eassumption|].
                   simpl. intros. fwd. auto.
-           ++
+           ++ admit. (*apply Existsn_total.*)
+           ++ cbv [saturated]. intros r' nf Hr Hnf1 Hnf2.
+              move Hmfs at bottom. cbv [meta_facts_ok] in Hmfs.
+              rewrite Forall_forall in Hmfs. specialize (Hmfs _ ltac:(eassumption)).
+              cbv [meta_facts_ok_at_rule] in Hmfs.
+              move Houts at bottom.
+              Print ok_to_deduce.
+              Print meta_facts_ok_at_rule.
 
       Lemma op_knows_normal_fact_iff nf np ns os :
     In nf.(normal_fact.rel) (program.hyp_rels np) ->
