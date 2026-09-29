@@ -335,19 +335,32 @@ Section __.
               Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src)).
 
   Lemma idkkk known f np ns :
+    In (fact.rel f) (program.hyp_rels np) ->
     op_ish_inputs_to ns.(gns_node_state).(state.known) ->
     op_knows_fact is_input p known f ->
     inps_corresp known np ns ->
     knows_fact graph_senders ns.(gns_node_state).(state.known) f.
   Proof.
-    intros Hinps H Hcon. cbv [consistent_with] in Hcon. fwd.
-    destruct f; simpl in H |- *.
-    - cbv [knows_normal_fact]. apply Hconp0. split; [|assumption]. admit.
-    - cbv [op_knows_meta_fact] in H. fwd. cbv [knows_meta_fact].
-      cbv [op_ish_inputs_to] in Hinps. specialize (Hinps (meta_fact.pattern m)).
-      especialize Hinps.
-      + cbv [all_done_with] in Hp0. cbv [graph_senders]. destruct (is_input _) eqn:E.
-        -- repeat constructor.
+    intros Hrel Hinps H (Hnormal & Hdone). destruct f as [nf | mf]; cbv [knows_fact fact.rel] in *.
+    - cbv [knows_normal_fact]. apply Hnormal. auto.
+    - destruct H as (Hall & Hcons).
+      destruct (Hinps mf.(meta_fact.pattern)) as (mf' & Hpat & num & Hexp & Hexn & _).
+      { apply Forall_forall. intros src Hsrc. apply Hdone. ssplit; [exact Hrel | exact Hsrc |].
+        cbv [all_done_with meta_fact.rel] in Hall. cbv [Distributed.R_senders] in Hsrc.
+        destruct (is_input _).
+        - destruct Hsrc as [<- | []]. cbn [op_sources_of]. auto.
+        - apply in_filter_map in Hsrc. destruct Hsrc as ([m prog] & Htup & Hsrc).
+          destruct (inb _ _) eqn:E in Hsrc; [invert Hsrc | discriminate].
+          apply Properties.map.tuples_spec in Htup.
+          cbn [op_sources_of]. erewrite get_or_default_Some by eassumption.
+          rewrite Lists.List.Forall_map. apply Forall_forall. intros r Hr.
+          rewrite Forall_forall in Hall. apply Hall, Hlayout_normal. cbv [all_rules].
+          apply in_flat_map. eexists. split; [apply In_values; eauto | exact Hr]. }
+      exists num. cbv [meta_fact.rel] in Hexp |- *. rewrite Hpat in Hexp, Hexn.
+      ssplit; [exact Hexp | exact Hexn |].
+      cbv [meta_fact.consistent_with knows_normal_fact] in Hcons |- *. intros nf Hm.
+      rewrite Hcons, Hnormal by assumption. rewrite <- (proj1 Hm). tauto.
+  Qed.
 
   Lemma sim1 os gs os' :
     distribute_R os gs ->
