@@ -24,13 +24,13 @@ Section Distributed.
   Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
   Proof. apply get_or_default_Some. Qed.
 
-  Definition rel_forward (s : source) (d : destn) (R : rel) : bool :=
+  Definition rel_forward (d : destn) (R : rel) : bool :=
     match d with
     | output_destn => true (*TODO: don't output everything*)
     | node_destn nd => inb R (program.hyp_rels (prog_at nd))
     end.
 
-  Definition forward (s : source) (d : destn) (f : message) := rel_forward s d (message.rel f).
+  Definition forward (s : source) (d : destn) (f : message) := rel_forward d (message.rel f).
 
   Lemma forward_equiv s d a b :
     message.equiv a b ->

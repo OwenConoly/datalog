@@ -180,12 +180,16 @@ Section __.
 
   Context {msg_map : map.map nat (list message)}.
 
+  Definition all_outputs (gs : graph_state message action_label state) :=
+    flat_map (fun ns => ns.(gns_node_state).(state.sent)) (values gs.(graph_nodes)).
+
   Definition inputs_eq_outputs (gs : graph_state message action_label state) (gt : list (IO_event (graph_label message action_label) message)) :=
     Forall_map
       (fun (nn : nat) (ns : graph_node_state message action_label state) =>
-         Permutation (flat_map inputs_of (gns_trace ns) ++ gns_queue ns)
-           (fwd_total (forward graph_prog) nn (graph_nodes gs) ++
-              matching_inps (forward graph_prog) nn (flat_map inputs_of gt)))
+         Permutation (ns.(gns_node_state).(state.known) ++ gns_queue ns)
+           (filter
+              (fun m => rel_forward graph_prog (node_destn nn) (message.rel m))
+              (all_outputs gs ++ flat_map inputs_of gt)))
       (graph_nodes gs).
 
   Definition outputs_ok (gs : graph_state message action_label state) (gt : list (IO_event (graph_label message action_label) message)) :=
@@ -207,7 +211,7 @@ Section __.
     inputs_eq_outputs gs gt ->
     outputs_ok gs gt ->
     op_ish_inputs gs.
-  Proof. Admitted.
+  Proof. Admitted. Check known_eq_inputs. Print allowed_output.
 
   Lemma idkkk known f np ns :
     op_ish_inputs_to ns.(gns_node_state).(state.known) ->
