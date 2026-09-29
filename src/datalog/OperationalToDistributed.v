@@ -68,15 +68,15 @@ Section __.
     | input_source => [op_source.input]
     end.
 
-  Definition consistent_with (known : list op_message) np (ns : graph_node_state message action_label state) :=
+  Definition consistent_with (known : list op_message) n np (ns : graph_node_state message action_label state) :=
     (forall nf,
-        In (op_message.normal nf) known <-> In (normal_fact.rel nf) (program.hyp_rels np) /\ In (message.normal nf) ns.(gns_node_state).(state.known)) /\
-      (forall pat src,
-          Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src) <->
-            (exists num, In (message.done_with pat src num) ns.(gns_node_state).(state.sent))).
+        In (message.normal nf) ns.(gns_node_state).(state.known) <-> In (normal_fact.rel nf) (program.hyp_rels np) /\ In (op_message.normal nf) known) /\
+      (forall pat,
+          Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of (node_source n)) <->
+            (exists num, In (message.done_with pat (node_source n) num) ns.(gns_node_state).(state.sent))).
 
   Definition distribute_R (known : list op_message) (gs : graph_state message action_label state) :=
-    Forall2_map (fun _ => consistent_with known) graph_prog gs.(graph_nodes).
+    Forall2_map (consistent_with known) graph_prog gs.(graph_nodes).
 
   Definition R_senders : rel -> list op_source :=
     fun R => if is_input R then [op_source.input] else map op_source.rule (dedup p.(program.rules)).
@@ -168,7 +168,7 @@ Section __.
       exists mf,
         mf.(meta_fact.pattern) = pat /\ knows_meta_fact graph_senders known mf.
 
-  Definition op_ish_output_counts (sent : list message) :=
+  Definition op_ish_output_counts_in (sent : list message) :=
     forall pat src num,
       In (message.done_with pat src num) sent ->
       Existsn (message.matches pat) num sent.
@@ -195,7 +195,15 @@ Section __.
   Definition op_ish_inputs (gs : graph_state message action_label state) :=
     Forall_map (fun _ ns => op_ish_inputs_to ns.(gns_node_state).(state.known)) gs.(graph_nodes).
 
+  Definition op_ish_outputs (gs : graph_state message action_label state) :=
+    Forall_map (fun _ ns => op_ish_output_counts_in ns.(gns_node_state).(state.known)) gs.(graph_nodes).
+
+  Definition queues_empty (gs : graph_state message action_label state) :=
+    Forall_map (fun _ ns => ns.(gns_queue) = []) gs.(graph_nodes).
+
   Lemma get_op_ish_inputs gs gt :
+    queues_empty gs ->
+    op_ish_outputs gs ->
     inputs_eq_outputs gs gt ->
     outputs_ok gs gt ->
     op_ish_inputs gs.
