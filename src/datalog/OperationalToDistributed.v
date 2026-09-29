@@ -146,7 +146,7 @@ Section __.
       apply In_values in Hxp1p0p0. fwd.
       eexists (_, _). split.
       { apply map.tuples_spec. eassumption. }
-      rewrite (proj2 (inb_true_iff _ _)).
+      rewrite_true (inb _ _).
       2: { cbv [program.concl_rels]. apply in_app_iff. left. apply in_flat_map.
            eauto. }
       apply in_map. erewrite get_or_default_Some by eassumption. assumption.

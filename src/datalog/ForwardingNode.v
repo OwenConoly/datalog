@@ -778,7 +778,7 @@ Section __.
         cbn [option_map unwrap_or_default unwrap_or gns_queue]. reflexivity.
       + cbn [queue_at_dest graph_nodes]. rewrite map.get_put_diff by congruence.
         reflexivity.
-    - destr (eqb output_destn (node_destn n)); [ discriminate | ].
+    - rewrite_false (eqb output_destn (node_destn n)) by discriminate.
       cbn [queue_at_dest graph_output_queue]. reflexivity.
   Qed.
 
@@ -821,7 +821,7 @@ Section __.
       + cbv [arrived to_consume_at]. cbn [graph_nodes]. rewrite map.get_put_same. reflexivity.
       + cbv [arrived to_consume_at]. cbn [graph_nodes].
         rewrite map.get_put_diff by congruence. reflexivity.
-    - destr (eqb output_destn (node_destn n)); [ discriminate | reflexivity ].
+    - rewrite_false (eqb output_destn (node_destn n)) by discriminate. reflexivity.
   Qed.
 
   Lemma arrived_put_unchanged (s : fgstate) n ns gns' dest :
@@ -1500,7 +1500,7 @@ Section __.
     cbv [to_consume_at]. cbn [forward_to graph_nodes]. rewrite get_map_values'.
     rewrite map.get_put_same.
     cbn [option_map unwrap_or_default unwrap_or enqueue gns_node_state fnode_to_consume fprog_at fnode_keep].
-    destr (inb (node_destn n) (nforward orig (message.rel f))); [ | contradiction ].
+    rewrite_true (inb (node_destn n) (nforward orig (message.rel f))) by assumption.
     left. reflexivity.
   Qed.
 
@@ -1720,14 +1720,14 @@ Section __.
         * eapply delivered_to_consume with (s1 := s1) (s2 := s2) (n := n) (f := f).
           -- eapply dest_msgs_put with (new := []); [ exact Hget1 | reflexivity ].
           -- intros d Hd. rewrite arrived_put.
-             destr (eqb d (node_destn n)); [ congruence | reflexivity ].
+             rewrite_false (eqb d (node_destn n)) by congruence. reflexivity.
           -- erewrite arrived_get by exact Hget1. rewrite arrived_put.
              destr (eqb (node_destn n) (node_destn n)); [ | congruence ].
              cbn [gns_node_state fnode_to_consume].
              rewrite Hcons, !map_app. cbn [map fst].
              symmetry. apply Permutation_middle.
           -- intros d Hd. rewrite queue_at_dest_put.
-             destr (eqb d (node_destn n)); [ congruence | reflexivity ].
+             rewrite_false (eqb d (node_destn n)) by congruence. reflexivity.
           -- erewrite queue_at_dest_get by exact Hget2.
              erewrite queue_at_dest_get
                by (cbn [graph_nodes]; apply map.get_put_same).
@@ -1857,14 +1857,14 @@ Section __.
       + eapply delivered_to_consume with (s1 := fsa) (s2 := ns) (n := n) (f := m).
         * eapply dest_msgs_put with (new := []); [ exact Hfnsa | reflexivity ].
         * intros d Hd. rewrite arrived_put.
-          destr (eqb d (node_destn n)); [ congruence | reflexivity ].
+          rewrite_false (eqb d (node_destn n)) by congruence. reflexivity.
         * erewrite arrived_get by exact Hfnsa. rewrite arrived_put.
           destr (eqb (node_destn n) (node_destn n)); [ | congruence ].
           cbn [gns_node_state fnode_to_consume].
           rewrite Hc, !map_app. cbn [map fst].
           symmetry. apply Permutation_middle.
         * intros d Hd. rewrite queue_at_dest_put.
-          destr (eqb d (node_destn n)); [ congruence | reflexivity ].
+          rewrite_false (eqb d (node_destn n)) by congruence. reflexivity.
         * erewrite queue_at_dest_get by exact H.
           erewrite queue_at_dest_get
             by (cbn [graph_nodes]; apply map.get_put_same).

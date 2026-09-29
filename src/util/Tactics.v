@@ -181,6 +181,20 @@ Tactic Notation "rewrite_true" open_constr(b) "in" hyp(H) :=
 Tactic Notation "rewrite_true" open_constr(b) "in" hyp(H) "by" tactic3(t) :=
   erewrite (proj2 (Reflects_true_iff _ b)) in H by t.
 
+(* Rewrite the boolean [b] to [false], leaving the negation of the proposition it reflects as a
+   goal. *)
+Tactic Notation "rewrite_false" open_constr(b) :=
+  erewrite (proj2 (Reflects_false_iff _ b)).
+
+Tactic Notation "rewrite_false" open_constr(b) "by" tactic3(t) :=
+  erewrite (proj2 (Reflects_false_iff _ b)) by t.
+
+Tactic Notation "rewrite_false" open_constr(b) "in" hyp(H) :=
+  erewrite (proj2 (Reflects_false_iff _ b)) in H.
+
+Tactic Notation "rewrite_false" open_constr(b) "in" hyp(H) "by" tactic3(t) :=
+  erewrite (proj2 (Reflects_false_iff _ b)) in H by t.
+
 Module Tests.
   Goal forall (P : Prop) b, Reflects P b -> P -> (if b then 1 else 2) = 1.
   Proof. intros P b H HP. rewrite_true b; [reflexivity | exact HP]. Qed.
@@ -196,4 +210,19 @@ Module Tests.
 
   Goal forall (P : Prop) b, Reflects P b -> P -> (if b then 1 else 2) = 2 -> False.
   Proof. intros P b H HP Hb. rewrite_true b in Hb by assumption. discriminate. Qed.
+
+  Goal forall (P : Prop) b, Reflects P b -> ~ P -> (if b then 1 else 2) = 2.
+  Proof. intros P b H HP. rewrite_false b; [reflexivity | exact HP]. Qed.
+
+  Goal forall (P : Prop) b, Reflects P b -> ~ P -> (if b then 1 else 2) = 2.
+  Proof. intros P b H HP. rewrite_false b by assumption. reflexivity. Qed.
+
+  Goal forall (Q : nat -> Prop) f, (forall n, Reflects (Q n) (f n)) -> ~ Q 3 -> f 3 = false.
+  Proof. intros Q f H HQ. rewrite_false (f _) by exact HQ. reflexivity. Qed.
+
+  Goal forall (P : Prop) b, Reflects P b -> ~ P -> (if b then 1 else 2) = 1 -> False.
+  Proof. intros P b H HP Hb. rewrite_false b in Hb; [discriminate | exact HP]. Qed.
+
+  Goal forall (P : Prop) b, Reflects P b -> ~ P -> (if b then 1 else 2) = 1 -> False.
+  Proof. intros P b H HP Hb. rewrite_false b in Hb by assumption. discriminate. Qed.
 End Tests.

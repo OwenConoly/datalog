@@ -65,7 +65,7 @@ Section Distributed.
     intros Hget HR. cbv [R_senders].
     pose proof (Hp_good _ _ Hget) as HF. rewrite Forall_forall in HF. rewrite HF by assumption.
     apply in_filter_map. exists (k, p). split; [apply map.tuples_spec; assumption|].
-    simpl. destr (inb R (program.concl_rels p)); [reflexivity | contradiction].
+    simpl. rewrite_true (inb _ _) by assumption. reflexivity.
   Qed.
 
   Abbreviation claim := (node.claim R_senders).

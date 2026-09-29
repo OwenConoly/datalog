@@ -645,8 +645,7 @@ Section SenderCount.
     rewrite (list_sum_map_filter_zero f (fun k => inb k sub) sup).
     - apply Permutation_list_sum, Permutation_map, Permutation_filter_mem; assumption.
     - intros x _ Hg. apply Hz. intros Hin.
-      assert (inb x sub = true) by (apply inb_true_iff; exact Hin).
-      congruence.
+      rewrite_true (inb _ _) in Hg by exact Hin. discriminate.
   Qed.
 End SenderCount.
 
