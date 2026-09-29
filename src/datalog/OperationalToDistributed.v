@@ -348,6 +348,20 @@ Section __.
     Proper (Permutation (A:=message) ==> iff) (outs_corresp known).
   Proof. intros l1 l2 Hperm. cbv [outs_corresp]. setoid_rewrite Hperm. reflexivity. Qed.
 
+  Lemma outs_corresp_cons_normal known outs nf :
+    outs_corresp known outs ->
+    outs_corresp (op_message.normal nf :: known) (message.normal nf :: outs).
+  Proof.
+    intros (Hn & Hd). split.
+    - intros nf0. cbn [In]. rewrite Hn. intuition congruence.
+    - intros pat src Hsrc. specialize (Hd pat src Hsrc). cbn [In]. split.
+      + intros HF. destruct (proj1 Hd) as (num & Hin).
+        { eapply Forall_impl; [exact HF|]. intros osrc [Heq | H]; [discriminate | exact H]. }
+        exists num. right. exact Hin.
+      + intros (num & [Heq | Hin]); [discriminate|].
+        eapply Forall_impl; [apply (proj2 Hd); eauto|]. intros osrc H. right. exact H.
+  Qed.
+
   Definition inps_corresp (known : list op_message) np (ns : graph_node_state message action_label state) :=
     (forall nf,
         In (message.normal nf) ns.(gns_node_state).(state.known) <-> In (normal_fact.rel nf) (program.hyp_rels np) /\ In (op_message.normal nf) known) /\
@@ -417,11 +431,10 @@ Section __.
         ++ admit.
       + rewrite all_outputs_forward_to.
         erewrite all_outputs_put with (new := [_]); try eassumption || reflexivity.
-        simpl.
+        simpl. apply outs_corresp_cons_normal. admit.
+    - do 2 eexists.
 
-
-  Print consistent_with.
-  Lemma op_knows_normal_fact_iff nf np ns os :
+      Lemma op_knows_normal_fact_iff nf np ns os :
     In nf.(normal_fact.rel) (program.hyp_rels np) ->
     Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->
     knows_normal_fact (op_state.known os) nf <->
