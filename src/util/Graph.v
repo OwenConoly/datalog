@@ -379,7 +379,7 @@ Definition consistent_good :=
     Definition outputs_partition (gs : partial_map node_id (graph_node_state)) : msg_map :=
       map_values' (fun _ ns => flat_map outputs_of ns.(gns_trace)) gs.
 
-    Definition output_map {A} {mp' : map.map node_id (list A)} {mp'_ok : map.ok mp'}
+    Definition output_map {A} {mp' : map.map node_id (list A)}
         (F : node_id -> list message -> list A) (gs : partial_map node_id (graph_node_state)) : list A :=
       concat (values (map_values' (mp' := mp') F (outputs_partition gs))).
 

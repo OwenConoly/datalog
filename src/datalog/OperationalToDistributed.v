@@ -27,7 +27,6 @@ Section __.
   Context (Hgraph_good : Forall_map (fun _ np => Forall (fun R => is_input R = false) (program.concl_rels np)) graph_prog).
 
   Local Abbreviation graph_senders := (Distributed.R_senders graph_prog is_input).
-  Local Abbreviation R_senders := (Operational.R_senders is_input p).
   Local Abbreviation can_deduce := (can_deduce R_senders).
   Local Abbreviation can_deduce_message := (Operational.can_deduce_message is_input p).
   Local Abbreviation comp_step := (Operational.comp_step is_input p).
@@ -55,18 +54,13 @@ Section __.
   Context (Hlayout_normal : graph_prog_distributes_normal_rules p).
   Context (Hlayout_meta : graph_prog_distributes_meta_rules p).
 
-  (*operational state os is consistent with node-program np being done with fp after having sent n messages*)
-  Definition normal_facts_sent_by_rules os rules :=
-    filter_map message.as_normal (flat_map (get_or_default os.(op_state.sents)) rules).
-
-  Definition normal_facts_sent_by_node (ns : graph_node_state message action_label state) :=
-    filter_map message.as_normal ns.(gns_node_state).(state.sent).
+  Definition normal_facts_wanted_by_prog known (np : program) :=
+    filter (fun f => inb (normal_fact.rel f) (program.hyp_rels np)) (filter_map message.as_normal known).
 
   Definition normal_facts_known_by_node (ns : graph_node_state message action_label state) :=
     filter_map message.as_normal ns.(gns_node_state).(state.known).
 
-  Definition normal_facts_wanted_by_rules os (np : program) :=
-    filter (fun f => inb (normal_fact.rel f) (program.hyp_rels np)) (filter_map message.as_normal os.(op_state.known)).
+  Print message.
 
   Definition op_sources_of (src : source) : list op_source :=
     match src with
@@ -74,42 +68,25 @@ Section __.
     | input_source => [op_source.input]
     end.
 
-  Lemma NoDup_node_rules n : NoDup (get_or_default graph_prog n).(program.rules).
+  Definition consistent_with (known : list op_message) np (ns : graph_node_state message action_label state) :=
+    (forall nf,
+        In (op_message.normal nf) known <-> In (normal_fact.rel nf) (program.hyp_rels np) /\ In (message.normal nf) ns.(gns_node_state).(state.known)) /\
+      (forall pat src,
+          Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src) <->
+            (exists num, In (message.done_with pat src num) ns.(gns_node_state).(state.sent))).
+
+  Definition distribute_R (known : list op_message) (gs : graph_state message action_label state) :=
+    Forall2_map (fun _ => consistent_with known) graph_prog gs.(graph_nodes).
+
+  Definition R_senders : rel -> list op_source :=
+    fun R => if is_input R then [op_source.input] else map op_source.rule (dedup p.(program.rules)).
+
+  Lemma R_senders_NoDup R : NoDup (R_senders R).
   Proof.
-    destruct (map.get graph_prog n) eqn:E.
-    - erewrite get_or_default_Some by eassumption.
-      eapply NoDup_flat_map_in; [exact NoDup_all_rules|]. apply In_values. eauto.
-    - erewrite get_or_default_None by eassumption. constructor.
+    cbv [R_senders]. destruct (is_input R).
+    - constructor; [intros [] | constructor].
+    - apply Finite.Injective_map_NoDup; [intros ? ? ?; congruence | apply NoDup_dedup].
   Qed.
-
-  Lemma NoDup_op_sources_of src : NoDup (op_sources_of src).
-  Proof.
-    destruct src; simpl; [| constructor; [intros [] | constructor]].
-    apply Finite.Injective_map_NoDup; [| apply NoDup_node_rules]. cbv [Finite.Injective]. congruence.
-  Qed.
-
-  Definition done_msgs_corresp (op_known : list (message (sender_label := op_source))) (ns : graph_node_state message action_label state) :=
-    forall fp num src,
-      In (message.done_with fp src num) ns.(gns_node_state).(state.known) <->
-        In src (graph_senders (fact_pattern.rel fp)) /\
-          expects_num_facts (op_sources_of src) fp op_known num.
-
-  (*TODO consider how to merge this with done_msgs_corresp*)
-  Definition sent_done_msgs_corresp (op_known : list (message (sender_label := op_source))) n (ns : graph_node_state message action_label state) :=
-    forall fp num,
-      In (message.done_with fp (node_source n) num) ns.(gns_node_state).(state.sent) <->
-        In (node_source n) (graph_senders (fact_pattern.rel fp)) /\
-          expects_num_facts (op_sources_of (node_source n)) fp op_known num.
-
-  Definition node_corresp (os : op_state) n np (ns : graph_node_state message action_label state) :=
-    Permutation (normal_facts_sent_by_rules os np.(program.rules)) (normal_facts_sent_by_node ns) /\
-      Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) /\
-      done_msgs_corresp os.(op_state.known) ns /\
-      sent_done_msgs_corresp os.(op_state.known) n ns /\
-      ns.(gns_queue) = [].
-
-  Definition distribute_R (os : op_state) (gs : graph_state message action_label state) :=
-    Forall2_map (node_corresp os) graph_prog gs.(graph_nodes).
 
   Lemma R_senders_to_graph_senders' R :
      incl (flat_map op_sources_of (graph_senders R)) (R_senders R).
@@ -119,7 +96,7 @@ Section __.
     - rewrite flat_map_filter_map. intros x Hx. rewrite in_flat_map in Hx.
       fwd. Fail progress simp.
       repeat (Tactics.destruct_one_match_hyp; try (contradiction || discriminate); []).
-      fwd. cbv [sender_rules]. apply in_map_iff. cbv [op_sources_of] in Hxp1.
+      fwd. apply in_map_iff. cbv [op_sources_of] in Hxp1.
       apply in_map_iff in Hxp1. fwd. apply Properties.map.tuples_spec in Hxp0.
       cbv [get_or_default get_or] in Hxp1p1. rewrite Hxp0 in Hxp1p1.
       eexists. split; [reflexivity|]. Search Datatypes.List.dedup.
@@ -158,24 +135,13 @@ Section __.
     apply NoDup_incl_Permutation in Hincl; [| apply NoDup_flat_map_op_sources].
     destruct Hincl as (rest & Hperm). exists rest. split; [exact Hperm|].
     apply disjoint_lists_comm, NoDup_app_disjoint_lists.
-    eapply Permutation_NoDup; [exact Hperm | apply Operational.R_senders_NoDup].
+    eapply Permutation_NoDup; [exact Hperm | apply R_senders_NoDup].
   Qed.
 
   Definition op_actual_R_senders R :=
     if is_input R then [op_source.input] else
       map op_source.rule
-        (filter (fun r => inb R (rule.concl_rels r)) (sender_rules p)).
-
-  Definition op_state_reasonable os :=
-    forall pat src num,
-      In (message.done_with pat src num) (op_state.known os) ->
-      In src (op_actual_R_senders (fact_pattern.rel pat)) \/
-        num = 0.
-
-  Definition op_state_sents_ok os :=
-    forall pat r num,
-      In (message.done_with pat (op_source.rule r) num) (op_state.known os) <->
-        In (message.done_with pat (op_source.rule r) num) (get_or_default os.(op_state.sents) r).
+        (filter (fun r => inb R (rule.concl_rels r)) (dedup p.(program.rules))).
 
   Lemma sth'' R :
     incl (op_actual_R_senders R) (flat_map op_sources_of (graph_senders R)).
@@ -184,7 +150,7 @@ Section __.
     - simpl. auto with incl.
     - rewrite flat_map_filter_map. intros x Hx.
       rewrite in_map_iff in Hx. fwd. rewrite filter_In in Hxp1. fwd.
-      apply in_flat_map. cbv [sender_rules] in Hxp1p0.
+      apply in_flat_map.
       apply dedup_preserves_In in Hxp1p0. apply Hlayout_normal in Hxp1p0.
       cbv [all_rules] in Hxp1p0. apply in_flat_map in Hxp1p0. fwd.
       apply In_values in Hxp1p0p0. fwd.
@@ -196,6 +162,80 @@ Section __.
       apply in_map. erewrite get_or_default_Some by eassumption. assumption.
   Qed.
 
+  Definition op_ish_inputs_to (known : list message) :=
+    forall pat,
+      Forall (fun src => exists num, In (message.done_with pat src num) known) (graph_senders pat.(fact_pattern.rel)) ->
+      exists mf,
+        mf.(meta_fact.pattern) = pat /\ knows_meta_fact graph_senders known mf.
+
+  Definition op_ish_output_counts (sent : list message) :=
+    forall pat src num,
+      In (message.done_with pat src num) sent ->
+      Existsn (message.matches pat) num sent.
+
+  Definition outputs_ok_from (src : source) sent :=
+    forall pat src' num,
+      In (message.done_with pat src' num) sent ->
+      src' = src.
+
+  Context {msg_map : map.map nat (list message)}.
+
+  Definition inputs_eq_outputs (gs : graph_state message action_label state) (gt : list (IO_event (graph_label message action_label) message)) :=
+    Forall_map
+      (fun (nn : nat) (ns : graph_node_state message action_label state) =>
+         Permutation (flat_map inputs_of (gns_trace ns) ++ gns_queue ns)
+           (fwd_total (forward graph_prog) nn (graph_nodes gs) ++
+              matching_inps (forward graph_prog) nn (flat_map inputs_of gt)))
+      (graph_nodes gs).
+
+  Definition outputs_ok (gs : graph_state message action_label state) (gt : list (IO_event (graph_label message action_label) message)) :=
+    Forall_map (fun n ns => outputs_ok_from (node_source n) ns.(gns_node_state).(state.sent)) gs.(graph_nodes) /\
+      outputs_ok_from input_source (flat_map inputs_of gt).
+
+  Definition op_ish_inputs (gs : graph_state message action_label state) :=
+    Forall_map (fun _ ns => op_ish_inputs_to ns.(gns_node_state).(state.known)) gs.(graph_nodes).
+
+  Lemma get_op_ish_inputs gs gt :
+    inputs_eq_outputs gs gt ->
+    outputs_ok gs gt ->
+    op_ish_inputs gs.
+  Proof. Admitted.
+
+  Lemma idkkk known f np ns :
+    op_ish_inputs_to ns.(gns_node_state).(state.known) ->
+    op_knows_fact is_input p known f ->
+    consistent_with known np ns ->
+    knows_fact graph_senders ns.(gns_node_state).(state.known) f.
+  Proof. Admitted.
+
+  Lemma sim1 os gs os' :
+    distribute_R os gs ->
+    comp_step os os' ->
+    exists gs' t,
+      star distributed_step gs t gs' /\ distribute_R os' gs'.
+  Proof.
+    intros HR Hstep. cbv [comp_step] in Hstep. fwd. cbv [can_deduce_message] in Hstepp1.
+    destruct new_fact as [nf|pat src].
+    - cbv [op_can_deduce_normal_fact] in Hstepp1. fwd.
+      cbv [distribute_R] in HR.
+      cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
+      apply Hlayout_normal in Hstepp0.
+      cbv [all_rules] in Hstepp0. apply in_flat_map in Hstepp0. fwd.
+      apply In_values in Hstepp0p0. fwd.
+      epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
+      do 2 eexists. split.
+      + eapply star_app.
+        -- apply star_one. apply gstep_run. 1: eassumption.
+           eapply deduce_step with (output := message.normal _).
+           simpl. split.
+           ++ apply Exists_exists. eexists. erewrite prog_at_get by eassumption.
+              split; [eassumption|]. cbv [can_deduce_normal_fact].
+              eexists. split; [eassumption|]. eapply Forall_impl; [eassumption|].
+              intros. eapply idkkk. 2: eassumption. 2: eassumption. admit.
+           ++
+
+
+  Print consistent_with.
   Lemma op_knows_normal_fact_iff nf np ns os :
     In nf.(normal_fact.rel) (program.hyp_rels np) ->
     Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->
