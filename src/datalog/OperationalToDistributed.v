@@ -321,20 +321,23 @@ Section __.
     let outs := all_outputs gs ++ flat_map inputs_of gt in
     (forall nf, In (op_message.normal nf) known <-> In (message.normal nf) outs) /\
       (forall pat src,
+          In src (graph_senders pat.(fact_pattern.rel)) ->
           Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src) <->
             exists num, In (message.done_with pat src num) outs).
 
-  Definition inps_corresp (known : list op_message) n np (ns : graph_node_state message action_label state) :=
+  Definition inps_corresp (known : list op_message) np (ns : graph_node_state message action_label state) :=
     (forall nf,
         In (message.normal nf) ns.(gns_node_state).(state.known) <-> In (normal_fact.rel nf) (program.hyp_rels np) /\ In (op_message.normal nf) known) /\
-      (forall pat,
-          Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of (node_source n)) <->
-            (exists num, In (message.done_with pat (node_source n) num) ns.(gns_node_state).(state.known))).
+      (forall pat src,
+          (exists num, In (message.done_with pat src num) ns.(gns_node_state).(state.known)) <->
+            In pat.(fact_pattern.rel) (program.hyp_rels np) /\
+              In src (graph_senders pat.(fact_pattern.rel)) /\
+              Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src)).
 
-  Lemma idkkk known f np ns n :
+  Lemma idkkk known f np ns :
     op_ish_inputs_to ns.(gns_node_state).(state.known) ->
     op_knows_fact is_input p known f ->
-    inps_corresp known n np ns ->
+    inps_corresp known np ns ->
     knows_fact graph_senders ns.(gns_node_state).(state.known) f.
   Proof.
     intros Hinps H Hcon. cbv [consistent_with] in Hcon. fwd.
