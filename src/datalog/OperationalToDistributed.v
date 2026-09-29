@@ -60,8 +60,6 @@ Section __.
   Definition normal_facts_known_by_node (ns : graph_node_state message action_label state) :=
     filter_map message.as_normal ns.(gns_node_state).(state.known).
 
-  Print message.
-
   Definition op_sources_of (src : source) : list op_source :=
     match src with
     | node_source n => map op_source.rule (get_or_default graph_prog n).(program.rules)
@@ -309,7 +307,8 @@ Section __.
     inputs_eq_outputs gs gt ->
     op_ish_inputs gs.
   Proof.
-    intros Hq Hok Hio. cbv [op_ish_inputs Forall_map op_ish_inputs_to]. intros nn ns Hget pat Hdone.
+    intros Hq Hok Hio. cbv [op_ish_inputs Forall_map op_ish_inputs_to node_all_done_with].
+    intros nn ns Hget pat Hdone.
     specialize (Hq _ _ Hget). specialize (Hio _ _ Hget). cbv beta in Hq, Hio.
     rewrite Hq, app_nil_r in Hio.
     set (inputs := flat_map inputs_of gt) in *.
@@ -401,7 +400,8 @@ Section __.
     - cbv [knows_normal_fact]. apply Hnormal. auto.
     - destruct H as (Hall & Hcons).
       destruct (Hinps mf.(meta_fact.pattern)) as (mf' & Hpat & num & Hexp & Hexn & _).
-      { apply Forall_forall. intros src Hsrc. apply Hdone. ssplit; [exact Hrel | exact Hsrc |].
+      { cbv [node_all_done_with]. apply Forall_forall. intros src Hsrc. apply Hdone.
+        ssplit; [exact Hrel | exact Hsrc |].
         cbv [all_done_with meta_fact.rel] in Hall. cbv [Distributed.R_senders] in Hsrc.
         destruct (is_input _).
         - destruct Hsrc as [<- | []]. cbn [op_sources_of]. auto.
