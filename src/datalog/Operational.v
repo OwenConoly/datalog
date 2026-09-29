@@ -25,7 +25,7 @@ Module op_message.
     Context `{params : datalog_params}.
 
     Variant op_message :=
-      | normal (nf : normal_fact)
+      | normal (nf : normal_fact) (src : op_source)
       | done_with (pat : fact_pattern) (src : op_source).
   End __.
 End op_message. Abbreviation op_message := op_message.op_message.
@@ -40,20 +40,20 @@ Section __.
 
   Definition normal_args_with (R : rel) (m : op_message) : option (list value) :=
     match m with
-    | op_message.normal nf =>
+    | op_message.normal nf _ =>
         if eqb R nf.(normal_fact.rel) then Some nf.(normal_fact.args) else None
     | op_message.done_with _ _ => None
     end.
 
   Lemma In_normal_args_with R ms args :
     In args (filter_map (normal_args_with R) ms) <->
-    In (op_message.normal {| normal_fact.rel := R; normal_fact.args := args |}) ms.
+    exists src, In (op_message.normal {| normal_fact.rel := R; normal_fact.args := args |} src) ms.
   Proof.
     rewrite in_filter_map. split.
-    - intros ([nf | ] & Hin & Hargs); [|discriminate].
+    - intros ([nf src | ] & Hin & Hargs); [|discriminate].
       destruct nf as [nrel nargs]. cbv [normal_args_with] in Hargs. simpl in Hargs.
-      destr (eqb R nrel); [|discriminate]. invert Hargs. assumption.
-    - intros Hin. eexists. split; [eassumption|]. cbv [normal_args_with].
+      destr (eqb R nrel); [|discriminate]. invert Hargs. eauto.
+    - intros (src & Hin). eexists. split; [eassumption|]. cbv [normal_args_with].
       rewrite eqb_refl_true by assumption. reflexivity.
   Qed.
 
@@ -81,13 +81,16 @@ Section __.
   Definition meta_facts_correct (known : list op_message) :=
     Forall (meta_facts_correct_at_rule known) p.(program.rules).
 
+  Definition op_knows_normal_fact known nf :=
+    exists src, In (op_message.normal nf src) known.
+
   Definition op_knows_meta_fact known mf :=
     all_done_with known mf.(meta_fact.pattern) /\
-      meta_fact.consistent_with mf (fun nf => In (op_message.normal nf) known).
+      meta_fact.consistent_with mf (op_knows_normal_fact known).
 
   Definition op_knows_fact known f :=
     match f with
-    | fact.normal nf => In (op_message.normal nf) known
+    | fact.normal nf => op_knows_normal_fact known nf
     | fact.meta mf => op_knows_meta_fact known mf
     end.
 
@@ -99,7 +102,7 @@ Section __.
     forall nf,
       op_can_deduce_normal_fact r known nf ->
       fact_pattern.matches pat nf ->
-      In (op_message.normal nf) known.
+      In (op_message.normal nf (op_source.rule r)) known.
 
   Definition meta_facts_ok_at_rule known r :=
     forall pat,
@@ -111,7 +114,9 @@ Section __.
 
   Definition can_deduce_message (r : rule) known (f : op_message) : Prop :=
     match f with
-    | op_message.normal nf => op_can_deduce_normal_fact r known nf
+    | op_message.normal nf src =>
+        src = op_source.rule r /\
+          op_can_deduce_normal_fact r known nf
     | op_message.done_with pat src =>
         src = op_source.rule r /\
           ok_to_deduce r known pat /\
@@ -126,9 +131,9 @@ Section __.
 
   Definition is_input_fact (f : op_message) :=
     match f with
-    | op_message.normal nf => is_input nf.(normal_fact.rel)
+    | op_message.normal nf op_source.input => is_input nf.(normal_fact.rel)
     | op_message.done_with pat op_source.input => is_input pat.(fact_pattern.rel)
-    | op_message.done_with _ (op_source.rule _) => false
+    | op_message.normal _ (op_source.rule _) | op_message.done_with _ (op_source.rule _) => false
     end.
 
   Context (Hmeta_rules : program.meta_rules_valid p).
@@ -214,20 +219,24 @@ Section __.
     op_can_deduce_pattern known pat -> is_input pat.(fact_pattern.rel) = false.
   Proof. intros (mr & pats & Hmr & Hpi & _). eauto using pattern_concl_not_input. Qed.
 
+  Lemma op_knows_normal_fact_incl k1 k2 nf :
+    incl k1 k2 -> op_knows_normal_fact k1 nf -> op_knows_normal_fact k2 nf.
+  Proof. intros Hincl (src & Hin). exists src. auto. Qed.
+
   Lemma step_no_new_matches known known' pat nf :
     meta_facts_ok known ->
     comp_step known known' ->
     all_done_with known pat ->
     fact_pattern.matches pat nf ->
-    In (op_message.normal nf) known' ->
-    In (op_message.normal nf) known.
+    op_knows_normal_fact known' nf ->
+    op_knows_normal_fact known nf.
   Proof.
-    intros Hok Hstep Hdone Hm Hin. pose proof Hstep as (m & r & Hr & Hcan & ->).
-    destruct Hin as [-> | Hin]; [|assumption]. cbv [can_deduce_message] in Hcan.
+    intros Hok Hstep Hdone Hm (src & Hin). pose proof Hstep as (m & r & Hr & Hcan & ->).
+    destruct Hin as [-> | Hin]; [| exists src; assumption]. destruct Hcan as (-> & Hcan).
     cbv [all_done_with] in Hdone.
     rewrite (proj1 Hm), (can_deduce_implies_not_input _ _ _ Hr Hcan) in Hdone.
     cbv [meta_facts_ok meta_facts_ok_at_rule] in Hok.
-    rewrite Forall_forall in Hdone, Hok. apply (Hok _ Hr _ (Hdone _ Hr)); assumption.
+    rewrite Forall_forall in Hdone, Hok. eexists. apply (Hok _ Hr _ (Hdone _ Hr)); assumption.
   Qed.
 
   Lemma knows_step_down known known' q h :
@@ -244,7 +253,7 @@ Section __.
     - subst q. cbv [op_knows_fact op_knows_meta_fact meta_fact.consistent_with].
       intros (_ & Hcons). split; [assumption|].
       intros nf Hm. rewrite Hcons by assumption.
-      split; eauto using step_no_new_matches.
+      split; eauto using step_no_new_matches, op_knows_normal_fact_incl.
   Qed.
 
   Lemma ok_to_deduce_step r known known' pat :
@@ -322,14 +331,14 @@ Section __.
 
   Definition has_derived_datalog_fact known (f : fact) :=
     match f with
-    | fact.normal nf => In (op_message.normal nf) known
+    | fact.normal nf => op_knows_normal_fact known nf
     | fact.meta mf => all_done_with known mf.(meta_fact.pattern)
     end.
 
   Definition mf_consistent_state known (f : fact) :=
     match f with
     | fact.normal _ => True
-    | fact.meta mf => meta_fact.consistent_with mf (fun nf => In (op_message.normal nf) known)
+    | fact.meta mf => meta_fact.consistent_with mf (op_knows_normal_fact known)
     end.
 
   Lemma op_knows_fact_iff known f :
@@ -350,7 +359,7 @@ Section __.
     intros Hinp. cbv [good_input_facts] in Hinp. rewrite Forall_forall in Hinp. split.
     - intros [nf | mf] Hf Hconcl; apply concl_rel_not_input in Hconcl;
         cbv [fact.rel meta_fact.rel] in Hconcl.
-      + apply Hinp in Hf. simpl in Hf. congruence.
+      + destruct Hf as (src & Hf). apply Hinp in Hf. destruct src; simpl in Hf; congruence.
       + destruct Hf as (Hdone & _). cbv [all_done_with] in Hdone. rewrite Hconcl in Hdone.
         destruct (length_pos_In _ Hrules) as (r & Hr). rewrite Forall_forall in Hdone.
         specialize (Hdone _ Hr). apply Hinp in Hdone. discriminate.
@@ -380,7 +389,7 @@ Section __.
     meta_fact.mk pat (filter_map (normal_args_with pat.(fact_pattern.rel)) known).
 
   Lemma known_meta_fact_consistent known pat :
-    meta_fact.consistent_with (known_meta_fact known pat) (fun nf => In (op_message.normal nf) known).
+    meta_fact.consistent_with (known_meta_fact known pat) (op_knows_normal_fact known).
   Proof.
     intros nf Hm. pose proof Hm as (Hrel & Hargs). cbv [known_meta_fact].
     rewrite meta_fact.contains_mk, In_normal_args_with. destruct nf.
@@ -437,16 +446,16 @@ Section __.
     all_done_with known pat ->
     fact_pattern.matches pat nf ->
     program.interp p (op_knows_fact inputs) (fact.normal nf) ->
-    In (op_message.normal nf) known.
+    op_knows_normal_fact known nf.
   Proof.
     intros Hinp Hmfc Hok Hqs Hincl Hdone Hm Himpl. invert Himpl.
-    - apply Hincl. exact H.
+    - eapply op_knows_normal_fact_incl; eassumption.
     - invert H. apply Exists_exists in H2. destruct H2 as (r & Hr & Hri).
       cbv [all_done_with] in Hdone.
       rewrite (proj1 Hm), (rule_concl_not_input _ _ _ Hr Hri) in Hdone.
       rewrite Forall_forall in Hdone. specialize (Hdone _ Hr).
       cbv [meta_facts_ok meta_facts_ok_at_rule] in Hok. rewrite Forall_forall in Hok.
-      apply (Hok _ Hr _ Hdone); [|assumption].
+      eexists. apply (Hok _ Hr _ Hdone); [|assumption].
       cbv [meta_facts_correct meta_facts_correct_at_rule] in Hmfc. rewrite Forall_forall in Hmfc.
       destruct (Hmfc _ Hr _ Hdone) as (mr & pats & Hmr & Hpi & Hdone_pats & Hnotin).
       exists l. split; [assumption|].
@@ -467,18 +476,18 @@ Section __.
     intros Hinp Hsane Hcorrect Hstep f Hf. pose proof (comp_step_incl _ _ Hstep) as Hincl.
     pose proof Hstep as (m & r & Hr & Hcan & ->).
     destruct f as [nf | mf].
-    - destruct Hf as [-> | Hf]; [| apply Hcorrect; exact Hf].
-      destruct Hcan as (hyps & Hri & Hhyps).
+    - destruct Hf as (src & [-> | Hf]); [| apply Hcorrect; exists src; exact Hf].
+      destruct Hcan as (_ & hyps & Hri & Hhyps).
       eapply pftree.step; [constructor; apply Exists_exists; eauto|].
       eapply Forall_impl; [exact Hhyps|]. auto.
     - destruct (classic (all_done_with known mf.(meta_fact.pattern))) as [Hdone | Hnot_done].
       { apply Hcorrect. split; [exact Hdone|].
         destruct Hf as (_ & Hcons). cbv [meta_fact.consistent_with] in Hcons |- *.
         intros nf Hm. rewrite Hcons by assumption.
-        split; [eauto using step_no_new_matches, sane_meta_facts_ok | apply Hincl]. }
+        split; eauto using step_no_new_matches, sane_meta_facts_ok, op_knows_normal_fact_incl. }
       destruct Hf as (Hdone' & Hcons).
       assert (m = op_message.done_with mf.(meta_fact.pattern) (op_source.rule r)) as ->.
-      { destruct m as [nf | pat src].
+      { destruct m as [nf src | pat src].
         - exfalso. apply Hnot_done. cbv [all_done_with] in Hdone' |- *. destruct (is_input _).
           + destruct Hdone' as [Heq | ?]; [discriminate | assumption].
           + eapply Forall_impl; [exact Hdone'|]. intros r0 [Heq | ?]; [discriminate | assumption].
@@ -507,7 +516,8 @@ Section __.
       rewrite (program.one_step_derives_iff p (op_knows_fact inputs) mr
                  (map (known_meta_fact known) pats) mf.(meta_fact.pattern) nf); try assumption.
       + cbv [meta_fact.consistent_with] in Hcons. rewrite Hcons by assumption. split.
-        * intros [Heq | Hin]; [discriminate|]. apply (Hcorrect (fact.normal nf)). exact Hin.
+        * intros (src & [Heq | Hin]); [discriminate|].
+          apply (Hcorrect (fact.normal nf)). exists src. exact Hin.
         * intros Himpl.
           eapply derivable_matches_known; eauto using sane_meta_facts_correct, sane_meta_facts_ok.
           apply incl_tl. apply Hsane.
@@ -537,7 +547,8 @@ Section __.
     has_derived_datalog_fact known f -> has_derived_datalog_fact known' f.
   Proof.
     intros Hsteps. pose proof (comp_steps_incl _ _ Hsteps) as Hincl.
-    destruct f; cbv [has_derived_datalog_fact]; eauto using all_done_with_incl.
+    destruct f; cbv [has_derived_datalog_fact];
+      eauto using all_done_with_incl, op_knows_normal_fact_incl.
   Qed.
 
   Lemma compose_completion inputs known hyps :
@@ -571,15 +582,18 @@ Section __.
   Proof.
     intros Hincl.
     destruct f as [nf | mf]; cbv [op_knows_fact op_knows_meta_fact has_derived_datalog_fact].
-    - apply Hincl.
+    - eauto using op_knows_normal_fact_incl.
     - intros (Hdone & _). eauto using all_done_with_incl.
   Qed.
 
   Lemma comp_step_fire_normal known rn nf :
     In rn p.(program.rules) ->
     op_can_deduce_normal_fact rn known nf ->
-    comp_step known (op_message.normal nf :: known).
-  Proof. intros Hrn Hcdn. exists (op_message.normal nf), rn. auto. Qed.
+    comp_step known (op_message.normal nf (op_source.rule rn) :: known).
+  Proof.
+    intros Hrn Hcdn. exists (op_message.normal nf (op_source.rule rn)), rn.
+    cbv [can_deduce_message]. auto.
+  Qed.
 
   Lemma comp_step_fire_meta known rn pat :
     In rn p.(program.rules) ->
@@ -611,11 +625,12 @@ Section __.
                           normal_fact.args := a |}) (map.keys mf.(meta_fact.set))).
     assert (Hcand : forall nf known',
                comp_step^* known known' ->
-               In (op_message.normal nf) known' ->
+               In (op_message.normal nf (op_source.rule rn)) known' ->
                fact_pattern.matches mf.(meta_fact.pattern) nf ->
-               In (op_message.normal nf) known \/ In nf l).
+               In (op_message.normal nf (op_source.rule rn)) known \/ In nf l).
     { intros nf known' Hsteps Hin Hm. right.
-      pose proof (comp_steps_sound _ _ _ Hinp Hsane Hcorrect Hsteps (fact.normal nf) Hin) as Himpl.
+      pose proof (comp_steps_sound _ _ _ Hinp Hsane Hcorrect Hsteps (fact.normal nf)
+                    (ex_intro _ (op_source.rule rn) Hin)) as Himpl.
       apply Hhonest in Himpl; [|assumption].
       destruct nf as [nrel nargs]. destruct Hm as (Hrel & _). cbn in Hrel, Himpl.
       subst l. apply in_map_iff. exists nargs. split; [f_equal; congruence | exact Himpl]. }
@@ -626,22 +641,25 @@ Section __.
     - exists known. split; [apply rt1n_refl|]. intros nf Hcdn Hm.
       destruct l; [|simpl in Hlen; lia].
       pose proof (comp_step_fire_normal _ _ _ Hrn Hcdn) as Hstep.
-      destruct (Hcand nf (op_message.normal nf :: known)
+      destruct (Hcand nf (op_message.normal nf (op_source.rule rn) :: known)
                   (Relation_Operators.rt1n_trans _ _ _ _ _ Hstep (rt1n_refl _ _ _))
                   (or_introl eq_refl) Hm) as [Hin | []]. exact Hin.
     - destruct (classic (Exists (fun nf =>
                             op_can_deduce_normal_fact rn known nf /\
                             fact_pattern.matches mf.(meta_fact.pattern) nf /\
-                            ~ In (op_message.normal nf) known) l)) as [Hex | Hno].
+                            ~ In (op_message.normal nf (op_source.rule rn)) known) l))
+        as [Hex | Hno].
       + apply Exists_exists in Hex. destruct Hex as (nf & Hin_l & Hcdn & Hm & Hnin).
         apply in_split in Hin_l. destruct Hin_l as (l1 & l2 & ->).
         pose proof (comp_step_fire_normal _ _ _ Hrn Hcdn) as Hstep.
-        destruct (IH (l1 ++ l2) (op_message.normal nf :: known)) as (known' & Hsteps' & Hok).
+        destruct (IH (l1 ++ l2) (op_message.normal nf (op_source.rule rn) :: known))
+          as (known' & Hsteps' & Hok).
         * rewrite length_app in *. simpl in *. lia.
         * eauto using step_preserves_sane.
         * eauto using comp_step_sound.
         * intros nf0 known'' Hsteps'' Hin'' Hm''.
-          destruct (Hcand nf0 known'' (Relation_Operators.rt1n_trans _ _ _ _ _ Hstep Hsteps'') Hin'' Hm'')
+          destruct (Hcand nf0 known''
+                      (Relation_Operators.rt1n_trans _ _ _ _ _ Hstep Hsteps'') Hin'' Hm'')
             as [Hc | Hc].
           -- left. right. exact Hc.
           -- apply in_app_iff in Hc. destruct Hc as [Hc | [Hc | Hc]].
@@ -650,9 +668,10 @@ Section __.
              ++ right. apply in_or_app. right. exact Hc.
         * exists known'. split; [eauto | exact Hok].
       + exists known. split; [apply rt1n_refl|]. intros nf Hcdn Hm.
-        destruct (classic (In (op_message.normal nf) known)) as [Hin | Hnin]; [exact Hin | exfalso].
+        destruct (classic (In (op_message.normal nf (op_source.rule rn)) known))
+          as [Hin | Hnin]; [exact Hin | exfalso].
         pose proof (comp_step_fire_normal _ _ _ Hrn Hcdn) as Hstep.
-        destruct (Hcand nf (op_message.normal nf :: known)
+        destruct (Hcand nf (op_message.normal nf (op_source.rule rn) :: known)
                     (Relation_Operators.rt1n_trans _ _ _ _ _ Hstep (rt1n_refl _ _ _))
                     (or_introl eq_refl) Hm) as [Hc | Hc]; [contradiction|].
         apply Hno. apply Exists_exists. eauto 6.
@@ -705,7 +724,8 @@ Section __.
   Proof.
     intros Hinp Hsane Hcorrect Himpl Hknown. invert Himpl.
     - apply Exists_exists in H. destruct H as (rn & Hrn & Hri).
-      exists (op_message.normal f0 :: known). split; [|left; reflexivity].
+      exists (op_message.normal f0 (op_source.rule rn) :: known).
+      split; [| eexists; left; reflexivity].
       eapply Relation_Operators.rt1n_trans; [|apply rt1n_refl].
       apply (comp_step_fire_normal _ rn); [assumption|]. exists hyps. auto.
     - apply Exists_exists in H. destruct H as (mr & Hmr & Hmri).
