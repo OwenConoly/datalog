@@ -1,4 +1,4 @@
-From Stdlib Require Import List Permutation.
+From Stdlib Require Import List Permutation Morphisms.
 From coqutil Require Import Map.Interface Map.Properties Eqb Tactics.fwd Tactics Datatypes.List.
 From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics Decidable.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
@@ -228,6 +228,15 @@ Section __.
     apply Permutation_app_comm.
   Qed.
 
+  Lemma all_outputs_forward_to keep msgs gs :
+    Permutation (all_outputs (forward_to keep msgs gs)) (all_outputs gs).
+  Proof.
+    cbv [all_outputs forward_to]. cbn [graph_nodes].
+    rewrite values_eq_tuples, tuples_map_values', values_eq_tuples.
+    rewrite flat_map_concat_map, map_map, map_map, (flat_map_concat_map _ (map snd _)), map_map.
+    apply Permutation_refl'. f_equal. apply map_ext. intros [k v]. reflexivity.
+  Qed.
+
   Lemma outputs_ok_outs_of gs gt src :
     outputs_ok gs gt ->
     In src (all_sources gs) ->
@@ -317,13 +326,16 @@ Section __.
       + exfalso. eapply Hnone; [| eapply Permutation_in; [exact Hio | eassumption]]. reflexivity.
   Qed.
 
-  Definition outs_corresp (known : list op_message) (gs : graph_state message action_label state) (gt : list (IO_event (graph_label message action_label) message)) :=
-    let outs := all_outputs gs ++ flat_map inputs_of gt in
+  Definition outs_corresp (known : list op_message) outs :=
     (forall nf, In (op_message.normal nf) known <-> In (message.normal nf) outs) /\
       (forall pat src,
           In src (graph_senders pat.(fact_pattern.rel)) ->
           Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src) <->
             exists num, In (message.done_with pat src num) outs).
+
+  #[global] Instance outs_corresp_Permutation_Proper known :
+    Proper (Permutation (A:=message) ==> iff) (outs_corresp known).
+  Proof. intros l1 l2 Hperm. cbv [outs_corresp]. setoid_rewrite Hperm. reflexivity. Qed.
 
   Definition inps_corresp (known : list op_message) np (ns : graph_node_state message action_label state) :=
     (forall nf,
@@ -362,12 +374,12 @@ Section __.
       rewrite Hcons, Hnormal by assumption. rewrite <- (proj1 Hm). tauto.
   Qed.
 
-  Lemma sim1 os gs os' gt :
+  Lemma sim1 os gs os' (gt : list (IO_event (graph_label message action_label) message))  :
     op_ish_inputs gs ->
     Forall2_map (fun _ => inps_corresp os) graph_prog gs.(graph_nodes) ->
     comp_step os os' ->
     exists gs' t,
-      star distributed_step gs t gs' /\ outs_corresp os' gs' gt.
+      star distributed_step gs t gs' /\ outs_corresp os' (all_outputs gs' ++ flat_map inputs_of gt).
   Proof.
     intros Hopish HR Hstep. cbv [comp_step] in Hstep. fwd. cbv [can_deduce_message] in Hstepp1.
     destruct new_fact as [nf|pat src].
@@ -392,7 +404,7 @@ Section __.
            --- eauto.
            --- assumption.
         ++ admit.
-      + Search forward_to.
+      + rewrite all_outputs_forward_to.
 
 
   Print consistent_with.
