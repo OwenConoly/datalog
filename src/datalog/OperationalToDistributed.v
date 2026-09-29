@@ -587,6 +587,12 @@ Section __.
               rewrite Forall_forall in Hmfs. specialize (Hmfs _ ltac:(eassumption)).
               cbv [meta_facts_ok_at_rule] in Hmfs.
               move Houts at bottom.
+              cbv [outs_corresp] in Houts. destruct Houts as [Houts _].
+              specialize (Houts nf (node_source k)). simpl in Houts.
+              cbv [node_sent] in Houts. rewrite Hkp0 in Houts. apply Houts.
+              apply Exists_exists.
+
+              Search outs_corresp.
               Print ok_to_deduce.
               Print meta_facts_ok_at_rule.
 
