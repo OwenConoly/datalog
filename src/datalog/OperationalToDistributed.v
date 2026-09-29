@@ -68,16 +68,6 @@ Section __.
     | input_source => [op_source.input]
     end.
 
-  Definition consistent_with (known : list op_message) n np (ns : graph_node_state message action_label state) :=
-    (forall nf,
-        In (message.normal nf) ns.(gns_node_state).(state.known) <-> In (normal_fact.rel nf) (program.hyp_rels np) /\ In (op_message.normal nf) known) /\
-      (forall pat,
-          Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of (node_source n)) <->
-            (exists num, In (message.done_with pat (node_source n) num) ns.(gns_node_state).(state.sent))).
-
-  Definition distribute_R (known : list op_message) (gs : graph_state message action_label state) :=
-    Forall2_map (consistent_with known) graph_prog gs.(graph_nodes).
-
   Definition R_senders : rel -> list op_source :=
     fun R => if is_input R then [op_source.input] else map op_source.rule (dedup p.(program.rules)).
 
@@ -327,12 +317,34 @@ Section __.
       + exfalso. eapply Hnone; [| eapply Permutation_in; [exact Hio | eassumption]]. reflexivity.
   Qed.
 
-  Lemma idkkk known f np ns :
+  Definition outs_corresp (known : list op_message) (gs : graph_state message action_label state) (gt : list (IO_event (graph_label message action_label) message)) :=
+    let outs := all_outputs gs ++ flat_map inputs_of gt in
+    (forall nf, In (op_message.normal nf) known <-> In (message.normal nf) outs) /\
+      (forall pat src,
+          Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src) <->
+            exists num, In (message.done_with pat src num) outs).
+
+  Definition inps_corresp (known : list op_message) n np (ns : graph_node_state message action_label state) :=
+    (forall nf,
+        In (message.normal nf) ns.(gns_node_state).(state.known) <-> In (normal_fact.rel nf) (program.hyp_rels np) /\ In (op_message.normal nf) known) /\
+      (forall pat,
+          Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of (node_source n)) <->
+            (exists num, In (message.done_with pat (node_source n) num) ns.(gns_node_state).(state.known))).
+
+  Lemma idkkk known f np ns n :
     op_ish_inputs_to ns.(gns_node_state).(state.known) ->
     op_knows_fact is_input p known f ->
-    consistent_with known np ns ->
+    inps_corresp known n np ns ->
     knows_fact graph_senders ns.(gns_node_state).(state.known) f.
-  Proof. Admitted.
+  Proof.
+    intros Hinps H Hcon. cbv [consistent_with] in Hcon. fwd.
+    destruct f; simpl in H |- *.
+    - cbv [knows_normal_fact]. apply Hconp0. split; [|assumption]. admit.
+    - cbv [op_knows_meta_fact] in H. fwd. cbv [knows_meta_fact].
+      cbv [op_ish_inputs_to] in Hinps. specialize (Hinps (meta_fact.pattern m)).
+      especialize Hinps.
+      + cbv [all_done_with] in Hp0. cbv [graph_senders]. destruct (is_input _) eqn:E.
+        -- repeat constructor.
 
   Lemma sim1 os gs os' :
     distribute_R os gs ->
