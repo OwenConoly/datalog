@@ -406,12 +406,6 @@ Section __.
       rewrite Hcons, Hnormal by assumption. rewrite <- (proj1 Hm). tauto.
   Qed.
 
-  Lemma BStrue b P :
-    Reflects P b ->
-    P ->
-    b = true.
-  Proof. Admitted.
-
   Lemma sim1 os gs os' (gt : list (IO_event (graph_label message action_label) message))  :
     op_ish_inputs gs ->
     Forall2_map (fun _ => inps_corresp os) graph_prog gs.(graph_nodes) ->
@@ -456,7 +450,7 @@ Section __.
              cbv [graph_senders]. erewrite rule_concl_not_input; try eassumption.
              apply in_filter_map. eexists (_, _). split.
              { apply map.tuples_spec. eassumption. }
-             erewrite (BStrue (inb _ _)); try typeclasses eauto.
+             rewrite_true (inb _ _).
              2: { eapply program.rule_concl_rel_in; try eassumption.
                   eapply rule.interp_concl_relname_in; eassumption. }
              reflexivity. }
