@@ -348,41 +348,104 @@ Section __.
       + exfalso. eapply Hnone; [| eapply Permutation_in; [exact Hio | eassumption]]. reflexivity.
   Qed.
 
-  Definition outs_corresp (known : list op_message) outs :=
-    (forall nf, In (op_message.normal nf) known <-> In (message.normal nf) outs) /\
-      (forall pat src,
-          In src (graph_senders pat.(fact_pattern.rel)) ->
-          Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src) <->
-            exists num, In (message.done_with pat src num) outs).
-
-  #[global] Instance outs_corresp_Permutation_Proper known :
-    Proper (Permutation (A:=message) ==> iff) (outs_corresp known).
-  Proof. intros l1 l2 Hperm. cbv [outs_corresp]. setoid_rewrite Hperm. reflexivity. Qed.
-
-  #[global] Instance outs_corresp_same_set_Proper :
-    Proper (same_set ==> same_set ==> iff) outs_corresp.
+  Lemma rule_at_unique n n' np np' r :
+    map.get graph_prog n = Some np -> map.get graph_prog n' = Some np' ->
+    In r np.(program.rules) -> In r np'.(program.rules) -> n = n'.
   Proof.
-    intros k1 k2 Hk o1 o2 Ho. cbv [outs_corresp same_set] in *.
-    setoid_rewrite Forall_forall. setoid_rewrite Hk. setoid_rewrite Ho. reflexivity.
+    intros Hn Hn' Hr Hr'. pose proof NoDup_all_rules as Hnd. cbv [all_rules] in Hnd.
+    rewrite values_eq_map_keys, flat_map_concat_map, map_map, <- flat_map_concat_map in Hnd.
+    eapply NoDup_flat_map_inj; [exact Hnd | eapply map.in_keys; eassumption | eapply map.in_keys; eassumption | |].
+    - cbv beta. erewrite get_or_default_Some by eassumption. exact Hr.
+    - cbv beta. erewrite get_or_default_Some by eassumption. exact Hr'.
   Qed.
 
-  Lemma outs_corresp_cons_normal known outs nf :
-    outs_corresp known outs ->
-    outs_corresp (op_message.normal nf :: known) (message.normal nf :: outs).
+  Definition outs_corresp (known : list op_message) (outs : source -> list message) :=
+    (forall nf src,
+        In (message.normal nf) (outs src) <->
+          Exists (fun osrc => In (op_message.normal nf osrc) known) (op_sources_of src)) /\
+      (forall pat src,
+          In src (graph_senders pat.(fact_pattern.rel)) ->
+          (exists num, In (message.done_with pat src num) (outs src)) <->
+            Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src)).
+
+  Lemma outs_corresp_ext k1 k2 o1 o2 :
+    outs_corresp k1 o1 ->
+    same_set k1 k2 ->
+    (forall src, same_set (o1 src) (o2 src)) ->
+    outs_corresp k2 o2.
   Proof.
-    intros (Hn & Hd). split.
-    - intros nf0. cbn [In]. rewrite Hn. intuition congruence.
-    - intros pat src Hsrc. specialize (Hd pat src Hsrc). cbn [In]. split.
-      + intros HF. destruct (proj1 Hd) as (num & Hin).
-        { eapply Forall_impl; [exact HF|]. intros osrc [Heq | H]; [discriminate | exact H]. }
-        exists num. right. exact Hin.
-      + intros (num & [Heq | Hin]); [discriminate|].
-        eapply Forall_impl; [apply (proj2 Hd); eauto|]. intros osrc H. right. exact H.
+    cbv [outs_corresp same_set]. intros (Hn & Hd) Hk Ho. split.
+    - intros nf src. rewrite <- Ho, Hn, !Exists_exists. setoid_rewrite Hk. reflexivity.
+    - intros pat src Hsrc. setoid_rewrite <- Ho. rewrite (Hd pat src Hsrc), !Forall_forall.
+      setoid_rewrite Hk. reflexivity.
+  Qed.
+
+  #[global] Instance outs_corresp_same_set_Proper :
+    Proper (same_set ==> pointwise_relation source same_set ==> iff) outs_corresp.
+  Proof.
+    intros k1 k2 Hk o1 o2 Ho. split; intros H.
+    - eapply outs_corresp_ext; [exact H | exact Hk | exact Ho].
+    - eapply outs_corresp_ext; [exact H | symmetry; exact Hk | intros src; symmetry; apply Ho].
+  Qed.
+
+  Lemma outs_of_forward_to keep msgs gs inputs src :
+    outs_of (forward_to keep msgs gs) inputs src = outs_of gs inputs src.
+  Proof.
+    destruct src as [n |]; [| reflexivity]. cbv [outs_of node_sent forward_to]. cbn [graph_nodes].
+    rewrite get_map_values'. destruct (map.get _ n); reflexivity.
+  Qed.
+
+  Lemma outs_of_put_cons gs gs' k ns ns' m inputs src :
+    map.get gs.(graph_nodes) k = Some ns ->
+    gs'.(graph_nodes) = map.put gs.(graph_nodes) k ns' ->
+    ns'.(gns_node_state).(state.sent) = m :: ns.(gns_node_state).(state.sent) ->
+    outs_of gs' inputs src =
+      if eqb src (node_source k) then m :: outs_of gs inputs src else outs_of gs inputs src.
+  Proof.
+    intros Hget Hnodes Hsent. destruct src as [n |]; [| reflexivity].
+    cbn [outs_of]. cbv [node_sent]. rewrite Hnodes.
+    destr (eqb (node_source n) (node_source k)).
+    - rewrite map.get_put_same, Hget, Hsent. reflexivity.
+    - rewrite map.get_put_diff by congruence. reflexivity.
+  Qed.
+
+  Lemma outs_corresp_cons_normal known outs k np r nf :
+    outs_corresp known outs ->
+    map.get graph_prog k = Some np ->
+    In r np.(program.rules) ->
+    outs_corresp (op_message.normal nf (op_source.rule r) :: known)
+      (fun src => if eqb src (node_source k) then message.normal nf :: outs src else outs src).
+  Proof.
+    intros (Hn & Hd) Hget Hr. split.
+    - intros nf0 src. destr (eqb src (node_source k)).
+      + cbn [In op_sources_of]. rewrite Hn, !Exists_exists. cbn [op_sources_of].
+        erewrite get_or_default_Some by eassumption. split.
+        * intros [Heq | (osrc & Hosrc & Hin)].
+          -- invert Heq. exists (op_source.rule r). split; [apply in_map; assumption | left; reflexivity].
+          -- exists osrc. split; [assumption | right; assumption].
+        * intros (osrc & Hosrc & [Heq | Hin]); [invert Heq; left; reflexivity | right; eauto].
+      + rewrite Hn, !Exists_exists. split.
+        * intros (osrc & Hosrc & Hin). exists osrc. split; [assumption | right; assumption].
+        * intros (osrc & Hosrc & [Heq | Hin]); [exfalso | eauto]. invert Heq.
+          destruct src as [n |]; cbn [op_sources_of] in Hosrc.
+          -- apply in_map_iff in Hosrc. destruct Hosrc as (r' & Heq & Hr'). invert Heq.
+             destruct (map.get graph_prog n) eqn:En.
+             ++ erewrite get_or_default_Some in Hr' by eassumption.
+                apply E. f_equal. eapply rule_at_unique; eassumption.
+             ++ erewrite get_or_default_None in Hr' by eassumption. destruct Hr'.
+          -- destruct Hosrc as [Heq | []]. discriminate.
+    - intros pat src Hsrc. specialize (Hd pat src Hsrc).
+      transitivity (exists num, In (message.done_with pat src num) (outs src)).
+      + destr (eqb src (node_source k)); [| reflexivity]. cbn [In].
+        split; intros (num & H); exists num; [destruct H as [Heq | H]; [discriminate | exact H] | right; exact H].
+      + rewrite Hd, !Forall_forall. cbn [In].
+        split; intros H osrc Hosrc; [right; auto |].
+        destruct (H osrc Hosrc) as [Heq | ?]; [discriminate | assumption].
   Qed.
 
   Definition inps_corresp (known : list op_message) np (ns : graph_node_state message action_label state) :=
     (forall nf,
-        In (message.normal nf) ns.(gns_node_state).(state.known) <-> In (normal_fact.rel nf) (program.hyp_rels np) /\ In (op_message.normal nf) known) /\
+        In (message.normal nf) ns.(gns_node_state).(state.known) <-> In (normal_fact.rel nf) (program.hyp_rels np) /\ op_knows_normal_fact known nf) /\
       (forall pat src,
           (exists num, In (message.done_with pat src num) ns.(gns_node_state).(state.known)) <->
             In pat.(fact_pattern.rel) (program.hyp_rels np) /\
@@ -431,23 +494,24 @@ Section __.
   Lemma sim1 os gs os' (gt : list (IO_event (graph_label message action_label) message))  :
     op_ish_inputs gs ->
     Forall2_map (fun _ => inps_corresp os) graph_prog gs.(graph_nodes) ->
-    outs_corresp os (all_outputs gs ++ flat_map inputs_of gt) ->
+    outs_corresp os (outs_of gs (flat_map inputs_of gt)) ->
     meta_facts_ok is_input p os ->
     comp_step os os' ->
     exists gs' t,
       star distributed_step gs t gs' /\
-        outs_corresp os' (all_outputs gs' ++ flat_map inputs_of gt).
+        outs_corresp os' (outs_of gs' (flat_map inputs_of gt)).
   Proof.
     intros Hopish Hinps Houts Hmfs Hstep. cbv [comp_step] in Hstep. fwd.
     pose proof Hstepp0 as Hp.
-    cbv [can_deduce_message] in Hstepp1. destruct new_fact as [nf|pat src].
+    cbv [can_deduce_message] in Hstepp1. destruct new_fact as [nf src|pat src].
     - cbv [op_can_deduce_normal_fact] in Hstepp1. fwd.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
       apply Hlayout_normal in Hstepp0.
       cbv [all_rules] in Hstepp0. apply in_flat_map in Hstepp0. fwd.
       apply In_values in Hstepp0p0. fwd.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
-      pose proof (Classical_Prop.classic (In (op_message.normal nf) os)) as [Hin|Hnin].
+      pose proof (Classical_Prop.classic (In (op_message.normal nf (op_source.rule r)) os))
+        as [Hin|Hnin].
       { do 2 eexists. split; [apply star_refl|].
         rewrite same_set_cons_in by assumption.
         assumption. }
@@ -457,11 +521,11 @@ Section __.
         simpl. split.
         ++ apply Exists_exists. eexists. erewrite prog_at_get by eassumption.
            split; [exact Hstepp0p1|]. cbv [can_deduce_normal_fact].
-           eexists. split; [eassumption|]. rewrite Forall_forall in Hstepp1p1 |- *.
+           eexists. split; [eassumption|]. rewrite Forall_forall in Hstepp1p1p1 |- *.
            intros f Hf. eapply idkkk.
            --- eapply program.rule_hyp_rel_in. 1: exact Hstepp0p1.
-               apply rule.interp_hyp_relname_in in Hstepp1p0.
-               rewrite Forall_forall in Hstepp1p0. auto.
+               apply rule.interp_hyp_relname_in in Hstepp1p1p0.
+               rewrite Forall_forall in Hstepp1p1p0. auto.
            --- cbv [op_ish_inputs] in Hopish. eapply Hopish. eassumption.
            --- eauto.
            --- assumption.
@@ -470,15 +534,15 @@ Section __.
            destruct Houts as [_ Houts]. especialize Houts.
            { rewrite (proj1 Hcntp1). eapply node_sends_concl_rels;
                eauto using program.rule_concl_rel_in, rule.interp_concl_relname_in. }
-           destruct Houts as [_ Houts]. especialize Houts.
-           { exists num. apply in_or_app. left. eapply in_all_outputs; eassumption. }
+           destruct Houts as [Houts _]. especialize Houts.
+           { exists num. cbv [outs_of node_sent]. rewrite Hkp0. exact Hcntp0. }
            cbn [op_sources_of] in Houts. erewrite get_or_default_Some in Houts by eassumption.
            rewrite Lists.List.Forall_map, Forall_forall in Houts.
            cbv [meta_facts_ok] in Hmfs. rewrite Forall_forall in Hmfs.
            eapply Hmfs; eauto. eexists. eauto.
-      + rewrite all_outputs_forward_to.
-        erewrite all_outputs_put with (new := [_]); try eassumption || reflexivity.
-        simpl. apply outs_corresp_cons_normal. assumption.
+      + eapply outs_corresp_ext; [eapply outs_corresp_cons_normal; eassumption | reflexivity |].
+        intros src. rewrite outs_of_forward_to. symmetry.
+        erewrite outs_of_put_cons by (eassumption || reflexivity). reflexivity.
     - fwd. cbv [op_can_deduce_pattern] in Hstepp1p2. fwd.
       apply Hlayout_normal in Hstepp0.
       apply Hlayout_meta in Hstepp1p2p0.
@@ -753,17 +817,6 @@ Section __.
     normal_facts_known_by_node (eat (if b then [message.normal nf] else []) ns) =
       (if b then [nf] else []) ++ normal_facts_known_by_node ns.
   Proof. cbv [normal_facts_known_by_node eat state.add_to_known]. simpl. destruct b; reflexivity. Qed.
-
-  Lemma rule_at_unique n n' np np' r :
-    map.get graph_prog n = Some np -> map.get graph_prog n' = Some np' ->
-    In r np.(program.rules) -> In r np'.(program.rules) -> n = n'.
-  Proof.
-    intros Hn Hn' Hr Hr'. pose proof NoDup_all_rules as Hnd. cbv [all_rules] in Hnd.
-    rewrite values_eq_map_keys, flat_map_concat_map, map_map, <- flat_map_concat_map in Hnd.
-    eapply NoDup_flat_map_inj; [exact Hnd | eapply map.in_keys; eassumption | eapply map.in_keys; eassumption | |].
-    - cbv beta. erewrite get_or_default_Some by eassumption. exact Hr.
-    - cbv beta. erewrite get_or_default_Some by eassumption. exact Hr'.
-  Qed.
 
   Lemma node_corresp_deduce_other os r nf n np ns :
     map.get graph_prog n = Some np ->

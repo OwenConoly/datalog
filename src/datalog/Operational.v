@@ -112,6 +112,9 @@ Section __.
   Definition meta_facts_ok known :=
     Forall (meta_facts_ok_at_rule known) p.(program.rules).
 
+  Definition tags_ok (known : list op_message) :=
+    forall nf r, In (op_message.normal nf (op_source.rule r)) known -> In r p.(program.rules).
+
   Definition can_deduce_message (r : rule) known (f : op_message) : Prop :=
     match f with
     | op_message.normal nf src =>
