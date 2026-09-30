@@ -1116,4 +1116,3 @@ Section __.
       + apply Permutation_app_comm.
   Qed.
 End __.
-Print Assumptions layout_complete.
