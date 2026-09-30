@@ -735,7 +735,7 @@ Section __.
                   split; [eassumption|].
                   eapply Forall2_forget_r in Hmhyps. eapply Forall_impl; [eassumption|].
                   simpl. intros. fwd. auto.
-           ++ admit. (*apply Existsn_total.*)
+           ++ apply Existsn_length_filter with (f := message.matchesb pat). intros m. exact _.
            ++ eapply saturated_of_ok_to_deduce; try eassumption.
               apply Forall_forall. intros r' Hr'.
               destruct (Hyesp1 (op_source.rule r')) as [Heq | Hdone'].
@@ -753,7 +753,7 @@ Section __.
         eapply outs_corresp_cons_done_stutter; [exact Houts | eassumption | eassumption |].
         intros (Hsender & Hothers). apply Hno. split; [| exact Hothers].
         eapply node_sends_concl_rels_inv; eassumption.
-
+  Qed.
       Lemma op_knows_normal_fact_iff nf np ns os :
     In nf.(normal_fact.rel) (program.hyp_rels np) ->
     Permutation (normal_facts_wanted_by_rules os np) (normal_facts_known_by_node ns) ->

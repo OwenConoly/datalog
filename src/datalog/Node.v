@@ -1,6 +1,6 @@
 From Stdlib Require Import List Lia Permutation Classical_Prop RelationClasses.
-From Datalog Require Import List Datalog Smallstep Tactics Graph.
-From coqutil Require Import Map.Interface.
+From Datalog Require Import List Datalog Smallstep Tactics Graph Decidable.
+From coqutil Require Import Map.Interface Eqb.
 From coqutil Require Import Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
 Import ListNotations.
 
@@ -28,6 +28,7 @@ Module message.
   Section __.
     Context `{params : datalog_params} {sender_label : sender_labelT}.
     Context (R_senders : rel -> list sender_label).
+    Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
 
     Variant message :=
     | normal (nf : normal_fact)
@@ -64,6 +65,16 @@ Module message.
       | normal nf => fact_pattern.matches pat nf
       | done_with _ _ _ => False
       end.
+
+    Definition matchesb (pat : fact_pattern) (f : message) :=
+      match f with
+      | normal nf => fact_pattern.matchesb pat nf
+      | done_with _ _ _ => false
+      end.
+
+    #[global] Instance matchesb_spec pat f :
+      Reflects (matches pat f) (matchesb pat f).
+    Proof. destruct f; cbn [matches matchesb]; [exact _ | constructor; auto]. Qed.
 
     Lemma Existsn_matches_filter_map_as_normal pat n l :
       Existsn (matches pat) n l <-> Existsn (fact_pattern.matches pat) n (filter_map as_normal l).

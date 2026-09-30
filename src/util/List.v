@@ -1373,6 +1373,14 @@ Section Existsn.
       + exists n. apply Existsn_no; assumption.
   Qed.
 
+  Lemma Existsn_length_filter (f : T -> bool) l :
+    (forall x, Reflects (P x) (f x)) ->
+    Existsn (length (filter f l)) l.
+  Proof.
+    intros Hf. induction l as [| x l IH]; simpl; [constructor|].
+    destruct (Hf x); simpl; auto.
+  Qed.
+
   Inductive Existsn_ge : nat -> list T -> Prop :=
   | Eg_zero l : Existsn_ge 0 l
   | Eg_skip x k l : Existsn_ge k l -> Existsn_ge k (x :: l)
