@@ -1,6 +1,6 @@
 From Stdlib Require Import List Permutation Morphisms.
 From coqutil Require Import Map.Interface Map.Properties Eqb Tactics.fwd Tactics Datatypes.List.
-From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics Decidable.
+From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics Decidable Pftree.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 
 Import ListNotations.
@@ -925,4 +925,19 @@ Section __.
     - eapply get_inps_corresp; eauto using step_preserves_tags_ok.
     - exact Houts1.
   Qed.
+
+  Definition op_input_of_input input :=
+    match input with
+    | message.normal nf => op_message.normal nf op_source.input
+    | message.done_with pat _ count => op_message.done_with pat op_source.input
+    end.
+
+  Lemma layout_complete os f :
+    comp_step (map op_input_of_input inputs) os ->
+    op_knows_fact is_input p os f ->
+    exists gs t,
+      star distributed_step (initial_graph_state_with inputs) t gs /\
+        knows_fact graph_senders (flat_map outputs_of t) f.
+  Proof. Admitted.
+
 End __.
