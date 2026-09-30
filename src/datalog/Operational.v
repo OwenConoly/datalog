@@ -61,7 +61,9 @@ Section __.
     if is_input pat.(fact_pattern.rel) then
       In (op_message.done_with pat op_source.input) known
     else
-      Forall (fun r => In (op_message.done_with pat (op_source.rule r)) known) p.(program.rules).
+      Forall (fun r =>
+                In pat.(fact_pattern.rel) (rule.concl_rels r) ->
+                In (op_message.done_with pat (op_source.rule r)) known) p.(program.rules).
 
   Definition op_can_deduce_pattern known pat :=
     exists mr pats,
