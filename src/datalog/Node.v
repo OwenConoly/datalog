@@ -727,32 +727,27 @@ Section __.
       + exact (IH _ _ Hin).
   Qed.
 
-  Lemma can_deduce_concl_rel ns m :
-    can_deduce ns m -> In (message.rel m) (program.concl_rels p).
+  Lemma can_deduce_normal_concl_rel ns nf :
+    can_deduce ns (message.normal nf) -> In nf.(normal_fact.rel) (program.normal_concl_rels p).
   Proof.
-    destruct m as [nf | pat src num]; cbn [can_deduce message.rel].
-    - intros (Hex & _). apply Exists_exists in Hex.
-      destruct Hex as (r & Hr & hyps & Hri & _).
-      eapply program.rule_concl_rel_in; eauto using rule.interp_concl_relname_in.
-    - intros (_ & Hex & _). apply Exists_exists in Hex.
-      destruct Hex as (mr & Hmr & mhyps & Hpi & _).
-      eapply program.meta_rule_concl_rel_in;
-        eauto using meta_rule.pattern_interp_concl_relname_in.
+    cbn [can_deduce]. intros (Hex & _). apply Exists_exists in Hex.
+    destruct Hex as (r & Hr & hyps & Hri & _).
+    eapply program.rule_normal_concl_rel_in; eauto using rule.interp_concl_relname_in.
   Qed.
 
   Lemma sent_rel_sender t s :
-    (forall s0 f, can_deduce s0 f -> In name (R_senders (message.rel f))) ->
+    (forall s0 nf, can_deduce s0 (message.normal nf) -> In name (R_senders nf.(normal_fact.rel))) ->
     star step init t s ->
-    forall f, In f s.(state.sent) -> In name (R_senders (message.rel f)).
+    forall nf, In (message.normal nf) s.(state.sent) -> In name (R_senders nf.(normal_fact.rel)).
   Proof.
     intros Hsend Hstar.
-    induction Hstar as [| t0 s' e s'' Hstar IH Hstep]; intros f Hin.
+    induction Hstar as [| t0 s' e s'' Hstar IH Hstep]; intros nf Hin.
     - destruct Hin.
     - invert Hstep; cbn [state.sent] in Hin.
       + destruct Hin as [Hhead | Hin_old].
-        * subst output. exact (Hsend s' f H).
-        * exact (IH f Hin_old).
-      + exact (IH f Hin).
+        * subst output. exact (Hsend s' nf H).
+        * exact (IH nf Hin_old).
+      + exact (IH nf Hin).
   Qed.
 
   Lemma reachable_good t s :

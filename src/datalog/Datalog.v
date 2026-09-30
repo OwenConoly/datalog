@@ -1101,14 +1101,17 @@ Module program.
     Qed.
     #[local] Hint Resolve interp_step_hyp_relname_in : core.
 
+    Definition normal_concl_rels (p : program) :=
+      flat_map rule.concl_rels p.(rules).
+
     Definition concl_rels (p : program) :=
-      flat_map rule.concl_rels p.(rules) ++ flat_map meta_rule.concl_rels p.(meta_rules).
+      normal_concl_rels p ++ flat_map meta_rule.concl_rels p.(meta_rules).
 
     Lemma interp_step_concl_relname_in p f hyps :
       interp_step p f hyps ->
       In (fact.rel f) (concl_rels p).
     Proof.
-      cbv [concl_rels]. invert 1; fwd; simpl; apply in_or_app.
+      cbv [concl_rels normal_concl_rels]. invert 1; fwd; simpl; apply in_or_app.
       - left. apply in_flat_map. eauto using rule.interp_concl_relname_in.
       - right. apply in_flat_map. eauto using meta_rule.interp_concl_relname_in.
     Qed.
@@ -1118,9 +1121,15 @@ Module program.
 
     Ltac in_rel_list :=
       intros;
-      cbv [all_rels concl_rels hyp_rels];
+      cbv [all_rels concl_rels normal_concl_rels hyp_rels];
       rewrite ?in_app_iff, !in_flat_map;
       eauto 6.
+
+    Lemma rule_normal_concl_rel_in p r x :
+      In r p.(rules) ->
+      In x (rule.concl_rels r) ->
+      In x (normal_concl_rels p).
+    Proof. in_rel_list. Qed.
 
     Lemma rule_concl_rel_in p r x :
       In r p.(rules) ->
@@ -1145,6 +1154,11 @@ Module program.
       In x (meta_rule.hyp_rels mr) ->
       In x (hyp_rels p).
     Proof. in_rel_list. Qed.
+
+    Lemma normal_concl_rel_concl p x :
+      In x (normal_concl_rels p) ->
+      In x (concl_rels p).
+    Proof. cbv [concl_rels normal_concl_rels]. intros. apply in_or_app. auto. Qed.
 
     Lemma concl_rel_all p x :
       In x (concl_rels p) ->
@@ -1196,7 +1210,7 @@ Module program.
     Lemma concl_rels_union p1 p2 :
       Permutation (concl_rels (union p1 p2)) (concl_rels p1 ++ concl_rels p2).
     Proof.
-      cbv [concl_rels union]. simpl. rewrite !flat_map_app, <- !app_assoc.
+      cbv [concl_rels normal_concl_rels union]. simpl. rewrite !flat_map_app, <- !app_assoc.
       apply Permutation_app_head. apply Permutation_app_swap_app.
     Qed.
 
@@ -1216,8 +1230,7 @@ Module program.
 
     (*p2's rules conclude nothing p1's meta-rules aggregate over*)
     Definition meta_indep (p1 p2 : program) :=
-      disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
-        (flat_map rule.concl_rels p2.(rules)).
+      disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules)) (normal_concl_rels p2).
 
     (*p2 reads nothing p1 concludes, and neither one's rules disturb the other's meta-rules*)
     Definition stratified (p1 p2 : program) :=
@@ -1315,10 +1328,10 @@ Module program.
     Proof.
       intros H. cbv [stratified meta_indep]. ssplit.
       - eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels]; auto with incl.
-      - eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels concl_rels];
+      - eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels concl_rels normal_concl_rels];
           auto with incl.
       - apply disjoint_lists_comm in H.
-        eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels concl_rels];
+        eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels concl_rels normal_concl_rels];
           auto with incl.
     Qed.
 
@@ -1388,7 +1401,7 @@ Module program.
         + exfalso. apply meta_rule.pattern_interp_concl_relname_in in Hpat.
           cbv [fact_pattern.matches] in Hmatch. fwd. simp.
           eapply Hinp; [eassumption|]. simpl.
-          cbv [concl_rels]. apply in_or_app. right. apply in_flat_map. eauto.
+          cbv [concl_rels normal_concl_rels]. apply in_or_app. right. apply in_flat_map. eauto.
         + invert H0. rewrite Exists_exists in H2. fwd.
           specialize (Hvalid _ _ Hmr H2p0 _ _ _ _ Hpat H2p1 Hmatch).
           cbv [rule.one_step_derives]. eexists.

@@ -47,7 +47,7 @@ Section __.
       Forall_map (fun _ np =>
                     forall R,
                       In R (meta_rule.concl_rels mr) ->
-                      In R (flat_map rule.concl_rels np.(program.rules)) ->
+                      In R (program.normal_concl_rels np) ->
                       In mr np.(program.meta_rules))
         graph_prog.
 
@@ -109,7 +109,7 @@ Section __.
     - eapply NoDup_sublist with (l := flat_map op_sources_of (map node_source (map.keys graph_prog))).
       + apply sublist_flat_map. cbv [Distributed.R_senders]. rewrite E. cbn iota.
         rewrite keys_eq_tuples, map_map. apply sublist_filter_map.
-        intros [n np] s Hs. simpl in *. destruct (inb R (program.concl_rels np)); congruence.
+        intros [n np] s Hs. simpl in *. destruct (inb R (program.normal_concl_rels np)); congruence.
       + rewrite op_sources_all_nodes.
         apply Finite.Injective_map_NoDup; [intros ? ? ?; congruence | exact NoDup_all_rules].
   Qed.
@@ -144,9 +144,7 @@ Section __.
       apply In_values in Hxp1p0p0. fwd.
       eexists (_, _). split.
       { apply map.tuples_spec. eassumption. }
-      rewrite_true (inb _ _).
-      2: { cbv [program.concl_rels]. apply in_app_iff. left. apply in_flat_map.
-           eauto. }
+      rewrite_true (inb _ _) by (eapply program.rule_normal_concl_rel_in; eassumption).
       apply in_map. erewrite get_or_default_Some by eassumption. assumption.
   Qed.
 
@@ -164,7 +162,7 @@ Section __.
     (forall pat src' num,
         In (message.done_with pat src' num) outs ->
         src' = src /\ Existsn (message.matches pat) num outs) /\
-      (forall f, In f outs -> In src (graph_senders (message.rel f))).
+      (forall nf, In (message.normal nf) outs -> In src (graph_senders nf.(normal_fact.rel))).
 
   Context {msg_map : map.map nat (list message)}.
 
@@ -335,9 +333,9 @@ Section __.
         exact (proj2 (done_source _ _ _ _ _ Hok (proj1 (Hknown _ Hin)))).
       + intros src Hsrc Hnot. apply Forall_not_Existsn_0, Forall_forall. intros m Hm Hmatch.
         apply Hnot.
-        destruct (outputs_ok_outs_of _ _ _ Hok Hsrc) as (_ & Hrel). specialize (Hrel _ Hm).
         destruct m as [nf | ? ? ?]; [| destruct Hmatch].
-        cbn [message.rel] in Hrel. rewrite <- (proj1 Hmatch) in Hrel. exact Hrel.
+        destruct (outputs_ok_outs_of _ _ _ Hok Hsrc) as (_ & Hrel). specialize (Hrel _ Hm).
+        rewrite <- (proj1 Hmatch) in Hrel. exact Hrel.
     - assert (Hnone : forall m, message.rel m = pat.(fact_pattern.rel) ->
                                 ~ In m (filter q (all_outputs gs ++ inputs))).
       { intros m Hm Hin. apply filter_In in Hin. destruct Hin as (_ & Hq'). subst q.
@@ -536,9 +534,9 @@ Section __.
     (forall nf,
         In (message.normal nf) ns.(gns_node_state).(state.known) <-> In (normal_fact.rel nf) (program.hyp_rels np) /\ op_knows_normal_fact known nf) /\
       (forall pat src,
+          In src (graph_senders pat.(fact_pattern.rel)) ->
           (exists num, In (message.done_with pat src num) ns.(gns_node_state).(state.known)) <->
             In pat.(fact_pattern.rel) (program.hyp_rels np) /\
-              In src (graph_senders pat.(fact_pattern.rel)) /\
               Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src)).
 
   Lemma op_all_done_node_all_done os np ns pat :
@@ -548,7 +546,7 @@ Section __.
     node_all_done_with pat ns.(gns_node_state).(state.known).
   Proof.
     intros Hrel (_ & Hdone) Hall. cbv [node_all_done_with]. apply Forall_forall.
-    intros src Hsrc. apply Hdone. ssplit; [exact Hrel | exact Hsrc |].
+    intros src Hsrc. apply (Hdone _ _ Hsrc). split; [exact Hrel |].
     cbv [all_done_with] in Hall. cbv [Distributed.R_senders] in Hsrc.
     destruct (is_input _).
     - destruct Hsrc as [<- | []]. cbn [op_sources_of]. auto.
@@ -689,7 +687,7 @@ Section __.
            cbv [counted] in Hcnt. fwd. cbv [outs_corresp] in Houts.
            destruct Houts as [_ Houts]. especialize Houts.
            { rewrite (proj1 Hcntp1). eapply node_sends_concl_rels;
-               eauto using program.rule_concl_rel_in, rule.interp_concl_relname_in. }
+               eauto using program.rule_normal_concl_rel_in, rule.interp_concl_relname_in. }
            destruct Houts as [Houts _]. especialize Houts.
            { exists num. cbv [outs_of node_sent]. rewrite Hkp0. exact Hcntp0. }
            cbn [op_sources_of] in Houts. erewrite get_or_default_Some in Houts by eassumption.
@@ -706,7 +704,7 @@ Section __.
       apply In_values in Hstepp0p0. fwd.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
       specialize (Hstepp1p2p0 _ _ ltac:(eassumption)). simpl in Hstepp1p2p0.
-      pose proof Classical_Prop.classic (In (fact_pattern.rel pat) (flat_map rule.concl_rels (program.rules x)) /\ forall src, In src (op_sources_of (node_source k)) -> src = op_source.rule r \/ In (op_message.done_with pat src) os) as [Hyes|Hno].
+      pose proof Classical_Prop.classic (In (fact_pattern.rel pat) (program.normal_concl_rels x) /\ forall src, In src (op_sources_of (node_source k)) -> src = op_source.rule r \/ In (op_message.done_with pat src) os) as [Hyes|Hno].
       + fwd. do 2 eexists. split.
         -- apply star_one. apply gstep_run. 1: eassumption.
            eapply deduce_step with (output := message.done_with _ _ _).
@@ -754,10 +752,7 @@ Section __.
       + exists gs, []. split; [apply star_refl|].
         eapply outs_corresp_cons_done_stutter; [exact Houts | eassumption | eassumption |].
         intros (Hsender & Hothers). apply Hno. split; [| exact Hothers].
-        eapply node_sends_concl_rels_inv in Hsender; [| exact Hstepp0p0].
-        cbv [program.concl_rels] in Hsender. apply in_app_or in Hsender.
-        destruct Hsender as [Hnormal | Hmeta]; [exact Hnormal |].
-        admit. (*needs: a node's meta rules conclude only relations its rules conclude*)
+        eapply node_sends_concl_rels_inv; eassumption.
 
       Lemma op_knows_normal_fact_iff nf np ns os :
     In nf.(normal_fact.rel) (program.hyp_rels np) ->

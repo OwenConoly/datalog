@@ -368,7 +368,7 @@ Section RelMap.
       program.wf wf_rel p1 p2 ->
       Forall2 wf_rel (program.concl_rels p1) (program.concl_rels p2).
     Proof.
-      cbv [program.wf program.concl_rels]. intros. fwd. apply Forall2_app.
+      cbv [program.wf program.concl_rels program.normal_concl_rels]. intros. fwd. apply Forall2_app.
       - apply Forall2_flat_map. eapply Forall2_impl; [eassumption|].
         eauto using wf_rule_concl_rels.
       - apply Forall2_flat_map. eapply Forall2_impl; [eassumption|].
@@ -1347,7 +1347,7 @@ Section RelMap.
     Lemma concl_rels_map_program p :
       program.concl_rels (program.map_rel f p) = map f (program.concl_rels p).
     Proof.
-      cbv [program.concl_rels program.map_rel]. simpl.
+      cbv [program.concl_rels program.normal_concl_rels program.map_rel]. simpl.
       rewrite map_app, !map_flat_map, !flat_map_map. f_equal.
       - apply flat_map_ext. apply concl_rels_map_rule_rels.
       - apply flat_map_ext. apply concl_rels_map_meta_rule_rels.
