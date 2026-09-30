@@ -518,18 +518,14 @@ Section __.
     outs_corresp os (outs_of gs (flat_map inputs_of gt)) ->
     meta_facts_ok is_input p os ->
     comp_step os os' ->
-    exists os'',
-      comp_step^* os' os'' /\
-      exists gs' t,
-        star distributed_step gs t gs' /\
-          outs_corresp os' (outs_of gs' (flat_map inputs_of gt)).
+    exists gs' t,
+      star distributed_step gs t gs' /\
+        outs_corresp os' (outs_of gs' (flat_map inputs_of gt)).
   Proof.
     intros Hopish Hinps Houts Hmfs Hstep. cbv [comp_step] in Hstep. fwd.
     pose proof Hstepp0 as Hp.
     cbv [can_deduce_message] in Hstepp1. destruct new_fact as [nf src|pat src].
-    - exists (op_message.normal nf src :: os). split.
-      { solve[constructor]. }
-      cbv [op_can_deduce_normal_fact] in Hstepp1. fwd.
+    - cbv [op_can_deduce_normal_fact] in Hstepp1. fwd.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
       apply Hlayout_normal in Hstepp0.
       cbv [all_rules] in Hstepp0. apply in_flat_map in Hstepp0. fwd.
@@ -616,6 +612,7 @@ Section __.
               specialize (Houts nf (node_source k)). simpl in Houts.
               cbv [node_sent] in Houts. rewrite Hkp0 in Houts. apply Houts.
               apply Exists_exists. erewrite get_or_default_Some by eassumption.
+
               Search nf. Print fact.covered_by_pats.
 
               Search outs_corresp.
