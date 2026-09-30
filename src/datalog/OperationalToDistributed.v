@@ -1101,13 +1101,15 @@ Section __.
     op_knows_fact is_input p os f ->
     exists gs t,
       star distributed_step (initial_graph_state_with inputs) t gs /\
+        flat_map inputs_of t = [] /\
         knows_fact graph_senders (flat_map outputs_of t) f.
   Proof.
     intros Hsteps Hknows.
     destruct (star_drain (initial_graph_state_with inputs)) as (t0 & Hstar0 & Ht0).
     destruct (sim_star _ _ _ distribute_R_init Hsteps) as (gs & t1 & Hstar1 & Ht1 & HR).
-    eexists _, (_ ++ t1 ++ t0). split.
+    eexists _, (_ ++ t1 ++ t0). ssplit.
     - eapply star_app; [eapply star_app; [exact Hstar0 | exact Hstar1] | apply star_gstep_output].
+    - rewrite !flat_map_app, Ht1, Ht0, inputs_of_map_O_event. reflexivity.
     - eapply knows_fact_perm; [eapply distribute_R_knows; eassumption|].
       rewrite flat_map_app, outputs_of_map_O_event, flat_map_singleton.
       etransitivity; [symmetry; apply emitted_eq_outputs |].
