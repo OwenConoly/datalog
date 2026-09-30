@@ -1,6 +1,6 @@
 From Stdlib Require Import List Permutation Morphisms.
 From coqutil Require Import Map.Interface Map.Properties Eqb Tactics.fwd Tactics Datatypes.List.
-From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics Decidable.
+From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics Decidable Relations.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 
 Import ListNotations.
@@ -472,6 +472,7 @@ Section __.
       apply in_flat_map. eexists. split; [apply In_values; eauto | exact Hr].
   Qed.
 
+  Print inps_corresp.
   Lemma idkkk known f np ns :
     In (fact.rel f) (program.hyp_rels np) ->
     op_ish_inputs_to ns.(gns_node_state).(state.known) ->
@@ -491,20 +492,44 @@ Section __.
       rewrite Hcons, Hnormal by assumption. rewrite <- (proj1 Hm). tauto.
   Qed.
 
+  (* Lemma node_knows_to_op_knows known f np ns : *)
+  (*   In (fact.rel f) (program.hyp_rels np) -> *)
+  (*   knows_fact graph_senders ns.(gns_node_state).(state.known) f -> *)
+  (*   op_ish_inputs_to ns.(gns_node_state).(state.known) -> *)
+  (*   inps_corresp known np ns -> *)
+  (*   op_knows_fact is_input p known f. *)
+  (* Proof. *)
+  (*   intros Hrel Hinps H Hcorr. pose proof Hcorr as (Hnormal & Hmeta). *)
+  (*   destruct f as [nf | mf]; cbv [knows_fact fact.rel] in *. *)
+  (*   - cbv [knows_normal_fact]. apply Hnormal. auto. *)
+  (*   - simpl. cbv [op_knows_meta_fact]. cbv [knows_meta_fact] in Hinps. *)
+  (*     cbv [inps_corresp] in HPrint all_done_with. destruct H as (Hall & Hcons). *)
+  (*     destruct (Hinps mf.(meta_fact.pattern)) as (mf' & Hpat & num & Hexp & Hexn & _). *)
+  (*     { eapply op_all_done_node_all_done; [exact Hrel | exact Hcorr | exact Hall]. } *)
+  (*     exists num. cbv [meta_fact.rel] in Hexp |- *. rewrite Hpat in Hexp, Hexn. *)
+  (*     ssplit; [exact Hexp | exact Hexn |]. *)
+  (*     cbv [meta_fact.consistent_with knows_normal_fact] in Hcons |- *. intros nf Hm. *)
+  (*     rewrite Hcons, Hnormal by assumption. rewrite <- (proj1 Hm). tauto. *)
+  (* Qed. *)
+
   Lemma sim1 os gs os' (gt : list (IO_event (graph_label message action_label) message))  :
     op_ish_inputs gs ->
     Forall2_map (fun _ => inps_corresp os) graph_prog gs.(graph_nodes) ->
     outs_corresp os (outs_of gs (flat_map inputs_of gt)) ->
     meta_facts_ok is_input p os ->
     comp_step os os' ->
-    exists gs' t,
-      star distributed_step gs t gs' /\
-        outs_corresp os' (outs_of gs' (flat_map inputs_of gt)).
+    exists os'',
+      comp_step^* os' os'' /\
+      exists gs' t,
+        star distributed_step gs t gs' /\
+          outs_corresp os' (outs_of gs' (flat_map inputs_of gt)).
   Proof.
     intros Hopish Hinps Houts Hmfs Hstep. cbv [comp_step] in Hstep. fwd.
     pose proof Hstepp0 as Hp.
     cbv [can_deduce_message] in Hstepp1. destruct new_fact as [nf src|pat src].
-    - cbv [op_can_deduce_normal_fact] in Hstepp1. fwd.
+    - exists (op_message.normal nf src :: os). split.
+      { solve[constructor]. }
+      cbv [op_can_deduce_normal_fact] in Hstepp1. fwd.
       cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
       apply Hlayout_normal in Hstepp0.
       cbv [all_rules] in Hstepp0. apply in_flat_map in Hstepp0. fwd.
@@ -582,7 +607,7 @@ Section __.
                   eapply Forall2_forget_r in Hmhyps. eapply Forall_impl; [eassumption|].
                   simpl. intros. fwd. auto.
            ++ admit. (*apply Existsn_total.*)
-           ++ fail. cbv [saturated]. intros r' nf Hr Hnf1 Hnf2.
+           ++ cbv [saturated]. intros r' nf Hr Hnf1 Hnf2.
               move Hmfs at bottom. cbv [meta_facts_ok] in Hmfs.
               rewrite Forall_forall in Hmfs. specialize (Hmfs _ ltac:(eassumption)).
               cbv [meta_facts_ok_at_rule] in Hmfs.
@@ -591,7 +616,7 @@ Section __.
               specialize (Houts nf (node_source k)). simpl in Houts.
               cbv [node_sent] in Houts. rewrite Hkp0 in Houts. apply Houts.
               apply Exists_exists. erewrite get_or_default_Some by eassumption.
-
+              Search nf. Print fact.covered_by_pats.
 
               Search outs_corresp.
               Print ok_to_deduce.
