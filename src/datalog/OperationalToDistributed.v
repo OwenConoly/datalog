@@ -20,6 +20,7 @@ Section __.
 
   Context {prog_map : map.map node_id program} {prog_map_ok : map.ok prog_map}.
   Context {gns_map : map.map node_id (graph_node_state message action_label state)} {gns_map_ok : map.ok gns_map}.
+  Context {msg_map : map.map node_id (list message)} {msg_map_ok : map.ok msg_map}.
 
   Context (graph_prog : prog_map).
   Context (Hgraph_good : Forall_map (fun _ np => Forall (fun R => is_input R = false) (program.concl_rels np)) graph_prog).
@@ -28,6 +29,7 @@ Section __.
   Local Abbreviation can_deduce_message := (Operational.can_deduce_message is_input p).
   Local Abbreviation comp_step := (Operational.comp_step is_input p).
   Local Abbreviation distributed_step := (Distributed.distributed_step graph_prog is_input).
+  Local Abbreviation initial_graph_state := (Distributed.initial_graph_state graph_prog).
 
   Definition all_rules :=
     flat_map program.rules (values graph_prog).
@@ -696,9 +698,189 @@ Section __.
   Lemma queues_empty_drain gs : queues_empty (drain gs).
   Proof. apply Forall_map_map_values'. intros k v _. reflexivity. Qed.
 
+  Lemma outs_drain_pointwise gs inputs :
+    pointwise_relation source same_set (outs_of (drain gs) inputs) (outs_of gs inputs).
+  Proof. intros src. rewrite outs_drain. reflexivity. Qed.
+
+  Definition reachable gs (inputs : list message) :=
+    exists gt, star distributed_step initial_graph_state gt gs /\ flat_map inputs_of gt = inputs.
+
+  Lemma reachable_step gs t gs' inputs :
+    reachable gs inputs ->
+    star distributed_step gs t gs' ->
+    flat_map inputs_of t = [] ->
+    reachable gs' inputs.
+  Proof.
+    intros (gt & Hstar & Hinp) Hstar' Ht. exists (t ++ gt).
+    split; [eapply star_app; eassumption|]. rewrite flat_map_app, Ht, Hinp. reflexivity.
+  Qed.
+
+  Lemma reachable_node_runs gs inputs :
+    reachable gs inputs ->
+    Forall2_map (fun n _ gns => star (nstep n) node.init gns.(gns_trace) gns.(gns_node_state))
+      graph_prog gs.(graph_nodes).
+  Proof.
+    intros (gt & Hstar & _) k.
+    pose proof (graph_step_to_node_step_from_beginning _ _ _ (initial_graph_state_empty _) _ _ Hstar k) as H.
+    cbv [Distributed.initial_graph_state Distributed.initial_graph_nodes] in H. cbn [graph_nodes] in H.
+    rewrite get_map_values' in H.
+    destruct (map.get graph_prog k); destruct (map.get gs.(graph_nodes) k); cbn in *; auto.
+  Qed.
+
+  Lemma fwd_total_all_outputs gs inputs nn :
+    reachable gs inputs ->
+    Permutation (fwd_total (Distributed.forward graph_prog) nn gs.(graph_nodes))
+      (filter (fun m => rel_forward graph_prog (node_destn nn) (message.rel m)) (all_outputs gs)).
+  Proof.
+    intros Hreach. pose proof (reachable_node_runs _ _ Hreach) as Hruns.
+    cbv [fwd_total output_map outputs_partition all_outputs].
+    rewrite map_values'_map_values', values_eq_tuples, <- flat_map_concat_map, tuples_map_values'.
+    rewrite filter_flat_map, values_eq_tuples, !flat_map_concat_map, !map_map.
+    apply Permutation_refl', f_equal, map_ext_in. intros [k ns] Hin. cbn.
+    apply Properties.map.tuples_spec in Hin.
+    destruct (Forall2_map_get_r _ _ _ _ _ Hruns Hin) as (np & _ & Hrun).
+    erewrite <- node.sent_eq_outputs by exact Hrun. reflexivity.
+  Qed.
+
+  Lemma inputs_eq_outputs_of_reachable gs gt :
+    reachable gs (flat_map inputs_of gt) ->
+    inputs_eq_outputs gs gt.
+  Proof.
+    intros Hreach. pose proof Hreach as (gt' & Hstar & Hinp).
+    pose proof (reachable_node_runs _ _ Hreach) as Hruns.
+    intros k ns Hget.
+    pose proof (inputs_are_outputs _ _ _ (initial_graph_state_empty _) _ _ Hstar k ns Hget) as H.
+    rewrite Hinp in H.
+    destruct (Forall2_map_get_r _ _ _ _ _ Hruns Hget) as (np & _ & Hrun).
+    erewrite <- node.known_eq_inputs in H by exact Hrun.
+    rewrite H, filter_app. apply Permutation_app; [eapply fwd_total_all_outputs; eassumption | reflexivity].
+  Qed.
+
+  Lemma outputs_ok_of_reachable gs gt :
+    reachable gs (flat_map inputs_of gt) ->
+    outputs_ok_from input_source (flat_map inputs_of gt) ->
+    outputs_ok gs gt.
+  Proof.
+    intros Hreach Hinp. split; [| exact Hinp].
+    pose proof (reachable_node_runs _ _ Hreach) as Hruns.
+    intros k ns Hget.
+    destruct (Forall2_map_get_r _ _ _ _ _ Hruns Hget) as (np & Hnp & Hrun).
+    cbv beta in Hrun. erewrite prog_at_get in Hrun by exact Hnp.
+    split.
+    - intros pat src num Hin.
+      pose proof (node.sent_source_correct _ _ _ _ _ Hrun _ _ _ Hin). subst src.
+      split; [reflexivity|]. eapply node.sent_counts_correct; eassumption.
+    - intros nf Hin. eapply node.sent_rel_sender; [| exact Hrun | exact Hin].
+      intros ? ? Hcd. apply node.can_deduce_normal_concl_rel in Hcd.
+      eauto using node_sends_concl_rels.
+  Qed.
+
+  Lemma node_in_all_sources gs k np :
+    same_domain graph_prog gs.(graph_nodes) ->
+    map.get graph_prog k = Some np ->
+    In (node_source k) (all_sources gs).
+  Proof.
+    intros Hdom Hnp. right. apply in_map. specialize (Hdom k). rewrite Hnp in Hdom.
+    destruct (map.get gs.(graph_nodes) k) eqn:E; [| contradiction].
+    eapply Properties.map.in_keys. exact E.
+  Qed.
+
+  Lemma senders_in_all_sources gs R src :
+    same_domain graph_prog gs.(graph_nodes) ->
+    In src (graph_senders R) ->
+    In src (all_sources gs).
+  Proof.
+    intros Hdom Hin. cbv [Distributed.R_senders] in Hin. destruct (is_input R).
+    - destruct Hin as [<- | []]. left. reflexivity.
+    - apply in_filter_map in Hin. destruct Hin as ([k np] & Htup & Hsrc).
+      destruct (inb _ _); [invert Hsrc | discriminate].
+      apply Properties.map.tuples_spec in Htup. eauto using node_in_all_sources.
+  Qed.
+
+  Lemma in_all_outputs_iff gs inputs m :
+    In m (all_outputs gs ++ inputs) <->
+    exists src, In src (all_sources gs) /\ In m (outs_of gs inputs src).
+  Proof. rewrite (all_outputs_flat_map gs inputs). apply in_flat_map. Qed.
+
+  Lemma in_known_iff gs gt k np ns m :
+    queues_empty gs ->
+    inputs_eq_outputs gs gt ->
+    map.get graph_prog k = Some np ->
+    map.get gs.(graph_nodes) k = Some ns ->
+    In m ns.(gns_node_state).(state.known) <->
+      In (message.rel m) (program.hyp_rels np) /\ In m (all_outputs gs ++ flat_map inputs_of gt).
+  Proof.
+    intros Hqe Hieo Hnp Hns.
+    specialize (Hieo _ _ Hns). specialize (Hqe _ _ Hns). cbv beta in Hieo, Hqe.
+    rewrite Hqe, app_nil_r in Hieo.
+    rewrite Hieo, filter_In. cbv [Distributed.rel_forward]. erewrite prog_at_get by eassumption.
+    rewrite inb_true_iff. tauto.
+  Qed.
+
+  Lemma op_knows_normal_fact_sources os gs nf :
+    tags_ok p os ->
+    same_domain graph_prog gs.(graph_nodes) ->
+    op_knows_normal_fact os nf <->
+      exists src, In src (all_sources gs) /\
+        Exists (fun osrc => In (op_message.normal nf osrc) os) (op_sources_of src).
+  Proof.
+    intros Htags Hdom. split.
+    - intros ([r|] & Hin).
+      + pose proof (Htags _ _ Hin) as Hr. apply Hlayout_normal in Hr. cbv [all_rules] in Hr.
+        apply in_flat_map in Hr. destruct Hr as (np & Hnp & Hr).
+        apply In_values in Hnp. destruct Hnp as (k & Hnp).
+        exists (node_source k). split; [eauto using node_in_all_sources|].
+        cbn [op_sources_of]. erewrite get_or_default_Some by eassumption.
+        apply Exists_exists. eexists. split; [apply in_map; exact Hr | exact Hin].
+      + exists input_source. split; [left; reflexivity|]. left. exact Hin.
+    - intros (src & _ & Hex). apply Exists_exists in Hex. destruct Hex as (osrc & _ & Hin).
+      eexists. exact Hin.
+  Qed.
+
+  Lemma in_outs_done gs gt pat src num :
+    outputs_ok gs gt ->
+    In (message.done_with pat src num) (all_outputs gs ++ flat_map inputs_of gt) <->
+      In src (all_sources gs) /\
+        In (message.done_with pat src num) (outs_of gs (flat_map inputs_of gt) src).
+  Proof.
+    intros Hok. rewrite in_all_outputs_iff. split.
+    - intros (src' & Hsrc' & Hin).
+      destruct (proj1 (outputs_ok_outs_of _ _ _ Hok Hsrc') _ _ _ Hin) as (<- & _). auto.
+    - intros (Hsrc & Hin). eauto.
+  Qed.
+
+  Lemma get_inps_corresp os gs gt :
+    tags_ok p os ->
+    same_domain graph_prog gs.(graph_nodes) ->
+    queues_empty gs ->
+    outputs_ok gs gt ->
+    inputs_eq_outputs gs gt ->
+    outs_corresp os (outs_of gs (flat_map inputs_of gt)) ->
+    Forall2_map (fun _ => inps_corresp os) graph_prog gs.(graph_nodes).
+  Proof.
+    intros Htags Hdom Hqe Hok Hieo (Houts_n & Houts_d) k.
+    pose proof (Hdom k) as Hk.
+    destruct (map.get graph_prog k) as [np|] eqn:Hnp;
+      destruct (map.get gs.(graph_nodes) k) as [ns|] eqn:Hns; try exact Hk.
+    split.
+    - intros nf. erewrite in_known_iff by eassumption. cbn [message.rel].
+      rewrite in_all_outputs_iff, (op_knows_normal_fact_sources _ gs) by assumption.
+      setoid_rewrite Houts_n. reflexivity.
+    - intros pat src Hsrc. rewrite <- (Houts_d pat src Hsrc).
+      pose proof (senders_in_all_sources _ _ _ Hdom Hsrc) as Hsrc'.
+      split.
+      + intros (num & Hin). erewrite in_known_iff in Hin by eassumption.
+        cbn [message.rel] in Hin. destruct Hin as (Hrel & Hin).
+        rewrite in_outs_done in Hin by assumption. destruct Hin as (_ & Hin).
+        split; [exact Hrel | eexists; exact Hin].
+      + intros (Hrel & num & Hin). exists num. erewrite in_known_iff by eassumption.
+        cbn [message.rel]. split; [exact Hrel|]. rewrite in_outs_done by assumption. auto.
+  Qed.
+
   Definition distribute_R os gs (gt : list (IO_event (graph_label message action_label) message)) :=
-    op_ish_inputs gs /\
-      inputs_eq_outputs gs gt /\
+    reachable gs (flat_map inputs_of gt) /\
+      outputs_ok_from input_source (flat_map inputs_of gt) /\
+      op_ish_inputs gs /\
 
       meta_facts_correct is_input p os /\
       meta_facts_ok is_input p os /\
@@ -714,5 +896,26 @@ Section __.
       star distributed_step gs t gs' /\
         flat_map inputs_of t = [] /\
         distribute_R os' gs' gt.
-  Proof. Abort.
+  Proof.
+    intros (Hreach & Hinp_ok & Hopish & Hmfc & Hmfo & Htags & Hinps & Houts) Hstep.
+    destruct (sim1 _ _ _ gt Hopish Hinps Houts Hmfo Hstep) as (gs1 & t1 & Hstar1 & Ht1 & Houts1).
+    destruct (star_drain gs1) as (t2 & Hstar2 & Ht2).
+    assert (Hreach' : reachable (drain gs1) (flat_map inputs_of gt)) by eauto using reachable_step.
+    pose proof (Forall2_map_same_domain _ _ _ (reachable_node_runs _ _ Hreach')) as Hdom.
+    pose proof (inputs_eq_outputs_of_reachable _ _ Hreach') as Hieo.
+    pose proof (outputs_ok_of_reachable _ _ Hreach' Hinp_ok) as Hok.
+    pose proof (queues_empty_drain gs1) as Hqe.
+    rewrite <- outs_drain_pointwise in Houts1.
+    exists (drain gs1), (t2 ++ t1). split; [eauto using star_app|].
+    split; [rewrite flat_map_app, Ht1, Ht2; reflexivity|].
+    cbv [distribute_R]. ssplit.
+    - exact Hreach'.
+    - exact Hinp_ok.
+    - eauto using get_op_ish_inputs.
+    - eauto using step_preserves_meta_facts_correct.
+    - eauto using step_preserves_meta_facts_ok.
+    - eauto using step_preserves_tags_ok.
+    - eapply get_inps_corresp; eauto using step_preserves_tags_ok.
+    - exact Houts1.
+  Qed.
 End __.
