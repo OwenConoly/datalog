@@ -492,6 +492,24 @@ Section __.
       rewrite Hcons, Hnormal by assumption. rewrite <- (proj1 Hm). tauto.
   Qed.
 
+  Lemma node_knows_op_knows os np ns pats f :
+    In (fact.rel f) (program.hyp_rels np) ->
+    inps_corresp os np ns ->
+    Forall (all_done_with is_input p os) pats ->
+    fact.covered_by_pats pats f ->
+    knows_fact graph_senders ns.(gns_node_state).(state.known) f ->
+    op_knows_fact is_input p os f.
+  Proof.
+    intros Hrel (Hnormal & _) Hdone Hcov H.
+    destruct f as [nf | mf]; cbv [knows_fact op_knows_fact fact.rel] in *.
+    - apply Hnormal in H. apply H.
+    - destruct H as (num & _ & _ & Hcons). split.
+      + apply Exists_exists in Hcov. destruct Hcov as (q & Hq & Hcov).
+        cbv [fact.covered_by] in Hcov. subst q. rewrite Forall_forall in Hdone. auto.
+      + cbv [meta_fact.consistent_with knows_normal_fact meta_fact.rel] in *. intros nf Hm.
+        rewrite Hcons, Hnormal by assumption. rewrite <- (proj1 Hm). tauto.
+  Qed.
+
   (* Lemma node_knows_to_op_knows known f np ns : *)
   (*   In (fact.rel f) (program.hyp_rels np) -> *)
   (*   knows_fact graph_senders ns.(gns_node_state).(state.known) f -> *)
