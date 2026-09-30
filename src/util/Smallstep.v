@@ -48,6 +48,10 @@ Section io.
     flat_map inputs_of (map I_event l) = l.
   Proof. induction l; cbn; congruence. Qed.
 
+  Lemma inputs_of_map_O_event {A} (f : A -> label) (g : A -> list message) (l : list A) :
+    flat_map inputs_of (map (fun x => O_event (f x) (g x)) l) = [].
+  Proof. induction l; cbn; congruence. Qed.
+
   Lemma outputs_of_map_I_event (l : list message) :
     flat_map outputs_of (map I_event l) = [].
   Proof. induction l; cbn; congruence. Qed.

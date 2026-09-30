@@ -318,15 +318,15 @@ Definition consistent_good :=
         (forall n, In n todo ->
            exists na nb ms, map.get a.(graph_nodes) n = Some na /\ map.get b.(graph_nodes) n = Some nb /\
              star (receive_step n) na ms nb) ->
-        exists t, star graph_step a t b.
+        exists t, star graph_step a t b /\ flat_map inputs_of t = [].
     Proof.
       induction todo as [| k todo IH]; intros a Hoq Hout Hin.
-      - exists []. replace a with b; [apply star_refl|].
+      - exists []. split; [| reflexivity]. replace a with b; [apply star_refl|].
         destruct a, b. simpl in *. f_equal; [| congruence].
         apply map.map_ext. intros k. specialize (Hout k ltac:(intros [])). congruence.
       - destruct a as [nodes oq]. simpl in *.
         destruct (Hin k (in_eq _ _)) as (na & nb & ms & Ha & Hb & Hstar).
-        edestruct (IH {| graph_nodes := map.put nodes k nb; graph_output_queue := oq |}) as (t & Hrest); simpl.
+        edestruct (IH {| graph_nodes := map.put nodes k nb; graph_output_queue := oq |}) as (t & Hrest & Hinp); simpl.
         + assumption.
         + intros n Hn. destr (eqb n k).
           * rewrite map.get_put_same. congruence.
@@ -334,13 +334,15 @@ Definition consistent_good :=
         + intros n Hn. destr (eqb n k).
           * exists nb, nb, []. rewrite map.get_put_same. auto using star_refl.
           * rewrite map.get_put_diff by congruence. apply Hin. right. assumption.
-        + eexists. eapply star_app; [eapply star_receive_step; eassumption | exact Hrest].
+        + eexists. split.
+          * eapply star_app; [eapply star_receive_step; eassumption | exact Hrest].
+          * rewrite flat_map_app, Hinp, inputs_of_map_O_event. reflexivity.
     Qed.
 
     Lemma star_per_node a b :
       a.(graph_output_queue) = b.(graph_output_queue) ->
       Forall2_map (fun n na nb => exists ms, star (receive_step n) na ms nb) a.(graph_nodes) b.(graph_nodes) ->
-      exists t, star graph_step a t b.
+      exists t, star graph_step a t b /\ flat_map inputs_of t = [].
     Proof.
       intros Hoq HF. apply (star_per_node_gen b (map.keys a.(graph_nodes))); [assumption | |].
       - intros n Hn. specialize (HF n). destruct (map.get a.(graph_nodes) n) eqn:E.

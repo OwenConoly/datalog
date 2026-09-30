@@ -538,6 +538,7 @@ Section __.
     comp_step os os' ->
     exists gs' t,
       star distributed_step gs t gs' /\
+        flat_map inputs_of t = [] /\
         outs_corresp os' (outs_of gs' (flat_map inputs_of gt)).
   Proof.
     intros Hopish Hinps Houts Hmfs Hstep. cbv [comp_step] in Hstep. fwd.
@@ -551,7 +552,7 @@ Section __.
       epose proof Forall2_map_get_l as Hk. especialize Hk; try eassumption. fwd.
       pose proof (Classical_Prop.classic (In (op_message.normal nf (op_source.rule r)) os))
         as [Hin|Hnin].
-      { do 2 eexists. split; [apply star_refl|].
+      { do 2 eexists. split; [apply star_refl|]. split; [reflexivity|].
         rewrite same_set_cons_in by assumption.
         assumption. }
       do 2 eexists. split.
@@ -579,7 +580,7 @@ Section __.
            rewrite Lists.List.Forall_map, Forall_forall in Houts.
            cbv [meta_facts_ok] in Hmfs. rewrite Forall_forall in Hmfs.
            eapply Hmfs; eauto. eexists. eauto.
-      + rewrite outs_of_forward_to_pointwise.
+      + split; [reflexivity|]. rewrite outs_of_forward_to_pointwise.
         erewrite outs_of_put_cons_pointwise by (eassumption || reflexivity).
         eapply outs_corresp_cons_normal; eassumption.
     - fwd. pose proof Hstepp1p2 as Hcdp. cbv [op_can_deduce_pattern] in Hstepp1p2. fwd.
@@ -631,10 +632,10 @@ Section __.
               apply Hmfs; [| exact Hdone'].
               apply Hlayout_normal. cbv [all_rules]. apply in_flat_map.
               eexists. split; [apply In_values; eauto | exact Hr'].
-        -- rewrite outs_of_forward_to_pointwise.
+        -- split; [reflexivity|]. rewrite outs_of_forward_to_pointwise.
            erewrite outs_of_put_cons_pointwise by (eassumption || reflexivity).
            eapply outs_corresp_cons_done; eassumption.
-      + exists gs, []. split; [apply star_refl|].
+      + exists gs, []. split; [apply star_refl|]. split; [reflexivity|].
         eapply outs_corresp_cons_done_stutter; [exact Houts | eassumption | eassumption |].
         intros (Hsender & Hothers). apply Hno. split; [| exact Hothers].
         eapply node_sends_concl_rels_inv; eassumption.
@@ -678,7 +679,7 @@ Section __.
     apply (drain_node n queue {| gns_node_state := node; gns_trace := trace; gns_queue := [] |}).
   Qed.
 
-  Lemma star_drain gs : exists t, star distributed_step gs t (drain gs).
+  Lemma star_drain gs : exists t, star distributed_step gs t (drain gs) /\ flat_map inputs_of t = [].
   Proof.
     apply star_per_node; [exact gns_map_ok | reflexivity |].
     apply Forall2_map_map_values'_r, Forall2_map_dup.
@@ -706,6 +707,7 @@ Section __.
     comp_step os os' ->
     exists gs' t,
       star distributed_step gs t gs' /\
-        distribute_R os gs gt.
+        flat_map inputs_of t = [] /\
+        distribute_R os' gs' gt.
   Proof. Abort.
 End __.
