@@ -320,6 +320,15 @@ Section __.
       eapply ok_to_deduce_step; eauto. exists mr, pats. auto.
   Qed.
 
+  Lemma step_preserves_tags_ok known known' :
+    tags_ok known ->
+    comp_step known known' ->
+    tags_ok known'.
+  Proof.
+    intros Htags (m & r & Hr & Hcan & ->) nf r' [Heq | Hin]; [| eauto].
+    subst m. cbv [can_deduce_message] in Hcan. fwd. assumption.
+  Qed.
+
   Lemma step_preserves_sane known known' :
     sane_state known ->
     comp_step known known' ->

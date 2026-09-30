@@ -693,11 +693,16 @@ Section __.
     destruct (map.get _ _); reflexivity.
   Qed.
 
+  Lemma queues_empty_drain gs : queues_empty (drain gs).
+  Proof. apply Forall_map_map_values'. intros k v _. reflexivity. Qed.
+
   Definition distribute_R os gs (gt : list (IO_event (graph_label message action_label) message)) :=
     op_ish_inputs gs /\
       inputs_eq_outputs gs gt /\
 
+      meta_facts_correct is_input p os /\
       meta_facts_ok is_input p os /\
+      tags_ok p os /\
 
       Forall2_map (fun _ => inps_corresp os) graph_prog gs.(graph_nodes) /\
       outs_corresp os (outs_of gs (flat_map inputs_of gt)).
