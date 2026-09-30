@@ -409,6 +409,19 @@ Section __.
     - rewrite map.get_put_diff by congruence. reflexivity.
   Qed.
 
+  Lemma outs_of_forward_to_pointwise keep msgs gs inputs :
+    pointwise_relation source same_set
+      (outs_of (forward_to keep msgs gs) inputs) (outs_of gs inputs).
+  Proof. intros src. rewrite outs_of_forward_to. reflexivity. Qed.
+
+  Lemma outs_of_put_cons_pointwise gs gs' k ns ns' m inputs :
+    map.get gs.(graph_nodes) k = Some ns ->
+    gs'.(graph_nodes) = map.put gs.(graph_nodes) k ns' ->
+    ns'.(gns_node_state).(state.sent) = m :: ns.(gns_node_state).(state.sent) ->
+    pointwise_relation source same_set (outs_of gs' inputs)
+      (fun src => if eqb src (node_source k) then m :: outs_of gs inputs src else outs_of gs inputs src).
+  Proof. intros Hget Hnodes Hsent src. erewrite outs_of_put_cons by eassumption. reflexivity. Qed.
+
   Lemma outs_corresp_cons_normal known outs k np r nf :
     outs_corresp known outs ->
     map.get graph_prog k = Some np ->
@@ -441,6 +454,45 @@ Section __.
       + rewrite Hd, !Forall_forall. cbn [In].
         split; intros H osrc Hosrc; [right; auto |].
         destruct (H osrc Hosrc) as [Heq | ?]; [discriminate | assumption].
+  Qed.
+
+  Lemma outs_corresp_cons_done known outs k np r pat num :
+    outs_corresp known outs ->
+    map.get graph_prog k = Some np ->
+    In r np.(program.rules) ->
+    (forall osrc, In osrc (op_sources_of (node_source k)) ->
+                  osrc = op_source.rule r \/ In (op_message.done_with pat osrc) known) ->
+    outs_corresp (op_message.done_with pat (op_source.rule r) :: known)
+      (fun src => if eqb src (node_source k)
+                  then message.done_with pat (node_source k) num :: outs src else outs src).
+  Proof.
+    intros (Hn & Hd) Hget Hr Hothers. split.
+    - intros nf src. transitivity (In (message.normal nf) (outs src)).
+      + destr (eqb src (node_source k)); [| reflexivity]. cbn [In].
+        split; [intros [Heq | H]; [discriminate | exact H] | auto].
+      + rewrite Hn, !Exists_exists. cbn [In].
+        split; intros (osrc & Hosrc & H); exists osrc; (split; [exact Hosrc|]); [auto |].
+        destruct H as [Heq | H]; [discriminate | exact H].
+    - intros pat0 src Hsrc. specialize (Hd pat0 src Hsrc). rewrite !Forall_forall in *. cbn [In].
+      destr (eqb src (node_source k)).
+      + split.
+        * intros (num0 & [Heq | H]) osrc Hosrc.
+          -- invert Heq. destruct (Hothers _ Hosrc) as [-> | H]; auto.
+          -- right. apply Hd; eauto.
+        * intros H. destr (eqb pat0 pat); [exists num; left; reflexivity|].
+          destruct (proj2 Hd) as (num0 & Hin).
+          { intros osrc Hosrc.
+            destruct (H _ Hosrc) as [Heq | ?]; [invert Heq; congruence | assumption]. }
+          exists num0. right. exact Hin.
+      + rewrite Hd. split; [auto|]. intros H osrc Hosrc.
+        destruct (H _ Hosrc) as [Heq | ?]; [exfalso | assumption]. invert Heq.
+        destruct src as [n |]; cbn [op_sources_of] in Hosrc.
+        * apply in_map_iff in Hosrc. destruct Hosrc as (r' & Heq & Hr'). invert Heq.
+          destruct (map.get graph_prog n) eqn:En.
+          -- erewrite get_or_default_Some in Hr' by eassumption.
+             apply E. f_equal. eapply rule_at_unique; eassumption.
+          -- erewrite get_or_default_None in Hr' by eassumption. destruct Hr'.
+        * destruct Hosrc as [Heq | []]. discriminate.
   Qed.
 
   Definition inps_corresp (known : list op_message) np (ns : graph_node_state message action_label state) :=
@@ -607,9 +659,9 @@ Section __.
            rewrite Lists.List.Forall_map, Forall_forall in Houts.
            cbv [meta_facts_ok] in Hmfs. rewrite Forall_forall in Hmfs.
            eapply Hmfs; eauto. eexists. eauto.
-      + eapply outs_corresp_ext; [eapply outs_corresp_cons_normal; eassumption | reflexivity |].
-        intros src. rewrite outs_of_forward_to. symmetry.
-        erewrite outs_of_put_cons by (eassumption || reflexivity). reflexivity.
+      + rewrite outs_of_forward_to_pointwise.
+        erewrite outs_of_put_cons_pointwise by (eassumption || reflexivity).
+        eapply outs_corresp_cons_normal; eassumption.
     - fwd. pose proof Hstepp1p2 as Hcdp. cbv [op_can_deduce_pattern] in Hstepp1p2. fwd.
       apply Hlayout_normal in Hstepp0.
       apply Hlayout_meta in Hstepp1p2p0.
@@ -659,6 +711,10 @@ Section __.
               apply Hmfs; [| exact Hdone'].
               apply Hlayout_normal. cbv [all_rules]. apply in_flat_map.
               eexists. split; [apply In_values; eauto | exact Hr'].
+        -- rewrite outs_of_forward_to_pointwise.
+           erewrite outs_of_put_cons_pointwise by (eassumption || reflexivity).
+           eapply outs_corresp_cons_done; eassumption.
+      +
 
       Lemma op_knows_normal_fact_iff nf np ns os :
     In nf.(normal_fact.rel) (program.hyp_rels np) ->
