@@ -298,6 +298,30 @@ Definition consistent_good :=
         {| graph_nodes := gs.(graph_nodes);
           graph_output_queue := q1 ++ q2 |}.
 
+    Lemma forward_to_nil keep gs : forward_to keep [] gs = gs.
+    Proof.
+      destruct gs as [nodes oq]. cbv [forward_to enqueue]. cbn. f_equal.
+      erewrite map_values'_ext; [apply map_values'_id|]. intros _ [? ? ?]. reflexivity.
+    Qed.
+
+    Lemma forward_to_app keep msgs1 msgs2 gs :
+      forward_to keep (msgs1 ++ msgs2) gs = forward_to keep msgs1 (forward_to keep msgs2 gs).
+    Proof.
+      cbv [forward_to enqueue]. cbn. f_equal.
+      - rewrite map_values'_map_values'. apply map_values'_ext. intros dst gns. cbn.
+        rewrite filter_app, <- app_assoc. reflexivity.
+      - rewrite filter_app, <- app_assoc. reflexivity.
+    Qed.
+
+    Lemma star_gstep_input gs inputs :
+      star graph_step gs (map I_event inputs) (forward_to (forward input_source) inputs gs).
+    Proof.
+      induction inputs as [| m inputs IH]; cbn [map].
+      - rewrite forward_to_nil. apply star_refl.
+      - change (m :: inputs) with ([m] ++ inputs). rewrite forward_to_app.
+        eapply star_step; [exact IH | apply gstep_input].
+    Qed.
+
     Lemma star_receive_step nodes oq n ns ms ns' :
       map.get nodes n = Some ns ->
       star (receive_step n) ns ms ns' ->

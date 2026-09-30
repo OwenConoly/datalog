@@ -249,6 +249,9 @@ Section Distributed.
   Definition initial_graph_state :=
     {| graph_nodes := initial_graph_nodes; graph_output_queue := @nil message |}.
 
+  Definition initial_graph_state_with (inputs : list message) :=
+    forward_to (forward input_source) inputs initial_graph_state.
+
   Lemma initial_graph_state_get n gns :
     map.get initial_graph_state.(graph_nodes) n = Some gns ->
     exists np, map.get graph_prog n = Some np /\ gns = graph_node_init.
