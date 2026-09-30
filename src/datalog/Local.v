@@ -223,34 +223,17 @@ Section __.
       | None => []
       end.
 
-    Record big_state :=
-      { bs_node : node_state;
-        bs_queue : list concl_fact;
-      }.
-
-    Definition empty_big_state :=
-      {| bs_node := empty_node_state;
-        bs_queue := [] |}.
-
     Variant label :=
-      | dequeue_label
       | deduce_label (facts : list concl_fact).
 
-    Inductive node_step p : big_state -> IO_event label concl_fact -> big_state -> Prop :=
-    | node_dequeue_step bs input rest :
-      bs.(bs_queue) = input :: rest ->
-      node_step _ bs (O_event dequeue_label [])
-                {| bs_node := fold_left (receive_fact p) (locally_forward p input) bs.(bs_node);
-                  bs_queue := rest; |}
-    | node_deduce_step bs facts :
-      is_list_set (lcan_deduce_fact p bs.(bs_node)) facts ->
-      node_step _ bs (O_event (deduce_label facts) facts)
-                {| bs_node := fold_left (send_fact p) (flat_map (locally_forward p) facts) bs.(bs_node);
-                  bs_queue := bs.(bs_queue) ++ facts; |}
-    | node_input_step bs input :
-      node_step _ bs (I_event input)
-                     {| bs_node := bs.(bs_node);
-                       bs_queue := bs.(bs_queue) ++ [input] |}.
+    Variant node_step p : node_state -> IO_event label concl_fact -> node_state -> Prop :=
+    | node_deduce_step ns facts :
+      is_list_set (lcan_deduce_fact p ns) facts ->
+      node_step _ ns (O_event (deduce_label facts) facts)
+        (fold_left (send_fact p) (flat_map (locally_forward p) facts) ns)
+    | node_input_step ns input :
+      node_step _ ns (I_event input)
+        (fold_left (receive_fact p) (locally_forward p input) ns).
 
     (*on the high level, eventually <-> maybe.
       prove: HL eventually -> LL eventually -> LL maybe -> HL maybe.
@@ -397,18 +380,17 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
   Lemma compiler_correct p name :
     steps_corresp_sound (node.allowed_inputs R_senders)
       (node.step R_senders p name) node.init
-      (translate_step lower_message (node_step (lower_prog p))) empty_big_state /\
+      (translate_step lower_message (node_step (lower_prog p))) empty_node_state /\
     steps_corresp_sound (node.allowed_inputs R_senders)
-      (translate_step lower_message (node_step (lower_prog p))) empty_big_state
+      (translate_step lower_message (node_step (lower_prog p))) empty_node_state
       (node.step R_senders p name) node.init.
   Proof. Abort.
 
   Definition spec_knows_fact (ns : node.state) f :=
     In f ns.(node.state.known).
 
-  Definition knows_fact bs f :=
-    knows_hyp_fact bs.(bs_node) (hyp_fact_of f) \/
-      In f bs.(bs_queue).
+  Definition knows_fact ns f :=
+    knows_hyp_fact ns (hyp_fact_of f).
 
   (* Lemma sim_step (sp : spec_node_prog) G bss ts bs t P : *)
   (*   (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) -> *)
