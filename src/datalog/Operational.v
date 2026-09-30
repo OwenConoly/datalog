@@ -152,8 +152,13 @@ Section __.
   Definition good_input_facts input_facts :=
     Forall (fun f => is_input_fact f = true) input_facts.
 
-  Record sane_state {input_facts known : list op_message} : Prop := {
-    sane_inputs_known : incl input_facts known;
+  Context (inputs : list op_message) (Hinp : good_input_facts inputs).
+
+  Lemma input_fact_is_input f : In f inputs -> is_input_fact f = true.
+  Proof. apply (proj1 (Forall_forall _ _) Hinp). Qed.
+
+  Record sane_state {known : list op_message} : Prop := {
+    sane_inputs_known : incl inputs known;
     sane_meta_facts_correct : meta_facts_correct known;
     sane_meta_facts_ok : meta_facts_ok known;
   }.
@@ -315,21 +320,21 @@ Section __.
       eapply ok_to_deduce_step; eauto. exists mr, pats. auto.
   Qed.
 
-  Lemma step_preserves_sane inputs known known' :
-    sane_state inputs known ->
+  Lemma step_preserves_sane known known' :
+    sane_state known ->
     comp_step known known' ->
-    sane_state inputs known'.
+    sane_state known'.
   Proof.
-    intros [Hinp Hmfc Hok] Hstep. constructor.
+    intros [Hincl Hmfc Hok] Hstep. constructor.
     - eauto using incl_tran, comp_step_incl.
     - eauto using step_preserves_meta_facts_correct.
     - eauto using step_preserves_meta_facts_ok.
   Qed.
 
-  Lemma steps_preserves_sane inputs known known' :
-    sane_state inputs known ->
+  Lemma steps_preserves_sane known known' :
+    sane_state known ->
     comp_step^* known known' ->
-    sane_state inputs known'.
+    sane_state known'.
   Proof. intros Hsane Hsteps. induction Hsteps; eauto using step_preserves_sane. Qed.
 
   Definition has_derived_datalog_fact known (f : fact) :=
@@ -352,40 +357,37 @@ Section __.
     all: tauto.
   Qed.
 
-  Definition state_correct (inputs known : list op_message) :=
+  Definition state_correct (known : list op_message) :=
     forall f, op_knows_fact known f -> program.interp p (op_knows_fact inputs) f.
 
-  Lemma good_input_set_inputs inputs :
-    good_input_facts inputs ->
+  Lemma good_input_set_inputs :
     program.good_input_set p (op_knows_fact inputs).
   Proof.
-    intros Hinp. cbv [good_input_facts] in Hinp. rewrite Forall_forall in Hinp. split.
+    split.
     - intros [nf | mf] Hf Hconcl; apply concl_rel_not_input in Hconcl;
         cbv [fact.rel meta_fact.rel] in Hconcl.
-      + destruct Hf as (src & Hf). apply Hinp in Hf. destruct src; simpl in Hf; congruence.
+      + destruct Hf as (src & Hf). apply input_fact_is_input in Hf. destruct src; simpl in Hf; congruence.
       + destruct Hf as (Hdone & _). cbv [all_done_with] in Hdone. rewrite Hconcl in Hdone.
         destruct (length_pos_In _ Hrules) as (r & Hr). rewrite Forall_forall in Hdone.
-        specialize (Hdone _ Hr). apply Hinp in Hdone. discriminate.
+        specialize (Hdone _ Hr). apply input_fact_is_input in Hdone. discriminate.
     - intros mf (_ & Hcons). exact Hcons.
   Qed.
 
-  Lemma derived_meta_facts_agree inputs mf1 mf2 :
-    good_input_facts inputs ->
+  Lemma derived_meta_facts_agree mf1 mf2 :
     program.interp p (op_knows_fact inputs) (fact.meta mf1) ->
     program.interp p (op_knows_fact inputs) (fact.meta mf2) ->
     meta_fact.agree mf1 mf2.
   Proof.
-    intros Hinp. pose proof (good_input_set_inputs _ Hinp) as (Hdisj & Hlie).
+    pose proof good_input_set_inputs as (Hdisj & Hlie).
     apply program.meta_facts_consistent; eauto using fact.set_doesnt_lie_agree.
   Qed.
 
-  Lemma derived_meta_fact_honest inputs mf :
-    good_input_facts inputs ->
+  Lemma derived_meta_fact_honest mf :
     program.interp p (op_knows_fact inputs) (fact.meta mf) ->
     meta_fact.consistent_with mf (fact.normal_subset (program.interp p (op_knows_fact inputs))).
   Proof.
-    intros Hinp. apply program.valid_impl_honest; [assumption|].
-    apply good_input_set_inputs. assumption.
+    apply program.valid_impl_honest; [assumption|].
+    apply good_input_set_inputs.
   Qed.
 
   Definition known_meta_fact known pat :=
@@ -404,43 +406,40 @@ Section __.
     op_knows_fact known (fact.meta (known_meta_fact known pat)).
   Proof. split; [assumption | apply known_meta_fact_consistent]. Qed.
 
-  Lemma correct_impl_consistent inputs known f :
-    good_input_facts inputs ->
-    state_correct inputs known ->
+  Lemma correct_impl_consistent known f :
+    state_correct known ->
     program.interp p (op_knows_fact inputs) f ->
     has_derived_datalog_fact known f ->
     mf_consistent_state known f.
   Proof.
-    intros Hinp Hcorrect Himpl Hderived. destruct f as [nf | mf]; [exact I|].
+    intros Hcorrect Himpl Hderived. destruct f as [nf | mf]; [exact I|].
     cbv [mf_consistent_state]. intros nf Hm.
-    pose proof (derived_meta_facts_agree _ _ (known_meta_fact known mf.(meta_fact.pattern)) Hinp Himpl)
+    pose proof (derived_meta_facts_agree _ (known_meta_fact known mf.(meta_fact.pattern)) Himpl)
       as Hagree.
     rewrite (Hagree (Hcorrect _ (known_meta_fact_knows _ _ Hderived)) nf Hm Hm).
     apply known_meta_fact_consistent. assumption.
   Qed.
 
-  Lemma covered_derivable_known inputs known q h :
-    good_input_facts inputs ->
+  Lemma covered_derivable_known known q h :
     all_done_with known q ->
     program.interp p (op_knows_fact inputs) (fact.meta (known_meta_fact known q)) ->
     fact.covered_by h q ->
     program.interp p (op_knows_fact inputs) h ->
     op_knows_fact known h.
   Proof.
-    intros Hinp Hdone Himpl_q Hcov Himpl.
+    intros Hdone Himpl_q Hcov Himpl.
     destruct h as [nf | mf]; cbv [fact.covered_by] in Hcov.
     - cbv [op_knows_fact]. rewrite <- (known_meta_fact_consistent known q nf Hcov).
-      apply (derived_meta_fact_honest _ _ Hinp Himpl_q nf Hcov). exact Himpl.
+      apply (derived_meta_fact_honest _ Himpl_q nf Hcov). exact Himpl.
     - subst q. split; [assumption|]. intros nf Hm.
-      rewrite (derived_meta_facts_agree _ _ _ Hinp Himpl Himpl_q nf Hm Hm).
+      rewrite (derived_meta_facts_agree _ _ Himpl Himpl_q nf Hm Hm).
       apply known_meta_fact_consistent. assumption.
   Qed.
 
   (* Every derivable fact matching [pat] is known once every sender is done with
      [pat]: its rule instance's hypotheses are covered by the patterns of the meta
      rule that justified the done message, whose known meta facts are exact. *)
-  Lemma derivable_matches_known inputs known pat nf :
-    good_input_facts inputs ->
+  Lemma derivable_matches_known known pat nf :
     meta_facts_correct known ->
     meta_facts_ok known ->
     (forall q, q <> pat -> all_done_with known q ->
@@ -451,7 +450,7 @@ Section __.
     program.interp p (op_knows_fact inputs) (fact.normal nf) ->
     op_knows_normal_fact known nf.
   Proof.
-    intros Hinp Hmfc Hok Hqs Hincl Hdone Hm Himpl. invert Himpl.
+    intros Hmfc Hok Hqs Hincl Hdone Hm Himpl. invert Himpl.
     - eapply op_knows_normal_fact_incl; eassumption.
     - invert H. apply Exists_exists in H2. destruct H2 as (r & Hr & Hri).
       cbv [all_done_with] in Hdone.
@@ -469,14 +468,13 @@ Section __.
       eapply covered_derivable_known; eauto. apply Hqs; auto. congruence.
   Qed.
 
-  Lemma comp_step_sound inputs known known' :
-    good_input_facts inputs ->
-    sane_state inputs known ->
-    state_correct inputs known ->
+  Lemma comp_step_sound known known' :
+    sane_state known ->
+    state_correct known ->
     comp_step known known' ->
-    state_correct inputs known'.
+    state_correct known'.
   Proof.
-    intros Hinp Hsane Hcorrect Hstep f Hf. pose proof (comp_step_incl _ _ Hstep) as Hincl.
+    intros Hsane Hcorrect Hstep f Hf. pose proof (comp_step_incl _ _ Hstep) as Hincl.
     pose proof Hstep as (m & r & Hr & Hcan & ->).
     destruct f as [nf | mf].
     - destruct Hf as (src & [-> | Hf]); [| apply Hcorrect; exists src; exact Hf].
@@ -500,7 +498,7 @@ Section __.
       cbv [can_deduce_message] in Hcan.
       destruct Hcan as (_ & Hok_r & (mr & pats & Hmr & Hpi & Hdone_pats)).
       set (d := op_message.done_with mf.(meta_fact.pattern) (op_source.rule r)) in *.
-      pose proof (step_preserves_sane _ _ _ Hsane Hstep) as Hsane'.
+      pose proof (step_preserves_sane _ _ Hsane Hstep) as Hsane'.
       assert (Hqs : forall q, q <> mf.(meta_fact.pattern) -> all_done_with (d :: known) q ->
                               program.interp p (op_knows_fact inputs)
                                 (fact.meta (known_meta_fact (d :: known) q))).
@@ -524,7 +522,7 @@ Section __.
         * intros Himpl.
           eapply derivable_matches_known; eauto using sane_meta_facts_correct, sane_meta_facts_ok.
           apply incl_tl. apply Hsane.
-      + apply good_input_set_inputs. assumption.
+      + apply good_input_set_inputs.
       + rewrite Hpats. exact Hpi.
       + rewrite Lists.List.Forall_map. eapply Forall_impl; [exact Hmhyps|].
         eauto using derived_meta_fact_honest.
@@ -534,14 +532,13 @@ Section __.
       + rewrite Lists.List.Forall_map. exact Hmhyps.
   Qed.
 
-  Lemma comp_steps_sound inputs known known' :
-    good_input_facts inputs ->
-    sane_state inputs known ->
-    state_correct inputs known ->
+  Lemma comp_steps_sound known known' :
+    sane_state known ->
+    state_correct known ->
     comp_step^* known known' ->
-    state_correct inputs known'.
+    state_correct known'.
   Proof.
-    intros Hinp Hsane Hcorrect Hsteps. revert Hsane Hcorrect.
+    intros Hsane Hcorrect Hsteps. revert Hsane Hcorrect.
     induction Hsteps; eauto using step_preserves_sane, comp_step_sound.
   Qed.
 
@@ -554,20 +551,19 @@ Section __.
       eauto using all_done_with_incl, op_knows_normal_fact_incl.
   Qed.
 
-  Lemma compose_completion inputs known hyps :
-    good_input_facts inputs ->
-    sane_state inputs known ->
-    state_correct inputs known ->
+  Lemma compose_completion known hyps :
+    sane_state known ->
+    state_correct known ->
     Forall (fun h =>
       forall known0,
-        sane_state inputs known0 ->
-        state_correct inputs known0 ->
+        sane_state known0 ->
+        state_correct known0 ->
         exists known', comp_step^* known0 known' /\ has_derived_datalog_fact known' h) hyps ->
     exists known',
       comp_step^* known known' /\
       Forall (has_derived_datalog_fact known') hyps.
   Proof.
-    intros Hinp Hsane Hcorrect HF. revert known Hsane Hcorrect.
+    intros Hsane Hcorrect HF. revert known Hsane Hcorrect.
     induction HF as [|h hs Hh Hhs IH]; intros known Hsane Hcorrect.
     - exists known. split; [apply rt1n_refl|]. constructor.
     - destruct (IH known Hsane Hcorrect) as (known_mid & Hsteps_mid & Hderived_hs).
@@ -578,7 +574,7 @@ Section __.
       eapply Forall_impl; [exact Hderived_hs|]. eauto using steps_preserves_has_derived.
   Qed.
 
-  Lemma knows_fact_inputs_has_derived inputs known f :
+  Lemma knows_fact_inputs_has_derived known f :
     incl inputs known ->
     op_knows_fact inputs f ->
     has_derived_datalog_fact known f.
@@ -611,18 +607,17 @@ Section __.
   (* Drive rule [rn] to derive every fact matching [mf]'s pattern that it can,
      so that its done message becomes [ok_to_deduce]. Termination: every such
      fact is in the (real, finite) meta fact's set. *)
-  Lemma rule_can_force_normal_facts inputs known rn (mf : meta_fact) :
-    good_input_facts inputs ->
-    sane_state inputs known ->
-    state_correct inputs known ->
+  Lemma rule_can_force_normal_facts known rn (mf : meta_fact) :
+    sane_state known ->
+    state_correct known ->
     In rn p.(program.rules) ->
     program.interp p (op_knows_fact inputs) (fact.meta mf) ->
     exists known',
       comp_step^* known known' /\
         ok_to_deduce rn known' mf.(meta_fact.pattern).
   Proof.
-    intros Hinp Hsane Hcorrect Hrn Hpi_meta.
-    pose proof (derived_meta_fact_honest _ _ Hinp Hpi_meta) as Hhonest.
+    intros Hsane Hcorrect Hrn Hpi_meta.
+    pose proof (derived_meta_fact_honest _ Hpi_meta) as Hhonest.
     cbv [meta_fact.consistent_with fact.normal_subset] in Hhonest.
     set (l := map (fun a => {| normal_fact.rel := mf.(meta_fact.pattern).(fact_pattern.rel);
                           normal_fact.args := a |}) (map.keys mf.(meta_fact.set))).
@@ -632,7 +627,7 @@ Section __.
                fact_pattern.matches mf.(meta_fact.pattern) nf ->
                In (op_message.normal nf (op_source.rule rn)) known \/ In nf l).
     { intros nf known' Hsteps Hin Hm. right.
-      pose proof (comp_steps_sound _ _ _ Hinp Hsane Hcorrect Hsteps (fact.normal nf)
+      pose proof (comp_steps_sound _ _ Hsane Hcorrect Hsteps (fact.normal nf)
                     (ex_intro _ (op_source.rule rn) Hin)) as Himpl.
       apply Hhonest in Himpl; [|assumption].
       destruct nf as [nrel nargs]. destruct Hm as (Hrel & _). cbn in Hrel, Himpl.
@@ -680,17 +675,16 @@ Section __.
         apply Hno. apply Exists_exists. eauto 6.
   Qed.
 
-  Lemma all_rules_done inputs known (mf : meta_fact) :
-    good_input_facts inputs ->
-    sane_state inputs known ->
-    state_correct inputs known ->
+  Lemma all_rules_done known (mf : meta_fact) :
+    sane_state known ->
+    state_correct known ->
     op_can_deduce_pattern known mf.(meta_fact.pattern) ->
     program.interp p (op_knows_fact inputs) (fact.meta mf) ->
     exists known',
       comp_step^* known known' /\
         all_done_with known' mf.(meta_fact.pattern).
   Proof.
-    intros Hinp Hsane Hcorrect Hcdp Hpi_meta.
+    intros Hsane Hcorrect Hcdp Hpi_meta.
     enough (Hgoal : forall rs, incl rs p.(program.rules) ->
               exists known', comp_step^* known known' /\
                 Forall (fun r => In (op_message.done_with mf.(meta_fact.pattern) (op_source.rule r)) known') rs).
@@ -701,7 +695,7 @@ Section __.
     - exists known. split; [apply rt1n_refl | constructor].
     - destruct IH as (known1 & Hsteps1 & Hdone_rs); [eauto using incl_tran, incl_tl, incl_refl|].
       assert (Hr0 : In r0 p.(program.rules)) by (apply Hincl; left; reflexivity).
-      destruct (rule_can_force_normal_facts inputs known1 r0 mf)
+      destruct (rule_can_force_normal_facts known1 r0 mf)
         as (known2 & Hsteps2 & Hok); eauto using steps_preserves_sane, comp_steps_sound.
       assert (Hcdp2 : op_can_deduce_pattern known2 mf.(meta_fact.pattern)).
       { eapply op_can_deduce_pattern_incl; [|exact Hcdp].
@@ -715,24 +709,23 @@ Section __.
       apply (comp_steps_incl _ _ Hsteps2). exact Hr1.
   Qed.
 
-  Lemma good_layout_complete_rule inputs known f hyps :
-    good_input_facts inputs ->
-    sane_state inputs known ->
-    state_correct inputs known ->
+  Lemma good_layout_complete_rule known f hyps :
+    sane_state known ->
+    state_correct known ->
     program.interp_step p f hyps ->
     Forall (op_knows_fact known) hyps ->
     exists known',
       comp_step^* known known' /\
         has_derived_datalog_fact known' f.
   Proof.
-    intros Hinp Hsane Hcorrect Himpl Hknown. invert Himpl.
+    intros Hsane Hcorrect Himpl Hknown. invert Himpl.
     - apply Exists_exists in H. destruct H as (rn & Hrn & Hri).
       exists (op_message.normal f0 (op_source.rule rn) :: known).
       split; [| eexists; left; reflexivity].
       eapply Relation_Operators.rt1n_trans; [|apply rt1n_refl].
       apply (comp_step_fire_normal _ rn); [assumption|]. exists hyps. auto.
     - apply Exists_exists in H. destruct H as (mr & Hmr & Hmri).
-      cbv [has_derived_datalog_fact]. apply (all_rules_done inputs known f0); try assumption.
+      cbv [has_derived_datalog_fact]. apply (all_rules_done known f0); try assumption.
       + exists mr, (map meta_fact.pattern hyps0). ssplit; [assumption | apply Hmri |].
         rewrite Lists.List.Forall_map in Hknown |- *.
         eapply Forall_impl; [exact Hknown|]. intros mh (Hdone & _). exact Hdone.
@@ -741,24 +734,23 @@ Section __.
         * eapply Forall_impl; [exact Hknown|]. auto.
   Qed.
 
-  Definition state_complete (inputs known : list op_message) :=
+  Definition state_complete (known : list op_message) :=
     forall f,
       program.interp p (op_knows_fact inputs) f ->
       exists known',
         comp_step^* known known' /\
           has_derived_datalog_fact known' f.
 
-  Lemma comp_step_complete inputs known :
-    good_input_facts inputs ->
-    sane_state inputs known ->
-    state_correct inputs known ->
-    state_complete inputs known.
+  Lemma comp_step_complete known :
+    sane_state known ->
+    state_correct known ->
+    state_complete known.
   Proof.
-    intros Hinp Hsane Hcorrect f Himpl.
+    intros Hsane Hcorrect f Himpl.
     set (R := fun f0 =>
                 forall known0,
-                  sane_state inputs known0 ->
-                  state_correct inputs known0 ->
+                  sane_state known0 ->
+                  state_correct known0 ->
                   exists known', comp_step^* known0 known' /\ has_derived_datalog_fact known' f0).
     enough (HR : R f) by (apply HR; assumption).
     revert f Himpl. apply pftree.ind.
@@ -766,11 +758,11 @@ Section __.
       exists known0. split; [apply rt1n_refl|].
       eapply knows_fact_inputs_has_derived; [apply Hsane0 | exact Hkdf].
     - intros f0 hyps Hstep0 Hforall_pi Hforall_R known0 Hsane0 Hcorrect0.
-      destruct (compose_completion inputs known0 hyps Hinp Hsane0 Hcorrect0 Hforall_R)
+      destruct (compose_completion known0 hyps Hsane0 Hcorrect0 Hforall_R)
         as (known1 & Hsteps1 & Hderived1).
-      assert (Hsane1 : sane_state inputs known1) by eauto using steps_preserves_sane.
-      assert (Hcorrect1 : state_correct inputs known1) by eauto using comp_steps_sound.
-      destruct (good_layout_complete_rule inputs known1 f0 hyps)
+      assert (Hsane1 : sane_state known1) by eauto using steps_preserves_sane.
+      assert (Hcorrect1 : state_correct known1) by eauto using comp_steps_sound.
+      destruct (good_layout_complete_rule known1 f0 hyps)
         as (known2 & Hsteps2 & Hderived2); try assumption.
       { eapply Forall_impl; [apply Forall_and; [exact Hforall_pi | exact Hderived1]|].
         simpl. intros h (Hpi_h & Hd_h). apply op_knows_fact_iff.
@@ -778,44 +770,39 @@ Section __.
       exists known2. split; [eauto using crt1n_trans_compose | exact Hderived2].
   Qed.
 
-  Lemma good_input_no_rule_done inputs pat r :
-    good_input_facts inputs -> ~ In (op_message.done_with pat (op_source.rule r)) inputs.
+  Lemma good_input_no_rule_done pat r :
+    ~ In (op_message.done_with pat (op_source.rule r)) inputs.
   Proof.
-    intros Hinp Hin. cbv [good_input_facts] in Hinp. rewrite Forall_forall in Hinp.
-    apply Hinp in Hin. discriminate.
+    intros Hin. apply input_fact_is_input in Hin. discriminate.
   Qed.
 
-  Lemma sane_initial inputs :
-    good_input_facts inputs -> sane_state inputs inputs.
+  Lemma sane_initial : sane_state inputs.
   Proof.
-    intros Hinp. constructor.
+    constructor.
     - apply incl_refl.
     - apply Forall_forall. intros r _ pat Hin. exfalso. eapply good_input_no_rule_done; eassumption.
     - apply Forall_forall. intros r _ pat Hin. exfalso. eapply good_input_no_rule_done; eassumption.
   Qed.
 
-  Lemma sc_initial inputs : state_correct inputs inputs.
+  Lemma sc_initial : state_correct inputs.
   Proof. intros f Hf. apply pftree.leaf. exact Hf. Qed.
 
-  Theorem prog_impl_iff_comp_step inputs f :
-    good_input_facts inputs ->
-    (program.interp p (op_knows_fact inputs) f <->
-     exists known, comp_step^* inputs known /\
-                   has_derived_datalog_fact known f /\ mf_consistent_state known f).
+  Theorem prog_impl_iff_comp_step f :
+    program.interp p (op_knows_fact inputs) f <->
+    exists known, comp_step^* inputs known /\ op_knows_fact known f.
   Proof.
-    intros Hinp.
-    pose proof (sane_initial _ Hinp) as Hsane. pose proof (sc_initial inputs) as Hsc.
+    pose proof sane_initial as Hsane. pose proof sc_initial as Hsc.
     split.
     - intros Hprog.
-      destruct (comp_step_complete _ _ Hinp Hsane Hsc _ Hprog) as (known & Hsteps & Hderiv).
-      exists known. ssplit; [exact Hsteps | exact Hderiv |].
+      destruct (comp_step_complete _ Hsane Hsc _ Hprog) as (known & Hsteps & Hderiv).
+      exists known. split; [exact Hsteps|]. apply op_knows_fact_iff. split; [exact Hderiv|].
       eapply correct_impl_consistent; eauto using comp_steps_sound.
-    - intros (known & Hsteps & Hderiv & Hcons).
-      eapply comp_steps_sound; eauto. apply op_knows_fact_iff. auto.
+    - intros (known & Hsteps & Hknows).
+      eapply comp_steps_sound; eauto.
   Qed.
 
 End __.
 
 Arguments sane_state
   {_rel _exprvar _fn _aggregator _value semantics context value_eqb value_eqb_ok value_set value_set_ok}
-  is_input p input_facts known.
+  is_input p inputs known.
