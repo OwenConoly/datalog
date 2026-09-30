@@ -510,6 +510,34 @@ Section __.
         rewrite Hcons, Hnormal by assumption. rewrite <- (proj1 Hm). tauto.
   Qed.
 
+  Lemma saturated_of_ok_to_deduce os gs (gt : list (IO_event (graph_label message action_label) message))
+    k np ns pat :
+    map.get graph_prog k = Some np ->
+    map.get gs.(graph_nodes) k = Some ns ->
+    inps_corresp os np ns ->
+    outs_corresp os (outs_of gs (flat_map inputs_of gt)) ->
+    op_can_deduce_pattern is_input p os pat ->
+    Forall (fun r => ok_to_deduce is_input p r os pat) np.(program.rules) ->
+    saturated graph_senders np ns.(gns_node_state) pat.
+  Proof.
+    intros Hk Hget Hinps (Houts & _) (mr & pats & Hmr & Hpi & Hdone) Hok.
+    cbv [saturated can_deduce_normal_fact]. intros r nf Hr (hyps & Hri & Hhyps) Hm.
+    assert (Hp : In r p.(program.rules)).
+    { apply Hlayout_normal. cbv [all_rules]. apply in_flat_map.
+      eexists. split; [apply In_values; eauto | exact Hr]. }
+    specialize (Houts nf (node_source k)). cbn [outs_of] in Houts. cbv [node_sent] in Houts.
+    rewrite Hget in Houts. apply Houts. apply Exists_exists. exists (op_source.rule r). split.
+    - cbn [op_sources_of]. erewrite get_or_default_Some by eassumption. apply in_map. exact Hr.
+    - rewrite Forall_forall in Hok. apply (Hok _ Hr); [| exact Hm].
+      exists hyps. split; [exact Hri|].
+      pose proof (Hmeta_rules _ _ Hmr Hp _ _ _ _ Hpi Hri Hm) as Hcov.
+      pose proof (rule.interp_hyp_relname_in _ _ _ Hri) as Hrels.
+      eapply Forall_impl;
+        [apply Forall_and; [apply Forall_and; [exact Hcov | exact Hrels] | exact Hhyps] |].
+      cbv beta. intros h ((Hcov_h & Hrel_h) & Hh).
+      eapply node_knows_op_knows with (np := np); eauto using program.rule_hyp_rel_in.
+  Qed.
+
   (* Lemma node_knows_to_op_knows known f np ns : *)
   (*   In (fact.rel f) (program.hyp_rels np) -> *)
   (*   knows_fact graph_senders ns.(gns_node_state).(state.known) f -> *)
@@ -582,7 +610,7 @@ Section __.
       + eapply outs_corresp_ext; [eapply outs_corresp_cons_normal; eassumption | reflexivity |].
         intros src. rewrite outs_of_forward_to. symmetry.
         erewrite outs_of_put_cons by (eassumption || reflexivity). reflexivity.
-    - fwd. cbv [op_can_deduce_pattern] in Hstepp1p2. fwd.
+    - fwd. pose proof Hstepp1p2 as Hcdp. cbv [op_can_deduce_pattern] in Hstepp1p2. fwd.
       apply Hlayout_normal in Hstepp0.
       apply Hlayout_meta in Hstepp1p2p0.
       cbv [all_rules] in Hstepp0. apply in_flat_map in Hstepp0. fwd.
@@ -621,21 +649,16 @@ Section __.
                   eapply Forall2_forget_r in Hmhyps. eapply Forall_impl; [eassumption|].
                   simpl. intros. fwd. auto.
            ++ admit. (*apply Existsn_total.*)
-           ++ cbv [saturated]. intros r' nf Hr Hnf1 Hnf2.
-              move Hmfs at bottom. cbv [meta_facts_ok] in Hmfs.
-              rewrite Forall_forall in Hmfs. specialize (Hmfs _ ltac:(eassumption)).
-              cbv [meta_facts_ok_at_rule] in Hmfs.
-              move Houts at bottom.
-              cbv [outs_corresp] in Houts. destruct Houts as [Houts _].
-              specialize (Houts nf (node_source k)). simpl in Houts.
-              cbv [node_sent] in Houts. rewrite Hkp0 in Houts. apply Houts.
-              apply Exists_exists. erewrite get_or_default_Some by eassumption.
-
-              Search nf. Print fact.covered_by_pats.
-
-              Search outs_corresp.
-              Print ok_to_deduce.
-              Print meta_facts_ok_at_rule.
+           ++ eapply saturated_of_ok_to_deduce; try eassumption.
+              apply Forall_forall. intros r' Hr'.
+              destruct (Hyesp1 (op_source.rule r')) as [Heq | Hdone'].
+              { cbn [op_sources_of]. erewrite get_or_default_Some by eassumption.
+                apply in_map. exact Hr'. }
+              { invert Heq. assumption. }
+              cbv [meta_facts_ok] in Hmfs. rewrite Forall_forall in Hmfs.
+              apply Hmfs; [| exact Hdone'].
+              apply Hlayout_normal. cbv [all_rules]. apply in_flat_map.
+              eexists. split; [apply In_values; eauto | exact Hr'].
 
       Lemma op_knows_normal_fact_iff nf np ns os :
     In nf.(normal_fact.rel) (program.hyp_rels np) ->
