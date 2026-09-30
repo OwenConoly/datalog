@@ -359,6 +359,21 @@ Section __.
     - cbv beta. erewrite get_or_default_Some by eassumption. exact Hr'.
   Qed.
 
+  Lemma op_sources_of_rule src k np r :
+    map.get graph_prog k = Some np ->
+    In r np.(program.rules) ->
+    In (op_source.rule r) (op_sources_of src) ->
+    src = node_source k.
+  Proof.
+    intros Hget Hr Hin. destruct src as [n |]; cbn [op_sources_of] in Hin.
+    - apply in_map_iff in Hin. destruct Hin as (r' & Heq & Hr'). invert Heq.
+      destruct (map.get graph_prog n) eqn:En.
+      + erewrite get_or_default_Some in Hr' by eassumption.
+        f_equal. eapply rule_at_unique; eassumption.
+      + erewrite get_or_default_None in Hr' by eassumption. destruct Hr'.
+    - destruct Hin as [Heq | []]. discriminate.
+  Qed.
+
   Definition outs_corresp (known : list op_message) (outs : source -> list message) :=
     (forall nf src,
         In (message.normal nf) (outs src) <->
@@ -493,6 +508,28 @@ Section __.
              apply E. f_equal. eapply rule_at_unique; eassumption.
           -- erewrite get_or_default_None in Hr' by eassumption. destruct Hr'.
         * destruct Hosrc as [Heq | []]. discriminate.
+  Qed.
+
+  Lemma outs_corresp_cons_done_stutter known outs k np r pat :
+    outs_corresp known outs ->
+    map.get graph_prog k = Some np ->
+    In r np.(program.rules) ->
+    ~ (In (node_source k) (graph_senders pat.(fact_pattern.rel)) /\
+       forall osrc, In osrc (op_sources_of (node_source k)) ->
+                    osrc = op_source.rule r \/ In (op_message.done_with pat osrc) known) ->
+    outs_corresp (op_message.done_with pat (op_source.rule r) :: known) outs.
+  Proof.
+    intros (Hn & Hd) Hget Hr Hno. split.
+    - intros nf src. rewrite Hn, !Exists_exists. cbn [In].
+      split; intros (osrc & Hosrc & H); exists osrc; (split; [exact Hosrc|]); [auto |].
+      destruct H as [Heq | H]; [discriminate | exact H].
+    - intros pat0 src Hsrc. rewrite (Hd pat0 src Hsrc), !Forall_forall. cbn [In]. split.
+      + intros H osrc Hosrc. right. auto.
+      + intros H osrc Hosrc. destruct (H _ Hosrc) as [Heq | Hin]; [| exact Hin].
+        invert Heq. exfalso. apply Hno.
+        pose proof (op_sources_of_rule _ _ _ _ Hget Hr Hosrc) as ->.
+        split; [exact Hsrc|]. intros osrc Hosrc'.
+        destruct (H _ Hosrc') as [Heq | Hin]; [left; congruence | right; exact Hin].
   Qed.
 
   Definition inps_corresp (known : list op_message) np (ns : graph_node_state message action_label state) :=
@@ -714,7 +751,13 @@ Section __.
         -- rewrite outs_of_forward_to_pointwise.
            erewrite outs_of_put_cons_pointwise by (eassumption || reflexivity).
            eapply outs_corresp_cons_done; eassumption.
-      +
+      + exists gs, []. split; [apply star_refl|].
+        eapply outs_corresp_cons_done_stutter; [exact Houts | eassumption | eassumption |].
+        intros (Hsender & Hothers). apply Hno. split; [| exact Hothers].
+        eapply node_sends_concl_rels_inv in Hsender; [| exact Hstepp0p0].
+        cbv [program.concl_rels] in Hsender. apply in_app_or in Hsender.
+        destruct Hsender as [Hnormal | Hmeta]; [exact Hnormal |].
+        admit. (*needs: a node's meta rules conclude only relations its rules conclude*)
 
       Lemma op_knows_normal_fact_iff nf np ns os :
     In nf.(normal_fact.rel) (program.hyp_rels np) ->

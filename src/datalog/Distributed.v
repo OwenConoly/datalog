@@ -68,6 +68,17 @@ Section Distributed.
     simpl. rewrite_true (inb _ _) by assumption. reflexivity.
   Qed.
 
+  Lemma node_sends_concl_rels_inv k p R :
+    map.get graph_prog k = Some p -> In (node_source k) (R_senders R) -> In R (program.concl_rels p).
+  Proof.
+    intros Hget Hin. cbv [R_senders] in Hin. destruct (is_input R).
+    - destruct Hin as [Heq | []]. discriminate.
+    - apply in_filter_map in Hin. destruct Hin as ([n p'] & Htup & Hin).
+      apply map.tuples_spec in Htup.
+      destruct (inb _ _) eqn:E in Hin; [invert Hin | discriminate].
+      rewrite Hget in Htup. invert Htup. apply inb_true_iff. exact E.
+  Qed.
+
   Abbreviation claim := (node.claim R_senders).
   Abbreviation consistent := (node.consistent R_senders).
   Local Abbreviation nstep := (fun n => node.step R_senders (prog_at n) (node_source n)).
