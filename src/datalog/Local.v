@@ -1,30 +1,17 @@
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
-From Stdlib Require Import Permutation.
-From Stdlib Require Import Classical_Prop.
-From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties.
 
-From Datalog Require Import Permutation Map Tactics Fp List Datalog Node Interpreter Smallstep Graph.
-From GraphSearch Require Import Dag.
+From Datalog Require Import Map List Datalog Node Smallstep.
 
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Sorting.OrderToPermutation.
-
-From coqutil Require Import Semantics.OmniSmallstepCombinators.
+From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Datatypes.List Datatypes.Option.
 
 Import ListNotations.
 
 Section __.
-  Context {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-  Context `{sig : signature fn aggregator T}.
-  Context {T_eqb : T -> T -> bool}.
-  Context {value_set : map.map (list T) unit}.
-  Context {agg_to_T : map.map aggregator T}.
-  Context (T_to_nat : T -> nat) (nat_to_T : nat -> T). (*bijection..*)
-
   Section impl.
-    Context {rel : relT} {exprvar : exprvarT}.
-    Context {context : map.map exprvar T}.
+    Context `{params : datalog_params}.
+    Context {agg_map : map.map aggregator value}.
 
     (*for each relation, store a list of index structures---that is, key-value pairs, with information about what to store about each key.*)
     (*both lists have length n, where *)
@@ -41,7 +28,7 @@ Section __.
     Context {rel_views : map.map rel idx_structs_info}.
 
     Inductive hyp_clause_val :=
-    | value_clause (value : list expr)
+    | value_clause (vals : list expr)
     | agg_clause (agg : aggregator) (num : exprvar)
     | received_clause (num : exprvar)
     | sent_clause (num : exprvar).
@@ -70,13 +57,13 @@ Section __.
     Example example_local_rule (R S : rel) (x y : exprvar) : local_rule :=
       {| local_rule_concls :=
           [{| cc_rel := R;
-              cc_args := [var_expr x; var_expr y] |}];
+              cc_args := [expr.var x; expr.var y] |}];
          local_rule_hyps :=
           [{| hc_key :=
                 {| hc_rel := {| hr_rel := S;
                                 hr_idxs := {| key_idxs := [true; true];
                                               value_idxs := [false; false] |} |};
-                   hc_key_args := [var_expr x; var_expr y] |};
+                   hc_key_args := [expr.var x; expr.var y] |};
               hc_val := value_clause [] |}] |}.
 
     Record node_prog :=
@@ -86,18 +73,18 @@ Section __.
     Record val_data :=
       { msgs_received : nat;
         msgs_sent : nat;
-        aggs : agg_to_T;
+        aggs : agg_map;
         values : value_set }.
 
     Inductive hyp_fact_val :=
-    | value_fact (value : list T)
-    | agg_fact (agg : aggregator) (num : T)
+    | value_fact (vals : list value)
+    | agg_fact (agg : aggregator) (num : value)
     | received_fact (num : nat)
     | sent_fact (num : nat).
 
     Record hyp_fact_key :=
       { hf_rel : hyp_rel;
-        hf_key_args : list T; }.
+        hf_key_args : list value; }.
 
     Record hyp_fact :=
       { hf_key : hyp_fact_key;
@@ -127,12 +114,12 @@ Section __.
 
     Definition interp_hyp_clause_key ctx clk fk :=
       clk.(hc_rel) = fk.(hf_rel) /\
-        Forall2 (interp_expr ctx) clk.(hc_key_args) fk.(hf_key_args).
+        Forall2 (expr.interp ctx) clk.(hc_key_args) fk.(hf_key_args).
 
     Definition interp_hyp_clause_val ctx clv fv :=
       match clv, fv with
       | value_clause es, value_fact es' =>
-          Forall2 (interp_expr ctx) es es'
+          Forall2 (expr.interp ctx) es es'
       | agg_clause a v, agg_fact a' v' =>
           a = a' /\ map.get ctx v = Some v'
       | received_clause v, received_fact v' =>
@@ -148,12 +135,12 @@ Section __.
 
     Record concl_fact :=
       { cf_rel : rel;
-        cf_args : list T }.
+        cf_args : list value }.
 
     (*hyp_facts are deducible from history of receiving and sending basic_hyp_facts*)
     Record basic_hyp_fact :=
       { bhf_key : hyp_fact_key;
-        bhf_value : list T }.
+        bhf_value : list value }.
 
     Definition default_val_data (as_ : list aggregator) : val_data :=
       {| msgs_received := 0;
@@ -172,7 +159,7 @@ Section __.
       end.
 
     Definition receive_fact (p : node_prog) (s : node_state) (f : basic_hyp_fact) :=
-      mupd (default_val_data (agg_ops_of p f.(bhf_key))) s f.(bhf_key)
+      mupd_total (default_val_data (agg_ops_of p f.(bhf_key)))
                  (fun val_data =>
                     {| msgs_received := S val_data.(msgs_received);
                       msgs_sent := val_data.(msgs_sent);
@@ -184,7 +171,7 @@ Section __.
                               | Some tt =>
                                   val_data.(aggs)
                               | None =>
-                                  map_values' (value' := T)
+                                  map_values' (value' := value)
                                     (fun agg v =>
                                        match f.(bhf_value) with
                                        | [i; x] =>
@@ -193,19 +180,21 @@ Section __.
                                        end)
                                     val_data.(aggs)
                               end;
-                      values := map.put val_data.(values) f.(bhf_value) tt; |}).
+                      values := map.put val_data.(values) f.(bhf_value) tt; |})
+                 s f.(bhf_key).
 
     Definition send_fact (p : node_prog) (s : node_state) (f : basic_hyp_fact) :=
-      mupd (default_val_data (agg_ops_of p f.(bhf_key))) s f.(bhf_key)
+      mupd_total (default_val_data (agg_ops_of p f.(bhf_key)))
                  (fun val_data =>
                     {| msgs_received := val_data.(msgs_received);
                       msgs_sent := S val_data.(msgs_sent);
                       aggs := val_data.(aggs);
-                      values := val_data.(values); |}).
+                      values := val_data.(values); |})
+                 s f.(bhf_key).
 
     Definition interp_concl_clause ctx c f :=
       c.(cc_rel) = f.(cf_rel) /\
-        Forall2 (interp_expr ctx) c.(cc_args) f.(cf_args).
+        Forall2 (expr.interp ctx) c.(cc_args) f.(cf_args).
 
     Definition lrule_impl (s : node_state) (r : local_rule) (concl : concl_fact) (hyps : list hyp_fact) :=
       exists ctx,
@@ -243,15 +232,19 @@ Section __.
       {| bs_node := empty_node_state;
         bs_queue := [] |}.
 
-    Inductive node_step p : big_state -> IO_event concl_fact -> big_state -> Prop :=
+    Variant label :=
+      | dequeue_label
+      | deduce_label (facts : list concl_fact).
+
+    Inductive node_step p : big_state -> IO_event label concl_fact -> big_state -> Prop :=
     | node_dequeue_step bs input rest :
       bs.(bs_queue) = input :: rest ->
-      node_step _ bs (O_event [])
+      node_step _ bs (O_event dequeue_label [])
                 {| bs_node := fold_left (receive_fact p) (locally_forward p input) bs.(bs_node);
                   bs_queue := rest; |}
     | node_deduce_step bs facts :
       is_list_set (lcan_deduce_fact p bs.(bs_node)) facts ->
-      node_step _ bs (O_event facts)
+      node_step _ bs (O_event (deduce_label facts) facts)
                 {| bs_node := fold_left (send_fact p) (flat_map (locally_forward p) facts) bs.(bs_node);
                   bs_queue := bs.(bs_queue) ++ facts; |}
     | node_input_step bs input :
@@ -270,72 +263,18 @@ Section __.
       this is a liveness property (assuming the liveness property holds for spec_node_step).
      *)
   End impl.
-  Arguments hyp_clause : clear implicits.
-  Arguments concl_clause : clear implicits.
-  Arguments hyp_fact : clear implicits.
-  Arguments node_prog _ _ {_ _}.
+  Arguments hyp_clause _ _ {_ _}.
+  Arguments concl_clause _ _ {_}.
+  Arguments local_rule _ _ {_ _}.
+  Arguments hyp_fact _ {_ _}.
+  Arguments hyp_fact_key _ {_}.
+  Arguments concl_fact _ {_}.
+  Arguments node_prog _ _ {_ _ _ _}.
 
-  Context {rel : relT} {exprvar : exprvarT}.
-  Context {context : map.map exprvar T} {context_ok : map.ok context}.
-  Context (is_input : rel -> bool).
-  Context (senders : rel -> list nat).
-  Section spec.
-    Local Notation can_deduce_fact := (can_deduce_fact is_input senders).
-    Local Notation ok_to_deduce_fact := (ok_to_deduce_fact is_input senders).
-
-    Record spec_node_state :=
-      { known_facts : list dfact;
-        sent_facts : list dfact }.
-
-    Definition empty_spec_state :=
-      {| known_facts := []; sent_facts := [] |}.
-
-    Record spec_node_prog :=
-      { spec_node_rules : list rule;
-        spec_node_label : nat }.
-
-    Definition new_facts (p : spec_node_prog) (ss : spec_node_state) f :=
-      Exists
-        (fun r => can_deduce_fact r p.(spec_node_label) ss.(known_facts) ss.(sent_facts) f)
-        p.(spec_node_rules) /\
-        Forall
-          (fun r => ok_to_deduce_fact r ss.(known_facts) f)
-          p.(spec_node_rules).
-
-    Definition spec_input_fact ss f :=
-      {| known_facts := f :: ss.(known_facts);
-        sent_facts := ss.(sent_facts) |}.
-
-    Definition spec_output_fact ss f :=
-      {| known_facts := ss.(known_facts);
-        sent_facts := f :: ss.(sent_facts) |}.
-
-    (*"big" because it contains the node, plus a bunch of other stuff...*)
-    Record big_spec_state :=
-      { bss_spec_node : spec_node_state;
-        bss_queue : list dfact;
-      }.
-
-    Definition empty_big_spec_state :=
-      {| bss_spec_node := empty_spec_state;
-        bss_queue := [] |}.
-
-    Inductive spec_node_step p : big_spec_state -> IO_event dfact -> big_spec_state -> Prop :=
-    | spec_node_dequeue_step bss input rest :
-      bss.(bss_queue) = input :: rest ->
-      spec_node_step _ bss (O_event [])
-                     {| bss_spec_node := spec_input_fact bss.(bss_spec_node) input;
-                       bss_queue := rest; |}
-    | spec_node_deduce_step bss output :
-      new_facts p bss.(bss_spec_node) output ->
-      spec_node_step _ bss (O_event [output])
-                     {| bss_spec_node := spec_output_fact bss.(bss_spec_node) output;
-                       bss_queue := bss.(bss_queue) ++ [output]; |}
-    | spec_node_input_step bss input :
-      spec_node_step _ bss (I_event input)
-                     {| bss_spec_node := bss.(bss_spec_node);
-                       bss_queue := bss.(bss_queue) ++ [input] |}.
-  End spec.
+  Context `{params : datalog_params} {sender_label : sender_labelT}.
+  Context (R_senders : rel -> list sender_label).
+  Context (value_to_nat : value -> nat) (nat_to_value : nat -> value). (*bijection..*)
+  Context (label_to_value : sender_label -> value).
 
   (*Note on the two bitmasks in play once we lower meta-clauses:
     - the [to_keep] bitmask in [lrel] constructors has length = length of the
@@ -361,67 +300,56 @@ Section __.
 
   Definition lower_clause_hyp (c : clause) : hyp_clause lrel lvar :=
     {| hc_key :=
-        {| hc_rel := {| hr_rel := normal_rel c.(Datalog.clause_rel);
-                       hr_idxs := {| key_idxs := map (fun _ => true) c.(Datalog.clause_args);
-                                    value_idxs := map (fun _ => false) c.(Datalog.clause_args); |}; |};
-          hc_key_args := map (expr_varmap inl) c.(Datalog.clause_args) |};
+        {| hc_rel := {| hr_rel := normal_rel c.(clause.rel);
+                       hr_idxs := {| key_idxs := map (fun _ => true) c.(clause.args);
+                                    value_idxs := map (fun _ => false) c.(clause.args); |}; |};
+          hc_key_args := map (expr_varmap inl) c.(clause.args) |};
       hc_val := value_clause []; |}.
 
   Definition lower_clause_concl (c : clause) : concl_clause lrel lvar :=
-    {| cc_rel := normal_rel c.(Datalog.clause_rel);
-      cc_args := map (expr_varmap inl) c.(Datalog.clause_args) |}.
+    {| cc_rel := normal_rel c.(clause.rel);
+      cc_args := map (expr_varmap inl) c.(clause.args) |}.
 
-  Definition lower_meta_clause_concl (c : meta_clause) : concl_clause lrel lvar :=
-    {| cc_rel := done_sending_rel
-                   c.(Datalog.meta_clause_rel)
-                       (map is_Some c.(Datalog.meta_clause_args));
-      cc_args := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args)); |}.
+  Definition lower_clause_pattern_concl (c : clause_pattern) : concl_clause lrel lvar :=
+    let es := map expr_pattern.expr_of c.(clause_pattern.args) in
+    {| cc_rel := done_sending_rel c.(clause_pattern.rel) (map is_Some es);
+      cc_args := map (expr_varmap inl) (keep_Some es); |}.
 
-  Definition lower_meta_clause_hyp (c : meta_clause) : hyp_clause lrel lvar :=
+  Definition lower_clause_pattern_hyp (c : clause_pattern) : hyp_clause lrel lvar :=
+    let es := map expr_pattern.expr_of c.(clause_pattern.args) in
     {| hc_key :=
-        {| hc_rel := {| hr_rel := done_receiving_rel
-                                    c.(Datalog.meta_clause_rel)
-                                        (map is_Some c.(Datalog.meta_clause_args));
-                       hr_idxs := {| key_idxs := map (fun _ => true) (keep_Some c.(Datalog.meta_clause_args));
-                                    value_idxs := map (fun _ => false) (keep_Some c.(Datalog.meta_clause_args)); |} |};
-          hc_key_args := map (expr_varmap inl) (keep_Some c.(Datalog.meta_clause_args)); |};
+        {| hc_rel := {| hr_rel := done_receiving_rel c.(clause_pattern.rel) (map is_Some es);
+                       hr_idxs := {| key_idxs := map (fun _ => true) (keep_Some es);
+                                    value_idxs := map (fun _ => false) (keep_Some es); |} |};
+          hc_key_args := map (expr_varmap inl) (keep_Some es); |};
       hc_val := value_clause [] |}.
   Axiom count : aggregator.
 
-  Definition lower_rule (r : rule) : list (@local_rule lrel lvar) :=
+  Definition lower_rule (r : rule) : list (local_rule lrel lvar) :=
     match r with
-    | normal_rule concls hyps =>
+    | rule.impl concls hyps =>
         [{| local_rule_concls := map lower_clause_concl concls;
            local_rule_hyps := map lower_clause_hyp hyps |}]
-    | meta_rule concls hyps =>
-        [{| local_rule_concls := map lower_meta_clause_concl concls;
-           local_rule_hyps := map lower_meta_clause_hyp hyps |}]
-    (*R(_, x) :- G(x, x) =>
-      done_sending(R, [1])(x, num_sent) :- done_receiving(G, [0, 1])(x, x)
-
-done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
-                           expected(G, [0, 1])(x, x)(N) *N is number of friends from which we expect to receive G-messages*
-     *)
-    | agg_rule target_rel agg source_rel =>
+    | rule.agg target_rel agg source_rel =>
         (*source_rel(_, _, 2, ... 9) concl_rel(_, 2, ..., 9),
           assuming source_rel is 10-ary.*)
         let n := num_args source_rel in
         [{| local_rule_concls :=
              [{| cc_rel := normal_rel target_rel;
                 (*inr 0 = aggregate result, inr 1..n-2 = the carried-through args*)
-                cc_args := map var_expr (map inr (seq O (n - 1))); |}];
+                cc_args := map expr.var (map inr (seq O (n - 1))); |}];
            local_rule_hyps :=
              [{| hc_key := {| hc_rel := {| hr_rel := done_receiving_rel
                                                        source_rel
                                                        (false :: false :: repeat true (n - 2));
                                           hr_idxs := {| key_idxs := repeat true (n - 2);
                                                        value_idxs := repeat false (n - 2); |} |};
-                             hc_key_args := map var_expr (map inr (seq 1 (n - 2))) |};
+                             hc_key_args := map expr.var (map inr (seq 1 (n - 2))) |};
                 hc_val := value_clause []; |};
               {| hc_key := {| hc_rel := {| hr_rel := normal_rel source_rel;
                                           hr_idxs := {| key_idxs := false :: false :: repeat true (n - 2);
                                                        value_idxs := true :: true :: repeat false (n - 2); |} |};
-                             hc_key_args := map var_expr (map inr (seq 1 (n - 2))) |};
+                             hc_key_args := map expr.var (map inr (seq 1 (n - 2))) |};
                 hc_val := agg_clause agg (inr O) |}];
          |}]
     (* target_rel(val, c, d) :- done_receiving(source_rel, [2, 3])(c, d),
@@ -429,52 +357,54 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
      *)
     end.
 
-  Context {idx_structs_info : map.map idx_struct values_info}
+  (*R(_, x) :- G(x, x) =>
+    done_sending(R, [1])(x, num_sent) :- done_receiving(G, [0, 1])(x, x)
+
+done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
+                           expected(G, [0, 1])(x, x)(N) *N is number of friends from which we expect to receive G-messages*
+   *)
+  Definition lower_meta_rule (mr : meta_rule) : local_rule lrel lvar :=
+    {| local_rule_concls := map lower_clause_pattern_concl mr.(meta_rule.concls);
+      local_rule_hyps := map lower_clause_pattern_hyp mr.(meta_rule.hyps) |}.
+
+  Context {agg_map : map.map aggregator value}
+    {idx_structs_info : map.map idx_struct values_info}
     {rel_views : map.map lrel idx_structs_info}
-    {rels_data : map.map (@hyp_fact_key lrel) val_data}
-    {lcontext : map.map lvar T}.
+    {rels_data : map.map (hyp_fact_key lrel) val_data}
+    {lcontext : map.map lvar value}.
 
-  Definition lower_prog (sp : spec_node_prog) : node_prog lrel lvar :=
+  Definition lower_prog (p : program) : node_prog lrel lvar :=
     {| n_relviews := map.empty;
-      n_rules := flat_map lower_rule sp.(spec_node_rules) |}.
+      n_rules := flat_map lower_rule p.(program.rules) ++ map lower_meta_rule p.(program.meta_rules) |}.
 
-  Definition lower_dfact (f : dfact) : @concl_fact lrel :=
+  Definition lower_message (f : node.message) : concl_fact lrel :=
     match f with
-    | normal_dfact R args =>
-        {| cf_rel := normal_rel R; cf_args := args |}
-    | meta_dfact R args source num =>
-        {| cf_rel := done_receiving_from R (map is_Some args);
-          cf_args :=
-            let tl := nat_to_T num :: keep_Some args in
-            match source with
-            | None => tl
-            | Some node_name => nat_to_T node_name :: tl
-            end
-        |}
+    | node.message.normal nf =>
+        {| cf_rel := normal_rel nf.(normal_fact.rel); cf_args := nf.(normal_fact.args) |}
+    | node.message.done_with pat src count =>
+        let vals := map value_pattern.value_of pat.(fact_pattern.args) in
+        {| cf_rel := done_receiving_from pat.(fact_pattern.rel) (map is_Some vals);
+          cf_args := label_to_value src :: nat_to_value count :: keep_Some vals |}
     end.
 
-  Definition hyp_fact_of (f : @concl_fact lrel) : hyp_fact lrel :=
+  Definition hyp_fact_of (f : concl_fact lrel) : hyp_fact lrel :=
     {| hf_key := {| hf_rel := {| hr_rel := f.(cf_rel);
                                 hr_idxs := {| key_idxs := map (fun _ => true) f.(cf_args);
                                              value_idxs := map (fun _ => false) f.(cf_args); |} |};
                    hf_key_args := f.(cf_args) |};
       hf_val := value_fact [] |}.
 
-  Definition A (input_facts : list dfact) :=
-    forall R mf_args num,
-      In (meta_dfact R mf_args None num) input_facts ->
-      (forall num0, In (meta_dfact R mf_args None num0) input_facts -> num0 = num) /\
-        exists num',
-          num' <= num /\
-            Existsn (dfact_matches R mf_args) num' input_facts.
-
-  Lemma compiler_correct p :
-    nodes_equiv_weak A (spec_node_step p) empty_big_spec_state
-                  (translate_step lower_dfact (node_step (lower_prog p))) empty_big_state.
+  Lemma compiler_correct p name :
+    steps_corresp_sound (node.allowed_inputs R_senders)
+      (node.step R_senders p name) node.init
+      (translate_step lower_message (node_step (lower_prog p))) empty_big_state /\
+    steps_corresp_sound (node.allowed_inputs R_senders)
+      (translate_step lower_message (node_step (lower_prog p))) empty_big_state
+      (node.step R_senders p name) node.init.
   Proof. Abort.
 
-  Definition spec_knows_fact bss f :=
-    In f (bss.(bss_spec_node).(known_facts)) \/ In f bss.(bss_queue).
+  Definition spec_knows_fact (ns : node.state) f :=
+    In f ns.(node.state.known).
 
   Definition knows_fact bs f :=
     knows_hyp_fact bs.(bs_node) (hyp_fact_of f) \/
