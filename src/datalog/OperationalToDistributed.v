@@ -1,6 +1,6 @@
 From Stdlib Require Import List Permutation Morphisms.
 From coqutil Require Import Map.Interface Map.Properties Eqb Tactics.fwd Tactics Datatypes.List.
-From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics Decidable Pftree.
+From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Default Tactics Decidable Pftree Relations.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 
 Import ListNotations.
@@ -209,26 +209,21 @@ Section __.
       rewrite (Reflects_true_iff (fact_pattern.matches pat nf)) by typeclasses eauto. exact Hm.
   Qed.
 
-  Lemma get_op_ish_inputs gs :
-    queues_empty gs ->
+  Lemma outputs_all_done_knows gs known (qr : rel -> bool) pat :
     outputs_ok gs ->
-    inputs_eq_outputs gs ->
-    op_ish_inputs gs.
+    Permutation known (filter (fun m => qr (message.rel m)) (all_outputs gs ++ inputs)) ->
+    node_all_done_with pat known ->
+    knows_meta_fact graph_senders known (all_matching known pat).
   Proof.
-    intros Hq Hok Hio. cbv [op_ish_inputs Forall_map op_ish_inputs_to node_all_done_with].
-    intros nn ns Hget pat Hdone.
-    specialize (Hq _ _ Hget). specialize (Hio _ _ Hget). cbv beta in Hq, Hio.
-    rewrite Hq, app_nil_r in Hio.
-    set (q := fun m => rel_forward graph_prog (node_destn nn) (message.rel m)) in *.
-    assert (Hknown : forall m, In m ns.(gns_node_state).(state.known) ->
-                               In m (all_outputs gs ++ inputs) /\ q m = true).
+    intros Hok Hio Hdone. cbv [node_all_done_with] in Hdone.
+    set (q := fun m => qr (message.rel m)) in *.
+    assert (Hknown : forall m, In m known -> In m (all_outputs gs ++ inputs) /\ q m = true).
     { intros m Hm. eapply Permutation_in in Hm; [| exact Hio]. apply filter_In. exact Hm. }
     pose proof Hdone as Hcs. apply Forall_exists_r_Forall2 in Hcs. destruct Hcs as (cs & Hcs).
-    exists (all_matching ns.(gns_node_state).(state.known) pat). split; [reflexivity|].
     exists (list_sum cs).
     ssplit; [exists cs; split; [exact Hcs | reflexivity] | | apply all_matching_consistent].
     eapply Existsn_perm; [| symmetry; exact Hio].
-    destruct (rel_forward graph_prog (node_destn nn) pat.(fact_pattern.rel)) eqn:E.
+    destruct (qr pat.(fact_pattern.rel)) eqn:E.
     - apply Existsn_filter.
       { intros [nf | ? ? ?] Hm; [| destruct Hm]. subst q. cbn [message.rel].
         rewrite <- (proj1 Hm). exact E. }
@@ -253,6 +248,19 @@ Section __.
       + apply Forall_not_Existsn_0, Forall_forall. intros [nf | ? ? ?] Hin Hmatch; [| destruct Hmatch].
         eapply Hnone; [| exact Hin]. exact (eq_sym (proj1 Hmatch)).
       + exfalso. eapply Hnone; [| eapply Permutation_in; [exact Hio | eassumption]]. reflexivity.
+  Qed.
+
+  Lemma get_op_ish_inputs gs :
+    queues_empty gs ->
+    outputs_ok gs ->
+    inputs_eq_outputs gs ->
+    op_ish_inputs gs.
+  Proof.
+    intros Hq Hok Hio. cbv [op_ish_inputs Forall_map op_ish_inputs_to]. intros nn ns Hget pat Hdone.
+    specialize (Hq _ _ Hget). specialize (Hio _ _ Hget). cbv beta in Hq, Hio.
+    rewrite Hq, app_nil_r in Hio.
+    exists (all_matching ns.(gns_node_state).(state.known) pat). split; [reflexivity|].
+    eapply outputs_all_done_knows; eassumption.
   Qed.
 
   Lemma rule_at_unique n n' np np' r :
@@ -448,15 +456,12 @@ Section __.
             In pat.(fact_pattern.rel) (program.hyp_rels np) /\
               Forall (fun osrc => In (op_message.done_with pat osrc) known) (op_sources_of src)).
 
-  Lemma op_all_done_node_all_done os np ns pat :
-    In pat.(fact_pattern.rel) (program.hyp_rels np) ->
-    inps_corresp os np ns ->
+  Lemma all_done_op_sources os pat src :
     all_done_with is_input p os pat ->
-    node_all_done_with pat ns.(gns_node_state).(state.known).
+    In src (graph_senders pat.(fact_pattern.rel)) ->
+    Forall (fun osrc => In (op_message.done_with pat osrc) os) (op_sources_of src).
   Proof.
-    intros Hrel (_ & Hdone) Hall. cbv [node_all_done_with]. apply Forall_forall.
-    intros src Hsrc. apply (Hdone _ _ Hsrc). split; [exact Hrel |].
-    cbv [all_done_with] in Hall. cbv [Distributed.R_senders] in Hsrc.
+    intros Hall Hsrc. cbv [all_done_with] in Hall. cbv [Distributed.R_senders] in Hsrc.
     destruct (is_input _).
     - destruct Hsrc as [<- | []]. cbn [op_sources_of]. auto.
     - apply in_filter_map in Hsrc. destruct Hsrc as ([m prog] & Htup & Hsrc).
@@ -466,6 +471,16 @@ Section __.
       rewrite Lists.List.Forall_map. apply Forall_forall. intros r Hr.
       rewrite Forall_forall in Hall. apply Hall, Hlayout_normal. cbv [all_rules].
       apply in_flat_map. eexists. split; [apply In_values; eauto | exact Hr].
+  Qed.
+
+  Lemma op_all_done_node_all_done os np ns pat :
+    In pat.(fact_pattern.rel) (program.hyp_rels np) ->
+    inps_corresp os np ns ->
+    all_done_with is_input p os pat ->
+    node_all_done_with pat ns.(gns_node_state).(state.known).
+  Proof.
+    intros Hrel (_ & Hdone) Hall. apply Forall_forall. intros src Hsrc.
+    apply (Hdone _ _ Hsrc). split; [exact Hrel | apply all_done_op_sources; assumption].
   Qed.
 
   Lemma idkkk known f np ns :
@@ -716,13 +731,17 @@ Section __.
     split; [eapply star_app; eassumption|]. rewrite flat_map_app, Ht, Ht0. reflexivity.
   Qed.
 
+  Lemma run_from_initial gs t :
+    star distributed_step (initial_graph_state_with inputs) t gs ->
+    star distributed_step initial_graph_state (t ++ map I_event inputs) gs.
+  Proof. intros Hstar. eapply star_app; [apply star_gstep_input; exact gns_map_ok | exact Hstar]. Qed.
+
   Lemma reachable_from_initial gs :
     reachable gs ->
     exists gt, star distributed_step initial_graph_state gt gs /\ flat_map inputs_of gt = inputs.
   Proof.
-    intros (t & Hstar & Ht). exists (t ++ map I_event inputs). split.
-    - eapply star_app; [apply star_gstep_input; exact gns_map_ok | exact Hstar].
-    - rewrite flat_map_app, Ht, inputs_of_map_I_event. reflexivity.
+    intros (t & Hstar & Ht). exists (t ++ map I_event inputs). split; [apply run_from_initial; exact Hstar|].
+    rewrite flat_map_app, Ht, inputs_of_map_I_event. reflexivity.
   Qed.
 
   Lemma reachable_node_runs gs :
@@ -737,13 +756,15 @@ Section __.
     destruct (map.get graph_prog k); destruct (map.get gs.(graph_nodes) k); cbn in *; auto.
   Qed.
 
-  Lemma fwd_total_all_outputs gs nn :
+  Lemma output_map_all_outputs gs d :
     reachable gs ->
-    Permutation (fwd_total (Distributed.forward graph_prog) nn gs.(graph_nodes))
-      (filter (fun m => rel_forward graph_prog (node_destn nn) (message.rel m)) (all_outputs gs)).
+    Permutation
+      (output_map (mp' := msg_map)
+         (fun k outs => filter (Distributed.forward graph_prog (node_source k) d) outs) gs.(graph_nodes))
+      (filter (fun m => rel_forward graph_prog d (message.rel m)) (all_outputs gs)).
   Proof.
     intros Hreach. pose proof (reachable_node_runs _ Hreach) as Hruns.
-    cbv [fwd_total output_map outputs_partition all_outputs].
+    cbv [output_map outputs_partition all_outputs].
     rewrite map_values'_map_values', values_eq_tuples, <- flat_map_concat_map, tuples_map_values'.
     rewrite filter_flat_map, values_eq_tuples, !flat_map_concat_map, !map_map.
     apply Permutation_refl', f_equal, map_ext_in. intros [k ns] Hin. cbn.
@@ -763,7 +784,8 @@ Section __.
     rewrite Hinp in H.
     destruct (Forall2_map_get_r _ _ _ _ _ Hruns Hget) as (np & _ & Hrun).
     erewrite <- node.known_eq_inputs in H by exact Hrun.
-    rewrite H, filter_app. apply Permutation_app; [eapply fwd_total_all_outputs; eassumption | reflexivity].
+    rewrite H, filter_app. cbv [fwd_total].
+    apply Permutation_app; [apply output_map_all_outputs; assumption | reflexivity].
   Qed.
 
   Lemma outputs_ok_of_reachable gs :
@@ -782,6 +804,37 @@ Section __.
     - intros nf Hin. eapply node.sent_rel_sender; [| exact Hrun | exact Hin].
       intros ? ? Hcd. apply node.can_deduce_normal_concl_rel in Hcd.
       eauto using node_sends_concl_rels.
+  Qed.
+
+  Lemma emitted_eq_outputs gs t :
+    star distributed_step (initial_graph_state_with inputs) t gs ->
+    flat_map inputs_of t = [] ->
+    Permutation (flat_map outputs_of t ++ gs.(graph_output_queue)) (all_outputs gs ++ inputs).
+  Proof.
+    intros Hstar Ht.
+    pose proof (outputs_are_node_outputs _ _ _ (initial_graph_state_empty _) eq_refl _ _ (run_from_initial _ _ Hstar)) as H.
+    rewrite !flat_map_app, outputs_of_map_I_event, inputs_of_map_I_event, Ht, app_nil_r in H.
+    cbn [app] in H. rewrite H. cbv [output_total]. apply Permutation_app.
+    - etransitivity; [apply output_map_all_outputs; eexists; split; eassumption|].
+      cbv [Distributed.rel_forward]. rewrite filter_true. reflexivity.
+    - cbv [Distributed.forward Distributed.rel_forward]. rewrite filter_true. reflexivity.
+  Qed.
+
+  Lemma sender_prog n R :
+    In (node_source n) (graph_senders R) ->
+    exists np, map.get graph_prog n = Some np /\ In R (program.normal_concl_rels np).
+  Proof.
+    intros Hin. cbv [Distributed.R_senders] in Hin. destruct (is_input R).
+    - destruct Hin as [Heq | []]. discriminate.
+    - apply in_filter_map in Hin. destruct Hin as ([k np] & Htup & Hsrc).
+      destruct (inb _ _) eqn:E; [invert Hsrc | discriminate].
+      exists np. split; [apply Properties.map.tuples_spec; exact Htup | apply inb_true_iff; exact E].
+  Qed.
+
+  Lemma node_sent_initial n : node_sent initial_graph_state n = [].
+  Proof.
+    cbv [node_sent]. destruct (map.get _ n) eqn:E; [| reflexivity].
+    apply initial_graph_state_get in E; [| exact gns_map_ok]. fwd. reflexivity.
   Qed.
 
   Lemma node_in_all_sources gs k np :
@@ -846,6 +899,17 @@ Section __.
       eexists. exact Hin.
   Qed.
 
+  Lemma op_knows_normal_fact_all_outputs os gs nf :
+    tags_ok p os ->
+    same_domain graph_prog gs.(graph_nodes) ->
+    outs_corresp os (outs_of gs) ->
+    op_knows_normal_fact os nf <-> In (message.normal nf) (all_outputs gs ++ inputs).
+  Proof.
+    intros Htags Hdom (Houts & _).
+    rewrite in_all_outputs_iff, (op_knows_normal_fact_sources _ gs) by assumption.
+    setoid_rewrite Houts. reflexivity.
+  Qed.
+
   Lemma in_outs_done gs pat src num :
     outputs_ok gs ->
     In (message.done_with pat src num) (all_outputs gs ++ inputs) <->
@@ -867,15 +931,14 @@ Section __.
     outs_corresp os (outs_of gs) ->
     Forall2_map (fun _ => inps_corresp os) graph_prog gs.(graph_nodes).
   Proof.
-    intros Htags Hdom Hqe Hok Hieo (Houts_n & Houts_d) k.
+    intros Htags Hdom Hqe Hok Hieo Houts k.
     pose proof (Hdom k) as Hk.
     destruct (map.get graph_prog k) as [np|] eqn:Hnp;
       destruct (map.get gs.(graph_nodes) k) as [ns|] eqn:Hns; try exact Hk.
     split.
     - intros nf. erewrite in_known_iff by eassumption. cbn [message.rel].
-      rewrite in_all_outputs_iff, (op_knows_normal_fact_sources _ gs) by assumption.
-      setoid_rewrite Houts_n. reflexivity.
-    - intros pat src Hsrc. rewrite <- (Houts_d pat src Hsrc).
+      rewrite (op_knows_normal_fact_all_outputs os gs) by assumption. reflexivity.
+    - intros pat src Hsrc. rewrite <- (proj2 Houts pat src Hsrc).
       pose proof (senders_in_all_sources _ _ _ Hdom Hsrc) as Hsrc'.
       split.
       + intros (num & Hin). erewrite in_known_iff in Hin by eassumption.
@@ -926,18 +989,131 @@ Section __.
     - exact Houts1.
   Qed.
 
+  Lemma all_done_all_outputs os gs pat :
+    same_domain graph_prog gs.(graph_nodes) ->
+    outs_corresp os (outs_of gs) ->
+    all_done_with is_input p os pat ->
+    node_all_done_with pat (all_outputs gs ++ inputs).
+  Proof.
+    intros Hdom (_ & Houts) Hall. apply Forall_forall. intros src Hsrc.
+    destruct (proj2 (Houts _ _ Hsrc) (all_done_op_sources _ _ _ Hall Hsrc)) as (num & Hin).
+    exists num. apply in_all_outputs_iff. exists src.
+    split; [eapply senders_in_all_sources; eassumption | exact Hin].
+  Qed.
+
+  Lemma distribute_R_knows os gs f :
+    distribute_R os gs ->
+    op_knows_fact is_input p os f ->
+    knows_fact graph_senders (all_outputs gs ++ inputs) f.
+  Proof.
+    intros (Hreach & _ & _ & _ & Htags & _ & Houts) Hknows.
+    pose proof (Forall2_map_same_domain _ _ _ (reachable_node_runs _ Hreach)) as Hdom.
+    destruct f as [nf | mf]; cbv [op_knows_fact knows_fact knows_normal_fact] in *.
+    - apply (op_knows_normal_fact_all_outputs os gs); assumption.
+    - destruct Hknows as (Hall & Hcons).
+      destruct (outputs_all_done_knows gs (all_outputs gs ++ inputs) (fun _ => true) mf.(meta_fact.pattern))
+        as (num & Hexp & Hcnt & _).
+      + apply outputs_ok_of_reachable. exact Hreach.
+      + rewrite filter_true. reflexivity.
+      + eapply all_done_all_outputs; eassumption.
+      + exists num. ssplit; [exact Hexp | exact Hcnt |].
+        eapply meta_fact.consistent_with_ext; [exact Hcons|]. intros nf _.
+        apply (op_knows_normal_fact_all_outputs os gs); assumption.
+  Qed.
+
   Definition op_input_of_input input :=
     match input with
     | message.normal nf => op_message.normal nf op_source.input
     | message.done_with pat _ count => op_message.done_with pat op_source.input
     end.
 
+  Lemma op_inputs_no_rule_normal nf r :
+    ~ In (op_message.normal nf (op_source.rule r)) (map op_input_of_input inputs).
+  Proof. intros Hin. apply in_map_iff in Hin. destruct Hin as ([? | ? ? ?] & Heq & _); discriminate. Qed.
+
+  Lemma op_inputs_no_rule_done pat r :
+    ~ In (op_message.done_with pat (op_source.rule r)) (map op_input_of_input inputs).
+  Proof. intros Hin. apply in_map_iff in Hin. destruct Hin as ([? | ? ? ?] & Heq & _); discriminate. Qed.
+
+  Lemma outs_corresp_init :
+    outs_corresp (map op_input_of_input inputs) (outs_of (drain (initial_graph_state_with inputs))).
+  Proof.
+    cbv [Distributed.initial_graph_state_with]. split.
+    - intros nf [n |]; rewrite outs_drain, outs_of_forward_to; cbn [outs_of op_sources_of].
+      + rewrite node_sent_initial. split; [intros [] |]. intros Hex.
+        apply Exists_exists in Hex. destruct Hex as (osrc & Hosrc & Hin).
+        apply in_map_iff in Hosrc. destruct Hosrc as (r & <- & _).
+        exact (op_inputs_no_rule_normal _ _ Hin).
+      + rewrite Exists_cons, Exists_nil, in_map_iff. split.
+        * intros Hin. left. exists (message.normal nf). auto.
+        * intros [([nf' | ? ? ?] & Heq & Hin) | []]; [| discriminate]. invert Heq. exact Hin.
+    - intros pat [n |] Hsrc; rewrite outs_drain, outs_of_forward_to; cbn [outs_of op_sources_of].
+      + rewrite node_sent_initial. split; [intros (? & []) |]. intros Hall. exfalso.
+        destruct (sender_prog _ _ Hsrc) as (np & Hnp & HR).
+        erewrite get_or_default_Some in Hall by eassumption.
+        rewrite Lists.List.Forall_map, Forall_forall in Hall.
+        cbv [program.normal_concl_rels] in HR. apply in_flat_map in HR. destruct HR as (r & Hr & _).
+        exact (op_inputs_no_rule_done _ _ (Hall _ Hr)).
+      + rewrite Forall_cons_iff, Forall_nil_iff, in_map_iff. split.
+        * intros (num & Hin). split; [| exact I]. exists (message.done_with pat input_source num). auto.
+        * intros (([? | pat' src' num] & Heq & Hin) & _); [discriminate|]. invert Heq.
+          destruct (proj1 Hinputs _ _ _ Hin) as (<- & _). eauto.
+  Qed.
+
+  Lemma distribute_R_init :
+    distribute_R (map op_input_of_input inputs) (drain (initial_graph_state_with inputs)).
+  Proof.
+    assert (Hreach : reachable (drain (initial_graph_state_with inputs))).
+    { destruct (star_drain (initial_graph_state_with inputs)) as (t & Hstar & Ht). exists t. auto. }
+    pose proof (Forall2_map_same_domain _ _ _ (reachable_node_runs _ Hreach)) as Hdom.
+    pose proof (inputs_eq_outputs_of_reachable _ Hreach) as Hieo.
+    pose proof (outputs_ok_of_reachable _ Hreach) as Hok.
+    pose proof (queues_empty_drain (initial_graph_state_with inputs)) as Hqe.
+    assert (Htags : tags_ok p (map op_input_of_input inputs)).
+    { intros nf r Hin. exfalso. exact (op_inputs_no_rule_normal _ _ Hin). }
+    pose proof outs_corresp_init as Houts.
+    cbv [distribute_R]. ssplit.
+    - exact Hreach.
+    - eauto using get_op_ish_inputs.
+    - apply Forall_forall. intros r _ pat Hin. exfalso. exact (op_inputs_no_rule_done _ _ Hin).
+    - apply Forall_forall. intros r _ pat Hin. exfalso. exact (op_inputs_no_rule_done _ _ Hin).
+    - exact Htags.
+    - eauto using get_inps_corresp.
+    - exact Houts.
+  Qed.
+
+  Lemma sim_star os os' gs :
+    distribute_R os gs ->
+    comp_step^* os os' ->
+    exists gs' t,
+      star distributed_step gs t gs' /\ flat_map inputs_of t = [] /\ distribute_R os' gs'.
+  Proof.
+    intros HR Hsteps. revert gs HR. induction Hsteps; intros gs HR.
+    - exists gs, []. split; [apply star_refl | split; [reflexivity | exact HR]].
+    - edestruct sim1' as (gs1 & t1 & Hstar1 & Ht1 & HR1); [exact HR | eassumption |].
+      edestruct IHHsteps as (gs' & t2 & Hstar2 & Ht2 & HR'); [exact HR1|].
+      exists gs', (t2 ++ t1). split; [eapply star_app; eassumption|].
+      split; [rewrite flat_map_app, Ht1, Ht2; reflexivity | exact HR'].
+  Qed.
+
   Lemma layout_complete os f :
-    comp_step (map op_input_of_input inputs) os ->
+    comp_step^* (map op_input_of_input inputs) os ->
     op_knows_fact is_input p os f ->
     exists gs t,
       star distributed_step (initial_graph_state_with inputs) t gs /\
         knows_fact graph_senders (flat_map outputs_of t) f.
-  Proof. Admitted.
-
+  Proof.
+    intros Hsteps Hknows.
+    destruct (star_drain (initial_graph_state_with inputs)) as (t0 & Hstar0 & Ht0).
+    destruct (sim_star _ _ _ distribute_R_init Hsteps) as (gs & t1 & Hstar1 & Ht1 & HR).
+    eexists _, (_ ++ t1 ++ t0). split.
+    - eapply star_app; [eapply star_app; [exact Hstar0 | exact Hstar1] | apply star_gstep_output].
+    - eapply knows_fact_perm; [eapply distribute_R_knows; eassumption|].
+      rewrite flat_map_app, outputs_of_map_O_event, flat_map_singleton.
+      etransitivity; [symmetry; apply emitted_eq_outputs |].
+      + eapply star_app; eassumption.
+      + rewrite flat_map_app, Ht1, Ht0. reflexivity.
+      + apply Permutation_app_comm.
+  Qed.
 End __.
+Print Assumptions layout_complete.

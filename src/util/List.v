@@ -2041,6 +2041,9 @@ Section misc.
     if x then true else false.
 End misc.
 
+Lemma flat_map_singleton {A} (l : list A) : flat_map (fun x => [x]) l = l.
+Proof. induction l; cbn; congruence. Qed.
+
 Lemma Existsn_flat_map_incl {A T} (P : T -> Prop) (f : A -> list T) l1 l2 cs :
   NoDup l1 -> NoDup l2 -> incl l1 l2 ->
   Forall2 (fun x c => Existsn P c (f x)) l1 cs ->

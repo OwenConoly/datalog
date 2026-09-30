@@ -322,6 +322,25 @@ Definition consistent_good :=
         eapply star_step; [exact IH | apply gstep_input].
     Qed.
 
+    Lemma star_gstep_output_gen nodes q1 q2 :
+      star graph_step {| graph_nodes := nodes; graph_output_queue := q1 ++ q2 |}
+        (map (fun m => O_event (emit m) [m]) q1)
+        {| graph_nodes := nodes; graph_output_queue := q2 |}.
+    Proof.
+      induction q1 as [| m q1 IH] using rev_ind.
+      - apply star_refl.
+      - rewrite map_app, <- app_assoc. eapply star_app; [apply star_one | exact IH].
+        apply gstep_output. reflexivity.
+    Qed.
+
+    Lemma star_gstep_output gs :
+      star graph_step gs (map (fun m => O_event (emit m) [m]) gs.(graph_output_queue))
+        {| graph_nodes := gs.(graph_nodes); graph_output_queue := [] |}.
+    Proof.
+      destruct gs as [nodes oq]. cbn [graph_nodes graph_output_queue].
+      rewrite <- (app_nil_r oq) at 1. apply star_gstep_output_gen.
+    Qed.
+
     Lemma star_receive_step nodes oq n ns ms ns' :
       map.get nodes n = Some ns ->
       star (receive_step n) ns ms ns' ->

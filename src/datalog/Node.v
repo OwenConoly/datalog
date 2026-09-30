@@ -267,6 +267,19 @@ Section __.
     pose proof (Existsn_ge_le_bound _ _ _ _ Hge_app Hle). lia.
   Qed.
 
+  Lemma knows_fact_perm l1 l2 f :
+    knows_fact l1 f -> Permutation l1 l2 -> knows_fact l2 f.
+  Proof.
+    intros Hk Hperm. destruct f as [nf | mf]; cbv [knows_fact knows_normal_fact] in *.
+    - eapply Permutation_in; eassumption.
+    - destruct Hk as (num & (msgss & Hdone & ->) & Hcnt & Hcons). exists (list_sum msgss). ssplit.
+      + exists msgss. split; [| reflexivity].
+        eapply Forall2_impl; [exact Hdone|]. intros. eapply Permutation_in; eassumption.
+      + eapply Existsn_perm; eassumption.
+      + eapply meta_fact.consistent_with_ext; [exact Hcons|]. intros nf _.
+        split; apply Permutation_in; auto using Permutation_sym.
+  Qed.
+
   Lemma knows_fact_submultiset l1 l2 h :
     submultiset l1 l2 -> allowed_inputs l2 ->
     knows_fact l1 h -> knows_fact l2 h.
