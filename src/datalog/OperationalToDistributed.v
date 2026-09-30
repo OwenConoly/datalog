@@ -685,4 +685,27 @@ Section __.
     intros n gns _. eexists. apply star_drain_gns.
   Qed.
 
+  Lemma outs_drain gs inps src : outs_of (drain gs) inps src = outs_of gs inps src.
+  Proof.
+    cbv [outs_of drain]. destruct src; try reflexivity.
+    cbv [node_sent]. simpl. rewrite get_map_values'.
+    destruct (map.get _ _); reflexivity.
+  Qed.
+
+  Definition distribute_R os gs (gt : list (IO_event (graph_label message action_label) message)) :=
+    op_ish_inputs gs /\
+      inputs_eq_outputs gs gt /\
+
+      meta_facts_ok is_input p os /\
+
+      Forall2_map (fun _ => inps_corresp os) graph_prog gs.(graph_nodes) /\
+      outs_corresp os (outs_of gs (flat_map inputs_of gt)).
+
+  Lemma sim1' os os' gs (gt : list (IO_event (graph_label message action_label) message))  :
+    distribute_R os gs gt ->
+    comp_step os os' ->
+    exists gs' t,
+      star distributed_step gs t gs' /\
+        distribute_R os gs gt.
+  Proof. Abort.
 End __.
