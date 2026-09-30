@@ -646,9 +646,14 @@ Section __.
       gns_queue := gns.(gns_queue);
     |}.
 
-  Definition directly_send_to keep msgs gs :=
-    {| graph_nodes := map_values' (fun dst => eat (filter (keep (node_destn dst)) msgs)) gs.(graph_nodes);
-      graph_output_queue := filter (keep output_destn) msgs ++ gs.(graph_output_queue); |}.
+  Definition drain_gns (gns : graph_node_state message action_label state) :=
+    {| gns_node_state := state.add_to_known gns.(gns_queue) gns.(gns_node_state);
+      gns_trace := map I_event gns.(gns_queue) ++ gns.(gns_trace);
+      gns_queue := [] |}.
+
+  Definition drain (gs : graph_state message action_label state) :=
+    {| graph_nodes := map_values' (fun _ => drain_gns) gs.(graph_nodes);
+      graph_output_queue := gs.(graph_output_queue) |}.
 
   Local Abbreviation nstep := (fun n => node.step graph_senders (Distributed.prog_at graph_prog n) (node_source n)).
 
@@ -665,14 +670,19 @@ Section __.
       rewrite <- app_assoc. apply receive_step_intro; [apply node.input_step | reflexivity].
   Qed.
 
-  Lemma eat_forwarded_msgs nids msgs st :
-    exists t,
-      star distributed_step (forward_to nids msgs st) t (directly_send_to nids msgs st).
+  Lemma star_drain_gns n gns :
+    star (receive_step nstep n) gns gns.(gns_queue) (drain_gns gns).
+  Proof.
+    destruct gns as [node trace queue]. cbn [gns_queue].
+    rewrite <- (app_nil_r queue) at 1.
+    apply (drain_node n queue {| gns_node_state := node; gns_trace := trace; gns_queue := [] |}).
+  Qed.
+
+  Lemma star_drain gs : exists t, star distributed_step gs t (drain gs).
   Proof.
     apply star_per_node; [exact gns_map_ok | reflexivity |].
-    cbv [forward_to directly_send_to]. cbn [graph_nodes].
-    apply Forall2_map_map_values'_l, Forall2_map_map_values'_r, Forall2_map_dup.
-    intros n gns _. eexists. apply drain_node.
+    apply Forall2_map_map_values'_r, Forall2_map_dup.
+    intros n gns _. eexists. apply star_drain_gns.
   Qed.
 
 End __.

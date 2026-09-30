@@ -31,6 +31,8 @@ Those `-R`/`-Q` flags are exactly the `_build/default`-rooted lines dune writes 
 
 To see proof state at a point in a batch `rocq compile` run, insert `Show.` into the proof script.
 
+Ignore the warning `The proof has remaining shelved goals` (`remaining-shelved-goals`): it is harmless noise, not a problem to investigate or report.
+
 ## Architecture
 
 Namespaces: `src/util` maps to `Datalog.Util`, `src/datalog` to `Datalog`, and `src/atl` to `Datalog.ATL`. Because `Datalog` is a prefix of all three, `From Datalog Require Import List` still resolves to `src/util/List.v` (Rocq's `From`-prefix matching), so filenames must be unique across the three dirs for the idiom to be unambiguous. `graph_search/coqutil/src/coqutil` maps to `coqutil` and `graph_search/src` maps to `GraphSearch`, whose `GraphInterface.v` provides the `graph.graph` typeclass — a finite directed-graph interface modeled on coqutil's `map.map` (fields `edges : rep -> vertex -> list vertex`, `sources`, `empty`, `put`, `remove`; law bundle `graph.ok`; reachability toolkit `path`/`reaches`/`all_reachable` depends only on `edges`), with the map-backed implementation `graph_map` in `GraphImpl.v`. The verified-scheduling submodule provides `ATL`, `Codegen`, `Lower`, `Examples`, etc.
