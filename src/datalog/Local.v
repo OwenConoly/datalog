@@ -59,6 +59,18 @@ Module set_query.
   End __.
 End set_query. Abbreviation set_query := set_query.set_query.
 
+Module hyp_fact.
+  Section __.
+    Context `{params : datalog_params}.
+
+    Record hyp_fact :=
+      { rel : rel;
+        key_args : list bool;
+        key : list value;
+        val_fact : set_fact }.
+  End __.
+End hyp_fact. Abbreviation hyp_fact := hyp_fact.hyp_fact.
+
 Module hyp_clause.
   Section __.
     Context `{params : datalog_params}.
@@ -69,6 +81,11 @@ Module hyp_clause.
         key : list expr; (*length should be equal to the number of ones in key_args*)
         val_query : set_query; (*query on the set resulting from partial application of the relation to [key]*) }.
 
+    Definition interp (ctx : context) (c : hyp_clause) (f : hyp_fact) :=
+      c.(rel) = f.(hyp_fact.rel) /\
+        c.(key_args) = f.(hyp_fact.key_args) /\
+        Forall2 (expr.interp ctx) c.(key) f.(hyp_fact.key) /\
+        set_query.interp ctx c.(val_query) f.(hyp_fact.val_fact).
   End __.
 End hyp_clause. Abbreviation hyp_clause := hyp_clause.hyp_clause.
 
@@ -96,20 +113,6 @@ End low_rule. Abbreviation low_rule := low_rule.low_rule.
 Section __.
   Context `{params : datalog_params}.
 
-    Inductive hyp_fact_val :=
-    | value_fact (vals : list value)
-    | agg_fact (agg : aggregator) (num : value)
-    | received_fact (num : nat)
-    | sent_fact (num : nat).
-
-    Record hyp_fact_key :=
-      { hf_rel : hyp_rel;
-        hf_key_args : list value; }.
-
-    Record hyp_fact :=
-      { hf_key : hyp_fact_key;
-        hf_val : hyp_fact_val }.
-
     Context {node_rels : map.map hyp_fact_key val_data}.
 
     Definition node_state := node_rels.
@@ -131,27 +134,6 @@ Section __.
           end
       | None => False
       end.
-
-    Definition interp_hyp_clause_key ctx clk fk :=
-      clk.(hc_rel) = fk.(hf_rel) /\
-        Forall2 (expr.interp ctx) clk.(hc_key_args) fk.(hf_key_args).
-
-    Definition interp_hyp_clause_val ctx clv fv :=
-      match clv, fv with
-      | value_clause es, value_fact es' =>
-          Forall2 (expr.interp ctx) es es'
-      | agg_clause a v, agg_fact a' v' =>
-          a = a' /\ map.get ctx v = Some v'
-      | received_clause v, received_fact v' =>
-          option_map get_nat (map.get ctx v) = Some v'
-      | sent_clause v, sent_fact v' =>
-          option_map get_nat (map.get ctx v) = Some v'
-      | _, _ => False
-      end.
-
-    Definition interp_hyp_clause (ctx : context) (cl : hyp_clause) (f : hyp_fact) :=
-      interp_hyp_clause_key ctx cl.(hc_key) f.(hf_key) /\
-        interp_hyp_clause_val ctx cl.(hc_val) f.(hf_val).
 
     (*hyp_facts are deducible from history of receiving and sending basic_hyp_facts*)
     Record basic_hyp_fact :=
