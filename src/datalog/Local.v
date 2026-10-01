@@ -1,7 +1,7 @@
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
-From Datalog Require Import Map List Datalog Node Smallstep.
+From Datalog Require Import Map List Datalog Node Smallstep Multiset.
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Datatypes.List Datatypes.Option.
 
 Import ListNotations.
@@ -91,12 +91,25 @@ Module hyp_fact.
       f.(rel) = nf.(normal_fact.rel) /\
         f.(key) = select f.(key_args) nf.(normal_fact.args).
 
+    Definition values (f : hyp_fact) (nfs : list normal_fact) : Mfset (list value) :=
+      Mfset.map
+        (fun nf => select_not f.(key_args) nf.(normal_fact.args))
+        (Mfset.filter
+           (matches f)
+           (Mfset.of_list nfs)).
+
+    Search (list ?T -> option ?T).
+
     Definition known_by (s : state) (f : hyp_fact) :=
       match f.(val_fact) with
-      | set_fact.contains vals =>
-          Exists (fun nf => matches f nf /\ vals = select_not f.(key_args) nf.(normal_fact.args)) s.(state.received)
-      | set_fact.agg result =>
-
+      | set_fact.contains val =>
+          Mfset.has (values f s.(state.received)) val
+      | set_fact.agg agg result =>
+          (*Mfset of things like [index, val_to_aggregate] *)
+          let elts := Mfset.dedup (values f s.(state.received)) in
+          let vals := Mfset.filter_map (fun x => hd_error (tl x)) elts in
+          Mfset.fold (agg_bop agg) vals (agg_id agg) result
+      | _ => _
       end.
 
 
