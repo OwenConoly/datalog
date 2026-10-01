@@ -127,8 +127,9 @@ Module hyp_fact.
            (hyp_fact_key.matches k)
            (Mfset.of_list nfs)).
 
-    (*the mfsets are *ordered*, so merges and aggregations are deterministic.
-      this is intended.*)
+    (*i haven't thought very much about how the semantics should handle an aggregation operation that doesn't induce a function of multisets (or a merge operation that don't induce a function of sets).
+      the current semantics are probably unreasonable in this case.
+     *)
     Definition known_by (s : state) (f : hyp_fact) :=
       match f.(val_fact) with
       | set_fact.contains val =>
@@ -202,9 +203,12 @@ Section step.
         Exists (fun r => rule.interp r nf hyps) p /\
           Forall (hyp_fact.known_by s) hyps.
 
+  (*TODO do not output everything*)
+  (*TODO spec node does not forward to itself, but this one does.  what to do about that?*)
   Variant step p : state -> IO_event unit normal_fact -> state -> Prop :=
-    | deduce_step ns new_facts :
-      is_list_set (can_deduce p ns) new_facts ->
+    | deduce_step ns new_facts old_facts :
+      is_list_set (can_deduce p ns) (new_facts ++ old_facts) ->
+      incl old_facts ns.(state.known) ->
       step _ ns (O_event tt new_facts)
            {| state.sent := new_facts ++ ns.(state.sent);
              state.known := new_facts ++ ns.(state.known);
@@ -214,6 +218,14 @@ Section step.
            {| state.sent := ns.(state.sent);
              state.known := input :: ns.(state.known);
              state.received := input :: ns.(state.received); |}.
+
+
+
+
+
+
+
+
 
 
 
