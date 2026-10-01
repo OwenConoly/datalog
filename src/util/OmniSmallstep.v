@@ -6,7 +6,6 @@ Section EventuallyInd.
              forall s (P Q : State -> Prop),
                (forall x, P x -> Q x) -> step s P -> step s Q).
 
-  Check eventually_ind.
   Lemma eventually_ind' (P Q : State -> Prop)
     (Hdone : forall s, P s -> Q s)
     (Hstep : forall s, step s (fun s' => eventually step P s' /\ Q s') -> Q s) :

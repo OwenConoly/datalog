@@ -2,14 +2,12 @@
 From Datalog Require Import Ltac2.
 Ltac2 mutable to_destruct () : (constr -> bool) list := [].
 
-Ltac2 Check Pattern.matches.
-Ltac2 Eval Pattern.matches pat:(?x) constr:(nat).
 Ltac2 pattern_pred p c := boolify (fun _ => Pattern.matches p c).
 
 Ltac2 Set to_destruct as to_destruct' := fun _ => pattern_pred pat:(prod _ _) :: to_destruct' ().
 
-Ltac2 y () := destruct z, w.
-Print Ltac2 y.
+(* Ltac2 y () := destruct z, w. *)
+(* Print Ltac2 y. *)
 Ltac2 simple_induction_clause (id : ident) : Std.induction_clause :=
   { Std.indcl_arg := Std.ElimOnIdent id;
     Std.indcl_eqn := None;
@@ -36,7 +34,7 @@ Ltac2 destruct_matching_hyps ts :=
 
 Ltac2 autodestr0 () := Control.enter (fun () => destruct_matching_hyps (to_destruct ())).
 
-Ltac2 Notation autodestr := autodestr0 ().
+Ltac2 Abbreviation autodestr := autodestr0 ().
 Ltac autodestr := ltac2:(autodestr).
 Goal forall x : nat * nat, nat.
   autodestr.
