@@ -1,65 +1,100 @@
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
-
 From Datalog Require Import Map List Datalog Node Smallstep.
-
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Datatypes.List Datatypes.Option.
 
 Import ListNotations.
 
-Section __.
-  Section impl.
+Module set_fact.
+  Section __.
     Context `{params : datalog_params}.
-    Context {agg_map : map.map aggregator value}.
 
-    Inductive query_val_set :=
-    | is_member (vals : list expr)
-    | agg (agg : aggregator) (result : exprvar)
-    | merge (agg : aggregator) (result : exprvar)
-    | count_received (num : exprvar)
-    | count_sent (num : exprvar).
+    Inductive set_fact :=
+    | contains (vals : list value)
+    | agg (agg : aggregator) (result : value)
+    | merge (agg : aggregator) (result : value)
+    | count_received (num : nat)
+    | count_sent (num : nat).
 
+  End __.
+End set_fact. Abbreviation set_fact := set_fact.set_fact.
 
+Module set_query.
+  Section __.
+    Context `{params : datalog_params}.
 
-    Record hyp_rel :=
-      { hr_rel : rel;
-        hr_idxs : idx_struct }.
+    (*TODO which should be expr, which should be exprvar*)
+    (*query on a set of tuples*)
+    Variant set_query :=
+      (*is this tuple in the set?*)
+      | contains (vals : list expr)
+      (*does aggregating over the set yield [result]? *)
+      | agg (agg : aggregator) (result : exprvar)
+      (*does merging over the set yield [result]?
+        unlike aggregating, there may (or may not) be duplicates.*)
+      | merge (agg : aggregator) (result : exprvar)
+      (*is [num] the number of messages in this set that we have received?*)
+      | count_received (num : exprvar)
+      (*is [num] the number of messages in this set that we have sent?*)
+      | count_sent (num : exprvar).
 
-    Record hyp_clause_key :=
-      { hc_rel : hyp_rel;
-        hc_key_args : list expr; }.
+    Variant interp (ctx : context) : set_query -> set_fact -> Prop :=
+      | interp_contains es vs :
+        Forall2 (expr.interp ctx) es vs ->
+        interp _ (contains es) (set_fact.contains vs)
+      | interp_agg a v r :
+        map.get ctx v = Some r ->
+        interp _ (agg a v) (set_fact.agg a r)
+      | interp_merge a v r :
+        map.get ctx v = Some r ->
+        interp _ (merge a v) (set_fact.merge a r)
+      | interp_count_received v n :
+        map.get ctx v = Some n ->
+        interp _ (count_received v) (set_fact.count_received (get_nat n))
+      | interp_count_sent v n :
+        map.get ctx v = Some n ->
+        interp _ (count_sent v) (set_fact.count_sent (get_nat n)).
+
+  End __.
+End set_query. Abbreviation set_query := set_query.set_query.
+
+Module hyp_clause.
+  Section __.
+    Context `{params : datalog_params}.
 
     Record hyp_clause :=
-      { hc_key : hyp_clause_key;
-        hc_val : hyp_clause_val }.
+      { rel : rel;
+        key_args : list bool; (*bit mask---which arguments constitute the key?*)
+        key : list expr; (*length should be equal to the number of ones in key_args*)
+        val_query : set_query; (*query on the set resulting from partial application of the relation to [key]*) }.
 
-    Record local_rule :=
-      { local_rule_concls : list clause;
-        local_rule_hyps : list hyp_clause }.
+  End __.
+End hyp_clause. Abbreviation hyp_clause := hyp_clause.hyp_clause.
+
+Module low_rule.
+  Section __.
+    Context `{params : datalog_params}.
+
+    Record low_rule :=
+      { concls : list clause;
+        hyps : list hyp_clause; }.
 
     (*Example: R(x, y) :- S(x, y)*)
-    Example example_local_rule (R S : rel) (x y : exprvar) : local_rule :=
-      {| local_rule_concls :=
+    Example example (R S : rel) (x y : exprvar) : low_rule :=
+      {| concls :=
           [{| clause.rel := R;
-              clause.args := [expr.var x; expr.var y] |}];
-         local_rule_hyps :=
-          [{| hc_key :=
-                {| hc_rel := {| hr_rel := S;
-                                hr_idxs := {| key_idxs := [true; true];
-                                              value_idxs := [false; false] |} |};
-                   hc_key_args := [expr.var x; expr.var y] |};
-              hc_val := value_clause [] |}] |}.
+             clause.args := [expr.var x; expr.var y] |}];
+        hyps :=
+          [{| hyp_clause.rel := S;
+             hyp_clause.key_args := [true; true];
+             hyp_clause.key := [expr.var x; expr.var y];
+             hyp_clause.val_query := set_query.contains []; |}] |}.
+  End __.
+End low_rule. Abbreviation low_rule := low_rule.low_rule.
 
-    Record node_prog :=
-      { n_relviews : rel_views;
-        n_rules : list local_rule }.
-
-    Record val_data :=
-      { msgs_received : nat;
-        msgs_sent : nat;
-        aggs : agg_map;
-        values : value_set }.
+Section __.
+  Context `{params : datalog_params}.
 
     Inductive hyp_fact_val :=
     | value_fact (vals : list value)

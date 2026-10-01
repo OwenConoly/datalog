@@ -70,10 +70,10 @@ Module expr.
     | app (f : fn) (args : list expr).
 
     Inductive interp (ctx : context) : expr -> value -> Prop :=
-    | interp_var_expr x v :
+    | interp_var x v :
       map.get ctx x = Some v ->
       interp ctx (var x) v
-    | interp_fun_expr f args args' x :
+    | interp_fun f args args' x :
       Forall2 (interp ctx) args args' ->
       interp_fun f args' = Some x ->
       interp ctx (app f args) x.
