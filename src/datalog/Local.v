@@ -6,11 +6,12 @@ From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Dat
 
 Import ListNotations.
 
+Module low_node.
 Module set_fact.
   Section __.
     Context `{params : datalog_params}.
 
-    Inductive set_fact :=
+    Variant set_fact :=
     | contains (vals : list value)
     | agg (agg : aggregator) (result : value)
     | merge (agg : aggregator) (result : value)
@@ -19,6 +20,17 @@ Module set_fact.
 
   End __.
 End set_fact. Abbreviation set_fact := set_fact.set_fact.
+
+Module state.
+  Section __.
+    Context `{params : datalog_params}.
+
+    Record state :=
+      { received : list normal_fact;
+        sent : list normal_fact; }.
+
+  End __.
+End state. Abbreviation state := state.state.
 
 Module set_query.
   Section __.
@@ -59,6 +71,12 @@ Module set_query.
   End __.
 End set_query. Abbreviation set_query := set_query.set_query.
 
+Definition select {A} (bs : list bool) (l : list A) :=
+  filter_map (fun '(b, x) => if (b : bool) then Some x else None) (combine bs l).
+
+Definition select_not {A} (bs : list bool) (l : list A) :=
+  filter_map (fun '(b, x) => if negb b then Some x else None) (combine bs l).
+
 Module hyp_fact.
   Section __.
     Context `{params : datalog_params}.
@@ -68,6 +86,21 @@ Module hyp_fact.
         key_args : list bool;
         key : list value;
         val_fact : set_fact }.
+
+    Definition matches (f : hyp_fact) (nf : normal_fact) :=
+      f.(rel) = nf.(normal_fact.rel) /\
+        f.(key) = select f.(key_args) nf.(normal_fact.args).
+
+    Definition known_by (s : state) (f : hyp_fact) :=
+      match f.(val_fact) with
+      | set_fact.contains vals =>
+          Exists (fun nf => matches f nf /\ vals = select_not f.(key_args) nf.(normal_fact.args)) s.(state.received)
+      | set_fact.agg result =>
+
+      end.
+
+
+
   End __.
 End hyp_fact. Abbreviation hyp_fact := hyp_fact.hyp_fact.
 
@@ -89,11 +122,11 @@ Module hyp_clause.
   End __.
 End hyp_clause. Abbreviation hyp_clause := hyp_clause.hyp_clause.
 
-Module low_rule.
+Module rule.
   Section __.
     Context `{params : datalog_params}.
 
-    Record low_rule :=
+    Record rule :=
       { concls : list clause;
         hyps : list hyp_clause; }.
 
@@ -108,7 +141,7 @@ Module low_rule.
              hyp_clause.key := [expr.var x; expr.var y];
              hyp_clause.val_query := set_query.contains []; |}] |}.
   End __.
-End low_rule. Abbreviation low_rule := low_rule.low_rule.
+End rule. Abbreviation rule := rule.rule.
 
 Section __.
   Context `{params : datalog_params}.
@@ -118,22 +151,6 @@ Section __.
     Definition node_state := node_rels.
 
     Definition empty_node_state : node_state := map.empty.
-
-    Definition knows_hyp_fact (s : node_state) (f : hyp_fact) :=
-      match map.get s f.(hf_key) with
-      | Some inp_data =>
-          match f.(hf_val) with
-          | value_fact output =>
-              map.get inp_data.(values) output = Some tt
-          | agg_fact agg val =>
-              map.get inp_data.(aggs) agg = Some val
-          | received_fact val =>
-              inp_data.(msgs_received) = val
-          | sent_fact val =>
-              inp_data.(msgs_sent) = val
-          end
-      | None => False
-      end.
 
     (*hyp_facts are deducible from history of receiving and sending basic_hyp_facts*)
     Record basic_hyp_fact :=
@@ -200,9 +217,6 @@ Section __.
         In r p.(n_rules) /\
           lrule_impl s r concl hyps /\
           Forall (knows_hyp_fact s) hyps.
-
-    Definition select {A} (bs : list bool) (l : list A) :=
-      map snd (filter (fun '(b, _) => b) (combine bs l)).
 
     Definition locally_forward (p : node_prog) (f : normal_fact) : list basic_hyp_fact :=
       match map.get p.(n_relviews) f.(normal_fact.rel) with
