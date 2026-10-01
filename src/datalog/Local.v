@@ -13,25 +13,14 @@ Section __.
     Context `{params : datalog_params}.
     Context {agg_map : map.map aggregator value}.
 
-    (*for each relation, store a list of index structures---that is, key-value pairs, with information about what to store about each key.*)
-    (*both lists have length n, where *)
-    Record idx_struct :=
-      { key_idxs : list bool;
-        value_idxs : list bool; }.
+    Inductive query_val_set :=
+    | is_member (vals : list expr)
+    | agg (agg : aggregator) (result : exprvar)
+    | merge (agg : aggregator) (result : exprvar)
+    | count_received (num : exprvar)
+    | count_sent (num : exprvar).
 
-    Record values_info :=
-      { track_sent : bool;
-        track_received : bool;
-        agg_ops : list aggregator; }.
 
-    Context {idx_structs_info : map.map idx_struct values_info}.
-    Context {rel_views : map.map rel idx_structs_info}.
-
-    Inductive hyp_clause_val :=
-    | value_clause (vals : list expr)
-    | agg_clause (agg : aggregator) (num : exprvar)
-    | received_clause (num : exprvar)
-    | sent_clause (num : exprvar).
 
     Record hyp_rel :=
       { hr_rel : rel;
@@ -211,10 +200,7 @@ Section __.
       | None => []
       end.
 
-    Variant label :=
-      | deduce_label (facts : list normal_fact).
-
-    Variant node_step p : node_state -> IO_event label normal_fact -> node_state -> Prop :=
+    Variant node_step p : node_state -> IO_event unit normal_fact -> node_state -> Prop :=
     | node_deduce_step ns facts :
       is_list_set (lcan_deduce_fact p ns) facts ->
       node_step _ ns (O_event (deduce_label facts) facts)
