@@ -31,6 +31,9 @@ Module Mfset.
       end.
 
     Definition size (X : Mfset) : nat -> Prop := fold (fun acc _ => S acc) X O.
+
+    Definition equiv (X Y : Mfset) :=
+      forall x n, count X x n <-> count Y x n.
   End one.
   Arguments Mfset : clear implicits.
 

@@ -27,8 +27,10 @@ Module state.
 
     Record state :=
       { received : list normal_fact;
+        known : list normal_fact; (*a superset of [received].  why store it redundantly?  to preserve ordering.*)
         sent : list normal_fact; }.
 
+    Definition empty := {| received := []; known := []; sent := [] |}.
   End __.
 End state. Abbreviation state := state.state.
 
@@ -125,19 +127,21 @@ Module hyp_fact.
            (hyp_fact_key.matches k)
            (Mfset.of_list nfs)).
 
+    (*the mfsets are *ordered*, so merges and aggregations are deterministic.
+      this is intended.*)
     Definition known_by (s : state) (f : hyp_fact) :=
       match f.(val_fact) with
       | set_fact.contains val =>
-          Mfset.has (values f.(key) s.(state.received)) val
+          Mfset.has (values f.(key) s.(state.known)) val
       | set_fact.agg agg result =>
           (*Mfset of things like [[index, val_to_aggregate]] *)
-          let elts := Mfset.dedup (values f.(key) s.(state.received)) in
+          let elts := Mfset.dedup (values f.(key) s.(state.known)) in
           (*Mfset of things like [val_to_aggregate]*)
           let vals := Mfset.filter_map (fun x => hd_error (tl x)) elts in
           Mfset.fold (agg_bop agg) vals (agg_id agg) result
       | set_fact.merge agg result =>
           (*Mfset of things like [val_to_aggregate]*)
-          let elts := values f.(key) s.(state.received) in
+          let elts := values f.(key) s.(state.known) in
           let vals := Mfset.filter_map hd_error elts in
           Mfset.fold (agg_bop agg) vals (agg_id agg) result
       | set_fact.count_received num =>
@@ -182,105 +186,43 @@ Module rule.
                  hyp_clause_key.mask := [true; true];
                  hyp_clause_key.args := [expr.var x; expr.var y] |};
              hyp_clause.val_query := set_query.contains []; |}] |}.
+
+    Definition interp r nf hyps' :=
+      exists ctx,
+        Exists (fun c => clause.interp ctx c nf) r.(concls) /\
+          Forall2 (hyp_clause.interp ctx) r.(hyps) hyps'.
   End __.
 End rule. Abbreviation rule := rule.rule.
 
-Section __.
+Section step.
   Context `{params : datalog_params}.
 
-    Context {node_rels : map.map hyp_fact_key val_data}.
+  Definition can_deduce (p : list rule) (s : state) nf :=
+      exists hyps,
+        Exists (fun r => rule.interp r nf hyps) p /\
+          Forall (hyp_fact.known_by s) hyps.
 
-    Definition node_state := node_rels.
+  Variant step p : state -> IO_event unit normal_fact -> state -> Prop :=
+    | deduce_step ns new_facts :
+      is_list_set (can_deduce p ns) new_facts ->
+      step _ ns (O_event tt new_facts)
+           {| state.sent := new_facts ++ ns.(state.sent);
+             state.known := new_facts ++ ns.(state.known);
+             state.received := ns.(state.received); |}
+    | input_step ns input :
+      step _ ns (I_event input)
+           {| state.sent := ns.(state.sent);
+             state.known := input :: ns.(state.known);
+             state.received := input :: ns.(state.received); |}.
 
-    Definition empty_node_state : node_state := map.empty.
 
-    (*hyp_facts are deducible from history of receiving and sending basic_hyp_facts*)
-    Record basic_hyp_fact :=
-      { bhf_key : hyp_fact_key;
-        bhf_value : list value }.
 
-    Definition default_val_data (as_ : list aggregator) : val_data :=
-      {| msgs_received := 0;
-        msgs_sent := 0;
-        aggs := map.of_list (map (fun a => (a, agg_id a)) as_);
-        values := map.empty; |}.
 
-    Definition agg_ops_of (p : node_prog) (k : hyp_fact_key) : list aggregator :=
-      match map.get p.(n_relviews) k.(hf_rel).(hr_rel) with
-      | Some idxs =>
-          match map.get idxs k.(hf_rel).(hr_idxs) with
-          | Some vi => vi.(agg_ops)
-          | None => []
-          end
-      | None => []
-      end.
 
-    Definition receive_fact (p : node_prog) (s : node_state) (f : basic_hyp_fact) :=
-      mupd_total (default_val_data (agg_ops_of p f.(bhf_key)))
-                 (fun val_data =>
-                    {| msgs_received := S val_data.(msgs_received);
-                      msgs_sent := val_data.(msgs_sent);
-                      (*Dedup by the full [bhf_value] tuple before folding into the
-                        aggregators.  We need this because we want to support things
-                        like sums over sets (non-set-monotone): receiving the same
-                        (i, x) twice should not double-count x in the sum.*)
-                      aggs := match map.get val_data.(values) f.(bhf_value) with
-                              | Some tt =>
-                                  val_data.(aggs)
-                              | None =>
-                                  map_values' (value' := value)
-                                    (fun agg v =>
-                                       match f.(bhf_value) with
-                                       | [i; x] =>
-                                           agg_bop agg v x
-                                       | _ => v
-                                       end)
-                                    val_data.(aggs)
-                              end;
-                      values := map.put val_data.(values) f.(bhf_value) tt; |})
-                 s f.(bhf_key).
 
-    Definition send_fact (p : node_prog) (s : node_state) (f : basic_hyp_fact) :=
-      mupd_total (default_val_data (agg_ops_of p f.(bhf_key)))
-                 (fun val_data =>
-                    {| msgs_received := val_data.(msgs_received);
-                      msgs_sent := S val_data.(msgs_sent);
-                      aggs := val_data.(aggs);
-                      values := val_data.(values); |})
-                 s f.(bhf_key).
 
-    Definition lrule_impl (s : node_state) (r : local_rule) (concl : normal_fact) (hyps : list hyp_fact) :=
-      exists ctx,
-        Exists (fun c => clause.interp ctx c concl) r.(local_rule_concls) /\
-          Forall2 (interp_hyp_clause ctx) r.(local_rule_hyps) hyps.
 
-    Definition lcan_deduce_fact (p : node_prog) (s : node_state) concl :=
-      exists r hyps,
-        In r p.(n_rules) /\
-          lrule_impl s r concl hyps /\
-          Forall (knows_hyp_fact s) hyps.
 
-    Definition locally_forward (p : node_prog) (f : normal_fact) : list basic_hyp_fact :=
-      match map.get p.(n_relviews) f.(normal_fact.rel) with
-      | Some vs =>
-          map (fun '(idx_str, vals_info) =>
-                 {| bhf_key :=
-                     {| hf_rel := {| hr_rel := f.(normal_fact.rel);
-                                    hr_idxs := idx_str; |};
-                       hf_key_args := select idx_str.(key_idxs) f.(normal_fact.args) |};
-                   bhf_value := select idx_str.(value_idxs) f.(normal_fact.args) |})
-            (map.tuples vs)
-      | None => []
-      end.
-
-    Variant node_step p : node_state -> IO_event unit normal_fact -> node_state -> Prop :=
-    | node_deduce_step ns facts :
-      is_list_set (lcan_deduce_fact p ns) facts ->
-      node_step _ ns (O_event (deduce_label facts) facts)
-        (fold_left (send_fact p) (flat_map (locally_forward p) facts) ns)
-    | node_input_step ns input :
-      node_step _ ns (I_event input)
-        (fold_left (receive_fact p) (locally_forward p input) ns).
 
     (*on the high level, eventually <-> maybe.
       prove: HL eventually -> LL eventually -> LL maybe -> HL maybe.
@@ -292,16 +234,12 @@ Section __.
       then i want to prove that stepsTo P holds iff spec_stepsTo P holds.
       this is a liveness property (assuming the liveness property holds for spec_node_step).
      *)
-  End impl.
-  Arguments hyp_clause _ _ {_ _}.
-  Arguments local_rule _ _ {_ _}.
-  Arguments hyp_fact _ {_ _}.
-  Arguments hyp_fact_key _ {_}.
-  Arguments node_prog _ _ {_ _ _ _}.
+End step.
 
-  Context `{params : datalog_params} {sender_label : sender_labelT}.
+
+Context `{params : datalog_params} {sender_label : sender_labelT}.
   Context (R_senders : rel -> list sender_label).
-  Context (value_to_nat : value -> nat) (nat_to_value : nat -> value). (*bijection..*)
+  Context (value_to_nat : value -> nat) (nat_to_value : nat -> value). (*value_to_nat should be injective, or something?*)
   Context (label_to_value : sender_label -> value).
 
   (*Note on the two bitmasks in play once we lower meta-clauses:
