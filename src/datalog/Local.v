@@ -93,7 +93,22 @@ Module hyp_fact_key.
   End __.
 End hyp_fact_key. Abbreviation hyp_fact_key := hyp_fact_key.hyp_fact_key.
 
+Module hyp_clause_key.
+  Section __.
+    Context `{params : datalog_params}.
 
+    Record hyp_clause_key :=
+      { rel : rel;
+        mask : list bool; (*bit mask---which arguments constitute the key?*)
+        args : list expr; (*length should be equal to the number of ones in mask*) }.
+
+    Definition interp (ctx : context) (c : hyp_clause_key) (k : hyp_fact_key) :=
+      c.(rel) = k.(hyp_fact_key.rel) /\
+        c.(mask) = k.(hyp_fact_key.mask) /\
+        Forall2 (expr.interp ctx) c.(args) k.(hyp_fact_key.args).
+
+  End __.
+End hyp_clause_key. Abbreviation hyp_clause_key := hyp_clause_key.hyp_clause_key.
 
 Module hyp_fact.
   Section __.
@@ -139,15 +154,11 @@ Module hyp_clause.
     Context `{params : datalog_params}.
 
     Record hyp_clause :=
-      { rel : rel;
-        key_args : list bool; (*bit mask---which arguments constitute the key?*)
-        key : list expr; (*length should be equal to the number of ones in key_args*)
+      { key : hyp_clause_key;
         val_query : set_query; (*query on the set resulting from partial application of the relation to [key]*) }.
 
     Definition interp (ctx : context) (c : hyp_clause) (f : hyp_fact) :=
-      c.(rel) = f.(hyp_fact.rel) /\
-        c.(key_args) = f.(hyp_fact.key_args) /\
-        Forall2 (expr.interp ctx) c.(key) f.(hyp_fact.key) /\
+      hyp_clause_key.interp ctx c.(key) f.(hyp_fact.key) /\
         set_query.interp ctx c.(val_query) f.(hyp_fact.val_fact).
   End __.
 End hyp_clause. Abbreviation hyp_clause := hyp_clause.hyp_clause.
@@ -161,14 +172,15 @@ Module rule.
         hyps : list hyp_clause; }.
 
     (*Example: R(x, y) :- S(x, y)*)
-    Example example (R S : rel) (x y : exprvar) : low_rule :=
+    Example example (R S : rel) (x y : exprvar) : rule :=
       {| concls :=
           [{| clause.rel := R;
              clause.args := [expr.var x; expr.var y] |}];
         hyps :=
-          [{| hyp_clause.rel := S;
-             hyp_clause.key_args := [true; true];
-             hyp_clause.key := [expr.var x; expr.var y];
+          [{| hyp_clause.key :=
+               {| hyp_clause_key.rel := S;
+                 hyp_clause_key.mask := [true; true];
+                 hyp_clause_key.args := [expr.var x; expr.var y] |};
              hyp_clause.val_query := set_query.contains []; |}] |}.
   End __.
 End rule. Abbreviation rule := rule.rule.
