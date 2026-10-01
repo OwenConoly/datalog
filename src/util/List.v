@@ -2769,3 +2769,6 @@ Qed.
 Lemma same_set_cons_in {A} (x : A) l :
   In x l -> same_set (x :: l) l.
 Proof. intros Hin y. simpl. intuition congruence. Qed.
+
+(*TODO where to put things like this?  also, Arguments does not support export*)
+#[global] Arguments hd_error {A} l.

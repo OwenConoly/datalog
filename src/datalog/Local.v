@@ -77,42 +77,59 @@ Definition select {A} (bs : list bool) (l : list A) :=
 Definition select_not {A} (bs : list bool) (l : list A) :=
   filter_map (fun '(b, x) => if negb b then Some x else None) (combine bs l).
 
+Module hyp_fact_key.
+  Section __.
+    Context `{params : datalog_params}.
+
+    Record hyp_fact_key :=
+      { rel : rel;
+        mask : list bool;
+        args : list value; }.
+
+    Definition matches (f : hyp_fact_key) (nf : normal_fact) :=
+      f.(rel) = nf.(normal_fact.rel) /\
+        f.(args) = select f.(mask) nf.(normal_fact.args).
+
+  End __.
+End hyp_fact_key. Abbreviation hyp_fact_key := hyp_fact_key.hyp_fact_key.
+
+
+
 Module hyp_fact.
   Section __.
     Context `{params : datalog_params}.
 
     Record hyp_fact :=
-      { rel : rel;
-        key_args : list bool;
-        key : list value;
+      { key : hyp_fact_key;
         val_fact : set_fact }.
 
-    Definition matches (f : hyp_fact) (nf : normal_fact) :=
-      f.(rel) = nf.(normal_fact.rel) /\
-        f.(key) = select f.(key_args) nf.(normal_fact.args).
-
-    Definition values (f : hyp_fact) (nfs : list normal_fact) : Mfset (list value) :=
+    Definition values (k : hyp_fact_key) (nfs : list normal_fact) : Mfset (list value) :=
       Mfset.map
-        (fun nf => select_not f.(key_args) nf.(normal_fact.args))
+        (fun nf => select_not k.(hyp_fact_key.mask) nf.(normal_fact.args))
         (Mfset.filter
-           (matches f)
+           (hyp_fact_key.matches k)
            (Mfset.of_list nfs)).
-
-    Search (list ?T -> option ?T).
 
     Definition known_by (s : state) (f : hyp_fact) :=
       match f.(val_fact) with
       | set_fact.contains val =>
-          Mfset.has (values f s.(state.received)) val
+          Mfset.has (values f.(key) s.(state.received)) val
       | set_fact.agg agg result =>
-          (*Mfset of things like [index, val_to_aggregate] *)
-          let elts := Mfset.dedup (values f s.(state.received)) in
+          (*Mfset of things like [[index, val_to_aggregate]] *)
+          let elts := Mfset.dedup (values f.(key) s.(state.received)) in
+          (*Mfset of things like [val_to_aggregate]*)
           let vals := Mfset.filter_map (fun x => hd_error (tl x)) elts in
           Mfset.fold (agg_bop agg) vals (agg_id agg) result
-      | _ => _
+      | set_fact.merge agg result =>
+          (*Mfset of things like [val_to_aggregate]*)
+          let elts := values f.(key) s.(state.received) in
+          let vals := Mfset.filter_map hd_error elts in
+          Mfset.fold (agg_bop agg) vals (agg_id agg) result
+      | set_fact.count_received num =>
+          Mfset.size (values f.(key) s.(state.received)) num
+      | set_fact.count_sent num =>
+          Mfset.size (values f.(key) s.(state.sent)) num
       end.
-
-
 
   End __.
 End hyp_fact. Abbreviation hyp_fact := hyp_fact.hyp_fact.

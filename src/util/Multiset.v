@@ -29,6 +29,8 @@ Module Mfset.
       | (x, Q) :: X' => (x, Q /\ ~has X' x) :: dedup X'
       | [] => []
       end.
+
+    Definition size (X : Mfset) : nat -> Prop := fold (fun acc _ => S acc) X O.
   End one.
   Arguments Mfset : clear implicits.
 
@@ -36,5 +38,8 @@ Module Mfset.
     Context {A B : Type}.
 
     Definition map (f : A -> B) : Mfset A -> Mfset B := map (fun '(x, Q) => (f x, Q)).
+
+    Definition filter_map (f : A -> option B) : Mfset A -> Mfset B :=
+      filter_map (fun '(x, Q) => option_map (fun y => (y, Q)) (f x)).
   End two.
 End Mfset. Abbreviation Mfset := Mfset.Mfset.
