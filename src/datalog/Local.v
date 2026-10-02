@@ -481,4 +481,18 @@ Section compile.
   (*              knows_fact bs (lower_dfact f)) *)
   (*     (bs, t). *)
   (* Proof. Abort. *)
+
+  Axiom R S : rel.
+  Axiom x y : exprvar.
+  Example example := lower_prog
+            {| program.rules := [];
+              program.meta_rules :=
+                [{| meta_rule.concls :=
+                     [{| clause_pattern.rel := R;
+                        clause_pattern.args := [expr_pattern.exactly (expr.var x); expr_pattern.any]; |}];
+                   meta_rule.hyps :=
+                     [{| clause_pattern.rel := S;
+                        clause_pattern.args := [expr_pattern.exactly (expr.var x); expr_pattern.any]; |}]; |}] |}.
+
+
 End compile.
