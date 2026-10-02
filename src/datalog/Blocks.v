@@ -67,10 +67,8 @@ End block_rel. Abbreviation block_rel := block_rel.block_rel.
 
 Module blocks_prog.
   Section __.
-    Context `{params : datalog_params}.
-    (*apparently works, just makes "Print Instances" act weird
-    https://github.com/rocq-prover/rocq/issues/7342*)
-    Remove Hints _rel : typeclass_instances.
+    (*doing (_rel := unit) is a hack for not getting the the rel typeclass in the context*)
+    Context `{params : datalog_params (_rel := unit)}.
     Context `{_lrel : lrelT}.
 
     Definition block var := program (relt := block_rel var).
