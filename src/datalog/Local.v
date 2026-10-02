@@ -261,7 +261,6 @@ Import Datalog.
 Section compile.
   Context `{params : datalog_params} {sender_label : sender_labelT}.
   Context (R_senders : rel -> list sender_label).
-  Context (value_to_nat : value -> nat) (nat_to_value : nat -> value). (*value_to_nat should be injective, or something?*)
   Context (label_to_value : sender_label -> value).
   Context (num_args : rel -> nat).
 
@@ -330,7 +329,7 @@ Section compile.
              let-bound here because it appears in two hypotheses---
              we want to both count the number of sources and add up the nums*)
           {| hyp_clause_key.rel := done_receiving_from R mask;
-            hyp_clause_key.mask := false :: false :: map (fun _ => true) mask;
+            hyp_clause_key.mask := false :: false :: map (fun _ => true) pat_vars;
             hyp_clause_key.args := map expr.var pat_vars; |} in
 
         [{| hyp_clause.key :=
@@ -352,7 +351,7 @@ Section compile.
            rule.hyps := map lower_clause_hyp hyps |}]
     | rule.agg target_rel agg source_rel =>
         (*source_rel(_, _, 2, ... 9) concl_rel(_, 2, ..., 9),
-          assuming source_rel is 10-ary.*)
+          assuming source_rel is 11-ary.*)
         let n := num_args source_rel in
         [{| rule.concls :=
              [{| clause.rel := normal_rel target_rel;
@@ -415,7 +414,7 @@ Section compile.
     | node.message.done_with pat src count =>
         let vals := map value_pattern.value_of pat.(fact_pattern.args) in
         {| normal_fact.rel := done_receiving_from pat.(fact_pattern.rel) (map is_Some vals);
-          normal_fact.args := label_to_value src :: nat_to_value count :: keep_Some vals |}
+          normal_fact.args := label_to_value src :: of_nat count :: keep_Some vals |}
     end.
 
   Definition hyp_fact_of (f : normal_fact (relt := lrel)) : hyp_fact (_rel := lrel) :=
