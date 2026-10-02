@@ -299,37 +299,37 @@ Section compile.
 
   Definition lvar : Type := exprvar + nat.
 
+  Local Abbreviation lclause := (clause (relt := lrel) (exprvar := lvar)).
+  Local Abbreviation lhyp_clause := (hyp_clause (_rel := lrel) (_exprvar := lvar)).
+  Local Abbreviation lrule := (low_node.rule (_rel := lrel) (_exprvar := lvar)).
+  Local Abbreviation lnormal_fact := (normal_fact (relt := lrel)).
+  Local Abbreviation lhyp_fact := (hyp_fact (_rel := lrel)).
+
   Context {lcontext : map.map lvar value}.
 
-  Definition lower_clause_hyp (c : clause) : hyp_clause (_rel := lrel) (_exprvar := lvar) :=
-    {| hyp_clause.key :=
-        {| hyp_clause_key.rel := normal_rel c.(clause.rel);
-          hyp_clause_key.mask := map (fun _ => true) c.(clause.args);
-          hyp_clause_key.args := map (expr_varmap inl) c.(clause.args) |};
-      hyp_clause.val_query := set_query.contains [] |}.
-
-  Definition lower_clause_concl (c : clause) : clause (relt := lrel) (exprvar := lvar) :=
+  Definition lower_clause (c : clause) : lclause :=
     {| clause.rel := normal_rel c.(clause.rel);
       clause.args := map (expr_varmap inl) c.(clause.args) |}.
 
-  Definition lower_clause_pattern_concl (c : clause_pattern) : clause (relt := lrel) (exprvar := lvar) :=
+  Definition lower_clause_hyp (c : clause) : lhyp_clause :=
+    hyp_clause.of_clause (lower_clause c).
+
+  Definition lower_clause_pattern_concl (c : clause_pattern) : lclause :=
     let es := map expr_pattern.expr_of c.(clause_pattern.args) in
     {| clause.rel := done_sending_rel' c.(clause_pattern.rel) (map is_Some es);
       clause.args := map (expr_varmap inl) (keep_Some es); |}.
 
-  Definition lower_clause_pattern_hyp (c : clause_pattern) : hyp_clause (_rel := lrel) (_exprvar := lvar) :=
+  Definition lower_clause_pattern_hyp (c : clause_pattern) : lhyp_clause :=
     let es := map expr_pattern.expr_of c.(clause_pattern.args) in
-    {| hyp_clause.key :=
-        {| hyp_clause_key.rel := done_receiving_rel c.(clause_pattern.rel) (map is_Some es);
-          hyp_clause_key.mask := map (fun _ => true) (keep_Some es);
-          hyp_clause_key.args := map (expr_varmap inl) (keep_Some es) |};
-      hyp_clause.val_query := set_query.contains [] |}.
+    hyp_clause.of_clause
+      {| clause.rel := done_receiving_rel c.(clause_pattern.rel) (map is_Some es);
+        clause.args := map (expr_varmap inl) (keep_Some es) |}.
 
   Axiom count : aggregator.
   Axiom sum : aggregator.
   Axiom const : nat -> fn.
 
-  Definition get_done_receiving (R : rel) (mask : list bool) : low_node.rule (_rel := lrel) (_exprvar := lvar) :=
+  Definition get_done_receiving (R : rel) (mask : list bool) : lrule :=
     let pat_vars := map inr (seq O (length (filter (eqb true) mask))) in
     let num_received := inr (length (filter (eqb true) mask)) in
     {| rule.concls :=
@@ -356,10 +356,10 @@ Section compile.
         ]
     |}.
 
-  Definition lower_rule (r : rule) : list (low_node.rule (_rel := lrel) (_exprvar := lvar)) :=
+  Definition lower_rule (r : rule) : list lrule :=
     match r with
     | rule.impl concls hyps =>
-        [{| rule.concls := map lower_clause_concl concls;
+        [{| rule.concls := map lower_clause concls;
            rule.hyps := map lower_clause_hyp hyps |}]
     | rule.agg target_rel agg source_rel =>
         (*source_rel(_, _, 2, ... 9) concl_rel(_, 2, ..., 9),
@@ -370,13 +370,9 @@ Section compile.
                 (*inr 0 = aggregate result, inr 1..n-2 = args same on both sides of :-*)
                 clause.args := map expr.var (map inr (seq O (n - 1))); |}];
            rule.hyps :=
-             [{| hyp_clause.key :=
-                  {| hyp_clause_key.rel := done_receiving_rel
-                                                      source_rel
-                                                      (false :: false :: repeat true (n - 2));
-                    hyp_clause_key.mask := repeat true (n - 2);
-                    hyp_clause_key.args := map expr.var (map inr (seq 1 (n - 2))) |};
-                hyp_clause.val_query := set_query.contains [] |};
+             [hyp_clause.of_clause
+                {| clause.rel := done_receiving_rel source_rel (false :: false :: repeat true (n - 2));
+                  clause.args := map expr.var (map inr (seq 1 (n - 2))) |};
               {| hyp_clause.key :=
                   {| hyp_clause_key.rel := normal_rel source_rel;
                     hyp_clause_key.mask := false :: false :: repeat true (n - 2);
@@ -403,37 +399,35 @@ Section compile.
                            expected(G, [t, t])(x, y)(N) *N is number of friends from which we expect to receive G-messages*,
                            received(G, [t, t])(x, y)(num_rec)
    *)
-  Definition lower_meta_rule' (mr : meta_rule) : low_node.rule (_rel := lrel) (_exprvar := lvar) :=
+  Definition lower_meta_rule' (mr : meta_rule) : lrule :=
     {| rule.concls := map lower_clause_pattern_concl mr.(meta_rule.concls);
       rule.hyps := map lower_clause_pattern_hyp mr.(meta_rule.hyps) |}.
 
-  Definition count_sent_msgs (R : rel) (mask : list bool) : low_node.rule (_rel := lrel) (_exprvar := lvar) :=
+  Definition count_sent_msgs (R : rel) (mask : list bool) : lrule :=
     let num_ones := length (filter (eqb true) mask) in
     {| rule.concls :=
         [{| clause.rel := done_sending_rel R mask;
            clause.args := expr.var (inr O) :: map expr.var (map inr (seq 1 num_ones)); |}];
       rule.hyps :=
-        [{| hyp_clause.key :=
-             {| hyp_clause_key.rel := done_sending_rel' R mask;
-               hyp_clause_key.mask := repeat true num_ones;
-               hyp_clause_key.args := map expr.var (map inr (seq 1 num_ones)); |};
-           hyp_clause.val_query := set_query.contains [] |};
+        [hyp_clause.of_clause
+           {| clause.rel := done_sending_rel' R mask;
+             clause.args := map expr.var (map inr (seq 1 num_ones)) |};
          {| hyp_clause.key :=
              {| hyp_clause_key.rel := normal_rel R;
                hyp_clause_key.mask := mask;
                hyp_clause_key.args := map expr.var (map inr (seq 1 num_ones)); |};
            hyp_clause.val_query := set_query.count_sent (inr O); |}]; |}.
 
-  Definition lower_meta_rule mr : list (low_node.rule (_rel := lrel) (_exprvar := lvar)) :=
+  Definition lower_meta_rule mr : list lrule :=
     lower_meta_rule' mr ::
       map (fun cp => count_sent_msgs cp.(clause_pattern.rel) (map is_Some (map expr_pattern.expr_of cp.(clause_pattern.args)))) mr.(meta_rule.concls) ++
                                                                                                                                   map (fun cp => get_done_receiving cp.(clause_pattern.rel) (map is_Some (map expr_pattern.expr_of cp.(clause_pattern.args)))) mr.(meta_rule.hyps).
 
-  Definition lower_prog (p : program) : list (low_node.rule (_rel := lrel) (_exprvar := lvar)) :=
+  Definition lower_prog (p : program) : list lrule :=
     flat_map lower_rule p.(program.rules) ++ flat_map lower_meta_rule p.(program.meta_rules).
 
   (*TODO this is wrong for outputs, maybe also inputs?*)
-  Definition lower_message (f : node.message) : normal_fact (relt := lrel) :=
+  Definition lower_message (f : node.message) : lnormal_fact :=
     match f with
     | node.message.normal nf =>
         {| normal_fact.rel := normal_rel nf.(normal_fact.rel); normal_fact.args := nf.(normal_fact.args) |}
@@ -443,7 +437,7 @@ Section compile.
           normal_fact.args := label_to_value src :: of_nat count :: keep_Some vals |}
     end.
 
-  Definition hyp_fact_of (f : normal_fact (relt := lrel)) : hyp_fact (_rel := lrel) :=
+  Definition hyp_fact_of (f : lnormal_fact) : lhyp_fact :=
     {| hyp_fact.key :=
         {| hyp_fact_key.rel := f.(normal_fact.rel);
           hyp_fact_key.mask := map (fun _ => true) f.(normal_fact.args);
