@@ -494,5 +494,25 @@ Section compile.
                      [{| clause_pattern.rel := S;
                         clause_pattern.args := [expr_pattern.exactly (expr.var x); expr_pattern.any]; |}]; |}] |}.
 
+  Local Notation "'$' x" := (expr.var (inl x)) (only printing, at level 1, x at level 0).
+  Local Notation "'#' n" := (expr.var (inr n)) (only printing, at level 1, n at level 0).
+  Local Notation "'const' k" := (expr.app (const k) nil) (only printing, at level 1, k at level 0).
+  Local Notation "R ( x ; .. ; y )" :=
+    ({| clause.rel := R; clause.args := cons x .. (cons y nil) .. |}) (only printing, at level 1, R at level 0).
+  Local Notation "R ( )" := ({| clause.rel := R; clause.args := nil |}) (only printing, at level 1, R at level 0).
+  Local Notation "R @ m ( x ; .. ; y )" :=
+    ({| hyp_clause_key.rel := R; hyp_clause_key.mask := m; hyp_clause_key.args := cons x .. (cons y nil) .. |})
+      (only printing, at level 1, R at level 0, m at level 0).
+  Local Notation "R @ m ( )" :=
+    ({| hyp_clause_key.rel := R; hyp_clause_key.mask := m; hyp_clause_key.args := nil |})
+      (only printing, at level 1, R at level 0, m at level 0).
+  Local Notation "k ? q" := ({| hyp_clause.key := k; hyp_clause.val_query := q |}) (only printing, at level 70).
+  Local Notation "cs :- hs" := ({| rule.concls := cs; rule.hyps := hs |}) (only printing, at level 80).
+  Local Notation "'contains' vs" := (set_query.contains vs) (only printing, at level 60).
+  Local Notation "'agg' a e" := (set_query.agg a e) (only printing, at level 60).
+  Local Notation "'merge' a v" := (set_query.merge a v) (only printing, at level 60).
+  Local Notation "'count_received' '#' n" := (set_query.count_received (inr n)) (only printing, at level 60).
+  Local Notation "'count_sent' '#' n" := (set_query.count_sent (inr n)) (only printing, at level 60).
 
+  Compute example.
 End compile.
