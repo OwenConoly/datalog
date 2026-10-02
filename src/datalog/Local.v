@@ -275,7 +275,7 @@ Section compile.
     | done_sending_rel' (rel_name : rel) (mask : list bool)
     (*so that we don't deduce these until we're supposed to...*)
     | done_sending_rel (rel_name : rel) (mask : list bool)
-    (*{done_receiving_rel name pat}(num_sent, x_1, ..., x_{# of 1s in mask})*)
+    (*{done_sending_rel name pat}(num_sent, x_1, ..., x_{# of 1s in mask})*)
     (*should be deduced from done_receiving_rel relations via meta rules*)
   .
 
@@ -345,7 +345,7 @@ Section compile.
            rule.hyps := map lower_clause_hyp hyps |}]
     | rule.agg target_rel agg source_rel =>
         (*source_rel(_, _, 2, ... 9) concl_rel(_, 2, ..., 9),
-          assuming source_rel is 11-ary.*)
+          assuming source_rel is 10-ary.*)
         let n := num_args source_rel in
         [{| rule.concls :=
              [{| clause.rel := normal_rel target_rel;
@@ -414,7 +414,7 @@ Section compile.
   Definition lower_prog (p : program) : list (low_node.rule (_rel := lrel) (_exprvar := lvar)) :=
     flat_map lower_rule p.(program.rules) ++ flat_map lower_meta_rule p.(program.meta_rules).
 
-  (*TODO this is wrong*)
+  (*TODO this is wrong for outputs, maybe also inputs?*)
   Definition lower_message (f : node.message) : normal_fact (relt := lrel) :=
     match f with
     | node.message.normal nf =>
