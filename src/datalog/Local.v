@@ -38,13 +38,16 @@ Module set_query.
   Section __.
     Context `{params : datalog_params}.
 
-    (*TODO which should be expr, which should be exprvar*)
+    (*TODO which should be expr, which should be exprvar.
+      i just changed agg to expr rather than exprvar, because the compiler needed it.
+      seems like others should also be expr?
+     *)
     (*query on a set of tuples*)
     Variant set_query :=
       (*is this tuple in the set?*)
       | contains (vals : list expr)
       (*does aggregating over the set yield [result]? *)
-      | agg (agg : aggregator) (result : exprvar)
+      | agg (agg : aggregator) (result : expr)
       (*does merging over the set yield [result]?
         unlike aggregating, there may (or may not) be duplicates.*)
       | merge (agg : aggregator) (result : exprvar)
@@ -57,9 +60,9 @@ Module set_query.
       | interp_contains es vs :
         Forall2 (expr.interp ctx) es vs ->
         interp _ (contains es) (set_fact.contains vs)
-      | interp_agg a v r :
-        map.get ctx v = Some r ->
-        interp _ (agg a v) (set_fact.agg a r)
+      | interp_agg a e v :
+        expr.interp ctx e v ->
+        interp _ (agg a e) (set_fact.agg a v)
       | interp_merge a v r :
         map.get ctx v = Some r ->
         interp _ (merge a v) (set_fact.merge a r)
@@ -250,41 +253,39 @@ End step.
 
 End low_node.
 
+Import low_node.
+Import Datalog.
+
 Section compile.
   Context `{params : datalog_params} {sender_label : sender_labelT}.
   Context (R_senders : rel -> list sender_label).
   Context (value_to_nat : value -> nat) (nat_to_value : nat -> value). (*value_to_nat should be injective, or something?*)
   Context (label_to_value : sender_label -> value).
+  Context (num_args : rel -> nat).
 
-  (*Note on the two bitmasks in play once we lower meta-clauses:
-    - the [to_keep] bitmask in [lrel] constructors has length = length of the
-      spec-level [meta_clause_args].  It distinguishes views (i.e., it is part
-      of the lowered rel name) and encodes which positions of the original args
-      are wildcards vs specified.
-    - the [mask] bitmask in [hyp_clause_key]/[hyp_fact_key] operates over the
-      impl-side positions, i.e., has length = number of [Some]s in the
-      [meta_clause_args] = arity of the lowered rel.  It splits those positions
-      into key vs value.
-    These are not the same bitmask. *)
   Variant lrel :=
     | normal_rel (rel_name : rel)
-    | done_receiving_from (rel_name : rel) (to_keep : list bool)
-    (*above is like below, except it comes with two extra arguments:
-      which source did we receive it from, and how many did we receive*)
-    | done_receiving_rel (rel_name : rel) (to_keep : list bool)
-    | done_sending_rel (rel_name : rel) (to_keep : list bool).
+    (* {normal_rel name}(x_1, ..., x_{num_args name}) *)
+    | done_receiving_from (rel_name : rel) (mask : list bool)
+    (*{done_receiving_from name pat}(src_node, num_received, x_1, ..., x_{# of 1s in mask})*)
+    | done_receiving_rel (rel_name : rel) (mask : list bool)
+    (*{done_receiving_rel name pat}(x_1, ..., x_{# of 1s in mask})*)
+    (*should be deduced from aggregation over done_receiving_from relations*)
+    | done_sending_rel (rel_name : rel) (mask : list bool)
+    (*{done_receiving_rel name pat}(x_1, ..., x_{# of 1s in mask})*)
+    (*should be deduced from done_receiving_rel relations via meta rules*)
+  .
 
   Definition lvar : Type := exprvar + nat.
 
-  Context (num_args : rel -> nat).
   Context {lcontext : map.map lvar value}.
 
-  Definition lower_clause_hyp (c : clause) : low_node.hyp_clause (_rel := lrel) (_exprvar := lvar) :=
-    {| low_node.hyp_clause.key :=
-        {| low_node.hyp_clause_key.rel := normal_rel c.(clause.rel);
-          low_node.hyp_clause_key.mask := map (fun _ => true) c.(clause.args);
-          low_node.hyp_clause_key.args := map (expr_varmap inl) c.(clause.args) |};
-      low_node.hyp_clause.val_query := low_node.set_query.contains [] |}.
+  Definition lower_clause_hyp (c : clause) : hyp_clause (_rel := lrel) (_exprvar := lvar) :=
+    {| hyp_clause.key :=
+        {| hyp_clause_key.rel := normal_rel c.(clause.rel);
+          hyp_clause_key.mask := map (fun _ => true) c.(clause.args);
+          hyp_clause_key.args := map (expr_varmap inl) c.(clause.args) |};
+      hyp_clause.val_query := set_query.contains [] |}.
 
   Definition lower_clause_concl (c : clause) : clause (relt := lrel) (exprvar := lvar) :=
     {| clause.rel := normal_rel c.(clause.rel);
@@ -295,59 +296,102 @@ Section compile.
     {| clause.rel := done_sending_rel c.(clause_pattern.rel) (map is_Some es);
       clause.args := map (expr_varmap inl) (keep_Some es); |}.
 
-  Definition lower_clause_pattern_hyp (c : clause_pattern) : low_node.hyp_clause (_rel := lrel) (_exprvar := lvar) :=
+  Definition lower_clause_pattern_hyp (c : clause_pattern) : hyp_clause (_rel := lrel) (_exprvar := lvar) :=
     let es := map expr_pattern.expr_of c.(clause_pattern.args) in
-    {| low_node.hyp_clause.key :=
-        {| low_node.hyp_clause_key.rel := done_receiving_rel c.(clause_pattern.rel) (map is_Some es);
-          low_node.hyp_clause_key.mask := map (fun _ => true) (keep_Some es);
-          low_node.hyp_clause_key.args := map (expr_varmap inl) (keep_Some es) |};
-      low_node.hyp_clause.val_query := low_node.set_query.contains [] |}.
-  Axiom count : aggregator.
+    {| hyp_clause.key :=
+        {| hyp_clause_key.rel := done_receiving_rel c.(clause_pattern.rel) (map is_Some es);
+          hyp_clause_key.mask := map (fun _ => true) (keep_Some es);
+          hyp_clause_key.args := map (expr_varmap inl) (keep_Some es) |};
+      hyp_clause.val_query := set_query.contains [] |}.
 
-  Definition lower_rule (r : rule) : list (low_node.rule (_rel := lrel) (_exprvar := lvar)) :=
+  Definition lower_rule (r : rule) : low_node.rule (_rel := lrel) (_exprvar := lvar) :=
     match r with
     | rule.impl concls hyps =>
-        [{| low_node.rule.concls := map lower_clause_concl concls;
-           low_node.rule.hyps := map lower_clause_hyp hyps |}]
+        {| rule.concls := map lower_clause_concl concls;
+           rule.hyps := map lower_clause_hyp hyps |}
     | rule.agg target_rel agg source_rel =>
         (*source_rel(_, _, 2, ... 9) concl_rel(_, 2, ..., 9),
           assuming source_rel is 10-ary.*)
         let n := num_args source_rel in
-        [{| low_node.rule.concls :=
+        {| rule.concls :=
              [{| clause.rel := normal_rel target_rel;
-                (*inr 0 = aggregate result, inr 1..n-2 = the carried-through args*)
+                (*inr 0 = aggregate result, inr 1..n-2 = args same on both sides of :-*)
                 clause.args := map expr.var (map inr (seq O (n - 1))); |}];
-           low_node.rule.hyps :=
-             [{| low_node.hyp_clause.key :=
-                  {| low_node.hyp_clause_key.rel := done_receiving_rel
+           rule.hyps :=
+             [{| hyp_clause.key :=
+                  {| hyp_clause_key.rel := done_receiving_rel
                                                       source_rel
                                                       (false :: false :: repeat true (n - 2));
-                    low_node.hyp_clause_key.mask := repeat true (n - 2);
-                    low_node.hyp_clause_key.args := map expr.var (map inr (seq 1 (n - 2))) |};
-                low_node.hyp_clause.val_query := low_node.set_query.contains [] |};
-              {| low_node.hyp_clause.key :=
-                  {| low_node.hyp_clause_key.rel := normal_rel source_rel;
-                    low_node.hyp_clause_key.mask := false :: false :: repeat true (n - 2);
-                    low_node.hyp_clause_key.args := map expr.var (map inr (seq 1 (n - 2))) |};
-                low_node.hyp_clause.val_query := low_node.set_query.agg agg (inr O) |}];
-         |}]
+                    hyp_clause_key.mask := repeat true (n - 2);
+                    hyp_clause_key.args := map expr.var (map inr (seq 1 (n - 2))) |};
+                hyp_clause.val_query := set_query.contains [] |};
+              {| hyp_clause.key :=
+                  {| hyp_clause_key.rel := normal_rel source_rel;
+                    hyp_clause_key.mask := false :: false :: repeat true (n - 2);
+                    hyp_clause_key.args := map expr.var (map inr (seq 1 (n - 2))) |};
+                hyp_clause.val_query := set_query.agg agg (expr.var (inr O)) |}];
+         |}
     (* target_rel(val, c, d) :- done_receiving(source_rel, [2, 3])(c, d),
                                 agg(source_rel, [2, 3])(c, d) = val
      *)
     end.
 
   (*R(_, x) :- G(x, x) =>
-    done_sending(R, [1])(x, num_sent) :- done_receiving(G, [0, 1])(x, x)
 
-done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
-                           expected(G, [0, 1])(x, x)(N) *N is number of friends from which we expect to receive G-messages*
+  A.
+
+    done_sending(R, [t, f])(x, num_sent) :- done_receiving(G, [t, t])(x, x)
+
+  B.
+
+  for each hypothesis G(x, x), want a separate rule:
+
+  done_receiving(G, [0, 1])(x, y) :- received*builtin*(G)(x, y)(num_rec),
+                           expected(G, [t, t])(x, y)(N) *N is number of friends from which we expect to receive G-messages*,
+                           received(G, [t, t])(x, y)(num_rec)
    *)
-  Definition lower_meta_rule (mr : meta_rule) : low_node.rule (_rel := lrel) (_exprvar := lvar) :=
-    {| low_node.rule.concls := map lower_clause_pattern_concl mr.(meta_rule.concls);
-      low_node.rule.hyps := map lower_clause_pattern_hyp mr.(meta_rule.hyps) |}.
+
+  Definition lower_meta_rule' (mr : meta_rule) : low_node.rule (_rel := lrel) (_exprvar := lvar) :=
+    {| rule.concls := map lower_clause_pattern_concl mr.(meta_rule.concls);
+      rule.hyps := map lower_clause_pattern_hyp mr.(meta_rule.hyps) |}.
+
+  Axiom count : aggregator.
+  Axiom sum : aggregator.
+  Axiom const : nat -> fn.
+
+  Definition get_done_receiving (c : clause_pattern) : low_node.rule (_rel := lrel) (_exprvar := lvar) :=
+    let es := map expr_pattern.expr_of c.(clause_pattern.args) in
+    let pat_vars := map inr (seq O (length (keep_Some es))) in
+    let num_received := inr (length (keep_Some es)) in
+    {| rule.concls :=
+        [{| clause.rel := done_receiving_rel c.(clause_pattern.rel) (map is_Some es);
+           clause.args := map expr.var pat_vars |}];
+      rule.hyps :=
+        let done_receiving_set :=
+          (*represents the set of (src, num) done_receiving_from messages we've received about this pattern;
+             let-bound here because it appears in two hypotheses---
+             we want to both count the number of sources and add up the nums*)
+          {| hyp_clause_key.rel := done_receiving_from c.(clause_pattern.rel) (map is_Some es);
+            hyp_clause_key.mask := false :: false :: map (fun _ => true) (map is_Some es);
+            hyp_clause_key.args := map expr.var pat_vars; |} in
+
+        [{| hyp_clause.key :=
+             {| hyp_clause_key.rel := normal_rel c.(clause_pattern.rel);
+               hyp_clause_key.mask := map is_Some es;
+               hyp_clause_key.args := map expr.var pat_vars; |};
+           hyp_clause.val_query := set_query.count_received num_received |};
+         {| hyp_clause.key := done_receiving_set;
+           hyp_clause.val_query := set_query.agg count (expr.app (const (length (R_senders c.(clause_pattern.rel)))) []); |};
+         {| hyp_clause.key := done_receiving_set;
+           hyp_clause.val_query := set_query.agg sum (expr.var num_received); |}
+        ]
+    |}.
+
+  Definition lower_meta_rule mr : list (low_node.rule (_rel := lrel) (_exprvar := lvar)) :=
+    lower_meta_rule' mr :: map get_done_receiving mr.(meta_rule.hyps).
 
   Definition lower_prog (p : program) : list (low_node.rule (_rel := lrel) (_exprvar := lvar)) :=
-    flat_map lower_rule p.(program.rules) ++ map lower_meta_rule p.(program.meta_rules).
+    map lower_rule p.(program.rules) ++ flat_map lower_meta_rule p.(program.meta_rules).
 
   Definition lower_message (f : node.message) : normal_fact (relt := lrel) :=
     match f with
@@ -359,19 +403,19 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
           normal_fact.args := label_to_value src :: nat_to_value count :: keep_Some vals |}
     end.
 
-  Definition hyp_fact_of (f : normal_fact (relt := lrel)) : low_node.hyp_fact (_rel := lrel) :=
-    {| low_node.hyp_fact.key :=
-        {| low_node.hyp_fact_key.rel := f.(normal_fact.rel);
-          low_node.hyp_fact_key.mask := map (fun _ => true) f.(normal_fact.args);
-          low_node.hyp_fact_key.args := f.(normal_fact.args) |};
-      low_node.hyp_fact.val_fact := low_node.set_fact.contains [] |}.
+  Definition hyp_fact_of (f : normal_fact (relt := lrel)) : hyp_fact (_rel := lrel) :=
+    {| hyp_fact.key :=
+        {| hyp_fact_key.rel := f.(normal_fact.rel);
+          hyp_fact_key.mask := map (fun _ => true) f.(normal_fact.args);
+          hyp_fact_key.args := f.(normal_fact.args) |};
+      hyp_fact.val_fact := set_fact.contains [] |}.
 
   Lemma compiler_correct p name :
     steps_corresp_sound (node.allowed_inputs R_senders)
       (node.step R_senders p name) node.init
-      (translate_step lower_message (low_node.step (lower_prog p))) low_node.state.empty /\
+      (translate_step lower_message (step (lower_prog p))) state.empty /\
     steps_corresp_sound (node.allowed_inputs R_senders)
-      (translate_step lower_message (low_node.step (lower_prog p))) low_node.state.empty
+      (translate_step lower_message (step (lower_prog p))) state.empty
       (node.step R_senders p name) node.init.
   Proof. Abort.
 
@@ -379,7 +423,7 @@ done_receiving(G, [0, 1])(x, x) :- received*builtin*(G)(x, x)(num_rec),
     In f ns.(node.state.known).
 
   Definition knows_fact ns f :=
-    low_node.hyp_fact.known_by ns (hyp_fact_of f).
+    hyp_fact.known_by ns (hyp_fact_of f).
 
   (* Lemma sim_step (sp : spec_node_prog) G bss ts bs t P : *)
   (*   (forall f, spec_knows_fact bss f -> knows_fact bs (lower_dfact f)) -> *)
