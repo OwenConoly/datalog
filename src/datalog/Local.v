@@ -272,6 +272,8 @@ Section compile.
     | done_receiving_rel (rel_name : rel) (mask : list bool)
     (*{done_receiving_rel name pat}(x_1, ..., x_{# of 1s in mask})*)
     (*should be deduced from aggregation over done_receiving_from relations*)
+    | done_sending_rel' (rel_name : rel) (mask : list bool)
+    (*so that we don't deduce these until we're supposed to...*)
     | done_sending_rel (rel_name : rel) (mask : list bool)
     (*{done_receiving_rel name pat}(num_sent, x_1, ..., x_{# of 1s in mask})*)
     (*should be deduced from done_receiving_rel relations via meta rules*)
@@ -292,18 +294,10 @@ Section compile.
     {| clause.rel := normal_rel c.(clause.rel);
       clause.args := map (expr_varmap inl) c.(clause.args) |}.
 
-  Definition concl_of_clause_pattern_concl (sent_var : lvar) (c : clause_pattern) : clause (relt := lrel) (exprvar := lvar) :=
+  Definition lower_clause_pattern_concl (c : clause_pattern) : clause (relt := lrel) (exprvar := lvar) :=
     let es := map expr_pattern.expr_of c.(clause_pattern.args) in
-    {| clause.rel := done_sending_rel c.(clause_pattern.rel) (map is_Some es);
-      clause.args := expr.var sent_var :: map (expr_varmap inl) (keep_Some es); |}.
-
-  Definition hyp_of_clause_pattern_concl (sent_var : lvar) (c : clause_pattern) : hyp_clause (_rel := lrel) (_exprvar := lvar) :=
-    let es := map expr_pattern.expr_of c.(clause_pattern.args) in
-    {| hyp_clause.key :=
-        {| hyp_clause_key.rel := normal_rel c.(clause_pattern.rel);
-          hyp_clause_key.mask := map is_Some es;
-          hyp_clause_key.args := map (expr_varmap inl) (keep_Some es); |};
-      hyp_clause.val_query := set_query.count_sent sent_var |}.
+    {| clause.rel := done_sending_rel' c.(clause_pattern.rel) (map is_Some es);
+      clause.args := map (expr_varmap inl) (keep_Some es); |}.
 
   Definition lower_clause_pattern_hyp (c : clause_pattern) : hyp_clause (_rel := lrel) (_exprvar := lvar) :=
     let es := map expr_pattern.expr_of c.(clause_pattern.args) in
@@ -392,16 +386,25 @@ Section compile.
                            received(G, [t, t])(x, y)(num_rec)
    *)
   Definition lower_meta_rule' (mr : meta_rule) : low_node.rule (_rel := lrel) (_exprvar := lvar) :=
-    {| rule.concls := map
-                        (fun '(n, pat) => concl_of_clause_pattern_concl (inr n) pat)
-                        (enumerate O mr.(meta_rule.concls));
-      rule.hyps := map
-                     (fun '(n, pat) => hyp_of_clause_pattern_concl (inr n) pat)
-                     (enumerate O mr.(meta_rule.concls)) ++
-                     map lower_clause_pattern_hyp mr.(meta_rule.hyps) |}.
+    {| rule.concls := map lower_clause_pattern_concl mr.(meta_rule.concls);
+      rule.hyps := map lower_clause_pattern_hyp mr.(meta_rule.hyps) |}.
+
+  Definition count_sent_msgs (R : rel) (mask : list bool) : low_node.rule (_rel := lrel) (_exprvar := lvar) :=
+    let num_ones := length (filter (eqb true) mask) in
+    {| rule.concls :=
+        [{| clause.rel := done_sending_rel R mask;
+           clause.args := expr.var (inr O) :: map expr.var (map inr (seq 1 num_ones)); |}];
+      rule.hyps :=
+        [{| hyp_clause.key :=
+             {| hyp_clause_key.rel := done_sending_rel' R mask;
+               hyp_clause_key.mask := repeat true num_ones;
+               hyp_clause_key.args := map expr.var (map inr (seq 1 num_ones)); |};
+           hyp_clause.val_query := set_query.count_sent (inr O) |}]; |}.
 
   Definition lower_meta_rule mr : list (low_node.rule (_rel := lrel) (_exprvar := lvar)) :=
-    lower_meta_rule' mr :: map (fun cp => get_done_receiving cp.(clause_pattern.rel) (map is_Some (map expr_pattern.expr_of cp.(clause_pattern.args)))) mr.(meta_rule.hyps).
+    lower_meta_rule' mr ::
+      map (fun cp => count_sent_msgs cp.(clause_pattern.rel) (map is_Some (map expr_pattern.expr_of cp.(clause_pattern.args)))) mr.(meta_rule.concls) ++
+                                                                                                                                  map (fun cp => get_done_receiving cp.(clause_pattern.rel) (map is_Some (map expr_pattern.expr_of cp.(clause_pattern.args)))) mr.(meta_rule.hyps).
 
   Definition lower_prog (p : program) : list (low_node.rule (_rel := lrel) (_exprvar := lvar)) :=
     flat_map lower_rule p.(program.rules) ++ flat_map lower_meta_rule p.(program.meta_rules).
