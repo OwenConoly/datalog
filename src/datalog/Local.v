@@ -399,7 +399,12 @@ Section compile.
              {| hyp_clause_key.rel := done_sending_rel' R mask;
                hyp_clause_key.mask := repeat true num_ones;
                hyp_clause_key.args := map expr.var (map inr (seq 1 num_ones)); |};
-           hyp_clause.val_query := set_query.count_sent (inr O) |}]; |}.
+           hyp_clause.val_query := set_query.contains [] |};
+         {| hyp_clause.key :=
+             {| hyp_clause_key.rel := normal_rel R;
+               hyp_clause_key.mask := mask;
+               hyp_clause_key.args := map expr.var (map inr (seq 1 num_ones)); |};
+           hyp_clause.val_query := set_query.count_sent (inr O); |}]; |}.
 
   Definition lower_meta_rule mr : list (low_node.rule (_rel := lrel) (_exprvar := lvar)) :=
     lower_meta_rule' mr ::
