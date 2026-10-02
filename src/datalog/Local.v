@@ -167,6 +167,13 @@ Module hyp_clause.
       { key : hyp_clause_key;
         val_query : set_query; (*query on the set resulting from partial application of the relation to [key]*) }.
 
+    Definition of_clause (c : clause) :=
+      {| key :=
+          {| hyp_clause_key.rel := c.(clause.rel);
+            hyp_clause_key.mask := repeat true (length c.(clause.args));
+            hyp_clause_key.args := c.(clause.args); |};
+        val_query := set_query.contains [] |}.
+
     Definition interp (ctx : context) (c : hyp_clause) (f : hyp_fact) :=
       hyp_clause_key.interp ctx c.(key) f.(hyp_fact.key) /\
         set_query.interp ctx c.(val_query) f.(hyp_fact.val_fact).
@@ -192,6 +199,17 @@ Module rule.
                  hyp_clause_key.mask := [true; true];
                  hyp_clause_key.args := [expr.var x; expr.var y] |};
              hyp_clause.val_query := set_query.contains []; |}] |}.
+
+    Example example' (R S : rel) (x y : exprvar) : rule :=
+      {| concls :=
+          [{| clause.rel := R;
+             clause.args := [expr.var x; expr.var y]; |}];
+        hyps :=
+          [hyp_clause.of_clause
+             {| clause.rel := S;
+               clause.args := [expr.var x; expr.var y]; |}] |}.
+
+    Goal example = example'. reflexivity. Abort.
 
     Definition interp r nf hyps' :=
       exists ctx,
