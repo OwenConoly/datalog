@@ -177,7 +177,7 @@ End expr. Abbreviation expr := expr.expr.
 #[export] Hint Constructors expr.interp : core.
 
 Module normal_fact.
-  Record normal_fact {relt : relT} {value : valueT} :=
+  Record normal_fact {relt : relT} {value : valueT} := mk
     { rel : relt;
       args : list value }.
   (*i don't actually want this to be global; i'd prefer to instead export it along with normal_fact.  but the Import/Export commands aren't granular enough for me to do that.*)
@@ -276,7 +276,7 @@ End value_pattern. Abbreviation value_pattern := value_pattern.value_pattern.
 #[export] Hint Resolve value_pattern.matches_map_exactly : core.
 
 Module fact_pattern.
-  Record fact_pattern {relt : relT} {value : valueT} :=
+  Record fact_pattern {relt : relT} {value : valueT} := mk
     { rel : relt;
       args : list value_pattern }.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@fact_pattern _ _) :: prev ().
@@ -488,7 +488,7 @@ End meta_fact. Abbreviation meta_fact := meta_fact.meta_fact.
 #[local] Hint Resolve Forall_impl : core.
 
 Module clause.
-  Record clause {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
+  Record clause {relt : relT} {exprvar : exprvarT} {fn : fnT} := mk
     { rel : relt;
       args : list expr }.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@clause _ _ _) :: prev ().
@@ -604,7 +604,7 @@ Module expr_pattern.
 End expr_pattern. Abbreviation expr_pattern := expr_pattern.expr_pattern.
 
 Module clause_pattern.
-  Record clause_pattern {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
+  Record clause_pattern {relt : relT} {exprvar : exprvarT} {fn : fnT} := mk
     { rel : relt;
       args : list expr_pattern }.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@clause_pattern _ _ _) :: prev ().
@@ -744,7 +744,7 @@ End fact. Abbreviation fact := fact.fact.
 Module result.
   Section __.
     Context `{params : datalog_params}.
-    Record result :=
+    Record result := mk
       { normal : list value -> Prop;
         done : list value_pattern -> Prop; }.
 
@@ -939,7 +939,7 @@ Module rule.
 End rule. Abbreviation rule := rule.rule.
 
 Module meta_rule.
-  Record meta_rule {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
+  Record meta_rule {relt : relT} {exprvar : exprvarT} {fn : fnT} := mk
     { concls : list clause_pattern;
       hyps : list clause_pattern }.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_rule _ _ _) :: prev ().
@@ -1059,7 +1059,7 @@ Module meta_rule.
 End meta_rule. Abbreviation meta_rule := meta_rule.meta_rule.
 
 Module program.
-  Record program {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} :=
+  Record program {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} := mk
     { rules : list rule;
       meta_rules : list meta_rule }.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@program _ _ _ _) :: prev ().
