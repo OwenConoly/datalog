@@ -108,7 +108,7 @@ Module state.
   Section __.
     Context `{params : datalog_params} {sender_label : sender_labelT}.
 
-    Record state :=
+    Record state := mk
       { known : list message;
         sent : list message }.
 

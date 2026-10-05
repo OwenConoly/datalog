@@ -25,7 +25,7 @@ Module state.
   Section __.
     Context `{params : datalog_params}.
 
-    Record state :=
+    Record state := mk
       { received : list normal_fact;
         known : list normal_fact; (*a superset of [received].  why store it redundantly?  to preserve ordering.*)
         sent : list normal_fact; }.
@@ -88,7 +88,7 @@ Module hyp_fact_key.
   Section __.
     Context `{params : datalog_params}.
 
-    Record hyp_fact_key :=
+    Record hyp_fact_key := mk
       { rel : rel;
         mask : list bool;
         args : list value; }.
@@ -104,7 +104,7 @@ Module hyp_clause_key.
   Section __.
     Context `{params : datalog_params}.
 
-    Record hyp_clause_key :=
+    Record hyp_clause_key := mk
       { rel : rel;
         mask : list bool; (*bit mask---which arguments constitute the key?*)
         args : list expr; (*length should be equal to the number of ones in mask*) }.
@@ -121,7 +121,7 @@ Module hyp_fact.
   Section __.
     Context `{params : datalog_params}.
 
-    Record hyp_fact :=
+    Record hyp_fact := mk
       { key : hyp_fact_key;
         val_fact : set_fact }.
 
@@ -163,7 +163,7 @@ Module hyp_clause.
   Section __.
     Context `{params : datalog_params}.
 
-    Record hyp_clause :=
+    Record hyp_clause := mk
       { key : hyp_clause_key;
         val_query : set_query; (*query on the set resulting from partial application of the relation to [key]*) }.
 
@@ -184,7 +184,7 @@ Module rule.
   Section __.
     Context `{params : datalog_params}.
 
-    Record rule :=
+    Record rule := mk
       { concls : list clause;
         hyps : list hyp_clause; }.
 
