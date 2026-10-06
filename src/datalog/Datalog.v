@@ -41,7 +41,7 @@ Class datalog_semantics {_fn : fnT} {_aggregator: aggregatorT} {_value : valueT}
     agg_id : aggregator -> value; }.
 Arguments datalog_semantics : clear implicits.
 
-Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map _exprvar value} {context_ok : map.ok context} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb} {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set} := {}.
+Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map _exprvar value} {context_ok : map.ok context} {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb} {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb} {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb} {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set} := {}.
 
 Definition interp_agg `{datalog_semantics} agg (vals : list (value * value)) :=
   fold_right (agg_bop agg) (agg_id agg) (map snd vals).
@@ -152,9 +152,6 @@ Module expr.
       v1 = v2.
     Proof. eauto using interp_det, interp_agree_on. Qed.
 
-    Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
-    Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
-
     #[global] Instance eqb : Eqb expr :=
       fix expr_eqb e1 e2 :=
         match e1, e2 with
@@ -187,9 +184,7 @@ Module normal_fact.
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
   Section __.
-    Context {relt : relT} {value : valueT}.
-    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
-    Context {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
+    Context `{params : datalog_params}.
 
     #[global] Instance eqb : Eqb normal_fact := normal_fact_beq _ _ eqb eqb.
 
@@ -201,7 +196,7 @@ End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 
 Module value_pattern.
   Section __.
-    Context {value : valueT} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
+    Context `{params : datalog_params}.
     (*could consider extending this?*)
     Variant value_pattern {value : valueT} :=
       | exactly (v : value)
@@ -275,13 +270,10 @@ Module fact_pattern.
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
   Section __.
-    Context {relt : relT} {value : valueT}.
+    Context `{params : datalog_params}.
     Definition matches (fp : fact_pattern) f :=
       fp.(rel) = f.(normal_fact.rel) /\
         Forall2 value_pattern.matches fp.(args) f.(normal_fact.args).
-
-    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
-    Context {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
 
     Definition matchesb (fp : fact_pattern) f :=
       eqb fp.(rel) f.(normal_fact.rel) && forallb2 value_pattern.matchesb fp.(args) f.(normal_fact.args).
@@ -296,9 +288,7 @@ Module fact_pattern.
   End __.
 
   Section __.
-    Context {relt : relT} {value : valueT}.
-    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
-    Context {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
+    Context `{params : datalog_params}.
 
     #[global] Instance eqb : Eqb fact_pattern := fact_pattern_beq _ _ eqb eqb.
 
@@ -576,9 +566,7 @@ Module expr_pattern.
   Scheme Boolean Equality for expr_pattern.
 
   Section __.
-    Context {exprvar : exprvarT} {fn : fnT}.
-    Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
-    Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
+    Context `{params : datalog_params}.
 
     #[global] Instance eqb : Eqb expr_pattern := expr_pattern_beq _ _ eqb eqb.
 
@@ -608,10 +596,7 @@ Module clause_pattern.
   End __.
 
   Section __.
-    Context {relt : relT} {exprvar : exprvarT} {fn : fnT}.
-    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
-    Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
-    Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
+    Context `{params : datalog_params}.
 
     #[global] Instance eqb : Eqb clause_pattern := clause_pattern_beq _ _ _ eqb eqb eqb.
 

@@ -28,7 +28,6 @@ Module message.
   Section __.
     Context `{params : datalog_params} {sender_label : sender_labelT}.
     Context (R_senders : rel -> list sender_label).
-    Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
 
     Variant message :=
     | normal (nf : normal_fact)

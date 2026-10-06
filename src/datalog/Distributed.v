@@ -7,7 +7,6 @@ Import node.
 
 Section Distributed.
   Context `{params : datalog_params}.
-  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {prog_map : map.map node_id program} {prog_map_ok : map.ok prog_map}.
 
   Context (graph_prog : prog_map).

@@ -11,7 +11,6 @@ Import ListNotations.
 
 Section __.
   Context `{params : datalog_params}.
-  Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
 
   (*A short answer to "why is completeness hard":
     R(x * x, x) :- Q(x).
@@ -22,8 +21,6 @@ Section __.
     is valid iff 42nd Turing machine never halts.
    *)
 
-  Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
-  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context (fn_inj : fn -> bool).
 
   (*Note: this can be weakened; we only need injectivity on length-n lists (for each n)*)

@@ -32,7 +32,6 @@ End op_message. Abbreviation op_message := op_message.op_message.
 
 Section __.
   Context `{params : datalog_params}.
-  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
 
   Context (is_input : rel -> bool).
 

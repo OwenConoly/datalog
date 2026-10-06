@@ -7,7 +7,6 @@ Import node.
 
 Section __.
   Context `{params : datalog_params}.
-  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context (is_input : rel -> bool).
   Context (p : program).
   Context (Hmeta_rules : program.meta_rules_valid p).

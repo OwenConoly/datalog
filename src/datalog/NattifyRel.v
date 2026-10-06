@@ -8,7 +8,6 @@ Import ListNotations.
 
 Section NattifyRel.
   Context `{params : datalog_params}.
-  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context (input_rels : list rel).
 
   Definition rel_table (p : program) : list rel :=

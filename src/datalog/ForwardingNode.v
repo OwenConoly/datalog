@@ -84,7 +84,6 @@ Arguments fnode_state : clear implicits.
 
 Section __.
   Context `{params : datalog_params}.
-  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {node_prog node_state : Type}.
   Context {label : Type}.
   #[local] Instance sender_label : sender_labelT := source.
