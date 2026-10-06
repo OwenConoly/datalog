@@ -2643,16 +2643,6 @@ Proof.
   congruence.
 Qed.
 
-#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) := list_eqb aeqb.
-#[global] Typeclasses Opaque list_eqb.
-
-#[global] Instance list_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
-  : Eqb_ok (list_eqb (aeqb := aeqb)).
-Proof.
-  intros x y. cbv [eqb list_eqb]. pose proof (List.list_eqb_spec x y) as H.
-  cbv [eqb] in H. destruct H; assumption.
-Qed.
-
 Fixpoint nodupb {T : Type} {eqb : Eqb T} (l : list T) :=
   match l with
   | x :: l' => if inb x l' then false else nodupb l'

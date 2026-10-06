@@ -175,11 +175,13 @@ Module expr.
   End __.
 End expr. Abbreviation expr := expr.expr.
 #[export] Hint Constructors expr.interp : core.
+#[export] Register Scheme expr.eqb as beq for expr.expr.
 
 Module normal_fact.
   Record normal_fact {relt : relT} {value : valueT} := mk
     { rel : relt;
       args : list value }.
+  Scheme Boolean Equality for normal_fact.
   (*i don't actually want this to be global; i'd prefer to instead export it along with normal_fact.  but the Import/Export commands aren't granular enough for me to do that.*)
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@normal_fact _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
@@ -189,8 +191,7 @@ Module normal_fact.
     Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
     Context {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
 
-    #[global] Instance eqb : Eqb normal_fact :=
-      fun f1 f2 => eqb f1.(rel) f2.(rel) && eqb f1.(args) f2.(args).
+    #[global] Instance eqb : Eqb normal_fact := normal_fact_beq _ _ eqb eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
     Proof. eqb_ok. Qed.
@@ -263,11 +264,13 @@ End __.
 End value_pattern. Abbreviation value_pattern := value_pattern.value_pattern.
 #[export] Hint Unfold value_pattern.matches : core.
 #[export] Hint Resolve value_pattern.matches_map_exactly : core.
+#[export] Register Scheme value_pattern.eqb as beq for value_pattern.value_pattern.
 
 Module fact_pattern.
   Record fact_pattern {relt : relT} {value : valueT} := mk
     { rel : relt;
       args : list value_pattern }.
+  Scheme Boolean Equality for fact_pattern.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@fact_pattern _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
@@ -295,10 +298,9 @@ Module fact_pattern.
   Section __.
     Context {relt : relT} {value : valueT}.
     Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
-    Context {value_pattern_eqb : Eqb value_pattern} {value_pattern_eqb_ok : Eqb_ok value_pattern_eqb}.
+    Context {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
 
-    #[global] Instance eqb : Eqb fact_pattern :=
-      fun p1 p2 => eqb p1.(rel) p2.(rel) && eqb p1.(args) p2.(args).
+    #[global] Instance eqb : Eqb fact_pattern := fact_pattern_beq _ _ eqb eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
     Proof. eqb_ok. Qed.
@@ -570,26 +572,27 @@ Module expr_pattern.
       | exactly e => Some e
       | any => None
       end.
+  End __.
+  Scheme Boolean Equality for expr_pattern.
 
-    Context {expr_eqb : Eqb expr} {expr_eqb_ok : Eqb_ok expr_eqb}.
+  Section __.
+    Context {exprvar : exprvarT} {fn : fnT}.
+    Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
+    Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
 
-    #[global] Instance eqb : Eqb expr_pattern :=
-      fun p1 p2 =>
-        match p1, p2 with
-        | exactly e1, exactly e2 => eqb e1 e2
-        | any, any => true
-        | _, _ => false
-        end.
+    #[global] Instance eqb : Eqb expr_pattern := expr_pattern_beq _ _ eqb eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
     Proof. eqb_ok. Qed.
   End __.
 End expr_pattern. Abbreviation expr_pattern := expr_pattern.expr_pattern.
+#[export] Register Scheme expr_pattern.eqb as beq for expr_pattern.expr_pattern.
 
 Module clause_pattern.
   Record clause_pattern {relt : relT} {exprvar : exprvarT} {fn : fnT} := mk
     { rel : relt;
       args : list expr_pattern }.
+  Scheme Boolean Equality for clause_pattern.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@clause_pattern _ _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
@@ -607,10 +610,10 @@ Module clause_pattern.
   Section __.
     Context {relt : relT} {exprvar : exprvarT} {fn : fnT}.
     Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
-    Context {expr_pattern_eqb : Eqb expr_pattern} {expr_pattern_eqb_ok : Eqb_ok expr_pattern_eqb}.
+    Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
+    Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
 
-    #[global] Instance eqb : Eqb clause_pattern :=
-      fun c1 c2 => eqb c1.(rel) c2.(rel) && eqb c1.(args) c2.(args).
+    #[global] Instance eqb : Eqb clause_pattern := clause_pattern_beq _ _ _ eqb eqb eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
     Proof. eqb_ok. Qed.

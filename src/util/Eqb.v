@@ -1,5 +1,5 @@
 From Stdlib Require Import Bool.
-From coqutil Require Import Eqb Decidable Tactics Tactics.fwd.
+From coqutil Require Import Eqb Decidable Tactics Tactics.fwd Datatypes.List.
 
 #[global] Instance Eqb_ok_BoolSpec {A} {f : Eqb A} {Hok : Eqb_ok f} (x y :
 A)
@@ -9,7 +9,7 @@ A)
 #[global] Hint Mode Eqb_ok + - : typeclass_instances.
 
 Ltac eqb_ok :=
-  intros a b; destruct a, b; cbv [eqb] in *; simpl in *;
+  intros a b; destruct a, b; cbv [eqb] in *; simpl in *; cbv [eqb] in *;
   repeat destruct_one_match; repeat intro; fwd; simpl in *; fwd; try (congruence || tauto).
 
 Scheme Boolean Equality for prod.
@@ -33,6 +33,16 @@ Section eqb_option.
   Proof. eqb_ok. Qed.
 End eqb_option.
 
+#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) := list_eqb aeqb.
+#[global] Typeclasses Opaque list_eqb.
+
+#[global] Instance list_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
+  : Eqb_ok (list_eqb (aeqb := aeqb)).
+Proof.
+  intros x y. cbv [eqb list_eqb]. pose proof (List.list_eqb_spec x y) as H.
+  cbv [eqb] in H. destruct H; assumption.
+Qed.
+
 Lemma eqb_sym {A} {f : Eqb A} {Hok : Eqb_ok f} (a b : A) : eqb a b = eqb b a.
 Proof.
   pose proof (eqb_spec a b) as Hab. pose proof (eqb_spec b a) as Hba.
@@ -51,3 +61,4 @@ Qed.
 
 #[export] Register Scheme Nat.eqb as beq for nat.
 #[export] Register Scheme Bool.eqb as beq for bool.
+#[export] Register Scheme list_eqb as beq for list.
