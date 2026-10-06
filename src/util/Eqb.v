@@ -12,6 +12,11 @@ Ltac eqb_ok :=
   intros a b; destruct a, b; cbv [eqb] in *; simpl in *; cbv [eqb] in *;
   repeat destruct_one_match; repeat intro; fwd; simpl in *; fwd; try (congruence || tauto).
 
+Scheme Boolean Equality for unit.
+#[export] Instance unit_eqb : Eqb unit := unit_beq.
+#[export] Instance unit_eqb_ok : Eqb_ok unit_eqb.
+Proof. eqb_ok. Qed.
+
 Scheme Boolean Equality for prod.
 Section eqb_prod.
   Context {A B : Type}.

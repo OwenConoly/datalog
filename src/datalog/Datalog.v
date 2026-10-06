@@ -41,7 +41,7 @@ Class datalog_semantics {_fn : fnT} {_aggregator: aggregatorT} {_value : valueT}
     agg_id : aggregator -> value; }.
 Arguments datalog_semantics : clear implicits.
 
-Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map _exprvar value} {context_ok : map.ok context} {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb} {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb} {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb} {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set} := {}.
+Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map _exprvar value} {context_ok : map.ok context} {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb} {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb} {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb} {aggregator_eqb : Eqb aggregator} {aggregator_eqb_ok : Eqb_ok aggregator_eqb} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb} {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set} := {}.
 
 Definition interp_agg `{datalog_semantics} agg (vals : list (value * value)) :=
   fold_right (agg_bop agg) (agg_id agg) (map snd vals).
@@ -469,6 +469,7 @@ Module clause.
   Record clause {relt : relT} {exprvar : exprvarT} {fn : fnT} := mk
     { rel : relt;
       args : list expr }.
+  Scheme Boolean Equality for clause.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@clause _ _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
@@ -532,8 +533,18 @@ Module clause.
       fwd. invert1_any. cbv [agree_on]. congruence.
     Qed.
 End __.
+
+  Section __.
+    Context `{params : datalog_params}.
+
+    #[global] Instance eqb : Eqb clause := clause_beq _ _ _ eqb eqb eqb.
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof. eqb_ok. Qed.
+  End __.
 End clause. Abbreviation clause := clause.clause.
 #[export] Hint Unfold clause.rel clause.args : core.
+#[export] Register Scheme clause.eqb as beq for clause.clause.
 
 Module expr_pattern.
   Section __.
@@ -903,6 +914,16 @@ Module rule.
       - intros x Hx. apply Hiff. assumption.
       - intros x Hx. apply Hiff. assumption.
     Qed.
+  End __.
+  Scheme Boolean Equality for rule.
+
+  Section __.
+    Context `{params : datalog_params}.
+
+    #[global] Instance eqb : Eqb rule := rule_beq _ _ _ _ eqb eqb eqb eqb.
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof. eqb_ok. Qed.
   End __.
 End rule. Abbreviation rule := rule.rule.
 
