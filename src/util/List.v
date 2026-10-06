@@ -234,12 +234,21 @@ Section subset.
   Definition inclb (l1 l2 : list A) :=
     forallb (fun x => inb x l2) l1.
 
+  #[global] Typeclasses Opaque inclb.
+
   Lemma inclb_incl l1 l2 :
     inclb l1 l2 = true <-> incl l1 l2.
   Proof.
     cbv [inclb]. rewrite forallb_forall. split.
     - intros H a Ha. apply H in Ha. apply inb_true_iff in Ha. exact Ha.
     - intros H x Hx. apply inb_true_iff. apply H. exact Hx.
+  Qed.
+
+  #[global] Instance inclb_spec l1 l2 : BoolSpec (incl l1 l2) (~ incl l1 l2) (inclb l1 l2).
+  Proof.
+    destruct (inclb l1 l2) eqn:E; constructor.
+    - apply inclb_incl. exact E.
+    - intros Hincl. apply inclb_incl in Hincl. congruence.
   Qed.
 
   Lemma incl_app_app (x1 : list A) y1 x2 y2 :
