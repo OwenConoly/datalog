@@ -34,22 +34,20 @@ Module block_rel.
       | local _ => True
       | input _ => False
       end.
+  End __.
+  Arguments block_rel {_lrel} var.
+  Scheme Boolean Equality for block_rel.
 
+  Section __.
+    Context `{_lrel : lrelT} {var : Type}.
     Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
     Context {lrel_eqb : Eqb lrel} {lrel_eqb_ok : Eqb_ok lrel_eqb}.
 
-    #[global] Instance eqb : Eqb block_rel :=
-      fun R1 R2 =>
-        match R1, R2 with
-        | local l1, local l2 => eqb l1 l2
-        | input l1, input l2 => eqb l1 l2
-        | _, _ => false
-        end.
+    #[global] Instance eqb : Eqb (block_rel var) := block_rel_beq _ _ eqb eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
     Proof. eqb_ok. Qed.
   End __.
-  Arguments block_rel {_lrel} var.
 
   Section __.
     Context `{_lrel : lrelT}.

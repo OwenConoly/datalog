@@ -205,6 +205,7 @@ Module value_pattern.
     Variant value_pattern {value : valueT} :=
       | exactly (v : value)
       | any.
+    Scheme Boolean Equality for value_pattern.
 
     Definition matches (p : value_pattern) v :=
       match p with
@@ -254,13 +255,7 @@ Module value_pattern.
       cbn [matches] in *. f_equal; auto.
     Qed.
 
-    #[global] Instance eqb : Eqb value_pattern :=
-      fun p1 p2 =>
-        match p1, p2 with
-        | exactly v1, exactly v2 => eqb v1 v2
-        | any, any => true
-        | _, _ => false
-        end.
+    #[global] Instance eqb : Eqb value_pattern := value_pattern_beq _ eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
     Proof. eqb_ok. Qed.

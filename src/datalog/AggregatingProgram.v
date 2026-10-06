@@ -9,6 +9,14 @@ Import Blocks.blocks_prog SimpleBlocks.blocks_prog.
 
 Section __.
 Variant bop := sum | prod.
+Scheme Boolean Equality for bop.
+
+#[global] Instance bop_eqb : Eqb bop := bop_beq.
+
+#[global] Instance bop_eqb_ok : Eqb_ok bop_eqb.
+Proof. eqb_ok. Qed.
+Register Scheme bop_eqb as beq for bop.
+
 Variant type := val | set.
 Definition obj := nat.
 Context {context : map.map nat obj} {context_ok : map.ok context}.
@@ -16,6 +24,7 @@ Context {value_set : map.map (list obj) unit} {value_set_ok : map.ok value_set}.
 Variant agg_fn :=
   | fn_lit (o : obj)
   | fn_bop (o : bop).
+Scheme Boolean Equality for agg_fn.
 #[local] Instance agg_exprvar : exprvarT := nat.
 #[local] Instance agg_fnT : fnT := agg_fn.
 #[local] Instance agg_aggregatorT : aggregatorT := bop.
@@ -28,24 +37,7 @@ Definition fn_inj f :=
   | fn_bop _ => false
   end.
 
-#[global] Instance bop_eqb : Eqb bop :=
-  fun o1 o2 =>
-    match o1, o2 with
-    | sum, sum => true
-    | prod, prod => true
-    | _, _ => false
-    end.
-
-#[global] Instance bop_eqb_ok : Eqb_ok bop_eqb.
-Proof. eqb_ok. Qed.
-
-#[global] Instance fn_eqb : Eqb fn :=
-  fun f1 f2 =>
-    match f1, f2 with
-    | fn_lit l1, fn_lit l2 => l1 =? l2
-    | fn_bop o1, fn_bop o2 => eqb o1 o2
-    | _, _ => false
-    end.
+#[global] Instance fn_eqb : Eqb fn := agg_fn_beq.
 
 #[global] Instance fn_eqb_ok : Eqb_ok fn_eqb.
 Proof. eqb_ok. Qed.

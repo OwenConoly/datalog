@@ -15,14 +15,9 @@ Abbreviation node_id := nat (only parsing).
 Variant source :=
   | node_source (_ : node_id)
   | input_source.
+Scheme Boolean Equality for source.
 
-#[export] Instance source_eqb : Eqb source :=
-  fun s1 s2 =>
-    match s1, s2 with
-    | node_source n1, node_source n2 => eqb n1 n2
-    | input_source, input_source => true
-    | _, _ => false
-    end.
+#[export] Instance source_eqb : Eqb source := source_beq.
 
 #[export] Instance source_eqb_ok : Eqb_ok source_eqb.
 Proof. eqb_ok. Qed.
@@ -30,14 +25,9 @@ Proof. eqb_ok. Qed.
 Variant destn :=
   | node_destn (_ : node_id)
   | output_destn.
+Scheme Boolean Equality for destn.
 
-#[export] Instance destn_eqb : Eqb destn :=
-  fun d1 d2 =>
-    match d1, d2 with
-    | node_destn n1, node_destn n2 => eqb n1 n2
-    | output_destn, output_destn => true
-    | _, _ => false
-    end.
+#[export] Instance destn_eqb : Eqb destn := destn_beq.
 
 #[export] Instance destn_eqb_ok : Eqb_ok destn_eqb.
 Proof. eqb_ok. Qed.
@@ -46,15 +36,9 @@ Variant location :=
   | node_loc (_ : node_id)
   | input_loc
   | output_loc.
+Scheme Boolean Equality for location.
 
-#[export] Instance location_eqb : Eqb location :=
-  fun l1 l2 =>
-    match l1, l2 with
-    | node_loc n1, node_loc n2 => eqb n1 n2
-    | input_loc, input_loc => true
-    | output_loc, output_loc => true
-    | _, _ => false
-    end.
+#[export] Instance location_eqb : Eqb location := location_beq.
 
 #[export] Instance location_eqb_ok : Eqb_ok location_eqb.
 Proof. eqb_ok. Qed.

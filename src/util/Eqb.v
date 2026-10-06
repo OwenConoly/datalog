@@ -12,29 +12,23 @@ Ltac eqb_ok :=
   intros a b; destruct a, b; cbv [eqb] in *; simpl in *;
   repeat destruct_one_match; repeat intro; fwd; simpl in *; fwd; try (congruence || tauto).
 
+Scheme Boolean Equality for prod.
 Section eqb_prod.
   Context {A B : Type}.
   Context {eqbA : Eqb A} {eqbA_ok : Eqb_ok eqbA}.
   Context {eqbB : Eqb B} {eqbB_ok : Eqb_ok eqbB}.
 
-  #[global] Instance eqb_prod : Eqb (A * B) :=
-    fun x y => (eqbA (fst x) (fst y) && eqbB (snd x) (snd y))%bool.
-
-  #[global] Instance eqb_prod_ok : Eqb_ok eqb_prod.
+  #[export] Instance eqb_prod : Eqb (A * B) := prod_beq _ _ eqb eqb.
+  #[export] Instance eqb_prod_ok : Eqb_ok eqb_prod.
   Proof. eqb_ok. Qed.
 End eqb_prod.
 
+Scheme Boolean Equality for option.
 Section eqb_option.
   Context {A : Type}.
   Context {eqbA : Eqb A} {eqbA_ok : Eqb_ok eqbA}.
 
-  #[global] Instance eqb_option : Eqb (option A) :=
-    fun x y => match x, y with
-               | Some a, Some b => eqb a b
-               | None, None => true
-               | _, _ => false
-               end.
-
+  #[export] Instance eqb_option : Eqb (option A) := option_beq A eqb.
   #[global] Instance eqb_option_ok : Eqb_ok eqb_option.
   Proof. eqb_ok. Qed.
 End eqb_option.
@@ -54,3 +48,6 @@ Proof.
   - apply Hinj in Hg. contradiction.
   - subst b. contradiction.
 Qed.
+
+#[export] Register Scheme Nat.eqb as beq for nat.
+#[export] Register Scheme Bool.eqb as beq for bool.
