@@ -1,5 +1,5 @@
 From Stdlib Require Import Bool.
-From coqutil Require Import Eqb Decidable.
+From coqutil Require Import Eqb Decidable Tactics Tactics.fwd.
 
 #[global] Instance Eqb_ok_BoolSpec {A} {f : Eqb A} {Hok : Eqb_ok f} (x y :
 A)
@@ -7,6 +7,10 @@ A)
 
 #[global] Hint Mode Eqb + : typeclass_instances.
 #[global] Hint Mode Eqb_ok + - : typeclass_instances.
+
+Ltac eqb_ok :=
+  intros a b; destruct a, b; cbv [eqb] in *; simpl in *;
+  repeat destruct_one_match; repeat intro; fwd; simpl in *; fwd; try (congruence || tauto).
 
 Section eqb_prod.
   Context {A B : Type}.
@@ -17,12 +21,7 @@ Section eqb_prod.
     fun x y => (eqbA (fst x) (fst y) && eqbB (snd x) (snd y))%bool.
 
   #[global] Instance eqb_prod_ok : Eqb_ok eqb_prod.
-  Proof.
-    intros [a1 b1] [a2 b2]. cbv [eqb eqb_prod]. simpl.
-    pose proof (eqb_spec a1 a2) as HA. pose proof (eqb_spec b1 b2) as HB.
-    cbv [eqb] in *.
-    destruct (eqbA a1 a2), (eqbB b1 b2); subst; simpl; try congruence.
-  Qed.
+  Proof. eqb_ok. Qed.
 End eqb_prod.
 
 Section eqb_option.
@@ -37,11 +36,7 @@ Section eqb_option.
                end.
 
   #[global] Instance eqb_option_ok : Eqb_ok eqb_option.
-  Proof.
-    intros [a|] [b|]; cbv [eqb eqb_option]; simpl; try congruence.
-    pose proof (eqb_spec a b) as H. cbv [eqb] in *.
-    destruct (eqbA a b); simpl in H |- *; congruence.
-  Qed.
+  Proof. eqb_ok. Qed.
 End eqb_option.
 
 Lemma eqb_sym {A} {f : Eqb A} {Hok : Eqb_ok f} (a b : A) : eqb a b = eqb b a.

@@ -25,10 +25,7 @@ Variant source :=
     end.
 
 #[export] Instance source_eqb_ok : Eqb_ok source_eqb.
-Proof.
-  intros a b. destruct a, b; cbn; try congruence.
-  destr (eqb n n0); congruence.
-Qed.
+Proof. eqb_ok. Qed.
 
 Variant destn :=
   | node_destn (_ : node_id)
@@ -43,10 +40,7 @@ Variant destn :=
     end.
 
 #[export] Instance destn_eqb_ok : Eqb_ok destn_eqb.
-Proof.
-  intros a b. destruct a, b; cbn; try congruence.
-  destr (eqb n n0); congruence.
-Qed.
+Proof. eqb_ok. Qed.
 
 Variant location :=
   | node_loc (_ : node_id)
@@ -63,10 +57,7 @@ Variant location :=
     end.
 
 #[export] Instance location_eqb_ok : Eqb_ok location_eqb.
-Proof.
-  intros a b. destruct a, b; cbn; try congruence.
-  destr (eqb n n0); congruence.
-Qed.
+Proof. eqb_ok. Qed.
 
 Section __.
   Context {message : Type}.

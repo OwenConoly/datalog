@@ -47,10 +47,7 @@ Module block_rel.
         end.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros x y. cbv [Eqb.eqb eqb].
-      destruct x, y; try congruence; Tactics.destruct_one_match; congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
   End __.
   Arguments block_rel {_lrel} var.
 

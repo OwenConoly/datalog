@@ -37,7 +37,7 @@ Definition fn_inj f :=
     end.
 
 #[global] Instance bop_eqb_ok : Eqb_ok bop_eqb.
-Proof. intros x y. cbv [eqb bop_eqb]. destruct x, y; congruence. Qed.
+Proof. eqb_ok. Qed.
 
 #[global] Instance fn_eqb : Eqb fn :=
   fun f1 f2 =>
@@ -48,12 +48,7 @@ Proof. intros x y. cbv [eqb bop_eqb]. destruct x, y; congruence. Qed.
     end.
 
 #[global] Instance fn_eqb_ok : Eqb_ok fn_eqb.
-Proof.
-  intros x y. cbv [eqb fn_eqb]. destruct x, y; try congruence.
-  - destruct (Nat.eqb_spec o o0); subst; congruence.
-  - pose proof (eqb_spec o o0) as Ho. cbv [eqb] in Ho.
-    destruct (bop_eqb o o0); subst; congruence.
-Qed.
+Proof. eqb_ok. Qed.
 
 Definition bop_id o :=
   match o with

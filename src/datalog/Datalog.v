@@ -193,10 +193,7 @@ Module normal_fact.
       fun f1 f2 => eqb f1.(rel) f2.(rel) && eqb f1.(args) f2.(args).
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros [R1 args1] [R2 args2]. cbv [Eqb.eqb eqb]. simpl.
-      destr (rel_eqb R1 R2); [|congruence]. destr (list_eqb args1 args2); congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
   End __.
 End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 #[export] Hint Unfold normal_fact.rel normal_fact.args : core.
@@ -266,10 +263,7 @@ Module value_pattern.
         end.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros [v1|] [v2|]; cbv [Eqb.eqb eqb]; try congruence.
-      destr (value_eqb v1 v2); congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
 End __.
 End value_pattern. Abbreviation value_pattern := value_pattern.value_pattern.
 #[export] Hint Unfold value_pattern.matches : core.
@@ -312,10 +306,7 @@ Module fact_pattern.
       fun p1 p2 => eqb p1.(rel) p2.(rel) && eqb p1.(args) p2.(args).
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros [R1 args1] [R2 args2]. cbv [Eqb.eqb eqb]. simpl.
-      destr (rel_eqb R1 R2); [|congruence]. destr (list_eqb args1 args2); congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
   End __.
 End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 
@@ -596,10 +587,7 @@ Module expr_pattern.
         end.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros [e1|] [e2|]; cbv [Eqb.eqb eqb]; try congruence.
-      destr (expr_eqb e1 e2); congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
   End __.
 End expr_pattern. Abbreviation expr_pattern := expr_pattern.expr_pattern.
 
@@ -630,10 +618,7 @@ Module clause_pattern.
       fun c1 c2 => eqb c1.(rel) c2.(rel) && eqb c1.(args) c2.(args).
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros [R1 args1] [R2 args2]. cbv [Eqb.eqb eqb]. simpl.
-      destr (rel_eqb R1 R2); [|congruence]. destr (list_eqb args1 args2); congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
   End __.
 End clause_pattern. Abbreviation clause_pattern := clause_pattern.clause_pattern.
 
