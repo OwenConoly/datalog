@@ -983,6 +983,8 @@ Fixpoint picks {A} (l : list A) : list (A * list A) :=
   | x :: l' => (x, l') :: map (fun '(y, rest) => (y, x :: rest)) (picks l')
   end.
 
+Definition option_to_list {X} (x : option X) := match x with | None => [] | Some x' => [x'] end.
+
 (*copied from https://velus.inria.fr/emsoft2021/html/Velus.Common.CommonList.html*)
 Section Forall3.
   Context {A B C : Type}.
