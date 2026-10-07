@@ -13,14 +13,14 @@ Section NattifyRel.
   Definition rel_table (p : program) : list rel :=
     dedup (program.all_rels p ++ input_rels).
 
-  Definition encode_rel (p : program) (R : rel) : nat :=
-    unwrap_or (length (rel_table p)) (index_of R (rel_table p)).
+  Definition encode_rel (table : list rel) (R : rel) : nat :=
+    unwrap_or (length table) (index_of R table).
 
   Definition nattify_rel_prog (p : program) :=
-    program.map_rel (encode_rel p) p.
+    program.map_rel (encode_rel (rel_table p)) p.
 
   Definition nattify_rel_fact (p : program) (fct : fact) :=
-    fact.map_rel (encode_rel p) fct.
+    fact.map_rel (encode_rel (rel_table p)) fct.
 
   Lemma prog_rels_in_table p R :
     In R (program.all_rels p) -> In R (rel_table p).
@@ -32,7 +32,7 @@ Section NattifyRel.
     nattify_rel_fact p a = nattify_rel_fact p b ->
     a = b.
   Proof.
-    intros Ha Heq. apply (map_fact_inj (encode_rel p)); [|exact Heq].
+    intros Ha Heq. apply (map_fact_inj (encode_rel (rel_table p))); [|exact Heq].
     intros Henc. eapply index_of_unwrap_inj; eassumption.
   Qed.
 
