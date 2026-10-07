@@ -5,5 +5,5 @@
   DotNotation)
  (name Datalog.Util)
  (package datalog)
- (theories Stdlib coqutil GraphSearch)
+ (theories Stdlib coqutil GraphSearch JSON ExtLib)
  (generate_project_file))
