@@ -977,6 +977,12 @@ Fixpoint combine3 {A B C} (la : list A) (lb : list B) (lc : list C) : list (A * 
   | _, _, _ => []
   end.
 
+Fixpoint picks {A} (l : list A) : list (A * list A) :=
+  match l with
+  | [] => []
+  | x :: l' => (x, l') :: map (fun '(y, rest) => (y, x :: rest)) (picks l')
+  end.
+
 (*copied from https://velus.inria.fr/emsoft2021/html/Velus.Common.CommonList.html*)
 Section Forall3.
   Context {A B C : Type}.
