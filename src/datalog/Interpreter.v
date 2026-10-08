@@ -15,8 +15,6 @@ Local Open Scope option_monad_scope.
 
 Section __.
   Context `{params : datalog_params}.
-  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
-  Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
 
   (* Print list_prod. (*why is this not defined in terms of flat_map?*) *)
   Definition edges_of_rule (r : rule) :=

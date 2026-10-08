@@ -34,25 +34,20 @@ Module block_rel.
       | local _ => True
       | input _ => False
       end.
+  End __.
+  Arguments block_rel {_lrel} var.
+  Scheme Boolean Equality for block_rel.
 
+  Section __.
+    Context `{_lrel : lrelT} {var : Type}.
     Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
     Context {lrel_eqb : Eqb lrel} {lrel_eqb_ok : Eqb_ok lrel_eqb}.
 
-    #[global] Instance eqb : Eqb block_rel :=
-      fun R1 R2 =>
-        match R1, R2 with
-        | local l1, local l2 => eqb l1 l2
-        | input l1, input l2 => eqb l1 l2
-        | _, _ => false
-        end.
+    #[global] Instance eqb : Eqb (block_rel var) := block_rel_beq _ _ eqb eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros x y. cbv [Eqb.eqb eqb].
-      destruct x, y; try congruence; Tactics.destruct_one_match; congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
   End __.
-  Arguments block_rel {_lrel} var.
 
   Section __.
     Context `{_lrel : lrelT}.
@@ -67,10 +62,8 @@ End block_rel. Abbreviation block_rel := block_rel.block_rel.
 
 Module blocks_prog.
   Section __.
-    Context `{params : datalog_params}.
-    (*apparently works, just makes "Print Instances" act weird
-    https://github.com/rocq-prover/rocq/issues/7342*)
-    Remove Hints _rel : typeclass_instances.
+    (*doing (_rel := unit) is a hack for not getting the the rel typeclass in the context*)
+    Context `{params : datalog_params (_rel := unit)}.
     Context `{_lrel : lrelT}.
 
     Definition block var := program (relt := block_rel var).

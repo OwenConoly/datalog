@@ -15,58 +15,33 @@ Abbreviation node_id := nat (only parsing).
 Variant source :=
   | node_source (_ : node_id)
   | input_source.
+Scheme Boolean Equality for source.
 
-#[export] Instance source_eqb : Eqb source :=
-  fun s1 s2 =>
-    match s1, s2 with
-    | node_source n1, node_source n2 => eqb n1 n2
-    | input_source, input_source => true
-    | _, _ => false
-    end.
+#[export] Instance source_eqb : Eqb source := source_beq.
 
 #[export] Instance source_eqb_ok : Eqb_ok source_eqb.
-Proof.
-  intros a b. destruct a, b; cbn; try congruence.
-  destr (eqb n n0); congruence.
-Qed.
+Proof. eqb_ok. Qed.
 
 Variant destn :=
   | node_destn (_ : node_id)
   | output_destn.
+Scheme Boolean Equality for destn.
 
-#[export] Instance destn_eqb : Eqb destn :=
-  fun d1 d2 =>
-    match d1, d2 with
-    | node_destn n1, node_destn n2 => eqb n1 n2
-    | output_destn, output_destn => true
-    | _, _ => false
-    end.
+#[export] Instance destn_eqb : Eqb destn := destn_beq.
 
 #[export] Instance destn_eqb_ok : Eqb_ok destn_eqb.
-Proof.
-  intros a b. destruct a, b; cbn; try congruence.
-  destr (eqb n n0); congruence.
-Qed.
+Proof. eqb_ok. Qed.
 
 Variant location :=
   | node_loc (_ : node_id)
   | input_loc
   | output_loc.
+Scheme Boolean Equality for location.
 
-#[export] Instance location_eqb : Eqb location :=
-  fun l1 l2 =>
-    match l1, l2 with
-    | node_loc n1, node_loc n2 => eqb n1 n2
-    | input_loc, input_loc => true
-    | output_loc, output_loc => true
-    | _, _ => false
-    end.
+#[export] Instance location_eqb : Eqb location := location_beq.
 
 #[export] Instance location_eqb_ok : Eqb_ok location_eqb.
-Proof.
-  intros a b. destruct a, b; cbn; try congruence.
-  destr (eqb n n0); congruence.
-Qed.
+Proof. eqb_ok. Qed.
 
 Section __.
   Context {message : Type}.
@@ -298,6 +273,49 @@ Definition consistent_good :=
         {| graph_nodes := gs.(graph_nodes);
           graph_output_queue := q1 ++ q2 |}.
 
+    Lemma forward_to_nil keep gs : forward_to keep [] gs = gs.
+    Proof.
+      destruct gs as [nodes oq]. cbv [forward_to enqueue]. cbn. f_equal.
+      erewrite map_values'_ext; [apply map_values'_id|]. intros _ [? ? ?]. reflexivity.
+    Qed.
+
+    Lemma forward_to_app keep msgs1 msgs2 gs :
+      forward_to keep (msgs1 ++ msgs2) gs = forward_to keep msgs1 (forward_to keep msgs2 gs).
+    Proof.
+      cbv [forward_to enqueue]. cbn. f_equal.
+      - rewrite map_values'_map_values'. apply map_values'_ext. intros dst gns. cbn.
+        rewrite filter_app, <- app_assoc. reflexivity.
+      - rewrite filter_app, <- app_assoc. reflexivity.
+    Qed.
+
+    Lemma star_gstep_input gs inputs :
+      star graph_step gs (map I_event inputs) (forward_to (forward input_source) inputs gs).
+    Proof.
+      induction inputs as [| m inputs IH]; cbn [map].
+      - rewrite forward_to_nil. apply star_refl.
+      - change (m :: inputs) with ([m] ++ inputs). rewrite forward_to_app.
+        eapply star_step; [exact IH | apply gstep_input].
+    Qed.
+
+    Lemma star_gstep_output_gen nodes q1 q2 :
+      star graph_step {| graph_nodes := nodes; graph_output_queue := q1 ++ q2 |}
+        (map (fun m => O_event (emit m) [m]) q1)
+        {| graph_nodes := nodes; graph_output_queue := q2 |}.
+    Proof.
+      induction q1 as [| m q1 IH] using rev_ind.
+      - apply star_refl.
+      - rewrite map_app, <- app_assoc. eapply star_app; [apply star_one | exact IH].
+        apply gstep_output. reflexivity.
+    Qed.
+
+    Lemma star_gstep_output gs :
+      star graph_step gs (map (fun m => O_event (emit m) [m]) gs.(graph_output_queue))
+        {| graph_nodes := gs.(graph_nodes); graph_output_queue := [] |}.
+    Proof.
+      destruct gs as [nodes oq]. cbn [graph_nodes graph_output_queue].
+      rewrite <- (app_nil_r oq) at 1. apply star_gstep_output_gen.
+    Qed.
+
     Lemma star_receive_step nodes oq n ns ms ns' :
       map.get nodes n = Some ns ->
       star (receive_step n) ns ms ns' ->
@@ -318,15 +336,15 @@ Definition consistent_good :=
         (forall n, In n todo ->
            exists na nb ms, map.get a.(graph_nodes) n = Some na /\ map.get b.(graph_nodes) n = Some nb /\
              star (receive_step n) na ms nb) ->
-        exists t, star graph_step a t b.
+        exists t, star graph_step a t b /\ flat_map inputs_of t = [].
     Proof.
       induction todo as [| k todo IH]; intros a Hoq Hout Hin.
-      - exists []. replace a with b; [apply star_refl|].
+      - exists []. split; [| reflexivity]. replace a with b; [apply star_refl|].
         destruct a, b. simpl in *. f_equal; [| congruence].
         apply map.map_ext. intros k. specialize (Hout k ltac:(intros [])). congruence.
       - destruct a as [nodes oq]. simpl in *.
         destruct (Hin k (in_eq _ _)) as (na & nb & ms & Ha & Hb & Hstar).
-        edestruct (IH {| graph_nodes := map.put nodes k nb; graph_output_queue := oq |}) as (t & Hrest); simpl.
+        edestruct (IH {| graph_nodes := map.put nodes k nb; graph_output_queue := oq |}) as (t & Hrest & Hinp); simpl.
         + assumption.
         + intros n Hn. destr (eqb n k).
           * rewrite map.get_put_same. congruence.
@@ -334,13 +352,15 @@ Definition consistent_good :=
         + intros n Hn. destr (eqb n k).
           * exists nb, nb, []. rewrite map.get_put_same. auto using star_refl.
           * rewrite map.get_put_diff by congruence. apply Hin. right. assumption.
-        + eexists. eapply star_app; [eapply star_receive_step; eassumption | exact Hrest].
+        + eexists. split.
+          * eapply star_app; [eapply star_receive_step; eassumption | exact Hrest].
+          * rewrite flat_map_app, Hinp, inputs_of_map_O_event. reflexivity.
     Qed.
 
     Lemma star_per_node a b :
       a.(graph_output_queue) = b.(graph_output_queue) ->
       Forall2_map (fun n na nb => exists ms, star (receive_step n) na ms nb) a.(graph_nodes) b.(graph_nodes) ->
-      exists t, star graph_step a t b.
+      exists t, star graph_step a t b /\ flat_map inputs_of t = [].
     Proof.
       intros Hoq HF. apply (star_per_node_gen b (map.keys a.(graph_nodes))); [assumption | |].
       - intros n Hn. specialize (HF n). destruct (map.get a.(graph_nodes) n) eqn:E.
@@ -379,7 +399,7 @@ Definition consistent_good :=
     Definition outputs_partition (gs : partial_map node_id (graph_node_state)) : msg_map :=
       map_values' (fun _ ns => flat_map outputs_of ns.(gns_trace)) gs.
 
-    Definition output_map {A} {mp' : map.map node_id (list A)} {mp'_ok : map.ok mp'}
+    Definition output_map {A} {mp' : map.map node_id (list A)}
         (F : node_id -> list message -> list A) (gs : partial_map node_id (graph_node_state)) : list A :=
       concat (values (map_values' (mp' := mp') F (outputs_partition gs))).
 

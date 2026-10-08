@@ -1145,7 +1145,7 @@ Proof.
     + intros k v m0 r Hnone IH Hr. apply Bool.andb_false_iff in Hr.
       destruct Hr as [Hr|Hr].
       * specialize (IH Hr). destruct IH as (k0 & v0 & Hget & Hf).
-        exists k0, v0. rewrite map.get_put_dec. destr (eqb k k0); [congruence|auto].
+        exists k0, v0. rewrite map.get_put_dec. rewrite_false (eqb k k0) by congruence. auto.
       * exists k, v. rewrite map.get_put_same. auto.
 Qed.
 

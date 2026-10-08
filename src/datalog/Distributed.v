@@ -7,7 +7,6 @@ Import node.
 
 Section Distributed.
   Context `{params : datalog_params}.
-  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {prog_map : map.map node_id program} {prog_map_ok : map.ok prog_map}.
 
   Context (graph_prog : prog_map).
@@ -24,13 +23,13 @@ Section Distributed.
   Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
   Proof. apply get_or_default_Some. Qed.
 
-  Definition rel_forward (s : source) (d : destn) (R : rel) : bool :=
+  Definition rel_forward (d : destn) (R : rel) : bool :=
     match d with
     | output_destn => true (*TODO: don't output everything*)
     | node_destn nd => inb R (program.hyp_rels (prog_at nd))
     end.
 
-  Definition forward (s : source) (d : destn) (f : message) := rel_forward s d (message.rel f).
+  Definition forward (s : source) (d : destn) (f : message) := rel_forward d (message.rel f).
 
   Lemma forward_equiv s d a b :
     message.equiv a b ->
@@ -47,7 +46,7 @@ Section Distributed.
   Definition R_senders (R : rel) : list source :=
     if is_input R then [input_source] else
       filter_map
-        (fun '(n, p) => if inb R (program.concl_rels p) then Some (node_source n) else None)
+        (fun '(n, p) => if inb R (program.normal_concl_rels p) then Some (node_source n) else None)
         (map.tuples graph_prog).
 
   Lemma R_senders_NoDup R : NoDup (R_senders R).
@@ -56,16 +55,33 @@ Section Distributed.
     apply NoDup_filter_map; [apply map.tuples_NoDup|].
     intros [n p] [n' p'] s Hin Hin' Hf Hf'. simpl in Hf, Hf'.
     apply map.tuples_spec in Hin, Hin'.
-    destruct (inb R (program.concl_rels p)), (inb R (program.concl_rels p')); congruence.
+    destruct (inb R (program.normal_concl_rels p)), (inb R (program.normal_concl_rels p'));
+      congruence.
   Qed.
 
   Lemma node_sends_concl_rels k p R :
-    map.get graph_prog k = Some p -> In R (program.concl_rels p) -> In (node_source k) (R_senders R).
+    map.get graph_prog k = Some p ->
+    In R (program.normal_concl_rels p) ->
+    In (node_source k) (R_senders R).
   Proof.
     intros Hget HR. cbv [R_senders].
-    pose proof (Hp_good _ _ Hget) as HF. rewrite Forall_forall in HF. rewrite HF by assumption.
+    pose proof (Hp_good _ _ Hget) as HF. rewrite Forall_forall in HF.
+    rewrite HF by (apply program.normal_concl_rel_concl; assumption).
     apply in_filter_map. exists (k, p). split; [apply map.tuples_spec; assumption|].
-    simpl. destr (inb R (program.concl_rels p)); [reflexivity | contradiction].
+    simpl. rewrite_true (inb _ _) by assumption. reflexivity.
+  Qed.
+
+  Lemma node_sends_concl_rels_inv k p R :
+    map.get graph_prog k = Some p ->
+    In (node_source k) (R_senders R) ->
+    In R (program.normal_concl_rels p).
+  Proof.
+    intros Hget Hin. cbv [R_senders] in Hin. destruct (is_input R).
+    - destruct Hin as [Heq | []]. discriminate.
+    - apply in_filter_map in Hin. destruct Hin as ([n p'] & Htup & Hin).
+      apply map.tuples_spec in Htup.
+      destruct (inb _ _) eqn:E in Hin; [invert Hin | discriminate].
+      rewrite Hget in Htup. invert Htup. apply inb_true_iff. exact E.
   Qed.
 
   Abbreviation claim := (node.claim R_senders).
@@ -89,7 +105,7 @@ Section Distributed.
     (forall pat src cnt,
        In (message.done_with pat src cnt) fs ->
        n = src /\ Existsn_le (message.matches pat) cnt fs) /\
-    (forall f, In f fs -> In n (R_senders (message.rel f))).
+    (forall nf, In (message.normal nf) fs -> In n (R_senders nf.(normal_fact.rel))).
 
   Lemma claim_output_mono pat n ms1 ms2 :
     claim_output pat n ms1 -> incl_mod message.equiv ms1 ms2 -> claim_output pat n ms2.
@@ -129,8 +145,8 @@ Section Distributed.
     Forall (fun f => ~ message.matches pat f) ms.
   Proof.
     intros HF Hget Hnin. apply Forall_forall. intros f Hf Hmatch. apply Hnin.
-    destruct (HF _ _ Hget) as (_ & Hsend). specialize (Hsend _ Hf).
-    destruct f as [nf |]; [| destruct Hmatch]. destruct Hmatch as (Hrel & _). rewrite Hrel. exact Hsend.
+    destruct f as [nf |]; [| destruct Hmatch]. destruct (HF _ _ Hget) as (_ & Hsend).
+    destruct Hmatch as (Hrel & _). rewrite Hrel. exact (Hsend _ Hf).
   Qed.
 
   (* the claim's per-sender expected counts (absent senders count 0) *)
@@ -232,6 +248,9 @@ Section Distributed.
   Definition initial_graph_state :=
     {| graph_nodes := initial_graph_nodes; graph_output_queue := @nil message |}.
 
+  Definition initial_graph_state_with (inputs : list message) :=
+    forward_to (forward input_source) inputs initial_graph_state.
+
   Lemma initial_graph_state_get n gns :
     map.get initial_graph_state.(graph_nodes) n = Some gns ->
     exists np, map.get graph_prog n = Some np /\ gns = graph_node_init.
@@ -265,9 +284,10 @@ Section Distributed.
       + intros pat src cnt Hin. apply filter_In in Hin. destruct Hin as (Hin_sent & _).
         specialize (Hsrc _ _ _ Hin_sent). subst. split; [reflexivity|].
         apply Existsn_le_filter. eapply Existsn_le_of_Existsn; [eauto | lia].
-      + intros f Hin. apply filter_In in Hin. destruct Hin as (Hin_sent & _).
+      + intros nf Hin. apply filter_In in Hin. destruct Hin as (Hin_sent & _).
         eapply node.sent_rel_sender; [| exact Hstar | exact Hin_sent].
-        intros ? ? Hcd. apply node.can_deduce_concl_rel in Hcd. eauto using node_sends_concl_rels.
+        intros ? ? Hcd. apply node.can_deduce_normal_concl_rel in Hcd.
+        eauto using node_sends_concl_rels.
     - intros pat Hclaim Hn. cbv [claim_output consistent_output] in *. specialize (Hclaim Hn). fwd.
       exists cnt. split; [assumption|]. apply filter_In in Hclaim. destruct Hclaim as (Hsent & Hfwd).
       apply Existsn_ge_filter.

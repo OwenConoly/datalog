@@ -1,6 +1,6 @@
 From Stdlib Require Import List Lia Permutation Classical_Prop RelationClasses.
-From Datalog Require Import List Datalog Smallstep Tactics Graph.
-From coqutil Require Import Map.Interface.
+From Datalog Require Import List Datalog Smallstep Tactics Graph Decidable.
+From coqutil Require Import Map.Interface Eqb.
 From coqutil Require Import Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
 Import ListNotations.
 
@@ -65,6 +65,22 @@ Module message.
       | done_with _ _ _ => False
       end.
 
+    Definition matchesb (pat : fact_pattern) (f : message) :=
+      match f with
+      | normal nf => fact_pattern.matchesb pat nf
+      | done_with _ _ _ => false
+      end.
+
+    #[global] Instance matchesb_spec pat f :
+      Reflects (matches pat f) (matchesb pat f).
+    Proof. destruct f; cbn [matches matchesb]; [exact _ | constructor; auto]. Qed.
+
+    Lemma Existsn_matches_filter_map_as_normal pat n l :
+      Existsn (matches pat) n l <-> Existsn (fact_pattern.matches pat) n (filter_map as_normal l).
+    Proof.
+      apply Existsn_filter_map. intros [nf | ]; simpl; split; intros; fwd; (eauto || contradiction || discriminate).
+    Qed.
+
     Definition equiv (f1 f2 : message) :=
       match f1, f2 with
       | done_with p1 s1 _, done_with p2 s2 _ => p1 = p2 /\ s1 = s2
@@ -91,7 +107,7 @@ Module state.
   Section __.
     Context `{params : datalog_params} {sender_label : sender_labelT}.
 
-    Record state :=
+    Record state := mk
       { known : list message;
         sent : list message }.
 
@@ -248,6 +264,19 @@ Section __.
     pose proof (Existsn_ge_of_Existsn _ _ _ Hex num (le_n num)) as Hge_small.
     pose proof (Existsn_ge_app _ _ _ _ _ Hge_small (Existsn_ge_1 _ _ _ Hx Hmatch)) as Hge_app.
     pose proof (Existsn_ge_le_bound _ _ _ _ Hge_app Hle). lia.
+  Qed.
+
+  Lemma knows_fact_perm l1 l2 f :
+    knows_fact l1 f -> Permutation l1 l2 -> knows_fact l2 f.
+  Proof.
+    intros Hk Hperm. destruct f as [nf | mf]; cbv [knows_fact knows_normal_fact] in *.
+    - eapply Permutation_in; eassumption.
+    - destruct Hk as (num & (msgss & Hdone & ->) & Hcnt & Hcons). exists (list_sum msgss). ssplit.
+      + exists msgss. split; [| reflexivity].
+        eapply Forall2_impl; [exact Hdone|]. intros. eapply Permutation_in; eassumption.
+      + eapply Existsn_perm; eassumption.
+      + eapply meta_fact.consistent_with_ext; [exact Hcons|]. intros nf _.
+        split; apply Permutation_in; auto using Permutation_sym.
   Qed.
 
   Lemma knows_fact_submultiset l1 l2 h :
@@ -721,32 +750,27 @@ Section __.
       + exact (IH _ _ Hin).
   Qed.
 
-  Lemma can_deduce_concl_rel ns m :
-    can_deduce ns m -> In (message.rel m) (program.concl_rels p).
+  Lemma can_deduce_normal_concl_rel ns nf :
+    can_deduce ns (message.normal nf) -> In nf.(normal_fact.rel) (program.normal_concl_rels p).
   Proof.
-    destruct m as [nf | pat src num]; cbn [can_deduce message.rel].
-    - intros (Hex & _). apply Exists_exists in Hex.
-      destruct Hex as (r & Hr & hyps & Hri & _).
-      eapply program.rule_concl_rel_in; eauto using rule.interp_concl_relname_in.
-    - intros (_ & Hex & _). apply Exists_exists in Hex.
-      destruct Hex as (mr & Hmr & mhyps & Hpi & _).
-      eapply program.meta_rule_concl_rel_in;
-        eauto using meta_rule.pattern_interp_concl_relname_in.
+    cbn [can_deduce]. intros (Hex & _). apply Exists_exists in Hex.
+    destruct Hex as (r & Hr & hyps & Hri & _).
+    eapply program.rule_normal_concl_rel_in; eauto using rule.interp_concl_relname_in.
   Qed.
 
   Lemma sent_rel_sender t s :
-    (forall s0 f, can_deduce s0 f -> In name (R_senders (message.rel f))) ->
+    (forall s0 nf, can_deduce s0 (message.normal nf) -> In name (R_senders nf.(normal_fact.rel))) ->
     star step init t s ->
-    forall f, In f s.(state.sent) -> In name (R_senders (message.rel f)).
+    forall nf, In (message.normal nf) s.(state.sent) -> In name (R_senders nf.(normal_fact.rel)).
   Proof.
     intros Hsend Hstar.
-    induction Hstar as [| t0 s' e s'' Hstar IH Hstep]; intros f Hin.
+    induction Hstar as [| t0 s' e s'' Hstar IH Hstep]; intros nf Hin.
     - destruct Hin.
     - invert Hstep; cbn [state.sent] in Hin.
       + destruct Hin as [Hhead | Hin_old].
-        * subst output. exact (Hsend s' f H).
-        * exact (IH f Hin_old).
-      + exact (IH f Hin).
+        * subst output. exact (Hsend s' nf H).
+        * exact (IH nf Hin_old).
+      + exact (IH nf Hin).
   Qed.
 
   Lemma reachable_good t s :

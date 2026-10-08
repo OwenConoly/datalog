@@ -234,12 +234,21 @@ Section subset.
   Definition inclb (l1 l2 : list A) :=
     forallb (fun x => inb x l2) l1.
 
+  #[global] Typeclasses Opaque inclb.
+
   Lemma inclb_incl l1 l2 :
     inclb l1 l2 = true <-> incl l1 l2.
   Proof.
     cbv [inclb]. rewrite forallb_forall. split.
     - intros H a Ha. apply H in Ha. apply inb_true_iff in Ha. exact Ha.
     - intros H x Hx. apply inb_true_iff. apply H. exact Hx.
+  Qed.
+
+  #[global] Instance inclb_spec l1 l2 : BoolSpec (incl l1 l2) (~ incl l1 l2) (inclb l1 l2).
+  Proof.
+    destruct (inclb l1 l2) eqn:E; constructor.
+    - apply inclb_incl. exact E.
+    - intros Hincl. apply inclb_incl in Hincl. congruence.
   Qed.
 
   Lemma incl_app_app (x1 : list A) y1 x2 y2 :
@@ -645,8 +654,7 @@ Section SenderCount.
     rewrite (list_sum_map_filter_zero f (fun k => inb k sub) sup).
     - apply Permutation_list_sum, Permutation_map, Permutation_filter_mem; assumption.
     - intros x _ Hg. apply Hz. intros Hin.
-      assert (inb x sub = true) by (apply inb_true_iff; exact Hin).
-      congruence.
+      rewrite_true (inb _ _) in Hg by exact Hin. discriminate.
   Qed.
 End SenderCount.
 
@@ -968,6 +976,14 @@ Fixpoint combine3 {A B C} (la : list A) (lb : list B) (lc : list C) : list (A * 
   | a :: la', b :: lb', c :: lc' => (a, b, c) :: combine3 la' lb' lc'
   | _, _, _ => []
   end.
+
+Fixpoint picks {A} (l : list A) : list (A * list A) :=
+  match l with
+  | [] => []
+  | x :: l' => (x, l') :: map (fun '(y, rest) => (y, x :: rest)) (picks l')
+  end.
+
+Definition option_to_list {X} (x : option X) := match x with | None => [] | Some x' => [x'] end.
 
 (*copied from https://velus.inria.fr/emsoft2021/html/Velus.Common.CommonList.html*)
 Section Forall3.
@@ -1341,6 +1357,11 @@ Section Existsn.
     - eauto.
   Qed.
 
+  Lemma Existsn_flat_map {A} (f : A -> list T) xs cs :
+    Forall2 (fun x c => Existsn c (f x)) xs cs ->
+    Existsn (list_sum cs) (flat_map f xs).
+  Proof. induction 1; simpl; [constructor | apply Existsn_app; assumption]. Qed.
+
   Lemma Existsn_0_Forall_not l :
     Existsn 0 l ->
     Forall (fun x => ~P x) l.
@@ -1367,6 +1388,14 @@ Section Existsn.
     - destruct IH as (n & Hn). destruct (classic (P x)).
       + exists (S n). apply Existsn_yes; assumption.
       + exists n. apply Existsn_no; assumption.
+  Qed.
+
+  Lemma Existsn_length_filter (f : T -> bool) l :
+    (forall x, Reflects (P x) (f x)) ->
+    Existsn (length (filter f l)) l.
+  Proof.
+    intros Hf. induction l as [| x l IH]; simpl; [constructor|].
+    destruct (Hf x); simpl; auto.
   Qed.
 
   Inductive Existsn_ge : nat -> list T -> Prop :=
@@ -2029,6 +2058,28 @@ Section misc.
     if x then true else false.
 End misc.
 
+Lemma flat_map_singleton {A} (l : list A) : flat_map (fun x => [x]) l = l.
+Proof. induction l; cbn; congruence. Qed.
+
+Lemma Existsn_flat_map_incl {A T} (P : T -> Prop) (f : A -> list T) l1 l2 cs :
+  NoDup l1 -> NoDup l2 -> incl l1 l2 ->
+  Forall2 (fun x c => Existsn P c (f x)) l1 cs ->
+  (forall x, In x l2 -> ~ In x l1 -> Existsn P 0 (f x)) ->
+  Existsn P (list_sum cs) (flat_map f l2).
+Proof.
+  intros Hnd1 Hnd2 Hincl HF Hrest.
+  destruct (NoDup_incl_Permutation _ _ Hnd1 Hincl) as (rest & Hperm).
+  eapply Existsn_perm; [| apply Permutation_sym, Permutation_flat_map; exact Hperm].
+  rewrite flat_map_app, <- (Nat.add_0_r (list_sum cs)).
+  apply Existsn_app; [apply Existsn_flat_map; assumption|].
+  pose proof (NoDup_app_disjoint_lists _ _ (Permutation_NoDup Hperm Hnd2)) as Hdisj.
+  assert (Hzero : Forall (fun x => Existsn P 0 (f x)) rest).
+  { apply Forall_forall. intros x Hx. apply Hrest.
+    - eapply Permutation_in; [symmetry; exact Hperm|]. apply in_or_app. auto.
+    - intros Hx1. eapply Hdisj; eassumption. }
+  clear -Hzero. induction Hzero; simpl; [constructor|]. apply (Existsn_app _ 0 0); assumption.
+Qed.
+
 Lemma NoDup_flat_map_inj {A B} (f : A -> list B) l a1 a2 b :
   NoDup (flat_map f l) -> In a1 l -> In a2 l -> In b (f a1) -> In b (f a2) -> a1 = a2.
 Proof.
@@ -2609,16 +2660,6 @@ Proof.
   congruence.
 Qed.
 
-#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) := list_eqb aeqb.
-#[global] Typeclasses Opaque list_eqb.
-
-#[global] Instance list_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
-  : Eqb_ok (list_eqb (aeqb := aeqb)).
-Proof.
-  intros x y. cbv [eqb list_eqb]. pose proof (List.list_eqb_spec x y) as H.
-  cbv [eqb] in H. destruct H; assumption.
-Qed.
-
 Fixpoint nodupb {T : Type} {eqb : Eqb T} (l : list T) :=
   match l with
   | x :: l' => if inb x l' then false else nodupb l'
@@ -2723,3 +2764,18 @@ Qed.
 #[export] Instance In_same_set_Proper A :
   Proper (eq ==> same_set ==> iff) (@In A).
 Proof. intros x y -> l1 l2 Hs. apply Hs. Qed.
+
+#[export] Instance same_set_Equivalence A : Equivalence (@same_set A).
+Proof.
+  split.
+  - intros l x. reflexivity.
+  - intros l1 l2 H x. symmetry. apply H.
+  - intros l1 l2 l3 H1 H2 x. rewrite (H1 x). apply H2.
+Qed.
+
+Lemma same_set_cons_in {A} (x : A) l :
+  In x l -> same_set (x :: l) l.
+Proof. intros Hin y. simpl. intuition congruence. Qed.
+
+(*TODO where to put things like this?  also, Arguments does not support export*)
+#[global] Arguments hd_error {A} l.
