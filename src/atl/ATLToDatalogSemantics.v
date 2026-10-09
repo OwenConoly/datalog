@@ -101,6 +101,12 @@ Variant fn : fnT :=
 
 #[local] Existing Instance fn.
 
+(*
+
+for some reasont this stuff isn't making it into atl to datalog, and it causes erros when i try to commment it 
+out in atltodatalog, so i've decided it will just be here 
+
+
 Axiom (aggregator : aggregatorT).
 Goal aggregatorT. Fail typeclasses eauto. Abort.
 #[local] Existing Instance aggregator.
@@ -269,3 +275,4 @@ Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var) n) : pATLexpr' (var) n :=
   | ATLPhoas.Get _ _ | ATLPhoas.SBop _ _ _ | ATLPhoas.SIZR _ => Scalar (stringvar_S e)
 end.
 End __.
+*)

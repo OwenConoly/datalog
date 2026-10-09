@@ -8,99 +8,23 @@ From Stdlib Require Import Program.Equality.
 From ATL Require Import ATL Div Common.
 
 From Datalog Require Import Datalog Tactics Blocks.
-From Inferpad Require Import ATLPhoas TensorToResult.
 
 From coqutil Require Import Map.Interface Map.Properties Tactics.
-
 From Datalog Require Import ATLToDatalogSemantics.
 
-Locate ATLToDatalogSemantics.
-Locate ATLUtils.
+From Inferpad Require Import ATLPhoas TensorToResult.
+
+
 
 Import ListNotations.
 
 (*source language syntax*)
-Print pATLexpr.
+Print pATLexpr'.
 (*source language semantics*)
 Print result_of_pATLexpr.
 (*some property that valid source programs should probably (?) have*)
 Print sound_sizeof.
-
-Fixpoint pZexpr_no_vars {var} (e : pZexpr var) : Prop :=
-  match e with
-  | ZBop _ x y => pZexpr_no_vars x /\ pZexpr_no_vars y
-  | ZVar _ => False
-  | ZZ0 | ZZpos _ | ZZneg _ | ZZ_of_nat _ => True
-  | ZZopp x => pZexpr_no_vars x
-  end.
-
-
-Fixpoint stringvar_S_ok {var} (e : pATLexpr var 0) : Prop :=
-  match e with
-  | ATLPhoas.SBop _ x y => stringvar_S_ok x /\ stringvar_S_ok y
-  | ATLPhoas.SIZR _ => True
-  | ATLPhoas.Get _ _ => True
-  | _ => False
-  end.
-
-Fixpoint sizeof_prop {var n} (sizeof_var : var tZ -> option Z) (e : pATLexpr var n) (sz : list nat) : Prop :=
-  let sizeof_prop := fun {n} => @sizeof_prop var n sizeof_var in
-  match e with
-  | Gen lo hi body =>
-      exists lo' hi' sz',
-      sizeof_pZexpr sizeof_var lo = Some lo' /\
-        sizeof_pZexpr sizeof_var hi = Some hi' /\
-        let n := Z.to_nat (hi' - lo') in
-        sz = n :: sz' /\ 0 < n /\ forall x, sizeof_prop (body x) sz'
-  | Sum lo hi body =>
-      forall x, sizeof_prop (body x) sz
-  | Guard p body =>
-      sizeof_prop body sz
-  | Lbind e1 e2 =>
-      exists sz',
-      sizeof_prop e1 sz' /\ forall x, sizeof_prop (e2 x) sz
-  | Concat x y =>
-      exists nx ny sz',
-      sizeof_prop x (nx :: sz') /\ sizeof_prop y (ny :: sz') /\ sz = (nx + ny :: sz')
-  | Flatten e =>
-      exists a b sz',
-      sizeof_prop e (a :: b :: sz') /\ sz = a * b :: sz'
-  | Split k e =>
-      exists a sz' k',
-      sizeof_prop e (a :: sz') /\
-        sizeof_pZexpr sizeof_var k = Some k' /\
-        0 < Z.to_nat k' /\
-        sz = a //n (Z.to_nat k') :: Z.to_nat k' :: sz'
-  | Transpose e =>
-      exists a b sz',
-      sizeof_prop e (a :: b :: sz') /\ sz = b :: a :: sz'
-  | Truncr n e | Truncl n e =>
-                   exists m sz' n',
-                   sizeof_prop e (m :: sz') /\
-                     sizeof_pZexpr sizeof_var n = Some n' /\
-                     Z.to_nat n' < m /\ sz = m - Z.to_nat n' :: sz'
-  | Padr n e =>
-      exists m sz' n',
-      sizeof_prop e (m :: sz') /\
-        sizeof_pZexpr sizeof_var n = Some n' /\
-        sz = m + Z.to_nat n' :: sz'
-  | Padl n e =>
-      exists m sz' n',
-      sizeof_prop e (m :: sz') /\
-        sizeof_pZexpr sizeof_var n = Some n' /\
-        sz = (Z.to_nat n' + m :: sz')
-  | @Var _ n _ => sz = [] /\ n = O
-  | @Get _ n v idxs =>
-      length idxs = n /\ sz = [] /\
-        match v with
-        | Var _ => True
-        | _ => False
-        end
-  | SBop _ x y =>
-    sz = [] /\ sizeof_prop x [] /\ sizeof_prop y [] /\
-    stringvar_S_ok x /\ stringvar_S_ok y
-  | SIZR x => sz = [] /\ pZexpr_no_vars x
-  end.
+Locate pZexpr.
 
 (*target language syntax*)
 Print blocks_prog.
@@ -116,11 +40,9 @@ Definition example_pATLexpr {var} : pATLexpr var 1 :=
 (*TODO fill these in*)
 #[local] Instance lrel : lrelT := nat.
 #[local] Instance exprvar : exprvarT := nat.
-
-(* should i be seperating these definitions into more variants like in the previous compiler?
+(*should i be seperating these definitions into more variants like in the previous compiler?
 cause everything in the language is purely defined as fn, so maybe it wouldn't work, but
-having every fn term be uner the fn variant might be messy when it comes to interpreting them with return variables?? *)
-Variant fn : fnT :=
+having every fn term be uner the fn variant might be messy when it comes to interpreting them with return variables?? *)Variant fn : fnT :=
   fn_Add | fn_Sub | fn_Divf | fn_Divc | fn_Mul | fn_Mod | fn_Nat | fn_Opp
   | fn_Lit (x : Z) | fn_Lt | fn_Le | fn_And | fn_Not | fn_Div | fn_Eq.
 
@@ -130,13 +52,14 @@ Axiom (aggregator : aggregatorT).
 Goal aggregatorT. Fail typeclasses eauto. Abort.
 #[local] Existing Instance aggregator.
 
+
 Definition var_of (var : Type) (t : type) : Type :=
   match t with
   | tZ => nat (*or exprvar, or something countably infinite...*)
   | tB => unit (*shouldn't matter what is here?*)
   | tensor_n n => var * nat (* this is what you meant by redefining var_of to tag with the depth right? *)
   end.
-
+  
 Section __.
 Context {str_nat : map.map string nat} {str_nat_ok : map.ok str_nat}.
 
@@ -831,6 +754,30 @@ Definition dummy (t : type) : interp_type_tagged t :=
   | tensor_n n => dummy_tensor n
   end.
 
+(* helper lemma for stringvar_s_works because the induction was nested so it was messy *)
+Lemma stringvar_ZLit_equals_interp_pZexpr (p : pZexpr (interp_type_tagged tZ)) :
+  stringvar_S_ok (SIZR p) ->
+  pZexpr_no_vars p ->
+  stringvar_ZLit p = interp_pZexpr p.
+Proof.
+intros H1 H2.
+induction p; simpl in H1.
+- destruct H2 as [H21 H22]. simpl. f_equal.
+  * apply IHp1.
+    { simpl. exact I. }
+    { apply H21. }
+  * apply IHp2.
+    { simpl. exact I. }
+    { apply H22. } 
+- contradiction.
+- simpl. reflexivity.
+- simpl. reflexivity.
+- simpl. reflexivity.
+- simpl. reflexivity.
+- simpl. f_equal. apply IHp.
+  * simpl. exact I.
+  * apply H2.
+Qed.
 
 Lemma stringvar_S_works (e : pATLexpr interp_type_tagged 0) sz :
   stringvar_S_ok e ->
@@ -855,23 +802,9 @@ dependent induction e.
     simpl in H1. apply H1.
 - simpl. f_equal.
   destruct H2 as [Hsz Hnv].
-  induction p; simpl in Hnv.
-  * destruct Hnv as [Hnv1 Hnv2].
-    simpl. f_equal.
-    + apply IHp1.
-      { simpl. simpl in H1. exact H1. }
-      { exact Hnv1. }
-    + apply IHp2.
-      { simpl. simpl in H1. exact H1. }
-      { exact Hnv2. }
-  * contradiction.
-  * simpl. reflexivity.
-  * simpl. reflexivity.
-  * simpl. reflexivity.
-  * simpl. reflexivity.
-  * simpl. f_equal. apply IHp.
-    + simpl. simpl in H1. apply H1.
-    + apply Hnv.
+  apply stringvar_ZLit_equals_interp_pZexpr.
+  * apply H1.
+  * apply Hnv.
 Qed.
 
 
@@ -1168,4 +1101,3 @@ Proof.
          reflexivity.
       -- admit.*)
 Admitted.
-End __.
