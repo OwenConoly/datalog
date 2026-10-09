@@ -914,6 +914,19 @@ Module rule.
       - intros x Hx. apply Hiff. assumption.
       - intros x Hx. apply Hiff. assumption.
     Qed.
+
+    Lemma is_bottomup_concl_vars_bound rule_concls rule_hyps c (x : exprvar) :
+      is_bottomup (impl rule_concls rule_hyps) ->
+      In c rule_concls ->
+      In x (clause.vars c) ->
+      In x (flat_map clause.vars rule_hyps).
+    Proof.
+      cbv [is_bottomup all_vars concl_vars hyp_vars hyp_args]. intros Hbu Hc Hx.
+      especialize Hbu.
+      { apply in_or_app. left. apply in_flat_map. eauto. }
+      apply in_flat_map in Hbu. fwd. apply in_flat_map. eexists. split; [eassumption|].
+      cbv [clause.vars]. apply in_flat_map. eexists. split; [eassumption|]. simpl. auto.
+    Qed.
   End __.
   Scheme Boolean Equality for rule.
 
