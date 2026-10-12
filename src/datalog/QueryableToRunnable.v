@@ -21,7 +21,7 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 Import ListNotations.
 
 Section Transform.
-  Context `{params : datalog_params}.
+  Context `{params : datalog_params} `{query_sig : query_signature rel}.
 
   Local Abbreviation rule' := (rule (_rel := rel * bool)).
   Local Abbreviation clause' := (clause (relt := rel * bool)).
@@ -35,14 +35,14 @@ Section Transform.
       rule.interp r2 (normal_fact.mk R args2) hyps2 ->
       Forall (program.interp p Q) hyps1 ->
       Forall (program.interp p Q) hyps2 ->
-      skipn (outs R) args1 = skipn (outs R) args2 ->
+      query_inputs R args1 = query_inputs R args2 ->
       args1 = args2.
 
-  Lemma agree_weaken p1 p2 r1 r2 :
-    agree p1 r1 r2 ->
-    incl p2 p1 ->
-    agree p2 r1 r2.
-  Proof. cbv [agree]. eauto 6 using Forall_impl, prog_impl_fact_subset. Qed.
+  (* Lemma agree_weaken Q p1 p2 r1 r2 : *)
+  (*   agree Q p1 r1 r2 -> *)
+  (*   False -> *)
+  (*   agree Q p2 r1 r2. *)
+  (* Proof. contradiction. Qed. *)
 
   Definition pairs_satisfy {X : Type} (P : X -> X -> Prop) (l : list X) :=
     forall x1 x2, In x1 l -> In x2 l -> x1 = x2 \/ P x1 x2.
@@ -57,14 +57,14 @@ Section Transform.
     specialize (H1 x y ltac:(eauto) ltac:(eauto)). destruct H1; auto.
   Qed.
 
-  Definition functional (p : list rule) :=
+  Definition functional (p : program) Q :=
     forall args1 args2 R,
-      prog_impl_fact p (R, args1) ->
-      prog_impl_fact p (R, args2) ->
-      skipn (outs R) args1 = skipn (outs R) args2 ->
+      program.interp p Q (fact.normal (normal_fact.mk R args1)) ->
+      program.interp p Q (fact.normal (normal_fact.mk R args1)) ->
+      query_inputs R args1 = query_inputs R args2 ->
       args1 = args2.
 
-  Hint Resolve pairs_satisfy_weaken agree_weaken : core.
+  Hint Resolve pairs_satisfy_weaken (*agree_weaken*) : core.
 
   Lemma hyp_ins_det' ctx (r : rule) R (args : list T) hyps ahyps :
     goodish_rule r ->
