@@ -8,112 +8,33 @@ From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
 
-From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
-
 From Stdlib Require Import Wellfounded.Inclusion.
 From Stdlib Require Import Wellfounded Wellfounded.Wellfounded Wellfounded.Transitive_Closure.
 From Stdlib Require Import Wellfounded.Inverse_Image.
 From Stdlib Require Import Relations.Relation_Definitions.
 
-From Datalog Require Import Datalog Map Tactics Fp List Interpreter.
+From Datalog Require Import Datalog Map Tactics Fp List Interpreter Pftree.
 From GraphSearch Require Import Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
 Import ListNotations.
 
-Section relmap.
-  Context {rel1 rel2 var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T}.
-  Context (g : rel1 -> rel2).
-  Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
-
-  Definition fact_relmap (f : fact rel1 var fn) :=
-    {| fact_R := g f.(fact_R); fact_args := f.(fact_args) |}.
-
-  Definition fact'_relmap (f' : rel1 * list T) :=
-    let (R, args) := f' in (g R, args).
-
-  Definition agg_expr_relmap (ae : agg_expr rel1 var fn aggregator) :=
-    {| agg_agg := ae.(agg_agg); agg_i := ae.(agg_i); agg_vs := ae.(agg_vs);
-                                     agg_s := ae.(agg_s);
-                                     agg_body := ae.(agg_body);
-                                     agg_hyps := map fact_relmap ae.(agg_hyps) |}.
-
-  Lemma vars_of_fact_relmap f :
-    vars_of_fact (fact_relmap f) = vars_of_fact f.
-  Proof. reflexivity. Qed.
-
-  Lemma good_agg_expr_relmap ae :
-    good_agg_expr ae ->
-    good_agg_expr (agg_expr_relmap ae).
-  Proof.
-    cbv [good_agg_expr]. intros H. eapply Forall_impl; [|eassumption]. simpl.
-    intros. rewrite flat_map_map. simpl. apply H0.
-  Qed.
-
-  Lemma appears_in_agg_expr_with_bool v ae :
-    appears_in_agg_expr v (agg_expr_relmap ae) ->
-    appears_in_agg_expr v ae.
-  Proof.
-    destruct ae. cbv [agg_expr_relmap appears_in_agg_expr]. simpl.
-    rewrite flat_map_map. erewrite flat_map_ext.
-    2: { intros x. rewrite vars_of_fact_relmap. reflexivity. }
-    auto.
-  Qed.
-
-  Lemma interp_fact_relmap ctx f f' :
-    interp_fact ctx f f' ->
-    interp_fact ctx (fact_relmap f) (fact'_relmap f').
-  Proof. intros H. invert H. constructor. simpl. assumption. Qed.
-
-  Hint Resolve interp_fact_relmap : core.
-  Hint Constructors Forall3 : core.
-  
-  Lemma interp_agg_expr_relmap ctx (aexpr : agg_expr rel1 var fn aggregator) res' agg_hyps' :
-    interp_agg_expr ctx aexpr res' agg_hyps' ->
-    interp_agg_expr ctx (agg_expr_relmap aexpr) res' (map (map fact'_relmap) agg_hyps').
-  Proof.
-    intros H. invert H. cbv [agg_expr_relmap]. simpl.
-    econstructor; eauto.
-    erewrite <- Forall3_map3. eapply Forall3_impl; [|eassumption].
-    simpl. intros. fwd. do 2 eexists. intuition eauto.
-    rewrite <- Forall2_map_l. erewrite <- Forall2_map_r.
-    eapply Forall2_impl; [eassumption|]. intros. apply interp_fact_relmap.
-    eassumption.
-  Qed.
-
-  Lemma interp_facts_relmap hyps hyps' ctx :
-    Forall2 (interp_fact ctx) hyps hyps' ->
-    map fact_R hyps = map fst hyps' /\
-      Forall2 (interp_fact ctx) (map fact_relmap hyps) (map fact'_relmap hyps').
-  Proof. induction 1; simpl; fwd; intuition eauto. invert H. simpl. f_equal; auto. Qed.  
-End relmap.
-
 Section Transform.
-  Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
-  Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec :  forall x0 y0, BoolSpec (x0 = y0) (x0 <> y0) (rel_eqb x0 y0)}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}. 
+  Context `{params : datalog_params}.
 
-  Local Notation rule' := (rule (rel*bool) var fn aggregator).
-  Local Notation rule := (rule rel var fn aggregator).
-  Local Notation fact' := (@fact (rel*bool) var fn).
-  Local Notation fact := (@fact rel var fn).
-  Local Notation agg_expr' := (agg_expr (rel * bool) var fn aggregator).
-  Local Notation agg_expr := (agg_expr rel var fn aggregator).
-  
-  Notation plus_false := (fun x => (x, false)).
-  Notation plus_true := (fun x => (x, true)).
+  Local Abbreviation rule' := (rule (_rel := rel * bool)).
+  Local Abbreviation clause' := (clause (relt := rel * bool)).
 
-  Definition agree (p : list rule) (r1 r2 : rule) :=
-    forall R args1 args2 hyps1 hyps2,
-      rule_impl r1 (R, args1) hyps1 ->
-      rule_impl r2 (R, args2) hyps2 ->
-      Forall (prog_impl_fact p) hyps1 ->
-      Forall (prog_impl_fact p) hyps2 ->
+  Local Abbreviation plus_false := (fun x => (x, false)).
+  Local Abbreviation plus_true := (fun x => (x, true)).
+
+  Definition agree Q (p : program) (r1 r2 : rule) :=
+    forall R (args1 args2 : list value) hyps1 hyps2,
+      rule.interp r1 (normal_fact.mk R args1) hyps1 ->
+      rule.interp r2 (normal_fact.mk R args2) hyps2 ->
+      Forall (program.interp p Q) hyps1 ->
+      Forall (program.interp p Q) hyps2 ->
       skipn (outs R) args1 = skipn (outs R) args2 ->
       args1 = args2.
 
@@ -121,7 +42,7 @@ Section Transform.
     agree p1 r1 r2 ->
     incl p2 p1 ->
     agree p2 r1 r2.
-  Proof. cbv [agree]. eauto 6 using Forall_impl, prog_impl_fact_subset. Qed.    
+  Proof. cbv [agree]. eauto 6 using Forall_impl, prog_impl_fact_subset. Qed.
 
   Definition pairs_satisfy {X : Type} (P : X -> X -> Prop) (l : list X) :=
     forall x1 x2, In x1 l -> In x2 l -> x1 = x2 \/ P x1 x2.
@@ -142,7 +63,7 @@ Section Transform.
       prog_impl_fact p (R, args2) ->
       skipn (outs R) args1 = skipn (outs R) args2 ->
       args1 = args2.
-  
+
   Hint Resolve pairs_satisfy_weaken agree_weaken : core.
 
   Lemma hyp_ins_det' ctx (r : rule) R (args : list T) hyps ahyps :
@@ -344,7 +265,7 @@ Section Transform.
     intros args1 args2 Hargs1 Hargs2 Hins.
     invert Hargs1. invert Hargs2.
     pose proof H as Hrel1. pose proof H4 as Hrel2.
-    apply rel_graph_spec in Hrel1, Hrel2. 
+    apply rel_graph_spec in Hrel1, Hrel2.
     cbv [pairs_satisfy] in H3. rewrite Exists_exists in *. fwd.
     match goal with
     | H1: _ , H2: _ |- _ => specialize (H3 _ _ H1 H2)
@@ -376,7 +297,7 @@ Section Transform.
     apply eval_rule_q_complete in Hp1p1, H4p1p1; auto.
     rewrite Hins in *. rewrite Hp1p1 in H4p1p1. invert_list_stuff.
     reflexivity.
-  Qed.      
+  Qed.
 
   Ltac t :=
     repeat match goal with
@@ -448,7 +369,7 @@ Section Transform.
     eapply wf_incl. 2: apply wf_inverse_image; apply dag_dag_alt; eassumption.
     intros x y Hxy. fwd. eassumption.
   Qed.
-  
+
   Lemma map_add_hyp_dag p :
     Forall (fun r : rule => exists concl : fact, rule_concls r = [concl]) p ->
     dag (rel_graph p) ->
@@ -497,7 +418,7 @@ Section Transform.
     rewrite <- rel_graph_app in H. apply in_map_iff in H. fwd. destruct x.
     apply map_request_hyps_incl in Hp1. simpl in *. fwd. subst. simpl in *. congruence.
   Qed.
-  
+
   Lemma incl_fact_ins (f : fact) :
     incl (fact_ins f) (fact_args f).
   Proof. apply incl_skipn. Qed.
@@ -542,7 +463,7 @@ Section Transform.
     - invert_list_stuff. eauto.
     - invert_list_stuff. eauto 8.
   Qed.
-  
+
   Lemma add_hyp_good r :
     goodish_rule r ->
     well_founded (depends_on_in_set_hyps (rule_set_hyps r)) ->
@@ -819,7 +740,7 @@ Section Transform.
   Proof.
     destruct ae. cbv [agg_expr_relmap]. simpl. rewrite map_map. reflexivity.
   Qed.
-  
+
   Lemma invert_rule_impl_add_hyp r R b args' hyps' :
     goodish_rule r ->
     rule_impl (add_hyp r) ((R, b), args') hyps' ->
@@ -885,7 +806,7 @@ Section Transform.
            erewrite <- Forall2_map_r. eapply Forall2_impl; [eassumption|]. simpl.
            intros. cbv [fact'_relmap fact_relmap] in H. simpl in H.
            destruct b as [[? ?] ?]; simpl in *. destruct a0. exact H.
-  Qed.      
+  Qed.
 
   Lemma request_hyps_hyps'_false r R b args hyps' :
     rule_impl (request_hyps r) (R, b, args) hyps' ->
@@ -998,7 +919,7 @@ Section Transform.
     apply split_fixpoint; auto. cbv [make_good]. intros r Hr.
     apply in_app_iff in Hr. destruct Hr as [Hr|Hr].
     - apply in_map_iff in Hr. fwd. rewrite <- split_fixpoint in H2 by auto.
-      specialize (H' _ _ _ ltac:(eauto) ltac:(eauto) ltac:(eauto)). 
+      specialize (H' _ _ _ ltac:(eauto) ltac:(eauto) ltac:(eauto)).
       rewrite <- split_fixpoint in H' by auto. simpl in *. intros. apply H'. tauto.
     - apply in_app_iff in Hr. destruct Hr as [Hr|Hr]; apply in_map_iff in Hr; fwd.
       + apply split_fixpoint; auto. rewrite <- split_fixpoint in H2 by auto.
@@ -1069,7 +990,7 @@ Section Transform.
 
   Lemma g_ext A B : equiv A B -> equiv (g A) (g B).
   Proof. cbv [equiv g]. intros H [P [R args]]. apply H. Qed.
-      
+
   Lemma phase_correct p :
     Forall good_index p ->
     Forall goodish_rule p ->
@@ -1080,7 +1001,7 @@ Section Transform.
     eapply equiv_trans.
     { apply equiv_symm. apply lfp_preimage; assumption. }
     apply equiv_symm. apply g_ext. apply prog_impl_fact_lfp.
-  Qed. 
+  Qed.
 
   Lemma source_impl_target p Q R args :
     Forall good_index p ->

@@ -178,6 +178,7 @@ Module normal_fact.
   Record normal_fact {relt : relT} {value : valueT} := mk
     { rel : relt;
       args : list value }.
+  Arguments mk {_ _} _ _.
   Scheme Boolean Equality for normal_fact.
   (*i don't actually want this to be global; i'd prefer to instead export it along with normal_fact.  but the Import/Export commands aren't granular enough for me to do that.*)
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@normal_fact _ _) :: prev ().
@@ -1640,8 +1641,8 @@ Module program.
     (* Qed. *)
 
   End __.
-  Abbreviation interp p := (pftree (interp_step p)).
-End program. Abbreviation program := program.program.
+  #[export] Abbreviation interp p := (pftree (interp_step p)).
+End program. Export (notations) program. Abbreviation program := program.program.
 
 #[export] Instance program_default `{relT} `{exprvarT} `{fnT} `{aggregatorT} : WithDefault program :=
   {| program.rules := []; program.meta_rules := [] |}.
