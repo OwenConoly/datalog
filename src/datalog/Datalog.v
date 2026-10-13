@@ -54,6 +54,10 @@ Module query.
   Section __.
     Context `{params : datalog_params} {qsig : signature}.
 
+    Definition arity R := length (sig R).
+    Definition num_inputs R := count_occ true (sig R).
+    Definition num_outputs R := count_occ false (sig R).
+
     Definition inputs {T} R (args : list T) := select (sig R) args.
     Definition outputs {T} R (args : list T) := select_not (sig R) args.
     Definition merge {T} R (ins outs : list T) := unselect (sig R) ins outs.

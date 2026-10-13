@@ -34,7 +34,7 @@ Section Transform.
   (*set _exprvar := nat,
     since we need to generate names but never need them to be distinct from source-program names
    *)
-  Context `{params : datalog_params (_exprvar := nat)} {query_sig : query.signature _}.
+  Context `{params : datalog_params (_exprvar := nat)} {query_sig : query.signature}.
   #[local] Instance nat_exprvar : exprvarT := nat.
   Context (arity : rel -> nat).
 
@@ -117,49 +117,28 @@ Section Transform.
     | rule.agg concl_rel _ hyp_rel =>
         rule.impl
           [{| clause.rel := query_rel.query hyp_rel;
-             clause.args := map expr.var (seq O (arity concl_rel - 1)) |}]
+             clause.args := map expr.var (seq O (query.num_inputs hyp_rel)) |}]
           [{| clause.rel := query_rel.query concl_rel;
-             clause.args := map expr.var (seq O (arity concl_rel - 1)) |}]
+             clause.args := map expr.var (seq O (query.num_inputs concl_rel)) |}]
 
-    end.
-
-  Definition noop_rule : rule' :=
-    {| rule_agg := None;
-      rule_hyps := [];
-      rule_concls := [];
-      rule_set_hyps := [] |}.
-
-  Definition request_agg_hyps (r : rule) : rule' :=
-    match r.(rule_agg) with
-    | Some (res, aexpr) =>
-        {| rule_agg := None;
-          rule_hyps := map (fact_relmap plus_false) (map with_only_ins r.(rule_concls));
-          rule_concls := map (fact_relmap plus_false) (map with_only_ins aexpr.(agg_hyps));
-          rule_set_hyps := [(var_expr aexpr.(agg_i), aexpr.(agg_s))] |}
-    | None => noop_rule
     end.
 
   (*add a hypothesis saying that the conclusion is something we need to compute*)
   (*note: this is fairly nonsensical (not semantically equivalent) if length r.(rule_concls) > 1*)
   Definition add_hyp (r : rule) : rule' :=
-    {| rule_agg := option_map (fun '(x, y) => (x, agg_expr_relmap plus_true y)) r.(rule_agg);
-      rule_hyps := map (fact_relmap plus_false) (map with_only_ins r.(rule_concls)) ++
-                     map (fact_relmap plus_true) r.(rule_hyps);
-      rule_concls := map (fact_relmap plus_true) r.(rule_concls);
-      rule_set_hyps := r.(rule_set_hyps) |}.
+    match r with
+    | rule.impl concls hyps =>
+        rule.impl
+          (map (clause.map_rel query_rel.response) concls)
+          (map (clause.map_rel query_rel.query) (map clause.with_only_inputs concls) ++
+             map (clause.map_rel query_rel.query) hyps)
+    | rule.agg concl_rel o hyp_rel =>
+        rule.agg (query_rel.response concl_rel) o (query_rel.response hyp_rel)
+    end.
 
   (*semanticallly equivalent if each rule has concl length at most 1*)
   Definition make_good (p : list rule) : list rule' :=
-    map add_hyp p ++ map request_hyps p ++ map request_agg_hyps p.
-
-  Print goodish_rule.
-  Definition good_index (r : rule) :=
-    match r.(rule_agg) with
-    | None => True
-    | Some (_, aexpr) =>
-        ~In aexpr.(agg_i) (flat_map vars_of_expr (flat_map fact_ins r.(rule_concls))) /\
-          ~In aexpr.(agg_i) (flat_map vars_of_expr (flat_map fact_ins r.(rule_hyps)))
-    end.
+    map add_hyp p ++ map request_hyps p.
 
   Lemma ahyp_ins_det'1 ctx0 (r : rule) R (args : list T) hyps ahypss :
     goodish_rule r ->
