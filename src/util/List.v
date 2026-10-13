@@ -2777,5 +2777,11 @@ Lemma same_set_cons_in {A} (x : A) l :
   In x l -> same_set (x :: l) l.
 Proof. intros Hin y. simpl. intuition congruence. Qed.
 
+Definition select {A} (bs : list bool) (l : list A) :=
+  filter_map (fun '(b, x) => if (b : bool) then Some x else None) (combine bs l).
+
+Definition select_not {A} (bs : list bool) (l : list A) :=
+  filter_map (fun '(b, x) => if negb b then Some x else None) (combine bs l).
+
 (*TODO where to put things like this?  also, Arguments does not support export*)
 #[global] Arguments hd_error {A} l.

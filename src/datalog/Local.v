@@ -78,12 +78,6 @@ Module set_query.
   End __.
 End set_query. Abbreviation set_query := set_query.set_query.
 
-Definition select {A} (bs : list bool) (l : list A) :=
-  filter_map (fun '(b, x) => if (b : bool) then Some x else None) (combine bs l).
-
-Definition select_not {A} (bs : list bool) (l : list A) :=
-  filter_map (fun '(b, x) => if negb b then Some x else None) (combine bs l).
-
 Module hyp_fact_key.
   Section __.
     Context `{params : datalog_params}.

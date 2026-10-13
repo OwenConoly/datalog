@@ -13,21 +13,33 @@ From Stdlib Require Import Wellfounded Wellfounded.Wellfounded Wellfounded.Trans
 From Stdlib Require Import Wellfounded.Inverse_Image.
 From Stdlib Require Import Relations.Relation_Definitions.
 
-From Datalog Require Import Datalog Map Tactics Fp List Interpreter Pftree.
+From Datalog Require Import Datalog TypedDatalog Map Tactics Fp List Interpreter Pftree RelMap.
 From GraphSearch Require Import Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
 Import ListNotations.
 
+Module query_rel.
+  Section __.
+    Context {rel : relT}.
+
+    Variant query_rel :=
+      | query (_ : rel)
+      | response (_ : rel).
+  End __.
+End query_rel. Abbreviation query_rel := query_rel.query_rel.
+
 Section Transform.
-  Context `{params : datalog_params} {query_sig : query.signature _}.
+  (*set _exprvar := nat,
+    since we need to generate names but never need them to be distinct from source-program names
+   *)
+  Context `{params : datalog_params (_exprvar := nat)} {query_sig : query.signature _}.
+  #[local] Instance nat_exprvar : exprvarT := nat.
+  Context (arity : rel -> nat).
 
-  Local Abbreviation rule' := (rule (_rel := rel * bool)).
-  Local Abbreviation clause' := (clause (relt := rel * bool)).
-
-  Local Abbreviation plus_false := (fun x => (x, false)).
-  Local Abbreviation plus_true := (fun x => (x, true)).
+  Local Abbreviation rule' := (rule (_rel := query_rel)).
+  Local Abbreviation clause' := (clause (relt := query_rel) (exprvar := (exprvar + nat)%type)).
 
   Definition agree Q (p : program) (r1 r2 : rule) :=
     forall R (args1 args2 : list value) hyps1 hyps2,
@@ -97,11 +109,19 @@ Section Transform.
     saying premises of r need to be computed*)
   (*note: this is nonsensical if length r.(rule_concls) > 1*)
   Definition request_hyps (r : rule) : rule' :=
-    {| rule_agg := None;
-      rule_hyps := map (fact_relmap plus_false) (map with_only_ins r.(rule_concls));
-      rule_concls := map (fact_relmap plus_false) (map with_only_ins r.(rule_hyps));
-      rule_set_hyps := []
-    |}.
+    match r with
+    | rule.impl concls hyps =>
+        rule.impl
+          (map (clause.map_rel query_rel.query) (map clause.with_only_inputs hyps))
+          (map (clause.map_rel query_rel.query) (map clause.with_only_inputs concls))
+    | rule.agg concl_rel _ hyp_rel =>
+        rule.impl
+          [{| clause.rel := query_rel.query hyp_rel;
+             clause.args := map expr.var (seq O (arity concl_rel - 1)) |}]
+          [{| clause.rel := query_rel.query concl_rel;
+             clause.args := map expr.var (seq O (arity concl_rel - 1)) |}]
+
+    end.
 
   Definition noop_rule : rule' :=
     {| rule_agg := None;

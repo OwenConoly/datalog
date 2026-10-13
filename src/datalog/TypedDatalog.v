@@ -10,6 +10,8 @@ From GraphSearch Require Import Dag.
 
 Import ListNotations.
 
+(*TODO: relation types are somehow less fundamental than function/aggregator types; store them separately?
+  also, maybe want something isomorphic to rel -> option (list type)? *)
 Class type_signature {rel fn aggregator : Type} : Type :=
   {
     type : Type;

@@ -47,13 +47,16 @@ Definition interp_agg `{datalog_semantics} agg (vals : list (value * value)) :=
   fold_right (agg_bop agg) (agg_id agg) (map snd vals).
 
 Module query.
+  (*bit mask: length is arity of the relation; ones are inputs; zeroes are outputs. *)
   Class signature {rel : relT} :=
-    { outs : rel -> nat }.
-  Arguments signature : clear implicits.
+    { sig : rel -> list bool }.
 
   Section __.
-    Context `{params : datalog_params} {sig : signature _}.
+    Context `{params : datalog_params} {qsig : signature}.
 
+    Definition input_proj {T} R (args : list T) := select (sig R) args.
+    Definition output_proj {T} R (args : list T) := select_not (sig R) args.
+    Definition of_inputs_outputs :=
     Definition inputs {T} R (args : list T) := skipn (outs R) args.
     Definition outputs {T} R (args : list T) := firstn (outs R) args.
   End __.
