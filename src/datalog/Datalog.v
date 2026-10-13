@@ -200,6 +200,11 @@ Module normal_fact.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
     Proof. eqb_ok. Qed.
+
+    Context {qsig : query.signature _}.
+
+    Definition with_only_inputs (f : normal_fact (value := value)) :=
+      {| rel := f.(rel); args := query.inputs f.(rel) f.(args) |}.
   End __.
 End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 #[export] Hint Unfold normal_fact.rel normal_fact.args : core.
@@ -547,6 +552,15 @@ Module clause.
 
     Definition query_inputs c := query.inputs c.(rel) c.(args).
     Definition query_outputs c := query.outputs c.(rel) c.(args).
+    Definition with_only_inputs c := {| rel := c.(rel); args := query_inputs c |}.
+
+    Lemma interp_with_only_inputs ctx c f :
+      interp ctx c f ->
+      interp ctx (with_only_inputs c) (normal_fact.with_only_inputs f).
+    Proof.
+      cbv [interp with_only_inputs normal_fact.with_only_inputs query_inputs query.inputs].
+      intros H. fwd. simpl. rewrite Hp0. split; [reflexivity | apply Forall2_skipn; assumption].
+    Qed.
 End __.
 
   Section __.
@@ -907,9 +921,9 @@ Module rule.
     (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
     Definition is_almost_bottomup (r : rule) :=
       match r with
-      | impl [concl] rule_hyps =>
+      | impl [concl] hyps =>
           (forall v,
-              In v (flat_map expr.vars (flat_map clause.query_inputs rule_hyps)) ->
+              In v (flat_map expr.vars (flat_map clause.query_inputs (concl :: hyps))) ->
               In (expr.var v) (clause.query_inputs concl)) /\
             (forall v, In v (all_vars r) ->
                   In (expr.var v) (hyp_args r ++ clause.query_inputs concl))

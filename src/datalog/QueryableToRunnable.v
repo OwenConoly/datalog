@@ -66,60 +66,34 @@ Section Transform.
 
   Hint Resolve pairs_satisfy_weaken (*agree_weaken*) : core.
 
-  Lemma hyp_ins_det' ctx (r : rule) R (args : list T) hyps ahyps :
-    goodish_rule r ->
-    rule_impl' ctx r (R, args) hyps ahyps ->
-    exists concl,
-      r.(rule_concls) = [concl] /\
-        let ctx := map.of_list (context_of_args (skipn (outs R) concl.(fact_args)) (skipn (outs R) args)) in
-        Forall2 (fun f '(R, hyp_args) =>
-                   f.(fact_R) = R /\ Forall2 (interp_expr ctx) (skipn (outs R) f.(fact_args)) (skipn (outs R) hyp_args))
-          r.(rule_hyps) hyps.
-  Proof.
-    intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd. eexists.
-    split; [eassumption|]. simpl.
-    rewrite Hgoodp0 in *. invert_list_stuff.
-    eapply Forall2_impl_strong; [|eassumption].
-    intros f (Ry&argsy) Hfy Hf Hy. invert Hfy. split; [reflexivity|].
-    eapply Forall2_impl_strong. 2: apply Forall2_skipn; eassumption.
-    intros x y Hx Hy0 Hxy. eapply interp_expr_agree_on; [eassumption|].
-    rewrite Forall_forall. intros v Hv. assert (In (var_expr v) (fact_ins concl)).
-    { apply Hgoodp3. apply in_flat_map. eexists. split; eauto.
-      apply in_flat_map. eauto. }
-    invert H4. eapply Forall2_skipn in H7. pose proof H7 as H7'.
-    eapply bare_in_context_args in H7.
-    2: { apply Hgoodp3. apply in_flat_map. eexists. split; [|eassumption].
-         apply in_flat_map. eauto. }
-    apply interp_args_context_right in H7'.
-    fwd. cbv [agree_on]. apply in_fst in H7. apply in_of_list_Some_strong in H7.
-    fwd. rewrite H7p0. rewrite Forall_forall in H7'. apply H7' in H7p1.
-    move H0 at bottom. invert H0; [assumption|]. rewrite <- H1 in *.
-    rewrite map.get_put_diff in H7p1; auto. intros ?. subst.
-    Search res. apply Hgoodp1. do 2 eexists. split; [|reflexivity].
-    apply in_flat_map. eexists. split; [eassumption|]. simpl. auto.
-  Qed.
-
-  Lemma hyp_ins_det (r : rule) ctx1 ctx2 R args1 args2 hyps1 hyps2 ahyps1 ahyps2 :
-    goodish_rule r ->
-    rule_impl' ctx1 r (R, args1) hyps1 ahyps1 ->
-    rule_impl' ctx2 r (R, args2) hyps2 ahyps2 ->
-    skipn (outs R) args1 = skipn (outs R) args2 ->
-    Forall2 (fun '(R1, hyp1) '(R2, hyp2) =>
-               R1 = R2 /\ skipn (outs R1) hyp1 = skipn (outs R2) hyp2)
+  Lemma hyp_ins_det r nf1 nf2 hyps1 hyps2 :
+    rule.is_almost_bottomup r ->
+    rule.interp r nf1 (map fact.normal hyps1) ->
+    rule.interp r nf2 (map fact.normal hyps2) ->
+    normal_fact.with_only_inputs nf1 = normal_fact.with_only_inputs nf2 ->
+    Forall2 (fun h1 h2 => normal_fact.with_only_inputs h1 = normal_fact.with_only_inputs h2)
       hyps1 hyps2.
   Proof.
-    intros Hgood H1 H2 Hsame. eapply hyp_ins_det' in H1, H2; try assumption.
-    fwd. rewrite H1p0 in *. invert H2p0. simpl in *.
-    apply Forall2_flip in H1p1. eapply Forall2_Forall2_Forall3 in H2p1; [|exact H1p1].
-    apply Forall3_ignore2 in H2p1. eapply Forall2_impl; [eassumption|].
-    simpl. intros [Ra argsa] [Rb argsb] H. fwd. split; [reflexivity|].
-    apply Forall2_flip in Hp1p1. eapply Forall2_Forall2_Forall3 in Hp3; [|exact Hp1p1].
-    apply Forall3_ignore2 in Hp3. apply Forall2_eq_eq.
-    eapply Forall2_impl; [eassumption|]. simpl. intros a b Hab. fwd.
-    rewrite Hsame in *. eapply interp_expr_det; eassumption.
+    intros Hgood H1 H2 Hins.
+    invert H1; [|destruct hyps1; discriminate]. invert H2.
+    apply map_inj in H; [|congruence]. apply map_inj in H4; [|congruence]. subst.
+    destruct rule_concls as [|concl [|]]; cbv [rule.is_almost_bottomup] in Hgood;
+      [contradiction| |contradiction].
+    destruct Hgood as [Hgood _]. invert_list_stuff.
+    apply clause.interp_with_only_inputs in H1, H2. rewrite Hins in H2.
+    assert (Hagree : forall v,
+               In v (flat_map expr.vars (flat_map clause.query_inputs (concl :: rule_hyps))) ->
+               agree_on ctx ctx0 v).
+    { intros v Hv. apply Hgood in Hv. eapply clause.interp_same_agree; eassumption. }
+    rewrite flat_map_flat_map in Hagree.
+    apply Forall2_flip in H5. eapply Forall2_Forall2_Forall3 in H8; [|exact H5].
+    apply Forall3_ignore2 in H8. eapply Forall2_impl; [exact H8|].
+    intros nf1' nf2' (h & Hh & Hnf1 & Hnf2). apply clause.interp_with_only_inputs in Hnf1, Hnf2.
+    eapply clause.interp_det'; [exact Hnf1|exact Hnf2|].
+    apply Forall_forall. intros v Hv. apply Hagree. apply in_flat_map. eauto using in_cons.
   Qed.
 
-    (*if we get a message saying concls of r need to be computed, then send out messages
+  (*if we get a message saying concls of r need to be computed, then send out messages
     saying premises of r need to be computed*)
   (*note: this is nonsensical if length r.(rule_concls) > 1*)
   Definition request_hyps (r : rule) : rule' :=
