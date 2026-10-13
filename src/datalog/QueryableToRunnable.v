@@ -47,7 +47,6 @@ Section Transform.
 
   (*if we get a message saying concls of r need to be computed, then send out messages
     saying premises of r need to be computed*)
-  (*note: this is nonsensical if length r.(rule_concls) > 1*)
   Definition request_hyps (r : rule) : rule' :=
     match r with
     | rule.impl concls hyps =>
@@ -61,11 +60,9 @@ Section Transform.
              clause.args := map expr.var (query.inputs hyp_rel (O (*dummy*):: O (*dummy*) :: shared_vars)) |}]
           [{| clause.rel := query_rel.query concl_rel;
              clause.args := map expr.var (query.inputs concl_rel (O :: shared_vars)) |}]
-
     end.
 
   (*add a hypothesis saying that the conclusion is something we need to compute*)
-  (*note: this is fairly nonsensical (not semantically equivalent) if length r.(rule_concls) > 1*)
   Definition add_hyp (r : rule) : rule' :=
     match r with
     | rule.impl concls hyps =>
@@ -83,22 +80,15 @@ Section Transform.
 
   Ltac t :=
     repeat match goal with
-      | _ => assumption || contradiction
-      | H: context[In _ (flat_map _ _)] |- _ => rewrite in_flat_map in H
       | H: context[In _ (map _ _)] |- _ => rewrite in_map_iff in H
       | H: context[In _ (_ ++ _)] |- _ => rewrite in_app_iff in H
       | H: context[In _ (list_prod _ _)] |- _ => rewrite in_prod_iff in H
       | |- In _ (map _ _) => apply in_map_iff
-      | |- In _ (flat_map _ _) => apply in_flat_map
       | |- In _ (_ ++ _) => apply in_app_iff
       | |- In _ (list_prod _ _) => apply in_prod_iff
-      | |- exists _, _ /\ _ => eexists; split; [solve[eauto] |]
-      | |- _ /\ _ => split; [solve[eauto] |]
       | _ => progress (intros; cbv [edges_of_rule add_hyp request_hyps rule.concl_rels rule.hyp_rels] in *; fwd; subst; simpl in * )
       | _ => progress invert_list_stuff
-      | _ => destruct_one_match_hyp
       | _ => solve[eauto]
-      | H: _ = [_] |- _ => rewrite H in *
       | |- _ \/ False => left
       | H: _ \/ _ |- _ => destruct H
       | |- exists _, _ => eexists
@@ -132,10 +122,9 @@ Section Transform.
         | query_rel.response R2 => In (R1, R2) (flat_map edges_of_rule p)
         end.
   Proof.
-    intros H1 H2. apply in_flat_map in H2. fwd. apply in_map_iff in H2p0. fwd.
-    rewrite Forall_forall in H1. specialize (H1 _ H2p0p1).
-    eapply add_hyp_dag' in H2p1; eauto. fwd. eexists. split; [reflexivity|].
-    destruct y; auto. apply in_flat_map. eauto.
+    intros H1 H2. rewrite flat_map_map, in_flat_map in H2. fwd.
+    rewrite Forall_forall in H1. eapply add_hyp_dag' in H2p1; eauto. fwd.
+    eexists. split; [reflexivity|]. destruct y; auto. apply in_flat_map. eauto.
   Qed.
 
   Lemma map_request_hyps_incl p :
