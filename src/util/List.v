@@ -2783,5 +2783,56 @@ Definition select {A} (bs : list bool) (l : list A) :=
 Definition select_not {A} (bs : list bool) (l : list A) :=
   filter_map (fun '(b, x) => if negb b then Some x else None) (combine bs l).
 
+Fixpoint unselect {A} (bs : list bool) (l1 l2 : list A) :=
+  match bs with
+  | [] => []
+  | true :: bs =>
+      match l1 with
+      | x :: l1 => x :: unselect bs l1 l2
+      | [] => []
+      end
+  | false :: bs =>
+      match l2 with
+      | x :: l2 => x :: unselect bs l1 l2
+      | [] => []
+      end
+  end.
+
+Lemma unselect_select {A} bs (l : list A) :
+  length l <= length bs ->
+  unselect bs (select bs l) (select_not bs l) = l.
+Proof.
+  cbv [select select_not]. revert l.
+  induction bs as [|[|] bs IH]; intros [|x l] H; simpl in *; try lia; f_equal; auto with arith.
+Qed.
+
+Lemma select_unselect {A} bs (l1 l2 : list A) :
+  length l1 = count_occ true bs ->
+  length l2 = count_occ false bs ->
+  select bs (unselect bs l1 l2) = l1.
+Proof.
+  cbv [select]. revert l1 l2.
+  induction bs as [|[|] bs IH]; intros [|x1 l1] [|x2 l2] H1 H2; simpl in *; try lia; f_equal; auto.
+Qed.
+
+Lemma select_not_unselect {A} bs (l1 l2 : list A) :
+  length l1 = count_occ true bs ->
+  length l2 = count_occ false bs ->
+  select_not bs (unselect bs l1 l2) = l2.
+Proof.
+  cbv [select_not]. revert l1 l2.
+  induction bs as [|[|] bs IH]; intros [|x1 l1] [|x2 l2] H1 H2; simpl in *; try lia; f_equal; auto.
+Qed.
+
+Lemma Forall2_select {A B} (R : A -> B -> Prop) bs xs ys :
+  Forall2 R xs ys ->
+  Forall2 R (select bs xs) (select bs ys).
+Proof. cbv [select]. intros H. revert bs. induction H; intros [|[|] bs]; simpl; auto. Qed.
+
+Lemma Forall2_select_not {A B} (R : A -> B -> Prop) bs xs ys :
+  Forall2 R xs ys ->
+  Forall2 R (select_not bs xs) (select_not bs ys).
+Proof. cbv [select_not]. intros H. revert bs. induction H; intros [|[|] bs]; simpl; auto. Qed.
+
 (*TODO where to put things like this?  also, Arguments does not support export*)
 #[global] Arguments hd_error {A} l.

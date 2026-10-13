@@ -54,11 +54,9 @@ Module query.
   Section __.
     Context `{params : datalog_params} {qsig : signature}.
 
-    Definition input_proj {T} R (args : list T) := select (sig R) args.
-    Definition output_proj {T} R (args : list T) := select_not (sig R) args.
-    Definition of_inputs_outputs :=
-    Definition inputs {T} R (args : list T) := skipn (outs R) args.
-    Definition outputs {T} R (args : list T) := firstn (outs R) args.
+    Definition inputs {T} R (args : list T) := select (sig R) args.
+    Definition outputs {T} R (args : list T) := select_not (sig R) args.
+    Definition merge {T} R (ins outs : list T) := unselect (sig R) ins outs.
   End __.
 End query.
 
@@ -204,7 +202,7 @@ Module normal_fact.
     #[global] Instance eqb_ok : Eqb_ok eqb.
     Proof. eqb_ok. Qed.
 
-    Context {qsig : query.signature _}.
+    Context {qsig : query.signature}.
 
     Definition with_only_inputs (f : normal_fact (value := value)) :=
       {| rel := f.(rel); args := query.inputs f.(rel) f.(args) |}.
@@ -551,7 +549,7 @@ Module clause.
       fwd. invert1_any. cbv [agree_on]. congruence.
     Qed.
 
-    Context {qsig : query.signature _}.
+    Context {qsig : query.signature}.
 
     Definition query_inputs c := query.inputs c.(rel) c.(args).
     Definition query_outputs c := query.outputs c.(rel) c.(args).
@@ -562,7 +560,7 @@ Module clause.
       interp ctx (with_only_inputs c) (normal_fact.with_only_inputs f).
     Proof.
       cbv [interp with_only_inputs normal_fact.with_only_inputs query_inputs query.inputs].
-      intros H. fwd. simpl. rewrite Hp0. split; [reflexivity | apply Forall2_skipn; assumption].
+      intros H. fwd. simpl. rewrite Hp0. split; [reflexivity | apply Forall2_select; assumption].
     Qed.
 End __.
 
@@ -918,7 +916,7 @@ Module rule.
     Definition is_bottomup (r : rule) :=
       forall v, In v (all_vars r) -> In (expr.var v) (hyp_args r).
 
-    Context {qsig : query.signature _}.
+    Context {qsig : query.signature}.
     (* 2 conditions. *)
     (*  * hyp_ins only depend on concl_ins, and *)
     (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
