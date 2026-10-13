@@ -51,10 +51,10 @@ Section __.
     specialize (H1 x y ltac:(eauto) ltac:(eauto)). destruct H1; auto.
   Qed.
 
-  Definition functional (p : program) Q :=
-    forall args1 args2 R,
-      program.interp p Q (fact.normal (normal_fact.mk R args1)) ->
-      program.interp p Q (fact.normal (normal_fact.mk R args1)) ->
+  Definition functional (S : fact -> Prop) :=
+    forall R args1 args2,
+      S (fact.normal (normal_fact.mk R args1)) ->
+      S (fact.normal (normal_fact.mk R args2)) ->
       query.inputs R args1 = query.inputs R args2 ->
       args1 = args2.
 
@@ -87,14 +87,13 @@ Section __.
     apply Forall_forall. intros v Hv. apply Hagree. apply in_flat_map. eauto using in_cons.
   Qed.
 
-  Lemma agree_functional p :
+  Lemma agree_functional p Q :
     dag (rel_graph p) ->
-    Forall goodish_fun p ->
     Forall goodish_rule p ->
     pairs_satisfy (agree p) p ->
-    functional p.
+    functional (program.interp p Q).
   Proof.
-    intros H1 Hfun H2 H3. cbv [functional]. intros args1 args2 R. revert args1 args2.
+    intros H1 H2 H3. cbv [functional]. intros R.
     specialize (H1 R). induction H1. clear H.
     intros args1 args2 Hargs1 Hargs2 Hins.
     invert Hargs1. invert Hargs2.
