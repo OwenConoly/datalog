@@ -21,7 +21,7 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 Import ListNotations.
 
 Section Transform.
-  Context `{params : datalog_params} `{query_sig : query_signature rel}.
+  Context `{params : datalog_params} {query_sig : query.signature _}.
 
   Local Abbreviation rule' := (rule (_rel := rel * bool)).
   Local Abbreviation clause' := (clause (relt := rel * bool)).
@@ -35,7 +35,7 @@ Section Transform.
       rule.interp r2 (normal_fact.mk R args2) hyps2 ->
       Forall (program.interp p Q) hyps1 ->
       Forall (program.interp p Q) hyps2 ->
-      query_inputs R args1 = query_inputs R args2 ->
+      query.inputs R args1 = query.inputs R args2 ->
       args1 = args2.
 
   (* Lemma agree_weaken Q p1 p2 r1 r2 : *)
@@ -61,7 +61,7 @@ Section Transform.
     forall args1 args2 R,
       program.interp p Q (fact.normal (normal_fact.mk R args1)) ->
       program.interp p Q (fact.normal (normal_fact.mk R args1)) ->
-      query_inputs R args1 = query_inputs R args2 ->
+      query.inputs R args1 = query.inputs R args2 ->
       args1 = args2.
 
   Hint Resolve pairs_satisfy_weaken (*agree_weaken*) : core.

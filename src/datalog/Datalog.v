@@ -902,33 +902,20 @@ Module rule.
       forall v, In v (all_vars r) -> In (expr.var v) (hyp_args r).
 
     Context {qsig : query.signature _}.
-    (*2 conditions. *)
+    (* 2 conditions. *)
     (*  * hyp_ins only depend on concl_ins, and *)
     (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
-    (*  (implicit conditions: every concl_in is of the form var_expr blah, where blah was not *)
-    (*  bound to the agg_expr) *)
     Definition is_almost_bottomup (r : rule) :=
       match r with
-      | impl rule_concls rule_hyps =>
-          exists concl,
-          rule_concls = [concl] /\
-            (forall v,
-                In v (flat_map clause.vars rule_concls) \/
-                  In v (flat_map clause.vars rule_hyps) ->
-                In (expr.var v) (flat_map clause.args rule_hyps) \/
-                  In (expr.var v) (clause.query_inputs concl)) /\
-            (forall v, In v (flat_map expr.vars (flat_map clause.query_inputs rule_hyps)) ->
-                  In (expr.var v) (clause.query_inputs concl)) /\
-            (forall v, In v (flat_map expr.vars (clause.query_inputs concl)) ->
-                  In (expr.var v) (clause.query_inputs concl))
+      | impl [concl] rule_hyps =>
+          (forall v,
+              In v (flat_map expr.vars (flat_map clause.query_inputs rule_hyps)) ->
+              In (expr.var v) (clause.query_inputs concl)) /\
+            (forall v, In v (all_vars r) ->
+                  In (expr.var v) (hyp_args r ++ clause.query_inputs concl))
+      | impl _ _ => False
       | agg _ _ _ => True
       end.
-
-
-
-
-    (* Definition with_only_ins (c : clause) := *)
-    (*   {| clause_R := c.(clause_R); clause_args := clause_ins c |}. *)
   End __.
   Scheme Boolean Equality for rule.
 
@@ -1656,7 +1643,7 @@ Module program.
 
   End __.
   #[export] Abbreviation interp p := (pftree (interp_step p)).
-End program. Export (moo) program. Abbreviation program := program.program.
+End program. Export (notations) program. Abbreviation program := program.program.
 
 #[export] Instance program_default `{relT} `{exprvarT} `{fnT} `{aggregatorT} : WithDefault program :=
   {| program.rules := []; program.meta_rules := [] |}.
