@@ -933,7 +933,8 @@ Module rule.
             (forall v, In v (all_vars r) ->
                   In (expr.var v) (hyp_args r ++ clause.query_inputs concl))
       | impl _ _ => False
-      | agg _ _ _ => True
+      | agg concl_rel _ hyp_rel =>
+            submask (query.sig hyp_rel) (false :: false :: tl (query.sig concl_rel))
       end.
   End __.
   Scheme Boolean Equality for rule.

@@ -55,11 +55,12 @@ Section Transform.
           (map (clause.map_rel query_rel.query) (map clause.with_only_inputs hyps))
           (map (clause.map_rel query_rel.query) (map clause.with_only_inputs concls))
     | rule.agg concl_rel _ hyp_rel =>
+        let shared_vars := seq 1 (query.arity concl_rel - 1) in
         rule.impl
           [{| clause.rel := query_rel.query hyp_rel;
-             clause.args := map expr.var (seq O (query.num_inputs hyp_rel)) |}]
+             clause.args := map expr.var (query.inputs hyp_rel (O (*dummy*):: O (*dummy*) :: shared_vars)) |}]
           [{| clause.rel := query_rel.query concl_rel;
-             clause.args := map expr.var (seq O (query.num_inputs concl_rel)) |}]
+             clause.args := map expr.var (query.inputs concl_rel (O :: shared_vars)) |}]
 
     end.
 

@@ -2834,5 +2834,7 @@ Lemma Forall2_select_not {A B} (R : A -> B -> Prop) bs xs ys :
   Forall2 R (select_not bs xs) (select_not bs ys).
 Proof. cbv [select_not]. intros H. revert bs. induction H; intros [|[|] bs]; simpl; auto. Qed.
 
+Definition submask (bs1 bs2 : list bool) := Forall2 Bool.le bs1 bs2.
+
 (*TODO where to put things like this?  also, Arguments does not support export*)
 #[global] Arguments hd_error {A} l.
