@@ -5,6 +5,7 @@
   Local
   JSON
   QueryableToRunnable
+  Functional
   FancyNotations)
  (name Datalog)
  (package datalog)
