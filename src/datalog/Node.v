@@ -686,7 +686,8 @@ Section __.
              apply (Hki_dem (fact.normal nh)). exact Hnh.
         * exact Hexn_d.
         * intros r'' nf Hr''_in Hcdn_dem Hmatch'.
-          apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr_in & mhyps & nhyps & Hpi & Hkn & _).
+          apply Exists_exists in Hexmr.
+          destruct Hexmr as (mr & Hmr_in & mhyps & nhyps & Hpi & Hkn & _).
           assert (Hcdn_s1 : can_deduce_normal_fact r'' s1.(state.known) nf).
           { destruct Hcdn_dem as (local_hyps & Hri & Hknown_new).
             exists local_hyps. split; [exact Hri |].

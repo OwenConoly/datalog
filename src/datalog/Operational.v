@@ -525,8 +525,7 @@ Section __.
       eapply pftree.step
         with (l := map fact.meta (map (known_meta_fact known) pats) ++ map fact.normal nfs).
       2:{ apply Forall_app. rewrite !Lists.List.Forall_map. split; [exact Hmhyps|].
-          eapply Forall_impl; [exact Hnfs|]. intros nf' Hnf'. apply (Hcorrect (fact.normal nf')).
-          exact Hnf'. }
+          eapply Forall_impl; [exact Hnfs|]. intros nf'. apply (Hcorrect (fact.normal nf')). }
       constructor. apply Exists_exists. exists mr. split; [exact Hmr|].
       assert (Hpats : map meta_fact.pattern (map (known_meta_fact known) pats) = pats).
       { rewrite map_map. erewrite map_ext; [apply map_id|]. reflexivity. }
