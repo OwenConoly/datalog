@@ -468,6 +468,13 @@ Module meta_fact.
         destruct nf. simpl in *. subst. auto.
     Qed.
 
+    Lemma normal_facts_NoDup mf :
+      NoDup (normal_facts mf).
+    Proof.
+      cbv [normal_facts]. apply NoDup_map_NoDup_ForallPairs; [|apply map.keys_NoDup].
+      intros ? ? _ _ [=]. assumption.
+    Qed.
+
     Lemma eq_of_agree mf1 mf2 :
       mf1.(pattern) = mf2.(pattern) ->
       agree mf1 mf2 ->
@@ -1139,6 +1146,20 @@ Module mf_creator.
 
     Definition hyp_rels (mfc : mf_creator) :=
       mfc.(concl).(clause_pattern.rel) :: map clause.rel mfc.(hyps).
+
+    Definition concl_vars (mfc : mf_creator) :=
+      clause_pattern.vars mfc.(concl).
+
+    Definition hyp_vars (mfc : mf_creator) :=
+      flat_map clause.vars mfc.(hyps).
+
+    Definition all_vars (mfc : mf_creator) := mfc.(upper_bound) :: concl_vars mfc ++ hyp_vars mfc.
+
+    Definition hyp_args (mfc : mf_creator) :=
+      flat_map clause.args mfc.(hyps).
+
+    Definition is_bottomup (mfc : mf_creator) :=
+      forall v, In v (all_vars mfc) -> In (expr.var v) (hyp_args mfc).
 
     Lemma pattern_interp_concl_relname_in mfc pat ub nhyps :
       pattern_interp mfc pat ub nhyps ->

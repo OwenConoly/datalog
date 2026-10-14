@@ -23,9 +23,13 @@ Section __.
   Definition edges_of_meta_rule (mr : meta_rule) :=
     list_prod (meta_rule.concl_rels mr) (meta_rule.hyp_rels mr).
 
+  Definition edges_of_mf_creator (mfc : mf_creator) :=
+    list_prod (mf_creator.concl_rels mfc) (mf_creator.hyp_rels mfc).
+
   Definition rel_graph (p : program) :=
     flat_map edges_of_rule p.(program.rules) ++
-      flat_map edges_of_meta_rule p.(program.meta_rules).
+      flat_map edges_of_meta_rule p.(program.meta_rules) ++
+      flat_map edges_of_mf_creator p.(program.mf_creators).
 
   (* Lemma diff_rels_Forall_r p1 p2 : *)
   (*   Forall (fun r2 => *)
@@ -61,6 +65,16 @@ Section __.
     cbv [edges_of_meta_rule]. apply in_prod_iff. auto.
   Qed.
 
+  Lemma edges_of_mf_creator_spec mfc mf hyps :
+    mf_creator.interp mfc mf hyps ->
+    Forall (fun hyp => In (meta_fact.rel mf, hyp.(normal_fact.rel)) (edges_of_mf_creator mfc)) hyps.
+  Proof.
+    intros H. pose proof H as H'.
+    apply mf_creator.interp_concl_relname_in in H.
+    apply mf_creator.interp_hyp_relname_in in H'.
+    eapply Forall_impl; [eassumption|]. intros. apply in_prod_iff. auto.
+  Qed.
+
   Lemma rel_graph_spec p f hyps :
     program.interp_step p f hyps ->
     Forall (fun hyp => In (fact.rel f, fact.rel hyp) (rel_graph p)) hyps.
@@ -71,7 +85,10 @@ Section __.
       apply in_or_app. left. apply in_flat_map. eauto.
     - apply edges_of_meta_rule_spec in H0p1. apply List.Forall_map.
       eapply Forall_impl; [eassumption|]. simpl. intros.
-      apply in_or_app. right. apply in_flat_map. eauto.
+      rewrite !in_app_iff, !in_flat_map. eauto.
+    - apply edges_of_mf_creator_spec in H0p1. apply List.Forall_map.
+      eapply Forall_impl; [eassumption|]. simpl. intros.
+      rewrite !in_app_iff, !in_flat_map. eauto.
   Qed.
 
   Fixpoint subst_in_expr (ctx : context) e : option value :=
@@ -411,9 +428,24 @@ Section __.
   Definition step_meta_rules (p : program) (facts : list fact) : list meta_fact :=
     flat_map (step_meta_rule p.(program.rules) (filter_map fact.as_meta facts)) p.(program.meta_rules).
 
+  Definition step_mf_creator facts (mfc : mf_creator) : list meta_fact :=
+    let nfs := filter_map fact.as_normal facts in
+    flat_map (fun nhyps =>
+                '(Some ctx) <- ctx_of_rule mfc.(mf_creator.hyps) nhyps;;
+                '(Some pat) <- subst_in_clause_pattern ctx mfc.(mf_creator.concl);;
+                '(Some ub) <- map.get ctx mfc.(mf_creator.upper_bound);;
+                let mf := meta_fact.mk pat (map normal_fact.args (filter (fact_pattern.matchesb pat) nfs)) in
+                assert (get_nat ub <=? length (map.keys mf.(meta_fact.set)));;
+                [mf])
+      (choose_any_n (length mfc.(mf_creator.hyps)) nfs).
+
+  Definition step_mf_creators (p : program) (facts : list fact) : list meta_fact :=
+    flat_map (step_mf_creator facts) p.(program.mf_creators).
+
   Definition step_program (p : program) (facts : list fact) : list fact :=
     map fact.normal (step_rules facts p.(program.rules)) ++
-      map fact.meta (step_meta_rules p facts).
+      map fact.meta (step_meta_rules p facts) ++
+      map fact.meta (step_mf_creators p facts).
 
   Definition eval n (p : program) start :=
     Nat.iter n (fun fs => step_program p fs ++ fs) start.
@@ -693,14 +725,21 @@ Section __.
     erewrite subst_in_expr_ctxs_agree by eassumption. reflexivity.
   Qed.
 
+  Lemma subst_in_clause_pattern_ctxs_agree ctx ctx' cp :
+    Forall (agree_on ctx ctx') (clause_pattern.vars cp) ->
+    subst_in_clause_pattern ctx cp = subst_in_clause_pattern ctx' cp.
+  Proof.
+    intros H. cbv [clause_pattern.vars] in H. apply Forall_flat_map in H.
+    cbv [subst_in_clause_pattern]. do 2 f_equal. apply map_ext_Forall.
+    eauto using Forall_impl, subst_in_expr_pattern_ctxs_agree.
+  Qed.
+
   Lemma subst_in_clause_patterns_ctxs_agree ctx ctx' cps :
     Forall (agree_on ctx ctx') (flat_map clause_pattern.vars cps) ->
     map (subst_in_clause_pattern ctx) cps = map (subst_in_clause_pattern ctx') cps.
   Proof.
     intros H. apply Forall_flat_map in H. apply map_ext_Forall. eapply Forall_impl; [exact H|].
-    intros c Hc. cbv [clause_pattern.vars] in Hc. apply Forall_flat_map in Hc.
-    cbv [subst_in_clause_pattern]. do 2 f_equal. apply map_ext_Forall.
-    eauto using Forall_impl, subst_in_expr_pattern_ctxs_agree.
+    eauto using subst_in_clause_pattern_ctxs_agree.
   Qed.
 
   Lemma is_bottomup_ctx_agree ctx concls rule_hyps hyps :
@@ -858,33 +897,124 @@ Section __.
       apply in_map_iff. apply Exists_exists in Hex. fwd. eauto using subst_in_clause_pattern_complete.
   Qed.
 
+  Lemma mf_creator_is_bottomup_ctx_agree ctx mfc nhyps :
+    mf_creator.is_bottomup mfc ->
+    Forall2 (clause.interp ctx) mfc.(mf_creator.hyps) nhyps ->
+    Forall (agree_on ctx (map.of_list (context_of_hyps mfc.(mf_creator.hyps) nhyps)))
+      (mf_creator.all_vars mfc).
+  Proof.
+    intros Hgood Hmatch. apply Forall_forall. intros v Hv. apply Hgood in Hv.
+    eauto using context_of_hyps_agree.
+  Qed.
+
+  Lemma step_mf_creator_sound facts mfc mf :
+    In mf (step_mf_creator facts mfc) ->
+    exists hyps, incl (map fact.normal hyps) facts /\ mf_creator.interp mfc mf hyps.
+  Proof.
+    cbv [step_mf_creator]. intros H. apply in_flat_map in H. destruct H as (nhyps & Hnhyps & H).
+    apply in_choose_any_n in Hnhyps.
+    destruct (ctx_of_rule _ _) as [ctx|] eqn:Ectx; [|simpl in H; contradiction].
+    destruct (subst_in_clause_pattern _ _) as [pat|] eqn:Epat; [|simpl in H; contradiction].
+    destruct (map.get _ _) as [ub|] eqn:Eub; [|simpl in H; contradiction].
+    destruct (_ <=? _) eqn:Ele; [|simpl in H; contradiction].
+    destruct H as [<-|[]].
+    apply ctx_of_rule_Some in Ectx. apply subst_in_clause_pattern_sound in Epat.
+    apply Nat.leb_le in Ele. fwd.
+    exists (meta_fact.normal_facts (meta_fact.mk pat
+              (map normal_fact.args
+                 (filter (fact_pattern.matchesb pat) (filter_map fact.as_normal facts)))) ++ nhyps).
+    split.
+    - rewrite map_app. apply incl_app.
+      + intros f Hf. apply in_map_iff in Hf. fwd. apply fact.in_filter_map_as_normal.
+        rewrite meta_fact.in_normal_facts, meta_fact.matches_mk in Hfp1. fwd.
+        eapply in_args_filter_matches; eassumption.
+      + intros f Hf. apply in_map_iff in Hf. fwd. apply fact.in_filter_map_as_normal. auto.
+    - eexists _, _, ub. ssplit.
+      + eexists. ssplit; eassumption.
+      + reflexivity.
+      + apply meta_fact.normal_facts_NoDup.
+      + cbv [meta_fact.normal_facts]. rewrite length_map. assumption.
+      + intros nf. symmetry. apply meta_fact.in_normal_facts.
+  Qed.
+
+  Lemma step_mf_creator_complete Q facts mfc mf hyps :
+    mf_creator.is_bottomup mfc ->
+    mf_creator.upper_bound_valid_for mfc Q ->
+    (forall f, In f facts -> Q f) ->
+    incl (map fact.normal hyps) facts ->
+    mf_creator.interp mfc mf hyps ->
+    In mf (step_mf_creator facts mfc).
+  Proof.
+    intros Hgood Hub HQ Hincl H.
+    pose proof (mf_creator.interp_consistent _ _ _ _ Hub H) as Hcons.
+    specialize' Hcons. { apply Forall_forall. auto. }
+    cbv [mf_creator.interp mf_creator.pattern_interp] in H. fwd.
+    cbv [step_mf_creator]. apply in_flat_map. exists nhyps. split.
+    { apply in_choose_any_n. split; [symmetry; eauto using Forall2_length|].
+      intros h Hh. apply fact.in_filter_map_as_normal, Hincl, in_map, in_or_app. auto. }
+    pose proof (mf_creator_is_bottomup_ctx_agree _ _ _ Hgood Hp0p2) as Hagree.
+    cbv [mf_creator.all_vars mf_creator.concl_vars mf_creator.hyp_vars] in Hagree.
+    rewrite Forall_cons_iff, Forall_app in Hagree. destruct Hagree as (Hagree_ub & Hagree_c & Hagree_h).
+    rewrite (proj2 (ctx_of_rule_Some _ _ (map.of_list (context_of_hyps mfc.(mf_creator.hyps) nhyps)))).
+    2: { split; [reflexivity|]. apply subst_in_clauses_Some.
+         erewrite <- subst_in_clauses_ctxs_agree by eassumption. apply subst_in_clauses_Some, Hp0p2. }
+    erewrite <- subst_in_clause_pattern_ctxs_agree, subst_in_clause_pattern_complete by eassumption.
+    rewrite <- Hagree_ub, Hp0p1.
+    set (mf' := meta_fact.mk _ _). replace mf' with mf.
+    2: { subst mf'. apply meta_fact.eq_of_agree; [reflexivity|]. intros nf Hm _.
+         simpl in Hm |- *.
+         rewrite meta_fact.contains_to_canonical_set, in_args_filter_matches,
+           fact.in_filter_map_as_normal by assumption.
+         split.
+         - intros Hc. split; [apply Hm|]. apply Hincl, in_map, in_or_app. left.
+           apply Hp4. split; assumption.
+         - intros [_ Hin]. apply Hcons; [assumption|]. apply HQ. assumption. }
+    rewrite (proj2 (Nat.leb_le _ _)); [left; reflexivity|].
+    transitivity (length counted); [lia|].
+    replace (length (map.keys _)) with (length (meta_fact.normal_facts mf))
+      by (cbv [meta_fact.normal_facts]; apply length_map).
+    apply NoDup_incl_length; [assumption|]. intros nf Hnf.
+    apply meta_fact.in_normal_facts, Hp4, Hnf.
+  Qed.
+
   Lemma step_program_sound p facts f :
     Forall rule.is_bottomup p.(program.rules) ->
     In f (step_program p facts) ->
     exists hyps, incl hyps facts /\ program.interp_step p f hyps.
   Proof.
-    intros Hgood H. cbv [step_program step_meta_rules] in H. apply in_app_iff in H.
-    destruct H as [H|H]; apply in_map_iff in H; destruct H as (x & <- & H).
+    intros Hgood H. cbv [step_program step_meta_rules step_mf_creators] in H.
+    rewrite !in_app_iff in H.
+    destruct H as [H|[H|H]]; apply in_map_iff in H; destruct H as (x & <- & H).
     - apply step_rules_sound in H. fwd. eauto using program.rule_step.
     - apply in_flat_map in H. destruct H as (mr & Hmr & H).
       apply step_meta_rule_sound in H; [|assumption]. fwd.
       eexists. split; [|constructor; apply Exists_exists; eauto].
       intros g Hg. apply in_map_iff in Hg. fwd. apply fact.in_filter_map_as_meta. auto.
+    - apply in_flat_map in H. destruct H as (mfc & Hmfc & H).
+      apply step_mf_creator_sound in H. fwd.
+      eexists. split; [eassumption|]. constructor. apply Exists_exists. eauto.
   Qed.
 
-  Lemma step_program_complete p facts f hyps :
+  Lemma step_program_complete p Q facts f hyps :
     Forall rule.is_bottomup p.(program.rules) ->
     Forall meta_rule.is_bottomup p.(program.meta_rules) ->
+    Forall mf_creator.is_bottomup p.(program.mf_creators) ->
+    program.mf_creators_valid p Q ->
+    (forall g, In g facts -> program.interp p Q g) ->
     incl hyps facts ->
     program.interp_step p f hyps ->
     In f (step_program p facts).
   Proof.
-    intros Hgood Hmgood Hincl H. cbv [step_program step_meta_rules]. apply in_app_iff. invert H.
+    intros Hgood Hmgood Hcgood Hcreators Hfacts Hincl H.
+    cbv [step_program step_meta_rules step_mf_creators]. rewrite !in_app_iff. invert H.
     - left. apply in_map. eauto using step_rules_complete.
-    - right. apply in_map, in_flat_map. apply Exists_exists in H0. fwd.
+    - right. left. apply in_map, in_flat_map. apply Exists_exists in H0. fwd.
       rewrite Forall_forall in Hmgood. eexists. split; [eassumption|].
       eapply step_meta_rule_complete; eauto.
       intros mf Hmf. apply fact.in_filter_map_as_meta, Hincl, in_map, Hmf.
+    - right. right. apply in_map, in_flat_map. apply Exists_exists in H0. fwd.
+      rewrite Forall_forall in Hcgood. eexists. split; [eassumption|].
+      eapply step_mf_creator_complete; eauto.
   Qed.
 
   Lemma eval_start_incl n p start :
@@ -907,12 +1037,14 @@ Section __.
   Lemma eval_complete p Q n start f :
     Forall rule.is_bottomup p.(program.rules) ->
     Forall meta_rule.is_bottomup p.(program.meta_rules) ->
+    Forall mf_creator.is_bottomup p.(program.mf_creators) ->
+    program.mf_creators_valid p Q ->
     (forall x, Q x <-> In x start) ->
     program.interp p Q f ->
     In f (eval n p start) \/
       (exists l, path (rel_graph p) (fact.rel f) l /\ n <= length l).
   Proof.
-    intros Hp Hmp HQ. revert f. induction n.
+    intros Hp Hmp Hcp Hcreators HQ. revert f. induction n.
     - intros f Hf. invert Hf.
       + left. apply HQ. assumption.
       + right. exists nil. simpl. split; [constructor|lia].
@@ -921,8 +1053,9 @@ Section __.
       + eapply Forall_impl in H0; [|exact IHn].
         apply Forall_or in H0. destruct H0 as [H0|H0].
         * left. simpl. rewrite in_app_iff. left.
-          eapply step_program_complete; try assumption;
-            [rewrite Forall_forall in H0; exact H0 | eassumption].
+          eapply step_program_complete; try eassumption.
+          -- intros g Hg. eapply eval_sound; [eassumption | apply HQ | eassumption].
+          -- rewrite Forall_forall in H0. exact H0.
         * right. rewrite Exists_exists in H0. fwd. eexists (_ :: _). split.
           { constructor; [|eassumption]. apply rel_graph_spec in H.
             rewrite Forall_forall in H. apply H. assumption. }
@@ -932,12 +1065,14 @@ Section __.
   Lemma eval_dag_complete p Q start f :
     Forall rule.is_bottomup p.(program.rules) ->
     Forall meta_rule.is_bottomup p.(program.meta_rules) ->
+    Forall mf_creator.is_bottomup p.(program.mf_creators) ->
+    program.mf_creators_valid p Q ->
     (forall x, Q x <-> In x start) ->
     dag (rel_graph p) ->
     program.interp p Q f ->
     In f (eval_dag p start).
   Proof.
-    intros Hp Hmp HQ Hdag Hf.
+    intros Hp Hmp Hcp Hcreators HQ Hdag Hf.
     eapply eval_complete in Hf; eauto. destruct Hf as [Hf|Hf]; eauto.
     fwd. eapply dag_paths_short in Hfp0; eauto. cbv [count_rels] in *. lia.
   Qed.
@@ -945,11 +1080,13 @@ Section __.
   Lemma eval_dag_iff p Q start f :
     Forall rule.is_bottomup p.(program.rules) ->
     Forall meta_rule.is_bottomup p.(program.meta_rules) ->
+    Forall mf_creator.is_bottomup p.(program.mf_creators) ->
+    program.mf_creators_valid p Q ->
     (forall x, Q x <-> In x start) ->
     dag (rel_graph p) ->
     In f (eval_dag p start) <-> program.interp p Q f.
   Proof.
-    intros Hp Hmp HQ Hdag. split; [|eauto using eval_dag_complete].
+    intros Hp Hmp Hcp Hcreators HQ Hdag. split; [|eauto using eval_dag_complete].
     apply eval_sound; [assumption|]. intros x. apply HQ.
   Qed.
 End __.
