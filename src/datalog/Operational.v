@@ -62,28 +62,26 @@ Section __.
     else
       Forall (fun r => In (op_message.done_with pat (op_source.rule r)) known) p.(program.rules).
 
-  Definition op_knows_normal_fact known nf :=
-    exists src, In (op_message.normal nf src) known.
-
   Definition op_can_deduce_pattern known pat :=
-    exists mr pats nfs,
+    exists mr pats,
       In mr p.(program.meta_rules) /\
-        meta_rule.pattern_interp mr pat pats nfs /\
-        Forall (all_done_with known) pats /\
-        Forall (op_knows_normal_fact known) nfs.
+        meta_rule.pattern_interp mr pat pats /\
+        Forall (all_done_with known) pats.
 
   Definition meta_facts_correct_at_rule (known : list op_message) r :=
     forall pat,
       In (op_message.done_with pat (op_source.rule r)) known ->
-      exists mr pats nfs,
+      exists mr pats,
         In mr p.(program.meta_rules) /\
-          meta_rule.pattern_interp mr pat pats nfs /\
+          meta_rule.pattern_interp mr pat pats /\
           Forall (all_done_with known) pats /\
-          Forall (op_knows_normal_fact known) nfs /\
           ~In pat pats.
 
   Definition meta_facts_correct (known : list op_message) :=
     Forall (meta_facts_correct_at_rule known) p.(program.rules).
+
+  Definition op_knows_normal_fact known nf :=
+    exists src, In (op_message.normal nf src) known.
 
   Definition op_knows_meta_fact known mf :=
     all_done_with known mf.(meta_fact.pattern) /\
@@ -181,9 +179,9 @@ Section __.
     is_input nf.(normal_fact.rel) = false.
   Proof. intros Hr (hyps & Hri & _). eauto using rule_concl_not_input. Qed.
 
-  Lemma pattern_concl_not_input mr pat pats nfs :
+  Lemma pattern_concl_not_input mr pat pats :
     In mr p.(program.meta_rules) ->
-    meta_rule.pattern_interp mr pat pats nfs ->
+    meta_rule.pattern_interp mr pat pats ->
     is_input pat.(fact_pattern.rel) = false.
   Proof.
     intros. apply concl_rel_not_input.
@@ -217,22 +215,20 @@ Section __.
       intros r [Heq | ?]; [invert Heq; congruence | assumption].
   Qed.
 
-  Lemma op_knows_normal_fact_incl k1 k2 nf :
-    incl k1 k2 -> op_knows_normal_fact k1 nf -> op_knows_normal_fact k2 nf.
-  Proof. intros Hincl (src & Hin). exists src. auto. Qed.
-
   Lemma op_can_deduce_pattern_incl k1 k2 pat :
     incl k1 k2 -> op_can_deduce_pattern k1 pat -> op_can_deduce_pattern k2 pat.
   Proof.
-    intros Hincl (mr & pats & nfs & Hmr & Hpi & Hdone & Hnfs). exists mr, pats, nfs.
-    ssplit; try assumption.
-    - eapply Forall_impl; [exact Hdone|]. eauto using all_done_with_incl.
-    - eapply Forall_impl; [exact Hnfs|]. eauto using op_knows_normal_fact_incl.
+    intros Hincl (mr & pats & Hmr & Hpi & Hdone). exists mr, pats. ssplit; try assumption.
+    eapply Forall_impl; [exact Hdone|]. eauto using all_done_with_incl.
   Qed.
 
   Lemma can_deduce_pattern_not_input known pat :
     op_can_deduce_pattern known pat -> is_input pat.(fact_pattern.rel) = false.
-  Proof. intros (mr & pats & nfs & Hmr & Hpi & _). eauto using pattern_concl_not_input. Qed.
+  Proof. intros (mr & pats & Hmr & Hpi & _). eauto using pattern_concl_not_input. Qed.
+
+  Lemma op_knows_normal_fact_incl k1 k2 nf :
+    incl k1 k2 -> op_knows_normal_fact k1 nf -> op_knows_normal_fact k2 nf.
+  Proof. intros Hincl (src & Hin). exists src. auto. Qed.
 
   Lemma step_no_new_matches known known' pat nf :
     meta_facts_ok known ->
@@ -275,10 +271,10 @@ Section __.
     ok_to_deduce r known pat ->
     ok_to_deduce r known' pat.
   Proof.
-    intros Hr Hok Hstep (mr & pats & nfs & Hmr & Hpi & Hdone & _) Hok_r nf (hyps & Hri & Hknown) Hm.
+    intros Hr Hok Hstep (mr & pats & Hmr & Hpi & Hdone) Hok_r nf (hyps & Hri & Hknown) Hm.
     apply (comp_step_incl _ _ Hstep). apply Hok_r; [|assumption].
     exists hyps. split; [assumption|].
-    pose proof (Hmeta_rules _ _ Hmr Hr _ _ _ _ _ Hpi Hri Hm) as Hcov.
+    pose proof (Hmeta_rules _ _ Hmr Hr _ _ _ _ Hpi Hri Hm) as Hcov.
     eapply Forall_impl; [apply Forall_and; [exact Hcov | exact Hknown]|].
     simpl. intros h (Hcov_h & Hk_h). apply Exists_exists in Hcov_h. fwd.
     rewrite Forall_forall in Hdone. eauto using knows_step_down.
@@ -294,18 +290,15 @@ Section __.
     cbv [meta_facts_correct meta_facts_correct_at_rule] in Hmfc |- *.
     rewrite Forall_forall in Hmfc |- *. intros r0 Hr0 pat Hin.
     destruct (classic (In (op_message.done_with pat (op_source.rule r0)) known)) as [Hold | Hnew].
-    - destruct (Hmfc _ Hr0 _ Hold) as (mr & pats & nfs & Hmr & Hpi & Hdone & Hnfs & Hnotin).
-      exists mr, pats, nfs. ssplit; try assumption.
-      + eapply Forall_impl; [exact Hdone|]. eauto using all_done_with_incl.
-      + eapply Forall_impl; [exact Hnfs|]. eauto using op_knows_normal_fact_incl.
+    - destruct (Hmfc _ Hr0 _ Hold) as (mr & pats & Hmr & Hpi & Hdone & Hnotin).
+      exists mr, pats. ssplit; try assumption.
+      eapply Forall_impl; [exact Hdone|]. eauto using all_done_with_incl.
     - destruct Hin as [Heq | Hin]; [|contradiction]. subst m.
-      cbv [can_deduce_message] in Hcan.
-      destruct Hcan as (Heq & _ & (mr & pats & nfs & Hmr & Hpi & Hdone & Hnfs)).
-      invert Heq. exists mr, pats, nfs. ssplit; try assumption.
+      cbv [can_deduce_message] in Hcan. destruct Hcan as (Heq & _ & (mr & pats & Hmr & Hpi & Hdone)).
+      invert Heq. exists mr, pats. ssplit; try assumption.
       + eapply Forall_impl; [exact Hdone|]. eauto using all_done_with_incl.
-      + eapply Forall_impl; [exact Hnfs|]. eauto using op_knows_normal_fact_incl.
       + intros Hin_pat. apply Hnew. rewrite Forall_forall in Hdone. specialize (Hdone _ Hin_pat).
-        cbv [all_done_with] in Hdone. rewrite (pattern_concl_not_input _ _ _ _ Hmr Hpi) in Hdone.
+        cbv [all_done_with] in Hdone. rewrite (pattern_concl_not_input _ _ _ Hmr Hpi) in Hdone.
         rewrite Forall_forall in Hdone. auto.
   Qed.
 
@@ -322,8 +315,8 @@ Section __.
     rewrite Forall_forall in Hmfc, Hok' |- *. intros r0 Hr0 pat [Heq | Hin].
     - subst m. cbv [can_deduce_message] in Hcan. destruct Hcan as (Heq & Hok_r & Hcdp).
       invert Heq. eauto using ok_to_deduce_step.
-    - destruct (Hmfc _ Hr0 _ Hin) as (mr & pats & nfs & Hmr & Hpi & Hdone & Hnfs & _).
-      eapply ok_to_deduce_step; eauto. exists mr, pats, nfs. auto.
+    - destruct (Hmfc _ Hr0 _ Hin) as (mr & pats & Hmr & Hpi & Hdone & _).
+      eapply ok_to_deduce_step; eauto. exists mr, pats. auto.
   Qed.
 
   Lemma step_preserves_tags_ok known known' :
@@ -474,9 +467,9 @@ Section __.
       cbv [meta_facts_ok meta_facts_ok_at_rule] in Hok. rewrite Forall_forall in Hok.
       eexists. apply (Hok _ Hr _ Hdone); [|assumption].
       cbv [meta_facts_correct meta_facts_correct_at_rule] in Hmfc. rewrite Forall_forall in Hmfc.
-      destruct (Hmfc _ Hr _ Hdone) as (mr & pats & nfs & Hmr & Hpi & Hdone_pats & _ & Hnotin).
+      destruct (Hmfc _ Hr _ Hdone) as (mr & pats & Hmr & Hpi & Hdone_pats & Hnotin).
       exists l. split; [assumption|].
-      pose proof (Hmeta_rules _ _ Hmr Hr _ _ _ _ _ Hpi Hri Hm) as Hcov.
+      pose proof (Hmeta_rules _ _ Hmr Hr _ _ _ _ Hpi Hri Hm) as Hcov.
       eapply Forall_impl; [apply Forall_and; [exact Hcov | exact H0]|].
       simpl. intros h (Hcov_h & Himpl_h). apply Exists_exists in Hcov_h.
       destruct Hcov_h as (q & Hq & Hcov_h). rewrite Forall_forall in Hdone_pats.
@@ -511,7 +504,7 @@ Section __.
           destruct (classic (pat = mf.(meta_fact.pattern))) as [-> | Hne]; [reflexivity | exfalso].
           eauto using all_done_with_cons_done. }
       cbv [can_deduce_message] in Hcan.
-      destruct Hcan as (_ & Hok_r & (mr & pats & nfs & Hmr & Hpi & Hdone_pats & Hnfs)).
+      destruct Hcan as (_ & Hok_r & (mr & pats & Hmr & Hpi & Hdone_pats)).
       set (d := op_message.done_with mf.(meta_fact.pattern) (op_source.rule r)) in *.
       pose proof (step_preserves_sane _ _ Hsane Hstep) as Hsane'.
       assert (Hqs : forall q, q <> mf.(meta_fact.pattern) -> all_done_with (d :: known) q ->
@@ -522,18 +515,15 @@ Section __.
       assert (Hmhyps : Forall (fun q => program.interp p (op_knows_fact inputs)
                                           (fact.meta (known_meta_fact known q))) pats).
       { eapply Forall_impl; [exact Hdone_pats|]. eauto using known_meta_fact_knows. }
-      eapply pftree.step
-        with (l := map fact.meta (map (known_meta_fact known) pats) ++ map fact.normal nfs).
-      2:{ apply Forall_app. rewrite !Lists.List.Forall_map. split; [exact Hmhyps|].
-          eapply Forall_impl; [exact Hnfs|]. intros nf' Hnf'. apply (Hcorrect (fact.normal nf')).
-          exact Hnf'. }
+      eapply pftree.step with (l := map fact.meta (map (known_meta_fact known) pats)).
+      2:{ rewrite !Lists.List.Forall_map. exact Hmhyps. }
       constructor. apply Exists_exists. exists mr. split; [exact Hmr|].
       assert (Hpats : map meta_fact.pattern (map (known_meta_fact known) pats) = pats).
       { rewrite map_map. erewrite map_ext; [apply map_id|]. reflexivity. }
       split; [rewrite Hpats; exact Hpi|].
       intros nf Hm.
       rewrite (program.one_step_derives_iff p (op_knows_fact inputs) mr
-                 (map (known_meta_fact known) pats) nfs mf.(meta_fact.pattern) nf); try assumption.
+                 (map (known_meta_fact known) pats) mf.(meta_fact.pattern) nf); try assumption.
       + cbv [meta_fact.consistent_with] in Hcons. rewrite Hcons by assumption. split.
         * intros (src & [Heq | Hin]); [discriminate|].
           apply (Hcorrect (fact.normal nf)). exists src. exact Hin.
@@ -744,11 +734,9 @@ Section __.
       apply (comp_step_fire_normal _ rn); [assumption|]. exists hyps. auto.
     - apply Exists_exists in H. destruct H as (mr & Hmr & Hmri).
       cbv [has_derived_datalog_fact]. apply (all_rules_done known f0); try assumption.
-      + apply Forall_app in Hknown. destruct Hknown as [Hknown_m Hknown_n].
-        exists mr, (map meta_fact.pattern mhyps), nhyps. ssplit; [assumption | apply Hmri | |].
-        * rewrite Lists.List.Forall_map in Hknown_m |- *.
-          eapply Forall_impl; [exact Hknown_m|]. intros mh (Hdone & _). exact Hdone.
-        * rewrite Lists.List.Forall_map in Hknown_n. exact Hknown_n.
+      + exists mr, (map meta_fact.pattern hyps0). ssplit; [assumption | apply Hmri |].
+        rewrite Lists.List.Forall_map in Hknown |- *.
+        eapply Forall_impl; [exact Hknown|]. intros mh (Hdone & _). exact Hdone.
       + eapply pftree.step.
         * constructor. apply Exists_exists. eauto.
         * eapply Forall_impl; [exact Hknown|]. auto.

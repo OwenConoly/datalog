@@ -395,8 +395,7 @@ Section compile.
    *)
   Definition lower_meta_rule' (mr : meta_rule) : lrule :=
     {| rule.concls := map lower_clause_pattern_concl mr.(meta_rule.concls);
-      rule.hyps := map lower_clause_pattern_hyp mr.(meta_rule.hyps) ++
-                     map lower_clause_hyp mr.(meta_rule.normal_hyps) |}.
+      rule.hyps := map lower_clause_pattern_hyp mr.(meta_rule.hyps) |}.
 
   Definition count_sent_msgs (R : rel) (mask : list bool) : lrule :=
     let num_ones := length (filter (eqb true) mask) in
@@ -487,8 +486,7 @@ Section compile.
                         clause_pattern.args := [expr_pattern.exactly (expr.var x); expr_pattern.any]; |}];
                    meta_rule.hyps :=
                      [{| clause_pattern.rel := S;
-                        clause_pattern.args := [expr_pattern.exactly (expr.var x); expr_pattern.any]; |}];
-                   meta_rule.normal_hyps := []; |}] |}.
+                        clause_pattern.args := [expr_pattern.exactly (expr.var x); expr_pattern.any]; |}]; |}] |}.
 
   Local Notation "'$' x" := (expr.var (inl x)) (only printing, at level 1, x at level 0).
   Local Notation "'#' n" := (expr.var (inr n)) (only printing, at level 1, n at level 0).

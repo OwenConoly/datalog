@@ -148,10 +148,9 @@ Section __.
         Forall (knows_fact known) hyps.
 
   Definition can_deduce_pattern (mr : meta_rule) (known : list message) (pat : fact_pattern) :=
-    exists mhyps nhyps,
-      meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) nhyps /\
-        Forall (knows_meta_fact known) mhyps /\
-        Forall (knows_normal_fact known) nhyps.
+    exists mhyps,
+      meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
+        Forall (knows_meta_fact known) mhyps.
 
   Context (p : program) (name : sender_label).
 
@@ -367,20 +366,17 @@ Section __.
           right. apply (Hsat r nf Hr Hcdn Hm).
     - specialize (Hok _ _ Hin). destruct Hok as (_ & Hexmr & Hexn & Hsat).
       ssplit; [reflexivity | | exact Hexn |].
-      + eapply Exists_impl; [|exact Hexmr]. simpl. intros mr (mhyps & nhyps & Hpi & Hkn & Hknn).
-        exists mhyps, nhyps. ssplit; [exact Hpi| |].
-        * eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
-          exact (knows_fact_submultiset _ _ (fact.meta mh)
-                   (submultiset_cons _ _) Hallow Hmh).
-        * eapply Forall_impl; [exact Hknn|]. simpl. intros nh Hnh.
-          exact (knows_fact_submultiset _ _ (fact.normal nh)
-                   (submultiset_cons _ _) Hallow Hnh).
+      + eapply Exists_impl; [|exact Hexmr]. simpl. intros mr (mhyps & Hpi & Hkn).
+        exists mhyps. split; [exact Hpi|].
+        eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
+        exact (knows_fact_submultiset _ _ (fact.meta mh)
+                 (submultiset_cons _ _) Hallow Hmh).
       + intros r nf Hr Hcdn Hm. cbn [state.known state.sent] in Hcdn |- *.
-        apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr & mhyps & nhyps & Hpi & Hkn & _).
+        apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr & mhyps & Hpi & Hkn).
         destruct Hcdn as (hyps & Hri & Hkh).
         apply (Hsat r nf Hr); [| exact Hm].
         exists hyps. split; [exact Hri |].
-        pose proof (Hmrv _ _ Hmr Hr _ _ _ _ _ Hpi Hri Hm) as Hcov.
+        pose proof (Hmrv _ _ Hmr Hr _ _ _ _ Hpi Hri Hm) as Hcov.
         rewrite Forall_forall in Hkh, Hcov |- *. intros h Hh.
         eapply knows_fact_transfer_down_sub;
           [ apply submultiset_cons | exact Hallow | exact Hkn | eauto | eauto ].
@@ -679,18 +675,16 @@ Section __.
       + apply deduce_step. cbn [can_deduce]. ssplit.
         * reflexivity.
         * eapply Exists_impl; [|exact Hexmr]. simpl.
-          intros mr (mhyps & nhyps & Hpi & Hkn & Hknn). exists mhyps, nhyps. ssplit; [exact Hpi| |].
-          -- eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
-             apply (Hki_dem (fact.meta mh)). exact Hmh.
-          -- eapply Forall_impl; [exact Hknn|]. simpl. intros nh Hnh.
-             apply (Hki_dem (fact.normal nh)). exact Hnh.
+          intros mr (mhyps & Hpi & Hkn). exists mhyps. split; [exact Hpi|].
+          eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
+          apply (Hki_dem (fact.meta mh)). exact Hmh.
         * exact Hexn_d.
         * intros r'' nf Hr''_in Hcdn_dem Hmatch'.
-          apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr_in & mhyps & nhyps & Hpi & Hkn & _).
+          apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr_in & mhyps & Hpi & Hkn).
           assert (Hcdn_s1 : can_deduce_normal_fact r'' s1.(state.known) nf).
           { destruct Hcdn_dem as (local_hyps & Hri & Hknown_new).
             exists local_hyps. split; [exact Hri |].
-            pose proof (Hmrv _ _ Hmr_in Hr''_in _ _ _ _ _ Hpi Hri Hmatch') as Hcov.
+            pose proof (Hmrv _ _ Hmr_in Hr''_in _ _ _ _ Hpi Hri Hmatch') as Hcov.
             rewrite Forall_forall in Hknown_new, Hcov |- *.
             intros h Hh. eapply knows_fact_transfer_down;
               [ exact Hki_dem | exact Hkn | eauto | eauto ]. }

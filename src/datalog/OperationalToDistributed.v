@@ -529,7 +529,7 @@ Section __.
     Forall (fun r => ok_to_deduce is_input p r os pat) np.(program.rules) ->
     saturated graph_senders np ns.(gns_node_state) pat.
   Proof.
-    intros Hk Hget Hinps (Houts & _) (mr & pats & nfs & Hmr & Hpi & Hdone & _) Hok.
+    intros Hk Hget Hinps (Houts & _) (mr & pats & Hmr & Hpi & Hdone) Hok.
     cbv [saturated can_deduce_normal_fact]. intros r nf Hr (hyps & Hri & Hhyps) Hm.
     assert (Hp : In r p.(program.rules)).
     { apply Hlayout_normal. cbv [all_rules]. apply in_flat_map.
@@ -539,7 +539,7 @@ Section __.
     - cbn [op_sources_of]. erewrite get_or_default_Some by eassumption. apply in_map. exact Hr.
     - rewrite Forall_forall in Hok. apply (Hok _ Hr); [| exact Hm].
       exists hyps. split; [exact Hri|].
-      pose proof (Hmeta_rules _ _ Hmr Hp _ _ _ _ _ Hpi Hri Hm) as Hcov.
+      pose proof (Hmeta_rules _ _ Hmr Hp _ _ _ _ Hpi Hri Hm) as Hcov.
       pose proof (rule.interp_hyp_relname_in _ _ _ Hri) as Hrels.
       eapply Forall_impl;
         [apply Forall_and; [apply Forall_and; [exact Hcov | exact Hrels] | exact Hhyps] |].
@@ -630,23 +630,14 @@ Section __.
                        eapply program.meta_rule_hyp_rel_in; [| exact Hrel'].
                        eapply Hstepp1p2p0; [| eassumption].
                        eapply meta_rule.pattern_interp_concl_relname_in. eassumption. }
-                  destruct Hstepp1p2p2 as [mhyps Hmhyps]. exists mhyps, nfs.
+                  destruct Hstepp1p2p2 as [mhyps Hmhyps]. exists mhyps.
                   apply Forall2_flip in Hmhyps.
                   eassert (map _ mhyps = pats) as ->.
                   { symmetry. eapply Forall2_eq_map. eapply Forall2_impl; [eassumption|].
                     simpl. intros. fwd. reflexivity. }
-                  ssplit; [eassumption| |].
-                  * eapply Forall2_forget_r in Hmhyps. eapply Forall_impl; [eassumption|].
-                    simpl. intros. fwd. auto.
-                  * pose proof (meta_rule.pattern_interp_normal_hyp_relname_in _ _ _ _ Hstepp1p2p1)
-                      as Hrels.
-                    rewrite Forall_forall in Hrels, Hstepp1p2p3 |- *. intros nf' Hnf'.
-                    eapply (idkkk _ (fact.normal nf')); [| | |eassumption].
-                    ** eapply program.meta_rule_hyp_rel_in; [|eauto].
-                       eapply Hstepp1p2p0; [|eassumption].
-                       eapply meta_rule.pattern_interp_concl_relname_in. eassumption.
-                    ** cbv [op_ish_inputs] in Hopish. eapply Hopish. eassumption.
-                    ** apply Hstepp1p2p3. assumption.
+                  split; [eassumption|].
+                  eapply Forall2_forget_r in Hmhyps. eapply Forall_impl; [eassumption|].
+                  simpl. intros. fwd. auto.
            ++ apply Existsn_length_filter with (f := message.matchesb pat). intros m. exact _.
            ++ eapply saturated_of_ok_to_deduce; try eassumption.
               apply Forall_forall. intros r' Hr'.

@@ -1100,15 +1100,6 @@ Proof.
   intros H. apply in_of_list_Some_strong in H. fwd. eauto.
 Qed.
 
-Lemma agree_on_of_list (m : mp) kvs k :
-  Forall (fun '(k', v) => map.get m k' = Some v) kvs ->
-  In k (map fst kvs) ->
-  agree_on m (map.of_list kvs) k.
-Proof.
-  intros Hkvs Hk. apply in_of_list_Some_strong in Hk. fwd. cbv [agree_on].
-  rewrite Hkp0. rewrite Forall_forall in Hkvs. apply (Hkvs (k, v)). assumption.
-Qed.
-
 Lemma putmany_extends_idk (m1 m2 m2' : mp) :
   map.extends (map.putmany m1 m2) m2' ->
   map.extends m2' m2 ->
