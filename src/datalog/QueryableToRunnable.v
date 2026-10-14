@@ -43,11 +43,12 @@ Section Transform.
   #[local] Instance nat_exprvar : exprvarT := nat.
 
   Local Abbreviation rule' := (rule (_rel := query_rel)).
+  Local Abbreviation meta_rule' := (meta_rule (relt := query_rel)).
   Local Abbreviation clause' := (clause (relt := query_rel) (exprvar := (exprvar + nat)%type)).
 
   (*if we get a message saying concls of r need to be computed, then send out messages
     saying premises of r need to be computed*)
-  Definition request_hyps (r : rule) : rule' :=
+  Definition request_rule_hyps (r : rule) : rule' :=
     match r with
     | rule.impl concls hyps =>
         rule.impl
@@ -57,10 +58,16 @@ Section Transform.
         let shared_vars := seq 1 (query.arity concl_rel - 1) in
         rule.impl
           [{| clause.rel := query_rel.query hyp_rel;
-             clause.args := map expr.var (query.inputs hyp_rel (O (*dummy*):: O (*dummy*) :: shared_vars)) |}]
+             clause.args := map expr.var (query.inputs hyp_rel (O (*dummy*) :: O (*dummy*) :: shared_vars)) |}]
           [{| clause.rel := query_rel.query concl_rel;
              clause.args := map expr.var (query.inputs concl_rel (O :: shared_vars)) |}]
     end.
+
+  Print meta_rule.
+  Definition request_meta_rule_hyps (r : meta_rule) : rule' :=
+    {| rule.concls :=
+        map (clause.map_rel query_rel.query) (map clause.with_only_inputs normal_hyps) ++
+
 
   (*add a hypothesis saying that the conclusion is something we need to compute*)
   Definition add_hyp (r : rule) : rule' :=
