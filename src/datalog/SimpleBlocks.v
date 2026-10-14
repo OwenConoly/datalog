@@ -13,6 +13,8 @@ Module blocks_prog.
       | block_rel.input r => r.(result.done) pat.(fact_pattern.args)
       end.
 
+    (*TODO having normal facts and meta facts separate seemed like a good idea when they were really independent,
+      but now they are not, and maybe the `result` type is not a good idea anymore?  not sure. *)
     Fixpoint simple_interp (p : blocks_prog result) :=
       match p with
       | LetIn x f => simple_interp (f (simple_interp x))
