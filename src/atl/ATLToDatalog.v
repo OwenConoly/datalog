@@ -43,7 +43,7 @@ Definition example_pATLexpr {var} : pATLexpr var 1 :=
 (*should i be seperating these definitions into more variants like in the previous compiler?
 cause everything in the language is purely defined as fn, so maybe it wouldn't work, but
 having every fn term be uner the fn variant might be messy when it comes to interpreting them with return variables?? *)Variant fn : fnT :=
-  fn_Add | fn_Sub | fn_Divf | fn_Divc | fn_Mul | fn_Mod | fn_Nat | fn_Opp
+  fn_Add | fn_Sub | fn_Divf | fn_Divc | fn_Mul | fn_Mod | fn_Opp
   | fn_Lit (x : Z) | fn_Lt | fn_Le | fn_And | fn_Not | fn_Div | fn_Eq.
 
 #[local] Existing Instance fn.
@@ -1045,7 +1045,6 @@ Definition interp_fun (f : fn) (args : list value) : option value :=
   | fn_Div, [VR x; VR y] => Some (VR (x / y))
   | fn_Divc, [VZ x; VZ y] => Some (VZ (x // y))
   | fn_Mod, [VZ x; VZ y] => Some (VZ (Z.modulo x y))
-  | fn_Nat, [VZ x] => Some (VZ x) (* unsure of intended semantics — flag to Owen *)
   | fn_Opp, [VR x] => Some (VR (- x))
   | fn_Lit z, [] => Some (VZ z)
   | fn_Lt, [VZ x; VZ y] => Some (Vbool (Z.ltb x y))
@@ -1053,6 +1052,11 @@ Definition interp_fun (f : fn) (args : list value) : option value :=
   | fn_And, [Vbool x; Vbool y] => Some (Vbool (x && y))
   | fn_Not, [Vbool x] => Some (Vbool (negb x))
   | fn_Eq, [VZ x; VZ y] => Some (Vbool (Z.eqb x y))
+  | fn_Add, [VZ x; VZ y] => Some (VZ (x + y)%Z)
+  | fn_Sub, [VZ x; VZ y] => Some (VZ (x - y)%Z)
+  | fn_Mul, [VZ x; VZ y] => Some (VZ (x * y)%Z)
+  | fn_Divf, [VZ x; VZ y] => Some (VZ (x / y)%Z)
+  | fn_Opp, [VZ x] => Some (VZ (- x)%Z)
   | _, _ => None
   end.
 
@@ -1071,11 +1075,98 @@ Definition untag_zctx {A} (ctx : list (A * tagged_Z)) : list (A * value) :=
 Definition context_of {var} (ctx : list (ctx_elt2 (var_of var) interp_type_tagged)) : context :=
   map.of_list (untag_zctx (zctx ctx)).
 
-Print R.
+Print expr.interp.
+Lemma lower_pZexpr'_works (ctx' : context) (zc : list (nat * tagged_Z))
+  (a : pZexpr' nat) (b : pZexpr' tagged_Z) :
+  wf_pZexpr' zc a b ->
+  Forall (fun '(x, y) => map.get ctx' x = Some (VZ (untag_Z y))) zc ->
+  expr.interp ctx' (lower_pZexpr' a) (VZ (interp_pZexpr' b)).
+Proof. 
+intros Hwf Hmap.
+induction Hwf.
+- simpl. specialize (IHHwf1 Hmap).
+specialize (IHHwf2 Hmap).
+eapply expr.interp_fun_expr with (args' := [VZ (interp_pZexpr' x2); VZ (interp_pZexpr' y2)]).
+  * constructor; [exact IHHwf1 | constructor; [exact IHHwf2 | constructor]].
+  * destruct o.
+    { cbv [ZBop_to_fn]; simpl. reflexivity. }
+    { cbv [ZBop_to_fn]; simpl. reflexivity. }
+    { cbv [ZBop_to_fn]; simpl. reflexivity. }
+    { cbv [ZBop_to_fn]; simpl. reflexivity. }
+    { cbv [ZBop_to_fn]; simpl. reflexivity. }
+    { cbv [ZBop_to_fn]; simpl. reflexivity. }
+- simpl. eapply expr.interp_var_expr.
+  rewrite Forall_forall in Hmap. 
+  specialize (Hmap (x1, x2) H).
+  apply Hmap.
+- simpl. eapply expr.interp_fun_expr.
+  * constructor.
+  * constructor.
+- simpl. specialize (IHHwf Hmap).
+  eapply expr.interp_fun_expr with (args' := [VZ (interp_pZexpr' x2)]).
+  * constructor; [exact IHHwf | constructor].
+  * reflexivity.
+Qed.
+
+Lemma get_putmany_right (m1 m2 : context) k v :
+  map.get m2 k = Some v -> map.get (map.putmany m1 m2) k = Some v.
+Proof. intros H. rewrite map.get_putmany_dec, H. reflexivity. Qed.
+
+Lemma interp_vars_putmany (m1 m2 : context) (l : list exprvar) (l' : list value) :
+  Forall2 (fun x y => map.get m2 x = Some y) l l' ->
+  Forall2 (expr.interp (map.putmany m1 m2)) (map expr.var l) l'.
+Proof.
+  induction 1; simpl.
+  - constructor.
+  - constructor; [| assumption].
+    apply expr.interp_var_expr.
+    apply get_putmany_right. assumption.
+Qed.
+
+Lemma Forall2_firstn' {A B} (R : A -> B -> Prop) n (l : list A) (l' : list B) :
+  Forall2 R l l' -> Forall2 R (firstn n l) (firstn n l').
+Proof.
+  intros H. revert n. induction H; intros [|n]; simpl; constructor; auto.
+Qed.
+
+Lemma lower_idxs_works (ctx' : context) (zc : list (nat * tagged_Z))
+  (l1 : list (pZexpr' nat)) (l2 : list (pZexpr' tagged_Z)) :
+  Forall2 (wf_pZexpr' zc) l1 l2 ->
+  Forall (fun '(x, y) => map.get ctx' x = Some (VZ (untag_Z y))) zc ->
+  Forall2 (expr.interp ctx') (map lower_pZexpr' l1)
+          (map VZ (map interp_pZexpr' l2)).
+Proof.
+  intros Hwf Hb. induction Hwf; simpl.
+  - constructor.
+  - constructor.
+    + eapply lower_pZexpr'_works; eassumption.
+    + exact IHHwf.
+Qed.
+
+Lemma context_of_zctx {var} (ctx : list (ctx_elt2 (var_of var) interp_type_tagged)) :
+  NoDup (map fst (zctx ctx)) ->
+  Forall (fun '(x, y) => map.get (context_of ctx) x = Some (VZ (untag_Z y))) (zctx ctx).
+Proof.
+  intros Hnd. cbv [context_of]. rewrite Forall_forall.
+  intros [x y] Hin.
+  apply map.get_of_list_In_NoDup.
+  - unfold untag_zctx. rewrite map_map. 
+    assert (Hk : map (fun x0 : nat * tagged_Z => fst (let '(x1, y0) := x0 in (x1, VZ y0))) (zctx ctx)
+               = map fst (zctx ctx)).
+  { apply map_ext. intros [a b]. reflexivity. }
+  { erewrite map_ext with (g := fst).
+    - exact Hnd.
+    - intros [a b]. reflexivity. }
+  - unfold untag_zctx. apply in_map_iff. 
+exists (x, y). split; [reflexivity | exact Hin].
+Qed.
+
 Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps next_varname' :
   wf_pSexpr' ctx e e' ->
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
   lower_pSexpr' idxs0 next_varname e = (datalog_expr, hyps, next_varname') ->
+  map.get (context_of ctx) next_varname = None ->
+  NoDup (map fst (zctx ctx)) ->
   exists hyps' substn,
     next_varname <= next_varname' /\
     Forall2 (clause.interp (map.putmany substn (context_of ctx))) hyps hyps' /\
@@ -1090,14 +1181,23 @@ Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Se
       expr.interp (map.putmany substn (context_of ctx)) datalog_expr (value_of (interp_pSexpr' e')).
 Proof.
   induction 1.
-  - intros Hidxs Hcomp. simpl in *. Tactics.destruct_one_match_hyp. invert Hcomp.
-    eexists. eexists (map.put map.empty _ (VZ _)). split.
-    + lia.
-    + (*constructor; [|constructor]. cbv [interp_clause]. simpl. eexists. split; [|reflexivity].
-      constructor.
-      -- constructor. rewrite map.get_putmany_dec. rewrite map.get_put_same.
-         eassert (map.get _ next_varname = None) as ->.
-         { (*TODO this should be provable*) admit. } (* look at line 1867 of the old proof, add something saying that the nextvarname hasn't been used yet *)
-         reflexivity.
-      -- admit.*)
-Admitted.
+  - intros Hidxs Hcomp Hmap Hnd. simpl in *. Tactics.destruct_one_match_hyp. invert Hcomp.
+    exists [ {| normal_fact.rel := block_rel.input v;
+              normal_fact.args :=
+                value_of (get_R v2 (map interp_pZexpr' idxs2))
+                :: firstn n0 idxs0' ++ map VZ (map interp_pZexpr' idxs2) |} ].
+  exists (map.put map.empty next_varname
+            (value_of (get_R v2 (map interp_pZexpr' idxs2)))).
+  split; [lia | split; [| split]].
+    * constructor; [| constructor]. 
+      cbv [clause.interp]; simpl. split.
+      { reflexivity. }
+      { constructor. 
+       - simpl. eapply expr.interp_var_expr.
+      rewrite map.get_putmany_dec, Hmap, map.get_put_same.
+      reflexivity. 
+      - apply Forall2_app. 
+        * apply interp_vars_putmany. apply Forall2_firstn'. apply Hidxs. 
+        * eapply lower_idxs_works. 
+          + apply H0. 
+          + Admitted.
