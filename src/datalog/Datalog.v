@@ -638,6 +638,10 @@ Module clause_pattern.
 
     Definition vars (c : clause_pattern) : list exprvar :=
       flat_map expr_pattern.vars c.(args).
+
+    Context {qsig : query.signature}.
+
+    Definition query_inputs c := query.inputs c.(rel) c.(args).
   End __.
 
   Section __.
@@ -1095,10 +1099,15 @@ Module meta_rule.
       match r.(concls) with
       | [concl] =>
           (forall v,
-              In v (flat_map expr_pattern.vars (flat_map pattern_clause.query_inputs (concl :: hyps))) ->
-              In (expr.var v) (clause.query_inputs concl)) /\
-            (forall v, In v (all_vars r) ->
-                  In (expr.var v) (hyp_args r ++ clause.query_inputs concl))
+              In v (flat_map expr_pattern.vars
+                      (flat_map clause_pattern.query_inputs (concl :: r.(hyps))) ++
+                    flat_map expr.vars (flat_map clause.query_inputs r.(normal_hyps))) ->
+              In (expr_pattern.exactly (expr.var v)) (clause_pattern.query_inputs concl)) /\
+            (forall v,
+                In v (all_vars r) ->
+                In (expr_pattern.exactly (expr.var v))
+                  (hyp_args r ++ clause_pattern.query_inputs concl) \/
+                  In (expr.var v) (normal_hyp_args r))
       | _ => False
       end.
   End __.
