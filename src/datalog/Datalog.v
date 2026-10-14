@@ -1595,7 +1595,21 @@ Module program.
       interp p Q (fact.meta mf) ->
       meta_fact.matches mf nf ->
       interp p Q (fact.normal nf).
-    Proof. Admitted.
+    Proof.
+      intros HQ H. remember (fact.meta mf) as f eqn:Ef. revert mf nf Ef.
+      induction H; intros mf nf Ef Hm; subst.
+      - apply pftree.leaf. cbv [meta_fact.matches] in Hm. fwd. eapply HQ; eassumption.
+      - rewrite Forall_forall in *. invert H; rewrite Exists_exists in *; fwd.
+        + destruct Hm as [Hpat Hin]. rewrite (proj2 H3p1) in Hin by assumption.
+          cbv [rule.one_step_derives] in Hin. fwd.
+          eapply interp_step_strong.
+          * constructor. apply Exists_exists. eauto.
+          * eapply Forall_impl; [eassumption|]. simpl. intros h Hh.
+            cbv [fact.implied_by_mfs] in Hh. rewrite Exists_exists in Hh. fwd.
+            destruct h; cbv [fact.implied_by_mf] in *; subst; eauto using in_map.
+        + cbv [mf_creator.interp] in H3p1. fwd. rewrite H3p1p4 in Hm.
+          eauto using in_map, in_or_app.
+    Qed.
 
   Lemma meta_facts_consistent' p Q f1 f2 :
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
