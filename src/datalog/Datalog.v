@@ -1160,6 +1160,29 @@ Module mf_creator.
       - eapply Forall_impl; [eapply Forall2_forget_l; eassumption|].
         simpl. intros. fwd. right. apply in_map_iff. cbv [clause.interp] in *. fwd. eauto.
     Qed.
+
+    Lemma interp_complete mfc mf hyps Q nf :
+      upper_bound_valid_for mfc Q ->
+      interp mfc mf hyps ->
+      Forall Q (map fact.normal hyps) ->
+      fact_pattern.matches mf.(meta_fact.pattern) nf ->
+      Q (fact.normal nf) ->
+      fset.contains mf.(meta_fact.set) nf.(normal_fact.args).
+    Proof.
+      cbv [upper_bound_valid_for interp]. intros Hub Hmf Hhyps Hpat Hnf. fwd.
+      rewrite map_app, Forall_app, !Lists.List.Forall_map in Hhyps. fwd.
+      eapply proj2. apply Hmfp4.
+      apply In_of_NoDup_maximal
+        with (P := fun nf => Q (fact.normal nf) /\ fact_pattern.matches mf.(meta_fact.pattern) nf)
+             (n := get_nat ub).
+      - intros nfs Hnfs HP. apply Forall_and_inv in HP. fwd.
+        eapply Hub; try eassumption.
+        all: rewrite Lists.List.Forall_map; assumption.
+      - assumption.
+      - apply Forall_and; [assumption|]. apply Forall_forall. intros. apply Hmfp4. assumption.
+      - lia.
+      - split; assumption.
+    Qed.
   End __.
 End mf_creator. Abbreviation mf_creator := mf_creator.mf_creator.
 
@@ -1480,6 +1503,11 @@ Module program.
         In nr p.(rules) ->
         meta_rule.valid_for mr nr.
 
+    Definition mf_creators_valid (p : program) Q :=
+      forall mfc,
+        In mfc p.(mf_creators) ->
+        mf_creator.upper_bound_valid_for mfc (interp p Q).
+
     Definition good_input_set (p : program) (Q : fact -> Prop) :=
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) /\ fact.set_doesnt_lie Q.
 
@@ -1495,7 +1523,7 @@ Module program.
     Qed.
 
     Definition honest (p : program) :=
-      forall Q, good_input_set p Q -> fact.set_doesnt_lie (interp p Q).
+      forall Q, good_input_set p Q -> mf_creators_valid p Q -> fact.set_doesnt_lie (interp p Q).
 
     Lemma one_step_derives_iff p Q mr mhyps pat nf :
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
@@ -1590,6 +1618,32 @@ Module program.
         + eapply Hagree; eassumption.
     Qed.
 
+    Lemma one_step_derives_of_valid p mr mhyps pat nr nf hyps :
+      meta_rules_valid p ->
+      In mr p.(meta_rules) ->
+      meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) ->
+      fact_pattern.matches pat nf ->
+      In nr p.(rules) ->
+      rule.interp nr nf hyps ->
+      (forall mhyp hyp,
+          In mhyp mhyps ->
+          In (fact.normal hyp) hyps ->
+          fact_pattern.matches mhyp.(meta_fact.pattern) hyp ->
+          fset.contains mhyp.(meta_fact.set) hyp.(normal_fact.args)) ->
+      (forall mhyp mf, In mhyp mhyps -> In (fact.meta mf) hyps -> meta_fact.agree mhyp mf) ->
+      rule.one_step_derives p.(rules) mhyps nf.
+    Proof.
+      intros Hvalid Hmr Hpat Hmatch Hnr Hri Hnormal Hmeta.
+      specialize (Hvalid _ _ Hmr Hnr _ _ _ _ Hpat Hri Hmatch).
+      cbv [rule.one_step_derives]. eexists. split; [apply Exists_exists; eauto|].
+      apply Forall_forall. intros h Hh. rewrite Forall_forall in Hvalid.
+      specialize (Hvalid _ Hh). cbv [fact.covered_by_pats fact.implied_by_mfs] in *.
+      rewrite Exists_exists in *. fwd. apply in_map_iff in Hvalidp0. fwd.
+      eexists. split; [eassumption|]. cbv [fact.covered_by] in Hvalidp1. destruct h.
+      - cbv [fact.implied_by_mf meta_fact.matches]. eauto.
+      - cbv [fact.implied_by_mf]. symmetry. apply meta_fact.eq_of_agree; [congruence|]. eauto.
+    Qed.
+
     Lemma meta_facts_sound p Q mf nf :
       fact.set_doesnt_lie Q ->
       interp p Q (fact.meta mf) ->
@@ -1612,60 +1666,116 @@ Module program.
     Qed.
 
   Lemma meta_facts_consistent' p Q f1 f2 :
-      (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
-      (forall mf1 mf2, Q (fact.meta mf1) -> Q (fact.meta mf2) -> meta_fact.agree mf1 mf2) ->
+      good_input_set p Q ->
       meta_rules_valid p ->
+      mf_creators_valid p Q ->
       interp p Q f1 ->
       interp p Q f2 ->
       match f1, f2 with
       | fact.meta mf1, fact.meta mf2 => meta_fact.agree mf1 mf2
+      | fact.meta mf, fact.normal nf | fact.normal nf, fact.meta mf =>
+          fact_pattern.matches mf.(meta_fact.pattern) nf ->
+          fset.contains mf.(meta_fact.set) nf.(normal_fact.args)
       | _, _ => True
       end.
     Proof.
-      intros Hinp Hinp2 Hvalid Hf1 Hf2.
+      intros [Hinp Hlie] Hvalid Hcreators Hf1 Hf2.
       eapply pftree.pairwise_ind with (x1 := f1) (x2 := f2).
       3,4: eassumption.
       - intros x1 x2. destruct x1, x2; simpl; try tauto.
         split; apply meta_fact.agree_sym.
       - intros x xs IH Hderiv Hstep.
         rewrite Forall_forall in Hderiv, Hstep.
+        assert (Hcomplete: forall mf nf,
+                   In (fact.meta mf) (x :: xs) ->
+                   In (fact.normal nf) (x :: xs) ->
+                   fact_pattern.matches mf.(meta_fact.pattern) nf ->
+                   fset.contains mf.(meta_fact.set) nf.(normal_fact.args)).
+        { intros mf nf Hmf Hnf Hmatch.
+          pose proof Hmatch as Hrel. cbv [fact_pattern.matches] in Hrel. fwd.
+          destruct (Hstep _ Hmf) as [Hm|Hm]; destruct (Hstep _ Hnf) as [Hn|Hn].
+          - apply Hlie in Hm. apply Hm; assumption.
+          - exfalso. fwd. apply interp_step_concl_relname_in in Hnp0.
+            eapply Hinp; [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
+          - exfalso. fwd. apply interp_step_concl_relname_in in Hmp0.
+            eapply Hinp; [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
+          - fwd. invert Hmp0.
+            + invert Hnp0. rewrite Exists_exists in *. fwd.
+              destruct H0p1 as [Hpat Hset]. rewrite Hset by assumption.
+              eapply one_step_derives_of_valid; try eassumption.
+              * intros mhyp hyp Hmhyp Hhyp.
+                apply (IH (fact.meta mhyp) (fact.normal hyp)); [apply Hmp1, in_map | apply Hnp1];
+                  assumption.
+              * intros mhyp mf' Hmhyp Hmf'.
+                apply (IH (fact.meta mhyp) (fact.meta mf')); [apply Hmp1, in_map | apply Hnp1];
+                  assumption.
+            + rewrite Exists_exists in *. fwd.
+              eapply mf_creator.interp_complete with (Q := interp p Q); try eassumption.
+              * apply Hcreators. assumption.
+              * apply Forall_forall. intros. apply Hderiv. right. apply Hmp1. assumption.
+              * apply Hderiv. assumption.
+        }
+        assert (Hcreator: forall mf hyps mf' nf,
+                   Exists (fun mfc => mf_creator.interp mfc mf hyps) p.(mf_creators) ->
+                   incl (map fact.normal hyps) xs ->
+                   In (fact.meta mf') (x :: xs) ->
+                   fact_pattern.matches mf.(meta_fact.pattern) nf ->
+                   fact_pattern.matches mf'.(meta_fact.pattern) nf ->
+                   fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <->
+                     fset.contains mf'.(meta_fact.set) nf.(normal_fact.args)).
+        { intros mf hyps mf' nf Hc Hincl Hmf' Hm Hm'. rewrite Exists_exists in Hc. fwd.
+          split; intros Hin.
+          - apply Hcomplete; [assumption| |assumption]. right. apply Hincl. apply in_map.
+            cbv [mf_creator.interp] in Hcp1. fwd. apply in_or_app. left. apply Hcp1p4.
+            split; assumption.
+          - eapply mf_creator.interp_complete with (Q := interp p Q); try eassumption.
+            + apply Hcreators. assumption.
+            + apply Forall_forall. intros. apply Hderiv. right. apply Hincl. assumption.
+            + apply meta_facts_sound with (mf := mf'); [assumption| |split; assumption].
+              apply Hderiv. assumption.
+        }
         apply Forall_forall. intros y Hy.
-        destruct x as [nf1|mf1]; [exact I|].
-        destruct y as [nf2|mf2]; [exact I|].
-        destruct Hy as [Hy|Hy].
-        { invert Hy. cbv [meta_fact.agree]. intros. reflexivity. }
-        intros nf Hm1 Hm2.
-        pose proof (Hstep (fact.meta mf1) ltac:(simpl; auto)) as Hx.
-        pose proof (Hstep (fact.meta mf2) ltac:(simpl; auto)) as Hz.
-        pose proof Hm1 as Hr1. pose proof Hm2 as Hr2.
-        cbv [fact_pattern.matches] in Hr1, Hr2. fwd.
-        destruct Hx as [Hx|Hx]; destruct Hz as [Hz|Hz].
-        + apply Hinp2; eassumption.
-        + exfalso. fwd. apply interp_step_concl_relname_in in Hzp0.
-          eapply Hinp; [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
-        + exfalso. fwd. apply interp_step_concl_relname_in in Hxp0.
-          eapply Hinp; [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
-        + fwd. invert Hxp0; [|destruct give_up]. invert Hzp0; [|destruct give_up].
-          rewrite Exists_exists in H0, H1. fwd.
-          assert (Hagree: forall mhyp1 mhyp2, In mhyp1 hyps -> In mhyp2 hyps0 ->
-                     meta_fact.agree mhyp1 mhyp2).
-          { intros mhyp1 mhyp2 Ha Hb.
-            apply (IH (fact.meta mhyp1) (fact.meta mhyp2));
-              [apply Hxp1 | apply Hzp1]; apply in_map; assumption. }
-          destruct H0p1 as [Hpat1 Hset1]. destruct H1p1 as [Hpat2 Hset2].
-          rewrite Hset1, Hset2 by assumption.
-          split; intros Hd.
-          * eapply one_step_derives_mhyps in Hvalid.
-            3: exact Hpat2. all: eassumption.
-          * eapply one_step_derives_mhyps in Hvalid.
-            3: exact Hpat1. all: try eassumption.
-            intros. apply meta_fact.agree_sym. auto.
+        destruct x as [nf1|mf1], y as [nf2|mf2].
+        + exact I.
+        + apply Hcomplete; [assumption|apply in_eq].
+        + apply Hcomplete; [apply in_eq|assumption].
+        + destruct Hy as [Hy|Hy].
+          { invert Hy. cbv [meta_fact.agree]. intros. reflexivity. }
+          intros nf Hm1 Hm2.
+          pose proof (Hstep (fact.meta mf1) ltac:(simpl; auto)) as Hx.
+          pose proof (Hstep (fact.meta mf2) ltac:(simpl; auto)) as Hz.
+          pose proof Hm1 as Hr1. pose proof Hm2 as Hr2.
+          cbv [fact_pattern.matches] in Hr1, Hr2. fwd.
+          destruct Hx as [Hx|Hx]; destruct Hz as [Hz|Hz].
+          * eapply fact.set_doesnt_lie_agree; eassumption.
+          * exfalso. fwd. apply interp_step_concl_relname_in in Hzp0.
+            eapply Hinp; [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
+          * exfalso. fwd. apply interp_step_concl_relname_in in Hxp0.
+            eapply Hinp; [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
+          * fwd. invert Hxp0.
+            -- invert Hzp0.
+               ++ rewrite Exists_exists in H0, H1. fwd.
+                  assert (Hagree: forall mhyp1 mhyp2, In mhyp1 hyps -> In mhyp2 hyps0 ->
+                             meta_fact.agree mhyp1 mhyp2).
+                  { intros mhyp1 mhyp2 Ha Hb.
+                    apply (IH (fact.meta mhyp1) (fact.meta mhyp2));
+                      [apply Hxp1 | apply Hzp1]; apply in_map; assumption. }
+                  destruct H0p1 as [Hpat1 Hset1]. destruct H1p1 as [Hpat2 Hset2].
+                  rewrite Hset1, Hset2 by assumption.
+                  split; intros Hd.
+                  ** eapply one_step_derives_mhyps in Hvalid.
+                     3: exact Hpat2. all: eassumption.
+                  ** eapply one_step_derives_mhyps in Hvalid.
+                     3: exact Hpat1. all: try eassumption.
+                     intros. apply meta_fact.agree_sym. auto.
+               ++ symmetry. eapply Hcreator; try eassumption. apply in_eq.
+            -- eapply Hcreator; try eassumption. apply in_cons. assumption.
     Qed.
 
     Lemma meta_facts_consistent p Q mf1 mf2 :
-      (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
-      (forall mf1 mf2, Q (fact.meta mf1) -> Q (fact.meta mf2) -> meta_fact.agree mf1 mf2) ->
+      good_input_set p Q ->
       meta_rules_valid p ->
+      mf_creators_valid p Q ->
       interp p Q (fact.meta mf1) ->
       interp p Q (fact.meta mf2) ->
       meta_fact.agree mf1 mf2.
@@ -1677,44 +1787,23 @@ Module program.
       meta_rules_valid p ->
       honest p.
     Proof.
-      intros Hvalid Q [Hdisj Q_honest] mf Hderiv.
-      assert (HQagree: forall mf1 mf2,
-                 Q (fact.meta mf1) -> Q (fact.meta mf2) -> meta_fact.agree mf1 mf2).
-      { eauto using fact.set_doesnt_lie_agree. }
-      remember (fact.meta mf) as f eqn:Ef. revert mf Ef.
-      induction Hderiv; intros mf Ef; subst.
-      - pose proof H as HQ. apply Q_honest in H.
-        cbv [meta_fact.consistent_with] in H |- *. intros nf Hmatch.
-        rewrite H by assumption. split; intros H'.
-        + apply pftree.leaf. assumption.
-        + invert H'; [assumption|].
-          exfalso. apply interp_step_concl_relname_in in H0.
-          eapply Hdisj; [exact HQ|].
-          cbv [fact.rel meta_fact.rel] in *. cbv [fact_pattern.matches] in Hmatch. fwd.
-          congruence.
-      - invert H; [|destruct give_up]. rewrite Forall_forall in H0, H1.
-        eapply meta_rules_valid_step; try eassumption.
-        + rewrite Forall_forall. intros mhyp Hin.
-          apply (H1 (fact.meta mhyp)); auto using in_map.
-        + intros mhyp mf' Hin Hd Hpat.
-          apply meta_fact.eq_of_agree; [assumption|].
-          eapply meta_facts_consistent; try eassumption.
-          apply H0. apply in_map. assumption.
-        + rewrite Forall_forall. intros mhyp Hin.
-          apply H0. apply in_map. assumption.
+      intros Hvalid Q Hgood Hcreators mf Hderiv nf Hmatch. split; intros H.
+      - eapply meta_facts_sound; [apply Hgood|eassumption|split; assumption].
+      - eapply (meta_facts_consistent' _ _ (fact.meta _) (fact.normal _)); eassumption.
     Qed.
 
     Lemma use_honest p Q mf args :
       honest p ->
       good_input_set p Q ->
+      mf_creators_valid p Q ->
       interp p Q (fact.meta mf) ->
       Forall2 value_pattern.matches mf.(meta_fact.pattern).(fact_pattern.args) args ->
       fset.contains mf.(meta_fact.set) args <->
         interp p Q (fact.normal {| normal_fact.rel := meta_fact.rel mf;
                                   normal_fact.args := args |}).
     Proof.
-      intros Hhonest Hgood H Hargs.
-      apply (Hhonest Q Hgood mf H {| normal_fact.rel := meta_fact.rel mf;
+      intros Hhonest Hgood Hcreators H Hargs.
+      apply (Hhonest Q Hgood Hcreators mf H {| normal_fact.rel := meta_fact.rel mf;
                                     normal_fact.args := args |}).
       cbv [fact_pattern.matches]. auto.
     Qed.

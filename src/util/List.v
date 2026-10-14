@@ -797,6 +797,19 @@ Section search.
   Proof.
     induction l1 as [|y l1' IH]; simpl; [reflexivity | rewrite IH; lia].
   Qed.
+
+  Lemma In_of_NoDup_maximal (P : A -> Prop) n l x :
+    (forall l', NoDup l' -> Forall P l' -> length l' <= n) ->
+    NoDup l ->
+    Forall P l ->
+    n <= length l ->
+    P x ->
+    In x l.
+  Proof.
+    intros Hmax Hl HP Hlen Hx. destruct (inb_spec x l); [assumption|].
+    exfalso. enough (length (x :: l) <= n) by (simpl in *; lia).
+    apply Hmax; constructor; assumption.
+  Qed.
 End search.
 
 Section fun_of_pairs.
