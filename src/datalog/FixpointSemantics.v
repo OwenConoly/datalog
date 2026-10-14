@@ -51,7 +51,7 @@ Section __.
   Lemma split_fixpoint (p : program) S :
     (forall P x, P x -> S (P, x)) ->
     (forall r, In r p.(program.rules) ->
-        fp (F {| program.rules := [r]; program.meta_rules := [] |}) S) <->
+        fp (F {| program.rules := [r]; program.meta_rules := []; program.mf_creators := [] |}) S) <->
       fp (F p) S.
   Proof. Abort.
 End __.
