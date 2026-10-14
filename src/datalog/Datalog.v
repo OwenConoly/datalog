@@ -1123,8 +1123,18 @@ Module mf_creator.
         pattern_interp mfc mf.(meta_fact.pattern) ub nhyps /\
           hyps = counted ++ nhyps /\
           NoDup counted /\
-          length counted = get_nat ub /\
+          length counted >= get_nat ub /\
           (forall nf, meta_fact.matches mf nf <-> In nf counted).
+
+    Definition upper_bound_valid_for mfc Q :=
+      forall pat ub nhyps,
+        pattern_interp mfc pat ub nhyps ->
+        Forall Q (map fact.normal nhyps) ->
+        forall nfs,
+          Forall Q (map fact.normal nfs) ->
+          Forall (fact_pattern.matches pat) nfs ->
+          NoDup nfs ->
+          length nfs <= get_nat ub.
 
     Definition concl_rels (mfc : mf_creator) :=
       [mfc.(concl).(clause_pattern.rel)].
@@ -1579,6 +1589,13 @@ Module program.
         + congruence.
         + eapply Hagree; eassumption.
     Qed.
+
+    Lemma meta_facts_sound p Q mf nf :
+      fact.set_doesnt_lie Q ->
+      interp p Q (fact.meta mf) ->
+      meta_fact.matches mf nf ->
+      interp p Q (fact.normal nf).
+    Proof. Admitted.
 
   Lemma meta_facts_consistent' p Q f1 f2 :
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
