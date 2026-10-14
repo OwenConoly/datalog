@@ -1570,25 +1570,6 @@ Module program.
           * cbv [fact.implied_by_mf]. symmetry. apply Hagree; auto.
     Qed.
 
-    Lemma meta_rules_valid_step p Q mf mhyps :
-      (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
-      meta_rules_valid p ->
-      Exists (fun mr => meta_rule.interp p.(rules) mr mf mhyps) p.(meta_rules) ->
-      Forall (fun mhyp => meta_fact.consistent_with mhyp (fact.normal_subset (interp p Q))) mhyps ->
-      (forall mhyp mf',
-          In mhyp mhyps ->
-          interp p Q (fact.meta mf') ->
-          mhyp.(meta_fact.pattern) = mf'.(meta_fact.pattern) ->
-          mhyp = mf') ->
-      Forall (fun mhyp => interp p Q (fact.meta mhyp)) mhyps ->
-      meta_fact.consistent_with mf (fact.normal_subset (interp p Q)).
-    Proof.
-      intros Hinp Hvalid Hex Hcons Hagree Hderiv.
-      rewrite Exists_exists in Hex. destruct Hex as [mr [Hmr [Hpat Hset]]].
-      cbv [meta_fact.consistent_with fact.normal_subset]. intros nf Hmatch.
-      rewrite Hset by assumption. eapply one_step_derives_iff; eassumption.
-    Qed.
-
     Lemma one_step_derives_mhyps p mh1 mh2 mr2 pat2 nf :
       meta_rules_valid p ->
       In mr2 p.(meta_rules) ->
