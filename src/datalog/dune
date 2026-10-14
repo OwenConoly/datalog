@@ -2,7 +2,6 @@
  (modules
   :standard
   \
-  Local
   JSON
   QueryableToRunnable
   Functional
