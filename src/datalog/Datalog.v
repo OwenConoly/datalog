@@ -1125,6 +1125,31 @@ Module mf_creator.
           NoDup counted /\
           length counted = get_nat ub /\
           (forall nf, meta_fact.matches mf nf <-> In nf counted).
+
+    Definition concl_rels (mfc : mf_creator) :=
+      [mfc.(concl).(clause_pattern.rel)].
+
+    Definition hyp_rels (mfc : mf_creator) :=
+      mfc.(concl).(clause_pattern.rel) :: map clause.rel mfc.(hyps).
+
+    Lemma interp_concl_relname_in mfc mf hyps :
+      interp mfc mf hyps ->
+      In (meta_fact.rel mf) (concl_rels mfc).
+    Proof.
+      cbv [interp pattern_interp clause_pattern.interp]. intros. fwd. simpl. auto.
+    Qed.
+
+    Lemma interp_hyp_relname_in mfc mf hyps :
+      interp mfc mf hyps ->
+      Forall (fun hyp => In hyp.(normal_fact.rel) (hyp_rels mfc)) hyps.
+    Proof.
+      cbv [interp pattern_interp clause_pattern.interp]. intros. fwd. apply Forall_app. split.
+      - apply Forall_forall. intros nf Hnf. left.
+        rewrite <- Hp4 in Hnf. cbv [meta_fact.matches fact_pattern.matches] in Hnf. fwd.
+        congruence.
+      - eapply Forall_impl; [eapply Forall2_forget_l; eassumption|].
+        simpl. intros. fwd. right. apply in_map_iff. cbv [clause.interp] in *. fwd. eauto.
+    Qed.
   End __.
 End mf_creator. Abbreviation mf_creator := mf_creator.mf_creator.
 
@@ -1134,7 +1159,7 @@ Module program.
       meta_rules : list meta_rule;
       mf_creators : list mf_creator; }.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@program _ _ _ _) :: prev ().
-  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rules) :: reference:(meta_rules) :: prev ().
+  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rules) :: reference:(meta_rules) :: reference:(mf_creators) :: prev ().
 
   Section __.
     Context `{params : datalog_params}.
@@ -1160,7 +1185,8 @@ Module program.
     Proof. intros. eapply pftree.step; eassumption. Qed.
 
     Definition hyp_rels (p : program) :=
-      flat_map rule.hyp_rels p.(rules) ++ flat_map meta_rule.hyp_rels p.(meta_rules).
+      flat_map rule.hyp_rels p.(rules) ++ flat_map meta_rule.hyp_rels p.(meta_rules) ++
+        flat_map mf_creator.hyp_rels p.(mf_creators).
 
     Lemma interp_step_hyp_relname_in p f hyps :
       interp_step p f hyps ->
@@ -1171,8 +1197,10 @@ Module program.
         simpl. intros. apply in_or_app. left. apply in_flat_map. eauto.
       - fwd. apply List.Forall_map.
         eapply Forall_impl; [eapply meta_rule.interp_hyp_relname_in; eassumption|].
-        simpl. intros. apply in_or_app. right. apply in_flat_map. eauto.
-      - fwd. apply List.Forall_map. destruct give_up.
+        simpl. intros. rewrite !in_app_iff, !in_flat_map. eauto.
+      - fwd. apply List.Forall_map.
+        eapply Forall_impl; [eapply mf_creator.interp_hyp_relname_in; eassumption|].
+        simpl. intros. rewrite !in_app_iff, !in_flat_map. eauto.
     Qed.
     #[local] Hint Resolve interp_step_hyp_relname_in : core.
 
@@ -1180,16 +1208,17 @@ Module program.
       flat_map rule.concl_rels p.(rules).
 
     Definition concl_rels (p : program) :=
-      normal_concl_rels p ++ flat_map meta_rule.concl_rels p.(meta_rules).
+      normal_concl_rels p ++ flat_map meta_rule.concl_rels p.(meta_rules) ++
+        flat_map mf_creator.concl_rels p.(mf_creators).
 
     Lemma interp_step_concl_relname_in p f hyps :
       interp_step p f hyps ->
       In (fact.rel f) (concl_rels p).
     Proof.
-      cbv [concl_rels normal_concl_rels]. invert 1; fwd; simpl; apply in_or_app.
+      cbv [concl_rels normal_concl_rels]. invert 1; fwd; simpl; rewrite !in_app_iff.
       - left. apply in_flat_map. eauto using rule.interp_concl_relname_in.
-      - right. apply in_flat_map. eauto using meta_rule.interp_concl_relname_in.
-      - destruct give_up.
+      - right. left. apply in_flat_map. eauto using meta_rule.interp_concl_relname_in.
+      - right. right. apply in_flat_map. eauto using mf_creator.interp_concl_relname_in.
     Qed.
     #[local] Hint Resolve interp_step_concl_relname_in : core.
 
@@ -1289,14 +1318,18 @@ Module program.
       Permutation (concl_rels (union p1 p2)) (concl_rels p1 ++ concl_rels p2).
     Proof.
       cbv [concl_rels normal_concl_rels union]. simpl. rewrite !flat_map_app, <- !app_assoc.
-      apply Permutation_app_head. apply Permutation_app_swap_app.
+      apply Permutation_app_head. rewrite Permutation_app_swap_app. apply Permutation_app_head.
+      rewrite !app_assoc. apply Permutation_app_tail.
+      symmetry. rewrite <- app_assoc. apply Permutation_app_comm.
     Qed.
 
     Lemma hyp_rels_union p1 p2 :
       Permutation (hyp_rels (union p1 p2)) (hyp_rels p1 ++ hyp_rels p2).
     Proof.
       cbv [hyp_rels union]. simpl. rewrite !flat_map_app, <- !app_assoc.
-      apply Permutation_app_head. apply Permutation_app_swap_app.
+      apply Permutation_app_head. rewrite Permutation_app_swap_app. apply Permutation_app_head.
+      rewrite !app_assoc. apply Permutation_app_tail.
+      symmetry. rewrite <- app_assoc. apply Permutation_app_comm.
     Qed.
 
     Lemma all_rels_union p1 p2 :
@@ -1325,7 +1358,7 @@ Module program.
       - rewrite Exists_exists in *. fwd. eexists. split; [eassumption|].
         apply meta_rule.interp_app; [|assumption].
         eapply disjoint_lists_incl_l; [eassumption|]. apply incl_flat_map_r. assumption.
-      - destruct give_up.
+      - assumption.
     Qed.
 
     Lemma interp_union p1 p2 Q f :
@@ -1352,8 +1385,8 @@ Module program.
         + eapply disjoint_lists_incl_l; [eassumption|]. apply incl_flat_map_r. assumption.
         + apply meta_rule.interp_same_set with (p1 := rules p1 ++ rules p2);
             auto using same_set_app_comm.
-      - destruct give_up.
-      - destruct give_up.
+      - left. constructor. apply Exists_exists. eauto.
+      - right. constructor. apply Exists_exists. eauto.
     Qed.
 
     Lemma stratify p1 p2 Q f :
@@ -1372,20 +1405,22 @@ Module program.
     Lemma interp_step_same_set p1 p2 f hyps :
       same_set p1.(rules) p2.(rules) ->
       same_set p1.(meta_rules) p2.(meta_rules) ->
+      same_set p1.(mf_creators) p2.(mf_creators) ->
       interp_step p1 f hyps ->
       interp_step p2 f hyps.
     Proof.
-      intros Hr Hmr H. invert H; constructor; rewrite Exists_exists in *; fwd.
+      intros Hr Hmr Hmfc H. invert H; constructor; rewrite Exists_exists in *; fwd.
       - eexists. split; [|eassumption]. apply Hr. assumption.
       - eexists. split.
         + apply Hmr. eassumption.
         + apply meta_rule.interp_same_set with (p1 := rules p1); assumption.
-      - destruct give_up.
+      - eexists. split; [|eassumption]. apply Hmfc. assumption.
     Qed.
 
     Lemma interp_same_set p1 p2 Q f :
       same_set p1.(rules) p2.(rules) ->
       same_set p1.(meta_rules) p2.(meta_rules) ->
+      same_set p1.(mf_creators) p2.(mf_creators) ->
       interp p1 Q f ->
       interp p2 Q f.
     Proof. intros. eapply pftree.weaken; eauto using interp_step_same_set. Qed.
@@ -1400,7 +1435,7 @@ Module program.
       apply interp_union with (p2 := p2) in H; [|assumption].
       eapply pftree.weaken_hyp; [eassumption|]. simpl. intros y Hy.
       apply interp_union with (p2 := p1) in Hy; [|assumption].
-      eapply interp_same_set; [| |eassumption]; cbv [union]; simpl;
+      eapply interp_same_set; [| | |eassumption]; cbv [union]; simpl;
         apply same_set_app_comm.
     Qed.
 
@@ -1482,8 +1517,7 @@ Module program.
       - invert H.
         + exfalso. apply meta_rule.pattern_interp_concl_relname_in in Hpat.
           cbv [fact_pattern.matches] in Hmatch. fwd. simp.
-          eapply Hinp; [eassumption|]. simpl.
-          cbv [concl_rels normal_concl_rels]. apply in_or_app. right. apply in_flat_map. eauto.
+          eapply Hinp; [eassumption|]. simpl. eauto using meta_rule_concl_rel_in.
         + invert H0. rewrite Exists_exists in H2. fwd.
           specialize (Hvalid _ _ Hmr H2p0 _ _ _ _ Hpat H2p1 Hmatch).
           cbv [rule.one_step_derives]. eexists.
@@ -1580,7 +1614,7 @@ Module program.
           eapply Hinp; [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
         + exfalso. fwd. apply interp_step_concl_relname_in in Hxp0.
           eapply Hinp; [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
-        + fwd. invert Hxp0. invert Hzp0.
+        + fwd. invert Hxp0; [|destruct give_up]. invert Hzp0; [|destruct give_up].
           rewrite Exists_exists in H0, H1. fwd.
           assert (Hagree: forall mhyp1 mhyp2, In mhyp1 hyps -> In mhyp2 hyps0 ->
                      meta_fact.agree mhyp1 mhyp2).
@@ -1627,7 +1661,7 @@ Module program.
           eapply Hdisj; [exact HQ|].
           cbv [fact.rel meta_fact.rel] in *. cbv [fact_pattern.matches] in Hmatch. fwd.
           congruence.
-      - invert H. rewrite Forall_forall in H0, H1.
+      - invert H; [|destruct give_up]. rewrite Forall_forall in H0, H1.
         eapply meta_rules_valid_step; try eassumption.
         + rewrite Forall_forall. intros mhyp Hin.
           apply (H1 (fact.meta mhyp)); auto using in_map.
@@ -1737,7 +1771,7 @@ Module program.
 End program. Export (notations) program. Abbreviation program := program.program.
 
 #[export] Instance program_default `{relT} `{exprvarT} `{fnT} `{aggregatorT} : WithDefault program :=
-  {| program.rules := []; program.meta_rules := [] |}.
+  {| program.rules := []; program.meta_rules := []; program.mf_creators := [] |}.
 
 Fixpoint expr_varmap {var1 var2 : exprvarT} {fn : fnT}
   (f : var1 -> var2) (e : @expr var1 fn) : @expr var2 fn :=
