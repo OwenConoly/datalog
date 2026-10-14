@@ -67,7 +67,8 @@ Section __.
   Definition well_typed_meta_rule (r : meta_rule) : Prop :=
     exists tctx : type_context,
       Forall (well_typed_clause_pattern tctx) r.(meta_rule.concls) /\
-        Forall (well_typed_clause_pattern tctx) r.(meta_rule.hyps).
+        Forall (well_typed_clause_pattern tctx) r.(meta_rule.hyps) /\
+        Forall (well_typed_clause tctx) r.(meta_rule.normal_hyps).
 
   Context {type_eqb : Eqb type} {type_eqb_ok : Eqb_ok type_eqb}.
 
@@ -120,7 +121,8 @@ Section __.
 
   Definition check_meta_rule_type (r : meta_rule) : option type_context :=
     compatible_union_of_list_option
-      (map check_clause_pattern_type (r.(meta_rule.concls) ++ r.(meta_rule.hyps))).
+      (map check_clause_pattern_type (r.(meta_rule.concls) ++ r.(meta_rule.hyps)) ++
+         map check_clause_type r.(meta_rule.normal_hyps)).
 
   Lemma well_typed_expr_extends e :
     forall tctx tctx' t,
@@ -264,9 +266,11 @@ Section __.
   Proof.
     cbv [check_meta_rule_type well_typed_meta_rule].
     remember (meta_rule.concls r) as concls. remember (meta_rule.hyps r) as hyps.
+    remember (meta_rule.normal_hyps r) as nhyps.
     intros Hck. exists tctx.
     cbv [compatible_union_of_list_option] in Hck.
-    destruct (option_all (map check_clause_pattern_type (concls ++ hyps))) as [ctxs|] eqn:Eall;
+    destruct (option_all (map check_clause_pattern_type (concls ++ hyps) ++
+                            map check_clause_type nhyps)) as [ctxs|] eqn:Eall;
       [|discriminate].
     simpl in Hck.
     destruct (compatible_union_of_list ctxs) as [u|] eqn:Eun;
@@ -274,14 +278,20 @@ Section __.
     simpl in Hck. inversion Hck; subst u; clear Hck.
     pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
     apply option_all_map_Some' in Eall.
-    apply Forall_app.
-    enough (Hall : Forall (well_typed_clause_pattern tctx) (concls ++ hyps)) by tauto.
+    assert (Hpats : Forall (well_typed_clause_pattern tctx) (concls ++ hyps)).
+    { apply Forall_forall. intros c0 Hin.
+      assert (In (check_clause_pattern_type c0) (map Some ctxs)) as Hin'
+        by (rewrite <- Eall; apply in_or_app; left; apply in_map; assumption).
+      apply in_map_iff in Hin'. destruct Hin' as [m [Heq Hin_m]].
+      eapply well_typed_clause_pattern_extends;
+        [eauto using check_clause_pattern_type_sound|]. auto. }
+    apply Forall_app in Hpats. destruct Hpats as [Hconcls Hhyps].
+    ssplit; [exact Hconcls | exact Hhyps |].
     apply Forall_forall. intros c0 Hin.
-    assert (In (check_clause_pattern_type c0) (map Some ctxs)) as Hin'
-      by (rewrite <- Eall; apply in_map; assumption).
+    assert (In (check_clause_type c0) (map Some ctxs)) as Hin'
+      by (rewrite <- Eall; apply in_or_app; right; apply in_map; assumption).
     apply in_map_iff in Hin'. destruct Hin' as [m [Heq Hin_m]].
-    eapply well_typed_clause_pattern_extends;
-      [eauto using check_clause_pattern_type_sound|]. auto.
+    eapply well_typed_clause_extends; [eauto using check_clause_type_sound|]. auto.
   Qed.
 
 End __.

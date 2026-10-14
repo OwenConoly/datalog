@@ -132,11 +132,13 @@ Module meta_rule.
 
     Definition map_rel (g : rel1 -> rel2) (mr : meta_rule (relt := rel1)) : meta_rule (relt := rel2) :=
       {| meta_rule.concls := map (clause_pattern.map_rel g) mr.(meta_rule.concls);
-        meta_rule.hyps := map (clause_pattern.map_rel g) mr.(meta_rule.hyps) |}.
+        meta_rule.hyps := map (clause_pattern.map_rel g) mr.(meta_rule.hyps);
+        meta_rule.normal_hyps := map (clause.map_rel g) mr.(meta_rule.normal_hyps) |}.
 
     Definition wf (wf_rel : rel1 -> rel2 -> Prop) (mr1 : meta_rule (relt := rel1)) (mr2 : meta_rule (relt := rel2)) :=
       Forall2 (clause_pattern.wf wf_rel) mr1.(meta_rule.concls) mr2.(meta_rule.concls) /\
-        Forall2 (clause_pattern.wf wf_rel) mr1.(meta_rule.hyps) mr2.(meta_rule.hyps).
+        Forall2 (clause_pattern.wf wf_rel) mr1.(meta_rule.hyps) mr2.(meta_rule.hyps) /\
+        Forall2 (clause.wf wf_rel) mr1.(meta_rule.normal_hyps) mr2.(meta_rule.normal_hyps).
   End __.
 End meta_rule.
 
@@ -174,10 +176,13 @@ Section RelMap.
     Definition facts_agree (hyps : list (fact (_rel := rel2))) :=
       forall mf mf', In (fact.meta mf) hyps -> In (fact.meta mf') hyps -> meta_fact.agree mf mf'.
 
-    Lemma facts_agree_meta mhyps :
-      facts_agree (map fact.meta mhyps) ->
+    Lemma facts_agree_meta mhyps nhyps :
+      facts_agree (map fact.meta mhyps ++ map fact.normal nhyps) ->
       meta_facts_agree mhyps.
-    Proof. cbv [facts_agree meta_facts_agree]. auto using in_map. Qed.
+    Proof.
+      cbv [facts_agree meta_facts_agree]. intros H mf mf' Hmf Hmf'.
+      apply H; apply in_or_app; left; apply in_map; assumption.
+    Qed.
 
     Definition functional_at x := forall y y', wf_rel x y -> wf_rel x y' -> y = y'.
 
@@ -346,7 +351,10 @@ Section RelMap.
     Lemma wf_meta_rule_hyp_rels mr1 mr2 :
       meta_rule.wf wf_rel mr1 mr2 ->
       Forall2 wf_rel (meta_rule.hyp_rels mr1) (meta_rule.hyp_rels mr2).
-    Proof. cbv [meta_rule.wf]. intros. fwd. eauto using wf_clause_patterns_rels. Qed.
+    Proof.
+      cbv [meta_rule.wf meta_rule.hyp_rels]. intros. fwd.
+      apply Forall2_app; eauto using wf_clause_patterns_rels, wf_clauses_rels.
+    Qed.
 
     Lemma wf_meta_rule_concl_rels mr1 mr2 :
       meta_rule.wf wf_rel mr1 mr2 ->
@@ -536,34 +544,38 @@ Section RelMap.
       fwd. rewrite <- Forall2_flip_iff in Hwfp0. eauto.
     Qed.
 
-    Lemma pattern_interp_wf mr1 mr2 pat1 pats1 :
+    Lemma pattern_interp_wf mr1 mr2 pat1 pats1 nfs1 :
       meta_rule.wf wf_rel mr1 mr2 ->
-      meta_rule.pattern_interp mr1 pat1 pats1 ->
-      exists pat2 pats2,
+      meta_rule.pattern_interp mr1 pat1 pats1 nfs1 ->
+      exists pat2 pats2 nfs2,
         fact_pattern.wf wf_rel pat1 pat2 /\ Forall2 (fact_pattern.wf wf_rel) pats1 pats2 /\
-          meta_rule.pattern_interp mr2 pat2 pats2.
+          Forall2 (normal_fact.wf wf_rel) nfs1 nfs2 /\
+          meta_rule.pattern_interp mr2 pat2 pats2 nfs2.
     Proof.
       cbv [meta_rule.wf meta_rule.pattern_interp]. intros Hwf H. fwd.
       eapply Forall2_In_l in Hp0p0; [|eassumption]. fwd.
       eapply clause_pattern_interp_wf in Hp0p1; [|eassumption]. fwd.
       eapply Forall2_clause_pattern_interp_wf in Hp1; [|eassumption]. fwd.
-      eexists _, _. ssplit; [eassumption | eassumption |].
-      exists ctx. split; [apply Exists_exists; eauto | assumption].
+      eapply Forall2_clause_interp_wf in Hp2; [|eassumption]. fwd.
+      eexists _, _, _. ssplit; [eassumption.. |].
+      exists ctx. ssplit; [apply Exists_exists; eauto | assumption | assumption].
     Qed.
 
-    Lemma pattern_interp_wf_inv mr1 mr2 pat2 pats2 :
+    Lemma pattern_interp_wf_inv mr1 mr2 pat2 pats2 nfs2 :
       meta_rule.wf wf_rel mr1 mr2 ->
-      meta_rule.pattern_interp mr2 pat2 pats2 ->
-      exists pat1 pats1,
+      meta_rule.pattern_interp mr2 pat2 pats2 nfs2 ->
+      exists pat1 pats1 nfs1,
         fact_pattern.wf wf_rel pat1 pat2 /\ Forall2 (fact_pattern.wf wf_rel) pats1 pats2 /\
-          meta_rule.pattern_interp mr1 pat1 pats1.
+          Forall2 (normal_fact.wf wf_rel) nfs1 nfs2 /\
+          meta_rule.pattern_interp mr1 pat1 pats1 nfs1.
     Proof.
       cbv [meta_rule.wf meta_rule.pattern_interp]. intros Hwf H. fwd.
       eapply Forall2_In_r in Hp0p0; [|eassumption]. fwd.
       eapply clause_pattern_interp_wf_inv in Hp0p1; [|eassumption]. fwd.
       eapply Forall2_clause_pattern_interp_wf_inv in Hp1; [|eassumption]. fwd.
-      eexists _, _. ssplit; [eassumption | eassumption |].
-      exists ctx. split; [apply Exists_exists; eauto | assumption].
+      eapply Forall2_clause_interp_wf_inv in Hp2; [|eassumption]. fwd.
+      eexists _, _, _. ssplit; [eassumption.. |].
+      exists ctx. ssplit; [apply Exists_exists; eauto | assumption | assumption].
     Qed.
 
     Lemma wf_meta_fact_of_pattern pat1 mf2 :
@@ -591,6 +603,35 @@ Section RelMap.
     Proof.
       intros H. rewrite <- Forall2_map_l in H. eapply Forall2_exists_r_map; [eassumption|].
       intros mf1 [nf2|mf2]; simpl; [contradiction|]. eauto.
+    Qed.
+
+    Lemma Forall2_wf_fact_normal nhyps1 hyps2 :
+      Forall2 (fact.wf wf_rel) (map fact.normal nhyps1) hyps2 ->
+      exists nhyps2, hyps2 = map fact.normal nhyps2 /\ Forall2 (normal_fact.wf wf_rel) nhyps1 nhyps2.
+    Proof.
+      intros H. rewrite <- Forall2_map_l in H. eapply Forall2_exists_r_map; [eassumption|].
+      intros nf1 [nf2|mf2]; simpl; [|contradiction]. eauto.
+    Qed.
+
+    Lemma Forall2_wf_fact_meta_normal mhyps1 nhyps1 hyps2 :
+      Forall2 (fact.wf wf_rel) (map fact.meta mhyps1 ++ map fact.normal nhyps1) hyps2 ->
+      exists mhyps2 nhyps2,
+        hyps2 = map fact.meta mhyps2 ++ map fact.normal nhyps2 /\
+          Forall2 (meta_fact.wf wf_rel) mhyps1 mhyps2 /\
+          Forall2 (normal_fact.wf wf_rel) nhyps1 nhyps2.
+    Proof.
+      intros H. apply Forall2_app_inv_l in H. fwd.
+      apply Forall2_wf_fact_meta in Hp0. apply Forall2_wf_fact_normal in Hp1. fwd. eauto.
+    Qed.
+
+    Lemma Forall2_wf_fact_meta_normal_map mhyps1 mhyps2 nhyps1 nhyps2 :
+      Forall2 (meta_fact.wf wf_rel) mhyps1 mhyps2 ->
+      Forall2 (normal_fact.wf wf_rel) nhyps1 nhyps2 ->
+      Forall2 (fact.wf wf_rel)
+        (map fact.meta mhyps1 ++ map fact.normal nhyps1)
+        (map fact.meta mhyps2 ++ map fact.normal nhyps2).
+    Proof.
+      intros. apply Forall2_app; rewrite <- Forall2_map_l, <- Forall2_map_r; assumption.
     Qed.
 
     Lemma covered_by_wf h1 h2 fp1 fp2 :
@@ -737,14 +778,25 @@ Section RelMap.
         rewrite Forall_forall in Hrels. eauto.
       Qed.
 
-      Lemma functional_at_pats mr pat pats fp :
+      Lemma functional_at_pats mr pat pats nfs fp :
         In mr p1.(program.meta_rules) ->
-        meta_rule.pattern_interp mr pat pats ->
+        meta_rule.pattern_interp mr pat pats nfs ->
         In fp pats ->
         functional_at fp.(fact_pattern.rel).
       Proof.
         intros Hmr Hpat Hfp.
-        pose proof (meta_rule.pattern_interp_hyp_relname_in _ _ _ Hpat) as Hrels.
+        pose proof (meta_rule.pattern_interp_hyp_relname_in _ _ _ _ Hpat) as Hrels.
+        rewrite Forall_forall in Hrels. eauto.
+      Qed.
+
+      Lemma functional_at_normal_hyps mr pat pats nfs nf :
+        In mr p1.(program.meta_rules) ->
+        meta_rule.pattern_interp mr pat pats nfs ->
+        In nf nfs ->
+        functional_at nf.(normal_fact.rel).
+      Proof.
+        intros Hmr Hpat Hnf.
+        pose proof (meta_rule.pattern_interp_normal_hyp_relname_in _ _ _ _ Hpat) as Hrels.
         rewrite Forall_forall in Hrels. eauto.
       Qed.
 
@@ -792,9 +844,9 @@ Section RelMap.
         Proof. rewrite Forall_forall in Hinj. auto. Qed.
         Hint Resolve inj_at_concl : core.
 
-        Lemma one_step_derives_wf_bw mr1 pat1 mhyps1 mhyps2 nf1 nf2 :
+        Lemma one_step_derives_wf_bw mr1 pat1 mhyps1 nhyps1 mhyps2 nf1 nf2 :
           In mr1 p1.(program.meta_rules) ->
-          meta_rule.pattern_interp mr1 pat1 (map meta_fact.pattern mhyps1) ->
+          meta_rule.pattern_interp mr1 pat1 (map meta_fact.pattern mhyps1) nhyps1 ->
           fact_pattern.matches pat1 nf1 ->
           Forall2 (meta_fact.wf wf_rel) mhyps1 mhyps2 ->
           meta_facts_agree mhyps2 ->
@@ -809,22 +861,23 @@ Section RelMap.
           2: { eapply wf_normal_fact_inj; [|eassumption..].
                eauto using rule.interp_concl_relname_in. }
           exists hyps1. split; [apply Exists_exists; eauto|].
-          pose proof (Hvalid _ _ Hmr ltac:(eauto) _ _ _ _ Hpat Hint1p2 Hmatch) as Hcov.
+          pose proof (Hvalid _ _ Hmr ltac:(eauto) _ _ _ _ _ Hpat Hint1p2 Hmatch) as Hcov.
           rewrite Forall_forall in Hp1, Hcov |- *. intros h1 Hh1.
           eapply Forall2_In_l in Hh1 as Hh2; [|eassumption]. fwd.
           eapply implied_by_mfs_wf_bw with (h2 := y); eauto using functional_at_hyps.
         Qed.
 
-        Lemma meta_rule_interp_wf mr1 mr2 mf1 mf2 mhyps1 mhyps2 :
+        Lemma meta_rule_interp_wf mr1 mr2 mf1 mf2 mhyps1 mhyps2 nhyps1 nhyps2 :
           In mr1 p1.(program.meta_rules) ->
           meta_rule.wf wf_rel mr1 mr2 ->
           meta_fact.wf wf_rel mf1 mf2 ->
           Forall2 (meta_fact.wf wf_rel) mhyps1 mhyps2 ->
+          Forall2 (normal_fact.wf wf_rel) nhyps1 nhyps2 ->
           meta_facts_agree mhyps2 ->
-          meta_rule.interp p1.(program.rules) mr1 mf1 mhyps1 ->
-          meta_rule.interp p2.(program.rules) mr2 mf2 mhyps2.
+          meta_rule.interp p1.(program.rules) mr1 mf1 mhyps1 nhyps1 ->
+          meta_rule.interp p2.(program.rules) mr2 mf2 mhyps2 nhyps2.
         Proof.
-          intros Hmr Hwfmr Hmf Hmhyps Hagree [Hpat Hset].
+          intros Hmr Hwfmr Hmf Hmhyps Hnhyps Hagree [Hpat Hset].
           eapply pattern_interp_wf in Hpat as Hpat2; [|eassumption]. fwd.
           replace pat2 with mf2.(meta_fact.pattern) in *.
           2: { eapply wf_fact_pattern_fun; [| apply Hmf | eassumption].
@@ -834,6 +887,9 @@ Section RelMap.
                - rewrite <- Forall2_map_l, <- Forall2_map_r.
                  eapply Forall2_impl; [eassumption|]. intros. apply H.
                - eauto using wf_fact_pattern_fun, functional_at_pats. }
+          replace nfs2 with nhyps2 in *.
+          2: { eapply Forall2_unique_r; [eassumption | eassumption |].
+               eauto using wf_normal_fact_fun, functional_at_normal_hyps. }
           split; [assumption|].
           intros nf2 Hmatch2.
           pose proof (Hset {| normal_fact.rel := meta_fact.rel mf1;
@@ -848,15 +904,16 @@ Section RelMap.
             + cbv [normal_fact.wf]. simpl. split; congruence.
         Qed.
 
-        Lemma meta_rule_interp_wf_bw mr1 mr2 mf1 mf2 mhyps2 :
+        Lemma meta_rule_interp_wf_bw mr1 mr2 mf1 mf2 mhyps2 nhyps2 :
           In mr1 p1.(program.meta_rules) ->
           meta_rule.wf wf_rel mr1 mr2 ->
           meta_fact.wf wf_rel mf1 mf2 ->
           meta_facts_agree mhyps2 ->
-          meta_rule.interp p2.(program.rules) mr2 mf2 mhyps2 ->
-          exists mhyps1,
+          meta_rule.interp p2.(program.rules) mr2 mf2 mhyps2 nhyps2 ->
+          exists mhyps1 nhyps1,
             Forall2 (meta_fact.wf wf_rel) mhyps1 mhyps2 /\
-              meta_rule.interp p1.(program.rules) mr1 mf1 mhyps1.
+              Forall2 (normal_fact.wf wf_rel) nhyps1 nhyps2 /\
+              meta_rule.interp p1.(program.rules) mr1 mf1 mhyps1 nhyps1.
         Proof.
           intros Hmr Hwfmr Hmf Hagree [Hpat Hset].
           eapply pattern_interp_wf_inv in Hpat as Hpat1; [|eassumption]. fwd.
@@ -864,7 +921,7 @@ Section RelMap.
           2: { symmetry. eapply wf_fact_pattern_inj; [| eassumption | apply Hmf].
                eauto using meta_rule.pattern_interp_concl_relname_in. }
           apply wf_meta_facts_of_patterns in Hpat1p1. fwd.
-          exists mhyps1. split; [assumption|]. split; [assumption|].
+          exists mhyps1, nfs1. split; [assumption|]. split; [assumption|]. split; [assumption|].
           intros nf1 Hmatch1.
           pose proof (Hset {| normal_fact.rel := meta_fact.rel mf2;
                              normal_fact.args := nf1.(normal_fact.args) |}) as Hset2.
@@ -898,7 +955,7 @@ Section RelMap.
                  eauto using wf_fact_fun, functional_at_hyps. }
             constructor. apply Exists_exists. eauto.
           - destruct f2 as [|mf2]; [contradiction|].
-            apply Forall2_wf_fact_meta in Hhyps. fwd.
+            apply Forall2_wf_fact_meta_normal in Hhyps. fwd.
             eapply Forall2_In_l in H0p0; [|apply Hwf]. fwd.
             constructor. apply Exists_exists. exists y. split; [eauto|].
             eapply meta_rule_interp_wf; eauto using facts_agree_meta.
@@ -923,9 +980,8 @@ Section RelMap.
             apply Exists_exists in H0. fwd.
             eapply Forall2_In_r in H0p0; [|apply Hwf]. fwd.
             eapply meta_rule_interp_wf_bw in H0p1; eauto using facts_agree_meta. fwd.
-            exists (map fact.meta mhyps1). split.
-            + rewrite <- Forall2_map_l, <- Forall2_map_r. eapply Forall2_impl; [eassumption|].
-              auto.
+            exists (map fact.meta mhyps1 ++ map fact.normal nhyps1). split.
+            + apply Forall2_wf_fact_meta_normal_map; assumption.
             + constructor. apply Exists_exists. eauto.
         Qed.
 
@@ -1049,16 +1105,17 @@ Section RelMap.
           apply Forall_forall. eauto 6.
         Qed.
 
-        Lemma meta_rule_interp_wf_inj mr1 mr2 mf1 mf2 mhyps1 mhyps2 :
+        Lemma meta_rule_interp_wf_inj mr1 mr2 mf1 mf2 mhyps1 mhyps2 nhyps1 nhyps2 :
           In mr1 p1.(program.meta_rules) ->
           meta_rule.wf wf_rel mr1 mr2 ->
           meta_fact.wf wf_rel mf1 mf2 ->
           Forall2 (meta_fact.wf wf_rel) mhyps1 mhyps2 ->
-          meta_rule.interp p1.(program.rules) mr1 mf1 mhyps1 ->
-          meta_rule.interp p2.(program.rules) mr2 mf2 mhyps2.
+          Forall2 (normal_fact.wf wf_rel) nhyps1 nhyps2 ->
+          meta_rule.interp p1.(program.rules) mr1 mf1 mhyps1 nhyps1 ->
+          meta_rule.interp p2.(program.rules) mr2 mf2 mhyps2 nhyps2.
         Proof.
-          intros Hmr Hwfmr Hmf Hmhyps [Hpat Hset].
-          pose proof (meta_rule.pattern_interp_hyp_relname_in _ _ _ Hpat) as Hrels.
+          intros Hmr Hwfmr Hmf Hmhyps Hnhyps [Hpat Hset].
+          pose proof (meta_rule.pattern_interp_hyp_relname_in _ _ _ _ Hpat) as Hrels.
           rewrite Lists.List.Forall_map in Hrels.
           eapply pattern_interp_wf in Hpat as Hpat2; [|eassumption]. fwd.
           replace pat2 with mf2.(meta_fact.pattern) in *.
@@ -1069,11 +1126,14 @@ Section RelMap.
                - rewrite <- Forall2_map_l, <- Forall2_map_r.
                  eapply Forall2_impl; [eassumption|]. intros. apply H.
                - eauto using wf_fact_pattern_fun, functional_at_pats. }
+          replace nfs2 with nhyps2 in *.
+          2: { eapply Forall2_unique_r; [eassumption | eassumption |].
+               eauto using wf_normal_fact_fun, functional_at_normal_hyps. }
           split; [assumption|].
           intros nf2 Hmatch2.
           pose proof (Hset {| normal_fact.rel := meta_fact.rel mf1;
                              normal_fact.args := nf2.(normal_fact.args) |}) as Hset1.
-          pose proof (meta_rule.pattern_interp_concl_relname_in _ _ _ Hpat) as Hconcl.
+          pose proof (meta_rule.pattern_interp_concl_relname_in _ _ _ _ Hpat) as Hconcl.
           cbv [meta_fact.wf fact_pattern.wf fact_pattern.matches meta_fact.rel] in *. fwd.
           simpl in Hset1. rewrite <- Hmfp1, Hset1 by (split; congruence).
           split.
@@ -1085,25 +1145,26 @@ Section RelMap.
             + cbv [normal_fact.wf]. simpl. split; congruence.
         Qed.
 
-        Lemma meta_rule_interp_wf_bw_inj mr1 mr2 mf1 mf2 mhyps2 :
+        Lemma meta_rule_interp_wf_bw_inj mr1 mr2 mf1 mf2 mhyps2 nhyps2 :
           In mr1 p1.(program.meta_rules) ->
           In (meta_fact.rel mf1) l ->
           meta_rule.wf wf_rel mr1 mr2 ->
           meta_fact.wf wf_rel mf1 mf2 ->
-          meta_rule.interp p2.(program.rules) mr2 mf2 mhyps2 ->
-          exists mhyps1,
+          meta_rule.interp p2.(program.rules) mr2 mf2 mhyps2 nhyps2 ->
+          exists mhyps1 nhyps1,
             Forall2 (meta_fact.wf wf_rel) mhyps1 mhyps2 /\
-              meta_rule.interp p1.(program.rules) mr1 mf1 mhyps1.
+              Forall2 (normal_fact.wf wf_rel) nhyps1 nhyps2 /\
+              meta_rule.interp p1.(program.rules) mr1 mf1 mhyps1 nhyps1.
         Proof.
           intros Hmr Hmf1 Hwfmr Hmf [Hpat Hset].
           eapply pattern_interp_wf_inv in Hpat as Hpat1; [|eassumption]. fwd.
           replace pat1 with mf1.(meta_fact.pattern) in *.
           2: { symmetry. eapply wf_fact_pattern_inj; [| eassumption | apply Hmf].
                eauto 6 using meta_rule.pattern_interp_concl_relname_in. }
-          pose proof (meta_rule.pattern_interp_hyp_relname_in _ _ _ Hpat1p2) as Hrels.
+          pose proof (meta_rule.pattern_interp_hyp_relname_in _ _ _ _ Hpat1p3) as Hrels.
           apply wf_meta_facts_of_patterns in Hpat1p1. fwd.
           rewrite Lists.List.Forall_map in Hrels.
-          exists mhyps1. split; [assumption|]. split; [assumption|].
+          exists mhyps1, nfs1. split; [assumption|]. split; [assumption|]. split; [assumption|].
           intros nf1 Hmatch1.
           pose proof (Hset {| normal_fact.rel := meta_fact.rel mf2;
                              normal_fact.args := nf1.(normal_fact.args) |}) as Hset2.
@@ -1137,7 +1198,7 @@ Section RelMap.
                  eauto using wf_fact_fun, functional_at_hyps. }
             constructor. apply Exists_exists. eauto.
           - destruct f2 as [|mf2]; [contradiction|].
-            apply Forall2_wf_fact_meta in Hhyps. fwd.
+            apply Forall2_wf_fact_meta_normal in Hhyps. fwd.
             eapply Forall2_In_l in H0p0; [|apply Hwf]. fwd.
             constructor. apply Exists_exists. exists y. split; [eauto|].
             eapply meta_rule_interp_wf_inj; eauto.
@@ -1162,9 +1223,8 @@ Section RelMap.
             apply Exists_exists in H0. fwd.
             eapply Forall2_In_r in H0p0; [|apply Hwf]. fwd.
             eapply meta_rule_interp_wf_bw_inj in H0p1; eauto. fwd.
-            exists (map fact.meta mhyps1). split.
-            + rewrite <- Forall2_map_l, <- Forall2_map_r. eapply Forall2_impl; [eassumption|].
-              auto.
+            exists (map fact.meta mhyps1 ++ map fact.normal nhyps1). split.
+            + apply Forall2_wf_fact_meta_normal_map; assumption.
             + constructor. apply Exists_exists. eauto.
         Qed.
 
@@ -1240,13 +1300,13 @@ Section RelMap.
       program.meta_rules_valid p2.
     Proof.
       cbv [program.meta_rules_valid meta_rule.valid_for].
-      intros Hwf Hfun Hinj Hvalid mr2 nr2 Hmr2 Hnr2 pat2 pats2 nf2 hyps2 Hpat2 Hint2 Hmatch2.
+      intros Hwf Hfun Hinj Hvalid mr2 nr2 Hmr2 Hnr2 pat2 pats2 nfs2 nf2 hyps2 Hpat2 Hint2 Hmatch2.
       eapply Forall2_In_r in Hmr2; [|apply Hwf]. eapply Forall2_In_r in Hnr2; [|apply Hwf]. fwd.
       eapply pattern_interp_wf_inv in Hpat2 as Hpat1; [|eassumption]. fwd.
       eapply rule_interp_wf_inv in Hint2 as Hint1; [|eassumption]. fwd.
       pose proof (rule.interp_hyp_relname_in _ _ _ Hint1p2) as Hrels.
       rewrite Forall_forall in Hfun.
-      specialize (Hvalid _ _ ltac:(eauto) ltac:(eauto) _ _ _ _ Hpat1p2 Hint1p2).
+      specialize (Hvalid _ _ ltac:(eauto) ltac:(eauto) _ _ _ _ _ Hpat1p3 Hint1p2).
       specialize' Hvalid.
       { cbv [fact_pattern.wf normal_fact.wf fact_pattern.matches] in *. fwd.
         rewrite Hmatch2p0 in Hpat1p0p0.
@@ -1309,7 +1369,10 @@ Section RelMap.
 
     Lemma wf_meta_rule_map mr :
       meta_rule.wf map_rel mr (meta_rule.map_rel f mr).
-    Proof. cbv [meta_rule.wf meta_rule.map_rel]. simpl. split; apply wf_clause_patterns_map. Qed.
+    Proof.
+      cbv [meta_rule.wf meta_rule.map_rel]. simpl.
+      ssplit; auto using wf_clause_patterns_map, wf_clauses_map.
+    Qed.
 
     Lemma wf_program_map p :
       program.wf map_rel p (program.map_rel f p).
@@ -1342,7 +1405,9 @@ Section RelMap.
 
     Lemma hyp_rels_map_meta_rule_rels mr :
       meta_rule.hyp_rels (meta_rule.map_rel f mr) = map f (meta_rule.hyp_rels mr).
-    Proof. cbv [meta_rule.hyp_rels meta_rule.map_rel]. simpl. rewrite !map_map. reflexivity. Qed.
+    Proof.
+      cbv [meta_rule.hyp_rels meta_rule.map_rel]. simpl. rewrite map_app, !map_map. reflexivity.
+    Qed.
 
     Lemma concl_rels_map_program p :
       program.concl_rels (program.map_rel f p) = map f (program.concl_rels p).
@@ -1432,7 +1497,8 @@ Section RelMap.
       meta_rule.wf (fun y x => R x y) mr2 mr1.
     Proof.
       cbv [meta_rule.wf]. intros. fwd.
-      split; rewrite <- Forall2_flip_iff; eapply Forall2_impl; eauto using wf_clause_pattern_flip.
+      ssplit; rewrite <- Forall2_flip_iff; eapply Forall2_impl;
+        eauto using wf_clause_pattern_flip, wf_clause_flip.
     Qed.
 
     Lemma wf_program_flip (R : rel1 -> rel2 -> Prop) p1 p2 :
@@ -1471,14 +1537,21 @@ Section RelMap.
       clause_pattern.wf (fun x z => exists y, R x y /\ S y z) c1 c3.
     Proof. cbv [clause_pattern.wf]. intros. fwd. split; [eauto | congruence]. Qed.
 
+    Lemma wf_clause_patterns_comp (R : rel1 -> rel2 -> Prop) (S : rel2 -> rel3 -> Prop) cs1 cs2 cs3 :
+      Forall2 (clause_pattern.wf R) cs1 cs2 ->
+      Forall2 (clause_pattern.wf S) cs2 cs3 ->
+      Forall2 (clause_pattern.wf (fun x z => exists y, R x y /\ S y z)) cs1 cs3.
+    Proof.
+      intros. eapply Forall2_impl; [eapply Forall2_comp; eassumption|].
+      intros ? ? Hab. cbv beta in Hab. fwd. eauto using wf_clause_pattern_comp.
+    Qed.
+
     Lemma wf_meta_rule_comp (R : rel1 -> rel2 -> Prop) (S : rel2 -> rel3 -> Prop) mr1 mr2 mr3 :
       meta_rule.wf R mr1 mr2 ->
       meta_rule.wf S mr2 mr3 ->
       meta_rule.wf (fun x z => exists y, R x y /\ S y z) mr1 mr3.
     Proof.
-      cbv [meta_rule.wf]. intros. fwd.
-      split; (eapply Forall2_impl; [eapply Forall2_comp; eassumption|]);
-        intros ? ? Hab; cbv beta in Hab; fwd; eauto using wf_clause_pattern_comp.
+      cbv [meta_rule.wf]. intros. fwd. ssplit; eauto using wf_clause_patterns_comp, wf_clauses_comp.
     Qed.
 
     Lemma wf_program_comp (R : rel1 -> rel2 -> Prop) (S : rel2 -> rel3 -> Prop) p1 p2 p3 :
