@@ -925,15 +925,21 @@ Module rule.
       forall v, In v (all_vars r) -> In (expr.var v) (hyp_args r).
 
     Context {qsig : query.signature}.
+
+    Definition input_vars (r : rule) :=
+      match r with
+      | impl rule_concls rule_hyps =>
+          flat_map expr.vars (flat_map clause.query_inputs (rule_concls ++ rule_hyps))
+      | agg _ _ _ => []
+      end.
+
     (* 2 conditions. *)
     (*  * hyp_ins only depend on concl_ins, and *)
     (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
     Definition is_almost_bottomup (r : rule) :=
       match r with
       | impl [concl] hyps =>
-          (forall v,
-              In v (flat_map expr.vars (flat_map clause.query_inputs (concl :: hyps))) ->
-              In (expr.var v) (clause.query_inputs concl)) /\
+          (forall v, In v (input_vars r) -> In (expr.var v) (clause.query_inputs concl)) /\
             (forall v, In v (all_vars r) ->
                   In (expr.var v) (hyp_args r ++ clause.query_inputs concl))
       | impl _ _ => False
@@ -1092,6 +1098,11 @@ Module meta_rule.
           In (expr.var v) (normal_hyp_args r).
 
     Context {qsig : query.signature}.
+
+    Definition input_vars (r : meta_rule) :=
+      flat_map expr_pattern.vars (flat_map clause_pattern.query_inputs (r.(concls) ++ r.(hyps))) ++
+        flat_map expr.vars (flat_map clause.query_inputs r.(normal_hyps)).
+
     (* 2 conditions. *)
     (*  * hyp_ins only depend on concl_ins, and *)
     (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
@@ -1099,9 +1110,7 @@ Module meta_rule.
       match r.(concls) with
       | [concl] =>
           (forall v,
-              In v (flat_map expr_pattern.vars
-                      (flat_map clause_pattern.query_inputs (concl :: r.(hyps))) ++
-                    flat_map expr.vars (flat_map clause.query_inputs r.(normal_hyps))) ->
+              In v (input_vars r) ->
               In (expr_pattern.exactly (expr.var v)) (clause_pattern.query_inputs concl)) /\
             (forall v,
                 In v (all_vars r) ->
