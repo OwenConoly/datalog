@@ -812,23 +812,6 @@ Section search.
   Qed.
 End search.
 
-Lemma In_of_NoDup_maximal {A B} {eqb : Eqb B} {eqb_ok : Eqb_ok eqb} (f : A -> B) (P : A -> Prop) n l x :
-  (forall y y', P y -> P y' -> f y = f y' -> y = y') ->
-  (forall l', NoDup l' -> Forall P l' -> length l' <= n) ->
-  NoDup l ->
-  Forall P l ->
-  n <= length l ->
-  P x ->
-  In x l.
-Proof.
-  intros Hinj Hmax Hl HP Hlen Hx. destruct (inb_spec (f x) (map f l)) as [Hfx|Hfx].
-  - apply in_map_iff in Hfx. destruct Hfx as (y & Hy & Hin).
-    rewrite Forall_forall in HP. replace x with y by auto. assumption.
-  - exfalso. enough (length (x :: l) <= n) by (simpl in *; lia).
-    apply Hmax; constructor; try assumption.
-    intros Hin. apply Hfx, in_map. assumption.
-Qed.
-
 Section fun_of_pairs.
   Context {A B : Type}.
   Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.

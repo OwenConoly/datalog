@@ -1130,11 +1130,9 @@ Module mf_creator.
       forall pat ub nhyps,
         pattern_interp mfc pat ub nhyps ->
         Forall Q (map fact.normal nhyps) ->
-        forall nfs,
-          Forall Q (map fact.normal nfs) ->
-          Forall (fact_pattern.matches pat) nfs ->
-          NoDup nfs ->
-          length nfs <= get_nat ub.
+        exists nfs,
+          length nfs <= get_nat ub /\
+            forall nf, Q (fact.normal nf) -> fact_pattern.matches pat nf -> In nf nfs.
 
     Definition concl_rels (mfc : mf_creator) :=
       [mfc.(concl).(clause_pattern.rel)].
@@ -1174,23 +1172,14 @@ Module mf_creator.
     Proof.
       cbv [upper_bound_valid_for interp meta_fact.consistent_with fact.normal_subset].
       intros Hub Hmf Hhyps nf Hpat. fwd.
-      rewrite map_app, Forall_app, !Lists.List.Forall_map in Hhyps. fwd.
+      rewrite map_app, Forall_app in Hhyps. fwd.
+      rewrite Lists.List.Forall_map, Forall_forall in Hhypsp0.
       split; intros Hnf.
-      { rewrite Forall_forall in Hhypsp0. apply Hhypsp0, Hmfp4. split; assumption. }
+      { apply Hhypsp0, Hmfp4. split; assumption. }
+      specialize (Hub _ _ _ Hmfp0 Hhypsp1). fwd.
       eapply proj2. apply Hmfp4.
-      apply In_of_NoDup_maximal
-        with (f := normal_fact.args)
-             (P := fun nf => Q (fact.normal nf) /\ fact_pattern.matches mf.(meta_fact.pattern) nf)
-             (n := get_nat ub).
-      - intros nf1 nf2 [_ Hm1] [_ Hm2] Hargs. destruct nf1, nf2.
-        cbv [fact_pattern.matches] in *. simpl in *. fwd. congruence.
-      - intros nfs Hnfs HP. apply Forall_and_inv in HP. fwd.
-        eapply Hub; try eassumption.
-        all: rewrite Lists.List.Forall_map; assumption.
-      - assumption.
-      - apply Forall_and; [assumption|]. apply Forall_forall. intros. apply Hmfp4. assumption.
-      - lia.
-      - split; assumption.
+      apply NoDup_length_incl with (l' := nfs); [assumption | lia | | auto].
+      intros nf' Hnf'. apply Hubp1; [auto|]. apply Hmfp4 in Hnf'. apply Hnf'.
     Qed.
   End __.
 End mf_creator. Abbreviation mf_creator := mf_creator.mf_creator.
