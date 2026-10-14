@@ -934,7 +934,7 @@ Module rule.
                   In (expr.var v) (hyp_args r ++ clause.query_inputs concl))
       | impl _ _ => False
       | agg concl_rel _ hyp_rel =>
-            submask (query.sig hyp_rel) (false :: false :: tl (query.sig concl_rel))
+          submask (query.sig hyp_rel) (false :: false :: tl (query.sig concl_rel))
       end.
   End __.
   Scheme Boolean Equality for rule.
@@ -993,12 +993,6 @@ Module meta_rule.
 
     Definition normal_hyp_args (r : meta_rule) :=
       flat_map clause.args r.(normal_hyps).
-
-    Definition is_bottomup (r : meta_rule) :=
-      forall v,
-        In v (all_vars r) ->
-        In (expr_pattern.exactly (expr.var v)) (hyp_args r) \/
-          In (expr.var v) (normal_hyp_args r).
 
     Lemma pattern_interp_concl_relname_in r pat ps nfs :
       pattern_interp r pat ps nfs ->
@@ -1086,6 +1080,27 @@ Module meta_rule.
         rule.interp nr nf hyps ->
         fact_pattern.matches pat nf ->
         Forall (fact.covered_by_pats pats) hyps.
+
+    Definition is_bottomup (r : meta_rule) :=
+      forall v,
+        In v (all_vars r) ->
+        In (expr_pattern.exactly (expr.var v)) (hyp_args r) \/
+          In (expr.var v) (normal_hyp_args r).
+
+    Context {qsig : query.signature}.
+    (* 2 conditions. *)
+    (*  * hyp_ins only depend on concl_ins, and *)
+    (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
+    Definition is_almost_bottomup (r : meta_rule) :=
+      match r.(concls) with
+      | [concl] =>
+          (forall v,
+              In v (flat_map expr_pattern.vars (flat_map pattern_clause.query_inputs (concl :: hyps))) ->
+              In (expr.var v) (clause.query_inputs concl)) /\
+            (forall v, In v (all_vars r) ->
+                  In (expr.var v) (hyp_args r ++ clause.query_inputs concl))
+      | _ => False
+      end.
   End __.
 End meta_rule. Abbreviation meta_rule := meta_rule.meta_rule.
 
