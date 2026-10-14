@@ -594,6 +594,19 @@ Proof.
   - destruct (IH Hin) as (x & Hcomb & Hx). exists x. split; [ right; exact Hcomb | exact Hx ].
 Qed.
 
+Lemma NoDup_Forall2 {A B} (R : A -> B -> Prop) xs ys :
+  Forall2 R xs ys ->
+  (forall x x' y, In x xs -> In x' xs -> R x y -> R x' y -> x = x') ->
+  NoDup xs ->
+  NoDup ys.
+Proof.
+  induction 1 as [|x y xs ys Hxy H IH]; intros Hinj Hxs; invert Hxs; constructor.
+  - intros Hy. eapply Forall2_In_r in Hy; [|eassumption]. destruct Hy as (x' & Hc & Hx'y).
+    apply in_combine_l in Hc. replace x with x' in * by (eapply Hinj; simpl; eauto).
+    contradiction.
+  - apply IH; [|assumption]. intros. eapply Hinj; simpl; eauto.
+Qed.
+
 Lemma Forall2_comp {A B C} (R : A -> B -> Prop) (S : B -> C -> Prop) xs ys zs :
   Forall2 R xs ys ->
   Forall2 S ys zs ->
@@ -797,20 +810,24 @@ Section search.
   Proof.
     induction l1 as [|y l1' IH]; simpl; [reflexivity | rewrite IH; lia].
   Qed.
-
-  Lemma In_of_NoDup_maximal (P : A -> Prop) n l x :
-    (forall l', NoDup l' -> Forall P l' -> length l' <= n) ->
-    NoDup l ->
-    Forall P l ->
-    n <= length l ->
-    P x ->
-    In x l.
-  Proof.
-    intros Hmax Hl HP Hlen Hx. destruct (inb_spec x l); [assumption|].
-    exfalso. enough (length (x :: l) <= n) by (simpl in *; lia).
-    apply Hmax; constructor; assumption.
-  Qed.
 End search.
+
+Lemma In_of_NoDup_maximal {A B} {eqb : Eqb B} {eqb_ok : Eqb_ok eqb} (f : A -> B) (P : A -> Prop) n l x :
+  (forall y y', P y -> P y' -> f y = f y' -> y = y') ->
+  (forall l', NoDup l' -> Forall P l' -> length l' <= n) ->
+  NoDup l ->
+  Forall P l ->
+  n <= length l ->
+  P x ->
+  In x l.
+Proof.
+  intros Hinj Hmax Hl HP Hlen Hx. destruct (inb_spec (f x) (map f l)) as [Hfx|Hfx].
+  - apply in_map_iff in Hfx. destruct Hfx as (y & Hy & Hin).
+    rewrite Forall_forall in HP. replace x with y by auto. assumption.
+  - exfalso. enough (length (x :: l) <= n) by (simpl in *; lia).
+    apply Hmax; constructor; try assumption.
+    intros Hin. apply Hfx, in_map. assumption.
+Qed.
 
 Section fun_of_pairs.
   Context {A B : Type}.

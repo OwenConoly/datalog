@@ -1142,6 +1142,11 @@ Module mf_creator.
     Definition hyp_rels (mfc : mf_creator) :=
       mfc.(concl).(clause_pattern.rel) :: map clause.rel mfc.(hyps).
 
+    Lemma pattern_interp_concl_relname_in mfc pat ub nhyps :
+      pattern_interp mfc pat ub nhyps ->
+      In pat.(fact_pattern.rel) (concl_rels mfc).
+    Proof. cbv [pattern_interp clause_pattern.interp]. intros. fwd. simpl. auto. Qed.
+
     Lemma interp_concl_relname_in mfc mf hyps :
       interp mfc mf hyps ->
       In (meta_fact.rel mf) (concl_rels mfc).
@@ -1174,8 +1179,11 @@ Module mf_creator.
       { rewrite Forall_forall in Hhypsp0. apply Hhypsp0, Hmfp4. split; assumption. }
       eapply proj2. apply Hmfp4.
       apply In_of_NoDup_maximal
-        with (P := fun nf => Q (fact.normal nf) /\ fact_pattern.matches mf.(meta_fact.pattern) nf)
+        with (f := normal_fact.args)
+             (P := fun nf => Q (fact.normal nf) /\ fact_pattern.matches mf.(meta_fact.pattern) nf)
              (n := get_nat ub).
+      - intros nf1 nf2 [_ Hm1] [_ Hm2] Hargs. destruct nf1, nf2.
+        cbv [fact_pattern.matches] in *. simpl in *. fwd. congruence.
       - intros nfs Hnfs HP. apply Forall_and_inv in HP. fwd.
         eapply Hub; try eassumption.
         all: rewrite Lists.List.Forall_map; assumption.
@@ -1291,6 +1299,18 @@ Module program.
     Lemma meta_rule_hyp_rel_in p mr x :
       In mr p.(meta_rules) ->
       In x (meta_rule.hyp_rels mr) ->
+      In x (hyp_rels p).
+    Proof. in_rel_list. Qed.
+
+    Lemma mf_creator_concl_rel_in p mfc x :
+      In mfc p.(mf_creators) ->
+      In x (mf_creator.concl_rels mfc) ->
+      In x (concl_rels p).
+    Proof. in_rel_list. Qed.
+
+    Lemma mf_creator_hyp_rel_in p mfc x :
+      In mfc p.(mf_creators) ->
+      In x (mf_creator.hyp_rels mfc) ->
       In x (hyp_rels p).
     Proof. in_rel_list. Qed.
 
