@@ -1523,6 +1523,16 @@ Module program.
       - intros mf Hmf nf Hmatch. rewrite <- Hext in *. eauto.
     Qed.
 
+    Lemma input_step_rel_neq p Q f1 f2 l :
+      good_input_set p Q ->
+      Q f1 ->
+      interp_step p f2 l ->
+      fact.rel f1 <> fact.rel f2.
+    Proof.
+      intros [Hinp _] HQ Hstep Heq. apply interp_step_concl_relname_in in Hstep.
+      eapply Hinp; [eassumption|]. congruence.
+    Qed.
+
     Definition honest (p : program) :=
       forall Q, good_input_set p Q -> mf_creators_valid p Q -> fact.set_doesnt_lie (interp p Q).
 
@@ -1631,12 +1641,11 @@ Module program.
       Q (fact.meta mf) ->
       meta_fact.consistent_with mf (fact.normal_subset (interp p Q)).
     Proof.
-      intros [Hinp Hlie] HQ nf Hmatch. cbv [fact.normal_subset].
-      rewrite (Hlie _ HQ nf Hmatch). split; intros H.
+      intros Hgood HQ nf Hmatch. cbv [fact.normal_subset].
+      rewrite (proj2 Hgood _ HQ nf Hmatch). split; intros H.
       - apply pftree.leaf. assumption.
-      - apply interp_rel_of in H. destruct H as [H|H]; [assumption|].
-        exfalso. eapply Hinp; [exact HQ|]. cbv [fact_pattern.matches] in Hmatch. fwd.
-        cbv [fact.rel meta_fact.rel] in *. congruence.
+      - invert H; [assumption|]. exfalso. eapply input_step_rel_neq; [eassumption..|].
+        cbv [fact.rel meta_fact.rel]. apply Hmatch.
     Qed.
 
     Lemma meta_facts_sound p Q mf nf :
@@ -1690,9 +1699,8 @@ Module program.
           destruct (Hstep _ Hmf) as [Hm|Hm].
           { eapply input_meta_fact_consistent; [eassumption..|]. apply Hderiv. assumption. }
           fwd. destruct (Hstep _ Hnf) as [Hn|Hn].
-          { exfalso. apply interp_step_concl_relname_in in Hmp0.
-            eapply (proj1 Hgood); [eassumption|]. cbv [fact_pattern.matches] in Hmatch. fwd.
-            cbv [fact.rel meta_fact.rel] in *. congruence. }
+          { exfalso. eapply input_step_rel_neq; [eassumption..|].
+            cbv [fact.rel meta_fact.rel]. symmetry. apply Hmatch. }
           fwd. invert Hmp0.
           - invert Hnp0. rewrite Exists_exists in *. fwd.
             destruct H0p1 as [Hpat Hset]. rewrite Hset by assumption.
@@ -1742,10 +1750,10 @@ Module program.
           cbv [fact_pattern.matches] in Hr1, Hr2. fwd.
           destruct Hx as [Hx|Hx]; destruct Hz as [Hz|Hz].
           * eapply fact.set_doesnt_lie_agree; [apply Hgood|eassumption..].
-          * exfalso. fwd. apply interp_step_concl_relname_in in Hzp0.
-            eapply (proj1 Hgood); [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
-          * exfalso. fwd. apply interp_step_concl_relname_in in Hxp0.
-            eapply (proj1 Hgood); [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
+          * exfalso. fwd. eapply input_step_rel_neq; [eassumption..|].
+            cbv [fact.rel meta_fact.rel]. congruence.
+          * exfalso. fwd. eapply input_step_rel_neq; [eassumption..|].
+            cbv [fact.rel meta_fact.rel]. congruence.
           * fwd. invert Hxp0.
             -- invert Hzp0.
                ++ rewrite Exists_exists in H0, H1. fwd.
