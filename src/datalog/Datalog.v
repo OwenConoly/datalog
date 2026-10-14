@@ -8,7 +8,7 @@ From Datalog.Util Require Import Autodestr Autocbn Pftree.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
-From Datalog Require Import Map Tactics Fp List Eqb Decidable Default.
+From Datalog Require Import Map Tactics Fp List Eqb Decidable Default False.
 From GraphSearch Require Import Dag.
 
 Import ListNotations.
@@ -1100,10 +1100,39 @@ Module meta_rule.
   End __.
 End meta_rule. Abbreviation meta_rule := meta_rule.meta_rule.
 
+Module mf_creator.
+  Section __.
+    Context `{params : datalog_params}.
+    Record mf_creator :=
+      { concl : clause_pattern;
+        upper_bound : exprvar;
+        hyps : list clause; }.
+  End __.
+
+  Section __.
+    Context `{params : datalog_params}.
+
+    Definition pattern_interp (mfc : mf_creator) (p : fact_pattern) (ub : value) (nhyps : list normal_fact) :=
+      exists ctx,
+        clause_pattern.interp ctx mfc.(concl) p /\
+          map.get ctx mfc.(upper_bound) = Some ub /\
+          Forall2 (clause.interp ctx) mfc.(hyps) nhyps.
+
+    Definition interp (mfc : mf_creator) (mf : meta_fact) (hyps : list normal_fact) :=
+      exists counted nhyps ub,
+        pattern_interp mfc mf.(meta_fact.pattern) ub nhyps /\
+          hyps = counted ++ nhyps /\
+          NoDup counted /\
+          length counted = get_nat ub /\
+          (forall nf, meta_fact.matches mf nf <-> In nf counted).
+  End __.
+End mf_creator. Abbreviation mf_creator := mf_creator.mf_creator.
+
 Module program.
   Record program {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} := mk
     { rules : list rule;
-      meta_rules : list meta_rule }.
+      meta_rules : list meta_rule;
+      mf_creators : list mf_creator; }.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@program _ _ _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rules) :: reference:(meta_rules) :: prev ().
 
@@ -1116,7 +1145,10 @@ Module program.
         interp_step _ (fact.normal f) hyps
       | meta_rule_step f hyps :
         Exists (fun mr => meta_rule.interp p.(rules) mr f hyps) p.(meta_rules) ->
-        interp_step _ (fact.meta f) (map fact.meta hyps).
+        interp_step _ (fact.meta f) (map fact.meta hyps)
+      | mf_creator_step f hyps :
+        Exists (fun c => mf_creator.interp c f hyps) p.(mf_creators) ->
+        interp_step _ (fact.meta f) (map fact.normal hyps).
 
     (*making this an abbreviation allows directly using lemmas about pftree "without unfolding" interp *)
     Abbreviation interp p := (pftree (interp_step p)).
@@ -1140,6 +1172,7 @@ Module program.
       - fwd. apply List.Forall_map.
         eapply Forall_impl; [eapply meta_rule.interp_hyp_relname_in; eassumption|].
         simpl. intros. apply in_or_app. right. apply in_flat_map. eauto.
+      - fwd. apply List.Forall_map. destruct give_up.
     Qed.
     #[local] Hint Resolve interp_step_hyp_relname_in : core.
 
@@ -1156,6 +1189,7 @@ Module program.
       cbv [concl_rels normal_concl_rels]. invert 1; fwd; simpl; apply in_or_app.
       - left. apply in_flat_map. eauto using rule.interp_concl_relname_in.
       - right. apply in_flat_map. eauto using meta_rule.interp_concl_relname_in.
+      - destruct give_up.
     Qed.
     #[local] Hint Resolve interp_step_concl_relname_in : core.
 
@@ -1247,7 +1281,9 @@ Module program.
 
     Definition union (p1 p2 : program) :=
       {| rules := p1.(rules) ++ p2.(rules);
-        meta_rules := p1.(meta_rules) ++ p2.(meta_rules) |}.
+        meta_rules := p1.(meta_rules) ++ p2.(meta_rules);
+        mf_creators := p1.(mf_creators) ++ p2.(mf_creators);
+      |}.
 
     Lemma concl_rels_union p1 p2 :
       Permutation (concl_rels (union p1 p2)) (concl_rels p1 ++ concl_rels p2).
@@ -1289,6 +1325,7 @@ Module program.
       - rewrite Exists_exists in *. fwd. eexists. split; [eassumption|].
         apply meta_rule.interp_app; [|assumption].
         eapply disjoint_lists_incl_l; [eassumption|]. apply incl_flat_map_r. assumption.
+      - destruct give_up.
     Qed.
 
     Lemma interp_union p1 p2 Q f :
@@ -1315,6 +1352,8 @@ Module program.
         + eapply disjoint_lists_incl_l; [eassumption|]. apply incl_flat_map_r. assumption.
         + apply meta_rule.interp_same_set with (p1 := rules p1 ++ rules p2);
             auto using same_set_app_comm.
+      - destruct give_up.
+      - destruct give_up.
     Qed.
 
     Lemma stratify p1 p2 Q f :
@@ -1341,6 +1380,7 @@ Module program.
       - eexists. split.
         + apply Hmr. eassumption.
         + apply meta_rule.interp_same_set with (p1 := rules p1); assumption.
+      - destruct give_up.
     Qed.
 
     Lemma interp_same_set p1 p2 Q f :
@@ -1535,7 +1575,7 @@ Module program.
         pose proof Hm1 as Hr1. pose proof Hm2 as Hr2.
         cbv [fact_pattern.matches] in Hr1, Hr2. fwd.
         destruct Hx as [Hx|Hx]; destruct Hz as [Hz|Hz].
-        + exact (Hinp2 _ _ Hx Hz nf Hm1 Hm2).
+        + apply Hinp2; eassumption.
         + exfalso. fwd. apply interp_step_concl_relname_in in Hzp0.
           eapply Hinp; [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
         + exfalso. fwd. apply interp_step_concl_relname_in in Hxp0.
