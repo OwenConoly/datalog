@@ -662,6 +662,10 @@ Module clause_pattern.
 End clause_pattern. Abbreviation clause_pattern := clause_pattern.clause_pattern.
 
 Module fact.
+  Module kind.
+    Variant kind := normal | meta.
+  End kind. Abbreviation kind := kind.kind.
+
   Section __.
     Context `{params : datalog_params}.
     Variant fact :=
@@ -672,6 +676,12 @@ Module fact.
       match f with
       | meta mf => meta_fact.rel mf
       | normal nf => normal_fact.rel nf
+      end.
+
+    Definition kind_of f :=
+      match f with
+      | meta _ => kind.meta
+      | normal _ => kind.normal
       end.
 
     (*if we know hyp and the normal_facts that hyp includes, then do we know f?*)

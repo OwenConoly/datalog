@@ -16,15 +16,26 @@ Local Open Scope option_monad_scope.
 Section __.
   Context `{params : datalog_params}.
 
+  Definition fact_node (f : fact) := (fact.rel f, fact.kind_of f).
+
   (* Print list_prod. (*why is this not defined in terms of flat_map?*) *)
   Definition edges_of_rule (r : rule) :=
-    list_prod (rule.concl_rels r) (rule.hyp_rels r).
+    match r with
+    | rule.impl _ _ =>
+        list_prod (map (fun x => (x, fact.kind.normal)) (rule.concl_rels r))
+          (map (fun x => (x, fact.kind.normal)) (rule.hyp_rels r))
+    | rule.agg concl_rel _ hyp_rel =>
+        [((concl_rel, fact.kind.normal), (hyp_rel, fact.kind.meta));
+         ((concl_rel, fact.kind.normal), (hyp_rel, fact.kind.normal))]
+    end.
 
   Definition edges_of_meta_rule (mr : meta_rule) :=
-    list_prod (meta_rule.concl_rels mr) (meta_rule.hyp_rels mr).
+    list_prod (map (fun x => (x, fact.kind.meta)) (meta_rule.concl_rels mr))
+      (map (fun x => (x, fact.kind.meta)) (meta_rule.hyp_rels mr)).
 
   Definition edges_of_mf_creator (mfc : mf_creator) :=
-    list_prod (mf_creator.concl_rels mfc) (mf_creator.hyp_rels mfc).
+    list_prod (map (fun x => (x, fact.kind.meta)) (mf_creator.concl_rels mfc))
+      (map (fun x => (x, fact.kind.normal)) (mf_creator.hyp_rels mfc)).
 
   Definition rel_graph (p : program) :=
     flat_map edges_of_rule p.(program.rules) ++
@@ -45,39 +56,44 @@ Section __.
 
   Lemma edges_of_rule_spec r nf hyps :
     rule.interp r nf hyps ->
-    Forall (fun hyp => In (nf.(normal_fact.rel), fact.rel hyp) (edges_of_rule r)) hyps.
+    Forall (fun hyp => In ((nf.(normal_fact.rel), fact.kind.normal), fact_node hyp) (edges_of_rule r)) hyps.
   Proof.
-    intros H. pose proof H as H'.
-    apply rule.interp_concl_relname_in in H. apply rule.interp_hyp_relname_in in H'.
-    eapply Forall_impl; [eassumption|]. simpl. intros.
-    cbv [edges_of_rule]. apply in_prod_iff. auto.
+    intros H. pose proof (rule.interp_concl_relname_in _ _ _ H) as Hc.
+    pose proof (rule.interp_hyp_relname_in _ _ _ H) as Hh.
+    invert H; cbv [fact_node]; simpl.
+    - rewrite Lists.List.Forall_map in Hh |- *. eapply Forall_impl; [exact Hh|].
+      intros. simpl in *. apply in_prod_iff. split; apply in_map_iff; eauto.
+    - constructor; [simpl; auto|]. apply List.Forall_map, Forall_forall.
+      intros [? ?] _. simpl. auto.
   Qed.
 
   Lemma edges_of_meta_rule_spec prog mr mf mhyps :
     meta_rule.interp prog mr mf mhyps ->
-    Forall (fun mhyp => In (meta_fact.rel mf, meta_fact.rel mhyp) (edges_of_meta_rule mr))
+    Forall (fun mhyp => In ((meta_fact.rel mf, fact.kind.meta), (meta_fact.rel mhyp, fact.kind.meta))
+                           (edges_of_meta_rule mr))
       mhyps.
   Proof.
     intros H. pose proof H as H'.
     apply meta_rule.interp_concl_relname_in in H.
     apply meta_rule.interp_hyp_relname_in in H'.
-    eapply Forall_impl; [eassumption|]. simpl. intros.
-    cbv [edges_of_meta_rule]. apply in_prod_iff. auto.
+    eapply Forall_impl; [eassumption|]. intros. apply in_prod_iff. split; apply in_map_iff; eauto.
   Qed.
 
   Lemma edges_of_mf_creator_spec mfc mf hyps :
     mf_creator.interp mfc mf hyps ->
-    Forall (fun hyp => In (meta_fact.rel mf, hyp.(normal_fact.rel)) (edges_of_mf_creator mfc)) hyps.
+    Forall (fun hyp => In ((meta_fact.rel mf, fact.kind.meta), (hyp.(normal_fact.rel), fact.kind.normal))
+                         (edges_of_mf_creator mfc))
+      hyps.
   Proof.
     intros H. pose proof H as H'.
     apply mf_creator.interp_concl_relname_in in H.
     apply mf_creator.interp_hyp_relname_in in H'.
-    eapply Forall_impl; [eassumption|]. intros. apply in_prod_iff. auto.
+    eapply Forall_impl; [eassumption|]. intros. apply in_prod_iff. split; apply in_map_iff; eauto.
   Qed.
 
   Lemma rel_graph_spec p f hyps :
     program.interp_step p f hyps ->
-    Forall (fun hyp => In (fact.rel f, fact.rel hyp) (rel_graph p)) hyps.
+    Forall (fun hyp => In (fact_node f, fact_node hyp) (rel_graph p)) hyps.
   Proof.
     cbv [rel_graph]. invert 1; fwd.
     - apply edges_of_rule_spec in H0p1.
@@ -1042,7 +1058,7 @@ Section __.
     (forall x, Q x <-> In x start) ->
     program.interp p Q f ->
     In f (eval n p start) \/
-      (exists l, path (rel_graph p) (fact.rel f) l /\ n <= length l).
+      (exists l, path (rel_graph p) (fact_node f) l /\ n <= length l).
   Proof.
     intros Hp Hmp Hcp Hcreators HQ. revert f. induction n.
     - intros f Hf. invert Hf.
