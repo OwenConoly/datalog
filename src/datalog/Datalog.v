@@ -965,8 +965,7 @@ Module meta_rule.
       hyps : list clause_pattern;
       normal_hyps : list clause }.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_rule _ _ _) :: prev ().
-  #[global] Ltac2 Set to_cbn as prev :=
-    fun _ => reference:(concls) :: reference:(hyps) :: reference:(normal_hyps) :: prev ().
+  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(concls) :: reference:(hyps) :: reference:(normal_hyps) :: prev ().
 
   Section __.
     Context `{params : datalog_params}.
@@ -1567,7 +1566,7 @@ Module program.
                      meta_fact.agree mhyp1 mhyp2).
           { intros mhyp1 mhyp2 Ha Hb.
             apply (IH (fact.meta mhyp1) (fact.meta mhyp2));
-              [apply Hxp1 | apply Hzp1]; auto using in_or_app, in_map. }
+              [apply Hxp1 | apply Hzp1]; apply in_or_app; left; apply in_map; assumption. }
           destruct H0p1 as [Hpat1 Hset1]. destruct H1p1 as [Hpat2 Hset2].
           rewrite Hset1, Hset2 by assumption.
           split; intros Hd.
@@ -1615,9 +1614,9 @@ Module program.
         + intros mhyp mf' Hin Hd Hpat.
           apply meta_fact.eq_of_agree; [assumption|].
           eapply meta_facts_consistent; try eassumption.
-          apply H0. auto using in_or_app, in_map.
+          apply H0. apply in_or_app. left. apply in_map. assumption.
         + rewrite Forall_forall. intros mhyp Hin.
-          apply H0. auto using in_or_app, in_map.
+          apply H0. apply in_or_app. left. apply in_map. assumption.
     Qed.
 
     Lemma use_honest p Q mf args :

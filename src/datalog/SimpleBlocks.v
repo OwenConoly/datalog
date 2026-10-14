@@ -22,13 +22,12 @@ Module blocks_prog.
                 program.interp p inp_holds (fact.normal {| normal_fact.rel := block_rel.local ret; normal_fact.args := nf_args |});
             result.done :=
               fun mf_args =>
-                pftree
-                  (fun c hs =>
-                     Exists (fun mr =>
-                               exists nfs,
-                                 meta_rule.pattern_interp mr c hs nfs /\
-                                   Forall (fun nf => program.interp p inp_holds (fact.normal nf)) nfs)
-                       p.(program.meta_rules))
+                pftree (fun c hs =>
+                          Exists (fun mr =>
+                                    exists nfs,
+                                      meta_rule.pattern_interp mr c hs nfs /\
+                                        Forall (fun nf => program.interp p inp_holds (fact.normal nf)) nfs)
+                            p.(program.meta_rules))
                   inp_pat_holds
                   {| fact_pattern.rel := block_rel.local ret; fact_pattern.args := mf_args |}
           |}

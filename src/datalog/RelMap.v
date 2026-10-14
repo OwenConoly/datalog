@@ -181,7 +181,7 @@ Section RelMap.
       meta_facts_agree mhyps.
     Proof.
       cbv [facts_agree meta_facts_agree]. intros H mf mf' Hmf Hmf'.
-      apply H; auto using in_or_app, in_map.
+      apply H; apply in_or_app; left; apply in_map; assumption.
     Qed.
 
     Definition functional_at x := forall y y', wf_rel x y -> wf_rel x y' -> y = y'.

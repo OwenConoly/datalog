@@ -359,8 +359,7 @@ Proof.
          ++ interp_exprs.
       -- intros Hx. repeat invert_stuff. assumption.
     + eapply pftree.step.
-      -- constructor. exists []. split; [|constructor].
-         cbv [meta_rule.pattern_interp]. simpl. exists map.empty.
+      -- constructor. exists []. split; [|constructor]. cbv [meta_rule.pattern_interp]. simpl. exists map.empty.
          interp_exprs.
          instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
       -- interp_exprs. apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
@@ -387,8 +386,7 @@ Proof.
          end.
          cbv [set_of] in *. subst. reflexivity.
     + simpl. eapply pftree.step.
-      -- apply Exists_cons_hd. exists []. split; [|constructor].
-         cbv [meta_rule.pattern_interp]. simpl.
+      -- apply Exists_cons_hd. exists []. split; [|constructor]. cbv [meta_rule.pattern_interp]. simpl.
          exists map.empty. interp_exprs.
          ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
          ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
@@ -401,8 +399,7 @@ Proof.
       -- intros H. repeat invert_stuff.
     + simpl. eapply pftree.step.
       -- apply Exists_cons_hd.
-         exists []. split; [|constructor].
-         cbv [meta_rule.pattern_interp]. exists map.empty. interp_exprs.
+         exists []. split; [|constructor]. cbv [meta_rule.pattern_interp]. exists map.empty. interp_exprs.
       -- interp_exprs.
   - dep_invert He'.
     specialize (IHHwf ltac:(eassumption) _ ltac:(eassumption)).
@@ -423,8 +420,7 @@ Proof.
       -- intros H. repeat invert_stuff. auto.
     + eapply pftree.step.
       -- apply Exists_cons_hd.
-         exists []. split; [|constructor].
-         cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
+         exists []. split; [|constructor]. cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
          ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
          ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
       -- interp_exprs.
@@ -538,13 +534,11 @@ Proof.
          apply Hvals in Hab, Hcd. fwd. reflexivity.
     + eapply pftree.step.
       -- apply Exists_cons_hd.
-         exists []. split; [|constructor].
-         cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
+         exists []. split; [|constructor]. cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
          instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
       -- interp_exprs. eapply pftree.step.
          ++ doExists 1.
-            exists []. split; [|constructor].
-            cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
+            exists []. split; [|constructor]. cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
             instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.
             apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
