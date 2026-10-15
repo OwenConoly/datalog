@@ -1129,25 +1129,26 @@ Module mf_creator.
   Section __.
     Context `{params : datalog_params}.
 
-    Definition pattern_interp (mfc : mf_creator) (p : fact_pattern) (ub : value) (nhyps : list normal_fact) :=
-      exists ctx,
+    Definition pattern_interp (mfc : mf_creator) (p : fact_pattern) (ub : nat) (nhyps : list normal_fact) :=
+      exists ctx val,
         clause_pattern.interp ctx mfc.(concl) p /\
-          map.get ctx mfc.(upper_bound) = Some ub /\
-          Forall2 (clause.interp ctx) mfc.(hyps) nhyps.
+          map.get ctx mfc.(upper_bound) = Some val /\
+          Forall2 (clause.interp ctx) mfc.(hyps) nhyps /\
+          get_nat val = ub.
 
     Definition interp (mfc : mf_creator) (mf : meta_fact) (hyps : list normal_fact) :=
       exists counted nhyps ub,
         pattern_interp mfc mf.(meta_fact.pattern) ub nhyps /\
           hyps = counted ++ nhyps /\
           NoDup counted /\
-          length counted >= get_nat ub /\
+          length counted >= ub /\
           (forall nf, meta_fact.matches mf nf <-> In nf counted).
 
     Definition upper_bound_valid_for mfc Q :=
       forall pat ub nhyps,
         pattern_interp mfc pat ub nhyps ->
         Forall Q (map fact.normal nhyps) ->
-        cardinality_at_most (get_nat ub) (fun nf => Q (fact.normal nf) /\ fact_pattern.matches pat nf).
+        cardinality_at_most ub (fun nf => Q (fact.normal nf) /\ fact_pattern.matches pat nf).
 
     Definition concl_rels (mfc : mf_creator) :=
       [mfc.(concl).(clause_pattern.rel)].

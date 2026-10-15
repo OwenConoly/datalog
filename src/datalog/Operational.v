@@ -5,6 +5,7 @@ From Stdlib Require Import Classical_Prop.
 From Stdlib Require Import Relations.Relation_Operators Relations.Operators_Properties.
 
 From Datalog Require Import Map Tactics List Pftree Relations Datalog.
+From Datalog.Util Require Import Predicate.
 
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Datatypes.List Eqb.
 
@@ -58,24 +59,32 @@ Section __.
       rewrite eqb_refl_true by assumption. reflexivity.
   Qed.
 
+  Definition op_knows_normal_fact known nf :=
+    exists src, In (op_message.normal nf src) known.
+
   Definition all_done_with known pat :=
     if is_input pat.(fact_pattern.rel) then
       In (op_message.done_with pat op_source.input) known
     else
       Forall (fun r => In (op_message.done_with pat (op_source.rule r)) known) p.(program.rules).
 
-  Print op_message. Print Existsn_ge.
   Definition have_ge_total known pat :=
     exists num,
       In (op_message.num_matches_le pat num) known /\
+        cardinality_at_least num (fun nf => op_knows_normal_fact known nf /\ fact_pattern.matches pat nf).
 
-        Existsn_ge (fact_pattern.matches pat) num (known.
+  Definition op_knows_pat known pat :=
+    all_done_with known pat \/ have_ge_total known pat.
+
+  Definition op_knows_meta_fact known mf :=
+    op_knows_pat known mf.(meta_fact.pattern) /\
+      meta_fact.consistent_with mf (op_knows_normal_fact known).
 
   Definition op_can_deduce_done_with known pat :=
     exists mr pats,
       In mr p.(program.meta_rules) /\
         meta_rule.pattern_interp mr pat pats /\
-        Forall (all_done_with known) pats.
+        Forall (op_knows_pat known) pats.
 
   Definition meta_facts_correct_at_rule (known : list op_message) r :=
     forall pat,
@@ -83,24 +92,17 @@ Section __.
       exists mr pats,
         In mr p.(program.meta_rules) /\
           meta_rule.pattern_interp mr pat pats /\
-          Forall (all_done_with known) pats /\
+          Forall (op_knows_pat known) pats /\
           ~In pat pats.
 
   Definition meta_facts_correct (known : list op_message) :=
     Forall (meta_facts_correct_at_rule known) p.(program.rules).
 
-  Definition op_knows_normal_fact known nf :=
-    exists src, In (op_message.normal nf src) known.
-
   Definition op_can_deduce_le known pat num :=
-    exists mfc ub hyps,
+    exists mfc hyps,
       In mfc p.(program.mf_creators) /\
-        mf_creator.pattern_interp mfc pat ub num /\
+        mf_creator.pattern_interp mfc pat num hyps /\
         Forall (op_knows_normal_fact known) hyps.
-
-  Definition op_knows_meta_fact known mf :=
-    all_done_with known mf.(meta_fact.pattern) /\
-      meta_fact.consistent_with mf (op_knows_normal_fact known).
 
   Definition op_knows_fact known f :=
     match f with
@@ -141,26 +143,26 @@ Section __.
     | op_message.num_matches_le _ _ => False
     end.
 
-  Print mf_creator.pattern_interp.
   Definition mf_creator_can_deduce_message (mfc : mf_creator) known (f : op_message) :=
     match f with
     | op_message.normal _ _ => False
     | op_message.done_with _ _ => False
-    | op_message.num_matches_le pat num =>
-
+    | op_message.num_matches_le pat num => op_can_deduce_le known pat num
+    end.
 
   Definition comp_step (s : list op_message) (s' : list op_message) :=
     exists new_fact,
       s' = new_fact :: s /\
-        (Exists (fun r => can_deduce_message_at_rule r s new_fact) p.(program.rules) \/
-
-
+        (Exists (fun r => rule_can_deduce_message r s new_fact) p.(program.rules) \/
+           Exists (fun mfc => mf_creator_can_deduce_message mfc s new_fact) p.(program.mf_creators)).
 
   Definition is_input_fact (f : op_message) :=
     match f with
     | op_message.normal nf op_source.input => is_input nf.(normal_fact.rel)
-    | op_message.done_with pat op_source.input => is_input pat.(fact_pattern.rel)
-    | op_message.normal _ (op_source.rule _) | op_message.done_with _ (op_source.rule _) => false
+    | op_message.done_with pat op_source.input
+    | op_message.num_matches_le pat _ => is_input pat.(fact_pattern.rel)
+    | op_message.normal _ (op_source.rule _)
+    | op_message.done_with _ (op_source.rule _) => false
     end.
 
   Context (Hmeta_rules : program.meta_rules_valid p).
