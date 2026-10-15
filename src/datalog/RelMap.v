@@ -613,7 +613,7 @@ Section RelMap.
       eapply clause_pattern_interp_wf in Hp0; [|eassumption]. fwd.
       eapply Forall2_clause_interp_wf in Hp2; [|eassumption]. fwd.
       eexists _, _. ssplit; [eassumption | eassumption |].
-      exists ctx. ssplit; [assumption | congruence | assumption].
+      exists ctx, val. ssplit; [assumption | congruence | assumption | reflexivity].
     Qed.
 
     Lemma mf_creator_pattern_interp_wf_inv mfc1 mfc2 pat2 ub nhyps2 :
@@ -627,7 +627,7 @@ Section RelMap.
       eapply clause_pattern_interp_wf_inv in Hp0; [|eassumption]. fwd.
       eapply Forall2_clause_interp_wf_inv in Hp2; [|eassumption]. fwd.
       eexists _, _. ssplit; [eassumption | eassumption |].
-      exists ctx. ssplit; [assumption | congruence | assumption].
+      exists ctx, val. ssplit; [assumption | congruence | assumption | reflexivity].
     Qed.
 
     Lemma wf_meta_fact_of_pattern pat1 mf2 :

@@ -449,9 +449,9 @@ Section __.
     flat_map (fun nhyps =>
                 '(Some ctx) <- ctx_of_rule mfc.(mf_creator.hyps) nhyps;;
                 '(Some pat) <- subst_in_clause_pattern ctx mfc.(mf_creator.concl);;
-                '(Some ub) <- map.get ctx mfc.(mf_creator.upper_bound);;
+                '(Some val) <- map.get ctx mfc.(mf_creator.upper_bound);;
                 let mf := meta_fact.mk pat (map normal_fact.args (filter (fact_pattern.matchesb pat) nfs)) in
-                assert (get_nat ub <=? length (map.keys mf.(meta_fact.set)));;
+                assert (get_nat val <=? length (map.keys mf.(meta_fact.set)));;
                 [mf])
       (choose_any_n (length mfc.(mf_creator.hyps)) nfs).
 
@@ -931,7 +931,7 @@ Section __.
     apply in_choose_any_n in Hnhyps.
     destruct (ctx_of_rule _ _) as [ctx|] eqn:Ectx; [|simpl in H; contradiction].
     destruct (subst_in_clause_pattern _ _) as [pat|] eqn:Epat; [|simpl in H; contradiction].
-    destruct (map.get _ _) as [ub|] eqn:Eub; [|simpl in H; contradiction].
+    destruct (map.get _ _) as [val|] eqn:Eval; [|simpl in H; contradiction].
     destruct (_ <=? _) eqn:Ele; [|simpl in H; contradiction].
     destruct H as [<-|[]].
     apply ctx_of_rule_Some in Ectx. apply subst_in_clause_pattern_sound in Epat.
@@ -945,8 +945,8 @@ Section __.
         rewrite meta_fact.in_normal_facts, meta_fact.matches_mk in Hfp1. fwd.
         eapply in_args_filter_matches; eassumption.
       + intros f Hf. apply in_map_iff in Hf. fwd. apply fact.in_filter_map_as_normal. auto.
-    - eexists _, _, ub. ssplit.
-      + eexists. ssplit; eassumption.
+    - eexists _, _, (get_nat val). ssplit.
+      + eexists _, val. ssplit; [eassumption.. | reflexivity].
       + reflexivity.
       + apply meta_fact.normal_facts_NoDup.
       + cbv [meta_fact.normal_facts]. rewrite length_map. assumption.
