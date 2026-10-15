@@ -21,3 +21,22 @@ Proof.
   apply NoDup_length_incl with (l' := l'); [assumption | lia | | auto].
   intros y Hy. apply Hcover. rewrite Forall_forall in HP. auto.
 Qed.
+
+Lemma cardinality_at_least_impl {T} n (P Q : T -> Prop) :
+  cardinality_at_least n P ->
+  (forall x, P x -> Q x) ->
+  cardinality_at_least n Q.
+Proof.
+  intros (l & Hl & Hn & HP) HPQ. exists l. split; [assumption|]. split; [assumption|].
+  eapply Forall_impl; eassumption.
+Qed.
+
+Lemma cardinality_at_least_length {T} n (P : T -> Prop) l :
+  cardinality_at_least n P ->
+  (forall x, P x -> In x l) ->
+  n <= length l.
+Proof.
+  intros (l' & Hl' & Hn & HP) Hcover. enough (length l' <= length l) by lia.
+  apply NoDup_incl_length; [assumption|]. intros x Hx. apply Hcover.
+  rewrite Forall_forall in HP. auto.
+Qed.
