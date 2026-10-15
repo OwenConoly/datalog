@@ -270,13 +270,15 @@ Section __.
   Lemma allowed_inputs_submultiset l1 l2 :
     submultiset l1 l2 -> allowed_inputs l2 -> allowed_inputs l1.
   Proof.
-    intros Hsub Hbound pat ems Hf2.
-    pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    assert (Hf2' : Forall2 (fun k e => In (message.done_with pat k e) l2)
-                           (R_senders pat.(fact_pattern.rel)) ems)
-      by (clear -Hf2 Hincl; induction Hf2; constructor;
-            [apply Hincl; assumption | assumption]).
-    eapply Existsn_le_submultiset; [ apply Hbound; exact Hf2' | exact Hsub ].
+    intros Hsub [Hdone Hub]. pose proof (submultiset_incl _ _ Hsub) as Hincl. split.
+    - intros pat ems Hf2.
+      assert (Hf2' : Forall2 (fun k e => In (message.done_with pat k e) l2)
+                             (R_senders pat.(fact_pattern.rel)) ems)
+        by (clear -Hf2 Hincl; induction Hf2; constructor;
+              [apply Hincl; assumption | assumption]).
+      eapply Existsn_le_submultiset; [ apply Hdone; exact Hf2' | exact Hsub ].
+    - intros pat num Hnum. destruct (Hub _ _ (Hincl _ Hnum)) as (l & Hlen & Hcover).
+      exists l. split; [exact Hlen|]. intros nf [Hk Hm]. apply Hcover. split; [apply Hincl, Hk | exact Hm].
   Qed.
 
   Lemma submultiset_rest_no_matches pat small rest big num :
@@ -293,11 +295,32 @@ Section __.
                            (R_senders pat.(fact_pattern.rel)) ems)
       by (clear -Hf2 Hincl; induction Hf2; constructor;
             [apply Hincl; assumption | assumption]).
-    pose proof (Existsn_le_perm _ _ _ _ Hperm (Hallow pat ems Hf2')) as Hle.
+    pose proof (Existsn_le_perm _ _ _ _ Hperm (proj1 Hallow pat ems Hf2')) as Hle.
     apply Forall_forall. intros x Hx Hmatch.
     pose proof (Existsn_ge_of_Existsn _ _ _ Hex num (le_n num)) as Hge_small.
     pose proof (Existsn_ge_app _ _ _ _ _ Hge_small (Existsn_ge_1 _ _ _ Hx Hmatch)) as Hge_app.
     pose proof (Existsn_ge_le_bound _ _ _ _ Hge_app Hle). lia.
+  Qed.
+
+  Lemma enough_matches_incl l1 l2 pat :
+    incl l1 l2 -> enough_matches l1 pat -> enough_matches l2 pat.
+  Proof.
+    intros Hincl (num & Hnum & Hcard). exists num. split; [auto|].
+    eapply cardinality_at_least_impl; [exact Hcard|]. intros nf [Hk Hm]. split; [apply Hincl, Hk | exact Hm].
+  Qed.
+
+  Lemma enough_matches_complete l1 l2 pat nf :
+    upper_bounds_honest l2 ->
+    incl l1 l2 ->
+    enough_matches l1 pat ->
+    knows_normal_fact l2 nf ->
+    fact_pattern.matches pat nf ->
+    knows_normal_fact l1 nf.
+  Proof.
+    intros Hub Hincl (num & Hnum & l & Hl & Hlen & Hknown) Hnf Hm.
+    rewrite Forall_forall in Hknown. apply Hknown.
+    eapply cardinality_at_most_In; [apply Hub, Hincl, Hnum | exact Hl | exact Hlen | | split; assumption].
+    apply Forall_forall. intros nf' Hnf'. split; [apply Hincl|]; apply Hknown; assumption.
   Qed.
 
   Lemma knows_fact_perm l1 l2 f :
@@ -305,12 +328,47 @@ Section __.
   Proof.
     intros Hk Hperm. destruct f as [nf | mf]; cbv [knows_fact knows_normal_fact] in *.
     - eapply Permutation_in; eassumption.
-    - destruct Hk as (num & (msgss & Hdone & ->) & Hcnt & Hcons). exists (list_sum msgss). ssplit.
-      + exists msgss. split; [| reflexivity].
-        eapply Forall2_impl; [exact Hdone|]. intros. eapply Permutation_in; eassumption.
-      + eapply Existsn_perm; eassumption.
+    - destruct Hk as (Hpat & Hcons). split.
+      + destruct Hpat as [(num & (msgss & Hdone & ->) & Hcnt) | Hem]; [left | right].
+        * exists (list_sum msgss). split.
+          -- exists msgss. split; [| reflexivity].
+             eapply Forall2_impl; [exact Hdone|]. intros. eapply Permutation_in; eassumption.
+          -- eapply Existsn_perm; eassumption.
+        * eapply enough_matches_incl; [|exact Hem]. intros m. apply Permutation_in. assumption.
       + eapply meta_fact.consistent_with_ext; [exact Hcons|]. intros nf _.
         split; apply Permutation_in; auto using Permutation_sym.
+  Qed.
+
+  Lemma knows_pat_submultiset l1 l2 pat :
+    submultiset l1 l2 -> allowed_inputs l2 ->
+    knows_pat l1 pat -> knows_pat l2 pat.
+  Proof.
+    intros Hsub Hallow [(num & Hexp & Hexn) | Hem].
+    - left. pose proof (submultiset_incl _ _ Hsub) as Hincl. destruct Hsub as (rest & Hperm).
+      pose proof (submultiset_rest_no_matches pat l1 rest l2 num Hperm Hallow Hexp Hexn) as Hrest_no.
+      exists num. split.
+      + destruct Hexp as (ems & Hf2 & Hsum). exists ems. split; [| exact Hsum].
+        clear -Hf2 Hincl. induction Hf2; constructor; [apply Hincl; assumption | assumption].
+      + eapply Existsn_perm; [ | apply Permutation_sym; exact Hperm ].
+        replace num with (num + 0) by lia.
+        apply Existsn_app; [ exact Hexn | apply Forall_not_Existsn_0; exact Hrest_no ].
+    - right. eauto using enough_matches_incl, submultiset_incl.
+  Qed.
+
+  Lemma knows_pat_no_new_matches l1 l2 pat nf :
+    submultiset l1 l2 -> allowed_inputs l2 ->
+    knows_pat l1 pat ->
+    knows_normal_fact l2 nf ->
+    fact_pattern.matches pat nf ->
+    knows_normal_fact l1 nf.
+  Proof.
+    intros Hsub Hallow [(num & Hexp & Hexn) | Hem] Hnf Hm.
+    - destruct Hsub as (rest & Hperm).
+      pose proof (submultiset_rest_no_matches pat l1 rest l2 num Hperm Hallow Hexp Hexn) as Hrest_no.
+      apply (Permutation_in _ Hperm) in Hnf. apply in_app_or in Hnf.
+      destruct Hnf as [Hin | Hin]; [exact Hin|].
+      exfalso. rewrite Forall_forall in Hrest_no. eapply Hrest_no; eassumption.
+    - eapply enough_matches_complete; eauto using submultiset_incl. apply Hallow.
   Qed.
 
   Lemma knows_fact_submultiset l1 l2 h :
@@ -318,25 +376,11 @@ Section __.
     knows_fact l1 h -> knows_fact l2 h.
   Proof.
     intros Hsub Hallow Hk. pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    destruct Hsub as (rest & Hperm).
     destruct h as [nf | mf].
     - apply Hincl. exact Hk.
-    - destruct Hk as (num & Hexp & Hexn & Hiff).
-      pose proof (submultiset_rest_no_matches mf.(meta_fact.pattern) l1 rest l2 num
-                    Hperm Hallow Hexp Hexn) as Hrest_no.
-      exists num. split; [| split].
-      + destruct Hexp as (ems & Hf2 & Hsum). exists ems. split; [| exact Hsum].
-        clear -Hf2 Hincl. induction Hf2; constructor; [apply Hincl; assumption | assumption].
-      + eapply Existsn_perm; [ | apply Permutation_sym; exact Hperm ].
-        replace num with (num + 0) by lia.
-        apply Existsn_app; [ exact Hexn | apply Forall_not_Existsn_0; exact Hrest_no ].
-      + intros nf Hm. specialize (Hiff nf Hm). split; intro H.
-        * apply Hincl. apply (proj1 Hiff). exact H.
-        * apply (proj2 Hiff).
-          pose proof (Permutation_in _ Hperm H) as H'.
-          apply in_app_or in H'. destruct H' as [Hin1 | Hinr]; [exact Hin1 |].
-          exfalso. rewrite Forall_forall in Hrest_no.
-          apply (Hrest_no _ Hinr). exact Hm.
+    - destruct Hk as (Hpat & Hcons). split; [eauto using knows_pat_submultiset|].
+      intros nf Hm. rewrite (Hcons nf Hm).
+      split; [apply Hincl | eauto using knows_pat_no_new_matches].
   Qed.
 
   Lemma knows_fact_transfer_down_sub small big mhyps h :
@@ -348,30 +392,15 @@ Section __.
     knows_fact small h.
   Proof.
     intros Hsub Hallow Hhyps Hcov Hknow_big.
-    pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    destruct Hsub as (rest & Hperm).
     cbv [fact.covered_by_pats] in Hcov. apply Exists_exists in Hcov.
     destruct Hcov as (fp & Hfp & Hcov). apply in_map_iff in Hfp.
     destruct Hfp as (mh & Hfp & Hmh). subst fp.
-    rewrite Forall_forall in Hhyps. specialize (Hhyps _ Hmh).
-    destruct Hhyps as (num_h & Hexp_h & Hex_h & _).
-    pose proof (submultiset_rest_no_matches mh.(meta_fact.pattern) small rest big num_h
-                  Hperm Hallow Hexp_h Hex_h) as Hrest_no.
-    rewrite Forall_forall in Hrest_no.
+    rewrite Forall_forall in Hhyps. destruct (Hhyps _ Hmh) as (Hpat_h & _).
     destruct h as [nf | mf]; simpl in Hcov.
-    - cbn [knows_fact knows_normal_fact] in Hknow_big |- *.
-      pose proof (Permutation_in _ Hperm Hknow_big) as Hin_app.
-      apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
-      exfalso. apply (Hrest_no _ Hinr). exact Hcov.
-    - destruct Hknow_big as (num_new & Hexp_new & Hex_new & Hiff_new).
-      cbv [meta_fact.rel] in Hexp_h. rewrite Hcov in Hexp_h, Hex_h, Hrest_no.
-      exists num_h. split; [exact Hexp_h | split; [exact Hex_h |]].
-      intros nf Hm. specialize (Hiff_new nf Hm). split.
-      + intro Hset. apply Hiff_new in Hset.
-        pose proof (Permutation_in _ Hperm Hset) as Hin_app.
-        apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
-        exfalso. apply (Hrest_no _ Hinr). exact Hm.
-      + intro Hin. apply Hiff_new. apply Hincl. exact Hin.
+    - eapply knows_pat_no_new_matches; eassumption.
+    - destruct Hknow_big as (_ & Hcons_big). rewrite Hcov in Hpat_h. split; [exact Hpat_h|].
+      intros nf Hm. rewrite (Hcons_big nf Hm).
+      split; [intros Hk; eapply knows_pat_no_new_matches; eassumption | apply (submultiset_incl _ _ Hsub)].
   Qed.
 
   Lemma step_preserves_sent_dones_ok s e s' :
@@ -393,7 +422,7 @@ Section __.
       + specialize (Hok _ _ Hin_old). destruct Hok as (_ & Hexmr & Hexn & Hsat).
         ssplit; [reflexivity | exact Hexmr | |].
         * apply Existsn_no; [| exact Hexn].
-          intros Hmatch. destruct output as [nf' | pat' src' cnt']; [| exact Hmatch].
+          intros Hmatch. destruct output as [nf' | pat' src' cnt' | pat' num']; [| exact Hmatch..].
           cbn [message.matches] in Hmatch.
           destruct H as (_ & Hfresh). apply Hfresh. exists pat, num. auto.
         * intros r nf Hr Hcdn Hm. cbn [state.known] in Hcdn.
@@ -433,8 +462,9 @@ Section __.
 
   Lemma good_init : good init [].
   Proof.
-    split; [reflexivity | split].
+    split; [reflexivity | split; [split|]].
     - intros pat ems _. apply El_nil.
+    - intros pat num [].
     - intros pat num H. destruct H.
   Qed.
 
@@ -526,7 +556,7 @@ Section __.
     cbv [claim]. intros H Hincl. fwd.
     intros. especialize H; eauto. fwd.
     cbv [incl_mod] in Hincl. especialize Hincl; eauto. fwd.
-    destruct b; cbn [message.equiv] in Hinclp1; fwd; [congruence | eauto].
+    destruct b; cbn [message.equiv] in Hinclp1; fwd; [congruence | eauto | congruence].
   Qed.
 
   Lemma consistently_incl_of_submultiset l1 l2 :
@@ -567,7 +597,23 @@ Section __.
     In (message.normal nf) l1 -> In (message.normal nf) l2.
   Proof.
     intros Hincl Hin. destruct (Hincl _ Hin) as (b & Hb & Heq).
-    cbn [message.equiv] in Heq. destruct b; fwd; [exact Hb | congruence].
+    cbn [message.equiv] in Heq. destruct b; fwd; [exact Hb | congruence | congruence].
+  Qed.
+
+  Lemma incl_mod_num_In l1 l2 pat num :
+    incl_mod message.equiv l1 l2 ->
+    In (message.num_matches_le pat num) l1 -> In (message.num_matches_le pat num) l2.
+  Proof.
+    intros Hincl Hin. destruct (Hincl _ Hin) as (b & Hb & Heq).
+    cbn [message.equiv] in Heq. subst. exact Hb.
+  Qed.
+
+  Lemma enough_matches_incl_mod l1 l2 pat :
+    incl_mod message.equiv l1 l2 -> enough_matches l1 pat -> enough_matches l2 pat.
+  Proof.
+    intros Hincl (num & Hnum & Hcard). exists num. split; [eauto using incl_mod_num_In|].
+    eapply cardinality_at_least_impl; [exact Hcard|]. intros nf [Hk Hm].
+    split; [eapply incl_mod_normal_In; eassumption | exact Hm].
   Qed.
 
   Lemma knows_fact_consistently_incl l1 l2 h :
@@ -581,21 +627,23 @@ Section __.
     destruct h as [nf | mf].
     - exact (incl_mod_normal_In _ _ _ Hincl12 Hk).
     - pose proof (knows_fact_submultiset l1 m (fact.meta mf) Hsub1m Hallowm Hk) as Hkm.
-      destruct Hk as (num & Hexp & Hexn & Hiff).
-      destruct Hkm as (_ & _ & _ & Hiffm).
-      assert (Hclaim1 : claim mf.(meta_fact.pattern) l1).
-      { intros src Hsrc. destruct Hexp as (ems & Hf2 & _).
-        destruct (Forall2_In_l _ _ _ _ Hf2 Hsrc) as (e & _ & Hin). exists e. exact Hin. }
-      assert (Hcons1 : consistent mf.(meta_fact.pattern) l1).
-      { exists num. split; [ exact Hexp | ].
-        eapply Existsn_ge_of_Existsn; [ exact Hexn | lia ]. }
-      destruct (Hcle12 mf.(meta_fact.pattern) Hclaim1 Hcons1) as (N & HexpN & HgeN).
-      destruct HexpN as (emsN & Hf2N & HsumN).
-      pose proof (Hallow2 mf.(meta_fact.pattern) emsN Hf2N) as HleN.
-      rewrite <- HsumN in HleN.
-      exists N. ssplit.
-      + exists emsN. auto.
-      + apply Existsn_of_ge_le; [ exact HgeN | exact HleN ].
+      destruct Hk as (Hpat & Hiff). destruct Hkm as (_ & Hiffm). split.
+      + destruct Hpat as [(num & Hexp & Hexn) | Hem].
+        2: { right. eapply enough_matches_incl_mod; eassumption. }
+        left.
+        assert (Hclaim1 : claim mf.(meta_fact.pattern) l1).
+        { intros src Hsrc. destruct Hexp as (ems & Hf2 & _).
+          destruct (Forall2_In_l _ _ _ _ Hf2 Hsrc) as (e & _ & Hin). exists e. exact Hin. }
+        assert (Hcons1 : consistent mf.(meta_fact.pattern) l1).
+        { exists num. split; [ exact Hexp | ].
+          eapply Existsn_ge_of_Existsn; [ exact Hexn | lia ]. }
+        destruct (Hcle12 mf.(meta_fact.pattern) Hclaim1 Hcons1) as (N & HexpN & HgeN).
+        destruct HexpN as (emsN & Hf2N & HsumN).
+        pose proof (proj1 Hallow2 mf.(meta_fact.pattern) emsN Hf2N) as HleN.
+        rewrite <- HsumN in HleN.
+        exists N. split.
+        * exists emsN. auto.
+        * apply Existsn_of_ge_le; [ exact HgeN | exact HleN ].
       + intros nf Hm. split.
         * intro Hset. exact (incl_mod_normal_In _ _ _ Hincl12 (proj1 (Hiff nf Hm) Hset)).
         * intro Hin2. exact (proj2 (Hiffm nf Hm) (incl_mod_normal_In _ _ _ Hincl2m Hin2)).
@@ -621,12 +669,11 @@ Section __.
     rewrite Forall_forall in Hhyps. specialize (Hhyps _ Hmh).
     pose proof (Hki (fact.meta mh) Hhyps) as Hkb.
     destruct h as [nf | mf]; simpl in Hcov.
-    - destruct Hhyps as (_ & _ & _ & Hiff_s). destruct Hkb as (_ & _ & _ & Hiff_b).
+    - destruct Hhyps as (_ & Hiff_s). destruct Hkb as (_ & Hiff_b).
       apply (proj1 (Hiff_s nf Hcov)). apply (proj2 (Hiff_b nf Hcov)). exact Hknow_big.
-    - destruct Hhyps as (num_s & Hexp_s & Hex_s & Hiff_s).
-      destruct Hknow_big as (_ & _ & _ & Hiff_b). destruct Hkb as (_ & _ & _ & Hiff_b').
-      cbv [meta_fact.rel] in Hexp_s. rewrite Hcov in Hexp_s, Hex_s.
-      exists num_s. split; [ exact Hexp_s | split; [ exact Hex_s | ] ].
+    - destruct Hhyps as (Hpat_s & Hiff_s).
+      destruct Hknow_big as (_ & Hiff_b). destruct Hkb as (_ & Hiff_b').
+      rewrite Hcov in Hpat_s. split; [exact Hpat_s|].
       intros nf Hm.
       assert (Hm' : fact_pattern.matches mh.(meta_fact.pattern) nf)
         by (rewrite Hcov; exact Hm).
@@ -669,7 +716,7 @@ Section __.
       by (rewrite Hkdem; exact Haldem).
     assert (Hki_dem : knows_incl s1.(state.known) sdem.(state.known))
       by (eapply knows_incl_grow; [ exact Hki | exact Hkmono | exact Halk ]).
-    destruct output as [nf | pat osrc ocnt].
+    destruct output as [nf | pat osrc ocnt | pat num].
     - destruct Hnf as (Hex & _).
       apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdn1).
       destruct Hcdn1 as (hyps & Hri & Hknows1).
@@ -724,7 +771,7 @@ Section __.
               [ exact Hki_dem | exact Hkn | eauto | eauto ]. }
           pose proof (Hsat1 r'' nf Hr''_in Hcdn_s1 Hmatch') as Hin_s1.
           destruct (Hsnle _ Hin_s1) as (b & Hb & Hab).
-          destruct b; cbn [message.equiv] in Hab; fwd; [|congruence].
+          destruct b; cbn [message.equiv] in Hab; fwd; [|congruence..].
           eapply submultiset_incl; eassumption.
       + apply eventually_done. eapply Hmk.
         * cbn [state.known]. exact HconK.
@@ -732,6 +779,20 @@ Section __.
           eapply submultiset_trans; [exact Hsmono | apply submultiset_cons].
         * cbn [state.sent]. left. reflexivity.
         * cbn [message.equiv]. auto.
+    - right.
+      exists {| state.known := sdem.(state.known);
+                state.sent := message.num_matches_le pat num :: sdem.(state.sent) |},
+             [message.num_matches_le pat num].
+      split.
+      + apply deduce_step. cbn [can_deduce]. eapply Exists_impl; [|exact Hnf].
+        intros mfc (hyps & Hpi & Hkn). exists hyps. split; [exact Hpi|].
+        eapply Forall_impl; [exact Hkn|]. intros nf Hk. apply (Hki_dem (fact.normal nf)). exact Hk.
+      + apply eventually_done. eapply Hmk.
+        * cbn [state.known]. exact HconK.
+        * cbn [state.sent].
+          eapply submultiset_trans; [exact Hsmono | apply submultiset_cons].
+        * cbn [state.sent]. left. reflexivity.
+        * reflexivity.
   Qed.
 
   Lemma nle_refl s : nle s s.
@@ -778,7 +839,7 @@ Section __.
         * subst output. destruct H as (_ & _ & Hexn & _).
           apply Existsn_no; [intros [] | exact Hexn].
         * apply Existsn_no; [ | exact (IH _ _ Hin_old) ].
-          intros Hmatch. destruct output as [nf' | pat' src' cnt']; [| exact Hmatch].
+          intros Hmatch. destruct output as [nf' | pat' src' cnt' | pat' num']; [| exact Hmatch..].
           cbn [message.matches] in Hmatch.
           destruct H as (_ & Hfresh). apply Hfresh. exists pat, num. auto.
       + exact (IH _ _ Hin).
