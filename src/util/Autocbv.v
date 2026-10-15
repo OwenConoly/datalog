@@ -15,5 +15,5 @@ Ltac2 autocbv1 () := Std.cbv (cbv_redflags_of (to_cbv ())) { Std.on_hyps := None
 
 Ltac2 autocbv0 () := Control.enter (fun () => autocbv1 ()).
 
-Ltac2 Notation autocbv := autocbv0 ().
+Ltac2 Abbreviation autocbv := autocbv0 ().
 Ltac autocbv := ltac2:(autocbv).

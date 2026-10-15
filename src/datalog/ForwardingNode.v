@@ -84,7 +84,6 @@ Arguments fnode_state : clear implicits.
 
 Section __.
   Context `{params : datalog_params}.
-  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {node_prog node_state : Type}.
   Context {label : Type}.
   #[local] Instance sender_label : sender_labelT := source.
@@ -778,7 +777,7 @@ Section __.
         cbn [option_map unwrap_or_default unwrap_or gns_queue]. reflexivity.
       + cbn [queue_at_dest graph_nodes]. rewrite map.get_put_diff by congruence.
         reflexivity.
-    - destr (eqb output_destn (node_destn n)); [ discriminate | ].
+    - rewrite_false (eqb output_destn (node_destn n)) by discriminate.
       cbn [queue_at_dest graph_output_queue]. reflexivity.
   Qed.
 
@@ -821,7 +820,7 @@ Section __.
       + cbv [arrived to_consume_at]. cbn [graph_nodes]. rewrite map.get_put_same. reflexivity.
       + cbv [arrived to_consume_at]. cbn [graph_nodes].
         rewrite map.get_put_diff by congruence. reflexivity.
-    - destr (eqb output_destn (node_destn n)); [ discriminate | reflexivity ].
+    - rewrite_false (eqb output_destn (node_destn n)) by discriminate. reflexivity.
   Qed.
 
   Lemma arrived_put_unchanged (s : fgstate) n ns gns' dest :
@@ -1227,7 +1226,7 @@ Section __.
     fgstate_wf s1'.
   Proof.
     intros [Hcompat Hwf Hmr] Hstep.
-    destruct Hstep as (e' & Hcorr & Hstep). invert Hstep.
+    destruct Hstep as (e' & Hcorr & Hstep). invert Hstep; try invert_receive.
     - destruct e; simpl in Hcorr; fwd. 2: congruence.
       constructor.
       + eapply forwarding_compatible_same_domain; [ exact Hcompat | ].
@@ -1305,7 +1304,7 @@ Section __.
     intros [Hinp Hout Hwf1 Hnodes Hdel] Hstep Hsilent.
     pose proof (fgraph_step_preserves_state_wf _ _ _ Hwf1 Hstep) as Hwf'.
     destruct Hwf1 as [Hcompat Hwf Hmr].
-    destruct Hstep as (e' & Hcorr & Hstep). invert Hstep.
+    destruct Hstep as (e' & Hcorr & Hstep). invert Hstep; try invert_receive.
     - destruct e; simpl in Hcorr; fwd; [ destruct Hsilent | congruence ].
     - destruct e; simpl in Hcorr; congruence || fwd.
       match goal with Hg : map.get _ _ = Some _ |- _ => rename Hg into Hget1 end.
@@ -1430,7 +1429,7 @@ Section __.
     eexists _, [O_event (receive n m) []], _. split.
     { apply star_one. cbv [fgraph_step]. eexists. split.
       { cbn [corresp]. exists []. split; reflexivity. }
-      eapply gstep_receive; [ exact Hget | apply fnode_input | exact Hms ]. }
+      eapply gstep_receive; [ exact Hget | eapply receive_step_intro; [ apply fnode_input | exact Hms ] ]. }
     split; [ repeat constructor | ].
     cbn [graph_nodes]. rewrite map.get_put_same.
     split; [ reflexivity | ]. cbn [gns_node_state fnode_pending]. left. reflexivity.
@@ -1500,7 +1499,7 @@ Section __.
     cbv [to_consume_at]. cbn [forward_to graph_nodes]. rewrite get_map_values'.
     rewrite map.get_put_same.
     cbn [option_map unwrap_or_default unwrap_or enqueue gns_node_state fnode_to_consume fprog_at fnode_keep].
-    destr (inb (node_destn n) (nforward orig (message.rel f))); [ | contradiction ].
+    rewrite_true (inb (node_destn n) (nforward orig (message.rel f))) by assumption.
     left. reflexivity.
   Qed.
 
@@ -1642,7 +1641,7 @@ Section __.
       { symmetry. apply silent_event_inputs, Hsil. }
       eapply forwarding_R_silent_step; eassumption. }
     pose proof Hstep as Hstep0.
-    destruct Hstep as (e' & Hcorr & Hstep). invert Hstep.
+    destruct Hstep as (e' & Hcorr & Hstep). invert Hstep; try invert_receive.
     - destruct e as [me | lble outse]; simpl in Hcorr; fwd. 2: congruence.
       eexists _, [I_event me]. split; [ apply star_one, gstep_input | ].
       split; [ reflexivity | ].
@@ -1706,7 +1705,7 @@ Section __.
         erewrite queue_at_dest_get in Hin by exact Hget2.
         apply in_split in Hin. destruct Hin as (ms1 & ms2 & Hms).
         eexists _, [O_event (receive n f) []]. split.
-        { apply star_one. eapply gstep_receive; [ exact Hget2 | | exact Hms ].
+        { apply star_one. eapply gstep_receive; [ exact Hget2 | eapply receive_step_intro; [ | exact Hms ] ].
           rewrite <- Hngns. exact Hnstep. }
         split; [ reflexivity | ].
         rewrite forward_to_nil. rewrite forward_to_nil in Hstep0.
@@ -1720,14 +1719,14 @@ Section __.
         * eapply delivered_to_consume with (s1 := s1) (s2 := s2) (n := n) (f := f).
           -- eapply dest_msgs_put with (new := []); [ exact Hget1 | reflexivity ].
           -- intros d Hd. rewrite arrived_put.
-             destr (eqb d (node_destn n)); [ congruence | reflexivity ].
+             rewrite_false (eqb d (node_destn n)) by congruence. reflexivity.
           -- erewrite arrived_get by exact Hget1. rewrite arrived_put.
              destr (eqb (node_destn n) (node_destn n)); [ | congruence ].
              cbn [gns_node_state fnode_to_consume].
              rewrite Hcons, !map_app. cbn [map fst].
              symmetry. apply Permutation_middle.
           -- intros d Hd. rewrite queue_at_dest_put.
-             destr (eqb d (node_destn n)); [ congruence | reflexivity ].
+             rewrite_false (eqb d (node_destn n)) by congruence. reflexivity.
           -- erewrite queue_at_dest_get by exact Hget2.
              erewrite queue_at_dest_get
                by (cbn [graph_nodes]; apply map.get_put_same).
@@ -1769,7 +1768,7 @@ Section __.
     weak_sim ngraph_step fgraph_step (fun ns nt fs ft => forwarding_R fs ft ns nt).
   Proof.
     intros ns nt ns' fs ft e HR Hstep.
-    cbv [ngraph_step] in Hstep. invert Hstep.
+    cbv [ngraph_step] in Hstep. invert Hstep; try invert_receive.
     - eassert (Hstep1 : fgraph_step fs (I_event m) _).
       { eexists. split; [ reflexivity | apply gstep_input ]. }
       eexists _, [I_event m]. split; [ apply star_one, Hstep1 | ].
@@ -1826,7 +1825,7 @@ Section __.
       assert (Hvalid : valid_dest (node_destn n)).
       { simpl. apply HR.(fR_wf).(fwf_compat). congruence. }
       assert (Hin : In m (queue_at_dest ns (node_destn n))).
-      { erewrite queue_at_dest_get by exact H. rewrite H1.
+      { erewrite queue_at_dest_get by exact H. rewrite H2.
         apply in_or_app. right. left. reflexivity. }
       destruct (fgraph_deliver_to_node fs ft ns nt n m HR Hvalid Hin)
         as (fsa & fta & orig & Hstara & Hsila & Hinc).
@@ -1835,12 +1834,12 @@ Section __.
       cbv [to_consume_at] in Hinc. rewrite Hfnsa in Hinc.
       cbn [option_map unwrap_or_default unwrap_or] in Hinc.
       apply in_split in Hinc. destruct Hinc as (c1 & c2 & Hc).
-      rewrite <- Hfnsaeq in H0.
+      rewrite <- Hfnsaeq in H1.
       eassert (Hstep1 : fgraph_step fsa (O_event (run n (consume_label m)) []) _).
       { eexists. split.
         { cbn [corresp]. exists []. split; reflexivity. }
         eapply gstep_run; [ exact Hfnsa | ]. eapply fnode_consume; [ exact Hc | ].
-        exact H0. }
+        exact H1. }
       rewrite forward_to_nil in Hstep1.
       eexists _, (O_event (run n (consume_label m)) [] :: fta).
       split.
@@ -1857,18 +1856,18 @@ Section __.
       + eapply delivered_to_consume with (s1 := fsa) (s2 := ns) (n := n) (f := m).
         * eapply dest_msgs_put with (new := []); [ exact Hfnsa | reflexivity ].
         * intros d Hd. rewrite arrived_put.
-          destr (eqb d (node_destn n)); [ congruence | reflexivity ].
+          rewrite_false (eqb d (node_destn n)) by congruence. reflexivity.
         * erewrite arrived_get by exact Hfnsa. rewrite arrived_put.
           destr (eqb (node_destn n) (node_destn n)); [ | congruence ].
           cbn [gns_node_state fnode_to_consume].
           rewrite Hc, !map_app. cbn [map fst].
           symmetry. apply Permutation_middle.
         * intros d Hd. rewrite queue_at_dest_put.
-          destr (eqb d (node_destn n)); [ congruence | reflexivity ].
+          rewrite_false (eqb d (node_destn n)) by congruence. reflexivity.
         * erewrite queue_at_dest_get by exact H.
           erewrite queue_at_dest_get
             by (cbn [graph_nodes]; apply map.get_put_same).
-          cbn [gns_queue]. rewrite H1.
+          cbn [gns_queue]. rewrite H2.
           symmetry. apply Permutation_middle.
         * exact HRa.(fR_delivered).
     - assert (Hin : In m ns.(graph_output_queue)).

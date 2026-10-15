@@ -39,7 +39,7 @@ Section __.
   Implicit Type ctx : context.
   Implicit Type aexpr : agg_expr.
 
-  Definition composed_lower e out := make_good (lower e out).
+  Definition composed_lower e out := make_bottomup (lower e out).
 
   (*this theorem only says things about closed terms, which doesn't seem very useful*)
   (*it's modeled after the top-level ATL -> C theorem, which apparently has the same restriction?*)
@@ -82,7 +82,7 @@ Section __.
     ~ out \in vars_of e \cup referenced_vars e ->
     dag (rel_graph (composed_lower e out)).
   Proof.
-    intros. apply make_good_dag.
+    intros. apply make_bottomup_dag.
     - apply lower_goodish. assumption.
     - apply lower_dag; auto.
   Qed.

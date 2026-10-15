@@ -2,10 +2,9 @@
  (modules
   :standard
   \
-  Local
   JSON
   QueryableToRunnable
-  OperationalToDistributed
+  Functional
   FancyNotations)
  (name Datalog)
  (package datalog)

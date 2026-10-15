@@ -9,6 +9,14 @@ Import Blocks.blocks_prog SimpleBlocks.blocks_prog.
 
 Section __.
 Variant bop := sum | prod.
+Scheme Boolean Equality for bop.
+
+#[global] Instance bop_eqb : Eqb bop := bop_beq.
+
+#[global] Instance bop_eqb_ok : Eqb_ok bop_eqb.
+Proof. eqb_ok. Qed.
+Register Scheme bop_eqb as beq for bop.
+
 Variant type := val | set.
 Definition obj := nat.
 Context {context : map.map nat obj} {context_ok : map.ok context}.
@@ -16,6 +24,7 @@ Context {value_set : map.map (list obj) unit} {value_set_ok : map.ok value_set}.
 Variant agg_fn :=
   | fn_lit (o : obj)
   | fn_bop (o : bop).
+Scheme Boolean Equality for agg_fn.
 #[local] Instance agg_exprvar : exprvarT := nat.
 #[local] Instance agg_fnT : fnT := agg_fn.
 #[local] Instance agg_aggregatorT : aggregatorT := bop.
@@ -28,32 +37,10 @@ Definition fn_inj f :=
   | fn_bop _ => false
   end.
 
-#[global] Instance bop_eqb : Eqb bop :=
-  fun o1 o2 =>
-    match o1, o2 with
-    | sum, sum => true
-    | prod, prod => true
-    | _, _ => false
-    end.
-
-#[global] Instance bop_eqb_ok : Eqb_ok bop_eqb.
-Proof. intros x y. cbv [eqb bop_eqb]. destruct x, y; congruence. Qed.
-
-#[global] Instance fn_eqb : Eqb fn :=
-  fun f1 f2 =>
-    match f1, f2 with
-    | fn_lit l1, fn_lit l2 => l1 =? l2
-    | fn_bop o1, fn_bop o2 => eqb o1 o2
-    | _, _ => false
-    end.
+#[global] Instance fn_eqb : Eqb fn := agg_fn_beq.
 
 #[global] Instance fn_eqb_ok : Eqb_ok fn_eqb.
-Proof.
-  intros x y. cbv [eqb fn_eqb]. destruct x, y; try congruence.
-  - destruct (Nat.eqb_spec o o0); subst; congruence.
-  - pose proof (eqb_spec o o0) as Ho. cbv [eqb] in Ho.
-    destruct (bop_eqb o o0); subst; congruence.
-Qed.
+Proof. eqb_ok. Qed.
 
 Definition bop_id o :=
   match o with
@@ -161,7 +148,8 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
                     clause_pattern.args := [expr_pattern.any] |}];
                meta_rule.hyps :=
                  [{| clause_pattern.rel := block_rel.input x;
-                    clause_pattern.args := [expr_pattern.any] |}] |}] |}
+                    clause_pattern.args := [expr_pattern.any] |}];
+               meta_rule.normal_hyps := [] |}] |}
   | bop_over_vals o x y =>
       LetIn (compile_Sexpr x)
         (fun x' =>
@@ -182,7 +170,8 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
                            [{| clause_pattern.rel := block_rel.input x';
                               clause_pattern.args := [expr_pattern.any] |};
                             {| clause_pattern.rel := block_rel.input x';
-                              clause_pattern.args := [expr_pattern.any] |}] |}] |}))
+                              clause_pattern.args := [expr_pattern.any] |}];
+                         meta_rule.normal_hyps := [] |}] |}))
   | empty =>
       Block O
         {| program.rules := [];
@@ -190,7 +179,8 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
             [{| meta_rule.concls :=
                  [{| clause_pattern.rel := block_rel.local O;
                     clause_pattern.args := [expr_pattern.any] |}];
-               meta_rule.hyps := [] |}] |}
+               meta_rule.hyps := [];
+               meta_rule.normal_hyps := [] |}] |}
   | singleton x => (*we happen to represent sets in the same format as elements*)
       compile_Sexpr x
   | intersection x y =>
@@ -212,7 +202,8 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
                            [{| clause_pattern.rel := block_rel.input y';
                               clause_pattern.args := [expr_pattern.any] |};
                             {| clause_pattern.rel := block_rel.input y';
-                              clause_pattern.args := [expr_pattern.any] |}] |}] |}))
+                              clause_pattern.args := [expr_pattern.any] |}];
+                         meta_rule.normal_hyps := [] |}] |}))
   | let_in t1 t2 x f =>
       LetIn (compile_Sexpr x)
         (fun x' => compile_Sexpr (f x'))
@@ -231,13 +222,15 @@ Fixpoint compile_Sexpr {t} {var} (e : Sexpr (fun _ => var) t) : blocks_prog var 
                          clause_pattern.args := [expr_pattern.any] |}];
                     meta_rule.hyps :=
                       [{| clause_pattern.rel := block_rel.local (S O);
-                         clause_pattern.args := [expr_pattern.any; expr_pattern.any] |}] |};
+                         clause_pattern.args := [expr_pattern.any; expr_pattern.any] |}];
+                    meta_rule.normal_hyps := [] |};
                   {| meta_rule.concls :=
                       [{| clause_pattern.rel := block_rel.local (S O);
                          clause_pattern.args := [expr_pattern.any; expr_pattern.any] |}];
                      meta_rule.hyps :=
                        [{| clause_pattern.rel := block_rel.input x';
-                          clause_pattern.args := [expr_pattern.any] |}] |}] |})
+                          clause_pattern.args := [expr_pattern.any] |}];
+                     meta_rule.normal_hyps := [] |}] |})
   end.
 
 Definition sum_expr {var} (S : var set) :=
@@ -366,7 +359,8 @@ Proof.
          ++ interp_exprs.
       -- intros Hx. repeat invert_stuff. assumption.
     + eapply pftree.step.
-      -- constructor. cbv [meta_rule.pattern_interp]. simpl. exists map.empty.
+      -- constructor. exists []. split; [|constructor].
+         cbv [meta_rule.pattern_interp]. simpl. exists map.empty.
          interp_exprs.
          instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
       -- interp_exprs. apply pftree.leaf. cbv [inp_pat_holds]. simpl. assumption.
@@ -393,7 +387,8 @@ Proof.
          end.
          cbv [set_of] in *. subst. reflexivity.
     + simpl. eapply pftree.step.
-      -- apply Exists_cons_hd. cbv [meta_rule.pattern_interp]. simpl.
+      -- apply Exists_cons_hd. exists []. split; [|constructor].
+         cbv [meta_rule.pattern_interp]. simpl.
          exists map.empty. interp_exprs.
          ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
          ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
@@ -406,6 +401,7 @@ Proof.
       -- intros H. repeat invert_stuff.
     + simpl. eapply pftree.step.
       -- apply Exists_cons_hd.
+         exists []. split; [|constructor].
          cbv [meta_rule.pattern_interp]. exists map.empty. interp_exprs.
       -- interp_exprs.
   - dep_invert He'.
@@ -427,6 +423,7 @@ Proof.
       -- intros H. repeat invert_stuff. auto.
     + eapply pftree.step.
       -- apply Exists_cons_hd.
+         exists []. split; [|constructor].
          cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
          ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
          ++ instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
@@ -461,7 +458,7 @@ Proof.
             rewrite map_id. reflexivity.
          ++ constructor.
             --- eapply pftree.step.
-                +++ apply program.meta_rule_step. simpl. doExists 1.
+                +++ apply program.meta_rule_step with (nhyps := []). simpl. doExists 1.
                     cbv [meta_rule.interp]. simpl. split.
                     { cbv [meta_rule.pattern_interp]. simpl. exists map.empty.
                       Fail Timeout 3 interp_exprs. (*TODO fix*)
@@ -511,8 +508,8 @@ Proof.
       -- intros H.
          (*TODO something clever so that this bullet goes away*)
          repeat invert_stuff.
-         destruct hyps; [discriminate H2|]. destruct hyps; [|discriminate H2].
-         simpl in H2. repeat invert_stuff.
+         destruct mhyps; [discriminate H2|]. destruct mhyps; [|discriminate H2].
+         simpl in H2. cbn [map app] in *. repeat invert_stuff.
          assert (Hmf : forall v, fset.contains set0 [v] <-> set_of x' v).
          { intros v. rewrite IHHwfp0. eapply (Hp1 {| normal_fact.rel := _; normal_fact.args := [v] |}). repeat constructor. }
          assert (Hvals : forall a b, In (a, b) vals <-> a = b /\ set_of x' a).
@@ -541,10 +538,12 @@ Proof.
          apply Hvals in Hab, Hcd. fwd. reflexivity.
     + eapply pftree.step.
       -- apply Exists_cons_hd.
+         exists []. split; [|constructor].
          cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
          instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
       -- interp_exprs. eapply pftree.step.
          ++ doExists 1.
+            exists []. split; [|constructor].
             cbv [meta_rule.pattern_interp]. simpl. exists map.empty. interp_exprs.
             instantiate (1 := {| fact_pattern.rel := _ |}). simpl. interp_exprs.
          ++ interp_exprs.

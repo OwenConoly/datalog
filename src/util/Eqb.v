@@ -1,5 +1,5 @@
 From Stdlib Require Import Bool.
-From coqutil Require Import Eqb Decidable.
+From coqutil Require Import Eqb Decidable Tactics Tactics.fwd Datatypes.List.
 
 #[global] Instance Eqb_ok_BoolSpec {A} {f : Eqb A} {Hok : Eqb_ok f} (x y :
 A)
@@ -8,41 +8,45 @@ A)
 #[global] Hint Mode Eqb + : typeclass_instances.
 #[global] Hint Mode Eqb_ok + - : typeclass_instances.
 
+Ltac eqb_ok :=
+  intros a b; destruct a, b; cbv [eqb] in *; simpl in *; cbv [eqb] in *;
+  repeat destruct_one_match; repeat intro; fwd; simpl in *; fwd; try (congruence || tauto).
+
+Scheme Boolean Equality for unit.
+#[export] Instance unit_eqb : Eqb unit := unit_beq.
+#[export] Instance unit_eqb_ok : Eqb_ok unit_eqb.
+Proof. eqb_ok. Qed.
+
+Scheme Boolean Equality for prod.
 Section eqb_prod.
   Context {A B : Type}.
   Context {eqbA : Eqb A} {eqbA_ok : Eqb_ok eqbA}.
   Context {eqbB : Eqb B} {eqbB_ok : Eqb_ok eqbB}.
 
-  #[global] Instance eqb_prod : Eqb (A * B) :=
-    fun x y => (eqbA (fst x) (fst y) && eqbB (snd x) (snd y))%bool.
-
-  #[global] Instance eqb_prod_ok : Eqb_ok eqb_prod.
-  Proof.
-    intros [a1 b1] [a2 b2]. cbv [eqb eqb_prod]. simpl.
-    pose proof (eqb_spec a1 a2) as HA. pose proof (eqb_spec b1 b2) as HB.
-    cbv [eqb] in *.
-    destruct (eqbA a1 a2), (eqbB b1 b2); subst; simpl; try congruence.
-  Qed.
+  #[export] Instance eqb_prod : Eqb (A * B) := prod_beq _ _ eqb eqb.
+  #[export] Instance eqb_prod_ok : Eqb_ok eqb_prod.
+  Proof. eqb_ok. Qed.
 End eqb_prod.
 
+Scheme Boolean Equality for option.
 Section eqb_option.
   Context {A : Type}.
   Context {eqbA : Eqb A} {eqbA_ok : Eqb_ok eqbA}.
 
-  #[global] Instance eqb_option : Eqb (option A) :=
-    fun x y => match x, y with
-               | Some a, Some b => eqb a b
-               | None, None => true
-               | _, _ => false
-               end.
-
+  #[export] Instance eqb_option : Eqb (option A) := option_beq A eqb.
   #[global] Instance eqb_option_ok : Eqb_ok eqb_option.
-  Proof.
-    intros [a|] [b|]; cbv [eqb eqb_option]; simpl; try congruence.
-    pose proof (eqb_spec a b) as H. cbv [eqb] in *.
-    destruct (eqbA a b); simpl in H |- *; congruence.
-  Qed.
+  Proof. eqb_ok. Qed.
 End eqb_option.
+
+#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) := list_eqb aeqb.
+#[global] Typeclasses Opaque list_eqb.
+
+#[global] Instance list_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
+  : Eqb_ok (list_eqb (aeqb := aeqb)).
+Proof.
+  intros x y. cbv [eqb list_eqb]. pose proof (List.list_eqb_spec x y) as H.
+  cbv [eqb] in H. destruct H; assumption.
+Qed.
 
 Lemma eqb_sym {A} {f : Eqb A} {Hok : Eqb_ok f} (a b : A) : eqb a b = eqb b a.
 Proof.
@@ -59,3 +63,7 @@ Proof.
   - apply Hinj in Hg. contradiction.
   - subst b. contradiction.
 Qed.
+
+#[export] Register Scheme Nat.eqb as beq for nat.
+#[export] Register Scheme Bool.eqb as beq for bool.
+#[export] Register Scheme list_eqb as beq for list.

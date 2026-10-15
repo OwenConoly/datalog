@@ -8,7 +8,7 @@ From Datalog.Util Require Import Autodestr Autocbn Pftree.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
-From Datalog Require Import Map Tactics Fp List Eqb Decidable.
+From Datalog Require Import Map Tactics Fp List Eqb Decidable Default.
 From GraphSearch Require Import Dag.
 
 Import ListNotations.
@@ -41,14 +41,28 @@ Class datalog_semantics {_fn : fnT} {_aggregator: aggregatorT} {_value : valueT}
     agg_id : aggregator -> value; }.
 Arguments datalog_semantics : clear implicits.
 
-Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map _exprvar value} {context_ok : map.ok context} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb} {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set} := {}.
+Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_semantics} {context : map.map _exprvar value} {context_ok : map.ok context} {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb} {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb} {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb} {aggregator_eqb : Eqb aggregator} {aggregator_eqb_ok : Eqb_ok aggregator_eqb} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb} {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set} := {}.
 
 Definition interp_agg `{datalog_semantics} agg (vals : list (value * value)) :=
   fold_right (agg_bop agg) (agg_id agg) (map snd vals).
 
-Class query_signature {rel : Type} :=
-  { outs : rel -> nat }.
-Arguments query_signature : clear implicits.
+Module query.
+  (*bit mask: length is arity of the relation; ones are inputs; zeroes are outputs. *)
+  Class signature {rel : relT} :=
+    { sig : rel -> list bool }.
+
+  Section __.
+    Context `{params : datalog_params} {qsig : signature}.
+
+    Definition arity R := length (sig R).
+    Definition num_inputs R := count_occ true (sig R).
+    Definition num_outputs R := count_occ false (sig R).
+
+    Definition inputs {T} R (args : list T) := select (sig R) args.
+    Definition outputs {T} R (args : list T) := select_not (sig R) args.
+    Definition merge {T} R (ins outs : list T) := unselect (sig R) ins outs.
+  End __.
+End query.
 
 Goal forall {exprvar : exprvarT} {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb} (v v0 : exprvar),
     BoolSpec (v = v0) (v <> v0) (var_eqb v v0).
@@ -70,10 +84,10 @@ Module expr.
     | app (f : fn) (args : list expr).
 
     Inductive interp (ctx : context) : expr -> value -> Prop :=
-    | interp_var_expr x v :
+    | interp_var x v :
       map.get ctx x = Some v ->
       interp ctx (var x) v
-    | interp_fun_expr f args args' x :
+    | interp_fun f args args' x :
       Forall2 (interp ctx) args args' ->
       interp_fun f args' = Some x ->
       interp ctx (app f args) x.
@@ -152,9 +166,6 @@ Module expr.
       v1 = v2.
     Proof. eauto using interp_det, interp_agree_on. Qed.
 
-    Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
-    Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
-
     #[global] Instance eqb : Eqb expr :=
       fix expr_eqb e1 e2 :=
         match e1, e2 with
@@ -175,39 +186,42 @@ Module expr.
   End __.
 End expr. Abbreviation expr := expr.expr.
 #[export] Hint Constructors expr.interp : core.
+#[export] Register Scheme expr.eqb as beq for expr.expr.
 
 Module normal_fact.
-  Record normal_fact {relt : relT} {value : valueT} :=
+  Record normal_fact {relt : relT} {value : valueT} := mk
     { rel : relt;
       args : list value }.
+  Arguments mk {_ _} _ _.
+  Scheme Boolean Equality for normal_fact.
   (*i don't actually want this to be global; i'd prefer to instead export it along with normal_fact.  but the Import/Export commands aren't granular enough for me to do that.*)
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@normal_fact _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
   Section __.
-    Context {relt : relT} {value : valueT}.
-    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
-    Context {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
+    Context `{params : datalog_params}.
 
-    #[global] Instance eqb : Eqb normal_fact :=
-      fun f1 f2 => eqb f1.(rel) f2.(rel) && eqb f1.(args) f2.(args).
+    #[global] Instance eqb : Eqb normal_fact := normal_fact_beq _ _ eqb eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros [R1 args1] [R2 args2]. cbv [Eqb.eqb eqb]. simpl.
-      destr (rel_eqb R1 R2); [|congruence]. destr (list_eqb args1 args2); congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
+
+    Context {qsig : query.signature}.
+
+    Definition with_only_inputs (f : normal_fact (value := value)) :=
+      {| rel := f.(rel); args := query.inputs f.(rel) f.(args) |}.
   End __.
 End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 #[export] Hint Unfold normal_fact.rel normal_fact.args : core.
 
 Module value_pattern.
   Section __.
-    Context {value : valueT} {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
+    Context `{params : datalog_params}.
     (*could consider extending this?*)
     Variant value_pattern {value : valueT} :=
       | exactly (v : value)
       | any.
+    Scheme Boolean Equality for value_pattern.
 
     Definition matches (p : value_pattern) v :=
       match p with
@@ -257,39 +271,29 @@ Module value_pattern.
       cbn [matches] in *. f_equal; auto.
     Qed.
 
-    #[global] Instance eqb : Eqb value_pattern :=
-      fun p1 p2 =>
-        match p1, p2 with
-        | exactly v1, exactly v2 => eqb v1 v2
-        | any, any => true
-        | _, _ => false
-        end.
+    #[global] Instance eqb : Eqb value_pattern := value_pattern_beq _ eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros [v1|] [v2|]; cbv [Eqb.eqb eqb]; try congruence.
-      destr (value_eqb v1 v2); congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
 End __.
 End value_pattern. Abbreviation value_pattern := value_pattern.value_pattern.
 #[export] Hint Unfold value_pattern.matches : core.
 #[export] Hint Resolve value_pattern.matches_map_exactly : core.
+#[export] Register Scheme value_pattern.eqb as beq for value_pattern.value_pattern.
 
 Module fact_pattern.
-  Record fact_pattern {relt : relT} {value : valueT} :=
+  Record fact_pattern {relt : relT} {value : valueT} := mk
     { rel : relt;
       args : list value_pattern }.
+  Scheme Boolean Equality for fact_pattern.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@fact_pattern _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
   Section __.
-    Context {relt : relT} {value : valueT}.
+    Context `{params : datalog_params}.
     Definition matches (fp : fact_pattern) f :=
       fp.(rel) = f.(normal_fact.rel) /\
         Forall2 value_pattern.matches fp.(args) f.(normal_fact.args).
-
-    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
-    Context {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
 
     Definition matchesb (fp : fact_pattern) f :=
       eqb fp.(rel) f.(normal_fact.rel) && forallb2 value_pattern.matchesb fp.(args) f.(normal_fact.args).
@@ -304,18 +308,12 @@ Module fact_pattern.
   End __.
 
   Section __.
-    Context {relt : relT} {value : valueT}.
-    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
-    Context {value_pattern_eqb : Eqb value_pattern} {value_pattern_eqb_ok : Eqb_ok value_pattern_eqb}.
+    Context `{params : datalog_params}.
 
-    #[global] Instance eqb : Eqb fact_pattern :=
-      fun p1 p2 => eqb p1.(rel) p2.(rel) && eqb p1.(args) p2.(args).
+    #[global] Instance eqb : Eqb fact_pattern := fact_pattern_beq _ _ eqb eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros [R1 args1] [R2 args2]. cbv [Eqb.eqb eqb]. simpl.
-      destr (rel_eqb R1 R2); [|congruence]. destr (list_eqb args1 args2); congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
   End __.
 End fact_pattern. Abbreviation fact_pattern := fact_pattern.fact_pattern.
 
@@ -405,6 +403,15 @@ Module meta_fact.
         fact_pattern.matches mf.(meta_fact.pattern) nf ->
         fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <-> S nf.
 
+    Lemma consistent_with_ext mf S1 S2 :
+      consistent_with mf S1 ->
+      (forall nf, nf.(normal_fact.rel) = rel mf -> S1 nf <-> S2 nf) ->
+      consistent_with mf S2.
+    Proof.
+      cbv [consistent_with]. intros H HS nf Hm. rewrite H by assumption. apply HS.
+      destruct Hm as (Hrel & _). cbv [rel]. congruence.
+    Qed.
+
     Definition agree (mf1 mf2 : meta_fact) :=
       forall nf,
         fact_pattern.matches mf1.(pattern) nf ->
@@ -479,9 +486,10 @@ End meta_fact. Abbreviation meta_fact := meta_fact.meta_fact.
 #[local] Hint Resolve Forall_impl : core.
 
 Module clause.
-  Record clause {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
+  Record clause {relt : relT} {exprvar : exprvarT} {fn : fnT} := mk
     { rel : relt;
       args : list expr }.
+  Scheme Boolean Equality for clause.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@clause _ _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
@@ -544,9 +552,33 @@ Module clause.
       rewrite Forall_forall in H2p1. apply H2p1 in Hv.
       fwd. invert1_any. cbv [agree_on]. congruence.
     Qed.
+
+    Context {qsig : query.signature}.
+
+    Definition query_inputs c := query.inputs c.(rel) c.(args).
+    Definition query_outputs c := query.outputs c.(rel) c.(args).
+    Definition with_only_inputs c := {| rel := c.(rel); args := query_inputs c |}.
+
+    Lemma interp_with_only_inputs ctx c f :
+      interp ctx c f ->
+      interp ctx (with_only_inputs c) (normal_fact.with_only_inputs f).
+    Proof.
+      cbv [interp with_only_inputs normal_fact.with_only_inputs query_inputs query.inputs].
+      intros H. fwd. simpl. rewrite Hp0. split; [reflexivity | apply Forall2_select; assumption].
+    Qed.
 End __.
+
+  Section __.
+    Context `{params : datalog_params}.
+
+    #[global] Instance eqb : Eqb clause := clause_beq _ _ _ eqb eqb eqb.
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof. eqb_ok. Qed.
+  End __.
 End clause. Abbreviation clause := clause.clause.
 #[export] Hint Unfold clause.rel clause.args : core.
+#[export] Register Scheme clause.eqb as beq for clause.clause.
 
 Module expr_pattern.
   Section __.
@@ -575,29 +607,25 @@ Module expr_pattern.
       | exactly e => Some e
       | any => None
       end.
+  End __.
+  Scheme Boolean Equality for expr_pattern.
 
-    Context {expr_eqb : Eqb expr} {expr_eqb_ok : Eqb_ok expr_eqb}.
+  Section __.
+    Context `{params : datalog_params}.
 
-    #[global] Instance eqb : Eqb expr_pattern :=
-      fun p1 p2 =>
-        match p1, p2 with
-        | exactly e1, exactly e2 => eqb e1 e2
-        | any, any => true
-        | _, _ => false
-        end.
+    #[global] Instance eqb : Eqb expr_pattern := expr_pattern_beq _ _ eqb eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros [e1|] [e2|]; cbv [Eqb.eqb eqb]; try congruence.
-      destr (expr_eqb e1 e2); congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
   End __.
 End expr_pattern. Abbreviation expr_pattern := expr_pattern.expr_pattern.
+#[export] Register Scheme expr_pattern.eqb as beq for expr_pattern.expr_pattern.
 
 Module clause_pattern.
-  Record clause_pattern {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
+  Record clause_pattern {relt : relT} {exprvar : exprvarT} {fn : fnT} := mk
     { rel : relt;
       args : list expr_pattern }.
+  Scheme Boolean Equality for clause_pattern.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@clause_pattern _ _ _) :: prev ().
   #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(rel) :: reference:(args) :: prev ().
 
@@ -610,21 +638,19 @@ Module clause_pattern.
 
     Definition vars (c : clause_pattern) : list exprvar :=
       flat_map expr_pattern.vars c.(args).
+
+    Context {qsig : query.signature}.
+
+    Definition query_inputs c := query.inputs c.(rel) c.(args).
   End __.
 
   Section __.
-    Context {relt : relT} {exprvar : exprvarT} {fn : fnT}.
-    Context {rel_eqb : Eqb relt} {rel_eqb_ok : Eqb_ok rel_eqb}.
-    Context {expr_pattern_eqb : Eqb expr_pattern} {expr_pattern_eqb_ok : Eqb_ok expr_pattern_eqb}.
+    Context `{params : datalog_params}.
 
-    #[global] Instance eqb : Eqb clause_pattern :=
-      fun c1 c2 => eqb c1.(rel) c2.(rel) && eqb c1.(args) c2.(args).
+    #[global] Instance eqb : Eqb clause_pattern := clause_pattern_beq _ _ _ eqb eqb eqb.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
-    Proof.
-      intros [R1 args1] [R2 args2]. cbv [Eqb.eqb eqb]. simpl.
-      destr (rel_eqb R1 R2); [|congruence]. destr (list_eqb args1 args2); congruence.
-    Qed.
+    Proof. eqb_ok. Qed.
   End __.
 End clause_pattern. Abbreviation clause_pattern := clause_pattern.clause_pattern.
 
@@ -678,37 +704,37 @@ Module fact.
       | normal _ => False
       end.
 
-    Definition normal_facts (f : fact) : list normal_fact :=
+    Definition as_normal (f : fact) : option normal_fact :=
       match f with
-      | normal nf => [nf]
-      | meta _ => []
+      | normal nf => Some nf
+      | meta _ => None
       end.
 
-    Lemma in_normal_facts nf f :
-      In nf (normal_facts f) <-> f = normal nf.
+    Lemma as_normal_Some nf f :
+      as_normal f = Some nf <-> f = normal nf.
     Proof. destruct f; simpl; intuition congruence. Qed.
 
-    Lemma in_flat_map_normal_facts nf fs :
-      In nf (flat_map normal_facts fs) <-> In (normal nf) fs.
+    Lemma in_filter_map_as_normal nf fs :
+      In nf (filter_map as_normal fs) <-> In (normal nf) fs.
     Proof.
-      rewrite in_flat_map. setoid_rewrite in_normal_facts.
+      rewrite in_filter_map. setoid_rewrite as_normal_Some.
       split; [intros (? & ? & ->) | intros]; eauto.
     Qed.
 
-    Definition meta_facts (f : fact) : list meta_fact :=
+    Definition as_meta (f : fact) : option meta_fact :=
       match f with
-      | normal _ => []
-      | meta mf => [mf]
+      | normal _ => None
+      | meta mf => Some mf
       end.
 
-    Lemma in_meta_facts mf f :
-      In mf (meta_facts f) <-> f = meta mf.
+    Lemma as_meta_Some mf f :
+      as_meta f = Some mf <-> f = meta mf.
     Proof. destruct f; simpl; intuition congruence. Qed.
 
-    Lemma in_flat_map_meta_facts mf fs :
-      In mf (flat_map meta_facts fs) <-> In (meta mf) fs.
+    Lemma in_filter_map_as_meta mf fs :
+      In mf (filter_map as_meta fs) <-> In (meta mf) fs.
     Proof.
-      rewrite in_flat_map. setoid_rewrite in_meta_facts.
+      rewrite in_filter_map. setoid_rewrite as_meta_Some.
       split; [intros (? & ? & ->) | intros]; eauto.
     Qed.
 
@@ -735,7 +761,7 @@ End fact. Abbreviation fact := fact.fact.
 Module result.
   Section __.
     Context `{params : datalog_params}.
-    Record result :=
+    Record result := mk
       { normal : list value -> Prop;
         done : list value_pattern -> Prop; }.
 
@@ -847,39 +873,6 @@ Module rule.
       | agg _ _ _ => []
       end.
 
-    (*is rule r conducive to bottom-up evaluation?*)
-    Definition is_bottomup (r : rule) :=
-      forall v, In v (all_vars r) -> In (expr.var v) (hyp_args r).
-
-    (* Definition clause_outs (c : clause) := firstn (outs (fst c.(clause_R))) c.(clause_args). *)
-    (* Definition clause_ins (c : clause) := skipn (outs (fst c.(clause_R))) c.(clause_args). *)
-
-    (* Definition with_only_ins (c : clause) := *)
-    (*   {| clause_R := c.(clause_R); clause_args := clause_ins c |}. *)
-
-    (* (*2 conditions. *)
-     (*  * hyp_ins only depend on concl_ins, and *)
-     (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
-     (*  (implicit conditions: every concl_in is of the form var_expr blah, where blah was not *)
-     (*  bound to the agg_expr) *)
-     (*  *) *)
-    (* Definition goodish_rule (r : rule) := *)
-    (*   match r with *)
-    (*   | normal_rule rule_concls rule_hyps => *)
-    (*       exists concl, *)
-    (*       rule_concls = [concl] /\ *)
-    (*         (forall v, *)
-    (*             In v (flat_map vars_of_clause rule_concls) \/ *)
-    (*               In v (flat_map vars_of_clause rule_hyps) -> *)
-    (*             In (var_expr v) (flat_map clause_args rule_hyps) \/ *)
-    (*               In (var_expr v) (clause_ins concl)) /\ *)
-    (*         (forall v, In v (flat_map vars_of_expr (flat_map clause_ins rule_hyps)) -> *)
-    (*               In (var_expr v) (clause_ins concl)) /\ *)
-    (*         (forall v, In v (flat_map vars_of_expr (clause_ins concl)) -> *)
-    (*               In (var_expr v) (clause_ins concl)) *)
-    (*   | agg_rule _ _ _ => True *)
-    (*   end. *)
-
     Lemma interp_concl_relname_in r f hyps :
       interp r f hyps ->
       In f.(normal_fact.rel) (concl_rels r).
@@ -926,95 +919,146 @@ Module rule.
       - intros x Hx. apply Hiff. assumption.
       - intros x Hx. apply Hiff. assumption.
     Qed.
-  End __.
-End rule. Abbreviation rule := rule.rule.
 
-Module meta_rule.
-  Record meta_rule {relt : relT} {exprvar : exprvarT} {fn : fnT} :=
-    { concls : list clause_pattern;
-      hyps : list clause_pattern }.
-  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_rule _ _ _) :: prev ().
-  #[global] Ltac2 Set to_cbn as prev := fun _ => reference:(concls) :: reference:(hyps) :: prev ().
+    (*is rule r conducive to bottom-up evaluation?*)
+    Definition is_bottomup (r : rule) :=
+      forall v, In v (all_vars r) -> In (expr.var v) (hyp_args r).
+
+    Context {qsig : query.signature}.
+
+    Definition input_vars (r : rule) :=
+      match r with
+      | impl rule_concls rule_hyps =>
+          flat_map expr.vars (flat_map clause.query_inputs (rule_concls ++ rule_hyps))
+      | agg _ _ _ => []
+      end.
+
+    (* 2 conditions. *)
+    (*  * hyp_ins only depend on concl_ins, and *)
+    (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
+    Definition is_almost_bottomup (r : rule) :=
+      match r with
+      | impl [concl] hyps =>
+          (forall v, In v (input_vars r) -> In (expr.var v) (clause.query_inputs concl)) /\
+            (forall v, In v (all_vars r) ->
+                  In (expr.var v) (hyp_args r ++ clause.query_inputs concl))
+      | impl _ _ => False
+      | agg concl_rel _ hyp_rel =>
+          submask (query.sig hyp_rel) (false :: false :: tl (query.sig concl_rel))
+      end.
+  End __.
+  Scheme Boolean Equality for rule.
 
   Section __.
     Context `{params : datalog_params}.
 
-    Definition pattern_interp r p ps :=
+    #[global] Instance eqb : Eqb rule := rule_beq _ _ _ _ eqb eqb eqb eqb.
+
+    #[global] Instance eqb_ok : Eqb_ok eqb.
+    Proof. eqb_ok. Qed.
+  End __.
+End rule. Abbreviation rule := rule.rule.
+
+Module meta_rule.
+  Record meta_rule {relt : relT} {exprvar : exprvarT} {fn : fnT} := mk
+    { concls : list clause_pattern;
+      hyps : list clause_pattern;
+      normal_hyps : list clause }.
+  #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@meta_rule _ _ _) :: prev ().
+  #[global] Ltac2 Set to_cbn as prev :=
+    fun _ => reference:(concls) :: reference:(hyps) :: reference:(normal_hyps) :: prev ().
+
+  Section __.
+    Context `{params : datalog_params}.
+
+    Definition pattern_interp r p ps nfs :=
       exists ctx,
         Exists (fun c => clause_pattern.interp ctx c p) r.(concls) /\
-          Forall2 (clause_pattern.interp ctx) r.(hyps) ps.
+          Forall2 (clause_pattern.interp ctx) r.(hyps) ps /\
+          Forall2 (clause.interp ctx) r.(normal_hyps) nfs.
 
-    Definition interp prog r mf hyps :=
-      pattern_interp r mf.(meta_fact.pattern) (map meta_fact.pattern hyps) /\
+    Definition interp prog r mf mhyps nhyps :=
+      pattern_interp r mf.(meta_fact.pattern) (map meta_fact.pattern mhyps) nhyps /\
         forall nf,
           fact_pattern.matches mf.(meta_fact.pattern) nf ->
           fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <->
-            rule.one_step_derives prog hyps nf.
+            rule.one_step_derives prog mhyps nf.
 
     Definition concl_rels (r : meta_rule) :=
       map clause_pattern.rel r.(concls).
 
     Definition hyp_rels (r : meta_rule) :=
-      map clause_pattern.rel r.(hyps).
+      map clause_pattern.rel r.(hyps) ++ map clause.rel r.(normal_hyps).
 
     Definition concl_vars (r : meta_rule) :=
       flat_map clause_pattern.vars r.(concls).
 
     Definition hyp_vars (r : meta_rule) :=
-      flat_map clause_pattern.vars r.(hyps).
+      flat_map clause_pattern.vars r.(hyps) ++ flat_map clause.vars r.(normal_hyps).
 
     Definition all_vars (r : meta_rule) := concl_vars r ++ hyp_vars r.
 
     Definition hyp_args (r : meta_rule) :=
       flat_map clause_pattern.args r.(hyps).
 
-    Definition is_bottomup (r : meta_rule) :=
-      forall v, In v (all_vars r) -> In (expr_pattern.exactly (expr.var v)) (hyp_args r).
+    Definition normal_hyp_args (r : meta_rule) :=
+      flat_map clause.args r.(normal_hyps).
 
-    Lemma pattern_interp_concl_relname_in r pat ps :
-      pattern_interp r pat ps ->
+    Lemma pattern_interp_concl_relname_in r pat ps nfs :
+      pattern_interp r pat ps nfs ->
       In pat.(fact_pattern.rel) (concl_rels r).
     Proof.
       cbv [pattern_interp concl_rels clause_pattern.interp]. intros. fwd.
       apply in_map_iff. eauto.
     Qed.
 
-    Lemma interp_concl_relname_in p r f hyps :
-      interp p r f hyps ->
+    Lemma interp_concl_relname_in p r f mhyps nhyps :
+      interp p r f mhyps nhyps ->
       In (meta_fact.rel f) (concl_rels r).
     Proof.
       cbv [interp]. intros H. fwd. subst.
       eapply pattern_interp_concl_relname_in. eassumption.
     Qed.
 
-    Lemma pattern_interp_hyp_relname_in r pat ps :
-      pattern_interp r pat ps ->
+    Lemma pattern_interp_hyp_relname_in r pat ps nfs :
+      pattern_interp r pat ps nfs ->
       Forall (fun fp => In fp.(fact_pattern.rel) (hyp_rels r)) ps.
     Proof.
       cbv [pattern_interp clause_pattern.interp]. intros H. fwd.
       eapply Forall_impl; [eapply Forall2_forget_l; eassumption|].
-      simpl. intros. fwd. cbv [hyp_rels]. apply in_map_iff. eauto.
+      simpl. intros. fwd. cbv [hyp_rels]. apply in_app_iff. left. apply in_map_iff. eauto.
     Qed.
 
-    Lemma interp_hyp_relname_in p r f hyps :
-      interp p r f hyps ->
-      Forall (fun hyp => In (meta_fact.rel hyp) (hyp_rels r)) hyps.
+    Lemma pattern_interp_normal_hyp_relname_in r pat ps nfs :
+      pattern_interp r pat ps nfs ->
+      Forall (fun nf => In nf.(normal_fact.rel) (hyp_rels r)) nfs.
     Proof.
-      intros [Hpat _].
-      apply pattern_interp_hyp_relname_in in Hpat.
-      rewrite Lists.List.Forall_map in Hpat. exact Hpat.
+      cbv [pattern_interp clause.interp]. intros H. fwd.
+      eapply Forall_impl; [eapply Forall2_forget_l; eassumption|].
+      simpl. intros. fwd. cbv [hyp_rels]. apply in_app_iff. right. apply in_map_iff. eauto.
     Qed.
 
-    Lemma interp_prog_ext p1 p2 r mf hyps :
+    Lemma interp_hyp_relname_in p r f mhyps nhyps :
+      interp p r f mhyps nhyps ->
+      Forall (fun hyp => In (fact.rel hyp) (hyp_rels r))
+        (map fact.meta mhyps ++ map fact.normal nhyps).
+    Proof.
+      intros [Hpat _]. apply Forall_app. split; rewrite Lists.List.Forall_map.
+      - apply pattern_interp_hyp_relname_in in Hpat.
+        rewrite Lists.List.Forall_map in Hpat. exact Hpat.
+      - eapply pattern_interp_normal_hyp_relname_in. eassumption.
+    Qed.
+
+    Lemma interp_prog_ext p1 p2 r mf mhyps nhyps :
       (forall mfs nf,
           In nf.(normal_fact.rel) (concl_rels r) ->
           rule.one_step_derives p1 mfs nf <-> rule.one_step_derives p2 mfs nf) ->
-      interp p1 r mf hyps <-> interp p2 r mf hyps.
+      interp p1 r mf mhyps nhyps <-> interp p2 r mf mhyps nhyps.
     Proof.
       cbv [interp]. intros H.
       assert (Hin : forall nf,
                  fact_pattern.matches mf.(meta_fact.pattern) nf ->
-                 pattern_interp r mf.(meta_fact.pattern) (map meta_fact.pattern hyps) ->
+                 pattern_interp r mf.(meta_fact.pattern) (map meta_fact.pattern mhyps) nhyps ->
                  In nf.(normal_fact.rel) (concl_rels r)).
       { intros nf Hmatch Hpat. rewrite <- (proj1 Hmatch).
         eauto using pattern_interp_concl_relname_in. }
@@ -1023,17 +1067,17 @@ Module meta_rule.
       - rewrite Hset by assumption. symmetry. apply H. eauto.
     Qed.
 
-    Lemma interp_app p1 p2 r mf hyps :
+    Lemma interp_app p1 p2 r mf mhyps nhyps :
       disjoint_lists (concl_rels r) (flat_map rule.concl_rels p2) ->
-      interp (p1 ++ p2) r mf hyps <-> interp p1 r mf hyps.
+      interp (p1 ++ p2) r mf mhyps nhyps <-> interp p1 r mf mhyps nhyps.
     Proof.
       intros Hdisj. apply interp_prog_ext. intros.
       apply rule.one_step_derives_app. eauto.
     Qed.
 
-    Lemma interp_same_set p1 p2 r mf hyps :
+    Lemma interp_same_set p1 p2 r mf mhyps nhyps :
       same_set p1 p2 ->
-      interp p1 r mf hyps <-> interp p2 r mf hyps.
+      interp p1 r mf mhyps nhyps <-> interp p2 r mf mhyps nhyps.
     Proof.
       intros. apply interp_prog_ext. intros. apply rule.one_step_derives_same_set. assumption.
     Qed.
@@ -1041,16 +1085,45 @@ Module meta_rule.
     (*whenever r's conclusion pattern covers a conclusion of nr,
       r's hypothesis patterns cover nr's hypotheses*)
     Definition valid_for (r : meta_rule) (nr : rule) :=
-      forall pat pats nf hyps,
-        pattern_interp r pat pats ->
+      forall pat pats nfs nf hyps,
+        pattern_interp r pat pats nfs ->
         rule.interp nr nf hyps ->
         fact_pattern.matches pat nf ->
         Forall (fact.covered_by_pats pats) hyps.
+
+    Definition is_bottomup (r : meta_rule) :=
+      forall v,
+        In v (all_vars r) ->
+        In (expr_pattern.exactly (expr.var v)) (hyp_args r) \/
+          In (expr.var v) (normal_hyp_args r).
+
+    Context {qsig : query.signature}.
+
+    Definition input_vars (r : meta_rule) :=
+      flat_map expr_pattern.vars (flat_map clause_pattern.query_inputs (r.(concls) ++ r.(hyps))) ++
+        flat_map expr.vars (flat_map clause.query_inputs r.(normal_hyps)).
+
+    (* 2 conditions. *)
+    (*  * hyp_ins only depend on concl_ins, and *)
+    (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
+    Definition is_almost_bottomup (r : meta_rule) :=
+      match r.(concls) with
+      | [concl] =>
+          (forall v,
+              In v (input_vars r) ->
+              In (expr_pattern.exactly (expr.var v)) (clause_pattern.query_inputs concl)) /\
+            (forall v,
+                In v (all_vars r) ->
+                In (expr_pattern.exactly (expr.var v))
+                  (hyp_args r ++ clause_pattern.query_inputs concl) \/
+                  In (expr.var v) (normal_hyp_args r))
+      | _ => False
+      end.
   End __.
 End meta_rule. Abbreviation meta_rule := meta_rule.meta_rule.
 
 Module program.
-  Record program {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} :=
+  Record program {relt : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} := mk
     { rules : list rule;
       meta_rules : list meta_rule }.
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@program _ _ _ _) :: prev ().
@@ -1063,9 +1136,9 @@ Module program.
       | rule_step f hyps :
         Exists (fun r => rule.interp r f hyps) p.(rules) ->
         interp_step _ (fact.normal f) hyps
-      | meta_rule_step f hyps :
-        Exists (fun mr => meta_rule.interp p.(rules) mr f hyps) p.(meta_rules) ->
-        interp_step _ (fact.meta f) (map fact.meta hyps).
+      | meta_rule_step f mhyps nhyps :
+        Exists (fun mr => meta_rule.interp p.(rules) mr f mhyps nhyps) p.(meta_rules) ->
+        interp_step _ (fact.meta f) (map fact.meta mhyps ++ map fact.normal nhyps).
 
     (*making this an abbreviation allows directly using lemmas about pftree "without unfolding" interp *)
     Abbreviation interp p := (pftree (interp_step p)).
@@ -1086,20 +1159,22 @@ Module program.
       cbv [hyp_rels]. invert 1.
       - fwd. eapply Forall_impl; [eapply rule.interp_hyp_relname_in; eassumption|].
         simpl. intros. apply in_or_app. left. apply in_flat_map. eauto.
-      - fwd. apply List.Forall_map.
-        eapply Forall_impl; [eapply meta_rule.interp_hyp_relname_in; eassumption|].
+      - fwd. eapply Forall_impl; [eapply meta_rule.interp_hyp_relname_in; eassumption|].
         simpl. intros. apply in_or_app. right. apply in_flat_map. eauto.
     Qed.
     #[local] Hint Resolve interp_step_hyp_relname_in : core.
 
+    Definition normal_concl_rels (p : program) :=
+      flat_map rule.concl_rels p.(rules).
+
     Definition concl_rels (p : program) :=
-      flat_map rule.concl_rels p.(rules) ++ flat_map meta_rule.concl_rels p.(meta_rules).
+      normal_concl_rels p ++ flat_map meta_rule.concl_rels p.(meta_rules).
 
     Lemma interp_step_concl_relname_in p f hyps :
       interp_step p f hyps ->
       In (fact.rel f) (concl_rels p).
     Proof.
-      cbv [concl_rels]. invert 1; fwd; simpl; apply in_or_app.
+      cbv [concl_rels normal_concl_rels]. invert 1; fwd; simpl; apply in_or_app.
       - left. apply in_flat_map. eauto using rule.interp_concl_relname_in.
       - right. apply in_flat_map. eauto using meta_rule.interp_concl_relname_in.
     Qed.
@@ -1109,9 +1184,15 @@ Module program.
 
     Ltac in_rel_list :=
       intros;
-      cbv [all_rels concl_rels hyp_rels];
+      cbv [all_rels concl_rels normal_concl_rels hyp_rels];
       rewrite ?in_app_iff, !in_flat_map;
       eauto 6.
+
+    Lemma rule_normal_concl_rel_in p r x :
+      In r p.(rules) ->
+      In x (rule.concl_rels r) ->
+      In x (normal_concl_rels p).
+    Proof. in_rel_list. Qed.
 
     Lemma rule_concl_rel_in p r x :
       In r p.(rules) ->
@@ -1136,6 +1217,11 @@ Module program.
       In x (meta_rule.hyp_rels mr) ->
       In x (hyp_rels p).
     Proof. in_rel_list. Qed.
+
+    Lemma normal_concl_rel_concl p x :
+      In x (normal_concl_rels p) ->
+      In x (concl_rels p).
+    Proof. cbv [concl_rels normal_concl_rels]. intros. apply in_or_app. auto. Qed.
 
     Lemma concl_rel_all p x :
       In x (concl_rels p) ->
@@ -1187,7 +1273,7 @@ Module program.
     Lemma concl_rels_union p1 p2 :
       Permutation (concl_rels (union p1 p2)) (concl_rels p1 ++ concl_rels p2).
     Proof.
-      cbv [concl_rels union]. simpl. rewrite !flat_map_app, <- !app_assoc.
+      cbv [concl_rels normal_concl_rels union]. simpl. rewrite !flat_map_app, <- !app_assoc.
       apply Permutation_app_head. apply Permutation_app_swap_app.
     Qed.
 
@@ -1207,8 +1293,7 @@ Module program.
 
     (*p2's rules conclude nothing p1's meta-rules aggregate over*)
     Definition meta_indep (p1 p2 : program) :=
-      disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules))
-        (flat_map rule.concl_rels p2.(rules)).
+      disjoint_lists (flat_map meta_rule.concl_rels p1.(meta_rules)) (normal_concl_rels p2).
 
     (*p2 reads nothing p1 concludes, and neither one's rules disturb the other's meta-rules*)
     Definition stratified (p1 p2 : program) :=
@@ -1306,10 +1391,10 @@ Module program.
     Proof.
       intros H. cbv [stratified meta_indep]. ssplit.
       - eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels]; auto with incl.
-      - eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels concl_rels];
+      - eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels concl_rels normal_concl_rels];
           auto with incl.
       - apply disjoint_lists_comm in H.
-        eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels concl_rels];
+        eapply disjoint_lists_incl; [eassumption| |]; cbv [all_rels concl_rels normal_concl_rels];
           auto with incl.
     Qed.
 
@@ -1348,11 +1433,11 @@ Module program.
     Definition honest (p : program) :=
       forall Q, good_input_set p Q -> fact.set_doesnt_lie (interp p Q).
 
-    Lemma one_step_derives_iff p Q mr mhyps pat nf :
+    Lemma one_step_derives_iff p Q mr mhyps nhyps pat nf :
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
       meta_rules_valid p ->
       In mr p.(meta_rules) ->
-      meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) ->
+      meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) nhyps ->
       Forall (fun mhyp => meta_fact.consistent_with mhyp (fact.normal_subset (interp p Q))) mhyps ->
       (forall mhyp mf',
           In mhyp mhyps ->
@@ -1379,9 +1464,9 @@ Module program.
         + exfalso. apply meta_rule.pattern_interp_concl_relname_in in Hpat.
           cbv [fact_pattern.matches] in Hmatch. fwd. simp.
           eapply Hinp; [eassumption|]. simpl.
-          cbv [concl_rels]. apply in_or_app. right. apply in_flat_map. eauto.
+          cbv [concl_rels normal_concl_rels]. apply in_or_app. right. apply in_flat_map. eauto.
         + invert H0. rewrite Exists_exists in H2. fwd.
-          specialize (Hvalid _ _ Hmr H2p0 _ _ _ _ Hpat H2p1 Hmatch).
+          specialize (Hvalid _ _ Hmr H2p0 _ _ _ _ _ Hpat H2p1 Hmatch).
           cbv [rule.one_step_derives]. eexists.
           split; [apply Exists_exists; eauto|].
           eapply Forall_impl; [eapply Forall_and; [exact Hvalid | exact H1]|].
@@ -1394,10 +1479,10 @@ Module program.
           * cbv [fact.implied_by_mf]. symmetry. apply Hagree; auto.
     Qed.
 
-    Lemma meta_rules_valid_step p Q mf mhyps :
+    Lemma meta_rules_valid_step p Q mf mhyps nhyps :
       (forall f, Q f -> ~ In (fact.rel f) (concl_rels p)) ->
       meta_rules_valid p ->
-      Exists (fun mr => meta_rule.interp p.(rules) mr mf mhyps) p.(meta_rules) ->
+      Exists (fun mr => meta_rule.interp p.(rules) mr mf mhyps nhyps) p.(meta_rules) ->
       Forall (fun mhyp => meta_fact.consistent_with mhyp (fact.normal_subset (interp p Q))) mhyps ->
       (forall mhyp mf',
           In mhyp mhyps ->
@@ -1413,10 +1498,10 @@ Module program.
       rewrite Hset by assumption. eapply one_step_derives_iff; eassumption.
     Qed.
 
-    Lemma one_step_derives_mhyps p mh1 mh2 mr2 pat2 nf :
+    Lemma one_step_derives_mhyps p mh1 mh2 nh2 mr2 pat2 nf :
       meta_rules_valid p ->
       In mr2 p.(meta_rules) ->
-      meta_rule.pattern_interp mr2 pat2 (map meta_fact.pattern mh2) ->
+      meta_rule.pattern_interp mr2 pat2 (map meta_fact.pattern mh2) nh2 ->
       fact_pattern.matches pat2 nf ->
       (forall mhyp1 mhyp2, In mhyp1 mh1 -> In mhyp2 mh2 -> meta_fact.agree mhyp1 mhyp2) ->
       rule.one_step_derives p.(rules) mh1 nf ->
@@ -1424,7 +1509,7 @@ Module program.
     Proof.
       intros Hvalid Hmr2 Hpat2 Hmatch Hagree Hderiv.
       cbv [rule.one_step_derives] in *. fwd.
-      specialize (Hvalid _ _ Hmr2 Hderivp0p0 _ _ _ _ Hpat2 Hderivp0p1 Hmatch).
+      specialize (Hvalid _ _ Hmr2 Hderivp0p0 _ _ _ _ _ Hpat2 Hderivp0p1 Hmatch).
       eexists. split; [apply Exists_exists; eauto|].
       eapply Forall_impl; [eapply Forall_and; [exact Hvalid|exact Hderivp1]|].
       simpl. intros f [Hcov Himp].
@@ -1478,11 +1563,11 @@ Module program.
           eapply Hinp; [eassumption|]. cbv [fact.rel meta_fact.rel] in *. congruence.
         + fwd. invert Hxp0. invert Hzp0.
           rewrite Exists_exists in H0, H1. fwd.
-          assert (Hagree: forall mhyp1 mhyp2, In mhyp1 hyps -> In mhyp2 hyps0 ->
+          assert (Hagree: forall mhyp1 mhyp2, In mhyp1 mhyps -> In mhyp2 mhyps0 ->
                      meta_fact.agree mhyp1 mhyp2).
           { intros mhyp1 mhyp2 Ha Hb.
             apply (IH (fact.meta mhyp1) (fact.meta mhyp2));
-              [apply Hxp1 | apply Hzp1]; apply in_map; assumption. }
+              [apply Hxp1 | apply Hzp1]; auto using in_or_app, in_map. }
           destruct H0p1 as [Hpat1 Hset1]. destruct H1p1 as [Hpat2 Hset2].
           rewrite Hset1, Hset2 by assumption.
           split; intros Hd.
@@ -1526,13 +1611,13 @@ Module program.
       - invert H. rewrite Forall_forall in H0, H1.
         eapply meta_rules_valid_step; try eassumption.
         + rewrite Forall_forall. intros mhyp Hin.
-          apply (H1 (fact.meta mhyp)); auto using in_map.
+          apply (H1 (fact.meta mhyp)); auto using in_or_app, in_map.
         + intros mhyp mf' Hin Hd Hpat.
           apply meta_fact.eq_of_agree; [assumption|].
           eapply meta_facts_consistent; try eassumption.
-          apply H0. apply in_map. assumption.
+          apply H0. auto using in_or_app, in_map.
         + rewrite Forall_forall. intros mhyp Hin.
-          apply H0. apply in_map. assumption.
+          apply H0. auto using in_or_app, in_map.
     Qed.
 
     Lemma use_honest p Q mf args :
@@ -1549,6 +1634,7 @@ Module program.
                                     normal_fact.args := args |}).
       cbv [fact_pattern.matches]. auto.
     Qed.
+
     (* Lemma staged_program_prog_impl_with_no_meta_rules p1 p2 Q f : *)
     (*   disjoint_lists (flat_map concl_rels p1) (flat_map hyp_rels p2) -> *)
     (*   prog_impl_with_no_meta_rules (p1 ++ p2) Q f -> *)
@@ -1628,8 +1714,12 @@ Module program.
     (* Qed. *)
 
   End __.
-  Abbreviation interp p := (pftree (interp_step p)).
-End program. Abbreviation program := program.program.
+  #[export] Abbreviation interp p := (pftree (interp_step p)).
+End program. Export (notations) program. Abbreviation program := program.program.
+
+#[export] Instance program_default `{relT} `{exprvarT} `{fnT} `{aggregatorT} : WithDefault program :=
+  {| program.rules := []; program.meta_rules := [] |}.
+
 Fixpoint expr_varmap {var1 var2 : exprvarT} {fn : fnT}
   (f : var1 -> var2) (e : @expr var1 fn) : @expr var2 fn :=
   match e with
@@ -1675,6 +1765,7 @@ Ltac interp_exprs :=
     | |- expr_pattern.interp _ _ _ => econstructor
     | |- clause.interp _ _ _ => cbv [clause.interp]; simpl
     | |- clause_pattern.interp _ _ _ => cbv [clause_pattern.interp]; simpl
+    | |- _ /\ Forall2 _ [] _ => split; [|constructor]
     | |- _ /\ _ => split; [solve [interp_exprs] |]
     | |- Exists _ [_] => apply Exists_cons_hd
 
@@ -1697,8 +1788,8 @@ Ltac invert_stuff :=
   | H : rule.interp _ _ _ |- _ => invert1 H || invert0 H
   | H : clause.interp _ _ _ |- _ => cbv [clause.interp] in H; fwd
   | H : clause_pattern.interp _ _ _ |- _ => cbv [clause_pattern.interp] in H; fwd
-  | H : meta_rule.pattern_interp _ _ _ |- _ => cbv [meta_rule.pattern_interp] in H; fwd
-  | H : meta_rule.interp _ _ _ _ |- _ => cbv [meta_rule.interp] in H; fwd
+  | H : meta_rule.pattern_interp _ _ _ _ |- _ => cbv [meta_rule.pattern_interp] in H; fwd
+  | H : meta_rule.interp _ _ _ _ _ |- _ => cbv [meta_rule.interp] in H; fwd
   | H : expr.interp _ _ _ |- _ => invert1 H
   | H : expr_pattern.interp _ _ _ |- _ => invert1 H
   | H1: ?x = Some ?y, H2: ?x = Some ?z |- _ =>

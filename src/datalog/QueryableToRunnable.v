@@ -8,496 +8,197 @@ From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
 From Stdlib Require Import Permutation.
 
-From ATL Require Import ATL Map Sets FrapWithoutSets Div Tactics.
-
 From Stdlib Require Import Wellfounded.Inclusion.
 From Stdlib Require Import Wellfounded Wellfounded.Wellfounded Wellfounded.Transitive_Closure.
 From Stdlib Require Import Wellfounded.Inverse_Image.
 From Stdlib Require Import Relations.Relation_Definitions.
 
-From Datalog Require Import Datalog Map Tactics Fp List Interpreter.
+From Datalog Require Import Datalog TypedDatalog Map Tactics Fp List Interpreter Pftree RelMap.
 From GraphSearch Require Import Dag.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
 Import ListNotations.
 
-Section relmap.
-  Context {rel1 rel2 var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T}.
-  Context (g : rel1 -> rel2).
-  Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
+Module query_rel.
+  Section __.
+    Context {relt : relT}.
 
-  Definition fact_relmap (f : fact rel1 var fn) :=
-    {| fact_R := g f.(fact_R); fact_args := f.(fact_args) |}.
+    Variant query_rel :=
+      | query (_ : relt)
+      | response (_ : relt).
 
-  Definition fact'_relmap (f' : rel1 * list T) :=
-    let (R, args) := f' in (g R, args).
-
-  Definition agg_expr_relmap (ae : agg_expr rel1 var fn aggregator) :=
-    {| agg_agg := ae.(agg_agg); agg_i := ae.(agg_i); agg_vs := ae.(agg_vs);
-                                     agg_s := ae.(agg_s);
-                                     agg_body := ae.(agg_body);
-                                     agg_hyps := map fact_relmap ae.(agg_hyps) |}.
-
-  Lemma vars_of_fact_relmap f :
-    vars_of_fact (fact_relmap f) = vars_of_fact f.
-  Proof. reflexivity. Qed.
-
-  Lemma good_agg_expr_relmap ae :
-    good_agg_expr ae ->
-    good_agg_expr (agg_expr_relmap ae).
-  Proof.
-    cbv [good_agg_expr]. intros H. eapply Forall_impl; [|eassumption]. simpl.
-    intros. rewrite flat_map_map. simpl. apply H0.
-  Qed.
-
-  Lemma appears_in_agg_expr_with_bool v ae :
-    appears_in_agg_expr v (agg_expr_relmap ae) ->
-    appears_in_agg_expr v ae.
-  Proof.
-    destruct ae. cbv [agg_expr_relmap appears_in_agg_expr]. simpl.
-    rewrite flat_map_map. erewrite flat_map_ext.
-    2: { intros x. rewrite vars_of_fact_relmap. reflexivity. }
-    auto.
-  Qed.
-
-  Lemma interp_fact_relmap ctx f f' :
-    interp_fact ctx f f' ->
-    interp_fact ctx (fact_relmap f) (fact'_relmap f').
-  Proof. intros H. invert H. constructor. simpl. assumption. Qed.
-
-  Hint Resolve interp_fact_relmap : core.
-  Hint Constructors Forall3 : core.
-  
-  Lemma interp_agg_expr_relmap ctx (aexpr : agg_expr rel1 var fn aggregator) res' agg_hyps' :
-    interp_agg_expr ctx aexpr res' agg_hyps' ->
-    interp_agg_expr ctx (agg_expr_relmap aexpr) res' (map (map fact'_relmap) agg_hyps').
-  Proof.
-    intros H. invert H. cbv [agg_expr_relmap]. simpl.
-    econstructor; eauto.
-    erewrite <- Forall3_map3. eapply Forall3_impl; [|eassumption].
-    simpl. intros. fwd. do 2 eexists. intuition eauto.
-    rewrite <- Forall2_map_l. erewrite <- Forall2_map_r.
-    eapply Forall2_impl; [eassumption|]. intros. apply interp_fact_relmap.
-    eassumption.
-  Qed.
-
-  Lemma interp_facts_relmap hyps hyps' ctx :
-    Forall2 (interp_fact ctx) hyps hyps' ->
-    map fact_R hyps = map fst hyps' /\
-      Forall2 (interp_fact ctx) (map fact_relmap hyps) (map fact'_relmap hyps').
-  Proof. induction 1; simpl; fwd; intuition eauto. invert H. simpl. f_equal; auto. Qed.  
-End relmap.
+    Definition rel (x : query_rel) :=
+      match x with
+      | query R | response R => R
+      end.
+  End __.
+End query_rel. Abbreviation query_rel := query_rel.query_rel.
 
 Section Transform.
-  Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
-  Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec :  forall x0 y0, BoolSpec (x0 = y0) (x0 <> y0) (rel_eqb x0 y0)}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}. 
+  (*set _exprvar := nat,
+    since we need to generate names but never need them to be distinct from source-program names
+   *)
+  Context `{params : datalog_params (_exprvar := nat)} {query_sig : query.signature}.
+  #[local] Instance nat_exprvar : exprvarT := nat.
 
-  Local Notation rule' := (rule (rel*bool) var fn aggregator).
-  Local Notation rule := (rule rel var fn aggregator).
-  Local Notation fact' := (@fact (rel*bool) var fn).
-  Local Notation fact := (@fact rel var fn).
-  Local Notation agg_expr' := (agg_expr (rel * bool) var fn aggregator).
-  Local Notation agg_expr := (agg_expr rel var fn aggregator).
-  
-  Notation plus_false := (fun x => (x, false)).
-  Notation plus_true := (fun x => (x, true)).
+  Local Abbreviation rule' := (rule (_rel := query_rel)).
+  Local Abbreviation meta_rule' := (meta_rule (relt := query_rel)).
+  Local Abbreviation clause' := (clause (relt := query_rel) (exprvar := (exprvar + nat)%type)).
 
-  Definition agree (p : list rule) (r1 r2 : rule) :=
-    forall R args1 args2 hyps1 hyps2,
-      rule_impl r1 (R, args1) hyps1 ->
-      rule_impl r2 (R, args2) hyps2 ->
-      Forall (prog_impl_fact p) hyps1 ->
-      Forall (prog_impl_fact p) hyps2 ->
-      skipn (outs R) args1 = skipn (outs R) args2 ->
-      args1 = args2.
-
-  Lemma agree_weaken p1 p2 r1 r2 :
-    agree p1 r1 r2 ->
-    incl p2 p1 ->
-    agree p2 r1 r2.
-  Proof. cbv [agree]. eauto 6 using Forall_impl, prog_impl_fact_subset. Qed.    
-
-  Definition pairs_satisfy {X : Type} (P : X -> X -> Prop) (l : list X) :=
-    forall x1 x2, In x1 l -> In x2 l -> x1 = x2 \/ P x1 x2.
-
-  Lemma pairs_satisfy_weaken {X : Type} P1 P2 (l1 l2 : list X) :
-    pairs_satisfy P1 l1 ->
-    (forall x y, In x l2 -> In y l2 -> P1 x y -> P2 x y) ->
-    incl l2 l1 ->
-    pairs_satisfy P2 l2.
-  Proof.
-    cbv [pairs_satisfy]. intros H1 H2 H3 x y Hx Hy.
-    specialize (H1 x y ltac:(eauto) ltac:(eauto)). destruct H1; auto.
-  Qed.
-
-  Definition functional (p : list rule) :=
-    forall args1 args2 R,
-      prog_impl_fact p (R, args1) ->
-      prog_impl_fact p (R, args2) ->
-      skipn (outs R) args1 = skipn (outs R) args2 ->
-      args1 = args2.
-  
-  Hint Resolve pairs_satisfy_weaken agree_weaken : core.
-
-  Lemma hyp_ins_det' ctx (r : rule) R (args : list T) hyps ahyps :
-    goodish_rule r ->
-    rule_impl' ctx r (R, args) hyps ahyps ->
-    exists concl,
-      r.(rule_concls) = [concl] /\
-        let ctx := map.of_list (context_of_args (skipn (outs R) concl.(fact_args)) (skipn (outs R) args)) in
-        Forall2 (fun f '(R, hyp_args) =>
-                   f.(fact_R) = R /\ Forall2 (interp_expr ctx) (skipn (outs R) f.(fact_args)) (skipn (outs R) hyp_args))
-          r.(rule_hyps) hyps.
-  Proof.
-    intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd. eexists.
-    split; [eassumption|]. simpl.
-    rewrite Hgoodp0 in *. invert_list_stuff.
-    eapply Forall2_impl_strong; [|eassumption].
-    intros f (Ry&argsy) Hfy Hf Hy. invert Hfy. split; [reflexivity|].
-    eapply Forall2_impl_strong. 2: apply Forall2_skipn; eassumption.
-    intros x y Hx Hy0 Hxy. eapply interp_expr_agree_on; [eassumption|].
-    rewrite Forall_forall. intros v Hv. assert (In (var_expr v) (fact_ins concl)).
-    { apply Hgoodp3. apply in_flat_map. eexists. split; eauto.
-      apply in_flat_map. eauto. }
-    invert H4. eapply Forall2_skipn in H7. pose proof H7 as H7'.
-    eapply bare_in_context_args in H7.
-    2: { apply Hgoodp3. apply in_flat_map. eexists. split; [|eassumption].
-         apply in_flat_map. eauto. }
-    apply interp_args_context_right in H7'.
-    fwd. cbv [agree_on]. apply in_fst in H7. apply in_of_list_Some_strong in H7.
-    fwd. rewrite H7p0. rewrite Forall_forall in H7'. apply H7' in H7p1.
-    move H0 at bottom. invert H0; [assumption|]. rewrite <- H1 in *.
-    rewrite map.get_put_diff in H7p1; auto. intros ?. subst.
-    Search res. apply Hgoodp1. do 2 eexists. split; [|reflexivity].
-    apply in_flat_map. eexists. split; [eassumption|]. simpl. auto.
-  Qed.
-
-  Lemma hyp_ins_det (r : rule) ctx1 ctx2 R args1 args2 hyps1 hyps2 ahyps1 ahyps2 :
-    goodish_rule r ->
-    rule_impl' ctx1 r (R, args1) hyps1 ahyps1 ->
-    rule_impl' ctx2 r (R, args2) hyps2 ahyps2 ->
-    skipn (outs R) args1 = skipn (outs R) args2 ->
-    Forall2 (fun '(R1, hyp1) '(R2, hyp2) =>
-               R1 = R2 /\ skipn (outs R1) hyp1 = skipn (outs R2) hyp2)
-      hyps1 hyps2.
-  Proof.
-    intros Hgood H1 H2 Hsame. eapply hyp_ins_det' in H1, H2; try assumption.
-    fwd. rewrite H1p0 in *. invert H2p0. simpl in *.
-    apply Forall2_flip in H1p1. eapply Forall2_Forall2_Forall3 in H2p1; [|exact H1p1].
-    apply Forall3_ignore2 in H2p1. eapply Forall2_impl; [eassumption|].
-    simpl. intros [Ra argsa] [Rb argsb] H. fwd. split; [reflexivity|].
-    apply Forall2_flip in Hp1p1. eapply Forall2_Forall2_Forall3 in Hp3; [|exact Hp1p1].
-    apply Forall3_ignore2 in Hp3. apply Forall2_eq_eq.
-    eapply Forall2_impl; [eassumption|]. simpl. intros a b Hab. fwd.
-    rewrite Hsame in *. eapply interp_expr_det; eassumption.
-  Qed.
-
-    (*if we get a message saying concls of r need to be computed, then send out messages
+  (*if we get a message saying concls of r need to be computed, then send out messages
     saying premises of r need to be computed*)
-  (*note: this is nonsensical if length r.(rule_concls) > 1*)
-  Definition request_hyps (r : rule) : rule' :=
-    {| rule_agg := None;
-      rule_hyps := map (fact_relmap plus_false) (map with_only_ins r.(rule_concls));
-      rule_concls := map (fact_relmap plus_false) (map with_only_ins r.(rule_hyps));
-      rule_set_hyps := []
-    |}.
-
-  Definition noop_rule : rule' :=
-    {| rule_agg := None;
-      rule_hyps := [];
-      rule_concls := [];
-      rule_set_hyps := [] |}.
-
-  Definition request_agg_hyps (r : rule) : rule' :=
-    match r.(rule_agg) with
-    | Some (res, aexpr) =>
-        {| rule_agg := None;
-          rule_hyps := map (fact_relmap plus_false) (map with_only_ins r.(rule_concls));
-          rule_concls := map (fact_relmap plus_false) (map with_only_ins aexpr.(agg_hyps));
-          rule_set_hyps := [(var_expr aexpr.(agg_i), aexpr.(agg_s))] |}
-    | None => noop_rule
+  Definition request_rule_hyps (r : rule) : rule' :=
+    match r with
+    | rule.impl concls hyps =>
+        rule.impl
+          (map (clause.map_rel query_rel.query) (map clause.with_only_inputs hyps))
+          (map (clause.map_rel query_rel.query) (map clause.with_only_inputs concls))
+    | rule.agg concl_rel _ hyp_rel =>
+        let shared_vars := seq 1 (query.arity concl_rel - 1) in
+        rule.impl
+          [{| clause.rel := query_rel.query hyp_rel;
+             clause.args := map expr.var (query.inputs hyp_rel (O (*dummy*) :: O (*dummy*) :: shared_vars)) |}]
+          [{| clause.rel := query_rel.query concl_rel;
+             clause.args := map expr.var (query.inputs concl_rel (O :: shared_vars)) |}]
     end.
+
+  Print meta_rule.
+  Definition request_meta_rule_hyps (r : meta_rule) : rule' :=
+    {| rule.concls :=
+        map (clause.map_rel query_rel.query) (map clause.with_only_inputs normal_hyps) ++
+
 
   (*add a hypothesis saying that the conclusion is something we need to compute*)
-  (*note: this is fairly nonsensical (not semantically equivalent) if length r.(rule_concls) > 1*)
   Definition add_hyp (r : rule) : rule' :=
-    {| rule_agg := option_map (fun '(x, y) => (x, agg_expr_relmap plus_true y)) r.(rule_agg);
-      rule_hyps := map (fact_relmap plus_false) (map with_only_ins r.(rule_concls)) ++
-                     map (fact_relmap plus_true) r.(rule_hyps);
-      rule_concls := map (fact_relmap plus_true) r.(rule_concls);
-      rule_set_hyps := r.(rule_set_hyps) |}.
+    match r with
+    | rule.impl concls hyps =>
+        rule.impl
+          (map (clause.map_rel query_rel.response) concls)
+          (map (clause.map_rel query_rel.query) (map clause.with_only_inputs concls) ++
+             map (clause.map_rel query_rel.response) hyps)
+    | rule.agg concl_rel o hyp_rel =>
+        rule.agg (query_rel.response concl_rel) o (query_rel.response hyp_rel)
+    end.
 
   (*semanticallly equivalent if each rule has concl length at most 1*)
-  Definition make_good (p : list rule) : list rule' :=
-    map add_hyp p ++ map request_hyps p ++ map request_agg_hyps p.
-
-  Print goodish_rule.
-  Definition good_index (r : rule) :=
-    match r.(rule_agg) with
-    | None => True
-    | Some (_, aexpr) =>
-        ~In aexpr.(agg_i) (flat_map vars_of_expr (flat_map fact_ins r.(rule_concls))) /\
-          ~In aexpr.(agg_i) (flat_map vars_of_expr (flat_map fact_ins r.(rule_hyps)))
-    end.
-
-  Lemma ahyp_ins_det'1 ctx0 (r : rule) R (args : list T) hyps ahypss :
-    goodish_rule r ->
-    rule_impl' ctx0 r (R, args) hyps ahypss ->
-    exists concl,
-      r.(rule_concls) = [concl] /\
-        match r.(rule_agg) with
-        | None => ahypss = []
-        | Some (_, aexpr) =>
-            let ctx := map.of_list (context_of_args (skipn (outs R) concl.(fact_args)) (skipn (outs R) args)) in
-            exists s',
-              interp_expr ctx aexpr.(agg_s) s' /\
-                Forall2 (fun i' ahyps =>
-                          let ctx' := map.put ctx aexpr.(agg_i) i' in
-                          Forall2 (fun f '(R, hyp_args) =>
-                                     f.(fact_R) = R /\ Forall2 (interp_expr ctx') (skipn (outs R) f.(fact_args)) (skipn (outs R) hyp_args))
-                            aexpr.(agg_hyps) ahyps) (option_default (get_set s') []) ahypss
-        end.
-  Proof.
-    intros Hgood H. invert H. cbv [goodish_rule] in Hgood. fwd.
-    rewrite Hgoodp0 in *. invert_list_stuff. eexists.
-    split; [reflexivity|]. simpl. invert H0. 1: reflexivity.
-    rewrite <- H in *. fwd. invert H6. simpl in *.
-    eexists. split.
-    { eapply interp_expr_agree_on; [eassumption|].
-      apply Forall_forall. intros v Hv. apply Hgoodp5p1 in Hv.
-      invert H4. eapply Forall2_skipn in H8.
-      apply context_of_args_agree_on; auto.
-      eapply Forall2_impl_strong; [|eassumption].
-      intros e e' He Hin _. eapply interp_expr_agree_on; [eassumption|].
-      apply Forall_forall. intros v' Hv'. cbv [agree_on]. apply map.get_put_diff.
-      intros H'. subst. apply Hgoodp1. eexists. eexists. intuition eauto.
-      apply in_flat_map. eauto. }
-    apply Forall3_ignore2 in H5. rewrite H1. simpl.
-    eapply Forall2_impl; [eassumption|].
-    simpl. intros i' ahyps' Hh. fwd.
-    eapply Forall2_impl_strong; [|eassumption].
-    intros f (R'&args'). invert 1. intros Hin1 Hin2. split; [reflexivity|].
-    eapply Forall2_impl_strong. 2: apply Forall2_skipn; eassumption.
-    intros e e' He Hine Hine'. eapply interp_expr_agree_on; [eassumption|].
-    apply Forall_forall. intros v Hv. cbv [agree_on].
-    rewrite <- map.put_putmany_commute. do 2 rewrite map.get_put_dec.
-    destr (var_eqb i v); [reflexivity|].
-    move H4 at bottom. invert H4.
-    move Hgoodp5p2 at bottom. specialize (Hgoodp5p2 v). specialize' Hgoodp5p2.
-    { apply in_flat_map. eexists. intuition eauto. apply in_flat_map. eauto. }
-    destruct Hgoodp5p2 as [Hgoodp5p2|Hgoodp5p2]; [congruence|]. fwd.
-    eapply Forall2_skipn in H8. eapply context_of_args_agree_on in H8.
-    2: { eassumption. }
-    cbv [agree_on] in H8. rewrite map.get_put_diff in H8; cycle 1.
-    { intros H'. subst. apply Hgoodp1. eexists. eexists. intuition eauto.
-      apply in_flat_map. exists (var_expr res). simpl. eauto. }
-    rewrite <- H8. rewrite map.get_putmany_dec. destruct_one_match; auto.
-    exfalso. erewrite map.get_of_list_zip in E0 by eassumption.
-    apply map.zipped_lookup_Some_in in E0. auto.
-  Qed.
-
-  Lemma ahyp_ins_det ctx1 ctx2 (r : rule) R args1 args2 hyps ahypss1 ahypss2 :
-    goodish_rule r ->
-    rule_impl' ctx1 r (R, args1) hyps ahypss1 ->
-    rule_impl' ctx2 r (R, args2) hyps ahypss2 ->
-    skipn (outs R) args1 = skipn (outs R) args2 ->
-    Forall2 (Forall2 (fun '(R1, hyp1) '(R2, hyp2) =>
-                        R1 = R2 /\ skipn (outs R1) hyp1 = skipn (outs R2) hyp2))
-      ahypss1 ahypss2.
-  Proof.
-    intros Hgood H1 H2 Hsame.
-    apply ahyp_ins_det'1 in H1, H2; try assumption.
-    fwd. rewrite H1p0 in *. invert_list_stuff.
-    destruct r.(rule_agg) as [(?&?)|]; simpl in *.
-    2: subst; constructor. invert_list_stuff. rewrite Hsame in *.
-    fwd. eapply interp_expr_det in H1p1p0; [|exact H2p1p0]. subst.
-    apply Forall2_flip in H1p1p1.
-    eapply Forall2_Forall2_Forall3 in H2p1p1; [|exact H1p1p1].
-    clear H1p1p1. apply Forall3_ignore2 in H2p1p1.
-    eapply Forall2_impl; [eassumption|]. simpl. intros l1 l2 H. fwd.
-    apply Forall2_flip in Hp1. eapply Forall2_Forall2_Forall3 in Hp2; [|exact Hp1].
-    clear Hp1. clear H2p1p1. apply Forall3_ignore2 in Hp2.
-    eapply Forall2_impl; [eassumption|]. simpl. intros [? ?] [? ?] H'. fwd.
-    split; [reflexivity|].
-    apply Forall2_flip in H'p1p1.
-    eapply Forall2_Forall2_Forall3 in H'p3; [|exact H'p1p1].
-    clear H'p1p1. clear Hp2. apply Forall3_ignore2 in H'p3. apply Forall2_eq_eq.
-    eapply Forall2_impl; [eassumption|].
-    simpl. intros. fwd. eapply interp_expr_det; eassumption.
-  Qed.
-
-  Lemma agree_functional p :
-    dag (rel_graph p) ->
-    Forall goodish_fun p ->
-    Forall goodish_rule p ->
-    pairs_satisfy (agree p) p ->
-    functional p.
-  Proof.
-    intros H1 Hfun H2 H3. cbv [functional]. intros args1 args2 R. revert args1 args2.
-    specialize (H1 R). induction H1. clear H.
-    intros args1 args2 Hargs1 Hargs2 Hins.
-    invert Hargs1. invert Hargs2.
-    pose proof H as Hrel1. pose proof H4 as Hrel2.
-    apply rel_graph_spec in Hrel1, Hrel2. 
-    cbv [pairs_satisfy] in H3. rewrite Exists_exists in *. fwd.
-    match goal with
-    | H1: _ , H2: _ |- _ => specialize (H3 _ _ H1 H2)
-    end.
-    destruct H3; [|solve[eauto]]. subst. cbv [rule_impl] in *. fwd.
-    pose proof hyp_ins_det as H'. epose proof (H' _ _ _ _ args1 args2) as H'.
-    rewrite Forall_forall in *.
-    specialize (H' _ _ _ _ ltac:(eauto) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
-    assert (hyps'0 = hyps').
-    { apply Forall2_eq_eq. eapply Forall2_impl_strong; [|eassumption].
-      simpl. intros [R1' args1'] [R2' args2'] H12 H1' H2'. fwd. f_equal.
-      eapply H0; eauto.
-      - move Hrel1 at bottom. eapply (Hrel1 (_, _)). apply in_app_iff. eauto.
-      - eapply H1. apply in_app_iff. eauto.
-      - eapply H5. apply in_app_iff. eauto. }
-    subst. clear H'.
-    pose proof ahyp_ins_det as H'. epose proof (H' _ _ _ _ args1 args2) as H'.
-    specialize (H' _ _ _ ltac:(eauto) ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
-    assert (agg_hyps's0 = agg_hyps's).
-    { apply Forall2_eq_eq. eapply Forall2_impl_strong; [|eassumption].
-      simpl. intros xs ys Hxsys Hxs Hys. apply Forall2_eq_eq.
-      eapply Forall2_impl_strong; [|eassumption]. simpl.
-      intros [R1' args1'] [R2' args2'] H12 H1' H2'. fwd. f_equal.
-      eapply H0; eauto.
-      - move Hrel1 at bottom. eapply (Hrel1 (_, _)). apply in_app_iff. rewrite in_concat. eauto.
-      - eapply H1. apply in_app_iff. rewrite in_concat. eauto.
-      - eapply H5. apply in_app_iff. rewrite in_concat. eauto. }
-    subst. clear H'. Print goodish_rule.
-    apply eval_rule_q_complete in Hp1p1, H4p1p1; auto.
-    rewrite Hins in *. rewrite Hp1p1 in H4p1p1. invert_list_stuff.
-    reflexivity.
-  Qed.      
+  Definition make_bottomup (p : list rule) : list rule' :=
+    map add_hyp p ++ map request_hyps p.
 
   Ltac t :=
     repeat match goal with
-      | _ => assumption || contradiction
-      | H: context[In _ (flat_map _ _)] |- _ => rewrite in_flat_map in H
       | H: context[In _ (map _ _)] |- _ => rewrite in_map_iff in H
       | H: context[In _ (_ ++ _)] |- _ => rewrite in_app_iff in H
+      | H: context[In _ (list_prod _ _)] |- _ => rewrite in_prod_iff in H
       | |- In _ (map _ _) => apply in_map_iff
-      | |- In _ (flat_map _ _) => apply in_flat_map
       | |- In _ (_ ++ _) => apply in_app_iff
-      | |- exists _, _ /\ _ => eexists; split; [solve[eauto] |]
-      | |- _ /\ _ => split; [solve[eauto] |]
-      | _ => progress (intros; cbv [rel_graph edges_of_rule add_hyp request_agg_hyps rule_agg_hyps] in *; fwd; subst; simpl in * )
+      | |- In _ (list_prod _ _) => apply in_prod_iff
+      | _ => progress (intros; cbv [edges_of_rule add_hyp request_hyps rule.concl_rels rule.hyp_rels] in *; fwd; subst; simpl in * )
       | _ => progress invert_list_stuff
-      | _ => destruct_one_match_hyp
       | _ => solve[eauto]
-      | H: _ = [_] |- _ => rewrite H in *
       | |- _ \/ False => left
       | H: _ \/ _ |- _ => destruct H
+      | |- exists _, _ => eexists
+      | |- _ /\ _ => split
       end.
 
-  Lemma request_hyps_dag' b1 b2 R1 R2 r :
-    In ((R1, b1), (R2, b2)) (edges_of_rule (request_hyps r)) ->
-    b1 = false /\ b2 = false /\ In (R2, R1) (edges_of_rule r).
-  Proof. t. Qed.
+  Lemma request_hyps_dag' x y r :
+    In (x, y) (edges_of_rule (request_hyps r)) ->
+    exists R1 R2,
+      x = query_rel.query R1 /\ y = query_rel.query R2 /\ In (R2, R1) (edges_of_rule r).
+  Proof. destruct r; t. Qed.
 
-  Lemma request_agg_hyps_dag' b1 b2 R1 R2 r :
-    In ((R1, b1), (R2, b2)) (edges_of_rule (request_agg_hyps r)) ->
-    b1 = false /\ b2 = false /\ In (R2, R1) (edges_of_rule r).
-  Proof. t. Qed.
+  Lemma add_hyp_dag' x y r :
+    (exists R, rule.concl_rels r = [R]) ->
+    In (x, y) (edges_of_rule (add_hyp r)) ->
+    exists R1,
+      x = query_rel.response R1 /\
+        match y with
+        | query_rel.query R2 => R2 = R1
+        | query_rel.response R2 => In (R1, R2) (edges_of_rule r)
+        end.
+  Proof. destruct r as [[|concl [|]] hyps|]; t. Qed.
 
-  Lemma add_hyp_dag' b1 b2 R1 R2 r concl :
-    r.(rule_concls) = [concl] ->
-    In ((R1, b1), (R2, b2)) (edges_of_rule (add_hyp r)) ->
-    b1 = true /\ if b2 then In (R1, R2) (edges_of_rule r) else R2 = R1.
-  Proof. t. Qed.
-
-  Lemma map_add_hyp_dag' b1 b2 R1 R2 p :
-    Forall (fun r => exists concl, r.(rule_concls) = [concl]) p ->
-    In ((R1, b1), (R2, b2)) (rel_graph (map add_hyp p)) ->
-    b1 = true /\ if b2 then In (R1, R2) (rel_graph p) else R2 = R1.
+  Lemma map_add_hyp_dag' x y p :
+    Forall (fun r => exists R, rule.concl_rels r = [R]) p ->
+    In (x, y) (flat_map edges_of_rule (map add_hyp p)) ->
+    exists R1,
+      x = query_rel.response R1 /\
+        match y with
+        | query_rel.query R2 => R2 = R1
+        | query_rel.response R2 => In (R1, R2) (flat_map edges_of_rule p)
+        end.
   Proof.
-    intros H1 H2. apply in_flat_map in H2. fwd. apply in_map_iff in H2p0. fwd.
-    rewrite Forall_forall in H1. specialize (H1 _ H2p0p1). fwd.
-    eapply add_hyp_dag' in H2p1; eauto. fwd. destruct b2; auto. intuition auto.
-    apply in_flat_map. eauto.
+    intros H1 H2. rewrite flat_map_map, in_flat_map in H2. fwd.
+    rewrite Forall_forall in H1. eapply add_hyp_dag' in H2p1; eauto. fwd.
+    eexists. split; [reflexivity|]. destruct y; auto. apply in_flat_map. eauto.
   Qed.
 
   Lemma map_request_hyps_incl p :
     inclusion _
-      (edge_rel (rel_graph (map request_hyps p ++ map request_agg_hyps p)))
-      (fun x y => snd x = false /\ snd y = false /\ edge_rel (rel_graph p) (fst y) (fst x)).
+      (edge_rel (flat_map edges_of_rule (map request_hyps p)))
+      (fun x y => edge_rel (flat_map edges_of_rule p) (query_rel.rel y) (query_rel.rel x)).
   Proof.
-    intros [R1 b1] [R2 b2] H. cbv [edge_rel] in *. rewrite rel_graph_app in H.
-    apply in_app_iff in H. destruct H.
-    - cbv [rel_graph] in H. rewrite flat_map_map in H. rewrite in_flat_map in H.
-      fwd. apply request_hyps_dag' in Hp1. fwd. simpl. intuition auto.
-      cbv [rel_graph]. apply in_flat_map. eauto.
-    - cbv [rel_graph] in H. rewrite flat_map_map in H. rewrite in_flat_map in H.
-      fwd. apply request_agg_hyps_dag' in Hp1. fwd. simpl. intuition auto.
-      cbv [rel_graph]. apply in_flat_map. eauto.
+    intros x y H. cbv [edge_rel] in *. rewrite flat_map_map, in_flat_map in H.
+    fwd. apply request_hyps_dag' in Hp1. fwd. apply in_flat_map. eauto.
   Qed.
 
   Lemma map_request_hyps_dag p :
-    dag (rel_graph p) ->
-    dag (rel_graph (map request_hyps p ++ map request_agg_hyps p)).
+    dag (flat_map edges_of_rule p) ->
+    dag (flat_map edges_of_rule (map request_hyps p)).
   Proof.
     intros H. eapply wf_incl. 1: apply map_request_hyps_incl.
     eapply wf_incl. 2: apply wf_inverse_image; apply dag_dag_alt; eassumption.
-    intros x y Hxy. fwd. eassumption.
+    intros x y Hxy. eassumption.
   Qed.
-  
+
   Lemma map_add_hyp_dag p :
-    Forall (fun r : rule => exists concl : fact, rule_concls r = [concl]) p ->
-    dag (rel_graph p) ->
-    dag (rel_graph (map add_hyp p)).
+    Forall (fun r => exists R, rule.concl_rels r = [R]) p ->
+    dag (flat_map edges_of_rule p) ->
+    dag (flat_map edges_of_rule (map add_hyp p)).
   Proof.
     intros H0 H.
-    intros (R, b). specialize (H R). induction H. constructor. intros (Ry, By) Hy.
-    apply map_add_hyp_dag' in Hy; auto. fwd. destruct By.
-    { apply H1. assumption. }
-    subst. constructor. clear -H0. intros (Ry, By) Hy. apply map_add_hyp_dag' in Hy; auto.
-    fwd. congruence.
+    assert (Hquery : forall R,
+               Acc (edge_rel (flat_map edges_of_rule (map add_hyp p))) (query_rel.query R)).
+    { constructor. intros y Hy. apply map_add_hyp_dag' in Hy; auto. fwd. discriminate. }
+    intros [R|R]; auto.
+    specialize (H R). induction H. constructor. intros [Ry|Ry] Hy; auto.
+    apply map_add_hyp_dag' in Hy; auto. fwd. auto.
   Qed.
 
-  Lemma request_hyps_hyps_false p :
-    Forall (fun '(R, b) => b = false) (map snd (rel_graph (map request_hyps p))).
+  Lemma request_hyps_hyps_query p :
+    Forall (fun y => exists R, y = query_rel.query R)
+      (map snd (flat_map edges_of_rule (map request_hyps p))).
   Proof.
-    apply Forall_map. apply Forall_flat_map. apply Forall_map. apply Forall_forall.
-    intros r _. apply Forall_flat_map. apply Forall_forall. intros f' _.
-    apply Forall_map. apply Forall_app. split.
-    - destruct r. simpl. constructor.
-    - destruct r. simpl. apply Forall_map. apply Forall_map. apply Forall_forall.
-      intros f _. simpl. reflexivity.
+    apply Forall_forall. intros y Hy. apply in_map_iff in Hy. fwd. destruct x as [x y].
+    rewrite flat_map_map, in_flat_map in Hyp1. fwd. apply request_hyps_dag' in Hyp1p1.
+    fwd. simpl. eauto.
   Qed.
 
-  Lemma add_hyps_concls_true p :
-    Forall (fun '(R, b) => b = true) (map fst (rel_graph (map add_hyp p))).
+  Lemma add_hyps_concls_response p :
+    Forall (fun x => exists R, x = query_rel.response R)
+      (map fst (flat_map edges_of_rule (map add_hyp p))).
   Proof.
-    apply Forall_map. apply Forall_flat_map. apply Forall_map. apply Forall_forall.
-    intros r _. apply Forall_flat_map. apply Forall_forall. intros f' Hf'.
-    apply Forall_map. simpl. apply Forall_forall. intros _ _. destruct r. simpl in *.
-    apply in_map_iff in Hf'. fwd. reflexivity.
+    apply Forall_forall. intros x Hx. apply in_map_iff in Hx. fwd. destruct x0 as [x y].
+    rewrite flat_map_map, in_flat_map in Hxp1. fwd. destruct x0; t.
   Qed.
 
-  Lemma make_good_dag p :
-    Forall goodish_rule p ->
-    dag (rel_graph p) ->
-    dag (rel_graph (make_good p)).
+  Lemma make_bottomup_dag p :
+    Forall rule.is_almost_bottomup p ->
+    dag (flat_map edges_of_rule p) ->
+    dag (flat_map edges_of_rule (make_bottomup p)).
   Proof.
-    intros H1 H2. cbv [make_good]. do 2 rewrite rel_graph_app.
+    intros H1 H2. cbv [make_bottomup]. rewrite flat_map_app.
     apply dag_app; cycle 1.
-    { apply map_add_hyp_dag; auto. eapply Forall_impl; [|eassumption].
-      cbv [goodish_rule]. intros. fwd. eauto. }
-    { rewrite <- rel_graph_app. apply map_request_hyps_dag. assumption. }
-    cbv [no_cycles]. eapply Forall_impl; [|apply add_hyps_concls_true].
-    intros (?, ?) H. subst. cbv [not_in_snd]. intros H.
-    rewrite <- rel_graph_app in H. apply in_map_iff in H. fwd. destruct x.
-    apply map_request_hyps_incl in Hp1. simpl in *. fwd. subst. simpl in *. congruence.
+    { apply map_add_hyp_dag; auto. eapply Forall_impl; [exact H1|].
+      intros [[|concl [|]] hyps|] Hr; cbv [rule.is_almost_bottomup] in Hr; simpl; eauto.
+      all: contradiction. }
+    { apply map_request_hyps_dag. assumption. }
+    cbv [no_cycles]. eapply Forall_impl; [apply add_hyps_concls_response|].
+    intros x Hx H.
+    eapply Forall_forall in H; [|apply request_hyps_hyps_query]. simpl in *. fwd. discriminate.
   Qed.
-  
+
   Lemma incl_fact_ins (f : fact) :
     incl (fact_ins f) (fact_args f).
   Proof. apply incl_skipn. Qed.
@@ -542,7 +243,7 @@ Section Transform.
     - invert_list_stuff. eauto.
     - invert_list_stuff. eauto 8.
   Qed.
-  
+
   Lemma add_hyp_good r :
     goodish_rule r ->
     well_founded (depends_on_in_set_hyps (rule_set_hyps r)) ->
@@ -819,7 +520,7 @@ Section Transform.
   Proof.
     destruct ae. cbv [agg_expr_relmap]. simpl. rewrite map_map. reflexivity.
   Qed.
-  
+
   Lemma invert_rule_impl_add_hyp r R b args' hyps' :
     goodish_rule r ->
     rule_impl (add_hyp r) ((R, b), args') hyps' ->
@@ -885,7 +586,7 @@ Section Transform.
            erewrite <- Forall2_map_r. eapply Forall2_impl; [eassumption|]. simpl.
            intros. cbv [fact'_relmap fact_relmap] in H. simpl in H.
            destruct b as [[? ?] ?]; simpl in *. destruct a0. exact H.
-  Qed.      
+  Qed.
 
   Lemma request_hyps_hyps'_false r R b args hyps' :
     rule_impl (request_hyps r) (R, b, args) hyps' ->
@@ -985,7 +686,7 @@ Section Transform.
     Forall goodish_rule p ->
     fp (F p) S ->
     fp (F (map request_hyps p ++ map request_agg_hyps p)) w ->
-    fp (F (make_good p)) (f w S).
+    fp (F (make_bottomup p)) (f w S).
   Proof.
     intros (Wgood1&Wgood2) (Sgood1&Sgood2) H1 H2 HP. pose proof f_fixpoint' as H'.
     rewrite Forall_forall in H1.
@@ -995,10 +696,10 @@ Section Transform.
       destruct Hr' as [Hr'| [Hr'|Hr']]; [subst|subst|contradiction].
       - apply HP. apply in_app_iff. left. apply in_map. assumption.
       - apply HP. apply in_app_iff. right. apply in_map. assumption. }
-    apply split_fixpoint; auto. cbv [make_good]. intros r Hr.
+    apply split_fixpoint; auto. cbv [make_bottomup]. intros r Hr.
     apply in_app_iff in Hr. destruct Hr as [Hr|Hr].
     - apply in_map_iff in Hr. fwd. rewrite <- split_fixpoint in H2 by auto.
-      specialize (H' _ _ _ ltac:(eauto) ltac:(eauto) ltac:(eauto)). 
+      specialize (H' _ _ _ ltac:(eauto) ltac:(eauto) ltac:(eauto)).
       rewrite <- split_fixpoint in H' by auto. simpl in *. intros. apply H'. tauto.
     - apply in_app_iff in Hr. destruct Hr as [Hr|Hr]; apply in_map_iff in Hr; fwd.
       + apply split_fixpoint; auto. rewrite <- split_fixpoint in H2 by auto.
@@ -1020,16 +721,16 @@ Section Transform.
     Forall good_index p ->
     Forall goodish_rule p ->
     S_sane S ->
-    fp (F (make_good p)) S ->
+    fp (F (make_bottomup p)) S ->
     fp (F p) (g S).
   Proof.
     intros Hidx H1 (Sgood1&Sgood2) H2. pose proof g_fixpoint' as H'.
     rewrite Forall_forall in Hidx, H1.
-    apply split_fixpoint; auto. cbv [make_good]. intros r Hr.
+    apply split_fixpoint; auto. cbv [make_bottomup]. intros r Hr.
     apply H'; auto.
     apply split_fixpoint; auto.
     intros r' Hr'. rewrite <- split_fixpoint in H2 by auto.
-    destruct Hr' as [Hr' | [Hr' | [ Hr' | ] ] ]; [| | |exfalso; auto]; subst; apply H2; cbv [make_good]; do 2 rewrite in_app_iff; auto using in_map.
+    destruct Hr' as [Hr' | [Hr' | [ Hr' | ] ] ]; [| | |exfalso; auto]; subst; apply H2; cbv [make_bottomup]; do 2 rewrite in_app_iff; auto using in_map.
   Qed.
 
   Lemma g_mono S1 S2 :
@@ -1050,7 +751,7 @@ Section Transform.
   Lemma lfp_preimage p :
     Forall good_index p ->
     Forall goodish_rule p ->
-    equiv (g (lfp (F (make_good p)))) (lfp (F p)).
+    equiv (g (lfp (F (make_bottomup p)))) (lfp (F p)).
   Proof.
     intros Hidx Hgood. eapply lfp_preimage'.
     - exact g_mono.
@@ -1069,24 +770,24 @@ Section Transform.
 
   Lemma g_ext A B : equiv A B -> equiv (g A) (g B).
   Proof. cbv [equiv g]. intros H [P [R args]]. apply H. Qed.
-      
+
   Lemma phase_correct p :
     Forall good_index p ->
     Forall goodish_rule p ->
-    equiv (fun '(P, f) => prog_impl_implication p P f) (g (fun '(P, f) => prog_impl_implication (make_good p) P f)).
+    equiv (fun '(P, f) => prog_impl_implication p P f) (g (fun '(P, f) => prog_impl_implication (make_bottomup p) P f)).
   Proof.
     intros. eapply equiv_trans.
     { apply prog_impl_fact_lfp. }
     eapply equiv_trans.
     { apply equiv_symm. apply lfp_preimage; assumption. }
     apply equiv_symm. apply g_ext. apply prog_impl_fact_lfp.
-  Qed. 
+  Qed.
 
   Lemma source_impl_target p Q R args :
     Forall good_index p ->
     Forall goodish_rule p ->
     prog_impl_implication p Q (R, args) ->
-    prog_impl_implication (make_good p)
+    prog_impl_implication (make_bottomup p)
       (fun '((R0, b0), args0) => if b0 then Q (R0, args0) else (R0, args0) = (R, skipn (outs R) args))
       ((R, true), args).
   Proof.
@@ -1097,14 +798,14 @@ Section Transform.
   Lemma target_impl_source p R args Q :
     Forall good_index p ->
     Forall goodish_rule p ->
-    prog_impl_implication (make_good p) Q ((R, true), args) ->
+    prog_impl_implication (make_bottomup p) Q ((R, true), args) ->
     prog_impl_implication p (fun '(R, args) => Q ((R, true), args)) (R, args).
   Proof.
     intros Hidx H1 H2. pose proof phase_correct _ Hidx H1 as H3. cbv [equiv] in H3.
     rewrite (H3 (_, _)). clear H3. simpl. remember (R, true, args) as x eqn:E.
     revert R args E. (*TODO factor following out into lemma*)induction H2; intros; subst.
     - apply partial_in. assumption.
-    - eapply partial_step. 1: apply H. cbv [make_good] in H.
+    - eapply partial_step. 1: apply H. cbv [make_bottomup] in H.
       apply Exists_app in H. destruct H as [H|H]; cycle 1.
       { clear -H. exfalso. rewrite Exists_app in H. do 2 rewrite Exists_map in H.
         destruct H as [H|H].
@@ -1121,7 +822,7 @@ Section Transform.
            1: apply H2p1; eauto. intros [[Ry By] argsy]. intros Hy. destruct By.
            - apply partial_in. assumption.
            - clear H2p0. invert Hy. eapply partial_step.
-             { cbv [make_good]. apply Exists_app. right.
+             { cbv [make_bottomup]. apply Exists_app. right.
                eapply rule_impl_request in Hp1p1p2; eauto.
                2: { apply in_map_iff. eexists (_, _, _). eauto. }
                apply Exists_app.

@@ -11,7 +11,6 @@ Import ListNotations.
 
 Section __.
   Context `{params : datalog_params}.
-  Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
 
   (*A short answer to "why is completeness hard":
     R(x * x, x) :- Q(x).
@@ -22,8 +21,6 @@ Section __.
     is valid iff 42nd Turing machine never halts.
    *)
 
-  Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
-  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context (fn_inj : fn -> bool).
 
   (*Note: this can be weakened; we only need injectivity on length-n lists (for each n)*)
@@ -207,9 +204,9 @@ Section __.
                  nconcl_matches)
       mr.(meta_rule.concls).
 
-  Lemma check_meta_rule_against_impl_sound mr nconcls nhyps pat pats nf hyps :
+  Lemma check_meta_rule_against_impl_sound mr nconcls nhyps pat pats nfs nf hyps :
     check_meta_rule_against_impl mr nconcls nhyps = true ->
-    meta_rule.pattern_interp mr pat pats ->
+    meta_rule.pattern_interp mr pat pats nfs ->
     rule.interp (rule.impl nconcls nhyps) nf hyps ->
     fact_pattern.matches pat nf ->
     Forall (fact.covered_by_pats pats) hyps.
@@ -280,9 +277,9 @@ Section __.
     - invert H. exists (v :: vs). simpl. eauto using Forall2_cons.
   Qed.
 
-  Lemma check_meta_rule_against_agg_sound mr concl_rel agg hyp_rel pat pats nf hyps :
+  Lemma check_meta_rule_against_agg_sound mr concl_rel agg hyp_rel pat pats nfs nf hyps :
     check_meta_rule_against_agg mr concl_rel hyp_rel = true ->
-    meta_rule.pattern_interp mr pat pats ->
+    meta_rule.pattern_interp mr pat pats nfs ->
     rule.interp (rule.agg concl_rel agg hyp_rel) nf hyps ->
     fact_pattern.matches pat nf ->
     Forall (fact.covered_by_pats pats) hyps.
@@ -331,7 +328,7 @@ Section __.
     check_meta_rule_against_rule mr nr = true ->
     meta_rule.valid_for mr nr.
   Proof.
-    cbv [meta_rule.valid_for]. intros H pat pats nf hyps Hpat Hn Hmatch.
+    cbv [meta_rule.valid_for]. intros H pat pats nfs nf hyps Hpat Hn Hmatch.
     destruct nr; simpl in H.
     - eapply check_meta_rule_against_impl_sound; eassumption.
     - eapply check_meta_rule_against_agg_sound; eassumption.

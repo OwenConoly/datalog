@@ -13,6 +13,8 @@ Module blocks_prog.
       | block_rel.input r => r.(result.done) pat.(fact_pattern.args)
       end.
 
+    (*TODO having normal facts and meta facts separate seemed like a good idea when they were really independent,
+      but now they are not, and maybe the `result` type is not a good idea anymore?  not sure. *)
     Fixpoint simple_interp (p : blocks_prog result) :=
       match p with
       | LetIn x f => simple_interp (f (simple_interp x))
@@ -22,7 +24,13 @@ Module blocks_prog.
                 program.interp p inp_holds (fact.normal {| normal_fact.rel := block_rel.local ret; normal_fact.args := nf_args |});
             result.done :=
               fun mf_args =>
-                pftree (fun c hs => Exists (fun mr => meta_rule.pattern_interp mr c hs) p.(program.meta_rules))
+                pftree
+                  (fun c hs =>
+                     Exists (fun mr =>
+                               exists nfs,
+                                 meta_rule.pattern_interp mr c hs nfs /\
+                                   Forall (fun nf => program.interp p inp_holds (fact.normal nf)) nfs)
+                       p.(program.meta_rules))
                   inp_pat_holds
                   {| fact_pattern.rel := block_rel.local ret; fact_pattern.args := mf_args |}
           |}

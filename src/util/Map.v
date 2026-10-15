@@ -856,6 +856,13 @@ Section Map.
     - intros k v m0 r1 r2 _ IH. cbn [List.map fst]. rewrite IH. reflexivity.
   Qed.
 
+  Lemma values_eq_map_keys `{WithDefault value} m :
+    values m = map (get_or_default m) (map.keys m).
+  Proof.
+    rewrite values_eq_tuples, keys_eq_tuples, map_map. apply map_ext_in. intros [k v] Hin.
+    symmetry. apply get_or_default_Some, map.tuples_spec. exact Hin.
+  Qed.
+
   Lemma Forall2_map_map_values'_r {value1} {mp1 : map.map key value1}
       (R' : key -> value1 -> value' -> Prop)
       (g : key -> value -> value') (m1 : mp1) (m2 : mp) :
@@ -1093,6 +1100,15 @@ Proof.
   intros H. apply in_of_list_Some_strong in H. fwd. eauto.
 Qed.
 
+Lemma agree_on_of_list (m : mp) kvs k :
+  Forall (fun '(k', v) => map.get m k' = Some v) kvs ->
+  In k (map fst kvs) ->
+  agree_on m (map.of_list kvs) k.
+Proof.
+  intros Hkvs Hk. apply in_of_list_Some_strong in Hk. fwd. cbv [agree_on].
+  rewrite Hkp0. rewrite Forall_forall in Hkvs. apply (Hkvs (k, v)). assumption.
+Qed.
+
 Lemma putmany_extends_idk (m1 m2 m2' : mp) :
   map.extends (map.putmany m1 m2) m2' ->
   map.extends m2' m2 ->
@@ -1138,7 +1154,7 @@ Proof.
     + intros k v m0 r Hnone IH Hr. apply Bool.andb_false_iff in Hr.
       destruct Hr as [Hr|Hr].
       * specialize (IH Hr). destruct IH as (k0 & v0 & Hget & Hf).
-        exists k0, v0. rewrite map.get_put_dec. destr (eqb k k0); [congruence|auto].
+        exists k0, v0. rewrite map.get_put_dec. rewrite_false (eqb k k0) by congruence. auto.
       * exists k, v. rewrite map.get_put_same. auto.
 Qed.
 

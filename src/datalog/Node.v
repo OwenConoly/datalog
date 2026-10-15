@@ -1,6 +1,6 @@
 From Stdlib Require Import List Lia Permutation Classical_Prop RelationClasses.
-From Datalog Require Import List Datalog Smallstep Tactics Graph.
-From coqutil Require Import Map.Interface.
+From Datalog Require Import List Datalog Smallstep Tactics Graph Decidable.
+From coqutil Require Import Map.Interface Eqb.
 From coqutil Require Import Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
 Import ListNotations.
 
@@ -39,11 +39,19 @@ Module message.
       | done_with _ _ _ => false
       end.
 
-    Definition normal_facts (f : message) : list normal_fact :=
+    Definition as_normal (f : message) : option normal_fact :=
       match f with
-      | normal nf => [nf]
-      | done_with _ _ _ => []
+      | normal nf => Some nf
+      | done_with _ _ _ => None
       end.
+
+    Lemma in_filter_map_as_normal nf l :
+      In nf (filter_map as_normal l) <-> In (normal nf) l.
+    Proof.
+      rewrite in_filter_map. split.
+      - intros ([nf' | ] & Hin & Hnf); simpl in Hnf; congruence.
+      - intros Hin. eexists. split; [exact Hin|]. reflexivity.
+    Qed.
 
     Definition rel (f : message) : rel :=
       match f with
@@ -56,6 +64,22 @@ Module message.
       | normal nf => fact_pattern.matches pat nf
       | done_with _ _ _ => False
       end.
+
+    Definition matchesb (pat : fact_pattern) (f : message) :=
+      match f with
+      | normal nf => fact_pattern.matchesb pat nf
+      | done_with _ _ _ => false
+      end.
+
+    #[global] Instance matchesb_spec pat f :
+      Reflects (matches pat f) (matchesb pat f).
+    Proof. destruct f; cbn [matches matchesb]; [exact _ | constructor; auto]. Qed.
+
+    Lemma Existsn_matches_filter_map_as_normal pat n l :
+      Existsn (matches pat) n l <-> Existsn (fact_pattern.matches pat) n (filter_map as_normal l).
+    Proof.
+      apply Existsn_filter_map. intros [nf | ]; simpl; split; intros; fwd; (eauto || contradiction || discriminate).
+    Qed.
 
     Definition equiv (f1 f2 : message) :=
       match f1, f2 with
@@ -83,9 +107,13 @@ Module state.
   Section __.
     Context `{params : datalog_params} {sender_label : sender_labelT}.
 
-    Record state :=
+    Record state := mk
       { known : list message;
         sent : list message }.
+
+    Definition add_to_known inps s :=
+      {| known := inps ++ s.(known);
+        sent := s.(sent) |}.
   End __.
 End state. Abbreviation state := state.state.
 
@@ -96,15 +124,15 @@ Section __.
   Definition knows_normal_fact (known : list message) (nf : normal_fact) :=
     In (message.normal nf) known.
 
-  Definition expects_num_facts (known : list message) (pat : fact_pattern) num :=
+  Definition expects_num_facts (senders : list sender_label) (pat : fact_pattern) (known : list message) num :=
     exists expected_msgss,
       Forall2 (fun n expected_msgs => In (message.done_with pat n expected_msgs) known)
-        (R_senders pat.(fact_pattern.rel)) expected_msgss /\
+        senders expected_msgss /\
         num = list_sum expected_msgss.
 
   Definition knows_meta_fact (known : list message) (mf : meta_fact) :=
     exists num,
-      expects_num_facts known mf.(meta_fact.pattern) num /\
+      expects_num_facts (R_senders (meta_fact.rel mf)) mf.(meta_fact.pattern) known num /\
         Existsn (message.matches mf.(meta_fact.pattern)) num known /\
         meta_fact.consistent_with mf (knows_normal_fact known).
 
@@ -120,12 +148,10 @@ Section __.
         Forall (knows_fact known) hyps.
 
   Definition can_deduce_pattern (mr : meta_rule) (known : list message) (pat : fact_pattern) :=
-    exists mhyps,
-      meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
-        Forall (knows_meta_fact known) mhyps.
-
-  Definition sends_concl_rels (nm : sender_label) (p : program) :=
-    forall R, In R (program.concl_rels p) -> In nm (R_senders R).
+    exists mhyps nhyps,
+      meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) nhyps /\
+        Forall (knows_meta_fact known) mhyps /\
+        Forall (knows_normal_fact known) nhyps.
 
   Context (p : program) (name : sender_label).
 
@@ -179,7 +205,7 @@ Section __.
       exists cnt, In (message.done_with pat src cnt) l.
 
   Definition consistent (pat : fact_pattern) (known : list message) : Prop :=
-    exists num, expects_num_facts known pat num /\
+    exists num, expects_num_facts (R_senders pat.(fact_pattern.rel)) pat known num /\
              Existsn_ge (message.matches pat) num known.
 
   Definition nle (s1 s2 : state) :=
@@ -223,7 +249,7 @@ Section __.
   Lemma submultiset_rest_no_matches pat small rest big num :
     Permutation big (small ++ rest) ->
     allowed_inputs big ->
-    expects_num_facts small pat num ->
+    expects_num_facts (R_senders pat.(fact_pattern.rel)) pat small num ->
     Existsn (message.matches pat) num small ->
     Forall (fun x => ~ message.matches pat x) rest.
   Proof.
@@ -239,6 +265,19 @@ Section __.
     pose proof (Existsn_ge_of_Existsn _ _ _ Hex num (le_n num)) as Hge_small.
     pose proof (Existsn_ge_app _ _ _ _ _ Hge_small (Existsn_ge_1 _ _ _ Hx Hmatch)) as Hge_app.
     pose proof (Existsn_ge_le_bound _ _ _ _ Hge_app Hle). lia.
+  Qed.
+
+  Lemma knows_fact_perm l1 l2 f :
+    knows_fact l1 f -> Permutation l1 l2 -> knows_fact l2 f.
+  Proof.
+    intros Hk Hperm. destruct f as [nf | mf]; cbv [knows_fact knows_normal_fact] in *.
+    - eapply Permutation_in; eassumption.
+    - destruct Hk as (num & (msgss & Hdone & ->) & Hcnt & Hcons). exists (list_sum msgss). ssplit.
+      + exists msgss. split; [| reflexivity].
+        eapply Forall2_impl; [exact Hdone|]. intros. eapply Permutation_in; eassumption.
+      + eapply Existsn_perm; eassumption.
+      + eapply meta_fact.consistent_with_ext; [exact Hcons|]. intros nf _.
+        split; apply Permutation_in; auto using Permutation_sym.
   Qed.
 
   Lemma knows_fact_submultiset l1 l2 h :
@@ -292,7 +331,7 @@ Section __.
       apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
       exfalso. apply (Hrest_no _ Hinr). exact Hcov.
     - destruct Hknow_big as (num_new & Hexp_new & Hex_new & Hiff_new).
-      rewrite Hcov in Hexp_h, Hex_h, Hrest_no.
+      cbv [meta_fact.rel] in Hexp_h. rewrite Hcov in Hexp_h, Hex_h, Hrest_no.
       exists num_h. split; [exact Hexp_h | split; [exact Hex_h |]].
       intros nf Hm. specialize (Hiff_new nf Hm). split.
       + intro Hset. apply Hiff_new in Hset.
@@ -328,17 +367,20 @@ Section __.
           right. apply (Hsat r nf Hr Hcdn Hm).
     - specialize (Hok _ _ Hin). destruct Hok as (_ & Hexmr & Hexn & Hsat).
       ssplit; [reflexivity | | exact Hexn |].
-      + eapply Exists_impl; [|exact Hexmr]. simpl. intros mr (mhyps & Hpi & Hkn).
-        exists mhyps. split; [exact Hpi|].
-        eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
-        exact (knows_fact_submultiset _ _ (fact.meta mh)
-                 (submultiset_cons _ _) Hallow Hmh).
+      + eapply Exists_impl; [|exact Hexmr]. simpl. intros mr (mhyps & nhyps & Hpi & Hkn & Hknn).
+        exists mhyps, nhyps. ssplit; [exact Hpi| |].
+        * eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
+          exact (knows_fact_submultiset _ _ (fact.meta mh)
+                   (submultiset_cons _ _) Hallow Hmh).
+        * eapply Forall_impl; [exact Hknn|]. simpl. intros nh Hnh.
+          exact (knows_fact_submultiset _ _ (fact.normal nh)
+                   (submultiset_cons _ _) Hallow Hnh).
       + intros r nf Hr Hcdn Hm. cbn [state.known state.sent] in Hcdn |- *.
-        apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr & mhyps & Hpi & Hkn).
+        apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr & mhyps & nhyps & Hpi & Hkn & _).
         destruct Hcdn as (hyps & Hri & Hkh).
         apply (Hsat r nf Hr); [| exact Hm].
         exists hyps. split; [exact Hri |].
-        pose proof (Hmrv _ _ Hmr Hr _ _ _ _ Hpi Hri Hm) as Hcov.
+        pose proof (Hmrv _ _ Hmr Hr _ _ _ _ _ Hpi Hri Hm) as Hcov.
         rewrite Forall_forall in Hkh, Hcov |- *. intros h Hh.
         eapply knows_fact_transfer_down_sub;
           [ apply submultiset_cons | exact Hallow | exact Hkn | eauto | eauto ].
@@ -427,10 +469,19 @@ Section __.
       + discriminate Hinp.
   Qed.
 
-  Lemma expects_num_facts_incl pat l1 l2 num :
-    expects_num_facts l1 pat num -> incl l1 l2 ->
-    expects_num_facts l2 pat num.
+  Lemma expects_num_facts_incl senders pat l1 l2 num :
+    expects_num_facts senders pat l1 num -> incl l1 l2 ->
+    expects_num_facts senders pat l2 num.
   Proof. cbv [expects_num_facts]. intros. fwd. eauto using Forall2_impl. Qed.
+
+  Lemma expects_num_facts_cons_normal senders pat nf known num :
+    expects_num_facts senders pat (message.normal nf :: known) num <->
+      expects_num_facts senders pat known num.
+  Proof.
+    cbv [expects_num_facts].
+    split; intros (nums & HF & ->); exists nums; (split; [| reflexivity]);
+      (eapply Forall2_impl; [exact HF|]); simpl; intros; intuition congruence.
+  Qed.
 
   #[local] Hint Resolve expects_num_facts_incl Existsn_ge_submultiset
     Existsn_le_submultiset submultiset_incl incl_def : core.
@@ -544,7 +595,7 @@ Section __.
       apply (proj1 (Hiff_s nf Hcov)). apply (proj2 (Hiff_b nf Hcov)). exact Hknow_big.
     - destruct Hhyps as (num_s & Hexp_s & Hex_s & Hiff_s).
       destruct Hknow_big as (_ & _ & _ & Hiff_b). destruct Hkb as (_ & _ & _ & Hiff_b').
-      rewrite Hcov in Hexp_s, Hex_s.
+      cbv [meta_fact.rel] in Hexp_s. rewrite Hcov in Hexp_s, Hex_s.
       exists num_s. split; [ exact Hexp_s | split; [ exact Hex_s | ] ].
       intros nf Hm.
       assert (Hm' : fact_pattern.matches mh.(meta_fact.pattern) nf)
@@ -628,16 +679,19 @@ Section __.
       + apply deduce_step. cbn [can_deduce]. ssplit.
         * reflexivity.
         * eapply Exists_impl; [|exact Hexmr]. simpl.
-          intros mr (mhyps & Hpi & Hkn). exists mhyps. split; [exact Hpi|].
-          eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
-          apply (Hki_dem (fact.meta mh)). exact Hmh.
+          intros mr (mhyps & nhyps & Hpi & Hkn & Hknn). exists mhyps, nhyps. ssplit; [exact Hpi| |].
+          -- eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
+             apply (Hki_dem (fact.meta mh)). exact Hmh.
+          -- eapply Forall_impl; [exact Hknn|]. simpl. intros nh Hnh.
+             apply (Hki_dem (fact.normal nh)). exact Hnh.
         * exact Hexn_d.
         * intros r'' nf Hr''_in Hcdn_dem Hmatch'.
-          apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr_in & mhyps & Hpi & Hkn).
+          apply Exists_exists in Hexmr.
+          destruct Hexmr as (mr & Hmr_in & mhyps & nhyps & Hpi & Hkn & _).
           assert (Hcdn_s1 : can_deduce_normal_fact r'' s1.(state.known) nf).
           { destruct Hcdn_dem as (local_hyps & Hri & Hknown_new).
             exists local_hyps. split; [exact Hri |].
-            pose proof (Hmrv _ _ Hmr_in Hr''_in _ _ _ _ Hpi Hri Hmatch') as Hcov.
+            pose proof (Hmrv _ _ Hmr_in Hr''_in _ _ _ _ _ Hpi Hri Hmatch') as Hcov.
             rewrite Forall_forall in Hknown_new, Hcov |- *.
             intros h Hh. eapply knows_fact_transfer_down;
               [ exact Hki_dem | exact Hkn | eauto | eauto ]. }
@@ -703,32 +757,27 @@ Section __.
       + exact (IH _ _ Hin).
   Qed.
 
-  Lemma can_deduce_concl_rel ns m :
-    can_deduce ns m -> In (message.rel m) (program.concl_rels p).
+  Lemma can_deduce_normal_concl_rel ns nf :
+    can_deduce ns (message.normal nf) -> In nf.(normal_fact.rel) (program.normal_concl_rels p).
   Proof.
-    destruct m as [nf | pat src num]; cbn [can_deduce message.rel].
-    - intros (Hex & _). apply Exists_exists in Hex.
-      destruct Hex as (r & Hr & hyps & Hri & _).
-      eapply program.rule_concl_rel_in; eauto using rule.interp_concl_relname_in.
-    - intros (_ & Hex & _). apply Exists_exists in Hex.
-      destruct Hex as (mr & Hmr & mhyps & Hpi & _).
-      eapply program.meta_rule_concl_rel_in;
-        eauto using meta_rule.pattern_interp_concl_relname_in.
+    cbn [can_deduce]. intros (Hex & _). apply Exists_exists in Hex.
+    destruct Hex as (r & Hr & hyps & Hri & _).
+    eapply program.rule_normal_concl_rel_in; eauto using rule.interp_concl_relname_in.
   Qed.
 
   Lemma sent_rel_sender t s :
-    (forall s0 f, can_deduce s0 f -> In name (R_senders (message.rel f))) ->
+    (forall s0 nf, can_deduce s0 (message.normal nf) -> In name (R_senders nf.(normal_fact.rel))) ->
     star step init t s ->
-    forall f, In f s.(state.sent) -> In name (R_senders (message.rel f)).
+    forall nf, In (message.normal nf) s.(state.sent) -> In name (R_senders nf.(normal_fact.rel)).
   Proof.
     intros Hsend Hstar.
-    induction Hstar as [| t0 s' e s'' Hstar IH Hstep]; intros f Hin.
+    induction Hstar as [| t0 s' e s'' Hstar IH Hstep]; intros nf Hin.
     - destruct Hin.
     - invert Hstep; cbn [state.sent] in Hin.
       + destruct Hin as [Hhead | Hin_old].
-        * subst output. exact (Hsend s' f H).
-        * exact (IH f Hin_old).
-      + exact (IH f Hin).
+        * subst output. exact (Hsend s' nf H).
+        * exact (IH nf Hin_old).
+      + exact (IH nf Hin).
   Qed.
 
   Lemma reachable_good t s :
@@ -875,6 +924,5 @@ Section __.
     - symmetry. exact Ho'_eq.
     - erewrite <- sent_eq_outputs by eassumption. eassumption.
   Qed.
-
 End __.
 End node.

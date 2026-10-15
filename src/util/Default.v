@@ -20,6 +20,7 @@ Arguments WithDefault : clear implicits.
 #[export] Instance option_default {A} : WithDefault (option A) := None.
 #[export] Instance list_default {A} : WithDefault (list A) := nil.
 #[export] Instance nat_default : WithDefault nat := 0.
+#[export] Instance bool_default : WithDefault bool := false.
 
 From coqutil Require Import Map.Interface.
 #[export] Instance map_default {key value} {mp : map.map key value} : WithDefault mp := map.empty.

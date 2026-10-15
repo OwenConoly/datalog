@@ -62,6 +62,7 @@ Qed.
 Import ListNotations.
 
 #[export] Existing Instance Permutation_app'.
+#[export] Existing Instance Permutation_cons.
 
 Lemma filter_comm {A} (p q : A -> bool) (l : list A) :
   filter p (filter q l) = filter q (filter p l).
@@ -233,12 +234,21 @@ Section subset.
   Definition inclb (l1 l2 : list A) :=
     forallb (fun x => inb x l2) l1.
 
+  #[global] Typeclasses Opaque inclb.
+
   Lemma inclb_incl l1 l2 :
     inclb l1 l2 = true <-> incl l1 l2.
   Proof.
     cbv [inclb]. rewrite forallb_forall. split.
     - intros H a Ha. apply H in Ha. apply inb_true_iff in Ha. exact Ha.
     - intros H x Hx. apply inb_true_iff. apply H. exact Hx.
+  Qed.
+
+  #[global] Instance inclb_spec l1 l2 : BoolSpec (incl l1 l2) (~ incl l1 l2) (inclb l1 l2).
+  Proof.
+    destruct (inclb l1 l2) eqn:E; constructor.
+    - apply inclb_incl. exact E.
+    - intros Hincl. apply inclb_incl in Hincl. congruence.
   Qed.
 
   Lemma incl_app_app (x1 : list A) y1 x2 y2 :
@@ -413,6 +423,17 @@ Section Forall.
       + destruct l1; inversion Hl1. subst. constructor; auto.
   Qed.
 
+  Lemma Forall2_flat_map_inv_l R (f : A -> list B) (l1 : list A) (l2 : list C) :
+    Forall2 R (flat_map f l1) l2 ->
+    exists l2s, concat l2s = l2 /\ Forall2 (fun x zs => Forall2 R (f x) zs) l1 l2s.
+  Proof.
+    revert l2. induction l1 as [| x l1 IH]; simpl; intros l2 H.
+    - invert H. exists []. split; [reflexivity | constructor].
+    - apply Forall2_app_inv_l in H. destruct H as (ys & l2' & Hx & Hrest & ->).
+      apply IH in Hrest. destruct Hrest as (l2s & <- & Hl2s).
+      exists (ys :: l2s). split; [reflexivity | constructor; assumption].
+  Qed.
+
   Lemma Forall2_flip_iff R (l1 : list A) (l2 : list B) :
     Forall2 (fun x y => R y x) l2 l1 <->
       Forall2 R l1 l2.
@@ -530,6 +551,23 @@ Proof. induction 1; simpl; [reflexivity | subst; assumption]. Qed.
 Lemma Permutation_list_sum l1 l2 : Permutation l1 l2 -> list_sum l1 = list_sum l2.
 Proof. induction 1; rewrite ?list_sum_cons; lia. Qed.
 
+Lemma list_sum_concat (ls : list (list nat)) :
+  list_sum (concat ls) = list_sum (map list_sum ls).
+Proof. induction ls; simpl; [reflexivity | rewrite list_sum_app; congruence]. Qed.
+
+Lemma NoDup_incl_Permutation {A} (sub sup : list A) :
+  NoDup sub -> incl sub sup -> exists rest, Permutation sup (sub ++ rest).
+Proof.
+  revert sup. induction sub as [| a sub IH]; intros sup Hnd Hincl.
+  - exists sup. reflexivity.
+  - invert Hnd. apply incl_cons_inv in Hincl. destruct Hincl as (Hin & Hincl).
+    apply in_split in Hin. destruct Hin as (l1 & l2 & ->).
+    edestruct (IH (l1 ++ l2)) as (rest & Hperm); [assumption | |].
+    { intros x Hx. apply in_or_app. specialize (Hincl x Hx). apply in_app_or in Hincl.
+      destruct Hincl as [? | [-> | ?]]; [auto | contradiction | auto]. }
+    exists rest. rewrite <- Permutation_middle. simpl. apply perm_skip. exact Hperm.
+Qed.
+
 Lemma Forall2_repeat_r {A B} (R : A -> B -> Prop) (l : list A) (y : B) :
   Forall (fun x => R x y) l -> Forall2 R l (repeat y (length l)).
 Proof.
@@ -616,8 +654,7 @@ Section SenderCount.
     rewrite (list_sum_map_filter_zero f (fun k => inb k sub) sup).
     - apply Permutation_list_sum, Permutation_map, Permutation_filter_mem; assumption.
     - intros x _ Hg. apply Hz. intros Hin.
-      assert (inb x sub = true) by (apply inb_true_iff; exact Hin).
-      congruence.
+      rewrite_true (inb _ _) in Hg by exact Hin. discriminate.
   Qed.
 End SenderCount.
 
@@ -762,6 +799,57 @@ Section search.
   Qed.
 End search.
 
+Section fun_of_pairs.
+  Context {A B : Type}.
+  Context {eqb : Eqb A} {eqb_ok : Eqb_ok eqb}.
+
+  Fixpoint fun_of_pairs (d : B) (ps : list (A * B)) (x : A) : B :=
+    match ps with
+    | [] => d
+    | (k, v) :: ps => if eqb k x then v else fun_of_pairs d ps x
+    end.
+
+  Lemma fun_of_pairs_off d ps x :
+    ~ In x (map fst ps) -> fun_of_pairs d ps x = d.
+  Proof.
+    induction ps as [| [k v] ps]; simpl; intros; [reflexivity|].
+    destr (eqb k x); subst; intuition.
+  Qed.
+
+  Lemma fun_of_pairs_In d ps k v :
+    NoDup (map fst ps) -> In (k, v) ps -> fun_of_pairs d ps k = v.
+  Proof.
+    induction ps as [| [k' v'] ps]; simpl; intros Hnd Hin; [contradiction|].
+    invert Hnd. destr (eqb k' k); subst.
+    - destruct Hin as [Hin | Hin]; [congruence|].
+      exfalso. apply (in_map fst) in Hin. simpl in Hin. contradiction.
+    - destruct Hin as [Hin | Hin]; [congruence | auto].
+  Qed.
+
+  Definition fun_of_lists (d : B) (ks : list A) (vs : list B) : A -> B :=
+    fun_of_pairs d (combine ks vs).
+
+  Lemma fun_of_lists_off d ks vs x :
+    ~ In x ks -> fun_of_lists d ks vs x = d.
+  Proof.
+    intros Hx. apply fun_of_pairs_off. intros Hin. apply Hx.
+    apply in_map_iff in Hin. destruct Hin as ([k v] & Heq & Hin). simpl in Heq. subst.
+    eauto using in_combine_l.
+  Qed.
+
+  Lemma fun_of_lists_In d ks vs k v :
+    NoDup ks -> length ks = length vs -> In (k, v) (combine ks vs) -> fun_of_lists d ks vs k = v.
+  Proof. intros. apply fun_of_pairs_In; [rewrite map_fst_combine |]; assumption. Qed.
+
+  Lemma map_fun_of_lists d ks vs :
+    NoDup ks -> length ks = length vs -> map (fun_of_lists d ks vs) ks = vs.
+  Proof.
+    intros Hnd Hlen. transitivity (map id vs); [| apply map_id]. apply Forall2_map_eq.
+    apply Forall_combine_Forall2 with (R := fun '(k, v) => fun_of_lists d ks vs k = id v); [| exact Hlen].
+    apply Forall_forall. intros [k v] Hin. apply fun_of_lists_In; assumption.
+  Qed.
+End fun_of_pairs.
+
 Lemma Forall2_map_r {A B C} R (f : B -> C) (l1 : list A) (l2 : list B) :
   Forall2 (fun x y => R x (f y)) l1 l2 <->
     Forall2 R l1 (map f l2).
@@ -786,6 +874,64 @@ Lemma Forall2_option_all X (xs : list (option X)) xs' :
 Proof.
   intros H. induction H; simpl; eauto.
   repeat (destruct_one_match; try congruence).
+Qed.
+
+Fixpoint filter_map {A B} (f : A -> option B) (l : list A) : list B :=
+  match l with
+  | [] => []
+  | x :: l =>
+      match f x with
+      | Some y => y :: filter_map f l
+      | None => filter_map f l
+      end
+  end.
+
+Lemma in_filter_map {A B} (f : A -> option B) l y :
+  In y (filter_map f l) <-> exists x, In x l /\ f x = Some y.
+Proof.
+  induction l as [| x l]; simpl.
+  - split; [intros [] | intros (? & [] & _)].
+  - destruct (f x) eqn:E; simpl; rewrite IHl; split.
+    + intros [-> | (x' & Hx' & Hf)]; eauto.
+    + intros (x' & [-> | Hx'] & Hf); [left; congruence | right; eauto].
+    + intros (x' & Hx' & Hf). eauto.
+    + intros (x' & [-> | Hx'] & Hf); [congruence | eauto].
+Qed.
+
+Lemma NoDup_filter_map {A B} (f : A -> option B) l :
+  NoDup l ->
+  (forall x x' y, In x l -> In x' l -> f x = Some y -> f x' = Some y -> x = x') ->
+  NoDup (filter_map f l).
+Proof.
+  induction 1 as [| x l Hx Hnd IH]; simpl; intros Hinj; [constructor|].
+  destruct (f x) eqn:E; [constructor|]; eauto using in_cons.
+  intros Hin. apply in_filter_map in Hin. destruct Hin as (x' & Hx' & Hf).
+  apply Hx. rewrite (Hinj x x' b); auto using in_eq, in_cons.
+Qed.
+
+Lemma flat_map_filter_map {A B C} (f : B -> list C) (g : A -> option B) l :
+  flat_map f (filter_map g l) =
+    flat_map (fun x => match g x with Some y => f y | None => [] end) l.
+Proof.
+  induction l as [| x l]; simpl; [reflexivity|].
+  destruct (g x); simpl; congruence.
+Qed.
+
+#[export] Instance Permutation_filter_map {A B} (g : A -> option B) :
+  Proper (Permutation (A:=A) ==> Permutation (A:=B)) (filter_map g).
+Proof.
+  intros l l' Hperm. induction Hperm; simpl.
+  - reflexivity.
+  - destruct (g x); [apply perm_skip |]; assumption.
+  - destruct (g x), (g y); simpl; try apply perm_swap; reflexivity.
+  - etransitivity; eassumption.
+Qed.
+
+Lemma NoDup_flat_map_in {A B} (f : A -> list B) l a :
+  NoDup (flat_map f l) -> In a l -> NoDup (f a).
+Proof.
+  intros Hnd Hin. apply in_split in Hin. fwd. rewrite flat_map_app in Hnd. simpl in Hnd.
+  eauto using NoDup_app_remove_l, NoDup_app_remove_r.
 Qed.
 
 Definition partial_injective {A B} (f : A -> option B) : Prop :=
@@ -830,6 +976,14 @@ Fixpoint combine3 {A B C} (la : list A) (lb : list B) (lc : list C) : list (A * 
   | a :: la', b :: lb', c :: lc' => (a, b, c) :: combine3 la' lb' lc'
   | _, _, _ => []
   end.
+
+Fixpoint picks {A} (l : list A) : list (A * list A) :=
+  match l with
+  | [] => []
+  | x :: l' => (x, l') :: map (fun '(y, rest) => (y, x :: rest)) (picks l')
+  end.
+
+Definition option_to_list {X} (x : option X) := match x with | None => [] | Some x' => [x'] end.
 
 (*copied from https://velus.inria.fr/emsoft2021/html/Velus.Common.CommonList.html*)
 Section Forall3.
@@ -1203,6 +1357,11 @@ Section Existsn.
     - eauto.
   Qed.
 
+  Lemma Existsn_flat_map {A} (f : A -> list T) xs cs :
+    Forall2 (fun x c => Existsn c (f x)) xs cs ->
+    Existsn (list_sum cs) (flat_map f xs).
+  Proof. induction 1; simpl; [constructor | apply Existsn_app; assumption]. Qed.
+
   Lemma Existsn_0_Forall_not l :
     Existsn 0 l ->
     Forall (fun x => ~P x) l.
@@ -1229,6 +1388,14 @@ Section Existsn.
     - destruct IH as (n & Hn). destruct (classic (P x)).
       + exists (S n). apply Existsn_yes; assumption.
       + exists n. apply Existsn_no; assumption.
+  Qed.
+
+  Lemma Existsn_length_filter (f : T -> bool) l :
+    (forall x, Reflects (P x) (f x)) ->
+    Existsn (length (filter f l)) l.
+  Proof.
+    intros Hf. induction l as [| x l IH]; simpl; [constructor|].
+    destruct (Hf x); simpl; auto.
   Qed.
 
   Inductive Existsn_ge : nat -> list T -> Prop :=
@@ -1317,6 +1484,20 @@ Section Existsn.
 
   Lemma Existsn_le_0_Forall_not l : Forall (fun x => ~ P x) l -> Existsn_le 0 l.
   Proof. induction 1; [ apply El_nil | apply El_skip; assumption ]. Qed.
+
+  Lemma Existsn_filter (q : T -> bool) n l :
+    (forall x, P x -> q x = true) ->
+    Existsn n (filter q l) <-> Existsn n l.
+  Proof.
+    intros Hq. revert n. induction l as [| x l IH]; intros n; simpl; [reflexivity|].
+    destruct (q x) eqn:E.
+    - split; intros H; invert H; [apply Existsn_no | apply Existsn_yes | apply Existsn_no | apply Existsn_yes];
+        try apply IH; assumption.
+    - assert (Hnp : ~ P x) by (intros HP; rewrite Hq in E by assumption; discriminate).
+      split; intros H.
+      + apply Existsn_no; [assumption | apply IH; assumption].
+      + apply IH. eapply Existsn_cons_no; eassumption.
+  Qed.
 
   Lemma Existsn_le_filter (q : T -> bool) k l :
     Existsn_le k l -> Existsn_le k (filter q l).
@@ -1436,6 +1617,30 @@ Section Existsn.
     - apply IH. eapply Existsn_ge_mono_count; [ exact Hge_b | lia ].
   Qed.
 End Existsn.
+
+#[export] Instance Existsn_Permutation_Proper T (P : T -> Prop) n :
+  Proper (Permutation (A:=T) ==> iff) (Existsn P n).
+Proof. intros l1 l2 Hperm. split; intros H; eapply Existsn_perm; eauto using Permutation_sym. Qed.
+
+Lemma Existsn_filter_map {A B} (P : B -> Prop) (Q : A -> Prop) (g : A -> option B) n l :
+  (forall x, Q x <-> exists y, g x = Some y /\ P y) ->
+  Existsn Q n l <-> Existsn P n (filter_map g l).
+Proof.
+  intros HQ. revert n. induction l as [| x l IH]; intros n; simpl.
+  - split; intros H; invert H; constructor.
+  - specialize (HQ x). destruct (g x) as [y |].
+    + assert (HQy : Q x <-> P y).
+      { rewrite HQ. split; [intros (? & [= ->] & ?); assumption | eauto]. }
+      split; intros H; invert H.
+      * apply Existsn_no; [tauto | apply IH; assumption].
+      * apply Existsn_yes; [tauto | apply IH; assumption].
+      * apply Existsn_no; [tauto | apply IH; assumption].
+      * apply Existsn_yes; [tauto | apply IH; assumption].
+    + assert (HnQ : ~ Q x) by (rewrite HQ; intros (? & [=] & _)).
+      split; intros H.
+      * invert H; [apply IH; assumption | tauto].
+      * apply Existsn_no; [assumption | apply IH; assumption].
+Qed.
 Hint Constructors Existsn : core.
 
 Section misc.
@@ -1831,6 +2036,10 @@ Section misc.
       rewrite Forall_forall in *. unfold not in *. eauto.
   Qed.
 
+  Lemma NoDup_app_disjoint_lists (l1 l2 : list A) :
+    NoDup (l1 ++ l2) -> disjoint_lists l1 l2.
+  Proof. intros H. apply NoDup_app_iff in H. cbv [disjoint_lists]. fwd. eauto. Qed.
+
   Lemma option_all_map_Some (l : list A) :
     option_all (map Some l) = Some l.
   Proof.
@@ -1848,6 +2057,66 @@ Section misc.
   Definition is_Some (x : option A) :=
     if x then true else false.
 End misc.
+
+Lemma flat_map_singleton {A} (l : list A) : flat_map (fun x => [x]) l = l.
+Proof. induction l; cbn; congruence. Qed.
+
+Lemma Existsn_flat_map_incl {A T} (P : T -> Prop) (f : A -> list T) l1 l2 cs :
+  NoDup l1 -> NoDup l2 -> incl l1 l2 ->
+  Forall2 (fun x c => Existsn P c (f x)) l1 cs ->
+  (forall x, In x l2 -> ~ In x l1 -> Existsn P 0 (f x)) ->
+  Existsn P (list_sum cs) (flat_map f l2).
+Proof.
+  intros Hnd1 Hnd2 Hincl HF Hrest.
+  destruct (NoDup_incl_Permutation _ _ Hnd1 Hincl) as (rest & Hperm).
+  eapply Existsn_perm; [| apply Permutation_sym, Permutation_flat_map; exact Hperm].
+  rewrite flat_map_app, <- (Nat.add_0_r (list_sum cs)).
+  apply Existsn_app; [apply Existsn_flat_map; assumption|].
+  pose proof (NoDup_app_disjoint_lists _ _ (Permutation_NoDup Hperm Hnd2)) as Hdisj.
+  assert (Hzero : Forall (fun x => Existsn P 0 (f x)) rest).
+  { apply Forall_forall. intros x Hx. apply Hrest.
+    - eapply Permutation_in; [symmetry; exact Hperm|]. apply in_or_app. auto.
+    - intros Hx1. eapply Hdisj; eassumption. }
+  clear -Hzero. induction Hzero; simpl; [constructor|]. apply (Existsn_app _ 0 0); assumption.
+Qed.
+
+Lemma NoDup_flat_map_inj {A B} (f : A -> list B) l a1 a2 b :
+  NoDup (flat_map f l) -> In a1 l -> In a2 l -> In b (f a1) -> In b (f a2) -> a1 = a2.
+Proof.
+  intros Hnd H1 H2 Hb1 Hb2. apply in_split in H1. destruct H1 as (l1 & l2 & ->).
+  rewrite flat_map_app in Hnd. simpl in Hnd.
+  apply in_app_or in H2. destruct H2 as [H2 | [-> | H2]]; [| reflexivity |]; exfalso.
+  - eapply NoDup_app_disjoint_lists; [exact Hnd | apply in_flat_map; eauto | apply in_or_app; auto].
+  - apply NoDup_app_remove_l in Hnd.
+    eapply NoDup_app_disjoint_lists; [exact Hnd | exact Hb1 | apply in_flat_map; eauto].
+Qed.
+
+Lemma sublist_In {A} (s l : list A) a : sublist s l -> In a s -> In a l.
+Proof. induction 1; simpl; intuition. Qed.
+
+Lemma NoDup_sublist {A} (s l : list A) : sublist s l -> NoDup l -> NoDup s.
+Proof.
+  induction 1; intros Hnd; invert Hnd; [constructor | auto |].
+  constructor; [| auto]. intros Hin. eauto using sublist_In.
+Qed.
+
+Lemma sublist_app_l {A} (l1 s l : list A) : sublist s l -> sublist s (l1 ++ l).
+Proof. induction l1; simpl; auto using sublist_skip. Qed.
+
+Lemma sublist_app_head {A} (l1 s l : list A) : sublist s l -> sublist (l1 ++ s) (l1 ++ l).
+Proof. induction l1; simpl; auto using sublist_keep. Qed.
+
+Lemma sublist_flat_map {A B} (f : A -> list B) s l :
+  sublist s l -> sublist (flat_map f s) (flat_map f l).
+Proof. induction 1; simpl; auto using sublist_nil, sublist_app_l, sublist_app_head. Qed.
+
+Lemma sublist_filter_map {A B} (g : A -> option B) (h : A -> B) l :
+  (forall x y, g x = Some y -> y = h x) ->
+  sublist (filter_map g l) (map h l).
+Proof.
+  intros Hg. induction l as [| x l]; simpl; [constructor|].
+  destruct (g x) eqn:E; [rewrite (Hg _ _ E); apply sublist_keep | apply sublist_skip]; assumption.
+Qed.
 
 Section misc.
   Context {A B C D : Type}.
@@ -2391,16 +2660,6 @@ Proof.
   congruence.
 Qed.
 
-#[global] Instance list_eqb {A} {aeqb : Eqb A} : Eqb (list A) := list_eqb aeqb.
-#[global] Typeclasses Opaque list_eqb.
-
-#[global] Instance list_eqb_ok {A} {aeqb : Eqb A} {aeqb_ok : Eqb_ok aeqb}
-  : Eqb_ok (list_eqb (aeqb := aeqb)).
-Proof.
-  intros x y. cbv [eqb list_eqb]. pose proof (List.list_eqb_spec x y) as H.
-  cbv [eqb] in H. destruct H; assumption.
-Qed.
-
 Fixpoint nodupb {T : Type} {eqb : Eqb T} (l : list T) :=
   match l with
   | x :: l' => if inb x l' then false else nodupb l'
@@ -2505,3 +2764,77 @@ Qed.
 #[export] Instance In_same_set_Proper A :
   Proper (eq ==> same_set ==> iff) (@In A).
 Proof. intros x y -> l1 l2 Hs. apply Hs. Qed.
+
+#[export] Instance same_set_Equivalence A : Equivalence (@same_set A).
+Proof.
+  split.
+  - intros l x. reflexivity.
+  - intros l1 l2 H x. symmetry. apply H.
+  - intros l1 l2 l3 H1 H2 x. rewrite (H1 x). apply H2.
+Qed.
+
+Lemma same_set_cons_in {A} (x : A) l :
+  In x l -> same_set (x :: l) l.
+Proof. intros Hin y. simpl. intuition congruence. Qed.
+
+Definition select {A} (bs : list bool) (l : list A) :=
+  filter_map (fun '(b, x) => if (b : bool) then Some x else None) (combine bs l).
+
+Definition select_not {A} (bs : list bool) (l : list A) :=
+  filter_map (fun '(b, x) => if negb b then Some x else None) (combine bs l).
+
+Fixpoint unselect {A} (bs : list bool) (l1 l2 : list A) :=
+  match bs with
+  | [] => []
+  | true :: bs =>
+      match l1 with
+      | x :: l1 => x :: unselect bs l1 l2
+      | [] => []
+      end
+  | false :: bs =>
+      match l2 with
+      | x :: l2 => x :: unselect bs l1 l2
+      | [] => []
+      end
+  end.
+
+Lemma unselect_select {A} bs (l : list A) :
+  length l <= length bs ->
+  unselect bs (select bs l) (select_not bs l) = l.
+Proof.
+  cbv [select select_not]. revert l.
+  induction bs as [|[|] bs IH]; intros [|x l] H; simpl in *; try lia; f_equal; auto with arith.
+Qed.
+
+Lemma select_unselect {A} bs (l1 l2 : list A) :
+  length l1 = count_occ true bs ->
+  length l2 = count_occ false bs ->
+  select bs (unselect bs l1 l2) = l1.
+Proof.
+  cbv [select]. revert l1 l2.
+  induction bs as [|[|] bs IH]; intros [|x1 l1] [|x2 l2] H1 H2; simpl in *; try lia; f_equal; auto.
+Qed.
+
+Lemma select_not_unselect {A} bs (l1 l2 : list A) :
+  length l1 = count_occ true bs ->
+  length l2 = count_occ false bs ->
+  select_not bs (unselect bs l1 l2) = l2.
+Proof.
+  cbv [select_not]. revert l1 l2.
+  induction bs as [|[|] bs IH]; intros [|x1 l1] [|x2 l2] H1 H2; simpl in *; try lia; f_equal; auto.
+Qed.
+
+Lemma Forall2_select {A B} (R : A -> B -> Prop) bs xs ys :
+  Forall2 R xs ys ->
+  Forall2 R (select bs xs) (select bs ys).
+Proof. cbv [select]. intros H. revert bs. induction H; intros [|[|] bs]; simpl; auto. Qed.
+
+Lemma Forall2_select_not {A B} (R : A -> B -> Prop) bs xs ys :
+  Forall2 R xs ys ->
+  Forall2 R (select_not bs xs) (select_not bs ys).
+Proof. cbv [select_not]. intros H. revert bs. induction H; intros [|[|] bs]; simpl; auto. Qed.
+
+Definition submask (bs1 bs2 : list bool) := Forall2 Bool.le bs1 bs2.
+
+(*TODO where to put things like this?  also, Arguments does not support export*)
+#[global] Arguments hd_error {A} l.
