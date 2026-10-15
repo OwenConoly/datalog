@@ -26,7 +26,8 @@ Module op_message.
 
     Variant op_message :=
       | normal (nf : normal_fact) (src : op_source)
-      | done_with (pat : fact_pattern) (src : op_source).
+      | done_with (pat : fact_pattern) (src : op_source)
+      | num_matches_le (pat : fact_pattern) (num : nat).
   End __.
 End op_message. Abbreviation op_message := op_message.op_message.
 
@@ -42,6 +43,7 @@ Section __.
     | op_message.normal nf _ =>
         if eqb R nf.(normal_fact.rel) then Some nf.(normal_fact.args) else None
     | op_message.done_with _ _ => None
+    | op_message.num_matches_le _ _ => None
     end.
 
   Lemma In_normal_args_with R ms args :
@@ -49,7 +51,7 @@ Section __.
     exists src, In (op_message.normal {| normal_fact.rel := R; normal_fact.args := args |} src) ms.
   Proof.
     rewrite in_filter_map. split.
-    - intros ([nf src | ] & Hin & Hargs); [|discriminate].
+    - intros ([nf src | | ] & Hin & Hargs); [|discriminate..].
       destruct nf as [nrel nargs]. cbv [normal_args_with] in Hargs. simpl in Hargs.
       destr (eqb R nrel); [|discriminate]. invert Hargs. eauto.
     - intros (src & Hin). eexists. split; [eassumption|]. cbv [normal_args_with].
@@ -62,7 +64,14 @@ Section __.
     else
       Forall (fun r => In (op_message.done_with pat (op_source.rule r)) known) p.(program.rules).
 
-  Definition op_can_deduce_pattern known pat :=
+  Print op_message. Print Existsn_ge.
+  Definition have_ge_total known pat :=
+    exists num,
+      In (op_message.num_matches_le pat num) known /\
+
+        Existsn_ge (fact_pattern.matches pat) num (known.
+
+  Definition op_can_deduce_done_with known pat :=
     exists mr pats,
       In mr p.(program.meta_rules) /\
         meta_rule.pattern_interp mr pat pats /\
@@ -82,6 +91,12 @@ Section __.
 
   Definition op_knows_normal_fact known nf :=
     exists src, In (op_message.normal nf src) known.
+
+  Definition op_can_deduce_le known pat num :=
+    exists mfc ub hyps,
+      In mfc p.(program.mf_creators) /\
+        mf_creator.pattern_interp mfc pat ub num /\
+        Forall (op_knows_normal_fact known) hyps.
 
   Definition op_knows_meta_fact known mf :=
     all_done_with known mf.(meta_fact.pattern) /\
@@ -114,7 +129,7 @@ Section __.
   Definition tags_ok (known : list op_message) :=
     forall nf r, In (op_message.normal nf (op_source.rule r)) known -> In r p.(program.rules).
 
-  Definition can_deduce_message (r : rule) known (f : op_message) : Prop :=
+  Definition rule_can_deduce_message (r : rule) known (f : op_message) :=
     match f with
     | op_message.normal nf src =>
         src = op_source.rule r /\
@@ -122,14 +137,24 @@ Section __.
     | op_message.done_with pat src =>
         src = op_source.rule r /\
           ok_to_deduce r known pat /\
-          op_can_deduce_pattern known pat
+          op_can_deduce_done_with known pat
+    | op_message.num_matches_le _ _ => False
     end.
 
+  Print mf_creator.pattern_interp.
+  Definition mf_creator_can_deduce_message (mfc : mf_creator) known (f : op_message) :=
+    match f with
+    | op_message.normal _ _ => False
+    | op_message.done_with _ _ => False
+    | op_message.num_matches_le pat num =>
+
+
   Definition comp_step (s : list op_message) (s' : list op_message) :=
-    exists new_fact r,
-      In r p.(program.rules) /\
-        can_deduce_message r s new_fact /\
-        s' = new_fact :: s.
+    exists new_fact,
+      s' = new_fact :: s /\
+        (Exists (fun r => can_deduce_message_at_rule r s new_fact) p.(program.rules) \/
+
+
 
   Definition is_input_fact (f : op_message) :=
     match f with
