@@ -1,5 +1,5 @@
 From Stdlib Require Import List Lia Permutation Classical_Prop RelationClasses.
-From Datalog Require Import List Datalog Smallstep Tactics Graph Decidable.
+From Datalog Require Import List Datalog Smallstep Tactics Graph Decidable Predicate.
 From coqutil Require Import Map.Interface Eqb.
 From coqutil Require Import Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
 Import ListNotations.
@@ -20,7 +20,8 @@ Module action_label.
 
     Variant action_label :=
       | normal (nf : normal_fact)
-      | done_with (pattern : fact_pattern).
+      | done_with (pattern : fact_pattern)
+      | num_matches_le (pat : fact_pattern) (num : nat).
   End __.
 End action_label. Abbreviation action_label := action_label.action_label.
 
@@ -30,55 +31,61 @@ Module message.
     Context (R_senders : rel -> list sender_label).
 
     Variant message :=
-    | normal (nf : normal_fact)
-    | done_with (pattern : fact_pattern) (src : sender_label) (count : nat).
+      | normal (nf : normal_fact)
+      | done_with (pattern : fact_pattern) (src : sender_label) (count : nat)
+      | num_matches_le (pat : fact_pattern) (num : nat).
 
     Definition is_normal (f : message) : bool :=
       match f with
       | normal _ => true
-      | done_with _ _ _ => false
+      | done_with _ _ _
+      | num_matches_le _ _ => false
       end.
 
     Definition as_normal (f : message) : option normal_fact :=
       match f with
       | normal nf => Some nf
-      | done_with _ _ _ => None
+      | done_with _ _ _
+      | num_matches_le _ _ => None
       end.
 
     Lemma in_filter_map_as_normal nf l :
       In nf (filter_map as_normal l) <-> In (normal nf) l.
     Proof.
       rewrite in_filter_map. split.
-      - intros ([nf' | ] & Hin & Hnf); simpl in Hnf; congruence.
+      - intros ([nf' | | ] & Hin & Hnf); simpl in Hnf; congruence.
       - intros Hin. eexists. split; [exact Hin|]. reflexivity.
     Qed.
 
     Definition rel (f : message) : rel :=
       match f with
       | normal nf => nf.(normal_fact.rel)
-      | done_with pat _ _ => pat.(fact_pattern.rel)
+      | done_with pat _ _
+      | num_matches_le pat _ => pat.(fact_pattern.rel)
       end.
 
     Definition matches (pat : fact_pattern) (f : message) :=
       match f with
       | normal nf => fact_pattern.matches pat nf
-      | done_with _ _ _ => False
+      | done_with _ _ _
+      | num_matches_le _ _ => False
       end.
 
     Definition matchesb (pat : fact_pattern) (f : message) :=
       match f with
       | normal nf => fact_pattern.matchesb pat nf
       | done_with _ _ _ => false
+      | num_matches_le _ _ => false
       end.
 
     #[global] Instance matchesb_spec pat f :
       Reflects (matches pat f) (matchesb pat f).
-    Proof. destruct f; cbn [matches matchesb]; [exact _ | constructor; auto]. Qed.
+    Proof. destruct f; cbn [matches matchesb]; [exact _ | constructor; auto ..]. Qed.
 
     Lemma Existsn_matches_filter_map_as_normal pat n l :
       Existsn (matches pat) n l <-> Existsn (fact_pattern.matches pat) n (filter_map as_normal l).
     Proof.
-      apply Existsn_filter_map. intros [nf | ]; simpl; split; intros; fwd; (eauto || contradiction || discriminate).
+      apply Existsn_filter_map. intros [nf | | ]; simpl; split; intros; fwd; (eauto || contradiction || discriminate).
     Qed.
 
     Definition equiv (f1 f2 : message) :=
@@ -91,6 +98,7 @@ Module message.
       match f with
       | normal nf => action_label.normal nf
       | done_with pat _ _ => action_label.done_with pat
+      | num_matches_le pat num => action_label.num_matches_le pat num
       end.
 
     Lemma equiv_Equivalence : Equivalence equiv.
@@ -130,11 +138,22 @@ Section __.
         senders expected_msgss /\
         num = list_sum expected_msgss.
 
-  Definition knows_meta_fact (known : list message) (mf : meta_fact) :=
+  Definition all_done_with known pat :=
     exists num,
-      expects_num_facts (R_senders (meta_fact.rel mf)) mf.(meta_fact.pattern) known num /\
-        Existsn (message.matches mf.(meta_fact.pattern)) num known /\
-        meta_fact.consistent_with mf (knows_normal_fact known).
+      expects_num_facts (R_senders pat.(fact_pattern.rel)) pat known num /\
+        Existsn (message.matches pat) num known.
+
+  Definition enough_matches known pat :=
+    exists num,
+      In (message.num_matches_le pat num) known /\
+        cardinality_at_least num (fun nf => knows_normal_fact known nf /\ fact_pattern.matches pat nf).
+
+  Definition knows_pat known pat :=
+    all_done_with known pat \/ enough_matches known pat.
+
+  Definition knows_meta_fact (known : list message) (mf : meta_fact) :=
+    knows_pat known mf.(meta_fact.pattern) /\
+      meta_fact.consistent_with mf (knows_normal_fact known).
 
   Definition knows_fact dfacts f :=
     match f with
@@ -146,6 +165,11 @@ Section __.
     exists hyps,
       rule.interp r nf hyps /\
         Forall (knows_fact known) hyps.
+
+  Definition can_deduce_le mfc known pat num :=
+    exists hyps,
+      mf_creator.pattern_interp mfc pat num hyps /\
+        Forall (knows_normal_fact known) hyps.
 
   Definition can_deduce_pattern (mr : meta_rule) (known : list message) (pat : fact_pattern) :=
     exists mhyps,
@@ -175,6 +199,8 @@ Section __.
           Exists (fun mr => can_deduce_pattern mr ns.(state.known) pat) p.(program.meta_rules) /\
           Existsn (message.matches pat) num ns.(state.sent) /\
           saturated ns pat
+    | message.num_matches_le pat num =>
+        Exists (fun mfc => can_deduce_le mfc ns.(state.known) pat num) p.(program.mf_creators)
     end.
 
   Local Abbreviation IO_event := (Smallstep.IO_event action_label message).
