@@ -893,25 +893,9 @@ Proof.
       * apply Hy.
       * reflexivity.
   - intros sz szH.
-    simpl. f_equal.
-    destruct szH as [Hsz Hnv].
-    induction p; simpl in Hnv.
-    (* ZBop *)
-    + simpl. destruct Hnv as [Hnv1 Hnv2]. f_equal.
-      * apply IHp1. apply Hnv1.
-      * apply IHp2. apply Hnv2.
-    (* ZVar *)
-    + contradiction.
-    (* Z0 *)
-    + simpl. reflexivity.
-    (* ZPos *)
-    + simpl. reflexivity.
-    (* ZNeg *)
-    + simpl. reflexivity.
-    (* ZZ_of_nat *)
-    + simpl. reflexivity.
-    (* Zopp *)
-    + simpl. f_equal. apply IHp. apply Hnv.
+  simpl. f_equal.
+  destruct szH as [Hsz Hnv].
+  apply eval_pZexpr_const_works. exact Hnv.
 Admitted.
 
 Inductive wf_pZexpr' {var1 var2} : list (var1 * var2) -> pZexpr' var1 -> pZexpr' var2 -> Prop :=
