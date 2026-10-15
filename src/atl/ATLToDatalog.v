@@ -878,7 +878,8 @@ Proof.
     + apply pZexpr'_works.
     + apply (IH (m :: sz')). apply He.
   (* var case -> different now because it's a get statement, will prove later *)
-  - intros sz szH. simpl. admit.
+  - intros sz szH. destruct szH as [Hsz Hn].
+    subst n. simpl. reflexivity.
   - intros sz szH.
     destruct szH as [Hlen [Hsz Hv]].
     destruct e eqn:Ee; simpl in Hv; try contradiction.
@@ -896,7 +897,7 @@ Proof.
   simpl. f_equal.
   destruct szH as [Hsz Hnv].
   apply eval_pZexpr_const_works. exact Hnv.
-Admitted.
+Qed.
 
 Inductive wf_pZexpr' {var1 var2} : list (var1 * var2) -> pZexpr' var1 -> pZexpr' var2 -> Prop :=
 | wf_ZBop ctx o x1 x2 y1 y2 :
