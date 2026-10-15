@@ -1056,7 +1056,7 @@ intros Hwf Hmap.
 induction Hwf.
 - simpl. specialize (IHHwf1 Hmap).
 specialize (IHHwf2 Hmap).
-eapply expr.interp_fun_expr with (args' := [VZ (interp_pZexpr' x2); VZ (interp_pZexpr' y2)]).
+eapply expr.interp_fun with (args' := [VZ (interp_pZexpr' x2); VZ (interp_pZexpr' y2)]).
   * constructor; [exact IHHwf1 | constructor; [exact IHHwf2 | constructor]].
   * destruct o.
     { cbv [ZBop_to_fn]; simpl. reflexivity. }
@@ -1065,15 +1065,15 @@ eapply expr.interp_fun_expr with (args' := [VZ (interp_pZexpr' x2); VZ (interp_p
     { cbv [ZBop_to_fn]; simpl. reflexivity. }
     { cbv [ZBop_to_fn]; simpl. reflexivity. }
     { cbv [ZBop_to_fn]; simpl. reflexivity. }
-- simpl. eapply expr.interp_var_expr.
+- simpl. eapply expr.interp_var.
   rewrite Forall_forall in Hmap.
   specialize (Hmap (x1, x2) H).
   apply Hmap.
-- simpl. eapply expr.interp_fun_expr.
+- simpl. eapply expr.interp_fun.
   * constructor.
   * constructor.
 - simpl. specialize (IHHwf Hmap).
-  eapply expr.interp_fun_expr with (args' := [VZ (interp_pZexpr' x2)]).
+  eapply expr.interp_fun with (args' := [VZ (interp_pZexpr' x2)]).
   * constructor; [exact IHHwf | constructor].
   * reflexivity.
 Qed.
@@ -1089,7 +1089,7 @@ Proof.
   induction 1; simpl.
   - constructor.
   - constructor; [| assumption].
-    apply expr.interp_var_expr.
+    apply expr.interp_var.
     apply get_putmany_right. assumption.
 Qed.
 
@@ -1163,7 +1163,7 @@ Proof.
       cbv [clause.interp]; simpl. split.
       { reflexivity. }
       { constructor.
-       - simpl. eapply expr.interp_var_expr.
+       - simpl. eapply expr.interp_var.
       rewrite map.get_putmany_dec, Hmap, map.get_put_same.
       reflexivity.
       - apply Forall2_app.
