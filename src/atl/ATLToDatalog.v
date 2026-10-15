@@ -57,7 +57,7 @@ Definition var_of (var : Type) (t : type) : Type :=
   | tB => unit (*shouldn't matter what is here?*)
   | tensor_n n => var * nat (* this is what you meant by redefining var_of to tag with the depth right? *)
   end.
-  
+
 Section __.
 Context {str_nat : map.map string nat} {str_nat_ok : map.ok str_nat}.
 
@@ -250,7 +250,7 @@ Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var) n) : pATLexpr' (var) n :=
   | ATLPhoas.Truncl k x => Truncl _ (lower_pZexpr k) (lower_pATLexpr x)
   | ATLPhoas.Padr k x => Padr (lower_pZexpr k) (lower_pATLexpr x)
   | ATLPhoas.Padl k x => Padl (lower_pZexpr k) (lower_pATLexpr x)
-  | @ATLPhoas.Var _ n0 x => 
+  | @ATLPhoas.Var _ n0 x =>
     match n0 as m return var (tensor_n m) -> pATLexpr' var m with
       | O => fun x => Scalar (Get O x [])
       | S n' => fun _ => create_garbage var (S n')
@@ -1051,7 +1051,7 @@ Lemma lower_pZexpr'_works (ctx' : context) (zc : list (nat * tagged_Z))
   wf_pZexpr' zc a b ->
   Forall (fun '(x, y) => map.get ctx' x = Some (VZ (untag_Z y))) zc ->
   expr.interp ctx' (lower_pZexpr' a) (VZ (interp_pZexpr' b)).
-Proof. 
+Proof.
 intros Hwf Hmap.
 induction Hwf.
 - simpl. specialize (IHHwf1 Hmap).
@@ -1066,7 +1066,7 @@ eapply expr.interp_fun_expr with (args' := [VZ (interp_pZexpr' x2); VZ (interp_p
     { cbv [ZBop_to_fn]; simpl. reflexivity. }
     { cbv [ZBop_to_fn]; simpl. reflexivity. }
 - simpl. eapply expr.interp_var_expr.
-  rewrite Forall_forall in Hmap. 
+  rewrite Forall_forall in Hmap.
   specialize (Hmap (x1, x2) H).
   apply Hmap.
 - simpl. eapply expr.interp_fun_expr.
@@ -1120,14 +1120,14 @@ Proof.
   intros Hnd. cbv [context_of]. rewrite Forall_forall.
   intros [x y] Hin.
   apply map.get_of_list_In_NoDup.
-  - unfold untag_zctx. rewrite map_map. 
+  - unfold untag_zctx. rewrite map_map.
     assert (Hk : map (fun x0 : nat * tagged_Z => fst (let '(x1, y0) := x0 in (x1, VZ y0))) (zctx ctx)
                = map fst (zctx ctx)).
   { apply map_ext. intros [a b]. reflexivity. }
   { erewrite map_ext with (g := fst).
     - exact Hnd.
     - intros [a b]. reflexivity. }
-  - unfold untag_zctx. apply in_map_iff. 
+  - unfold untag_zctx. apply in_map_iff.
 exists (x, y). split; [reflexivity | exact Hin].
 Qed.
 
@@ -1159,15 +1159,16 @@ Proof.
   exists (map.put map.empty next_varname
             (value_of (get_R v2 (map interp_pZexpr' idxs2)))).
   split; [lia | split; [| split]].
-    * constructor; [| constructor]. 
+    * constructor; [| constructor].
       cbv [clause.interp]; simpl. split.
       { reflexivity. }
-      { constructor. 
+      { constructor.
        - simpl. eapply expr.interp_var_expr.
       rewrite map.get_putmany_dec, Hmap, map.get_put_same.
-      reflexivity. 
-      - apply Forall2_app. 
-        * apply interp_vars_putmany. apply Forall2_firstn'. apply Hidxs. 
-        * eapply lower_idxs_works. 
-          + apply H0. 
+      reflexivity.
+      - apply Forall2_app.
+        * apply interp_vars_putmany. apply Forall2_firstn'. apply Hidxs.
+        * eapply lower_idxs_works.
+          + apply H0.
           + Admitted.
+End __.
