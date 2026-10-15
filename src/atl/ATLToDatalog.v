@@ -42,7 +42,7 @@ Definition example_pATLexpr {var} : pATLexpr var 1 :=
 cause everything in the language is purely defined as fn, so maybe it wouldn't work, but
 having every fn term be uner the fn variant might be messy when it comes to interpreting them with return variables?? *)Variant fn : fnT :=
   fn_Add | fn_Sub | fn_Divf | fn_Divc | fn_Mul | fn_Mod | fn_Opp
-  | fn_Lit (x : Z) | fn_Lt | fn_Le | fn_And | fn_Not | fn_Div | fn_Eq.
+  | fn_Lit (x : Z) | fn_Lt | fn_Le | fn_And | fn_Not | fn_Div | fn_Eq | fn_IZR.
 
 #[local] Existing Instance fn.
 
@@ -124,7 +124,7 @@ Fixpoint lower_pSexpr' {var} (idxs0 : list exprvar) (next_varname : exprvar) (e 
     let '(e1, hyps1, next_varname) := lower_pSexpr' idxs0 next_varname x in
     let '(e2, hyps2, next_varname) := lower_pSexpr' idxs0 next_varname y in
     (expr.app (sbop_to_fn o) [e1; e2], (hyps1 ++ hyps2)%list, next_varname)
-  | SLit x => (expr.app (fn_Lit x) [], [], next_varname)
+  | SLit x => (expr.app fn_IZR [expr.app (fn_Lit x) []], [], next_varname)
 end.
 
 (* this is to lower a pZexpr to a pZexpr' *)
@@ -940,8 +940,8 @@ Inductive wf_pSexpr' {var1 var2} : list (ctx_elt2 var1 var2) -> pATL_Sexpr' var1
   wf_pSexpr' ctx x1 x2 ->
   wf_pSexpr' ctx y1 y2 ->
   wf_pSexpr' ctx (SBop o x1 y1) (SBop o x2 y2)
-| wf_SLit ctx z1 z2 :
-  wf_pSexpr' ctx (SLit z1) (SLit z2).
+| wf_SLit ctx z :
+     wf_pSexpr' ctx (SLit z) (SLit z).
 
 Inductive wf_pATL_expr' {var1 var2} : list (ctx_elt2 var1 var2) -> forall n, pATLexpr' var1 n -> pATLexpr' var2 n -> Prop :=
 | wf_Gen ctx n lo1 lo2 hi1 hi2 body1 body2 :
@@ -1028,6 +1028,7 @@ Definition interp_fun (f : fn) (args : list value) : option value :=
   | fn_Mul, [VZ x; VZ y] => Some (VZ (x * y)%Z)
   | fn_Divf, [VZ x; VZ y] => Some (VZ (x / y)%Z)
   | fn_Opp, [VZ x] => Some (VZ (- x)%Z)
+  | fn_IZR, [VZ x] => Some (VR (IZR x))
   | _, _ => None
   end.
 
@@ -1132,44 +1133,193 @@ Proof.
 exists (x, y). split; [reflexivity | exact Hin].
 Qed.
 
+Lemma Forall2_VZ_map (l : list Z) :
+  Forall2 (fun a b => a = VZ b) (map VZ l) l.
+Proof. induction l; simpl; constructor; auto. Qed.
+
+Lemma get_putmany_left (m1 m2 : context) k v :
+  map.get m2 k = None -> map.get m1 k = Some v ->
+  map.get (map.putmany m1 m2) k = Some v.
+Proof.
+  intros H2 H1. rewrite map.get_putmany_dec.
+  destruct (map.get m2 k) eqn:E.
+  - rewrite H2 in E. discriminate.
+  - exact H1.
+Qed.
+
+Lemma gp_some (m1 m2 : context) k v :
+  map.get m2 k = Some v -> map.get (map.putmany m1 m2) k = Some v.
+Proof. intros H. rewrite map.get_putmany_dec, H. reflexivity. Qed.
+
+Lemma gp_none (m1 m2 : context) k :
+  map.get m2 k = None -> map.get (map.putmany m1 m2) k = map.get m1 k.
+Proof. intros H. rewrite map.get_putmany_dec, H. reflexivity. Qed.
+
+Lemma extends_1 (C substn1 substn2 : context) (lo nv1 hi : nat) :
+  (forall k w, map.get substn1 k = Some w -> lo <= k < nv1) ->
+  (forall k w, map.get substn2 k = Some w -> nv1 <= k < hi) ->
+  map.extends (map.putmany (map.putmany substn1 substn2) C)
+              (map.putmany substn1 C).
+Proof.
+  intros Hd1 Hd2. cbv [map.extends]. intros k w Hk.
+  destruct (map.get C k) as [v|] eqn:EC.
+  - (* C has k: both sides return C's value *)
+    rewrite (gp_some _ _ _ _ EC) in Hk.
+    rewrite (gp_some _ _ _ _ EC).
+    exact Hk.
+  - (* C lacks k: both sides look in the inner map *)
+    rewrite (gp_none _ _ _ EC) in Hk.
+    rewrite (gp_none _ _ _ EC).
+    (* Hk : map.get substn1 k = Some w *)
+    destruct (map.get substn2 k) as [w2|] eqn:E2.
+    + (* substn2 has k too: bounds clash *)
+      exfalso.
+      destruct (Hd1 k w Hk) as [A B].
+      destruct (Hd2 k w2 E2) as [A' B'].
+      lia.
+    + rewrite (gp_none _ _ _ E2).
+      exact Hk.
+Qed.
+
+Lemma extends_2 (C substn1 substn2 : context) :
+  map.extends (map.putmany (map.putmany substn1 substn2) C)
+              (map.putmany substn2 C).
+Proof.
+  cbv [map.extends]. intros k w Hk.
+  destruct (map.get C k) as [v|] eqn:EC.
+  - rewrite (gp_some _ _ _ _ EC) in Hk.
+    rewrite (gp_some _ _ _ _ EC).
+    exact Hk.
+  - rewrite (gp_none _ _ _ EC) in Hk.
+    rewrite (gp_none _ _ _ EC).
+    (* Hk : map.get substn2 k = Some w *)
+    apply gp_some. exact Hk.
+Qed.
+
 Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps next_varname' :
   wf_pSexpr' ctx e e' ->
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
   lower_pSexpr' idxs0 next_varname e = (datalog_expr, hyps, next_varname') ->
-  map.get (context_of ctx) next_varname = None ->
+  (forall k, next_varname <= k -> map.get (context_of ctx) k = None) ->
   NoDup (map fst (zctx ctx)) ->
   exists hyps' substn,
     next_varname <= next_varname' /\
+    (forall k v, map.get substn k = Some v -> next_varname <= k < next_varname') /\
     Forall2 (clause.interp (map.putmany substn (context_of ctx))) hyps hyps' /\
     Forall (fun hyp' =>
       exists v n depth tensor_val idx_vals,
         In {| ctx_elt_t := tensor_n n; ctx_elt_p1 := (v, depth); ctx_elt_p2 := tensor_val |} ctx /\
-          hyp'.(normal_fact.rel) = block_rel.input v /\
-          exists val_arg idx_args,
-            val_arg :: idx_args = hyp'.(normal_fact.args) /\
-              Forall2 (fun a b => a = VZ b) idx_args idx_vals /\
-              val_arg = value_of (get_R tensor_val idx_vals)) hyps' (* this is meant to show that hyps' is true *) /\
-      expr.interp (map.putmany substn (context_of ctx)) datalog_expr (value_of (interp_pSexpr' e')).
+        hyp'.(normal_fact.rel) = block_rel.input v /\
+        exists val_arg idx_args,
+          val_arg :: firstn depth idxs0' ++ idx_args = hyp'.(normal_fact.args) /\
+          Forall2 (fun a b => a = VZ b) idx_args idx_vals /\
+          val_arg = value_of (get_R tensor_val idx_vals)) hyps' /\
+    expr.interp (map.putmany substn (context_of ctx)) datalog_expr (value_of (interp_pSexpr' e')).
 Proof.
-  induction 1.
-  - intros Hidxs Hcomp Hmap Hnd. simpl in *. Tactics.destruct_one_match_hyp. invert Hcomp.
+  intros Hwf.
+  revert idxs0 idxs0' next_varname datalog_expr hyps next_varname'.
+  induction Hwf.
+  - (* Get *)
+    intros idxs0 idxs0' next_varname datalog_expr hyps next_varname' Hidxs Hcomp Hmap Hnd.
+    specialize (Hmap next_varname (le_n _)).
+    simpl in *. Tactics.destruct_one_match_hyp. injection Hcomp as <- <- <-.
     exists [ {| normal_fact.rel := block_rel.input v;
-              normal_fact.args :=
-                value_of (get_R v2 (map interp_pZexpr' idxs2))
-                :: firstn n0 idxs0' ++ map VZ (map interp_pZexpr' idxs2) |} ].
-  exists (map.put map.empty next_varname
-            (value_of (get_R v2 (map interp_pZexpr' idxs2)))).
-  split; [lia | split; [| split]].
-    * constructor; [| constructor].
+                normal_fact.args :=
+                  value_of (get_R v2 (map interp_pZexpr' idxs2))
+                  :: firstn n0 idxs0' ++ map VZ (map interp_pZexpr' idxs2) |} ].
+    exists (map.put map.empty next_varname
+              (value_of (get_R v2 (map interp_pZexpr' idxs2)))).
+    split; [lia | split; [| split; [| split]]].
+    + (* domain bound *)
+      intros k v0 H1.
+      rewrite map.get_put_dec in H1.
+      destruct (Nat.eqb next_varname k) eqn:E.
+      * apply Nat.eqb_eq in E. split; lia.
+      * rewrite map.get_empty in H1. discriminate.
+    + (* clause.interp *)
+      constructor; [| constructor].
       cbv [clause.interp]; simpl. split.
       { reflexivity. }
       { constructor.
-       - simpl. eapply expr.interp_var.
-      rewrite map.get_putmany_dec, Hmap, map.get_put_same.
-      reflexivity.
-      - apply Forall2_app.
-        * apply interp_vars_putmany. apply Forall2_firstn'. apply Hidxs.
-        * eapply lower_idxs_works.
-          + apply H0.
-          + Admitted.
+        - eapply expr.interp_var.
+          rewrite (gp_none _ _ _ Hmap).
+          apply map.get_put_same.
+        - apply Forall2_app.
+          + apply interp_vars_putmany. apply Forall2_firstn'. exact Hidxs.
+          + eapply lower_idxs_works.
+            * exact H0.
+            * eapply Forall_impl; [| apply (context_of_zctx ctx Hnd)].
+              intros [x y] Hxy. apply gp_some. exact Hxy. }
+    + (* truth *)
+      apply Forall_cons; [| apply Forall_nil].
+      exists v, n, n0, v2, (map interp_pZexpr' idxs2).
+      split; [exact H |].
+      split; [reflexivity |].
+      exists (value_of (get_R v2 (map interp_pZexpr' idxs2))),
+             (map VZ (map interp_pZexpr' idxs2)).
+      split; [reflexivity |].
+      split; [apply Forall2_VZ_map | reflexivity].
+    + (* final expr.interp *)
+      eapply expr.interp_var.
+      rewrite (gp_none _ _ _ Hmap).
+      apply map.get_put_same.
+  - (* SBop *)
+    intros idxs0 idxs0' next_varname datalog_expr hyps next_varname' Hidxs Hcomp Hmap Hnd.
+    simpl in Hcomp.
+    destruct (lower_pSexpr' idxs0 next_varname x1) as [[e1 hyps1] nv1] eqn:E1.
+    destruct (lower_pSexpr' idxs0 nv1 y1) as [[e2 hyps2] nv2] eqn:E2.
+    invert Hcomp.
+    destruct (IHHwf1 _ _ _ _ _ _ Hidxs E1 Hmap Hnd)
+      as (hyps1' & substn1 & Hle1 & Hdom1 & Hint1 & Hforall1 & Hexpr1).
+    destruct (IHHwf2 _ _ _ _ _ _ Hidxs E2
+                (fun k Hk => Hmap k (Nat.le_trans _ _ _ Hle1 Hk)) Hnd)
+      as (hyps2' & substn2 & Hle2 & Hdom2 & Hint2 & Hforall2 & Hexpr2).
+    exists (hyps1' ++ hyps2'), (map.putmany substn1 substn2).
+    split; [| split; [| split; [| split]]].
+    + lia.
+    + (* domain bound *)
+      intros k w Hk.
+      destruct (map.get substn2 k) as [w2|] eqn:E.
+      * destruct (Hdom2 k w2 E) as [A B]. split; lia.
+      * rewrite (gp_none _ _ _ E) in Hk.
+        destruct (Hdom1 k w Hk) as [A B]. split; lia.
+    + (* clause.interp *)
+      apply Forall2_app.
+      * eapply Forall2_impl; [| exact Hint1].
+        intros c f Hcf.
+        eapply clause.interp_subst_more; [| exact Hcf].
+        eapply extends_1; [exact Hdom1 | exact Hdom2].
+      * eapply Forall2_impl; [| exact Hint2].
+        intros c f Hcf.
+        eapply clause.interp_subst_more; [| exact Hcf].
+        apply extends_2.
+    + (* truth *)
+      apply Forall_app. split; [exact Hforall1 | exact Hforall2].
+    + (* final expr.interp *)
+      simpl.
+      eapply expr.interp_fun
+        with (args' := [value_of (interp_pSexpr' x2); value_of (interp_pSexpr' y2)]).
+      * constructor.
+        -- eapply expr.interp_subst_more; [| exact Hexpr1].
+           eapply extends_1; [exact Hdom1 | exact Hdom2].
+        -- constructor; [| constructor].
+           eapply expr.interp_subst_more; [| exact Hexpr2].
+           apply extends_2.
+      * destruct o; reflexivity.
+  - intros idxs0 idxs0' next_varname datalog_expr hyps next_varname' Hidxs Hcomp Hmap Hnd.
+  simpl in Hcomp.
+  injection Hcomp as <- <- <-.
+  exists [], map.empty.
+  split; [lia | split; [| split; [| split]]].
+  + intros k v H1. rewrite map.get_empty in H1. discriminate.
+  + constructor.
+  + constructor.
+  + simpl.
+    eapply expr.interp_fun with (args' := [VZ z]).
+    * constructor; [| constructor].
+    eapply expr.interp_fun with (args' := []).
+     { constructor. }
+     { reflexivity. }
+  * reflexivity.
+Qed.
 End __.
