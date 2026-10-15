@@ -392,7 +392,7 @@ Definition consistent_good :=
 
     Definition node_good (n : node_id) : graph_node_state -> Prop :=
       fun gns =>
-        outputs_well_formed    (node_step n) (good_node_output n) gns.(gns_node_state) /\
+        outputs_well_formed    (node_step n) allowed (good_node_output n) gns.(gns_node_state) /\
         monotone_mod_equiv     (node_step n) equiv claim consistent allowed gns.(gns_node_state) /\
         might_implies_will_equiv (node_step n) equiv allowed gns.(gns_node_state).
 
@@ -741,17 +741,56 @@ Definition consistent_good :=
       rewrite app_nil_l in Hcons. exact (Hcons nn nsn Hget).
     Qed.
 
-    Lemma fwd_partition_good gt gs nn :
+    Lemma submultiset_matching_inps nn l1 l2 :
+      submultiset l1 l2 -> submultiset (matching_inps nn l1) (matching_inps nn l2).
+    Proof.
+      intros (rest & Hperm). exists (matching_inps nn rest).
+      rewrite <- matching_inps_app. apply matching_inps_perm. exact Hperm.
+    Qed.
+
+    Lemma graph_inputs_allowed_submultiset i1 i2 :
+      submultiset i1 i2 -> graph_inputs_allowed i2 -> graph_inputs_allowed i1.
+    Proof.
+      intros Hsub Hga n.
+      eapply allowed_output_submultiset; [ apply (Hga n) | ].
+      apply submultiset_matching_inps. exact Hsub.
+    Qed.
+
+    Lemma submultiset_inputs_tl {L M} (e : Smallstep.IO_event L M) (t : list (Smallstep.IO_event L M)) :
+      submultiset (flat_map inputs_of t) (flat_map inputs_of (e :: t)).
+    Proof. cbn [flat_map]. apply submultiset_app_l. Qed.
+
+    Lemma gstep_trace_inputs_in_pool g e g' :
+      graph_step g e g' ->
+      Forall2_map (fun _ ns1 ns2 =>
+        submultiset (flat_map inputs_of ns2.(gns_trace)) (flat_map inputs_of ns1.(gns_trace) ++ ns1.(gns_queue)))
+        g.(graph_nodes) g'.(graph_nodes).
+    Proof.
+      intros Hstep. invert Hstep; try invert_receive; cbn [forward_to graph_nodes graph_output_queue].
+      - apply Forall2_map_map_values'_r. apply Forall2_map_dup. intros k v Hv.
+        cbn [enqueue gns_trace]. apply submultiset_app_r.
+      - apply Forall2_map_map_values'_r. eapply Forall2_map_put_r; [ | exact H | ].
+        + apply Forall2_map_dup. intros k v Hv Hne. cbn [enqueue gns_trace]. apply submultiset_app_r.
+        + cbn [enqueue gns_trace flat_map inputs_of app]. apply submultiset_app_r.
+      - eapply Forall2_map_put_r; [ | exact H | ].
+        + apply Forall2_map_dup. intros k v Hv Hne. apply submultiset_app_r.
+        + cbn [gns_trace gns_queue flat_map inputs_of app]. rewrite H2. exists (ms1 ++ ms2).
+          rewrite !app_assoc. symmetry. apply Permutation_middle.
+      - apply Forall2_map_refl. intros. apply submultiset_app_r.
+    Qed.
+
+    Lemma fwd_partition_good_of_traces gt gs nn :
       star graph_step initial_gs gt gs ->
+      Forall_map (fun _ ns => allowed (flat_map inputs_of ns.(gns_trace))) gs.(graph_nodes) ->
       Forall_map (fun sender => good_inputs_from (node_source sender)) (fwd_partition nn gs.(graph_nodes)).
     Proof.
-      intros Hstar sender v Hv. rewrite fwd_partition_get in Hv.
+      intros Hstar Htraces sender v Hv. rewrite fwd_partition_get in Hv.
       destruct (map.get gs.(graph_nodes) sender) as [gns|] eqn:Hgs; cbn [option_map] in Hv; [ | discriminate ].
       injection Hv as Hv. subst v.
       pose proof (graph_step_to_node_step_from_beginning gs gt Hstar) as Hnodes.
       destruct (Forall2_map_get_r _ _ _ _ _ Hnodes Hgs) as (gns0 & Hget0 & Hrun).
       pose proof (nodes_good sender gns0 Hget0) as (Howf & _ & _).
-      exact (Howf _ _ Hrun nn).
+      exact (Howf _ _ Hrun (Htraces _ _ Hgs) nn).
     Qed.
 
     Definition with_external (partition : msg_map) (ext : list message) : node_map :=
@@ -801,12 +840,13 @@ Definition consistent_good :=
       - rewrite !with_external_get_input. exact HN.
     Qed.
 
-    Lemma everything_allowed gt gs :
+    Lemma pool_allowed_of_traces gt gs :
       star graph_step initial_gs gt gs ->
       graph_inputs_allowed (flat_map inputs_of gt) ->
+      Forall_map (fun _ ns => allowed (flat_map inputs_of ns.(gns_trace))) gs.(graph_nodes) ->
       Forall_map (fun _ ns => allowed (flat_map inputs_of ns.(gns_trace) ++ ns.(gns_queue))) gs.(graph_nodes).
     Proof.
-      intros Hstar Hallow. cbv [Forall_map]. intros nn nsn Hget.
+      intros Hstar Hallow Htraces. cbv [Forall_map]. intros nn nsn Hget.
       eapply Permutation_allowed.
       - apply (inputs_are_outputs gt gs Hstar nn nsn Hget).
       - rewrite fwd_total_eq.
@@ -816,7 +856,36 @@ Definition consistent_good :=
         + eapply Permutation_trans; [ apply Permutation_app_comm | ].
           apply Permutation_sym, values_with_external.
         + apply allowed_of_outputs. apply Forall_map_with_external; [ apply Hallow | ].
-          intros k v Hk. exact (proj1 (fwd_partition_good gt gs nn Hstar k v Hk)).
+          intros k v Hk. exact (proj1 (fwd_partition_good_of_traces gt gs nn Hstar Htraces k v Hk)).
+    Qed.
+
+    Lemma everything_allowed gt gs :
+      star graph_step initial_gs gt gs ->
+      graph_inputs_allowed (flat_map inputs_of gt) ->
+      Forall_map (fun _ ns => allowed (flat_map inputs_of ns.(gns_trace) ++ ns.(gns_queue))) gs.(graph_nodes).
+    Proof.
+      induction 1 as [ | t0 gs0 e gs1 Hstar IH Hstep ]; intros Hallow.
+      - intros n gns Hget. destruct (initial_gs_empty n gns Hget) as [-> ->].
+        pose proof (allowed_of_outputs map.empty) as Hempty. rewrite values_empty in Hempty.
+        apply Hempty. intros k v Hk. rewrite map.get_empty in Hk. discriminate.
+      - specialize (IH ltac:(eapply graph_inputs_allowed_submultiset;
+                               [ apply submultiset_inputs_tl | exact Hallow ])).
+        eapply pool_allowed_of_traces; [ eauto | exact Hallow | ].
+        intros n gns1 Hget1.
+        destruct (Forall2_map_get_r _ _ _ _ _ (gstep_trace_inputs_in_pool _ _ _ Hstep) Hget1)
+          as (gns0 & Hget0 & Hsub).
+        eapply allowed_submultiset; [ apply (IH n gns0 Hget0) | exact Hsub ].
+    Qed.
+
+    Lemma fwd_partition_good gt gs nn :
+      star graph_step initial_gs gt gs ->
+      graph_inputs_allowed (flat_map inputs_of gt) ->
+      Forall_map (fun sender => good_inputs_from (node_source sender)) (fwd_partition nn gs.(graph_nodes)).
+    Proof.
+      intros Hstar Hallow. eapply fwd_partition_good_of_traces; [ exact Hstar | ].
+      intros n gns Hget.
+      eapply allowed_submultiset; [ apply (everything_allowed gt gs Hstar Hallow n gns Hget) | ].
+      apply submultiset_app_r.
     Qed.
 
     Lemma noncontradictory_output_filter n dest l1 l2 :
@@ -840,7 +909,7 @@ Definition consistent_good :=
     Qed.
 
     Lemma node_output_noncontradictory n dest init tr1 s1 tr2 s2 :
-      outputs_well_formed (node_step n) (good_node_output n) init ->
+      outputs_well_formed (node_step n) allowed (good_node_output n) init ->
       monotone_mod_equiv (node_step n) equiv claim consistent allowed init ->
       might_implies_will_equiv (node_step n) equiv allowed init ->
       star (node_step n) init tr1 s1 ->
@@ -869,7 +938,7 @@ Definition consistent_good :=
       - apply miw'_iff_miw_and_monotone'; try assumption;
           split; [ exact Hmiw | exact Hmono ].
       - exact (nodes_input_total n).
-      - intros t s Hstar. exact (Howf t s Hstar dest).
+      - intros t s Hstar Hallow. exact (Howf t s Hstar Hallow dest).
       - exact Hstar1.
       - exact Hstar2.
       - exact Hallow2.
@@ -888,12 +957,13 @@ Definition consistent_good :=
 
     Lemma everything_noncontradictory_refl gt gs dest :
       star graph_step initial_gs gt gs ->
+      graph_inputs_allowed (flat_map inputs_of gt) ->
       Forall2_map (fun n => noncontradictory_output (node_source n))
         (fwd_partition dest gs.(graph_nodes)) (fwd_partition dest gs.(graph_nodes)).
     Proof.
-      intros Hstar k. destruct (map.get (fwd_partition dest gs.(graph_nodes)) k) as [v|] eqn:Hk; [ | exact I ].
+      intros Hstar Hallow k. destruct (map.get (fwd_partition dest gs.(graph_nodes)) k) as [v|] eqn:Hk; [ | exact I ].
       apply noncontradictory_output_refl.
-      exact (proj1 (fwd_partition_good gt gs dest Hstar k v Hk)).
+      exact (proj1 (fwd_partition_good gt gs dest Hstar Hallow k v Hk)).
     Qed.
 
     Lemma noncontradictory_shrink l1 l1' l2 l2' :
@@ -940,7 +1010,7 @@ Definition consistent_good :=
         (with_external (fwd_partition n gs2.(graph_nodes)) (matching_inps n (flat_map inputs_of t2)))).
       { apply Forall_map_with_external;
           [ exact (Hga2 n)
-          | intros k v Hk; exact (proj1 (fwd_partition_good t2 gs2 n Hstar2 k v Hk)) ]. }
+          | intros k v Hk; exact (proj1 (fwd_partition_good t2 gs2 n Hstar2 Hga2 k v Hk)) ]. }
       assert (Hnc12 : Forall2_map noncontradictory_output
         (with_external (fwd_partition n gs1.(graph_nodes)) (matching_inps n (flat_map inputs_of t1)))
         (with_external (fwd_partition n gs2.(graph_nodes)) (matching_inps n (flat_map inputs_of t2)))).
@@ -1025,21 +1095,6 @@ Definition consistent_good :=
       - exact (Hfwd dest).
     Qed.
 
-    Lemma submultiset_matching_inps nn l1 l2 :
-      submultiset l1 l2 -> submultiset (matching_inps nn l1) (matching_inps nn l2).
-    Proof.
-      intros (rest & Hperm). exists (matching_inps nn rest).
-      rewrite <- matching_inps_app. apply matching_inps_perm. exact Hperm.
-    Qed.
-
-    Lemma graph_inputs_allowed_submultiset i1 i2 :
-      submultiset i1 i2 -> graph_inputs_allowed i2 -> graph_inputs_allowed i1.
-    Proof.
-      intros Hsub Hga n.
-      eapply allowed_output_submultiset; [ apply (Hga n) | ].
-      apply submultiset_matching_inps. exact Hsub.
-    Qed.
-
     Lemma noncontradictory_output_shrink_r k a b b' :
       submultiset b' b -> noncontradictory_output k a b -> noncontradictory_output k a b'.
     Proof.
@@ -1068,10 +1123,6 @@ Definition consistent_good :=
       - apply submultiset_matching_inps. exact Hsub.
       - exact (Hga n).
     Qed.
-
-    Lemma submultiset_inputs_tl {L M} (e : Smallstep.IO_event L M) (t : list (Smallstep.IO_event L M)) :
-      submultiset (flat_map inputs_of t) (flat_map inputs_of (e :: t)).
-    Proof. cbn [flat_map]. apply submultiset_app_l. Qed.
 
     Lemma everything_noncontradictory_sym gs1 gs2 dest :
       Forall2_map (fun n => noncontradictory_output (node_source n)) (fwd_partition dest gs1.(graph_nodes)) (fwd_partition dest gs2.(graph_nodes)) ->
@@ -1107,11 +1158,11 @@ Definition consistent_good :=
       - assert (t1 = [] /\ t2 = []) as [Ht1 Ht2]
           by (destruct t1, t2; simpl in Hlen; (lia || auto)).
         subst t1 t2. apply star_nil in Hstar1. apply star_nil in Hstar2. subst gs1 gs2.
-        eapply everything_noncontradictory_refl. constructor.
+        eapply everything_noncontradictory_refl; [constructor | eassumption].
       - destruct t2 as [ | e2 t2' ].
         + apply star_nil in Hstar2. subst gs2. destruct t1 as [ | e1 t1' ].
           * apply star_nil in Hstar1. subst gs1.
-            eapply everything_noncontradictory_refl. constructor.
+            eapply everything_noncontradictory_refl; [constructor | eassumption].
           * invert Hstar1.
             apply everything_noncontradictory_sym.
             eapply everything_nc_preserve_r.
@@ -1259,15 +1310,16 @@ Definition consistent_good :=
 
     Lemma fwd_partition_consistently_incl t2 gs1 gs2 n :
       star graph_step initial_gs t2 gs2 ->
+      graph_inputs_allowed (flat_map inputs_of t2) ->
       le_weak gs1 gs2 ->
       Forall2_map (fun sender => consistently_incl equiv (fun s => claim_output s (node_source sender))
                                                    (fun s => consistent_output s (node_source sender)))
         (fwd_partition n gs1.(graph_nodes)) (fwd_partition n gs2.(graph_nodes)).
     Proof.
-      intros Hstar2 Hlew.
+      intros Hstar2 Hga2 Hlew.
       eapply Forall2_map_impl_strong; [ apply (le_weak_fwd_partition _ _ n Hlew) | ].
       intros k v1 v2 _ Hv2 Hincl.
-      apply good_consistently_incl; [ exact (fwd_partition_good _ _ n Hstar2 k v2 Hv2) | exact Hincl ].
+      apply good_consistently_incl; [ exact (fwd_partition_good _ _ n Hstar2 Hga2 k v2 Hv2) | exact Hincl ].
     Qed.
 
     Lemma consistently_incl_of_le_weak t1 gs1 t2 gs2 :
@@ -1299,10 +1351,10 @@ Definition consistent_good :=
       apply consistently_incl_concat_values.
       - apply Forall_map_with_external;
           [ exact (Hga1 n)
-          | intros k v Hk; exact (proj1 (fwd_partition_good _ _ n Hstar1 k v Hk)) ].
+          | intros k v Hk; exact (proj1 (fwd_partition_good _ _ n Hstar1 Hga1 k v Hk)) ].
       - apply Forall_map_with_external;
           [ exact (Hga2 n)
-          | intros k v Hk; exact (proj1 (fwd_partition_good _ _ n Hstar2 k v Hk)) ].
+          | intros k v Hk; exact (proj1 (fwd_partition_good _ _ n Hstar2 Hga2 k v Hk)) ].
       - apply Forall2_map_with_external.
         + unfold consistently_incl. split.
           * apply (incl_mod_of_submultiset equiv). exact Hmatch.
