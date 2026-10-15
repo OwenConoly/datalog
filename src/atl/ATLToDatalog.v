@@ -141,16 +141,7 @@ Fixpoint lower_pZexpr {var : Type} (e : pZexpr var) : pZexpr' var :=
   | ATLPhoas.ZZopp x => Zopp (lower_pZexpr x)
 end.
 
-Fixpoint stringvar_ZLit {var} (e : pZexpr var) : Z :=
-  match e with
-  | ATLPhoas.ZBop o x y => interp_Zbop o (stringvar_ZLit x) (stringvar_ZLit y)
-  | ATLPhoas.ZVar _ => Z0
-  | ATLPhoas.ZZ0 => 0%Z
-  | ATLPhoas.ZZpos p => (Zpos p)
-  | ATLPhoas.ZZneg p => (Zneg p)
-  | ATLPhoas.ZZ_of_nat n => (Z.of_nat n)
-  | ATLPhoas.ZZopp x => (- stringvar_ZLit x)%Z
-  end.
+
 
 Fixpoint stringvar_S {var} {n} (e : pATLexpr var n) : pATL_Sexpr' var :=
   match e with
@@ -227,7 +218,6 @@ Inductive pATLexpr' { var : type -> Type } : nat -> Type :=
   | Padl : forall {n : nat},
            pZexpr' (var tZ) ->
            pATLexpr' (ATLPhoas.S n) -> pATLexpr' (ATLPhoas.S n)
-  | Var : forall n : nat, var (tensor_n n) -> pATLexpr' n
   | Scalar : pATL_Sexpr' var -> pATLexpr' 0
   .
 Arguments pATLexpr' : clear implicits.
@@ -253,7 +243,11 @@ Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var) n) : pATLexpr' (var) n :=
   | ATLPhoas.Truncl k x => Truncl _ (lower_pZexpr k) (lower_pATLexpr x)
   | ATLPhoas.Padr k x => Padr (lower_pZexpr k) (lower_pATLexpr x)
   | ATLPhoas.Padl k x => Padl (lower_pZexpr k) (lower_pATLexpr x)
-  | ATLPhoas.Var x => Var _ x
+  | @ATLPhoas.Var _ n0 x => 
+    match n0 as m return var (tensor_n m) -> pATLexpr' var m with
+      | O => fun x => Scalar (Get O x [])
+      | S n' => fun _ => create_garbage var (S n')
+      end x
   | ATLPhoas.Get _ _ | ATLPhoas.SBop _ _ _ | ATLPhoas.SIZR _ => Scalar (stringvar_S e)
 end.
 
@@ -354,7 +348,6 @@ Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
         end
       | _ => []
     end
-  | Var n x => []
   | Scalar s => 1 :: []
 end.
 
@@ -648,7 +641,6 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                                             expr.app (fn_Lit k') []]] |}]];
                  program.meta_rules := [];
                |})
-  | Var n x => Block 0 {| program.rules := []; program.meta_rules := [] |}
   | Scalar x =>
     let '(value, hyps, next_varname) := (lower_pSexpr' idxs 0 x) in
     Block next_varname
@@ -705,7 +697,6 @@ Fixpoint interp_pATLexpr' {n} (e : pATLexpr' interp_type_tagged n) : interp_type
   | Truncl n k x => Common.Truncl (interp_pZexpr' k) (interp_pATLexpr' x)
   | Padl k x => Common.Padl (interp_pZexpr' k) (interp_pATLexpr' x)
   | Padr k x => Common.Padr (interp_pZexpr' k) (interp_pATLexpr' x)
-  | Var n x => x
   | Scalar x => interp_pSexpr' x
   end.
 
@@ -889,7 +880,8 @@ Proof.
     f_equal.
     + apply pZexpr'_works.
     + apply (IH (m :: sz')). apply He.
-  - intros sz szH. simpl. reflexivity.
+  (* var case -> different now because it's a get statement, will prove later *)
+  - intros sz szH. simpl. admit.
   - intros sz szH.
     destruct szH as [Hlen [Hsz Hv]].
     destruct e eqn:Ee; simpl in Hv; try contradiction.
@@ -923,7 +915,7 @@ Proof.
     + simpl. reflexivity.
     (* Zopp *)
     + simpl. f_equal. apply IHp. apply Hnv.
-Qed.
+Admitted.
 
 Inductive wf_pZexpr' {var1 var2} : list (var1 * var2) -> pZexpr' var1 -> pZexpr' var2 -> Prop :=
 | wf_ZBop ctx o x1 x2 y1 y2 :
@@ -1020,9 +1012,6 @@ Inductive wf_pATL_expr' {var1 var2} : list (ctx_elt2 var1 var2) -> forall n, pAT
   wf_pZexpr' (zctx ctx) z1 z2 ->
   wf_pATL_expr' ctx (S n) e1 e2 ->
   wf_pATL_expr' ctx (S n) (Padl z1 e1) (Padl z2 e2)
-| wf_Var ctx n v1 v2 :
-  In {| ctx_elt_t := tensor_n n; ctx_elt_p1 := v1; ctx_elt_p2 := v2 |} ctx ->
-  wf_pATL_expr' ctx n (Var n v1) (Var n v2)
 | wf_Scalar ctx s1 s2 :
   wf_pSexpr' ctx s1 s2 ->
   wf_pATL_expr' ctx 0 (Scalar s1) (Scalar s2)

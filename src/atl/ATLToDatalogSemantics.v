@@ -96,7 +96,7 @@ Fixpoint sizeof_prop {var n} (sizeof_var : var tZ -> option Z) (e : pATLexpr var
 cause everything in the language is purely defined as fn, so maybe it wouldn't work, but
 having every fn term be uner the fn variant might be messy when it comes to interpreting them with return variables?? *)
 Variant fn : fnT :=
-  fn_Add | fn_Sub | fn_Divf | fn_Divc | fn_Mul | fn_Mod | fn_Nat | fn_Opp
+  fn_Add | fn_Sub | fn_Divf | fn_Divc | fn_Mul | fn_Mod | fn_Opp
   | fn_Lit (x : Z) | fn_Lt | fn_Le | fn_And | fn_Not | fn_Div | fn_Eq.
 
 #[local] Existing Instance fn.
