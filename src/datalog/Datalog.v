@@ -8,7 +8,7 @@ From Datalog.Util Require Import Autodestr Autocbn Pftree.
 
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Datatypes.Option Eqb.
 
-From Datalog Require Import Map Tactics Fp List Eqb Decidable Default False.
+From Datalog Require Import Map Tactics Fp List Eqb Decidable Default False Predicate.
 From GraphSearch Require Import Dag.
 
 Import ListNotations.
@@ -1147,9 +1147,7 @@ Module mf_creator.
       forall pat ub nhyps,
         pattern_interp mfc pat ub nhyps ->
         Forall Q (map fact.normal nhyps) ->
-        exists nfs,
-          length nfs <= get_nat ub /\
-            forall nf, Q (fact.normal nf) -> fact_pattern.matches pat nf -> In nf nfs.
+        cardinality_at_most (get_nat ub) (fun nf => Q (fact.normal nf) /\ fact_pattern.matches pat nf).
 
     Definition concl_rels (mfc : mf_creator) :=
       [mfc.(concl).(clause_pattern.rel)].
@@ -1207,10 +1205,9 @@ Module mf_creator.
       rewrite Lists.List.Forall_map, Forall_forall in Hhypsp0.
       split; intros Hnf.
       { apply Hhypsp0, Hmfp4. split; assumption. }
-      specialize (Hub _ _ _ Hmfp0 Hhypsp1). fwd.
       eapply proj2. apply Hmfp4.
-      apply NoDup_length_incl with (l' := nfs); [assumption | lia | | auto].
-      intros nf' Hnf'. apply Hubp1; [auto|]. apply Hmfp4 in Hnf'. apply Hnf'.
+      eapply cardinality_at_most_In; [eapply Hub; eassumption | eassumption | lia | | split; assumption].
+      apply Forall_forall. intros nf' Hnf'. split; [auto|]. apply Hmfp4 in Hnf'. apply Hnf'.
     Qed.
   End __.
 End mf_creator. Abbreviation mf_creator := mf_creator.mf_creator.
