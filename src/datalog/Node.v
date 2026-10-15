@@ -216,18 +216,26 @@ Section __.
       {| state.known := input :: rs.(state.known);
         state.sent := rs.(state.sent) |}.
 
-  Definition allowed_inputs (inputs : list message) :=
+  Definition done_withs_honest (inputs : list message) :=
     forall pat expected_msgss,
       Forall2 (fun k e => In (message.done_with pat k e) inputs)
               (R_senders pat.(fact_pattern.rel)) expected_msgss ->
       Existsn_le (message.matches pat) (list_sum expected_msgss) inputs.
+
+  Definition upper_bounds_honest (inputs : list message) :=
+    forall pat num,
+      In (message.num_matches_le pat num) inputs ->
+      cardinality_at_most num (fun nf => knows_normal_fact inputs nf /\ fact_pattern.matches pat nf).
+
+  Definition allowed_inputs inputs :=
+    done_withs_honest inputs /\ upper_bounds_honest inputs.
 
   Definition init : state :=
     {| state.known := []; state.sent := [] |}.
 
   Definition claim (pat : fact_pattern) (l : list message) :=
     forall src, In src (R_senders pat.(fact_pattern.rel)) ->
-      exists cnt, In (message.done_with pat src cnt) l.
+           exists cnt, In (message.done_with pat src cnt) l.
 
   Definition consistent (pat : fact_pattern) (known : list message) : Prop :=
     exists num, expects_num_facts (R_senders pat.(fact_pattern.rel)) pat known num /\
