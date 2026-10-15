@@ -68,13 +68,13 @@ Section __.
     else
       Forall (fun r => In (op_message.done_with pat (op_source.rule r)) known) p.(program.rules).
 
-  Definition have_ge_total known pat :=
+  Definition enough_matches known pat :=
     exists num,
       In (op_message.num_matches_le pat num) known /\
         cardinality_at_least num (fun nf => op_knows_normal_fact known nf /\ fact_pattern.matches pat nf).
 
   Definition op_knows_pat known pat :=
-    all_done_with known pat \/ have_ge_total known pat.
+    all_done_with known pat \/ enough_matches known pat.
 
   Definition op_knows_meta_fact known mf :=
     op_knows_pat known mf.(meta_fact.pattern) /\
@@ -98,10 +98,9 @@ Section __.
   Definition meta_facts_correct (known : list op_message) :=
     Forall (meta_facts_correct_at_rule known) p.(program.rules).
 
-  Definition op_can_deduce_le known pat num :=
-    exists mfc hyps,
-      In mfc p.(program.mf_creators) /\
-        mf_creator.pattern_interp mfc pat num hyps /\
+  Definition op_can_deduce_le mfc known pat num :=
+    exists hyps,
+      mf_creator.pattern_interp mfc pat num hyps /\
         Forall (op_knows_normal_fact known) hyps.
 
   Definition op_knows_fact known f :=
@@ -147,7 +146,7 @@ Section __.
     match f with
     | op_message.normal _ _ => False
     | op_message.done_with _ _ => False
-    | op_message.num_matches_le pat num => op_can_deduce_le known pat num
+    | op_message.num_matches_le pat num => op_can_deduce_le mfc known pat num
     end.
 
   Definition comp_step (s : list op_message) (s' : list op_message) :=
