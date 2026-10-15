@@ -18,8 +18,6 @@ From Inferpad Require Import ATLPhoas TensorToResult.
 
 Import ListNotations.
 
-(*source language syntax*)
-Print pATLexpr'.
 (*source language semantics*)
 Print result_of_pATLexpr.
 (*some property that valid source programs should probably (?) have*)
@@ -141,15 +139,24 @@ Fixpoint lower_pZexpr {var : Type} (e : pZexpr var) : pZexpr' var :=
   | ATLPhoas.ZZopp x => Zopp (lower_pZexpr x)
 end.
 
+Fixpoint eval_pZexpr_const {var} (e : pZexpr var) : Z :=
+  match e with
+  | ATLPhoas.ZBop o x y => interp_Zbop o (eval_pZexpr_const x) (eval_pZexpr_const y)
+  | ATLPhoas.ZVar _ => Z0
+  | ATLPhoas.ZZ0 => 0%Z
+  | ATLPhoas.ZZpos p => Zpos p
+  | ATLPhoas.ZZneg p => Zneg p
+  | ATLPhoas.ZZ_of_nat n => Z.of_nat n
+  | ATLPhoas.ZZopp x => (- eval_pZexpr_const x)%Z
+  end.
 
-
-Fixpoint stringvar_S {var} {n} (e : pATLexpr var n) : pATL_Sexpr' var :=
+Fixpoint expr_to_sexpr' {var} {n} (e : pATLexpr var n) : pATL_Sexpr' var :=
   match e with
   | ATLPhoas.SBop o x y =>
-    let x' := stringvar_S x in
-    let y' := stringvar_S y in
+    let x' := expr_to_sexpr' x in
+    let y' := expr_to_sexpr' y in
     SBop o x' y'
-  | ATLPhoas.SIZR x => SLit (stringvar_ZLit x)
+  | ATLPhoas.SIZR x => SLit (eval_pZexpr_const x)
   | ATLPhoas.Get x idxs =>
     match x with
       | Var y => Get _ y (map lower_pZexpr idxs)
@@ -248,7 +255,7 @@ Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var) n) : pATLexpr' (var) n :=
       | O => fun x => Scalar (Get O x [])
       | S n' => fun _ => create_garbage var (S n')
       end x
-  | ATLPhoas.Get _ _ | ATLPhoas.SBop _ _ _ | ATLPhoas.SIZR _ => Scalar (stringvar_S e)
+  | ATLPhoas.Get _ _ | ATLPhoas.SBop _ _ _ | ATLPhoas.SIZR _ => Scalar (expr_to_sexpr' e)
 end.
 
 (* wrote this to translate a Zexpr into it's numerical value for some of the match cases with lower_pATLexpr' *)
@@ -745,35 +752,27 @@ Definition dummy (t : type) : interp_type_tagged t :=
   | tensor_n n => dummy_tensor n
   end.
 
-(* helper lemma for stringvar_s_works because the induction was nested so it was messy *)
-Lemma stringvar_ZLit_equals_interp_pZexpr (p : pZexpr (interp_type_tagged tZ)) :
-  stringvar_S_ok (SIZR p) ->
+(* helper lemma for expr_to_sexpr'_works because the induction was nested so it was messy *)
+Lemma eval_pZexpr_const_works (p : pZexpr (interp_type_tagged tZ)) :
   pZexpr_no_vars p ->
-  stringvar_ZLit p = interp_pZexpr p.
+  eval_pZexpr_const p = interp_pZexpr p.
 Proof.
-intros H1 H2.
-induction p; simpl in H1.
-- destruct H2 as [H21 H22]. simpl. f_equal.
-  * apply IHp1.
-    { simpl. exact I. }
-    { apply H21. }
-  * apply IHp2.
-    { simpl. exact I. }
-    { apply H22. } 
-- contradiction.
-- simpl. reflexivity.
-- simpl. reflexivity.
-- simpl. reflexivity.
-- simpl. reflexivity.
-- simpl. f_equal. apply IHp.
-  * simpl. exact I.
-  * apply H2.
+  induction p; intros Hnv; simpl in Hnv.
+  - destruct Hnv as [H1 H2]. simpl. f_equal.
+    + apply IHp1. exact H1.
+    + apply IHp2. exact H2.
+  - contradiction.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
+  - simpl. f_equal. apply IHp. exact Hnv.
 Qed.
 
-Lemma stringvar_S_works (e : pATLexpr interp_type_tagged 0) sz :
-  stringvar_S_ok e ->
+Lemma expr_to_sexpr'_works (e : pATLexpr interp_type_tagged 0) sz :
+  expr_to_sexpr'_ok e ->
   sizeof_prop sizeof_var e sz -> sz = [] ->
-  interp_pSexpr' (stringvar_S e) = interp_pATLexpr e.
+  interp_pSexpr' (expr_to_sexpr' e) = interp_pATLexpr e.
 Proof.
 intros H1 H2 H3.
 dependent induction e.
@@ -793,9 +792,7 @@ dependent induction e.
     simpl in H1. apply H1.
 - simpl. f_equal.
   destruct H2 as [Hsz Hnv].
-  apply stringvar_ZLit_equals_interp_pZexpr.
-  * apply H1.
-  * apply Hnv.
+  apply eval_pZexpr_const_works. apply Hnv.
 Qed.
 
 
@@ -890,8 +887,8 @@ Proof.
   - intros sz szH.
     destruct szH as [Hsz [Hx [Hy [Hok1 Hok2]]]].
     simpl. f_equal.
-    + apply (stringvar_S_works e1 [] Hok1 Hx eq_refl).
-    + apply (stringvar_S_works e2 []).
+    + apply (expr_to_sexpr'_works e1 [] Hok1 Hx eq_refl).
+    + apply (expr_to_sexpr'_works e2 []).
       * apply Hok2.
       * apply Hy.
       * reflexivity.

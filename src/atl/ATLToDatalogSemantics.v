@@ -24,9 +24,9 @@ Fixpoint pZexpr_no_vars {var} (e : pZexpr var) : Prop :=
   end.
 
 
-Fixpoint stringvar_S_ok {var} (e : pATLexpr var 0) : Prop :=
+Fixpoint expr_to_sexpr'_ok {var} (e : pATLexpr var 0) : Prop :=
   match e with
-  | ATLPhoas.SBop _ x y => stringvar_S_ok x /\ stringvar_S_ok y
+  | ATLPhoas.SBop _ x y => expr_to_sexpr'_ok x /\ expr_to_sexpr'_ok y
   | ATLPhoas.SIZR _ => True
   | ATLPhoas.Get _ _ => True
   | _ => False
@@ -87,7 +87,7 @@ Fixpoint sizeof_prop {var n} (sizeof_var : var tZ -> option Z) (e : pATLexpr var
         end
   | SBop _ x y =>
     sz = [] /\ sizeof_prop x [] /\ sizeof_prop y [] /\
-    stringvar_S_ok x /\ stringvar_S_ok y
+    expr_to_sexpr'_ok x /\ expr_to_sexpr'_ok y
   | SIZR x => sz = [] /\ pZexpr_no_vars x
   end.
 
@@ -176,11 +176,11 @@ Fixpoint stringvar_ZLit {var} (e : pZexpr var) : Z :=
   | ATLPhoas.ZZopp x => (- stringvar_ZLit x)%Z
   end.
 
-Fixpoint stringvar_S {var} {n} (e : pATLexpr var n) : pATL_Sexpr' var :=
+Fixpoint expr_to_sexpr' {var} {n} (e : pATLexpr var n) : pATL_Sexpr' var :=
   match e with
   | ATLPhoas.SBop o x y =>
-    let x' := stringvar_S x in
-    let y' := stringvar_S y in
+    let x' := expr_to_sexpr' x in
+    let y' := expr_to_sexpr' y in
     SBop o x' y'
   | ATLPhoas.SIZR x => SLit (stringvar_ZLit x)
   | ATLPhoas.Get x idxs =>
@@ -272,7 +272,7 @@ Fixpoint lower_pATLexpr {var n} (e : pATLexpr (var) n) : pATLexpr' (var) n :=
   | ATLPhoas.Padr k x => Padr (lower_pZexpr k) (lower_pATLexpr x)
   | ATLPhoas.Padl k x => Padl (lower_pZexpr k) (lower_pATLexpr x)
   | ATLPhoas.Var x => Var _ x
-  | ATLPhoas.Get _ _ | ATLPhoas.SBop _ _ _ | ATLPhoas.SIZR _ => Scalar (stringvar_S e)
+  | ATLPhoas.Get _ _ | ATLPhoas.SBop _ _ _ | ATLPhoas.SIZR _ => Scalar (expr_to_sexpr' e)
 end.
 End __.
 *)
