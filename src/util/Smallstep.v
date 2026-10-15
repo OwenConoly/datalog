@@ -472,7 +472,9 @@ Section step.
   Context (initial : state).
 
   Definition outputs_well_formed :=
-    forall t s, star step initial t s -> outputs_wf (flat_map outputs_of t).
+    forall t s, star step initial t s ->
+           allowed (flat_map inputs_of t) ->
+           outputs_wf (flat_map outputs_of t).
 
   Definition might_implies_will_equiv_at s t :=
     forall o,
@@ -872,14 +874,14 @@ Section step.
     assert (Hsub_out : submultiset (flat_map outputs_of t) (flat_map outputs_of (tf ++ tr ++ t))).
     { rewrite !flat_map_app, Houttr. cbn [app].
       exists (flat_map outputs_of tf). apply Permutation_app_comm. }
+    assert (Halltf : allowed (flat_map inputs_of (tf ++ tr ++ t))).
+    { rewrite flat_map_app, Hinpf. cbn [app]. exact HallT. }
     assert (Hwf_out : outputs_wf (flat_map outputs_of (tf ++ tr ++ t)))
-      by (eapply Howf; exact HstarTf).
+      by (eapply Howf; eassumption).
     assert (Hci_out : consistently_incl claim_output consistent_output (flat_map outputs_of t') (flat_map outputs_of (tf ++ tr ++ t))).
     { split; [ exact Hcov | ].
       intros s0 Hcl _.
       apply outputs_wf_consistent; [ exact Hwf_out | eapply claim_output_mono; [ exact Hcl | exact Hcov ] ]. }
-    assert (Halltf : allowed (flat_map inputs_of (tf ++ tr ++ t))).
-    { rewrite flat_map_app, Hinpf. cbn [app]. exact HallT. }
     assert (Hnctf : noncontradictory_inputs (flat_map inputs_of t') (flat_map inputs_of (tf ++ tr ++ t))).
     { rewrite flat_map_app, Hinpf. cbn [app]. exact HncT. }
     econstructor; try eassumption.
