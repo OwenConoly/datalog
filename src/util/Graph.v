@@ -389,6 +389,9 @@ Definition consistent_good :=
 
     Definition good_node_output n outs :=
       forall dest, good_inputs_from (node_source n) (filter (forward (node_source n) (node_destn dest)) outs).
+    Print monotone_mod_equiv.
+    Print consistently_incl.
+    Print consistent_le.
 
     Definition node_good (n : node_id) : graph_node_state -> Prop :=
       fun gns =>
