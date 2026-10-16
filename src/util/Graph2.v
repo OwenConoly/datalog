@@ -21,6 +21,7 @@ Section __.
   Abbreviation graph_step := (graph_step forward node_step).
 
   Context (npred_transf : node_id -> list message -> (list message -> Prop) -> Prop).
+  (*TODO does this return False when input is non-monotone?  or what?*)
   Context (init : node_id -> node_state).
   Context (safe : node_id -> list message -> Prop).
   (*Axiom safe_valid : safe inputs to node -> safe outputs from node.  can be stated in terms of npred_transf?*)
@@ -32,16 +33,15 @@ Section __.
                 submultiset inputs (flat_map inputs_of t) ->
                 star (node_step n) (init n) t st ->
                 will_step (node_step n) (safe n) (st, t) (fun '(_, t') =>
-                                                            exists outs,
-                                                              submultiset outs (flat_map outputs_of t') /\
-                                                                P outs)).
-  Context (possible_input : list message -> Prop).
+                                                            P (flat_map outputs_of t'))).
+  Context (input_guarantee : (list message -> Prop) -> Prop).
+  Context (safe_input : list message -> Prop).
 
   Definition lpred_transf : location -> list message -> (list message -> Prop) -> Prop :=
     fun loc inps P =>
       match loc with
       | node_loc n => npred_transf n inps P
-      | input_loc => forall inps, possible_input inps -> P inps
+      | input_loc => input_guarantee P
       | output_loc => P inps
       end.
 
@@ -64,9 +64,16 @@ Section __.
     graph_sat loc P.
 
   Axiom init_graph : graph_state message label node_state.
-  Fail Lemma graph_sat_sound loc P :
+  Lemma graph_sat_sound loc P :
     graph_sat loc P ->
-    will_step graph_step possible_input (init_graph, []) (fun '(_, t) => _).
+    exists Pinp,
+      input_guarantee Pinp /\
+        forall inputs,
+          Pinp inputs ->
+          will_step graph_step safe_input (init_graph, []) (fun '(_, t) => P (flat_map outputs_of t)).
+  Proof. Abort.
+
+  Succeed Lemma true : True.
   Check graph_sat_ind.
   Check graph_step.
 End __.
