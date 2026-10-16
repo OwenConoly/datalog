@@ -1,6 +1,6 @@
 From Stdlib Require Import List Lia.
 From coqutil Require Import Datatypes.List.
-From Datalog Require Import Datalog Node Graph Smallstep List Map Default Eqb Tactics.
+From Datalog Require Import Datalog Node Graph Smallstep List Map Default Eqb Tactics Predicate.
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Eqb Decidable.
 Import ListNotations.
 Import node.
@@ -13,6 +13,8 @@ Section Distributed.
   Context (Hmrv : Forall_map (fun _ p => program.meta_rules_valid p) graph_prog).
   Context (is_input : rel -> bool).
   Context (Hp_good : Forall_map (fun _ p => Forall (fun R => is_input R = false) (program.concl_rels p)) graph_prog).
+
+  Context (Q : fact -> Prop).
 
   #[local] Instance sender_label : sender_labelT := source.
 
@@ -87,25 +89,53 @@ Section Distributed.
   Abbreviation claim := (node.claim R_senders).
   Abbreviation consistent := (node.consistent R_senders).
   Local Abbreviation nstep := (fun n => node.step R_senders (prog_at n) (node_source n)).
-  Local Abbreviation nallowed := (node.allowed_inputs R_senders).
 
   Hint Immediate message.equiv_Equivalence : core.
   Hint Resolve node.expects_num_facts_incl Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
 
-  Definition claim_output (pat : fact_pattern) (n : source) (fs : list message) : Prop :=
+  Definition claim_output (pat : fact_pattern) (n : source) (fs : list message) :=
     In n (R_senders pat.(fact_pattern.rel)) ->
     exists cnt, In (message.done_with pat n cnt) fs.
 
-  Definition consistent_output (pat : fact_pattern) (n : source) (fs : list message) : Prop :=
+  Definition consistent_output (pat : fact_pattern) (n : source) (fs : list message) :=
     In n (R_senders pat.(fact_pattern.rel)) ->
     exists cnt, In (message.done_with pat n cnt) fs /\
-      Existsn_ge (message.matches pat) cnt fs.
+             Existsn_ge (message.matches pat) cnt fs.
 
-  Definition allowed_output (n : source) (fs : list message) : Prop :=
+  (*unfortunately named similar to claim_output (TODO better names).
+    intuitively, the claims made about the global output O by the local output outs from node n*)
+  Definition claims_of_output n (outs : list message) O :=
+    (forall nf, In (message.normal nf) outs -> O (fact.normal nf)) /\
+      (forall pat num,
+          In (message.num_matches_le pat num) outs ->
+          forall nfs,
+            NoDup nfs ->
+            length nfs >= num ->
+            Forall O (map fact.normal nfs) ->
+            Forall (fact_pattern.matches pat) nfs ->
+            forall mf,
+              mf.(meta_fact.pattern) = pat ->
+              meta_fact.consistent_with mf (fun nf => In nf nfs) ->
+              O (fact.meta mf)) /\
+      (forall pat cnt,
+          match n with
+          | input_source => forall mf, meta_fact.consistent_with mf (knows_normal_fact outs) ->
+                                 O (fact.meta mf)
+          | node_source n =>
+              In (message.done_with pat (node_source n) cnt) outs ->
+              Existsn_ge (message.matches pat) cnt outs ->
+              forall nf hyps,
+                program.interp_step (prog_at n) (fact.normal nf) hyps ->
+                Forall O hyps ->
+                In (message.normal nf) outs
+      end).
+
+  Definition allowed_output (n : source) (fs : list message) :=
     (forall pat src cnt,
        In (message.done_with pat src cnt) fs ->
        n = src /\ Existsn_le (message.matches pat) cnt fs) /\
-    (forall nf, In (message.normal nf) fs -> In n (R_senders nf.(normal_fact.rel))).
+      (forall nf, In (message.normal nf) fs -> In n (R_senders nf.(normal_fact.rel))) /\
+  claims_of_output n fs (program.interp prog).
 
   Lemma claim_output_mono pat n ms1 ms2 :
     claim_output pat n ms1 -> incl_mod message.equiv ms1 ms2 -> claim_output pat n ms2.

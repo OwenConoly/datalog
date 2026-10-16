@@ -227,8 +227,11 @@ Section __.
       In (message.num_matches_le pat num) inputs ->
       cardinality_at_most num (fun nf => knows_normal_fact inputs nf /\ fact_pattern.matches pat nf).
 
-  Definition allowed_inputs inputs :=
+  Definition inputs_honest inputs :=
     done_withs_honest inputs /\ upper_bounds_honest inputs.
+
+  Context (allowed_inputs : list message -> Prop).
+  Context (allowed_inputs_ok : forall inputs, allowed_inputs inputs -> inputs_honest inputs).
 
   Definition init : state :=
     {| state.known := []; state.sent := [] |}.
@@ -262,13 +265,13 @@ Section __.
 
   Definition good (s : state) (t : list IO_event) :=
     s.(state.known) = flat_map inputs_of t /\
-    allowed_inputs (flat_map inputs_of t) /\
+    inputs_honest (flat_map inputs_of t) /\
     sent_dones_ok s.
 
   #[local] Existing Instance message.equiv_Equivalence.
 
-  Lemma allowed_inputs_submultiset l1 l2 :
-    submultiset l1 l2 -> allowed_inputs l2 -> allowed_inputs l1.
+  Lemma inputs_honest_submultiset l1 l2 :
+    submultiset l1 l2 -> inputs_honest l2 -> inputs_honest l1.
   Proof.
     intros Hsub [Hdone Hub]. pose proof (submultiset_incl _ _ Hsub) as Hincl. split.
     - intros pat ems Hf2.
@@ -283,7 +286,7 @@ Section __.
 
   Lemma submultiset_rest_no_matches pat small rest big num :
     Permutation big (small ++ rest) ->
-    allowed_inputs big ->
+    inputs_honest big ->
     expects_num_facts (R_senders pat.(fact_pattern.rel)) pat small num ->
     Existsn (message.matches pat) num small ->
     Forall (fun x => ~ message.matches pat x) rest.
@@ -340,7 +343,7 @@ Section __.
   Qed.
 
   Lemma knows_pat_submultiset l1 l2 pat :
-    submultiset l1 l2 -> allowed_inputs l2 ->
+    submultiset l1 l2 -> inputs_honest l2 ->
     knows_pat l1 pat -> knows_pat l2 pat.
   Proof.
     intros Hsub Hallow [(num & Hexp & Hexn) | Hem].
@@ -356,7 +359,7 @@ Section __.
   Qed.
 
   Lemma knows_pat_no_new_matches l1 l2 pat nf :
-    submultiset l1 l2 -> allowed_inputs l2 ->
+    submultiset l1 l2 -> inputs_honest l2 ->
     knows_pat l1 pat ->
     knows_normal_fact l2 nf ->
     fact_pattern.matches pat nf ->
@@ -372,7 +375,7 @@ Section __.
   Qed.
 
   Lemma knows_fact_submultiset l1 l2 h :
-    submultiset l1 l2 -> allowed_inputs l2 ->
+    submultiset l1 l2 -> inputs_honest l2 ->
     knows_fact l1 h -> knows_fact l2 h.
   Proof.
     intros Hsub Hallow Hk. pose proof (submultiset_incl _ _ Hsub) as Hincl.
@@ -385,7 +388,7 @@ Section __.
 
   Lemma knows_fact_transfer_down_sub small big mhyps h :
     submultiset small big ->
-    allowed_inputs big ->
+    inputs_honest big ->
     Forall (knows_meta_fact small) mhyps ->
     fact.covered_by_pats (map meta_fact.pattern mhyps) h ->
     knows_fact big h ->
@@ -405,7 +408,7 @@ Section __.
 
   Lemma step_preserves_sent_dones_ok s e s' :
     program.meta_rules_valid p ->
-    allowed_inputs s'.(state.known) ->
+    inputs_honest s'.(state.known) ->
     sent_dones_ok s ->
     step s e s' ->
     sent_dones_ok s'.
@@ -448,14 +451,14 @@ Section __.
   Lemma good_step s e s' t :
     program.meta_rules_valid p ->
     good s t ->
-    allowed_inputs (flat_map inputs_of (e :: t)) ->
+    inputs_honest (flat_map inputs_of (e :: t)) ->
     step s e s' ->
     good s' (e :: t).
   Proof.
     intros Hmrv (Hkeq & _ & Hok) Hallow' Hstep.
     assert (Hkeq' : s'.(state.known) = flat_map inputs_of (e :: t)).
     { invert Hstep; cbn [state.known]; rewrite Hkeq; reflexivity. }
-    assert (Hak : allowed_inputs s'.(state.known)) by (rewrite Hkeq'; exact Hallow').
+    assert (Hak : inputs_honest s'.(state.known)) by (rewrite Hkeq'; exact Hallow').
     split; [exact Hkeq' | split; [exact Hallow' |]].
     eapply step_preserves_sent_dones_ok; eassumption.
   Qed.
@@ -470,7 +473,7 @@ Section __.
 
   Lemma good_star s t t' s' :
     program.meta_rules_valid p ->
-    allowed_inputs (flat_map inputs_of (t' ++ t)) ->
+    inputs_honest (flat_map inputs_of (t' ++ t)) ->
     good s t ->
     star step s t' s' ->
     good s' (t' ++ t).
@@ -478,9 +481,9 @@ Section __.
     intros Hmrv Hallow Hgood Hstar. revert Hallow.
     induction Hstar as [| t0 s'0 e s'' Hstar' IH Hstep]; intros Hallow.
     - exact Hgood.
-    - assert (Hallow0 : allowed_inputs (flat_map inputs_of (t0 ++ t))).
+    - assert (Hallow0 : inputs_honest (flat_map inputs_of (t0 ++ t))).
       { destruct e as [m | lbl outs].
-        - eapply allowed_inputs_submultiset; [apply submultiset_cons | exact Hallow].
+        - eapply inputs_honest_submultiset; [apply submultiset_cons | exact Hallow].
         - exact Hallow. }
       exact (good_step s'0 e s'' (t0 ++ t) Hmrv (IH Hallow0) Hallow Hstep).
   Qed.
@@ -571,11 +574,11 @@ Section __.
     forall f, knows_fact l1 f -> knows_fact l2 f.
 
   Lemma knows_incl_of_submultiset l1 l2 :
-    submultiset l1 l2 -> allowed_inputs l2 -> knows_incl l1 l2.
+    submultiset l1 l2 -> inputs_honest l2 -> knows_incl l1 l2.
   Proof. intros Hsub Hallow f. apply knows_fact_submultiset; assumption. Qed.
 
   Lemma knows_incl_grow l1 l2 l2' :
-    knows_incl l1 l2 -> submultiset l2 l2' -> allowed_inputs l2' -> knows_incl l1 l2'.
+    knows_incl l1 l2 -> submultiset l2 l2' -> inputs_honest l2' -> knows_incl l1 l2'.
   Proof.
     intros Hki Hsub Hallow f Hf.
     eapply knows_fact_submultiset; [ exact Hsub | exact Hallow | apply Hki; exact Hf ].
@@ -626,7 +629,7 @@ Section __.
     destruct Hnc as [m Hsub1m Hallowm (Hincl2m & _) _].
     destruct h as [nf | mf].
     - exact (incl_mod_normal_In _ _ _ Hincl12 Hk).
-    - pose proof (knows_fact_submultiset l1 m (fact.meta mf) Hsub1m Hallowm Hk) as Hkm.
+    - pose proof (knows_fact_submultiset l1 m (fact.meta mf) Hsub1m (allowed_inputs_ok _ Hallowm) Hk) as Hkm.
       destruct Hk as (Hpat & Hiff). destruct Hkm as (_ & Hiffm). split.
       + destruct Hpat as [(num & Hexp & Hexn) | Hem].
         2: { right. eapply enough_matches_incl_mod; eassumption. }
@@ -639,7 +642,7 @@ Section __.
           eapply Existsn_ge_of_Existsn; [ exact Hexn | lia ]. }
         destruct (Hcle12 mf.(meta_fact.pattern) Hclaim1 Hcons1) as (N & HexpN & HgeN).
         destruct HexpN as (emsN & Hf2N & HsumN).
-        pose proof (proj1 Hallow2 mf.(meta_fact.pattern) emsN Hf2N) as HleN.
+        pose proof (proj1 (allowed_inputs_ok _ Hallow2) mf.(meta_fact.pattern) emsN Hf2N) as HleN.
         rewrite <- HsumN in HleN.
         exists N. split.
         * exists emsN. auto.
@@ -705,14 +708,14 @@ Section __.
           eapply submultiset_incl; [exact Hs | exact Hb]. }
     apply eventually_step_cps. cbn [will_step].
     exists (message.label output). intros sdem tdem Hstar Hallowdem.
-    pose proof (good_star s2 t2 tdem sdem Hmrv Hallowdem Hgood2 Hstar)
+    pose proof (good_star s2 t2 tdem sdem Hmrv (allowed_inputs_ok _ Hallowdem) Hgood2 Hstar)
       as (Hkdem & Haldem & Hokdem).
     pose proof (step_star_mono s2 tdem sdem Hstar) as (Hkmono & Hsmono).
     assert (HconK : consistently_incl message.equiv claim consistent
                       s1.(state.known) sdem.(state.known))
       by (eapply consistently_incl_trans;
             [exact Hknle | apply consistently_incl_of_submultiset; exact Hkmono]).
-    assert (Halk : allowed_inputs sdem.(state.known))
+    assert (Halk : inputs_honest sdem.(state.known))
       by (rewrite Hkdem; exact Haldem).
     assert (Hki_dem : knows_incl s1.(state.known) sdem.(state.known))
       by (eapply knows_incl_grow; [ exact Hki | exact Hkmono | exact Halk ]).
@@ -877,7 +880,7 @@ Section __.
     intros Hmrv Hallow Hstar.
     assert (good s (t ++ [])) as Hg.
     { eapply good_star;
-        [ exact Hmrv | rewrite app_nil_r; exact Hallow | apply good_init | exact Hstar ]. }
+        [ exact Hmrv | rewrite app_nil_r; apply allowed_inputs_ok, Hallow | apply good_init | exact Hstar ]. }
     rewrite app_nil_r in Hg. exact Hg.
   Qed.
 
@@ -906,7 +909,7 @@ Section __.
         apply knows_incl_of_submultiset.
         { rewrite (known_input_free s0 T0 smid Hrun' Hinp).
           exact (proj1 (step_star_mono s0 tr s2 Hstar_s0s2)). }
-        rewrite (known_eq_inputs (tr ++ t0) s2 Hstar2). exact Hga_imp.
+        rewrite (known_eq_inputs (tr ++ t0) s2 Hstar2). apply allowed_inputs_ok, Hga_imp.
   Qed.
 
   Lemma might_implies_will :
@@ -987,7 +990,7 @@ Section __.
             exact Hnc. }
           rewrite (known_eq_inputs t' s' Hstar'). exact Hga'. }
         { exact (proj1 (step_star_mono s' tr s2 Hstar_s's2)). }
-        rewrite (known_eq_inputs (tr ++ t') s2 Hstar2). exact Hga_imp.
+        rewrite (known_eq_inputs (tr ++ t') s2 Hstar2). apply allowed_inputs_ok, Hga_imp.
   Qed.
 
   Lemma might_implies_will' :
