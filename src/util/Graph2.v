@@ -48,6 +48,7 @@ Section __.
   Definition lsafe : location -> list message -> Prop. Admitted.
 
   Axiom all_locs : list location.
+
   Inductive graph_sat : location -> (list message -> Prop) -> Prop :=
   | step_sat loc P Pjs :
     (forall ojs,
@@ -62,6 +63,10 @@ Section __.
     P [] ->
     graph_sat loc P.
 
+  Axiom init_graph : graph_state message label node_state.
+  Fail Lemma graph_sat_sound loc P :
+    graph_sat loc P ->
+    will_step graph_step possible_input (init_graph, []) (fun '(_, t) => _).
   Check graph_sat_ind.
   Check graph_step.
 End __.
