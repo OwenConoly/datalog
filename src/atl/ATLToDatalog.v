@@ -1322,4 +1322,44 @@ Proof.
      { reflexivity. }
   * reflexivity.
 Qed.
+
+(*
+What we wrote friday: 
+Lemma lower_pATLexpr'_works var ctx (e : pATL_expr' var_of var n) (e' : pATL_expr' interp_type_tagged n) idxs0 idxs0' rel rel' :
+  wf_pATL_expr' ctx e e' ->
+  Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
+  lower_pATLexpr' e idxs0 rel = blocks ->
+  NoDup (map fst (zctx ctx)) ->
+  exists blocks', 
+  *)
+
+Definition agrees_at {n} (P : result) (outer : list value) (sz : list nat)
+    (t : interp_type_tagged (tensor_n n)) : Prop :=
+  forall (idxs : list Z) (r : R),
+    length idxs = n ->
+    Forall2 (fun i s => (0 <= i < Z.of_nat s)%Z) idxs sz ->
+    (P.(result.normal) (VR r :: outer ++ map VZ idxs) <-> r = get_R t idxs).
+
+Check lower_pATLexpr'.
+Context {value_eqb : Eqb.Eqb value} {value_eqb_ok : Eqb.Eqb_ok value_eqb}.
+Context {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set}.
+Lemma lower_pATLexpr'_works n
+    (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
+    (src : pATLexpr interp_type_tagged n)
+    (e : pATLexpr' (var_of result) n) (e' : pATLexpr' interp_type_tagged n)
+    (idxs0 : list exprvar) (idxs0' : list value)
+    (true_rel : result) (sz : list nat) :
+  e' = lower_pATLexpr src ->
+  sizeof_prop sizeof_var src sz ->
+  wf_pATL_expr' ctx n e e' ->
+  Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
+  NoDup (map fst (zctx ctx)) ->
+  (forall args, true_rel.(result.normal) args <-> args = [Vbool true]) ->
+  (forall m P depth tv,
+     In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
+     exists szv, agrees_at P (firstn depth idxs0') szv tv) ->
+  agrees_at (blocks_prog.interp (lower_pATLexpr' e idxs0 true_rel)) idxs0' sz
+            (interp_pATLexpr' e').
+Admitted.
+
 End __.
