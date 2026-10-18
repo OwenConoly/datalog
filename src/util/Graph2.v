@@ -5,13 +5,13 @@ From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From coqutil Require Import Eqb.
 From Stdlib Require Import List PeanoNat Permutation Lia.
 From Stdlib Require Import RelationClasses Morphisms Classical_Prop.
-From Datalog Require Import OmniSmallstep Smallstep Map List Eqb.
+From Datalog Require Import OmniSmallstep Smallstep Map List Eqb Monadish Default.
 From Datalog Require Import Tactics.
 From coqutil Require Import Tactics Tactics.fwd.
 Import ListNotations.
 From Datalog Require Import Graph.
 
-Print graph_step.
+Open Scope option_monad_scope.
 
 Section __.
   Context (message label : Type) (forward : source -> destn -> message -> bool) (node_state : Type).
@@ -25,53 +25,105 @@ Section __.
   Context (init : node_id -> node_state).
   Context (safe : node_id -> list message -> Prop).
   (*Axiom safe_valid : safe inputs to node -> safe outputs from node.  can be stated in terms of npred_transf?*)
-
   Context (npred_transf_correct :
-            forall n inputs P,
-              npred_transf n inputs P ->
-              forall (t : list (IO_event label message)) st,
-                submultiset inputs (flat_map inputs_of t) ->
-                star (node_step n) (init n) t st ->
-                will_step (node_step n) (safe n) (st, t) (fun '(_, t') =>
-                                                            P (flat_map outputs_of t'))).
+            forall n t P st,
+              npred_transf n (flat_map inputs_of t) P ->
+              star (node_step n) (init n) t st ->
+              will_step (node_step n) (safe n) (st, t) (fun '(_, t') => P (flat_map outputs_of t'))).
   Context (input_guarantee : (list message -> Prop) -> Prop).
   Context (safe_input : list message -> Prop).
 
-  Definition lpred_transf : location -> list message -> (list message -> Prop) -> Prop :=
+  Definition lpred_transf (inputs : list message) : location -> list message -> (list message -> Prop) -> Prop :=
     fun loc inps P =>
       match loc with
       | node_loc n => npred_transf n inps P
-      | input_loc => input_guarantee P
+      | input_loc => P inputs
       | output_loc => P inps
       end.
 
   Definition lsafe : location -> list message -> Prop. Admitted.
 
-  Axiom all_locs : list location.
+  Axiom all_nodes : list node_id.
 
-  Inductive graph_sat : location -> (list message -> Prop) -> Prop :=
+  Definition outputs_at (gs : graph_state message label node_state) (t : list (IO_event (graph_label message label) message)) loc :=
+    match loc with
+    | node_loc n =>
+        '(Some ns) <- map.get gs.(graph_nodes) n ;;
+        flat_map outputs_of ns.(gns_trace)
+    | input_loc => flat_map inputs_of t
+    | output_loc => flat_map outputs_of t
+    end.
+
+  (*assuming empty queues...*)
+  Definition inputs_at (gs : graph_state message label node_state) (t : list (IO_event (graph_label message label) message)) dst :=
+    match dst with
+    | node_destn n =>
+        '(Some ns) <- map.get gs.(graph_nodes) n ;;
+        flat_map inputs_of ns.(gns_trace)
+    | output_destn => flat_map outputs_of t
+    end.
+
+  Definition forward' (x y : location) :=
+    match source_of_loc x, dest_of_loc y with
+    | Some src, Some destn => forward src destn
+    | _, _ => fun _ => false
+    end.
+  Definition all_locations := output_loc :: input_loc :: map node_loc all_nodes.
+
+  Scheme All for Forall.
+  Definition inputs_of_outputs (outputs : location -> list message) destn :=
+    flat_map (fun loc => filter (forward' loc destn) (outputs loc)) all_locations.
+
+  Inductive graph_sat (inputs : list message) : location -> (list message -> Prop) -> Prop :=
   | step_sat loc P Pjs :
+    Forall (fun src => graph_sat _ src (Pjs src)) all_locations ->
     (forall ojs,
-        Forall2 (fun Pj oj => Pj oj) Pjs ojs ->
-        lpred_transf loc (concat ojs) P) ->
-    Forall2 graph_sat all_locs Pjs ->
-    graph_sat loc P
+        Forall (fun src => Pjs src (ojs src) /\ lsafe loc (ojs src)) all_locations ->
+        lpred_transf inputs loc (inputs_of_outputs ojs loc) P) ->
+    graph_sat _ loc P
   | base_sat loc P :
-    (forall inps, lsafe loc inps -> lpred_transf loc inps P) ->
-    graph_sat loc P
-  | base_sat' loc P :
-    P [] ->
-    graph_sat loc P.
+    (forall inps, lsafe loc inps -> lpred_transf inputs loc inps P) ->
+    graph_sat _ loc P.
+
+  Lemma Forall_all_spec X Y (xs : list X) (ys : list Y) R R' idk :
+    Forall_all _ R (fun x _ => R' x) xs idk ->
+    Forall R' xs.
+  Proof. induction 1; auto. Qed.
 
   Axiom init_graph : graph_state message label node_state.
+
+  Lemma outputs_are_inputs gs t dst :
+    inputs_of_outputs (outputs_at gs t) (loc_of_dest dst) = inputs_at gs t dst.
+  Proof. Admitted.
+
+  Lemma step_sat_sound Pjs gs t dst P :
+    Forall (fun src => Pjs src (outputs_at gs t src)) all_locations ->
+    lpred_transf (flat_map inputs_of t) dst (inputs_of_outputs (outputs_at gs t) dst) P ->
+    eventually (will_step graph_step safe_input) (fun '(gs', t') => P (outputs_at gs' t' dst)) (gs, t).
+  Proof.
+    intros HPjs Htrans. destruct dst as [n| |]; cycle 1.
+    - cbn -[will_step]. simpl in Htrans. cbv [will_step]. apply eventually_done. assumption.
+    - simpl in Htrans. cbn -[will_step]. rewrite outputs_are_inputs with (dst := output_destn) in Htrans.
+      simpl in Htrans. apply eventually_done. assumption.
+    - rewrite outputs_are_inputs with (dst := node_destn n) in Htrans. simpl in Htrans.
+  Admitted.
+
   Lemma graph_sat_sound loc P :
     graph_sat loc P ->
     exists Pinp,
       input_guarantee Pinp /\
-        forall inputs,
-          Pinp inputs ->
-          will_step graph_step safe_input (init_graph, []) (fun '(_, t) => P (flat_map outputs_of t)).
-  Proof. Abort.
+        forall t,
+          Pinp (flat_map inputs_of t) ->
+          will_step graph_step safe_input (init_graph, t)
+            (fun '(gs, t') => P (outputs_at gs t' loc)).
+  Proof.
+    induction 1.
+    - apply Forall2_all_spec in H1. apply Forall2_forget_l in H1.
+      eapply Forall_impl in H1.
+      2: { intros ? [_ [_ H']]. exact H'. }
+      apply Forall_exists_r_Forall2 in H1. destruct H1 as [Pinpjs H1].
+      exists (fun inps => Forall (fun Pinp => Pinp inps) Pinpjs). split; [admit|].
+      intros t Hinps.
 
   Succeed Lemma true : True.
   Check graph_sat_ind.
