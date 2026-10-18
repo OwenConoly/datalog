@@ -1323,42 +1323,109 @@ Proof.
   * reflexivity.
 Qed.
 
-(*
-What we wrote friday: 
-Lemma lower_pATLexpr'_works var ctx (e : pATL_expr' var_of var n) (e' : pATL_expr' interp_type_tagged n) idxs0 idxs0' rel rel' :
-  wf_pATL_expr' ctx e e' ->
-  Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
-  lower_pATLexpr' e idxs0 rel = blocks ->
-  NoDup (map fst (zctx ctx)) ->
-  exists blocks', 
-  *)
+(* integer expressions: variables are looked up with sizeof_var *)
+Fixpoint sizeof_pZexpr' {var : Type} (sizeof_var : var -> option Z)
+    (e : pZexpr' var) : option Z :=
+  match e with
+  | ZBop o x y =>
+      match sizeof_pZexpr' sizeof_var x, sizeof_pZexpr' sizeof_var y with
+      | Some x', Some y' => Some (interp_Zbop o x' y')
+      | _, _ => None
+      end
+  | ZVar x => sizeof_var x
+  | ZLit z => Some z
+  | Zopp x => option_map Z.opp (sizeof_pZexpr' sizeof_var x)
+  end.
 
-Definition agrees_at {n} (P : result) (outer : list value) (sz : list nat)
+(* scalar expressions: only the Get arity matters *)
+Fixpoint sizeof_pSexpr' {var : type -> Type} (s : pATL_Sexpr' var) : Prop :=
+  match s with
+  | Get n _ idxs => length idxs = n
+  | SBop _ x y => sizeof_pSexpr' x /\ sizeof_pSexpr' y
+  | SLit _ => True
+  end.
+
+Fixpoint sizeof_prop' {var : type -> Type} {n : nat}
+    (sizeof_var : var tZ -> option Z) (e : pATLexpr' var n) (sz : list nat) : Prop :=
+  match e with
+  | Gen _ lo hi body =>
+      exists lo' hi' sz',
+        sizeof_pZexpr' sizeof_var lo = Some lo' /\
+        sizeof_pZexpr' sizeof_var hi = Some hi' /\
+        let m := Z.to_nat (hi' - lo') in
+        sz = m :: sz' /\ 0 < m /\
+        forall x, sizeof_prop' sizeof_var (body x) sz'
+  | Sum _ lo hi body =>
+      forall x, sizeof_prop' sizeof_var (body x) sz
+  | Guard _ b body =>
+      sizeof_prop' sizeof_var body sz
+  | Lbind _ _ e1 e2 =>
+      exists sz',
+        sizeof_prop' sizeof_var e1 sz' /\
+        forall x, sizeof_prop' sizeof_var (e2 x) sz
+  | Concat _ x y =>
+      exists nx ny sz',
+        sizeof_prop' sizeof_var x (nx :: sz') /\
+        sizeof_prop' sizeof_var y (ny :: sz') /\
+        sz = nx + ny :: sz'
+  | Flatten _ e1 =>
+      exists a b sz',
+        sizeof_prop' sizeof_var e1 (a :: b :: sz') /\ sz = a * b :: sz'
+  | Split _ k e1 =>
+      exists a sz' k',
+        sizeof_prop' sizeof_var e1 (a :: sz') /\
+        sizeof_pZexpr' sizeof_var k = Some k' /\
+        0 < Z.to_nat k' /\
+        sz = a //n (Z.to_nat k') :: Z.to_nat k' :: sz'
+  | Transpose _ e1 =>
+      exists a b sz',
+        sizeof_prop' sizeof_var e1 (a :: b :: sz') /\ sz = b :: a :: sz'
+  | Truncr _ k e1 | Truncl _ k e1 =>
+      exists m sz' k',
+        sizeof_prop' sizeof_var e1 (m :: sz') /\
+        sizeof_pZexpr' sizeof_var k = Some k' /\
+        Z.to_nat k' < m /\ sz = m - Z.to_nat k' :: sz'
+  | Padr k e1 =>
+      exists m sz' k',
+        sizeof_prop' sizeof_var e1 (m :: sz') /\
+        sizeof_pZexpr' sizeof_var k = Some k' /\
+        sz = m + Z.to_nat k' :: sz'
+  | Padl k e1 =>
+      exists m sz' k',
+        sizeof_prop' sizeof_var e1 (m :: sz') /\
+        sizeof_pZexpr' sizeof_var k = Some k' /\
+        sz = Z.to_nat k' + m :: sz'
+  | Scalar s => sz = [] /\ sizeof_pSexpr' s
+  end.
+
+Definition true_rel : result :=
+  result.mk (fun args => args = [Vbool true]) (fun _ => False).
+
+Lemma true_rel_normal args : true_rel.(result.normal) args <-> args = [Vbool true].
+Proof. reflexivity. Qed.
+
+Definition complete_at {n} (P : result) (outer : list value) (sz : list nat)
     (t : interp_type_tagged (tensor_n n)) : Prop :=
-  forall (idxs : list Z) (r : R),
+  forall (idxs : list Z),
     length idxs = n ->
     Forall2 (fun i s => (0 <= i < Z.of_nat s)%Z) idxs sz ->
-    (P.(result.normal) (VR r :: outer ++ map VZ idxs) <-> r = get_R t idxs).
+    P.(result.normal) (VR (get_R t idxs) :: outer ++ map VZ idxs).
 
-Check lower_pATLexpr'.
 Context {value_eqb : Eqb.Eqb value} {value_eqb_ok : Eqb.Eqb_ok value_eqb}.
 Context {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set}.
 Lemma lower_pATLexpr'_works n
     (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
-    (src : pATLexpr interp_type_tagged n)
     (e : pATLexpr' (var_of result) n) (e' : pATLexpr' interp_type_tagged n)
     (idxs0 : list exprvar) (idxs0' : list value)
-    (true_rel : result) (sz : list nat) :
-  e' = lower_pATLexpr src ->
-  sizeof_prop sizeof_var src sz ->
+    (sz : list nat) :
+  sizeof_prop' sizeof_var e' sz ->
   wf_pATL_expr' ctx n e e' ->
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
   NoDup (map fst (zctx ctx)) ->
-  (forall args, true_rel.(result.normal) args <-> args = [Vbool true]) ->
   (forall m P depth tv,
      In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
-     exists szv, agrees_at P (firstn depth idxs0') szv tv) ->
-  agrees_at (blocks_prog.interp (lower_pATLexpr' e idxs0 true_rel)) idxs0' sz
+     exists szv, complete_at P (firstn depth idxs0') szv tv) ->
+  complete_at (blocks_prog.interp (lower_pATLexpr' e idxs0 true_rel)) idxs0' sz
             (interp_pATLexpr' e').
 Admitted.
 
