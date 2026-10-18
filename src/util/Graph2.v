@@ -29,7 +29,7 @@ Section __.
             forall n t P st,
               npred_transf n (flat_map inputs_of t) P ->
               star (node_step n) (init n) t st ->
-              will_step (node_step n) (safe n) (st, t) (fun '(_, t') => P (flat_map outputs_of t'))).
+              eventually (will_step (node_step n) (safe n)) (fun '(_, t') => P (flat_map outputs_of t')) (st, t)).
   Context (input_guarantee : (list message -> Prop) -> Prop).
   Context (safe_input : list message -> Prop).
 
@@ -106,24 +106,21 @@ Section __.
     - simpl in Htrans. cbn -[will_step]. rewrite outputs_are_inputs with (dst := output_destn) in Htrans.
       simpl in Htrans. apply eventually_done. assumption.
     - rewrite outputs_are_inputs with (dst := node_destn n) in Htrans. simpl in Htrans.
+      assert (exists ns, map.get gs.(graph_nodes) n = Some ns) as [foot Hfoot]. { admit. }
+      rewrite Hfoot in Htrans. eapply npred_transf_correct in Htrans. 2: admit.
+      admit.
   Admitted.
 
-  Lemma graph_sat_sound loc P :
-    graph_sat loc P ->
-    exists Pinp,
-      input_guarantee Pinp /\
-        forall t,
-          Pinp (flat_map inputs_of t) ->
-          will_step graph_step safe_input (init_graph, t)
-            (fun '(gs, t') => P (outputs_at gs t' loc)).
-  Proof.
+  Lemma graph_sat_sound t loc P :
+    graph_sat (flat_map inputs_of t) loc P ->
+    eventually (will_step graph_step safe_input) (fun '(gs, t') => P (outputs_at gs t' loc)) (init_graph, t).
+  Proof. Admitted.
+
+  Lemma graph_sat_complete loc P :
+
+
     induction 1.
-    - apply Forall2_all_spec in H1. apply Forall2_forget_l in H1.
-      eapply Forall_impl in H1.
-      2: { intros ? [_ [_ H']]. exact H'. }
-      apply Forall_exists_r_Forall2 in H1. destruct H1 as [Pinpjs H1].
-      exists (fun inps => Forall (fun Pinp => Pinp inps) Pinpjs). split; [admit|].
-      intros t Hinps.
+    -
 
   Succeed Lemma true : True.
   Check graph_sat_ind.
