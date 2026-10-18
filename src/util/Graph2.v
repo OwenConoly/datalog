@@ -30,7 +30,15 @@ Section __.
               npred_transf n (flat_map inputs_of t) P ->
               star (node_step n) (init n) t st ->
               eventually (will_step (node_step n) (safe n)) (fun '(_, t') => P (flat_map outputs_of t')) (st, t)).
-  Context (input_guarantee : (list message -> Prop) -> Prop).
+
+  Context (relevant : location -> (list message -> Prop) -> Prop).
+  Context (npred_transf_complete1 :
+            forall n t st P,
+            star (node_step n) (init n) t st ->
+            relevant (node_loc n) P ->
+            P (flat_map outputs_of t) ->
+            npred_transf n (flat_map inputs_of t) P).
+
   Context (safe_input : list message -> Prop).
 
   Definition lpred_transf (inputs : list message) : location -> list message -> (list message -> Prop) -> Prop :=
@@ -74,6 +82,17 @@ Section __.
   Definition inputs_of_outputs (outputs : location -> list message) destn :=
     flat_map (fun loc => filter (forward' loc destn) (outputs loc)) all_locations.
 
+  Context (npred_transf_complete2 :
+            forall loc inps P,
+              safe_input inps ->
+              relevant loc P ->
+              exists Pjs,
+                Forall (fun src => relevant loc (Pjs src)) all_locations /\
+                  forall ojs,
+                    Forall (fun src => lsafe loc (ojs src)) all_locations ->
+                    lpred_transf inps loc (inputs_of_outputs ojs loc) P ->
+                    Forall (fun loc => Pjs loc (ojs loc)) all_locations).
+
   Inductive graph_sat (inputs : list message) : location -> (list message -> Prop) -> Prop :=
   | step_sat loc P Pjs :
     Forall (fun src => graph_sat _ src (Pjs src)) all_locations ->
@@ -116,13 +135,10 @@ Section __.
     eventually (will_step graph_step safe_input) (fun '(gs, t') => P (outputs_at gs t' loc)) (init_graph, t).
   Proof. Admitted.
 
-  Lemma graph_sat_complete loc P :
-
-
-    induction 1.
-    -
-
-  Succeed Lemma true : True.
-  Check graph_sat_ind.
-  Check graph_step.
+  Lemma graph_sat_complete P dst t gs :
+    relevant dst P ->
+    star (graph_step) init_graph t gs ->
+    P (outputs_at gs t dst) ->
+    graph_sat (flat_map inputs_of t) dst P.
+  Proof. Admitted.
 End __.
