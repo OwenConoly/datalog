@@ -310,6 +310,24 @@ Section __.
         cbn. rewrite Htr. assumption.
   Qed.
 
+  Lemma graph_eventually_of_node_eventually gs n P :
+    (any_step graph_step)^* init_graph gs ->
+    eventually (Smallstep.will_step (node_step n) (safe_inputs n)) P
+      ((gs n).(gns_node_state), (gs n).(gns_trace)) ->
+    eventually (will_step graph_step) (fun gs' => P ((gs' n).(gns_node_state), (gs' n).(gns_trace))) gs.
+  Proof.
+    intros Hreach Hev. remember ((gs n).(gns_node_state), (gs n).(gns_trace)) as st eqn:E.
+    revert gs Hreach E. induction Hev; intros gs Hreach E; subst.
+    - apply eventually_done. assumption.
+    - apply eventually_step with
+        (midset := fun gs' => (any_step graph_step)^* init_graph gs' /\
+                              midset ((gs' n).(gns_node_state), (gs' n).(gns_trace))).
+      + apply will_step_reach. eapply will_step_impl.
+        * apply graph_will_step_of_node_will_step; eassumption.
+        * intros gs' ? ?. split; eauto using crt1n_trans_compose.
+      + intros gs' []. eauto.
+  Qed.
+
   Lemma step_sat_sound Pjs gs dst P :
     (any_step graph_step)^* init_graph gs ->
     (forall src, Pjs src (outputs_at gs src)) ->
