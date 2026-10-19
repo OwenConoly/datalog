@@ -320,6 +320,10 @@ Section __.
     eapply eventually_trans.
     { apply sent_msgs_eventually_received with (dst := dst). assumption. }
     simpl. intros gs' Hgs'.
+    - apply graph_will_step_of_node_will_step.
+      { admit. }
+      apply npred_
+
     rewrite outputs_are_inputs in Htrans.
     eapply npred_transf_correct in Htrans. 2: admit.
     admit.
