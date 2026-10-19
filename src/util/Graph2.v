@@ -1,17 +1,8 @@
-From coqutil Require Import Map.Interface.
-From coqutil Require Import Map.Properties.
-From coqutil Require Import Map.MapKeys.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
-From coqutil Require Import Eqb.
-From Stdlib Require Import List PeanoNat Permutation Lia.
-From Stdlib Require Import RelationClasses Morphisms Classical_Prop.
-From Datalog Require Import OmniSmallstep Smallstep Map List Eqb Monadish Default.
-From Datalog Require Import Tactics Fin Function.
+From Stdlib Require Import List.
+From Datalog Require Import Smallstep Fin Function.
 From Datalog Require Import MessagelessSmallstep.
-From coqutil Require Import Tactics Tactics.fwd.
 Import ListNotations.
-
-Open Scope option_monad_scope.
 
 Section __.
   Context (message label : Type) (num_nodes : nat) (node := fin num_nodes).
@@ -31,8 +22,7 @@ Section __.
 
   Variant graph_label :=
     | receive (_ : node) (_ : message)
-    | run (_ : node) (_ : label)
-    | emit (_ : message).
+    | run (_ : node) (_ : label).
 
   Definition graph_state := node -> graph_node_state.
 
@@ -46,20 +36,19 @@ Section __.
                 gns_trace := e :: ns.(gns_trace);
                 gns_queue := ns.(gns_queue) |}.
 
-  Definition gns_receive (n : node) (ns : graph_node_state) (m : message) (ns' : graph_node_state) :=
-    exists st' ms1 ms2,
-      node_step n ns.(gns_node_state) (I_event m) st' /\
-        ns.(gns_queue) = ms1 ++ m :: ms2 /\
-        ns' = {| gns_node_state := st';
-                gns_trace := I_event m :: ns.(gns_trace);
-                gns_queue := ms1 ++ ms2 |}.
+  Definition gns_receive n (ns : graph_node_state) m ns' :=
+    exists ms1 ms2,
+      ns.(gns_queue) = ms1 ++ m :: ms2 /\
+        gns_run n {| gns_node_state := ns.(gns_node_state);
+                    gns_trace := ns.(gns_trace);
+                    gns_queue := ms1 ++ ms2 |} (I_event m) ns'.
 
   Variant graph_step : graph_state -> graph_label -> graph_state -> Prop :=
     | gstep_run n gs ns' lbl outs :
       gns_run n (gs n) (O_event lbl outs) ns' ->
       graph_step gs (run n lbl) (forward_to (forward n) outs (fun_put gs n ns'))
-    | gstep_receive gs n ns m ns' :
-      gns_receive n ns m ns' ->
+    | gstep_receive gs n m ns' :
+      gns_receive n (gs n) m ns' ->
       graph_step gs (receive n m) (fun_put gs n ns').
 
   Context (npred_transf : node -> list message -> (list message -> Prop) -> Prop).
@@ -85,7 +74,6 @@ Section __.
 
   Definition inputs_at (gs : graph_state) n := flat_map inputs_of (gs n).(gns_trace).
 
-  Scheme All for Forall.
   Definition inputs_of_outputs (outputs : node -> list message) destn :=
     flat_map (fun n => filter (forward n destn) (outputs n)) (fin.all _).
 
@@ -106,9 +94,8 @@ Section __.
         (forall n', Pjs n' (ojs n') /\ safe n' (ojs n'))  ->
         npred_transf loc (inputs_of_outputs ojs loc) P) ->
     graph_sat loc P
-  | base_sat loc P :
-    (forall inps, safe loc inps -> npred_transf loc inps P) ->
-    graph_sat loc P.
+  | top_sat loc :
+    graph_sat loc (fun _ => True).
 
   Definition init_graph := fun n =>
     {| gns_node_state := init n;
