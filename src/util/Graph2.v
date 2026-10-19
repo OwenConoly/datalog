@@ -6,139 +6,139 @@ From coqutil Require Import Eqb.
 From Stdlib Require Import List PeanoNat Permutation Lia.
 From Stdlib Require Import RelationClasses Morphisms Classical_Prop.
 From Datalog Require Import OmniSmallstep Smallstep Map List Eqb Monadish Default.
-From Datalog Require Import Tactics.
+From Datalog Require Import Tactics Fin Function.
+From Datalog Require Import MessagelessSmallstep.
 From coqutil Require Import Tactics Tactics.fwd.
 Import ListNotations.
-From Datalog Require Import Graph.
 
 Open Scope option_monad_scope.
 
 Section __.
-  Context (message label : Type) (forward : source -> destn -> message -> bool) (node_state : Type).
-  Context (node_step : node_id -> node_state -> IO_event label message -> node_state -> Prop).
-  Context {blah : map.map nat (graph_node_state message label node_state)}.
+  Context (message label : Type) (num_nodes : nat) (node := fin num_nodes).
+  Context (forward : node -> node -> message -> bool) (node_state : Type).
+  Context (node_step : node -> node_state -> IO_event label message -> node_state -> Prop).
+  Abbreviation nevent := (IO_event label message).
 
-  Abbreviation graph_step := (graph_step forward node_step).
+  Record graph_node_state :=
+    { gns_node_state : node_state;
+      gns_trace : list nevent;
+      gns_queue : list message }.
 
-  Context (npred_transf : node_id -> list message -> (list message -> Prop) -> Prop).
+  Definition enqueue inps gns :=
+    {| gns_node_state := gns.(gns_node_state);
+      gns_trace := gns.(gns_trace);
+      gns_queue := inps ++ gns.(gns_queue) |}.
+
+  Variant graph_label :=
+    | receive (_ : node) (_ : message)
+    | run (_ : node) (_ : label)
+    | emit (_ : message).
+
+  Definition graph_state := node -> graph_node_state.
+
+  Definition forward_to (keep : node -> message -> bool) (msgs : list message) (gs : graph_state) : graph_state :=
+    fun n => enqueue (filter (keep n) msgs) (gs n).
+
+  Definition gns_run n (ns : graph_node_state) (e : nevent) (ns' : graph_node_state) :=
+    exists st',
+      node_step n ns.(gns_node_state) e st' /\
+        ns' = {| gns_node_state := st';
+                gns_trace := e :: ns.(gns_trace);
+                gns_queue := ns.(gns_queue) |}.
+
+  Definition gns_receive (n : node) (ns : graph_node_state) (m : message) (ns' : graph_node_state) :=
+    exists st' ms1 ms2,
+      node_step n ns.(gns_node_state) (I_event m) st' /\
+        ns.(gns_queue) = ms1 ++ m :: ms2 /\
+        ns' = {| gns_node_state := st';
+                gns_trace := I_event m :: ns.(gns_trace);
+                gns_queue := ms1 ++ ms2 |}.
+
+  Variant graph_step : graph_state -> graph_label -> graph_state -> Prop :=
+    | gstep_run n gs ns' lbl outs :
+      gns_run n (gs n) (O_event lbl outs) ns' ->
+      graph_step gs (run n lbl) (forward_to (forward n) outs (fun_put gs n ns'))
+    | gstep_receive gs n ns m ns' :
+      gns_receive n ns m ns' ->
+      graph_step gs (receive n m) (fun_put gs n ns').
+
+  Context (npred_transf : node -> list message -> (list message -> Prop) -> Prop).
   (*TODO does this return False when input is non-monotone?  or what?*)
-  Context (init : node_id -> node_state).
-  Context (safe : node_id -> list message -> Prop).
+  Context (init : node -> node_state).
+  Context (safe : node -> list message -> Prop).
   (*Axiom safe_valid : safe inputs to node -> safe outputs from node.  can be stated in terms of npred_transf?*)
   Context (npred_transf_correct :
             forall n t P st,
               npred_transf n (flat_map inputs_of t) P ->
               star (node_step n) (init n) t st ->
-              eventually (will_step (node_step n) (safe n)) (fun '(_, t') => P (flat_map outputs_of t')) (st, t)).
+              eventually (Smallstep.will_step (node_step n) (safe n)) (fun '(_, t') => P (flat_map outputs_of t')) (st, t)).
 
-  Context (relevant : location -> (list message -> Prop) -> Prop).
+  Context (relevant : node -> (list message -> Prop) -> Prop).
   Context (npred_transf_complete1 :
             forall n t st P,
             star (node_step n) (init n) t st ->
-            relevant (node_loc n) P ->
+            relevant n P ->
             P (flat_map outputs_of t) ->
             npred_transf n (flat_map inputs_of t) P).
 
-  Context (safe_input : list message -> Prop).
+  Definition outputs_at (gs : graph_state) n := flat_map outputs_of (gs n).(gns_trace).
 
-  Definition lpred_transf (inputs : list message) : location -> list message -> (list message -> Prop) -> Prop :=
-    fun loc inps P =>
-      match loc with
-      | node_loc n => npred_transf n inps P
-      | input_loc => P inputs
-      | output_loc => P inps
-      end.
-
-  Definition lsafe : location -> list message -> Prop. Admitted.
-
-  Axiom all_nodes : list node_id.
-
-  Definition outputs_at (gs : graph_state message label node_state) (t : list (IO_event (graph_label message label) message)) loc :=
-    match loc with
-    | node_loc n =>
-        '(Some ns) <- map.get gs.(graph_nodes) n ;;
-        flat_map outputs_of ns.(gns_trace)
-    | input_loc => flat_map inputs_of t
-    | output_loc => flat_map outputs_of t
-    end.
-
-  (*assuming empty queues...*)
-  Definition inputs_at (gs : graph_state message label node_state) (t : list (IO_event (graph_label message label) message)) dst :=
-    match dst with
-    | node_destn n =>
-        '(Some ns) <- map.get gs.(graph_nodes) n ;;
-        flat_map inputs_of ns.(gns_trace)
-    | output_destn => flat_map outputs_of t
-    end.
-
-  Definition forward' (x y : location) :=
-    match source_of_loc x, dest_of_loc y with
-    | Some src, Some destn => forward src destn
-    | _, _ => fun _ => false
-    end.
-  Definition all_locations := output_loc :: input_loc :: map node_loc all_nodes.
+  Definition inputs_at (gs : graph_state) n := flat_map inputs_of (gs n).(gns_trace).
 
   Scheme All for Forall.
-  Definition inputs_of_outputs (outputs : location -> list message) destn :=
-    flat_map (fun loc => filter (forward' loc destn) (outputs loc)) all_locations.
+  Definition inputs_of_outputs (outputs : node -> list message) destn :=
+    flat_map (fun n => filter (forward n destn) (outputs n)) (fin.all _).
 
   Context (npred_transf_complete2 :
-            forall loc inps P,
-              safe_input inps ->
-              relevant loc P ->
-              exists Pjs,
-                Forall (fun src => relevant loc (Pjs src)) all_locations /\
+            forall n P,
+              relevant n P ->
+              exists (Pjs : node -> (list message -> Prop)),
+                (forall n', relevant n (Pjs n')) /\
                   forall ojs,
-                    Forall (fun src => lsafe loc (ojs src)) all_locations ->
-                    lpred_transf inps loc (inputs_of_outputs ojs loc) P ->
-                    Forall (fun loc => Pjs loc (ojs loc)) all_locations).
+                    (forall n', safe n' (ojs n')) ->
+                    npred_transf n (inputs_of_outputs ojs n) P ->
+                    (forall n', Pjs n' (ojs n'))).
 
-  Inductive graph_sat (inputs : list message) : location -> (list message -> Prop) -> Prop :=
+  Inductive graph_sat : node -> (list message -> Prop) -> Prop :=
   | step_sat loc P Pjs :
-    Forall (fun src => graph_sat _ src (Pjs src)) all_locations ->
+    (forall n', graph_sat n' (Pjs n')) ->
     (forall ojs,
-        Forall (fun src => Pjs src (ojs src) /\ lsafe loc (ojs src)) all_locations ->
-        lpred_transf inputs loc (inputs_of_outputs ojs loc) P) ->
-    graph_sat _ loc P
+        (forall n', Pjs n' (ojs n') /\ safe n' (ojs n'))  ->
+        npred_transf loc (inputs_of_outputs ojs loc) P) ->
+    graph_sat loc P
   | base_sat loc P :
-    (forall inps, lsafe loc inps -> lpred_transf inputs loc inps P) ->
-    graph_sat _ loc P.
+    (forall inps, safe loc inps -> npred_transf loc inps P) ->
+    graph_sat loc P.
 
-  Lemma Forall_all_spec X Y (xs : list X) (ys : list Y) R R' idk :
-    Forall_all _ R (fun x _ => R' x) xs idk ->
-    Forall R' xs.
-  Proof. induction 1; auto. Qed.
+  Definition init_graph := fun n =>
+    {| gns_node_state := init n;
+      gns_trace := [];
+      gns_queue := [] |}.
 
-  Axiom init_graph : graph_state message label node_state.
-
-  Lemma outputs_are_inputs gs t dst :
-    inputs_of_outputs (outputs_at gs t) (loc_of_dest dst) = inputs_at gs t dst.
+  Lemma outputs_are_inputs gs dst :
+    inputs_of_outputs (outputs_at gs) dst = inputs_at gs dst.
   Proof. Admitted.
 
-  Lemma step_sat_sound Pjs gs t dst P :
-    Forall (fun src => Pjs src (outputs_at gs t src)) all_locations ->
-    lpred_transf (flat_map inputs_of t) dst (inputs_of_outputs (outputs_at gs t) dst) P ->
-    eventually (will_step graph_step safe_input) (fun '(gs', t') => P (outputs_at gs' t' dst)) (gs, t).
+  Lemma step_sat_sound Pjs gs dst P :
+    (forall src, Pjs src (outputs_at gs src)) ->
+    npred_transf dst (inputs_of_outputs (outputs_at gs) dst) P ->
+    eventually (will_step graph_step) (fun gs' => P (outputs_at gs' dst)) gs.
   Proof.
-    intros HPjs Htrans. destruct dst as [n| |]; cycle 1.
-    - cbn -[will_step]. simpl in Htrans. cbv [will_step]. apply eventually_done. assumption.
-    - simpl in Htrans. cbn -[will_step]. rewrite outputs_are_inputs with (dst := output_destn) in Htrans.
-      simpl in Htrans. apply eventually_done. assumption.
-    - rewrite outputs_are_inputs with (dst := node_destn n) in Htrans. simpl in Htrans.
-      assert (exists ns, map.get gs.(graph_nodes) n = Some ns) as [foot Hfoot]. { admit. }
-      rewrite Hfoot in Htrans. eapply npred_transf_correct in Htrans. 2: admit.
-      admit.
+    intros HPjs Htrans.
+    rewrite outputs_are_inputs in Htrans.
+    eapply npred_transf_correct in Htrans. 2: admit.
+    admit.
   Admitted.
 
-  Lemma graph_sat_sound t loc P :
-    graph_sat (flat_map inputs_of t) loc P ->
-    eventually (will_step graph_step safe_input) (fun '(gs, t') => P (outputs_at gs t' loc)) (init_graph, t).
+  Lemma graph_sat_sound loc P :
+    graph_sat loc P ->
+    eventually (will_step graph_step) (fun gs => P (outputs_at gs loc)) init_graph.
   Proof. Admitted.
 
   Lemma graph_sat_complete P dst t gs :
     relevant dst P ->
     star (graph_step) init_graph t gs ->
-    P (outputs_at gs t dst) ->
-    graph_sat (flat_map inputs_of t) dst P.
+    P (outputs_at gs dst) ->
+    graph_sat dst P.
   Proof. Admitted.
 End __.
