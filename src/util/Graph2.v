@@ -336,9 +336,10 @@ Section __.
   Proof.
     intros Hstep HPjs Htrans.
     eapply eventually_trans.
-    { apply sent_msgs_eventually_received with (dst := dst). assumption. }
+    { (*apply it here*) apply sent_msgs_eventually_received with (dst := dst). assumption. }
     simpl. intros gs' Hgs'.
-    - apply graph_will_step_of_node_will_step.
+    - eapply eventually_weaken.
+      { apply graph_eventually_of_node_eventually. 1: assumption. _step_of_node_will_step.
       { admit. }
       apply npred_
 
