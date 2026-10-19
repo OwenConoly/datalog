@@ -118,9 +118,6 @@ Section __.
       gns_trace := [];
       gns_queue := [] |}.
 
-  Definition queues_empty (gs : graph_state) :=
-    forall n, (gs n).(gns_queue) = [].
-
   Lemma messages_conserved_step gs lbl gs' dst :
     (forall dst', Permutation (inputs_of_outputs (outputs_at gs) dst') (inputs_at gs dst' ++ (gs dst').(gns_queue))) ->
     graph_step gs lbl gs' ->
@@ -218,10 +215,9 @@ Section __.
       gs.
   Proof. apply eventually_received; apply submultiset_refl. Qed.
 
-  Lemma outputs_are_inputs gs dst :
+  Lemma sent_msgs_eventually_received gs dst :
     (any_step graph_step)^* init_graph gs ->
-    queues_empty gs ->
-    inputs_of_outputs (outputs_at gs) dst = inputs_at gs dst.
+    eventually (will_step graph_step) (fun gs' => submultiset (inputs_of_outputs (outputs_at gs) dst) (inputs_at gs' dst)) gs.
   Proof. Admitted.
 
   Lemma step_sat_sound Pjs gs dst P :
