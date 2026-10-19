@@ -337,15 +337,14 @@ Section __.
     intros Hstep HPjs Htrans.
     eapply eventually_trans.
     { apply eventually_and_reach. apply sent_msgs_eventually_received with (dst := dst). assumption. }
-    simpl. intros gs' Hgs'.
+    simpl. intros gs' Hgs'. fwd.
     - eapply eventually_weaken.
-      { apply graph_eventually_of_node_eventually. 1: assumption. _step_of_node_will_step.
+      { apply eventually_and_reach. apply graph_eventually_of_node_eventually.
+        - eauto using crt1n_trans_compose.
+        - apply npred_transf_sound.
+          2: { apply node_steps_of_graph_steps_init. eauto using crt1n_trans_compose. }
+          Search npred_transf.
       { admit. }
-      apply npred_
-
-    rewrite outputs_are_inputs in Htrans.
-    eapply npred_transf_correct in Htrans. 2: admit.
-    admit.
   Admitted.
 
   Lemma graph_sat_sound loc P :
