@@ -234,7 +234,7 @@ Section __.
         [|discriminate].
       simpl in Hck. inversion Hck; subst u; clear Hck.
       pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
-      apply option_all_map_Some' in Eall.
+      apply option_all_Some_iff in Eall.
       apply Forall_app.
       enough (Hall : Forall (well_typed_clause tctx) (concls ++ hyps)) by tauto.
       apply Forall_forall. intros c0 Hin.
@@ -273,7 +273,7 @@ Section __.
       [|discriminate].
     simpl in Hck. inversion Hck; subst u; clear Hck.
     pose proof (compatible_union_of_list_extends _ _ Eun) as Hext.
-    apply option_all_map_Some' in Eall.
+    apply option_all_Some_iff in Eall.
     apply Forall_app.
     enough (Hall : Forall (well_typed_clause_pattern tctx) (concls ++ hyps)) by tauto.
     apply Forall_forall. intros c0 Hin.
