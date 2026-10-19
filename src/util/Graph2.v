@@ -284,11 +284,31 @@ Section __.
         destr (eqb n n0); cbn; apply IHclos_refl_trans_n1.
   Qed.
 
-  Lemma graph_step_of_node_step gs n P :
+  Lemma graph_inputs_safe gs n :
+    (any_step graph_step)^* init_graph gs ->
+    safe_inputs n (inputs_at gs n).
+  Proof.
+    intros H. eapply safe_inputs_mono.
+    - exists (outputs_at gs). split; [ eauto using graph_is_safe | reflexivity ].
+    - eapply submultiset_perm_r; [ | apply submultiset_app_r ].
+      symmetry. apply messages_conserved. assumption.
+  Qed.
+
+  Lemma graph_will_step_of_node_will_step gs n P :
     (any_step graph_step)^* init_graph gs ->
     Smallstep.will_step (node_step n) (safe_inputs n) ((gs n).(gns_node_state), (gs n).(gns_trace)) P ->
     will_step graph_step gs (fun gs' => P ((gs' n).(gns_node_state), (gs' n).(gns_trace))).
-  Proof. Admitted.
+  Proof.
+    intros Hreach (lbl & Hwill). exists (run n lbl). intros gs' Hgs'.
+    destruct (node_steps_of_graph_steps _ _ n Hgs') as (t & Ht & Htr).
+    destruct (Hwill _ _ Ht) as [HP | (s'' & outs & Hstep & HP)].
+    - rewrite <- Htr. apply graph_inputs_safe. eapply crt1n_trans_compose; eassumption.
+    - left. rewrite Htr. assumption.
+    - right. eexists. split.
+      + econstructor. exists s''. split; [ exact Hstep | reflexivity ].
+      + cbv [forward_to enqueue fun_put]. destr (eqb n n); [ | congruence ].
+        cbn. rewrite Htr. assumption.
+  Qed.
 
   Lemma step_sat_sound Pjs gs dst P :
     (any_step graph_step)^* init_graph gs ->
