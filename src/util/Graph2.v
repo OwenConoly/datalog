@@ -236,15 +236,32 @@ Section __.
       symmetry. eapply filter_id_submultiset. apply Hgsub.
   Qed.
 
-  Lemma node_steps_of_graph_steps gs n :
+  Lemma node_steps_of_graph_steps gs gs' n :
+    (any_step graph_step)^* gs gs' ->
+    exists t, star (node_step n) (gs n).(gns_node_state) t (gs' n).(gns_node_state) /\
+              (gs' n).(gns_trace) = t ++ (gs n).(gns_trace).
+  Proof.
+    intros H. apply clos_rt1n_rt, clos_rt_rtn1 in H. induction H.
+    - exists []. split; [ apply star_refl | reflexivity ].
+    - destruct IHclos_refl_trans_n1 as (t & Ht & Htr). destruct H as [lbl H]. invert H.
+      + cbv [gns_run] in *. fwd. cbv [forward_to enqueue fun_put].
+        destr (eqb n n0); cbn; [ | exists t; split; assumption ].
+        eexists. split.
+        * eauto using star_step.
+        * cbn. congruence.
+      + cbv [gns_receive gns_run] in *. fwd. cbv [fun_put].
+        destr (eqb n n0); cbn; [ | exists t; split; assumption ].
+        eexists. split.
+        * eauto using star_step.
+        * cbn. congruence.
+  Qed.
+
+  Lemma node_steps_of_graph_steps_init gs n :
     (any_step graph_step)^* init_graph gs ->
     star (node_step n) (init n) (gs n).(gns_trace) (gs n).(gns_node_state).
   Proof.
-    intros H. apply clos_rt1n_rt, clos_rt_rtn1 in H. revert n. induction H; intros n.
-    - apply star_refl.
-    - destruct H as [lbl H]. invert H.
-      + cbv [gns_run] in *. fwd. cbv [forward_to enqueue fun_put]. destr (eqb n n0); cbn; eauto using star_step.
-      + cbv [gns_receive gns_run] in *. fwd. cbv [fun_put]. destr (eqb n n0); cbn; eauto using star_step.
+    intros H. apply node_steps_of_graph_steps with (n := n) in H. destruct H as (t & Ht & Htr).
+    cbn in Htr. rewrite Htr, app_nil_r. exact Ht.
   Qed.
 
   Lemma graph_is_safe gs n :
@@ -258,7 +275,7 @@ Section __.
       + cbv [gns_run] in *. fwd. cbv [outputs_at forward_to enqueue fun_put].
         destr (eqb n n0); [ | apply IHclos_refl_trans_n1 ].
         eapply safe_preserved; cbn.
-        * eauto using star_step, node_steps_of_graph_steps.
+        * eauto using star_step, node_steps_of_graph_steps_init.
         * eapply safe_inputs_mono.
           -- exists (outputs_at y). split; [ exact IHclos_refl_trans_n1 | reflexivity ].
           -- eapply submultiset_perm_r; [ | apply submultiset_app_r ].
