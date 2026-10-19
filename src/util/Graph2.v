@@ -84,8 +84,8 @@ Section __.
                 (forall n', relevant n (Pjs n')) /\
                   forall ojs,
                     (forall n', safe n' (ojs n')) ->
-                    npred_transf n (inputs_of_outputs ojs n) P ->
-                    (forall n', Pjs n' (ojs n'))).
+                    (forall n', Pjs n' (ojs n')) ->
+                    npred_transf n (inputs_of_outputs ojs n) P).
 
   Inductive graph_sat : node -> (list message -> Prop) -> Prop :=
   | step_sat loc P Pjs :
