@@ -1,6 +1,6 @@
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From Stdlib Require Import List Permutation.
-From Datalog Require Import Smallstep Fin Function.
+From Datalog Require Import Smallstep Fin Function List.
 From Datalog Require Import MessagelessSmallstep.
 Import ListNotations.
 
@@ -9,6 +9,56 @@ Section __.
   Context (forward : node -> node -> message -> bool) (node_state : Type).
   Context (node_step : node -> node_state -> IO_event label message -> node_state -> Prop).
   Abbreviation nevent := (IO_event label message).
+  Context (nodes_input_total : forall n, input_total (node_step n)).
+
+  Context (npred_transf : node -> list message -> (list message -> Prop) -> Prop).
+  Context (init : node -> node_state).
+  Context (safe : node -> list message -> Prop).
+  Context (safe_mono : forall n, multiset_monotone_dec (safe n)).
+  Context (safe_nothing : forall n, safe n []).
+
+  Definition inputs_of_outputs (outputs : node -> list message) destn :=
+    flat_map (fun n => filter (forward n destn) (outputs n)) (fin.all _).
+
+  Definition safe_inputs (n : node) (inps : list message) :=
+    exists ojs,
+      (forall n', safe n' (ojs n')) /\
+        Permutation inps (inputs_of_outputs ojs n).
+
+  Context (safe_preserved :
+            forall n t st,
+              star (node_step n) (init n) t st ->
+              safe_inputs n (flat_map inputs_of t) ->
+              safe n (flat_map outputs_of t)).
+
+  Context (npred_transf_sound :
+            forall n t P st,
+              npred_transf n (flat_map inputs_of t) P ->
+              star (node_step n) (init n) t st ->
+              eventually (Smallstep.will_step (node_step n) (safe_inputs n)) (fun '(_, t') => P (flat_map outputs_of t')) (st, t)).
+
+  Context (relevant : node -> (list message -> Prop) -> Prop).
+
+  Context (npred_transf_complete :
+            forall n t st P,
+            star (node_step n) (init n) t st ->
+            relevant n P ->
+            P (flat_map outputs_of t) ->
+            npred_transf n (flat_map inputs_of t) P).
+
+  Definition suffices loc (Pjs : node -> list message -> Prop) P :=
+    forall ojs,
+      (forall n', Pjs n' (ojs n') /\ safe n' (ojs n')) ->
+      npred_transf loc (inputs_of_outputs ojs loc) P.
+
+  Context (relevant_preserved :
+            forall n ojs P,
+              relevant n P ->
+              (forall n', safe n' (ojs n')) ->
+              npred_transf n (inputs_of_outputs ojs n) P ->
+              exists (Pjs : node -> (list message -> Prop)),
+                (forall n', relevant n' (Pjs n') /\ Pjs n' (ojs n')) /\
+                  suffices n Pjs P).
 
   Record graph_node_state :=
     { gns_node_state : node_state;
@@ -51,56 +101,9 @@ Section __.
       gns_receive n (gs n) m ns' ->
       graph_step gs (receive n m) (fun_put gs n ns').
 
-  Context (npred_transf : node -> list message -> (list message -> Prop) -> Prop).
-  Context (init : node -> node_state).
-  Context (safe : node -> list message -> Prop).
-
-  Definition inputs_of_outputs (outputs : node -> list message) destn :=
-    flat_map (fun n => filter (forward n destn) (outputs n)) (fin.all _).
-
-  Definition safe_inputs (n : node) (inps : list message) :=
-    exists ojs,
-      (forall n', safe n' (ojs n')) /\
-        Permutation inps (inputs_of_outputs ojs n).
-
-  Context (safe_preserved :
-            forall n t st,
-              star (node_step n) (init n) t st ->
-              safe_inputs n (flat_map inputs_of t) ->
-              safe n (flat_map outputs_of t)).
-
-  Context (npred_transf_correct :
-            forall n t P st,
-              npred_transf n (flat_map inputs_of t) P ->
-              star (node_step n) (init n) t st ->
-              eventually (Smallstep.will_step (node_step n) (safe n)) (fun '(_, t') => P (flat_map outputs_of t')) (st, t)).
-
-  Context (relevant : node -> (list message -> Prop) -> Prop).
-
-  Context (npred_transf_complete1 :
-            forall n t st P,
-            star (node_step n) (init n) t st ->
-            relevant n P ->
-            P (flat_map outputs_of t) ->
-            npred_transf n (flat_map inputs_of t) P).
-
   Definition outputs_at (gs : graph_state) n := flat_map outputs_of (gs n).(gns_trace).
 
   Definition inputs_at (gs : graph_state) n := flat_map inputs_of (gs n).(gns_trace).
-
-  Definition suffices loc (Pjs : node -> list message -> Prop) P :=
-    forall ojs,
-      (forall n', Pjs n' (ojs n') /\ safe n' (ojs n')) ->
-      npred_transf loc (inputs_of_outputs ojs loc) P.
-
-  Context (npred_transf_complete2 :
-            forall n ojs P,
-              relevant n P ->
-              (forall n', safe n' (ojs n')) ->
-              npred_transf n (inputs_of_outputs ojs n) P ->
-              exists (Pjs : node -> (list message -> Prop)),
-                (forall n', relevant n' (Pjs n') /\ Pjs n' (ojs n')) /\
-                  suffices n Pjs P).
 
   Inductive graph_sat : node -> (list message -> Prop) -> Prop :=
   | step_sat loc P Pjs :
