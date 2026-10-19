@@ -1,5 +1,5 @@
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
-From Stdlib Require Import List.
+From Stdlib Require Import List Permutation.
 From Datalog Require Import Smallstep Fin Function.
 From Datalog Require Import MessagelessSmallstep.
 Import ListNotations.
@@ -52,10 +52,23 @@ Section __.
       graph_step gs (receive n m) (fun_put gs n ns').
 
   Context (npred_transf : node -> list message -> (list message -> Prop) -> Prop).
-  (*TODO does this return False when input is non-monotone?  or what?*)
   Context (init : node -> node_state).
   Context (safe : node -> list message -> Prop).
-  (*Axiom safe_valid : safe inputs to node -> safe outputs from node.  can be stated in terms of npred_transf?*)
+
+  Definition inputs_of_outputs (outputs : node -> list message) destn :=
+    flat_map (fun n => filter (forward n destn) (outputs n)) (fin.all _).
+
+  Definition safe_inputs (n : node) (inps : list message) :=
+    exists ojs,
+      (forall n', safe n' (ojs n')) /\
+        Permutation inps (inputs_of_outputs ojs n).
+
+  Context (safe_preserved :
+            forall n t st,
+              star (node_step n) (init n) t st ->
+              safe_inputs n (flat_map inputs_of t) ->
+              safe n (flat_map outputs_of t)).
+
   Context (npred_transf_correct :
             forall n t P st,
               npred_transf n (flat_map inputs_of t) P ->
@@ -63,6 +76,7 @@ Section __.
               eventually (Smallstep.will_step (node_step n) (safe n)) (fun '(_, t') => P (flat_map outputs_of t')) (st, t)).
 
   Context (relevant : node -> (list message -> Prop) -> Prop).
+
   Context (npred_transf_complete1 :
             forall n t st P,
             star (node_step n) (init n) t st ->
@@ -73,9 +87,6 @@ Section __.
   Definition outputs_at (gs : graph_state) n := flat_map outputs_of (gs n).(gns_trace).
 
   Definition inputs_at (gs : graph_state) n := flat_map inputs_of (gs n).(gns_trace).
-
-  Definition inputs_of_outputs (outputs : node -> list message) destn :=
-    flat_map (fun n => filter (forward n destn) (outputs n)) (fin.all _).
 
   Definition suffices loc (Pjs : node -> list message -> Prop) P :=
     forall ojs,
