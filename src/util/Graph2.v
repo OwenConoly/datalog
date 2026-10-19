@@ -269,10 +269,8 @@ Section __.
 
   Lemma graph_step_of_node_step gs n P :
     (any_step graph_step)^* init_graph gs ->
-    Smallstep.will_step (node_step n) (safe n) ((gs n).(gns_node_state), (gs n).(gns_trace)) P ->
-    eventually (will_step graph_step)
-      (fun gs' => P ((gs' n).(gns_node_state), (gs' n).(gns_trace)))
-      gs.
+    Smallstep.will_step (node_step n) (safe_inputs n) ((gs n).(gns_node_state), (gs n).(gns_trace)) P ->
+    will_step graph_step gs (fun gs' => P ((gs' n).(gns_node_state), (gs' n).(gns_trace))).
   Proof. Admitted.
 
   Lemma step_sat_sound Pjs gs dst P :
