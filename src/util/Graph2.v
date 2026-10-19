@@ -156,6 +156,59 @@ Section __.
     - destruct H as [lbl H]. eapply messages_conserved_step; eassumption.
   Qed.
 
+  Lemma pool_submultiset_step gs lbl gs' dst :
+    graph_step gs lbl gs' ->
+    submultiset (inputs_at gs dst) (inputs_at gs' dst) /\
+      submultiset (inputs_at gs dst ++ (gs dst).(gns_queue)) (inputs_at gs' dst ++ (gs' dst).(gns_queue)).
+  Proof.
+    intros Hstep. invert Hstep.
+    - cbv [gns_run] in *. fwd. cbv [inputs_at forward_to enqueue fun_put]. destr (eqb dst n); cbn;
+        split; auto using submultiset_refl, submultiset_app_mid.
+    - cbv [gns_receive gns_run] in *. fwd. cbv [inputs_at fun_put].
+      destr (eqb dst n); cbn; split; auto using submultiset_refl, submultiset_cons.
+      rewrite Hp0. apply submultiset_perm. apply perm_recv.
+  Qed.
+
+  Lemma pool_submultiset gs gs' dst :
+    (any_step graph_step)^* gs gs' ->
+    submultiset (inputs_at gs dst) (inputs_at gs' dst) /\
+      submultiset (inputs_at gs dst ++ (gs dst).(gns_queue)) (inputs_at gs' dst ++ (gs' dst).(gns_queue)).
+  Proof.
+    induction 1.
+    - split; apply submultiset_refl.
+    - destruct H as [lbl H]. apply pool_submultiset_step with (dst := dst) in H. fwd.
+      split; eapply submultiset_trans; eassumption.
+  Qed.
+
+  Lemma eventually_received gs dst base owed :
+    submultiset base (inputs_at gs dst) ->
+    submultiset (base ++ owed) (inputs_at gs dst ++ (gs dst).(gns_queue)) ->
+    eventually (will_step graph_step) (fun gs' => submultiset (base ++ owed) (inputs_at gs' dst)) gs.
+  Proof.
+    revert base gs. induction owed as [|m owed IH]; intros base gs Hbase Howed.
+    - apply eventually_done. rewrite app_nil_r. assumption.
+    - apply eventually_step with
+        (midset := fun gs' => submultiset (base ++ [m]) (inputs_at gs' dst) /\
+                              submultiset (base ++ m :: owed) (inputs_at gs' dst ++ (gs' dst).(gns_queue))).
+      + exists (receive dst m). intros gs' Hreach.
+        apply pool_submultiset with (dst := dst) in Hreach. destruct Hreach as [HR HRQ].
+        apply (submultiset_trans _ _ _ Hbase) in HR.
+        apply (submultiset_trans _ _ _ Howed) in HRQ.
+        destruct (submultiset_snoc_or_in _ _ _ _ _ HR HRQ) as [Hdone|Hq].
+        * left. split; assumption.
+        * right. apply in_split in Hq. destruct Hq as (ms1 & ms2 & Hq).
+          destruct (nodes_input_total dst (gs' dst).(gns_node_state) m) as [st' Hst'].
+          eexists. split.
+          -- constructor. exists ms1, ms2. split; [exact Hq|]. eexists. split; [exact Hst'|reflexivity].
+          -- cbv [inputs_at fun_put]. destr (eqb dst dst); [|congruence]. cbn. split.
+             ++ eapply submultiset_perm_l; [apply Permutation_cons_append|].
+                apply submultiset_cons_mono. assumption.
+             ++ eapply submultiset_perm_r; [apply perm_recv|]. rewrite <- Hq. assumption.
+      + intros gs' [].
+        replace (base ++ m :: owed) with ((base ++ [m]) ++ owed) in * by (rewrite <- app_assoc; reflexivity).
+        auto.
+  Qed.
+
   Lemma drain_queues gs dst :
     eventually (will_step graph_step)
       (fun gs' =>
@@ -163,7 +216,7 @@ Section __.
            (inputs_at gs dst ++ (gs dst).(gns_queue))
            (inputs_at gs' dst))
       gs.
-  Proof. Admitted.
+  Proof. apply eventually_received; apply submultiset_refl. Qed.
 
   Lemma outputs_are_inputs gs dst :
     (any_step graph_step)^* init_graph gs ->

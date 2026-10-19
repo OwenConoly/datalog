@@ -2330,6 +2330,23 @@ Section misc.
     exists (s1 ++ s2). cbn [app]. symmetry. apply Permutation_middle.
   Qed.
 
+  Lemma submultiset_snoc_or_in base owed T Q a :
+    submultiset base T ->
+    submultiset (base ++ a :: owed) (T ++ Q) ->
+    submultiset (base ++ [a]) T \/ In a Q.
+  Proof.
+    intros (s & HT) H.
+    assert (Hin : In a (s ++ Q)).
+    { apply (submultiset_incl (a :: owed)); [|left; reflexivity].
+      apply (submultiset_app_inv_l base). eapply submultiset_perm_r; [|exact H].
+      rewrite HT, <- app_assoc. reflexivity. }
+    apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+    - left. apply in_split in Hin. destruct Hin as (s1 & s2 & ->). exists (s1 ++ s2).
+      rewrite HT, <- app_assoc. apply Permutation_app_head.
+      cbn [app]. symmetry. apply Permutation_middle.
+    - right. assumption.
+  Qed.
+
   Definition multiset_monotone_dec (P : list A -> Prop) :=
     forall l1 l2, P l2 -> submultiset l1 l2 -> P l1.
 
