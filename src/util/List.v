@@ -122,6 +122,22 @@ Proof.
   apply IHl. intros x Hin. apply Hall. right. exact Hin.
 Qed.
 
+Lemma flat_map_app_at_perm {A B} (f g : A -> list B) (l : list A) a x :
+  NoDup l ->
+  In a l ->
+  (forall a', a' <> a -> g a' = f a') ->
+  g a = x ++ f a ->
+  Permutation (flat_map g l) (x ++ flat_map f l).
+Proof.
+  intros Hnd Hin Hne Ha. revert Hin. induction Hnd; intros Hin; cbn [flat_map]; [contradiction|].
+  destruct Hin as [<-|Hin].
+  - rewrite Ha, <- app_assoc, !flat_map_concat_map, (map_ext_in g f)
+      by (intros a' ?; apply Hne; intros ->; contradiction).
+    reflexivity.
+  - rewrite Hne by (intros ->; contradiction).
+    rewrite <- Permutation_app_swap_app. apply Permutation_app_head. auto.
+Qed.
+
 Lemma combine_map {A B C} (f : A -> B) (g : A -> C) (l : list A) :
   combine (map f l) (map g l) = map (fun x => (f x, g x)) l.
 Proof. induction l as [|a l IH]; cbn [map combine]; [reflexivity | rewrite IH; reflexivity]. Qed.

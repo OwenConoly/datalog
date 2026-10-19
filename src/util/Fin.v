@@ -22,6 +22,7 @@ Module fin.
     Qed.
   End __.
   Arguments fin : clear implicits.
+  #[export] Typeclasses Opaque eqb.
 
   #[refine] Definition toS {n} (small : fin n) : fin (S n) :=
     {| val := small.(val) |}.

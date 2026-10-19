@@ -1,6 +1,7 @@
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
-From Stdlib Require Import List Permutation.
-From Datalog Require Import Smallstep Fin Function List Relations.
+From coqutil Require Import Eqb Tactics Tactics.fwd.
+From Stdlib Require Import List Permutation Relations.
+From Datalog Require Import Smallstep Fin Function List Relations Eqb Tactics.
 From Datalog Require Import MessagelessSmallstep.
 Import ListNotations.
 
@@ -120,10 +121,40 @@ Section __.
   Definition queues_empty (gs : graph_state) :=
     forall n, (gs n).(gns_queue) = [].
 
+  Lemma messages_conserved_step gs lbl gs' dst :
+    (forall dst', Permutation (inputs_of_outputs (outputs_at gs) dst') (inputs_at gs dst' ++ (gs dst').(gns_queue))) ->
+    graph_step gs lbl gs' ->
+    Permutation (inputs_of_outputs (outputs_at gs') dst) (inputs_at gs' dst ++ (gs' dst).(gns_queue)).
+  Proof.
+    intros Hcons Hstep. invert Hstep.
+    - cbv [gns_run] in *. fwd.
+      transitivity (filter (forward n dst) outs ++ inputs_of_outputs (outputs_at gs) dst).
+      + apply flat_map_app_at_perm with (a := n).
+        * apply fin.all_NoDup.
+        * apply fin.all_Full.
+        * intros a' ?. cbv [outputs_at forward_to enqueue fun_put]. destr (eqb a' n); cbn; congruence.
+        * cbv [outputs_at forward_to enqueue fun_put]. destr (eqb n n); [|congruence].
+          cbn. apply filter_app.
+      + cbv [inputs_at forward_to enqueue fun_put]. destr (eqb dst n); cbn;
+          symmetry; apply perm_ins; symmetry; apply Hcons.
+    - cbv [gns_receive gns_run] in *. fwd.
+      transitivity (inputs_of_outputs (outputs_at gs) dst).
+      + apply Permutation_refl'. apply flat_map_ext. intros k.
+        cbv [outputs_at fun_put]. destr (eqb k n); reflexivity.
+      + cbv [inputs_at fun_put]. destr (eqb dst n); cbn.
+        * rewrite Hcons, Hp0. apply perm_recv.
+        * apply Hcons.
+  Qed.
+
   Lemma messages_conserved gs dst :
     (any_step graph_step)^* init_graph gs ->
-    inputs_of_outputs (outputs_at gs) dst = inputs_at gs dst ++ (gs dst).(gns_queue).
-  Proof. Admitted.
+    Permutation (inputs_of_outputs (outputs_at gs) dst) (inputs_at gs dst ++ (gs dst).(gns_queue)).
+  Proof.
+    intros H. apply clos_rt1n_rt, clos_rt_rtn1 in H. revert dst. induction H; intros dst.
+    - cbv [inputs_of_outputs outputs_at inputs_at init_graph]. cbn.
+      rewrite flat_map_all_nil by auto. reflexivity.
+    - destruct H as [lbl H]. eapply messages_conserved_step; eassumption.
+  Qed.
 
   Lemma drain_queues gs dst :
     eventually (will_step graph_step)
