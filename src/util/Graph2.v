@@ -218,14 +218,35 @@ Section __.
   Lemma sent_msgs_eventually_received gs dst :
     (any_step graph_step)^* init_graph gs ->
     eventually (will_step graph_step) (fun gs' => submultiset (inputs_of_outputs (outputs_at gs) dst) (inputs_at gs' dst)) gs.
+  Proof.
+    intros Hreach. eapply eventually_weaken; [apply drain_queues|].
+    intros gs' H. eapply submultiset_perm_l; [|exact H].
+    symmetry. apply messages_conserved. assumption.
+  Qed.
+
+  Lemma graph_is_safe gs :
+    (any_step graph_step)^* init_graph gs ->
+    forall n, safe n (outputs_at gs n).
+  Proof. Admitted.
+
+  Lemma graph_step_of_node_step gs n P :
+    (any_step graph_step)^* init_graph gs ->
+    Smallstep.will_step (node_step n) (safe n) ((gs n).(gns_node_state), (gs n).(gns_trace)) P ->
+    eventually (will_step graph_step)
+      (fun gs' => P ((gs' n).(gns_node_state), (gs' n).(gns_trace)))
+      gs.
   Proof. Admitted.
 
   Lemma step_sat_sound Pjs gs dst P :
+    (any_step graph_step)^* init_graph gs ->
     (forall src, Pjs src (outputs_at gs src)) ->
     npred_transf dst (inputs_of_outputs (outputs_at gs) dst) P ->
     eventually (will_step graph_step) (fun gs' => P (outputs_at gs' dst)) gs.
   Proof.
-    intros HPjs Htrans.
+    intros Hstep HPjs Htrans.
+    eapply eventually_trans.
+    { apply sent_msgs_eventually_received with (dst := dst). assumption. }
+    simpl. intros gs' Hgs'.
     rewrite outputs_are_inputs in Htrans.
     eapply npred_transf_correct in Htrans. 2: admit.
     admit.
