@@ -1,6 +1,6 @@
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From Stdlib Require Import List Permutation.
-From Datalog Require Import Smallstep Fin Function List.
+From Datalog Require Import Smallstep Fin Function List Relations.
 From Datalog Require Import MessagelessSmallstep.
 Import ListNotations.
 
@@ -102,7 +102,6 @@ Section __.
       graph_step gs (receive n m) (fun_put gs n ns').
 
   Definition outputs_at (gs : graph_state) n := flat_map outputs_of (gs n).(gns_trace).
-
   Definition inputs_at (gs : graph_state) n := flat_map inputs_of (gs n).(gns_trace).
 
   Inductive graph_sat : node -> (list message -> Prop) -> Prop :=
@@ -118,7 +117,26 @@ Section __.
       gns_trace := [];
       gns_queue := [] |}.
 
+  Definition queues_empty (gs : graph_state) :=
+    forall n, (gs n).(gns_queue) = [].
+
+  Lemma messages_conserved gs dst :
+    (any_step graph_step)^* init_graph gs ->
+    inputs_of_outputs (outputs_at gs) dst = inputs_at gs dst ++ (gs dst).(gns_queue).
+  Proof. Admitted.
+
+  Lemma drain_queues gs dst :
+    eventually (will_step graph_step)
+      (fun gs' =>
+         submultiset
+           (inputs_at gs dst ++ (gs dst).(gns_queue))
+           (inputs_at gs' dst))
+      gs.
+  Proof. Admitted.
+
   Lemma outputs_are_inputs gs dst :
+    (any_step graph_step)^* init_graph gs ->
+    queues_empty gs ->
     inputs_of_outputs (outputs_at gs) dst = inputs_at gs dst.
   Proof. Admitted.
 
