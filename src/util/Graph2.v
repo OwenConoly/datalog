@@ -224,10 +224,48 @@ Section __.
     symmetry. apply messages_conserved. assumption.
   Qed.
 
-  Lemma graph_is_safe gs :
+  Lemma safe_inputs_mono n : multiset_monotone_dec (safe_inputs n).
+  Proof.
+    intros inps' inps (ojs & Hsafe & Hperm) Hsub.
+    apply (submultiset_perm_r _ _ _ Hperm) in Hsub.
+    apply submultiset_flat_map_split in Hsub; [ | apply fin.all_NoDup ].
+    destruct Hsub as (g & Hg & Hgsub). exists g. split.
+    - intros n'. eapply safe_mono; [ apply Hsafe | ].
+      eapply submultiset_trans; [ apply Hgsub | apply filter_submultiset ].
+    - rewrite Hg. apply Permutation_refl', flat_map_ext_in. intros n' _.
+      symmetry. eapply filter_id_submultiset. apply Hgsub.
+  Qed.
+
+  Lemma node_steps_of_graph_steps gs n :
     (any_step graph_step)^* init_graph gs ->
-    forall n, safe n (outputs_at gs n).
-  Proof. Admitted.
+    star (node_step n) (init n) (gs n).(gns_trace) (gs n).(gns_node_state).
+  Proof.
+    intros H. apply clos_rt1n_rt, clos_rt_rtn1 in H. revert n. induction H; intros n.
+    - apply star_refl.
+    - destruct H as [lbl H]. invert H.
+      + cbv [gns_run] in *. fwd. cbv [forward_to enqueue fun_put]. destr (eqb n n0); cbn; eauto using star_step.
+      + cbv [gns_receive gns_run] in *. fwd. cbv [fun_put]. destr (eqb n n0); cbn; eauto using star_step.
+  Qed.
+
+  Lemma graph_is_safe gs n :
+    (any_step graph_step)^* init_graph gs ->
+    safe n (outputs_at gs n).
+  Proof.
+    intros H. apply clos_rt1n_rt, clos_rt_rtn1 in H. revert n. induction H; intros n.
+    - apply safe_nothing.
+    - assert (Hy : (any_step graph_step)^* init_graph y) by (apply clos_rt_rt1n, clos_rtn1_rt; assumption).
+      destruct H as [lbl H]. invert H.
+      + cbv [gns_run] in *. fwd. cbv [outputs_at forward_to enqueue fun_put].
+        destr (eqb n n0); [ | apply IHclos_refl_trans_n1 ].
+        eapply safe_preserved; cbn.
+        * eauto using star_step, node_steps_of_graph_steps.
+        * eapply safe_inputs_mono.
+          -- exists (outputs_at y). split; [ exact IHclos_refl_trans_n1 | reflexivity ].
+          -- eapply submultiset_perm_r; [ | apply submultiset_app_r ].
+             symmetry. apply messages_conserved. exact Hy.
+      + cbv [gns_receive gns_run] in *. fwd. cbv [outputs_at fun_put].
+        destr (eqb n n0); cbn; apply IHclos_refl_trans_n1.
+  Qed.
 
   Lemma graph_step_of_node_step gs n P :
     (any_step graph_step)^* init_graph gs ->
