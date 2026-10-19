@@ -1,3 +1,4 @@
+From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From Datalog Require Import Relations.
 
 Section step.
@@ -35,5 +36,22 @@ Section step.
       econstructor.
       + exists lbl. exact Hstep.
       + constructor.
+  Qed.
+
+  Lemma eventually_and_reach (P : state -> Prop) s :
+    eventually will_step P s ->
+    eventually will_step (fun s' => any_step^* s s' /\ P s') s.
+  Proof.
+    intros Hev.
+    enough (forall s', any_step^* s s' -> eventually will_step P s' ->
+                       eventually will_step (fun s'' => any_step^* s s'' /\ P s'') s') as H.
+    { apply H; [ constructor | exact Hev ]. }
+    clear Hev. intros s' Hr Hev. revert Hr.
+    induction Hev; intros Hr.
+    - apply eventually_done. auto.
+    - apply eventually_step with (midset := fun mid => midset mid /\ any_step^* s mid).
+      + apply will_step_reach. eapply will_step_impl; [ eassumption | ].
+        intros s'' ? ?. split; eauto using crt1n_trans_compose.
+      + intros mid []. auto.
   Qed.
 End step.
