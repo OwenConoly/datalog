@@ -77,6 +77,11 @@ Section __.
   Definition inputs_of_outputs (outputs : node -> list message) destn :=
     flat_map (fun n => filter (forward n destn) (outputs n)) (fin.all _).
 
+  Definition suffices loc (Pjs : node -> list message -> Prop) P :=
+    forall ojs,
+      (forall n', Pjs n' (ojs n') /\ safe n' (ojs n')) ->
+      npred_transf loc (inputs_of_outputs ojs loc) P.
+
   Context (npred_transf_complete2 :
             forall n ojs P,
               relevant n P ->
@@ -84,16 +89,12 @@ Section __.
               npred_transf n (inputs_of_outputs ojs n) P ->
               exists (Pjs : node -> (list message -> Prop)),
                 (forall n', relevant n' (Pjs n') /\ Pjs n' (ojs n')) /\
-                  forall ojs',
-                    (forall n', Pjs n' (ojs' n') /\ safe n' (ojs' n')) ->
-                    npred_transf n (inputs_of_outputs ojs' n) P).
+                  suffices n Pjs P).
 
   Inductive graph_sat : node -> (list message -> Prop) -> Prop :=
   | step_sat loc P Pjs :
     (forall n', graph_sat n' (Pjs n')) ->
-    (forall ojs,
-        (forall n', Pjs n' (ojs n') /\ safe n' (ojs n'))  ->
-        npred_transf loc (inputs_of_outputs ojs loc) P) ->
+    suffices loc Pjs P ->
     graph_sat loc P
   | top_sat loc :
     graph_sat loc (fun _ => True).
