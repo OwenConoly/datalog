@@ -78,13 +78,13 @@ Section __.
     flat_map (fun n => filter (forward n destn) (outputs n)) (fin.all _).
 
   Context (npred_transf_complete2 :
-            forall n P,
+            forall n ojs P,
               relevant n P ->
+              npred_transf n (inputs_of_outputs ojs n) P ->
               exists (Pjs : node -> (list message -> Prop)),
-                (forall n', relevant n (Pjs n')) /\
-                  forall ojs,
-                    (forall n', safe n' (ojs n')) ->
-                    (forall n', Pjs n' (ojs n')) ->
+                (forall n', relevant n (Pjs n') /\ Pjs n' (ojs n')) /\
+                  forall ojs',
+                    (forall n', Pjs n' (ojs' n') /\ safe n' (ojs n')) ->
                     npred_transf n (inputs_of_outputs ojs n) P).
 
   Inductive graph_sat : node -> (list message -> Prop) -> Prop :=
