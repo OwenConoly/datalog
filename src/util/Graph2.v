@@ -80,12 +80,13 @@ Section __.
   Context (npred_transf_complete2 :
             forall n ojs P,
               relevant n P ->
+              (forall n', safe n' (ojs n')) ->
               npred_transf n (inputs_of_outputs ojs n) P ->
               exists (Pjs : node -> (list message -> Prop)),
-                (forall n', relevant n (Pjs n') /\ Pjs n' (ojs n')) /\
+                (forall n', relevant n' (Pjs n') /\ Pjs n' (ojs n')) /\
                   forall ojs',
-                    (forall n', Pjs n' (ojs' n') /\ safe n' (ojs n')) ->
-                    npred_transf n (inputs_of_outputs ojs n) P).
+                    (forall n', Pjs n' (ojs' n') /\ safe n' (ojs' n')) ->
+                    npred_transf n (inputs_of_outputs ojs' n) P).
 
   Inductive graph_sat : node -> (list message -> Prop) -> Prop :=
   | step_sat loc P Pjs :
