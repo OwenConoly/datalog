@@ -399,9 +399,9 @@ Section __.
         -- apply H1. intros n'. specialize (Hojs n'). fwd. split; [eassumption|].
            eapply safe_mono; [|eassumption]. apply graph_is_safe. assumption.
         -- cbv [safe_inputs]. eexists. split; [|reflexivity]. intros. apply graph_is_safe. assumption.
-        -- admit.
+        -- apply inputs_of_outputs_mono. intros n. specialize (Hojs n). fwd. assumption.
     - apply eventually_done. constructor.
-  Admitted.
+  Qed.
 
   Lemma graph_sat_complete P dst t gs :
     relevant dst P ->
