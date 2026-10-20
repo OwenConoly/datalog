@@ -1,3 +1,9 @@
+(*TODO I think this is the place to implement some "forgetting" optimizations.
+  Maybe we could mark some relations as "read-once"?
+  For example, "R(f(x)) :- T(x)", T used nowhere else, T should be read-once.
+  Another example: {[R_i(f(x)) :- T(x), x = i mod n] : i < n}, T used nowhere else, T should be read-once.
+ *)
+
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
