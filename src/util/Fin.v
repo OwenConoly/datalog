@@ -58,4 +58,11 @@ Module fin.
 
   Lemma all_Listing n : Listing (all n).
   Proof. split; [ apply all_NoDup | apply all_Full ]. Qed.
+
+  Lemma Forall_all n (P : fin n -> Prop) : Forall P (all n) <-> forall x, P x.
+  Proof.
+    rewrite Forall_forall. split.
+    - intros H x. apply H, all_Full.
+    - auto.
+  Qed.
 End fin. Export (hints) fin. Abbreviation fin := fin.fin.
