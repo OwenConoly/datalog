@@ -404,13 +404,17 @@ Section __.
   Qed.
 
   Lemma step_sat_complete gs gs' P dst :
+    (any_step graph_step)^* init_graph gs ->
     relevant dst P ->
     any_step graph_step gs gs' ->
     P (outputs_at gs' dst) ->
-    exists Pjs,
-      (forall n, relevant n (Pjs n) /\ Pjs n (outputs_at gs n)) /\
-        suffices dst Pjs P.
-  Proof. Admitted.
+    outputs_at gs' dst = outputs_at gs dst \/
+      exists Pjs,
+        (forall n, relevant n (Pjs n) /\ Pjs n (outputs_at gs n)) /\
+          suffices dst Pjs P.
+  Proof.
+    intros Hreach Hrel Hstep HP. cbv [any_step] in Hstep. fwd. invert Hstep.
+    - cbv [gns_run] in H. fwd.
 
   Lemma graph_sat_complete P dst t gs :
     relevant dst P ->
