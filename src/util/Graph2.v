@@ -418,7 +418,22 @@ Section __.
           suffices dst Pjs P.
   Proof.
     intros Hreach Hrel Hstep HP. cbv [any_step] in Hstep. fwd. invert Hstep.
-    - cbv [gns_run] in H. fwd.
+    - cbv [gns_run] in H. fwd. rewrite outputs_at_forward_to in HP |- *. cbv [fun_put outputs_at] in HP |- *.
+      destr (eqb dst n); [|left; reflexivity]. simpl in HP |- *. right.
+      pose proof node_steps_of_graph_steps as H''. especialize H''; eauto. fwd.
+      pose proof npred_transf_complete as H'. especialize H'.
+      { eapply star_step. 2: eassumption. simpl in H''p0. eassumption. }
+      { admit. }
+      { eassumption. }
+      { rewrite H''p1 in HP. simpl. simpl in HP. rewrite app_nil_r in HP. exact HP. }
+      simpl in H'. apply relevant_preserved.
+      + assumption.
+      + intros. apply graph_is_safe. assumption.
+      + eapply relevant_preser
+        pose proof node_steapply node_steps_of_graph_steps.
+    - left. cbv [fun_put]. cbv [outputs_at]. cbv [gns_receive] in H. fwd.
+      cbv [gns_run] in Hp1. simpl in Hp1. fwd. destr (eqb dst n); reflexivity.
+  Qed.
 
   Lemma graph_sat_complete P dst t gs :
     relevant dst P ->
