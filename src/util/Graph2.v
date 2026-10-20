@@ -403,6 +403,15 @@ Section __.
     - apply eventually_done. constructor.
   Qed.
 
+  Lemma step_sat_complete gs gs' P dst :
+    relevant dst P ->
+    any_step graph_step gs gs' ->
+    P (outputs_at gs' dst) ->
+    exists Pjs,
+      (forall n, relevant n (Pjs n) /\ Pjs n (outputs_at gs n)) /\
+        suffices dst Pjs P.
+  Proof. Admitted.
+
   Lemma graph_sat_complete P dst t gs :
     relevant dst P ->
     star (graph_step) init_graph t gs ->
