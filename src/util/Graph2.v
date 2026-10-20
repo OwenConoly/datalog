@@ -368,6 +368,11 @@ Section __.
     outputs_at (forward_to keep msgs gs) n = outputs_at gs n.
   Proof. reflexivity. Qed.
 
+  Lemma outputs_of_fun_put gs n ns m :
+    outputs_at (fun_put gs n ns) m =
+      if eqb m n then flat_map outputs_of ns.(gns_trace) else outputs_at gs m.
+  Proof. cbv [outputs_at fun_put]. destr (eqb m n); reflexivity. Qed.
+
   Lemma outputs_at_mono s lbl s' n :
     graph_step s lbl s' ->
     submultiset (outputs_at s n) (outputs_at s' n).
