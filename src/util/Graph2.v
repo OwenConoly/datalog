@@ -6,7 +6,8 @@ From Datalog Require Import MessagelessSmallstep.
 Import ListNotations.
 
 Section __.
-  Context (message label : Type) (num_nodes : nat) (node := fin num_nodes).
+  Context (message label : Type) (num_nodes : nat).
+  Abbreviation node := (fin num_nodes).
   Context (forward : node -> node -> message -> bool) (node_state : Type).
   Context (node_step : node -> node_state -> IO_event label message -> node_state -> Prop).
   Abbreviation nevent := (IO_event label message).
@@ -382,9 +383,16 @@ Section __.
         -- apply Forall_map, Forall_forall. intros n _. eapply eventually_weaken.
            { apply H0. }
            simpl. intros. eauto using submultiset_refl.
-      + simpl. intros gs Hgs. apply Forall_map in Hgs. rewrite fin.Forall_all in Hgs. rewrite Forall_forall in Happply
-      + constructor.
-      + ChPrint
+      + simpl. intros gs Hgs. apply Forall_map in Hgs. rewrite fin.Forall_all in Hgs.
+        eapply step_sat_sound with (Pjs := fun _ _ => _). 2: exact Hgs. 1: admit.
+        cbv [suffices] in H1. apply fin.choice in Hgs. destruct Hgs as [ojs Hojs].
+        eapply npred_transf_mono_inc.
+        -- apply H1. intros n'. specialize (Hojs n'). fwd. split; [eassumption|].
+           eapply safe_mono; [|eassumption]. apply graph_is_safe. admit.
+        -- cbv [safe_inputs]. eexists. split; [|reflexivity]. intros. apply graph_is_safe. admit.
+        -- admit.
+    - apply eventually_done. constructor.
+  Admitted.
 
   Lemma graph_sat_complete P dst t gs :
     relevant dst P ->
