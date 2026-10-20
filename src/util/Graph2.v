@@ -361,7 +361,13 @@ Section __.
   Lemma outputs_at_mono s lbl s' n :
     graph_step s lbl s' ->
     submultiset (outputs_at s n) (outputs_at s' n).
-  Proof. Admitted.
+  Proof.
+    intros Hstep. invert Hstep.
+    - cbv [gns_run] in *. fwd. cbv [outputs_at forward_to enqueue fun_put].
+      destr (eqb n n0); cbn; auto using submultiset_refl, submultiset_app_l.
+    - cbv [gns_receive gns_run] in *. fwd. cbv [outputs_at fun_put].
+      destr (eqb n n0); cbn; apply submultiset_refl.
+  Qed.
 
   Lemma graph_sat_sound loc P :
     graph_sat loc P ->
