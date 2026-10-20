@@ -358,14 +358,23 @@ Section __.
     simpl. intros final Hfinal. fwd. assumption.
   Qed.
 
+  Lemma outputs_at_mono s lbl s' n :
+    graph_step s lbl s' ->
+    submultiset (outputs_at s n) (outputs_at s' n).
+  Proof. Admitted.
+
   Lemma graph_sat_sound loc P :
     graph_sat loc P ->
     eventually (will_step graph_step) (fun gs => P (outputs_at gs loc)) init_graph.
   Proof.
     induction 1.
-    - eapply step_sat_sound.
+    - eapply eventually_trans.
+      + eapply eventually_will_step_Forall with (Ps := map (fun n' => fun gs => exists os, Pjs n' os /\ submultiset os (outputs_at gs n')) (fin.all _)) .
+        -- apply Forall_map, Forall_forall. intros n _. cbv [ev_stable]. intros. fwd.
+           eexists. split; [eassumption|]. eapply submultiset_trans; [eassumption|].
+           Search graph_step submultiset. apply pool_submultiset_step in H3.
       + constructor.
-      + Print
+      + ChPrint
 
   Lemma graph_sat_complete P dst t gs :
     relevant dst P ->
