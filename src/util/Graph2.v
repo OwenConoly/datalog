@@ -378,7 +378,11 @@ Section __.
       + eapply eventually_will_step_Forall with (Ps := map (fun n' => fun gs => exists os, Pjs n' os /\ submultiset os (outputs_at gs n')) (fin.all _)) .
         -- apply Forall_map, Forall_forall. intros n _. cbv [ev_stable]. intros. fwd.
            eexists. split; [eassumption|]. eapply submultiset_trans; [eassumption|].
-           Search graph_step submultiset. apply pool_submultiset_step in H3.
+           eapply outputs_at_mono. eassumption.
+        -- apply Forall_map, Forall_forall. intros n _. eapply eventually_weaken.
+           { apply H0. }
+           simpl. intros. eauto using submultiset_refl.
+      + simpl. intros gs Hgs. apply Forall_map in Hgs. rewrite fin.Forall_all in Hgs. rewrite Forall_forall in Happply
       + constructor.
       + ChPrint
 
