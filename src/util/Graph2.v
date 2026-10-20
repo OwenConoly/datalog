@@ -43,6 +43,7 @@ Section __.
   Context (npred_transf_complete :
             forall n t st P,
             star (node_step n) (init n) t st ->
+            safe_inputs n (flat_map inputs_of t) ->
             relevant n P ->
             P (flat_map outputs_of t) ->
             npred_transf n (flat_map inputs_of t) P).
