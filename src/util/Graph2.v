@@ -119,8 +119,9 @@ Section __.
     (forall n', graph_sat n' (Pjs n')) ->
     suffices loc Pjs P ->
     graph_sat loc P
-  | top_sat loc :
-    graph_sat loc (fun _ => True).
+  | top_sat loc P :
+    P [] ->
+    graph_sat loc P.
 
   Definition init_graph := fun n =>
     {| gns_node_state := init n;
@@ -409,7 +410,7 @@ Section __.
            eapply safe_mono; [|eassumption]. apply graph_is_safe. assumption.
         -- cbv [safe_inputs]. eexists. split; [|reflexivity]. intros. apply graph_is_safe. assumption.
         -- apply inputs_of_outputs_mono. intros n. specialize (Hojs n). fwd. assumption.
-    - apply eventually_done. constructor.
+    - apply eventually_done. simpl. assumption.
   Qed.
 
   Lemma step_sat_complete gs gs' P dst :
@@ -442,10 +443,22 @@ Section __.
       cbv [gns_run] in Hp1. simpl in Hp1. fwd. destr (eqb dst n); reflexivity.
   Qed.
 
-  Lemma graph_sat_complete P dst t gs :
+  Lemma graph_sat_complete P dst gs :
+    (any_step graph_step)^* init_graph gs ->
     relevant dst P ->
-    star (graph_step) init_graph t gs ->
     P (outputs_at gs dst) ->
     graph_sat dst P.
-  Proof. Admitted.
+  Proof.
+    intros Hsteps. revert dst P. apply clos_rt1n_rt, clos_rt_rtn1 in Hsteps.
+    induction Hsteps; intros dst P Hrel HP.
+    - apply top_sat. assumption.
+    - eapply step_sat_complete in H; cycle 1.
+      + apply clos_rt_rt1n, clos_rtn1_rt. assumption.
+      + eassumption.
+      + assumption.
+      + destruct H as [H|H].
+        -- apply IHHsteps; try assumption. rewrite <- H. assumption.
+        -- fwd. eapply step_sat; [|eassumption]. intros n'. specialize (Hp0 n'). fwd.
+           apply IHHsteps; assumption.
+  Qed.
 End __.
