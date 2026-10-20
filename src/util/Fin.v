@@ -1,6 +1,6 @@
 From Stdlib Require Import PeanoNat Peano_dec Lia List Finite.
 From coqutil Require Import Eqb Tactics.
-From Datalog Require Import Eqb.
+From Datalog Require Import Eqb Function.
 
 Module fin.
   Section __.
@@ -64,5 +64,22 @@ Module fin.
     rewrite Forall_forall. split.
     - intros H x. apply H, all_Full.
     - auto.
+  Qed.
+
+  Lemma choice {B} n (P : fin n -> B -> Prop) :
+    (forall x, exists y, P x y) ->
+    exists f, forall x, P x (f x).
+  Proof.
+    intros H. destruct n as [|n].
+    - exists (fun x => False_rect B (Nat.nlt_0_r _ (small x))).
+      intros x. destruct (Nat.nlt_0_r _ (small x)).
+    - destruct (H (mk (n := S n) 0 ltac:(lia))) as [y0 _].
+      enough (Hl : forall l, exists f, forall x, In x l -> P x (f x)).
+      { destruct (Hl (all (S n))) as [f Hf]. exists f. intros x. apply Hf, all_Full. }
+      intros l. induction l as [|a l [f Hf]].
+      + exists (fun _ => y0). intros _ [].
+      + destruct (H a) as [ya Hya]. exists (fun_put f a ya). intros x Hx. cbv [fun_put].
+        destr (Eqb.eqb x a); [ assumption | ].
+        apply Hf. destruct Hx; [ congruence | assumption ].
   Qed.
 End fin. Export (hints) fin. Abbreviation fin := fin.fin.
