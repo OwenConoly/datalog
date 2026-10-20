@@ -119,7 +119,7 @@ Section __.
     (forall n', graph_sat n' (Pjs n')) ->
     suffices loc Pjs P ->
     graph_sat loc P
-  | top_sat loc P :
+  | init_sat loc P :
     P [] ->
     graph_sat loc P.
 
@@ -127,6 +127,15 @@ Section __.
     {| gns_node_state := init n;
       gns_trace := [];
       gns_queue := [] |}.
+
+  Lemma outputs_at_forward_to keep msgs gs n :
+    outputs_at (forward_to keep msgs gs) n = outputs_at gs n.
+  Proof. reflexivity. Qed.
+
+  Lemma outputs_at_fun_put gs n ns m :
+    outputs_at (fun_put gs n ns) m =
+      if eqb m n then flat_map outputs_of ns.(gns_trace) else outputs_at gs m.
+  Proof. cbv [outputs_at fun_put]. destr (eqb m n); reflexivity. Qed.
 
   Lemma messages_conserved_step gs lbl gs' dst :
     (forall dst', Permutation (inputs_of_outputs (outputs_at gs) dst') (inputs_at gs dst' ++ (gs dst').(gns_queue))) ->
@@ -139,15 +148,16 @@ Section __.
       + apply flat_map_app_at_perm with (a := n).
         * apply fin.all_NoDup.
         * apply fin.all_Full.
-        * intros a' ?. cbv [outputs_at forward_to enqueue fun_put]. destr (eqb a' n); cbn; congruence.
-        * cbv [outputs_at forward_to enqueue fun_put]. destr (eqb n n); [|congruence].
-          cbn. apply filter_app.
+        * intros a' ?. cbv beta. rewrite outputs_at_forward_to, outputs_at_fun_put.
+          destr (eqb a' n); [ congruence | reflexivity ].
+        * cbv beta. rewrite outputs_at_forward_to, outputs_at_fun_put. destr (eqb n n); [ | congruence ].
+          apply filter_app.
       + cbv [inputs_at forward_to enqueue fun_put]. destr (eqb dst n); cbn;
           symmetry; apply perm_ins; symmetry; apply Hcons.
     - cbv [gns_receive gns_run] in *. fwd.
       transitivity (inputs_of_outputs (outputs_at gs) dst).
       + apply Permutation_refl'. apply flat_map_ext. intros k.
-        cbv [outputs_at fun_put]. destr (eqb k n); reflexivity.
+        rewrite outputs_at_fun_put. destr (eqb k n); reflexivity.
       + cbv [inputs_at fun_put]. destr (eqb dst n); cbn.
         * rewrite Hcons, Hp0. apply perm_recv.
         * apply Hcons.
@@ -287,7 +297,7 @@ Section __.
     - apply safe_nothing.
     - assert (Hy : (any_step graph_step)^* init_graph y) by (apply clos_rt_rt1n, clos_rtn1_rt; assumption).
       destruct H as [lbl H]. invert H.
-      + cbv [gns_run] in *. fwd. cbv [outputs_at forward_to enqueue fun_put].
+      + cbv [gns_run] in *. fwd. rewrite outputs_at_forward_to, outputs_at_fun_put.
         destr (eqb n n0); [ | apply IHclos_refl_trans_n1 ].
         eapply safe_preserved; cbn.
         * eauto using star_step, node_steps_of_graph_steps_init.
@@ -295,7 +305,7 @@ Section __.
           -- exists (outputs_at y). split; [ exact IHclos_refl_trans_n1 | reflexivity ].
           -- eapply submultiset_perm_r; [ | apply submultiset_app_r ].
              symmetry. apply messages_conserved. exact Hy.
-      + cbv [gns_receive gns_run] in *. fwd. cbv [outputs_at fun_put].
+      + cbv [gns_receive gns_run] in *. fwd. rewrite outputs_at_fun_put.
         destr (eqb n n0); cbn; apply IHclos_refl_trans_n1.
   Qed.
 
@@ -343,13 +353,12 @@ Section __.
       + intros gs' []. eauto.
   Qed.
 
-  Lemma step_sat_sound Pjs gs dst P :
+  Lemma step_sat_sound gs dst P :
     (any_step graph_step)^* init_graph gs ->
-    (forall src, Pjs src (outputs_at gs src)) ->
     npred_transf dst (inputs_of_outputs (outputs_at gs) dst) P ->
     eventually (will_step graph_step) (fun gs' => P (outputs_at gs' dst)) gs.
   Proof.
-    intros Hstep HPjs Htrans.
+    intros Hstep Htrans.
     eapply eventually_trans.
     { apply eventually_and_reach. apply sent_msgs_eventually_received with (dst := dst). assumption. }
     simpl. intros gs' Hgs'. fwd.
@@ -365,23 +374,14 @@ Section __.
     simpl. intros final Hfinal. fwd. assumption.
   Qed.
 
-  Lemma outputs_at_forward_to keep msgs gs n :
-    outputs_at (forward_to keep msgs gs) n = outputs_at gs n.
-  Proof. reflexivity. Qed.
-
-  Lemma outputs_at_fun_put gs n ns m :
-    outputs_at (fun_put gs n ns) m =
-      if eqb m n then flat_map outputs_of ns.(gns_trace) else outputs_at gs m.
-  Proof. cbv [outputs_at fun_put]. destr (eqb m n); reflexivity. Qed.
-
   Lemma outputs_at_mono s lbl s' n :
     graph_step s lbl s' ->
     submultiset (outputs_at s n) (outputs_at s' n).
   Proof.
     intros Hstep. invert Hstep.
-    - cbv [gns_run] in *. fwd. cbv [outputs_at forward_to enqueue fun_put].
+    - cbv [gns_run] in *. fwd. rewrite outputs_at_forward_to, outputs_at_fun_put.
       destr (eqb n n0); cbn; auto using submultiset_refl, submultiset_app_l.
-    - cbv [gns_receive gns_run] in *. fwd. cbv [outputs_at fun_put].
+    - cbv [gns_receive gns_run] in *. fwd. rewrite outputs_at_fun_put.
       destr (eqb n n0); cbn; apply submultiset_refl.
   Qed.
 
@@ -401,9 +401,8 @@ Section __.
            { apply H0. }
            simpl. intros. eauto using submultiset_refl.
       + simpl. intros gs Hgs. fwd. apply Forall_map in Hgsp1. rewrite fin.Forall_all in Hgsp1.
-        eapply step_sat_sound with (Pjs := fun _ _ => _).
+        eapply step_sat_sound.
         { assumption. }
-        { exact Hgsp1. }
         cbv [suffices] in H1. apply fin.choice in Hgsp1. destruct Hgsp1 as [ojs Hojs].
         eapply npred_transf_mono_inc.
         -- apply H1. intros n'. specialize (Hojs n'). fwd. split; [eassumption|].
@@ -439,8 +438,8 @@ Section __.
         -- eassumption.
         -- cbv [safe_inputs]. eexists. split; [|reflexivity]. intros. apply graph_is_safe. assumption.
         -- cbv [submultiset]. setoid_rewrite messages_conserved; try assumption. eexists. reflexivity.
-    - left. cbv [fun_put]. cbv [outputs_at]. cbv [gns_receive] in H. fwd.
-      cbv [gns_run] in Hp1. simpl in Hp1. fwd. destr (eqb dst n); reflexivity.
+    - left. cbv [gns_receive gns_run] in H. fwd. rewrite outputs_at_fun_put.
+      destr (eqb dst n); reflexivity.
   Qed.
 
   Lemma graph_sat_complete P dst gs :
@@ -451,7 +450,7 @@ Section __.
   Proof.
     intros Hsteps. revert dst P. apply clos_rt1n_rt, clos_rt_rtn1 in Hsteps.
     induction Hsteps; intros dst P Hrel HP.
-    - apply top_sat. assumption.
+    - apply init_sat. assumption.
     - eapply step_sat_complete in H; cycle 1.
       + apply clos_rt_rt1n, clos_rtn1_rt. assumption.
       + eassumption.
