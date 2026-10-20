@@ -233,6 +233,11 @@ Section __.
     symmetry. apply messages_conserved. assumption.
   Qed.
 
+  Lemma inputs_of_outputs_mono ojs ojs' dst :
+    (forall n, submultiset (ojs n) (ojs' n)) ->
+    submultiset (inputs_of_outputs ojs dst) (inputs_of_outputs ojs' dst).
+  Proof. intros H. apply submultiset_flat_map. intros n. apply submultiset_filter, H. Qed.
+
   Lemma safe_inputs_mono n : multiset_monotone_dec (safe_inputs n).
   Proof.
     intros inps' inps (ojs & Hsafe & Hperm) Hsub.

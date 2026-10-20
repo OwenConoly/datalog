@@ -2511,6 +2511,14 @@ Proof.
     + intros y. cbv [fun_put]. destr (eqb y x); auto.
 Qed.
 
+Lemma submultiset_flat_map {A B} (f g : A -> list B) l :
+  (forall x, submultiset (f x) (g x)) ->
+  submultiset (flat_map f l) (flat_map g l).
+Proof.
+  intros H. induction l; cbn [flat_map]; [ apply submultiset_refl | ].
+  apply submultiset_app; auto.
+Qed.
+
 Definition consistent_monotone {message} (consistent : list message -> list message -> Prop)
     (allowed : list message -> Prop) :=
   forall c l1 l2,
