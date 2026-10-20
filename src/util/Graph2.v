@@ -376,20 +376,24 @@ Section __.
   Proof.
     induction 1.
     - eapply eventually_trans.
-      + eapply eventually_will_step_Forall with (Ps := map (fun n' => fun gs => exists os, Pjs n' os /\ submultiset os (outputs_at gs n')) (fin.all _)) .
+      + apply eventually_and_reach.
+        eapply eventually_will_step_Forall with
+          (Ps := map (fun n' => fun gs => exists os, Pjs n' os /\ submultiset os (outputs_at gs n')) (fin.all _)) .
         -- apply Forall_map, Forall_forall. intros n _. cbv [ev_stable]. intros. fwd.
            eexists. split; [eassumption|]. eapply submultiset_trans; [eassumption|].
            eapply outputs_at_mono. eassumption.
         -- apply Forall_map, Forall_forall. intros n _. eapply eventually_weaken.
            { apply H0. }
            simpl. intros. eauto using submultiset_refl.
-      + simpl. intros gs Hgs. apply Forall_map in Hgs. rewrite fin.Forall_all in Hgs.
-        eapply step_sat_sound with (Pjs := fun _ _ => _). 2: exact Hgs. 1: admit.
-        cbv [suffices] in H1. apply fin.choice in Hgs. destruct Hgs as [ojs Hojs].
+      + simpl. intros gs Hgs. fwd. apply Forall_map in Hgsp1. rewrite fin.Forall_all in Hgsp1.
+        eapply step_sat_sound with (Pjs := fun _ _ => _).
+        { assumption. }
+        { exact Hgsp1. }
+        cbv [suffices] in H1. apply fin.choice in Hgsp1. destruct Hgsp1 as [ojs Hojs].
         eapply npred_transf_mono_inc.
         -- apply H1. intros n'. specialize (Hojs n'). fwd. split; [eassumption|].
-           eapply safe_mono; [|eassumption]. apply graph_is_safe. admit.
-        -- cbv [safe_inputs]. eexists. split; [|reflexivity]. intros. apply graph_is_safe. admit.
+           eapply safe_mono; [|eassumption]. apply graph_is_safe. assumption.
+        -- cbv [safe_inputs]. eexists. split; [|reflexivity]. intros. apply graph_is_safe. assumption.
         -- admit.
     - apply eventually_done. constructor.
   Admitted.
