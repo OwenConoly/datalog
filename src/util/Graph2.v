@@ -62,6 +62,13 @@ Section __.
                 (forall n', relevant n' (Pjs n') /\ Pjs n' (ojs n')) /\
                   suffices n Pjs P).
 
+  Context (npred_transf_mono_inc :
+            forall n inps inps' P,
+              npred_transf n inps P ->
+              safe_inputs n inps' ->
+              submultiset inps inps' ->
+              npred_transf n inps' P).
+
   Record graph_node_state :=
     { gns_node_state : node_state;
       gns_trace : list nevent;
@@ -339,19 +346,26 @@ Section __.
     eapply eventually_trans.
     { apply eventually_and_reach. apply sent_msgs_eventually_received with (dst := dst). assumption. }
     simpl. intros gs' Hgs'. fwd.
-    - eapply eventually_weaken.
-      { apply eventually_and_reach. apply graph_eventually_of_node_eventually.
-        - eauto using crt1n_trans_compose.
-        - apply npred_transf_sound.
-          2: { apply node_steps_of_graph_steps_init. eauto using crt1n_trans_compose. }
-          Search npred_transf.
-      { admit. }
-  Admitted.
+    eapply eventually_weaken.
+    { apply eventually_and_reach. apply graph_eventually_of_node_eventually.
+      - eauto using crt1n_trans_compose.
+      - apply npred_transf_sound.
+        2: { apply node_steps_of_graph_steps_init. eauto using crt1n_trans_compose. }
+        eapply npred_transf_mono_inc.
+        + eassumption.
+        + apply graph_inputs_safe. eauto using crt1n_trans_compose.
+        + assumption. }
+    simpl. intros final Hfinal. fwd. assumption.
+  Qed.
 
   Lemma graph_sat_sound loc P :
     graph_sat loc P ->
     eventually (will_step graph_step) (fun gs => P (outputs_at gs loc)) init_graph.
-  Proof. Admitted.
+  Proof.
+    induction 1.
+    - eapply step_sat_sound.
+      + constructor.
+      + Print
 
   Lemma graph_sat_complete P dst t gs :
     relevant dst P ->
