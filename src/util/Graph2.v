@@ -364,6 +364,10 @@ Section __.
     simpl. intros final Hfinal. fwd. assumption.
   Qed.
 
+  Lemma outputs_at_forward_to keep msgs gs n :
+    outputs_at (forward_to keep msgs gs) n = outputs_at gs n.
+  Proof. reflexivity. Qed.
+
   Lemma outputs_at_mono s lbl s' n :
     graph_step s lbl s' ->
     submultiset (outputs_at s n) (outputs_at s' n).
