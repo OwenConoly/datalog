@@ -1349,12 +1349,12 @@ Fixpoint sizeof_prop' {var : type -> Type} {n : nat}
     (sizeof_var : var tZ -> option Z) (e : pATLexpr' var n) (sz : list nat) : Prop :=
   match e with
   | Gen _ lo hi body =>
-      exists lo' hi' sz',
-        sizeof_pZexpr' sizeof_var lo = Some lo' /\
-        sizeof_pZexpr' sizeof_var hi = Some hi' /\
-        let m := Z.to_nat (hi' - lo') in
-        sz = m :: sz' /\ 0 < m /\
-        forall x, sizeof_prop' sizeof_var (body x) sz'
+    exists hi' sz',
+      sizeof_pZexpr' sizeof_var lo = Some 0%Z /\
+      sizeof_pZexpr' sizeof_var hi = Some hi' /\
+      let m := Z.to_nat hi' in
+      sz = m :: sz' /\ 0 < m /\
+      forall x, sizeof_prop' sizeof_var (body x) sz'
   | Sum _ lo hi body =>
       forall x, sizeof_prop' sizeof_var (body x) sz
   | Guard _ b body =>
@@ -1404,12 +1404,64 @@ Definition true_rel : result :=
 Lemma true_rel_normal args : true_rel.(result.normal) args <-> args = [Vbool true].
 Proof. reflexivity. Qed.
 
+Lemma sizeof_pZexpr'_eq (e : pZexpr' tagged_Z) :
+  sizeof_pZexpr' sizeof_var e = Some (interp_pZexpr' e).
+Proof.
+  induction e as [o e1 e2 IHe1 IHe2 | x | z1 | e1 IHe1]; simpl.
+  - rewrite e2, IHe2. reflexivity.
+  - reflexivity.          (* if sizeof_var is fun x => Some (untag_Z x) *)
+  - reflexivity.
+  - rewrite IHe1. reflexivity.
+Qed.
+
+Lemma sizeof_pZexpr'_interp (e : pZexpr' tagged_Z) z :
+  sizeof_pZexpr' sizeof_var e = Some z -> interp_pZexpr' e = z.
+Proof.
+  intros H.
+  rewrite sizeof_pZexpr'_eq in H.
+  congruence.
+Qed.
+
 Definition complete_at {n} (P : result) (outer : list value) (sz : list nat)
     (t : interp_type_tagged (tensor_n n)) : Prop :=
   forall (idxs : list Z),
     length idxs = n ->
     Forall2 (fun i s => (0 <= i < Z.of_nat s)%Z) idxs sz ->
     P.(result.normal) (VR (get_R t idxs) :: outer ++ map VZ idxs).
+
+Search genr.
+Lemma get_R_genr {n} (lo hi : Z) (f : Z -> dim_n n) (i : Z) (rest : list Z) :
+  (0 <= i < hi - lo)%Z ->
+  get_R (n := S n) (genr lo hi f) (i :: rest) = get_R (f (lo + i)%Z) rest.
+Proof.
+  intros H. simpl get_R. f_equal. apply get_genr_some. 
+  - lia.
+  - lia.
+  - lia.
+Qed.
+
+(* for Hidxs2 - WHY DOES IT NEED HELPER LEMMAS??? *)
+Lemma Forall2_impl_In {A B} (P Q : A -> B -> Prop) l l' :
+  Forall2 P l l' -> (forall x y, In x l -> P x y -> Q x y) -> Forall2 Q l l'.
+Proof.
+  intros H Hf. induction H.
+  - constructor.
+  - constructor.
+    + apply Hf; [left; reflexivity | assumption].
+    + apply IHForall2. intros x' y' Hin Hp. apply Hf; [right; assumption | assumption].
+Qed.
+
+(* second helper lemma for hidxs2 .... *)
+Lemma context_of_ext {var} (ctx : list (ctx_elt2 (var_of var) interp_type_tagged)) a b :
+  context_of ({| ctx_elt_t := tZ; ctx_elt_p1 := a; ctx_elt_p2 := b |} :: ctx)
+  = map.put (context_of ctx) a (VZ b).
+Proof.
+  cbv [context_of untag_zctx].
+  reflexivity.
+Qed.
+
+
+Search (Z.of_nat (Z.to_nat _)).
 
 Context {value_eqb : Eqb.Eqb value} {value_eqb_ok : Eqb.Eqb_ok value_eqb}.
 Context {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set}.
@@ -1422,11 +1474,118 @@ Lemma lower_pATLexpr'_works n
   wf_pATL_expr' ctx n e e' ->
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
   NoDup (map fst (zctx ctx)) ->
+  (forall k, In k (map fst (zctx ctx)) -> k < Datatypes.length idxs0) ->                (* Hfresh *)
+  (forall k, In k idxs0 -> k < Datatypes.length idxs0) ->               (* Hlow *)
+  (forall m P depth tv, In {| ctx_elt_t := tensor_n m;
+      ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
+    depth <= Datatypes.length idxs0') ->   
   (forall m P depth tv,
      In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
      exists szv, complete_at P (firstn depth idxs0') szv tv) ->
   complete_at (blocks_prog.interp (lower_pATLexpr' e idxs0 true_rel)) idxs0' sz
             (interp_pATLexpr' e').
+Proof.
+  intros sp Hwf.
+  revert idxs0 idxs0' sz sp.
+  induction Hwf.
+(* this whole bullet is just the get case ... plus it has helper lemmas ... *)
+- intros idxs0 idxs0' sz sp Hidxs Hnd Hfresh Hlow Hdepth Hcompl.
+  simpl in sp.
+  destruct sp as (hi' & sz' & Hlo & Hhi & Hsz & Hpos & Hbody).
+  unfold complete_at. intros idxs Hlen Hbounds.
+  cbn [lower_pATLexpr'].
+  cbn [interp_pATLexpr']. 
+  destruct idxs as [| i rest]; [discriminate |].
+  assert (Hl : interp_pZexpr' lo2 = 0%Z).
+  { rewrite (sizeof_pZexpr'_eq lo2) in Hlo. congruence. }
+  assert (Hh : interp_pZexpr' hi2 = hi').
+  { rewrite (sizeof_pZexpr'_eq hi2) in Hhi. congruence. }
+  rewrite Hl, Hh.
+  subst sz.
+  inversion Hbounds as [| i0 s0 l0 l0' Hi Hrest]; subst.
+  simpl in Hlen.
+  set (h := interp_pZexpr' hi2) in *.
+  assert (Hh : (0 < h)%Z) by lia.
+  assert (Hb : (0 <= i < h - 0)%Z) by lia.
+  replace (get_R _ (i :: rest))
+  with (get_R (interp_pATLexpr' (body2 (itervarZ i))) rest).
+  2:{ simpl get_R. f_equal.
+      rewrite get_genr_some by lia.
+      rewrite Z.add_0_l. reflexivity. }
+  { set (ext := {| ctx_elt_t := tZ; ctx_elt_p1 := Datatypes.length idxs0;
+               ctx_elt_p2 := itervarZ i |}
+        : ctx_elt2 (var_of result) interp_type_tagged).
+  (* so many assertions for only one part of the proof ... *)
+  assert (Hz : zctx (ext :: ctx) = (Datatypes.length idxs0, itervarZ i) :: zctx ctx)
+  by reflexivity.
+
+  assert (Hidx2 : Forall2 (fun x y => map.get (context_of (ext :: ctx)) x = Some y)
+            (idxs0 ++ [Datatypes.length idxs0]) (idxs0' ++ [VZ i])).
+  { apply Forall2_app.
+    - eapply Forall2_impl_In; [exact Hidxs |].
+      intros x y Hin Hget. cbv [ext].
+      rewrite (context_of_ext ctx (Datatypes.length idxs0) (itervarZ i)). 
+      assert (Hne : x <> Datatypes.length idxs0) by (pose proof (Hlow _ Hin); lia).
+      rewrite map.get_put_diff by exact Hne.
+      exact Hget.
+    - cbv [ext].
+    constructor; [| constructor].
+    rewrite (context_of_ext ctx (Datatypes.length idxs0) (itervarZ i)).
+    rewrite map.get_put_same. reflexivity. }
+
+  assert (Hnd2 : NoDup (map fst (zctx (ext :: ctx)))). { rewrite Hz. simpl. constructor.
+  - intro Hin. pose proof (Hfresh _ Hin). lia.
+  - exact Hnd. }
+
+  assert (Hfresh2 : forall k, In k (map fst (zctx (ext :: ctx))) ->
+            k < Datatypes.length (idxs0 ++ [Datatypes.length idxs0])).
+  { intros k Hk. rewrite Hz in Hk. simpl in Hk.
+  rewrite length_app. simpl.
+  destruct Hk as [Hk | Hk].
+  - lia.
+  - pose proof (Hfresh _ Hk). lia. }
+
+  assert (Hlow2 : forall k, In k (idxs0 ++ [Datatypes.length idxs0]) ->
+            k < Datatypes.length (idxs0 ++ [Datatypes.length idxs0])).
+  { intros k Hk. rewrite length_app. simpl.
+  apply in_app_iff in Hk. destruct Hk as [Hk | [Hk | []]].
+  - pose proof (Hlow _ Hk). lia.
+  - lia. }
+
+  assert (Hdepth2 : forall m P depth tv,
+    In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} (ext :: ctx) ->
+    depth <= Datatypes.length (idxs0' ++ [VZ i])).
+  { intros m P depth tv Hin. destruct Hin as [Hin | Hin].
+  - exfalso.
+    pose proof (f_equal (fun c : ctx_elt2 (var_of result) interp_type_tagged
+                           => ctx_elt_t _ _ c) Hin) as E.
+    cbv [ext] in E. simpl in E. discriminate E.
+  - pose proof (Hdepth _ _ _ _ Hin). rewrite length_app. simpl. lia. }
+
+  assert (Hcompl2 : forall m P depth tv,
+    In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} (ext :: ctx) ->
+    exists szv, complete_at P (firstn depth (idxs0' ++ [VZ i])) szv tv).
+  { intros m P depth tv Hin. destruct Hin as [Hin | Hin].
+  - exfalso.
+    pose proof (f_equal (fun c : ctx_elt2 (var_of result) interp_type_tagged =>
+                         ctx_elt_t _ _ c) Hin) as E.
+  cbv [ext] in E. simpl in E. discriminate E.
+  - destruct (Hcompl _ _ _ _ Hin) as [szv Hc]. exists szv.
+    pose proof (Hdepth _ _ _ _ Hin) as Hd.
+    rewrite firstn_app.
+    replace (depth - Datatypes.length idxs0')%nat with 0%nat by lia.
+    simpl. rewrite app_nil_r. exact Hc. }
+
+  pose proof (H2 (Datatypes.length idxs0) (itervarZ i)
+    (idxs0 ++ [Datatypes.length idxs0]) (idxs0' ++ [VZ i]) sz'
+    (Hbody _) Hidx2 Hnd2 Hfresh2 Hlow2 Hdepth2 Hcompl2) as IH.
+  unfold complete_at in IH.
+  specialize (IH rest (eq_add_S _ _ Hlen) Hrest).
+  rewrite <- app_assoc in IH. simpl in IH.
+  exact IH. }
+(* this is the sum case, but sum doesn't exist yet... *)
+-
 Admitted.
 
+  
 End __.
