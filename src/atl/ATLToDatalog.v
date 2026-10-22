@@ -9,7 +9,7 @@ From ATL Require Import ATL Div Common.
 
 From Datalog Require Import Datalog Tactics Blocks.
 
-From coqutil Require Import Map.Interface Map.Properties Tactics.
+From coqutil Require Import Map.Interface Map.Properties Tactics Permutation Eqb.
 From Datalog Require Import ATLToDatalogSemantics.
 
 From Inferpad Require Import ATLPhoas TensorToResult.
@@ -1080,10 +1080,6 @@ eapply expr.interp_fun with (args' := [VZ (interp_pZexpr' x2); VZ (interp_pZexpr
   * reflexivity.
 Qed.
 
-Lemma get_putmany_right (m1 m2 : context) k v :
-  map.get m2 k = Some v -> map.get (map.putmany m1 m2) k = Some v.
-Proof. intros H. rewrite map.get_putmany_dec, H. reflexivity. Qed.
-
 Lemma interp_vars_putmany (m1 m2 : context) (l : list exprvar) (l' : list value) :
   Forall2 (fun x y => map.get m2 x = Some y) l l' ->
   Forall2 (expr.interp (map.putmany m1 m2)) (map expr.var l) l'.
@@ -1092,7 +1088,7 @@ Proof.
   - constructor.
   - constructor; [| assumption].
     apply expr.interp_var.
-    apply get_putmany_right. assumption.
+    apply map.get_putmany_right. assumption.
 Qed.
 
 Lemma Forall2_firstn' {A B} (R : A -> B -> Prop) n (l : list A) (l' : list B) :
@@ -1137,63 +1133,13 @@ Lemma Forall2_VZ_map (l : list Z) :
   Forall2 (fun a b => a = VZ b) (map VZ l) l.
 Proof. induction l; simpl; constructor; auto. Qed.
 
-Lemma get_putmany_left (m1 m2 : context) k v :
-  map.get m2 k = None -> map.get m1 k = Some v ->
-  map.get (map.putmany m1 m2) k = Some v.
+Lemma disjoint_of_bounds (s1 s2 : context) lo mid hi :
+  (forall k v, map.get s1 k = Some v -> lo <= k < mid) ->
+  (forall k v, map.get s2 k = Some v -> mid <= k < hi) ->
+  map.disjoint s1 s2.
 Proof.
-  intros H2 H1. rewrite map.get_putmany_dec.
-  destruct (map.get m2 k) eqn:E.
-  - rewrite H2 in E. discriminate.
-  - exact H1.
-Qed.
-
-Lemma gp_some (m1 m2 : context) k v :
-  map.get m2 k = Some v -> map.get (map.putmany m1 m2) k = Some v.
-Proof. intros H. rewrite map.get_putmany_dec, H. reflexivity. Qed.
-
-Lemma gp_none (m1 m2 : context) k :
-  map.get m2 k = None -> map.get (map.putmany m1 m2) k = map.get m1 k.
-Proof. intros H. rewrite map.get_putmany_dec, H. reflexivity. Qed.
-
-Lemma extends_1 (C substn1 substn2 : context) (lo nv1 hi : nat) :
-  (forall k w, map.get substn1 k = Some w -> lo <= k < nv1) ->
-  (forall k w, map.get substn2 k = Some w -> nv1 <= k < hi) ->
-  map.extends (map.putmany (map.putmany substn1 substn2) C)
-              (map.putmany substn1 C).
-Proof.
-  intros Hd1 Hd2. cbv [map.extends]. intros k w Hk.
-  destruct (map.get C k) as [v|] eqn:EC.
-  - (* C has k: both sides return C's value *)
-    rewrite (gp_some _ _ _ _ EC) in Hk.
-    rewrite (gp_some _ _ _ _ EC).
-    exact Hk.
-  - (* C lacks k: both sides look in the inner map *)
-    rewrite (gp_none _ _ _ EC) in Hk.
-    rewrite (gp_none _ _ _ EC).
-    (* Hk : map.get substn1 k = Some w *)
-    destruct (map.get substn2 k) as [w2|] eqn:E2.
-    + (* substn2 has k too: bounds clash *)
-      exfalso.
-      destruct (Hd1 k w Hk) as [A B].
-      destruct (Hd2 k w2 E2) as [A' B'].
-      lia.
-    + rewrite (gp_none _ _ _ E2).
-      exact Hk.
-Qed.
-
-Lemma extends_2 (C substn1 substn2 : context) :
-  map.extends (map.putmany (map.putmany substn1 substn2) C)
-              (map.putmany substn2 C).
-Proof.
-  cbv [map.extends]. intros k w Hk.
-  destruct (map.get C k) as [v|] eqn:EC.
-  - rewrite (gp_some _ _ _ _ EC) in Hk.
-    rewrite (gp_some _ _ _ _ EC).
-    exact Hk.
-  - rewrite (gp_none _ _ _ EC) in Hk.
-    rewrite (gp_none _ _ _ EC).
-    (* Hk : map.get substn2 k = Some w *)
-    apply gp_some. exact Hk.
+  intros H1 H2 k v1 v2 G1 G2.
+  destruct (H1 _ _ G1). destruct (H2 _ _ G2). lia.
 Qed.
 
 Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps next_varname' :
@@ -1242,14 +1188,14 @@ Proof.
       { reflexivity. }
       { constructor.
         - eapply expr.interp_var.
-          rewrite (gp_none _ _ _ Hmap).
+          rewrite (map.get_putmany_left _ _ _ Hmap).
           apply map.get_put_same.
         - apply Forall2_app.
           + apply interp_vars_putmany. apply Forall2_firstn'. exact Hidxs.
           + eapply lower_idxs_works.
             * exact H0.
             * eapply Forall_impl; [| apply (context_of_zctx ctx Hnd)].
-              intros [x y] Hxy. apply gp_some. exact Hxy. }
+              intros [x y] Hxy. apply map.get_putmany_right. exact Hxy. }
     + (* truth *)
       apply Forall_cons; [| apply Forall_nil].
       exists v, n, n0, v2, (map interp_pZexpr' idxs2).
@@ -1261,7 +1207,7 @@ Proof.
       split; [apply Forall2_VZ_map | reflexivity].
     + (* final expr.interp *)
       eapply expr.interp_var.
-      rewrite (gp_none _ _ _ Hmap).
+      rewrite (map.get_putmany_left _ _ _ Hmap).
       apply map.get_put_same.
   - (* SBop *)
     intros idxs0 idxs0' next_varname datalog_expr hyps next_varname' Hidxs Hcomp Hmap Hnd.
@@ -1275,24 +1221,34 @@ Proof.
                 (fun k Hk => Hmap k (Nat.le_trans _ _ _ Hle1 Hk)) Hnd)
       as (hyps2' & substn2 & Hle2 & Hdom2 & Hint2 & Hforall2 & Hexpr2).
     exists (hyps1' ++ hyps2'), (map.putmany substn1 substn2).
+    pose proof (disjoint_of_bounds substn1 substn2 _ _ _ Hdom1 Hdom2) as Hdisj.
+assert (Ext1 : map.extends (map.putmany (map.putmany substn1 substn2) (context_of ctx))
+                           (map.putmany substn1 (context_of ctx))).
+{ eapply Map.extends_putmany_putmany.
+  eapply Map.extends_putmany_left.
+  apply Hdisj. }
+assert (Ext2 : map.extends (map.putmany (map.putmany substn1 substn2) (context_of ctx))
+                           (map.putmany substn2 (context_of ctx))).
+{ eapply Map.extends_putmany_putmany.
+  eapply Map.extends_putmany_right. }
     split; [| split; [| split; [| split]]].
     + lia.
     + (* domain bound *)
       intros k w Hk.
       destruct (map.get substn2 k) as [w2|] eqn:E.
       * destruct (Hdom2 k w2 E) as [A B]. split; lia.
-      * rewrite (gp_none _ _ _ E) in Hk.
+      * rewrite (map.get_putmany_left _ _ _ E) in Hk.
         destruct (Hdom1 k w Hk) as [A B]. split; lia.
     + (* clause.interp *)
       apply Forall2_app.
       * eapply Forall2_impl; [| exact Hint1].
         intros c f Hcf.
         eapply clause.interp_subst_more; [| exact Hcf].
-        eapply extends_1; [exact Hdom1 | exact Hdom2].
+        eapply Ext1.
       * eapply Forall2_impl; [| exact Hint2].
         intros c f Hcf.
         eapply clause.interp_subst_more; [| exact Hcf].
-        apply extends_2.
+        apply Ext2.
     + (* truth *)
       apply Forall_app. split; [exact Hforall1 | exact Hforall2].
     + (* final expr.interp *)
@@ -1301,10 +1257,10 @@ Proof.
         with (args' := [value_of (interp_pSexpr' x2); value_of (interp_pSexpr' y2)]).
       * constructor.
         -- eapply expr.interp_subst_more; [| exact Hexpr1].
-           eapply extends_1; [exact Hdom1 | exact Hdom2].
+           eapply Ext1.
         -- constructor; [| constructor].
            eapply expr.interp_subst_more; [| exact Hexpr2].
-           apply extends_2.
+           apply Ext2.
       * destruct o; reflexivity.
   - intros idxs0 idxs0' next_varname datalog_expr hyps next_varname' Hidxs Hcomp Hmap Hnd.
   simpl in Hcomp.
@@ -1323,134 +1279,32 @@ Proof.
   * reflexivity.
 Qed.
 
-(* integer expressions: variables are looked up with sizeof_var *)
-Fixpoint sizeof_pZexpr' {var : Type} (sizeof_var : var -> option Z)
-    (e : pZexpr' var) : option Z :=
-  match e with
-  | ZBop o x y =>
-      match sizeof_pZexpr' sizeof_var x, sizeof_pZexpr' sizeof_var y with
-      | Some x', Some y' => Some (interp_Zbop o x' y')
-      | _, _ => None
-      end
-  | ZVar x => sizeof_var x
-  | ZLit z => Some z
-  | Zopp x => option_map Z.opp (sizeof_pZexpr' sizeof_var x)
-  end.
-
-(* scalar expressions: only the Get arity matters *)
-Fixpoint sizeof_pSexpr' {var : type -> Type} (s : pATL_Sexpr' var) : Prop :=
-  match s with
-  | Get n _ idxs => length idxs = n
-  | SBop _ x y => sizeof_pSexpr' x /\ sizeof_pSexpr' y
-  | SLit _ => True
-  end.
-
-Fixpoint sizeof_prop' {var : type -> Type} {n : nat}
-    (sizeof_var : var tZ -> option Z) (e : pATLexpr' var n) (sz : list nat) : Prop :=
-  match e with
-  | Gen _ lo hi body =>
-    exists hi' sz',
-      sizeof_pZexpr' sizeof_var lo = Some 0%Z /\
-      sizeof_pZexpr' sizeof_var hi = Some hi' /\
-      let m := Z.to_nat hi' in
-      sz = m :: sz' /\ 0 < m /\
-      forall x, sizeof_prop' sizeof_var (body x) sz'
-  | Sum _ lo hi body =>
-      forall x, sizeof_prop' sizeof_var (body x) sz
-  | Guard _ b body =>
-      sizeof_prop' sizeof_var body sz
-  | Lbind _ _ e1 e2 =>
-      exists sz',
-        sizeof_prop' sizeof_var e1 sz' /\
-        forall x, sizeof_prop' sizeof_var (e2 x) sz
-  | Concat _ x y =>
-      exists nx ny sz',
-        sizeof_prop' sizeof_var x (nx :: sz') /\
-        sizeof_prop' sizeof_var y (ny :: sz') /\
-        sz = nx + ny :: sz'
-  | Flatten _ e1 =>
-      exists a b sz',
-        sizeof_prop' sizeof_var e1 (a :: b :: sz') /\ sz = a * b :: sz'
-  | Split _ k e1 =>
-      exists a sz' k',
-        sizeof_prop' sizeof_var e1 (a :: sz') /\
-        sizeof_pZexpr' sizeof_var k = Some k' /\
-        0 < Z.to_nat k' /\
-        sz = a //n (Z.to_nat k') :: Z.to_nat k' :: sz'
-  | Transpose _ e1 =>
-      exists a b sz',
-        sizeof_prop' sizeof_var e1 (a :: b :: sz') /\ sz = b :: a :: sz'
-  | Truncr _ k e1 | Truncl _ k e1 =>
-      exists m sz' k',
-        sizeof_prop' sizeof_var e1 (m :: sz') /\
-        sizeof_pZexpr' sizeof_var k = Some k' /\
-        Z.to_nat k' < m /\ sz = m - Z.to_nat k' :: sz'
-  | Padr k e1 =>
-      exists m sz' k',
-        sizeof_prop' sizeof_var e1 (m :: sz') /\
-        sizeof_pZexpr' sizeof_var k = Some k' /\
-        sz = m + Z.to_nat k' :: sz'
-  | Padl k e1 =>
-      exists m sz' k',
-        sizeof_prop' sizeof_var e1 (m :: sz') /\
-        sizeof_pZexpr' sizeof_var k = Some k' /\
-        sz = Z.to_nat k' + m :: sz'
-  | Scalar s => sz = [] /\ sizeof_pSexpr' s
-  end.
-
 Definition true_rel : result :=
   result.mk (fun args => args = [Vbool true]) (fun _ => False).
 
 Lemma true_rel_normal args : true_rel.(result.normal) args <-> args = [Vbool true].
 Proof. reflexivity. Qed.
 
-Lemma sizeof_pZexpr'_eq (e : pZexpr' tagged_Z) :
-  sizeof_pZexpr' sizeof_var e = Some (interp_pZexpr' e).
-Proof.
-  induction e as [o e1 e2 IHe1 IHe2 | x | z1 | e1 IHe1]; simpl.
-  - rewrite e2, IHe2. reflexivity.
-  - reflexivity.          (* if sizeof_var is fun x => Some (untag_Z x) *)
-  - reflexivity.
-  - rewrite IHe1. reflexivity.
-Qed.
+Fixpoint get_R_opt {n : nat} : dim_n n -> list Z -> option R :=
+  match n return dim_n n -> list Z -> option R with
+  | O => fun v idxs => match idxs with [] => Some v | _ => None end
+  | S n' => fun (v : list (dim_n n')) idxs =>
+      match idxs with
+      | [] => None
+      | i :: idxs' =>
+          if (0 <=? i)%Z && (i <? Z.of_nat (Datatypes.length v))%Z
+          then get_R_opt (v _[ i ]) idxs'
+          else None
+      end
+  end.
 
-Lemma sizeof_pZexpr'_interp (e : pZexpr' tagged_Z) z :
-  sizeof_pZexpr' sizeof_var e = Some z -> interp_pZexpr' e = z.
-Proof.
-  intros H.
-  rewrite sizeof_pZexpr'_eq in H.
-  congruence.
-Qed.
-
-Definition complete_at {n} (P : result) (outer : list value) (sz : list nat)
+Definition complete_at {n} (P : result) (outer : list value)
     (t : interp_type_tagged (tensor_n n)) : Prop :=
-  forall (idxs : list Z),
-    length idxs = n ->
-    Forall2 (fun i s => (0 <= i < Z.of_nat s)%Z) idxs sz ->
-    P.(result.normal) (VR (get_R t idxs) :: outer ++ map VZ idxs).
+  forall idxs val,
+    get_R_opt t idxs = Some val ->
+    P.(result.normal) (VR val :: outer ++ map VZ idxs).
 
-Search genr.
-Lemma get_R_genr {n} (lo hi : Z) (f : Z -> dim_n n) (i : Z) (rest : list Z) :
-  (0 <= i < hi - lo)%Z ->
-  get_R (n := S n) (genr lo hi f) (i :: rest) = get_R (f (lo + i)%Z) rest.
-Proof.
-  intros H. simpl get_R. f_equal. apply get_genr_some. 
-  - lia.
-  - lia.
-  - lia.
-Qed.
-
-(* for Hidxs2 - WHY DOES IT NEED HELPER LEMMAS??? *)
-Lemma Forall2_impl_In {A B} (P Q : A -> B -> Prop) l l' :
-  Forall2 P l l' -> (forall x y, In x l -> P x y -> Q x y) -> Forall2 Q l l'.
-Proof.
-  intros H Hf. induction H.
-  - constructor.
-  - constructor.
-    + apply Hf; [left; reflexivity | assumption].
-    + apply IHForall2. intros x' y' Hin Hp. apply Hf; [right; assumption | assumption].
-Qed.
-
+Search map.put.
 (* second helper lemma for hidxs2 .... *)
 Lemma context_of_ext {var} (ctx : list (ctx_elt2 (var_of var) interp_type_tagged)) a b :
   context_of ({| ctx_elt_t := tZ; ctx_elt_p1 := a; ctx_elt_p2 := b |} :: ctx)
@@ -1463,127 +1317,145 @@ Qed.
 
 Search (Z.of_nat (Z.to_nat _)).
 
+Lemma lt_of_seq idxs0 k :
+  idxs0 = seq 0 (Datatypes.length idxs0) -> In k idxs0 -> k < Datatypes.length idxs0.
+Proof. intros Hs Hk. rewrite Hs in Hk at 1. apply in_seq in Hk. lia. Qed.
+
+Lemma ext_not_tensor {var} (a : var_of var tZ) (b : interp_type_tagged tZ)
+    (ctx : list (ctx_elt2 (var_of var) interp_type_tagged)) m P depth tv :
+  In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |}
+     ({| ctx_elt_t := tZ; ctx_elt_p1 := a; ctx_elt_p2 := b |} :: ctx) ->
+  In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx.
+Proof.
+  intros [Hin | Hin]; [| exact Hin].
+  exfalso.
+  pose proof (f_equal (fun c : ctx_elt2 (var_of var) interp_type_tagged
+                         => ctx_elt_t _ _ c) Hin) as E.
+  simpl in E. discriminate E.
+Qed.
+
+(* supposedly this will also be used in sum *)
+Lemma ctx_extend_ok ctx idxs0 idxs0' (i : Z)
+    (Hidxs : Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0')
+    (Hseq : idxs0 = seq 0 (Datatypes.length idxs0))
+    (Hperm : Permutation (map fst (zctx ctx)) idxs0)
+    (Hdepth : forall m P depth tv,
+       In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
+       depth <= Datatypes.length idxs0')
+    (Hcompl : forall m P depth tv,
+       In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
+       complete_at P (firstn depth idxs0') tv) :
+  let ext := {| ctx_elt_t := tZ; ctx_elt_p1 := Datatypes.length idxs0;
+                ctx_elt_p2 := itervarZ i |}
+             : ctx_elt2 (var_of result) interp_type_tagged in
+  Forall2 (fun x y => map.get (context_of (ext :: ctx)) x = Some y)
+          (idxs0 ++ [Datatypes.length idxs0]) (idxs0' ++ [VZ i]) /\
+  idxs0 ++ [Datatypes.length idxs0]
+    = seq 0 (Datatypes.length (idxs0 ++ [Datatypes.length idxs0])) /\
+  Permutation (map fst (zctx (ext :: ctx))) (idxs0 ++ [Datatypes.length idxs0]) /\
+  (forall m P depth tv,
+     In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |}
+        (ext :: ctx) ->
+     depth <= Datatypes.length (idxs0' ++ [VZ i])) /\
+  (forall m P depth tv,
+     In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |}
+        (ext :: ctx) ->
+     complete_at P (firstn depth (idxs0' ++ [VZ i])) tv).
+Proof.
+  intros ext.
+  repeat split.
+  - apply Forall2_app.
+    + eapply List.Forall2_impl_strong; [exact Hidxs |].
+      intros x y Hget Hin _. cbv [ext].
+      rewrite (context_of_ext ctx (Datatypes.length idxs0) (itervarZ i)).
+      assert (Hne : x <> Datatypes.length idxs0).
+      { intro Heq. pose proof (lt_of_seq _ _ Hseq Hin) as Hlt.
+        rewrite Heq in Hlt. exact (Nat.lt_irrefl _ Hlt). }
+      rewrite map.get_put_diff by exact Hne. exact Hget.
+    + cbv [ext]. constructor; [| constructor].
+      rewrite (context_of_ext ctx (Datatypes.length idxs0) (itervarZ i)).
+      rewrite map.get_put_same. reflexivity.
+  - rewrite length_app. simpl. rewrite Nat.add_1_r, seq_S.
+    f_equal; [exact Hseq].
+  - change (zctx (ext :: ctx)) with ((Datatypes.length idxs0, itervarZ i) :: zctx ctx).
+    simpl. transitivity (Datatypes.length idxs0 :: idxs0).
+    + apply perm_skip. exact Hperm.
+    + apply Permutation_cons_append.
+  - intros m P depth tv Hin.
+    pose proof (Hdepth _ _ _ _ (ext_not_tensor _ _ _ _ _ _ _ Hin)).
+    rewrite length_app. simpl. lia.
+  - intros m P depth tv Hin.
+    pose proof (ext_not_tensor _ _ _ _ _ _ _ Hin) as Hin'.
+    pose proof (Hcompl _ _ _ _ Hin') as Hc.
+    pose proof (Hdepth _ _ _ _ Hin') as Hd.
+    rewrite firstn_app.
+    replace (depth - Datatypes.length idxs0')%nat with 0%nat by lia.
+    simpl. rewrite app_nil_r. exact Hc.
+Qed.
+
+(* shorter way of doing sizeof_prop' *)
+Fixpoint lo_zero {n} (e : pATLexpr' interp_type_tagged n) : Prop :=
+match e with
+| Gen _ lo _ body => interp_pZexpr' lo = 0%Z /\ forall x, lo_zero (body x)
+| Sum _ _ _ body => forall x, lo_zero (body x)
+| Guard _ _ b => lo_zero b
+| Lbind _ _ e1 e2 => lo_zero e1 /\ forall x, lo_zero (e2 x)
+| Concat _ x y => lo_zero x /\ lo_zero y
+| Flatten _ e1 | Split _ _ e1 | Transpose _ e1
+| Truncr _ _ e1 | Truncl _ _ e1 | Padr _ e1 | Padl _ e1 => lo_zero e1
+| Scalar _ => True
+end.
+
 Context {value_eqb : Eqb.Eqb value} {value_eqb_ok : Eqb.Eqb_ok value_eqb}.
 Context {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set}.
 Lemma lower_pATLexpr'_works n
     (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
     (e : pATLexpr' (var_of result) n) (e' : pATLexpr' interp_type_tagged n)
-    (idxs0 : list exprvar) (idxs0' : list value)
-    (sz : list nat) :
-  sizeof_prop' sizeof_var e' sz ->
+    (idxs0 : list exprvar) (idxs0' : list value) :
+  lo_zero e' ->
   wf_pATL_expr' ctx n e e' ->
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
-  NoDup (map fst (zctx ctx)) ->
-  (forall k, In k (map fst (zctx ctx)) -> k < Datatypes.length idxs0) ->                (* Hfresh *)
-  (forall k, In k idxs0 -> k < Datatypes.length idxs0) ->               (* Hlow *)
-  (forall m P depth tv, In {| ctx_elt_t := tensor_n m;
-      ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
-    depth <= Datatypes.length idxs0') ->   
+  idxs0 = seq 0 (Datatypes.length idxs0) ->                    (* Hseq *)
+  Permutation (map fst (zctx ctx)) idxs0 ->                    (* Hperm *)
   (forall m P depth tv,
      In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
-     exists szv, complete_at P (firstn depth idxs0') szv tv) ->
-  complete_at (blocks_prog.interp (lower_pATLexpr' e idxs0 true_rel)) idxs0' sz
-            (interp_pATLexpr' e').
+     depth <= Datatypes.length idxs0') ->                      (* Hdepth *)
+  (forall m P depth tv,
+     In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
+     complete_at P (firstn depth idxs0') tv) ->                (* Hcompl *)
+  complete_at (blocks_prog.interp (lower_pATLexpr' e idxs0 true_rel)) idxs0'
+              (interp_pATLexpr' e').
 Proof.
-  intros sp Hwf.
-  revert idxs0 idxs0' sz sp.
-  induction Hwf.
-(* this whole bullet is just the get case ... plus it has helper lemmas ... *)
-- intros idxs0 idxs0' sz sp Hidxs Hnd Hfresh Hlow Hdepth Hcompl.
-  simpl in sp.
-  destruct sp as (hi' & sz' & Hlo & Hhi & Hsz & Hpos & Hbody).
-  unfold complete_at. intros idxs Hlen Hbounds.
-  cbn [lower_pATLexpr'].
-  cbn [interp_pATLexpr']. 
-  destruct idxs as [| i rest]; [discriminate |].
-  assert (Hl : interp_pZexpr' lo2 = 0%Z).
-  { rewrite (sizeof_pZexpr'_eq lo2) in Hlo. congruence. }
-  assert (Hh : interp_pZexpr' hi2 = hi').
-  { rewrite (sizeof_pZexpr'_eq hi2) in Hhi. congruence. }
-  rewrite Hl, Hh.
-  subst sz.
-  inversion Hbounds as [| i0 s0 l0 l0' Hi Hrest]; subst.
-  simpl in Hlen.
-  set (h := interp_pZexpr' hi2) in *.
-  assert (Hh : (0 < h)%Z) by lia.
-  assert (Hb : (0 <= i < h - 0)%Z) by lia.
-  replace (get_R _ (i :: rest))
-  with (get_R (interp_pATLexpr' (body2 (itervarZ i))) rest).
-  2:{ simpl get_R. f_equal.
-      rewrite get_genr_some by lia.
-      rewrite Z.add_0_l. reflexivity. }
-  { set (ext := {| ctx_elt_t := tZ; ctx_elt_p1 := Datatypes.length idxs0;
-               ctx_elt_p2 := itervarZ i |}
-        : ctx_elt2 (var_of result) interp_type_tagged).
-  (* so many assertions for only one part of the proof ... *)
-  assert (Hz : zctx (ext :: ctx) = (Datatypes.length idxs0, itervarZ i) :: zctx ctx)
-  by reflexivity.
-
-  assert (Hidx2 : Forall2 (fun x y => map.get (context_of (ext :: ctx)) x = Some y)
-            (idxs0 ++ [Datatypes.length idxs0]) (idxs0' ++ [VZ i])).
-  { apply Forall2_app.
-    - eapply Forall2_impl_In; [exact Hidxs |].
-      intros x y Hin Hget. cbv [ext].
-      rewrite (context_of_ext ctx (Datatypes.length idxs0) (itervarZ i)). 
-      assert (Hne : x <> Datatypes.length idxs0) by (pose proof (Hlow _ Hin); lia).
-      rewrite map.get_put_diff by exact Hne.
-      exact Hget.
-    - cbv [ext].
-    constructor; [| constructor].
-    rewrite (context_of_ext ctx (Datatypes.length idxs0) (itervarZ i)).
-    rewrite map.get_put_same. reflexivity. }
-
-  assert (Hnd2 : NoDup (map fst (zctx (ext :: ctx)))). { rewrite Hz. simpl. constructor.
-  - intro Hin. pose proof (Hfresh _ Hin). lia.
-  - exact Hnd. }
-
-  assert (Hfresh2 : forall k, In k (map fst (zctx (ext :: ctx))) ->
-            k < Datatypes.length (idxs0 ++ [Datatypes.length idxs0])).
-  { intros k Hk. rewrite Hz in Hk. simpl in Hk.
-  rewrite length_app. simpl.
-  destruct Hk as [Hk | Hk].
-  - lia.
-  - pose proof (Hfresh _ Hk). lia. }
-
-  assert (Hlow2 : forall k, In k (idxs0 ++ [Datatypes.length idxs0]) ->
-            k < Datatypes.length (idxs0 ++ [Datatypes.length idxs0])).
-  { intros k Hk. rewrite length_app. simpl.
-  apply in_app_iff in Hk. destruct Hk as [Hk | [Hk | []]].
-  - pose proof (Hlow _ Hk). lia.
-  - lia. }
-
-  assert (Hdepth2 : forall m P depth tv,
-    In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} (ext :: ctx) ->
-    depth <= Datatypes.length (idxs0' ++ [VZ i])).
-  { intros m P depth tv Hin. destruct Hin as [Hin | Hin].
-  - exfalso.
-    pose proof (f_equal (fun c : ctx_elt2 (var_of result) interp_type_tagged
-                           => ctx_elt_t _ _ c) Hin) as E.
-    cbv [ext] in E. simpl in E. discriminate E.
-  - pose proof (Hdepth _ _ _ _ Hin). rewrite length_app. simpl. lia. }
-
-  assert (Hcompl2 : forall m P depth tv,
-    In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} (ext :: ctx) ->
-    exists szv, complete_at P (firstn depth (idxs0' ++ [VZ i])) szv tv).
-  { intros m P depth tv Hin. destruct Hin as [Hin | Hin].
-  - exfalso.
-    pose proof (f_equal (fun c : ctx_elt2 (var_of result) interp_type_tagged =>
-                         ctx_elt_t _ _ c) Hin) as E.
-  cbv [ext] in E. simpl in E. discriminate E.
-  - destruct (Hcompl _ _ _ _ Hin) as [szv Hc]. exists szv.
-    pose proof (Hdepth _ _ _ _ Hin) as Hd.
-    rewrite firstn_app.
-    replace (depth - Datatypes.length idxs0')%nat with 0%nat by lia.
-    simpl. rewrite app_nil_r. exact Hc. }
-
-  pose proof (H2 (Datatypes.length idxs0) (itervarZ i)
-    (idxs0 ++ [Datatypes.length idxs0]) (idxs0' ++ [VZ i]) sz'
-    (Hbody _) Hidx2 Hnd2 Hfresh2 Hlow2 Hdepth2 Hcompl2) as IH.
-  unfold complete_at in IH.
-  specialize (IH rest (eq_add_S _ _ Hlen) Hrest).
-  rewrite <- app_assoc in IH. simpl in IH.
-  exact IH. }
-(* this is the sum case, but sum doesn't exist yet... *)
+  intros Hsz Hwf. revert idxs0 idxs0' Hsz. induction Hwf.
+(* Get case *)
+- intros idxs0 idxs0' Hlz Hidxs Hseq Hperm Hdepth Hcompl.
+destruct Hlz as [Hlo Hbody].
+  unfold complete_at. intros idxs val Hget.
+cbn [lower_pATLexpr'].
+cbn [interp_pATLexpr'] in Hget.
+destruct idxs as [| i rest]; [cbn in Hget; discriminate |].
+cbn [get_R_opt] in Hget.
+(* pull the bounds check out of the option lookup *)
+match type of Hget with
+| context [if ?c then _ else _] => destruct c eqn:Hb
+end; [| discriminate].
+apply Bool.andb_true_iff in Hb. destruct Hb as [Hb0 Hb1].
+apply Z.leb_le in Hb0. apply Z.ltb_lt in Hb1.
+rewrite genr_length in Hb1.
+rewrite Hlo in Hget, Hb1.
+rewrite Z.sub_0_r in Hb1.
+assert (Hh : (0 < interp_pZexpr' hi2)%Z) by lia.
+assert (Hb2 : (i < interp_pZexpr' hi2)%Z) by lia.
+rewrite (get_genr_some i (interp_pZexpr' hi2) 0%Z) in Hget by lia.
+destruct (ctx_extend_ok ctx idxs0 idxs0' i Hidxs Hseq Hperm Hdepth Hcompl)
+  as (Hidx2 & Hseq2 & Hperm2 & Hdepth2 & Hcompl2).
+pose proof (H2 (Datatypes.length idxs0) (itervarZ i)
+  (idxs0 ++ [Datatypes.length idxs0]) (idxs0' ++ [VZ i])
+  (Hbody _) Hidx2 Hseq2 Hperm2 Hdepth2 Hcompl2) as IH.
+unfold complete_at in IH.
+specialize (IH rest val Hget).
+rewrite <- app_assoc in IH. simpl in IH.
+exact IH.
 -
 Admitted.
 
