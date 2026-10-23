@@ -46,9 +46,23 @@ Class datalog_params {_rel : relT} {_exprvar : exprvarT} `{semantics : datalog_s
 Definition interp_agg `{datalog_semantics} agg (vals : list (value * value)) :=
   fold_right (agg_bop agg) (agg_id agg) (map snd vals).
 
-Class query_signature {rel : Type} :=
-  { outs : rel -> nat }.
-Arguments query_signature : clear implicits.
+Module query.
+  (*bit mask: length is arity of the relation; ones are inputs; zeroes are outputs. *)
+  Class signature {rel : relT} :=
+    { sig : rel -> list bool }.
+
+  Section __.
+    Context `{params : datalog_params} {qsig : signature}.
+
+    Definition arity R := length (sig R).
+    Definition num_inputs R := count_occ true (sig R).
+    Definition num_outputs R := count_occ false (sig R).
+
+    Definition inputs {T} R (args : list T) := select (sig R) args.
+    Definition outputs {T} R (args : list T) := select_not (sig R) args.
+    Definition merge {T} R (ins outs : list T) := unselect (sig R) ins outs.
+  End __.
+End query.
 
 Goal forall {exprvar : exprvarT} {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb} (v v0 : exprvar),
     BoolSpec (v = v0) (v <> v0) (var_eqb v v0).
@@ -178,6 +192,7 @@ Module normal_fact.
   Record normal_fact {relt : relT} {value : valueT} := mk
     { rel : relt;
       args : list value }.
+  Arguments mk {_ _} _ _.
   Scheme Boolean Equality for normal_fact.
   (*i don't actually want this to be global; i'd prefer to instead export it along with normal_fact.  but the Import/Export commands aren't granular enough for me to do that.*)
   #[global] Ltac2 Set to_destruct as prev := fun _ => pattern_pred pat:(@normal_fact _ _) :: prev ().
@@ -190,6 +205,11 @@ Module normal_fact.
 
     #[global] Instance eqb_ok : Eqb_ok eqb.
     Proof. eqb_ok. Qed.
+
+    Context {qsig : query.signature}.
+
+    Definition with_only_inputs (f : normal_fact (value := value)) :=
+      {| rel := f.(rel); args := query.inputs f.(rel) f.(args) |}.
   End __.
 End normal_fact. Abbreviation normal_fact := normal_fact.normal_fact.
 #[export] Hint Unfold normal_fact.rel normal_fact.args : core.
@@ -532,6 +552,20 @@ Module clause.
       rewrite Forall_forall in H2p1. apply H2p1 in Hv.
       fwd. invert1_any. cbv [agree_on]. congruence.
     Qed.
+
+    Context {qsig : query.signature}.
+
+    Definition query_inputs c := query.inputs c.(rel) c.(args).
+    Definition query_outputs c := query.outputs c.(rel) c.(args).
+    Definition with_only_inputs c := {| rel := c.(rel); args := query_inputs c |}.
+
+    Lemma interp_with_only_inputs ctx c f :
+      interp ctx c f ->
+      interp ctx (with_only_inputs c) (normal_fact.with_only_inputs f).
+    Proof.
+      cbv [interp with_only_inputs normal_fact.with_only_inputs query_inputs query.inputs].
+      intros H. fwd. simpl. rewrite Hp0. split; [reflexivity | apply Forall2_select; assumption].
+    Qed.
 End __.
 
   Section __.
@@ -604,6 +638,10 @@ Module clause_pattern.
 
     Definition vars (c : clause_pattern) : list exprvar :=
       flat_map expr_pattern.vars c.(args).
+
+    Context {qsig : query.signature}.
+
+    Definition query_inputs c := query.inputs c.(rel) c.(args).
   End __.
 
   Section __.
@@ -835,39 +873,6 @@ Module rule.
       | agg _ _ _ => []
       end.
 
-    (*is rule r conducive to bottom-up evaluation?*)
-    Definition is_bottomup (r : rule) :=
-      forall v, In v (all_vars r) -> In (expr.var v) (hyp_args r).
-
-    (* Definition clause_outs (c : clause) := firstn (outs (fst c.(clause_R))) c.(clause_args). *)
-    (* Definition clause_ins (c : clause) := skipn (outs (fst c.(clause_R))) c.(clause_args). *)
-
-    (* Definition with_only_ins (c : clause) := *)
-    (*   {| clause_R := c.(clause_R); clause_args := clause_ins c |}. *)
-
-    (* (*2 conditions. *)
-     (*  * hyp_ins only depend on concl_ins, and *)
-     (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
-     (*  (implicit conditions: every concl_in is of the form var_expr blah, where blah was not *)
-     (*  bound to the agg_expr) *)
-     (*  *) *)
-    (* Definition goodish_rule (r : rule) := *)
-    (*   match r with *)
-    (*   | normal_rule rule_concls rule_hyps => *)
-    (*       exists concl, *)
-    (*       rule_concls = [concl] /\ *)
-    (*         (forall v, *)
-    (*             In v (flat_map vars_of_clause rule_concls) \/ *)
-    (*               In v (flat_map vars_of_clause rule_hyps) -> *)
-    (*             In (var_expr v) (flat_map clause_args rule_hyps) \/ *)
-    (*               In (var_expr v) (clause_ins concl)) /\ *)
-    (*         (forall v, In v (flat_map vars_of_expr (flat_map clause_ins rule_hyps)) -> *)
-    (*               In (var_expr v) (clause_ins concl)) /\ *)
-    (*         (forall v, In v (flat_map vars_of_expr (clause_ins concl)) -> *)
-    (*               In (var_expr v) (clause_ins concl)) *)
-    (*   | agg_rule _ _ _ => True *)
-    (*   end. *)
-
     Lemma interp_concl_relname_in r f hyps :
       interp r f hyps ->
       In f.(normal_fact.rel) (concl_rels r).
@@ -914,6 +919,33 @@ Module rule.
       - intros x Hx. apply Hiff. assumption.
       - intros x Hx. apply Hiff. assumption.
     Qed.
+
+    (*is rule r conducive to bottom-up evaluation?*)
+    Definition is_bottomup (r : rule) :=
+      forall v, In v (all_vars r) -> In (expr.var v) (hyp_args r).
+
+    Context {qsig : query.signature}.
+
+    Definition input_vars (r : rule) :=
+      match r with
+      | impl rule_concls rule_hyps =>
+          flat_map expr.vars (flat_map clause.query_inputs (rule_concls ++ rule_hyps))
+      | agg _ _ _ => []
+      end.
+
+    (* 2 conditions. *)
+    (*  * hyp_ins only depend on concl_ins, and *)
+    (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
+    Definition is_almost_bottomup (r : rule) :=
+      match r with
+      | impl [concl] hyps =>
+          (forall v, In v (input_vars r) -> In (expr.var v) (clause.query_inputs concl)) /\
+            (forall v, In v (all_vars r) ->
+                  In (expr.var v) (hyp_args r ++ clause.query_inputs concl))
+      | impl _ _ => False
+      | agg concl_rel _ hyp_rel =>
+          submask (query.sig hyp_rel) (false :: false :: tl (query.sig concl_rel))
+      end.
 
     Lemma is_bottomup_concl_vars_bound rule_concls rule_hyps c (x : exprvar) :
       is_bottomup (impl rule_concls rule_hyps) ->
@@ -1057,6 +1089,27 @@ Module meta_rule.
         rule.interp nr nf hyps ->
         fact_pattern.matches pat nf ->
         Forall (fact.covered_by_pats pats) hyps.
+
+    Context {qsig : query.signature}.
+
+    Definition input_vars (r : meta_rule) :=
+      flat_map expr_pattern.vars (flat_map clause_pattern.query_inputs (r.(concls) ++ r.(hyps))).
+
+    (* 2 conditions. *)
+    (*  * hyp_ins only depend on concl_ins, and *)
+    (*  * whole thing only depends on (concl_ins \cup vars_bare_in_hyps) *)
+    Definition is_almost_bottomup (r : meta_rule) :=
+      match r.(concls) with
+      | [concl] =>
+          (forall v,
+              In v (input_vars r) ->
+              In (expr_pattern.exactly (expr.var v)) (clause_pattern.query_inputs concl)) /\
+            (forall v,
+                In v (all_vars r) ->
+                In (expr_pattern.exactly (expr.var v))
+                  (hyp_args r ++ clause_pattern.query_inputs concl))
+      | _ => False
+      end.
   End __.
 End meta_rule. Abbreviation meta_rule := meta_rule.meta_rule.
 
@@ -1653,8 +1706,8 @@ Module program.
     (* Qed. *)
 
   End __.
-  Abbreviation interp p := (pftree (interp_step p)).
-End program. Abbreviation program := program.program.
+  #[export] Abbreviation interp p := (pftree (interp_step p)).
+End program. Export (notations) program. Abbreviation program := program.program.
 
 #[export] Instance program_default `{relT} `{exprvarT} `{fnT} `{aggregatorT} : WithDefault program :=
   {| program.rules := []; program.meta_rules := [] |}.

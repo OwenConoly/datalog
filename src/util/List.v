@@ -1,7 +1,7 @@
 From Stdlib Require Import Lists.List Permutation Bool Arith.PeanoNat Morphisms RelationClasses Classical_Prop.
 From coqutil Require Import Datatypes.List Datatypes.Option Tactics.fwd Tactics.destr Tactics Eqb.
 From GraphSearch Require Export List.
-From Datalog Require Import Tactics Eqb Default Decidable.
+From Datalog Require Import Tactics Eqb Default Decidable Function.
 Import ListNotations.
 
 Local Ltac invert_list_stuff' :=
@@ -120,6 +120,26 @@ Proof.
   induction l as [|a l IHl]; cbn [flat_map]; intros Hall; [reflexivity|].
   rewrite (Hall a) by (left; reflexivity). cbn [app].
   apply IHl. intros x Hin. apply Hall. right. exact Hin.
+Qed.
+
+Lemma flat_map_ext_in {A B} (f g : A -> list B) (l : list A) :
+  (forall a, In a l -> f a = g a) -> flat_map f l = flat_map g l.
+Proof. intros H. rewrite !flat_map_concat_map, (map_ext_in f g) by assumption. reflexivity. Qed.
+
+Lemma flat_map_app_at_perm {A B} (f g : A -> list B) (l : list A) a x :
+  NoDup l ->
+  In a l ->
+  (forall a', a' <> a -> g a' = f a') ->
+  g a = x ++ f a ->
+  Permutation (flat_map g l) (x ++ flat_map f l).
+Proof.
+  intros Hnd Hin Hne Ha. revert Hin. induction Hnd; intros Hin; cbn [flat_map]; [contradiction|].
+  destruct Hin as [<-|Hin].
+  - rewrite Ha, <- app_assoc, (flat_map_ext_in g f)
+      by (intros a' ?; apply Hne; intros ->; contradiction).
+    reflexivity.
+  - rewrite Hne by (intros ->; contradiction).
+    rewrite <- Permutation_app_swap_app. apply Permutation_app_head. auto.
 Qed.
 
 Lemma combine_map {A B C} (f : A -> B) (g : A -> C) (l : list A) :
@@ -2042,17 +2062,7 @@ Section misc.
 
   Lemma option_all_map_Some (l : list A) :
     option_all (map Some l) = Some l.
-  Proof.
-    induction l; simpl; auto. rewrite IHl. reflexivity.
-  Qed.
-
-  Lemma option_all_map_Some' (l : list A) l' :
-    option_all l' = Some l ->
-    l' = map Some l.
-  Proof.
-    revert l. induction l'; simpl; intros l H; invert_list_stuff'; auto.
-    fwd. simpl. f_equal. auto.
-  Qed.
+  Proof. apply option_all_Some_iff. reflexivity. Qed.
 
   Definition is_Some (x : option A) :=
     if x then true else false.
@@ -2174,6 +2184,13 @@ Section misc.
     intros x Hx. apply H, in_or_app. left. exact Hx.
   Qed.
 
+  Lemma filter_id_submultiset (q : A -> bool) l k :
+    submultiset l (filter q k) -> filter q l = l.
+  Proof.
+    intros H. apply forallb_filter_id, forallb_forall. intros x Hx.
+    apply submultiset_incl in H. apply H, filter_In in Hx. tauto.
+  Qed.
+
   Lemma Existsn_ge_submultiset (P : A -> Prop) k l1 l2 :
     Existsn_ge P k l1 -> submultiset l1 l2 -> Existsn_ge P k l2.
   Proof.
@@ -2224,6 +2241,14 @@ Section misc.
 
   Lemma submultiset_cons_mono a l l' : submultiset l l' -> submultiset (a :: l) (a :: l').
   Proof. intros (rest & Hp). exists rest. apply perm_skip. exact Hp. Qed.
+
+  Lemma filter_submultiset (q : A -> bool) l : submultiset (filter q l) l.
+  Proof.
+    induction l as [|a l IH]; cbn [filter]; [ apply submultiset_nil_l | ].
+    destruct (q a).
+    - apply submultiset_cons_mono. assumption.
+    - eapply submultiset_trans; [ exact IH | apply submultiset_cons ].
+  Qed.
 
   Lemma submultiset_cons_inv a l l' : submultiset (a :: l) (a :: l') -> submultiset l l'.
   Proof.
@@ -2312,6 +2337,45 @@ Section misc.
     eapply submultiset_perm_r; [ apply Permutation_sym; exact HT | ].
     apply submultiset_app_head.
     exists (s1 ++ s2). cbn [app]. symmetry. apply Permutation_middle.
+  Qed.
+
+  Lemma submultiset_snoc_or_in base owed T Q a :
+    submultiset base T ->
+    submultiset (base ++ a :: owed) (T ++ Q) ->
+    submultiset (base ++ [a]) T \/ In a Q.
+  Proof.
+    intros (s & HT) H.
+    assert (Hin : In a (s ++ Q)).
+    { apply (submultiset_incl (a :: owed)); [|left; reflexivity].
+      apply (submultiset_app_inv_l base). eapply submultiset_perm_r; [|exact H].
+      rewrite HT, <- app_assoc. reflexivity. }
+    apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+    - left. apply in_split in Hin. destruct Hin as (s1 & s2 & ->). exists (s1 ++ s2).
+      rewrite HT, <- app_assoc. apply Permutation_app_head.
+      cbn [app]. symmetry. apply Permutation_middle.
+    - right. assumption.
+  Qed.
+
+  Lemma submultiset_app_split l k1 k2 :
+    submultiset l (k1 ++ k2) ->
+    exists la lb, Permutation l (la ++ lb) /\ submultiset la k1 /\ submultiset lb k2.
+  Proof.
+    revert k1 k2. induction l as [|a l IH]; intros k1 k2 H.
+    - exists [], []. split; [reflexivity | split; apply submultiset_nil_l].
+    - assert (Hin : In a (k1 ++ k2)) by (eapply submultiset_incl; [ exact H | left; reflexivity ]).
+      apply in_app_or in Hin. destruct Hin as [Hin|Hin]; apply in_split in Hin; destruct Hin as (k' & k'' & ->).
+      + destruct (IH (k' ++ k'') k2) as (la & lb & Hl & Hla & Hlb).
+        { apply submultiset_cons_inv with (a := a). eapply submultiset_perm_r; [ | exact H ]. pmid. }
+        exists (a :: la), lb. split; [ | split ].
+        * cbn [app]. apply perm_skip. exact Hl.
+        * eapply submultiset_perm_r; [ | apply submultiset_cons_mono; exact Hla ]. pmid.
+        * exact Hlb.
+      + destruct (IH k1 (k' ++ k'')) as (la & lb & Hl & Hla & Hlb).
+        { apply submultiset_cons_inv with (a := a). eapply submultiset_perm_r; [ | exact H ]. pmid. }
+        exists la, (a :: lb). split; [ | split ].
+        * rewrite Hl. apply Permutation_middle.
+        * exact Hla.
+        * eapply submultiset_perm_r; [ | apply submultiset_cons_mono; exact Hlb ]. pmid.
   Qed.
 
   Definition multiset_monotone_dec (P : list A -> Prop) :=
@@ -2429,6 +2493,31 @@ End misc.
 Create HintDb submultiset.
 Hint Resolve submultiset_perm submultiset_refl submultiset_app_mid submultiset_app_r
      submultiset_cons submultiset_cons_mono submultiset_app_head submultiset_nil_l : submultiset.
+
+Lemma submultiset_flat_map_split {A B} {eqbA : Eqb A} {eqbA_ok : Eqb_ok eqbA} (f : A -> list B) l k :
+  NoDup l ->
+  submultiset k (flat_map f l) ->
+  exists g, Permutation k (flat_map g l) /\ forall a, submultiset (g a) (f a).
+Proof.
+  intros Hnd. revert k. induction Hnd; intros k Hk; cbn [flat_map] in *.
+  - exists (fun _ => []). split; [ | intros; apply submultiset_nil_l ].
+    destruct Hk as (rest & Hk). apply Permutation_nil, app_eq_nil in Hk. fwd. reflexivity.
+  - apply submultiset_app_split in Hk. destruct Hk as (ka & kb & Hk & Hka & Hkb).
+    destruct (IHHnd kb Hkb) as (g & Hg & Hgsub).
+    exists (fun_put g x ka). split.
+    + rewrite Hk, Hg. cbv [fun_put]. destr (eqb x x); [ | congruence ].
+      apply Permutation_app_head, Permutation_refl', flat_map_ext_in.
+      intros y Hy. destr (eqb y x); [ contradiction | reflexivity ].
+    + intros y. cbv [fun_put]. destr (eqb y x); auto.
+Qed.
+
+Lemma submultiset_flat_map {A B} (f g : A -> list B) l :
+  (forall x, submultiset (f x) (g x)) ->
+  submultiset (flat_map f l) (flat_map g l).
+Proof.
+  intros H. induction l; cbn [flat_map]; [ apply submultiset_refl | ].
+  apply submultiset_app; auto.
+Qed.
 
 Definition consistent_monotone {message} (consistent : list message -> list message -> Prop)
     (allowed : list message -> Prop) :=
@@ -2603,7 +2692,7 @@ Ltac invert_list_stuff :=
     | H: option_map _ _ = Some _ |- _ => apply option_map_Some in H; fwd
     | H: option_coalesce _ = Some _ |- _ => apply option_coalesce_Some in H; fwd
     | H: option_relation _ _ _ |- _ => progress (simpl in H; subst)
-    | H: option_all _ = Some _ |- _ => apply option_all_map_Some' in H; subst
+    | H: option_all _ = Some _ |- _ => apply option_all_Some_iff in H; subst
     | _ => invert_list_stuff'
     end.
 
@@ -2776,6 +2865,65 @@ Qed.
 Lemma same_set_cons_in {A} (x : A) l :
   In x l -> same_set (x :: l) l.
 Proof. intros Hin y. simpl. intuition congruence. Qed.
+
+Definition select {A} (bs : list bool) (l : list A) :=
+  filter_map (fun '(b, x) => if (b : bool) then Some x else None) (combine bs l).
+
+Definition select_not {A} (bs : list bool) (l : list A) :=
+  filter_map (fun '(b, x) => if negb b then Some x else None) (combine bs l).
+
+Fixpoint unselect {A} (bs : list bool) (l1 l2 : list A) :=
+  match bs with
+  | [] => []
+  | true :: bs =>
+      match l1 with
+      | x :: l1 => x :: unselect bs l1 l2
+      | [] => []
+      end
+  | false :: bs =>
+      match l2 with
+      | x :: l2 => x :: unselect bs l1 l2
+      | [] => []
+      end
+  end.
+
+Lemma unselect_select {A} bs (l : list A) :
+  length l <= length bs ->
+  unselect bs (select bs l) (select_not bs l) = l.
+Proof.
+  cbv [select select_not]. revert l.
+  induction bs as [|[|] bs IH]; intros [|x l] H; simpl in *; try lia; f_equal; auto with arith.
+Qed.
+
+Lemma select_unselect {A} bs (l1 l2 : list A) :
+  length l1 = count_occ true bs ->
+  length l2 = count_occ false bs ->
+  select bs (unselect bs l1 l2) = l1.
+Proof.
+  cbv [select]. revert l1 l2.
+  induction bs as [|[|] bs IH]; intros [|x1 l1] [|x2 l2] H1 H2; simpl in *; try lia; f_equal; auto.
+Qed.
+
+Lemma select_not_unselect {A} bs (l1 l2 : list A) :
+  length l1 = count_occ true bs ->
+  length l2 = count_occ false bs ->
+  select_not bs (unselect bs l1 l2) = l2.
+Proof.
+  cbv [select_not]. revert l1 l2.
+  induction bs as [|[|] bs IH]; intros [|x1 l1] [|x2 l2] H1 H2; simpl in *; try lia; f_equal; auto.
+Qed.
+
+Lemma Forall2_select {A B} (R : A -> B -> Prop) bs xs ys :
+  Forall2 R xs ys ->
+  Forall2 R (select bs xs) (select bs ys).
+Proof. cbv [select]. intros H. revert bs. induction H; intros [|[|] bs]; simpl; auto. Qed.
+
+Lemma Forall2_select_not {A B} (R : A -> B -> Prop) bs xs ys :
+  Forall2 R xs ys ->
+  Forall2 R (select_not bs xs) (select_not bs ys).
+Proof. cbv [select_not]. intros H. revert bs. induction H; intros [|[|] bs]; simpl; auto. Qed.
+
+Definition submask (bs1 bs2 : list bool) := Forall2 Bool.le bs1 bs2.
 
 (*TODO where to put things like this?  also, Arguments does not support export*)
 #[global] Arguments hd_error {A} l.

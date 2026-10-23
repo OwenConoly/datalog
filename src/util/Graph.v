@@ -43,6 +43,48 @@ Scheme Boolean Equality for location.
 #[export] Instance location_eqb_ok : Eqb_ok location_eqb.
 Proof. eqb_ok. Qed.
 
+Definition loc_of_source (s : source) : location :=
+  match s with
+  | node_source n => node_loc n
+  | input_source => input_loc
+  end.
+
+Lemma loc_of_source_inj s1 s2 :
+  loc_of_source s1 = loc_of_source s2 -> s1 = s2.
+Proof. destruct s1, s2; simpl; congruence. Qed.
+
+Definition loc_of_dest (d : destn) : location :=
+  match d with
+  | node_destn n => node_loc n
+  | output_destn => output_loc
+  end.
+
+Lemma loc_of_dest_inj d1 d2 :
+  loc_of_dest d1 = loc_of_dest d2 -> d1 = d2.
+Proof. destruct d1, d2; simpl; congruence. Qed.
+
+Definition source_of_loc (l : location) : option source :=
+  match l with
+  | node_loc n => Some (node_source n)
+  | input_loc => Some input_source
+  | output_loc => None
+  end.
+
+Lemma source_of_loc_iff l s :
+  source_of_loc l = Some s <-> loc_of_source s = l.
+Proof. destruct l, s; simpl; split; congruence. Qed.
+
+Definition dest_of_loc (l : location) : option destn :=
+  match l with
+  | node_loc n => Some (node_destn n)
+  | input_loc => None
+  | output_loc => Some output_destn
+  end.
+
+Lemma dest_of_loc_iff l d :
+  dest_of_loc l = Some d <-> loc_of_dest d = l.
+Proof. destruct l, d; simpl; split; congruence. Qed.
+
 Section __.
   Context {message : Type}.
   Context {label : Type}.
@@ -389,6 +431,9 @@ Definition consistent_good :=
 
     Definition good_node_output n outs :=
       forall dest, good_inputs_from (node_source n) (filter (forward (node_source n) (node_destn dest)) outs).
+    Print monotone_mod_equiv.
+    Print consistently_incl.
+    Print consistent_le.
 
     Definition node_good (n : node_id) : graph_node_state -> Prop :=
       fun gns =>

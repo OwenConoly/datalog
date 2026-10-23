@@ -6,26 +6,6 @@ From coqutil Require Import Eqb Tactics Tactics.fwd.
 Import ListNotations.
 Import node.
 
-Definition loc_of_source (s : source) : location :=
-  match s with
-  | node_source n => node_loc n
-  | input_source => input_loc
-  end.
-
-Definition loc_of_dest (d : destn) : location :=
-  match d with
-  | node_destn n => node_loc n
-  | output_destn => output_loc
-  end.
-
-Lemma loc_of_source_inj s1 s2 :
-  loc_of_source s1 = loc_of_source s2 -> s1 = s2.
-Proof. destruct s1, s2; simpl; congruence. Qed.
-
-Lemma loc_of_dest_inj d1 d2 :
-  loc_of_dest d1 = loc_of_dest d2 -> d1 = d2.
-Proof. destruct d1, d2; simpl; congruence. Qed.
-
 Section __.
   Context {node_prog node_state : Type}.
   Context {message label : Type}.

@@ -1,3 +1,9 @@
+(*TODO I think this is the place to implement some "forgetting" optimizations.
+  Maybe we could mark some relations as "read-once"?
+  For example, "R(f(x)) :- T(x)", T used nowhere else, T should be read-once.
+  Another example: {[R_i(f(x)) :- T(x), x = i mod n] : i < n}, T used nowhere else, T should be read-once.
+ *)
+
 From Stdlib Require Import Arith.Arith.
 From Stdlib Require Import Lists.List.
 From Stdlib Require Import micromega.Lia.
@@ -77,12 +83,6 @@ Module set_query.
 
   End __.
 End set_query. Abbreviation set_query := set_query.set_query.
-
-Definition select {A} (bs : list bool) (l : list A) :=
-  filter_map (fun '(b, x) => if (b : bool) then Some x else None) (combine bs l).
-
-Definition select_not {A} (bs : list bool) (l : list A) :=
-  filter_map (fun '(b, x) => if negb b then Some x else None) (combine bs l).
 
 Module hyp_fact_key.
   Section __.
