@@ -52,7 +52,7 @@ Section __.
       (forall n', interp_claim n' (Pjs n') (ojs n') /\ safe n' (ojs n')) ->
       npred_transf loc (inputs_of_outputs ojs loc) P.
 
-  Context (relevant_preserved :
+  Context (preconditions_decompose :
             forall n ojs P,
               (forall n', safe n' (ojs n')) ->
               npred_transf n (inputs_of_outputs ojs n) P ->
@@ -426,7 +426,7 @@ Section __.
       { eapply star_step; eassumption. }
       { simpl. apply graph_inputs_safe. assumption. }
       { eassumption. }
-      simpl in H'. apply relevant_preserved.
+      simpl in H'. apply preconditions_decompose.
       + intros. apply graph_is_safe. assumption.
       + eapply npred_transf_mono_inc.
         -- eassumption.
