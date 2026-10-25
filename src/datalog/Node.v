@@ -16,7 +16,7 @@ Existing Class sender_labelT.
 Module node.
 Module action_label.
   Section __.
-    Context `{params : datalog_params} {sender_label : sender_labelT}.
+    Context `{params : datalog_params}.
 
     Variant action_label :=
       | normal (nf : normal_fact)
@@ -102,6 +102,26 @@ Module message.
     Qed.
   End __.
 End message. Abbreviation message := message.message.
+
+(*hmm this is the same thing as action_label, but conceptually they are different...*)
+Module claim.
+  Section __.
+    Context `{params : datalog_params} {sender_label : sender_labelT}.
+
+    Variant claim :=
+      | normal (nf : normal_fact)
+      | done_with (pattern : fact_pattern).
+
+    Definition interp (name : sender_label) (P : claim) (ms : list message) :=
+      match P with
+      | normal nf => In (message.normal nf) ms
+      | done_with pat =>
+          exists num,
+          In (message.done_with pat name num) ms /\
+            Existsn_le (message.matches pat) num ms
+      end.
+  End __.
+End claim. Abbreviation claim := claim.claim.
 
 Module state.
   Section __.
@@ -190,7 +210,7 @@ Section __.
       {| state.known := input :: rs.(state.known);
         state.sent := rs.(state.sent) |}.
 
-  Definition allowed_inputs (inputs : list message) :=
+  Definition safe_inputs (inputs : list message) :=
     forall pat expected_msgss,
       Forall2 (fun k e => In (message.done_with pat k e) inputs)
               (R_senders pat.(fact_pattern.rel)) expected_msgss ->
@@ -199,6 +219,22 @@ Section __.
   Definition init : state :=
     {| state.known := []; state.sent := [] |}.
 
+  Definition safe_output (fs : list message) :=
+    (forall pat src cnt,
+        In (message.done_with pat src cnt) fs ->
+        name = src /\ Existsn_le (message.matches pat) cnt fs) /\
+      (forall nf, In (message.normal nf) fs -> In name (R_senders nf.(normal_fact.rel))).
+
+  Lemma safe_output_mono : multiset_monotone_dec safe_output.
+  Proof. Admitted.
+
+  Lemma safe_output_nothing : safe_output [].
+  Proof. Admitted.
+
+  Print program. Print claim.
+  Definition pred_transf (inps : list message) (P : claim) :=
+    match P with
+    | claim.normal nf =>
   Definition claim (pat : fact_pattern) (l : list message) :=
     forall src, In src (R_senders pat.(fact_pattern.rel)) ->
       exists cnt, In (message.done_with pat src cnt) l.
@@ -206,7 +242,7 @@ Section __.
   Definition consistent (pat : fact_pattern) (known : list message) : Prop :=
     exists num, expects_num_facts (R_senders pat.(fact_pattern.rel)) pat known num /\
              Existsn_ge (message.matches pat) num known.
-
+cc
   Definition nle (s1 s2 : state) :=
     consistently_incl message.equiv claim consistent s1.(state.known) s2.(state.known) /\
       incl_mod message.equiv s1.(state.sent) s2.(state.sent).
