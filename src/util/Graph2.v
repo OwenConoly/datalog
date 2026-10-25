@@ -13,7 +13,8 @@ Section __.
   Abbreviation nevent := (IO_event label message).
   Context (nodes_input_total : forall n, input_total (node_step n)).
 
-  Context (npred_transf : node -> list message -> (list message -> Prop) -> Prop).
+  Context (claim : node -> Type) (interp_claim : forall n, claim n -> list message -> Prop).
+  Context (npred_transf : forall n, list message -> claim n -> Prop).
   Context (init : node -> node_state).
   Context (safe : node -> list message -> Prop).
   Context (safe_mono : forall n, multiset_monotone_dec (safe n)).
@@ -37,30 +38,26 @@ Section __.
             forall n t P st,
               npred_transf n (flat_map inputs_of t) P ->
               star (node_step n) (init n) t st ->
-              eventually (Smallstep.will_step (node_step n) (safe_inputs n)) (fun '(_, t') => P (flat_map outputs_of t')) (st, t)).
-
-  Context (relevant : node -> (list message -> Prop) -> Prop).
+              eventually (Smallstep.will_step (node_step n) (safe_inputs n)) (fun '(_, t') => interp_claim n P (flat_map outputs_of t')) (st, t)).
 
   Context (npred_transf_complete :
             forall n t st P,
             star (node_step n) (init n) t st ->
             safe_inputs n (flat_map inputs_of t) ->
-            relevant n P ->
-            P (flat_map outputs_of t) ->
+            interp_claim n P (flat_map outputs_of t) ->
             npred_transf n (flat_map inputs_of t) P).
 
-  Definition suffices loc (Pjs : node -> list message -> Prop) P :=
+  Definition suffices loc (Pjs : forall n, claim n) P :=
     forall ojs,
-      (forall n', Pjs n' (ojs n') /\ safe n' (ojs n')) ->
+      (forall n', interp_claim n' (Pjs n') (ojs n') /\ safe n' (ojs n')) ->
       npred_transf loc (inputs_of_outputs ojs loc) P.
 
   Context (relevant_preserved :
             forall n ojs P,
-              relevant n P ->
               (forall n', safe n' (ojs n')) ->
               npred_transf n (inputs_of_outputs ojs n) P ->
-              exists (Pjs : node -> (list message -> Prop)),
-                (forall n', relevant n' (Pjs n') /\ Pjs n' (ojs n')) /\
+              exists (Pjs : forall n, claim n),
+                (forall n', interp_claim n' (Pjs n') (ojs n')) /\
                   suffices n Pjs P).
 
   Context (npred_transf_mono_inc :
@@ -114,13 +111,13 @@ Section __.
   Definition outputs_at (gs : graph_state) n := flat_map outputs_of (gs n).(gns_trace).
   Definition inputs_at (gs : graph_state) n := flat_map inputs_of (gs n).(gns_trace).
 
-  Inductive graph_sat : node -> (list message -> Prop) -> Prop :=
+  Inductive graph_sat : forall n, claim n -> Prop :=
   | step_sat loc P Pjs :
     (forall n', graph_sat n' (Pjs n')) ->
     suffices loc Pjs P ->
     graph_sat loc P
   | init_sat loc P :
-    P [] ->
+    interp_claim loc P [] ->
     graph_sat loc P.
 
   Definition init_graph := fun n =>
@@ -356,7 +353,7 @@ Section __.
   Lemma step_sat_sound gs dst P :
     (any_step graph_step)^* init_graph gs ->
     npred_transf dst (inputs_of_outputs (outputs_at gs) dst) P ->
-    eventually (will_step graph_step) (fun gs' => P (outputs_at gs' dst)) gs.
+    eventually (will_step graph_step) (fun gs' => interp_claim dst P (outputs_at gs' dst)) gs.
   Proof.
     intros Hstep Htrans.
     eapply eventually_trans.
@@ -387,13 +384,13 @@ Section __.
 
   Lemma graph_sat_sound loc P :
     graph_sat loc P ->
-    eventually (will_step graph_step) (fun gs => P (outputs_at gs loc)) init_graph.
+    eventually (will_step graph_step) (fun gs => interp_claim loc P (outputs_at gs loc)) init_graph.
   Proof.
     induction 1.
     - eapply eventually_trans.
       + apply eventually_and_reach.
         eapply eventually_will_step_Forall with
-          (Ps := map (fun n' => fun gs => exists os, Pjs n' os /\ submultiset os (outputs_at gs n')) (fin.all _)) .
+          (Ps := map (fun n' => fun gs => exists os, interp_claim n' (Pjs n') os /\ submultiset os (outputs_at gs n')) (fin.all _)) .
         -- apply Forall_map, Forall_forall. intros n _. cbv [ev_stable]. intros. fwd.
            eexists. split; [eassumption|]. eapply submultiset_trans; [eassumption|].
            eapply outputs_at_mono. eassumption.
@@ -412,17 +409,16 @@ Section __.
     - apply eventually_done. simpl. assumption.
   Qed.
 
-  Lemma step_sat_complete gs gs' P dst :
+  Lemma step_sat_complete gs gs' dst P :
     (any_step graph_step)^* init_graph gs ->
-    relevant dst P ->
     any_step graph_step gs gs' ->
-    P (outputs_at gs' dst) ->
+    interp_claim dst P (outputs_at gs' dst) ->
     outputs_at gs' dst = outputs_at gs dst \/
       exists Pjs,
-        (forall n, relevant n (Pjs n) /\ Pjs n (outputs_at gs n)) /\
+        (forall n, interp_claim n (Pjs n) (outputs_at gs n)) /\
           suffices dst Pjs P.
   Proof.
-    intros Hreach Hrel Hstep HP. cbv [any_step] in Hstep. fwd. invert Hstep.
+    intros Hreach Hstep HP. cbv [any_step] in Hstep. fwd. invert Hstep.
     - cbv [gns_run] in H. fwd. rewrite outputs_at_forward_to, outputs_at_fun_put in *.
       destr (eqb dst n); [|left; reflexivity]. simpl in HP |- *. right.
       pose proof node_steps_of_graph_steps_init as H''. especialize H''; eauto.
@@ -430,9 +426,7 @@ Section __.
       { eapply star_step; eassumption. }
       { simpl. apply graph_inputs_safe. assumption. }
       { eassumption. }
-      { simpl. assumption. }
       simpl in H'. apply relevant_preserved.
-      + assumption.
       + intros. apply graph_is_safe. assumption.
       + eapply npred_transf_mono_inc.
         -- eassumption.
@@ -442,19 +436,17 @@ Section __.
       destr (eqb dst n); reflexivity.
   Qed.
 
-  Lemma graph_sat_complete P dst gs :
+  Lemma graph_sat_complete dst P gs :
     (any_step graph_step)^* init_graph gs ->
-    relevant dst P ->
-    P (outputs_at gs dst) ->
+    interp_claim dst P (outputs_at gs dst) ->
     graph_sat dst P.
   Proof.
     intros Hsteps. revert dst P. apply clos_rt1n_rt, clos_rt_rtn1 in Hsteps.
-    induction Hsteps; intros dst P Hrel HP.
+    induction Hsteps; intros dst P HP.
     - apply init_sat. assumption.
     - eapply step_sat_complete in H; cycle 1.
       + apply clos_rt_rt1n, clos_rtn1_rt. assumption.
       + eassumption.
-      + assumption.
       + destruct H as [H|H].
         -- apply IHHsteps; try assumption. rewrite <- H. assumption.
         -- fwd. eapply step_sat; [|eassumption]. intros n'. specialize (Hp0 n'). fwd.
