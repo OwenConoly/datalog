@@ -64,6 +64,6 @@ Proof.
   - subst b. contradiction.
 Qed.
 
-#[export] Register Scheme Nat.eqb as beq for nat.
-#[export] Register Scheme Bool.eqb as beq for bool.
+#[export] Register Scheme nat_eqb as beq for nat.
+#[export] Register Scheme bool_eqb as beq for bool.
 #[export] Register Scheme list_eqb as beq for list.
