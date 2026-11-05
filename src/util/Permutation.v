@@ -1,302 +1,34 @@
-From Stdlib Require Import Lists.List Arith.PeanoNat
-  Sorting.Sorted Sorting.Mergesort Sorting.Permutation Lia.
+From Stdlib Require Import Lists.List Arith.PeanoNat Sorting.Sorted Sorting.Permutation Lia.
 From coqutil Require Import Sorting.OrderToPermutation Datatypes.List.
+From Datalog Require Import List.
 Import ListNotations.
 
 Definition invert_permutation (p : list nat) : list nat :=
   order_to_permutation p.
 
-Lemma fst_zip_with_start_index : forall A (l : list A) start,
+Lemma fst_zip_with_start_index {A} (l : list A) start :
   map fst (zip_with_start_index start l) = l.
 Proof.
-  induction l; intros; simpl; [reflexivity|].
-  f_equal. apply IHl.
+  revert start. induction l; simpl; intros; f_equal; auto.
 Qed.
 
-Lemma fst_zip_with_index : forall A (l : list A),
-  map fst (zip_with_index l) = l.
-Proof. intros. apply fst_zip_with_start_index. Qed.
+Lemma fst_zip_with_index {A} (l : list A) : map fst (zip_with_index l) = l.
+Proof. apply fst_zip_with_start_index. Qed.
 
-Lemma length_zip_with_start_index : forall A (l : list A) start,
-  length (zip_with_start_index start l) = length l.
+Lemma in_zip_with_start_index_iff {A} (l : list A) start a n :
+  In (a, n) (zip_with_start_index start l) <-> In (n, a) (enumerate start l).
 Proof.
-  intros. rewrite <- (length_map fst). rewrite fst_zip_with_start_index.
-  reflexivity.
+  revert start. induction l; intros start.
+  - reflexivity.
+  - rewrite enumerate_cons. simpl. rewrite IHl. intuition congruence.
 Qed.
 
-Lemma length_zip_with_index : forall A (l : list A),
-  length (zip_with_index l) = length l.
-Proof. intros. apply length_zip_with_start_index. Qed.
-
-Lemma length_order_to_permutation : forall p,
-  length (order_to_permutation p) = length p.
+Lemma enumerate_map_snd {A} (l : list (nat * A)) start n :
+  map fst l = seq start n -> enumerate start (map snd l) = l.
 Proof.
-  intros p. unfold order_to_permutation.
-  rewrite (length_map snd).
-  rewrite <- (length_zip_with_index _ p).
-  apply Permutation_length.
-  apply Permutation_sym, FstNatSorting.Permuted_sort.
-Qed.
-
-Lemma length_invert_permutation : forall p,
-  length (invert_permutation p) = length p.
-Proof. intros. apply length_order_to_permutation. Qed.
-
-Lemma length_apply_permutation_with_default : forall p A (l : list A) d,
-  length (apply_permutation_with_default p l d) = length p.
-Proof.
-  intros. unfold apply_permutation_with_default, my_list_map.
-  apply (length_map (fun i => List.nth i l d)).
-Qed.
-
-Lemma sorted_le_perm_seq_eq : forall l start n,
-  Sorted le l ->
-  Permutation l (seq start n) ->
-  l = seq start n.
-Proof.
-  induction l as [|a l' IH]; intros start n Hsorted Hperm.
-  - apply Permutation_nil in Hperm.
-    destruct n; [reflexivity | discriminate].
-  - assert (Hlen := Permutation_length Hperm).
-    simpl in Hlen. rewrite length_seq in Hlen.
-    destruct n as [|n']; [discriminate|].
-    assert (Ha : a = start). {
-      assert (Ha_in : In a (seq start (S n'))) by
-        (eapply Permutation_in; [exact Hperm | left; reflexivity]).
-      apply in_seq in Ha_in.
-      assert (Hstart_in : In start (a :: l')). {
-        eapply Permutation_in; [apply Permutation_sym; exact Hperm|].
-        apply in_seq. lia.
-      }
-      destruct Hstart_in as [Heq | Hstart_l'].
-      + congruence.
-      + apply Sorted_StronglySorted in Hsorted; [|red; lia].
-        inversion Hsorted as [|? ? _ Hall]; subst.
-        rewrite Forall_forall in Hall.
-        specialize (Hall _ Hstart_l'). lia.
-    }
-    subst a.
-    rewrite <- cons_seq. f_equal.
-    apply IH.
-    + apply Sorted_inv in Hsorted as [? _]. assumption.
-    + rewrite <- cons_seq in Hperm.
-      eapply Permutation_cons_inv. exact Hperm.
-Qed.
-
-Lemma sorted_fst_of_locally_sorted :
-  forall (s : list (nat * nat)),
-    LocallySorted (fun x y => is_true (FstNatOrder.leb x y)) s ->
-    Sorted le (map fst s).
-Proof.
-  intros s Hs.
-  apply Sorted_LocallySorted_iff.
-  induction Hs as [|[a b]|[a1 b1] [a2 b2] s' Hs' IH Hrel].
-  - constructor.
-  - constructor.
-  - simpl in *.
-    constructor; [exact IH|].
-    unfold is_true, FstNatOrder.leb in Hrel.
-    apply Nat.leb_le in Hrel. exact Hrel.
-Qed.
-
-Lemma fst_sort_zip_with_index : forall p,
-  Permutation p (seq 0 (length p)) ->
-  map fst (FstNatSorting.sort (zip_with_index p)) = seq 0 (length p).
-Proof.
-  intros p Hp.
-  apply (sorted_le_perm_seq_eq _ 0 (length p)).
-  - apply sorted_fst_of_locally_sorted.
-    apply FstNatSorting.LocallySorted_sort.
-  - eapply Permutation_trans.
-    + apply Permutation_map.
-      apply Permutation_sym, FstNatSorting.Permuted_sort.
-    + rewrite fst_zip_with_index. exact Hp.
-Qed.
-
-Lemma in_zip_with_start_index :
-  forall A (l : list A) start a b,
-    In (a, b) (zip_with_start_index start l) ->
-    start <= b < start + length l /\ nth (b - start) l a = a.
-Proof.
-  induction l; intros start a' b H; simpl in H.
-  - contradiction.
-  - destruct H as [Heq | Hin].
-    + inversion Heq. subst.
-      split; [simpl; lia | rewrite Nat.sub_diag; reflexivity].
-    + apply IHl in Hin as [Hbound Hnth].
-      split; [simpl; lia|].
-      destruct (b - start) as [|n] eqn:E.
-      * lia.
-      * replace n with (b - S start) by lia. exact Hnth.
-Qed.
-
-Lemma in_zip_with_index_nth : forall A (l : list A) a b,
-  In (a, b) (zip_with_index l) ->
-  b < length l /\ nth b l a = a.
-Proof.
-  intros. apply in_zip_with_start_index in H as [Hbound Hnth].
-  rewrite Nat.sub_0_r in Hnth. split; [lia | exact Hnth].
-Qed.
-
-Lemma nth_apply_permutation_with_default :
-  forall p A (l : list A) d d' i,
-    i < length p ->
-    nth i (apply_permutation_with_default p l d) d' = nth (nth i p 0) l d.
-Proof.
-  unfold apply_permutation_with_default, my_list_map, my_list_nth.
-  induction p as [|x p IH]; intros A l d d' i Hi; simpl in *.
-  - lia.
-  - destruct i.
-    + reflexivity.
-    + apply IH. lia.
-Qed.
-
-Lemma apply_permutation_with_default_indep :
-  forall p A (l : list A) d1 d2,
-    Forall (fun j => j < length l) p ->
-    apply_permutation_with_default p l d1 = apply_permutation_with_default p l d2.
-Proof.
-  intros p A l d1 d2 Hp.
-  unfold apply_permutation_with_default, my_list_map, my_list_nth.
-  apply map_ext_in. intros i Hi.
-  rewrite Forall_forall in Hp. specialize (Hp _ Hi).
-  apply nth_indep. exact Hp.
-Qed.
-
-Lemma apply_permutation_eq_with_default :
-  forall p A (l : list A) d,
-    Forall (fun j => j < length l) p ->
-    apply_permutation p l = apply_permutation_with_default p l d.
-Proof.
-  intros p A l d Hp.
-  unfold apply_permutation.
-  destruct l as [|a l'].
-  - (* l = [] forces p = [] *)
-    assert (p = []). {
-      destruct p as [|x p']; [reflexivity|].
-      rewrite Forall_forall in Hp. specialize (Hp x (or_introl eq_refl)).
-      simpl in Hp. lia.
-    }
-    subst p. reflexivity.
-  - apply apply_permutation_with_default_indep. assumption.
-Qed.
-
-Lemma nth_invert_permutation_inv :
-  forall p i,
-    Permutation p (seq 0 (length p)) ->
-    i < length p ->
-    nth (nth i (invert_permutation p) 0) p 0 = i.
-Proof.
-  intros p i Hp Hi.
-  unfold invert_permutation, order_to_permutation.
-  set (s := FstNatSorting.sort (zip_with_index p)).
-  assert (Hs_len : length s = length p).
-  { unfold s. rewrite <- (Permutation_length (FstNatSorting.Permuted_sort _)).
-    apply length_zip_with_index. }
-  destruct (nth i s (0, 0)) as [a b] eqn:Epair.
-  assert (Hb : nth i (map snd s) 0 = b). {
-    rewrite (nth_indep _ _ (snd (0, 0))) by (rewrite length_map; lia).
-    rewrite map_nth. rewrite Epair. reflexivity.
-  }
-  rewrite Hb.
-  assert (Hin : In (a, b) s). {
-    rewrite <- Epair. apply nth_In. lia.
-  }
-  assert (Hin_zip : In (a, b) (zip_with_index p)). {
-    eapply Permutation_in.
-    - apply Permutation_sym. unfold s. apply FstNatSorting.Permuted_sort.
-    - exact Hin.
-  }
-  apply in_zip_with_index_nth in Hin_zip as [Hblt Hnth].
-  assert (Ha : a = i). {
-    pose proof (fst_sort_zip_with_index _ Hp) as Hfst.
-    fold s in Hfst.
-    assert (Hfst_nth : nth i (map fst s) 0 = i). {
-      rewrite Hfst. rewrite seq_nth by lia. lia.
-    }
-    rewrite (nth_indep _ _ (fst (0, 0))) in Hfst_nth by (rewrite length_map; lia).
-    rewrite map_nth in Hfst_nth. rewrite Epair in Hfst_nth. simpl in Hfst_nth.
-    auto.
-  }
-  subst a.
-  rewrite (nth_indep _ _ i) by lia.
-  exact Hnth.
-Qed.
-
-Lemma invert_permutation_in_range : forall p i,
-  Permutation p (seq 0 (length p)) ->
-  In i (invert_permutation p) ->
-  i < length p.
-Proof.
-  intros p i Hp Hin.
-  unfold invert_permutation, order_to_permutation in Hin.
-  apply in_map_iff in Hin as [[a b] [Hb Hpair]].
-  simpl in Hb. subst i.
-  assert (In (a, b) (zip_with_index p)). {
-    eapply Permutation_in.
-    - apply Permutation_sym, FstNatSorting.Permuted_sort.
-    - exact Hpair.
-  }
-  apply in_zip_with_index_nth in H as [? _]. assumption.
-Qed.
-
-Lemma length_apply_permutation : forall p A (l : list A),
-  Permutation p (seq 0 (length l)) ->
-  length (apply_permutation p l) = length l.
-Proof.
-  intros p A l Hp.
-  apply Permutation_length.
-  apply Permutation_sym, apply_permutation_is_Permutation. exact Hp.
-Qed.
-
-Lemma nth_apply_permutation : forall p A (l : list A) d i,
-  Permutation p (seq 0 (length l)) ->
-  i < length p ->
-  nth i (apply_permutation p l) d = nth (nth i p 0) l d.
-Proof.
-  intros p A l d i Hp Hi.
-  assert (Hpi_lt : nth i p 0 < length l). {
-    assert (In (nth i p 0) p) by (apply nth_In; exact Hi).
-    assert (In (nth i p 0) (seq 0 (length l))) by
-      (eapply Permutation_in; [exact Hp | exact H]).
-    apply in_seq in H0. lia.
-  }
-  unfold apply_permutation.
-  destruct l as [|a l'].
-  - simpl in Hpi_lt. lia.
-  - rewrite (nth_apply_permutation_with_default _ _ _ a d _ Hi).
-    apply nth_indep. exact Hpi_lt.
-Qed.
-
-Lemma apply_invert_permutation : forall p A (l : list A),
-  Permutation p (seq 0 (length l)) ->
-  apply_permutation (invert_permutation p) (apply_permutation p l) = l.
-Proof.
-  intros p A l Hp.
-  pose proof (Permutation_length Hp) as Hlen_p.
-  rewrite length_seq in Hlen_p.
-  assert (Hp' : Permutation p (seq 0 (length p))) by (rewrite Hlen_p; exact Hp).
-  pose proof (length_apply_permutation _ _ _ Hp) as Hlen_app.
-  assert (Hq : Permutation (invert_permutation p)
-                           (seq 0 (length (apply_permutation p l)))). {
-    rewrite Hlen_app. rewrite <- Hlen_p.
-    unfold invert_permutation. apply order_to_permutation_is_Permutation.
-  }
-  pose proof (length_apply_permutation _ _ _ Hq) as Hlen_outer.
-  destruct l as [|d l'].
-  - simpl in Hlen_p. assert (p = []) by (destruct p; [reflexivity | discriminate]).
-    subst p. reflexivity.
-  - apply nth_ext with (d := d) (d' := d).
-    + rewrite Hlen_outer. exact Hlen_app.
-    + intros i Hi.
-      rewrite Hlen_outer in Hi. rewrite Hlen_app in Hi.
-      rewrite (nth_apply_permutation _ _ _ d i Hq) by
-        (rewrite length_invert_permutation; lia).
-      rewrite (nth_apply_permutation _ _ _ d _ Hp).
-      * f_equal.
-        apply nth_invert_permutation_inv; [exact Hp'|]. lia.
-      * apply invert_permutation_in_range; [exact Hp'|].
-        apply nth_In. rewrite length_invert_permutation. lia.
+  revert start n. induction l as [|[m a] l IH]; intros start [|n] H; try discriminate.
+  - reflexivity.
+  - injection H as -> H. cbn [map snd]. rewrite enumerate_cons. f_equal. eauto.
 Qed.
 
 Lemma sorted_le_perm_eq l1 l2 :
@@ -309,36 +41,157 @@ Proof.
     + apply Permutation_sym, Permutation_nil in Hp. discriminate.
     + rewrite Forall_forall in Ha, Hb.
       assert (a = b) as <-.
-      { pose proof (Permutation_in a Hp (in_eq _ _)) as [|Ha'];
-          pose proof (Permutation_in b (Permutation_sym Hp) (in_eq _ _)) as [|Hb'];
-          auto using Nat.le_antisymm. }
+      { apply Nat.le_antisymm.
+        - destruct (Permutation_in b (Permutation_sym Hp) (in_eq _ _)); [lia | auto].
+        - destruct (Permutation_in a Hp (in_eq _ _)); [lia | auto]. }
       f_equal. eauto using Permutation_cons_inv.
 Qed.
 
 Lemma StronglySorted_filter {A} (R : A -> A -> Prop) f l :
   StronglySorted R l -> StronglySorted R (filter f l).
 Proof.
-  induction 1 as [|a l _ IH Ha]; simpl; [constructor|].
-  destruct (f a); [|exact IH].
-  constructor; [exact IH|].
-  rewrite Forall_forall in *. intros x Hx. apply filter_In in Hx as [Hx _]. auto.
+  induction 1; simpl.
+  - constructor.
+  - destruct (f a); eauto using SSorted_cons, incl_Forall, incl_filter.
 Qed.
 
 Lemma StronglySorted_seq start n : StronglySorted le (seq start n).
 Proof.
-  revert start. induction n as [|n IH]; intros start; simpl; constructor; auto.
+  revert start. induction n; intros start; simpl; constructor; auto.
   apply Forall_forall. intros x Hx. apply in_seq in Hx. lia.
+Qed.
+
+Lemma sorted_fst_of_locally_sorted (s : list (nat * nat)) :
+  LocallySorted (fun x y => is_true (FstNatOrder.leb x y)) s -> Sorted le (map fst s).
+Proof.
+  intros Hs. apply Sorted_LocallySorted_iff.
+  induction Hs as [| |[a1 b1] [a2 b2]]; constructor; auto.
+  apply Nat.leb_le. assumption.
+Qed.
+
+Lemma fst_sort_zip_with_index p :
+  Permutation p (seq 0 (length p)) ->
+  map fst (FstNatSorting.sort (zip_with_index p)) = seq 0 (length p).
+Proof.
+  intros Hp. apply sorted_le_perm_eq.
+  - apply sorted_fst_of_locally_sorted, FstNatSorting.LocallySorted_sort.
+  - apply StronglySorted_Sorted, StronglySorted_seq.
+  - rewrite <- FstNatSorting.Permuted_sort, fst_zip_with_index. assumption.
+Qed.
+
+Lemma nth_error_invert_permutation p i j :
+  Permutation p (seq 0 (length p)) ->
+  nth_error (invert_permutation p) i = Some j <-> nth_error p j = Some i.
+Proof.
+  intros Hp.
+  rewrite <- !in_enumerate_0_iff, <- (in_zip_with_start_index_iff p).
+  cbv [invert_permutation order_to_permutation].
+  erewrite enumerate_map_snd by (apply fst_sort_zip_with_index; assumption).
+  rewrite <- FstNatSorting.Permuted_sort. reflexivity.
+Qed.
+
+Lemma length_order_to_permutation p : length (order_to_permutation p) = length p.
+Proof.
+  rewrite (Permutation_length (order_to_permutation_is_Permutation p)). apply length_seq.
+Qed.
+
+Lemma length_invert_permutation p : length (invert_permutation p) = length p.
+Proof. apply length_order_to_permutation. Qed.
+
+Lemma invert_permutation_in_range p i :
+  In i (invert_permutation p) -> i < length p.
+Proof.
+  intros Hi. apply (Permutation_in _ (order_to_permutation_is_Permutation p)), in_seq in Hi.
+  lia.
+Qed.
+
+Lemma nth_invert_permutation_inv p i :
+  Permutation p (seq 0 (length p)) ->
+  i < length p ->
+  nth (nth i (invert_permutation p) 0) p 0 = i.
+Proof.
+  intros Hp Hi. apply nth_error_nth, nth_error_invert_permutation, nth_error_nth'.
+  - assumption.
+  - rewrite length_invert_permutation. assumption.
+Qed.
+
+Lemma length_apply_permutation_with_default {A} p (l : list A) d :
+  length (apply_permutation_with_default p l d) = length p.
+Proof. apply length_map. Qed.
+
+Lemma nth_apply_permutation_with_default {A} p (l : list A) d d' i :
+  i < length p ->
+  nth i (apply_permutation_with_default p l d) d' = nth (nth i p 0) l d.
+Proof.
+  intros Hi.
+  rewrite nth_indep with (d' := nth 0 l d)
+    by (rewrite length_apply_permutation_with_default; assumption).
+  apply (map_nth (fun j => nth j l d)).
+Qed.
+
+Lemma apply_permutation_with_default_indep {A} p (l : list A) d1 d2 :
+  Forall (fun j => j < length l) p ->
+  apply_permutation_with_default p l d1 = apply_permutation_with_default p l d2.
+Proof.
+  intros Hp. rewrite Forall_forall in Hp. apply map_ext_in. auto using nth_indep.
+Qed.
+
+Lemma apply_permutation_eq_with_default {A} p (l : list A) d :
+  Forall (fun j => j < length l) p ->
+  apply_permutation p l = apply_permutation_with_default p l d.
+Proof.
+  intros Hp. destruct l as [|a l].
+  - destruct Hp; [reflexivity|]. simpl in *. lia.
+  - apply apply_permutation_with_default_indep. assumption.
+Qed.
+
+Lemma length_apply_permutation {A} p (l : list A) :
+  Permutation p (seq 0 (length l)) ->
+  length (apply_permutation p l) = length l.
+Proof.
+  intros Hp. symmetry. apply Permutation_length, apply_permutation_is_Permutation, Hp.
+Qed.
+
+Lemma nth_apply_permutation {A} p (l : list A) d i :
+  Permutation p (seq 0 (length l)) ->
+  i < length p ->
+  nth i (apply_permutation p l) d = nth (nth i p 0) l d.
+Proof.
+  intros Hp Hi. rewrite (apply_permutation_eq_with_default _ _ d).
+  - apply nth_apply_permutation_with_default, Hi.
+  - apply Forall_forall. intros j Hj. apply (Permutation_in _ Hp), in_seq in Hj. lia.
+Qed.
+
+Lemma apply_invert_permutation {A} p (l : list A) :
+  Permutation p (seq 0 (length l)) ->
+  apply_permutation (invert_permutation p) (apply_permutation p l) = l.
+Proof.
+  intros Hp.
+  assert (Hlen : length p = length l).
+  { rewrite (Permutation_length Hp). apply length_seq. }
+  assert (Hq : Permutation (invert_permutation p) (seq 0 (length (apply_permutation p l)))).
+  { rewrite length_apply_permutation, <- Hlen by assumption.
+    apply order_to_permutation_is_Permutation. }
+  destruct l as [|d l].
+  - destruct p; [reflexivity | discriminate].
+  - apply nth_ext with (d := d) (d' := d).
+    + rewrite !length_apply_permutation by assumption. reflexivity.
+    + intros i Hi. rewrite !length_apply_permutation, <- Hlen in Hi by assumption.
+      assert (i < length (invert_permutation p)) by (rewrite length_invert_permutation; assumption).
+      rewrite !nth_apply_permutation, nth_invert_permutation_inv;
+        auto using invert_permutation_in_range, nth_In.
+      rewrite Hlen. assumption.
 Qed.
 
 Lemma apply_order_to_permutation l :
   apply_permutation (order_to_permutation l) l = map fst (FstNatSorting.sort (zip_with_index l)).
 Proof.
-  destruct l as [|d l']; [reflexivity|].
-  cbv [apply_permutation order_to_permutation].
-  change (apply_permutation_with_default ?p ?l d) with (map (fun i => nth i l d) p).
-  rewrite map_map. apply map_ext_in. intros [a b] Hab.
-  apply (Permutation_in _ (Permutation_sym (FstNatSorting.Permuted_sort _))), in_zip_with_index_nth in Hab as [? ?].
-  cbn [fst snd]. rewrite nth_indep with (d' := a); assumption.
+  rewrite (apply_permutation_eq_with_default _ _ 0).
+  - change (apply_permutation_with_default ?p l 0) with (map (fun i => nth i l 0) p).
+    cbv [order_to_permutation]. rewrite map_map. apply map_ext_in. intros [a b] Hab.
+    apply nth_error_nth, in_enumerate_0_iff, in_zip_with_start_index_iff.
+    exact (Permutation_in _ (Permutation_sym (FstNatSorting.Permuted_sort _)) Hab).
+  - apply Forall_forall, invert_permutation_in_range.
 Qed.
 
 Lemma Sorted_apply_order_to_permutation l :
