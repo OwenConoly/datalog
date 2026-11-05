@@ -17,6 +17,11 @@ Scheme Boolean Equality for unit.
 #[export] Instance unit_eqb_ok : Eqb_ok unit_eqb.
 Proof. eqb_ok. Qed.
 
+Scheme Boolean Equality for Empty_set.
+#[export] Instance Empty_set_eqb : Eqb Empty_set := Empty_set_beq.
+#[export] Instance Empty_set_eqb_ok : Eqb_ok Empty_set_eqb.
+Proof. eqb_ok. Qed.
+
 Scheme Boolean Equality for prod.
 Section eqb_prod.
   Context {A B : Type}.
