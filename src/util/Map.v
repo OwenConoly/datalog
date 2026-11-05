@@ -1304,6 +1304,18 @@ Proof.
   - intros H. apply Forall2_map_map. exact (Forall_map_tuples _ m H).
   - intros H. apply Forall_map_of_tuples. exact (Forall2_map_map_inv _ _ _ _ H).
 Qed.
+
+Lemma exists_map_agreeing (g : key -> option value) (ks : list key) :
+  exists m : mp, forall k, In k ks -> map.get m k = g k.
+Proof.
+  induction ks as [|k ks [m Hm]].
+  - exists map.empty. intros _ [].
+  - exists (match g k with Some v => map.put m k v | None => map.remove m k end).
+    intros k' Hk'. destruct (g k) as [v|] eqn:E;
+      [rewrite map.get_put_dec | rewrite map.get_remove_dec];
+      destruct (eqb_boolspec _ k k') as [<-|Hne]; try congruence;
+      destruct Hk' as [|Hk']; auto; congruence.
+Qed.
 End Map.
 
 Lemma map_values'_id {key value} {mp : map.map key value} {mp_ok : map.ok mp}

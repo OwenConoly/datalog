@@ -1736,6 +1736,86 @@ Definition clause_pattern_varmap {rel : relT} {var1 var2 : exprvarT} {fn : fnT}
   {| clause_pattern.rel := c.(clause_pattern.rel);
      clause_pattern.args := map (expr_pattern_varmap f) c.(clause_pattern.args) |}.
 
+Section varmap.
+  Context {rel : relT} {var1 var2 : exprvarT} {fn : fnT} {aggregator : aggregatorT} {value : valueT}.
+  Context {semantics : datalog_semantics fn aggregator value}.
+  Context {ctx1 : map.map var1 value} {ctx1_ok : map.ok ctx1}.
+  Context {ctx2 : map.map var2 value} {ctx2_ok : map.ok ctx2}.
+  Context {var1_eqb : Eqb var1} {var1_eqb_ok : Eqb_ok var1_eqb}.
+  Context {var2_eqb : Eqb var2} {var2_eqb_ok : Eqb_ok var2_eqb}.
+  Context {value_eqb : Eqb value} {value_eqb_ok : Eqb_ok value_eqb}.
+  Context {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set}.
+  Context (f : var1 -> var2).
+
+  Lemma expr_interp_varmap (m1 : ctx1) (m2 : ctx2) (e : @expr var1 fn) v :
+    (forall x, In x (expr.vars e) -> map.get m2 (f x) = map.get m1 x) ->
+    expr.interp m2 (expr_varmap f e) v <-> expr.interp m1 e v.
+  Proof.
+    revert v. induction e as [x | g args IH]; intros v Hag; cbn [expr_varmap].
+    - specialize (Hag x (or_introl eq_refl)).
+      split; intros H; inversion H; subst; constructor; congruence.
+    - assert (Hargs : forall vs,
+                 Forall2 (expr.interp m2) (map (expr_varmap f) args) vs <->
+                   Forall2 (expr.interp m1) args vs).
+      { intros vs. rewrite <- Forall2_map_l. rewrite Forall_forall in IH.
+        split; intros H; (eapply Forall2_impl_strong; [exact H|]); intros e w Hw He _;
+          (apply (IH e He w); [|exact Hw]);
+          intros x Hx; apply Hag; apply in_flat_map; eauto. }
+      split; intros H; inversion H; subst; (eapply expr.interp_fun; [apply Hargs; eassumption | eassumption]).
+  Qed.
+
+  Lemma clause_interp_varmap (m1 : ctx1) (m2 : ctx2) (c : @clause rel var1 fn) nf :
+    (forall x, In x (clause.vars c) -> map.get m2 (f x) = map.get m1 x) ->
+    clause.interp m2 (clause_varmap f c) nf <-> clause.interp m1 c nf.
+  Proof.
+    intros Hag. cbv [clause.interp clause_varmap]. cbn [clause.rel clause.args].
+    rewrite <- Forall2_map_l.
+    split; intros [Hrel Hargs]; (split; [exact Hrel|]); (eapply Forall2_impl_strong; [exact Hargs|]);
+      intros e w Hw He _; (apply (expr_interp_varmap m1 m2 e w); [|exact Hw]);
+      intros x Hx; apply Hag; apply in_flat_map; eauto.
+  Qed.
+
+  Lemma rule_interp_impl_varmap (concls hyps : list (@clause rel var1 fn)) nf hs :
+    (forall x y, In x (flat_map clause.vars (concls ++ hyps)) -> In y (flat_map clause.vars (concls ++ hyps)) ->
+            f x = f y -> x = y) ->
+    rule.interp (rule.impl (_aggregator := aggregator) (map (clause_varmap f) concls) (map (clause_varmap f) hyps)) nf hs <->
+      rule.interp (rule.impl (_aggregator := aggregator) concls hyps) nf hs.
+  Proof.
+    intros Hinj. set (vars := flat_map clause.vars (concls ++ hyps)).
+    assert (Hvars : forall c x, In c concls \/ In c hyps -> In x (clause.vars c) -> In x vars).
+    { intros c x Hc Hx. apply in_flat_map. exists c. rewrite in_app_iff. auto. }
+    split; intros H; inversion H as [? ? ctx ? hyps' Hc Hh|]; subst.
+    - destruct (exists_map_agreeing (fun x => map.get ctx (f x)) vars) as [m1 Hm1].
+      apply rule.interp_impl with (ctx := m1).
+      + rewrite Exists_map in Hc. apply Exists_exists in Hc. destruct Hc as [c [Hin Hc]].
+        apply Exists_exists. exists c. split; [exact Hin|].
+        apply (clause_interp_varmap m1 ctx); [|exact Hc].
+        intros x Hx. symmetry. apply Hm1. eauto.
+      + rewrite <- Forall2_map_l in Hh. eapply Forall2_impl_strong; [exact Hh|].
+        intros c w Hw Hin _. apply (clause_interp_varmap m1 ctx); [|exact Hw].
+        intros x Hx. symmetry. apply Hm1. eauto.
+    - destruct (exists_map_agreeing
+                  (fun y => match find (fun x => eqb (f x) y) vars with
+                         | Some x => map.get ctx x
+                         | None => None
+                         end) (map f vars)) as [m2 Hm2].
+      assert (Hm2' : forall x, In x vars -> map.get m2 (f x) = map.get ctx x).
+      { intros x Hx. rewrite Hm2 by (apply in_map, Hx).
+        destruct (find _ vars) as [x'|] eqn:E.
+        - apply find_some in E. destruct E as [Hx' E].
+          pose proof (eqb_spec (f x') (f x)) as Hs. rewrite E in Hs.
+          rewrite (Hinj x' x Hx' Hx Hs). reflexivity.
+        - apply (find_none _ _ E) in Hx.
+          pose proof (eqb_spec (f x) (f x)) as Hs. rewrite Hx in Hs. contradiction. }
+      apply rule.interp_impl with (ctx := m2).
+      + rewrite Exists_map. apply Exists_exists in Hc. destruct Hc as [c [Hin Hc]].
+        apply Exists_exists. exists c. split; [exact Hin|].
+        apply (clause_interp_varmap ctx m2); [|exact Hc]. eauto.
+      + rewrite <- Forall2_map_l. eapply Forall2_impl_strong; [exact Hh|].
+        intros c w Hw Hin _. apply (clause_interp_varmap ctx m2); [|exact Hw]. eauto.
+  Qed.
+End varmap.
+
 #[export] Hint Constructors rule.interp : core.
 
 Ltac interp_exprs :=
