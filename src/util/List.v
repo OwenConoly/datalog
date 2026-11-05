@@ -987,6 +987,8 @@ Lemma option_map_None X Y (f : X -> Y) x :
   x = None.
 Proof. cbv [option_map]. destruct_one_match; congruence. Qed.
 
+Definition swap {A B} (p : A * B) : B * A := (snd p, fst p).
+
 Definition fst3 {A B C} (x : A * B * C) : A := fst (fst x).
 Definition snd3 {A B C} (x : A * B * C) : B := snd (fst x).
 Definition thd3 {A B C} (x : A * B * C) : C := snd x.
