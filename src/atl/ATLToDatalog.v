@@ -107,7 +107,7 @@ Gen_{i = 0}^{i = 10}
      Let x := i in
      x * x
 *)
-Fixpoint lower_pSexpr' {var} (idxs0 : list exprvar) (next_varname : exprvar) (e : pATL_Sexpr' (var_of var)) :
+Fixpoint lower_pSexpr' {var} (idxs0 : nat) (next_varname : exprvar) (e : pATL_Sexpr' (var_of var)) :
     expr (*value of expr*) *
     list clause (*hypotheses*) *
     exprvar (*next varname*) :=
@@ -115,10 +115,9 @@ Fixpoint lower_pSexpr' {var} (idxs0 : list exprvar) (next_varname : exprvar) (e 
   (* when i tried to update Get with your suggestion to vr, it wouldn't take jus var, so then i made it a var of tensor_n, and then
   that required a for all n : nat, and so now get has an extra variable (??) of n?? *)
   | Get n (x, depth) idxs =>
-  (* i feel like this actually should work?? the value part might be wrong, but i basically just copied the defintion from your compiler, and then updated
-  it to fit the new types, so i think that the hypotheses part is right?? *)
     (expr.var next_varname,
-            [{| clause.rel := block_rel.input x; clause.args := expr.var next_varname :: map expr.var (firstn depth idxs0) ++ map lower_pZexpr' idxs |}],
+            [{| clause.rel := block_rel.input x; clause.args := expr.var next_varname :: 
+            map expr.var (seq 0 (Nat.min depth idxs0)) ++ map lower_pZexpr' idxs |}],
             S next_varname)
   | SBop o x y =>
     let '(e1, hyps1, next_varname) := lower_pSexpr' idxs0 next_varname x in
@@ -358,16 +357,21 @@ Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
   | Scalar s => 1 :: []
 end.
 
+
+(* idxs are being added in a reversed order, so for interpreting ... *)
+(* do we even needs idxs????? perhaps we just need the length??? 
+instead of starting with idxs = [], start with idxs = 0, and just increment it *)
 Import Blocks.blocks_prog.
 Check rule.impl.
-Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exprvar) (true_rel : var) : blocks_prog var :=
+Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (true_rel : var) : blocks_prog var :=
   match e with
   | Gen n lo hi body =>
-    lower_pATLexpr' (body (length idxs)) (idxs ++ [length idxs]) true_rel
+    lower_pATLexpr' (body idxs) (S idxs) true_rel
   | Sum n lo hi body => Block 0 {| program.rules := []; program.meta_rules := [] |}
   | Guard n b body =>
-    let dimvars := (seq O (length (get_block_size body))) in
-    let x := length (get_block_size body) in
+    let d := length (get_block_size body) in
+    let dimvars := seq idxs d in      (* names m .. m+d-1 *)
+    let x := idxs + d in              (* fresh value variable *)
     LetIn (lower_pATLexpr' body idxs true_rel)
       (fun val =>
          Block 0
@@ -375,17 +379,18 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                    [rule.impl
                       [{| clause.rel := block_rel.local 0;
                          clause.args := expr.var x ::
-                                          map expr.var idxs ++
+                         (* idxs is just a sequence from 0 to n, if turned to # can do a sequence from 0 to # *)
+                                          map expr.var (seq 0 idxs) ++
                                           map expr.var dimvars |}]
                       [{| clause.rel := block_rel.input val;
                          clause.args := expr.var x ::
-                                          map expr.var idxs ++
+                                          map expr.var (seq 0 idxs) ++
                                           map expr.var dimvars|};
                        {| clause.rel := block_rel.input true_rel; clause.args := [lower_pBexpr' b] |}];
                     rule.impl
                       [{| clause.rel := block_rel.local 0;
-                         clause.args := expr.app (fn_Lit 0) [] ::
-                                          map expr.var idxs ++
+                         clause.args := expr.app fn_IZR [expr.app (fn_Lit 0) []] ::
+                                          map expr.var (seq 0 idxs) ++
                                           map expr.var dimvars |}]
                       [{| clause.rel := block_rel.input true_rel;
                          clause.args := [expr.app fn_Not [lower_pBexpr' b]] |}]];
@@ -393,7 +398,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                |})
   | Lbind n m x f =>
     LetIn (lower_pATLexpr' x idxs true_rel) (fun val =>
-      lower_pATLexpr' (f (val, (length idxs))) idxs true_rel)
+      lower_pATLexpr' (f (val, (idxs))) idxs true_rel)
   | Concat n e1 e2 =>
   (* using n instead of size of e1 here because e1 no longer has a size*)
       let dimvars := seq O (length (get_block_size e1) - 1) in
@@ -412,12 +417,12 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                       {| program.rules :=
                           [rule.impl
                              (* i feel like this might work now : i added in the true_rel statemetns, and also it returns the out, so maybe it works???? *)
-                             [{| clause.rel := block_rel.local out; clause.args := expr.var x :: map expr.var idxs ++ map expr.var (dimvarO :: dimvars) |}]
-                             [{| clause.rel := block_rel.input val1; clause.args := expr.var x :: map expr.var idxs ++ map expr.var (dimvarO :: dimvars) |};
+                             [{| clause.rel := block_rel.local out; clause.args := expr.var x :: map expr.var (seq 0 idxs) ++ map expr.var (dimvarO :: dimvars) |}]
+                             [{| clause.rel := block_rel.input val1; clause.args := expr.var x :: map expr.var (seq 0 idxs) ++ map expr.var (dimvarO :: dimvars) |};
                               {| clause.rel := block_rel.input true_rel; clause.args := [expr.app fn_Lt [expr.var dimvarO; expr.app (fn_Lit len1) []]] |}];
                            rule.impl
-                             [{| clause.rel := block_rel.local out; clause.args := expr.var x :: map expr.var idxs ++ map expr.var (dimvarO :: dimvars) |}]
-                             [{| clause.rel := block_rel.input val2; clause.args := expr.var x :: map expr.var idxs ++ expr.app fn_Add [] :: map expr.var dimvars |};
+                             [{| clause.rel := block_rel.local out; clause.args := expr.var x :: map expr.var (seq 0 idxs) ++ map expr.var (dimvarO :: dimvars) |}]
+                             [{| clause.rel := block_rel.input val2; clause.args := expr.var x :: map expr.var (seq 0 idxs) ++ expr.app fn_Add [] :: map expr.var dimvars |};
                               {| clause.rel := block_rel.input true_rel; clause.args := [expr.app fn_Le [expr.app (fn_Lit len1) []; expr.var dimvarO]] |}]];
                         program.meta_rules := [];
                       |}))
@@ -441,12 +446,12 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                         [{| clause.rel := block_rel.local out;
                            clause.args :=
                              expr.var x ::
-                               map expr.var idxs ++
+                               map expr.var (seq 0 idxs) ++
                                expr.var dimvarO ::
                                map expr.var dimvars|}]
                         [{| clause.rel := block_rel.input val;
                            clause.args := expr.var x ::
-                                            map expr.var idxs ++
+                                            map expr.var (seq 0 idxs) ++
                                             expr.app fn_Divf
                                             [expr.var dimvarO;
                                              expr.app (fn_Lit len2) []] ::
@@ -483,13 +488,13 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                    [rule.impl
                       [{| clause.rel := block_rel.local out;
                          clause.args := expr.var x ::
-                                          map expr.var idxs ++
+                                          map expr.var (seq 0 idxs) ++
                                           expr.var dimvar1 ::
                                           expr.var dimvar2 ::
                                           map expr.var dimvars|}]
                       [ {| clause.rel := block_rel.input val;
                           clause.args := expr.var x ::
-                                           map expr.var idxs ++
+                                           map expr.var (seq 0 idxs) ++
                                            expr.app fn_Add
                                            [expr.app fn_Mul
                                               [expr.var dimvar1;
@@ -500,7 +505,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                     rule.impl
                       [{| clause.rel := block_rel.local out;
                          clause.args := expr.app (fn_Lit 0) [] ::
-                                          map expr.var idxs ++
+                                          map expr.var (seq 0 idxs) ++
                                           expr.app (fn_Lit (len / k')) [] ::
                                           expr.var dimvar1 ::
                                           map expr.var dimvars |}]
@@ -522,13 +527,13 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                        [rule.impl
                           [{| clause.rel := block_rel.local out;
                              clause.args := [expr.var Sn] ++
-                                              map expr.var idxs ++
+                                              map expr.var (seq 0 idxs) ++
                                               [expr.var dimvar2] ++
                                               [expr.var dimvar1] ++
                                               map expr.var dimvars |}]
                           [{| clause.rel := block_rel.input val;
                              clause.args := [expr.var Sn] ++
-                                              map expr.var idxs ++
+                                              map expr.var (seq 0 idxs) ++
                                               [expr.var dimvar1] ++
                                               [expr.var dimvar2] ++
                                               map expr.var dimvars |}]];
@@ -553,13 +558,13 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                       [{| clause.rel := block_rel.local out;
                          clause.args :=
                            expr.var x ::
-                             map expr.var idxs ++
+                             map expr.var (seq 0 idxs) ++
                              expr.var dimvar1 ::
                              map expr.var dimvars |}]
                       [{| clause.rel := block_rel.input val;
                          clause.args :=
                            expr.var x ::
-                             map expr.var idxs ++
+                             map expr.var (seq 0 idxs) ++
                              expr.app fn_Add
                              [expr.app (fn_Lit k') [];
                               expr.var dimvar1] ::
@@ -582,12 +587,12 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                    [rule.impl
                       [{| clause.rel := block_rel.local out;
                          clause.args := expr.var x ::
-                                          map expr.var idxs ++
+                                          map expr.var (seq 0 idxs) ++
                                           expr.var dimvar1 ::
                                           map expr.var dimvars |}]
                       [{| clause.rel := block_rel.input val;
                          clause.args := expr.var x ::
-                                          map expr.var idxs ++
+                                          map expr.var (seq 0 idxs) ++
                                           expr.var dimvar1 ::
                                           map expr.var dimvars|};
                        {| clause.rel := block_rel.input true_rel;
@@ -597,7 +602,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                     rule.impl
                       [{| clause.rel := block_rel.local out;
                          clause.args := expr.app (fn_Lit 0) [] ::
-                                          map expr.var idxs ++
+                                          map expr.var (seq 0 idxs) ++
                                           expr.var dimvar1 ::
                                           map expr.var dimvars |}]
                       [{| clause.rel := block_rel.input true_rel;
@@ -622,12 +627,12 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                    [rule.impl
                       [{| clause.rel := block_rel.local out;
                          clause.args := expr.var x ::
-                                          map expr.var idxs ++
+                                          map expr.var (seq 0 idxs) ++
                                           expr.var dimvar1 ::
                                           map expr.var dimvars|}]
                       [{| clause.rel := block_rel.input val;
                          clause.args := expr.var x ::
-                                          map expr.var idxs ++
+                                          map expr.var (seq 0 idxs) ++
                                           expr.app fn_Sub
                                           [expr.var dimvar1;
                                            expr.app (fn_Lit k') []] ::
@@ -639,7 +644,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
                     rule.impl
                       [{| clause.rel := block_rel.local out;
                          clause.args := expr.app (fn_Lit 0) [] ::
-                                          map expr.var idxs ++
+                                          map expr.var (seq 0 idxs) ++
                                           expr.var dimvar1 ::
                                           map expr.var dimvars |}]
                       [{| clause.rel := block_rel.input true_rel;
@@ -662,7 +667,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : list exp
 
 Definition lower_main {var n} (e : pATLexpr (var_of var) n) (true_rel : var): blocks_prog var :=
   let '(e') := lower_pATLexpr e in
-  lower_pATLexpr' e' [] true_rel.
+  lower_pATLexpr' e' 0 true_rel.
 
 (* end of compiler, this stuff should go in ATLToDatalog semantics, but that isn't working *)
 
@@ -1142,9 +1147,10 @@ Proof.
   destruct (H1 _ _ G1). destruct (H2 _ _ G2). lia.
 Qed.
 
+Search firstn.
 Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps next_varname' :
   wf_pSexpr' ctx e e' ->
-  Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
+  Forall2 (fun x y => map.get (context_of ctx) x = Some y) (seq 0 idxs0) idxs0' -> (* checking that idxs0 matches ctx *)
   lower_pSexpr' idxs0 next_varname e = (datalog_expr, hyps, next_varname') ->
   (forall k, next_varname <= k -> map.get (context_of ctx) k = None) ->
   NoDup (map fst (zctx ctx)) ->
@@ -1182,16 +1188,20 @@ Proof.
       destruct (Nat.eqb next_varname k) eqn:E.
       * apply Nat.eqb_eq in E. split; lia.
       * rewrite map.get_empty in H1. discriminate.
-    + (* clause.interp *)
+    + 
+    (* clause.interp *)
       constructor; [| constructor].
       cbv [clause.interp]; simpl. split.
       { reflexivity. }
-      { constructor.
+      {
+        constructor.
         - eapply expr.interp_var.
           rewrite (map.get_putmany_left _ _ _ Hmap).
           apply map.get_put_same.
         - apply Forall2_app.
-          + apply interp_vars_putmany. apply Forall2_firstn'. exact Hidxs.
+          + apply interp_vars_putmany.
+          rewrite <- (List.firstn_seq n0 0 idxs0).
+          apply Forall2_firstn'. exact Hidxs.
           + eapply lower_idxs_works.
             * exact H0.
             * eapply Forall_impl; [| apply (context_of_zctx ctx Hnd)].
@@ -1279,6 +1289,7 @@ assert (Ext2 : map.extends (map.putmany (map.putmany substn1 substn2) (context_o
   * reflexivity.
 Qed.
 
+
 Definition true_rel : result :=
   result.mk (fun args => args = [Vbool true]) (fun _ => False).
 
@@ -1287,7 +1298,9 @@ Proof. reflexivity. Qed.
 
 Fixpoint get_R_opt {n : nat} : dim_n n -> list Z -> option R :=
   match n return dim_n n -> list Z -> option R with
-  | O => fun v idxs => match idxs with [] => Some v | _ => None end
+  | O => fun v idxs => 
+    (match idxs with [] => 
+    Some v | _ => None end)
   | S n' => fun (v : list (dim_n n')) idxs =>
       match idxs with
       | [] => None
@@ -1297,6 +1310,21 @@ Fixpoint get_R_opt {n : nat} : dim_n n -> list Z -> option R :=
           else None
       end
   end.
+
+Lemma get_R_opt_genr {n} (hi : Z) (f : Z -> dim_n n) i rest val :
+  get_R_opt (n := S n) (genr 0 hi f) (i :: rest) = Some val ->
+  (0 <= i < hi)%Z /\ get_R_opt (f i) rest = Some val.
+Proof.
+  intros H. cbn [get_R_opt] in H.
+  destruct ((0 <=? i)%Z && (i <? Z.of_nat (Datatypes.length (genr 0 hi f)))%Z) eqn:Hb;
+    [| discriminate].
+  apply Bool.andb_true_iff in Hb. destruct Hb as [Hb0 Hb1].
+  apply Z.leb_le in Hb0. apply Z.ltb_lt in Hb1.
+  rewrite genr_length in Hb1.
+  split; [lia |].
+  rewrite get_genr_some in H by lia.
+  rewrite Z.add_0_l in H. exact H.
+Qed.
 
 Definition complete_at {n} (P : result) (outer : list value)
     (t : interp_type_tagged (tensor_n n)) : Prop :=
@@ -1314,13 +1342,6 @@ Proof.
   reflexivity.
 Qed.
 
-
-Search (Z.of_nat (Z.to_nat _)).
-
-Lemma lt_of_seq idxs0 k :
-  idxs0 = seq 0 (Datatypes.length idxs0) -> In k idxs0 -> k < Datatypes.length idxs0.
-Proof. intros Hs Hk. rewrite Hs in Hk at 1. apply in_seq in Hk. lia. Qed.
-
 Lemma ext_not_tensor {var} (a : var_of var tZ) (b : interp_type_tagged tZ)
     (ctx : list (ctx_elt2 (var_of var) interp_type_tagged)) m P depth tv :
   In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |}
@@ -1334,57 +1355,50 @@ Proof.
   simpl in E. discriminate E.
 Qed.
 
-(* supposedly this will also be used in sum *)
-Lemma ctx_extend_ok ctx idxs0 idxs0' (i : Z)
-    (Hidxs : Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0')
-    (Hseq : idxs0 = seq 0 (Datatypes.length idxs0))
-    (Hperm : Permutation (map fst (zctx ctx)) idxs0)
-    (Hdepth : forall m P depth tv,
-       In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
+Lemma ctx_extend_ok ctx (m : nat) idxs0' (i : Z)
+    (Hidxs : Forall2 (fun x y => map.get (context_of ctx) x = Some y) (seq 0 m) idxs0')
+    (Hperm : Permutation (map fst (zctx ctx)) (seq 0 m))
+    (Hdepth : forall k P depth tv,
+       In {| ctx_elt_t := tensor_n k; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
        depth <= Datatypes.length idxs0')
-    (Hcompl : forall m P depth tv,
-       In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
+    (Hcompl : forall k P depth tv,
+       In {| ctx_elt_t := tensor_n k; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
        complete_at P (firstn depth idxs0') tv) :
-  let ext := {| ctx_elt_t := tZ; ctx_elt_p1 := Datatypes.length idxs0;
-                ctx_elt_p2 := itervarZ i |}
+  let ext := {| ctx_elt_t := tZ; ctx_elt_p1 := m; ctx_elt_p2 := itervarZ i |}
              : ctx_elt2 (var_of result) interp_type_tagged in
   Forall2 (fun x y => map.get (context_of (ext :: ctx)) x = Some y)
-          (idxs0 ++ [Datatypes.length idxs0]) (idxs0' ++ [VZ i]) /\
-  idxs0 ++ [Datatypes.length idxs0]
-    = seq 0 (Datatypes.length (idxs0 ++ [Datatypes.length idxs0])) /\
-  Permutation (map fst (zctx (ext :: ctx))) (idxs0 ++ [Datatypes.length idxs0]) /\
-  (forall m P depth tv,
-     In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |}
+          (seq 0 (S m)) (idxs0' ++ [VZ i]) /\
+  Permutation (map fst (zctx (ext :: ctx))) (seq 0 (S m)) /\
+  (forall k P depth tv,
+     In {| ctx_elt_t := tensor_n k; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |}
         (ext :: ctx) ->
      depth <= Datatypes.length (idxs0' ++ [VZ i])) /\
-  (forall m P depth tv,
-     In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |}
+  (forall k P depth tv,
+     In {| ctx_elt_t := tensor_n k; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |}
         (ext :: ctx) ->
      complete_at P (firstn depth (idxs0' ++ [VZ i])) tv).
 Proof.
-  intros ext.
-  repeat split.
-  - apply Forall2_app.
+  intros ext. repeat split.
+  - rewrite seq_S. apply Forall2_app.
     + eapply List.Forall2_impl_strong; [exact Hidxs |].
       intros x y Hget Hin _. cbv [ext].
-      rewrite (context_of_ext ctx (Datatypes.length idxs0) (itervarZ i)).
-      assert (Hne : x <> Datatypes.length idxs0).
-      { intro Heq. pose proof (lt_of_seq _ _ Hseq Hin) as Hlt.
-        rewrite Heq in Hlt. exact (Nat.lt_irrefl _ Hlt). }
+      rewrite (context_of_ext ctx m (itervarZ i)).
+      assert (Hne : x <> m).
+      { intro Heq. apply in_seq in Hin. lia. }
       rewrite map.get_put_diff by exact Hne. exact Hget.
     + cbv [ext]. constructor; [| constructor].
-      rewrite (context_of_ext ctx (Datatypes.length idxs0) (itervarZ i)).
+      rewrite (context_of_ext ctx m (itervarZ i)).
       rewrite map.get_put_same. reflexivity.
-  - rewrite length_app. simpl. rewrite Nat.add_1_r, seq_S.
-    f_equal; [exact Hseq].
-  - change (zctx (ext :: ctx)) with ((Datatypes.length idxs0, itervarZ i) :: zctx ctx).
-    simpl. transitivity (Datatypes.length idxs0 :: idxs0).
-    + apply perm_skip. exact Hperm.
-    + apply Permutation_cons_append.
-  - intros m P depth tv Hin.
+  - change (zctx (ext :: ctx)) with ((m, itervarZ i) :: zctx ctx).
+  rewrite seq_S.
+  cbn [map fst].
+  transitivity (m :: seq 0 m).
+  + apply perm_skip. exact Hperm.
+  + apply Permutation_cons_append.
+  - intros k P depth tv Hin.
     pose proof (Hdepth _ _ _ _ (ext_not_tensor _ _ _ _ _ _ _ Hin)).
     rewrite length_app. simpl. lia.
-  - intros m P depth tv Hin.
+  - intros k P depth tv Hin.
     pose proof (ext_not_tensor _ _ _ _ _ _ _ Hin) as Hin'.
     pose proof (Hcompl _ _ _ _ Hin') as Hc.
     pose proof (Hdepth _ _ _ _ Hin') as Hd.
@@ -1392,6 +1406,7 @@ Proof.
     replace (depth - Datatypes.length idxs0')%nat with 0%nat by lia.
     simpl. rewrite app_nil_r. exact Hc.
 Qed.
+
 
 (* shorter way of doing sizeof_prop' *)
 Fixpoint lo_zero {n} (e : pATLexpr' interp_type_tagged n) : Prop :=
@@ -1406,58 +1421,93 @@ match e with
 | Scalar _ => True
 end.
 
+Lemma lower_pBexpr'_works {var} (ctx : list (ctx_elt2 (var_of var) interp_type_tagged))
+    (ctx' : context) (b1 : pBexpr' (var_of var tZ)) (b2 : pBexpr' tagged_Z) :
+  wf_pBexpr' ctx b1 b2 ->
+  Forall (fun '(x, y) => map.get ctx' x = Some (VZ (untag_Z y))) (zctx ctx) ->
+  expr.interp ctx' (lower_pBexpr' b1) (Vbool (interp_pBexpr' b2)).
+Proof.
+intros Hwf Hmap.
+induction Hwf.
+- specialize (IHHwf1 Hmap).
+  specialize (IHHwf2 Hmap).
+  simpl.
+  eapply expr.interp_fun
+    with (args' := [Vbool (interp_pBexpr' a2); Vbool (interp_pBexpr' b2)]).
+  + constructor; [exact IHHwf1 | constructor; [exact IHHwf2 | constructor]].
+  + reflexivity.
+- destruct o; simpl.
+ + eapply expr.interp_fun with (args' := [VZ (interp_pZexpr' x2); VZ (interp_pZexpr' y2)]).
+  { constructor.
+    * eapply lower_pZexpr'_works; [exact H | exact Hmap].
+    * constructor; [eapply lower_pZexpr'_works; [exact H0 | exact Hmap] | constructor]. }
+  { reflexivity. }
+ + eapply expr.interp_fun with (args' := [VZ (interp_pZexpr' x2); VZ (interp_pZexpr' y2)]).
+  { constructor.
+    * eapply lower_pZexpr'_works; [exact H | exact Hmap].
+    * constructor; [eapply lower_pZexpr'_works; [exact H0 | exact Hmap] | constructor]. }
+  { reflexivity. }
+ + eapply expr.interp_fun with (args' := [VZ (interp_pZexpr' x2); VZ (interp_pZexpr' y2)]).
+  { constructor.
+    * eapply lower_pZexpr'_works; [exact H | exact Hmap].
+    * constructor; [eapply lower_pZexpr'_works; [exact H0 | exact Hmap] | constructor]. }
+  { reflexivity. }
+Qed.
+
+(* with the next stuff with idxs, can i removes idxs0 *)
 Context {value_eqb : Eqb.Eqb value} {value_eqb_ok : Eqb.Eqb_ok value_eqb}.
 Context {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set}.
 Lemma lower_pATLexpr'_works n
     (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
     (e : pATLexpr' (var_of result) n) (e' : pATLexpr' interp_type_tagged n)
-    (idxs0 : list exprvar) (idxs0' : list value) :
+    (m : nat) (idxs0' : list value) :
   lo_zero e' ->
   wf_pATL_expr' ctx n e e' ->
-  Forall2 (fun x y => map.get (context_of ctx) x = Some y) idxs0 idxs0' ->
-  idxs0 = seq 0 (Datatypes.length idxs0) ->                    (* Hseq *)
-  Permutation (map fst (zctx ctx)) idxs0 ->                    (* Hperm *)
-  (forall m P depth tv,
-     In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
+  Forall2 (fun x y => map.get (context_of ctx) x = Some y) (seq 0 m) idxs0' ->
+  Permutation (map fst (zctx ctx)) (seq 0 m) ->
+  (forall k P depth tv,
+     In {| ctx_elt_t := tensor_n k; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
      depth <= Datatypes.length idxs0') ->                      (* Hdepth *)
-  (forall m P depth tv,
-     In {| ctx_elt_t := tensor_n m; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
+  (forall k P depth tv,
+     In {| ctx_elt_t := tensor_n k; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
      complete_at P (firstn depth idxs0') tv) ->                (* Hcompl *)
-  complete_at (blocks_prog.interp (lower_pATLexpr' e idxs0 true_rel)) idxs0'
+  complete_at (blocks_prog.interp (lower_pATLexpr' e m true_rel)) idxs0'
               (interp_pATLexpr' e').
 Proof.
-  intros Hsz Hwf. revert idxs0 idxs0' Hsz. induction Hwf.
-(* Get case *)
-- intros idxs0 idxs0' Hlz Hidxs Hseq Hperm Hdepth Hcompl.
-destruct Hlz as [Hlo Hbody].
+  intros Hlz Hwf. revert m idxs0' Hlz.
+  induction Hwf.
+  - intros m idxs0' Hlz Hidxs Hperm Hdepth Hcompl.
+  destruct Hlz as [Hlo Hbody].
   unfold complete_at. intros idxs val Hget.
-cbn [lower_pATLexpr'].
-cbn [interp_pATLexpr'] in Hget.
-destruct idxs as [| i rest]; [cbn in Hget; discriminate |].
-cbn [get_R_opt] in Hget.
-(* pull the bounds check out of the option lookup *)
-match type of Hget with
-| context [if ?c then _ else _] => destruct c eqn:Hb
-end; [| discriminate].
-apply Bool.andb_true_iff in Hb. destruct Hb as [Hb0 Hb1].
-apply Z.leb_le in Hb0. apply Z.ltb_lt in Hb1.
-rewrite genr_length in Hb1.
-rewrite Hlo in Hget, Hb1.
-rewrite Z.sub_0_r in Hb1.
-assert (Hh : (0 < interp_pZexpr' hi2)%Z) by lia.
-assert (Hb2 : (i < interp_pZexpr' hi2)%Z) by lia.
-rewrite (get_genr_some i (interp_pZexpr' hi2) 0%Z) in Hget by lia.
-destruct (ctx_extend_ok ctx idxs0 idxs0' i Hidxs Hseq Hperm Hdepth Hcompl)
-  as (Hidx2 & Hseq2 & Hperm2 & Hdepth2 & Hcompl2).
-pose proof (H2 (Datatypes.length idxs0) (itervarZ i)
-  (idxs0 ++ [Datatypes.length idxs0]) (idxs0' ++ [VZ i])
-  (Hbody _) Hidx2 Hseq2 Hperm2 Hdepth2 Hcompl2) as IH.
-unfold complete_at in IH.
-specialize (IH rest val Hget).
-rewrite <- app_assoc in IH. simpl in IH.
-exact IH.
--
+  cbn [lower_pATLexpr'].
+  cbn [interp_pATLexpr'] in Hget.
+  simpl in Hget.
+  rewrite Hlo in Hget.
+  destruct idxs as [| i rest]; [cbn in Hget; discriminate |].
+  destruct (get_R_opt_genr _ _ _ _ _ Hget) as [_ Hget'].
+  destruct (ctx_extend_ok ctx m idxs0' i Hidxs Hperm Hdepth Hcompl)
+    as (Hidx2 & Hperm2 & Hdepth2 & Hcompl2).
+  pose proof (H2 m (itervarZ i) (S m) (idxs0' ++ [VZ i])
+    (Hbody _) Hidx2 Hperm2 Hdepth2 Hcompl2) as IH.
+  specialize (IH rest val Hget').
+  replace (idxs0' ++ map VZ (i :: rest))
+    with ((idxs0' ++ [VZ i]) ++ map VZ rest)
+    by (rewrite <- app_assoc; reflexivity).
+  exact IH.
+  - admit.
+  - intros m idxs0' Hlz Hidxs Hperm Hdepth Hcompl.
+    assert (Hnd : NoDup (map fst (zctx ctx))).
+    { eapply Permutation_NoDup; [symmetry; exact Hperm | apply seq_NoDup]. }
+    unfold complete_at. intros idxs val Hget.
+    cbn [interp_pATLexpr'] in Hget.
+    destruct (interp_pBexpr' b2) eqn: Hb.
+    + rewrite true_iverson in Hget.
+      simpl in Hlz. 
+      pose proof (IHHwf m idxs0' Hlz Hidxs Hperm Hdepth Hcompl) as IHb.
+      pose proof (IHb idxs val Hget) as Hbody.
+      assert (Hg : expr.interp (context_of ctx) (lower_pBexpr' b1) (Vbool (interp_pBexpr' b2))).
+      { eapply lower_pBexpr'_works; [exact H |].
+        exact (context_of_zctx ctx Hnd). }
+      rewrite Hb in Hg.
 Admitted.
-
-  
 End __.
