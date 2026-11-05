@@ -298,3 +298,52 @@ Proof.
       * apply invert_permutation_in_range; [exact Hp'|].
         apply nth_In. rewrite length_invert_permutation. lia.
 Qed.
+
+Lemma sorted_le_perm_eq l1 l2 :
+  Sorted le l1 -> Sorted le l2 -> Permutation l1 l2 -> l1 = l2.
+Proof.
+  intros H1 H2. apply Sorted_StronglySorted in H1, H2; try exact Nat.le_trans.
+  revert l2 H2. induction H1 as [|a l1 _ IH Ha]; intros l2 H2 Hp.
+  - symmetry. apply Permutation_nil, Hp.
+  - destruct H2 as [|b l2 H2 Hb].
+    + apply Permutation_sym, Permutation_nil in Hp. discriminate.
+    + rewrite Forall_forall in Ha, Hb.
+      assert (a = b) as <-.
+      { pose proof (Permutation_in a Hp (in_eq _ _)) as [|Ha'];
+          pose proof (Permutation_in b (Permutation_sym Hp) (in_eq _ _)) as [|Hb'];
+          auto using Nat.le_antisymm. }
+      f_equal. eauto using Permutation_cons_inv.
+Qed.
+
+Lemma StronglySorted_filter {A} (R : A -> A -> Prop) f l :
+  StronglySorted R l -> StronglySorted R (filter f l).
+Proof.
+  induction 1 as [|a l _ IH Ha]; simpl; [constructor|].
+  destruct (f a); [|exact IH].
+  constructor; [exact IH|].
+  rewrite Forall_forall in *. intros x Hx. apply filter_In in Hx as [Hx _]. auto.
+Qed.
+
+Lemma StronglySorted_seq start n : StronglySorted le (seq start n).
+Proof.
+  revert start. induction n as [|n IH]; intros start; simpl; constructor; auto.
+  apply Forall_forall. intros x Hx. apply in_seq in Hx. lia.
+Qed.
+
+Lemma apply_order_to_permutation l :
+  apply_permutation (order_to_permutation l) l = map fst (FstNatSorting.sort (zip_with_index l)).
+Proof.
+  destruct l as [|d l']; [reflexivity|].
+  cbv [apply_permutation order_to_permutation].
+  change (apply_permutation_with_default ?p ?l d) with (map (fun i => nth i l d) p).
+  rewrite map_map. apply map_ext_in. intros [a b] Hab.
+  apply (Permutation_in _ (Permutation_sym (FstNatSorting.Permuted_sort _))), in_zip_with_index_nth in Hab as [? ?].
+  cbn [fst snd]. rewrite nth_indep with (d' := a); assumption.
+Qed.
+
+Lemma Sorted_apply_order_to_permutation l :
+  Sorted le (apply_permutation (order_to_permutation l) l).
+Proof.
+  rewrite apply_order_to_permutation.
+  apply sorted_fst_of_locally_sorted, FstNatSorting.LocallySorted_sort.
+Qed.
