@@ -369,9 +369,8 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
     lower_pATLexpr' (body idxs) (S idxs) true_rel
   | Sum n lo hi body => Block 0 {| program.rules := []; program.meta_rules := [] |}
   | Guard n b body =>
-    let d := length (get_block_size body) in
-    let dimvars := seq idxs d in      (* names m .. m+d-1 *)
-    let x := idxs + d in              (* fresh value variable *)
+    let dimvars := seq idxs n in      (* names m .. m+d-1 *)
+    let x := idxs + n in              (* fresh value variable *)
     LetIn (lower_pATLexpr' body idxs true_rel)
       (fun val =>
          Block 0
@@ -1355,9 +1354,13 @@ Proof.
   simpl in E. discriminate E.
 Qed.
 
+Lemma rev_seq_S m : rev (seq 0 (S m)) = m :: rev (seq 0 m).
+Proof.
+  rewrite seq_S, rev_app_distr. simpl. reflexivity.
+Qed.
 Lemma ctx_extend_ok ctx (m : nat) idxs0' (i : Z)
     (Hidxs : Forall2 (fun x y => map.get (context_of ctx) x = Some y) (seq 0 m) idxs0')
-    (Hperm : Permutation (map fst (zctx ctx)) (seq 0 m))
+    (Hfst : map fst (zctx ctx) = rev (seq 0 m))
     (Hdepth : forall k P depth tv,
        In {| ctx_elt_t := tensor_n k; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
        depth <= Datatypes.length idxs0')
@@ -1368,7 +1371,7 @@ Lemma ctx_extend_ok ctx (m : nat) idxs0' (i : Z)
              : ctx_elt2 (var_of result) interp_type_tagged in
   Forall2 (fun x y => map.get (context_of (ext :: ctx)) x = Some y)
           (seq 0 (S m)) (idxs0' ++ [VZ i]) /\
-  Permutation (map fst (zctx (ext :: ctx))) (seq 0 (S m)) /\
+  map fst (zctx (ext :: ctx)) = rev (seq 0 (S m)) /\
   (forall k P depth tv,
      In {| ctx_elt_t := tensor_n k; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |}
         (ext :: ctx) ->
@@ -1389,12 +1392,9 @@ Proof.
     + cbv [ext]. constructor; [| constructor].
       rewrite (context_of_ext ctx m (itervarZ i)).
       rewrite map.get_put_same. reflexivity.
-  - change (zctx (ext :: ctx)) with ((m, itervarZ i) :: zctx ctx).
-  rewrite seq_S.
-  cbn [map fst].
-  transitivity (m :: seq 0 m).
-  + apply perm_skip. exact Hperm.
-  + apply Permutation_cons_append.
+  - change (map fst (zctx (ext :: ctx))) with (m :: map fst (zctx ctx)).
+    rewrite Hfst, rev_seq_S.
+    reflexivity.
   - intros k P depth tv Hin.
     pose proof (Hdepth _ _ _ _ (ext_not_tensor _ _ _ _ _ _ _ Hin)).
     rewrite length_app. simpl. lia.
@@ -1457,6 +1457,82 @@ Qed.
 (* with the next stuff with idxs, can i removes idxs0 *)
 Context {value_eqb : Eqb.Eqb value} {value_eqb_ok : Eqb.Eqb_ok value_eqb}.
 Context {value_set : map.map (list value) unit} {value_set_ok : map.ok value_set}.
+
+Lemma interp_LetIn x f :
+  blocks_prog.interp (LetIn x f) = blocks_prog.interp (f (blocks_prog.interp x)).
+Proof. reflexivity. Qed.
+
+(* lengths: both are short inductions *)
+Lemma get_R_opt_length {n} (t : dim_n n) idxs v :
+  get_R_opt t idxs = Some v -> Datatypes.length idxs = n.
+Proof.
+  revert t idxs. induction n as [| n IH]; intros t idxs H.
+  - destruct idxs; [reflexivity | simpl in H; discriminate].
+  - destruct idxs as [| i idxs']; simpl in H; [discriminate |].
+    Tactics.destruct_one_match_hyp; [| discriminate].
+    simpl. f_equal. eapply IH. exact H.
+Qed.
+
+Search iverson.
+(* false guard: the zero tensor *)
+Lemma get_R_opt_iverson_false {n} (t : dim_n n) idxs v :
+  get_R_opt (|[ false ]| t) idxs = Some v -> v = 0%R.
+Proof.
+revert t idxs. induction n as [| n IH]; intros t idxs H.
+ - (* scalar: lookup succeeds only on [] *)
+    destruct idxs; cbn [get_R_opt] in H; [| discriminate].
+    rewrite iverson_mul_false in H by reflexivity.
+    assert (E : scalar_mul 0%R t = v) by congruence.
+    rewrite <- E. simpl. ring.
+  - (* tensor: peel one index, push the guard inside, use the IH *)
+    destruct idxs as [| i rest]; cbn [get_R_opt] in H; [discriminate |].
+    Tactics.destruct_one_match_hyp; [| discriminate].
+     apply (IH (t _[ i ]) rest).
+    etransitivity; [| exact H].
+    f_equal. symmetry. apply gp_iverson.
+Qed.
+Print result.normal.
+(* a rule whose hypotheses hold fires inside a block (proof from before) *)
+Lemma block_rule_fires (ret : nat) p concl hyps ctx' (nf : normal_fact) (nfs : list normal_fact) :
+  In (rule.impl [concl] hyps) (program.rules p) ->
+  normal_fact.rel nf = block_rel.local ret ->
+  clause.interp ctx' concl nf ->
+  Forall2 (clause.interp ctx') hyps nfs ->
+  Forall (fun f => inp_holds (fact.normal f)) nfs ->
+  result.normal (blocks_prog.interp (Block ret p)) (normal_fact.args nf).
+Proof.
+intros Hin Hrel Hc Hh Hinp.
+  cbn [blocks_prog.interp]. unfold result.of_facts. simpl.
+  destruct nf as [rel args]. simpl in *. subst rel.
+  eapply Pftree.pftree.step with (l := map fact.normal nfs).
+  - (* one derivation step using this rule *)
+    apply program.rule_step.
+    apply Exists_exists.
+    exists (rule.impl [concl] hyps). split; [exact Hin |].
+    apply rule.interp_impl with (ctx := ctx').
+    + constructor. exact Hc.
+    + exact Hh.
+  - (* every hypothesis fact is an input fact, so a leaf *)
+    apply Forall_map.
+    eapply Forall_impl; [| exact Hinp].
+    intros f Hf. apply Pftree.pftree.leaf. exact Hf.
+Qed.
+
+(* the substitution for both rules, stated with an exists so you never
+   have to match a let-expression *)
+Lemma guard_subst_ok (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
+    m idxs0' (idxs : list Z) n (v : value) :
+  Forall2 (fun x y => map.get (context_of ctx) x = Some y) (seq 0 m) idxs0' ->
+  map fst (zctx ctx) = rev (seq 0 m) ->
+  Datatypes.length idxs = n ->
+  exists s : context,
+    Forall2 (expr.interp s) (map expr.var (seq 0 m) ++ map expr.var (seq m n))
+            (idxs0' ++ map VZ idxs) /\
+    map.get s (m + n) = Some v /\
+    map.extends s (context_of ctx).
+Proof.
+Admitted.
+
 Lemma lower_pATLexpr'_works n
     (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
     (e : pATLexpr' (var_of result) n) (e' : pATLexpr' interp_type_tagged n)
@@ -1464,7 +1540,8 @@ Lemma lower_pATLexpr'_works n
   lo_zero e' ->
   wf_pATL_expr' ctx n e e' ->
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) (seq 0 m) idxs0' ->
-  Permutation (map fst (zctx ctx)) (seq 0 m) ->
+  (* Permutation (map fst (zctx ctx)) (seq 0 m) -> *)
+  map fst (zctx ctx) = rev (seq 0 m) -> (* new hperm *)
   (forall k P depth tv,
      In {| ctx_elt_t := tensor_n k; ctx_elt_p1 := (P, depth); ctx_elt_p2 := tv |} ctx ->
      depth <= Datatypes.length idxs0') ->                      (* Hdepth *)
@@ -1476,7 +1553,7 @@ Lemma lower_pATLexpr'_works n
 Proof.
   intros Hlz Hwf. revert m idxs0' Hlz.
   induction Hwf.
-  - intros m idxs0' Hlz Hidxs Hperm Hdepth Hcompl.
+  - intros m idxs0' Hlz Hidxs Hfst Hdepth Hcompl.
   destruct Hlz as [Hlo Hbody].
   unfold complete_at. intros idxs val Hget.
   cbn [lower_pATLexpr'].
@@ -1485,29 +1562,83 @@ Proof.
   rewrite Hlo in Hget.
   destruct idxs as [| i rest]; [cbn in Hget; discriminate |].
   destruct (get_R_opt_genr _ _ _ _ _ Hget) as [_ Hget'].
-  destruct (ctx_extend_ok ctx m idxs0' i Hidxs Hperm Hdepth Hcompl)
-    as (Hidx2 & Hperm2 & Hdepth2 & Hcompl2).
+  destruct (ctx_extend_ok ctx m idxs0' i Hidxs Hfst Hdepth Hcompl)
+    as (Hidx2 & Hfst2 & Hdepth2 & Hcompl2).
   pose proof (H2 m (itervarZ i) (S m) (idxs0' ++ [VZ i])
-    (Hbody _) Hidx2 Hperm2 Hdepth2 Hcompl2) as IH.
+    (Hbody _) Hidx2 Hfst2 Hdepth2 Hcompl2) as IH.
   specialize (IH rest val Hget').
   replace (idxs0' ++ map VZ (i :: rest))
     with ((idxs0' ++ [VZ i]) ++ map VZ rest)
     by (rewrite <- app_assoc; reflexivity).
   exact IH.
   - admit.
-  - intros m idxs0' Hlz Hidxs Hperm Hdepth Hcompl.
-    assert (Hnd : NoDup (map fst (zctx ctx))).
-    { eapply Permutation_NoDup; [symmetry; exact Hperm | apply seq_NoDup]. }
-    unfold complete_at. intros idxs val Hget.
-    cbn [interp_pATLexpr'] in Hget.
-    destruct (interp_pBexpr' b2) eqn: Hb.
-    + rewrite true_iverson in Hget.
-      simpl in Hlz. 
-      pose proof (IHHwf m idxs0' Hlz Hidxs Hperm Hdepth Hcompl) as IHb.
-      pose proof (IHb idxs val Hget) as Hbody.
-      assert (Hg : expr.interp (context_of ctx) (lower_pBexpr' b1) (Vbool (interp_pBexpr' b2))).
-      { eapply lower_pBexpr'_works; [exact H |].
-        exact (context_of_zctx ctx Hnd). }
-      rewrite Hb in Hg.
+  - intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
+  simpl in Hlz.
+  assert (Hnd : NoDup (map fst (zctx ctx)))
+    by (rewrite Hrev; apply NoDup_rev; apply seq_NoDup).
+  assert (Hg : expr.interp (context_of ctx) (lower_pBexpr' b1)
+                           (Vbool (interp_pBexpr' b2)))
+    by (eapply lower_pBexpr'_works; [exact H | exact (context_of_zctx ctx Hnd)]).
+  unfold complete_at. intros idxs val Hget.
+  cbn [interp_pATLexpr'] in Hget.
+  pose proof (get_R_opt_length _ _ _ Hget) as Hd.
+  cbn [lower_pATLexpr']. rewrite interp_LetIn. cbv beta.
+  destruct (interp_pBexpr' b2) eqn:Hb; rewrite ?Hb in Hg, Hget.
+  + (* guard true: rule 1 *)
+    rewrite true_iverson in Hget.
+    pose proof (IHHwf m idxs0' Hlz Hmap Hrev Hlen Hcompl idxs val Hget) as Hbody.
+    destruct (guard_subst_ok ctx m idxs0' idxs n (VR val) Hmap Hrev Hd)
+      as (s & Hargs & Hx & Hext).
+    eapply (block_rule_fires 0 _ _ _ s
+      {| normal_fact.rel := block_rel.local 0;
+         normal_fact.args := VR val :: idxs0' ++ map VZ idxs |}
+      [ {| normal_fact.rel := block_rel.input (interp (lower_pATLexpr' body1 m true_rel));
+           normal_fact.args := VR val :: idxs0' ++ map VZ idxs |};
+        {| normal_fact.rel := block_rel.input true_rel;
+           normal_fact.args := [Vbool true] |} ]).
+    * simpl. left. reflexivity.
+    * reflexivity.
+    * split; [reflexivity |].
+      constructor; [apply expr.interp_var; exact Hx | exact Hargs].
+    * constructor; [| constructor; [| constructor]].
+      -- split; [reflexivity |].
+         constructor; [apply expr.interp_var; exact Hx | exact Hargs].
+      -- split; [reflexivity |].
+         constructor; [eapply expr.interp_subst_more; [exact Hext | exact Hg] | constructor].
+    * constructor; [| constructor; [| constructor]];
+        unfold inp_holds; simpl; [exact Hbody | reflexivity].
+  + (* guard false: rule 2 *)
+    apply get_R_opt_iverson_false in Hget. subst val.
+    destruct (guard_subst_ok ctx m idxs0' idxs n (VR 0%R) Hmap Hrev Hd)
+      as (s & Hargs & _ & Hext).
+    eapply (block_rule_fires 0 _ _ _ s
+      {| normal_fact.rel := block_rel.local 0;
+         normal_fact.args := VR 0%R :: idxs0' ++ map VZ idxs |}
+      [ {| normal_fact.rel := block_rel.input true_rel;
+           normal_fact.args := [Vbool true] |} ]).
+    * simpl. right. left. reflexivity.
+    * reflexivity.
+    * split; [reflexivity |].
+      constructor; [| exact Hargs].
+      eapply expr.interp_fun with (args' := [VZ 0]).
+      -- constructor; [| constructor].
+         eapply expr.interp_fun with (args' := []); [constructor | reflexivity].
+      -- reflexivity.
+    * constructor; [| constructor].
+      split; [reflexivity |].
+      constructor; [| constructor].
+      eapply expr.interp_fun with (args' := [Vbool false]).
+      -- constructor; [eapply expr.interp_subst_more; [exact Hext | exact Hg] | constructor].
+      -- reflexivity.
+    * constructor; [| constructor].
+      unfold inp_holds; simpl; reflexivity.
+  - intros m0 idxs0' Hlz Hmap Hrev Hlen Hcompl.
+    simpl in Hlz.
+    unfold complete_at.
+    intros idxs val Hidxs.
+    cbn [lower_pATLexpr'].
+    simpl. 
+    
+
 Admitted.
 End __.
