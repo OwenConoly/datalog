@@ -399,10 +399,9 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
     LetIn (lower_pATLexpr' x idxs true_rel) (fun val =>
       lower_pATLexpr' (f (val, (idxs))) idxs true_rel)
   | Concat n e1 e2 =>
-  (* using n instead of size of e1 here because e1 no longer has a size*)
-      let dimvars := seq O (length (get_block_size e1) - 1) in
-      let dimvarO := length (get_block_size e1) - 1 in
-      let x := length (get_block_size e1) in
+      let dimvarO := idxs in
+      let dimvars := seq (S idxs) n in
+      let x := idxs + S n in
       let out := O in
       let len1 := Z.of_nat match get_block_size e1 with
                     | [] => 0
@@ -421,7 +420,9 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                               {| clause.rel := block_rel.input true_rel; clause.args := [expr.app fn_Lt [expr.var dimvarO; expr.app (fn_Lit len1) []]] |}];
                            rule.impl
                              [{| clause.rel := block_rel.local out; clause.args := expr.var x :: map expr.var (seq 0 idxs) ++ map expr.var (dimvarO :: dimvars) |}]
-                             [{| clause.rel := block_rel.input val2; clause.args := expr.var x :: map expr.var (seq 0 idxs) ++ expr.app fn_Add [] :: map expr.var dimvars |};
+                             [{| clause.rel := block_rel.input val2; clause.args := expr.var x :: map expr.var (seq 0 idxs) ++
+                                                                expr.app fn_Sub [expr.var dimvarO; expr.app (fn_Lit len1) []] ::
+                                                                map expr.var dimvars |};
                               {| clause.rel := block_rel.input true_rel; clause.args := [expr.app fn_Le [expr.app (fn_Lit len1) []; expr.var dimvarO]] |}]];
                         program.meta_rules := [];
                       |}))
@@ -947,60 +948,63 @@ Inductive wf_pSexpr' {var1 var2} : list (ctx_elt2 var1 var2) -> pATL_Sexpr' var1
 | wf_SLit ctx z :
      wf_pSexpr' ctx (SLit z) (SLit z).
 
-Inductive wf_pATL_expr' {var1 var2} : list (ctx_elt2 var1 var2) -> forall n, pATLexpr' var1 n -> pATLexpr' var2 n -> Prop :=
+Inductive wf_pATL_expr' {var1 var2}
+  (szok : forall n, pATLexpr' var1 (S n) -> pATLexpr' var2 (S n) -> Prop)
+  : list (ctx_elt2 var1 var2) -> forall n, pATLexpr' var1 n -> pATLexpr' var2 n -> Prop :=
 | wf_Gen ctx n lo1 lo2 hi1 hi2 body1 body2 :
   let pZexpr_ctx := (zctx ctx) in
   wf_pZexpr' pZexpr_ctx lo1 lo2 ->
   wf_pZexpr' pZexpr_ctx hi1 hi2 ->
-  (forall x1 x2, wf_pATL_expr' ({| ctx_elt_t := tZ; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) n (body1 x1) (body2 x2)) ->
-  wf_pATL_expr' ctx (S n) (Gen n lo1 hi1 body1) (Gen n lo2 hi2 body2)
+  (forall x1 x2, wf_pATL_expr' szok ({| ctx_elt_t := tZ; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) n (body1 x1) (body2 x2)) ->
+  wf_pATL_expr' szok ctx (S n) (Gen n lo1 hi1 body1) (Gen n lo2 hi2 body2)
 | wf_Sum ctx n lo1 lo2 hi1 hi2 body1 body2 :
   let pZexpr_ctx := (zctx ctx) in
   wf_pZexpr' pZexpr_ctx lo1 lo2 ->
   wf_pZexpr' pZexpr_ctx hi1 hi2 ->
-  (forall x1 x2, wf_pATL_expr' ({| ctx_elt_t := tZ; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) n (body1 x1) (body2 x2)) ->
-  wf_pATL_expr' ctx n (Sum n lo1 hi1 body1) (Sum n lo2 hi2 body2)
+  (forall x1 x2, wf_pATL_expr' szok ({| ctx_elt_t := tZ; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) n (body1 x1) (body2 x2)) ->
+  wf_pATL_expr' szok ctx n (Sum n lo1 hi1 body1) (Sum n lo2 hi2 body2)
 | wf_Guard ctx n b1 b2 body1 body2 :
   wf_pBexpr' ctx b1 b2 ->
-  wf_pATL_expr' ctx n body1 body2 ->
-  wf_pATL_expr' ctx n (Guard n b1 body1) (Guard n b2 body2)
+  wf_pATL_expr' szok ctx n body1 body2 ->
+  wf_pATL_expr' szok ctx n (Guard n b1 body1) (Guard n b2 body2)
 | wf_Lbind ctx n m val1 val2 body1 body2 :
-  wf_pATL_expr' ctx n val1 val2 ->
-  (forall x1 x2, wf_pATL_expr' ({| ctx_elt_t := tensor_n n; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) m (body1 x1) (body2 x2)) ->
-  wf_pATL_expr' ctx m (Lbind n m val1 body1) (Lbind n m val2 body2)
+  wf_pATL_expr' szok ctx n val1 val2 ->
+  (forall x1 x2, wf_pATL_expr' szok ({| ctx_elt_t := tensor_n n; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) m (body1 x1) (body2 x2)) ->
+  wf_pATL_expr' szok ctx m (Lbind n m val1 body1) (Lbind n m val2 body2)
 | wf_Concat ctx n x1 x2 y1 y2 :
-  wf_pATL_expr' ctx (S n) x1 x2 ->
-  wf_pATL_expr' ctx (S n) y1 y2 ->
-  wf_pATL_expr' ctx (S n) (Concat n x1 y1) (Concat n x2 y2)
+  wf_pATL_expr' szok ctx (S n) x1 x2 ->
+    wf_pATL_expr' szok ctx (S n) y1 y2 ->
+    szok n x1 x2 ->
+    wf_pATL_expr' szok ctx (S n) (Concat n x1 y1) (Concat n x2 y2)
 | wf_Flatten ctx n expr1 expr2 :
-  wf_pATL_expr' ctx (S (S n)) expr1 expr2 ->
-  wf_pATL_expr' ctx (S n) (Flatten n expr1) (Flatten n expr2)
+  wf_pATL_expr' szok ctx (S (S n)) expr1 expr2 ->
+  wf_pATL_expr' szok ctx (S n) (Flatten n expr1) (Flatten n expr2)
 | wf_Split ctx n k1 k2 e1 e2 :
   wf_pZexpr' (zctx ctx) k1 k2 ->
-  wf_pATL_expr' ctx (S n) e1 e2 ->
-  wf_pATL_expr' ctx (S (S n)) (Split n k1 e1) (Split n k2 e2)
+  wf_pATL_expr' szok ctx (S n) e1 e2 ->
+  wf_pATL_expr' szok ctx (S (S n)) (Split n k1 e1) (Split n k2 e2)
 | wf_Transpose ctx n e1 e2 :
-  wf_pATL_expr' ctx (S (S n)) e1 e2 ->
-  wf_pATL_expr' ctx (S (S n)) (Transpose n e1) (Transpose n e2)
+  wf_pATL_expr' szok ctx (S (S n)) e1 e2 ->
+  wf_pATL_expr' szok ctx (S (S n)) (Transpose n e1) (Transpose n e2)
 | wf_Truncr ctx n z1 z2 e1 e2 :
   wf_pZexpr' (zctx ctx) z1 z2 ->
-  wf_pATL_expr' ctx (S n) e1 e2 ->
-  wf_pATL_expr' ctx (S n) (Truncr n z1 e1) (Truncr n z2 e2)
+  wf_pATL_expr' szok ctx (S n) e1 e2 ->
+  wf_pATL_expr' szok ctx (S n) (Truncr n z1 e1) (Truncr n z2 e2)
 | wf_Truncl ctx n z1 z2 e1 e2 :
   wf_pZexpr' (zctx ctx) z1 z2 ->
-  wf_pATL_expr' ctx (S n) e1 e2 ->
-  wf_pATL_expr' ctx (S n) (Truncl n z1 e1) (Truncl n z2 e2)
+  wf_pATL_expr' szok ctx (S n) e1 e2 ->
+  wf_pATL_expr' szok ctx (S n) (Truncl n z1 e1) (Truncl n z2 e2)
 | wf_Padr ctx n z1 z2 e1 e2 :
   wf_pZexpr' (zctx ctx) z1 z2 ->
-  wf_pATL_expr' ctx (S n) e1 e2 ->
-  wf_pATL_expr' ctx (S n) (Padr z1 e1) (Padr z2 e2)
+  wf_pATL_expr' szok ctx (S n) e1 e2 ->
+  wf_pATL_expr' szok ctx (S n) (Padr z1 e1) (Padr z2 e2)
 | wf_Padl ctx n z1 z2 e1 e2 :
   wf_pZexpr' (zctx ctx) z1 z2 ->
-  wf_pATL_expr' ctx (S n) e1 e2 ->
-  wf_pATL_expr' ctx (S n) (Padl z1 e1) (Padl z2 e2)
+  wf_pATL_expr' szok ctx (S n) e1 e2 ->
+  wf_pATL_expr' szok ctx (S n) (Padl z1 e1) (Padl z2 e2)
 | wf_Scalar ctx s1 s2 :
   wf_pSexpr' ctx s1 s2 ->
-  wf_pATL_expr' ctx 0 (Scalar s1) (Scalar s2)
+  wf_pATL_expr' szok ctx 0 (Scalar s1) (Scalar s2)
 .
 
 Variant value : Type :=
@@ -1520,25 +1524,56 @@ Qed.
 
 (* the substitution for both rules, stated with an exists so you never
    have to match a let-expression *)
-Lemma guard_subst_ok (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
+Lemma block_subst_ok (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
     m idxs0' (idxs : list Z) n (v : value) :
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) (seq 0 m) idxs0' ->
   map fst (zctx ctx) = rev (seq 0 m) ->
   Datatypes.length idxs = n ->
   exists s : context,
-    Forall2 (expr.interp s) (map expr.var (seq 0 m) ++ map expr.var (seq m n))
-            (idxs0' ++ map VZ idxs) /\
+    Forall2 (expr.interp s) (map expr.var (seq 0 m)) idxs0' /\
+    Forall2 (expr.interp s) (map expr.var (seq m n)) (map VZ idxs) /\
     map.get s (m + n) = Some v /\
     map.extends s (context_of ctx).
 Proof.
 Admitted.
+
+Definition ctx_depth (c : ctx_elt2 (var_of result) interp_type_tagged) : nat :=
+  match c with
+  | {| ctx_elt_t := t; ctx_elt_p1 := p |} =>
+      match t return var_of result t -> nat with
+      | tensor_n _ => fun p => snd p
+      | _ => fun _ => 0
+      end p
+  end.
+
+Definition entry_complete (idxs0' : list value)
+  (c : ctx_elt2 (var_of result) interp_type_tagged) : Prop :=
+match c with
+| {| ctx_elt_t := t; ctx_elt_p1 := p; ctx_elt_p2 := tv |} =>
+    match t return var_of result t -> interp_type_tagged t -> Prop with
+    | tensor_n k => fun p tv => complete_at (fst p) (firstn (snd p) idxs0') tv
+    | _ => fun _ _ => True
+    end p tv
+end.
+
+Definition concat_size_ok n (x1 : pATLexpr' (var_of result) (S n))
+                            (x2 : pATLexpr' interp_type_tagged (S n)) : Prop :=
+  match get_block_size x1 with [] => 0 | k :: _ => k end
+  = Datatypes.length (interp_pATLexpr' x2).
+
+Lemma get_R_opt_concat {n} (x y : dim_n (S n)) (i : Z) (rest : list Z) (v : R) :
+  get_R_opt (n := S n) (x <++> y) (i :: rest) = Some v ->
+  ((i < Z.of_nat (Datatypes.length x))%Z /\ get_R_opt x (i :: rest) = Some v) \/
+  ((Z.of_nat (Datatypes.length x) <= i)%Z /\
+   get_R_opt y ((i - Z.of_nat (Datatypes.length x))%Z :: rest) = Some v).
+Admitted. 
 
 Lemma lower_pATLexpr'_works n
     (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
     (e : pATLexpr' (var_of result) n) (e' : pATLexpr' interp_type_tagged n)
     (m : nat) (idxs0' : list value) :
   lo_zero e' ->
-  wf_pATL_expr' ctx n e e' ->
+  wf_pATL_expr' concat_size_ok ctx n e e' ->
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) (seq 0 m) idxs0' ->
   (* Permutation (map fst (zctx ctx)) (seq 0 m) -> *)
   map fst (zctx ctx) = rev (seq 0 m) -> (* new hperm *)
@@ -1587,8 +1622,8 @@ Proof.
   + (* guard true: rule 1 *)
     rewrite true_iverson in Hget.
     pose proof (IHHwf m idxs0' Hlz Hmap Hrev Hlen Hcompl idxs val Hget) as Hbody.
-    destruct (guard_subst_ok ctx m idxs0' idxs n (VR val) Hmap Hrev Hd)
-      as (s & Hargs & Hx & Hext).
+    destruct (block_subst_ok ctx m idxs0' idxs n (VR val) Hmap Hrev Hd)
+      as (s & Hout & Hdim & Hx & Hext).
     eapply (block_rule_fires 0 _ _ _ s
       {| normal_fact.rel := block_rel.local 0;
          normal_fact.args := VR val :: idxs0' ++ map VZ idxs |}
@@ -1599,18 +1634,18 @@ Proof.
     * simpl. left. reflexivity.
     * reflexivity.
     * split; [reflexivity |].
-      constructor; [apply expr.interp_var; exact Hx | exact Hargs].
+    constructor; [apply expr.interp_var; exact Hx | apply Forall2_app; [exact Hout | exact Hdim]].
     * constructor; [| constructor; [| constructor]].
-      -- split; [reflexivity |].
-         constructor; [apply expr.interp_var; exact Hx | exact Hargs].
-      -- split; [reflexivity |].
-         constructor; [eapply expr.interp_subst_more; [exact Hext | exact Hg] | constructor].
+      { split; [reflexivity |].
+         constructor; [apply expr.interp_var; exact Hx | apply Forall2_app; [exact Hout | exact Hdim]]. }
+      { split; [reflexivity |].
+         constructor; [eapply expr.interp_subst_more; [exact Hext | exact Hg] | constructor]. }
     * constructor; [| constructor; [| constructor]];
         unfold inp_holds; simpl; [exact Hbody | reflexivity].
   + (* guard false: rule 2 *)
     apply get_R_opt_iverson_false in Hget. subst val.
-    destruct (guard_subst_ok ctx m idxs0' idxs n (VR 0%R) Hmap Hrev Hd)
-      as (s & Hargs & _ & Hext).
+    destruct (block_subst_ok ctx m idxs0' idxs n (VR 0%R) Hmap Hrev Hd)
+      as (s & Hout & Hdim & _ & Hext).
     eapply (block_rule_fires 0 _ _ _ s
       {| normal_fact.rel := block_rel.local 0;
          normal_fact.args := VR 0%R :: idxs0' ++ map VZ idxs |}
@@ -1619,7 +1654,7 @@ Proof.
     * simpl. right. left. reflexivity.
     * reflexivity.
     * split; [reflexivity |].
-      constructor; [| exact Hargs].
+      constructor; [| apply Forall2_app; [exact Hout | exact Hdim]].
       eapply expr.interp_fun with (args' := [VZ 0]).
       -- constructor; [| constructor].
          eapply expr.interp_fun with (args' := []); [constructor | reflexivity].
@@ -1637,7 +1672,102 @@ Proof.
     unfold complete_at.
     intros idxs val Hidxs.
     cbn [lower_pATLexpr'].
-    simpl. 
+    simpl. destruct Hlz as [Hlz1 Hlz2].
+    cbn [interp_pATLexpr'] in Hidxs.
+    assert (Hl0 : Datatypes.length idxs0' = m0).
+    { apply Forall2_length in Hmap. rewrite length_seq in Hmap. lia. }
+    pose proof (IHHwf m0 idxs0' Hlz1 Hmap Hrev Hlen Hcompl) as IHv.
+    set (P := interp (lower_pATLexpr' val1 m0 true_rel)) in *.
+    apply (H0 (P, m0) (interp_pATLexpr' val2) m0 idxs0' (Hlz2 _)); try assumption.
+    + (* depth for ext :: ctx *)
+      intros k P' depth tv' [Hin | Hin]; [| exact (Hlen _ _ _ _ Hin)].
+      apply (f_equal ctx_depth) in Hin. simpl in Hin. lia.
+    + (* completeness for ext :: ctx *)
+      intros k P' depth tv' [Hin | Hin]; [| exact (Hcompl _ _ _ _ Hin)].
+      change (entry_complete idxs0'
+          {| ctx_elt_t := tensor_n k; ctx_elt_p1 := (P', depth); ctx_elt_p2 := tv' |}).
+      rewrite <- Hin.
+      simpl.
+      rewrite firstn_all2 by lia.
+      exact IHv.
+  - (* concat: a little long since claude wrote it ... *)
+    intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
+    simpl in Hlz. destruct Hlz as [Hlx Hly].
+    pose proof (IHHwf1 m idxs0' Hlx Hmap Hrev Hlen Hcompl) as IHx.
+    pose proof (IHHwf2 m idxs0' Hly Hmap Hrev Hlen Hcompl) as IHy.
+    unfold concat_size_ok in H.            (* the size hypothesis from wf_Concat *)
+    unfold complete_at. intros idxs val Hget.
+    cbn [interp_pATLexpr'] in Hget.
+    pose proof (get_R_opt_length _ _ _ Hget) as Hd.          (* length idxs = S n *)
+    destruct idxs as [| i rest]; [discriminate |].
+    simpl in Hd. injection Hd as Hd.                          (* length rest = n *)
+    destruct (block_subst_ok ctx m idxs0' (i :: rest) (S n) (VR val) Hmap Hrev
+                ltac:(simpl; lia))
+      as (s & Hout & Hdim & Hx & Hext).
+    simpl in Hdim. inversion Hdim as [| ? ? ? ? Hi Hrestd]; subst.   (* split off index i *)
+    cbn [lower_pATLexpr']. rewrite !interp_LetIn. cbv beta.
+    set (len1 := Z.of_nat match get_block_size x1 with [] => 0 | k :: _ => k end).
+    assert (Hlen1 : len1 = Z.of_nat (Datatypes.length (interp_pATLexpr' x2)))
+      by (unfold len1; rewrite H; reflexivity).
+    destruct (get_R_opt_concat _ _ _ _ _ Hget) as [[Hlt Hgx] | [Hge Hgy]].
+    + (* from x: rule 1 *)
+      pose proof (IHx (i :: rest) val Hgx) as Hfact.
+      eapply (block_rule_fires 0 _ _ _ s
+        {| normal_fact.rel := block_rel.local 0;
+          normal_fact.args := VR val :: idxs0' ++ map VZ (i :: rest) |}
+        [ {| normal_fact.rel := block_rel.input (interp (lower_pATLexpr' x1 m true_rel));
+            normal_fact.args := VR val :: idxs0' ++ map VZ (i :: rest) |};
+          {| normal_fact.rel := block_rel.input true_rel;
+            normal_fact.args := [Vbool true] |} ]).
+      * simpl. left. reflexivity.
+      * reflexivity.
+      * split; [reflexivity |].
+        constructor; [apply expr.interp_var; exact Hx |].
+        apply Forall2_app; [exact Hout | constructor; assumption].
+      * constructor; [| constructor; [| constructor]].
+        -- split; [reflexivity |].
+          constructor; [apply expr.interp_var; exact Hx |].
+          apply Forall2_app; [exact Hout | constructor; assumption].
+        -- split; [reflexivity |]. constructor; [| constructor].
+          eapply expr.interp_fun with (args' := [VZ i; VZ len1]).
+          ++ constructor; [exact Hi | constructor; [| constructor]].
+              eapply expr.interp_fun with (args' := []); [constructor | reflexivity].
+          ++ simpl. rewrite Hlen1. f_equal. f_equal.
+              apply Z.ltb_lt. exact Hlt.
+      * constructor; [| constructor; [| constructor]];
+          unfold inp_holds; simpl; [exact Hfact | reflexivity].
+    + (* from y: rule 2 *)
+      pose proof (IHy _ val Hgy) as Hfact.
+      eapply (block_rule_fires 0 _ _ _ s
+        {| normal_fact.rel := block_rel.local 0;
+          normal_fact.args := VR val :: idxs0' ++ map VZ (i :: rest) |}
+        [ {| normal_fact.rel := block_rel.input (interp (lower_pATLexpr' y1 m true_rel));
+            normal_fact.args := VR val :: idxs0' ++
+                                map VZ ((i - Z.of_nat (Datatypes.length (interp_pATLexpr' x2)))%Z :: rest) |};
+          {| normal_fact.rel := block_rel.input true_rel;
+            normal_fact.args := [Vbool true] |} ]).
+      * simpl. right. left. reflexivity.
+      * reflexivity.
+      * split; [reflexivity |].
+        constructor; [apply expr.interp_var; exact Hx |].
+        apply Forall2_app; [exact Hout | constructor; assumption].
+      * constructor; [| constructor; [| constructor]].
+        -- split; [reflexivity |].
+          constructor; [apply expr.interp_var; exact Hx |].
+          apply Forall2_app; [exact Hout |]. simpl. constructor; [| assumption].
+          eapply expr.interp_fun with (args' := [VZ i; VZ len1]).
+          ++ constructor; [exact Hi | constructor; [| constructor]].
+              eapply expr.interp_fun with (args' := []); [constructor | reflexivity].
+          ++ simpl. rewrite Hlen1. reflexivity.
+        -- split; [reflexivity |]. constructor; [| constructor].
+          eapply expr.interp_fun with (args' := [VZ len1; VZ i]).
+          ++ constructor; [| constructor; [exact Hi | constructor]].
+              eapply expr.interp_fun with (args' := []); [constructor | reflexivity].
+          ++ simpl. rewrite Hlen1. f_equal. f_equal.
+              apply Z.leb_le. exact Hge.
+      * constructor; [| constructor; [| constructor]];
+          unfold inp_holds; simpl; [exact Hfact | reflexivity].
+  - (* Flatten *)
     
 
 Admitted.
