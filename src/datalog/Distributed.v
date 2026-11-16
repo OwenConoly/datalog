@@ -89,12 +89,6 @@ Section Distributed.
     exists cnt, In (message.done_with pat n cnt) fs /\
       Existsn_ge (message.matches pat) cnt fs.
 
-  Definition allowed_output (n : source) (fs : list message) : Prop :=
-    (forall pat src cnt,
-       In (message.done_with pat src cnt) fs ->
-       n = src /\ Existsn_le (message.matches pat) cnt fs) /\
-    (forall nf, In (message.normal nf) fs -> In n (R_senders nf.(normal_fact.rel))).
-
   Lemma claim_output_mono pat n ms1 ms2 :
     claim_output pat n ms1 -> incl_mod message.equiv ms1 ms2 -> claim_output pat n ms2.
   Proof.
@@ -109,16 +103,10 @@ Section Distributed.
     intros. especialize H1; eauto. fwd. eauto 6.
   Qed.
 
-  Lemma allowed_output_submultiset n : multiset_monotone_dec (allowed_output n).
-  Proof.
-    cbv [multiset_monotone_dec allowed_output]. intros ? ? H1 H2. fwd.
-    split; eauto. intros. especialize H1p0; eauto. fwd. eauto.
-  Qed.
-
   Context {node_map : map.map source (list message)} {node_map_ok : map.ok node_map}.
 
   Lemma meta_locate pat (partition : node_map) n cnt :
-    Forall_map allowed_output partition ->
+    Forall_map (node.safe_output R_senders) partition ->
     In (message.done_with pat n cnt) (concat (values partition)) ->
     exists ms, map.get partition n = Some ms /\ In (message.done_with pat n cnt) ms /\
                  Existsn_le (message.matches pat) cnt ms.
@@ -128,7 +116,7 @@ Section Distributed.
   Qed.
 
   Lemma no_R_matches_off_senders pat (partition : node_map) n ms :
-    Forall_map allowed_output partition ->
+    Forall_map (node.safe_output R_senders) partition ->
     map.get partition n = Some ms -> ~ In n (R_senders pat.(fact_pattern.rel)) ->
     Forall (fun f => ~ message.matches pat f) ms.
   Proof.
@@ -154,7 +142,7 @@ Section Distributed.
   Qed.
 
   Lemma senders_in_keys pat ems (partition : node_map) :
-    Forall_map allowed_output partition ->
+    Forall_map (node.safe_output R_senders) partition ->
     Forall2 (fun k e => In (message.done_with pat k e) (concat (values partition)))
             (R_senders pat.(fact_pattern.rel)) ems ->
     incl (R_senders pat.(fact_pattern.rel)) (map.keys partition).
@@ -165,7 +153,7 @@ Section Distributed.
 
   (*each node's sent multiset stays within the count the claim assigns it*)
   Lemma counts_bound pat ems (partition : node_map) k ms :
-    Forall_map allowed_output partition ->
+    Forall_map (node.safe_output R_senders) partition ->
     Forall2 (fun k e => In (message.done_with pat k e) (concat (values partition)))
             (R_senders pat.(fact_pattern.rel)) ems ->
     map.get partition k = Some ms ->
@@ -180,7 +168,7 @@ Section Distributed.
   Qed.
 
   Lemma allowed_of_outputs (partition : node_map) :
-    Forall_map allowed_output partition -> nallowed (concat (values partition)).
+    Forall_map (node.safe_output R_senders) partition -> nallowed (concat (values partition)).
   Proof.
     intros HF pat ems Hems.
     erewrite <- sum_count_at by eauto using Forall2_length, senders_in_keys.
@@ -188,7 +176,7 @@ Section Distributed.
   Qed.
 
   Lemma consistent_good_holds :
-    consistent_good claim claim_output consistent_output allowed_output consistent.
+    consistent_good claim claim_output consistent_output (node.safe_output R_senders) consistent.
   Proof.
     intros pat partition Hallow Hclaim. cbv [node.claim] in Hclaim. split.
     - intros n ms Hget Hn. specialize (Hclaim _ Hn). fwd.
@@ -261,14 +249,14 @@ Section Distributed.
   Lemma node_outputs_well_formed k p :
     map.get graph_prog k = Some p ->
     outputs_well_formed (node.step R_senders p (node_source k))
-      (good_node_output forward claim_output consistent_output allowed_output k) node.init.
+      (good_node_output forward claim_output consistent_output (node.safe_output R_senders) k) node.init.
   Proof.
     intros Hget t s Hstar dest. set (name := node_source k) in *.
     pose proof (node.sent_eq_outputs _ _ _ _ _ Hstar) as Hso.
     pose proof (node.sent_source_correct _ _ _ _ _ Hstar) as Hsrc.
     pose proof (node.sent_counts_correct _ _ _ _ _ Hstar) as Hcnt.
     rewrite <- Hso. split.
-    - cbv [allowed_output]. split.
+    - cbv [node.safe_output]. split.
       + intros pat src cnt Hin. apply filter_In in Hin. destruct Hin as (Hin_sent & _).
         specialize (Hsrc _ _ _ Hin_sent). subst. split; [reflexivity|].
         apply Existsn_le_filter. eapply Existsn_le_of_Existsn; [eauto | lia].
@@ -285,7 +273,7 @@ Section Distributed.
   Qed.
 
   Lemma nodes_good_holds :
-    Forall_map (node_good forward message.equiv claim claim_output consistent_output allowed_output
+    Forall_map (node_good forward message.equiv claim claim_output consistent_output (node.safe_output R_senders)
                   consistent nallowed nstep) initial_graph_state.(graph_nodes).
   Proof.
     intros k v Hkv. apply initial_graph_state_get in Hkv. fwd.
@@ -299,7 +287,7 @@ Section Distributed.
 
   Theorem distributed_might_implies_will :
     might_implies_will_equiv distributed_step message.equiv
-      (graph_inputs_allowed forward allowed_output) initial_graph_state.
+      (graph_inputs_allowed forward (node.safe_output R_senders)) initial_graph_state.
   Proof.
     intros.
     pose proof initial_graph_state_empty as Hemp.
@@ -313,7 +301,7 @@ Section Distributed.
     - exact consistent_output_mono.
     - exact consistent_good_holds.
     - exact nallowed_multiset_monotone.
-    - exact allowed_output_submultiset.
+    - exact (node.safe_output_mono R_senders).
     - exact allowed_of_outputs.
     - exact nstep_input_total.
     - exact nodes_good_holds.
