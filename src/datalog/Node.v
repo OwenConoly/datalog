@@ -239,7 +239,11 @@ Section __.
       (forall nf, In (message.normal nf) fs -> In name (R_senders nf.(normal_fact.rel))).
 
   Lemma safe_output_mono : multiset_monotone_dec safe_output.
-  Proof. Admitted.
+  Proof.
+    cbv [multiset_monotone_dec safe_output]. intros ? ? H1 H2. fwd.
+    split; eauto using submultiset_incl, incl_def.
+    intros. especialize H1p0; eauto using submultiset_incl, incl_def. fwd. eauto using Existsn_le_submultiset.
+  Qed.
 
   Lemma safe_output_nothing : safe_output [].
   Proof. Admitted.
