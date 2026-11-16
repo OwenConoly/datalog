@@ -432,14 +432,13 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                       |}))
   | Flatten n e =>
   (* using n instead of e here because you can't get length from e anymore *)
-    let dimvars := (seq O (length (block_size true_rel e) - 2)) in
-      let dimvarO := (length (block_size true_rel e) - 2) in
-      let x := (length (block_size true_rel e) - 1) in
-      (* same as x but i feel like the match statement doesn't work here *)
-      let len2 := Z.of_nat match block_size true_rel e with
-                    | _ :: di :: _ => di
-                    | _ => 0
-                    end in
+    let dimvarO := idxs in               (* the flattened index *)
+    let dimvars := seq (S idxs) n in     (* the remaining n indices *)
+    let x := idxs + S n in               (* value variable *)
+    let len2 := Z.of_nat match block_size true_rel e with
+                  | _ :: b :: _ => b
+                  | _ => 0
+                  end in
       (* out is probably redundant here but it's just to show that there needs to be some number for the clause.rel of the rule *)
       let out := O in
       LetIn (lower_pATLexpr' e idxs true_rel)
@@ -465,11 +464,11 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                                             map expr.var dimvars |}]];
                    program.meta_rules := [];
                  |})
-        | Split n k e =>
-    let dimvars := (seq O (length (block_size true_rel e) - 1)) in
-    let dimvar1 := (length (block_size true_rel e) - 1) in
-    let dimvar2 := length (block_size true_rel e) in
-    let x := (S (length (block_size true_rel e))) in
+    | Split n k e =>
+    let dimvar1 := idxs in                (* row *)
+    let dimvar2 := S idxs in              (* column *)
+    let dimvars := seq (S (S idxs)) n in  (* remaining indices *)
+    let x := idxs + S (S n) in            (* value variable *)
     let k' := Z.of_nat (Z.to_nat (
       match eval_pZexpr'_total k with
       | Some kz => kz
@@ -508,7 +507,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                         {| clause.rel := block_rel.input true_rel; clause.args := [bound_check] |} ];
                     rule.impl
                       [{| clause.rel := block_rel.local out;
-                         clause.args := expr.app (fn_Lit 0) [] ::
+                         clause.args := expr.app fn_IZR [expr.app (fn_Lit 0) []] ::
                                           map expr.var (seq 0 idxs) ++
                                           expr.app (fn_Lit (len / k')) [] ::
                                           expr.var dimvar1 ::
@@ -1426,7 +1425,19 @@ match e with
     | [] => 0
     | k :: _ => k
     end = Datatypes.length (interp_pATLexpr' x)
-| Flatten _ e1 | Split _ _ e1 | Transpose _ e1
+| Flatten _ e1 => lo_zero e1 /\
+    let b := match get_block_size (itervarZ 0%Z) dummy_tensor e1 with
+             | _ :: b :: _ => b
+             | _ => 0
+             end in
+    0 < b /\ Forall (fun row => Datatypes.length row = b) (interp_pATLexpr' e1)
+| Split n k e1 => lo_zero e1 /\
+    eval_pZexpr'_total k = Some (interp_pZexpr' k) /\
+    (0 < interp_pZexpr' k)%Z /\
+    match get_block_size (itervarZ 0%Z) dummy_tensor e1 with
+    | d :: _ => d | [] => 0
+    end = Datatypes.length (interp_pATLexpr' e1)
+| Transpose _ e1
 | Truncr _ _ e1 | Truncl _ _ e1 | Padr _ e1 | Padl _ e1 => lo_zero e1
 | Scalar _ => True
 end.
@@ -1574,6 +1585,23 @@ Lemma get_block_size_wf ctx n (e : pATLexpr' (var_of result) n)
   wf_pATL_expr' ctx n e e' ->
   get_block_size 0 (fun _ => (true_rel, 0)) e = get_block_size (itervarZ 0%Z) dummy_tensor e'.
 Admitted.
+
+Locate flatten.
+Lemma get_R_opt_flatten {n} (t : dim_n (S (S n))) (b : nat) k rest v :
+  0 < b ->
+  Forall (fun row => Datatypes.length row = b) t ->
+  get_R_opt (n := S n) (Common.flatten t) (k :: rest) = Some v ->
+  get_R_opt t ((k / Z.of_nat b)%Z :: (k mod Z.of_nat b)%Z :: rest) = Some v.
+Admitted.
+
+Locate split.
+Search Map.M.split.
+Lemma get_R_opt_split {n} (kz : Z) (t : dim_n (S n)) (i j : Z) (rest : list Z) (v : R) :
+  (0 < kz)%Z ->
+  get_R_opt (n := S (S n)) (Map.M.split kz t) (i :: j :: rest) = Some v ->
+  let len := Z.of_nat (Datatypes.length t) in
+  ((i * kz + j < len)%Z /\ get_R_opt t ((i * kz + j)%Z :: rest) = Some v) \/
+  ((len <= i * kz + j)%Z /\ v = 0%R /\ i = (len / kz)%Z /\ (len mod kz <= j)%Z).
 
 Lemma lower_pATLexpr'_works n
     (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
@@ -1776,9 +1804,59 @@ Proof.
       * constructor; [| constructor; [| constructor]];
           unfold inp_holds; simpl; [exact Hfact | reflexivity].
   - (* Flatten *)
-    intros m idxs0' Hlz Hget Hrev Hdepth Hctx Hcompl.
-    intros val HgetR. 
-
+    intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
+    simpl in Hlz. destruct Hlz as (Hlz & Hb & Hrows).
+    pose proof (IHHwf m idxs0' Hlz Hmap Hrev Hlen Hcompl) as IHe.
+    set (b := match get_block_size (itervarZ 0%Z) dummy_tensor expr2 with
+              | _ :: b :: _ => b | _ => 0 end) in *.
+    assert (Hlen2 :
+      Z.of_nat (match block_size true_rel expr1 with _ :: b :: _ => b | _ => 0 end)
+      = Z.of_nat b).
+    { unfold block_size. rewrite (get_block_size_wf _ _ _ _ Hwf). reflexivity. }
+    unfold complete_at. intros idxs val Hget.
+    cbn [interp_pATLexpr'] in Hget.
+    pose proof (get_R_opt_length _ _ _ Hget) as Hd.
+    destruct idxs as [| k rest]; [discriminate |].
+    simpl in Hd. injection Hd as Hd.
+    pose proof (get_R_opt_flatten _ _ _ _ _ Hb Hrows Hget) as Hget'.
+    pose proof (IHe _ val Hget') as Hfact.
+    destruct (block_subst_ok ctx m idxs0' (k :: rest) (S n) (VR val) Hmap Hrev
+                ltac:(simpl; lia))
+      as (s & Hout & Hdim & Hx & Hext).
+    simpl in Hdim. inversion Hdim as [| ? ? ? ? Hk Hrestd]; subst.
+    cbn [lower_pATLexpr']. rewrite interp_LetIn. cbv beta.
+    rewrite Hlen2.
+    eapply (block_rule_fires 0 _ _ _ s
+      {| normal_fact.rel := block_rel.local 0;
+        normal_fact.args := VR val :: idxs0' ++ map VZ (k :: rest) |}
+      [ {| normal_fact.rel := block_rel.input (interp (lower_pATLexpr' expr1 m true_rel));
+          normal_fact.args := VR val :: idxs0' ++
+            map VZ ((k / Z.of_nat b)%Z :: (k mod Z.of_nat b)%Z :: rest) |} ]).
+    + simpl. left. reflexivity.
+    + reflexivity.
+    + split; [reflexivity |].
+      constructor; [apply expr.interp_var; exact Hx |].
+      apply Forall2_app; [exact Hout | constructor; assumption].
+    + constructor; [| constructor].
+      split; [reflexivity |].
+      constructor; [apply expr.interp_var; exact Hx |].
+      apply Forall2_app; [exact Hout |]. simpl.
+      constructor; [| constructor; [| assumption]].
+      * eapply expr.interp_fun with (args' := [VZ k; VZ (Z.of_nat b)]);
+          [constructor; [exact Hk | constructor; [| constructor]] | reflexivity].
+        eapply expr.interp_fun with (args' := []); [constructor | reflexivity].
+      * eapply expr.interp_fun with (args' := [VZ k; VZ (Z.of_nat b)]);
+          [constructor; [exact Hk | constructor; [| constructor]] | reflexivity].
+        eapply expr.interp_fun with (args' := []); [constructor | reflexivity].
+    + constructor; [| constructor].
+      unfold inp_holds; simpl. exact Hfact.
+  - (* Split *)
+    intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
+    simpl in Hlz. 
+    pose proof (IHHwf m idxs0' Hlz Hmap Hrev Hlen Hcompl) as IHe.
+    unfold complete_at. intros idxs val Hidxs.
+    
 
 Admitted.
+Print result.normal.
 End __.
