@@ -1,13 +1,13 @@
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 From coqutil Require Import Eqb Tactics Tactics.fwd.
 From Stdlib Require Import List Permutation Relations.
-From Datalog Require Import Smallstep Fin Function List Relations Eqb Tactics.
+From Datalog Require Import Smallstep FinTypeclass Function List Relations Eqb Tactics.
 From Datalog Require Import MessagelessSmallstep.
 Import ListNotations.
 
 Section __.
-  Context (message label : Type) (num_nodes : nat).
-  Abbreviation node := (fin num_nodes).
+  Context (message label node : Type).
+  Context {node_eqb : Eqb node} {node_eqb_ok : Eqb_ok node_eqb} {node_fin : Fin.Fin node}.
   Context (forward : node -> node -> message -> bool) (node_state : Type).
   Context (node_step : node -> node_state -> IO_event label message -> node_state -> Prop).
   Abbreviation nevent := (IO_event label message).
@@ -21,7 +21,7 @@ Section __.
   Context (safe_nothing : forall n, safe n []).
 
   Definition inputs_of_outputs (outputs : node -> list message) destn :=
-    flat_map (fun n => filter (forward n destn) (outputs n)) (fin.all _).
+    flat_map (fun n => filter (forward n destn) (outputs n)) (Fin.all _).
 
   Definition safe_inputs (n : node) (inps : list message) :=
     exists ojs,
@@ -143,8 +143,8 @@ Section __.
     - cbv [gns_run] in *. fwd.
       transitivity (filter (forward n dst) outs ++ inputs_of_outputs (outputs_at gs) dst).
       + apply flat_map_app_at_perm with (a := n).
-        * apply fin.all_NoDup.
-        * apply fin.all_Full.
+        * apply Fin.all_NoDup.
+        * apply Fin.all_Full.
         * intros a' ?. cbv beta. rewrite outputs_at_forward_to, outputs_at_fun_put.
           destr (eqb a' n); [ congruence | reflexivity ].
         * cbv beta. rewrite outputs_at_forward_to, outputs_at_fun_put. destr (eqb n n); [ | congruence ].
@@ -250,7 +250,7 @@ Section __.
   Proof.
     intros inps' inps (ojs & Hsafe & Hperm) Hsub.
     apply (submultiset_perm_r _ _ _ Hperm) in Hsub.
-    apply submultiset_flat_map_split in Hsub; [ | apply fin.all_NoDup ].
+    apply submultiset_flat_map_split in Hsub; [ | apply Fin.all_NoDup ].
     destruct Hsub as (g & Hg & Hgsub). exists g. split.
     - intros n'. eapply safe_mono; [ apply Hsafe | ].
       eapply submultiset_trans; [ apply Hgsub | apply filter_submultiset ].
@@ -390,17 +390,17 @@ Section __.
     - eapply eventually_trans.
       + apply eventually_and_reach.
         eapply eventually_will_step_Forall with
-          (Ps := map (fun n' => fun gs => exists os, interp_claim n' (Pjs n') os /\ submultiset os (outputs_at gs n')) (fin.all _)) .
+          (Ps := map (fun n' => fun gs => exists os, interp_claim n' (Pjs n') os /\ submultiset os (outputs_at gs n')) (Fin.all _)) .
         -- apply Forall_map, Forall_forall. intros n _. cbv [ev_stable]. intros. fwd.
            eexists. split; [eassumption|]. eapply submultiset_trans; [eassumption|].
            eapply outputs_at_mono. eassumption.
         -- apply Forall_map, Forall_forall. intros n _. eapply eventually_weaken.
            { apply H0. }
            simpl. intros. eauto using submultiset_refl.
-      + simpl. intros gs Hgs. fwd. apply Forall_map in Hgsp1. rewrite fin.Forall_all in Hgsp1.
+      + simpl. intros gs Hgs. fwd. apply Forall_map in Hgsp1. rewrite Fin.Forall_all in Hgsp1.
         eapply step_sat_sound.
         { assumption. }
-        cbv [suffices] in H1. apply fin.choice in Hgsp1. destruct Hgsp1 as [ojs Hojs].
+        cbv [suffices] in H1. apply Fin.choice in Hgsp1. destruct Hgsp1 as [ojs Hojs].
         eapply npred_transf_mono_inc.
         -- apply H1. intros n'. specialize (Hojs n'). fwd. split; [eassumption|].
            eapply safe_mono; [|eassumption]. apply graph_is_safe. assumption.
