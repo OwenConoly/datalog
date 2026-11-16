@@ -1,6 +1,6 @@
 From Stdlib Require Import List Lia.
-From coqutil Require Import Datatypes.List.
-From Datalog Require Import Datalog Node Graph2 Smallstep List Map Default Eqb Tactics FinTypeclass.
+From coqutil Require Import Datatypes.List OmniSmallstepCombinators.
+From Datalog Require Import Datalog Node Graph2 Smallstep List Map Default Eqb Tactics FinTypeclass .
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Eqb Decidable.
 Import ListNotations.
 Import node.
@@ -15,6 +15,8 @@ Section Distributed.
 
   #[local] Instance sender_label : sender_labelT := source.
 
+  Context (ext_inputs : list message).
+
   Ltac map_func := cbv [sender_label] in *; Datalog.Util.Tactics.map_func.
 
   Definition rel_forward (d : destn) (R : rel) : bool :=
@@ -23,7 +25,11 @@ Section Distributed.
     | node_destn nd => inb R (program.hyp_rels (graph_prog nd))
     end.
 
-  Definition forward (s : source) (d : destn) (f : message) := rel_forward d (message.rel f).
+  Definition forward (s : location) (d : location) (f : message) :=
+    match dest_of_loc d with
+    | Some d' => rel_forward d' (message.rel f)
+    | None => false
+    end.
 
   Lemma forward_equiv s d a b :
     message.equiv a b ->
@@ -35,7 +41,7 @@ Section Distributed.
 
   Lemma forward_rel_level s d f g :
     message.rel f = message.rel g -> forward s d f = forward s d g.
-  Proof. intros. cbv [forward]. congruence. Qed.
+  Proof. intros. cbv [forward]. destruct (dest_of_loc d); congruence. Qed.
 
   Definition R_senders (R : rel) : list source :=
     if is_input R then [input_source] else
@@ -174,6 +180,36 @@ Section Distributed.
     erewrite <- sum_count_at by eauto using Forall2_length, senders_in_keys.
     apply Existsn_le_concat_map. intros k ms Hget. eapply counts_bound; eassumption.
   Qed.
+
+  Definition claim_type loc :=
+    match loc with
+    | input_loc | node_loc _ => claim
+    | output_loc => fact
+    end.
+
+  Definition interp_claim loc : claim_type loc -> list message -> Prop :=
+    match loc with
+    | input_loc => claim.interp input_source
+    | node_loc n => claim.interp (node_source n)
+    | output_loc => fun f outs => knows_fact R_senders outs f
+    end.
+
+  Definition npred_transf loc inps : claim_type loc -> Prop :=
+    match loc with
+    | input_loc => fun c => claim.interp input_source c ext_inputs
+    | node_loc n => node.can_claim R_senders (graph_prog n) inps
+    | output_loc => knows_fact R_senders inps
+    end.
+
+  Definition graph_sat_local := graph_sat message location forward claim_type interp_claim npred_transf (fun _ => nallowed).
+  Eval cbv [graph_sat_local] in graph_sat_local.
+
+  Check graph_sat_local. Check claim.interp. Print source.
+  (node := node).
+  Lemma distributed_graph_sat_complete loc P :
+    graph_sat loc P ->
+    eventually (will_step graph_step) (fun gs => claim.interp loc P (outputs_at gs loc)) init_graph.
+
 
   Lemma consistent_good_holds :
     consistent_good claim claim_output consistent_output (node.safe_output R_senders) consistent.
