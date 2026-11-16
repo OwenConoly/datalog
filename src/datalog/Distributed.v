@@ -1,15 +1,14 @@
 From Stdlib Require Import List Lia.
 From coqutil Require Import Datatypes.List.
-From Datalog Require Import Datalog Node Graph Smallstep List Map Default Eqb Tactics Fin.
+From Datalog Require Import Datalog Node Graph2 Smallstep List Map Default Eqb Tactics FinTypeclass.
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Eqb Decidable.
 Import ListNotations.
 Import node.
 
 Section Distributed.
   Context `{params : datalog_params}.
-  Context (sz : nat).
-
-  Context (graph_prog : fin sz -> program).
+  Context {node : nodeT} {node_finite : Fin.Fin node}.
+  Context (graph_prog : node -> program).
   Context (Hmrv : forall n, program.meta_rules_valid (graph_prog n)).
   Context (is_input : rel -> bool).
   Context (Hp_good : forall n, Forall (fun R => is_input R = false) (program.concl_rels (graph_prog n))).
@@ -21,7 +20,7 @@ Section Distributed.
   Definition rel_forward (d : destn) (R : rel) : bool :=
     match d with
     | output_destn => true (*TODO: don't output everything*)
-    | node_destn nd => inb R (program.hyp_rels (prog_at nd))
+    | node_destn nd => inb R (program.hyp_rels (graph_prog nd))
     end.
 
   Definition forward (s : source) (d : destn) (f : message) := rel_forward d (message.rel f).
@@ -42,7 +41,7 @@ Section Distributed.
     if is_input R then [input_source] else
       filter_map
         (fun '(n, p) => if inb R (program.normal_concl_rels p) then Some (node_source n) else None)
-        (map.tuples graph_prog).
+        (Fin.all graph_prog).
 
   Lemma R_senders_NoDup R : NoDup (R_senders R).
   Proof.
