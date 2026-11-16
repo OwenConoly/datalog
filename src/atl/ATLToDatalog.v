@@ -279,23 +279,25 @@ Fixpoint eval_pZexpr'_total { var : Type } (e : pZexpr' var) : option Z :=
 end.
 
 (* var name explanation: f = function, e = expression, z = pZexpr', s = pSexpr' *)
-Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
+Fixpoint get_block_size {var : type -> Type} 
+    (z0 : var tZ) (t0 : forall k, var (tensor_n k))
+    {n} (e : pATLexpr' var n) : list nat :=
   match e with
   | Gen n lo hi f =>
     match eval_pZexpr'_total hi, eval_pZexpr'_total lo with
-    | Some hi', Some lo' => (Z.to_nat hi') - (Z.to_nat lo') :: get_block_size (f 0)
+    | Some hi', Some lo' => (Z.to_nat hi') - (Z.to_nat lo') :: get_block_size z0 t0 (f z0)
     | _, _ => [] (*garbage because this shouldn't happen*)
   end
-  | Sum n lo hi f => get_block_size (f 0)
-  | Guard n b e => get_block_size e
-  | Lbind n m e f => get_block_size e
+  | Sum n lo hi f => get_block_size z0 t0 (f z0)
+  | Guard n b e => get_block_size z0 t0 e
+  | Lbind n m e f => get_block_size z0 t0 (f (t0 n))
   | Concat n e1 e2 =>
-    match get_block_size e1, get_block_size e2 with
+    match get_block_size z0 t0 e1, get_block_size z0 t0 e2 with
     | x1 :: rest1, x2 :: rest2 => x1 + x2 :: rest1
     | _, _ => []
   end
   | Flatten n e =>
-    match get_block_size e with
+    match get_block_size z0 t0 e with
     | a :: b :: rest => a * b :: rest
     | _ => []
   end
@@ -303,14 +305,14 @@ Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
     match eval_pZexpr'_total z with
     | Some z' =>
       let '(zVal) := (Z.to_nat z') in
-      match get_block_size e with
-      | x :: rest => (x / zVal) :: zVal :: rest
+      match get_block_size z0 t0 e with
+      | x :: rest => ((x + zVal - 1) / zVal) :: zVal :: rest (* ceiling division on zVal *)
       | _ => []
       end
     | _ => []
   end
   | Transpose n e =>
-    match get_block_size e with
+    match get_block_size z0 t0 e with
     | a :: b :: rest => b :: a :: rest
     | _ => []
   end
@@ -318,7 +320,7 @@ Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
     match eval_pZexpr'_total z with
       | Some z' =>
         let '(zVal) := (Z.to_nat z') in
-        match get_block_size e with
+        match get_block_size z0 t0 e with
         | x :: rest => (x - zVal) :: rest
         | _ => []
         end
@@ -328,7 +330,7 @@ Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
     match eval_pZexpr'_total z with
       | Some z' =>
         let '(zVal) := (Z.to_nat z') in
-        match get_block_size e with
+        match get_block_size z0 t0 e with
         | x :: rest => (x - zVal) :: rest
         | _ => []
         end
@@ -338,7 +340,7 @@ Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
     match eval_pZexpr'_total z with
       | Some z' =>
         let '(zVal) := (Z.to_nat z') in
-        match get_block_size e with
+        match get_block_size z0 t0 e with
         | x :: rest => (x + zVal) :: rest
         | _ => []
         end
@@ -348,15 +350,17 @@ Fixpoint get_block_size {var n} (e : pATLexpr' (var_of var) n) : list nat :=
     match eval_pZexpr'_total z with
       | Some z' =>
         let '(zVal) := (Z.to_nat z') in
-        match get_block_size e with
+        match get_block_size z0 t0 e with
         | x :: rest => (x + zVal) :: rest
         | _ => []
         end
       | _ => []
     end
-  | Scalar s => 1 :: []
+  | Scalar s => []
 end.
 
+Definition block_size {var} (dummy : var) {n} (e : pATLexpr' (var_of var) n) : list nat :=
+  get_block_size 0 (fun _ => (dummy, 0)) e.
 
 (* idxs are being added in a reversed order, so for interpreting ... *)
 (* do we even needs idxs????? perhaps we just need the length??? 
@@ -403,7 +407,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
       let dimvars := seq (S idxs) n in
       let x := idxs + S n in
       let out := O in
-      let len1 := Z.of_nat match get_block_size e1 with
+      let len1 := Z.of_nat match get_block_size 0 (fun _ => (true_rel, 0)) e1 with
                     | [] => 0
                     | n :: _ => n
                     end in
@@ -428,11 +432,11 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                       |}))
   | Flatten n e =>
   (* using n instead of e here because you can't get length from e anymore *)
-    let dimvars := (seq O (length (get_block_size e) - 2)) in
-      let dimvarO := (length (get_block_size e) - 2) in
-      let x := (length (get_block_size e) - 1) in
+    let dimvars := (seq O (length (block_size true_rel e) - 2)) in
+      let dimvarO := (length (block_size true_rel e) - 2) in
+      let x := (length (block_size true_rel e) - 1) in
       (* same as x but i feel like the match statement doesn't work here *)
-      let len2 := Z.of_nat match get_block_size e with
+      let len2 := Z.of_nat match block_size true_rel e with
                     | _ :: di :: _ => di
                     | _ => 0
                     end in
@@ -462,16 +466,16 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                    program.meta_rules := [];
                  |})
         | Split n k e =>
-    let dimvars := (seq O (length (get_block_size e) - 1)) in
-    let dimvar1 := (length (get_block_size e) - 1) in
-    let dimvar2 := length (get_block_size e) in
-    let x := (S (length (get_block_size e))) in
+    let dimvars := (seq O (length (block_size true_rel e) - 1)) in
+    let dimvar1 := (length (block_size true_rel e) - 1) in
+    let dimvar2 := length (block_size true_rel e) in
+    let x := (S (length (block_size true_rel e))) in
     let k' := Z.of_nat (Z.to_nat (
       match eval_pZexpr'_total k with
       | Some kz => kz
       | None => 0 end)) in
     (* this is an issue because there's no way to get the len currently *)
-    let len := Z.of_nat match get_block_size e with
+    let len := Z.of_nat match block_size true_rel e with
                     | d :: _ => d
                     | _ => 0
                     end in
@@ -515,10 +519,10 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                                             expr.var dimvar1]] |}]];
                  program.meta_rules := [] |})
   | Transpose n x =>
-    let dimvars := (seq O (length (get_block_size x) - 2)) in
-      let dimvar1 := (length (get_block_size x) - 1) in
-      let dimvar2 := length (get_block_size x) in
-      let Sn := (S (length (get_block_size x))) in
+    let dimvars := (seq O (length (block_size true_rel e) - 2)) in
+      let dimvar1 := (length (block_size true_rel e) - 1) in
+      let dimvar2 := length (block_size true_rel e) in
+      let Sn := (S (length (block_size true_rel e))) in
       let out := 1 in
         LetIn (lower_pATLexpr' x idxs true_rel)
           (fun val =>
@@ -540,10 +544,10 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                      program.meta_rules := [] |})
   | Truncr n k x => lower_pATLexpr' x idxs true_rel
   | Truncl m k e =>
-    let dimvars := (seq O (length (get_block_size e) - 1)) in
-    let dimvar1 := (length (get_block_size e) - 1) in
+    let dimvars := (seq O (length (block_size true_rel e) - 1)) in
+    let dimvar1 := (length (block_size true_rel e) - 1) in
     (* placeholder *)
-    let x := length (get_block_size e) in
+    let x := length (block_size true_rel e) in
     let k' :=   Z.of_nat (Z.to_nat (
       match eval_pZexpr'_total k with
       | Some kz => kz
@@ -572,11 +576,11 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                  program.meta_rules := [];
                |})
   | Padr k e =>
-    let dimvars := seq O (length (get_block_size e) - 1) in
-    let dimvar1 := length (get_block_size e) - 1 in
-    let x := length (get_block_size e) in
+    let dimvars := seq O (length (block_size true_rel e) - 1) in
+    let dimvar1 := length (block_size true_rel e) - 1 in
+    let x := length (block_size true_rel e) in
     let out := O in
-    let len := Z.of_nat match get_block_size e with
+    let len := Z.of_nat match block_size true_rel e with
                     | d :: _ => d
                     | _ => 0
                     end in
@@ -612,9 +616,9 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                  program.meta_rules := [];
                |})
   | Padl k e =>
-    let dimvars := seq O (length (get_block_size e) - 1) in
-    let dimvar1 := length (get_block_size e) - 1 in
-    let x := length (get_block_size e) in
+    let dimvars := seq O (length (block_size true_rel e) - 1) in
+    let dimvar1 := length (block_size true_rel e) - 1 in
+    let x := length (block_size true_rel e) in
     let k' := Z.of_nat (Z.to_nat (
       match eval_pZexpr'_total k with
       | Some kz => kz
@@ -948,63 +952,61 @@ Inductive wf_pSexpr' {var1 var2} : list (ctx_elt2 var1 var2) -> pATL_Sexpr' var1
 | wf_SLit ctx z :
      wf_pSexpr' ctx (SLit z) (SLit z).
 
-Inductive wf_pATL_expr' {var1 var2}
-  (szok : forall n, pATLexpr' var1 (S n) -> pATLexpr' var2 (S n) -> Prop)
-  : list (ctx_elt2 var1 var2) -> forall n, pATLexpr' var1 n -> pATLexpr' var2 n -> Prop :=
+
+Inductive wf_pATL_expr' {var1 var2} : list (ctx_elt2 var1 var2) -> forall n, pATLexpr' var1 n -> pATLexpr' var2 n -> Prop :=
 | wf_Gen ctx n lo1 lo2 hi1 hi2 body1 body2 :
   let pZexpr_ctx := (zctx ctx) in
   wf_pZexpr' pZexpr_ctx lo1 lo2 ->
   wf_pZexpr' pZexpr_ctx hi1 hi2 ->
-  (forall x1 x2, wf_pATL_expr' szok ({| ctx_elt_t := tZ; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) n (body1 x1) (body2 x2)) ->
-  wf_pATL_expr' szok ctx (S n) (Gen n lo1 hi1 body1) (Gen n lo2 hi2 body2)
+  (forall x1 x2, wf_pATL_expr' ({| ctx_elt_t := tZ; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) n (body1 x1) (body2 x2)) ->
+  wf_pATL_expr' ctx (S n) (Gen n lo1 hi1 body1) (Gen n lo2 hi2 body2)
 | wf_Sum ctx n lo1 lo2 hi1 hi2 body1 body2 :
   let pZexpr_ctx := (zctx ctx) in
   wf_pZexpr' pZexpr_ctx lo1 lo2 ->
   wf_pZexpr' pZexpr_ctx hi1 hi2 ->
-  (forall x1 x2, wf_pATL_expr' szok ({| ctx_elt_t := tZ; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) n (body1 x1) (body2 x2)) ->
-  wf_pATL_expr' szok ctx n (Sum n lo1 hi1 body1) (Sum n lo2 hi2 body2)
+  (forall x1 x2, wf_pATL_expr' ({| ctx_elt_t := tZ; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) n (body1 x1) (body2 x2)) ->
+  wf_pATL_expr' ctx n (Sum n lo1 hi1 body1) (Sum n lo2 hi2 body2)
 | wf_Guard ctx n b1 b2 body1 body2 :
   wf_pBexpr' ctx b1 b2 ->
-  wf_pATL_expr' szok ctx n body1 body2 ->
-  wf_pATL_expr' szok ctx n (Guard n b1 body1) (Guard n b2 body2)
+  wf_pATL_expr' ctx n body1 body2 ->
+  wf_pATL_expr' ctx n (Guard n b1 body1) (Guard n b2 body2)
 | wf_Lbind ctx n m val1 val2 body1 body2 :
-  wf_pATL_expr' szok ctx n val1 val2 ->
-  (forall x1 x2, wf_pATL_expr' szok ({| ctx_elt_t := tensor_n n; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) m (body1 x1) (body2 x2)) ->
-  wf_pATL_expr' szok ctx m (Lbind n m val1 body1) (Lbind n m val2 body2)
+  wf_pATL_expr' ctx n val1 val2 ->
+  (forall x1 x2, wf_pATL_expr' ({| ctx_elt_t := tensor_n n; ctx_elt_p1 := x1; ctx_elt_p2 := x2 |} :: ctx) m (body1 x1) (body2 x2)) ->
+  wf_pATL_expr' ctx m (Lbind n m val1 body1) (Lbind n m val2 body2)
 | wf_Concat ctx n x1 x2 y1 y2 :
-  wf_pATL_expr' szok ctx (S n) x1 x2 ->
-    wf_pATL_expr' szok ctx (S n) y1 y2 ->
-    szok n x1 x2 ->
-    wf_pATL_expr' szok ctx (S n) (Concat n x1 y1) (Concat n x2 y2)
+  wf_pATL_expr' ctx (S n) x1 x2 ->
+  wf_pATL_expr' ctx (S n) y1 y2 ->
+  wf_pATL_expr' ctx (S n) (Concat n x1 y1) (Concat n x2 y2)
 | wf_Flatten ctx n expr1 expr2 :
-  wf_pATL_expr' szok ctx (S (S n)) expr1 expr2 ->
-  wf_pATL_expr' szok ctx (S n) (Flatten n expr1) (Flatten n expr2)
+  wf_pATL_expr' ctx (S (S n)) expr1 expr2 ->
+  wf_pATL_expr' ctx (S n) (Flatten n expr1) (Flatten n expr2)
 | wf_Split ctx n k1 k2 e1 e2 :
   wf_pZexpr' (zctx ctx) k1 k2 ->
-  wf_pATL_expr' szok ctx (S n) e1 e2 ->
-  wf_pATL_expr' szok ctx (S (S n)) (Split n k1 e1) (Split n k2 e2)
+  wf_pATL_expr' ctx (S n) e1 e2 ->
+  wf_pATL_expr' ctx (S (S n)) (Split n k1 e1) (Split n k2 e2)
 | wf_Transpose ctx n e1 e2 :
-  wf_pATL_expr' szok ctx (S (S n)) e1 e2 ->
-  wf_pATL_expr' szok ctx (S (S n)) (Transpose n e1) (Transpose n e2)
+  wf_pATL_expr' ctx (S (S n)) e1 e2 ->
+  wf_pATL_expr' ctx (S (S n)) (Transpose n e1) (Transpose n e2)
 | wf_Truncr ctx n z1 z2 e1 e2 :
   wf_pZexpr' (zctx ctx) z1 z2 ->
-  wf_pATL_expr' szok ctx (S n) e1 e2 ->
-  wf_pATL_expr' szok ctx (S n) (Truncr n z1 e1) (Truncr n z2 e2)
+  wf_pATL_expr' ctx (S n) e1 e2 ->
+  wf_pATL_expr' ctx (S n) (Truncr n z1 e1) (Truncr n z2 e2)
 | wf_Truncl ctx n z1 z2 e1 e2 :
   wf_pZexpr' (zctx ctx) z1 z2 ->
-  wf_pATL_expr' szok ctx (S n) e1 e2 ->
-  wf_pATL_expr' szok ctx (S n) (Truncl n z1 e1) (Truncl n z2 e2)
+  wf_pATL_expr' ctx (S n) e1 e2 ->
+  wf_pATL_expr' ctx (S n) (Truncl n z1 e1) (Truncl n z2 e2)
 | wf_Padr ctx n z1 z2 e1 e2 :
   wf_pZexpr' (zctx ctx) z1 z2 ->
-  wf_pATL_expr' szok ctx (S n) e1 e2 ->
-  wf_pATL_expr' szok ctx (S n) (Padr z1 e1) (Padr z2 e2)
+  wf_pATL_expr' ctx (S n) e1 e2 ->
+  wf_pATL_expr' ctx (S n) (Padr z1 e1) (Padr z2 e2)
 | wf_Padl ctx n z1 z2 e1 e2 :
   wf_pZexpr' (zctx ctx) z1 z2 ->
-  wf_pATL_expr' szok ctx (S n) e1 e2 ->
-  wf_pATL_expr' szok ctx (S n) (Padl z1 e1) (Padl z2 e2)
+  wf_pATL_expr' ctx (S n) e1 e2 ->
+  wf_pATL_expr' ctx (S n) (Padl z1 e1) (Padl z2 e2)
 | wf_Scalar ctx s1 s2 :
   wf_pSexpr' ctx s1 s2 ->
-  wf_pATL_expr' szok ctx 0 (Scalar s1) (Scalar s2)
+  wf_pATL_expr' ctx 0 (Scalar s1) (Scalar s2)
 .
 
 Variant value : Type :=
@@ -1419,7 +1421,11 @@ match e with
 | Sum _ _ _ body => forall x, lo_zero (body x)
 | Guard _ _ b => lo_zero b
 | Lbind _ _ e1 e2 => lo_zero e1 /\ forall x, lo_zero (e2 x)
-| Concat _ x y => lo_zero x /\ lo_zero y
+| Concat _ x y => lo_zero x /\ lo_zero y /\
+    match get_block_size (itervarZ 0%Z) dummy_tensor x with
+    | [] => 0
+    | k :: _ => k
+    end = Datatypes.length (interp_pATLexpr' x)
 | Flatten _ e1 | Split _ _ e1 | Transpose _ e1
 | Truncr _ _ e1 | Truncl _ _ e1 | Padr _ e1 | Padl _ e1 => lo_zero e1
 | Scalar _ => True
@@ -1556,11 +1562,6 @@ match c with
     end p tv
 end.
 
-Definition concat_size_ok n (x1 : pATLexpr' (var_of result) (S n))
-                            (x2 : pATLexpr' interp_type_tagged (S n)) : Prop :=
-  match get_block_size x1 with [] => 0 | k :: _ => k end
-  = Datatypes.length (interp_pATLexpr' x2).
-
 Lemma get_R_opt_concat {n} (x y : dim_n (S n)) (i : Z) (rest : list Z) (v : R) :
   get_R_opt (n := S n) (x <++> y) (i :: rest) = Some v ->
   ((i < Z.of_nat (Datatypes.length x))%Z /\ get_R_opt x (i :: rest) = Some v) \/
@@ -1568,12 +1569,18 @@ Lemma get_R_opt_concat {n} (x y : dim_n (S n)) (i : Z) (rest : list Z) (v : R) :
    get_R_opt y ((i - Z.of_nat (Datatypes.length x))%Z :: rest) = Some v).
 Admitted. 
 
+Lemma get_block_size_wf ctx n (e : pATLexpr' (var_of result) n)
+    (e' : pATLexpr' interp_type_tagged n) :
+  wf_pATL_expr' ctx n e e' ->
+  get_block_size 0 (fun _ => (true_rel, 0)) e = get_block_size (itervarZ 0%Z) dummy_tensor e'.
+Admitted.
+
 Lemma lower_pATLexpr'_works n
     (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
     (e : pATLexpr' (var_of result) n) (e' : pATLexpr' interp_type_tagged n)
     (m : nat) (idxs0' : list value) :
   lo_zero e' ->
-  wf_pATL_expr' concat_size_ok ctx n e e' ->
+  wf_pATL_expr' ctx n e e' ->
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) (seq 0 m) idxs0' ->
   (* Permutation (map fst (zctx ctx)) (seq 0 m) -> *)
   map fst (zctx ctx) = rev (seq 0 m) -> (* new hperm *)
@@ -1692,10 +1699,9 @@ Proof.
       exact IHv.
   - (* concat: a little long since claude wrote it ... *)
     intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
-    simpl in Hlz. destruct Hlz as [Hlx Hly].
+    simpl in Hlz. destruct Hlz as (Hlx & Hly & Hsize).
     pose proof (IHHwf1 m idxs0' Hlx Hmap Hrev Hlen Hcompl) as IHx.
     pose proof (IHHwf2 m idxs0' Hly Hmap Hrev Hlen Hcompl) as IHy.
-    unfold concat_size_ok in H.            (* the size hypothesis from wf_Concat *)
     unfold complete_at. intros idxs val Hget.
     cbn [interp_pATLexpr'] in Hget.
     pose proof (get_R_opt_length _ _ _ Hget) as Hd.          (* length idxs = S n *)
@@ -1706,9 +1712,11 @@ Proof.
       as (s & Hout & Hdim & Hx & Hext).
     simpl in Hdim. inversion Hdim as [| ? ? ? ? Hi Hrestd]; subst.   (* split off index i *)
     cbn [lower_pATLexpr']. rewrite !interp_LetIn. cbv beta.
-    set (len1 := Z.of_nat match get_block_size x1 with [] => 0 | k :: _ => k end).
-    assert (Hlen1 : len1 = Z.of_nat (Datatypes.length (interp_pATLexpr' x2)))
-      by (unfold len1; rewrite H; reflexivity).
+    set (len1 := Z.of_nat match get_block_size 0 (fun _ => (true_rel, 0)) x1 with [] => 0 | k :: _ => k end).
+    assert (Hlen1 : len1 = Z.of_nat (Datatypes.length (interp_pATLexpr' x2))).
+    { unfold len1.
+      rewrite (get_block_size_wf _ _ _ _ Hwf1).   (* compiler-side x1 to source-side x2 *)
+      rewrite Hsize. reflexivity. }
     destruct (get_R_opt_concat _ _ _ _ _ Hget) as [[Hlt Hgx] | [Hge Hgy]].
     + (* from x: rule 1 *)
       pose proof (IHx (i :: rest) val Hgx) as Hfact.
@@ -1768,7 +1776,9 @@ Proof.
       * constructor; [| constructor; [| constructor]];
           unfold inp_holds; simpl; [exact Hfact | reflexivity].
   - (* Flatten *)
-    
+    intros m idxs0' Hlz Hget Hrev Hdepth Hctx Hcompl.
+    intros val HgetR. 
+
 
 Admitted.
 End __.
