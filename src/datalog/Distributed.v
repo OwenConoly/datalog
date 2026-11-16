@@ -1,27 +1,22 @@
 From Stdlib Require Import List Lia.
 From coqutil Require Import Datatypes.List.
-From Datalog Require Import Datalog Node Graph Smallstep List Map Default Eqb Tactics.
+From Datalog Require Import Datalog Node Graph Smallstep List Map Default Eqb Tactics Fin.
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Eqb Decidable.
 Import ListNotations.
 Import node.
 
 Section Distributed.
   Context `{params : datalog_params}.
-  Context {prog_map : map.map node_id program} {prog_map_ok : map.ok prog_map}.
+  Context (sz : nat).
 
-  Context (graph_prog : prog_map).
-  Context (Hmrv : Forall_map (fun _ p => program.meta_rules_valid p) graph_prog).
+  Context (graph_prog : fin sz -> program).
+  Context (Hmrv : forall n, program.meta_rules_valid (graph_prog n)).
   Context (is_input : rel -> bool).
-  Context (Hp_good : Forall_map (fun _ p => Forall (fun R => is_input R = false) (program.concl_rels p)) graph_prog).
+  Context (Hp_good : forall n, Forall (fun R => is_input R = false) (program.concl_rels (graph_prog n))).
 
   #[local] Instance sender_label : sender_labelT := source.
 
   Ltac map_func := cbv [sender_label] in *; Datalog.Util.Tactics.map_func.
-
-  Definition prog_at (n : node_id) : program := get_or_default graph_prog n.
-
-  Lemma prog_at_get n p : map.get graph_prog n = Some p -> prog_at n = p.
-  Proof. apply get_or_default_Some. Qed.
 
   Definition rel_forward (d : destn) (R : rel) : bool :=
     match d with
