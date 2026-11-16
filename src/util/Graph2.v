@@ -534,4 +534,20 @@ Section withNode.
   #[export] Instance location_eqb : Eqb location := location_beq _ eqb.
   #[export] Instance location_eqb_ok : Eqb_ok location_eqb.
   Proof. eqb_ok. Qed.
+
+  Context {node_fin : Fin.Fin node}.
+
+  #[export, refine] Instance location_Fin : Fin.Fin location :=
+    {| Fin.all := input_loc :: output_loc :: map node_loc (Fin.all node) |}.
+  Proof.
+    - constructor; [ | constructor ].
+      + simpl. rewrite in_map_iff. intros [H | (? & ? & _)]; discriminate.
+      + rewrite in_map_iff. intros (? & ? & _). discriminate.
+      + apply Finite.Injective_map_NoDup; [ | apply Fin.all_NoDup ].
+        intros ? ? H. congruence.
+    - intros [n| |].
+      + right. right. apply in_map, Fin.all_Full.
+      + left. reflexivity.
+      + right. left. reflexivity.
+  Defined.
 End withNode.
