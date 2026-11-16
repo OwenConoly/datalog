@@ -197,6 +197,19 @@ Section __.
           saturated ns pat
     end.
 
+  Definition can_claim (inps : list message) (c : claim) :=
+    match c with
+    | claim.normal nf =>
+        exists hyps,
+        program.interp_step p (fact.normal nf) hyps /\
+          Forall (knows_fact inps) hyps
+    | claim.done_with pat =>
+        exists mf hyps,
+        mf.(meta_fact.pattern) = pat /\
+          program.interp_step p (fact.meta mf) hyps /\
+          Forall (knows_fact inps) hyps
+    end.
+
   Local Abbreviation IO_event := (Smallstep.IO_event action_label message).
 
   Inductive step : state -> IO_event -> state -> Prop :=
@@ -230,22 +243,6 @@ Section __.
 
   Lemma safe_output_nothing : safe_output [].
   Proof. Admitted.
-
-  Print program. Print claim.
-  Definition pred_transf (inps : list message) (P : claim) :=
-    match P with
-    | claim.normal nf =>
-  Definition claim (pat : fact_pattern) (l : list message) :=
-    forall src, In src (R_senders pat.(fact_pattern.rel)) ->
-      exists cnt, In (message.done_with pat src cnt) l.
-
-  Definition consistent (pat : fact_pattern) (known : list message) : Prop :=
-    exists num, expects_num_facts (R_senders pat.(fact_pattern.rel)) pat known num /\
-             Existsn_ge (message.matches pat) num known.
-cc
-  Definition nle (s1 s2 : state) :=
-    consistently_incl message.equiv claim consistent s1.(state.known) s2.(state.known) /\
-      incl_mod message.equiv s1.(state.sent) s2.(state.sent).
 
   Local Abbreviation will_step := (will_step step allowed_inputs).
 
