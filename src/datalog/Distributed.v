@@ -7,7 +7,7 @@ Import node.
 
 Section Distributed.
   Context `{params : datalog_params}.
-  Context {node : nodeT} {node_finite : Fin.Fin node}.
+  Context {node : nodeT} {node_eqb : Eqb node} {node_eqb_ok : Eqb_ok node_eqb} {node_finite : Fin.Fin node}.
   Context (graph_prog : node -> program).
   Context (Hmrv : forall n, program.meta_rules_valid (graph_prog n)).
   Context (is_input : rel -> bool).
@@ -40,51 +40,45 @@ Section Distributed.
   Definition R_senders (R : rel) : list source :=
     if is_input R then [input_source] else
       filter_map
-        (fun '(n, p) => if inb R (program.normal_concl_rels p) then Some (node_source n) else None)
-        (Fin.all graph_prog).
+        (fun n => if inb R (program.normal_concl_rels (graph_prog n)) then Some (node_source n) else None)
+        (Fin.all node).
 
   Lemma R_senders_NoDup R : NoDup (R_senders R).
   Proof.
     cbv [R_senders]. destruct (is_input R); [constructor; [intros [] | constructor]|].
-    apply NoDup_filter_map; [apply map.tuples_NoDup|].
-    intros [n p] [n' p'] s Hin Hin' Hf Hf'. simpl in Hf, Hf'.
-    apply map.tuples_spec in Hin, Hin'.
-    destruct (inb R (program.normal_concl_rels p)), (inb R (program.normal_concl_rels p'));
+    apply NoDup_filter_map; [apply Fin.all_NoDup|].
+    intros n n' s Hin Hin' Hf Hf'. simpl in Hf, Hf'.
+    destruct (inb R (program.normal_concl_rels (graph_prog n))), (inb R (program.normal_concl_rels (graph_prog n')));
       congruence.
   Qed.
 
-  Lemma node_sends_concl_rels k p R :
-    map.get graph_prog k = Some p ->
-    In R (program.normal_concl_rels p) ->
+  Lemma node_sends_concl_rels k R :
+    In R (program.normal_concl_rels (graph_prog k)) ->
     In (node_source k) (R_senders R).
   Proof.
-    intros Hget HR. cbv [R_senders].
-    pose proof (Hp_good _ _ Hget) as HF. rewrite Forall_forall in HF.
+    intros HR. cbv [R_senders].
+    pose proof (Hp_good k) as HF. rewrite Forall_forall in HF.
     rewrite HF by (apply program.normal_concl_rel_concl; assumption).
-    apply in_filter_map. exists (k, p). split; [apply map.tuples_spec; assumption|].
+    apply in_filter_map. exists k. split; [apply Fin.all_Full|].
     simpl. rewrite_true (inb _ _) by assumption. reflexivity.
   Qed.
 
-  Lemma node_sends_concl_rels_inv k p R :
-    map.get graph_prog k = Some p ->
+  Lemma node_sends_concl_rels_inv k R :
     In (node_source k) (R_senders R) ->
-    In R (program.normal_concl_rels p).
+    In R (program.normal_concl_rels (graph_prog k)).
   Proof.
-    intros Hget Hin. cbv [R_senders] in Hin. destruct (is_input R).
+    intros Hin. cbv [R_senders] in Hin. destruct (is_input R).
     - destruct Hin as [Heq | []]. discriminate.
-    - apply in_filter_map in Hin. destruct Hin as ([n p'] & Htup & Hin).
-      apply map.tuples_spec in Htup.
+    - apply in_filter_map in Hin. destruct Hin as (n & _ & Hin).
       destruct (inb _ _) eqn:E in Hin; [invert Hin | discriminate].
-      rewrite Hget in Htup. invert Htup. apply inb_true_iff. exact E.
+      apply inb_true_iff. exact E.
   Qed.
 
-  Abbreviation claim := (node.claim R_senders).
-  Abbreviation consistent := (node.consistent R_senders).
-  Local Abbreviation nstep := (fun n => node.step R_senders (prog_at n) (node_source n)).
-  Local Abbreviation nallowed := (node.allowed_inputs R_senders).
+  Local Abbreviation nstep := (fun n => node.step R_senders (graph_prog n) (node_source n)).
+  Local Abbreviation nallowed := (node.safe_inputs R_senders).
 
   Hint Immediate message.equiv_Equivalence : core.
-  Hint Resolve node.expects_num_facts_incl Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
+  Hint Resolve Existsn_ge_submultiset Existsn_le_submultiset submultiset_incl incl_def : core.
 
   Definition claim_output (pat : fact_pattern) (n : source) (fs : list message) : Prop :=
     In n (R_senders pat.(fact_pattern.rel)) ->
