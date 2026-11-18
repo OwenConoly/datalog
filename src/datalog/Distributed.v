@@ -149,11 +149,13 @@ Section Distributed.
     - intros n. split; intros; contradiction.
     - intros. eapply safe_preserved; try eassumption.
       eapply allowed_of_safe_inputs; eassumption.
-    - admit.
+    - intros. eapply eventually_will_step_weaken_allowed.
+      + eapply can_claim_sound; eassumption.
+      + apply allowed_of_safe_inputs.
     - intros. cbv beta in *. eapply can_claim_mono_inc; try eassumption.
       eapply allowed_of_safe_inputs, safe_inputs_mono; try eassumption.
       apply safe_output_mono.
-  Admitted.
+  Qed.
 
   Lemma consistent_good_holds :
     consistent_good claim claim_output consistent_output (node.safe_output R_senders) consistent.
