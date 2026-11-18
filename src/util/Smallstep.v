@@ -926,6 +926,31 @@ Section step.
   Qed.
 End step.
 
+Section weaken_allowed.
+  Context {state label message : Type}.
+  Context (step : state -> IO_event label message -> state -> Prop).
+
+  Lemma will_step_weaken_allowed (allowed allowed' : list message -> Prop) st P :
+    will_step step allowed st P ->
+    (forall l, allowed' l -> allowed l) ->
+    will_step step allowed' st P.
+  Proof.
+    destruct st as [s t]. intros [lbl H] Hweaken. exists lbl.
+    intros s' t' Hstar Hallow. apply H; auto.
+  Qed.
+
+  Lemma eventually_will_step_weaken_allowed (allowed allowed' : list message -> Prop) P st :
+    eventually (will_step step allowed) P st ->
+    (forall l, allowed' l -> allowed l) ->
+    eventually (will_step step allowed') P st.
+  Proof.
+    intros Hev Hweaken. induction Hev.
+    - apply eventually_done. assumption.
+    - eapply eventually_step; [ | eassumption ].
+      eapply will_step_weaken_allowed; eassumption.
+  Qed.
+End weaken_allowed.
+
 Section steps_corresp.
   Context {label1 label2 message : Type}.
   Context (allowed : list message -> Prop).
