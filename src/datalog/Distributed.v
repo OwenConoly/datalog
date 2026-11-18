@@ -203,12 +203,21 @@ Section Distributed.
   Definition graph_step :=
     graph_step forward (fun n => step R_senders (graph_prog n) (node_source n)).
 
-  Lemma distributed_graph_sat_sound loc inputs P t gs :
+  Lemma distributed_graph_sat_sound loc P t gs :
     star graph_step (init_graph_state (fun _ => init)) t gs ->
     safe_output R_senders input_source (flat_map inputs_of t) ->
-    graph_sat inputs loc P ->
-    eventually (will_step graph_step (safe_output R_senders input_source)) (fun '(gs', t') => claim.interp loc P (outputs_at gs' t' loc)) (init_graph_state (fun _ => init), t).
-  Proof. Abort.
+    graph_sat (flat_map inputs_of t) loc P ->
+    eventually (will_step graph_step (safe_output R_senders input_source)) (fun '(gs', t') => claim.interp loc P (outputs_at gs' t' loc)) (gs, t).
+  Proof.
+    intros. eapply graph_sat_sound; try eassumption.
+    - intros n s m. eexists. apply input_step.
+    - admit.
+    - intros n. apply safe_output_mono.
+    - intros n. split; intros; contradiction.
+    - admit.
+    - admit.
+    - admit.
+  Admitted.
 
   Lemma consistent_good_holds :
     consistent_good claim claim_output consistent_output (node.safe_output R_senders) consistent.
