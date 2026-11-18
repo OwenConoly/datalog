@@ -147,10 +147,13 @@ Section __.
     interp_claim input_source P inputs ->
     graph_sat _ input_source P.
 
-  Definition init_graph : graph_state := fun n =>
+  Definition init_gns n : graph_node_state :=
     {| gns_node_state := init n;
       gns_trace := [];
       gns_queue := [] |}.
+
+  Definition init_graph_state : graph_state :=
+    {| graph_nodes := init_gns; graph_output_queue := [] |}.
 
   Lemma outputs_at_forward_to keep msgs gs n :
     outputs_at (forward_to keep msgs gs) n = outputs_at gs n.
