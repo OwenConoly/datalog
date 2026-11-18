@@ -124,6 +124,19 @@ Section Distributed.
     safe_output R_senders input_source (flat_map inputs_of t) ->
     claim.interp loc P (outputs_at gs t loc) ->
     graph_sat (flat_map inputs_of t) loc P.
-  Proof. Abort.
+  Proof.
+    intros. eapply graph_sat_complete; try eassumption.
+    - apply claim.interp_mono.
+    - intros n. apply safe_output_mono.
+    - intros n. split; intros; contradiction.
+    - intros. cbv beta in *. eapply safe_preserved; try eassumption.
+      intros. apply node_sends_concl_rels. assumption.
+    - intros. cbv beta in *. eapply can_claim_complete; try eassumption.
+      + apply Hmrv.
+      + eapply allowed_of_safe_inputs; eassumption.
+    - admit.
+    - intros. cbv beta in *. eapply can_claim_mono_inc; try eassumption.
+      eapply allowed_of_safe_inputs; eassumption.
+  Admitted.
 
 End Distributed.
