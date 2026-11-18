@@ -8,14 +8,14 @@ Import ListNotations.
 Section __.
   Context (message label node : Type).
   Context {node_eqb : Eqb node} {node_eqb_ok : Eqb_ok node_eqb} {node_fin : Fin.Fin node}.
-  Context (forward : node -> node -> message -> bool) (node_state : Type).
-  Context (node_step : node -> node_state -> IO_event label message -> node_state -> Prop).
+  Context (forward : node -> node -> message -> bool) (node_state : node -> Type).
+  Context (node_step : forall n, node_state n -> IO_event label message -> node_state n -> Prop).
   Abbreviation nevent := (IO_event label message).
   Context (nodes_input_total : forall n, input_total (node_step n)).
 
   Context (claim : node -> Type) (interp_claim : forall n, claim n -> list message -> Prop).
   Context (npred_transf : forall n, list message -> claim n -> Prop).
-  Context (init : node -> node_state).
+  Context (init : forall n, node_state n).
   Context (safe : node -> list message -> Prop).
   Context (safe_mono : forall n, multiset_monotone_dec (safe n)).
   Context (safe_nothing : forall n, safe n []).
@@ -67,12 +67,13 @@ Section __.
               submultiset inps inps' ->
               npred_transf n inps' P).
 
-  Record graph_node_state :=
-    { gns_node_state : node_state;
+  Record graph_node_state {n : node} :=
+    { gns_node_state : node_state n;
       gns_trace : list nevent;
       gns_queue : list message }.
+  Arguments graph_node_state : clear implicits.
 
-  Definition enqueue inps gns :=
+  Definition enqueue {n} inps (gns : graph_node_state n) : graph_node_state n :=
     {| gns_node_state := gns.(gns_node_state);
       gns_trace := gns.(gns_trace);
       gns_queue := inps ++ gns.(gns_queue) |}.
@@ -81,19 +82,19 @@ Section __.
     | receive (_ : node) (_ : message)
     | run (_ : node) (_ : label).
 
-  Definition graph_state := node -> graph_node_state.
+  Definition graph_state := forall n, graph_node_state n.
 
   Definition forward_to (keep : node -> message -> bool) (msgs : list message) (gs : graph_state) : graph_state :=
     fun n => enqueue (filter (keep n) msgs) (gs n).
 
-  Definition gns_run n (ns : graph_node_state) (e : nevent) (ns' : graph_node_state) :=
+  Definition gns_run n (ns : graph_node_state n) (e : nevent) (ns' : graph_node_state n) :=
     exists st',
       node_step n ns.(gns_node_state) e st' /\
         ns' = {| gns_node_state := st';
                 gns_trace := e :: ns.(gns_trace);
                 gns_queue := ns.(gns_queue) |}.
 
-  Definition gns_receive n (ns : graph_node_state) m ns' :=
+  Definition gns_receive n (ns : graph_node_state n) m ns' :=
     exists ms1 ms2,
       ns.(gns_queue) = ms1 ++ m :: ms2 /\
         gns_run n {| gns_node_state := ns.(gns_node_state);
@@ -103,10 +104,10 @@ Section __.
   Variant graph_step : graph_state -> graph_label -> graph_state -> Prop :=
     | gstep_run n gs ns' lbl outs :
       gns_run n (gs n) (O_event lbl outs) ns' ->
-      graph_step gs (run n lbl) (forward_to (forward n) outs (fun_put gs n ns'))
+      graph_step gs (run n lbl) (forward_to (forward n) outs (dfun_put gs n ns'))
     | gstep_receive gs n m ns' :
       gns_receive n (gs n) m ns' ->
-      graph_step gs (receive n m) (fun_put gs n ns').
+      graph_step gs (receive n m) (dfun_put gs n ns').
 
   Definition outputs_at (gs : graph_state) n := flat_map outputs_of (gs n).(gns_trace).
   Definition inputs_at (gs : graph_state) n := flat_map inputs_of (gs n).(gns_trace).
@@ -120,7 +121,7 @@ Section __.
     interp_claim loc P [] ->
     graph_sat loc P.
 
-  Definition init_graph := fun n =>
+  Definition init_graph : graph_state := fun n =>
     {| gns_node_state := init n;
       gns_trace := [];
       gns_queue := [] |}.
@@ -129,10 +130,12 @@ Section __.
     outputs_at (forward_to keep msgs gs) n = outputs_at gs n.
   Proof. reflexivity. Qed.
 
-  Lemma outputs_at_fun_put gs n ns m :
-    outputs_at (fun_put gs n ns) m =
+  Lemma outputs_at_dfun_put gs n ns m :
+    outputs_at (dfun_put gs n ns) m =
       if eqb m n then flat_map outputs_of ns.(gns_trace) else outputs_at gs m.
-  Proof. cbv [outputs_at fun_put]. destr (eqb m n); reflexivity. Qed.
+  Proof.
+    cbv [outputs_at]. destr (eqb m n); rewrite ?dfun_put_same, ?dfun_put_diff by assumption; reflexivity.
+  Qed.
 
   Lemma messages_conserved_step gs lbl gs' dst :
     (forall dst', Permutation (inputs_of_outputs (outputs_at gs) dst') (inputs_at gs dst' ++ (gs dst').(gns_queue))) ->
@@ -145,17 +148,17 @@ Section __.
       + apply flat_map_app_at_perm with (a := n).
         * apply Fin.all_NoDup.
         * apply Fin.all_Full.
-        * intros a' ?. cbv beta. rewrite outputs_at_forward_to, outputs_at_fun_put.
+        * intros a' ?. cbv beta. rewrite outputs_at_forward_to, outputs_at_dfun_put.
           destr (eqb a' n); [ congruence | reflexivity ].
-        * cbv beta. rewrite outputs_at_forward_to, outputs_at_fun_put. destr (eqb n n); [ | congruence ].
+        * cbv beta. rewrite outputs_at_forward_to, outputs_at_dfun_put. destr (eqb n n); [ | congruence ].
           apply filter_app.
-      + cbv [inputs_at forward_to enqueue fun_put]. destr (eqb dst n); cbn;
+      + cbv [inputs_at forward_to enqueue]. destr (eqb dst n); rewrite ?dfun_put_same, ?dfun_put_diff by assumption; cbn;
           symmetry; apply perm_ins; symmetry; apply Hcons.
     - cbv [gns_receive gns_run] in *. fwd.
       transitivity (inputs_of_outputs (outputs_at gs) dst).
       + apply Permutation_refl'. apply flat_map_ext. intros k.
-        rewrite outputs_at_fun_put. destr (eqb k n); reflexivity.
-      + cbv [inputs_at fun_put]. destr (eqb dst n); cbn.
+        rewrite outputs_at_dfun_put. destr (eqb k n); reflexivity.
+      + cbv [inputs_at]. destr (eqb dst n); rewrite ?dfun_put_same, ?dfun_put_diff by assumption; cbn.
         * rewrite Hcons, Hp0. apply perm_recv.
         * apply Hcons.
   Qed.
@@ -176,10 +179,10 @@ Section __.
       submultiset (inputs_at gs dst ++ (gs dst).(gns_queue)) (inputs_at gs' dst ++ (gs' dst).(gns_queue)).
   Proof.
     intros Hstep. invert Hstep.
-    - cbv [gns_run] in *. fwd. cbv [inputs_at forward_to enqueue fun_put]. destr (eqb dst n); cbn;
+    - cbv [gns_run] in *. fwd. cbv [inputs_at forward_to enqueue]. destr (eqb dst n); rewrite ?dfun_put_same, ?dfun_put_diff by assumption; cbn;
         split; auto using submultiset_refl, submultiset_app_mid.
-    - cbv [gns_receive gns_run] in *. fwd. cbv [inputs_at fun_put].
-      destr (eqb dst n); cbn; split; auto using submultiset_refl, submultiset_cons.
+    - cbv [gns_receive gns_run] in *. fwd. cbv [inputs_at].
+      destr (eqb dst n); rewrite ?dfun_put_same, ?dfun_put_diff by assumption; cbn; split; auto using submultiset_refl, submultiset_cons.
       rewrite Hp0. apply submultiset_perm. apply perm_recv.
   Qed.
 
@@ -214,7 +217,7 @@ Section __.
           destruct (nodes_input_total dst (gs' dst).(gns_node_state) m) as [st' Hst'].
           eexists. split.
           -- constructor. exists ms1, ms2. split; [exact Hq|]. eexists. split; [exact Hst'|reflexivity].
-          -- cbv [inputs_at fun_put]. destr (eqb dst dst); [|congruence]. cbn. split.
+          -- cbv [inputs_at]. rewrite dfun_put_same. cbn. split.
              ++ eapply submultiset_perm_l; [apply Permutation_cons_append|].
                 apply submultiset_cons_mono. assumption.
              ++ eapply submultiset_perm_r; [apply perm_recv|]. rewrite <- Hq. assumption.
@@ -266,13 +269,13 @@ Section __.
     intros H. apply clos_rt1n_rt, clos_rt_rtn1 in H. induction H.
     - exists []. split; [ apply star_refl | reflexivity ].
     - destruct IHclos_refl_trans_n1 as (t & Ht & Htr). destruct H as [lbl H]. invert H.
-      + cbv [gns_run] in *. fwd. cbv [forward_to enqueue fun_put].
-        destr (eqb n n0); cbn; [ | exists t; split; assumption ].
+      + cbv [gns_run] in *. fwd. cbv [forward_to enqueue].
+        destr (eqb n n0); rewrite ?dfun_put_same, ?dfun_put_diff by assumption; cbn; [ | exists t; split; assumption ].
         eexists. split.
         * eauto using star_step.
         * cbn. congruence.
-      + cbv [gns_receive gns_run] in *. fwd. cbv [fun_put].
-        destr (eqb n n0); cbn; [ | exists t; split; assumption ].
+      + cbv [gns_receive gns_run] in *. fwd.
+        destr (eqb n n0); rewrite ?dfun_put_same, ?dfun_put_diff by assumption; cbn; [ | exists t; split; assumption ].
         eexists. split.
         * eauto using star_step.
         * cbn. congruence.
@@ -294,7 +297,7 @@ Section __.
     - apply safe_nothing.
     - assert (Hy : (any_step graph_step)^* init_graph y) by (apply clos_rt_rt1n, clos_rtn1_rt; assumption).
       destruct H as [lbl H]. invert H.
-      + cbv [gns_run] in *. fwd. rewrite outputs_at_forward_to, outputs_at_fun_put.
+      + cbv [gns_run] in *. fwd. rewrite outputs_at_forward_to, outputs_at_dfun_put.
         destr (eqb n n0); [ | apply IHclos_refl_trans_n1 ].
         eapply safe_preserved; cbn.
         * eauto using star_step, node_steps_of_graph_steps_init.
@@ -302,7 +305,7 @@ Section __.
           -- exists (outputs_at y). split; [ exact IHclos_refl_trans_n1 | reflexivity ].
           -- eapply submultiset_perm_r; [ | apply submultiset_app_r ].
              symmetry. apply messages_conserved. exact Hy.
-      + cbv [gns_receive gns_run] in *. fwd. rewrite outputs_at_fun_put.
+      + cbv [gns_receive gns_run] in *. fwd. rewrite outputs_at_dfun_put.
         destr (eqb n n0); cbn; apply IHclos_refl_trans_n1.
   Qed.
 
@@ -328,7 +331,7 @@ Section __.
     - left. rewrite Htr. assumption.
     - right. eexists. split.
       + econstructor. exists s''. split; [ exact Hstep | reflexivity ].
-      + cbv [forward_to enqueue fun_put]. destr (eqb n n); [ | congruence ].
+      + cbv [forward_to enqueue]. rewrite dfun_put_same.
         cbn. rewrite Htr. assumption.
   Qed.
 
@@ -376,9 +379,9 @@ Section __.
     submultiset (outputs_at s n) (outputs_at s' n).
   Proof.
     intros Hstep. invert Hstep.
-    - cbv [gns_run] in *. fwd. rewrite outputs_at_forward_to, outputs_at_fun_put.
+    - cbv [gns_run] in *. fwd. rewrite outputs_at_forward_to, outputs_at_dfun_put.
       destr (eqb n n0); cbn; auto using submultiset_refl, submultiset_app_l.
-    - cbv [gns_receive gns_run] in *. fwd. rewrite outputs_at_fun_put.
+    - cbv [gns_receive gns_run] in *. fwd. rewrite outputs_at_dfun_put.
       destr (eqb n n0); cbn; apply submultiset_refl.
   Qed.
 
@@ -419,7 +422,7 @@ Section __.
           suffices dst Pjs P.
   Proof.
     intros Hreach Hstep HP. cbv [any_step] in Hstep. fwd. invert Hstep.
-    - cbv [gns_run] in H. fwd. rewrite outputs_at_forward_to, outputs_at_fun_put in *.
+    - cbv [gns_run] in H. fwd. rewrite outputs_at_forward_to, outputs_at_dfun_put in *.
       destr (eqb dst n); [|left; reflexivity]. simpl in HP |- *. right.
       pose proof node_steps_of_graph_steps_init as H''. especialize H''; eauto.
       pose proof npred_transf_complete as H'. especialize H'.
@@ -432,7 +435,7 @@ Section __.
         -- eassumption.
         -- cbv [safe_inputs]. eexists. split; [|reflexivity]. intros. apply graph_is_safe. assumption.
         -- cbv [submultiset]. setoid_rewrite messages_conserved; try assumption. eexists. reflexivity.
-    - left. cbv [gns_receive gns_run] in H. fwd. rewrite outputs_at_fun_put.
+    - left. cbv [gns_receive gns_run] in H. fwd. rewrite outputs_at_dfun_put.
       destr (eqb dst n); reflexivity.
   Qed.
 
