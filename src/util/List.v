@@ -1692,6 +1692,34 @@ Proof.
 Qed.
 Hint Constructors Existsn : core.
 
+Lemma Existsn_ge_impl {T} (P Q : T -> Prop) n l :
+  Existsn_ge P n l ->
+  (forall x, In x l -> P x -> Q x) ->
+  Existsn_ge Q n l.
+Proof.
+  intros H HPQ. induction H; simpl in HPQ.
+  - apply Eg_zero.
+  - apply Eg_skip. auto.
+  - apply Eg_take; auto.
+Qed.
+
+Lemma Existsn_ge_le_tight {T} (P Q : T -> Prop) n l :
+  (forall x, Q x -> P x) ->
+  Existsn_ge Q n l ->
+  Existsn_le P n l ->
+  forall x, In x l -> P x -> Q x.
+Proof.
+  intros HQP. revert n. induction l as [| y l IH]; intros n Hge Hle x Hx HPx; [ destruct Hx | ].
+  invert Hge; invert Hle.
+  - destruct Hx as [<- | Hx]; [ contradiction | eauto using Eg_zero ].
+  - destruct Hx as [<- | Hx]; [ contradiction | eauto ].
+  - exfalso. enough (S k <= k) by lia.
+    eapply Existsn_ge_le_bound; [ | eassumption ].
+    eapply Existsn_ge_impl; [ eassumption | auto ].
+  - exfalso. auto.
+  - destruct Hx as [<- | Hx]; eauto.
+Qed.
+
 Section misc.
   Context {A B C D : Type}.
   Implicit Type xs : list A.
