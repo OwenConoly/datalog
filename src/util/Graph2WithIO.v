@@ -12,9 +12,9 @@ Section __.
   Abbreviation nevent := (IO_event label message).
   Context (nodes_input_total : forall n, input_total (node_step n)).
 
-  Context (claim : source -> Type) (interp_claim : forall n, claim n -> list message -> Prop).
+  Context (claim : Type) (interp_claim : source -> claim -> list message -> Prop).
   Context (interp_claim_mono : forall n c, multiset_monotone_inc (interp_claim n c)).
-  Context (npred_transf : forall n, list message -> claim (node_source n) -> Prop).
+  Context (npred_transf : node -> list message -> claim -> Prop).
   Context (init : node -> node_state).
   Context (safe : source -> list message -> Prop).
   Context (safe_mono : forall n, multiset_monotone_dec (safe n)).
@@ -48,7 +48,7 @@ Section __.
             interp_claim (node_source n) P (flat_map outputs_of t) ->
             npred_transf n (flat_map inputs_of t) P).
 
-  Definition suffices loc (Pjs : forall n, claim n) P :=
+  Definition suffices loc (Pjs : source -> claim) P :=
     forall ojs,
       (forall n', interp_claim n' (Pjs n') (ojs n') /\ safe n' (ojs n')) ->
       npred_transf loc (inputs_of_outputs ojs (node_destn loc)) P.
@@ -57,7 +57,7 @@ Section __.
             forall n ojs P,
               (forall n', safe n' (ojs n')) ->
               npred_transf n (inputs_of_outputs ojs (node_destn n)) P ->
-              exists (Pjs : forall n, claim n),
+              exists (Pjs : source -> claim),
                 (forall n', interp_claim n' (Pjs n') (ojs n')) /\
                   suffices n Pjs P).
 
@@ -142,7 +142,7 @@ Section __.
     | node_destn n => (gs.(graph_nodes) n).(gns_queue)
     end.
 
-  Inductive graph_sat (inputs : list message) : forall n, claim n -> Prop :=
+  Inductive graph_sat (inputs : list message) : source -> claim -> Prop :=
   | step_sat loc P Pjs :
     (forall n', graph_sat _ n' (Pjs n')) ->
     suffices loc Pjs P ->
