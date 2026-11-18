@@ -1,6 +1,6 @@
 From Stdlib Require Import List Lia.
 From coqutil Require Import Datatypes.List OmniSmallstepCombinators.
-From Datalog Require Import Datalog Node Graph2 Smallstep List Map Default Eqb Tactics FinTypeclass .
+From Datalog Require Import Datalog Node Graph2WithIO IOGraph Smallstep List Map Default Eqb Tactics FinTypeclass.
 From coqutil Require Import Map.Interface Map.Properties Tactics Tactics.fwd Eqb Decidable.
 Import ListNotations.
 Import node.
@@ -25,11 +25,8 @@ Section Distributed.
     | node_destn nd => inb R (program.hyp_rels (graph_prog nd))
     end.
 
-  Definition forward (s : location) (d : location) (f : message) :=
-    match dest_of_loc d with
-    | Some d' => rel_forward d' (message.rel f)
-    | None => false
-    end.
+  Definition forward (s : source) (d : destn) (f : message) :=
+    rel_forward d (message.rel f).
 
   Lemma forward_equiv s d a b :
     message.equiv a b ->
@@ -41,7 +38,7 @@ Section Distributed.
 
   Lemma forward_rel_level s d f g :
     message.rel f = message.rel g -> forward s d f = forward s d g.
-  Proof. intros. cbv [forward]. destruct (dest_of_loc d); congruence. Qed.
+  Proof. intros. cbv [forward]. congruence. Qed.
 
   Definition R_senders (R : rel) : list source :=
     if is_input R then [input_source] else
@@ -54,8 +51,7 @@ Section Distributed.
     cbv [R_senders]. destruct (is_input R); [constructor; [intros [] | constructor]|].
     apply NoDup_filter_map; [apply Fin.all_NoDup|].
     intros n n' s Hin Hin' Hf Hf'. simpl in Hf, Hf'.
-    destruct (inb R (program.normal_concl_rels (graph_prog n))), (inb R (program.normal_concl_rels (graph_prog n')));
-      congruence.
+    destruct (inb R _), (inb R _); congruence.
   Qed.
 
   Lemma node_sends_concl_rels k R :
@@ -201,14 +197,18 @@ Section Distributed.
     | output_loc => knows_fact R_senders inps
     end.
 
-  Definition graph_sat_local := graph_sat message location forward claim_type interp_claim npred_transf (fun _ => nallowed).
+  Definition graph_sat :=
+    graph_sat _ forward _ claim.interp (fun n => can_claim R_senders (graph_prog n)) (safe_output R_senders).
 
-  Print nstep.
-  Print step.
-  Lemma distributed_graph_sat_complete loc P :
-    graph_sat_local loc P ->
-    eventually (will_step (graph_step message action_label location forward _ (fun n => step R_senders))) (fun gs => claim.interp loc P (outputs_at gs loc)) init_graph.
+  Definition graph_step :=
+    graph_step _ _ forward _ (fun n => step R_senders (graph_prog n) (node_source n)).
 
+  Lemma distributed_graph_sat_sound loc inputs P t gs :
+    star graph_step (init_graph_state _ _ _ (fun _ => init)) t gs ->
+    safe_output R_senders input_source (flat_map inputs_of t) ->
+    graph_sat inputs loc P ->
+    eventually (will_step graph_step (safe_output R_senders input_source)) (fun '(gs', t') => claim.interp loc P (outputs_at _ _ _ gs' t' loc)) (init_graph_state _ _ _ (fun _ => init), t).
+  Proof. Abort.
 
   Lemma consistent_good_holds :
     consistent_good claim claim_output consistent_output (node.safe_output R_senders) consistent.
