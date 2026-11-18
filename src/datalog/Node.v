@@ -574,6 +574,55 @@ Section __.
       exact (Hsat r nf Hr Hcdn Hm).
   Qed.
 
+  Definition normal_args_with (R : rel) (m : message) : option (list value) :=
+    match m with
+    | message.normal nf =>
+        if eqb R nf.(normal_fact.rel) then Some nf.(normal_fact.args) else None
+    | message.done_with _ _ _ => None
+    end.
+
+  Lemma In_normal_args_with R ms args :
+    In args (filter_map (normal_args_with R) ms) <->
+    In (message.normal {| normal_fact.rel := R; normal_fact.args := args |}) ms.
+  Proof.
+    rewrite in_filter_map. split.
+    - intros ([nf | ] & Hin & Hargs); [|discriminate].
+      destruct nf as [nrel nargs]. cbv [normal_args_with] in Hargs. simpl in Hargs.
+      destr (eqb R nrel); [|discriminate]. invert Hargs. assumption.
+    - intros Hin. eexists. split; [eassumption|]. cbv [normal_args_with].
+      rewrite eqb_refl_true by assumption. reflexivity.
+  Qed.
+
+  Definition sent_meta_fact sent pat :=
+    meta_fact.mk pat (filter_map (normal_args_with pat.(fact_pattern.rel)) sent).
+
+  Lemma sent_meta_fact_consistent sent pat :
+    meta_fact.consistent_with (sent_meta_fact sent pat) (knows_normal_fact sent).
+  Proof.
+    intros nf Hm. pose proof Hm as (Hrel & Hargs). cbv [sent_meta_fact knows_normal_fact].
+    rewrite meta_fact.contains_mk, In_normal_args_with. destruct nf.
+    cbn in Hrel, Hargs |- *. rewrite Hrel. tauto.
+  Qed.
+
+  Lemma sent_normal_deducible t s nf :
+    star step init t s ->
+    safe_inputs (flat_map inputs_of t) ->
+    In (message.normal nf) s.(state.sent) ->
+    Exists (fun r => can_deduce_normal_fact r s.(state.known) nf) p.(program.rules).
+  Proof.
+    induction 1; [ intros _ [] | ].
+    intros Hsafe Hin.
+    eapply safe_inputs_submultiset in Hsafe as Hsafe0; [ | apply submultiset_app_l ].
+    invert H0; cbn [state.sent state.known] in *.
+    - destruct Hin as [-> | Hin]; [ | auto ].
+      eapply proj1. eassumption.
+    - eapply Exists_impl; [ | apply IHstar; assumption ].
+      intros r (hyps & Hri & Hk). exists hyps. split; [ exact Hri | ].
+      eapply Forall_impl; [ exact Hk | ]. intros h Hh.
+      eapply knows_fact_submultiset; [ apply submultiset_cons | | exact Hh ].
+      rewrite (known_eq_inputs _ _ H). exact Hsafe.
+  Qed.
+
   Local Abbreviation will_step := (will_step step safe_inputs).
 
   Context (Hmrv : program.meta_rules_valid p).
@@ -883,6 +932,41 @@ Section __.
     eapply claim_interp_nle; [ eapply star_app; eassumption | eassumption | eassumption ].
   Qed.
 
+  Lemma can_claim_complete t st c :
+    star step init t st ->
+    safe_inputs (flat_map inputs_of t) ->
+    claim.interp name c (flat_map outputs_of t) ->
+    can_claim (flat_map inputs_of t) c.
+  Proof.
+    intros Hstar Hsafe Hc.
+    destruct (reachable_good _ _ Hsafe Hstar) as (Hk & _ & Hok).
+    rewrite <- (sent_eq_outputs _ _ Hstar) in Hc. rewrite <- Hk.
+    destruct c as [nf | pat]; cbn [claim.interp can_claim] in *.
+    - pose proof (sent_normal_deducible _ _ _ Hstar Hsafe Hc) as Hex.
+      apply Exists_exists in Hex. destruct Hex as (r & Hr & hyps & Hri & Hhyps).
+      exists hyps. split; [ | exact Hhyps ].
+      constructor. apply Exists_exists. eauto.
+    - destruct Hc as (num & Hin & _).
+      destruct (Hok _ _ Hin) as (_ & Hexmr & _ & Hsat).
+      apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr & mhyps & Hpi & Hmh).
+      exists (sent_meta_fact st.(state.sent) pat), (map fact.meta mhyps). ssplit.
+      + reflexivity.
+      + constructor. apply Exists_exists. exists mr. split; [ exact Hmr | ].
+        split; [ exact Hpi | ]. intros nf Hm.
+        rewrite (sent_meta_fact_consistent _ _ nf Hm). split.
+        * intros Hnf. pose proof (sent_normal_deducible _ _ _ Hstar Hsafe Hnf) as Hex.
+          apply Exists_exists in Hex. destruct Hex as (r & Hr & hyps & Hri & Hhyps).
+          exists hyps. split; [ apply Exists_exists; eauto | ].
+          pose proof (Hmrv _ _ Hmr Hr _ _ _ _ Hpi Hri Hm) as Hcov.
+          rewrite Forall_forall in Hhyps, Hcov |- *. intros h Hh.
+          apply implied_of_knows_fact with (K := st.(state.known)); auto.
+        * intros (hyps & Hex & Himp). apply Exists_exists in Hex. destruct Hex as (r & Hr & Hri).
+          apply (Hsat r nf Hr); [ | exact Hm ].
+          exists hyps. split; [ exact Hri | ].
+          eapply Forall_impl; [ exact Himp | ]. intros h Hh. eapply knows_fact_of_implied; eassumption.
+      + rewrite Forall_map. exact Hmh.
+  Qed.
+
   Context (Hsenders : forall R, In R (program.normal_concl_rels p) -> In name (R_senders R)).
 
   Lemma sent_rel_sender t s nf :
@@ -907,13 +991,6 @@ Section __.
       eapply Existsn_le_of_Existsn; [ eapply sent_counts_correct; eassumption | lia ].
     - intros nf Hin. eapply sent_rel_sender; eassumption.
   Qed.
-
-  Lemma can_claim_complete t st c :
-    star step init t st ->
-    safe_inputs (flat_map inputs_of t) ->
-    claim.interp name c (flat_map outputs_of t) ->
-    can_claim (flat_map inputs_of t) c.
-  Proof. Admitted.
 
   Lemma can_claim_mono_inc inps c inps' :
     can_claim inps c ->
