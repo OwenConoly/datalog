@@ -280,8 +280,8 @@ Section __.
           -- destruct (nodes_input_total dst (gs'.(graph_nodes) dst).(gns_node_state) m) as [st' Hst'].
              do 2 eexists. split.
              ++ constructor. exists ms1, ms2. split; [exact Hq|]. eexists. split; [exact Hst'|reflexivity].
-             ++ cbv [inputs_at queue_at put_node fun_put]. cbn [graph_nodes].
-                destr (eqb dst dst); [|congruence]. cbn. split.
+             ++ cbv [inputs_at queue_at put_node fun_put]. cbn [graph_nodes]. simpl.
+                destr (eqb dst dst); [|congruence]. split.
                 ** eapply submultiset_perm_l; [apply Permutation_cons_append|].
                    apply submultiset_cons_mono. assumption.
                 ** eapply submultiset_perm_r; [apply perm_recv|]. rewrite <- Hq. assumption.
@@ -395,38 +395,46 @@ Section __.
       symmetry. apply messages_conserved. assumption.
   Qed.
 
-  Lemma graph_will_step_of_node_will_step gs n P :
-    (any_step graph_step)^* init_graph gs ->
-    Smallstep.will_step (node_step n) (safe_inputs n) ((gs n).(gns_node_state), (gs n).(gns_trace)) P ->
-    will_step graph_step gs (fun gs' => P ((gs' n).(gns_node_state), (gs' n).(gns_trace))).
+  Lemma graph_will_step_of_node_will_step gs t n P :
+    star graph_step init_graph_state t gs ->
+    will_step (node_step n) (safe_inputs (node_destn n))
+      ((gs.(graph_nodes) n).(gns_node_state), (gs.(graph_nodes) n).(gns_trace)) P ->
+    will_step graph_step (safe input_source) (gs, t)
+      (fun '(gs', _) => P ((gs'.(graph_nodes) n).(gns_node_state), (gs'.(graph_nodes) n).(gns_trace))).
   Proof.
-    intros Hreach (lbl & Hwill). exists (run n lbl). intros gs' Hgs'.
-    destruct (node_steps_of_graph_steps _ _ n Hgs') as (t & Ht & Htr).
-    destruct (Hwill _ _ Ht) as [HP | (s'' & outs & Hstep & HP)].
-    - rewrite <- Htr. apply graph_inputs_safe. eapply crt1n_trans_compose; eassumption.
-    - left. rewrite Htr. assumption.
-    - right. eexists. split.
+    intros Hreach (lbl & Hwill). exists (run n lbl). intros gs' t' Hgs' Hsafe.
+    destruct (node_steps_of_graph_steps _ _ _ n Hgs') as (tn & Htn & Htr).
+    destruct (Hwill _ _ Htn) as [HP | (s'' & outs & Hstep & HP)].
+    - rewrite <- Htr. apply (graph_inputs_safe _ (t' ++ t) (node_destn n)).
+      + eapply star_app; eassumption.
+      + assumption.
+    - left. cbv beta iota. rewrite Htr. assumption.
+    - right. do 2 eexists. split.
       + econstructor. exists s''. split; [ exact Hstep | reflexivity ].
-      + cbv [forward_to enqueue]. rewrite dfun_put_same.
-        cbn. rewrite Htr. assumption.
+      + cbv [forward_to enqueue put_node fun_put]. cbn [graph_nodes].
+        destr (eqb n n); [ | congruence ]. cbn. rewrite Htr. assumption.
   Qed.
 
-  Lemma graph_eventually_of_node_eventually gs n P :
-    (any_step graph_step)^* init_graph gs ->
-    eventually (Smallstep.will_step (node_step n) (safe_inputs n)) P
-      ((gs n).(gns_node_state), (gs n).(gns_trace)) ->
-    eventually (will_step graph_step) (fun gs' => P ((gs' n).(gns_node_state), (gs' n).(gns_trace))) gs.
+  Lemma graph_eventually_of_node_eventually gs t n P :
+    star graph_step init_graph_state t gs ->
+    eventually (will_step (node_step n) (safe_inputs (node_destn n))) P
+      ((gs.(graph_nodes) n).(gns_node_state), (gs.(graph_nodes) n).(gns_trace)) ->
+    eventually (will_step graph_step (safe input_source))
+      (fun '(gs', _) => P ((gs'.(graph_nodes) n).(gns_node_state), (gs'.(graph_nodes) n).(gns_trace))) (gs, t).
   Proof.
-    intros Hreach Hev. remember ((gs n).(gns_node_state), (gs n).(gns_trace)) as st eqn:E.
-    revert gs Hreach E. induction Hev; intros gs Hreach E; subst.
+    intros Hreach Hev. remember ((gs.(graph_nodes) n).(gns_node_state), (gs.(graph_nodes) n).(gns_trace)) as st eqn:E.
+    revert gs t Hreach E. induction Hev; intros gs t Hreach E; subst.
     - apply eventually_done. assumption.
     - apply eventually_step with
-        (midset := fun gs' => (any_step graph_step)^* init_graph gs' /\
-                              midset ((gs' n).(gns_node_state), (gs' n).(gns_trace))).
+        (midset := fun '(gs', t') =>
+                     star graph_step init_graph_state t' gs' /\
+                       midset ((gs'.(graph_nodes) n).(gns_node_state), (gs'.(graph_nodes) n).(gns_trace))).
       + apply will_step_reach. eapply will_step_impl.
         * apply graph_will_step_of_node_will_step; eassumption.
-        * intros gs' ? ?. split; eauto using crt1n_trans_compose.
-      + intros gs' []. eauto.
+        * intros [gs' t'] Hm Hr. cbv [reachable] in Hr. fwd. split.
+          -- eapply star_app; eassumption.
+          -- exact Hm.
+      + intros [gs' t'] []. eauto.
   Qed.
 
   Lemma step_sat_sound gs dst P :
