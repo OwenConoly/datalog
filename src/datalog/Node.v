@@ -132,6 +132,12 @@ Module claim.
 
     Definition interp_conj (name : sender_label) (Ps : list claim) (ms : list message) :=
       Forall (fun P => interp name P ms) Ps.
+
+    Lemma interp_conj_mono name Ps : multiset_monotone_inc (interp_conj name Ps).
+    Proof.
+      intros ms1 ms2 H Hsub. eapply Forall_impl; [ exact H | ].
+      intros. cbv beta in *. eapply interp_mono; eassumption.
+    Qed.
   End __.
 End claim. Abbreviation claim := claim.claim.
 
@@ -937,6 +943,21 @@ Section __.
     eapply claim_interp_nle; [ eapply star_app; eassumption | eassumption | eassumption ].
   Qed.
 
+  Lemma can_claim_conj_sound Ps t st :
+    can_claim_conj (flat_map inputs_of t) Ps ->
+    safe_inputs (flat_map inputs_of t) ->
+    star step init t st ->
+    eventually will_step (fun '(_, t') => claim.interp_conj name Ps (flat_map outputs_of t')) (st, t).
+  Proof.
+    intros HPs Hsafe Hstar. eapply eventually_weaken.
+    - apply eventually_will_step_Forall with (Ps := map (fun P '(_, t') => claim.interp name P (flat_map outputs_of t')) Ps).
+      + rewrite Forall_map. apply Forall_forall. intros P _ s s' e t' HP _.
+        eapply claim.interp_mono; [ exact HP | apply submultiset_app_l ].
+      + rewrite Forall_map. eapply Forall_impl; [ exact HPs | ].
+        intros. eapply can_claim_sound; eassumption.
+    - intros [s' t'] H. cbv beta in H. rewrite Forall_map in H. exact H.
+  Qed.
+
   Lemma can_claim_complete t st c :
     star step init t st ->
     safe_inputs (flat_map inputs_of t) ->
@@ -970,6 +991,16 @@ Section __.
           exists hyps. split; [ exact Hri | ].
           eapply Forall_impl; [ exact Himp | ]. intros h Hh. eapply knows_fact_of_implied; eassumption.
       + rewrite Forall_map. exact Hmh.
+  Qed.
+
+  Lemma can_claim_conj_complete t st Ps :
+    star step init t st ->
+    safe_inputs (flat_map inputs_of t) ->
+    claim.interp_conj name Ps (flat_map outputs_of t) ->
+    can_claim_conj (flat_map inputs_of t) Ps.
+  Proof.
+    intros Hstar Hsafe HPs. eapply Forall_impl; [ exact HPs | ].
+    intros. cbv beta in *. eapply can_claim_complete; eassumption.
   Qed.
 
   Context (Hsenders : forall R, In R (program.normal_concl_rels p) -> In name (R_senders R)).
@@ -1008,6 +1039,16 @@ Section __.
       eapply Forall_impl; [ eassumption | ]. intros. eapply knows_fact_submultiset; eassumption.
     - do 2 eexists. ssplit; [ reflexivity | eassumption | ].
       eapply Forall_impl; [ eassumption | ]. intros. eapply knows_fact_submultiset; eassumption.
+  Qed.
+
+  Lemma can_claim_conj_mono_inc inps Ps inps' :
+    can_claim_conj inps Ps ->
+    safe_inputs inps' ->
+    submultiset inps inps' ->
+    can_claim_conj inps' Ps.
+  Proof.
+    intros HPs Hsafe Hsub. eapply Forall_impl; [ exact HPs | ].
+    intros. eapply can_claim_mono_inc; eassumption.
   Qed.
 End __.
 End node.
