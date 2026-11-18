@@ -108,21 +108,32 @@ Section __.
                     gns_trace := ns.(gns_trace);
                     gns_queue := ms1 ++ ms2 |} (I_event m) ns'.
 
-  Variant graph_step : graph_state -> graph_label -> graph_state -> Prop :=
+  Variant graph_step : graph_state -> IO_event graph_label message -> graph_state -> Prop :=
+    | gstep_input gs m :
+      graph_step gs (I_event m) (forward_to (forward input_source) [m] gs)
     | gstep_run n gs ns' lbl outs :
       gns_run n (gs.(graph_nodes) n) (O_event lbl outs) ns' ->
-      graph_step gs (run n lbl) (forward_to (forward (node_source n)) outs (put_node gs n ns'))
+      graph_step gs (O_event (run n lbl) []) (forward_to (forward (node_source n)) outs (put_node gs n ns'))
     | gstep_receive gs n m ns' :
       gns_receive n (gs.(graph_nodes) n) m ns' ->
-      graph_step gs (receive n m) (put_node gs n ns')
+      graph_step gs (O_event (receive n m) []) (put_node gs n ns')
     | gstep_output gs q1 m q2 :
       gs.(graph_output_queue) = q1 ++ m :: q2 ->
-      graph_step gs (emit m)
-        {| graph_nodes := gs.(graph_nodes);
-          graph_output_queue := q1 ++ q2 |}.
+      graph_step gs (O_event (emit m) [m])
+                 {| graph_nodes := gs.(graph_nodes);
+                   graph_output_queue := q1 ++ q2 |}.
 
-  Definition outputs_at (gs : graph_state) n := flat_map outputs_of (gs n).(gns_trace).
-  Definition inputs_at (gs : graph_state) n := flat_map inputs_of (gs n).(gns_trace).
+  Definition outputs_at (gs : graph_state) (t : list (IO_event graph_label message)) (n : source) :=
+    match n with
+    | input_source => flat_map inputs_of t
+    | node_source n' => flat_map outputs_of (gs.(graph_nodes) n').(gns_trace)
+    end.
+
+  Definition inputs_at (gs : graph_state) (t : list (IO_event graph_label message)) n :=
+    match n with
+    | output_destn => flat_map outputs_of t ++ gs.(graph_output_queue)
+    | node_destn n' => flat_map inputs_of (gs.(graph_nodes) n').(gns_trace)
+    end.
 
   Inductive graph_sat : forall n, claim n -> Prop :=
   | step_sat loc P Pjs :
