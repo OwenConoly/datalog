@@ -341,9 +341,359 @@ Section __.
     eapply program.rule_normal_concl_rel_in; eauto using rule.interp_concl_relname_in.
   Qed.
 
+  Lemma safe_inputs_submultiset l1 l2 :
+    submultiset l1 l2 -> safe_inputs l2 -> safe_inputs l1.
+  Proof.
+    intros Hsub Hbound pat ems Hf2.
+    pose proof (submultiset_incl _ _ Hsub) as Hincl.
+    assert (Hf2' : Forall2 (fun k e => In (message.done_with pat k e) l2)
+                           (R_senders pat.(fact_pattern.rel)) ems)
+      by (clear -Hf2 Hincl; induction Hf2; constructor;
+            [apply Hincl; assumption | assumption]).
+    eapply Existsn_le_submultiset; [ apply Hbound; exact Hf2' | exact Hsub ].
+  Qed.
+
+  Lemma knows_fact_transfer_down_sub small big mhyps h :
+    submultiset small big ->
+    safe_inputs big ->
+    Forall (knows_meta_fact small) mhyps ->
+    fact.covered_by_pats (map meta_fact.pattern mhyps) h ->
+    knows_fact big h ->
+    knows_fact small h.
+  Proof.
+    intros Hsub Hallow Hhyps Hcov Hknow_big.
+    pose proof (submultiset_incl _ _ Hsub) as Hincl.
+    destruct Hsub as (rest & Hperm).
+    cbv [fact.covered_by_pats] in Hcov. apply Exists_exists in Hcov.
+    destruct Hcov as (fp & Hfp & Hcov). apply in_map_iff in Hfp.
+    destruct Hfp as (mh & Hfp & Hmh). subst fp.
+    rewrite Forall_forall in Hhyps. specialize (Hhyps _ Hmh).
+    destruct Hhyps as (num_h & Hexp_h & Hex_h & _).
+    pose proof (submultiset_rest_no_matches mh.(meta_fact.pattern) small rest big num_h
+                  Hperm Hallow Hexp_h Hex_h) as Hrest_no.
+    rewrite Forall_forall in Hrest_no.
+    destruct h as [nf | mf]; simpl in Hcov.
+    - cbn [knows_fact knows_normal_fact] in Hknow_big |- *.
+      pose proof (Permutation_in _ Hperm Hknow_big) as Hin_app.
+      apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
+      exfalso. apply (Hrest_no _ Hinr). exact Hcov.
+    - destruct Hknow_big as (num_new & Hexp_new & Hex_new & Hiff_new).
+      cbv [meta_fact.rel] in Hexp_h. rewrite Hcov in Hexp_h, Hex_h, Hrest_no.
+      exists num_h. split; [exact Hexp_h | split; [exact Hex_h |]].
+      intros nf Hm. specialize (Hiff_new nf Hm). split.
+      + intro Hset. apply Hiff_new in Hset.
+        pose proof (Permutation_in _ Hperm Hset) as Hin_app.
+        apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
+        exfalso. apply (Hrest_no _ Hinr). exact Hm.
+      + intro Hin. apply Hiff_new. apply Hincl. exact Hin.
+  Qed.
+
+  (*every done-message this node has sent could still be deduced now*)
+  Definition sent_dones_ok (s : state) : Prop :=
+    forall pat num,
+      In (message.done_with pat name num) s.(state.sent) ->
+      can_deduce s (message.done_with pat name num).
+
+  Definition good (s : state) (t : list IO_event) :=
+    s.(state.known) = flat_map inputs_of t /\
+    safe_inputs (flat_map inputs_of t) /\
+    sent_dones_ok s.
+
+  Lemma good_init : good init [].
+  Proof.
+    split; [reflexivity | split].
+    - intros pat ems _. apply El_nil.
+    - intros pat num H. destruct H.
+  Qed.
+
+  Lemma step_star_mono s t' s' :
+    star step s t' s' ->
+    submultiset s.(state.known) s'.(state.known) /\
+    submultiset s.(state.sent) s'.(state.sent).
+  Proof.
+    intros Hstar. induction Hstar as [| t0 sa e sb Hstar' IH Hstep].
+    - split; apply submultiset_refl.
+    - destruct IH as (IHk & IHs).
+      assert (submultiset sa.(state.known) sb.(state.known) /\
+              submultiset sa.(state.sent) sb.(state.sent)) as (Hk & Hs).
+      { invert Hstep; cbn [state.known state.sent];
+          split; try apply submultiset_refl; apply submultiset_cons. }
+      split; eapply submultiset_trans; eassumption.
+  Qed.
+
+  Lemma known_eq_inputs t s :
+    star step init t s -> s.(state.known) = flat_map inputs_of t.
+  Proof.
+    intros Hstar. induction Hstar as [| T0 sm e s Hstar_T IH Hstep].
+    - reflexivity.
+    - invert Hstep; cbn [state.known inputs_of flat_map app];
+        rewrite IH; reflexivity.
+  Qed.
+
+  Lemma known_input_free s t s' :
+    star step s t s' -> flat_map inputs_of t = [] -> s'.(state.known) = s.(state.known).
+  Proof.
+    intros Hstar. induction Hstar as [| t0 sa e sb Hstar IH Hstep]; intros Hinp.
+    - reflexivity.
+    - invert Hstep; cbn [inputs_of flat_map app] in Hinp.
+      + exact (IH Hinp).
+      + discriminate Hinp.
+  Qed.
+
+  Definition knows_incl (l1 l2 : list message) : Prop :=
+    forall f, knows_fact l1 f -> knows_fact l2 f.
+
+  Lemma knows_incl_grow l1 l2 l2' :
+    knows_incl l1 l2 -> submultiset l2 l2' -> safe_inputs l2' -> knows_incl l1 l2'.
+  Proof.
+    intros Hki Hsub Hallow f Hf.
+    eapply knows_fact_submultiset; [ exact Hsub | exact Hallow | apply Hki; exact Hf ].
+  Qed.
+
+  Lemma knows_fact_transfer_down small big mhyps h :
+    knows_incl small big ->
+    Forall (knows_meta_fact small) mhyps ->
+    fact.covered_by_pats (map meta_fact.pattern mhyps) h ->
+    knows_fact big h ->
+    knows_fact small h.
+  Proof.
+    intros Hki Hhyps Hcov Hknow_big.
+    cbv [fact.covered_by_pats] in Hcov. apply Exists_exists in Hcov.
+    destruct Hcov as (fp & Hfp & Hcov). apply in_map_iff in Hfp.
+    destruct Hfp as (mh & Hfp & Hmh). subst fp.
+    rewrite Forall_forall in Hhyps. specialize (Hhyps _ Hmh).
+    pose proof (Hki (fact.meta mh) Hhyps) as Hkb.
+    destruct h as [nf | mf]; simpl in Hcov.
+    - destruct Hhyps as (_ & _ & _ & Hiff_s). destruct Hkb as (_ & _ & _ & Hiff_b).
+      apply (proj1 (Hiff_s nf Hcov)). apply (proj2 (Hiff_b nf Hcov)). exact Hknow_big.
+    - destruct Hhyps as (num_s & Hexp_s & Hex_s & Hiff_s).
+      destruct Hknow_big as (_ & _ & _ & Hiff_b). destruct Hkb as (_ & _ & _ & Hiff_b').
+      cbv [meta_fact.rel] in Hexp_s. rewrite Hcov in Hexp_s, Hex_s.
+      exists num_s. split; [ exact Hexp_s | split; [ exact Hex_s | ] ].
+      intros nf Hm.
+      assert (Hm' : fact_pattern.matches mh.(meta_fact.pattern) nf)
+        by (rewrite Hcov; exact Hm).
+      specialize (Hiff_s nf Hm'). specialize (Hiff_b nf Hm). specialize (Hiff_b' nf Hm').
+      cbv [knows_normal_fact] in *. tauto.
+  Qed.
+
+  Definition nle (s1 s2 : state) :=
+    knows_incl s1.(state.known) s2.(state.known) /\
+      incl_mod message.equiv s1.(state.sent) s2.(state.sent).
+
+  #[local] Existing Instance message.equiv_Equivalence.
+
+  Lemma nle_refl s : nle s s.
+  Proof.
+    split.
+    - intros f Hf. exact Hf.
+    - intros a Ha. exists a. split; [exact Ha | reflexivity].
+  Qed.
+
   Local Abbreviation will_step := (will_step step safe_inputs).
 
   Context (Hmrv : program.meta_rules_valid p).
+
+  Lemma step_preserves_sent_dones_ok s e s' :
+    safe_inputs s'.(state.known) ->
+    sent_dones_ok s ->
+    step s e s' ->
+    sent_dones_ok s'.
+  Proof.
+    intros Hallow Hok Hstep.
+    invert Hstep; intros pat num Hin;
+      cbn [can_deduce state.known state.sent] in Hallow, Hin |- *.
+    - destruct Hin as [Hhead | Hin_old].
+      + subst output. destruct H as (Hsrc & Hexmr & Hexn & Hsat).
+        ssplit; [reflexivity | exact Hexmr | |].
+        * apply Existsn_no; [intros [] | exact Hexn].
+        * intros r nf Hr Hcdn Hm. cbn [state.known] in Hcdn.
+          right. apply (Hsat r nf Hr Hcdn Hm).
+      + specialize (Hok _ _ Hin_old). destruct Hok as (_ & Hexmr & Hexn & Hsat).
+        ssplit; [reflexivity | exact Hexmr | |].
+        * apply Existsn_no; [| exact Hexn].
+          intros Hmatch. destruct output as [nf' | pat' src' cnt']; [| exact Hmatch].
+          cbn [message.matches] in Hmatch.
+          destruct H as (_ & Hfresh). apply Hfresh. exists pat, num. auto.
+        * intros r nf Hr Hcdn Hm. cbn [state.known] in Hcdn.
+          right. apply (Hsat r nf Hr Hcdn Hm).
+    - specialize (Hok _ _ Hin). destruct Hok as (_ & Hexmr & Hexn & Hsat).
+      ssplit; [reflexivity | | exact Hexn |].
+      + eapply Exists_impl; [|exact Hexmr]. simpl. intros mr (mhyps & Hpi & Hkn).
+        exists mhyps. split; [exact Hpi|].
+        eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
+        exact (knows_fact_submultiset _ _ (fact.meta mh)
+                 (submultiset_cons _ _) Hallow Hmh).
+      + intros r nf Hr Hcdn Hm. cbn [state.known state.sent] in Hcdn |- *.
+        apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr & mhyps & Hpi & Hkn).
+        destruct Hcdn as (hyps & Hri & Hkh).
+        apply (Hsat r nf Hr); [| exact Hm].
+        exists hyps. split; [exact Hri |].
+        pose proof (Hmrv _ _ Hmr Hr _ _ _ _ Hpi Hri Hm) as Hcov.
+        rewrite Forall_forall in Hkh, Hcov |- *. intros h Hh.
+        eapply knows_fact_transfer_down_sub;
+          [ apply submultiset_cons | exact Hallow | exact Hkn | eauto | eauto ].
+  Qed.
+
+  Lemma good_step s e s' t :
+    good s t ->
+    safe_inputs (flat_map inputs_of (e :: t)) ->
+    step s e s' ->
+    good s' (e :: t).
+  Proof.
+    intros (Hkeq & _ & Hok) Hallow' Hstep.
+    assert (Hkeq' : s'.(state.known) = flat_map inputs_of (e :: t)).
+    { invert Hstep; cbn [state.known]; rewrite Hkeq; reflexivity. }
+    assert (Hak : safe_inputs s'.(state.known)) by (rewrite Hkeq'; exact Hallow').
+    split; [exact Hkeq' | split; [exact Hallow' |]].
+    eapply step_preserves_sent_dones_ok; eassumption.
+  Qed.
+
+  Lemma good_star s t t' s' :
+    safe_inputs (flat_map inputs_of (t' ++ t)) ->
+    good s t ->
+    star step s t' s' ->
+    good s' (t' ++ t).
+  Proof.
+    intros Hallow Hgood Hstar. revert Hallow.
+    induction Hstar as [| t0 s'0 e s'' Hstar' IH Hstep]; intros Hallow.
+    - exact Hgood.
+    - assert (Hallow0 : safe_inputs (flat_map inputs_of (t0 ++ t))).
+      { destruct e as [m | lbl outs].
+        - eapply safe_inputs_submultiset; [apply submultiset_cons | exact Hallow].
+        - exact Hallow. }
+      exact (good_step s'0 e s'' (t0 ++ t) (IH Hallow0) Hallow Hstep).
+  Qed.
+
+  Lemma reachable_good t s :
+    safe_inputs (flat_map inputs_of t) ->
+    star step init t s ->
+    good s t.
+  Proof.
+    intros Hallow Hstar.
+    assert (good s (t ++ [])) as Hg.
+    { eapply good_star;
+        [ rewrite app_nil_r; exact Hallow | apply good_init | exact Hstar ]. }
+    rewrite app_nil_r in Hg. exact Hg.
+  Qed.
+
+  Lemma will_match s1 lbl outs s1' s2 t2 :
+    good s2 t2 ->
+    step s1 (O_event lbl outs) s1' ->
+    nle s1 s2 ->
+    eventually will_step (fun '(s2', _) => nle s1' s2') (s2, t2).
+  Proof.
+    intros Hgood2 Hstep (Hki & Hsnle).
+    invert Hstep. match goal with H : can_deduce _ _ |- _ => rename H into Hnf end.
+    assert (Hmk : forall (X : state) o',
+      knows_incl s1.(state.known) X.(state.known) ->
+      submultiset s2.(state.sent) X.(state.sent) ->
+      In o' X.(state.sent) -> message.equiv output o' ->
+      nle {| state.known := s1.(state.known);
+             state.sent := output :: s1.(state.sent) |} X).
+    { intros X o' Hk Hs Ho'in Ho'eq. split.
+      - cbn [state.known]. exact Hk.
+      - cbn [state.sent]. intros a Ha. cbn [In] in Ha. destruct Ha as [Hao | Ha].
+        + subst a. exists o'. split; [exact Ho'in | exact Ho'eq].
+        + destruct (Hsnle a Ha) as (b & Hb & Hab). exists b. split; [| exact Hab].
+          eapply submultiset_incl; [exact Hs | exact Hb]. }
+    apply eventually_step_cps. cbn [will_step].
+    exists (message.label output). intros sdem tdem Hstar Hallowdem.
+    pose proof (good_star s2 t2 tdem sdem Hallowdem Hgood2 Hstar)
+      as (Hkdem & Haldem & Hokdem).
+    pose proof (step_star_mono s2 tdem sdem Hstar) as (Hkmono & Hsmono).
+    assert (Halk : safe_inputs sdem.(state.known))
+      by (rewrite Hkdem; exact Haldem).
+    assert (Hki_dem : knows_incl s1.(state.known) sdem.(state.known))
+      by (eapply knows_incl_grow; [ exact Hki | exact Hkmono | exact Halk ]).
+    destruct output as [nf | pat osrc ocnt].
+    - destruct Hnf as (Hex & _).
+      apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdn1).
+      destruct Hcdn1 as (hyps & Hri & Hknows1).
+      assert (Hcdn_dem : can_deduce_normal_fact r sdem.(state.known) nf).
+      { exists hyps. split; [exact Hri |].
+        eapply Forall_impl; [exact Hknows1|]. simpl. intros h Hh. apply Hki_dem. exact Hh. }
+      destruct (classic (In (message.normal nf) sdem.(state.sent))) as [Hin | Hnin].
+      + left. apply eventually_done. eapply Hmk; eauto. reflexivity.
+      + right.
+        exists {| state.known := sdem.(state.known);
+                  state.sent := message.normal nf :: sdem.(state.sent) |},
+               [message.normal nf].
+        split.
+        * apply deduce_step. cbn [can_deduce]. split.
+          -- apply Exists_exists. eauto.
+          -- intros (pat' & num' & Hinmeta & Hmatch').
+             apply Hnin.
+             pose proof (Hokdem _ _ Hinmeta) as (_ & _ & _ & Hsat).
+             exact (Hsat r nf Hr_in Hcdn_dem Hmatch').
+        * apply eventually_done.
+          apply (Hmk _ (message.normal nf)).
+          -- cbn [state.known]. exact Hki_dem.
+          -- cbn [state.sent].
+             eapply submultiset_trans; [exact Hsmono | apply submultiset_cons].
+          -- cbn [state.sent]. left. reflexivity.
+          -- reflexivity.
+    - destruct Hnf as (Hsrc & Hexmr & Hexn1 & Hsat1). subst osrc.
+      destruct (Existsn_total (message.matches pat) sdem.(state.sent))
+        as (num_d & Hexn_d).
+      right.
+      replace (message.label (message.done_with pat name ocnt))
+        with (message.label (message.done_with pat name num_d)) by reflexivity.
+      exists {| state.known := sdem.(state.known);
+                state.sent := message.done_with pat name num_d :: sdem.(state.sent) |},
+             [message.done_with pat name num_d].
+      split.
+      + apply deduce_step. cbn [can_deduce]. ssplit.
+        * reflexivity.
+        * eapply Exists_impl; [|exact Hexmr]. simpl.
+          intros mr (mhyps & Hpi & Hkn). exists mhyps. split; [exact Hpi|].
+          eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
+          apply (Hki_dem (fact.meta mh)). exact Hmh.
+        * exact Hexn_d.
+        * intros r'' nf Hr''_in Hcdn_dem Hmatch'.
+          apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr_in & mhyps & Hpi & Hkn).
+          assert (Hcdn_s1 : can_deduce_normal_fact r'' s1.(state.known) nf).
+          { destruct Hcdn_dem as (local_hyps & Hri & Hknown_new).
+            exists local_hyps. split; [exact Hri |].
+            pose proof (Hmrv _ _ Hmr_in Hr''_in _ _ _ _ Hpi Hri Hmatch') as Hcov.
+            rewrite Forall_forall in Hknown_new, Hcov |- *.
+            intros h Hh. eapply knows_fact_transfer_down;
+              [ exact Hki_dem | exact Hkn | eauto | eauto ]. }
+          pose proof (Hsat1 r'' nf Hr''_in Hcdn_s1 Hmatch') as Hin_s1.
+          destruct (Hsnle _ Hin_s1) as (b & Hb & Hab).
+          destruct b; cbn [message.equiv] in Hab; fwd; [|congruence].
+          eapply submultiset_incl; eassumption.
+      + apply eventually_done. eapply Hmk.
+        * cbn [state.known]. exact Hki_dem.
+        * cbn [state.sent].
+          eapply submultiset_trans; [exact Hsmono | apply submultiset_cons].
+        * cbn [state.sent]. left. reflexivity.
+        * cbn [message.equiv]. auto.
+  Qed.
+
+  Lemma drive_to_dominate t0 s0 t' sf :
+    star step init t0 s0 ->
+    safe_inputs (flat_map inputs_of t0) ->
+    star step s0 t' sf ->
+    flat_map inputs_of t' = [] ->
+    eventually will_step (fun '(s2, _) => nle sf s2) (s0, t0).
+  Proof.
+    intros Hstar0 Hga0 Hrun Hinp. revert Hinp.
+    induction Hrun as [| T0 smid e sf' Hrun' IH Hstep]; intros Hinp.
+    - apply eventually_done. apply nle_refl.
+    - destruct e as [m | lbl outs].
+      + cbn [inputs_of flat_map app] in Hinp. discriminate Hinp.
+      + cbn [inputs_of flat_map app] in Hinp. specialize (IH Hinp).
+        apply eventually_will_step_annotate in IH.
+        eapply eventually_trans; [exact IH |].
+        intros [s2 t2] (Hreach & Hle_mid).
+        destruct Hreach as (tr & Hstar_s0s2 & -> & Hga_imp).
+        specialize (Hga_imp Hga0).
+        assert (Hstar2 : star step init (tr ++ t0) s2) by eauto using star_app.
+        eapply will_match; try eassumption.
+        eapply reachable_good; eassumption.
+  Qed.
+
   Context (Hsenders : forall R, In R (program.normal_concl_rels p) -> In name (R_senders R)).
 
   Lemma sent_rel_sender t s nf :
