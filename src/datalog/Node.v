@@ -619,7 +619,9 @@ Section __.
   Proof.
     intros nf Hm. pose proof Hm as (Hrel & Hargs). cbv [sent_meta_fact knows_normal_fact].
     rewrite meta_fact.contains_mk, In_normal_args_with. destruct nf.
-    cbn in Hrel, Hargs |- *. rewrite Hrel. tauto.
+    cbn in Hrel, Hargs |- *. rewrite Hrel. split.
+    - intros [_ H]. exact H.
+    - split; assumption.
   Qed.
 
   Lemma sent_normal_deducible t s nf :
