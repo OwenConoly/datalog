@@ -272,9 +272,8 @@ Section __.
     pose proof (submultiset_incl _ _ (ex_intro _ rest Hperm)) as Hincl.
     destruct Hexp as (ems & Hf2 & Hsum).
     assert (Hf2' : Forall2 (fun k e => In (message.done_with pat k e) big)
-                           (R_senders pat.(fact_pattern.rel)) ems)
-      by (clear -Hf2 Hincl; induction Hf2; constructor;
-            [apply Hincl; assumption | assumption]).
+                           (R_senders pat.(fact_pattern.rel)) ems).
+    { eapply Forall2_impl; [ exact Hf2 | ]. intros. apply Hincl. assumption. }
     pose proof (Existsn_le_perm _ _ _ _ Hperm (Hallow pat ems Hf2')) as Hle.
     apply Forall_forall. intros x Hx Hmatch.
     pose proof (Existsn_ge_of_Existsn _ _ _ Hex num (le_n num)) as Hge_small.
@@ -295,7 +294,7 @@ Section __.
                     Hperm Hallow Hexp Hexn) as Hrest_no.
       exists num. split; [| split].
       + destruct Hexp as (ems & Hf2 & Hsum). exists ems. split; [| exact Hsum].
-        clear -Hf2 Hincl. induction Hf2; constructor; [apply Hincl; assumption | assumption].
+        eapply Forall2_impl; [ exact Hf2 | ]. intros. apply Hincl. assumption.
       + eapply Existsn_perm; [ | apply Permutation_sym; exact Hperm ].
         replace num with (num + 0) by lia.
         apply Existsn_app; [ exact Hexn | apply Forall_not_Existsn_0; exact Hrest_no ].
@@ -354,9 +353,8 @@ Section __.
     intros Hsub Hbound pat ems Hf2.
     pose proof (submultiset_incl _ _ Hsub) as Hincl.
     assert (Hf2' : Forall2 (fun k e => In (message.done_with pat k e) l2)
-                           (R_senders pat.(fact_pattern.rel)) ems)
-      by (clear -Hf2 Hincl; induction Hf2; constructor;
-            [apply Hincl; assumption | assumption]).
+                           (R_senders pat.(fact_pattern.rel)) ems).
+    { eapply Forall2_impl; [ exact Hf2 | ]. intros. apply Hincl. assumption. }
     eapply Existsn_le_submultiset; [ apply Hbound; exact Hf2' | exact Hsub ].
   Qed.
 
