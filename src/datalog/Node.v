@@ -360,41 +360,6 @@ Section __.
     eapply Existsn_le_submultiset; [ apply Hbound; exact Hf2' | exact Hsub ].
   Qed.
 
-  Lemma knows_fact_transfer_down_sub small big mhyps h :
-    submultiset small big ->
-    safe_inputs big ->
-    Forall (knows_meta_fact small) mhyps ->
-    fact.covered_by_pats (map meta_fact.pattern mhyps) h ->
-    knows_fact big h ->
-    knows_fact small h.
-  Proof.
-    intros Hsub Hallow Hhyps Hcov Hknow_big.
-    pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    destruct Hsub as (rest & Hperm).
-    cbv [fact.covered_by_pats] in Hcov. apply Exists_exists in Hcov.
-    destruct Hcov as (fp & Hfp & Hcov). apply in_map_iff in Hfp.
-    destruct Hfp as (mh & Hfp & Hmh). subst fp.
-    rewrite Forall_forall in Hhyps. specialize (Hhyps _ Hmh).
-    destruct Hhyps as (num_h & Hexp_h & Hex_h & _).
-    pose proof (submultiset_rest_no_matches mh.(meta_fact.pattern) small rest big num_h
-                  Hperm Hallow Hexp_h Hex_h) as Hrest_no.
-    rewrite Forall_forall in Hrest_no.
-    destruct h as [nf | mf]; simpl in Hcov.
-    - cbn [knows_fact knows_normal_fact] in Hknow_big |- *.
-      pose proof (Permutation_in _ Hperm Hknow_big) as Hin_app.
-      apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
-      exfalso. apply (Hrest_no _ Hinr). exact Hcov.
-    - destruct Hknow_big as (num_new & Hexp_new & Hex_new & Hiff_new).
-      cbv [meta_fact.rel] in Hexp_h. rewrite Hcov in Hexp_h, Hex_h, Hrest_no.
-      exists num_h. split; [exact Hexp_h | split; [exact Hex_h |]].
-      intros nf Hm. specialize (Hiff_new nf Hm). split.
-      + intro Hset. apply Hiff_new in Hset.
-        pose proof (Permutation_in _ Hperm Hset) as Hin_app.
-        apply in_app_or in Hin_app. destruct Hin_app as [Hin | Hinr]; [exact Hin |].
-        exfalso. apply (Hrest_no _ Hinr). exact Hm.
-      + intro Hin. apply Hiff_new. apply Hincl. exact Hin.
-  Qed.
-
   (*every done-message this node has sent could still be deduced now*)
   Definition sent_dones_ok (s : state) : Prop :=
     forall pat num,
@@ -697,8 +662,8 @@ Section __.
         exists hyps. split; [exact Hri |].
         pose proof (Hmrv _ _ Hmr Hr _ _ _ _ Hpi Hri Hm) as Hcov.
         rewrite Forall_forall in Hkh, Hcov |- *. intros h Hh.
-        eapply knows_fact_transfer_down_sub;
-          [ apply submultiset_cons | exact Hallow | exact Hkn | eauto | eauto ].
+        eapply knows_fact_transfer_down; [ | exact Hkn | eauto | eauto ].
+        intros f Hf. eapply knows_fact_submultiset; [ apply submultiset_cons | exact Hallow | exact Hf ].
   Qed.
 
   Lemma good_step s e s' t :
