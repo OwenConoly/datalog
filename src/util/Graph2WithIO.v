@@ -476,22 +476,6 @@ Section __.
     - destruct n; apply submultiset_refl.
   Qed.
 
-  Lemma npred_transf_of_init n inps P :
-    interp_claim (node_source n) P [] ->
-    safe_inputs (node_destn n) inps ->
-    npred_transf n inps P.
-  Proof.
-    intros HP Hsafe. apply npred_transf_mono_inc with (inps := []).
-    - apply npred_transf_complete with (st := init n) (t := []).
-      + apply star_refl.
-      + exists (fun _ => []). split; [ intros; apply safe_nothing | ].
-        cbv [inputs_of_outputs]. rewrite flat_map_all_nil with (l := Fin.all _) by (intros; reflexivity).
-        reflexivity.
-      + assumption.
-    - assumption.
-    - apply submultiset_nil_l.
-  Qed.
-
   Lemma graph_sat_sound gs t loc P :
     star graph_step init_graph_state t gs ->
     safe input_source (flat_map inputs_of t) ->
@@ -503,29 +487,18 @@ Section __.
     - eapply eventually_trans.
       + apply eventually_will_step_annotate.
         eapply eventually_will_step_Forall with
-          (Ps := map (fun n' '(gs', t') => exists os, interp_claim n' (Pjs n') os /\ submultiset os (outputs_at gs' t' n'))
-                   (Fin.all _)).
-        -- apply Forall_map, Forall_forall. intros n _ s s' e t0 (os & Hos & Hsub) Hstep.
-           exists os. split; [ assumption | ].
-           eapply submultiset_trans; [ eassumption | ]. eapply outputs_at_mono. eassumption.
-        -- apply Forall_map, Forall_forall. intros n _. eapply eventually_weaken; [ apply H0 | ].
-           intros [gs' t'] ?. eexists. split; [ eassumption | apply submultiset_refl ].
+          (Ps := map (fun n' '(gs', t') => interp_claim n' (Pjs n') (outputs_at gs' t' n')) (Fin.all _)).
+        -- apply Forall_map, Forall_forall. intros n _ s s' e t0 HP Hstep.
+           eapply interp_claim_mono; [ exact HP | ]. eapply outputs_at_mono. eassumption.
+        -- apply Forall_map, Forall_forall. intros n _. apply H0.
       + intros [gs' t'] ((tr & Hstar & -> & Hsafe') & Hgs).
         apply Forall_map in Hgs. rewrite Fin.Forall_all in Hgs.
-        apply Fin.choice in Hgs. destruct Hgs as [ojs Hojs].
-        eapply step_sat_sound.
+        apply step_sat_sound.
         * eapply star_app; eassumption.
         * auto.
-        * eapply npred_transf_mono_inc.
-          -- apply H1. intros n'. specialize (Hojs n'). fwd. split; [ eassumption | ].
-             eapply safe_mono; [ | eassumption ].
-             apply graph_is_safe; [ eapply star_app; eassumption | auto ].
-          -- exists (outputs_at gs' (tr ++ t)). split; [ | reflexivity ].
-             intros. apply graph_is_safe; [ eapply star_app; eassumption | auto ].
-          -- apply inputs_of_outputs_mono. intros n. specialize (Hojs n). fwd. assumption.
-    - apply step_sat_sound; [ assumption | assumption | ].
-      apply npred_transf_of_init; [ assumption | ].
-      exists (outputs_at gs t). split; [ | reflexivity ]. intros. apply graph_is_safe; assumption.
+        * apply H1. intros n'. split; [ apply Hgs | ].
+          apply graph_is_safe; [ eapply star_app; eassumption | auto ].
+    - apply eventually_done. eapply interp_claim_mono; [ eassumption | apply submultiset_nil_l ].
     - apply eventually_done. assumption.
   Qed.
 
