@@ -151,7 +151,7 @@ Section __.
     cbv [all_outputs forward_to]. cbn [graph_nodes].
     rewrite values_eq_tuples, tuples_map_values', values_eq_tuples.
     rewrite flat_map_concat_map, map_map, map_map, (flat_map_concat_map _ (map snd _)), map_map.
-    apply Permutation_refl'. f_equal. apply map_ext. intros [k v]. reflexivity.
+    apply Permutation_of_eq. f_equal. apply map_ext. intros [k v]. reflexivity.
   Qed.
 
   Lemma all_outputs_put gs gs' k ns ns' new :
@@ -766,7 +766,7 @@ Section __.
     cbv [output_map outputs_partition all_outputs].
     rewrite map_values'_map_values', values_eq_tuples, <- flat_map_concat_map, tuples_map_values'.
     rewrite filter_flat_map, values_eq_tuples, !flat_map_concat_map, !map_map.
-    apply Permutation_refl', f_equal, map_ext_in. intros [k ns] Hin. cbn.
+    apply Permutation_of_eq, f_equal, map_ext_in. intros [k ns] Hin. cbn.
     apply Properties.map.tuples_spec in Hin.
     destruct (Forall2_map_get_r _ _ _ _ _ Hruns Hin) as (np & _ & Hrun).
     erewrite <- node.sent_eq_outputs by exact Hrun. reflexivity.

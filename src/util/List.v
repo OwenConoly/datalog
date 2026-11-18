@@ -100,6 +100,9 @@ Qed.
 Lemma perm_nil_r {X : Type} (l : list X) : Permutation (l ++ []) l.
 Proof. rewrite app_nil_r. apply Permutation_refl. Qed.
 
+Lemma Permutation_of_eq {A} (l l' : list A) : l = l' -> Permutation l l'.
+Proof. intros ->. reflexivity. Qed.
+
 Lemma Permutation_concat {A} (l l' : list (list A)) :
   Permutation l l' -> Permutation (concat l) (concat l').
 Proof.
@@ -2508,7 +2511,7 @@ Proof.
     destruct (IHHnd kb Hkb) as (g & Hg & Hgsub).
     exists (fun_put g x ka). split.
     + rewrite Hk, Hg. cbv [fun_put]. destr (eqb x x); [ | congruence ].
-      apply Permutation_app_head, Permutation_refl', flat_map_ext_in.
+      apply Permutation_app_head, Permutation_of_eq, flat_map_ext_in.
       intros y Hy. destr (eqb y x); [ contradiction | reflexivity ].
     + intros y. cbv [fun_put]. destr (eqb y x); auto.
 Qed.

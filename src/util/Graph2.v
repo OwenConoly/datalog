@@ -153,7 +153,7 @@ Section __.
           symmetry; apply perm_ins; symmetry; apply Hcons.
     - cbv [gns_receive gns_run] in *. fwd.
       transitivity (inputs_of_outputs (outputs_at gs) dst).
-      + apply Permutation_refl'. apply flat_map_ext. intros k.
+      + apply Permutation_of_eq, flat_map_ext. intros k.
         rewrite outputs_at_fun_put. destr (eqb k n); reflexivity.
       + cbv [inputs_at fun_put]. destr (eqb dst n); cbn.
         * rewrite Hcons, Hp0. apply perm_recv.
@@ -254,7 +254,7 @@ Section __.
     destruct Hsub as (g & Hg & Hgsub). exists g. split.
     - intros n'. eapply safe_mono; [ apply Hsafe | ].
       eapply submultiset_trans; [ apply Hgsub | apply filter_submultiset ].
-    - rewrite Hg. apply Permutation_refl', flat_map_ext_in. intros n' _.
+    - rewrite Hg. apply Permutation_of_eq, flat_map_ext_in. intros n' _.
       symmetry. eapply filter_id_submultiset. apply Hgsub.
   Qed.
 
