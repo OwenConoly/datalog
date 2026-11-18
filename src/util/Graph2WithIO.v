@@ -437,63 +437,95 @@ Section __.
       + intros [gs' t'] []. eauto.
   Qed.
 
-  Lemma step_sat_sound gs dst P :
-    (any_step graph_step)^* init_graph gs ->
-    npred_transf dst (inputs_of_outputs (outputs_at gs) dst) P ->
-    eventually (will_step graph_step) (fun gs' => interp_claim dst P (outputs_at gs' dst)) gs.
+  Lemma step_sat_sound gs t dst P :
+    star graph_step init_graph_state t gs ->
+    safe input_source (flat_map inputs_of t) ->
+    npred_transf dst (inputs_of_outputs (outputs_at gs t) (node_destn dst)) P ->
+    eventually (will_step graph_step (safe input_source))
+      (fun '(gs', t') => interp_claim (node_source dst) P (outputs_at gs' t' (node_source dst))) (gs, t).
   Proof.
-    intros Hstep Htrans.
+    intros Hreach Hsafe Htrans.
     eapply eventually_trans.
-    { apply eventually_and_reach. apply sent_msgs_eventually_received with (dst := dst). assumption. }
-    simpl. intros gs' Hgs'. fwd.
+    { apply eventually_will_step_annotate. apply sent_msgs_eventually_received with (d := node_destn dst). assumption. }
+    intros [gs' t'] ((tr & Hstar & -> & Hsafe') & Hrecv).
     eapply eventually_weaken.
-    { apply eventually_and_reach. apply graph_eventually_of_node_eventually.
-      - eauto using crt1n_trans_compose.
+    { apply graph_eventually_of_node_eventually.
+      - eapply star_app; eassumption.
       - apply npred_transf_sound.
-        2: { apply node_steps_of_graph_steps_init. eauto using crt1n_trans_compose. }
+        2: { apply node_steps_of_graph_steps_init with (t := tr ++ t). eapply star_app; eassumption. }
         eapply npred_transf_mono_inc.
         + eassumption.
-        + apply graph_inputs_safe. eauto using crt1n_trans_compose.
+        + apply (graph_inputs_safe _ (tr ++ t) (node_destn dst)).
+          * eapply star_app; eassumption.
+          * auto.
         + assumption. }
-    simpl. intros final Hfinal. fwd. assumption.
+    intros [gs'' t''] HP. exact HP.
   Qed.
 
-  Lemma outputs_at_mono s lbl s' n :
-    graph_step s lbl s' ->
-    submultiset (outputs_at s n) (outputs_at s' n).
+  Lemma outputs_at_mono s t e s' n :
+    graph_step s e s' ->
+    submultiset (outputs_at s t n) (outputs_at s' (e :: t) n).
   Proof.
     intros Hstep. invert Hstep.
-    - cbv [gns_run] in *. fwd. rewrite outputs_at_forward_to, outputs_at_dfun_put.
-      destr (eqb n n0); cbn; auto using submultiset_refl, submultiset_app_l.
-    - cbv [gns_receive gns_run] in *. fwd. rewrite outputs_at_dfun_put.
-      destr (eqb n n0); cbn; apply submultiset_refl.
+    - destruct n; [ apply submultiset_refl | apply submultiset_cons ].
+    - cbv [gns_run] in *. fwd. rewrite outputs_at_forward_to, outputs_at_put_node.
+      destr (eqb n (node_source n0)); [ apply submultiset_app_l | destruct n; apply submultiset_refl ].
+    - cbv [gns_receive gns_run] in *. fwd. rewrite outputs_at_put_node.
+      destr (eqb n (node_source n0)); [ apply submultiset_refl | destruct n; apply submultiset_refl ].
+    - destruct n; apply submultiset_refl.
   Qed.
 
-  Lemma graph_sat_sound loc P :
-    graph_sat loc P ->
-    eventually (will_step graph_step) (fun gs => interp_claim loc P (outputs_at gs loc)) init_graph.
+  Lemma npred_transf_of_init n inps P :
+    interp_claim (node_source n) P [] ->
+    safe_inputs (node_destn n) inps ->
+    npred_transf n inps P.
   Proof.
-    induction 1.
+    intros HP Hsafe. apply npred_transf_mono_inc with (inps := []).
+    - apply npred_transf_complete with (st := init n) (t := []).
+      + apply star_refl.
+      + exists (fun _ => []). split; [ intros; apply safe_nothing | ].
+        cbv [inputs_of_outputs]. rewrite flat_map_all_nil with (l := Fin.all _) by (intros; reflexivity).
+        reflexivity.
+      + assumption.
+    - assumption.
+    - apply submultiset_nil_l.
+  Qed.
+
+  Lemma graph_sat_sound gs t loc P :
+    star graph_step init_graph_state t gs ->
+    safe input_source (flat_map inputs_of t) ->
+    graph_sat (flat_map inputs_of t) loc P ->
+    eventually (will_step graph_step (safe input_source))
+      (fun '(gs', t') => interp_claim loc P (outputs_at gs' t' loc)) (gs, t).
+  Proof.
+    intros Hreach Hsafe. induction 1.
     - eapply eventually_trans.
-      + apply eventually_and_reach.
+      + apply eventually_will_step_annotate.
         eapply eventually_will_step_Forall with
-          (Ps := map (fun n' => fun gs => exists os, interp_claim n' (Pjs n') os /\ submultiset os (outputs_at gs n')) (Fin.all _)) .
-        -- apply Forall_map, Forall_forall. intros n _. cbv [ev_stable]. intros. fwd.
-           eexists. split; [eassumption|]. eapply submultiset_trans; [eassumption|].
-           eapply outputs_at_mono. eassumption.
-        -- apply Forall_map, Forall_forall. intros n _. eapply eventually_weaken.
-           { apply H0. }
-           simpl. intros. eauto using submultiset_refl.
-      + simpl. intros gs Hgs. fwd. apply Forall_map in Hgsp1. rewrite Fin.Forall_all in Hgsp1.
+          (Ps := map (fun n' '(gs', t') => exists os, interp_claim n' (Pjs n') os /\ submultiset os (outputs_at gs' t' n'))
+                   (Fin.all _)).
+        -- apply Forall_map, Forall_forall. intros n _ s s' e t0 (os & Hos & Hsub) Hstep.
+           exists os. split; [ assumption | ].
+           eapply submultiset_trans; [ eassumption | ]. eapply outputs_at_mono. eassumption.
+        -- apply Forall_map, Forall_forall. intros n _. eapply eventually_weaken; [ apply H0 | ].
+           intros [gs' t'] ?. eexists. split; [ eassumption | apply submultiset_refl ].
+      + intros [gs' t'] ((tr & Hstar & -> & Hsafe') & Hgs).
+        apply Forall_map in Hgs. rewrite Fin.Forall_all in Hgs.
+        apply Fin.choice in Hgs. destruct Hgs as [ojs Hojs].
         eapply step_sat_sound.
-        { assumption. }
-        cbv [suffices] in H1. apply Fin.choice in Hgsp1. destruct Hgsp1 as [ojs Hojs].
-        eapply npred_transf_mono_inc.
-        -- apply H1. intros n'. specialize (Hojs n'). fwd. split; [eassumption|].
-           eapply safe_mono; [|eassumption]. apply graph_is_safe. assumption.
-        -- cbv [safe_inputs]. eexists. split; [|reflexivity]. intros. apply graph_is_safe. assumption.
-        -- apply inputs_of_outputs_mono. intros n. specialize (Hojs n). fwd. assumption.
-    - apply eventually_done. simpl. assumption.
+        * eapply star_app; eassumption.
+        * auto.
+        * eapply npred_transf_mono_inc.
+          -- apply H1. intros n'. specialize (Hojs n'). fwd. split; [ eassumption | ].
+             eapply safe_mono; [ | eassumption ].
+             apply graph_is_safe; [ eapply star_app; eassumption | auto ].
+          -- exists (outputs_at gs' (tr ++ t)). split; [ | reflexivity ].
+             intros. apply graph_is_safe; [ eapply star_app; eassumption | auto ].
+          -- apply inputs_of_outputs_mono. intros n. specialize (Hojs n). fwd. assumption.
+    - apply step_sat_sound; [ assumption | assumption | ].
+      apply npred_transf_of_init; [ assumption | ].
+      exists (outputs_at gs t). split; [ | reflexivity ]. intros. apply graph_is_safe; assumption.
+    - apply eventually_done. assumption.
   Qed.
 
   Lemma step_sat_complete gs gs' dst P :
