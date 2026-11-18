@@ -1,4 +1,4 @@
-From Stdlib Require Import List Lia Permutation Classical_Prop RelationClasses.
+From Stdlib Require Import List Lia Permutation RelationClasses.
 From Datalog Require Import List Datalog Smallstep Tactics Graph Decidable.
 From coqutil Require Import Map.Interface Eqb.
 From coqutil Require Import Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
@@ -613,7 +613,8 @@ Section __.
       assert (Hcdn_dem : can_deduce_normal_fact r sdem.(state.known) nf).
       { exists hyps. split; [exact Hri |].
         eapply Forall_impl; [exact Hknows1|]. simpl. intros h Hh. apply Hki_dem. exact Hh. }
-      destruct (classic (In (message.normal nf) sdem.(state.sent))) as [Hin | Hnin].
+      destr (inb nf (filter_map message.as_normal sdem.(state.sent)));
+        rewrite message.in_filter_map_as_normal in E.
       + left. apply eventually_done. eapply Hmk; eauto. reflexivity.
       + right.
         exists {| state.known := sdem.(state.known);
@@ -623,7 +624,7 @@ Section __.
         * apply deduce_step. cbn [can_deduce]. split.
           -- apply Exists_exists. eauto.
           -- intros (pat' & num' & Hinmeta & Hmatch').
-             apply Hnin.
+             apply E.
              pose proof (Hokdem _ _ Hinmeta) as (_ & _ & _ & Hsat).
              exact (Hsat r nf Hr_in Hcdn_dem Hmatch').
         * apply eventually_done.
@@ -634,8 +635,8 @@ Section __.
           -- cbn [state.sent]. left. reflexivity.
           -- reflexivity.
     - destruct Hnf as (Hsrc & Hexmr & Hexn1 & Hsat1). subst osrc.
-      destruct (Existsn_total (message.matches pat) sdem.(state.sent))
-        as (num_d & Hexn_d).
+      pose proof (Existsn_length_filter _ _ sdem.(state.sent) (message.matchesb_spec pat)) as Hexn_d.
+      set (num_d := length (filter (message.matchesb pat) sdem.(state.sent))) in Hexn_d.
       right.
       replace (message.label (message.done_with pat name ocnt))
         with (message.label (message.done_with pat name num_d)) by reflexivity.
