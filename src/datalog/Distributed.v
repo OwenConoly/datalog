@@ -113,7 +113,6 @@ Section Distributed.
     - intros. eapply eventually_will_step_weaken_allowed.
       + eapply can_claim_sound; try eassumption.
         * apply Hmrv.
-        * intros. apply node_sends_concl_rels. assumption.
         * eapply allowed_of_safe_inputs; eassumption.
       + apply allowed_of_safe_inputs.
     - intros. cbv beta in *. eapply can_claim_mono_inc; try eassumption.
