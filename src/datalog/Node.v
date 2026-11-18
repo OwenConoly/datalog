@@ -110,15 +110,18 @@ Module claim.
 
     Variant claim :=
       | normal (nf : normal_fact)
-      | done_with (pattern : fact_pattern).
+      | done_with (pattern : fact_pattern) (tuples : list value -> Prop).
 
     Definition interp (name : sender_label) (P : claim) (ms : list message) :=
       match P with
       | normal nf => In (message.normal nf) ms
-      | done_with pat =>
+      | done_with pat tuples =>
           exists num,
           In (message.done_with pat name num) ms /\
-            Existsn_ge (message.matches pat) num ms
+            Existsn_ge (message.matches pat) num ms /\
+            forall nf,
+              fact_pattern.matches pat nf ->
+              In (message.normal nf) ms <-> tuples nf.(normal_fact.args)
       end.
 
     Lemma interp_mono name P : multiset_monotone_inc (interp name P).
