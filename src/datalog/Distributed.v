@@ -147,9 +147,12 @@ Section Distributed.
     - apply claim.interp_mono.
     - intros n. apply safe_output_mono.
     - intros n. split; intros; contradiction.
+    - intros. eapply safe_preserved; try eassumption.
+      eapply allowed_of_safe_inputs; eassumption.
     - admit.
-    - admit.
-    - admit.
+    - intros. cbv beta in *. eapply can_claim_mono_inc; try eassumption.
+      eapply allowed_of_safe_inputs, safe_inputs_mono; try eassumption.
+      apply safe_output_mono.
   Admitted.
 
   Lemma consistent_good_holds :

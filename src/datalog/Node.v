@@ -262,8 +262,8 @@ Section __.
     safe_output (flat_map outputs_of t).
   Proof. Admitted.
 
-  Lemma can_claim_sound inps c t st :
-    can_claim inps c ->
+  Lemma can_claim_sound c t st :
+    can_claim (flat_map inputs_of t) c ->
     star step init t st ->
     eventually will_step (fun '(_, t') => claim.interp name c (flat_map outputs_of t')) (st, t).
   Proof. Admitted.
@@ -280,7 +280,7 @@ Section __.
     safe_inputs inps ->
     submultiset inps inps' ->
     can_claim inps' c.
-  Proof. Admitted.
+  Proof using. Admitted.
 End __.
 End node.
 
