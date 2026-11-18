@@ -528,31 +528,33 @@ Section __.
     - apply eventually_done. assumption.
   Qed.
 
-  Lemma step_sat_complete gs gs' dst P :
-    (any_step graph_step)^* init_graph gs ->
-    any_step graph_step gs gs' ->
-    interp_claim dst P (outputs_at gs' dst) ->
-    outputs_at gs' dst = outputs_at gs dst \/
+  Lemma step_sat_complete gs t e gs' dst P :
+    star graph_step init_graph_state t gs ->
+    safe input_source (flat_map inputs_of t) ->
+    graph_step gs e gs' ->
+    interp_claim (node_source dst) P (outputs_at gs' (e :: t) (node_source dst)) ->
+    outputs_at gs' (e :: t) (node_source dst) = outputs_at gs t (node_source dst) \/
       exists Pjs,
-        (forall n, interp_claim n (Pjs n) (outputs_at gs n)) /\
+        (forall n, interp_claim n (Pjs n) (outputs_at gs t n)) /\
           suffices dst Pjs P.
   Proof.
-    intros Hreach Hstep HP. cbv [any_step] in Hstep. fwd. invert Hstep.
-    - cbv [gns_run] in H. fwd. rewrite outputs_at_forward_to, outputs_at_dfun_put in *.
-      destr (eqb dst n); [|left; reflexivity]. simpl in HP |- *. right.
-      pose proof node_steps_of_graph_steps_init as H''. especialize H''; eauto.
-      pose proof npred_transf_complete as H'. especialize H'.
-      { eapply star_step; eassumption. }
-      { simpl. apply graph_inputs_safe. assumption. }
-      { eassumption. }
-      simpl in H'. apply preconditions_decompose.
-      + intros. apply graph_is_safe. assumption.
+    intros Hreach Hsafe Hstep HP. invert Hstep.
+    - left. reflexivity.
+    - cbv [gns_run] in H. fwd. rewrite outputs_at_forward_to, outputs_at_put_node in *.
+      destr (eqb (node_source dst) (node_source n)); [ invert E | left; reflexivity ].
+      right. apply preconditions_decompose.
+      + intros. apply graph_is_safe; assumption.
       + eapply npred_transf_mono_inc.
-        -- eassumption.
-        -- cbv [safe_inputs]. eexists. split; [|reflexivity]. intros. apply graph_is_safe. assumption.
-        -- cbv [submultiset]. setoid_rewrite messages_conserved; try assumption. eexists. reflexivity.
-    - left. cbv [gns_receive gns_run] in H. fwd. rewrite outputs_at_dfun_put.
-      destr (eqb dst n); reflexivity.
+        * apply npred_transf_complete with (st := st').
+          -- eapply star_step; [ eapply node_steps_of_graph_steps_init; eassumption | eassumption ].
+          -- apply (graph_inputs_safe _ t (node_destn n)); assumption.
+          -- exact HP.
+        * exists (outputs_at gs t). split; [ | reflexivity ]. intros. apply graph_is_safe; assumption.
+        * eapply submultiset_perm_r; [ | apply submultiset_app_r ].
+          symmetry. apply messages_conserved. assumption.
+    - left. cbv [gns_receive gns_run] in H. fwd. rewrite outputs_at_put_node.
+      destr (eqb (node_source dst) (node_source n)); [ invert E | ]; reflexivity.
+    - left. reflexivity.
   Qed.
 
   Lemma graph_sat_complete dst P gs :
