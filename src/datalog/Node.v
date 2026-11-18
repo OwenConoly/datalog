@@ -120,6 +120,15 @@ Module claim.
           In (message.done_with pat name num) ms /\
             Existsn_ge (message.matches pat) num ms
       end.
+
+    Lemma interp_mono name P : multiset_monotone_inc (interp name P).
+    Proof.
+      intros ms1 ms2 H Hsub. destruct P; cbv [interp] in *.
+      - eapply submultiset_incl; eassumption.
+      - fwd. eexists. split.
+        + eapply submultiset_incl; eassumption.
+        + eapply Existsn_ge_submultiset; eassumption.
+    Qed.
   End __.
 End claim. Abbreviation claim := claim.claim.
 

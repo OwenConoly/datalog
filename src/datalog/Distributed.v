@@ -191,7 +191,7 @@ Section Distributed.
   Proof.
     intros. eapply graph_sat_sound; try eassumption.
     - intros n s m. eexists. apply input_step.
-    - admit.
+    - apply claim.interp_mono.
     - intros n. apply safe_output_mono.
     - intros n. split; intros; contradiction.
     - admit.
