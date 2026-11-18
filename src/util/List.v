@@ -1693,6 +1693,17 @@ Section Existsn.
     apply Forall2_flip, Forall2_map_r, Existsn_squeeze; [ exact Hge | ].
     apply Forall2_map_r with (f := f). apply Forall2_flip, Hle.
   Qed.
+
+  Lemma Existsn_squeeze_flat_map_filter {A} (f : A -> list T) (p : A -> bool) xs es :
+    (forall x, In x xs -> p x = false -> Forall (fun y => ~ P y) (f x)) ->
+    Existsn (list_sum es) (flat_map f xs) ->
+    Forall2 (fun x e => Existsn_le e (f x)) (filter p xs) es ->
+    Forall2 (fun x e => Existsn_ge e (f x)) (filter p xs) es.
+  Proof.
+    intros Hoff Hn Hle. apply Existsn_squeeze_flat_map; [ | exact Hle ].
+    apply Existsn_ge_of_Existsn with (n := list_sum es); [ | lia ].
+    apply Existsn_flat_map_filter; assumption.
+  Qed.
 End Existsn.
 
 #[export] Instance Existsn_Permutation_Proper T (P : T -> Prop) n :

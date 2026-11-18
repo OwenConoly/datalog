@@ -267,6 +267,13 @@ Section __.
     intros. especialize H1p0; eauto using submultiset_incl, incl_def. fwd. eauto using Existsn_le_submultiset.
   Qed.
 
+  Lemma safe_output_sender fs pat nf :
+    safe_output fs ->
+    In (message.normal nf) fs ->
+    fact_pattern.matches pat nf ->
+    In name (R_senders pat.(fact_pattern.rel)).
+  Proof. intros (_ & Hsend) Hin (Hrel & _). rewrite Hrel. auto. Qed.
+
   Lemma submultiset_rest_no_matches pat small rest big num :
     Permutation big (small ++ rest) ->
     safe_inputs big ->
@@ -622,6 +629,35 @@ Section __.
     cbn in Hrel, Hargs |- *. rewrite Hrel. split.
     - intros [_ H]. exact H.
     - split; assumption.
+  Qed.
+
+  Lemma interp_sent_meta_fact ms pat num :
+    In (message.done_with pat name num) ms ->
+    Existsn_ge (message.matches pat) num ms ->
+    claim.interp name (fact.meta (sent_meta_fact ms pat)) ms.
+  Proof.
+    intros Hin Hge. exists num. ssplit; [ exact Hin | | ].
+    - eapply Existsn_ge_impl; [ exact Hge | ]. intros [nf | ] Hnf Hm; [ | destruct Hm ].
+      split; [ exact Hm | ]. apply (sent_meta_fact_consistent _ _ nf Hm). exact Hnf.
+    - intros nf (Hm & Hc). apply (sent_meta_fact_consistent _ _ nf Hm). exact Hc.
+  Qed.
+
+  Lemma interp_meta_safe mf ms :
+    claim.interp name (fact.meta mf) ms ->
+    safe_output ms ->
+    exists num,
+      In (message.done_with mf.(meta_fact.pattern) name num) ms /\
+        Existsn (message.matches mf.(meta_fact.pattern)) num ms /\
+        meta_fact.consistent_with mf (knows_normal_fact ms).
+  Proof.
+    intros (num & Hin & Hge & Hall) (Hdone & _). destruct (Hdone _ _ _ Hin) as [_ Hle].
+    exists num. ssplit; [ exact Hin | | ].
+    - apply Existsn_of_ge_le; [ | exact Hle ].
+      eapply Existsn_ge_impl; [ exact Hge | ]. intros m _. apply message.in_meta_fact_matches.
+    - intros nf Hm. split.
+      + intros Hc. apply Hall. split; assumption.
+      + intros Hnf.
+        exact (proj2 (Existsn_ge_le_tight _ _ _ _ (message.in_meta_fact_matches mf) Hge Hle _ Hnf Hm)).
   Qed.
 
   Lemma sent_normal_deducible t s nf :
