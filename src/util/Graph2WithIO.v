@@ -13,6 +13,7 @@ Section __.
   Context (nodes_input_total : forall n, input_total (node_step n)).
 
   Context (claim : source -> Type) (interp_claim : forall n, claim n -> list message -> Prop).
+  Context (interp_claim_mono : forall n c, multiset_monotone_inc (interp_claim n c)).
   Context (npred_transf : forall n, list message -> claim (node_source n) -> Prop).
   Context (init : node -> node_state).
   Context (safe : source -> list message -> Prop).
@@ -557,20 +558,31 @@ Section __.
     - left. reflexivity.
   Qed.
 
-  Lemma graph_sat_complete dst P gs :
-    (any_step graph_step)^* init_graph gs ->
-    interp_claim dst P (outputs_at gs dst) ->
-    graph_sat dst P.
+  Lemma graph_sat_mono inps inps' s P :
+    graph_sat inps s P ->
+    submultiset inps inps' ->
+    graph_sat inps' s P.
   Proof.
-    intros Hsteps. revert dst P. apply clos_rt1n_rt, clos_rt_rtn1 in Hsteps.
-    induction Hsteps; intros dst P HP.
+    intros Hsat Hsub. induction Hsat.
+    - eapply step_sat; eassumption.
     - apply init_sat. assumption.
-    - eapply step_sat_complete in H; cycle 1.
-      + apply clos_rt_rt1n, clos_rtn1_rt. assumption.
-      + eassumption.
-      + destruct H as [H|H].
-        -- apply IHHsteps; try assumption. rewrite <- H. assumption.
-        -- fwd. eapply step_sat; [|eassumption]. intros n'. specialize (Hp0 n'). fwd.
-           apply IHHsteps; assumption.
+    - apply input_sat. eapply interp_claim_mono; eassumption.
+  Qed.
+
+  Lemma graph_sat_complete gs t dst P :
+    star graph_step init_graph_state t gs ->
+    safe input_source (flat_map inputs_of t) ->
+    interp_claim dst P (outputs_at gs t dst) ->
+    graph_sat (flat_map inputs_of t) dst P.
+  Proof.
+    intros Hreach. revert dst P. induction Hreach; intros dst P Hsafe HP.
+    - destruct dst; [ apply init_sat | apply input_sat ]; assumption.
+    - assert (Hsafe' : safe input_source (flat_map inputs_of t0)).
+      { eapply safe_mono; [ exact Hsafe | apply submultiset_app_l ]. }
+      destruct dst as [n|]; [ | apply input_sat; assumption ].
+      eapply graph_sat_mono; [ | apply submultiset_app_l ].
+      destruct (step_sat_complete _ _ _ _ _ _ Hreach Hsafe' H HP) as [Heq | (Pjs & HPjs & Hsuff)].
+      + apply IHHreach; [ assumption | ]. rewrite <- Heq. assumption.
+      + eapply step_sat; [ | eassumption ]. intros n'. apply IHHreach; [ assumption | apply HPjs ].
   Qed.
 End __.
