@@ -1,5 +1,5 @@
 From Stdlib Require Import List Lia Permutation RelationClasses.
-From Datalog Require Import List Datalog Smallstep Tactics Graph Decidable.
+From Datalog Require Import List Datalog Smallstep Tactics Decidable.
 From coqutil Require Import Map.Interface Eqb.
 From coqutil Require Import Semantics.OmniSmallstepCombinators Tactics Tactics.fwd.
 Import ListNotations.
@@ -27,17 +27,10 @@ End action_label. Abbreviation action_label := action_label.action_label.
 Module message.
   Section __.
     Context `{params : datalog_params} {sender_label : sender_labelT}.
-    Context (R_senders : rel -> list sender_label).
 
     Variant message :=
     | normal (nf : normal_fact)
     | done_with (pattern : fact_pattern) (src : sender_label) (count : nat).
-
-    Definition is_normal (f : message) : bool :=
-      match f with
-      | normal _ => true
-      | done_with _ _ _ => false
-      end.
 
     Definition as_normal (f : message) : option normal_fact :=
       match f with
@@ -74,12 +67,6 @@ Module message.
     #[global] Instance matchesb_spec pat f :
       Reflects (matches pat f) (matchesb pat f).
     Proof. destruct f; cbn [matches matchesb]; [exact _ | constructor; auto]. Qed.
-
-    Lemma Existsn_matches_filter_map_as_normal pat n l :
-      Existsn (matches pat) n l <-> Existsn (fact_pattern.matches pat) n (filter_map as_normal l).
-    Proof.
-      apply Existsn_filter_map. intros [nf | ]; simpl; split; intros; fwd; (eauto || contradiction || discriminate).
-    Qed.
 
     Definition in_meta_fact (mf : meta_fact) (f : message) :=
       match f with
@@ -448,16 +435,6 @@ Section __.
     - reflexivity.
     - invert Hstep; cbn [state.known inputs_of flat_map app];
         rewrite IH; reflexivity.
-  Qed.
-
-  Lemma known_input_free s t s' :
-    star step s t s' -> flat_map inputs_of t = [] -> s'.(state.known) = s.(state.known).
-  Proof.
-    intros Hstar. induction Hstar as [| t0 sa e sb Hstar IH Hstep]; intros Hinp.
-    - reflexivity.
-    - invert Hstep; cbn [inputs_of flat_map app] in Hinp.
-      + exact (IH Hinp).
-      + discriminate Hinp.
   Qed.
 
   Definition knows_incl (l1 l2 : list message) : Prop :=
