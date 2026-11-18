@@ -301,16 +301,73 @@ Section __.
           apply (Hrest_no _ Hinr). exact Hm.
   Qed.
 
+  Lemma sent_eq_outputs t s :
+    star step init t s -> s.(state.sent) = flat_map outputs_of t.
+  Proof.
+    induction 1; [ reflexivity | ].
+    invert H0; cbn; congruence.
+  Qed.
+
+  Lemma sent_source_correct t s pat src num :
+    star step init t s ->
+    In (message.done_with pat src num) s.(state.sent) ->
+    src = name.
+  Proof.
+    induction 1; [ destruct 1 | ].
+    intros Hin. invert H0; cbn [state.sent] in Hin; [ | auto ].
+    destruct Hin as [-> | Hin]; [ | auto ].
+    cbn [can_deduce] in *. fwd. congruence.
+  Qed.
+
+  Lemma sent_counts_correct t s pat num :
+    star step init t s ->
+    In (message.done_with pat name num) s.(state.sent) ->
+    Existsn (message.matches pat) num s.(state.sent).
+  Proof.
+    induction 1; [ destruct 1 | ].
+    intros Hin. invert H0; cbn [state.sent] in *; [ | auto ].
+    destruct Hin as [-> | Hin].
+    - cbn [can_deduce] in *. fwd. apply Existsn_no; [ intros [] | assumption ].
+    - apply Existsn_no; [ | auto ].
+      intros Hmatch. destruct output as [nf' | pat' src' cnt']; [ | exact Hmatch ].
+      cbn [can_deduce] in *. cbv [counted] in *. fwd. eauto.
+  Qed.
+
+  Lemma can_deduce_normal_concl_rel ns nf :
+    can_deduce ns (message.normal nf) -> In nf.(normal_fact.rel) (program.normal_concl_rels p).
+  Proof.
+    cbn [can_deduce]. intros (Hex & _). apply Exists_exists in Hex.
+    destruct Hex as (r & Hr & hyps & Hri & _).
+    eapply program.rule_normal_concl_rel_in; eauto using rule.interp_concl_relname_in.
+  Qed.
+
   Local Abbreviation will_step := (will_step step safe_inputs).
 
   Context (Hmrv : program.meta_rules_valid p).
   Context (Hsenders : forall R, In R (program.normal_concl_rels p) -> In name (R_senders R)).
 
+  Lemma sent_rel_sender t s nf :
+    star step init t s ->
+    In (message.normal nf) s.(state.sent) ->
+    In name (R_senders nf.(normal_fact.rel)).
+  Proof.
+    induction 1; [ destruct 1 | ].
+    intros Hin. invert H0; cbn [state.sent] in Hin; [ | auto ].
+    destruct Hin as [-> | Hin]; [ | auto ].
+    apply Hsenders. eapply can_deduce_normal_concl_rel. eassumption.
+  Qed.
+
   Lemma safe_preserved t st :
     star step init t st ->
-    safe_inputs (flat_map inputs_of t) ->
     safe_output (flat_map outputs_of t).
-  Proof. Admitted.
+  Proof.
+    intros Hstar. rewrite <- (sent_eq_outputs _ _ Hstar). split.
+    - intros pat src cnt Hin.
+      replace src with name in * by (symmetry; eapply sent_source_correct; eassumption).
+      split; [ reflexivity | ].
+      eapply Existsn_le_of_Existsn; [ eapply sent_counts_correct; eassumption | lia ].
+    - intros nf Hin. eapply sent_rel_sender; eassumption.
+  Qed.
 
   Lemma can_claim_sound c t st :
     can_claim (flat_map inputs_of t) c ->

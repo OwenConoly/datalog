@@ -109,9 +109,7 @@ Section Distributed.
     - intros n. apply safe_output_mono.
     - intros n. split; intros; contradiction.
     - intros. eapply safe_preserved; try eassumption.
-      + apply Hmrv.
-      + intros. apply node_sends_concl_rels. assumption.
-      + eapply allowed_of_safe_inputs; eassumption.
+      intros. apply node_sends_concl_rels. assumption.
     - intros. eapply eventually_will_step_weaken_allowed.
       + eapply can_claim_sound; try eassumption.
         * apply Hmrv.
