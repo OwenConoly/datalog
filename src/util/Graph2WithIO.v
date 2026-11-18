@@ -135,14 +135,17 @@ Section __.
     | node_destn n' => flat_map inputs_of (gs.(graph_nodes) n').(gns_trace)
     end.
 
-  Inductive graph_sat : forall n, claim n -> Prop :=
+  Inductive graph_sat (inputs : list message) : forall n, claim n -> Prop :=
   | step_sat loc P Pjs :
-    (forall n', graph_sat n' (Pjs n')) ->
+    (forall n', graph_sat _ n' (Pjs n')) ->
     suffices loc Pjs P ->
-    graph_sat loc P
+    graph_sat _ (node_source loc) P
   | init_sat loc P :
-    interp_claim loc P [] ->
-    graph_sat loc P.
+    interp_claim (node_source loc) P [] ->
+    graph_sat _ (node_source loc) P
+  | input_sat P :
+    interp_claim input_source P inputs ->
+    graph_sat _ input_source P.
 
   Definition init_graph : graph_state := fun n =>
     {| gns_node_state := init n;
