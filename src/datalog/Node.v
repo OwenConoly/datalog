@@ -254,7 +254,57 @@ Section __.
     intros. especialize H1p0; eauto using submultiset_incl, incl_def. fwd. eauto using Existsn_le_submultiset.
   Qed.
 
+  Lemma submultiset_rest_no_matches pat small rest big num :
+    Permutation big (small ++ rest) ->
+    safe_inputs big ->
+    expects_num_facts (R_senders pat.(fact_pattern.rel)) pat small num ->
+    Existsn (message.matches pat) num small ->
+    Forall (fun x => ~ message.matches pat x) rest.
+  Proof.
+    intros Hperm Hallow Hexp Hex.
+    pose proof (submultiset_incl _ _ (ex_intro _ rest Hperm)) as Hincl.
+    destruct Hexp as (ems & Hf2 & Hsum).
+    assert (Hf2' : Forall2 (fun k e => In (message.done_with pat k e) big)
+                           (R_senders pat.(fact_pattern.rel)) ems)
+      by (clear -Hf2 Hincl; induction Hf2; constructor;
+            [apply Hincl; assumption | assumption]).
+    pose proof (Existsn_le_perm _ _ _ _ Hperm (Hallow pat ems Hf2')) as Hle.
+    apply Forall_forall. intros x Hx Hmatch.
+    pose proof (Existsn_ge_of_Existsn _ _ _ Hex num (le_n num)) as Hge_small.
+    pose proof (Existsn_ge_app _ _ _ _ _ Hge_small (Existsn_ge_1 _ _ _ Hx Hmatch)) as Hge_app.
+    pose proof (Existsn_ge_le_bound _ _ _ _ Hge_app Hle). lia.
+  Qed.
+
+  Lemma knows_fact_submultiset l1 l2 h :
+    submultiset l1 l2 -> safe_inputs l2 ->
+    knows_fact l1 h -> knows_fact l2 h.
+  Proof.
+    intros Hsub Hallow Hk. pose proof (submultiset_incl _ _ Hsub) as Hincl.
+    destruct Hsub as (rest & Hperm).
+    destruct h as [nf | mf].
+    - apply Hincl. exact Hk.
+    - destruct Hk as (num & Hexp & Hexn & Hiff).
+      pose proof (submultiset_rest_no_matches mf.(meta_fact.pattern) l1 rest l2 num
+                    Hperm Hallow Hexp Hexn) as Hrest_no.
+      exists num. split; [| split].
+      + destruct Hexp as (ems & Hf2 & Hsum). exists ems. split; [| exact Hsum].
+        clear -Hf2 Hincl. induction Hf2; constructor; [apply Hincl; assumption | assumption].
+      + eapply Existsn_perm; [ | apply Permutation_sym; exact Hperm ].
+        replace num with (num + 0) by lia.
+        apply Existsn_app; [ exact Hexn | apply Forall_not_Existsn_0; exact Hrest_no ].
+      + intros nf Hm. specialize (Hiff nf Hm). split; intro H.
+        * apply Hincl. apply (proj1 Hiff). exact H.
+        * apply (proj2 Hiff).
+          pose proof (Permutation_in _ Hperm H) as H'.
+          apply in_app_or in H'. destruct H' as [Hin1 | Hinr]; [exact Hin1 |].
+          exfalso. rewrite Forall_forall in Hrest_no.
+          apply (Hrest_no _ Hinr). exact Hm.
+  Qed.
+
   Local Abbreviation will_step := (will_step step safe_inputs).
+
+  Context (Hmrv : program.meta_rules_valid p).
+  Context (Hsenders : forall R, In R (program.normal_concl_rels p) -> In name (R_senders R)).
 
   Lemma safe_preserved t st :
     star step init t st ->
@@ -277,10 +327,16 @@ Section __.
 
   Lemma can_claim_mono_inc inps c inps' :
     can_claim inps c ->
-    safe_inputs inps ->
+    safe_inputs inps' ->
     submultiset inps inps' ->
     can_claim inps' c.
-  Proof using. Admitted.
+  Proof.
+    intros Hc Hsafe Hsub. destruct c; cbv [can_claim] in *; fwd.
+    - eexists. split; [ eassumption | ].
+      eapply Forall_impl; [ eassumption | ]. intros. eapply knows_fact_submultiset; eassumption.
+    - do 2 eexists. ssplit; [ reflexivity | eassumption | ].
+      eapply Forall_impl; [ eassumption | ]. intros. eapply knows_fact_submultiset; eassumption.
+  Qed.
 End __.
 End node.
 
