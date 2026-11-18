@@ -1624,6 +1624,11 @@ Section Existsn.
     cbn [concat]. rewrite list_sum_cons. apply Existsn_le_app; assumption.
   Qed.
 
+  Lemma Existsn_le_flat_map {A} (f : A -> list T) xs cs :
+    Forall2 (fun x c => Existsn_le c (f x)) xs cs ->
+    Existsn_le (list_sum cs) (flat_map f xs).
+  Proof. induction 1; simpl; [constructor | apply Existsn_le_app; assumption]. Qed.
+
   Lemma Existsn_squeeze mss es :
     Existsn_ge (list_sum es) (concat mss) ->
     Forall2 Existsn_le es mss ->

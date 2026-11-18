@@ -105,76 +105,72 @@ Section Distributed.
     intros. especialize H1; eauto. fwd. eauto 6.
   Qed.
 
-  Context {node_map : map.map source (list message)} {node_map_ok : map.ok node_map}.
-
-  Lemma meta_locate pat (partition : node_map) n cnt :
-    Forall_map (node.safe_output R_senders) partition ->
-    In (message.done_with pat n cnt) (concat (values partition)) ->
-    exists ms, map.get partition n = Some ms /\ In (message.done_with pat n cnt) ms /\
-                 Existsn_le (message.matches pat) cnt ms.
+  Lemma meta_locate pat ojs n cnt :
+    (forall s, safe_output R_senders s (ojs s)) ->
+    In (message.done_with pat n cnt) (flat_map ojs (Fin.all _)) ->
+    In (message.done_with pat n cnt) (ojs n) /\ Existsn_le (message.matches pat) cnt (ojs n).
   Proof.
-    intros HF Hin. apply In_concat_values in Hin. destruct Hin as (k & ms & Hget & Hin).
-    destruct (HF _ _ Hget) as (Hall & _). specialize (Hall _ _ _ Hin). fwd. eauto.
+    intros HF Hin. apply in_flat_map in Hin. destruct Hin as (k & _ & Hin).
+    destruct (HF k) as (Hall & _). specialize (Hall _ _ _ Hin). fwd. auto.
   Qed.
 
-  Lemma no_R_matches_off_senders pat (partition : node_map) n ms :
-    Forall_map (node.safe_output R_senders) partition ->
-    map.get partition n = Some ms -> ~ In n (R_senders pat.(fact_pattern.rel)) ->
-    Forall (fun f => ~ message.matches pat f) ms.
+  Lemma no_R_matches_off_senders pat ojs n :
+    (forall s, safe_output R_senders s (ojs s)) ->
+    ~ In n (R_senders pat.(fact_pattern.rel)) ->
+    Forall (fun f => ~ message.matches pat f) (ojs n).
   Proof.
-    intros HF Hget Hnin. apply Forall_forall. intros f Hf Hmatch. apply Hnin.
-    destruct f as [nf |]; [| destruct Hmatch]. destruct (HF _ _ Hget) as (_ & Hsend).
+    intros HF Hnin. apply Forall_forall. intros f Hf Hmatch. apply Hnin.
+    destruct f as [nf |]; [| destruct Hmatch]. destruct (HF n) as (_ & Hsend).
     destruct Hmatch as (Hrel & _). rewrite Hrel. exact (Hsend _ Hf).
   Qed.
 
   (* the claim's per-sender expected counts (absent senders count 0) *)
   Local Abbreviation count_at pat ems := (fun_of_lists 0 (R_senders pat.(fact_pattern.rel)) ems).
 
-  Lemma sum_count_at pat ems (partition : node_map) :
+  Lemma sum_count_at pat ems :
     length (R_senders pat.(fact_pattern.rel)) = length ems ->
-    incl (R_senders pat.(fact_pattern.rel)) (map.keys partition) ->
-    list_sum (List.map (count_at pat ems) (map.keys partition)) = list_sum ems.
+    list_sum (List.map (count_at pat ems) (Fin.all _)) = list_sum ems.
   Proof.
-    intros Hlen Hsub.
-    erewrite list_sum_map_over_subset; try eassumption.
-    - f_equal. apply map_fun_of_lists; [|eassumption]. apply R_senders_NoDup.
+    intros Hlen. erewrite list_sum_map_over_subset.
+    - f_equal. apply map_fun_of_lists; [ apply R_senders_NoDup | assumption ].
     - apply R_senders_NoDup.
-    - apply map.keys_NoDup.
+    - apply Fin.all_NoDup.
+    - intros k _. apply Fin.all_Full.
     - intros. apply fun_of_lists_off. assumption.
   Qed.
 
-  Lemma senders_in_keys pat ems (partition : node_map) :
-    Forall_map (node.safe_output R_senders) partition ->
-    Forall2 (fun k e => In (message.done_with pat k e) (concat (values partition)))
-            (R_senders pat.(fact_pattern.rel)) ems ->
-    incl (R_senders pat.(fact_pattern.rel)) (map.keys partition).
-  Proof.
-    intros HF Hems k Hk. destruct (Forall2_In_l _ _ _ _ Hems Hk) as (em & _ & Hmeta).
-    eapply meta_locate in Hmeta; eauto. fwd. eapply map.in_keys; eassumption.
-  Qed.
-
   (*each node's sent multiset stays within the count the claim assigns it*)
-  Lemma counts_bound pat ems (partition : node_map) k ms :
-    Forall_map (node.safe_output R_senders) partition ->
-    Forall2 (fun k e => In (message.done_with pat k e) (concat (values partition)))
+  Lemma counts_bound pat ems ojs k :
+    (forall s, safe_output R_senders s (ojs s)) ->
+    Forall2 (fun k e => In (message.done_with pat k e) (flat_map ojs (Fin.all _)))
             (R_senders pat.(fact_pattern.rel)) ems ->
-    map.get partition k = Some ms ->
-    Existsn_le (message.matches pat) (count_at pat ems k) ms.
+    Existsn_le (message.matches pat) (count_at pat ems k) (ojs k).
   Proof.
-    intros HF Hems Hget. destr (inb k (R_senders pat.(fact_pattern.rel))).
+    intros HF Hems. destr (inb k (R_senders pat.(fact_pattern.rel))).
     - destruct (Forall2_In_l _ _ _ _ Hems E) as (em & Hcomb & Hmeta).
       erewrite fun_of_lists_In by eauto using R_senders_NoDup, Forall2_length.
-      eapply meta_locate in Hmeta; eauto. fwd. map_func. assumption.
+      eapply meta_locate in Hmeta; [ | eassumption ]. fwd. assumption.
     - rewrite fun_of_lists_off by assumption. apply Existsn_le_0_Forall_not.
-      eapply no_R_matches_off_senders; eassumption.
+      apply no_R_matches_off_senders; assumption.
   Qed.
 
-  Lemma allowed_of_outputs (partition : node_map) :
-    Forall_map (node.safe_output R_senders) partition -> nallowed (concat (values partition)).
+  Lemma allowed_of_outputs ojs :
+    (forall s, safe_output R_senders s (ojs s)) -> nallowed (flat_map ojs (Fin.all _)).
   Proof.
     intros HF pat ems Hems.
-    erewrite <- sum_count_at by eauto using Forall2_length, senders_in_keys.
-    apply Existsn_le_concat_map. intros k ms Hget. eapply counts_bound; eassumption.
+    erewrite <- sum_count_at by eauto using Forall2_length.
+    apply Existsn_le_flat_map, Forall2_map_r, Forall2_same, Fin.Forall_all.
+    intros k. eapply counts_bound; eassumption.
+  Qed.
+
+  Lemma allowed_of_safe_inputs d inps :
+    Graph2WithIO.safe_inputs forward (safe_output R_senders) d inps -> nallowed inps.
+  Proof.
+    intros (ojs & Hsafe & Hperm) pat ems Hems.
+    eapply Existsn_le_perm; [ symmetry; exact Hperm | ].
+    apply allowed_of_outputs with (ojs := fun s => filter (forward s d) (ojs s)).
+    - intros s. eapply safe_output_mono; [ apply Hsafe | apply filter_submultiset ].
+    - eapply Forall2_impl; [ exact Hems | ]. intros. eapply Permutation.Permutation_in; eassumption.
   Qed.
 
   Definition graph_sat :=
