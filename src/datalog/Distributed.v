@@ -177,26 +177,6 @@ Section Distributed.
     apply Existsn_le_concat_map. intros k ms Hget. eapply counts_bound; eassumption.
   Qed.
 
-  Definition claim_type loc :=
-    match loc with
-    | input_loc | node_loc _ => claim
-    | output_loc => fact
-    end.
-
-  Definition interp_claim loc : claim_type loc -> list message -> Prop :=
-    match loc with
-    | input_loc => claim.interp input_source
-    | node_loc n => claim.interp (node_source n)
-    | output_loc => fun f outs => knows_fact R_senders outs f
-    end.
-
-  Definition npred_transf loc inps : claim_type loc -> Prop :=
-    match loc with
-    | input_loc => fun c => claim.interp input_source c ext_inputs
-    | node_loc n => node.can_claim R_senders (graph_prog n) inps
-    | output_loc => knows_fact R_senders inps
-    end.
-
   Definition graph_sat :=
     graph_sat forward claim.interp (fun n => can_claim R_senders (graph_prog n)) (safe_output R_senders).
 

@@ -245,9 +245,6 @@ Section __.
     intros. especialize H1p0; eauto using submultiset_incl, incl_def. fwd. eauto using Existsn_le_submultiset.
   Qed.
 
-  Lemma safe_output_nothing : safe_output [].
-  Proof. Admitted.
-
   Local Abbreviation will_step := (will_step step safe_inputs).
 
   Lemma safe_preserved t st :
