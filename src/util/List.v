@@ -1652,6 +1652,22 @@ Section Existsn.
       apply filter_In in Hx. destruct Hx as [Hx Hp]. apply negb_true_iff in Hp. auto.
   Qed.
 
+  Lemma Existsn_flat_map_filter {A} (f : A -> list T) (p : A -> bool) n xs :
+    (forall x, In x xs -> p x = false -> Forall (fun y => ~ P y) (f x)) ->
+    Existsn n (flat_map f (filter p xs)) <-> Existsn n (flat_map f xs).
+  Proof.
+    intros Hoff.
+    assert (H0 : Existsn 0 (flat_map f (filter (fun x => negb (p x)) xs))).
+    { apply Forall_not_Existsn_0, Forall_flat_map, Forall_forall. intros x Hx.
+      apply filter_In in Hx. destruct Hx as [Hx Hp]. apply negb_true_iff in Hp. auto. }
+    split; intros H.
+    - eapply Existsn_perm; [ | symmetry; apply Permutation_flat_map_filter with (p := p) ].
+      replace n with (n + 0) by lia. apply Existsn_app; assumption.
+    - eapply Existsn_perm in H; [ | apply Permutation_flat_map_filter with (p := p) ].
+      apply Existsn_split in H. destruct H as (n1 & n2 & -> & H1 & H2).
+      rewrite (Existsn_unique _ _ _ H2 H0). replace (n1 + 0) with n1 by lia. exact H1.
+  Qed.
+
   Lemma Existsn_squeeze mss es :
     Existsn_ge (list_sum es) (concat mss) ->
     Forall2 Existsn_le es mss ->
@@ -1666,6 +1682,16 @@ Section Existsn.
     constructor.
     - eapply Existsn_ge_mono_count; [ exact Hge_a | lia ].
     - apply IH. eapply Existsn_ge_mono_count; [ exact Hge_b | lia ].
+  Qed.
+
+  Lemma Existsn_squeeze_flat_map {A} (f : A -> list T) xs es :
+    Existsn_ge (list_sum es) (flat_map f xs) ->
+    Forall2 (fun x e => Existsn_le e (f x)) xs es ->
+    Forall2 (fun x e => Existsn_ge e (f x)) xs es.
+  Proof.
+    intros Hge Hle. rewrite flat_map_concat_map in Hge.
+    apply Forall2_flip, Forall2_map_r, Existsn_squeeze; [ exact Hge | ].
+    apply Forall2_map_r with (f := f). apply Forall2_flip, Hle.
   Qed.
 End Existsn.
 

@@ -54,13 +54,18 @@ Section __.
       (forall n', interp_claim n' (Pjs n') (ojs n') /\ safe n' (ojs n')) ->
       npred_transf loc (inputs_of_outputs ojs (node_destn loc)) P.
 
+  Definition decomposes ojs d (Q : list message -> Prop) :=
+    exists (Pjs : source -> claim),
+      (forall n', interp_claim n' (Pjs n') (ojs n')) /\
+        forall ojs',
+          (forall n', interp_claim n' (Pjs n') (ojs' n') /\ safe n' (ojs' n')) ->
+          Q (inputs_of_outputs ojs' d).
+
   Context (preconditions_decompose :
             forall n ojs P,
               (forall n', safe n' (ojs n')) ->
               npred_transf n (inputs_of_outputs ojs (node_destn n)) P ->
-              exists (Pjs : source -> claim),
-                (forall n', interp_claim n' (Pjs n') (ojs n')) /\
-                  suffices n Pjs P).
+              decomposes ojs (node_destn n) (fun inps => npred_transf n inps P)).
 
   Context (npred_transf_mono_inc :
             forall n inps inps' P,
@@ -319,6 +324,14 @@ Section __.
     (forall n, submultiset (ojs n) (ojs' n)) ->
     submultiset (inputs_of_outputs ojs dst) (inputs_of_outputs ojs' dst).
   Proof. intros H. apply submultiset_flat_map. intros n. apply submultiset_filter, H. Qed.
+
+  Lemma In_inputs_of_outputs ojs dst m :
+    In m (inputs_of_outputs ojs dst) <-> exists n, In m (ojs n) /\ forward n dst m = true.
+  Proof.
+    cbv [inputs_of_outputs]. rewrite in_flat_map. split.
+    - intros (n & _ & Hin). apply filter_In in Hin. eauto.
+    - intros (n & Hin & Hfw). exists n. split; [ apply Fin.all_Full | apply filter_In; auto ].
+  Qed.
 
   Lemma safe_inputs_mono d : multiset_monotone_dec (safe_inputs d).
   Proof.
