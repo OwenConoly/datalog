@@ -204,7 +204,7 @@ Section __.
         * cbn. symmetry. apply perm_ins. symmetry. apply Hcons.
     - cbv [gns_receive gns_run] in *. fwd.
       transitivity (inputs_of_outputs (outputs_at gs t) d).
-      + cbv [inputs_of_outputs]. erewrite flat_map_ext; [ reflexivity | ]. intros k.
+      + apply Permutation_of_eq, flat_map_ext. intros k.
         rewrite outputs_at_put_node. destr (eqb k (node_source n)); [ reflexivity | destruct k; reflexivity ].
       + rewrite Hcons. cbv [inputs_at queue_at put_node fun_put]. cbn [graph_nodes graph_output_queue].
         destruct d as [dst|]; [ | reflexivity ].
@@ -326,7 +326,7 @@ Section __.
     destruct Hsub as (g & Hg & Hgsub). exists g. split.
     - intros n'. eapply safe_mono; [ apply Hsafe | ].
       eapply submultiset_trans; [ apply Hgsub | apply filter_submultiset ].
-    - rewrite Hg. cbv [inputs_of_outputs]. erewrite flat_map_ext_in; [ reflexivity | ]. intros n' _.
+    - rewrite Hg. apply Permutation_of_eq, flat_map_ext_in. intros n' _.
       symmetry. eapply filter_id_submultiset. apply Hgsub.
   Qed.
 
