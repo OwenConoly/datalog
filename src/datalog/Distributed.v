@@ -202,13 +202,12 @@ Section Distributed.
     end.
 
   Definition graph_sat_local := graph_sat message location forward claim_type interp_claim npred_transf (fun _ => nallowed).
-  Eval cbv [graph_sat_local] in graph_sat_local.
 
-  Check graph_sat_local. Check claim.interp. Print source.
-  (node := node).
+  Print nstep.
+  Print step.
   Lemma distributed_graph_sat_complete loc P :
-    graph_sat loc P ->
-    eventually (will_step graph_step) (fun gs => claim.interp loc P (outputs_at gs loc)) init_graph.
+    graph_sat_local loc P ->
+    eventually (will_step (graph_step message action_label location forward _ (fun n => step R_senders))) (fun gs => claim.interp loc P (outputs_at gs loc)) init_graph.
 
 
   Lemma consistent_good_holds :
