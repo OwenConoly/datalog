@@ -722,6 +722,7 @@ Section __.
 
   Lemma can_claim_sound c t st :
     can_claim (flat_map inputs_of t) c ->
+    safe_inputs (flat_map inputs_of t) ->
     star step init t st ->
     eventually will_step (fun '(_, t') => claim.interp name c (flat_map outputs_of t')) (st, t).
   Proof. Admitted.
