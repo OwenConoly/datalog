@@ -40,41 +40,26 @@ Section Distributed.
     message.rel f = message.rel g -> forward s d f = forward s d g.
   Proof. intros. cbv [forward]. congruence. Qed.
 
-  Definition R_senders (R : rel) : list source :=
-    if is_input R then [input_source] else
-      filter_map
-        (fun n => if inb R (program.normal_concl_rels (graph_prog n)) then Some (node_source n) else None)
-        (Fin.all node).
+  Definition sends (R : rel) (s : source) : bool :=
+    match s with
+    | input_source => is_input R
+    | node_source n => inb R (program.normal_concl_rels (graph_prog n))
+    end.
+
+  Definition R_senders (R : rel) : list source := filter (sends R) (Fin.all _).
 
   Lemma R_senders_NoDup R : NoDup (R_senders R).
-  Proof.
-    cbv [R_senders]. destruct (is_input R); [constructor; [intros [] | constructor]|].
-    apply NoDup_filter_map; [apply Fin.all_NoDup|].
-    intros n n' s Hin Hin' Hf Hf'. simpl in Hf, Hf'.
-    destruct (inb R _), (inb R _); congruence.
-  Qed.
+  Proof. apply NoDup_filter, Fin.all_NoDup. Qed.
 
   Lemma node_sends_concl_rels k R :
     In R (program.normal_concl_rels (graph_prog k)) ->
     In (node_source k) (R_senders R).
-  Proof.
-    intros HR. cbv [R_senders].
-    pose proof (Hp_good k) as HF. rewrite Forall_forall in HF.
-    rewrite HF by (apply program.normal_concl_rel_concl; assumption).
-    apply in_filter_map. exists k. split; [apply Fin.all_Full|].
-    simpl. rewrite_true (inb _ _) by assumption. reflexivity.
-  Qed.
+  Proof. intros HR. apply filter_In. split; [ apply Fin.all_Full | apply inb_true_iff, HR ]. Qed.
 
   Lemma node_sends_concl_rels_inv k R :
     In (node_source k) (R_senders R) ->
     In R (program.normal_concl_rels (graph_prog k)).
-  Proof.
-    intros Hin. cbv [R_senders] in Hin. destruct (is_input R).
-    - destruct Hin as [Heq | []]. discriminate.
-    - apply in_filter_map in Hin. destruct Hin as (n & _ & Hin).
-      destruct (inb _ _) eqn:E in Hin; [invert Hin | discriminate].
-      apply inb_true_iff. exact E.
-  Qed.
+  Proof. intros Hin. apply filter_In in Hin. destruct Hin as [_ Hin]. apply inb_true_iff, Hin. Qed.
 
   Local Abbreviation nstep := (fun n => node.step R_senders (graph_prog n) (node_source n)).
   Local Abbreviation nallowed := (node.safe_inputs R_senders).
@@ -124,43 +109,15 @@ Section Distributed.
     destruct Hmatch as (Hrel & _). rewrite Hrel. exact (Hsend _ Hf).
   Qed.
 
-  (* the claim's per-sender expected counts (absent senders count 0) *)
-  Local Abbreviation count_at pat ems := (fun_of_lists 0 (R_senders pat.(fact_pattern.rel)) ems).
-
-  Lemma sum_count_at pat ems :
-    length (R_senders pat.(fact_pattern.rel)) = length ems ->
-    list_sum (List.map (count_at pat ems) (Fin.all _)) = list_sum ems.
-  Proof.
-    intros Hlen. erewrite list_sum_map_over_subset.
-    - f_equal. apply map_fun_of_lists; [ apply R_senders_NoDup | assumption ].
-    - apply R_senders_NoDup.
-    - apply Fin.all_NoDup.
-    - intros k _. apply Fin.all_Full.
-    - intros. apply fun_of_lists_off. assumption.
-  Qed.
-
-  (*each node's sent multiset stays within the count the claim assigns it*)
-  Lemma counts_bound pat ems ojs k :
-    (forall s, safe_output R_senders s (ojs s)) ->
-    Forall2 (fun k e => In (message.done_with pat k e) (flat_map ojs (Fin.all _)))
-            (R_senders pat.(fact_pattern.rel)) ems ->
-    Existsn_le (message.matches pat) (count_at pat ems k) (ojs k).
-  Proof.
-    intros HF Hems. destr (inb k (R_senders pat.(fact_pattern.rel))).
-    - destruct (Forall2_In_l _ _ _ _ Hems E) as (em & Hcomb & Hmeta).
-      erewrite fun_of_lists_In by eauto using R_senders_NoDup, Forall2_length.
-      eapply meta_locate in Hmeta; [ | eassumption ]. fwd. assumption.
-    - rewrite fun_of_lists_off by assumption. apply Existsn_le_0_Forall_not.
-      apply no_R_matches_off_senders; assumption.
-  Qed.
-
   Lemma allowed_of_outputs ojs :
     (forall s, safe_output R_senders s (ojs s)) -> nallowed (flat_map ojs (Fin.all _)).
   Proof.
     intros HF pat ems Hems.
-    erewrite <- sum_count_at by eauto using Forall2_length.
-    apply Existsn_le_flat_map, Forall2_map_r, Forall2_same, Fin.Forall_all.
-    intros k. eapply counts_bound; eassumption.
+    apply Existsn_le_flat_map_filter with (p := sends pat.(fact_pattern.rel)).
+    - intros k _ Hk. apply no_R_matches_off_senders; [ assumption | ].
+      intros Hin. apply filter_In in Hin. destruct Hin. congruence.
+    - apply Existsn_le_flat_map. eapply Forall2_impl; [ exact Hems | ].
+      intros k e Hin. eapply meta_locate in Hin; [ | eassumption ]. fwd. assumption.
   Qed.
 
   Lemma allowed_of_safe_inputs d inps :

@@ -145,6 +145,15 @@ Proof.
     rewrite <- Permutation_app_swap_app. apply Permutation_app_head. auto.
 Qed.
 
+Lemma Permutation_flat_map_filter {A B} (f : A -> list B) (p : A -> bool) l :
+  Permutation (flat_map f l) (flat_map f (filter p l) ++ flat_map f (filter (fun x => negb (p x)) l)).
+Proof.
+  induction l as [|x l IH]; [ reflexivity | ].
+  cbn [flat_map filter]. destruct (p x); cbn [negb flat_map].
+  - rewrite <- app_assoc. apply Permutation_app_head. exact IH.
+  - symmetry. apply perm_ins. symmetry. exact IH.
+Qed.
+
 Lemma combine_map {A B C} (f : A -> B) (g : A -> C) (l : list A) :
   combine (map f l) (map g l) = map (fun x => (f x, g x)) l.
 Proof. induction l as [|a l IH]; cbn [map combine]; [reflexivity | rewrite IH; reflexivity]. Qed.
@@ -1630,6 +1639,18 @@ Section Existsn.
     Forall2 (fun x c => Existsn_le c (f x)) xs cs ->
     Existsn_le (list_sum cs) (flat_map f xs).
   Proof. induction 1; simpl; [constructor | apply Existsn_le_app; assumption]. Qed.
+
+  Lemma Existsn_le_flat_map_filter {A} (f : A -> list T) (p : A -> bool) k xs :
+    (forall x, In x xs -> p x = false -> Forall (fun y => ~ P y) (f x)) ->
+    Existsn_le k (flat_map f (filter p xs)) ->
+    Existsn_le k (flat_map f xs).
+  Proof.
+    intros Hoff Hle. eapply Existsn_le_perm.
+    - symmetry. etransitivity; [ apply Permutation_flat_map_filter with (p := p) | apply Permutation_app_comm ].
+    - apply (Existsn_le_app 0); [ | exact Hle ].
+      apply Existsn_le_0_Forall_not, Forall_flat_map, Forall_forall. intros x Hx.
+      apply filter_In in Hx. destruct Hx as [Hx Hp]. apply negb_true_iff in Hp. auto.
+  Qed.
 
   Lemma Existsn_squeeze mss es :
     Existsn_ge (list_sum es) (concat mss) ->
