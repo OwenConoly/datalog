@@ -11,7 +11,6 @@ Section Distributed.
   Context (graph_prog : node -> program).
   Context (Hmrv : forall n, program.meta_rules_valid (graph_prog n)).
   Context (is_input : rel -> bool).
-  Context (Hp_good : forall n, Forall (fun R => is_input R = false) (program.concl_rels (graph_prog n))).
 
   #[local] Instance sender_label : sender_labelT := source.
 
@@ -24,10 +23,6 @@ Section Distributed.
   Definition forward (s : source) (d : destn) (f : message) :=
     rel_forward d (message.rel f).
 
-  Lemma forward_rel_level s d f g :
-    message.rel f = message.rel g -> forward s d f = forward s d g.
-  Proof. intros. cbv [forward]. congruence. Qed.
-
   Definition sends (R : rel) (s : source) : bool :=
     match s with
     | input_source => is_input R
@@ -36,18 +31,10 @@ Section Distributed.
 
   Definition R_senders (R : rel) : list source := filter (sends R) (Fin.all _).
 
-  Lemma R_senders_NoDup R : NoDup (R_senders R).
-  Proof. apply NoDup_filter, Fin.all_NoDup. Qed.
-
   Lemma node_sends_concl_rels k R :
     In R (program.normal_concl_rels (graph_prog k)) ->
     In (node_source k) (R_senders R).
   Proof. intros HR. apply filter_In. split; [ apply Fin.all_Full | apply inb_true_iff, HR ]. Qed.
-
-  Lemma node_sends_concl_rels_inv k R :
-    In (node_source k) (R_senders R) ->
-    In R (program.normal_concl_rels (graph_prog k)).
-  Proof. intros Hin. apply filter_In in Hin. destruct Hin as [_ Hin]. apply inb_true_iff, Hin. Qed.
 
   Local Abbreviation nallowed := (node.safe_inputs R_senders).
 
