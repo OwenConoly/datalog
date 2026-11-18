@@ -38,6 +38,7 @@ Section __.
   Context (npred_transf_sound :
             forall n t P st,
               npred_transf n (flat_map inputs_of t) P ->
+              safe_inputs (node_destn n) (flat_map inputs_of t) ->
               star (node_step n) (init n) t st ->
               eventually (will_step (node_step n) (safe_inputs (node_destn n))) (fun '(_, t') => interp_claim (node_source n) P (flat_map outputs_of t')) (st, t)).
 
@@ -453,13 +454,16 @@ Section __.
     { apply graph_eventually_of_node_eventually.
       - eapply star_app; eassumption.
       - apply npred_transf_sound.
-        2: { apply node_steps_of_graph_steps_init with (t := tr ++ t). eapply star_app; eassumption. }
-        eapply npred_transf_mono_inc.
-        + eassumption.
+        + eapply npred_transf_mono_inc.
+          * eassumption.
+          * apply (graph_inputs_safe _ (tr ++ t) (node_destn dst)).
+            -- eapply star_app; eassumption.
+            -- auto.
+          * assumption.
         + apply (graph_inputs_safe _ (tr ++ t) (node_destn dst)).
           * eapply star_app; eassumption.
           * auto.
-        + assumption. }
+        + apply node_steps_of_graph_steps_init with (t := tr ++ t). eapply star_app; eassumption. }
     intros [gs'' t''] HP. exact HP.
   Qed.
 
