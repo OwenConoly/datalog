@@ -139,51 +139,72 @@ Section Distributed.
       apply Forall_inv in Hs. apply In_inputs_of_outputs. eauto.
   Qed.
 
+  Lemma sender_counts_of_inputs ojs d pat es :
+    (forall s, safe_output R_senders s (ojs s)) ->
+    Forall2 (fun s e => In (message.done_with pat s e) (inputs_of_outputs forward ojs d))
+      (R_senders pat.(fact_pattern.rel)) es ->
+    Existsn (message.matches pat) (list_sum es) (inputs_of_outputs forward ojs d) ->
+    forall s,
+      In s (R_senders pat.(fact_pattern.rel)) ->
+      exists e,
+        In (message.done_with pat s e) (ojs s) /\
+          rel_forward d pat.(fact_pattern.rel) = true /\
+          Existsn_ge (message.matches pat) e (ojs s).
+  Proof.
+    intros Hsafe Hdone Hnum.
+    assert (Hsafef : forall s, safe_output R_senders s (filter (forward s d) (ojs s))).
+    { intros s. eapply safe_output_mono; [ apply Hsafe | apply filter_submultiset ]. }
+    assert (Hle : Forall2 (fun s e =>
+                              In (message.done_with pat s e) (filter (forward s d) (ojs s)) /\
+                                Existsn_le (message.matches pat) e (filter (forward s d) (ojs s)))
+                    (R_senders pat.(fact_pattern.rel)) es).
+    { eapply Forall2_impl; [ exact Hdone | ]. intros s e Hin.
+      apply (meta_locate _ (fun s => filter (forward s d) (ojs s))); assumption. }
+    assert (Hge : Forall2 (fun s e => Existsn_ge (message.matches pat) e (filter (forward s d) (ojs s)))
+                    (R_senders pat.(fact_pattern.rel)) es).
+    { apply Existsn_squeeze_flat_map_filter.
+      - intros s _ Hs. apply (no_R_matches_off_senders _ (fun s => filter (forward s d) (ojs s))).
+        + exact Hsafef.
+        + rewrite In_R_senders. congruence.
+      - exact Hnum.
+      - eapply Forall2_impl; [ exact Hle | ]. intros s e [_ H]. exact H. }
+    intros s Hs.
+    destruct (Forall2_In_l _ _ _ _ (Forall2_and _ _ _ _ Hle Hge) Hs) as (e & _ & (Hin & _) & Hge_s).
+    apply filter_In in Hin. destruct Hin as [Hin Hfw]. exists e. ssplit.
+    - exact Hin.
+    - exact Hfw.
+    - eapply Existsn_ge_submultiset; [ exact Hge_s | apply filter_submultiset ].
+  Qed.
+
+  Lemma inputs_count_of_senders ojs d pat ns :
+    (forall s, safe_output R_senders s (ojs s)) ->
+    Forall2 (fun s n => rel_forward d pat.(fact_pattern.rel) = true /\
+                          Existsn (message.matches pat) n (ojs s))
+      (R_senders pat.(fact_pattern.rel)) ns ->
+    Existsn (message.matches pat) (list_sum ns) (inputs_of_outputs forward ojs d).
+  Proof.
+    intros Hsafe Hns. apply Existsn_flat_map_filter with (p := sends pat.(fact_pattern.rel)).
+    - intros s _ Hs. apply (no_R_matches_off_senders _ (fun s => filter (forward s d) (ojs s))).
+      + intros s'. eapply safe_output_mono; [ apply Hsafe | apply filter_submultiset ].
+      + rewrite In_R_senders. congruence.
+    - apply Existsn_flat_map. eapply Forall2_impl; [ exact Hns | ]. intros s n [Hfw Hn].
+      apply Existsn_filter; [ | exact Hn ]. intros [nf | ] Hm; [ | destruct Hm ].
+      destruct Hm as [Hrel _]. cbv [forward]. cbn [message.rel]. rewrite <- Hrel. exact Hfw.
+  Qed.
+
   Lemma decomposes_meta ojs d mf :
     (forall s, safe_output R_senders s (ojs s)) ->
     knows_meta_fact R_senders (inputs_of_outputs forward ojs d) mf ->
     decomposes ojs d (fun inps => knows_meta_fact R_senders inps mf).
   Proof.
     intros Hsafe (num & (es & Hdone & ->) & Hnum & Hcons). cbv [meta_fact.rel] in *.
-    assert (Hsend : forall s,
-               In s (R_senders mf.(meta_fact.pattern).(fact_pattern.rel)) ->
-               exists e,
-                 In (message.done_with mf.(meta_fact.pattern) s e) (ojs s) /\
-                   rel_forward d mf.(meta_fact.pattern).(fact_pattern.rel) = true /\
-                   Existsn_ge (message.matches mf.(meta_fact.pattern)) e (ojs s)).
-    { assert (Hsafef : forall s, safe_output R_senders s (filter (forward s d) (ojs s))).
-      { intros s. eapply safe_output_mono; [ apply Hsafe | apply filter_submultiset ]. }
-      assert (Hle : Forall2 (fun s e =>
-                                In (message.done_with mf.(meta_fact.pattern) s e) (filter (forward s d) (ojs s)) /\
-                                  Existsn_le (message.matches mf.(meta_fact.pattern)) e (filter (forward s d) (ojs s)))
-                      (R_senders mf.(meta_fact.pattern).(fact_pattern.rel)) es).
-      { eapply Forall2_impl; [ exact Hdone | ]. intros s e Hin.
-        apply (meta_locate _ (fun s => filter (forward s d) (ojs s))); assumption. }
-      assert (Hge : Forall2 (fun s e => Existsn_ge (message.matches mf.(meta_fact.pattern)) e (filter (forward s d) (ojs s)))
-                      (R_senders mf.(meta_fact.pattern).(fact_pattern.rel)) es).
-      { apply Existsn_squeeze_flat_map.
-        - apply Existsn_ge_of_Existsn with (n := list_sum es); [ | lia ].
-          apply Existsn_flat_map_filter; [ | exact Hnum ].
-          intros s _ Hs. apply (no_R_matches_off_senders _ (fun s => filter (forward s d) (ojs s))).
-          { exact Hsafef. }
-          rewrite In_R_senders. congruence.
-        - eapply Forall2_impl; [ exact Hle | ]. intros s e [_ H]. exact H. }
-      intros s Hs.
-      destruct (Forall2_In_l _ _ _ _ (Forall2_and _ _ _ _ Hle Hge) Hs) as (e & _ & (Hin & _) & Hge_s).
-      apply filter_In in Hin. destruct Hin as [Hin Hfw]. exists e. ssplit.
-      - exact Hin.
-      - exact Hfw.
-      - eapply Existsn_ge_submultiset; [ exact Hge_s | apply filter_submultiset ]. }
+    pose proof (sender_counts_of_inputs _ _ _ _ Hsafe Hdone Hnum) as Hsend.
     exists (fun s => if sends mf.(meta_fact.pattern).(fact_pattern.rel) s
              then [fact.meta (sent_meta_fact (ojs s) mf.(meta_fact.pattern))] else []).
     split.
     - intros s. destruct (sends _ s) eqn:Hs; [ | constructor ].
-      rewrite <- In_R_senders in Hs. apply Hsend in Hs. destruct Hs as (e & Hin & _ & Hge_s).
-      constructor; [ | constructor ]. exists e. ssplit.
-      + exact Hin.
-      + eapply Existsn_ge_impl; [ exact Hge_s | ]. intros [nf | ] Hnf Hm; [ | destruct Hm ].
-        split; [ exact Hm | ]. apply (sent_meta_fact_consistent _ _ nf Hm). exact Hnf.
-      + intros nf (Hm & Hc). apply (sent_meta_fact_consistent _ _ nf Hm). exact Hc.
+      rewrite <- In_R_senders in Hs. destruct (Hsend s Hs) as (e & Hin & _ & Hge).
+      constructor; [ | constructor ]. eapply interp_sent_meta_fact; eassumption.
     - intros ojs' Hojs'.
       assert (Hsend' : forall s,
                  In s (R_senders mf.(meta_fact.pattern).(fact_pattern.rel)) ->
@@ -191,49 +212,31 @@ Section Distributed.
                    In (message.done_with mf.(meta_fact.pattern) s n') (ojs' s) /\
                      rel_forward d mf.(meta_fact.pattern).(fact_pattern.rel) = true /\
                      Existsn (message.matches mf.(meta_fact.pattern)) n' (ojs' s) /\
-                     (forall m, In m (ojs' s) -> message.matches mf.(meta_fact.pattern) m ->
-                           message.in_meta_fact (sent_meta_fact (ojs s) mf.(meta_fact.pattern)) m) /\
-                     (forall nf, meta_fact.matches (sent_meta_fact (ojs s) mf.(meta_fact.pattern)) nf ->
-                            In (message.normal nf) (ojs' s))).
+                     meta_fact.consistent_with (sent_meta_fact (ojs s) mf.(meta_fact.pattern))
+                       (knows_normal_fact (ojs' s))).
       { intros s Hs. destruct (Hsend s Hs) as (_ & _ & Hfw & _).
-        rewrite In_R_senders in Hs. destruct (Hojs' s) as [Hc (Hdone' & _)]. rewrite Hs in Hc.
-        apply Forall_inv in Hc. destruct Hc as (n' & Hin & Hge' & Hall).
-        destruct (Hdone' _ _ _ Hin) as [_ Hle']. exists n'. ssplit.
-        - exact Hin.
-        - exact Hfw.
-        - apply Existsn_of_ge_le; [ | exact Hle' ].
-          eapply Existsn_ge_impl; [ exact Hge' | ]. intros m _.
-          apply (message.in_meta_fact_matches (sent_meta_fact (ojs s) mf.(meta_fact.pattern))).
-        - intros m Hm Hmatch. eapply Existsn_ge_le_tight; try eassumption.
-          apply message.in_meta_fact_matches.
-        - exact Hall. }
+        rewrite In_R_senders in Hs. destruct (Hojs' s) as [Hc Hsafe']. rewrite Hs in Hc.
+        apply Forall_inv in Hc. destruct (interp_meta_safe _ _ _ _ Hc Hsafe') as (n' & Hin & Hn' & Hcons').
+        exists n'. ssplit; assumption. }
       pose proof (proj2 (Forall_forall _ _) Hsend') as Hns'.
       apply Forall_exists_r_Forall2 in Hns'. destruct Hns' as (ns' & Hns').
       exists (list_sum ns'). ssplit.
       + exists ns'. split; [ | reflexivity ].
         eapply Forall2_impl; [ exact Hns' | ]. intros s n' (Hin & Hfw & _).
         apply In_inputs_of_outputs. eauto.
-      + apply Existsn_flat_map_filter with (p := sends mf.(meta_fact.pattern).(fact_pattern.rel)).
-        * intros s _ Hs. apply (no_R_matches_off_senders _ (fun s => filter (forward s d) (ojs' s))).
-          -- intros s'. eapply safe_output_mono; [ apply Hojs' | apply filter_submultiset ].
-          -- rewrite In_R_senders. congruence.
-        * apply Existsn_flat_map. eapply Forall2_impl; [ exact Hns' | ]. intros s n' (_ & Hfw & Hn' & _).
-          apply Existsn_filter; [ | exact Hn' ]. intros [nf | ] Hm; [ | destruct Hm ].
-          destruct Hm as [Hrel _]. cbv [forward]. cbn [message.rel]. rewrite <- Hrel. exact Hfw.
-      + intros nf Hm. split.
-        * intros Hc. rewrite (Hcons nf Hm) in Hc. cbv [knows_normal_fact] in Hc.
-          apply In_inputs_of_outputs in Hc. destruct Hc as (s & Hin & Hfw).
-          assert (Hs : In s (R_senders mf.(meta_fact.pattern).(fact_pattern.rel))).
-          { rewrite (proj1 Hm). apply (proj2 (Hsafe s)). exact Hin. }
-          destruct (Hsend' s Hs) as (n' & _ & _ & _ & _ & Hall).
-          apply In_inputs_of_outputs. exists s. split; [ | exact Hfw ].
-          apply Hall. split; [ exact Hm | ]. apply (sent_meta_fact_consistent _ _ nf Hm). exact Hin.
-        * intros Hc. apply In_inputs_of_outputs in Hc. destruct Hc as (s & Hin & Hfw).
-          assert (Hs : In s (R_senders mf.(meta_fact.pattern).(fact_pattern.rel))).
-          { rewrite (proj1 Hm). apply (proj2 (Hojs' s)). exact Hin. }
-          destruct (Hsend' s Hs) as (n' & _ & _ & _ & Htight & _).
-          apply (Hcons nf Hm), In_inputs_of_outputs. exists s. split; [ | exact Hfw ].
-          apply (sent_meta_fact_consistent _ _ nf Hm). apply (Htight _ Hin Hm).
+      + apply inputs_count_of_senders; [ apply Hojs' | ].
+        eapply Forall2_impl; [ exact Hns' | ]. intros s n' (_ & Hfw & Hn' & _). split; assumption.
+      + intros nf Hm. rewrite (Hcons nf Hm). cbv [knows_normal_fact]. rewrite !In_inputs_of_outputs.
+        assert (Hagree : forall s, In (message.normal nf) (ojs s) <-> In (message.normal nf) (ojs' s)).
+        { intros s. destruct (sends mf.(meta_fact.pattern).(fact_pattern.rel) s) eqn:Hs.
+          - rewrite <- In_R_senders in Hs. destruct (Hsend' s Hs) as (n' & _ & _ & _ & Hcons').
+            exact (meta_fact.consistent_with_iff _ _ _ _ (sent_meta_fact_consistent _ _) Hcons' Hm).
+          - assert (Hns : ~ In s (R_senders mf.(meta_fact.pattern).(fact_pattern.rel)))
+              by (rewrite In_R_senders; congruence).
+            split; intros Hin; exfalso; apply Hns.
+            + eapply safe_output_sender; [ apply Hsafe | exact Hin | exact Hm ].
+            + eapply safe_output_sender; [ apply Hojs' | exact Hin | exact Hm ]. }
+        setoid_rewrite Hagree. reflexivity.
   Qed.
 
   Lemma decomposes_knows_fact ojs d h :
