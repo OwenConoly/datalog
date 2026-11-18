@@ -5,14 +5,14 @@ From Datalog Require Import Smallstep FinTypeclass Function List Relations Eqb T
 Import ListNotations.
 
 Section __.
-  Context (message : Type) (label : Type) {node : nodeT}.
+  Context {message label : Type} {node : nodeT}.
   Context {node_eqb : Eqb node} {node_eqb_ok : Eqb_ok node_eqb} {node_fin : Fin.Fin node}.
-  Context (forward : source -> destn -> message -> bool) (node_state : Type).
+  Context (forward : source -> destn -> message -> bool) {node_state : Type}.
   Context (node_step : node -> node_state -> IO_event label message -> node_state -> Prop).
   Abbreviation nevent := (IO_event label message).
   Context (nodes_input_total : forall n, input_total (node_step n)).
 
-  Context (claim : Type) (interp_claim : source -> claim -> list message -> Prop).
+  Context {claim : Type} (interp_claim : source -> claim -> list message -> Prop).
   Context (interp_claim_mono : forall n c, multiset_monotone_inc (interp_claim n c)).
   Context (npred_transf : node -> list message -> claim -> Prop).
   Context (init : node -> node_state).
@@ -559,3 +559,6 @@ Section __.
       + eapply step_sat; [ | eassumption ]. intros n'. apply IHHreach; [ assumption | apply HPjs ].
   Qed.
 End __.
+Arguments graph_node_state : clear implicits.
+Arguments graph_label : clear implicits.
+Arguments graph_state : clear implicits.
