@@ -118,7 +118,7 @@ Module claim.
       | done_with pat =>
           exists num,
           In (message.done_with pat name num) ms /\
-            Existsn_le (message.matches pat) num ms
+            Existsn_ge (message.matches pat) num ms
       end.
   End __.
 End claim. Abbreviation claim := claim.claim.
