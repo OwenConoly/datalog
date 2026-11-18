@@ -146,8 +146,8 @@ Section __.
         * apply Fin.all_NoDup.
         * apply Fin.all_Full.
         * intros a' ?. cbv beta. rewrite outputs_at_forward_to, outputs_at_fun_put.
-          destr (eqb a' n); [ congruence | reflexivity ].
-        * cbv beta. rewrite outputs_at_forward_to, outputs_at_fun_put. destr (eqb n n); [ | congruence ].
+          rewrite_false (eqb a' n) by assumption. reflexivity.
+        * cbv beta. rewrite outputs_at_forward_to, outputs_at_fun_put. rewrite_true (eqb n n) by reflexivity.
           apply filter_app.
       + cbv [inputs_at forward_to enqueue fun_put]. destr (eqb dst n); cbn;
           symmetry; apply perm_ins; symmetry; apply Hcons.
@@ -214,7 +214,7 @@ Section __.
           destruct (nodes_input_total dst (gs' dst).(gns_node_state) m) as [st' Hst'].
           eexists. split.
           -- constructor. exists ms1, ms2. split; [exact Hq|]. eexists. split; [exact Hst'|reflexivity].
-          -- cbv [inputs_at fun_put]. destr (eqb dst dst); [|congruence]. cbn. split.
+          -- cbv [inputs_at fun_put]. rewrite_true (eqb dst dst) by reflexivity. cbn. split.
              ++ eapply submultiset_perm_l; [apply Permutation_cons_append|].
                 apply submultiset_cons_mono. assumption.
              ++ eapply submultiset_perm_r; [apply perm_recv|]. rewrite <- Hq. assumption.
@@ -328,7 +328,7 @@ Section __.
     - left. rewrite Htr. assumption.
     - right. eexists. split.
       + econstructor. exists s''. split; [ exact Hstep | reflexivity ].
-      + cbv [forward_to enqueue fun_put]. destr (eqb n n); [ | congruence ].
+      + cbv [forward_to enqueue fun_put]. rewrite_true (eqb n n) by reflexivity.
         cbn. rewrite Htr. assumption.
   Qed.
 

@@ -171,8 +171,8 @@ Section __.
       if eqb m (node_source n) then flat_map outputs_of ns.(gns_trace) else outputs_at gs t m.
   Proof.
     cbv [outputs_at put_node fun_put]. destr (eqb m (node_source n)); cbn [graph_nodes].
-    - destr (eqb n n); [ reflexivity | congruence ].
-    - destruct m as [m|]; [ | reflexivity ]. destr (eqb m n); [ congruence | reflexivity ].
+    - rewrite_true (eqb n n) by reflexivity. reflexivity.
+    - destruct m as [m|]; [ | reflexivity ]. rewrite_false (eqb m n) by congruence. reflexivity.
   Qed.
 
   Lemma messages_conserved_step gs t e gs' d :
@@ -195,9 +195,9 @@ Section __.
         * apply Fin.all_NoDup.
         * apply Fin.all_Full.
         * intros a' ?. cbv beta. rewrite outputs_at_forward_to, outputs_at_put_node.
-          destr (eqb a' (node_source n)); [ congruence | destruct a'; reflexivity ].
+          rewrite_false (eqb a' (node_source n)) by assumption. destruct a'; reflexivity.
         * cbv beta. rewrite outputs_at_forward_to, outputs_at_put_node.
-          destr (eqb (node_source n) (node_source n)); [ | congruence ].
+          rewrite_true (eqb (node_source n) (node_source n)) by reflexivity.
           apply filter_app.
       + cbv [inputs_at queue_at forward_to enqueue put_node fun_put]. cbn [graph_nodes graph_output_queue].
         destruct d as [dst|].
@@ -282,7 +282,7 @@ Section __.
              do 2 eexists. split.
              ++ constructor. exists ms1, ms2. split; [exact Hq|]. eexists. split; [exact Hst'|reflexivity].
              ++ cbv [inputs_at queue_at put_node fun_put]. cbn [graph_nodes]. simpl.
-                destr (eqb dst dst); [|congruence]. split.
+                rewrite_true (eqb dst dst) by reflexivity. split.
                 ** eapply submultiset_perm_l; [apply Permutation_cons_append|].
                    apply submultiset_cons_mono. assumption.
                 ** eapply submultiset_perm_r; [apply perm_recv|]. rewrite <- Hq. assumption.
@@ -413,7 +413,7 @@ Section __.
     - right. do 2 eexists. split.
       + econstructor. exists s''. split; [ exact Hstep | reflexivity ].
       + cbv [forward_to enqueue put_node fun_put]. cbn [graph_nodes].
-        destr (eqb n n); [ | congruence ]. cbn. rewrite Htr. assumption.
+        rewrite_true (eqb n n) by reflexivity. cbn. rewrite Htr. assumption.
   Qed.
 
   Lemma graph_eventually_of_node_eventually gs t n P :
