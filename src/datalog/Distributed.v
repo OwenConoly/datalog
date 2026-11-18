@@ -109,13 +109,16 @@ Section Distributed.
     - intros n. apply safe_output_mono.
     - intros n. split; intros; contradiction.
     - intros. eapply safe_preserved; try eassumption.
-      eapply allowed_of_safe_inputs; eassumption.
+      + apply Hmrv.
+      + intros. apply node_sends_concl_rels. assumption.
+      + eapply allowed_of_safe_inputs; eassumption.
     - intros. eapply eventually_will_step_weaken_allowed.
-      + eapply can_claim_sound; eassumption.
+      + eapply can_claim_sound; try eassumption.
+        * apply Hmrv.
+        * intros. apply node_sends_concl_rels. assumption.
       + apply allowed_of_safe_inputs.
     - intros. cbv beta in *. eapply can_claim_mono_inc; try eassumption.
-      eapply allowed_of_safe_inputs, safe_inputs_mono; try eassumption.
-      apply safe_output_mono.
+      eapply allowed_of_safe_inputs; eassumption.
   Qed.
 
 End Distributed.
