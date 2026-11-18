@@ -119,4 +119,11 @@ Section Distributed.
       eapply allowed_of_safe_inputs; eassumption.
   Qed.
 
+  Lemma distributed_graph_sat_complete t gs loc P :
+    star graph_step (init_graph_state (fun _ => init)) t gs ->
+    safe_output R_senders input_source (flat_map inputs_of t) ->
+    claim.interp loc P (outputs_at gs t loc) ->
+    graph_sat (flat_map inputs_of t) loc P.
+  Proof. Abort.
+
 End Distributed.
