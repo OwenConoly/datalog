@@ -103,14 +103,11 @@ Module message.
   End __.
 End message. Abbreviation message := message.message.
 
-(*hmm this is the same thing as action_label, but conceptually they are different...*)
 Module claim.
   Section __.
     Context `{params : datalog_params} {sender_label : sender_labelT}.
 
-    Variant claim :=
-      | normal (nf : normal_fact)
-      | done_with (pattern : fact_pattern) (tuples : list value -> Prop).
+    Definition claim := fact.
 
     Definition interp (name : sender_label) (P : claim) (ms : list message) :=
       match P with
