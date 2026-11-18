@@ -129,6 +129,9 @@ Module claim.
         + eapply submultiset_incl; eassumption.
         + eapply Existsn_ge_submultiset; eassumption.
     Qed.
+
+    Definition interp_conj (name : sender_label) (Ps : list claim) (ms : list message) :=
+      Forall (fun P => interp name P ms) Ps.
   End __.
 End claim. Abbreviation claim := claim.claim.
 
@@ -218,6 +221,8 @@ Section __.
           program.interp_step p (fact.meta mf) hyps /\
           Forall (knows_fact inps) hyps
     end.
+
+  Definition can_claim_conj (inps : list message) := Forall (can_claim inps).
 
   Local Abbreviation IO_event := (Smallstep.IO_event action_label message).
 
