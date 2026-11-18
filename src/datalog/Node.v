@@ -739,32 +739,17 @@ Section __.
       by (eapply knows_incl_grow; [ exact Hki | exact Hkmono | exact Halk ]).
     destruct output as [nf | pat osrc ocnt].
     - destruct Hnf as (Hex & _).
-      apply Exists_exists in Hex. destruct Hex as (r & Hr_in & Hcdn1).
-      destruct Hcdn1 as (hyps & Hri & Hknows1).
-      assert (Hcdn_dem : can_deduce_normal_fact r sdem.(state.known) nf).
-      { exists hyps. split; [exact Hri |].
-        eapply Forall_impl; [exact Hknows1|]. simpl. intros h Hh. apply Hki_dem. exact Hh. }
-      destr (inb nf (filter_map message.as_normal sdem.(state.sent)));
-        rewrite message.in_filter_map_as_normal in E.
+      destruct (normal_sent_or_step sdem nf Hokdem) as [Hin | Hstep].
+      { eapply Exists_impl; [ | exact Hex ]. intros r (hyps & Hri & Hknows).
+        exists hyps. split; [ exact Hri | ].
+        eapply Forall_impl; [ exact Hknows | ]. intros h Hh. apply Hki_dem. exact Hh. }
       + left. apply eventually_done. eapply Hmk; eauto. reflexivity.
-      + right.
-        exists {| state.known := sdem.(state.known);
-                  state.sent := message.normal nf :: sdem.(state.sent) |},
-               [message.normal nf].
-        split.
-        * apply deduce_step. cbn [can_deduce]. split.
-          -- apply Exists_exists. eauto.
-          -- intros (pat' & num' & Hinmeta & Hmatch').
-             apply E.
-             pose proof (Hokdem _ _ Hinmeta) as (_ & _ & _ & Hsat).
-             exact (Hsat r nf Hr_in Hcdn_dem Hmatch').
-        * apply eventually_done.
-          apply (Hmk _ (message.normal nf)).
-          -- cbn [state.known]. exact Hki_dem.
-          -- cbn [state.sent].
-             eapply submultiset_trans; [exact Hsmono | apply submultiset_cons].
-          -- cbn [state.sent]. left. reflexivity.
-          -- reflexivity.
+      + right. eexists. eexists. split; [ exact Hstep | ].
+        apply eventually_done. apply (Hmk _ (message.normal nf)).
+        * cbn [state.known]. exact Hki_dem.
+        * cbn [state.sent]. eapply submultiset_trans; [ exact Hsmono | apply submultiset_cons ].
+        * cbn [state.sent]. left. reflexivity.
+        * reflexivity.
     - destruct Hnf as (Hsrc & Hexmr & Hexn1 & Hsat1). subst osrc.
       pose proof (Existsn_length_filter _ _ sdem.(state.sent) (message.matchesb_spec pat)) as Hexn_d.
       set (num_d := length (filter (message.matchesb pat) sdem.(state.sent))) in Hexn_d.
