@@ -490,6 +490,90 @@ Section __.
     - intros a Ha. exists a. split; [exact Ha | reflexivity].
   Qed.
 
+  Lemma knows_fact_of_implied K mhyps h :
+    Forall (knows_meta_fact K) mhyps ->
+    fact.implied_by_mfs mhyps h ->
+    knows_fact K h.
+  Proof.
+    intros Hk Himp. apply Exists_exists in Himp. destruct Himp as (mh & Hmh & Himp).
+    rewrite Forall_forall in Hk. specialize (Hk _ Hmh).
+    destruct h as [nf | mf]; cbn [fact.implied_by_mf] in Himp.
+    - destruct Himp as (Hm & Hc). destruct Hk as (_ & _ & _ & Hcons).
+      apply (Hcons nf Hm). exact Hc.
+    - subst. exact Hk.
+  Qed.
+
+  Lemma implied_of_knows_fact K mhyps h :
+    Forall (knows_meta_fact K) mhyps ->
+    fact.covered_by_pats (map meta_fact.pattern mhyps) h ->
+    knows_fact K h ->
+    fact.implied_by_mfs mhyps h.
+  Proof.
+    intros Hk Hcov Hh. cbv [fact.covered_by_pats] in Hcov. rewrite Exists_map in Hcov.
+    apply Exists_exists in Hcov. destruct Hcov as (mh & Hmh & Hcov).
+    apply Exists_exists. exists mh. split; [ exact Hmh | ].
+    rewrite Forall_forall in Hk. specialize (Hk _ Hmh).
+    destruct h as [nf | mf]; cbn [fact.covered_by fact.implied_by_mf knows_fact] in *.
+    - destruct Hk as (_ & _ & _ & Hcons). split; [ exact Hcov | ].
+      apply (Hcons nf Hcov). exact Hh.
+    - destruct Hh as (_ & _ & _ & Hcons1). destruct Hk as (_ & _ & _ & Hcons2).
+      apply meta_fact.eq_of_agree; [ symmetry; exact Hcov | ].
+      intros nf Hm1 Hm2. rewrite (Hcons1 nf Hm1), (Hcons2 nf Hm2). reflexivity.
+  Qed.
+
+  Lemma claim_interp_nle t s c sf :
+    star step init t s ->
+    claim.interp name c sf.(state.sent) ->
+    nle sf s ->
+    claim.interp name c s.(state.sent).
+  Proof.
+    intros Hstar Hc (_ & Hincl). destruct c as [nf | pat]; cbn [claim.interp] in *.
+    - destruct (Hincl _ Hc) as (b & Hb & Heq). cbn [message.equiv] in Heq. subst. exact Hb.
+    - destruct Hc as (num & Hin & _). destruct (Hincl _ Hin) as (b & Hb & Heq).
+      destruct b as [nf' | pat' src' num']; cbn [message.equiv] in Heq; [ discriminate | ].
+      destruct Heq as [<- <-]. exists num'. split; [ exact Hb | ].
+      eapply Existsn_ge_of_Existsn; [ eapply sent_counts_correct; eassumption | lia ].
+  Qed.
+
+  Lemma can_claim_normal K nf :
+    can_claim K (claim.normal nf) ->
+    Exists (fun r => can_deduce_normal_fact r K nf) p.(program.rules).
+  Proof.
+    intros (hyps & Hstep & Hhyps). invert Hstep.
+    eapply Exists_impl; [ | eassumption ]. intros r Hr. exists hyps. split; assumption.
+  Qed.
+
+  Lemma can_claim_done K pat :
+    can_claim K (claim.done_with pat) ->
+    exists mf mr mhyps,
+      mf.(meta_fact.pattern) = pat /\
+        In mr p.(program.meta_rules) /\
+        meta_rule.interp p.(program.rules) mr mf mhyps /\
+        Forall (knows_meta_fact K) mhyps.
+  Proof.
+    intros (mf & hyps & <- & Hstep & Hhyps). invert Hstep.
+    match goal with H : Exists _ _ |- _ => apply Exists_exists in H; destruct H as (mr & Hmr & Hint) end.
+    exists mf, mr. eexists. ssplit; [ reflexivity | exact Hmr | exact Hint | ].
+    rewrite Forall_map in Hhyps. exact Hhyps.
+  Qed.
+
+  Lemma normal_sent_or_step s nf :
+    sent_dones_ok s ->
+    Exists (fun r => can_deduce_normal_fact r s.(state.known) nf) p.(program.rules) ->
+    In (message.normal nf) s.(state.sent) \/
+      step s (O_event (message.label (message.normal nf)) [message.normal nf])
+        {| state.known := s.(state.known); state.sent := message.normal nf :: s.(state.sent) |}.
+  Proof.
+    intros Hok Hex. destr (inb nf (filter_map message.as_normal s.(state.sent)));
+      rewrite message.in_filter_map_as_normal in E.
+    - left. exact E.
+    - right. apply deduce_step. split; [ exact Hex | ].
+      intros (pat & num & Hin & Hm). apply E.
+      destruct (Hok _ _ Hin) as (_ & _ & _ & Hsat).
+      apply Exists_exists in Hex. destruct Hex as (r & Hr & Hcdn).
+      exact (Hsat r nf Hr Hcdn Hm).
+  Qed.
+
   Local Abbreviation will_step := (will_step step safe_inputs).
 
   Context (Hmrv : program.meta_rules_valid p).
@@ -695,6 +779,110 @@ Section __.
         eapply reachable_good; eassumption.
   Qed.
 
+  Lemma send_all s L :
+    sent_dones_ok s ->
+    safe_inputs s.(state.known) ->
+    Forall (fun nf => Exists (fun r => can_deduce_normal_fact r s.(state.known) nf) p.(program.rules)) L ->
+    exists t' s',
+      star step s t' s' /\ flat_map inputs_of t' = [] /\
+        s'.(state.known) = s.(state.known) /\ sent_dones_ok s' /\
+        Forall (fun nf => In (message.normal nf) s'.(state.sent)) L.
+  Proof.
+    revert s. induction L as [|nf L IH]; intros s Hok Hsafe HL.
+    - exists [], s. ssplit; auto using star_refl.
+    - apply Forall_cons_iff in HL. destruct HL as [Hnf HL].
+      destruct (normal_sent_or_step s nf Hok Hnf) as [Hin | Hstep].
+      + destruct (IH s Hok Hsafe HL) as (t' & s' & Hstar & Hinp & Hk & Hok' & Hall).
+        exists t', s'. ssplit; [ assumption .. | ].
+        constructor; [ | assumption ].
+        eapply submultiset_incl; [ apply (step_star_mono _ _ _ Hstar) | exact Hin ].
+      + assert (Hok1 : sent_dones_ok {| state.known := s.(state.known);
+                                         state.sent := message.normal nf :: s.(state.sent) |})
+          by (eapply step_preserves_sent_dones_ok; eassumption).
+        destruct (IH _ Hok1 Hsafe HL) as (t' & s' & Hstar & Hinp & Hk & Hok' & Hall).
+        exists (t' ++ [O_event (message.label (message.normal nf)) [message.normal nf]]), s'.
+        ssplit.
+        * eapply star_app; [ apply star_one; exact Hstep | exact Hstar ].
+        * rewrite flat_map_app, Hinp. reflexivity.
+        * exact Hk.
+        * exact Hok'.
+        * constructor; [ | assumption ].
+          eapply submultiset_incl; [ apply (step_star_mono _ _ _ Hstar) | left; reflexivity ].
+  Qed.
+
+  Lemma send_all_saturated s mf mr mhyps :
+    In mr p.(program.meta_rules) ->
+    meta_rule.interp p.(program.rules) mr mf mhyps ->
+    Forall (knows_meta_fact s.(state.known)) mhyps ->
+    Forall (fun nf => In (message.normal nf) s.(state.sent)) (meta_fact.normal_facts mf) ->
+    saturated s mf.(meta_fact.pattern).
+  Proof.
+    intros Hmr (Hpi & Hset) Hmh Hall r nf Hr (hyps & Hri & Hhyps) Hm.
+    rewrite Forall_forall in Hall. apply Hall, meta_fact.in_normal_facts. split; [ exact Hm | ].
+    apply (Hset nf Hm). exists hyps. split; [ apply Exists_exists; eauto | ].
+    pose proof (Hmrv _ _ Hmr Hr _ _ _ _ Hpi Hri Hm) as Hcov.
+    rewrite Forall_forall in Hhyps, Hcov |- *. intros h Hh.
+    apply implied_of_knows_fact with (K := s.(state.known)); auto.
+  Qed.
+
+  Lemma can_claim_run t st c :
+    star step init t st ->
+    safe_inputs (flat_map inputs_of t) ->
+    can_claim (flat_map inputs_of t) c ->
+    exists t' sf,
+      star step st t' sf /\ flat_map inputs_of t' = [] /\ claim.interp name c sf.(state.sent).
+  Proof.
+    intros Hstar Hsafe Hc.
+    destruct (reachable_good _ _ Hsafe Hstar) as (Hk & _ & Hok).
+    rewrite <- Hk in Hsafe, Hc.
+    destruct c as [nf | pat].
+    - apply can_claim_normal in Hc.
+      destruct (send_all st [nf] Hok Hsafe) as (t' & sf & Hrun & Hinp & _ & _ & Hall).
+      { constructor; [ exact Hc | constructor ]. }
+      exists t', sf. ssplit; [ assumption | assumption | ].
+      apply Forall_inv in Hall. exact Hall.
+    - apply can_claim_done in Hc. destruct Hc as (mf & mr & mhyps & <- & Hmr & Hint & Hmh).
+      pose proof Hint as (Hpi & Hset).
+      destruct (send_all st (meta_fact.normal_facts mf) Hok Hsafe)
+        as (t' & s' & Hrun & Hinp & Hk' & _ & Hall).
+      { rewrite Forall_forall. intros nf Hnf. apply meta_fact.in_normal_facts in Hnf.
+        destruct Hnf as (Hm & Hc). apply (Hset nf Hm) in Hc. destruct Hc as (hyps & Hex & Hhyps).
+        eapply Exists_impl; [ | exact Hex ]. intros r Hr. exists hyps. split; [ exact Hr | ].
+        eapply Forall_impl; [ exact Hhyps | ]. intros h Hh. eapply knows_fact_of_implied; eassumption. }
+      set (num := length (filter (message.matchesb mf.(meta_fact.pattern)) s'.(state.sent))).
+      assert (Hnum : Existsn (message.matches mf.(meta_fact.pattern)) num s'.(state.sent))
+        by (apply Existsn_length_filter; exact (message.matchesb_spec _)).
+      exists (O_event (message.label (message.done_with mf.(meta_fact.pattern) name num))
+                      [message.done_with mf.(meta_fact.pattern) name num] :: t'),
+        {| state.known := s'.(state.known);
+           state.sent := message.done_with mf.(meta_fact.pattern) name num :: s'.(state.sent) |}.
+      ssplit.
+      + eapply star_step; [ exact Hrun | ]. apply deduce_step. cbn [can_deduce]. ssplit.
+        * reflexivity.
+        * apply Exists_exists. exists mr. split; [ exact Hmr | ].
+          exists mhyps. split; [ exact Hpi | ]. rewrite Hk'. exact Hmh.
+        * exact Hnum.
+        * eapply send_all_saturated; [ exact Hmr | exact Hint | rewrite Hk'; exact Hmh | exact Hall ].
+      + cbn. exact Hinp.
+      + exists num. split; [ left; reflexivity | ].
+        apply Eg_skip. eapply Existsn_ge_of_Existsn; [ exact Hnum | lia ].
+  Qed.
+
+  Lemma can_claim_sound c t st :
+    can_claim (flat_map inputs_of t) c ->
+    safe_inputs (flat_map inputs_of t) ->
+    star step init t st ->
+    eventually will_step (fun '(_, t') => claim.interp name c (flat_map outputs_of t')) (st, t).
+  Proof.
+    intros Hc Hsafe Hstar.
+    destruct (can_claim_run _ _ _ Hstar Hsafe Hc) as (t' & sf & Hrun & Hinp & Hsf).
+    eapply eventually_weaken.
+    { apply eventually_will_step_annotate. eapply drive_to_dominate; eassumption. }
+    intros [s2 t2] ((tr & Hstar2 & -> & _) & Hle). cbv beta iota.
+    rewrite <- (sent_eq_outputs (tr ++ t) s2) by (eapply star_app; eassumption).
+    eapply claim_interp_nle; [ eapply star_app; eassumption | eassumption | eassumption ].
+  Qed.
+
   Context (Hsenders : forall R, In R (program.normal_concl_rels p) -> In name (R_senders R)).
 
   Lemma sent_rel_sender t s nf :
@@ -719,13 +907,6 @@ Section __.
       eapply Existsn_le_of_Existsn; [ eapply sent_counts_correct; eassumption | lia ].
     - intros nf Hin. eapply sent_rel_sender; eassumption.
   Qed.
-
-  Lemma can_claim_sound c t st :
-    can_claim (flat_map inputs_of t) c ->
-    safe_inputs (flat_map inputs_of t) ->
-    star step init t st ->
-    eventually will_step (fun '(_, t') => claim.interp name c (flat_map outputs_of t')) (st, t).
-  Proof. Admitted.
 
   Lemma can_claim_complete t st c :
     star step init t st ->
