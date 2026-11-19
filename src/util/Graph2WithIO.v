@@ -333,6 +333,35 @@ Section __.
     - intros (n & Hin & Hfw). exists n. split; [ apply Fin.all_Full | apply filter_In; auto ].
   Qed.
 
+  Lemma inputs_of_outputs_cut ojs1 ojs2 inps d :
+    (forall n, submultiset (ojs1 n) (ojs2 n)) ->
+    submultiset (inputs_of_outputs ojs1 d) inps ->
+    submultiset inps (inputs_of_outputs ojs2 d) ->
+    exists ojs,
+      (forall n, submultiset (ojs1 n) (ojs n) /\ submultiset (ojs n) (ojs2 n)) /\
+        Permutation (inputs_of_outputs ojs d) inps.
+  Proof.
+    intros H12 (R & HR) H2.
+    destruct (Fin.choice (fun n rest => Permutation (ojs2 n) (ojs1 n ++ rest)) H12) as (rest & Hrest).
+    assert (HRsub : submultiset R (inputs_of_outputs rest d)).
+    { apply (submultiset_app_inv_l (inputs_of_outputs ojs1 d)).
+      eapply submultiset_perm_l; [ exact HR | ].
+      eapply submultiset_trans; [ exact H2 | ].
+      eapply submultiset_trans.
+      - apply submultiset_flat_map. intros n. apply submultiset_filter, submultiset_perm, Hrest.
+      - apply submultiset_perm, flat_map_app_perm. intros n. apply filter_app. }
+    apply submultiset_flat_map_split in HRsub; [ | apply Fin.all_NoDup ].
+    destruct HRsub as (g & Hg & Hgsub).
+    exists (fun n => ojs1 n ++ g n). split.
+    - intros n. split.
+      + apply submultiset_app_r.
+      + eapply submultiset_perm_r; [ symmetry; apply Hrest | ].
+        apply submultiset_app_head. eapply submultiset_trans; [ apply Hgsub | apply filter_submultiset ].
+    - etransitivity; [ apply flat_map_app_perm; intros n; apply filter_app | ].
+      rewrite HR. apply Permutation_app_head. rewrite Hg.
+      apply Permutation_of_eq, flat_map_ext. intros n. eapply filter_id_submultiset. apply Hgsub.
+  Qed.
+
   Lemma safe_inputs_mono d : multiset_monotone_dec (safe_inputs d).
   Proof.
     intros inps' inps (ojs & Hsafe & Hperm) Hsub.
@@ -493,6 +522,14 @@ Section __.
     - destruct n; apply submultiset_refl.
   Qed.
 
+  Lemma outputs_at_mono_star gs t t' gs' n :
+    star graph_step gs t' gs' ->
+    submultiset (outputs_at gs t n) (outputs_at gs' (t' ++ t) n).
+  Proof.
+    induction 1; [ apply submultiset_refl | ].
+    eapply submultiset_trans; [ eassumption | eapply outputs_at_mono; eassumption ].
+  Qed.
+
   Lemma graph_sat_sound gs t loc P :
     star graph_step init_graph_state t gs ->
     safe input_source (flat_map inputs_of t) ->
@@ -596,11 +633,36 @@ Section __.
     star graph_step init_graph_state t gs ->
     safe input_source (flat_map inputs_of t) ->
     output_sat (flat_map inputs_of t) P ->
-    eventually (will_step graph_step (safe input_source)) (fun '(_, t') => P (flat_map outputs_of t')) (gs, t).
+    eventually (will_step graph_step (safe input_source))
+      (fun '(_, t') => exists outs', P outs' /\ Permutation outs' (flat_map outputs_of t'))
+      (gs, t).
   Proof.
-    intros Hinit Hsafe H. cbv [output_sat] in H. fwd.
+    intros Hreach Hsafe (Pjs & HPjs & Hsuff).
     eapply eventually_trans.
-    - (*conjunction over all nodes..*)
+    { apply eventually_will_step_annotate.
+      eapply eventually_will_step_Forall with
+        (Ps := map (fun n '(gs', t') => interp_claim n (Pjs n) (outputs_at gs' t' n)) (Fin.all _)).
+      - apply Forall_map, Forall_forall. intros n _ s s' e t0 HP Hstep.
+        eapply interp_claim_mono; [ exact HP | ]. eapply outputs_at_mono. eassumption.
+      - apply Forall_map, Forall_forall. intros n _. apply graph_sat_sound; auto. }
+    intros [gs1 t1] ((tr1 & Hstar1 & -> & Hsafe1) & Hclaims).
+    apply Forall_map in Hclaims. rewrite Fin.Forall_all in Hclaims.
+    specialize (Hsafe1 Hsafe). eapply star_app in Hstar1; [ | exact Hreach ].
+    eapply eventually_weaken.
+    { apply eventually_will_step_annotate. apply (sent_msgs_eventually_received _ _ output_destn Hstar1). }
+    intros [gs2 t2] ((tr2 & Hstar2 & -> & Hsafe2) & Hdrained). cbv beta iota.
+    specialize (Hsafe2 Hsafe1). pose proof (fun n => outputs_at_mono_star _ (tr1 ++ t) _ _ n Hstar2) as Hmono.
+    eapply star_app in Hstar2; [ | exact Hstar1 ].
+    destruct (inputs_of_outputs_cut (outputs_at gs1 (tr1 ++ t)) (outputs_at gs2 (tr2 ++ tr1 ++ t))
+                (flat_map outputs_of (tr2 ++ tr1 ++ t)) output_destn Hmono Hdrained)
+      as (ojs & Hojs & Hperm).
+    { eapply submultiset_perm_r; [ symmetry; apply (messages_conserved _ _ output_destn Hstar2) | ].
+      apply submultiset_app_r. }
+    exists (inputs_of_outputs ojs output_destn). split; [ | exact Hperm ].
+    apply Hsuff. intros n. split.
+    - eapply interp_claim_mono; [ apply Hclaims | apply Hojs ].
+    - eapply safe_mono; [ apply graph_is_safe; eassumption | apply Hojs ].
+  Qed.
 
   Lemma output_sat_complete t gs P :
     star graph_step init_graph_state t gs ->
