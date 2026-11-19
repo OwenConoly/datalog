@@ -670,7 +670,21 @@ Section __.
     admissible P ->
     P (flat_map outputs_of t) ->
     output_sat (flat_map inputs_of t) P.
-  Proof. Admitted.
+  Proof.
+    intros Hreach Hsafe (Hperm & Hdec) HP.
+    destruct (inputs_of_outputs_cut (fun _ => []) (outputs_at gs t) (flat_map outputs_of t) output_destn)
+      as (ojs & Hojs & Hojs_perm).
+    - intros n. apply submultiset_nil_l.
+    - cbv [inputs_of_outputs]. rewrite flat_map_all_nil by (intros; reflexivity). apply submultiset_nil_l.
+    - eapply submultiset_perm_r; [ symmetry; apply (messages_conserved _ _ output_destn Hreach) | ].
+      apply submultiset_app_r.
+    - destruct (Hdec ojs) as (Pjs & HPjs & Hsuff).
+      { intros n. eapply safe_mono; [ apply graph_is_safe; eassumption | apply Hojs ]. }
+      { eapply Hperm; [ exact HP | symmetry; exact Hojs_perm ]. }
+      exists Pjs. split; [ | exact Hsuff ].
+      intros n. apply graph_sat_complete with (gs := gs); try assumption.
+      eapply interp_claim_mono; [ apply HPjs | apply Hojs ].
+  Qed.
 
 End __.
 Arguments graph_node_state : clear implicits.
