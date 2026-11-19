@@ -1,6 +1,6 @@
 From Stdlib Require Import List.
 From coqutil Require Import Map.Interface Eqb.
-From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Relations OperationalToDistributed.
+From Datalog Require Import Datalog Node Operational Smallstep Graph List Distributed Map Relations DatalogToDistributed.
 
 Import ListNotations.
 Import node.
