@@ -575,6 +575,37 @@ Section __.
       + apply IHHreach; [ assumption | ]. rewrite <- Heq. assumption.
       + eapply step_sat; [ | eassumption ]. intros n'. apply IHHreach; [ assumption | apply HPjs ].
   Qed.
+
+  (*TODO this is basically suffices with npred_transf := fun P x => P x or sth*)
+  Definition output_sat inputs P :=
+    exists Pjs,
+      (forall n, graph_sat inputs n (Pjs n)) /\
+        forall ojs,
+          (forall n, interp_claim n (Pjs n) (ojs n) /\ safe n (ojs n)) ->
+          P (inputs_of_outputs ojs output_destn).
+
+  (*TODO this is basically preconditions_decompose with npred_transf := fun P x => P x or sth *)
+  Definition admissible P :=
+    forall ojs,
+      (forall n, safe n (ojs n)) ->
+      P (inputs_of_outputs ojs output_destn) ->
+      decomposes ojs output_destn P.
+
+  Lemma output_sat_sound t gs P :
+    star graph_step init_graph_state t gs ->
+    safe input_source (flat_map inputs_of t) ->
+    output_sat (flat_map inputs_of t) P ->
+    eventually (will_step graph_step (safe input_source)) (fun '(_, t') => P (flat_map outputs_of t')) (gs, t).
+  Proof. Admitted.
+
+  Lemma output_sat_complete t gs P :
+    star graph_step init_graph_state t gs ->
+    safe input_source (flat_map inputs_of t) ->
+    admissible P ->
+    P (flat_map outputs_of t) ->
+    output_sat (flat_map inputs_of t) P.
+  Proof. Admitted.
+
 End __.
 Arguments graph_node_state : clear implicits.
 Arguments graph_label : clear implicits.
