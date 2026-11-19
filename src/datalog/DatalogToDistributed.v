@@ -40,7 +40,7 @@ Section __.
   Context (Hlayout_normal : graph_prog_distributes_normal_rules p).
   Context (Hlayout_meta : graph_prog_distributes_meta_rules p).
 
-  Definition claim_holds_at_node inputs (p : program) (c : claim) (n : node) :=
+  Definition claim_holds_at_node inputs (c : claim) (n : node) :=
     match c with
     | fact.normal nf =>
         program.interp p (knows_fact graph_senders inputs) (fact.normal nf)
@@ -53,18 +53,18 @@ Section __.
                 Forall (program.interp p (knows_fact graph_senders inputs)) hyps
     end.
 
-  Definition claim_holds_at_source inputs (p : program) (c : claim) (s : source) :=
+  Definition claim_holds_at_source inputs (c : claim) (s : source) :=
     match s with
     | input_source => (*TODO this sounds weird, seems to be correct almost by accident*) knows_fact graph_senders inputs c
-    | node_source n => claim_holds_at_node inputs p c n
+    | node_source n => claim_holds_at_node inputs c n
     end.
 
-  Lemma layout_sound inputs f src Ps :
-    distributed_sat inputs src [f] ->
-    claim_holds_at_node
-
+  Lemma layout_sound inputs Ps src :
+    distributed_sat inputs src Ps ->
+    Forall (fun P => claim_holds_at_source inputs P src) Ps.
   Proof.
-    revert f.
+    induction 1.
+    -
 
   Lemma layout_sound_out inputs f :
     distributed_output_sat inputs (fun outs => knows_fact graph_senders outs f) ->
