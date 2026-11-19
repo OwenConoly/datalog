@@ -1,6 +1,6 @@
 From Stdlib Require Import List.
 From coqutil Require Import Eqb Tactics Tactics.fwd.
-From Datalog Require Import Datalog Pftree Node Smallstep Graph2WithIO IOGraph List Distributed Tactics FinTypeclass.
+From Datalog Require Import Map Datalog Pftree Node Smallstep Graph2WithIO IOGraph List Distributed Tactics FinTypeclass.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 
 Import ListNotations.
@@ -40,7 +40,33 @@ Section __.
   Context (Hlayout_normal : graph_prog_distributes_normal_rules p).
   Context (Hlayout_meta : graph_prog_distributes_meta_rules p).
 
-  Lemma layout_sound inputs f :
+  Definition claim_holds_at_node inputs (p : program) (c : claim) (n : node) :=
+    match c with
+    | fact.normal nf =>
+        program.interp p (knows_fact graph_senders inputs) (fact.normal nf)
+    | fact.meta mf =>
+        forall nf,
+          fact_pattern.matches mf.(meta_fact.pattern) nf ->
+          fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <->
+            exists hyps,
+              program.interp_step (graph_prog n) (fact.normal nf) hyps /\
+                Forall (program.interp p (knows_fact graph_senders inputs)) hyps
+    end.
+
+  Definition claim_holds_at_source inputs (p : program) (c : claim) (s : source) :=
+    match s with
+    | input_source => (*TODO this sounds weird, seems to be correct almost by accident*) knows_fact graph_senders inputs c
+    | node_source n => claim_holds_at_node inputs p c n
+    end.
+
+  Lemma layout_sound inputs f src Ps :
+    distributed_sat inputs src [f] ->
+    claim_holds_at_node
+
+  Proof.
+    revert f.
+
+  Lemma layout_sound_out inputs f :
     distributed_output_sat inputs (fun outs => knows_fact graph_senders outs f) ->
     program.interp p (knows_fact graph_senders inputs) f.
   Proof. Abort.
