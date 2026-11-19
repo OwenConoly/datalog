@@ -1,6 +1,6 @@
 From Stdlib Require Import List.
 From coqutil Require Import Eqb Tactics Tactics.fwd.
-From Datalog Require Import Datalog Node Smallstep Graph2WithIO IOGraph List Distributed Tactics FinTypeclass.
+From Datalog Require Import Datalog Pftree Node Smallstep Graph2WithIO IOGraph List Distributed Tactics FinTypeclass.
 From coqutil Require Import Semantics.OmniSmallstepCombinators.
 
 Import ListNotations.
@@ -23,12 +23,11 @@ Section __.
   Local Abbreviation graph_senders := (Distributed.R_senders graph_prog is_input).
   Local Abbreviation distributed_step := (Distributed.distributed_step graph_prog is_input).
   Local Abbreviation initial_graph_state := (init_graph_state (fun _ => init)).
-
-  Definition all_rules :=
-    flat_map (fun n => (graph_prog n).(program.rules)) (Fin.all _).
+  Local Abbreviation distributed_sat := (distributed_sat graph_prog is_input).
+  Local Abbreviation distributed_output_sat := (distributed_output_sat graph_prog is_input).
 
   Definition graph_prog_distributes_normal_rules (prog : program) :=
-    forall r, In r prog.(program.rules) <-> In r all_rules.
+    forall r, In r prog.(program.rules) <-> exists n, In r (graph_prog n).(program.rules).
 
   Definition graph_prog_distributes_meta_rules (prog : program) :=
     forall mr,
@@ -41,4 +40,13 @@ Section __.
   Context (Hlayout_normal : graph_prog_distributes_normal_rules p).
   Context (Hlayout_meta : graph_prog_distributes_meta_rules p).
 
+  Lemma layout_sound inputs f :
+    distributed_output_sat inputs (fun outs => knows_fact graph_senders outs f) ->
+    program.interp p (knows_fact graph_senders inputs) f.
+  Proof. Abort.
+
+  Lemma layout_complete inputs f :
+    program.interp p (knows_fact graph_senders inputs) f ->
+    distributed_output_sat inputs (fun outs => knows_fact graph_senders outs f).
+  Proof. Abort.
 End __.
