@@ -510,12 +510,12 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                          clause.args := expr.app fn_IZR [expr.app (fn_Lit 0) []] ::
                                           map expr.var (seq 0 idxs) ++
                                           expr.app (fn_Lit (len / k')) [] ::
-                                          expr.var dimvar1 ::
+                                          expr.var dimvar2 ::
                                           map expr.var dimvars |}]
                       [{| clause.rel := block_rel.input true_rel;
                          clause.args := [expr.app fn_Le
                                            [expr.app (fn_Lit pad_start) [];
-                                            expr.var dimvar1]] |}]];
+                                            expr.var dimvar2]] |}]];
                  program.meta_rules := [] |})
   | Transpose n x =>
     let dimvars := (seq O (length (block_size true_rel e) - 2)) in
@@ -1594,15 +1594,22 @@ Lemma get_R_opt_flatten {n} (t : dim_n (S (S n))) (b : nat) k rest v :
   get_R_opt t ((k / Z.of_nat b)%Z :: (k mod Z.of_nat b)%Z :: rest) = Some v.
 Admitted.
 
+Lemma eval_total_wf (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
+    (k1 : pZexpr' (var_of result tZ)) (k2 : pZexpr' (interp_type_tagged tZ)) :
+  wf_pZexpr' (zctx ctx) k1 k2 -> eval_pZexpr'_total k1 = eval_pZexpr'_total k2.
+Admitted.
+
 Locate split.
-Search Map.M.split.
+Print interp_pATLexpr'.
 Lemma get_R_opt_split {n} (kz : Z) (t : dim_n (S n)) (i j : Z) (rest : list Z) (v : R) :
   (0 < kz)%Z ->
-  get_R_opt (n := S (S n)) (Map.M.split kz t) (i :: j :: rest) = Some v ->
+  get_R_opt (n := S (S n)) (Tile t kz) (i :: j :: rest) = Some v ->
   let len := Z.of_nat (Datatypes.length t) in
   ((i * kz + j < len)%Z /\ get_R_opt t ((i * kz + j)%Z :: rest) = Some v) \/
   ((len <= i * kz + j)%Z /\ v = 0%R /\ i = (len / kz)%Z /\ (len mod kz <= j)%Z).
+Admitted.
 
+Search Z.
 Lemma lower_pATLexpr'_works n
     (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
     (e : pATLexpr' (var_of result) n) (e' : pATLexpr' interp_type_tagged n)
@@ -1850,13 +1857,103 @@ Proof.
         eapply expr.interp_fun with (args' := []); [constructor | reflexivity].
     + constructor; [| constructor].
       unfold inp_holds; simpl. exact Hfact.
-  - (* Split *)
-    intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
-    simpl in Hlz. 
-    pose proof (IHHwf m idxs0' Hlz Hmap Hrev Hlen Hcompl) as IHe.
-    unfold complete_at. intros idxs val Hidxs.
+- (* Split *)
+  intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
+  simpl in Hlz. destruct Hlz as (Hlz & Hkev & Hkpos & Hsize).
+  pose proof (IHHwf m idxs0' Hlz Hmap Hrev Hlen Hcompl) as IHe.
+  set (K := interp_pZexpr' k2) in *.
+  set (L := Z.of_nat (Datatypes.length (interp_pATLexpr' e2))) in *.
+  (* the compiler's k' and len are the real ones *)
+  assert (Hk' : Z.of_nat (Z.to_nat (match eval_pZexpr'_total k1 with
+                                  | Some kz => kz | None => 0%Z end)) = K).
+{ assert (E : eval_pZexpr'_total k1 = Some K).
+  { etransitivity; [exact (eval_total_wf _ _ _ H) | exact Hkev]. }
+  rewrite E. lia. }
+  assert (Hlen' : Z.of_nat (match block_size true_rel e1 with
+                            | d :: _ => d | [] => 0 end) = L).
+  { unfold block_size. rewrite (get_block_size_wf _ _ _ _ Hwf), Hsize. reflexivity. }
+  unfold complete_at. intros idxs val Hget.
+  cbn [interp_pATLexpr'] in Hget.
+  pose proof (get_R_opt_length _ _ _ Hget) as Hd.
+  destruct idxs as [| i [| j rest]]; [discriminate | discriminate |].
+  simpl in Hd. injection Hd as Hd.                       (* length rest = n *)
+  destruct (block_subst_ok ctx m idxs0' (i :: j :: rest) (S (S n)) (VR val)
+              Hmap Hrev ltac:(simpl; lia))
+    as (s & Hout & Hdim & Hx & Hext).
+  simpl in Hdim.
+  inversion Hdim as [| ? ? ? ? Hi Hdim1]; subst.
+  inversion Hdim1 as [| ? ? ? ? Hj Hrestd]; subst.
+  cbn [lower_pATLexpr']. rewrite interp_LetIn. cbv beta.
+  rewrite Hk', Hlen'.
+  (* small helper for literals *)
+  assert (Hlit : forall z, expr.interp s (expr.app (fn_Lit z) []) (VZ z))
+    by (intros z; eapply expr.interp_fun with (args' := []); [constructor | reflexivity]).
+  destruct (get_R_opt_split K _ i j rest val Hkpos Hget)
+    as [[Hin Hget'] | [Hpad [-> [Hrow Hcol]]]].
+  + (* real entry: rule 1 *)
+    pose proof (IHe _ val Hget') as Hfact.
+    eapply (block_rule_fires 0 _ _ _ s
+      {| normal_fact.rel := block_rel.local 0;
+         normal_fact.args := VR val :: idxs0' ++ map VZ (i :: j :: rest) |}
+      [ {| normal_fact.rel := block_rel.input (interp (lower_pATLexpr' e1 m true_rel));
+           normal_fact.args := VR val :: idxs0' ++ map VZ ((i * K + j)%Z :: rest) |};
+        {| normal_fact.rel := block_rel.input true_rel;
+           normal_fact.args := [Vbool true] |} ]).
+    * simpl. left. reflexivity.
+    * reflexivity.
+    * split; [reflexivity |].
+      constructor; [apply expr.interp_var; exact Hx |].
+      apply Forall2_app; [exact Hout | exact Hdim ].
+    * constructor; [| constructor; [| constructor]].
+      -- (* value hypothesis: row*K + col *)
+        split; [reflexivity |].
+        constructor; [apply expr.interp_var; exact Hx |].
+        apply Forall2_app; [exact Hout |]. simpl.
+        constructor; [| exact Hrestd].
+        eapply expr.interp_fun with (args' := [VZ (i * K); VZ j]); [| reflexivity].
+        constructor; [| constructor; [exact Hj | constructor]].
+        eapply expr.interp_fun with (args' := [VZ i; VZ K]); [| reflexivity].
+        constructor; [exact Hi | constructor; [apply Hlit | constructor]].
+      -- (* bound check is true: not (row = L/K && pad <= col) *)
+         split; [reflexivity |]. constructor; [| constructor].
+         eapply expr.interp_fun with (args' := [Vbool ((i =? L / K) && (L mod K <=? j))%Z]).
+         ++ constructor; [| constructor].
+            eapply expr.interp_fun with
+              (args' := [Vbool (i =? L / K)%Z; Vbool (L mod K <=? j)%Z]); [| reflexivity].
+            constructor.
+            ** eapply expr.interp_fun with (args' := [VZ i; VZ (L / K)]); [| reflexivity].
+                constructor; [exact Hi | constructor; [apply Hlit | constructor]].
+            ** constructor; [| constructor].
+               eapply expr.interp_fun with (args' := [VZ (L mod K); VZ j]); [| reflexivity].
+                constructor; [apply Hlit | constructor; [exact Hj | constructor ]].
+         ++ simpl. f_equal. f_equal.
+            destruct (Z.eqb_spec i (L / K)) as [-> | ]; simpl; [| reflexivity].
+            pose proof (Z.div_mod L K ltac:(lia)).
+            apply Bool.negb_true_iff, Z.leb_gt. nia.
+    * constructor; [| constructor; [| constructor]];
+        unfold inp_holds; simpl; [exact Hfact | reflexivity].
+  + (* padding: rule 2, value 0 *)
+    eapply (block_rule_fires 0 _ _ _ s
+      {| normal_fact.rel := block_rel.local 0;
+         normal_fact.args := VR 0%R :: idxs0' ++ map VZ (i :: j :: rest) |}
+      [ {| normal_fact.rel := block_rel.input true_rel;
+           normal_fact.args := [Vbool true] |} ]).
+    * simpl. right. left. reflexivity.
+    * reflexivity.
+    * split; [reflexivity |].
+      constructor.
+      -- eapply expr.interp_fun with (args' := [VZ 0]); [repeat constructor; apply Hlit | reflexivity].
+      -- apply Forall2_app; [exact Hout |]. simpl.
+         constructor; [rewrite Hrow; apply Hlit | constructor; [exact Hj | assumption]].
+    * constructor; [| constructor].
+      split; [reflexivity |]. constructor; [| constructor].
+      eapply expr.interp_fun with (args' := [VZ (L mod K)%Z; VZ j]%list).
+      { constructor; [apply Hlit | constructor; [exact Hj | constructor]]. }
+      { simpl. f_equal. f_equal. apply Z.leb_le. exact Hcol. }
+    * constructor; [| constructor].
+      unfold inp_holds; simpl; reflexivity.
+- (* Transpose *)
     
 
 Admitted.
-Print result.normal.
 End __.
