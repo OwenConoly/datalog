@@ -586,17 +586,21 @@ Section __.
 
   (*TODO this is basically preconditions_decompose with npred_transf := fun P x => P x or sth *)
   Definition admissible P :=
-    forall ojs,
-      (forall n, safe n (ojs n)) ->
-      P (inputs_of_outputs ojs output_destn) ->
-      decomposes ojs output_destn P.
+    (forall x y, P x -> Permutation x y -> P y) /\
+      forall ojs,
+        (forall n, safe n (ojs n)) ->
+        P (inputs_of_outputs ojs output_destn) ->
+        decomposes ojs output_destn P.
 
   Lemma output_sat_sound t gs P :
     star graph_step init_graph_state t gs ->
     safe input_source (flat_map inputs_of t) ->
     output_sat (flat_map inputs_of t) P ->
     eventually (will_step graph_step (safe input_source)) (fun '(_, t') => P (flat_map outputs_of t')) (gs, t).
-  Proof. Admitted.
+  Proof.
+    intros Hinit Hsafe H. cbv [output_sat] in H. fwd.
+    eapply eventually_trans.
+    - (*conjunction over all nodes..*)
 
   Lemma output_sat_complete t gs P :
     star graph_step init_graph_state t gs ->
