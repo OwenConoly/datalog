@@ -1671,6 +1671,12 @@ Section misc.
   Implicit Type ys : list B.
   Implicit Type zs : list C.
 
+  Definition is_nil xs :=
+    match xs with
+    | [] => true
+    | _ => false
+    end.
+
   Lemma app_one_cons (a : A) l :
     a :: l = [a] ++ l.
   Proof. reflexivity. Qed.
