@@ -308,6 +308,23 @@ Section Distributed.
     eventually (will_step distributed_step (safe_output R_senders input_source))
       (fun '(_, t') => knows_fact R_senders (flat_map outputs_of t') f)
       (gs, t).
-  Proof. Abort.
+  Proof.
+    intros. eapply eventually_weaken.
+    - eapply output_sat_sound; try eassumption.
+      + intros n s m. eexists. apply input_step.
+      + apply claim.interp_conj_mono.
+      + intros n. apply safe_output_mono.
+      + intros n. split; intros; contradiction.
+      + intros. eapply safe_preserved; try eassumption.
+        intros. apply node_sends_concl_rels. assumption.
+      + intros. eapply eventually_will_step_weaken_allowed.
+        * eapply can_claim_conj_sound; try eassumption.
+          -- apply Hmrv.
+          -- eapply allowed_of_safe_inputs; eassumption.
+        * apply allowed_of_safe_inputs.
+      + intros. cbv beta in *. eapply can_claim_conj_mono_inc; try eassumption.
+        eapply allowed_of_safe_inputs; eassumption.
+    - intros [gs' t'] (outs' & Hk & Hperm). eapply knows_fact_perm; eassumption.
+  Qed.
 
 End Distributed.
