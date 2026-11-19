@@ -249,17 +249,17 @@ Section Distributed.
     - intros inps Hk. exists hyps. split; assumption.
   Qed.
 
-  Definition graph_sat :=
+  Definition distributed_sat :=
     graph_sat forward claim.interp_conj (fun n => can_claim_conj R_senders (graph_prog n)) (safe_output R_senders).
 
-  Definition graph_step :=
+  Definition distributed_step :=
     graph_step forward (fun n => step R_senders (graph_prog n) (node_source n)).
 
-  Lemma distributed_graph_sat_sound loc P t gs :
-    star graph_step (init_graph_state (fun _ => init)) t gs ->
+  Lemma distributed_sat_sound loc P t gs :
+    star distributed_step (init_graph_state (fun _ => init)) t gs ->
     safe_output R_senders input_source (flat_map inputs_of t) ->
-    graph_sat (flat_map inputs_of t) loc P ->
-    eventually (will_step graph_step (safe_output R_senders input_source)) (fun '(gs', t') => claim.interp_conj loc P (outputs_at gs' t' loc)) (gs, t).
+    distributed_sat (flat_map inputs_of t) loc P ->
+    eventually (will_step distributed_step (safe_output R_senders input_source)) (fun '(gs', t') => claim.interp_conj loc P (outputs_at gs' t' loc)) (gs, t).
   Proof.
     intros. eapply graph_sat_sound; try eassumption.
     - intros n s m. eexists. apply input_step.
@@ -277,11 +277,11 @@ Section Distributed.
       eapply allowed_of_safe_inputs; eassumption.
   Qed.
 
-  Lemma distributed_graph_sat_complete t gs loc P :
-    star graph_step (init_graph_state (fun _ => init)) t gs ->
+  Lemma distributed_sat_complete t gs loc P :
+    star distributed_step (init_graph_state (fun _ => init)) t gs ->
     safe_output R_senders input_source (flat_map inputs_of t) ->
     claim.interp_conj loc P (outputs_at gs t loc) ->
-    graph_sat (flat_map inputs_of t) loc P.
+    distributed_sat (flat_map inputs_of t) loc P.
   Proof.
     intros. eapply graph_sat_complete; try eassumption.
     - apply claim.interp_conj_mono.
