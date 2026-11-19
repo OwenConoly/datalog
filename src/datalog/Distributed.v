@@ -327,4 +327,11 @@ Section Distributed.
     - intros [gs' t'] (outs' & Hk & Hperm). eapply knows_fact_perm; eassumption.
   Qed.
 
+  Lemma distributed_output_sat_complete t gs f :
+    star distributed_step (init_graph_state (fun _ => init)) t gs ->
+    safe_output R_senders input_source (flat_map inputs_of t) ->
+    knows_fact R_senders (flat_map outputs_of t) f ->
+    distributed_output_sat (flat_map inputs_of t) (fun outs => knows_fact R_senders outs f).
+  Proof. Abort.
+
 End Distributed.
