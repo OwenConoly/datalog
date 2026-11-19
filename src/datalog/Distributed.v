@@ -1,4 +1,4 @@
-From Stdlib Require Import List Lia.
+From Stdlib Require Import List Lia Permutation.
 From coqutil Require Import OmniSmallstepCombinators.
 From Datalog Require Import Datalog Node Graph2WithIO IOGraph Smallstep List Eqb Tactics FinTypeclass.
 From coqutil Require Import Tactics Tactics.fwd Eqb.
@@ -277,6 +277,7 @@ Section Distributed.
       eapply allowed_of_safe_inputs; eassumption.
   Qed.
 
+  (*TODO package the hypotheses to Graph2WithIO in a record so that we don't repeatedly prove them (both here and in distributed_sat_sound, for example)*)
   Lemma distributed_sat_complete t gs loc P :
     star distributed_step (init_graph_state (fun _ => init)) t gs ->
     safe_output R_senders input_source (flat_map inputs_of t) ->
@@ -296,5 +297,17 @@ Section Distributed.
     - intros. cbv beta in *. eapply can_claim_conj_mono_inc; try eassumption.
       eapply allowed_of_safe_inputs; eassumption.
   Qed.
+
+  Definition distributed_output_sat :=
+    output_sat forward claim.interp_conj (fun n => can_claim_conj R_senders (graph_prog n)) (safe_output R_senders).
+
+  Lemma distributed_output_sat_sound t gs f :
+    star distributed_step (init_graph_state (fun _ => init)) t gs ->
+    safe_output R_senders input_source (flat_map inputs_of t) ->
+    distributed_output_sat (flat_map inputs_of t) (fun outs => knows_fact R_senders outs f) ->
+    eventually (will_step distributed_step (safe_output R_senders input_source))
+      (fun '(_, t') => knows_fact R_senders (flat_map outputs_of t') f)
+      (gs, t).
+  Proof. Abort.
 
 End Distributed.
