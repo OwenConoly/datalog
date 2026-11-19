@@ -1,4 +1,4 @@
-From Datalog Require Import Datalog List Eqb.
+From Datalog Require Import Datalog List Eqb Default.
 From Stdlib Require Import List.
 From coqutil Require Import Eqb.
 Import ListNotations.
@@ -9,6 +9,9 @@ Module impl_rule.
     Record impl_rule := mk
       { concls : list clause;
         hyps : list clause; }.
+
+    Definition all_exprvars r :=
+      flat_map clause.vars r.(concls) ++ flat_map clause.vars r.(hyps).
   End __.
 End impl_rule. Abbreviation impl_rule := impl_rule.impl_rule.
 
@@ -32,11 +35,30 @@ Module srel.
   #[export] Instance eqb_ok : Eqb_ok eqb. Proof. eqb_ok. Qed.
 End srel. Export (hints) srel. Abbreviation srel := srel.srel.
 
+Section NattifyExprvars.
+  Context `{params : datalog_params}.
+
+  Definition exprvar_table (r : impl_rule) : list exprvar :=
+    dedup (impl_rule.all_exprvars r).
+
+  Definition encode_rel (table : list exprvar) (v : exprvar) : nat :=
+    unwrap_or (length table) (index_of v table).
+
+  Definition nattify_rule_exprvars (r : impl_rule) :=
+    let tbl := exprvar_table r in
+    {| impl_rule.concls := map (clause_varmap (encode_rel tbl)) r.(impl_rule.concls);
+      impl_rule.hyps := map (clause_varmap (encode_rel tbl)) r.(impl_rule.hyps) |}.
+End NattifyExprvars.
+
 #[local] Existing Instance srel.
+
+#[local] Instance nat_var : exprvarT := nat.
+#[global] Typeclasses Transparent nat_var.
 
 Module rewrite.
   Section __.
-    Context `{params : datalog_params (_rel := srel) (rel_eqb := _) (rel_eqb_ok := _)}.
+    Context `{params : datalog_params (_rel := srel) (rel_eqb := _) (rel_eqb_ok := _)
+                                      (_exprvar := nat_var) (var_eqb := _) (var_eqb_ok := _)}.
     Variant rewrite :=
       | dead_elim (R : rel)
       | headless_elim
@@ -64,15 +86,19 @@ Module rewrite.
         marked_inline_hyps ++ eq_hyps
       else [marked_hyp].
 
-    Definition do_inline (inline_concl : clause) (inline_hyps : list clause)
+    Definition do_inline (inline_concl : clause) (inline_hyps : list clause) (r : impl_rule) : list (impl_rule (_exprvar := (exprvar + exprvar)%type)) :=
+      [{| impl_rule.concls := map (clause_varmap inr)
+                               (filter (fun c => negb (eqb c.(clause.rel) inline_concl.(clause.rel))) r.(impl_rule.concls));
+        impl_rule.hyps := flat_map (do_inline_hyp inline_concl inline_hyps) r.(impl_rule.hyps); |}].
 
-    Definition do_shard (R : rel) (idx : nat)
-
-    Definition interp (r : rewrite) (r : rule) :=
-      match
+    Definition interp (rewr : rewrite) : impl_rule -> list impl_rule :=
+      match rewr with
+      | dead_elim R => do_dead_elim R
+      | headless_elim => do_headless_elim
+      | dup_elim R idxs => fun _ => [] (*TODO*)
+      | shard R idx => fun _ => [] (*TODO*)
+      | inline concl hyps => fun r => map nattify_rule_exprvars (do_inline concl hyps r)
+      | subst_eqs => fun _ => []
+      end.
   End __.
-
-
-
-Section __.
-  Context
+End rewrite. Abbreviation rewrite := rewrite.rewrite.

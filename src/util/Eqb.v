@@ -33,6 +33,17 @@ Section eqb_prod.
   Proof. eqb_ok. Qed.
 End eqb_prod.
 
+Scheme Boolean Equality for sum.
+Section eqb_sum.
+  Context {A B : Type}.
+  Context {eqbA : Eqb A} {eqbA_ok : Eqb_ok eqbA}.
+  Context {eqbB : Eqb B} {eqbB_ok : Eqb_ok eqbB}.
+
+  #[export] Instance eqb_sum : Eqb (A + B) := sum_beq _ _ eqb eqb.
+  #[export] Instance eqb_sum_ok : Eqb_ok eqb_sum.
+  Proof. eqb_ok. Qed.
+End eqb_sum.
+
 Scheme Boolean Equality for option.
 Section eqb_option.
   Context {A : Type}.
