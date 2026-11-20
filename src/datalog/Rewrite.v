@@ -102,3 +102,14 @@ Module rewrite.
       end.
   End __.
 End rewrite. Abbreviation rewrite := rewrite.rewrite.
+
+Module examples.
+  Module fn.
+    Variant fn : fnT :=
+      | add.
+  End fn. Abbreviation fn := fn.fn.
+  #[local] Existing Instance fn.
+  #[local] Instance no_agg : aggregatorT := Empty_set.
+
+  Definition reachability :=
+    [{|
