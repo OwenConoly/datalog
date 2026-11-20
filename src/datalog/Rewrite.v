@@ -181,9 +181,14 @@ Module examples.
     Variant fn : fnT :=
       | add
       | mod.
-  End fn. Abbreviation fn := fn.fn.
+
+    Scheme Boolean Equality for fn.
+    #[export] Instance eqb : Eqb fn := fn_beq.
+    #[export] Instance eqb_ok : Eqb_ok eqb. Proof. eqb_ok. Qed.
+  End fn. Export (hints) fn. Abbreviation fn := fn.fn.
   #[local] Existing Instance fn.
   #[local] Instance no_agg : aggregatorT := Empty_set.
+  #[local] Instance expr_map T : map.map expr T := assoc_list_map.map T.
 
   Declare Custom Entry impl_rule.
   Notation "impl_rule:( r )" := r (r custom impl_rule, format "'impl_rule:(' r ')'").

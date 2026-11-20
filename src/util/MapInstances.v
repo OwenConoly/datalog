@@ -1,4 +1,4 @@
-From coqutil Require Import sanity Map.Interface Map.SortedList Map.SortedListString.
+From coqutil Require Import sanity Eqb Map.Interface Map.SortedList Map.SortedListString.
 From Stdlib Require Import Arith Lia List.
 Import ListNotations.
 
@@ -149,3 +149,18 @@ Proof.
 Qed.
 
 End ___.
+
+(*not map.ok, since reps are not canonical, so declare it as an instance only locally*)
+Module assoc_list_map.
+  Section ___.
+    Context {A : Type} {A_eqb : Eqb A}.
+
+    Definition map T : map.map A T :=
+      {| map.rep := list (A * T);
+         map.get l k := option_map snd (find (fun '(k', _) => eqb k k') l);
+         map.empty := nil;
+         map.put l k v := (k, v) :: filter (fun '(k', _) => negb (eqb k k')) l;
+         map.remove l k := filter (fun '(k', _) => negb (eqb k k')) l;
+         map.fold R f r l := fold_left (fun acc '(k, v) => f acc k v) l r |}.
+  End ___.
+End assoc_list_map.
