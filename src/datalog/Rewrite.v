@@ -100,6 +100,10 @@ Module rewrite.
       | inline concl hyps => fun r => map nattify_rule_exprvars (do_inline concl hyps r)
       | subst_eqs => fun _ => []
       end.
+
+    Definition apply (rewr : rewrite) : list impl_rule -> list impl_rule := flat_map (interp rewr).
+
+    Definition apply_list := fold_left (fun p rewr => apply rewr p).
   End __.
 End rewrite. Abbreviation rewrite := rewrite.rewrite.
 
@@ -123,15 +127,25 @@ Module examples.
     (in custom impl_rule_list, x custom impl_rule, y custom impl_rule).
 
   Definition edge := srel.named 0.
-  Definition hop2 := srel.named 1.
-  Definition hop4 := srel.named 2.
-  Definition seen := srel.named 3.
+  Definition path2 := srel.named 1.
+  Definition path4 := srel.named 2.
 
   Definition example : prog :=
     {| prog.inputs := [edge];
-       prog.rules :=
-         impl_rules:(
-           [ [ {hop2}(#0, #2, {fn.add}(#3, #4)) ] :- [ {edge}(#0, #1, #3); {edge}(#1, #2, #4) ];
-             [ {hop4}(#0, #2, {fn.add}(#3, #4)); {seen}(#0) ] :- [ {hop2}(#0, #1, #3); {hop2}(#1, #2, #4) ] ]);
-       prog.outputs := [hop4] |}.
+      prog.rules :=
+        impl_rules:(
+                      [ [ {path2}(#0, #2, {fn.add}(#3, #4)) ] :- [ {edge}(#0, #1, #3); {edge}(#1, #2, #4) ];
+                        [ {path4}(#0, #2, {fn.add}(#3, #4)) ] :- [ {path2}(#0, #1, #3); {path2}(#1, #2, #4) ] ]);
+      prog.outputs := [path4] |}.
+
+  Definition the_inline := rewrite.apply_list [rewrite.inline datalog_clause:({path2}(#0, #2, {fn.add}(#3, #4))) [datalog_clause:({edge}(#0, #1, #3)); datalog_clause:({edge}(#1, #2, #4))]; rewrite.headless_elim].
+
+  Example use_the_inline :
+    the_inline example.(prog.rules) =
+      impl_rules:([[{path4}(#0, #5, {fn.add}(#1, #7))]
+                     :- [{edge}(#4, #2, #8); {edge}(#2, #6, #9); {srel.eq}(#0, #4);
+                         {srel.eq}(#3, #6); {srel.eq}(#1, {fn.add}(#8, #9)); {edge}(#4, #2, #8);
+                         {edge}(#2, #6, #9); {srel.eq}(#3, #4); {srel.eq}(#5, #6);
+                         {srel.eq}(#7, {fn.add}(#8, #9))]]).
+  Proof. reflexivity. Abort.
 End examples.
