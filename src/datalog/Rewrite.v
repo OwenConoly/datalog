@@ -1,6 +1,6 @@
 From Stdlib Require Import List.
-From coqutil Require Import Eqb Datatypes.List Map.Interface.
-From Datalog Require Import Datalog List Eqb Default FancyNotations Map.
+From coqutil Require Import Eqb Datatypes.List Map.Interface Map.Properties.
+From Datalog Require Import Datalog List Eqb Default FancyNotations Map MapInstances RelMap.
 Import ListNotations.
 
 Module impl_rule.
@@ -61,13 +61,27 @@ Module arith.
   | plus : arith -> arith -> arith
   | const : nat -> arith.
   Arguments arith : clear implicits.
+
+  Fixpoint interp (substn : nat -> nat) (e : arith) :=
+    match e with
+    | var v => substn v
+    | plus e1 e2 => interp substn e1 + interp substn e2
+    | const c => c
+    end.
+
+  Fixpoint vars (e : arith) :=
+    match e with
+    | var v => [v]
+    | plus a b => vars a ++ vars b
+    | const _ => []
+    end.
 End arith. Abbreviation arith := arith.arith.
 
 Module rewrite.
   Section __.
     Context `{params : datalog_params (_rel := srel) (rel_eqb := _) (rel_eqb_ok := _)
                          (_exprvar := nat_var) (var_eqb := _) (var_eqb_ok := _)}.
-    Context {map_expr_arith : map.map expr arith}.
+    Context {map_expr_arith : map.map expr arith} {map_expr_nat : map.map expr nat}.
 
     Variant rewrite :=
       | dead_elim (R : rel)
@@ -101,20 +115,6 @@ Module rewrite.
                                (filter (fun c => negb (eqb c.(clause.rel) inline_concl.(clause.rel))) r.(impl_rule.concls));
         impl_rule.hyps := flat_map (do_inline_hyp inline_concl inline_hyps) r.(impl_rule.hyps); |}].
 
-    Definition interp (rewr : rewrite) : impl_rule -> list impl_rule :=
-      match rewr with
-      | dead_elim R => do_dead_elim R
-      | headless_elim => do_headless_elim
-      | dup_elim R idxs => fun _ => [] (*TODO*)
-      | shard num_shards idxs => fun _ => [] (*TODO*)
-      | inline concl hyps => fun r => map nattify_rule_exprvars (do_inline concl hyps r)
-      | subst_eqs => fun _ => []
-      end.
-
-    Definition apply (rewr : rewrite) : list impl_rule -> list impl_rule := flat_map (interp rewr).
-
-    Definition apply_list := fold_left (fun p rewr => apply rewr p).
-
     Definition get_shard_pat (idxs : rel -> list nat) (*which argument of this relation to shard*) (r : impl_rule) : partial_map expr(*which argument *) arith(*goes to which shard*) :=
       let args :=
         flat_map
@@ -129,18 +129,50 @@ Module rewrite.
     (*TODO*)
     Definition optimize_shard_pat (pat : partial_map expr arith) := pat.
 
-    Definition vars_of_pat (pat : partial_map expr arith) : list nat. Admitted.
+    Definition vars_of_pat (pat : partial_map expr arith) : list nat :=
+      dedup (flat_map arith.vars (values pat)).
 
-    Definition substns (pat : partial_map expr arith) (num_shards : nat) :=
+    Definition substns (pat : partial_map expr arith) (num_shards : nat) : list (partial_map expr nat) :=
       let vs := vars_of_pat pat in
       let substns := cartesian_prod (repeat (seq O num_shards) (length vs)) in
-      map (fun substn => map.of_list (combine vs substn)) substns.
+      map (fun substn => map.map_values (arith.interp (get_or_default (map.of_list (combine vs substn)))) pat) substns.
 
-    Definition new_relname (pat : partial_map expr arith) (substn : ) (c : clause)
-    Definition apply_shard_pat (pat : partial_map expr arith) (r : impl_rule) : list impl_rule :=
+    Definition new_relname (idxs : rel -> list nat) (shard_pat : partial_map expr nat) (c : clause) :=
+      let rel_idxs :=
+        filter_map
+          (fun '(i, arg) => if inb i (idxs c.(clause.rel)) then Some (get_or_default shard_pat arg) else None)
+          (enumerate O c.(clause.args)) in
+      (c.(clause.rel), rel_idxs).
 
+    Definition index_rel_of_clause (idxs : rel -> list nat) (shard_pat : partial_map expr nat) (c : clause) :=
+      {| clause.rel := new_relname idxs shard_pat c;
+        clause.args := c.(clause.args) |}.
 
+    Definition index_rels_of_rule (idxs : rel -> list nat) (shard_pat : partial_map expr nat) (r : impl_rule) :=
+      {| impl_rule.concls := map (index_rel_of_clause idxs shard_pat) r.(impl_rule.concls);
+        impl_rule.hyps := map (index_rel_of_clause idxs shard_pat) r.(impl_rule.concls); |}.
 
+    Definition apply_shard_pat (idxs : rel -> list nat) (num_shards : nat) (pat : partial_map expr arith) (r : impl_rule) : list (impl_rule (_rel := (rel * list nat)%type)) :=
+      map (fun shard_pat => index_rels_of_rule idxs shard_pat r) (substns pat num_shards).
+
+    Definition do_shard num_shards idxs r :=
+      let shard_pat := get_shard_pat idxs r in
+      let shard_pat := optimize_shard_pat shard_pat in
+      apply_shard_pat idxs num_shards shard_pat r.
+
+    Definition interp (rewr : rewrite) : impl_rule -> list impl_rule :=
+      match rewr with
+      | dead_elim R => do_dead_elim R
+      | headless_elim => do_headless_elim
+      | dup_elim R idxs => fun _ => [] (*TODO*)
+      | shard num_shards idxs => fun _ => [] (*TODO*)
+      | inline concl hyps => fun r => map nattify_rule_exprvars (do_inline concl hyps r)
+      | subst_eqs => fun _ => []
+      end.
+
+    Definition apply (rewr : rewrite) : list impl_rule -> list impl_rule := flat_map (interp rewr).
+
+    Definition apply_list := fold_left (fun p rewr => apply rewr p).
   End __.
 End rewrite. Abbreviation rewrite := rewrite.rewrite.
 
@@ -168,7 +200,7 @@ Module examples.
   Definition path2 := srel.named 1.
   Definition path4 := srel.named 2.
 
-  Definition example : prog :=
+  Definition inline_example : prog :=
     {| prog.inputs := [edge];
       prog.rules :=
         impl_rules:(
@@ -179,12 +211,21 @@ Module examples.
   Definition the_inline := rewrite.apply_list [rewrite.inline datalog_clause:({path2}(#0, #2, {fn.add}(#3, #4))) [datalog_clause:({edge}(#0, #1, #3)); datalog_clause:({edge}(#1, #2, #4))]; rewrite.headless_elim].
 
   Example use_the_inline :
-    the_inline example.(prog.rules) =
+    the_inline inline_example.(prog.rules) =
       impl_rules:([[{path4}(#0, #5, {fn.add}(#1, #7))]
                      :- [{edge}(#4, #2, #8); {edge}(#2, #6, #9); {srel.eq}(#0, #4);
                          {srel.eq}(#3, #6); {srel.eq}(#1, {fn.add}(#8, #9)); {edge}(#4, #2, #8);
                          {edge}(#2, #6, #9); {srel.eq}(#3, #4); {srel.eq}(#5, #6);
                          {srel.eq}(#7, {fn.add}(#8, #9))]]).
   Proof. reflexivity. Abort.
+
+  Definition shard_example : prog :=
+    {| prog.inputs := [edge];
+      prog.rules :=
+        impl_rules:([ [ {path2}(#0, #2, {fn.add}(#3, #4)) ] :- [ {edge}(#0, #1, #3); {edge}(#1, #2, #4) ] ]);
+      prog.outputs := [path2] |}.
+
+  Definition shard_example_idxs := fun R => if eqb R edge then [0; 1] else [].
+  Check (rewrite.do_shard 2 shard_example_idxs).
 
 End examples.
