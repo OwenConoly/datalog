@@ -4,8 +4,7 @@
   \
   JSON
   QueryableToRunnable
-  Functional
-  FancyNotations)
+  Functional)
  (name Datalog)
  (package datalog)
  (theories Stdlib coqutil GraphSearch Datalog.Util)

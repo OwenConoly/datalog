@@ -1,4 +1,4 @@
-From Datalog Require Import Datalog List Eqb Default.
+From Datalog Require Import Datalog List Eqb Default FancyNotations.
 From Stdlib Require Import List.
 From coqutil Require Import Eqb.
 Import ListNotations.
@@ -111,5 +111,27 @@ Module examples.
   #[local] Existing Instance fn.
   #[local] Instance no_agg : aggregatorT := Empty_set.
 
-  Definition reachability :=
-    [{|
+  Declare Custom Entry impl_rule.
+  Notation "impl_rule:( r )" := r (r custom impl_rule, format "'impl_rule:(' r ')'").
+  Notation "cs :- hs" := {| impl_rule.concls := cs; impl_rule.hyps := hs |}
+    (in custom impl_rule at level 1, cs custom datalog_clause_list, hs custom datalog_clause_list).
+
+  Declare Custom Entry impl_rule_list.
+  Notation "impl_rules:( rs )" := rs (rs custom impl_rule_list, format "'impl_rules:(' rs ')'").
+  Notation "[ ]" := nil (in custom impl_rule_list, format "[ ]").
+  Notation "[ x ; .. ; y ]" := (cons x .. (cons y nil) ..)
+    (in custom impl_rule_list, x custom impl_rule, y custom impl_rule).
+
+  Definition edge := srel.named 0.
+  Definition hop2 := srel.named 1.
+  Definition hop4 := srel.named 2.
+  Definition seen := srel.named 3.
+
+  Definition example : prog :=
+    {| prog.inputs := [edge];
+       prog.rules :=
+         impl_rules:(
+           [ [ {hop2}(#0, #2, {fn.add}(#3, #4)) ] :- [ {edge}(#0, #1, #3); {edge}(#1, #2, #4) ];
+             [ {hop4}(#0, #2, {fn.add}(#3, #4)); {seen}(#0) ] :- [ {hop2}(#0, #1, #3); {hop2}(#1, #2, #4) ] ]);
+       prog.outputs := [hop4] |}.
+End examples.
