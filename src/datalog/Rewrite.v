@@ -1,6 +1,6 @@
-From Datalog Require Import Datalog List Eqb Default FancyNotations.
 From Stdlib Require Import List.
-From coqutil Require Import Eqb.
+From coqutil Require Import Eqb Datatypes.List Map.Interface.
+From Datalog Require Import Datalog List Eqb Default FancyNotations Map.
 Import ListNotations.
 
 Module impl_rule.
@@ -55,15 +55,25 @@ End NattifyExprvars.
 #[local] Instance nat_var : exprvarT := nat.
 #[global] Typeclasses Transparent nat_var.
 
+Module arith.
+  Inductive arith :=
+  | var : nat -> arith
+  | plus : arith -> arith -> arith
+  | const : nat -> arith.
+  Arguments arith : clear implicits.
+End arith. Abbreviation arith := arith.arith.
+
 Module rewrite.
   Section __.
     Context `{params : datalog_params (_rel := srel) (rel_eqb := _) (rel_eqb_ok := _)
-                                      (_exprvar := nat_var) (var_eqb := _) (var_eqb_ok := _)}.
+                         (_exprvar := nat_var) (var_eqb := _) (var_eqb_ok := _)}.
+    Context {map_expr_arith : map.map expr arith}.
+
     Variant rewrite :=
       | dead_elim (R : rel)
       | headless_elim
       | dup_elim (R : rel) (idxs : list nat)
-      | shard (R : rel) (idx : nat)
+      | shard (num_shards : nat) (idxs : rel -> list nat)
       | inline (concl : clause) (hyps : list clause) (*the relation had better only be concluded in this place*)
       | subst_eqs.
 
@@ -96,7 +106,7 @@ Module rewrite.
       | dead_elim R => do_dead_elim R
       | headless_elim => do_headless_elim
       | dup_elim R idxs => fun _ => [] (*TODO*)
-      | shard R idx => fun _ => [] (*TODO*)
+      | shard num_shards idxs => fun _ => [] (*TODO*)
       | inline concl hyps => fun r => map nattify_rule_exprvars (do_inline concl hyps r)
       | subst_eqs => fun _ => []
       end.
@@ -104,13 +114,41 @@ Module rewrite.
     Definition apply (rewr : rewrite) : list impl_rule -> list impl_rule := flat_map (interp rewr).
 
     Definition apply_list := fold_left (fun p rewr => apply rewr p).
+
+    Definition get_shard_pat (idxs : rel -> list nat) (*which argument of this relation to shard*) (r : impl_rule) : partial_map expr(*which argument *) arith(*goes to which shard*) :=
+      let args :=
+        flat_map
+          (fun c =>
+             filter_map
+               (fun '(i, arg) => if inb i (idxs c.(clause.rel)) then Some arg else None)
+               (enumerate O c.(clause.args)))
+          (r.(impl_rule.concls) ++ r.(impl_rule.hyps)) in
+      let args := dedup args in
+      map.of_list (map (fun '(i, arg) => (arg, arith.var i)) (enumerate O args)).
+
+    (*TODO*)
+    Definition optimize_shard_pat (pat : partial_map expr arith) := pat.
+
+    Definition vars_of_pat (pat : partial_map expr arith) : list nat. Admitted.
+
+    Definition substns (pat : partial_map expr arith) (num_shards : nat) :=
+      let vs := vars_of_pat pat in
+      let substns := cartesian_prod (repeat (seq O num_shards) (length vs)) in
+      map (fun substn => map.of_list (combine vs substn)) substns.
+
+    Definition new_relname (pat : partial_map expr arith) (substn : ) (c : clause)
+    Definition apply_shard_pat (pat : partial_map expr arith) (r : impl_rule) : list impl_rule :=
+
+
+
   End __.
 End rewrite. Abbreviation rewrite := rewrite.rewrite.
 
 Module examples.
   Module fn.
     Variant fn : fnT :=
-      | add.
+      | add
+      | mod.
   End fn. Abbreviation fn := fn.fn.
   #[local] Existing Instance fn.
   #[local] Instance no_agg : aggregatorT := Empty_set.
@@ -148,4 +186,5 @@ Module examples.
                          {edge}(#2, #6, #9); {srel.eq}(#3, #4); {srel.eq}(#5, #6);
                          {srel.eq}(#7, {fn.add}(#8, #9))]]).
   Proof. reflexivity. Abort.
+
 End examples.
