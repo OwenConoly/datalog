@@ -150,7 +150,7 @@ Module rewrite.
 
     Definition index_rels_of_rule (idxs : rel -> list nat) (shard_pat : partial_map expr nat) (r : impl_rule) :=
       {| impl_rule.concls := map (index_rel_of_clause idxs shard_pat) r.(impl_rule.concls);
-        impl_rule.hyps := map (index_rel_of_clause idxs shard_pat) r.(impl_rule.concls); |}.
+        impl_rule.hyps := map (index_rel_of_clause idxs shard_pat) r.(impl_rule.hyps); |}.
 
     Definition apply_shard_pat (idxs : rel -> list nat) (num_shards : nat) (pat : partial_map expr arith) (r : impl_rule) : list (impl_rule (_rel := (rel * list nat)%type)) :=
       map (fun shard_pat => index_rels_of_rule idxs shard_pat r) (substns pat num_shards).
@@ -224,13 +224,29 @@ Module examples.
                          {srel.eq}(#7, {fn.add}(#8, #9))]]).
   Proof. reflexivity. Abort.
 
-  Definition shard_example : prog :=
-    {| prog.inputs := [edge];
-      prog.rules :=
-        impl_rules:([ [ {path2}(#0, #2, {fn.add}(#3, #4)) ] :- [ {edge}(#0, #1, #3); {edge}(#1, #2, #4) ] ]);
-      prog.outputs := [path2] |}.
+  Definition shard_example : impl_rule :=
+    impl_rule:([ {path2}(#0, #2, {fn.add}(#3, #4)) ] :- [ {edge}(#0, #1, #3); {edge}(#1, #2, #4) ]).
 
   Definition shard_example_idxs := fun R => if eqb R edge then [0; 1] else [].
-  Check (rewrite.do_shard 2 shard_example_idxs).
+
+  Example use_shard :
+    rewrite.do_shard 2 shard_example_idxs shard_example =
+      impl_rules:([[{(path2, [])}(#0, #2, {fn.add}(#3, #4))]
+                     :- [{(edge, [0; 0])}(#0, #1, #3); {(edge, [0; 0])}(#1, #2, #4)];
+                   [{(path2, [])}(#0, #2, {fn.add}(#3, #4))]
+                     :- [{(edge, [1; 0])}(#0, #1, #3); {(edge, [0; 0])}(#1, #2, #4)];
+                   [{(path2, [])}(#0, #2, {fn.add}(#3, #4))]
+                     :- [{(edge, [0; 1])}(#0, #1, #3); {(edge, [1; 0])}(#1, #2, #4)];
+                   [{(path2, [])}(#0, #2, {fn.add}(#3, #4))]
+                     :- [{(edge, [1; 1])}(#0, #1, #3); {(edge, [1; 0])}(#1, #2, #4)];
+                   [{(path2, [])}(#0, #2, {fn.add}(#3, #4))]
+                     :- [{(edge, [0; 0])}(#0, #1, #3); {(edge, [0; 1])}(#1, #2, #4)];
+                   [{(path2, [])}(#0, #2, {fn.add}(#3, #4))]
+                     :- [{(edge, [1; 0])}(#0, #1, #3); {(edge, [0; 1])}(#1, #2, #4)];
+                   [{(path2, [])}(#0, #2, {fn.add}(#3, #4))]
+                     :- [{(edge, [0; 1])}(#0, #1, #3); {(edge, [1; 1])}(#1, #2, #4)];
+                   [{(path2, [])}(#0, #2, {fn.add}(#3, #4))]
+                     :- [{(edge, [1; 1])}(#0, #1, #3); {(edge, [1; 1])}(#1, #2, #4)]]).
+  Proof. reflexivity. Abort.
 
 End examples.
