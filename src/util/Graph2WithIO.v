@@ -534,6 +534,38 @@ Section __.
     eapply submultiset_trans; [ eassumption | eapply outputs_at_mono; eassumption ].
   Qed.
 
+  Lemma eventually_all_claims gs t Pjs :
+    star graph_step init_graph_state t gs ->
+    safe input_source (flat_map inputs_of t) ->
+    (forall n,
+        eventually (will_step graph_step (safe input_source))
+          (fun '(gs', t') => interp_claim n (Pjs n) (outputs_at gs' t' n)) (gs, t)) ->
+    eventually (will_step graph_step (safe input_source))
+      (fun '(gs', t') => forall n, interp_claim n (Pjs n) (outputs_at gs' t' n)) (gs, t).
+  Proof.
+    intros Hreach Hsafe Hev. eapply eventually_weaken.
+    - apply eventually_will_step_annotate.
+      apply eventually_will_step_Forall with
+        (Ps := map (fun n '(gs', t') =>
+                      star graph_step init_graph_state t' gs' /\
+                        (safe input_source (flat_map inputs_of t') ->
+                         interp_claim n (Pjs n) (outputs_at gs' t' n)))
+                 (Fin.all _)).
+      + apply Forall_map, Forall_forall. intros n _ s s' e t0 (Hstar & HP) Hstep. split.
+        * eapply star_step; eassumption.
+        * intros Hsafe'. eapply interp_claim_mono.
+          -- apply HP. eapply safe_mono; [ exact Hsafe' | apply submultiset_app_l ].
+          -- eapply outputs_at_mono. eassumption.
+          -- apply graph_is_safe; [ eapply star_step; eassumption | exact Hsafe' ].
+      + apply Forall_map, Forall_forall. intros n _. eapply eventually_weaken.
+        * apply eventually_will_step_annotate. apply Hev.
+        * intros [gs' t'] ((tr & Hstar & -> & _) & HP). split.
+          -- eapply star_app; eassumption.
+          -- intros _. exact HP.
+    - intros [gs' t'] ((tr & _ & -> & Hsafe') & Hall) n.
+      apply Forall_map in Hall. rewrite Fin.Forall_all in Hall. apply Hall. auto.
+  Qed.
+
   Lemma graph_sat_sound gs t loc P :
     star graph_step init_graph_state t gs ->
     safe input_source (flat_map inputs_of t) ->
@@ -543,20 +575,15 @@ Section __.
   Proof.
     intros Hreach Hsafe. induction 1.
     - eapply eventually_trans.
-      + apply eventually_will_step_annotate.
-        eapply eventually_will_step_Forall with
-          (Ps := map (fun n' '(gs', t') => interp_claim n' (Pjs n') (outputs_at gs' t' n')) (Fin.all _)).
-        -- apply Forall_map, Forall_forall. intros n _ s s' e t0 HP Hstep.
-           eapply interp_claim_mono; [ exact HP | ]. eapply outputs_at_mono. eassumption.
-        -- apply Forall_map, Forall_forall. intros n _. apply H0.
+      + apply eventually_will_step_annotate. eapply eventually_all_claims; eassumption.
       + intros [gs' t'] ((tr & Hstar & -> & Hsafe') & Hgs).
-        apply Forall_map in Hgs. rewrite Fin.Forall_all in Hgs.
         apply step_sat_sound.
         * eapply star_app; eassumption.
         * auto.
         * apply H1. intros n'. split; [ apply Hgs | ].
           apply graph_is_safe; [ eapply star_app; eassumption | auto ].
-    - apply eventually_done. eapply interp_claim_mono; [ eassumption | apply submultiset_nil_l ].
+    - apply eventually_done. eapply interp_claim_mono; [ eassumption | apply submultiset_nil_l | ].
+      apply graph_is_safe; assumption.
     - apply eventually_done. assumption.
   Qed.
 
@@ -592,9 +619,10 @@ Section __.
   Lemma graph_sat_mono inps inps' s P :
     graph_sat inps s P ->
     submultiset inps inps' ->
+    safe input_source inps' ->
     graph_sat inps' s P.
   Proof.
-    intros Hsat Hsub. induction Hsat.
+    intros Hsat Hsub Hsafe. induction Hsat.
     - eapply step_sat; eassumption.
     - apply init_sat. assumption.
     - apply input_sat. eapply interp_claim_mono; eassumption.
@@ -611,7 +639,7 @@ Section __.
     - assert (Hsafe' : safe input_source (flat_map inputs_of t0)).
       { eapply safe_mono; [ exact Hsafe | apply submultiset_app_l ]. }
       destruct dst as [n|]; [ | apply input_sat; assumption ].
-      eapply graph_sat_mono; [ | apply submultiset_app_l ].
+      eapply graph_sat_mono; [ | apply submultiset_app_l | exact Hsafe ].
       destruct (step_sat_complete _ _ _ _ _ _ Hreach Hsafe' H HP) as [Heq | (Pjs & HPjs & Hsuff)].
       + apply IHHreach; [ assumption | ]. rewrite <- Heq. assumption.
       + eapply step_sat; [ | eassumption ]. intros n'. apply IHHreach; [ assumption | apply HPjs ].
@@ -643,14 +671,9 @@ Section __.
   Proof.
     intros Hreach Hsafe (Pjs & HPjs & Hsuff).
     eapply eventually_trans.
-    { apply eventually_will_step_annotate.
-      eapply eventually_will_step_Forall with
-        (Ps := map (fun n '(gs', t') => interp_claim n (Pjs n) (outputs_at gs' t' n)) (Fin.all _)).
-      - apply Forall_map, Forall_forall. intros n _ s s' e t0 HP Hstep.
-        eapply interp_claim_mono; [ exact HP | ]. eapply outputs_at_mono. eassumption.
-      - apply Forall_map, Forall_forall. intros n _. apply graph_sat_sound; auto. }
+    { apply eventually_will_step_annotate. apply eventually_all_claims with (Pjs := Pjs); [ assumption .. | ].
+      intros n. apply graph_sat_sound; auto. }
     intros [gs1 t1] ((tr1 & Hstar1 & -> & Hsafe1) & Hclaims).
-    apply Forall_map in Hclaims. rewrite Fin.Forall_all in Hclaims.
     specialize (Hsafe1 Hsafe). eapply star_app in Hstar1; [ | exact Hreach ].
     eapply eventually_weaken.
     { apply eventually_will_step_annotate. apply (sent_msgs_eventually_received _ _ output_destn Hstar1). }
@@ -663,9 +686,11 @@ Section __.
     { eapply submultiset_perm_r; [ symmetry; apply (messages_conserved _ _ output_destn Hstar2) | ].
       apply submultiset_app_r. }
     exists (inputs_of_outputs ojs output_destn). split; [ | exact Hperm ].
-    apply Hsuff. intros n. split.
-    - eapply interp_claim_mono; [ apply Hclaims | apply Hojs ].
-    - eapply safe_mono; [ apply graph_is_safe; eassumption | apply Hojs ].
+    apply Hsuff. intros n.
+    assert (Hsafe_n : safe n (ojs n)).
+    { eapply safe_mono; [ apply graph_is_safe; eassumption | apply Hojs ]. }
+    split; [ | exact Hsafe_n ].
+    eapply interp_claim_mono; [ apply Hclaims | apply Hojs | exact Hsafe_n ].
   Qed.
 
   Lemma output_sat_complete t gs P :
@@ -687,7 +712,8 @@ Section __.
       { eapply Hperm; [ exact HP | symmetry; exact Hojs_perm ]. }
       exists Pjs. split; [ | exact Hsuff ].
       intros n. apply graph_sat_complete with (gs := gs); try assumption.
-      eapply interp_claim_mono; [ apply HPjs | apply Hojs ].
+      eapply interp_claim_mono; [ apply HPjs | apply Hojs | ].
+      apply graph_is_safe; assumption.
   Qed.
 
 End __.
