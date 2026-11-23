@@ -191,7 +191,8 @@ Section Distributed.
     split.
     - intros s. destruct (sends _ s) eqn:Hs; [ | constructor ].
       rewrite <- In_R_senders in Hs. destruct (Hsend s Hs) as (e & Hin & _ & Hge).
-      constructor; [ | constructor ]. eapply interp_sent_meta_fact; eassumption.
+      constructor; [ | constructor ]. apply interp_sent_meta_fact with (num := e); [ exact Hin | ].
+      apply Existsn_of_ge_le; [ exact Hge | ]. eapply (proj1 (Hsafe s)). exact Hin.
     - intros ojs' Hojs'.
       assert (Hsend' : forall s,
                  In s (R_senders mf.(meta_fact.pattern).(fact_pattern.rel)) ->
@@ -202,8 +203,8 @@ Section Distributed.
                      meta_fact.consistent_with (sent_meta_fact (ojs s) mf.(meta_fact.pattern))
                        (knows_normal_fact (ojs' s))).
       { intros s Hs. destruct (Hsend s Hs) as (_ & _ & Hfw & _).
-        rewrite In_R_senders in Hs. destruct (Hojs' s) as [Hc Hsafe']. rewrite Hs in Hc.
-        apply Forall_inv in Hc. destruct (interp_meta_safe _ _ _ _ Hc Hsafe') as (n' & Hin & Hn' & Hcons').
+        rewrite In_R_senders in Hs. destruct (Hojs' s) as [Hc _]. rewrite Hs in Hc.
+        apply Forall_inv, claim.interp_meta in Hc. destruct Hc as (n' & Hin & Hn' & Hcons').
         exists n'. ssplit; assumption. }
       pose proof (proj2 (Forall_forall _ _) Hsend') as Hns'.
       apply Forall_exists_r_Forall2 in Hns'. destruct Hns' as (ns' & Hns').
@@ -263,14 +264,15 @@ Section Distributed.
   Proof.
     intros. eapply graph_sat_sound; try eassumption.
     - intros n s m. eexists. apply input_step.
-    - apply claim.interp_conj_mono.
     - intros n. apply safe_output_mono.
     - intros n. split; intros; contradiction.
+    - intros. eapply claim.interp_conj_mono; eassumption.
     - intros. eapply safe_preserved; try eassumption.
       intros. apply node_sends_concl_rels. assumption.
     - intros. eapply eventually_will_step_weaken_allowed.
       + eapply can_claim_conj_sound; try eassumption.
         * apply Hmrv.
+        * intros. apply node_sends_concl_rels. assumption.
         * eapply allowed_of_safe_inputs; eassumption.
       + apply allowed_of_safe_inputs.
     - intros. cbv beta in *. eapply can_claim_conj_mono_inc; try eassumption.
@@ -285,9 +287,9 @@ Section Distributed.
     distributed_sat (flat_map inputs_of t) loc P.
   Proof.
     intros. eapply graph_sat_complete; try eassumption.
-    - apply claim.interp_conj_mono.
     - intros n. apply safe_output_mono.
     - intros n. split; intros; contradiction.
+    - intros. eapply claim.interp_conj_mono; eassumption.
     - intros. cbv beta in *. eapply safe_preserved; try eassumption.
       intros. apply node_sends_concl_rels. assumption.
     - intros. cbv beta in *. eapply can_claim_conj_complete; try eassumption.
@@ -312,14 +314,15 @@ Section Distributed.
     intros. eapply eventually_weaken.
     - eapply output_sat_sound; try eassumption.
       + intros n s m. eexists. apply input_step.
-      + apply claim.interp_conj_mono.
       + intros n. apply safe_output_mono.
       + intros n. split; intros; contradiction.
+      + intros. eapply claim.interp_conj_mono; eassumption.
       + intros. eapply safe_preserved; try eassumption.
         intros. apply node_sends_concl_rels. assumption.
       + intros. eapply eventually_will_step_weaken_allowed.
         * eapply can_claim_conj_sound; try eassumption.
           -- apply Hmrv.
+          -- intros. apply node_sends_concl_rels. assumption.
           -- eapply allowed_of_safe_inputs; eassumption.
         * apply allowed_of_safe_inputs.
       + intros. cbv beta in *. eapply can_claim_conj_mono_inc; try eassumption.
@@ -334,9 +337,9 @@ Section Distributed.
     distributed_output_sat (flat_map inputs_of t) (fun outs => knows_fact R_senders outs f).
   Proof.
     intros. eapply output_sat_complete; try eassumption.
-    - apply claim.interp_conj_mono.
     - intros n. apply safe_output_mono.
     - intros n. split; intros; contradiction.
+    - intros. eapply claim.interp_conj_mono; eassumption.
     - intros. cbv beta in *. eapply safe_preserved; try eassumption.
       intros. apply node_sends_concl_rels. assumption.
     - intros. cbv beta in *. eapply can_claim_conj_complete; try eassumption.
