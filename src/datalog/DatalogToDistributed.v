@@ -18,7 +18,6 @@ Section __.
   #[local] Instance sender_label : sender_labelT := source.
 
   Context (graph_prog : node -> program).
-  Context (Hgraph_good : forall n, Forall (fun R => is_input R = false) (program.concl_rels (graph_prog n))).
 
   Local Abbreviation graph_senders := (Distributed.R_senders graph_prog is_input).
   Local Abbreviation distributed_step := (Distributed.distributed_step graph_prog is_input).
@@ -66,11 +65,29 @@ Section __.
     | node_source n => claim_holds_at_node inputs c n
     end.
 
+  Lemma is_input_graph_senders R :
+    is_input R = true ->
+    graph_senders R = [input_source].
+  Proof.
+    cbv [graph_senders Fin.all]. simpl. intros ->. f_equal.
+    apply filter_eq_nil. intros s Hs. apply in_map_iff in Hs. fwd. simpl.
+    Search is_input.
+
   Lemma interp_input_source_knows_fact inputs c  :
     claim.interp input_source c inputs ->
+    safe_output graph_senders input_source inputs ->
     knows_fact graph_senders inputs c.
   Proof.
-    intros H. Print claim.interp. cbv [claim.interp] in H. destruct c.
+    intros H Hsafe. cbv [claim.interp] in H. destruct c; simpl in *.
+    - assumption.
+    - fwd. cbv [knows_meta_fact]. cbv [safe_output] in Hsafe. fwd.
+      specialize (Hsafep0 _ _ _ ltac:(eassumption)). fwd.
+      destruct (is_input (meta_fact.rel m)) eqn:E.
+      +
+      cbv [graph_senders sends].
+      eexists. split.
+      + Search expects_num_facts.
+      eapply Existsn_of_ge_le in Hp1. ; [|eassumption].
 
     Lemma layout_sound inputs Ps src :
     distributed_sat inputs src Ps ->
