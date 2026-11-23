@@ -68,16 +68,6 @@ Module message.
       Reflects (matches pat f) (matchesb pat f).
     Proof. destruct f; cbn [matches matchesb]; [exact _ | constructor; auto]. Qed.
 
-    Definition in_meta_fact (mf : meta_fact) (f : message) :=
-      match f with
-      | normal nf => meta_fact.matches mf nf
-      | done_with _ _ _ => False
-      end.
-
-    Lemma in_meta_fact_matches mf f :
-      in_meta_fact mf f -> matches mf.(meta_fact.pattern) f.
-    Proof. destruct f; [ apply proj1 | destruct 1 ]. Qed.
-
     Definition equiv (f1 f2 : message) :=
       match f1, f2 with
       | done_with p1 s1 _, done_with p2 s2 _ => p1 = p2 /\ s1 = s2
@@ -99,58 +89,6 @@ Module message.
     Qed.
   End __.
 End message. Abbreviation message := message.message.
-
-Module claim.
-  Section __.
-    Context `{params : datalog_params} {sender_label : sender_labelT}.
-
-    (*has the same data as a fact, but does not have the same conceptual meaning*)
-    Definition claim := fact.
-
-    Definition interp (name : sender_label) (P : claim) (ms : list message) :=
-      match P with
-      | fact.normal nf => In (message.normal nf) ms
-      | fact.meta mf =>
-          exists num,
-          In (message.done_with mf.(meta_fact.pattern) name num) ms /\
-            Existsn_ge (message.in_meta_fact mf) num ms /\
-            forall nf, meta_fact.matches mf nf -> In (message.normal nf) ms
-      end.
-
-    Lemma interp_mono name P : multiset_monotone_inc (interp name P).
-    Proof.
-      intros ms1 ms2 H Hsub. destruct P; cbv [interp] in *.
-      - eapply submultiset_incl; eassumption.
-      - fwd. eexists. ssplit.
-        + eapply submultiset_incl; eassumption.
-        + eapply Existsn_ge_submultiset; eassumption.
-        + intros. eapply submultiset_incl; eauto.
-    Qed.
-
-    Definition interp_conj (name : sender_label) (Ps : list claim) (ms : list message) :=
-      Forall (fun P => interp name P ms) Ps.
-
-    Lemma interp_conj_mono name Ps : multiset_monotone_inc (interp_conj name Ps).
-    Proof.
-      intros ms1 ms2 H Hsub. eapply Forall_impl; [ exact H | ].
-      intros. cbv beta in *. eapply interp_mono; eassumption.
-    Qed.
-  End __.
-End claim. Abbreviation claim := claim.claim.
-
-Module state.
-  Section __.
-    Context `{params : datalog_params} {sender_label : sender_labelT}.
-
-    Record state := mk
-      { known : list message;
-        sent : list message }.
-
-    Definition add_to_known inps s :=
-      {| known := inps ++ s.(known);
-        sent := s.(sent) |}.
-  End __.
-End state. Abbreviation state := state.state.
 
 Section __.
   Context `{params : datalog_params} {sender_label : sender_labelT}.
@@ -177,89 +115,11 @@ Section __.
     | fact.meta mf => knows_meta_fact dfacts mf
     end.
 
-  Definition can_deduce_normal_fact (r : rule) (known : list message) (nf : normal_fact) :=
-    exists hyps,
-      rule.interp r nf hyps /\
-        Forall (knows_fact known) hyps.
-
-  Definition can_deduce_pattern (mr : meta_rule) (known : list message) (pat : fact_pattern) :=
-    exists mhyps,
-      meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
-        Forall (knows_meta_fact known) mhyps.
-
-  Context (p : program) (name : sender_label).
-
-  Definition counted (sent : list message) (nf : normal_fact) :=
-    exists pat num,
-      In (message.done_with pat name num) sent /\ fact_pattern.matches pat nf.
-
-  Definition saturated (ns : state) (pat : fact_pattern) :=
-    forall r nf,
-      In r p.(program.rules) ->
-      can_deduce_normal_fact r ns.(state.known) nf ->
-      fact_pattern.matches pat nf ->
-      In (message.normal nf) ns.(state.sent).
-
-  Definition can_deduce (ns : state) (m : message) :=
-    match m with
-    | message.normal nf =>
-        Exists (fun r => can_deduce_normal_fact r ns.(state.known) nf) p.(program.rules) /\
-          ~ counted ns.(state.sent) nf
-    | message.done_with pat src num =>
-        src = name /\
-          Exists (fun mr => can_deduce_pattern mr ns.(state.known) pat) p.(program.meta_rules) /\
-          Existsn (message.matches pat) num ns.(state.sent) /\
-          saturated ns pat
-    end.
-
-  Definition can_claim (inps : list message) (c : claim) :=
-    exists hyps,
-      program.interp_step p c hyps /\
-        Forall (knows_fact inps) hyps.
-
-  Definition can_claim_conj (inps : list message) := Forall (can_claim inps).
-
-  Local Abbreviation IO_event := (Smallstep.IO_event action_label message).
-
-  Inductive step : state -> IO_event -> state -> Prop :=
-  | deduce_step ns output :
-    can_deduce ns output ->
-    step ns (O_event (message.label output) [output])
-      {| state.known := ns.(state.known);
-        state.sent := output :: ns.(state.sent) |}
-  | input_step rs input :
-    step rs (I_event input)
-      {| state.known := input :: rs.(state.known);
-        state.sent := rs.(state.sent) |}.
-
   Definition safe_inputs (inputs : list message) :=
     forall pat expected_msgss,
       Forall2 (fun k e => In (message.done_with pat k e) inputs)
               (R_senders pat.(fact_pattern.rel)) expected_msgss ->
       Existsn_le (message.matches pat) (list_sum expected_msgss) inputs.
-
-  Definition init : state :=
-    {| state.known := []; state.sent := [] |}.
-
-  Definition safe_output (fs : list message) :=
-    (forall pat src cnt,
-        In (message.done_with pat src cnt) fs ->
-        name = src /\ Existsn_le (message.matches pat) cnt fs) /\
-      (forall nf, In (message.normal nf) fs -> In name (R_senders nf.(normal_fact.rel))).
-
-  Lemma safe_output_mono : multiset_monotone_dec safe_output.
-  Proof.
-    cbv [multiset_monotone_dec safe_output]. intros ? ? H1 H2. fwd.
-    split; eauto using submultiset_incl, incl_def.
-    intros. especialize H1p0; eauto using submultiset_incl, incl_def. fwd. eauto using Existsn_le_submultiset.
-  Qed.
-
-  Lemma safe_output_sender fs pat nf :
-    safe_output fs ->
-    In (message.normal nf) fs ->
-    fact_pattern.matches pat nf ->
-    In name (R_senders pat.(fact_pattern.rel)).
-  Proof. intros (_ & Hsend) Hin (Hrel & _). rewrite Hrel. auto. Qed.
 
   Lemma submultiset_rest_no_matches pat small rest big num :
     Permutation big (small ++ rest) ->
@@ -321,6 +181,176 @@ Section __.
           apply (Hrest_no _ Hinr). exact Hm.
   Qed.
 
+  Lemma safe_inputs_submultiset l1 l2 :
+    submultiset l1 l2 -> safe_inputs l2 -> safe_inputs l1.
+  Proof.
+    intros Hsub Hbound pat ems Hf2.
+    pose proof (submultiset_incl _ _ Hsub) as Hincl.
+    assert (Hf2' : Forall2 (fun k e => In (message.done_with pat k e) l2)
+                           (R_senders pat.(fact_pattern.rel)) ems).
+    { eapply Forall2_impl; [ exact Hf2 | ]. intros. apply Hincl. assumption. }
+    eapply Existsn_le_submultiset; [ apply Hbound; exact Hf2' | exact Hsub ].
+  Qed.
+
+  Context (name : sender_label).
+
+  Definition safe_output (fs : list message) :=
+    (forall pat src cnt,
+        In (message.done_with pat src cnt) fs ->
+        name = src /\ Existsn_le (message.matches pat) cnt fs) /\
+      (forall nf, In (message.normal nf) fs -> In name (R_senders nf.(normal_fact.rel))).
+
+  Lemma safe_output_mono : multiset_monotone_dec safe_output.
+  Proof.
+    cbv [multiset_monotone_dec safe_output]. intros ? ? H1 H2. fwd.
+    split; eauto using submultiset_incl, incl_def.
+    intros. especialize H1p0; eauto using submultiset_incl, incl_def. fwd. eauto using Existsn_le_submultiset.
+  Qed.
+
+  Lemma safe_output_sender fs pat nf :
+    safe_output fs ->
+    In (message.normal nf) fs ->
+    fact_pattern.matches pat nf ->
+    In name (R_senders pat.(fact_pattern.rel)).
+  Proof. intros (_ & Hsend) Hin (Hrel & _). rewrite Hrel. auto. Qed.
+End __.
+
+Module claim.
+  Section __.
+    Context `{params : datalog_params} {sender_label : sender_labelT}.
+
+    (*has the same data as a fact, but does not have the same conceptual meaning*)
+    Definition claim := fact.
+
+    Definition interp (name : sender_label) (P : claim) (ms : list message) :=
+      knows_fact (fun _ => [name]) ms P.
+
+    Lemma interp_meta name mf ms :
+      interp name (fact.meta mf) ms <->
+        exists num,
+          In (message.done_with mf.(meta_fact.pattern) name num) ms /\
+            Existsn (message.matches mf.(meta_fact.pattern)) num ms /\
+            meta_fact.consistent_with mf (knows_normal_fact ms).
+    Proof.
+      cbv [interp knows_fact knows_meta_fact expects_num_facts]. split.
+      - intros (num & (ems & Hf2 & ->) & Hexn & Hcons). invert_list_stuff.
+        cbn [list_sum fold_right] in Hexn. rewrite <- plus_n_O in Hexn. eauto.
+      - intros (num & Hin & Hexn & Hcons). exists num. ssplit.
+        + exists [num]. split.
+          * constructor; [ exact Hin | constructor ].
+          * cbn. lia.
+        + exact Hexn.
+        + exact Hcons.
+    Qed.
+
+    Lemma interp_mono R_senders name P ms ms' :
+      interp name P ms ->
+      submultiset ms ms' ->
+      safe_output R_senders name ms' ->
+      interp name P ms'.
+    Proof.
+      intros HP Hsub (Hdone & _). eapply knows_fact_submultiset; [ exact Hsub | | exact HP ].
+      intros pat ems Hf2. cbv beta in Hf2. invert_list_stuff.
+      cbn [list_sum fold_right]. rewrite <- plus_n_O. eapply Hdone. eassumption.
+    Qed.
+
+    Definition interp_conj (name : sender_label) (Ps : list claim) (ms : list message) :=
+      Forall (fun P => interp name P ms) Ps.
+
+    Lemma interp_conj_mono R_senders name Ps ms ms' :
+      interp_conj name Ps ms ->
+      submultiset ms ms' ->
+      safe_output R_senders name ms' ->
+      interp_conj name Ps ms'.
+    Proof.
+      intros HPs Hsub Hsafe. eapply Forall_impl; [ exact HPs | ].
+      intros. cbv beta in *. eapply interp_mono; eassumption.
+    Qed.
+  End __.
+End claim. Abbreviation claim := claim.claim.
+
+Module state.
+  Section __.
+    Context `{params : datalog_params} {sender_label : sender_labelT}.
+
+    Record state := mk
+      { known : list message;
+        sent : list message }.
+
+    Definition add_to_known inps s :=
+      {| known := inps ++ s.(known);
+        sent := s.(sent) |}.
+  End __.
+End state. Abbreviation state := state.state.
+
+Section __.
+  Context `{params : datalog_params} {sender_label : sender_labelT}.
+  Context (R_senders : rel -> list sender_label).
+
+  Local Abbreviation knows_meta_fact := (knows_meta_fact R_senders).
+  Local Abbreviation knows_fact := (knows_fact R_senders).
+  Local Abbreviation safe_inputs := (safe_inputs R_senders).
+
+  Definition can_deduce_normal_fact (r : rule) (known : list message) (nf : normal_fact) :=
+    exists hyps,
+      rule.interp r nf hyps /\
+        Forall (knows_fact known) hyps.
+
+  Definition can_deduce_pattern (mr : meta_rule) (known : list message) (pat : fact_pattern) :=
+    exists mhyps,
+      meta_rule.pattern_interp mr pat (map meta_fact.pattern mhyps) /\
+        Forall (knows_meta_fact known) mhyps.
+
+  Context (p : program) (name : sender_label).
+
+  Local Abbreviation safe_output := (safe_output R_senders name).
+
+  Definition counted (sent : list message) (nf : normal_fact) :=
+    exists pat num,
+      In (message.done_with pat name num) sent /\ fact_pattern.matches pat nf.
+
+  Definition saturated (ns : state) (pat : fact_pattern) :=
+    forall r nf,
+      In r p.(program.rules) ->
+      can_deduce_normal_fact r ns.(state.known) nf ->
+      fact_pattern.matches pat nf ->
+      In (message.normal nf) ns.(state.sent).
+
+  Definition can_deduce (ns : state) (m : message) :=
+    match m with
+    | message.normal nf =>
+        Exists (fun r => can_deduce_normal_fact r ns.(state.known) nf) p.(program.rules) /\
+          ~ counted ns.(state.sent) nf
+    | message.done_with pat src num =>
+        src = name /\
+          Exists (fun mr => can_deduce_pattern mr ns.(state.known) pat) p.(program.meta_rules) /\
+          Existsn (message.matches pat) num ns.(state.sent) /\
+          saturated ns pat
+    end.
+
+  Definition can_claim (inps : list message) (c : claim) :=
+    exists hyps,
+      program.interp_step p c hyps /\
+        Forall (knows_fact inps) hyps.
+
+  Definition can_claim_conj (inps : list message) := Forall (can_claim inps).
+
+  Local Abbreviation IO_event := (Smallstep.IO_event action_label message).
+
+  Inductive step : state -> IO_event -> state -> Prop :=
+  | deduce_step ns output :
+    can_deduce ns output ->
+    step ns (O_event (message.label output) [output])
+      {| state.known := ns.(state.known);
+        state.sent := output :: ns.(state.sent) |}
+  | input_step rs input :
+    step rs (I_event input)
+      {| state.known := input :: rs.(state.known);
+        state.sent := rs.(state.sent) |}.
+
+  Definition init : state :=
+    {| state.known := []; state.sent := [] |}.
+
   Lemma sent_eq_outputs t s :
     star step init t s -> s.(state.sent) = flat_map outputs_of t.
   Proof.
@@ -359,17 +389,6 @@ Section __.
     cbn [can_deduce]. intros (Hex & _). apply Exists_exists in Hex.
     destruct Hex as (r & Hr & hyps & Hri & _).
     eapply program.rule_normal_concl_rel_in; eauto using rule.interp_concl_relname_in.
-  Qed.
-
-  Lemma safe_inputs_submultiset l1 l2 :
-    submultiset l1 l2 -> safe_inputs l2 -> safe_inputs l1.
-  Proof.
-    intros Hsub Hbound pat ems Hf2.
-    pose proof (submultiset_incl _ _ Hsub) as Hincl.
-    assert (Hf2' : Forall2 (fun k e => In (message.done_with pat k e) l2)
-                           (R_senders pat.(fact_pattern.rel)) ems).
-    { eapply Forall2_impl; [ exact Hf2 | ]. intros. apply Hincl. assumption. }
-    eapply Existsn_le_submultiset; [ apply Hbound; exact Hf2' | exact Hsub ].
   Qed.
 
   (*every done-message this node has sent could still be deduced now*)
@@ -487,7 +506,7 @@ Section __.
     apply Exists_exists in Hcov. destruct Hcov as (mh & Hmh & Hcov).
     apply Exists_exists. exists mh. split; [ exact Hmh | ].
     rewrite Forall_forall in Hk. specialize (Hk _ Hmh).
-    destruct h as [nf | mf]; cbn [fact.covered_by fact.implied_by_mf knows_fact] in *.
+    destruct h as [nf | mf]; cbn [fact.covered_by fact.implied_by_mf node.knows_fact] in *.
     - destruct Hk as (_ & _ & _ & Hcons). split; [ exact Hcov | ].
       apply (Hcons nf Hcov). exact Hh.
     - destruct Hh as (_ & _ & _ & Hcons1). destruct Hk as (_ & _ & _ & Hcons2).
@@ -587,31 +606,11 @@ Section __.
 
   Lemma interp_sent_meta_fact ms pat num :
     In (message.done_with pat name num) ms ->
-    Existsn_ge (message.matches pat) num ms ->
+    Existsn (message.matches pat) num ms ->
     claim.interp name (fact.meta (sent_meta_fact ms pat)) ms.
   Proof.
-    intros Hin Hge. exists num. ssplit; [ exact Hin | | ].
-    - eapply Existsn_ge_impl; [ exact Hge | ]. intros [nf | ] Hnf Hm; [ | destruct Hm ].
-      split; [ exact Hm | ]. apply (sent_meta_fact_consistent _ _ nf Hm). exact Hnf.
-    - intros nf (Hm & Hc). apply (sent_meta_fact_consistent _ _ nf Hm). exact Hc.
-  Qed.
-
-  Lemma interp_meta_safe mf ms :
-    claim.interp name (fact.meta mf) ms ->
-    safe_output ms ->
-    exists num,
-      In (message.done_with mf.(meta_fact.pattern) name num) ms /\
-        Existsn (message.matches mf.(meta_fact.pattern)) num ms /\
-        meta_fact.consistent_with mf (knows_normal_fact ms).
-  Proof.
-    intros (num & Hin & Hge & Hall) (Hdone & _). destruct (Hdone _ _ _ Hin) as [_ Hle].
-    exists num. ssplit; [ exact Hin | | ].
-    - apply Existsn_of_ge_le; [ | exact Hle ].
-      eapply Existsn_ge_impl; [ exact Hge | ]. intros m _. apply message.in_meta_fact_matches.
-    - intros nf Hm. split.
-      + intros Hc. apply Hall. split; assumption.
-      + intros Hnf.
-        exact (proj2 (Existsn_ge_le_tight _ _ _ _ (message.in_meta_fact_matches mf) Hge Hle _ Hnf Hm)).
+    intros Hin Hexn. apply claim.interp_meta. exists num.
+    ssplit; [ exact Hin | exact Hexn | apply sent_meta_fact_consistent ].
   Qed.
 
   Lemma sent_normal_deducible t s nf :
@@ -665,7 +664,7 @@ Section __.
       + eapply Exists_impl; [|exact Hexmr]. simpl. intros mr (mhyps & Hpi & Hkn).
         exists mhyps. split; [exact Hpi|].
         eapply Forall_impl; [exact Hkn|]. simpl. intros mh Hmh.
-        exact (knows_fact_submultiset _ _ (fact.meta mh)
+        exact (knows_fact_submultiset _ _ _ (fact.meta mh)
                  (submultiset_cons _ _) Hallow Hmh).
       + intros r nf Hr Hcdn Hm. cbn [state.known state.sent] in Hcdn |- *.
         apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr & mhyps & Hpi & Hkn).
@@ -892,13 +891,14 @@ Section __.
   Proof.
     intros Hstar Hsafe Hc Hin Hall.
     apply can_claim_meta in Hc. destruct Hc as (mr & mhyps & Hmr & (Hpi & Hset) & Hmh).
-    exists num. ssplit; [ exact Hin | | exact Hall ].
-    eapply Existsn_ge_impl.
-    - eapply Existsn_ge_of_Existsn; [ eapply sent_counts_correct; eassumption | lia ].
-    - intros [nf | ] Hnf Hm; [ | destruct Hm ]. split; [ exact Hm | ].
-      apply (Hset nf Hm). eapply derives_of_deducible; try eassumption.
-      eapply sent_normal_deducible; [ eassumption | | eassumption ].
-      rewrite <- (known_eq_inputs _ _ Hstar). exact Hsafe.
+    apply claim.interp_meta. exists num. ssplit.
+    - exact Hin.
+    - eapply sent_counts_correct; eassumption.
+    - intros nf Hm. split.
+      + intros Hc. apply Hall. split; assumption.
+      + intros Hnf. apply (Hset nf Hm). eapply derives_of_deducible; try eassumption.
+        eapply sent_normal_deducible; [ eassumption | | eassumption ].
+        rewrite <- (known_eq_inputs _ _ Hstar). exact Hsafe.
   Qed.
 
   Lemma claim_interp_nle t s c sf :
@@ -909,13 +909,14 @@ Section __.
     nle sf s ->
     claim.interp name c s.(state.sent).
   Proof.
-    intros Hstar Hsafe Hc Hsf (_ & Hincl). destruct c as [nf | mf]; cbn [claim.interp] in Hsf.
+    intros Hstar Hsafe Hc Hsf (_ & Hincl). destruct c as [nf | mf].
     - destruct (Hincl _ Hsf) as (b & Hb & Heq). cbn [message.equiv] in Heq. subst. exact Hb.
-    - destruct Hsf as (num & Hin & _ & Hall). destruct (Hincl _ Hin) as (b & Hb & Heq).
+    - apply claim.interp_meta in Hsf. destruct Hsf as (num & Hin & _ & Hcons).
+      destruct (Hincl _ Hin) as (b & Hb & Heq).
       destruct b as [nf' | pat' src' num']; cbn [message.equiv] in Heq; [ discriminate | ].
       destruct Heq as [<- <-]. eapply interp_meta_of_done; try eassumption.
-      intros nf Hm. destruct (Hincl _ (Hall nf Hm)) as (b & Hb' & Heq).
-      cbn [message.equiv] in Heq. subst. exact Hb'.
+      intros nf (Hm & Hcont). apply (Hcons nf Hm) in Hcont.
+      destruct (Hincl _ Hcont) as (b & Hb' & Heq). cbn [message.equiv] in Heq. subst. exact Hb'.
   Qed.
 
   Lemma can_claim_run t st c :
@@ -984,21 +985,6 @@ Section __.
       rewrite flat_map_app. apply submultiset_app_l.
   Qed.
 
-  Lemma can_claim_conj_sound Ps t st :
-    can_claim_conj (flat_map inputs_of t) Ps ->
-    safe_inputs (flat_map inputs_of t) ->
-    star step init t st ->
-    eventually will_step (fun '(_, t') => claim.interp_conj name Ps (flat_map outputs_of t')) (st, t).
-  Proof.
-    intros HPs Hsafe Hstar. eapply eventually_weaken.
-    - apply eventually_will_step_Forall with (Ps := map (fun P '(_, t') => claim.interp name P (flat_map outputs_of t')) Ps).
-      + rewrite Forall_map. apply Forall_forall. intros P _ s s' e t' HP _.
-        eapply claim.interp_mono; [ exact HP | apply submultiset_app_l ].
-      + rewrite Forall_map. eapply Forall_impl; [ exact HPs | ].
-        intros. eapply can_claim_sound; eassumption.
-    - intros [s' t'] H. cbv beta in H. rewrite Forall_map in H. exact H.
-  Qed.
-
   Lemma can_claim_complete t st c :
     star step init t st ->
     safe_inputs (flat_map inputs_of t) ->
@@ -1008,30 +994,24 @@ Section __.
     intros Hstar Hsafe Hc.
     destruct (reachable_good _ _ Hsafe Hstar) as (Hk & _ & Hok).
     rewrite <- (sent_eq_outputs _ _ Hstar) in Hc. rewrite <- Hk.
-    destruct c as [nf | mf]; cbn [claim.interp] in Hc.
+    destruct c as [nf | mf].
     - pose proof (sent_normal_deducible _ _ _ Hstar Hsafe Hc) as Hex.
       apply Exists_exists in Hex. destruct Hex as (r & Hr & hyps & Hri & Hhyps).
       exists hyps. split; [ | exact Hhyps ].
       constructor. apply Exists_exists. eauto.
-    - destruct Hc as (num & Hin & Hge & Hall).
-      destruct (Hok _ _ Hin) as (_ & Hexmr & Hcount & Hsat).
+    - apply claim.interp_meta in Hc. destruct Hc as (num & Hin & _ & Hcons).
+      destruct (Hok _ _ Hin) as (_ & Hexmr & _ & Hsat).
       apply Exists_exists in Hexmr. destruct Hexmr as (mr & Hmr & mhyps & Hpi & Hmh).
       exists (map fact.meta mhyps). split.
       + constructor. apply Exists_exists. exists mr. split; [ exact Hmr | ].
         split; [ exact Hpi | ]. intros nf Hm. split.
         * intros Hnf. eapply derives_of_deducible; try eassumption.
           eapply sent_normal_deducible; try eassumption.
-          apply Hall. split; assumption.
+          apply (Hcons nf Hm). exact Hnf.
         * intros (hyps & Hex & Himp). apply Exists_exists in Hex. destruct Hex as (r & Hr & Hri).
-          enough (Hq : message.in_meta_fact mf (message.normal nf)) by exact (proj2 Hq).
-          eapply Existsn_ge_le_tight.
-          -- apply message.in_meta_fact_matches.
-          -- exact Hge.
-          -- eapply Existsn_le_of_Existsn; [ exact Hcount | lia ].
-          -- apply (Hsat r nf Hr); [ | exact Hm ].
-             exists hyps. split; [ exact Hri | ].
-             eapply Forall_impl; [ exact Himp | ]. intros h Hh. eapply knows_fact_of_implied; eassumption.
-          -- exact Hm.
+          apply (Hcons nf Hm). apply (Hsat r nf Hr); [ | exact Hm ].
+          exists hyps. split; [ exact Hri | ].
+          eapply Forall_impl; [ exact Himp | ]. intros h Hh. eapply knows_fact_of_implied; eassumption.
       + rewrite Forall_map. exact Hmh.
   Qed.
 
@@ -1068,6 +1048,26 @@ Section __.
       split; [ reflexivity | ].
       eapply Existsn_le_of_Existsn; [ eapply sent_counts_correct; eassumption | lia ].
     - intros nf Hin. eapply sent_rel_sender; eassumption.
+  Qed.
+
+  Lemma can_claim_conj_sound Ps t st :
+    can_claim_conj (flat_map inputs_of t) Ps ->
+    safe_inputs (flat_map inputs_of t) ->
+    star step init t st ->
+    eventually will_step (fun '(_, t') => claim.interp_conj name Ps (flat_map outputs_of t')) (st, t).
+  Proof.
+    intros HPs Hsafe Hstar. eapply eventually_weaken.
+    - apply eventually_will_step_Forall with
+        (Ps := map (fun P '(s, t') => star step init t' s /\ claim.interp name P (flat_map outputs_of t')) Ps).
+      + rewrite Forall_map. apply Forall_forall. intros P _ s s' e t' (Hst & HP) Hstep. split.
+        * eapply star_step; eassumption.
+        * eapply claim.interp_mono; [ exact HP | apply submultiset_app_l | ].
+          eapply safe_preserved. eapply star_step; eassumption.
+      + rewrite Forall_map. eapply Forall_impl; [ exact HPs | ]. intros P HP. eapply eventually_weaken.
+        * apply eventually_will_step_annotate. eapply can_claim_sound; eassumption.
+        * intros [s t'] ((tr & Hstar' & -> & _) & HP'). split; [ eapply star_app; eassumption | exact HP' ].
+    - intros [s' t'] H. cbv beta in H. rewrite Forall_map in H.
+      eapply Forall_impl; [ exact H | ]. intros P [_ HP]. exact HP.
   Qed.
 End __.
 End node.
