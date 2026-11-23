@@ -65,6 +65,7 @@ Section __.
   Proof.
     induction 1.
     -
+  Abort.
 
   Lemma layout_sound_out inputs f :
     distributed_output_sat inputs (fun outs => knows_fact graph_senders outs f) ->

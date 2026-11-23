@@ -445,10 +445,10 @@ Section compile.
       hyp_fact.val_fact := set_fact.contains [] |}.
 
   Lemma compiler_correct p name :
-    steps_corresp_sound (node.allowed_inputs R_senders)
+    steps_corresp_sound (node.safe_inputs R_senders)
       (node.step R_senders p name) node.init
       (translate_step lower_message (step (lower_prog p))) state.empty /\
-    steps_corresp_sound (node.allowed_inputs R_senders)
+    steps_corresp_sound (node.safe_inputs R_senders)
       (translate_step lower_message (step (lower_prog p))) state.empty
       (node.step R_senders p name) node.init.
   Proof. Abort.
