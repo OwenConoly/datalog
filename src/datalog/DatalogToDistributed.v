@@ -41,30 +41,49 @@ Section __.
   Context (Hlayout_meta : graph_prog_distributes_meta_rules p).
 
   Definition claim_holds_at_node inputs (c : claim) (n : node) :=
-    match c with
-    | fact.normal nf =>
-        program.interp p (knows_fact graph_senders inputs) (fact.normal nf)
-    | fact.meta mf =>
-        forall nf,
-          fact_pattern.matches mf.(meta_fact.pattern) nf ->
-          fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <->
-            exists hyps,
-              program.interp_step (graph_prog n) (fact.normal nf) hyps /\
-                Forall (program.interp p (knows_fact graph_senders inputs)) hyps
-    end.
+    exists hyps,
+      program.interp_step (graph_prog n) c hyps /\
+        Forall (program.interp p (knows_fact graph_senders inputs)) hyps.
+
+    (* match c with *)
+    (* | fact.normal nf => *)
+    (*     exists hyps, *)
+    (*     program.interp_step (graph_prog n) (fact.normal nf) hyps /\ *)
+    (*       Forall (program.interp p (knows_fact graph_senders inputs)) hyps *)
+    (* | fact.meta mf => *)
+    (*     exists  *)
+    (*     forall nf, *)
+    (*       fact_pattern.matches mf.(meta_fact.pattern) nf -> *)
+    (*       fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <-> *)
+    (*         exists hyps, *)
+    (*           program.interp_step (graph_prog n) (fact.normal nf) hyps /\ *)
+    (*             Forall (program.interp p (knows_fact graph_senders inputs)) hyps *)
+    (* end. *)
 
   Definition claim_holds_at_source inputs (c : claim) (s : source) :=
     match s with
-    | input_source => (*TODO this sounds weird, seems to be correct almost by accident*) knows_fact graph_senders inputs c
+    | input_source => knows_fact graph_senders inputs c
     | node_source n => claim_holds_at_node inputs c n
     end.
 
-  Lemma layout_sound inputs Ps src :
+  Lemma interp_input_source_knows_fact inputs c  :
+    claim.interp input_source c inputs ->
+    knows_fact graph_senders inputs c.
+  Proof.
+    intros H. Print claim.interp. cbv [claim.interp] in H. destruct c.
+
+    Lemma layout_sound inputs Ps src :
     distributed_sat inputs src Ps ->
     Forall (fun P => claim_holds_at_source inputs P src) Ps.
   Proof.
     induction 1.
-    -
+    - admit.
+    - cbv [claim.interp_conj] in H. eapply Forall_impl; [eassumption|]. simpl.
+      intros c Hc. cbv [claim.interp] in Hc. destruct c; fwd; simpl in *; contradiction.
+    - cbv [claim.interp_conj] in H. eapply Forall_impl; [eassumption|]. simpl.
+      intros c Hc.
+      cbv [claim.interp] in Hc. cbv [knows_fact]. cbv [knows_meta_fact]. cbv [expects_num_facts].
+      Print R_senders. Print sends.graph_senders. Search claim.interp.
   Abort.
 
   Lemma layout_sound_out inputs f :
