@@ -276,10 +276,6 @@ Module state.
     Record state := mk
       { known : list message;
         sent : list message }.
-
-    Definition add_to_known inps s :=
-      {| known := inps ++ s.(known);
-        sent := s.(sent) |}.
   End __.
 End state. Abbreviation state := state.state.
 
