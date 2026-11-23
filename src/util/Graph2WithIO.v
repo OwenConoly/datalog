@@ -13,12 +13,16 @@ Section __.
   Context (nodes_input_total : forall n, input_total (node_step n)).
 
   Context {claim : Type} (interp_claim : source -> claim -> list message -> Prop).
-  Context (interp_claim_mono : forall n c, multiset_monotone_inc (interp_claim n c)).
   Context (npred_transf : node -> list message -> claim -> Prop).
   Context (init : node -> node_state).
   Context (safe : source -> list message -> Prop).
   Context (safe_mono : forall n, multiset_monotone_dec (safe n)).
   Context (safe_nothing : forall n, safe n []).
+  Context (interp_claim_mono : forall n c inps inps',
+              interp_claim n c inps ->
+              submultiset inps inps' ->
+              safe n inps' ->
+              interp_claim n c inps').
 
   Definition inputs_of_outputs (outputs : source -> list message) destn :=
     flat_map (fun n => filter (forward n destn) (outputs n)) (Fin.all _).
