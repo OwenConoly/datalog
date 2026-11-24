@@ -58,6 +58,9 @@ Section __.
       (forall n', interp_claim n' (Pjs n') (ojs n') /\ safe n' (ojs n')) ->
       npred_transf loc (inputs_of_outputs ojs (node_destn loc)) P.
 
+  Context (combines : node -> (source -> claim) -> claim -> Prop).
+  Context (combines_sound : forall loc Pjs P, combines loc Pjs P -> suffices loc Pjs P).
+
   Definition decomposes ojs d (Q : list message -> Prop) :=
     exists (Pjs : source -> claim),
       (forall n', interp_claim n' (Pjs n') (ojs n')) /\
@@ -69,7 +72,9 @@ Section __.
             forall n ojs P,
               (forall n', safe n' (ojs n')) ->
               npred_transf n (inputs_of_outputs ojs (node_destn n)) P ->
-              decomposes ojs (node_destn n) (fun inps => npred_transf n inps P)).
+              exists Pjs,
+                (forall n', interp_claim n' (Pjs n') (ojs n')) /\
+                  combines n Pjs P).
 
   Context (npred_transf_mono_inc :
             forall n inps inps' P,
@@ -155,7 +160,7 @@ Section __.
   Inductive graph_sat (inputs : list message) : source -> claim -> Prop :=
   | step_sat loc P Pjs :
     (forall n', graph_sat _ n' (Pjs n')) ->
-    suffices loc Pjs P ->
+    combines loc Pjs P ->
     graph_sat _ (node_source loc) P
   | init_sat loc P :
     interp_claim (node_source loc) P [] ->
@@ -580,7 +585,7 @@ Section __.
         apply step_sat_sound.
         * eapply star_app; eassumption.
         * auto.
-        * apply H1. intros n'. split; [ apply Hgs | ].
+        * eapply combines_sound; [ exact H1 | ]. intros n'. split; [ apply Hgs | ].
           apply graph_is_safe; [ eapply star_app; eassumption | auto ].
     - apply eventually_done. eapply interp_claim_mono; [ eassumption | apply submultiset_nil_l | ].
       apply graph_is_safe; assumption.
@@ -595,7 +600,7 @@ Section __.
     outputs_at gs' (e :: t) (node_source dst) = outputs_at gs t (node_source dst) \/
       exists Pjs,
         (forall n, interp_claim n (Pjs n) (outputs_at gs t n)) /\
-          suffices dst Pjs P.
+          combines dst Pjs P.
   Proof.
     intros Hreach Hsafe Hstep HP. invert Hstep.
     - left. reflexivity.
