@@ -215,6 +215,19 @@ Section __.
   Proof. intros (_ & Hsend) Hin (Hrel & _). rewrite Hrel. auto. Qed.
 End __.
 
+Section __.
+  Context `{params : datalog_params} {sender_label : sender_labelT}.
+
+  Lemma knows_fact_senders_ext (R_senders1 R_senders2 : rel -> list sender_label) known f :
+    knows_fact R_senders1 known f ->
+    R_senders1 (fact.rel f) = R_senders2 (fact.rel f) ->
+    knows_fact R_senders2 known f.
+  Proof.
+    intros Hk Heq. destruct f as [nf | mf]; [ exact Hk | ].
+    cbv [knows_fact knows_meta_fact] in *. cbn [fact.rel] in Heq. rewrite <- Heq. exact Hk.
+  Qed.
+End __.
+
 Module claim.
   Section __.
     Context `{params : datalog_params} {sender_label : sender_labelT}.

@@ -44,21 +44,6 @@ Section __.
       program.interp_step (graph_prog n) c hyps /\
         Forall (program.interp p (knows_fact graph_senders inputs)) hyps.
 
-    (* match c with *)
-    (* | fact.normal nf => *)
-    (*     exists hyps, *)
-    (*     program.interp_step (graph_prog n) (fact.normal nf) hyps /\ *)
-    (*       Forall (program.interp p (knows_fact graph_senders inputs)) hyps *)
-    (* | fact.meta mf => *)
-    (*     exists  *)
-    (*     forall nf, *)
-    (*       fact_pattern.matches mf.(meta_fact.pattern) nf -> *)
-    (*       fset.contains mf.(meta_fact.set) nf.(normal_fact.args) <-> *)
-    (*         exists hyps, *)
-    (*           program.interp_step (graph_prog n) (fact.normal nf) hyps /\ *)
-    (*             Forall (program.interp p (knows_fact graph_senders inputs)) hyps *)
-    (* end. *)
-
   Definition claim_holds_at_source inputs (c : claim) (s : source) :=
     match s with
     | input_source => knows_fact graph_senders inputs c
@@ -69,32 +54,68 @@ Section __.
     is_input R = true ->
     graph_senders R = [input_source].
   Proof.
-    cbv [graph_senders Fin.all]. simpl. intros ->. f_equal.
+    cbv [graph_senders Fin.all]. simpl. intros H. rewrite H. f_equal.
     apply filter_eq_nil. intros s Hs. apply in_map_iff in Hs. fwd. simpl.
-    Search is_input.
+    rewrite_false (inb _ _); [reflexivity|].
+    rewrite Forall_forall in Hp_good. intros H'. cbv [graph_prog_distributes_normal_rules] in Hlayout_normal.
+    enough (is_input R = false) by congruence. apply Hp_good. Search program.concl_rels.
+    apply program.normal_concl_rel_concl. cbv [program.normal_concl_rels] in H'.
+    apply in_flat_map in H'. fwd.
+    apply in_flat_map. eexists. split.
+    { apply Hlayout_normal. eauto. }
+    assumption.
+  Qed.
 
   Lemma interp_input_source_knows_fact inputs c  :
     claim.interp input_source c inputs ->
     safe_output graph_senders input_source inputs ->
     knows_fact graph_senders inputs c.
   Proof.
-    intros H Hsafe. cbv [claim.interp] in H. destruct c; simpl in *.
-    - assumption.
-    - fwd. cbv [knows_meta_fact]. cbv [safe_output] in Hsafe. fwd.
-      specialize (Hsafep0 _ _ _ ltac:(eassumption)). fwd.
-      destruct (is_input (meta_fact.rel m)) eqn:E.
-      +
-      cbv [graph_senders sends].
-      eexists. split.
-      + Search expects_num_facts.
-      eapply Existsn_of_ge_le in Hp1. ; [|eassumption].
+    intros H Hsafe. cbv [claim.interp] in H.
+    destruct (is_input (fact.rel c)) eqn:E.
+    { eapply knows_fact_senders_ext; [eassumption|].
+      symmetry. apply is_input_graph_senders. assumption. }
+    admit.
+  Admitted.
 
-    Lemma layout_sound inputs Ps src :
+  Definition guaranteed_by_claims (cs : source -> list claim) (f : fact) :=
+    match f with
+    | fact.normal nf =>
+        exists src, In (fact.normal nf) (cs src)
+    | fact.meta mf =>
+        exists mf_sets,
+        Forall2 (fun src set => In (fact.meta (meta_fact.mk mf.(meta_fact.pattern) set)) (cs src))
+          (graph_senders mf.(meta_fact.pattern).(fact_pattern.rel)) mf_sets /\
+          (forall nf,
+              meta_fact.matches mf nf <-> Exists (fun set => meta_fact.matches (meta_fact.mk mf.(meta_fact.pattern) set) nf) mf_sets)
+    end.
+
+  Lemma suffices_charac n Pjs P cs :
+    suffices (forward graph_prog) claim.interp_conj
+      (fun n' => can_claim_conj graph_senders (graph_prog n')) (safe_output graph_senders) n Pjs P ->
+    Forall (fun c =>
+              exists hyps,
+                program.interp_step (graph_prog n) c hyps /\
+                  Forall (guaranteed_by_claims cs) hyps)
+      P.
+  Proof.
+    intros H. cbv [suffices] in H. apply Forall_forall. intros c Hc.
+    especialize H. 1: admit. cbv [can_claim_conj] in H. rewrite Forall_forall in H.
+    specialize (H _ Hc). cbv [can_claim] in H. fwd. eexists. split; [eassumption|].
+
+
+  Lemma layout_sound inputs Ps src :
     distributed_sat inputs src Ps ->
     Forall (fun P => claim_holds_at_source inputs P src) Ps.
   Proof.
     induction 1.
-    - admit.
+    - fold distributed_sat in H. simpl. cbv [suffices] in H1. Print claim_holds_at_node.
+      eassert (Hojs: exists (ojs : source -> list message), _).
+      { eapply Fin.choice.
+        intros n. specialize (H0 n). Print claim_holds_at_node. Search Forall Forall2 concat.
+      cbv [suffices] in H1. eapply Forall_impl. 1: apply H1.
+
+      admit.
     - cbv [claim.interp_conj] in H. eapply Forall_impl; [eassumption|]. simpl.
       intros c Hc. cbv [claim.interp] in Hc. destruct c; fwd; simpl in *; contradiction.
     - cbv [claim.interp_conj] in H. eapply Forall_impl; [eassumption|]. simpl.
