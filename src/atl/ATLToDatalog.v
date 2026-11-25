@@ -15,8 +15,10 @@ From Datalog Require Import ATLToDatalogSemantics.
 From Inferpad Require Import ATLPhoas TensorToResult.
 
 
-
 Import ListNotations.
+
+
+Set Default Goal Selector "!".
 
 (*source language semantics*)
 Print result_of_pATLexpr.
@@ -571,15 +573,13 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                              map expr.var dimvars  |}]];
                  program.meta_rules := [];
                |})
-  | Padr k e =>
-    let dimvars := seq O (length (block_size true_rel e) - 1) in
-    let dimvar1 := length (block_size true_rel e) - 1 in
-    let x := length (block_size true_rel e) in
+  | @Padr _ n k e =>
+    let dimvar1 := idxs in
+    let dimvars := seq (S idxs) n in
+    let x := idxs + S n in
     let out := O in
     let len := Z.of_nat match block_size true_rel e with
-                    | d :: _ => d
-                    | _ => 0
-                    end in
+                        | d :: _ => d | _ => 0 end in
     LetIn (lower_pATLexpr' e idxs true_rel)
       (fun val =>
          Block out
@@ -601,7 +601,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                                             expr.app (fn_Lit len) []]] |}];
                     rule.impl
                       [{| clause.rel := block_rel.local out;
-                         clause.args := expr.app (fn_Lit 0) [] ::
+                         clause.args := expr.app fn_IZR [expr.app (fn_Lit 0) []] ::
                                           map expr.var (seq 0 idxs) ++
                                           expr.var dimvar1 ::
                                           map expr.var dimvars |}]
@@ -611,14 +611,12 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                                             expr.var dimvar1]] |}]];
                  program.meta_rules := [];
                |})
-  | Padl k e =>
-    let dimvars := seq O (length (block_size true_rel e) - 1) in
-    let dimvar1 := length (block_size true_rel e) - 1 in
-    let x := length (block_size true_rel e) in
-    let k' := Z.of_nat (Z.to_nat (
-      match eval_pZexpr'_total k with
-      | Some kz => kz
-      | None => 0 end)) in
+  | @Padl _ n k e =>
+    let dimvar1 := idxs in
+    let dimvars := seq (S idxs) n in
+    let x := idxs + S n in
+    let k' := Z.of_nat (Z.to_nat (match eval_pZexpr'_total k with
+                                  | Some kz => kz | None => 0 end)) in
     let out := O in
     LetIn (lower_pATLexpr' e idxs true_rel)
       (fun val =>
@@ -643,7 +641,7 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                                             expr.var dimvar1]] |}];
                     rule.impl
                       [{| clause.rel := block_rel.local out;
-                         clause.args := expr.app (fn_Lit 0) [] ::
+                         clause.args := expr.app fn_IZR [expr.app (fn_Lit 0) []] ::
                                           map expr.var (seq 0 idxs) ++
                                           expr.var dimvar1 ::
                                           map expr.var dimvars |}]
@@ -654,12 +652,12 @@ Fixpoint lower_pATLexpr' {var n} (e : pATLexpr' (var_of var) n) (idxs : nat) (tr
                  program.meta_rules := [];
                |})
   | Scalar x =>
-    let '(value, hyps, next_varname) := (lower_pSexpr' idxs 0 x) in
+  let '(value, hyps, next_varname) := lower_pSexpr' idxs idxs x in
     Block next_varname
           {| program.rules :=
               [rule.impl
                  [{| clause.rel := block_rel.local next_varname;
-                    clause.args := [value] |}]
+                    clause.args := value :: map expr.var (seq 0 idxs) |}]
                  hyps];
             program.meta_rules := [];
           |}
@@ -1148,9 +1146,39 @@ Proof.
   destruct (H1 _ _ G1). destruct (H2 _ _ G2). lia.
 Qed.
 
+
+Fixpoint get_R_opt {n : nat} : dim_n n -> list Z -> option R :=
+  match n return dim_n n -> list Z -> option R with
+  | O => fun v idxs => 
+    (match idxs with 
+    | [] => Some v 
+    | _ => None end)
+  | S n' => fun (v : list (dim_n n')) idxs =>
+      match idxs with
+      | [] => None
+      | i :: idxs' =>
+          if (0 <=? i)%Z && (i <? Z.of_nat (Datatypes.length v))%Z
+          then get_R_opt (v _[ i ]) idxs'
+          else None
+      end
+  end.
+
+Fixpoint gets_in_range (s : pATL_Sexpr' interp_type_tagged) : Prop :=
+  match s with
+  | Get _ v idxs => exists r, get_R_opt v (map interp_pZexpr' idxs) = Some r
+  | SBop _ x y => gets_in_range x /\ gets_in_range y
+  | SLit _ => True
+  end.
+
+
+Lemma get_R_opt_get_R {n} (t : dim_n n) (idxs : list Z) (r : R) :
+  get_R_opt t idxs = Some r -> get_R t idxs = r.
+Admitted.
+
 Search firstn.
 Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps next_varname' :
   wf_pSexpr' ctx e e' ->
+  gets_in_range e' ->  
   Forall2 (fun x y => map.get (context_of ctx) x = Some y) (seq 0 idxs0) idxs0' -> (* checking that idxs0 matches ctx *)
   lower_pSexpr' idxs0 next_varname e = (datalog_expr, hyps, next_varname') ->
   (forall k, next_varname <= k -> map.get (context_of ctx) k = None) ->
@@ -1163,6 +1191,7 @@ Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Se
       exists v n depth tensor_val idx_vals,
         In {| ctx_elt_t := tensor_n n; ctx_elt_p1 := (v, depth); ctx_elt_p2 := tensor_val |} ctx /\
         hyp'.(normal_fact.rel) = block_rel.input v /\
+        get_R_opt tensor_val idx_vals = Some (get_R tensor_val idx_vals) /\ 
         exists val_arg idx_args,
           val_arg :: firstn depth idxs0' ++ idx_args = hyp'.(normal_fact.args) /\
           Forall2 (fun a b => a = VZ b) idx_args idx_vals /\
@@ -1173,7 +1202,7 @@ Proof.
   revert idxs0 idxs0' next_varname datalog_expr hyps next_varname'.
   induction Hwf.
   - (* Get *)
-    intros idxs0 idxs0' next_varname datalog_expr hyps next_varname' Hidxs Hcomp Hmap Hnd.
+    intros idxs0 idxs0' next_varname datalog_expr hyps next_varname' Hlz Hidxs Hcomp Hmap Hnd.
     specialize (Hmap next_varname (le_n _)).
     simpl in *. Tactics.destruct_one_match_hyp. injection Hcomp as <- <- <-.
     exists [ {| normal_fact.rel := block_rel.input v;
@@ -1211,9 +1240,11 @@ Proof.
       apply Forall_cons; [| apply Forall_nil].
       exists v, n, n0, v2, (map interp_pZexpr' idxs2).
       split; [exact H |].
+      destruct Hlz as [r Hr].
       split; [reflexivity |].
+      split; [rewrite Hr; f_equal; symmetry; apply get_R_opt_get_R; exact Hr |].
       exists (value_of (get_R v2 (map interp_pZexpr' idxs2))),
-             (map VZ (map interp_pZexpr' idxs2)).
+            (map VZ (map interp_pZexpr' idxs2)).
       split; [reflexivity |].
       split; [apply Forall2_VZ_map | reflexivity].
     + (* final expr.interp *)
@@ -1221,16 +1252,17 @@ Proof.
       rewrite (map.get_putmany_left _ _ _ Hmap).
       apply map.get_put_same.
   - (* SBop *)
-    intros idxs0 idxs0' next_varname datalog_expr hyps next_varname' Hidxs Hcomp Hmap Hnd.
+    intros idxs0 idxs0' next_varname datalog_expr hyps next_varname' Hlz Hidxs Hcomp Hmap Hnd.
     simpl in Hcomp.
     destruct (lower_pSexpr' idxs0 next_varname x1) as [[e1 hyps1] nv1] eqn:E1.
     destruct (lower_pSexpr' idxs0 nv1 y1) as [[e2 hyps2] nv2] eqn:E2.
+    simpl in Hlz. destruct Hlz as [Hlx Hly].
     invert Hcomp.
-    destruct (IHHwf1 _ _ _ _ _ _ Hidxs E1 Hmap Hnd)
-      as (hyps1' & substn1 & Hle1 & Hdom1 & Hint1 & Hforall1 & Hexpr1).
-    destruct (IHHwf2 _ _ _ _ _ _ Hidxs E2
-                (fun k Hk => Hmap k (Nat.le_trans _ _ _ Hle1 Hk)) Hnd)
-      as (hyps2' & substn2 & Hle2 & Hdom2 & Hint2 & Hforall2 & Hexpr2).
+    destruct (IHHwf1 _ _ _ _ _ _ Hlx Hidxs E1 Hmap Hnd)
+  as (hyps1' & substn1 & Hle1 & Hdom1 & Hint1 & Hforall1 & Hexpr1).
+destruct (IHHwf2 _ _ _ _ _ _ Hly Hidxs E2
+            (fun k Hk => Hmap k (Nat.le_trans _ _ _ Hle1 Hk)) Hnd)
+  as (hyps2' & substn2 & Hle2 & Hdom2 & Hint2 & Hforall2 & Hexpr2).
     exists (hyps1' ++ hyps2'), (map.putmany substn1 substn2).
     pose proof (disjoint_of_bounds substn1 substn2 _ _ _ Hdom1 Hdom2) as Hdisj.
 assert (Ext1 : map.extends (map.putmany (map.putmany substn1 substn2) (context_of ctx))
@@ -1273,7 +1305,7 @@ assert (Ext2 : map.extends (map.putmany (map.putmany substn1 substn2) (context_o
            eapply expr.interp_subst_more; [| exact Hexpr2].
            apply Ext2.
       * destruct o; reflexivity.
-  - intros idxs0 idxs0' next_varname datalog_expr hyps next_varname' Hidxs Hcomp Hmap Hnd.
+  - intros idxs0 idxs0' next_varname datalog_expr hyps next_varname' Hlz Hidxs Hcomp Hmap Hnd.
   simpl in Hcomp.
   injection Hcomp as <- <- <-.
   exists [], map.empty.
@@ -1297,20 +1329,6 @@ Definition true_rel : result :=
 Lemma true_rel_normal args : true_rel.(result.normal) args <-> args = [Vbool true].
 Proof. reflexivity. Qed.
 
-Fixpoint get_R_opt {n : nat} : dim_n n -> list Z -> option R :=
-  match n return dim_n n -> list Z -> option R with
-  | O => fun v idxs => 
-    (match idxs with [] => 
-    Some v | _ => None end)
-  | S n' => fun (v : list (dim_n n')) idxs =>
-      match idxs with
-      | [] => None
-      | i :: idxs' =>
-          if (0 <=? i)%Z && (i <? Z.of_nat (Datatypes.length v))%Z
-          then get_R_opt (v _[ i ]) idxs'
-          else None
-      end
-  end.
 
 Lemma get_R_opt_genr {n} (hi : Z) (f : Z -> dim_n n) i rest val :
   get_R_opt (n := S n) (genr 0 hi f) (i :: rest) = Some val ->
@@ -1442,8 +1460,14 @@ match e with
     lo_zero e1 /\
     eval_pZexpr'_total k = Some (interp_pZexpr' k) /\
     (0 <= interp_pZexpr' k)%Z
-| Padr _ e1 | Padl _ e1 => lo_zero e1
-| Scalar _ => True
+| Padr _ e1 => lo_zero e1 /\
+    match get_block_size (itervarZ 0%Z) dummy_tensor e1 with
+    | d :: _ => d | [] => 0
+    end = Datatypes.length (interp_pATLexpr' e1)
+| Padl k e1 => lo_zero e1 /\
+    eval_pZexpr'_total k = Some (interp_pZexpr' k) /\
+    (0 <= interp_pZexpr' k)%Z
+| Scalar s => gets_in_range s
 end.
 
 Lemma lower_pBexpr'_works {var} (ctx : list (ctx_elt2 (var_of var) interp_type_tagged))
@@ -1630,6 +1654,21 @@ Lemma get_R_opt_truncl {n} (kz : Z) (t : dim_n (S n)) (i : Z) (rest : list Z) (v
   get_R_opt (n := S n) (Common.Truncl kz t) (i :: rest) = Some v ->
   get_R_opt t ((kz + i)%Z :: rest) = Some v.
 Admitted.
+
+Lemma get_R_opt_padr {n} (k : Z) (t : dim_n (S n)) (i : Z) (rest : list Z) (v : R) :
+  get_R_opt (n := S n) (Common.Padr k t) (i :: rest) = Some v ->
+  let len := Z.of_nat (Datatypes.length t) in
+  ((i < len)%Z /\ get_R_opt t (i :: rest) = Some v) \/
+  ((len <= i)%Z /\ v = 0%R).
+Admitted.
+
+Lemma get_R_opt_padl {n} (k : Z) (t : dim_n (S n)) (i : Z) (rest : list Z) (v : R) :
+  (0 <= k)%Z ->
+  get_R_opt (n := S n) (Common.Padl k t) (i :: rest) = Some v ->
+  ((k <= i)%Z /\ get_R_opt t ((i - k)%Z :: rest) = Some v) \/
+  ((i < k)%Z /\ v = 0%R).
+Admitted.
+
 
 Search Z.
 Lemma lower_pATLexpr'_works n
@@ -1831,7 +1870,7 @@ Proof.
           ++ simpl. rewrite Hlen1. f_equal. f_equal.
               apply Z.leb_le. exact Hge.
       * constructor; [| constructor; [| constructor]];
-          unfold inp_holds; simpl; [exact Hfact | reflexivity].
+          unfold inp_holds; simpl; [exact Hfact | reflexivity]. 
   - (* Flatten *)
     intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
     simpl in Hlz. destruct Hlz as (Hlz & Hb & Hrows).
@@ -2063,6 +2102,213 @@ intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
   + constructor; [| constructor].
     unfold inp_holds; simpl. exact Hfact.
 - (* Padr *)
+  intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
+  simpl in Hlz. destruct Hlz as (Hlz & Hsize).
+  pose proof (IHHwf m idxs0' Hlz Hmap Hrev Hlen Hcompl) as IHe.
+  set (L := Z.of_nat (Datatypes.length (interp_pATLexpr' e2))) in *.
+  assert (Hlen' : Z.of_nat (match block_size true_rel e1 with
+                            | d :: _ => d | [] => 0 end) = L).
+  { unfold block_size. rewrite (get_block_size_wf _ _ _ _ Hwf), Hsize. reflexivity. }
+  unfold complete_at. intros idxs val Hget.
+  cbn [interp_pATLexpr'] in Hget.
+  pose proof (get_R_opt_length _ _ _ Hget) as Hd.
+  destruct idxs as [| i rest]; [discriminate |].
+  simpl in Hd. injection Hd as Hd.
+  destruct (block_subst_ok ctx m idxs0' (i :: rest) (S n) (VR val)
+              Hmap Hrev ltac:(simpl; lia))
+    as (s & Hout & Hdim & Hx & Hext).
+  simpl in Hdim. inversion Hdim as [| ? ? ? ? Hi Hrestd]; subst.
+  assert (Hlit : forall z, expr.interp s (expr.app (fn_Lit z) nil) (VZ z))
+    by (intros z; eapply expr.interp_fun with (args' := nil); [constructor | reflexivity]).
+  cbn [lower_pATLexpr']. rewrite interp_LetIn. cbv beta.
+  rewrite Hlen'.
+  destruct (get_R_opt_padr _ _ _ _ _ Hget) as [[Hlt Hget'] | [Hge ->]].
+  + (* real entry: rule 1 *)
+    pose proof (IHe _ val Hget') as Hfact.
+    eapply (block_rule_fires 0 _ _ _ s
+      {| normal_fact.rel := block_rel.local 0;
+         normal_fact.args := VR val :: idxs0' ++ map VZ (i :: rest) |}
+      [ {| normal_fact.rel := block_rel.input (interp (lower_pATLexpr' e1 m true_rel));
+           normal_fact.args := VR val :: idxs0' ++ map VZ (i :: rest) |};
+        {| normal_fact.rel := block_rel.input true_rel;
+           normal_fact.args := Vbool true :: nil |} ]).
+    * simpl. left. reflexivity.
+    * reflexivity.
+    * split; [reflexivity |].
+      constructor; [apply expr.interp_var; exact Hx |].
+      apply Forall2_app; [exact Hout | exact Hdim].
+    * constructor; [| constructor; [| constructor]].
+      -- split; [reflexivity |].
+         constructor; [apply expr.interp_var; exact Hx |].
+         apply Forall2_app; [exact Hout | exact Hdim].
+      -- split; [reflexivity |]. constructor; [| constructor].
+         eapply expr.interp_fun with (args' := VZ i :: VZ L :: nil).
+          ** constructor; [exact Hi | constructor; [apply Hlit | constructor]].
+          ** simpl.
+            replace (i <? L)%Z with true by (symmetry; apply Z.ltb_lt; exact Hlt).
+            reflexivity.
+    * constructor; [| constructor; [| constructor]];
+        unfold inp_holds; simpl; [exact Hfact | reflexivity].
+  + (* padding: rule 2, value 0 *)
+    eapply (block_rule_fires 0 _ _ _ s
+      {| normal_fact.rel := block_rel.local 0;
+         normal_fact.args := VR 0%R :: idxs0' ++ map VZ (i :: rest) |}
+      [ {| normal_fact.rel := block_rel.input true_rel;
+           normal_fact.args := Vbool true :: nil |} ]).
+    * simpl. right. left. reflexivity.
+    * reflexivity.
+    * (* conclusion: VR 0, outer indices, i :: rest *)
+  split; [reflexivity |].
+  simpl. constructor.
+  -- eapply expr.interp_fun with (args' := VZ 0 :: nil).
+     ++ constructor; [apply Hlit | constructor].
+     ++ reflexivity.
+  -- apply Forall2_app; [exact Hout | exact Hdim].
+  * (* hypothesis: L <= i, so the guard is true *)
+    constructor; [| constructor].
+    split; [reflexivity |]. constructor; [| constructor].
+    eapply expr.interp_fun with (args' := VZ L :: VZ i :: nil).
+    -- constructor; [apply Hlit | constructor; [exact Hi | constructor]].
+    -- simpl.
+      replace (L <=? i)%Z with true by (symmetry; apply Z.leb_le; exact Hge).
+      reflexivity.
+  * (* the one input fact is true_rel *)
+    constructor; [| constructor].
+    unfold inp_holds; simpl; reflexivity.
+- (* Padl *)
+  intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
+  simpl in Hlz. destruct Hlz as (Hlz & Hkev & Hknn).
+  pose proof (IHHwf m idxs0' Hlz Hmap Hrev Hlen Hcompl) as IHe.
+  set (K := interp_pZexpr' z2) in *.
+  assert (Hk' : Z.of_nat (Z.to_nat (match eval_pZexpr'_total z1 with
+                                    | Some kz => kz | None => 0%Z end)) = K).
+  { assert (E : eval_pZexpr'_total z1 = Some K).
+    { etransitivity; [exact (eval_total_wf _ _ _ H) | exact Hkev]. }
+    rewrite E. apply Znat.Z2Nat.id. exact Hknn. }
+  unfold complete_at. intros idxs val Hget.
+  cbn [interp_pATLexpr'] in Hget.
+  pose proof (get_R_opt_length _ _ _ Hget) as Hd.
+  destruct idxs as [| i rest]; [discriminate |].
+  simpl in Hd. injection Hd as Hd.
+  destruct (block_subst_ok ctx m idxs0' (i :: rest) (S n) (VR val)
+              Hmap Hrev ltac:(simpl; lia))
+    as (s & Hout & Hdim & Hx & Hext).
+  simpl in Hdim. inversion Hdim as [| ? ? ? ? Hi Hrestd]; subst.
+  assert (Hlit : forall z, expr.interp s (expr.app (fn_Lit z) nil) (VZ z))
+    by (intros z; eapply expr.interp_fun with (args' := nil); [constructor | reflexivity]).
+  cbn [lower_pATLexpr']. rewrite interp_LetIn. cbv beta.
+  rewrite Hk'.
+  destruct (get_R_opt_padl _ _ _ _ _ Hknn Hget) as [[Hge Hget'] | [Hlt ->]].
+  + (* real entry: rule 1, reads index i - K *)
+    pose proof (IHe _ val Hget') as Hfact.
+    eapply (block_rule_fires 0 _ _ _ s
+      {| normal_fact.rel := block_rel.local 0;
+         normal_fact.args := VR val :: idxs0' ++ map VZ (i :: rest) |}
+      [ {| normal_fact.rel := block_rel.input (interp (lower_pATLexpr' e1 m true_rel));
+           normal_fact.args := VR val :: idxs0' ++ map VZ ((i - K)%Z :: rest) |};
+        {| normal_fact.rel := block_rel.input true_rel;
+           normal_fact.args := Vbool true :: nil |} ]).
+    * simpl. left. reflexivity.
+    * reflexivity.
+    * split; [reflexivity |].
+      constructor; [apply expr.interp_var; exact Hx |].
+      apply Forall2_app; [exact Hout | exact Hdim].
+    * constructor; [| constructor; [| constructor]].
+      -- (* input fact at i - K *)
+         split; [reflexivity |].
+         constructor; [apply expr.interp_var; exact Hx |].
+         apply Forall2_app; [exact Hout |]. simpl.
+         constructor; [| exact Hrestd].
+         eapply expr.interp_fun with (args' := VZ i :: VZ K :: nil).
+         ++ constructor; [exact Hi | constructor; [apply Hlit | constructor]].
+         ++ reflexivity.
+      -- (* guard: K <= i *)
+         split; [reflexivity |]. constructor; [| constructor].
+         eapply expr.interp_fun with (args' := VZ K :: VZ i :: nil).
+         ++ constructor; [apply Hlit | constructor; [exact Hi | constructor]].
+         ++ simpl.
+            replace (K <=? i)%Z with true by (symmetry; apply Z.leb_le; exact Hge).
+            reflexivity.
+    * constructor; [| constructor; [| constructor]];
+        unfold inp_holds; simpl; [exact Hfact | reflexivity].
+  + (* padding: rule 2, value 0 *)
+    eapply (block_rule_fires 0 _ _ _ s
+      {| normal_fact.rel := block_rel.local 0;
+         normal_fact.args := VR 0%R :: idxs0' ++ map VZ (i :: rest) |}
+      [ {| normal_fact.rel := block_rel.input true_rel;
+           normal_fact.args := Vbool true :: nil |} ]).
+    * simpl. right. left. reflexivity.
+    * reflexivity.
+    * split; [reflexivity |].
+      simpl. constructor.
+      -- eapply expr.interp_fun with (args' := VZ 0 :: nil).
+         ++ constructor; [apply Hlit | constructor].
+         ++ reflexivity.
+      -- apply Forall2_app; [exact Hout | exact Hdim].
+    * (* guard: i < K *)
+      constructor; [| constructor].
+      split; [reflexivity |]. constructor; [| constructor].
+      eapply expr.interp_fun with (args' := VZ i :: VZ K :: nil).
+      -- constructor; [exact Hi | constructor; [apply Hlit | constructor]].
+      -- simpl.
+         replace (i <? K)%Z with true by (symmetry; apply Z.ltb_lt; exact Hlt).
+         reflexivity.
+    * constructor; [| constructor].
+      unfold inp_holds; simpl; reflexivity.
+- (* Scalar *)
+  intros m idxs0' Hlz Hmap Hrev Hlen Hcompl.
+  simpl in Hlz.                                   (* Hlz : gets_in_range s2 *)
+  (* the scalar lemma's two context premises, both from Hrev *)
+  assert (Hnd : NoDup (map fst (zctx ctx)))
+    by (rewrite Hrev; apply NoDup_rev; apply seq_NoDup).
+  assert (Hnone : forall k : nat, m <= k -> map.get (@context_of result ctx) k = None).
+  { intros k Hk. unfold context_of.
+    eapply Map.get_of_list_not_In; try exact context_ok.
+    intro Hin.
+    (* k is a key of untag_zctx (zctx ctx) ... *)
+    apply in_map_iff in Hin as ([k' v'] & Hk' & Hin). simpl in Hk'. subst k'.
+    unfold untag_zctx in Hin.
+    apply in_map_iff in Hin as ([a b] & E & Hin).
+    assert (a = k) by (inversion E; reflexivity). subst a.
+    (* ... so k is a key of zctx ctx, which Hrev says is below m *)
+    assert (Hk2 : In k (map fst (zctx ctx))) by exact (in_map fst _ (k, b) Hin).
+    rewrite Hrev, <- in_rev, in_seq in Hk2. lia. }
+  (* a scalar has only the empty index list, and its value is interp s2 *)
+  unfold complete_at. intros idxs val Hget.
+  cbn [interp_pATLexpr'] in Hget.
+  destruct idxs as [| ? ?]; [| cbn in Hget; discriminate].
+  cbn in Hget. assert (Hv : interp_pSexpr' s2 = val) by congruence. subst val.
+  (* run the scalar compiler *)
+  cbn [lower_pATLexpr'].
+  destruct (lower_pSexpr' m m s1) as [[dexpr hyps] nv] eqn:Hlow.
+  destruct (lower_pSexpr'_correct _ ctx s1 s2 m idxs0' m dexpr hyps nv
+              H Hlz Hmap Hlow Hnone Hnd)
+    as (hyps' & substn & Hle & Hdom & Hint & Htruth & Hexpr).
+  eapply (block_rule_fires nv _ _ _ (map.putmany substn (context_of ctx))
+    {| normal_fact.rel := block_rel.local nv;
+       normal_fact.args := VR (interp_pSexpr' s2) :: idxs0' ++ map VZ nil |}
+    hyps').
+  + simpl. left. reflexivity.
+  + reflexivity.
+  + (* conclusion: value, then the outer indices *)
+    split; [reflexivity |].
+    simpl. rewrite app_nil_r.
+    constructor; [exact Hexpr |].
+    apply interp_vars_putmany. exact Hmap.
+  + (* the hypothesis clauses: straight from the scalar lemma *)
+    exact Hint.
+  + (* each hypothesis fact is an input fact, by Hcompl *)
+    eapply Forall_impl; [| exact Htruth].
+    intros hyp' Hh. cbv beta in Hh.
+    destruct Hh as (v & k & depth & tv & idx_vals & Hin & Hrel & Hrange &
+                val_arg & idx_args & Hargs & Hidx & Hval).
+    destruct hyp' as [rel args]. simpl in *. subst rel args val_arg.
+    assert (E : idx_args = map VZ idx_vals).
+    { clear - Hidx. induction Hidx; simpl; congruence. }
+    subst idx_args.
+    unfold inp_holds. simpl.
+    exact (Hcompl _ _ _ _ Hin idx_vals _ Hrange).
+
 
 Admitted.
 End __.
