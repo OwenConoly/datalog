@@ -49,7 +49,7 @@ having every fn term be uner the fn variant might be messy when it comes to inte
 #[local] Existing Instance fn.
 
 Axiom (aggregator : aggregatorT).
-Goal aggregatorT. Fail typeclasses eauto. Abort.
+Goal aggregatorT. (* Fail typeclasses eauto. *) Abort.
 #[local] Existing Instance aggregator.
 
 
@@ -1175,7 +1175,6 @@ Lemma get_R_opt_get_R {n} (t : dim_n n) (idxs : list Z) (r : R) :
   get_R_opt t idxs = Some r -> get_R t idxs = r.
 Admitted.
 
-Search firstn.
 Lemma lower_pSexpr'_correct var ctx (e : pATL_Sexpr' (var_of var)) (e' : pATL_Sexpr' interp_type_tagged) idxs0 idxs0' next_varname datalog_expr hyps next_varname' :
   wf_pSexpr' ctx e e' ->
   gets_in_range e' ->  
@@ -1351,7 +1350,6 @@ Definition complete_at {n} (P : result) (outer : list value)
     get_R_opt t idxs = Some val ->
     P.(result.normal) (VR val :: outer ++ map VZ idxs).
 
-Search map.put.
 (* second helper lemma for hidxs2 .... *)
 Lemma context_of_ext {var} (ctx : list (ctx_elt2 (var_of var) interp_type_tagged)) a b :
   context_of ({| ctx_elt_t := tZ; ctx_elt_p1 := a; ctx_elt_p2 := b |} :: ctx)
@@ -1522,7 +1520,6 @@ Proof.
     simpl. f_equal. eapply IH. exact H.
 Qed.
 
-Search iverson.
 (* false guard: the zero tensor *)
 Lemma get_R_opt_iverson_false {n} (t : dim_n n) idxs v :
   get_R_opt (|[ false ]| t) idxs = Some v -> v = 0%R.
@@ -1670,7 +1667,6 @@ Lemma get_R_opt_padl {n} (k : Z) (t : dim_n (S n)) (i : Z) (rest : list Z) (v : 
 Admitted.
 
 
-Search Z.
 Lemma lower_pATLexpr'_works n
     (ctx : list (ctx_elt2 (var_of result) interp_type_tagged))
     (e : pATLexpr' (var_of result) n) (e' : pATLexpr' interp_type_tagged n)
